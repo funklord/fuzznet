@@ -112,7 +112,7 @@ int main(void)
 		                      (const uint8_t *)"get", 3u, big, sizeof(big))
 		       == FZN_CLIENT_ERR_REQUEST_TOO_LONG,
 		   "a line past FZN_REQUEST_MAX composed, so the server's overlong "
-		   "refusal would come back as a denial instead");
+		   "refusal would come back only after a round trip");
 		ok(fzn_client_compose(line, 2u, &len, (const uint8_t *)"status", 6u,
 		                      NULL, 0u) == FZN_CLIENT_ERR_MALFORMED,
 		   "a line was written into a buffer too small for it");

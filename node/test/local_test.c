@@ -251,6 +251,10 @@ int main(void)
 	mk_peer(&p, 1000, 0, 0);
 	ok(exchange(&cfg, &p, big, resp, sizeof(resp)) == FZN_NODE_SERVE_DENIED,
 	   "an overlong request is refused");
+	/* AND SAID AS MALFORMED, with the bound, sec 772: it was `denied`,
+	 * which reads as a refusal of permission. */
+	ok(strncmp(resp, "malformed a request is at most 512 bytes", 40) == 0,
+	   "an overlong request is answered malformed, with the bound");
 
 	/* The pure status line, both answers. */
 	n = fzn_node_status_line(FZN_AUTHZ_GRANTED_UNGUARDED, FZN_ORIGIN_SAME_USER,

@@ -74793,12 +74793,11 @@ ring for its highest seq (sec 769), 9 ms against 1 ms for the next; a
 page of `list location`, 0.5 ms.
 
 **Two limits found that are not journey 5's to change:**
-- **A request line past 512 bytes is answered `denied`** by
+- **A request line past 512 bytes was answered `denied`** by
   `node/local.c`, before any verb sees it -- so `add stream` with four
-  full renditions, 512 hex characters, is refused as though for want
-  of permission. Deliberate there ("answer a denial so the client is
-  not left waiting"), and a reply word every client reads; `malformed`
-  would say why. A fetched record of that size is taken as any other.
+  full renditions, 512 hex characters, was refused as though for want
+  of permission. Answered `malformed` with the bound since, sec 772. A
+  fetched record of that size is taken as any other.
 - **A host in more than 256 groups lists none of them.**
   `fzn_node_group_ids_of` reads every group held into
   FZN_GROUPS_HELD_MAX, and past it the store's listing fails whole, so
@@ -74828,3 +74827,23 @@ all, which the tries stay well inside. Phase b3's 30 s for B to hear C
 grows with the loss as phase b's waits do. Since: 5 of 5 at 20 per
 cent, 2 of 2 at a 900 s skew, and a run with no loss. The daemon was
 not at fault.
+
+## 772. An overlong request line said as malformed, not denied, 2026-10-30
+
+`node/local.c` answered a request line past FZN_REQUEST_MAX, 512 bytes,
+with the status line's `denied`, before any verb saw it. Sec 364 had
+named the cost -- "the client's own framing mistake arrives looking like
+an access decision and sends an operator to the policy" -- and answered
+it on the client's side, `fzn_client_compose` refusing such a line
+before sending. A client that writes the socket itself, as every live
+script does, still met the denial -- fuzzypickles' calls bound their
+own lines by FZN_REQUEST_MAX -- and sec 770's `add stream` of four full
+renditions read as a refusal of permission.
+
+Sec 365 has given the reply vocabulary a word for it since. The line is
+answered `malformed a request is at most 512 bytes`; the serve result
+stays FZN_NODE_SERVE_DENIED, which means "refused, an answer written"
+to the one caller that reads it, and fuzznetd ignores it. Nothing read
+the word: `local_test` checked only the result, and now checks the
+answer too. Measured on fuzznetd: the four-rendition `add stream`
+answers so, and the daemon goes on serving.

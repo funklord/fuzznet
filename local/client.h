@@ -55,9 +55,9 @@ typedef enum fzn_client_err {
 	FZN_CLIENT_ERR_TIMEOUT = -5,
 	/* The request would exceed FZN_REQUEST_MAX, or the verb exceeds
 	 * FZN_VERB_MAX. Refused here rather than sent, because the server
-	 * answers an overlong line with a DENIAL -- so a client that let it go
-	 * would turn its own framing mistake into what reads like an access
-	 * decision. */
+	 * answered an overlong line with a DENIAL until sec 772, and answers
+	 * `malformed` now -- so a client that let it go learns of its own
+	 * framing mistake only after a round trip. */
 	FZN_CLIENT_ERR_REQUEST_TOO_LONG = -6,
 	/* The reply did not fit the caller's buffer. The bytes read so far are
 	 * NOT returned: a prefix of a reply is a different reply, which is the

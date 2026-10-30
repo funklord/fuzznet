@@ -154,11 +154,22 @@ fzn_node_serve_err_t fzn_node_serve_local_kept(const fzn_node_config_t *config, 
 		if (n == 0)
 			return FZN_NODE_SERVE_IO;	/* closed with no request */
 		if (fzn_line_push(&reader, chunk, (size_t)n) != FZN_LINE_OK) {
-			/* Overlong: refuse without reading more, and answer a
-			 * denial so the client is not left waiting. */
-			resp_len = fzn_node_status_line(FZN_AUTHZ_DENIED, origin,
-			                                resp, sizeof(resp));
-			(void)write_all(fd, resp, resp_len);
+			/* Overlong: refuse without reading more, and answer so the
+			 * client is not left waiting -- `malformed` and the bound,
+			 * sec 772. It answered `denied` until then, which sent
+			 * whoever read it to the policy for a line that was only
+			 * too long: `add stream` with four full renditions, 512
+			 * hex characters, read as a refusal of permission. */
+			char why[48];
+			size_t len = 0;
+			int w = snprintf(why, sizeof(why), "a request is at most %u bytes",
+			                 (unsigned)FZN_REQUEST_MAX);
+
+			if (w > 0 && (size_t)w < sizeof(why)
+			    && fzn_reply_compose((uint8_t *)resp, sizeof(resp) - 1u, &len,
+			                         FZN_REPLY_MALFORMED, (const uint8_t *)why, (size_t)w)
+			           == FZN_COMPOSE_OK)
+				(void)write_all(fd, resp, len);
 			return FZN_NODE_SERVE_DENIED;
 		}
 		have_line = fzn_line_next(&reader, &line, &line_len);

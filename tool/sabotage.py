@@ -680,9 +680,9 @@ SABOTAGES = [
 		"\tswitch (fzn_vocabulary_compose(out, cap, FZN_REQUEST_MAX, out_len, verb,",
 		"\tswitch (fzn_vocabulary_compose(out, cap, FZN_REPLY_MAX, out_len, verb,",
 		"a line past FZN_REQUEST_MAX is refused here rather than sent. The "
-		"server answers an overlong line with a DENIAL, so a client that "
-		"let it go would turn its own framing mistake into what reads like "
-		"an access decision -- and the operator would look at the policy. "
+		"server answered an overlong line with a DENIAL until sec 772, so a "
+		"client that let it go turned its own framing mistake into what read "
+		"like an access decision; it says malformed now, after a round trip. "
 		"sec 364",
 	),
 	(
