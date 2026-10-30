@@ -75114,3 +75114,24 @@ a number is `malformed list link [FROM]`. The row is now one function,
 fuzzypickles is told what the node answers (inbox, this commit's date).
 Their own find, `list request` cut at the reply's edge, they paged on
 their side already.
+
+## 778. A phone's track with the screen off, as fuzzypickles found it, 2026-10-30
+
+For information, from fuzzypickles (inbox 20261030T1327Z), for the day
+fuzznetd runs on Android; nothing changes here now. The holder decided
+that a phone's position is tracked with the screen off; fuzzypickles
+61bcc02 does it, and the holder said the code may move into fuzznet.
+- **The app supplies the fixes, not the daemon.** Android gives a
+  position only through its Java location service, so the app reads it
+  and hands each fix to `add location` at `location/sample_interval_s`,
+  screen on or off, under sec 774's rules.
+- **No background location permission is needed:** a foreground service
+  of type location, started while the app was visible, keeps reading
+  with the while-in-use permission. If an app service comes to supervise
+  fuzznetd, that service must hold the type.
+- **The app's process must keep running** in the background.
+
+Measured there on an emulator, screen asleep: a minute of positions
+took the track from 11 fixes to 30; without the service type it added
+one. fuzzypickles' project.md, *A track with the screen off*, has the
+rest.
