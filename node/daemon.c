@@ -6324,6 +6324,70 @@ static const fzn_hash_ops_t *contact_hash_ops;
 static const fzn_aead_ops_t *contact_aead_ops;
 static const fzn_random_ops_t *contact_rng_ops;
 
+/* CONTACTS' ROOTS' REVOCATIONS, sec 776: one store for every contact's,
+ * each record admitted as its issuer's -- a judgment names the owner, so one
+ * contact's records never bite another's devices. Grown as it fills, sec
+ * 704: a revocation dropped for want of room is a revoked device served. */
+#define FZND_CONTACT_REVOKED_FIRST 64u
+static fzn_revocation_store_t contact_revoked;
+static fzn_revocation_t *contact_revoked_entries;
+static size_t contact_revoked_cap;
+
+/* ROOM FOR TWICE WHAT IS HELD, or the first room. 0 out of memory. */
+static int contact_revoked_grow(void)
+{
+	size_t cap = contact_revoked_cap ? contact_revoked_cap * 2u : FZND_CONTACT_REVOKED_FIRST;
+	fzn_revocation_t *more = calloc(cap, sizeof(*more));
+
+	if (!more) {
+		say(FZN_ENTRY_ERROR, "contact/devices",
+		    "no memory for %zu contacts' revocations: a device a contact revoked may still "
+		    "be served",
+		    cap);
+		return 0;
+	}
+	if (!contact_revoked_entries
+	            ? fzn_revocation_store_init(&contact_revoked, more, cap) != FZN_CHAIN_OK
+	            : fzn_revocation_store_use(&contact_revoked, more, cap) != FZN_CHAIN_OK) {
+		free(more);
+		return 0;
+	}
+	free(contact_revoked_entries);
+	contact_revoked_entries = more;
+	contact_revoked_cap = cap;
+	return 1;
+}
+
+/* AT START: every contact's root's record saved, admitted again. */
+static void load_contact_revocations(const fzn_persist_ops_t *store)
+{
+	fzn_contact_device_err_t err = FZN_CONTACT_DEVICE_ERR_ROOM;
+	size_t count = 0, skipped = 0;
+
+	if (!store) {
+		(void)contact_revoked_grow();
+		return;
+	}
+	while (err == FZN_CONTACT_DEVICE_ERR_ROOM && contact_revoked_grow())
+		err = fzn_contact_revocations_load(&contact_revoked, store, contact_id->sign,
+		                                   contact_hash_ops, &count, &skipped);
+	if (err != FZN_CONTACT_DEVICE_OK)
+		say(FZN_ENTRY_WARNING, "contact/devices",
+		    "contacts' revocations did not load (%s): a device a contact revoked may "
+		    "still be served",
+		    fzn_contact_device_err_str(err));
+	else if (skipped)
+		say(FZN_ENTRY_WARNING, "contact/devices",
+		    "%zu saved revocation(s) of contacts' would not admit, passed over", skipped);
+}
+
+/* WHETHER A CONTACT'S DEVICE FALLS by its owner's revocations. */
+static int contact_device_revoked(const fzn_contact_device_t *d)
+{
+	return node_apply.capability
+	       && fzn_contact_device_revoked(d, &contact_revoked, node_apply.capability);
+}
+
 /* A HOST OF A CONTACT this node delivers to: the pairing derived from its
  * prekey, the contact it is a host of, and its metric in that contact's
  * manifest -- 255 when the manifest does not list it. */
@@ -6511,7 +6575,8 @@ static int kept_at(void *ctx, size_t i, fzn_contact_device_t *out)
 }
 
 /* WHETHER `d` IS ONE TO KEEP for the contact `owner` speaks as: owned by
- * it, verifying, no key of this estate's, and kept. */
+ * it, verifying, no key of this estate's, not revoked by its owner (sec
+ * 776), and kept. */
 static int keep_device(const uint8_t owner[FZN_PUBKEY_LEN], const fzn_contact_device_t *d)
 {
 	fzn_contact_device_err_t err;
@@ -6520,7 +6585,8 @@ static int keep_device(const uint8_t owner[FZN_PUBKEY_LEN], const fzn_contact_de
 	    || !node_apply.capability || !contact_id
 	    || memcmp(fzn_contact_device_key(d), contact_id->pubkey, FZN_PUBKEY_LEN) == 0
 	    || fzn_contact_device_verify(d, contact_id->sign, node_apply.capability, wall_clock())
-	               != FZN_CONTACT_DEVICE_OK)
+	               != FZN_CONTACT_DEVICE_OK
+	    || contact_device_revoked(d))
 		return 0;
 	err = fzn_contact_device_keep(node_apply.store, d);
 	return err == FZN_CONTACT_DEVICE_OK || err == FZN_CONTACT_DEVICE_ERR_STALE;
@@ -6543,6 +6609,44 @@ static int take_offered(void *ctx, const fzn_contact_device_t *d)
 	/* AN OFFER FROM A USER THIS ONE ASKED is the answer, sec 619. */
 	(void)fzn_contact_asked_answered(node_apply.store, (const uint8_t *)ctx);
 	return 1;
+}
+
+static void hex_of(const uint8_t *b, size_t n, char *out);
+
+/* EVERY CONTACT DEVICE ITS OWNER REVOKED, sec 776: forgotten and
+ * un-paired, so no line goes to it and none it sends speaks for its owner.
+ * An entry offered again is refused while the revocation holds; withdrawn,
+ * the device is taken again as any is. How many were dropped. */
+static size_t drop_revoked_devices(void)
+{
+	static struct devices_room room;
+	fzn_contact_device_t *kept;
+	size_t n = 0, i, dropped = 0;
+
+	if (!running_admin || !node_apply.store || !contact_revoked.used
+	    || devices_list(&room, &n) != FZN_CONTACT_DEVICE_OK)
+		return 0;
+	kept = room.at;
+	for (i = 0; i < n; i++) {
+		char hex[FZN_PUBKEY_LEN * 2u + 1u];
+
+		if (!contact_device_revoked(&kept[i]))
+			continue;
+		hex_of(fzn_contact_device_key(&kept[i]), FZN_PUBKEY_LEN, hex);
+		if (fzn_contact_device_remove(node_apply.store, fzn_contact_device_key(&kept[i]))
+		            != FZN_CONTACT_DEVICE_OK
+		    || fzn_node_admin_unpair_contact_device(running_admin,
+		                                            fzn_contact_device_key(&kept[i]))
+		               < 0) {
+			say(FZN_ENTRY_WARNING, "contact/devices",
+			    "a device its owner revoked was not forgotten: %s", hex);
+			continue;
+		}
+		say(FZN_ENTRY_NOTE, "contact/devices", "a device its owner revoked was dropped: %s",
+		    hex);
+		dropped++;
+	}
+	return dropped;
 }
 
 /* EVERY CONTACT DEVICE KEPT whose owner stands, paired as a host pairs a
@@ -6572,6 +6676,44 @@ static size_t pair_contact_devices(void)
 	return paired;
 }
 
+/* THIS ESTATE'S ROOT'S RECORDS for the member capability, sec 776, as a
+ * contact asks for them: listed afresh at the first of a page's, into room
+ * grown to hold them all. */
+static int root_record_at(void *ctx, size_t i, uint8_t out[FZN_REVOCATION_LEN])
+{
+	static uint8_t (*records)[FZN_REVOCATION_LEN];
+	static size_t cap, n;
+	const uint8_t *owner = estate_owner();
+
+	(void)ctx;
+	if (i == 0) {
+		fzn_persist_err_t err = FZN_PERSIST_ERR_ROOM;
+
+		n = 0;
+		while (owner && node_apply.store && node_apply.capability
+		       && err == FZN_PERSIST_ERR_ROOM) {
+			if (n > cap || !records) {
+				size_t want = n > 16u ? n * 2u : 16u;
+				uint8_t (*more)[FZN_REVOCATION_LEN] = calloc(want, sizeof(*more));
+
+				if (!more)
+					break;
+				free(records);
+				records = more;
+				cap = want;
+			}
+			err = fzn_node_root_records(node_apply.store, owner, node_apply.capability,
+			                            records, cap, &n);
+		}
+		if (err != FZN_PERSIST_OK)
+			n = 0;
+	}
+	if (i >= n)
+		return 0;
+	memcpy(out, records[i], FZN_REVOCATION_LEN);
+	return 1;
+}
+
 /* A CONTACT'S OFFER OR QUERY (`owner` the contact), or a member's query for
  * what this node kept (`owner` NULL). */
 static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint8_t *request,
@@ -6585,6 +6727,9 @@ static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint
 		                                        reply_cap);
 	n = fzn_contact_devices_offer_answer(request, request_len, take_offered, (void *)owner, reply,
 	                                     reply_cap);
+	if (!n)
+		n = fzn_contact_revoked_answer(request, request_len, root_record_at, NULL, reply,
+		                               reply_cap);
 	return n ? n
 	         : fzn_contact_devices_query_answer(request, request_len, hosts_at, NULL, NULL,
 	                                            reply, reply_cap);
@@ -8577,11 +8722,38 @@ struct contact_talk {
 	int phase, ok;
 	size_t offered;
 	fzn_contact_devices_querying_t q;
+	fzn_contact_revoked_querying_t rq;
 	struct hosts_taking ht;
 	uint64_t now;
 	uint8_t request[FZN_CONTACT_DEVICES_OFFER_MAX];
 };
-enum { CONTACT_OFFER = 1, CONTACT_QUERY = 2, CONTACT_ROUTING = 3 };
+enum { CONTACT_OFFER = 1, CONTACT_QUERY = 2, CONTACT_ROUTING = 3, CONTACT_REVOKED = 4 };
+
+/* HOW MANY OF CONTACTS' ROOTS' RECORDS THIS ROUND TOOK, sec 776. */
+static size_t contact_records_taken;
+
+/* ONE OF THE CONTACT'S ROOT'S RECORDS, as its host handed it: taken when
+ * the contact signed it, the store given room when it is full. */
+static void take_revoked(void *ctx, const uint8_t record[FZN_REVOCATION_LEN])
+{
+	const struct contact_talk *ct = ctx;
+	fzn_contact_device_err_t err = FZN_CONTACT_DEVICE_ERR_ROOM;
+	int grown = 0;
+
+	if (!node_apply.store || !node_apply.capability || !contact_id || !contact_revoked_entries)
+		return;
+	while (err == FZN_CONTACT_DEVICE_ERR_ROOM && (!grown++ || contact_revoked_grow()))
+		err = fzn_contact_revocation_take(&contact_revoked, node_apply.store, ct->contact,
+		                                  node_apply.capability, record, contact_id->sign,
+		                                  contact_hash_ops);
+	if (err == FZN_CONTACT_DEVICE_OK)
+		contact_records_taken++;
+	else if (err != FZN_CONTACT_DEVICE_ERR_REFUSED)
+		say(FZN_ENTRY_WARNING, "contact/devices",
+		    "a contact's revocation was not kept (%s): a device it revoked may still be "
+		    "served",
+		    fzn_contact_device_err_str(err));
+}
 /* A CONTACT THAT REFUSED ITS MANIFEST, not asked it again for this long,
  * sec 699: a user that does not advertise was asked, and refused, every
  * round. Asked again after, since advertising can be switched on. */
@@ -8650,13 +8822,20 @@ static size_t own_devices(void)
 }
 
 /* THE NEXT REQUEST of the exchange with the host at `ct->at`, from its
- * phase on: an offer of the next own device, the hosts query, the manifest.
+ * phase on: an offer of the next own device, the root's records, the hosts
+ * query, the manifest.
  * 0 when one could not be written. */
 static int contact_next(struct contact_talk *ct, uint8_t *request, size_t cap, size_t *len)
 {
 	if (ct->phase == CONTACT_OFFER && ct->offered < n_contact_own)
 		return fzn_contact_devices_offer_request(&contact_own[ct->offered], request, cap, len);
+	/* THE CONTACT'S ROOT'S RECORDS BEFORE ITS HOSTS, sec 776, so a host it
+	 * revoked is refused as it is named. */
 	if (ct->phase == CONTACT_OFFER) {
+		ct->phase = CONTACT_REVOKED;
+		return fzn_contact_revoked_query_begin(&ct->rq, take_revoked, ct, request, cap, len);
+	}
+	if (ct->phase == CONTACT_REVOKED) {
 		ct->phase = CONTACT_QUERY;
 		return fzn_contact_devices_query_begin(&ct->q, FZN_CONTACT_DEVICES_HOSTS, take_host,
 		                                       &ct->ht, request, cap, len);
@@ -8682,6 +8861,16 @@ static int contact_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 		if (fzn_contact_devices_offer_reply(reply, reply_len) < 0)
 			return 0;
 		ct->offered++;
+	} else if (ct->phase == CONTACT_REVOKED) {
+		/* AN ANSWER THAT IS NO PAGE OF RECORDS -- a host older than sec 776
+		 * -- moves on to the hosts: the exchange stands without them, as it
+		 * did before. */
+		if (fzn_contact_revoked_query_step(&ct->rq, reply, reply_len, request, cap,
+		                                   request_len, &done)
+		    && !done) {
+			meter_asked(&ct->m, *request_len);
+			return 1;
+		}
 	} else if (ct->phase == CONTACT_QUERY) {
 		if (!fzn_contact_devices_query_step(&ct->q, reply, reply_len, request, cap,
 		                                    request_len, &done))
@@ -8836,6 +9025,7 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 
 	contacts_asked = 0;
 	contacts_kept = 0;
+	contact_records_taken = 0;
 	n_contact_talks = 0;
 	n_devices_talks = 0;
 	if (!running_admin || !contact_id || !node_apply.store)
@@ -8899,20 +9089,25 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 	}
 }
 
-/* THE CONTACT PASS'S END: the devices the members keep paired, and said. */
+/* THE CONTACT PASS'S END: the devices their owners revoked dropped, those
+ * the members keep paired, and said. */
 static void contact_settle(void)
 {
-	size_t paired;
+	size_t paired, dropped;
 
 	if (!running_admin || !contact_id || !node_apply.store)
 		return;
+	/* DROPPED BEFORE PAIRING, sec 776, so a device revoked is not paired
+	 * again in the pass that learned it. */
+	dropped = drop_revoked_devices();
 	paired = pair_contact_devices();
 	contact_pair_due = 0;
 	load_contact_targets();
 	say(FZN_ENTRY_DEBUG, "contact/devices",
 	    "contact pass: %zu contact(s) asked, %zu kept from members, %zu paired, %zu host(s) "
-	    "to deliver to",
-	    contacts_asked, contacts_kept, paired, ncontact_targets);
+	    "to deliver to, %zu revocation record(s) taken, %zu device(s) dropped as revoked",
+	    contacts_asked, contacts_kept, paired, ncontact_targets, contact_records_taken,
+	    dropped);
 }
 
 /* ---- groups, sec 626 ------------------------------------------------------- */
@@ -15797,6 +15992,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		contact_hash_ops = &hash_ops;
 		contact_aead_ops = &aead_ops;
 		contact_rng_ops = &rng_ops;
+		load_contact_revocations(store_ops);
 		/* THE ROUND'S TABLES, sec 704, which the pulls' talks need even with
 		 * no contact: made now, or the daemon does not serve. */
 		if (!contact_room(FZND_CONTACT_TARGETS_MAX)) {

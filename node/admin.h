@@ -336,6 +336,15 @@ int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
 int fzn_node_admin_pair_contact_device(fzn_node_admin_t *admin, const fzn_contact_device_t *d,
                                        const char **why);
 
+/* UN-PAIR A CONTACT'S DEVICE, sec 776: one its owner revoked. The store
+ * forgets the peer and the running set reloads, as `remove peer` does; a
+ * member of this estate is never un-paired this way. 1 un-paired, 0 when no
+ * such peer is served or it is a member, -1 when the store or the reload
+ * failed. NOT FROM INSIDE A REQUEST: the reload moves the peer set the
+ * request being answered points into (sec 614). */
+int fzn_node_admin_unpair_contact_device(fzn_node_admin_t *admin,
+                                         const uint8_t key[FZN_PUBKEY_LEN]);
+
 /* PAIR A HOST OF A MEMBER of one of this user's groups, sec 630, as a
  * contact's device is: its record is its group's HOST act's signer, and a
  * held group must list it for that owner, both of them members. Answers as

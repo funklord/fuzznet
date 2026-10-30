@@ -66,3 +66,24 @@ struct fzn_contact_devices_listed {
 	u16  len;
 	u8   entry[len];                        // an fzn_contact_device
 }
+
+// A CONTACT'S ROOT'S REVOCATIONS, sec 776: the asker wants the records the
+// answerer's root signed for the member capability -- revocations and
+// withdrawals -- so a device that root revoked is dropped at the asker.
+
+// REVOKED: a page of the root's records, from the `from`th.
+struct fzn_contact_devices_revoked {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 33];
+	u32  from;
+}
+
+// RECORDS: as many as fit, each a whole signed record.
+struct fzn_contact_devices_records {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 34];
+	u32  from;                              // the query's, echoed
+	u8   count;
+	u8   more [max = 1];
+	u8   records[count * 242];              // FZN_REVOCATION_LEN each
+}

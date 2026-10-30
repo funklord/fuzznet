@@ -55,10 +55,11 @@ static const fzn_sign_ops_t SIGN = { stub_verify, stub_sign, NULL };
 
 /* ---- a store ------------------------------------------------------------ */
 
-#define ROWS 4u
+#define ROWS 8u
 
 static struct {
 	int used;
+	fzn_persist_slot_t slot;
 	uint8_t subject[32];
 	uint8_t bytes[FZN_CONTACT_DEVICE_MAX];
 	size_t len;
@@ -71,7 +72,7 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 
 	(void)ctx;
 	for (i = 0; i < ROWS; i++)
-		if (rows[i].used && slot == FZN_PERSIST_CONTACT_DEVICE
+		if (rows[i].used && slot == rows[i].slot
 		    && memcmp(rows[i].subject, subject, 32u) == 0 && rows[i].len <= cap) {
 			memcpy(out, rows[i].bytes, rows[i].len);
 			*len = rows[i].len;
@@ -86,10 +87,11 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	size_t i, free_one = ROWS;
 
 	(void)ctx;
-	if (slot != FZN_PERSIST_CONTACT_DEVICE || len > sizeof(rows[0].bytes))
+	if ((slot != FZN_PERSIST_CONTACT_DEVICE && slot != FZN_PERSIST_CONTACT_REVOCATION)
+	    || len > sizeof(rows[0].bytes))
 		return 0;
 	for (i = 0; i < ROWS; i++) {
-		if (rows[i].used && memcmp(rows[i].subject, subject, 32u) == 0)
+		if (rows[i].used && rows[i].slot == slot && memcmp(rows[i].subject, subject, 32u) == 0)
 			break;
 		if (!rows[i].used && free_one == ROWS)
 			free_one = i;
@@ -99,6 +101,7 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	if (i == ROWS)
 		return 0;
 	rows[i].used = 1;
+	rows[i].slot = slot;
 	memcpy(rows[i].subject, subject, 32u);
 	memcpy(rows[i].bytes, bytes, len);
 	rows[i].len = len;
@@ -110,10 +113,10 @@ static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max
 	size_t i, n = 0;
 
 	(void)ctx;
-	if (slot != FZN_PERSIST_CONTACT_DEVICE)
+	if (slot != FZN_PERSIST_CONTACT_DEVICE && slot != FZN_PERSIST_CONTACT_REVOCATION)
 		return 0;
 	for (i = 0; i < ROWS; i++)
-		if (rows[i].used) {
+		if (rows[i].used && rows[i].slot == slot) {
 			if (n == max)
 				return 0;
 			memcpy(out + 32u * n++, rows[i].subject, 32u);
@@ -128,7 +131,7 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 
 	(void)ctx;
 	for (i = 0; i < ROWS; i++)
-		if (rows[i].used && slot == FZN_PERSIST_CONTACT_DEVICE
+		if (rows[i].used && slot == rows[i].slot
 		    && memcmp(rows[i].subject, subject, 32u) == 0)
 			rows[i].used = 0;
 	return 1;
@@ -507,6 +510,262 @@ static void test_the_messages(void)
 	mode = 0;
 }
 
+/* ---- a contact's revocations, sec 776 ------------------------------------ */
+
+static int mix_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
+{
+	uint64_t h = 0x84222325cbf29ce4ull;
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < in_len; i++)
+		h = (h ^ in[i]) * 0x100000001b3ull;
+	for (i = 0; i < out_len; i++) {
+		h = (h ^ (uint64_t)i) * 0x100000001b3ull;
+		out[i] = (uint8_t)(h >> 40);
+	}
+	return 1;
+}
+
+static const fzn_hash_ops_t HASH = { mix_hash, NULL };
+
+/* `issuer` revokes `grantee` of `cap`, its line at `cut` (NULL none). */
+static void revoked_by(uint8_t out[FZN_REVOCATION_LEN], const uint8_t issuer[32],
+                       const fzn_cap_id_t *cap, const uint8_t grantee[32], uint64_t at,
+                       const uint8_t *cut)
+{
+	signing_as = issuer[0];
+	(void)fzn_revocation_issue(issuer, cap, grantee, at, 0u, cut, &SIGN, out);
+}
+
+static size_t rows_in(fzn_persist_slot_t slot)
+{
+	size_t i, n = 0;
+
+	for (i = 0; i < ROWS; i++)
+		n += rows[i].used && rows[i].slot == slot;
+	return n;
+}
+
+static void test_a_contacts_revocations(void)
+{
+	static fzn_revocation_t e[8], e2[8];
+	static fzn_contact_device_t d, mine, deep;
+	fzn_revocation_store_t rs, fresh;
+	uint8_t rec[FZN_REVOCATION_LEN], undo[FZN_REVOCATION_LEN], foreign[FZN_REVOCATION_LEN];
+	uint8_t target[FZN_REVOCATION_ID_LEN], line[FZN_REVOCATION_ID_LEN];
+	size_t count = 0, skipped = 0;
+
+	memset(rows, 0, sizeof(rows));
+	CHECK(fzn_revocation_store_init(&rs, e, 8u) == FZN_CHAIN_OK, "fixture: a store");
+	device(&d, phone, 1000u);
+	granted(&d, phone, &member);
+	device(&mine, owner, 1000u);
+	CHECK(!fzn_contact_device_revoked(&d, &rs, &member), "a device fell with nothing held");
+
+	/* THE OWNER'S, AND NOBODY ELSE'S. */
+	revoked_by(foreign, other, &member, phone, 200u, NULL);
+	CHECK(fzn_contact_revocation_take(&rs, &STORE, owner, &member, foreign, &SIGN, &HASH)
+	                      == FZN_CONTACT_DEVICE_ERR_REFUSED
+	              && rows_in(FZN_PERSIST_CONTACT_REVOCATION) == 0u,
+	      "another key's revocation of the owner's device was taken");
+	revoked_by(foreign, owner, &share, phone, 200u, NULL);
+	CHECK(fzn_contact_revocation_take(&rs, &STORE, owner, &member, foreign, &SIGN, &HASH)
+	              == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "the owner's revocation of another capability was taken");
+	revoked_by(rec, owner, &member, phone, 200u, NULL);
+	memcpy(foreign, rec, sizeof(rec));
+	foreign[FZN_REV_OFF_GRANTEE] ^= 1u;
+	CHECK(fzn_contact_revocation_take(&rs, &STORE, owner, &member, foreign, &SIGN, &HASH)
+	              == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "a record whose grantee was changed after signing was taken");
+	CHECK(!fzn_contact_device_revoked(&d, &rs, &member), "a refused record dropped a device");
+
+	/* TAKEN, SAVED, AND THE DEVICE FALLS; THE OWNER ITSELF NEVER. */
+	CHECK(fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN, &HASH)
+	                      == FZN_CONTACT_DEVICE_OK
+	              && rows_in(FZN_PERSIST_CONTACT_REVOCATION) == 1u
+	              && fzn_contact_device_revoked(&d, &rs, &member),
+	      "the owner's revocation was not taken and saved, or its device did not fall");
+	revoked_by(foreign, owner, &member, owner, 200u, NULL);
+	(void)fzn_contact_revocation_take(&rs, &STORE, owner, &member, foreign, &SIGN, &HASH);
+	CHECK(!fzn_contact_device_revoked(&mine, &rs, &member), "the owner fell by its own record");
+	{
+		static fzn_contact_device_t elsewhere;
+
+		elsewhere = d;
+		memset(elsewhere.owner, 0x66, sizeof(elsewhere.owner));
+		CHECK(!fzn_contact_device_revoked(&elsewhere, &rs, &member),
+		      "a device of another owner fell by this owner's record");
+	}
+
+	/* WITHDRAWN: THE DEVICE STANDS, AND A STALE COPY IS NOT SAVED OVER IT. */
+	(void)mix_hash(NULL, target, sizeof(target), rec, sizeof(rec));
+	signing_as = owner[0];
+	CHECK(fzn_revocation_issue_withdrawal(owner, &member, phone, 300u, 0u, target, &SIGN, undo)
+	                      == FZN_CHAIN_OK
+	              && fzn_contact_revocation_take(&rs, &STORE, owner, &member, undo, &SIGN, &HASH)
+	                         == FZN_CONTACT_DEVICE_OK
+	              && !fzn_contact_device_revoked(&d, &rs, &member),
+	      "the owner's withdrawal did not restore the device");
+	CHECK(fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN, &HASH)
+	                      == FZN_CONTACT_DEVICE_OK
+	              && !fzn_contact_device_revoked(&d, &rs, &member),
+	      "the withdrawn revocation, handed over again, dropped the device");
+
+	/* A RESTART: WHAT WAS SAVED ADMITS AGAIN, the withdrawal and not the
+	 * stale copy. */
+	CHECK(fzn_revocation_store_init(&fresh, e2, 8u) == FZN_CHAIN_OK
+	              && fzn_contact_revocations_load(&fresh, &STORE, &SIGN, &HASH, &count,
+	                                              &skipped)
+	                         == FZN_CONTACT_DEVICE_OK
+	              && count == 2u && skipped == 0u && !fzn_contact_device_revoked(&d, &fresh, &member),
+	      "a restart did not load the two records saved, or read the device as revoked");
+	CHECK(fzn_revocation_store_init(&fresh, e2, 1u) == FZN_CHAIN_OK
+	              && fzn_contact_revocations_load(&fresh, &STORE, &SIGN, &HASH, &count,
+	                                              &skipped)
+	                         == FZN_CONTACT_DEVICE_ERR_ROOM,
+	      "a load into a store with no room was not ROOM");
+
+	/* A KEY ABOVE THE DEVICE: falls with it when its vote trusts none of
+	 * its acts, and is not judged under a line. */
+	memset(rows, 0, sizeof(rows));
+	CHECK(fzn_revocation_store_init(&rs, e, 8u) == FZN_CHAIN_OK, "fixture: a store again");
+	device(&deep, phone, 1000u);
+	signing_as = owner[0];
+	(void)fzn_chain_mint(owner, other, &member, 100u, FZN_NO_EXPIRY, 1, &SIGN, deep.hops[0]);
+	signing_as = other[0];
+	(void)fzn_chain_mint(other, phone, &member, 100u, FZN_NO_EXPIRY, 0, &SIGN, deep.hops[1]);
+	deep.hop_count = 2u;
+	memset(line, 0x99, sizeof(line));
+	revoked_by(rec, owner, &member, other, 200u, line);
+	CHECK(fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN, &HASH)
+	                      == FZN_CONTACT_DEVICE_OK
+	              && !fzn_contact_device_revoked(&deep, &rs, &member),
+	      "a device fell by its grantor's revocation under a line");
+	memset(rows, 0, sizeof(rows));
+	CHECK(fzn_revocation_store_init(&rs, e, 8u) == FZN_CHAIN_OK, "fixture: a store a third time");
+	revoked_by(rec, owner, &member, other, 200u, NULL);
+	CHECK(fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN, &HASH)
+	                      == FZN_CONTACT_DEVICE_OK
+	              && fzn_contact_device_revoked(&deep, &rs, &member),
+	      "a device stood by its grantor's revocation that trusts none of its acts");
+
+	/* A FULL STORE IS ROOM, so the caller grows it. */
+	CHECK(fzn_revocation_store_init(&fresh, e2, 1u) == FZN_CHAIN_OK
+	              && fzn_contact_revocation_take(&fresh, &STORE, owner, &member, rec, &SIGN,
+	                                             &HASH)
+	                         == FZN_CONTACT_DEVICE_OK
+	              && (revoked_by(foreign, owner, &member, phone, 201u, NULL),
+	                  fzn_contact_revocation_take(&fresh, &STORE, owner, &member, foreign,
+	                                              &SIGN, &HASH))
+	                         == FZN_CONTACT_DEVICE_ERR_ROOM,
+	      "a record past a full store was not ROOM");
+}
+
+/* THE RECORDS' ANSWERER: twenty of them, so a page holds sixteen. `mode` 1
+ * echoes another `from`; 2 adds a trailing byte; 3 says more with none. */
+static uint8_t records[20][FZN_REVOCATION_LEN];
+static size_t records_taken;
+
+static int record_at(void *ctx, size_t i, uint8_t out[FZN_REVOCATION_LEN])
+{
+	(void)ctx;
+	if (i >= 20u)
+		return 0;
+	memcpy(out, records[i], FZN_REVOCATION_LEN);
+	return 1;
+}
+
+static void take_record(void *ctx, const uint8_t record[FZN_REVOCATION_LEN])
+{
+	(void)ctx;
+	records_taken += memcmp(record, records[records_taken], FZN_REVOCATION_LEN) == 0;
+}
+
+static int revoked_link(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                        size_t reply_cap, size_t *reply_len)
+{
+	(void)ctx;
+	*reply_len = fzn_contact_revoked_answer(request, request_len, record_at, NULL, reply,
+	                                        reply_cap);
+	if (!*reply_len)
+		return 0;
+	if (mode == 1)
+		reply[5] ^= 1u;
+	if (mode == 2)
+		reply[(*reply_len)++] = 0u;
+	if (mode == 3) {
+		reply[6] = 0u;
+		reply[7] = 1u;
+		*reply_len = FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN;
+	}
+	return 1;
+}
+
+/* THE QUERY BY STEPS through `revoked_link`: 1 when it ended well. */
+static int revoked_query(size_t *pages)
+{
+	static uint8_t page[FZN_CONTACT_DEVICES_REPLY_MAX + 1u];
+	fzn_contact_revoked_querying_t q;
+	uint8_t req[FZN_CONTACT_DEVICES_REVOKED_LEN];
+	size_t req_len = 0, page_len = 0;
+	int ok, done = 0;
+
+	records_taken = 0;
+	*pages = 0;
+	ok = fzn_contact_revoked_query_begin(&q, take_record, NULL, req, sizeof(req), &req_len);
+	while (ok && !done) {
+		(*pages)++;
+		ok = revoked_link(NULL, req, req_len, page, sizeof(page), &page_len)
+		     && fzn_contact_revoked_query_step(&q, page, page_len, req, sizeof(req), &req_len,
+		                                       &done);
+	}
+	return ok && q.count == records_taken;
+}
+
+static void test_the_revoked_messages(void)
+{
+	uint8_t req[FZN_CONTACT_DEVICES_QUERY_LEN], page[64];
+	size_t i, pages = 0;
+
+	for (i = 0; i < 20u; i++)
+		revoked_by(records[i], owner, &member, phone, 1000u + i, NULL);
+	mode = 0;
+	CHECK(revoked_query(&pages) && records_taken == 20u && pages == 2u,
+	      "twenty records over two pages were not each taken once, in order");
+	mode = 1;
+	CHECK(!revoked_query(&pages), "a page answering another `from` was taken");
+	mode = 2;
+	CHECK(!revoked_query(&pages), "a page with a trailing byte was taken");
+	mode = 3;
+	CHECK(!revoked_query(&pages), "a page saying more and naming none was taken");
+	mode = 0;
+	/* A DEVICES QUERY IS NOT THIS ONE'S, and a reply too small for a head
+	 * answers nothing. */
+	req[0] = FZN_CONTACT_DEVICES_VERSION;
+	req[1] = FZN_CONTACT_DEVICES_QUERY;
+	req[2] = 0u;
+	req[3] = FZN_CONTACT_DEVICES_HOSTS;
+	CHECK(fzn_contact_revoked_answer(req, sizeof(req), record_at, NULL, page, sizeof(page))
+	              == 0u,
+	      "a devices query was answered with records");
+	{
+		uint8_t asked[FZN_CONTACT_DEVICES_REVOKED_LEN];
+		fzn_contact_revoked_querying_t q;
+		size_t len = 0;
+
+		CHECK(fzn_contact_revoked_query_begin(&q, take_record, NULL, asked, sizeof(asked),
+		                                      &len)
+		              && fzn_contact_revoked_answer(asked, len, record_at, NULL, page, 7u) == 0u
+		              && fzn_contact_revoked_answer(asked, len, record_at, NULL, page,
+		                                            sizeof(page))
+		                         == FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN
+		              && page[6] == 0u && page[7] == 1u,
+		      "a reply with no room for a record did not say more follow, naming none");
+	}
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -530,6 +789,8 @@ int main(void)
 	test_the_store();
 	test_the_messages();
 	test_thousands_of_devices();
+	test_a_contacts_revocations();
+	test_the_revoked_messages();
 	if (failures) {
 		fprintf(stderr, "node contact_devices_test: %d of %d checks failed\n", failures, checks);
 		return 1;

@@ -63878,9 +63878,10 @@ is out.
   received`. Contact cards carrying the manifest and the root are sec
   608's step 3.~~ A contact card and a request since sec 619, which adds a
   contact by its root; `grant share` and `add received` remain for shares.
-- **Revocations in the contact's estate are not seen here**: a device the
+- ~~**Revocations in the contact's estate are not seen here**: a device the
   contact revoked keeps its entry and pairing until the contact is
-  removed. An entry is never forgotten while its owner stands.
+  removed.~~ The contact's root's are, since sec 776; its members' and
+  admins' votes, and its other roots', are not.
 - **A device that re-keys is not paired again**: a peer held for its key
   is left as it is. Neither tree re-keys yet.
 - **Every host pairs every device of every contact**: 64 peers a host.
@@ -68523,9 +68524,10 @@ this file's open items. Their findings, summarised:
 These are recorded in this file as open, and each is the kind of thing
 the bar exists to force. **Triaged when its scenario reaches it**, by
 the holder where it is a decision:
-- **Sec 614:** revocations in a contact's estate are not seen. A device
-  the contact revoked keeps its entry and its pairing here until the
-  contact is removed, so it is still a device lines go to.
+- ~~**Sec 614:** revocations in a contact's estate are not seen.~~ The
+  contact's root's are carried and judged since sec 776: a device its
+  root revoked is dropped and un-paired. Votes of its members, admins and
+  other roots are still not seen.
 - **Sec 615 and 616:** a member never reached holds settlement up for
   ever, and a member never heard is never judged gone.
 - **Sec 613:** an offer walks at most `FZN_MESSAGES_WALK_MAX` deep, so a
@@ -74963,3 +74965,114 @@ did. No test holds an estate of 129 hosts; this is read, not measured.
 **Left:** `ALL_SCAN_MAX` past 4096 -- a test needs a store of some 16,000
 rows, quadratic in the unit tests' memory store, and the fallback is the
 order before sec 725, each line listed once.
+
+## 776. A device a contact's root revoked, dropped here, 2026-10-30
+
+Sec 614 left it open, and sec 689 listed it among the design questions:
+an entry in `node/contact_devices` was never forgotten while its owner
+stood, so a phone a contact had revoked as stolen kept receiving this
+user's lines, and what it sent was still filed as the contact's. The
+holder said to go on with it as suggested: carry the contact's
+revocations, check them against the contact's own authority, and offer
+them in the round each contact already runs.
+
+**Only the root's records cross, and that is the decision.** An estate's
+revocation is k-of-n among its roots, admins and a device's grantors
+(sec 397), judged against its root set (sec 406) and its act log's cuts
+(sec 496). None of that is this node's to see, and carrying it would mean
+following the contact's journal. But a root acts for its estate alone at
+every k (sec 403), so a record the contact's root signed is its estate's
+decision whatever this node cannot see. Taking only those means nothing
+judged here is a revocation the contact did not make; what is missed is
+a revocation the root did not sign: a quorum of members or admins, or
+another root.
+
+**Rejected:** taking every vote at a quorum of 1, which drops a device
+on one admin's word where its own estate needs k; taking the contact's
+host's word that a device is gone, which lets a stolen device of the
+contact cut the others off; and judging a device by `fzn_chain_verify`
+over the contact's records, which drops every device a revoked key
+granted, even where the revoking vote's line keeps those grants.
+
+**The judgment**, `fzn_contact_device_revoked`. A device falls when the
+owner's live revocation names it. It also falls when the revocation names
+a key its chain passes through and that vote's cut is zero: a vote that
+trusts none of the key's acts also distrusts its grants, so the device
+falls in its own estate as well. A vote under a line is not judged
+here, since whether the grant lies before the line is the contact's act
+log's to say. That fails open, as everything did before.
+
+**What was built:**
+- **Two messages** in `node/contact_devices.situ`, after the devices':
+  REVOKED 33 asks for a page from a 32-bit `from`, and RECORDS 34 answers
+  with whole 242-byte records, sixteen to a page.
+- **Answering:** a contact's host lists its root's records for the
+  member capability, from slot 9 (issued) and slot 11 (learned), with
+  `fzn_node_root_records`. A member's chained vote is not the root's and
+  is not listed.
+- **Asking:** each contact exchange asks after its offers and before the
+  hosts, so a host the contact revoked is refused as it is named. A host
+  that answers something other than a page moves on, as a host older than
+  this does.
+- **Keeping:** `fzn_contact_revocation_take` admits each record as the
+  root's into one store for all contacts' records. Admission pins the
+  issuer to the contact asked about, and the capability must be the
+  member one. The store's admission handles stale copies, supersession
+  and withdrawals in any order. A record the store holds exactly is
+  saved in the new core slot 64, `FZN_PERSIST_CONTACT_REVOCATION`, keyed
+  by its triple, and admitted again at start. The store grows as it fills
+  (sec 704).
+- **Acting:** each contact pass drops every kept device that falls,
+  before pairing. The entry is removed and the peer un-paired
+  (`fzn_node_admin_unpair_contact_device`), and the drop is logged at
+  NOTE level. `keep_device` refuses such a device on every path in:
+  offered, listed by a contact, or passed on by a member. A withdrawal
+  lets the device back in at its next offer.
+
+**Measured:**
+- **`contact_devices_test`, 56 checks, 29 new:**
+  - taking: another key's record, another capability's, and a record
+    changed after signing are each refused;
+  - the root's record is saved, and its device falls; the owner never
+    falls, nor a device of another owner;
+  - withdrawal: the device stands again, and the withdrawn record handed
+    over again does not drop it;
+  - a restart loads both rows, the withdrawal and not the stale copy;
+    a full store answers ROOM, on take and on load;
+  - a grantor revoked under a line leaves the device standing; with no
+    line, the device falls;
+  - the messages: twenty records over two pages, each taken once in
+    order; another `from`, a trailing byte, and more-with-none are
+    refused; a devices query is not answered with records.
+- **`pair_test`, 3 new**: the root's one vote is listed at the root
+  (slot 9) and at a member that learned it (slot 11); ROOM comes with the
+  count; a member's chained vote and another capability's records are not
+  listed.
+- **`live_contacts` phase e:**
+  - R gets an address so S can reach it, and revokes R2. S and S2 each
+    drop R2 after their next pass: it is no longer listed nor a peer.
+  - A line R2 writes is refused or unanswered at both, and filed by
+    neither.
+  - R withdraws, S restarts, and R2's next line is delivered.
+  - The whole script passed. **Control:** with the drop unwired (keeping
+    refused still), phase e fails: no drop of R2 is logged at S within
+    60 s. The first control run stopped at phase d's intermittent, below,
+    and the second reached phase e.
+- **Ten sabotage entries**: the capability check, the exact-hold save,
+  the load's ROOM, the judgment's two arms, the records page's exact
+  length and its more-names-some, and the root records' chain, capability
+  and room filters.
+
+**Found while testing, older than this: `live_contacts` phase d fails
+about one run in four.** The line R took over is held at S, but its text
+reads empty, unopened: `('in', '-', '')`. Measured at HEAD without this
+change, in a separate worktree: 3 passed and 1 failed of 4, the same
+failure. With this change it failed 2 of 5. Not explained yet.
+
+**Not yet:**
+- votes of the contact's members and admins, and of its other roots;
+- a member passing on contact revocations it learned, as it passes on the
+  devices it kept (KEPT);
+- a contact removed keeps its records here, which is harmless;
+- a revoked device held as a group host (sec 630) is un-paired, and may
+  be paired again by the group pass.

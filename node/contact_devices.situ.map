@@ -47,6 +47,19 @@ struct fzn_contact_devices_query size=4
   fzn_contact_devices_query.from         offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   fzn_contact_devices_query.whose        offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
 
+struct fzn_contact_devices_records size=8..61718 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_records.version    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_records.type       offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_records.from       offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_records.count      offset=AbsoluteStatic(0x06) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_records.more       offset=AbsoluteStatic(0x07) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_records.records    offset=AbsoluteStatic(0x08) size=Bounded(0, 61710) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_contact_devices_revoked size=6 repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_revoked.version    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_revoked.type       offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_revoked.from       offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+
 struct fzn_contact_devices_taken size=3
   fzn_contact_devices_taken.version      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_contact_devices_taken.type         offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord

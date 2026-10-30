@@ -2197,6 +2197,26 @@ static int pair_device(fzn_node_admin_t *admin, const fzn_contact_device_t *d, i
 	return 1;
 }
 
+int fzn_node_admin_unpair_contact_device(fzn_node_admin_t *admin,
+                                         const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t loaded = 0;
+
+	if (!admin || !admin->state || !admin->store || !admin->peers || !key)
+		return -1;
+	if (!fzn_node_find_peer(admin->state->peers, admin->state->peer_count, key)
+	    || is_member(admin, key))
+		return 0;
+	if (fzn_node_peer_remove(admin->store, key) != FZN_PERSIST_OK)
+		return -1;
+	/* THE STORE FIRST, THEN THE LIVE SET, as `remove peer` has it. */
+	if (reload_peers(admin, &loaded) != FZN_PERSIST_OK)
+		return -1;
+	admin->state->peers = admin->peers;
+	admin->state->peer_count = loaded;
+	return 1;
+}
+
 int fzn_node_admin_contact_of(const fzn_node_admin_t *admin, const uint8_t sender[FZN_PUBKEY_LEN],
                               uint8_t owner[FZN_PUBKEY_LEN])
 {

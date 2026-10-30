@@ -448,3 +448,293 @@ size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_l
 	reply[3] = (uint8_t)n;
 	return at;
 }
+
+/* ---- a contact's revocations, sec 776 ------------------------------------ */
+
+static void revoked_query(const fzn_contact_revoked_querying_t *q, uint8_t *request,
+                          size_t *request_len)
+{
+	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[1] = FZN_CONTACT_DEVICES_REVOKED;
+	fzn_put_be32(request + 2, q->from);
+	*request_len = FZN_CONTACT_DEVICES_REVOKED_LEN;
+}
+
+int fzn_contact_revoked_query_begin(fzn_contact_revoked_querying_t *q,
+                                    void (*take)(void *ctx,
+                                                 const uint8_t record[FZN_REVOCATION_LEN]),
+                                    void *take_ctx, uint8_t *request, size_t cap,
+                                    size_t *request_len)
+{
+	if (!q || !take || !request || cap < FZN_CONTACT_DEVICES_REVOKED_LEN || !request_len)
+		return 0;
+	q->take = take;
+	q->take_ctx = take_ctx;
+	q->from = 0;
+	q->count = 0;
+	q->live = 1;
+	revoked_query(q, request, request_len);
+	return 1;
+}
+
+int fzn_contact_revoked_query_step(fzn_contact_revoked_querying_t *q, const uint8_t *reply,
+                                   size_t reply_len, uint8_t *request, size_t cap,
+                                   size_t *request_len, int *done)
+{
+	size_t k, n;
+
+	if (!q || !q->live || !request || cap < FZN_CONTACT_DEVICES_REVOKED_LEN || !request_len
+	    || !done)
+		return 0;
+	*done = 1;
+	q->live = 0;
+	if (!reply || reply_len < FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN
+	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_RECORDS
+	    || fzn_get_be32(reply + 2) != q->from || reply[7] > 1u)
+		return 0;
+	n = reply[6];
+	/* EXACTLY ITS RECORDS, and a page that says more names some. */
+	if (reply_len != FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN + n * FZN_REVOCATION_LEN
+	    || (reply[7] && n == 0u))
+		return 0;
+	for (k = 0; k < n; k++) {
+		q->take(q->take_ctx,
+		        reply + FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN + k * FZN_REVOCATION_LEN);
+		q->count++;
+	}
+	if (!reply[7])
+		return 1;
+	if (q->from > UINT32_MAX - n)
+		return 1;
+	q->from += (uint32_t)n;
+	*done = 0;
+	q->live = 1;
+	revoked_query(q, request, request_len);
+	return 1;
+}
+
+size_t fzn_contact_revoked_answer(const uint8_t *request, size_t request_len,
+                                  int (*record_at)(void *ctx, size_t i,
+                                                   uint8_t out[FZN_REVOCATION_LEN]),
+                                  void *ctx, uint8_t *reply, size_t reply_cap)
+{
+	uint8_t record[FZN_REVOCATION_LEN];
+	size_t at = FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN, i, n = 0;
+	uint32_t from;
+
+	if (!request || !record_at || !reply || request_len != FZN_CONTACT_DEVICES_REVOKED_LEN
+	    || request[0] != FZN_CONTACT_DEVICES_VERSION
+	    || request[1] != FZN_CONTACT_DEVICES_REVOKED
+	    || reply_cap < FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN)
+		return 0;
+	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
+		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
+	from = fzn_get_be32(request + 2);
+	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[1] = FZN_CONTACT_DEVICES_RECORDS;
+	fzn_put_be32(reply + 2, from);
+	reply[7] = 0u;
+	for (i = from; record_at(ctx, i, record); i++) {
+		/* ONE PAST THE ROOM IS THE NEXT PAGE'S. */
+		if (n == 255u || at + FZN_REVOCATION_LEN > reply_cap) {
+			reply[7] = 1u;
+			break;
+		}
+		memcpy(reply + at, record, FZN_REVOCATION_LEN);
+		at += FZN_REVOCATION_LEN;
+		n++;
+	}
+	reply[6] = (uint8_t)n;
+	return at;
+}
+
+#define REVOCATION_ROW_LEN ((size_t)FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN)
+
+/* A ROW'S KEY: its triple, hashed, so one triple has one row. */
+static int revocation_key(const fzn_hash_ops_t *hash, fzn_revocation_record_t rec,
+                          uint8_t key[FZN_PUBKEY_LEN])
+{
+	uint8_t triple[FZN_PUBKEY_LEN * 2u + sizeof(fzn_cap_id_t)];
+
+	memcpy(triple, fzn_revocation_issuer(rec), FZN_PUBKEY_LEN);
+	memcpy(triple + FZN_PUBKEY_LEN, fzn_revocation_capability(rec), sizeof(fzn_cap_id_t));
+	memcpy(triple + FZN_PUBKEY_LEN + sizeof(fzn_cap_id_t), fzn_revocation_grantee(rec),
+	       FZN_PUBKEY_LEN);
+	return hash->hash(hash->ctx, key, FZN_PUBKEY_LEN, triple, sizeof(triple));
+}
+
+/* IS WHAT `revocations` HOLDS FOR `rec`'s TRIPLE EXACTLY `rec`? A revocation
+ * holds its own hash, live; a withdrawal the hash it names, withdrawn. As
+ * `node/revoke.c` asks before saving a vote, so a stale copy admission took
+ * without storing is not saved over the newer record. */
+static int holds_exactly(const fzn_revocation_store_t *revocations, const fzn_hash_ops_t *hash,
+                         const uint8_t record[FZN_REVOCATION_LEN], fzn_revocation_record_t rec)
+{
+	uint8_t id[FZN_REVOCATION_ID_LEN], mine[FZN_REVOCATION_ID_LEN];
+	int withdrawn = 0;
+
+	if (!fzn_revocation_lookup(revocations, fzn_revocation_issuer(rec),
+	                           fzn_revocation_capability(rec), fzn_revocation_grantee(rec), id,
+	                           &withdrawn))
+		return 0;
+	if (fzn_revocation_is_withdrawal(rec))
+		return withdrawn && memcmp(id, fzn_revocation_supersedes(rec), sizeof(id)) == 0;
+	if (!hash->hash(hash->ctx, mine, sizeof(mine), record, FZN_REVOCATION_LEN))
+		return 0;
+	return !withdrawn && memcmp(id, mine, sizeof(id)) == 0;
+}
+
+fzn_contact_device_err_t fzn_contact_revocation_take(fzn_revocation_store_t *revocations,
+                                                     const fzn_persist_ops_t *store,
+                                                     const uint8_t owner[FZN_PUBKEY_LEN],
+                                                     const fzn_cap_id_t *member,
+                                                     const uint8_t record[FZN_REVOCATION_LEN],
+                                                     const fzn_sign_ops_t *sign,
+                                                     const fzn_hash_ops_t *hash)
+{
+	uint8_t row[REVOCATION_ROW_LEN], key[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t rec;
+	fzn_chain_err_t cerr;
+
+	if (!revocations || !store || !store->save || !owner || !member || !record || !sign
+	    || !hash || !hash->hash)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	/* FOR THE MEMBER CAPABILITY, or nothing of this. */
+	if (fzn_revocation_open(record, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK
+	    || memcmp(fzn_revocation_capability(rec), member, sizeof(*member)) != 0)
+		return FZN_CONTACT_DEVICE_ERR_REFUSED;
+	/* AND THE OWNER'S: a root's offer is refused unless its issuer is the
+	 * root named, and this store names no root set to widen that. */
+	cerr = fzn_revocation_admit(revocations, fzn_revocation_offer_root(rec), owner, sign, hash,
+	                            NULL);
+	if (cerr == FZN_CHAIN_ERR_STORE_FULL)
+		return FZN_CONTACT_DEVICE_ERR_ROOM;
+	if (cerr != FZN_CHAIN_OK)
+		return FZN_CONTACT_DEVICE_ERR_REFUSED;
+	if (!holds_exactly(revocations, hash, record, rec))
+		return FZN_CONTACT_DEVICE_OK;
+	if (!revocation_key(hash, rec, key)
+	    || fzn_persist_head_write(row, sizeof(row), FZN_REVOCATION_LEN,
+	                              FZN_PERSIST_BLOB_REVOCATION)
+	               != FZN_PERSIST_OK)
+		return FZN_CONTACT_DEVICE_ERR_BACKEND;
+	memcpy(row + FZN_PERSIST_HEAD_LEN, record, FZN_REVOCATION_LEN);
+	return store->save(store->ctx, FZN_PERSIST_CONTACT_REVOCATION, key, row, sizeof(row))
+	               ? FZN_CONTACT_DEVICE_OK
+	               : FZN_CONTACT_DEVICE_ERR_BACKEND;
+}
+
+struct revocations_walk {
+	fzn_revocation_store_t *revocations;
+	const fzn_persist_ops_t *store;
+	const fzn_sign_ops_t *sign;
+	const fzn_hash_ops_t *hash;
+	size_t count, skipped;
+	int full;
+};
+
+static int revocation_walked(void *arg, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	struct revocations_walk *w = arg;
+	uint8_t row[REVOCATION_ROW_LEN], filed[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t rec;
+	fzn_chain_err_t cerr;
+	size_t len = 0;
+
+	/* FILED UNDER ITS OWN TRIPLE, or a row nobody here wrote. */
+	if (!w->store->load(w->store->ctx, FZN_PERSIST_CONTACT_REVOCATION, key, row, sizeof(row),
+	                    &len)
+	    || fzn_persist_head_check(row, len, FZN_REVOCATION_LEN, FZN_PERSIST_BLOB_REVOCATION)
+	               != FZN_PERSIST_OK
+	    || fzn_revocation_open(row + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN, &rec)
+	               != FZN_CHAIN_OK
+	    || !revocation_key(w->hash, rec, filed) || memcmp(filed, key, FZN_PUBKEY_LEN) != 0) {
+		w->skipped++;
+		return 1;
+	}
+	cerr = fzn_revocation_admit(w->revocations, fzn_revocation_offer_root(rec),
+	                            fzn_revocation_issuer(rec), w->sign, w->hash, NULL);
+	if (cerr == FZN_CHAIN_ERR_STORE_FULL) {
+		w->full = 1;
+		return 0;
+	}
+	if (cerr != FZN_CHAIN_OK)
+		w->skipped++;
+	else
+		w->count++;
+	return 1;
+}
+
+fzn_contact_device_err_t fzn_contact_revocations_load(fzn_revocation_store_t *revocations,
+                                                      const fzn_persist_ops_t *store,
+                                                      const fzn_sign_ops_t *sign,
+                                                      const fzn_hash_ops_t *hash, size_t *count,
+                                                      size_t *skipped)
+{
+	struct revocations_walk w;
+
+	if (count)
+		*count = 0;
+	if (skipped)
+		*skipped = 0;
+	if (!revocations || !store || !store->load || !sign || !hash || !hash->hash || !count
+	    || !skipped)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	memset(&w, 0, sizeof(w));
+	w.revocations = revocations;
+	w.store = store;
+	w.sign = sign;
+	w.hash = hash;
+	if (!fzn_persist_each(store, FZN_PERSIST_CONTACT_REVOCATION, revocation_walked, &w)
+	    && !w.full)
+		return FZN_CONTACT_DEVICE_ERR_BACKEND;
+	*count = w.count;
+	*skipped = w.skipped;
+	return w.full ? FZN_CONTACT_DEVICE_ERR_ROOM : FZN_CONTACT_DEVICE_OK;
+}
+
+/* THE OWNER'S LIVE REVOCATION OF `key`, if the store holds one: 1, with
+ * whether it draws a line. */
+static int owner_revoked(const fzn_revocation_store_t *revocations,
+                         const uint8_t owner[FZN_PUBKEY_LEN], const fzn_cap_id_t *member,
+                         const uint8_t key[FZN_PUBKEY_LEN], int *lined)
+{
+	static const uint8_t NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
+	size_t i;
+
+	for (i = 0; i < revocations->used; i++) {
+		const fzn_revocation_t *e = &revocations->entries[i];
+
+		if (!e->withdrawn && memcmp(e->issuer, owner, FZN_PUBKEY_LEN) == 0
+		    && memcmp(e->grantee, key, FZN_PUBKEY_LEN) == 0
+		    && memcmp(&e->capability, member, sizeof(*member)) == 0) {
+			*lined = memcmp(e->cut, NOTHING, sizeof(NOTHING)) != 0;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int fzn_contact_device_revoked(const fzn_contact_device_t *d,
+                               const fzn_revocation_store_t *revocations,
+                               const fzn_cap_id_t *member)
+{
+	fzn_chain_hop_t hop;
+	size_t i;
+	int lined = 0;
+
+	if (!d || !revocations || !member || !fzn_revocation_store_sound(revocations)
+	    || d->hop_count > FZN_CHAIN_MAX_HOPS)
+		return 0;
+	/* EACH KEY THE CHAIN GRANTS, the device last: the device's own
+	 * revocation drops it whatever its line; a key above it only when that
+	 * vote trusts none of its acts, its grant of the device among them. */
+	for (i = 0; i < d->hop_count; i++) {
+		if (fzn_hop_open(d->hops[i], FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+			return 0;
+		if (owner_revoked(revocations, d->owner, member, fzn_hop_grantee(hop), &lined)
+		    && (i + 1u == d->hop_count || !lined))
+			return 1;
+	}
+	return 0;
+}

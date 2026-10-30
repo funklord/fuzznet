@@ -51,6 +51,19 @@ struct fzn_contact_devices_query size=4
   @0x0002   1         u8         from
   @0x0003   1         u8         whose  max=1
 
+struct fzn_contact_devices_records size=8..61718
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=34
+  @0x0002   4         u32        from  big
+  @0x0006   1         u8         count
+  @0x0007   1         u8         more  max=1
+  @0x0008   0..61710  u8         records  sized-by=count*242
+
+struct fzn_contact_devices_revoked size=6
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=33
+  @0x0002   4         u32        from  big
+
 struct fzn_contact_devices_taken size=3
   @0x0000   1         u8         version  must_eq=2
   @0x0001   1         u8         type  must_eq=30

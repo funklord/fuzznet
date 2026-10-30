@@ -30,10 +30,13 @@
  * frames sealed for the device, which it alone can open: a delivery lost,
  * not one read.
  *
- * WHAT IS NOT CHECKED: revocations in the other estate. Its revocation
- * store is not this node's, so a device the contact revoked is still taken
- * here until the contact's roster or a later entry says otherwise; the
- * contact relation itself (`node/roster`) is what stops a removed contact.
+ * REVOCATIONS IN THE OTHER ESTATE, sec 776: its ROOT'S, carried here by
+ * the messages at the end of this file and judged by
+ * `fzn_contact_device_revoked`. A root acts for its estate alone at every
+ * k (sec 403), so what it signed is the estate's decision whatever else this
+ * node cannot see; votes of its members and admins, and of its other roots,
+ * are not carried. The contact relation itself (`node/roster`) is what
+ * stops a removed contact.
  *
  * Kept in persist slot FZN_PERSIST_CONTACT_DEVICE, one row per device keyed
  * by its key, as encoded. CORE: it decides whom this node pairs.
@@ -45,6 +48,7 @@
 #include <stdint.h>
 
 #include "../chain/chain.h"
+#include "../chain/revocation.h"
 #include "../persist/persist.h"
 #include "../prekey/prekey.h"
 
@@ -216,5 +220,108 @@ size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_l
                                         int (*kept_at)(void *ctx, size_t i,
                                                        fzn_contact_device_t *out),
                                         void *ctx, uint8_t *reply, size_t reply_cap);
+
+/* ---- a contact's revocations, sec 776 -----------------------------------
+ *
+ * A DEVICE THE CONTACT REVOKED WAS STILL ONE LINES WENT TO: an entry was
+ * never forgotten while its owner stood, so a stolen phone its owner cut
+ * off kept receiving this user's lines, and kept speaking for the contact.
+ *
+ * WHAT CROSSES is the contact's ROOT'S signed records for the member
+ * capability -- revocations and withdrawals, 242 bytes each and
+ * self-authenticating -- asked of one of its hosts each round. A record is
+ * taken only when its issuer is the contact asked about and its capability
+ * the member one; it is admitted into a store of this node's for contacts'
+ * records, whose admission handles stale copies, supersession and
+ * withdrawals in any order (`chain/revocation.h`), and saved in slot
+ * FZN_PERSIST_CONTACT_REVOCATION when the store holds exactly it.
+ *
+ * ONLY THE ROOT'S, because only the root's word is the estate's whatever
+ * this node cannot see: at k above 1 a member's or an admin's vote counts
+ * only with others, and another root's only while the contact's root set
+ * names it, and neither the votes nor the set crosses. So nothing judged
+ * here is a revocation the contact's estate did not make; what it may miss
+ * is one the root did not sign.
+ *
+ * THE JUDGMENT, `fzn_contact_device_revoked`: a device falls when the
+ * owner's live revocation names it, or names a key its chain passes through
+ * with no line drawn -- a vote whose cut is zero trusts none of that key's
+ * acts, its grants among them, so the device falls in its own estate too.
+ * Under a cut, whether the grant lies before the line is the contact's act
+ * log's to say, which does not cross, so that device is not judged here:
+ * failing open there is what this node did before, and failing shut would
+ * cut a device its own estate keeps.
+ *
+ *   REVOKED  33  `from` (32 bits): the root's records, from the `from`th
+ *   RECORDS  34  `from` echoed, how many, whether more follow, then each
+ *                record, FZN_REVOCATION_LEN bytes
+ */
+#define FZN_CONTACT_DEVICES_REVOKED 33u
+#define FZN_CONTACT_DEVICES_RECORDS 34u
+#define FZN_CONTACT_DEVICES_REVOKED_LEN 6u
+#define FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN 8u
+
+/* THE QUERY AS STEPS, as the devices query is: begin writes the first
+ * page's request; each step takes its answer, handing each record to
+ * `take` -- not opened, nor checked, which is the taker's -- and writes the
+ * next page's or sets `*done`. 0 from a step on no answer or nonsense. */
+typedef struct fzn_contact_revoked_querying {
+	int live;
+	void (*take)(void *ctx, const uint8_t record[FZN_REVOCATION_LEN]);
+	void *take_ctx;
+	uint32_t from;
+	size_t count;
+} fzn_contact_revoked_querying_t;
+
+int fzn_contact_revoked_query_begin(fzn_contact_revoked_querying_t *q,
+                                    void (*take)(void *ctx,
+                                                 const uint8_t record[FZN_REVOCATION_LEN]),
+                                    void *take_ctx, uint8_t *request, size_t cap,
+                                    size_t *request_len);
+
+int fzn_contact_revoked_query_step(fzn_contact_revoked_querying_t *q, const uint8_t *reply,
+                                   size_t reply_len, uint8_t *request, size_t cap,
+                                   size_t *request_len, int *done);
+
+/* A REVOKED QUERY, answered: `record_at` fills the `i`th record, 0 past the
+ * last. As many as fit FZN_CONTACT_DEVICES_REPLY_MAX from `from`, and
+ * whether more follow. 0 for anything that is not a REVOKED query. */
+size_t fzn_contact_revoked_answer(const uint8_t *request, size_t request_len,
+                                  int (*record_at)(void *ctx, size_t i,
+                                                   uint8_t out[FZN_REVOCATION_LEN]),
+                                  void *ctx, uint8_t *reply, size_t reply_cap);
+
+/* TAKE ONE OF `owner`'s RECORDS into `revocations` -- this node's store for
+ * contacts' records, single-rooted, quorum 1 -- and save it in `store`:
+ * OK when the store now holds exactly it, saved, or holds a newer record for
+ * its triple, so it was a stale copy; REFUSED when its issuer is not
+ * `owner`, its capability not `member`, or it will not admit; ROOM when the
+ * revocation store is full -- give it room (`fzn_revocation_store_use`) and
+ * take it again; BACKEND when it is held and not saved. */
+fzn_contact_device_err_t fzn_contact_revocation_take(fzn_revocation_store_t *revocations,
+                                                     const fzn_persist_ops_t *store,
+                                                     const uint8_t owner[FZN_PUBKEY_LEN],
+                                                     const fzn_cap_id_t *member,
+                                                     const uint8_t record[FZN_REVOCATION_LEN],
+                                                     const fzn_sign_ops_t *sign,
+                                                     const fzn_hash_ops_t *hash);
+
+/* At start: every record saved, admitted again as its issuer's, into
+ * `revocations`; how many in `*count`. ROOM when the store filled -- give it
+ * room and load again, admission being idempotent. A row that will not
+ * read or admit is passed over and counted in `*skipped`: these are other
+ * estates' records, and one bad row must not keep this node from starting. */
+fzn_contact_device_err_t fzn_contact_revocations_load(fzn_revocation_store_t *revocations,
+                                                      const fzn_persist_ops_t *store,
+                                                      const fzn_sign_ops_t *sign,
+                                                      const fzn_hash_ops_t *hash, size_t *count,
+                                                      size_t *skipped);
+
+/* WHETHER `d` FALLS by its owner's revocations in `revocations`, as the
+ * section above judges. 0 for a device that is its owner, and for a store
+ * that holds nothing of the owner's. */
+int fzn_contact_device_revoked(const fzn_contact_device_t *d,
+                               const fzn_revocation_store_t *revocations,
+                               const fzn_cap_id_t *member);
 
 #endif /* FZN_NODE_CONTACT_DEVICES_H */

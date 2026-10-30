@@ -23,6 +23,10 @@ and S's estate advertises.
     d  R2, given an address so R hears it, writes a line while S's estate
        is down, then falls silent past R's `archive/gone`: R takes the line
        over and delivers it once S is back (sec 616)
+    e  R, given an address so S reaches it, revokes R2 (sec 776): S and S2,
+       each asking R for its root's records, drop R2 -- listed no more,
+       paired no more -- and a line R2 writes reaches neither; R withdraws,
+       and R2's next offer is taken and its line delivered
 
 Against a daemon that carries no contact devices, R2 has no host to offer
 to and phase a waits in vain; against one that files under the sending
@@ -50,7 +54,7 @@ import live_trim  # noqa: E402
 
 # FOUR DAEMONS RESTARTED IN TURN, phases c and d most of all, take longer
 # than the 240 s the other checks are held to; still one deadline.
-live_trim.DEADLINE = time.monotonic() + 420.0
+live_trim.DEADLINE = time.monotonic() + 600.0
 
 OFFERED_RE = re.compile(r"(\d+) line\(s\) offered to 127\.0\.0\.1: (\d+) delivered, "
                         r"(\d+) settled, (\d+) refused, (\d+) unanswered")
@@ -62,6 +66,8 @@ PASS_RE = re.compile(r"contact pass: (\d+) contact\(s\) asked, (\d+) kept from m
 LINE_1 = "41" * 16
 LINE_2 = "42" * 16
 LINE_3 = "43" * 16
+LINE_4 = "44" * 16
+LINE_5 = "45" * 16
 PREKEY_HOST = slice(4, 68)
 
 
@@ -316,6 +322,60 @@ def main(argv):
 				raise failed("d: S's estate holds %r%s" % (filed, said(r)))
 			print("livecheck: d: R took over the line R2 wrote and fell silent on, and "
 			      "delivered it")
+
+			# e: a device its owner revoked (sec 776). R needs an address for S
+			# to ask it anything; its next round offers itself with it.
+			expect(socks["r"], "r", "set setting host net/address 127.0.0.1 " + port["r"], "ok")
+			said_ = ask(socks["r"], "revoke peer " + keys["r2"])
+			if not said_.startswith("ok " + keys["r2"]):
+				raise failed("e: R's revoke peer answered %r" % said_)
+			down("r")
+			r = up("r", "r-e1")
+			r.wait_for(PASS_RE, "R's round, offering itself with its address")
+			dropped_re = re.compile(r"a device its owner revoked was dropped: " + keys["r2"])
+			for who in ("s", "s2"):
+				down(who)
+				d = up(who, "%s-e1" % who)
+				d.wait_for(dropped_re, "%s dropping R2" % who.upper(), within=60.0)
+				line = "list device rory" if who == "s" else "list device " + keys["r"]
+				listed = ask(socks[who], line).split()
+				if {row.split(",")[0] for row in listed[3:]} != {keys["r"]}:
+					raise failed("e: %s's %s answered %r, R2 still among R's hosts"
+					             % (who.upper(), line, listed))
+				if keys["r2"] in ask(socks[who], "list peer"):
+					raise failed("e: %s still serves R2 as a peer" % who.upper())
+			r2 = up("r2", "r2-e1")
+			r2.wait_for(PASS_RE, "R2's contact pass")
+			expect(socks["r2"], "r2", "add message %s out %s revoked" % (keys["s"], LINE_4),
+			       "ok")
+			# AN OFFER NOBODY TOOK: refused or unanswered, none delivered -- not
+			# a restart's settlement offer of a line already held (sec 615).
+			r2.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: 0 delivered, \d+ "
+			                       r"settled, (?:[1-9]\d* refused|\d+ refused, [1-9]\d* "
+			                       r"unanswered)"), "R2's offer, revoked", within=60.0)
+			for who in ("s", "s2"):
+				if LINE_4 in lines(socks[who], who, keys["r"]):
+					raise failed("e: %s filed a line R2 wrote once revoked" % who.upper())
+			print("livecheck: e: R revoked R2, and S's estate dropped it and took no line "
+			      "of it")
+			said_ = ask(socks["r"], "remove revocation " + keys["r2"])
+			if not said_.startswith("ok"):
+				raise failed("e: R's remove revocation answered %r" % said_)
+			down("r2")
+			down("s")
+			s = up("s", "s-e2")
+			s.wait_for(PASS_RE, "S's round, taking R's withdrawal")
+			r2 = up("r2", "r2-e2")
+			expect(socks["r2"], "r2", "add message %s out %s restored" % (keys["s"], LINE_5),
+			       "ok")
+			r2.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: [1-9]\d* delivered"),
+			            "R2's delivery, restored", within=90.0)
+			filed = {}
+			for who in ("s", "s2"):
+				filed.update(lines(socks[who], who, keys["r"]))
+			if filed.get(LINE_5, ("", "", ""))[2] != "restored":
+				raise failed("e: S's estate holds %r once R withdrew%s" % (filed, said(r2, s)))
+			print("livecheck: e: R withdrew, and R2's next line was delivered")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			if os.environ.get("LIVE_DEBUG"):

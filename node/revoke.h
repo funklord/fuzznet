@@ -184,6 +184,19 @@ int fzn_node_issued_revocation(const fzn_persist_ops_t *store,
                                const uint8_t grantee[FZN_PUBKEY_LEN],
                                uint8_t record[FZN_REVOCATION_LEN]);
 
+/* THE ESTATE ROOT'S RECORDS FOR `capability`, sec 776: every revocation
+ * and withdrawal `root` signed that this node holds -- those it issued as the
+ * root (slot 9) and those it learned (slot 11) -- into `out`, `*count` of
+ * them. ROOM with `*count` the number held when that is more than `cap`, so
+ * the caller can give room and list again; BACKEND when a slot will not
+ * walk. What a contact's host hands a contact that asks (`node/contact_devices.h`).
+ * A copy in both slots is listed twice; admission takes either once. */
+fzn_persist_err_t fzn_node_root_records(const fzn_persist_ops_t *store,
+                                        const uint8_t root[FZN_PUBKEY_LEN],
+                                        const fzn_cap_id_t *capability,
+                                        uint8_t (*out)[FZN_REVOCATION_LEN], size_t cap,
+                                        size_t *count);
+
 /*
  * WHAT APPLYING AN OBJECT COMES TO. sec 384 named these for the pull of a
  * root's revocations; since sec 505 the journal carries every act and

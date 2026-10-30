@@ -526,6 +526,65 @@ static int vote_subject(const fzn_hash_ops_t *hash, fzn_revocation_record_t rec,
 
 /* A slot-11 row under `subject`: its record and chain. 1 when it loaded and
  * every part opens. */
+/* ONE OF THE ROOT'S RECORDS, walked: into the caller's room while there is
+ * any, counted past it. A row that will not read is passed over. */
+struct root_records_walk {
+	const fzn_persist_ops_t *store;
+	const uint8_t *root;
+	const fzn_cap_id_t *capability;
+	uint8_t (*out)[FZN_REVOCATION_LEN];
+	size_t cap, n;
+	int votes;
+};
+
+static int root_record_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	struct root_records_walk *w = arg;
+	uint8_t record[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t rec;
+	size_t hop_count = 0;
+
+	if (!(w->votes ? load_vote(w->store, subject, record, hops, &hop_count)
+	               : load_slot(w->store, FZN_PERSIST_ISSUED_REVOCATION, subject, record))
+	    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK
+	    || hop_count != 0u || memcmp(fzn_revocation_issuer(rec), w->root, FZN_PUBKEY_LEN) != 0
+	    || memcmp(fzn_revocation_capability(rec), w->capability, sizeof(*w->capability)) != 0)
+		return 1;
+	if (w->n < w->cap)
+		memcpy(w->out[w->n], record, FZN_REVOCATION_LEN);
+	w->n++;
+	return 1;
+}
+
+fzn_persist_err_t fzn_node_root_records(const fzn_persist_ops_t *store,
+                                        const uint8_t root[FZN_PUBKEY_LEN],
+                                        const fzn_cap_id_t *capability,
+                                        uint8_t (*out)[FZN_REVOCATION_LEN], size_t cap,
+                                        size_t *count)
+{
+	struct root_records_walk w;
+
+	if (!count)
+		return FZN_PERSIST_ERR_MALFORMED;
+	*count = 0;
+	if (!store || !store->load || !root || !capability || (!out && cap))
+		return FZN_PERSIST_ERR_MALFORMED;
+	memset(&w, 0, sizeof(w));
+	w.store = store;
+	w.root = root;
+	w.capability = capability;
+	w.out = out;
+	w.cap = cap;
+	if (!fzn_persist_each(store, FZN_PERSIST_ISSUED_REVOCATION, root_record_walked, &w))
+		return FZN_PERSIST_ERR_BACKEND;
+	w.votes = 1;
+	if (!fzn_persist_each(store, FZN_PERSIST_VOTE, root_record_walked, &w))
+		return FZN_PERSIST_ERR_BACKEND;
+	*count = w.n;
+	return w.n > cap ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_OK;
+}
+
 static int load_vote(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
                      uint8_t record[FZN_REVOCATION_LEN],
                      uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)

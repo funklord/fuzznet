@@ -156,6 +156,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a file's reference, so this host can open it";
 	case FZN_PERSIST_ROOT_AT:
 		return "where the root this device joined through is reached";
+	case FZN_PERSIST_CONTACT_REVOCATION:
+		return "a contact's root's revocation of one of its devices";
 	}
 	*known = 0;
 	return "an unknown slot";

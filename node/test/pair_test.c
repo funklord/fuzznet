@@ -2416,6 +2416,36 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	CHECK(d_revoked(&m_revs, &r, &n, &d, cap),
 	      "M, holding both votes, did not revoke D -- a relayed vote did not count");
 
+	/* ---- THE ROOT'S RECORDS, sec 776, as a contact asks for them: R's one
+	 * vote, from slot 9 at R and slot 11 at M, which learned it; N's,
+	 * chained, is no root's. */
+	{
+		uint8_t held[2][FZN_REVOCATION_LEN];
+		fzn_revocation_record_t rec;
+		fzn_cap_id_t another;
+		size_t got = 0, at_r = 0, none = 9;
+
+		memset(&another, 0x7e, sizeof(another));
+		CHECK(fzn_node_root_records(&r.ops, r.id.pubkey, cap, held, 2, &at_r) == FZN_PERSIST_OK
+		              && fzn_node_root_records(&m.ops, r.id.pubkey, cap, held, 2, &got)
+		                         == FZN_PERSIST_OK
+		              && at_r == 1u && got == 1u
+		              && fzn_revocation_open(held[0], FZN_REVOCATION_LEN, &rec) == FZN_CHAIN_OK
+		              && memcmp(fzn_revocation_issuer(rec), r.id.pubkey, FZN_PUBKEY_LEN) == 0
+		              && memcmp(fzn_revocation_grantee(rec), d.id.pubkey, FZN_PUBKEY_LEN) == 0,
+		      "the root's records, at R and at M, are not its one vote against D");
+		CHECK(fzn_node_root_records(&m.ops, r.id.pubkey, cap, NULL, 0, &none)
+		                      == FZN_PERSIST_ERR_ROOM
+		              && none == 1u,
+		      "no room for the root's records was not ROOM with the count");
+		CHECK(fzn_node_root_records(&m.ops, n.id.pubkey, cap, held, 2, &got) == FZN_PERSIST_OK
+		              && got == 0u
+		              && fzn_node_root_records(&m.ops, r.id.pubkey, &another, held, 2, &got)
+		                         == FZN_PERSIST_OK
+		              && got == 0u,
+		      "a member's chained vote, or another capability's, was listed as the root's");
+	}
+
 	/* ---- AGAIN, AND OVER THE WIRE: M pulls R's journal through the
 	 * pairing it joined with, from R's running remote hop. It holds R's
 	 * stream already, so nothing is new and nothing is refused. */
