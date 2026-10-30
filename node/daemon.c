@@ -6762,17 +6762,57 @@ static int root_record_at(void *ctx, size_t i, uint8_t out[FZN_REVOCATION_LEN])
 	return 1;
 }
 
+/* THE CONTACTS' ROOTS' RECORDS THIS NODE SAVED, sec 780, as a member asks
+ * for them: listed afresh at the first of a page's, into room grown to hold
+ * them all. */
+static int kept_revocation_at(void *ctx, size_t i, uint8_t out[FZN_REVOCATION_LEN])
+{
+	static uint8_t (*records)[FZN_REVOCATION_LEN];
+	static size_t cap, n;
+
+	(void)ctx;
+	if (i == 0) {
+		fzn_contact_device_err_t err = FZN_CONTACT_DEVICE_ERR_ROOM;
+
+		n = 0;
+		while (node_apply.store && contact_hash_ops && err == FZN_CONTACT_DEVICE_ERR_ROOM) {
+			if (n > cap || !records) {
+				size_t want = n > 16u ? n * 2u : 16u;
+				uint8_t (*more)[FZN_REVOCATION_LEN] = calloc(want, sizeof(*more));
+
+				if (!more)
+					break;
+				free(records);
+				records = more;
+				cap = want;
+			}
+			err = fzn_contact_revocations_list(node_apply.store, contact_hash_ops, records, cap,
+			                                   &n);
+		}
+		if (err != FZN_CONTACT_DEVICE_OK)
+			n = 0;
+	}
+	if (i >= n)
+		return 0;
+	memcpy(out, records[i], FZN_REVOCATION_LEN);
+	return 1;
+}
+
 /* A CONTACT'S OFFER OR QUERY (`owner` the contact), or a member's query for
- * what this node kept (`owner` NULL). */
+ * what this node kept, devices or contacts' revocations (`owner` NULL). */
 static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint8_t *request,
                                      size_t request_len, uint8_t *reply, size_t reply_cap)
 {
 	size_t n;
 
 	(void)ctx;
-	if (!owner)
-		return fzn_contact_devices_query_answer(request, request_len, NULL, kept_at, NULL, reply,
-		                                        reply_cap);
+	if (!owner) {
+		n = fzn_contact_revoked_answer(request, request_len, kept_revocation_at, NULL, reply,
+		                               reply_cap);
+		return n ? n
+		         : fzn_contact_devices_query_answer(request, request_len, NULL, kept_at, NULL,
+		                                            reply, reply_cap);
+	}
 	n = fzn_contact_devices_offer_answer(request, request_len, take_offered, (void *)owner, reply,
 	                                     reply_cap);
 	if (!n)
@@ -8729,14 +8769,48 @@ static size_t address_local(fzn_origin_t origin, const fzn_request_t *request, c
 _Static_assert(FZND_PULL_REPLY_MAX >= FZN_CONTACT_DEVICES_REPLY_MAX,
                "a devices page fits the round's answers");
 
+/* FIRST THE CONTACTS' REVOCATIONS THE MEMBER SAVED, sec 780, so a device
+ * it passes on next is judged by them; then the devices it kept. */
 struct devices_talk {
 	fzn_node_talk_t talk;
 	struct meter m;
-	uint8_t request[FZN_CONTACT_DEVICES_QUERY_LEN];
+	uint8_t request[FZN_CONTACT_DEVICES_REVOKED_LEN > FZN_CONTACT_DEVICES_QUERY_LEN
+	                        ? FZN_CONTACT_DEVICES_REVOKED_LEN
+	                        : FZN_CONTACT_DEVICES_QUERY_LEN];
+	int revoked;
+	fzn_contact_revoked_querying_t rq;
 	fzn_contact_devices_querying_t q;
 };
 static struct devices_talk devices_talks[FZND_ROUND_TARGETS_MAX];
 static size_t n_devices_talks, contacts_asked, contacts_kept;
+static size_t contact_records_taken;
+
+/* ONE OF A CONTACT'S ROOT'S RECORDS, as a member passed it on: taken as that
+ * root's when its issuer is a contact standing here -- signed by it, and so
+ * checked as one its own host handed over is. */
+static void take_member_revoked(void *ctx, const uint8_t record[FZN_REVOCATION_LEN])
+{
+	fzn_revocation_record_t rec;
+	fzn_contact_device_err_t err = FZN_CONTACT_DEVICE_ERR_ROOM;
+	int grown = 0;
+
+	(void)ctx;
+	if (!running_admin || !node_apply.store || !node_apply.capability || !contact_id
+	    || !contact_revoked_entries
+	    || fzn_revocation_open(record, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK
+	    || !fzn_node_admin_contact_stands(running_admin, fzn_revocation_issuer(rec)))
+		return;
+	while (err == FZN_CONTACT_DEVICE_ERR_ROOM && (!grown++ || contact_revoked_grow()))
+		err = fzn_contact_revocation_take(&contact_revoked, node_apply.store,
+		                                  fzn_revocation_issuer(rec), node_apply.capability,
+		                                  record, contact_id->sign, contact_hash_ops);
+	if (err == FZN_CONTACT_DEVICE_OK)
+		contact_records_taken++;
+	else if (err != FZN_CONTACT_DEVICE_ERR_REFUSED)
+		say(FZN_ENTRY_WARNING, "contact/devices",
+		    "a contact's revocation a member passed on was not kept (%s)",
+		    fzn_contact_device_err_str(err));
+}
 
 static int devices_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
                              size_t cap, size_t *request_len)
@@ -8745,6 +8819,24 @@ static int devices_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 	int done = 0, ok;
 
 	meter_answer(&dt->m, reply, reply_len);
+	if (dt->revoked) {
+		/* AN ANSWER THAT IS NO PAGE -- a member older than sec 780 -- moves on
+		 * to the devices, as the exchange stood before. */
+		if (reply && fzn_contact_revoked_query_step(&dt->rq, reply, reply_len, request, cap,
+		                                            request_len, &done)
+		    && !done) {
+			meter_asked(&dt->m, *request_len);
+			return 1;
+		}
+		if (!reply)
+			return 0;
+		dt->revoked = 0;
+		if (!fzn_contact_devices_query_begin(&dt->q, FZN_CONTACT_DEVICES_KEPT, take_kept,
+		                                     &contacts_kept, request, cap, request_len))
+			return 0;
+		meter_asked(&dt->m, *request_len);
+		return 1;
+	}
 	ok = fzn_contact_devices_query_step(&dt->q, reply, reply_len, request, cap, request_len,
 	                                    &done);
 	if (!ok || done)
@@ -8777,8 +8869,8 @@ struct contact_talk {
 };
 enum { CONTACT_OFFER = 1, CONTACT_QUERY = 2, CONTACT_ROUTING = 3, CONTACT_REVOKED = 4 };
 
-/* HOW MANY OF CONTACTS' ROOTS' RECORDS THIS ROUND TOOK, sec 776. */
-static size_t contact_records_taken;
+/* HOW MANY OF CONTACTS' ROOTS' RECORDS THIS ROUND TOOK, sec 776:
+ * `contact_records_taken`, beside the members' talk, which counts too. */
 
 /* ONE OF THE CONTACT'S ROOT'S RECORDS, as its host handed it: taken when
  * the contact signed it, the store given room when it is full. */
@@ -9126,9 +9218,9 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 		struct devices_talk *dt = &devices_talks[n_devices_talks];
 		size_t len = 0;
 
+		dt->revoked = 1;
 		if (silent_peer(&pulls[i]) || !peer_in_estate(&pulls[i])
-		    || !fzn_contact_devices_query_begin(&dt->q, FZN_CONTACT_DEVICES_KEPT, take_kept,
-		                                        &contacts_kept, dt->request,
+		    || !fzn_contact_revoked_query_begin(&dt->rq, take_member_revoked, NULL, dt->request,
 		                                        sizeof(dt->request), &len))
 			continue;
 		n_devices_talks++;

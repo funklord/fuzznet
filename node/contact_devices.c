@@ -693,6 +693,58 @@ fzn_contact_device_err_t fzn_contact_revocations_load(fzn_revocation_store_t *re
 	return w.full ? FZN_CONTACT_DEVICE_ERR_ROOM : FZN_CONTACT_DEVICE_OK;
 }
 
+/* ONE ROW, walked into the caller's room while there is any. */
+struct revocations_listing {
+	const fzn_persist_ops_t *store;
+	const fzn_hash_ops_t *hash;
+	uint8_t (*out)[FZN_REVOCATION_LEN];
+	size_t cap, n;
+};
+
+static int revocation_listed(void *arg, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	struct revocations_listing *l = arg;
+	uint8_t row[REVOCATION_ROW_LEN], filed[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t rec;
+	size_t len = 0;
+
+	if (!l->store->load(l->store->ctx, FZN_PERSIST_CONTACT_REVOCATION, key, row, sizeof(row),
+	                    &len)
+	    || fzn_persist_head_check(row, len, FZN_REVOCATION_LEN, FZN_PERSIST_BLOB_REVOCATION)
+	               != FZN_PERSIST_OK
+	    || fzn_revocation_open(row + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN, &rec)
+	               != FZN_CHAIN_OK
+	    || !revocation_key(l->hash, rec, filed) || memcmp(filed, key, FZN_PUBKEY_LEN) != 0)
+		return 1;
+	if (l->n < l->cap)
+		memcpy(l->out[l->n], row + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN);
+	l->n++;
+	return 1;
+}
+
+fzn_contact_device_err_t fzn_contact_revocations_list(const fzn_persist_ops_t *store,
+                                                      const fzn_hash_ops_t *hash,
+                                                      uint8_t (*out)[FZN_REVOCATION_LEN],
+                                                      size_t cap, size_t *count)
+{
+	struct revocations_listing l;
+
+	if (!count)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	*count = 0;
+	if (!store || !store->load || !hash || !hash->hash || (!out && cap))
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	memset(&l, 0, sizeof(l));
+	l.store = store;
+	l.hash = hash;
+	l.out = out;
+	l.cap = cap;
+	if (!fzn_persist_each(store, FZN_PERSIST_CONTACT_REVOCATION, revocation_listed, &l))
+		return FZN_CONTACT_DEVICE_ERR_BACKEND;
+	*count = l.n;
+	return l.n > cap ? FZN_CONTACT_DEVICE_ERR_ROOM : FZN_CONTACT_DEVICE_OK;
+}
+
 /* THE OWNER'S LIVE REVOCATION OF `key`, if the store holds one: 1, with
  * whether it draws a line. */
 static int owner_revoked(const fzn_revocation_store_t *revocations,

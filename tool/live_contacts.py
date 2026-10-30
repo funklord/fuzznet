@@ -23,8 +23,9 @@ and S's estate advertises.
     d  R2, given an address so R hears it, writes a line while S's estate
        is down, then falls silent past R's `archive/gone`: R takes the line
        over and delivers it once S is back (sec 616)
-    e  R, given an address so S reaches it, revokes R2 (sec 776): S and S2,
-       each asking R for its root's records, drop R2 -- listed no more,
+    e  R, given an address so S reaches it, revokes R2 (sec 776): S drops
+       R2 by R's record, S2 in its first pass by the record S passes on
+       (sec 780) -- listed no more,
        paired no more -- and a line R2 writes reaches neither; R withdraws,
        and R2's next offer is taken and its line delivered
 
@@ -352,12 +353,24 @@ def main(argv):
 			r = up("r", "r-e1")
 			r.wait_for(PASS_RE, "R's round, offering itself with its address")
 			dropped_re = re.compile(r"a device its owner revoked was dropped: " + keys["r2"])
+			first_pass_re = re.compile(r"contact pass: (\d+) contact\(s\) asked, .* (\d+) "
+			                           r"device\(s\) dropped as revoked")
 			for who in ("s", "s2"):
 				down(who)
 				d = up(who, "%s-e1" % who)
-				# 150 S, A ROUND AND MORE: S2 learns R's host from S in its first
-				# pass and asks R only in its next, 60 s on (measured, 8 of 8
-				# runs past a 60 s wait once phase d restarts S2).
+				# S2 FROM ITS MEMBER, sec 780: it reaches R only a pass after it
+				# learns R's host from S, so its first pass drops R2 by the record
+				# S passes on, asking no contact itself.
+				if who == "s2":
+					got = d.wait_for(first_pass_re, "S2's first contact pass")
+					if int(got.group(2)) != 1:
+						raise failed("e: S2's first pass, %s contact(s) asked, dropped %s, "
+						             "not R2 by the record S passed on"
+						             % (got.group(1), got.group(2)))
+				# 150 S, A ROUND AND MORE: before sec 780, S2 dropped R2 only when
+				# it asked R itself, a pass after learning R's host from S, 60 s
+				# on (8 of 8 runs past a 60 s wait). It drops it in its first pass
+				# now; the room stays for a lost exchange.
 				d.wait_for(dropped_re, "%s dropping R2" % who.upper(), within=150.0)
 				line = "list device rory" if who == "s" else "list device " + keys["r"]
 				listed = ask(socks[who], line).split()

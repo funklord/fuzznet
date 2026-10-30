@@ -252,7 +252,9 @@ size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_l
  * failing open there is what this node did before, and failing shut would
  * cut a device its own estate keeps.
  *
- *   REVOKED  33  `from` (32 bits): the root's records, from the `from`th
+ *   REVOKED  33  `from` (32 bits): the root's records, from the `from`th --
+ *                asked of a contact's host; or, asked of a member, the
+ *                contacts' roots' records it saved (sec 780)
  *   RECORDS  34  `from` echoed, how many, whether more follow, then each
  *                record, FZN_REVOCATION_LEN bytes
  */
@@ -316,6 +318,17 @@ fzn_contact_device_err_t fzn_contact_revocations_load(fzn_revocation_store_t *re
                                                       const fzn_sign_ops_t *sign,
                                                       const fzn_hash_ops_t *hash, size_t *count,
                                                       size_t *skipped);
+
+/* EVERY RECORD SAVED, sec 780, into `out`, `*count` of them: what a member
+ * hands another that asks, so a member that never reached a contact still
+ * drops the devices its root revoked. Each is the contact's root's own
+ * signed record, so the asker checks it as it checks one from the contact.
+ * ROOM with `*count` the number saved when that is more than `cap`; a row
+ * that will not read is passed over. */
+fzn_contact_device_err_t fzn_contact_revocations_list(const fzn_persist_ops_t *store,
+                                                      const fzn_hash_ops_t *hash,
+                                                      uint8_t (*out)[FZN_REVOCATION_LEN],
+                                                      size_t cap, size_t *count);
 
 /* WHETHER `d` FALLS by its owner's revocations in `revocations`, as the
  * section above judges. 0 for a device that is its owner, and for a store

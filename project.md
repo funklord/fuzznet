@@ -75084,8 +75084,8 @@ Measured: 8 runs with phase d all passing, S2 opening the line in each
 
 **Not yet:**
 - votes of the contact's members and admins, and of its other roots;
-- a member passing on contact revocations it learned, as it passes on the
-  devices it kept (KEPT);
+- ~~a member passing on contact revocations it learned, as it passes on
+  the devices it kept (KEPT);~~ built in sec 780;
 - a contact removed keeps its records here, which is harmless;
 - a revoked device held as a group host (sec 630) is un-paired, and may
   be paired again by the group pass.
@@ -75194,3 +75194,40 @@ instead of once, and with a peer down that is one more 3 s wait.
   to catch on an idle machine: 30 probe runs of phase d, reading S2 right
   after delivery, found it opened every time with the old order. The
   failures sec 776 recorded came while `make test` loaded the machine.
+
+## 780. Members pass on the contact revocations they learned, 2026-10-30
+
+Sec 776 left it open, and the holder asked for it. A member learned a
+contact's root's revocations only from that contact's own host, so a
+member that could not reach the contact, or had not yet learned its
+host, kept serving a device the contact had revoked. `live_contacts`
+measured it: S2's first contact pass in phase e asked no contact and
+dropped nothing, and R2 fell there only a round later.
+
+**What a member hands on is the record itself**, the contact root's own
+signature over it. The asker takes one only when its issuer is a contact
+standing here. It goes through `fzn_contact_revocation_take` with that
+contact as owner, as one from the contact's host does, so a member can
+pass on only what the contact signed. Nothing about the member's word is
+trusted.
+
+**Built:**
+- **The message:** the same REVOKED query, asked of a member. A member
+  answers with every row of slot 64, `fzn_contact_revocations_list`. A
+  contact's host answers with its own root's records, as before.
+- **The exchange:** a member's exchange with each other member asks for
+  these first, then the devices it kept (KEPT). A device passed on is
+  then judged against the records just taken, and refused if they revoke
+  it. A member older than this, answering something that is not a page,
+  moves on to KEPT as before.
+- **Counted** in the contact pass's `revocation record(s) taken`.
+
+**Measured:**
+- **`contact_devices_test`, 59 checks, 3 new:** the two rows saved list
+  once each, the withdrawal as itself, and no room answers ROOM with the
+  count.
+- **`live_contacts` phase e:** S2's first contact pass, which asks no
+  contact, drops R2 by the record S passed on. **Control:** before this,
+  that pass read `0 contact(s) asked, ... 0 revocation record(s) taken,
+  0 device(s) dropped as revoked` (sec 776's runs), and R2 fell a round
+  later.

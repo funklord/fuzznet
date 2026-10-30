@@ -627,6 +627,28 @@ static void test_a_contacts_revocations(void)
 	                         == FZN_CONTACT_DEVICE_ERR_ROOM,
 	      "a load into a store with no room was not ROOM");
 
+	/* LISTED FOR A MEMBER, sec 780: each row once, as saved. */
+	{
+		uint8_t listed[4][FZN_REVOCATION_LEN];
+		size_t n = 0, i, withdrawals = 0;
+		fzn_revocation_record_t got;
+
+		CHECK(fzn_contact_revocations_list(&STORE, &HASH, listed, 4u, &n)
+		                      == FZN_CONTACT_DEVICE_OK
+		              && n == 2u,
+		      "the two rows saved did not list");
+		for (i = 0; i < n && i < 4u; i++)
+			withdrawals += fzn_revocation_open(listed[i], FZN_REVOCATION_LEN, &got)
+			                       == FZN_CHAIN_OK
+			               && fzn_revocation_is_withdrawal(got);
+		CHECK(withdrawals == 1u, "the withdrawal saved did not list as itself");
+		n = 9u;
+		CHECK(fzn_contact_revocations_list(&STORE, &HASH, listed, 1u, &n)
+		                      == FZN_CONTACT_DEVICE_ERR_ROOM
+		              && n == 2u,
+		      "no room for the rows was not ROOM with the count");
+	}
+
 	/* A KEY ABOVE THE DEVICE: falls with it when its vote trusts none of
 	 * its acts, and is not judged under a line. */
 	memset(rows, 0, sizeof(rows));
