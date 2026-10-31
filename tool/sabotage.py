@@ -11100,6 +11100,41 @@ SABOTAGES = [
 		"a rows page with a trailing byte is taken -- sec 782",
 	),
 	(
+		"contact-act-lenient-unknown-stands",
+		'node/contact_devices.c',
+		"\treturn estate_act_walk(ctx, key, cut, act, &unverified) != 0;",
+		"\treturn estate_act_walk(ctx, key, cut, act, &unverified) == 1;",
+		"a revoked key's grant falls on a host's spine entry, and a device its estate keeps is dropped -- sec 783",
+	),
+	(
+		"contact-act-strict-records-only",
+		'node/contact_devices.c',
+		"\treturn estate_act_walk(ctx, key, cut, act, &unverified) == 1 && !unverified;",
+		"\treturn estate_act_walk(ctx, key, cut, act, &unverified) == 1;",
+		"a removed root's vote counts on a host's unsigned spine entry -- sec 783",
+	),
+	(
+		"contact-act-issuer",
+		'node/contact_devices.c',
+		"\t       && memcmp(fzn_record_issuer(rec), key, FZN_PUBKEY_LEN) == 0\n",
+		"\t       && 1\n",
+		"another key's record is kept as the cut key's act -- sec 783",
+	),
+	(
+		"estate-cut-held-live-only",
+		'node/revoke.c',
+		"\tif (kind == ESTATE_VOTE && fzn_revocation_open(record, len, &rec) == FZN_CHAIN_OK\n\t    && !fzn_revocation_is_withdrawal(rec)\n",
+		"\tif (kind == ESTATE_VOTE && fzn_revocation_open(record, len, &rec) == FZN_CHAIN_OK\n",
+		"a withdrawn vote still lets a contact read the key's act log -- sec 783",
+	),
+	(
+		"estate-cut-held-lined-only",
+		'node/revoke.c',
+		"\t    && memcmp(fzn_revocation_grantee(rec), h->key, FZN_PUBKEY_LEN) == 0\n\t    && memcmp(fzn_revocation_cut(rec), NOTHING, sizeof(NOTHING)) != 0)\n",
+		"\t    && memcmp(fzn_revocation_grantee(rec), h->key, FZN_PUBKEY_LEN) == 0)\n",
+		"a vote keeping nothing lets a contact read the key's act log, with no line to judge by -- sec 783",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',
@@ -12008,8 +12043,8 @@ SABOTAGES = [
 	(
 		"contact-devices-list-says-room",
 		"node/contact_devices.c",
-		"\treturn w.n > cap ? FZN_CONTACT_DEVICE_ERR_ROOM : FZN_CONTACT_DEVICE_OK;",
-		"\treturn FZN_CONTACT_DEVICE_OK;",
+		"device_walked, &w))\n\t\treturn FZN_CONTACT_DEVICE_ERR_BACKEND;\n\t*count = w.n;\n\treturn w.n > cap ? FZN_CONTACT_DEVICE_ERR_ROOM : FZN_CONTACT_DEVICE_OK;",
+		"device_walked, &w))\n\t\treturn FZN_CONTACT_DEVICE_ERR_BACKEND;\n\t*count = w.n;\n\treturn FZN_CONTACT_DEVICE_OK;",
 		"more contact devices kept than the caller's room reads as the whole list, and the rest are never delivered to -- sec 704",
 	),
 	(

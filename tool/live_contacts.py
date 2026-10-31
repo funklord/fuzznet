@@ -387,6 +387,11 @@ def main(argv):
 					             % (who.upper(), line, listed))
 				if keys["r2"] in ask(socks[who], "list peer"):
 					raise failed("e: %s still serves R2 as a peer" % who.upper())
+			# R's VOTE DREW A LINE at R2's head, so R holds a cut of R2's and
+			# answers S with R2's act log (sec 783): S's pass took entries.
+			acts_re = re.compile(r"(\d+) act log entr\(ies\) taken")
+			if not any(int(m.group(1)) > 0 for m in acts_re.finditer(started["s"].log())):
+				raise failed("e: S took no entry of R2's act log from R")
 			r2 = up("r2", "r2-e1")
 			r2.wait_for(PASS_RE, "R2's contact pass")
 			expect(socks["r2"], "r2", "add message %s out %s revoked" % (keys["s"], LINE_4),

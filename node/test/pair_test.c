@@ -3526,12 +3526,18 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	 * store is read at R: since sec 506 the journal carries the line. */
 	CHECK(carry(&n, &r, &r_ap, &t) && t.applied == 1u && t.waiting == 0u,
 	      "fixture: R holds N's stream and its record");
+	/* A CUT HELD, sec 783: what lets a contact be handed N's act log. */
+	CHECK(fzn_node_estate_cut_held(&r.ops, n.id.pubkey) == 0,
+	      "R held a cut of N's before voting N revoked");
 	CHECK(fzn_node_roots_head(&r_roots, n.id.pubkey, cut)
 	              && fzn_node_revoke_at(NULL, &r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1500u, cut,
 	                                    &r_revs, &r.ops) == FZN_NODE_REVOKE_OK,
 	      "R would not revoke N at the head of N's log");
 	CHECK(fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ACTIVE,
 	      "a revoked member's contact from before the line was dropped");
+	CHECK(fzn_node_estate_cut_held(&r.ops, n.id.pubkey) == 1
+	              && fzn_node_estate_cut_held(&r.ops, x.id.pubkey) == 0,
+	      "R's vote against N, drawing a line, was not a cut held, or X's was");
 
 	/* THE THIEF, holding N's key, adds Y: logged after the line. */
 	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, y.id.pubkey, 1, &n_revs,
@@ -3562,6 +3568,8 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	              && fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u)
 	                         == FZN_ROSTER_ABSENT,
 	      "a vote moved to keep nothing kept the member's contact");
+	CHECK(fzn_node_estate_cut_held(&r.ops, n.id.pubkey) == 0,
+	      "a vote keeping nothing was a cut held: there is no line to judge by");
 
 	/* FOUND UNHARMED: undone, and both count again. */
 	CHECK(fzn_node_unrevoke(NULL, &r.id, r.id.pubkey, NULL, n.id.pubkey, 1700u, &r_revs, &r.ops)
@@ -3571,6 +3579,8 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	              && fzn_node_roster_standing(&r_ro, y.id.pubkey, &r_revs, 2u)
 	                         == FZN_ROSTER_ACTIVE,
 	      "undoing the revocation did not bring every contact back");
+	CHECK(fzn_node_estate_cut_held(&r.ops, n.id.pubkey) == 0,
+	      "a withdrawn vote was a cut held");
 	/* A FORKED STREAM HAS NO HEAD: a second record at the head of N's
 	 * stream, signed with N's key, offered to R's journal, and no vote may
 	 * default to either branch. */

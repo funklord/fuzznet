@@ -221,6 +221,17 @@ int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY
                             const uint8_t cut[FZN_RECORD_ID_LEN],
                             const uint8_t act[FZN_SUBJECT_LEN]);
 
+/* `key`'S ACT LOG AS IT IS HELD, sec 783: its estate stream from the head
+ * this journal admitted down to its first act, each handed to `fn` -- the
+ * record whole where it is held (`spine` 0), its spine entry where it was
+ * cut (`spine` 1) -- checked against the `prev` above it as
+ * `fzn_node_journal_stands` checks, and stopping at the first that is not.
+ * What a contact's host hands a contact judging a cut of its estate's.
+ * `fn` returns 0 to stop. 0 for a key not followed, or a stream not held. */
+int fzn_node_journal_act_log(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                             int (*fn)(void *ctx, int spine, const uint8_t *bytes, size_t len),
+                             void *ctx);
+
 /* A spine entry: a record's id, its predecessor's, and its subject. */
 #define FZN_NODE_JOURNAL_SPINE_ENTRY (FZN_RECORD_ID_LEN + FZN_RECORD_ID_LEN + FZN_SUBJECT_LEN)
 

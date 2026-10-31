@@ -487,12 +487,13 @@ fzn_contact_device_err_t fzn_contact_estate_each(const fzn_persist_ops_t *store,
 const uint8_t *fzn_contact_estate_row_owner(const uint8_t *row, size_t len);
 
 /* TAKE A ROW A MEMBER PASSED ON, its owner already known to stand: an item
- * kept as `fzn_contact_estate_keep` keeps one, a k only when heard later
- * than the k kept. OK when kept or when an older k was passed over;
+ * kept as `fzn_contact_estate_keep` keeps one, an act-log entry as
+ * `fzn_contact_act_keep` does (`stream` the estate stream's number, sec
+ * 783), a k only when heard later than the k kept. OK when kept or when an older k was passed over;
  * REFUSED for a row that is neither, or an item not signed. */
 fzn_contact_device_err_t fzn_contact_estate_take_row(const fzn_persist_ops_t *store,
                                                      const fzn_hash_ops_t *hash,
-                                                     const fzn_sign_ops_t *sign,
+                                                     const fzn_sign_ops_t *sign, uint32_t stream,
                                                      const uint8_t *row, size_t len);
 
 /* THE ROWS' QUERY AS STEPS, and its answer, as the others: each row handed
@@ -520,6 +521,100 @@ int fzn_contact_rows_query_step(fzn_contact_rows_querying_t *q, const uint8_t *r
 size_t fzn_contact_rows_answer(const uint8_t *request, size_t request_len,
                                int (*row_at)(void *ctx, size_t i, uint8_t *out, size_t *len),
                                void *ctx, uint8_t *reply, size_t reply_cap);
+
+/* ---- a contact's act log, sec 783 ----------------------------------------
+ *
+ * A VOTE DRAWS A LINE, and what a revoked key did before it still stands
+ * (sec 496): a device a revoked admin granted before its line keeps its
+ * standing in its own estate, and one granted after falls. Which side a
+ * grant lies on is the key's act log's to say -- its estate stream, each
+ * record naming the one before. Without it this node could judge neither,
+ * and kept every such device. Now the contact's host hands over the act
+ * log of every key a held cut names, as its journal holds it: the record
+ * whole where held, the spine entry where the journal's window cut it.
+ *
+ * A RECORD IS CHECKED, A SPINE ENTRY IS NOT. A record kept here opens, is
+ * signed by the key whose log it is, and its id is its hash. A spine entry
+ * is three hashes, the host's word -- the same word the contact's own
+ * members take from each other across the window (sec 552). So nothing is
+ * concluded AGAINST a key from a spine entry:
+ *
+ *   - for a revoked key, an act stands unless the log from the cut to its
+ *     first act is held in records and holds no such act: unknown stands,
+ *     keeping what it granted;
+ *   - for a removed root, an act counts only when found at or below the
+ *     cut through records alone: unknown does not count, losing its vote.
+ *
+ * Both are the reading that drops nothing the contact's estate keeps.
+ *
+ * Kept in slot FZN_PERSIST_CONTACT_ESTATE beside the items, kind 0xfe, so
+ * a member passes them on with the rest (sec 782).
+ *
+ *   ACTS         55  a key, then `from` (32 bits): its act log, from the
+ *                    `from`th entry down from its head
+ *   ACT_ENTRIES  56  `from` echoed, how many, whether more follow, then
+ *                    each entry after a 16-bit length: 0 and a record, or
+ *                    1 and a spine entry (id, prev, subject)
+ */
+#define FZN_CONTACT_DEVICES_ACTS 55u
+#define FZN_CONTACT_DEVICES_ACT_ENTRIES 56u
+#define FZN_CONTACT_DEVICES_ACTS_LEN (2u + FZN_PUBKEY_LEN + 4u)
+#define FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN 8u
+/* An act-log entry's largest bytes: a record, or a spine entry's three. */
+#define FZN_CONTACT_ACT_MAX 1024u
+#define FZN_CONTACT_ACT_SPINE_LEN (3u * 32u)
+
+typedef struct fzn_contact_act {
+	int spine;
+	uint8_t bytes[FZN_CONTACT_ACT_MAX];
+	size_t len;
+} fzn_contact_act_t;
+
+typedef struct fzn_contact_acts_querying {
+	int live;
+	uint8_t key[FZN_PUBKEY_LEN];
+	void (*take)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const fzn_contact_act_t *act);
+	void *take_ctx;
+	uint32_t from;
+	size_t count;
+} fzn_contact_acts_querying_t;
+
+int fzn_contact_acts_query_begin(fzn_contact_acts_querying_t *q,
+                                 const uint8_t key[FZN_PUBKEY_LEN],
+                                 void (*take)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                                              const fzn_contact_act_t *act),
+                                 void *take_ctx, uint8_t *request, size_t cap,
+                                 size_t *request_len);
+
+int fzn_contact_acts_query_step(fzn_contact_acts_querying_t *q, const uint8_t *reply,
+                                size_t reply_len, uint8_t *request, size_t cap,
+                                size_t *request_len, int *done);
+
+/* AN ACTS QUERY, answered: `act_at` fills the `i`th entry of `key`'s log
+ * down from its head, 0 past the last. 0 for anything that is not one. */
+size_t fzn_contact_acts_answer(const uint8_t *request, size_t request_len,
+                               int (*act_at)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                                             size_t i, fzn_contact_act_t *out),
+                               void *ctx, uint8_t *reply, size_t reply_cap);
+
+/* KEEP ONE ENTRY of `key`'s act log for the contact `owner`: a record that
+ * opens, is signed by `key` and is of its estate stream (`stream`); or a
+ * spine entry as it came. REFUSED otherwise. */
+fzn_contact_device_err_t fzn_contact_act_keep(const fzn_persist_ops_t *store,
+                                              const fzn_hash_ops_t *hash,
+                                              const fzn_sign_ops_t *sign,
+                                              const uint8_t owner[FZN_PUBKEY_LEN],
+                                              const uint8_t key[FZN_PUBKEY_LEN],
+                                              uint32_t stream, const fzn_contact_act_t *act);
+
+/* EVERY KEY A HELD CUT OF `owner`'s NAMES: the grantee of a vote drawing a
+ * line, the root a removal draws one for -- whose act logs judging needs.
+ * Into `out`, `*count` of them, distinct; ROOM with the count when more. */
+fzn_contact_device_err_t fzn_contact_estate_cut_keys(const fzn_persist_ops_t *store,
+                                                     const fzn_hash_ops_t *hash,
+                                                     const uint8_t owner[FZN_PUBKEY_LEN],
+                                                     uint8_t (*out)[FZN_PUBKEY_LEN], size_t cap,
+                                                     size_t *count);
 
 /* THE CONTACT'S ESTATE AS THIS NODE SEES IT, built from what is kept for
  * `owner` -- slot FZN_PERSIST_CONTACT_ESTATE and its root's records in

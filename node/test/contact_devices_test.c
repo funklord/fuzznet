@@ -4,6 +4,7 @@
  * signed, not the curve. */
 
 #include "../contact_devices.h"
+#include "../../record/record.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1095,7 +1096,7 @@ static void test_estate_rows_between_members(void)
 	memset(rows, 0, sizeof(rows));
 	CHECK(judged(&d, &k) == 0 && k == 1u, "fixture: the second member holds nothing");
 	for (i = 0; i < 2u; i++)
-		(void)fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, row_bytes[i], row_lens[i]);
+		(void)fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, 1u, row_bytes[i], row_lens[i]);
 	CHECK(judged(&d, &k) == 0 && k == 2u,
 	      "a member's rows did not give the estate its k of 2, or one admin dropped the device");
 
@@ -1107,13 +1108,13 @@ static void test_estate_rows_between_members(void)
 	krow[33] = 3u;
 	memset(krow + 34, 0, 8u);
 	krow[41] = 0x01u; /* heard at 1 ms, before the kept 2's */
-	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, krow, sizeof(krow))
+	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, 1u, krow, sizeof(krow))
 	                      == FZN_CONTACT_DEVICE_OK
 	              && judged(&d, &k) == 0 && k == 2u,
 	      "a k heard before the one kept replaced it");
 	krow[33] = 1u;
 	krow[40] = 0x10u; /* 4097 ms, after */
-	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, krow, sizeof(krow))
+	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, 1u, krow, sizeof(krow))
 	                      == FZN_CONTACT_DEVICE_OK
 	              && judged(&d, &k) == 1 && k == 1u,
 	      "a lower k heard later, passed on by a member, was not kept, or at k 1 the admin's "
@@ -1129,14 +1130,251 @@ static void test_estate_rows_between_members(void)
 	i = row_lens[0] > sizeof(krow) ? 0u : 1u;
 	memcpy(page, row_bytes[i], row_lens[i]);
 	page[32u + 3u + FZN_REV_OFF_GRANTEE] ^= 1u;
-	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, page, row_lens[i])
+	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, 1u, page, row_lens[i])
 	                      != FZN_CONTACT_DEVICE_OK
-	              && fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, page, 33u)
+	              && fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, 1u, page, 33u)
 	                         == FZN_CONTACT_DEVICE_ERR_REFUSED,
 	      "a row changed after its owner's member listed it was kept");
 	for (i = 0; i < ROWS; i++)
 		held -= (size_t)rows[i].used;
 	CHECK(held == 0u, "a refused row was kept all the same");
+}
+
+/* ---- a contact's act log, sec 783 ---------------------------------------- */
+
+/* `key`'s act `seq` in its estate stream (1), after `prev`, about `subject`:
+ * the record into `act`, its id into `id`. */
+static void act_record(fzn_contact_act_t *act, uint8_t id[32], const uint8_t key[32],
+                       uint64_t seq, const uint8_t prev[32], const uint8_t subject[32],
+                       uint32_t stream)
+{
+	static const uint8_t body[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+	memset(act, 0, sizeof(*act));
+	signing_as = key[0];
+	(void)fzn_record_sign(key, subject, stream, 1u, seq, prev, 100u + seq, body, sizeof(body),
+	                      &SIGN, act->bytes, sizeof(act->bytes), &act->len);
+	(void)mix_hash(NULL, id, 32u, act->bytes, act->len);
+}
+
+static void test_a_contacts_act_log(void)
+{
+	static fzn_contact_device_t d;
+	static fzn_contact_act_t r[3], spine, wrong;
+	fzn_revocation_t e[4];
+	fzn_revocation_store_t rs;
+	uint8_t id[3][32], s1[32], s3[32], grant[32], zero[32], rec[FZN_REVOCATION_LEN];
+	size_t i;
+
+	/* THE OWNER GRANTS A, a member who may grant on; A GRANTS THE PHONE. */
+	device(&d, phone, 1000u);
+	signing_as = owner[0];
+	(void)fzn_chain_mint(owner, other, &member, 100u, FZN_NO_EXPIRY, 1, &SIGN, d.hops[0]);
+	signing_as = other[0];
+	(void)fzn_chain_mint(other, phone, &member, 100u, FZN_NO_EXPIRY, 0, &SIGN, d.hops[1]);
+	d.hop_count = 2u;
+	/* A'S LOG: an act, the grant, an act -- each naming the one before. */
+	memset(zero, 0, sizeof(zero));
+	memset(s1, 0xa1, sizeof(s1));
+	memset(s3, 0xa3, sizeof(s3));
+	(void)mix_hash(NULL, grant, sizeof(grant), d.hops[1], FZN_HOP_LEN);
+	act_record(&r[0], id[0], other, 1u, zero, s1, 1u);
+	act_record(&r[1], id[1], other, 2u, id[0], grant, 1u);
+	act_record(&r[2], id[2], other, 3u, id[1], s3, 1u);
+
+	/* THE OWNER REVOKES A, trusting its acts up to the first: the grant is
+	 * past the line. */
+	memset(rows, 0, sizeof(rows));
+	revoked_by(rec, owner, &member, other, 300u, id[0]);
+	CHECK(fzn_revocation_store_init(&rs, e, 4u) == FZN_CHAIN_OK
+	              && fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN, &HASH)
+	                         == FZN_CONTACT_DEVICE_OK,
+	      "fixture: the owner's vote against A, drawing a line");
+	CHECK(judged(&d, NULL) == 0,
+	      "a device granted under a line fell with no act log held to say where");
+
+	/* A'S LOG KEPT, in records: the grant lies past the line, and falls. */
+	for (i = 0; i < 3u; i++)
+		CHECK(fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &r[i])
+		              == FZN_CONTACT_DEVICE_OK,
+		      "a record of A's estate stream, signed by A, was not kept");
+	CHECK(judged(&d, NULL) == 1,
+	      "a device granted past its grantor's line stood with the log held in records");
+
+	/* AT A LINE PAST THE GRANT, it stands. */
+	memset(rows, 0, sizeof(rows));
+	revoked_by(rec, owner, &member, other, 301u, id[1]);
+	CHECK(fzn_revocation_store_init(&rs, e, 4u) == FZN_CHAIN_OK
+	              && fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN, &HASH)
+	                         == FZN_CONTACT_DEVICE_OK,
+	      "fixture: the owner's vote against A, its line past the grant");
+	for (i = 0; i < 3u; i++)
+		(void)fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &r[i]);
+	CHECK(judged(&d, NULL) == 0, "a device granted before its grantor's line fell");
+
+	/* THE FIRST ACT ONLY AS A SPINE ENTRY, the host's word: unknown, so the
+	 * device stands although the grant is past the line. */
+	memset(rows, 0, sizeof(rows));
+	revoked_by(rec, owner, &member, other, 302u, id[0]);
+	CHECK(fzn_revocation_store_init(&rs, e, 4u) == FZN_CHAIN_OK
+	              && fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN, &HASH)
+	                         == FZN_CONTACT_DEVICE_OK,
+	      "fixture: the line at the first act again");
+	memset(&spine, 0, sizeof(spine));
+	spine.spine = 1;
+	spine.len = FZN_CONTACT_ACT_SPINE_LEN;
+	memcpy(spine.bytes, id[0], 32u);
+	memcpy(spine.bytes + 32, zero, 32u);
+	memcpy(spine.bytes + 64, s1, 32u);
+	CHECK(fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &spine)
+	                      == FZN_CONTACT_DEVICE_OK
+	              && fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &r[1])
+	                         == FZN_CONTACT_DEVICE_OK
+	              && fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &r[2])
+	                         == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, NULL) == 0,
+	      "a device fell on a log whose line is only a host's spine entry");
+
+	/* A REMOVED ROOT, sec 783: R2 adds and is removed with a line at its
+	 * vote against the phone. The vote counts when R2's log shows it at or
+	 * below the line in records; through a spine entry, it does not. */
+	{
+		static fzn_contact_estate_item_t add, rem, vote;
+		static fzn_contact_device_t d1;
+		static fzn_contact_act_t vr, vs;
+		uint8_t vid[32], vsubject[32];
+
+		device(&d1, phone, 1000u);
+		granted(&d1, phone, &member);
+		vote_item(&vote, root2, phone, 400u);
+		(void)mix_hash(NULL, vsubject, sizeof(vsubject), vote.record, vote.record_len);
+		act_record(&vr, vid, root2, 1u, zero, vsubject, 1u);
+		memset(&add, 0, sizeof(add));
+		add.kind = FZN_CONTACT_ESTATE_CHANGE;
+		add.record_len = FZN_ROOT_ADD_LEN;
+		signing_as = owner[0];
+		(void)fzn_root_add_issue(owner, root2, &SIGN, add.record);
+		rem = add;
+		rem.record_len = FZN_ROOT_REMOVE_LEN;
+		signing_as = owner[0];
+		(void)fzn_root_remove_issue(owner, root2, vid, &SIGN, rem.record);
+		memset(rows, 0, sizeof(rows));
+		CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 3u, 1000u) == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &add)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &rem)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &vote)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && judged(&d1, NULL) == 0,
+		      "a removed root's vote counted with no log to show it before the line");
+		CHECK(fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, root2, 1u, &vr)
+		                      == FZN_CONTACT_DEVICE_OK
+		              && judged(&d1, NULL) == 1,
+		      "a removed root's vote, shown in records at its line, did not count");
+		memset(rows, 0, sizeof(rows));
+		memset(&vs, 0, sizeof(vs));
+		vs.spine = 1;
+		vs.len = FZN_CONTACT_ACT_SPINE_LEN;
+		memcpy(vs.bytes, vid, 32u);
+		memcpy(vs.bytes + 32, zero, 32u);
+		memcpy(vs.bytes + 64, vsubject, 32u);
+		CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 3u, 1000u) == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &add)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &rem)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &vote)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, root2, 1u, &vs)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && judged(&d1, NULL) == 0,
+		      "a removed root's vote counted on a host's spine entry alone");
+	}
+
+	/* WHAT IS NOT KEPT: another key's record, another stream's, a spine entry
+	 * of the wrong length. */
+	act_record(&wrong, id[2], phone, 1u, zero, s1, 1u);
+	CHECK(fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &wrong)
+	              == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "another key's record was kept as A's");
+	act_record(&wrong, id[2], other, 1u, zero, s1, 2u);
+	CHECK(fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &wrong)
+	              == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "a record of another stream was kept as A's act");
+	spine.len = FZN_CONTACT_ACT_SPINE_LEN - 1u;
+	CHECK(fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &spine)
+	              == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "a spine entry of the wrong length was kept");
+	{
+		uint8_t keys[4][32];
+		size_t n = 0;
+
+		CHECK(fzn_contact_estate_cut_keys(&STORE, &HASH, owner, keys, 4u, &n)
+		              == FZN_CONTACT_DEVICE_OK,
+		      "the cut keys did not list");
+		(void)n;
+	}
+}
+
+/* THE ACT LOG'S PAGES: thirty records, a page holding about twenty; a trailing byte
+ * refused. */
+static fzn_contact_act_t log_entries[30];
+static size_t log_taken;
+
+static int log_at(void *ctx, const uint8_t key[32], size_t i, fzn_contact_act_t *out)
+{
+	(void)ctx;
+	if (memcmp(key, other, 32u) != 0 || i >= 30u)
+		return 0;
+	*out = log_entries[i];
+	return 1;
+}
+
+static void log_take(void *ctx, const uint8_t key[32], const fzn_contact_act_t *act)
+{
+	(void)ctx;
+	log_taken += memcmp(key, other, 32u) == 0 && act->len == log_entries[log_taken].len
+	             && memcmp(act->bytes, log_entries[log_taken].bytes, act->len) == 0;
+}
+
+static void test_the_act_log_messages(void)
+{
+	static uint8_t page[FZN_CONTACT_DEVICES_REPLY_MAX + 1u];
+	fzn_contact_acts_querying_t q;
+	uint8_t req[FZN_CONTACT_DEVICES_ACTS_LEN], prev[32], id[32], subject[32];
+	size_t i, req_len = 0, page_len = 0, pages = 0;
+	int ok, done = 0;
+
+	memset(prev, 0, sizeof(prev));
+	memset(subject, 0x5e, sizeof(subject));
+	for (i = 0; i < 30u; i++) {
+		act_record(&log_entries[i], id, other, i + 1u, prev, subject, 1u);
+		memcpy(prev, id, sizeof(prev));
+	}
+	log_taken = 0;
+	ok = fzn_contact_acts_query_begin(&q, other, log_take, NULL, req, sizeof(req), &req_len);
+	while (ok && !done && pages < 8u) {
+		pages++;
+		page_len = fzn_contact_acts_answer(req, req_len, log_at, NULL, page, sizeof(page));
+		ok = page_len && fzn_contact_acts_query_step(&q, page, page_len, req, sizeof(req),
+		                                             &req_len, &done);
+	}
+	CHECK(ok && done && pages > 1u && log_taken == 30u && q.count == 30u,
+	      "thirty act-log records over pages were not each taken once, in order");
+	(void)fzn_contact_acts_query_begin(&q, other, log_take, NULL, req, sizeof(req), &req_len);
+	page_len = fzn_contact_acts_answer(req, req_len, log_at, NULL, page, sizeof(page));
+	page[page_len] = 0u;
+	log_taken = 0;
+	CHECK(!fzn_contact_acts_query_step(&q, page, page_len + 1u, req, sizeof(req), &req_len,
+	                                   &done)
+	              && log_taken == 0u,
+	      "an act-log page with a trailing byte was taken, or taken in part");
+	/* ANOTHER KEY ASKED is answered with nothing. */
+	(void)fzn_contact_acts_query_begin(&q, phone, log_take, NULL, req, sizeof(req), &req_len);
+	page_len = fzn_contact_acts_answer(req, req_len, log_at, NULL, page, sizeof(page));
+	CHECK(page_len == FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN && page[6] == 0u,
+	      "a key with no log answered entries");
 }
 
 static void test_the_suite_can_tell_pass_from_fail(void)
@@ -1171,6 +1409,8 @@ int main(void)
 	test_a_contacts_estate();
 	test_the_estate_messages();
 	test_estate_rows_between_members();
+	test_a_contacts_act_log();
+	test_the_act_log_messages();
 	if (failures) {
 		fprintf(stderr, "node contact_devices_test: %d of %d checks failed\n", failures, checks);
 		return 1;

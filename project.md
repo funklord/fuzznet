@@ -75260,7 +75260,7 @@ contact's devices. A device falls when the store revokes its own grant,
 or a key above it with every live vote against that key drawing no line,
 which is sec 776's rule.
 
-**What is missing is the act log**, which decides what a removed root or
+**What is missing is the act log** (carried since sec 783), which decides what a removed root or
 a revoked key did before its line. Without it nothing such a key did
 stands here: a removed root's votes and grants count for nothing, and so
 do those of an admin whose grant came from a revoked key. Each of these
@@ -75347,7 +75347,7 @@ kept R3 too. The test was wrong. R being right was the check that
 mattered.
 
 **Not yet:**
-- the act log, as above;
+- ~~the act log, as above;~~ carried in sec 783;
 - ~~members passing on slot 65's records, as sec 780 does slot 64's;~~
   built in sec 782;
 - a contact's members' votes as grantors: these count here as they do
@@ -75411,3 +75411,86 @@ R's estate had dropped.
 **Not yet:** a contact's hosts answering their own k ahead of their
 estate's journal, as R2 did. Each host answers what it holds, and the
 asker keeps the latest heard, which errs open.
+
+## 783. A contact's act log, so its lines are judged as its estate judges them, 2026-10-31
+
+The holder asked for it after sec 782. A vote can draw a line: what the
+revoked key did before it still stands (sec 496), so a device a revoked
+member granted before the line keeps its standing in its own estate, and
+one granted after falls. Which side a grant lies on is the key's act log's
+to say: its estate stream, each record naming the one before. Without the
+log this node could judge neither, and kept every such device. A removed
+root's votes and grants counted for nothing here, for the same reason.
+
+**The holder's decision on what crosses (2026-10-31).** Checking a line
+means handing a contact whole records, since a record's signature covers
+its body and its id is its hash. A revoked key's records are its
+settings, its roster changes (who the user added or removed as contacts)
+and its grants. Offered all keys, hashes only, or nothing, the holder
+chose: **a host answers ACTS only for a key its own estate holds a cut
+of** (`fzn_node_estate_cut_held`). That means a live vote against it
+drawing a line, or a root-remove of it drawing one. A key nobody cut
+stays private, and a vote keeping nothing or a withdrawn one opens
+nothing, since there is no line to judge by.
+
+**What crosses**, ACTS 55 and ACT_ENTRIES 56: a key's estate stream as
+the host's journal holds it (`fzn_node_journal_act_log`), from its head
+down, the record whole where held and the spine entry where the
+journal's window cut it. Each contact exchange asks for every key a held
+cut of the contact's names (`fzn_contact_estate_cut_keys`), sixteen a
+round. The entries are kept in slot 65 beside the estate's items, kind
+0xfe, so members pass them on with the rest (sec 782).
+
+**A record is checked, a spine entry is not.** A record kept here opens,
+is of the estate stream, and is signed by the key whose log it is. A
+spine entry is three hashes, the host's word; the contact's own members
+take the same word from each other across the window (sec 552). So
+nothing is concluded *against* a key from a spine entry, and the two
+readers of the log err open in opposite directions:
+- **a revoked key's act stands** unless the log from the line down to the
+  key's first act is held in records and does not hold it. Unknown
+  stands, keeping what the key granted. This is the store's act log.
+- **a removed root's act counts** only when found at or below the line
+  through records alone. Unknown does not count, losing its vote. This
+  is the root set's act log.
+
+**The judgment** no longer uses sec 776's rule for a key above the
+device. It asks `fzn_revocation_act_stands` whether that key's grant of
+the next hop lies before its line. A line keeping nothing still keeps
+nothing; with no log held the device stands as before; with the log held
+in records, a grant past the line falls.
+
+**Measured:**
+- **`contact_devices_test`, 106 checks, 20 new:**
+  - a member A, revoked with a line at its first act, granted the phone
+    second: the phone stands with no log held, falls with the log in
+    records, and stands with the line past the grant;
+  - with the first act only as a host's spine entry, the phone stands;
+  - another key's record, another stream's, and a spine entry of the
+    wrong length are refused;
+  - a removed root's vote at its line does not count with no log, counts
+    when the log shows it in records, and does not count on a spine
+    entry alone;
+  - thirty records over pages, each taken once; a trailing byte is
+    refused, and a key with no log is answered with nothing.
+- **`node_journal_test`, 73 checks, 1 new:** the act log walked as the
+  held record, then two spine entries, head first.
+- **`pair_test`, 402 checks, 4 new:** R holds no cut of N's before its
+  vote, holds one with the line and none of X's, none once the line keeps
+  nothing, and none once the vote is withdrawn.
+- **`live_contacts` phase e:** R's vote against R2 draws a line at R2's
+  head, and S takes entries of R2's act log from R. The whole script
+  passed.
+- **Five sabotage entries**: unknown stands (lenient), records only
+  (strict), the issuer checked, and the held cut live and lined. One
+  older entry re-anchored: contact-devices-list-says-room.
+
+**Not measured live: a device falling by the log.** It would take a
+device a member granted after its line that still reaches the contact,
+and such a device has no standing at its own root to learn the
+contact's hosts from. The unit checks carry the judgment.
+
+**Not yet:**
+- past sixteen cut keys a contact's rest are asked in later rounds;
+- a host whose journal let a key's early acts go answers them as spine
+  entries, so a grant past a line that old is kept here (unknown).

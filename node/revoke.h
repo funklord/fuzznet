@@ -211,6 +211,15 @@ typedef int (*fzn_node_estate_record_fn)(void *ctx, uint8_t kind, const uint8_t 
 fzn_persist_err_t fzn_node_estate_records(const fzn_persist_ops_t *store,
                                           fzn_node_estate_record_fn fn, void *ctx);
 
+/* WHETHER THIS ESTATE HOLDS A CUT OF `key`'s, sec 783: a live vote against
+ * it -- one this node issued (slot 9) or learned (slot 11) -- that draws a
+ * line, or a root-remove of it that does (slot 13). The holder's word of
+ * 2026-10-31: a key's act log is handed to a contact only then. Its records
+ * are its settings, its roster changes, its grants -- what a contact needs to
+ * judge a line by, and nothing it should read of a key this estate never
+ * cut. 1 held, 0 not, -1 a store that would not walk. */
+int fzn_node_estate_cut_held(const fzn_persist_ops_t *store, const uint8_t key[FZN_PUBKEY_LEN]);
+
 /*
  * WHAT APPLYING AN OBJECT COMES TO. sec 384 named these for the pull of a
  * root's revocations; since sec 505 the journal carries every act and

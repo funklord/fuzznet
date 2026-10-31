@@ -2225,6 +2225,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                    $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
+                                   $(BUILD_DIR)/record/record.o \
                                    $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                                    $(BUILD_DIR)/chain/manifest.o \
@@ -3856,7 +3857,8 @@ $(BUILD_DIR)/node/test/identity_test: $(BUILD_DIR)/node/test/identity_test.o \
 # 4, reachability.
 $(BUILD_DIR)/node/test/reachability_fuzz: $(BUILD_DIR)/node/test/reachability_fuzz.o \
                                           $(BUILD_DIR)/node/routing.o $(BUILD_DIR)/node/clocks.o \
-                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o $(BUILD_DIR)/prekey/prekey.o \
+                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
+                                          $(BUILD_DIR)/record/record.o $(BUILD_DIR)/prekey/prekey.o \
                                           $(BUILD_DIR)/chain/sign_monocypher.o \
                                           $(BUILD_DIR)/session/hash_monocypher.o \
                                           $(BUILD_DIR)/monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
@@ -3883,6 +3885,7 @@ $(BUILD_DIR)/node/test/routing_test: $(BUILD_DIR)/node/test/routing_test.o \
 # A contact's devices, sec 614.
 $(BUILD_DIR)/node/test/contact_devices_test: $(BUILD_DIR)/node/test/contact_devices_test.o \
                                              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
+                                             $(BUILD_DIR)/record/record.o \
                                              $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3891,6 +3894,7 @@ $(BUILD_DIR)/node/test/contact_devices_test: $(BUILD_DIR)/node/test/contact_devi
 $(BUILD_DIR)/node/test/contact_card_test: $(BUILD_DIR)/node/test/contact_card_test.o \
                                           $(BUILD_DIR)/node/contact_card.o \
                                           $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
+                                          $(BUILD_DIR)/record/record.o \
                                           $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3900,6 +3904,7 @@ $(BUILD_DIR)/node/test/card_fuzz: $(BUILD_DIR)/node/test/card_fuzz.o \
                                   $(BUILD_DIR)/node/contact_request.o \
                                   $(BUILD_DIR)/node/contact_card.o \
                                   $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
+                                  $(BUILD_DIR)/record/record.o \
                                   $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3909,6 +3914,7 @@ $(BUILD_DIR)/node/test/contact_request_test: $(BUILD_DIR)/node/test/contact_requ
                                              $(BUILD_DIR)/node/contact_request.o \
                                              $(BUILD_DIR)/node/contact_card.o \
                                              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
+                                             $(BUILD_DIR)/record/record.o \
                                              $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3918,6 +3924,7 @@ $(BUILD_DIR)/node/test/group_log_test: $(BUILD_DIR)/node/test/group_log_test.o \
                                        $(BUILD_DIR)/node/group_log.o \
                                        $(BUILD_DIR)/node/group_act.o \
                                        $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
+                                       $(BUILD_DIR)/record/record.o \
                                        $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3928,6 +3935,7 @@ $(BUILD_DIR)/node/test/groups_test: $(BUILD_DIR)/node/test/groups_test.o \
                                     $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                     $(BUILD_DIR)/node/group_act.o \
                                     $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
+                                    $(BUILD_DIR)/record/record.o \
                                     $(BUILD_DIR)/contact/contact.o $(BUILD_DIR)/session/box.o \
                                     $(BUILD_DIR)/session/agree_monocypher.o \
                                     $(BUILD_DIR)/session/hash_monocypher.o \

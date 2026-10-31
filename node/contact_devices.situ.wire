@@ -18,6 +18,11 @@
 endian big
 target buffer
 
+struct fzn_contact_act_listed size=4..1027
+  @0x0000   2         u16        len  big min=2 max=1025
+  @0x0002   1         u8         spine  max=1
+  @0x0003   1..1024   u8         bytes  sized-by=len-1
+
 struct fzn_contact_device size=175..1860
   @0x0000   1         u8         version  must_eq=1
   @0x0001   32        u8         owner  big
@@ -27,6 +32,20 @@ struct fzn_contact_device size=175..1860
   ~         2         u16        port  big
   ~         1         u8         hop_count  max=8
   ~         0..1432   u8         hops  sized-by=hop_count*179
+
+struct fzn_contact_devices_act_entries size=8..261893
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=56
+  @0x0002   4         u32        from  big
+  @0x0006   1         u8         count
+  @0x0007   1         u8         more  max=1
+  @0x0008   0..261885 fzn_contact_act_listed entries  sized-by=count
+
+struct fzn_contact_devices_acts size=38
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=55
+  @0x0002   32        u8         key  big
+  @0x0022   4         u32        from  big
 
 struct fzn_contact_devices_estate size=6
   @0x0000   1         u8         version  must_eq=2

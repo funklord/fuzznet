@@ -693,6 +693,47 @@ fzn_persist_err_t fzn_node_estate_records(const fzn_persist_ops_t *store,
 	return FZN_PERSIST_OK;
 }
 
+struct held_cut {
+	const uint8_t *key;
+	int held;
+};
+
+static int held_cut_listed(void *ctx, uint8_t kind, const uint8_t *record, size_t len,
+                           const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count, int issued)
+{
+	static const uint8_t NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
+	struct held_cut *h = ctx;
+	fzn_revocation_record_t rec;
+
+	(void)hops;
+	(void)hop_count;
+	(void)issued;
+	if (kind == ESTATE_VOTE && fzn_revocation_open(record, len, &rec) == FZN_CHAIN_OK
+	    && !fzn_revocation_is_withdrawal(rec)
+	    && memcmp(fzn_revocation_grantee(rec), h->key, FZN_PUBKEY_LEN) == 0
+	    && memcmp(fzn_revocation_cut(rec), NOTHING, sizeof(NOTHING)) != 0)
+		h->held = 1;
+	if (kind == ESTATE_CHANGE && len == FZN_ROOT_REMOVE_LEN
+	    && record[1] == (uint8_t)FZN_OBJECT_ROOT_REMOVE
+	    && memcmp(record + FZN_ROOT_SET_OFF_SUBJECT, h->key, FZN_PUBKEY_LEN) == 0
+	    && memcmp(record + FZN_ROOT_SET_OFF_CUT, NOTHING, sizeof(NOTHING)) != 0)
+		h->held = 1;
+	return !h->held;
+}
+
+int fzn_node_estate_cut_held(const fzn_persist_ops_t *store, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	struct held_cut h;
+
+	if (!store || !key)
+		return -1;
+	h.key = key;
+	h.held = 0;
+	if (fzn_node_estate_records(store, held_cut_listed, &h) != FZN_PERSIST_OK)
+		return -1;
+	return h.held;
+}
+
 static int load_vote(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
                      uint8_t record[FZN_REVOCATION_LEN],
                      uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)

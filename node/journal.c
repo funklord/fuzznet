@@ -675,6 +675,49 @@ int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY
 	return 0;
 }
 
+int fzn_node_journal_act_log(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                             int (*fn)(void *ctx, int spine, const uint8_t *bytes, size_t len),
+                             void *ctx)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t want[FZN_RECORD_ID_LEN], got[FZN_RECORD_ID_LEN];
+	const fzn_journal_entry_t *e;
+	fzn_record_t rec;
+	uint64_t seq;
+
+	if (!nj || !key || !fn)
+		return 0;
+	e = estate_entry(nj, key);
+	if (!e || !e->has_head || e->received == 0u)
+		return 0;
+	memcpy(want, e->head, sizeof(want));
+	for (seq = e->received; seq >= 1u; seq--) {
+		uint8_t entry[SPINE_ENTRY];
+		fzn_record_store_err_t serr = fzn_record_store_get(&nj->store, key,
+		                                                   FZN_NODE_JOURNAL_STREAM, seq, buf,
+		                                                   sizeof(buf), &rec);
+		int ok;
+
+		if (serr == FZN_RECORD_STORE_OK) {
+			if (!nj->hash->hash(nj->hash->ctx, got, sizeof(got), rec.base, rec.len)
+			    || memcmp(got, want, sizeof(got)) != 0)
+				return 1;
+			memcpy(want, fzn_record_prev(rec), sizeof(want));
+			ok = fn(ctx, 0, rec.base, rec.len);
+		} else if (serr == FZN_RECORD_STORE_ERR_ABSENT && spine_get(nj, key, seq, entry)) {
+			if (memcmp(entry, want, sizeof(want)) != 0)
+				return 1;
+			memcpy(want, entry + FZN_RECORD_ID_LEN, sizeof(want));
+			ok = fn(ctx, 1, entry, sizeof(entry));
+		} else {
+			return 1;
+		}
+		if (!ok)
+			return 1;
+	}
+	return 1;
+}
+
 static int acts_stands(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
                        const uint8_t cut[FZN_REVOCATION_ID_LEN],
                        const uint8_t act[FZN_REVOCATION_ID_LEN])

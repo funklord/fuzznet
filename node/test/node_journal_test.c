@@ -404,6 +404,28 @@ static int blank(const char *path, uint64_t seq)
  * stream gave is given again; without the spine the walk stops at the gap;
  * and a spine entry edited underneath answers no more than an edited record
  * does. */
+/* THE ACT LOG AS A CONTACT IS HANDED IT, sec 783: each entry's kind and
+ * id, in the order the walk hands them. */
+static struct {
+	int spine[8];
+	uint8_t id[8][FZN_RECORD_ID_LEN];
+	size_t n;
+} walked_log;
+
+static int log_walked(void *ctx, int spine, const uint8_t *bytes, size_t len)
+{
+	(void)ctx;
+	if (walked_log.n >= 8u)
+		return 0;
+	walked_log.spine[walked_log.n] = spine;
+	if (spine)
+		memcpy(walked_log.id[walked_log.n], bytes, FZN_RECORD_ID_LEN);
+	else
+		(void)HASH.hash(HASH.ctx, walked_log.id[walked_log.n], FZN_RECORD_ID_LEN, bytes, len);
+	walked_log.n++;
+	return 1;
+}
+
 static void test_the_spine_outlives_a_cut(void)
 {
 	static fzn_node_journal_t a;
@@ -434,6 +456,13 @@ static void test_the_spine_outlives_a_cut(void)
 	              && !fzn_node_journal_stands(&a, x, ids[0], acts[1])
 	              && !fzn_node_journal_stands(&a, x, ids[1], acts[2]),
 	      "an act below the cut did not stand through the spine, or one above it did");
+	memset(&walked_log, 0, sizeof(walked_log));
+	CHECK(fzn_node_journal_act_log(&a, x, log_walked, NULL) && walked_log.n == 3u
+	              && !walked_log.spine[0] && walked_log.spine[1] && walked_log.spine[2]
+	              && memcmp(walked_log.id[0], ids[2], FZN_RECORD_ID_LEN) == 0
+	              && memcmp(walked_log.id[1], ids[1], FZN_RECORD_ID_LEN) == 0
+	              && memcmp(walked_log.id[2], ids[0], FZN_RECORD_ID_LEN) == 0,
+	      "the act log was not the held record then the two spine entries, head first");
 	a.keep = NULL;
 	CHECK(!fzn_node_journal_stands(&a, x, ids[2], acts[0])
 	              && fzn_node_journal_stands(&a, x, ids[2], acts[2]),

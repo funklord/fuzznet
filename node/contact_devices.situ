@@ -150,3 +150,32 @@ struct fzn_contact_estate_row {
 	u8   owner[32];                         // the contact's root
 	u8   rest[len - 32];                    // an item, or 255 and a k
 }
+
+// A KEY'S ACT LOG, sec 783: what a held cut of a contact's estate is judged
+// against -- its estate stream, a record whole where its host holds it, a
+// spine entry where the host's journal let it go. Answered only for a key
+// the host's own estate cut.
+
+// ACTS: a page of `key`'s act log, from the `from`th entry down.
+struct fzn_contact_devices_acts {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 55];
+	u8   key[32];
+	u32  from;
+}
+
+// ACT_ENTRIES: as many entries as fit, each after its length.
+struct fzn_contact_devices_act_entries {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 56];
+	u32  from;                              // the query's, echoed
+	u8   count;
+	u8   more [max = 1];
+	fzn_contact_act_listed entries[count];
+}
+
+struct fzn_contact_act_listed {
+	u16  len [min = 2, max = 1025];
+	u8   spine [max = 1];                   // 0 a record, 1 a spine entry
+	u8   bytes[len - 1];                    // the record, or id, prev, subject
+}

@@ -6874,6 +6874,58 @@ static uint8_t estate_k(void)
 	return (uint8_t)(k == 0u ? 1u : k > 255u ? 255u : k);
 }
 
+/* A KEY'S ACT LOG, sec 783, as a contact asks for it: walked afresh at the
+ * first of a page's, its records and spine entries down from the head this
+ * journal admitted, into room grown to hold them. Only a key this node's
+ * journal follows has one to give, and only a key this estate cut. */
+static fzn_contact_act_t *act_log_rows;
+static size_t act_log_n, act_log_cap;
+
+static int act_log_listed(void *ctx, int spine, const uint8_t *bytes, size_t len)
+{
+	(void)ctx;
+	if (len > FZN_CONTACT_ACT_MAX)
+		return 0;
+	if (act_log_n == act_log_cap) {
+		size_t cap = act_log_cap ? act_log_cap * 2u : 16u;
+		fzn_contact_act_t *more = realloc(act_log_rows, cap * sizeof(*more));
+
+		if (!more)
+			return 0;
+		act_log_rows = more;
+		act_log_cap = cap;
+	}
+	act_log_rows[act_log_n].spine = spine;
+	act_log_rows[act_log_n].len = len;
+	memcpy(act_log_rows[act_log_n].bytes, bytes, len);
+	act_log_n++;
+	return 1;
+}
+
+/* WHETHER THIS ESTATE HOLDS A CUT OF `key`'s, sec 783: the holder's word
+ * of 2026-10-31 -- a key's act log reaches a contact only then
+ * (`fzn_node_estate_cut_held`). */
+static int key_has_held_cut(const uint8_t key[FZN_PUBKEY_LEN])
+{
+	return node_apply.store && fzn_node_estate_cut_held(node_apply.store, key) == 1;
+}
+
+static int act_log_at(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], size_t i,
+                      fzn_contact_act_t *out)
+{
+	(void)ctx;
+	if (i == 0) {
+		act_log_n = 0;
+		if (!journal_on || !key_has_held_cut(key)
+		    || !fzn_node_journal_act_log(&node_journal, key, act_log_listed, NULL))
+			act_log_n = 0;
+	}
+	if (i >= act_log_n)
+		return 0;
+	*out = act_log_rows[i];
+	return 1;
+}
+
 /* THE CONTACTS' ROOTS' RECORDS THIS NODE SAVED, sec 780, as a member asks
  * for them: listed afresh at the first of a page's, into room grown to hold
  * them all. */
@@ -6982,6 +7034,8 @@ static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint
 	if (!n)
 		n = fzn_contact_estate_answer(request, request_len, estate_item_at, estate_k(), NULL,
 		                              reply, reply_cap);
+	if (!n)
+		n = fzn_contact_acts_answer(request, request_len, act_log_at, NULL, reply, reply_cap);
 	return n ? n
 	         : fzn_contact_devices_query_answer(request, request_len, hosts_at, NULL, NULL,
 	                                            reply, reply_cap);
@@ -8949,7 +9003,7 @@ struct devices_talk {
 };
 static struct devices_talk devices_talks[FZND_ROUND_TARGETS_MAX];
 static size_t n_devices_talks, contacts_asked, contacts_kept;
-static size_t contact_records_taken;
+static size_t contact_records_taken, contact_acts_taken;
 
 /* ONE OF A CONTACT'S ROOT'S RECORDS, as a member passed it on: taken as that
  * root's when its issuer is a contact standing here -- signed by it, and so
@@ -8990,7 +9044,8 @@ static void take_member_row(void *ctx, const uint8_t *row, size_t len)
 	if (!owner || !running_admin || !node_apply.store || !contact_id || !contact_hash_ops
 	    || !fzn_node_admin_contact_stands(running_admin, owner))
 		return;
-	err = fzn_contact_estate_take_row(node_apply.store, contact_hash_ops, contact_id->sign, row,
+	err = fzn_contact_estate_take_row(node_apply.store, contact_hash_ops, contact_id->sign,
+	                                  FZN_NODE_JOURNAL_STREAM, row,
 	                                  len);
 	if (err == FZN_CONTACT_DEVICE_OK)
 		contact_records_taken++;
@@ -9057,6 +9112,11 @@ static int devices_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
  * and through its next host when one does not answer, as the round in
  * turn tried them. */
 #define FZND_CONTACT_HOSTS_TRIED 8u
+/* THE KEYS A ROUND ASKS ACT LOGS FOR, per contact, sec 783: the ones a held
+ * cut names, which are few -- a device revoked with a line, a root removed
+ * with one. Past it, the rest wait a round, the same keys asked again first;
+ * a log not yet held errs open. */
+#define FZND_CUT_KEYS_ASKED 16u
 
 struct contact_talk {
 	fzn_node_talk_t talk;
@@ -9070,6 +9130,10 @@ struct contact_talk {
 	fzn_contact_devices_querying_t q;
 	fzn_contact_revoked_querying_t rq;
 	fzn_contact_estate_querying_t eq;
+	/* THE KEYS WHOSE ACT LOGS ARE ASKED, sec 783, and the one being asked. */
+	fzn_contact_acts_querying_t aq;
+	uint8_t cut_keys[FZND_CUT_KEYS_ASKED][FZN_PUBKEY_LEN];
+	size_t n_cut_keys, cut_key_at;
 	struct hosts_taking ht;
 	uint64_t now;
 	uint8_t request[FZN_CONTACT_DEVICES_OFFER_MAX];
@@ -9079,8 +9143,28 @@ enum {
 	CONTACT_QUERY = 2,
 	CONTACT_ROUTING = 3,
 	CONTACT_REVOKED = 4,
-	CONTACT_ESTATE = 5
+	CONTACT_ESTATE = 5,
+	CONTACT_ACTS = 6
 };
+
+/* ONE ENTRY OF A KEY'S ACT LOG, sec 783, as the contact's host handed it:
+ * kept when a record of that key's estate stream, signed by it, or a spine
+ * entry, its host's word. */
+static void take_act(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const fzn_contact_act_t *act)
+{
+	const struct contact_talk *ct = ctx;
+	fzn_contact_device_err_t err;
+
+	if (!node_apply.store || !contact_id || !contact_hash_ops)
+		return;
+	err = fzn_contact_act_keep(node_apply.store, contact_hash_ops, contact_id->sign, ct->contact,
+	                           key, FZN_NODE_JOURNAL_STREAM, act);
+	if (err == FZN_CONTACT_DEVICE_OK)
+		contact_acts_taken++;
+	else if (err != FZN_CONTACT_DEVICE_ERR_REFUSED)
+		say(FZN_ENTRY_WARNING, "contact/devices", "a contact's act log was not kept (%s)",
+		    fzn_contact_device_err_str(err));
+}
 
 /* ONE OF THE CONTACT'S ESTATE RECORDS, sec 781, as its host handed it:
  * kept when its record is signed as its kind says. */
@@ -9210,7 +9294,26 @@ static int contact_next(struct contact_talk *ct, uint8_t *request, size_t cap, s
 		ct->phase = CONTACT_ESTATE;
 		return fzn_contact_estate_query_begin(&ct->eq, take_estate_item, ct, request, cap, len);
 	}
+	/* EACH KEY A HELD CUT NAMES, its act log asked in turn, sec 783. */
 	if (ct->phase == CONTACT_ESTATE) {
+		ct->n_cut_keys = 0;
+		ct->cut_key_at = 0;
+		if (node_apply.store && contact_hash_ops) {
+			fzn_contact_device_err_t kerr = fzn_contact_estate_cut_keys(
+			        node_apply.store, contact_hash_ops, ct->contact, ct->cut_keys,
+			        FZND_CUT_KEYS_ASKED, &ct->n_cut_keys);
+
+			if (kerr == FZN_CONTACT_DEVICE_ERR_ROOM)
+				ct->n_cut_keys = FZND_CUT_KEYS_ASKED;
+			else if (kerr != FZN_CONTACT_DEVICE_OK)
+				ct->n_cut_keys = 0;
+		}
+		ct->phase = CONTACT_ACTS;
+	}
+	if (ct->phase == CONTACT_ACTS && ct->cut_key_at < ct->n_cut_keys)
+		return fzn_contact_acts_query_begin(&ct->aq, ct->cut_keys[ct->cut_key_at++], take_act,
+		                                    ct, request, cap, len);
+	if (ct->phase == CONTACT_ACTS) {
 		ct->phase = CONTACT_QUERY;
 		return fzn_contact_devices_query_begin(&ct->q, FZN_CONTACT_DEVICES_HOSTS, take_host,
 		                                       &ct->ht, request, cap, len);
@@ -9258,6 +9361,16 @@ static int contact_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 			if (node_apply.store && contact_hash_ops && ct->eq.k)
 				(void)fzn_contact_estate_keep_k(node_apply.store, contact_hash_ops,
 				                                ct->contact, ct->eq.k, estate_ms());
+		}
+	} else if (ct->phase == CONTACT_ACTS) {
+		/* A PAGE OF ONE KEY'S LOG, sec 783; the next key, or the hosts, after
+		 * its last -- or after an answer that is no page, a host older than
+		 * this. */
+		if (fzn_contact_acts_query_step(&ct->aq, reply, reply_len, request, cap, request_len,
+		                                &done)
+		    && !done) {
+			meter_asked(&ct->m, *request_len);
+			return 1;
 		}
 	} else if (ct->phase == CONTACT_QUERY) {
 		if (!fzn_contact_devices_query_step(&ct->q, reply, reply_len, request, cap,
@@ -9414,6 +9527,7 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 	contacts_asked = 0;
 	contacts_kept = 0;
 	contact_records_taken = 0;
+	contact_acts_taken = 0;
 	n_contact_talks = 0;
 	n_devices_talks = 0;
 	if (!running_admin || !contact_id || !node_apply.store)
@@ -9494,9 +9608,10 @@ static void contact_settle(void)
 	load_contact_targets();
 	say(FZN_ENTRY_DEBUG, "contact/devices",
 	    "contact pass: %zu contact(s) asked, %zu kept from members, %zu paired, %zu host(s) "
-	    "to deliver to, %zu revocation record(s) taken, %zu device(s) dropped as revoked",
+	    "to deliver to, %zu revocation record(s) taken, %zu device(s) dropped as revoked, "
+	    "%zu act log entr(ies) taken",
 	    contacts_asked, contacts_kept, paired, ncontact_targets, contact_records_taken,
-	    dropped);
+	    dropped, contact_acts_taken);
 }
 
 /* ---- groups, sec 626 ------------------------------------------------------- */
