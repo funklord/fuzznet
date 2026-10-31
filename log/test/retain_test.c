@@ -418,6 +418,95 @@ static void test_text(void)
 	}
 }
 
+/* SEC 793: attachments their own data; one contact, each, or all
+ * together; and a default, which gives way to a rule naming a contact. */
+static void test_contacts_each_all_and_default(void)
+{
+	static const char *const SAME[][2] = {
+		{ "prune messages contact=* size 1G", "prune messages size 1G" },
+		{ "prune attachments contact=all size 5G", "prune attachments contact=all size 5G" },
+		{ "prune messages default size 1G", "prune messages default size 1G" },
+		{ "keep attachments default age 30d", "keep attachments default age 30d" },
+		{ "policy attachments drop", "policy attachments drop" },
+		{ "prune log attachments age 1d", "prune log attachments age 1d" },
+	};
+	static const char *const BAD[] = {
+		"prune messages default contact=all size 1G",
+		"prune history contact=all count 3",
+		"prune history default count 3",
+		"prune * default age 1d",
+		"prune * contact=all age 1d",
+		"prune messages contact=all contact=* size 1G",
+		"prune messages default default size 1G",
+		"policy attachments drop contact=all",
+		"prune attachments level=D age 1d",
+		"prune messages contact=al size 1G",
+	};
+	static const char A[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+	fzn_retain_rule_t r[4], x;
+	uint8_t host[32], machine[FZN_ENTRY_MACHINE_LEN], a[32], b[32];
+	char line[FZN_RETAIN_TEXT_MAX], t[FZN_RETAIN_TEXT_MAX];
+	size_t i, len = 0;
+	int all = 1;
+
+	for (i = 0; i < sizeof(SAME) / sizeof(SAME[0]); i++) {
+		int ok = fzn_retain_parse(SAME[i][0], strlen(SAME[i][0]), &x) == FZN_RETAIN_OK
+		         && fzn_retain_text(&x, t, sizeof(t), &len) == FZN_RETAIN_OK
+		         && strcmp(t, SAME[i][1]) == 0;
+
+		if (!ok)
+			printf("    %s -> %s\n", SAME[i][0], t);
+		all &= ok;
+	}
+	CHECK(all, "each, all, a default and the attachments read and write in one spelling");
+	x = rule("prune log attachments age 1d");
+	CHECK(x.data == FZN_RETAIN_LOG && strcmp(x.program, "attachments") == 0,
+	      "a program called attachments is a log rule, written with its data word");
+	x = rule("prune attachments contact=all size 5G");
+	CHECK(x.data == FZN_RETAIN_ATTACHMENTS && x.all_contacts && !x.has_contact && !x.is_default,
+	      "contact=all is every contact's together");
+	all = 1;
+	for (i = 0; i < sizeof(BAD) / sizeof(BAD[0]); i++) {
+		int bad = fzn_retain_parse(BAD[i], strlen(BAD[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
+
+		if (!bad)
+			printf("    taken: %s\n", BAD[i]);
+		all &= bad;
+	}
+	CHECK(all, "a default naming all, each or all on a rule not of conversations, a contact "
+	           "twice and a word not a key are refused");
+	/* WHICH APPLY to whom. */
+	memset(a, 0xaa, sizeof(a));
+	memset(b, 0xbb, sizeof(b));
+	r[0] = rule("prune messages default size 1G");
+	snprintf(line, sizeof(line), "keep messages contact=%s age 3650d", A);
+	r[1] = rule(line);
+	r[2] = rule("prune messages contact=all count 1000");
+	r[3] = rule("prune attachments size 2G");
+	CHECK(!fzn_retain_applies_to(r, 4u, 0u, FZN_RETAIN_MESSAGES, a)
+	              && fzn_retain_applies_to(r, 4u, 0u, FZN_RETAIN_MESSAGES, b),
+	      "a default gives way where a rule names the contact, and holds where none does");
+	CHECK(fzn_retain_applies_to(r, 4u, 1u, FZN_RETAIN_MESSAGES, a)
+	              && !fzn_retain_applies_to(r, 4u, 1u, FZN_RETAIN_MESSAGES, b),
+	      "a rule naming a contact is that contact's alone");
+	CHECK(fzn_retain_applies_to(r, 4u, 2u, FZN_RETAIN_MESSAGES, a)
+	              && fzn_retain_applies_to(r, 4u, 2u, FZN_RETAIN_MESSAGES, b),
+	      "all together reaches every contact");
+	CHECK(!fzn_retain_applies_to(r, 4u, 3u, FZN_RETAIN_MESSAGES, a)
+	              && fzn_retain_applies_to(r, 4u, 3u, FZN_RETAIN_ATTACHMENTS, a),
+	      "an attachment rule is not a message rule");
+	memset(host, 0xbb, sizeof(host));
+	memset(machine, 0x0b, sizeof(machine));
+	{
+		fzn_retain_rule_t out[4];
+
+		CHECK(fzn_retain_select_attachments(r, 4u, host, machine, out) == 1u
+		              && out[0].data == FZN_RETAIN_ATTACHMENTS
+		              && fzn_retain_select_messages(r, 4u, host, machine, out) == 3u,
+		      "attachments and messages are selected apart");
+	}
+}
+
 /* WHAT DATA, sec 531: message rules in the same grammar, kept apart from
  * the log's; and every log rule written before reads and writes as it did. */
 static void test_message_rules(void)
@@ -779,6 +868,7 @@ int main(void)
 	test_copy_rules();
 	test_source();
 	test_message_rules();
+	test_contacts_each_all_and_default();
 	test_history_rules();
 	test_archive_rules();
 	test_policies();

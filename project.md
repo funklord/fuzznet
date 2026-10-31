@@ -75923,10 +75923,10 @@ Asked after secs 790 and 791, on a device's catch-up of old history:
   (phase e, held-back answering `ok 0 0 0`). One sabotage entry for the
   first.
 
-### Proposed, not built: the rule syntax for attachments
+### ~~Proposed, not built: the rule syntax for attachments~~
 
-Waiting on the holder's word on the syntax, since other projects write
-these rules.
+~~Waiting on the holder's word on the syntax, since other projects write
+these rules.~~ The holder approved it 2026-10-31; built in sec 793.
 
 **What attachments are today:** fuzzypickles stores a file with `put
 file` and sends an ordinary line whose text is its own file reference
@@ -75963,3 +75963,120 @@ naming no target is a log rule whose second word is the program, so
 `prune attachments ...` already reads as a log rule for a program called
 `attachments`. `messages` met the same, and such a program is written
 `log PROGRAM` (sec 531); `attachments` would follow it.
+
+## 793. Rules for each contact, all together, defaults, and attachments, 2026-10-31
+
+**The holder's word, 2026-10-31:** "the syntax is fine, maybe prepend
+special keywords with $ like perl to keep namespaces clean? what do you
+think? go ahead and build it."
+
+**The `$` sigil was weighed and not taken**, and the holder can still
+choose it. These rules are written on shell command lines
+(`--log-rule=...`) as well as through the socket. Inside double quotes a
+shell expands `$all` to nothing and says nothing:
+`--log-rule="prune messages contact=$all size 5G"` would become a rule
+with an empty `contact=`, refused at best. A sigil earns its place where
+a name the user chooses can stand where a keyword does, and here none
+can:
+- a `contact=` value is a key of 64 hex digits, which `*` and `all`
+  never are;
+- `default` stands among a rule's options, never where a program does.
+
+The one real clash is a log program called `attachments`, which the
+`log PROGRAM` escape already settles, as it does for `messages`.
+
+### The syntax, as built (`log/retain.h`)
+
+    prune|keep messages|attachments [default] [contact=KEYHEX|*|all]
+               [host=] [machine=] LIMIT N
+    policy log|messages|attachments|history keep|drop [host=] [machine=]
+
+- **`contact=KEYHEX`**: that contact's conversation alone.
+- **`contact=*`**: each contact's on its own, the same as naming none, as
+  every rule before. It is written as naming none, so a rule has one
+  text.
+- **`contact=all`**: every contact's together, as one, for example
+  `prune attachments contact=all size 5G`.
+- **`default`**: a rule that applies to a contact only where no rule names
+  that contact. It names no contact and is never `all`. Rules otherwise
+  combine as a set, keep winning, as before (sec 460).
+- **`attachments`**: the files sent in conversations, a target of their
+  own, with their own policy. A log program of that name is written `log
+  attachments`, as `log messages` is.
+
+Refused: a default naming a contact or `all`; `contact=` or `default` on
+a log or history rule; a contact named twice; a word that is not a key.
+`fzn_retain_applies_to` says whether a rule reaches a contact, `default`
+and all, and `fzn_retain_select_attachments` selects the attachment
+rules.
+
+### How every contact together is weighed
+
+A message trim goes by the month: a month's key is the unit, and a month
+goes when every line of it would. So a size or count limit over every
+contact together is weighed per month too. **Month M is within it when
+the lines of all later months, every conversation's, are below the
+limit.** That is how one conversation's limit is weighed at a month's
+newest line, applied across conversations. Age is weighed as for one
+conversation.
+
+That needs each month's lines and bytes summed over every conversation.
+Walking every line of every conversation for each question was rejected:
+`wanted` is asked once per differing bucket in every round.
+
+- **The store keeps the sums as rows** (`monbytes`, `monlines` per month,
+  bounded by `monlow` and `monhigh`), added to as each line is indexed.
+  Shells count, as a trim counts them. A crash between an entry and its
+  sum leaves the sum short, which errs toward keeping.
+- **A reindex clears them** and its appends build them again.
+- **An upgrade builds them once** for a store from before (`sum_months`,
+  flag `totals`), cleared first so a build cut short is begun again
+  rather than counted twice.
+- **A trim reads them once**, and `wanted` once a call when a rule needs
+  them. Each turns them into what is newer than each month (`totals_t`).
+  A span of more than 65536 months is a stamp gone wrong: the sums are
+  not built, and an all-contacts limit then trims nothing.
+
+### What is not yet applied
+
+**Attachment rules parse, are written and are selected, and nothing
+applies them.** fuzznet does not yet know which files a conversation
+sent, as sec 792 found: an attachment is a line whose text is
+fuzzypickles' own file reference. Applying them needs a reference fuzznet
+reads, kept beside the line, and the files held under it, which is the
+next piece of this work.
+
+### Measured for sec 793
+
+- **`retain_test`, 102 checks**, nine new:
+  - each, all, a default, an attachment rule, its policy and `log
+    attachments` read and write in one spelling; `contact=*` writes as
+    naming none;
+  - ten malformed rules are refused;
+  - a default gives way where a rule names the contact and holds where
+    none does; a contact's rule is its own; all reaches every contact;
+    an attachment rule is not a message rule, and each data's rules are
+    selected apart.
+- **`messages_test`, 234 checks**: two conversations of six bytes a month,
+  August to October.
+  - **Each, ten bytes**: both keep September and lose August.
+  - **All together, ten bytes**: September is not wanted, since
+    October's twelve bytes are past ten; trimmed, both lose September and
+    August and keep October.
+  - **All together, thirty bytes**: August is wanted and nothing is
+    trimmed.
+  - **After a reindex, and after two upgrades**, the sums are neither
+    counted twice (thirty trims nothing) nor lost (ten trims four
+    months).
+  - **A default of ten bytes beside x's own rule of a hundred**: x keeps
+    August and y loses it. Beside a rule naming no contact, the default
+    holds for both.
+- **`node/test/messages_test`**: its store gained room for the two rows of
+  sums a month beside its 260-month fixture.
+- **Controls**, each made by hand and caught: no sums weighed; a default
+  that never gives way; a reindex that does not clear the sums; lines
+  never added to them; an upgrade that builds none.
+- **Sabotage**: four entries for those guards. Nine older entries named
+  the trim and the parser as they stood before (the trim is now
+  `trim_one` per conversation, and contact matching is
+  `fzn_retain_applies_to`) and are repointed.

@@ -79,7 +79,8 @@
  * for all similar things, logs, messages, telemetry". A rule's second word
  * may name it:
  *     prune|keep log PROGRAM|* ...        a log rule, as above
- *     prune|keep messages [contact=KEYHEX] [host=] [machine=] LIMIT N
+ *     prune|keep messages|attachments [default] [contact=KEYHEX|*|all]
+ *                [host=] [machine=] LIMIT N
  *     prune|keep history [host=] [machine=] LIMIT N   a note history rule
  *     prune|keep [log] PROGRAM|* [copy [source=]] archived [host=] [machine=] LIMIT N
  *                                  over the archive (sec 589), or its
@@ -92,17 +93,30 @@
  *                                  `copy`, the copies (sec 590)
  * and a rule naming neither is a log rule, its second word the program, so
  * every rule written before reads as it did and keeps its text. A program
- * called `log` or `messages` is written `log PROGRAM`. A MESSAGE RULE
- * applies to conversations (`messages/messages.h`): `contact=` names one,
- * none means all of them; age, size and count are over a conversation's
- * lines newest first, as over a program's entries; scope is as above. It
- * names no log selector, and the log's plans never weigh it.
+ * called `log`, `messages` or `attachments` is written `log PROGRAM`. A
+ * MESSAGE RULE applies to conversations (`messages/messages.h`); an
+ * ATTACHMENT RULE, sec 793, to the files sent in them, which nothing holds
+ * by conversation yet, so none is applied. Over which conversations:
+ *     contact=KEYHEX   that contact's alone
+ *     contact=*        each contact's on its own -- the same as naming
+ *                      none, as every rule before sec 793 did
+ *     contact=all      every contact's together, as one: a size or count
+ *                      over all their lines, newest month first
+ * and age, size and count are over a conversation's lines newest first,
+ * as over a program's entries; scope is as above. DEFAULT, sec 793: a rule
+ * so marked applies to a contact only where no rule names that contact,
+ * so `prune messages default size 1G` with `keep messages contact=A age
+ * 10y` gives A ten years and everyone else a gigabyte; it names no
+ * contact and is never `all`. Rules otherwise combine as a set, as below.
+ * A message rule names no log selector, and the log's plans never weigh
+ * it.
  * age units s, m, h, d (bare is seconds); size units K, M, G (bare is
  * bytes, powers of 1024); count takes no unit.
  *
  * A DEFAULT POLICY PER KIND, sec 566 -- the holder's "simple to write
  * rules to store everything and nothing":
- *     policy log|messages|history keep|drop [host=NODEHEX] [machine=MACHINEHEX]
+ *     policy log|messages|attachments|history keep|drop [host=NODEHEX]
+ *            [machine=MACHINEHEX]
  * Under `keep`, the default, what is above holds: an item goes when a
  * prune rule marks it and no keep rule protects it. Under `drop`, an item
  * is held only where a keep rule covers it, so `policy messages drop`
@@ -159,16 +173,24 @@ typedef enum fzn_retain_data {
 	FZN_RETAIN_LOG = 0,
 	FZN_RETAIN_MESSAGES = 1,
 	/* A note's earlier versions, sec 581. */
-	FZN_RETAIN_HISTORY = 2
+	FZN_RETAIN_HISTORY = 2,
+	/* The files sent in conversations, sec 793. */
+	FZN_RETAIN_ATTACHMENTS = 3
 } fzn_retain_data_t;
 
 typedef struct fzn_retain_rule {
 	fzn_retain_kind_t kind;
 	/* LOG for every rule written before sec 531. */
 	fzn_retain_data_t data;
-	/* A MESSAGE RULE's one conversation, by the contact's key. */
+	/* A MESSAGE OR ATTACHMENT RULE's one conversation, by the contact's
+	 * key; or, `all_contacts`, every one together (sec 793). Neither: each
+	 * on its own. */
 	int has_contact;
 	uint8_t contact[32];
+	int all_contacts;
+	/* A DEFAULT, sec 793: applied to a contact only where no rule names
+	 * it. */
+	int is_default;
 	char program[FZN_ENTRY_WORD_MAX + 1u]; /* "*" for every program */
 	/* ENTRY SELECTORS, sec 474: bit `1 << level` per level, 0 for none
 	 * named; a subsystem path, "" for none. Neither named: a segment rule. */
@@ -223,6 +245,18 @@ size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uin
 size_t fzn_retain_select_messages(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                                   const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                                   fzn_retain_rule_t *out);
+
+/* The ATTACHMENT rules of `in` that reach this node, sec 793. */
+size_t fzn_retain_select_attachments(const fzn_retain_rule_t *in, size_t n,
+                                     const uint8_t host[32],
+                                     const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                     fzn_retain_rule_t *out);
+
+/* WHETHER RULE `r` OF `rules` APPLIES TO `contact`'S CONVERSATION, sec
+ * 793: a rule of `data`, not a policy, naming that contact, or each or all
+ * of them, or a default where no rule of `data` names it. */
+int fzn_retain_applies_to(const fzn_retain_rule_t *rules, size_t n, size_t r,
+                          fzn_retain_data_t data, const uint8_t contact[32]);
 
 /* The rules of `in` over this node's ARCHIVE that reach it, sec 589. No
  * policy: a fossil stays until a rule prunes it. */

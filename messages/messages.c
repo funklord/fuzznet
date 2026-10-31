@@ -4,6 +4,7 @@
 
 #include "../wire/bytes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 const char *fzn_messages_err_str(fzn_messages_err_t err)
@@ -754,6 +755,158 @@ static int owed_floor_reset(const fzn_messages_t *m, const uint8_t contact[FZN_P
 	return load_number(m, "owed", contact) == 0u || save_number(m, "owed", contact, 0u);
 }
 
+/* ---- every conversation's months together, sec 793 -------------------- */
+
+/* THE KEY OF A ROW THAT IS NOBODY'S: the store's own counts. */
+static const uint8_t NOBODY[FZN_PUBKEY_LEN];
+
+
+/* EACH MONTH'S LINES AND BYTES, summed over every conversation, kept as
+ * lines are indexed, so a rule over every contact together (`contact=all`)
+ * is weighed without walking every line. A month's two rows are keyed by
+ * its number; `monlow` and `monhigh` bound the months held, `monhigh` 0
+ * for none. Shells count, as a trim counts them. A crash between an entry
+ * and its sum leaves the sum short, which errs toward keeping. */
+static uint64_t number_at(const fzn_messages_t *m, const char *what, uint32_t n)
+{
+	uint8_t row[FZN_PUBKEY_LEN], b[8];
+	size_t len = 0;
+
+	if (!index_row(m, what, NOBODY, n, row)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, b, sizeof(b), &len)
+	    || len != sizeof(b))
+		return 0u;
+	return fzn_get_be64(b);
+}
+
+static int number_at_save(const fzn_messages_t *m, const char *what, uint32_t n, uint64_t v)
+{
+	uint8_t row[FZN_PUBKEY_LEN], b[8];
+
+	fzn_put_be64(b, v);
+	return index_row(m, what, NOBODY, n, row)
+	       && m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, b, sizeof(b));
+}
+
+static int month_total_add(const fzn_messages_t *m, uint32_t epoch, size_t size)
+{
+	uint64_t low = load_number(m, "monlow", NOBODY), high = load_number(m, "monhigh", NOBODY);
+
+	if (!number_at_save(m, "monbytes", epoch, number_at(m, "monbytes", epoch) + size)
+	    || !number_at_save(m, "monlines", epoch, number_at(m, "monlines", epoch) + 1u))
+		return 0;
+	/* THE BOUNDS, the month numbered one past so 0 says none. */
+	if ((high == 0u || epoch < low) && !save_number(m, "monlow", NOBODY, epoch))
+		return 0;
+	return (uint64_t)epoch + 1u <= high || save_number(m, "monhigh", NOBODY, (uint64_t)epoch + 1u);
+}
+
+static int month_totals_clear(const fzn_messages_t *m)
+{
+	uint64_t low = load_number(m, "monlow", NOBODY), high = load_number(m, "monhigh", NOBODY), e;
+	uint8_t row[FZN_PUBKEY_LEN];
+
+	for (e = low; high && e < high; e++)
+		if (!index_row(m, "monbytes", NOBODY, (uint32_t)e, row)
+		    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row)
+		    || !index_row(m, "monlines", NOBODY, (uint32_t)e, row)
+		    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row))
+			return 0;
+	return save_number(m, "monlow", NOBODY, 0u) && save_number(m, "monhigh", NOBODY, 0u);
+}
+
+/* WHAT IS NEWER THAN EACH MONTH, every conversation's together: for month
+ * `low + k`, the bytes and lines of all later months. Built once a trim,
+ * or once a `wanted` that needs it; freed by the caller. */
+typedef struct totals {
+	uint32_t low, high; /* months low to high - 1 */
+	uint64_t *bytes_newer, *lines_newer;
+	uint64_t bytes_all, lines_all;
+} totals_t;
+
+/* Months spanned past which the sums are not built and `contact=all`
+ * weighs nothing: a span of months that wide is a stamp gone wrong. */
+#define TOTALS_SPAN_MAX 65536u
+
+static int totals_load(const fzn_messages_t *m, totals_t *t)
+{
+	uint64_t low = load_number(m, "monlow", NOBODY), high = load_number(m, "monhigh", NOBODY);
+	uint64_t bytes = 0, lines = 0;
+	size_t k, span;
+
+	memset(t, 0, sizeof(*t));
+	if (high == 0u || high <= low || high - low > TOTALS_SPAN_MAX)
+		return 0;
+	span = (size_t)(high - low);
+	t->bytes_newer = malloc(span * sizeof(uint64_t));
+	t->lines_newer = malloc(span * sizeof(uint64_t));
+	if (!t->bytes_newer || !t->lines_newer) {
+		free(t->bytes_newer);
+		free(t->lines_newer);
+		memset(t, 0, sizeof(*t));
+		return 0;
+	}
+	t->low = (uint32_t)low;
+	t->high = (uint32_t)high;
+	for (k = span; k-- > 0;) {
+		t->bytes_newer[k] = bytes;
+		t->lines_newer[k] = lines;
+		bytes += number_at(m, "monbytes", (uint32_t)(low + k));
+		lines += number_at(m, "monlines", (uint32_t)(low + k));
+	}
+	t->bytes_all = bytes;
+	t->lines_all = lines;
+	return 1;
+}
+
+static void totals_free(totals_t *t)
+{
+	free(t->bytes_newer);
+	free(t->lines_newer);
+	memset(t, 0, sizeof(*t));
+}
+
+/* WHETHER MONTH `epoch` IS WITHIN rule `r` over every contact together: a
+ * size or count over the lines of later months, every conversation's; age
+ * as a rule of one conversation weighs it. No sums: within, so nothing is
+ * trimmed for want of them. */
+static int all_within(const fzn_retain_rule_t *r, const totals_t *t, uint32_t epoch,
+                      uint64_t now_us)
+{
+	uint64_t bytes, lines;
+
+	if (r->limit == FZN_RETAIN_AGE) {
+		uint64_t end_us = fzn_message_epoch_start(epoch + 1u) * 1000u;
+
+		return end_us >= now_us || now_us - end_us <= r->value;
+	}
+	if (!t->bytes_newer)
+		return 1;
+	if (epoch >= t->high) {
+		bytes = lines = 0u;
+	} else if (epoch < t->low) {
+		bytes = t->bytes_all;
+		lines = t->lines_all;
+	} else {
+		bytes = t->bytes_newer[epoch - t->low];
+		lines = t->lines_newer[epoch - t->low];
+	}
+	return r->limit == FZN_RETAIN_SIZE ? bytes < r->value : lines < r->value;
+}
+
+/* WHETHER ANY RULE weighs every contact together by size or count, which
+ * needs the sums. */
+static int needs_totals(const fzn_retain_rule_t *rules, size_t n, fzn_retain_data_t data)
+{
+	size_t r;
+
+	for (r = 0; r < n; r++)
+		if (rules[r].data == data && rules[r].kind != FZN_RETAIN_POLICY
+		    && rules[r].all_contacts && rules[r].limit != FZN_RETAIN_AGE)
+			return 1;
+	return 0;
+}
+
 /* ONE CHUNK OF ONE INDEX, held, since a listing reads its entries in turn.
  * Of one store, sec 744: two in a process -- two devices in a test -- took
  * each other's entries, keyed by contact and chunk alone, and a listing of
@@ -776,8 +929,6 @@ typedef struct entry {
 	uint32_t epoch;
 	uint16_t size;
 } entry_t;
-
-static const uint8_t NOBODY[FZN_PUBKEY_LEN];
 
 /* ADD `contact` to the conversations held: once, when its index gains its
  * first line. */
@@ -1341,7 +1492,9 @@ static int keep_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 	return stored_keep(m, &s)
 	       && index_append(m, contact, device, seq, last->stime, last->direction, last->id,
 	                       last->epoch,
-	                       last->text_len + (last->parts == 2u ? FZN_MESSAGE_PART_MAX : 0u));
+	                       last->text_len + (last->parts == 2u ? FZN_MESSAGE_PART_MAX : 0u))
+	       && month_total_add(m, last->epoch,
+	                          last->text_len + (last->parts == 2u ? FZN_MESSAGE_PART_MAX : 0u));
 }
 
 /* Entry `i` of `contact`'s index. */
@@ -2213,7 +2366,7 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 	for (d = 0; d < m->device_count; d++)
 		if (fzn_node_journal_base(m->journal, m->devices[d], FZN_MESSAGE_STREAM) > 1u)
 			return FZN_MESSAGES_ERR_WINDOW;
-	if (!conversations_clear(m) || !all_clear(m))
+	if (!conversations_clear(m) || !all_clear(m) || !month_totals_clear(m))
 		return FZN_MESSAGES_ERR_BACKEND;
 	for (d = 0; d < m->device_count; d++) {
 		uint64_t seq, held = fzn_node_journal_received(m->journal, m->devices[d],
@@ -2281,6 +2434,42 @@ static fzn_messages_err_t mark_lines(const fzn_messages_t *m)
 	return save_number(m, "lineids", NOBODY, 1u) ? FZN_MESSAGES_OK : FZN_MESSAGES_ERR_BACKEND;
 }
 
+/* EVERY MONTH'S LINES AND BYTES SUMMED, once, sec 793, for a store whose
+ * lines came before the sums were kept: cleared first, so a build cut
+ * short is begun again rather than counted twice. */
+static fzn_messages_err_t sum_months(const fzn_messages_t *m)
+{
+	uint8_t contact[FZN_PUBKEY_LEN];
+	uint64_t n_conv, c, i, n;
+
+	if (load_number(m, "totals", NOBODY) == 1u)
+		return FZN_MESSAGES_OK;
+	if (!month_totals_clear(m))
+		return FZN_MESSAGES_ERR_BACKEND;
+	n_conv = load_number(m, "convs", NOBODY);
+	for (c = 0; c < n_conv; c++) {
+		if (!conversation_at(m, c, contact))
+			return FZN_MESSAGES_ERR_BACKEND;
+		n = count_of(m, contact);
+		for (i = 0; i < n; i++) {
+			entry_t e;
+
+			if (!index_entry(m, contact, i, &e)
+			    || (!entry_repeats(m, contact, i, &e) && !month_total_add(m, e.epoch, e.size)))
+				return FZN_MESSAGES_ERR_BACKEND;
+		}
+	}
+	return save_number(m, "totals", NOBODY, 1u) ? FZN_MESSAGES_OK : FZN_MESSAGES_ERR_BACKEND;
+}
+
+/* WHAT AN UPGRADE ENDS WITH, whichever way it came. */
+static fzn_messages_err_t upgrade_done(const fzn_messages_t *m)
+{
+	fzn_messages_err_t err = mark_lines(m);
+
+	return err == FZN_MESSAGES_OK ? sum_months(m) : err;
+}
+
 fzn_messages_err_t fzn_messages_upgrade(const fzn_messages_t *m, int *rebuilt)
 {
 	fzn_messages_err_t err;
@@ -2291,7 +2480,7 @@ fzn_messages_err_t fzn_messages_upgrade(const fzn_messages_t *m, int *rebuilt)
 	if (!ready(m))
 		return FZN_MESSAGES_ERR_MALFORMED;
 	if (load_number(m, "layout", NOBODY) >= LAYOUT_ROWS)
-		return mark_lines(m);
+		return upgrade_done(m);
 	err = fzn_messages_reindex(m, NULL);
 	if (err != FZN_MESSAGES_OK)
 		return err;
@@ -2299,7 +2488,7 @@ fzn_messages_err_t fzn_messages_upgrade(const fzn_messages_t *m, int *rebuilt)
 		return FZN_MESSAGES_ERR_BACKEND;
 	/* A NEW STORE has nothing to rebuild, and says so. */
 	*rebuilt = load_number(m, "convs", NOBODY) > 0u;
-	return mark_lines(m);
+	return upgrade_done(m);
 }
 
 /* ---- trimming, by the rules, sec 531 ------------------------------------- */
@@ -2329,19 +2518,97 @@ static int trim_within(const fzn_retain_rule_t *r, const entry_t *e, uint64_t co
 	return 1;
 }
 
-fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_rule_t *rules,
-                                     size_t n_rules, uint64_t now_ms,
-                                     fzn_messages_trim_tally_t *tally)
+/* ONE CONVERSATION OF A TRIM, the `c`th; `counted` and `bytes` the
+ * trim's room, a count per rule. */
+static fzn_messages_err_t trim_one(const fzn_messages_t *m, const fzn_retain_rule_t *rules,
+                                   size_t n_rules, const totals_t *totals, uint64_t c, int drops,
+                                   uint32_t current, uint64_t now_us, uint64_t *counted,
+                                   uint64_t *bytes, fzn_messages_trim_tally_t *tally)
 {
 	static struct {
 		uint32_t epoch;
 		int stays;
 	} months[TRIM_MONTHS];
-	uint64_t counted[FZN_RETAIN_RULES_MAX], bytes[FZN_RETAIN_RULES_MAX];
 	uint8_t contact[FZN_PUBKEY_LEN];
-	uint32_t current;
-	uint64_t now_us, n_conv, c;
-	size_t r;
+	int applies[FZN_RETAIN_RULES_MAX], any = 0, trimmed = 0;
+	size_t n_months = 0, k, r;
+	uint64_t i;
+
+	if (!conversation_at(m, c, contact))
+		return FZN_MESSAGES_ERR_BACKEND;
+	/* WHICH RULES REACH IT, sec 793: one naming it, each or all, or a
+	 * default where none names it. */
+	for (r = 0; r < n_rules; r++) {
+		applies[r] = fzn_retain_applies_to(rules, n_rules, r, FZN_RETAIN_MESSAGES, contact);
+		any |= applies[r];
+		counted[r] = bytes[r] = 0u;
+	}
+	if (!any && !drops)
+		return FZN_MESSAGES_OK;
+	/* NEWEST FIRST: a line goes when a prune rule marks it and no keep
+	 * rule protects it, and a MONTH goes when every line of it goes. Its
+	 * key is the unit: no part of a month is deleted. */
+	for (i = count_of(m, contact); i > 0u; i--) {
+		entry_t e;
+		int pruned = 0, kept = 0;
+
+		if (!index_entry(m, contact, i - 1u, &e))
+			return FZN_MESSAGES_ERR_BACKEND;
+		for (r = 0; r < n_rules; r++) {
+			int within;
+
+			if (!applies[r])
+				continue;
+			within = rules[r].all_contacts
+			                 ? all_within(&rules[r], totals, e.epoch, now_us)
+			                 : trim_within(&rules[r], &e, counted[r], bytes[r], now_us);
+			if (rules[r].kind == FZN_RETAIN_PRUNE && !within)
+				pruned = 1;
+			if (rules[r].kind == FZN_RETAIN_KEEP && within)
+				kept = 1;
+			counted[r]++;
+			bytes[r] += e.size;
+		}
+		for (k = 0; k < n_months && months[k].epoch != e.epoch; k++)
+			;
+		if (k == n_months) {
+			if (n_months == TRIM_MONTHS)
+				continue;
+			months[n_months].epoch = e.epoch;
+			months[n_months].stays = 0;
+			n_months++;
+		}
+		if (kept || (!pruned && !drops))
+			months[k].stays = 1;
+	}
+	/* THE CURRENT MONTH IS NEVER TRIMMED, as a log's open file is never
+	 * pruned: its key is the one new lines are sealed under. */
+	for (k = 0; k < n_months; k++) {
+		fzn_messages_err_t err;
+
+		if (months[k].stays || months[k].epoch >= current
+		    || is_gone(m, contact, months[k].epoch))
+			continue;
+		err = fzn_messages_forget_epoch(m, contact, months[k].epoch);
+		if (err != FZN_MESSAGES_OK)
+			return err;
+		if (!set_gone(m, contact, months[k].epoch))
+			return FZN_MESSAGES_ERR_BACKEND;
+		tally->months++;
+		trimmed = 1;
+	}
+	tally->conversations += (size_t)trimmed;
+	return FZN_MESSAGES_OK;
+}
+
+fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_rule_t *rules,
+                                     size_t n_rules, uint64_t now_ms,
+                                     fzn_messages_trim_tally_t *tally)
+{
+	uint64_t counted[FZN_RETAIN_RULES_MAX], bytes[FZN_RETAIN_RULES_MAX];
+	uint64_t n_conv, c;
+	totals_t totals;
+	fzn_messages_err_t err = FZN_MESSAGES_OK;
 	int drops;
 
 	if (!ready(m) || (!rules && n_rules) || n_rules > FZN_RETAIN_RULES_MAX || !tally)
@@ -2352,79 +2619,16 @@ fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_r
 	/* UNDER A DROP POLICY a month stays only where a keep rule covers a
 	 * line of it, sec 566. */
 	drops = fzn_retain_policy_drops(rules, n_rules, FZN_RETAIN_MESSAGES);
-	now_us = now_ms * 1000u;
-	current = fzn_message_epoch_of(now_ms);
 	n_conv = load_number(m, "convs", NOBODY);
-	for (c = 0; c < n_conv; c++) {
-		int applies[FZN_RETAIN_RULES_MAX], any = 0, trimmed = 0;
-		size_t n_months = 0, k;
-		uint64_t i;
-
-		if (!conversation_at(m, c, contact))
-			return FZN_MESSAGES_ERR_BACKEND;
-		for (r = 0; r < n_rules; r++) {
-			applies[r] = rules[r].data == FZN_RETAIN_MESSAGES
-			             && rules[r].kind != FZN_RETAIN_POLICY
-			             && (!rules[r].has_contact
-			                 || memcmp(rules[r].contact, contact, FZN_PUBKEY_LEN) == 0);
-			any |= applies[r];
-			counted[r] = bytes[r] = 0u;
-		}
-		if (!any && !drops)
-			continue;
-		/* NEWEST FIRST: a line goes when a prune rule marks it and no keep
-		 * rule protects it, and a MONTH goes when every line of it goes.
-		 * Its key is the unit: no part of a month is deleted. */
-		for (i = count_of(m, contact); i > 0u; i--) {
-			entry_t e;
-			int pruned = 0, kept = 0;
-
-			if (!index_entry(m, contact, i - 1u, &e))
-				return FZN_MESSAGES_ERR_BACKEND;
-			for (r = 0; r < n_rules; r++) {
-				int within;
-
-				if (!applies[r])
-					continue;
-				within = trim_within(&rules[r], &e, counted[r], bytes[r], now_us);
-				if (rules[r].kind == FZN_RETAIN_PRUNE && !within)
-					pruned = 1;
-				if (rules[r].kind == FZN_RETAIN_KEEP && within)
-					kept = 1;
-				counted[r]++;
-				bytes[r] += e.size;
-			}
-			for (k = 0; k < n_months && months[k].epoch != e.epoch; k++)
-				;
-			if (k == n_months) {
-				if (n_months == TRIM_MONTHS)
-					continue;
-				months[n_months].epoch = e.epoch;
-				months[n_months].stays = 0;
-				n_months++;
-			}
-			if (kept || (!pruned && !drops))
-				months[k].stays = 1;
-		}
-		/* THE CURRENT MONTH IS NEVER TRIMMED, as a log's open file is never
-		 * pruned: its key is the one new lines are sealed under. */
-		for (k = 0; k < n_months; k++) {
-			fzn_messages_err_t err;
-
-			if (months[k].stays || months[k].epoch >= current
-			    || is_gone(m, contact, months[k].epoch))
-				continue;
-			err = fzn_messages_forget_epoch(m, contact, months[k].epoch);
-			if (err != FZN_MESSAGES_OK)
-				return err;
-			if (!set_gone(m, contact, months[k].epoch))
-				return FZN_MESSAGES_ERR_BACKEND;
-			tally->months++;
-			trimmed = 1;
-		}
-		tally->conversations += (size_t)trimmed;
-	}
-	return FZN_MESSAGES_OK;
+	/* EVERY CONTACT'S TOGETHER, sec 793, summed once for the trim. */
+	memset(&totals, 0, sizeof(totals));
+	if (needs_totals(rules, n_rules, FZN_RETAIN_MESSAGES))
+		(void)totals_load(m, &totals);
+	for (c = 0; c < n_conv && err == FZN_MESSAGES_OK; c++)
+		err = trim_one(m, rules, n_rules, &totals, c, drops, fzn_message_epoch_of(now_ms),
+		               now_ms * 1000u, counted, bytes, tally);
+	totals_free(&totals);
+	return err;
 }
 
 fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain_rule_t *rules,
@@ -2434,6 +2638,7 @@ fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain
 {
 	uint64_t counted[FZN_RETAIN_RULES_MAX], bytes[FZN_RETAIN_RULES_MAX], i;
 	int applies[FZN_RETAIN_RULES_MAX], any = 0, pruned = 0, kept = 0, drops;
+	totals_t totals;
 	entry_t month;
 	size_t r;
 
@@ -2449,9 +2654,7 @@ fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain
 	if (epoch >= fzn_message_epoch_of(now_ms))
 		return FZN_MESSAGES_OK;
 	for (r = 0; r < n_rules; r++) {
-		applies[r] = rules[r].data == FZN_RETAIN_MESSAGES && rules[r].kind != FZN_RETAIN_POLICY
-		             && (!rules[r].has_contact
-		                 || memcmp(rules[r].contact, contact, FZN_PUBKEY_LEN) == 0);
+		applies[r] = fzn_retain_applies_to(rules, n_rules, r, FZN_RETAIN_MESSAGES, contact);
 		any |= applies[r];
 		counted[r] = bytes[r] = 0u;
 	}
@@ -2479,17 +2682,25 @@ fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain
 	 * of the month would, and so does the month. */
 	memset(&month, 0, sizeof(month));
 	month.epoch = epoch;
+	/* EVERY CONTACT'S TOGETHER, sec 793, from the sums of the months held:
+	 * those not here yet are not counted, as above. */
+	memset(&totals, 0, sizeof(totals));
+	if (needs_totals(rules, n_rules, FZN_RETAIN_MESSAGES))
+		(void)totals_load(m, &totals);
 	for (r = 0; r < n_rules; r++) {
 		int within;
 
 		if (!applies[r])
 			continue;
-		within = trim_within(&rules[r], &month, counted[r], bytes[r], now_ms * 1000u);
+		within = rules[r].all_contacts
+		                 ? all_within(&rules[r], &totals, epoch, now_ms * 1000u)
+		                 : trim_within(&rules[r], &month, counted[r], bytes[r], now_ms * 1000u);
 		if (rules[r].kind == FZN_RETAIN_PRUNE && !within)
 			pruned = 1;
 		if (rules[r].kind == FZN_RETAIN_KEEP && within)
 			kept = 1;
 	}
+	totals_free(&totals);
 	*wanted = kept || (!pruned && !drops);
 	return FZN_MESSAGES_OK;
 }
@@ -2504,9 +2715,8 @@ int fzn_messages_keeps(const fzn_retain_rule_t *rules, size_t n_rules,
 	if (!fzn_retain_policy_drops(rules, n_rules, FZN_RETAIN_MESSAGES))
 		return 1;
 	for (r = 0; r < n_rules; r++)
-		if (rules[r].data == FZN_RETAIN_MESSAGES && rules[r].kind == FZN_RETAIN_KEEP
-		    && (!rules[r].has_contact
-		        || memcmp(rules[r].contact, contact, FZN_PUBKEY_LEN) == 0))
+		if (rules[r].kind == FZN_RETAIN_KEEP
+		    && fzn_retain_applies_to(rules, n_rules, r, FZN_RETAIN_MESSAGES, contact))
 			return 1;
 	return 0;
 }

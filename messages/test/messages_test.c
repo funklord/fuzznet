@@ -1303,6 +1303,82 @@ static void test_trimming_by_size(void)
 	      "the newest ten bytes reach into September, which stays; August goes");
 }
 
+/* EACH, ALL TOGETHER, AND A DEFAULT, sec 793: two conversations of six
+ * bytes a month from August to October. Ten bytes each keeps September of
+ * both; ten bytes of everyone's together keeps neither September; a
+ * default gives way to a rule naming a contact. */
+static int two_conversations(void)
+{
+	setup();
+	return write_in(&A, 679u, X, 2u, "cccccc") && write_in(&A, 680u, X, 3u, "bbbbbb")
+	       && write_in(&A, 681u, X, 4u, "aaaaaa") && write_in(&A, 679u, Y, 5u, "ffffff")
+	       && write_in(&A, 680u, Y, 6u, "eeeeee") && write_in(&A, 681u, Y, 7u, "dddddd");
+}
+
+static void test_each_all_and_a_default(void)
+{
+	fzn_retain_rule_t r[2];
+	char line[FZN_RETAIN_TEXT_MAX];
+	size_t i, marks = 0;
+	int wanted = -1;
+
+	CHECK(two_conversations(), "fixture: x and y, six bytes a month, August to October");
+	r[0] = rule_of("prune messages contact=* size 10");
+	CHECK(trim(&A, r, 1u) && trimmed.months == 2u && readable(&A, X, 3u) == 1
+	              && readable(&A, Y, 6u) == 1 && readable(&A, X, 2u) == 0,
+	      "each on its own: both keep September, and lose August");
+	CHECK(two_conversations(), "fixture: again");
+	r[0] = rule_of("prune messages contact=all size 10");
+	CHECK(fzn_messages_wanted(&A.m, r, 1u, OCTOBER_2026, X, 680u, &wanted) == FZN_MESSAGES_OK
+	              && wanted == 0,
+	      "all together: September is not wanted, October's twelve bytes past ten");
+	CHECK(trim(&A, r, 1u) && trimmed.months == 4u && readable(&A, X, 4u) == 1
+	              && readable(&A, X, 3u) == 0 && readable(&A, Y, 6u) == 0,
+	      "and trimmed: both lose September and August, and keep October");
+	CHECK(two_conversations(), "fixture: again");
+	r[0] = rule_of("prune messages contact=all size 30");
+	CHECK(fzn_messages_wanted(&A.m, r, 1u, OCTOBER_2026, X, 679u, &wanted) == FZN_MESSAGES_OK
+	              && wanted == 1 && trim(&A, r, 1u) && trimmed.months == 0u,
+	      "thirty bytes together reach into August: wanted, and nothing trimmed");
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK,
+	      "fixture: the store rebuilt from its journal");
+	r[0] = rule_of("prune messages contact=all size 30");
+	CHECK(trim(&A, r, 1u) && trimmed.months == 0u,
+	      "after a reindex the months' sums are not counted twice");
+	r[0] = rule_of("prune messages contact=all size 10");
+	CHECK(trim(&A, r, 1u) && trimmed.months == 4u,
+	      "nor lost: ten bytes together still lose September and August");
+	/* AN UPGRADE SUMS THE MONTHS of a store kept before the sums were, once;
+	 * a store kept since gains no second count. */
+	CHECK(two_conversations(), "fixture: again");
+	{
+		int rebuilt = -1;
+
+		CHECK(fzn_messages_upgrade(&A.m, &rebuilt) == FZN_MESSAGES_OK
+		              && fzn_messages_upgrade(&A.m, &rebuilt) == FZN_MESSAGES_OK,
+		      "fixture: the store upgraded, twice");
+	}
+	r[0] = rule_of("prune messages contact=all size 30");
+	CHECK(trim(&A, r, 1u) && trimmed.months == 0u,
+	      "after an upgrade the months' sums are not counted twice");
+	r[0] = rule_of("prune messages contact=all size 10");
+	CHECK(trim(&A, r, 1u) && trimmed.months == 4u, "nor lost");
+	CHECK(two_conversations(), "fixture: again");
+	r[0] = rule_of("prune messages default size 10");
+	snprintf(line, sizeof(line), "prune messages contact=");
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		snprintf(line + strlen(line), 3u, "%02x", X[i]);
+	snprintf(line + strlen(line), sizeof(line) - strlen(line), " size 100");
+	r[1] = rule_of(line);
+	CHECK(r[1].has_contact && trim(&A, r, 2u) && trimmed.months == 1u
+	              && readable(&A, X, 2u) == 1 && readable(&A, Y, 5u) == 0,
+	      "a default gives way to x's own rule: x keeps August, y loses it");
+	CHECK(two_conversations(), "fixture: again");
+	r[1] = rule_of("prune messages size 100");
+	CHECK(trim(&A, r, 2u) && trimmed.months == 2u,
+	      "beside a rule naming no contact the default holds for both");
+}
+
 /* A DEFAULT POLICY, sec 566: under drop only a keep rule holds a month,
  * and keep wins over drop. */
 static void test_trimming_under_a_policy(void)
@@ -1890,6 +1966,7 @@ int main(void)
 	test_a_line_waits_for_its_key();
 	test_trimming_by_count_with_a_keep();
 	test_trimming_by_size();
+	test_each_all_and_a_default();
 	test_trimming_under_a_policy();
 	test_a_month_wanted();
 	test_the_current_month_stays();

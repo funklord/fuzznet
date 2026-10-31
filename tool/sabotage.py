@@ -9729,8 +9729,8 @@ SABOTAGES = [
 	(
 		"retain-contact-only-messages",
 		"log/retain.c",
-		"\t\t    && out->data == FZN_RETAIN_MESSAGES) {\n\t\t\tif (!hex_of(w[i] + 8,",
-		"\t\t    ) {\n\t\t\tif (!hex_of(w[i] + 8,",
+		"\t\tif (n[i] > 8u && memcmp(w[i], \"contact=\", 8u) == 0 && conversations && !contact_named) {",
+		"\t\tif (n[i] > 8u && memcmp(w[i], \"contact=\", 8u) == 0 && !contact_named) {",
 		"a log rule takes a contact= it can never act on, and reads as scoped when it is not -- sec 531",
 	),
 	(
@@ -9749,23 +9749,23 @@ SABOTAGES = [
 	),
 	(
 		"messages-trim-contact-scoped",
-		"messages/messages.c",
-		"\t\t\t             && (!rules[r].has_contact\n",
-		"\t\t\t             && (1\n",
+		"log/retain.c",
+		"\t\treturn memcmp(rules[r].contact, contact, 32u) == 0;",
+		"\t\treturn 1;",
 		"a rule naming one contact trims every conversation -- sec 531",
 	),
 	(
 		"messages-trim-keep-protects",
 		"messages/messages.c",
-		"\t\t\t\tif (rules[r].kind == FZN_RETAIN_KEEP && within)\n\t\t\t\t\tkept = 1;",
-		"\t\t\t\tif (rules[r].kind == FZN_RETAIN_KEEP && within)\n\t\t\t\t\tkept = 0;",
+		"\t\t\tif (rules[r].kind == FZN_RETAIN_KEEP && within)\n\t\t\t\tkept = 1;",
+		"\t\t\tif (rules[r].kind == FZN_RETAIN_KEEP && within)\n\t\t\t\tkept = 0;",
 		"a keep rule protects nothing, and a prune deletes what the holder kept -- sec 531",
 	),
 	(
 		"messages-trim-month-whole",
 		"messages/messages.c",
-		"\t\t\tif (kept || (!pruned && !drops))\n\t\t\t\tmonths[k].stays = 1;",
-		"\t\t\tif (kept && (!pruned && !drops))\n\t\t\t\tmonths[k].stays = 1;",
+		"\t\tif (kept || (!pruned && !drops))\n\t\t\tmonths[k].stays = 1;",
+		"\t\tif (kept && (!pruned && !drops))\n\t\t\tmonths[k].stays = 1;",
 		"a month goes while lines of it are still within the rules -- sec 531",
 	),
 	(
@@ -9778,8 +9778,8 @@ SABOTAGES = [
 	(
 		"messages-trim-never-current",
 		"messages/messages.c",
-		"\t\t\tif (months[k].stays || months[k].epoch >= current\n",
-		"\t\t\tif (months[k].stays\n",
+		"\t\tif (months[k].stays || months[k].epoch >= current\n",
+		"\t\tif (months[k].stays\n",
 		"the month new lines are sealed under is trimmed, its key with it -- sec 531",
 	),
 	(
@@ -9799,8 +9799,8 @@ SABOTAGES = [
 	(
 		"messages-trim-tombstone-kept",
 		"messages/messages.c",
-		"\t\t\tif (!set_gone(m, contact, months[k].epoch))\n\t\t\t\treturn FZN_MESSAGES_ERR_BACKEND;",
-		"\t\t\tif (0)\n\t\t\t\treturn FZN_MESSAGES_ERR_BACKEND;",
+		"\t\tif (!set_gone(m, contact, months[k].epoch))\n\t\t\treturn FZN_MESSAGES_ERR_BACKEND;",
+		"\t\tif (0)\n\t\t\treturn FZN_MESSAGES_ERR_BACKEND;",
 		"a trim leaves no tombstone, so key carriage brings the month back -- sec 531",
 	),
 	(
@@ -10600,16 +10600,16 @@ SABOTAGES = [
 	),
 	(
 		'messages-trim-drop-policy-holds-only-kept',
-		'messages/messages.c',
-		'\t\t\tif (kept || (!pruned && !drops))\n',
-		'\t\t\tif (kept || !pruned)\n',
+		"messages/messages.c",
+		"\t\tif (kept || (!pruned && !drops))\n",
+		"\t\tif (kept || !pruned)\n",
 		'a drop policy beside other rules trims nothing they do not prune -- sec 566',
 	),
 	(
 		'messages-trim-policy-alone-reaches',
-		'messages/messages.c',
-		'\t\tif (!any && !drops)\n\t\t\tcontinue;',
-		'\t\tif (!any)\n\t\t\tcontinue;',
+		"messages/messages.c",
+		"\tif (!any && !drops)\n\t\treturn FZN_MESSAGES_OK;\n\t/* NEWEST FIRST: a line goes",
+		"\tif (!any)\n\t\treturn FZN_MESSAGES_OK;\n\t/* NEWEST FIRST: a line goes",
 		'a drop policy alone trims no conversation -- sec 566',
 	),
 	(
@@ -11182,6 +11182,34 @@ SABOTAGES = [
 		'\t\t\t\tif (filer->passed_over)\n',
 		'\t\t\t\tif (0 && filer->passed_over)\n',
 		"a month the retention rules kept off this device is never reported, so no client can offer to fetch it -- sec 792",
+	),
+	(
+		"retain-default-gives-way",
+		'log/retain.c',
+		'\t\tif (rules[s].data == data && rules[s].kind != FZN_RETAIN_POLICY && rules[s].has_contact\n',
+		'\t\tif (0 && rules[s].data == data && rules[s].kind != FZN_RETAIN_POLICY && rules[s].has_contact\n',
+		"a default rule also trims a contact whose own rule was meant to replace it -- sec 793",
+	),
+	(
+		"messages-all-contacts-weighed",
+		'messages/messages.c',
+		'\tif (!t->bytes_newer)\n\t\treturn 1;\n',
+		'\treturn 1;\n',
+		"a limit over every contact together trims nothing -- sec 793",
+	),
+	(
+		"messages-month-sums-cleared-on-reindex",
+		'messages/messages.c',
+		' || !month_totals_clear(m))',
+		')',
+		"a reindex counts every month twice, so a limit over every contact trims too much -- sec 793",
+	),
+	(
+		"messages-month-sums-built-on-upgrade",
+		'messages/messages.c',
+		'\t\t\t    || (!entry_repeats(m, contact, i, &e) && !month_total_add(m, e.epoch, e.size)))',
+		'\t\t\t    || (!entry_repeats(m, contact, i, &e) && 0))',
+		"a store from before the sums never weighs a limit over every contact -- sec 793",
 	),
 	(
 		'node-asks-its-own-resend',
@@ -12449,8 +12477,8 @@ SABOTAGES = [
 	(
 		"messages-keeps-only-a-keep-rule",
 		"messages/messages.c",
-		"\t\tif (rules[r].data == FZN_RETAIN_MESSAGES && rules[r].kind == FZN_RETAIN_KEEP\n",
-		"\t\tif (rules[r].data == FZN_RETAIN_MESSAGES\n",
+		"\t\tif (rules[r].kind == FZN_RETAIN_KEEP\n\t\t    && fzn_retain_applies_to(rules, n_rules, r, FZN_RETAIN_MESSAGES, contact))",
+		"\t\tif (1\n\t\t    && fzn_retain_applies_to(rules, n_rules, r, FZN_RETAIN_MESSAGES, contact))",
 		"under a drop policy a prune rule reads as keeping, and a host keeping nothing takes lines -- sec 613",
 	),
 	(

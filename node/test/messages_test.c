@@ -52,7 +52,9 @@ static uint64_t now_ms(void)
 
 /* ---- a persist store in memory ---------------------------------------------- */
 
-#define ROWS 2048u
+/* Room for 260 months of lines, and since sec 793 two rows of sums a
+ * month beside them. */
+#define ROWS 3072u
 
 typedef struct row {
 	int used;
