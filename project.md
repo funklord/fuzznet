@@ -75150,6 +75150,16 @@ took the track from 11 fixes to 30; without the service type it added
 one. fuzzypickles' project.md, *A track with the screen off*, has the
 rest.
 
+**And a service's restart has no HOME** (fuzzypickles inbox
+20261030T1457Z, their bc3bbea, on an emulator). Swiping the app away
+ends its process, and Android starts the app's service again in a fresh
+one, where HOME, which Qt sets in the app's process only, is unset. fzpd
+started there found no config and read location as off. fuzznetd
+resolves one thing from the environment: its default socket, under
+`XDG_RUNTIME_DIR` (`local/socket.c`). So a service supervising it passes
+`--socket` as well as `--fuzznet-dir`. Until the app is reopened nothing
+supplies positions, so a node sees no `add location` in that window.
+
 ## 779. A line's key given before the line is pushed, 2026-10-30
 
 Sec 776's look at `live_contacts` phase d found a member holding a line
