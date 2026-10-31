@@ -75091,8 +75091,8 @@ Measured: 8 runs with phase d all passing, S2 opening the line in each
 - ~~a member passing on contact revocations it learned, as it passes on
   the devices it kept (KEPT);~~ built in sec 780;
 - a contact removed keeps its records here, which is harmless;
-- a revoked device held as a group host (sec 630) is un-paired, and may
-  be paired again by the group pass.
+- ~~a revoked device held as a group host (sec 630) is un-paired, and may
+  be paired again by the group pass.~~ Not since sec 784.
 
 ## 777. `list link` paged, 2026-10-30
 
@@ -75497,3 +75497,24 @@ contact's hosts from. The unit checks carry the judgment.
 - past sixteen cut keys a contact's rest are asked in later rounds;
 - a host whose journal let a key's early acts go answers them as spine
   entries, so a grant past a line that old is kept here (unknown).
+
+## 784. A group's host its owner revoked, neither paired nor asked, 2026-10-31
+
+Sec 776 left it among its "not yet": the contact pass un-pairs a device
+its owner's estate revoked, but the groups round pairs every member's
+host its group's log lists (`member_targets_build`, sec 630), asking
+nothing of the owner's estate. So a contact's revoked device, listed as
+a host in a group this user is in, was paired again a pass later. Paired,
+it fetches the group's lines here as its member, and it was asked for
+the group's shares.
+
+**Now the groups round judges each host as a contact's device is judged**
+(`contact_device_revoked`, secs 776 and 781). A host its owner's estate
+revoked is not paired and not asked, and is un-paired if it was. The
+group's log still lists it: which hosts a group seals its epoch secret
+to is the group log's to say, by its admins' acts, and is not changed
+here.
+
+**Measured:** `live_groups` passes with the change. The un-pairing itself
+is read, not measured: it needs a group across two estates with one
+host revoked by its owner, a scenario no live script holds.

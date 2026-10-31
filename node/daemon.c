@@ -10325,6 +10325,18 @@ static void member_targets_build(uint64_t now)
 			if (memcmp(h->owner, own.owner, FZN_PUBKEY_LEN) == 0
 			    || !fzn_group_is_member(&g, h->owner) || !group_host_device(&g, h, &d))
 				continue;
+			/* A HOST ITS OWNER'S ESTATE REVOKED, as a contact's device is
+			 * judged (secs 776, 781): neither paired nor asked, and un-paired
+			 * if it was. The contact pass un-pairs it as a contact's device,
+			 * and this pass paired it again as a group's host. */
+			if (contact_device_revoked(&d)) {
+				if (fzn_node_admin_unpair_contact_device(running_admin,
+				                                         fzn_contact_device_key(&d))
+				    > 0)
+					say(FZN_ENTRY_NOTE, "node/groups",
+					    "a member's host its owner revoked was un-paired");
+				continue;
+			}
 			/* PAIRED as this host's: it asks here as its member. */
 			r = fzn_node_admin_pair_group_host(running_admin, &d, &why);
 			paired += r > 0;
