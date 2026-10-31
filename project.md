@@ -75528,3 +75528,34 @@ here.
 **Measured:** `live_groups` passes with the change. The un-pairing itself
 is read, not measured: it needs a group across two estates with one
 host revoked by its owner, a scenario no live script holds.
+
+## 785. A contact's estate, fuzzed, 2026-10-31
+
+Secs 776 to 783 gave this node eight new decoders a contact's host
+reaches, plus the rows a member passes on, and none was fuzzed.
+`node/test/estate_fuzz.c` holds them to the sec 689 fuzz bar, on
+`location_fuzz`'s pattern: each input made whole, then bent with even
+odds (bits flipped, cut short, grown, a slice repeated, two bytes
+swapped).
+
+**Properties:**
+- **An estate item** round-trips, and a bent one that decodes encodes
+  back as exactly its bytes: one encoding per item.
+- **A page of each kind** (the root's records, estate items, rows, an act
+  log) is taken whole when whole. Bent, it is refused with nothing taken,
+  or taken with every item a slice of the page's own bytes, never half a
+  page.
+- **Rows taken into a store**, whole or bent, then the estate built over
+  what was kept and a device judged by it: nothing read past an end, and
+  a whole row, signed, always kept.
+
+**Floors:** a bent item decoded, a bent page of each kind both refused
+and taken, a bent row both kept and refused.
+
+**Measured:**
+- 2,000 cases in `make test`, and 20,000 under ASan and UBSan, both
+  clean. Bent pages of each kind were refused about 6,000 times and taken
+  about 3,700 times at 20,000 cases.
+- **Control:** the estate step taking each item as it reads it, before
+  the page is checked whole, fails 1,532 of 2,000 cases.
+- No fault found.

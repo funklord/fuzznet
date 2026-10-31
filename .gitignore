@@ -186,6 +186,7 @@
 /node/test/pieces_fuzz
 /node/test/reachability_fuzz
 /node/test/location_fuzz
+/node/test/estate_fuzz
 /state/test/state_test
 /state/test/scope_test
 /state/test/setting_test

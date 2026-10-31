@@ -359,6 +359,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/votes_fuzz.c \
              node/test/pieces_fuzz.c \
              node/test/reachability_fuzz.c node/test/location_fuzz.c \
+             node/test/estate_fuzz.c \
              provision/test/provision_test.c \
              roster/test/roster_test.c \
              disclose/test/disclose_test.c \
@@ -639,6 +640,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/pieces_fuzz \
              $(BUILD_DIR)/node/test/reachability_fuzz \
              $(BUILD_DIR)/node/test/location_fuzz \
+             $(BUILD_DIR)/node/test/estate_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
@@ -3877,6 +3879,15 @@ $(BUILD_DIR)/node/test/location_fuzz: $(BUILD_DIR)/node/test/location_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A contact's estate from a lying host or member: its root's records, its
+# estate items, the rows members pass on and a key's act log (secs 776-783).
+$(BUILD_DIR)/node/test/estate_fuzz: $(BUILD_DIR)/node/test/estate_fuzz.o \
+                                    $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
+                                    $(BUILD_DIR)/record/record.o \
+                                    $(NODE_SERVE_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/routing_test: $(BUILD_DIR)/node/test/routing_test.o \
                                      $(BUILD_DIR)/node/routing.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
@@ -5067,6 +5078,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
              $(BUILD_DIR)/node/test/reachability_fuzz \
              $(BUILD_DIR)/node/test/location_fuzz \
+             $(BUILD_DIR)/node/test/estate_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/catalog/test/attribute_fuzz \
              $(BUILD_DIR)/catalog/test/plan_fuzz \
