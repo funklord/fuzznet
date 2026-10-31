@@ -75594,3 +75594,29 @@ along with its save, so the ops it did not replace (load, list, walk)
 were handed the wrong context. R2 crashed in its first contact pass. The
 wrapper keeps every op and its context now, and holds the store beneath
 it apart.
+
+## 787. A save of the bytes already stored is not written again, 2026-10-31
+
+Sec 786's other half, found by its lens: a store rewriting what it
+already holds. Every round a contact's host hands over the same devices
+(`fzn_contact_device_keep` replaces the row each time) and the same
+routing manifest (`fzn_routing_keep` likewise). The file backend writes
+every save as a temporary file, flushed, synced and renamed over the
+target. At a hundred contacts of three hosts that is about four hundred
+syncs a minute, writing what is already there: flash worn and a phone's
+battery spent for nothing.
+
+**`file_save` now reads the target first** and returns at once when it
+already holds exactly these bytes. A save up to 4096 bytes is compared;
+a larger one is written as before. What is already there was written,
+synced and renamed by an earlier save, or is what a crash left of one,
+which a load reads alike, so skipping changes nothing a reader sees.
+Fixing it in the backend covers every caller that re-saves unchanged
+state, not only the two found.
+
+**Measured:**
+- **`persist_file_test`, 90 checks:** the same bytes saved again leave
+  the file's inode as it was; other bytes are written. **Control:** with
+  the comparison off, the identical save writes a new inode and the
+  check fails.
+- One sabotage entry.

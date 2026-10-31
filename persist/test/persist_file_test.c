@@ -584,6 +584,29 @@ int main(void)
 	       "loading what was just saved refused");
 	expect(len == sizeof(in) && memcmp(out, in, sizeof(in)) == 0,
 	       "the bytes did not survive the round trip");
+	{
+		/* THE SAME BYTES AGAIN ARE NOT WRITTEN, sec 786: the file stays
+		 * the one that was there -- a save writes a temporary and renames
+		 * it over, so a write shows as another inode. Other bytes are. */
+		char path[320];
+		struct stat before, after;
+
+		snprintf(path, sizeof(path), "%s/1-h", dir);
+		expect(stat(path, &before) == 0
+		               && ops->save(ops->ctx, FZN_PERSIST_TRUST, NULL, in, sizeof(in)) == 1
+		               && stat(path, &after) == 0 && after.st_ino == before.st_ino,
+		       "saving the bytes already there wrote them again");
+		in[0] ^= 1u;
+		expect(ops->save(ops->ctx, FZN_PERSIST_TRUST, NULL, in, sizeof(in)) == 1
+		               && stat(path, &after) == 0 && after.st_ino != before.st_ino
+		               && ops->load(ops->ctx, FZN_PERSIST_TRUST, NULL, out, sizeof(out), &len)
+		                          == 1
+		               && len == sizeof(in) && memcmp(out, in, sizeof(in)) == 0,
+		       "other bytes were not written");
+		in[0] ^= 1u;
+		expect(ops->save(ops->ctx, FZN_PERSIST_TRUST, NULL, in, sizeof(in)) == 1,
+		       "the first bytes would not save back");
+	}
 
 	/* HOLDS: THE ABSENT THAT `load` CANNOT SAY. Asked beside `load` so the
 	 * two answers are about the same file. sec 375. */

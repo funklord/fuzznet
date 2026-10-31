@@ -11128,6 +11128,13 @@ SABOTAGES = [
 		"a vote keeping nothing lets a contact read the key's act log, with no line to judge by -- sec 783",
 	),
 	(
+		"persist-file-same-bytes-not-written",
+		'persist/persist_file.c',
+		"\t\t\tif (got == len && memcmp(held, bytes, len) == 0)\n\t\t\t\treturn 1;",
+		"\t\t\tif (0 && got == len && memcmp(held, bytes, len) == 0)\n\t\t\t\treturn 1;",
+		"every round's same records, devices and manifests written and synced again -- sec 786",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

@@ -214,6 +214,9 @@ static int file_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	return 1;
 }
 
+/* THE LARGEST SAVE COMPARED WITH WHAT IS THERE before it is written. */
+#define SAME_MAX 4096u
+
 static int file_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                      const uint8_t *bytes, size_t len)
 {
@@ -234,6 +237,26 @@ static int file_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 		            "this directory, so nothing was saved",
 		            (unsigned)slot, (unsigned)PATH_MAX_LEN);
 		return 0;
+	}
+
+	/* THE SAME BYTES ALREADY THERE ARE NOT WRITTEN AGAIN, sec 786: a host
+	 * hands over the same records, devices and manifests every round, and
+	 * each was written, synced and renamed again -- hundreds of syncs a
+	 * minute at a hundred contacts, flash worn and a phone's battery spent
+	 * for nothing. What is already there was written, synced and renamed by
+	 * a save before this one, or is what a crash left of one, which a load
+	 * reads alike. A row larger than the buffer is written as before. */
+	if (len <= SAME_MAX) {
+		static uint8_t held[SAME_MAX + 1u];
+		FILE *g = fopen(path, "rb");
+
+		if (g) {
+			size_t got = fread(held, 1u, len + 1u, g);
+
+			fclose(g);
+			if (got == len && memcmp(held, bytes, len) == 0)
+				return 1;
+		}
 	}
 
 	/* 0600 AT CREATION. `fopen` would use the umask, which a daemon does
