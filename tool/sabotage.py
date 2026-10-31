@@ -11303,6 +11303,13 @@ SABOTAGES = [
 		"a step no larger than one is spent on a conversation already told, and the walk never ends -- sec 796",
 	),
 	(
+		"reconcile-push-peer-ids-grown",
+		'node/reconcile.c',
+		'\t\t\t\tmore = grown(peer_ids, &peer_ids_room, n_ids + count, sizeof(*peer_ids));\n',
+		'\t\t\t\tmore = n_ids + count > 16384u ? NULL\n\t\t\t\t       : grown(peer_ids, &peer_ids_room, n_ids + count, sizeof(*peer_ids));\n',
+		"a bucket the peer holds more than 16384 ids of is left unsent, counted full -- sec 798",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

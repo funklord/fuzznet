@@ -75864,8 +75864,7 @@ A backend without `each` is still bounded by that room of 4096 (sec
 - **Control**, made by hand: the grown list capped at 4096 fails three of
   those checks. One sabotage entry for it.
 
-**Not measured:** a push of one bucket past 16384 ids. It now grows as
-the lists do, but no test holds a bucket that large.
+**A push of one bucket past 16384 ids** is measured by sec 798.
 
 ## 792. History held back by the rules, reported; attachments planned, 2026-10-31
 
@@ -76361,3 +76360,19 @@ live, not only through the unit test's callback.
   (1, 1, 3, 2, 0): the pack was removed. Sabotage cannot hold this
   check, since it runs `make test` and the live tests are not part of
   that.
+
+## 798. A push of one bucket past 16384 ids, 2026-10-31
+
+**Asked by the holder, 2026-10-31:** test the push sec 791 left unmeasured.
+
+- **`buckets_test`'s `test_a_push_past_16384_ids`**, 82 checks in all,
+  uses the heap stores walked by `each` from sec 791. A and B share one
+  bucket of 16500 items, and A holds three more. A's push asks B for
+  every id of the bucket, over many pages, and sends the three B lacks:
+  one bucket, three lacked, three sent, none counted full. A second push
+  finds the digests equal and sends nothing. The test runs in about half
+  a second.
+- **Control**, made by hand and caught: with the peer's ids capped at
+  16384, the old room, the push left the bucket unsent and counted it
+  full (0 lacked, 0 sent, 1 full), which is the behaviour sec 791
+  removed. One sabotage entry makes the same edit.

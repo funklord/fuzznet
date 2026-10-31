@@ -1309,6 +1309,64 @@ static void test_past_any_fixed_room(void)
 	big_clear(&big_b);
 }
 
+/* ONE BUCKET PAST 16384 IDS, the push's old room for the peer's ids of a
+ * bucket (sec 791): B holds 16500 of A's 16503, and a push sends the
+ * three it lacks -- not the bucket left unsent as one it could not
+ * compare. */
+#define DEEP_SHARED 16500u
+
+static void test_a_push_past_16384_ids(void)
+{
+	const fzn_persist_ops_t kept_a = store_a, kept_b = store_b;
+	fzn_reconcile_bucket_tally_t t;
+	fzn_reconcile_err_t err;
+	uint8_t s[FZN_PUBKEY_LEN];
+	unsigned n;
+	int ok = 1;
+
+	big_a.rows = calloc(BIG_SLOTS, sizeof(struct big_row));
+	big_b.rows = calloc(BIG_SLOTS, sizeof(struct big_row));
+	if (!big_a.rows || !big_b.rows) {
+		CHECK(0, "fixture: the big stores");
+		big_clear(&big_a);
+		big_clear(&big_b);
+		return;
+	}
+	store_a.load = big_load;
+	store_a.save = big_save;
+	store_a.list = NULL;
+	store_a.remove = big_remove;
+	store_a.ctx = &big_a;
+	store_a.each = big_each;
+	store_b = store_a;
+	store_b.ctx = &big_b;
+	memset(sender_a, 0xa0, sizeof(sender_a));
+	memset(refused_subject, 0xff, sizeof(refused_subject));
+	memset(&receiving, 0, sizeof(receiving));
+	receiving.taking = 1;
+	wanted_months_below = 0;
+	subject_of(s, 42);
+	for (n = 0; n < DEEP_SHARED && ok; n++)
+		ok = add_n(&A, s, 780u, n, 25u) && add_n(&B, s, 780u, n, 25u);
+	for (n = DEEP_SHARED; n < DEEP_SHARED + 3u && ok; n++)
+		ok = add_n(&A, s, 780u, n, 25u);
+	CHECK(ok, "fixture: one bucket of 16503 items at A, 16500 of them at B");
+	err = push_a_to_b(&t);
+	if (err != FZN_RECONCILE_OK || t.sent != 3u)
+		fprintf(stderr, "    %s: %zu buckets, %zu lacked, %zu sent, %zu full\n",
+		        fzn_reconcile_err_str(err), t.buckets, t.lacked, t.sent, (size_t)t.full);
+	CHECK(err == FZN_RECONCILE_OK && t.full == 0u && t.buckets == 1u && t.lacked == 3u
+	              && t.sent == 3u,
+	      "a push past 16384 ids did not send just the three B lacks");
+	receiving.puts = 0;
+	CHECK(push_a_to_b(&t) == FZN_RECONCILE_OK && t.buckets == 0u && receiving.puts == 0u,
+	      "after it, the bucket's digests still differ");
+	store_a = kept_a;
+	store_b = kept_b;
+	big_clear(&big_a);
+	big_clear(&big_b);
+}
+
 int main(void)
 {
 	test_an_item_is_held_once();
@@ -1327,6 +1385,7 @@ int main(void)
 	test_large_items_pulled_and_pushed();
 	test_an_item_let_go();
 	test_past_any_fixed_room();
+	test_a_push_past_16384_ids();
 	printf("buckets_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }
