@@ -148,6 +148,7 @@
 #include <fuzznet/node/journal.h>
 #include <fuzznet/node/opjournal.h>
 #include <fuzznet/messages/line.h>
+#include <fuzznet/messages/attachment.h>
 #include <fuzznet/messages/messages.h>
 #include <fuzznet/node/messages.h>
 #include <fuzznet/node/apply.h>
@@ -357,6 +358,7 @@
 #include "node/journal.h"
 #include "node/opjournal.h"
 #include "messages/line.h"
+#include "messages/attachment.h"
 #include "messages/messages.h"
 #include "node/messages.h"
 #include "node/apply.h"

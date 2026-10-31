@@ -58,6 +58,7 @@
 #include "../location/location.h"
 #include "../location/gpsd.h"
 #include "../sticker/pack.h"
+#include "../messages/attachment.h"
 #include "../messages/line.h"
 #ifdef FZN_CLAIM_FILE_ON
 #include "../claim/claim_file.h"
@@ -8586,6 +8587,55 @@ static void sticker_seen(void *ctx, const uint8_t *contact, uint8_t direction,
 		say(FZN_ENTRY_DEBUG, "sticker", "pack %02x%02x%02x%02x wanted, %llu bytes", ref.root[0],
 		    ref.root[1], ref.root[2], ref.root[3], (unsigned long long)ref.length);
 }
+
+/* A FILE A LINE SENDS, sec 794: its reference (`messages/attachment.h`).
+ * Going OUT, as this user's, it is granted to the conversation -- a
+ * contact's root or a group's id -- when this host holds it, so the other
+ * side may fetch it, as a sticker's pack is. Come IN, it is not fetched:
+ * a file can be a gigabyte, and the client asks first, by the size the
+ * reference claims, then fetches by the whole reference. */
+static void attachment_seen(const uint8_t *contact, uint8_t direction, const uint8_t *text,
+                            size_t len)
+{
+	fzn_attachment_t a;
+	uint64_t held = 0;
+
+	if (!files_on || direction != FZN_MESSAGE_OUT
+	    || !fzn_attachment_parse((const char *)text, len, &a)
+	    || fzn_node_files_held(&files, a.root, &held) != FZN_NODE_FILES_OK
+	    || fzn_node_files_share(&files, a.root, contact, 1, wall_ms()) != FZN_NODE_FILES_OK)
+		return;
+	say(FZN_ENTRY_DEBUG, "messages", "attachment %02x%02x%02x%02x granted to %02x%02x%02x%02x",
+	    a.root[0], a.root[1], a.root[2], a.root[3], contact[0], contact[1], contact[2],
+	    contact[3]);
+}
+
+/* EVERY LINE'S TEXT, as the store keeps it: a sticker's reference or a
+ * file's. */
+static void text_seen(void *ctx, const uint8_t *contact, uint8_t direction, const uint8_t *text,
+                      size_t len)
+{
+	sticker_seen(ctx, contact, direction, text, len);
+	attachment_seen(contact, direction, text, len);
+}
+
+/* A FILE HELD HERE, by its root, for `add message ... attach`, sec 794:
+ * its key from the reference kept, its length from the file itself. */
+static int file_of_here(void *ctx, const uint8_t root[32], uint8_t key[32], uint64_t *length)
+{
+	uint8_t bytes[FZN_NODE_FILE_REF_LEN];
+	fzn_node_file_ref_t ref;
+	uint64_t held = 0;
+
+	(void)ctx;
+	if (!files_on || !node_apply.store || !fzn_node_file_ref_get(node_apply.store, root, bytes)
+	    || !fzn_node_file_ref_read(bytes, &ref)
+	    || fzn_node_files_held(&files, root, &held) != FZN_NODE_FILES_OK)
+		return 0;
+	memcpy(key, ref.key, 32u);
+	*length = held;
+	return 1;
+}
 #endif
 
 int fzn_daemon_journal_append(const uint8_t *object, size_t len)
@@ -16181,7 +16231,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					node_messages.keeps = keeps_here;
 					node_messages.takes_over = takes_over_line;
 #if defined(FZN_SPOOL_FILE_ON)
-					node_messages.m.on_text = sticker_seen;
+					node_messages.m.on_text = text_seen;
+					node_messages.file_of = file_of_here;
 #endif
 					admin.messages_local = fzn_node_messages_local;
 					admin.messages_remote = fzn_node_messages_remote;

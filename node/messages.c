@@ -5,6 +5,7 @@
 #include "messages.h"
 
 #include "../contact/contact.h"
+#include "../messages/attachment.h"
 #include "../local/escape.h"
 #include "group_lines.h"
 #include "groups.h"
@@ -1194,13 +1195,15 @@ static int line_of(const fzn_node_messages_t *nm, const uint8_t **at, size_t *le
 static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,
                   size_t cap)
 {
-	static const char USAGE[] = "add message WHO out|in ID [at MS] TEXT | file PATH";
+	static const char USAGE[] =
+	        "add message WHO out|in ID [at MS] TEXT | file PATH | attach ROOT NAME";
 	static char text[FZN_MESSAGE_TEXT_MAX + 1u];
 	uint8_t contact[FZN_PUBKEY_LEN], id[FZN_MESSAGE_ID_LEN], direction = 0;
 	uint64_t stime = nm->m.now();
 	const uint8_t *w, *rest;
 	size_t w_len, rest_left, len = 0, i;
 	fzn_messages_err_t err;
+	int first;
 
 	if (!line_of(nm, &at, &left, contact, &direction, id))
 		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
@@ -1219,7 +1222,8 @@ static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 	}
 	rest = at;
 	rest_left = left;
-	if (word(&rest, &rest_left, &w, &w_len) && is_word(w, w_len, "file")) {
+	first = word(&rest, &rest_left, &w, &w_len);
+	if (first && is_word(w, w_len, "file")) {
 		char name[512];
 		FILE *f;
 
@@ -1239,6 +1243,23 @@ static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 		(void)fclose(f);
 		if (len > FZN_MESSAGE_TEXT_MAX)
 			return refuse(reply, cap, FZN_MESSAGES_ERR_TEXT);
+	} else if (first && is_word(w, w_len, "attach")) {
+		/* A FILE HELD HERE, SENT AS AN ATTACHMENT, sec 794: its reference
+		 * written by fuzznet, from the key and length it holds. */
+		fzn_attachment_t a;
+
+		memset(&a, 0, sizeof(a));
+		if (!word(&rest, &rest_left, &w, &w_len)
+		    || !parse_hex(w, w_len, a.root, sizeof(a.root))
+		    || !word(&rest, &rest_left, &w, &w_len) || rest_left
+		    || !unescape(w, w_len, a.name, FZN_ATTACHMENT_NAME_MAX, &a.name_len))
+			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		if (!nm->file_of || !nm->file_of(nm->file_of_ctx, a.root, a.key, &a.size))
+			return say(reply, cap, FZN_REPLY_ERROR, "no such file is held here");
+		if (!fzn_attachment_format(&a, text, sizeof(text), &len))
+			return say(reply, cap, FZN_REPLY_MALFORMED,
+			           "a name an attachment does not carry: 1 to 64 bytes, no separator, "
+			           "control byte, leading dot or edge space");
 	} else if (memchr(at, ' ', left)) {
 		/* TEXT IS ONE ESCAPED WORD, sec 651, a space written %20: a raw
 		 * one let a text that began `file ` be read as the file form, and

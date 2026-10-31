@@ -27,6 +27,11 @@ A asks, B is asked, C asks and is turned away.
        granted it to B as the line went out, and B comes to list its
        stickers (sec 682); fetched is not saved, until B keeps it with `add
        sticker REF` (sec 683)
+    h2 A puts a file and sends it to B as an attachment (`add message bob
+       out ID attach ROOT NAME`), the line's text fuzznet's reference; B
+       holds nothing until it asks, then fetches by the whole reference
+       from A, which granted it as the line went out, and exports A's bytes
+       (sec 794)
 
 `--skew S` runs A S seconds ahead and B S behind, by faketime (sec 767):
 the asker and the asked 2S apart.
@@ -77,7 +82,7 @@ def a_round_more(base):
 	return within(base) + (ROUND_S + 5.0 if LOSS else 0.0)
 
 
-live_trim.DEADLINE = time.monotonic() + 240.0 + 40.0 * LOSS
+live_trim.DEADLINE = time.monotonic() + 360.0 + 40.0 * LOSS
 
 KEPT_RE = re.compile(r"a contact request from ([0-9a-f]{16}), waiting")
 # DELIVERED, OR SETTLED (sec 767): an offer whose answer was lost is made
@@ -90,6 +95,7 @@ OFFERED_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1: "
 ROUND_END_RE = ROUND_DONE_RE
 LINE = "51" * 16
 LINE2 = "52" * 16
+LINE3 = "53" * 16
 PREKEY_HOST = slice(4, 68)
 
 
@@ -438,6 +444,54 @@ def main(argv):
 				raise failed("h: B's collection is %r after keeping the pack" % listed)
 			print("livecheck: h: a line carrying a sticker made B fetch A's pack, granted as "
 			      "it went out, and draw it; fetched was not saved until B kept it")
+
+			# h2: a file sent as an attachment, sec 794. Its reference is
+			# fuzznet's, written from the file A holds; B is not made to fetch
+			# it, and fetches it by the reference once it asks.
+			payload = os.path.join(run.scratch, "holiday")
+			sent = os.urandom(5000)
+			with open(payload, "wb") as f:
+				f.write(sent)
+			put = ask(socks["a"], "put file " + payload).split()
+			if len(put) < 2 or put[0] != "ok":
+				raise failed("h2: put file answered %r" % put)
+			root = put[1][:64]
+			expect(socks["a"], "a", "add message bob out %s attach %s holiday%%20photo.jpg"
+			       % (LINE3, root), "ok")
+			until = time.monotonic() + 120.0
+			attached = None
+			while attached is None:
+				listing = ask(socks["b"], "list message " + keys["a"])
+				at = listing.find("fzn:file/" + root + "/")
+				if at >= 0:
+					attached = listing[at:].split(",")[0].split(" ")[0]
+					break
+				if time.monotonic() > until:
+					raise failed("h2: B never filed the attachment's line: %r" % listing[:300])
+				time.sleep(2.0)
+			text = attached.replace("%20", " ")
+			head, name = text.split(" ", 1)
+			fields = head.split("/")
+			if name != "holiday photo.jpg" or len(fields) != 4 or int(fields[3]) != len(sent):
+				raise failed("h2: the line's reference reads %r" % text)
+			if root in ask(socks["b"], "list file"):
+				raise failed("h2: B fetched an attachment nobody asked for")
+			expect(socks["b"], "b", "fetch file %s%s%016x" % (fields[1], fields[2],
+			                                                 int(fields[3])), "ok")
+			until = time.monotonic() + 120.0
+			while ask(socks["b"], "get file %s check" % root).strip() != "ok intact":
+				if time.monotonic() > until:
+					raise failed("h2: B never fetched the attachment: %r"
+					             % ask(socks["b"], "get file " + root))
+				time.sleep(2.0)
+			out = os.path.join(run.scratch, "holiday.out")
+			expect(socks["b"], "b", "get file %s%s%016x %s" % (fields[1], fields[2],
+			                                                  int(fields[3]), out), "ok")
+			with open(out, "rb") as f:
+				if f.read() != sent:
+					raise failed("h2: the file B exported is not the file A attached")
+			print("livecheck: h2: A attached a file, its reference written by fuzznet; B "
+			      "fetched it by that reference only when asked, and holds A's bytes")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

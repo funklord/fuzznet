@@ -167,6 +167,11 @@ typedef struct fzn_node_messages {
 	 * to change them. NULL and 0 for none. */
 	const fzn_node_message_held_back_t *held_back;
 	size_t n_held_back;
+	/* A FILE THIS NODE HOLDS, by its root, sec 794: its key and length,
+	 * for `add message ... attach`, which writes the reference. The caller
+	 * holds the files; NULL holds none. 1 when held. */
+	int (*file_of)(void *ctx, const uint8_t root[32], uint8_t key[32], uint64_t *length);
+	void *file_of_ctx;
 	/* THE OWN ROOM the tables above start on. */
 	uint8_t own_devices[FZN_MESSAGES_DEVICES_MAX][FZN_PUBKEY_LEN];
 	fzn_node_message_cursor_t own_cursors[FZN_MESSAGES_DEVICES_MAX];
@@ -405,8 +410,12 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
  * contact's name or its key in hex, ID 32 hex digits, the text the rest of
  * the line with %XX undone (so a newline is %0a) or `file PATH`:
  *
- *   add message WHO out|in ID [at MS] TEXT | file PATH
- *       TEXT one escaped word, a space as %20; PATH absolute (sec 651)
+ *   add message WHO out|in ID [at MS] TEXT | file PATH | attach ROOT NAME
+ *       TEXT one escaped word, a space as %20; PATH absolute (sec 651);
+ *       ROOT a file this node holds, sent as an attachment: the line's
+ *       text is its reference, `messages/attachment.h`, written here with
+ *       its key and length, and NAME, one escaped word, what it is called
+ *       (sec 794)
  *   set message WHO out|in ID delivered|settled|handed-over|not-delivered
  *   set message WHO read ID
  *   get message WHO unread

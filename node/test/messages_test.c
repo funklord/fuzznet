@@ -379,6 +379,25 @@ static int replied(const char *start)
 
 #define ID1 "01010101010101010101010101010101"
 #define ID2 "02020202020202020202020202020202"
+#define ID3 "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
+#define ID4 "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+#define FILE_ROOT "abababababababababababababababababababababababababababababababab"
+#define FILE_KEY "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+#define OTHER_ROOT "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+
+/* ONE FILE HELD, 4096 bytes, under 0xab..., its key 0xcd.... */
+static int file_of_test(void *ctx, const uint8_t root[32], uint8_t key[32], uint64_t *length)
+{
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < 32u; i++)
+		if (root[i] != 0xabu)
+			return 0;
+	memset(key, 0xcd, 32u);
+	*length = 4096u;
+	return 1;
+}
 
 static void test_the_verbs(void)
 {
@@ -422,6 +441,38 @@ static void test_the_verbs(void)
 	           "list message 5858585858585858585858585858585858585858585858585858585858585858 1")
 	              && replied("ok 1 1 0 ") && strstr(reply, ",carol," ID2 ","),
 	      "a key of digits alone is WHO, not a page offset, and FROM still follows it");
+	/* SEC 794: a file held here, sent as an attachment, its reference
+	 * written by fuzznet. */
+	A.nm.file_of = file_of_test;
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out " ID3 " attach " FILE_ROOT " holiday%20photo.jpg")
+	              && replied("ok")
+	              && verb(&A, FZN_ORIGIN_SAME_USER, "list message carol")
+	              && strstr(reply, ID3 ",out,-,")
+	              && strstr(reply, "fzn:file/" FILE_ROOT "/" FILE_KEY "/4096%20holiday%20photo.jpg"),
+	      "the line's text is the file's reference: its root, key, length and name");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out " ID4 " attach " OTHER_ROOT " a.txt")
+	              && replied("error"),
+	      "a file not held here is refused");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out " ID4 " attach " FILE_ROOT " ..%2fetc")
+	              && replied("malformed")
+	              && verb(&A, FZN_ORIGIN_SAME_USER,
+	                      "add message carol out " ID4 " attach " FILE_ROOT " a b")
+	              && replied("malformed")
+	              && verb(&A, FZN_ORIGIN_SAME_USER, "add message carol out " ID4 " attach "
+	                                                FILE_ROOT)
+	              && replied("malformed"),
+	      "a name the reference does not carry, a raw space, and no name are refused");
+	A.nm.file_of = NULL;
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out " ID4 " attach " FILE_ROOT " a.txt")
+	              && replied("error"),
+	      "a node holding no files holds none to attach");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol out " ID3 " settled")
+	              && replied("ok"),
+	      "fixture: the attachment settled, so what is owed below is as before");
 	/* SEC 792: the months the rules held back, from the caller's table. */
 	{
 		static fzn_node_message_held_back_t table[3];

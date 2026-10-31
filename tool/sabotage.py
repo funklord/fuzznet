@@ -11212,6 +11212,27 @@ SABOTAGES = [
 		"a store from before the sums never weighs a limit over every contact -- sec 793",
 	),
 	(
+		"attachment-name-no-separator",
+		'messages/attachment.c',
+		"\t\tif (c < 0x20u || c == 0x7fu || c == '/' || c == '\\\\')\n",
+		"\t\tif (c < 0x20u || c == 0x7fu)\n",
+		"an attachment's name climbs out of the directory a client saves it to -- sec 794",
+	),
+	(
+		"attachment-size-one-spelling",
+		'messages/attachment.c',
+		"\tif (n_digits == 0u || (n_digits > 1u && digits[0] == '0')\n",
+		"\tif (n_digits == 0u\n",
+		"one file has two references, 7 and 007, compared as text where they sit -- sec 794",
+	),
+	(
+		"attachment-size-within-u64",
+		'messages/attachment.c',
+		'\t    || (n_digits == 20u && memcmp(digits, "18446744073709551615", 20u) > 0) || p >= end\n',
+		'\t    || p >= end\n',
+		"a size past a u64 wraps to a small one, and a gigabyte is offered as a few bytes -- sec 794",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

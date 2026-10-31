@@ -316,5 +316,6 @@ __pycache__/
 /location/test/tpv_test
 /location/test/gpsd_test
 /sticker/test/sticker_test
+/messages/test/attachment_test
 /live-repeat/
 /faults/

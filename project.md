@@ -76043,8 +76043,9 @@ Walking every line of every conversation for each question was rejected:
 applies them.** fuzznet does not yet know which files a conversation
 sent, as sec 792 found: an attachment is a line whose text is
 fuzzypickles' own file reference. Applying them needs a reference fuzznet
-reads, kept beside the line, and the files held under it, which is the
-next piece of this work.
+reads, kept beside the line, and the files held under it. Sec 794 makes
+the reference fuzznet's; applying the rules to the files is its next
+step.
 
 ### Measured for sec 793
 
@@ -76080,3 +76081,101 @@ next piece of this work.
   the trim and the parser as they stood before (the trim is now
   `trim_one` per conversation, and contact matching is
   `fzn_retain_applies_to`) and are repointed.
+
+## 794. The attachment reference is fuzznet's, 2026-10-31
+
+**The holder's word, 2026-10-31:** "yes, fuzznet owns the attachment
+reference, build it", answering sec 793's question.
+
+**Before:** fuzzypickles put a file (`put file`) and sent a line whose
+text was its own token, `fzp:file/ROOT/KEY/SIZE NAME`
+(`core/src/file_ref.c` there). fuzznet carried it as any text and knew
+nothing of it. So no rule could reach a conversation's files, and every
+client had to grant the file to the contact itself (sec 631).
+
+### Decided from the precedent
+
+**Stickers made the same move** (secs 679 to 682), and the holder's
+decisions there settle the shape here:
+- **The reference rides the line's text**, as a sticker's does. Delivery,
+  settlement, a group's sealing and the buckets carry it unchanged, and a
+  client that knows nothing of it still shows what was sent and how big.
+  A line kind of its own was rejected: it would change the line's wire
+  layout and every path that carries one, for nothing the text does not
+  already do.
+- **`fzn:` is written and fuzzypickles' `fzp:` is still read**, so
+  attachments already sent still resolve, as with `fzn:sticker`.
+
+**What differs from a sticker: an incoming file is not fetched.** A
+sticker pack is small and a conversation with a blank in it is
+unreadable, so a pack is fetched as it arrives. A file can be a
+gigabyte, so, as fuzzypickles already decided, the client asks first, by
+the size the reference claims, and fetches by the whole reference. And
+an incoming reference is not kept in the file references' store: that
+slot is core (sec 634), and a contact's lines must not grow it.
+
+### Built for sec 794
+
+- **`messages/attachment.{h,c}`**, `fzn:file/ROOT/KEY/SIZE NAME`, the
+  grammar fuzzypickles' was:
+  - root and key 64 hex digits each;
+  - a size of at most twenty digits with no leading zero, so a file has
+    one spelling, and nothing past a u64;
+  - a name of 1 to 64 bytes, with no `/` or `\`, no control byte or 0x7f,
+    no leading dot and no space at either end. One that breaks any of
+    these is refused, not cleaned.
+
+  `fzn_attachment_format` writes `fzn:` and `fzn_attachment_parse` reads
+  either scheme. A reference fits a line's 512 bytes, checked at compile
+  time.
+- **`add message WHO out|in ID attach ROOT NAME`**: a file this node holds,
+  sent as an attachment. fuzznet writes the reference from the key it
+  keeps (`get reference`) and the length the file has; NAME is one
+  escaped word. A file not held here is an error, and a name the format
+  does not carry is malformed. `fzn_node_messages_t.file_of` is the
+  daemon's lookup.
+- **Granted as it goes out**: the daemon's `on_text` hook (sec 682) now
+  sees an attachment as well as a sticker. A line going out, of this
+  user's, grants its file to the conversation (a contact's root or a
+  group's id) when this host holds it. That is done once in the node
+  rather than in every client, and it reaches a line another of the
+  user's devices wrote as well.
+
+### Measured for sec 794
+
+- **`messages/test/attachment_test`, new, 9 checks**: written and read
+  back; fuzzypickles' `fzp:` read as the same file; an empty file, and the
+  largest size a u64 holds; a room too small refused. Twenty-one
+  malformed references refused: a wrong scheme, a missing or edge-spaced
+  name, a leading zero, a size past a u64, a name that climbs, hides,
+  separates, breaks a line or runs past 64 bytes, and hex that is short,
+  missing its separator or not hex. No refused name is written.
+- **`node/test/messages_test`, 193 checks**: the attach form writes the
+  file's reference as the line's text; a file not held, a name the format
+  refuses, a raw space, no name, and a node holding no files are each
+  refused.
+- **`tool/live_pairing.py` phase h2**: A puts a file and attaches it to a
+  line to B. B files the line and reads the reference (name, size) from
+  its listing, and holds nothing until it asks. It then fetches by the
+  whole reference and exports A's bytes. The script's deadline is 360 s,
+  within its 480 s bound.
+- **Control**, made by hand: with the grant as the line goes out switched
+  off, h2 fails with B's fetch stuck at nothing held.
+
+### Next: the attachment rules applied (sec 793)
+
+Not built. A trim of attachments would remove the files of a
+conversation's months past the rules, as a message trim destroys a
+month's key. Two things must be settled in the building:
+- **A file can be held for more than one reason**: in the catalogue, as a
+  sticker pack, shared in a note, attached twice. A trim must remove a
+  file only when nothing else holds it, or it deletes the user's own
+  library for a chat rule.
+- **The index**: each conversation's attachments by month, with the size
+  each claims, kept as lines are taken (the `on_text` path sees every
+  one), with each month's sums for `contact=all`, as sec 793 keeps for
+  text.
+
+**fuzzypickles is told** through its inbox: its `send_file` can call `add
+message ... attach` rather than format its own token, and its reader can
+call `fzn_attachment_parse`, which reads both schemes.
