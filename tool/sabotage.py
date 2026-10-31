@@ -11170,6 +11170,13 @@ SABOTAGES = [
 		"a line cut part way through a shift is shown on two pages, its doubled entry read as a place -- sec 790",
 	),
 	(
+		"buckets-list-grown-capped",
+		'node/buckets.c',
+		'\t\tif (!l->grow || want < *l->room',
+		'\t\tif (!l->grow || want > FZN_BUCKETS_MAX || want < *l->room',
+		"a node past 4096 buckets -- a hundred contacts over three and a half years -- stops catching up, and its give-up and settlement fail -- sec 791",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

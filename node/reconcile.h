@@ -86,8 +86,6 @@ typedef enum fzn_reconcile_took {
 /* Pushes a receiver holds part of at once, one per sender and item; past
  * it the oldest is let go and resent from its start. */
 #define FZN_RECONCILE_STAGED_MAX 8u
-/* The most ids of one bucket a pusher compares with its own. */
-#define FZN_RECONCILE_PEER_IDS_MAX 16384u
 /* The longest bridge of spine entries a rebase takes. */
 #define FZN_RECONCILE_BRIDGE_MAX 4096u
 

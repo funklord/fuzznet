@@ -4,6 +4,7 @@
 
 #include "../wire/bytes.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -219,9 +220,11 @@ static size_t answer_base(fzn_node_journal_t *journal, const uint8_t *request, s
 
 /* ---- append-only kinds, by bucket, sec 564 --------------------------------- */
 
-/* Every bucket of a kind, the answer's. Not the round's: a round lists none
- * of its own, asking for each of the peer's in turn. */
-static fzn_bucket_t served_buckets[FZN_BUCKETS_MAX];
+/* Every bucket of a kind, the answer's, in a list grown to fit (sec 791).
+ * Not the round's: a round lists none of its own, asking for each of the
+ * peer's in turn. */
+static fzn_bucket_t *served_buckets;
+static size_t served_room;
 
 static int served(const fzn_reconcile_gate_t *gate, uint8_t kind,
                   const uint8_t subject[FZN_PUBKEY_LEN])
@@ -240,8 +243,8 @@ static size_t answer_buckets(const fzn_buckets_t *b, const fzn_reconcile_gate_t 
 		return 0;
 	/* TOO MANY TO LIST answers a count this cannot reach and no buckets,
 	 * so the asker counts it full rather than taking a part for the whole. */
-	switch (fzn_buckets_list(b, (fzn_buckets_kind_t)request[2], served_buckets, FZN_BUCKETS_MAX,
-	                         &n)) {
+	switch (fzn_buckets_list_all(b, (fzn_buckets_kind_t)request[2], &served_buckets,
+	                             &served_room, &n)) {
 	case FZN_BUCKETS_OK:
 		break;
 	case FZN_BUCKETS_FULL:
@@ -1120,9 +1123,36 @@ fzn_reconcile_err_t fzn_reconcile_buckets(const fzn_buckets_t *b, fzn_buckets_ki
 
 /* ---- push, the pusher's half, sec 569 ------------------------------------- */
 
-static fzn_bucket_t own_buckets[FZN_BUCKETS_MAX];
-static fzn_bucket_t peer_buckets[FZN_BUCKETS_MAX];
-static uint8_t peer_ids[FZN_RECONCILE_PEER_IDS_MAX][FZN_BUCKETS_ID_LEN];
+/* THIS NODE'S BUCKETS, THE PEER'S, AND THE PEER'S IDS OF ONE, each grown
+ * to fit and kept between rounds (sec 791): a bucket per subject a month
+ * accrues for ever, and a month of one busy conversation can hold more
+ * lines than any room chosen for it. */
+static fzn_bucket_t *own_buckets;
+static size_t own_room;
+static fzn_bucket_t *peer_buckets;
+static size_t peer_room;
+static uint8_t (*peer_ids)[FZN_BUCKETS_ID_LEN];
+static size_t peer_ids_room;
+
+/* `list` (room `*room`) grown to hold `want` of `size` bytes each: the
+ * list, moved or not, or NULL when it cannot grow, `list` then kept. */
+static void *grown(void *list, size_t *room, size_t want, size_t size)
+{
+	size_t n = *room ? *room : 64u;
+	void *more;
+
+	if (want <= *room)
+		return list;
+	while (n < want) {
+		if (n > SIZE_MAX / 2u)
+			return NULL;
+		n *= 2u;
+	}
+	if (n > SIZE_MAX / size || !(more = realloc(list, n * size)))
+		return NULL;
+	*room = n;
+	return more;
+}
 static uint8_t pushed_item[FZN_BUCKETS_ITEM_MAX];
 
 static int by_id(const void *a, const void *b)
@@ -1310,7 +1340,7 @@ fzn_reconcile_err_t fzn_reconcile_push(const fzn_buckets_t *b, fzn_buckets_kind_
 	    || !ask || !reply || !tally || reply_cap < FZN_RECONCILE_REPLY_MIN)
 		return FZN_RECONCILE_ERR_MALFORMED;
 	memset(tally, 0, sizeof(*tally));
-	switch (fzn_buckets_list(b, kind, own_buckets, FZN_BUCKETS_MAX, &n_own)) {
+	switch (fzn_buckets_list_all(b, kind, &own_buckets, &own_room, &n_own)) {
 	case FZN_BUCKETS_OK:
 		break;
 	case FZN_BUCKETS_FULL:
@@ -1339,14 +1369,24 @@ fzn_reconcile_err_t fzn_reconcile_push(const fzn_buckets_t *b, fzn_buckets_kind_
 		                            + (size_t)fzn_get_be16(reply + 11u) * FZN_RECONCILE_BUCKET_LEN)
 			return FZN_RECONCILE_ERR_SHAPE;
 		total = fzn_get_be32(reply + 3u);
-		if (total == COUNT_FULL || total > FZN_BUCKETS_MAX) {
+		if (total == COUNT_FULL) {
 			tally->full = 1;
 			return FZN_RECONCILE_OK;
 		}
 		count = fzn_get_be16(reply + 11u);
 		if (count == 0u)
 			break;
-		for (i = 0; i < count && n_peer < FZN_BUCKETS_MAX; i++) {
+		{
+			fzn_bucket_t *more = grown(peer_buckets, &peer_room, n_peer + count,
+			                           sizeof(*peer_buckets));
+
+			if (!more) {
+				tally->full = 1;
+				return FZN_RECONCILE_OK;
+			}
+			peer_buckets = more;
+		}
+		for (i = 0; i < count; i++) {
 			const uint8_t *e = reply + FZN_RECONCILE_BUCKETS_HEAD_LEN + i * FZN_RECONCILE_BUCKET_LEN;
 
 			memcpy(peer_buckets[n_peer].subject, e, FZN_PUBKEY_LEN);
@@ -1397,6 +1437,7 @@ fzn_reconcile_err_t fzn_reconcile_push(const fzn_buckets_t *b, fzn_buckets_kind_
 			memcpy(q + 3u, k->subject, FZN_PUBKEY_LEN);
 			fzn_put_be32(q + 35u, k->month);
 			do {
+				uint8_t(*more)[FZN_BUCKETS_ID_LEN];
 				size_t count;
 
 				fzn_put_be32(q + 39u, (uint32_t)f);
@@ -1414,16 +1455,19 @@ fzn_reconcile_err_t fzn_reconcile_push(const fzn_buckets_t *b, fzn_buckets_kind_
 				count = fzn_get_be16(reply + 47u);
 				if (count == 0u)
 					break;
-				if (n_ids + count > FZN_RECONCILE_PEER_IDS_MAX) {
+				more = grown(peer_ids, &peer_ids_room, n_ids + count, sizeof(*peer_ids));
+				if (!more) {
 					overflow = 1;
 					break;
 				}
+				peer_ids = more;
 				memcpy(peer_ids[n_ids], reply + FZN_RECONCILE_BUCKET_IDS_HEAD_LEN,
 				       count * FZN_BUCKETS_ID_LEN);
 				n_ids += count;
 				f += count;
 			} while (f < their_total);
-			/* TOO MANY TO COMPARE: the bucket is left, not half sent. */
+			/* NO ROOM TO COMPARE, the list not grown: the bucket is left,
+			 * not half sent. */
 			if (overflow) {
 				tally->full = 1;
 				continue;

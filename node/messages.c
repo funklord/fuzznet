@@ -278,6 +278,18 @@ static int line_continues(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBK
 	       && p.part + 1u < p.parts;
 }
 
+/* EVERY CONVERSATION'S BUCKETS, a month each, ascending by contact, in a
+ * list grown to fit and kept between calls (sec 791): a user keeps a
+ * bucket per contact a month for ever, past any fixed room. */
+static fzn_bucket_t *buckets;
+static size_t buckets_room;
+
+static int conversations_listed(fzn_node_messages_t *nm, size_t *n)
+{
+	return fzn_buckets_list_all(&nm->buckets, FZN_BUCKETS_MESSAGES, &buckets, &buckets_room, n)
+	       == FZN_BUCKETS_OK;
+}
+
 fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
                                              int (*stands)(void *ctx,
                                                            const uint8_t contact[FZN_PUBKEY_LEN]),
@@ -285,7 +297,6 @@ fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
                                                             const uint8_t contact[FZN_PUBKEY_LEN]),
                                              void *ctx, size_t *marked)
 {
-	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
 	size_t n = 0, b, count, i;
 	uint64_t at;
@@ -298,8 +309,7 @@ fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
 		return FZN_MESSAGES_ERR_MALFORMED;
 	/* EVERY CONVERSATION BY ITS BUCKETS, a month each, ascending by
 	 * contact: one contact's months sit together, and are walked once. */
-	if (fzn_buckets_list(&nm->buckets, FZN_BUCKETS_MESSAGES, buckets, FZN_BUCKETS_MAX, &n)
-	    != FZN_BUCKETS_OK)
+	if (!conversations_listed(nm, &n))
 		return FZN_MESSAGES_ERR_BACKEND;
 	for (b = 0; b < n; b++) {
 		const uint8_t *contact = buckets[b].subject;
@@ -1056,7 +1066,6 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
                                             size_t n_members, size_t cap,
                                             fzn_node_messages_settlement_t *tally)
 {
-	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
 	static uint8_t item[FZN_MESSAGES_ITEM_MAX];
 	size_t n = 0, b, count, i, k, len;
@@ -1068,8 +1077,7 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
 		memset(tally, 0, sizeof(*tally));
 	if (!nm || (!members && n_members) || !tally)
 		return FZN_MESSAGES_ERR_MALFORMED;
-	if (fzn_buckets_list(&nm->buckets, FZN_BUCKETS_MESSAGES, buckets, FZN_BUCKETS_MAX, &n)
-	    != FZN_BUCKETS_OK)
+	if (!conversations_listed(nm, &n))
 		return FZN_MESSAGES_ERR_BACKEND;
 	for (b = 0; b < n; b++) {
 		const uint8_t *contact = buckets[b].subject;
@@ -1287,7 +1295,6 @@ static size_t set(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
  * stays, so a client reading three numbers still reads three. */
 static size_t get_owed(fzn_node_messages_t *nm, char *reply, size_t cap)
 {
-	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
 	static fzn_group_t g;
 	size_t n = 0, b, count, i, held = 0, delivered = 0;
@@ -1296,8 +1303,7 @@ static size_t get_owed(fzn_node_messages_t *nm, char *reply, size_t cap)
 	fzn_messages_err_t err;
 	int more, k;
 
-	if (fzn_buckets_list(&nm->buckets, FZN_BUCKETS_MESSAGES, buckets, FZN_BUCKETS_MAX, &n)
-	    != FZN_BUCKETS_OK)
+	if (!conversations_listed(nm, &n))
 		return say(reply, cap, FZN_REPLY_ERROR, "the conversations did not list");
 	for (b = 0; b < n; b++) {
 		const uint8_t *contact = buckets[b].subject;

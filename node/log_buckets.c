@@ -208,12 +208,13 @@ static uint8_t *item_of_file(const char *path, const char *name, size_t *len)
  * served as not held. */
 static int sweep(fzn_log_buckets_t *lb, size_t *let_go)
 {
-	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
+	/* GROWN TO FIT, sec 791: a bucket per source a month accrues for ever. */
+	static fzn_bucket_t *buckets;
+	static size_t room;
 	size_t n = 0, k;
 	int ok = 1;
 
-	if (fzn_buckets_list(lb->b, FZN_BUCKETS_LOGS, buckets, FZN_BUCKETS_MAX, &n)
-	    != FZN_BUCKETS_OK)
+	if (fzn_buckets_list_all(lb->b, FZN_BUCKETS_LOGS, &buckets, &room, &n) != FZN_BUCKETS_OK)
 		return 0;
 	for (k = 0; k < n; k++) {
 		uint8_t ids[64][FZN_BUCKETS_ID_LEN];

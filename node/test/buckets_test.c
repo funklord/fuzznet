@@ -14,6 +14,7 @@
 #include "../reconcile.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failures;
@@ -1108,6 +1109,185 @@ static void test_an_item_let_go(void)
 	      "an item never held was let go");
 }
 
+
+/* ---- past any fixed room, sec 791 ------------------------------------------ */
+
+/* A STORE FOR THOUSANDS OF BUCKETS: rows by hash on the heap, walked by
+ * `each` -- as the file backend is -- since the one above holds 400 and a
+ * backend without `each` is listed through a room of 4096. */
+#define BIG_SLOTS 65536u
+
+struct big_row {
+	int used;
+	fzn_persist_slot_t slot;
+	uint8_t subject[FZN_PUBKEY_LEN];
+	size_t len;
+	uint8_t *bytes;
+};
+
+struct big {
+	struct big_row *rows;
+};
+
+static struct big big_a, big_b;
+
+static size_t big_find(struct big *m, fzn_persist_slot_t slot, const uint8_t *subject, int *found)
+{
+	size_t h = (((size_t)subject[0] << 16) | ((size_t)subject[1] << 8) | subject[2]) ^ (size_t)slot;
+
+	for (h %= BIG_SLOTS;; h = (h + 1u) % BIG_SLOTS)
+		if (!m->rows[h].used
+		    || (m->rows[h].slot == slot
+		        && memcmp(m->rows[h].subject, subject, FZN_PUBKEY_LEN) == 0)) {
+			*found = m->rows[h].used;
+			return h;
+		}
+}
+
+static int big_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                    size_t cap, size_t *len)
+{
+	struct big *m = (struct big *)ctx;
+	int found;
+	size_t h;
+
+	if (!subject)
+		return 0;
+	h = big_find(m, slot, subject, &found);
+	if (!found || m->rows[h].len > cap)
+		return 0;
+	memcpy(out, m->rows[h].bytes, m->rows[h].len);
+	*len = m->rows[h].len;
+	return 1;
+}
+
+static int big_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                    const uint8_t *bytes, size_t len)
+{
+	struct big *m = (struct big *)ctx;
+	uint8_t *copy;
+	int found;
+	size_t h;
+
+	if (!subject || !(copy = malloc(len ? len : 1u)))
+		return 0;
+	h = big_find(m, slot, subject, &found);
+	free(m->rows[h].bytes);
+	memcpy(copy, bytes, len);
+	m->rows[h].used = 1;
+	m->rows[h].slot = slot;
+	memcpy(m->rows[h].subject, subject, FZN_PUBKEY_LEN);
+	m->rows[h].bytes = copy;
+	m->rows[h].len = len;
+	return 1;
+}
+
+/* Removal keeps the row's place, so a search past it goes on. */
+static int big_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	struct big *m = (struct big *)ctx;
+	int found;
+	size_t h;
+
+	if (!subject)
+		return 1;
+	h = big_find(m, slot, subject, &found);
+	if (found) {
+		m->rows[h].slot = (fzn_persist_slot_t)-1;
+		memset(m->rows[h].subject, 0, FZN_PUBKEY_LEN);
+	}
+	return 1;
+}
+
+static int big_each(void *ctx, fzn_persist_slot_t slot,
+                    int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	struct big *m = (struct big *)ctx;
+	size_t i;
+
+	for (i = 0; i < BIG_SLOTS; i++)
+		if (m->rows[i].used && m->rows[i].slot == slot && !fn(arg, m->rows[i].subject))
+			break;
+	return 1;
+}
+
+static void big_clear(struct big *m)
+{
+	size_t i;
+
+	if (!m->rows)
+		return;
+	for (i = 0; i < BIG_SLOTS; i++)
+		free(m->rows[i].bytes);
+	free(m->rows);
+	m->rows = NULL;
+}
+
+/* MORE BUCKETS THAN THE OLD ROOM OF 4096: 41 subjects of a hundred months,
+ * an item each, listed whole in order, and taken whole by a peer. A user
+ * with a hundred contacts reaches that in three and a half years. */
+static void test_past_any_fixed_room(void)
+{
+	const fzn_persist_ops_t kept_a = store_a, kept_b = store_b;
+	static fzn_bucket_t room[FZN_BUCKETS_MAX];
+	fzn_bucket_t *all = NULL;
+	size_t cap = 0, n = 0, i;
+	fzn_reconcile_bucket_tally_t t;
+	uint8_t s[FZN_PUBKEY_LEN];
+	unsigned k, month;
+	int ok = 1, sorted = 1;
+
+	big_a.rows = calloc(BIG_SLOTS, sizeof(struct big_row));
+	big_b.rows = calloc(BIG_SLOTS, sizeof(struct big_row));
+	if (!big_a.rows || !big_b.rows) {
+		CHECK(0, "fixture: the big stores");
+		big_clear(&big_a);
+		big_clear(&big_b);
+		return;
+	}
+	store_a.load = big_load;
+	store_a.save = big_save;
+	store_a.list = NULL;
+	store_a.remove = big_remove;
+	store_a.ctx = &big_a;
+	store_a.each = big_each;
+	store_b = store_a;
+	store_b.ctx = &big_b;
+	memset(refused_subject, 0xff, sizeof(refused_subject));
+	wanted_months_below = 0;
+	asked.lie = 0;
+	for (k = 0; k < 41u && ok; k++) {
+		subject_of(s, (uint8_t)(100u + k));
+		for (month = 0; month < 100u && ok; month++)
+			ok = add_n(&A, s, 600u + month, k * 100u + month, 25u);
+	}
+	CHECK(ok, "fixture: 4100 buckets at A");
+	CHECK(fzn_buckets_list_all(&A, FZN_BUCKETS_MESSAGES, &all, &cap, &n) == FZN_BUCKETS_OK
+	              && n == 4100u && cap >= n,
+	      "every one of 4100 buckets listed, into a list grown to fit");
+	for (i = 1; i < n; i++) {
+		int d = memcmp(all[i - 1u].subject, all[i].subject, FZN_PUBKEY_LEN);
+
+		sorted &= d < 0 || (d == 0 && all[i - 1u].month < all[i].month);
+	}
+	CHECK(sorted, "in order, by subject and then month");
+	CHECK(fzn_buckets_list(&A, FZN_BUCKETS_MESSAGES, room, FZN_BUCKETS_MAX, &n)
+	              == FZN_BUCKETS_FULL,
+	      "into a room of 4096 they are full, as before");
+	CHECK(round_b_from_a(&t, 0u) == FZN_RECONCILE_OK && t.full == 0u && t.buckets == 4100u
+	              && t.applied == 4100u,
+	      "a peer takes every bucket of the 4100, none counted full");
+	n = 0;
+	CHECK(fzn_buckets_list_all(&B, FZN_BUCKETS_MESSAGES, &all, &cap, &n) == FZN_BUCKETS_OK
+	              && n == 4100u,
+	      "and holds them all");
+	free(all);
+	store_a = kept_a;
+	store_b = kept_b;
+	big_clear(&big_a);
+	big_clear(&big_b);
+}
+
 int main(void)
 {
 	test_an_item_is_held_once();
@@ -1125,6 +1305,7 @@ int main(void)
 	test_what_a_push_does_not_leave();
 	test_large_items_pulled_and_pushed();
 	test_an_item_let_go();
+	test_past_any_fixed_room();
 	printf("buckets_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

@@ -37,7 +37,8 @@
 #define FZN_BUCKETS_ITEM_MAX 4096u
 /* Ids per chunk row. */
 #define FZN_BUCKETS_CHUNK 64u
-/* The most buckets of one kind a node lists: past it the kind is FULL. */
+/* A ROOM SOME CALLERS STILL GIVE `fzn_buckets_list`; a node's every
+ * bucket is listed by `fzn_buckets_list_all`, which has none (sec 791). */
 #define FZN_BUCKETS_MAX 4096u
 /* AN ITEM TOO LARGE FOR A ROW, sec 570: its kind keeps it, and the row names
  * it -- in at most this many bytes of the kind's choosing -- with its
@@ -61,7 +62,8 @@ typedef enum fzn_buckets_err {
 	FZN_BUCKETS_MALFORMED = -1,
 	/* The store would not list, load or keep. */
 	FZN_BUCKETS_BACKEND = -2,
-	/* More buckets of the kind than FZN_BUCKETS_MAX. */
+	/* More buckets of the kind than the room given, or a list that could
+	 * not grow. */
 	FZN_BUCKETS_FULL = -3,
 	/* The bucket was let go here. */
 	FZN_BUCKETS_GONE = -4,
@@ -149,6 +151,14 @@ fzn_buckets_err_t fzn_buckets_bucket(const fzn_buckets_t *b, fzn_buckets_kind_t 
  * month, into `out` (room for `max`). FULL past `max`. */
 fzn_buckets_err_t fzn_buckets_list(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
                                    fzn_bucket_t *out, size_t max, size_t *count);
+
+/* THE SAME, INTO A LIST GROWN TO FIT, sec 791: a node keeps a bucket per
+ * subject a month, for ever, so no fixed room holds them all. `*list`
+ * (room `*room`, NULL and 0 to begin) is grown with realloc as needed and
+ * kept by the caller for the next call, freed with free(). FULL only when
+ * it could not grow. */
+fzn_buckets_err_t fzn_buckets_list_all(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                       fzn_bucket_t **list, size_t *room, size_t *count);
 
 /* THE IDS of a bucket from position `from`, in the order they were taken,
  * at most `max` into `ids`; `*total` is how many the bucket holds. */

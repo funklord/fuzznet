@@ -75816,3 +75816,53 @@ conversation at a time.
 
 **fuzzypickles** pages by `list message WHO FROM`, and its reader's
 comment cites the 4096 walk; told through its inbox, 2026-10-31.
+
+## 791. Buckets past any fixed room, 2026-10-31
+
+Found while surveying for sec 790's focus. **Before:** every list of a
+kind's buckets went through `fzn_buckets_list`, which read the names of
+every row of the bucket slot into a buffer of `FZN_BUCKETS_MAX` (4096),
+messages', logs' and pieces' together, and every caller handed it a room
+of the same size. A node keeps a bucket per subject a month for ever: a
+hundred contacts reach 4096 in three and a half years, sooner with a
+host's log buckets beside them. Past it:
+- the conversations round, and every bucket round, counted the kind FULL
+  and took nothing, so a device away or new caught up on nothing;
+- a node serving its peers answered FULL, so they took nothing from it;
+- the give-up (secs 607, 616), settlement (sec 615) and `get message
+  owed` failed, as the store not listing;
+- a push compared at most 16384 ids of one bucket with its own, and left
+  a busier bucket unsent.
+
+**Now:**
+- **`fzn_buckets_list_all`** (`node/buckets.c`) lists into a list grown
+  to fit with realloc, kept by its caller between calls and freed with
+  free(). FULL only when it cannot grow.
+- **Both lists read the slot through the store's `each`**, so no buffer
+  of every row's name remains. A backend without one is listed into a
+  room of `FZN_PERSIST_EACH_FALLBACK`, as `fzn_persist_each` does. That
+  call is not made, so `node/buckets.o` still links without the persist
+  module: two small tests, `pieces_test` and `pieces_fuzz`, failed to
+  link the first way. `fzn_buckets_list` keeps its signature and is
+  FULL past the room it is given.
+- **Every caller uses the grown list:** the serving side and the push's
+  own list (`node/reconcile.c`), the log sweep (`node/log_buckets.c`),
+  and the three message walks (`node/messages.c`). The push grows the
+  peer's buckets and the peer's ids of one bucket the same way.
+  `FZN_RECONCILE_PEER_IDS_MAX` is gone; nothing outside used it.
+
+A backend without `each` is still bounded by that room of 4096 (sec
+704). The file backend has `each`.
+
+**Measured:**
+- **`buckets_test`, 78 checks**, among them `test_past_any_fixed_room`:
+  two stores kept by hash on the heap and walked by `each`, as the file
+  backend is. A holds 4100 buckets, 41 subjects of a hundred months. They
+  list whole, in order, into the grown list; into a room of 4096 they
+  are FULL, as before; B takes all 4100 in one round, none counted full,
+  and then holds them all. Under a second.
+- **Control**, made by hand: the grown list capped at 4096 fails three of
+  those checks. One sabotage entry for it.
+
+**Not measured:** a push of one bucket past 16384 ids. It now grows as
+the lists do, but no test holds a bucket that large.

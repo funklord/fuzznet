@@ -5,6 +5,7 @@
 #include "../wire/bytes.h"
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
 #define VERSION 1u
@@ -511,39 +512,118 @@ static int by_place(const void *a, const void *c)
 	return x->month < y->month ? -1 : x->month > y->month;
 }
 
+/* ONE WALK OF THE BUCKET ROWS, sec 791: each of `kind` held and not gone,
+ * into `*out` -- room `*room`, grown when `grow` -- through the store's
+ * walk, so no buffer of every row's name bounds how many there are. */
+typedef struct listing {
+	const fzn_buckets_t *b;
+	fzn_buckets_kind_t kind;
+	fzn_bucket_t **out;
+	size_t *room;
+	int grow;
+	size_t held;
+	fzn_buckets_err_t err;
+} listing_t;
+
+static int list_one(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	listing_t *l = (listing_t *)arg;
+	uint8_t bytes[B_LEN];
+	size_t len = 0;
+
+	if (!l->b->store->load(l->b->store->ctx, FZN_PERSIST_BUCKET, subject, bytes, sizeof(bytes),
+	                       &len)) {
+		l->err = FZN_BUCKETS_BACKEND;
+		return 0;
+	}
+	/* ANOTHER KIND'S, OR NOT A BUCKET: passed over. A gone bucket's row
+	 * left by a crash part way through its drop is not offered. */
+	if (len != B_LEN || !head_is(bytes, len, B_LEN, l->kind, NULL, 0, 0u)
+	    || fzn_buckets_gone(l->b, l->kind, bytes + B_SUBJECT, fzn_get_be32(bytes + B_MONTH)))
+		return 1;
+	if (l->held >= *l->room) {
+		size_t want = *l->room ? 2u * *l->room : 64u;
+		fzn_bucket_t *more;
+
+		if (!l->grow || want < *l->room || want > SIZE_MAX / sizeof(fzn_bucket_t)
+		    || !(more = realloc(*l->out, want * sizeof(fzn_bucket_t)))) {
+			l->err = FZN_BUCKETS_FULL;
+			return 0;
+		}
+		*l->out = more;
+		*l->room = want;
+	}
+	if (!fill(l->b, bytes, &(*l->out)[l->held])) {
+		l->err = FZN_BUCKETS_BACKEND;
+		return 0;
+	}
+	l->held++;
+	return 1;
+}
+
+/* THE SLOT'S ROWS, each to `list_one`: through the store's walk, or, for
+ * a backend without one, its list into a room of FZN_PERSIST_EACH_FALLBACK
+ * as `fzn_persist_each` gives -- not called, so this module links without
+ * the persist module's own. */
+static int each_row(const fzn_persist_ops_t *ops, listing_t *l)
+{
+	static uint8_t room[FZN_PERSIST_EACH_FALLBACK * FZN_PUBKEY_LEN];
+	size_t found = 0, i;
+
+	if (ops->each)
+		return ops->each(ops->ctx, FZN_PERSIST_BUCKET, list_one, l);
+	if (!ops->list || !ops->list(ops->ctx, FZN_PERSIST_BUCKET, room, FZN_PERSIST_EACH_FALLBACK,
+	                             &found))
+		return 0;
+	for (i = 0; i < found; i++)
+		if (!list_one(l, room + i * FZN_PUBKEY_LEN))
+			break;
+	return 1;
+}
+
+static fzn_buckets_err_t list_rows(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                   fzn_bucket_t **out, size_t *room, int grow, size_t *count)
+{
+	listing_t l;
+
+	memset(&l, 0, sizeof(l));
+	l.b = b;
+	l.kind = kind;
+	l.out = out;
+	l.room = room;
+	l.grow = grow;
+	l.err = FZN_BUCKETS_OK;
+	if (!each_row(b->store, &l))
+		return l.err != FZN_BUCKETS_OK ? l.err : FZN_BUCKETS_BACKEND;
+	if (l.err != FZN_BUCKETS_OK)
+		return l.err;
+	if (l.held)
+		qsort(*out, l.held, sizeof(**out), by_place);
+	*count = l.held;
+	return FZN_BUCKETS_OK;
+}
+
 fzn_buckets_err_t fzn_buckets_list(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
                                    fzn_bucket_t *out, size_t max, size_t *count)
 {
-	static uint8_t rows[FZN_BUCKETS_MAX * FZN_PUBKEY_LEN];
-	size_t n = 0, i, held = 0;
+	size_t room = max;
 
 	if (count)
 		*count = 0;
-	if (!ready(b, kind) || !b->store->list || !out || !count || max > FZN_BUCKETS_MAX)
+	if (!ready(b, kind) || !out || !count)
 		return FZN_BUCKETS_MALFORMED;
 	/* A LIST THAT DOES NOT FIT FAILS, by the persist ops' own rule. */
-	if (!b->store->list(b->store->ctx, FZN_PERSIST_BUCKET, rows, FZN_BUCKETS_MAX, &n))
-		return FZN_BUCKETS_FULL;
-	for (i = 0; i < n; i++) {
-		uint8_t bytes[B_LEN];
-		size_t len = 0;
+	return list_rows(b, kind, &out, &room, 0, count);
+}
 
-		if (!b->store->load(b->store->ctx, FZN_PERSIST_BUCKET, rows + i * FZN_PUBKEY_LEN, bytes,
-		                    sizeof(bytes), &len))
-			return FZN_BUCKETS_BACKEND;
-		/* ANOTHER KIND'S, OR NOT A BUCKET: passed over. A gone bucket's row
-		 * left by a crash part way through its drop is not offered. */
-		if (len != B_LEN || !head_is(bytes, len, B_LEN, kind, NULL, 0, 0u)
-		    || fzn_buckets_gone(b, kind, bytes + B_SUBJECT, fzn_get_be32(bytes + B_MONTH)))
-			continue;
-		if (held >= max)
-			return FZN_BUCKETS_FULL;
-		if (!fill(b, bytes, &out[held++]))
-			return FZN_BUCKETS_BACKEND;
-	}
-	qsort(out, held, sizeof(*out), by_place);
-	*count = held;
-	return FZN_BUCKETS_OK;
+fzn_buckets_err_t fzn_buckets_list_all(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                       fzn_bucket_t **list, size_t *room, size_t *count)
+{
+	if (count)
+		*count = 0;
+	if (!ready(b, kind) || !list || !room || !count || (!*list && *room))
+		return FZN_BUCKETS_MALFORMED;
+	return list_rows(b, kind, list, room, 1, count);
 }
 
 fzn_buckets_err_t fzn_buckets_ids(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
