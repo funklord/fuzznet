@@ -1380,7 +1380,10 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 	/* AN ALL-DIGIT WORD IS FROM: a contact named so is reached by its key.
 	 * But a word as long as a key is a key, digits or not -- a key's hex
 	 * can be all decimal digits, and was read as a page offset, refused as
-	 * past the walk. A FROM is at most four digits, so the two never meet. */
+	 * past the walk. A FROM is a size, never 64 digits, so the two never
+	 * meet.
+	 * One conversation pages at any depth (sec 790); everyone's together
+	 * as far as FZN_MESSAGES_WALK_MAX. */
 	if (word(&at, &left, &w, &w_len)) {
 		if (!all_digits(w, w_len) || w_len == 2u * FZN_PUBKEY_LEN) {
 			if (!who(nm, w, w_len, contact))
@@ -1390,13 +1393,11 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 				w_len = 0;
 		}
 		for (i = 0; i < w_len; i++) {
-			if (w[i] < '0' || w[i] > '9' || from > FZN_MESSAGES_WALK_MAX)
+			if (w[i] < '0' || w[i] > '9' || from > (SIZE_MAX - 9u) / 10u)
 				return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
 	}
-	if (from > FZN_MESSAGES_WALK_MAX - FZN_MESSAGES_PAGE_MAX)
-		return refuse(reply, cap, FZN_MESSAGES_ERR_DEEP);
 	err = fzn_messages_page(&nm->m, filter, from, page, FZN_MESSAGES_PAGE_MAX, &count, &more);
 	if (err != FZN_MESSAGES_OK)
 		return refuse(reply, cap, err);

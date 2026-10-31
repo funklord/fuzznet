@@ -1006,7 +1006,8 @@ static int index_at_end(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	uint64_t n = count_of(m, contact);
 	size_t in_chunk = (size_t)(n % FZN_MESSAGES_INDEX_CHUNK), len = 0;
 
-	if (n == 0u && !conversation_add(m, contact))
+	/* A NEW INDEX IS CLEAN: no entry in it twice (`fzn_messages_page`). */
+	if (n == 0u && (!conversation_add(m, contact) || !save_number(m, "clean", contact, 1u)))
 		return 0;
 	chunk_held.valid = 0;
 	if (n / FZN_MESSAGES_INDEX_CHUNK > UINT32_MAX
@@ -1182,7 +1183,13 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	 * past the count -- written over, and that line was listed nowhere:
 	 * its mark says it is kept, so a retry does not index it again. Found by
 	 * live_faults' phase o once its in line, stamped earlier, was put in
-	 * its place rather than appended (sec 744). */
+	 * its place rather than appended (sec 744).
+	 *
+	 * NOT CLEAN FROM HERE, sec 790: a crash part way leaves the doubled
+	 * entry until a reindex, so a page no longer reads an offset as a
+	 * place. Said before the first entry moves. */
+	if (load_number(m, "clean", contact) && !save_number(m, "clean", contact, 0u))
+		return 0;
 	for (j = n; j > p; j--)
 		if (!entry_bytes(m, contact, j - 1u, e_bytes) || !entry_put(m, contact, j, e_bytes))
 			return 0;
@@ -2031,40 +2038,6 @@ static int page_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 	return 1;
 }
 
-fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m, const uint8_t *contact,
-                                     size_t offset, fzn_message_t *out, size_t cap,
-                                     size_t *count, int *more)
-{
-	uint8_t c[FZN_PUBKEY_LEN];
-	uint64_t i, k;
-	size_t n_seen = 0, skipped = 0;
-
-	if (!ready(m) || !out || !count || !more || !m->devices || m->device_count == 0u
-	    || cap > FZN_MESSAGES_PAGE_MAX)
-		return FZN_MESSAGES_ERR_MALFORMED;
-	if (offset > FZN_MESSAGES_WALK_MAX - cap)
-		return FZN_MESSAGES_ERR_DEEP;
-	*count = 0;
-	*more = 0;
-	/* ONE CONVERSATION, from its index; or EVERYONE'S, from every line's
-	 * order -- newest first either way, and from the store alone. */
-	if (contact) {
-		for (i = count_of(m, contact); i > 0u; i--)
-			if (page_line(m, contact, i - 1u, offset, out, cap, count, &n_seen, &skipped) < 0) {
-				*more = 1;
-				break;
-			}
-		return FZN_MESSAGES_OK;
-	}
-	for (k = load_number(m, "alls", NOBODY); k > 0u; k--)
-		if (all_entry(m, k - 1u, c, &i)
-		    && page_line(m, c, i, offset, out, cap, count, &n_seen, &skipped) < 0) {
-			*more = 1;
-			break;
-		}
-	return FZN_MESSAGES_OK;
-}
-
 /* THE SAME ENTRY TWICE, side by side: what a crash part way through a shift
  * leaves (`index_append`), shown once. */
 static int entry_repeats(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
@@ -2075,6 +2048,73 @@ static int entry_repeats(const fzn_messages_t *m, const uint8_t contact[FZN_PUBK
 	return i > 0u && index_entry(m, contact, i - 1u, &before)
 	       && before.direction == e->direction
 	       && memcmp(before.id, e->id, FZN_MESSAGE_ID_LEN) == 0;
+}
+
+/* ONE CONVERSATION'S PAGE, from the place below `i` down: `skip` distinct
+ * lines passed first, then at most `cap` shown, a doubled entry once. A
+ * line whose row will not read is passed over, as ever. */
+static void page_places(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint64_t i,
+                        size_t skip, fzn_message_t *out, size_t cap, size_t *count, int *more)
+{
+	static uint8_t buf[STORED_MAX];
+	stored_t s;
+	entry_t e;
+
+	for (; i > 0u; i--) {
+		if (!index_entry(m, contact, i - 1u, &e) || entry_repeats(m, contact, i - 1u, &e))
+			continue;
+		if (*count == cap) {
+			*more = 1;
+			return;
+		}
+		if (skip) {
+			skip--;
+			continue;
+		}
+		if (stored_load(m, e.device, e.seq, buf, &s)
+		    && memcmp(s.contact, contact, FZN_PUBKEY_LEN) == 0)
+			fill(m, &s, &out[(*count)++]);
+	}
+}
+
+fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m, const uint8_t *contact,
+                                     size_t offset, fzn_message_t *out, size_t cap,
+                                     size_t *count, int *more)
+{
+	uint8_t c[FZN_PUBKEY_LEN];
+	uint64_t i, k, n;
+	size_t n_seen = 0, skipped = 0;
+
+	if (!ready(m) || !out || !count || !more || !m->devices || m->device_count == 0u
+	    || cap > FZN_MESSAGES_PAGE_MAX)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	*count = 0;
+	*more = 0;
+	/* ONE CONVERSATION, from its index, at any depth (sec 790). The only
+	 * entry an index holds twice is one a crash part way through a shift
+	 * left beside its copy, so a CLEAN index -- one no shift has touched
+	 * since it began or was rebuilt -- holds none, and an offset is a
+	 * place: a page costs its own lines however deep. Any other is
+	 * walked from the newest, its doubles passed. */
+	if (contact) {
+		n = count_of(m, contact);
+		if (!load_number(m, "clean", contact))
+			page_places(m, contact, n, offset, out, cap, count, more);
+		else if (offset < n)
+			page_places(m, contact, n - offset, 0u, out, cap, count, more);
+		return FZN_MESSAGES_OK;
+	}
+	/* EVERYONE'S, from every line's order, newest first, as far as the
+	 * walk: its doubles need not sit side by side. */
+	if (offset > FZN_MESSAGES_WALK_MAX - cap)
+		return FZN_MESSAGES_ERR_DEEP;
+	for (k = load_number(m, "alls", NOBODY); k > 0u; k--)
+		if (all_entry(m, k - 1u, c, &i)
+		    && page_line(m, c, i, offset, out, cap, count, &n_seen, &skipped) < 0) {
+			*more = 1;
+			break;
+		}
+	return FZN_MESSAGES_OK;
 }
 
 fzn_messages_err_t fzn_messages_owed(const fzn_messages_t *m,

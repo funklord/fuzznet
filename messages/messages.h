@@ -237,8 +237,9 @@ fzn_messages_err_t fzn_messages_unread(const fzn_messages_t *m,
  * with anyone for NULL, every line in the order it was learned, which an
  * absorb makes the order the devices wrote them in. Past the first
  * `offset`, at most `cap` (FZN_MESSAGES_PAGE_MAX), `*count` of them, `*more`
- * nonzero when another follows. DEEP when `offset` and `cap` together pass
- * FZN_MESSAGES_WALK_MAX.
+ * nonzero when another follows. One conversation pages at any depth, a
+ * page costing its own lines (sec 790); everyone's is DEEP when `offset`
+ * and `cap` together pass FZN_MESSAGES_WALK_MAX.
  */
 fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m,
                                      const uint8_t *contact, size_t offset, fzn_message_t *out,
@@ -248,7 +249,7 @@ fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m,
  * THE LINES STILL OWED SOMETHING, sec 613: `contact`'s lines, oldest first,
  * whose state is not SETTLED or NOT_DELIVERED -- being sent, delivered and
  * not settled, handed over, or filed and not settled -- however deep the
- * conversation, where a page stops at FZN_MESSAGES_WALK_MAX. From `*at`,
+ * conversation. From `*at`,
  * 0 to begin, at most `cap` (FZN_MESSAGES_PAGE_MAX), `*count` of them;
  * `*at` is left past the last place looked at, and `*more` nonzero when
  * the walk stopped full and should be called again from there.

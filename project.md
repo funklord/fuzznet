@@ -75761,3 +75761,58 @@ newest sealed line, which is near the top in a group that is sealing.
 A group 4096 lines deep was not run live: it would take thousands of
 lines through three daemons. The depth rests on the two store calls,
 which are tested at that depth.
+
+## 790. A conversation read at any depth, 2026-10-31
+
+The holder's focus for this run: a message log has no practical limit to
+its length, and an endless one is to be handled gracefully. **Before:** a
+conversation's page (`fzn_messages_page`, and `list message WHO FROM`)
+was refused past `FZN_MESSAGES_WALK_MAX` (4096) lines back, so a user
+could not scroll further into their own history. The bound was the
+page's walk: it deduped by a list of every line seen and counted its
+offset from the newest each time.
+
+**Why it needed that:** the only entry an index holds twice is one a
+crash part way through a shift leaves (`index_append`), and the copy
+sits beside the original. So a list of everything seen was never
+needed, only a look at the entry beside.
+
+**Now, for one conversation:**
+- **A CLEAN index** is one no shift has touched since it began or was
+  rebuilt. A row `clean` is written when a conversation's index starts
+  (its first entry, or a reindex's) and set to 0 before any shift moves
+  an entry. A clean index holds no entry twice, so an offset is a place,
+  and a page costs its own lines at any depth.
+- **Any other index** -- a store from before this, or one that has
+  shifted since its last reindex -- is walked from the newest with each
+  entry equal to the one below it passed over. That is linear in the
+  offset, not a square, with no cap.
+- `list message WHO FROM` takes any FROM a size holds; a word past that
+  is malformed. A key of 64 digits is still WHO.
+
+**Everyone's listing** (`list message FROM`, no WHO) keeps the bound and
+refuses past it as too deep. Its order is every line's order across
+conversations, whose entries a crash can double apart from each other,
+so it still dedupes by what it has seen. A user reads deep history one
+conversation at a time.
+
+**Measured:**
+- `messages_test`, 216 checks:
+  - in the 4104-line conversation, the page at the bottom answers the
+    first line reading fewer than 8 index rows; the page above it
+    answers two lines newest first with more after; past the end,
+    nothing;
+  - the power-cut test (sec 733) now also pages each conversation one
+    line at a time after the cut, and each line shows on exactly one
+    page.
+- `node/test/messages_test`, 183 checks: a conversation's page at 5000
+  answers; everyone's at 5000 is refused as too deep; a FROM past a size
+  is malformed.
+- **Controls**, each made by hand and caught: every page walking from
+  the newest (the index-row count fails); a shift leaving the index
+  clean (a line cut part way through a shift paged twice).
+- Two sabotage entries for those two. One older entry, which named the
+  page's old loop, is repointed at the new one.
+
+**fuzzypickles** pages by `list message WHO FROM`, and its reader's
+comment cites the 4096 walk; told through its inbox, 2026-10-31.

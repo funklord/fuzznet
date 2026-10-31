@@ -181,6 +181,8 @@ static struct {
 	uint8_t *bytes;
 } deep_rows[DEEP_SLOTS];
 static int deep;
+/* Index rows read, for a page that must cost its own lines. */
+static size_t index_loads;
 
 static size_t deep_find(fzn_persist_slot_t slot, const uint8_t *subject, int *found)
 {
@@ -203,6 +205,7 @@ static int deep_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 
 	(void)ctx;
 	state_loads += slot == FZN_PERSIST_MESSAGE_STATE;
+	index_loads += slot == FZN_PERSIST_MESSAGE_INDEX;
 	if (!subject)
 		return 0;
 	h = deep_find(slot, subject, &found);
@@ -841,6 +844,18 @@ static int cut_at(long k, const uint8_t *contact, int earlier, int *cut)
 	}
 	if (n1 != 1 || n2 != (int)recorded || n3 != 1) {
 		fprintf(stderr, "    cut at save %ld: listed %d, %d and %d times\n", k, n1, n2, n3);
+		return 0;
+	}
+	/* AND A LINE AT A TIME, sec 790: an offset read as a place where the
+	 * cut left an entry twice would show a line on two pages. */
+	n1 = n2 = n3 = 0;
+	for (i = 0; i < 8u && list(&A, contact, i, 1u) && count == 1u; i++) {
+		n1 += page[0].id[0] == 1u;
+		n2 += page[0].id[0] == 2u;
+		n3 += page[0].id[0] == 3u;
+	}
+	if ((contact == X && n1 != 1) || n2 != (int)recorded || n3 != 1) {
+		fprintf(stderr, "    cut at save %ld: paged %d, %d and %d times\n", k, n1, n2, n3);
 		return 0;
 	}
 	return 1;
@@ -1782,7 +1797,7 @@ static void test_owed_past_the_deepest_page(void)
 {
 	uint64_t at = 0;
 	uint8_t id[FZN_MESSAGE_ID_LEN];
-	size_t total = 0, k, n = FZN_MESSAGES_WALK_MAX + 8u;
+	size_t total = 0, k, n = FZN_MESSAGES_WALK_MAX + 8u, loads;
 	int ok = 1, first = 0;
 
 	setup();
@@ -1800,9 +1815,16 @@ static void test_owed_past_the_deepest_page(void)
 		     == FZN_MESSAGES_OK;
 	}
 	CHECK(ok, "fixture: more lines being sent than the deepest walk");
-	CHECK(fzn_messages_page(&A.m, X, n - 1u, page, 1u, &count, &more)
-	              == FZN_MESSAGES_ERR_DEEP,
-	      "a page cannot reach the first");
+	/* A PAGE AT ANY DEPTH, sec 790, read as a place: a few index rows,
+	 * where walking down to it would read every chunk above. */
+	loads = index_loads;
+	CHECK(list(&A, X, n - 1u, 2u) && count == 1u && !more && fzn_get_be32(page[0].id) == 1u
+	              && index_loads - loads < 8u,
+	      "a page reaches the first line, past the deepest walk, reading a few index rows");
+	CHECK(list(&A, X, n - 3u, 2u) && count == 2u && more && fzn_get_be32(page[0].id) == 3u
+	              && fzn_get_be32(page[1].id) == 2u,
+	      "and the page above it, newest first, with more after");
+	CHECK(list(&A, X, n, 2u) && count == 0u && !more, "and past the end, nothing");
 	do {
 		if (!owed(&A, X, &at, FZN_MESSAGES_PAGE_MAX))
 			break;

@@ -11156,6 +11156,20 @@ SABOTAGES = [
 		"every delivery reads every settled line of the conversation again -- sec 613",
 	),
 	(
+		"messages-new-index-not-clean",
+		'messages/messages.c',
+		'(!conversation_add(m, contact) || !save_number(m, "clean", contact, 1u))',
+		'!conversation_add(m, contact)',
+		"every page of a conversation walks from the newest, so a page deep in a long one reads the whole index above it -- sec 790",
+	),
+	(
+		"messages-shift-keeps-clean",
+		'messages/messages.c',
+		'\tif (load_number(m, "clean", contact) && !save_number(m, "clean", contact, 0u))\n\t\treturn 0;\n',
+		'',
+		"a line cut part way through a shift is shown on two pages, its doubled entry read as a place -- sec 790",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',
@@ -12253,8 +12267,8 @@ SABOTAGES = [
 	(
 		"messages-page-from-the-index",
 		"messages/messages.c",
-		"\tif (contact) {\n\t\tfor (i = count_of(m, contact); i > 0u; i--)",
-		"\tif (0) {\n\t\tfor (i = count_of(m, contact); i > 0u; i--)",
+		"\tif (contact) {\n\t\tn = count_of(m, contact);",
+		"\tif (0) {\n\t\tn = count_of(m, contact);",
 		"one conversation's page reads every conversation's records -- sec 528",
 	),
 	(

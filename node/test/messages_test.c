@@ -420,6 +420,16 @@ static void test_the_verbs(void)
 	           "list message 5858585858585858585858585858585858585858585858585858585858585858 1")
 	              && replied("ok 1 1 0 ") && strstr(reply, ",carol," ID2 ","),
 	      "a key of digits alone is WHO, not a page offset, and FROM still follows it");
+	/* SEC 790: one conversation pages at any depth, everyone's as far as
+	 * the walk, and a FROM past a size is not one. */
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message carol 5000") && replied("ok 5000 0 0"),
+	      "a conversation's page past the deepest walk answers, here empty");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message 5000") && replied("error")
+	              && strstr(reply, fzn_messages_err_str(FZN_MESSAGES_ERR_DEEP)),
+	      "everyone's past the walk is refused as too deep");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message carol 99999999999999999999999")
+	              && replied("malformed"),
+	      "a FROM past what a size holds is refused");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message carol unread") && replied("ok 1 0"),
 	      "one line in, nothing read: one unread");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol out " ID1 " settled")
