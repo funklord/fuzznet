@@ -75468,8 +75468,8 @@ nothing, since there is no line to judge by.
 the host's journal holds it (`fzn_node_journal_act_log`), from its head
 down, the record whole where held and the spine entry where the
 journal's window cut it. Each contact exchange asks for every key a held
-cut of the contact's names (`fzn_contact_estate_cut_keys`), sixteen a
-round. The entries are kept in slot 65 beside the estate's items, kind
+cut of the contact's names (`fzn_contact_estate_cut_keys`); every one
+of them since sec 800. The entries are kept in slot 65 beside the estate's items, kind
 0xfe, so members pass them on with the rest (sec 782).
 
 **A record is checked, a spine entry is not.** A record kept here opens,
@@ -75525,7 +75525,8 @@ and such a device has no standing at its own root to learn the
 contact's hosts from. The unit checks carry the judgment.
 
 **Not yet:**
-- past sixteen cut keys a contact's rest are asked in later rounds;
+- ~~past sixteen cut keys a contact's rest are asked in later rounds~~
+  -- they never were; fixed by sec 800;
 - a host whose journal let a key's early acts go answers them as spine
   entries, so a grant past a line that old is kept here (unknown).
 
@@ -76435,3 +76436,34 @@ with them by taking the larger.
   ending failed, S2 asking one contact and dropping nothing.
 - **Sabotage:** four entries, for the setting deciding, a root's only,
   the higher version, and the cell about this contact.
+
+## 800. Every cut key's act log asked, 2026-10-31
+
+**Asked by the holder, 2026-10-31:** fix sec 783's open item, more than
+16 cut keys.
+
+**Worse than the record said.** Sec 783 wrote that past sixteen cut keys
+"a contact's rest are asked in later rounds". They were not. fuzznetd
+listed the keys into a room of 16 (FZND_CUT_KEYS_ASKED), and the walk of
+slot 65 comes out in the same order every round. So the same sixteen
+were asked each time, and the rest never were. A grant past the line of
+a key outside the sixteen was judged with no act log, which errs open:
+the device was kept.
+
+**Now** `fzn_contact_estate_cut_keys_all` lists every key a held cut
+names into a list grown to fit with realloc, the pattern of
+`fzn_buckets_list_all` (sec 791). Each contact talk keeps its list
+between rounds, in a table that grows by realloc, and asks every key in
+turn. A list that cannot grow asks none that round, which errs open as
+before. FZND_CUT_KEYS_ASKED is gone. The holder's rule of 2026-10-23
+applies: no fixed table sizes for what a user's estate can grow.
+
+### Measured for sec 800
+
+- **`contact_devices_test`, 125 checks, `test_every_cut_key_listed`:**
+  twenty of the owner's votes, each with a line. A room of sixteen is
+  ROOM with a count of twenty. The grown list holds all twenty, the
+  twenty grantees each once, and listing again reuses the list kept.
+- **`live_contacts`** passed with this fuzznetd; its phase e asks
+  R2's act log through the new list and checks entries were taken.
+- **Sabotage:** one entry, the list not grown, caught by that test.

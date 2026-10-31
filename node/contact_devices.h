@@ -671,6 +671,18 @@ fzn_contact_device_err_t fzn_contact_estate_cut_keys(const fzn_persist_ops_t *st
                                                      uint8_t (*out)[FZN_PUBKEY_LEN], size_t cap,
                                                      size_t *count);
 
+/* THE SAME, INTO A LIST GROWN TO FIT, sec 800: `*list` (room `*room`, NULL
+ * and 0 to begin) grown with realloc as needed and kept by the caller
+ * between calls, to be freed with free(); `*count` the keys. ROOM only
+ * when it cannot grow. A contact's cut keys are few, but nothing bounds
+ * them, and a fixed room asked the same first keys every round and never
+ * the rest. */
+fzn_contact_device_err_t fzn_contact_estate_cut_keys_all(const fzn_persist_ops_t *store,
+                                                         const fzn_hash_ops_t *hash,
+                                                         const uint8_t owner[FZN_PUBKEY_LEN],
+                                                         uint8_t (**list)[FZN_PUBKEY_LEN],
+                                                         size_t *room, size_t *count);
+
 /* THE CONTACT'S ESTATE AS THIS NODE SEES IT, built from what is kept for
  * `owner` -- slot FZN_PERSIST_CONTACT_ESTATE and its root's records in
  * FZN_PERSIST_CONTACT_REVOCATION -- for judging its devices. Allocated;

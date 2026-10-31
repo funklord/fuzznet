@@ -9501,12 +9501,6 @@ static int devices_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
  * and through its next host when one does not answer, as the round in
  * turn tried them. */
 #define FZND_CONTACT_HOSTS_TRIED 8u
-/* THE KEYS A ROUND ASKS ACT LOGS FOR, per contact, sec 783: the ones a held
- * cut names, which are few -- a device revoked with a line, a root removed
- * with one. Past it, the rest wait a round, the same keys asked again first;
- * a log not yet held errs open. */
-#define FZND_CUT_KEYS_ASKED 16u
-
 struct contact_talk {
 	fzn_node_talk_t talk;
 	struct meter m;
@@ -9519,10 +9513,12 @@ struct contact_talk {
 	fzn_contact_devices_querying_t q;
 	fzn_contact_revoked_querying_t rq;
 	fzn_contact_estate_querying_t eq;
-	/* THE KEYS WHOSE ACT LOGS ARE ASKED, sec 783, and the one being asked. */
+	/* THE KEYS WHOSE ACT LOGS ARE ASKED, sec 783, and the one being asked:
+	 * every key a held cut names, in a list grown to fit and kept with the
+	 * slot between rounds (sec 800). */
 	fzn_contact_acts_querying_t aq;
-	uint8_t cut_keys[FZND_CUT_KEYS_ASKED][FZN_PUBKEY_LEN];
-	size_t n_cut_keys, cut_key_at;
+	uint8_t (*cut_keys)[FZN_PUBKEY_LEN];
+	size_t cut_keys_room, n_cut_keys, cut_key_at;
 	struct hosts_taking ht;
 	uint64_t now;
 	uint8_t request[FZN_CONTACT_DEVICES_OFFER_MAX];
@@ -9693,16 +9689,14 @@ static int contact_next(struct contact_talk *ct, uint8_t *request, size_t cap, s
 	if (ct->phase == CONTACT_K) {
 		ct->n_cut_keys = 0;
 		ct->cut_key_at = 0;
-		if (node_apply.store && contact_hash_ops) {
-			fzn_contact_device_err_t kerr = fzn_contact_estate_cut_keys(
-			        node_apply.store, contact_hash_ops, ct->contact, ct->cut_keys,
-			        FZND_CUT_KEYS_ASKED, &ct->n_cut_keys);
-
-			if (kerr == FZN_CONTACT_DEVICE_ERR_ROOM)
-				ct->n_cut_keys = FZND_CUT_KEYS_ASKED;
-			else if (kerr != FZN_CONTACT_DEVICE_OK)
-				ct->n_cut_keys = 0;
-		}
+		/* A LIST THAT CANNOT GROW asks none this round: a log not yet
+		 * held errs open. */
+		if (node_apply.store && contact_hash_ops
+		    && fzn_contact_estate_cut_keys_all(node_apply.store, contact_hash_ops, ct->contact,
+		                                       &ct->cut_keys, &ct->cut_keys_room,
+		                                       &ct->n_cut_keys)
+		               != FZN_CONTACT_DEVICE_OK)
+			ct->n_cut_keys = 0;
 		ct->phase = CONTACT_ACTS;
 	}
 	if (ct->phase == CONTACT_ACTS && ct->cut_key_at < ct->n_cut_keys)

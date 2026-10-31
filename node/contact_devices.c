@@ -1,6 +1,7 @@
 /* A contact's devices: project.md sec 614, and the header. */
 #include "contact_devices.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1635,6 +1636,43 @@ fzn_contact_device_err_t fzn_contact_estate_cut_keys(const fzn_persist_ops_t *st
 		return err;
 	*count = w.n;
 	return w.n > cap ? FZN_CONTACT_DEVICE_ERR_ROOM : FZN_CONTACT_DEVICE_OK;
+}
+
+fzn_contact_device_err_t fzn_contact_estate_cut_keys_all(const fzn_persist_ops_t *store,
+                                                         const fzn_hash_ops_t *hash,
+                                                         const uint8_t owner[FZN_PUBKEY_LEN],
+                                                         uint8_t (**list)[FZN_PUBKEY_LEN],
+                                                         size_t *room, size_t *count)
+{
+	fzn_contact_device_err_t err;
+	size_t n = 0;
+
+	if (!count)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	*count = 0;
+	if (!list || !room || (!*list && *room))
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	/* LISTED, AND AGAIN INTO ROOM FOR WHAT THE FIRST COUNTED: nothing
+	 * writes the slot between the two. */
+	for (;;) {
+		uint8_t (*more)[FZN_PUBKEY_LEN];
+		size_t want;
+
+		err = fzn_contact_estate_cut_keys(store, hash, owner, *list, *room, &n);
+		if (err != FZN_CONTACT_DEVICE_ERR_ROOM)
+			break;
+		if (n > SIZE_MAX / 2u / FZN_PUBKEY_LEN)
+			return FZN_CONTACT_DEVICE_ERR_ROOM;
+		want = n + n / 4u + 1u;
+		more = realloc(*list, want * sizeof(**list));
+		if (!more)
+			return FZN_CONTACT_DEVICE_ERR_ROOM;
+		*list = more;
+		*room = want;
+	}
+	if (err == FZN_CONTACT_DEVICE_OK)
+		*count = n;
+	return err;
 }
 
 /* ---- the estate built ---------------------------------------------------- */

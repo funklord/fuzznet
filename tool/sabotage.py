@@ -11338,6 +11338,13 @@ SABOTAGES = [
 		"another estate's setting of k is kept as this contact's -- sec 799",
 	),
 	(
+		"contact-estate-cut-keys-grown",
+		'node/contact_devices.c',
+		'\t\tif (err != FZN_CONTACT_DEVICE_ERR_ROOM)\n\t\t\tbreak;\n\t\tif (n > SIZE_MAX / 2u / FZN_PUBKEY_LEN)',
+		'\t\tbreak;\n\t\tif (n > SIZE_MAX / 2u / FZN_PUBKEY_LEN)',
+		"past a fixed room of cut keys the same first are asked every round, and the rest never -- sec 800",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

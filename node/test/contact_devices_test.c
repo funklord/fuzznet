@@ -8,6 +8,7 @@
 #include "../../state/setting.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int checks, failures;
@@ -1497,6 +1498,53 @@ static void test_a_root_setting_of_k(void)
 	      "a root's setting passed on by a member did not decide k");
 }
 
+/* sec 800: twenty keys a held cut names, past the old room of sixteen a
+ * round asked, every one listed. */
+static void test_every_cut_key_listed(void)
+{
+	static fzn_contact_estate_item_t it;
+	uint8_t (*list)[32] = NULL, (*kept)[32];
+	uint8_t grantee[32], cut[32], small[16][32], seen[20];
+	size_t room = 0, n = 0, i, j;
+	int ok = 1, distinct = 1;
+
+	memset(rows, 0, sizeof(rows));
+	memset(cut, 0x5c, sizeof(cut));
+	for (i = 0; i < 20u && ok; i++) {
+		memset(grantee, (int)(0x40u + i), sizeof(grantee));
+		memset(&it, 0, sizeof(it));
+		it.kind = FZN_CONTACT_ESTATE_VOTE;
+		it.record_len = FZN_REVOCATION_LEN;
+		revoked_by(it.record, owner, &member, grantee, 400u + i, cut);
+		ok = fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK;
+	}
+	CHECK(ok, "fixture: twenty votes of the owner's, each with a line");
+	CHECK(fzn_contact_estate_cut_keys(&STORE, &HASH, owner, small, 16u, &n)
+	                      == FZN_CONTACT_DEVICE_ERR_ROOM
+	              && n == 20u,
+	      "a room of sixteen held twenty cut keys, or did not count them");
+	CHECK(fzn_contact_estate_cut_keys_all(&STORE, &HASH, owner, &list, &room, &n)
+	                      == FZN_CONTACT_DEVICE_OK
+	              && n == 20u && room >= 20u && list,
+	      "not every one of twenty cut keys listed into a list grown to fit");
+	memset(seen, 0, sizeof(seen));
+	for (i = 0; list && i < n; i++) {
+		for (j = 0; j < 32u && list[i][j] == list[i][0]; j++)
+			;
+		if (j != 32u || list[i][0] < 0x40u || list[i][0] >= 0x54u || seen[list[i][0] - 0x40u])
+			distinct = 0;
+		else
+			seen[list[i][0] - 0x40u] = 1;
+	}
+	CHECK(distinct, "the twenty listed are not the twenty grantees, each once");
+	kept = list;
+	CHECK(fzn_contact_estate_cut_keys_all(&STORE, &HASH, owner, &list, &room, &n)
+	                      == FZN_CONTACT_DEVICE_OK
+	              && n == 20u && list == kept,
+	      "listed again, the list kept between calls was grown again");
+	free(list);
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -1532,6 +1580,7 @@ int main(void)
 	test_a_contacts_act_log();
 	test_the_act_log_messages();
 	test_a_root_setting_of_k();
+	test_every_cut_key_listed();
 	if (failures) {
 		fprintf(stderr, "node contact_devices_test: %d of %d checks failed\n", failures, checks);
 		return 1;
