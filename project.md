@@ -76340,3 +76340,24 @@ walk, which also lets their files go of the LEGACY hold.
 - **Sabotage:** four entries, for the month order, the LEGACY release, the
   retell budget and the walk passing a finished conversation. The trim's
   wait for the walk has no probe: no test can see it.
+
+## 797. A saved sticker pack held live, 2026-10-31
+
+**Asked by the holder, 2026-10-31:** test the saved-pack holder of sec 795
+live, not only through the unit test's callback.
+
+- **`tool/live_trim.py` phase s now carries a third file.** It is a
+  sticker pack, put from a spec (which saves it). A line from x then
+  carries an `fzn:file/` reference built from the pack's own root, key
+  and length, in the same month sixty days back. Under `prune
+  attachments age 1d` the trim's count is now (1, 1, 3, 1, 0). The pack
+  is intact and still the one pack listed.
+- **Why an incoming line:** `add message ... attach` takes only a file
+  with a file reference from `put file`, and a pack keeps its key in the
+  sticker record instead. A contact sending the same bytes is the real
+  route by which a saved pack becomes an attachment.
+- **Control, made by hand and caught:** with the `fzn_node_stickers_saved`
+  check in `attachment_held_elsewhere` turned off, phase s failed with
+  (1, 1, 3, 2, 0): the pack was removed. Sabotage cannot hold this
+  check, since it runs `make test` and the live tests are not part of
+  that.

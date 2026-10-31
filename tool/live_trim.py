@@ -24,10 +24,11 @@ default policy of sec 566:
     q  `policy messages drop` and `policy messages keep`
                                               -> keep wins, y's reads
     r  `policy messages drop` alone           -> y's month trimmed too
-and over a third, two files attached sixty days back, sec 795:
+and over a third, three files attached sixty days back, sec 795:
     s  `prune attachments age 1d`             -> the file nothing else holds
                                                  is removed; the one the
-                                                 catalogue names stays
+                                                 catalogue names stays, and
+                                                 so does a saved sticker pack
 
 b, c and e are the controls, and a control means nothing unless the trim
 ran: every phase waits for the daemon's own debug line saying a trim pass
@@ -252,7 +253,8 @@ def write_old(run, tag):
 
 def write_attachments(run, tag):
 	"""Two files attached to x sixty-odd days back, the second named in the
-	catalogue; their roots."""
+	catalogue, and a sticker pack put -- so saved -- and attached too; their
+	roots."""
 	then = datetime.datetime.now() - datetime.timedelta(days=62)
 	fake = "@" + then.strftime("%Y-%m-%d") + " 12:00:00"
 	roots = []
@@ -273,16 +275,40 @@ def write_attachments(run, tag):
 		reply = ask(run.sock, "add catalog %s name kept" % roots[1])
 		if reply != "ok":
 			raise failed("%s: add catalog answered %r" % (tag, reply))
+		# A SAVED PACK, the other holder asked at removal (sec 795): put
+		# from a spec, which saves it, and sent as a file like any other.
+		packdir = os.path.join(run.scratch, "pack")
+		os.makedirs(os.path.join(packdir, "art"))
+		with open(os.path.join(packdir, "art", "wave.png"), "wb") as f:
+			f.write(os.urandom(3000))
+		spec = os.path.join(packdir, "cats.spec")
+		with open(spec, "w") as f:
+			f.write("name cats\nsticker 1 static\ndescription a cat waving\n"
+			        "inline png 128 128 art/wave.png\n")
+		put = ask(run.sock, "put sticker " + spec).split()
+		if len(put) != 2 or put[0] != "ok":
+			raise failed("%s: put sticker answered %r" % (tag, put))
+		ref = ask(run.sock, "get sticker %s 1" % put[1])
+		if not ref.startswith("ok fzn:sticker/"):
+			raise failed("%s: get sticker answered %r" % (tag, ref))
+		fields = ref[3:].split("/")
+		roots.append(fields[1])
+		# COME IN AS A FILE: a contact's line whose reference is the pack's
+		# own root, key and length, as `messages/attachment.h` writes one.
+		reply = ask(run.sock, "add message %s in %s fzn:file/%s/%s/%d%%20cats.pack"
+		            % (CONTACT, "13" + "00" * 15, fields[1], fields[2], int(fields[3])))
+		if reply != "ok":
+			raise failed("%s: the line carrying the pack answered %r" % (tag, reply))
 	finally:
 		d.stop()
-	print("livecheck: %s: two files attached under %s, the second in the catalogue"
-	      % (tag, fake))
+	print("livecheck: %s: three files attached under %s, the second in the catalogue, the "
+	      "third a saved sticker pack" % (tag, fake))
 	return roots
 
 
 def attachments_trimmed(run, tag, roots):
 	"""Under `prune attachments age 1d`: the first file removed, the second
-	kept, by the daemon's own count and by asking for each."""
+	and the pack kept, by the daemon's own count and by asking for each."""
 	d = daemon(run, tag, extra=["--log-rule=prune attachments age 1d"])
 	try:
 		until = time.monotonic() + 30.0
@@ -298,17 +324,22 @@ def attachments_trimmed(run, tag, roots):
 			if got is None:
 				time.sleep(0.2)
 		counts = tuple(int(g) for g in got.groups())
-		if counts != (1, 1, 2, 1, 0):
-			raise failed("%s: the attachment trim said %r; expected one rule, one month, two "
+		if counts != (1, 1, 3, 1, 0):
+			raise failed("%s: the attachment trim said %r; expected one rule, one month, three "
 			             "holds released, one file removed" % (tag, counts))
 		if ask(run.sock, "get file %s check" % roots[0]).strip() == "ok intact":
 			raise failed("%s: the file nothing else held is still here" % tag)
 		if ask(run.sock, "get file %s check" % roots[1]).strip() != "ok intact":
 			raise failed("%s: the file the catalogue names was removed" % tag)
+		if ask(run.sock, "get file %s check" % roots[2]).strip() != "ok intact":
+			raise failed("%s: the saved sticker pack was removed" % tag)
+		if not ask(run.sock, "list sticker").startswith("ok 1 0 " + roots[2]):
+			raise failed("%s: the saved pack is no longer listed: %r"
+			             % (tag, ask(run.sock, "list sticker")))
 	finally:
 		d.stop()
 	print("livecheck: %s: the month's attachments let go: the file nothing else held "
-	      "removed, the catalogue's kept" % tag)
+	      "removed, the catalogue's and the saved pack kept" % tag)
 
 
 def main(argv):
