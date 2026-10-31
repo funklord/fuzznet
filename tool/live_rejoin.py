@@ -25,7 +25,8 @@ older than the 60-day window when A next cuts:
     e  E joins A's estate under `policy messages drop`: its rules would not
        hold the old month, so its reconcile pass passes it over rather than
        fetching it, and no line lists (sec 566). Without the policy it
-       would file the line, as B did
+       would file the line, as B did. `get message held-back` names the
+       month and A's line in it (sec 792)
     f  B, with A down, writes a line under the old clock, then cuts it from
        its own journal on the real clock. A pulls from nobody, so only B's
        push can bring it (sec 569): B's pass pushes it, and it reads at A,
@@ -502,12 +503,21 @@ def main(argv):
 					if not reply.startswith("ok 0 0"):
 						raise failed("e: list message answered %r, a line E's rules would "
 						             "not hold" % reply)
+					# AND SAYS SO, sec 792: the month its rules held back, with the
+					# line A holds of it, for a client to offer to change them.
+					held = ask(e_sock, "get message %s held-back" % CONTACT).split()
+					total = ask(e_sock, "get message held-back").split()
+					if (len(held) != 4 or held[0] != "ok" or int(held[1]) < 1
+					        or int(held[2]) < 1 or int(held[3]) == 0 or total[:3] != held[:3]):
+						raise failed("e: held-back answered %r, and for everyone %r; the old "
+						             "month was passed over" % (held, total))
 				finally:
 					e.stop()
 			finally:
 				a.stop()
-			print("livecheck: e: a member under a drop policy passed %s month(s) over and "
-			      "fetched no line" % lines.group(3))
+			print("livecheck: e: a member under a drop policy passed %s month(s) over, "
+			      "fetched no line, and says %s month(s) of %s line(s) are held back"
+			      % (lines.group(3), held[1], held[2]))
 
 			# f: a line only B's push can bring to A. sec 569.
 			# A IS DOWN, so B runs with no pull peer: its round would only wait

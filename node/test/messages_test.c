@@ -420,6 +420,37 @@ static void test_the_verbs(void)
 	           "list message 5858585858585858585858585858585858585858585858585858585858585858 1")
 	              && replied("ok 1 1 0 ") && strstr(reply, ",carol," ID2 ","),
 	      "a key of digits alone is WHO, not a page offset, and FROM still follows it");
+	/* SEC 792: the months the rules held back, from the caller's table. */
+	{
+		static fzn_node_message_held_back_t table[3];
+
+		memset(table, 0, sizeof(table));
+		memset(table[0].contact, 0x58, FZN_PUBKEY_LEN);
+		table[0].month = 680u;
+		table[0].lines = 40u;
+		memset(table[1].contact, 0x58, FZN_PUBKEY_LEN);
+		table[1].month = 679u;
+		table[1].lines = 2u;
+		memset(table[2].contact, 0x77, FZN_PUBKEY_LEN);
+		table[2].month = 681u;
+		table[2].lines = 5u;
+		CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message held-back") && replied("ok 0 0 0"),
+		      "nothing held back with no table");
+		A.nm.held_back = table;
+		A.nm.n_held_back = 3u;
+		CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message held-back")
+		              && replied("ok 3 47 681"),
+		      "every conversation's: three months, 47 lines, the newest October 2026");
+		CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message carol held-back")
+		              && replied("ok 2 42 680"),
+		      "one conversation's: its two months alone");
+		CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message carol later") && replied("malformed"),
+		      "a get that is neither unread nor held-back is refused");
+		CHECK(verb(&A, FZN_ORIGIN_LOCAL, "get message held-back") && replied("denied"),
+		      "another user is not told");
+		A.nm.held_back = NULL;
+		A.nm.n_held_back = 0u;
+	}
 	/* SEC 790: one conversation pages at any depth, everyone's as far as
 	 * the walk, and a FROM past a size is not one. */
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message carol 5000") && replied("ok 5000 0 0"),

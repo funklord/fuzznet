@@ -1108,6 +1108,9 @@ fzn_reconcile_err_t fzn_reconcile_buckets(const fzn_buckets_t *b, fzn_buckets_ki
 			 * the kind a walk of what it holds, and one that agrees needs
 			 * nothing fetched either way. sec 566. */
 			if (filer->wanted && !filer->wanted(filer->ctx, page[i].subject, page[i].month)) {
+				if (filer->passed_over)
+					filer->passed_over(filer->ctx, page[i].subject, page[i].month,
+					                   page[i].count);
 				tally->passed++;
 				continue;
 			}

@@ -457,10 +457,28 @@ static int months_wanted(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN], uint3
 	return wanted_months_below == 0 || month < (uint32_t)wanted_months_below;
 }
 
+/* THE BUCKETS `wanted` DECLINED, as the round tells them, sec 792. */
+static struct {
+	size_t calls;
+	uint32_t month;
+	uint64_t count;
+} declined;
+
+static void note_declined(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
+                          uint64_t count)
+{
+	(void)ctx;
+	(void)subject;
+	declined.calls++;
+	declined.month = month;
+	declined.count = count;
+}
+
 static fzn_reconcile_err_t round_b_from_a(fzn_reconcile_bucket_tally_t *t, size_t cap)
 {
 	static uint8_t reply[8192];
-	fzn_reconcile_filer_t filer = { keep_it, months_wanted, (void *)&B, NULL, NULL, NULL };
+	fzn_reconcile_filer_t filer = { keep_it, months_wanted, (void *)&B, NULL,
+		                        NULL,    NULL,          note_declined };
 
 	asked.store = &store_a;
 	asked.cap = cap;
@@ -566,9 +584,12 @@ static void test_what_is_not_taken(void)
 	CHECK(fzn_buckets_drop(&B, FZN_BUCKETS_MESSAGES, s2, 751u) == FZN_BUCKETS_OK,
 	      "fixture: B let 751 go");
 	wanted_months_below = 752;
+	memset(&declined, 0, sizeof(declined));
 	CHECK(round_b_from_a(&t, 0u) == FZN_RECONCILE_OK && t.refused == 2u && t.applied == 0u
 	              && t.passed == 2u && t.lacked == 2u,
 	      "a refusal, a gone bucket and an unwanted one were not each kept from");
+	CHECK(declined.calls == 1u && declined.month == 752u && declined.count == 1u,
+	      "the unwanted bucket is told with the items the peer holds, and the gone one is not");
 	memset(refused_subject, 0xff, sizeof(refused_subject));
 }
 
@@ -667,7 +688,7 @@ static int to_b(void *ctx, const uint8_t *request, size_t request_len, uint8_t *
                 size_t reply_cap, size_t *reply_len)
 {
 	static uint8_t copy[FZN_RECONCILE_ITEM_PUT_HEAD_LEN + FZN_RECONCILE_PIECE_MAX];
-	fzn_reconcile_filer_t filer = { keep_it, months_wanted, (void *)&B, NULL, NULL, NULL };
+	fzn_reconcile_filer_t filer = { keep_it, months_wanted, (void *)&B, NULL, NULL, NULL, NULL };
 	fzn_reconcile_server_t srv;
 	size_t n;
 
@@ -899,9 +920,9 @@ static fzn_node_apply_outcome_t large_file(void *ctx, const uint8_t subject[FZN_
 }
 
 static const fzn_reconcile_filer_t LARGE_A = { large_file, NULL, &large_a, large_stage,
-	                                       large_finish, large_read };
+	                                       large_finish, large_read, NULL };
 static const fzn_reconcile_filer_t LARGE_B = { large_file, NULL, &large_b, large_stage,
-	                                       large_finish, large_read };
+	                                       large_finish, large_read, NULL };
 
 /* A ASKED BY B, serving its large items through its kind. */
 static int large_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
@@ -987,7 +1008,7 @@ static void test_large_items_pulled_and_pushed(void)
 {
 	static uint8_t reply[8192];
 	uint8_t s1[FZN_PUBKEY_LEN], id[FZN_BUCKETS_ID_LEN];
-	fzn_reconcile_filer_t no_large = { large_file, NULL, &large_b, NULL, NULL, NULL };
+	fzn_reconcile_filer_t no_large = { large_file, NULL, &large_b, NULL, NULL, NULL, NULL };
 	fzn_reconcile_bucket_tally_t t;
 	fzn_bucket_t a, b;
 	fzn_reconcile_err_t err;

@@ -114,6 +114,15 @@ typedef struct fzn_node_message_cursor {
 	uint64_t at;
 } fzn_node_message_cursor_t;
 
+/* A MONTH HELD BACK, sec 792: a conversation's month a peer holds that
+ * this node's retention rules declined to fetch, and how many lines the
+ * peer holds of it. */
+typedef struct fzn_node_message_held_back {
+	uint8_t contact[FZN_PUBKEY_LEN];
+	uint32_t month;
+	uint64_t lines;
+} fzn_node_message_held_back_t;
+
 typedef struct fzn_node_messages {
 	fzn_messages_t m;
 	/* THE DEVICES, sec 704: this node and the user's others, each with a
@@ -152,6 +161,12 @@ typedef struct fzn_node_messages {
 	int (*takes_over)(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
 	                  const uint8_t id[FZN_MESSAGE_ID_LEN]);
 	void *takes_over_ctx;
+	/* THE MONTHS HELD BACK at the last conversations pass, sec 792, the
+	 * caller's table: `get message held-back` reads them, so a client can
+	 * say how much older history the rules kept off this device and offer
+	 * to change them. NULL and 0 for none. */
+	const fzn_node_message_held_back_t *held_back;
+	size_t n_held_back;
 	/* THE OWN ROOM the tables above start on. */
 	uint8_t own_devices[FZN_MESSAGES_DEVICES_MAX][FZN_PUBKEY_LEN];
 	fzn_node_message_cursor_t own_cursors[FZN_MESSAGES_DEVICES_MAX];
@@ -398,6 +413,13 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
  *   get message owed            `ok HELD DELIVERED MORE`, this host's lines to
  *                               contacts not yet delivered, and delivered
  *                               and not settled (sec 661)
+ *   get message [WHO] held-back `ok MONTHS LINES NEWEST`, the months of
+ *                               older history this node's retention rules
+ *                               declined to fetch at the last conversations
+ *                               pass -- every conversation's, or WHO's --
+ *                               the lines a peer holds of them, and the
+ *                               newest of those months (months since 1970,
+ *                               `fzn_message_epoch_of`), 0 for none (sec 792)
  *   list message [WHO] [FROM]
  *
  * `get message WHO unread` answers `ok COUNT MORE`, MORE 1 when the count

@@ -75866,3 +75866,100 @@ A backend without `each` is still bounded by that room of 4096 (sec
 
 **Not measured:** a push of one bucket past 16384 ids. It now grows as
 the lists do, but no test holds a bucket that large.
+
+## 792. History held back by the rules, reported; attachments planned, 2026-10-31
+
+### The holder's decisions, 2026-10-31
+
+Asked after secs 790 and 791, on a device's catch-up of old history:
+
+- **No separate download budget. The retention rules are the
+  mechanism**: a device that should not hold all history is given a
+  rule, `prune messages host=PHONE size 1G` or a drop policy. A report
+  of the months they kept off the device is added. Rejected: a per-device
+  fetch budget apart from retention, newest months first, with a default
+  of 1 GiB (the session's recommendation), and the same per
+  conversation.
+- **Files in chat messages**, in the holder's words: they "may need to be
+  stored separately, and need to be included in the retention rule
+  system, but have a different target than the text so they can be
+  discriminated in the rules, and we need to be able to create default
+  rules and wildcard rules that apply per contact to every contact
+  individually, alongside total wildcard rules." The holder then asked
+  whether the session understood that this requires the rule syntax to
+  be extended. It does; the proposal is below.
+
+### Built: the months held back, reported
+
+- **The round tells what its rules declined.** `fzn_reconcile_filer_t`
+  gains `passed_over`: a bucket `wanted` declined is handed to it with
+  the items the peer holds of it. A gone bucket is not; it was let go
+  here, not declined.
+- **fuzznetd keeps the months declined at each pass**, a table grown to
+  fit, started afresh each pass since a rule changed since may want them.
+  A month two peers hold is noted once, with the most lines either
+  holds. The debug pass line says how many.
+- **`get message held-back`** answers `ok MONTHS LINES NEWEST` for every
+  conversation, and **`get message WHO held-back`** for one: how many
+  months the rules kept off this device, the lines a peer holds of them,
+  and the newest of those months (months since 1970). A client can say
+  "older history before NEWEST is not on this device" and offer to
+  change the rule. The table is the caller's, read through
+  `fzn_node_messages_t.held_back`, as the module's other tables are.
+
+**Measured:**
+- `buckets_test`, 79 checks: of a refusal, a gone bucket and an unwanted
+  one, the round tells the unwanted one alone, with the one item the
+  peer holds.
+- `node/test/messages_test`, 188 checks: with no table, `ok 0 0 0`; with
+  three months of two conversations, every conversation's sums all three
+  and names the newest, and one conversation's sums its own two; another
+  user is denied.
+- `tool/live_rejoin.py` phase e: E, joining under `policy messages
+  drop`, passes A's old month over and now answers one month of one line
+  held back, for that conversation and for all.
+- **Controls**, each made by hand and caught: the round not telling
+  (`buckets_test`), and fuzznetd's round filer without the callback
+  (phase e, held-back answering `ok 0 0 0`). One sabotage entry for the
+  first.
+
+### Proposed, not built: the rule syntax for attachments
+
+Waiting on the holder's word on the syntax, since other projects write
+these rules.
+
+**What attachments are today:** fuzzypickles stores a file with `put
+file` and sends an ordinary line whose text is its own file reference
+(root, key, size and name; `fzp_file_ref_format`). The receiver fetches
+the file by its root when it is opened. fuzznet cannot tell which files
+belong to which conversation, so no rule can reach them by conversation.
+Bringing them into the rules first needs fuzznet to know a line's
+attachments: a reference fuzznet reads, kept beside the line, and the
+files themselves under their own retention target.
+
+**The syntax, three extensions:**
+1. **A target for attachments.** `prune|keep attachments [contact=...]
+   [host=] [machine=] LIMIT N`, and `policy attachments keep|drop`, so a
+   rule on `messages` reaches text alone and one on `attachments` files
+   alone.
+2. **Each contact, or all together.** Today a message rule without
+   `contact=` applies to each conversation on its own, and nothing
+   expresses a total.
+   - `contact=KEY`: one contact.
+   - `contact=*`: each contact individually, the same as leaving it out,
+     as today.
+   - `contact=all`: one limit over every conversation together, for
+     example `prune attachments contact=all size 5G`.
+3. **Default rules.** Rules combine as a set, keep winning over prune, so
+   a rule for one contact cannot replace the general one for that
+   contact. A rule marked `default` would apply only to contacts no rule
+   names. For example, `prune messages default size 1G` with `keep
+   messages contact=ALICE age 10y` gives Alice ten years and everyone
+   else 1 GB.
+
+The parser, the rule's text form and the planners all change; a rule
+text written before reads as it did, with one exception. Today a rule
+naming no target is a log rule whose second word is the program, so
+`prune attachments ...` already reads as a log rule for a program called
+`attachments`. `messages` met the same, and such a program is written
+`log PROGRAM` (sec 531); `attachments` would follow it.

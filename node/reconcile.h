@@ -224,6 +224,11 @@ typedef struct fzn_reconcile_filer {
 	                                   uint64_t total);
 	int (*read)(void *ctx, const uint8_t *ref, size_t ref_len, uint64_t offset, uint8_t *out,
 	            size_t n);
+	/* A BUCKET `wanted` DECLINED, sec 792, with the items the peer holds
+	 * of it: told so the kind can say what its rules kept off this node.
+	 * NULL where nobody asks. */
+	void (*passed_over)(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
+	                    uint64_t count);
 } fzn_reconcile_filer_t;
 
 typedef struct fzn_reconcile_bucket_tally {

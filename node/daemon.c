@@ -2920,6 +2920,57 @@ static int line_wanted(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_
 	               : 1;
 }
 
+/* THE MONTHS THE RULES HELD BACK, sec 792: each conversation month a peer
+ * holds that `line_wanted` declined at this pass, grown to fit and read by
+ * `get message held-back` through `node_messages.held_back`. Started
+ * afresh each pass, since a rule changed since may want them now. */
+static fzn_node_message_held_back_t *held_back;
+static size_t n_held_back, held_back_room, held_back_dropped;
+
+static void held_back_start(void)
+{
+	n_held_back = 0;
+	held_back_dropped = 0;
+	node_messages.held_back = held_back;
+	node_messages.n_held_back = 0;
+}
+
+/* ONE MONTH DECLINED, noted once however many peers hold it, with the
+ * most lines any of them holds. */
+static void line_passed_over(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t month,
+                             uint64_t lines)
+{
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < n_held_back; i++)
+		if (held_back[i].month == month
+		    && memcmp(held_back[i].contact, contact, FZN_PUBKEY_LEN) == 0) {
+			if (lines > held_back[i].lines)
+				held_back[i].lines = lines;
+			return;
+		}
+	if (n_held_back == held_back_room) {
+		size_t want = held_back_room ? 2u * held_back_room : 64u;
+		fzn_node_message_held_back_t *more =
+		        want > SIZE_MAX / sizeof(*more) ? NULL
+		                                        : realloc(held_back, want * sizeof(*more));
+
+		if (!more) {
+			held_back_dropped++;
+			return;
+		}
+		held_back = more;
+		held_back_room = want;
+	}
+	memcpy(held_back[n_held_back].contact, contact, FZN_PUBKEY_LEN);
+	held_back[n_held_back].month = month;
+	held_back[n_held_back].lines = lines;
+	n_held_back++;
+	node_messages.held_back = held_back;
+	node_messages.n_held_back = n_held_back;
+}
+
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 /* THIS HOST'S LOG AS BUCKET ITEMS, sec 571: its packed segments, and the
  * copies of other hosts' it keeps, carried by the bucket exchange. Ready
@@ -3057,7 +3108,7 @@ static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *r
 	const fzn_node_apply_t *ap = (const fzn_node_apply_t *)ctx;
 	struct serving_to to = { sender, -1 };
 	fzn_reconcile_gate_t gate = { serves_bucket, &to, SERVES_PIECE };
-	fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules, NULL, NULL, NULL };
+	fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules, NULL, NULL, NULL, NULL };
 	fzn_reconcile_server_t srv;
 
 	if (!sender)
@@ -4114,6 +4165,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 			                                          dlog.has_host ? dlog.host : NULL,
 			                                          here_machine(), line_rules.rules);
 			line_rules.now_ms = wall_ms();
+			held_back_start();
 		}
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 		/* THIS HOST'S SEGMENTS TAKEN, and the rules a fetch asks, sec 571. */
@@ -4176,7 +4228,9 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 		 * the journal's window is handed the lines it missed. After the
 		 * classes, so a member's chain is here before its lines. */
 		if (messages_on && messages_upgrade()) {
-			fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules, NULL, NULL, NULL };
+			fzn_reconcile_filer_t lines = { line_file,         line_wanted, &line_rules,
+			                                NULL,              NULL,        NULL,
+			                                line_passed_over };
 			fzn_reconcile_bucket_tally_t bt;
 
 			err = fzn_reconcile_buckets(&node_messages.buckets, FZN_BUCKETS_MESSAGES, &lines,
@@ -4292,6 +4346,10 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 	    "passed over, %zu pushed; segments %zu taken, %zu refused, %zu pushed",
 	    npulls, foreign, lacked, applied, waiting, refused, lines_lacked, lines_filed,
 	    lines_passed, lines_pushed, segments_taken, segments_refused, segments_pushed);
+	if (n_held_back || held_back_dropped)
+		say(FZN_ENTRY_DEBUG, "reconcile",
+		    "%zu month(s) of older history held back by the retention rules%s", n_held_back,
+		    held_back_dropped ? ", some not noted for want of memory" : "");
 }
 
 /* STREAMS THIS NODE IS BEHIND A PEER'S BASE ON, sec 552: the peer cut what

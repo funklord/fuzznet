@@ -11177,6 +11177,13 @@ SABOTAGES = [
 		"a node past 4096 buckets -- a hundred contacts over three and a half years -- stops catching up, and its give-up and settlement fail -- sec 791",
 	),
 	(
+		"reconcile-declined-bucket-told",
+		'node/reconcile.c',
+		'\t\t\t\tif (filer->passed_over)\n',
+		'\t\t\t\tif (0 && filer->passed_over)\n',
+		"a month the retention rules kept off this device is never reported, so no client can offer to fetch it -- sec 792",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

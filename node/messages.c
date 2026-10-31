@@ -1331,6 +1331,35 @@ static size_t get_owed(fzn_node_messages_t *nm, char *reply, size_t cap)
 	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k);
 }
 
+/* `get message [WHO] held-back`, sec 792: `ok MONTHS LINES NEWEST` from
+ * the caller's table of months the rules declined at the last pass --
+ * every conversation's, or `contact`'s alone. */
+static size_t get_held_back(fzn_node_messages_t *nm, const uint8_t *contact, char *reply,
+                            size_t cap)
+{
+	size_t i, months = 0;
+	uint64_t lines = 0;
+	uint32_t newest = 0;
+	char detail[64];
+	int k;
+
+	for (i = 0; nm->held_back && i < nm->n_held_back; i++) {
+		const fzn_node_message_held_back_t *h = &nm->held_back[i];
+
+		if (contact && memcmp(h->contact, contact, FZN_PUBKEY_LEN) != 0)
+			continue;
+		months++;
+		lines += h->lines;
+		if (h->month > newest)
+			newest = h->month;
+	}
+	k = snprintf(detail, sizeof(detail), "%zu %llu %lu", months, (unsigned long long)lines,
+	             (unsigned long)newest);
+	if (k < 0 || (size_t)k >= sizeof(detail))
+		return 0;
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k);
+}
+
 /* `get message WHO unread`: `ok COUNT MORE`, MORE 1 when the count is a
  * floor. sec 528. */
 static size_t get(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,
@@ -1345,9 +1374,17 @@ static size_t get(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 
 	if (left == 4u && memcmp(at, "owed", 4u) == 0)
 		return get_owed(nm, reply, cap);
+	if (left == 9u && memcmp(at, "held-back", 9u) == 0)
+		return get_held_back(nm, NULL, reply, cap);
 	if (!word(&at, &left, &w, &w_len) || !who(nm, w, w_len, contact)
-	    || !word(&at, &left, &w, &w_len) || !is_word(w, w_len, "unread") || left)
-		return say(reply, cap, FZN_REPLY_MALFORMED, "get message WHO unread, or owed");
+	    || !word(&at, &left, &w, &w_len) || left)
+		return say(reply, cap, FZN_REPLY_MALFORMED,
+		           "get message WHO unread|held-back, owed, or held-back");
+	if (is_word(w, w_len, "held-back"))
+		return get_held_back(nm, contact, reply, cap);
+	if (!is_word(w, w_len, "unread"))
+		return say(reply, cap, FZN_REPLY_MALFORMED,
+		           "get message WHO unread|held-back, owed, or held-back");
 	err = fzn_messages_unread(&nm->m, contact, &count, &more);
 	if (err != FZN_MESSAGES_OK)
 		return refuse(reply, cap, err);
