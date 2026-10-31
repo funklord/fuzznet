@@ -264,6 +264,14 @@ fzn_messages_err_t fzn_messages_owed(const fzn_messages_t *m,
                                      const uint8_t contact[FZN_PUBKEY_LEN], uint64_t *at,
                                      fzn_message_t *out, size_t cap, size_t *count, int *more);
 
+/* THE PLACE OF THE NEWEST LINE `device` wrote to `contact` in `direction`
+ * that carries a mark, searched back from the newest, however deep (sec
+ * 789): nonzero, and `*place` its place in the index, when there is one. A
+ * place, as `fzn_messages_owed` takes one. */
+int fzn_messages_last_marked(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                             const uint8_t device[FZN_PUBKEY_LEN], uint8_t direction,
+                             uint64_t *place);
+
 /* `device`'s key for `contact` and `epoch`, held here: nonzero when it is. */
 int fzn_messages_key_get(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                          uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN],

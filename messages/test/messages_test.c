@@ -1811,6 +1811,24 @@ static void test_owed_past_the_deepest_page(void)
 		total += count;
 	} while (more);
 	CHECK(total == n && first, "the walk for what is owed reaches every one, the first first");
+	/* THE NEWEST MARKED LINE, sec 789: where group sealing starts. */
+	at = 7u;
+	CHECK(!fzn_messages_last_marked(&A.m, X, A.pub, FZN_MESSAGE_OUT, &at) && at == 7u,
+	      "no line marked, none found, and the place left alone");
+	memset(id, 0, sizeof(id));
+	fzn_put_be32(id, 1u);
+	CHECK(fzn_messages_mark(&A.m, X, FZN_MESSAGE_OUT, id, FZN_MESSAGE_DELIVERED)
+	                      == FZN_MESSAGES_OK
+	              && fzn_messages_last_marked(&A.m, X, A.pub, FZN_MESSAGE_OUT, &at) && at == 0u,
+	      "the first line marked is found at the bottom, past the deepest page");
+	CHECK(!fzn_messages_last_marked(&A.m, X, A.pub, FZN_MESSAGE_IN, &at)
+	              && !fzn_messages_last_marked(&A.m, X, B.pub, FZN_MESSAGE_OUT, &at),
+	      "nor for another direction or another writer");
+	fzn_put_be32(id, 3u);
+	CHECK(fzn_messages_mark(&A.m, X, FZN_MESSAGE_OUT, id, FZN_MESSAGE_DELIVERED)
+	                      == FZN_MESSAGES_OK
+	              && fzn_messages_last_marked(&A.m, X, A.pub, FZN_MESSAGE_OUT, &at) && at == 2u,
+	      "and the newest of two marked is the one found");
 	deep_clear();
 }
 

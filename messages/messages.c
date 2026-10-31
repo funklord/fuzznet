@@ -2127,6 +2127,27 @@ fzn_messages_err_t fzn_messages_owed(const fzn_messages_t *m,
 	return FZN_MESSAGES_OK;
 }
 
+int fzn_messages_last_marked(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                             const uint8_t device[FZN_PUBKEY_LEN], uint8_t direction,
+                             uint64_t *place)
+{
+	entry_t e;
+	uint64_t i;
+
+	if (!ready(m) || !contact || !device || !place)
+		return 0;
+	/* FROM THE INDEX, which names each line's writer and direction: a
+	 * state is read only for a line of theirs. */
+	for (i = count_of(m, contact); i > 0u; i--)
+		if (index_entry(m, contact, i - 1u, &e) && e.direction == direction
+		    && memcmp(e.device, device, FZN_PUBKEY_LEN) == 0
+		    && fzn_messages_state(m, contact, direction, e.id) != 0u) {
+			*place = i - 1u;
+			return 1;
+		}
+	return 0;
+}
+
 /*
  * EVERYTHING DERIVED, FROM NOTHING. A first pass removes what the journal's
  * records name -- each conversation's index, each line's state, each read

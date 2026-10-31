@@ -66791,8 +66791,9 @@ nothing said so.
 **Built:** `group_seal_own` walks the conversation's pages back until one
 holds a line of this host's already sealed -- past it none is unsent, a
 pass sealing all it finds, oldest first -- and then seals the pages that
-hold one, deepest first, each oldest first. Bounded by
-`FZN_MESSAGES_WALK_MAX`, as any page is.
+hold one, deepest first, each oldest first. ~~Bounded by
+`FZN_MESSAGES_WALK_MAX`, as any page is.~~ Not bounded since sec 789,
+which starts at this host's newest sealed line and walks forward.
 
 **Tested by `tool/live_groups.py`, phase d2**: A writes 22 lines between
 two rounds and B must file all 22, read a page at a time. **Control**:
@@ -75714,7 +75715,49 @@ the old cost without the old cut-off, and it ends when sec 615 does.
 - Sabotage: three entries for the floor. The four delivery entries that
   named the old page loop are rewritten to the new one.
 
-**Not done:** `group_seal_own` (sec 629) still walks a group's pages
+~~**Not done:** `group_seal_own` (sec 629) still walks a group's pages
 down to an already-sealed line, bounded the same way. A host whose own unsealed line lies more than
 4096 lines deep in a group seals only those among the newest 4096. Groups are
-outside sec 689's subset, so it is left until they enter it.
+outside sec 689's subset, so it is left until they enter it.~~ Done in
+sec 789, on the holder's word.
+
+## 789. A group's unsent lines sealed, however deep, 2026-10-31
+
+Sec 788 left it open and the holder asked for it done. **Before:**
+`group_seal_own` (`node/daemon.c`, secs 629 and 657) walked a group's
+conversation back a page at a time until a page held a line of this
+host's already sealed, noting the pages holding unsent lines of its
+own, then sealed those deepest first. Pages stop at
+`FZN_MESSAGES_WALK_MAX`, so an unsent line further back than 4096 lines
+was never sealed.
+
+**Why not the owed floor alone:** a sealed group line is marked
+DELIVERED and never settled (sec 629), so a group conversation's floor
+stops at this host's first sealed line and never rises past it. A
+walk from the floor would read the whole group every round.
+
+**Now** the walk starts where the old one stopped, found without a cap:
+- `fzn_messages_last_marked` (`messages/messages.c`) searches the index
+  back from the newest for the newest line a device wrote in a direction
+  that carries a mark. It reads a state only for that device's lines.
+- Sealing walks forward from that place with `fzn_messages_owed`,
+  sealing each unsent line of this host's, oldest first, as before. A
+  seal that fails ends the pass, as before.
+
+The cost each round is unchanged: the search back stops at this host's
+newest sealed line, which is near the top in a group that is sealing.
+
+**Measured:**
+- `messages_test`, 214 checks: in the 4104-line conversation, nothing
+  marked finds nothing and leaves the place alone; the bottom line
+  marked is found at place 0, past the deepest page; another direction
+  or writer finds nothing; of two marked, the newer is found.
+- `tool/live_groups.py` passes against the rebuilt daemon, phase d2's 22
+  lines among them. **Control**, made by hand: with the forward walk
+  switched off, phase d fails with no line filed at B or C.
+- No sabotage entry: sabotage runs `make test`, which does not reach
+  the daemon's sealing, and the live control stands in for one.
+
+A group 4096 lines deep was not run live: it would take thousands of
+lines through three daemons. The depth rests on the two store calls,
+which are tested at that depth.
