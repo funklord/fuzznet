@@ -396,13 +396,23 @@ typedef enum fzn_persist_slot {
 	 * CORE: a record lost is a revoked device paired again.
 	 * `node/contact_devices.h` keeps it. sec 781. */
 	FZN_PERSIST_CONTACT_ESTATE = 65u,
+	/* Per (file, kind, id): what holds a file -- an attachment by the line
+	 * that sent it, or LEGACY for one held before the record began -- and
+	 * per file the count, so a rule lets a file go only when nothing else
+	 * holds it. Not core: a hold lost errs toward keeping.
+	 * `node/file_holds.h` keeps it. sec 795. */
+	FZN_PERSIST_FILE_HOLD = 66u,
+	/* Per conversation: the files its lines sent, by month, as an index a
+	 * trim of attachments walks. Bulk. `node/attachments.h` keeps it. sec
+	 * 795. */
+	FZN_PERSIST_ATTACHMENT = 67u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 66u
+#define FZN_PERSIST_SLOT_END 68u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

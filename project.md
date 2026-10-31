@@ -76164,7 +76164,8 @@ slot is core (sec 634), and a contact's lines must not grow it.
 
 ### Next: the attachment rules applied (sec 793)
 
-Not built. A trim of attachments would remove the files of a
+~~Not built.~~ Built in sec 795, with the holder's choice of a record of
+holds. A trim of attachments would remove the files of a
 conversation's months past the rules, as a message trim destroys a
 month's key. Two things must be settled in the building:
 - **A file can be held for more than one reason**: in the catalogue, as a
@@ -76179,3 +76180,104 @@ month's key. Two things must be settled in the building:
 **fuzzypickles is told** through its inbox: its `send_file` can call `add
 message ... attach` rather than format its own token, and its reader can
 call `fzn_attachment_parse`, which reads both schemes.
+
+## 795. What holds a file, and the attachment rules applied, 2026-10-31
+
+**The holder's decision, 2026-10-31**, asked from here: a trim removes a
+file only when nothing else holds it, by **a record of what holds each
+file**. Rejected:
+- removing only files that came in, after asking the catalogue and the
+  stickers at trim time, with no record;
+- an attachment trim that only releases and never deletes.
+
+### The record of holds (`node/file_holds.{h,c}`)
+
+- **A hold is a kind and an id on a file's root**: ATTACHMENT, by the line
+  that sent it, or LEGACY. Each file has a count. Persist slot 66,
+  FZN_PERSIST_FILE_HOLD, bulk: a hold lost errs toward keeping, as below,
+  and keeps no attacker out.
+- **Every write errs toward keeping.** A claim counts before it writes its
+  hold, and a release removes its hold before it counts down, so a crash
+  between leaves the count one high and the file kept. A claim twice is
+  one hold; releasing one not held writes nothing.
+- **A file the record does not know is never removed** by anything that
+  asks it.
+- **LEGACY: the record begins once per node** (`fzn_file_holds_begin`),
+  claiming LEGACY on every file held then, so nothing older than the
+  record is ever let go by a rule. fuzznetd does it when its files come
+  up, listing them into a room grown to fit; a begin that fails is tried
+  at the next start.
+- **The catalogue and saved sticker packs are asked, not mirrored**, at the
+  moment a file would go. They are their own authorities, and two lists
+  kept in step by hand drift, as the tab bar's record says. A put or a
+  fetch is no hold of its own: a file put to be sent is held by the line
+  that sent it, and one the user means to keep is kept in the catalogue.
+  Note blobs live on the shelf, apart from these files.
+
+### The attachment rules applied (`node/attachments.{h,c}`)
+
+- **Taken as lines are**: the store's `on_text` hook now passes the line's
+  id and month. fuzznetd's `attachment_seen` notes each line whose text is
+  an attachment's reference, in or out, once, in its conversation's index
+  (persist slot 67, FZN_PERSIST_ATTACHMENT, bulk): its month, the size its
+  reference claims, and its root. It holds the file by an id drawn from
+  the conversation, the direction and the line's id.
+- **Trimmed by the month, as messages are** (sec 531), newest first. A
+  month goes when every attachment of it would, and the current month
+  never does. Each, one contact's, all together and a default are weighed
+  as sec 793 weighs messages, and so are a policy and keep rules.
+  Every contact's together is summed by walking the index once a trim:
+  attachments are few beside lines, so no sums are kept as rows.
+- **A month gone lets each attachment go.** If this was its file's last
+  hold, and neither the catalogue nor a saved pack names the file, the
+  file is removed first and the hold released after. A file held
+  otherwise has its hold released and is kept. A removal that cannot run
+  now, the file being in a transfer, leaves the entry for the next trim.
+- **fuzznetd runs it in its message trim**, from the rules gathered, with
+  the attachment rules selected before the messages' selection writes
+  over them. Its debug line: `attachment trim pass: N rule(s), M month(s)
+  gone, H hold(s) released, F file(s) removed, W waiting`.
+
+**Found by the live test, and fixed:** the first trim after a start runs
+before any round has indexed the catalogue, so the catalogue looked empty
+and a file it names was removed (`live_trim` phase s, both files gone).
+The trim now reads the catalogue up to the journal (`index_catalog`)
+before letting anything go.
+
+**Not done:** lines with attachments kept before this build are not
+indexed, so no rule reaches them and their files stay. A walk of every
+conversation's lines to index them was not built.
+
+### Measured for sec 795
+
+- **`node/test/attachments_test`, new, 34 checks:**
+  - a hold claimed twice is one, a second line's is a second, released
+    once and again changes nothing, releasing one never held writes
+    nothing, and the record begins once;
+  - a line told twice is noted once;
+  - over three months of ten bytes, `size 15` removes August's file and
+    nothing more, and a second trim finds nothing;
+  - age, and a limit of nothing, never take the current month;
+  - under drop, a keep of 20 days holds September;
+  - a message rule is not an attachment rule;
+  - a file the catalogue or a saved pack names, one another line still
+    holds, and one held from before the record are each released and not
+    removed;
+  - a removal that cannot run keeps its hold, and the next trim removes
+    it;
+  - all together over x and y removes both conversations' September and
+    August;
+  - a default gives way to x's own rule.
+- **`tool/live_trim.py` phase s**, over a third store: two files attached
+  sixty days back under faketime, the second added to the catalogue.
+  Under `prune attachments age 1d` the daemon's own count is one month,
+  two holds released and one file removed. The first file is gone and
+  the catalogue's is intact. The script's deadline is 300 s, its Makefile
+  bound 420.
+- **Controls**, made by hand and caught: no last-hold check (two
+  failures), no other-holder check, no current-month guard (caught once
+  `size 0` was tested), a removal that cannot run releasing anyway, a
+  claim counted twice, and a release of a hold never held. Live: without
+  the catalogue indexed, phase s failed with both files removed.
+- **Sabotage**: six entries, for the two hold guards and the four
+  attachment guards.

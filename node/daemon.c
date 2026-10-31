@@ -99,6 +99,8 @@
 #ifdef FZN_SPOOL_FILE_ON
 #include "files.h"
 #include "shelf.h"
+#include "attachments.h"
+#include "file_holds.h"
 #include "stickers.h"
 #include "clocks.h"
 #include "log_list.h"
@@ -1408,6 +1410,8 @@ static fzn_node_shelf_t shelf;
 /* THE NODE'S FILES, sec 490, beside the texts. */
 static fzn_node_files_t files;
 static int files_on;
+/* THE FILES CONVERSATIONS SENT, and what holds each, sec 795. */
+static fzn_attachments_t node_attachments;
 static int shelf_on;
 
 /* The node's notes seal a long text onto the shelf and open it back. */
@@ -4939,6 +4943,10 @@ static size_t group_lines_trim_gone(void)
  * line was listed nowhere for good. */
 static int messages_trim_unfinished;
 
+#if defined(FZN_SPOOL_FILE_ON)
+static void attachments_trim(const fzn_retain_rule_t *gathered, size_t n_gathered);
+#endif
+
 static void messages_trim(uint64_t now)
 {
 	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
@@ -4951,6 +4959,11 @@ static void messages_trim(uint64_t now)
 		return;
 	next_trim = now + FZND_TRIM_EVERY;
 	gathered = gather_rules(rules);
+#if defined(FZN_SPOOL_FILE_ON)
+	/* ATTACHMENTS FIRST, from the rules gathered, before the messages'
+	 * selection writes over them. sec 795. */
+	attachments_trim(rules, gathered);
+#endif
 	n = fzn_retain_select_messages(rules, gathered, dlog.has_host ? dlog.host : NULL,
 	                               here_machine(), rules);
 	memset(&tally, 0, sizeof(tally));
@@ -8594,14 +8607,22 @@ static void sticker_seen(void *ctx, const uint8_t *contact, uint8_t direction,
  * side may fetch it, as a sticker's pack is. Come IN, it is not fetched:
  * a file can be a gigabyte, and the client asks first, by the size the
  * reference claims, then fetches by the whole reference. */
-static void attachment_seen(const uint8_t *contact, uint8_t direction, const uint8_t *text,
-                            size_t len)
+static void attachment_seen(const uint8_t *contact, uint8_t direction, const uint8_t *id,
+                            uint32_t epoch, const uint8_t *text, size_t len)
 {
 	fzn_attachment_t a;
 	uint64_t held = 0;
+	int added = 0;
 
+	if (!fzn_attachment_parse((const char *)text, len, &a))
+		return;
+	/* NOTED IN ITS CONVERSATION, in or out, and its file held by the line,
+	 * so the attachment rules can let it go: sec 795. */
+	if (node_attachments.store
+	    && !fzn_attachments_take(&node_attachments, contact, direction, id, epoch, &a, &added))
+		say(FZN_ENTRY_WARNING, "messages", "an attachment of %02x%02x%02x%02x was not noted",
+		    contact[0], contact[1], contact[2], contact[3]);
 	if (!files_on || direction != FZN_MESSAGE_OUT
-	    || !fzn_attachment_parse((const char *)text, len, &a)
 	    || fzn_node_files_held(&files, a.root, &held) != FZN_NODE_FILES_OK
 	    || fzn_node_files_share(&files, a.root, contact, 1, wall_ms()) != FZN_NODE_FILES_OK)
 		return;
@@ -8612,11 +8633,111 @@ static void attachment_seen(const uint8_t *contact, uint8_t direction, const uin
 
 /* EVERY LINE'S TEXT, as the store keeps it: a sticker's reference or a
  * file's. */
-static void text_seen(void *ctx, const uint8_t *contact, uint8_t direction, const uint8_t *text,
-                      size_t len)
+static void text_seen(void *ctx, const uint8_t *contact, uint8_t direction, const uint8_t *id,
+                      uint32_t epoch, const uint8_t *text, size_t len)
 {
 	sticker_seen(ctx, contact, direction, text, len);
-	attachment_seen(contact, direction, text, len);
+	attachment_seen(contact, direction, id, epoch, text, len);
+}
+
+/* EVERY FILE HELD WHEN THE RECORD BEGINS, held as LEGACY, once, sec 795:
+ * nothing older than the record is ever let go by a rule. Listed into a
+ * room grown to fit; a list that cannot grow leaves the record unbegun,
+ * and it is tried again at the next start. */
+static void file_holds_begin(void)
+{
+	static const uint8_t LEGACY_ID[FZN_FILE_HOLD_ID_LEN];
+	fzn_file_holds_t h;
+	uint8_t(*roots)[FZN_BLOB_HASH_LEN] = NULL;
+	size_t room = 64u, count = 0, i;
+	int added = 0, ok = 1;
+
+	h.store = node_attachments.store;
+	h.hash = node_attachments.hash;
+	if (!files_on || !h.store || fzn_file_holds_begun(&h))
+		return;
+	for (;;) {
+		uint8_t(*more)[FZN_BLOB_HASH_LEN] = realloc(roots, room * sizeof(*roots));
+
+		if (!more) {
+			ok = 0;
+			break;
+		}
+		roots = more;
+		if (fzn_node_files_list(&files, roots, room, &count) != FZN_NODE_FILES_OK) {
+			ok = 0;
+			break;
+		}
+		if (count <= room || room > SIZE_MAX / 2u / sizeof(*roots))
+			break;
+		room = count;
+	}
+	for (i = 0; ok && i < count && i < room; i++)
+		ok = fzn_file_hold_claim(&h, roots[i], FZN_FILE_HOLD_LEGACY, LEGACY_ID, &added);
+	free(roots);
+	if (ok && count <= room && fzn_file_holds_begin(&h))
+		say(FZN_ENTRY_INFO, "files", "%zu file(s) held before the record of holds began", count);
+	else
+		say(FZN_ENTRY_WARNING, "files", "the record of holds did not begin; tried again next start");
+}
+
+static fzn_node_catalog_t node_catalog;
+
+/* WHETHER ANOTHER HOLDER NAMES `root`, asked at the moment an attachment
+ * rule would let the file go: the catalogue, or a saved sticker pack. */
+static int attachment_held_elsewhere(void *ctx, const uint8_t root[32])
+{
+	fzn_catalog_assertion_t one;
+
+	(void)ctx;
+	if (fzn_node_catalog_assertions(&node_catalog, root, &one, 1u) > 0u)
+		return 1;
+#if defined(FZN_RECORD_STORE_FILE_ON)
+	{
+		fzn_node_file_ref_t ref;
+
+		if (fzn_node_stickers_saved(&node_stickers, root, &ref))
+			return 1;
+	}
+#endif
+	return 0;
+}
+
+static int attachment_remove(void *ctx, const uint8_t root[32])
+{
+	fzn_node_files_err_t err;
+
+	(void)ctx;
+	if (!files_on)
+		return 0;
+	err = fzn_node_files_remove(&files, root);
+	return err == FZN_NODE_FILES_OK || err == FZN_NODE_FILES_ERR_ABSENT;
+}
+
+/* THE ATTACHMENT RULES APPLIED, sec 795, from the rules gathered. */
+static void attachments_trim(const fzn_retain_rule_t *gathered, size_t n_gathered)
+{
+	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
+	fzn_attachments_tally_t tally;
+	size_t n;
+
+	if (!node_attachments.store)
+		return;
+	n = fzn_retain_select_attachments(gathered, n_gathered, dlog.has_host ? dlog.host : NULL,
+	                                  here_machine(), rules);
+	if (!n)
+		return;
+	/* THE CATALOGUE AS IT STANDS, read up to the journal before anything is
+	 * let go: the first trim after a start runs before any round has
+	 * indexed it, and a file it names was removed (live_trim phase s). */
+	index_catalog();
+	if (!fzn_attachments_trim(&node_attachments, rules, n, wall_ms(), attachment_held_elsewhere,
+	                          attachment_remove, NULL, &tally))
+		say(FZN_ENTRY_WARNING, "messages", "trimming attachments by the rules failed part way");
+	say(FZN_ENTRY_DEBUG, "messages",
+	    "attachment trim pass: %zu rule(s), %zu month(s) gone, %zu hold(s) released, %zu "
+	    "file(s) removed, %zu waiting",
+	    n, tally.months, tally.released, tally.removed, tally.waiting);
 }
 
 /* A FILE HELD HERE, by its root, for `add message ... attach`, sec 794:
@@ -16233,6 +16354,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #if defined(FZN_SPOOL_FILE_ON)
 					node_messages.m.on_text = text_seen;
 					node_messages.file_of = file_of_here;
+					node_attachments.store = store_ops;
+					node_attachments.hash = &hash_ops;
 #endif
 					admin.messages_local = fzn_node_messages_local;
 					admin.messages_remote = fzn_node_messages_remote;
@@ -16440,6 +16563,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					admin.files_ctx = &files;
 					files.store = store_ops;
 					files_on = 1;
+					file_holds_begin();
 #if defined(FZN_SPOOL_FILE_ON) && defined(FZN_RECORD_STORE_FILE_ON)
 					node_stickers.files = &files;
 					node_stickers.settings = &node_settings;

@@ -160,6 +160,10 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a contact's root's revocation of one of its devices";
 	case FZN_PERSIST_CONTACT_ESTATE:
 		return "a record of a contact's estate: its roots, k, admins and votes";
+	case FZN_PERSIST_FILE_HOLD:
+		return "what holds a file, so a rule lets it go only when nothing does";
+	case FZN_PERSIST_ATTACHMENT:
+		return "the files a conversation sent, by month";
 	}
 	*known = 0;
 	return "an unknown slot";

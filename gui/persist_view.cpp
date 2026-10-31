@@ -144,6 +144,10 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("contact revocation");
 	case FZN_PERSIST_CONTACT_ESTATE:
 		return QStringLiteral("contact estate");
+	case FZN_PERSIST_FILE_HOLD:
+		return QStringLiteral("file hold");
+	case FZN_PERSIST_ATTACHMENT:
+		return QStringLiteral("attachment");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here -- once, in the build after persist.h changes, and not

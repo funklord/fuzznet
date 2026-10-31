@@ -145,12 +145,13 @@ typedef struct fzn_messages {
 	 * for its window. */
 	const fzn_messages_items_t *items;
 	/* EACH LINE'S TEXT AS IT IS KEPT OPEN, sec 682: the conversation, the
-	 * direction and the plaintext, every way a line arrives -- delivered,
-	 * absorbed from a device of this user's, or opened once its month's
-	 * key came. A line kept again is told again, so what it does must be
-	 * idempotent. NULL for none. */
+	 * direction, the line's id and month (sec 795) and the plaintext, every
+	 * way a line arrives -- delivered, absorbed from a device of this
+	 * user's, or opened once its month's key came. A line kept again is
+	 * told again, so what it does must be idempotent. NULL for none. */
 	void (*on_text)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint8_t direction,
-	                const uint8_t *text, size_t len);
+	                const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, const uint8_t *text,
+	                size_t len);
 	void *on_text_ctx;
 } fzn_messages_t;
 

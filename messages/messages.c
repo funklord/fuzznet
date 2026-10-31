@@ -399,7 +399,8 @@ static int stored_keep(const fzn_messages_t *m, stored_t *s)
 	}
 	ok = stored_save(m, s);
 	if (ok && m->on_text && s->opened && s->text && s->text_len)
-		m->on_text(m->on_text_ctx, s->contact, s->direction, s->text, s->text_len);
+		m->on_text(m->on_text_ctx, s->contact, s->direction, s->id, s->epoch, s->text,
+		           s->text_len);
 	memset(text, 0, sizeof(text));
 	/* NOT LEFT POINTING HERE: `text` is this frame's, wiped above, and `s`
 	 * is the caller's (cppcheck). No caller reads it after, today. */

@@ -24,6 +24,10 @@ default policy of sec 566:
     q  `policy messages drop` and `policy messages keep`
                                               -> keep wins, y's reads
     r  `policy messages drop` alone           -> y's month trimmed too
+and over a third, two files attached sixty days back, sec 795:
+    s  `prune attachments age 1d`             -> the file nothing else holds
+                                                 is removed; the one the
+                                                 catalogue names stays
 
 b, c and e are the controls, and a control means nothing unless the trim
 ran: every phase waits for the daemon's own debug line saying a trim pass
@@ -49,12 +53,14 @@ import sys
 import tempfile
 import time
 
-DEADLINE = time.monotonic() + 240.0
+DEADLINE = time.monotonic() + 300.0
 CONTACT = "5a" * 32
 OTHER_CONTACT = "6b" * 32
 OTHER_HOST = "77" * 32
 LINE_ID = "01" + "00" * 15
 CAPABILITY = ["--fuzznet-service=1", "--fuzznet-product=1"]
+ATTACHMENT_RE = re.compile(r"attachment trim pass: (\d+) rule\(s\), (\d+) month\(s\) gone, "
+                           r"(\d+) hold\(s\) released, (\d+) file\(s\) removed, (\d+) waiting")
 PASS_RE = re.compile(r"trim pass: (\d+) of (\d+) rule\(s\) over conversations here, "
                      r"(\d+) month\(s\) trimmed")
 
@@ -244,6 +250,67 @@ def write_old(run, tag):
 	print("livecheck: %s: a line in each of two conversations written under %s" % (tag, fake))
 
 
+def write_attachments(run, tag):
+	"""Two files attached to x sixty-odd days back, the second named in the
+	catalogue; their roots."""
+	then = datetime.datetime.now() - datetime.timedelta(days=62)
+	fake = "@" + then.strftime("%Y-%m-%d") + " 12:00:00"
+	roots = []
+	d = daemon(run, tag, fake=fake)
+	try:
+		for n in (1, 2):
+			path = os.path.join(run.scratch, "file%d" % n)
+			with open(path, "wb") as f:
+				f.write(os.urandom(3000 + n))
+			put = ask(run.sock, "put file " + path).split()
+			if len(put) < 2 or put[0] != "ok":
+				raise failed("%s: put file answered %r" % (tag, put))
+			roots.append(put[1][:64])
+			reply = ask(run.sock, "add message %s out %s attach %s file%d.bin"
+			            % (CONTACT, "%02x" % (0x10 + n) + "00" * 15, roots[-1], n))
+			if reply != "ok":
+				raise failed("%s: add message ... attach answered %r" % (tag, reply))
+		reply = ask(run.sock, "add catalog %s name kept" % roots[1])
+		if reply != "ok":
+			raise failed("%s: add catalog answered %r" % (tag, reply))
+	finally:
+		d.stop()
+	print("livecheck: %s: two files attached under %s, the second in the catalogue"
+	      % (tag, fake))
+	return roots
+
+
+def attachments_trimmed(run, tag, roots):
+	"""Under `prune attachments age 1d`: the first file removed, the second
+	kept, by the daemon's own count and by asking for each."""
+	d = daemon(run, tag, extra=["--log-rule=prune attachments age 1d"])
+	try:
+		until = time.monotonic() + 30.0
+		got = None
+		while got is None:
+			for name in sorted(os.listdir(d.log_dir)):
+				with open(os.path.join(d.log_dir, name), "rb") as f:
+					got = ATTACHMENT_RE.search(f.read(1 << 20).decode(errors="replace"))
+				if got:
+					break
+			if got is None and (left() < 0.1 or time.monotonic() > until):
+				raise failed("%s: no attachment trim pass was logged within 30 s" % tag)
+			if got is None:
+				time.sleep(0.2)
+		counts = tuple(int(g) for g in got.groups())
+		if counts != (1, 1, 2, 1, 0):
+			raise failed("%s: the attachment trim said %r; expected one rule, one month, two "
+			             "holds released, one file removed" % (tag, counts))
+		if ask(run.sock, "get file %s check" % roots[0]).strip() == "ok intact":
+			raise failed("%s: the file nothing else held is still here" % tag)
+		if ask(run.sock, "get file %s check" % roots[1]).strip() != "ok intact":
+			raise failed("%s: the file the catalogue names was removed" % tag)
+	finally:
+		d.stop()
+	print("livecheck: %s: the month's attachments let go: the file nothing else held "
+	      "removed, the catalogue's kept" % tag)
+
+
 def main(argv):
 	if len(argv) != 2:
 		print("usage: live_trim.py PATH_TO_FUZZNETD", file=sys.stderr)
@@ -283,6 +350,10 @@ def main(argv):
 			phase(run, "q", (2, 2, 0), (0, 1),
 			      ["--log-rule=policy messages drop", "--log-rule=policy messages keep"])
 			phase(run, "r", (1, 1, 1), (0, 0), ["--log-rule=policy messages drop"])
+			run.node = os.path.join(scratch, "node3")
+			os.mkdir(run.node)
+			roots = write_attachments(run, "s0")
+			attachments_trimmed(run, "s", roots)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

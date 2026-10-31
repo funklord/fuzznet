@@ -885,7 +885,9 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		                                   FZN_PERSIST_GROUP_LINE_HEAD,
 		                                   FZN_PERSIST_GROUP_LINE_SENDER,
 		                                   FZN_PERSIST_STREAM_RECORD,
-		                                   FZN_PERSIST_STREAM_HEAD };
+		                                   FZN_PERSIST_STREAM_HEAD,
+		                                   FZN_PERSIST_FILE_HOLD,
+		                                   FZN_PERSIST_ATTACHMENT };
 	struct counting core, bulk;
 	fzn_persist_ops_t core_ops = { count_load, count_save, count_list, NULL, &core, NULL };
 	fzn_persist_ops_t bulk_ops = { count_load, count_save, NULL, NULL, &bulk, NULL };
@@ -932,8 +934,11 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		              && !fzn_persist_slot_whole_host(FZN_PERSIST_CONTACT),
 		      "%u whole-host slots, not the five", whole);
 	}
-	/* A SLOT NOBODY DECIDED ABOUT IS CORE: the guarded place. */
-	CHECK(fzn_persist_slot_is_core((fzn_persist_slot_t)(COUNTED_SLOTS - 2u)),
+	/* A SLOT NOBODY DECIDED ABOUT IS CORE: the guarded place. One past the
+	 * end, which no list can name: two below the end was asked before, and
+	 * once the end moved past slots 66 and 67, bulk, that was one of them
+	 * (sec 795). */
+	CHECK(fzn_persist_slot_is_core((fzn_persist_slot_t)(COUNTED_SLOTS + 1u)),
 	      "a slot the rule does not name was sent somewhere less guarded");
 	/* AN OPTIONAL OPERATION THE ROUTED-TO BACKEND LACKS ANSWERS 0, as that
 	 * backend would alone -- it does not fall through to the other one. */
