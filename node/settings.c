@@ -638,6 +638,28 @@ uint8_t fzn_node_settings_quorum(const fzn_node_settings_t *ns, uint8_t fallback
 	return k ? (uint8_t)k : fallback;
 }
 
+int fzn_node_settings_k_setting(const fzn_node_settings_t *ns, uint8_t *out, size_t cap,
+                                size_t *len)
+{
+	static uint8_t buf[ROW_MAX];
+	uint8_t cell[FZN_SUBJECT_LEN];
+	fzn_setting_t s;
+	size_t obj_len = 0, head = 0;
+
+	if (len)
+		*len = 0;
+	if (!ready(ns) || !ns->estate || !out || !len
+	    || !fzn_setting_cell_of(FZN_SCOPE_ESTATE, ns->estate,
+	                            (const uint8_t *)FZN_NODE_SETTINGS_K_KEY,
+	                            sizeof(FZN_NODE_SETTINGS_K_KEY) - 1u, ns->hash, cell)
+	    || !standing(ns, cell, FZN_SETTING_RANK_ROOT, buf, &s, &obj_len, &head)
+	    || obj_len > cap)
+		return 0;
+	memcpy(out, buf + head, obj_len);
+	*len = obj_len;
+	return 1;
+}
+
 unsigned fzn_node_settings_window_days(const fzn_node_settings_t *ns)
 {
 	uint8_t value[FZN_SETTING_VALUE_MAX];

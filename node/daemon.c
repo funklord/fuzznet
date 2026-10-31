@@ -7198,6 +7198,18 @@ static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint
 	if (!n)
 		n = fzn_contact_estate_answer(request, request_len, estate_item_at, estate_k(), NULL,
 		                              reply, reply_cap);
+	if (!n) {
+		/* THE ROOT'S SETTING OF k AS IT STANDS HERE, sec 799: none for a
+		 * node that keeps no settings or holds no root's setting. */
+		static uint8_t setting[FZN_SETTING_MAX];
+		size_t setting_len = 0;
+
+		if (!fzn_node_settings_k_setting(&node_settings, setting, sizeof(setting),
+		                                 &setting_len))
+			setting_len = 0;
+		n = fzn_contact_estate_k_answer(request, request_len, setting, setting_len, reply,
+		                                reply_cap);
+	}
 	if (!n)
 		n = fzn_contact_acts_answer(request, request_len, act_log_at, NULL, reply, reply_cap);
 	return n ? n
@@ -9521,7 +9533,8 @@ enum {
 	CONTACT_ROUTING = 3,
 	CONTACT_REVOKED = 4,
 	CONTACT_ESTATE = 5,
-	CONTACT_ACTS = 6
+	CONTACT_ACTS = 6,
+	CONTACT_K = 7
 };
 
 /* ONE ENTRY OF A KEY'S ACT LOG, sec 783, as the contact's host handed it:
@@ -9671,8 +9684,13 @@ static int contact_next(struct contact_talk *ct, uint8_t *request, size_t cap, s
 		ct->phase = CONTACT_ESTATE;
 		return fzn_contact_estate_query_begin(&ct->eq, take_estate_item, ct, request, cap, len);
 	}
-	/* EACH KEY A HELD CUT NAMES, its act log asked in turn, sec 783. */
+	/* THE ESTATE'S k AS A ROOT SET IT, sec 799, after its records. */
 	if (ct->phase == CONTACT_ESTATE) {
+		ct->phase = CONTACT_K;
+		return fzn_contact_estate_k_query(request, cap, len);
+	}
+	/* EACH KEY A HELD CUT NAMES, its act log asked in turn, sec 783. */
+	if (ct->phase == CONTACT_K) {
 		ct->n_cut_keys = 0;
 		ct->cut_key_at = 0;
 		if (node_apply.store && contact_hash_ops) {
@@ -9738,6 +9756,24 @@ static int contact_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 			if (node_apply.store && contact_hash_ops && ct->eq.k)
 				(void)fzn_contact_estate_keep_k(estate_rows_store(), contact_hash_ops,
 				                                ct->contact, ct->eq.k, estate_ms());
+		}
+	} else if (ct->phase == CONTACT_K) {
+		/* A ROOT'S SETTING OF k, sec 799, kept per setter, the higher
+		 * version winning; an answer that is no page, a host older than
+		 * this, moves on with nothing kept. */
+		const uint8_t *setting = NULL;
+		size_t setting_len = 0;
+		fzn_contact_device_err_t kerr;
+
+		if (fzn_contact_estate_k_reply(reply, reply_len, &setting, &setting_len) && setting_len
+		    && node_apply.store && contact_id && contact_hash_ops) {
+			kerr = fzn_contact_estate_keep_k_setting(estate_rows_store(), contact_hash_ops,
+			                                         contact_id->sign, ct->contact, setting,
+			                                         setting_len);
+			if (kerr != FZN_CONTACT_DEVICE_OK)
+				say(FZN_ENTRY_WARNING, "contact/devices",
+				    "a contact's setting of k was not kept (%s)",
+				    fzn_contact_device_err_str(kerr));
 		}
 	} else if (ct->phase == CONTACT_ACTS) {
 		/* A PAGE OF ONE KEY'S LOG, sec 783; the next key, or the hosts, after

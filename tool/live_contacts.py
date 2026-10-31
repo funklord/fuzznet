@@ -32,7 +32,8 @@ and S's estate advertises.
        and R2 votes R3 revoked. At R's k of 2 one admin is not enough, and
        S, given R's records and k, keeps R3; once R sets k to 1, R drops it
        and so does S, on a vote R never signed (sec 781); and S2, with R
-       down, drops it by the estate rows S passes on (sec 782)
+       down, drops it by the estate rows S passes on (sec 782), though R2,
+       down while R set k, answers its old k of 2 (sec 799)
 
 Against a daemon that carries no contact devices, R2 has no host to offer
 to and phase a waits in vain; against one that files under the sending
@@ -488,7 +489,9 @@ def main(argv):
 			           for e in ask(socks["r"], "list grant").split()):
 				raise failed("f: R's grant to R3 fell on one admin's vote at k 2")
 			# AT k 1, set by R as a root: R's estate drops R3 on that vote, and
-			# S, given R's setting, does too -- on a vote R never signed.
+			# S, given R's setting, does too -- on a vote R never signed. R2 is
+			# down while R sets it, so it holds the old k of 2 (sec 799).
+			down("r2")
 			expect(socks["r"], "r", "set quorum 1", "ok 1")
 			until = time.monotonic() + 120.0
 			while time.monotonic() < until:
@@ -507,23 +510,25 @@ def main(argv):
 				raise failed("f: S still lists R3: %r" % listed)
 			print("livecheck: f: R2, made admin, revoked R3: kept at k 2, and at R's k of 1 "
 			      "S dropped R3 on that vote")
-			# AND S2 FROM S ALONE, sec 782: R's whole estate down -- R2 and R3
-			# are R's hosts as much as R is, and R2, not yet holding R's new k,
-			# answered with its old 2 when only R was down -- S2 started again
-			# reaches no contact, and drops R3 by the estate rows S passes on,
-			# its first pass asking nobody of R's.
-			for who in ("r", "r2", "r3"):
+			# AND S2 FROM S, secs 782 and 799: R and R3 down, and R2 up alone
+			# -- down while R set k, and now unable to pull it, so it answers
+			# its old k of 2, heard after S's 1. S2 started again asks R2, and
+			# still drops R3: R's setting of k, which S passes on, is the
+			# estate's k whatever a host says. Before sec 799, the k heard
+			# last won, and S2 kept R3.
+			for who in ("r", "r3"):
 				down(who)
+			r2 = up("r2", "r2-f2")
 			s2 = up("s2", "s2-f")
-			got = s2.wait_for(first_pass_re, "S2's first contact pass, R down")
-			if int(got.group(1)) != 0 or int(got.group(2)) != 1:
-				raise failed("f: S2's first pass, R down, asked %s contact(s) and dropped %s, "
-				             "not R3 by S's rows" % (got.group(1), got.group(2)))
+			got = s2.wait_for(first_pass_re, "S2's first contact pass, R2 alone up")
+			if int(got.group(1)) < 1 or int(got.group(2)) != 1:
+				raise failed("f: S2's first pass, R2 alone up, asked %s contact(s) and dropped "
+				             "%s, not R3 at R's k of 1" % (got.group(1), got.group(2)))
 			listed = ask(socks["s2"], "list device " + keys["r"]).split()
 			if keys["r3"] in {row.split(",")[0] for row in listed[3:]}:
 				raise failed("f: S2 still lists R3: %r" % listed)
-			print("livecheck: f: S2, reaching nobody of R's, dropped R3 by the estate rows S "
-			      "passed on")
+			print("livecheck: f: S2, asking only R2 and its old k of 2, dropped R3 at the k of "
+			      "1 R set, passed on by S")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			if os.environ.get("LIVE_DEBUG"):

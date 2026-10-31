@@ -75440,9 +75440,8 @@ R's estate had dropped.
 - **Three sabotage entries**: a k heard later, an item signed, the rows
   page whole.
 
-**Not yet:** a contact's hosts answering their own k ahead of their
-estate's journal, as R2 did. Each host answers what it holds, and the
-asker keeps the latest heard, which errs open.
+**A contact's host answering a stale k**, as R2 did, is fixed by sec 799:
+a root's signed setting of k now crosses and decides.
 
 ## 783. A contact's act log, so its lines are judged as its estate judges them, 2026-10-31
 
@@ -76376,3 +76375,63 @@ live, not only through the unit test's callback.
   16384, the old room, the push left the bucket unsent and counted it
   full (0 lacked, 0 sent, 1 full), which is the behaviour sec 791
   removed. One sabotage entry makes the same edit.
+
+## 799. A contact's k is the one its root set, not the one heard last, 2026-10-31
+
+**Asked by the holder, 2026-10-31:** fix a contact host answering a stale
+k (sec 782's open item).
+
+**The fault.** Since sec 542, `set quorum` writes k as the estate setting
+`revocation/k`, signed by a root at a version that only rises. A contact
+host answered only the number it held, and the asker kept whichever
+number it heard last (sec 782). A host behind its own journal, one that
+had not yet pulled a root's change, answered the old k. Heard after the
+new one, it raised the lowered k again, and a device the contact's estate
+had revoked stayed reachable. The older quorum records (sec 413) do cross
+as items, but a setting never did, and the host's number was combined
+with them by taking the larger.
+
+**Now:**
+- **A new query, K_SETTING 55, answered by K_SET 56**: a length, then
+  the root-rank setting of `revocation/k` as it stands on the host, or
+  none (`fzn_node_settings_k_setting`). fuzznetd asks it after the
+  estate's records. A new item kind was rejected: a setting runs to 464
+  bytes against the record room of 242, and an older asker refuses a
+  whole page holding a kind it does not read. A host older than this
+  answers no page, the step moves on, and nothing changes.
+- **Kept per setter in slot 65** (row kind 0xfd: owner, kind, setting).
+  A higher version replaces the same setter's, and an older one is passed
+  over. It must open, be signed by its setter, name the cell
+  `revocation/k` about this contact, and state a root's rank or none.
+  Members pass the row on with the rest (sec 782).
+- **The estate's k, when it is built**: the standing setting decides.
+  That is the one by a setter in the contact's root set, with the higher
+  version and then the greater setter, as `state/setting.h` decides. It
+  stands whatever any host said, as it does on the contact's own host.
+  The host's number and the quorum records decide only when no root's
+  setting is known, the one standing is a clear, or its value is no
+  count from 1 to 255.
+
+### Measured for sec 799
+
+- **`contact_devices_test`, 120 checks, `test_a_root_setting_of_k`:**
+  - the root's setting of 1 stands over a host's 2 and drops the device
+    on one admin's vote;
+  - a host's 2 heard later, and an older version of the root's setting,
+    each leave k at 1;
+  - a setting by a key that is no root decides nothing;
+  - after a clear, the host's 2 decides again;
+  - a setting about another estate, one of another cell, and one changed
+    after signing are each refused;
+  - the messages carry the setting whole, or none, and a reply or
+    request a byte long is not read;
+  - a member's row carrying the setting decides k.
+- **`live_contacts` phase f's ending, reworked.** R2 is down while R sets
+  k to 1. At the ending R and R3 are down and R2 is up alone, so it
+  cannot pull R's setting and answers its old 2. S2 starts, asks R2, and
+  still drops R3 by the setting S passes on. Sec 782's ending had to
+  take R2 down too, so that it was never asked. The whole script passed.
+- **Control**, a fuzznetd built with the setting's decision off: that
+  ending failed, S2 asking one contact and dropping nothing.
+- **Sabotage:** four entries, for the setting deciding, a root's only,
+  the higher version, and the cell about this contact.

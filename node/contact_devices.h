@@ -448,6 +448,59 @@ fzn_contact_device_err_t fzn_contact_estate_keep_k(const fzn_persist_ops_t *stor
                                                    const uint8_t owner[FZN_PUBKEY_LEN],
                                                    uint8_t k, uint64_t heard_ms);
 
+/* ---- the estate's k as a root set it, sec 799 ------------------------------
+ *
+ * THE k A HOST SAYS IT HOLDS is only its own reading. A host behind its own
+ * estate's journal -- one that has not yet pulled a root's change of k --
+ * answers the k it held before, and the asker kept whichever k it heard
+ * last (sec 782), so a stale host could raise a lowered k back and keep a
+ * device the estate had revoked. Since sec 542 k is the estate's setting
+ * `revocation/k`, signed by the root that set it, at a version that only
+ * rises. So a host also answers that setting as it stands there, and the
+ * asker keeps it per setter, the higher version replacing the lower. When
+ * the contact's estate is built, the standing setting -- of a setter in
+ * its root set, the higher version and then the greater setter winning, as
+ * `state/setting.h` decides -- is its k, whatever any host said; a host's
+ * word and the older quorum records decide only where no root's setting is
+ * known, or where the one standing is a clear. A stale host's setting is
+ * an older version and loses; a host older than this answers no page, and
+ * nothing changes.
+ *
+ *   K_SETTING  55  nothing more
+ *   K_SET      56  a 16-bit length, then the setting's bytes: none when
+ *                  the host holds no root's setting of k
+ */
+#define FZN_CONTACT_DEVICES_K_SETTING 55u
+#define FZN_CONTACT_DEVICES_K_SET 56u
+#define FZN_CONTACT_DEVICES_K_SETTING_LEN 2u
+#define FZN_CONTACT_DEVICES_K_SET_HEAD_LEN 4u
+
+/* The request. 0 when it does not fit. */
+int fzn_contact_estate_k_query(uint8_t *request, size_t cap, size_t *request_len);
+
+/* THE ANSWER: `setting` (`setting_len` bytes, 0 for none) as this host
+ * holds it. 0 for anything that is not the request, or no room. */
+size_t fzn_contact_estate_k_answer(const uint8_t *request, size_t request_len,
+                                   const uint8_t *setting, size_t setting_len, uint8_t *reply,
+                                   size_t reply_cap);
+
+/* THE ANSWER READ: 1 with `*setting` pointing into `reply` and its length,
+ * 0 for none; 0 for a reply that is not one, a host older than this. */
+int fzn_contact_estate_k_reply(const uint8_t *reply, size_t reply_len, const uint8_t **setting,
+                               size_t *setting_len);
+
+/* KEEP a root's setting of k for the contact `owner`: once it opens, signed
+ * by its setter, as the estate cell `revocation/k` about `owner`, stating a
+ * root's rank or none. Kept in place of the same setter's only when its
+ * version is higher; OK when kept or passed over as older, REFUSED for
+ * bytes that are not such a setting. Whether its setter is a root is judged
+ * when the estate is built. */
+fzn_contact_device_err_t fzn_contact_estate_keep_k_setting(const fzn_persist_ops_t *store,
+                                                           const fzn_hash_ops_t *hash,
+                                                           const fzn_sign_ops_t *sign,
+                                                           const uint8_t owner[FZN_PUBKEY_LEN],
+                                                           const uint8_t *setting, size_t len);
+
 /* ---- passed on between members, sec 782 ----------------------------------
  *
  * A MEMBER THAT NEVER REACHED A CONTACT judged its devices by nothing of
@@ -489,7 +542,9 @@ const uint8_t *fzn_contact_estate_row_owner(const uint8_t *row, size_t len);
 /* TAKE A ROW A MEMBER PASSED ON, its owner already known to stand: an item
  * kept as `fzn_contact_estate_keep` keeps one, an act-log entry as
  * `fzn_contact_act_keep` does (`stream` the estate stream's number, sec
- * 783), a k only when heard later than the k kept. OK when kept or when an older k was passed over;
+ * 783), a k only when heard later than the k kept, a root's setting of k
+ * as `fzn_contact_estate_keep_k_setting` keeps one (sec 799). OK when kept
+ * or when an older k or setting was passed over;
  * REFUSED for a row that is neither, or an item not signed. */
 fzn_contact_device_err_t fzn_contact_estate_take_row(const fzn_persist_ops_t *store,
                                                      const fzn_hash_ops_t *hash,

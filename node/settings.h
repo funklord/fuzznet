@@ -179,6 +179,13 @@ fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *
 #define FZN_NODE_SETTINGS_K_KEY "revocation/k"
 uint8_t fzn_node_settings_quorum(const fzn_node_settings_t *ns, uint8_t fallback);
 
+/* THE ROOT'S SETTING OF k AS IT STANDS HERE, sec 799: its signed bytes into
+ * `out` (`cap`, FZN_SETTING_MAX will hold it), `*len` of them -- a set or a
+ * clear -- for a contact to judge by. 0 when no root's setting of the cell
+ * stands. */
+int fzn_node_settings_k_setting(const fzn_node_settings_t *ns, uint8_t *out, size_t cap,
+                                size_t *len);
+
 /* WHERE A STORED ROW'S SETTING STARTS, for a reader of slot
  * FZN_PERSIST_SETTING that wants the signed setting and not this node's
  * head on it (sec 550): its offset in `row`, or 0 for a row of neither

@@ -5,6 +5,7 @@
 
 #include "../contact_devices.h"
 #include "../../record/record.h"
+#include "../../state/setting.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1377,6 +1378,125 @@ static void test_the_act_log_messages(void)
 	      "a key with no log answered entries");
 }
 
+/* sec 799: `setter`'s setting of the owner's k at `version`, `value` its
+ * text, or a clear for NULL. */
+static size_t k_setting(uint8_t out[FZN_SETTING_MAX], const uint8_t setter[32],
+                        const uint8_t about[32], uint64_t version, const char *value)
+{
+	size_t len = 0;
+
+	signing_as = setter[0];
+	if (fzn_setting_issue_ranked(setter, &SIGN, FZN_SCOPE_ESTATE, about, version,
+	                             (const uint8_t *)"revocation/k", 12u, value != NULL,
+	                             (const uint8_t *)value, value ? strlen(value) : 0u,
+	                             FZN_SETTING_RANK_ROOT, out, &len)
+	    != FZN_SETTING_OK)
+		return 0;
+	return len;
+}
+
+static fzn_contact_device_err_t keep_setting(const uint8_t *bytes, size_t len)
+{
+	return fzn_contact_estate_keep_k_setting(&STORE, &HASH, &SIGN, owner, bytes, len);
+}
+
+static void test_a_root_setting_of_k(void)
+{
+	static fzn_contact_device_t d;
+	static fzn_contact_estate_item_t it;
+	static uint8_t one[FZN_SETTING_MAX], two[FZN_SETTING_MAX], other_k[FZN_SETTING_MAX];
+	static uint8_t clear[FZN_SETTING_MAX], bad[FZN_SETTING_MAX];
+	static uint8_t request[8], reply[FZN_CONTACT_DEVICES_REPLY_MAX];
+	static uint8_t row[FZN_CONTACT_ESTATE_ROW_MAX];
+	const uint8_t *got = NULL;
+	size_t one_len, two_len, other_len, clear_len, bad_len, n = 0, got_len = 9;
+	uint8_t k = 0;
+
+	memset(rows, 0, sizeof(rows));
+	device(&d, phone, 1000u);
+	granted(&d, phone, &member);
+	vote_item(&it, admin_a, phone, 300u);
+	admin_chain(&it, admin_a);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && fzn_contact_estate_keep_k(&STORE, &HASH, owner, 2u, 1000u)
+	                         == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, &k) == 0 && k == 2u,
+	      "fixture: an admin's vote under the host's k of 2 dropped the device");
+
+	/* THE ROOT LOWERS k TO 1, as `set quorum 1` writes it. */
+	one_len = k_setting(one, owner, owner, 10u, "1");
+	CHECK(one_len && keep_setting(one, one_len) == FZN_CONTACT_DEVICE_OK && judged(&d, &k) == 1
+	              && k == 1u,
+	      "the root's setting of k 1 did not stand over the host's 2");
+
+	/* A HOST BEHIND ITS JOURNAL: its word of 2, heard later, and the older
+	 * setting it holds -- neither raises k again. */
+	two_len = k_setting(two, owner, owner, 5u, "2");
+	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 2u, 2000u) == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, &k) == 1 && k == 1u,
+	      "a stale host's k of 2, heard later, raised k over the root's setting");
+	CHECK(two_len && keep_setting(two, two_len) == FZN_CONTACT_DEVICE_OK && judged(&d, &k) == 1
+	              && k == 1u,
+	      "an older version of the root's setting replaced the newer");
+
+	/* A KEY NO ROOT-ADD NAMES sets nothing, however new. */
+	other_len = k_setting(other_k, admin_a, owner, 20u, "3");
+	CHECK(other_len && keep_setting(other_k, other_len) == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, &k) == 1 && k == 1u,
+	      "a setting by a key that is no root decided k");
+
+	/* A CLEAR leaves the host's word and the records to decide. */
+	clear_len = k_setting(clear, owner, owner, 30u, NULL);
+	CHECK(clear_len && keep_setting(clear, clear_len) == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, &k) == 0 && k == 2u,
+	      "after the root's clear, k was not the host's 2 again");
+
+	/* REFUSED: another estate's, another cell, a changed byte. */
+	bad_len = k_setting(bad, owner, other, 40u, "1");
+	CHECK(bad_len && keep_setting(bad, bad_len) == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "a setting about another estate was kept");
+	signing_as = owner[0];
+	CHECK(fzn_setting_issue_ranked(owner, &SIGN, FZN_SCOPE_ESTATE, owner, 41u,
+	                               (const uint8_t *)"journal/window", 14u, 1,
+	                               (const uint8_t *)"1", 1u, FZN_SETTING_RANK_ROOT, bad, &bad_len)
+	                      == FZN_SETTING_OK
+	              && keep_setting(bad, bad_len) == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "a setting of another cell was kept as k");
+	memcpy(bad, one, one_len);
+	bad[one_len - 70u] ^= 1u;
+	CHECK(keep_setting(bad, one_len) == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "a setting changed after signing was kept");
+
+	/* THE MESSAGES: asked, answered with the setting or with none. */
+	CHECK(fzn_contact_estate_k_query(request, sizeof(request), &n) && n == 2u
+	              && (n = fzn_contact_estate_k_answer(request, 2u, one, one_len, reply,
+	                                                  sizeof(reply)))
+	                         == 4u + one_len
+	              && fzn_contact_estate_k_reply(reply, n, &got, &got_len) && got_len == one_len
+	              && memcmp(got, one, one_len) == 0,
+	      "the root's setting did not cross whole");
+	CHECK((n = fzn_contact_estate_k_answer(request, 2u, NULL, 0u, reply, sizeof(reply))) == 4u
+	              && fzn_contact_estate_k_reply(reply, n, &got, &got_len) && got_len == 0u,
+	      "a host holding no setting did not answer none");
+	CHECK(!fzn_contact_estate_k_reply(reply, n + 1u, &got, &got_len)
+	              && !fzn_contact_estate_k_answer(request, 3u, one, one_len, reply, sizeof(reply)),
+	      "a reply a byte long was read, or a request a byte long answered");
+
+	/* PASSED ON between members as a row, kept as the host's would be. */
+	memset(rows, 0, sizeof(rows));
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && fzn_contact_estate_keep_k(&STORE, &HASH, owner, 2u, 3000u)
+	                         == FZN_CONTACT_DEVICE_OK,
+	      "fixture: the vote and a host's 2 again, no setting");
+	memcpy(row, owner, 32u);
+	row[32] = 0xfdu;
+	memcpy(row + 33u, one, one_len);
+	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, 0u, row, 33u + one_len)
+	                      == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, &k) == 1 && k == 1u,
+	      "a root's setting passed on by a member did not decide k");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -1411,6 +1531,7 @@ int main(void)
 	test_estate_rows_between_members();
 	test_a_contacts_act_log();
 	test_the_act_log_messages();
+	test_a_root_setting_of_k();
 	if (failures) {
 		fprintf(stderr, "node contact_devices_test: %d of %d checks failed\n", failures, checks);
 		return 1;

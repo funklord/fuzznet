@@ -4,7 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "settings.h"
 #include "../record/record.h"
+#include "../state/setting.h"
 #include "../wire/bytes.h"
 
 _Static_assert(FZN_RECORD_MAX_LEN <= FZN_CONTACT_ACT_MAX, "a record fits an act-log entry");
@@ -1010,10 +1012,23 @@ static int item_signed(const fzn_contact_estate_item_t *item, const fzn_sign_ops
 /* THE k ROW: owner, kind, k, and when this node or the member it came
  * through heard it from the contact's host, ms (sec 782). */
 #define ESTATE_K_ROW_LEN (FZN_PUBKEY_LEN + 2u + 8u)
+/* A ROOT'S SETTING OF k, sec 799: owner, this kind, the setting's bytes. */
+#define ESTATE_KSET_KIND 0xfdu
+#define KSET_ROW_HEAD (FZN_PUBKEY_LEN + 1u)
+#define KSET_SETTER_AT (KSET_ROW_HEAD + FZN_SETTING_OFF_SETTER)
+typedef char kset_row_fits[KSET_ROW_HEAD + FZN_SETTING_MAX <= ESTATE_ROW_MAX ? 1 : -1];
 
 static int estate_key(const fzn_hash_ops_t *hash, const uint8_t *row, size_t len,
                       uint8_t key[FZN_PUBKEY_LEN])
 {
+	/* A ROOT'S SETTING OF k IS ONE PER OWNER AND SETTER. */
+	if (len > KSET_SETTER_AT + FZN_PUBKEY_LEN && row[FZN_PUBKEY_LEN] == ESTATE_KSET_KIND) {
+		uint8_t in[KSET_ROW_HEAD + FZN_PUBKEY_LEN];
+
+		memcpy(in, row, KSET_ROW_HEAD);
+		memcpy(in + KSET_ROW_HEAD, row + KSET_SETTER_AT, FZN_PUBKEY_LEN);
+		return hash->hash(hash->ctx, key, FZN_PUBKEY_LEN, in, sizeof(in));
+	}
 	/* THE k ROW IS ONE PER OWNER, keyed by the owner and its kind alone. */
 	if (len == ESTATE_K_ROW_LEN && row[FZN_PUBKEY_LEN] == ESTATE_K_KIND)
 		len = FZN_PUBKEY_LEN + 1u;
@@ -1062,6 +1077,114 @@ fzn_contact_device_err_t fzn_contact_estate_keep_k(const fzn_persist_ops_t *stor
 	if (!estate_key(hash, row, sizeof(row), key))
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
 	return store->save(store->ctx, FZN_PERSIST_CONTACT_ESTATE, key, row, sizeof(row))
+	               ? FZN_CONTACT_DEVICE_OK
+	               : FZN_CONTACT_DEVICE_ERR_BACKEND;
+}
+
+/* ---- the estate's k as a root set it, sec 799 ---------------------------- */
+
+int fzn_contact_estate_k_query(uint8_t *request, size_t cap, size_t *request_len)
+{
+	if (!request || !request_len || cap < FZN_CONTACT_DEVICES_K_SETTING_LEN)
+		return 0;
+	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[1] = FZN_CONTACT_DEVICES_K_SETTING;
+	*request_len = FZN_CONTACT_DEVICES_K_SETTING_LEN;
+	return 1;
+}
+
+size_t fzn_contact_estate_k_answer(const uint8_t *request, size_t request_len,
+                                   const uint8_t *setting, size_t setting_len, uint8_t *reply,
+                                   size_t reply_cap)
+{
+	if (!request || request_len != FZN_CONTACT_DEVICES_K_SETTING_LEN
+	    || request[0] != FZN_CONTACT_DEVICES_VERSION
+	    || request[1] != FZN_CONTACT_DEVICES_K_SETTING || !reply || (setting_len && !setting)
+	    || setting_len > FZN_SETTING_MAX
+	    || reply_cap < FZN_CONTACT_DEVICES_K_SET_HEAD_LEN + setting_len)
+		return 0;
+	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[1] = FZN_CONTACT_DEVICES_K_SET;
+	fzn_put_be16(reply + 2, (uint16_t)setting_len);
+	if (setting_len)
+		memcpy(reply + FZN_CONTACT_DEVICES_K_SET_HEAD_LEN, setting, setting_len);
+	return FZN_CONTACT_DEVICES_K_SET_HEAD_LEN + setting_len;
+}
+
+int fzn_contact_estate_k_reply(const uint8_t *reply, size_t reply_len, const uint8_t **setting,
+                               size_t *setting_len)
+{
+	size_t n;
+
+	if (!reply || !setting || !setting_len || reply_len < FZN_CONTACT_DEVICES_K_SET_HEAD_LEN
+	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_K_SET)
+		return 0;
+	n = fzn_get_be16(reply + 2);
+	if (n > FZN_SETTING_MAX || reply_len != FZN_CONTACT_DEVICES_K_SET_HEAD_LEN + n)
+		return 0;
+	*setting = n ? reply + FZN_CONTACT_DEVICES_K_SET_HEAD_LEN : NULL;
+	*setting_len = n;
+	return 1;
+}
+
+/* A ROOT'S SETTING OF `owner`'s k, opened: 1 with `*k` its count, or 0 for a
+ * clear or a value that is no count from 1 to 255 -- which decides
+ * nothing, as it decides nothing on the host. */
+static int k_setting_open(const uint8_t owner[FZN_PUBKEY_LEN], const uint8_t *bytes, size_t len,
+                          const fzn_sign_ops_t *sign, fzn_setting_t *s, uint8_t *k)
+{
+	static const char KEY[] = FZN_NODE_SETTINGS_K_KEY;
+	unsigned v = 0;
+	size_t i;
+
+	*k = 0;
+	if (fzn_setting_open(bytes, len, sign, s) != FZN_SETTING_OK || s->scope != FZN_SCOPE_ESTATE
+	    || memcmp(s->about, owner, FZN_PUBKEY_LEN) != 0 || s->key_len != sizeof(KEY) - 1u
+	    || memcmp(s->key, KEY, sizeof(KEY) - 1u) != 0
+	    || (s->rank != -1 && s->rank != (int)FZN_SETTING_RANK_ROOT))
+		return 0;
+	if (!s->set || s->value_len == 0u || s->value_len > 3u)
+		return 1;
+	for (i = 0; i < s->value_len; i++) {
+		if (s->value[i] < '0' || s->value[i] > '9')
+			return 1;
+		v = v * 10u + (unsigned)(s->value[i] - '0');
+	}
+	if (v >= 1u && v <= 255u)
+		*k = (uint8_t)v;
+	return 1;
+}
+
+fzn_contact_device_err_t fzn_contact_estate_keep_k_setting(const fzn_persist_ops_t *store,
+                                                           const fzn_hash_ops_t *hash,
+                                                           const fzn_sign_ops_t *sign,
+                                                           const uint8_t owner[FZN_PUBKEY_LEN],
+                                                           const uint8_t *setting, size_t len)
+{
+	static uint8_t row[ESTATE_ROW_MAX], held[ESTATE_ROW_MAX];
+	uint8_t key[FZN_PUBKEY_LEN], k;
+	fzn_setting_t s, t;
+	size_t held_len = 0;
+
+	if (!store || !store->load || !store->save || !hash || !hash->hash || !sign || !sign->verify
+	    || !owner || !setting)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	if (len > FZN_SETTING_MAX || !k_setting_open(owner, setting, len, sign, &s, &k))
+		return FZN_CONTACT_DEVICE_ERR_REFUSED;
+	memcpy(row, owner, FZN_PUBKEY_LEN);
+	row[FZN_PUBKEY_LEN] = ESTATE_KSET_KIND;
+	memcpy(row + KSET_ROW_HEAD, setting, len);
+	if (!estate_key(hash, row, KSET_ROW_HEAD + len, key))
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	/* THE SAME SETTER'S, replaced only by a higher version: a host behind
+	 * its journal answers the older one. */
+	if (store->load(store->ctx, FZN_PERSIST_CONTACT_ESTATE, key, held, sizeof(held), &held_len)
+	    && held_len > KSET_ROW_HEAD && memcmp(held, owner, FZN_PUBKEY_LEN) == 0
+	    && held[FZN_PUBKEY_LEN] == ESTATE_KSET_KIND
+	    && k_setting_open(owner, held + KSET_ROW_HEAD, held_len - KSET_ROW_HEAD, sign, &t, &k)
+	    && t.version >= s.version)
+		return FZN_CONTACT_DEVICE_OK;
+	return store->save(store->ctx, FZN_PERSIST_CONTACT_ESTATE, key, row, KSET_ROW_HEAD + len)
 	               ? FZN_CONTACT_DEVICE_OK
 	               : FZN_CONTACT_DEVICE_ERR_BACKEND;
 }
@@ -1164,6 +1287,10 @@ fzn_contact_device_err_t fzn_contact_estate_take_row(const fzn_persist_ops_t *st
 			return FZN_CONTACT_DEVICE_OK;
 		return fzn_contact_estate_keep_k(store, hash, row, row[FZN_PUBKEY_LEN + 1u], heard);
 	}
+	/* A ROOT'S SETTING OF k, sec 799: kept as one from the host is. */
+	if (row[FZN_PUBKEY_LEN] == ESTATE_KSET_KIND)
+		return fzn_contact_estate_keep_k_setting(store, hash, sign, row, row + KSET_ROW_HEAD,
+		                                         len - KSET_ROW_HEAD);
 	/* AN ACT ROW, sec 783: kept as one from the contact's host is. */
 	if (row[FZN_PUBKEY_LEN] == ESTATE_ACT_KIND) {
 		if (len <= ACT_ROW_HEAD || len - ACT_ROW_HEAD > FZN_CONTACT_ACT_MAX)
@@ -1539,14 +1666,41 @@ struct fzn_contact_estate {
 	size_t n_acts, cap_acts;
 	fzn_act_log_ops_t lenient, strict;
 	const fzn_hash_ops_t *hash;
+	/* ITS ROOTS' SETTINGS OF k, sec 799, judged once the root set is
+	 * built: each setter's, its version and its count (0 for a clear). */
+	struct estate_kset {
+		uint8_t setter[FZN_PUBKEY_LEN];
+		uint64_t version;
+		uint8_t k;
+	} *ksets;
+	size_t n_ksets, cap_ksets;
 };
 
 struct estate_walk {
 	const fzn_persist_ops_t *store;
 	const fzn_hash_ops_t *hash;
+	const fzn_sign_ops_t *sign;
 	fzn_contact_estate_t *e;
 	int failed;
 };
+
+static int estate_kset_add(fzn_contact_estate_t *e, const fzn_setting_t *s, uint8_t k)
+{
+	if (e->n_ksets == e->cap_ksets) {
+		size_t cap = e->cap_ksets ? e->cap_ksets * 2u : 4u;
+		struct estate_kset *more = realloc(e->ksets, cap * sizeof(*more));
+
+		if (!more)
+			return 0;
+		e->ksets = more;
+		e->cap_ksets = cap;
+	}
+	memcpy(e->ksets[e->n_ksets].setter, s->setter, FZN_PUBKEY_LEN);
+	e->ksets[e->n_ksets].version = s->version;
+	e->ksets[e->n_ksets].k = k;
+	e->n_ksets++;
+	return 1;
+}
 
 static int estate_add(fzn_contact_estate_t *e, const fzn_contact_estate_item_t *item)
 {
@@ -1677,6 +1831,19 @@ static int estate_row_walked(void *arg, const uint8_t key[FZN_PUBKEY_LEN])
 		w->e->k = row[FZN_PUBKEY_LEN + 1u] > w->e->k ? row[FZN_PUBKEY_LEN + 1u] : w->e->k;
 		return 1;
 	}
+	if (row[FZN_PUBKEY_LEN] == ESTATE_KSET_KIND) {
+		fzn_setting_t s;
+		uint8_t k;
+
+		if (len > KSET_ROW_HEAD
+		    && k_setting_open(w->e->owner, row + KSET_ROW_HEAD, len - KSET_ROW_HEAD, w->sign, &s,
+		                      &k)
+		    && !estate_kset_add(w->e, &s, k)) {
+			w->failed = 1;
+			return 0;
+		}
+		return 1;
+	}
 	if (row[FZN_PUBKEY_LEN] == ESTATE_ACT_KIND) {
 		if (len > ACT_ROW_HEAD && !estate_act_add(w->e, w->hash, row, len)) {
 			w->failed = 1;
@@ -1757,6 +1924,7 @@ fzn_contact_estate_t *fzn_contact_estate_open(const fzn_persist_ops_t *store,
 	memset(&w, 0, sizeof(w));
 	w.store = store;
 	w.hash = hash;
+	w.sign = sign;
 	w.e = e;
 	if (!fzn_persist_each(store, FZN_PERSIST_CONTACT_ESTATE, estate_row_walked, &w) || w.failed
 	    || !fzn_persist_each(store, FZN_PERSIST_CONTACT_REVOCATION, estate_root_walked, &w)
@@ -1815,6 +1983,26 @@ fzn_contact_estate_t *fzn_contact_estate_open(const fzn_persist_ops_t *store,
 	free(settings);
 	if (resolved > e->k)
 		e->k = resolved;
+	/* A ROOT'S SETTING, where one stands, is the estate's k whatever any
+	 * host said (sec 799): of a setter in the root set, the higher version
+	 * and then the greater setter, as `state/setting.h` decides. A clear,
+	 * or a value that is no count, leaves the reading above. */
+	{
+		const struct estate_kset *won = NULL;
+
+		for (i = 0; i < e->n_ksets; i++) {
+			const struct estate_kset *c = &e->ksets[i];
+
+			if (!e->ops.member || !e->ops.member(e->ops.ctx, c->setter))
+				continue;
+			if (!won || c->version > won->version
+			    || (c->version == won->version
+			        && memcmp(c->setter, won->setter, FZN_PUBKEY_LEN) > 0))
+				won = c;
+		}
+		if (won && won->k)
+			e->k = won->k;
+	}
 	if (!e->k)
 		e->k = 1u;
 	/* THE STORE: the root set, k and the admin capability, confirmations. */
@@ -1910,6 +2098,7 @@ void fzn_contact_estate_close(fzn_contact_estate_t *e)
 		return;
 	free(e->items);
 	free(e->acts);
+	free(e->ksets);
 	free(e->changes);
 	free(e->flags);
 	free(e->entries);
