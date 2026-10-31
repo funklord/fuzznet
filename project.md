@@ -75559,3 +75559,38 @@ and taken, a bent row both kept and refused.
 - **Control:** the estate step taking each item as it reads it, before
   the page is checked whole, fails 1,532 of 2,000 cases.
 - No fault found.
+
+## 786. A contact's estate built once per change, not per judgment, 2026-10-31
+
+Sec 689's bounds bar, on secs 781 to 783's own code. A device of a
+contact is judged on every offer, every host a contact lists, every
+device a member passes on, and in each pass's drop. Each judgment built
+the owner's estate afresh (`fzn_contact_estate_open`), walking every row
+of slots 64 and 65, every contact's, from files. With a hundred contacts
+of fifty rows each and a few hundred offers a round, that is a million
+row reads a minute. And a host hands over the same records every round,
+so every row was written again each round as well.
+
+**Now:**
+- **Each owner's estate is built once and cached** until a row of any
+  contact's estate changes (`estate_of`).
+- **Rows reach the store through a wrapper** (`estate_rows_store`) that
+  writes a row of slot 64 or 65 only when its bytes differ from the row
+  held. Each real change moves the generation that ends the cache.
+- What an estate says depends on those rows alone, so nothing else needs
+  to end it.
+- **A k row changes every exchange**, since it carries when it was heard
+  (sec 782). So the cache is rebuilt once per contact exchange at most,
+  not once per judgment.
+
+**Measured** in `live_contacts`: the contact pass line now says how many
+devices it judged and how many estates it built. Across one run's 46
+passes, 192 judgments took 57 builds, where each judgment was a build
+before; the busiest pass judged 8 devices with 2 builds. The script
+passed, its drops following records that arrived mid-round as before.
+
+**Found on the way:** the first wrapper replaced the store's context
+along with its save, so the ops it did not replace (load, list, walk)
+were handed the wrong context. R2 crashed in its first contact pass. The
+wrapper keeps every op and its context now, and holds the store beneath
+it apart.
