@@ -68511,14 +68511,15 @@ this file's open items. Their findings, summarised:
   - the relay's route and seen tables, `FZN_ROUTING_ENTRIES_MAX`;
   - `FZN_NODE_REVOCATIONS_MAX`, `FZN_NODE_SUCCESSIONS_MAX`;
   - `FZN_BUCKETS_MAX`, `FZN_STREAM_GRANTS_MAX`.
-- **No way to repeat the live suite.** `make livecheck` runs 28 scripts
-  once, worst case 2 h 49 min. Sec 675's file-fetch failures stay
-  unexplained because nothing repeats them, and sec 631 and sec 637 were
-  found the same way, by accident.
-- **Logs have no verbs.** `FZN_VERB_LOG` is parsed and nothing handles
-  it. Logging is operated by flags alone, and a client cannot configure
-  it. **Reading it: `list log`, sec 711.** Configuring it by verb is
-  still open.
+- ~~**No way to repeat the live suite.**~~ `tool/live_repeat.py` and
+  `make livecheck-repeat` since sec 690.
+- ~~**Logs have no verbs.**~~ Read by `list log` (sec 711), and
+  configured by verb since sec 735: `log/level`, `log/segment` and
+  `log/scope` are a host's settings, and retention rules are added and
+  removed by `add retention` (sec 541). The bare verb `log`
+  (`FZN_VERB_LOG`) is still parsed and handled by nothing; nothing has
+  needed it. Corrected 2026-10-31: this line said configuring was open
+  for a week after sec 735 closed it.
 
 ### Design questions the survey surfaced
 
@@ -75159,6 +75160,17 @@ resolves one thing from the environment: its default socket, under
 `XDG_RUNTIME_DIR` (`local/socket.c`). So a service supervising it passes
 `--socket` as well as `--fuzznet-dir`. Until the app is reopened nothing
 supplies positions, so a node sees no `add location` in that window.
+
+**And the daemon outlives the app** (fuzzypickles inbox 20261031T0632Z,
+their 12335f0 and 4647eba). On One UI, swiping the app away ended a
+service that shared Qt's process, and Android put its restart more than
+three hours out. Their service now runs in a process of its own
+(`android:process=":daemon"`). The app binds to it, so the service hears
+the app's process end, and unbinds when `main()` returns. While no app
+is bound, the service watches for arrivals and posts "N new messages
+from X". A supervisor of fuzznetd would need the same from fuzznetd's
+events: an event naming incoming messages, and a way to tell a line
+that came in from a sibling's copy of one's own. Nothing is asked now.
 
 ## 779. A line's key given before the line is pushed, 2026-10-30
 
