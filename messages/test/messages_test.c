@@ -1733,6 +1733,52 @@ static void test_a_month_forgotten_leaves_shells(void)
 	      "forgetting x's September leaves its line listed as a shell, and nothing else");
 }
 
+/* sec 796: a conversation's lines told again, oldest first, in steps. */
+static uint8_t told[8];
+static uint32_t told_epoch[8];
+static size_t n_told;
+
+static void tell(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint8_t direction,
+                 const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, const uint8_t *text,
+                 size_t len)
+{
+	(void)ctx;
+	(void)direction;
+	(void)text;
+	if (n_told < 8u && len && memcmp(contact, X, FZN_PUBKEY_LEN) == 0) {
+		told_epoch[n_told] = epoch;
+		told[n_told++] = id[0];
+	}
+}
+
+static void test_lines_told_again(void)
+{
+	uint64_t at = 0;
+	int more_lines = 0;
+
+	setup();
+	n_told = 0;
+	clock_ms = OCTOBER_2026 - 31ull * 86400000u;
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 1u, "september")
+	              && write_line(&A, Y, FZN_MESSAGE_IN, 2u, "y's"),
+	      "fixture: September's lines, x's and y's");
+	clock_ms = OCTOBER_2026;
+	CHECK(write_line(&A, X, FZN_MESSAGE_IN, 3u, "october")
+	              && write_line(&A, X, FZN_MESSAGE_OUT, 4u, "and more")
+	              && fzn_messages_forget_epoch(&A.m, X, 680u) == FZN_MESSAGES_OK,
+	      "fixture: October's two, and x's September let go");
+	CHECK(fzn_messages_retell(&A.m, X, &at, 1u, tell, NULL, &more_lines) == FZN_MESSAGES_OK
+	              && more_lines && at == 1u && n_told == 0u,
+	      "a step of one looks at September's shell, tells nothing, and says more");
+	CHECK(fzn_messages_retell(&A.m, X, &at, 8u, tell, NULL, &more_lines) == FZN_MESSAGES_OK
+	              && !more_lines && at == 3u && n_told == 2u && told[0] == 3u && told[1] == 4u
+	              && told_epoch[0] == 681u,
+	      "the next tells x's October lines, oldest first, with their month, and ends");
+	CHECK(fzn_messages_retell(&A.m, X, &at, 8u, tell, NULL, &more_lines) == FZN_MESSAGES_OK
+	              && !more_lines && n_told == 2u,
+	      "from the end, nothing more");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -1976,6 +2022,7 @@ int main(void)
 	test_forty_one_devices();
 	test_what_is_owed();
 	test_owed_past_the_deepest_page();
+	test_lines_told_again();
 	if (failures) {
 		fprintf(stderr, "messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

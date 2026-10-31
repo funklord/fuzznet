@@ -178,6 +178,45 @@ int fzn_attachments_take(const fzn_attachments_t *a, const uint8_t contact[32], 
 	return 1;
 }
 
+int fzn_attachments_backfilled(const fzn_attachments_t *a)
+{
+	return ready(a) && number(a, "filled", NOBODY) != 0u;
+}
+
+int fzn_attachments_backfill_end(const fzn_attachments_t *a, size_t *released)
+{
+	static const uint8_t LEGACY_ID[FZN_FILE_HOLD_ID_LEN];
+	fzn_file_holds_t h;
+	uint8_t contact[32], e[E_LEN];
+	uint64_t n_conv, c, i, n, left;
+
+	if (released)
+		*released = 0;
+	if (!ready(a) || !released)
+		return 0;
+	h = holds_of(a);
+	n_conv = number(a, "convs", NOBODY);
+	/* EACH FILE A LINE HOLDS is held by its lines from here: its hold from
+	 * before the record let go. A crash part way lets go again what is
+	 * left, and releasing what is not held writes nothing. */
+	for (c = 0; c < n_conv; c++) {
+		if (!conversation_at(a, c, contact))
+			return 0;
+		n = number(a, "count", contact);
+		for (i = 0; i < n; i++) {
+			if (!entry_load(a, contact, i, e))
+				return 0;
+			if (e[E_RELEASED]
+			    || !fzn_file_hold_has(&h, e + E_ROOT, FZN_FILE_HOLD_LEGACY, LEGACY_ID))
+				continue;
+			if (!fzn_file_hold_release(&h, e + E_ROOT, FZN_FILE_HOLD_LEGACY, LEGACY_ID, &left))
+				return 0;
+			(*released)++;
+		}
+	}
+	return number_save(a, "filled", NOBODY, 1u);
+}
+
 /* ---- the trim -------------------------------------------------------- */
 
 /* EVERY CONTACT'S TOGETHER: each month's attachments held, their bytes and
@@ -262,6 +301,24 @@ typedef struct month_stay {
 static month_stay_t *stays;
 static size_t stays_room;
 
+/* A conversation's entries as the trim weighs them. */
+typedef struct placed {
+	uint32_t epoch;
+	uint64_t size, place;
+} placed_t;
+
+static placed_t *order;
+static size_t order_room;
+
+static int newest_first(const void *x, const void *y)
+{
+	const placed_t *p = x, *q = y;
+
+	if (p->epoch != q->epoch)
+		return p->epoch < q->epoch ? 1 : -1;
+	return p->place < q->place ? 1 : p->place > q->place ? -1 : 0;
+}
+
 /* ONE ENTRY LET GO: its file removed first when this was its last hold
  * and nothing else names it, then its hold released and the entry marked.
  * 0 when the removal cannot run now. */
@@ -301,7 +358,7 @@ static int trim_one(const fzn_attachments_t *a, const uint8_t contact[32],
 {
 	uint64_t counted[FZN_RETAIN_RULES_MAX], bytes[FZN_RETAIN_RULES_MAX], n, i;
 	int applies[FZN_RETAIN_RULES_MAX], any = 0;
-	size_t r, k, n_months = 0, gone = 0;
+	size_t r, k, o, n_order, n_months = 0, gone = 0;
 	uint8_t e[E_LEN];
 
 	for (r = 0; r < n_rules; r++) {
@@ -312,18 +369,36 @@ static int trim_one(const fzn_attachments_t *a, const uint8_t contact[32],
 	if (!any && !drops)
 		return 1;
 	n = number(a, "count", contact);
-	/* NEWEST FIRST, which month stays. */
+	/* BY THE MONTH, NEWEST FIRST, not in the order noted: a line can come
+	 * late, and the lines kept before the index are noted after newer
+	 * ones (sec 796). Within a month, the later noted first. */
+	n_order = 0;
 	for (i = n; i > 0u; i--) {
-		uint32_t epoch;
-		uint64_t size;
-		int pruned = 0, kept = 0;
-
 		if (!entry_load(a, contact, i - 1u, e))
 			return 0;
 		if (e[E_RELEASED])
 			continue;
-		epoch = fzn_get_be32(e + E_EPOCH);
-		size = fzn_get_be64(e + E_SIZE);
+		if (n_order == order_room) {
+			size_t want = order_room ? 2u * order_room : 64u;
+			placed_t *more = realloc(order, want * sizeof(*more));
+
+			if (!more)
+				return 0;
+			order = more;
+			order_room = want;
+		}
+		order[n_order].epoch = fzn_get_be32(e + E_EPOCH);
+		order[n_order].size = fzn_get_be64(e + E_SIZE);
+		order[n_order].place = i - 1u;
+		n_order++;
+	}
+	if (n_order > 1u)
+		qsort(order, n_order, sizeof(*order), newest_first);
+	for (o = 0; o < n_order; o++) {
+		uint32_t epoch = order[o].epoch;
+		uint64_t size = order[o].size;
+		int pruned = 0, kept = 0;
+
 		for (r = 0; r < n_rules; r++) {
 			int in;
 

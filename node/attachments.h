@@ -48,6 +48,16 @@ int fzn_attachments_take(const fzn_attachments_t *a, const uint8_t contact[32], 
 /* How many attachments `contact`'s conversation has noted. */
 uint64_t fzn_attachments_count(const fzn_attachments_t *a, const uint8_t contact[32]);
 
+/* THE LINES KEPT BEFORE THIS INDEX, sec 796: the caller tells every line
+ * kept to `fzn_attachments_take` once, then ends it here. Each file a line
+ * then holds lets go of the hold it had from before the record of holds
+ * began (LEGACY), so the rules reach it, and the index is marked told.
+ * `*released` counts the holds let go. A file no kept line names keeps its
+ * hold from before. Until it is told, the caller trims nothing: a file
+ * two lines sent may be noted for one and not yet the other. */
+int fzn_attachments_backfilled(const fzn_attachments_t *a);
+int fzn_attachments_backfill_end(const fzn_attachments_t *a, size_t *released);
+
 typedef struct fzn_attachments_tally {
 	size_t months;   /* conversation months whose attachments went */
 	size_t released; /* holds released */

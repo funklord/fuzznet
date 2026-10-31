@@ -266,6 +266,26 @@ fzn_messages_err_t fzn_messages_owed(const fzn_messages_t *m,
                                      const uint8_t contact[FZN_PUBKEY_LEN], uint64_t *at,
                                      fzn_message_t *out, size_t cap, size_t *count, int *more);
 
+/*
+ * TELL `contact`'s LINES AGAIN, sec 796: each line kept open, oldest first,
+ * handed to `each` as `on_text` is handed it, from place `*at` (0 to
+ * begin), at most `budget` places looked at. `*at` is left past the last
+ * place looked at, and `*more` nonzero when the walk stopped at its budget
+ * and should be called again from there. A shell, its month's text let
+ * go, tells nothing. What a caller that began noting something after lines
+ * were kept walks them with, once, in steps however deep.
+ */
+fzn_messages_err_t fzn_messages_retell(const fzn_messages_t *m,
+                                       const uint8_t contact[FZN_PUBKEY_LEN], uint64_t *at,
+                                       size_t budget,
+                                       void (*each)(void *ctx,
+                                                    const uint8_t contact[FZN_PUBKEY_LEN],
+                                                    uint8_t direction,
+                                                    const uint8_t id[FZN_MESSAGE_ID_LEN],
+                                                    uint32_t epoch, const uint8_t *text,
+                                                    size_t len),
+                                       void *ctx, int *more);
+
 /* THE PLACE OF THE NEWEST LINE `device` wrote to `contact` in `direction`
  * that carries a mark, searched back from the newest, however deep (sec
  * 789): nonzero, and `*place` its place in the index, when there is one. A

@@ -1875,6 +1875,58 @@ static void test_which_hosts_keep_messages(void)
 	CHECK(!fzn_messages_keeps(r, 2u, X), "a prune rule keeps nothing");
 }
 
+/* sec 796: every conversation's lines told again, in steps. */
+static size_t retold[3];
+
+static void retold_one(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint8_t direction,
+                       const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, const uint8_t *text,
+                       size_t len)
+{
+	(void)ctx;
+	(void)contact;
+	(void)direction;
+	(void)epoch;
+	(void)text;
+	(void)len;
+	if (id[0] >= 1u && id[0] <= 3u)
+		retold[id[0] - 1u]++;
+}
+
+static void test_every_conversation_told_again(void)
+{
+	fzn_node_messages_retelling_t r;
+	uint8_t id[FZN_MESSAGE_ID_LEN], Z[FZN_PUBKEY_LEN];
+	size_t steps = 0;
+	int done = 0, ok = 1;
+
+	setup();
+	memset(Y, 0x77, sizeof(Y));
+	memset(Z, 0x5a, sizeof(Z));
+	memset(retold, 0, sizeof(retold));
+	memset(&r, 0, sizeof(r));
+	memset(id, 1, sizeof(id));
+	ok = fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_OUT, id, 5u, "x one", 5u) == FZN_MESSAGES_OK
+	     && fzn_messages_write(&A.nm.m, Y, FZN_MESSAGE_IN, id, 6u, "y one", 5u) == FZN_MESSAGES_OK;
+	memset(id, 2, sizeof(id));
+	ok = ok && fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_IN, id, 7u, "x two", 5u) == FZN_MESSAGES_OK
+	     && fzn_messages_write(&A.nm.m, Z, FZN_MESSAGE_OUT, id, 8u, "z two", 5u) == FZN_MESSAGES_OK;
+	memset(id, 3, sizeof(id));
+	ok = ok && fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_OUT, id, 9u, "x three", 7u)
+	                   == FZN_MESSAGES_OK;
+	CHECK(ok, "fixture: three lines with X, one with Y, one with Z, not written");
+	while (!done && steps < 20u
+	       && fzn_node_messages_retell(&A.nm, &r, 1u, retold_one, NULL, &done) == FZN_MESSAGES_OK)
+		steps++;
+	CHECK(done && steps > 3u && retold[0] == 2u && retold[1] == 2u && retold[2] == 1u,
+	      "not every line of every conversation told once, in steps of one");
+	CHECK(fzn_node_messages_retell(&A.nm, &r, 1u, retold_one, NULL, &done) == FZN_MESSAGES_OK
+	              && done && retold[0] == 2u,
+	      "a walk ended told something again");
+	CHECK(fzn_node_messages_retell(&A.nm, &r, 0u, retold_one, NULL, &done)
+	              == FZN_MESSAGES_ERR_MALFORMED,
+	      "a step of nothing was taken");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -1993,6 +2045,7 @@ int main(void)
 	test_a_line_is_taken_over_from_a_writer_gone();
 	test_a_holds_question_is_exact();
 	test_seventy_devices();
+	test_every_conversation_told_again();
 	test_wants_past_one_row();
 	CHECK(gives_seen > 0u && keys_left == 0u,
 	      "a give by steps left its keys in the request, or no round gave any");

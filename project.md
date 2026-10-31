@@ -76244,9 +76244,8 @@ and a file it names was removed (`live_trim` phase s, both files gone).
 The trim now reads the catalogue up to the journal (`index_catalog`)
 before letting anything go.
 
-**Not done:** lines with attachments kept before this build are not
-indexed, so no rule reaches them and their files stay. A walk of every
-conversation's lines to index them was not built.
+**Lines with attachments kept before this build** are indexed by sec 796's
+walk, which also lets their files go of the LEGACY hold.
 
 ### Measured for sec 795
 
@@ -76281,3 +76280,63 @@ conversation's lines to index them was not built.
   the catalogue indexed, phase s failed with both files removed.
 - **Sabotage**: six entries, for the two hold guards and the four
   attachment guards.
+
+## 796. The attachments sent before the index, told once, 2026-10-31
+
+**Asked by the holder, 2026-10-31:** index the attachments sent before sec
+795 too, so the rules reach them.
+
+- **Every kept line is told again, once** (`fzn_messages_retell` for one
+  conversation, `fzn_node_messages_retell` across all of them by their
+  buckets, ascending by contact). The walk runs in steps of
+  FZND_RETELL_STEP (16384) lines a messages round, so a history of any
+  depth does not stall fuzznetd. A shell, its month's text already let
+  go, tells nothing.
+- **Only noted.** The walk hands each line to `attachment_note`, not to
+  `on_text`: an old sticker pack is not wanted again, and an old file is
+  not granted again. `attachment_seen` notes a line and then grants it, as
+  before. `fzp:` references from fuzzypickles are noted like `fzn:` ones.
+- **When the walk ends, LEGACY is let go for each file a line names**
+  (`fzn_attachments_backfill_end`), and the index is marked told. Decided
+  from sec 795's own rule, not asked: a file's holders are the lines that
+  sent it, the catalogue and saved sticker packs, and the last two are
+  asked when a file would go. Indexing old lines without releasing LEGACY
+  would never let a file go, so it would do nothing. A file no kept line
+  names keeps its LEGACY hold.
+- **Neither trim runs until the walk ends.** If a month's text went first,
+  its file would stay held from before for good. If an attachment trim
+  ran early, a file two lines sent might be noted for one line only, and
+  removed while the other still names it.
+- **The attachment trim now weighs by month, newest first**, not in the
+  order entries were noted. Old lines are noted after newer ones, and a
+  line can arrive late anyway. In the old order, `size 15` over October
+  noted before August and September removed nothing.
+- **Not reached:** a line whose month's text was trimmed before this
+  build. It is a shell, so its file keeps its LEGACY hold and is kept.
+
+### Measured for sec 796
+
+- **Unit tests:**
+  - attachments_test, 40 checks: October noted before August and
+    September; the end releases LEGACY on the named file only, a second
+    end releases nothing, and `size 15` then removes August by its month.
+  - messages_test, 239 checks: a step of one looks at September's shell
+    and tells nothing; the next tells October's two lines oldest first
+    with their month; from the end, nothing.
+  - node messages_test, 197 checks: five lines in three conversations,
+    each told once in steps of one. This test found a stall: a finished
+    conversation was charged a step on every resume, so a budget of one
+    never moved on. Fixed.
+- **An upgrade, run once by hand:** fuzznetd built at 9f3448e (sec 794,
+  no index) wrote two attachments sixty days back, one catalogued, using
+  live_trim's own helpers. This build then started on that store and
+  logged `2 file(s) held before the record of holds began` and `the lines
+  kept before are told: 2 file(s) now held by their lines alone`. Under
+  `prune attachments age 1d` the trim counted (1, 1, 2, 1, 0): the
+  uncatalogued file was removed and the catalogued one kept. Not kept as
+  a live test, since it needs the old binary.
+- **live_trim** passes unchanged; its trim now waits for the walk, which
+  finds nothing in its first round.
+- **Sabotage:** four entries, for the month order, the LEGACY release, the
+  retell budget and the walk passing a finished conversation. The trim's
+  wait for the walk has no probe: no test can see it.

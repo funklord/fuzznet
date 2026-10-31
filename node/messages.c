@@ -291,6 +291,58 @@ static int conversations_listed(fzn_node_messages_t *nm, size_t *n)
 	       == FZN_BUCKETS_OK;
 }
 
+fzn_messages_err_t fzn_node_messages_retell(fzn_node_messages_t *nm,
+                                            fzn_node_messages_retelling_t *r, size_t budget,
+                                            void (*each)(void *ctx,
+                                                         const uint8_t contact[FZN_PUBKEY_LEN],
+                                                         uint8_t direction,
+                                                         const uint8_t id[FZN_MESSAGE_ID_LEN],
+                                                         uint32_t epoch, const uint8_t *text,
+                                                         size_t len),
+                                            void *ctx, int *done)
+{
+	size_t n = 0, b;
+	fzn_messages_err_t err;
+	int more = 0;
+
+	if (done)
+		*done = 0;
+	if (!nm || !r || !each || !done || budget == 0u)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	if (!conversations_listed(nm, &n))
+		return FZN_MESSAGES_ERR_BACKEND;
+	for (b = 0; b < n && budget; b++) {
+		const uint8_t *contact = buckets[b].subject;
+		uint64_t from;
+		int c = r->begun ? memcmp(contact, r->contact, FZN_PUBKEY_LEN) : 1;
+
+		/* BEHIND THE WALK, or this conversation's months after its first. */
+		if (c < 0 || (b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0))
+			continue;
+		if (c > 0) {
+			memcpy(r->contact, contact, FZN_PUBKEY_LEN);
+			r->at = 0;
+			r->begun = 1;
+		}
+		/* ENDED ALREADY, a step ago: passed at no cost. */
+		if (r->at == UINT64_MAX)
+			continue;
+		from = r->at;
+		err = fzn_messages_retell(&nm->m, contact, &r->at, budget, each, ctx, &more);
+		if (err != FZN_MESSAGES_OK)
+			return err;
+		if (more)
+			return FZN_MESSAGES_OK;
+		/* PAST THIS ONE, whose place is now its end: a step costs what it
+		 * looked at, and at least one for the conversation. */
+		budget -= r->at - from < budget ? (size_t)(r->at - from) : budget;
+		budget -= budget ? 1u : 0u;
+		r->at = UINT64_MAX;
+	}
+	*done = b == n;
+	return FZN_MESSAGES_OK;
+}
+
 fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
                                              int (*stands)(void *ctx,
                                                            const uint8_t contact[FZN_PUBKEY_LEN]),

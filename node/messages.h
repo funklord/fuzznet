@@ -239,6 +239,28 @@ fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
                                                             const uint8_t contact[FZN_PUBKEY_LEN]),
                                              void *ctx, size_t *marked);
 
+/* EVERY CONVERSATION'S LINES TOLD AGAIN, sec 796, in steps: each
+ * conversation found by its buckets, ascending by contact, its lines
+ * walked by `fzn_messages_retell` and handed to `each`. A walk zeroed to
+ * begin; each call looks at about `budget` lines, and `*done` is 1 once
+ * every conversation has been walked. A conversation begun between steps
+ * is reached in its place; one begun behind the walk was told as it came. */
+typedef struct fzn_node_messages_retelling {
+	uint8_t contact[FZN_PUBKEY_LEN];
+	uint64_t at;
+	int begun;
+} fzn_node_messages_retelling_t;
+
+fzn_messages_err_t fzn_node_messages_retell(fzn_node_messages_t *nm,
+                                            fzn_node_messages_retelling_t *r, size_t budget,
+                                            void (*each)(void *ctx,
+                                                         const uint8_t contact[FZN_PUBKEY_LEN],
+                                                         uint8_t direction,
+                                                         const uint8_t id[FZN_MESSAGE_ID_LEN],
+                                                         uint32_t epoch, const uint8_t *text,
+                                                         size_t len),
+                                            void *ctx, int *done);
+
 /* PAST A GAP: `device`'s stream moved up to `to` under a peer's base
  * (sec 552), so its cursor is moved there too, never back. */
 void fzn_node_messages_skip(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN],

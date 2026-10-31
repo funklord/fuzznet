@@ -332,6 +332,42 @@ static void test_each_all_and_a_default(void)
 	      "x's own rule keeps its August; y's August is its newest and stays");
 }
 
+/* sec 796: the lines kept before the index, told once. */
+static void test_the_lines_kept_before_are_told(void)
+{
+	fzn_retain_rule_t r = rule("prune attachments size 15");
+	uint8_t legacy[32], root[32], unnamed[32];
+	size_t released = 9;
+	uint64_t count = 0;
+	int added = 0;
+
+	fresh();
+	memset(legacy, 0, sizeof(legacy));
+	memset(root, 0x01, sizeof(root));
+	memset(unnamed, 0x09, sizeof(unnamed));
+	/* Two files held when the record began, one named by a line kept. */
+	CHECK(fzn_file_hold_claim(&H, root, FZN_FILE_HOLD_LEGACY, legacy, &added)
+	              && fzn_file_hold_claim(&H, unnamed, FZN_FILE_HOLD_LEGACY, legacy, &added)
+	              && !fzn_attachments_backfilled(&A),
+	      "fixture: two files from before the record, nothing told");
+	/* October's line taken as it came, then the older ones told. */
+	CHECK(take(0xc1, 3, 681u, 0x03, 10u, &added) && take(0xc1, 1, 679u, 0x01, 10u, &added)
+	              && take(0xc1, 2, 680u, 0x02, 10u, &added),
+	      "fixture: October noted first, August and September told after");
+	CHECK(fzn_attachments_backfill_end(&A, &released) && released == 1u
+	              && fzn_attachments_backfilled(&A)
+	              && !fzn_file_hold_has(&H, root, FZN_FILE_HOLD_LEGACY, legacy)
+	              && fzn_file_hold_count(&H, root, &count) && count == 1u,
+	      "ended: the file a line names is held by that line alone");
+	CHECK(fzn_file_hold_has(&H, unnamed, FZN_FILE_HOLD_LEGACY, legacy),
+	      "a file no line names keeps its hold from before");
+	CHECK(fzn_attachments_backfill_end(&A, &released) && released == 0u,
+	      "ended again: nothing more to let go");
+	CHECK(trim(&r, 1u) && tally.months == 1u && was_removed(0x01) && !was_removed(0x02)
+	              && !was_removed(0x03),
+	      "weighed by the month, not the order noted: August goes, September stays");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -355,6 +391,7 @@ int main(void)
 	test_a_file_held_otherwise_stays();
 	test_a_removal_that_cannot_run_waits();
 	test_each_all_and_a_default();
+	test_the_lines_kept_before_are_told();
 	test_the_suite_can_tell_pass_from_fail();
 	printf("attachments_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

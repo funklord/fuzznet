@@ -2321,6 +2321,43 @@ fzn_messages_err_t fzn_messages_owed(const fzn_messages_t *m,
 	return FZN_MESSAGES_OK;
 }
 
+fzn_messages_err_t fzn_messages_retell(const fzn_messages_t *m,
+                                       const uint8_t contact[FZN_PUBKEY_LEN], uint64_t *at,
+                                       size_t budget,
+                                       void (*each)(void *ctx,
+                                                    const uint8_t contact[FZN_PUBKEY_LEN],
+                                                    uint8_t direction,
+                                                    const uint8_t id[FZN_MESSAGE_ID_LEN],
+                                                    uint32_t epoch, const uint8_t *text,
+                                                    size_t len),
+                                       void *ctx, int *more)
+{
+	static uint8_t buf[STORED_MAX];
+	uint64_t n, i;
+	stored_t s;
+	entry_t e;
+
+	if (!ready(m) || !contact || !at || !each || !more || budget == 0u)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	*more = 0;
+	n = count_of(m, contact);
+	for (i = *at; i < n; i++) {
+		if (budget-- == 0u) {
+			*more = 1;
+			break;
+		}
+		/* A ROW THAT WILL NOT READ, or a shell, has nothing to tell. */
+		if (!index_entry(m, contact, i, &e) || entry_repeats(m, contact, i, &e)
+		    || !stored_load(m, e.device, e.seq, buf, &s)
+		    || memcmp(s.contact, contact, FZN_PUBKEY_LEN) != 0 || !s.opened || !s.text
+		    || !s.text_len)
+			continue;
+		each(ctx, s.contact, s.direction, s.id, s.epoch, s.text, s.text_len);
+	}
+	*at = i > *at ? i : *at;
+	return FZN_MESSAGES_OK;
+}
+
 int fzn_messages_last_marked(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                              const uint8_t device[FZN_PUBKEY_LEN], uint8_t direction,
                              uint64_t *place)

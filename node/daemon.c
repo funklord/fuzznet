@@ -4945,6 +4945,7 @@ static int messages_trim_unfinished;
 
 #if defined(FZN_SPOOL_FILE_ON)
 static void attachments_trim(const fzn_retain_rule_t *gathered, size_t n_gathered);
+static int attachments_backfill(void);
 #endif
 
 static void messages_trim(uint64_t now)
@@ -4957,6 +4958,11 @@ static void messages_trim(uint64_t now)
 
 	if (now < next_trim && next_trim <= now + FZND_TRIM_EVERY)
 		return;
+#if defined(FZN_SPOOL_FILE_ON)
+	/* NOT UNTIL THE LINES KEPT BEFORE ARE TOLD, sec 796. */
+	if (!attachments_backfill())
+		return;
+#endif
 	next_trim = now + FZND_TRIM_EVERY;
 	gathered = gather_rules(rules);
 #if defined(FZN_SPOOL_FILE_ON)
@@ -8607,21 +8613,30 @@ static void sticker_seen(void *ctx, const uint8_t *contact, uint8_t direction,
  * side may fetch it, as a sticker's pack is. Come IN, it is not fetched:
  * a file can be a gigabyte, and the client asks first, by the size the
  * reference claims, then fetches by the whole reference. */
+/* NOTED IN ITS CONVERSATION, in or out, and its file held by the line,
+ * so the attachment rules can let it go: sec 795. 1 for an attachment. */
+static int attachment_note(const uint8_t *contact, uint8_t direction, const uint8_t *id,
+                           uint32_t epoch, const uint8_t *text, size_t len, fzn_attachment_t *a)
+{
+	int added = 0;
+
+	if (!fzn_attachment_parse((const char *)text, len, a))
+		return 0;
+	if (node_attachments.store
+	    && !fzn_attachments_take(&node_attachments, contact, direction, id, epoch, a, &added))
+		say(FZN_ENTRY_WARNING, "messages", "an attachment of %02x%02x%02x%02x was not noted",
+		    contact[0], contact[1], contact[2], contact[3]);
+	return 1;
+}
+
 static void attachment_seen(const uint8_t *contact, uint8_t direction, const uint8_t *id,
                             uint32_t epoch, const uint8_t *text, size_t len)
 {
 	fzn_attachment_t a;
 	uint64_t held = 0;
-	int added = 0;
 
-	if (!fzn_attachment_parse((const char *)text, len, &a))
+	if (!attachment_note(contact, direction, id, epoch, text, len, &a))
 		return;
-	/* NOTED IN ITS CONVERSATION, in or out, and its file held by the line,
-	 * so the attachment rules can let it go: sec 795. */
-	if (node_attachments.store
-	    && !fzn_attachments_take(&node_attachments, contact, direction, id, epoch, &a, &added))
-		say(FZN_ENTRY_WARNING, "messages", "an attachment of %02x%02x%02x%02x was not noted",
-		    contact[0], contact[1], contact[2], contact[3]);
 	if (!files_on || direction != FZN_MESSAGE_OUT
 	    || fzn_node_files_held(&files, a.root, &held) != FZN_NODE_FILES_OK
 	    || fzn_node_files_share(&files, a.root, contact, 1, wall_ms()) != FZN_NODE_FILES_OK)
@@ -8638,6 +8653,53 @@ static void text_seen(void *ctx, const uint8_t *contact, uint8_t direction, cons
 {
 	sticker_seen(ctx, contact, direction, text, len);
 	attachment_seen(contact, direction, id, epoch, text, len);
+}
+
+/* THE LINES KEPT BEFORE THE INDEX OF ATTACHMENTS, sec 796: each line
+ * kept is told again, once, in steps of FZND_RETELL_STEP lines a messages
+ * round, and an attachment's line is noted -- only noted: a sticker's pack
+ * is not wanted again, nor an old file granted again. When every
+ * conversation is walked, each file a line holds lets go of its hold from
+ * before the record, so the rules reach it. Until then neither trim runs:
+ * a month's text let go before it is told would leave its file held from
+ * before for good, and a file two lines sent may be noted for one alone. */
+#define FZND_RETELL_STEP 16384u
+
+static void attachment_retold(void *ctx, const uint8_t *contact, uint8_t direction,
+                              const uint8_t *id, uint32_t epoch, const uint8_t *text, size_t len)
+{
+	fzn_attachment_t a;
+
+	(void)ctx;
+	(void)attachment_note(contact, direction, id, epoch, text, len, &a);
+}
+
+/* 1 once the lines kept before are told, or when there is nothing to tell. */
+static int attachments_backfill(void)
+{
+	static fzn_node_messages_retelling_t r;
+	size_t released = 0;
+	int done = 0;
+
+	if (!node_attachments.store || !messages_on || fzn_attachments_backfilled(&node_attachments))
+		return 1;
+	if (fzn_node_messages_retell(&node_messages, &r, FZND_RETELL_STEP, attachment_retold, NULL,
+	                             &done)
+	    != FZN_MESSAGES_OK) {
+		say(FZN_ENTRY_WARNING, "messages", "the lines kept before were not told; again next round");
+		memset(&r, 0, sizeof(r));
+		return 0;
+	}
+	if (!done)
+		return 0;
+	if (!fzn_attachments_backfill_end(&node_attachments, &released)) {
+		say(FZN_ENTRY_WARNING, "messages", "the attachments kept before were not ended; again next round");
+		memset(&r, 0, sizeof(r));
+		return 0;
+	}
+	say(FZN_ENTRY_INFO, "messages",
+	    "the lines kept before are told: %zu file(s) now held by their lines alone", released);
+	return 1;
 }
 
 /* EVERY FILE HELD WHEN THE RECORD BEGINS, held as LEGACY, once, sec 795:
