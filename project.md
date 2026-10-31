@@ -75481,9 +75481,12 @@ in records, a grant past the line falls.
 - **`live_contacts` phase e:** R's vote against R2 draws a line at R2's
   head, and S takes entries of R2's act log from R. The whole script
   passed.
-- **Five sabotage entries**: unknown stands (lenient), records only
-  (strict), the issuer checked, and the held cut live and lined. One
-  older entry re-anchored: contact-devices-list-says-room.
+- **Four sabotage entries, each probed caught**: unknown stands
+  (lenient), records only (strict), the issuer checked, and the held cut
+  lined. One older entry re-anchored, contact-devices-list-says-room, and
+  caught. A fifth, the held cut live, **survived**: a withdrawal carries
+  no line (`fzn_revocation_open` refuses one that does), so the line test
+  already excluded it. The redundant check is gone.
 
 **Not measured live: a device falling by the log.** It would take a
 device a member granted after its line that still reaches the contact,

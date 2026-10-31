@@ -11121,13 +11121,6 @@ SABOTAGES = [
 		"another key's record is kept as the cut key's act -- sec 783",
 	),
 	(
-		"estate-cut-held-live-only",
-		'node/revoke.c',
-		"\tif (kind == ESTATE_VOTE && fzn_revocation_open(record, len, &rec) == FZN_CHAIN_OK\n\t    && !fzn_revocation_is_withdrawal(rec)\n",
-		"\tif (kind == ESTATE_VOTE && fzn_revocation_open(record, len, &rec) == FZN_CHAIN_OK\n",
-		"a withdrawn vote still lets a contact read the key's act log -- sec 783",
-	),
-	(
 		"estate-cut-held-lined-only",
 		'node/revoke.c',
 		"\t    && memcmp(fzn_revocation_grantee(rec), h->key, FZN_PUBKEY_LEN) == 0\n\t    && memcmp(fzn_revocation_cut(rec), NOTHING, sizeof(NOTHING)) != 0)\n",

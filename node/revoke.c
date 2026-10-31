@@ -708,8 +708,9 @@ static int held_cut_listed(void *ctx, uint8_t kind, const uint8_t *record, size_
 	(void)hops;
 	(void)hop_count;
 	(void)issued;
+	/* A WITHDRAWAL IS NEVER ONE: it carries no line, `fzn_revocation_open`
+	 * refusing one that does, so the line's test below excludes it. */
 	if (kind == ESTATE_VOTE && fzn_revocation_open(record, len, &rec) == FZN_CHAIN_OK
-	    && !fzn_revocation_is_withdrawal(rec)
 	    && memcmp(fzn_revocation_grantee(rec), h->key, FZN_PUBKEY_LEN) == 0
 	    && memcmp(fzn_revocation_cut(rec), NOTHING, sizeof(NOTHING)) != 0)
 		h->held = 1;
