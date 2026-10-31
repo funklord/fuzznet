@@ -1214,8 +1214,10 @@ static void test_a_contacts_act_log(void)
 		(void)fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &r[i]);
 	CHECK(judged(&d, NULL) == 0, "a device granted before its grantor's line fell");
 
-	/* THE FIRST ACT ONLY AS A SPINE ENTRY, the host's word: unknown, so the
-	 * device stands although the grant is past the line. */
+	/* THE FIRST ACT ONLY AS A SPINE ENTRY, the host's word, as a journal
+	 * whose window let it go answers it: the grant's own record names the
+	 * line under its signature, so the grant is shown past it from above,
+	 * and the device falls (sec 801). */
 	memset(rows, 0, sizeof(rows));
 	revoked_by(rec, owner, &member, other, 302u, id[0]);
 	CHECK(fzn_revocation_store_init(&rs, e, 4u) == FZN_CHAIN_OK
@@ -1234,8 +1236,67 @@ static void test_a_contacts_act_log(void)
 	                         == FZN_CONTACT_DEVICE_OK
 	              && fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &r[2])
 	                         == FZN_CONTACT_DEVICE_OK
-	              && judged(&d, NULL) == 0,
-	      "a device fell on a log whose line is only a host's spine entry");
+	              && judged(&d, NULL) == 1,
+	      "a grant whose record names the line, the line only a spine entry, stood");
+	/* THE GRANT ITSELF ONLY AS A SPINE ENTRY: nothing signed shows where it
+	 * lies, so it stands. */
+	memset(rows, 0, sizeof(rows));
+	revoked_by(rec, owner, &member, other, 303u, id[0]);
+	CHECK(fzn_revocation_store_init(&rs, e, 4u) == FZN_CHAIN_OK
+	              && fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN, &HASH)
+	                         == FZN_CONTACT_DEVICE_OK,
+	      "fixture: the line at the first act once more");
+	{
+		fzn_contact_act_t grant_spine;
+
+		memset(&grant_spine, 0, sizeof(grant_spine));
+		grant_spine.spine = 1;
+		grant_spine.len = FZN_CONTACT_ACT_SPINE_LEN;
+		memcpy(grant_spine.bytes, id[1], 32u);
+		memcpy(grant_spine.bytes + 32, id[0], 32u);
+		memcpy(grant_spine.bytes + 64, grant, 32u);
+		CHECK(fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &spine)
+		                      == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u,
+		                                      &grant_spine)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &r[2])
+		                         == FZN_CONTACT_DEVICE_OK
+		              && judged(&d, NULL) == 0,
+		      "a device fell on a grant held only as a host's spine entry");
+	}
+	/* A SPINE ENTRY BETWEEN THE GRANT AND THE LINE: the line at the first
+	 * act, the grant third, the second only the host's word -- not shown. */
+	{
+		fzn_contact_act_t mid_spine, late_grant;
+		uint8_t late_id[32], s2[32];
+
+		memset(s2, 0xa2, sizeof(s2));
+		act_record(&late_grant, late_id, other, 3u, id[1], grant, 1u);
+		memset(rows, 0, sizeof(rows));
+		revoked_by(rec, owner, &member, other, 304u, id[0]);
+		CHECK(fzn_revocation_store_init(&rs, e, 4u) == FZN_CHAIN_OK
+		              && fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN,
+		                                             &HASH)
+		                         == FZN_CONTACT_DEVICE_OK,
+		      "fixture: the line at the first act, for a grant third");
+		memset(&mid_spine, 0, sizeof(mid_spine));
+		mid_spine.spine = 1;
+		mid_spine.len = FZN_CONTACT_ACT_SPINE_LEN;
+		memcpy(mid_spine.bytes, id[1], 32u);
+		memcpy(mid_spine.bytes + 32, id[0], 32u);
+		memcpy(mid_spine.bytes + 64, s2, 32u);
+		CHECK(fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u, &spine)
+		                      == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u,
+		                                      &mid_spine)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && fzn_contact_act_keep(&STORE, &HASH, &SIGN, owner, other, 1u,
+		                                      &late_grant)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && judged(&d, NULL) == 0,
+		      "a device fell with a host's spine entry between its grant and the line");
+	}
 
 	/* A REMOVED ROOT, sec 783: R2 adds and is removed with a line at its
 	 * vote against the phone. The vote counts when R2's log shows it at or

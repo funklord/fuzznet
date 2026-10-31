@@ -11102,8 +11102,8 @@ SABOTAGES = [
 	(
 		"contact-act-lenient-unknown-stands",
 		'node/contact_devices.c',
-		"\treturn estate_act_walk(ctx, key, cut, act, &unverified) != 0;",
-		"\treturn estate_act_walk(ctx, key, cut, act, &unverified) == 1;",
+		"\treturn below != 0;\n}",
+		"\treturn below == 1;\n}",
 		"a revoked key's grant falls on a host's spine entry, and a device its estate keeps is dropped -- sec 783",
 	),
 	(
@@ -11343,6 +11343,20 @@ SABOTAGES = [
 		'\t\tif (err != FZN_CONTACT_DEVICE_ERR_ROOM)\n\t\t\tbreak;\n\t\tif (n > SIZE_MAX / 2u / FZN_PUBKEY_LEN)',
 		'\t\tbreak;\n\t\tif (n > SIZE_MAX / 2u / FZN_PUBKEY_LEN)',
 		"past a fixed room of cut keys the same first are asked every round, and the rest never -- sec 800",
+	),
+	(
+		"contact-act-shown-past-from-above",
+		'node/contact_devices.c',
+		'\tif (estate_act_above(ctx, key, cut, act))\n\t\treturn 0;',
+		'\tif (0)\n\t\treturn 0;',
+		"a grant past an old line stands once the window let the line's act go -- sec 801",
+	),
+	(
+		"contact-act-above-records-only",
+		'node/contact_devices.c',
+		'\t\tfor (steps = 0; cur && cur->verified && steps <= e->n_acts; steps++) {',
+		'\t\tfor (steps = 0; cur && steps <= e->n_acts; steps++) {',
+		"a host's unsigned spine entry places a grant past its line, and a device its estate keeps falls -- sec 801",
 	),
 	(
 		'node-asks-its-own-resend',

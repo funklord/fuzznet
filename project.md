@@ -75527,8 +75527,9 @@ contact's hosts from. The unit checks carry the judgment.
 **Not yet:**
 - ~~past sixteen cut keys a contact's rest are asked in later rounds~~
   -- they never were; fixed by sec 800;
-- a host whose journal let a key's early acts go answers them as spine
-  entries, so a grant past a line that old is kept here (unknown).
+- ~~a host whose journal let a key's early acts go answers them as spine
+  entries, so a grant past a line that old is kept here (unknown)~~ --
+  fixed by sec 801 wherever the grant's own record is held.
 
 ## 784. A group's host its owner revoked, neither paired nor asked, 2026-10-31
 
@@ -76467,3 +76468,51 @@ applies: no fixed table sizes for what a user's estate can grow.
 - **`live_contacts`** passed with this fuzznetd; its phase e asks
   R2's act log through the new list and checks entries were taken.
 - **Sabotage:** one entry, the list not grown, caught by that test.
+
+## 801. A grant shown past an old line from above, 2026-11-01
+
+**Asked by the holder, 2026-11-01:** fix sec 783's last open item, old
+acts known only as spine entries.
+
+**The fault.** A revoked key's act stands here unless shown not to (the
+lenient reader, sec 783). The only proof was a walk down from the line
+that reached the key's first act through records alone, without
+finding the act. A journal's window lets a key's oldest acts go, and
+its host then answers them as spine entries: three hashes, unsigned. So
+once a line was older than the window, every grant past it was
+unknown, and the device was kept.
+
+**Now the proof can come from above** (`estate_act_above`). Take a
+record of the key's whose subject is the act, then walk down from it
+through records alone, each naming the one before under the key's
+signature, until one names the line. That shows the act was built on
+the line, so it lies past it. This needs only the acts newer than the
+line, which the window keeps. A host cannot forge it, since every link
+is signed by the key.
+
+The order stays: an act found at or below the line stands first, so
+an act repeated on both sides keeps its earlier standing. Then shown
+past from above, or absent from a log held whole in records, it falls.
+Anything else is unknown and stands.
+
+The strict reader, for a removed root's vote, is unchanged: it counts
+only when shown at or below the line through records.
+
+**Still unknown, and it must be:** a grant that is itself past the
+window, or a spine entry between the grant and the line. Nothing
+signed shows where the grant lies, and the device stands.
+
+### Measured for sec 801
+
+- **`contact_devices_test`, 129 checks:**
+  - **Changed:** with the line only a spine entry, the grant's record
+    naming it now drops the device. Sec 783's check expected it kept.
+  - **New:** a grant held only as a spine entry stands, and so does one
+    with a spine entry between it and the line.
+- **Control**, made by hand: with the proof from above off, the changed
+  check fails.
+- **`live_contacts`** passed. As sec 783 says, a device falling by the
+  log cannot be set up live, so the unit checks carry the judgment.
+- **Sabotage:** two entries, the proof used at all and records only on
+  its path. Sec 783's "unknown stands" entry is re-anchored on the new
+  return; the first style run caught it stale.

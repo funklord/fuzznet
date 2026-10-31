@@ -1831,14 +1831,52 @@ static int estate_act_walk(const fzn_contact_estate_t *e, const uint8_t key[FZN_
 	return -1;
 }
 
-/* A REVOKED KEY'S ACT STANDS unless shown not to: what it granted is kept. */
+/* `act` SHOWN PAST `cut` FROM ABOVE, sec 801: a record of `key`'s whose
+ * subject is `act`, and from it down to the line nothing but records, each
+ * naming the one before under its signature. That takes only the acts newer
+ * than the line, which a journal's window keeps, where the walk down from
+ * the line needs the key's oldest, which the window lets go as spine
+ * entries. A host cannot forge it: every link is the key's own signature.
+ * 1 shown; 0 not -- a spine entry on the way, a gap, or no such record. */
+static int estate_act_above(const fzn_contact_estate_t *e, const uint8_t key[FZN_PUBKEY_LEN],
+                            const uint8_t cut[32], const uint8_t act[32])
+{
+	static const uint8_t NOTHING[32] = { 0 };
+	size_t i, steps;
+
+	for (i = 0; i < e->n_acts; i++) {
+		const struct estate_act *cur = &e->acts[i];
+
+		if (!cur->verified || memcmp(cur->key, key, FZN_PUBKEY_LEN) != 0
+		    || memcmp(cur->subject, act, 32u) != 0)
+			continue;
+		for (steps = 0; cur && cur->verified && steps <= e->n_acts; steps++) {
+			/* AT THE LINE is not past it. */
+			if (memcmp(cur->id, cut, 32u) == 0 || memcmp(cur->prev, NOTHING, 32u) == 0)
+				break;
+			if (memcmp(cur->prev, cut, 32u) == 0)
+				return 1;
+			cur = estate_act_find(e, key, cur->prev);
+		}
+	}
+	return 0;
+}
+
+/* A REVOKED KEY'S ACT STANDS unless shown not to: what it granted is kept.
+ * Found at or below the line, it stands; shown past it from above (sec
+ * 801), or absent from a log held whole in records, it does not; unknown
+ * stands. */
 static int lenient_stands(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
                           const uint8_t cut[FZN_REVOCATION_ID_LEN],
                           const uint8_t act[FZN_REVOCATION_ID_LEN])
 {
-	int unverified;
+	int unverified, below = estate_act_walk(ctx, key, cut, act, &unverified);
 
-	return estate_act_walk(ctx, key, cut, act, &unverified) != 0;
+	if (below == 1)
+		return 1;
+	if (estate_act_above(ctx, key, cut, act))
+		return 0;
+	return below != 0;
 }
 
 /* A REMOVED ROOT'S ACT COUNTS only when shown to, through records alone. */
