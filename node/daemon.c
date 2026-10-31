@@ -7422,10 +7422,16 @@ static void load_contact_targets(void)
 /* How many lines one settle pass weighs. */
 #define FZND_SETTLE_MAX 16u
 
+static int device_gone(const uint8_t key[FZN_PUBKEY_LEN], uint64_t now_us, uint64_t gone_us);
+
 /* LINES SETTLED, sec 615, each round: every contact's line this node filed
  * and has not marked settled, asked of each other member of the estate --
  * through the pull target paired to it, a member with none never answering
- * -- and marked once every one holds it or keeps none of that conversation. */
+ * -- and marked once every one holds it or keeps none of that conversation.
+ * A MEMBER GONE (sec 802) is not waited for: one never reached held every
+ * line unsettled for ever, and a device gone silent past `archive/gone` is
+ * judged gone for a line's writer already (sec 616). It takes the line from
+ * the other devices if it comes back, as every device takes lines. */
 static void settle_lines(struct pull_target *pulls, size_t npulls)
 {
 	static struct key_room keys_room;
@@ -7435,7 +7441,9 @@ static void settle_lines(struct pull_target *pulls, size_t npulls)
 	struct peer_asking *asking;
 	fzn_node_messages_settlement_t t;
 	fzn_messages_err_t err;
-	size_t n = 0, m = 0, i, k;
+	uint64_t now_us = wall_ms() * 1000u;
+	uint64_t gone_us = (uint64_t)fzn_node_settings_gone_s(&node_settings) * 1000000u;
+	size_t n = 0, m = 0, gone = 0, i, k;
 
 	if (!messages_on || !contact_id || !node_apply.store
 	    || siblings_list(&keys_room, &keys, &n, 0u)
@@ -7455,6 +7463,10 @@ static void settle_lines(struct pull_target *pulls, size_t npulls)
 		if (memcmp(keys[i], contact_id->pubkey, FZN_PUBKEY_LEN) == 0
 		    || fzn_node_apply_rank(&node_apply, keys[i], FZN_SCOPE_HOST, keys[i], &rank) != 1)
 			continue;
+		if (device_gone(keys[i], now_us, gone_us)) {
+			gone++;
+			continue;
+		}
 		members[m].key = keys[i];
 		members[m].ask = NULL;
 		members[m].ctx = NULL;
@@ -7475,15 +7487,19 @@ static void settle_lines(struct pull_target *pulls, size_t npulls)
 		say(FZN_ENTRY_WARNING, "messages/settle", "settling: %s", fzn_messages_err_str(err));
 	else if (t.weighed)
 		say(FZN_ENTRY_INFO, "messages/settle",
-		    "%zu line(s) weighed over %zu member(s): %zu settled, %zu waiting", t.weighed, m,
-		    t.settled, t.waiting);
+		    "%zu line(s) weighed over %zu member(s), %zu gone not waited for: %zu settled, %zu "
+		    "waiting",
+		    t.weighed, m, gone, t.settled, t.waiting);
 	free(members);
 	free(asking);
 }
 
 /* WHETHER `key`, A DEVICE OF THIS USER, IS GONE, sec 616: no longer a
  * member, or heard from last longer ago than `archive/gone` (sec 601). A
- * member never heard here is not judged gone: this node cannot tell. */
+ * MEMBER NEVER HEARD is heard now (sec 802), so its silence is counted from
+ * the first time this node asked, as a piece's keeper's is (sec 601): it
+ * was never judged gone at all, and a line its writer wrote, or a line it
+ * was to hold, waited until it left the estate. */
 static int device_gone(const uint8_t key[FZN_PUBKEY_LEN], uint64_t now_us, uint64_t gone_us)
 {
 	fzn_setting_rank_t rank;
@@ -7491,7 +7507,11 @@ static int device_gone(const uint8_t key[FZN_PUBKEY_LEN], uint64_t now_us, uint6
 
 	if (fzn_node_apply_rank(&node_apply, key, FZN_SCOPE_HOST, key, &rank) != 1)
 		return 1;
-	return fzn_heard_when(node_apply.store, key, &at) == FZN_HEARD_OK && at + gone_us < now_us;
+	if (fzn_heard_when(node_apply.store, key, &at) != FZN_HEARD_OK) {
+		(void)fzn_heard_mark(node_apply.store, key, now_us);
+		return 0;
+	}
+	return at + gone_us < now_us;
 }
 
 /* A DEVICE'S CLAIM ON A LINE, for choosing who takes it over: the hash of

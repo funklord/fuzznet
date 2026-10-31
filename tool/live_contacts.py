@@ -33,7 +33,10 @@ and S's estate advertises.
        S, given R's records and k, keeps R3; once R sets k to 1, R drops it
        and so does S, on a vote R never signed (sec 781); and S2, with R
        down, drops it by the estate rows S passes on (sec 782), though R2,
-       down while R set k, answers its old k of 2 (sec 799)
+       down while R set k, answers its old k of 2 (sec 799). Before the
+       vote, S writes to R, and R settles the line without waiting for R3,
+       a member it knows and never hears, once R3 is silent past R's
+       `archive/gone` from R's first asking (secs 615, 616, 802)
 
 Against a daemon that carries no contact devices, R2 has no host to offer
 to and phase a waits in vain; against one that files under the sending
@@ -75,6 +78,7 @@ LINE_2 = "42" * 16
 LINE_3 = "43" * 16
 LINE_4 = "44" * 16
 LINE_5 = "45" * 16
+LINE_6 = "46" * 16
 PREKEY_HOST = slice(4, 68)
 
 
@@ -424,6 +428,7 @@ def main(argv):
 				raise failed("e: S's estate holds %r once R withdrew%s" % (filed, said(r2, s)))
 			print("livecheck: e: R withdrew, and R2's next line was delivered")
 
+
 			# f: an admin's vote (sec 781). R3, paired to R at the start and down
 			# until now, offers itself to S; R makes R2 an admin, and R2 votes R3
 			# revoked. Whether one admin's vote is R's estate's decision is R's
@@ -449,6 +454,33 @@ def main(argv):
 				time.sleep(1.0)
 			else:
 				raise failed("f: S2 never listed R3 among R's devices: %r" % listed)
+			# f0: SETTLEMENT PAST A MEMBER NEVER HEARD (sec 802). R3 is up and
+			# pulls from R, but has no address, so R knows it as a member and
+			# never hears it. Before sec 802 such a member was never judged
+			# gone, and every line R filed waited on it for ever. Now R's first
+			# asking starts R3's silence, and past R's `archive/gone` of 3 s
+			# the line settles over R2 alone; R3 takes it from R as it pulls.
+			# WHICHEVER OF R's HOSTS S DELIVERS TO files the line and settles it.
+			expect(socks["s"], "s", "add message rory out %s to%%20r" % LINE_6, "ok")
+			settled_re = re.compile(r"\d+ line\(s\) weighed over \d+ member\(s\), [1-9]\d* gone "
+			                        r"not waited for: [1-9]\d* settled")
+			until = time.monotonic() + 150.0
+			filer = None
+			while filer is None and time.monotonic() < until:
+				for who in ("r", "r2"):
+					if settled_re.search(started[who].log()):
+						filer = who
+						break
+				else:
+					time.sleep(1.0)
+			if filer is None:
+				raise failed("f0: neither R nor R2 settled S's line without R3%s"
+				             % said(started["r"], started["r2"]))
+			held = lines(socks[filer], filer, keys["s"]).get(LINE_6, ("", "", ""))
+			if held[0] != "in" or held[1] != "settled":
+				raise failed("f0: %s holds S's line as %r" % (filer.upper(), held))
+			print("livecheck: f0: %s settled S's line, R3 known, never heard and judged gone"
+			      % filer.upper())
 			# DOWN FROM HERE TO THE PHASE'S END, so the only way R2's vote and
 			# R's new k can reach it is through S.
 			down("s2")

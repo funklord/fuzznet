@@ -63982,10 +63982,9 @@ sent is the round's cadence, as it was.
 
 ### Not yet after sec 615
 
-- **A member never reachable holds settlement up for ever.** That is the
-  definition -- every keeping device holds it -- and fuzzypickles' DECLINE
-  answers the device that does not keep; one that does keep and is never
-  reached has not got the line.
+- ~~**A member never reachable holds settlement up for ever.**~~ Sec 802:
+  a member judged gone, as sec 616 judges a line's writer, is not waited
+  for.
 - **A line whose records left the journal window** (60 days, sec 535)
   cannot have its item rebuilt and is not settled; settlement normally
   comes within rounds.
@@ -64066,9 +64065,9 @@ sec 607's rule.
 
 ### Not yet after sec 616
 
-- **A member never heard is never judged gone**, so a line whose writer
-  was only ever reached through another host waits until that writer is
-  removed from the estate.
+- ~~**A member never heard is never judged gone**~~ -- sec 802 counts its
+  silence from the first time this node asks, as sec 601 counts a piece
+  keeper's.
 - **Step 2 is otherwise complete.** Sec 608's step 3, pairing and identity
   verbs -- a contact card carrying the user's root and manifest seeds, in
   place of `grant share` and `add received` -- is next.
@@ -76516,3 +76515,55 @@ signed shows where the grant lies, and the device stands.
 - **Sabotage:** two entries, the proof used at all and records only on
   its path. Sec 783's "unknown stands" entry is re-anchored on the new
   return; the first style run caught it stale.
+
+## 802. A member never heard can be gone, and settlement waits for no gone member, 2026-11-01
+
+**Asked by the holder, 2026-11-01:** fix secs 615 and 616's open items.
+
+**The two were one fault.**
+- **Sec 616:** `device_gone` judged a member gone only from a heard row,
+  and a member this node never heard had none, so it was never gone. A
+  member is heard only when it answers a round, so one with no address
+  (one that pulls from this host and is never pulled from) never was.
+- **Sec 615:** settlement asked every member that keeps messages and
+  waited for each. One this host cannot reach never answered, so every
+  line it filed waited for ever.
+
+**Now:**
+- **A member never heard is heard now**, the first time `device_gone`
+  asks, so its silence is counted from then. This is sec 601's rule for
+  a piece's keeper, `move_gone`, which already worked this way. Past
+  `archive/gone` (14 days by default) it is gone: for taking over a
+  line it wrote (sec 616), and for settlement.
+- **Settlement leaves gone members out** (`settle_lines`). Its log line
+  now says how many: `N line(s) weighed over M member(s), G gone not
+  waited for: S settled, W waiting`.
+
+**Decided from the aims, not asked.** A member that pulls from this host
+but cannot be reached by it is judged gone for settlement once silent
+past `archive/gone`, even while it is alive.
+- **Settlement** is what this host can confirm. The member takes the
+  line itself as it pulls (bucket reconcile, secs 565-573).
+- **For a line it wrote,** a second device sending it is harmless, since
+  a line is filed by its id (sec 616).
+- **Not done:** counting a member's own requests, or its signed records
+  arriving, as heard. Both would keep such a member from being judged
+  gone, but then settlement would wait for it again, with no way to ask
+  it.
+
+### Measured for sec 802
+
+- **`live_contacts` phase f0, new:** R3 is up and pulls from R but has
+  no address, so R's estate knows it and never hears it. S writes to R,
+  and the R host that takes the line (R2 in the runs) first logs
+  `2 member(s), 0 gone ... 1 waiting`, then `1 member(s), 1 gone ... 1
+  settled` past R's `archive/gone` of 3 s. The line is settled there.
+  The whole script passed.
+- **Control:** a fuzznetd whose `device_gone` never marks a member it
+  never heard fails f0, with neither host settling the line.
+- **Building f0 found a wrong premise of mine:** R3, which had not run
+  since it joined, was not among R's members at all. The first version
+  of the phase ran before R3 had run, and its line settled with nobody
+  gone, which proved nothing. The phase now runs once R3 is up.
+- **No sabotage entry:** these lines are fuzznetd's, and only the live
+  tests reach them, which `make test` does not run.
