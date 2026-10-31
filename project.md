@@ -63221,8 +63221,9 @@ marked `not-delivered`, and the round pushes the mark at once.
   contact list no longer names it.
 - **Only a line still handed over**: one delivered, settled or already not
   delivered is left alone, and a received line never is.
-- A conversation's lines past `FZN_MESSAGES_WALK_MAX` (4096) are not
-  reached; the walk has no index to go deeper.
+- ~~A conversation's lines past `FZN_MESSAGES_WALK_MAX` (4096) are not
+  reached; the walk has no index to go deeper.~~ Every line is reached
+  since sec 788, from the conversation's owed floor.
 
 ### Measured for sec 607
 
@@ -63750,10 +63751,12 @@ round trip and nothing more.
 - **2c and 2d** as sec 610 has them: settlement, and the sweep's 60 s and
   hourly schedule. Today a line waiting is offered every round, 60 s.
   Settlement and its hourly re-offer are sec 615.
-- **The offer walks the conversation** to find lines being sent, at most
+- ~~**The offer walks the conversation** to find lines being sent, at most
   FZN_MESSAGES_WALK_MAX deep, as sec 607's give-up does. A conversation
   deeper than that with a line still waiting at the bottom never sends it;
-  an index of the lines being sent would end that, and waits for a case.
+  an index of the lines being sent would end that, and waits for a case.~~
+  Sec 788 walks every line still owed, however deep, from a floor kept
+  per conversation.
 - **Delivery needs the notes store**: the received shares it takes its
   pairings from are kept there. 2b-ii's pairings replace them.
 
@@ -66899,8 +66902,10 @@ out lines to its contacts not yet delivered, and those delivered and not
 settled, every conversation walked in the daemon. A group's lines are
 left out -- delivered once sealed and never settled (sec 629), they would
 never leave the count -- and a line handed over or given up is no longer
-this host's to owe. MORE 1 when a conversation ran past
-`FZN_MESSAGES_WALK_MAX`, the counts then floors.
+this host's to owe. ~~MORE 1 when a conversation ran past
+`FZN_MESSAGES_WALK_MAX`, the counts then floors.~~ MORE is always 0
+since sec 788, which walks every conversation whole; it stays in the
+reply so a client reading three numbers still reads three.
 
 **Tested** in `node/test/messages_test.c`: one line written is held, set
 delivered it is owed as delivered, settled it is owed no more, and the in
@@ -68533,8 +68538,9 @@ the holder where it is a decision:
   erring open.
 - **Sec 615 and 616:** a member never reached holds settlement up for
   ever, and a member never heard is never judged gone.
-- **Sec 613:** an offer walks at most `FZN_MESSAGES_WALK_MAX` deep, so a
-  line waiting deeper is never sent.
+- ~~**Sec 613:** an offer walks at most `FZN_MESSAGES_WALK_MAX` deep, so a
+  line waiting deeper is never sent.~~ Every owed line is reached since
+  sec 788.
 - **Sec 622:**
   - a relay's refusal is not read, so it costs a timeout;
   - the route keys on the message id;
@@ -72636,7 +72642,10 @@ and one past it. Most were already tested, and one was added.
   "a text past 512 bytes", and `delivery_fuzz` bends a delivery's length
   past it.
 - **A walk, `FZN_MESSAGES_WALK_MAX` (4096):** a page that far back is
-  refused as too deep rather than cut short. Only that side is tested.
+  refused as too deep rather than cut short. Delivery, give-up,
+  settlement and the owed count do not page since sec 788: a
+  conversation 4104 lines deep has its first line found
+  (`test_owed_past_the_deepest_page`).
 - **Strangers' requests, `FZN_CONTACT_REQUESTS_MAX` (4096):** kept to the
   bound, then the expired one let go, then the oldest
   (`contact_request_test`, `test_thousands`).
@@ -75632,3 +75641,80 @@ state, not only the two found.
   the comparison off, the identical save writes a new inode and the
   check fails.
 - One sabotage entry.
+
+## 788. Every line still owed is reached, however deep, 2026-10-31
+
+Sec 613 left it open, and the holder asked for it done. **Before:** four
+walks went down a conversation a page at a time, newest first, and
+stopped at `FZN_MESSAGES_WALK_MAX` (4096): delivery's offer (sec 613),
+the give-up (secs 607, 616), settlement (sec 615) and `get message
+owed` (sec 661). A conversation deeper than that with a line still
+waiting at the bottom never sent it, never gave it up and never settled
+it, and the owed count said only that it was a floor. The bound is the
+page's: a page dedupes by a list of what it has seen and counts its
+offset from the top each time, so going deeper costs a square.
+
+**Now `fzn_messages_owed`** (`messages/messages.c`) walks a
+conversation's index by place, oldest first, and hands out each line
+whose state is not done -- being sent, delivered and not settled,
+handed over, or filed and not settled. SETTLED and NOT_DELIVERED are
+done. It needs no seen list: the only entry an index holds twice is a
+crash part way through a shift (`index_append`), which leaves the two
+copies side by side, and the walk skips an entry equal to the one
+before it.
+
+**The owed floor** keeps the walk cheap. It is a number kept per
+conversation in slot FZN_PERSIST_MESSAGE_INDEX: a place below which
+every line is done. A walk from the beginning starts there, and raises
+it past each done line it meets before the first owed one, so a
+conversation whose old lines are all settled is read from its first
+owed line, and its done lines once rather than every round. Three
+things bring it down:
+- a line put in below it by `index_append`, which orders a line learned
+  late among the last 64 (sec 744);
+- a line owed again after it was done, as when a give-up races a
+  delivery marked later. `set_state` sends the floor back to the start,
+  which is rare;
+- a reindex, which clears it with the rest of the index.
+
+A row that will not read holds the floor where it is, since a trimmed
+line stays as a shell and a missing row is a fault that may clear.
+
+**The four walks use it.** Delivery steps by place, one line at a time,
+so a line marked during a delivery is passed by its place and not
+counted out of a page that has changed. It now offers oldest first,
+where it offered newest first; the host files a line by its writer's
+stamp (sec 725), so the order offered changes nothing it shows.
+`get message owed` still answers `ok HELD DELIVERED MORE`, MORE now
+always 0.
+
+**What it costs:** one state row per line above the floor, and the
+line's row for each owed one. A line never settled -- a member never
+reached (sec 615) -- keeps the floor below it, and every walk then reads
+each line above it, as a walk of the whole conversation would. That is
+the old cost without the old cut-off, and it ends when sec 615 does.
+
+**Measured** in `messages/test/messages_test.c`, 210 checks:
+- `test_what_is_owed`: five lines owed oldest first, two then three;
+  settled and given up passed over, delivered and handed over not; a
+  second walk reads six state rows, two for each of the three above the
+  floor (weighed, then listed) and none for the two below; a given-up
+  line marked delivered later is owed again; with every line done a walk
+  reads no state at all; a line written before the third and learned
+  last goes in its place and is owed.
+- `test_owed_past_the_deepest_page`: 4104 lines being sent, in a store
+  kept by hash on the heap (the test's own holds a few hundred rows). A
+  page cannot reach the first, and the walk finds all 4104, the first
+  first. Under a second.
+- **Controls**, each made by hand and each caught: the floor not lowered
+  for a line put in below it; not reset for a line owed again; never
+  raised (two checks); and the walk cut at `FZN_MESSAGES_WALK_MAX`.
+- `node/test/messages_test` unchanged at 180 checks: delivery, give-up,
+  settlement and the owed count pass on the walk as they did on pages.
+- Sabotage: three entries for the floor. The four delivery entries that
+  named the old page loop are rewritten to the new one.
+
+**Not done:** `group_seal_own` (sec 629) still walks a group's pages
+down to an already-sealed line, bounded the same way. A host whose own unsealed line lies more than
+4096 lines deep in a group seals only those among the newest 4096. Groups are
+outside sec 689's subset, so it is left until they enter it.

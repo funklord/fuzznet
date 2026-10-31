@@ -287,7 +287,8 @@ fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
 {
 	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
-	size_t n = 0, b, offset, count, i;
+	size_t n = 0, b, count, i;
+	uint64_t at;
 	fzn_messages_err_t err;
 	int more;
 
@@ -311,13 +312,10 @@ fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
 		 * removed: a key never a contact may be one the caller does not
 		 * list yet, and its lines wait (sec 616). */
 		gone = removed && removed(ctx, contact);
-		for (offset = 0;; offset += count) {
+		for (at = 0, more = 1; more;) {
 			count = 0;
-			more = 0;
-			err = fzn_messages_page(&nm->m, contact, offset, page, FZN_MESSAGES_PAGE_MAX,
-			                        &count, &more);
-			if (err == FZN_MESSAGES_ERR_DEEP)
-				break;
+			err = fzn_messages_owed(&nm->m, contact, &at, page, FZN_MESSAGES_PAGE_MAX, &count,
+			                        &more);
 			if (err != FZN_MESSAGES_OK)
 				return err;
 			for (i = 0; i < count; i++) {
@@ -331,8 +329,6 @@ fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
 					return err;
 				(*marked)++;
 			}
-			if (!more || !count)
-				break;
 		}
 	}
 	return FZN_MESSAGES_OK;
@@ -849,13 +845,15 @@ static fzn_messages_err_t deliver_end(fzn_node_messages_delivering_t *d, int *do
 	return err;
 }
 
-/* THE NEXT LINE TO OFFER, from `d->offset` + `d->i` on, its offer written;
- * or the end. The page is read again each time: a line marked since moves
- * nowhere, so the place holds. */
+/* THE NEXT LINE TO OFFER, from the index place `d->at` on, its offer
+ * written; or the end. One line is read at a time, by place, and the place
+ * moves past it: a line marked since is passed by its place, not counted
+ * out of a page that has changed. Every line still owed is reached, however
+ * deep (sec 613). */
 static fzn_messages_err_t deliver_next(fzn_node_messages_delivering_t *d, uint8_t *request,
                                        size_t *request_len, int *done)
 {
-	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	static fzn_message_t line;
 	fzn_node_messages_t *nm = d->nm;
 	size_t count;
 	fzn_messages_err_t err;
@@ -864,37 +862,25 @@ static fzn_messages_err_t deliver_next(fzn_node_messages_delivering_t *d, uint8_
 	for (;;) {
 		count = 0;
 		more = 0;
-		err = fzn_messages_page(&nm->m, d->contact, d->offset, page, FZN_MESSAGES_PAGE_MAX,
-		                        &count, &more);
-		if (err == FZN_MESSAGES_ERR_DEEP)
-			return deliver_end(d, done, FZN_MESSAGES_OK);
+		err = fzn_messages_owed(&nm->m, d->contact, &d->at, &line, 1u, &count, &more);
 		if (err != FZN_MESSAGES_OK)
 			return deliver_end(d, done, err);
-		for (; d->i < count; d->i++) {
-			const fzn_message_t *line = &page[d->i];
-
-			/* STILL BEING SENT, or delivered and due for settlement. */
-			if (line->direction != FZN_MESSAGE_OUT
-			    || (line->state != 0u
-			        && !(d->settle && line->state == FZN_MESSAGE_DELIVERED))
-			    || !line->readable)
-				continue;
-			/* THIS DEVICE'S, OR ONE IT TAKES OVER: the writer gone, sec
-			 * 616. */
-			if (!same_key(line->device, nm->m.issuer)
-			    && !(nm->takes_over
-			         && nm->takes_over(nm->takes_over_ctx, line->device, line->id)))
-				continue;
-			d->tally.sent++;
-			memcpy(d->id, line->id, FZN_MESSAGE_ID_LEN);
-			d->state = line->state;
-			*request_len = offer_request(line, request);
-			return FZN_MESSAGES_OK;
-		}
-		if (!more || !count)
+		if (!count)
 			return deliver_end(d, done, FZN_MESSAGES_OK);
-		d->offset += count;
-		d->i = 0;
+		/* STILL BEING SENT, or delivered and due for settlement. */
+		if (line.direction != FZN_MESSAGE_OUT
+		    || (line.state != 0u && !(d->settle && line.state == FZN_MESSAGE_DELIVERED))
+		    || !line.readable)
+			continue;
+		/* THIS DEVICE'S, OR ONE IT TAKES OVER: the writer gone, sec 616. */
+		if (!same_key(line.device, nm->m.issuer)
+		    && !(nm->takes_over && nm->takes_over(nm->takes_over_ctx, line.device, line.id)))
+			continue;
+		d->tally.sent++;
+		memcpy(d->id, line.id, FZN_MESSAGE_ID_LEN);
+		d->state = line.state;
+		*request_len = offer_request(&line, request);
+		return FZN_MESSAGES_OK;
 	}
 }
 
@@ -937,7 +923,6 @@ fzn_messages_err_t fzn_node_messages_deliver_step(fzn_node_messages_delivering_t
 		d->tally.refused++;
 		return deliver_end(d, done, FZN_MESSAGES_OK);
 	}
-	d->i++;
 	/* HELD AGAIN of a line delivered already changes nothing. */
 	if (got == 2 || d->state != FZN_MESSAGE_DELIVERED) {
 		err = fzn_messages_mark(&d->nm->m, d->contact, FZN_MESSAGE_OUT, d->id,
@@ -1074,7 +1059,8 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
 	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
 	static uint8_t item[FZN_MESSAGES_ITEM_MAX];
-	size_t n = 0, b, offset, count, i, k, len;
+	size_t n = 0, b, count, i, k, len;
+	uint64_t at;
 	fzn_messages_err_t err;
 	int more;
 
@@ -1090,13 +1076,10 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
 
 		if (b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)
 			continue;
-		for (offset = 0;; offset += count) {
+		for (at = 0, more = 1; more;) {
 			count = 0;
-			more = 0;
-			err = fzn_messages_page(&nm->m, contact, offset, page, FZN_MESSAGES_PAGE_MAX,
-			                        &count, &more);
-			if (err == FZN_MESSAGES_ERR_DEEP)
-				break;
+			err = fzn_messages_owed(&nm->m, contact, &at, page, FZN_MESSAGES_PAGE_MAX, &count,
+			                        &more);
 			if (err != FZN_MESSAGES_OK)
 				return err;
 			for (i = 0; i < count; i++) {
@@ -1136,8 +1119,6 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
 				tally->settled++;
 				nm->fresh = 1;
 			}
-			if (!more || !count)
-				break;
 		}
 	}
 	return FZN_MESSAGES_OK;
@@ -1301,17 +1282,19 @@ static size_t set(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
  * delivered and not settled, every conversation walked here rather than
  * by a client page by page: fuzzypickles' `outbox_held`. A group's lines
  * are left out, delivered once sealed and settled never (sec 629); a line
- * handed over or given up is no longer this host's to owe. MORE 1 when a
- * conversation was past the walk's bound, and the counts floors. */
+ * handed over or given up is no longer this host's to owe. MORE is 0
+ * since sec 613 walks every conversation whole, from its owed floor; it
+ * stays, so a client reading three numbers still reads three. */
 static size_t get_owed(fzn_node_messages_t *nm, char *reply, size_t cap)
 {
 	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
 	static fzn_group_t g;
-	size_t n = 0, b, offset, count, i, held = 0, delivered = 0;
+	size_t n = 0, b, count, i, held = 0, delivered = 0;
+	uint64_t at;
 	char detail[64];
 	fzn_messages_err_t err;
-	int more, deep = 0, k;
+	int more, k;
 
 	if (fzn_buckets_list(&nm->buckets, FZN_BUCKETS_MESSAGES, buckets, FZN_BUCKETS_MAX, &n)
 	    != FZN_BUCKETS_OK)
@@ -1322,15 +1305,10 @@ static size_t get_owed(fzn_node_messages_t *nm, char *reply, size_t cap)
 		if ((b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)
 		    || fzn_group_log_get(nm->m.store, contact, &g) == FZN_GROUP_LOG_OK)
 			continue;
-		for (offset = 0;; offset += count) {
+		for (at = 0, more = 1; more;) {
 			count = 0;
-			more = 0;
-			err = fzn_messages_page(&nm->m, contact, offset, page, FZN_MESSAGES_PAGE_MAX,
-			                        &count, &more);
-			if (err == FZN_MESSAGES_ERR_DEEP) {
-				deep = 1;
-				break;
-			}
+			err = fzn_messages_owed(&nm->m, contact, &at, page, FZN_MESSAGES_PAGE_MAX, &count,
+			                        &more);
 			if (err != FZN_MESSAGES_OK)
 				return refuse(reply, cap, err);
 			for (i = 0; i < count; i++)
@@ -1339,11 +1317,9 @@ static size_t get_owed(fzn_node_messages_t *nm, char *reply, size_t cap)
 					held += page[i].state == 0u;
 					delivered += page[i].state == FZN_MESSAGE_DELIVERED;
 				}
-			if (!more || !count)
-				break;
 		}
 	}
-	k = snprintf(detail, sizeof(detail), "%zu %zu %d", held, delivered, deep);
+	k = snprintf(detail, sizeof(detail), "%zu %zu 0", held, delivered);
 	if (k < 0 || (size_t)k >= sizeof(detail))
 		return 0;
 	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k);

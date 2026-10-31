@@ -126,6 +126,15 @@ static int key_of(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN]
 	       && len == FZN_CONVERSATION_KEY_LEN;
 }
 
+static int owed_floor_reset(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN]);
+
+/* Whether a line's state leaves nothing owed on it: settled, or given up
+ * (sec 613). */
+static int state_final(uint8_t state)
+{
+	return state == FZN_MESSAGE_SETTLED || state == FZN_MESSAGE_NOT_DELIVERED;
+}
+
 /* SET A LINE'S STATE when this mark is at least as new as the one held. */
 static int set_state(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                      uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN], uint8_t state,
@@ -139,6 +148,12 @@ static int set_state(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 	if (m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_STATE, row, held, sizeof(held), &len)
 	    && len == STATE_LEN && fzn_get_be64(held + 1u) > at)
 		return 1;
+	/* A LINE OWED AGAIN after it was done -- a give-up raced by a delivery
+	 * marked later -- may sit below the floor, which goes back to the
+	 * start to find it (sec 613). */
+	if (len == STATE_LEN && state_final(held[0]) && !state_final(state)
+	    && !owed_floor_reset(m, contact))
+		return 0;
 	bytes[0] = state;
 	fzn_put_be64(bytes + 1u, at);
 	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_STATE, row, bytes, sizeof(bytes));
@@ -723,6 +738,22 @@ static uint64_t count_of(const fzn_messages_t *m, const uint8_t contact[FZN_PUBK
 	return load_number(m, "count", contact);
 }
 
+/* THE OWED FLOOR, sec 613: a place in a conversation's index below which
+ * no line is owed anything -- every one settled, given up, or gone -- so a
+ * walk for what is owed starts there and not at the beginning. Raised by
+ * that walk, lowered by a line put in below it and by a line owed again. */
+static uint64_t owed_floor(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	uint64_t floor = load_number(m, "owed", contact), n = count_of(m, contact);
+
+	return floor < n ? floor : n;
+}
+
+static int owed_floor_reset(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	return load_number(m, "owed", contact) == 0u || save_number(m, "owed", contact, 0u);
+}
+
 /* ONE CHUNK OF ONE INDEX, held, since a listing reads its entries in turn.
  * Of one store, sec 744: two in a process -- two devices in a test -- took
  * each other's entries, keyed by contact and chunk alone, and a listing of
@@ -1157,6 +1188,9 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 			return 0;
 	if (!save_number(m, "count", contact, n + 1u))
 		return 0;
+	/* PUT IN BELOW THE FLOOR, it may be owed: the floor comes down to it. */
+	if (load_number(m, "owed", contact) > p && !save_number(m, "owed", contact, p))
+		return 0;
 	memcpy(e_bytes, device, FZN_PUBKEY_LEN);
 	fzn_put_be64(e_bytes + ENTRY_SEQ, seq);
 	e_bytes[ENTRY_DIRECTION] = direction;
@@ -1355,7 +1389,9 @@ static int index_clear(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY
 		if (!index_row(m, "chunk", contact, (uint32_t)c, row)
 		    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row))
 			return 0;
-	return index_row(m, "count", contact, 0u, row)
+	return index_row(m, "owed", contact, 0u, row)
+	       && m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row)
+	       && index_row(m, "count", contact, 0u, row)
 	       && m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row);
 }
 
@@ -2026,6 +2062,68 @@ fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m, const uint8_t *con
 			*more = 1;
 			break;
 		}
+	return FZN_MESSAGES_OK;
+}
+
+/* THE SAME ENTRY TWICE, side by side: what a crash part way through a shift
+ * leaves (`index_append`), shown once. */
+static int entry_repeats(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                         uint64_t i, const entry_t *e)
+{
+	entry_t before;
+
+	return i > 0u && index_entry(m, contact, i - 1u, &before)
+	       && before.direction == e->direction
+	       && memcmp(before.id, e->id, FZN_MESSAGE_ID_LEN) == 0;
+}
+
+fzn_messages_err_t fzn_messages_owed(const fzn_messages_t *m,
+                                     const uint8_t contact[FZN_PUBKEY_LEN], uint64_t *at,
+                                     fzn_message_t *out, size_t cap, size_t *count, int *more)
+{
+	static uint8_t buf[STORED_MAX];
+	uint64_t n, i, floor;
+	int raising;
+	stored_t s;
+	entry_t e;
+
+	if (!ready(m) || !contact || !at || !out || !count || !more || cap == 0u
+	    || cap > FZN_MESSAGES_PAGE_MAX)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	*count = 0;
+	*more = 0;
+	n = count_of(m, contact);
+	floor = owed_floor(m, contact);
+	/* FROM THE FLOOR, and raising it while every line passed is done. */
+	i = *at > floor ? *at : floor;
+	raising = i == floor;
+	for (; i < n; i++) {
+		uint8_t state;
+
+		if (*count == cap) {
+			*more = 1;
+			break;
+		}
+		if (!index_entry(m, contact, i, &e))
+			return FZN_MESSAGES_ERR_BACKEND;
+		/* A LINE DONE is owed nothing. */
+		state = fzn_messages_state(m, contact, e.direction, e.id);
+		if (entry_repeats(m, contact, i, &e) || state_final(state)) {
+			if (raising)
+				floor = i + 1u;
+			continue;
+		}
+		raising = 0;
+		/* A ROW THAT WILL NOT READ is passed over, as a page passes it,
+		 * and holds the floor: a trimmed line stays as a shell, so this
+		 * is a fault, and the line may read next time. */
+		if (stored_load(m, e.device, e.seq, buf, &s)
+		    && memcmp(s.contact, contact, FZN_PUBKEY_LEN) == 0)
+			fill(m, &s, &out[(*count)++]);
+	}
+	*at = i;
+	if (floor > load_number(m, "owed", contact) && !save_number(m, "owed", contact, floor))
+		return FZN_MESSAGES_ERR_BACKEND;
 	return FZN_MESSAGES_OK;
 }
 

@@ -11135,6 +11135,27 @@ SABOTAGES = [
 		"every round's same records, devices and manifests written and synced again -- sec 786",
 	),
 	(
+		"messages-owed-floor-not-lowered-on-insert",
+		'messages/messages.c',
+		'\tif (load_number(m, "owed", contact) > p && !save_number(m, "owed", contact, p))',
+		'\tif (0 && load_number(m, "owed", contact) > p && !save_number(m, "owed", contact, p))',
+		"a line learned late and put in below the owed floor is never delivered -- sec 613",
+	),
+	(
+		"messages-owed-floor-not-reset",
+		'messages/messages.c',
+		'\t    && !owed_floor_reset(m, contact))',
+		'\t    && 0)',
+		"a given-up line delivered after all is never settled -- sec 613",
+	),
+	(
+		"messages-owed-floor-never-raised",
+		'messages/messages.c',
+		'\traising = i == floor;',
+		'\traising = 0;',
+		"every delivery reads every settled line of the conversation again -- sec 613",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',
@@ -12351,15 +12372,15 @@ SABOTAGES = [
 	(
 		"messages-deliver-only-sending",
 		"node/messages.c",
-		"\t\t\t    || (line->state != 0u\n",
-		"\t\t\t    || (0\n",
+		"\t\t    || (line.state != 0u && !(d->settle && line.state == FZN_MESSAGE_DELIVERED))\n",
+		"\t\t    || (0 && !(d->settle && line.state == FZN_MESSAGE_DELIVERED))\n",
 		"a delivered or settled line is offered again every round, for ever -- secs 613, 615",
 	),
 	(
 		"messages-deliver-own-device-only",
 		"node/messages.c",
-		"\t\t\tif (!same_key(line->device, nm->m.issuer)\n\t\t\t    && !(nm->takes_over\n",
-		"\t\t\tif (0\n\t\t\t    && !(nm->takes_over\n",
+		"\t\tif (!same_key(line.device, nm->m.issuer)\n\t\t    && !(nm->takes_over && ",
+		"\t\tif (0\n\t\t    && !(nm->takes_over && ",
 		"every device of the user offers every line, and the device that wrote it is not the one that sends -- secs 613, 616",
 	),
 	(
@@ -12498,8 +12519,8 @@ SABOTAGES = [
 	(
 		"messages-deliver-settle-when-due",
 		"node/messages.c",
-		"\t\t\t        && !(d->settle && line->state == FZN_MESSAGE_DELIVERED))\n",
-		"\t\t\t        && !(line->state == FZN_MESSAGE_DELIVERED))\n",
+		"\t\t    || (line.state != 0u && !(d->settle && line.state == FZN_MESSAGE_DELIVERED))\n",
+		"\t\t    || (line.state != 0u && !(line.state == FZN_MESSAGE_DELIVERED))\n",
 		"every delivered line is offered again every round, not hourly -- sec 615",
 	),
 	(
@@ -12526,8 +12547,8 @@ SABOTAGES = [
 	(
 		"messages-deliver-takes-over-only-when-told",
 		"node/messages.c",
-		"\t\t\t    && !(nm->takes_over\n\t\t\t         && nm->takes_over(nm->takes_over_ctx, line->device, line->id)))\n",
-		"\t\t\t    && !nm->takes_over)\n",
+		"\t\t    && !(nm->takes_over && nm->takes_over(nm->takes_over_ctx, line.device, line.id)))\n",
+		"\t\t    && !nm->takes_over)\n",
 		"every device holding a line sends it, its writer gone or not -- sec 616",
 	),
 	(

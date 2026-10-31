@@ -244,6 +244,26 @@ fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m,
                                      const uint8_t *contact, size_t offset, fzn_message_t *out,
                                      size_t cap, size_t *count, int *more);
 
+/*
+ * THE LINES STILL OWED SOMETHING, sec 613: `contact`'s lines, oldest first,
+ * whose state is not SETTLED or NOT_DELIVERED -- being sent, delivered and
+ * not settled, handed over, or filed and not settled -- however deep the
+ * conversation, where a page stops at FZN_MESSAGES_WALK_MAX. From `*at`,
+ * 0 to begin, at most `cap` (FZN_MESSAGES_PAGE_MAX), `*count` of them;
+ * `*at` is left past the last place looked at, and `*more` nonzero when
+ * the walk stopped full and should be called again from there.
+ *
+ * A walk from the beginning starts at the conversation's OWED FLOOR, kept
+ * in the store, below which every line is done, and raises it past each
+ * done line it meets before the first owed one. So a conversation whose
+ * old lines are all settled is walked from its first owed line, and its
+ * done lines are read once, not on every delivery. A line put in below the
+ * floor brings it down, and so does a line owed again after it was done.
+ */
+fzn_messages_err_t fzn_messages_owed(const fzn_messages_t *m,
+                                     const uint8_t contact[FZN_PUBKEY_LEN], uint64_t *at,
+                                     fzn_message_t *out, size_t cap, size_t *count, int *more);
+
 /* `device`'s key for `contact` and `epoch`, held here: nonzero when it is. */
 int fzn_messages_key_get(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                          uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN],

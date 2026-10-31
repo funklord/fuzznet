@@ -10,6 +10,7 @@
 
 #include <monocypher-ed25519.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failures;
@@ -80,11 +81,16 @@ static row_t *find(mem_t *m, fzn_persist_slot_t slot, const uint8_t *subject)
 	return NULL;
 }
 
+/* States read, for a walk that must not read the done lines below its
+ * floor again. */
+static size_t state_loads;
+
 static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
                     size_t cap, size_t *len)
 {
 	row_t *r = find((mem_t *)ctx, slot, subject);
 
+	state_loads += slot == FZN_PERSIST_MESSAGE_STATE;
 	if (!r || r->len > cap)
 		return 0;
 	memcpy(out, r->bytes, r->len);
@@ -163,9 +169,103 @@ static size_t rows_in(mem_t *m, fzn_persist_slot_t slot)
 	return n;
 }
 
+/* A STORE FOR A DEEP CONVERSATION, sec 613: rows by hash, on the heap,
+ * since the one above is searched end to end and holds a few hundred. */
+#define DEEP_SLOTS 32768u
+
+static struct {
+	int used;
+	fzn_persist_slot_t slot;
+	uint8_t subject[FZN_PUBKEY_LEN];
+	size_t len;
+	uint8_t *bytes;
+} deep_rows[DEEP_SLOTS];
+static int deep;
+
+static size_t deep_find(fzn_persist_slot_t slot, const uint8_t *subject, int *found)
+{
+	size_t h = ((size_t)subject[0] << 8 | subject[1]) ^ ((size_t)subject[2] << 16) ^ (size_t)slot;
+
+	for (h %= DEEP_SLOTS;; h = (h + 1u) % DEEP_SLOTS)
+		if (!deep_rows[h].used
+		    || (deep_rows[h].slot == slot
+		        && memcmp(deep_rows[h].subject, subject, FZN_PUBKEY_LEN) == 0)) {
+			*found = deep_rows[h].used;
+			return h;
+		}
+}
+
+static int deep_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                     size_t cap, size_t *len)
+{
+	int found;
+	size_t h;
+
+	(void)ctx;
+	state_loads += slot == FZN_PERSIST_MESSAGE_STATE;
+	if (!subject)
+		return 0;
+	h = deep_find(slot, subject, &found);
+	if (!found || deep_rows[h].len > cap)
+		return 0;
+	memcpy(out, deep_rows[h].bytes, deep_rows[h].len);
+	*len = deep_rows[h].len;
+	return 1;
+}
+
+static int deep_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                     const uint8_t *bytes, size_t len)
+{
+	uint8_t *copy;
+	int found;
+	size_t h;
+
+	(void)ctx;
+	if (!subject || !(copy = malloc(len ? len : 1u)))
+		return 0;
+	h = deep_find(slot, subject, &found);
+	free(deep_rows[h].bytes);
+	memcpy(copy, bytes, len);
+	deep_rows[h].used = 1;
+	deep_rows[h].slot = slot;
+	memcpy(deep_rows[h].subject, subject, FZN_PUBKEY_LEN);
+	deep_rows[h].bytes = copy;
+	deep_rows[h].len = len;
+	return 1;
+}
+
+/* Removal empties the row's bytes and keeps its place, so a search past it
+ * goes on. */
+static int deep_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	int found;
+	size_t h;
+
+	(void)ctx;
+	if (!subject)
+		return 1;
+	h = deep_find(slot, subject, &found);
+	if (found) {
+		deep_rows[h].slot = (fzn_persist_slot_t)-1;
+		memset(deep_rows[h].subject, 0, FZN_PUBKEY_LEN);
+	}
+	return 1;
+}
+
+static void deep_clear(void)
+{
+	size_t i;
+
+	for (i = 0; i < DEEP_SLOTS; i++) {
+		free(deep_rows[i].bytes);
+		memset(&deep_rows[i], 0, sizeof(deep_rows[i]));
+	}
+}
+
 /* ---- one record store in memory, shared by both devices' journals ---------- */
 
-#define RECS 160u
+/* Room for a conversation past FZN_MESSAGES_WALK_MAX, sec 613. */
+#define RECS (FZN_MESSAGES_WALK_MAX + 160u)
 
 static struct rec {
 	uint8_t issuer[FZN_PUBKEY_LEN];
@@ -1597,6 +1697,123 @@ static void test_forty_one_devices(void)
 	A.m.work_cap = 0u;
 }
 
+
+/* ---- what is owed, sec 613 --------------------------------------------------- */
+
+static int owed(device_t *d, const uint8_t *contact, uint64_t *at, size_t cap)
+{
+	return fzn_messages_owed(&d->m, contact, at, page, cap, &count, &more) == FZN_MESSAGES_OK;
+}
+
+/* LINES OWED, OLDEST FIRST, from the floor: the done ones below it read
+ * once, and the floor comes down for a line owed again or put in below. */
+static void test_what_is_owed(void)
+{
+	uint64_t at = 0;
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t loads;
+	uint8_t n;
+	int ok = 1;
+
+	setup();
+	for (n = 1; n <= 5; n++) {
+		clock_ms = OCTOBER_2026 + n * 1000u;
+		ok = ok && write_line(&A, X, FZN_MESSAGE_OUT, n, "owed");
+	}
+	CHECK(ok, "fixture: five lines being sent");
+	CHECK(owed(&A, X, &at, 2u) && count == 2u && more && is_line(0, 1u, FZN_MESSAGE_OUT, "owed")
+	              && is_line(1, 2u, FZN_MESSAGE_OUT, "owed") && at == 2u,
+	      "the oldest two, and more after them");
+	CHECK(owed(&A, X, &at, 5u) && count == 3u && !more && page[0].id[0] == 3u && at == 5u,
+	      "then the other three, and the end");
+	clock_ms += 1000u;
+	CHECK(mark(&A, X, FZN_MESSAGE_OUT, 1u, FZN_MESSAGE_SETTLED)
+	              && mark(&A, X, FZN_MESSAGE_OUT, 2u, FZN_MESSAGE_NOT_DELIVERED)
+	              && mark(&A, X, FZN_MESSAGE_OUT, 3u, FZN_MESSAGE_DELIVERED)
+	              && mark(&A, X, FZN_MESSAGE_OUT, 5u, FZN_MESSAGE_HANDED_OVER),
+	      "fixture: one settled, one given up, one delivered, one handed over");
+	at = 0;
+	CHECK(owed(&A, X, &at, 5u) && count == 3u && page[0].id[0] == 3u
+	              && page[0].state == FZN_MESSAGE_DELIVERED && page[1].id[0] == 4u
+	              && page[2].id[0] == 5u,
+	      "settled and given up are owed nothing; delivered and handed over are");
+	at = 0;
+	loads = state_loads;
+	CHECK(owed(&A, X, &at, 5u) && count == 3u && state_loads - loads == 6u,
+	      "the walk again reads each of the three above its floor twice, weighed "
+	      "and listed, and not the two below");
+	/* A LINE OWED AGAIN, by a mark made later. */
+	clock_ms += 1000u;
+	at = 0;
+	CHECK(mark(&A, X, FZN_MESSAGE_OUT, 2u, FZN_MESSAGE_DELIVERED) && owed(&A, X, &at, 5u)
+	              && count == 4u && page[0].id[0] == 2u,
+	      "a given-up line delivered after all is owed its settlement again");
+	clock_ms += 1000u;
+	CHECK(mark(&A, X, FZN_MESSAGE_OUT, 2u, FZN_MESSAGE_SETTLED)
+	              && mark(&A, X, FZN_MESSAGE_OUT, 3u, FZN_MESSAGE_SETTLED)
+	              && mark(&A, X, FZN_MESSAGE_OUT, 4u, FZN_MESSAGE_SETTLED)
+	              && mark(&A, X, FZN_MESSAGE_OUT, 5u, FZN_MESSAGE_NOT_DELIVERED),
+	      "fixture: every line done");
+	at = 0;
+	CHECK(owed(&A, X, &at, 5u) && count == 0u && !more, "nothing owed");
+	at = 0;
+	loads = state_loads;
+	CHECK(owed(&A, X, &at, 5u) && count == 0u && state_loads == loads,
+	      "and the floor at the top: no state read");
+	/* PUT IN BELOW THE FLOOR: a line written before the third, learned
+	 * now, goes in its place. */
+	id_of(id, 9u);
+	at = 0;
+	CHECK(fzn_messages_write(&A.m, X, FZN_MESSAGE_OUT, id, OCTOBER_2026 + 2500u, "late", 4u)
+	                      == FZN_MESSAGES_OK
+	              && list(&A, X, 0u, 6u) && count == 6u && page[3].id[0] == 9u,
+	      "fixture: a line put in between the second and the third");
+	CHECK(owed(&A, X, &at, 5u) && count == 1u && is_line(0, 9u, FZN_MESSAGE_OUT, "late"),
+	      "it is owed, below where the floor was");
+	CHECK(fzn_messages_owed(&A.m, X, &at, page, FZN_MESSAGES_PAGE_MAX + 1u, &count, &more)
+	              == FZN_MESSAGES_ERR_MALFORMED,
+	      "a walk wider than a page is refused");
+}
+
+/* PAST THE DEEPEST PAGE: the line at the bottom of a conversation deeper
+ * than FZN_MESSAGES_WALK_MAX is owed, and found, where a page cannot reach
+ * it. */
+static void test_owed_past_the_deepest_page(void)
+{
+	uint64_t at = 0;
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t total = 0, k, n = FZN_MESSAGES_WALK_MAX + 8u;
+	int ok = 1, first = 0;
+
+	setup();
+	A.store_ops.load = deep_load;
+	A.store_ops.save = deep_save;
+	A.store_ops.list = NULL;
+	A.store_ops.remove = deep_remove;
+	A.store_ops.ctx = &deep;
+	deep_clear();
+	for (k = 0; k < n && ok; k++) {
+		memset(id, 0, sizeof(id));
+		fzn_put_be32(id, (uint32_t)k + 1u);
+		clock_ms = OCTOBER_2026 + k;
+		ok = fzn_messages_write(&A.m, X, FZN_MESSAGE_OUT, id, clock_ms, "deep", 4u)
+		     == FZN_MESSAGES_OK;
+	}
+	CHECK(ok, "fixture: more lines being sent than the deepest walk");
+	CHECK(fzn_messages_page(&A.m, X, n - 1u, page, 1u, &count, &more)
+	              == FZN_MESSAGES_ERR_DEEP,
+	      "a page cannot reach the first");
+	do {
+		if (!owed(&A, X, &at, FZN_MESSAGES_PAGE_MAX))
+			break;
+		if (total == 0u && count)
+			first = fzn_get_be32(page[0].id) == 1u;
+		total += count;
+	} while (more);
+	CHECK(total == n && first, "the walk for what is owed reaches every one, the first first");
+	deep_clear();
+}
+
 int main(void)
 {
 	fzn_aead_monocypher_init(&AEAD);
@@ -1640,6 +1857,8 @@ int main(void)
 	test_reindex_rebuilds_from_nothing();
 	test_a_month_forgotten_leaves_shells();
 	test_forty_one_devices();
+	test_what_is_owed();
+	test_owed_past_the_deepest_page();
 	if (failures) {
 		fprintf(stderr, "messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

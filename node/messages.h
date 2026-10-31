@@ -210,7 +210,7 @@ fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
  * sec 196, recorded in sec 510). The one way a line stops short of being
  * delivered: the delivery itself never gives up (sec 610). Conversations
  * are found by their buckets, so one whose contact was removed is among
- * them. A conversation's lines past FZN_MESSAGES_WALK_MAX are not reached.
+ * them. Every line is reached, however deep, by `fzn_messages_owed`.
  * `*marked` counts. */
 fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
                                              int (*stands)(void *ctx,
@@ -308,8 +308,8 @@ typedef struct fzn_node_messages_delivery {
  * user's other devices learn by the journal.
  * Stops at the first line refused, since the host refuses for every line
  * alike, and at the first unanswered, since a host that does not answer
- * one will not answer the next. Lines past FZN_MESSAGES_WALK_MAX deep are
- * not reached.
+ * one will not answer the next. Every line still owed is reached, oldest
+ * first, however deep (`fzn_messages_owed`, sec 613).
  */
 fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
                                              const uint8_t contact[FZN_PUBKEY_LEN], int settle,
@@ -327,7 +327,7 @@ typedef struct fzn_node_messages_delivering {
 	fzn_node_messages_t *nm;
 	uint8_t contact[FZN_PUBKEY_LEN];
 	int settle, live;
-	size_t offset, i;              /* the next line to look at */
+	uint64_t at;                   /* the index place to look from */
 	uint8_t id[FZN_MESSAGE_ID_LEN]; /* the line offered, and its state then */
 	uint8_t state;
 	fzn_node_messages_delivery_t tally;
