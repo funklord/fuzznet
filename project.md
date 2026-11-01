@@ -76362,6 +76362,18 @@ live, not only through the unit test's callback.
   (1, 1, 3, 2, 0): the pack was removed. Sabotage cannot hold this
   check, since it runs `make test` and the live tests are not part of
   that.
+- **Through the backfill walk too, 2026-11-01, run once by hand.** The
+  holder asked for both together. fuzznetd built at 9f3448e (before the
+  index) wrote phase s's three files sixty days back, using live_trim's
+  own helpers: the plain file, the catalogued one, and the saved pack
+  come in on a contact's line. This build at 3d701c9 then started on that
+  store. It logged `3 file(s) held before the record of holds began`,
+  then `the lines kept before are told: 3 file(s) now held by their lines
+  alone`. The trim counted (1, 1, 3, 1, 0): the plain file was removed,
+  and the catalogued file and the pack were kept, the pack still listed.
+  **Control:** the same run with the saved-pack check off counted (1, 1,
+  3, 2, 0) and removed the pack. Not kept as a test, since it needs the
+  old binary (sec 796).
 
 ## 798. A push of one bucket past 16384 ids, 2026-10-31
 
