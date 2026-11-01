@@ -954,6 +954,77 @@ static void test_a_contacts_estate(void)
 	}
 }
 
+/* A CONTACT'S MEMBER AS GRANTOR (sec 781's open item): a delegable member's
+ * vote on what it granted is one of k, as in its estate (secs 394, 397);
+ * it is none on what it did not grant, and a chain the contact's root did
+ * not sign gives it no standing. */
+static uint8_t grantor[32];
+
+static void member_chain(fzn_contact_estate_item_t *it, const uint8_t *by, const uint8_t key[32])
+{
+	signing_as = by[0];
+	(void)fzn_chain_mint(by, key, &member, 100u, FZN_NO_EXPIRY, 1, &SIGN, it->hops[0]);
+	it->hop_count = 1u;
+}
+
+static void test_a_contacts_member_as_grantor(void)
+{
+	static fzn_contact_device_t mine, theirs;
+	static fzn_contact_estate_item_t it;
+
+	memset(rows, 0, sizeof(rows));
+	device(&mine, phone, 1000u);
+	granted(&mine, phone, &member);
+	/* `other`, granted by the member: owner -> grantor -> other. */
+	device(&theirs, other, 1000u);
+	signing_as = owner[0];
+	(void)fzn_chain_mint(owner, grantor, &member, 100u, FZN_NO_EXPIRY, 1, &SIGN, theirs.hops[0]);
+	signing_as = grantor[0];
+	theirs.hop_count = fzn_chain_mint(grantor, other, &member, 110u, FZN_NO_EXPIRY, 0, &SIGN,
+	                                  theirs.hops[1])
+	                                   == FZN_CHAIN_OK
+	                           ? 2u
+	                           : 0u;
+	CHECK(theirs.hop_count == 2u && judged(&theirs, NULL) == 0 && judged(&mine, NULL) == 0,
+	      "fixture: a member's device, nothing voted");
+
+	/* A STRANGER'S CHAIN to the member gives its vote no standing, at k 1. */
+	vote_item(&it, grantor, other, 400u);
+	member_chain(&it, root2, grantor);
+	(void)fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it);
+	CHECK(judged(&theirs, NULL) == 0,
+	      "a member's vote on a chain the root did not sign dropped what it granted");
+
+	/* NOT ITS GRANT: the member's vote leaves the owner's device, at k 1. */
+	vote_item(&it, grantor, phone, 401u);
+	member_chain(&it, owner, grantor);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && judged(&mine, NULL) == 0,
+	      "a member's vote dropped a device it did not grant");
+
+	/* ITS OWN GRANT at k 2: alone it is one vote; with an admin's, two. */
+	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 2u, 1000u) == FZN_CONTACT_DEVICE_OK,
+	      "fixture: k 2");
+	vote_item(&it, grantor, other, 402u);
+	member_chain(&it, owner, grantor);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && judged(&theirs, NULL) == 0,
+	      "a member's lone vote at k 2 dropped the device it granted");
+	vote_item(&it, admin_a, other, 403u);
+	admin_chain(&it, admin_a);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && judged(&theirs, NULL) == 1,
+	      "a member's vote and an admin's at k 2 did not drop the device it granted");
+
+	/* AT k 1, the member's vote alone drops it. */
+	memset(rows, 0, sizeof(rows));
+	vote_item(&it, grantor, other, 404u);
+	member_chain(&it, owner, grantor);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && judged(&theirs, NULL) == 1,
+	      "a member's vote at k 1 did not drop the device it granted");
+}
+
 /* THE ESTATE'S PAGES: thirty votes, a page holding sixteen; k the largest
  * any page said. */
 static fzn_contact_estate_item_t estate_items[30];
@@ -1627,6 +1698,7 @@ int main(void)
 	memset(admin_a, 0x77, sizeof(admin_a));
 	memset(admin_b, 0x88, sizeof(admin_b));
 	memset(root2, 0x99, sizeof(root2));
+	memset(grantor, 0xaa, sizeof(grantor));
 	test_the_suite_can_tell_pass_from_fail();
 	test_an_entry_round_trips();
 	test_what_makes_one_hold();
@@ -1636,6 +1708,7 @@ int main(void)
 	test_a_contacts_revocations();
 	test_the_revoked_messages();
 	test_a_contacts_estate();
+	test_a_contacts_member_as_grantor();
 	test_the_estate_messages();
 	test_estate_rows_between_members();
 	test_a_contacts_act_log();

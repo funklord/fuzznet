@@ -75383,9 +75383,8 @@ mattered.
 - ~~the act log, as above;~~ carried in sec 783;
 - ~~members passing on slot 65's records, as sec 780 does slot 64's;~~
   built in sec 782;
-- a contact's members' votes as grantors: these count here as they do
-  in its estate, since a grantor's standing comes from the judged chain;
-  no test holds it.
+- ~~a contact's members' votes as grantors: no test holds it;~~ held in
+  sec 805, where each is one of k, as in its estate.
 
 ## 782. Members pass on the contact estate records they kept, 2026-10-30
 
@@ -76182,6 +76181,13 @@ month's key. Two things must be settled in the building:
 message ... attach` rather than format its own token, and its reader can
 call `fzn_attachment_parse`, which reads both schemes.
 
+**fuzzypickles adopted both** (fuzzypickles eda44f5, told here
+2026-10-31): both its clients send by `add message WHO out ID attach
+ROOT NAME`, `@GROUP` for a group, and every reader goes through
+`fzn_attachment_parse`. fzpd still writes `fzp:file/`. Their pin stops
+at 9f3448e on purpose, since the retention rules after it wait on the
+holder. Nothing is asked of fuzznet.
+
 ## 795. What holds a file, and the attachment rules applied, 2026-10-31
 
 **The holder's decision, 2026-10-31**, asked from here: a trim removes a
@@ -76689,3 +76695,29 @@ already errs the way sec 22 asks.
 - **`live_group_backfill`** passed unchanged.
 - **Sabotage:** two entries, the unseen joining withheld and the end of
   the second.
+
+## 805. A contact's member as grantor, judged here as its estate judges it, 2026-11-01
+
+Sec 781 left one case untested: a contact's delegable member revoking a
+device it granted itself.
+
+**The test was wrong first.** It expected the member's vote alone to drop
+that device at k 2, and it did not. **The code was right.** Under secs
+394 and 397 every revocation except a root's needs k distinct entitled
+issuers, and a grantor is one of them. The contact's own estate reads the
+same store the same way, so its member, alone at k 2, cannot drop what
+it granted there either.
+
+**Measured, `contact_devices_test`, 136 checks, 7 new.** The device is
+the owner's grant to the member, then the member's grant to the device:
+- a member's vote on a chain the contact's root did not sign drops
+  nothing, even at k 1;
+- its vote on the owner's own device drops nothing at k 1;
+- at k 2, its vote alone keeps the device, and with one admin's vote
+  added the device falls;
+- at k 1, its vote alone drops it.
+
+**Sabotage:** `contact-estate-member-vote-counted` passes over every
+vote not cast under an admin chain.
+
+**Nothing changed in the code.**

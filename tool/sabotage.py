@@ -10967,6 +10967,13 @@ SABOTAGES = [
 		"a contact's root revoking another of its grants drops the device's standing here -- sec 776",
 	),
 	(
+		"contact-estate-member-vote-counted",
+		'node/contact_devices.c',
+		"\t\tif (it->kind != FZN_CONTACT_ESTATE_VOTE || !open_hops(it, hops)\n",
+		"\t\tif (it->kind != FZN_CONTACT_ESTATE_VOTE || !open_hops(it, hops)\n\t\t    || (it->hop_count && memcmp(fzn_hop_capability(hops[0])->b, admin->b, sizeof(admin->b)) != 0)\n",
+		"a contact's member revoking a device it granted counts for nothing here, though it is one of k in its estate -- sec 805",
+	),
+	(
 		"contact-revocation-saved-exactly",
 		'node/contact_devices.c',
 		"\tif (!holds_exactly(revocations, hash, record, rec))\n\t\treturn FZN_CONTACT_DEVICE_OK;",
