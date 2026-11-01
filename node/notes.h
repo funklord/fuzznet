@@ -337,4 +337,9 @@ int fzn_node_notes_push_texts_step(fzn_node_notes_texting_t *x, const uint8_t *r
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                             char *reply, size_t reply_cap);
 
+/* A LATER GROUP MEMBER'S FLOOR, sec 656: its joining act's time, whole
+ * seconds, as milliseconds at the END of that second, so a note written
+ * earlier in the second is withheld; UINT64_MAX past what fits. */
+uint64_t fzn_node_notes_join_floor_ms(uint64_t joined_at_s);
+
 #endif /* FZN_NODE_NOTES_H */

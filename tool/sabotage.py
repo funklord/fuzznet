@@ -11394,6 +11394,20 @@ SABOTAGES = [
 		"a host that lost an epoch to its rotation says it holds it, and is never given it -- sec 803",
 	),
 	(
+		"notes-unseen-joining-withheld",
+		'node/notes.c',
+		'\treturn seen ? fzn_node_notes_join_floor_ms(at) : UINT64_MAX;',
+		'\treturn seen ? fzn_node_notes_join_floor_ms(at) : 0u;',
+		"a member whose joining this host cannot see is handed history a share kept from later members -- sec 804",
+	),
+	(
+		"notes-join-floor-end-of-second",
+		'node/notes.c',
+		'\treturn (joined_at_s + 1u) * 1000u;',
+		'\treturn joined_at_s * 1000u;',
+		"a note written earlier in the second a member joined is handed to it -- sec 656",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

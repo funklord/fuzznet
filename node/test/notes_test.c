@@ -732,6 +732,12 @@ static void test_group_share(void)
 	CHECK(ask(line) == FZN_REPLY_OK && ask("list share") == FZN_REPLY_OK
 	              && !strcmp(detail_of(), want),
 	      "a share said again with backfill 0 does not catch up");
+	/* CAROL'S JOINING IS NOT IN THE LOG -- the fixture files members with
+	 * no acts -- so a share that does not catch up serves her nothing
+	 * (sec 804): taken as there from the start, she was handed it all. */
+	CHECK(indexed(carol, 1) == 0,
+	      "a member whose joining this host cannot see was served a share that does not "
+	      "catch up");
 	snprintf(line, sizeof(line), "add share %s @family backfill 1", f);
 	snprintf(want, sizeof(want), "1 0 %s,@family,1", f);
 	CHECK(ask(line) == FZN_REPLY_OK && ask("list share") == FZN_REPLY_OK
@@ -2065,6 +2071,45 @@ static void test_writes_mark_fresh(void)
 	CHECK(ask(line) == FZN_REPLY_OK && notes.fresh, "an edit does, whose reply is a bare ok");
 }
 
+/* sec 804, for sec 656: a later member's floor is the END of the second it
+ * joined in, judged by the rule the share server applies. A note written
+ * at the joining's last millisecond is withheld, one of the next second
+ * served. */
+static void test_the_join_floor_at_its_second(void)
+{
+	static uint8_t bytes[2][FZN_RECORD_MAX_LEN];
+	static uint8_t ids[1][FZN_TREE_ID_LEN];
+	static const uint8_t zero[FZN_RECORD_ID_LEN];
+	const uint64_t joined_s = 1793000000ull;
+	uint64_t floor[1];
+	fzn_notes_sync_scope_t scope;
+	fzn_record_t late_in_second, next_second;
+	size_t len0 = 0, len1 = 0;
+
+	memset(ids[0], 0x5e, sizeof(ids[0]));
+	floor[0] = fzn_node_notes_join_floor_ms(joined_s);
+	CHECK(floor[0] == (joined_s + 1u) * 1000u, "the floor is not the end of the joining's second");
+	CHECK(fzn_record_sign(SELF, ids[0], 0u, 1u, 1u, zero, joined_s * 1000u + 999u,
+	                      (const uint8_t *)"x", 1u, &SIGN, bytes[0], sizeof(bytes[0]), &len0)
+	                      == FZN_RECORD_OK
+	              && fzn_record_sign(SELF, ids[0], 0u, 1u, 2u, zero, (joined_s + 1u) * 1000u,
+	                                 (const uint8_t *)"y", 1u, &SIGN, bytes[1], sizeof(bytes[1]),
+	                                 &len1)
+	                         == FZN_RECORD_OK
+	              && fzn_record_open(bytes[0], len0, &late_in_second) == FZN_RECORD_OK
+	              && fzn_record_open(bytes[1], len1, &next_second) == FZN_RECORD_OK,
+	      "fixture: a note's records at the joining's last millisecond and the next second");
+	scope.ids = (const uint8_t (*)[FZN_TREE_ID_LEN])ids;
+	scope.count = 1u;
+	scope.floor_ms = floor;
+	CHECK(!fzn_notes_sync_scope_admits(&scope, late_in_second),
+	      "a note written in the second a member joined was handed over");
+	CHECK(fzn_notes_sync_scope_admits(&scope, next_second),
+	      "a note written the second after a member joined was withheld");
+	CHECK(fzn_node_notes_join_floor_ms(UINT64_MAX / 1000u) == UINT64_MAX,
+	      "a joining past what fits did not withhold everything");
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -2078,6 +2123,7 @@ int main(void)
 	test_share();
 	test_group_share();
 	test_shared_reads();
+	test_the_join_floor_at_its_second();
 	test_import();
 	test_checklist();
 	test_collecting_texts();

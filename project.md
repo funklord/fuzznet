@@ -66747,10 +66747,11 @@ note, and neither S0 nor its earlier note. **Control**: with the floor
 off, C held S0. Three sabotage entries, and six re-anchored on the code
 they guarded.
 
-**Not after sec 655**: a join time is the act's own, in whole seconds, so
-a record written within the second a member joined may fall either side;
-and a member whose joining this host cannot see in the log is taken as
-there from the start.
+**Not after sec 655**: ~~a join time is the act's own, in whole seconds, so
+a record written within the second a member joined may fall either side~~
+(sec 656 withholds the whole second; sec 804 tests it); ~~and a member
+whose joining this host cannot see in the log is taken as there from the
+start~~ (sec 804: withheld).
 
 ## 656. A later member's floor at the end of its joining's second, 2026-10-20
 
@@ -66762,12 +66763,13 @@ err -- a share made again catches a member up, a note handed over is not
 recalled -- and it errs the same way for a member joined in the second a
 share was made, now taken as joining after it.
 
-**Reasoned, not shown by a test.** A live phase aligned to a second's
-start, added the member and wrote a note at once, and required it
-withheld: it failed with the change and without it alike, the write
-taking more than a second at a load near 150, so the note was of a later
+**Shown by a test since sec 804**, not live. A live phase aligned to a
+second's start, added the member and wrote a note at once, and required
+it withheld. It failed with the change and without it alike: the write
+took more than a second at a load near 150, so the note was of a later
 second. It was dropped rather than kept as a check that could not tell
-the two apart.
+the two apart. Sec 804's unit test judges records at the boundary
+instead.
 
 **Measured for sec 638, 2026-10-20**: `tool/live_join.py` with A never
 run with `--new-root` passes every phase -- A answers a card, B joins by
@@ -76628,3 +76630,50 @@ and nothing rotates it. This fix is ready for the first thing that does.
   epochs without backfill, `tend` naming again, and `holds_given` asked.
   Sec 625's "backfill only when on" entry is re-anchored on the moved
   check.
+
+## 804. A later member's floor where its joining cannot be seen, and at its second, 2026-11-01
+
+**Asked by the holder, 2026-11-01:** fix secs 655 and 656.
+
+**What was left.**
+- **Sec 655:** a member whose joining this host could not see was taken
+  as there from the start. `joined_ms` returned 0 when it found no ADD
+  act and no CREATE act of the member's, and 0 meant no floor. A group
+  log that would not read set the group's backfill to 1. Both handed a
+  member the history a share was set to keep from later members. Sec 22's
+  asymmetry says which error is final: a share made again catches a
+  member up, and a note handed over is not recalled.
+- **Sec 656:** the end-of-second floor was reasoned, never tested.
+
+**Now:**
+- **A joining not seen is withheld everything.** Its floor is
+  UINT64_MAX, which admits no record. A log that will not read gives
+  neither the backfill setting nor the joining, so the floor is the
+  same. The member is served such a share once the log shows it joined.
+- **`fzn_node_notes_join_floor_ms`**, exported, turns an act's whole
+  second into the floor at that second's end, and to UINT64_MAX past
+  what fits.
+
+**Kept, not changed: join times in whole seconds.** Moving acts to
+milliseconds would change what every group act means and how it is
+verified. It would also buy no truth: the joining and the note are
+stamped by different hosts' clocks, which sec 719 holds within a
+threshold, not to the millisecond. Rounding up to the end of the second
+already errs the way sec 22 asks.
+
+### Measured for sec 804
+
+- **`notes_test`, 396 checks:**
+  - a group share with backfill 0, to a member the fixture filed with no
+    acts, serves her nothing; set back to backfill 1, it serves her the
+    folder and its note;
+  - `test_the_join_floor_at_its_second`: through
+    `fzn_notes_sync_scope_admits`, the rule the share server applies, a
+    record issued at the joining's last millisecond is withheld and one
+    of the next second served; a joining past what fits withholds all.
+- **Controls, made by hand:** with an unseen joining as 0 again, the
+  first check fails. With the floor at the start of the second, the two
+  floor checks fail.
+- **`live_group_backfill`** passed unchanged.
+- **Sabotage:** two entries, the unseen joining withheld and the end of
+  the second.

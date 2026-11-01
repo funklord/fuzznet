@@ -2121,10 +2121,24 @@ static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 
 static uint64_t reach_floor[FZN_NOTES_MAX];
 
-/* WHEN `member` JOINED group `id`, in milliseconds, rounded up to the end
- * of its second: its last ADD act's own time, or the CREATE act's for the
- * user who made it; 0 when the log says neither -- a member whose joining
- * this host cannot see, taken as there from the start. sec 655. */
+uint64_t fzn_node_notes_join_floor_ms(uint64_t joined_at_s)
+{
+	/* THE END OF THE SECOND IT JOINED, sec 656: an act's time is whole
+	 * seconds, and a record written earlier in that second came before the
+	 * joining. Withheld rather than handed over, sec 22's asymmetry: a
+	 * share made again catches up, and a note handed over is not recalled.
+	 * A time past any record's is the floor that admits none. */
+	if (joined_at_s >= UINT64_MAX / 1000u - 1u)
+		return UINT64_MAX;
+	return (joined_at_s + 1u) * 1000u;
+}
+
+/* WHEN `member` JOINED group `id`, as a floor in milliseconds: its last ADD
+ * act's own time, or the CREATE act's for the user who made it, rounded up
+ * (`fzn_node_notes_join_floor_ms`). A MEMBER WHOSE JOINING THIS HOST CANNOT
+ * SEE -- no such act read -- is UINT64_MAX, withheld everything, sec 804:
+ * taken as there from the start it was handed the history a share kept
+ * from later members, the one error sec 22 cannot undo. */
 static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fzn_group_t *g,
                           const uint8_t *member)
 {
@@ -2134,6 +2148,7 @@ static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fz
 	uint64_t at = 0;
 	uint32_t s;
 	size_t len = 0;
+	int seen = 0;
 
 	memset(&log, 0, sizeof(log));
 	log.store = n->store.ops;
@@ -2143,13 +2158,11 @@ static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fz
 		    && fzn_group_act_decode(act, len, &a) == FZN_GROUP_ACT_OK
 		    && ((a.kind == FZN_GROUP_ACT_ADD && memcmp(a.subject, member, FZN_PUBKEY_LEN) == 0)
 		        || (a.kind == FZN_GROUP_ACT_CREATE
-		            && memcmp(a.signer.owner, member, FZN_PUBKEY_LEN) == 0)))
+		            && memcmp(a.signer.owner, member, FZN_PUBKEY_LEN) == 0))) {
 			at = a.at;
-	/* THE END OF THE SECOND IT JOINED, sec 656: an act's time is whole
-	 * seconds, and a record written earlier in that second came before the
-	 * joining. Withheld rather than handed over, sec 22's asymmetry: a
-	 * share made again catches up, and a note handed over is not recalled. */
-	return at ? (at + 1u) * 1000u : 0u;
+			seen = 1;
+		}
+	return seen ? fzn_node_notes_join_floor_ms(at) : UINT64_MAX;
 }
 
 /* What the subtrees shared with `sender` reach in the view now, into
@@ -2198,10 +2211,14 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 					continue;
 				if (!read) {
 					read = 1;
-					if (fzn_group_log_get(n->store.ops, in.ids[g], &held) == FZN_GROUP_LOG_OK)
+					/* A LOG THAT WILL NOT READ says neither the group's
+					 * backfill nor the joining: withheld, sec 804. */
+					if (fzn_group_log_get(n->store.ops, in.ids[g], &held) == FZN_GROUP_LOG_OK) {
 						joined = joined_ms(n, in.ids[g], &held, sender);
-					else
-						held.backfill = 1u;
+					} else {
+						held.backfill = 0u;
+						joined = UINT64_MAX;
+					}
 				}
 				catch_up = rows[r].catch_up == FZN_NOTES_SHARE_CATCH_UP_YES
 				           || (rows[r].catch_up == FZN_NOTES_SHARE_CATCH_UP_GROUP
