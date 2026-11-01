@@ -384,6 +384,40 @@ static fzn_group_log_err_t seal_keys(const fzn_node_groups_t *g, const fzn_group
 	                i * FZN_GROUP_KEY_ENTRY_LEN, NULL);
 }
 
+/* WHETHER THIS HOST'S PREKEY IS NOT THE ONE ITS HOST ACT CARRIES, sec 803:
+ * a rotation, after which a box sealed to the act's prekey cannot be
+ * opened. An act that will not read is no rotation. */
+static int rotated(const fzn_node_groups_t *g, const fzn_group_t *held,
+                   const fzn_group_host_t *me, const fzn_contact_device_t *own)
+{
+	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	static fzn_group_act_t a;
+	size_t len = 0;
+
+	if (fzn_group_log_act(&g->log, held->id, me->seq, bytes, sizeof(bytes), &len)
+	            != FZN_GROUP_LOG_OK
+	    || fzn_group_act_decode(bytes, len, &a) != FZN_GROUP_ACT_OK)
+		return 0;
+	return memcmp(a.signer.record + FZN_PREKEY_OFF_PREKEY, own->record + FZN_PREKEY_OFF_PREKEY,
+	              FZN_PREKEY_LEN)
+	       != 0;
+}
+
+/* WHETHER THIS HOST HOLDS EVERY EPOCH THE LOG GAVE IT: the current one when
+ * it was keyed, and each from its oldest up. */
+static int holds_given(const fzn_node_groups_t *g, const fzn_group_t *held,
+                       const fzn_group_host_t *me)
+{
+	uint32_t e;
+
+	if (me->keyed_epoch && !secret_held(g, held, me->keyed_epoch))
+		return 0;
+	for (e = me->backfilled_to; e && e < held->epoch; e++)
+		if (fzn_group_commit(held, e) && !secret_held(g, held, e))
+			return 0;
+	return 1;
+}
+
 /* How many backfill acts one tend makes at most: the rest next time. */
 #define BACKFILL_PER_TEND 8u
 
@@ -409,14 +443,22 @@ fzn_group_log_err_t fzn_node_groups_tend(const fzn_node_groups_t *g,
 	if (!g->signer(g->signer_ctx, &own) || !fzn_group_is_member(&held, own.owner))
 		return FZN_GROUP_LOG_OK;
 	self = fzn_contact_device_key(&own);
-	/* NAMED AMONG ITS HOSTS. */
-	if (!fzn_group_host(&held, self)) {
-		err = fzn_node_groups_act(g, FZN_GROUP_ACT_HOST, id, own.owner, 0u, 0u, NULL);
-		if (err != FZN_GROUP_LOG_OK)
-			return err;
-		(*made)++;
-		if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
-			return FZN_GROUP_LOG_ERR_BACKEND;
+	/* NAMED AMONG ITS HOSTS, and named again when its prekey rotated (sec
+	 * 803), saying whether it still holds every epoch the log gave it. */
+	{
+		const fzn_group_host_t *me = fzn_group_host(&held, self);
+		uint64_t holds = 0u;
+
+		if (!me || rotated(g, &held, me, &own)) {
+			if (me)
+				holds = holds_given(g, &held, me) ? 1u : 0u;
+			err = fzn_node_groups_act(g, FZN_GROUP_ACT_HOST, id, own.owner, 0u, holds, NULL);
+			if (err != FZN_GROUP_LOG_OK)
+				return err;
+			(*made)++;
+			if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+				return FZN_GROUP_LOG_ERR_BACKEND;
+		}
 	}
 	(void)take_secrets(g, &held, self);
 	cur = held.epoch;
@@ -453,21 +495,25 @@ fzn_group_log_err_t fzn_node_groups_tend(const fzn_node_groups_t *g,
 		}
 	}
 	/* BACKFILL, newest first: the epoch before the oldest a host holds,
-	 * to every host at that same point, while this host holds it. */
-	for (round = 0; held.backfill && round < BACKFILL_PER_TEND; round++) {
+	 * to every host at that same point, while this host holds it -- one
+	 * before the host joined only while the group backfills, one of its own,
+	 * which a host named again may have lost (sec 803), always. */
+	for (round = 0; round < BACKFILL_PER_TEND; round++) {
 		uint32_t e = 0;
 
 		for (i = 0; i < held.n_hosts; i++) {
 			uint32_t want = held.hosts[i].backfilled_to - 1u;
 
-			if (held.hosts[i].backfilled_to > 1u && want > e && fzn_group_commit(&held, want)
-			    && secret_held(g, &held, want))
+			if (held.hosts[i].backfilled_to > 1u && want > e
+			    && (held.backfill || want >= held.hosts[i].joined_epoch)
+			    && fzn_group_commit(&held, want) && secret_held(g, &held, want))
 				e = want;
 		}
 		if (!e || !secret_of(g, &held, e, secret))
 			break;
 		for (i = 0, n = 0; i < held.n_hosts && n < FZN_GROUP_KEYS_PER_ACT; i++)
-			if (held.hosts[i].backfilled_to == e + 1u)
+			if (held.hosts[i].backfilled_to == e + 1u
+			    && (held.backfill || e >= held.hosts[i].joined_epoch))
 				to[n++] = &held.hosts[i];
 		err = seal_keys(g, &held, e, secret, fzn_group_commit(&held, e), to, n);
 		memset(secret, 0, sizeof(secret));

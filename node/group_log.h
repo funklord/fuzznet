@@ -35,6 +35,14 @@
  * is given older epochs one at a time, newest first, and only while the
  * group backfills -- as far back as FZN_GROUP_EPOCHS_KEPT.
  *
+ * A HOST WHOSE PREKEY ROTATED names itself again (sec 803): its entry then
+ * points at the new act, whose prekey every later box is sealed to. The
+ * act's `value` is 1 when the host still holds every epoch the log gave
+ * it, and its marks stay; 0 when it may not -- a box sealed to the old
+ * prekey after the rotation cannot be opened, the old secret being wiped
+ * -- and its marks start again, so the current epoch and the older ones
+ * are sealed to it anew. Only the host's own member may name it again.
+ *
  * TWO ACTS AT ONE PLACE -- two admins acting at once on one head -- fork
  * the log. Every host keeps the one whose hash is lower, which needs no
  * coordination to agree on; the other's later acts go with it, and its

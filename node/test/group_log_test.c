@@ -489,9 +489,19 @@ static void test_an_epoch_is_sealed_to_listed_hosts(void)
 	CHECK(keys_act(&g, 0x22u, 2u, c2, hosts, 1u) == FZN_GROUP_LOG_ERR_DENIED,
 	      "a member not among the hosts sealed an epoch");
 	CHECK(next(&g, FZN_GROUP_ACT_HOST, 0x22u, hosts[1]) == FZN_GROUP_LOG_OK
-	              && fzn_group_host(&g, hosts[1])->joined_epoch == 2u
-	              && next(&g, FZN_GROUP_ACT_HOST, 0x22u, hosts[1]) == FZN_GROUP_LOG_ERR_MOOT,
-	      "a member's host did not join once");
+	              && fzn_group_host(&g, hosts[1])->joined_epoch == 2u,
+	      "a member's host did not join");
+	/* NAMED AGAIN (sec 803): the entry moves to the later act and keeps the
+	 * epoch it joined in; one host still. */
+	{
+		uint32_t first = fzn_group_host(&g, hosts[1])->seq;
+		size_t listed = g.n_hosts;
+
+		CHECK(next(&g, FZN_GROUP_ACT_HOST, 0x22u, hosts[1]) == FZN_GROUP_LOG_OK
+		              && fzn_group_host(&g, hosts[1])->seq > first
+		              && fzn_group_host(&g, hosts[1])->joined_epoch == 2u && g.n_hosts == listed,
+		      "a host named again was not moved to its later act, or listed twice");
+	}
 	CHECK(keys_act(&g, 0x11u, 2u, c2, hosts, 2u) == FZN_GROUP_LOG_OK,
 	      "the current epoch was not sealed to both hosts");
 	/* BACKFILL: the epoch before, under its own commitment. */

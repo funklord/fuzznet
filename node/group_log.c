@@ -141,6 +141,26 @@ static fzn_group_log_err_t add_host(fzn_group_t *g, const uint8_t *owner, const 
 	return FZN_GROUP_LOG_OK;
 }
 
+/* A LISTED HOST NAMED AGAIN, sec 803: its entry points at the act at `seq`,
+ * whose prekey later boxes are sealed to. `holds` keeps what the log gave
+ * it; otherwise it is given the current epoch and the older ones again. */
+static fzn_group_log_err_t rename_host(fzn_group_t *g, const uint8_t *owner, const uint8_t *key,
+                                       uint32_t seq, int holds)
+{
+	fzn_group_host_t *h = (fzn_group_host_t *)fzn_group_host(g, key);
+
+	if (!h)
+		return FZN_GROUP_LOG_ERR_MOOT;
+	if (memcmp(h->owner, owner, FZN_PUBKEY_LEN) != 0)
+		return FZN_GROUP_LOG_ERR_DENIED;
+	h->seq = seq;
+	if (!holds) {
+		h->keyed_epoch = 0u;
+		h->backfilled_to = g->epoch;
+	}
+	return FZN_GROUP_LOG_OK;
+}
+
 /* AN EPOCH'S SECRET SEALED TO HOSTS, sec 627. The first KEYS act for the
  * current epoch fixes its commitment; every later one, for that epoch or a
  * kept older one, must carry the same. Each box is for a listed host: for
@@ -161,11 +181,14 @@ static fzn_group_log_err_t keys(fzn_group_t *g, const fzn_group_act_t *a)
 		return FZN_GROUP_LOG_ERR_MALFORMED;
 	if (commit ? memcmp(commit, a->subject, 32u) != 0 : e != g->epoch)
 		return FZN_GROUP_LOG_ERR_DENIED;
-	if (e < g->epoch && !g->backfill)
-		return FZN_GROUP_LOG_ERR_DENIED;
 	for (i = 0; i < n; i++) {
 		h = (fzn_group_host_t *)fzn_group_host(g, a->payload + i * FZN_GROUP_KEY_ENTRY_LEN);
 		if (!h)
+			return FZN_GROUP_LOG_ERR_DENIED;
+		/* AN EPOCH BEFORE IT JOINED only while the group backfills; one of
+		 * its own, which a host named again may have lost (sec 803),
+		 * always. */
+		if (e < g->epoch && !g->backfill && e < h->joined_epoch)
 			return FZN_GROUP_LOG_ERR_DENIED;
 		if (e == g->epoch && h->keyed_epoch != e) {
 			h->keyed_epoch = e;
@@ -309,6 +332,12 @@ static fzn_group_log_err_t judge(fzn_group_t *g, const fzn_group_act_t *a, const
 	case FZN_GROUP_ACT_HOST:
 		if (!fzn_group_is_member(g, by))
 			return FZN_GROUP_LOG_ERR_DENIED;
+		if (a->value > 1u)
+			return FZN_GROUP_LOG_ERR_MALFORMED;
+		/* NAMED AGAIN, its prekey rotated (sec 803). */
+		if (fzn_group_host(g, fzn_contact_device_key(&a->signer)))
+			return rename_host(g, by, fzn_contact_device_key(&a->signer), a->seq,
+			                   a->value != 0u);
 		return add_host(g, by, fzn_contact_device_key(&a->signer), a->seq);
 	case FZN_GROUP_ACT_KEYS:
 		return keys(g, a);

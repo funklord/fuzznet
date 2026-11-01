@@ -64971,9 +64971,9 @@ secret.
 
 - **The secret is not used yet**: 5b's second part derives each sender's
   chain from it and puts group lines in `messages/`.
-- **A host's prekey is the one its HOST act carried**: a host whose prekey
+- ~~**A host's prekey is the one its HOST act carried**: a host whose prekey
   rotates cannot open boxes sealed after, until it names itself again,
-  which nothing does yet.
+  which nothing does yet.~~ Sec 803: it names itself again.
 - **Several hosts may seal the same host at once**; the first act wins and
   the rest are moot or fork, which costs acts, not correctness.
 - **Backfill reaches 64 epochs back**, at most 8 acts a round.
@@ -76567,3 +76567,64 @@ past `archive/gone`, even while it is alive.
   gone, which proved nothing. The phase now runs once R3 is up.
 - **No sabotage entry:** these lines are fuzznetd's, and only the live
   tests reach them, which `make test` does not run.
+
+## 803. A group host names itself again when its prekey rotates, 2026-11-01
+
+**Asked by the holder, 2026-11-01:** fix sec 627's open item.
+
+**The fault.** Boxes are sealed to the prekey a host's HOST act
+carried, and a second HOST act from a listed host was moot. A host whose
+prekey rotated, with the old agree secret wiped (`session/agree.h`: the
+wipe is what buys forward secrecy), could open no box sealed after, for
+good. Nothing named it again.
+
+**Now:**
+- **A listed host may name itself again** (`group_log.c`,
+  `rename_host`). Its entry moves to the new act, whose prekey every
+  later box is sealed to, and keeps the epoch it joined in. Only its own
+  member may do it. The act's `value` is 1 when the host still holds
+  every epoch the log gave it, so its marks stay. It is 0 when it may
+  not, because a box sealed to the old prekey after the rotation cannot
+  be opened: its marks then start again (keyed none, backfilled from the
+  current epoch). Any other value is refused.
+- **A host's own epochs are given again whether or not the group
+  backfills.** Backfill governs the epochs before a host joined; an
+  epoch from its own membership was always its. The log's `keys()` and
+  `fzn_node_groups_tend` both say so. Before, with backfill off, a host
+  that lost epoch 3 to a rotation could never be given it again.
+- **`fzn_node_groups_tend` names its host again** when its prekey is not
+  the one its listed HOST act carries (`rotated`). It says whether it
+  holds what the log gave it (`holds_given`): the epoch it was keyed,
+  and each from its oldest up.
+
+**A second HOST act is a re-naming now, never moot.** Sec 627's check
+that a host joins once is rewritten: the entry moves and stays one. A
+re-naming with an unchanged prekey would cost the other hosts acts, so
+`tend` re-names only on a real rotation. The log cannot tell, since it
+keeps no prekey in the entry, and keeping one would change the stored
+layout for this alone.
+
+**Not reachable live yet:** fuzznetd keeps its prekey with its identity
+and nothing rotates it. This fix is ready for the first thing that does.
+
+### Measured for sec 803
+
+- **`groups_test`, 104 checks, `test_a_host_whose_prekey_rotated`**,
+  with real X25519 and XChaCha20-Poly1305:
+  - B rotates holding both epochs: it is named again with its marks
+    kept, not again on the next tend, and A seals nothing more.
+  - The next epoch reaches B under its new prekey.
+  - With backfill off, B rotates before opening epoch 4. It is named
+    again with its marks begun anew, is given epoch 4 again, and is
+    backfilled to epoch 2, the one it joined in, and no further.
+  - A HOST act with a value of 2 is refused.
+- **`group_log_test`, 76 checks:** a host named again moves to its later
+  act, keeps its joined epoch, and is listed once.
+- **Controls, made by hand:** with no re-naming on rotation, five checks
+  fail. With the old backfill-off rule in `tend`, the own-epochs check
+  fails.
+- **`live_groups`** passed unchanged.
+- **Sabotage:** five entries: named again at all, marks reset, own
+  epochs without backfill, `tend` naming again, and `holds_given` asked.
+  Sec 625's "backfill only when on" entry is re-anchored on the moved
+  check.

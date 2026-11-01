@@ -685,6 +685,109 @@ static void test_the_last_admin_is_told_the_ways_out(void)
 	      "with another admin, the leave was still refused");
 }
 
+/* sec 803: `u`'s host rotates its prekey, the old secret wiped. */
+static void rotate(struct user *u, uint8_t seed_byte)
+{
+	uint8_t seed[FZN_AGREE_SECRET_LEN];
+
+	fzn_agree_secret_wipe(&u->agree_secret);
+	memset(seed, seed_byte, sizeof(seed));
+	(void)fzn_agree_secret_install(&u->agree_secret, &AGREE, seed);
+	(void)fzn_prekey_issue(u->device.owner, fzn_agree_secret_public(&u->agree_secret), 2000u,
+	                       &u->sign, u->device.record);
+}
+
+static const fzn_group_host_t *host_of(struct user *u, const uint8_t *id, const struct user *who)
+{
+	static fzn_group_t g;
+
+	return fzn_group_log_get(&u->ops, id, &g) == FZN_GROUP_LOG_OK
+	               ? fzn_group_host(&g, fzn_contact_device_key(&who->device))
+	               : NULL;
+}
+
+static void test_a_host_whose_prekey_rotated(void)
+{
+	struct user *a = &users[0], *b = &users[1], *c = &users[2];
+	const fzn_group_host_t *h;
+	uint8_t id[FZN_GROUP_ID_LEN];
+	uint32_t seq_before;
+
+	user_up(a, 0x11u);
+	user_up(b, 0x22u);
+	user_up(c, 0x33u);
+	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id)
+	              == FZN_GROUP_LOG_OK
+	              && tend(a, id) == 1u
+	              && fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u,
+	                                     0u, NULL)
+	                         == FZN_GROUP_LOG_OK,
+	      "fixture: A's group, B added");
+	(void)tend(a, id);
+	sync(a, b, id);
+	(void)tend(b, id);
+	sync(b, a, id);
+	(void)tend(a, id);
+	sync(a, b, id);
+	(void)tend(b, id);
+	CHECK(same_secret(a, b, id, 2u) && same_secret(a, b, id, 1u),
+	      "fixture: B holds both epochs");
+	h = host_of(b, id, b);
+	seq_before = h ? h->seq : 0u;
+
+	/* ROTATED, HOLDING ALL: named again, its marks kept. */
+	rotate(b, 0x5au);
+	CHECK(tend(b, id) == 1u && (h = host_of(b, id, b)) != NULL && h->seq != seq_before
+	              && h->keyed_epoch == 2u && h->backfilled_to == 1u,
+	      "B, rotated and holding every epoch, was not named again with its marks kept");
+	CHECK(tend(b, id) == 0u, "B named itself again with nothing rotated");
+	sync(b, a, id);
+	CHECK(tend(a, id) == 0u, "A sealed again what B holds");
+
+	/* THE NEXT EPOCH reaches B under its new prekey. */
+	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, c->device.owner, 0u, 0u, NULL)
+	              == FZN_GROUP_LOG_OK
+	              && tend(a, id) >= 1u,
+	      "fixture: C added, epoch 3 drawn and sealed");
+	sync(a, b, id);
+	(void)tend(b, id);
+	CHECK(same_secret(a, b, id, 3u), "B could not open the epoch sealed after its rotation");
+
+	/* ROTATED BEFORE OPENING, backfill off: named again, its marks begun
+	 * anew, and given the current epoch and its own older ones again. */
+	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_SET, id, NULL, FZN_GROUP_SETTING_BACKFILL,
+	                          0u, NULL)
+	                      == FZN_GROUP_LOG_OK
+	              && fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_REMOVE, id, c->device.owner, 0u,
+	                                     0u, NULL)
+	                         == FZN_GROUP_LOG_OK
+	              && tend(a, id) >= 1u,
+	      "fixture: backfill off, C removed, epoch 4 sealed to B's prekey");
+	rotate(b, 0x6bu);
+	sync(a, b, id);
+	h = host_of(b, id, b);
+	seq_before = h ? h->seq : 0u;
+	/* NAMED AGAIN, MARKS BEGUN ANEW; its own epoch 3, which it still holds,
+	 * it may seal to itself in the same tend. */
+	CHECK(tend(b, id) >= 1u && !holds(b, id, 4u) && (h = host_of(b, id, b)) != NULL
+	              && h->seq != seq_before && h->keyed_epoch == 0u,
+	      "B, rotated before opening epoch 4, was not named again with its marks begun anew");
+	sync(b, a, id);
+	(void)tend(a, id);
+	sync(a, b, id);
+	(void)tend(b, id);
+	CHECK(same_secret(a, b, id, 4u), "B was not given epoch 4 again");
+	h = host_of(a, id, b);
+	CHECK(h && h->backfilled_to == 2u,
+	      "with backfill off, B was not given its own older epochs again, or was given one "
+	      "before it joined");
+
+	/* A HOST ACT SAYING MORE THAN HOLDS OR NOT is refused. */
+	CHECK(fzn_node_groups_act(&b->groups, FZN_GROUP_ACT_HOST, id, b->device.owner, 0u, 2u, NULL)
+	              != FZN_GROUP_LOG_OK,
+	      "a HOST act with a value of 2 was taken");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -710,6 +813,7 @@ int main(void)
 	test_lines_trimmed_from_a_base();
 	test_a_members_host_is_its_members();
 	test_the_last_admin_is_told_the_ways_out();
+	test_a_host_whose_prekey_rotated();
 	if (failures) {
 		fprintf(stderr, "node groups_test: %d of %d checks failed\n", failures, checks);
 		return 1;

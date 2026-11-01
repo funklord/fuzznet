@@ -11359,6 +11359,41 @@ SABOTAGES = [
 		"a host's unsigned spine entry places a grant past its line, and a device its estate keeps falls -- sec 801",
 	),
 	(
+		"group-host-named-again",
+		'node/group_log.c',
+		'\t\tif (fzn_group_host(g, fzn_contact_device_key(&a->signer)))\n\t\t\treturn rename_host(',
+		'\t\tif (fzn_group_host(g, fzn_contact_device_key(&a->signer)) && 0)\n\t\t\treturn rename_host(',
+		"a host named again is refused, and boxes go on to a prekey it rotated away -- sec 803",
+	),
+	(
+		"group-host-renamed-marks-reset",
+		'node/group_log.c',
+		'\tif (!holds) {\n\t\th->keyed_epoch = 0u;',
+		'\tif (0) {\n\t\th->keyed_epoch = 0u;',
+		"a host that lost an epoch to its rotation is never given it again -- sec 803",
+	),
+	(
+		"group-keys-own-epoch-without-backfill",
+		'node/group_log.c',
+		'\t\tif (e < g->epoch && !g->backfill && e < h->joined_epoch)',
+		'\t\tif (e < g->epoch && !g->backfill)',
+		"with backfill off, a host named again is never given its own older epochs -- sec 803",
+	),
+	(
+		"groups-tend-names-again-on-rotation",
+		'node/groups.c',
+		'\t\tif (!me || rotated(g, &held, me, &own)) {',
+		'\t\tif (!me) {',
+		"a host whose prekey rotated never names itself again -- sec 803",
+	),
+	(
+		"groups-holds-given-asked",
+		'node/groups.c',
+		'\t\t\t\tholds = holds_given(g, &held, me) ? 1u : 0u;',
+		'\t\t\t\tholds = 1u;',
+		"a host that lost an epoch to its rotation says it holds it, and is never given it -- sec 803",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',
@@ -13522,8 +13557,8 @@ SABOTAGES = [
 	(
 		"group-backfill-only-when-on",
 		"node/group_log.c",
-		"\tif (e < g->epoch && !g->backfill)\n",
-		"\tif (0)\n",
+		"\t\tif (e < g->epoch && !g->backfill && e < h->joined_epoch)\n\t\t\treturn FZN_GROUP_LOG_ERR_DENIED;",
+		"\t\tif (0)\n\t\t\treturn FZN_GROUP_LOG_ERR_DENIED;",
 		"a later member is given the history an admin turned backfill off for -- sec 625",
 	),
 	(
