@@ -9902,6 +9902,13 @@ SABOTAGES = [
 		"forgetting a month destroys its keys and leaves its text readable in the rows -- sec 539",
 	),
 	(
+		"admin-contact-devices-asked-as-contact",
+		"node/admin.c",
+		"\t\t\tn = admin->contact_devices(admin->contact_devices_ctx, owner, req->payload,",
+		"\t\t\tn = admin->contact_devices(admin->contact_devices_ctx, NULL, req->payload,",
+		"a contact's request reaches the contact-devices hook as a member's, and is answered the rows and revocations this node kept of its other contacts -- sec 810",
+	),
+	(
 		"setting-key-alphabet",
 		"state/setting.c",
 		"\t\tif (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_'\n\t\t      || c == '/' || c == '-'))",

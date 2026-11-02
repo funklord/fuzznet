@@ -76864,3 +76864,32 @@ That decision is applied here, not decided again.
 - `sticker-ref-id-one-spelling` is new.
 - `sticker-ref-length-needed` was re-anchored onto the merged check,
   which now holds both rules, the length of 0 and the leading zero.
+
+## 810. Who the contact-devices hook is told asked, tested, 2026-11-02
+
+Secs 776 to 799 added eight requests on the contact-devices hook. Sec
+701's table holds which caller reaches the hook, but not what the hook
+is told about that caller, and that decides what it may answer.
+`contact_devices_remote` (`node/daemon.c`) splits on its owner argument:
+- **NULL is a member**, answered what this node kept about all its
+  contacts: their devices, their roots' records and the estate rows of
+  sec 782;
+- **an owner is a contact**, answered only about this user's own estate:
+  its devices, root records and estate items, its root's setting of k,
+  and act logs.
+
+**A contact told it was a member would learn this user's other contacts
+and their devices.** Nothing tested which one the admin layer passes.
+
+**`admin_test`** now has the hook stub record its owner argument. The
+member row must see NULL, and the standing contact's row must see that
+contact's key. 303 checks.
+
+**Sabotage:** `admin-contact-devices-asked-as-contact` passes NULL for a
+contact.
+
+**Not reached:** the split inside `contact_devices_remote` itself. It is
+a static function in `node/daemon.c`, where no test reaches it, as sec
+701 says of the handlers behind every hook. Each of its answer functions
+parses only its own request type, so a member-only request sent by a
+contact falls through to the end and is denied.
