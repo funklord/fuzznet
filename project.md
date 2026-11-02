@@ -76559,14 +76559,15 @@ signed shows where the grant lies, and the device stands.
   now says how many: `N line(s) weighed over M member(s), G gone not
   waited for: S settled, W waiting`.
 
-**Decided from the aims, not asked.** A member that pulls from this host
-but cannot be reached by it is judged gone for settlement once silent
-past `archive/gone`, even while it is alive.
+**Decided from the aims, then confirmed by the holder 2026-11-02.** A
+member that pulls from this host but cannot be reached by it is judged
+gone for settlement once silent past `archive/gone`, even while it is
+alive.
 - **Settlement** is what this host can confirm. The member takes the
   line itself as it pulls (bucket reconcile, secs 565-573).
 - **For a line it wrote,** a second device sending it is harmless, since
   a line is filed by its id (sec 616).
-- **Not done:** counting a member's own requests, or its signed records
+- **Rejected:** counting a member's own requests, or its signed records
   arriving, as heard. Both would keep such a member from being judged
   gone, but then settlement would wait for it again, with no way to ask
   it.
