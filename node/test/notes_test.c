@@ -309,7 +309,7 @@ static void test_add_list_get(void)
 	      "the folder's child is listed, its title escaped");
 
 	snprintf(line, sizeof(line), "get note %s", milk);
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "1 0 ", 4u) && has(" blob 0 milk"),
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "1 0 ", 4u) && has(" blob 0 1 0 milk"),
 	      "get answers the type, flags, times, parent, text length and title");
 	snprintf(line, sizeof(line), "set note %s title oat milk", milk);
 	CHECK(ask(line) == FZN_REPLY_OK, "a rename");
@@ -322,7 +322,7 @@ static void test_add_list_get(void)
 	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "15 11 cold"),
 	      "and from an offset");
 	snprintf(line, sizeof(line), "get note %s", milk);
-	CHECK(ask(line) == FZN_REPLY_OK && has(" blob 15 oat%20milk"),
+	CHECK(ask(line) == FZN_REPLY_OK && has(" blob 15 1 0 oat%20milk"),
 	      "and the rename kept the text");
 
 	snprintf(line, sizeof(line), "set note %s pin", milk);
@@ -372,7 +372,7 @@ static void test_long_text(void)
 	hooks();
 	CHECK(ask(line) == FZN_REPLY_OK, "with one, the file's text is sealed whole");
 	snprintf(line, sizeof(line), "get note %s", note);
-	CHECK(ask(line) == FZN_REPLY_OK && has(" blob 5000 long"), "the note says blob, 5000 bytes");
+	CHECK(ask(line) == FZN_REPLY_OK && has(" blob 5000 1 0 long"), "the note says blob, 5000 bytes");
 	snprintf(line, sizeof(line), "get note %s text", note);
 	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "5000 0 abcdef", 13u),
 	      "and is paged as any text is");
@@ -401,7 +401,7 @@ static void test_long_text(void)
 	snprintf(line, sizeof(line), "set note %s text short again", note);
 	CHECK(ask(line) == FZN_REPLY_OK, "a short text replaces it");
 	snprintf(line, sizeof(line), "get note %s", note);
-	CHECK(ask(line) == FZN_REPLY_OK && has(" blob 11 long"), "in a blob of its own");
+	CHECK(ask(line) == FZN_REPLY_OK && has(" blob 11 1 0 long"), "in a blob of its own");
 
 	/* NOT HERE YET, sec 514: a note whose blob this node lacks lists by its
 	 * meta, marked pending, with no title; its text is not read, and its

@@ -58246,8 +58246,9 @@ version 2. Records stay unchained; chaining them through the journal is 3b.
 
 ### What the node says
 
-- `get note ID` answers `TYPE FLAGS CREATED EDITED PARENT blob LEN TITLE`,
-  with LEN the text's length. For a note whose blob is not here it answers
+- `get note ID` answers `TYPE FLAGS CREATED EDITED PARENT blob LEN
+  REACHABLE CONTESTED TITLE` (the two flags, 1 or 0, since sec 828), with
+  LEN the text's length. For a note whose blob is not here it answers
   `pending` and the sealed payload's length, with no title. The word that
   was `inline|blob` is now `blob|pending`, in the same place.
 - `get note ID text` pages any text, a long one included, and says "not
@@ -77772,3 +77773,29 @@ own identity. A store holds one identity's state, so the face-and-
 follower arrangement is for two processes of one identity. A process
 with an identity of its own keeps its own store, and reaches fuzznetd as
 another node does, or as a local client of its socket.
+
+## 828. `get note` says whether a note is reachable and contested, 2026-11-02
+
+fuzzypickles' third point (sec 824, their message of 19:59): `list
+note`'s row carries a note's reachable and contested flags and `get
+note ID` did not, so a client opening a note read its parent's listing
+for them, one request more.
+
+**`get note ID` now answers `TYPE FLAGS CREATED EDITED PARENT blob|pending
+LEN REACHABLE CONTESTED TITLE`**, each flag 1 or 0, from the same
+library calls the listing uses (`fzn_notes_reachable`,
+`fzn_notes_contested`) over the tree the note is read from, so `get
+shared` answers them for a sharer's tree. `get history ID N` answers the
+note's current standing, which is what the two words describe.
+
+**Before the title, not after it.** The title is escaped and may be
+empty, so a field after it would read as the title when it is; before
+it, both stay at fixed places. That moves the title from the eighth
+word to the tenth for a reader that counts: `gui/notebook_view.cpp` took
+everything from the eighth on as the title and now takes it from the
+tenth, and fuzzypickles is told.
+
+`node/test/notes_test.c`'s four `get note` checks expect the two flags
+of a reachable, uncontested note. No node-level test makes a contested
+or unreachable note; the computation is the library's own,
+`notes_store_test`'s.

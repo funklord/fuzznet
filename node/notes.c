@@ -628,6 +628,27 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
  * `node` read under `store`; `id` names the note. An earlier version
  * (`historical`) answers its items from its own text since sec 604, as the
  * current one does from the note's. */
+/* WHERE `id` STANDS in `store`'s current tree, sec 828: whether its root
+ * reaches it, and whether two of its claims put it under two parents --
+ * what `list note`'s row says of it. 0 and 0 for a note the tree holds
+ * no claim of. */
+static void note_standing(const fzn_notes_store_t *store, const uint8_t id[FZN_TREE_ID_LEN],
+                          int *reachable, int *contested)
+{
+	static uint8_t ids[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	size_t i, n_contested;
+
+	*reachable = *contested = 0;
+	if (fzn_notes_view_load(store, &view) != FZN_NOTES_OK)
+		return;
+	for (i = 0; i < view.count; i++)
+		if (memcmp(view.nodes[i].id, id, FZN_TREE_ID_LEN) == 0)
+			*reachable |= fzn_notes_reachable(&view, i);
+	n_contested = fzn_notes_contested(&view, ids, FZN_NOTES_MAX);
+	for (i = 0; i < n_contested && i < FZN_NOTES_MAX; i++)
+		*contested |= memcmp(ids[i], id, FZN_TREE_ID_LEN) == 0;
+}
+
 static size_t answer_note(fzn_node_notes_t *n, const fzn_notes_store_t *store,
                           const uint8_t id[FZN_TREE_ID_LEN], const fzn_tree_node_t *node,
                           int historical, const uint8_t *at, size_t left, char *reply,
@@ -652,17 +673,22 @@ static size_t answer_note(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 	if (!word(&at, &left, &field, &field_len)) {
 		/* THE FIELDS: type, flags, created, edited, parent, `blob` and
 		 * the text's length -- or `pending` and the sealed payload's,
-		 * with no title -- then the title, escaped. sec 514. */
+		 * with no title -- then whether it is reachable and contested,
+		 * as `list note`'s row says (sec 828), then the title, escaped.
+		 * sec 514. */
 		char parent[ID_HEX + 1u];
+		int reachable, contested;
 
+		note_standing(store, id, &reachable, &contested);
 		hex_of(node->parent, FZN_TREE_ID_LEN, parent);
 		parent[ID_HEX] = '\0';
-		k = snprintf(detail, sizeof(detail), "%u %u %llu %llu %s %s %llu ",
+		k = snprintf(detail, sizeof(detail), "%u %u %llu %llu %s %s %llu %d %d ",
 		             (unsigned)node->content_type, (unsigned)meta.flags,
 		             (unsigned long long)meta.created_at_ms,
 		             (unsigned long long)meta.edited_at_ms, parent,
 		             pending ? "pending" : "blob",
-		             (unsigned long long)(pending ? meta.content.length : note.text_len));
+		             (unsigned long long)(pending ? meta.content.length : note.text_len),
+		             reachable, contested);
 		if (k < 0 || (size_t)k >= limit)
 			return 0;
 		used = (size_t)k;

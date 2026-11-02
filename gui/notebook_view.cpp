@@ -576,14 +576,15 @@ void fzn_notebook_view::refresh_note()
 	if (have) {
 		QString get = shared() ? QStringLiteral("get shared %1 %2").arg(m_tree, m_open)
 		                       : QStringLiteral("get note %1").arg(m_open);
-		/* `TYPE FLAGS CREATED EDITED PARENT blob|pending LEN TITLE`. */
+		/* `TYPE FLAGS CREATED EDITED PARENT blob|pending LEN REACHABLE
+		 * CONTESTED TITLE`, the two flags since sec 828. */
 		if (ask(get, &detail) == 1) {
 			QStringList f = detail.split(QLatin1Char(' '));
 			int type = f.value(0).toInt();
 
 			m_flags = f.value(1).toUInt();
 
-			m_title->setText(unescape(f.mid(7).join(QLatin1Char(' '))));
+			m_title->setText(unescape(f.mid(9).join(QLatin1Char(' '))));
 			m_is_list = type == FZN_NOTE_TYPE_LIST;
 			/* NOT HERE YET, sec 514: there is no content to show, and an
 			 * edit of it the node would refuse. It can still be moved,
