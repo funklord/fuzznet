@@ -11338,6 +11338,13 @@ SABOTAGES = [
 		"a host behind its journal raises the k its root lowered, and a revoked device is kept -- sec 799",
 	),
 	(
+		"contact-estate-k-reply-exact",
+		'node/contact_devices.c',
+		"\tif (n > FZN_SETTING_MAX || reply_len != FZN_CONTACT_DEVICES_K_SET_HEAD_LEN + n)\n",
+		"\tif (n > FZN_SETTING_MAX || reply_len < FZN_CONTACT_DEVICES_K_SET_HEAD_LEN + n)\n",
+		"a K_SET reply with bytes past its setting is read, and a reply has more than one form -- sec 807",
+	),
+	(
 		"contact-estate-k-setting-only-a-root",
 		'node/contact_devices.c',
 		'\t\t\tif (!e->ops.member || !e->ops.member(e->ops.ctx, c->setter))\n\t\t\t\tcontinue;\n',

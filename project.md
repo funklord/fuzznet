@@ -76758,3 +76758,29 @@ length and left the over-read to the sanitizer. `make check`'s
 guard page, each mutation faults the plain build too, and both entries
 are caught. The other harnesses leave over-reads to `sancheck` by
 design, so they were left as they are.
+
+## 807. The fuzzing bar for a root's setting of a contact's k, 2026-11-02
+
+Sec 799 added two inputs from a contact's host after `estate_fuzz` was
+written: the K_SET reply (`fzn_contact_estate_k_reply`) and the signed
+`revocation/k` setting it carries (`fzn_contact_estate_keep_k_setting`).
+No harness reached either.
+
+**`estate_fuzz` property 4.** It makes a setting of k: set to a count,
+zero, a word, or a clear, by the owner or another key. A host answers it,
+and this host reads the reply whole, then bent. A whole reply reads back
+as its setting. A bent one is refused, or read as exactly the bytes
+after its head and none past its end. The setting, bent, is kept only
+when it still opens signed by its setter.
+
+**Floors:** some bent reply was read and some refused, and some bent
+setting was refused.
+
+**Measured:** 30,000 cases, no failure; 11,272 bent replies read and
+18,728 refused, and 29,207 bent settings refused. Nothing in the code
+changed.
+
+**Sabotage:** `contact-estate-k-reply-exact` reads a reply carrying bytes
+past its setting. `contact_devices_test` catches it first, and the
+harness alone fails 785 of 2000 cases with it in. The four entries on
+the setting's meaning, from sec 799, stand.

@@ -10,6 +10,8 @@
  *   - A PAGE OF ROWS a member passes on (KEPT_ESTATE / KEPT_ROWS, sec 782),
  *     and each row as it is taken.
  *   - A PAGE OF A KEY'S ACT LOG (ACTS / ACT_ENTRIES, sec 783).
+ *   - A ROOT'S SETTING OF k, as a host answers it (K_SETTING / K_SET) and as
+ *     it is kept (sec 799).
  *
  * THE PEER LIES BY MUTATION: each input is made whole, then with even odds
  * bent -- bits flipped, cut short, grown, a slice repeated or two bytes
@@ -25,14 +27,20 @@
  *   3. A ROW, whole or bent, taken into a store, then the estate built over
  *      everything kept, and a device judged by it: nothing read past an
  *      end, and a row kept only signed.
+ *   4. A K_SET REPLY, whole, reads back as the setting it carried; bent, it
+ *      is refused or read as exactly the bytes after its head, none past
+ *      its end. A SETTING OF k, bent, is kept only when it still opens
+ *      signed by its setter.
  *
  * FLOORS: a run in which no bent item decoded, no bent page of each kind
  * was both refused and taken, or no bent row was kept and none refused, has
- * not tested what it claims.
+ * not tested what it claims; nor has one in which no bent K_SET reply was
+ * both read and refused, or no bent setting was refused.
  */
 
 #include "../contact_devices.h"
 #include "../../record/record.h"
+#include "../../state/setting.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -436,6 +444,7 @@ int main(int argc, char **argv)
 	unsigned long cases = FUZZ_DEFAULT_CASES, c;
 	unsigned long item_bent = 0, refused_of[4] = { 0 }, taken_of[4] = { 0 };
 	unsigned long row_kept = 0, row_refused = 0;
+	unsigned long k_read = 0, k_refused = 0, kset_refused = 0;
 	static fzn_contact_device_t d;
 
 	if (argc > 1) {
@@ -567,6 +576,60 @@ int main(int argc, char **argv)
 			(void)fzn_contact_estate_revoked(e, &d);
 			fzn_contact_estate_close(e);
 		}
+
+		/* 4: A ROOT'S SETTING OF k, ANSWERED AND KEPT. */
+		{
+			static uint8_t setting[FZN_SETTING_MAX + 64u], reply[FZN_SETTING_MAX + 128u];
+			static const char *const VALUES[] = { "1", "2", "4", "255", "0", "x" };
+			const char *value = (next() % 7u) ? VALUES[next() % 6u] : NULL;
+			const uint8_t *setter = (next() & 1u) ? owner : admin_key;
+			const uint8_t *got = NULL;
+			uint8_t req[8];
+			size_t len = 0, req_len = 0, rlen, got_len = 0;
+			fzn_setting_t opened;
+
+			signing_as = setter[0];
+			if (fzn_setting_issue_ranked(setter, &SIGN, FZN_SCOPE_ESTATE, owner, next() % 100u,
+			                             (const uint8_t *)"revocation/k", 12u, value != NULL,
+			                             (const uint8_t *)value, value ? strlen(value) : 0u,
+			                             FZN_SETTING_RANK_ROOT, setting, &len)
+			            != FZN_SETTING_OK
+			    || !fzn_contact_estate_k_query(req, sizeof(req), &req_len)) {
+				fail("a setting of k would not issue, or its query would not write", c);
+				continue;
+			}
+			rlen = fzn_contact_estate_k_answer(req, req_len, setting, len, reply, sizeof(reply));
+			if (!rlen || !fzn_contact_estate_k_reply(reply, rlen, &got, &got_len)
+			    || got_len != len || !got || memcmp(got, setting, len) != 0)
+				fail("a whole K_SET reply did not read back as its setting", c);
+			rlen = bend(reply, rlen, sizeof(reply));
+			got = NULL;
+			got_len = 0;
+			if (fzn_contact_estate_k_reply(reply, rlen, &got, &got_len)) {
+				k_read++;
+				if (got_len != rlen - FZN_CONTACT_DEVICES_K_SET_HEAD_LEN
+				    || (got_len && got != reply + FZN_CONTACT_DEVICES_K_SET_HEAD_LEN)
+				    || (!got_len && got))
+					fail("a bent K_SET reply read as other than the bytes after its head", c);
+			} else {
+				k_refused++;
+			}
+			len = bend(setting, len, sizeof(setting));
+			if (len > FZN_SETTING_MAX)
+				len = FZN_SETTING_MAX;
+			switch (fzn_contact_estate_keep_k_setting(&STORE, &HASH, &SIGN, owner, setting, len)) {
+			case FZN_CONTACT_DEVICE_OK:
+				if (fzn_setting_open(setting, len, &SIGN, &opened) != FZN_SETTING_OK)
+					fail("a bent setting of k was kept that does not open signed", c);
+				break;
+			case FZN_CONTACT_DEVICE_ERR_REFUSED:
+				kset_refused++;
+				break;
+			default:
+				fail("a bent setting of k was neither kept nor refused", c);
+				break;
+			}
+		}
 	}
 
 	{
@@ -579,14 +642,20 @@ int main(int argc, char **argv)
 				fail("FLOOR: a page kind was never both refused and taken bent", cases);
 		if (row_kept == 0u || row_refused == 0u)
 			fail("FLOOR: no bent row was kept, or none refused", cases);
+		if (k_read == 0u || k_refused == 0u)
+			fail("FLOOR: no bent K_SET reply was read, or none refused", cases);
+		if (kset_refused == 0u)
+			fail("FLOOR: no bent setting of k was refused", cases);
 	}
 	if (failures) {
 		fprintf(stderr, "estate_fuzz: %lu cases, %d failure(s)\n", cases, failures);
 		return 1;
 	}
 	printf("estate_fuzz: %lu cases, 0 failure(s); bent items decoded %lu, pages refused/taken "
-	       "%lu/%lu %lu/%lu %lu/%lu %lu/%lu, rows kept %lu refused %lu\n",
+	       "%lu/%lu %lu/%lu %lu/%lu %lu/%lu, rows kept %lu refused %lu, K_SET read %lu "
+	       "refused %lu, settings of k refused %lu\n",
 	       cases, item_bent, refused_of[0], taken_of[0], refused_of[1], taken_of[1],
-	       refused_of[2], taken_of[2], refused_of[3], taken_of[3], row_kept, row_refused);
+	       refused_of[2], taken_of[2], refused_of[3], taken_of[3], row_kept, row_refused, k_read,
+	       k_refused, kset_refused);
 	return 0;
 }
