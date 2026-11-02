@@ -450,7 +450,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/ledger_test.c \
              state/test/state_test.c state/test/scope_test.c state/test/setting_test.c \
              state/test/setting_fuzz.c \
-             notes/test/note_test.c notes/test/note_fuzz.c \
+             notes/test/note_test.c notes/test/note_fuzz.c notes/test/sync_fuzz.c \
              notes/test/text_test.c \
              notes/test/notes_store_test.c node/test/notes_test.c \
              notes/test/notes_sync_test.c contact/test/contact_test.c \
@@ -650,6 +650,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/sticker/test/sticker_fuzz \
              $(BUILD_DIR)/node/test/group_fuzz \
              $(BUILD_DIR)/notes/test/note_fuzz \
+             $(BUILD_DIR)/notes/test/sync_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
@@ -2332,6 +2333,28 @@ $(BUILD_DIR)/notes/test/notes_sync_test: $(BUILD_DIR)/notes/test/notes_sync_test
                                          $(BUILD_DIR)/prekey/prekey.o \
                                          $(BUILD_DIR)/ratchet/ratchet.o \
                                          $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A notes pull through a peer that lies, fuzzed, sec 819.
+$(BUILD_DIR)/notes/test/sync_fuzz: $(BUILD_DIR)/notes/test/sync_fuzz.o \
+                                   $(BUILD_DIR)/notes/sync.o \
+                                   $(BUILD_DIR)/notes/share.o \
+                                   $(BUILD_DIR)/notes/received.o \
+                                   $(BUILD_DIR)/chain/service.o \
+                                   $(BUILD_DIR)/notes/store.o \
+                                   $(BUILD_DIR)/notes/view.o \
+                                   $(BUILD_DIR)/notes/author.o \
+                                   $(BUILD_DIR)/notes/purge.o \
+                                   $(BUILD_DIR)/notes/note.o \
+                                   $(BUILD_DIR)/tree/tree.o \
+                                   $(BUILD_DIR)/record/record.o \
+                                   $(BUILD_DIR)/persist/persist.o \
+                                   $(BUILD_DIR)/trust/trust.o \
+                                   $(BUILD_DIR)/session/agree.o \
+                                   $(BUILD_DIR)/prekey/prekey.o \
+                                   $(BUILD_DIR)/ratchet/ratchet.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5169,6 +5192,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/sticker/test/sticker_fuzz \
              $(BUILD_DIR)/node/test/group_fuzz \
              $(BUILD_DIR)/notes/test/note_fuzz \
+             $(BUILD_DIR)/notes/test/sync_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \

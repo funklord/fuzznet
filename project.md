@@ -77293,3 +77293,38 @@ and the reader refuse, as they should.
 claiming more than is there is read, 8,523 of 10,000 cases failed, the
 item walk leaving the payload. `note_test` catches the same entry; this
 harness catches it without depending on that test.
+
+## 819. A notes pull through a peer that lies, fuzzed, 2026-11-02
+
+Sec 818 fuzzed a note's own bytes. What a node reads from a peer while
+pulling notes, a page of its index and a batch of records (`notes/sync.c`,
+sec 432), had no harness. The peer is a host of this user or a sharer,
+and either may be lost or buggy.
+
+**`notes/test/sync_fuzz.c`**, on `notes_sync_test`'s fixture:
+- A writes one to six notes, and B pulls from A through an ask that
+  answers as A would and bends that answer with even odds.
+- Each answer is handed over as a copy ending at an unreadable page.
+- **The property:** whatever the answers, B holds only what A holds.
+  Every claim B lists, read under its key from both stores, is the same
+  bytes, and a claim B lists but cannot read counts against it.
+
+**Floors:** some pull went on past a bent answer, and some took records.
+
+**Measured:** 6,000 cases, no failure. 5,321 answers were bent, 1,856
+pulls went on past one, and 3,713 took records. Nothing in the code
+changed.
+
+**Control:** with the record signature check on admission removed
+(`notes/store.c`), 94 of 600 cases failed: B kept a bent record A never
+held.
+
+**Two faults of the harness's own, found before it counted:**
+- **Its first check was vacuous.** It looked each claim up by note id
+  with `fzn_notes_get`, while the keys `fzn_notes_claims` lists hash the
+  pair of note id and writer. Every lookup missed, every case passed, and
+  the control passed too. That is how it was found. It reads by claim key
+  (`fzn_notes_get_key`) now, and fails on a claim it cannot read.
+- **The blob stub's arena, sized for one suite's few notes**, filled
+  after about 1,200 cases, and notes stopped writing. The harness empties
+  it each case.
