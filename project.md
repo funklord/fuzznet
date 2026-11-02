@@ -76883,10 +76883,16 @@ and their devices.** Nothing tested which one the admin layer passes.
 
 **`admin_test`** now has the hook stub record its owner argument. The
 member row must see NULL, and the standing contact's row must see that
-contact's key. 303 checks.
+contact's key.
 
-**Sabotage:** `admin-contact-devices-asked-as-contact` passes NULL for a
-contact.
+**The same shape in two more hooks.** `routing_remote` and
+`notes_remote` take a flag, 1 for a contact and 0 for a member, and a
+contact told 0 is answered as a member. The table now holds both flags
+on both rows; the extension's flag was held already. 304 checks.
+
+**Sabotage:** three entries, each telling a hook a contact is a member:
+`admin-contact-devices-asked-as-contact` (NULL for the owner),
+`admin-routing-asked-as-contact` and `admin-notes-asked-as-contact`.
 
 **Not reached:** the split inside `contact_devices_remote` itself. It is
 a static function in `node/daemon.c`, where no test reaches it, as sec

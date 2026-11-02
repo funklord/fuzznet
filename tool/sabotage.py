@@ -9909,6 +9909,20 @@ SABOTAGES = [
 		"a contact's request reaches the contact-devices hook as a member's, and is answered the rows and revocations this node kept of its other contacts -- sec 810",
 	),
 	(
+		"admin-routing-asked-as-contact",
+		"node/admin.c",
+		"admin->routing_remote(admin->routing_ctx, req->sender, 1, req->payload,",
+		"admin->routing_remote(admin->routing_ctx, req->sender, 0, req->payload,",
+		"a contact's routing request is answered as a member's -- sec 810",
+	),
+	(
+		"admin-notes-asked-as-contact",
+		"node/admin.c",
+		"admin->notes_remote(admin->notes_ctx, owner, 1, req->payload,",
+		"admin->notes_remote(admin->notes_ctx, owner, 0, req->payload,",
+		"a contact's notes request is answered as a member's, every shelf and not what is shared with it -- sec 810",
+	),
+	(
 		"setting-key-alphabet",
 		"state/setting.c",
 		"\t\tif (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_'\n\t\t      || c == '/' || c == '-'))",

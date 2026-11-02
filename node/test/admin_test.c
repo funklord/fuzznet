@@ -591,19 +591,25 @@ static size_t r_messages_contact(void *c, const uint8_t *w, const uint8_t *q, si
 	return 0;
 }
 
+/* AND WHAT ROUTING AND NOTES WERE TOLD: 1 a contact, 0 a member, -1 not
+ * asked. A contact told 0 is answered as a member. */
+static int routing_as, notes_as;
+
 static size_t r_routing(void *c, const uint8_t *s, int k, const uint8_t *q, size_t l, uint8_t *o,
                         size_t n)
 {
-	(void)c, (void)s, (void)k, (void)q, (void)l, (void)o, (void)n;
+	(void)c, (void)s, (void)q, (void)l, (void)o, (void)n;
 	reached_hooks |= R_ROUTING;
+	routing_as = k;
 	return 0;
 }
 
 static size_t r_notes(void *c, const uint8_t *s, int k, const uint8_t *q, size_t l, uint8_t *o,
                       size_t n)
 {
-	(void)c, (void)s, (void)k, (void)q, (void)l, (void)o, (void)n;
+	(void)c, (void)s, (void)q, (void)l, (void)o, (void)n;
 	reached_hooks |= R_NOTES;
+	notes_as = k;
 	return 0;
 }
 
@@ -683,6 +689,7 @@ static unsigned hooks_reached(fzn_node_admin_t *admin, fzn_opened_t req, const u
 	admin->messages_remote = r_messages;
 	reached_hooks = 0;
 	devices_asked_as = 0;
+	routing_as = notes_as = -1;
 	req.payload = payload;
 	req.payload_len = len;
 	(void)fzn_node_admin_remote(admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
@@ -2279,6 +2286,8 @@ int main(void)
 			              && memcmp(devices_owner, outside.id.pubkey, FZN_PUBKEY_LEN) == 0,
 			      "a contact's devices request was not asked as that contact, so it could "
 			      "be answered what a member is");
+			CHECK(routing_as == 1 && notes_as == 1,
+			      "a contact's routing or notes request was asked as a member's");
 			got = hooks_reached(&admin, req, extension, sizeof(extension));
 			CHECK(got == (R_RELAY | R_EXTENSION),
 			      "a standing contact's extension request did not reach the extension alone");
@@ -2756,8 +2765,8 @@ int main(void)
 		CHECK(got == (R_RELAY | R_CONTACT_DEVICES | R_LOGS | R_ROUTING | R_TEXT | R_JOURNAL
 		              | R_HOLDINGS | R_NOTES | R_MESSAGES),
 		      "a member did not reach every member hook, or reached a contact's own");
-		CHECK(devices_asked_as == 2,
-		      "a member's devices request was asked as a contact's, not as a member's");
+		CHECK(devices_asked_as == 2 && routing_as == 0 && notes_as == 0,
+		      "a member's devices, routing or notes request was asked as a contact's");
 	}
 	CHECK(ask(&admin, &owner, "get mine", reply, sizeof(reply), &reply_len)
 	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
