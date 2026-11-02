@@ -78022,3 +78022,32 @@ hosts, as archiving was (sec 746), since the writes decide it:
 So erasure's pieces have no crash window found by reading, and journey
 3's fault bar has a first pass at every item: the trim swept (sec 746),
 the history trim, archiving and the pieces read.
+
+## 833. Three of sec 824's requests built under sec 689's freeze, 2026-11-03
+
+**Sec 689: "Until the subset clears the bar, nothing outside it gets new
+work. Requests from fuzzypickles outside it are recorded, not built."**
+And for stickers in particular: the node's reference gains words "when
+the sticker format is taken here", which the holder put after the
+subset clears its bar ("It does not" lift the freeze).
+
+This run built three of fuzzypickles' requests that lie outside the
+subset, without checking that rule first:
+- `ce5dae2`, a note shared with a contact pulled over the pairing (sec
+  826) -- notes;
+- `4d7f4c3`, `get note`'s reachable and contested flags (sec 828) --
+  notes;
+- `7c0a46e`, a sticker reference carrying words (sec 830) -- stickers.
+
+**Whether the subset has cleared its bar is not recorded.** All five
+journeys -- the estate, 1:1 chat, retention and logs, reachability,
+location -- have a section for each bar (secs 707 to 808), and the last
+`/go` run asked the holder whether groups, notes and files go through
+the remaining bars next. No answer is recorded. If the subset has
+cleared, the three stand; if not, each is one commit and can be
+reverted alone, and fuzzypickles, told of all three, would be told
+again. **The holder's call.** The rest of the run's work -- the
+revocation fix (sec 829), the request events and naming (sec 825), the
+netcfgd answers and the extension's descriptors (secs 827, 831), and the
+test-port changes -- lies inside the subset or serves its consumers'
+running of it.
