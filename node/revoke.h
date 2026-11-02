@@ -133,6 +133,38 @@ fzn_node_revoke_err_t fzn_node_unrevoke(struct fzn_node_roots *roots,
                                         fzn_revocation_store_t *revocations,
                                         const fzn_persist_ops_t *store);
 
+/* A VOTE BESIDE THE GRANTEE'S FIRST, sec 829: against `capability` -- a
+ * device's admin capability, beside its member one -- kept under a row of
+ * its own, so the two votes are cast, re-cast and withdrawn apart. As
+ * `fzn_node_revoke_at` otherwise, its line `cut`. */
+fzn_node_revoke_err_t fzn_node_revoke_beside_at(struct fzn_node_roots *roots,
+                                                const fzn_node_identity_t *id,
+                                                const uint8_t root[FZN_PUBKEY_LEN],
+                                                const fzn_node_authority_t *authority,
+                                                const fzn_cap_id_t *capability,
+                                                const uint8_t grantee[FZN_PUBKEY_LEN],
+                                                uint64_t now,
+                                                const uint8_t cut[FZN_REVOCATION_ID_LEN],
+                                                fzn_revocation_store_t *revocations,
+                                                const fzn_persist_ops_t *store);
+
+/* That vote withdrawn, as `fzn_node_unrevoke` withdraws the first. */
+fzn_node_revoke_err_t fzn_node_unrevoke_beside(struct fzn_node_roots *roots,
+                                               const fzn_node_identity_t *id,
+                                               const uint8_t root[FZN_PUBKEY_LEN],
+                                               const fzn_node_authority_t *authority,
+                                               const fzn_cap_id_t *capability,
+                                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                               fzn_revocation_store_t *revocations,
+                                               const fzn_persist_ops_t *store);
+
+/* The record of that vote this node holds, as `fzn_node_issued_revocation`
+ * reads the first's. 1 when one is held. */
+int fzn_node_issued_revocation_beside(const fzn_persist_ops_t *store,
+                                      const fzn_cap_id_t *capability,
+                                      const uint8_t grantee[FZN_PUBKEY_LEN],
+                                      uint8_t record[FZN_REVOCATION_LEN]);
+
 /* Save a confirmation this node signed, with `authority` -- its admin chain,
  * or NULL as a root -- so a restart re-admits it. sec 415. */
 fzn_node_revoke_err_t fzn_node_confirm_save(const fzn_persist_ops_t *store,

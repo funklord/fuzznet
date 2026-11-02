@@ -3546,7 +3546,7 @@ SABOTAGES = [
 	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
-		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, grantee, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",
+		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",
 		"",
 		"a revocation in force and never saved is forgotten by the next start, and the device the operator revoked is served again -- sec 380",
 	),

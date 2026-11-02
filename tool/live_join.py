@@ -24,6 +24,8 @@ client drives it -- no one-shot command, no daemon stopped by its client.
        again in place, holding admin by one hop
     g  A's `list log` reads what A logged, newest first: at its default
        level no debug entry, and at D more, debug among them (sec 711)
+    h  A revokes B, and neither the member nor the admin grant A made B
+       stands; the revocation withdrawn, both do (sec 829)
 
 Against a daemon whose `add join` did not start it again, phase b's round
 never reads A's setting; against one that kept no address, phase c's;
@@ -252,6 +254,28 @@ def main(argv):
 				             % got[:6])
 			print("livecheck: g: A's list log reads its own entries newest first, debug at D "
 			      "alone")
+
+			# h: B REVOKED IS CUT OFF WHOLE, sec 829: A's vote against B's member
+			# capability is followed by one against its admin, so neither of the
+			# grants A made B stands; withdrawn, both stand again.
+			def b_grants():
+				return {e.split(",")[1]: e.split(",")[3]
+				        for e in ask(socks["a"], "list grant").split()[3:]
+				        if e.startswith(key_b + ",")}
+
+			if b_grants() != {"member": "1", "admin": "1"}:
+				raise failed("h: before the revocation A lists B's grants as %r" % b_grants())
+			if not ask(socks["a"], "revoke peer " + key_b).startswith("ok "):
+				raise failed("h: A's revoke peer was refused")
+			if b_grants() != {"member": "0", "admin": "0"}:
+				raise failed("h: B revoked, A lists its grants as %r, its admin still standing"
+				             % b_grants())
+			expect(socks["a"], "a", "remove revocation " + key_b, "ok " + key_b)
+			if b_grants() != {"member": "1", "admin": "1"}:
+				raise failed("h: the revocation withdrawn, A lists B's grants as %r"
+				             % b_grants())
+			print("livecheck: h: B revoked held neither grant A made it, admin among them, and "
+			      "withdrawn held both")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

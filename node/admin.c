@@ -441,6 +441,41 @@ static int act_within_line(void *ctx, const uint8_t act[FZN_SUBJECT_LEN])
 	return l->line && fzn_node_journal_stands(l->journal, l->key, l->line, act);
 }
 
+/* AND ITS ADMIN CAPABILITY, sec 829: a key revoked as a member keeps any
+ * admin grant it holds, a revocation naming one capability and a chain
+ * judged per link, so `list grant` read a revoked device's admin grant as
+ * standing and no vote reached it. So a vote against the member capability
+ * is followed by one against admin, at the member vote's own line, when
+ * the key holds admin. NULL when it stood or was not wanted, else the
+ * words to say. */
+static const char *vote_admin_too(fzn_node_admin_t *admin, const uint8_t grantee[FZN_PUBKEY_LEN],
+                                  uint64_t now)
+{
+	static const uint8_t NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
+	uint8_t held[FZN_REVOCATION_LEN], cut[FZN_REVOCATION_ID_LEN];
+	const uint8_t *drawn = NULL;
+	fzn_revocation_record_t rec;
+	fzn_node_revoke_err_t rerr;
+
+	if (!admin->state->config.has_admin || !admin->settings || !admin->settings->apply
+	    || !fzn_node_apply_holds(admin->settings->apply, grantee,
+	                             &admin->state->config.admin_capability))
+		return NULL;
+	if (fzn_node_issued_revocation(admin->store, grantee, held)
+	    && fzn_revocation_open(held, sizeof(held), &rec) == FZN_CHAIN_OK
+	    && memcmp(fzn_revocation_cut(rec), NOTHING, sizeof(NOTHING)) != 0) {
+		memcpy(cut, fzn_revocation_cut(rec), sizeof(cut));
+		drawn = cut;
+	}
+	rerr = fzn_node_revoke_beside_at(admin->roots, admin->id, admin->state->config.root,
+	                                 voting_authority(admin),
+	                                 &admin->state->config.admin_capability, grantee, now, drawn,
+	                                 admin->revocations, admin->store);
+	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
+		return fzn_node_revoke_err_str(rerr);
+	return NULL;
+}
+
 static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
                           char *reply, size_t cap)
 {
@@ -496,6 +531,12 @@ static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 		                          admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
+	{
+		const char *why = vote_admin_too(admin, grantee, now);
+
+		if (why)
+			return answer_text(reply, cap, FZN_REPLY_ERROR, why);
+	}
 	memcpy(detail, hex, hex_len);
 	at = hex_len;
 	if (rerr == FZN_NODE_REVOKE_ALREADY) {
@@ -600,7 +641,8 @@ static const char *vote_at(fzn_node_admin_t *admin, const uint8_t old[FZN_PUBKEY
 	                          old, now, drawn, admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
 		return fzn_node_revoke_err_str(rerr);
-	return NULL;
+	/* A RE-KEYED DEVICE'S OLD KEY CUT OFF WHOLE, its admin too (sec 829). */
+	return vote_admin_too(admin, old, now);
 }
 
 /* `add succession OLD`: confirm the one succession of OLD this node holds,
@@ -910,6 +952,25 @@ static size_t unrevoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t 
 	                         admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
+	/* AND THE ADMIN VOTE BESIDE IT, sec 829, where one is held in force. */
+	if (admin->state->config.has_admin) {
+		uint8_t held[FZN_REVOCATION_LEN];
+		fzn_revocation_record_t rec;
+
+		if (fzn_node_issued_revocation_beside(admin->store,
+		                                      &admin->state->config.admin_capability, grantee,
+		                                      held)
+		    && fzn_revocation_open(held, sizeof(held), &rec) == FZN_CHAIN_OK
+		    && !fzn_revocation_is_withdrawal(rec)) {
+			rerr = fzn_node_unrevoke_beside(admin->roots, admin->id, admin->state->config.root,
+			                                voting_authority(admin),
+			                                &admin->state->config.admin_capability, grantee,
+			                                now, admin->revocations, admin->store);
+			if (rerr != FZN_NODE_REVOKE_OK)
+				return answer_text(reply, cap, FZN_REPLY_ERROR,
+				                   fzn_node_revoke_err_str(rerr));
+		}
+	}
 	return answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);
 }
 

@@ -77882,3 +77882,30 @@ the admin capability too, when the key holds it.
   standing with a revocation meant only for its admin (sec 400's "a
   root revoking an admin's admin capability removes that admin's vote
   alone").
+
+### Built for sec 829: a revoked key's admin vote beside its member one
+
+- **`revoke peer KEY`** now follows its vote against the member
+  capability with one against admin, at the member vote's own line,
+  when this node judges KEY to hold admin (`vote_admin_too`,
+  `node/admin.c`). **A succession's vote** does the same for the old key.
+  **`remove revocation KEY`** withdraws both.
+- **The admin vote's row is its own** (`fzn_node_revoke_beside_at`,
+  `fzn_node_unrevoke_beside`, `fzn_node_issued_revocation_beside` in
+  `node/revoke.c`): the grantee with the capability XORed in, the member
+  vote staying under the grantee alone, so a store written before reads
+  as it did. `load_slot` takes a record under either row and no other.
+  The records are as they were; no peer has anything new to read.
+
+**Verified.** The reproduction on one root: after `revoke peer`, B's member
+and admin grants both read 0, at once; withdrawn, both 1; revoked again,
+both 0; A started again, both still 0, its admin vote read back from its
+own row. `live_join.py` gains phase h, the same through its joined B
+holding admin: against the build before, it failed with the admin grant
+standing. `live_estate.py`, whose k-of-2 revocation and re-key now cast
+the extra vote, passes; `make test` 273.
+
+**Not held by `make test`.** `node/test/admin_test.c` has no fixture that
+judges an admin chain, so the new call is guarded by `live_join.py`
+phase h, in `make livecheck`, and a sabotage entry on it would survive
+`make test`; none is added.

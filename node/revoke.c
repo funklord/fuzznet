@@ -40,9 +40,24 @@ const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err)
 
 /* The record under `slot` for `grantee`, into `out`. 1 when one was loaded,
  * opens and names that grantee; 0 when the store has none or cannot say. */
+/* THE ROW A VOTE IS KEPT UNDER: its grantee, or, for a vote beside the
+ * grantee's first -- its admin capability's, sec 829 -- the grantee with
+ * the capability XORed in, so the two do not share a row. A grantee whose
+ * key were another's XOR a capability cannot be made: it is a public key. */
+static void vote_row(const fzn_cap_id_t *capability, const uint8_t grantee[FZN_PUBKEY_LEN],
+                     int beside, uint8_t row[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	_Static_assert(FZN_CAP_ID_LEN == FZN_PUBKEY_LEN, "a row is a capability's width");
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		row[i] = (uint8_t)(grantee[i] ^ (beside ? capability->b[i] : 0u));
+}
+
 static int load_slot(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
                      const uint8_t grantee[FZN_PUBKEY_LEN], uint8_t out[FZN_REVOCATION_LEN])
 {
+	uint8_t beside[FZN_PUBKEY_LEN];
 	uint8_t blob[BLOB_LEN];
 	fzn_revocation_record_t rec;
 	size_t len = 0;
@@ -52,8 +67,14 @@ static int load_slot(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
 	if (fzn_persist_head_check(blob, len, FZN_REVOCATION_LEN, FZN_PERSIST_BLOB_REVOCATION)
 	            != FZN_PERSIST_OK
 	    || fzn_revocation_open(blob + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN, &rec)
-	               != FZN_CHAIN_OK
-	    || memcmp(fzn_revocation_grantee(rec), grantee, FZN_PUBKEY_LEN) != 0)
+	               != FZN_CHAIN_OK)
+		return 0;
+	/* FILED UNDER ITS OWN ROW: its grantee's, or its grantee's beside its
+	 * capability (`vote_row`). Under any other it is refused. */
+	vote_row((const fzn_cap_id_t *)(const void *)fzn_revocation_capability(rec),
+	         fzn_revocation_grantee(rec), 1, beside);
+	if (memcmp(fzn_revocation_grantee(rec), grantee, FZN_PUBKEY_LEN) != 0
+	    && memcmp(beside, grantee, FZN_PUBKEY_LEN) != 0)
 		return 0;
 	memcpy(out, blob + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN);
 	return 1;
@@ -85,7 +106,8 @@ static fzn_node_revoke_err_t issue(struct fzn_node_roots *roots, const fzn_node_
                                    const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
                                    fzn_revocation_store_t *revocations,
                                    const fzn_persist_ops_t *store, int withdraw,
-                                   const uint8_t cut[FZN_REVOCATION_ID_LEN], int move)
+                                   const uint8_t cut[FZN_REVOCATION_ID_LEN], int move,
+                                   const uint8_t row[FZN_PUBKEY_LEN])
 {
 	static const uint8_t NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
 	uint8_t previous[FZN_REVOCATION_LEN];
@@ -114,7 +136,7 @@ static fzn_node_revoke_err_t issue(struct fzn_node_roots *roots, const fzn_node_
 		return FZN_NODE_REVOKE_NOT_ROOT;
 	}
 
-	held = load_slot(store, FZN_PERSIST_ISSUED_REVOCATION, grantee, previous)
+	held = load_slot(store, FZN_PERSIST_ISSUED_REVOCATION, row, previous)
 	       && fzn_revocation_open(previous, sizeof(previous), &prev_rec) == FZN_CHAIN_OK;
 
 	/* A WITHDRAWAL NAMES THE WHOLE RECORD IT UNDOES, by its hash -- the
@@ -181,7 +203,7 @@ static fzn_node_revoke_err_t issue(struct fzn_node_roots *roots, const fzn_node_
 	            != FZN_PERSIST_OK)
 		return FZN_NODE_REVOKE_NOT_SAVED;
 	memcpy(blob + FZN_PERSIST_HEAD_LEN, record, FZN_REVOCATION_LEN);
-	if (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, grantee, blob, sizeof(blob)))
+	if (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))
 		return FZN_NODE_REVOKE_NOT_SAVED;
 	/* LOGGED WHERE IT IS MADE, sec 504, under its issuer: a vote not in its
 	 * signer's log falls at the signer's revocation whatever the line, and a
@@ -203,7 +225,7 @@ fzn_node_revoke_err_t fzn_node_revoke(struct fzn_node_roots *roots, const fzn_no
                                       const fzn_persist_ops_t *store)
 {
 	return issue(roots, id, root, authority, capability, grantee, now, revocations, store, 0, NULL,
-	             0);
+	             0, grantee);
 }
 
 fzn_node_revoke_err_t fzn_node_revoke_at(struct fzn_node_roots *roots, const fzn_node_identity_t *id,
@@ -216,7 +238,7 @@ fzn_node_revoke_err_t fzn_node_revoke_at(struct fzn_node_roots *roots, const fzn
                                          const fzn_persist_ops_t *store)
 {
 	return issue(roots, id, root, authority, capability, grantee, now, revocations, store, 0, cut,
-	             1);
+	             1, grantee);
 }
 
 fzn_node_revoke_err_t fzn_node_unrevoke(struct fzn_node_roots *roots, const fzn_node_identity_t *id,
@@ -226,7 +248,59 @@ fzn_node_revoke_err_t fzn_node_unrevoke(struct fzn_node_roots *roots, const fzn_
                                         fzn_revocation_store_t *revocations,
                                         const fzn_persist_ops_t *store)
 {
-	return issue(roots, id, root, authority, NULL, grantee, now, revocations, store, 1, NULL, 0);
+	return issue(roots, id, root, authority, NULL, grantee, now, revocations, store, 1, NULL, 0,
+	             grantee);
+}
+
+fzn_node_revoke_err_t fzn_node_revoke_beside_at(struct fzn_node_roots *roots,
+                                                const fzn_node_identity_t *id,
+                                                const uint8_t root[FZN_PUBKEY_LEN],
+                                                const fzn_node_authority_t *authority,
+                                                const fzn_cap_id_t *capability,
+                                                const uint8_t grantee[FZN_PUBKEY_LEN],
+                                                uint64_t now,
+                                                const uint8_t cut[FZN_REVOCATION_ID_LEN],
+                                                fzn_revocation_store_t *revocations,
+                                                const fzn_persist_ops_t *store)
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+
+	if (!capability || !grantee)
+		return FZN_NODE_REVOKE_MALFORMED;
+	vote_row(capability, grantee, 1, row);
+	return issue(roots, id, root, authority, capability, grantee, now, revocations, store, 0, cut,
+	             1, row);
+}
+
+fzn_node_revoke_err_t fzn_node_unrevoke_beside(struct fzn_node_roots *roots,
+                                               const fzn_node_identity_t *id,
+                                               const uint8_t root[FZN_PUBKEY_LEN],
+                                               const fzn_node_authority_t *authority,
+                                               const fzn_cap_id_t *capability,
+                                               const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                               fzn_revocation_store_t *revocations,
+                                               const fzn_persist_ops_t *store)
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+
+	if (!capability || !grantee)
+		return FZN_NODE_REVOKE_MALFORMED;
+	vote_row(capability, grantee, 1, row);
+	return issue(roots, id, root, authority, NULL, grantee, now, revocations, store, 1, NULL, 0,
+	             row);
+}
+
+int fzn_node_issued_revocation_beside(const fzn_persist_ops_t *store,
+                                      const fzn_cap_id_t *capability,
+                                      const uint8_t grantee[FZN_PUBKEY_LEN],
+                                      uint8_t record[FZN_REVOCATION_LEN])
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+
+	if (!store || !store->load || !capability || !grantee || !record)
+		return 0;
+	vote_row(capability, grantee, 1, row);
+	return load_slot(store, FZN_PERSIST_ISSUED_REVOCATION, row, record);
 }
 
 int fzn_node_issued_revocation(const fzn_persist_ops_t *store,
