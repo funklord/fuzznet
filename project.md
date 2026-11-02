@@ -77998,3 +77998,27 @@ byte in it, it tells `ready` of that pipe. `node/test/ext_daemon` takes
 `--poke=FIFO` and answers `get pokes` and `get ticks`, and `live_ext.py`
 phase b2 writes three bytes into the FIFO and requires `ok 3`, and the
 tick count to grow over 2.5 s.
+
+## 832. Erasure's pieces under a crash, read, 2026-11-03
+
+Journey 3's fault bar, its last item. Read rather than swept across six
+hosts, as archiving was (sec 746), since the writes decide it:
+- **A piece and a placement are each one atomic write**: a temporary
+  file, synced, renamed into place (`node/pieces.c`,
+  `node/piece_buckets.c`'s `write_cut`). A crash leaves the old file or
+  the new, whole, and a stray `.new` that the next write replaces.
+- **Whether a piece is held is whether its file exists**
+  (`fzn_pieces_held`), so no count can disagree with the files.
+- **Letting a piece go removes its bucket, then its file**, so that a
+  bucket never names a file that is gone. Its comment says the next
+  let-go removes a file left between. It does not: the pass that lets a
+  host's copies go (`node/daemon.c`, "its keepers hold them") acts on
+  pieces both its buckets keep and its files hold, so a file whose bucket
+  went first is not let go again, and stays. It is a log segment's
+  piece, held past the move or the rule that let it go.
+
+**Open, the same shape as sec 746's group lines and fixed the same way
+there:** the file first, then the bucket, with a refused removal failing
+the let-go, a crash between leaving a bucket naming a file gone -- which
+the next pass, finding the file absent, can let go. Not made here; it
+wants a test cutting the let-go between its two removals.
