@@ -9447,6 +9447,14 @@ run, recorded under sec 15c.
   nobody has: how many revocations a deployment accumulates over its life.
   Named rather than guessed at.
 
+  **In fuzznetd the size half is settled, re-read 2026-11-02 (sec 822):**
+  since sec 704 the daemon grows its revocations' tables when one fills
+  (`revocations_grow`, `node/daemon.c`), and `live_faults` phase h admits
+  a 301st past the old 256. So a fixed table no longer fills and fails
+  open there; only memory running out does, and the daemon says so. What
+  still stands is the growth itself, nothing expiring, and the library's
+  store for a caller who sizes it, which still refuses when full.
+
   **AND THE FAIL-OPEN IS STRUCTURAL, NOT AN OVERSIGHT** -- established
   2026-08-27 by comparing with a consumer that has the same bound and
   the OPPOSITE disposition. fuzzypickles bounds its revocation list at
