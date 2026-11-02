@@ -49,6 +49,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 from live_groups import KEPT_RE, PREKEY_HOST  # noqa: E402
+from live_events import subscriber  # noqa: E402
 import live_trim  # noqa: E402
 
 # ROUNDS OF TWO SECONDS, the fault build's knob (sec 693).
@@ -226,11 +227,39 @@ def main(argv):
 			card = said("b1", "get card " + NAME["b"])
 			if not card.startswith("ok FZC1:"):
 				raise failed("a: B1's get card answered %r" % card)
-			got = said("a1", "add contact %s %s" % (NAME["b"], card.split(" ", 1)[1]))
+			# NAMED BY THE ASKER, sec 825: A1 names its user to B, and B1
+			# lists the request under that name, with where A1 says it is.
+			got = said("a1", "add contact %s %s as %s" % (NAME["b"], card.split(" ", 1)[1],
+			                                             NAME["a"]))
 			if got != "ok " + keys["b"]:
 				raise failed("a: A1's add contact answered %r" % got)
 			started["b1"].wait_for(KEPT_RE, "B1 keeping A's request", within=settle)
-			expect(socks["b1"], "b1", "grant request %s %s" % (keys["a"], NAME["a"]), "ok")
+			listed = said("b1", "list request")
+			row = [e for e in listed.split()[2:] if e.startswith(keys["a"] + ",")]
+			if (not row or row[0].split(",")[1] != NAME["a"]
+			        or row[0].split(",")[3] != "127.0.0.1:" + port["a1"]):
+				raise failed("a: B1 lists A's request as %r, not named %s and at A1's address"
+				             % (listed[:300], NAME["a"]))
+			# TOLD WHEN ANSWERED, sec 825: a client counting B1's waiting
+			# requests hears the grant another client makes, as it heard the
+			# request come.
+			watcher = subscriber(socks["b1"], "b1 events")
+			try:
+				if watcher.first != "ok events":
+					raise failed("a: B1's get events answered %r" % watcher.first)
+				expect(socks["b1"], "b1", "grant request %s %s" % (keys["a"], NAME["a"]),
+				       "ok")
+				for _ in range(32):
+					heard = watcher.line()
+					if heard == "event request " + keys["a"]:
+						break
+					if heard is None:
+						raise failed("a: B1's subscriber was hung up on before the grant's "
+						             "event")
+				else:
+					raise failed("a: no event request after B1 granted A's request")
+			finally:
+				watcher.close()
 			for who in WHO:
 				polled(who, "list contact", lambda g, who=who: keys[other(who)] in g,
 				       "without the other user as a contact")

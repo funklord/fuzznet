@@ -64334,10 +64334,15 @@ asks for exactly one.
 
 ### The verbs, this node's own user only
 
-    add contact NAME CARD|PATH   ask by a card, as text or in a file
-    list request                 ok COUNT ROOT,NAME,RECEIVED ..., oldest first
+    add contact NAME CARD|PATH [as SELF]
+                                 ask by a card, as text or in a file,
+                                 naming this user SELF to the one asked
+    list request                 ok COUNT ROOT,NAME,RECEIVED,ADDRESS ...,
+                                 oldest first
     grant request ROOT NAME      approve
     remove request ROOT          reject
+
+(`as SELF`, ADDRESS, and an event on a grant or a removal, since sec 825.)
 
 They use verbs the vocabulary has rather than new ones: the verb set is
 what authorisation rules name. `add contact NAME KEY` is admin's as
@@ -77651,3 +77656,41 @@ text is the payload.
   on the holder's word for the remaining bars (sec 689), so recorded.
 - **`get note ID` carries no reachable or contested flag**, which `list
   note`'s row does; fuzzypickles reads the parent's listing for it.
+
+## 825. A request answered is told, and an asker can say who it is, 2026-11-02
+
+fuzzypickles' two pairing-request gaps (sec 824, their message of 17:19).
+
+**Answering a request told nobody.** Sec 609's rule is that a change verb
+the node answers `ok` publishes its subject to local subscribers, naming
+the item when the next word is its hex id. `local_handle` applied it only
+to the admin handler at the end of its chain, and every handler before
+it returned first, `request_local` among them, so `grant request` and
+`remove request` published nothing and another client's count of waiting
+requests stayed until a key was pressed. The rule now applies to every
+handler's answer (`publish_change`). So `grant request ROOT NAME` and
+`remove request ROOT` publish `event request ROOT`, as a request's
+arrival does, and every other change verb answered before the admin
+handler now publishes by the same rule, `add contact` by card among
+them. No local handler published on its own -- the daemon's other
+`publish` sites are for what arrives from the network -- so nothing is
+told twice.
+
+**A request carried nothing to recognise its asker by.** Two additions,
+neither a wire change:
+- **`add contact NAME CARD|PATH [as SELF]`** names this user SELF in the
+  request's card, whose name field exists already and which the asked
+  host lists. SELF is a contact name (letters, digits and `_`), checked
+  before anything is kept, since a card's signature refuses any other.
+- **`list request` gains a fourth field, ADDRESS:** where the asker's
+  card says its host is, or its first seed, an IPv6 address in brackets,
+  `-` for none. It is the card's, which the asker signed, rather than the
+  source of the datagram that carried it, which anyone can claim. A
+  reader taking the first three fields is unaffected (`live_pairing.py`
+  takes two).
+
+**Verified.** `live_chat.py` phase a: A1 asks `as alice`, and B1's `list
+request` must show alice and A1's address; a client subscribed on B1
+must hear `event request` for A's root when B1 grants it. Against the
+build before the change the subscriber heard nothing within 5 s; after
+it the journey passes. `live_events.py` passes as before.

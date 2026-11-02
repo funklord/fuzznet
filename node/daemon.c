@@ -354,6 +354,8 @@ static void publish(const char *subject, const char *name)
 {
 	(void)fzn_node_events_publish(&node_events, subject, name);
 }
+static void publish_change(const fzn_request_t *request, const char *reply, size_t n,
+                           size_t reply_cap);
 
 /* A LOCAL REQUEST, and its subscribers told when it changed something: a
  * change verb the node answered `ok` publishes its subject -- the first
@@ -514,16 +516,32 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = catalog_local(origin, request, reply, reply_cap);
-	if (n)
+	if (n) {
+		publish_change(request, reply, n, reply_cap);
 		return n;
+	}
 	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
 	own_acts_applied((const fzn_node_admin_t *)ctx, reply, n);
+	publish_change(request, reply, n, reply_cap);
+	return n;
+}
+
+/* A LOCAL CHANGE PUBLISHED, sec 609: a change verb the node answered `ok`
+ * publishes its subject -- the first word after the verb -- naming the item
+ * when the next word is one (hex). A change one UI makes reaches the
+ * others. Every handler's answer, sec 825: only the admin handler's was,
+ * and a verb answered earlier in the chain -- `grant request`, `remove
+ * request`, a contact added by card -- told nobody, so another client's
+ * count of waiting requests stayed until a key was pressed. */
+static void publish_change(const fzn_request_t *request, const char *reply, size_t n,
+                           size_t reply_cap)
+{
 	char subject[FZN_NODE_EVENTS_SUBJECT_MAX + 1u], name[FZN_NODE_EVENTS_NAME_MAX + 1u];
 	size_t at = 0, s = 0, k = 0;
 
 	if (n < 2u || n > reply_cap || memcmp(reply, "ok", 2u) != 0 || (n > 2u && reply[2] != ' '
 	                                                               && reply[2] != '\n'))
-		return n;
+		return;
 	switch (request->parsed) {
 	case FZN_VERB_ADD:
 	case FZN_VERB_SET:
@@ -534,13 +552,13 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	case FZN_VERB_REVOKE:
 		break;
 	default:
-		return n;
+		return;
 	}
 	while (at < request->arg_len && request->arg[at] != ' ' && s < FZN_NODE_EVENTS_SUBJECT_MAX)
 		subject[s++] = (char)request->arg[at++];
 	subject[s] = '\0';
 	if (at < request->arg_len && request->arg[at] != ' ')
-		return n;
+		return;
 	while (at < request->arg_len && request->arg[at] == ' ')
 		at++;
 	while (at < request->arg_len && request->arg[at] != ' ' && k < FZN_NODE_EVENTS_NAME_MAX)
@@ -553,7 +571,6 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		publish(subject, NULL);
 	else
 		publish(subject, name);
-	return n;
 }
 
 /* EVERY REQUEST A PULL OR A SHARE'S CALLER SENDS, in an envelope naming the
@@ -8598,7 +8615,8 @@ static int unhex32(const uint8_t *w, size_t n, uint8_t out[FZN_PUBKEY_LEN])
  * added as NAME and its host kept, and a request carrying this host's card
  * sent until that user's first offer answers it. */
 static size_t request_contact(const uint8_t *name, size_t name_len, const uint8_t *arg,
-                              size_t arg_len, char *reply, size_t cap)
+                              size_t arg_len, const uint8_t *self, size_t self_len, char *reply,
+                              size_t cap)
 {
 	static char text[FZN_CONTACT_CARD_TEXT_MAX + 1u];
 	static uint8_t bytes[FZN_CONTACT_CARD_MAX], own_bytes[FZN_CONTACT_CARD_MAX];
@@ -8609,6 +8627,11 @@ static size_t request_contact(const uint8_t *name, size_t name_len, const uint8_
 	size_t len = 0, text_len, own_len = 0;
 	uint64_t now = wall_clock();
 
+	/* THE NAME THIS HOST GIVES ITSELF, sec 825, checked before anything is
+	 * kept: it is the request's card's name, and the asked host lists it. */
+	if (self_len && !fzn_contact_name_ok((const char *)self, self_len))
+		return (size_t)snprintf(reply, cap,
+		                        "malformed a name given with as is letters, digits and _\n");
 	if (arg_len >= 5u && memcmp(arg, FZN_CONTACT_CARD_TEXT_PREFIX, 5u) == 0) {
 		if (arg_len > FZN_CONTACT_CARD_TEXT_MAX)
 			return (size_t)snprintf(reply, cap, "malformed not a contact card\n");
@@ -8659,8 +8682,8 @@ static size_t request_contact(const uint8_t *name, size_t name_len, const uint8_
 	 * for one datagram. */
 	memset(&a, 0, sizeof(a));
 	a.card = card;
-	if (!own_card(&a.request.card, NULL, 0, FZN_UDP_DATAGRAM_MAX - FZN_BOX_OVERHEAD - 124u,
-	              own_bytes, &own_len))
+	if (!own_card(&a.request.card, self_len ? self : NULL, self_len,
+	              FZN_UDP_DATAGRAM_MAX - FZN_BOX_OVERHEAD - 124u, own_bytes, &own_len))
 		return (size_t)snprintf(reply, cap,
 		                        "error added, and no request sent: this host has no card\n");
 	memcpy(a.request.target, fzn_contact_device_key(&card.host), FZN_PUBKEY_LEN);
@@ -8678,8 +8701,11 @@ static size_t request_contact(const uint8_t *name, size_t name_len, const uint8_
 
 /* THE REQUEST VERBS, sec 619, this node's own user only:
  *
- *   add contact NAME CARD|PATH   ask for contact by a card (`FZC1:...`)
- *   list request                 `ok COUNT ROOT,NAME,RECEIVED ...`, oldest first
+ *   add contact NAME CARD|PATH [as SELF]
+ *                                ask for contact by a card (`FZC1:...`),
+ *                                naming this host SELF to the one asked
+ *   list request                 `ok COUNT ROOT,NAME,RECEIVED,ADDRESS ...`,
+ *                                oldest first
  *   grant request ROOT NAME      approve: ROOT added as NAME, its host kept
  *   remove request ROOT          reject
  *
@@ -8689,8 +8715,8 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 {
 	static fzn_contact_request_held_t *held;
 	static size_t held_cap;
-	const uint8_t *at = request->arg, *subject, *a1 = NULL, *a2 = NULL;
-	size_t left = request->arg_len, subject_len, n1 = 0, n2 = 0, n = 0, i, k;
+	const uint8_t *at = request->arg, *subject, *a1 = NULL, *a2 = NULL, *a3 = NULL, *a4 = NULL;
+	size_t left = request->arg_len, subject_len, n1 = 0, n2 = 0, n3 = 0, n4 = 0, n = 0, i, k;
 	uint8_t root[FZN_PUBKEY_LEN];
 	int card;
 
@@ -8698,6 +8724,8 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 		return 0;
 	(void)next_word(&at, &left, &a1, &n1);
 	(void)next_word(&at, &left, &a2, &n2);
+	(void)next_word(&at, &left, &a3, &n3);
+	(void)next_word(&at, &left, &a4, &n4);
 	card = request->parsed == FZN_VERB_ADD && subject_len == 7u
 	       && memcmp(subject, "contact", 7u) == 0 && n2 > 0u
 	       && !(n2 == 2u * FZN_PUBKEY_LEN && unhex32(a2, n2, root));
@@ -8711,8 +8739,12 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 		                                    "user\n");
 	if (!running_admin || !node_apply.store)
 		return (size_t)snprintf(reply, cap, "error this node keeps no contacts\n");
-	if (card)
-		return request_contact(a1, n1, a2, n2, reply, cap);
+	if (card) {
+		if (n3 && !(n3 == 2u && memcmp(a3, "as", 2u) == 0 && n4 && left == 0u))
+			return (size_t)snprintf(reply, cap,
+			                        "malformed add contact NAME CARD|PATH [as SELF]\n");
+		return request_contact(a1, n1, a2, n2, n3 ? a4 : NULL, n3 ? n4 : 0u, reply, cap);
+	}
 	if (request->parsed == FZN_VERB_LIST) {
 		size_t at_out, from = 0, tries;
 		fzn_contact_request_err_t lerr = FZN_CONTACT_REQUEST_ERR_ROOM;
@@ -8745,11 +8777,28 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 			char hex[2u * FZN_PUBKEY_LEN + 1u];
 			const fzn_contact_card_t *c = &held[i].request.card;
 
+			/* WHERE IT SAYS IT IS, sec 825: its card's host, or its first
+			 * seed -- signed by the asker, unlike a datagram's source -- an
+			 * IPv6 address in brackets, `-` for none. */
+			const char *addr = c->host.port ? c->host.address
+			                   : c->n_seeds ? c->seeds[0].address : NULL;
+			size_t addr_len = c->host.port ? c->host.address_len
+			                  : c->n_seeds ? c->seeds[0].address_len : 0u;
+			unsigned port = c->host.port ? c->host.port : c->n_seeds ? c->seeds[0].port : 0u;
+			int six = addr && memchr(addr, ':', addr_len) != NULL;
+
 			hex_of(c->host.owner, FZN_PUBKEY_LEN, hex);
-			k = (size_t)snprintf(reply + at_out, cap - at_out, " %s,%.*s,%llu", hex,
-			                     c->name_len ? (int)c->name_len : 1,
-			                     c->name_len ? c->name : "-",
-			                     (unsigned long long)held[i].received_at);
+			if (addr_len && port)
+				k = (size_t)snprintf(reply + at_out, cap - at_out, " %s,%.*s,%llu,%s%.*s%s:%u",
+				                     hex, c->name_len ? (int)c->name_len : 1,
+				                     c->name_len ? c->name : "-",
+				                     (unsigned long long)held[i].received_at, six ? "[" : "",
+				                     (int)addr_len, addr, six ? "]" : "", port);
+			else
+				k = (size_t)snprintf(reply + at_out, cap - at_out, " %s,%.*s,%llu,-", hex,
+				                     c->name_len ? (int)c->name_len : 1,
+				                     c->name_len ? c->name : "-",
+				                     (unsigned long long)held[i].received_at);
 			if (at_out + k >= cap)
 				break;
 			at_out += k;
