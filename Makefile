@@ -450,7 +450,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/ledger_test.c \
              state/test/state_test.c state/test/scope_test.c state/test/setting_test.c \
              state/test/setting_fuzz.c \
-             notes/test/note_test.c \
+             notes/test/note_test.c notes/test/note_fuzz.c \
              notes/test/text_test.c \
              notes/test/notes_store_test.c node/test/notes_test.c \
              notes/test/notes_sync_test.c contact/test/contact_test.c \
@@ -649,6 +649,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/state/test/setting_fuzz \
              $(BUILD_DIR)/sticker/test/sticker_fuzz \
              $(BUILD_DIR)/node/test/group_fuzz \
+             $(BUILD_DIR)/notes/test/note_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
@@ -2223,6 +2224,12 @@ $(BUILD_DIR)/trust/test/trust_walk_test: $(BUILD_DIR)/trust/test/trust_walk_test
 # notes/ parses and builds a note body and its blob reference, and calls
 # nothing: blob/ and tree/ give it constants only. sec 422.
 $(BUILD_DIR)/notes/test/note_test: $(BUILD_DIR)/notes/test/note_test.o \
+                                   $(BUILD_DIR)/notes/note.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A note as another host wrote it, fuzzed: its meta and payload, sec 818.
+$(BUILD_DIR)/notes/test/note_fuzz: $(BUILD_DIR)/notes/test/note_fuzz.o \
                                    $(BUILD_DIR)/notes/note.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5161,6 +5168,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/state/test/setting_fuzz \
              $(BUILD_DIR)/sticker/test/sticker_fuzz \
              $(BUILD_DIR)/node/test/group_fuzz \
+             $(BUILD_DIR)/notes/test/note_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \

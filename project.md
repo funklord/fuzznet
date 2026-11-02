@@ -77260,3 +77260,34 @@ additional data, 221 of 4,000 cases failed, "a bent line opened".
 **Sabotage:** `group-line-head-bound` leaves the head out of the open's
 additional data alone.
 
+## 818. A note as another host wrote it, fuzzed, 2026-11-02
+
+Notes were outside sec 689's subset too, and fuzzypickles' desktop syncs
+them through fuzznetd. A note shared to a contact or a group, and every
+note a user's other hosts write, arrives from a writer this host does not
+control. The listing then walks its labels and a checklist's items. No
+harness read a note's META, a record's content, or its PAYLOAD, a blob's
+plaintext once opened (sec 514). `note_test` holds their meaning, and 12
+sabotage entries rest on it.
+
+**`notes/test/note_fuzz.c`:**
+- **a meta** opens as written, and a bent one that opens writes back as
+  exactly its bytes;
+- **a payload**, of plain text half the time and a checklist's items the
+  other, with labels, opens as written. A bent one that opens writes
+  back as exactly its bytes;
+- **every label and item is walked within the payload's own bytes**, the
+  items ending clean or refused, each read ending at an unreadable page.
+
+**Floors:** some bent meta and some bent payload opened, and some of each
+was refused.
+
+**Measured:** 200,000 cases, no failure. Nothing in the code changed.
+The first long run failed 6 metas in 200,000; the generator drew payload
+lengths up to 8 bytes past `FZN_NOTE_PAYLOAD_MAX`, which both the writer
+and the reader refuse, as they should.
+
+**Control:** with `note-item-cannot-overrun` applied by hand, so an item
+claiming more than is there is read, 8,523 of 10,000 cases failed, the
+item walk leaving the payload. `note_test` catches the same entry; this
+harness catches it without depending on that test.
