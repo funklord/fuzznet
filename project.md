@@ -77737,3 +77737,38 @@ Still open from the same message: a group's name reaching a member, and
 a notebook shared with a group listed under it (groups await the
 holder's word on the remaining bars); and `get note ID` carrying the
 reachable and contested flags that `list note`'s row does.
+
+## 827. netcfgd and fuzznetd on one store: the claim's face and follower, 2026-11-02
+
+netcfgd's requirement (its decision 0308, inbox message of 2026-11-02
+23:30): netcfgd now links fuzznet and writes records in-process, and the
+holder's word there is "fuzznetd and netcfgd need to be able to run
+simultaneously but they will be delegating and lock-writing the same
+files". They ask whether a store is safe for two processes at once, and
+if not, what the shape is.
+
+**Already decided, in secs 132, 133 and 666, and built.** A store has one
+writer at a time:
+- **The claim is the lock.** The first fuzznet process to take `claim`
+  on a store's core directory (an exclusive flock, `claim/claim_file.c`)
+  is the **face**: it alone writes, signs, numbers records and runs the
+  rounds. It costs a process that is alone about 3.7 microseconds, once.
+- **Any other process is a follower.** It reads the shared store
+  directly, and **forwards** to the face, over the face's local socket
+  (named in the core directory's `face`), every verb that writes or needs
+  the network; it takes the claim, becoming the face, when the face
+  exits. A record netcfgd makes is then `add record KEY VALUE` (sec 814)
+  forwarded, or written in-process when netcfgd holds the claim.
+
+**Two writers at once are not safe, and that is why.** Nothing re-reads
+another process's writes into what a node holds in memory -- its
+journal's heads and sequence, its buckets, its reconcile positions -- so
+two processes writing one store directly would number records over each
+other and fork the user's own stream. The claim is what makes that
+impossible rather than unlikely.
+
+**One identity a store.** netcfgd's message says it is a node with its
+own identity. A store holds one identity's state, so the face-and-
+follower arrangement is for two processes of one identity. A process
+with an identity of its own keeps its own store, and reaches fuzznetd as
+another node does, or as a local client of its socket.
