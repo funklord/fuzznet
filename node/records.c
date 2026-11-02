@@ -450,6 +450,99 @@ static size_t list_records(const fzn_node_records_t *nr, const uint8_t *at, size
 	}
 }
 
+/* THE NEWEST RECORD OF `KEY`, sec 816: of any host, or of HOST's; ties by
+ * the greater host key, so every node holding the same records answers
+ * the same. */
+static size_t get_record(const fzn_node_records_t *nr, const uint8_t *at, size_t left,
+                         char *reply, size_t cap)
+{
+	static const char USAGE[] = "get record KEY [HOST]";
+	static uint8_t ids[FZN_BUCKETS_CHUNK][FZN_BUCKETS_ID_LEN];
+	static uint8_t item[FZN_BUCKETS_ITEM_MAX], best[FZN_BUCKETS_ITEM_MAX];
+	fzn_bucket_t *list = NULL;
+	size_t room = 0, n_buckets = 0, i, j, k, key_len, w_len, best_len = 0, n = 0, wrote = 0;
+	uint8_t host[FZN_PUBKEY_LEN], best_host[FZN_PUBKEY_LEN];
+	const uint8_t *key, *w;
+	uint64_t best_at = 0;
+	int one = 0, found = 0, c;
+	char detail[2u * FZN_PUBKEY_LEN + FZN_SETTING_KEY_MAX + 24u + 3u * FZN_SETTING_VALUE_MAX];
+	fzn_setting_t s;
+
+	if (!word(&at, &left, &key, &key_len) || !fzn_setting_key_ok(key, key_len))
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	if (word(&at, &left, &w, &w_len)) {
+		if (is_word(w, w_len, "self") && nr->id)
+			memcpy(host, nr->id->pubkey, FZN_PUBKEY_LEN);
+		else if (!hex_key(w, w_len, host))
+			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		one = 1;
+	}
+	if (left)
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	if (fzn_buckets_list_all(nr->b, FZN_BUCKETS_RECORDS, &list, &room, &n_buckets)
+	    != FZN_BUCKETS_OK) {
+		free(list);
+		return say(reply, cap, FZN_REPLY_ERROR, "the records could not be listed");
+	}
+	for (i = 0; i < n_buckets; i++) {
+		uint64_t pos = 0, total = 0;
+
+		if (one && memcmp(list[i].subject, host, FZN_PUBKEY_LEN) != 0)
+			continue;
+		do {
+			size_t got = 0;
+
+			if (fzn_buckets_ids(nr->b, FZN_BUCKETS_RECORDS, list[i].subject, list[i].month,
+			                    pos, ids, FZN_BUCKETS_CHUNK, &got, &total)
+			    != FZN_BUCKETS_OK)
+				break;
+			for (j = 0; j < got; j++) {
+				uint8_t subject[FZN_PUBKEY_LEN];
+				uint32_t month = 0;
+				size_t len = 0;
+
+				if (fzn_buckets_item(nr->b, FZN_BUCKETS_RECORDS, ids[j], item, sizeof(item),
+				                     &len, NULL, NULL)
+				            != FZN_BUCKETS_OK
+				    || !fzn_node_records_place(nr, item, len, subject, &month, &s)
+				    || s.key_len != key_len || memcmp(s.key, key, key_len) != 0)
+					continue;
+				if (found && (s.version < best_at
+				              || (s.version == best_at
+				                  && memcmp(subject, best_host, FZN_PUBKEY_LEN) <= 0)))
+					continue;
+				found = 1;
+				best_at = s.version;
+				memcpy(best_host, subject, FZN_PUBKEY_LEN);
+				memcpy(best, item, len);
+				best_len = len;
+			}
+			pos += got;
+			if (!got)
+				break;
+		} while (pos < total);
+	}
+	free(list);
+	if (!found)
+		return say(reply, cap, FZN_REPLY_OK, "absent");
+	if (!fzn_node_records_place(nr, best, best_len, host, &(uint32_t){ 0 }, &s))
+		return say(reply, cap, FZN_REPLY_ERROR, "the record could not be read");
+	for (k = 0; k < FZN_PUBKEY_LEN; k++) {
+		detail[n++] = HEX[host[k] >> 4];
+		detail[n++] = HEX[host[k] & 15u];
+	}
+	detail[n++] = ',';
+	memcpy(detail + n, s.key, s.key_len);
+	n += s.key_len;
+	c = snprintf(detail + n, sizeof(detail) - n, ",%llu,", (unsigned long long)s.version);
+	if (c < 0)
+		return 0;
+	n += (size_t)c;
+	if (fzn_escape(s.value, s.value_len, detail + n, sizeof(detail) - n, &wrote) != s.value_len)
+		return 0;
+	return answer(reply, cap, FZN_REPLY_OK, detail, n + wrote);
+}
+
 size_t fzn_node_records_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                               char *reply, size_t reply_cap)
 {
@@ -463,7 +556,8 @@ size_t fzn_node_records_local(void *ctx, fzn_origin_t origin, const fzn_request_
 	left = request->arg_len;
 	if (!word(&at, &left, &subject, &subject_len) || !is_word(subject, subject_len, "record"))
 		return 0;
-	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_LIST)
+	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_LIST
+	    && request->parsed != FZN_VERB_GET)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return say(reply, reply_cap, FZN_REPLY_DENIED, "records need this node's own user");
@@ -471,5 +565,7 @@ size_t fzn_node_records_local(void *ctx, fzn_origin_t origin, const fzn_request_
 		return say(reply, reply_cap, FZN_REPLY_UNSUPPORTED, "no store for records");
 	if (request->parsed == FZN_VERB_ADD)
 		return add_record(nr, at, left, reply, reply_cap);
+	if (request->parsed == FZN_VERB_GET)
+		return get_record(nr, at, left, reply, reply_cap);
 	return list_records(nr, at, left, reply, reply_cap);
 }

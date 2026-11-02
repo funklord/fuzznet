@@ -32,6 +32,9 @@
  *     list record [HOST] [FROM]     ok FROM SHOWN MORE, then each record held
  *                                   as HOST,KEY,AT,VALUE -- one host's, or
  *                                   every host's; HOST `self` for this one
+ *     get record KEY [HOST]         ok HOST,KEY,AT,VALUE: the newest record
+ *                                   of KEY held, of any host or of HOST's
+ *                                   (sec 816); `absent` when none is
  */
 
 #ifndef FZN_NODE_RECORDS_H

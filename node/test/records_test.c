@@ -334,6 +334,23 @@ static void test_the_verbs(void)
 		      "the second page was not answered");
 	}
 	CHECK(shown + rest <= 22u, "pages listed more records than were written");
+	/* THE NEWEST OF A KEY, sec 816: of any host, of one, and none. */
+	(void)snprintf(want, sizeof(want), "ok %s,seen/wlan0/aa-bb,1793500001000,station%%20one",
+	               "4444444444444444444444444444444444444444444444444444444444444444");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "get record seen/wlan0/aa-bb") && replied(want)
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "get record seen/wlan0/aa-bb self")
+	              && replied(want),
+	      "the newest record of a key was not the later of its two");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "get record seen/none") && replied("ok absent")
+	              && said(&nr, FZN_ORIGIN_SAME_USER,
+	                      "get record seen/wlan0/aa-bb "
+	                      "3333333333333333333333333333333333333333333333333333333333333333")
+	              && replied("ok absent"),
+	      "a key with no record, or a host with none of it, was not absent");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "get record") && replied("malformed")
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "get record a/b zz") && replied("malformed")
+	              && said(&nr, FZN_ORIGIN_LOCAL, "get record a/b") && replied("denied"),
+	      "get record with no key, a bad host, or another user's was answered");
 	/* A NODE THAT ONLY KEEPS OTHERS' writes none. */
 	nr.id = NULL;
 	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "add record a/b 1") && replied("unsupported"),

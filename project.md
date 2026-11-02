@@ -77202,3 +77202,27 @@ the trim.
 **Told** netcfgd, through its inbox: records, the verbs, and these
 rules. Its "observed now" half can now take persisted records as its
 second source (its 10.591).
+
+## 816. The newest record of a key, `get record`, 2026-11-02
+
+Sec 814 left "a reader of the latest record per key" open. netcfgd's
+resolver could take the newest of each key from the listing, but every
+consumer would write that walk again.
+
+    get record KEY [HOST]   ->  ok HOST,KEY,AT,VALUE    or    ok absent
+
+- **The newest record of KEY held**, of any host, or of HOST's (`self`
+  for this one).
+- **Ties go to the greater host key,** so every node holding the same
+  records answers the same.
+- **A record let go by the rules is not held,** so it is never answered.
+- This node's own user only, as the other record verbs.
+
+This is the settings' resolution, the newest value, taken at read time
+over records that keep every value. So a kind that keeps everything
+still reads like configuration where a caller wants that.
+
+**Measured, `records_test`:** the newest of two records of one key, of
+any host and of `self`; `absent` for a key with none, and for a host
+with none of it; no key, a host that is not one, and another user,
+refused.
