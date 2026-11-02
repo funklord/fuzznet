@@ -77909,3 +77909,42 @@ the extra vote, passes; `make test` 273.
 judges an admin chain, so the new call is guarded by `live_join.py`
 phase h, in `make livecheck`, and a sabotage entry on it would survive
 `make test`; none is added.
+
+## 830. A sticker reference carries a message sticker's words, 2026-11-03
+
+fuzzypickles' third gap (sec 829): `get sticker PACK ID` gave a reference
+with no place for a message or name sticker's words, so fuzzypickles
+refused words on a node rather than send a sticker without them.
+
+**Already decided, in fuzzypickles' tree:** the holder's word of
+2026-10-24 there, that such a sticker's text "should have been prompted
+from the user during input", belongs to the one message that sends it,
+and travels in the reference: `fzp:sticker/ROOT/KEY/ID[:TEXT][
+DESCRIPTION]`. Sec 702 names fuzzypickles' implementation the reference
+one for the sticker format, so fuzznet takes the same field.
+
+- **`fzn:sticker/ROOT/KEY/LENGTH/ID[:TEXT] DESCRIPTION`** (`sticker/pack.c`),
+  TEXT escaped as theirs is: every byte outside `A-Z a-z 0-9 -._~` as
+  `%XX` in upper case, one spelling per text, so what parses formats
+  back to itself; well-formed UTF-8 with no control character, C1
+  included, and not empty.
+- **At most `FZN_STICKER_TEXT_MAX`, 84 bytes**, their limit, so any words
+  they write read here. A reference is a message's text, so format
+  refuses one past 512 bytes (`FZN_STICKER_REF_SENT_MAX`): the longest
+  length, id, words and description come to 518.
+- **Their form with words is read too**, its length 0 as before.
+- **An older reader** stops at the `:` and refuses the reference, so it
+  shows the line as text, never the sticker without its words -- their
+  argument, and true of fuzznet's parser before this.
+- **`get sticker PACK ID text WORDS`**, WORDS one word escaped as a
+  message's text is on the socket, answers the reference carrying them;
+  refused for a sticker with no text box. Whether the words fit the
+  sticker's own `text_limit`, in characters, is the client's to enforce,
+  as fuzzypickles has it.
+
+**Verified.** `sticker_test` writes and reads words, refuses a lower-case
+escape, an escaped plain byte, a raw byte that is escaped, empty words,
+an escaped control, words cut inside a character, and a reference past
+a message, and reads fuzzypickles' form with words; 75 checks.
+`live_stickers.py` phase b asks for a message sticker's reference with
+words and is refused them for a sticker with none. Two sabotage entries.

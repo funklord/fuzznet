@@ -356,6 +356,92 @@ static void test_references(void)
 	      "a reference with no length was written");
 }
 
+/* A STICKER'S WORDS, sec 830: in fuzzypickles' form, `:TEXT` after the id,
+ * one spelling each, and only words a person could have typed. */
+static void test_a_references_words(void)
+{
+	fzn_sticker_ref_t ref, got;
+	char text[FZN_STICKER_REF_MAX + 1u], bent[FZN_STICKER_REF_MAX + 1u];
+	size_t len = 0, i;
+
+	memset(&ref, 0, sizeof(ref));
+	for (i = 0; i < FZN_STICKER_ROOT_LEN; i++)
+		ref.root[i] = ref.key[i] = (uint8_t)i;
+	ref.id = 7u;
+	ref.length = 99u;
+	memcpy(ref.description, "a sign", 6u);
+	ref.description_len = 6u;
+	memcpy(ref.text, "Hej d\xc3\xa5!", 8u);
+	ref.text_len = 8u;
+	CHECK(fzn_sticker_ref_format(&ref, text, sizeof(text), &len)
+	              && strstr(text, "/99/7:Hej%20d%C3%A5%21 a sign") != NULL,
+	      "a sticker's words were not written escaped after its id");
+	CHECK(fzn_sticker_ref_parse(text, len, &got) && got.text_len == 8u
+	              && memcmp(got.text, "Hej d\xc3\xa5!", 8u) == 0 && got.id == 7u
+	              && got.description_len == 6u,
+	      "a sticker's words did not read back");
+	/* ONE SPELLING: a lower-case escape, an escaped plain byte, a raw byte
+	 * that is escaped, and no words after the colon are each refused. */
+	{
+		static const char *const BENT[][2] = {
+			{ "%C3%A5", "%c3%a5" }, { "Hej", "%48ej" }, { "%21", "!" }, { "Hej%20d%C3%A5%21", "" },
+			{ "%21", "%07" }, { "%C3%A5", "%C3" },
+		};
+
+		for (i = 0; i < sizeof(BENT) / sizeof(BENT[0]); i++) {
+			char *at;
+
+			memcpy(bent, text, len + 1u);
+			at = strstr(bent, BENT[i][0]);
+			if (!at)
+				continue;
+			memmove(at + strlen(BENT[i][1]), at + strlen(BENT[i][0]),
+			        strlen(at + strlen(BENT[i][0])) + 1u);
+			memcpy(at, BENT[i][1], strlen(BENT[i][1]));
+			CHECK(!fzn_sticker_ref_parse(bent, strlen(bent), &got),
+			      "words in another spelling, or no client could draw, were read as a "
+			      "reference");
+		}
+	}
+	/* WORDS NOBODY TYPED: a control character, and bytes that are not UTF-8,
+	 * neither written nor read. */
+	memcpy(ref.text, "a\x07b", 3u);
+	ref.text_len = 3u;
+	CHECK(!fzn_sticker_ref_format(&ref, text, sizeof(text), &len),
+	      "words holding a control character were written");
+	ref.text[0] = (char)0xc3;
+	ref.text_len = 1u;
+	CHECK(!fzn_sticker_ref_format(&ref, text, sizeof(text), &len),
+	      "words cut inside a character were written");
+	/* AT MOST 84 BYTES, and a reference no longer than a message. */
+	memset(ref.text, 'w', FZN_STICKER_TEXT_MAX);
+	ref.text_len = FZN_STICKER_TEXT_MAX;
+	CHECK(fzn_sticker_ref_format(&ref, text, sizeof(text), &len)
+	              && len <= FZN_STICKER_REF_SENT_MAX && fzn_sticker_ref_parse(text, len, &got)
+	              && got.text_len == FZN_STICKER_TEXT_MAX,
+	      "the longest plain words did not make a reference, or it read back short");
+	/* Every byte escaped, and the longest length, id and description:
+	 * 518 bytes. */
+	ref.length = UINT64_MAX;
+	ref.id = 65535u;
+	memset(ref.text, ' ', FZN_STICKER_TEXT_MAX);
+	memset(ref.description, 'd', FZN_STICKER_DESC_MAX);
+	ref.description_len = FZN_STICKER_DESC_MAX;
+	CHECK(!fzn_sticker_ref_format(&ref, text, sizeof(text), &len),
+	      "a reference longer than a message was written");
+	/* FUZZYPICKLES' FORM WITH WORDS is read too. */
+	{
+		const char *fzp = "fzp:sticker/"
+		                  "0000000000000000000000000000000000000000000000000000000000000000/"
+		                  "0000000000000000000000000000000000000000000000000000000000000000/"
+		                  "3:hi%20there a wave";
+
+		CHECK(fzn_sticker_ref_parse(fzp, strlen(fzp), &got) && got.id == 3u && got.length == 0u
+		              && got.text_len == 8u && memcmp(got.text, "hi there", 8u) == 0,
+		      "fuzzypickles' reference with words was not read");
+	}
+}
+
 static void test_kinds_and_picks(void)
 {
 	fzn_sticker_entry_t e;
@@ -401,6 +487,7 @@ int main(void)
 	test_the_spec_round_trips();
 	test_what_a_spec_refuses();
 	test_references();
+	test_a_references_words();
 	test_kinds_and_picks();
 	test_the_suite_can_tell_pass_from_fail();
 

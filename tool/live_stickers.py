@@ -7,9 +7,11 @@ One store, one daemon, a spec and its art in scratch.
        beside it, puts it, and saves it: `list sticker` names it, held, in
        the estate's settings
     b  `list sticker ROOT` lists its stickers; `get sticker ROOT ID` answers
-       the reference a message carries, `fzn:sticker/...`; `get sticker ROOT
-       ID ROLE PATH` writes the rendition asked for, or the nearest, and its
-       bytes are the art's
+       the reference a message carries, `fzn:sticker/...`, and `get sticker
+       ROOT ID text WORDS` one carrying a message sticker's words, refused
+       for a sticker with no text box (sec 830); `get sticker ROOT ID ROLE
+       PATH` writes the rendition asked for, or the nearest, and its bytes
+       are the art's
     c  a spec naming a file above it, and one repeating a description, are
        refused, and nothing is saved by either
     d  `remove sticker ROOT` forgets the pack and keeps its bytes: listed no
@@ -73,6 +75,10 @@ sticker 2 animated sound
 description the same cat spinning very fast
 main lottie 320 320 art/spin.json
 sound art/spin.ogg
+sticker 3 message
+description a sign the sender writes on
+text 20 8 8 112 40
+inline png 128 128 art/wave.png
 """
 
 
@@ -119,7 +125,7 @@ def main(argv):
 			      "estate")
 
 			got = ask(sock, "list sticker " + root).split()
-			if got[:3] != ["ok", "2", "0"] or got[3] != "1,1,0,a%20ginger%20cat%20waving%20hello" \
+			if got[:3] != ["ok", "3", "0"] or got[3] != "1,1,0,a%20ginger%20cat%20waving%20hello" \
 			   or got[4] != "2,2,1,the%20same%20cat%20spinning%20very%20fast":
 				raise failed("b: list sticker ROOT answered %r" % got)
 			ref = ask(sock, "get sticker %s 1" % root)
@@ -127,6 +133,15 @@ def main(argv):
 			   or not ref.endswith("/1 a ginger cat waving hello"):
 				raise failed("b: get sticker ROOT 1 answered %r" % ref)
 			out = os.path.join(scratch, "thumb.out")
+			# THE SENDER'S WORDS, sec 830: carried in the reference, escaped as
+			# fuzzypickles escapes them; refused for a sticker with no text box.
+			ref3 = ask(sock, "get sticker %s 3 text Hej%%20d%%C3%%A5" % root)
+			if not ref3.startswith("ok fzn:sticker/" + root + "/") \
+			   or not ref3.rstrip("\n").endswith("/3:Hej%20d%C3%A5 a sign the sender writes on"):
+				raise failed("b: get sticker ROOT 3 text WORDS answered %r" % ref3)
+			refused = ask(sock, "get sticker %s 1 text hi" % root)
+			if not refused.startswith("error that sticker takes no words"):
+				raise failed("b: words for a sticker with no text box were answered %r" % refused)
 			got = ask(sock, "get sticker %s 1 thumb %s" % (root, out))
 			if got != "ok 4 64 64":
 				raise failed("b: the thumb was answered %r" % got)
@@ -166,7 +181,7 @@ def main(argv):
 			if ask(sock, "list sticker") != "ok 0 0":
 				raise failed("d: a forgotten pack is still listed")
 			got = ask(sock, "list sticker " + pack_ref).split()
-			if got[:3] != ["ok", "2", "0"]:
+			if got[:3] != ["ok", "3", "0"]:
 				raise failed("d: a forgotten pack's bytes are gone: %r" % got)
 			print("livecheck: d: the pack forgotten, and its bytes kept")
 

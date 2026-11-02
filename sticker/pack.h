@@ -32,11 +32,15 @@
  * delivery like any line and a client that cannot draw one shows its
  * description:
  *
- *     fzn:sticker/ROOT/KEY/LENGTH/ID DESCRIPTION
+ *     fzn:sticker/ROOT/KEY/LENGTH/ID[:TEXT] DESCRIPTION
  *
  * ROOT, KEY and LENGTH the pack's file's reference (`node/files.h`): a
  * fetch wants the length, which a peer's HAVE does not give. ID the
- * sticker's. One written by fuzzypickles, `fzp:sticker/ROOT/KEY/ID ...`,
+ * sticker's. TEXT a message or name sticker's words, the sender's for this
+ * one message (fuzzypickles' holder decision of 2026-10-24, their form,
+ * sec 830): every byte outside `A-Z a-z 0-9 -._~` written `%XX` in upper
+ * case, one spelling per text, well-formed UTF-8 with no control
+ * character, at most FZN_STICKER_TEXT_MAX bytes. One written by fuzzypickles, `fzp:sticker/ROOT/KEY/ID ...`,
  * is read as one of these with LENGTH 0, so a sticker in a message already
  * sent is known for one and shows its description; its pack, a blob of
  * fuzzypickles' own format, is not one fuzznet can fetch (sec 490).
@@ -196,22 +200,34 @@ int fzn_sticker_path_ok(const char *path, size_t len);
 
 #define FZN_STICKER_KEY_LEN 32u
 #define FZN_STICKER_ROOT_LEN 32u
+/* A STICKER'S WORDS, fuzzypickles' FZP_STICKER_TEXT_MAX, so whatever words
+ * they write reads here. */
+#define FZN_STICKER_TEXT_MAX 84u
 /* "fzn:sticker/", two hex fields, a length of at most twenty digits, an id
- * of at most five, a space and the description. */
-#define FZN_STICKER_REF_MAX (12u + 64u + 1u + 64u + 1u + 20u + 1u + 5u + 1u + FZN_STICKER_DESC_MAX)
+ * of at most five, the words escaped, a space and the description. */
+#define FZN_STICKER_REF_MAX                                                                  \
+	(12u + 64u + 1u + 64u + 1u + 20u + 1u + 5u + 1u + (3u * FZN_STICKER_TEXT_MAX) + 1u          \
+	 + FZN_STICKER_DESC_MAX)
+/* WHAT A REFERENCE MAY COME TO, written: a message's text, `messages/line.h`
+ * FZN_MESSAGE_TEXT_MAX. */
+#define FZN_STICKER_REF_SENT_MAX 512u
 
 typedef struct fzn_sticker_ref {
 	uint8_t root[FZN_STICKER_ROOT_LEN];
 	uint8_t key[FZN_STICKER_KEY_LEN];
 	uint64_t length;	/* the pack's bytes; 0 for an fzp reference */
 	uint16_t id;
+	/* The words, `text_len` bytes, none when 0. */
+	char text[FZN_STICKER_TEXT_MAX + 1u];
+	size_t text_len;
 	char description[FZN_STICKER_DESC_MAX + 1u];
 	size_t description_len;
 } fzn_sticker_ref_t;
 
 /* `fzn:sticker/...` into `out`, NUL ended: 1 with `*len`, or 0 for a
  * length of 0, an empty description, one too long or one holding a line
- * break. */
+ * break, words that are not valid text, or a reference past
+ * FZN_STICKER_REF_SENT_MAX. */
 int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, size_t *len);
 
 /* `fzn:sticker/...` or fuzzypickles' `fzp:sticker/...` back: 1, or 0 for

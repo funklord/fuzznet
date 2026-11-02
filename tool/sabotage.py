@@ -14299,9 +14299,23 @@ SABOTAGES = [
 	(
 		"sticker-ref-id-one-spelling",
 		"sticker/pack.c",
-		"\tif (!digits || (digits > 1u && *first == '0') || id > 0xffffu || p >= end || *p != ' ')\n",
-		"\tif (!digits || id > 0xffffu || p >= end || *p != ' ')\n",
+		"\tif (!digits || (digits > 1u && *first == '0') || id > 0xffffu || p >= end\n",
+		"\tif (!digits || id > 0xffffu || p >= end\n",
 		"one sticker has two references, an id of 7 and of 07 -- sec 809",
+	),
+	(
+		"sticker-words-one-spelling",
+		"sticker/pack.c",
+		"\t\t\t\tif (hi < 0 || lo < 0 || text_plain((unsigned char)(hi * 16 + lo)))\n",
+		"\t\t\t\tif (hi < 0 || lo < 0)\n",
+		"a sticker's words have two spellings, a byte written plain and escaped -- sec 830",
+	),
+	(
+		"sticker-words-are-text",
+		"sticker/pack.c",
+		"\t\tif (!text_valid((const unsigned char *)out->text, t))\n\t\t\treturn 0;\n",
+		"",
+		"words no client could draw -- not UTF-8, or a control -- read as a sticker's -- sec 830",
 	),
 	(
 		"sticker-ref-length-needed",

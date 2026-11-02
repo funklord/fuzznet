@@ -548,23 +548,56 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 		free(bytes);
 		return REPLY("error that pack has no sticker %lu\n", id);
 	}
-	/* THE REFERENCE, what a message carries. */
-	if (!next_word(at, left, &w, &n)) {
-		fzn_sticker_ref_t sr;
-		char text[FZN_STICKER_REF_MAX + 1u];
-		size_t len = 0;
+	/* THE REFERENCE, what a message carries -- with the sender's words,
+	 * `text WORDS`, for a sticker that takes them (sec 830), WORDS one word
+	 * escaped as a message's text is. */
+	{
+		const uint8_t *word = NULL;
+		size_t word_len = 0;
+		int more = next_word(at, left, &w, &n);
 
-		memset(&sr, 0, sizeof(sr));
-		memcpy(sr.root, ref->root, FZN_BLOB_HASH_LEN);
-		memcpy(sr.key, ref->key, FZN_STICKER_KEY_LEN);
-		sr.length = ref->length;
-		sr.id = e->id;
-		memcpy(sr.description, e->description, e->description_len);
-		sr.description_len = e->description_len;
-		free(bytes);
-		if (!fzn_sticker_ref_format(&sr, text, sizeof(text), &len))
-			return REPLY("error the reference would not write\n");
-		return REPLY("ok %s\n", text);
+		if (more && n == 4u && memcmp(w, "text", 4u) == 0) {
+			const uint8_t *extra;
+			size_t extra_len;
+
+			if (!next_word(at, left, &word, &word_len)
+			    || next_word(at, left, &extra, &extra_len)) {
+				free(bytes);
+				return REPLY("malformed get sticker PACK ID text WORDS\n");
+			}
+			more = 0;
+		}
+		if (!more) {
+			fzn_sticker_ref_t sr;
+			char text[FZN_STICKER_REF_MAX + 1u];
+			size_t len = 0;
+
+			memset(&sr, 0, sizeof(sr));
+			if (word) {
+				if (!e->text_limit) {
+					free(bytes);
+					return REPLY("error that sticker takes no words\n");
+				}
+				if (!fzn_unescape(word, word_len, (uint8_t *)sr.text, FZN_STICKER_TEXT_MAX,
+				                  &sr.text_len)) {
+					free(bytes);
+					return REPLY("malformed words past %u bytes, or a bad escape\n",
+					             (unsigned)FZN_STICKER_TEXT_MAX);
+				}
+			}
+			memcpy(sr.root, ref->root, FZN_BLOB_HASH_LEN);
+			memcpy(sr.key, ref->key, FZN_STICKER_KEY_LEN);
+			sr.length = ref->length;
+			sr.id = e->id;
+			memcpy(sr.description, e->description, e->description_len);
+			sr.description_len = e->description_len;
+			free(bytes);
+			if (!fzn_sticker_ref_format(&sr, text, sizeof(text), &len))
+				return REPLY(word ? "malformed words that are not text, or a reference past "
+				                    "a message\n"
+				                  : "error the reference would not write\n");
+			return REPLY("ok %s\n", text);
+		}
 	}
 	/* A RENDITION, written out for a client to draw. */
 	for (i = 0; i < 4u && !(n == strlen(ROLES[i]) && memcmp(w, ROLES[i], n) == 0); i++)

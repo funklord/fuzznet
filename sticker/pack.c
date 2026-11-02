@@ -867,6 +867,62 @@ static const char SCHEME[] = "fzn:sticker/";
 static const char OLD_SCHEME[] = "fzp:sticker/";
 #define SCHEME_LEN 12u
 
+/* An upper-case hex digit's value, or -1: a lower-case escape is another
+ * spelling of the same words, and refused. */
+static int upper_hex(char c)
+{
+	return c >= '0' && c <= '9' ? c - '0' : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+}
+
+/* A BYTE A STICKER'S WORDS WRITE PLAIN, fuzzypickles' unreserved set. */
+static int text_plain(unsigned char c)
+{
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'
+	       || c == '.' || c == '_' || c == '~';
+}
+
+/* WORDS A PERSON COULD HAVE TYPED: well-formed UTF-8, no overlong form or
+ * surrogate, and no control character, C1 included -- what every client
+ * can draw. Not empty. */
+static int text_valid(const unsigned char *t, size_t n)
+{
+	size_t i = 0;
+
+	if (n == 0u || n > FZN_STICKER_TEXT_MAX)
+		return 0;
+	while (i < n) {
+		unsigned c = t[i], cp, need, k;
+
+		if (c < 0x80u) {
+			if (c < 0x20u || c == 0x7fu)
+				return 0;
+			i++;
+			continue;
+		}
+		if (c >= 0xc2u && c <= 0xdfu)
+			need = 1u, cp = c & 0x1fu;
+		else if (c >= 0xe0u && c <= 0xefu)
+			need = 2u, cp = c & 0x0fu;
+		else if (c >= 0xf0u && c <= 0xf4u)
+			need = 3u, cp = c & 0x07u;
+		else
+			return 0;
+		/* ITS CONTINUATION BYTES, all of them inside the words. */
+		if (n - i <= need)
+			return 0;
+		for (k = 1u; k <= need; k++) {
+			if ((t[i + k] & 0xc0u) != 0x80u)
+				return 0;
+			cp = (cp << 6) | (t[i + k] & 0x3fu);
+		}
+		if ((need == 2u && cp < 0x800u) || (need == 3u && (cp < 0x10000u || cp > 0x10ffffu))
+		    || (cp >= 0xd800u && cp <= 0xdfffu) || (cp >= 0x80u && cp <= 0x9fu))
+			return 0;
+		i += 1u + need;
+	}
+	return 1;
+}
+
 int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, size_t *len)
 {
 	static const char HEX[] = "0123456789abcdef";
@@ -888,10 +944,43 @@ int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, 
 		key[2u * i + 1u] = HEX[ref->key[i] & 15u];
 	}
 	root[2u * FZN_STICKER_ROOT_LEN] = key[2u * FZN_STICKER_KEY_LEN] = '\0';
-	n = snprintf(out, cap, "%s%s/%s/%llu/%u %.*s", SCHEME, root, key,
-	             (unsigned long long)ref->length, (unsigned)ref->id, (int)ref->description_len,
-	             ref->description);
+	if (ref->text_len && !text_valid((const unsigned char *)ref->text, ref->text_len))
+		return 0;
+	n = snprintf(out, cap, "%s%s/%s/%llu/%u", SCHEME, root, key, (unsigned long long)ref->length,
+	             (unsigned)ref->id);
 	if (n < 0 || (size_t)n >= cap)
+		return 0;
+	/* THE WORDS, sec 830, escaped as fuzzypickles escapes them. */
+	if (ref->text_len) {
+		size_t at = (size_t)n;
+
+		if (at + 1u >= cap)
+			return 0;
+		out[at++] = ':';
+		for (i = 0; i < ref->text_len; i++) {
+			unsigned char c = (unsigned char)ref->text[i];
+
+			if (text_plain(c)) {
+				if (at + 1u >= cap)
+					return 0;
+				out[at++] = (char)c;
+			} else {
+				if (at + 3u >= cap)
+					return 0;
+				out[at++] = '%';
+				out[at++] = "0123456789ABCDEF"[c >> 4];
+				out[at++] = "0123456789ABCDEF"[c & 15u];
+			}
+		}
+		n = (int)at;
+	}
+	if ((size_t)n + 1u + ref->description_len >= cap)
+		return 0;
+	out[n++] = ' ';
+	memcpy(out + n, ref->description, ref->description_len);
+	n += (int)ref->description_len;
+	out[n] = '\0';
+	if ((size_t)n > FZN_STICKER_REF_SENT_MAX)
 		return 0;
 	*len = (size_t)n;
 	return 1;
@@ -968,7 +1057,45 @@ int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 			return 0;
 		id = id * 10u + (unsigned)(*p++ - '0');
 	}
-	if (!digits || (digits > 1u && *first == '0') || id > 0xffffu || p >= end || *p != ' ')
+	if (!digits || (digits > 1u && *first == '0') || id > 0xffffu || p >= end
+	    || (*p != ' ' && *p != ':'))
+		return 0;
+	/* THE WORDS, sec 830: one spelling each, as format writes them -- an
+	 * escape in upper case, of a byte not written plain, and every other
+	 * byte plain -- so what parses formats back to itself. */
+	if (*p == ':') {
+		size_t t = 0;
+
+		p++;
+		while (p < end && *p != ' ') {
+			unsigned char c = (unsigned char)*p;
+
+			if (t == FZN_STICKER_TEXT_MAX)
+				return 0;
+			if (c == '%') {
+				int hi, lo;
+
+				if (end - p < 3)
+					return 0;
+				hi = upper_hex(p[1]);
+				lo = upper_hex(p[2]);
+				if (hi < 0 || lo < 0 || text_plain((unsigned char)(hi * 16 + lo)))
+					return 0;
+				out->text[t++] = (char)(hi * 16 + lo);
+				p += 3;
+			} else {
+				if (!text_plain(c))
+					return 0;
+				out->text[t++] = (char)c;
+				p++;
+			}
+		}
+		if (!text_valid((const unsigned char *)out->text, t))
+			return 0;
+		out->text[t] = '\0';
+		out->text_len = t;
+	}
+	if (p >= end || *p != ' ')
 		return 0;
 	p++;
 	desc_len = (size_t)(end - p);
