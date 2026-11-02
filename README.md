@@ -67,10 +67,10 @@ remote upload, and live in one place. fuzznet differs:
   fail; `make check` runs the suite again under AddressSanitizer and UBSan;
   and a fault build crashes the daemon and fills its disk on purpose.
 
-**Not there yet:** the estate, one-to-one conversations and logs have been
-taken through that bar; reachability is being taken through it now, and
-location after it. Groups, shared notes and files are built and wait their
-turn.
+**Not there yet:** the estate, one-to-one conversations, logs,
+reachability and location have been taken through that bar. Groups, shared
+notes, files and a host's records are built, and what their peers send is
+fuzzed; the rest of the bar waits its turn.
 
 `project.md` is the design and the source of truth: §11 lists the modules,
 §8 is the scope decision that placed the first seven, and where things stand
