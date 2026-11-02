@@ -11240,6 +11240,20 @@ SABOTAGES = [
 		"a size past a u64 wraps to a small one, and a gigabyte is offered as a few bytes -- sec 794",
 	),
 	(
+		"attachment-hex-field-bounded",
+		'messages/attachment.c',
+		"\tif ((size_t)(end - *p) < 2u * n + 1u)\n",
+		"\tif ((size_t)(end - *p) < 2u * n)\n",
+		"a reference cut after its root's hex is read one byte past its end -- sec 806",
+	),
+	(
+		"attachment-size-digits-bounded",
+		'messages/attachment.c',
+		"\twhile (p < end && *p >= '0' && *p <= '9') {\n",
+		"\twhile (*p >= '0' && *p <= '9') {\n",
+		"a reference cut inside its size is read past its end -- sec 806",
+	),
+	(
 		"file-hold-claimed-once",
 		'node/file_holds.c',
 		'\tif (fzn_file_hold_has(h, root, kind, id))\n\t\treturn 1;\n\t/* COUNTED FIRST',

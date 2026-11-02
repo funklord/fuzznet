@@ -357,6 +357,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/sync_fuzz.c record/test/exchange_fuzz.c \
              node/test/members_fuzz.c node/test/reconcile_fuzz.c \
              node/test/delivery_fuzz.c messages/test/line_fuzz.c \
+             messages/test/attachment_fuzz.c \
              node/test/keys_fuzz.c node/test/card_fuzz.c \
              node/test/votes_fuzz.c \
              node/test/pieces_fuzz.c \
@@ -640,6 +641,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/keys_fuzz \
              $(BUILD_DIR)/node/test/card_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
+             $(BUILD_DIR)/messages/test/attachment_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
@@ -4626,6 +4628,13 @@ $(BUILD_DIR)/node/test/attachments_test: $(BUILD_DIR)/node/test/attachments_test
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A file sent in a conversation, as a contact writes it: sec 689's journey 2,
+# the input sec 794 added.
+$(BUILD_DIR)/messages/test/attachment_fuzz: $(BUILD_DIR)/messages/test/attachment_fuzz.o \
+                                            $(BUILD_DIR)/messages/attachment.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # A file sent in a conversation, its reference fuzznet's, sec 794.
 $(BUILD_DIR)/messages/test/attachment_test: $(BUILD_DIR)/messages/test/attachment_test.o \
                                             $(BUILD_DIR)/messages/attachment.o
@@ -5097,6 +5106,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/node/test/keys_fuzz \
              $(BUILD_DIR)/node/test/card_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
+             $(BUILD_DIR)/messages/test/attachment_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \

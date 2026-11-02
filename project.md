@@ -76722,3 +76722,31 @@ the owner's grant to the member, then the member's grant to the device:
 vote not cast under an admin chain.
 
 **Nothing changed in the code.**
+
+## 806. Journey 2's fuzzing bar, again: a file sent in a conversation, 2026-11-02
+
+Sec 794 gave 1:1 chat a new input after its fuzzing bar was met (sec
+689): a file's reference in a line's text, written by a contact and read
+by every client through `fzn_attachment_parse`. No harness reached it.
+
+**`messages/test/attachment_fuzz.c`** makes a random attachment, its name
+drawn from every byte the rules allow, high bytes among them, and formats
+it. It bends the text as `line_fuzz` does. Every parse reads a heap copy
+of exactly the text's length, so a read past the end is the sanitizer's
+to report. The properties:
+- **a formatted reference parses back** as its attachment, and so does
+  the same under `fzp:` with its hex in either case;
+- **a bent text that parses is the one spelling of its parse,** once its
+  scheme is read as `fzn:` and its hex as lower case. Formatting refuses
+  a name the rules forbid, so this also holds every parsed name to them.
+
+**Floors:** some bent text parsed, and some was refused.
+
+**Measured:** 400,000 cases, no failure; 142,743 bent texts parsed and
+257,257 were refused. The parser held, and nothing in it changed.
+
+**Sabotage:** two entries for its bounds, which `attachment_test` does
+not reach: the hex field's length check one byte short
+(`attachment-hex-field-bounded`), and the size's digits read without the
+end (`attachment-size-digits-bounded`). The three older entries on its
+meaning stand.

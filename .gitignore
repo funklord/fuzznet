@@ -284,6 +284,7 @@ __pycache__/
 /node/test/notes_test
 /node/test/opjournal_test
 /messages/test/line_fuzz
+/messages/test/attachment_fuzz
 /messages/test/messages_test
 /node/test/messages_test
 /fuzznetd
