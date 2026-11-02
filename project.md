@@ -77799,3 +77799,81 @@ tenth, and fuzzypickles is told.
 of a reachable, uncontested note. No node-level test makes a contested
 or unreachable note; the computation is the library's own,
 `notes_store_test`'s.
+
+## 829. A revoked device keeps its admin grant, and fuzzypickles' three gaps, 2026-11-02
+
+fuzzypickles' message of 2026-11-02 22:40, porting more client scenarios
+to fuzznetd at 11380ab. Three requirements:
+1. **A revoked host's grant is still listed as standing**: after `revoke
+   peer KEY`, `list grant 0` still reads `KEY,admin,0,1`.
+2. **A joined device's catalogue cannot fetch an estate file**: on a
+   member, `list catalog 0` gives each file's name, kind and duration with
+   an 8-byte holder prefix, but no size and no whole reference, so `fetch
+   ROOT` answers that it holds no reference for that file.
+3. **A sticker reference has no place for a message sticker's words**:
+   `get sticker PACK ID` gives none, so fuzzypickles refuses words on a
+   node rather than dropping them.
+
+Also seen, not a fault: an arrival's `event message` comes about 1 s
+after `add message` returns.
+
+### The first is not the listing's: the grant stands
+
+Reproduced on one root, A, with B paired (`add peer RECORD delegable`)
+and granted admin (`grant admin KEY`): after `revoke peer KEY`, A's `list
+grant` reads B's member grant 0 and its admin grant 1, at once and after
+three rounds. `STANDS` is `fzn_node_apply_holds`, the node's own judgment
+of the chain, so by that judgment **a revoked device keeps the admin
+capability**.
+
+**Why.** A revocation names one capability and one grantee, and chains
+are judged against revocations of each of their links' own
+(`chain/revocation.c`, matched on issuer, capability and grantee).
+`revoke peer` (`node/admin.c`, `revoke_peer`) and a succession's vote
+(`vote_at`) both cast against `config.remote_capability` alone, the
+member capability. B's admin link is a link of the admin capability, and
+no vote covers it.
+
+**What it would let a stolen device do, not yet shown end to end:** keep
+voting as an admin (towards k, though not against a root, whose vote
+stands alone), and mint grants on its admin authority, if those chains
+run through B's admin link rather than its member link. A member chain
+through B's member link dies with that link's vote. Whether sec 497's cut
+-- "what it signs after the cut stands nowhere" -- filters a hop B signs,
+as it filters B's acts, is the question that decides how far it reaches.
+
+**The direction is the aims' (sec 1): a revoked device is cut off, not
+partly.** So revoking a key has to cover every capability it holds from
+the estate. The issued vote is kept one per grantee
+(`FZN_PERSIST_ISSUED_REVOCATION`, keyed by grantee alone), so a second
+vote, against admin, needs a place of its own; the records themselves
+already carry their capability.
+
+### Measured further, and the design taken
+
+**Run further** (B joined A's estate and held admin by A's grant, set
+by `set admin`; A revoked B; B then added a device C): B's own judgment
+still held member and admin after the vote, since a revoked member can
+no longer pull from A and never hears it, so B lists C's member grant as
+standing; A did not take C in within 50 s. So the exploit sec 829's
+first heading fears is not shown, and sec 497's cut may well stop it.
+What is shown is that A itself reports a revoked device's admin grant as
+standing, and that no vote reaches that grant.
+
+**Decided from the aims (sec 1), to be built:** revoking a key covers
+the admin capability too, when the key holds it.
+- **`revoke peer KEY`** casts a second vote, against admin, beside the
+  member one, at the same line; **`remove revocation KEY`** withdraws
+  both; **a succession's vote** (`vote_at`) covers the old key's admin
+  as well, a re-keyed device's old key being cut off whole.
+- **The admin vote's row is its own**: kept in the same slot under a
+  key derived from the capability and the grantee, the member vote
+  staying under the grantee alone so votes already stored read as
+  before. Every loader of the slot accepts either key for its record.
+- **The records are unchanged**: each already names its capability, so
+  no wire change and nothing for another node to learn.
+- Rejected: a vote against a key covering every capability, which would
+  change what a revocation means for everyone, and take a member's
+  standing with a revocation meant only for its admin (sec 400's "a
+  root revoking an admin's admin capability removes that admin's vote
+  alone").
