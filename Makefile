@@ -447,6 +447,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/sync_test.c record/test/exchange_test.c \
              record/test/ledger_test.c \
              state/test/state_test.c state/test/scope_test.c state/test/setting_test.c \
+             state/test/setting_fuzz.c \
              notes/test/note_test.c \
              notes/test/text_test.c \
              notes/test/notes_store_test.c node/test/notes_test.c \
@@ -642,6 +643,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/card_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/messages/test/attachment_fuzz \
+             $(BUILD_DIR)/state/test/setting_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
@@ -2369,6 +2371,14 @@ $(BUILD_DIR)/notes/test/text_test: $(BUILD_DIR)/notes/test/text_test.o \
 # seam, and calls nothing else. sec 420.
 $(BUILD_DIR)/state/test/scope_test: $(BUILD_DIR)/state/test/scope_test.o \
                                     $(BUILD_DIR)/state/scope.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A setting as another host of the estate signs it, both shapes, sec 808's
+# fuzzing bar for journey 1.
+$(BUILD_DIR)/state/test/setting_fuzz: $(BUILD_DIR)/state/test/setting_fuzz.o \
+                                      $(BUILD_DIR)/state/setting.o \
+                                      $(BUILD_DIR)/state/scope.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5107,6 +5117,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/node/test/card_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/messages/test/attachment_fuzz \
+             $(BUILD_DIR)/state/test/setting_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \

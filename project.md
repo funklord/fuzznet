@@ -76784,3 +76784,40 @@ changed.
 past its setting. `contact_devices_test` catches it first, and the
 harness alone fails 785 of 2000 cases with it in. The four entries on
 the setting's meaning, from sec 799, stand.
+
+## 808. Journey 1's fuzzing bar, again: a setting in both its shapes, 2026-11-02
+
+Sec 728 gave a signed setting a second shape, stating its setter's rank,
+after the harnesses that open settings in passing were written.
+`reconcile_fuzz` issues the plain shape only, and no harness bent a
+setting so that the checks before its signature were reached.
+
+**`state/test/setting_fuzz.c`.** Its lie is signed: it bends a setting's
+body, then signs it again under whatever key the setter field now names.
+That is what a key the estate trusts can send, and it lets the shape
+checks be reached instead of stopping at the signature. The properties:
+- **round trip:** a setting issued in either shape opens with every
+  field as issued, its rank -1 for the plain shape;
+- **one encoding:** a bent, signed body that opens is exactly what
+  issuing its opened fields writes, in the shape its rank names;
+- **not a byte past its end:** each open reads a copy that ends at an
+  unreadable page, as sec 806's harness does.
+
+**Floors:** some bent body opened and some was refused for its shape,
+and both shapes opened.
+
+**Measured:** 300,000 cases, no failure. 89,279 bent bodies opened,
+50,005 plain and 39,274 ranked; 209,931 were refused for their shape.
+The parser held, and nothing in it changed.
+
+**Sabotage:** three entries for checks the harness reaches. By hand, the
+harness alone fails each:
+- an op neither set nor clear: 62 of 20,000 cases;
+- a stated rank above a root's: 1,193;
+- a clear carrying a value: 2, the thinnest, though one is enough to
+  fail the run.
+
+In the sabotage run all three were caught. `setting_test` caught the rank
+first. The op and the clear were caught by this harness alone: no unit
+test held either before it. The four older entries on `setting.c`
+stand.

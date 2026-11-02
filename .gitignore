@@ -190,6 +190,7 @@
 /state/test/state_test
 /state/test/scope_test
 /state/test/setting_test
+/state/test/setting_fuzz
 /notes/test/note_test
 /notes/test/text_test
 /notes/test/notes_store_test

@@ -9923,6 +9923,27 @@ SABOTAGES = [
 		"a setting with bytes past its signature is opened -- sec 540",
 	),
 	(
+		"setting-op-one-bit",
+		"state/setting.c",
+		"\t    || len < at + 3u + (size_t)FZN_SIG_LEN || bytes[at] > 1u)\n",
+		"\t    || len < at + 3u + (size_t)FZN_SIG_LEN)\n",
+		"a setting whose op is neither set nor clear opens, and one cell has a third spelling -- sec 808",
+	),
+	(
+		"setting-rank-in-range",
+		"state/setting.c",
+		"\t    || (ranked && bytes[at + 3u + value_len] >= FZN_SETTING_RANKS))\n",
+		"\t    || 0)\n",
+		"a setting stating a rank above a root's opens, a claim no setter can hold -- sec 808",
+	),
+	(
+		"setting-clear-has-no-value",
+		"state/setting.c",
+		"\t    || (bytes[at] == 0u && value_len) || !value_ok",
+		"\t    || !value_ok",
+		"a clear carrying a value opens, two spellings of one clear -- sec 808",
+	),
+	(
 		"setting-version-orders",
 		"state/setting.c",
 		"\tif (a->version != b->version)\n\t\treturn a->version > b->version;",
