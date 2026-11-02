@@ -1754,13 +1754,18 @@ MONO_NADM  := $(BUILD_DIR)/node/test/admin_test
 # signature ops (sec 368), so the daemon is built only with the binding.
 # And it takes fuzznet's options through cli/, the one parser the config
 # dialog also types at (sec 140), so it is built only when cli/ is. sec 376.
-FUZZNETD   := $(if $(CLI_ON),$(BUILD_DIR)/fuzznetd)
+# AND ONLY WITH SPOOL FILES (sec 822): the daemon's meter, schema, clocks
+# and files are built there, and a daemon without them had not compiled for
+# a long while, so `make FZN_SPOOL_FILE=0` failed outright where it was
+# offered as a switch. Now that arrangement builds the library and no
+# daemon, and says nothing it cannot do.
+FUZZNETD   := $(if $(and $(CLI_ON),$(SPOOL_FILE_ON)),$(BUILD_DIR)/fuzznetd)
 # AND THE NODE IT RUNS IS A CALL, fzn_daemon_main (sec 670), so a consumer
-# running its own daemon takes it beside the rest: under the same two
-# conditions as fuzznetd, the binding this block is and cli/.
-DAEMON_SRCS := $(if $(CLI_ON),node/daemon.c)
+# running its own daemon takes it beside the rest: under the same
+# conditions as fuzznetd, the binding this block is, cli/ and spool files.
+DAEMON_SRCS := $(if $(and $(CLI_ON),$(SPOOL_FILE_ON)),node/daemon.c)
 SRCS       += $(DAEMON_SRCS)
-HDRS       += $(if $(CLI_ON),node/daemon.h)
+HDRS       += $(if $(and $(CLI_ON),$(SPOOL_FILE_ON)),node/daemon.h)
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
@@ -2017,7 +2022,7 @@ endif
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(PROG_OBJS:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -5646,7 +5651,7 @@ reach:
 # project.md sec 53 has the eight-cell matrix.
 #
 # It costs 1.8s here.
-check: style test installcheck ctcheck sancheck qrcheck qttycheck livecheck
+check: style test installcheck ctcheck sancheck arrangements qrcheck qttycheck livecheck
 
 # THE SUITE AGAIN UNDER AddressSanitizer AND UBSan, on the holder's
 # instruction 2026-09-04. What it costs is roughly the test time again; what
@@ -5674,6 +5679,24 @@ check: style test installcheck ctcheck sancheck qrcheck qttycheck livecheck
 # one-off measurement; this runs on every check, and rebuilding the whole
 # suite under a sanitizer each time would make the gate cost what nobody
 # would pay. `clean` removes it.
+# EACH FEATURE OFF, ONE BUILD EACH (sec 822): every switch this file offers
+# turns a feature off, and nothing built the tree that way. A daemon that
+# had not compiled without spool files for weeks, and a filer the record
+# store needs defined only beside log packing, both reached a phone build
+# first -- fuzzypickles', at Android API 28, where libzstd is absent. So
+# `check` builds `all` once with each off, in a directory of its own beside
+# the sanitizer's.
+ARRANGEMENTS ?= FZN_LOG_PACK=0 FZN_LOG_FILE=0 FZN_SPOOL_FILE=0 FZN_CLAIM_FILE=0
+
+arrangements:
+	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
+	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
+	@for a in $(ARRANGEMENTS); do \
+		$(MAKE) --no-print-directory -s all BUILD_DIR=$(BUILD_DIR)-arr-$${a%%=*} $$a \
+			|| { echo "arrangements: the tree does not build with $$a"; exit 1; }; \
+		echo "arrangements: builds with $$a"; \
+	done
+
 sancheck:
 	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
 	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac

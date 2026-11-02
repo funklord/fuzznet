@@ -237,6 +237,7 @@
 /san/
 /*-coverage/
 /*-san/
+/*-arr-*/
 *.gcov
 *.gcda
 *.gcno

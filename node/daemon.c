@@ -1358,8 +1358,9 @@ static uint64_t wall_ms(void)
 {
 	struct timespec ts;
 
-	/* C11's, so nothing here needs a POSIX feature macro for it. */
-	if (timespec_get(&ts, TIME_UTC) != TIME_UTC || ts.tv_sec < 0)
+	/* POSIX's: C11's timespec_get is in bionic only from API 29, and the
+	 * phone runs this at 28 (fuzzypickles, 2026-11-02). */
+	if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec < 0)
 		return 0u;
 	return ((uint64_t)ts.tv_sec * 1000u) + ((uint64_t)ts.tv_nsec / 1000000u);
 }
@@ -3028,14 +3029,8 @@ static void line_passed_over(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], u
 	node_messages.n_held_back = n_held_back;
 }
 
-#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
-/* THIS HOST'S LOG AS BUCKET ITEMS, sec 571: its packed segments, and the
- * copies of other hosts' it keeps, carried by the bucket exchange. Ready
- * once the log directory and this host's key are known. */
-static fzn_log_buckets_t node_logs;
-static fzn_buckets_t logs_store;
-static fzn_reconcile_filer_t logs_filer;
-
+/* A HOST'S RECORDS FILED as a peer hands them on, sec 814: in every build
+ * that keeps a record store, not only one that packs logs. */
 static fzn_node_apply_outcome_t record_file(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN],
                                             uint32_t month, const uint8_t *item, size_t len)
 {
@@ -3044,6 +3039,15 @@ static fzn_node_apply_outcome_t record_file(void *ctx, const uint8_t subject[FZN
 
 static fzn_reconcile_filer_t records_filer = { record_file, NULL, &node_records,
 	                                       NULL,        NULL, NULL, NULL };
+
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+/* THIS HOST'S LOG AS BUCKET ITEMS, sec 571: its packed segments, and the
+ * copies of other hosts' it keeps, carried by the bucket exchange. Ready
+ * once the log directory and this host's key are known. */
+static fzn_log_buckets_t node_logs;
+static fzn_buckets_t logs_store;
+static fzn_reconcile_filer_t logs_filer;
+
 static int logs_ready;
 static fzn_retain_rule_t logs_own[FZN_RETAIN_RULES_MAX], logs_copy[FZN_RETAIN_RULES_MAX];
 /* THE PIECES OF ARCHIVED SEGMENTS, sec 597: this host's fossils cut and

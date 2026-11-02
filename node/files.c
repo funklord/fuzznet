@@ -1335,7 +1335,7 @@ static uint64_t files_clock_ms(void)
 {
 	struct timespec ts;
 
-	if (timespec_get(&ts, TIME_UTC) != TIME_UTC || ts.tv_sec < 0)
+	if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec < 0)
 		return 0u;
 	return ((uint64_t)ts.tv_sec * 1000u) + ((uint64_t)ts.tv_nsec / 1000000u);
 }
@@ -1872,7 +1872,7 @@ static uint64_t files_now_ms(void)
 {
 	struct timespec ts;
 
-	if (timespec_get(&ts, TIME_UTC) != TIME_UTC || ts.tv_sec < 0)
+	if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec < 0)
 		return 0u;
 	return ((uint64_t)ts.tv_sec * 1000u) + ((uint64_t)ts.tv_nsec / 1000000u);
 }
