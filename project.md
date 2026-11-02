@@ -76752,7 +76752,9 @@ end (`attachment-size-digits-bounded`). The three older entries on its
 meaning stand.
 
 **Both survived the first version,** which parsed a heap copy of exact
-length and left the over-read to the sanitizer. `make test` builds
-without one (only `SANITIZE=1` adds it), so a one-byte over-read passed
-unseen. With the guard page, each mutation faults the harness by hand,
-and both entries are caught.
+length and left the over-read to the sanitizer. `make check`'s
+`sancheck` would have seen it (sec 86), but sabotage runs the plain
+`make test`, which has no sanitizer, so the probes could not. With the
+guard page, each mutation faults the plain build too, and both entries
+are caught. The other harnesses leave over-reads to `sancheck` by
+design, so they were left as they are.
