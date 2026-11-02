@@ -38,6 +38,9 @@ with the other, and A, which has no pull peers, fetches from neither.
        `list setting-holders holders/x` has A and C at that version. C is
        stopped, A sets it again, and after B's next round A holds the new
        version while C, heard before and not since, reads 0 -- behind
+    j  a host's records (sec 814): B adds a record, and after B's round A --
+       which pulls from nobody -- and C list it under B's host, pushed to
+       them by B
 
 Against a daemon that carries no prekeys, or pairs no siblings, phase a
 fails waiting for the pairings; against one that never asks a sibling,
@@ -64,8 +67,8 @@ from live_rejoin import (ROUND_DONE_RE, COUNTED_RE, OWN_ARCHIVED_RE, RECONCILE_R
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-# PHASE i WAITS OUT ONE OF B's ROUNDS, a minute in this build.
-live_trim.DEADLINE = time.monotonic() + 480.0
+# PHASES i AND j EACH WAIT OUT ONE OF B's ROUNDS, a minute in this build.
+live_trim.DEADLINE = time.monotonic() + 600.0
 
 TAKEN_RE = re.compile(r"(\d+) sibling\(s\) paired, (\d+) pairing\(s\) taken")
 WHOLE_RE = re.compile(r"file [0-9a-f]{8}, (\d+) bytes, whole from (\d+) peer\(s\)")
@@ -453,6 +456,41 @@ def main(argv):
 						d.stop()
 			print("livecheck: i: B saw A and C hold version %d; with C stopped, A holds %d "
 			      "and C, last heard at %d, reads 0" % (first, second, holding[c_host][1]))
+
+			# j: a host's records, sec 814.
+			def records(who):
+				reply = ask(socks[who], "list record")
+				if not reply.startswith("ok "):
+					raise failed("j: %s's list record answered %r" % (who.upper(), reply))
+				return reply.split()[4:]
+
+			a = up("a", "aj")
+			c = b = None
+			try:
+				a.wait_for(ROUND_END_RE, "A's round")
+				c = up("c", "cj")
+				c.wait_for(ROUND_END_RE, "C's round")
+				b = up("b", "bj")
+				b.wait_for(ROUND_END_RE, "B's first round")
+				b_host = ask(socks["b"], "get identity").split()[1]
+				expect(socks["b"], "j", "add record seen/wlan0/aa-bb station%20one", "ok")
+				seen = rounds(b)
+				until = time.monotonic() + 150.0
+				want = b_host + ",seen/wlan0/aa-bb,"
+				while not (any(r.startswith(want) for r in records("a"))
+				           and any(r.startswith(want) for r in records("c"))):
+					if time.monotonic() > until or live_trim.left() < 1.0:
+						raise failed("j: B's record did not reach A and C: A %r, C %r"
+						             % (records("a"), records("c")))
+					time.sleep(0.5)
+				if rounds(b) <= seen:
+					raise failed("j: B's record reached A and C before B ran a round")
+			finally:
+				for d in (b, c, a):
+					if d:
+						d.stop()
+			print("livecheck: j: B's record, pushed in B's round, listed by A and C under "
+			      "B's host")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

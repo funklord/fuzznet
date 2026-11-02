@@ -2056,6 +2056,14 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 		if (n)
 			return n;
 	}
+	/* RECORDS, sec 814, when this node keeps them. */
+	if (admin->records_local) {
+		size_t n = admin->records_local(admin->records_ctx, origin, request, reply,
+		                                reply_cap);
+
+		if (n)
+			return n;
+	}
 	/* AN EXTENSION'S, sec 673: last, so a verb fuzznet comes to answer is
 	 * fuzznet's from then on. Its answer is held to the reply vocabulary
 	 * and to one line, or a client would read what no fuzznet verb says. */

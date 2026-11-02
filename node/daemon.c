@@ -88,6 +88,7 @@
 #endif
 #include "reconcile.h"
 #include "settings.h"
+#include "records.h"
 #include "siblings.h"
 #endif
 #include "peer_persist.h"
@@ -2858,6 +2859,11 @@ static void apply_journal(void)
 }
 
 /* WHAT THIS NODE HOLDS OF THE ESTATE'S STATE, served to a member, sec 551. */
+/* A HOST'S RECORDS, sec 814: kept in the records kind of the buckets, on
+ * the node's store; every one filed as its setter signed it. */
+static fzn_node_records_t node_records;
+static fzn_buckets_t records_store;
+
 /* WHAT ONE CALLER IS SERVED OF THE APPEND-ONLY KINDS, sec 567: every
  * bucket when it holds the retention capability, and otherwise only its
  * own -- its user's conversations, which here means it is one of the
@@ -2879,6 +2885,10 @@ static int serves_bucket(void *ctx, fzn_buckets_kind_t kind, const uint8_t subje
 	 * else the caller may hold. */
 	if (kind == FZN_BUCKETS_PIECES)
 		return memcmp(subject, to->sender, FZN_PUBKEY_LEN) == 0;
+	/* A HOST'S RECORDS are the estate's, sec 814: every member reads every
+	 * host's, and a contact never reaches this gate. */
+	if (kind == FZN_BUCKETS_RECORDS)
+		return node_records.b != NULL;
 	if (to->holds < 0)
 		to->holds = retention_capability
 		            && fzn_node_apply_holds(&node_apply, to->sender, retention_capability);
@@ -3020,6 +3030,15 @@ static void line_passed_over(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], u
 static fzn_log_buckets_t node_logs;
 static fzn_buckets_t logs_store;
 static fzn_reconcile_filer_t logs_filer;
+
+static fzn_node_apply_outcome_t record_file(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN],
+                                            uint32_t month, const uint8_t *item, size_t len)
+{
+	return fzn_node_records_file((const fzn_node_records_t *)ctx, subject, month, item, len);
+}
+
+static fzn_reconcile_filer_t records_filer = { record_file, NULL, &node_records,
+	                                       NULL,        NULL, NULL, NULL };
 static int logs_ready;
 static fzn_retain_rule_t logs_own[FZN_RETAIN_RULES_MAX], logs_copy[FZN_RETAIN_RULES_MAX];
 /* THE PIECES OF ARCHIVED SEGMENTS, sec 597: this host's fossils cut and
@@ -3162,6 +3181,7 @@ static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *r
 	srv.gate = &gate;
 	/* A MEMBER'S LINES PUSHED, sec 569, filed and judged as fetched ones. */
 	srv.takers[FZN_BUCKETS_MESSAGES] = messages_on ? &lines : NULL;
+	srv.takers[FZN_BUCKETS_RECORDS] = node_records.b ? &records_filer : NULL;
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 	srv.takers[FZN_BUCKETS_LOGS] = logs_up() ? &logs_filer : NULL;
 	srv.takers[FZN_BUCKETS_PIECES] = pieces_ready ? &pieces_filer : NULL;
@@ -4317,6 +4337,35 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 				lines_pushed += bt.sent;
 			}
 		}
+		/* AND RECORDS, both ways, sec 814: every host's, from and to every
+		 * member. */
+		if (node_records.b) {
+			struct serving_to to = {
+				pulls[t].is_root_at ? node_apply.root : pulls[t].node, -1
+			};
+			fzn_reconcile_gate_t gate = { serves_bucket, &to, NULL };
+			fzn_reconcile_bucket_tally_t rt;
+
+			err = fzn_reconcile_buckets(&records_store, FZN_BUCKETS_RECORDS, &records_filer,
+			                            peer_ask, &asking, reply, sizeof(reply), &rt);
+			if (err != FZN_RECONCILE_OK)
+				say(FZN_ENTRY_WARNING, "reconcile", "records from %s: %s", pulls[t].host,
+				    fzn_reconcile_err_str(err));
+			else if (rt.applied || rt.refused)
+				say(rt.refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "reconcile",
+				    "%zu record(s) taken from %s, %zu refused", rt.applied, pulls[t].host,
+				    rt.refused);
+			err = fzn_reconcile_push(&records_store, FZN_BUCKETS_RECORDS, &gate,
+			                         &records_filer, NULL, peer_ask, &asking, reply,
+			                         sizeof(reply), &rt);
+			if (err != FZN_RECONCILE_OK)
+				say(FZN_ENTRY_WARNING, "reconcile", "records to %s: %s", pulls[t].host,
+				    fzn_reconcile_err_str(err));
+			else if (rt.sent || rt.refused)
+				say(rt.refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "reconcile",
+				    "%zu record(s) pushed to %s, %zu refused there", rt.sent,
+				    pulls[t].host, rt.refused);
+		}
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 		/* AND LOGS, both ways, sec 571: what this host is served of the
 		 * peer's -- its own, or every source's with the retention
@@ -5059,6 +5108,24 @@ static void messages_trim(uint64_t now)
 #endif
 	next_trim = now + FZND_TRIM_EVERY;
 	gathered = gather_rules(rules);
+	/* A HOST'S RECORDS, sec 815, from the rules gathered, before the
+	 * messages' selection writes over them. */
+	if (node_records.b) {
+		static fzn_retain_rule_t mine[FZN_RETAIN_RULES_MAX];
+		size_t n_mine = fzn_retain_select_records(rules, gathered,
+		                                          dlog.has_host ? dlog.host : NULL,
+		                                          here_machine(), mine),
+		       gone = 0;
+		fzn_node_records_err_t rerr =
+		        fzn_node_records_trim(&node_records, mine, n_mine, wall_ms(), &gone);
+
+		if (rerr != FZN_NODE_RECORDS_OK)
+			say(FZN_ENTRY_WARNING, "records", "trimming by the rules failed (%d)", (int)rerr);
+		else if (gone)
+			say(FZN_ENTRY_INFO, "records", "%zu record(s) trimmed by the rules", gone);
+		say(FZN_ENTRY_DEBUG, "records", "trim pass: %zu of %zu rule(s) over records", n_mine,
+		    gathered);
+	}
 #if defined(FZN_SPOOL_FILE_ON)
 	/* ATTACHMENTS FIRST, from the rules gathered, before the messages'
 	 * selection writes over them. sec 795. */
@@ -16685,6 +16752,15 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				                               : NULL;
 				admin.settings_local = fzn_node_settings_local;
 				admin.settings_ctx = &node_settings;
+				/* A HOST'S RECORDS, sec 814, on the same store. */
+				records_store.store = store_ops;
+				records_store.hash = &hash_ops;
+				node_records.b = &records_store;
+				node_records.verify = &sign_ops;
+				node_records.id = &identity;
+				node_records.now_ms = wall_ms;
+				admin.records_local = fzn_node_records_local;
+				admin.records_ctx = &node_records;
 				admin.settings = &node_settings;
 				admin.remote_ran = remote_ran;
 				/* THE GRANTS FROM THE STORE, sec 545, before any record is

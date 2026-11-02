@@ -54,7 +54,9 @@ typedef enum fzn_buckets_kind {
 	/* Erasure-coded pieces of archived segments, its subject the host
 	 * each was placed on to keep. sec 597. */
 	FZN_BUCKETS_PIECES = 2,
-	FZN_BUCKETS_KINDS = 3
+	/* A host's records, its subject the observing host. sec 814. */
+	FZN_BUCKETS_RECORDS = 3,
+	FZN_BUCKETS_KINDS = 4
 } fzn_buckets_kind_t;
 
 typedef enum fzn_buckets_err {

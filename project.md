@@ -74132,7 +74132,8 @@ nothing from fuzznet: lists resolved against what is observed now.
 
 **The holder chose, 2026-10-29: a records kind in the existing engine and
 buckets**, beside logs and messages, rather than growing app streams (sec
-632) into it. Not built; still after the messaging core.
+632) into it. Deferred until after the messaging core; **taken up in sec
+814**, 2026-11-02.
 
 **And the shape, in the holder's words: config options are a kind of
 record, and expiring records are records with an expiration mechanism
@@ -77058,3 +77059,146 @@ is `$HOME/.local/share/fuzznet` (`fzn_cli_default_dir`).
   to it". The whole script passed.
 
 **Told** fuzzypickles in its inbox.
+
+## 814. A host's records: the records kind, kept and carried, 2026-11-02
+
+Sec 752's caller, netcfgd's host list manager (its 10.591), keeps what a
+host observes: stations seen, leases handed out. Each is written often by
+the observing host, read by any member of the estate, and pruned by
+fuzznet's rules. The holder chose its design on 2026-10-29 and deferred
+it until after the messaging core, which has now cleared its bars (sec
+811). **This section builds the record and its carriage; sec 815, the
+retention over it.**
+
+**A record is a setting its host signs about itself.** The holder's
+shape was that "config options are a kind of record", so a record is the
+setting object itself (`state/setting.h`), kept whole:
+- host scope, about its own setter;
+- KEY what was observed, in the program's words
+  (`seen/wlan0/aa-bb-cc-dd-ee-ff`, the setting key grammar);
+- VALUE what it says;
+- VERSION when it was written, in ms.
+
+Records and settings then differ only in how each kind resolves, as sec
+752 put it:
+- **a setting** resolves to one value a cell, by rank, and travels in its
+  setter's estate stream;
+- **a record** keeps every one written, held in buckets a month at a
+  time. So a host that observes often does not grow the estate's
+  journal, and retention can let a month go.
+
+One parser, one signed shape, and `setting_fuzz` (sec 808) already
+covers both.
+
+**Rejected:**
+- a new signed object for records: a second parser and a second shape
+  for what the holder called one object;
+- records in the estate stream: every observation journaled for ever on
+  every host, which is what buckets exist to avoid (sec 564).
+
+**Built (`node/records.{h,c}`):**
+- **The kind:** `FZN_BUCKETS_RECORDS` = 3 in `node/buckets.h` and
+  `node/buckets.situ`. Subject is the observing host and month the UTC
+  month of the version, as every kind counts months.
+  - **`situc` calls the contract breaking, and it is:** an older peer
+    refuses a query naming kind 3, as it was written to refuse an
+    unknown kind. During an upgrade, the asker then logs one warning a
+    round for that peer and carries on, as with sec 781's renumbered
+    messages.
+  - The `.wire` was regenerated against situ 3bf0040; the `.map` came
+    out unchanged.
+- **Filed only as its setter signed it** (`fzn_node_records_file`). It
+  must open as a setting, be host-scoped about its own setter, and its
+  setter and month must be the bucket's. A month let go is not taken
+  back.
+- **The verbs**, this node's own user only:
+  - `add record KEY VALUE` signs and keeps one now;
+  - `list record [HOST] [FROM]` answers `ok FROM SHOWN MORE`, then
+    `HOST,KEY,AT,VALUE` for every record held, of one host (`self` for
+    this one) or of all. It pages, each record whole.
+- **Carried between members** both ways each round, as logs are. The
+  gate serves every member every records bucket, because records are the
+  estate's and any member may observe. A contact never reaches that
+  gate.
+
+**Measured:**
+- **`records_test`, 20 checks:** a record placed and filed, and filed
+  twice counted once. Refused when about another host, estate-scoped,
+  changed after signing, or offered under another host or month. A month
+  let go is not taken back. The verbs: two records of one key both
+  listed; one host and every host; FROM; another user denied; malformed
+  input; twenty-two records paged across replies; a node with no writer
+  unsupported.
+- **`live_siblings` phase j:** B adds a record, and after B's round A,
+  which pulls from nobody, and C list it under B's host. The deadline is
+  now 600 s, since phases i and j each wait out a 60 s round. The whole
+  script passed.
+- **Control:** a fuzznetd whose gate serves no records bucket, built
+  apart, failed phase j, with neither A nor C holding B's record. Every
+  phase before it passed.
+- **Sabotage:** three entries, for host scope only, about its own setter,
+  and filed where it belongs.
+
+**Not yet:**
+- ~~retention over records~~: built in sec 815;
+- a keep rule that names a list's members by reading the list (sec
+  752);
+- a reader of the latest record per key, which netcfgd's resolver can do
+  from the listing meanwhile.
+
+## 815. A host's records pruned by the rules, 2026-11-02
+
+The retention half of sec 752's records kind: what netcfgd asked of the
+engine was age, a count per selector, and keep rules. The selectors it
+named were per host, per interface and per MAC.
+
+**The rules are `log/retain.h`'s, with a data word of their own**,
+`records`, as `messages`, `attachments` and `history` have:
+
+    prune|keep records [source=HOST] [text=SUBSTRING] [host=] [machine=] age|count N
+    policy records keep|drop
+
+- **`source=`** is whose records: the observing host. It was a copy
+  rule's word until now, and it means the same thing here.
+- **`text=`** is a substring of the record's key. With netcfgd's keys,
+  `seen/wlan0/` selects an interface and `aa-bb-cc` a station.
+- **A count is each key's newest N, per host.** The key is the finest
+  selector named, per MAC, and a coarser one is a `text=` over many
+  keys. A count of all the records under a prefix together is not
+  offered. No caller asked for it, and it would let one busy station push
+  out every quiet one.
+- **No size limit:** a record is small, and kept or let go one at a time.
+  A log rule's selectors, a conversation's `contact=` and `default`, and
+  `copy` and `archived` are refused on a records rule.
+- **What goes is decided as for a log segment** (sec 566). A record goes
+  when a prune rule reaching it is past its limit, or a records policy
+  drops, and no keep rule reaching it is within its limit. So a keep rule
+  protects what a list must not lose.
+- **A record that goes is let go** (sec 572). Its id stays counted in its
+  bucket, so the bucket still agrees with a peer that holds it, and the
+  reconcile treats it as held. Nothing fetches or pushes it back.
+
+**Run** in the daemon's trim pass (`FZND_TRIM_EVERY`), from the rules
+gathered for this host, before the messages' selection.
+
+**Measured, `records_test`, 35 checks, 15 new:**
+- a count of 2 keeps each key's newest two per host, another host's
+  record of the same key counted apart;
+- an age over one source takes only that host's old records;
+- a drop policy takes what no keep holds, and spares what a keep does;
+- a record let go reads as held to the reconcile and is not listed;
+- four rules parse and write back as their own text, and five are
+  refused: a size, `copy`, `contact=`, `level=`, `default`.
+
+**Sabotage:** two entries, for a count's boundary and for a keep
+protecting against a policy. `retain-source-only-on-copies` was
+re-anchored on the parser's one changed line.
+
+**Not measured live:** the trim pass runs in a live daemon only every
+`FZND_TRIM_EVERY`, and no live script yet sets a records rule. The unit
+test covers the decisions; the daemon only selects the rules and calls
+the trim.
+
+**Told** netcfgd, through its inbox: records, the verbs, and these
+rules. Its "observed now" half can now take persisted records as its
+second source (its 10.591).

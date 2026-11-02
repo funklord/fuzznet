@@ -240,6 +240,8 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 			out->data = FZN_RETAIN_ATTACHMENTS;
 		else if (is(w[1], n[1], "history"))
 			out->data = FZN_RETAIN_HISTORY;
+		else if (is(w[1], n[1], "records"))
+			out->data = FZN_RETAIN_RECORDS;
 		else if (!is(w[1], n[1], "log"))
 			return FZN_RETAIN_ERR_MALFORMED;
 		if (is(w[2], n[2], "drop"))
@@ -277,6 +279,10 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	} else if (count >= 2u && is(w[1], n[1], "history")) {
 		/* A NOTE HISTORY RULE, sec 581: a scope at most. */
 		out->data = FZN_RETAIN_HISTORY;
+		program = 0;
+	} else if (count >= 2u && is(w[1], n[1], "records")) {
+		/* A HOST'S RECORDS, sec 815: whose, and a text within the key. */
+		out->data = FZN_RETAIN_RECORDS;
 		program = 0;
 	} else if (count >= 3u && is(w[1], n[1], "log")) {
 		program = 2;
@@ -338,8 +344,15 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	/* A COPY IS KEPT OR REMOVED WHOLE, sec 483. */
 	if (out->copy && (out->levels || out->subsystem[0] || out->match_len))
 		return FZN_RETAIN_ERR_MALFORMED;
-	/* WHOSE COPIES, only of copies, sec 487. */
-	if (out->has_source && !out->copy)
+	/* WHOSE COPIES, only of copies, sec 487 -- or whose records, sec 815. */
+	if (out->has_source && !out->copy && out->data != FZN_RETAIN_RECORDS)
+		return FZN_RETAIN_ERR_MALFORMED;
+	/* A RECORDS RULE, sec 815: whose, a text within the key, a scope;
+	 * neither a log's selectors nor a conversation's, and no size, a
+	 * record being small and kept or let go one at a time. */
+	if (out->data == FZN_RETAIN_RECORDS
+	    && (out->copy || out->archived || out->levels || out->subsystem[0]
+	        || out->has_contact || out->all_contacts || out->is_default))
 		return FZN_RETAIN_ERR_MALFORMED;
 	/* A MESSAGE RULE NAMES NO LOG SELECTOR, sec 531: its lines are sealed
 	 * and go by the month, so nothing but a contact and a scope chooses
@@ -398,6 +411,8 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	else
 		return FZN_RETAIN_ERR_MALFORMED;
 	if (!number(value_w, value_n, out->limit, &out->value))
+		return FZN_RETAIN_ERR_MALFORMED;
+	if (out->data == FZN_RETAIN_RECORDS && out->limit == FZN_RETAIN_SIZE)
 		return FZN_RETAIN_ERR_MALFORMED;
 	return FZN_RETAIN_OK;
 }
@@ -515,6 +530,7 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 		             rule->data == FZN_RETAIN_MESSAGES      ? "messages"
 		             : rule->data == FZN_RETAIN_ATTACHMENTS ? "attachments"
 		             : rule->data == FZN_RETAIN_HISTORY     ? "history"
+		             : rule->data == FZN_RETAIN_RECORDS     ? "records"
 		                                                    : "log",
 		             rule->drop ? "drop" : "keep", scope);
 		if (n <= 0 || (size_t)n >= cap)
@@ -528,9 +544,12 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 		(void)snprintf(what, sizeof(what), "attachments");
 	else if (rule->data == FZN_RETAIN_HISTORY)
 		(void)snprintf(what, sizeof(what), "history");
+	else if (rule->data == FZN_RETAIN_RECORDS)
+		(void)snprintf(what, sizeof(what), "records");
 	else if (strcmp(rule->program, "log") == 0 || strcmp(rule->program, "messages") == 0
 	         || strcmp(rule->program, "attachments") == 0
-	         || strcmp(rule->program, "history") == 0)
+	         || strcmp(rule->program, "history") == 0
+	         || strcmp(rule->program, "records") == 0)
 		(void)snprintf(what, sizeof(what), "log %s", rule->program);
 	else
 		(void)snprintf(what, sizeof(what), "%s", rule->program);
@@ -617,7 +636,8 @@ static int rule_ok(const fzn_retain_rule_t *r)
 	/* A POLICY: a kind, keep or drop, and a scope or none. */
 	if (r->kind == FZN_RETAIN_POLICY)
 		return (r->data == FZN_RETAIN_LOG || r->data == FZN_RETAIN_MESSAGES
-		        || r->data == FZN_RETAIN_ATTACHMENTS || r->data == FZN_RETAIN_HISTORY)
+		        || r->data == FZN_RETAIN_ATTACHMENTS || r->data == FZN_RETAIN_HISTORY
+		        || r->data == FZN_RETAIN_RECORDS)
 		       && (r->drop == 0 || r->drop == 1) && r->program[0] == '\0' && !r->levels
 		       && !r->subsystem[0] && !r->match_len && !r->copy && !r->archived && !r->has_source
 		       && !r->has_contact && !r->all_contacts && !r->is_default && r->limit == 0
@@ -640,6 +660,18 @@ static int rule_ok(const fzn_retain_rule_t *r)
 		       && r->program[0] == '\0' && !r->levels && !r->subsystem[0] && !r->match_len
 		       && !r->copy && !r->archived && !r->has_source
 		       && (r->has_contact == 0 || r->has_contact == 1)
+		       && (r->has_host == 0 || r->has_host == 1)
+		       && (r->has_machine == 0 || r->has_machine == 1);
+	/* A RECORDS RULE, sec 815: whose, a text within the key, a scope; an
+	 * age or a count. */
+	if (r->data == FZN_RETAIN_RECORDS)
+		return (r->kind == FZN_RETAIN_PRUNE || r->kind == FZN_RETAIN_KEEP)
+		       && (r->limit == FZN_RETAIN_AGE || r->limit == FZN_RETAIN_COUNT)
+		       && r->program[0] == '\0' && !r->levels && !r->subsystem[0] && !r->copy
+		       && !r->archived && !r->has_contact && !r->all_contacts && !r->is_default
+		       && r->match_len <= FZN_RETAIN_MATCH_MAX
+		       && memchr(r->match, '\0', r->match_len) == NULL
+		       && (r->has_source == 0 || r->has_source == 1)
 		       && (r->has_host == 0 || r->has_host == 1)
 		       && (r->has_machine == 0 || r->has_machine == 1);
 	/* AN ARCHIVE RULE: a log segment rule, of this node's own log or of
@@ -757,6 +789,20 @@ size_t fzn_retain_select_history(const fzn_retain_rule_t *in, size_t n, const ui
 		return 0;
 	for (i = 0; i < n; i++)
 		if (in[i].data == FZN_RETAIN_HISTORY && fzn_retain_reaches(&in[i], host, machine))
+			out[k++] = in[i];
+	return k;
+}
+
+size_t fzn_retain_select_records(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                                 const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                 fzn_retain_rule_t *out)
+{
+	size_t i, k = 0;
+
+	if (!in || !out)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (in[i].data == FZN_RETAIN_RECORDS && fzn_retain_reaches(&in[i], host, machine))
 			out[k++] = in[i];
 	return k;
 }

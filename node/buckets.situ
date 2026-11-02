@@ -13,6 +13,7 @@ enum fzn_buckets_kind : u8 {
 	messages = 0,   // a conversation's lines: subject a contact, items a line's records
 	logs     = 1,   // a host's packed log segments: subject the source host, sec 570
 	pieces   = 2,   // erasure-coded pieces: subject the host keeping one, sec 597
+	records  = 3,   // a host's records: subject the observing host, sec 814
 }
 
 // FZN_PERSIST_BUCKET, one per bucket held: how many items, and their ids'

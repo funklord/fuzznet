@@ -175,7 +175,10 @@ typedef enum fzn_retain_data {
 	/* A note's earlier versions, sec 581. */
 	FZN_RETAIN_HISTORY = 2,
 	/* The files sent in conversations, sec 793. */
-	FZN_RETAIN_ATTACHMENTS = 3
+	FZN_RETAIN_ATTACHMENTS = 3,
+	/* A host's records, sec 815: `source=` whose, `text=` within the key;
+	 * a count is each key's newest, per host. */
+	FZN_RETAIN_RECORDS = 4
 } fzn_retain_data_t;
 
 typedef struct fzn_retain_rule {
@@ -245,6 +248,11 @@ size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uin
 size_t fzn_retain_select_messages(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                                   const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                                   fzn_retain_rule_t *out);
+
+/* The RECORDS rules of `in` that reach this node, sec 815. */
+size_t fzn_retain_select_records(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                                 const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                 fzn_retain_rule_t *out);
 
 /* The ATTACHMENT rules of `in` that reach this node, sec 793. */
 size_t fzn_retain_select_attachments(const fzn_retain_rule_t *in, size_t n,

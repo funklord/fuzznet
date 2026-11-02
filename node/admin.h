@@ -196,6 +196,11 @@ typedef struct fzn_node_admin {
 	size_t (*settings_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
 	                         char *reply, size_t reply_cap);
 	void *settings_ctx;
+	/* A HOST'S RECORDS (`node/records.h`), or NULL: then the record verbs
+	 * are unsupported. sec 814. */
+	size_t (*records_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+	                        char *reply, size_t reply_cap);
+	void *records_ctx;
 	/* AN EXTENSION'S VERBS, sec 673, or NULL: asked last, for a verb every
 	 * handler above declined -- a daemon's commands on their way into
 	 * fuzznet (`node/daemon.h`). A reply not in the reply vocabulary is

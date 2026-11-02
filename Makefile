@@ -172,7 +172,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/attachment.c messages/messages.c node/messages.c \
-             node/file_holds.c node/attachments.c \
+             node/file_holds.c node/attachments.c node/records.c \
              contact/contact.c \
              log/rules.c \
              node/received.c node/members.c \
@@ -274,7 +274,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/attachment.h messages/messages.h node/messages.h \
-             node/file_holds.h node/attachments.h \
+             node/file_holds.h node/attachments.h node/records.h \
              contact/contact.h \
              log/rules.h \
              node/received.h node/members.h \
@@ -411,7 +411,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/log_list_test.c node/test/clocks_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
              sticker/test/sticker_test.c messages/test/attachment_test.c \
-             sticker/test/sticker_fuzz.c \
+             sticker/test/sticker_fuzz.c node/test/records_test.c \
              node/test/attachments_test.c \
              node/test/peer_persist_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
@@ -545,6 +545,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/location/test/tpv_test \
              $(BUILD_DIR)/location/test/gpsd_test \
              $(BUILD_DIR)/sticker/test/sticker_test \
+             $(BUILD_DIR)/node/test/records_test \
              $(BUILD_DIR)/messages/test/attachment_test \
              $(BUILD_DIR)/node/test/attachments_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
@@ -4412,6 +4413,19 @@ $(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A host's records, sec 814: a setting its host signs about itself, kept in
+# the records kind of the buckets.
+$(BUILD_DIR)/node/test/records_test: $(BUILD_DIR)/node/test/records_test.o \
+                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/buckets.o \
+                                     $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                                     $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
+                                     $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \
+                                     $(BUILD_DIR)/log/capture.o \
+                                     $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/local/peer.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o $(MONO_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # An item as erasure-coded pieces on disk, sec 595.
 $(BUILD_DIR)/node/test/pieces_test: $(BUILD_DIR)/node/test/pieces_test.o \
                                     $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/node/buckets.o \
@@ -4496,6 +4510,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
+              $(BUILD_DIR)/node/records.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/fault/fault.o \
               $(BUILD_DIR)/log/view.o $(BUILD_DIR)/node/log_list.o $(BUILD_DIR)/node/clocks.o \
