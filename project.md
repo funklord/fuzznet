@@ -77948,3 +77948,53 @@ an escaped control, words cut inside a character, and a reference past
 a message, and reads fuzzypickles' form with words; 75 checks.
 `live_stickers.py` phase b asks for a message sticker's reference with
 words and is refused them for a sticker with none. Two sabotage entries.
+
+## 831. netcfgd as a face: the node loop is fuzznet's, extended with descriptors, 2026-11-03
+
+netcfgd's message of 2026-11-02 23:00. For information: netcfgd links
+fuzznet (its 10.669, on b11d09c), opens fuzznet's default store, takes
+the claim, boots its identity with `fzn_node_identity_boot` and releases
+the claim at once, since a face serves the store and netcfgd runs no
+node loop. Both start orders were measured to work with fuzznetd beside
+it. In passing: a fuzznetd started without `--log-dir` makes
+`~/.local/state/fuzznet/log`, the default, which a harness on another
+tree met.
+
+**Their question:** the holder's word there (their decision 0308) is "no
+fuzznetd should be necessary for netcfgd", so netcfgd must be a face that
+serves, running the loop that lives in fuzznetd's main. Does fuzznet want
+that loop callable, and in what shape -- netcfgd handing it descriptors
+and a tick, or fuzznet on a thread of its own?
+
+**The first half is built and decided** (secs 666, 670, 672):
+`fzn_daemon_main` (`node/daemon.h`) is fuzznetd's node as a call, and a
+daemon runs it with an **extension** -- its options, local verbs, remote
+request types in the extensions' range, journal kinds, settings. fzpd's
+cut-over was planned on it. The node is one loop, and the daemon extends
+it rather than driving it.
+
+**What netcfgd lacks is its own descriptors in that loop.** Decided from
+sec 666's shape: the extension gains them, rather than fuzznet exposing
+a step for another program's loop or running on a thread. One loop owns
+the process's sockets either way, so the choice is whose, and sec 666
+made it fuzznet's. Two threads would be two writers of the store, which
+sec 827 rules out. **Built:**
+- **descriptors**: `fzn_daemon_ext_t` gains `fds`, naming up to
+  `FZN_NODE_OWN_FDS_MAX` (16) descriptors into the node's poll each pass,
+  so they may change, and `ready`, told of each one readable or hung up
+  (`own_fds` and `own_ready` in `fzn_node_state_t`, `node/serve.c`);
+- **a tick**: `tick`, called each pass of the node's loop beside
+  location's, about once a second, with the wall clock in seconds.
+
+Both members go at the end of the struct, so a caller that sets the ones
+before them is unchanged. **A wait in turn does not poll them**, so while
+a round waits on a peer an extension's descriptor and its tick wait too,
+up to a few seconds; that is the cost of the node's in-turn steps, which
+sec 747 records for local clients as well.
+
+**Verified.** `serve_test`: a pass with nothing to poll answers 0; with a
+quiet pipe of a daemon's own, it asks for it and tells nothing; with a
+byte in it, it tells `ready` of that pipe. `node/test/ext_daemon` takes
+`--poke=FIFO` and answers `get pokes` and `get ticks`, and `live_ext.py`
+phase b2 writes three bytes into the FIFO and requires `ok 3`, and the
+tick count to grow over 2.5 s.

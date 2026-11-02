@@ -5,6 +5,7 @@
  *   --greeting=WORD   what `get greeting` answers; `--greeting=no` is
  *                     refused, ending the start
  *   --quiet           taken, and nothing else
+ *   --poke=PATH       a FIFO to watch among its own descriptors (sec 831)
  *
  *   get greeting      `ok WORD`, or `ok hello` with no --greeting
  *   get garbled       an answer outside the reply vocabulary, which
@@ -13,6 +14,9 @@
  *                     (sec 675), written into this host's estate stream
  *   get marks         `ok N LAST`: the marks applied, from every host this
  *                     one follows, and the last one's word; `ok 0` for none
+ *   get pokes         `ok N`: the bytes read from --poke's FIFO, each read
+ *                     when the node's loop said it was readable
+ *   get ticks         `ok N`: the times the node's loop called its tick
  *   status,           answers this program gives and must never be
  *   list contact      asked for: fuzznet answers both itself, `list
  *                     contact` from the same chain of handlers it asks
@@ -25,11 +29,20 @@
 #include "../daemon.h"
 #include "../../wire/bytes.h"
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static char greeting[64] = "hello";
+
+/* ITS OWN DESCRIPTOR AND TIMER, sec 831. The FIFO opened read and write,
+ * so it is never at its end of file: opened to read alone, a FIFO whose
+ * writer has gone is readable for ever, and the loop would spin. */
+static char poke_path[256];
+static int poke_fd = -1;
+static unsigned long pokes, ticks;
 
 /* THE MARKS APPLIED, each kept once: a start replays the journal from the
  * beginning and hands every one over again. */
@@ -52,7 +65,40 @@ static const char *option(void *ctx, const char *name, const char *value)
 			return "this daemon will not say no";
 		memcpy(greeting, value, strlen(value) + 1u);
 	}
+	if (strcmp(name, "--poke") == 0) {
+		if (!value || !*value || strlen(value) >= sizeof(poke_path))
+			return "a poke is a FIFO's path";
+		memcpy(poke_path, value, strlen(value) + 1u);
+	}
 	return NULL;
+}
+
+static size_t own_fds(void *ctx, int *out, size_t cap)
+{
+	(void)ctx;
+	if (poke_fd < 0 && poke_path[0])
+		poke_fd = open(poke_path, O_RDWR | O_NONBLOCK);
+	if (poke_fd < 0 || cap < 1u)
+		return 0;
+	out[0] = poke_fd;
+	return 1;
+}
+
+static void own_ready(void *ctx, int fd)
+{
+	char buf[64];
+	ssize_t n;
+
+	(void)ctx;
+	if ((n = read(fd, buf, sizeof(buf))) > 0)
+		pokes += (unsigned long)n;
+}
+
+static void own_tick(void *ctx, uint64_t now)
+{
+	(void)ctx;
+	(void)now;
+	ticks++;
 }
 
 static int is(const fzn_request_t *request, fzn_verb_t verb, const char *arg)
@@ -84,6 +130,10 @@ static size_t local(void *ctx, fzn_origin_t origin, const fzn_request_t *request
 	} else if (is(request, FZN_VERB_GET, "marks"))
 		n = n_marks ? snprintf(reply, cap, "ok %zu %s\n", n_marks, marks[last_mark].word)
 		            : snprintf(reply, cap, "ok 0\n");
+	else if (is(request, FZN_VERB_GET, "pokes"))
+		n = snprintf(reply, cap, "ok %lu\n", pokes);
+	else if (is(request, FZN_VERB_GET, "ticks"))
+		n = snprintf(reply, cap, "ok %lu\n", ticks);
 	else if (is(request, FZN_VERB_GET, "garbled"))
 		n = snprintf(reply, cap, "garbled words\n");
 	else if (request->parsed == FZN_VERB_STATUS || is(request, FZN_VERB_LIST, "contact"))
@@ -130,6 +180,7 @@ static int apply(void *ctx, uint32_t kind, const uint8_t *body, size_t len,
 static const fzn_daemon_option_t options[] = {
 	{ "--greeting", 1, "what `get greeting` answers" },
 	{ "--quiet", 0, "taken, and nothing else" },
+	{ "--poke", 1, "a FIFO to watch among its own descriptors" },
 };
 
 /* ITS SETTINGS, sec 686: one of its own, and -- with FZN_EXT_CLASH set in
@@ -147,7 +198,7 @@ int main(int argc, char **argv)
 {
 	static fzn_daemon_ext_t ext = {
 		NULL, options, sizeof(options) / sizeof(options[0]), option, local, remote, apply,
-		settings, sizeof(settings) / sizeof(settings[0]),
+		settings, sizeof(settings) / sizeof(settings[0]), own_fds, own_ready, own_tick,
 	};
 
 	if (getenv("FZN_EXT_CLASH"))

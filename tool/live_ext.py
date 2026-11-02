@@ -13,6 +13,8 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
        extension's answer outside
        the reply vocabulary is answered `error`; a verb neither answers is
        `unsupported`
+    b2 its own FIFO, named by `--poke`, read when the node's loop says it is
+       readable, and its tick called by the loop (sec 831)
     c  two of them, A the root of an estate and B joined to it by verbs:
        `add mark hello` at A writes a journal record of the extension's
        kind into A's stream, and B's extension applies it -- `get marks`
@@ -200,8 +202,11 @@ def main(argv):
 
 			# b: its verbs, beside fuzznet's.
 			log = open(os.path.join(scratch, "daemon.err"), "w")
-			proc = subprocess.Popen(base + ["--greeting=howdy", "--quiet"], stdout=log,
-			                        stderr=subprocess.STDOUT, start_new_session=True)
+			fifo = os.path.join(scratch, "poke")
+			os.mkfifo(fifo)
+			proc = subprocess.Popen(base + ["--greeting=howdy", "--quiet", "--poke=" + fifo],
+			                        stdout=log, stderr=subprocess.STDOUT,
+			                        start_new_session=True)
 			got = ask(sock, "get greeting")
 			if got != "ok howdy":
 				raise failed("b: get greeting answered %r" % got)
@@ -220,6 +225,28 @@ def main(argv):
 			print("livecheck: b: the extension answered its verb with its option's value; "
 			      "status and list contact stayed fuzznet's; a garbled answer became error; "
 			      "the rest unsupported")
+
+			# b2: ITS OWN DESCRIPTOR AND TIMER, sec 831: three bytes written to
+			# the FIFO it watches are read when the node's loop says so, and
+			# the loop ticks it.
+			wfd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+			try:
+				os.write(wfd, b"abc")
+			finally:
+				os.close(wfd)
+			until = time.monotonic() + 10.0
+			while ask(sock, "get pokes") != "ok 3":
+				if time.monotonic() > until:
+					raise failed("b2: the extension's own descriptor was read %r"
+					             % ask(sock, "get pokes"))
+				time.sleep(0.2)
+			first = int(ask(sock, "get ticks").split()[1])
+			time.sleep(2.5)
+			later = int(ask(sock, "get ticks").split()[1])
+			if first < 1 or later <= first:
+				raise failed("b2: the extension was ticked %d, then %d times" % (first, later))
+			print("livecheck: b2: the extension's own descriptor was read when ready, and the "
+			      "node's loop ticked it")
 			os.killpg(proc.pid, signal.SIGTERM)
 			proc.wait(timeout=10)
 			c_marks(daemon_path=daemon, scratch=scratch, sock_dir=sock_dir)

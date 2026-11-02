@@ -293,12 +293,58 @@ out:
 		fzn_udp_close(sfd);
 }
 
+/* A DAEMON'S OWN DESCRIPTORS, sec 831: the node's pass polls what
+ * `own_fds` names, and tells `own_ready` of each readable one -- with no
+ * socket of the node's own at all. */
+static int own_pipe[2] = { -1, -1 }, own_told = -1, own_asked;
+
+static size_t own_fds(void *ctx, int *fds, size_t cap)
+{
+	(void)ctx;
+	own_asked++;
+	if (cap < 1u || own_pipe[0] < 0)
+		return 0;
+	fds[0] = own_pipe[0];
+	return 1;
+}
+
+static void own_ready(void *ctx, int fd)
+{
+	char c;
+
+	(void)ctx;
+	own_told = fd;
+	(void)read(fd, &c, 1);
+}
+
+static void test_run_once_own_fds(void)
+{
+	fzn_node_state_t state;
+
+	memset(&state, 0, sizeof(state));
+	state.listen_fd = -1;
+	state.udp_fd = -1;
+	ok(fzn_node_run_once(&state, 50) == 0, "a node with nothing to poll was told something");
+	ok(pipe(own_pipe) == 0, "fixture: a pipe");
+	state.own_fds = own_fds;
+	state.own_ready = own_ready;
+	ok(fzn_node_run_once(&state, 50) == 0 && own_asked == 1 && own_told == -1,
+	   "a quiet descriptor of the daemon's own was told it was ready, or never asked for");
+	ok(write(own_pipe[1], "x", 1) == 1, "fixture: a byte written");
+	ok(fzn_node_run_once(&state, 1000) == 1 && own_told == own_pipe[0],
+	   "a readable descriptor of the daemon's own was not told");
+	close(own_pipe[0]);
+	close(own_pipe[1]);
+	own_pipe[0] = own_pipe[1] = -1;
+}
+
 int main(void)
 {
 	test_find_peer();
 	test_run_once_local();
 	test_run_once_probe();
 	test_wait_answering();
+	test_run_once_own_fds();
 	printf("serve_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

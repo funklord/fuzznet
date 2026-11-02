@@ -8912,6 +8912,29 @@ static char **daemon_argv;
 /* WHAT THE DAEMON CALLING THIS ADDS, sec 673 (`node/daemon.h`), or NULL. */
 static const fzn_daemon_ext_t *daemon_ext;
 
+/* THE EXTENSION'S OWN DESCRIPTORS AND TIMER, sec 831, as the node's loop
+ * asks for them. */
+static size_t ext_fds(void *ctx, int *fds, size_t cap)
+{
+	(void)ctx;
+	return daemon_ext && daemon_ext->fds && daemon_ext->ready
+	       ? daemon_ext->fds(daemon_ext->ctx, fds, cap)
+	       : 0u;
+}
+
+static void ext_ready(void *ctx, int fd)
+{
+	(void)ctx;
+	if (daemon_ext && daemon_ext->ready)
+		daemon_ext->ready(daemon_ext->ctx, fd);
+}
+
+static void ext_tick(void)
+{
+	if (daemon_ext && daemon_ext->tick)
+		daemon_ext->tick(daemon_ext->ctx, wall_clock());
+}
+
 /* AN EXTENSION'S OPTION, `arg` as typed: 1 taken, 0 not one of its, -1
  * refused, said. */
 static int ext_option(const char *arg)
@@ -16566,6 +16589,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		return 1;
 	}
 	state.listen_fd = lfd;
+	/* AN EXTENSION'S OWN DESCRIPTORS, sec 831, in whatever node this is. */
+	state.own_fds = ext_fds;
+	state.own_ready = ext_ready;
 	/* WHERE THE FACE SERVES, sec 666, for a follower to forward to: written
 	 * by the claim's holder alone, removed at its exit. */
 	if (face_dir && sock_path)
@@ -17773,6 +17799,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				(void)fzn_reasm_expire(state.reassembly, wall_clock());
 			/* gpsd's newest fix, when sampling is on, sec 678. */
 			location_tick();
+			ext_tick();
 #ifdef FZN_LOG_FILE_ON
 			log_settings_tick();
 #endif
@@ -17810,6 +17837,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * a node with nothing to pull still serves both verbs. */
 	while (!identity_reset && !rejoin_due) {
 		location_tick();
+		ext_tick();
 #ifdef FZN_LOG_FILE_ON
 		log_settings_tick();
 #endif

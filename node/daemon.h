@@ -90,6 +90,17 @@ typedef struct fzn_daemon_ext {
 	 * one owner, and keeps its key when it moves into fuzznet. */
 	const fzn_schema_entry_t *settings;
 	size_t n_settings;
+	/* ITS OWN DESCRIPTORS, sec 831: up to FZN_NODE_OWN_FDS_MAX named into
+	 * `out` each pass of the node's loop -- the count -- polled beside the
+	 * node's, and `ready` told of each one readable or hung up. One loop,
+	 * the node's, owns the process's descriptors, so a daemon's own work
+	 * waits in it rather than in a loop or thread of its own. NULL for none. */
+	size_t (*fds)(void *ctx, int *out, size_t cap);
+	void (*ready)(void *ctx, int fd);
+	/* WORK ON A TIMER, sec 831: called each pass of the node's loop, about
+	 * once a second -- later while a round waits in turn on a peer, up to a
+	 * few seconds -- with this host's wall clock in seconds. NULL for none. */
+	void (*tick)(void *ctx, uint64_t now);
 } fzn_daemon_ext_t;
 
 /* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,

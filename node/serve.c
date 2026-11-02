@@ -314,10 +314,10 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 {
-	struct pollfd fds[2u + FZN_NODE_EVENTS_MAX + FZN_NODE_ASKS_MAX];
-	int subscribers[FZN_NODE_EVENTS_MAX], awaited[FZN_NODE_ASKS_MAX];
-	nfds_t nfds = 0, first_sub, first_ask;
-	size_t n_sub = 0, n_ask = 0, s;
+	struct pollfd fds[2u + FZN_NODE_EVENTS_MAX + FZN_NODE_ASKS_MAX + FZN_NODE_OWN_FDS_MAX];
+	int subscribers[FZN_NODE_EVENTS_MAX], awaited[FZN_NODE_ASKS_MAX], own[FZN_NODE_OWN_FDS_MAX];
+	nfds_t nfds = 0, first_sub, first_ask, first_own;
+	size_t n_sub = 0, n_ask = 0, n_own = 0, s;
 	int li = -1, ui = -1, handled = 0, r;
 
 	if (!state)
@@ -358,6 +358,19 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 			nfds++;
 		}
 	}
+	/* A DAEMON'S OWN, sec 831, asked again each pass so they may change. */
+	first_own = nfds;
+	if (state->own_fds && state->own_ready) {
+		n_own = state->own_fds(state->own_ctx, own, FZN_NODE_OWN_FDS_MAX);
+		if (n_own > FZN_NODE_OWN_FDS_MAX)
+			n_own = FZN_NODE_OWN_FDS_MAX;
+		for (s = 0; s < n_own; s++) {
+			fds[nfds].fd = own[s];
+			fds[nfds].events = POLLIN;
+			fds[nfds].revents = 0;
+			nfds++;
+		}
+	}
 	if (nfds == 0)
 		return 0;
 
@@ -370,6 +383,11 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 	for (s = 0; s < n_ask; s++)
 		if (fds[first_ask + s].revents & POLLIN)
 			handled += (int)fzn_node_asks_ready(state->asks, awaited[s]);
+	for (s = 0; s < n_own; s++)
+		if (fds[first_own + s].revents & (POLLIN | POLLHUP | POLLERR)) {
+			state->own_ready(state->own_ctx, own[s]);
+			handled++;
+		}
 
 	/* SUBSCRIBERS FIRST: one dropped here frees its descriptor, and a
 	 * connection accepted after could be given the same number -- taken

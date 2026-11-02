@@ -210,7 +210,17 @@ typedef struct fzn_node_state {
 	 * NULL takes none, and `get events` reaches the handler like any
 	 * request. The consumer publishes to it (`node/events.h`). */
 	fzn_node_events_t *events;
+	/* A DAEMON'S OWN DESCRIPTORS, sec 831: up to FZN_NODE_OWN_FDS_MAX named
+	 * by `own_fds` each pass, polled beside the node's, and `own_ready`
+	 * told of each one readable or hung up. NULL polls none. A wait in turn
+	 * (`fzn_node_wait_answering`) does not poll them. */
+	size_t (*own_fds)(void *ctx, int *fds, size_t cap);
+	void (*own_ready)(void *ctx, int fd);
+	void *own_ctx;
 } fzn_node_state_t;
+
+/* How many of a daemon's own descriptors a pass polls. */
+#define FZN_NODE_OWN_FDS_MAX 16u
 
 /* The provisioned remote peer whose identity is `sender`, or NULL. Pure. */
 const fzn_node_peer_t *fzn_node_find_peer(const fzn_node_peer_t *peers,
