@@ -13,8 +13,9 @@
  * Each case makes a random attachment -- its name drawn from every byte the
  * rules allow, high bytes among them -- formats it, and bends the text with
  * even odds: bits flipped, cut short, grown, a slice repeated or two bytes
- * swapped. Every parse reads from a heap copy of exactly the text's length,
- * so a read one byte past the end is the sanitizer's to report.
+ * swapped. Every parse reads a copy that ends where a page no process may
+ * read begins, so a read one byte past the end faults in any build, not
+ * only one under the sanitizer -- `make test` runs none.
  *
  * THE PROPERTIES:
  *   1. ROUND TRIP: a formatted reference parses back as the attachment it
@@ -34,6 +35,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #define FUZZ_DEFAULT_CASES 20000u
 #define FUZZ_MIN_CASES 2000u
@@ -101,18 +104,27 @@ static int same(const fzn_attachment_t *a, const fzn_attachment_t *b)
 	       && b->name[b->name_len] == '\0';
 }
 
-/* Parse `len` bytes from a heap copy of exactly that length. */
+/* Parse `len` bytes copied to end where an unreadable page begins. */
+static char *guarded_end;
+
 static int parse_exact(const char *text, size_t len, fzn_attachment_t *out)
 {
-	char *copy = malloc(len ? len : 1u);
-	int r;
+	memcpy(guarded_end - len, text, len);
+	return fzn_attachment_parse(guarded_end - len, len, out);
+}
 
-	if (!copy)
+static void guard(void)
+{
+	long page = sysconf(_SC_PAGESIZE);
+	char *map;
+
+	if (page <= 0 || (size_t)page < FZN_ATTACHMENT_REF_MAX + 16u)
 		abort();
-	memcpy(copy, text, len);
-	r = fzn_attachment_parse(copy, len, out);
-	free(copy);
-	return r;
+	map = mmap(NULL, 2u * (size_t)page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
+	           -1, 0);
+	if (map == MAP_FAILED || mprotect(map + page, (size_t)page, PROT_NONE) != 0)
+		abort();
+	guarded_end = map + page;
 }
 
 /* As line_fuzz's bend, over a text: never returns it unchanged. */
@@ -191,6 +203,7 @@ int main(int argc, char **argv)
 		cases = strtoul(argv[1], NULL, 10);
 	if (cases < FUZZ_MIN_CASES)
 		cases = FUZZ_MIN_CASES;
+	guard();
 
 	for (c = 0; c < cases; c++) {
 		fzn_attachment_t a, back;

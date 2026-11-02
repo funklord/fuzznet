@@ -76731,9 +76731,9 @@ by every client through `fzn_attachment_parse`. No harness reached it.
 
 **`messages/test/attachment_fuzz.c`** makes a random attachment, its name
 drawn from every byte the rules allow, high bytes among them, and formats
-it. It bends the text as `line_fuzz` does. Every parse reads a heap copy
-of exactly the text's length, so a read past the end is the sanitizer's
-to report. The properties:
+it. It bends the text as `line_fuzz` does. Every parse reads a copy that
+ends where an unreadable page begins, so a read past the end faults in
+any build. The properties:
 - **a formatted reference parses back** as its attachment, and so does
   the same under `fzp:` with its hex in either case;
 - **a bent text that parses is the one spelling of its parse,** once its
@@ -76750,3 +76750,9 @@ not reach: the hex field's length check one byte short
 (`attachment-hex-field-bounded`), and the size's digits read without the
 end (`attachment-size-digits-bounded`). The three older entries on its
 meaning stand.
+
+**Both survived the first version,** which parsed a heap copy of exact
+length and left the over-read to the sanitizer. `make test` builds
+without one (only `SANITIZE=1` adds it), so a one-byte over-read passed
+unseen. With the guard page, each mutation faults the harness by hand,
+and both entries are caught.
