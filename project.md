@@ -77194,10 +77194,12 @@ gathered for this host, before the messages' selection.
 protecting against a policy. `retain-source-only-on-copies` was
 re-anchored on the parser's one changed line.
 
-**Not measured live:** the trim pass runs in a live daemon only every
-`FZND_TRIM_EVERY`, and no live script yet sets a records rule. The unit
-test covers the decisions; the daemon only selects the rules and calls
-the trim.
+**Measured live, `live_trim` phase t:** three records of one station and
+a lease are written. The daemon starts again under `prune records
+text=seen/ count 1`, and its first trim pass, which runs at start, keeps
+the station's newest and leaves the lease. **Control:** a fuzznetd that
+hands the trim no rules, though it still logs the pass, failed phase t
+with all three station records held.
 
 **Told** netcfgd, through its inbox: records, the verbs, and these
 rules. Its "observed now" half can now take persisted records as its

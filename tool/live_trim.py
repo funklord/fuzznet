@@ -29,6 +29,9 @@ and over a third, three files attached sixty days back, sec 795:
                                                  is removed; the one the
                                                  catalogue names stays, and
                                                  so does a saved sticker pack
+and over a fourth, three records of one station and one lease, sec 815:
+    t  `prune records text=seen/ count 1`     -> the station's newest stays,
+                                                 the lease is untouched
 
 b, c and e are the controls, and a control means nothing unless the trim
 ran: every phase waits for the daemon's own debug line saying a trim pass
@@ -342,6 +345,52 @@ def attachments_trimmed(run, tag, roots):
 	      "removed, the catalogue's and the saved pack kept" % tag)
 
 
+RECORDS_RE = re.compile(r"trim pass: (\d+) of \d+ rule\(s\) over records")
+
+
+def records_trimmed(run, tag):
+	"""Three records of one station and a lease written, then the daemon
+	started again under a count of one for `seen/`: the station's newest
+	stays, its two older go, the lease is untouched -- by the daemon's own
+	pass line and by the listing."""
+	d = daemon(run, tag + "0")
+	try:
+		for value in ("one", "two", "three"):
+			if ask(run.sock, "add record seen/wlan0/aa-bb " + value) != "ok":
+				raise failed("%s: a record was not added" % tag)
+			time.sleep(0.01)
+		if ask(run.sock, "add record lease/eth0/cc 1") != "ok":
+			raise failed("%s: the lease was not added" % tag)
+	finally:
+		d.stop()
+	d = daemon(run, tag, extra=["--log-rule=prune records text=seen/ count 1"])
+	try:
+		until = time.monotonic() + 30.0
+		got = None
+		while got is None:
+			for name in sorted(os.listdir(d.log_dir)):
+				with open(os.path.join(d.log_dir, name), "rb") as f:
+					got = RECORDS_RE.search(f.read(1 << 20).decode(errors="replace"))
+				if got:
+					break
+			if got is None and (left() < 0.1 or time.monotonic() > until):
+				raise failed("%s: no records trim pass was logged within 30 s" % tag)
+			if got is None:
+				time.sleep(0.2)
+		if int(got.group(1)) != 1:
+			raise failed("%s: the records pass weighed %s rule(s), not one" % (tag, got.group(1)))
+		listed = ask(run.sock, "list record self").split()[4:]
+		keys = [r.split(",")[1] for r in listed]
+		values = [r.split(",")[3] for r in listed]
+		if keys.count("seen/wlan0/aa-bb") != 1 or "three" not in values \
+		   or keys.count("lease/eth0/cc") != 1:
+			raise failed("%s: after the trim the records are %r" % (tag, listed))
+	finally:
+		d.stop()
+	print("livecheck: %s: under a count of one, the station kept its newest record and the "
+	      "lease was untouched" % tag)
+
+
 def main(argv):
 	if len(argv) != 2:
 		print("usage: live_trim.py PATH_TO_FUZZNETD", file=sys.stderr)
@@ -385,6 +434,9 @@ def main(argv):
 			os.mkdir(run.node)
 			roots = write_attachments(run, "s0")
 			attachments_trimmed(run, "s", roots)
+			run.node = os.path.join(scratch, "node4")
+			os.mkdir(run.node)
+			records_trimmed(run, "t")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
