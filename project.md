@@ -71906,7 +71906,7 @@ together in the other order. Ordering by send time (STIME) would make the
 sender's clock decide an order other devices must agree on. Sec 719's
 survey counts STIME as display only. Raised, not decided.
 
-## 724. Has a setting reached my other devices? Asked, costed, not built, 2026-10-25
+## 724. Has a setting reached my other devices? Asked and costed, 2026-10-25
 
 **Asked by fuzzypickles** (message of 2026-10-25), as the last client call
 still "not yet" on a node: `config_status`. For one estate setting, it
@@ -71940,9 +71940,9 @@ version a behind device holds is not knowable without a history, so it
 reads 0. Behind still means held < local, which is what the clients
 show.
 
-**Not built: sec 689's freeze.** This is new work, not hardening, and
-whether it fits before the subset clears is the holder's call. A half
-day or so, estimated, not measured.
+**Built in sec 811**, 2026-11-02, once the holder moved the work on to
+fuzzypickles' move. Sec 689's freeze had held it back. The shape changed
+from the one proposed: the answer pages, as `list setting` does.
 
 **A second asker, 2026-10-25: netcfgd**, its project.md 10.567, after sec
 729's answer. It will use this and not define a second "settled", so two
@@ -76899,3 +76899,73 @@ a static function in `node/daemon.c`, where no test reaches it, as sec
 701 says of the handlers behind every hook. Each of its answer functions
 parses only its own request type, so a member-only request sent by a
 contact falls through to the end and is denied.
+
+## 811. Has a setting reached my other devices? `list setting-holders`, 2026-11-02
+
+**The holder, 2026-11-02:** messaging has cleared its bars; continue with
+the larger work of moving fuzzypickles' code. Half one of fuzzypickles'
+cut-over is done: every client family speaks to fuzznetd (their sec 284).
+Half two, fzpd giving up the base set, is their tree's work. **The one
+thing it asked of fuzznet that was not built is sec 724**: fzpd's
+`config_status`, "which of my devices hold this setting". netcfgd waits
+on the same thing (its 10.567).
+
+**The verb:**
+
+    list setting-holders KEY [FROM]
+      -> ok VERSION FROM SHOWN MORE HOST,HELD,AT ...
+
+- VERSION is the estate setting of KEY in force here, 0 for none.
+- Each of the user's other devices is listed: HOST its host key, HELD
+  the version it is known to hold, AT when this node last heard its
+  position, in ms. A device never heard reads `0,0`. 0 means behind,
+  which is what the clients show.
+- **It pages,** as `list setting [FROM]` does. An entry is about 100
+  bytes, so a 1 KiB reply holds nine devices, and an estate can have
+  more. **This is the change from fuzzypickles' proposed shape**, which
+  had no FROM, SHOWN or MORE.
+- This node's own user only, as every settings verb. `unsupported` on a
+  node that does not hear its siblings.
+
+**How HELD is judged:**
+- A device holds the version in force when its position on the setter's
+  estate stream covers the record that carried that version
+  (`fzn_node_settings_carried`). That record is found by walking back
+  from the stream's head while the store still holds each record.
+- **Past the journal's window** (sec 535) the record is gone. A position
+  at least one below the lowest record still held then covers it, since
+  the stream is chained (sec 500) and the record lies below. A position
+  below that reads 0.
+- An older version a device may hold is not knowable without history,
+  so it reads 0, as sec 724 said.
+
+**Where positions come from:** the daemon keeps each sibling's whole
+digest when a journal push has read it (`sibling_digest_keep`), with the
+time. The push reads the peer's positions before offering anything, so
+this costs no message. It is kept in memory: after a start every device
+reads never heard until its first talk. The table grows to fit. The
+devices listed are every sibling the node lists, then any it heard a
+digest from that the list does not name (the root, reached as the root).
+
+**Measured:**
+- **`apply_test`, 170 checks, 1 new test:**
+  - one sibling whose position covers the record, one a record short,
+    one never heard;
+  - the page from 2, and a key with nothing in force;
+  - another user denied, a malformed FROM;
+  - sixteen siblings paged across two replies, each page whole;
+  - the stream cut and a later record held, judged by the floor.
+- **`live_siblings` phase i, new:**
+  - With A, B and C up, A sets `holders/x`, and B lists A and C holding
+    it.
+  - C is stopped and A sets it again. After B's next round, A holds the
+    new version and C, last heard before, reads 0.
+  - The script's deadline went from 300 s to 480 s, since the phase
+    waits out one 60 s round. The whole script passed.
+- **Control:** the first build kept a digest only when it had more than
+  one page, so it never kept a real one. Phase i failed at its first
+  check, with both devices read as never heard.
+- **Sabotage:** two entries for the held rule's two boundaries, a device
+  one record short and the floor.
+
+**Told** fuzzypickles and netcfgd, through their inboxes, of the shape.

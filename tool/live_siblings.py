@@ -33,6 +33,11 @@ with the other, and A, which has no pull peers, fetches from neither.
        listing C's address at the default metric; C sets its `net/metric`
        to 7, A signs the next generation, and B -- a member, not a signer
        -- takes it from a peer and holds C at metric 7
+    i  who holds a setting (sec 811): with A, B and C up, A sets the
+       estate's `holders/x`, and once B's round has talked to both, B's
+       `list setting-holders holders/x` has A and C at that version. C is
+       stopped, A sets it again, and after B's next round A holds the new
+       version while C, heard before and not since, reads 0 -- behind
 
 Against a daemon that carries no prekeys, or pairs no siblings, phase a
 fails waiting for the pairings; against one that never asks a sibling,
@@ -57,6 +62,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import (ROUND_DONE_RE, COUNTED_RE, OWN_ARCHIVED_RE, RECONCILE_RE,  # noqa: E402
                          command, daemon, expect)
 from live_trim import ask, failed  # noqa: E402
+import live_trim  # noqa: E402
+
+# PHASE i WAITS OUT ONE OF B's ROUNDS, a minute in this build.
+live_trim.DEADLINE = time.monotonic() + 480.0
 
 TAKEN_RE = re.compile(r"(\d+) sibling\(s\) paired, (\d+) pairing\(s\) taken")
 WHOLE_RE = re.compile(r"file [0-9a-f]{8}, (\d+) bytes, whole from (\d+) peer\(s\)")
@@ -391,6 +400,59 @@ def main(argv):
 				a.stop()
 			print("livecheck: h: A signed the routing manifest at generation %d, and B took "
 			      "generation %s with C's metric from a peer" % (first, got[1]))
+
+			# i: who holds a setting, sec 811.
+			def holders(tag):
+				"""B's answer: its version, and each device's HELD by host key."""
+				reply = ask(socks["b"], "list setting-holders holders/x")
+				words = reply.split()
+				if len(words) < 5 or words[0] != "ok" or not words[1].isdigit():
+					raise failed("%s: B's list setting-holders answered %r" % (tag, reply))
+				holding = {}
+				for item in words[5:]:
+					host, version, at = item.split(",")
+					holding[host] = (int(version), int(at))
+				return int(words[1]), holding
+
+			def rounds(d):
+				return len(ROUND_END_RE.findall(d.log()))
+
+			a = up("a", "ai")
+			c = b = None
+			try:
+				a.wait_for(ROUND_END_RE, "A's round")
+				a_host = ask(socks["a"], "get identity").split()[1]
+				expect(socks["a"], "i", "set setting estate holders/x 1", "ok")
+				c = up("c", "ci")
+				c.wait_for(ROUND_END_RE, "C's round")
+				c_host = ask(socks["c"], "get identity").split()[1]
+				b = up("b", "bi")
+				b.wait_for(ROUND_END_RE, "B's round")
+				first, holding = holders("i")
+				if not first or holding.get(a_host, (0, 0))[0] != first \
+				   or holding.get(c_host, (0, 0))[0] != first or not holding[c_host][1]:
+					raise failed("i: B lists %r at version %d, not A and C holding it"
+					             % (holding, first))
+				c.stop()
+				c = None
+				expect(socks["a"], "i2", "set setting estate holders/x 2", "ok")
+				seen = rounds(b)
+				until = time.monotonic() + 150.0
+				while rounds(b) <= seen:
+					if time.monotonic() > until or live_trim.left() < 1.0:
+						raise failed("i: B ran no round after C stopped")
+					time.sleep(0.5)
+				second, holding2 = holders("i2")
+				if second <= first or holding2.get(a_host, (0, 0))[0] != second \
+				   or holding2.get(c_host, (1, 0))[0] != 0 or holding2[c_host][1] != holding[c_host][1]:
+					raise failed("i: B lists %r at version %d, not A at it and C behind, "
+					             "heard at %d" % (holding2, second, holding[c_host][1]))
+			finally:
+				for d in (b, c, a):
+					if d:
+						d.stop()
+			print("livecheck: i: B saw A and C hold version %d; with C stopped, A holds %d "
+			      "and C, last heard at %d, reads 0" % (first, second, holding[c_host][1]))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

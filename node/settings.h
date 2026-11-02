@@ -25,6 +25,9 @@
  *     get setting SCOPE KEY           ok RANK VALUE, or `absent`
  *     list setting [FROM]             ok FROM SHOWN MORE, then each standing
  *                                     value as SCOPE,ABOUT,KEY,RANK,VERSION,VALUE
+ *     list setting-holders KEY [FROM] ok VERSION FROM SHOWN MORE, then each of
+ *                                     the user's other devices as
+ *                                     HOST,HELD,AT (sec 811)
  *
  * SCOPE is `estate`, `host` (this node) or `host=KEYHEX` (another node, which
  * takes an admin's or a root's standing). RANK is `root`, `admin` or `host`.
@@ -78,6 +81,15 @@ typedef struct fzn_node_settings {
 	/* WHAT `set setting` CHECKS a declared key against, sec 686: fuzznet's
 	 * declarations and these extra ones; NULL for fuzznet's alone. */
 	const struct fzn_node_schema *schema;
+	/* THE USER'S OTHER DEVICES, sec 811, for `list setting-holders`: the
+	 * i'th one's host key, its position on (`issuer`, `stream`) as its last
+	 * digest told this node (0 when it named none), and when that digest
+	 * came, ms (0: never heard). 0 past the last. NULL answers the verb
+	 * unsupported. */
+	int (*sibling_at)(void *ctx, size_t i, const uint8_t issuer[FZN_PUBKEY_LEN],
+	                  uint32_t stream, uint8_t host[FZN_PUBKEY_LEN], uint64_t *received,
+	                  uint64_t *heard_ms);
+	void *siblings_ctx;
 } fzn_node_settings_t;
 
 /*
@@ -144,6 +156,19 @@ typedef void (*fzn_node_settings_each_fn)(void *ctx, const fzn_setting_t *s,
  */
 fzn_node_settings_err_t fzn_node_settings_each(const fzn_node_settings_t *ns,
                                                fzn_node_settings_each_fn each, void *ctx);
+
+/*
+ * WHERE AN ESTATE SETTING STANDS AMONG THE USER'S DEVICES, sec 811: the
+ * version of estate `key` in force here (0 for none), its setter, and the
+ * sequence of the record that carried it in the setter's estate stream.
+ * `*seq` is 0 when this node's store no longer holds that record; then
+ * `*floor` is the lowest sequence of that stream it still holds (0 for
+ * none), below which the record lies. 1, or 0 for no estate setting of
+ * `key` in force.
+ */
+int fzn_node_settings_carried(const fzn_node_settings_t *ns, const uint8_t *key, size_t key_len,
+                              uint64_t *version, uint8_t setter[FZN_PUBKEY_LEN], uint64_t *seq,
+                              uint64_t *floor);
 
 /*
  * WRITE A SETTING as this node: judged first (REFUSED when this node may not

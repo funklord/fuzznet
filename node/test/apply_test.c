@@ -767,6 +767,189 @@ static void test_a_delegable_members_vote_before_its_admin_grant(void)
 	}
 }
 
+/* THE USER'S OTHER DEVICES, sec 811, as a daemon's digests would tell
+ * them: each one's position on the stream asked of it. */
+static struct {
+	uint8_t host;
+	uint64_t received, heard;
+} siblings[16];
+static size_t n_siblings;
+static uint8_t sibling_issuer;
+
+static int sibling_at(void *ctx, size_t i, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                      uint8_t host[FZN_PUBKEY_LEN], uint64_t *received, uint64_t *heard_ms)
+{
+	(void)ctx;
+	if (i >= n_siblings)
+		return 0;
+	memset(host, siblings[i].host, FZN_PUBKEY_LEN);
+	*received = issuer[0] == sibling_issuer && stream == FZN_NODE_JOURNAL_STREAM
+	                    ? siblings[i].received
+	                    : 0u;
+	*heard_ms = siblings[i].heard;
+	return 1;
+}
+
+/* WHO HOLDS AN ESTATE SETTING, sec 811: one sibling whose position covers
+ * the record that carried it, one a record short, one never heard; then
+ * the record gone from the store, judged by the lowest one held. Its own
+ * root and estate, so nothing it writes or cuts reaches another test. */
+static void test_setting_holders(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_revocation_t rev_entries[8];
+	static fzn_revocation_admin_t admins[4];
+	static fzn_node_apply_t ap;
+	static fzn_node_settings_t ns;
+	static fzn_node_identity_t me;
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t store = { 0 };
+	fzn_cap_id_t cap, admin_cap;
+	uint8_t r[FZN_PUBKEY_LEN], estate[FZN_SUBJECT_LEN], setter[FZN_PUBKEY_LEN];
+	uint64_t head, version = 0, seq = 0, floor = 0;
+	char want[512], a1[2u * FZN_PUBKEY_LEN + 1u], a2[2u * FZN_PUBKEY_LEN + 1u];
+	char a3[2u * FZN_PUBKEY_LEN + 1u];
+
+	memset(rows, 0, sizeof(rows));
+	store.load = mem_load;
+	store.save = mem_save;
+	store.list = mem_list;
+	memset(&cap, 0x61, sizeof(cap));
+	memset(&admin_cap, 0x62, sizeof(admin_cap));
+	key(r, 0x95);
+	memcpy(estate, r, sizeof(estate));
+	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&revs, 1u, &admin_cap, admins, 4u)
+	                         == FZN_CHAIN_OK,
+	      "fixture: a journal for the holders");
+	memset(&ap, 0, sizeof(ap));
+	ap.journal = &nj;
+	ap.revocations = &revs;
+	ap.store = &store;
+	ap.root = r;
+	ap.capability = &cap;
+	ap.admin_capability = &admin_cap;
+	ap.sign = &SIGN;
+	ap.hash = &HASH;
+	ap.settings = &ns;
+	ap.now = clock_now;
+	memset(&ns, 0, sizeof(ns));
+	ns.store = &store;
+	ns.hash = &HASH;
+	ns.verify = &SIGN;
+	ns.apply = &ap;
+	ns.estate = estate;
+	ns.journal = &nj;
+	ns.id = &me;
+	ns.now = clock_now;
+	memset(&me, 0, sizeof(me));
+	me.sign = &SIGN;
+	memcpy(me.pubkey, r, FZN_PUBKEY_LEN);
+	signing_as = 0x95;
+	CHECK(fzn_node_settings_write(&ns, FZN_SCOPE_ESTATE, estate, (const uint8_t *)"k", 1u, 1,
+	                              (const uint8_t *)"v", 1u)
+	              == FZN_NODE_SETTINGS_OK,
+	      "fixture: the root sets the estate's k");
+	head = fzn_node_journal_received(&nj, r, FZN_NODE_JOURNAL_STREAM);
+	memset(a1, 0, sizeof(a1));
+	memset(a1, 'a', sizeof(a1) - 1u);
+	memcpy(a2, a1, sizeof(a1));
+	memcpy(a3, a1, sizeof(a1));
+	for (size_t i = 1; i < sizeof(a1) - 1u; i += 2u)
+		a1[i] = '1', a2[i] = '2', a3[i] = '3';
+
+	CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "list setting-holders k") && replied("unsupported"),
+	      "with no siblings' positions the holders were listed");
+	ns.sibling_at = sibling_at;
+	sibling_issuer = 0x95;
+	n_siblings = 3u;
+	siblings[0].host = 0xa1, siblings[0].received = head, siblings[0].heard = 5000u;
+	siblings[1].host = 0xa2, siblings[1].received = head - 1u, siblings[1].heard = 6000u;
+	siblings[2].host = 0xa3, siblings[2].received = head, siblings[2].heard = 0u;
+	CHECK(fzn_node_settings_carried(&ns, (const uint8_t *)"k", 1u, &version, setter, &seq,
+	                                &floor)
+	              && version != 0u && seq == head && floor == 0u
+	              && memcmp(setter, r, FZN_PUBKEY_LEN) == 0,
+	      "the root's setting of k was not found at its record's sequence");
+	(void)snprintf(want, sizeof(want), "ok %llu 0 3 0 %s,%llu,5000 %s,0,6000 %s,0,0",
+	               (unsigned long long)version, a1, (unsigned long long)version, a2, a3);
+	CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "list setting-holders k") && replied(want),
+	      "the holders were not: the covered one at the version, the one short and the "
+	      "unheard at 0");
+	(void)snprintf(want, sizeof(want), "ok %llu 2 1 0 %s,0,0", (unsigned long long)version, a3);
+	CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "list setting-holders k 2") && replied(want),
+	      "the holders' page from 2 was not the third alone");
+	CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "list setting-holders nothing/here")
+	              && replied("ok 0 0 3 0 "),
+	      "a key with no setting in force was not version 0");
+	CHECK(said(&ns, FZN_ORIGIN_LOCAL, "list setting-holders k") && replied("denied"),
+	      "another user listed the holders");
+	CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "list setting-holders") && replied("malformed")
+	              && said(&ns, FZN_ORIGIN_SAME_USER, "list setting-holders k x")
+	              && replied("malformed"),
+	      "a holders listing with no key, or a FROM not a number, was answered");
+	/* A FOURTH SIBLING, the page still whole: SHOWN 4, MORE 0. */
+	{
+		size_t shown = 0;
+		int more = 1;
+		unsigned long long v = 0, f = 0;
+
+		n_siblings = 4u;
+		siblings[3].host = 0xa4, siblings[3].received = head, siblings[3].heard = 7000u;
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "list setting-holders k")
+		              && sscanf(reply, "ok %llu %llu %zu %d", &v, &f, &shown, &more) == 4
+		              && shown == 4u && more == 0,
+		      "four siblings did not fit one page");
+	}
+	/* SIXTEEN, more than one reply holds: the first page ends whole and
+	 * says MORE, and the next from FROM + SHOWN has the rest. */
+	{
+		size_t shown = 0, rest = 0, i;
+		int more = 0, more2 = 1;
+		unsigned long long v = 0, f = 0;
+		char line[64];
+
+		for (i = 4; i < 16u; i++)
+			siblings[i].host = (uint8_t)(0xb0u + i), siblings[i].received = head,
+			siblings[i].heard = 8000u;
+		n_siblings = 16u;
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "list setting-holders k")
+		              && sscanf(reply, "ok %llu %llu %zu %d", &v, &f, &shown, &more) == 4
+		              && more == 1 && shown > 0u && shown < 16u
+		              && strlen(reply) <= FZN_REPLY_MAX,
+		      "sixteen siblings did not page, or a page outgrew a reply");
+		(void)snprintf(line, sizeof(line), "list setting-holders k %zu", shown);
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, line)
+		              && sscanf(reply, "ok %llu %llu %zu %d", &v, &f, &rest, &more2) == 4
+		              && shown + rest == 16u && more2 == 0,
+		      "the second page did not hold the rest of the sixteen");
+	}
+	/* THE RECORD GONE from the store, and a later one held: a position at
+	 * least one below the lowest held covers it. */
+	n_siblings = 2u;
+	CHECK(fzn_record_store_cut(&nj.store, r, FZN_NODE_JOURNAL_STREAM, 1u, head + 1u)
+	                      == FZN_RECORD_STORE_OK
+	              && fzn_node_settings_carried(&ns, (const uint8_t *)"k", 1u, &version, setter,
+	                                           &seq, &floor)
+	              && seq == 0u && floor == 0u,
+	      "with the stream cut, the record was still found, or a floor named");
+	signing_as = 0x95;
+	CHECK(fzn_node_settings_write(&ns, FZN_SCOPE_ESTATE, estate, (const uint8_t *)"k2", 2u, 1,
+	                              (const uint8_t *)"v", 1u)
+	                      == FZN_NODE_SETTINGS_OK
+	              && fzn_node_settings_carried(&ns, (const uint8_t *)"k", 1u, &version, setter,
+	                                           &seq, &floor)
+	              && seq == 0u && floor == head + 1u,
+	      "with the setting's record gone and a later one held, the floor was not it");
+	(void)snprintf(want, sizeof(want), "ok %llu 0 2 0 %s,%llu,5000 %s,0,6000",
+	               (unsigned long long)version, a1, (unsigned long long)version, a2);
+	CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "list setting-holders k") && replied(want),
+	      "past the window, a position at the floor less one did not hold it, or one below "
+	      "did");
+	n_siblings = 0u;
+}
+
 static void test_settings_judged(void)
 {
 	static fzn_node_journal_t nj;
@@ -2113,6 +2296,7 @@ int main(void)
 	}
 	test_the_journal_applied();
 	test_settings_judged();
+	test_setting_holders();
 	test_holdings();
 	test_a_capability_held();
 	test_a_grant_is_its_grantors();

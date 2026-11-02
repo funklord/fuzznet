@@ -4477,6 +4477,56 @@ struct journal_talk {
 static struct journal_talk journal_talks[FZND_ROUND_TARGETS_MAX];
 static size_t n_journal_talks;
 
+/* WHAT EACH SIBLING LAST SAID IT HOLDS, sec 811: its whole digest, read by
+ * the push before it offered anything, and when. Kept for `list
+ * setting-holders`, which judges a setting held by a device's position on
+ * its setter's estate stream. In memory: after a start every device reads
+ * as never heard until its first talk. Grown to fit, sec 704. */
+static struct sibling_heard {
+	uint8_t key[FZN_PUBKEY_LEN];
+	uint64_t at_ms;
+	size_t n;
+	fzn_sync_position_t *positions;
+} *siblings_heard;
+static size_t n_siblings_heard, siblings_heard_cap;
+
+static void sibling_digest_keep(const uint8_t key[FZN_PUBKEY_LEN], const fzn_exchange_digest_t *d)
+{
+	struct sibling_heard *h = NULL;
+	fzn_sync_position_t *positions = NULL;
+	size_t i;
+
+	if (d->n != d->total)
+		return;
+	for (i = 0; i < n_siblings_heard; i++)
+		if (memcmp(siblings_heard[i].key, key, FZN_PUBKEY_LEN) == 0)
+			h = &siblings_heard[i];
+	if (!h) {
+		if (n_siblings_heard == siblings_heard_cap) {
+			size_t cap = siblings_heard_cap ? siblings_heard_cap * 2u : 8u;
+			struct sibling_heard *more = realloc(siblings_heard, cap * sizeof(*more));
+
+			if (!more)
+				return;
+			siblings_heard = more;
+			siblings_heard_cap = cap;
+		}
+		h = &siblings_heard[n_siblings_heard++];
+		memset(h, 0, sizeof(*h));
+		memcpy(h->key, key, FZN_PUBKEY_LEN);
+	}
+	if (d->n) {
+		positions = malloc(d->n * sizeof(*positions));
+		if (!positions)
+			return;
+		memcpy(positions, d->theirs, d->n * sizeof(*positions));
+	}
+	free(h->positions);
+	h->positions = positions;
+	h->n = d->n;
+	h->at_ms = wall_ms();
+}
+
 /* THE PUSH, once the pull is over, as the round in turn pushed after it. */
 static int journal_push_begin(struct journal_talk *jt, uint8_t *request, size_t cap,
                               size_t *request_len)
@@ -4539,8 +4589,15 @@ static int journal_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 	jt->push_err = fzn_exchange_push_step(&jt->push, reply, reply_len, request,
 	                                      cap < jt->push_cap ? cap : jt->push_cap, request_len,
 	                                      &done);
-	if (jt->push_err != FZN_EXCHANGE_OK || done)
+	if (jt->push_err != FZN_EXCHANGE_OK || done) {
+		/* THE PEER'S DIGEST, kept once whole, sec 811: the push sets its
+		 * tally's positions when the last page has come. */
+		if (jt->push.digest.n && jt->push.digest.n == jt->push.digest.total
+		    && jt->push.tally.positions == jt->push.digest.n)
+			sibling_digest_keep(jt->m.pt->is_root_at ? node_apply.root : jt->m.pt->node,
+			                    &jt->push.digest);
 		return 0;
+	}
 	meter_asked(&jt->m, *request_len);
 	return 1;
 }
@@ -5746,6 +5803,62 @@ static int sibling_fd(const uint8_t key[FZN_PUBKEY_LEN])
 		if (memcmp(sibling_sockets[i].key, key, FZN_PUBKEY_LEN) == 0)
 			return sibling_sockets[i].fd;
 	return -1;
+}
+
+/* THE USER'S OTHER DEVICES, sec 811: every sibling host this node lists,
+ * then any it heard a digest from that the list does not name (the root's
+ * host, reached as the root), each with its position on (`issuer`,
+ * `stream`) as its last digest said. */
+static const uint8_t *siblings_self;
+
+static int sibling_listed_at(void *ctx, size_t i, const uint8_t issuer[FZN_PUBKEY_LEN],
+                             uint32_t stream, uint8_t host[FZN_PUBKEY_LEN], uint64_t *received,
+                             uint64_t *heard_ms)
+{
+	static struct key_room room;
+	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
+	size_t n = 0, j, k, at = 0;
+	const struct sibling_heard *h = NULL;
+
+	(void)ctx;
+	if (!node_apply.store || siblings_list(&room, &hosts, &n, 0u) != FZN_NODE_SIBLINGS_OK)
+		n = 0;
+	for (j = 0; j < n; j++) {
+		if (siblings_self && memcmp(hosts[j], siblings_self, FZN_PUBKEY_LEN) == 0)
+			continue;
+		if (at++ == i) {
+			memcpy(host, hosts[j], FZN_PUBKEY_LEN);
+			break;
+		}
+	}
+	if (j == n) {
+		for (k = 0; k < n_siblings_heard; k++) {
+			for (j = 0; j < n && memcmp(hosts[j], siblings_heard[k].key, FZN_PUBKEY_LEN) != 0;
+			     j++)
+				;
+			if (j < n || (siblings_self
+			              && memcmp(siblings_heard[k].key, siblings_self, FZN_PUBKEY_LEN) == 0))
+				continue;
+			if (at++ == i) {
+				memcpy(host, siblings_heard[k].key, FZN_PUBKEY_LEN);
+				break;
+			}
+		}
+		if (k == n_siblings_heard)
+			return 0;
+	}
+	*received = *heard_ms = 0;
+	for (k = 0; k < n_siblings_heard && !h; k++)
+		if (memcmp(siblings_heard[k].key, host, FZN_PUBKEY_LEN) == 0)
+			h = &siblings_heard[k];
+	if (!h)
+		return 1;
+	*heard_ms = h->at_ms;
+	for (k = 0; k < h->n; k++)
+		if (h->positions[k].stream == stream
+		    && memcmp(h->positions[k].issuer, issuer, FZN_PUBKEY_LEN) == 0)
+			*received = h->positions[k].received;
+	return 1;
 }
 
 static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family,
@@ -16503,6 +16616,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				 * device's earlier write no longer beats a later one. */
 				node_settings.now = estate_clock;
 				node_settings.schema = &node_schema;
+				/* WHO HOLDS A SETTING, sec 811: siblings and their digests. */
+				node_settings.sibling_at = sibling_listed_at;
+				siblings_self = identity.pubkey;
 				node_apply.settings = &node_settings;
 				admin.holdings_remote = holdings_remote;
 				admin.holdings_ctx = &node_apply;

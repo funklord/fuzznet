@@ -1056,6 +1056,151 @@ static size_t list_settings(const fzn_node_settings_t *ns, const uint8_t *at, si
 	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k + l.used);
 }
 
+/* ---- where an estate setting stands among the user's devices, sec 811 -- */
+
+struct carried_find {
+	const uint8_t *estate, *key;
+	size_t key_len;
+	int found;
+	uint64_t version;
+	uint8_t setter[FZN_PUBKEY_LEN];
+};
+
+static void carried_one(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
+{
+	struct carried_find *f = (struct carried_find *)ctx;
+
+	(void)rank;
+	if (f->found || s->scope != FZN_SCOPE_ESTATE
+	    || memcmp(s->about, f->estate, FZN_SUBJECT_LEN) != 0 || s->key_len != f->key_len
+	    || memcmp(s->key, f->key, f->key_len) != 0)
+		return;
+	f->found = 1;
+	f->version = s->version;
+	memcpy(f->setter, s->setter, FZN_PUBKEY_LEN);
+}
+
+int fzn_node_settings_carried(const fzn_node_settings_t *ns, const uint8_t *key, size_t key_len,
+                              uint64_t *version, uint8_t setter[FZN_PUBKEY_LEN], uint64_t *seq,
+                              uint64_t *floor)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	struct carried_find f;
+	uint64_t q;
+
+	if (!ready(ns) || !ns->estate || !key || !version || !setter || !seq || !floor)
+		return 0;
+	*version = *seq = *floor = 0;
+	memset(&f, 0, sizeof(f));
+	f.estate = ns->estate;
+	f.key = key;
+	f.key_len = key_len;
+	if (fzn_node_settings_each(ns, carried_one, &f) != FZN_NODE_SETTINGS_OK || !f.found)
+		return 0;
+	*version = f.version;
+	memcpy(setter, f.setter, FZN_PUBKEY_LEN);
+	if (!ns->journal)
+		return 1;
+	/* THE RECORD THAT CARRIED IT, looked for back from the stream's head
+	 * while the store holds each one: a setting older than the journal's
+	 * window (sec 535) has left it, and the lowest one held is then what
+	 * a device's position is judged against. */
+	for (q = fzn_node_journal_received(ns->journal, f.setter, FZN_NODE_JOURNAL_STREAM); q; q--) {
+		fzn_record_t rec;
+		fzn_setting_t t;
+
+		if (fzn_record_store_get(&ns->journal->store, f.setter, FZN_NODE_JOURNAL_STREAM, q, buf,
+		                         sizeof(buf), &rec)
+		    != FZN_RECORD_STORE_OK)
+			break;
+		*floor = q;
+		if (fzn_record_kind(rec) != (uint32_t)FZN_OBJECT_SETTING
+		    || fzn_setting_open(fzn_record_body(rec), fzn_record_body_len(rec), ns->verify, &t)
+		               != FZN_SETTING_OK
+		    || t.scope != FZN_SCOPE_ESTATE || t.version != f.version
+		    || memcmp(t.about, f.estate, FZN_SUBJECT_LEN) != 0 || t.key_len != key_len
+		    || memcmp(t.key, key, key_len) != 0)
+			continue;
+		*seq = q;
+		*floor = 0;
+		break;
+	}
+	return 1;
+}
+
+/* `list setting-holders KEY [FROM]`: the version in force here, then each
+ * of the user's other devices with the version it is known to hold -- the
+ * one in force when its position on the setter's estate stream covers the
+ * record that carried it, else 0 -- and when this node last heard its
+ * position. A device never heard reads 0, so it shows as behind. */
+static size_t list_holders(const fzn_node_settings_t *ns, const uint8_t *at, size_t left,
+                           char *reply, size_t cap)
+{
+	static const char USAGE[] = "list setting-holders KEY [FROM]";
+	static char items[FZN_REPLY_MAX], detail[FZN_REPLY_MAX];
+	uint8_t setter[FZN_PUBKEY_LEN] = { 0 }, host[FZN_PUBKEY_LEN];
+	const uint8_t *key, *w;
+	size_t key_len, w_len, from = 0, shown = 0, used = 0, limit, i, j;
+	uint64_t version = 0, seq = 0, floor = 0;
+	int more = 0, k;
+
+	if (!word(&at, &left, &key, &key_len) || !fzn_setting_key_ok(key, key_len))
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	if (word(&at, &left, &w, &w_len)) {
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || from > ((size_t)1 << 30))
+				return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+			from = (from * 10u) + (size_t)(w[i] - '0');
+		}
+	}
+	if (left)
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	if (!ns->sibling_at)
+		return say(reply, cap, FZN_REPLY_UNSUPPORTED, "this node does not hear its siblings");
+	(void)fzn_node_settings_carried(ns, key, key_len, &version, setter, &seq, &floor);
+	/* ROOM FOR THE HEAD, `VERSION FROM SHOWN MORE`, beside the items. */
+	limit = fzn_reply_ok_room(cap) > 48u ? fzn_reply_ok_room(cap) - 48u : 0u;
+	if (limit > sizeof(items))
+		limit = sizeof(items);
+	for (i = from;; i++) {
+		char item[2u + 2u * FZN_PUBKEY_LEN + 48u];
+		uint64_t received = 0, heard = 0, held = 0;
+		size_t n = 0;
+
+		if (!ns->sibling_at(ns->siblings_ctx, i, setter, FZN_NODE_JOURNAL_STREAM, host,
+		                    &received, &heard))
+			break;
+		/* HELD: the record's own sequence where it is still held here, else
+		 * every sequence below the lowest held. */
+		if (version && heard
+		    && (seq ? received >= seq : floor && received + 1u >= floor))
+			held = version;
+		item[n++] = ' ';
+		for (j = 0; j < FZN_PUBKEY_LEN; j++) {
+			item[n++] = HEX[host[j] >> 4];
+			item[n++] = HEX[host[j] & 15u];
+		}
+		k = snprintf(item + n, sizeof(item) - n, ",%llu,%llu", (unsigned long long)held,
+		             (unsigned long long)heard);
+		if (k < 0)
+			return 0;
+		n += (size_t)k;
+		if (used + n > limit) {
+			more = 1;
+			break;
+		}
+		memcpy(items + used, item, n);
+		used += n;
+		shown++;
+	}
+	k = snprintf(detail, sizeof(detail), "%llu %zu %zu %d", (unsigned long long)version, from,
+	             shown, more);
+	if (k < 0 || (size_t)k + used > sizeof(detail))
+		return 0;
+	memcpy(detail + k, items, used);
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k + used);
+}
+
 size_t fzn_node_settings_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                char *reply, size_t reply_cap)
 {
@@ -1067,7 +1212,17 @@ size_t fzn_node_settings_local(void *ctx, fzn_origin_t origin, const fzn_request
 		return 0;
 	at = request->arg;
 	left = request->arg_len;
-	if (!word(&at, &left, &subject, &subject_len) || !is_word(subject, subject_len, "setting"))
+	if (!word(&at, &left, &subject, &subject_len))
+		return 0;
+	if (is_word(subject, subject_len, "setting-holders") && request->parsed == FZN_VERB_LIST) {
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED,
+			           "settings need this node's own user");
+		if (!ready(ns))
+			return say(reply, reply_cap, FZN_REPLY_UNSUPPORTED, "no store for settings");
+		return list_holders(ns, at, left, reply, reply_cap);
+	}
+	if (!is_word(subject, subject_len, "setting"))
 		return 0;
 	if (request->parsed != FZN_VERB_SET && request->parsed != FZN_VERB_REMOVE
 	    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)

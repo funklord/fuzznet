@@ -9923,6 +9923,20 @@ SABOTAGES = [
 		"a contact's notes request is answered as a member's, every shelf and not what is shared with it -- sec 810",
 	),
 	(
+		"settings-holder-covers-the-record",
+		"node/settings.c",
+		"\t\t    && (seq ? received >= seq : floor && received + 1u >= floor))",
+		"\t\t    && (seq ? received + 1u >= seq : floor && received + 1u >= floor))",
+		"a device one record short of a setting is listed as holding it, and a setting that never reached it reads as settled -- sec 811",
+	),
+	(
+		"settings-holder-below-the-floor",
+		"node/settings.c",
+		"\t\t    && (seq ? received >= seq : floor && received + 1u >= floor))",
+		"\t\t    && (seq ? received >= seq : floor && received >= floor))",
+		"past the journal's window, a device whose position covers the setting's record reads as behind for ever -- sec 811",
+	),
+	(
 		"setting-key-alphabet",
 		"state/setting.c",
 		"\t\tif (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_'\n\t\t      || c == '/' || c == '-'))",
