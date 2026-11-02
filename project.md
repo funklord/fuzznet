@@ -77694,3 +77694,46 @@ request` must show alice and A1's address; a client subscribed on B1
 must hear `event request` for A's root when B1 grants it. Against the
 build before the change the subscriber heard nothing within 5 s; after
 it the journey passes. `live_events.py` passes as before.
+
+## 826. A note shared with a contact reaches it, no card carried, 2026-11-02
+
+fuzzypickles' report (sec 824, their message of 19:59): b shared a
+folder with a, a contact made by card and request, and a's node never
+listed it.
+
+**Not a fault in a built path: half of it was never built.** Secs 616
+and 619 left "`grant share` and `add received` remain for shares": a
+share with a contact reached it only once its card was carried by hand
+-- `grant share NAME PREKEY` on the sharer, `add received` on the
+receiver -- as `live_shares.py` still does. The serving half already
+did the rest: since sec 630 a host serves what is shared with the user
+its asker speaks for, by root, to a contact's devices as to a group
+member's. Nothing asked.
+
+**Built, from the sibling that does it for groups** (sec 630's member
+hosts, sec 641's every host): the received pass now asks every standing
+contact's reachable hosts -- `contact_targets`, already paired under
+the share capability -- for what their user shares with this one, and
+pulls it into that contact's tree, beside the accepted shares. The pass
+holds `FZND_SHARE_TALKS_MAX` (32) conversations; past that the contact
+hosts are taken in turn, round by round. A contact's first round has no
+targets yet (they are built in the contacts step), so its shares come
+from the round after.
+
+`shares_start` and `shares_settle` now take a list of references (a
+target, the tree it pulls into, where it is) rather than one table, so
+the accepted shares, the contacts' hosts and the group members' hosts
+share one pass's machinery. The pass's log keeps its first count as the
+accepted shares, which `live_shares.py` reads, and adds `N contact
+host(s) asked`.
+
+**Verified.** `live_chat.py` gains phase a2: once A and B are contacts by
+card and request, B1 adds a note and `add share`s it with alice, and
+both A1 and A2 must list it under `list shared bob top`. Against the
+build before the change A1 answered `ok 0 0`; after it both list it,
+and the journey passes through phase e.
+
+Still open from the same message: a group's name reaching a member, and
+a notebook shared with a group listed under it (groups await the
+holder's word on the remaining bars); and `get note ID` carrying the
+reachable and contested flags that `list note`'s row does.

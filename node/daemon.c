@@ -6547,8 +6547,17 @@ struct share_talk {
 _Static_assert(FZND_PULL_REPLY_MAX >= FZN_NOTES_SYNC_REPLY_MAX,
                "a notes answer fits the round's answers");
 static struct share_talk share_talks[FZND_SHARE_TALKS_MAX];
-static struct share_target *shares_now;
-static size_t n_shares_now, shares_suspended;
+/* WHAT A SHARES PASS ASKS: a target, whose tree it pulls into, and where
+ * it is said to be. An accepted share's, a group member's host's, or a
+ * contact's host's (sec 826). */
+struct share_ref {
+	struct pull_target *pt;
+	const uint8_t *sharer;
+	const char *host;
+};
+static struct share_ref share_refs[FZND_SHARE_TALKS_MAX];
+static const struct share_ref *shares_now;
+static size_t n_shares_now, shares_suspended, shares_accepted;
 static int shares_contacts, shares_begun; /* a pass to settle, begun since the last */
 
 /* A SHARE'S PULL, then AND THEIR WRAP KEYS, sec 520: asked, never given. */
@@ -6584,7 +6593,7 @@ static int share_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, ui
  * of them, an accepted share's (`contacts`, its sharer a contact that must
  * stand) or a group member's host (sec 630, its membership checked when it
  * was loaded). sec 437. Said by `shares_settle`. */
-static void shares_start(struct share_target *targets, size_t n_targets, int contacts,
+static void shares_start(const struct share_ref *targets, size_t n_targets, int contacts,
                          uint64_t now)
 {
 	size_t i, len;
@@ -6625,7 +6634,7 @@ static void shares_start(struct share_target *targets, size_t n_targets, int con
 		                                                node_notes.author.sign, st->request,
 		                                                sizeof(st->request), &len, &done);
 		if (st->pull_err == FZN_NOTES_SYNC_OK)
-			(void)talk_start_over(&st->talk, &st->m, &targets[i].pt, now, share_talk_step,
+			(void)talk_start_over(&st->talk, &st->m, targets[i].pt, now, share_talk_step,
 			                      round_talk_over, 0, st, st->request, sizeof(st->request),
 			                      len);
 	}
@@ -6642,7 +6651,7 @@ static void shares_settle(void)
 	shares_begun = 0;
 	for (i = 0; i < n_shares_now; i++) {
 		struct share_talk *st = &share_talks[i];
-		struct share_target *target = &shares_now[i];
+		const struct share_ref *target = &shares_now[i];
 		const fzn_notes_sync_tally_t *tally = &st->pull.tally;
 
 		if (!st->live)
@@ -6667,8 +6676,8 @@ static void shares_settle(void)
 		         && st->wraps_err == FZN_NOTES_SYNC_NO_ANSWER)
 		    && fzn_notes_view_load(&st->tree, node_notes.author.view) == FZN_NOTES_OK) {
 			const fzn_notes_view_t *v = node_notes.author.view;
-			struct peer_asking asking = { &target->pt.caller, wall_clock(), target->host,
-			                               &target->pt };
+			struct peer_asking asking = { &target->pt->caller, wall_clock(), target->host,
+			                               target->pt };
 			size_t k, got;
 
 			for (k = 0; k < v->count; k++) {
@@ -6687,17 +6696,15 @@ static void shares_settle(void)
 	/* EVERY PASS SAYS SO, at debug: a share passed over reads the same as
 	 * one with nothing new, and the live check waits on this line. */
 	if (shares_contacts)
-		say(FZN_ENTRY_DEBUG, "notes/received", "received pass: %zu share(s), %zu of removed "
-		                                       "contacts passed over", n_shares_now, shares_suspended);
+		say(FZN_ENTRY_DEBUG, "notes/received",
+		    "received pass: %zu share(s), %zu of removed contacts passed over, %zu contact "
+		    "host(s) asked",
+		    shares_accepted, shares_suspended, n_shares_now - shares_accepted);
 	else
 		say(FZN_ENTRY_DEBUG, "notes/received", "group share pass: %zu member host(s) asked",
 		    n_shares_now);
 }
 
-static void pull_received(uint64_t now)
-{
-	shares_start(shares_in, nshares_in, 1, now);
-}
 
 /* ---- a contact's devices, sec 614 ------------------------------------------
  *
@@ -6921,6 +6928,42 @@ static size_t ncontact_targets;
 /* How many contact hosts every table below has room for. */
 static size_t ct_cap;
 static int contact_room(size_t want);
+
+/* EVERY ACCEPTED SHARE, and EVERY CONTACT'S HOSTS ASKED for what their user
+ * shares with this one, sec 826, as a group member's hosts are (sec 630):
+ * a share to a contact needed its card carried by hand (`grant share`,
+ * `add received`), and one simply added (`add share NOTE NAME`) never
+ * reached the contact. A contact's host serves a share by the root its
+ * asker speaks for (sec 630), so its pairing is enough. Past the pass's
+ * talks, the contact hosts are taken in turn, round by round. */
+static void pull_received(uint64_t now)
+{
+	static size_t contact_from;
+	size_t n = 0, i, take;
+
+	for (i = 0; i < nshares_in && n < FZND_SHARE_TALKS_MAX; i++) {
+		share_refs[n].pt = &shares_in[i].pt;
+		share_refs[n].sharer = shares_in[i].sharer;
+		share_refs[n++].host = shares_in[i].host;
+	}
+	shares_accepted = n;
+	take = ncontact_targets < FZND_SHARE_TALKS_MAX - n ? ncontact_targets
+	                                                    : FZND_SHARE_TALKS_MAX - n;
+	if (contact_from >= ncontact_targets)
+		contact_from = 0;
+	for (i = 0; i < take; i++) {
+		struct contact_target *ct = &contact_targets[(contact_from + i) % ncontact_targets];
+
+		if (ct->pt.fd < 0)
+			continue;
+		share_refs[n].pt = &ct->pt;
+		share_refs[n].sharer = ct->contact;
+		share_refs[n++].host = ct->host;
+	}
+	if (ncontact_targets)
+		contact_from = (contact_from + take) % ncontact_targets;
+	shares_start(share_refs, n, 1, now);
+}
 /* The contacts a groups pass has asked, one each, as many as the hosts. */
 static uint8_t (*lines_done)[FZN_PUBKEY_LEN], (*groups_done)[FZN_PUBKEY_LEN];
 
@@ -11086,8 +11129,16 @@ static void member_targets_build(uint64_t now)
 
 static void group_shares_round(uint64_t now)
 {
+	size_t i, n = 0;
+
 	member_targets_build(now);
-	shares_start(group_shares_in, ngroup_shares_in, 0, now);
+	for (i = 0; i < ngroup_shares_in && n < FZND_SHARE_TALKS_MAX; i++) {
+		share_refs[n].pt = &group_shares_in[i].pt;
+		share_refs[n].sharer = group_shares_in[i].sharer;
+		share_refs[n++].host = group_shares_in[i].host;
+	}
+	shares_accepted = 0;
+	shares_start(share_refs, n, 0, now);
 }
 
 /* THE LINES ROUND, sec 629, after the acts and the tending: this host's own

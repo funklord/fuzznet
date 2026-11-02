@@ -8,6 +8,8 @@ root, with A2 joined to it; B1, a root, with B2 joined to it.
     a  A2 and B2 join their users' estates; A1 adds B by B1's card and B1
        grants the request, so every host of each holds the other as a
        contact
+    a2 B1 shares a note with A, and both of A's hosts list it, no card
+       carried by hand
     b  lines both ways, from every host: A1 and A2 each write to B, B1 and
        B2 each to A. Every host of each user holds all four, and each
        writer's lines end delivered or settled
@@ -265,6 +267,18 @@ def main(argv):
 				       "without the other user as a contact")
 			print("livecheck: a: A2 and B2 joined their users' estates, and A and B are "
 			      "contacts on all four hosts")
+
+			# a2: A NOTE SHARED WITH A CONTACT REACHES IT, sec 826, with no card
+			# carried by hand: both of A's hosts ask B's what B shares with A.
+			shared = said("b1", "add note top shared-by-bob")
+			if not shared.startswith("ok "):
+				raise failed("a2: B1's add note answered %r" % shared)
+			shared = shared.split()[1]
+			expect(socks["b1"], "b1", "add share %s %s" % (shared, NAME["a"]), "ok")
+			for who in ("a1", "a2"):
+				polled(who, "list shared %s top" % NAME["b"], lambda g: shared in g,
+				       "without the note B shared with A")
+			print("livecheck: a2: a note B shared with A reached both of A's hosts")
 
 			# b: lines both ways, from every host.
 			for who in WHO:
