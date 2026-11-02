@@ -461,7 +461,7 @@ static size_t get_record(const fzn_node_records_t *nr, const uint8_t *at, size_t
 	static uint8_t item[FZN_BUCKETS_ITEM_MAX], best[FZN_BUCKETS_ITEM_MAX];
 	fzn_bucket_t *list = NULL;
 	size_t room = 0, n_buckets = 0, i, j, k, key_len, w_len, best_len = 0, n = 0, wrote = 0;
-	uint8_t host[FZN_PUBKEY_LEN], best_host[FZN_PUBKEY_LEN];
+	uint8_t host[FZN_PUBKEY_LEN], best_host[FZN_PUBKEY_LEN] = { 0 };
 	const uint8_t *key, *w;
 	uint64_t best_at = 0;
 	int one = 0, found = 0, c;

@@ -77525,3 +77525,59 @@ directory of its own, `BUILD_DIR-arr-NAME`, as `sancheck`'s does.
 gate fails at `FZN_LOG_PACK=0` and names it.
 
 **Answered** fuzzypickles in its inbox.
+
+## 823. `make analyze` over today's code, and a target that never finished, 2026-11-02
+
+Bug-hunting step one over this session's new code: `make analyze`, gcc's
+`-fanalyzer` and then cppcheck.
+
+**The target as written never finished.** At `-O0`, where it has run
+since 2026-10-27 so the analyser sees more, gcc spent more than 65
+minutes on one file, `session/test/session_fuzz.c`, a 746-line driver of
+random inputs. The run was stopped there, with no orphan left, and
+cppcheck was never reached. A fuzz harness's loops over random cases
+are what the analyser's path search explodes on. The code they drive is
+the library, which is analysed anyway.
+
+**Changed:** the analysis builds the library, fuzznetd and every test
+binary except the `*_fuzz` harnesses. They are built, not run, since
+analysing needs only the compile; before, it ran the whole suite under
+`-fanalyzer`.
+
+**What it found, over the files written today** (records, responsible,
+setting holders, the sticker and attachment parsers, and every new
+harness), each also analysed alone:
+- **`-fanalyzer`: nothing**, in each file and in `node/daemon.c`.
+- **cppcheck: one false positive.** It flagged `best_host` in
+  `get_record` as read uninitialised. It is read only once `found` is
+  set, the short circuit cppcheck does not follow. It is initialised now,
+  so the target's next real finding is not buried in a known one.
+
+**The whole target, re-run with the harnesses left out**, finished,
+cleaned its directory and reached cppcheck: **40 `-Wanalyzer` warnings
+and 13 cppcheck findings, every one read and none a defect.** By where
+they stood:
+- **Library, bounded before the copy the analyser flags:**
+  - `node/streams.c` 363-365: levels at most 4 and each rendition at
+    most 64, both checked first;
+  - `node/roots.c` 1004 and `node/revoke.c` 864: `hop_count` capped by
+    the persist head's own size check, and below `FZN_CHAIN_MAX_HOPS`.
+- **Library, written before read:**
+  - `node/reconcile.c` 1095, each page entry filled in the loop just
+    above;
+  - `node/revoke.c` 1292's `views`, passed only when `n` is non-zero;
+  - `node/stickers.c` 334's `bytes`, assigned in the condition before
+    its `free`.
+- **Library, a redundant check on what cannot be NULL there:**
+  `node/contact_devices.c` 1853, `log/log.c`'s logging macro, and
+  `node/group_log.c` 136's `key`.
+- **`log/capture_run.c`'s five pipe descriptors:** closed in the parent
+  on every path. The child path ends in `_exit`, which the analyser does
+  not follow.
+- **`node/reconcile.c` 1388's `more`:** the grown buffer kept as the
+  list's own, not a leak.
+- **`messages/messages.c` 396:** a local's address in a caller's struct.
+  It was already cleared before return, with a comment naming cppcheck.
+- **Test files:** each guarded in the same condition, or a fixture's
+  leak at exit. Among them is `contact_devices_test.c` 1666, an index
+  range-checked before the array is read.

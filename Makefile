@@ -5532,10 +5532,21 @@ ctcheck:
 # of 2026-08-20 was taken by an analyser that could not see that much, and
 # says less than it seems to. This is no build anybody ships, so -Os, the
 # rule for those, does not bind it.
+#
+# THE FUZZ HARNESSES ARE LEFT OUT, measured 2026-11-02 (sec 823): at -O0 the
+# analyser spent more than 65 minutes on session/test/session_fuzz.c alone,
+# a 746-line driver of random inputs, and the target never reached cppcheck.
+# A harness's loops over random cases are what its path search explodes on,
+# and the code they drive is the library, analysed here anyway. So this
+# builds the library, fuzznetd and every other test binary -- built, not
+# run, since analysing needs only the compile.
+ANALYZE_BINS = $(patsubst $(BUILD_DIR)/%,$(BUILD_DIR)-analyze/%, \
+                 $(filter-out %_fuzz,$(TEST_BINS)) $(FUZZNETD))
+
 analyze:
 	@if $(CC) -fanalyzer -x c /dev/null -o /dev/null -c 2>/dev/null; then \
-		echo "analyze: gcc -fanalyzer over the library and the tests"; \
-		$(MAKE) --no-print-directory test BUILD_DIR=$(BUILD_DIR)-analyze \
+		echo "analyze: gcc -fanalyzer over the library and the tests, fuzz harnesses left out"; \
+		$(MAKE) --no-print-directory $(ANALYZE_BINS) BUILD_DIR=$(BUILD_DIR)-analyze \
 		        CFLAGS="-O0 -g -fanalyzer" 2>&1 | grep -E "Wanalyzer" || true; \
 	else \
 		echo "analyze: this compiler has no -fanalyzer, so it was SKIPPED"; \
