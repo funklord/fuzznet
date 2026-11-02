@@ -57,6 +57,22 @@
  * is why the wildcard can never name a real project's records. */
 #define FZN_PRODUCT_MAX 0xfffeu
 
+/* ASSIGNED, sec 813, the holder's of 2026-11-02: every device of a user
+ * runs with the same service and product, since the node's remote hop
+ * checks the capability they compose, so fuzznet assigns them here and a
+ * consumer reads these rather than restating them. One is assigned when a
+ * consumer needs one, not before (sec 127).
+ *
+ *   FZN_SERVICE_NODE          the node's remote hop: what fuzznetd serves,
+ *                             under any product.
+ *   FZN_PRODUCT_TEST          this tree's tests and scenarios, and its
+ *                             consumers': never a build that ships, so a
+ *                             test node and a person's never share one.
+ *   FZN_PRODUCT_FUZZYPICKLES  fuzzypickles. */
+#define FZN_SERVICE_NODE 1u
+#define FZN_PRODUCT_TEST 1u
+#define FZN_PRODUCT_FUZZYPICKLES 2u
+
 /* The longest consumer-supplied name. Bounded so the derivation's input
  * buffer is a fixed size and the function allocates nothing, which is this
  * library's rule rather than this function's. */

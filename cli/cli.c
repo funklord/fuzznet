@@ -2,6 +2,8 @@
 
 #include "../prekey/prekey.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Decimal only, and parsed here rather than with `strtoul`.
@@ -282,4 +284,20 @@ const char *fzn_cli_err_str(fzn_cli_err_t err)
 		return "given more than once";
 	}
 	return "unknown";
+}
+
+fzn_cli_err_t fzn_cli_default_dir(char *out, size_t cap)
+{
+	const char *data = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
+	int n;
+
+	if (!out || cap == 0u)
+		return FZN_CLI_ERR_MALFORMED;
+	if (data && data[0] == '/')
+		n = snprintf(out, cap, "%s/%s", data, FZN_CLI_DEFAULT_DIR_NAME);
+	else if (home && home[0] == '/')
+		n = snprintf(out, cap, "%s/.local/share/%s", home, FZN_CLI_DEFAULT_DIR_NAME);
+	else
+		return FZN_CLI_ERR_VALUE;
+	return n < 0 || (size_t)n >= cap ? FZN_CLI_ERR_VALUE : FZN_CLI_OK;
 }

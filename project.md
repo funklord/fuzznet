@@ -77001,6 +77001,60 @@ Their desktop now runs fuzznetd, and every device of a user must run
 with the same `--fuzznet-service` and `--fuzznet-product`. Nothing is
 assigned yet (after sec 127). They relay that the holder agreed fuzznet
 should assign the pair, and ask that it be confirmed with the holder
-first. **Asked of the holder**, not assigned. The same message asks
-whether fuzznetd should have a default `--fuzznet-dir`; that went to the
-holder with it.
+first. **Asked of the holder**, and answered the same day in sec 813. The
+same message asks whether fuzznetd should have a default
+`--fuzznet-dir`; that went to the holder with it.
+
+## 813. fuzzypickles' numbers, and a default store, 2026-11-02
+
+**The holder, 2026-11-02, asked directly:** fuzznet assigns fuzzypickles'
+service and product pair, and fuzznetd gets a default store at
+`$XDG_DATA_HOME/fuzznet`.
+
+**And why fuzzypickles is a separate project at all**, in the holder's
+words the same day: "fuzzypickles is separate because fuzznet is the
+toolbox that others will use. So far fuzzypickles uses all the fn
+features only, but at some point, the aims of the projects will diverge
+and fuzzypickles will need to extend on fn." So the move into fuzznet
+(sec 608) is not a merge. What any consumer would want belongs here; what
+is fuzzypickles' own comes in through the extension (sec 666, 672) once
+the aims part. That is the case the extension was built for.
+
+**The numbers** are in `chain/service.h`, for a consumer to read rather
+than restate:
+- **`FZN_SERVICE_NODE` 1**: the node's remote hop, which fuzznetd serves
+  under any product.
+- **`FZN_PRODUCT_TEST` 1**: tests and scenarios, this tree's and its
+  consumers'. It is never shipped, so a test node and a person's never
+  share a product. The scenarios' 1 and 1 already mean this.
+- **`FZN_PRODUCT_FUZZYPICKLES` 2.**
+
+A number is assigned when a consumer needs one, as sec 127 said. netcfgd
+has none until it asks. fuzznetd still requires both options: a default
+would choose a product for a program that is not this one.
+
+**The default store:** a run that keeps a store, serving or a store
+command, and is given neither `--fuzznet-dir` nor `--identity` keeps it
+in `$XDG_DATA_HOME/fuzznet`. When that variable is unset or relative, it
+is `$HOME/.local/share/fuzznet` (`fzn_cli_default_dir`).
+- **Made when absent**, missing parents 0755 and the store 0700, since
+  it holds the node's keys.
+- **Refused if** it is a link, another user's, or writable by others.
+- **A directory named is still never made.** A mistyped path is refused,
+  not a second store (`live_face` phase 0, unchanged).
+- **What keeps no store makes none:** a run with `--identity` stays the
+  storeless node it was, and `--ask`, the log tools and a replay do not
+  create the directory.
+- Measured before the change, so nothing that works breaks: with neither
+  option, `--udp-port` was refused and a bare `fuzznetd` printed usage.
+  Every live helper names its store.
+
+**Measured:**
+- **`cli_test`, 94 checks:** XDG_DATA_HOME absolute, relative and unset,
+  neither variable set, too long.
+- **`live_face` phase 0:** `--new-root` with `HOME` in the scratch and
+  no `--fuzznet-dir` keeps its store at `.local/share/fuzznet`, mode
+  0700. The same store made group-writable is refused, "others may write
+  to it". The whole script passed.
+
+**Told** fuzzypickles in its inbox.

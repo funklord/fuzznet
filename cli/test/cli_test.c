@@ -12,11 +12,15 @@
  * merely STARTS with a known option's name must not be claimed.
  */
 
+/* POSIX, for setenv: the default store reads the environment. */
+#define _POSIX_C_SOURCE 200809L
+
 #include "../cli.h"
 #include "../../prekey/prekey.h"
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failures;
@@ -381,6 +385,34 @@ static void test_the_node_options_refuse(void)
 	      "a flag with a value, a longer name, or a valued option without '=' was claimed");
 }
 
+/* THE DEFAULT STORE, sec 813: XDG_DATA_HOME when absolute, else HOME's
+ * .local/share, and neither when neither is absolute. */
+static void test_the_default_store(void)
+{
+	char out[256], tiny[8];
+
+	setenv("XDG_DATA_HOME", "/data/home", 1);
+	setenv("HOME", "/home/someone", 1);
+	CHECK(fzn_cli_default_dir(out, sizeof(out)) == FZN_CLI_OK
+	              && strcmp(out, "/data/home/fuzznet") == 0,
+	      "with XDG_DATA_HOME set, the store is %s", out);
+	setenv("XDG_DATA_HOME", "relative", 1);
+	CHECK(fzn_cli_default_dir(out, sizeof(out)) == FZN_CLI_OK
+	              && strcmp(out, "/home/someone/.local/share/fuzznet") == 0,
+	      "with XDG_DATA_HOME relative, the store is %s, not HOME's", out);
+	unsetenv("XDG_DATA_HOME");
+	CHECK(fzn_cli_default_dir(out, sizeof(out)) == FZN_CLI_OK
+	              && strcmp(out, "/home/someone/.local/share/fuzznet") == 0,
+	      "with XDG_DATA_HOME unset, the store is %s, not HOME's", out);
+	unsetenv("HOME");
+	CHECK(fzn_cli_default_dir(out, sizeof(out)) == FZN_CLI_ERR_VALUE,
+	      "with neither set, a default store was named");
+	setenv("HOME", "/home/someone", 1);
+	CHECK(fzn_cli_default_dir(tiny, sizeof(tiny)) == FZN_CLI_ERR_VALUE
+	              && fzn_cli_default_dir(NULL, 1u) == FZN_CLI_ERR_MALFORMED,
+	      "a path that does not fit, or no buffer, was not refused");
+}
+
 int main(void)
 {
 	test_every_option_is_read();
@@ -396,6 +428,7 @@ int main(void)
 	test_the_usage_names_every_option();
 	test_the_caller_bugs_are_refused();
 	test_the_errors_render();
+	test_the_default_store();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("cli_test: %d checks, %d failure(s)\n", checks, failures);

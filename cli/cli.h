@@ -142,4 +142,15 @@ fzn_cli_err_t fzn_cli_arg(fzn_cli_t *cli, const char *arg, int *claimed);
  */
 const char *fzn_cli_usage(void);
 
+/*
+ * THE DEFAULT STORE, sec 813, the holder's of 2026-11-02: where a daemon
+ * keeps its store when it is given no `--fuzznet-dir` --
+ * `$XDG_DATA_HOME/fuzznet`, or `$HOME/.local/share/fuzznet` when that
+ * variable is unset or not an absolute path. The path alone, into `out`,
+ * `cap` bytes; making it is the daemon's. OK; VALUE when neither variable
+ * gives an absolute path or the path does not fit; MALFORMED for a null.
+ */
+#define FZN_CLI_DEFAULT_DIR_NAME "fuzznet"
+fzn_cli_err_t fzn_cli_default_dir(char *out, size_t cap);
+
 #endif

@@ -1222,6 +1222,43 @@ static void print_hex(FILE *f, const uint8_t *bytes, size_t len)
 		fprintf(f, "%02x", bytes[i]);
 }
 
+/* THE DEFAULT STORE MADE, sec 813: its path into `out`, each missing parent
+ * made 0755 as a desktop's would be and the store itself 0700, since it
+ * holds this node's keys. NULL when it is kept; else why not -- and a
+ * store that is a link, another user's, or one others may write to is
+ * refused, not used. */
+static const char *default_store_make(char *out, size_t cap)
+{
+	struct stat st;
+	size_t i, len;
+
+	out[0] = '\0';
+	if (fzn_cli_default_dir(out, cap) != FZN_CLI_OK) {
+		out[0] = '\0';
+		return "neither names an absolute path, or it is too long";
+	}
+	len = strlen(out);
+	for (i = 1; i < len; i++) {
+		if (out[i] != '/')
+			continue;
+		out[i] = '\0';
+		if (mkdir(out, 0755) != 0 && errno != EEXIST) {
+			out[i] = '/';
+			return "a directory above it could not be made";
+		}
+		out[i] = '/';
+	}
+	if (mkdir(out, 0700) != 0 && errno != EEXIST)
+		return "it could not be made";
+	if (lstat(out, &st) != 0 || !S_ISDIR(st.st_mode))
+		return "it is not a directory";
+	if (st.st_uid != geteuid())
+		return "it is not this user's own";
+	if (st.st_mode & 022)
+		return "others may write to it";
+	return NULL;
+}
+
 static uint64_t wall_clock(void)
 {
 	time_t t = time(NULL);
@@ -15448,6 +15485,27 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	accept_text = cli.accept;
 	/* A NODE THAT SERVES ONLY THE REMOTE HOP needs no local socket, and the
 	 * loop has always taken a listen fd of -1 (sec 381). */
+	/* THE DEFAULT STORE, sec 813, the holder's of 2026-11-02: a run that
+	 * keeps a store -- serving, or a store command -- and is told neither
+	 * `--fuzznet-dir` nor `--identity` keeps it in
+	 * `$XDG_DATA_HOME/fuzznet` (`fzn_cli_default_dir`), made when absent.
+	 * A directory named is still only read, never made: a mistyped path
+	 * is refused rather than becoming a second store. A run with
+	 * `--identity` is the storeless node it always was, and the tools
+	 * that keep no store -- `--ask`, the log's, a replay -- make none. */
+	if (!cli.dir && !identity_hex && !ask_line && !gather_program && !gather_ring && !check_log
+	    && !replaying) {
+		static char default_dir[4096];
+		const char *why = default_store_make(default_dir, sizeof(default_dir));
+
+		if (why) {
+			fprintf(stderr, "fuzznetd: no --fuzznet-dir given, and the default store %s "
+			                "cannot be kept: %s\n",
+			        default_dir[0] ? default_dir : "($XDG_DATA_HOME and $HOME unset)", why);
+			return 1;
+		}
+		cli.dir = default_dir;
+	}
 	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
 	    && !gather_program && !gather_ring && !check_log
 	    && !set_admin && !replaying && udp_port < 0 && !cli.dir) {

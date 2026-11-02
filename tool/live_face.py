@@ -4,6 +4,9 @@ stage 1.
 
 One store, two fuzznetd processes on it, each with a socket of its own.
 
+    0  a store named and absent is refused; with none named, a store
+       command keeps one at the default, $XDG_DATA_HOME/fuzznet (sec 813)
+
     a  A, started first, takes the claim and is the face: it writes where it
        serves into the store's `face`
     b  B, started second, cannot take it and follows: `status` asked on B's
@@ -118,6 +121,28 @@ def main(argv):
 			                   capture_output=True, timeout=20)
 			if r.returncode == 0 or os.path.exists(absent):
 				raise failed("0: a store that is not there was started, or made")
+			# THE DEFAULT STORE, sec 813: told no --fuzznet-dir, a store
+			# command keeps its store in $XDG_DATA_HOME/fuzznet, here HOME's
+			# .local/share, made 0700; one others may write to is refused.
+			home = os.path.join(scratch, "home")
+			os.mkdir(home)
+			env = dict(os.environ, HOME=home)
+			env.pop("XDG_DATA_HOME", None)
+			default = os.path.join(home, ".local", "share", "fuzznet")
+			r = subprocess.run([fuzznetd, "--new-root"], capture_output=True, timeout=20,
+			                   env=env)
+			if r.returncode != 0 or not os.path.isdir(default) \
+			   or os.stat(default).st_mode & 0o777 != 0o700 or not os.listdir(default):
+				raise failed("0: with no --fuzznet-dir, --new-root kept no store at %s "
+				             "(%d): %r" % (default, r.returncode, r.stderr[-300:]))
+			os.chmod(default, 0o770)
+			r = subprocess.run([fuzznetd, "--new-root"], capture_output=True, timeout=20,
+			                   env=env)
+			if r.returncode == 0 or b"others may write" not in r.stderr:
+				raise failed("0: a default store others may write to was used: %r"
+				             % r.stderr[-300:])
+			print("livecheck: 0: a missing store named is refused; the default one is made "
+			      "0700 and refused once others may write to it")
 			a = start("a")
 			if not ask(socks["a"], "status").startswith("ok "):
 				raise failed("a: A's status did not answer ok")
