@@ -57,7 +57,8 @@ fzn_log_view::fzn_log_view(QWidget *parent)
 	 * nothing else: box-drawing characters down one column, no top run and
 	 * no right side. A border that draws one of its four sides is worse
 	 * than no border, and it costs a cell of width and a row top and bottom
-	 * on a 24-row terminal to do it.
+	 * on a 24-row terminal to do it. Gone on qtty's side since: measured
+	 * there 2026-11-02 (its 8.645), a default frame draws all four sides.
 	 *
 	 * IT COST DECORATION AND NOT CONTENT, WHICH THIS COMMENT FIRST GOT
 	 * WRONG. The first version said the frame put a blank row between every

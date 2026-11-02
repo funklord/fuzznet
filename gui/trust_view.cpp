@@ -87,9 +87,12 @@ void fzn_trust_view::show_anchor(const fzn_trust_t *trust)
  *
  * THE FLOOR IS 41 COLUMNS, MEASURED AND NOT ASSUMED. This comment first said
  * 40, reasoning that 39 characters fit 40 cells; the same probe that found
- * the original defect swept 28 to 48 columns and found every width up to 40
- * still losing digits, because the layout's own margin costs two cells. The
- * arithmetic was right about the string and wrong about the widget.
+ * the original defect swept 28 to 48 columns and read every width up to 40
+ * as losing a digit. The reason first given, a layout margin of two cells,
+ * was wrong: qtty measured 28 to 84 columns (its 8.645) and the cells carry
+ * every character at each. Character 40 of the fingerprint is a space, and
+ * a probe that trims trailing blanks reads 39 of 40. The floor is kept,
+ * not measured again since.
  *
  * Below 41 a line is clipped -- nothing here renders 39 characters in 30
  * columns -- and that limit is stated rather than papered over. qtty's own

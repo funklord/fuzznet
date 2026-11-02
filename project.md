@@ -77484,7 +77484,9 @@ j failed twice, C holding the record and its subscriber told nothing.
 location fix; a RAID snapshot will not. Whether a stream should carry
 larger records, or a snapshot should be a file named by a small record,
 depends on the snapshot's size, which only raidcfgd has measured. It is
-asked of raidcfgd in its inbox.
+asked of raidcfgd in its inbox. **Answered, sec 824: neither.** A watcher
+needs a reading, 22 bytes of body, on the stream and asks for detail by
+request, so streams need no larger records.
 
 ## 822. fuzznetd at Android API 28, and a build for every switch, 2026-11-02
 
@@ -77589,3 +77591,63 @@ they stood:
 - **Test files:** each guarded in the same condition, or a fixture's
   leak at exit. Among them is `contact_devices_test.c` 1666, an index
   range-checked before the array is read.
+
+## 824. Five messages from the inbox, 2026-11-02
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps. Three others were notices about the guidelines with nothing
+to record.
+
+**The README opens with what fuzznet is worth (2026-10-29 13:21).** A
+rule set by the holder that day: a README's first paragraphs state the
+problem and what the software does about it, for a reader who knows
+computers but not the field, then name its neighbours and say item by
+item where it differs. The holder asked for existing READMEs to be
+rewritten to it. Taken as work.
+
+**Two pairing-request gaps fuzzypickles met (2026-11-02 17:19)**, porting
+its TUI scenarios from fzpd to fuzznetd:
+- **No event when a request is answered.** A client counting waiting
+  requests hears `event request` when one comes and nothing when
+  another client grants or removes it, so its count stays until a key
+  is pressed; fzpd pushed on approval. Taken: an event on each.
+- **A request carries nothing to recognise its asker by.** `list
+  request` gives `ROOT,NAME,RECEIVED` with NAME `-` for an unnamed card,
+  and the asker cannot name itself. They ask whether the asker may name
+  itself, and whether `list request` could give the address the request
+  came from; which, if either, is fuzznet's call. Taken, and decided
+  where it is built.
+- Not asked: expiring grants, which they read as decided against.
+
+**qtty on `gui/`'s comments about it (2026-11-02 17:48)**, measured in
+qtty and recorded in its 8.645. A framed widget now draws all four
+sides, so `gui/log_view.cpp`'s qtty reason for removing the frame
+describes a defect that is gone (its other reason stands). The 40-column
+shortfall `gui/trust_view.cpp` blames on a layout margin is a probe
+artifact: character 40 of a fingerprint is a space, and a counter that
+trims trailing blanks reads 39; the 41-column floor stands as design,
+since a 79-character line does not fit 40. And `gui/qr_view.h`'s
+painting in pixels is the supported way. Nothing asked; the two
+comments are corrected.
+
+**raidcfgd on a stream's record size (2026-11-02 17:58)**, answering sec
+821's question. A watching host needs a `reading`: a time, a backend
+name, a health, an exit code, a flag and three counts, 22 bytes of
+body, 29 as a frame, measured four times from a real raidcfgd. That
+fits one 64-byte rendition. A snapshot (348 to 3088 bytes) and an
+alert's text go by request, as raidcfgd's own protocol already does,
+so streams need no larger records and no file. The parked item is
+closed. Their direction, not a request: a remote alert path, where the
+text is the payload.
+
+**fuzzypickles' notes and groups across nodes (2026-11-02 19:59)**, at
+11380ab:
+- **A note shared to a contact never reached the contact's node.** b
+  shares a folder to a; on a, `list sharer` and `list shared` stayed
+  empty for 180 s, while plain messages between them arrived. A fault
+  in a built feature; taken.
+- **A group's name does not reach a member**, listed under its id's
+  prefix, and a notebook shared to the group is not listed. Groups wait
+  on the holder's word for the remaining bars (sec 689), so recorded.
+- **`get note ID` carries no reachable or contested flag**, which `list
+  note`'s row does; fuzzypickles reads the parent's listing for it.
