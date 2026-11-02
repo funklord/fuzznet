@@ -77301,7 +77301,7 @@ pulling notes, a page of its index and a batch of records (`notes/sync.c`,
 sec 432), had no harness. The peer is a host of this user or a sharer,
 and either may be lost or buggy.
 
-**`notes/test/sync_fuzz.c`**, on `notes_sync_test`'s fixture:
+**`notes/test/notes_sync_fuzz.c`**, on `notes_sync_test`'s fixture:
 - A writes one to six notes, and B pulls from A through an ask that
   answers as A would and bends that answer with even odds.
 - Each answer is handed over as a copy ending at an unreadable page.

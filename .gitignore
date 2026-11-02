@@ -195,7 +195,7 @@
 /state/test/setting_fuzz
 /notes/test/note_test
 /notes/test/note_fuzz
-/notes/test/sync_fuzz
+/notes/test/notes_sync_fuzz
 /notes/test/text_test
 /notes/test/notes_store_test
 /notes/test/notes_sync_test

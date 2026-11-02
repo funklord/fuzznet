@@ -42,7 +42,7 @@ static void fail(const char *what, unsigned long c)
 {
 	failures++;
 	if (failures <= 10)
-		fprintf(stderr, "  FAIL sync_fuzz.c: case %lu: %s\n", c, what);
+		fprintf(stderr, "  FAIL notes_sync_fuzz.c: case %lu: %s\n", c, what);
 }
 
 static uint64_t state = 0x1f83d9abfb41bd6bull;
@@ -436,7 +436,7 @@ int main(int argc, char **argv)
 
 	if (went_on == 0u || took == 0u)
 		fail("FLOOR: no pull went on past a bent answer, or none took a record", cases);
-	printf("sync_fuzz: %lu cases, %lu bent answer(s), %lu pull(s) past one, %lu took records, "
+	printf("notes_sync_fuzz: %lu cases, %lu bent answer(s), %lu pull(s) past one, %lu took records, "
 	       "%d failure(s)\n",
 	       cases, bent_answers, went_on, took, failures);
 	return failures ? 1 : 0;
