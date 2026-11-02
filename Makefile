@@ -412,6 +412,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
              sticker/test/sticker_test.c messages/test/attachment_test.c \
              sticker/test/sticker_fuzz.c node/test/records_test.c \
+             node/test/group_fuzz.c \
              node/test/attachments_test.c \
              node/test/peer_persist_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
@@ -647,6 +648,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/messages/test/attachment_fuzz \
              $(BUILD_DIR)/state/test/setting_fuzz \
              $(BUILD_DIR)/sticker/test/sticker_fuzz \
+             $(BUILD_DIR)/node/test/group_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
@@ -3976,6 +3978,22 @@ $(BUILD_DIR)/node/test/groups_test: $(BUILD_DIR)/node/test/groups_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# What a group's members send, fuzzed: an act and a sealed line, sec 817.
+$(BUILD_DIR)/node/test/group_fuzz: $(BUILD_DIR)/node/test/group_fuzz.o \
+                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
+                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
+                                   $(BUILD_DIR)/node/group_act.o \
+                                   $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                   $(BUILD_DIR)/record/record.o \
+                                   $(BUILD_DIR)/contact/contact.o $(BUILD_DIR)/session/box.o \
+                                   $(BUILD_DIR)/session/agree_monocypher.o \
+                                   $(BUILD_DIR)/session/hash_monocypher.o \
+                                   $(BUILD_DIR)/session/aead_monocypher.o \
+                                   $(BUILD_DIR)/session/random_linux.o \
+                                   $(BUILD_DIR)/monocypher.o $(NODE_SERVE_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # App streams, sec 632.
 $(BUILD_DIR)/node/test/streams_test: $(BUILD_DIR)/node/test/streams_test.o \
                                      $(BUILD_DIR)/node/streams.o $(BUILD_DIR)/persist/persist.o \
@@ -5142,6 +5160,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/messages/test/attachment_fuzz \
              $(BUILD_DIR)/state/test/setting_fuzz \
              $(BUILD_DIR)/sticker/test/sticker_fuzz \
+             $(BUILD_DIR)/node/test/group_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \

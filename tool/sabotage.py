@@ -9972,6 +9972,13 @@ SABOTAGES = [
 		"a keep rule protects nothing from a drop policy, and a list's members are pruned with the rest -- sec 815",
 	),
 	(
+		"group-line-head-bound",
+		"node/group_line.c",
+		"\tok = aead->open(aead->ctx, key, nonce, bytes, FZN_GROUP_LINE_HEAD_LEN, out->text,",
+		"\tok = aead->open(aead->ctx, key, nonce, bytes, 0, out->text,",
+		"a group line's clear head is not checked when it opens, and a member hands on a line naming another as its writer -- sec 817",
+	),
+	(
 		"setting-key-alphabet",
 		"state/setting.c",
 		"\t\tif (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_'\n\t\t      || c == '/' || c == '-'))",

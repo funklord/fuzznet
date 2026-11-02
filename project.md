@@ -77226,3 +77226,37 @@ still reads like configuration where a caller wants that.
 any host and of `self`; `absent` for a key with none, and for a host
 with none of it; no key, a host that is not one, and another user,
 refused.
+## 817. What a group's members send, fuzzed, 2026-11-02
+
+Groups were left outside sec 689's subset ("group chat is complex, let's
+delay it"). fuzzypickles' desktop now runs its groups on fuzznetd (sec
+813), yet no harness read the two things a group's members send: an act
+of the group's log (`node/group_act.c`, sec 626) and a sealed line
+(`node/group_line.c`, sec 628). Both come from other users' hosts.
+
+**`node/test/group_fuzz.c`:**
+- **An act** of every kind, a KEYS act with a payload of up to 512
+  bytes, signed by its host for its user, as `group_log_test` makes one.
+  It decodes as made, encodes back as its own bytes, and verifies. A bent
+  act that decodes is the one encoding of what it says, and none
+  verifies.
+- **A line** sealed under a random secret opens as sealed, and under a
+  secret one bit away does not. A bent line never opens. Its clear head
+  (group, epoch, the member it names, the host) is the seal's additional
+  data, so a member cannot hand on a line naming another.
+- Every decode, peek and open reads a copy ending at an unreadable page,
+  as secs 806 and 808 do.
+
+**Floors:** some bent act decoded and some was refused, and some bent
+line still peeked.
+
+**Measured:** 60,000 cases, no failure. 26,972 bent acts decoded and
+33,028 were refused; 30,787 bent lines still peeked. Nothing in the code
+changed.
+
+**Control:** with the head left out of the seal's and the open's
+additional data, 221 of 4,000 cases failed, "a bent line opened".
+
+**Sabotage:** `group-line-head-bound` leaves the head out of the open's
+additional data alone.
+

@@ -172,6 +172,7 @@
 /node/test/reconcile_test
 /node/test/buckets_test
 /node/test/records_test
+/node/test/group_fuzz
 /node/test/log_buckets_test
 /node/test/pieces_test
 /node/test/piece_buckets_test
