@@ -320,6 +320,17 @@ static void test_references(void)
 		      "a length past 64 bits was read");
 		n = snprintf(big, sizeof(big), "%.*s/0/%s", (int)head, text, cut + 6);
 		CHECK(n > 0 && !fzn_sticker_ref_parse(big, (size_t)n, &got), "a length of 0 was read");
+		/* ONE SPELLING: no leading zero in the length or the id; an id of
+		 * 0 is still one digit. */
+		n = snprintf(big, sizeof(big), "%.*s/04321/%s", (int)head, text, cut + 6);
+		CHECK(n > 0 && !fzn_sticker_ref_parse(big, (size_t)n, &got),
+		      "a length with a leading zero was read");
+		n = snprintf(big, sizeof(big), "%.*s/4321/07 a cat, waving", (int)head, text);
+		CHECK(n > 0 && !fzn_sticker_ref_parse(big, (size_t)n, &got),
+		      "an id with a leading zero was read");
+		n = snprintf(big, sizeof(big), "%.*s/4321/0 a cat, waving", (int)head, text);
+		CHECK(n > 0 && fzn_sticker_ref_parse(big, (size_t)n, &got) && got.id == 0u,
+		      "an id of 0 was not read");
 	}
 	/* WHAT IS NO REFERENCE. */
 	CHECK(!fzn_sticker_ref_parse("fzn:sticker/", 12u, &got)

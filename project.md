@@ -76821,3 +76821,46 @@ In the sabotage run all three were caught. `setting_test` caught the rank
 first. The op and the clear were caught by this harness alone: no unit
 test held either before it. The four older entries on `setting.c`
 stand.
+
+## 809. A sticker reference has one spelling, found by fuzzing what a contact sends, 2026-11-02
+
+No harness read what a contact sends of a sticker: a pack, a file that
+arrives from them (sec 797), and the reference a line's text carries
+(sec 680).
+
+**`sticker/test/sticker_fuzz.c`** bends a pack built from a spec of
+three stickers, and a reference made at random. Every open and parse
+reads a copy that ends at an unreadable page, as sec 806's harness does.
+The properties:
+- **a bent pack that opens is one building accepts again**, with its art
+  and sound taken from the data area it opened with. So opening keeps no
+  rule building does not, and every offset it took lies inside that area.
+- **a bent `fzn:` reference that parses is the one spelling of its
+  parse**, its hex read as lower case.
+
+**Found:** 7 of 20,000 cases failed the second. `fzn_sticker_ref_parse`
+read a leading zero in the length and the id, so `.../12/7 cat` and
+`.../012/07 cat` were one sticker spelled two ways. Sec 794 had already
+decided this for the sibling format: an attachment's size has no leading
+zero, so a file has one spelling where references are compared as text.
+That decision is applied here, not decided again.
+- **Both fields refuse a leading zero now.** For the length, the same
+  check refuses 0, which `!length` did before, so that term went. An id
+  of `0` is still one digit and still read.
+- **Nothing already sent is lost:** fuzzypickles writes its ids with
+  `PRIu64` (`core/src/sticker.c`), so no `fzp:` reference carries a
+  leading zero, and fuzznet's own `fzn_sticker_ref_format` never wrote
+  one.
+
+**Measured:**
+- **`sticker_fuzz`:** 300,000 cases, no failure; 70,404 bent packs
+  opened and 229,596 refused; 134,072 bent references parsed and 165,928
+  refused.
+- **`sticker_test`, 62 checks, 3 new:** a length `04321` refused, an id
+  `07` refused, an id `0` read. **Control:** with the old parser the
+  first two fail.
+
+**Sabotage:**
+- `sticker-ref-id-one-spelling` is new.
+- `sticker-ref-length-needed` was re-anchored onto the merged check,
+  which now holds both rules, the length of 0 and the leading zero.

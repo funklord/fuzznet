@@ -318,6 +318,7 @@ __pycache__/
 /location/test/tpv_test
 /location/test/gpsd_test
 /sticker/test/sticker_test
+/sticker/test/sticker_fuzz
 /messages/test/attachment_test
 /node/test/attachments_test
 /live-repeat/

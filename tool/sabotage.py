@@ -14213,11 +14213,18 @@ SABOTAGES = [
 		"sec 680: an import reads the files a spec names, so a path above it reads what it should not; sticker_test's outside-the-directory check catches it",
 	),
 	(
+		"sticker-ref-id-one-spelling",
+		"sticker/pack.c",
+		"\tif (!digits || (digits > 1u && *first == '0') || id > 0xffffu || p >= end || *p != ' ')\n",
+		"\tif (!digits || id > 0xffffu || p >= end || *p != ' ')\n",
+		"one sticker has two references, an id of 7 and of 07 -- sec 809",
+	),
+	(
 		"sticker-ref-length-needed",
 		"sticker/pack.c",
-		"\t\tif (!digits || !length || p >= end || *p != '/')\n",
+		"\t\tif (!digits || *first == '0' || p >= end || *p != '/')\n",
 		"\t\tif (!digits || p >= end || *p != '/')\n",
-		"sec 680: a fetch wants the pack's length, so an fzn reference of length 0 names a pack nobody can fetch; sticker_test's length-of-0 check catches it",
+		"sec 680: a fetch wants the pack's length, so an fzn reference of length 0 names a pack nobody can fetch; and since sec 809 the same check gives a length one spelling, 12 and not 012",
 	),
 	(
 		"meter-cause-looked-through",

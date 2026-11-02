@@ -924,7 +924,7 @@ static int hex_field(const char **p, const char *end, uint8_t *out, size_t n)
 
 int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 {
-	const char *p, *end;
+	const char *p, *end, *first;
 	unsigned id = 0;
 	size_t digits = 0, desc_len, i;
 	int ours;
@@ -941,10 +941,13 @@ int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 	    || !hex_field(&p, end, out->key, FZN_STICKER_KEY_LEN))
 		return 0;
 	/* THE LENGTH, ours alone: at most twenty digits, past which it would
-	 * overflow, and never 0. */
+	 * overflow. NO LEADING ZERO, here or in the id, so one sticker has one
+	 * spelling, as an attachment's size does (sec 794) -- which, for the
+	 * length, also refuses 0. */
 	if (ours) {
 		uint64_t length = 0;
 
+		first = p;
 		while (p < end && *p >= '0' && *p <= '9') {
 			unsigned d = (unsigned)(*p++ - '0');
 
@@ -952,19 +955,20 @@ int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 				return 0;
 			length = length * 10u + d;
 		}
-		if (!digits || !length || p >= end || *p != '/')
+		if (!digits || *first == '0' || p >= end || *p != '/')
 			return 0;
 		p++;
 		out->length = length;
 		digits = 0;
 	}
+	first = p;
 	while (p < end && *p >= '0' && *p <= '9') {
 		/* FIVE DIGITS AT MOST, which cannot overflow. */
 		if (++digits > 5u)
 			return 0;
 		id = id * 10u + (unsigned)(*p++ - '0');
 	}
-	if (!digits || id > 0xffffu || p >= end || *p != ' ')
+	if (!digits || (digits > 1u && *first == '0') || id > 0xffffu || p >= end || *p != ' ')
 		return 0;
 	p++;
 	desc_len = (size_t)(end - p);

@@ -411,6 +411,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/log_list_test.c node/test/clocks_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
              sticker/test/sticker_test.c messages/test/attachment_test.c \
+             sticker/test/sticker_fuzz.c \
              node/test/attachments_test.c \
              node/test/peer_persist_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
@@ -644,6 +645,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/messages/test/attachment_fuzz \
              $(BUILD_DIR)/state/test/setting_fuzz \
+             $(BUILD_DIR)/sticker/test/sticker_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
@@ -4620,6 +4622,12 @@ $(BUILD_DIR)/location/test/gpsd_test: $(BUILD_DIR)/location/test/gpsd_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A sticker pack and a reference as a contact sends them, sec 809.
+$(BUILD_DIR)/sticker/test/sticker_fuzz: $(BUILD_DIR)/sticker/test/sticker_fuzz.o \
+                                        $(BUILD_DIR)/sticker/pack.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # A sticker pack, its spec and a reference, sec 680.
 $(BUILD_DIR)/sticker/test/sticker_test: $(BUILD_DIR)/sticker/test/sticker_test.o \
                                         $(BUILD_DIR)/sticker/pack.o
@@ -5118,6 +5126,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/messages/test/attachment_fuzz \
              $(BUILD_DIR)/state/test/setting_fuzz \
+             $(BUILD_DIR)/sticker/test/sticker_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
