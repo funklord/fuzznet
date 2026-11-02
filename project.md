@@ -77999,7 +77999,7 @@ byte in it, it tells `ready` of that pipe. `node/test/ext_daemon` takes
 phase b2 writes three bytes into the FIFO and requires `ok 3`, and the
 tick count to grow over 2.5 s.
 
-## 832. Erasure's pieces under a crash, read, 2026-11-03
+## 832. Erasure's pieces under a crash, read: no window, 2026-11-03
 
 Journey 3's fault bar, its last item. Read rather than swept across six
 hosts, as archiving was (sec 746), since the writes decide it:
@@ -78010,15 +78010,15 @@ hosts, as archiving was (sec 746), since the writes decide it:
 - **Whether a piece is held is whether its file exists**
   (`fzn_pieces_held`), so no count can disagree with the files.
 - **Letting a piece go removes its bucket, then its file**, so that a
-  bucket never names a file that is gone. Its comment says the next
-  let-go removes a file left between. It does not: the pass that lets a
-  host's copies go (`node/daemon.c`, "its keepers hold them") acts on
-  pieces both its buckets keep and its files hold, so a file whose bucket
-  went first is not let go again, and stays. It is a log segment's
-  piece, held past the move or the rule that let it go.
+  bucket never names a file that is gone, and its comment says the next
+  let-go removes a file left between. **It does.** The pass that lets a
+  host's copies go acts on each piece whose file is here and whose keeper
+  (`pieces_kept`, the other hosts) keeps it -- not on this host's buckets
+  -- so a file whose bucket went first is let go again, the bucket's
+  absence accepted and the file removed. The first version of this
+  section read `kept` as this host's buckets and called that a file left
+  for good; it was wrong, and corrected the same night, 2026-11-03.
 
-**Open, the same shape as sec 746's group lines and fixed the same way
-there:** the file first, then the bucket, with a refused removal failing
-the let-go, a crash between leaving a bucket naming a file gone -- which
-the next pass, finding the file absent, can let go. Not made here; it
-wants a test cutting the let-go between its two removals.
+So erasure's pieces have no crash window found by reading, and journey
+3's fault bar has a first pass at every item: the trim swept (sec 746),
+the history trim, archiving and the pieces read.
