@@ -89,6 +89,7 @@
 #include "reconcile.h"
 #include "settings.h"
 #include "records.h"
+#include "responsible.h"
 #include "siblings.h"
 #endif
 #include "peer_persist.h"
@@ -382,6 +383,8 @@ static size_t address_local(fzn_origin_t origin, const fzn_request_t *request, c
                             size_t cap);
 static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap);
+/* WHO IS RESPONSIBLE FOR A KEY, sec 820, over the estate's hosts. */
+static fzn_node_responsible_t node_responsible;
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
 static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -478,6 +481,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = address_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = link_local(origin, request, reply, reply_cap);
+	if (!n && node_responsible.host_at)
+		n = fzn_node_responsible_local(&node_responsible, origin, request, reply, reply_cap);
 	if (!n)
 		n = streams_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -5963,6 +5968,34 @@ static int sibling_listed_at(void *ctx, size_t i, const uint8_t issuer[FZN_PUBKE
 		    && memcmp(h->positions[k].issuer, issuer, FZN_PUBKEY_LEN) == 0)
 			*received = h->positions[k].received;
 	return 1;
+}
+
+/* THE ESTATE'S HOSTS for `list responsible`, sec 820: this node, then
+ * every sibling it lists. */
+static int estate_host_at(void *ctx, size_t i, uint8_t host[32])
+{
+	static struct key_room room;
+	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
+	size_t n = 0, j, at = 1;
+
+	(void)ctx;
+	if (!siblings_self)
+		return 0;
+	if (i == 0) {
+		memcpy(host, siblings_self, FZN_PUBKEY_LEN);
+		return 1;
+	}
+	if (!node_apply.store || siblings_list(&room, &hosts, &n, 0u) != FZN_NODE_SIBLINGS_OK)
+		return 0;
+	for (j = 0; j < n; j++) {
+		if (memcmp(hosts[j], siblings_self, FZN_PUBKEY_LEN) == 0)
+			continue;
+		if (at++ == i) {
+			memcpy(host, hosts[j], FZN_PUBKEY_LEN);
+			return 1;
+		}
+	}
+	return 0;
 }
 
 static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family,
@@ -16744,6 +16777,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				/* WHO HOLDS A SETTING, sec 811: siblings and their digests. */
 				node_settings.sibling_at = sibling_listed_at;
 				siblings_self = identity.pubkey;
+				node_responsible.hash = &hash_ops;
+				node_responsible.host_at = estate_host_at;
 				node_apply.settings = &node_settings;
 				admin.holdings_remote = holdings_remote;
 				admin.holdings_ctx = &node_apply;

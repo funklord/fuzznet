@@ -40,7 +40,8 @@ with the other, and A, which has no pull peers, fetches from neither.
        version while C, heard before and not since, reads 0 -- behind
     j  a host's records (sec 814): B adds a record, and after B's round A --
        which pulls from nobody -- and C list it under B's host, pushed to
-       them by B
+       them by B; and all three, asked who is responsible for one key
+       (sec 820), answer the same three hosts in the same order
 
 Against a daemon that carries no prekeys, or pairs no siblings, phase a
 fails waiting for the pairings; against one that never asks a sibling,
@@ -474,7 +475,6 @@ def main(argv):
 				b.wait_for(ROUND_END_RE, "B's first round")
 				b_host = ask(socks["b"], "get identity").split()[1]
 				expect(socks["b"], "j", "add record seen/wlan0/aa-bb station%20one", "ok")
-				seen = rounds(b)
 				until = time.monotonic() + 150.0
 				want = b_host + ",seen/wlan0/aa-bb,"
 				while not (any(r.startswith(want) for r in records("a"))
@@ -483,14 +483,23 @@ def main(argv):
 						raise failed("j: B's record did not reach A and C: A %r, C %r"
 						             % (records("a"), records("c")))
 					time.sleep(0.5)
-				if rounds(b) <= seen:
-					raise failed("j: B's record reached A and C before B ran a round")
+				# WHO IS RESPONSIBLE, sec 820: one answer on every host.
+				answers = {}
+				for who in ("a", "b", "c"):
+					reply = ask(socks[who], "list responsible job/1")
+					words = reply.split()
+					if len(words) < 5 or words[0] != "ok":
+						raise failed("j: %s's list responsible answered %r" % (who.upper(), reply))
+					answers[who] = words[5:]
+				if len(answers["a"]) != 3 or answers["a"] != answers["b"] \
+				   or answers["a"] != answers["c"]:
+					raise failed("j: who is responsible differs between hosts: %r" % answers)
 			finally:
 				for d in (b, c, a):
 					if d:
 						d.stop()
 			print("livecheck: j: B's record, pushed in B's round, listed by A and C under "
-			      "B's host")
+			      "B's host; all three name the same hosts responsible for one key, in order")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

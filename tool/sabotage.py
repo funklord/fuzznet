@@ -9979,6 +9979,13 @@ SABOTAGES = [
 		"a group line's clear head is not checked when it opens, and a member hands on a line naming another as its writer -- sec 817",
 	),
 	(
+		"responsible-every-member-scored",
+		"node/responsible.c",
+		"\t\tmemcpy(in + at, members[i], 32u);\n",
+		"",
+		"every member scores alike, the order is the members' own, and one host is responsible for every key -- sec 820",
+	),
+	(
 		"setting-key-alphabet",
 		"state/setting.c",
 		"\t\tif (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_'\n\t\t      || c == '/' || c == '-'))",

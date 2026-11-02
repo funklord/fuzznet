@@ -77328,3 +77328,50 @@ held.
 - **The blob stub's arena, sized for one suite's few notes**, filled
   after about 1,200 cases, and notes stopped writing. The harness empties
   it each case.
+
+## 820. Who is responsible for a key: sec 396's primitive, 2026-11-02
+
+**Asked by netcfgd on 2026-09-29 (sec 396):** "given a set of members and
+a key, every member independently computes the same ordered list of who
+is responsible". A site with no controller still agrees on who does a
+job, with no round trip, and the second in the list is who takes over.
+Sec 398 recorded netcfgd's holder choosing active/active, which makes it
+the same function inside a host. Neither section built it. The order
+existed only inside erasure placement (`fzn_piece_buckets_rank`, sec
+597), keyed by an item id, with a fixed table.
+
+**Built, `node/responsible.{h,c}`:**
+- **`fzn_responsible_order`**, the rendezvous order (highest random
+  weight). Each member is scored by the hash of a label, the key's length
+  and bytes, and the member's key. The order is highest first, a tie by
+  the greater member key. It takes any number of members, with scores on
+  the heap. **Piece placement keeps its own function and label**: its
+  placements are on disk, and a change of order would move them.
+- **`list responsible KEY [FROM]`** answers `ok TOTAL FROM SHOWN MORE
+  HOST ...` over the estate's hosts, this node and every sibling it
+  lists, the one responsible first. It pages, and is for this node's own
+  user only.
+
+**Measured:**
+- **`responsible_test`, 26 checks:**
+  - the members given in another order get the same order;
+  - over 3,000 keys, each of six members is first for about a sixth;
+  - a seventh joining takes about a seventh, and every other key keeps
+    its order of the six;
+  - a key and its prefix rank apart;
+  - the key bound is held;
+  - the verb: its first page, FROM, an escaped key, the refusals, and 40
+    hosts paged across three replies.
+- **`live_siblings` phase j:** A, B and C each answer `list responsible
+  job/1` with the same three hosts, in the same order.
+- **Sabotage:** `responsible-every-member-scored` leaves the member out
+  of its score.
+
+**A race in phase j, found running it:** sec 814's phase also checked
+that B had ended a round before its record reached A and C. B pushes in
+the middle of its round, so the record can arrive before the round's end
+is logged, and one run failed that way. The check is gone. A pulls from
+nobody, so B's push is the only way the record reaches it, which is what
+the phase shows.
+
+**Told** netcfgd, through its inbox.
