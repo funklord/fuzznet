@@ -11672,6 +11672,22 @@ static size_t stream_take(const char *name, size_t name_len, const uint8_t *orig
 		say(FZN_ENTRY_WARNING, "node/streams",
 		    "record %llu of %.*s not kept: %s; asked again from it next fetch",
 		    (unsigned long long)stopped, (int)name_len, name, fzn_streams_err_str(err));
+	/* A WATCHER TOLD, sec 821: `event stream NAMEHEX` when another host's
+	 * records of it arrive, so a client watching a machine -- raidcfgd's
+	 * tray, a map -- reads them as they come rather than polling. The
+	 * name in hex, since an event's NAME is hex (`node/events.h`). */
+	if (taken && name_len <= FZN_STREAM_NAME_MAX) {
+		static const char HEXDIGITS[] = "0123456789abcdef";
+		char named[2u * FZN_STREAM_NAME_MAX + 1u];
+		size_t i;
+
+		for (i = 0; i < name_len; i++) {
+			named[2u * i] = HEXDIGITS[(uint8_t)name[i] >> 4];
+			named[2u * i + 1u] = HEXDIGITS[(uint8_t)name[i] & 15u];
+		}
+		named[2u * name_len] = '\0';
+		publish("stream", named);
+	}
 	return taken;
 }
 

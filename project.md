@@ -77375,3 +77375,35 @@ nobody, so B's push is the only way the record reaches it, which is what
 the phase shows.
 
 **Told** netcfgd, through its inbox.
+
+## 821. Watching another machine: a stream's records raise an event, 2026-11-02
+
+**raidcfgd records a gap as fuzznet's** (its project.md, on the tray
+reading a remote machine). A desktop that wants to watch another machine,
+not poll it, needs "a streaming convention over fuzznet's datagram hop".
+Its `monitor` stops at its bridge, and the tray falls back to polling.
+
+**Most of it was already decided, as app streams (sec 632).** Each host
+writes a named, opaque stream; this user's own hosts read every level,
+and others read as granted; `fetch stream NAME` asks for it at once. What
+was missing was the second half of watching. A record taken from another
+host told no local client, so a watcher still had to poll `list stream`.
+
+**Built:** when a fetch takes another host's records of a stream, the
+daemon publishes `event stream NAMEHEX` on its local socket (sec 609).
+The name is in hex, because an event's name must be hex
+(`node/events.h`). A client holding `get events` learns of the records as
+they arrive, and reads them with `list stream`.
+
+**Measured, `live_siblings` phase j:** C subscribes, A writes a stream
+record, C fetches the stream, and C's subscriber reads `event stream`
+with the name in hex. **Control:** the first build published the name as
+it stands, `monitor`. The events layer refused that, silently, and phase
+j failed twice, C holding the record and its subscriber told nothing.
+
+**A finding for raidcfgd, not built:** a stream's rendition is at most
+`FZN_STREAM_RENDITION_MAX`, 64 bytes, four of them a record. That fits a
+location fix; a RAID snapshot will not. Whether a stream should carry
+larger records, or a snapshot should be a file named by a small record,
+depends on the snapshot's size, which only raidcfgd has measured. It is
+asked of raidcfgd in its inbox.

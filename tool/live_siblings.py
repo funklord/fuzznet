@@ -41,7 +41,9 @@ with the other, and A, which has no pull peers, fetches from neither.
     j  a host's records (sec 814): B adds a record, and after B's round A --
        which pulls from nobody -- and C list it under B's host, pushed to
        them by B; and all three, asked who is responsible for one key
-       (sec 820), answer the same three hosts in the same order
+       (sec 820), answer the same three hosts in the same order; and with
+       C subscribed to its events, A writes a stream record and C, asked
+       to fetch the stream, is told `event stream` and the name in hex (sec 821)
 
 Against a daemon that carries no prekeys, or pairs no siblings, phase a
 fails waiting for the pairings; against one that never asks a sibling,
@@ -66,6 +68,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import (ROUND_DONE_RE, COUNTED_RE, OWN_ARCHIVED_RE, RECONCILE_RE,  # noqa: E402
                          command, daemon, expect)
 from live_trim import ask, failed  # noqa: E402
+from live_events import subscriber  # noqa: E402
 import live_trim  # noqa: E402
 
 # PHASES i AND j EACH WAIT OUT ONE OF B's ROUNDS, a minute in this build.
@@ -494,12 +497,43 @@ def main(argv):
 				if len(answers["a"]) != 3 or answers["a"] != answers["b"] \
 				   or answers["a"] != answers["c"]:
 					raise failed("j: who is responsible differs between hosts: %r" % answers)
+				# A WATCHER TOLD, sec 821: B's stream record reaches C's
+				# subscriber as an event, not a poll.
+				watcher = subscriber(socks["c"], "j")
+				try:
+					if not watcher.first.startswith("ok"):
+						raise failed("j: C's get events answered %r" % watcher.first)
+					# A WRITES IT: C reaches A at its address; B, which only
+					# pulls, has none C could ask.
+					reply = ask(socks["a"], "add stream monitor 0102")
+					if not reply.startswith("ok"):
+						raise failed("j: A's add stream answered %r" % reply)
+					until = time.monotonic() + 60.0
+					told = False
+					while not told:
+						reply = ask(socks["c"], "fetch stream monitor")
+						if not reply.startswith("ok"):
+							raise failed("j: C's fetch stream answered %r" % reply)
+						deadline = time.monotonic() + 5.0
+						while time.monotonic() < deadline and not told:
+							try:
+								told = watcher.line() == "event stream " + "monitor".encode().hex()
+							except failed:
+								break
+						if not told and (time.monotonic() > until or live_trim.left() < 1.0):
+							raise failed("j: C's subscriber was not told of A's stream record; "
+							             "C lists %r, A lists %r"
+							             % (ask(socks["c"], "list stream monitor"),
+							                ask(socks["a"], "list stream monitor")))
+				finally:
+					watcher.close()
 			finally:
 				for d in (b, c, a):
 					if d:
 						d.stop()
 			print("livecheck: j: B's record, pushed in B's round, listed by A and C under "
-			      "B's host; all three name the same hosts responsible for one key, in order")
+			      "B's host; all three name the same hosts responsible for one key, in order; "
+			      "A's stream record reached C's subscriber as an event")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
