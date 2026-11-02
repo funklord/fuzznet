@@ -73776,7 +73776,12 @@ left: above fuzzypickles' own 29800 to 31000, which `live_fzp.py`
 keeps clear of, and below `live_group_hosts.py`'s 32000. One run at no
 loss passed on it.
 
-Open, the same drift in four more, each also inside that range:
+~~Open~~ **Met, sec 743 and since**: `live_estate.py` took its ports
+free when each daemon first starts (9b12c5d), and `live_logs.py`,
+`live_group_skew.py` and `live_faults.py`'s second store now take a slot
+whose ports all bind (`free_slot` in `live_rejoin.py`, 2026-11-02), in
+the blocks they had. Each passed a run after it. As first written, the
+same drift in four more, each also inside that range:
 `live_estate.py` (43000 up), `live_logs.py` (42000 up),
 `live_group_skew.py` (41000 up), and `live_faults.py`'s second store
 (44000 up). Below 32768 the blocks from 1024 to 32732 are all taken, so

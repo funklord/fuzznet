@@ -73,6 +73,7 @@ import datetime
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -108,6 +109,32 @@ PIECES_RE = re.compile(r"pieces of archived segments: (\d+) taken, (\d+) pushed,
 # A ROUND'S END, said by the round itself (sec 637): `daemon.settled`.
 ROUND_DONE_RE = re.compile(r"node/round - - a round's end, \d+ ms")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
+
+
+def port_free(port):
+	"""Whether UDP `port` can be bound now, on every address as the daemon
+	binds it (sec 743)."""
+	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	try:
+		s.bind(("", port))
+		return True
+	except OSError:
+		return False
+	finally:
+		s.close()
+
+
+def free_slot(start, width, slots, n):
+	"""The first port of a slot of `width` in `slots` from `start`, from the
+	pid's on, whose first `n` ports all bind now: a block inside the
+	ephemeral range (32768 up), where any client socket may hold a port, as
+	live_logs.py, live_group_skew.py and live_faults.py keep theirs, below
+	32768 having no block left (sec 743). Failed when none is free."""
+	for t in range(slots):
+		at = start + ((os.getpid() + t) % slots) * width
+		if all(port_free(at + i) for i in range(n)):
+			return at
+	raise failed("no slot of %d free port(s) in %d-%d" % (n, start, start + slots * width - 1))
 
 
 def command(run, args, fake):

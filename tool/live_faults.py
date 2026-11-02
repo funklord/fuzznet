@@ -108,7 +108,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import RECONCILE_RE, ROUND_DONE_RE, command, daemon  # noqa: E402
+from live_rejoin import RECONCILE_RE, ROUND_DONE_RE, command, daemon, free_slot  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
@@ -1159,7 +1159,7 @@ def main(argv):
 			# delivery files it, and a read mark. Made again after the
 			# crash, as a client that heard no answer would, each line is
 			# listed once, whole, and read.
-			o_port = 44000 + (os.getpid() % 500) * 8
+			o_port = free_slot(44000, 8, 500, 2)
 			o_c = os.path.join(scratch, "o-c")
 			os.mkdir(o_c)
 			command(run, ["--fuzznet-dir=" + o_c, "--new-root"], None)

@@ -41,7 +41,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
+from live_rejoin import ROUND_DONE_RE, command, daemon, expect, free_slot  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 from live_groups import KEPT_RE, PREKEY_HOST  # noqa: E402
 import live_trim  # noqa: E402
@@ -68,7 +68,7 @@ def main(argv):
 
 	run.fuzznetd = os.path.abspath(argv[1])
 	run.started = []
-	base = 41000 + (os.getpid() % 500) * 8
+	base = free_slot(41000, 8, 500, len(WHO))
 	port = {k: str(base + i) for i, k in enumerate(WHO)}
 	os.environ["FZN_TUNE_PULL_EVERY"] = ROUND_S
 	with tempfile.TemporaryDirectory(prefix="fzn-live.") as scratch, \
