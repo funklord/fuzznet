@@ -76969,3 +76969,38 @@ digest from that the list does not name (the root, reached as the root).
   one record short and the floor.
 
 **Told** fuzzypickles and netcfgd, through their inboxes, of the shape.
+
+## 812. Two messages from fuzzypickles, 2026-11-02
+
+**A contact that moved (their message of 13:16).** The holder's desk
+moved address twice, and fzpd's phone kept sending to the old one, since
+fzpd attributes a frame by its key and never learns a new source. They
+added a stopgap, `peer-address`, and asked whether a node needs a typed
+correction too.
+
+**It does not: a node follows a contact's move by itself.**
+- When it builds its contact targets, a node uses where that contact's
+  host last said hello from, if heard within `FZND_RELAY_SEEN_S`, ahead
+  of the address its device entry gives (sec 697, point 4).
+- Every host says hello to every contact's host every
+  `FZND_HELLO_EVERY`, 20 s, from its serving socket.
+- So a moved host is reached at its new address within a hello of its
+  move, as long as it can still reach the other end.
+
+The limits, stated:
+- the heard address is kept in memory, so after a restart the device
+  entry's old address is used until the next hello;
+- when both ends moved, neither reaches the other until one learns the
+  other's new address another way: its next device record, or an
+  introduction (sec 698).
+
+Nothing to build on either side. Answered in their inbox.
+
+**fuzzypickles' service and product numbers (their message of 13:48).**
+Their desktop now runs fuzznetd, and every device of a user must run
+with the same `--fuzznet-service` and `--fuzznet-product`. Nothing is
+assigned yet (after sec 127). They relay that the holder agreed fuzznet
+should assign the pair, and ask that it be confirmed with the holder
+first. **Asked of the holder**, not assigned. The same message asks
+whether fuzznetd should have a default `--fuzznet-dir`; that went to the
+holder with it.
