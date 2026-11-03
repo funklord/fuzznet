@@ -644,9 +644,12 @@ static fzn_node_shelf_err_t place_data(fzn_node_shelf_t *shelf, held_t *h, const
 	return FZN_NODE_SHELF_OK;
 }
 
+/* `span`, where given, is the want's own (sec 839): the most a WANT asks,
+ * halved when one goes unanswered and doubled when one is placed; NULL asks
+ * FZN_NODE_SHELF_SPAN every time, as a fetch named directly always did. */
 static fzn_node_shelf_err_t fetch_spans(fzn_node_shelf_t *shelf, held_t *h,
                                         const uint8_t root[FZN_BLOB_HASH_LEN],
-                                        fzn_node_shelf_ask_t ask, void *ask_ctx)
+                                        fzn_node_shelf_ask_t ask, void *ask_ctx, uint32_t *span)
 {
 	static uint8_t reply[FZN_NODE_SHELF_REPLY_MAX];
 	fzn_spool_range_t ranges[1];
@@ -678,8 +681,10 @@ static fzn_node_shelf_err_t fetch_spans(fzn_node_shelf_t *shelf, held_t *h,
 		size_t planned = 0;
 		fzn_node_shelf_err_t err;
 
-		if (fzn_spool_plan_want(&h->spool, 0, FZN_NODE_SHELF_SPAN, ranges, 1u, &planned)
-		    != FZN_SPOOL_OK)
+		uint32_t most = span && *span && *span < FZN_NODE_SHELF_SPAN ? *span
+		                                                             : FZN_NODE_SHELF_SPAN;
+
+		if (fzn_spool_plan_want(&h->spool, 0, most, ranges, 1u, &planned) != FZN_SPOOL_OK)
 			return FZN_NODE_SHELF_ERR_STORE;
 		if (planned == 0u)
 			return FZN_NODE_SHELF_OK;
@@ -687,8 +692,12 @@ static fzn_node_shelf_err_t fetch_spans(fzn_node_shelf_t *shelf, held_t *h,
 		                        ranges[0].count, request, sizeof(request), &len)
 		    != FZN_MSG_OK)
 			return FZN_NODE_SHELF_ERR_MALFORMED;
-		if (!ask(ask_ctx, request, len, reply, sizeof(reply), &reply_len))
+		if (!ask(ask_ctx, request, len, reply, sizeof(reply), &reply_len)) {
+			/* UNANSWERED: half as much asked next round. */
+			if (span)
+				*span = most > 1u ? most / 2u : 1u;
 			return FZN_NODE_SHELF_ERR_NO_ANSWER;
+		}
 		if (fzn_msg_peek(reply, reply_len, &type) != FZN_MSG_OK)
 			return FZN_NODE_SHELF_ERR_ABSENT;
 		if (type != FZN_MSG_DATA)
@@ -696,6 +705,8 @@ static fzn_node_shelf_err_t fetch_spans(fzn_node_shelf_t *shelf, held_t *h,
 		err = place_data(shelf, h, reply, reply_len, &ranges[0], (uint32_t)round);
 		if (err != FZN_NODE_SHELF_OK)
 			return err;
+		if (span)
+			*span = most * 2u < FZN_NODE_SHELF_SPAN ? most * 2u : FZN_NODE_SHELF_SPAN;
 	}
 	return fzn_spool_complete(&h->spool) ? FZN_NODE_SHELF_OK : FZN_NODE_SHELF_ERR_SHAPE;
 }
@@ -821,9 +832,9 @@ fzn_node_shelf_err_t fzn_node_shelf_data_at(fzn_node_shelf_t *shelf,
 	return FZN_NODE_SHELF_OK;
 }
 
-fzn_node_shelf_err_t fzn_node_shelf_fetch(fzn_node_shelf_t *shelf,
-                                          const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length,
-                                          fzn_node_shelf_ask_t ask, void *ask_ctx)
+static fzn_node_shelf_err_t fetch_with(fzn_node_shelf_t *shelf,
+                                       const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length,
+                                       fzn_node_shelf_ask_t ask, void *ask_ctx, uint32_t *span)
 {
 	static held_t h;
 	fzn_node_shelf_err_t err;
@@ -832,12 +843,19 @@ fzn_node_shelf_err_t fzn_node_shelf_fetch(fzn_node_shelf_t *shelf,
 		return FZN_NODE_SHELF_ERR_MALFORMED;
 	if (open_to_receive(shelf, &h, root, length, &err) == HELD_ALREADY || err != FZN_NODE_SHELF_OK)
 		return err;
-	err = fetch_spans(shelf, &h, root, ask, ask_ctx);
+	err = fetch_spans(shelf, &h, root, ask, ask_ctx, span);
 	if (fzn_spool_file_checkpoint(&h.file, &h.spool) != FZN_SPOOL_OK
 	    && err == FZN_NODE_SHELF_OK)
 		err = FZN_NODE_SHELF_ERR_STORE;
 	fzn_spool_file_close(&h.file);
 	return err;
+}
+
+fzn_node_shelf_err_t fzn_node_shelf_fetch(fzn_node_shelf_t *shelf,
+                                          const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length,
+                                          fzn_node_shelf_ask_t ask, void *ask_ctx)
+{
+	return fetch_with(shelf, root, length, ask, ask_ctx, NULL);
 }
 
 fzn_node_shelf_err_t fzn_node_shelf_want(fzn_node_shelf_t *shelf,
@@ -864,6 +882,7 @@ fzn_node_shelf_err_t fzn_node_shelf_want(fzn_node_shelf_t *shelf,
 	memcpy(shelf->wants[free_slot].root, root, FZN_BLOB_HASH_LEN);
 	shelf->wants[free_slot].length = length;
 	shelf->wants[free_slot].live = 1;
+	shelf->wants[free_slot].span = FZN_NODE_SHELF_SPAN;
 	shelf->fresh = 1;
 	return FZN_NODE_SHELF_OK;
 }
@@ -878,7 +897,8 @@ size_t fzn_node_shelf_fetch_wants(fzn_node_shelf_t *shelf, fzn_node_shelf_ask_t 
 	for (i = 0; i < FZN_NODE_SHELF_WANTS; i++) {
 		fzn_node_shelf_want_t *w = &shelf->wants[i];
 
-		if (w->live && fzn_node_shelf_fetch(shelf, w->root, w->length, ask, ask_ctx)
+		/* EACH WANT ITS OWN SPAN, carried from round to round (sec 839). */
+		if (w->live && fetch_with(shelf, w->root, w->length, ask, ask_ctx, &w->span)
 		                       == FZN_NODE_SHELF_OK) {
 			w->live = 0;
 			done++;

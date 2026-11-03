@@ -78375,3 +78375,22 @@ restarted B mid-fetch, and phase f now keeps B up while C fetches. That
 change is kept, since a fetch steps on after the round's end marker
 (sec 694), but it was not the cause: the next run failed the same way
 with B up throughout.
+
+**The same shape, on the shelf, found by looking for it.** A note's text
+travels on the shelf (`node/shelf.c`), whose fetch asked
+`FZN_NODE_SHELF_SPAN`, 16 leaves (about 17 pieces), every time. That
+arrives together about one time in fifty at 20 per cent loss, and the
+fetch ends at the first silence until the next round, so a text of more
+than 16 leaves could not arrive.
+- **Fixed:** each want keeps its own span from round to round. An ask
+  unanswered halves it, down to one leaf, and a span placed doubles it.
+- A fetch named directly (`fzn_node_shelf_fetch`) asks as before.
+- `node/test/shelf_test`: a peer losing every DATA of more than four
+  leaves still gives the forty-leaf text within 60 rounds. With the
+  halving taken out, it never does.
+
+Not checked for this shape yet: the other answers that can run to many
+pieces (a notes sync page, a group's acts, a log segment). The chat,
+estate and erasure journeys passed ten runs each at 20 per cent loss
+(secs 742 to 745), so those are not known to be stuck. Only a run that
+carries a large one would tell.

@@ -764,6 +764,52 @@ static void test_collecting_removes_only_what_nothing_keeps(void)
 	      "a collection with nothing to say what is kept is refused");
 }
 
+/* A PEER WHOSE LARGE ANSWERS ARE LOST, sec 839: a DATA of more than four
+ * leaves never arrives. A want's span shrinks round by round to what
+ * comes, and the forty-leaf text is whole; asked sixteen leaves a round,
+ * every round, it never was. */
+static int lossy_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                     size_t reply_cap, size_t *reply_len)
+{
+	uint8_t cookie[FZN_MSG_COOKIE_LEN], root[FZN_BLOB_HASH_LEN];
+	uint32_t transfer = 0;
+	uint64_t first = 0, count = 0;
+
+	if (fzn_msg_want_parse(request, request_len, &transfer, cookie, root, &first, &count)
+	            == FZN_MSG_OK
+	    && count > 4u)
+		return 0;
+	return ask(ctx, request, request_len, reply, reply_cap, reply_len);
+}
+
+static void test_a_want_asks_less_of_a_lossy_peer(void)
+{
+	peer_t p = { &A, 0, 0, 0, 0, 0 };
+	fzn_node_shelf_t L;
+	char dir_l[96];
+	size_t rounds = 0, done = 0;
+
+	(void)snprintf(dir_l, sizeof(dir_l), "%s/l", top);
+	CHECK(fzn_node_shelf_init(&L, dir_l, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK
+	              && fzn_node_shelf_want(&L, big.root, big.length) == FZN_NODE_SHELF_OK
+	              && L.wants[0].span == FZN_NODE_SHELF_SPAN,
+	      "fixture: L wants the forty-leaf text, asking a whole span first");
+	while (!done && rounds++ < 60u)
+		done = fzn_node_shelf_fetch_wants(&L, lossy_ask, &p);
+	CHECK(done == 1u, "a want from a peer losing large answers never finished");
+	{
+		static const char *const SUFFIX[] = { "", ".bits", ".len" };
+		char path[600];
+		size_t k;
+
+		for (k = 0; k < 3u; k++) {
+			file_of(dir_l, big.root, SUFFIX[k], path, sizeof(path));
+			(void)remove(path);
+		}
+	}
+	CHECK(rmdir(dir_l) == 0, "L's directory empties");
+}
+
 static void test_wants_are_remembered_until_fetched(void)
 {
 	peer_t p = { &A, 0, 0, 0, 0, 0 };
@@ -937,6 +983,7 @@ int main(void)
 	test_the_answer_falls_through_for_what_is_not_a_question();
 	test_a_contact_is_served_only_what_is_permitted();
 	test_wants_are_remembered_until_fetched();
+	test_a_want_asks_less_of_a_lossy_peer();
 	test_the_verbs();
 	test_the_shelf_is_checked_at_rest();
 	test_collecting_removes_only_what_nothing_keeps();

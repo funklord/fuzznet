@@ -93,6 +93,12 @@ typedef struct fzn_node_shelf_want {
 	uint8_t root[FZN_BLOB_HASH_LEN];
 	uint64_t length;
 	int live;
+	/* THE LEAVES A WANT ASKS AT A TIME, sec 839: FZN_NODE_SHELF_SPAN at
+	 * first, halved by an ask not answered and doubled by a span placed,
+	 * kept from round to round. A DATA of sixteen leaves is about 17
+	 * pieces, which at 20 per cent loss arrive together about one time in
+	 * fifty; 0 reads as FZN_NODE_SHELF_SPAN. */
+	uint32_t span;
 } fzn_node_shelf_want_t;
 
 typedef struct fzn_node_shelf {
