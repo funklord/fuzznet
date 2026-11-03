@@ -906,6 +906,15 @@ static int still_assigned(const fzn_node_files_fetching_t *f, size_t slot)
  * already holds. */
 static void charge(fzn_node_files_fetching_t *f, size_t peer, int silent)
 {
+	/* A SPAN THAT DID NOT COME, sec 839: what the peer is asked halves, and
+	 * only a peer silent at a span of one leaf is counted toward giving it
+	 * up. A reply of many pieces is lost whole by losing any one of them,
+	 * and a peer given up on for that never finished a file at 20 per cent
+	 * loss -- one of 31 pieces lost in nearly every try. */
+	if (silent && f->span[peer] > 1u) {
+		f->span[peer] /= 2u;
+		return;
+	}
 	if (f->alive[peer] && ++f->failures[peer] >= 3u) {
 		f->alive[peer] = 0;
 		f->live_peers--;
@@ -944,6 +953,12 @@ fzn_node_files_err_t fzn_node_files_fetching_begin(fzn_node_files_fetching_t *f,
 	f->window = window;
 	f->budget = budget;
 	f->next_transfer = 1;
+	{
+		size_t k;
+
+		for (k = 0; k < FZN_NODE_FILES_PEERS_MAX; k++)
+			f->span[k] = FZN_NODE_FILES_SPAN;
+	}
 	if (fzn_node_files_held(files, root, &have) == FZN_NODE_FILES_OK)
 		return f->err = FZN_NODE_FILES_OK;
 	if (!path_of(files, root, ".len", len_path))
@@ -1046,7 +1061,7 @@ int fzn_node_files_fetching_next(fzn_node_files_fetching_t *f, uint64_t now_ms, 
 			k = (j + f->turn) % f->n_peers;
 			if (!f->alive[k])
 				continue;
-			if (fzn_transfer_next_want(&f->transfer, (uint32_t)k, 0, FZN_NODE_FILES_SPAN,
+			if (fzn_transfer_next_want(&f->transfer, (uint32_t)k, 0, f->span[k],
 			                           now_ms + fzn_node_files_span_deadline_ms(), &range)
 			    != FZN_TRANSFER_OK)
 				break;
@@ -1152,6 +1167,11 @@ void fzn_node_files_fetching_take(fzn_node_files_fetching_t *f, uint32_t tag,
 				                          f->out[slot].range.first,
 				                          f->out[slot].range.count);
 			f->failures[k] = 0;
+			/* DELIVERED: the span doubles back toward the most a want
+			 * asks, sec 839. */
+			if (f->span[k] < FZN_NODE_FILES_SPAN)
+				f->span[k] = f->span[k] * 2u < FZN_NODE_FILES_SPAN ? f->span[k] * 2u
+				                                                  : FZN_NODE_FILES_SPAN;
 		} else {
 			(void)fzn_transfer_failed(&f->transfer, (uint32_t)k, f->out[slot].range.first,
 			                          f->out[slot].range.count);

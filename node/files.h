@@ -308,6 +308,10 @@ size_t fzn_node_files_answer_shared(const fzn_node_files_t *files, const uint8_t
  * which: two peers are never sent the same span, a span a peer does not
  * answer in time goes back to be asked of another, and the window opens by
  * one a window of deliveries and halves on a loss (AIMD, no slow start).
+ * AND A SPAN SHRINKS ON A LOSS TOO, sec 839: a reply of many pieces comes
+ * only if every piece does -- 31 at 20 per cent loss arrive together one
+ * time in a thousand -- so a span not answered halves what that peer is
+ * asked next, down to one leaf, and a span delivered doubles it back.
  * A peer that fails three times running -- spans that did not prove, or
  * did not come -- is asked nothing more this fetch.
  *
@@ -402,6 +406,10 @@ typedef struct fzn_node_files_fetching {
 	} out[FZN_TRANSFER_MAX_ASSIGNS];
 	uint8_t cookies[FZN_NODE_FILES_PEERS_MAX][FZN_MSG_COOKIE_LEN];
 	unsigned failures[FZN_NODE_FILES_PEERS_MAX];
+	/* THE LEAVES A WANT ASKS OF EACH PEER, sec 839: FZN_NODE_FILES_SPAN at
+	 * first, halved by a span that does not come and doubled again by one
+	 * that does. */
+	uint32_t span[FZN_NODE_FILES_PEERS_MAX];
 	int alive[FZN_NODE_FILES_PEERS_MAX];
 	int asked[FZN_NODE_FILES_PEERS_MAX];  /* 0 not, 1 out, 2 answered */
 	size_t live_peers, holders, n_out, turn;

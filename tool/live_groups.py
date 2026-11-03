@@ -26,6 +26,10 @@ not know each other.
        and the group there has two members
     c2 A and B hold the secret of the epoch C's leave began
 
+`--loss P` runs every daemon at FZN_FAULT_LOSS=P, one seed per run, against
+a daemon built by `make fuzznetd-faults`: sec 689's scenario bar for groups
+(sec 839), with three times the rounds and the time for each wait.
+
 Against a daemon that answers no group sync, phase a never learns the
 group; against one whose log takes an act made by a member who is not an
 admin, nothing here notices -- group_log_test does.
@@ -91,8 +95,16 @@ def epoch(sock, who, name):
 
 
 def main(argv):
-	if len(argv) != 2:
-		print("usage: live_groups.py PATH_TO_FUZZNETD", file=sys.stderr)
+	global ROUNDS
+	if len(argv) == 4 and argv[2] == "--loss" and argv[3].isdigit():
+		# UNDER LOSS a round may miss what it asked for, so each wait has
+		# more rounds and the whole more time (sec 839).
+		os.environ["FZN_FAULT_LOSS"] = argv[3]
+		os.environ["FZN_FAULT_SEED"] = str(os.getpid())
+		ROUNDS *= 3
+		live_trim.DEADLINE = time.monotonic() + 1500.0
+	elif len(argv) != 2:
+		print("usage: live_groups.py PATH_TO_FUZZNETD [--loss P]", file=sys.stderr)
 		return 2
 
 	class run:
@@ -319,15 +331,25 @@ def main(argv):
 			# steps (sec 694) and may end after the round's end marker, in a
 			# daemon the next turn replaces, whose successor finds the file
 			# whole and says nothing -- sec 675's unexplained failure.
+			#
+			# B UP THROUGHOUT, and each C given time after its round: a fetch
+			# steps on after the round's end marker, and turning B every round
+			# restarted the one host holding the file in the middle of it. At
+			# 20 per cent loss the resends made the fetch outlast that gap in
+			# one run of two (sec 839).
 			c_runs = []
+			turn("b", "b-f")
 			for rnd in range(ROUNDS):
-				for who in ("b", "c"):
-					turn(who, "%s-f%d" % (who, rnd))
+				turn("c", "c-f%d" % rnd)
 				c_runs.append(started["c"])
-				for d in c_runs:
-					whole = WHOLE_RE.search(d.log())
-					if whole:
-						break
+				until = time.monotonic() + 20.0
+				while not whole and time.monotonic() < until:
+					for d in c_runs:
+						whole = WHOLE_RE.search(d.log())
+						if whole:
+							break
+					if not whole:
+						time.sleep(0.5)
 				if whole:
 					break
 				expect(socks["c"], "c", "fetch file " + ref, "ok")

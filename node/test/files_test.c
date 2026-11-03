@@ -536,6 +536,59 @@ static void test_the_fetch_as_steps(const fzn_node_files_t *A, const fzn_node_fi
 	CHECK(entries(dir_s) == 0u && rmdir(dir_s) == 0, "the stepped fetch's store did not empty");
 }
 
+/* A PEER WHOSE LARGE ANSWERS ARE LOST, sec 839: a reply of more than four
+ * leaves never arrives, as one of 31 pieces at 20 per cent loss nearly
+ * never does. The span asked of it shrinks to what comes, and the file is
+ * whole at the end; asked 64 leaves a time, the peer was given up on after
+ * three silences and the fetch ended with nothing. */
+static void test_a_lossy_peer_is_asked_less(const fzn_node_files_t *A,
+                                            const fzn_node_file_ref_t *ref)
+{
+	static fzn_node_files_t B;
+	static fzn_node_files_fetching_t f;
+	static uint8_t reply[FZN_NODE_FILES_REPLY_MAX];
+	uint8_t requests[8][FZN_MSG_WANT_LEN];
+	size_t lens[8], peer, n, i, holders = 0, passes = 0, lost = 0;
+	uint32_t tags[8];
+	uint64_t placed = 0, length = 0;
+	char dir_s[160], out_s[160];
+
+	(void)snprintf(dir_s, sizeof(dir_s), "%s/lossy", top);
+	(void)snprintf(out_s, sizeof(out_s), "%s/lossy_out", top);
+	CHECK(fzn_node_files_init(&B, dir_s, &HASH, &AEAD, &RNG) == FZN_NODE_FILES_OK
+	              && fzn_node_files_want(&B, ref->root, ref->length) == FZN_NODE_FILES_OK
+	              && fzn_node_files_fetching_begin(&f, &B, ref->root, 1u, 4u, UINT64_MAX)
+	                         == FZN_NODE_FILES_OK,
+	      "fixture: a fetch from a lossy peer, begun at B");
+	while (!fzn_node_files_fetching_over(&f) && passes++ < 20000u) {
+		for (n = 0; n < 8u && fzn_node_files_fetching_next(&f, 1000u, &peer, &tags[n], requests[n],
+		                                                   sizeof(requests[n]), &lens[n]);
+		     n++)
+			;
+		for (i = 0; i < n; i++) {
+			size_t len = fzn_node_files_answer(A, requests[i], lens[i], reply, sizeof(reply));
+
+			if (!(tags[i] & FZN_NODE_FILES_TAG_HOLDS)
+			    && f.out[tags[i] & 0xffu].range.count > 4u) {
+				lost++;
+				fzn_node_files_fetching_take(&f, tags[i], NULL, 0, 1000u);
+				continue;
+			}
+			fzn_node_files_fetching_take(&f, tags[i], len ? reply : NULL, len, 1000u);
+		}
+	}
+	CHECK(lost > 0u, "fixture: no answer large enough to lose was asked for");
+	CHECK(fzn_node_files_fetching_end(&f, &placed, &holders) == FZN_NODE_FILES_OK
+	              && fzn_node_files_held(&B, ref->root, &length) == FZN_NODE_FILES_OK
+	              && length == ref->length
+	              && fzn_node_files_export(&B, ref, out_s) == FZN_NODE_FILES_OK
+	              && same_files(src_path, out_s),
+	      "a fetch from a peer losing large answers did not end whole");
+	(void)remove(out_s);
+	(void)fzn_node_files_remove(&B, ref->root);
+	CHECK(entries(dir_s) == 0u && rmdir(dir_s) == 0, "the lossy fetch's store did not empty");
+}
+
 int main(void)
 {
 	static const size_t SIZES[] = { 1u, 1024u, 1025u, (70u * 1024u) + 17u, 300u * 1024u };
@@ -1094,6 +1147,7 @@ int main(void)
 		              && fzn_node_files_put(&F, src_path, &stepped) == FZN_NODE_FILES_OK,
 		      "fixture: A holds a file of 301 leaves for the stepped fetch");
 		test_the_fetch_as_steps(&F, &stepped);
+		test_a_lossy_peer_is_asked_less(&F, &stepped);
 		(void)fzn_node_files_remove(&F, stepped.root);
 	}
 

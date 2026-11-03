@@ -3593,6 +3593,13 @@ SABOTAGES = [
 		"another user is answered past the gate for a group verb, as unsupported rather than refused -- sec 839",
 	),
 	(
+		"files-span-shrinks-on-loss",
+		"node/files.c",
+		"\tif (silent && f->span[peer] > 1u) {\n",
+		"\tif (0) {\n",
+		"a peer whose many-piece answers are lost is asked the same span until it is given up on, and a file never finishes at 20 per cent loss -- sec 839",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

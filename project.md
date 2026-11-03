@@ -78351,3 +78351,27 @@ and `admin`, and `get epoch`. Each is refused. A change verb is refused
 by the gate every change verb meets first, and a read by the groups'
 own. Sabotage `groups-own-user-only` and
 `groups-own-user-names-every-verb` hold that gate.
+
+**At 20 per cent loss: a file fetch could not finish, found and fixed.**
+`tool/live_groups.py --loss 20` against `make fuzznetd-faults` failed at
+phase f in two runs of three: C never fetched B's group file. B answered
+C's want twice with one reply of 31103 bytes in 31 pieces.
+- **Cause.** A reply comes only if every piece does, and 31 pieces at
+  20 per cent loss all arrive about one time in a thousand. The resend
+  asked for the same 31 again.
+- A peer silent three times running was then given up on for that
+  fetch. The window halved on loss (AIMD), but a span stayed at
+  `FZN_NODE_FILES_SPAN`, 64 leaves.
+- **Fixed** in `node/files.c`: a span not answered halves what that
+  peer is asked next, down to one leaf. Only a peer silent at a span of
+  one leaf counts toward giving it up, and a span delivered doubles the
+  size back.
+- `node/test/files_test`: a peer that loses every answer of more than
+  four leaves still gives the 301-leaf file whole. With the halving
+  taken out, the fetch ends without it.
+
+The test was changed first, on a wrong diagnosis. Each turn had
+restarted B mid-fetch, and phase f now keeps B up while C fetches. That
+change is kept, since a fetch steps on after the round's end marker
+(sec 694), but it was not the cause: the next run failed the same way
+with B up throughout.
