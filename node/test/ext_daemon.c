@@ -34,6 +34,9 @@
  *   get own           `ok WORD`, --own-word's, or `ok none`
  *   get caller        `ok UID`, the caller's, as `local_from` is handed it
  *                     (sec 849)
+ *
+ * And one procedure, sec 853: `echo` answers `local ARGS` to a local
+ * caller and `remote ARGS` to another host's.
  *   status,           answers this program gives and must never be
  *   list contact      asked for: fuzznet answers both itself, `list
  *                     contact` from the same chain of handlers it asks
@@ -245,6 +248,25 @@ static size_t local_from(void *ctx, fzn_origin_t origin, const fzn_peer_t *peer,
 	return local(ctx, origin, request, reply, cap);
 }
 
+static size_t echo(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
+                   const uint8_t *args, size_t args_len, uint8_t *answer, size_t cap)
+{
+	const char *who = caller ? "remote " : "local ";
+	size_t w = strlen(who);
+
+	(void)ctx;
+	(void)peer;
+	if (w + args_len > cap)
+		return 0;
+	memcpy(answer, who, w);
+	memcpy(answer + w, args, args_len);
+	return w + args_len;
+}
+
+static const fzn_daemon_procedure_t procedures[] = {
+	{ "echo", echo },
+};
+
 static size_t remote(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], int contact,
                      const uint8_t *request, size_t request_len, uint8_t *reply, size_t cap)
 {
@@ -320,7 +342,7 @@ int main(int argc, char **argv)
 	static fzn_daemon_ext_t ext = {
 		NULL, options, sizeof(options) / sizeof(options[0]), option, local, remote, apply,
 		settings, sizeof(settings) / sizeof(settings[0]), own_fds, own_ready, own_tick,
-		NULL, local_from,
+		NULL, local_from, procedures, sizeof(procedures) / sizeof(procedures[0]),
 	};
 
 	static char *given[64];

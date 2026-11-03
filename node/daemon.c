@@ -365,6 +365,8 @@ static void publish_change(const fzn_request_t *request, const char *reply, size
  * change verb the node answered `ok` publishes its subject -- the first
  * word after the verb -- naming the item when the next word is one (hex).
  * A change one UI makes reaches the others. sec 609. */
+static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
+                         const fzn_request_t *request, char *reply, size_t cap);
 static size_t routing_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t reply_cap);
 static size_t card_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -463,8 +465,10 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
                            size_t reply_cap)
 {
-	size_t n = routing_local(origin, request, reply, reply_cap);
+	size_t n = call_local(origin, peer, request, reply, reply_cap);
 
+	if (!n)
+		n = routing_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = card_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -9048,7 +9052,8 @@ static size_t permit_judge(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	if (!next_word(&at, &left, &subject, &subject_len)
 	    || !fzn_node_permit_subject_ok((const char *)subject, subject_len))
 		return 0;
-	right = request->parsed == FZN_VERB_GET || request->parsed == FZN_VERB_LIST
+	right = request->parsed == FZN_VERB_CALL ? FZN_PERMIT_CALL
+	        : request->parsed == FZN_VERB_GET || request->parsed == FZN_VERB_LIST
 	                        || request->parsed == FZN_VERB_STATUS
 	                ? FZN_PERMIT_READ
 	                : FZN_PERMIT_CHANGE;
@@ -13555,6 +13560,189 @@ static void asker_of(const uint8_t key[FZN_PUBKEY_LEN], fzn_node_relay_asker_t *
 	a->contact = running_admin && fzn_node_admin_contact_of(running_admin, key, a->owner);
 }
 
+/* ---- calls, sec 853 ---------------------------------------------------- */
+
+/* THE MOST A PROCEDURE ANSWERS: one remote reply of a few pieces. A local
+ * caller reads it escaped on one line, so a longer answer is paged by the
+ * procedure's own arguments, as every listing here pages. */
+#define FZND_CALL_ANSWER_MAX 4096u
+
+static int call_name_ok(const uint8_t *name, size_t len)
+{
+	size_t i;
+
+	if (len == 0u || len > FZN_CALL_NAME_MAX)
+		return 0;
+	for (i = 0; i < len; i++)
+		if (!((name[i] >= 'a' && name[i] <= 'z') || (name[i] >= '0' && name[i] <= '9')))
+			return 0;
+	return 1;
+}
+
+static const fzn_daemon_procedure_t *procedure_of(const uint8_t *name, size_t len)
+{
+	size_t i;
+
+	if (!daemon_ext || !daemon_ext->procedures)
+		return NULL;
+	for (i = 0; i < daemon_ext->n_procedures; i++) {
+		const fzn_daemon_procedure_t *p = &daemon_ext->procedures[i];
+
+		if (p->name && p->call && strlen(p->name) == len && memcmp(p->name, name, len) == 0)
+			return p;
+	}
+	return NULL;
+}
+
+/* A CALL FROM ANOTHER HOST: an estate member's alone, answered by the
+ * procedure of that name, its bytes carried and read by nothing here. The
+ * answer is the type, a status and the procedure's bytes. */
+static size_t call_remote(const uint8_t *sender, const uint8_t *request, size_t len,
+                          uint8_t *reply, size_t cap)
+{
+	fzn_node_relay_asker_t asker;
+	const fzn_daemon_procedure_t *p;
+	size_t name_len, n;
+
+	if (len < 3u || cap < 3u)
+		return 0;
+	reply[0] = FZN_TYPES_VERSION_SHARED;
+	reply[1] = FZN_TYPE_CALLED;
+	name_len = request[2];
+	asker_of(sender, &asker);
+	if (!asker.member) {
+		reply[2] = FZN_CALL_DENIED;
+		return 3u;
+	}
+	if (len < 3u + name_len || !call_name_ok(request + 3, name_len)
+	    || !(p = procedure_of(request + 3, name_len))) {
+		reply[2] = FZN_CALL_UNKNOWN;
+		return 3u;
+	}
+	n = p->call(daemon_ext->ctx, sender, NULL, request + 3 + name_len, len - 3u - name_len,
+	            reply + 3, cap - 3u < FZND_CALL_ANSWER_MAX ? cap - 3u : FZND_CALL_ANSWER_MAX);
+	if (!n || n > cap - 3u) {
+		reply[2] = FZN_CALL_FAILED;
+		return 3u;
+	}
+	reply[2] = FZN_CALL_OK;
+	return 3u + n;
+}
+
+/* `ok ESCAPED` for an answer's bytes, or an error when it does not fit. */
+static size_t call_said(const uint8_t *answer, size_t n, char *reply, size_t cap)
+{
+	size_t w = 0;
+
+	if (cap < 5u || fzn_escape(answer, n, reply + 3, cap - 5u, &w) != n)
+		return (size_t)snprintf(reply, cap, "error the answer is longer than one reply; "
+		                                    "page it by its arguments\n");
+	memcpy(reply, "ok ", 3u);
+	reply[3u + w] = '\n';
+	return 4u + w;
+}
+
+/* `call NAME [at HOST] [ARGS]`, sec 853: a procedure here, or one of the
+ * estate's other hosts', HOST its key in hex, asked within the round's 3 s
+ * wait. ARGS are the rest of the line, as typed. `ok ANSWER`, the answer
+ * escaped. This node's own user, or one granted `x` on NAME (sec 852). */
+static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
+                         const fzn_request_t *request, char *reply, size_t cap)
+{
+	static uint8_t answer[FZND_CALL_ANSWER_MAX], wire[FZN_REQUEST_MAX + 3u],
+	        got[FZND_CALL_ANSWER_MAX + 3u];
+	const uint8_t *at = request->arg, *name, *w, *args;
+	size_t left = request->arg_len, name_len, w_len, args_len, n = 0, i;
+	uint8_t host[FZN_PUBKEY_LEN];
+	int remote = 0;
+
+	if (request->parsed != FZN_VERB_CALL)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied calls are this node's own user's, or "
+		                                    "granted\n");
+	if (!at || !next_word(&at, &left, &name, &name_len) || !call_name_ok(name, name_len))
+		return (size_t)snprintf(reply, cap, "malformed call NAME [at HOST] [ARGS], NAME a-z "
+		                                    "and 0-9\n");
+	args = at;
+	args_len = left;
+	{
+		const uint8_t *save = at;
+		size_t save_left = left;
+
+		if (next_word(&at, &left, &w, &w_len) && w_len == 2u && memcmp(w, "at", 2u) == 0) {
+			if (!next_word(&at, &left, &w, &w_len) || w_len != 2u * FZN_PUBKEY_LEN
+			    || !unhex32(w, w_len, host))
+				return (size_t)snprintf(reply, cap, "malformed call NAME at HOST, HOST a "
+				                                    "host's key in hex\n");
+			remote = 1;
+			args = at;
+			args_len = left;
+		} else {
+			at = save;
+			left = save_left;
+		}
+	}
+	while (args_len && args[0] == ' ') {
+		args++;
+		args_len--;
+	}
+	if (!remote) {
+		const fzn_daemon_procedure_t *p = procedure_of(name, name_len);
+
+		if (!p)
+			return (size_t)snprintf(reply, cap, "error no procedure %.*s here\n",
+			                        (int)name_len, (const char *)name);
+		n = p->call(daemon_ext->ctx, NULL, peer, args, args_len, answer, sizeof(answer));
+		if (!n || n > sizeof(answer))
+			return (size_t)snprintf(reply, cap, "error the procedure failed\n");
+		return call_said(answer, n, reply, cap);
+	}
+	/* ANOTHER HOST'S: one this node reaches, asked in turn -- never from
+	 * inside another wait, which would nest one in the other. */
+	if (waiting_in_turn)
+		return (size_t)snprintf(reply, cap, "error the node is waiting on a peer; ask "
+		                                    "again\n");
+	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls; i++)
+		if (memcmp(loop_pulls[i].pairing.node, host, FZN_PUBKEY_LEN) == 0)
+			break;
+	if (!loop_pulls || !loop_npulls || i == *loop_npulls)
+		return (size_t)snprintf(reply, cap, "error that host is not one this node reaches\n");
+	if (3u + name_len + args_len > sizeof(wire))
+		return (size_t)snprintf(reply, cap, "malformed the call is longer than a request\n");
+	wire[0] = FZN_TYPES_VERSION_SHARED;
+	wire[1] = FZN_TYPE_CALL;
+	wire[2] = (uint8_t)name_len;
+	memcpy(wire + 3, name, name_len);
+	if (args_len)
+		memcpy(wire + 3 + name_len, args, args_len);
+	{
+		fzn_caller_t via = loop_pulls[i].caller;
+		uint64_t now = wall_clock();
+		uint32_t msg = 0;
+		size_t wire_len = 3u + name_len + args_len;
+
+		if (fzn_caller_send(&via, wire, wire_len, now + 300u, &msg) != FZN_CALLER_OK
+		    || recv_answering(&via, msg, wire, wire_len, now + 300u, got, sizeof(got), &n)
+		               != FZN_CALLER_OK)
+			return (size_t)snprintf(reply, cap, "error the host did not answer\n");
+		loop_pulls[i].caller.next_msg = via.next_msg;
+	}
+	if (n < 3u || got[0] != FZN_TYPES_VERSION_SHARED || got[1] != FZN_TYPE_CALLED)
+		return (size_t)snprintf(reply, cap, "error the host's answer is not a call's\n");
+	switch (got[2]) {
+	case FZN_CALL_OK:
+		return call_said(got + 3, n - 3u, reply, cap);
+	case FZN_CALL_UNKNOWN:
+		return (size_t)snprintf(reply, cap, "error no procedure %.*s there\n", (int)name_len,
+		                        (const char *)name);
+	case FZN_CALL_DENIED:
+		return (size_t)snprintf(reply, cap, "denied that host calls nothing for this one\n");
+	default:
+		return (size_t)snprintf(reply, cap, "error the procedure failed there\n");
+	}
+}
+
 static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                            size_t request_len, uint8_t *reply, size_t reply_cap)
 {
@@ -13586,6 +13774,10 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 			return 0;
 		return fzn_node_time_answer(request, request_len, wall_ms(), reply, reply_cap);
 	}
+	/* A CALL OF A NAMED PROCEDURE, sec 853. */
+	if (request_len >= 3u && request[0] == FZN_TYPES_VERSION_SHARED
+	    && request[1] == FZN_TYPE_CALL)
+		return call_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
 	    && request[1] == FZN_TYPE_GROUP_SYNC)
 		return group_sync_remote(sender, request, request_len, reply, reply_cap);

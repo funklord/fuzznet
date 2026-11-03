@@ -65,6 +65,16 @@
  * already too far apart for anything else can still be measured. */
 #define FZN_TYPE_TIME_ASK 47u
 #define FZN_TYPE_TIME 48u
+/* A CALL OF A NAMED PROCEDURE, and its answer, sec 853: version 2,
+ * the type, the name's length (1 to 32), the name, the arguments; the
+ * answer the type, a status (`FZN_CALL_*`) and the procedure's bytes. */
+#define FZN_TYPE_CALL 49u
+#define FZN_TYPE_CALLED 50u
+#define FZN_CALL_OK 0u
+#define FZN_CALL_UNKNOWN 1u
+#define FZN_CALL_DENIED 2u
+#define FZN_CALL_FAILED 3u
+#define FZN_CALL_NAME_MAX 32u
 
 /* THE EXTENSIONS' RANGE, sec 674: version 2's types 128 to 191, which
  * fuzznet allocates none of. A daemon's extension answers requests of

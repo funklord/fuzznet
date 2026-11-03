@@ -78905,3 +78905,57 @@ this, and is not built; its code is in a stash, unused.
 - `tool/live_ext.py` b: a well-formed permit is taken when set and a
   malformed one refused.
 - No live check of another user's access: that needs a second uid.
+
+## 853. Remote procedure calls by name, 2026-11-03
+
+The second generic subsystem in the holder's order (sec 852). netcfgd
+answered estate operators through extension types 128 and 129, and
+asked for something that sends such a request to a peer (inbox
+2026-11-03 20:00). The holder wants it generic, and wants the face to
+forward an extension's work "without fully understanding" it. This
+section is the first two steps; forwarding to a follower is the third.
+
+**Built:**
+- **The verb `call NAME [at HOST] [ARGS]`,** a new verb last in the
+  vocabulary (`FZN_VERB_CALL`, so every number before it keeps its
+  value).
+  - NAME is a-z and 0-9, up to 32 bytes. HOST is a host's key in hex.
+    ARGS are the rest of the line.
+  - The answer is `ok ANSWER`, escaped. Errors say which side failed:
+    no procedure here or there, the host did not answer, or it calls
+    nothing for this one.
+- **Two wire types in fuzznet's own range,** `FZN_TYPE_CALL` 49 and
+  `FZN_TYPE_CALLED` 50 (`node/types.h`).
+  - A call is the name's length, the name and the arguments.
+  - The answer is a status (ok, unknown, denied, failed) and the
+    procedure's bytes. fuzznet reads none of those bytes.
+- **Procedures** are a table on the extension, `fzn_daemon_procedure_t`:
+  a name, and a function handed the calling host's key (NULL for a
+  local caller) and a local caller's credentials.
+- **Who may call:**
+  - Remotely, an estate member only. A contact is told the host calls
+    nothing for it. The holder's fleet case is "every node belonging to
+    the same estate should work with an operator authenticated".
+  - Locally, this node's own user, or one granted `x` on NAME by
+    `local/permit/NAME` (sec 852). A call is a right of its own, since
+    only the procedure knows whether it reads or changes.
+- **An answer is at most 4096 bytes,** one remote reply of a few pieces,
+  and must fit one escaped reply line locally. A longer answer pages by
+  its own arguments, as netcfgd's `get status [FROM]` already does.
+- **A call to another host** is asked within the round's 3 s wait, as an
+  introduction is, and refused while the node is already waiting on a
+  peer, rather than nesting the waits. An asynchronous form is later
+  work.
+- **A procedure may run in the middle of a step,** since remote requests
+  are answered in waits. Like `ready`, it should do its own work and
+  not call `fzn_daemon_local`.
+
+**Measured:** in `tool/live_ext.py`:
+- b: `call echo hello world` answers `ok local%20hello%20world`, and an
+  unknown name `error no procedure nosuch here`.
+- c: B calls A's `echo` by A's host key, and A answers it as a remote
+  caller's. With A's dispatch of the type removed, B's call fails.
+
+**Not yet measured:** a contact refused a call. No live script here has
+a contact call an extension's procedure, and `call_remote` is a static
+in `node/daemon.c`.

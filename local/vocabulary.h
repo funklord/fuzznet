@@ -109,11 +109,14 @@ typedef enum fzn_verb {
 	FZN_VERB_FETCH,
 	FZN_VERB_PUT,
 	FZN_VERB_GRANT,
-	FZN_VERB_REVOKE
+	FZN_VERB_REVOKE,
+	/* A NAMED PROCEDURE, here or on another host, sec 853: `call NAME [at
+	 * HOST] [ARGS]`. Last, so every number before it keeps its value. */
+	FZN_VERB_CALL
 } fzn_verb_t;
 
 /* One past the last verb, for a caller walking the set. Not a verb. */
-#define FZN_VERB_COUNT ((size_t)FZN_VERB_REVOKE + 1u)
+#define FZN_VERB_COUNT ((size_t)FZN_VERB_CALL + 1u)
 
 /* The canonical spelling, lowercase ASCII, NUL-terminated; NULL for
  * FZN_VERB_NONE and for a value outside the enum. `fzn_verb_name_len` is the

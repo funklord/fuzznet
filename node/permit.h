@@ -10,7 +10,8 @@
  *
  * So a grant names a SUBJECT -- the word after a verb: `record` in `list
  * record`, `status` in netcfgd's `get status` -- and who may READ it (`get`,
- * `list`, `status`) or also CHANGE it (every other verb). It is the host
+ * `list`, `status`), also CHANGE it (`w`, every other verb, and never
+ * without `r`), or CALL it as a procedure (`x`, sec 853). It is the host
  * setting `local/permit/SUBJECT`, whose value is one or more grants:
  *
  *     group:netcfgd=r user:alice=rw user:#1001=r
@@ -35,6 +36,9 @@
 
 #define FZN_PERMIT_READ 1u
 #define FZN_PERMIT_CHANGE 2u
+/* A CALL of the subject as a procedure, sec 853: only the procedure knows
+ * whether it reads or changes, so it is a right of its own, `x`. */
+#define FZN_PERMIT_CALL 4u
 
 /* The setting's family: `local/permit/` and the subject. */
 #define FZN_PERMIT_KEY_PREFIX "local/permit/"
@@ -55,5 +59,6 @@ const char *fzn_node_permit_check(const uint8_t *value, size_t len);
  * this machine's databases; a name that does not resolve grants nothing. */
 int fzn_node_permit_allows(const uint8_t *value, size_t len, const fzn_peer_t *peer,
                            unsigned right);
+/* (`right` is one of FZN_PERMIT_READ, _CHANGE and _CALL.) */
 
 #endif /* FZN_NODE_PERMIT_H */

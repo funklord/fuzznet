@@ -32,6 +32,19 @@ typedef struct fzn_daemon_option {
 	const char *help;
 } fzn_daemon_option_t;
 
+/* A PROCEDURE, sec 853, a generic remote procedure call: a NAME of a-z and
+ * 0-9, 1 to 32 bytes, and what answers it. `caller` is the calling host's
+ * key, an estate member's -- fuzznet calls no procedure for anybody else --
+ * or NULL for a local caller, whose credentials are `peer` (this node's
+ * own user, or one `local/permit/NAME` grants `x`, sec 852). The answer's
+ * length in `answer`, at most `cap`, or 0 for one that failed. The bytes
+ * are the procedure's own: fuzznet carries them and reads none of them. */
+typedef struct fzn_daemon_procedure {
+	const char *name;
+	size_t (*call)(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
+	               const uint8_t *args, size_t args_len, uint8_t *answer, size_t cap);
+} fzn_daemon_procedure_t;
+
 /* WHAT A DAEMON ADDS TO THE NODE (sec 666 stage 4, as sec 672 rewrote it):
  * the shape of commands on their way into fuzznet, so that one moving in
  * changes nothing for a client.
@@ -135,6 +148,11 @@ typedef struct fzn_daemon_ext {
 	 * or with `--group` a member of that group. */
 	size_t (*local_from)(void *ctx, fzn_origin_t origin, const fzn_peer_t *peer,
 	                     const fzn_request_t *request, char *reply, size_t cap);
+	/* ITS PROCEDURES, sec 853: what fuzznet calls by name, from this
+	 * host's clients (`call NAME ARGS`) and from the estate's other hosts
+	 * (`call NAME at HOST ARGS` there). NULL and 0 for none. */
+	const struct fzn_daemon_procedure *procedures;
+	size_t n_procedures;
 } fzn_daemon_ext_t;
 
 /* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,

@@ -47,6 +47,10 @@ int main(void)
 	/* THE GRAMMAR. */
 	ok(check("group:netcfgd=r") == NULL && check("user:alice=rw  group:#44=r") == NULL,
 	   "well-formed grants were refused");
+	ok(check("user:a=x") == NULL && check("user:a=rx") == NULL && check("user:a=rwx") == NULL,
+	   "a call grant was refused");
+	ok(check("user:a=xr") && check("user:a=rr") && check("user:a=wx") && check("user:a=rq"),
+	   "rights out of order, twice, a change without a read or an unknown right were taken");
 	ok(check("") && check("group:netcfgd") && check("group:netcfgd=w") && check("host:x=r")
 	           && check("user:=r") && check("user:#=r") && check("user:#12a=r")
 	           && check("user:a b=r") && check("user:al;ice=r"),
@@ -70,6 +74,9 @@ int main(void)
 	ok(!allows("user:#2002=rw group:#78=rw", &p, FZN_PERMIT_READ),
 	   "a grant to somebody else was taken as this caller's");
 	ok(allows("user:#9=r group:#77=rw", &p, FZN_PERMIT_CHANGE), "a later grant was not read");
+	ok(allows("user:#2001=x", &p, FZN_PERMIT_CALL) && !allows("user:#2001=x", &p, FZN_PERMIT_READ)
+	           && !allows("user:#2001=rw", &p, FZN_PERMIT_CALL),
+	   "a call grant was not a call alone");
 	/* A GROUP LIST NOT READ is no membership. */
 	peer_of(&p, 2001, 2001, 0, 0);
 	p.groups[0] = 77;
@@ -78,7 +85,7 @@ int main(void)
 	   "a group list the socket could not read was trusted");
 	/* A VALUE THAT DOES NOT PARSE grants nothing, not its first half. */
 	peer_of(&p, 2001, 2001, 1, 0);
-	ok(!allows("user:#2001=r user:bad=x", &p, FZN_PERMIT_READ),
+	ok(!allows("user:#2001=r user:bad=q", &p, FZN_PERMIT_READ),
 	   "half a malformed value was taken");
 	/* BY NAME, from this machine's databases: root is uid 0, group root 0. */
 	peer_of(&p, 0, 0, 1, 0);

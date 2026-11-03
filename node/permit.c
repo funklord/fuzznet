@@ -82,14 +82,20 @@ static int parse_grant(const char *w, size_t n, struct grant *g)
 	}
 	memcpy(g->name, name, name_len);
 	g->name[name_len] = '\0';
-	/* RIGHTS: `r`, or `rw` -- a change without a read is not a grant
-	 * anybody means. */
+	/* RIGHTS: `r`, `w` and `x`, in that order, each at most once; a change
+	 * without a read is not a grant anybody means. */
 	r = (size_t)((w + n) - (eq + 1));
-	if (r == 1u && eq[1] == 'r')
-		g->rights = FZN_PERMIT_READ;
-	else if (r == 2u && eq[1] == 'r' && eq[2] == 'w')
-		g->rights = FZN_PERMIT_READ | FZN_PERMIT_CHANGE;
-	else
+	for (i = 1; i <= r; i++) {
+		unsigned bit = eq[i] == 'r' ? FZN_PERMIT_READ
+		               : eq[i] == 'w' ? FZN_PERMIT_CHANGE
+		               : eq[i] == 'x' ? FZN_PERMIT_CALL
+		                              : 0u;
+
+		if (!bit || g->rights >= bit)
+			return 0;
+		g->rights |= bit;
+	}
+	if (!g->rights || ((g->rights & FZN_PERMIT_CHANGE) && !(g->rights & FZN_PERMIT_READ)))
 		return 0;
 	return 1;
 }
@@ -126,7 +132,8 @@ const char *fzn_node_permit_check(const uint8_t *value, size_t len)
 	int any = 0;
 
 	if (!value || !walk(value, len, NULL, NULL, &any))
-		return "grants are group:NAME=r, user:NAME=rw, or #ID for a NAME, apart by spaces";
+		return "grants are group:NAME=r, user:NAME=rwx -- r, w, x in order, w never without r "
+		       "-- or #ID for a NAME, apart by spaces";
 	return any ? NULL : "no grant";
 }
 
@@ -187,7 +194,8 @@ int fzn_node_permit_allows(const uint8_t *value, size_t len, const fzn_peer_t *p
 	struct asking a;
 	int any = 0;
 
-	if (!value || !peer || (right != FZN_PERMIT_READ && right != FZN_PERMIT_CHANGE))
+	if (!value || !peer
+	    || (right != FZN_PERMIT_READ && right != FZN_PERMIT_CHANGE && right != FZN_PERMIT_CALL))
 		return 0;
 	a.peer = peer;
 	a.right = right;

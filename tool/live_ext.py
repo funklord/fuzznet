@@ -148,6 +148,19 @@ def c_marks(daemon_path, scratch, sock_dir):
 			raise failed("c: B's own option was lost over the join's restart: %r" % got)
 		if ask(socks["b"], "get marks") != "ok 0":
 			raise failed("c: B held a mark before A wrote one")
+		# A CALL ACROSS THE ESTATE, sec 853: B calls A's procedure by A's
+		# host key, and A answers it as a remote caller's.
+		a_host = ask(socks["a"], "get prekey").split()[1][4:68]
+		until = time.monotonic() + 60.0
+		while True:
+			got = ask(socks["b"], "call echo at %s hi there" % a_host)
+			if got == "ok remote%20hi%20there":
+				break
+			if time.monotonic() > until:
+				raise failed("c: B's call of A's echo answered %r" % got)
+			time.sleep(1.0)
+		print("livecheck: c: B called A's procedure by name, and A answered it as a remote "
+		      "caller's")
 		got = ask(socks["a"], "add mark hello")
 		if got != "ok":
 			raise failed("c: add mark at A answered %r" % got)
@@ -251,6 +264,13 @@ def main(argv):
 			got = ask(sock, "set setting host local/permit/status group:root=w")
 			if not got.startswith("malformed"):
 				raise failed("b: a malformed local permit was answered %r" % got)
+			# A PROCEDURE CALLED BY NAME, sec 853: here, its answer escaped.
+			got = ask(sock, "call echo hello world")
+			if got != "ok local%20hello%20world":
+				raise failed("b: call echo answered %r" % got)
+			got = ask(sock, "call nosuch")
+			if not got.startswith("error no procedure nosuch here"):
+				raise failed("b: a call of no procedure answered %r" % got)
 			# THE CALLER'S CREDENTIALS, handed to the extension (sec 849).
 			got = ask(sock, "get caller")
 			if got != "ok %d" % os.getuid():
