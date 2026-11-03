@@ -165,6 +165,20 @@ typedef struct fzn_daemon_ext {
  * `ext` must outlive the call. */
 int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext);
 
+/* NO HUGE PAGES, FROM BEFORE main, sec 862: refuse transparent huge pages
+ * for this process and, where one is already held -- faulted in the bss
+ * before main ran, which no call inside main can undo -- execute this
+ * program again, once, `argv` its arguments. The refusal is inherited over
+ * exec, so the program runs again holding none: about 2 MB less resident
+ * on a machine whose huge pages are "always".
+ *
+ * fuzznetd's main gets this from `fzn_daemon_main`. A daemon with an
+ * extension calls it FIRST in its own main, before it opens anything: an
+ * exec keeps every descriptor not marked close-on-exec, and its main runs
+ * again from the top. Returns when nothing needed doing, or the exec
+ * failed; a kernel without the refusal keeps its default. */
+void fzn_daemon_refuse_huge_pages(char *const *argv);
+
 /* WRITE AN EXTENSION'S RECORD into this host's estate stream, signed as
  * this host, from inside one of the extension's calls while the node
  * serves: `object`, `len` bytes, opening with FZN_SIGNED_VERSION and a

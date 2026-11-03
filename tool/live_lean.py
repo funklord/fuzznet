@@ -193,7 +193,19 @@ def main(argv):
 			listed = ask(sock, "list file")
 			if not listed.startswith("ok ") or root not in listed:
 				raise failed("the lean build did not list the file put, %s: %r" % (root, listed))
-			print("livecheck-lean: kept: status, records, lists and files")
+			# NO HUGE PAGE, sec 862, where the kernel hands them out always:
+			# fuzznetd runs itself again when one was faulted before main.
+			with open("/sys/kernel/mm/transparent_hugepage/enabled") as f:
+				always = "[always]" in f.read()
+			huge = 0
+			with open("/proc/%d/smaps_rollup" % proc.pid) as f:
+				for line in f:
+					if line.startswith("AnonHugePages:"):
+						huge = int(line.split()[1])
+			if always and huge:
+				raise failed("the lean daemon holds %d kB of huge pages" % huge)
+			print("livecheck-lean: kept: status, records, lists and files%s"
+			      % (", and no huge page" if always else ""))
 			if len(argv) == 3:
 				estate(daemon_path, os.path.abspath(argv[2]), scratch, sock_dir)
 		except failed as e:

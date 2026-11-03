@@ -15,8 +15,8 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
        `unsupported`
     b2 its own FIFO, named by `--poke`, read when the node's loop says it is
        readable, and its tick called by the loop (sec 831); and, where the
-       kernel's transparent huge pages are "always", the daemon holds at
-       most one huge page, having asked for none (sec 842)
+       kernel's transparent huge pages are "always", the daemon holds no
+       huge page, having asked for none and run itself again (secs 842, 862)
     b3 a local request asked in-process from its tick is answered by
        fuzznet's handlers, and refused from inside another; a change of its
        own, published from its tick, reaches a `get events` subscriber
@@ -331,10 +331,12 @@ def main(argv):
 					for line in f:
 						if line.startswith("AnonHugePages:"):
 							huge = int(line.split()[1])
-				if huge > 2048:
+				# NONE SINCE sec 862: the daemon runs itself again, once,
+				# when a huge page was faulted before its main.
+				if huge > 0:
 					raise failed("b2: the daemon holds %d kB of huge pages" % huge)
 			print("livecheck: b2: the extension's own descriptor was read when ready, and the "
-			      "node's loop ticked it%s" % (", with no more than one huge page" if always
+			      "node's loop ticked it%s" % (", with no huge page" if always
 			                                   else ""))
 
 			# b3: IN-PROCESS, AND A CLEAN STOP, sec 835.

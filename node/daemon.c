@@ -16246,10 +16246,53 @@ static void raise_descriptors(void)
 	descriptors = r.rlim_cur;
 }
 
+/* ANY HUGE PAGE HELD, as `/proc/self/smaps_rollup` says: 1, or 0 for none
+ * or for no way to tell. */
+static int huge_pages_held(void)
+{
+	char line[128];
+	FILE *f = fopen("/proc/self/smaps_rollup", "r");
+	int held = 0;
+
+	if (!f)
+		return 0;
+	while (fgets(line, sizeof(line), f))
+		if (strncmp(line, "AnonHugePages:", 14) == 0) {
+			held = strtoul(line + 14, NULL, 10) > 0u;
+			break;
+		}
+	(void)fclose(f);
+	return held;
+}
+
+#define FZND_THP_ONCE "FZN_HUGE_PAGES_REFUSED"
+
+void fzn_daemon_refuse_huge_pages(char *const *argv)
+{
+#if defined(__linux__) && defined(PR_SET_THP_DISABLE)
+	/* ONCE: the environment carries that this run is the second, so a
+	 * huge page the kernel still hands out -- a refusal it ignores --
+	 * never loops. */
+	if (prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0) != 0 || getenv(FZND_THP_ONCE) || !argv
+	    || !argv[0] || !huge_pages_held())
+		return;
+	if (setenv(FZND_THP_ONCE, "1", 1) != 0)
+		return;
+	execv("/proc/self/exe", argv);
+#else
+	(void)argv;
+#endif
+}
+
 int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 {
 	const char *sock_path = NULL;
 
+	/* FUZZNETD'S OWN MAIN, with nothing opened before it: run again
+	 * holding no huge page where one was faulted before main (sec 862).
+	 * A daemon with an extension makes the call itself, first. */
+	if (!ext)
+		fzn_daemon_refuse_huge_pages(argv);
 	raise_descriptors();
 	/* NO HUGE PAGES FOR THIS PROCESS, sec 842: most of the node's static
 	 * storage is tables a round may never fill, and with transparent huge

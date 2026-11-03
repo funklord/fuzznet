@@ -354,6 +354,9 @@ static int answered_at(const char *path)
 
 int main(int argc, char **argv)
 {
+	/* FIRST, before anything is opened, as a daemon with an extension
+	 * should (sec 862). */
+	fzn_daemon_refuse_huge_pages(argv);
 	static fzn_daemon_ext_t ext = {
 		NULL, options, sizeof(options) / sizeof(options[0]), option, local, remote, apply,
 		settings, sizeof(settings) / sizeof(settings[0]), own_fds, own_ready, own_tick,

@@ -79449,3 +79449,38 @@ host to find them.
 - a missing or upper-case prefix refused.
 
 Sabotage: `records-listed-under-a-prefix`.
+
+## 862. No huge page from before main: the daemon runs itself again, 2026-11-03
+
+Sec 842 left one 2 MB huge page in the daemon's bss. It was faulted
+before `main`, so the `prctl(PR_SET_THP_DISABLE)` made inside main came
+too late for it, and "only a refusal made before exec avoids" it.
+Measured again on today's build, with huge pages "always":
+- 8,192 kB resident, of which 4,856 kB is anonymous and 2,048 kB that
+  one page. The page holds `replay_entries`, a megabyte the node never
+  wrote, in full.
+- With the refusal made by a parent before exec: 6,148 kB, and 2,852 kB
+  anonymous. So the page costs 2 MB, and netcfgd's budget is 4,608 kB.
+
+**Built: `fzn_daemon_refuse_huge_pages(argv)`** (`node/daemon.h`):
+- It refuses huge pages for the process, as before.
+- Where one is already held (`/proc/self/smaps_rollup`'s
+  `AnonHugePages`), it executes the program again, once.
+- The refusal is inherited over exec, so the second run holds none.
+- The environment carries `FZN_HUGE_PAGES_REFUSED` so it never loops,
+  even on a kernel that ignored the refusal.
+- **Who calls it:** fuzznetd gets it from `fzn_daemon_main`. A daemon
+  with an extension must call it itself, first thing in its main. An
+  exec keeps every descriptor not marked close-on-exec and runs main
+  again from the top, so only the program can say nothing was opened
+  before. `fzn_daemon_main` therefore does not do it for an extension.
+  `ext_daemon` calls it first, as netcfgd should.
+
+**Measured after:**
+- fuzznetd: 6,316 kB resident, 2,860 kB anonymous, no huge page.
+- The lean build: 6,188 kB and 2,852 kB.
+- `live_ext` b2 now holds `ext_daemon` to no huge page at all, where
+  before it allowed one. `livecheck-lean` holds the lean fuzznetd to the
+  same.
+- **Control:** `ext_daemon` without the call failed b2, holding
+  2,048 kB of huge pages.
