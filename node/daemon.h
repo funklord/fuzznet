@@ -152,6 +152,17 @@ int fzn_daemon_journal_append(const uint8_t *object, size_t len);
  * follower it is asked of the face, over its socket, within 5 s (sec 838). */
 size_t fzn_daemon_local(const char *line, char *reply, size_t cap);
 
+/* TELL THE NODE'S SUBSCRIBERS, sec 843: `event SUBJECT NAME` to every
+ * client holding `get events` open (sec 669), as fuzznet's own changes are
+ * told -- SUBJECT lower-case letters and hyphens, at most 16; NAME lower-
+ * case hex, at most 64, or NULL for `-`. For a change of the daemon's own
+ * that no verb made (a verb an extension answers `ok` already publishes,
+ * sec 825): a client re-reads on it, so a stream of its state is pages read
+ * when told, not a reply that grows. From `tick` only. The subscribers it
+ * reached; 0 for none, a word refused, or a follower, whose clients are
+ * the face's (sec 838). */
+size_t fzn_daemon_publish(const char *subject, const char *name);
+
 /* STOP THE NODE, sec 835: once the pass or the step under way ends,
  * `fzn_daemon_main` closes and removes its local socket, removes the
  * `face` file, releases the claim on the core directory and returns 0, so

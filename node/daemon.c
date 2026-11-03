@@ -8939,6 +8939,14 @@ void fzn_daemon_stop(void)
 	stop_due = 1;
 }
 
+size_t fzn_daemon_publish(const char *subject, const char *name)
+{
+	/* SERVING, and not in the middle of a step, as for a local request. */
+	if (!serving_state || waiting_in_turn)
+		return 0;
+	return fzn_node_events_publish(&node_events, subject, name);
+}
+
 /* A LOCAL REQUEST IN-PROCESS, sec 835: the line read as the socket reads
  * one, judged as this user, and answered by the same handler. */
 size_t fzn_daemon_local(const char *line, char *reply, size_t cap)

@@ -9,7 +9,9 @@
  *                     of what is written there, `T<ms>\n` is a time on the
  *                     monotonic clock to measure the read's lateness
  *                     against, `L` asks the next tick for an in-process
- *                     `status`, and `S` stops the node (sec 835)
+ *                     `status`, `E` for `event ext-poke -` to the node's
+ *                     subscribers (sec 843), and `S` stops the node (sec
+ *                     835)
  *   --own-word=WORD   this program's own option, parsed here and NOT
  *                     handed to fuzznet, as netcfgd's are: kept over a
  *                     restart only through `restart_argv` (sec 835)
@@ -67,7 +69,7 @@ static unsigned long pokes, ticks;
 static char poke_line[32];
 static size_t poke_line_len;
 static unsigned long late_ms;
-static int want_inproc;
+static int want_inproc, want_event;
 static char inproc[256] = "ok none\n";
 
 static unsigned long mono_ms(void)
@@ -147,6 +149,8 @@ static void own_ready(void *ctx, int fd)
 			poke_line[poke_line_len++] = c;
 		else if (c == 'L')
 			want_inproc = 1;
+		else if (c == 'E')
+			want_event = 1;
 		else if (c == 'S')
 			fzn_daemon_stop();
 	}
@@ -157,6 +161,10 @@ static void own_tick(void *ctx, uint64_t now)
 	(void)ctx;
 	(void)now;
 	ticks++;
+	if (want_event) {
+		want_event = 0;
+		(void)fzn_daemon_publish("ext-poke", NULL);
+	}
 	if (want_inproc) {
 		size_t n = fzn_daemon_local("status", inproc, sizeof(inproc) - 1u);
 

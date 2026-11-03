@@ -18,7 +18,9 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
        kernel's transparent huge pages are "always", the daemon holds at
        most one huge page, having asked for none (sec 842)
     b3 a local request asked in-process from its tick is answered by
-       fuzznet's handlers, and refused from inside another; asked by its
+       fuzznet's handlers, and refused from inside another; a change of its
+       own, published from its tick, reaches a `get events` subscriber
+       (sec 843); asked by its
        FIFO to stop, the node returns 0 with its socket and `face` file
        removed (sec 835)
     b4 started beside a face on the same store, it follows; its FIFO is
@@ -308,6 +310,30 @@ def main(argv):
 				time.sleep(0.2)
 			if not got.startswith("ok ") or got == "ok refused" or "extension" in got:
 				raise failed("b3: status asked in-process was answered %r" % got)
+			# A CHANGE OF ITS OWN, told to the node's subscribers (sec 843).
+			sub = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+			sub.settimeout(10.0)
+			try:
+				sub.connect(sock)
+				sub.sendall(b"get events\n")
+				heard = b""
+				while not heard.endswith(b"\n"):
+					heard += sub.recv(256)
+				if heard.strip() != b"ok events":
+					raise failed("b3: get events answered %r" % heard)
+				poke(b"E")
+				heard = b""
+				while not heard.endswith(b"\n"):
+					got = sub.recv(256)
+					if not got:
+						break
+					heard += got
+				if heard.strip() != b"event ext-poke -":
+					raise failed("b3: the subscriber heard %r of the extension's change" % heard)
+			except socket.timeout:
+				raise failed("b3: the subscriber heard nothing of the extension's change")
+			finally:
+				sub.close()
 			face = os.path.join(store, "face")
 			if not os.path.exists(face):
 				raise failed("b3: the face file was never written")

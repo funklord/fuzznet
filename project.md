@@ -78523,3 +78523,36 @@ Making those services build options, as `FZN_SPOOL_FILE_ON` and
 `FZN_LOG_FILE_ON` already are, is a large change to a 17,000-line file,
 not yet started. netcfgd keeps the loop behind its own build option
 meanwhile.
+
+## 843. An extension's answer past one line, and its own events, 2026-11-03
+
+netcfgd's ask 9 (sec 840): `ext->local` writes one line of at most
+`FZN_REPLY_MAX`, and `ncfg status --json` is 19,866 bytes, a plan is
+multi-line, and `monitor` is a stream.
+
+**Decided: no new reply framing.** The local protocol is one line per
+request, and every client and the follower's pass-through rely on it. A
+reply in several pieces would make every reader of the socket a parser
+of a second shape. What fuzznet already does covers each case:
+- **Long listings page,** `ok TOTAL FROM ROW ...`, as `list record`,
+  `list sticker` and every listing here do. A client asks again from
+  where the last page ended.
+- **A document is written where the client names,** as `get sticker
+  PACK ID ROLE PATH` writes a rendition and `put`/`get file` move files.
+  So `get status PATH` writes the JSON and answers `ok` and its length.
+  The client is this user's, so the path is its own.
+- **A stream is events,** sec 669's `get events`. A client holds the
+  subscription open, is told `event SUBJECT NAME` when something
+  changed, and reads the state again by the two shapes above.
+
+**Built: `fzn_daemon_publish(subject, name)`**, the one piece an
+extension lacked.
+- A verb an extension answers `ok` already publishes, by sec 825's rule,
+  since its answer comes through the same handler chain.
+- But a change of the daemon's own that no verb made (a link came up, a
+  confirm window closed) could not be told. Now `tick` can tell it.
+- It is refused mid-step, before the node serves, and in a follower,
+  whose clients are the face's.
+- `tool/live_ext.py` b3: a `get events` subscriber hears `event ext-poke
+  -` when the extension's tick publishes it. With the call made to do
+  nothing, it hears nothing.
