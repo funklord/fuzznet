@@ -244,6 +244,11 @@ def main(argv):
 			got = ask(sock, "get nothing")
 			if not got.startswith("unsupported"):
 				raise failed("b: a verb nobody answers was answered %r" % got)
+			# THE CALLER'S CREDENTIALS, handed to the extension (sec 849).
+			got = ask(sock, "get caller")
+			if got != "ok %d" % os.getuid():
+				raise failed("b: the extension was handed the caller %r, not uid %d"
+				             % (got, os.getuid()))
 			print("livecheck: b: the extension answered its verb with its option's value; "
 			      "status and list contact stayed fuzznet's; a garbled answer became error; "
 			      "the rest unsupported")

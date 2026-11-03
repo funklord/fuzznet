@@ -2128,9 +2128,12 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	/* AN EXTENSION'S, sec 673: last, so a verb fuzznet comes to answer is
 	 * fuzznet's from then on. Its answer is held to the reply vocabulary
 	 * and to one line, or a client would read what no fuzznet verb says. */
-	if (admin->extension_local) {
-		size_t n = admin->extension_local(admin->extension_ctx, origin, request, reply,
-		                                  reply_cap);
+	if (admin->extension_local_from || admin->extension_local) {
+		size_t n = admin->extension_local_from
+		                   ? admin->extension_local_from(admin->extension_ctx, origin, peer,
+		                                                 request, reply, reply_cap)
+		                   : admin->extension_local(admin->extension_ctx, origin, request,
+		                                            reply, reply_cap);
 		const uint8_t *detail = NULL;
 		size_t detail_len = 0;
 

@@ -19,6 +19,7 @@
 
 #include "../chain/authz.h"
 #include "../chain/chain.h"
+#include "../local/peer.h"
 #include "../local/vocabulary.h"
 #include "../state/schema.h"
 
@@ -126,6 +127,14 @@ typedef struct fzn_daemon_ext {
 	 * was handed only fuzznet's. NULL-terminated; NULL for the argv given
 	 * to `fzn_daemon_main`. */
 	char *const *restart_argv;
+	/* `local`, handed the caller's credentials as the socket read them
+	 * (`local/peer.h`: uid, gid and the groups with their tri-state), so a
+	 * daemon whose own tiers name users and groups can apply them (sec
+	 * 849). Asked in place of `local` where set; NULL asks `local`. A
+	 * caller reaches it only as fuzznet admits it: this node's own user,
+	 * or with `--group` a member of that group. */
+	size_t (*local_from)(void *ctx, fzn_origin_t origin, const fzn_peer_t *peer,
+	                     const fzn_request_t *request, char *reply, size_t cap);
 } fzn_daemon_ext_t;
 
 /* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,

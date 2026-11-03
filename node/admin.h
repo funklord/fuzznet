@@ -207,6 +207,11 @@ typedef struct fzn_node_admin {
 	 * answered `error` in its place. */
 	size_t (*extension_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
 	                          char *reply, size_t reply_cap);
+	/* THE SAME, handed the caller's credentials too (sec 849); asked in
+	 * place of `extension_local` where set. */
+	size_t (*extension_local_from)(void *ctx, fzn_origin_t origin, const fzn_peer_t *peer,
+	                               const fzn_request_t *request, char *reply,
+	                               size_t reply_cap);
 	/* AND ITS REMOTE REQUESTS, sec 674: version 2's, of a type in
 	 * `node/types.h`'s extensions' range, and nothing else; NULL, and one
 	 * such is `unsupported`. */

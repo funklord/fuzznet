@@ -32,6 +32,8 @@
  *   get nested        `ok N`: what `fzn_daemon_local` answers asked from
  *                     inside a local request, which must be 0
  *   get own           `ok WORD`, --own-word's, or `ok none`
+ *   get caller        `ok UID`, the caller's, as `local_from` is handed it
+ *                     (sec 849)
  *   status,           answers this program gives and must never be
  *   list contact      asked for: fuzznet answers both itself, `list
  *                     contact` from the same chain of handlers it asks
@@ -230,6 +232,19 @@ static size_t local(void *ctx, fzn_origin_t origin, const fzn_request_t *request
 	return n > 0 && (size_t)n < cap ? (size_t)n : 0u;
 }
 
+/* `local`, with the caller's credentials: `get caller` answers its uid. */
+static size_t local_from(void *ctx, fzn_origin_t origin, const fzn_peer_t *peer,
+                         const fzn_request_t *request, char *reply, size_t cap)
+{
+	if (is(request, FZN_VERB_GET, "caller")) {
+		int n = peer ? snprintf(reply, cap, "ok %lu\n", (unsigned long)peer->uid)
+		             : snprintf(reply, cap, "error no caller\n");
+
+		return n > 0 && (size_t)n < cap ? (size_t)n : 0u;
+	}
+	return local(ctx, origin, request, reply, cap);
+}
+
 static size_t remote(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], int contact,
                      const uint8_t *request, size_t request_len, uint8_t *reply, size_t cap)
 {
@@ -305,7 +320,7 @@ int main(int argc, char **argv)
 	static fzn_daemon_ext_t ext = {
 		NULL, options, sizeof(options) / sizeof(options[0]), option, local, remote, apply,
 		settings, sizeof(settings) / sizeof(settings[0]), own_fds, own_ready, own_tick,
-		NULL,
+		NULL, local_from,
 	};
 
 	static char *given[64];

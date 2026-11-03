@@ -78732,3 +78732,41 @@ a round (answered in sec 847). Nothing is dropped.
 **Measured:** in `tool/live_join.py` d2, B sets `host/name my laptop`,
 and A's row for B comes to end `,my%20laptop`. With the name read as
 always `-`, d2 fails.
+
+## 849. An extension handed its caller's credentials; other users not yet, 2026-11-03
+
+netcfgd's request 10 (sec 847) has two halves.
+
+**Built: the credentials.** `fzn_daemon_ext_t` gains `local_from`. It is
+`local` handed the caller as the socket read it (`local/peer.h`: uid,
+gid, and the groups with their tri-state), and is asked in place of
+`local` where set. A daemon whose own tiers name users and groups can
+apply them to the callers fuzznet admits:
+- this node's own user;
+- with `--group`, a member of that group, as `FZN_ORIGIN_LOCAL`.
+
+An in-process request (sec 835) is handed this process's own
+credentials. `tool/live_ext.py` b: the extension's `get caller` answers
+the caller's uid. With `local_from` unset, it is `unsupported`.
+
+The first run of that check failed in the same way while `local_from`
+was set. A rebuild passed, the control failed, and a second full run
+passed. A stale test binary is the likely cause, but that was not
+shown.
+
+**Not built: admitting other local users to an extension's verbs.**
+netcfgd's observe tier is `group:netcfgd`, a desktop's GUI user, while
+the daemon runs as root. fuzznet admits only its own user, or one
+service group with `--group`, and the local serve path calls no handler
+for a denied caller (`node/local.h`). Letting an extension judge other
+users itself widens fuzznet's local authorization. Every local caller
+would then reach a handler, and only the extension's choice would keep
+them from its verbs. That is a change to the model sec 4.x settled, and
+to an interface netcfgd depends on, so it is the holder's.
+- **Proposed:** an extension flag `judges_local`. With it, a caller
+  fuzznet would deny reaches only the extension's `local_from`, never a
+  fuzznet handler and never `get events`, and the extension's refusal is
+  the answer.
+- **Not chosen:** `--group` with a group of the deployment's choosing.
+  It admits the GUI user to fuzznet's own verbs as well, more than
+  netcfgd asks.

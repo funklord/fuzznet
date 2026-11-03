@@ -9343,6 +9343,16 @@ static size_t ext_local(void *ctx, fzn_origin_t origin, const fzn_request_t *req
 	       ? daemon_ext->local(daemon_ext->ctx, origin, request, reply, cap) : 0u;
 }
 
+/* AND WITH THE CALLER'S CREDENTIALS, sec 849, where the extension wants
+ * them; its `local` otherwise. */
+static size_t ext_local_from(void *ctx, fzn_origin_t origin, const fzn_peer_t *peer,
+                             const fzn_request_t *request, char *reply, size_t cap)
+{
+	if (daemon_ext && daemon_ext->local_from)
+		return daemon_ext->local_from(daemon_ext->ctx, origin, peer, request, reply, cap);
+	return ext_local(ctx, origin, request, reply, cap);
+}
+
 static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap)
 {
@@ -16990,8 +17000,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #endif
 #endif
 			admin.card_lifetime = FZND_CARD_LIFETIME;
-			if (ext && ext->local)
+			if (ext && (ext->local || ext->local_from)) {
 				admin.extension_local = ext_local;
+				admin.extension_local_from = ext_local_from;
+			}
 			if (ext && ext->remote)
 				admin.extension_remote = ext_remote;
 #ifdef FZN_RECORD_STORE_FILE_ON
