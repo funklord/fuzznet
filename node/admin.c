@@ -2055,9 +2055,16 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 				return answer_text(reply, reply_cap, FZN_REPLY_DENIED,
 				                   "groups need this node's own user");
 		} else {
+#ifdef FZN_GROUPS_ON
+			/* THE GROUP VERBS, a consumer service left out with
+			 * FZN_GROUPS=0 (sec 856): group logs and lines are still
+			 * synced, kept and relayed for the estate. */
 			n = fzn_node_groups_local(admin->groups, request, reply, reply_cap);
 			if (n)
 				return n;
+#else
+			(void)n;
+#endif
 		}
 	}
 	/* RETENTION RULES, sec 475: the node's own user, whose logs they are. */

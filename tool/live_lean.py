@@ -56,6 +56,7 @@ GONE = {
 	"catalogue": ["list catalog", "get catalog " + "00" * 32],
 	"notes": ["list note top", "add note top hello", "list history " + "00" * 16,
 	          "list shared"],
+	"groups": ["list group", "add group friends", "get group " + "00" * 32],
 }
 
 

@@ -79216,6 +79216,26 @@ what nothing reaches (sec 860).
   test other things. It says SKIPPED otherwise, as for a build without
   log files, and `livecheck-lean` covers the lean build.
 
+**Groups' verbs, the fourth flagged, 2026-11-03.**
+- `FZN_GROUPS=0` compiles the call to `fzn_node_groups_local` out of the
+  admin chain. A lean node can no longer make, join or change a group.
+- It still syncs, keeps and relays group logs and lines for the estate,
+  and another user is still refused group verbs.
+- **It saves only 6 kB.** Lean text is 801,379 bytes: carrying groups is
+  most of their code, and that stays by the holder's rule.
+- `livecheck-lean` asks the lean build `list group`, `add group` and `get
+  group`, which answer `unsupported`. `livecheck` now needs groups on as
+  well as notes.
+
+**Where this leaves it.** The lean build is 801,379 bytes of text, against
+938,419 before this work. Of that 137 kB:
+- 74 kB is the four services' own code;
+- 63 kB is code that was never reachable at all (sec 860).
+
+Nothing else of size is a consumer service: what remains is the node,
+its protocol, messaging, logs, files, and the carriage of every
+service's data.
+
 ## 857. An extension's verbs on a node with no capability, 2026-11-03
 
 netcfgd's first finding of 17:00 (sec 851), at 5e3b41a: a daemon started
