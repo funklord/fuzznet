@@ -38,7 +38,12 @@ typedef struct fzn_daemon_option {
  * or NULL for a local caller, whose credentials are `peer` (this node's
  * own user, or one `local/permit/NAME` grants `x`, sec 852). The answer's
  * length in `answer`, at most `cap`, or 0 for one that failed. The bytes
- * are the procedure's own: fuzznet carries them and reads none of them. */
+ * are the procedure's own: fuzznet carries them and reads none of them.
+ *
+ * A daemon that FOLLOWS the face (sec 666) offers its procedures to the
+ * face, which forwards a call for a name it has none of (sec 853 step 3).
+ * A forwarded local caller's `peer` carries its uid and primary gid and no
+ * group list (`groups_known` 0): the face judged the caller already. */
 typedef struct fzn_daemon_procedure {
 	const char *name;
 	size_t (*call)(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,

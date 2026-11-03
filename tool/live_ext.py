@@ -161,6 +161,24 @@ def c_marks(daemon_path, scratch, sock_dir):
 			time.sleep(1.0)
 		print("livecheck: c: B called A's procedure by name, and A answered it as a remote "
 		      "caller's")
+		# c2: A FOLLOWER'S PROCEDURE CALLED FROM ANOTHER HOST, sec 853 step 3:
+		# A's face has no `fecho`, its follower offers it, and B's call is
+		# forwarded there with B as the caller.
+		follower = daemon(run, "cf", dirs["a"], os.path.join(sock_dir, "cf"),
+		                  extra=["--echo-as=fecho"])
+		started["af"] = follower
+		until = time.monotonic() + 20.0
+		while "offering 1 procedure" not in follower.stderr():
+			if time.monotonic() > until or follower.proc.poll() is not None:
+				raise failed("c2: A's follower offered nothing: %r" % follower.stderr()[-300:])
+			time.sleep(0.2)
+		got = ask(socks["b"], "call fecho at %s from b" % a_host)
+		if got != "ok remote%20from%20b":
+			raise failed("c2: B's call of A's follower's fecho answered %r" % got)
+		follower.stop()
+		del started["af"]
+		print("livecheck: c2: B called a procedure A's follower offered, and A's face "
+		      "forwarded it as a remote caller's")
 		got = ask(socks["a"], "add mark hello")
 		if got != "ok":
 			raise failed("c: add mark at A answered %r" % got)
@@ -390,7 +408,8 @@ def main(argv):
 				ferr_path = os.path.join(scratch, "follower.err")
 				ferr = open(ferr_path, "w")
 				fargs = [a for a in base if not a.startswith("--socket=")]
-				follower = subprocess.Popen(fargs + ["--socket=" + fsock, "--poke=" + fifo],
+				follower = subprocess.Popen(fargs + ["--socket=" + fsock, "--poke=" + fifo,
+				                                     "--echo-as=fecho"],
 				                            stdout=ferr, stderr=subprocess.STDOUT,
 				                            start_new_session=True)
 				try:
@@ -400,6 +419,20 @@ def main(argv):
 							raise failed("b4: the second daemon did not follow: %r"
 							             % open(ferr_path).read()[-300:])
 						time.sleep(0.2)
+					# A PROCEDURE THE FOLLOWER ALONE HAS, sec 853 step 3: the face
+					# forwards it, unread, and answers what the follower said.
+					until = time.monotonic() + 10.0
+					while "offering 1 procedure" not in open(ferr_path).read():
+						if time.monotonic() > until:
+							raise failed("b4: the follower offered no procedure: %r"
+							             % open(ferr_path).read()[-300:])
+						time.sleep(0.2)
+					got = ask(sock, "call fecho via the face")
+					if got != "ok local%20via%20the%20face":
+						raise failed("b4: the face's forward of fecho answered %r" % got)
+					got = ask(sock, "call nosuch")
+					if got != "error no procedure nosuch here":
+						raise failed("b4: an unoffered name answered %r" % got)
 					poke(b"L")
 					until = time.monotonic() + 10.0
 					while "ext_daemon: inproc" not in open(ferr_path).read():
@@ -420,14 +453,17 @@ def main(argv):
 						             % (code, os.path.exists(fsock)))
 					if not ask(sock, "status").startswith("ok "):
 						raise failed("b4: the face stopped serving with its follower")
+					got = ask(sock, "call fecho again")
+					if got != "error no procedure fecho here":
+						raise failed("b4: the stopped follower's fecho answered %r" % got)
 				finally:
 					if follower.poll() is None:
 						os.killpg(follower.pid, signal.SIGKILL)
 						follower.wait(timeout=10)
 					ferr.close()
 				print("livecheck: b4: following a face, the extension's FIFO was read and its "
-				      "tick ran, its request in-process was the face's, and a stop removed its "
-				      "socket")
+				      "tick ran, its request in-process was the face's, the face forwarded "
+				      "its procedure, and a stop removed its socket and its offer")
 
 				# b5: ON THE FACE'S OWN SOCKET PATH, sec 841.
 				s_err_path = os.path.join(scratch, "shared.err")

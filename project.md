@@ -78913,7 +78913,8 @@ answered estate operators through extension types 128 and 129, and
 asked for something that sends such a request to a peer (inbox
 2026-11-03 20:00). The holder wants it generic, and wants the face to
 forward an extension's work "without fully understanding" it. This
-section is the first two steps; forwarding to a follower is the third.
+section is the three steps: the verb, the wire types and forwarding to a
+follower.
 
 **Built:**
 - **The verb `call NAME [at HOST] [ARGS]`,** a new verb last in the
@@ -78959,3 +78960,58 @@ section is the first two steps; forwarding to a follower is the third.
 **Not yet measured:** a contact refused a call. No live script here has
 a contact call an extension's procedure, and `call_remote` is a static
 in `node/daemon.c`.
+
+**Step 3, built: a follower's procedures, forwarded by the face.**
+- A follower with procedures listens on `procedure/PID.sock` in the core
+  directory (mode 0600, its own user's connections only) and writes
+  `procedure/NAME` for each name, holding that path. This is the face
+  file's shape (sec 666): a file the other process reads, no
+  registration protocol.
+- The face, asked for a name it has none of, locally or from another
+  host, reads the file and forwards one line, `call NAME FROM UID GID
+  ARGS` (FROM the host's key or `-`, ARGS escaped). The follower answers
+  `ok ESCAPED`, `unknown` or `failed`. The face reads neither the
+  arguments nor the answer, which is the holder's "without fully
+  understanding".
+- **Who may call is judged by the face before it forwards,** exactly as
+  for its own procedures. So a follower serves only what the face let
+  through, and a forwarded local caller's `peer` carries uid and primary
+  gid without the group list.
+- **Its own procedures win:** a name the face serves itself is never
+  forwarded. Two followers offering one name: the later file wins.
+- **A follower withdraws on stop,** before taking the face, and at exit.
+  It removes only the files still naming its socket. A follower killed
+  outright leaves a file naming a dead socket; the face logs it and
+  answers that the follower failed, and the next offer overwrites it.
+- **Rejected:** a kept connection from the follower that the face writes
+  calls down. The face's local server is request and reply per
+  connection, and a reversed stream would need it to read answers on a
+  subscribed connection, which is a second protocol. A per-follower
+  socket costs one listener and reuses the client code both ways.
+- This is also netcfgd's finding that a follower's verbs could not be
+  reached: its procedures now can, by `call`.
+
+**Measured, step 3,** in `tool/live_ext.py`:
+- b4: the follower offers `fecho` (ext_daemon's `--echo-as`), the face
+  answers `call fecho via the face` with `ok local%20via%20the%20face`,
+  and once the follower is stopped, `error no procedure fecho here`.
+- c2: B calls `fecho at A`, and A's face forwards it to A's follower as
+  a remote caller's: `ok remote%20from%20b`.
+- Controls: with the forward removed, b4 fails on the follower's name;
+  with the remote path answering `unknown` in its place, c2 fails.
+
+**netcfgd's message, inbox 2026-11-03 20:00,** recorded here:
+- It uses extension types **128** (a request: one line of netcfgd's local
+  vocabulary, `get status [FROM]` first) and **129** (its answer, `ok
+  TOTAL FROM COUNT`, a newline and COUNT bytes, paged; `denied`,
+  `malformed` or `error` and a sentence otherwise). Both are listed in
+  `node/types.h` with their owner now. A contact is refused; a member is
+  judged by netcfgd's own `remote` block.
+- It asked for a local verb sending an extension's request to a peer,
+  `ask extension PEER TYPE HEXBODY`, since `--ask` takes only fuzznet's
+  verbs and nothing let its tests drive the remote hop. **`call` is the
+  answer, generically:** netcfgd registers `status` as a procedure and an
+  operator's tooling runs `call status at HOST [FROM]`. No per-type send
+  verb is added, because it would hand fuzznet bytes it cannot judge,
+  where a procedure name is something a permit (sec 852) can name.
+  128 and 129 keep their numbers for peers still speaking them.

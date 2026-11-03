@@ -36,7 +36,9 @@
  *                     (sec 849)
  *
  * And one procedure, sec 853: `echo` answers `local ARGS` to a local
- * caller and `remote ARGS` to another host's.
+ * caller and `remote ARGS` to another host's. `--echo-as=NAME` names it
+ * NAME instead, so a follower can offer a procedure its face has none of
+ * (sec 853 step 3).
  *   status,           answers this program gives and must never be
  *   list contact      asked for: fuzznet answers both itself, `list
  *                     contact` from the same chain of handlers it asks
@@ -95,6 +97,8 @@ static struct {
 } marks[MARKS_MAX];
 static size_t n_marks, last_mark = (size_t)-1;
 
+static char echo_name[33] = "echo";
+
 static const char *option(void *ctx, const char *name, const char *value)
 {
 	(void)ctx;
@@ -105,6 +109,16 @@ static const char *option(void *ctx, const char *name, const char *value)
 		if (strcmp(value, "no") == 0)
 			return "this daemon will not say no";
 		memcpy(greeting, value, strlen(value) + 1u);
+	}
+	if (strcmp(name, "--echo-as") == 0) {
+		size_t i, n = value ? strlen(value) : 0u;
+
+		if (n == 0u || n >= sizeof(echo_name))
+			return "a procedure's name is 1 to 32 of a-z and 0-9";
+		for (i = 0; i < n; i++)
+			if (!((value[i] >= 'a' && value[i] <= 'z') || (value[i] >= '0' && value[i] <= '9')))
+				return "a procedure's name is 1 to 32 of a-z and 0-9";
+		memcpy(echo_name, value, n + 1u);
 	}
 	if (strcmp(name, "--poke") == 0) {
 		if (!value || !*value || strlen(value) >= sizeof(poke_path))
@@ -264,7 +278,7 @@ static size_t echo(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
 }
 
 static const fzn_daemon_procedure_t procedures[] = {
-	{ "echo", echo },
+	{ echo_name, echo },
 };
 
 static size_t remote(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], int contact,
@@ -307,6 +321,7 @@ static const fzn_daemon_option_t options[] = {
 	{ "--greeting", 1, "what `get greeting` answers" },
 	{ "--quiet", 0, "taken, and nothing else" },
 	{ "--poke", 1, "a FIFO to watch among its own descriptors" },
+	{ "--echo-as", 1, "the name its echo procedure is called by" },
 };
 
 /* ITS SETTINGS, sec 686: one of its own, and -- with FZN_EXT_CLASH set in

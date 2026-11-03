@@ -367,6 +367,9 @@ static void publish_change(const fzn_request_t *request, const char *reply, size
  * A change one UI makes reaches the others. sec 609. */
 static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
                          const fzn_request_t *request, char *reply, size_t cap);
+static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *caller,
+                           const fzn_peer_t *peer, const uint8_t *args, size_t args_len,
+                           uint8_t *answer, size_t cap, unsigned *status);
 static size_t routing_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t reply_cap);
 static size_t card_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -13614,10 +13617,20 @@ static size_t call_remote(const uint8_t *sender, const uint8_t *request, size_t 
 		reply[2] = FZN_CALL_DENIED;
 		return 3u;
 	}
-	if (len < 3u + name_len || !call_name_ok(request + 3, name_len)
-	    || !(p = procedure_of(request + 3, name_len))) {
+	if (len < 3u + name_len || !call_name_ok(request + 3, name_len)) {
 		reply[2] = FZN_CALL_UNKNOWN;
 		return 3u;
+	}
+	/* NOT THIS PROCESS'S, and perhaps a follower's: forwarded unread. */
+	if (!(p = procedure_of(request + 3, name_len))) {
+		unsigned status = FZN_CALL_UNKNOWN;
+
+		n = call_forward(request + 3, name_len, sender, NULL, request + 3 + name_len,
+		                 len - 3u - name_len, reply + 3,
+		                 cap - 3u < FZND_CALL_ANSWER_MAX ? cap - 3u : FZND_CALL_ANSWER_MAX,
+		                 &status);
+		reply[2] = (uint8_t)status;
+		return 3u + n;
 	}
 	n = p->call(daemon_ext->ctx, sender, NULL, request + 3 + name_len, len - 3u - name_len,
 	            reply + 3, cap - 3u < FZND_CALL_ANSWER_MAX ? cap - 3u : FZND_CALL_ANSWER_MAX);
@@ -13690,9 +13703,19 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
 	if (!remote) {
 		const fzn_daemon_procedure_t *p = procedure_of(name, name_len);
 
-		if (!p)
-			return (size_t)snprintf(reply, cap, "error no procedure %.*s here\n",
+		if (!p) {
+			unsigned status = FZN_CALL_UNKNOWN;
+
+			n = call_forward(name, name_len, NULL, peer, args, args_len, answer,
+			                 sizeof(answer), &status);
+			if (status == FZN_CALL_OK)
+				return call_said(answer, n, reply, cap);
+			if (status == FZN_CALL_UNKNOWN)
+				return (size_t)snprintf(reply, cap, "error no procedure %.*s here\n",
+				                        (int)name_len, (const char *)name);
+			return (size_t)snprintf(reply, cap, "error the follower serving %.*s failed\n",
 			                        (int)name_len, (const char *)name);
+		}
 		n = p->call(daemon_ext->ctx, NULL, peer, args, args_len, answer, sizeof(answer));
 		if (!n || n > sizeof(answer))
 			return (size_t)snprintf(reply, cap, "error the procedure failed\n");
@@ -15619,6 +15642,271 @@ static size_t follower_ask(const char *line, size_t len, char *reply, size_t cap
 	return got + 1u;
 }
 
+/* ---- procedures a follower serves, sec 853 step 3 ----------------------
+ *
+ * A FOLLOWER WITH PROCEDURES OFFERS THEM to the face: it listens on a socket
+ * of its own, `procedure/PID.sock` in the core directory, and writes a file
+ * `procedure/NAME` for each name holding that socket's path -- the shape of
+ * the face file. The face, asked `call NAME` for a name it has none of,
+ * reads that file and forwards the call as one line,
+ *
+ *     call NAME FROM UID GID ARGS
+ *
+ * FROM the calling host's key in hex or `-` for a local caller, UID and GID
+ * a local caller's or `-`, ARGS escaped (one word, possibly empty). The
+ * follower answers `ok ESCAPED`, `unknown` or `failed`. Nothing on the face
+ * reads the arguments or the answer: whom the call is from has been judged
+ * already, by the face, before it forwards. The socket is this user's
+ * alone, mode 0600, and a connection of another user is closed unread.
+ *
+ * Two followers offering one name: the later file wins. A follower killed
+ * without its exit leaves a file naming a socket nobody answers on, which
+ * the face reports as the follower failing, and the next offer overwrites. */
+#define PROCEDURE_DIR "procedure"
+#define OFFER_LINE_MAX (64u + 2u * FZN_PUBKEY_LEN + 3u * FZND_CALL_ANSWER_MAX)
+
+static int offer_fd = -1;
+static char offer_sock[1100], offer_core[1100];
+
+static void offer_file(const char *core_dir, const char *name, char *out, size_t cap)
+{
+	(void)snprintf(out, cap, "%s/" PROCEDURE_DIR "/%s", core_dir, name);
+}
+
+/* THE OFFERS WITHDRAWN: each name's file that is still this process's, and
+ * the socket. Another follower's later offer of a name is left alone. */
+static void offers_withdraw(void)
+{
+	size_t i;
+
+	if (offer_fd < 0)
+		return;
+	for (i = 0; daemon_ext && daemon_ext->procedures && i < daemon_ext->n_procedures; i++) {
+		const char *name = daemon_ext->procedures[i].name;
+		char path[1200], held[1100];
+		FILE *f;
+		size_t n;
+
+		if (!name || !call_name_ok((const uint8_t *)name, strlen(name)))
+			continue;
+		offer_file(offer_core, name, path, sizeof(path));
+		if (!(f = fopen(path, "r")))
+			continue;
+		n = fread(held, 1u, sizeof(held) - 1u, f);
+		(void)fclose(f);
+		while (n && held[n - 1u] == '\n')
+			n--;
+		held[n] = '\0';
+		if (strcmp(held, offer_sock) == 0)
+			(void)unlink(path);
+	}
+	fzn_socket_close(offer_fd, offer_sock);
+	offer_fd = -1;
+}
+
+/* THE OFFERS MADE, where this daemon has procedures; said when they cannot
+ * be, and the follower goes on without them. */
+static void offers_make(const char *core_dir)
+{
+	static int registered;
+	char dir[1100];
+	size_t i;
+	int n;
+
+	if (!daemon_ext || !daemon_ext->procedures || !daemon_ext->n_procedures)
+		return;
+	(void)snprintf(offer_core, sizeof(offer_core), "%s", core_dir);
+	(void)snprintf(dir, sizeof(dir), "%s/" PROCEDURE_DIR, core_dir);
+	if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
+		fprintf(stderr, "fuzznetd: could not make %s; this follower's procedures are not "
+		                "offered\n", dir);
+		return;
+	}
+	n = snprintf(offer_sock, sizeof(offer_sock), "%s/%ld.sock", dir, (long)getpid());
+	if (n < 0 || (size_t)n >= sizeof(offer_sock) || fzn_socket_path_ok(offer_sock) != FZN_SOCKET_OK
+	    || fzn_socket_listen(offer_sock, 0600u, 8, &offer_fd) != FZN_SOCKET_OK) {
+		fprintf(stderr, "fuzznetd: could not listen on %s; this follower's procedures are "
+		                "not offered\n", offer_sock);
+		offer_fd = -1;
+		return;
+	}
+	if (!registered) {
+		(void)atexit(offers_withdraw);
+		registered = 1;
+	}
+	for (i = 0; i < daemon_ext->n_procedures; i++) {
+		const char *name = daemon_ext->procedures[i].name;
+		char path[1200], tmp[1210];
+		FILE *f;
+
+		if (!name || !daemon_ext->procedures[i].call
+		    || !call_name_ok((const uint8_t *)name, strlen(name)))
+			continue;
+		offer_file(core_dir, name, path, sizeof(path));
+		n = snprintf(tmp, sizeof(tmp), "%s.%ld", path, (long)getpid());
+		if (n < 0 || (size_t)n >= sizeof(tmp) || !(f = fopen(tmp, "w")))
+			continue;
+		(void)fprintf(f, "%s\n", offer_sock);
+		if (fclose(f) != 0 || rename(tmp, path) != 0)
+			(void)unlink(tmp);
+	}
+	fprintf(stderr, "fuzznetd: offering %zu procedure(s) to the face on %s\n",
+	        daemon_ext->n_procedures, offer_sock);
+}
+
+/* ONE FORWARDED CALL ANSWERED, the face's connection accepted on the
+ * offer socket: one line read within 3 s, the procedure run, one line
+ * written. */
+static void offer_serve(void)
+{
+	static uint8_t line_buf[OFFER_LINE_MAX], args[FZND_CALL_ANSWER_MAX],
+	        answer[FZND_CALL_ANSWER_MAX];
+	static char said[8u + 3u * FZND_CALL_ANSWER_MAX];
+	const uint8_t *at, *name, *from, *uid_w, *gid_w, *esc = NULL;
+	size_t left, name_len, from_len, uid_len, gid_len, esc_len = 0, args_len = 0, got = 0, n;
+	uint8_t caller[FZN_PUBKEY_LEN];
+	const fzn_daemon_procedure_t *p;
+	fzn_peer_t peer, them;
+	struct timeval tv = { 3, 0 };
+	int fd = -1, local_caller = 0;
+
+	if (fzn_socket_accept(offer_fd, &fd, &them) != FZN_SOCKET_OK)
+		return;
+	if (them.uid != (uint32_t)getuid()) {
+		(void)close(fd);
+		return;
+	}
+	(void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	while (got < sizeof(line_buf)) {
+		ssize_t r = read(fd, line_buf + got, sizeof(line_buf) - got);
+
+		if (r <= 0)
+			break;
+		got += (size_t)r;
+		if (memchr(line_buf, '\n', got))
+			break;
+	}
+	at = line_buf;
+	{
+		const uint8_t *nl = memchr(line_buf, '\n', got);
+
+		left = nl ? (size_t)(nl - line_buf) : 0u;
+	}
+	memset(&peer, 0, sizeof(peer));
+	if (!left || !next_word(&at, &left, &name, &name_len) || name_len != 4u
+	    || memcmp(name, "call", 4u) != 0 || !next_word(&at, &left, &name, &name_len)
+	    || !call_name_ok(name, name_len) || !next_word(&at, &left, &from, &from_len)
+	    || !next_word(&at, &left, &uid_w, &uid_len) || !next_word(&at, &left, &gid_w, &gid_len)
+	    || (from_len != 1u && !unhex32(from, from_len, caller))) {
+		say_to(fd, "failed\n");
+		(void)close(fd);
+		return;
+	}
+	if (next_word(&at, &left, &esc, &esc_len)
+	    && !fzn_unescape(esc, esc_len, args, sizeof(args), &args_len)) {
+		say_to(fd, "failed\n");
+		(void)close(fd);
+		return;
+	}
+	if (uid_len > 1u || uid_w[0] != '-') {
+		long long v;
+
+		local_caller = 1;
+		peer.uid = word_number(uid_w, uid_len, 0, 4294967295LL, &v) ? (uint32_t)v : 0u;
+		peer.primary_gid = word_number(gid_w, gid_len, 0, 4294967295LL, &v) ? (uint32_t)v
+		                                                                     : 0u;
+		/* THE GROUP LIST IS NOT CARRIED: the face judged the caller by it. */
+		peer.groups_known = 0;
+	}
+	if (!(p = procedure_of(name, name_len))) {
+		say_to(fd, "unknown\n");
+		(void)close(fd);
+		return;
+	}
+	n = p->call(daemon_ext->ctx, from_len == 1u ? NULL : caller, local_caller ? &peer : NULL,
+	            args, args_len, answer, sizeof(answer));
+	if (!n || n > sizeof(answer)) {
+		say_to(fd, "failed\n");
+		(void)close(fd);
+		return;
+	}
+	{
+		size_t w = 0;
+
+		memcpy(said, "ok ", 3u);
+		(void)fzn_escape(answer, n, said + 3, sizeof(said) - 4u, &w);
+		said[3u + w] = '\n';
+		(void)follow_send(fd, said, 4u + w);
+	}
+	(void)close(fd);
+}
+
+/* A CALL OF A NAME THIS PROCESS HAS NONE OF, forwarded to the follower
+ * that offered it, sec 853 step 3: the answer's length, `*status` OK; or 0
+ * with UNKNOWN where no follower offered it, FAILED where one did and
+ * could not answer. The face's alone; a follower forwards nothing. */
+static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *caller,
+                           const fzn_peer_t *peer, const uint8_t *args, size_t args_len,
+                           uint8_t *answer, size_t cap, unsigned *status)
+{
+	static char line[OFFER_LINE_MAX], got[8u + 3u * FZND_CALL_ANSWER_MAX];
+	char path[1200], sock[1100], nm[FZN_CALL_NAME_MAX + 1u], from[2u * FZN_PUBKEY_LEN + 1u];
+	size_t w = 0, at, got_len = 0, n = 0, i;
+	FILE *f;
+	int fd = -1;
+
+	*status = FZN_CALL_UNKNOWN;
+	if (!face_dir || name_len > FZN_CALL_NAME_MAX)
+		return 0;
+	memcpy(nm, name, name_len);
+	nm[name_len] = '\0';
+	offer_file(face_dir, nm, path, sizeof(path));
+	if (!(f = fopen(path, "r")))
+		return 0;
+	n = fread(sock, 1u, sizeof(sock) - 1u, f);
+	(void)fclose(f);
+	while (n && sock[n - 1u] == '\n')
+		n--;
+	sock[n] = '\0';
+	*status = FZN_CALL_FAILED;
+	if (!n || args_len > FZND_CALL_ANSWER_MAX)
+		return 0;
+	if (caller)
+		for (i = 0; i < FZN_PUBKEY_LEN; i++)
+			(void)snprintf(from + 2u * i, 3u, "%02x", caller[i]);
+	else
+		memcpy(from, "-", 2u);
+	if (peer)
+		at = (size_t)snprintf(line, sizeof(line), "call %s %s %lu %lu ", nm, from,
+		                      (unsigned long)peer->uid, (unsigned long)peer->primary_gid);
+	else
+		at = (size_t)snprintf(line, sizeof(line), "call %s %s - - ", nm, from);
+	if (fzn_escape(args, args_len, line + at, sizeof(line) - at - 1u, &w) != args_len)
+		return 0;
+	line[at + w] = '\n';
+	if (fzn_client_connect(sock, &fd) != FZN_CLIENT_OK) {
+		say(FZN_ENTRY_WARNING, "node/call", "the follower offering %s does not answer at %s",
+		    nm, sock);
+		return 0;
+	}
+	if (follow_send(fd, line, at + w + 1u) != (ssize_t)(at + w + 1u)
+	    || fzn_client_recv(fd, (uint8_t *)got, sizeof(got) - 1u, &got_len, 3000u)
+	               != FZN_CLIENT_OK) {
+		fzn_client_close(fd);
+		return 0;
+	}
+	fzn_client_close(fd);
+	if (got_len == 7u && memcmp(got, "unknown", 7u) == 0) {
+		*status = FZN_CALL_UNKNOWN;
+		return 0;
+	}
+	if (got_len < 3u || memcmp(got, "ok ", 3u) != 0
+	    || !fzn_unescape((const uint8_t *)got + 3, got_len - 3u, answer, cap, &n) || !n)
+		return 0;
+	*status = FZN_CALL_OK;
+	return n;
+}
+
 /* ONE CONNECTION PASSED THROUGH: a client's, and the follower's own to the
  * face, the bytes copied each way as they come -- so a request is answered
  * as the face answers it, and `get events` streams as long as either end
@@ -15719,7 +16007,7 @@ static int follow_step(follow_t *f, const short ev[2])
 
 static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_t *claim)
 {
-	static struct pollfd pfd[1u + 2u * FOLLOW_MAX + FZN_NODE_OWN_FDS_MAX];
+	static struct pollfd pfd[1u + 2u * FOLLOW_MAX + FZN_NODE_OWN_FDS_MAX + 1u];
 	int own[FZN_NODE_OWN_FDS_MAX];
 	int lfd = -1;
 	/* THE PATH ITS OWN, to remove at the end; not when it is the face's. */
@@ -15756,8 +16044,9 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 		fprintf(stderr, "fuzznetd: following the face of %s, its clients the face's\n",
 		        core_dir);
 	following_dir = core_dir;
+	offers_make(core_dir);
 	for (;;) {
-		size_t k, n = follows_n, n_own, first_own;
+		size_t k, n = follows_n, n_own, first_own, offer_at;
 		int r;
 
 		pfd[0].fd = lfd;
@@ -15793,7 +16082,14 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 			pfd[first_own + k].events = POLLIN;
 			pfd[first_own + k].revents = 0;
 		}
-		r = poll(pfd, first_own + n_own, 1000);
+		/* AND THE OFFER SOCKET, where this follower offers procedures. */
+		offer_at = first_own + n_own;
+		pfd[offer_at].fd = offer_fd;
+		pfd[offer_at].events = POLLIN;
+		pfd[offer_at].revents = 0;
+		r = poll(pfd, offer_at + 1u, 1000);
+		if (r > 0 && offer_fd >= 0 && (pfd[offer_at].revents & POLLIN))
+			offer_serve();
 		for (k = 0; r > 0 && k < n_own; k++)
 			if (pfd[first_own + k].revents & (POLLIN | POLLHUP | POLLERR))
 				ext_ready(NULL, own[k]);
@@ -15804,6 +16100,7 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 			while (follows_n)
 				follow_drop(follows_n - 1u);
 			fzn_socket_close(lfd, mine);
+			offers_withdraw();
 			following_dir = NULL;
 			return 0;
 		}
@@ -15826,6 +16123,7 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 		 * descriptor. */
 		if (fzn_claim_take(claim) == FZN_CLAIM_OK) {
 			fprintf(stderr, "fuzznetd: the face is gone; starting again as the face\n");
+			offers_withdraw();
 			return start_again(lfd, mine);
 		}
 	}

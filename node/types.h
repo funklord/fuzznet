@@ -81,10 +81,17 @@
  * these types (`node/daemon.h`'s `remote`), and fuzznet hands it nothing
  * else. Each one an extension uses is to be listed here with its owner
  * all the same, so that when it moves into fuzznet it keeps its number
- * and peers on either side of the move still agree (sec 672). None is
- * allocated yet. 192 to 255 are left unallocated for whatever needs a
- * range next. */
+ * and peers on either side of the move still agree (sec 672). 192 to 255
+ * are left unallocated for whatever needs a range next.
+ *
+ * In use, by owner:
+ *   128  netcfgd: a request, one line of netcfgd's local vocabulary
+ *   129  netcfgd: its answer, `ok TOTAL FROM COUNT`, a newline and COUNT
+ *        bytes, or `denied`/`malformed`/`error` and a sentence
+ * (netcfgd's decision 0311; inbox 2026-11-03 20:00, sec 853.) */
 #define FZN_TYPES_EXTENSION_FIRST 128u
 #define FZN_TYPES_EXTENSION_LAST 191u
+#define FZN_TYPES_NETCFGD_REQUEST 128u
+#define FZN_TYPES_NETCFGD_ANSWER 129u
 
 #endif /* FZN_NODE_TYPES_H */
