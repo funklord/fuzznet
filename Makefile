@@ -210,7 +210,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              node/peer_persist.c \
-             node/caller.c node/meter.c node/schema.c node/permit.c node/log_list.c node/clocks.c \
+             node/caller.c node/meter.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
              net/udp.c fault/fault.c \
              node/node.c node/local.c node/remote.c node/serve.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
@@ -312,7 +312,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              local/client.h local/escape.h \
              node/peer_persist.h node/types.h \
-             node/caller.h node/meter.h node/schema.h node/permit.h node/log_list.h node/clocks.h \
+             node/caller.h node/meter.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h fault/fault.h \
              node/node.h node/local.h node/remote.h node/serve.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
@@ -469,7 +469,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
-             node/test/node_test.c node/test/local_test.c node/test/permit_test.c \
+             node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c \
              node/test/serve_test.c node/test/replies_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              spool/test/message_fuzz.c \
@@ -618,6 +618,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/node_test \
              $(BUILD_DIR)/node/test/local_test \
              $(BUILD_DIR)/node/test/permit_test \
+             $(BUILD_DIR)/node/test/stage_test \
              $(BUILD_DIR)/node/test/serve_test \
              $(BUILD_DIR)/node/test/replies_test \
              $(BUILD_DIR)/chunk/test/agreement_test \
@@ -4146,6 +4147,12 @@ $(BUILD_DIR)/node/test/permit_test: $(BUILD_DIR)/node/test/permit_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A staged change, its object and its holding, sec 873.
+$(BUILD_DIR)/node/test/stage_test: $(BUILD_DIR)/node/test/stage_test.o \
+                                   $(BUILD_DIR)/node/stage.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/local_test.o: node/test/local_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -c $< -o $@
@@ -4612,6 +4619,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
               $(BUILD_DIR)/node/streams.o $(if $(CATALOG_ON),$(BUILD_DIR)/node/catalog.o) \
+              $(BUILD_DIR)/node/stage.o \
               $(BUILD_DIR)/node/file_refs.o \
               $(if $(CATALOG_ON),$(BUILD_DIR)/catalog/catalog.o) \
               $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
@@ -6738,7 +6746,7 @@ endif
 	@timeout 500 python3 tool/live_group_backfill.py $(FUZZNETD)
 	@timeout 90 python3 tool/live_socket.py $(FUZZNETD)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
-	@timeout 120 python3 tool/live_ext.py $(EXT_DAEMON)
+	@timeout 560 python3 tool/live_ext.py $(EXT_DAEMON)
 	@timeout 150 python3 tool/live_location.py $(FUZZNETD)
 ifdef STICKERS_ON
 	@timeout 150 python3 tool/live_stickers.py $(FUZZNETD)

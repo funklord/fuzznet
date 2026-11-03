@@ -101,6 +101,12 @@ typedef struct fzn_node_apply {
 	int (*extension)(void *ctx, uint32_t kind, const uint8_t *body, size_t len,
 	                 const uint8_t signer[FZN_PUBKEY_LEN]);
 	void *extension_ctx;
+	/* A STAGED CHANGE OR ITS CONFIRM, sec 873 (`node/stage.h`), signed by
+	 * the record's issuer: 1 held or let go, 0 refused. NULL refuses it,
+	 * as a build with no stages would. */
+	int (*stage)(void *ctx, const uint8_t *body, size_t len,
+	             const uint8_t signer[FZN_PUBKEY_LEN]);
+	void *stage_ctx;
 	/* THE GRANT INDEX: `grants_own` until the caller gives it a larger
 	 * table; NULL reads as that. `grants_wanted` is how large it must be
 	 * when a grant found it full, 0 otherwise. */

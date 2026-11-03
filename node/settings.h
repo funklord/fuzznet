@@ -146,6 +146,29 @@ int fzn_node_settings_get(const fzn_node_settings_t *ns, fzn_scope_t scope,
                           size_t key_len, uint8_t *value, size_t *value_len,
                           fzn_setting_rank_t *rank);
 
+/* A SCOPE AS THE VERBS WRITE IT -- `estate`, `host`, `host=KEYHEX` or
+ * `group=NAME` -- into the scope and what it is about: 1, or 0. */
+int fzn_node_settings_scope_of(const fzn_node_settings_t *ns, const uint8_t *w, size_t w_len,
+                               fzn_scope_t *scope, uint8_t about[FZN_SUBJECT_LEN]);
+
+/* THE SETTING IN FORCE for the cell, sec 873: 1 with its version and its
+ * setter, or 0 when none stands. */
+int fzn_node_settings_standing_of(const fzn_node_settings_t *ns, fzn_scope_t scope,
+                                  const uint8_t about[FZN_SUBJECT_LEN], const uint8_t *key,
+                                  size_t key_len, uint64_t *version,
+                                  uint8_t setter[FZN_PUBKEY_LEN]);
+
+/* WRITE A STAGED SETTING, sec 873: as `fzn_node_settings_write` sets the
+ * cell, and beside it the revert -- the value in force before, or a clear
+ * -- signed at one version past it, into `revert` (FZN_SETTING_MAX), not
+ * journaled. OK with both, or as the write refuses. */
+fzn_node_settings_err_t fzn_node_settings_write_staged(const fzn_node_settings_t *ns,
+                                                       fzn_scope_t scope,
+                                                       const uint8_t about[FZN_SUBJECT_LEN],
+                                                       const uint8_t *key, size_t key_len,
+                                                       const uint8_t *value, size_t value_len,
+                                                       uint8_t *revert, size_t *revert_len);
+
 /*
  * THE VALUE IN FORCE HERE for `key`, sec 868: this host's own cell; else
  * the cell of the first group in this host's `group/member` that sets one;

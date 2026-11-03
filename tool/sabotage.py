@@ -3768,6 +3768,20 @@ SABOTAGES = [
 		"a peer's frame to this node under a routed message id is sent to the asker and lost -- sec 871",
 	),
 	(
+		"stage-signed-by-its-setter",
+		"node/stage.c",
+		"\treturn verify->verify(verify->ctx, out->setter, bytes, len - (size_t)FZN_SIG_LEN,\n\t                      bytes + len - (size_t)FZN_SIG_LEN);",
+		"\treturn 1;",
+		"a stage anybody wrote is held, and a stranger's revert is applied at its deadline -- sec 873",
+	),
+	(
+		"stage-dropped-by-its-setter-alone",
+		"node/stage.c",
+		"\tmemcpy(key + FZN_STAGE_TOKEN_LEN, setter, FZN_PUBKEY_LEN - FZN_STAGE_TOKEN_LEN);",
+		"\tmemset(key + FZN_STAGE_TOKEN_LEN, 0, FZN_PUBKEY_LEN - FZN_STAGE_TOKEN_LEN);",
+		"one setter's confirm lets another's stage of the same token go -- sec 873",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

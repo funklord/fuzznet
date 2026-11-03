@@ -411,13 +411,17 @@ typedef enum fzn_persist_slot {
 	 * user's own acts, one a root. `node/contact_request.h` keeps it. sec
 	 * 858. */
 	FZN_PERSIST_CONTACT_REFUSED = 68u,
+	/* Per staged change: its stage object as it came -- a setting's revert,
+	 * a token and a deadline -- held until its confirm, or applied at the
+	 * deadline. `node/stage.h` keeps it. sec 873. */
+	FZN_PERSIST_STAGE = 69u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 69u
+#define FZN_PERSIST_SLOT_END 70u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

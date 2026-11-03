@@ -79840,3 +79840,61 @@ command propagation. The first, a staged commit, is sec 873.
   after d2;
 - `call nosuch at estate` is `unknown` from each.
 - c, c2 and c3 still pass on the shared helper.
+
+## 873. A staged change: confirmed, or reverted by every host, 2026-11-04
+
+The first of netcfgd's two coordination pieces, which the holder said to
+build on 2026-11-04. Its commit-confirm (netcfgd's `confirm.c`) reverts a
+local plan unless confirmed. The estate's must survive the case it
+exists for: a change that cuts its operator off from the hosts it
+changed. So the revert cannot be the operator's to send.
+
+**The revert is signed at staging, and held by every host.**
+- `set staged SECONDS SCOPE KEY VALUE` writes the cell as `set setting`
+  does, at version V. Beside it, the setter signs the revert: the value
+  in force before, or a clear, at V + 1, newer than the change.
+  - A value that came from a lower rank shows through again by a clear
+    at this rank, rather than being copied up to it.
+- A **stage** object (`FZN_OBJECT_STAGE` 152, `node/stage.h`) carries the
+  revert, a token and a deadline in estate time. It goes in the setter's
+  estate stream after the change, so a host holds the revert of a change
+  it already has.
+  - Every host holds it (store slot `FZN_PERSIST_STAGE` 69).
+  - The answer is `ok TOKEN`.
+- **`add confirm TOKEN`** writes a confirm, the same tag, and every host
+  holding the stage lets it go.
+- **Unconfirmed at the deadline, each host applies the revert itself,**
+  judged as any setting from its setter is.
+  - The revert is a setting the setter signed, so each host reverting is
+    the setter's word, and every host reverts to the same bytes.
+  - Checked each second in the node's loop.
+- **A newer write supersedes the stage.** At the deadline the revert is
+  taken only while the cell still stands at version V by the staged
+  setter. A change made since is the operator's later word, and the
+  revert is dropped rather than undoing it.
+- `list staged` lists what this host holds: `ok N TOKEN,DEADLINE,KEY ...`.
+
+**Rejected: the setter sending the revert at the deadline.** A change
+that cut the setter off would then never be reverted, and that is the
+change the window is for.
+
+**Measured:**
+- `stage_test`, 13 checks:
+  - a stage and a confirm open to themselves;
+  - refused when the revert, the deadline or the token changed, when
+    signed by another key, or when a byte short or long;
+  - a stage with no deadline or revert, or a confirm with either, is not
+    issued;
+  - held, walked and dropped, and a confirm is never held;
+  - two setters' stages of one token are two.
+- `live_ext` d4: A stages three changes with 20 s windows, confirms the
+  second, and writes over the third.
+  - After the deadline, A and B both read the first as before. A never
+    sent a revert, so B's was B's own.
+  - The second reads as confirmed, and the third as the later write.
+  - Neither host holds a stage any more.
+- Sabotage: `stage-signed-by-its-setter`,
+  `stage-dropped-by-its-setter-alone`.
+
+**Not built:** a staged clear (`remove staged`). A stage sets a value;
+a clear can be staged later by the same machinery if a consumer needs it.

@@ -519,6 +519,62 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
 	return fzn_node_settings_learn(ns, bytes, len, rank);
 }
 
+int fzn_node_settings_standing_of(const fzn_node_settings_t *ns, fzn_scope_t scope,
+                                  const uint8_t about[FZN_SUBJECT_LEN], const uint8_t *key,
+                                  size_t key_len, uint64_t *version,
+                                  uint8_t setter[FZN_PUBKEY_LEN])
+{
+	static uint8_t buf[ROW_MAX];
+	uint8_t cell[FZN_SUBJECT_LEN];
+	fzn_setting_t s;
+
+	if (!ready(ns) || !version || !setter
+	    || !fzn_setting_cell_of(scope, about, key, key_len, ns->hash, cell)
+	    || in_force(ns, cell, buf, &s) < 0)
+		return 0;
+	*version = s.version;
+	memcpy(setter, s.setter, FZN_PUBKEY_LEN);
+	return 1;
+}
+
+fzn_node_settings_err_t fzn_node_settings_write_staged(const fzn_node_settings_t *ns,
+                                                       fzn_scope_t scope,
+                                                       const uint8_t about[FZN_SUBJECT_LEN],
+                                                       const uint8_t *key, size_t key_len,
+                                                       const uint8_t *value, size_t value_len,
+                                                       uint8_t *revert, size_t *revert_len)
+{
+	uint8_t prior[FZN_SETTING_VALUE_MAX], setter[FZN_PUBKEY_LEN];
+	size_t prior_len = 0;
+	fzn_setting_rank_t prior_rank, rank;
+	uint64_t version = 0;
+	int had;
+	fzn_node_settings_err_t err;
+
+	if (!revert || !revert_len || !ns || !ns->id || !ns->id->sign || !ns->apply)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	/* THE VALUE BEFORE, what the revert restores. */
+	had = fzn_node_settings_get(ns, scope, about, key, key_len, prior, &prior_len, &prior_rank);
+	err = fzn_node_settings_write(ns, scope, about, key, key_len, 1, value, value_len);
+	if (err != FZN_NODE_SETTINGS_OK)
+		return err;
+	/* THE VERSION IT WAS WRITTEN AT, read back: the write chose it. */
+	if (!fzn_node_settings_standing_of(ns, scope, about, key, key_len, &version, setter)
+	    || memcmp(setter, ns->id->pubkey, FZN_PUBKEY_LEN) != 0
+	    || fzn_node_apply_rank(ns->apply, ns->id->pubkey, scope, about, &rank) != 1)
+		return FZN_NODE_SETTINGS_BACKEND;
+	/* A VALUE FROM A LOWER RANK shows through again by a clear at this one,
+	 * rather than being copied up to it. */
+	if (had && prior_rank != rank)
+		had = 0;
+	return fzn_setting_issue_ranked(ns->id->pubkey, ns->id->sign, scope, about, version + 1u, key,
+	                                key_len, had ? 1 : 0, had ? prior : NULL,
+	                                had ? prior_len : 0u, rank, revert, revert_len)
+	               == FZN_SETTING_OK
+	       ? FZN_NODE_SETTINGS_OK
+	       : FZN_NODE_SETTINGS_MALFORMED;
+}
+
 int fzn_node_settings_rule_key(const fzn_hash_ops_t *hash, const char *text, size_t len,
                                uint8_t key[FZN_NODE_SETTINGS_RULE_KEY_LEN])
 {
@@ -891,6 +947,12 @@ static int scope_of(const fzn_node_settings_t *ns, const uint8_t *w, size_t w_le
 		return fzn_scope_group_id(w + 6, w_len - 6u, about);
 	}
 	return 0;
+}
+
+int fzn_node_settings_scope_of(const fzn_node_settings_t *ns, const uint8_t *w, size_t w_len,
+                               fzn_scope_t *scope, uint8_t about[FZN_SUBJECT_LEN])
+{
+	return ns && w && scope && about && scope_of(ns, w, w_len, scope, about);
 }
 
 int fzn_node_settings_here(const fzn_node_settings_t *ns, const uint8_t *key, size_t key_len,

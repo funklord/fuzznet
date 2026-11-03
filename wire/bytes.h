@@ -311,6 +311,12 @@ typedef enum fzn_signed_object {
 	 * carried beside it. A different layout, so a different tag. */
 	FZN_OBJECT_CARD = 151u,
 
+	/* A STAGED CHANGE OR ITS CONFIRM, sec 873: a setting's revert signed
+	 * at staging, held by every host and applied by each at the deadline
+	 * unless a confirm of its token arrives first. Signed by its setter.
+	 * See `node/stage.h`. */
+	FZN_OBJECT_STAGE = 152u,
+
 	/* NOT A TAG. The next number available, computed by the compiler rather
 	 * than written down, which is what makes the assertions below able to
 	 * notice a tag added without touching them.
@@ -410,7 +416,8 @@ FZN_STATIC_ASSERT(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_QUORUM_SET)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_RETENTION_SET)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_SUCCESSION)
-               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_SETTING),
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_SETTING)
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_STAGE),
                "a signed-object tag has been allocated into the consumer half");
 FZN_STATIC_ASSERT(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
                && FZN_OBJECT_REVOCATION < FZN_OBJECT_RECORD
@@ -434,7 +441,8 @@ FZN_STATIC_ASSERT(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
                && FZN_OBJECT_SETTING < FZN_OBJECT_CONTACT_CARD
                && FZN_OBJECT_CONTACT_CARD < FZN_OBJECT_CONTACT_REQUEST
                && FZN_OBJECT_CONTACT_REQUEST < FZN_OBJECT_GROUP_ACT
-               && FZN_OBJECT_GROUP_ACT < FZN_OBJECT_CARD,
+               && FZN_OBJECT_GROUP_ACT < FZN_OBJECT_CARD
+               && FZN_OBJECT_CARD < FZN_OBJECT_STAGE,
                "signed-object tags must be strictly increasing in the order "
                "they are declared: equal means two objects share a signature, "
                "and out of order means somebody reused a number");
@@ -449,7 +457,7 @@ FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE <= 256u,
  * does not name. This is what makes the chain's coverage total rather than
  * merely correct -- an enumerator appended anywhere moves the marker, and the
  * only way to satisfy this line again is to extend the chain to reach it. */
-FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_CARD + 1u,
+FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_STAGE + 1u,
                "a signed-object tag was added without extending the chain above it");
 
 #endif /* FZN_BYTES_H */

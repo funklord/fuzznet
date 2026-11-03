@@ -104,6 +104,7 @@
 #include "attachments.h"
 #include "file_holds.h"
 #include "stickers.h"
+#include "stage.h"
 #include "clocks.h"
 #include "log_list.h"
 #include "meter.h"
@@ -367,6 +368,8 @@ static void publish_change(const fzn_request_t *request, const char *reply, size
  * A change one UI makes reaches the others. sec 609. */
 static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
                          const fzn_request_t *request, char *reply, size_t cap);
+static size_t staged_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap);
 static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *caller,
                            const fzn_peer_t *peer, const uint8_t *args, size_t args_len,
                            uint8_t *answer, size_t cap, unsigned *status);
@@ -506,6 +509,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = streams_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = location_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = staged_local(origin, request, reply, reply_cap);
 #ifdef FZND_STICKERS
 	if (!n && node_stickers.files)
 		n = fzn_node_stickers_local(&node_stickers, origin, request, reply, reply_cap);
@@ -9043,6 +9048,219 @@ static void ext_tick(void)
 {
 	if (daemon_ext && daemon_ext->tick)
 		daemon_ext->tick(daemon_ext->ctx, wall_clock());
+}
+
+/* ---- staged changes, sec 873 ------------------------------------------ */
+
+static int nibble_of(uint8_t c)
+{
+	return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+}
+
+/* A STAGE OR ITS CONFIRM come in the estate stream of `signer`: a stage
+ * held, its revert a setting `signer` signed; a confirm letting its stage
+ * go. 1 taken, 0 refused (`node_apply.stage`). */
+static int stage_apply(void *ctx, const uint8_t *body, size_t len,
+                       const uint8_t signer[FZN_PUBKEY_LEN])
+{
+	fzn_stage_t st;
+	fzn_setting_t revert;
+
+	(void)ctx;
+	if (!node_apply.store || !node_settings.verify
+	    || !fzn_stage_open(body, len, node_settings.verify, &st)
+	    || memcmp(st.setter, signer, FZN_PUBKEY_LEN) != 0)
+		return 0;
+	if (st.act == FZN_STAGE_ACT_CONFIRM)
+		return fzn_stage_drop(node_apply.store, st.setter, st.token) ? 1 : 1;
+	if (fzn_setting_open(st.revert, st.revert_len, node_settings.verify, &revert)
+	            != FZN_SETTING_OK
+	    || memcmp(revert.setter, signer, FZN_PUBKEY_LEN) != 0)
+		return 0;
+	return fzn_stage_hold(node_apply.store, body, len, &st);
+}
+
+/* THE STAGES DUE, each second: a stage past its deadline has its revert
+ * applied here, judged as any setting from its setter is -- while the cell
+ * still stands at the staged version by the staged setter; a change made
+ * since supersedes it, and the revert is let go unapplied. */
+static size_t stages_reverted, stages_superseded;
+
+static void stage_due(void *ctx, const uint8_t *bytes, size_t len, const fzn_stage_t *st)
+{
+	uint64_t now = *(const uint64_t *)ctx, version = 0;
+	uint8_t setter[FZN_PUBKEY_LEN];
+	fzn_setting_t revert;
+	fzn_setting_rank_t rank;
+
+	(void)bytes;
+	(void)len;
+	if (st->act != FZN_STAGE_ACT_STAGE || st->deadline_ms > now)
+		return;
+	if (fzn_setting_open(st->revert, st->revert_len, node_settings.verify, &revert)
+	            == FZN_SETTING_OK
+	    && fzn_node_settings_standing_of(&node_settings, revert.scope, revert.about, revert.key,
+	                                     revert.key_len, &version, setter)
+	    && version + 1u == revert.version && memcmp(setter, st->setter, FZN_PUBKEY_LEN) == 0
+	    && fzn_node_apply_rank(&node_apply, st->setter, revert.scope, revert.about, &rank) == 1
+	    && fzn_node_settings_learn(&node_settings, st->revert, st->revert_len, rank)
+	               == FZN_NODE_SETTINGS_OK) {
+		stages_reverted++;
+		say(FZN_ENTRY_NOTE, "node/stage", "a staged %.*s unconfirmed at its deadline: reverted",
+		    (int)revert.key_len, (const char *)revert.key);
+	} else {
+		stages_superseded++;
+	}
+	(void)fzn_stage_drop(node_apply.store, st->setter, st->token);
+}
+
+static void stages_tick(void)
+{
+	static uint64_t last;
+	uint64_t now = estate_ms();
+
+	if (!node_apply.store || !node_settings.verify || now / 1000u == last)
+		return;
+	last = now / 1000u;
+	(void)fzn_stage_each(node_apply.store, node_settings.verify, stage_due, &now);
+}
+
+static void stage_row(void *ctx, const uint8_t *bytes, size_t len, const fzn_stage_t *st)
+{
+	struct { char *out; size_t used, cap, n; } *l = ctx;
+	fzn_setting_t revert;
+	size_t k;
+	int m;
+
+	(void)bytes;
+	(void)len;
+	if (st->act != FZN_STAGE_ACT_STAGE
+	    || fzn_setting_open(st->revert, st->revert_len, node_settings.verify, &revert)
+	               != FZN_SETTING_OK
+	    || l->used + 2u * FZN_STAGE_TOKEN_LEN + 26u + revert.key_len >= l->cap)
+		return;
+	l->out[l->used++] = ' ';
+	for (k = 0; k < FZN_STAGE_TOKEN_LEN; k++) {
+		l->out[l->used++] = "0123456789abcdef"[st->token[k] >> 4];
+		l->out[l->used++] = "0123456789abcdef"[st->token[k] & 15u];
+	}
+	m = snprintf(l->out + l->used, l->cap - l->used, ",%llu,%.*s",
+	             (unsigned long long)st->deadline_ms, (int)revert.key_len,
+	             (const char *)revert.key);
+	if (m > 0)
+		l->used += (size_t)m;
+	l->n++;
+}
+
+/* THE VERBS, sec 873, this node's own user only:
+ *
+ *   set staged SECONDS SCOPE KEY VALUE   KEY set at SCOPE as `set setting`
+ *                                        does, reverted on every host in
+ *                                        SECONDS unless confirmed: `ok TOKEN`
+ *   add confirm TOKEN                    the change stands; `ok`
+ *   list staged                          `ok N TOKEN,DEADLINE,KEY ...`, held
+ */
+static size_t staged_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap)
+{
+	const uint8_t *at = request->arg, *w, *key;
+	size_t left = request->arg_len, w_len, key_len;
+	int is_set = request->parsed == FZN_VERB_SET, is_add = request->parsed == FZN_VERB_ADD,
+	    is_list = request->parsed == FZN_VERB_LIST;
+
+	if ((!is_set && !is_add && !is_list) || !at || !next_word(&at, &left, &w, &w_len)
+	    || !((is_add && w_len == 7u && memcmp(w, "confirm", 7u) == 0)
+	         || (!is_add && w_len == 6u && memcmp(w, "staged", 6u) == 0)))
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied staged changes are this node's own user's\n");
+	if (!journal_on || !node_apply.store || !node_settings.id || !node_settings.verify
+	    || !contact_rng_ops)
+		return (size_t)snprintf(reply, cap, "unsupported this node writes no settings\n");
+	if (is_list) {
+		static char rows[FZN_REPLY_MAX];
+		struct { char *out; size_t used, cap, n; } l = { rows, 0, sizeof(rows) - 32u, 0 };
+
+		if (fzn_stage_each(node_apply.store, node_settings.verify, stage_row, &l) < 0)
+			return (size_t)snprintf(reply, cap, "error the stages could not be read\n");
+		return (size_t)snprintf(reply, cap, "ok %zu%.*s\n", l.n, (int)l.used, rows);
+	}
+	if (is_add) {
+		uint8_t token[FZN_STAGE_TOKEN_LEN], obj[FZN_STAGE_MAX];
+		size_t len = 0, i;
+
+		if (!next_word(&at, &left, &w, &w_len) || w_len != 2u * FZN_STAGE_TOKEN_LEN || left)
+			return (size_t)snprintf(reply, cap, "malformed add confirm TOKEN\n");
+		for (i = 0; i < FZN_STAGE_TOKEN_LEN; i++) {
+			int hi = nibble_of(w[2u * i]), lo = nibble_of(w[2u * i + 1u]);
+
+			if (hi < 0 || lo < 0)
+				return (size_t)snprintf(reply, cap, "malformed add confirm TOKEN\n");
+			token[i] = (uint8_t)((hi << 4) | lo);
+		}
+		if (!fzn_stage_issue(node_settings.id->pubkey, node_settings.id->sign,
+		                     FZN_STAGE_ACT_CONFIRM, token, 0u, NULL, 0u, obj, &len)
+		    || fzn_node_journal_append_object(&node_journal, node_settings.id->pubkey,
+		                                      node_settings.id->sign, obj, len, wall_ms(), NULL)
+		               != FZN_NODE_JOURNAL_OK)
+			return (size_t)snprintf(reply, cap, "error the confirm was not written\n");
+		(void)fzn_stage_drop(node_apply.store, node_settings.id->pubkey, token);
+		journal_pushed = 1;
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	{
+		uint8_t about[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX], revert[FZN_SETTING_MAX],
+		        token[FZN_STAGE_TOKEN_LEN], obj[FZN_STAGE_MAX];
+		size_t value_len = 0, revert_len = 0, len = 0, i;
+		unsigned long seconds = 0;
+		fzn_scope_t scope;
+		fzn_node_settings_err_t err;
+		char hex[2u * FZN_STAGE_TOKEN_LEN + 1u];
+
+		if (!next_word(&at, &left, &w, &w_len) || w_len > 5u)
+			return (size_t)snprintf(reply, cap, "malformed set staged SECONDS SCOPE KEY VALUE\n");
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9')
+				return (size_t)snprintf(reply, cap,
+				                        "malformed set staged SECONDS SCOPE KEY VALUE\n");
+			seconds = seconds * 10u + (unsigned long)(w[i] - '0');
+		}
+		if (!seconds || seconds * 1000u > FZN_STAGE_WINDOW_MAX_MS
+		    || !next_word(&at, &left, &w, &w_len)
+		    || !fzn_node_settings_scope_of(&node_settings, w, w_len, &scope, about)
+		    || !next_word(&at, &left, &key, &key_len) || !fzn_setting_key_ok(key, key_len))
+			return (size_t)snprintf(reply, cap, "malformed set staged SECONDS SCOPE KEY VALUE, "
+			                                    "SECONDS 1 to 86400\n");
+		while (left && *at == ' ') {
+			at++;
+			left--;
+		}
+		if (!left || !fzn_unescape(at, left, value, sizeof(value), &value_len))
+			return (size_t)snprintf(reply, cap, "malformed set staged SECONDS SCOPE KEY VALUE\n");
+		if (!contact_rng_ops->fill(contact_rng_ops->ctx, token, sizeof(token)))
+			return (size_t)snprintf(reply, cap, "error no token\n");
+		err = fzn_node_settings_write_staged(&node_settings, scope, about, key, key_len, value,
+		                                     value_len, revert, &revert_len);
+		if (err == FZN_NODE_SETTINGS_REFUSED)
+			return (size_t)snprintf(reply, cap, "denied this node may not set that cell\n");
+		if (err != FZN_NODE_SETTINGS_OK)
+			return (size_t)snprintf(reply, cap, "error the change was not written\n");
+		/* THE STAGE AFTER THE CHANGE in the stream, so every host holds
+		 * the revert of a change it already has. */
+		if (!fzn_stage_issue(node_settings.id->pubkey, node_settings.id->sign,
+		                     FZN_STAGE_ACT_STAGE, token, estate_ms() + seconds * 1000u, revert,
+		                     revert_len, obj, &len)
+		    || fzn_node_journal_append_object(&node_journal, node_settings.id->pubkey,
+		                                      node_settings.id->sign, obj, len, wall_ms(), NULL)
+		               != FZN_NODE_JOURNAL_OK
+		    || stage_apply(NULL, obj, len, node_settings.id->pubkey) != 1)
+			return (size_t)snprintf(reply, cap, "error the change was set and its revert not "
+			                                    "staged; it stands\n");
+		journal_pushed = 1;
+		for (i = 0; i < FZN_STAGE_TOKEN_LEN; i++)
+			(void)snprintf(hex + 2u * i, 3u, "%02x", token[i]);
+		return (size_t)snprintf(reply, cap, "ok %s\n", hex);
+	}
 }
 
 /* A LOCAL CALLER THIS NODE WOULD DENY, judged by the node's own user's
@@ -17989,6 +18207,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_apply.sign = &sign_ops;
 				node_apply.hash = &hash_ops;
 				node_apply.now = wall_clock;
+				/* STAGED CHANGES, sec 873. */
+				node_apply.stage = stage_apply;
 				/* THE ESTATE'S CONFIGURATION, sec 540, judged by the same
 				 * context that applies it. */
 				node_settings.store = store_ops;
@@ -18894,6 +19114,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				(void)fzn_reasm_expire(state.reassembly, wall_clock());
 			/* gpsd's newest fix, when sampling is on, sec 678. */
 			location_tick();
+			stages_tick();
 			ext_tick();
 #ifdef FZN_LOG_FILE_ON
 			log_settings_tick();
@@ -18935,6 +19156,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	serving_state = &state;
 	while (!identity_reset && !rejoin_due && !stop_due) {
 		location_tick();
+		stages_tick();
 		ext_tick();
 #ifdef FZN_LOG_FILE_ON
 		log_settings_tick();

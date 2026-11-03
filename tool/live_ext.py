@@ -63,7 +63,7 @@ import sys
 import tempfile
 import time
 
-DEADLINE_S = 240.0
+DEADLINE_S = 480.0
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import live_trim  # noqa: E402
@@ -249,6 +249,41 @@ def c_marks(daemon_path, scratch, sock_dir):
 			raise failed("d3: an unknown procedure at the estate answered %r" % got)
 		print("livecheck: d3: a call at the estate ran on both hosts, at a group on its one "
 		      "member, and an unknown one was said unknown by each")
+		# d4: A STAGED CHANGE, sec 873: A stages three changes. Unconfirmed,
+		# the first is reverted by each host on its own -- A never sends the
+		# revert, so B's is B's; confirmed, the second stands everywhere; the
+		# third, written over before its deadline, is not undone.
+		def setting(who, key):
+			return ask(socks[who], "get setting estate " + key)
+
+		for line in ("set setting estate stage/a before", "set setting estate stage/c before"):
+			if ask(socks["a"], line) != "ok":
+				raise failed("d4: A's %s was refused" % line)
+		tokens = {}
+		for key, value in (("stage/a", "after"), ("stage/b", "kept"), ("stage/c", "staged")):
+			got = ask(socks["a"], "set staged 20 estate %s %s" % (key, value)).split()
+			if len(got) != 2 or got[0] != "ok" or len(got[1]) != 32:
+				raise failed("d4: set staged %s answered %r" % (key, got))
+			tokens[key] = got[1]
+		if ask(socks["a"], "add confirm " + tokens["stage/b"]) != "ok" \
+		   or ask(socks["a"], "set setting estate stage/c later") != "ok":
+			raise failed("d4: A's confirm or later write was refused")
+		listed = ask(socks["a"], "list staged").split()
+		if listed[:2] != ["ok", "2"] or tokens["stage/b"] in " ".join(listed):
+			raise failed("d4: A's list staged was %r" % listed)
+		until = time.monotonic() + 200.0
+		want = {"stage/a": "ok root before", "stage/b": "ok root kept", "stage/c": "ok root later"}
+		while True:
+			seen = {(w, k): setting(w, k) for w in ("a", "b") for k in want}
+			if all(seen[(w, k)] == want[k] for (w, k) in seen):
+				break
+			if time.monotonic() > until:
+				raise failed("d4: after the deadline the settings stood %r" % seen)
+			time.sleep(2.0)
+		if ask(socks["b"], "list staged") != "ok 0" or ask(socks["a"], "list staged") != "ok 0":
+			raise failed("d4: a stage was still held after its deadline")
+		print("livecheck: d4: an unconfirmed staged change was reverted by A and by B each, a "
+		      "confirmed one stood, and one written over was not undone")
 	finally:
 		for d in started.values():
 			d.stop()
