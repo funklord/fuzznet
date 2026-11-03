@@ -3614,6 +3614,13 @@ SABOTAGES = [
 		"a want whose large answers are lost asks the same sixteen leaves every round, and a long note text never arrives at 20 per cent loss -- sec 839",
 	),
 	(
+		"group-replace-rolls-back-first",
+		"node/group_log.c",
+		"\terr = group_save(ops->store, &rolled);\n\tif (err == FZN_GROUP_LOG_OK)\n\t\terr = act_save(",
+		"\terr = FZN_GROUP_LOG_OK;\n\tif (err == FZN_GROUP_LOG_OK)\n\t\terr = act_save(",
+		"a replace cut between the kept act and its group leaves the act stored under the replaced act's group, held for ever when offered again -- sec 844",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

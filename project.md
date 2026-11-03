@@ -78564,3 +78564,45 @@ extension lacked.
 - `tool/live_ext.py` b3: a `get events` subscriber hears `event ext-poke
   -` when the extension's tick publishes it. With the call made to do
   nothing, it hears nothing.
+
+## 844. A group log's replace, cut short, finished on the next offer, 2026-11-03
+
+Sec 689's fault bar for groups, found by reading for the state a kill
+mid-write leaves. When an act with a lower hash arrives over one held at
+its place, the log keeps the lower and drops the held act's tail
+(sec 625).
+
+**The fault.** The replace wrote the kept act at its place, then the
+group derived from it, then removed the tail. A crash between the first
+two left:
+- the kept act stored at its place, under the group of the act it
+  replaced;
+- that group's head and members still the old chain's.
+
+Offered again, the kept act matched the stored one and read as held,
+so nothing ever repaired it. The host then served a chain whose tail
+named a head it no longer stored, and kept the replaced act's members.
+
+**Fixed:**
+1. The replace first saves the group rolled back to the place.
+2. It then writes the kept act and its group, as any next act is
+   written.
+3. Last, it removes the tail.
+
+An act past the head is never read, and is overwritten when its place
+is filled again, so every cut leaves a log that agrees with its acts,
+shorter or whole. The kept act offered again is then taken as the next
+act.
+
+The one thing a cut loses is the report of the dropped acts to their
+author, who re-issues them when it sees the fork (sec 625). That report
+is made only when the replace finishes.
+
+**Measured:** `node/test/group_log_test`'s store refuses the group's save
+that follows the kept act's, once.
+- With the old order, the re-offer reads as held and the group stays the
+  replaced act's.
+- With the new order, the re-offer is taken, and the group's head, place
+  and member are the kept act's.
+
+Sabotage `group-replace-rolls-back-first` holds it.

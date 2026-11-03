@@ -709,7 +709,7 @@ fzn_group_log_err_t fzn_group_log_offer(const fzn_group_log_ops_t *ops, const ui
                                         size_t len, fzn_group_offer_t *did, size_t *dropped)
 {
 	static fzn_group_act_t a, there;
-	static fzn_group_t g, before;
+	static fzn_group_t g, before, rolled;
 	static uint8_t held[FZN_GROUP_ACT_MAX];
 	uint8_t hash[32], held_hash[32], subject[FZN_PUBKEY_LEN];
 	size_t n = 0;
@@ -766,6 +766,7 @@ fzn_group_log_err_t fzn_group_log_offer(const fzn_group_log_ops_t *ops, const ui
 	err = replay(ops, a.group, a.seq, &before);
 	if (err != FZN_GROUP_LOG_OK)
 		return err;
+	rolled = before;
 	err = fzn_group_apply(&before, &a, hash);
 	if (err != FZN_GROUP_LOG_OK)
 		return err;
@@ -774,10 +775,17 @@ fzn_group_log_err_t fzn_group_log_offer(const fzn_group_log_ops_t *ops, const ui
 		*did = FZN_GROUP_OFFER_LOST;
 		return FZN_GROUP_LOG_OK;
 	}
-	/* THE KEPT ACT AND THE GROUP IT SAYS FIRST, then the lost tail: an act
-	 * past the head is never read, and is overwritten when its place is
-	 * filled again, so a removal that fails leaves nothing wrong. */
-	err = act_save(ops, a.group, a.seq, bytes, len);
+	/* THE GROUP ROLLED BACK TO THE PLACE FIRST, then the kept act and the
+	 * group it says, then the lost tail: an act past the head is never read,
+	 * and is overwritten when its place is filled again. So every cut leaves
+	 * a log that agrees with its acts -- shorter, or whole -- and the act
+	 * offered again is taken as any next act is (sec 844). Written the kept
+	 * act first, a crash before the group left it stored under the group of
+	 * the act it replaced: offered again it read as held, and this host
+	 * served a chain whose tail named a head it no longer had. */
+	err = group_save(ops->store, &rolled);
+	if (err == FZN_GROUP_LOG_OK)
+		err = act_save(ops, a.group, a.seq, bytes, len);
 	if (err == FZN_GROUP_LOG_OK)
 		err = group_save(ops->store, &before);
 	if (err != FZN_GROUP_LOG_OK)

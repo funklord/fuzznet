@@ -92,6 +92,10 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 	return 0;
 }
 
+/* A CRASH, as the store sees one: armed, the first save of a group after a
+ * save of an act is refused, and the store is then as it was left. */
+static int cut_after_act, act_seen;
+
 static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                     const uint8_t *bytes, size_t len)
 {
@@ -100,6 +104,14 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	(void)ctx;
 	if (len > ROW_MAX)
 		return 0;
+	if (cut_after_act) {
+		if (slot == FZN_PERSIST_GROUP_ACT)
+			act_seen = 1;
+		else if (slot == FZN_PERSIST_GROUP && act_seen) {
+			cut_after_act = act_seen = 0;
+			return 0;
+		}
+	}
 	for (i = 0; i < ROWS; i++) {
 		if (rows[i].used && rows[i].slot == slot && memcmp(rows[i].subject, subject, 32u) == 0)
 			break;
@@ -544,6 +556,60 @@ static void test_a_fork_keeps_the_lower_hash(void)
 	CHECK(offer(&x, &did, &dropped) == FZN_GROUP_LOG_ERR_REFUSED, "an act forged was offered in");
 }
 
+/* A REPLACE CUT SHORT, sec 844, the fault bar for groups: the lower hash
+ * arriving over a held act and its tail, the store refusing the group's
+ * save right after the kept act's. Offered again, the kept act is taken,
+ * and the group is its: head, place and member. */
+static void test_a_replace_cut_short_is_finished(void)
+{
+	fzn_group_act_t create, add2, x, y, after;
+	fzn_group_t g;
+	fzn_group_offer_t did;
+	uint8_t nonce[32], u2[32], u3[32], u4[32], id[32], hx[32], hy[32], hlow[32];
+	const fzn_group_act_t *low, *high;
+	size_t dropped = 0;
+
+	root_of(u2, 0x22u);
+	root_of(u3, 0x33u);
+	root_of(u4, 0x44u);
+	memset(rows, 0, sizeof(rows));
+	memset(nonce, 0x05, sizeof(nonce));
+	act(&create, FZN_GROUP_ACT_CREATE, 0x11u, NULL, 0u, NULL, nonce);
+	(void)offer(&create, &did, &dropped);
+	hash_of(&create, id);
+	(void)fzn_group_log_get(&STORE, id, &g);
+	act(&add2, FZN_GROUP_ACT_ADD, 0x11u, id, 1u, g.head, u2);
+	(void)offer(&add2, &did, &dropped);
+	(void)fzn_group_log_get(&STORE, id, &g);
+	act(&x, FZN_GROUP_ACT_ADD, 0x11u, id, 2u, g.head, u3);
+	act(&y, FZN_GROUP_ACT_ADD, 0x11u, id, 2u, g.head, u4);
+	hash_of(&x, hx);
+	hash_of(&y, hy);
+	low = memcmp(hx, hy, 32u) < 0 ? &x : &y;
+	high = low == &x ? &y : &x;
+	memcpy(hlow, low == &x ? hx : hy, 32u);
+	(void)offer(high, &did, &dropped);
+	(void)fzn_group_log_get(&STORE, id, &g);
+	act(&after, FZN_GROUP_ACT_SET, 0x11u, id, 3u, g.head, NULL);
+	after.setting = FZN_GROUP_SETTING_BACKFILL;
+	after.value = 0u;
+	signing_as = 0x11u;
+	(void)fzn_group_act_sign(&after, &SIGN);
+	CHECK(offer(&after, &did, &dropped) == FZN_GROUP_LOG_OK, "fixture: a tail on the higher");
+	cut_after_act = 1;
+	act_seen = 0;
+	CHECK(offer(low, &did, &dropped) == FZN_GROUP_LOG_ERR_BACKEND,
+	      "a replace whose group save failed was not refused");
+	cut_after_act = 0;
+	CHECK(offer(low, &did, &dropped) == FZN_GROUP_LOG_OK
+	              && (did == FZN_GROUP_OFFER_TAKEN || did == FZN_GROUP_OFFER_REPLACED),
+	      "the kept act offered again after a cut was not taken");
+	CHECK(fzn_group_log_get(&STORE, id, &g) == FZN_GROUP_LOG_OK && g.seq == 3u
+	              && memcmp(g.head, hlow, 32u) == 0 && fzn_group_is_member(&g, low->subject)
+	              && !fzn_group_is_member(&g, high->subject),
+	      "after a replace cut short and finished, the group is not the kept act's");
+}
+
 /* A KEYS ACT by user `user` for `epoch`, committing to `commit`, with a box
  * for each of `n` hosts' keys -- the boxes are bytes here, the log does not
  * open them. */
@@ -801,6 +867,7 @@ int main(void)
 	test_who_may_do_what();
 	test_the_admins_change_by_a_majority();
 	test_the_bounds_hold_at_their_edges();
+	test_a_replace_cut_short_is_finished();
 	test_a_fork_keeps_the_lower_hash();
 	test_an_epoch_is_sealed_to_listed_hosts();
 	test_a_backfill_goes_newest_first_and_not_when_off();
