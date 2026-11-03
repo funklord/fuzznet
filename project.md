@@ -79745,3 +79745,29 @@ show the colour another device had given it.
 - clearing the labels keeping the colour;
 - refused: a label with a NUL, a colour that is not RRGGBBAA, and a
   field with no verb.
+
+## 870. Is an asynchronous `call` needed? Measured: no, 2026-11-03
+
+Sec 853 left "an asynchronous form is later work". A `call ... at HOST`
+asks within the round's 3 s wait and is refused while the node is
+already waiting in turn. The feared cost was local clients held up by
+rounds, and calls refused often. Measured before building anything:
+- **Where a local request meets a wait.** Local clients are answered
+  inside a wait only during introductions (`answering_local`). So the
+  refusal `error the node is waiting on a peer` is that narrow window,
+  not every round.
+- **How long a local client waits during rounds.**
+  - Setup: a two-host estate. B joins A and B's one pull peer is A; A is
+    then stopped, so every round of B's asks a silent host.
+  - B's `status` was timed every 100 ms for 200 s: 1,992 asks, none over
+    one second, the worst under 10 ms.
+  - The same on the root, which pulls from nobody, gave 1,494 asks with
+    the same result.
+  - The probe was a scratch script, not kept.
+
+So rounds do not hold local clients up. A `call ... at HOST` blocks the
+node's loop for at most its own wait, three seconds and its resends,
+which is the cost of one remote request. **No asynchronous form is
+built.** A client that meets the introduction window asks again, as the
+refusal says. Reopen this if a consumer measures a call refused or a
+client delayed in practice.
