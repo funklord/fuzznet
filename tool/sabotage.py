@@ -14670,8 +14670,8 @@ SABOTAGES = [
 	(
 		"settings-declared-scope-checked",
 		"node/settings.c",
-		"\t\tif (e && !(e->scopes & (scope == FZN_SCOPE_ESTATE ? FZN_SCHEMA_ESTATE : FZN_SCHEMA_HOST))) {\n",
-		"\t\tif (0 && e && !(e->scopes & (scope == FZN_SCOPE_ESTATE ? FZN_SCHEMA_ESTATE : FZN_SCHEMA_HOST))) {\n",
+		"\t\tif (e && !(e->scopes & (scope == FZN_SCOPE_HOST ? FZN_SCHEMA_HOST : FZN_SCHEMA_ESTATE))) {\n",
+		"\t\tif (0 && e && !(e->scopes & (scope == FZN_SCOPE_HOST ? FZN_SCHEMA_HOST : FZN_SCHEMA_ESTATE))) {\n",
 		"sec 686: a cell at a scope its reader never reads is configuration that does nothing; apply_test's scope check catches it",
 	),
 	(
