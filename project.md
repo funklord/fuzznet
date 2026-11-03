@@ -78655,3 +78655,51 @@ healthy disk.
   shared, again at the bound.
 - Its memory store grows from 128 rows to 512 to hold them.
 - Sabotage `files-wants-bound` and `files-shares-bound` hold the two.
+
+## 847. Three messages from the inbox, 2026-11-03
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps.
+
+**netcfgd, ask 7 measured (14:30).** At 7d85b54, a netcfgd started with
+no `--socket` beside a fuzznetd on the default socket failed at listen
+and never entered the loop. Fixed in 16830dc (sec 841). Their 15:10
+message confirms that netcfgd follows on the default socket now (their
+0d7d5c47). They also saw a fuzznetd ended by SIGTERM leave its `face`
+file and socket, as sec 835 says a signal does.
+
+**fuzzypickles, a joined device's row (14:33).** Right after a join, the
+root's `list sibling` reads `KEY,-,paired,-`.
+- **No name:** each of a user's devices shows as 16 hex characters in
+  the Qt Hosts tab and fzptui. fzpd took a name in the join request.
+  They ask whether fuzznet means to carry a device's name.
+- **WHERE is `-`,** though fzp's `joinreq` gave an address. They ask
+  whether it is learned later or dropped.
+
+Answered from the code:
+- WHERE is an introduced address while it lasts, or else the device's
+  own `net/address` setting, which reaches the root with the device's
+  records once it has run a round.
+- fuzznet's join verbs (`get prekey`, `add peer PREKEY delegable`, `add
+  join`) take no address, so nothing is dropped and nothing was given.
+- fuzznet carries no device name.
+
+**netcfgd, request 10 (15:10).** Refusing huge pages in netcfgd's own
+`main` took a serving netcfgd from 16,760 to about 4,800 kB (their
+6c3e0f0b). For its control verbs over fuzznet (its 0309):
+- netcfgd's tiers (observe, wifi, admin) name users and groups, such as
+  `observe = "group:netcfgd"`. `ext->local` is handed only an origin, no
+  credentials.
+- `fzn_daemon_main` admits only this node's own user by default, so a
+  desktop's GUI user is not admitted to netcfgd's verbs at all without
+  `--group`.
+- They ask for the peer's credentials (`local/peer.h`) handed to the
+  extension for a `FZN_ORIGIN_LOCAL` caller, and for a way to admit
+  local callers to the extension's own verbs, judged by the extension,
+  while fuzznet's verbs keep fuzznet's rule.
+- Theirs to decide: a root daemon writing to a path a client names must
+  guard symlinks. They ask whether fuzznet's `... PATH` writers do.
+  `node/stickers.c`'s `spill` opens with `O_CREAT|O_EXCL`, refusing an
+  existing final component, a symlink included, but not a symlinked
+  parent. fuzznetd runs as its client's own user, so it guards no
+  privilege boundary.
