@@ -163,15 +163,20 @@ static const char SPEC[] =
  * it is a read that says so. */
 #define ROOM 16u
 static fzn_sticker_entry_t m_room[ROOM], opened_room[ROOM];
-static fzn_sticker_manifest_t m = { "", 0, 0, m_room, ROOM, 0 },
-                              opened = { "", 0, 0, opened_room, ROOM, 0 };
+static fzn_sticker_manifest_t m = { "", 0, 0, m_room, ROOM, 0, 0 },
+                              opened = { "", 0, 0, opened_room, ROOM, 0, 0 };
 static const uint8_t *art[ROOM][FZN_STICKER_RENDITIONS_MAX];
 static uint32_t art_len[ROOM][FZN_STICKER_RENDITIONS_MAX];
 static const uint8_t *sound[ROOM];
 static uint32_t sound_len[ROOM];
 
-static int build(const fzn_sticker_manifest_t *mm, uint8_t *out, size_t cap, size_t *len)
+static int build(const fzn_sticker_manifest_t *given, uint8_t *out, size_t cap, size_t *len)
 {
+	/* A PACK'S OWN ID, sec 859, where the input gave none. */
+	fzn_sticker_manifest_t copy = *given, *mm = &copy;
+
+	if (!mm->id)
+		mm->id = 99u;
 	return fzn_sticker_pack_build(mm, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
 	                              (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
 	                              (const uint8_t *const *)sound, sound_len, out, cap, len);

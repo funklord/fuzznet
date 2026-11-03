@@ -10,6 +10,10 @@
 // 64 stickers, and a description and a name that may be empty. Version 1
 // -- `u16 id`, `u8 count [max = 64]`, `description_len [min = 1]`, no
 // LINE fields -- is still read by `sticker/pack.c` and written by nothing.
+//
+// VERSION 3, sec 859: the pack's own id from its art, and a text box's
+// fill, ink and turn. Version 2 -- this layout without `id` and without
+// the three after `text_h` -- is still read, and written by nothing.
 
 target buffer;
 endian big;
@@ -42,6 +46,9 @@ struct fzn_sticker_entry {
 	u16 text_y;
 	u16 text_w;
 	u16 text_h;
+	u32 text_fill;                   // 0xRRGGBBAA under the words; 0: none
+	u32 text_ink;                    // 0xRRGGBBAA of the words; 0: the client's
+	u16 text_turn [max = 359];       // degrees clockwise
 	u32 audio_offset;
 	u32 audio_len;                   // 0: no sound
 	u8  rendition_count [min = 1, max = 6];
@@ -49,7 +56,8 @@ struct fzn_sticker_entry {
 }
 
 struct fzn_sticker_pack {
-	u8  version [must_eq = 2];
+	u8  version [must_eq = 3];
+	u64 id [min = 1];                // the pack's own, from its art
 	u64 line_package;                // LINE's package id; 0: none
 	u8  name_len [max = 48];
 	u8  name[name_len];

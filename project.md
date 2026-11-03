@@ -79249,3 +79249,58 @@ node stops at the request's expiry, as it does for an unanswered one.
   waits up to a round and 20 s for that line, so it cannot pass without
   the refusal being consulted.
 - Sabotage `contact-refusal-remembered`.
+
+## 859. Sticker packs, version 3: the pack's own id, and the text box's paint, 2026-11-03
+
+The holder confirmed sec 702's fifth and sixth decisions on 2026-11-03
+(sec 851): "a pack's own id from its art, and the text box's fill, ink
+and turn, as fuzzypickles built them". This tree's pack is its own situ
+layout (sec 679), not fuzzypickles' CBOR manifest. So both arrive as a
+new version of the layout rather than as manifest keys.
+
+**Version 3** (`sticker/pack.situ`, its `.wire` and `.map` regenerated):
+- **The pack's own id,** a u64 after the version, nonzero.
+- **A text box's fill and ink,** 0xRRGGBBAA each, and its turn, 0 to 359
+  degrees clockwise, after the box's geometry.
+- The writer writes version 3 only. Versions 2 and 1 are still read,
+  with an id of 0 and no paint.
+- `situc wire --check` calls the change breaking, as a version bump is.
+  An older reader refuses a version 3 pack, as it was written to refuse
+  an unknown version.
+
+**The id is the art's, by fuzzypickles' derivation** (`fzp_sticker_pack_id`,
+read at its 52ff0c7):
+- each sticker's BLAKE2b-256 over its renditions in manifest order and
+  then its sound, which is the digest its own id comes from;
+- added as 256-bit little-endian numbers, modulo 2^256;
+- the id is the first 8 bytes, big-endian, of BLAKE2b-256 over that sum,
+  with 0 made 1.
+
+So the stickers' order, names, descriptions and own ids play no part.
+`fzn_sticker_derive_ids` sets it, `fzn_sticker_pack_id` computes it, and
+`fzn_sticker_pack_build` refuses a manifest without one. `put sticker`
+now always derives, where before it derived only for stickers given no
+id. `get sticker PACK` answers `ok ID`, or 0 for a pack before version 3.
+
+**The spec's grammar is fuzzypickles':** `text LIMIT X Y W H [FILL [INK
+[TURN]]]`.
+- FILL and INK are eight hex digits each; 00000000 is none, so an ink is
+  given alone behind a fill of none.
+- The writer puts back as far as the last one set, in upper case, as
+  fuzzypickles does.
+
+**Measured:**
+- `sticker_test`, 113 checks:
+  - a derived pack id that the stickers' order and a description leave
+    alone, and a byte less of art changes;
+  - 8 zero bytes give id 1;
+  - a version 3 pack carries its id, and none is built without one;
+  - a fill, a none-ink and a turn are read, written back as they came,
+    and carried by a pack; a turn of 360 is refused;
+  - a version 2 pack, made by cutting a version 3 pack's id and paint
+    out, reads with id 0 and no paint.
+- `live_stickers` phase f, against Python's hashlib: the cats' pack of
+  three stickers answers `get sticker` with the BLAKE2b of its stickers'
+  digests summed, carries and all, as does a one-sticker pack.
+- `make schema SITU_DIR=../situ` passes.
+- Sabotage: `sticker-pack-id-from-the-art`, `sticker-turn-within-a-circle`.

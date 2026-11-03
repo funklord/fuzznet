@@ -46,8 +46,8 @@ static const char SPEC[] =
 #define ROOM 80u
 
 static fzn_sticker_entry_t m_room[ROOM], back_room[ROOM], bent_room[ROOM];
-static fzn_sticker_manifest_t m = { "", 0, 0, m_room, ROOM, 0 },
-                              back = { "", 0, 0, back_room, ROOM, 0 };
+static fzn_sticker_manifest_t m = { "", 0, 0, m_room, ROOM, 0, 0 },
+                              back = { "", 0, 0, back_room, ROOM, 0, 0 };
 static const uint8_t *art[ROOM][FZN_STICKER_RENDITIONS_MAX];
 static uint32_t art_len[ROOM][FZN_STICKER_RENDITIONS_MAX];
 static const uint8_t *sound[ROOM];
@@ -90,8 +90,14 @@ static void fill_art(const fzn_sticker_manifest_t *mm)
 	}
 }
 
-static int build(const fzn_sticker_manifest_t *mm)
+static int build(const fzn_sticker_manifest_t *given)
 {
+	/* A PACK'S OWN ID, sec 859, given where the case gave none: what is
+	 * tested here is the layout, and the id's derivation has its own. */
+	fzn_sticker_manifest_t copy = *given, *mm = &copy;
+
+	if (!mm->id)
+		mm->id = 99u;
 	fill_art(mm);
 	return fzn_sticker_pack_build(mm, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
 	                              (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
@@ -118,6 +124,8 @@ static void test_a_spec_built_and_opened(void)
 	              && strcmp(m.entries[1].audio_path, "art/spin.ogg") == 0,
 	      "a CR-ended sticker line, its flags or its sound were misread");
 	CHECK(m.entries[2].text_limit == 12u && m.entries[2].text_h == 40u, "the text box was misread");
+	CHECK(m.id == 0u, "a spec gave the pack an id of its own");
+	m.id = 99u;
 	fill_art(&m);
 	CHECK(fzn_sticker_pack_build(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
 	                             (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
@@ -147,8 +155,8 @@ static void test_what_opening_refuses(void)
 
 	CHECK(build(&m), "fixture: the pack");
 	memcpy(copy, pack, pack_len);
-	copy[0] = 3u;
-	CHECK(!fzn_sticker_pack_open(copy, pack_len, &back, &data, &data_len), "version 3 opened");
+	copy[0] = 4u;
+	CHECK(!fzn_sticker_pack_open(copy, pack_len, &back, &data, &data_len), "version 4 opened");
 	CHECK(!fzn_sticker_pack_open(pack, pack_len - 1u, &back, &data, &data_len)
 	              && !fzn_sticker_pack_open(pack, pack_len + 1u, &back, &data, &data_len),
 	      "a pack cut short, or with a byte after it, opened");
@@ -523,7 +531,7 @@ static const uint8_t DIGEST_2[32] = {
 	0xc0, 0x2b, 0xf1, 0xfb, 0x8b, 0x19, 0xf7, 0x94, 0x18, 0x59, 0x3a, 0x72, 0x0b, 0x30, 0xfd, 0x08,
 	0x66, 0xdb, 0xc2, 0x41, 0x84, 0x6b, 0x01, 0x25, 0xee, 0xbb, 0xa7, 0xd8, 0x19, 0x6f, 0x10, 0x24,
 };
-static int hashed_wrong, hash_zero;
+static int hashed_wrong, hash_zero, hash_any;
 
 static int fixture_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
 {
@@ -538,7 +546,19 @@ static int fixture_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *
 		memcpy(out, DIGEST_1, 32u);
 	else if (in_len == 13u && memcmp(in, "IIIIIzzzzzzzz", 13u) == 0)
 		memcpy(out, DIGEST_2, 32u);
-	else {
+	/* THE PACK'S ID, sec 859, asks for sticker 7's art and for the sum:
+	 * a fold of the bytes, so a different input is a different digest. */
+	else if (in_len == 32u || (in_len == 5u && memcmp(in, "QQQQQ", 5u) == 0) || hash_any) {
+		uint64_t h = 0xcbf29ce484222325ull;
+		size_t i;
+
+		for (i = 0; i < in_len; i++)
+			h = (h ^ in[i]) * 0x100000001b3ull;
+		for (i = 0; i < 32u; i++) {
+			h = (h ^ (uint64_t)i) * 0x100000001b3ull;
+			out[i] = (uint8_t)(h >> 56);
+		}
+	} else {
 		hashed_wrong++;
 		return 0;
 	}
@@ -585,11 +605,137 @@ static void test_ids_from_the_art(void)
 
 /* NO CAP OF 64, sec 702: seventy stickers built and opened, and a reader
  * with too little room told the room it needs, never handed part of it. */
+/* THE PACK'S OWN ID AND THE BOX'S PAINT, version 3, sec 859. The id is the
+ * art's: the stickers' order, their descriptions and their own ids play no
+ * part, and a byte of art does. A pack is never built without one. */
+static void test_the_pack_id_and_the_paint(void)
+{
+	static const char PAINTED[] = "sticker 1 message\nmain png 240 240 art/a.png\n"
+	                              "text 12 10 20 200 40 FF8000C0 00000000 15\n";
+	static const char TURNED[] = "sticker 1 message\nmain png 240 240 art/a.png\n"
+	                             "text 12 10 20 200 40 00000000 000000FF 360\n";
+	static fzn_sticker_entry_t p_room[2], q_room[2], e_room[3];
+	fzn_sticker_manifest_t d, e, p = { "", 0, 0, p_room, 2u, 0, 0 },
+	                             q = { "", 0, 0, q_room, 2u, 0, 0 };
+	fzn_sticker_entry_t swap;
+	fzn_hash_ops_t h = { fixture_hash, NULL };
+	uint8_t scratch[64];
+	uint64_t first = 0, again = 0;
+	char err[96], text[512];
+	size_t len = 0;
+
+	d = copy_of(&m);
+	fill_art(&d);
+	hash_any = 1;
+	CHECK(fzn_sticker_derive_ids(&d, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                             (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                             (const uint8_t *const *)sound, sound_len, &h, scratch,
+	                             sizeof(scratch))
+	              && d.id != 0u,
+	      "deriving the ids gave the pack none");
+	first = d.id;
+	/* THE ORDER AND THE WORDS PLAY NO PART: sticker 7 first, a description
+	 * changed; the art moves with its sticker. */
+	e = d;
+	memcpy(e_room, d.entries, 3u * sizeof(e_room[0]));
+	e.entries = e_room;
+	e.cap = 3u;
+	swap = e.entries[0];
+	e.entries[0] = e.entries[2];
+	e.entries[2] = swap;
+	e.entries[1].description[0] = 'X';
+	fill_art(&e);
+	CHECK(fzn_sticker_pack_id(&e, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                          (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                          (const uint8_t *const *)sound, sound_len, &h, scratch,
+	                          sizeof(scratch), &again),
+	      "a pack's id was not taken");
+	/* fill_art keys a sticker's bytes by its place: put them back where
+	 * they were, so only the order of the entries has changed. */
+	d = copy_of(&m);
+	fill_art(&d);
+	{
+		const uint8_t *a0[FZN_STICKER_RENDITIONS_MAX];
+		uint32_t l0[FZN_STICKER_RENDITIONS_MAX];
+
+		memcpy(a0, art[0], sizeof(a0));
+		memcpy(l0, art_len[0], sizeof(l0));
+		memcpy(art[0], art[2], sizeof(a0));
+		memcpy(art_len[0], art_len[2], sizeof(l0));
+		memcpy(art[2], a0, sizeof(a0));
+		memcpy(art_len[2], l0, sizeof(l0));
+	}
+	CHECK(fzn_sticker_pack_id(&e, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                          (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                          (const uint8_t *const *)sound, sound_len, &h, scratch,
+	                          sizeof(scratch), &again)
+	              && again == first,
+	      "the stickers' order or a description changed the pack's id");
+	d = copy_of(&m);
+	fill_art(&d);
+	art_len[0][0] = 4u;
+	CHECK(fzn_sticker_pack_id(&d, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                          (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                          (const uint8_t *const *)sound, sound_len, &h, scratch,
+	                          sizeof(scratch), &again)
+	              && again != first,
+	      "a byte less of art left the pack's id as it was");
+	hash_zero = 1;
+	CHECK(fzn_sticker_pack_id(&d, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                          (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                          (const uint8_t *const *)sound, sound_len, &h, scratch,
+	                          sizeof(scratch), &again)
+	              && again == 1u,
+	      "a digest opening with 8 zero bytes did not make the pack's id 1");
+	hash_zero = 0;
+	hash_any = 0;
+	/* BUILT WITH IT, read back with it; never built without. */
+	d = copy_of(&m);
+	d.id = first;
+	fill_art(&d);
+	CHECK(fzn_sticker_pack_build(&d, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                             (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                             (const uint8_t *const *)sound, sound_len, pack, sizeof(pack),
+	                             &pack_len)
+	              && pack[0] == 3u
+	              && fzn_sticker_pack_open(pack, pack_len, &back, &(const uint8_t *){ NULL },
+	                                       &(size_t){ 0 })
+	              && back.id == first,
+	      "a version 3 pack did not carry its own id");
+	d.id = 0;
+	CHECK(!fzn_sticker_pack_build(&d, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                              (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                              (const uint8_t *const *)sound, sound_len, pack, sizeof(pack),
+	                              &pack_len),
+	      "a pack was built with no id of its own");
+	/* THE PAINT: a fill, a none-ink and a turn read, written back as they
+	 * came, carried by a pack; a turn past 359 refused. */
+	CHECK(fzn_sticker_spec_parse(PAINTED, sizeof(PAINTED) - 1u, &p, err, sizeof(err))
+	              && p.entries[0].text_fill == 0xFF8000C0u && p.entries[0].text_ink == 0u
+	              && p.entries[0].text_turn == 15u,
+	      "a text box's fill, ink and turn were misread");
+	CHECK(fzn_sticker_spec_format(&p, text, sizeof(text), &len, err, sizeof(err))
+	              && strstr(text, "text 12 10 20 200 40 FF8000C0 00000000 15\n") != NULL,
+	      "a text box's paint was not written back as it came");
+	p.id = 5u;
+	fill_art(&p);
+	CHECK(fzn_sticker_pack_build(&p, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                             (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                             (const uint8_t *const *)sound, sound_len, pack, sizeof(pack),
+	                             &pack_len)
+	              && fzn_sticker_pack_open(pack, pack_len, &q, &(const uint8_t *){ NULL },
+	                                       &(size_t){ 0 })
+	              && q.entries[0].text_fill == 0xFF8000C0u && q.entries[0].text_turn == 15u,
+	      "a pack did not carry its text box's paint");
+	CHECK(!fzn_sticker_spec_parse(TURNED, sizeof(TURNED) - 1u, &p, err, sizeof(err)),
+	      "a turn of 360 degrees was taken");
+}
+
 static void test_more_than_64(void)
 {
 	static char spec[ROOM * 64u];
 	fzn_sticker_entry_t few[3];
-	fzn_sticker_manifest_t small = { "", 0, 0, few, 3u, 0 };
+	fzn_sticker_manifest_t small = { "", 0, 0, few, 3u, 0, 0 };
 	const uint8_t *data;
 	size_t data_len, at = 0, i;
 	char err[96];
@@ -603,6 +749,7 @@ static void test_more_than_64(void)
 	CHECK(!fzn_sticker_spec_parse(spec, at, &small, err, sizeof(err))
 	              && FZN_STICKER_TOO_SMALL(&small) && small.count == 70u,
 	      "a spec past the room was taken, or did not say the room it needs");
+	m.id = 99u;
 	fill_art(&m);
 	CHECK(fzn_sticker_pack_build(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
 	                             (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
@@ -618,7 +765,7 @@ static void test_more_than_64(void)
 	/* A SPEC WRONG AFTER ITS FIRST STICKER, read with too little room, is
 	 * wrong, not short of room. */
 	{
-		fzn_sticker_manifest_t one = { "", 0, 0, few, 1u, 0 };
+		fzn_sticker_manifest_t one = { "", 0, 0, few, 1u, 0, 0 };
 		static const char WRONG[] = "sticker 1 static\nsticker 2 static\nsideways\n";
 
 		CHECK(!fzn_sticker_spec_parse(WRONG, sizeof(WRONG) - 1u, &one, err, sizeof(err))
@@ -652,6 +799,37 @@ static void test_version_1_read(void)
 	              && back.entries[0].id == 0x0102u && back.line_package == 0u
 	              && back.name_len == 1u && data_len == 2u,
 	      "a version 1 pack was not read");
+}
+
+/* VERSION 2 STILL READ, sec 859: a version 3 pack with its id and its
+ * box's paint cut out is a version 2 pack, and reads with id 0 and no
+ * paint. One nameless sticker with no words, so where each lies is plain:
+ * version, id, LINE's package, name length, count; then the sticker's id,
+ * LINE's id, type, flags, description length, keyword count and box, and
+ * the paint after it. */
+static void test_version_2_read(void)
+{
+	static const char ONE[] = "sticker 3 static\nmain png 8 8 art/a.png\n";
+	static fzn_sticker_entry_t one_room[1], read_room[1];
+	fzn_sticker_manifest_t one = { "", 0, 0, one_room, 1u, 0, 0 },
+	                       got = { "", 0, 0, read_room, 1u, 0, 0 };
+	uint8_t v2[4096];
+	const size_t head = 1u + 8u + 8u + 1u + 4u, paint = head + 8u + 8u + 1u + 2u + 1u + 1u + 10u;
+	char err[96];
+	size_t n;
+
+	CHECK(fzn_sticker_spec_parse(ONE, sizeof(ONE) - 1u, &one, err, sizeof(err)), err);
+	one.id = 42u;
+	CHECK(build(&one) && pack[0] == 3u && pack[paint] == 0u, "fixture: a one-sticker pack");
+	v2[0] = 2u;
+	memcpy(v2 + 1, pack + 9, paint - 9u);
+	memcpy(v2 + paint - 8u, pack + paint + 10u, pack_len - paint - 10u);
+	n = pack_len - 8u - 10u;
+	CHECK(fzn_sticker_pack_open(v2, n, &got, &(const uint8_t *){ NULL }, &(size_t){ 0 })
+	              && got.id == 0u && got.count == 1u && got.entries[0].id == 3u
+	              && got.entries[0].text_fill == 0u && got.entries[0].text_turn == 0u,
+	      "a version 2 pack did not read, or read with an id or paint of its own");
+	(void)head;
 }
 
 static void test_kinds_and_picks(void)
@@ -701,8 +879,10 @@ int main(void)
 	test_references();
 	test_a_references_words();
 	test_ids_from_the_art();
+	test_the_pack_id_and_the_paint();
 	test_more_than_64();
 	test_version_1_read();
+	test_version_2_read();
 	test_kinds_and_picks();
 	test_the_suite_can_tell_pass_from_fail();
 

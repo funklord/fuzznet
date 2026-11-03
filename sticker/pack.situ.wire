@@ -18,7 +18,7 @@
 endian big
 target buffer
 
-struct fzn_sticker_entry size=54..1020
+struct fzn_sticker_entry size=64..1030
   @0x0000   8         u64        id  big min=1
   @0x0008   8         u64        line_id  big
   @0x0010   1         u8         type  min=1 max=7
@@ -32,6 +32,9 @@ struct fzn_sticker_entry size=54..1020
   ~         2         u16        text_y  big
   ~         2         u16        text_w  big
   ~         2         u16        text_h  big
+  ~         4         u32        text_fill  big
+  ~         4         u32        text_ink  big
+  ~         2         u16        text_turn  big max=359
   ~         4         u32        audio_offset  big
   ~         4         u32        audio_len  big
   ~         1         u8         rendition_count  min=1 max=6
@@ -41,13 +44,14 @@ struct fzn_sticker_keyword size=2..25
   @0x0000   1         u8         len  min=1 max=24
   @0x0001   1..24     u8         text  sized-by=len
 
-struct fzn_sticker_pack size=72..4385161608261
-  @0x0000   1         u8         version  must_eq=2
-  @0x0001   8         u64        line_package  big
-  @0x0009   1         u8         name_len  max=48
-  @0x000a   0..48     u8         name  sized-by=name_len
+struct fzn_sticker_pack size=90..4428111281219
+  @0x0000   1         u8         version  must_eq=3
+  @0x0001   8         u64        id  big min=1
+  @0x0009   8         u64        line_package  big
+  @0x0011   1         u8         name_len  max=48
+  @0x0012   0..48     u8         name  sized-by=name_len
   ~         4         u32        count  big min=1
-  ~         54..4380866640900 fzn_sticker_entry entries  big sized-by=count
+  ~         64..4423816313850 fzn_sticker_entry entries  big sized-by=count
   ~         4         u32        data_len  big
   ~         0..4294967295 u8         data  sized-by=data_len
 

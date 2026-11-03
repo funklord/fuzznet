@@ -251,8 +251,33 @@ def main(argv):
 			ref = ask(sock, "get sticker %s %d" % (got[1], want))
 			if not ref.startswith("ok fzn:sticker/") or not ref.endswith("/%d" % want):
 				raise failed("f: a sticker with no description was referenced %r" % ref)
+			# THE PACK'S OWN ID, sec 859: the stickers' digests summed as
+			# 256-bit little-endian numbers, BLAKE2b over the sum -- here one
+			# sticker, so the sum is its digest.
+			total = int.from_bytes(digest, "little") % (1 << 256)
+			pack_digest = hashlib.blake2b(total.to_bytes(32, "little"), digest_size=32).digest()
+			pack_want = int.from_bytes(pack_digest[:8], "big") or 1
+			got_id = ask(sock, "get sticker " + got[1])
+			if got_id != "ok %d" % pack_want:
+				raise failed("f: the pack's own id was %r, not %d" % (got_id, pack_want))
+			# AND OF THE THREE CATS, a sum of three with carries: each
+			# sticker's renditions in its order, then its sound.
+			parts = [art["art/wave.png"] + art["art/wave-thumb.png"],
+			         art["art/spin.json"] + art["art/spin.ogg"], art["art/wave.png"]]
+			total = sum(int.from_bytes(hashlib.blake2b(p, digest_size=32).digest(), "little")
+			            for p in parts) % (1 << 256)
+			pack_digest = hashlib.blake2b(total.to_bytes(32, "little"), digest_size=32).digest()
+			pack_want = int.from_bytes(pack_digest[:8], "big") or 1
+			# PUT AGAIN, the pack having been forgotten above.
+			again = ask(sock, "put sticker " + spec).split()
+			if len(again) != 2 or again[0] != "ok":
+				raise failed("f: the cats' pack put again answered %r" % again)
+			got_id = ask(sock, "get sticker " + again[1])
+			if got_id != "ok %d" % pack_want:
+				raise failed("f: the cats' pack's own id was %r, not %d" % (got_id, pack_want))
 			print("livecheck: f: a sticker given no id took its art's BLAKE2b, as hashlib "
-			      "says, and with no description its reference ends at the id")
+			      "says, with no description its reference ends at the id, and a pack's "
+			      "own id is the BLAKE2b of its stickers' digests summed")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -11,7 +11,7 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct fzn_sticker_entry size=54..1020 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+struct fzn_sticker_entry size=64..1030 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   fzn_sticker_entry.id                   offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   fzn_sticker_entry.line_id              offset=AbsoluteStatic(0x08) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   fzn_sticker_entry.type                 offset=AbsoluteStatic(0x10) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
@@ -28,6 +28,9 @@ struct fzn_sticker_entry size=54..1020 access=Sequential mutate=Shifting address
   fzn_sticker_entry.text_y               offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_entry.text_w               offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_entry.text_h               offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_sticker_entry.text_fill            offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_sticker_entry.text_ink             offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_sticker_entry.text_turn            offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_entry.audio_offset         offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_entry.audio_len            offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_entry.rendition_count      offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
@@ -44,14 +47,15 @@ struct fzn_sticker_keyword size=2..25 mutate=Shifting
   fzn_sticker_keyword.len                offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_sticker_keyword.text               offset=AbsoluteStatic(0x01) size=Bounded(1, 24) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
-struct fzn_sticker_pack size=72..4385161608261 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+struct fzn_sticker_pack size=90..4428111281219 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   fzn_sticker_pack.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
-  fzn_sticker_pack.line_package          offset=AbsoluteStatic(0x01) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  fzn_sticker_pack.name_len              offset=AbsoluteStatic(0x09) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_sticker_pack.name                  offset=AbsoluteStatic(0x0A) size=Bounded(0, 48) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_sticker_pack.id                    offset=AbsoluteStatic(0x01) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_sticker_pack.line_package          offset=AbsoluteStatic(0x09) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_sticker_pack.name_len              offset=AbsoluteStatic(0x11) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_sticker_pack.name                  offset=AbsoluteStatic(0x12) size=Bounded(0, 48) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   fzn_sticker_pack.count                 offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  fzn_sticker_pack.entries               offset=Dynamic size=Bounded(54, 4380866640900) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
-  fzn_sticker_pack.entries[]             offset=FrameStatic(0x00) size=Bounded(54, 1020) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_sticker_pack.entries               offset=Dynamic size=Bounded(64, 4423816313850) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_sticker_pack.entries[]             offset=FrameStatic(0x00) size=Bounded(64, 1030) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
   fzn_sticker_pack.entries[].id          offset=FrameStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord address=FrameStable
   fzn_sticker_pack.entries[].line_id     offset=FrameStatic(0x08) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord address=FrameStable
   fzn_sticker_pack.entries[].type        offset=FrameStatic(0x10) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord address=FrameStable
@@ -68,6 +72,9 @@ struct fzn_sticker_pack size=72..4385161608261 access=Sequential mutate=Shifting
   fzn_sticker_pack.entries[].text_y      offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_pack.entries[].text_w      offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_pack.entries[].text_h      offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_sticker_pack.entries[].text_fill   offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_sticker_pack.entries[].text_ink    offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_sticker_pack.entries[].text_turn   offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_pack.entries[].audio_offset offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_pack.entries[].audio_len   offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_sticker_pack.entries[].rendition_count offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable

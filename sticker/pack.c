@@ -129,6 +129,7 @@ static void write_pack(writer_t *w, const fzn_sticker_manifest_t *m,
 	size_t i, k, r;
 
 	put8(w, FZN_STICKER_VERSION);
+	put64(w, m->id);
 	put64(w, m->line_package);
 	put8(w, (unsigned)m->name_len);
 	put(w, m->name, m->name_len);
@@ -153,6 +154,9 @@ static void write_pack(writer_t *w, const fzn_sticker_manifest_t *m,
 		put16(w, e->text_y);
 		put16(w, e->text_w);
 		put16(w, e->text_h);
+		put32(w, e->text_fill);
+		put32(w, e->text_ink);
+		put16(w, e->text_turn);
 		/* THE DATA IN ENTRY ORDER: renditions, then the sound. */
 		audio_at = at;
 		for (r = 0; r < e->rendition_count; r++)
@@ -197,8 +201,10 @@ int fzn_sticker_pack_build(const fzn_sticker_manifest_t *m,
 	uint64_t total = 0;
 	size_t i, j, r;
 
+	/* THE PACK'S OWN ID nonzero, sec 859: `fzn_sticker_derive_ids` sets it
+	 * from the art, and a pack is never built without one. */
 	if (!m || !m->entries || !art || !art_len || !sound || !sound_len || !len || m->count == 0u
-	    || m->count > m->cap || m->count > UINT32_MAX)
+	    || m->count > m->cap || m->count > UINT32_MAX || !m->id)
 		return 0;
 	/* IDS NONZERO AND DISTINCT, checked on the caller's entries: the pack
 	 * opened again below is read one sticker at a time into no room. */
@@ -304,6 +310,15 @@ static int read_entry(reader_t *rd, unsigned v, fzn_sticker_entry_t *e)
 	e->text_y = (uint16_t)get16(rd);
 	e->text_w = (uint16_t)get16(rd);
 	e->text_h = (uint16_t)get16(rd);
+	/* THE BOX'S PAINT, version 3's, sec 859; a turn past a full circle is
+	 * no turn anybody drew. */
+	if (v >= FZN_STICKER_VERSION) {
+		e->text_fill = get32(rd);
+		e->text_ink = get32(rd);
+		e->text_turn = (uint16_t)get16(rd);
+		if (e->text_turn > FZN_STICKER_TURN_MAX)
+			return 0;
+	}
 	e->audio_offset = get32(rd);
 	e->audio_len = get32(rd);
 	e->rendition_count = get8(rd);
@@ -357,7 +372,7 @@ static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *ou
 	reader_t rd, first;
 	const uint8_t *b;
 	uint32_t dl;
-	uint64_t line_package = 0;
+	uint64_t line_package = 0, pack_id = 0;
 	size_t name_len, count, i, j;
 	unsigned v;
 
@@ -367,22 +382,29 @@ static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *ou
 	rd.left = len;
 	rd.bad = 0;
 	v = get8(&rd);
-	if (v != FZN_STICKER_VERSION && v != FZN_STICKER_VERSION_1)
+	if (v != FZN_STICKER_VERSION && v != FZN_STICKER_VERSION_2 && v != FZN_STICKER_VERSION_1)
 		return 0;
-	if (v == FZN_STICKER_VERSION)
+	/* THE PACK'S OWN ID, version 3's and nonzero, sec 859. */
+	if (v >= FZN_STICKER_VERSION) {
+		pack_id = get64(&rd);
+		if (!pack_id)
+			return 0;
+	}
+	if (v >= FZN_STICKER_VERSION_2)
 		line_package = get64(&rd);
 	name_len = get8(&rd);
 	if (name_len > FZN_STICKER_NAME_MAX || !(b = take(&rd, name_len))
 	    || !text_ok((const char *)b, name_len))
 		return 0;
 	if (out) {
+		out->id = pack_id;
 		out->line_package = line_package;
 		out->name_len = name_len;
 		if (name_len)
 			memcpy(out->name, b, name_len);
 		out->name[name_len] = '\0';
 	}
-	count = v == FZN_STICKER_VERSION ? get32(&rd) : get8(&rd);
+	count = v >= FZN_STICKER_VERSION_2 ? get32(&rd) : get8(&rd);
 	if (rd.bad || count == 0u || (v == FZN_STICKER_VERSION_1 && count > FZN_STICKER_PER_PACK_MAX_1))
 		return 0;
 	/* NO ROOM FOR THEM is said, never a truncated pack: the count needed. */
@@ -490,6 +512,58 @@ int fzn_sticker_derive_ids(fzn_sticker_manifest_t *m,
 			id = (id << 8) | digest[r];
 		e->id = id ? id : 1u;
 	}
+	return fzn_sticker_pack_id(m, art, art_len, sound, sound_len, hash, scratch, scratch_cap,
+	                           &m->id);
+}
+
+int fzn_sticker_pack_id(const fzn_sticker_manifest_t *m,
+                        const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
+                        const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
+                        const uint8_t *const sound[], const uint32_t sound_len[],
+                        const fzn_hash_ops_t *hash, uint8_t *scratch, size_t scratch_cap,
+                        uint64_t *id)
+{
+	uint8_t sum[32], digest[32];
+	size_t i, r;
+	uint64_t v = 0;
+
+	if (!m || !m->entries || m->count > m->cap || !art || !art_len || !sound || !sound_len
+	    || !hash || !hash->hash || !scratch || !id)
+		return 0;
+	memset(sum, 0, sizeof(sum));
+	for (i = 0; i < m->count; i++) {
+		const fzn_sticker_entry_t *e = &m->entries[i];
+		size_t at = 0;
+		unsigned carry = 0;
+
+		if (e->rendition_count > FZN_STICKER_RENDITIONS_MAX)
+			return 0;
+		for (r = 0; r <= e->rendition_count; r++) {
+			const uint8_t *bytes = r < e->rendition_count ? art[i][r] : sound[i];
+			size_t n = r < e->rendition_count ? art_len[i][r] : sound_len[i];
+
+			if (!n)
+				continue;
+			if (!bytes || n > scratch_cap - at)
+				return 0;
+			memcpy(scratch + at, bytes, n);
+			at += n;
+		}
+		if (hash->hash(hash->ctx, digest, sizeof(digest), scratch, at) != 1)
+			return 0;
+		/* ADDED, little endian, modulo 2^256: the order of the stickers
+		 * plays no part. */
+		for (r = 0; r < sizeof(sum); r++) {
+			carry += (unsigned)sum[r] + digest[r];
+			sum[r] = (uint8_t)carry;
+			carry >>= 8;
+		}
+	}
+	if (hash->hash(hash->ctx, digest, sizeof(digest), sum, sizeof(sum)) != 1)
+		return 0;
+	for (r = 0; r < 8u; r++)
+		v = (v << 8) | digest[r];
+	*id = v ? v : 1u;
 	return 1;
 }
 
@@ -643,6 +717,29 @@ static size_t rest(const char **p, const char *end, const char **out)
 	while (n && (s[n - 1u] == ' ' || s[n - 1u] == '\t'))
 		n--;
 	return n;
+}
+
+/* RRGGBBAA, eight hex digits of either case, sec 859. */
+static int rgba(const char *w, size_t n, uint32_t *out)
+{
+	size_t i;
+	uint32_t v = 0;
+
+	if (n != 8u)
+		return 0;
+	for (i = 0; i < n; i++) {
+		char c = w[i];
+		unsigned d = c >= '0' && c <= '9'   ? (unsigned)(c - '0')
+		             : c >= 'a' && c <= 'f' ? (unsigned)(c - 'a' + 10)
+		             : c >= 'A' && c <= 'F' ? (unsigned)(c - 'A' + 10)
+		                                    : 16u;
+
+		if (d > 15u)
+			return 0;
+		v = (v << 4) | d;
+	}
+	*out = v;
+	return 1;
 }
 
 static int number(const char *w, size_t n, unsigned long limit, unsigned long *out)
@@ -836,6 +933,31 @@ int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t 
 				if (!number(w, n, 65535u, &t[i]))
 					return refuse(out, err, err_cap, line,
 					            "text needs limit, x, y, width and height");
+			}
+			/* AND THE BOX'S FILL, INK AND TURN, each optional in that
+			 * order, sec 859 -- fuzzypickles' grammar: RRGGBBAA twice,
+			 * 00000000 none, so an ink is given alone behind a fill of
+			 * none; then 0 to 359 degrees clockwise. */
+			{
+				const char *x;
+				unsigned long turn = 0;
+				uint32_t paint[2] = { 0, 0 };
+				size_t k;
+
+				for (k = 0; k < 2u; k++) {
+					n = word(&cursor, end, &x);
+					if (!n)
+						break;
+					if (!rgba(x, n, &paint[k]))
+						return refuse(out, err, err_cap, line,
+						              k ? "a text ink is RRGGBBAA" : "a text fill is RRGGBBAA");
+				}
+				if (k == 2u && (n = word(&cursor, end, &x)) != 0
+				    && !number(x, n, FZN_STICKER_TURN_MAX, &turn))
+					return refuse(out, err, err_cap, line, "a text turn is 0 to 359 degrees");
+				cur->text_fill = paint[0];
+				cur->text_ink = paint[1];
+				cur->text_turn = (uint16_t)turn;
 			}
 			cur->text_limit = (uint16_t)t[0];
 			cur->text_x = (uint16_t)t[1];
@@ -1047,6 +1169,22 @@ static int emit(const fzn_sticker_manifest_t *m, spec_out_t *o, char *err, size_
 			num(o, e->text_w);
 			lit(o, " ");
 			num(o, e->text_h);
+			/* THE PAINT, as far as the last one set, sec 859. */
+			if (e->text_fill || e->text_ink || e->text_turn) {
+				char paint[12];
+
+				(void)snprintf(paint, sizeof(paint), " %08lX", (unsigned long)e->text_fill);
+				lit(o, paint);
+				if (e->text_ink || e->text_turn) {
+					(void)snprintf(paint, sizeof(paint), " %08lX",
+					               (unsigned long)e->text_ink);
+					lit(o, paint);
+				}
+				if (e->text_turn) {
+					lit(o, " ");
+					num(o, e->text_turn);
+				}
+			}
 			lit(o, "\n");
 		}
 	}

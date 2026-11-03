@@ -30,6 +30,8 @@
  *                           FROM ID,TYPE,FLAGS,DESC ...`, DESC escaped.
  *                           PACK a saved pack's ROOT, or the 144 hex of any
  *                           held pack's reference.
+ *   get sticker PACK        `ok ID`, the pack's own id from its art in
+ *                           decimal (sec 859), 0 for a pack before it.
  *   get sticker PACK ID     `ok fzn:sticker/...`, the reference a message
  *                           carries.
  *   get sticker PACK ID ROLE PATH

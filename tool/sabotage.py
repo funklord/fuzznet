@@ -3726,6 +3726,20 @@ SABOTAGES = [
 		"a refused contact request sent again by the asker's round is shown again -- sec 858",
 	),
 	(
+		"sticker-pack-id-from-the-art",
+		"sticker/pack.c",
+		"\t*id = v ? v : 1u;\n\treturn 1;",
+		"\t*id = 1u;\n\treturn 1;",
+		"every pack has one id whatever its art, and two packs are one -- sec 859",
+	),
+	(
+		"sticker-turn-within-a-circle",
+		"sticker/pack.c",
+		"!number(x, n, FZN_STICKER_TURN_MAX, &turn)",
+		"!number(x, n, 65535u, &turn)",
+		"a spec turns a text box past a full circle -- sec 859",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

@@ -435,8 +435,11 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 		return REPLY("error %s would not read beside the spec\n", why);
 	}
 	/* AN ID FROM ITS ART for each sticker the spec gave none, sec 702: one
-	 * sticker's files end to end in a scratch, the hash being one call. */
-	if (derive) {
+	 * sticker's files end to end in a scratch, the hash being one call.
+	 * ALWAYS, since sec 859: the pack's own id is its art's too, and a pack
+	 * is never built without one. */
+	(void)derive;
+	{
 		uint8_t *one = st->hash ? malloc(largest ? largest : 1u) : NULL;
 		int ok = one
 		         && fzn_sticker_derive_ids(
@@ -669,8 +672,17 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 	uint64_t id;
 	uint8_t *bytes;
 
+	/* THE PACK'S OWN ID, `get sticker PACK`, sec 859: decimal, from its
+	 * art; 0 for a pack built before version 3. */
+	if (!*left) {
+		if (!(bytes = pack_of(st, ref, &m, &data, &data_len)))
+			return REPLY("error that pack is not here whole, or is no pack\n");
+		id = m.id;
+		pack_done(&m, bytes);
+		return REPLY("ok %llu\n", (unsigned long long)id);
+	}
 	if (!next_word(at, left, &w, &n) || !id_of(w, n, &id))
-		return REPLY("malformed get sticker PACK ID [ROLE PATH]\n");
+		return REPLY("malformed get sticker PACK [ID [ROLE PATH]]\n");
 	if (!(bytes = pack_of(st, ref, &m, &data, &data_len)))
 		return REPLY("error that pack is not here whole, or is no pack\n");
 	if (!(e = entry_of(&m, id))) {

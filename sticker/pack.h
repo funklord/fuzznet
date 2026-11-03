@@ -67,8 +67,14 @@
 #include "../session/commitment.h"
 
 /* WRITTEN; and the one before it, read. */
-#define FZN_STICKER_VERSION 2u
+/* VERSION 3, sec 859: the pack's own id from its art (sec 702's fifth
+ * decision), and a text box's fill, ink and turn (its sixth). Versions 1
+ * and 2 are still read, and written by nothing. */
+#define FZN_STICKER_VERSION 3u
+#define FZN_STICKER_VERSION_2 2u
 #define FZN_STICKER_VERSION_1 1u
+/* The furthest a text box turns, clockwise, in degrees. */
+#define FZN_STICKER_TURN_MAX 359u
 
 #define FZN_STICKER_NAME_MAX 48u
 /* Version 1's cap, which it is still read under. */
@@ -136,6 +142,11 @@ typedef struct fzn_sticker_entry {
 	size_t keyword_lens[FZN_STICKER_KEYWORDS_MAX];
 	size_t keyword_count;
 	uint16_t text_limit, text_x, text_y, text_w, text_h;
+	/* THE BOX'S PAINT, sec 859: a fill under the words and an ink for
+	 * them, 0xRRGGBBAA, 0 the client's choice; and a turn, 0 to 359
+	 * degrees clockwise. 0 read from a pack before version 3. */
+	uint32_t text_fill, text_ink;
+	uint16_t text_turn;
 	uint32_t audio_offset, audio_len;
 	char audio_path[FZN_STICKER_PATH_MAX + 1u];
 	size_t audio_path_len;
@@ -153,6 +164,10 @@ typedef struct fzn_sticker_manifest {
 	fzn_sticker_entry_t *entries;
 	size_t cap;
 	size_t count;
+	/* THE PACK'S OWN ID, sec 859: `fzn_sticker_pack_id` of its art,
+	 * nonzero in a pack built; 0 read from one before version 3. Last, so
+	 * a manifest initialised by position before it still reads so. */
+	uint64_t id;
 } fzn_sticker_manifest_t;
 
 /* 1 when a read answered 0 for want of room alone: `count` is the room. */
@@ -186,6 +201,22 @@ int fzn_sticker_derive_ids(fzn_sticker_manifest_t *m,
                            const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
                            const uint8_t *const sound[], const uint32_t sound_len[],
                            const fzn_hash_ops_t *hash, uint8_t *scratch, size_t scratch_cap);
+
+/* THE PACK'S OWN ID, sec 702's fifth decision (sec 859): each sticker's
+ * BLAKE2b-256 over its renditions in manifest order and then its sound --
+ * the digest its own id comes from -- added as a 256-bit little-endian
+ * number, modulo 2^256; the id the first 8 bytes, big endian, of
+ * BLAKE2b-256 over that sum, a 0 become 1. So order, names, descriptions,
+ * keywords, kinds, LINE's ids and the stickers' own ids play no part: the
+ * same art is the same pack. fuzzypickles' `fzp_sticker_pack_id`, so a
+ * pack built in either has one id. `scratch` as above. 1 with `*id`, or
+ * 0. `fzn_sticker_derive_ids` sets `m->id` by it. */
+int fzn_sticker_pack_id(const fzn_sticker_manifest_t *m,
+                        const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
+                        const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
+                        const uint8_t *const sound[], const uint32_t sound_len[],
+                        const fzn_hash_ops_t *hash, uint8_t *scratch, size_t scratch_cap,
+                        uint64_t *id);
 
 /* OPEN `len` bytes of a pack into `out`, its `entries` and `cap` the
  * caller's room, every rule fuzzypickles' decoder kept: a known version, a
