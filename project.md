@@ -78376,6 +78376,14 @@ C's want twice with one reply of 31103 bytes in 31 pieces.
   file from that peer meets two silences before its first answer, where
   halving the ceiling meets four. The shelf halves its asked range the
   same way.
+- **And the test searched the wrong daemons.** After the clamp, runs
+  still failed at f with no file traffic at all. In both kept runs the
+  file was whole, fetched by the C daemon still running from phase e2:
+  asking `fetch file` makes a fetch fresh, and that daemon finished
+  before phase f's first turn replaced it. Phase f now searches it too.
+  The fetch also says, at debug, whom it asks, a begin that failed, and
+  an end that placed nothing. A fetch that ended silently is what made
+  this read as a node fault.
 - **The cost:** a peer that has really gone is given up on later. Its
   span halves to one leaf first, up to six silences, before the three
   that end it: about 27 s at the 3 s span deadline, where it was about

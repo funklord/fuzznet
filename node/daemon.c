@@ -14973,14 +14973,28 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 			if (fetch_link_up(&fetch_links[n_peers], pt, &table))
 				fetch_n_links = ++n_peers;
 		}
-		if (!n_peers)
-			return;
-		if (fzn_node_files_fetching_begin(&fetching, &files, roots[fetch_cursor], n_peers,
-		                                  window, leaves_a_round)
-		    != FZN_NODE_FILES_OK) {
-			fetch_close_links();
-			fetch_cursor++;
-			return;
+		/* WHO A FETCH ASKS, and a fetch that did not begin, said (sec 839):
+		 * a lossy run's file that never came said nothing of either. */
+		{
+			const uint8_t *r = roots[fetch_cursor];
+			fzn_node_files_err_t berr;
+
+			say(FZN_ENTRY_DEBUG, "files",
+			    "file %02x%02x%02x%02x: asking %zu peer(s) of %zu pull(s), %zu share(s), "
+			    "%zu contact host(s), %zu group host(s)",
+			    r[0], r[1], r[2], r[3], n_peers, npulls, nshares_in, ncontact_targets,
+			    ngroup_shares_in);
+			if (!n_peers)
+				return;
+			berr = fzn_node_files_fetching_begin(&fetching, &files, r, n_peers, window,
+			                                     leaves_a_round);
+			if (berr != FZN_NODE_FILES_OK) {
+				say(FZN_ENTRY_DEBUG, "files", "file %02x%02x%02x%02x: not begun, %s", r[0],
+				    r[1], r[2], r[3], fzn_node_files_err_str(berr));
+				fetch_close_links();
+				fetch_cursor++;
+				return;
+			}
 		}
 		fetch_length = lengths[fetch_cursor];
 		fetch_active = 1;
@@ -15011,6 +15025,12 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		else if (placed)
 			say(FZN_ENTRY_DEBUG, "files", "%llu leaf(s) of file %02x%02x%02x%02x from %zu peer(s)",
 			    (unsigned long long)placed, r[0], r[1], r[2], r[3], holders);
+		else
+			/* NOTHING PLACED, said, so a lossy run shows why a file did
+			 * not come (sec 839): it ended silently before. */
+			say(FZN_ENTRY_DEBUG, "files",
+			    "file %02x%02x%02x%02x: nothing placed, %zu holder(s) of %zu peer(s), %s",
+			    r[0], r[1], r[2], r[3], holders, fetch_n_links, fzn_node_files_err_str(err));
 		if (err != FZN_NODE_FILES_OK && err != FZN_NODE_FILES_ERR_NOT_THERE
 		    && err != FZN_NODE_FILES_ERR_ABSENT)
 			say(FZN_ENTRY_WARNING, "files", "file %02x%02x%02x%02x: %s", r[0], r[1], r[2], r[3],

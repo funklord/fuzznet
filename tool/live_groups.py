@@ -337,7 +337,11 @@ def main(argv):
 			# restarted the one host holding the file in the middle of it. At
 			# 20 per cent loss the resends made the fetch outlast that gap in
 			# one run of two (sec 839).
-			c_runs = []
+			# AND THE C RUNNING WHEN THE FETCH WAS ASKED: asking makes it
+			# fresh, and at 20 per cent loss that daemon fetched it whole
+			# before the first turn of this phase replaced it -- a run read
+			# as failing while the file sat whole in C's store (sec 839).
+			c_runs = [started["c"]]
 			turn("b", "b-f")
 			for rnd in range(ROUNDS):
 				turn("c", "c-f%d" % rnd)
