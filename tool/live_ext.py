@@ -168,7 +168,7 @@ def c_marks(daemon_path, scratch, sock_dir):
 		                  extra=["--echo-as=fecho"])
 		started["af"] = follower
 		until = time.monotonic() + 20.0
-		while "offering 1 procedure" not in follower.stderr():
+		while "offering 2 procedure" not in follower.stderr():
 			if time.monotonic() > until or follower.proc.poll() is not None:
 				raise failed("c2: A's follower offered nothing: %r" % follower.stderr()[-300:])
 			time.sleep(0.2)
@@ -283,6 +283,19 @@ def main(argv):
 			if not got.startswith("malformed"):
 				raise failed("b: a malformed local permit was answered %r" % got)
 			# A PROCEDURE CALLED BY NAME, sec 853: here, its answer escaped.
+			# THE BOUND STATED, sec 863: an answer whose escaped form is
+			# FZN_DAEMON_CALL_ESCAPED_MAX (1020) bytes reaches the caller,
+			# and one byte more is refused naming it -- plain bytes, and
+			# spaces, which escape to three.
+			for line, want in (("call fill 1020", "ok " + "a" * 1020),
+			                   ("call fill 340 s", "ok " + "%20" * 340)):
+				got = ask(sock, line)
+				if got != want:
+					raise failed("b: %s answered %r" % (line, got[:80]))
+			for line in ("call fill 1021", "call fill 341 s"):
+				got = ask(sock, line)
+				if not got.startswith("error ") or "FZN_DAEMON_CALL_ESCAPED_MAX" not in got:
+					raise failed("b: %s answered %r" % (line, got[:120]))
 			got = ask(sock, "call echo hello world")
 			if got != "ok local%20hello%20world":
 				raise failed("b: call echo answered %r" % got)
@@ -424,7 +437,7 @@ def main(argv):
 					# A PROCEDURE THE FOLLOWER ALONE HAS, sec 853 step 3: the face
 					# forwards it, unread, and answers what the follower said.
 					until = time.monotonic() + 10.0
-					while "offering 1 procedure" not in open(ferr_path).read():
+					while "offering 2 procedure" not in open(ferr_path).read():
 						if time.monotonic() > until:
 							raise failed("b4: the follower offered no procedure: %r"
 							             % open(ferr_path).read()[-300:])

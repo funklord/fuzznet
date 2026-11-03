@@ -44,6 +44,20 @@ typedef struct fzn_daemon_option {
  * face, which forwards a call for a name it has none of (sec 853 step 3).
  * A forwarded local caller's `peer` carries its uid and primary gid and no
  * group list (`groups_known` 0): the face judged the caller already. */
+/* THE MOST AN ANSWER CARRIES TO ITS CALLER, sec 863, escaped: a caller
+ * reads `ok ANSWER` on one local reply line (sec 843 keeps the local
+ * protocol to one line), ANSWER `%XX`-escaped (`local/escape.h`), so an
+ * answer reaches its caller -- here or on another host -- only where its
+ * escaped form is at most this many bytes. A byte outside `A-Z a-z 0-9
+ * -._~` escapes to three, so JSON costs about double. A longer answer is
+ * paged by the procedure's own arguments, as every listing here pages.
+ * `fzn_daemon_call_fits` asks the question for an answer in hand. */
+#define FZN_DAEMON_CALL_ESCAPED_MAX (FZN_REPLY_MAX - 4u)
+
+/* 1 when `answer`, `len` bytes, reaches a caller: its escaped form within
+ * FZN_DAEMON_CALL_ESCAPED_MAX. */
+int fzn_daemon_call_fits(const uint8_t *answer, size_t len);
+
 typedef struct fzn_daemon_procedure {
 	const char *name;
 	size_t (*call)(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,

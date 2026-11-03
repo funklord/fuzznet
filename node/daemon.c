@@ -13737,14 +13737,27 @@ static size_t call_remote(const uint8_t *sender, const uint8_t *request, size_t 
 	return 3u + n;
 }
 
-/* `ok ESCAPED` for an answer's bytes, or an error when it does not fit. */
-static size_t call_said(const uint8_t *answer, size_t n, char *reply, size_t cap)
+int fzn_daemon_call_fits(const uint8_t *answer, size_t len)
 {
+	static char room[FZN_DAEMON_CALL_ESCAPED_MAX];
 	size_t w = 0;
 
-	if (cap < 5u || fzn_escape(answer, n, reply + 3, cap - 5u, &w) != n)
-		return (size_t)snprintf(reply, cap, "error the answer is longer than one reply; "
-		                                    "page it by its arguments\n");
+	return (answer || !len) && fzn_escape(answer, len, room, sizeof(room), &w) == len;
+}
+
+/* `ok ESCAPED` for an answer's bytes, or an error when it does not fit:
+ * FZN_DAEMON_CALL_ESCAPED_MAX, the bound daemon.h states (sec 863). */
+static size_t call_said(const uint8_t *answer, size_t n, char *reply, size_t cap)
+{
+	size_t w = 0, room = cap >= 5u ? cap - 5u : 0u;
+
+	if (room > FZN_DAEMON_CALL_ESCAPED_MAX)
+		room = FZN_DAEMON_CALL_ESCAPED_MAX;
+	if (!room || fzn_escape(answer, n, reply + 3, room, &w) != n)
+		return (size_t)snprintf(reply, cap, "error the answer escapes past %u bytes, "
+		                                    "FZN_DAEMON_CALL_ESCAPED_MAX; page it by its "
+		                                    "arguments\n",
+		                        (unsigned)FZN_DAEMON_CALL_ESCAPED_MAX);
 	memcpy(reply, "ok ", 3u);
 	reply[3u + w] = '\n';
 	return 4u + w;

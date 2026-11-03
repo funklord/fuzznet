@@ -79495,3 +79495,30 @@ Measured again on today's build, with huge pages "always":
   same.
 - **Control:** `ext_daemon` without the call failed b2, holding
   2,048 kB of huge pages.
+
+## 863. The bound a procedure's answer reaches its caller within, 2026-11-03
+
+netcfgd, inbox 2026-11-03 20:06: a procedure may answer 4096 bytes, but
+`call_said` escapes the answer onto one local reply line. So any answer
+whose escaped form passed about 1020 bytes was refused, locally and for
+`call ... at HOST` alike. JSON escapes heavily, and netcfgd's first
+4096-byte status page failed every time. netcfgd asked for one named
+bound to depend on.
+
+**Decided: state the bound, not widen the line.** Sec 843 settled that
+the local protocol stays one line per request, and that a long answer
+pages by its own arguments. Every client and the follower's pass-through
+rely on the one line.
+- `FZN_DAEMON_CALL_ESCAPED_MAX` (`node/daemon.h`), `FZN_REPLY_MAX - 4`,
+  1020 bytes, is the most an answer's escaped form may be and still
+  reach its caller, here or on another host.
+- `fzn_daemon_call_fits(answer, len)` answers whether one in hand does.
+- The refusal now names the constant.
+- The wire still carries up to 4096 bytes. Only the caller's line is the
+  limit, and that is what the constant states.
+
+**Measured, `live_ext` b, with `ext_daemon`'s new `fill N [s]`:**
+- 1020 bytes of `a`, and 340 spaces (1020 escaped), arrive whole;
+- 1021 bytes, and 341 spaces, are refused naming
+  `FZN_DAEMON_CALL_ESCAPED_MAX`.
+- b4 and c2 still pass, with the follower now offering two procedures.

@@ -277,8 +277,28 @@ static size_t echo(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
 	return w + args_len;
 }
 
+/* `fill N [s]`, sec 863: an answer of N bytes, `a` or with `s` spaces,
+ * which escape to three -- to stand on FZN_DAEMON_CALL_ESCAPED_MAX's
+ * edge. */
+static size_t fill(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
+                   const uint8_t *args, size_t args_len, uint8_t *answer, size_t cap)
+{
+	size_t n = 0, i = 0;
+
+	(void)ctx;
+	(void)caller;
+	(void)peer;
+	while (i < args_len && args[i] >= '0' && args[i] <= '9' && n < 100000u)
+		n = n * 10u + (size_t)(args[i++] - '0');
+	if (!n || n > cap)
+		return 0;
+	memset(answer, i + 2u == args_len && args[i + 1u] == 's' ? ' ' : 'a', n);
+	return n;
+}
+
 static const fzn_daemon_procedure_t procedures[] = {
 	{ echo_name, echo },
+	{ "fill", fill },
 };
 
 static size_t remote(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], int contact,
