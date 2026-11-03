@@ -79619,3 +79619,31 @@ of the publishing node.
   - c3: B's `call events at A 0` reads A's events, A's `add mark` among
     them.
 - Sabotage: `events-kept-numbered`.
+
+## 867. Two messages recorded, 2026-11-03
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps.
+
+**netcfgd (20:23): its status page names its whole.** The type 129 answer
+and the `status` procedure's page are now `ok TOTAL FROM COUNT DIGEST`,
+a newline and COUNT bytes. DIGEST is the FNV-1a 64 of the whole status
+the page was cut from, as 16 lower-case hex digits. Without it, pages
+cut from two statuses of the same length could be joined into a status
+that never existed. fuzznet reads none of these bytes; `node/types.h`'s
+list of the extension types now gives the four fields, where sec 853 and
+the header said three.
+
+**fuzzypickles (21:59): a sticker sent to a group is fetched whole.**
+Sec 682 said groups took the same path as conversations, untested live.
+fuzzypickles measured it at d61acbe with
+`test/e2e/sticker-fetch-in-a-group-on-nodes.sh` on two nodes paired by
+card:
+- alice keeps a pack, adds bob to a group, and sends her reference as a
+  group line;
+- bob's node answers `get sticker PACK` with `ok` once the line has
+  arrived, and the pack is not among bob's kept stickers;
+- the control is the same question before the send, answered with an
+  error.
+
+It passed on the first run.

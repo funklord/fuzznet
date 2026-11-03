@@ -86,9 +86,12 @@
  *
  * In use, by owner:
  *   128  netcfgd: a request, one line of netcfgd's local vocabulary
- *   129  netcfgd: its answer, `ok TOTAL FROM COUNT`, a newline and COUNT
- *        bytes, or `denied`/`malformed`/`error` and a sentence
- * (netcfgd's decision 0311; inbox 2026-11-03 20:00, sec 853.) */
+ *   129  netcfgd: its answer, `ok TOTAL FROM COUNT DIGEST`, a newline and
+ *        COUNT bytes -- DIGEST the FNV-1a 64 of the whole status the
+ *        page was cut from, 16 lower-case hex -- or `denied`/`malformed`/
+ *        `error` and a sentence
+ * (netcfgd's decision 0311 and its 10.689; inbox 2026-11-03 20:00 and
+ * 20:23, secs 853, 867.) */
 #define FZN_TYPES_EXTENSION_FIRST 128u
 #define FZN_TYPES_EXTENSION_LAST 191u
 #define FZN_TYPES_NETCFGD_REQUEST 128u
