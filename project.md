@@ -79168,3 +79168,43 @@ uses is paid for on every install.
   catalogue rest on, so files stay. The shelf holds notes' texts and
   goes with notes.
 - **Catalogue:** its index and verbs go; holdings carriage stays.
+
+## 857. An extension's verbs on a node with no capability, 2026-11-03
+
+netcfgd's first finding of 17:00 (sec 851), at 5e3b41a: a daemon started
+with no `--fuzznet-service` and `--fuzznet-product` answered an
+extension's verb with the node's status line, and `local_from` was never
+called.
+
+**Why:** with no capability the node has no remote hop and installs no
+local handler at all, so `node/local.c` answers every line with the
+status line. That is right for fuzznetd alone, which has nothing else to
+say. It is wrong for a daemon with an extension: netcfgd run as a router
+on its own still has its own verbs.
+
+**Built:** where the daemon has an extension with verbs or procedures,
+a node with no capability installs `ext_alone`:
+- `status` stays fuzznet's;
+- `call NAME` reaches the extension's procedures, locally (sec 853);
+- every other line goes to the extension's `local_from` or `local`. Its
+  answer is held to one line of the reply vocabulary, as the admin chain
+  holds it (sec 673);
+- anything the extension declines answers `unsupported`, naming the two
+  options.
+
+A node with a capability installs the whole chain over it, as before.
+**Not served alone:** fuzznet's own verbs that need a store, an identity
+or the remote hop, and permits (sec 852), which read host settings.
+
+**Measured, `tool/live_ext.py` b6:** `ext_daemon` started with neither
+option. It answers:
+- `status` with the status line;
+- `get greeting` with `ok hello`;
+- `get caller` with the caller's uid, so `local_from` was asked;
+- `call echo alone` with `ok local%20alone`;
+- `get garbled` with an error;
+- `list nothing` with `unsupported`.
+
+**Control:** with the handler not installed, b6 fails as netcfgd
+reported: `get greeting` is answered `ok served granted: this kind
+requires no capability ...`.

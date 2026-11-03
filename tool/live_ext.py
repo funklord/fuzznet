@@ -506,6 +506,40 @@ def main(argv):
 					face_proc.wait(timeout=10)
 			print("livecheck: b5: on the face's own socket path it followed with none of its "
 			      "own, ticked, and stopped leaving the face's socket serving")
+
+			# b6: NO CAPABILITY, sec 857: started with no --fuzznet-service and
+			# --fuzznet-product, its own verbs and procedures still answer,
+			# status stays fuzznet's, and the rest is unsupported.
+			bare = [a for a in base if not a.startswith("--fuzznet-")]
+			alone = subprocess.Popen(bare, stdout=log, stderr=subprocess.STDOUT,
+			                         start_new_session=True)
+			try:
+				if not ask(sock, "status").startswith("ok "):
+					raise failed("b6: with no capability, status did not answer")
+				got = ask(sock, "get greeting")
+				if got != "ok hello":
+					raise failed("b6: with no capability, get greeting answered %r" % got)
+				got = ask(sock, "get caller")
+				if got != "ok %d" % os.getuid():
+					raise failed("b6: with no capability, local_from was not asked: %r" % got)
+				got = ask(sock, "call echo alone")
+				if got != "ok local%20alone":
+					raise failed("b6: with no capability, call echo answered %r" % got)
+				got = ask(sock, "get garbled")
+				if not got.startswith("error "):
+					raise failed("b6: a garbled answer with no capability was %r" % got)
+				got = ask(sock, "list nothing")
+				if not got.startswith("unsupported"):
+					raise failed("b6: with no capability, list nothing answered %r" % got)
+			finally:
+				os.killpg(alone.pid, signal.SIGTERM)
+				try:
+					alone.wait(timeout=10)
+				except subprocess.TimeoutExpired:
+					os.killpg(alone.pid, signal.SIGKILL)
+					alone.wait(timeout=10)
+			print("livecheck: b6: with no capability its verbs, its caller's credentials and "
+			      "its procedure answered, status stayed fuzznet's, the rest unsupported")
 			c_marks(daemon_path=daemon, scratch=scratch, sock_dir=sock_dir)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)

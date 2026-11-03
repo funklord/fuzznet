@@ -9422,6 +9422,36 @@ static size_t ext_local_from(void *ctx, fzn_origin_t origin, const fzn_peer_t *p
 	return ext_local(ctx, origin, request, reply, cap);
 }
 
+/* A NODE WITH NO CAPABILITY, sec 857: started with no `--fuzznet-service`
+ * and `--fuzznet-product`, it has no remote hop and none of fuzznet's verbs
+ * that need one -- but an extension's verbs and procedures are still its
+ * own: netcfgd run as a router alone. netcfgd found them answered with the
+ * node's status line, since no handler was installed at all. `status`
+ * stays fuzznet's; an extension's answer is held to one line of the reply
+ * vocabulary, as the admin chain holds it; anything else is unsupported. */
+static size_t ext_alone(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
+                        const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
+                        size_t cap)
+{
+	const uint8_t *detail = NULL;
+	size_t detail_len = 0, n;
+
+	(void)verdict;
+	if (request->parsed == FZN_VERB_STATUS)
+		return 0;
+	if ((n = call_local(origin, peer, request, reply, cap)) != 0)
+		return n;
+	n = ext_local_from(ctx, origin, peer, request, reply, cap);
+	if (n > cap || (n && (reply[n - 1u] != '\n' || memchr(reply, '\n', n - 1u) != NULL
+	                      || fzn_reply_of((const uint8_t *)reply, n - 1u, &detail, &detail_len)
+	                                 == FZN_REPLY_NONE)))
+		return (size_t)snprintf(reply, cap, "error the extension's answer is not a reply\n");
+	if (n)
+		return n;
+	return (size_t)snprintf(reply, cap, "unsupported this node has no capability; start it "
+	                                    "with --fuzznet-service and --fuzznet-product\n");
+}
+
 static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap)
 {
@@ -17527,6 +17557,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		 * holds what they need: its key, a store, and the capability it
 		 * grants. `add peer` then pairs a device into the RUNNING node,
 		 * which `--pair` could only do for its next start. sec 378. */
+		/* AN EXTENSION'S VERBS WITH NO CAPABILITY, sec 857: replaced below
+		 * by the whole chain wherever the node has one. */
+		if (ext && (ext->local || ext->local_from || ext->n_procedures)) {
+			state.on_local = ext_alone;
+			state.on_local_ctx = NULL;
+		}
 		if (booted && has_capability) {
 			admin.state = &state;
 			admin.peers = node_peers;
