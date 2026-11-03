@@ -617,10 +617,14 @@ static void test_more_than_64(void)
 	      "a pack past the room opened, or did not say the room it needs");
 	/* A SPEC WRONG AFTER ITS FIRST STICKER, read with too little room, is
 	 * wrong, not short of room. */
-	CHECK(!fzn_sticker_spec_parse("sticker 1 static\nsticker 2 static\nsideways\n", 41u,
-	                              &small, err, sizeof(err))
-	              && !FZN_STICKER_TOO_SMALL(&small),
-	      "a spec refused for what it says was answered as wanting room");
+	{
+		fzn_sticker_manifest_t one = { "", 0, 0, few, 1u, 0 };
+		static const char WRONG[] = "sticker 1 static\nsticker 2 static\nsideways\n";
+
+		CHECK(!fzn_sticker_spec_parse(WRONG, sizeof(WRONG) - 1u, &one, err, sizeof(err))
+		              && !FZN_STICKER_TOO_SMALL(&one) && strstr(err, "line 3"),
+		      "a spec refused for what it says was answered as wanting room");
+	}
 	big[0] = 9u;
 	CHECK(!fzn_sticker_pack_open(big, big_len, &small, &data, &data_len)
 	              && !FZN_STICKER_TOO_SMALL(&small),

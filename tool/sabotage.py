@@ -14356,7 +14356,7 @@ SABOTAGES = [
 		"sticker-build-distinct-ids",
 		"sticker/pack.c",
 		"\t\t\tif (m->entries[i].id == m->entries[j].id)\n\t\t\t\treturn 0;\n",
-		"",
+		"\t\t\tif (0)\n\t\t\t\treturn 0;\n",
 		"two stickers of one art take one id, and a pack of them makes every reference to either ambiguous -- sec 836",
 	),
 	(
