@@ -482,6 +482,56 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 			return say(reply, cap, FZN_REPLY_ERROR, "past 256 KiB");
 		return set_text(n, id, text, len, reply, cap);
 	}
+	/* A NOTE'S LABELS, sec 869: `set note ID labels [LABEL]...`, each
+	 * label one word `%XX`-escaped (so a space is %20), none for no
+	 * labels. Kept NUL-separated, as the note holds them and the listing
+	 * shows them; a label holding a NUL, an empty one, or the lot past
+	 * FZN_NOTE_LABELS_MAX refused. */
+	if (is_word(field, field_len, "labels")) {
+		static uint8_t labels[FZN_NOTE_LABELS_MAX];
+		size_t used = 0, one = 0;
+
+		while (word(&at, &left, &w, &w_len)) {
+			if (used && used == sizeof(labels))
+				return say(reply, cap, FZN_REPLY_MALFORMED, "labels past their bound");
+			if (used)
+				labels[used++] = 0u;
+			if (!fzn_unescape(w, w_len, labels + used, sizeof(labels) - used, &one) || !one
+			    || memchr(labels + used, 0, one))
+				return say(reply, cap, FZN_REPLY_MALFORMED,
+				           "set note ID labels [LABEL]..., each label one escaped word");
+			used += one;
+		}
+		memset(&with, 0, sizeof(with));
+		with.labels = labels;
+		with.labels_len = used;
+		err = fzn_notes_edit(author_of(n), id, FZN_NOTES_EDIT_LABELS, &with, 0u, 0u, now(n));
+		return err == FZN_NOTES_OK ? say(reply, cap, FZN_REPLY_OK, NULL)
+		                           : refuse(reply, cap, err);
+	}
+	/* AND ITS COLOUR, `set note ID colour RRGGBBAA`, 00000000 unset (sec
+	 * 869; the note's own encoding). */
+	if (is_word(field, field_len, "colour")) {
+		uint32_t colour = 0;
+
+		if (!word(&at, &left, &w, &w_len) || w_len != 8u || left)
+			return say(reply, cap, FZN_REPLY_MALFORMED, "set note ID colour RRGGBBAA");
+		for (i = 0; i < 8u; i++) {
+			int d = w[i] >= '0' && w[i] <= '9'   ? w[i] - '0'
+			        : w[i] >= 'a' && w[i] <= 'f' ? w[i] - 'a' + 10
+			        : w[i] >= 'A' && w[i] <= 'F' ? w[i] - 'A' + 10
+			                                     : -1;
+
+			if (d < 0)
+				return say(reply, cap, FZN_REPLY_MALFORMED, "set note ID colour RRGGBBAA");
+			colour = (colour << 4) | (uint32_t)d;
+		}
+		memset(&with, 0, sizeof(with));
+		with.colour = colour;
+		err = fzn_notes_edit(author_of(n), id, FZN_NOTES_EDIT_COLOUR, &with, 0u, 0u, now(n));
+		return err == FZN_NOTES_OK ? say(reply, cap, FZN_REPLY_OK, NULL)
+		                           : refuse(reply, cap, err);
+	}
 	if (is_word(field, field_len, "parent")) {
 		if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, parent))
 			return say(reply, cap, FZN_REPLY_MALFORMED, "set note ID parent PARENT");
@@ -701,6 +751,21 @@ static size_t answer_note(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 		return get_items(n, store, id, historical ? node : NULL, at, left, reply, cap);
 	if (pending)
 		return say(reply, cap, FZN_REPLY_ERROR, "the text is not here yet");
+	/* `get note ID meta`, sec 869: `ok COLOUR LABELS`, the colour eight hex
+	 * (00000000 unset) and the labels escaped as the listing escapes them,
+	 * the NUL between two `%00`. A field of its own, so a client reading
+	 * the summary's title as the rest of its line reads it as before. */
+	if (is_word(field, field_len, "meta")) {
+		int head = snprintf(detail, sizeof(detail), "%08lX ", (unsigned long)meta.colour);
+		size_t wrote2 = 0;
+
+		if (head < 0 || (size_t)head >= limit)
+			return 0;
+		if (escape(note.labels, note.labels_len, detail + head, limit - (size_t)head, &wrote2)
+		    < note.labels_len)
+			return say(reply, cap, FZN_REPLY_ERROR, "the labels do not fit a reply");
+		return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)head + wrote2);
+	}
 	if (is_word(field, field_len, "text")) {
 		if (word(&at, &left, &w, &w_len))
 			for (i = 0; i < w_len; i++) {

@@ -79714,3 +79714,34 @@ setting object refused it: `scope_served` took host and estate alone.
   refused and goes on with the rest of the stream, so an estate of mixed
   builds keeps its other settings. The old build's members simply do
   not hold group values.
+
+## 869. A note's labels and colour, by verb, 2026-11-03
+
+fuzzypickles' project.md: "Nothing here writes labels yet (tags wait on
+fuzznet)". A note has carried labels and a colour since the note format
+(`notes/note.h`), and the author edits them (`FZN_NOTES_EDIT_LABELS`,
+`FZN_NOTES_EDIT_COLOUR`). But no verb on the node set either, and no verb
+read the colour back. A client on a node could neither label a note nor
+show the colour another device had given it.
+
+**Built:**
+- `set note ID labels [LABEL]...`: each label is one `%XX`-escaped word,
+  so `to%20do` is "to do". Naming none clears them. A label that is
+  empty or holds a NUL is refused, and so is the lot past
+  `FZN_NOTE_LABELS_MAX`.
+- `set note ID colour RRGGBBAA`: eight hex digits, the note's own
+  encoding, with 00000000 meaning unset.
+- `get note ID meta` answers `ok COLOUR LABELS`, the labels escaped as
+  the listing escapes them, so the NUL between two reads `%00`. It is a
+  field of its own because the summary ends in the title, and a client
+  that reads the title as the rest of its line keeps reading it so.
+- `list note` already carried the labels beside the title (sec 522), so
+  a client searches them without opening a note.
+
+**Measured, `notes_test`, 405 checks:**
+- labels and a colour set, and read back by `meta`;
+- the listing carrying the labels;
+- the text kept through both edits;
+- clearing the labels keeping the colour;
+- refused: a label with a NUL, a colour that is not RRGGBBAA, and a
+  field with no verb.

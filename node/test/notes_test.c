@@ -340,7 +340,31 @@ static void test_add_list_get(void)
 	              == FZN_REPLY_ERROR,
 	      "a note nobody holds is an error");
 	snprintf(line, sizeof(line), "set note %s colour red", milk);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "a colour that is not RRGGBBAA was taken");
+	snprintf(line, sizeof(line), "set note %s shade 1", milk);
 	CHECK(ask(line) == FZN_REPLY_MALFORMED, "a field there is no verb for is malformed");
+	/* LABELS AND A COLOUR, sec 869: set by verb, read back by `meta`, the
+	 * labels listed beside the title, and cleared by naming none. */
+	snprintf(line, sizeof(line), "set note %s labels shopping to%%20do", milk);
+	CHECK(ask(line) == FZN_REPLY_OK, "labels were not set");
+	snprintf(line, sizeof(line), "set note %s colour FF8000C0", milk);
+	CHECK(ask(line) == FZN_REPLY_OK, "a colour was not set");
+	snprintf(line, sizeof(line), "get note %s meta", milk);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "FF8000C0 shopping%00to%20do"),
+	      "the colour and labels did not read back, the labels NUL-apart and escaped");
+	snprintf(line, sizeof(line), "list note %s", shop);
+	CHECK(ask(line) == FZN_REPLY_OK && has(",oat%20milk,shopping%00to%20do"),
+	      "the listing did not carry the labels beside the title");
+	snprintf(line, sizeof(line), "get note %s text", milk);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "15 0 two%20pints%2c%20cold"),
+	      "setting labels and a colour lost the text");
+	snprintf(line, sizeof(line), "set note %s labels", milk);
+	CHECK(ask(line) == FZN_REPLY_OK, "labels were not cleared");
+	snprintf(line, sizeof(line), "get note %s meta", milk);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "FF8000C0 "),
+	      "cleared labels still read, or the colour went with them");
+	snprintf(line, sizeof(line), "set note %s labels a%%00b", milk);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "a label holding a NUL was taken");
 	CHECK(ask_as(FZN_ORIGIN_LOCAL, "list note top") == FZN_REPLY_DENIED,
 	      "another user is denied, reads included");
 	CHECK(ask("get vote 0") == FZN_REPLY_NONE && ask("list peer") == FZN_REPLY_NONE,
