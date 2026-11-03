@@ -18,6 +18,7 @@ client drives it -- no one-shot command, no daemon stopped by its client.
     c  B started again with no `--root-at` still pulls from A, where the
        join kept it, and reads a second setting A makes
     d  A's `list sibling` names B, paired
+    d2 B sets its own `host/name`, and A's row for B ends in it (sec 848)
     e  B's `list capability` holds member by one hop; A's `list grant` names
        the grant it made B, standing
     f  A grants B admin; B keeps the chain with `set admin PATH` and starts
@@ -189,6 +190,20 @@ def main(argv):
 					raise failed("d: A's list sibling answered %r, not B paired" % listed)
 				time.sleep(1.0)
 			print("livecheck: d: A lists B among its siblings, paired")
+
+			# d2: B NAMES ITSELF, sec 848: its own host/name, carried with its
+			# records, ends B's row at A, escaped.
+			expect(socks["b"], "b", "set setting host host/name my laptop", "ok")
+			until = time.monotonic() + 120.0
+			while True:
+				listed = ask(socks["a"], "list sibling").split()
+				if any(e.startswith(key_b + ",") and e.endswith(",my%20laptop")
+				       for e in listed[3:]):
+					break
+				if time.monotonic() > until:
+					raise failed("d2: A's list sibling answered %r, not B named" % listed)
+				time.sleep(1.0)
+			print("livecheck: d2: B named itself, and A lists it by that name")
 
 			# e: B holds the member capability by A's grant, one hop; A lists
 			# the grant it made B, standing (sec 638).

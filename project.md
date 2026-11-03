@@ -78703,3 +78703,32 @@ Answered from the code:
   existing final component, a symlink included, but not a symlinked
   parent. fuzznetd runs as its client's own user, so it guards no
   privilege boundary.
+
+## 848. A device's name, carried, and listed with its siblings, 2026-11-03
+
+fuzzypickles' first question in sec 847: each of a user's own devices
+showed as 16 hex characters, so a person with a desk, a laptop and a
+phone could not tell the rows apart. fzpd took a name in its join
+request.
+
+**Decided: a device's name is a setting of its own,** `host/name`, text
+of 1 to 32 bytes, host-scoped, declared with fuzznet's settings.
+- It is set on the device (`set setting host host/name laptop`), or
+  corrected by an admin as any host setting is.
+- It travels with the device's records, as `net/address` does, so every
+  device of the estate reads it.
+- It is not carried in the join request. A setting can be changed
+  later, is checked by the schema, and needs no change to the join's
+  wire. A name in the request would be a second place for it, frozen at
+  the join.
+- `list sibling` rows are now `KEY,WHERE,PAIRED,HEARD,NAME`, with the
+  name escaped, or `-`. The field is last, so a reader of four fields
+  still reads its four.
+
+**fuzzypickles' second question:** WHERE is the device's own
+`net/address`, which reaches the root with its records once it has run
+a round (answered in sec 847). Nothing is dropped.
+
+**Measured:** in `tool/live_join.py` d2, B sets `host/name my laptop`,
+and A's row for B comes to end `,my%20laptop`. With the name read as
+always `-`, d2 fails.

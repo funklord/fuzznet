@@ -84,6 +84,10 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  NULL },
 	{ "net/address", FZN_SCHEMA_ADDRESS, HOST, 0u, 253u, "", "", 0u,
 	  "where this host is reached, HOST PORT, an admin's to correct (sec 579)", NULL },
+	{ "host/name", FZN_SCHEMA_TEXT, HOST, 1u, 32u, "", "", 0u,
+	  "what this host's user calls it -- laptop, phone -- as every device of the estate "
+	  "lists it (sec 848)",
+	  NULL },
 	{ "net/metric", FZN_SCHEMA_COUNT, HOST, 0u, 255u, "100", "", FZN_SCHEMA_ADVANCED,
 	  "this host's place in the routing manifest, lower first (sec 611)", NULL },
 	{ "net/discovery", FZN_SCHEMA_TEXT, HOST, 1u, 45u, "255.255.255.255", "", FZN_SCHEMA_ADVANCED,

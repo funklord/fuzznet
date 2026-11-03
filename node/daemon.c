@@ -6268,7 +6268,7 @@ static size_t grant_local(fzn_origin_t origin, const fzn_request_t *request, cha
 	return at + (size_t)snprintf(reply + at, cap > at ? cap - at : 0u, "\n");
 }
 
-/* `list sibling [FROM]`, sec 638: `ok TOTAL FROM KEY,WHERE,PAIRED,HEARD ...`,
+/* `list sibling [FROM]`, sec 638: `ok TOTAL FROM KEY,WHERE,PAIRED,HEARD,NAME ...`,
  * every other host of this estate this node knows, a page at a time --
  * fzpd's `sibling-list`: those whose prekey the estate's stream carried,
  * and the members paired into this node, which is how a root knows the
@@ -6276,8 +6276,9 @@ static size_t grant_local(fzn_origin_t origin, const fzn_request_t *request, cha
  * reaches it (an introduced address while it lasts, else its
  * `net/address`), or `-`; PAIRED is `paired` when either holds a pairing
  * to the other, else `unpaired`;
- * HEARD the seconds since it last answered, or `-` for never. This node's
- * own user only: it names where every host of the estate is. */
+ * HEARD the seconds since it last answered, or `-` for never; NAME its own
+ * `host/name`, escaped, or `-` (sec 848). This node's own user only: it
+ * names where every host of the estate is. */
 static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap)
 {
@@ -6325,8 +6326,11 @@ static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, c
 	for (i = 0, k = 0; i < n && at < cap; i++) {
 		struct introduced *in;
 		fzn_node_pairing_t pairing;
-		char where[FZN_NODE_SETTINGS_HOST_MAX + 8u], heard[24],
-		        entry[FZN_NODE_SETTINGS_HOST_MAX + 128u];
+		char where[FZN_NODE_SETTINGS_HOST_MAX + 8u], heard[24], name[3u * 32u + 1u],
+		        entry[FZN_NODE_SETTINGS_HOST_MAX + 3u * 32u + 128u];
+		uint8_t value[FZN_SETTING_VALUE_MAX];
+		fzn_setting_rank_t rank;
+		size_t value_len = 0, name_len = 0;
 		uint16_t port = 0;
 		uint64_t when = 0;
 		int paired, len;
@@ -6358,8 +6362,17 @@ static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, c
 		len = snprintf(entry, sizeof(entry), " ");
 		for (j = 0; j < FZN_PUBKEY_LEN; j++)
 			len += snprintf(entry + len, sizeof(entry) - (size_t)len, "%02x", hosts[i][j]);
-		len += snprintf(entry + len, sizeof(entry) - (size_t)len, ",%s,%s,%s", where,
-		                paired ? "paired" : "unpaired", heard);
+		/* ITS NAME, sec 848: the host's own `host/name`, escaped, or `-`. */
+		if (fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, hosts[i],
+		                          (const uint8_t *)FZN_NODE_SETTINGS_NAME_KEY,
+		                          sizeof(FZN_NODE_SETTINGS_NAME_KEY) - 1u, value, &value_len, &rank)
+		    && value_len && value_len <= 32u
+		    && fzn_escape(value, value_len, name, sizeof(name) - 1u, &name_len) == value_len)
+			name[name_len] = '\0';
+		else
+			(void)snprintf(name, sizeof(name), "-");
+		len += snprintf(entry + len, sizeof(entry) - (size_t)len, ",%s,%s,%s,%s", where,
+		                paired ? "paired" : "unpaired", heard, name);
 		/* A PAGE IS WHAT FITS: the next one starts at the first left out. */
 		if (len <= 0 || at + (size_t)len + 2u > cap)
 			break;

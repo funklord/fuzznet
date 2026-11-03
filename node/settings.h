@@ -272,6 +272,8 @@ uint32_t fzn_node_settings_gone_s(const fzn_node_settings_t *ns);
  * is a location, and changes without its pairing changing (`node/pair.h`),
  * so it is kept here rather than beside the pairing. */
 #define FZN_NODE_SETTINGS_ADDRESS_KEY "net/address"
+/* WHAT A HOST'S USER CALLS IT, sec 848: `list sibling` shows it. */
+#define FZN_NODE_SETTINGS_NAME_KEY "host/name"
 #define FZN_NODE_SETTINGS_HOST_MAX 253u
 int fzn_node_settings_address(const fzn_node_settings_t *ns, const uint8_t about[FZN_SUBJECT_LEN],
                               char host[FZN_NODE_SETTINGS_HOST_MAX + 1u], uint16_t *port);
