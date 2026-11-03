@@ -234,7 +234,8 @@ struct mem_entry {
 	uint8_t bytes[512];
 	size_t len;
 };
-static struct mem_entry mem[128];
+/* ROOM FOR EVERY SHARE A NODE KEEPS, and the rows beside them (sec 846). */
+static struct mem_entry mem[512];
 
 static struct mem_entry *mem_find(fzn_persist_slot_t slot, const uint8_t *subject, int make)
 {
@@ -638,6 +639,42 @@ static void test_a_short_file_halves_what_was_asked(const fzn_node_files_t *A,
 	      "a short file from a lossy peer did not end whole");
 	(void)fzn_node_files_remove(&B, ref->root);
 	CHECK(entries(dir_s) == 0u && rmdir(dir_s) == 0, "the short fetch's store did not empty");
+}
+
+/* THE WANTS AT THEIR BOUND, sec 846: 64 files wanted, the 65th refused as
+ * full -- "malformed" before -- and one wanted again at the bound taken. */
+static void test_the_wants_hold_at_their_bound(void)
+{
+	static fzn_node_files_t W;
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	char dir_w[160];
+	size_t k;
+	fzn_node_files_err_t err = FZN_NODE_FILES_OK;
+
+	(void)snprintf(dir_w, sizeof(dir_w), "%s/wants", top);
+	CHECK(fzn_node_files_init(&W, dir_w, &HASH, &AEAD, &RNG) == FZN_NODE_FILES_OK,
+	      "fixture: a store for wants");
+	for (k = 0; k < FZN_NODE_FILES_WANTS_MAX && err == FZN_NODE_FILES_OK; k++) {
+		memset(root, 0x7a, sizeof(root));
+		root[0] = (uint8_t)k;
+		err = fzn_node_files_want(&W, root, 5000u);
+	}
+	CHECK(err == FZN_NODE_FILES_OK && fzn_node_files_wanted(&W, NULL, NULL, 0)
+	                                          == FZN_NODE_FILES_WANTS_MAX,
+	      "a want inside the bound was refused");
+	memset(root, 0x7b, sizeof(root));
+	CHECK(fzn_node_files_want(&W, root, 5000u) == FZN_NODE_FILES_ERR_FULL,
+	      "a want past the bound was taken, or refused as something else");
+	memset(root, 0x7a, sizeof(root));
+	root[0] = 0u;
+	CHECK(fzn_node_files_want(&W, root, 5000u) == FZN_NODE_FILES_OK,
+	      "a file wanted again at the bound was refused");
+	for (k = 0; k < FZN_NODE_FILES_WANTS_MAX; k++) {
+		memset(root, 0x7a, sizeof(root));
+		root[0] = (uint8_t)k;
+		(void)fzn_node_files_remove(&W, root);
+	}
+	CHECK(entries(dir_w) == 0u && rmdir(dir_w) == 0, "the wants' store did not empty");
 }
 
 /* THE SETTINGS THE STICKER VERBS WOULD READ, never reached here: every
@@ -1241,6 +1278,39 @@ int main(void)
 			              && n == 0u,
 			      "a row copied under another key was read as a share");
 		}
+		/* THE SHARES AT THEIR BOUND, sec 846: taken to the last, the next
+		 * refused as full -- "the disk refused" before -- and one held
+		 * shared again still taken. */
+		{
+			uint8_t grantee[FZN_PUBKEY_LEN];
+			size_t held = 0, k;
+			fzn_node_files_err_t serr = FZN_NODE_FILES_OK;
+			fzn_node_file_ref_t many;
+
+			CHECK(make_source(src_path, 3000u)
+			              && fzn_node_files_put(&F, src_path, &many) == FZN_NODE_FILES_OK,
+			      "fixture: a file held, to share many times");
+
+			for (k = 0; k < sizeof(mem) / sizeof(mem[0]); k++)
+				held += mem[k].used && mem[k].slot == FZN_PERSIST_FILE_SHARE;
+			for (k = 0; held + k < FZN_NODE_FILES_SHARES_MAX; k++) {
+				memset(grantee, 0x5e, sizeof(grantee));
+				grantee[0] = (uint8_t)k;
+				grantee[1] = (uint8_t)(k >> 8);
+				if ((serr = fzn_node_files_share(&F, many.root, grantee, 1, 1000u))
+				    != FZN_NODE_FILES_OK)
+					break;
+			}
+			CHECK(serr == FZN_NODE_FILES_OK, "a share inside the bound was refused");
+			memset(grantee, 0x6f, sizeof(grantee));
+			CHECK(fzn_node_files_share(&F, many.root, grantee, 1, 1000u) == FZN_NODE_FILES_ERR_FULL,
+			      "a share past the bound was taken, or refused as something else");
+			memset(grantee, 0x5e, sizeof(grantee));
+			grantee[0] = grantee[1] = 0u;
+			CHECK(fzn_node_files_share(&F, many.root, grantee, 1, 1000u) == FZN_NODE_FILES_OK,
+			      "a share held, shared again at the bound, was refused");
+			(void)fzn_node_files_remove(&F, many.root);
+		}
 		F.store = NULL;
 		for (i = 0; i < sizeof(mem) / sizeof(mem[0]); i++)
 			mem[i].used = 0;
@@ -1264,6 +1334,7 @@ int main(void)
 		test_the_fetch_as_steps(&F, &stepped);
 		test_a_lossy_peer_is_asked_less(&F, &stepped);
 		test_the_sticker_verbs_are_this_users(&F);
+		test_the_wants_hold_at_their_bound();
 		(void)fzn_node_files_remove(&F, stepped.root);
 	}
 	/* AND OF A SHORT ONE, 30 leaves, as live_groups' phase f sends. */

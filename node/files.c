@@ -58,6 +58,8 @@ const char *fzn_node_files_err_str(fzn_node_files_err_t err)
 		return "the peer's leaves do not prove";
 	case FZN_NODE_FILES_ERR_NOT_THERE:
 		return "the peer does not hold it";
+	case FZN_NODE_FILES_ERR_FULL:
+		return "as many as this node keeps";
 	}
 	return "unknown";
 }
@@ -760,8 +762,9 @@ fzn_node_files_err_t fzn_node_files_want(fzn_node_files_t *files,
 	 * (`fzn_node_files_fetch` refuses it once that leaf is here). */
 	if (read_length(len_path, &before) && before == length)
 		return FZN_NODE_FILES_OK;
+	/* FULL, said as full, sec 846: it read as "malformed" to the user. */
 	if (fzn_node_files_wanted(files, NULL, NULL, 0) >= FZN_NODE_FILES_WANTS_MAX)
-		return FZN_NODE_FILES_ERR_MALFORMED;
+		return FZN_NODE_FILES_ERR_FULL;
 	return write_length(files, root, length) ? FZN_NODE_FILES_OK : FZN_NODE_FILES_ERR_STORE;
 }
 
@@ -1603,9 +1606,13 @@ fzn_node_files_err_t fzn_node_files_share(fzn_node_files_t *files,
 	                       &len)
 	    && share_read(files, key, r, g))
 		return FZN_NODE_FILES_OK;
-	if (!share_keys(files, keys, &n) || n >= FZN_NODE_FILES_SHARES_MAX
-	    || fzn_persist_head_write(blob, sizeof(blob), SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
-	               != FZN_PERSIST_OK)
+	if (!share_keys(files, keys, &n))
+		return FZN_NODE_FILES_ERR_STORE;
+	/* FULL, said as full, sec 846: it read as "the disk refused". */
+	if (n >= FZN_NODE_FILES_SHARES_MAX)
+		return FZN_NODE_FILES_ERR_FULL;
+	if (fzn_persist_head_write(blob, sizeof(blob), SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
+	    != FZN_PERSIST_OK)
 		return FZN_NODE_FILES_ERR_STORE;
 	memcpy(blob + FZN_PERSIST_HEAD_LEN, root, FZN_BLOB_HASH_LEN);
 	memcpy(blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN, grantee, FZN_PUBKEY_LEN);

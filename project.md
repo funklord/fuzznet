@@ -78635,3 +78635,23 @@ this node's own user only, was tried by nothing.
 - Sabotage `stickers-own-user-only` holds the gate.
 
 Notes and files already had such tests.
+
+## 846. A file's wants and shares at their bounds, said as full, 2026-11-03
+
+Sec 689's bounds bar, carried on to files after groups (sec 839). Neither
+limit of `node/files.c` was tested at its edge, and each was refused in
+the wrong words:
+- `FZN_NODE_FILES_WANTS_MAX`, 64 files wanted, refused the 65th as
+  MALFORMED, which `fetch file` answers `malformed`;
+- `FZN_NODE_FILES_SHARES_MAX`, 256 share rows, refused the 257th as
+  STORE, which a grant answers `error the disk refused`.
+
+Neither says what happened, and the second sends a user to check a
+healthy disk.
+- **Built:** `FZN_NODE_FILES_ERR_FULL`, "as many as this node keeps",
+  returned by both.
+- `node/test/files_test` takes each to its last, refuses the next as
+  full, and still takes the same file wanted, or the same grantee
+  shared, again at the bound.
+- Its memory store grows from 128 rows to 512 to hold them.
+- Sabotage `files-wants-bound` and `files-shares-bound` hold the two.

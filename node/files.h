@@ -95,7 +95,9 @@ typedef enum fzn_node_files_err {
 	/* The peer's leaves did not prove against the root. Nothing written. */
 	FZN_NODE_FILES_ERR_UNVERIFIED = -10,
 	/* The peer holds none of it, or not all. */
-	FZN_NODE_FILES_ERR_NOT_THERE = -11
+	FZN_NODE_FILES_ERR_NOT_THERE = -11,
+	/* As many wants, or shares, as this node keeps (sec 846). */
+	FZN_NODE_FILES_ERR_FULL = -12
 } fzn_node_files_err_t;
 
 const char *fzn_node_files_err_str(fzn_node_files_err_t err);

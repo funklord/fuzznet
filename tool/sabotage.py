@@ -3628,6 +3628,20 @@ SABOTAGES = [
 		"another user on this machine lists, builds and forgets this user's sticker packs -- sec 845",
 	),
 	(
+		"files-wants-bound",
+		"node/files.c",
+		"\tif (fzn_node_files_wanted(files, NULL, NULL, 0) >= FZN_NODE_FILES_WANTS_MAX)\n",
+		"\tif (fzn_node_files_wanted(files, NULL, NULL, 0) > FZN_NODE_FILES_WANTS_MAX)\n",
+		"a want past the bound is taken, and the fetch's table of wants is read short of it -- sec 846",
+	),
+	(
+		"files-shares-bound",
+		"node/files.c",
+		"\tif (n >= FZN_NODE_FILES_SHARES_MAX)\n\t\treturn FZN_NODE_FILES_ERR_FULL;\n",
+		"",
+		"a share past the bound is written, and every listing of shares read into its table is cut short of it -- sec 846",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",
