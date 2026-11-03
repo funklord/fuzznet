@@ -9309,17 +9309,25 @@ static void file_holds_begin(void)
 		say(FZN_ENTRY_WARNING, "files", "the record of holds did not begin; tried again next start");
 }
 
+#ifdef FZN_CATALOG_ON
 static fzn_node_catalog_t node_catalog;
+#endif
 
 /* WHETHER ANOTHER HOLDER NAMES `root`, asked at the moment an attachment
- * rule would let the file go: the catalogue, or a saved sticker pack. */
+ * rule would let the file go: the catalogue, or a saved sticker pack --
+ * each where the build has it (sec 856). */
 static int attachment_held_elsewhere(void *ctx, const uint8_t root[32])
 {
-	fzn_catalog_assertion_t one;
-
 	(void)ctx;
-	if (fzn_node_catalog_assertions(&node_catalog, root, &one, 1u) > 0u)
-		return 1;
+	(void)root;
+#ifdef FZN_CATALOG_ON
+	{
+		fzn_catalog_assertion_t one;
+
+		if (fzn_node_catalog_assertions(&node_catalog, root, &one, 1u) > 0u)
+			return 1;
+	}
+#endif
 #ifdef FZND_STICKERS
 	{
 		fzn_node_file_ref_t ref;
@@ -13017,7 +13025,32 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
  *
  * EACH ESTATE HOST'S STREAM 4, read from where this run last left it -- from
  * its base at start, which rebuilds the table from what the journal holds --
- * into `node_catalog`. */
+ * into `node_catalog`.
+ *
+ * A CONSUMER SERVICE, left out with FZN_CATALOG=0 (sec 856): its index, its
+ * verbs and the files it names fetched go; stream 4 is carried in the
+ * journal as every stream is. */
+#ifndef FZN_CATALOG_ON
+static void catalog_skip(const uint8_t *issuer, uint64_t to)
+{
+	(void)issuer;
+	(void)to;
+}
+
+static void index_catalog(void)
+{
+}
+
+static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap)
+{
+	(void)origin;
+	(void)request;
+	(void)reply;
+	(void)cap;
+	return 0;
+}
+#else
 static fzn_node_catalog_t node_catalog;
 static struct catalog_cursor {
 	uint8_t key[FZN_PUBKEY_LEN];
@@ -13265,6 +13298,7 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 	journal_pushed = 1;
 	return (size_t)snprintf(reply, cap, "ok\n");
 }
+#endif /* FZN_CATALOG_ON */
 
 /* ---- the references of the estate's files, sec 634 --------------------------------
  *
@@ -13414,7 +13448,11 @@ static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t n
 	file_refs_taken = 0;
 	if (!journal_on || !node_apply.store)
 		return;
+#ifdef FZN_CATALOG_ON
 	n = fzn_node_catalog_assertions(&node_catalog, NULL, set, FZN_NODE_CATALOG_MAX);
+#else
+	n = 0;	/* NO CATALOGUE, sec 856: no file it names to ask for. */
+#endif
 	for (i = 0; i < n && want < FZND_FILE_REFS_MAX; i++) {
 		uint8_t *slot = host_shared_request + 3u + want * FZN_BLOB_HASH_LEN;
 

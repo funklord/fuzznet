@@ -53,6 +53,7 @@ def ask(sock, line, within=20.0):
 # and this one must not.
 GONE = {
 	"stickers": ["list sticker", "get sticker 00 1", "remove sticker 00"],
+	"catalogue": ["list catalog", "get catalog " + "00" * 32],
 }
 
 

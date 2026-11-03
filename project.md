@@ -79169,6 +79169,16 @@ uses is paid for on every install.
   goes with notes.
 - **Catalogue:** its index and verbs go; holdings carriage stays.
 
+**The catalogue, the second service flagged, 2026-11-03.** `FZN_CATALOG=0`
+leaves out the index of stream 4, the `catalog` verbs, the fetching of
+files the catalogue names (`file_refs_round` asks for none) and the
+catalogue's hold on a file against the attachment rules. Stream 4 is still
+carried in the journal as every stream is. `node/catalog.o` and
+`catalog/catalog.o` leave the link. Text: 938,419 bytes full, 917,515 lean
+with both services out. `livecheck-lean` asks `list catalog` and `get
+catalog` of the lean build, which answers `unsupported`; `live_catalog`
+passes on the full build.
+
 ## 857. An extension's verbs on a node with no capability, 2026-11-03
 
 netcfgd's first finding of 17:00 (sec 851), at 5e3b41a: a daemon started
