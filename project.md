@@ -79115,3 +79115,56 @@ stations on its allow list while pruning every other station seen.
 - the rule round-trips as text;
 - refused: `list=` on a log or message rule, a `/` in the name, and an
   empty name.
+
+## 856. The consumer services as build options: the mechanism, and stickers, 2026-11-03
+
+The holder, 2026-11-03 (sec 851): "yes we need build time flags, though
+they should be kept separate from the ability to relay and store those
+subsystems." netcfgd links the node loop in every build, since fuzznet
+"is to be our distributed store by default", so whatever a router never
+uses is paid for on every install.
+
+**The mechanism.**
+- **One make variable per service,** `FZN_STICKERS=1|0`, default 1. Each
+  defines `FZN_<SERVICE>_ON` and drops the service's own sources from
+  the build.
+- **What a flag removes:** the service, its verbs, and its own use of
+  its data.
+- **What it never removes:** the node's carrying and keeping of that
+  data for the estate. Records, buckets, files and the journal are all
+  carried as before.
+- **`make lean` builds `lean/fuzznetd`** with every service flagged out,
+  in a directory of its own, as `fuzznetd-faults` does. So no object
+  compiled one way links into the other.
+- **`livecheck-lean`, part of `make check`,** holds that build to both
+  halves (`tool/live_lean.py`):
+  - **gone:** each service left out answers its verbs `unsupported`, as
+    a node that never had it would;
+  - **kept:** status, records, lists and files still work.
+  - **Control:** run against the full build, it fails on stickers
+    (`list sticker` answers `ok 0 0`).
+
+**Stickers, the first service flagged.**
+- `node/stickers.c` leaves the build. Its verbs go.
+- The daemon's own use of packs goes with it:
+  - fetching a pack a line names as it comes in;
+  - granting one a line sends;
+  - holding a saved pack against the attachment rules.
+- A pack is a file, so files are carried as ever.
+- Text: 935,883 bytes full, 924,387 lean.
+
+**What each remaining service needs, measured by reading `daemon.c`:**
+- **Notes** are the large one: 78 uses in the daemon.
+  - **Carrying, which stays:** journal records of the notes kind,
+    shares received and the reconcile's notes filer.
+  - **Use, which goes:** indexing them into the view, the verbs, history
+    trim and the shelf's collection.
+  - **To decide first:** a node without notes must still file a notes
+    record it carries, so the filer needs a store-only path that checks
+    the signature without indexing.
+- **Groups:** group logs and lines answer other hosts' sync (relay,
+  stays). Group conversations and their verbs go.
+- **Shelf and files:** files are what stickers, attachments and the
+  catalogue rest on, so files stay. The shelf holds notes' texts and
+  goes with notes.
+- **Catalogue:** its index and verbs go; holdings carriage stays.

@@ -400,7 +400,13 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
                             size_t cap);
 static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap);
-#if defined(FZN_SPOOL_FILE_ON) && defined(FZN_RECORD_STORE_FILE_ON)
+/* THE USER'S STICKERS, sec 681, where the build has them (sec 856): a
+ * consumer service, left out with FZN_STICKERS=0. A pack is a file, so
+ * leaving it out leaves the files carried as ever. */
+#if defined(FZN_SPOOL_FILE_ON) && defined(FZN_RECORD_STORE_FILE_ON) && defined(FZN_STICKERS_ON)
+#define FZND_STICKERS 1
+#endif
+#ifdef FZND_STICKERS
 /* THE USER'S STICKERS, sec 681: packs as files, saved as settings. */
 static fzn_node_stickers_t node_stickers;
 #endif
@@ -500,7 +506,7 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = streams_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = location_local(origin, request, reply, reply_cap);
-#if defined(FZN_SPOOL_FILE_ON) && defined(FZN_RECORD_STORE_FILE_ON)
+#ifdef FZND_STICKERS
 	if (!n && node_stickers.files)
 		n = fzn_node_stickers_local(&node_stickers, origin, request, reply, reply_cap);
 #endif
@@ -9129,6 +9135,17 @@ static void sticker_seen(void *ctx, const uint8_t *contact, uint8_t direction,
 	uint64_t held = 0;
 
 	(void)ctx;
+#ifndef FZND_STICKERS
+	/* NO STICKERS IN THIS BUILD, sec 856: a pack a line names is not this
+	 * node's to fetch or grant. */
+	(void)contact;
+	(void)direction;
+	(void)text;
+	(void)len;
+	(void)ref;
+	(void)held;
+	return;
+#else
 	if (!files_on || !fzn_sticker_ref_parse((const char *)text, len, &ref) || !ref.length)
 		return;
 	if (fzn_node_files_held(&files, ref.root, &held) == FZN_NODE_FILES_OK) {
@@ -9144,6 +9161,7 @@ static void sticker_seen(void *ctx, const uint8_t *contact, uint8_t direction,
 	    && fzn_node_files_want(&files, ref.root, ref.length) == FZN_NODE_FILES_OK)
 		say(FZN_ENTRY_DEBUG, "sticker", "pack %02x%02x%02x%02x wanted, %llu bytes", ref.root[0],
 		    ref.root[1], ref.root[2], ref.root[3], (unsigned long long)ref.length);
+#endif
 }
 
 /* A FILE A LINE SENDS, sec 794: its reference (`messages/attachment.h`).
@@ -9293,7 +9311,7 @@ static int attachment_held_elsewhere(void *ctx, const uint8_t root[32])
 	(void)ctx;
 	if (fzn_node_catalog_assertions(&node_catalog, root, &one, 1u) > 0u)
 		return 1;
-#if defined(FZN_RECORD_STORE_FILE_ON)
+#ifdef FZND_STICKERS
 	{
 		fzn_node_file_ref_t ref;
 
@@ -17871,7 +17889,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					files.store = store_ops;
 					files_on = 1;
 					file_holds_begin();
-#if defined(FZN_SPOOL_FILE_ON) && defined(FZN_RECORD_STORE_FILE_ON)
+#ifdef FZND_STICKERS
 					node_stickers.files = &files;
 					node_stickers.settings = &node_settings;
 					node_stickers.host = identity.pubkey;

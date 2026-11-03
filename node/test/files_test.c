@@ -708,6 +708,7 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
 	return FZN_NODE_SETTINGS_REFUSED;
 }
 
+#ifdef FZN_STICKERS_ON
 /* THE STICKER VERBS, ANOTHER USER'S, sec 689's authorization bar (sec
  * 845): every one refused, reads included, before anything is read. */
 static void test_the_sticker_verbs_are_this_users(fzn_node_files_t *files)
@@ -740,6 +741,7 @@ static void test_the_sticker_verbs_are_this_users(fzn_node_files_t *files)
 		      "another user was not refused a sticker verb");
 	}
 }
+#endif
 
 int main(void)
 {
@@ -1333,7 +1335,9 @@ int main(void)
 		      "fixture: A holds a file of 301 leaves for the stepped fetch");
 		test_the_fetch_as_steps(&F, &stepped);
 		test_a_lossy_peer_is_asked_less(&F, &stepped);
+#ifdef FZN_STICKERS_ON
 		test_the_sticker_verbs_are_this_users(&F);
+#endif
 		test_the_wants_hold_at_their_bound();
 		(void)fzn_node_files_remove(&F, stepped.root);
 	}
