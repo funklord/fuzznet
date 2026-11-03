@@ -78448,3 +78448,39 @@ had been taken).**
   the byte cap, but not the count against `text_limit`. fzpd's sender
   refused past it, counted in characters. Whether the node refuses or
   the receiver clips is fuzznet's call.
+
+## 841. A sticker's box limit, and a follower on the face's socket, 2026-11-03
+
+From sec 840's two messages.
+
+**A sticker's box limit, listed and held to.**
+- `list sticker PACK` rows are now `ID,TYPE,FLAGS,DESC,TEXT_LIMIT`, 0
+  for no box. The limit comes after the description, which is escaped,
+  so a reader of the four fields still reads its four.
+- `get sticker PACK ID text WORDS` refuses words past the limit, counted
+  in characters as fzpd's sender counted them: `malformed more than the
+  sticker holds: N characters at most`.
+- Refused at the sender, as fzpd refused, rather than clipped at the
+  receiver: a receiver handed more than the box holds has to choose what
+  to drop, and the sender is the one who can choose better words.
+- `tool/live_stickers.py` b: each row ends in its limit, and in a box of
+  20, twenty two-byte characters are taken and twenty-one refused. With
+  the count taken out, the twenty-one are taken.
+
+**Ask 7: two daemons told no `--socket`.** Both take the default path,
+and `fzn_socket_listen` refuses a live socket's path, so the second
+exited 1. A daemon with an extension now follows with no socket of its
+own:
+- when its path is the face's own, as the face file says;
+- or when it was given none.
+
+Clients at that path reach the face already, and the extension still
+has a loop to run in. It never removes the face's socket, and when it
+takes the claim it binds the path as the face. fuzznetd alone has
+nothing to pass through, so it exits 1, as before.
+
+`tool/live_ext.py` b5 starts the extension daemon on the face's own
+path. It follows, ticks, and stops with 0, leaving the face's socket
+there and serving. With the old refusal it exits at listen.
+`node/test/ext_daemon` now counts a socket as left only if nobody
+answers at it, since a live one is the face's.

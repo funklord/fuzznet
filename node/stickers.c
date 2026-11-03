@@ -229,6 +229,19 @@ static void pack_done(fzn_sticker_manifest_t *m, uint8_t *bytes)
 	free(bytes);
 }
 
+/* THE CHARACTERS IN `n` BYTES OF UTF-8: every byte that does not continue
+ * one. Words that are not UTF-8 are refused when the reference is
+ * written. */
+static size_t characters(const char *s, size_t n)
+{
+	size_t i, c = 0;
+
+	for (i = 0; i < n; i++)
+		if (((unsigned char)s[i] & 0xc0u) != 0x80u)
+			c++;
+	return c;
+}
+
 /* ---- the verbs -------------------------------------------------------- */
 
 #define REPLY(...) ((size_t)snprintf(reply, cap, __VA_ARGS__))
@@ -583,8 +596,12 @@ static size_t list_pack(const fzn_node_stickers_t *st, const fzn_node_file_ref_t
 		(void)fzn_escape((const uint8_t *)m.entries[i].description, m.entries[i].description_len,
 		                 desc, sizeof(desc) - 1u, &d);
 		desc[d] = '\0';
-		(void)snprintf(rows[i], ROW_MAX, "%llu,%u,%u,%s", (unsigned long long)m.entries[i].id,
-		               (unsigned)m.entries[i].type, (unsigned)m.entries[i].flags, desc);
+		/* ITS BOX'S LIMIT LAST, sec 841, 0 for none: after the
+		 * description, which is escaped, so a reader of four fields
+		 * still reads its four. */
+		(void)snprintf(rows[i], ROW_MAX, "%llu,%u,%u,%s,%u", (unsigned long long)m.entries[i].id,
+		               (unsigned)m.entries[i].type, (unsigned)m.entries[i].flags, desc,
+		               (unsigned)m.entries[i].text_limit);
 	}
 	out = page(rows, m.count, from, reply, cap);
 	free(rows);
@@ -695,6 +712,17 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 					pack_done(&m, bytes);
 					return REPLY("malformed words past %u bytes, or a bad escape\n",
 					             (unsigned)FZN_STICKER_TEXT_MAX);
+				}
+				/* NO MORE THAN THE BOX HOLDS, in characters, as fzpd's
+				 * sender refused (sec 841): a receiver handed more has
+				 * nowhere to put it. */
+				if (characters(sr.text, sr.text_len) > e->text_limit) {
+					unsigned limit = e->text_limit;
+
+					pack_done(&m, bytes);
+					return REPLY("malformed more than the sticker holds: %u characters at "
+					             "most\n",
+					             limit);
 				}
 			}
 			memcpy(sr.root, ref->root, FZN_BLOB_HASH_LEN);

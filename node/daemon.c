@@ -15433,17 +15433,39 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 	static struct pollfd pfd[1u + 2u * FOLLOW_MAX + FZN_NODE_OWN_FDS_MAX];
 	int own[FZN_NODE_OWN_FDS_MAX];
 	int lfd = -1;
+	/* THE PATH ITS OWN, to remove at the end; not when it is the face's. */
+	const char *mine = sock_path;
 
-	if (!sock_path) {
+	/* A DAEMON WITH AN EXTENSION FOLLOWS WITH NO SOCKET OF ITS OWN where it
+	 * has none, or where its socket is the face's own -- both started with
+	 * no `--socket` take the default path (sec 841). Clients there reach
+	 * the face already, and the extension's work still has a loop to run
+	 * in. fuzznetd alone, with nothing to pass through, has nothing to
+	 * follow for. */
+	if (sock_path) {
+		fzn_socket_err_t serr = fzn_socket_listen(sock_path, 0777u, 16, &lfd);
+
+		if (serr != FZN_SOCKET_OK) {
+			char face[1100];
+
+			if (!(serr == FZN_SOCKET_ERR_IN_USE && daemon_ext
+			      && face_socket(core_dir, face, sizeof(face)) && strcmp(face, sock_path) == 0)) {
+				fprintf(stderr, "fuzznetd: could not listen on %s\n", sock_path);
+				return 1;
+			}
+			lfd = -1;
+			mine = NULL;
+		}
+	} else if (!daemon_ext) {
 		fprintf(stderr, "fuzznetd: another process is this identity's face, and with no local "
 		                "socket there is nothing to follow it for\n");
 		return 1;
 	}
-	if (fzn_socket_listen(sock_path, 0777u, 16, &lfd) != FZN_SOCKET_OK) {
-		fprintf(stderr, "fuzznetd: could not listen on %s\n", sock_path);
-		return 1;
-	}
-	fprintf(stderr, "fuzznetd: following the face of %s, serving on %s\n", core_dir, sock_path);
+	if (mine)
+		fprintf(stderr, "fuzznetd: following the face of %s, serving on %s\n", core_dir, mine);
+	else
+		fprintf(stderr, "fuzznetd: following the face of %s, its clients the face's\n",
+		        core_dir);
 	following_dir = core_dir;
 	for (;;) {
 		size_t k, n = follows_n, n_own, first_own;
@@ -15492,7 +15514,7 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 		if (stop_due) {
 			while (follows_n)
 				follow_drop(follows_n - 1u);
-			fzn_socket_close(lfd, sock_path);
+			fzn_socket_close(lfd, mine);
 			following_dir = NULL;
 			return 0;
 		}
@@ -15503,7 +15525,7 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 			if ((ev[0] | ev[1]) && follow_step(&follows[k], ev) < 0)
 				follow_drop(k);
 		}
-		if (r > 0 && (pfd[0].revents & POLLIN)) {
+		if (r > 0 && lfd >= 0 && (pfd[0].revents & POLLIN)) {
 			int cfd = -1;
 			fzn_peer_t peer;
 
@@ -15515,7 +15537,7 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 		 * descriptor. */
 		if (fzn_claim_take(claim) == FZN_CLAIM_OK) {
 			fprintf(stderr, "fuzznetd: the face is gone; starting again as the face\n");
-			return start_again(lfd, sock_path);
+			return start_again(lfd, mine);
 		}
 	}
 }

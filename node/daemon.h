@@ -105,7 +105,11 @@ typedef struct fzn_daemon_ext {
 	 *
 	 * AND IN A FOLLOWER, sec 838: a process that finds another holding the
 	 * face follows it, and still polls these and ticks, so the daemon's
-	 * own work goes on while it does. */
+	 * own work goes on while it does. One given no socket, or the face's
+	 * own path -- two daemons told no `--socket` both take the default --
+	 * follows with no socket of its own, its clients the face's (sec
+	 * 841); fuzznetd itself, with no extension, then has nothing to follow
+	 * for and exits 1, as before. */
 	size_t (*fds)(void *ctx, int *out, size_t cap);
 	void (*ready)(void *ctx, int fd);
 	/* WORK ON A TIMER, sec 831: called after EVERY pass of the node's loop,

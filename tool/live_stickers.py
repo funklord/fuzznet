@@ -131,8 +131,11 @@ def main(argv):
 			      "estate")
 
 			got = ask(sock, "list sticker " + root).split()
-			if got[:3] != ["ok", "3", "0"] or got[3] != "1,1,0,a%20ginger%20cat%20waving%20hello" \
-			   or got[4] != "2,2,1,the%20same%20cat%20spinning%20very%20fast":
+			# EACH ROW ENDS IN ITS BOX'S LIMIT, sec 841: sticker 3's is 20.
+			if got[:3] != ["ok", "3", "0"] \
+			   or got[3] != "1,1,0,a%20ginger%20cat%20waving%20hello,0" \
+			   or got[4] != "2,2,1,the%20same%20cat%20spinning%20very%20fast,0" \
+			   or not got[5].startswith("3,5,0,") or not got[5].endswith(",20"):
 				raise failed("b: list sticker ROOT answered %r" % got)
 			ref = ask(sock, "get sticker %s 1" % root)
 			if not ref.startswith("ok fzn:sticker/" + root + "/") \
@@ -148,6 +151,14 @@ def main(argv):
 			refused = ask(sock, "get sticker %s 1 text hi" % root)
 			if not refused.startswith("error that sticker takes no words"):
 				raise failed("b: words for a sticker with no text box were answered %r" % refused)
+			# NO MORE THAN THE BOX HOLDS, in characters (sec 841): twenty
+			# taken, twenty-one refused, each a two-byte character.
+			if not ask(sock, "get sticker %s 3 text %s" % (root, "%C3%A5" * 20)).startswith("ok "):
+				raise failed("b: twenty characters for a box of twenty were refused")
+			refused = ask(sock, "get sticker %s 3 text %s" % (root, "%C3%A5" * 21))
+			if refused != "malformed more than the sticker holds: 20 characters at most":
+				raise failed("b: twenty-one characters for a box of twenty were answered %r"
+				             % refused)
 			got = ask(sock, "get sticker %s 1 thumb %s" % (root, out))
 			if got != "ok 4 64 64":
 				raise failed("b: the thumb was answered %r" % got)
@@ -235,7 +246,7 @@ def main(argv):
 			                         + art["art/spin.ogg"], digest_size=32).digest()
 			want = int.from_bytes(digest[:8], "big") or 1
 			rows = ask(sock, "list sticker " + got[1]).split()
-			if rows[:3] != ["ok", "1", "0"] or rows[3] != "%d,2,1," % want:
+			if rows[:3] != ["ok", "1", "0"] or rows[3] != "%d,2,1,,0" % want:
 				raise failed("f: the derived id was listed %r, not %d" % (rows, want))
 			ref = ask(sock, "get sticker %s %d" % (got[1], want))
 			if not ref.startswith("ok fzn:sticker/") or not ref.endswith("/%d" % want):

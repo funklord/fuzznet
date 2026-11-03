@@ -23,6 +23,10 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
        still read and its tick still runs, a request it asks in-process is
        answered by the face, and asked to stop it returns 0 with its own
        socket removed, the face serving on (sec 838)
+    b5 started on the face's own socket path, as two daemons told no
+       `--socket` both are, it follows with no socket of its own, still
+       ticks, and stops leaving the face's socket and the face serving
+       (sec 841)
     c  two of them, A the root of an estate and B joined to it by verbs:
        `add mark hello` at A writes a journal record of the extension's
        kind into A's stream, and B's extension applies it -- `get marks`
@@ -344,6 +348,42 @@ def main(argv):
 						os.killpg(follower.pid, signal.SIGKILL)
 						follower.wait(timeout=10)
 					ferr.close()
+				print("livecheck: b4: following a face, the extension's FIFO was read and its "
+				      "tick ran, its request in-process was the face's, and a stop removed its "
+				      "socket")
+
+				# b5: ON THE FACE'S OWN SOCKET PATH, sec 841.
+				s_err_path = os.path.join(scratch, "shared.err")
+				s_err = open(s_err_path, "w")
+				shared = subprocess.Popen(base + ["--poke=" + fifo], stdout=s_err,
+				                          stderr=subprocess.STDOUT, start_new_session=True)
+				try:
+					until = time.monotonic() + 10.0
+					while "its clients the face's" not in open(s_err_path).read():
+						if time.monotonic() > until or shared.poll() is not None:
+							raise failed("b5: a daemon on the face's socket did not follow: %r"
+							             % open(s_err_path).read()[-300:])
+						time.sleep(0.2)
+					poke(b"L")
+					until = time.monotonic() + 10.0
+					while "ext_daemon: inproc ok " not in open(s_err_path).read():
+						if time.monotonic() > until:
+							raise failed("b5: the follower on the face's socket did not tick")
+						time.sleep(0.2)
+					poke(b"S")
+					try:
+						code = shared.wait(timeout=10)
+					except subprocess.TimeoutExpired:
+						raise failed("b5: asked to stop, the follower went on")
+					if code != 0 or not os.path.exists(sock) \
+					   or not ask(sock, "status").startswith("ok "):
+						raise failed("b5: stopped with %d, and the face's socket %s"
+						             % (code, "there" if os.path.exists(sock) else "gone"))
+				finally:
+					if shared.poll() is None:
+						os.killpg(shared.pid, signal.SIGKILL)
+						shared.wait(timeout=10)
+					s_err.close()
 			finally:
 				os.killpg(face_proc.pid, signal.SIGTERM)
 				try:
@@ -351,8 +391,8 @@ def main(argv):
 				except subprocess.TimeoutExpired:
 					os.killpg(face_proc.pid, signal.SIGKILL)
 					face_proc.wait(timeout=10)
-			print("livecheck: b4: following a face, the extension's FIFO was read and its tick "
-			      "ran, its request in-process was the face's, and a stop removed its socket")
+			print("livecheck: b5: on the face's own socket path it followed with none of its "
+			      "own, ticked, and stopped leaving the face's socket serving")
 			c_marks(daemon_path=daemon, scratch=scratch, sock_dir=sock_dir)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)

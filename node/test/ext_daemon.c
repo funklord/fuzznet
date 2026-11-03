@@ -46,6 +46,8 @@
 
 #include <fcntl.h>
 #include <sys/file.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -273,6 +275,23 @@ static const fzn_schema_entry_t clashing[] = {
 	  "fuzznet's, claimed", NULL },
 };
 
+/* SOMEBODY ANSWERS AT `path`: a socket a live process listens on, which a
+ * stopped one cannot be. 1, or 0 for none or a stale path. */
+static int answered_at(const char *path)
+{
+	struct sockaddr_un a;
+	int fd, ok;
+
+	if (strlen(path) >= sizeof(a.sun_path) || (fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0)
+		return 0;
+	memset(&a, 0, sizeof(a));
+	a.sun_family = AF_UNIX;
+	memcpy(a.sun_path, path, strlen(path) + 1u);
+	ok = connect(fd, (const struct sockaddr *)&a, sizeof(a)) == 0;
+	(void)close(fd);
+	return ok;
+}
+
 int main(int argc, char **argv)
 {
 	static fzn_daemon_ext_t ext = {
@@ -319,7 +338,10 @@ int main(int argc, char **argv)
 			if (strncmp(argv[i], "--socket=", 9u) == 0)
 				sock = argv[i] + 9;
 		}
-		if (sock && access(sock, F_OK) == 0) {
+		/* A SOCKET STILL ANSWERED is the face's, this process having
+		 * followed on the face's own path (sec 841); one left that nobody
+		 * answers is this process's own. */
+		if (sock && access(sock, F_OK) == 0 && !answered_at(sock)) {
 			fprintf(stderr, "ext_daemon: returned with %s left\n", sock);
 			return 3;
 		}
@@ -333,7 +355,7 @@ int main(int argc, char **argv)
 				named[got] = '\0';
 				if (got && named[got - 1u] == '\n')
 					named[got - 1u] = '\0';
-				if (!sock || strcmp(named, sock) == 0) {
+				if (!sock || (strcmp(named, sock) == 0 && !answered_at(named))) {
 					fprintf(stderr, "ext_daemon: returned with %s left\n", path);
 					return 3;
 				}
