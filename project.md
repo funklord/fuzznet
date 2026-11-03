@@ -78376,6 +78376,10 @@ C's want twice with one reply of 31103 bytes in 31 pieces.
   file from that peer meets two silences before its first answer, where
   halving the ceiling meets four. The shelf halves its asked range the
   same way.
+- **The cost:** a peer that has really gone is given up on later. Its
+  span halves to one leaf first, up to six silences, before the three
+  that end it: about 27 s at the 3 s span deadline, where it was about
+  9 s. Another peer holding the file is asked meanwhile, as before.
 
 The test was changed first, on a wrong diagnosis. Each turn had
 restarted B mid-fetch, and phase f now keeps B up while C fetches. That
@@ -78401,3 +78405,46 @@ pieces (a notes sync page, a group's acts, a log segment). The chat,
 estate and erasure journeys passed ten runs each at 20 per cent loss
 (secs 742 to 745), so those are not known to be stuck. Only a run that
 carries a large one would tell.
+
+## 840. Two messages from the inbox, 2026-11-03
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps.
+
+**netcfgd, asks 6 to 9 (2026-11-03 12:11, appended after asks 1 to 5
+had been taken).**
+- **6. A follower runs no extension.** Built in sec 838 before the
+  message was read.
+- **7. Both started with no `--socket`.** Both take
+  `fzn_socket_default_path`, and the follower's listen at the face's live
+  socket is refused (`FZN_SOCKET_ERR_IN_USE`), so the follower exits 1.
+  Answered below.
+- **8. What the loop costs a program that links it.** Measured by
+  netcfgd at 49b2312:
+  - the installed program grows from 1,518,760 to 2,494,056 bytes;
+  - resident memory three seconds after start on an empty store is
+    3,512 kB not serving and 16,760 kB serving, against netcfgd's own
+    budget of 4,608 kB;
+  - `daemon.o` declares about 19 MB of static storage, mostly touched
+    at start.
+
+  The consumer services (notes, files, stickers, shelf, groups) are
+  always in `daemon.c`, where `FZN_SPOOL_FILE_ON` and `FZN_LOG_FILE_ON`
+  already gate others. Making them optional is offered as this tree's to
+  weigh.
+- **9. An extension's answer longer than one line.** `ext->local`
+  writes at most `FZN_REPLY_MAX` (1024 bytes), one line. netcfgd's
+  answers are not that shape: `ncfg status --json` is 19,866 bytes, a
+  plan is multi-line, and `monitor` is a stream. It offers three shapes:
+  paging as `list record` does, a reply written in pieces, or sec 669's
+  events.
+
+**fuzzypickles, a sticker's box on a node (2026-11-03 12:31).**
+- `list sticker PACK` rows are `ID,TYPE,FLAGS,DESC` and carry no
+  `text_limit`. So a client cannot say how many characters a box holds,
+  nor tell a message sticker with no box from one that takes words.
+  They ask for a fifth field.
+- `get sticker PACK ID text WORDS` checks that a box exists and checks
+  the byte cap, but not the count against `text_limit`. fzpd's sender
+  refused past it, counted in characters. Whether the node refuses or
+  the receiver clips is fuzznet's call.
