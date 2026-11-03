@@ -12,12 +12,17 @@ One store, one daemon, a spec and its art in scratch.
        for a sticker with no text box (sec 830); `get sticker ROOT ID ROLE
        PATH` writes the rendition asked for, or the nearest, and its bytes
        are the art's
-    c  a spec naming a file above it, and one repeating a description, are
-       refused, and nothing is saved by either
+    c  a spec naming a file above it, and one whose two stickers take one id
+       from one art, are refused, and nothing is saved by either
     d  `remove sticker ROOT` forgets the pack and keeps its bytes: listed no
        more, and still answered through its whole reference
-    e  a pack of thirty stickers, past one reply, read a page at a time
-       (`list sticker PACK FROM`, sec 684), gives each sticker once
+    e  a pack of seventy stickers, past one reply and past version 1's cap
+       of 64, read a page at a time (`list sticker PACK FROM`, secs 684,
+       702), gives each sticker once
+    f  a sticker given no id takes the first 8 bytes of BLAKE2b-256 over its
+       renditions and then its sound, as fuzzypickles derives it (sec 702),
+       checked against Python's hashlib; one with no description has a
+       reference ending at its id, and a pack with no name is saved
 
 Against a daemon with no sticker verbs, phase a is `unsupported`.
 
@@ -27,6 +32,7 @@ stopped by SIGTERM then SIGKILL.
 Exit 0 on a pass, 1 on a failure.
 """
 
+import hashlib
 import os
 import signal
 import socket
@@ -163,15 +169,17 @@ def main(argv):
 			got = ask(sock, "put sticker " + bad)
 			if not got.startswith("malformed the spec: line 4"):
 				raise failed("c: a path above the spec was answered %r" % got)
+			# TWO STICKERS OF ONE ART, given no ids, take one id from it
+			# (sec 702), and two of one id are no pack.
 			with open(bad, "w") as f:
-				f.write("name x\nsticker 1 static\ndescription same\nmain png 1 1 art/wave.png\n"
-				        "sticker 2 static\ndescription same\nmain png 1 1 art/wave.png\n")
+				f.write("name x\nsticker static\nmain png 1 1 art/wave.png\n"
+				        "sticker static\nmain png 1 1 art/wave.png\n")
 			got = ask(sock, "put sticker " + bad)
 			if not got.startswith("malformed the pack would not build"):
-				raise failed("c: a repeated description was answered %r" % got)
+				raise failed("c: two stickers of one art were answered %r" % got)
 			if ask(sock, "list sticker").split()[:3] != ["ok", "1", "0"]:
 				raise failed("c: a refused spec saved something")
-			print("livecheck: c: a path above the spec and a repeated description were "
+			print("livecheck: c: a path above the spec and two stickers of one id were "
 			      "refused, nothing saved")
 
 			whole = ref.split("/")
@@ -185,23 +193,24 @@ def main(argv):
 				raise failed("d: a forgotten pack's bytes are gone: %r" % got)
 			print("livecheck: d: the pack forgotten, and its bytes kept")
 
-			# e: A PACK PAST ONE REPLY, sec 684: thirty stickers with long
-			# descriptions, read a page at a time, each sticker once.
+			# e: A PACK PAST ONE REPLY, sec 684, and past version 1's cap of
+			# 64 (sec 702): seventy stickers with long descriptions, read a
+			# page at a time, each sticker once.
 			big = os.path.join(packdir, "big.spec")
 			with open(big, "w") as f:
-				f.write("name thirty cats\n")
-				for i in range(1, 31):
+				f.write("name seventy cats\n")
+				for i in range(1, 71):
 					f.write("sticker %d static\ndescription cat number %d, with a "
 					        "description long enough to fill a row\n"
 					        "inline png 8 8 art/wave.png\n" % (i, i))
 			got = ask(sock, "put sticker " + big).split()
 			if len(got) != 2 or got[0] != "ok":
-				raise failed("e: the thirty-sticker pack answered %r" % got)
+				raise failed("e: the seventy-sticker pack answered %r" % got)
 			seen, start, pages = [], 0, 0
 			while True:
 				page = ask(sock, "list sticker %s %d" % (got[1], start))
 				words = page.split()
-				if words[:3] != ["ok", "30", str(start)] or len(page) > 1024:
+				if words[:3] != ["ok", "70", str(start)] or len(page) > 1024:
 					raise failed("e: a page from %d answered %r" % (start, page[:120]))
 				rows = words[3:]
 				if not rows:
@@ -209,10 +218,30 @@ def main(argv):
 				seen += [int(r.split(",")[0]) for r in rows]
 				start += len(rows)
 				pages += 1
-			if seen != list(range(1, 31)) or pages < 2:
+			if seen != list(range(1, 71)) or pages < 2:
 				raise failed("e: the pages gave %r over %d page(s)" % (seen, pages))
-			print("livecheck: e: a pack past one reply was read in %d pages, each sticker once"
-			      % pages)
+			print("livecheck: e: a pack of seventy, past one reply, was read in %d pages, each "
+			      "sticker once" % pages)
+
+			# f: AN ID FROM THE ART, sec 702, against hashlib's BLAKE2b.
+			derived = os.path.join(packdir, "derived.spec")
+			with open(derived, "w") as f:
+				f.write("sticker animated sound\nmain lottie 320 320 art/spin.json\n"
+				        "inline png 128 128 art/wave.png\nsound art/spin.ogg\n")
+			got = ask(sock, "put sticker " + derived).split()
+			if len(got) != 2 or got[0] != "ok":
+				raise failed("f: a spec with no name and no id answered %r" % got)
+			digest = hashlib.blake2b(art["art/spin.json"] + art["art/wave.png"]
+			                         + art["art/spin.ogg"], digest_size=32).digest()
+			want = int.from_bytes(digest[:8], "big") or 1
+			rows = ask(sock, "list sticker " + got[1]).split()
+			if rows[:3] != ["ok", "1", "0"] or rows[3] != "%d,2,1," % want:
+				raise failed("f: the derived id was listed %r, not %d" % (rows, want))
+			ref = ask(sock, "get sticker %s %d" % (got[1], want))
+			if not ref.startswith("ok fzn:sticker/") or not ref.endswith("/%d" % want):
+				raise failed("f: a sticker with no description was referenced %r" % ref)
+			print("livecheck: f: a sticker given no id took its art's BLAKE2b, as hashlib "
+			      "says, and with no description its reference ends at the id")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

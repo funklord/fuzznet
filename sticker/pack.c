@@ -49,6 +49,14 @@ static void put32(writer_t *w, uint32_t v)
 	put(w, b, 4u);
 }
 
+static void put64(writer_t *w, uint64_t v)
+{
+	uint8_t b[8];
+
+	fzn_put_be64(b, v);
+	put(w, b, 8u);
+}
+
 typedef struct {
 	const uint8_t *p;
 	size_t left;
@@ -89,6 +97,13 @@ static uint32_t get32(reader_t *r)
 	return b ? fzn_get_be32(b) : 0u;
 }
 
+static uint64_t get64(reader_t *r)
+{
+	const uint8_t *b = take(r, 8u);
+
+	return b ? fzn_get_be64(b) : 0u;
+}
+
 /* TEXT A PERSON READS: no control character and no DEL. Stricter than
  * fuzzypickles' decoder, which took any bytes; their reference refused a
  * line break in a description, and a description is what a reference
@@ -114,14 +129,16 @@ static void write_pack(writer_t *w, const fzn_sticker_manifest_t *m,
 	size_t i, k, r;
 
 	put8(w, FZN_STICKER_VERSION);
+	put64(w, m->line_package);
 	put8(w, (unsigned)m->name_len);
 	put(w, m->name, m->name_len);
-	put8(w, (unsigned)m->count);
+	put32(w, (uint32_t)m->count);
 	for (i = 0; i < m->count; i++) {
 		const fzn_sticker_entry_t *e = &m->entries[i];
 		uint32_t audio_at;
 
-		put16(w, e->id);
+		put64(w, e->id);
+		put64(w, e->line_id);
 		put8(w, e->type);
 		put16(w, e->flags);
 		put8(w, (unsigned)e->description_len);
@@ -167,22 +184,31 @@ static void write_pack(writer_t *w, const fzn_sticker_manifest_t *m,
 	}
 }
 
+static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *out,
+                     const uint8_t **data, size_t *data_len);
+
 int fzn_sticker_pack_build(const fzn_sticker_manifest_t *m,
                            const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
                            const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
                            const uint8_t *const sound[], const uint32_t sound_len[],
                            uint8_t *out, size_t cap, size_t *len)
 {
-	static fzn_sticker_manifest_t check;
 	writer_t w;
 	uint64_t total = 0;
-	size_t i, r;
-	const uint8_t *data;
-	size_t data_len;
+	size_t i, j, r;
 
-	if (!m || !art || !art_len || !sound || !sound_len || !len || m->count == 0u
-	    || m->count > FZN_STICKER_PER_PACK_MAX)
+	if (!m || !m->entries || !art || !art_len || !sound || !sound_len || !len || m->count == 0u
+	    || m->count > m->cap || m->count > UINT32_MAX)
 		return 0;
+	/* IDS NONZERO AND DISTINCT, checked on the caller's entries: the pack
+	 * opened again below is read one sticker at a time into no room. */
+	for (i = 0; i < m->count; i++) {
+		if (!m->entries[i].id)
+			return 0;
+		for (j = i + 1u; j < m->count; j++)
+			if (m->entries[i].id == m->entries[j].id)
+				return 0;
+	}
 	for (i = 0; i < m->count; i++) {
 		if (m->entries[i].rendition_count > FZN_STICKER_RENDITIONS_MAX)
 			return 0;
@@ -211,9 +237,9 @@ int fzn_sticker_pack_build(const fzn_sticker_manifest_t *m,
 	w.cap = cap;
 	write_pack(&w, m, art_len, sound_len, art, sound, 1);
 	/* OPENED AGAIN: a pack built is a pack accepted, or nothing is said to
-	 * have been built -- an empty or a repeated description stops here, not
-	 * in somebody's conversation. */
-	if (w.over || !fzn_sticker_pack_open(out, w.len, &check, &data, &data_len)) {
+	 * have been built -- a sound flag with no sound, or a message sticker
+	 * with no box, stops here, not in somebody's conversation. */
+	if (w.over || !open_pack(out, w.len, NULL, NULL, NULL)) {
 		/* NOTHING HALF-BUILT LEFT for a caller to take for a pack. */
 		memset(out, 0, w.len <= cap ? w.len : cap);
 		return 0;
@@ -236,116 +262,234 @@ static int type_ok(unsigned v)
 	return v >= FZN_STICKER_STATIC && v <= FZN_STICKER_EMOJI;
 }
 
-int fzn_sticker_pack_open(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *out,
-                          const uint8_t **data, size_t *data_len)
+/* ONE STICKER read into `e`, version `v`'s layout: 1, or 0. */
+static int read_entry(reader_t *rd, unsigned v, fzn_sticker_entry_t *e)
 {
-	reader_t rd;
+	const uint8_t *b;
+	size_t k, r;
+
+	memset(e, 0, sizeof(*e));
+	if (v == FZN_STICKER_VERSION_1) {
+		e->id = get16(rd);
+	} else {
+		e->id = get64(rd);
+		e->line_id = get64(rd);
+	}
+	e->type = (uint8_t)get8(rd);
+	e->flags = (uint16_t)get16(rd);
+	e->description_len = get8(rd);
+	/* A DESCRIPTION OPTIONAL SINCE VERSION 2, sec 702; an id nonzero. */
+	if (rd->bad || !e->id || !type_ok(e->type) || (e->flags & ~FZN_STICKER_FLAGS_KNOWN)
+	    || (v == FZN_STICKER_VERSION_1 && e->description_len == 0u)
+	    || e->description_len > FZN_STICKER_DESC_MAX || !(b = take(rd, e->description_len)))
+		return 0;
+	if (e->description_len)
+		memcpy(e->description, b, e->description_len);
+	if (!text_ok(e->description, e->description_len))
+		return 0;
+	e->keyword_count = get8(rd);
+	if (e->keyword_count > FZN_STICKER_KEYWORDS_MAX)
+		return 0;
+	for (k = 0; k < e->keyword_count; k++) {
+		e->keyword_lens[k] = get8(rd);
+		if (e->keyword_lens[k] == 0u || e->keyword_lens[k] > FZN_STICKER_KEYWORD_MAX
+		    || !(b = take(rd, e->keyword_lens[k])))
+			return 0;
+		memcpy(e->keywords[k], b, e->keyword_lens[k]);
+		if (!text_ok(e->keywords[k], e->keyword_lens[k]))
+			return 0;
+	}
+	e->text_limit = (uint16_t)get16(rd);
+	e->text_x = (uint16_t)get16(rd);
+	e->text_y = (uint16_t)get16(rd);
+	e->text_w = (uint16_t)get16(rd);
+	e->text_h = (uint16_t)get16(rd);
+	e->audio_offset = get32(rd);
+	e->audio_len = get32(rd);
+	e->rendition_count = get8(rd);
+	if (e->rendition_count == 0u || e->rendition_count > FZN_STICKER_RENDITIONS_MAX)
+		return 0;
+	for (r = 0; r < e->rendition_count; r++) {
+		fzn_sticker_rendition_t *x = &e->renditions[r];
+
+		x->role = (uint8_t)get8(rd);
+		x->format = (uint8_t)get8(rd);
+		x->width = (uint16_t)get16(rd);
+		x->height = (uint16_t)get16(rd);
+		x->offset = get32(rd);
+		x->len = get32(rd);
+		if (!role_ok(x->role) || !format_ok(x->format) || !x->width || !x->height || !x->len)
+			return 0;
+	}
+	/* A SOUND CLAIMED IS A SOUND CARRIED, or the pack fails silently at
+	 * the worst moment; a message or name sticker has a box to fill;
+	 * an emoji is drawn at text size, so never big. */
+	if ((e->flags & FZN_STICKER_FLAG_SOUND) && !e->audio_len)
+		return 0;
+	if ((e->type == FZN_STICKER_MESSAGE || e->type == FZN_STICKER_NAMED)
+	    && (!e->text_limit || !e->text_w || !e->text_h))
+		return 0;
+	if (e->type == FZN_STICKER_EMOJI && (e->flags & FZN_STICKER_FLAG_BIG))
+		return 0;
+	return !rd->bad;
+}
+
+/* EVERY RANGE OF `e` INSIDE THE DATA, in 64 bits so a sum cannot wrap. */
+static int inside(const fzn_sticker_entry_t *e, uint32_t dl)
+{
+	size_t r;
+
+	if (e->audio_len && (uint64_t)e->audio_offset + e->audio_len > dl)
+		return 0;
+	for (r = 0; r < e->rendition_count; r++)
+		if ((uint64_t)e->renditions[r].offset + e->renditions[r].len > dl)
+			return 0;
+	return 1;
+}
+
+/* THE PACK OPENED, into `out`'s room -- or, `out` NULL, only checked, each
+ * sticker read into one entry here and let go, which is how a build checks
+ * what it wrote with no room of its own (fuzzypickles' 140d719 does so). */
+static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *out,
+                     const uint8_t **data, size_t *data_len)
+{
+	static fzn_sticker_entry_t one;
+	reader_t rd, first;
 	const uint8_t *b;
 	uint32_t dl;
-	size_t i, j, k, r;
+	uint64_t line_package = 0;
+	size_t name_len, count, i, j;
+	unsigned v;
 
-	if (!pack || !out || !data || !data_len || len > FZN_STICKER_PACK_MAX_LEN)
+	if (!pack || len > FZN_STICKER_PACK_MAX_LEN)
 		return 0;
-	memset(out, 0, sizeof(*out));
 	rd.p = pack;
 	rd.left = len;
 	rd.bad = 0;
-	if (get8(&rd) != FZN_STICKER_VERSION)
+	v = get8(&rd);
+	if (v != FZN_STICKER_VERSION && v != FZN_STICKER_VERSION_1)
 		return 0;
-	out->name_len = get8(&rd);
-	if (out->name_len > FZN_STICKER_NAME_MAX || !(b = take(&rd, out->name_len)))
+	if (v == FZN_STICKER_VERSION)
+		line_package = get64(&rd);
+	name_len = get8(&rd);
+	if (name_len > FZN_STICKER_NAME_MAX || !(b = take(&rd, name_len))
+	    || !text_ok((const char *)b, name_len))
 		return 0;
-	memcpy(out->name, b, out->name_len);
-	if (!text_ok(out->name, out->name_len))
+	if (out) {
+		out->line_package = line_package;
+		out->name_len = name_len;
+		if (name_len)
+			memcpy(out->name, b, name_len);
+		out->name[name_len] = '\0';
+	}
+	count = v == FZN_STICKER_VERSION ? get32(&rd) : get8(&rd);
+	if (rd.bad || count == 0u || (v == FZN_STICKER_VERSION_1 && count > FZN_STICKER_PER_PACK_MAX_1))
 		return 0;
-	out->count = get8(&rd);
-	if (out->count == 0u || out->count > FZN_STICKER_PER_PACK_MAX)
-		return 0;
-	for (i = 0; i < out->count && !rd.bad; i++) {
-		fzn_sticker_entry_t *e = &out->entries[i];
-
-		e->id = (uint16_t)get16(&rd);
-		e->type = (uint8_t)get8(&rd);
-		e->flags = (uint16_t)get16(&rd);
-		e->description_len = get8(&rd);
-		if (!type_ok(e->type) || (e->flags & ~FZN_STICKER_FLAGS_KNOWN)
-		    || e->description_len == 0u || e->description_len > FZN_STICKER_DESC_MAX
-		    || !(b = take(&rd, e->description_len)))
-			return 0;
-		memcpy(e->description, b, e->description_len);
-		if (!text_ok(e->description, e->description_len))
-			return 0;
-		e->keyword_count = get8(&rd);
-		if (e->keyword_count > FZN_STICKER_KEYWORDS_MAX)
-			return 0;
-		for (k = 0; k < e->keyword_count; k++) {
-			e->keyword_lens[k] = get8(&rd);
-			if (e->keyword_lens[k] == 0u || e->keyword_lens[k] > FZN_STICKER_KEYWORD_MAX
-			    || !(b = take(&rd, e->keyword_lens[k])))
-				return 0;
-			memcpy(e->keywords[k], b, e->keyword_lens[k]);
-			if (!text_ok(e->keywords[k], e->keyword_lens[k]))
-				return 0;
-		}
-		e->text_limit = (uint16_t)get16(&rd);
-		e->text_x = (uint16_t)get16(&rd);
-		e->text_y = (uint16_t)get16(&rd);
-		e->text_w = (uint16_t)get16(&rd);
-		e->text_h = (uint16_t)get16(&rd);
-		e->audio_offset = get32(&rd);
-		e->audio_len = get32(&rd);
-		e->rendition_count = get8(&rd);
-		if (e->rendition_count == 0u || e->rendition_count > FZN_STICKER_RENDITIONS_MAX)
-			return 0;
-		for (r = 0; r < e->rendition_count; r++) {
-			fzn_sticker_rendition_t *x = &e->renditions[r];
-
-			x->role = (uint8_t)get8(&rd);
-			x->format = (uint8_t)get8(&rd);
-			x->width = (uint16_t)get16(&rd);
-			x->height = (uint16_t)get16(&rd);
-			x->offset = get32(&rd);
-			x->len = get32(&rd);
-			if (!role_ok(x->role) || !format_ok(x->format) || !x->width || !x->height
-			    || !x->len)
-				return 0;
-		}
-		/* A SOUND CLAIMED IS A SOUND CARRIED, or the pack fails silently at
-		 * the worst moment; a message or name sticker has a box to fill;
-		 * an emoji is drawn at text size, so never big. */
-		if ((e->flags & FZN_STICKER_FLAG_SOUND) && !e->audio_len)
-			return 0;
-		if ((e->type == FZN_STICKER_MESSAGE || e->type == FZN_STICKER_NAMED)
-		    && (!e->text_limit || !e->text_w || !e->text_h))
-			return 0;
-		if (e->type == FZN_STICKER_EMOJI && (e->flags & FZN_STICKER_FLAG_BIG))
+	/* NO ROOM FOR THEM is said, never a truncated pack: the count needed. */
+	if (out) {
+		out->count = count;
+		if (count > out->cap || !out->entries)
 			return 0;
 	}
+	first = rd;
+	for (i = 0; i < count; i++)
+		if (!read_entry(&rd, v, out ? &out->entries[i] : &one))
+			return 0;
 	dl = get32(&rd);
 	if (rd.bad || !(b = take(&rd, dl)) || rd.left)
 		return 0;
-	/* EVERY RANGE INSIDE THE DATA, in 64 bits so a sum cannot wrap. */
-	for (i = 0; i < out->count; i++) {
-		const fzn_sticker_entry_t *e = &out->entries[i];
-
-		if (e->audio_len && (uint64_t)e->audio_offset + e->audio_len > dl)
-			return 0;
-		for (r = 0; r < e->rendition_count; r++)
-			if ((uint64_t)e->renditions[r].offset + e->renditions[r].len > dl)
+	if (out) {
+		for (i = 0; i < count; i++)
+			if (!inside(&out->entries[i], dl))
+				return 0;
+	} else {
+		/* READ AGAIN, now the data's length is known. */
+		for (i = 0; i < count; i++)
+			if (!read_entry(&first, v, &one) || !inside(&one, dl))
 				return 0;
 	}
-	/* A REFERENCE NAMES A STICKER BY ID, and a person tells two apart by
-	 * description: both distinct, or a reference is ambiguous and a screen
-	 * reader says the same thing twice. */
-	for (i = 0; i < out->count; i++)
-		for (j = i + 1u; j < out->count; j++)
-			if (out->entries[i].id == out->entries[j].id
-			    || (out->entries[i].description_len == out->entries[j].description_len
-			        && memcmp(out->entries[i].description, out->entries[j].description,
-			                  out->entries[i].description_len) == 0))
+	/* A REFERENCE NAMES A STICKER BY ID: distinct, or a reference is
+	 * ambiguous. Descriptions may repeat since version 2, being optional;
+	 * version 1's were distinct, and a pack of it still holds to that. */
+	if (out)
+		for (i = 0; i < count; i++)
+			for (j = i + 1u; j < count; j++)
+				if (out->entries[i].id == out->entries[j].id
+				    || (v == FZN_STICKER_VERSION_1
+				        && out->entries[i].description_len
+				                   == out->entries[j].description_len
+				        && memcmp(out->entries[i].description, out->entries[j].description,
+				                  out->entries[i].description_len)
+				                   == 0))
+					return 0;
+	if (data)
+		*data = b;
+	if (data_len)
+		*data_len = dl;
+	return 1;
+}
+
+int fzn_sticker_pack_open(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *out,
+                          const uint8_t **data, size_t *data_len)
+{
+	fzn_sticker_entry_t *entries;
+	size_t cap;
+
+	if (!pack || !out || !data || !data_len)
+		return 0;
+	entries = out->entries;
+	cap = out->cap;
+	memset(out, 0, sizeof(*out));
+	out->entries = entries;
+	out->cap = cap;
+	if (open_pack(pack, len, out, data, data_len))
+		return 1;
+	/* WANTING ROOM ALONE keeps the count asked for; anything else is no
+	 * pack, and says nothing to size. */
+	if (!(out->count > out->cap))
+		out->count = 0;
+	return 0;
+}
+
+int fzn_sticker_derive_ids(fzn_sticker_manifest_t *m,
+                           const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
+                           const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
+                           const uint8_t *const sound[], const uint32_t sound_len[],
+                           const fzn_hash_ops_t *hash, uint8_t *scratch, size_t scratch_cap)
+{
+	size_t i, r;
+
+	if (!m || !m->entries || m->count > m->cap || !art || !art_len || !sound || !sound_len
+	    || !hash || !hash->hash || !scratch)
+		return 0;
+	for (i = 0; i < m->count; i++) {
+		fzn_sticker_entry_t *e = &m->entries[i];
+		uint8_t digest[32];
+		size_t at = 0;
+		uint64_t id = 0;
+
+		if (e->id)
+			continue;
+		if (e->rendition_count > FZN_STICKER_RENDITIONS_MAX)
+			return 0;
+		for (r = 0; r <= e->rendition_count; r++) {
+			const uint8_t *bytes = r < e->rendition_count ? art[i][r] : sound[i];
+			size_t n = r < e->rendition_count ? art_len[i][r] : sound_len[i];
+
+			if (!n)
+				continue;
+			if (!bytes || n > scratch_cap - at)
 				return 0;
-	*data = b;
-	*data_len = dl;
+			memcpy(scratch + at, bytes, n);
+			at += n;
+		}
+		/* THE SEAM'S OWN CONVENTION, 1 for a hash (session/commitment.h). */
+		if (hash->hash(hash->ctx, digest, sizeof(digest), scratch, at) != 1)
+			return 0;
+		for (r = 0; r < 8u; r++)
+			id = (id << 8) | digest[r];
+		e->id = id ? id : 1u;
+	}
 	return 1;
 }
 
@@ -519,6 +663,28 @@ static int number(const char *w, size_t n, unsigned long limit, unsigned long *o
 	return 1;
 }
 
+/* A 64-BIT DECIMAL, nonzero, no leading zero, overflow refused. */
+static int number64(const char *w, size_t n, uint64_t *out)
+{
+	uint64_t v = 0;
+	size_t i;
+
+	if (n == 0u || n > 20u || w[0] == '0')
+		return 0;
+	for (i = 0; i < n; i++) {
+		unsigned d;
+
+		if (w[i] < '0' || w[i] > '9')
+			return 0;
+		d = (unsigned)(w[i] - '0');
+		if (v > (UINT64_MAX - d) / 10u)
+			return 0;
+		v = v * 10u + d;
+	}
+	*out = v;
+	return 1;
+}
+
 static int fail(char *err, size_t cap, size_t line, const char *why)
 {
 	if (err && cap)
@@ -526,12 +692,23 @@ static int fail(char *err, size_t cap, size_t line, const char *why)
 	return 0;
 }
 
+/* A SPEC REFUSED for what it says, not for room: no count left that reads
+ * as FZN_STICKER_TOO_SMALL. */
+static int refuse(fzn_sticker_manifest_t *out, char *err, size_t cap, size_t line, const char *why)
+{
+	out->count = 0;
+	return fail(err, cap, line, why);
+}
+
 int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t *out, char *err,
                            size_t err_cap)
 {
-	fzn_sticker_entry_t *cur = NULL;
+	/* PAST THE ROOM, each further sticker is read here and let go, so its
+	 * lines are still checked and the count still made. */
+	static fzn_sticker_entry_t spare;
+	fzn_sticker_entry_t *cur = NULL, *entries;
 	const char *p = text, *text_end;
-	size_t line = 0;
+	size_t line = 0, cap;
 
 	/* THE END AFTER THE CHECK: `text + len` on a null `text` is arithmetic
 	 * on a null pointer, undefined however large `len` (cppcheck). */
@@ -540,7 +717,13 @@ int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t 
 	text_end = text + len;
 	if (err && err_cap)
 		err[0] = '\0';
+	entries = out->entries;
+	cap = out->cap;
 	memset(out, 0, sizeof(*out));
+	out->entries = entries;
+	out->cap = cap;
+	if (!entries)
+		cap = out->cap = 0;
 	while (p < text_end) {
 		const char *nl = memchr(p, '\n', (size_t)(text_end - p));
 		const char *end = nl ? nl : text_end, *cursor = p, *kw, *w, *v;
@@ -558,47 +741,64 @@ int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t 
 		if (is_word(kw, kw_len, "name")) {
 			n = rest(&cursor, end, &v);
 			if (n == 0u || n > FZN_STICKER_NAME_MAX || !text_ok(v, n))
-				return fail(err, err_cap, line, "pack name is empty or too long");
+				return refuse(out, err, err_cap, line, "pack name is empty or too long");
 			memcpy(out->name, v, n);
 			out->name[n] = '\0';
 			out->name_len = n;
 			continue;
 		}
+		/* LINE'S PACKAGE, the pack's alone, sec 702. */
+		if (is_word(kw, kw_len, "line_package")) {
+			n = word(&cursor, end, &w);
+			if (!number64(w, n, &out->line_package) || word(&cursor, end, &v))
+				return refuse(out, err, err_cap, line, "line_package needs LINE's package number");
+			continue;
+		}
 		if (is_word(kw, kw_len, "sticker")) {
-			unsigned long id = 0;
+			uint64_t id = 0;
 			unsigned type = 0;
 			size_t i;
 
-			if (out->count >= FZN_STICKER_PER_PACK_MAX)
-				return fail(err, err_cap, line, "too many stickers in one pack");
+			/* THE ID OPTIONAL, sec 702: `sticker 7 static` keeps 7, and
+			 * `sticker static` takes one from its art when it is built. */
 			n = word(&cursor, end, &w);
-			if (!number(w, n, 65535u, &id))
-				return fail(err, err_cap, line, "sticker needs a numeric id");
-			for (i = 0; i < out->count; i++)
-				if (out->entries[i].id == (uint16_t)id)
-					return fail(err, err_cap, line, "two stickers share one id");
-			n = word(&cursor, end, &w);
+			if (n && w[0] >= '0' && w[0] <= '9') {
+				if (!number64(w, n, &id))
+					return refuse(out, err, err_cap, line,
+					            "a sticker id is a number from 1 to 2^64-1");
+				for (i = 0; i < out->count && i < cap; i++)
+					if (out->entries[i].id == id)
+						return refuse(out, err, err_cap, line, "two stickers share one id");
+				n = word(&cursor, end, &w);
+			}
 			if (!lookup(spec_types, w, n, &type))
-				return fail(err, err_cap, line, "unknown sticker type");
-			cur = &out->entries[out->count++];
+				return refuse(out, err, err_cap, line, "unknown sticker type");
+			cur = out->count < cap ? &out->entries[out->count] : &spare;
+			out->count++;
 			memset(cur, 0, sizeof(*cur));
-			cur->id = (uint16_t)id;
+			cur->id = id;
 			cur->type = (uint8_t)type;
 			while ((n = word(&cursor, end, &w)) > 0u) {
 				unsigned flag = 0;
 
 				if (!lookup(spec_flags, w, n, &flag))
-					return fail(err, err_cap, line, "unknown flag");
+					return refuse(out, err, err_cap, line, "unknown flag");
 				cur->flags = (uint16_t)(cur->flags | flag);
 			}
 			continue;
 		}
 		if (!cur)
-			return fail(err, err_cap, line, "line comes before any sticker");
+			return refuse(out, err, err_cap, line, "line comes before any sticker");
+		if (is_word(kw, kw_len, "line_id")) {
+			n = word(&cursor, end, &w);
+			if (!number64(w, n, &cur->line_id) || word(&cursor, end, &v))
+				return refuse(out, err, err_cap, line, "line_id needs LINE's sticker number");
+			continue;
+		}
 		if (is_word(kw, kw_len, "description")) {
 			n = rest(&cursor, end, &v);
 			if (n == 0u || n > FZN_STICKER_DESC_MAX || !text_ok(v, n))
-				return fail(err, err_cap, line, "description is empty or too long");
+				return refuse(out, err, err_cap, line, "description is empty or too long");
 			memcpy(cur->description, v, n);
 			cur->description[n] = '\0';
 			cur->description_len = n;
@@ -608,10 +808,10 @@ int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t 
 			size_t k;
 
 			if (cur->keyword_count >= FZN_STICKER_KEYWORDS_MAX)
-				return fail(err, err_cap, line, "too many keywords on one sticker");
+				return refuse(out, err, err_cap, line, "too many keywords on one sticker");
 			n = rest(&cursor, end, &v);
 			if (n == 0u || n > FZN_STICKER_KEYWORD_MAX || !text_ok(v, n))
-				return fail(err, err_cap, line, "keyword is empty or too long");
+				return refuse(out, err, err_cap, line, "keyword is empty or too long");
 			k = cur->keyword_count++;
 			memcpy(cur->keywords[k], v, n);
 			cur->keywords[k][n] = '\0';
@@ -621,7 +821,7 @@ int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t 
 		if (is_word(kw, kw_len, "sound")) {
 			n = rest(&cursor, end, &v);
 			if (!fzn_sticker_path_ok(v, n))
-				return fail(err, err_cap, line, "sound path is empty, too long or not inside the spec's directory");
+				return refuse(out, err, err_cap, line, "sound path is empty, too long or not inside the spec's directory");
 			memcpy(cur->audio_path, v, n);
 			cur->audio_path[n] = '\0';
 			cur->audio_path_len = n;
@@ -634,7 +834,7 @@ int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t 
 			for (i = 0; i < 5u; i++) {
 				n = word(&cursor, end, &w);
 				if (!number(w, n, 65535u, &t[i]))
-					return fail(err, err_cap, line,
+					return refuse(out, err, err_cap, line,
 					            "text needs limit, x, y, width and height");
 			}
 			cur->text_limit = (uint16_t)t[0];
@@ -652,22 +852,22 @@ int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t 
 			size_t i;
 
 			if (!lookup(spec_roles, kw, kw_len, &role))
-				return fail(err, err_cap, line, "unknown keyword");
+				return refuse(out, err, err_cap, line, "unknown keyword");
 			if (cur->rendition_count >= FZN_STICKER_RENDITIONS_MAX)
-				return fail(err, err_cap, line, "too many renditions on one sticker");
+				return refuse(out, err, err_cap, line, "too many renditions on one sticker");
 			n = word(&cursor, end, &w);
 			if (!lookup(spec_formats, w, n, &format))
-				return fail(err, err_cap, line, "unknown image format");
+				return refuse(out, err, err_cap, line, "unknown image format");
 			for (i = 0; i < 2u; i++) {
 				n = word(&cursor, end, &w);
 				if (!number(w, n, 65535u, &dim[i]) || dim[i] == 0u)
-					return fail(err, err_cap, line, "a rendition needs a width and a height");
+					return refuse(out, err, err_cap, line, "a rendition needs a width and a height");
 			}
 			n = rest(&cursor, end, &v);
 			/* A PATH IS A FILE BESIDE THE SPEC, never above it: what
 			 * builds a pack reads it. */
 			if (!fzn_sticker_path_ok(v, n))
-				return fail(err, err_cap, line, "rendition path is empty, too long or not inside the spec's directory");
+				return refuse(out, err, err_cap, line, "rendition path is empty, too long or not inside the spec's directory");
 			x = &cur->renditions[cur->rendition_count++];
 			x->role = (uint8_t)role;
 			x->format = (uint8_t)format;
@@ -678,10 +878,11 @@ int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t 
 			x->path_len = n;
 		}
 	}
-	if (out->name_len == 0u)
-		return fail(err, err_cap, line, "the pack has no name");
 	if (out->count == 0u)
-		return fail(err, err_cap, line, "the pack has no stickers");
+		return refuse(out, err, err_cap, line, "the pack has no stickers");
+	/* NO ROOM FOR THEM ALL: said, with the count needed. */
+	if (out->count > cap)
+		return fail(err, err_cap, line, "more stickers than the room given");
 	return 1;
 }
 
@@ -702,10 +903,10 @@ static void lit(spec_out_t *o, const char *s)
 	say(o, s, strlen(s));
 }
 
-static void num(spec_out_t *o, unsigned v)
+static void num(spec_out_t *o, uint64_t v)
 {
-	char t[8];
-	int n = snprintf(t, sizeof(t), "%u", v);
+	char t[24];
+	int n = snprintf(t, sizeof(t), "%llu", (unsigned long long)v);
 
 	say(o, t, n > 0 ? (size_t)n : 0u);
 }
@@ -731,7 +932,8 @@ static int format_fail(char *err, size_t cap, const fzn_sticker_entry_t *e, cons
 {
 	if (err && cap) {
 		if (e)
-			(void)snprintf(err, cap, "sticker %u: the %s %s", (unsigned)e->id, what, why);
+			(void)snprintf(err, cap, "sticker %llu: the %s %s", (unsigned long long)e->id,
+			               what, why);
 		else
 			(void)snprintf(err, cap, "%s %s", what, why);
 	}
@@ -743,15 +945,21 @@ static int emit(const fzn_sticker_manifest_t *m, spec_out_t *o, char *err, size_
 	const char *why;
 	size_t i, k, r, f;
 
-	if (!m->name_len)
-		return format_fail(err, err_cap, NULL, "the pack", "has no name");
-	if (!m->count)
+	if (!m->count || !m->entries || m->count > m->cap)
 		return format_fail(err, err_cap, NULL, "the pack", "has no stickers");
 	if ((why = unwritable(m->name, m->name_len)))
 		return format_fail(err, err_cap, NULL, "the pack name", why);
-	lit(o, "name ");
-	say(o, m->name, m->name_len);
-	lit(o, "\n");
+	/* A NAME AND LINE'S PACKAGE ONLY WHERE SET, sec 702. */
+	if (m->name_len) {
+		lit(o, "name ");
+		say(o, m->name, m->name_len);
+		lit(o, "\n");
+	}
+	if (m->line_package) {
+		lit(o, "line_package ");
+		num(o, m->line_package);
+		lit(o, "\n");
+	}
 	for (i = 0; i < m->count; i++) {
 		const fzn_sticker_entry_t *e = &m->entries[i];
 		const char *type_name = name_of(spec_types, e->type);
@@ -761,8 +969,11 @@ static int emit(const fzn_sticker_manifest_t *m, spec_out_t *o, char *err, size_
 		if (e->flags & ~FZN_STICKER_FLAGS_KNOWN)
 			return format_fail(err, err_cap, e, "flags", "include one this build cannot name");
 		lit(o, "\nsticker ");
-		num(o, e->id);
-		lit(o, " ");
+		/* AN ID NOT YET DERIVED is left out, as a person writes it. */
+		if (e->id) {
+			num(o, e->id);
+			lit(o, " ");
+		}
 		lit(o, type_name);
 		/* IN TABLE ORDER, so two saves of one pack differ nowhere. */
 		for (f = 0; spec_flags[f].name; f++)
@@ -771,6 +982,11 @@ static int emit(const fzn_sticker_manifest_t *m, spec_out_t *o, char *err, size_
 				lit(o, spec_flags[f].name);
 			}
 		lit(o, "\n");
+		if (e->line_id) {
+			lit(o, "line_id ");
+			num(o, e->line_id);
+			lit(o, "\n");
+		}
 		if (e->description_len) {
 			if ((why = unwritable(e->description, e->description_len)))
 				return format_fail(err, err_cap, e, "description", why);
@@ -930,7 +1146,7 @@ int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, 
 	size_t i;
 	int n;
 
-	if (!ref || !out || !len || !ref->length || ref->description_len == 0u
+	if (!ref || !out || !len || !ref->length || !ref->id
 	    || ref->description_len > FZN_STICKER_DESC_MAX)
 		return 0;
 	for (i = 0; i < ref->description_len; i++)
@@ -946,8 +1162,8 @@ int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, 
 	root[2u * FZN_STICKER_ROOT_LEN] = key[2u * FZN_STICKER_KEY_LEN] = '\0';
 	if (ref->text_len && !text_valid((const unsigned char *)ref->text, ref->text_len))
 		return 0;
-	n = snprintf(out, cap, "%s%s/%s/%llu/%u", SCHEME, root, key, (unsigned long long)ref->length,
-	             (unsigned)ref->id);
+	n = snprintf(out, cap, "%s%s/%s/%llu/%llu", SCHEME, root, key,
+	             (unsigned long long)ref->length, (unsigned long long)ref->id);
 	if (n < 0 || (size_t)n >= cap)
 		return 0;
 	/* THE WORDS, sec 830, escaped as fuzzypickles escapes them. */
@@ -974,11 +1190,15 @@ int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, 
 		}
 		n = (int)at;
 	}
-	if ((size_t)n + 1u + ref->description_len >= cap)
-		return 0;
-	out[n++] = ' ';
-	memcpy(out + n, ref->description, ref->description_len);
-	n += (int)ref->description_len;
+	/* THE DESCRIPTION WHERE THERE IS ONE, sec 702: without, the reference
+	 * ends at the id or the words. */
+	if (ref->description_len) {
+		if ((size_t)n + 1u + ref->description_len >= cap)
+			return 0;
+		out[n++] = ' ';
+		memcpy(out + n, ref->description, ref->description_len);
+		n += (int)ref->description_len;
+	}
 	out[n] = '\0';
 	if ((size_t)n > FZN_STICKER_REF_SENT_MAX)
 		return 0;
@@ -1014,7 +1234,7 @@ static int hex_field(const char **p, const char *end, uint8_t *out, size_t n)
 int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 {
 	const char *p, *end, *first;
-	unsigned id = 0;
+	uint64_t id = 0;
 	size_t digits = 0, desc_len, i;
 	int ours;
 
@@ -1050,20 +1270,23 @@ int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 		out->length = length;
 		digits = 0;
 	}
+	/* THE ID, 64 bits since sec 702, overflow refused digit by digit, and
+	 * never 0. */
 	first = p;
 	while (p < end && *p >= '0' && *p <= '9') {
-		/* FIVE DIGITS AT MOST, which cannot overflow. */
-		if (++digits > 5u)
+		unsigned d = (unsigned)(*p++ - '0');
+
+		if (++digits > 20u || id > (UINT64_MAX - d) / 10u)
 			return 0;
-		id = id * 10u + (unsigned)(*p++ - '0');
+		id = id * 10u + d;
 	}
-	if (!digits || (digits > 1u && *first == '0') || id > 0xffffu || p >= end
-	    || (*p != ' ' && *p != ':'))
+	if (!digits || *first == '0' || (p < end && *p != ' ' && *p != ':'))
 		return 0;
 	/* THE WORDS, sec 830: one spelling each, as format writes them -- an
 	 * escape in upper case, of a byte not written plain, and every other
-	 * byte plain -- so what parses formats back to itself. */
-	if (*p == ':') {
+	 * byte plain -- so what parses formats back to itself. A reference
+	 * may end at its id since sec 702, so `p` may be its end already. */
+	if (p < end && *p == ':') {
 		size_t t = 0;
 
 		p++;
@@ -1095,7 +1318,11 @@ int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 		out->text[t] = '\0';
 		out->text_len = t;
 	}
-	if (p >= end || *p != ' ')
+	out->id = id;
+	/* NO DESCRIPTION, sec 702: the reference ends here. */
+	if (p == end)
+		return 1;
+	if (*p != ' ')
 		return 0;
 	p++;
 	desc_len = (size_t)(end - p);
@@ -1106,7 +1333,6 @@ int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 	for (i = 0; i < desc_len; i++)
 		if (p[i] == '\n' || p[i] == '\r' || p[i] == '\0')
 			return 0;
-	out->id = (uint16_t)id;
 	memcpy(out->description, p, desc_len);
 	out->description[desc_len] = '\0';
 	out->description_len = desc_len;

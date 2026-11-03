@@ -188,7 +188,9 @@ static void scratch_path(const fzn_node_stickers_t *st, char *out, size_t cap)
 }
 
 /* THE PACK `ref` NAMES, read whole into a buffer the caller frees, and
- * opened into `m`: NULL when it is not held, or is no pack. */
+ * opened into `m`, its entries allocated for as many stickers as it holds
+ * -- no cap of 64 since sec 702 -- and freed by `pack_done`: NULL when it
+ * is not held, or is no pack. */
 static uint8_t *pack_of(const fzn_node_stickers_t *st, const fzn_node_file_ref_t *ref,
                         fzn_sticker_manifest_t *m, const uint8_t **data, size_t *data_len)
 {
@@ -196,6 +198,7 @@ static uint8_t *pack_of(const fzn_node_stickers_t *st, const fzn_node_file_ref_t
 	uint8_t *bytes;
 	size_t len = 0;
 
+	memset(m, 0, sizeof(*m));
 	if (ref->length > FZN_STICKER_PACK_MAX_LEN)
 		return NULL;
 	scratch_path(st, path, sizeof(path));
@@ -203,11 +206,27 @@ static uint8_t *pack_of(const fzn_node_stickers_t *st, const fzn_node_file_ref_t
 		return NULL;
 	bytes = slurp(path, FZN_STICKER_PACK_MAX_LEN, &len);
 	(void)unlink(path);
-	if (bytes && !fzn_sticker_pack_open(bytes, len, m, data, data_len)) {
-		free(bytes);
+	if (!bytes)
 		return NULL;
+	/* ASKED ITS COUNT FIRST, with no room, then read into room for it. */
+	if (!fzn_sticker_pack_open(bytes, len, m, data, data_len) && FZN_STICKER_TOO_SMALL(m)
+	    && (m->entries = calloc(m->count, sizeof(m->entries[0])))) {
+		m->cap = m->count;
+		if (fzn_sticker_pack_open(bytes, len, m, data, data_len))
+			return bytes;
 	}
-	return bytes;
+	free(m->entries);
+	m->entries = NULL;
+	free(bytes);
+	return NULL;
+}
+
+static void pack_done(fzn_sticker_manifest_t *m, uint8_t *bytes)
+{
+	free(m->entries);
+	m->entries = NULL;
+	m->cap = 0;
+	free(bytes);
 }
 
 /* ---- the verbs -------------------------------------------------------- */
@@ -270,7 +289,7 @@ static size_t save_pack(const fzn_node_stickers_t *st, const fzn_node_file_ref_t
 static size_t add_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_t n,
                           char *reply, size_t cap)
 {
-	static fzn_sticker_manifest_t m;
+	fzn_sticker_manifest_t m;
 	uint8_t raw[FZN_NODE_FILE_REF_LEN];
 	fzn_node_file_ref_t ref;
 	const uint8_t *data;
@@ -281,25 +300,48 @@ static size_t add_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 		return REPLY("malformed add sticker REF, the pack's reference in 144 hex\n");
 	if (!(bytes = pack_of(st, &ref, &m, &data, &data_len)))
 		return REPLY("error that pack is not here whole, or is no pack\n");
-	free(bytes);
+	pack_done(&m, bytes);
 	return save_pack(st, &ref, m.name, m.name_len, reply, cap);
+}
+
+/* WHAT `put sticker` HOLDS while it builds, each row one sticker's, freed
+ * together. */
+struct building {
+	fzn_sticker_manifest_t m;
+	const uint8_t *(*art)[FZN_STICKER_RENDITIONS_MAX];
+	uint32_t (*art_len)[FZN_STICKER_RENDITIONS_MAX];
+	const uint8_t **sound;
+	uint32_t *sound_len;
+	uint8_t **owned;
+	size_t n_owned;
+};
+
+static void building_done(struct building *b)
+{
+	size_t i;
+
+	for (i = 0; i < b->n_owned; i++)
+		free(b->owned[i]);
+	free(b->owned);
+	free(b->art);
+	free(b->art_len);
+	free(b->sound);
+	free(b->sound_len);
+	free(b->m.entries);
+	memset(b, 0, sizeof(*b));
 }
 
 static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_t n,
                           char *reply, size_t cap)
 {
-	static fzn_sticker_manifest_t m;
-	static const uint8_t *art[FZN_STICKER_PER_PACK_MAX][FZN_STICKER_RENDITIONS_MAX];
-	static uint32_t art_len[FZN_STICKER_PER_PACK_MAX][FZN_STICKER_RENDITIONS_MAX];
-	static const uint8_t *sound[FZN_STICKER_PER_PACK_MAX];
-	static uint32_t sound_len[FZN_STICKER_PER_PACK_MAX];
-	static uint8_t *owned[FZN_STICKER_PER_PACK_MAX * (FZN_STICKER_RENDITIONS_MAX + 1u)];
+	struct building b;
 	char spec_path[1024], dir[1024], file[1024 + FZN_STICKER_PATH_MAX + 2u], err[160];
 	char scratch[FZN_NODE_FILES_DIR_MAX + 48u];
-	size_t n_owned = 0, spec_len = 0, pack_len = 0, i, r;
+	size_t spec_len = 0, pack_len = 0, largest = 0, i, r, k;
 	uint64_t total = 0;
 	uint8_t *spec, *pack = NULL;
 	const char *slash, *why = NULL;
+	int derive = 0;
 	fzn_node_file_ref_t ref;
 
 	if (n >= sizeof(spec_path) || w[0] != '/')
@@ -308,19 +350,43 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 	spec_path[n] = '\0';
 	if (!(spec = slurp(spec_path, SPEC_MAX, &spec_len)))
 		return REPLY("error the spec would not read\n");
-	if (!fzn_sticker_spec_parse((const char *)spec, spec_len, &m, err, sizeof(err))) {
-		free(spec);
-		return REPLY("malformed the spec: %s\n", err);
+	memset(&b, 0, sizeof(b));
+	/* ROOM FOR AS MANY STICKERS AS IT NAMES, sec 702: counted with none,
+	 * then read into room for them. */
+	if (!fzn_sticker_spec_parse((const char *)spec, spec_len, &b.m, err, sizeof(err))
+	    && FZN_STICKER_TOO_SMALL(&b.m)) {
+		size_t count = b.m.count;
+
+		b.m.entries = calloc(count, sizeof(b.m.entries[0]));
+		b.m.cap = b.m.entries ? count : 0u;
+		if (b.m.entries
+		    && fzn_sticker_spec_parse((const char *)spec, spec_len, &b.m, err, sizeof(err)))
+			err[0] = '\0';
+		else if (!err[0])
+			(void)snprintf(err, sizeof(err), "no memory for %zu stickers", count);
 	}
 	free(spec);
+	if (!b.m.entries || err[0]) {
+		building_done(&b);
+		return REPLY("malformed the spec: %s\n", err);
+	}
+	k = b.m.count;
+	b.art = calloc(k, sizeof(*b.art));
+	b.art_len = calloc(k, sizeof(*b.art_len));
+	b.sound = calloc(k, sizeof(*b.sound));
+	b.sound_len = calloc(k, sizeof(*b.sound_len));
+	b.owned = calloc(k * (FZN_STICKER_RENDITIONS_MAX + 1u), sizeof(*b.owned));
+	if (!b.art || !b.art_len || !b.sound || !b.sound_len || !b.owned) {
+		building_done(&b);
+		return REPLY("error no memory for %zu stickers\n", k);
+	}
 	slash = strrchr(spec_path, '/');
 	(void)snprintf(dir, sizeof(dir), "%.*s", (int)(slash - spec_path), spec_path);
-	memset(sound, 0, sizeof(sound));
-	memset(sound_len, 0, sizeof(sound_len));
 	/* EVERY FILE THE SPEC NAMES, beside it -- its paths cannot climb out
 	 * (`fzn_sticker_path_ok`) -- read, the whole bounded by a pack's. */
-	for (i = 0; i < m.count && !why; i++) {
-		fzn_sticker_entry_t *e = &m.entries[i];
+	for (i = 0; i < k && !why; i++) {
+		fzn_sticker_entry_t *e = &b.m.entries[i];
+		size_t one = 0;
 
 		for (r = 0; r <= e->rendition_count && !why; r++) {
 			const char *p = r < e->rendition_count ? e->renditions[r].path : e->audio_path;
@@ -335,49 +401,81 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 				why = p;
 				break;
 			}
-			owned[n_owned++] = bytes;
+			b.owned[b.n_owned++] = bytes;
 			total += got;
+			one += got;
 			if (r < e->rendition_count) {
-				art[i][r] = bytes;
-				art_len[i][r] = (uint32_t)got;
+				b.art[i][r] = bytes;
+				b.art_len[i][r] = (uint32_t)got;
 			} else {
-				sound[i] = bytes;
-				sound_len[i] = (uint32_t)got;
+				b.sound[i] = bytes;
+				b.sound_len[i] = (uint32_t)got;
 			}
 		}
+		if (one > largest)
+			largest = one;
+		if (!e->id)
+			derive = 1;
 	}
-	if (!why
-	    && fzn_sticker_pack_build(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
-	                              (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
-	                              (const uint8_t *const *)sound, sound_len, NULL, 0, &pack_len)
+	if (why) {
+		building_done(&b);
+		return REPLY("error %s would not read beside the spec\n", why);
+	}
+	/* AN ID FROM ITS ART for each sticker the spec gave none, sec 702: one
+	 * sticker's files end to end in a scratch, the hash being one call. */
+	if (derive) {
+		uint8_t *one = st->hash ? malloc(largest ? largest : 1u) : NULL;
+		int ok = one
+		         && fzn_sticker_derive_ids(
+		                 &b.m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])b.art,
+		                 (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])b.art_len,
+		                 (const uint8_t *const *)b.sound, b.sound_len, st->hash, one, largest);
+
+		free(one);
+		if (!ok) {
+			building_done(&b);
+			return REPLY("error the stickers' ids could not be taken from their art\n");
+		}
+	}
+	if (fzn_sticker_pack_build(&b.m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])b.art,
+	                           (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])b.art_len,
+	                           (const uint8_t *const *)b.sound, b.sound_len, NULL, 0, &pack_len)
 	    && (pack = malloc(pack_len))
-	    && !fzn_sticker_pack_build(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
-	                               (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
-	                               (const uint8_t *const *)sound, sound_len, pack, pack_len,
+	    && !fzn_sticker_pack_build(&b.m,
+	                               (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])b.art,
+	                               (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])b.art_len,
+	                               (const uint8_t *const *)b.sound, b.sound_len, pack, pack_len,
 	                               &pack_len)) {
 		free(pack);
 		pack = NULL;
 	}
-	for (i = 0; i < n_owned; i++)
-		free(owned[i]);
-	if (why)
-		return REPLY("error %s would not read beside the spec\n", why);
-	if (!pack)
-		return REPLY("malformed the pack would not build: a description repeated, a sound "
-		             "or a box missing\n");
+	if (!pack) {
+		building_done(&b);
+		return REPLY("malformed the pack would not build: two stickers of one id or one "
+		             "art, a sound or a box missing\n");
+	}
 	/* PUT AS ANY FILE IS, from a working name in the files' directory. */
 	scratch_path(st, scratch, sizeof(scratch));
 	if (!spill(scratch, pack, pack_len)) {
 		free(pack);
+		building_done(&b);
 		return REPLY("error the pack would not write\n");
 	}
 	free(pack);
 	if (fzn_node_files_put(st->files, scratch, &ref) != FZN_NODE_FILES_OK) {
 		(void)unlink(scratch);
+		building_done(&b);
 		return REPLY("error the pack would not be put\n");
 	}
 	(void)unlink(scratch);
-	return save_pack(st, &ref, m.name, m.name_len, reply, cap);
+	{
+		char name[FZN_STICKER_NAME_MAX + 1u];
+		size_t name_len = b.m.name_len;
+
+		memcpy(name, b.m.name, name_len);
+		building_done(&b);
+		return save_pack(st, &ref, name, name_len, reply, cap);
+	}
 }
 
 /* THE MOST PACKS A COLLECTION LISTS: a setting each, and fzpd's registry
@@ -465,14 +563,19 @@ static size_t list_saved(const fzn_node_stickers_t *st, size_t from, char *reply
 static size_t list_pack(const fzn_node_stickers_t *st, const fzn_node_file_ref_t *ref,
                         size_t from, char *reply, size_t cap)
 {
-	static fzn_sticker_manifest_t m;
-	static char rows[FZN_STICKER_PER_PACK_MAX][ROW_MAX];
+	fzn_sticker_manifest_t m;
+	char (*rows)[ROW_MAX];
 	const uint8_t *data;
-	size_t data_len, i;
+	size_t data_len, i, out;
 	uint8_t *bytes = pack_of(st, ref, &m, &data, &data_len);
 
 	if (!bytes)
 		return REPLY("error that pack is not here whole, or is no pack\n");
+	/* A ROW A STICKER, as many as it holds (sec 702). */
+	if (!(rows = calloc(m.count, sizeof(*rows)))) {
+		pack_done(&m, bytes);
+		return REPLY("error no memory to list %zu stickers\n", m.count);
+	}
 	for (i = 0; i < m.count; i++) {
 		char desc[3u * FZN_STICKER_DESC_MAX + 1u];
 		size_t d = 0;
@@ -480,11 +583,13 @@ static size_t list_pack(const fzn_node_stickers_t *st, const fzn_node_file_ref_t
 		(void)fzn_escape((const uint8_t *)m.entries[i].description, m.entries[i].description_len,
 		                 desc, sizeof(desc) - 1u, &d);
 		desc[d] = '\0';
-		(void)snprintf(rows[i], ROW_MAX, "%u,%u,%u,%s", (unsigned)m.entries[i].id,
+		(void)snprintf(rows[i], ROW_MAX, "%llu,%u,%u,%s", (unsigned long long)m.entries[i].id,
 		               (unsigned)m.entries[i].type, (unsigned)m.entries[i].flags, desc);
 	}
-	free(bytes);
-	return page(rows, m.count, from, reply, cap);
+	out = page(rows, m.count, from, reply, cap);
+	free(rows);
+	pack_done(&m, bytes);
+	return out;
 }
 
 /* A WORD AS A PAGE'S START, at most ten digits: 1, or 0. */
@@ -503,7 +608,7 @@ static int from_of(const uint8_t *w, size_t n, size_t *from)
 	return 1;
 }
 
-static const fzn_sticker_entry_t *entry_of(const fzn_sticker_manifest_t *m, unsigned long id)
+static const fzn_sticker_entry_t *entry_of(const fzn_sticker_manifest_t *m, uint64_t id)
 {
 	size_t i;
 
@@ -513,31 +618,38 @@ static const fzn_sticker_entry_t *entry_of(const fzn_sticker_manifest_t *m, unsi
 	return NULL;
 }
 
-static int id_of(const uint8_t *w, size_t n, unsigned long *id)
+/* A STICKER'S ID, 64 bits since sec 702, as a reference spells it: no
+ * leading zero, never 0, overflow refused. */
+static int id_of(const uint8_t *w, size_t n, uint64_t *id)
 {
 	size_t i;
 
-	if (!n || n > 5u)
+	if (!n || n > 20u || w[0] == '0')
 		return 0;
 	*id = 0;
 	for (i = 0; i < n; i++) {
+		unsigned d;
+
 		if (w[i] < '0' || w[i] > '9')
 			return 0;
-		*id = *id * 10u + (unsigned long)(w[i] - '0');
+		d = (unsigned)(w[i] - '0');
+		if (*id > (UINT64_MAX - d) / 10u)
+			return 0;
+		*id = *id * 10u + d;
 	}
-	return *id <= 0xffffu;
+	return 1;
 }
 
 static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref_t *ref,
                           const uint8_t **at, size_t *left, char *reply, size_t cap)
 {
 	static const char *const ROLES[] = { "thumb", "inline", "main", "popup" };
-	static fzn_sticker_manifest_t m;
+	fzn_sticker_manifest_t m;
 	const fzn_sticker_entry_t *e;
 	const fzn_sticker_rendition_t *x;
 	const uint8_t *w, *data;
 	size_t n, data_len, i;
-	unsigned long id;
+	uint64_t id;
 	uint8_t *bytes;
 
 	if (!next_word(at, left, &w, &n) || !id_of(w, n, &id))
@@ -545,8 +657,8 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 	if (!(bytes = pack_of(st, ref, &m, &data, &data_len)))
 		return REPLY("error that pack is not here whole, or is no pack\n");
 	if (!(e = entry_of(&m, id))) {
-		free(bytes);
-		return REPLY("error that pack has no sticker %lu\n", id);
+		pack_done(&m, bytes);
+		return REPLY("error that pack has no sticker %llu\n", (unsigned long long)id);
 	}
 	/* THE REFERENCE, what a message carries -- with the sender's words,
 	 * `text WORDS`, for a sticker that takes them (sec 830), WORDS one word
@@ -562,7 +674,7 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 
 			if (!next_word(at, left, &word, &word_len)
 			    || next_word(at, left, &extra, &extra_len)) {
-				free(bytes);
+				pack_done(&m, bytes);
 				return REPLY("malformed get sticker PACK ID text WORDS\n");
 			}
 			more = 0;
@@ -575,12 +687,12 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 			memset(&sr, 0, sizeof(sr));
 			if (word) {
 				if (!e->text_limit) {
-					free(bytes);
+					pack_done(&m, bytes);
 					return REPLY("error that sticker takes no words\n");
 				}
 				if (!fzn_unescape(word, word_len, (uint8_t *)sr.text, FZN_STICKER_TEXT_MAX,
 				                  &sr.text_len)) {
-					free(bytes);
+					pack_done(&m, bytes);
 					return REPLY("malformed words past %u bytes, or a bad escape\n",
 					             (unsigned)FZN_STICKER_TEXT_MAX);
 				}
@@ -591,7 +703,7 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 			sr.id = e->id;
 			memcpy(sr.description, e->description, e->description_len);
 			sr.description_len = e->description_len;
-			free(bytes);
+			pack_done(&m, bytes);
 			if (!fzn_sticker_ref_format(&sr, text, sizeof(text), &len))
 				return REPLY(word ? "malformed words that are not text, or a reference past "
 				                    "a message\n"
@@ -609,7 +721,7 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 
 		if (i == 4u || !next_word(at, left, &p, &p_len) || *left || p_len >= sizeof(path)
 		    || p[0] != '/') {
-			free(bytes);
+			pack_done(&m, bytes);
 			return REPLY("malformed get sticker PACK ID ROLE PATH, ROLE thumb, inline, main "
 			             "or popup, PATH absolute\n");
 		}
@@ -617,13 +729,17 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 		path[p_len] = '\0';
 		x = fzn_sticker_pick(e, (fzn_sticker_role_t)(i + 1u));
 		if (!x || !spill(path, data + x->offset, x->len)) {
-			free(bytes);
+			pack_done(&m, bytes);
 			return REPLY("error the rendition would not write: %s\n",
 			             errno == EEXIST ? "the path exists" : "the path is not writable");
 		}
-		free(bytes);
-		return REPLY("ok %u %u %u\n", (unsigned)x->format, (unsigned)x->width,
-		             (unsigned)x->height);
+		{
+			/* READ BEFORE THE ROOM IT IS IN GOES. */
+			unsigned format = x->format, width = x->width, height = x->height;
+
+			pack_done(&m, bytes);
+			return REPLY("ok %u %u %u\n", format, width, height);
+		}
 	}
 }
 

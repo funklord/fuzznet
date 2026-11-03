@@ -69677,6 +69677,10 @@ failed, and only that row.
 
 ## 702. The sticker format without arbitrary caps, decided and deferred, 2026-10-23
 
+**Decisions 1 to 4 built in sec 836**, 2026-11-03, once the subset
+cleared (sec 833). The fifth (a pack's own id) and the sixth's fill, ink
+and turn still wait to be confirmed here, as this section says.
+
 **Relayed by fuzzypickles** through this tree's inbox (message
 20261023T0112Z), and **confirmed by the holder first-hand the same day**.
 The holder had asked "who decided this? It seems arbitrary", and it was:
@@ -78169,3 +78173,64 @@ waits have not been read for it. Not done.
 - Phase c: B is started with `--own-word=kept`, which the extension
   strips before calling in. B still says it after the join's restart,
   and says `ok none` with `restart_argv` unset.
+
+## 836. The sticker format without arbitrary caps, built, 2026-11-03
+
+Sec 702's decisions 1 to 4, held back by sec 689's freeze, built now that
+the subset has cleared (sec 833). As fuzzypickles built them, in their
+e35540f and 140d719. The pack format is version 2 (`sticker/pack.situ`),
+and version 1 is still read.
+
+**What changed:**
+- **Ids are 64 bits**, nonzero and distinct. A spec may leave one out
+  (`sticker static`), and `fzn_sticker_derive_ids` takes it from the art:
+  the first 8 bytes, big-endian, of BLAKE2b-256 over the renditions in
+  order and then the sound, with 0 made 1. A reference's id is decimal,
+  up to 20 digits, with no leading zero.
+- **LINE's ids** are carried: a pack-level `line_package` and a
+  per-sticker `line_id`, written only when set.
+- **No cap of 64.** The manifest points at the caller's entries and room.
+  A read with too little room answers 0 with the count it needs
+  (`FZN_STICKER_TOO_SMALL`), and never a truncated pack. The node reads a
+  pack's count first and then reads it into room for that many, as
+  fuzzypickles' `client/sticker_read` does.
+- **The description and the pack's name are optional.** Descriptions
+  may now repeat; version 1's still may not. A reference with no
+  description ends at its id, or at its words.
+- **A pack may be up to 64 MiB**, fuzzypickles' bound, where it was
+  16 MiB. Sec 702's rule is no bound below the store's own. This node's
+  file store has none, but it reads a pack whole into memory, so 64 MiB
+  is the measured consumer's figure (assumed, not asked).
+
+**Decided here:** a build checks ids on the caller's entries and then
+re-opens what it wrote with no room of its own, one sticker at a time.
+It does not allocate, which is fuzzypickles' 140d719 shape.
+`fzn_sticker_derive_ids` takes the caller's hash and a scratch for one
+sticker's art, since fuzznet's hash seam is one call (`fzn_hash_ops_t`).
+
+**Found on the way, by `sticker_fuzz` on its guarded page:** a reference
+ending at its id read one byte past its end. Before this change every
+reference had a description after the id, so that read was always in
+bounds. Fixed, and held by sabotage entry `sticker-ref-ends-at-id`.
+
+**Measured:**
+- `sticker_test`, 98 checks:
+  - the derivation, against digests from Python's hashlib;
+  - seventy stickers built and opened, and too little room answered
+    with the count it needs;
+  - a spec wrong after its first sticker is not read as short of room;
+  - a pack of two equal ids is refused when opened;
+  - a hand-written version 1 pack is read;
+  - ids of 0, ids past 64 bits and leading zeros are refused.
+- `sticker_fuzz`, 20000 cases, clean, and clean under ASan and UBSan.
+- `tool/live_stickers.py`:
+  - phase c: two stickers of one art are refused, since they take one
+    id;
+  - phase e: seventy stickers are read in seven pages;
+  - phase f: a derived id equals hashlib's BLAKE2b, and a sticker with
+    no description has a reference ending at its id.
+- `make schema SITU_DIR=../situ`: the sticker wire and map are current
+  at situ ae1dc696. The gate itself stops on `wire/generated/frame.c` is
+  stale; that file was last generated 2026-09-20 and situ has moved
+  since. It predates this change and is left for its own pass.
+

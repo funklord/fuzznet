@@ -5,6 +5,11 @@
 // to refuse. `sticker/pack.h` encodes and decodes it by hand, its rules
 // the ones fuzzypickles' decoder kept (`core/src/sticker.c`, read at their
 // 51e789e).
+//
+// VERSION 2, sec 702: ids of 64 bits from the art, LINE's ids, no cap of
+// 64 stickers, and a description and a name that may be empty. Version 1
+// -- `u16 id`, `u8 count [max = 64]`, `description_len [min = 1]`, no
+// LINE fields -- is still read by `sticker/pack.c` and written by nothing.
 
 target buffer;
 endian big;
@@ -24,10 +29,11 @@ struct fzn_sticker_rendition {
 }
 
 struct fzn_sticker_entry {
-	u16 id;
+	u64 id [min = 1];
+	u64 line_id;                     // LINE's sticker id; 0: none
 	u8  type [min = 1, max = 7];     // static, animated, popup, effect, message, name, emoji
 	u16 flags [max = 7];             // sound 1, big 2, animated 4
-	u8  description_len [min = 1, max = 96];
+	u8  description_len [max = 96];
 	u8  description[description_len];
 	u8  keyword_count [max = 32];
 	fzn_sticker_keyword keywords[keyword_count];
@@ -43,10 +49,11 @@ struct fzn_sticker_entry {
 }
 
 struct fzn_sticker_pack {
-	u8  version [must_eq = 1];
+	u8  version [must_eq = 2];
+	u64 line_package;                // LINE's package id; 0: none
 	u8  name_len [max = 48];
 	u8  name[name_len];
-	u8  count [min = 1, max = 64];
+	u32 count [min = 1];
 	fzn_sticker_entry entries[count];
 	u32 data_len;
 	u8  data[data_len];

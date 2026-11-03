@@ -159,11 +159,16 @@ static const char SPEC[] =
         "main png 240 240 art/sign.png\n"
         "text 12 10 20 200 40\n";
 
-static fzn_sticker_manifest_t m, opened;
-static const uint8_t *art[FZN_STICKER_PER_PACK_MAX][FZN_STICKER_RENDITIONS_MAX];
-static uint32_t art_len[FZN_STICKER_PER_PACK_MAX][FZN_STICKER_RENDITIONS_MAX];
-static const uint8_t *sound[FZN_STICKER_PER_PACK_MAX];
-static uint32_t sound_len[FZN_STICKER_PER_PACK_MAX];
+/* ROOM FOR THE STICKERS, the caller's since sec 702: a bent count past
+ * it is a read that says so. */
+#define ROOM 16u
+static fzn_sticker_entry_t m_room[ROOM], opened_room[ROOM];
+static fzn_sticker_manifest_t m = { "", 0, 0, m_room, ROOM, 0 },
+                              opened = { "", 0, 0, opened_room, ROOM, 0 };
+static const uint8_t *art[ROOM][FZN_STICKER_RENDITIONS_MAX];
+static uint32_t art_len[ROOM][FZN_STICKER_RENDITIONS_MAX];
+static const uint8_t *sound[ROOM];
+static uint32_t sound_len[ROOM];
 
 static int build(const fzn_sticker_manifest_t *mm, uint8_t *out, size_t cap, size_t *len)
 {
@@ -214,8 +219,9 @@ static void a_ref(fzn_sticker_ref_t *ref)
 	for (i = 0; i < FZN_STICKER_KEY_LEN; i++)
 		ref->key[i] = (uint8_t)next();
 	ref->length = 1u + (next() >> (next() % 64u)) % UINT64_MAX;
-	ref->id = (uint16_t)next();
-	ref->description_len = 1u + (size_t)(next() % FZN_STICKER_DESC_MAX);
+	ref->id = 1u + (next() >> (next() % 64u)) % UINT64_MAX;
+	/* A DESCRIPTION OPTIONAL since sec 702: none, now and then. */
+	ref->description_len = (size_t)(next() % (FZN_STICKER_DESC_MAX + 1u));
 	for (i = 0; i < ref->description_len; i++)
 		ref->description[i] = (char)(0x20u + next() % 0x5fu);
 }
@@ -243,7 +249,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	{
-		static uint8_t files[FZN_STICKER_PER_PACK_MAX][FZN_STICKER_RENDITIONS_MAX + 1u][16];
+		static uint8_t files[ROOM][FZN_STICKER_RENDITIONS_MAX + 1u][16];
 		size_t r;
 
 		for (i = 0; i < m.count; i++) {
@@ -277,6 +283,9 @@ int main(int argc, char **argv)
 		n = bend(bent, pack_len, sizeof(bent));
 		if (!fzn_sticker_pack_open(guarded(bent, n), n, &opened, &data, &data_len)) {
 			pack_refused++;
+			/* A COUNT ASKED FOR is one past the room, and nothing else. */
+			if (opened.count && !FZN_STICKER_TOO_SMALL(&opened))
+				fail("a refused pack left a count that asks for no room", c);
 		} else {
 			pack_opened++;
 			if (!art_from(&opened, data, data_len))

@@ -6,41 +6,54 @@
  * the container is this tree's: one situ layout, `sticker/pack.situ`, in
  * place of a stored zip of a CBOR manifest.
  *
- * A PACK is a name, up to 64 stickers and one data area. A sticker is an
- * id, a type, flags, a required description, keywords, an optional text
- * box, an optional sound and one to six renditions; a rendition or a sound
- * is an offset and a length into the data area, so there is no file name
+ * A PACK is an optional name, LINE's package id where it came from LINE,
+ * any number of stickers and one data area. A sticker is an id, LINE's id,
+ * a type, flags, an optional description, keywords, an optional text box,
+ * an optional sound and one to six renditions; a rendition or a sound is
+ * an offset and a length into the data area, so there is no file name
  * inside a pack to resolve or to refuse.
+ *
+ * WITHOUT ARBITRARY CAPS, sec 702, the holder's decisions of 2026-10-23,
+ * as fuzzypickles built them (their e35540f and 140d719): an id is 64 bits
+ * from the sticker's art, nonzero and unique in its pack; there is no cap
+ * of 64 stickers, the manifest pointing at the caller's room for them; and
+ * the description and the name are optional. Version 2 is that layout;
+ * version 1, with 16-bit ids and at most 64 stickers, is still read.
  *
  * A SPEC is the pack as text, written by a person beside the art and kept
  * in version control -- its grammar fuzzypickles', unchanged:
  *
  *     name  cats and their moods
+ *     line_package 10075
  *     sticker 1 static
+ *     line_id 52002734
  *     description a ginger cat waving hello
  *     keyword wave
  *     inline png 128 128 art/wave.png
- *     sticker 2 animated big sound
+ *     sticker animated big sound
  *     description the same cat spinning very fast
  *     main lottie 320 320 art/spin.json
  *     sound art/spin.ogg
  *
  * There a rendition or a sound names a FILE, relative to the spec and never
- * above it; building reads those files into the data area.
+ * above it; building reads those files into the data area. A sticker with
+ * no id, the second above, takes one from its art when the pack is built
+ * (`fzn_sticker_derive_ids`), so the same art has the same id in any pack.
  *
  * A REFERENCE is what a message carries in its text, so a sticker rides
  * delivery like any line and a client that cannot draw one shows its
  * description:
  *
- *     fzn:sticker/ROOT/KEY/LENGTH/ID[:TEXT] DESCRIPTION
+ *     fzn:sticker/ROOT/KEY/LENGTH/ID[:TEXT][ DESCRIPTION]
  *
  * ROOT, KEY and LENGTH the pack's file's reference (`node/files.h`): a
  * fetch wants the length, which a peer's HAVE does not give. ID the
- * sticker's. TEXT a message or name sticker's words, the sender's for this
+ * sticker's, in decimal with no leading zero. TEXT a message or name sticker's words, the sender's for this
  * one message (fuzzypickles' holder decision of 2026-10-24, their form,
  * sec 830): every byte outside `A-Z a-z 0-9 -._~` written `%XX` in upper
  * case, one spelling per text, well-formed UTF-8 with no control
- * character, at most FZN_STICKER_TEXT_MAX bytes. One written by fuzzypickles, `fzp:sticker/ROOT/KEY/ID ...`,
+ * character, at most FZN_STICKER_TEXT_MAX bytes. DESCRIPTION, where the
+ * sticker has one. One written by fuzzypickles, `fzp:sticker/ROOT/KEY/ID ...`,
  * is read as one of these with LENGTH 0, so a sticker in a message already
  * sent is known for one and shows its description; its pack, a blob of
  * fuzzypickles' own format, is not one fuzznet can fetch (sec 490).
@@ -51,18 +64,25 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define FZN_STICKER_VERSION 1u
+#include "../session/commitment.h"
+
+/* WRITTEN; and the one before it, read. */
+#define FZN_STICKER_VERSION 2u
+#define FZN_STICKER_VERSION_1 1u
 
 #define FZN_STICKER_NAME_MAX 48u
-#define FZN_STICKER_PER_PACK_MAX 64u
+/* Version 1's cap, which it is still read under. */
+#define FZN_STICKER_PER_PACK_MAX_1 64u
 #define FZN_STICKER_DESC_MAX 96u
 #define FZN_STICKER_KEYWORDS_MAX 32u
 #define FZN_STICKER_KEYWORD_MAX 24u
 #define FZN_STICKER_RENDITIONS_MAX 6u
 #define FZN_STICKER_PATH_MAX 96u
-/* The longest pack this builds or opens: sixteen MiB of art and manifest,
- * past which a pack is a library rather than a set of stickers. */
-#define FZN_STICKER_PACK_MAX_LEN (16u * 1024u * 1024u)
+/* The longest pack this builds or opens, 64 MiB of art and manifest:
+ * fuzzypickles' bound, their blob store's file limit, a pack being one
+ * file (their f865520). A LINE pop-up pack is 9.7 MB (pack 10075), which
+ * the 16 MiB before this held with little room. Sec 702. */
+#define FZN_STICKER_PACK_MAX_LEN (64u * 1024u * 1024u)
 
 typedef enum fzn_sticker_type {
 	FZN_STICKER_STATIC = 1,
@@ -106,7 +126,8 @@ typedef struct fzn_sticker_rendition {
 } fzn_sticker_rendition_t;
 
 typedef struct fzn_sticker_entry {
-	uint16_t id;
+	uint64_t id;		/* nonzero in a pack; 0 in a spec, to derive */
+	uint64_t line_id;	/* LINE's sticker id; 0 for none */
 	uint8_t type;
 	uint16_t flags;
 	char description[FZN_STICKER_DESC_MAX + 1u];
@@ -122,36 +143,62 @@ typedef struct fzn_sticker_entry {
 	size_t rendition_count;
 } fzn_sticker_entry_t;
 
+/* THE ENTRIES ARE THE CALLER'S, `cap` of them: a read finding more than
+ * that answers 0 with `count` the number it needs, never a truncated pack,
+ * so a reader sizes its room and reads again. */
 typedef struct fzn_sticker_manifest {
 	char name[FZN_STICKER_NAME_MAX + 1u];
 	size_t name_len;
-	fzn_sticker_entry_t entries[FZN_STICKER_PER_PACK_MAX];
+	uint64_t line_package;	/* LINE's package id; 0 for none */
+	fzn_sticker_entry_t *entries;
+	size_t cap;
 	size_t count;
 } fzn_sticker_manifest_t;
+
+/* 1 when a read answered 0 for want of room alone: `count` is the room. */
+#define FZN_STICKER_TOO_SMALL(m) ((m)->count > (m)->cap)
 
 /* ---- a pack ------------------------------------------------------------ */
 
 /* BUILD `m` into `out`, `cap` bytes: each rendition's and sound's bytes the
  * caller's, `art[i][r]` and `art_len[i][r]` for entry i's rendition r and
- * `sound[i]`, `sound_len[i]` for its sound (NULL and 0 for none). The
- * offsets are this call's to set. The pack is opened again before this
- * answers, so a pack it builds is one it accepts. 1 with `*len`, or 0. A
- * NULL `out` asks the length and answers 1 with it. */
+ * `sound[i]`, `sound_len[i]` for its sound (NULL and 0 for none), one row
+ * of each per entry. The offsets are this call's to set. Every id nonzero
+ * and distinct. The pack is opened again before this answers, so a pack it
+ * builds is one it accepts. 1 with `*len`, or 0. A NULL `out` asks the
+ * length and answers 1 with it. */
 int fzn_sticker_pack_build(const fzn_sticker_manifest_t *m,
                            const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
                            const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
                            const uint8_t *const sound[], const uint32_t sound_len[],
                            uint8_t *out, size_t cap, size_t *len);
 
-/* OPEN `len` bytes of a pack into `out`, every rule fuzzypickles' decoder
- * kept: a known version, a name of at most 48 bytes, one to 64 stickers
- * with distinct ids and distinct descriptions; each sticker a known type,
- * no flag unknown, a description of 1 to 96 bytes and keywords of 1 to 24,
- * none holding a control character; one to six renditions of a known role
- * and format, sized, each inside the data area; a sound flag only beside a
- * sound; a message or name sticker with a text limit and a box; no big
- * emoji. And nothing after the data area. `*data`, `*data_len` the data
- * area, which offsets index. 1, or 0. */
+/* AN ID FOR EACH STICKER WITHOUT ONE, sec 702: the first 8 bytes, big
+ * endian, of BLAKE2b-256 (`hash`) over its renditions' bytes in manifest
+ * order and then its sound's; a 0 becomes 1. fuzzypickles' derivation
+ * (`fzp_sticker_derive_ids`), so a pack built in either has the same ids.
+ * `scratch`, `scratch_cap` bytes, holds one sticker's art end to end, the
+ * hash being one call. 1, or 0 for art past the scratch or a hash refused.
+ * Two stickers of the same art come out with one id, which the build then
+ * refuses. */
+int fzn_sticker_derive_ids(fzn_sticker_manifest_t *m,
+                           const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
+                           const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
+                           const uint8_t *const sound[], const uint32_t sound_len[],
+                           const fzn_hash_ops_t *hash, uint8_t *scratch, size_t scratch_cap);
+
+/* OPEN `len` bytes of a pack into `out`, its `entries` and `cap` the
+ * caller's room, every rule fuzzypickles' decoder kept: a known version, a
+ * name of at most 48 bytes, at least one sticker, ids nonzero and distinct;
+ * each sticker a known type, no flag unknown, a description of at most 96
+ * bytes and keywords of 1 to 24, none holding a control character; one to
+ * six renditions of a known role and format, sized, each inside the data
+ * area; a sound flag only beside a sound; a message or name sticker with a
+ * text limit and a box; no big emoji. And nothing after the data area.
+ * `*data`, `*data_len` the data area, which offsets index. 1, or 0 -- and
+ * FZN_STICKER_TOO_SMALL when the stickers alone did not fit. Version 1 is
+ * read too, its rules as they were: a description of 1 to 96 bytes, each
+ * distinct, and at most 64 stickers. */
 int fzn_sticker_pack_open(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *out,
                           const uint8_t **data, size_t *data_len);
 
@@ -180,8 +227,10 @@ int fzn_sticker_field_applies(uint8_t type, uint16_t flags, fzn_sticker_field_t 
 
 /* ---- a spec ------------------------------------------------------------ */
 
-/* PARSE `len` bytes of spec text into `out`, the paths kept, nothing read.
- * 1, or 0 with `err` saying the line and why -- a person wrote it. */
+/* PARSE `len` bytes of spec text into `out`, its `entries` and `cap` the
+ * caller's room, the paths kept, nothing read. 1, or 0 with `err` saying
+ * the line and why -- a person wrote it -- or with FZN_STICKER_TOO_SMALL.
+ * A sticker may leave its id out, for `fzn_sticker_derive_ids`. */
 int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t *out, char *err,
                            size_t err_cap);
 
@@ -203,10 +252,10 @@ int fzn_sticker_path_ok(const char *path, size_t len);
 /* A STICKER'S WORDS, fuzzypickles' FZP_STICKER_TEXT_MAX, so whatever words
  * they write reads here. */
 #define FZN_STICKER_TEXT_MAX 84u
-/* "fzn:sticker/", two hex fields, a length of at most twenty digits, an id
- * of at most five, the words escaped, a space and the description. */
+/* "fzn:sticker/", two hex fields, a length and an id of at most twenty
+ * digits each, the words escaped, a space and the description. */
 #define FZN_STICKER_REF_MAX                                                                  \
-	(12u + 64u + 1u + 64u + 1u + 20u + 1u + 5u + 1u + (3u * FZN_STICKER_TEXT_MAX) + 1u          \
+	(12u + 64u + 1u + 64u + 1u + 20u + 1u + 20u + 1u + (3u * FZN_STICKER_TEXT_MAX) + 1u         \
 	 + FZN_STICKER_DESC_MAX)
 /* WHAT A REFERENCE MAY COME TO, written: a message's text, `messages/line.h`
  * FZN_MESSAGE_TEXT_MAX. */
@@ -216,7 +265,7 @@ typedef struct fzn_sticker_ref {
 	uint8_t root[FZN_STICKER_ROOT_LEN];
 	uint8_t key[FZN_STICKER_KEY_LEN];
 	uint64_t length;	/* the pack's bytes; 0 for an fzp reference */
-	uint16_t id;
+	uint64_t id;		/* nonzero */
 	/* The words, `text_len` bytes, none when 0. */
 	char text[FZN_STICKER_TEXT_MAX + 1u];
 	size_t text_len;
@@ -225,9 +274,10 @@ typedef struct fzn_sticker_ref {
 } fzn_sticker_ref_t;
 
 /* `fzn:sticker/...` into `out`, NUL ended: 1 with `*len`, or 0 for a
- * length of 0, an empty description, one too long or one holding a line
- * break, words that are not valid text, or a reference past
- * FZN_STICKER_REF_SENT_MAX. */
+ * length or an id of 0, a description too long or holding a line break,
+ * words that are not valid text, or a reference past
+ * FZN_STICKER_REF_SENT_MAX. With no description it ends at the id or the
+ * words. */
 int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, size_t *len);
 
 /* `fzn:sticker/...` or fuzzypickles' `fzp:sticker/...` back: 1, or 0 for

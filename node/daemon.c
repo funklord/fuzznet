@@ -17197,6 +17197,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					node_stickers.files = &files;
 					node_stickers.settings = &node_settings;
 					node_stickers.host = identity.pubkey;
+					node_stickers.hash = &hash_ops;
 #endif
 				} else {
 					say(FZN_ENTRY_WARNING, "files", "no store for files under %s",

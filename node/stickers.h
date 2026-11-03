@@ -54,11 +54,15 @@
 #include "settings.h"
 #include "../local/vocabulary.h"
 #include "../chain/authz.h"
+#include "../session/commitment.h"
 
 typedef struct fzn_node_stickers {
 	fzn_node_files_t *files;
 	const fzn_node_settings_t *settings;	/* `estate` set */
 	const uint8_t *host;	/* this host's key, for its own cell */
+	/* BLAKE2b, for the ids a spec leaves out (`fzn_sticker_derive_ids`,
+	 * sec 702); NULL refuses such a spec. */
+	const fzn_hash_ops_t *hash;
 } fzn_node_stickers_t;
 
 /* The verbs above; 0 for a request that is not one. */

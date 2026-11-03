@@ -18,12 +18,13 @@
 endian big
 target buffer
 
-struct fzn_sticker_entry size=41..1006
-  @0x0000   2         u16        id  big
-  @0x0002   1         u8         type  min=1 max=7
-  @0x0003   2         u16        flags  big max=7
-  @0x0005   1         u8         description_len  min=1 max=96
-  @0x0006   1..96     u8         description  sized-by=description_len
+struct fzn_sticker_entry size=54..1020
+  @0x0000   8         u64        id  big min=1
+  @0x0008   8         u64        line_id  big
+  @0x0010   1         u8         type  min=1 max=7
+  @0x0011   2         u16        flags  big max=7
+  @0x0013   1         u8         description_len  max=96
+  @0x0014   0..96     u8         description  sized-by=description_len
   ~         1         u8         keyword_count  max=32
   ~         0..800    fzn_sticker_keyword keywords  sized-by=keyword_count
   ~         2         u16        text_limit  big
@@ -40,12 +41,13 @@ struct fzn_sticker_keyword size=2..25
   @0x0000   1         u8         len  min=1 max=24
   @0x0001   1..24     u8         text  sized-by=len
 
-struct fzn_sticker_pack size=48..4295031734
-  @0x0000   1         u8         version  must_eq=1
-  @0x0001   1         u8         name_len  max=48
-  @0x0002   0..48     u8         name  sized-by=name_len
-  ~         1         u8         count  min=1 max=64
-  ~         41..64384 fzn_sticker_entry entries  big sized-by=count
+struct fzn_sticker_pack size=72..4385161608261
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   8         u64        line_package  big
+  @0x0009   1         u8         name_len  max=48
+  @0x000a   0..48     u8         name  sized-by=name_len
+  ~         4         u32        count  big min=1
+  ~         54..4380866640900 fzn_sticker_entry entries  big sized-by=count
   ~         4         u32        data_len  big
   ~         0..4294967295 u8         data  sized-by=data_len
 
