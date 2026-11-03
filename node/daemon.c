@@ -13800,13 +13800,150 @@ static size_t call_said(const uint8_t *answer, size_t n, char *reply, size_t cap
  * estate's other hosts', HOST its key in hex, asked within the round's 3 s
  * wait. ARGS are the rest of the line, as typed. `ok ANSWER`, the answer
  * escaped. This node's own user, or one granted `x` on NAME (sec 852). */
+/* A CALL ASKED OF PULL PEER `i`, sec 853: the answer's status, its bytes
+ * in `got` past three of type and status, `*n` long; FZND_CALL_SILENT where
+ * the host did not answer or answered no call. */
+#define FZND_CALL_SILENT 9u
+static unsigned call_pull(size_t i, const uint8_t *name, size_t name_len, const uint8_t *args,
+                          size_t args_len, uint8_t *got, size_t cap, size_t *n)
+{
+	static uint8_t wire[FZN_REQUEST_MAX + 3u];
+	fzn_caller_t via = loop_pulls[i].caller;
+	uint64_t now = wall_clock();
+	uint32_t msg = 0;
+	size_t wire_len = 3u + name_len + args_len;
+
+	*n = 0;
+	if (wire_len > sizeof(wire))
+		return FZN_CALL_FAILED;
+	wire[0] = FZN_TYPES_VERSION_SHARED;
+	wire[1] = FZN_TYPE_CALL;
+	wire[2] = (uint8_t)name_len;
+	memcpy(wire + 3, name, name_len);
+	if (args_len)
+		memcpy(wire + 3 + name_len, args, args_len);
+	if (fzn_caller_send(&via, wire, wire_len, now + 300u, &msg) != FZN_CALLER_OK
+	    || recv_answering(&via, msg, wire, wire_len, now + 300u, got, cap, n) != FZN_CALLER_OK)
+		return FZND_CALL_SILENT;
+	loop_pulls[i].caller.next_msg = via.next_msg;
+	if (*n < 3u || got[0] != FZN_TYPES_VERSION_SHARED || got[1] != FZN_TYPE_CALLED
+	    || got[2] > FZN_CALL_FAILED)
+		return FZND_CALL_SILENT;
+	return got[2];
+}
+
+/* WHETHER `host` IS IN GROUP `group` (an id, `fzn_scope_group_id`) by its
+ * own `group/member` setting, sec 868. */
+static int host_in_group(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t group[FZN_SUBJECT_LEN])
+{
+	static const char MEMBER[] = "group/member";
+	uint8_t names[FZN_SETTING_VALUE_MAX], id[FZN_SUBJECT_LEN];
+	size_t len = 0, at = 0;
+	fzn_setting_rank_t rank;
+
+	if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, host, (const uint8_t *)MEMBER,
+	                           sizeof(MEMBER) - 1u, names, &len, &rank))
+		return 0;
+	while (at < len) {
+		size_t start = at;
+
+		while (at < len && names[at] != ' ')
+			at++;
+		if (fzn_scope_group_id(names + start, at - start, id)
+		    && memcmp(id, group, FZN_SUBJECT_LEN) == 0)
+			return 1;
+		if (at < len)
+			at++;
+	}
+	return 0;
+}
+
+/* `call NAME at estate|group=NAME [ARGS]`, sec 872: command propagation --
+ * the call asked of every host it names that this node reaches, this host
+ * among them where it is named, one after another in turn. `ok TOTAL
+ * ANSWERED` and each host as the first 16 hex of its key and how it
+ * answered: ok, unknown, denied, failed or silent. Each host's answer
+ * itself is its own to read by `call NAME at HOST`; what propagation
+ * reports is where the call ran. */
+static size_t call_many(const fzn_peer_t *peer, const uint8_t *name, size_t name_len,
+                        const uint8_t *group, const uint8_t *args, size_t args_len, char *reply,
+                        size_t cap)
+{
+	static const char *const SAID[] = { "ok", "unknown", "denied", "failed" };
+	static uint8_t got[FZND_CALL_ANSWER_MAX + 3u], answer[FZND_CALL_ANSWER_MAX];
+	static char rows[FZN_REPLY_MAX];
+	size_t used = 0, total = 0, answered = 0, i, j, n = 0, more = 0;
+
+	if (waiting_in_turn)
+		return (size_t)snprintf(reply, cap, "error the node is waiting on a peer; ask "
+		                                    "again\n");
+	/* THIS HOST, where the call names it. */
+	if (!group || (routing_self && host_in_group(routing_self, group))) {
+		const fzn_daemon_procedure_t *p = procedure_of(name, name_len);
+		unsigned status = FZN_CALL_UNKNOWN;
+		int k;
+
+		if (p) {
+			n = p->call(daemon_ext ? daemon_ext->ctx : NULL, NULL, peer, args, args_len, answer,
+			            sizeof(answer));
+			status = n && n <= sizeof(answer) ? FZN_CALL_OK : FZN_CALL_FAILED;
+		} else {
+			(void)call_forward(name, name_len, NULL, peer, args, args_len, answer,
+			                   sizeof(answer), &status);
+		}
+		total++;
+		answered++;
+		k = routing_self ? snprintf(rows + used, sizeof(rows) - used,
+		                            " %02x%02x%02x%02x%02x%02x%02x%02x:%s", routing_self[0],
+		                            routing_self[1], routing_self[2], routing_self[3],
+		                            routing_self[4], routing_self[5], routing_self[6],
+		                            routing_self[7], SAID[status])
+		                  : 0;
+		if (k > 0 && used + (size_t)k < sizeof(rows))
+			used += (size_t)k;
+	}
+	/* EACH HOST REACHED, once however many pulls it has. */
+	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls; i++) {
+		const uint8_t *key = loop_pulls[i].pairing.node;
+		unsigned status;
+		int k;
+
+		for (j = 0; j < i; j++)
+			if (memcmp(loop_pulls[j].pairing.node, key, FZN_PUBKEY_LEN) == 0)
+				break;
+		if (j < i || (routing_self && memcmp(key, routing_self, FZN_PUBKEY_LEN) == 0)
+		    || (group && !host_in_group(key, group)))
+			continue;
+		status = call_pull(i, name, name_len, args, args_len, got, sizeof(got), &n);
+		total++;
+		answered += status != FZND_CALL_SILENT;
+		k = snprintf(rows + used, sizeof(rows) - used, " %02x%02x%02x%02x%02x%02x%02x%02x:%s",
+		             key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7],
+		             status == FZND_CALL_SILENT ? "silent" : SAID[status]);
+		if (k > 0 && used + (size_t)k + 24u < cap)
+			used += (size_t)k;
+		else
+			more++;
+	}
+	if (more) {
+		int k = snprintf(rows + used, sizeof(rows) - used, " +%zu", more);
+
+		if (k > 0 && used + (size_t)k < sizeof(rows))
+			used += (size_t)k;
+	}
+	{
+		int k = snprintf(reply, cap, "ok %zu %zu%.*s\n", total, answered, (int)used, rows);
+
+		return k > 0 && (size_t)k < cap ? (size_t)k : 0u;
+	}
+}
+
 static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
                          const fzn_request_t *request, char *reply, size_t cap)
 {
-	static uint8_t answer[FZND_CALL_ANSWER_MAX], wire[FZN_REQUEST_MAX + 3u],
-	        got[FZND_CALL_ANSWER_MAX + 3u];
-	const uint8_t *at = request->arg, *name, *w, *args;
-	size_t left = request->arg_len, name_len, w_len, args_len, n = 0, i;
+	static uint8_t answer[FZND_CALL_ANSWER_MAX], got[FZND_CALL_ANSWER_MAX + 3u];
+	const uint8_t *at = request->arg, *name, *w = NULL, *args;
+	size_t left = request->arg_len, name_len, w_len = 0, args_len, n = 0, i;
 	uint8_t host[FZN_PUBKEY_LEN];
 	int remote = 0;
 
@@ -13825,10 +13962,23 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
 		size_t save_left = left;
 
 		if (next_word(&at, &left, &w, &w_len) && w_len == 2u && memcmp(w, "at", 2u) == 0) {
-			if (!next_word(&at, &left, &w, &w_len) || w_len != 2u * FZN_PUBKEY_LEN
-			    || !unhex32(w, w_len, host))
-				return (size_t)snprintf(reply, cap, "malformed call NAME at HOST, HOST a "
-				                                    "host's key in hex\n");
+			uint8_t group[FZN_SUBJECT_LEN];
+
+			/* MANY HOSTS AT ONCE, sec 872. */
+			if (next_word(&at, &left, &w, &w_len)
+			    && ((w_len == 6u && memcmp(w, "estate", 6u) == 0)
+			        || (w_len > 6u && memcmp(w, "group=", 6u) == 0
+			            && fzn_scope_group_id(w + 6, w_len - 6u, group)))) {
+				while (left && at[0] == ' ') {
+					at++;
+					left--;
+				}
+				return call_many(peer, name, name_len, w_len == 6u ? NULL : group, at, left,
+				                 reply, cap);
+			}
+			if (!w || w_len != 2u * FZN_PUBKEY_LEN || !unhex32(w, w_len, host))
+				return (size_t)snprintf(reply, cap, "malformed call NAME at HOST|estate|"
+				                                    "group=NAME, HOST a host's key in hex\n");
 			remote = 1;
 			args = at;
 			args_len = left;
@@ -13872,28 +14022,10 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
 			break;
 	if (!loop_pulls || !loop_npulls || i == *loop_npulls)
 		return (size_t)snprintf(reply, cap, "error that host is not one this node reaches\n");
-	if (3u + name_len + args_len > sizeof(wire))
+	if (3u + name_len + args_len > FZN_REQUEST_MAX + 3u)
 		return (size_t)snprintf(reply, cap, "malformed the call is longer than a request\n");
-	wire[0] = FZN_TYPES_VERSION_SHARED;
-	wire[1] = FZN_TYPE_CALL;
-	wire[2] = (uint8_t)name_len;
-	memcpy(wire + 3, name, name_len);
-	if (args_len)
-		memcpy(wire + 3 + name_len, args, args_len);
-	{
-		fzn_caller_t via = loop_pulls[i].caller;
-		uint64_t now = wall_clock();
-		uint32_t msg = 0;
-		size_t wire_len = 3u + name_len + args_len;
-
-		if (fzn_caller_send(&via, wire, wire_len, now + 300u, &msg) != FZN_CALLER_OK
-		    || recv_answering(&via, msg, wire, wire_len, now + 300u, got, sizeof(got), &n)
-		               != FZN_CALLER_OK)
-			return (size_t)snprintf(reply, cap, "error the host did not answer\n");
-		loop_pulls[i].caller.next_msg = via.next_msg;
-	}
-	if (n < 3u || got[0] != FZN_TYPES_VERSION_SHARED || got[1] != FZN_TYPE_CALLED)
-		return (size_t)snprintf(reply, cap, "error the host's answer is not a call's\n");
+	if (call_pull(i, name, name_len, args, args_len, got, sizeof(got), &n) == FZND_CALL_SILENT)
+		return (size_t)snprintf(reply, cap, "error the host did not answer\n");
 	switch (got[2]) {
 	case FZN_CALL_OK:
 		return call_said(got + 3, n - 3u, reply, cap);

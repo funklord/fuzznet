@@ -235,6 +235,20 @@ def c_marks(daemon_path, scratch, sock_dir):
 			time.sleep(1.0)
 		print("livecheck: d2: a group's value, set at A, stood on B, which A put in the group, "
 		      "and not on A")
+		# d3: COMMAND PROPAGATION, sec 872: from B, a call at the estate runs
+		# on B and on A; at zone1, on B alone, the one host in it.
+		got = ask(socks["b"], "call echo at estate fan").split()
+		want = {b_host[:16] + ":ok", a_host[:16] + ":ok"}
+		if got[:3] != ["ok", "2", "2"] or set(got[3:]) != want:
+			raise failed("d3: call echo at estate answered %r" % got)
+		got = ask(socks["b"], "call echo at group=zone1 fan").split()
+		if got != ["ok", "1", "1", b_host[:16] + ":ok"]:
+			raise failed("d3: call echo at group=zone1 answered %r" % got)
+		got = ask(socks["b"], "call nosuch at estate").split()
+		if got[:3] != ["ok", "2", "2"] or not all(r.endswith(":unknown") for r in got[3:]):
+			raise failed("d3: an unknown procedure at the estate answered %r" % got)
+		print("livecheck: d3: a call at the estate ran on both hosts, at a group on its one "
+		      "member, and an unknown one was said unknown by each")
 	finally:
 		for d in started.values():
 			d.stop()

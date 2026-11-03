@@ -79806,3 +79806,37 @@ could not open it, and the relay host never saw it. The holder,
   route stands, is answered here, and nothing reaches the asker's socket.
 - Sabotage: `relay-route-spares-own-frames`, which routes every routed
   id's frame back as before.
+
+## 872. Command propagation: a call at the estate or at a group, 2026-11-04
+
+netcfgd names two pieces of the coordination layer that nobody had built,
+and the holder said to build both on 2026-11-04. This is the second,
+command propagation. The first, a staged commit, is sec 873.
+
+    call NAME at estate [ARGS]
+    call NAME at group=NAME [ARGS]
+
+- **The call is asked of every host it names that this node reaches,**
+  in turn, as `call NAME at HOST` asks one.
+  - `estate` names every host this node pulls from, and this host.
+  - `group=NAME` names those whose `group/member` holds NAME (sec 868),
+    this host among them where it does.
+- **The answer says where the call ran:** `ok TOTAL ANSWERED`, then each
+  host as the first 16 hex of its key and how it answered: `ok`,
+  `unknown`, `denied`, `failed` or `silent`. A host whose row would not
+  fit is counted in a closing `+N`.
+- **What each host answered is its own to read,** by `call NAME at HOST`.
+  Propagation reports outcomes rather than gathering answers, since
+  answers from many hosts would not fit one line together (sec 863).
+- Who may call is judged on each host as for one call: an estate member
+  is served, and anyone else is told `denied`.
+- The one-host path now asks through the same helper (`call_pull`), so a
+  call and a propagated call are one exchange.
+
+**Measured, `live_ext` d3:**
+- from B, `call echo at estate fan` answers `ok 2 2` with B and A both
+  `ok`;
+- `call echo at group=zone1 fan` answers B alone, the group's one member
+  after d2;
+- `call nosuch at estate` is `unknown` from each.
+- c, c2 and c3 still pass on the shared helper.
