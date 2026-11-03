@@ -108,6 +108,14 @@ fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind
                                         uint8_t setting, uint64_t value,
                                         uint8_t made[FZN_GROUP_ID_LEN]);
 
+/* A GROUP LEARNED FROM ANOTHER HOST, named here if it is not yet, sec 837:
+ * by the name its maker gave it, carried in its CREATE act, where that
+ * name is free here -- and otherwise, or for a group made before the name
+ * was carried, by its id's first 8 bytes in hex, as before. Its user may
+ * rename it either way. OK when it is named. */
+fzn_contact_err_t fzn_node_groups_name_learned(const fzn_node_groups_t *g,
+                                               const uint8_t id[FZN_GROUP_ID_LEN]);
+
 /* ---- epochs, sec 627 ----------------------------------------------------- */
 
 /* EPOCH `epoch` OF GROUP `id`'s SECRET, as this host holds it: ABSENT when

@@ -11,6 +11,9 @@
 /* ---- names ---------------------------------------------------------------- */
 
 #define NAME_VERSION 1u
+/* A CREATE act's payload, when it carries its maker's name: this byte,
+ * then the name. sec 837. */
+#define CREATE_NAME_VERSION 1u
 
 fzn_contact_err_t fzn_node_group_name(const fzn_persist_ops_t *store,
                                       const uint8_t id[FZN_GROUP_ID_LEN],
@@ -231,6 +234,32 @@ static fzn_group_log_err_t act_with(const fzn_node_groups_t *g, uint8_t kind, co
 	if (g->acted)
 		g->acted(g->acted_ctx, id ? id : made);
 	return FZN_GROUP_LOG_OK;
+}
+
+fzn_contact_err_t fzn_node_groups_name_learned(const fzn_node_groups_t *g,
+                                               const uint8_t id[FZN_GROUP_ID_LEN])
+{
+	static fzn_group_act_t a;
+	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	char name[FZN_CONTACT_NAME_MAX + 1u];
+	size_t len = 0, i;
+
+	if (!g || !g->log.store || !id)
+		return FZN_CONTACT_ERR_MALFORMED;
+	if (fzn_node_group_name(g->log.store, id, name, &len) == FZN_CONTACT_OK)
+		return FZN_CONTACT_OK;
+	/* ITS MAKER'S NAME, where the CREATE act carries one and it is free. */
+	if (fzn_group_log_act(&g->log, id, 0u, bytes, sizeof(bytes), &len) == FZN_GROUP_LOG_OK
+	    && fzn_group_act_decode(bytes, len, &a) == FZN_GROUP_ACT_OK
+	    && a.kind == FZN_GROUP_ACT_CREATE && a.payload_len > 1u
+	    && a.payload[0] == CREATE_NAME_VERSION
+	    && fzn_node_group_rename(g->log.store, id, (const char *)a.payload + 1,
+	                             a.payload_len - 1u)
+	               == FZN_CONTACT_OK)
+		return FZN_CONTACT_OK;
+	for (i = 0; i < 8u; i++)
+		(void)snprintf(name + 2u * i, 3u, "%02x", id[i]);
+	return fzn_node_group_rename(g->log.store, id, name, 16u);
 }
 
 /* ---- epochs, sec 627 ----------------------------------------------------- */
@@ -609,7 +638,16 @@ static size_t make_group(const fzn_node_groups_t *g, const uint8_t *name, size_t
 		return contact_refusal(reply, cap, FZN_CONTACT_ERR_TAKEN);
 	if (cerr != FZN_CONTACT_ERR_ABSENT)
 		return contact_refusal(reply, cap, cerr);
-	err = fzn_node_groups_act(g, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id);
+	/* ITS NAME CARRIED IN THE CREATE ACT, sec 837, so a member's host names
+	 * it so too: version, then the name. A host before this one ignores a
+	 * CREATE's payload, so the act is no different to it. */
+	{
+		uint8_t carried[1u + FZN_CONTACT_NAME_MAX];
+
+		carried[0] = CREATE_NAME_VERSION;
+		memcpy(carried + 1, name, name_len);
+		err = act_with(g, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, carried, 1u + name_len, id);
+	}
 	if (err != FZN_GROUP_LOG_OK)
 		return log_refusal(reply, cap, err);
 	cerr = fzn_node_group_rename(g->log.store, id, (const char *)name, name_len);

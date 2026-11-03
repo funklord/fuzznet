@@ -10667,18 +10667,12 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
 	return at;
 }
 
-/* A GROUP LEARNED FROM ANOTHER HOST is named here by its id's first 8
- * bytes in hex, until its user renames it. */
+/* A GROUP LEARNED FROM ANOTHER HOST is named here by the name its maker
+ * gave it where that is free, and otherwise by its id's first 8 bytes in
+ * hex, until its user renames it (sec 837). */
 static void group_named(const uint8_t *id)
 {
-	char name[FZN_CONTACT_NAME_MAX + 1u];
-	size_t len = 0, i;
-
-	if (fzn_node_group_name(node_apply.store, id, name, &len) == FZN_CONTACT_OK)
-		return;
-	for (i = 0; i < 8u; i++)
-		(void)snprintf(name + 2u * i, 3u, "%02x", id[i]);
-	(void)fzn_node_group_rename(node_apply.store, id, name, 16u);
+	(void)fzn_node_groups_name_learned(&node_groups, id);
 }
 
 /* ONE GROUP_SYNC's REQUEST, its heads from `ids[*i]` on: those of the groups

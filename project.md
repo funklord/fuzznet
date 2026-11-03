@@ -78234,3 +78234,50 @@ bounds. Fixed, and held by sabotage entry `sticker-ref-ends-at-id`.
   stale; that file was last generated 2026-09-20 and situ has moved
   since. It predates this change and is left for its own pass.
 
+## 837. A group's name reaches its members, and its notebook its contacts, 2026-11-03
+
+fuzzypickles' two group gaps (sec 824, their message of 2026-11-02 19:59),
+open work since the subset cleared (sec 833).
+
+**A member listed a learned group by its id's first 8 bytes**, where the
+maker had named it. That was by design (sec 626): names are each host's
+own, and nothing is keyed by one (sec 516). But nothing carried the
+maker's name either, so every member's client showed hex.
+- **Built:** `add group NAME` writes the name into its CREATE act's
+  payload: a version byte, then the name.
+- A member's host names a group it learns by that name where the name
+  is free there, and by the id prefix otherwise, or when the CREATE act
+  carries none (`fzn_node_groups_name_learned`). Its user may still
+  rename it.
+- The name is a suggestion. It does not key anything, and a rename at
+  the maker does not reach anyone.
+- **Older hosts are unaffected:** a CREATE act's payload is signed and
+  hashed with the act, and no host has ever read it. So an older host
+  takes the act as before and names the group by its prefix.
+- **Rejected:** a group setting for the name (`FZN_GROUP_ACT_SET`).
+  Settings are a number and a value, and an older host judges an unknown
+  setting malformed and stops at that act.
+
+**A notebook shared to a group never reached a member who was also the
+sharer's contact.** fzp reads a group's notebook as the trees `list
+sharer` names with KIND `group`. A sharer who is a contact is listed as
+KIND `contact`, so the group's own notebook found nobody. The records
+had arrived (live_groups phase e2 holds them); the listing could not
+show them under the group.
+- **Built:** `list sharer @GROUP [FROM]`. It lists every held sharer who
+  is a member of GROUP, by this host's name for it or its id, whatever
+  else they are.
+- The plain `list sharer` rows are unchanged, so a contact is still one
+  row, KIND `contact`.
+- **Rejected:** a row per relationship in the plain listing. That would
+  change TOTAL and give a contact who is in a group two rows of one key,
+  which every reader of the listing would have to fold.
+
+**fuzzypickles is told** (their inbox) that its group notebook can ask
+`list sharer @GROUP`. Which verb its client sends is its own call.
+
+**Measured:**
+- `tool/live_groups.py` phase a: B and C learn the group as `family`.
+- Phase e2: A is C's contact and a member, and shares a note with the
+  group. C's `list sharer @family` names A and B, and its plain `list
+  sharer` still names A as a contact.

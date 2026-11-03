@@ -1915,19 +1915,38 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
  * a held group listing it -- a member who shared with a group, sec 630, and
  * is no contact here) or `gone` (NAME `-`). A tree is always a USER's: a
  * note shared with a group lands in the sharing member's tree, so a row's
- * key is never a group's. sec 640. */
+ * key is never a group's. sec 640.
+ *
+ * `list sharer @GROUP [FROM]`, sec 837: only the sharers who are members of
+ * GROUP -- this host's name for it, or its id in hex -- whatever else they
+ * are here, so a group's notebook is found whether or not its members are
+ * contacts too. A contact is listed as one above, and fuzzypickles' group
+ * notebook, looking for `group` rows, found nobody who was both. */
 static size_t list_sharers(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
                            size_t cap)
 {
 	static uint8_t sharers[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
 	static char detail[FZN_REPLY_MAX];
 	size_t limit = fzn_reply_ok_room(cap);
-	size_t count = 0, from = 0, used, i;
+	size_t count = 0, from = 0, used, i, kept;
 	const uint8_t *w;
 	size_t w_len;
-	int m;
+	int m, have_word, only = 0;
+	uint8_t group_id[FZN_GROUP_ID_LEN];
 
-	if (word(&at, &left, &w, &w_len))
+	have_word = word(&at, &left, &w, &w_len);
+	if (have_word && w_len > 1u && w[0] == '@') {
+		fzn_contact_err_t gerr =
+		        fzn_node_group_find(n->store.ops, (const char *)w + 1, w_len - 1u, group_id);
+
+		if (gerr == FZN_CONTACT_ERR_ABSENT)
+			return say(reply, cap, FZN_REPLY_ERROR, "no such group here");
+		if (gerr != FZN_CONTACT_OK)
+			return say(reply, cap, FZN_REPLY_MALFORMED, "not a group's name");
+		only = 1;
+		have_word = word(&at, &left, &w, &w_len);
+	}
+	if (have_word)
 		for (i = 0; i < w_len; i++) {
 			if (w[i] < '0' || w[i] > '9' || from > FZN_NOTES_RECEIVED_ROWS)
 				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
@@ -1936,6 +1955,21 @@ static size_t list_sharers(fzn_node_notes_t *n, const uint8_t *at, size_t left, 
 	if (fzn_notes_received_sharers(n->store.ops, sharers, FZN_NOTES_RECEIVED_ROWS, &count)
 	    != FZN_NOTES_OK)
 		return say(reply, cap, FZN_REPLY_ERROR, "the shared trees would not list");
+	/* THE GROUP'S MEMBERS ALONE, where one was named. */
+	for (i = 0, kept = 0; only && i < count; i++) {
+		static fzn_group_held_t in;
+		size_t g;
+
+		if (fzn_node_group_ids_of(n->store.ops, sharers[i], &in) != FZN_CONTACT_OK)
+			continue;
+		for (g = 0; g < in.n; g++)
+			if (memcmp(in.ids[g], group_id, FZN_GROUP_ID_LEN) == 0) {
+				memmove(sharers[kept++], sharers[i], FZN_PUBKEY_LEN);
+				break;
+			}
+	}
+	if (only)
+		count = kept;
 	if (from > count)
 		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last sharer");
 	m = snprintf(detail, sizeof(detail), "%zu %zu", count, from);

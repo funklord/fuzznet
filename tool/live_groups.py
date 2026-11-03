@@ -6,8 +6,9 @@ is a contact of B and of C, by card as live_pairing.py has it; B and C do
 not know each other.
 
     a  A makes the group family and adds B and C; each learns the group from
-       A at its next round -- named by its id here, its three members, A
-       its admin
+       A at its next round -- named `family` there too, the name A gave it
+       carried in its CREATE act (sec 837) -- its three members, A its
+       admin
     b  A makes B an admin, a majority of one; B's next round says so
     a2 each host names itself in the log, and the epoch's secret is sealed
        to all three, which each come to hold it (sec 627)
@@ -15,6 +16,10 @@ not know each other.
        and B, which is not C's contact, files it through A, as C's (sec 629)
     e  B shares a note with the group; C, which is not B's contact, pairs
        B's host through the group and pulls the note from B (sec 630)
+    e2 A, a contact of C's AND a member, shares a note with the group, and
+       C's `list sharer @family` lists A among the group's sharers, as B
+       (sec 837): fuzzypickles' group notebook, looking for `group` rows,
+       found no member who was a contact as well
     f  B grants a file to the group; C, given its reference, fetches it
        whole from B (sec 631)
     c  C leaves, by an act of its own; A learns it from C at A's next round,
@@ -160,8 +165,9 @@ def main(argv):
 					break
 			if len(learned) != 2:
 				raise failed("a: after %d rounds the group was learned at %r" % (ROUNDS, learned))
-			if learned["b"] != learned["c"] or len(learned["b"]) != 16:
-				raise failed("a: B and C named the group %r, not by one id" % (learned,))
+			if learned["b"] != "family" or learned["c"] != "family":
+				raise failed("a: B and C named the group %r, not by the name A gave it"
+				             % (learned,))
 			name = learned["b"]
 			got = members(socks["b"], "b", name)
 			if "*alice" not in got or len(got) != 3:
@@ -266,6 +272,36 @@ def main(argv):
 				raise failed("e: C pulled nothing B shares with the group%s"
 				             % "".join("\n  " + l for l in told[-12:]))
 			print("livecheck: e: B shared a note with the group, and C pulled it from B")
+
+			# e2: A, C's contact and a member, shares with the group too; C's
+			# group sharers name A as well as B (sec 837).
+			roots = {}
+			for who in ("a", "b"):
+				me = ask(socks[who], "get identity").split()
+				if len(me) != 3 or me[0] != "ok":
+					raise failed("e2: %s's get identity answered %r" % (who, me))
+				roots[who] = me[2]
+			note_a = ask(socks["a"], "add note top a-group-note")
+			if not note_a.startswith("ok "):
+				raise failed("e2: add note at A answered %r" % note_a)
+			expect(socks["a"], "a", "add share %s @family" % note_a.split()[1], "ok")
+			listed = ""
+			for rnd in range(ROUNDS):
+				for who in ("a", "c"):
+					turn(who, "%s-e2%d" % (who, rnd))
+				listed = ask(socks["c"], "list sharer @" + names["c"])
+				if roots["a"] in listed and roots["b"] in listed:
+					break
+			rows = listed.split()[3:]
+			if not listed.startswith("ok ") or sorted(r.split(",")[0] for r in rows) \
+			   != sorted([roots["a"], roots["b"]]):
+				raise failed("e2: C's list sharer @%s answered %r, not A and B"
+				             % (names["c"], listed))
+			plain = ask(socks["c"], "list sharer")
+			if roots["a"] + ",contact," not in plain:
+				raise failed("e2: C's list sharer no longer names A a contact: %r" % plain)
+			print("livecheck: e2: A, a contact and a member, shared with the group, and C's "
+			      "group sharers named A beside B")
 
 			# f: B grants a file to the group; C, given its reference, fetches
 			# it whole from B (sec 631, 6b).

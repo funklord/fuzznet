@@ -40,6 +40,8 @@
  *                                  KEY,KIND,NAME: KIND contact, group (a
  *                                  member known by a group, NAME `@GROUP`)
  *                                  or gone, NAME `-` (sec 640)
+ *     list sharer @GROUP [FROM]    the same, only the members of GROUP --
+ *                                  a contact among them too (sec 837)
  *     list shared NAME PARENT [FROM]
  *                                  the tree the contact NAME -- or the key
  *                                  `list sharer` prints -- shared with this
