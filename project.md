@@ -68567,7 +68567,11 @@ Three read-only surveys, one per group of areas: their verbs, live
 tests, fuzz harnesses, authorization tests, fault tests and bounds, and
 this file's open items. Their findings, summarised:
 
-- **No node-level wire input is fuzzed.** The 34 harnesses cover frames,
+- ~~**No node-level wire input is fuzzed.**~~ Re-measured 2026-11-03: 52
+  harnesses, among them members, messages and delivery, contact devices,
+  cards and contact requests, the relay, stream queries, the routing
+  manifest, reconciliation, settings, votes, estates and groups. As
+  first surveyed: the 34 harnesses covered frames,
   chains, records, storage and sessions. None covers:
   - members (11-12), messages (23-28, 33-34), contact devices (29-32);
   - the relay and introductions (35-38), streams (43-44);
@@ -68625,8 +68629,9 @@ the holder where it is a decision:
   root revoked is dropped and un-paired. Since sec 781 its admins' and
   other roots' votes are too, judged at its k with no act log, every doubt
   erring open.
-- **Sec 615 and 616:** a member never reached holds settlement up for
-  ever, and a member never heard is never judged gone.
+- ~~**Sec 615 and 616:** a member never reached holds settlement up for
+  ever, and a member never heard is never judged gone.~~ Closed in sec
+  802.
 - ~~**Sec 613:** an offer walks at most `FZN_MESSAGES_WALK_MAX` deep, so a
   line waiting deeper is never sent.~~ Every owed line is reached since
   sec 788.
@@ -68634,12 +68639,18 @@ the holder where it is a decision:
   - a relay's refusal is not read, so it costs a timeout;
   - the route keys on the message id;
   - only a contact's own hosts relay.
-- **Sec 627:** a host whose prekey rotates cannot open later boxes.
+- ~~**Sec 627:** a host whose prekey rotates cannot open later boxes.~~
+  Closed in sec 803.
 - **Sec 655 and 656:** join time is in whole seconds, and a record in the
   joining second may fall on either side.
-- **No retransmission under the request caller.** Every loss costs a
-  timeout and a round. The loss scenarios will measure what that costs a
-  conversation.
+- ~~**No retransmission under the request caller.**~~ A request is
+  resent within its wait since sec 737.
+- **Still open, re-read 2026-11-03:**
+  - sec 622's relay items;
+  - the `node/daemon.c` verbs never tried by a wrong caller (`add join`,
+    `add contact` by card, `grant request`, `get card`, `list device`,
+    location's). They are statics, and a wrong caller live needs a
+    second uid, which no live script here has.
 
 ### The order of the work
 
