@@ -78390,6 +78390,14 @@ C's want twice with one reply of 31103 bytes in 31 pieces.
   round later. That wait is now 200 s under loss, and runs 5 to 10 ran
   with it and passed. The groups journey has not been run ten times
   clean with every fix of this section in place.
+- **The notes journey, `tool/live_shares.py --loss 20`:** ten runs, ten
+  passed. Its rounds run every 5 s in the fault build
+  (`FZN_TUNE_PULL_EVERY`), and each wait is 120 s.
+  - The first batch failed seven of ten, all in the test. Phase c read
+    the received pass's summary as soon as the pull's line appeared,
+    but the summary is said when the pass ends, and fast rounds showed
+    the gap.
+  - The test now waits for both. Nothing in the node changed for this.
 - **The cost:** a peer that has really gone is given up on later. Its
   span halves to one leaf first, up to six silences, before the three
   that end it: about 27 s at the 3 s span deadline, where it was about

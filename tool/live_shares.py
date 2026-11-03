@@ -18,6 +18,11 @@ other's estate:
        no longer stands" -- which the device that handed it off reads
        (sec 607)
 
+`--loss P` runs both daemons at FZN_FAULT_LOSS=P, one seed per run, against
+a daemon built by `make fuzznetd-faults`, its rounds every few seconds
+(FZN_TUNE_PULL_EVERY) and each wait four times as long: sec 689's
+scenario bar for notes (sec 839).
+
 Against a daemon that does not ask whether a sharer still stands, phase b
 pulls; against one that never asks again, phase c does not.
 
@@ -33,11 +38,13 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+import live_trim  # noqa: E402
 
 PASS_RE = re.compile(r"received pass: (\d+) share\(s\), (\d+) of removed contacts passed over")
 PULLED_RE = re.compile(r"(\d+) shared note record\(s\) from 127\.0\.0\.1")
@@ -56,9 +63,20 @@ def passes(d):
 	return [(int(m.group(1)), int(m.group(2))) for m in PASS_RE.finditer(d.log())]
 
 
+# EACH WAIT, in seconds: longer under loss, where a round may miss.
+WAIT = 30.0
+
+
 def main(argv):
-	if len(argv) != 2:
-		print("usage: live_shares.py PATH_TO_FUZZNETD", file=sys.stderr)
+	global WAIT
+	if len(argv) == 4 and argv[2] == "--loss" and argv[3].isdigit():
+		os.environ["FZN_FAULT_LOSS"] = argv[3]
+		os.environ["FZN_FAULT_SEED"] = str(os.getpid())
+		os.environ["FZN_TUNE_PULL_EVERY"] = "5"
+		WAIT = 120.0
+		live_trim.DEADLINE = time.monotonic() + 1200.0
+	elif len(argv) != 2:
+		print("usage: live_shares.py PATH_TO_FUZZNETD [--loss P]", file=sys.stderr)
 		return 2
 
 	class run:
@@ -100,7 +118,7 @@ def main(argv):
 					expect(socks["r"], "r", "add contact sam " + s_key, "ok")
 					expect(socks["r"], "r", "add received sam 127.0.0.1 %s %s"
 					       % (port_s, card_path), "ok")
-					r.wait_for(PULLED_RE, "pull from S")
+					r.wait_for(PULLED_RE, "pull from S", within=WAIT)
 					expect(socks["r"], "r", "remove contact sam", "ok")
 				finally:
 					r.stop()
@@ -110,7 +128,7 @@ def main(argv):
 				# b: S removed: the share is held and passed over.
 				r = daemon(run, "r2", dirs["r"], socks["r"])
 				try:
-					r.wait_for(PASS_RE, "received pass")
+					r.wait_for(PASS_RE, "received pass", within=WAIT)
 					if passes(r)[0] != (1, 1):
 						raise failed("b: R's first pass was %d share(s), %d passed over; "
 						             "the one share's sharer is removed" % passes(r)[0])
@@ -125,7 +143,10 @@ def main(argv):
 				# c: S back: the share is pulled again.
 				r = daemon(run, "r3", dirs["r"], socks["r"])
 				try:
-					r.wait_for(PULLED_RE, "pull of S's edit")
+					r.wait_for(PULLED_RE, "pull of S's edit", within=WAIT)
+					# THE PASS'S SUMMARY is said when the pass ends, after its
+					# pulls: read before it, the list was empty (sec 839).
+					r.wait_for(PASS_RE, "received pass", within=WAIT)
 					if passes(r)[0] != (1, 0):
 						raise failed("c: R's first pass was %d share(s), %d passed over; "
 						             "S stands again" % passes(r)[0])
@@ -144,14 +165,14 @@ def main(argv):
 
 				r = daemon(run, "r4", dirs["r"], socks["r"])
 				try:
-					r.wait_for(ROUND_END_RE, "R's round")
+					r.wait_for(ROUND_END_RE, "R's round", within=WAIT)
 					expect(socks["r"], "r", "add message sam out %s hello" % LINE_ID, "ok")
 					expect(socks["r"], "r", "set message sam out %s handed-over" % LINE_ID, "ok")
 				finally:
 					r.stop()
 				r = daemon(run, "r5", dirs["r"], socks["r"])
 				try:
-					r.wait_for(ROUND_END_RE, "R's round")
+					r.wait_for(ROUND_END_RE, "R's round", within=WAIT)
 					if GIVEN_UP_RE.search(r.log()) or state() != "handed-over":
 						raise failed("d: with S standing, the line handed over is %s"
 						             % state())
@@ -160,7 +181,7 @@ def main(argv):
 					r.stop()
 				r = daemon(run, "r6", dirs["r"], socks["r"])
 				try:
-					got = r.wait_for(GIVEN_UP_RE, "the hand-off given up on")
+					got = r.wait_for(GIVEN_UP_RE, "the hand-off given up on", within=WAIT)
 					if got.group(1) != "1" or state() != "not-delivered":
 						raise failed("d: S removed, %s line(s) given up on and the line is %s"
 						             % (got.group(1), state()))
