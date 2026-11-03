@@ -13677,10 +13677,43 @@ static int call_name_ok(const uint8_t *name, size_t len)
 	return 1;
 }
 
+/* `events [FROM]`, sec 866: what this node published since FROM, as
+ * `fzn_node_events_since` pages it -- the cursor a reader that cannot hold
+ * a subscription polls, an estate member across the round among them. */
+static size_t events_call(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
+                          const uint8_t *args, size_t args_len, uint8_t *answer, size_t cap)
+{
+	uint64_t from = 0;
+	size_t i = 0;
+
+	(void)ctx;
+	(void)caller;
+	(void)peer;
+	while (i < args_len && args[i] == ' ')
+		i++;
+	for (; i < args_len; i++) {
+		if (args[i] < '0' || args[i] > '9' || from > (UINT64_MAX - 9u) / 10u)
+			return 0;
+		from = from * 10u + (uint64_t)(args[i] - '0');
+	}
+	return fzn_node_events_since(&node_events, from, (char *)answer, cap,
+	                             FZN_DAEMON_CALL_ESCAPED_MAX);
+}
+
+/* FUZZNET'S OWN PROCEDURES, sec 866: asked before an extension's, so no
+ * extension's name hides one. */
+static const fzn_daemon_procedure_t builtin_procedures[] = {
+	{ "events", events_call },
+};
+
 static const fzn_daemon_procedure_t *procedure_of(const uint8_t *name, size_t len)
 {
 	size_t i;
 
+	for (i = 0; i < sizeof(builtin_procedures) / sizeof(builtin_procedures[0]); i++)
+		if (strlen(builtin_procedures[i].name) == len
+		    && memcmp(builtin_procedures[i].name, name, len) == 0)
+			return &builtin_procedures[i];
 	if (!daemon_ext || !daemon_ext->procedures)
 		return NULL;
 	for (i = 0; i < daemon_ext->n_procedures; i++) {
@@ -13727,7 +13760,7 @@ static size_t call_remote(const uint8_t *sender, const uint8_t *request, size_t 
 		reply[2] = (uint8_t)status;
 		return 3u + n;
 	}
-	n = p->call(daemon_ext->ctx, sender, NULL, request + 3 + name_len, len - 3u - name_len,
+	n = p->call(daemon_ext ? daemon_ext->ctx : NULL, sender, NULL, request + 3 + name_len, len - 3u - name_len,
 	            reply + 3, cap - 3u < FZND_CALL_ANSWER_MAX ? cap - 3u : FZND_CALL_ANSWER_MAX);
 	if (!n || n > cap - 3u) {
 		reply[2] = FZN_CALL_FAILED;
@@ -13824,7 +13857,7 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
 			return (size_t)snprintf(reply, cap, "error the follower serving %.*s failed\n",
 			                        (int)name_len, (const char *)name);
 		}
-		n = p->call(daemon_ext->ctx, NULL, peer, args, args_len, answer, sizeof(answer));
+		n = p->call(daemon_ext ? daemon_ext->ctx : NULL, NULL, peer, args, args_len, answer, sizeof(answer));
 		if (!n || n > sizeof(answer))
 			return (size_t)snprintf(reply, cap, "error the procedure failed\n");
 		return call_said(answer, n, reply, cap);
@@ -15931,7 +15964,7 @@ static void offer_serve(void)
 		(void)close(fd);
 		return;
 	}
-	n = p->call(daemon_ext->ctx, from_len == 1u ? NULL : caller, local_caller ? &peer : NULL,
+	n = p->call(daemon_ext ? daemon_ext->ctx : NULL, from_len == 1u ? NULL : caller, local_caller ? &peer : NULL,
 	            args, args_len, answer, sizeof(answer));
 	if (!n || n > sizeof(answer)) {
 		say_to(fd, "failed\n");

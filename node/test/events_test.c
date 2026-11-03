@@ -147,11 +147,65 @@ static void test_room_and_close(void)
 	      "a missing set was used");
 }
 
+/* WHAT HAPPENED SINCE A CURSOR, sec 866: numbered from 1, kept with no
+ * subscriber, paged within an escaped budget, and a reader told when it
+ * fell behind the ring or asks past its end. */
+static void test_since_a_cursor(void)
+{
+	static fzn_node_events_t ev;
+	char out[2048], want[64];
+	size_t n, i;
+	char hex[65];
+
+	fzn_node_events_init(&ev);
+	n = fzn_node_events_since(&ev, 0, out, sizeof(out), 1020u);
+	out[n] = '\0';
+	CHECK(n && strcmp(out, "1 1") == 0, "an empty node's page is not NEXT 1 FIRST 1");
+	(void)fzn_node_events_publish(&ev, "record", NULL);
+	(void)fzn_node_events_publish(&ev, "note", "0a0b");
+	n = fzn_node_events_since(&ev, 0, out, sizeof(out), 1020u);
+	out[n] = '\0';
+	CHECK(strcmp(out, "3 1 record - note 0a0b") == 0,
+	      "two events published with no subscriber were not kept, in order");
+	n = fzn_node_events_since(&ev, 2, out, sizeof(out), 1020u);
+	out[n] = '\0';
+	CHECK(strcmp(out, "3 1 note 0a0b") == 0, "from 2 did not start at the second");
+	n = fzn_node_events_since(&ev, 3, out, sizeof(out), 1020u);
+	out[n] = '\0';
+	CHECK(strcmp(out, "3 1") == 0, "a reader caught up was told something");
+	n = fzn_node_events_since(&ev, 9, out, sizeof(out), 1020u);
+	out[n] = '\0';
+	CHECK(strcmp(out, "3 1") == 0, "a cursor past the end -- a node started again -- was not "
+	                               "answered NEXT below it");
+	/* PAST THE RING: FIRST moves, and a reader from 1 is shown it fell
+	 * behind by FIRST above its cursor. */
+	memset(hex, 'f', 64u);
+	hex[64] = '\0';
+	for (i = 0; i < FZN_NODE_EVENTS_KEPT + 10u; i++)
+		(void)fzn_node_events_publish(&ev, "message", hex);
+	n = fzn_node_events_since(&ev, 1, out, sizeof(out), 1020u);
+	out[n] = '\0';
+	(void)snprintf(want, sizeof(want), " %u ", (unsigned)(FZN_NODE_EVENTS_KEPT + 13u - FZN_NODE_EVENTS_KEPT));
+	CHECK(n && strstr(out, want) == out + strcspn(out, " "),
+	      "a ring passed did not say its first is above the reader's cursor");
+	/* WITHIN THE BUDGET: each event here escapes to 6 + 7 + 64 = 77, so
+	 * 1020 holds at most twelve of them with the head. */
+	{
+		size_t spaces = 0, k;
+
+		for (k = 0; k < n; k++)
+			spaces += out[k] == ' ';
+		CHECK(spaces >= 1u + 2u * 11u && n + 2u * spaces <= 1020u,
+		      "a page did not fill its escaped budget, or passed it");
+	}
+}
+
 int main(void)
 {
 	test_lines_whole_and_only_well_formed();
 	test_one_gone_or_slow_is_dropped();
 	test_room_and_close();
+	test_since_a_cursor();
 	if (failures) {
 		fprintf(stderr, "events_test: %d of %d checks failed\n", failures, checks);
 		return 1;

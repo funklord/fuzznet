@@ -3747,6 +3747,13 @@ SABOTAGES = [
 		"a listing under a prefix pages every record held -- sec 861",
 	),
 	(
+		"events-kept-numbered",
+		"node/events.c",
+		"\t\tk->seq = ev->next++;",
+		"\t\tk->seq = ev->next;",
+		"published events are not numbered on, and a reader's cursor never moves -- sec 866",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

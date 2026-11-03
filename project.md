@@ -79569,3 +79569,53 @@ their `node_probe`:
 Measured: `files_test`, 96 checks, two new: a missing path and `/tmp`,
 each answered about the path. `admin_test`'s check on "has that name"
 still holds.
+
+## 866. Another host's events, read since a cursor, 2026-11-03
+
+netcfgd asked (inbox 2026-11-03 21:41) whether an estate member can
+subscribe to another host's events through its own fuzznetd. It wanted
+this for `monitor`, its one control verb that is a stream. Sec 669's
+`get events` and sec 843's `fzn_daemon_publish` reach only local clients
+of the publishing node.
+
+**Decided: a cursor, not a subscription across hosts.**
+- The remote hop is request and reply in rounds. A held subscription
+  across it would need the publisher to keep per-subscriber state and
+  send unasked datagrams, which nothing in the round model does.
+- Sec 609 already made events thin: an event says what to fetch, and a
+  reader that missed some reads the state again. So a numbered record of
+  what was published, asked for since a cursor, gives a remote reader
+  the same thing a subscriber gets, gaps detected included.
+
+**Built:**
+- `node/events` keeps the last `FZN_NODE_EVENTS_KEPT` (256) events
+  published, numbered from 1, whether or not anybody subscribes.
+- `fzn_node_events_since` pages them as `NEXT FIRST [SUBJECT NAME]...`
+  within an escaped budget:
+  - FIRST above a reader's cursor means it fell behind the ring;
+  - NEXT below it means the node started again;
+  - either way the reader reads its state again.
+- **`events [FROM]` is fuzznet's own procedure,** asked before any
+  extension's (sec 853):
+  - `call events FROM` locally;
+  - `call events at HOST FROM` from an estate member, and a contact is
+    refused as for every call;
+  - another local user cannot be granted it, `events` being a reserved
+    subject (sec 852).
+- **netcfgd's remote `monitor`** is then a poll of `call events at HOST
+  NEXT` with the `status` page re-read when something changed, rather
+  than a poll of the status itself.
+
+**Measured:**
+- `events_test`, 40 checks:
+  - an empty node's page is `1 1`;
+  - two events kept with no subscriber, in order;
+  - FROM in the middle, and a reader caught up;
+  - a cursor past the end answered with NEXT below it;
+  - after the ring wraps, FIRST above the cursor;
+  - a page that fills its escaped budget and stays within it.
+- `live_ext`:
+  - b: `call events 0` answers locally;
+  - c3: B's `call events at A 0` reads A's events, A's `add mark` among
+    them.
+- Sabotage: `events-kept-numbered`.

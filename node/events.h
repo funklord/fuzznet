@@ -30,15 +30,31 @@
 #define FZN_NODE_EVENTS_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define FZN_NODE_EVENTS_MAX 8u
 /* The longest SUBJECT and NAME: a word, and a 64-hex-digit key. */
 #define FZN_NODE_EVENTS_SUBJECT_MAX 16u
 #define FZN_NODE_EVENTS_NAME_MAX 64u
 
+/* THE EVENTS KEPT, sec 866: the last this many published, each numbered,
+ * so a reader that cannot hold a subscription -- an estate member asking
+ * across the round -- asks what happened since its cursor and is told
+ * when it fell behind. */
+#define FZN_NODE_EVENTS_KEPT 256u
+
+typedef struct fzn_node_event_kept {
+	uint64_t seq;
+	char subject[FZN_NODE_EVENTS_SUBJECT_MAX + 1u];
+	char name[FZN_NODE_EVENTS_NAME_MAX + 1u];
+} fzn_node_event_kept_t;
+
 typedef struct fzn_node_events {
 	int fds[FZN_NODE_EVENTS_MAX];
 	size_t n;
+	/* NUMBERED FROM 1, the next to be published's; the kept a ring. */
+	uint64_t next;
+	fzn_node_event_kept_t kept[FZN_NODE_EVENTS_KEPT];
 	/* Subscribers dropped for a full buffer or a closed socket, and lines
 	 * written, since init: for a status line and a test. */
 	size_t dropped;
@@ -60,6 +76,20 @@ int fzn_node_events_add(fzn_node_events_t *ev, int fd);
  * written, so no subscriber ever reads a line it cannot split. How many
  * subscribers took it. */
 size_t fzn_node_events_publish(fzn_node_events_t *ev, const char *subject, const char *name);
+
+/* WHAT HAPPENED SINCE `from`, sec 866, into `out` (`cap` bytes) as
+ *
+ *     NEXT FIRST [SUBJECT NAME]...
+ *
+ * NEXT the number to ask from next time, FIRST the oldest still kept: a
+ * reader whose `from` is below FIRST missed some, and one whose `from` is
+ * past NEXT is asking a node that started again -- either reads its state
+ * again, as a dropped subscriber does. The events at or past `from`,
+ * oldest first, as many as keep the page's `%XX`-escaped size within
+ * `escaped_cap` (`local/escape.h`: a space costs three). Its length, or 0
+ * when not even NEXT FIRST fits. */
+size_t fzn_node_events_since(const fzn_node_events_t *ev, uint64_t from, char *out, size_t cap,
+                             size_t escaped_cap);
 
 /* SUBSCRIBER `fd` WAS READY TO READ: it hung up or spoke, and is dropped.
  * 0 when `fd` is not one of them. */

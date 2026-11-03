@@ -16,6 +16,71 @@ void fzn_node_events_init(fzn_node_events_t *ev)
 	if (!ev)
 		return;
 	memset(ev, 0, sizeof(*ev));
+	ev->next = 1u;
+}
+
+/* What `s` costs escaped: a byte outside A-Z a-z 0-9 - . _ ~ three. */
+static size_t escaped_cost(const char *s, size_t n)
+{
+	size_t i, c = 0;
+
+	for (i = 0; i < n; i++) {
+		char b = s[i];
+
+		c += ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+		      || b == '-' || b == '.' || b == '_' || b == '~')
+		             ? 1u
+		             : 3u;
+	}
+	return c;
+}
+
+size_t fzn_node_events_since(const fzn_node_events_t *ev, uint64_t from, char *out, size_t cap,
+                             size_t escaped_cap)
+{
+	uint64_t first, seq, next;
+	size_t len, cost;
+	char head[48];
+	int n;
+
+	if (!ev || !out || !ev->next)
+		return 0;
+	first = ev->next > FZN_NODE_EVENTS_KEPT ? ev->next - FZN_NODE_EVENTS_KEPT : 1u;
+	seq = from < first ? first : from;
+	/* NEXT AS FAR AS THE PAGE GOES, found before the head is written:
+	 * the head names it. */
+	cost = 0;
+	next = seq;
+	for (; next < ev->next; next++) {
+		const fzn_node_event_kept_t *k = &ev->kept[(next - 1u) % FZN_NODE_EVENTS_KEPT];
+		size_t sl = strlen(k->subject), nl = strlen(k->name);
+
+		/* " SUBJECT NAME": two spaces escaped, and the two words; and
+		 * room kept for the head, two numbers of 20 digits and a space
+		 * escaped, 43 at most. */
+		if (cost + 6u + escaped_cost(k->subject, sl) + escaped_cost(k->name, nl) + 43u
+		    > escaped_cap)
+			break;
+		cost += 6u + escaped_cost(k->subject, sl) + escaped_cost(k->name, nl);
+	}
+	if (from > ev->next)
+		next = ev->next;
+	n = snprintf(head, sizeof(head), "%llu %llu", (unsigned long long)next,
+	             (unsigned long long)first);
+	if (n <= 0 || (size_t)n >= sizeof(head) || (size_t)n >= cap
+	    || escaped_cost(head, (size_t)n) + cost > escaped_cap)
+		return 0;
+	memcpy(out, head, (size_t)n);
+	len = (size_t)n;
+	for (; seq < next; seq++) {
+		const fzn_node_event_kept_t *k = &ev->kept[(seq - 1u) % FZN_NODE_EVENTS_KEPT];
+
+		n = snprintf(out + len, cap - len, " %s %s", k->subject, k->name);
+		if (n <= 0 || (size_t)n >= cap - len)
+			return 0;
+		len += (size_t)n;
+	}
+	return len;
 }
 
 int fzn_node_events_room(const fzn_node_events_t *ev)
@@ -67,6 +132,16 @@ size_t fzn_node_events_publish(fzn_node_events_t *ev, const char *subject, const
 	len = snprintf(line, sizeof(line), "event %s %s\n", subject, name);
 	if (len <= 0 || (size_t)len >= sizeof(line))
 		return 0;
+	/* KEPT, numbered, subscribers or none (sec 866). */
+	if (!ev->next)
+		ev->next = 1u;
+	{
+		fzn_node_event_kept_t *k = &ev->kept[(ev->next - 1u) % FZN_NODE_EVENTS_KEPT];
+
+		k->seq = ev->next++;
+		(void)snprintf(k->subject, sizeof(k->subject), "%s", subject);
+		(void)snprintf(k->name, sizeof(k->name), "%s", name);
+	}
 	/* A WHOLE LINE OR THE SUBSCRIBER GOES: a part of one would leave the
 	 * next line joined to it, and waiting for room would block the node. */
 	for (i = 0; i < ev->n;) {

@@ -190,6 +190,13 @@ def c_marks(daemon_path, scratch, sock_dir):
 			time.sleep(1.0)
 		print("livecheck: c: a record of the extension's kind written at A was carried to B "
 		      "and applied by B's extension")
+		# c3: A'S EVENTS FROM B, sec 866: B asks what A published since 0,
+		# and is told A's `add mark` among them, with a cursor to ask on.
+		got = ask(socks["b"], "call events at %s 0" % a_host)
+		words = got.split()
+		if len(words) < 2 or words[0] != "ok" or "%20mark%20" not in words[1]:
+			raise failed("c3: B's call events at A answered %r" % got[:200])
+		print("livecheck: c3: B read A's events since its cursor, A's mark among them")
 
 		# d: ITS SETTING DECLARED, sec 686: listed after fuzznet's, and a
 		# value its declaration refuses refused.
@@ -296,6 +303,11 @@ def main(argv):
 				got = ask(sock, line)
 				if not got.startswith("error ") or "FZN_DAEMON_CALL_ESCAPED_MAX" not in got:
 					raise failed("b: %s answered %r" % (line, got[:120]))
+			# FUZZNET'S OWN PROCEDURE, sec 866: `events` from 0 -- NEXT, FIRST,
+			# and what this node published since it started.
+			got = ask(sock, "call events 0")
+			if not got.startswith("ok ") or not got[3:].split("%20")[0].isdigit():
+				raise failed("b: call events 0 answered %r" % got[:200])
 			got = ask(sock, "call echo hello world")
 			if got != "ok local%20hello%20world":
 				raise failed("b: call echo answered %r" % got)
