@@ -29,9 +29,12 @@
  *
  *     add record KEY VALUE          this host observes: VALUE the rest of the
  *                                   line, %XX undone
- *     list record [HOST] [FROM]     ok FROM SHOWN MORE, then each record held
+ *     list record [HOST] [under PREFIX] [FROM]
+ *                                   ok FROM SHOWN MORE, then each record held
  *                                   as HOST,KEY,AT,VALUE -- one host's, or
- *                                   every host's; HOST `self` for this one
+ *                                   every host's; HOST `self` for this one;
+ *                                   only keys opening with PREFIX, where
+ *                                   one is named (sec 861)
  *     get record KEY [HOST]         ok HOST,KEY,AT,VALUE: the newest record
  *                                   of KEY held, of any host or of HOST's
  *                                   (sec 816); `absent` when none is

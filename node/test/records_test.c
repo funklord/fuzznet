@@ -459,6 +459,43 @@ static void test_the_trim(void)
 	}
 }
 
+/* UNDER A KEY'S PREFIX, sec 861: one interface's stations, not every
+ * record held; FROM counts what the prefix selects. */
+static void test_a_listing_under_a_prefix(void)
+{
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms };
+
+	memset(&node, 0, sizeof(node));
+	memset(&me, 0, sizeof(me));
+	memset(me.pubkey, 0x44, sizeof(me.pubkey));
+	me.sign = &SIGN;
+	clock_ms = 1793500000000ull;
+	signing_as = 0x44;
+	(void)said(&nr, FZN_ORIGIN_SAME_USER, "add record seen/wlan0/aa 1");
+	clock_ms += 1000u;
+	(void)said(&nr, FZN_ORIGIN_SAME_USER, "add record seen/wlan0/bb 1");
+	clock_ms += 1000u;
+	(void)said(&nr, FZN_ORIGIN_SAME_USER, "add record seen/wlan1/cc 1");
+	(void)said(&nr, FZN_ORIGIN_SAME_USER, "add record lease/eth0/dd 1");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "list record self under seen/wlan0/")
+	              && replied("ok 0 2 0 ") && strstr(reply, ",seen/wlan0/aa,")
+	              && strstr(reply, ",seen/wlan0/bb,") && !strstr(reply, "wlan1")
+	              && !strstr(reply, "lease"),
+	      "one interface's records were not listed alone");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "list record under seen/") && replied("ok 0 3 0 ")
+	              && !strstr(reply, "lease"),
+	      "every host's records under a prefix were not listed alone");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "list record under seen/ 2") && replied("ok 2 1 0 ")
+	              && strstr(reply, ",seen/wlan1/cc,"),
+	      "FROM did not count what the prefix selects");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "list record under nothing/") && replied("ok 0 0 0"),
+	      "a prefix nothing has listed something");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "list record under") && replied("malformed")
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "list record under SEEN/")
+	              && replied("malformed"),
+	      "a missing or out-of-shape prefix was taken");
+}
+
 /* A CLEAR `by` signs about itself at `at` ms: a list member out. */
 static size_t a_clear(uint8_t *out, uint8_t by, uint64_t at, const char *key)
 {
@@ -661,6 +698,7 @@ int main(void)
 	test_the_rules();
 	test_the_lists();
 	test_a_keep_by_list();
+	test_a_listing_under_a_prefix();
 	if (failures) {
 		fprintf(stderr, "node records_test: %d of %d checks failed\n", failures, checks);
 		return 1;

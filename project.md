@@ -79414,3 +79414,31 @@ made:** signalled to claude-guidelines in its inbox, message
 20261103T2050Z. Every private tree builds with `-Os` for size. Whether
 the others should also pass `--gc-sections` is a cross-project question,
 for that tree's pass.
+
+## 861. Records listed under a key's prefix, 2026-11-03
+
+The holder's list for netcfgd includes "a distributed database
+subsystem". Records (sec 814) are that database's rows, but `list record`
+could only page every record of one host or of all. A reader of one
+interface's stations paged through every lease and station of every
+host to find them.
+
+    list record [HOST] [under PREFIX] [FROM]
+
+- **`under PREFIX`** lists only the records whose key opens with PREFIX,
+  which is a key in the setting grammar: `seen/wlan0/` for one
+  interface, `seen/` for every station, `lease/` for the leases.
+- **FROM counts what the prefix selects,** so paging stays within it.
+- **A prefix, not a pattern.** netcfgd's keys put the coarse part first,
+  as every key here does, so a prefix is the query that keys of this
+  shape answer. A substring stays the retention rules' `text=` (sec 815),
+  where it selects for deletion and is not paged.
+
+**Measured, `records_test`, 66 checks:**
+- one interface's two records, alone;
+- every host's three stations, without the lease;
+- FROM counting within the prefix;
+- a prefix nothing has, empty;
+- a missing or upper-case prefix refused.
+
+Sabotage: `records-listed-under-a-prefix`.

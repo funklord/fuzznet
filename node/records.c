@@ -477,15 +477,15 @@ static size_t add_record(const fzn_node_records_t *nr, const uint8_t *at, size_t
 static size_t list_records(const fzn_node_records_t *nr, const uint8_t *at, size_t left,
                            char *reply, size_t cap)
 {
-	static const char USAGE[] = "list record [HOST] [FROM]";
+	static const char USAGE[] = "list record [HOST] [under PREFIX] [FROM]";
 	static char items[FZN_REPLY_MAX], detail[FZN_REPLY_MAX];
 	static uint8_t ids[FZN_BUCKETS_CHUNK][FZN_BUCKETS_ID_LEN];
 	static uint8_t item[FZN_BUCKETS_ITEM_MAX];
 	fzn_bucket_t *list = NULL;
 	size_t room = 0, n_buckets = 0, from = 0, seen = 0, shown = 0, used = 0, limit, i, j, k;
 	uint8_t host[FZN_PUBKEY_LEN];
-	const uint8_t *w;
-	size_t w_len;
+	const uint8_t *w, *prefix = NULL;
+	size_t w_len, prefix_len = 0;
 	int one = 0, more = 0;
 
 	if (word(&at, &left, &w, &w_len)) {
@@ -497,6 +497,19 @@ static size_t list_records(const fzn_node_records_t *nr, const uint8_t *at, size
 		} else {
 			left += w_len;
 			at -= w_len;
+		}
+		/* UNDER A KEY'S PREFIX, sec 861: the records whose key opens with
+		 * it -- `seen/wlan0/` for one interface's stations -- so a reader
+		 * pages its own and not every record held. */
+		if (word(&at, &left, &w, &w_len)) {
+			if (is_word(w, w_len, "under")) {
+				if (!word(&at, &left, &prefix, &prefix_len)
+				    || !fzn_setting_key_ok(prefix, prefix_len))
+					return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+			} else {
+				left += w_len;
+				at -= w_len;
+			}
 		}
 		if (word(&at, &left, &w, &w_len)) {
 			for (i = 0; i < w_len; i++) {
@@ -540,7 +553,9 @@ static size_t list_records(const fzn_node_records_t *nr, const uint8_t *at, size
 				if (fzn_buckets_item(nr->b, FZN_BUCKETS_RECORDS, ids[j], item, sizeof(item),
 				                     &len, NULL, NULL)
 				            != FZN_BUCKETS_OK
-				    || !fzn_node_records_place(nr, item, len, subject, &month, &s))
+				    || !fzn_node_records_place(nr, item, len, subject, &month, &s)
+				    || (prefix && (s.key_len < prefix_len
+				                   || memcmp(s.key, prefix, prefix_len) != 0)))
 					continue;
 				if (seen++ < from)
 					continue;

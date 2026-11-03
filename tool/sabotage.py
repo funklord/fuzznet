@@ -3740,6 +3740,13 @@ SABOTAGES = [
 		"a spec turns a text box past a full circle -- sec 859",
 	),
 	(
+		"records-listed-under-a-prefix",
+		"node/records.c",
+		"\t\t\t\t    || (prefix && (s.key_len < prefix_len\n\t\t\t\t                   || memcmp(s.key, prefix, prefix_len) != 0)))",
+		"\t\t\t\t    )",
+		"a listing under a prefix pages every record held -- sec 861",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",
