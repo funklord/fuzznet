@@ -78484,3 +78484,42 @@ path. It follows, ticks, and stops with 0, leaving the face's socket
 there and serving. With the old refusal it exits at listen.
 `node/test/ext_daemon` now counts a socket as left only if nobody
 answers at it, since a live one is the face's.
+
+## 842. What the loop costs in memory: mostly huge pages, 2026-11-03
+
+netcfgd's ask 8 (sec 840): 16,760 kB resident serving inside the loop,
+against its own budget of 4,608 kB.
+
+**Measured here, on an empty store, three seconds after start:**
+- 18,720 kB resident, of which `AnonHugePages` is 14,336 kB. This
+  machine's transparent huge pages are "always", and the node's static
+  storage is about 32 MB of bss, mostly tables a round may never fill.
+  One write faults in the 2 MB around it.
+- With huge pages refused for the process from before it ran
+  (`PR_SET_THP_DISABLE`, inherited over exec): 4,772 kB resident.
+- Mapping each resident page to its symbol through `/proc/PID/pagemap`
+  puts only 652 kB of that in the large statics. The log ring, `dlog`,
+  is the biggest at 264 kB.
+
+So the 16.7 MB netcfgd read was huge pages over cold storage, not the
+loop's working set.
+
+**Built:** `fzn_daemon_main` refuses huge pages for its process before
+the tables are touched (`prctl(PR_SET_THP_DISABLE)`, Linux only, and a
+kernel without it keeps its default). Measured after: 6,988 kB resident,
+2,048 kB of it one huge page. That page is in the binary's bss mapping
+and was faulted before `main`, which only a refusal made before exec
+avoids (4,772 kB).
+- `tool/live_ext.py` b2, where huge pages are "always": the daemon
+  holds at most one. Without the call it holds 14,336 kB.
+
+**Still netcfgd's half of the question:**
+- the binary grows by about 1 MB;
+- the consumer services (notes, files, stickers, shelf, groups) cannot
+  be left out of `daemon.c`;
+- about 4.8 MB resident is its floor here.
+
+Making those services build options, as `FZN_SPOOL_FILE_ON` and
+`FZN_LOG_FILE_ON` already are, is a large change to a 17,000-line file,
+not yet started. netcfgd keeps the loop behind its own build option
+meanwhile.

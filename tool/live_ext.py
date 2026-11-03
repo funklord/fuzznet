@@ -14,7 +14,9 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
        the reply vocabulary is answered `error`; a verb neither answers is
        `unsupported`
     b2 its own FIFO, named by `--poke`, read when the node's loop says it is
-       readable, and its tick called by the loop (sec 831)
+       readable, and its tick called by the loop (sec 831); and, where the
+       kernel's transparent huge pages are "always", the daemon holds at
+       most one huge page, having asked for none (sec 842)
     b3 a local request asked in-process from its tick is answered by
        fuzznet's handlers, and refused from inside another; asked by its
        FIFO to stop, the node returns 0 with its socket and `face` file
@@ -263,8 +265,25 @@ def main(argv):
 			later = int(ask(sock, "get ticks").split()[1])
 			if first < 1 or later <= first:
 				raise failed("b2: the extension was ticked %d, then %d times" % (first, later))
+			# NO HUGE PAGES ASKED FOR, sec 842: measured, 14,336 kB of them
+			# on an empty store before, one page of 2,048 kB faulted before
+			# the call after. Only where the kernel would give them.
+			try:
+				with open("/sys/kernel/mm/transparent_hugepage/enabled") as f:
+					always = "[always]" in f.read()
+			except OSError:
+				always = False
+			if always:
+				huge = 0
+				with open("/proc/%d/smaps_rollup" % proc.pid) as f:
+					for line in f:
+						if line.startswith("AnonHugePages:"):
+							huge = int(line.split()[1])
+				if huge > 2048:
+					raise failed("b2: the daemon holds %d kB of huge pages" % huge)
 			print("livecheck: b2: the extension's own descriptor was read when ready, and the "
-			      "node's loop ticked it")
+			      "node's loop ticked it%s" % (", with no more than one huge page" if always
+			                                   else ""))
 
 			# b3: IN-PROCESS, AND A CLEAN STOP, sec 835.
 			got = ask(sock, "get nested")

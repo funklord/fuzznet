@@ -147,6 +147,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -15569,6 +15572,16 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	const char *sock_path = NULL;
 
 	raise_descriptors();
+	/* NO HUGE PAGES FOR THIS PROCESS, sec 842: most of the node's static
+	 * storage is tables a round may never fill, and with transparent huge
+	 * pages set to "always" one write faults in two megabytes around it.
+	 * Measured on an empty store: 18,720 kB resident, 14,336 kB of it huge
+	 * pages, against 4,772 kB without -- what netcfgd, budgeted at 4,608 kB
+	 * on a router, read as the loop's cost. Asked before the tables are
+	 * touched; a kernel without the call keeps its default. */
+#if defined(__linux__) && defined(PR_SET_THP_DISABLE)
+	(void)prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+#endif
 
 	daemon_argv = argv;
 	daemon_ext = ext;
