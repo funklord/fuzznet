@@ -861,6 +861,14 @@ int main(void)
 	              && verb(&F, FZN_VERB_PUT, FZN_ORIGIN_LOCAL, "file x", reply, sizeof(reply))
 	              && strncmp(reply, "denied", 6) == 0,
 	      "a put by another user was taken");
+	/* A PATH THAT NAMES NO FILE, sec 865: said so, not `not all here`;
+	 * and a directory is not a file. */
+	CHECK(said(&F, FZN_VERB_PUT, "file /nonexistent/definitely-not-here.txt", reply,
+	           sizeof(reply))
+	              && strcmp(reply, "error cannot open that path: no such file") == 0
+	              && said(&F, FZN_VERB_PUT, "file /tmp", reply, sizeof(reply))
+	              && strcmp(reply, "error cannot open that path: not a regular file") == 0,
+	      "a put of a path naming no file was not answered about the path");
 	(void)snprintf(line, sizeof(line), "file %s", src_path);
 	CHECK(said(&F, FZN_VERB_PUT, line, reply, sizeof(reply))
 	              && strncmp(reply, "ok ", 3) == 0 && strlen(reply) == 3u + 144u + 8u

@@ -2108,6 +2108,19 @@ size_t fzn_node_files_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "put file PATH [public]");
 		if (public_ && !files->store)
 			return answer(reply, reply_cap, FZN_REPLY_UNSUPPORTED, "no store for tiers");
+		/* THE PATH NAMED, asked first, sec 865: a path that names no
+		 * readable file was answered `not all here`, which sends a person
+		 * looking for a partial download rather than at their own disk. */
+		{
+			struct stat sb;
+
+			if (stat(path, &sb) != 0)
+				return answer(reply, reply_cap, FZN_REPLY_ERROR,
+				              "cannot open that path: no such file");
+			if (!S_ISREG(sb.st_mode))
+				return answer(reply, reply_cap, FZN_REPLY_ERROR,
+				              "cannot open that path: not a regular file");
+		}
 		err = fzn_node_files_put(files, path, &ref);
 		if (err == FZN_NODE_FILES_OK && public_)
 			err = fzn_node_files_share(files, ref.root, FZN_NODE_FILES_EVERY_CONTACT, 1,

@@ -20,7 +20,9 @@ const char *fzn_contact_err_str(fzn_contact_err_t err)
 	case FZN_CONTACT_ERR_NAME:
 		return "not a contact name: 1 to 32 of A-Z, a-z, 0-9 and _";
 	case FZN_CONTACT_ERR_TAKEN:
-		return "another contact has that name";
+		/* THE TABLE HOLDS GROUPS AS WELL, sec 865: a group's name clashing
+		 * was answered as a contact's, which sent a person to the wrong list. */
+		return "a contact or a group already has that name";
 	case FZN_CONTACT_ERR_ABSENT:
 		return "no such contact";
 	case FZN_CONTACT_ERR_FULL:

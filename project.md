@@ -79551,3 +79551,21 @@ reads five.
 **Measured, `live_stickers` b and f:** each row is checked whole. The
 cats' third sticker's spec now carries a fill, an ink and a turn of 5,
 and its row reads `...,20,8,8,112,40,FFFFFFC0,000000FF,5,128,128`.
+
+## 865. Two answers that named the wrong thing, 2026-11-03
+
+fuzzypickles, inbox 2026-11-03 21:08, both measured at 65c39a1 with
+their `node_probe`:
+- **`put file` on a path that names no file** answered `error not all
+  here`, the files' sentence for a partial download. The verb now looks
+  at the path first. It answers `error cannot open that path: no such
+  file`, or `... not a regular file` for a directory or a device.
+- **`add group crew` while a group named crew stands** answered `error
+  another contact has that name`. Groups share the contact table, so the
+  clash can be with either. The sentence is now `a contact or a group
+  already has that name` for every caller, since a contact's name can
+  clash with a group's too.
+
+Measured: `files_test`, 96 checks, two new: a missing path and `/tmp`,
+each answered about the path. `admin_test`'s check on "has that name"
+still holds.
