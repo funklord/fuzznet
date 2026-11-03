@@ -14,6 +14,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../files.h"
+#include "../stickers.h"
 #include "../../contact/contact.h"
 #include "group_fixture.h"
 
@@ -639,6 +640,70 @@ static void test_a_short_file_halves_what_was_asked(const fzn_node_files_t *A,
 	CHECK(entries(dir_s) == 0u && rmdir(dir_s) == 0, "the short fetch's store did not empty");
 }
 
+/* THE SETTINGS THE STICKER VERBS WOULD READ, never reached here: every
+ * caller below is refused first. Stubs, so this test need not link the
+ * settings and the journal behind them. */
+int fzn_node_settings_get(const fzn_node_settings_t *ns, fzn_scope_t scope,
+                          const uint8_t about[FZN_SUBJECT_LEN], const uint8_t *key,
+                          size_t key_len, uint8_t *value, size_t *value_len,
+                          fzn_setting_rank_t *rank)
+{
+	(void)ns, (void)scope, (void)about, (void)key, (void)key_len, (void)value;
+	(void)value_len, (void)rank;
+	return 0;
+}
+
+fzn_node_settings_err_t fzn_node_settings_each(const fzn_node_settings_t *ns,
+                                               fzn_node_settings_each_fn each, void *ctx)
+{
+	(void)ns, (void)each, (void)ctx;
+	return FZN_NODE_SETTINGS_REFUSED;
+}
+
+fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
+                                                fzn_scope_t scope,
+                                                const uint8_t about[FZN_SUBJECT_LEN],
+                                                const uint8_t *key, size_t key_len, int set,
+                                                const uint8_t *value, size_t value_len)
+{
+	(void)ns, (void)scope, (void)about, (void)key, (void)key_len, (void)set, (void)value;
+	(void)value_len;
+	return FZN_NODE_SETTINGS_REFUSED;
+}
+
+/* THE STICKER VERBS, ANOTHER USER'S, sec 689's authorization bar (sec
+ * 845): every one refused, reads included, before anything is read. */
+static void test_the_sticker_verbs_are_this_users(fzn_node_files_t *files)
+{
+	static const struct {
+		fzn_verb_t verb;
+		const char *arg;
+	} OTHERS[] = {
+		{ FZN_VERB_LIST, "sticker" },
+		{ FZN_VERB_LIST, "sticker 0" },
+		{ FZN_VERB_GET, "sticker 00 1" },
+		{ FZN_VERB_PUT, "sticker /tmp/x.spec" },
+		{ FZN_VERB_ADD, "sticker 00" },
+		{ FZN_VERB_REMOVE, "sticker 00" },
+	};
+	fzn_node_stickers_t st;
+	fzn_request_t r;
+	char reply[256];
+	size_t i, n;
+
+	memset(&st, 0, sizeof(st));
+	st.files = files;
+	for (i = 0; i < sizeof(OTHERS) / sizeof(OTHERS[0]); i++) {
+		memset(&r, 0, sizeof(r));
+		r.parsed = OTHERS[i].verb;
+		r.arg = (const uint8_t *)OTHERS[i].arg;
+		r.arg_len = strlen(OTHERS[i].arg);
+		n = fzn_node_stickers_local(&st, FZN_ORIGIN_LOCAL, &r, reply, sizeof(reply));
+		CHECK(n > 7u && memcmp(reply, "denied ", 7u) == 0,
+		      "another user was not refused a sticker verb");
+	}
+}
+
 int main(void)
 {
 	static const size_t SIZES[] = { 1u, 1024u, 1025u, (70u * 1024u) + 17u, 300u * 1024u };
@@ -1198,6 +1263,7 @@ int main(void)
 		      "fixture: A holds a file of 301 leaves for the stepped fetch");
 		test_the_fetch_as_steps(&F, &stepped);
 		test_a_lossy_peer_is_asked_less(&F, &stepped);
+		test_the_sticker_verbs_are_this_users(&F);
 		(void)fzn_node_files_remove(&F, stepped.root);
 	}
 	/* AND OF A SHORT ONE, 30 leaves, as live_groups' phase f sends. */

@@ -78606,3 +78606,18 @@ that follows the kept act's, once.
   and member are the kept act's.
 
 Sabotage `group-replace-rolls-back-first` holds it.
+
+## 845. The sticker verbs tried from another user, 2026-11-03
+
+Sec 689's authorization bar, carried on from groups (sec 839) to the
+stickers: `node/stickers.c` had no unit test at all, and its one gate,
+this node's own user only, was tried by nothing.
+- `node/test/files_test` now calls the sticker verbs as another local
+  user: `list sticker`, `list sticker 0`, `get sticker`, `put sticker`,
+  `add sticker` and `remove sticker`. Each is refused before anything is
+  read.
+- It stubs the three settings calls the verbs would make, so the test
+  need not link the settings and the journal behind them.
+- Sabotage `stickers-own-user-only` holds the gate.
+
+Notes and files already had such tests.

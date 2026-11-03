@@ -3621,6 +3621,13 @@ SABOTAGES = [
 		"a replace cut between the kept act and its group leaves the act stored under the replaced act's group, held for ever when offered again -- sec 844",
 	),
 	(
+		"stickers-own-user-only",
+		"node/stickers.c",
+		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied stickers are this node's own user's\\n\");\n",
+		"",
+		"another user on this machine lists, builds and forgets this user's sticker packs -- sec 845",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

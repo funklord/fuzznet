@@ -2245,6 +2245,8 @@ $(BUILD_DIR)/notes/test/note_fuzz: $(BUILD_DIR)/notes/test/note_fuzz.o \
 # blob/levels. sec 490.
 $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/node/files.o \
+                                   $(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/sticker/pack.o \
+                                   $(BUILD_DIR)/local/escape.o \
                                    $(BUILD_DIR)/blob/levels.o \
                                    $(BUILD_DIR)/spool/spool_file.o \
                                    $(BUILD_DIR)/spool/spool.o \
