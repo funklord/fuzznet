@@ -406,13 +406,18 @@ typedef enum fzn_persist_slot {
 	 * trim of attachments walks. Bulk. `node/attachments.h` keeps it. sec
 	 * 795. */
 	FZN_PERSIST_ATTACHMENT = 67u,
+	/* Per root: a contact request this user refused -- its nonce and
+	 * expiry -- so the same request sent again is not shown again. The
+	 * user's own acts, one a root. `node/contact_request.h` keeps it. sec
+	 * 858. */
+	FZN_PERSIST_CONTACT_REFUSED = 68u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 68u
+#define FZN_PERSIST_SLOT_END 69u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

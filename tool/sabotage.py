@@ -3719,6 +3719,13 @@ SABOTAGES = [
 		"a log or message rule takes a list it can never read -- sec 855",
 	),
 	(
+		"contact-refusal-remembered",
+		"node/contact_request.c",
+		"\treturn memcmp(bytes, r->nonce, FZN_CONTACT_REQUEST_NONCE_LEN) == 0;\n}",
+		"\treturn 0;\n}",
+		"a refused contact request sent again by the asker's round is shown again -- sec 858",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

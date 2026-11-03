@@ -124,6 +124,21 @@ fzn_contact_request_err_t fzn_contact_request_list(const fzn_persist_ops_t *stor
 fzn_contact_request_err_t fzn_contact_request_drop(const fzn_persist_ops_t *store,
                                                    const uint8_t root[FZN_PUBKEY_LEN]);
 
+/* REFUSED, sec 858: the request held from `root` let go, and its nonce and
+ * expiry kept in FZN_PERSIST_CONTACT_REFUSED, so the asker's node -- which
+ * sends a request again each round until it is answered or expires --
+ * does not put the same request before this user again. ABSENT when none
+ * is held. A new request from the same root, another nonce, is a new ask
+ * and is shown. */
+fzn_contact_request_err_t fzn_contact_request_refuse(const fzn_persist_ops_t *store,
+                                                     const uint8_t root[FZN_PUBKEY_LEN]);
+
+/* 1 when `r` is a request this user refused and it has not expired at
+ * `now`; 0 otherwise. A refusal past its request's expiry is let go here,
+ * since nothing can send that request again. */
+int fzn_contact_request_refused(const fzn_persist_ops_t *store, const fzn_contact_request_t *r,
+                                uint64_t now);
+
 /* ---- asked by this user ------------------------------------------------- */
 
 typedef struct fzn_contact_asked {

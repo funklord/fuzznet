@@ -8588,6 +8588,13 @@ static void contact_box(void *ctx, const uint8_t *box, size_t len)
 			contact_pair_due = 1;
 		return;
 	}
+	/* A REQUEST THIS USER REFUSED, sent again by the asker's rounds: not
+	 * shown again. sec 858. */
+	if (fzn_contact_request_refused(node_apply.store, &r, now)) {
+		say(FZN_ENTRY_DEBUG, "contact/request", "a refused request from %.16s, sent again",
+		    hex);
+		return;
+	}
 	{
 		size_t evicted = 0;
 
@@ -8893,8 +8900,10 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 		return (size_t)snprintf(reply, cap, request->parsed == FZN_VERB_GRANT
 		                                            ? "malformed grant request ROOT NAME\n"
 		                                            : "malformed remove request ROOT\n");
+	/* REFUSED, and remembered: the asker's node sends the request again
+	 * each round, and fuzzypickles saw it shown again 67 s later. sec 858. */
 	if (request->parsed == FZN_VERB_REMOVE)
-		return fzn_contact_request_drop(node_apply.store, root) == FZN_CONTACT_REQUEST_OK
+		return fzn_contact_request_refuse(node_apply.store, root) == FZN_CONTACT_REQUEST_OK
 		               ? (size_t)snprintf(reply, cap, "ok\n")
 		               : (size_t)snprintf(reply, cap, "error no request from that root\n");
 	{

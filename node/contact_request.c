@@ -333,6 +333,52 @@ fzn_contact_request_err_t fzn_contact_request_drop(const fzn_persist_ops_t *stor
 	               : FZN_CONTACT_REQUEST_ERR_BACKEND;
 }
 
+/* ---- refused by this user, sec 858 -------------------------------------- */
+
+#define REFUSED_LEN (FZN_CONTACT_REQUEST_NONCE_LEN + 8u)
+
+fzn_contact_request_err_t fzn_contact_request_refuse(const fzn_persist_ops_t *store,
+                                                     const uint8_t root[FZN_PUBKEY_LEN])
+{
+	fzn_contact_request_held_t held;
+	uint8_t bytes[REFUSED_LEN];
+
+	if (!store || !store->save || !store->remove || !root)
+		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
+	if (fzn_contact_request_get(store, root, &held) != FZN_CONTACT_REQUEST_OK)
+		return FZN_CONTACT_REQUEST_ERR_ABSENT;
+	memcpy(bytes, held.request.nonce, FZN_CONTACT_REQUEST_NONCE_LEN);
+	fzn_put_be64(bytes + FZN_CONTACT_REQUEST_NONCE_LEN, held.request.expires_at);
+	/* THE REFUSAL KEPT FIRST: a cut between the two leaves the request
+	 * held and refused, shown until refused again, never lost unrefused. */
+	if (!store->save(store->ctx, FZN_PERSIST_CONTACT_REFUSED, root, bytes, sizeof(bytes)))
+		return FZN_CONTACT_REQUEST_ERR_BACKEND;
+	return store->remove(store->ctx, FZN_PERSIST_CONTACT_REQUEST, root)
+	               ? FZN_CONTACT_REQUEST_OK
+	               : FZN_CONTACT_REQUEST_ERR_BACKEND;
+}
+
+int fzn_contact_request_refused(const fzn_persist_ops_t *store, const fzn_contact_request_t *r,
+                                uint64_t now)
+{
+	uint8_t bytes[REFUSED_LEN];
+	size_t len = 0;
+	uint64_t expires;
+
+	if (!store || !store->load || !r
+	    || !store->load(store->ctx, FZN_PERSIST_CONTACT_REFUSED, r->card.host.owner, bytes,
+	                    sizeof(bytes), &len)
+	    || len != sizeof(bytes))
+		return 0;
+	expires = fzn_get_be64(bytes + FZN_CONTACT_REQUEST_NONCE_LEN);
+	if (now >= expires) {
+		if (store->remove)
+			(void)store->remove(store->ctx, FZN_PERSIST_CONTACT_REFUSED, r->card.host.owner);
+		return 0;
+	}
+	return memcmp(bytes, r->nonce, FZN_CONTACT_REQUEST_NONCE_LEN) == 0;
+}
+
 /* ---- asked by this user ------------------------------------------------- */
 
 #define ASKED_MAX (1u + 2u + FZN_CONTACT_CARD_MAX + FZN_CONTACT_REQUEST_MAX)

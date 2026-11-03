@@ -483,6 +483,38 @@ static void test_the_requests_asked(void)
 	      "a request never sent was answered");
 }
 
+/* A REFUSAL REMEMBERED, sec 858: the asker's node sends its request again
+ * each round, and a refused one was shown again a minute later. The same
+ * request is refused now; a new one from the same root, another nonce, is
+ * a new ask; and the refusal goes with its request's expiry. */
+static void test_a_refusal_is_remembered(void)
+{
+	static fzn_contact_request_t r, again;
+	uint8_t root[32];
+
+	memset(rows, 0, sizeof(rows));
+	memset(root, 0x71, sizeof(root));
+	request_from(&r, 0x71, 9000u);
+	CHECK(fzn_contact_request_keep(&STORE, &r, 100u, NULL) == FZN_CONTACT_REQUEST_OK
+	              && !fzn_contact_request_refused(&STORE, &r, 100u),
+	      "fixture: a request held, and not refused");
+	CHECK(fzn_contact_request_refuse(&STORE, root) == FZN_CONTACT_REQUEST_OK
+	              && fzn_contact_request_get(&STORE, root, &(fzn_contact_request_held_t){ 0 })
+	                         == FZN_CONTACT_REQUEST_ERR_ABSENT,
+	      "a refused request was still held");
+	CHECK(fzn_contact_request_refused(&STORE, &r, 200u),
+	      "the same request sent again was not known as refused");
+	again = r;
+	again.nonce[0] ^= 0xffu;
+	CHECK(!fzn_contact_request_refused(&STORE, &again, 200u),
+	      "a new request from a refused root was taken as the refused one");
+	CHECK(!fzn_contact_request_refused(&STORE, &r, 9000u)
+	              && !fzn_contact_request_refused(&STORE, &r, 200u),
+	      "a refusal outlived its request's expiry");
+	CHECK(fzn_contact_request_refuse(&STORE, root) == FZN_CONTACT_REQUEST_ERR_ABSENT,
+	      "refusing what is not held did not say so");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -502,6 +534,7 @@ int main(void)
 	test_a_request_holds_for_its_host();
 	test_the_queue_of_strangers();
 	test_the_requests_asked();
+	test_a_refusal_is_remembered();
 	test_thousands();
 	if (failures) {
 		fprintf(stderr, "node contact_request_test: %d of %d checks failed\n", failures, checks);

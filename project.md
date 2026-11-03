@@ -79208,3 +79208,44 @@ option. It answers:
 **Control:** with the handler not installed, b6 fails as netcfgd
 reported: `get greeting` is answered `ok served granted: this kind
 requires no capability ...`.
+
+## 858. A refused contact request stays refused, 2026-11-03
+
+fuzzypickles' message of 17:50 (sec 851), at 65c39a1: B refused A's
+request (`remove request KEY`), and 67 s later B listed it again as new.
+The holder's note: which side holds the refusal is fuzznet's call.
+
+**Why:** an asker's node sends every unanswered request again each round
+until it is answered or expires (sec 619), because a box can be lost.
+`remove request` dropped B's copy and nothing more, so the next resend
+was a new arrival.
+
+**B holds it.** `remove request` now keeps the refused request's nonce
+and expiry under the asker's root, in the new store slot
+`FZN_PERSIST_CONTACT_REFUSED` (68). An arriving request with that root and
+nonce is not kept or shown; it is logged at debug level as sent again.
+- **A new request from the same root,** with another nonce, is a new ask
+  and is shown. A user who was refused and asks again deliberately is
+  asking again.
+- **The refusal goes with its request's expiry,** let go lazily when it
+  is next consulted, since nothing can send that request again after.
+- **One record a root, written by this user's own act,** so the slot is
+  bounded by what the user refuses, as asked requests are (sec 704).
+- **Kept before the request is dropped:** a cut between the two leaves
+  the request held, shown until refused again, never lost unrefused.
+
+**Rejected: telling A.** A refusal answered to the asker tells a stranger
+that this user saw the request and declined it. Silence says only that
+no answer came, which is what an asker sees of a user who is away. A's
+node stops at the request's expiry, as it does for an unanswered one.
+
+**Measured:**
+- `contact_request_test`, 69 checks. Refused, the request is gone. The
+  same request is known as refused and another nonce from the same root
+  is not. At or past the expiry the refusal is let go. Refusing what is
+  not held says ABSENT.
+- `live_pairing` phase c: after B refuses C, B's log shows C's next round
+  sending the request again and refused. B lists no request. The phase
+  waits up to a round and 20 s for that line, so it cannot pass without
+  the refusal being consulted.
+- Sabotage `contact-refusal-remembered`.

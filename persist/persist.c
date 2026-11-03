@@ -480,6 +480,7 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_STREAM_HEAD:
 	case FZN_PERSIST_FILE_HOLD:
 	case FZN_PERSIST_ATTACHMENT:
+	case FZN_PERSIST_CONTACT_REFUSED:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */

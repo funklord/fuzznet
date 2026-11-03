@@ -10,7 +10,8 @@ A asks, B is asked, C asks and is turned away.
     b  B approves it (`grant request ROOT alice`); B's round pairs A's host
        and offers B's, which is A's answer; A writes a line to B and it is
        delivered, and B files it under A's root
-    c  C asks too; B rejects it (`remove request ROOT`) and lists none
+    c  C asks too; B rejects it (`remove request ROOT`) and lists none --
+       and still none after C's next round sends it again (sec 858)
     d  A asks where it is seen (`fetch address`); B, its one peer, says
        127.0.0.1 (sec 621)
     e  A's `list link` shows its link to B measured -- a latency, requests
@@ -82,9 +83,11 @@ def a_round_more(base):
 	return within(base) + (ROUND_S + 5.0 if LOSS else 0.0)
 
 
-live_trim.DEADLINE = time.monotonic() + 360.0 + 40.0 * LOSS
+# AND A ROUND MORE for phase c's resend, sec 858.
+live_trim.DEADLINE = time.monotonic() + 440.0 + 40.0 * LOSS
 
 KEPT_RE = re.compile(r"a contact request from ([0-9a-f]{16}), waiting")
+REFUSED_AGAIN_RE = re.compile(r"a refused request from ([0-9a-f]{16}), sent again")
 # DELIVERED, OR SETTLED (sec 767): an offer whose answer was lost is made
 # again, and B, holding the line already, answers SETTLED -- held by every
 # device of B's -- which is more than delivered, not less.
@@ -229,7 +232,14 @@ def main(argv):
 			expect(socks["b"], "b", "remove request " + keys["c"], "ok")
 			if requests(socks["b"], "b"):
 				raise failed("c: a rejected request was still listed")
-			print("livecheck: c: C asked too, and B turned it away")
+			# SENT AGAIN BY C'S NEXT ROUND, and not shown again: fuzzypickles saw
+			# a refusal last 67 s (sec 858).
+			started["b"].wait_for(REFUSED_AGAIN_RE, "C's refused request sent again",
+			                      a_round_more(ROUND_S + 20.0))
+			if requests(socks["b"], "b"):
+				raise failed("c: a refused request sent again was listed again")
+			print("livecheck: c: C asked too, B turned it away, and C's request sent again "
+			      "was not shown again")
 
 			# d: where A is seen, asked of the contact it now has (sec 621).
 			# HOW MANY IT WILL ASK, sec 653: B at least.
