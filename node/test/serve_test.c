@@ -338,6 +338,39 @@ static void test_run_once_own_fds(void)
 	own_pipe[0] = own_pipe[1] = -1;
 }
 
+/* AND IN A WAIT IN TURN, sec 835: a request waiting up to 3 s on its own
+ * socket tells the daemon of its own readable descriptor as a pass would,
+ * and goes on waiting -- netcfgd's confirm window must not wait out a
+ * round. */
+static void test_wait_answering_own_fds(void)
+{
+	fzn_node_state_t state;
+	fzn_udp_addr_t to_asker;
+	int wfd = -1;
+
+	if (!bound(&wfd, &to_asker)) {
+		ok(0, "the datagram socket would not bind");
+		return;
+	}
+	memset(&state, 0, sizeof(state));
+	state.listen_fd = -1;
+	state.udp_fd = -1;
+	own_told = -1;
+	own_asked = 0;
+	ok(pipe(own_pipe) == 0, "fixture: a pipe");
+	state.own_fds = own_fds;
+	state.own_ready = own_ready;
+	ok(write(own_pipe[1], "x", 1) == 1, "fixture: a byte written");
+	ok(fzn_node_wait_answering(&state, wfd, 300u, 0) == 0,
+	   "a wait ended on the daemon's own descriptor rather than its own socket");
+	ok(own_told == own_pipe[0] && own_asked >= 1,
+	   "a readable descriptor of the daemon's own was not told during a wait in turn");
+	close(own_pipe[0]);
+	close(own_pipe[1]);
+	own_pipe[0] = own_pipe[1] = -1;
+	fzn_udp_close(wfd);
+}
+
 int main(void)
 {
 	test_find_peer();
@@ -345,6 +378,7 @@ int main(void)
 	test_run_once_probe();
 	test_wait_answering();
 	test_run_once_own_fds();
+	test_wait_answering_own_fds();
 	printf("serve_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

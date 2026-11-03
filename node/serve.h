@@ -213,7 +213,8 @@ typedef struct fzn_node_state {
 	/* A DAEMON'S OWN DESCRIPTORS, sec 831: up to FZN_NODE_OWN_FDS_MAX named
 	 * by `own_fds` each pass, polled beside the node's, and `own_ready`
 	 * told of each one readable or hung up. NULL polls none. A wait in turn
-	 * (`fzn_node_wait_answering`) does not poll them. */
+	 * (`fzn_node_wait_answering`) polls them too, since sec 835, so
+	 * `own_ready` may be called in the middle of a step. */
 	size_t (*own_fds)(void *ctx, int *fds, size_t cap);
 	void (*own_ready)(void *ctx, int fd);
 	void *own_ctx;
@@ -246,7 +247,10 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms);
  * change what the waiting step holds, so a step that holds nothing a verb
  * touches passes `local`. Without it, at 5 per cent loss in turn waits
  * followed one another and every run of the estate's journey met a local
- * client unanswered past 5 s. */
+ * client unanswered past 5 s.
+ *
+ * AND THE DAEMON'S OWN DESCRIPTORS, sec 835, `own_ready` told of each
+ * readable one as a pass tells it. */
 int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms, int local);
 
 /* Run the node until the process is signalled -- the daemon body. It calls

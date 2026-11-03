@@ -3544,6 +3544,13 @@ SABOTAGES = [
 		"the node holding a revocation and deciding without it honours every grant it has revoked, which is how the remote path stood until sec 380 -- sec 380",
 	),
 	(
+		"wait-in-turn-polls-own-fds",
+		"node/serve.c",
+		"\t\tfor (s = 0; s < n_own; s++)\n\t\t\tif (fds[first_own + s].revents & (POLLIN | POLLHUP | POLLERR))\n\t\t\t\tstate->own_ready(state->own_ctx, own[s]);\n\t\tif (ui >= 0",
+		"\t\tif (ui >= 0",
+		"a daemon's own descriptor left untold through a wait in turn waits out the round's step, up to 3 s, and netcfgd's confirm window reads as a hung daemon -- sec 835",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

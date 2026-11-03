@@ -15,11 +15,17 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
        `unsupported`
     b2 its own FIFO, named by `--poke`, read when the node's loop says it is
        readable, and its tick called by the loop (sec 831)
+    b3 a local request asked in-process from its tick is answered by
+       fuzznet's handlers, and refused from inside another; asked by its
+       FIFO to stop, the node returns 0 with its socket and `face` file
+       removed (sec 835)
     c  two of them, A the root of an estate and B joined to it by verbs:
        `add mark hello` at A writes a journal record of the extension's
        kind into A's stream, and B's extension applies it -- `get marks`
        at B comes to say `ok 1 hello` -- so a kind fuzznet itself does not
-       process is carried and handed over (sec 675)
+       process is carried and handed over (sec 675). B was started with
+       `--own-word=kept`, the extension's own option that fuzznet never
+       sees, and still says it after the join's restart (sec 835)
     d  at A, the extension's declared setting is listed by `list schema`
        and `get schema`, and `set setting` refuses a value past its
        declaration and takes one inside it (sec 686); in phase a, an
@@ -100,7 +106,8 @@ def c_marks(daemon_path, scratch, sock_dir):
 		command(run, ["--fuzznet-dir=" + dirs["a"], "--new-root"], None)
 		for who in ("a", "b"):
 			started[who] = daemon(run, "c" + who, dirs[who], socks[who],
-			                      extra=["--udp-port=" + port[who]])
+			                      extra=["--udp-port=" + port[who]]
+			                      + (["--own-word=kept"] if who == "b" else []))
 		started["a"].wait_for(ROUND_DONE_RE, "A's first round", within=60.0)
 		got = ask(socks["b"], "get prekey").split()
 		if len(got) != 2 or got[0] != "ok":
@@ -124,6 +131,9 @@ def c_marks(daemon_path, scratch, sock_dir):
 			if time.monotonic() > until:
 				raise failed("c: B's socket did not come back after the join")
 			time.sleep(0.3)
+		got = ask(socks["b"], "get own")
+		if got != "ok kept":
+			raise failed("c: B's own option was lost over the join's restart: %r" % got)
 		if ask(socks["b"], "get marks") != "ok 0":
 			raise failed("c: B held a mark before A wrote one")
 		got = ask(socks["a"], "add mark hello")
@@ -247,8 +257,43 @@ def main(argv):
 				raise failed("b2: the extension was ticked %d, then %d times" % (first, later))
 			print("livecheck: b2: the extension's own descriptor was read when ready, and the "
 			      "node's loop ticked it")
-			os.killpg(proc.pid, signal.SIGTERM)
-			proc.wait(timeout=10)
+
+			# b3: IN-PROCESS, AND A CLEAN STOP, sec 835.
+			got = ask(sock, "get nested")
+			if got != "ok 0":
+				raise failed("b3: a request in-process from inside one was answered: %r" % got)
+
+			def poke(data):
+				wfd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+				try:
+					os.write(wfd, data)
+				finally:
+					os.close(wfd)
+
+			poke(b"L")
+			until = time.monotonic() + 10.0
+			while True:
+				got = ask(sock, "get inproc")
+				if got != "ok none":
+					break
+				if time.monotonic() > until:
+					raise failed("b3: the tick never asked its request in-process")
+				time.sleep(0.2)
+			if not got.startswith("ok ") or got == "ok refused" or "extension" in got:
+				raise failed("b3: status asked in-process was answered %r" % got)
+			face = os.path.join(store, "face")
+			if not os.path.exists(face):
+				raise failed("b3: the face file was never written")
+			poke(b"S")
+			try:
+				code = proc.wait(timeout=10)
+			except subprocess.TimeoutExpired:
+				raise failed("b3: asked to stop, the node went on serving")
+			if code != 0 or os.path.exists(sock) or os.path.exists(face):
+				raise failed("b3: stopped with %d, socket left %s, face left %s"
+				             % (code, os.path.exists(sock), os.path.exists(face)))
+			print("livecheck: b3: a request asked in-process was fuzznet's, refused inside "
+			      "another, and a stop asked removed the socket and the face file")
 			c_marks(daemon_path=daemon, scratch=scratch, sock_dir=sock_dir)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)

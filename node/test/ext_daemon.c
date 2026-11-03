@@ -5,7 +5,14 @@
  *   --greeting=WORD   what `get greeting` answers; `--greeting=no` is
  *                     refused, ending the start
  *   --quiet           taken, and nothing else
- *   --poke=PATH       a FIFO to watch among its own descriptors (sec 831)
+ *   --poke=PATH       a FIFO to watch among its own descriptors (sec 831);
+ *                     of what is written there, `T<ms>\n` is a time on the
+ *                     monotonic clock to measure the read's lateness
+ *                     against, `L` asks the next tick for an in-process
+ *                     `status`, and `S` stops the node (sec 835)
+ *   --own-word=WORD   this program's own option, parsed here and NOT
+ *                     handed to fuzznet, as netcfgd's are: kept over a
+ *                     restart only through `restart_argv` (sec 835)
  *
  *   get greeting      `ok WORD`, or `ok hello` with no --greeting
  *   get garbled       an answer outside the reply vocabulary, which
@@ -17,6 +24,12 @@
  *   get pokes         `ok N`: the bytes read from --poke's FIFO, each read
  *                     when the node's loop said it was readable
  *   get ticks         `ok N`: the times the node's loop called its tick
+ *   get late          `ok MS`: the latest a `T` poke was read, past its time
+ *   get inproc        the reply `fzn_daemon_local` gave the last `L`'s tick,
+ *                     or `ok none`
+ *   get nested        `ok N`: what `fzn_daemon_local` answers asked from
+ *                     inside a local request, which must be 0
+ *   get own           `ok WORD`, --own-word's, or `ok none`
  *   status,           answers this program gives and must never be
  *   list contact      asked for: fuzznet answers both itself, `list
  *                     contact` from the same chain of handlers it asks
@@ -26,16 +39,21 @@
  * request of type 128, the first of the extensions' range (`node/types.h`),
  * it answers with type 129 and the bytes it was sent; the rest of the range
  * it declines. */
+#define _POSIX_C_SOURCE 200809L
+
 #include "../daemon.h"
 #include "../../wire/bytes.h"
 
 #include <fcntl.h>
+#include <sys/file.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 static char greeting[64] = "hello";
+static char own_word[32] = "none";
 
 /* ITS OWN DESCRIPTOR AND TIMER, sec 831. The FIFO opened read and write,
  * so it is never at its end of file: opened to read alone, a FIFO whose
@@ -43,6 +61,20 @@ static char greeting[64] = "hello";
 static char poke_path[256];
 static int poke_fd = -1;
 static unsigned long pokes, ticks;
+/* WHAT THE POKES ASKED, sec 835. */
+static char poke_line[32];
+static size_t poke_line_len;
+static unsigned long late_ms;
+static int want_inproc;
+static char inproc[256] = "ok none\n";
+
+static unsigned long mono_ms(void)
+{
+	struct timespec ts;
+
+	(void)clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (unsigned long)ts.tv_sec * 1000ul + (unsigned long)ts.tv_nsec / 1000000ul;
+}
 
 /* THE MARKS APPLIED, each kept once: a start replays the journal from the
  * beginning and hands every one over again. */
@@ -86,12 +118,36 @@ static size_t own_fds(void *ctx, int *out, size_t cap)
 
 static void own_ready(void *ctx, int fd)
 {
-	char buf[64];
-	ssize_t n;
+	char buf[256];
+	ssize_t n, i;
 
 	(void)ctx;
-	if ((n = read(fd, buf, sizeof(buf))) > 0)
-		pokes += (unsigned long)n;
+	if ((n = read(fd, buf, sizeof(buf))) <= 0)
+		return;
+	pokes += (unsigned long)n;
+	/* ONLY WHAT `ready` MAY DO, sec 835: the bytes taken into memory, and
+	 * a stop. */
+	for (i = 0; i < n; i++) {
+		char c = buf[i];
+
+		if (poke_line_len) {
+			if (c == '\n') {
+				unsigned long at, now = mono_ms();
+
+				poke_line[poke_line_len] = '\0';
+				at = strtoul(poke_line + 1, NULL, 10);
+				if (now > at && now - at > late_ms)
+					late_ms = now - at;
+				poke_line_len = 0;
+			} else if (poke_line_len + 1u < sizeof(poke_line))
+				poke_line[poke_line_len++] = c;
+		} else if (c == 'T')
+			poke_line[poke_line_len++] = c;
+		else if (c == 'L')
+			want_inproc = 1;
+		else if (c == 'S')
+			fzn_daemon_stop();
+	}
 }
 
 static void own_tick(void *ctx, uint64_t now)
@@ -99,6 +155,15 @@ static void own_tick(void *ctx, uint64_t now)
 	(void)ctx;
 	(void)now;
 	ticks++;
+	if (want_inproc) {
+		size_t n = fzn_daemon_local("status", inproc, sizeof(inproc) - 1u);
+
+		want_inproc = 0;
+		if (n)
+			inproc[n] = '\0';
+		else
+			(void)snprintf(inproc, sizeof(inproc), "ok refused\n");
+	}
 }
 
 static int is(const fzn_request_t *request, fzn_verb_t verb, const char *arg)
@@ -134,6 +199,16 @@ static size_t local(void *ctx, fzn_origin_t origin, const fzn_request_t *request
 		n = snprintf(reply, cap, "ok %lu\n", pokes);
 	else if (is(request, FZN_VERB_GET, "ticks"))
 		n = snprintf(reply, cap, "ok %lu\n", ticks);
+	else if (is(request, FZN_VERB_GET, "late"))
+		n = snprintf(reply, cap, "ok %lu\n", late_ms);
+	else if (is(request, FZN_VERB_GET, "inproc"))
+		n = snprintf(reply, cap, "%s", inproc);
+	else if (is(request, FZN_VERB_GET, "nested")) {
+		char inner[64];
+
+		n = snprintf(reply, cap, "ok %zu\n", fzn_daemon_local("status", inner, sizeof(inner)));
+	} else if (is(request, FZN_VERB_GET, "own"))
+		n = snprintf(reply, cap, "ok %s\n", own_word);
 	else if (is(request, FZN_VERB_GET, "garbled"))
 		n = snprintf(reply, cap, "garbled words\n");
 	else if (request->parsed == FZN_VERB_STATUS || is(request, FZN_VERB_LIST, "contact"))
@@ -199,9 +274,63 @@ int main(int argc, char **argv)
 	static fzn_daemon_ext_t ext = {
 		NULL, options, sizeof(options) / sizeof(options[0]), option, local, remote, apply,
 		settings, sizeof(settings) / sizeof(settings[0]), own_fds, own_ready, own_tick,
+		NULL,
 	};
+
+	static char *given[64];
+	int i, n = 0;
 
 	if (getenv("FZN_EXT_CLASH"))
 		ext.settings = clashing;
-	return fzn_daemon_main(argc, argv, &ext);
+	/* ITS OWN OPTION TAKEN OUT, as netcfgd takes its own before calling
+	 * the node, and the whole argv kept for a restart, sec 835. */
+	if (argc >= (int)(sizeof(given) / sizeof(given[0])))
+		return 2;
+	for (i = 0; i < argc; i++) {
+		if (strncmp(argv[i], "--own-word=", 11u) == 0) {
+			if (strlen(argv[i] + 11) >= sizeof(own_word))
+				return 2;
+			memcpy(own_word, argv[i] + 11, strlen(argv[i] + 11) + 1u);
+			continue;
+		}
+		given[n++] = argv[i];
+	}
+	given[n] = NULL;
+	ext.restart_argv = argv;
+	n = fzn_daemon_main(n, given, &ext);
+	/* RETURNED FROM A STOP, sec 835: the socket and the face file are gone
+	 * already, before this program's own shutdown work and its exit -- the
+	 * atexit that removes the face at an exit is not what a follower can
+	 * wait for. 3 when either is left. */
+	for (i = 0; i < argc; i++) {
+		char face[300];
+		const char *dir = NULL, *sock = NULL;
+
+		if (strncmp(argv[i], "--fuzznet-dir=", 14u) == 0)
+			dir = argv[i] + 14;
+		if (strncmp(argv[i], "--socket=", 9u) == 0)
+			sock = argv[i] + 9;
+		if (dir && (size_t)snprintf(face, sizeof(face), "%s/face", dir) < sizeof(face)
+		    && access(face, F_OK) == 0) {
+			fprintf(stderr, "ext_daemon: returned with %s left\n", face);
+			return 3;
+		}
+		/* AND THE CLAIM FREE: a lock of this process's own, on another
+		 * open of the file, is refused while the node still holds it. */
+		if (dir && (size_t)snprintf(face, sizeof(face), "%s/claim", dir) < sizeof(face)) {
+			int cfd = open(face, O_RDWR);
+
+			if (cfd >= 0 && flock(cfd, LOCK_EX | LOCK_NB) != 0) {
+				fprintf(stderr, "ext_daemon: returned with the claim held\n");
+				return 3;
+			}
+			if (cfd >= 0)
+				(void)close(cfd);
+		}
+		if (sock && access(sock, F_OK) == 0) {
+			fprintf(stderr, "ext_daemon: returned with %s left\n", sock);
+			return 3;
+		}
+	}
+	return n;
 }

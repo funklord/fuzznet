@@ -1754,6 +1754,9 @@ static fzn_node_state_t *answering;
  * introductions, which keep their state in buffers and tables of their own
  * that no local verb reloads. */
 static int answering_local;
+/* SET WHILE A STEP WAITS IN TURN, sec 835: `fzn_daemon_local` is refused
+ * there. */
+static int waiting_in_turn;
 
 /* THE ANSWER TO `msg`, within 3 s, peers answered until its first piece
  * comes, sec 720: two hosts asking each other in turn at once each waited
@@ -1781,7 +1784,15 @@ static fzn_caller_err_t recv_answering(fzn_caller_t *caller, uint32_t msg,
 		slice = resends < FZN_CALLER_RESENDS && left > FZN_CALLER_RESEND_MS
 		                ? FZN_CALLER_RESEND_MS
 		                : left;
-		if (!answering || fzn_node_wait_answering(answering, caller->fd, slice, answering_local)) {
+		int heard;
+
+		/* MARKED, so an extension's `ready` called in the wait is known to
+		 * be mid-step, sec 835. */
+		waiting_in_turn = 1;
+		heard = !answering
+		        || fzn_node_wait_answering(answering, caller->fd, slice, answering_local);
+		waiting_in_turn = 0;
+		if (heard) {
 			spent = mono_ms() - began;
 			left = spent < 3000u ? 3000u - (unsigned)spent : 1u;
 			err = fzn_caller_recv_for(caller, msg, reply, reply_cap, reply_len,
@@ -8911,6 +8922,50 @@ static int rejoin_due;
 static char **daemon_argv;
 /* WHAT THE DAEMON CALLING THIS ADDS, sec 673 (`node/daemon.h`), or NULL. */
 static const fzn_daemon_ext_t *daemon_ext;
+/* ASKED TO STOP, sec 835: by `fzn_daemon_stop`, from an extension or a
+ * signal handler. */
+static volatile sig_atomic_t stop_due;
+/* THE NODE AS IT SERVES, for `fzn_daemon_local`; NULL until it does. */
+static fzn_node_state_t *serving_state;
+
+void fzn_daemon_stop(void)
+{
+	stop_due = 1;
+}
+
+/* A LOCAL REQUEST IN-PROCESS, sec 835: the line read as the socket reads
+ * one, judged as this user, and answered by the same handler. */
+size_t fzn_daemon_local(const char *line, char *reply, size_t cap)
+{
+	static int inside;
+	fzn_request_t request;
+	fzn_peer_t peer;
+	fzn_authz_verdict_t verdict;
+	size_t len, n = 0;
+
+	if (!serving_state || waiting_in_turn || inside || !line || !reply || cap < 2u)
+		return 0;
+	len = strlen(line);
+	if (len == 0u || len >= FZN_REQUEST_MAX || memchr(line, '\n', len)
+	    || !fzn_vocabulary_split((const uint8_t *)line, len, &request))
+		return 0;
+	memset(&peer, 0, sizeof(peer));
+	peer.pid = (int64_t)getpid();
+	peer.uid = (uint32_t)getuid();
+	peer.primary_gid = (uint32_t)getgid();
+	verdict = fzn_node_decide(&serving_state->config, FZN_ORIGIN_SAME_USER, NULL, 0, 0, NULL,
+	                          NULL, NULL);
+	if (verdict == FZN_AUTHZ_DENIED)
+		return fzn_node_status_line(verdict, FZN_ORIGIN_SAME_USER, reply, cap);
+	inside = 1;
+	if (serving_state->on_local)
+		n = serving_state->on_local(serving_state->on_local_ctx, verdict,
+		                            FZN_ORIGIN_SAME_USER, &peer, &request, reply, cap);
+	inside = 0;
+	if (n == 0u || n > cap)
+		n = fzn_node_status_line(verdict, FZN_ORIGIN_SAME_USER, reply, cap);
+	return n;
+}
 
 /* THE EXTENSION'S OWN DESCRIPTORS AND TIMER, sec 831, as the node's loop
  * asks for them. */
@@ -9460,9 +9515,15 @@ static int start_again(int lfd, const char *sock_path)
 		max = 65536;
 	for (fd = 3; fd < max; fd++)
 		(void)close((int)fd);
-	if (daemon_argv) {
-		execv("/proc/self/exe", daemon_argv);
-		execvp(daemon_argv[0], daemon_argv);
+	{
+		/* THE DAEMON'S OWN ARGV where it gave one, sec 835. */
+		char *const *argv = daemon_ext && daemon_ext->restart_argv ? daemon_ext->restart_argv
+		                                                           : daemon_argv;
+
+		if (argv && argv[0]) {
+			execv("/proc/self/exe", argv);
+			execvp(argv[0], argv);
+		}
 	}
 	fprintf(stderr, "fuzznetd: joined, and could not start again: start it once more\n");
 	return 1;
@@ -15149,6 +15210,10 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 
 /* THE CORE DIRECTORY THIS PROCESS IS THE FACE OF, or NULL. */
 static const char *face_dir;
+#ifdef FZN_CLAIM_FILE_ON
+/* AND THE CLAIM IT HOLDS on it, released by a stop, sec 835. */
+static fzn_claim_t *face_claim;
+#endif
 static char face_written[1100];
 
 static void face_unwrite(void)
@@ -15175,6 +15240,26 @@ static void face_write(const char *core_dir, const char *sock)
 		return;
 	}
 	(void)atexit(face_unwrite);
+}
+
+/* STOPPED AS ASKED, sec 835: the socket closed and removed, the face file
+ * removed and the claim released, so a follower takes the face at once
+ * rather than finding a stale one. */
+static int stop_serving(int lfd, const char *sock_path, int ufd)
+{
+	say(FZN_ENTRY_NOTE, "node", "stopping, as asked");
+	fzn_socket_close(lfd, sock_path);
+	if (ufd >= 0)
+		fzn_udp_close(ufd);
+	face_unwrite();
+	face_written[0] = '\0';
+#ifdef FZN_CLAIM_FILE_ON
+	if (face_claim) {
+		(void)fzn_claim_release(face_claim);
+		face_claim = NULL;
+	}
+#endif
+	return 0;
 }
 
 static void face_path_of(const char *core_dir, char *out, size_t cap)
@@ -15899,6 +15984,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			return 1;
 		}
 		face_dir = store_dir;
+		face_claim = &claim;
 	}
 #endif
 	if (store_dir) {
@@ -17370,6 +17456,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		/* AND A REQUEST ASKED IN TURN ANSWERS PEERS WHILE IT WAITS, sec
 		 * 720: the node whole by now, as the loop is about to serve it. */
 		answering = &state;
+		serving_state = &state;
 		say(FZN_ENTRY_NOTE, "node", "serving%s%s%s, pulling from %zu peer(s) every %us",
 		        sock_path ? " on " : "", sock_path ? sock_path : "",
 		        (udp_port >= 0) ? " udp" : "", npulls, FZND_PULL_EVERY);
@@ -17828,14 +17915,17 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			/* A JOIN, its answer out: started again, joined. sec 638. */
 			if (rejoin_due)
 				return start_again(lfd, sock_path);
+			if (stop_due)
+				return stop_serving(lfd, sock_path, ufd);
 		}
 	}
 
 	say(FZN_ENTRY_NOTE, "node", "serving%s%s%s", sock_path ? " on " : "",
 	        sock_path ? sock_path : "", (udp_port >= 0) ? " udp" : "");
-	/* UNTIL THE PROCESS IS SIGNALLED, or a reset or a join ends it, sec 638:
-	 * a node with nothing to pull still serves both verbs. */
-	while (!identity_reset && !rejoin_due) {
+	/* UNTIL THE PROCESS IS SIGNALLED, or a reset, a join or a stop ends it,
+	 * secs 638, 835: a node with nothing to pull still serves both verbs. */
+	serving_state = &state;
+	while (!identity_reset && !rejoin_due && !stop_due) {
 		location_tick();
 		ext_tick();
 #ifdef FZN_LOG_FILE_ON
@@ -17845,6 +17935,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	}
 	if (rejoin_due)
 		return start_again(lfd, sock_path);
+	if (stop_due && !identity_reset)
+		return stop_serving(lfd, sock_path, ufd);
 	if (identity_reset) {
 		size_t wiped = 0;
 		const char *why = NULL;

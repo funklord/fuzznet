@@ -6,10 +6,10 @@
  * 666) runs this node rather than a copy of it. fuzznetd's own main is a
  * call to it with no extension.
  *
- * ONCE PER PROCESS, and it does not return while it serves: it reads its
- * options from `argv` as fuzznetd's command line, keeps `argv` to start
- * again in place (sec 638), installs signal handlers and an atexit, and
- * answers the process's exit status.
+ * ONCE PER PROCESS, and it does not return while it serves, unless asked to
+ * by `fzn_daemon_stop`: it reads its options from `argv` as fuzznetd's
+ * command line, keeps `argv` to start again in place (sec 638), installs
+ * signal handlers and an atexit, and answers the process's exit status.
  */
 #ifndef FZN_NODE_DAEMON_H
 #define FZN_NODE_DAEMON_H
@@ -94,13 +94,30 @@ typedef struct fzn_daemon_ext {
 	 * `out` each pass of the node's loop -- the count -- polled beside the
 	 * node's, and `ready` told of each one readable or hung up. One loop,
 	 * the node's, owns the process's descriptors, so a daemon's own work
-	 * waits in it rather than in a loop or thread of its own. NULL for none. */
+	 * waits in it rather than in a loop or thread of its own. NULL for none.
+	 *
+	 * POLLED IN A WAIT IN TURN TOO, sec 835: while a round's step waits on
+	 * a peer, up to 3 s, `fds` is asked again and `ready` called for each
+	 * one readable, so a descriptor waits no longer there than on a pass.
+	 * So `ready` may run in the middle of a step, and must do no more than
+	 * take its descriptor's input into the daemon's own memory: of
+	 * fuzznet's calls only `fzn_daemon_stop` is allowed in it. */
 	size_t (*fds)(void *ctx, int *out, size_t cap);
 	void (*ready)(void *ctx, int fd);
-	/* WORK ON A TIMER, sec 831: called each pass of the node's loop, about
-	 * once a second -- later while a round waits in turn on a peer, up to a
-	 * few seconds -- with this host's wall clock in seconds. NULL for none. */
+	/* WORK ON A TIMER, sec 831: called after EVERY pass of the node's loop,
+	 * however short -- so readies gathered in a pass are followed by one
+	 * call -- and at least about once a second, with this host's wall clock
+	 * in seconds. NEVER IN THE MIDDLE OF A STEP, sec 835: a round waiting
+	 * in turn on a peer holds it back, up to 3 s a wait. So `tick` may call
+	 * `fzn_daemon_local`, `fzn_daemon_journal_append` and `fzn_daemon_stop`.
+	 * NULL for none. */
 	void (*tick)(void *ctx, uint64_t now);
+	/* WHAT A RESTART EXECUTES, sec 835: a join, or a follower taking the
+	 * claim, starts the process again in place, and executes this argv --
+	 * the daemon's own options with fuzznet's -- where `fzn_daemon_main`
+	 * was handed only fuzznet's. NULL-terminated; NULL for the argv given
+	 * to `fzn_daemon_main`. */
+	char *const *restart_argv;
 } fzn_daemon_ext_t;
 
 /* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,
@@ -115,5 +132,22 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext);
  * of the library's, or a store that refused it. The node's next round
  * applies it here and carries it to the hosts that follow this one. */
 int fzn_daemon_journal_append(const uint8_t *object, size_t len);
+
+/* ASK THE NODE A LOCAL REQUEST IN-PROCESS, sec 835: `line`, a request line
+ * without its newline, answered by the handlers the local socket's are, as
+ * this node's own user -- so a daemon running inside the node speaks the
+ * verbs it would send to the socket, which its own thread serves and could
+ * not answer while blocked writing to it. The reply's length in `reply`,
+ * at most `cap`, ending in a newline; 0 when it cannot be asked: before
+ * the node serves, inside a wait in turn (from `ready`), inside another
+ * such request, or with a line that is too long or no request. */
+size_t fzn_daemon_local(const char *line, char *reply, size_t cap);
+
+/* STOP THE NODE, sec 835: once the pass or the step under way ends,
+ * `fzn_daemon_main` closes and removes its local socket, removes the
+ * `face` file, releases the claim on the core directory and returns 0, so
+ * a follower takes over the face at once. Safe from `ready`, `tick` and a
+ * signal handler; only a flag is set. */
+void fzn_daemon_stop(void);
 
 #endif /* FZN_NODE_DAEMON_H */

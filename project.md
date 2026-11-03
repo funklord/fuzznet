@@ -78100,3 +78100,72 @@ at `49b2312`:
    lacks netcfgd's own options.
 And to confirm: `tick` follows every pass, not once a second. Taken, in
 that order of cost; each lands where its section says.
+
+## 835. netcfgd's five asks of the extension, built, 2026-11-03
+
+Sec 834's message from netcfgd, which is moving into fuzznetd's loop
+as its face. All five are in `node/daemon.h`'s contract now.
+
+**The extension's descriptors are polled during a wait in turn.**
+`fzn_node_wait_answering` asks `own_fds` and calls `own_ready` for each
+readable one, as a pass does. A confirm window or a held `ncfg` request
+no longer waits out a round's step, which could be up to 3 s, or 6.3 s
+for two (sec 747).
+
+**What may run where, decided:**
+- `ready` may run in the middle of a step. So it takes its descriptor's
+  input into the daemon's own memory and nothing more. Of fuzznet's
+  calls, only `fzn_daemon_stop` is allowed in it.
+- `tick` never runs mid-step. It follows every pass, however short, so
+  readies gathered in a pass are followed by one call. It may call
+  `fzn_daemon_local`, `fzn_daemon_journal_append` and `fzn_daemon_stop`.
+- netcfgd offered either answer. This one keeps its reconcile pass in
+  `tick` with no flag to read. A local verb from `tick` is as safe as a
+  local client answered by the same pass.
+
+**`fzn_daemon_local(line, reply, cap)`** answers a request line with
+the socket's own handler chain, as this node's own user. That makes it
+a new transport, not a second set of verbs. The records handle netcfgd
+offered as an alternative would have served records alone. It answers
+0 in four cases:
+- before the node serves;
+- inside a wait in turn, through a flag `recv_answering` sets around
+  its wait;
+- inside another in-process request;
+- for a line with no request.
+
+**`fzn_daemon_stop()`** only sets a flag, so it is safe from a signal
+handler. Once the pass or step under way ends, `fzn_daemon_main` does
+four things, so a follower takes the face at once:
+- closes and removes the socket;
+- removes `face`;
+- releases the claim;
+- returns 0.
+
+The atexit that removes `face` at an exit was not enough: netcfgd does
+its own shutdown work between the return and its exit.
+
+**`restart_argv`** is new on the extension. A restart after a join, or
+after a follower takes the claim, executes this argv instead of the
+one `fzn_daemon_main` parsed, so netcfgd keeps the options it strips
+before calling in. A `restart` hook was the other offer; an argv keeps
+the restart an exec, and that exec is what makes a join safe (sec 638).
+
+**fuzznetd itself still dies at SIGTERM.** It installs no handler, so
+its socket stays behind, as before. A handler calling `fzn_daemon_stop`
+would fix that, but every poll would then meet EINTR, and the round's
+waits have not been read for it. Not done.
+
+**Measured:**
+- `node/test/serve_test`: a readable descriptor of the daemon's is told
+  during a wait. It fails with the polling removed, and sabotage entry
+  `wait-in-turn-polls-own-fds` holds it.
+- `tool/live_ext.py` b3: `status` asked in-process is fuzznet's, and
+  asked from inside a local request it is refused. A stop asked through
+  the FIFO returns 0, and at the return the socket and `face` are gone
+  and the claim is free. `node/test/ext_daemon` checks those three
+  itself before it exits. With the face removal taken out it exits 3,
+  and with the claim release taken out it exits 3 too.
+- Phase c: B is started with `--own-word=kept`, which the extension
+  strips before calling in. B still says it after the join's restart,
+  and says `ok none` with `restart_argv` unset.

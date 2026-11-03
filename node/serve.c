@@ -424,8 +424,10 @@ int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms
 	if (fd < 0)
 		return 0;
 	for (;;) {
-		struct pollfd fds[3];
-		nfds_t nfds = 1;
+		struct pollfd fds[3u + FZN_NODE_OWN_FDS_MAX];
+		int own[FZN_NODE_OWN_FDS_MAX];
+		nfds_t nfds = 1, first_own;
+		size_t n_own = 0, s;
 		int ui = -1, li = -1, r;
 		uint64_t now = since_boot_ms();
 
@@ -446,6 +448,20 @@ int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms
 			fds[nfds].revents = 0;
 			li = (int)nfds++;
 		}
+		/* A DAEMON'S OWN, sec 835, as a pass polls them: a wait of 3 s is
+		 * not a reason for its descriptors to wait. */
+		first_own = nfds;
+		if (state && state->own_fds && state->own_ready) {
+			n_own = state->own_fds(state->own_ctx, own, FZN_NODE_OWN_FDS_MAX);
+			if (n_own > FZN_NODE_OWN_FDS_MAX)
+				n_own = FZN_NODE_OWN_FDS_MAX;
+			for (s = 0; s < n_own; s++) {
+				fds[nfds].fd = own[s];
+				fds[nfds].events = POLLIN;
+				fds[nfds].revents = 0;
+				nfds++;
+			}
+		}
 		r = poll(fds, nfds, (int)(until - now));
 		if (r < 0)
 			continue; /* interrupted: the deadline still bounds it */
@@ -453,6 +469,9 @@ int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms
 			return 0;
 		if (fds[0].revents & (POLLIN | POLLERR | POLLHUP))
 			return 1;
+		for (s = 0; s < n_own; s++)
+			if (fds[first_own + s].revents & (POLLIN | POLLHUP | POLLERR))
+				state->own_ready(state->own_ctx, own[s]);
 		if (ui >= 0 && (fds[ui].revents & POLLIN))
 			serve_ready_datagram(state);
 		if (li >= 0 && (fds[li].revents & POLLIN))
