@@ -1,4 +1,5 @@
 #include "schema.h"
+#include "permit.h"
 #include "../local/escape.h"
 
 #include <stdio.h>
@@ -36,6 +37,11 @@ int fzn_node_schema_log_level(const uint8_t *value, size_t len)
 		    || (len == 1u && value[0] == (uint8_t)LOG_LETTERS[l]))
 			return l + 1;
 	return 0;
+}
+
+static const char *permit_check(const uint8_t *value, size_t len)
+{
+	return fzn_node_permit_check(value, len);
 }
 
 static const char *log_level_check(const uint8_t *value, size_t len)
@@ -88,6 +94,10 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "what this host's user calls it -- laptop, phone -- as every device of the estate "
 	  "lists it (sec 848)",
 	  NULL },
+	{ "local/permit/", FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
+	  "which local users and groups may read (r) or change (rw) a verb's subject on this "
+	  "host: group:NAME=r user:NAME=rw, #ID for a NAME (sec 852)",
+	  permit_check },
 	{ "net/metric", FZN_SCHEMA_COUNT, HOST, 0u, 255u, "100", "", FZN_SCHEMA_ADVANCED,
 	  "this host's place in the routing manifest, lower first (sec 611)", NULL },
 	{ "net/discovery", FZN_SCHEMA_TEXT, HOST, 1u, 45u, "255.255.255.255", "", FZN_SCHEMA_ADVANCED,

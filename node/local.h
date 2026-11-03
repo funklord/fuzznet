@@ -117,4 +117,20 @@ fzn_node_serve_err_t fzn_node_serve_local_kept(const fzn_node_config_t *config, 
                                                fzn_node_local_handler_t on_local,
                                                void *ctx, int *subscribed);
 
+/* THE SAME, AND A CALLER IT WOULD DENY JUDGED BY `on_denied`, sec 852: a
+ * local caller this node's policy refuses -- another user, not of its
+ * group -- is handed, with its credentials and FZN_ORIGIN_NONE, to
+ * `on_denied` alone: never to `on_local`, and never subscribed. Its reply
+ * is the answer; 0, or a reply that is not one line of the reply
+ * vocabulary, answers the denial as before. NULL serves as `..._kept`.
+ * fuzznetd's judge is the node's own user's grants (`node/permit.h`), so a
+ * root daemon's GUI and operators reach the subjects granted them and
+ * nothing else. */
+fzn_node_serve_err_t fzn_node_serve_local_judged(const fzn_node_config_t *config, int fd,
+                                                 const fzn_peer_t *peer,
+                                                 fzn_node_local_handler_t on_local, void *ctx,
+                                                 int *subscribed,
+                                                 fzn_node_local_handler_t on_denied,
+                                                 void *denied_ctx);
+
 #endif

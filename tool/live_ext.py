@@ -244,6 +244,13 @@ def main(argv):
 			got = ask(sock, "get nothing")
 			if not got.startswith("unsupported"):
 				raise failed("b: a verb nobody answers was answered %r" % got)
+			# A LOCAL PERMISSION, sec 852: well-formed grants taken, and a
+			# malformed one refused when written, as its reader would.
+			if ask(sock, "set setting host local/permit/status group:root=r user:#0=rw") != "ok":
+				raise failed("b: a well-formed local permit was refused")
+			got = ask(sock, "set setting host local/permit/status group:root=w")
+			if not got.startswith("malformed"):
+				raise failed("b: a malformed local permit was answered %r" % got)
 			# THE CALLER'S CREDENTIALS, handed to the extension (sec 849).
 			got = ask(sock, "get caller")
 			if got != "ok %d" % os.getuid():

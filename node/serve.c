@@ -38,9 +38,10 @@ static void serve_ready_local(fzn_node_state_t *state)
 		return;
 	/* A SUBSCRIPTION TAKEN ONLY WHILE THERE IS ROOM for it, sec 609: past
 	 * that, `get events` reaches the handler as any request does. */
-	(void)fzn_node_serve_local_kept(&state->config, cfd, &peer, state->on_local,
-	                                state->on_local_ctx,
-	                                fzn_node_events_room(state->events) ? &subscribed : NULL);
+	(void)fzn_node_serve_local_judged(&state->config, cfd, &peer, state->on_local,
+	                                  state->on_local_ctx,
+	                                  fzn_node_events_room(state->events) ? &subscribed : NULL,
+	                                  state->on_local_denied, state->on_local_denied_ctx);
 	if (subscribed && fzn_node_events_add(state->events, cfd))
 		return;
 	(void)close(cfd);

@@ -108,6 +108,7 @@
 #include "log_list.h"
 #include "meter.h"
 #include "schema.h"
+#include "permit.h"
 #include "../fault/fault.h"
 #endif
 #include "../local/socket.h"
@@ -9022,6 +9023,48 @@ static void ext_tick(void)
 		daemon_ext->tick(daemon_ext->ctx, wall_clock());
 }
 
+/* A LOCAL CALLER THIS NODE WOULD DENY, judged by the node's own user's
+ * grants, sec 852: `local/permit/SUBJECT` on this host, SUBJECT the word
+ * after the verb. A caller holding the right -- read for `get`, `list` and
+ * `status`, change for the rest -- is served that verb as this node's own
+ * user is, by the same chain; 0 leaves the denial. */
+static size_t permit_judge(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
+                           const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
+                           size_t cap)
+{
+	char key[sizeof(FZN_PERMIT_KEY_PREFIX) + FZN_PERMIT_SUBJECT_MAX];
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	const uint8_t *at, *subject;
+	size_t left, subject_len, value_len = 0;
+	unsigned right;
+
+	(void)verdict;
+	(void)origin;
+	if (!routing_self || !peer || !request || !request->arg)
+		return 0;
+	at = request->arg;
+	left = request->arg_len;
+	if (!next_word(&at, &left, &subject, &subject_len)
+	    || !fzn_node_permit_subject_ok((const char *)subject, subject_len))
+		return 0;
+	right = request->parsed == FZN_VERB_GET || request->parsed == FZN_VERB_LIST
+	                        || request->parsed == FZN_VERB_STATUS
+	                ? FZN_PERMIT_READ
+	                : FZN_PERMIT_CHANGE;
+	(void)snprintf(key, sizeof(key), "%s%.*s", FZN_PERMIT_KEY_PREFIX, (int)subject_len,
+	               (const char *)subject);
+	if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, routing_self,
+	                           (const uint8_t *)key, strlen(key), value, &value_len, &rank)
+	    || !fzn_node_permit_allows(value, value_len, peer, right))
+		return 0;
+	say(FZN_ENTRY_INFO, "local/permit", "uid %lu %s %.*s, as granted",
+	    (unsigned long)peer->uid, right == FZN_PERMIT_READ ? "reads" : "changes",
+	    (int)subject_len, (const char *)subject);
+	return local_handle(ctx, FZN_AUTHZ_GRANTED_UNGUARDED, FZN_ORIGIN_SAME_USER, peer, request,
+	                    reply, cap);
+}
+
 /* AN EXTENSION'S OPTION, `arg` as typed: 1 taken, 0 not one of its, -1
  * refused, said. */
 static int ext_option(const char *arg)
@@ -17232,6 +17275,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #endif
 			state.on_local = local_handle;
 			state.on_local_ctx = &admin;
+			/* OTHER LOCAL USERS, as this node's own user grants them, sec 852. */
+			state.on_local_denied = permit_judge;
+			state.on_local_denied_ctx = &admin;
 			/* THE ESTATE'S ROUTING MANIFEST, sec 611. */
 			admin.routing_remote = routing_remote;
 			admin.messages_contact = messages_contact;

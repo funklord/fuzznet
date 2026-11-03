@@ -116,6 +116,16 @@ fzn_node_serve_err_t fzn_node_serve_local_kept(const fzn_node_config_t *config, 
                                                fzn_node_local_handler_t on_local,
                                                void *ctx, int *subscribed)
 {
+	return fzn_node_serve_local_judged(config, fd, peer, on_local, ctx, subscribed, NULL, NULL);
+}
+
+fzn_node_serve_err_t fzn_node_serve_local_judged(const fzn_node_config_t *config, int fd,
+                                                 const fzn_peer_t *peer,
+                                                 fzn_node_local_handler_t on_local, void *ctx,
+                                                 int *subscribed,
+                                                 fzn_node_local_handler_t on_denied,
+                                                 void *denied_ctx)
+{
 	fzn_origin_t origin;
 	fzn_authz_verdict_t verdict;
 	fzn_line_t reader;
@@ -222,6 +232,20 @@ fzn_node_serve_err_t fzn_node_serve_local_kept(const fzn_node_config_t *config, 
 		 * `local/vocabulary.h` refuses an overlong verb instead of
 		 * cutting it down to one that matches a rule. */
 		if (n > 0 && n <= sizeof(resp))
+			resp_len = n;
+	}
+	/* A CALLER THIS NODE DENIES, judged by the one who asked to judge it
+	 * (sec 852), and only by that one. Its answer is held to one line of
+	 * the reply vocabulary, or the denial stands. */
+	if (on_denied && verdict == FZN_AUTHZ_DENIED && fzn_vocabulary_split(line, line_len, &request)) {
+		size_t n = on_denied(denied_ctx, verdict, origin, peer, &request, resp, sizeof(resp));
+		const uint8_t *detail = NULL;
+		size_t detail_len = 0;
+
+		if (n > 0 && n <= sizeof(resp) && resp[n - 1u] == '\n'
+		    && !memchr(resp, '\n', n - 1u)
+		    && fzn_reply_of((const uint8_t *)resp, n - 1u, &detail, &detail_len)
+		               != FZN_REPLY_NONE)
 			resp_len = n;
 	}
 

@@ -78851,3 +78851,57 @@ about a minute. Which side holds it is fuzznet's call.
 distributed store by default, it is not optional." netcfgd now links the
 loop in every build, so the consumer services' ~980 KB would come off
 every router's install once they are build options.
+
+## 852. Local permissions: the node's own user grants other local users a subject, 2026-11-03
+
+The first of the generic subsystems the holder put in place of extension
+verbs: "netcfgd should [not] need to extend fuzzypickles commandset, it
+needs permissions, a distributed database subsystem, ... remote procedure
+call ... and lists. All of them generic things that should be part of
+fuzznet." The order agreed: permissions, then RPC, then lists.
+
+**The gap.** A node served its own user, and with `--group` one service
+group (sec 4.x). A root daemon serves people who are not fuzznet users: a
+desktop's GUI, an operator's shell. The holder, relayed by netcfgd: their
+"local auth is gated by their resp. groups", and "we should avoid storing
+anything on users that aren't full fuzznet users".
+
+**Built: `node/permit.{h,c}`, and the host setting `local/permit/SUBJECT`.**
+- SUBJECT is the word after a verb: `record` in `list record`, `status`
+  in netcfgd's `get status`.
+- The value is grants: `group:netcfgd=r user:alice=rw user:#1001=r`. A
+  name is looked up in this machine's databases, and `#N` is an id.
+- `r` reads (`get`, `list`, `status`); `rw` also changes (every other
+  verb).
+- A local caller the node would deny, and who holds the right, is served
+  that verb as the node's own user is, by the same chain of handlers. It
+  never subscribes to events, and nothing is kept for it.
+- A malformed value grants nothing, not even its first half, and is
+  refused when written. A peer whose group list could not be read is
+  matched by its user and primary group alone.
+- **Never grantable:**
+  - the estate's trust: identity, backup, join, root, admin, peer,
+    grant, capability, revocation, events;
+  - setting, schema and permit, since a grant on settings would let its
+    holder write its own grants.
+
+  A setting naming one of these is written but never honoured: the
+  schema's check sees the value, not the key.
+- **The seam** is `fzn_node_serve_local_judged` (`node/local.h`), the
+  local serve path's handler for a caller it would deny. The rule lives
+  where every local caller passes, and fuzznetd's judge is the grants.
+
+**What it replaces:** sec 849's proposed `judges_local`, under which each
+extension would judge its own callers. That was the narrow version of
+this, and is not built; its code is in a stash, unused.
+
+**Measured:**
+- `node/test/permit_test`, 13 checks: the grammar; the subjects never
+  grantable; a match by user, primary group and supplementary group, by
+  id and by name (`root`); read not being change; an unread group list
+  not trusted; a malformed list granting nothing.
+- `node/test/local_test`: a denied caller reaches the judge alone, and a
+  judge's non-answer or non-reply leaves the denial.
+- `tool/live_ext.py` b: a well-formed permit is taken when set and a
+  malformed one refused.
+- No live check of another user's access: that needs a second uid.

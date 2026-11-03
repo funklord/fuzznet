@@ -205,6 +205,64 @@ static fzn_node_serve_err_t gone_before_the_answer(const fzn_node_config_t *cfg,
 	return r;
 }
 
+/* AN EXCHANGE WHOSE DENIED CALLERS ARE JUDGED, sec 852. */
+static fzn_node_serve_err_t exchange_judged(const fzn_node_config_t *cfg, const fzn_peer_t *peer,
+                                            const char *request, struct seen *mine,
+                                            struct seen *judge, char *resp, size_t resp_cap)
+{
+	int sv[2];
+	fzn_node_serve_err_t r;
+	ssize_t n;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0)
+		return FZN_NODE_SERVE_IO;
+	wr(sv[0], request, strlen(request));
+	wr(sv[0], "\n", 1);
+	r = fzn_node_serve_local_judged(cfg, sv[1], peer, record, mine, NULL, record, judge);
+	n = read(sv[0], resp, resp_cap - 1);
+	resp[n > 0 ? (size_t)n : 0] = '\0';
+	close(sv[0]);
+	close(sv[1]);
+	return r;
+}
+
+/* A DENIED CALLER JUDGED, sec 852 -- in fuzznetd by the node's own user's
+ * grants (`node/permit.h`): another user, of no
+ * group this node serves, reaches the judge alone -- never the node's own
+ * handler -- and the judge's answer is the reply; no answer, or one that is
+ * no reply, leaves the denial; the node's own user never reaches the
+ * judge. */
+static void test_a_denied_caller_judged(void)
+{
+	fzn_node_config_t cfg = base_config();
+	fzn_peer_t p;
+	struct seen mine, judge;
+	char resp[256];
+
+	mk_peer(&p, 2000, 0, 0);
+	memset(&mine, 0, sizeof(mine));
+	memset(&judge, 0, sizeof(judge));
+	judge.say = "ok judged\n";
+	(void)exchange_judged(&cfg, &p, "get status", &mine, &judge, resp, sizeof(resp));
+	ok(strcmp(resp, "ok judged\n") == 0 && judge.calls == 1 && mine.calls == 0,
+	   "a denied caller was not answered by its judge alone");
+	memset(&judge, 0, sizeof(judge));
+	(void)exchange_judged(&cfg, &p, "get status", &mine, &judge, resp, sizeof(resp));
+	ok(judge.calls == 1 && strncmp(resp, "denied", 6) == 0 && mine.calls == 0,
+	   "a judge that answered nothing did not leave the denial");
+	memset(&judge, 0, sizeof(judge));
+	judge.say = "garbled words\n";
+	(void)exchange_judged(&cfg, &p, "get status", &mine, &judge, resp, sizeof(resp));
+	ok(strncmp(resp, "denied", 6) == 0, "a judge's answer that is no reply was sent");
+	mk_peer(&p, 1000, 0, 0);
+	memset(&judge, 0, sizeof(judge));
+	judge.say = "ok judged\n";
+	mine.say = "ok mine\n";
+	(void)exchange_judged(&cfg, &p, "get status", &mine, &judge, resp, sizeof(resp));
+	ok(strcmp(resp, "ok mine\n") == 0 && judge.calls == 0,
+	   "the node's own user reached the judge of denied callers");
+}
+
 int main(void)
 {
 	fzn_node_config_t cfg = base_config();
@@ -410,6 +468,7 @@ int main(void)
 		   "a request that is not `get events` subscribed");
 	}
 
+	test_a_denied_caller_judged();
 	printf("local_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

@@ -165,6 +165,10 @@ typedef struct fzn_node_state {
 	                   const fzn_request_t *request,
 	                   char *reply, size_t reply_cap);
 	void *on_local_ctx;
+	/* A LOCAL CALLER THIS NODE DENIES, handed here alone to be judged
+	 * (`fzn_node_serve_local_judged`, sec 852), or NULL to deny it. */
+	fzn_node_local_handler_t on_local_denied;
+	void *on_local_denied_ctx;
 	/* STEP 8 OF SEC 4.7, WHICH THE REMOTE PATH DID NOT HAVE.
 	 *
 	 * `fzn_node_serve_datagram` runs steps 1 to 7 and stops -- sec 362
