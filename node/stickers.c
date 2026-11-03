@@ -498,7 +498,9 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
  * held 64. */
 #define SAVED_MAX 256u
 /* A ROW: a description of 96 bytes escapes to as many as 288. */
-#define ROW_MAX 320u
+/* A ROW AT ITS LONGEST: an id of 20 digits, a description of 96 bytes all
+ * escaped (288), and the box's fourteen numbers (sec 864) -- under 400. */
+#define ROW_MAX 448u
 
 struct listing {
 	const fzn_node_stickers_t *st;
@@ -601,10 +603,24 @@ static size_t list_pack(const fzn_node_stickers_t *st, const fzn_node_file_ref_t
 		desc[d] = '\0';
 		/* ITS BOX'S LIMIT LAST, sec 841, 0 for none: after the
 		 * description, which is escaped, so a reader of four fields
-		 * still reads its four. */
-		(void)snprintf(rows[i], ROW_MAX, "%llu,%u,%u,%s,%u", (unsigned long long)m.entries[i].id,
-		               (unsigned)m.entries[i].type, (unsigned)m.entries[i].flags, desc,
-		               (unsigned)m.entries[i].text_limit);
+		 * still reads its four. THEN THE BOX ITSELF, sec 864, appended
+		 * so a reader of five still reads five: X Y W H in the main
+		 * rendition's pixels, the fill and ink as the spec writes them,
+		 * the turn, and the main rendition's size the box is measured
+		 * against -- what a client needs to paint the sender's words
+		 * onto the art. */
+		{
+			const fzn_sticker_entry_t *e = &m.entries[i];
+			const fzn_sticker_rendition_t *mr = fzn_sticker_pick(e, FZN_STICKER_MAIN);
+
+			(void)snprintf(rows[i], ROW_MAX, "%llu,%u,%u,%s,%u,%u,%u,%u,%u,%08lX,%08lX,%u,%u,%u",
+			               (unsigned long long)e->id, (unsigned)e->type, (unsigned)e->flags,
+			               desc, (unsigned)e->text_limit, (unsigned)e->text_x,
+			               (unsigned)e->text_y, (unsigned)e->text_w, (unsigned)e->text_h,
+			               (unsigned long)e->text_fill, (unsigned long)e->text_ink,
+			               (unsigned)e->text_turn, mr ? (unsigned)mr->width : 0u,
+			               mr ? (unsigned)mr->height : 0u);
+		}
 	}
 	out = page(rows, m.count, from, reply, cap);
 	free(rows);

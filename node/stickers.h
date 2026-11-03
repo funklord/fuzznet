@@ -27,7 +27,10 @@
  *                           whole here, SCOPE `estate` or `host`.
  *   list sticker PACK [FROM]
  *                           a pack's stickers, paged as above: `ok TOTAL
- *                           FROM ID,TYPE,FLAGS,DESC ...`, DESC escaped.
+ *                           FROM ID,TYPE,FLAGS,DESC,LIMIT,X,Y,W,H,FILL,INK,
+ *                           TURN,MAIN_W,MAIN_H ...`, DESC escaped; the box
+ *                           (sec 841, 864) in the main rendition's pixels,
+ *                           FILL and INK 8 hex, all 0 for no box.
  *                           PACK a saved pack's ROOT, or the 144 hex of any
  *                           held pack's reference.
  *   get sticker PACK        `ok ID`, the pack's own id from its art in

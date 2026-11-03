@@ -79522,3 +79522,32 @@ rely on the one line.
 - 1021 bytes, and 341 spaces, are refused naming
   `FZN_DAEMON_CALL_ESCAPED_MAX`.
 - b4 and c2 still pass, with the follower now offering two procedures.
+
+## 864. A sticker's box, whole, in `list sticker PACK` rows, 2026-11-03
+
+fuzzypickles, inbox 2026-11-03 21:47: on a node its Qt client cannot
+paint a message or name sticker's words onto the art. A row carried the
+box's LIMIT (sec 841) and not the box, so the client built a zero-width
+box and showed the art bare. Their reading: `fzp_call_sticker_manifest` at
+b4469db, and `fzp_sticker_with_text`, which returns the art unchanged
+for `text_w == 0`.
+
+**A row is now**
+
+    ID,TYPE,FLAGS,DESC,LIMIT,X,Y,W,H,FILL,INK,TURN,MAIN_W,MAIN_H
+
+the shape they asked for, appended so a reader of five fields still
+reads five.
+- X Y W H are as in the spec's `text` line, in the main rendition's
+  pixels, and 0 0 0 0 for no box.
+- FILL and INK are eight hex digits as the spec writes them, and TURN is
+  0 to 359 (sec 859).
+- MAIN_W and MAIN_H are the main rendition's size, which the box is
+  measured against. Where a sticker has no main rendition they are the
+  nearest's (`fzn_sticker_pick`), which is the one a client draws.
+- A row's buffer grew from 320 to 448 bytes, so a description escaped
+  whole (288 bytes) and the fourteen fields together cannot be cut short.
+
+**Measured, `live_stickers` b and f:** each row is checked whole. The
+cats' third sticker's spec now carries a fill, an ink and a turn of 5,
+and its row reads `...,20,8,8,112,40,FFFFFFC0,000000FF,5,128,128`.

@@ -83,7 +83,7 @@ main lottie 320 320 art/spin.json
 sound art/spin.ogg
 sticker 3 message
 description a sign the sender writes on
-text 20 8 8 112 40
+text 20 8 8 112 40 FFFFFFC0 000000FF 5
 inline png 128 128 art/wave.png
 """
 
@@ -131,11 +131,16 @@ def main(argv):
 			      "estate")
 
 			got = ask(sock, "list sticker " + root).split()
-			# EACH ROW ENDS IN ITS BOX'S LIMIT, sec 841: sticker 3's is 20.
+			# EACH ROW GIVES ITS BOX'S LIMIT, sec 841 -- sticker 3's is 20 --
+			# THEN THE BOX, sec 864: X Y W H, fill, ink, turn, and the main
+			# rendition's size (the nearest, where a sticker has no main).
 			if got[:3] != ["ok", "3", "0"] \
-			   or got[3] != "1,1,0,a%20ginger%20cat%20waving%20hello,0" \
-			   or got[4] != "2,2,1,the%20same%20cat%20spinning%20very%20fast,0" \
-			   or not got[5].startswith("3,5,0,") or not got[5].endswith(",20"):
+			   or got[3] != "1,1,0,a%20ginger%20cat%20waving%20hello,0,0,0,0,0,00000000," \
+			                "00000000,0,128,128" \
+			   or got[4] != "2,2,1,the%20same%20cat%20spinning%20very%20fast,0,0,0,0,0," \
+			                "00000000,00000000,0,320,320" \
+			   or not got[5].startswith("3,5,0,") \
+			   or not got[5].endswith(",20,8,8,112,40,FFFFFFC0,000000FF,5,128,128"):
 				raise failed("b: list sticker ROOT answered %r" % got)
 			ref = ask(sock, "get sticker %s 1" % root)
 			if not ref.startswith("ok fzn:sticker/" + root + "/") \
@@ -246,7 +251,8 @@ def main(argv):
 			                         + art["art/spin.ogg"], digest_size=32).digest()
 			want = int.from_bytes(digest[:8], "big") or 1
 			rows = ask(sock, "list sticker " + got[1]).split()
-			if rows[:3] != ["ok", "1", "0"] or rows[3] != "%d,2,1,,0" % want:
+			if rows[:3] != ["ok", "1", "0"] \
+			   or rows[3] != "%d,2,1,,0,0,0,0,0,00000000,00000000,0,320,320" % want:
 				raise failed("f: the derived id was listed %r, not %d" % (rows, want))
 			ref = ask(sock, "get sticker %s %d" % (got[1], want))
 			if not ref.startswith("ok fzn:sticker/") or not ref.endswith("/%d" % want):
