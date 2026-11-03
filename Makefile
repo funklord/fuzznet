@@ -6761,8 +6761,8 @@ fuzznetd-faults:
 lean:
 	$(MAKE) $(LEAN_SERVICES) BUILD_DIR=$(BUILD_DIR)/lean $(BUILD_DIR)/lean/fuzznetd
 
-livecheck-lean: lean
-	@timeout 120 python3 tool/live_lean.py $(BUILD_DIR)/lean/fuzznetd
+livecheck-lean: lean $(FUZZNETD)
+	@timeout 620 python3 tool/live_lean.py $(BUILD_DIR)/lean/fuzznetd $(FUZZNETD)
 
 # THE FAULTS FIRE, sec 689 step 0b: tool/live_faults.py against the faulty
 # daemon, so a scenario built on a fault is known to have one. Then the

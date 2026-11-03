@@ -79209,9 +79209,16 @@ what nothing reaches (sec 860).
 - **Measured:** `livecheck-lean` asks the lean build `list note top`,
   `add note`, `list history` and `list shared`, which answer
   `unsupported`.
-- **Not measured:** a lean node relaying notes between two full ones. The
-  carriage code is unchanged by construction, since only the verbs'
-  entry was cut, but no live script has a lean node in an estate yet.
+- **Measured since, `livecheck-lean`'s estate phase:**
+  - a lean root A, and full B and C joined to it, each pulling from A
+    alone;
+  - C writes a record and a note;
+  - A lists C's record, and B comes to hold both, while A answers
+    `unsupported` to `list note top`.
+  - **Control:** a lean build whose notes carriage was also cut
+    (`admin.notes_remote` left unset) failed it. A held C's record, and
+    B held the record but never the note. So B's note travelled through
+    the lean node, not around it.
 - **`livecheck` needs notes on:** seven of its scripts write notes to
   test other things. It says SKIPPED otherwise, as for a build without
   log files, and `livecheck-lean` covers the lean build.
