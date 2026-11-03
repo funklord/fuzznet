@@ -167,6 +167,9 @@ typedef enum fzn_retain_limit {
 #define FZN_RETAIN_RULES_MAX 64u
 /* The longest text a rule matches, sec 477. */
 #define FZN_RETAIN_MATCH_MAX 64u
+/* The longest list a records rule names, sec 855: a key's 64 bytes less
+ * `list/`, the `/` after the name and a member of one byte. */
+#define FZN_RETAIN_LIST_MAX 57u
 
 /* What a rule's data is, sec 531. */
 typedef enum fzn_retain_data {
@@ -176,8 +179,9 @@ typedef enum fzn_retain_data {
 	FZN_RETAIN_HISTORY = 2,
 	/* The files sent in conversations, sec 793. */
 	FZN_RETAIN_ATTACHMENTS = 3,
-	/* A host's records, sec 815: `source=` whose, `text=` within the key;
-	 * a count is each key's newest, per host. */
+	/* A host's records, sec 815: `source=` whose, `text=` within the key,
+	 * `list=NAME` a member of a list in it (sec 855); a count is each
+	 * key's newest, per host. */
 	FZN_RETAIN_RECORDS = 4
 } fzn_retain_data_t;
 
@@ -203,6 +207,11 @@ typedef struct fzn_retain_rule {
 	 * none. sec 477. */
 	uint8_t match[FZN_RETAIN_MATCH_MAX];
 	size_t match_len;
+	/* A RECORDS RULE'S LIST, sec 855: the rule reaches a record only where
+	 * one of its key's `/` words is a member in the list of this name
+	 * (`node/records.h`) -- netcfgd's "keep the stations on the allow
+	 * list". "" for none. */
+	char list[FZN_RETAIN_LIST_MAX + 1u];
 	/* TO COPIES, sec 483, rather than this node's own log; of one source
 	 * host's alone, sec 487. */
 	int copy;

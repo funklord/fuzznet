@@ -79080,3 +79080,38 @@ host.
 **Not yet:** a keep rule naming a list's members, `list=NAME`, which
 keeps the records whose key holds a member (sec 752: "a keep rule may
 name a list's members by reading the list"). That is next.
+
+## 855. A records rule naming a list, `list=NAME`, 2026-11-03
+
+Sec 854 left this open, and sec 752 asked for it: "a keep rule may name a
+list's members by reading the list". netcfgd's case is keeping the
+stations on its allow list while pruning every other station seen.
+
+    keep records text=seen/ list=allow count 2
+    policy records drop
+
+**`list=NAME` is a records rule's selector,** beside `source=` and
+`text=` (sec 815).
+- The rule reaches a record only where one of its key's `/` words is a
+  member in list NAME. With the rule above, `seen/wlan0/aa-bb` is
+  reached while `aa-bb` is in `allow`.
+- **A whole word, not a substring:** `aa-bbx` is not `aa-bb`. A MAC
+  prefix in `text=` stays the way to select by substring.
+- **The list is read as it resolves at each trim.** A station taken out
+  of the list stops being kept at the next pass, and one put in is kept
+  from then on.
+- **A list that cannot be read fails the trim,** and nothing goes. A
+  keep weighed as if its list were empty would let go exactly what it
+  was written to protect.
+- **It works on prune rules too:** `prune records list=deny age 1d`
+  drops a denied station's sightings sooner than the rest.
+- A log, message, attachment or history rule naming a list is refused.
+  None of those has a key a list could name.
+
+**Measured, `records_test`, 61 checks:**
+- the rule above keeps the listed station's newest two, takes the
+  unlisted station's and `aa-bbx`'s, and keeps the list's own record;
+- removed from the list, the station's records go at the next trim;
+- the rule round-trips as text;
+- refused: `list=` on a log or message rule, a `/` in the name, and an
+  empty name.

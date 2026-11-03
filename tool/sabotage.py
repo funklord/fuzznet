@@ -3705,6 +3705,20 @@ SABOTAGES = [
 		"two changes of one ms resolve differently on different nodes -- sec 854",
 	),
 	(
+		"records-keep-by-list-member",
+		"node/records.c",
+		"\t       && holds_text(h, r) && (!r->list[0] || holds_member(h, ms));",
+		"\t       && holds_text(h, r);",
+		"a keep naming a list keeps every record, listed or not -- sec 855",
+	),
+	(
+		"retain-list-only-records",
+		"log/retain.c",
+		"\tif (out->list[0] && out->data != FZN_RETAIN_RECORDS)\n\t\treturn FZN_RETAIN_ERR_MALFORMED;\n",
+		"",
+		"a log or message rule takes a list it can never read -- sec 855",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

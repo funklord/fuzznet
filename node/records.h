@@ -110,7 +110,9 @@ fzn_node_records_err_t fzn_node_records_write(const fzn_node_records_t *nr, cons
  * TRIMMED BY THE RULES, sec 815: every record held, of every host, weighed
  * by `rules` (`log/retain.h`, already selected for this node) at `now_ms`.
  * A prune or keep rule reaches a record whose setter is its `source=`, if
- * it names one, and whose key holds its `text=`, if it has one. An AGE
+ * it names one, whose key holds its `text=`, if it has one, and one of
+ * whose key's `/` words is a member in its `list=`, if it names one (sec
+ * 855; the list read as it resolves now). An AGE
  * limit is the record's own age; a COUNT is its place among the records
  * of its key and host, newest first. A record goes when a prune rule
  * reaching it is past its limit, or a policy drops records, and no keep

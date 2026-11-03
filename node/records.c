@@ -172,12 +172,67 @@ static int holds_text(const struct held *h, const fzn_retain_rule_t *r)
 	return 0;
 }
 
-/* Whether `r` reaches `h`, and if it does, whether `h` is within it. */
-static int reaches(const fzn_retain_rule_t *r, const struct held *h)
+/* A LIST'S MEMBERS IN, sorted, for a rule's `list=`, sec 855. */
+struct members {
+	char (*m)[FZN_SETTING_KEY_MAX + 1u];
+	size_t n, cap;
+	int failed;
+};
+
+static void member_in(void *ctx, const fzn_node_list_member_t *m)
+{
+	struct members *ms = ctx;
+
+	if (!m->in || ms->failed)
+		return;
+	if (ms->n == ms->cap) {
+		size_t cap = ms->cap ? ms->cap * 2u : 32u;
+		char (*more)[FZN_SETTING_KEY_MAX + 1u] = realloc(ms->m, cap * sizeof(*more));
+
+		if (!more) {
+			ms->failed = 1;
+			return;
+		}
+		ms->m = more;
+		ms->cap = cap;
+	}
+	memcpy(ms->m[ms->n++], m->member, m->member_len + 1u);
+}
+
+static int by_text(const void *a, const void *b)
+{
+	return strcmp((const char *)a, (const char *)b);
+}
+
+/* Whether one of `h`'s key's `/` words is a member of `ms`. */
+static int holds_member(const struct held *h, const struct members *ms)
+{
+	size_t at = 0;
+
+	while (at < h->key_len) {
+		char w[FZN_SETTING_KEY_MAX + 1u];
+		size_t end = at;
+
+		while (end < h->key_len && h->key[end] != '/')
+			end++;
+		if (end > at) {
+			memcpy(w, h->key + at, end - at);
+			w[end - at] = '\0';
+			if (ms->n && bsearch(w, ms->m, ms->n, sizeof(ms->m[0]), by_text))
+				return 1;
+		}
+		at = end + 1u;
+	}
+	return 0;
+}
+
+/* Whether `r` reaches `h`, and if it does, whether `h` is within it. `ms`
+ * the members of `r`'s list, where it names one. */
+static int reaches(const fzn_retain_rule_t *r, const struct held *h, const struct members *ms)
 {
 	return r->kind != FZN_RETAIN_POLICY && r->data == FZN_RETAIN_RECORDS
 	       && (!r->has_source || memcmp(r->source, h->host, FZN_PUBKEY_LEN) == 0)
-	       && holds_text(h, r);
+	       && holds_text(h, r) && (!r->list[0] || holds_member(h, ms));
 }
 
 static int within(const fzn_retain_rule_t *r, const struct held *h, uint64_t now_ms)
@@ -195,6 +250,7 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 {
 	static uint8_t ids[FZN_BUCKETS_CHUNK][FZN_BUCKETS_ID_LEN];
 	static uint8_t item[FZN_BUCKETS_ITEM_MAX];
+	static struct members ms[FZN_RETAIN_RULES_MAX];
 	fzn_bucket_t *list = NULL;
 	struct held *all = NULL;
 	size_t room = 0, n_buckets = 0, n_all = 0, cap_all = 0, i, j, r, went = 0;
@@ -207,10 +263,28 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 		return FZN_NODE_RECORDS_MALFORMED;
 	if (!n)
 		return FZN_NODE_RECORDS_OK;
+	if (n > FZN_RETAIN_RULES_MAX)
+		return FZN_NODE_RECORDS_MALFORMED;
 	drops = fzn_retain_policy_drops(rules, n, FZN_RETAIN_RECORDS);
+	/* EACH LIST A RULE NAMES, read as it resolves now, sec 855. A list that
+	 * cannot be read fails the trim, rather than weighing its rule as if
+	 * the list were empty: a keep reaching nothing would let go what it
+	 * was written to protect. */
+	memset(ms, 0, sizeof(ms));
+	for (r = 0; r < n; r++)
+		if (rules[r].data == FZN_RETAIN_RECORDS && rules[r].list[0]
+		    && (!fzn_node_records_list_each(nr, (const uint8_t *)rules[r].list,
+		                                    strlen(rules[r].list), member_in, &ms[r])
+		        || ms[r].failed)) {
+			for (i = 0; i <= r; i++)
+				free(ms[i].m);
+			return FZN_NODE_RECORDS_BACKEND;
+		}
 	if (fzn_buckets_list_all(nr->b, FZN_BUCKETS_RECORDS, &list, &room, &n_buckets)
 	    != FZN_BUCKETS_OK) {
 		free(list);
+		for (r = 0; r < n; r++)
+			free(ms[r].m);
 		return FZN_NODE_RECORDS_BACKEND;
 	}
 	/* EVERY RECORD HELD, grown to fit (sec 704). */
@@ -265,6 +339,8 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 	free(list);
 	if (err != FZN_NODE_RECORDS_OK) {
 		free(all);
+		for (r = 0; r < n; r++)
+			free(ms[r].m);
 		return err;
 	}
 	/* EACH LIST MEMBER'S DECIDING RECORD, sec 854: kept whatever the rules
@@ -286,7 +362,7 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 		int pruned = 0, kept = all[i].resolves;
 
 		for (r = 0; r < n && !kept; r++) {
-			if (!reaches(&rules[r], &all[i]))
+			if (!reaches(&rules[r], &all[i], &ms[r]))
 				continue;
 			if (rules[r].kind == FZN_RETAIN_KEEP && within(&rules[r], &all[i], now_ms))
 				kept = 1;
@@ -302,6 +378,8 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 		went++;
 	}
 	free(all);
+	for (r = 0; r < n; r++)
+		free(ms[r].m);
 	if (gone)
 		*gone = went;
 	return err;

@@ -101,6 +101,20 @@ static int levels_of(const char *w, size_t n, uint16_t *out)
 /* `%XX`-escaped text into `out`: 1 to FZN_RETAIN_MATCH_MAX bytes, no NUL,
  * and every byte that must be escaped escaped -- so one match has one
  * spelling apart from the case of its hex digits. */
+/* A LIST'S NAME, sec 855: a key's word without `/` -- a-z, 0-9 and `._-`. */
+static int list_ok(const char *w, size_t n)
+{
+	size_t i;
+
+	if (n == 0u || n > FZN_RETAIN_LIST_MAX)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (!((w[i] >= 'a' && w[i] <= 'z') || (w[i] >= '0' && w[i] <= '9') || w[i] == '.'
+		      || w[i] == '_' || w[i] == '-'))
+			return 0;
+	return 1;
+}
+
 static int match_of(const char *w, size_t n, uint8_t *out, size_t *len)
 {
 	size_t i, k = 0;
@@ -329,6 +343,11 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 			if (!hex_of(w[i] + 8, n[i] - 8u, out->machine, sizeof(out->machine)))
 				return FZN_RETAIN_ERR_MALFORMED;
 			out->has_machine = 1;
+		} else if (n[i] > 5u && memcmp(w[i], "list=", 5u) == 0 && !out->list[0]) {
+			if (!list_ok(w[i] + 5, n[i] - 5u))
+				return FZN_RETAIN_ERR_MALFORMED;
+			memcpy(out->list, w[i] + 5, n[i] - 5u);
+			out->list[n[i] - 5u] = '\0';
 		} else if (n[i] > 5u && memcmp(w[i], "text=", 5u) == 0 && !out->match_len) {
 			if (!match_of(w[i] + 5, n[i] - 5u, out->match, &out->match_len))
 				return FZN_RETAIN_ERR_MALFORMED;
@@ -343,6 +362,9 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	}
 	/* A COPY IS KEPT OR REMOVED WHOLE, sec 483. */
 	if (out->copy && (out->levels || out->subsystem[0] || out->match_len))
+		return FZN_RETAIN_ERR_MALFORMED;
+	/* A LIST, a records rule's alone, sec 855. */
+	if (out->list[0] && out->data != FZN_RETAIN_RECORDS)
 		return FZN_RETAIN_ERR_MALFORMED;
 	/* WHOSE COPIES, only of copies, sec 487 -- or whose records, sec 815. */
 	if (out->has_source && !out->copy && out->data != FZN_RETAIN_RECORDS)
@@ -423,7 +445,8 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
                                  size_t *len)
 {
 	static const char LETTERS[] = "CEWNIVDT";
-	char levels[9], unit[2] = { 0, 0 }, match[(FZN_RETAIN_MATCH_MAX * 3u) + 7u];
+	char levels[9], unit[2] = { 0, 0 },
+	        match[(FZN_RETAIN_MATCH_MAX * 3u) + 7u + 6u + FZN_RETAIN_LIST_MAX];
 	char scope[8u + 9u + 64u + 8u + 64u + 6u + 64u + 9u + 32u + 1u];
 	char what[16u + FZN_ENTRY_WORD_MAX];
 	uint64_t v;
@@ -454,6 +477,13 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 			}
 		}
 		match[m] = '\0';
+	}
+	/* AND A RECORDS RULE'S LIST after it, sec 855. */
+	if (rule->list[0]) {
+		size_t m = strlen(match);
+
+		memcpy(match + m, " list=", 6u);
+		memcpy(match + m + 6u, rule->list, strlen(rule->list) + 1u);
 	}
 	/* THE SCOPE, source then host then machine, hex in lower case as the
 	 * parser reads it. secs 480, 487. */
@@ -640,11 +670,16 @@ static int rule_ok(const fzn_retain_rule_t *r)
 		        || r->data == FZN_RETAIN_RECORDS)
 		       && (r->drop == 0 || r->drop == 1) && r->program[0] == '\0' && !r->levels
 		       && !r->subsystem[0] && !r->match_len && !r->copy && !r->archived && !r->has_source
+		       && !r->list[0]
 		       && !r->has_contact && !r->all_contacts && !r->is_default && r->limit == 0
 		       && r->value == 0u
 		       && (r->has_host == 0 || r->has_host == 1)
 		       && (r->has_machine == 0 || r->has_machine == 1);
 	if (r->drop)
+		return 0;
+	/* A LIST, a records rule's alone and a name in shape, sec 855. */
+	if (memchr(r->list, '\0', sizeof(r->list)) == NULL
+	    || (r->list[0] && (r->data != FZN_RETAIN_RECORDS || !list_ok(r->list, strlen(r->list)))))
 		return 0;
 	/* A MESSAGE RULE: no program, no log selector, a contact or none; a
 	 * HISTORY RULE the same with no contact. */

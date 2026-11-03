@@ -570,6 +570,45 @@ static void test_the_lists(void)
 	      "a removal with a value was taken");
 }
 
+/* A KEEP NAMING A LIST, sec 855: the records whose key holds a member in
+ * the list are kept, and the rest go by the policy. Taken out of the list,
+ * a station's records are no longer kept. */
+static void test_a_keep_by_list(void)
+{
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms };
+	fzn_retain_rule_t rules[2];
+	size_t gone = 0, i;
+
+	memset(&node, 0, sizeof(node));
+	memset(&me, 0, sizeof(me));
+	memset(me.pubkey, 0x44, sizeof(me.pubkey));
+	me.sign = &SIGN;
+	clock_ms = 1793500000000ull;
+	signing_as = 0x44;
+	(void)said(&nr, FZN_ORIGIN_SAME_USER, "add listed allow aa-bb");
+	for (i = 0; i < 3u; i++, clock_ms += 1000u) {
+		(void)said(&nr, FZN_ORIGIN_SAME_USER, "add record seen/wlan0/aa-bb 1");
+		(void)said(&nr, FZN_ORIGIN_SAME_USER, "add record seen/wlan0/cc-dd 1");
+	}
+	(void)said(&nr, FZN_ORIGIN_SAME_USER, "add record seen/wlan0/aa-bbx 1");
+	rules[0] = rule("policy records drop");
+	rules[1] = rule("keep records text=seen/ list=allow count 2");
+	CHECK(rules[1].list[0] == 'a'
+	              && fzn_node_records_trim(&nr, rules, 2, clock_ms, &gone) == FZN_NODE_RECORDS_OK
+	              && held_of(&nr, "seen/wlan0/aa-bb") == 2u
+	              && held_of(&nr, "seen/wlan0/cc-dd") == 0u
+	              && held_of(&nr, "seen/wlan0/aa-bbx") == 0u
+	              && held_of(&nr, "list/allow/aa-bb") == 1u,
+	      "a keep naming a list did not keep its members' newest two alone, by whole word");
+	clock_ms += 1000u;
+	(void)said(&nr, FZN_ORIGIN_SAME_USER, "remove listed allow aa-bb");
+	CHECK(fzn_node_records_trim(&nr, rules, 2, clock_ms, &gone) == FZN_NODE_RECORDS_OK
+	              && held_of(&nr, "seen/wlan0/aa-bb") == 0u
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "get listed allow aa-bb")
+	              && replied("ok out"),
+	      "a station taken out of the list was still kept by it");
+}
+
 /* THE RULES' WORDS, sec 815: what parses, what does not, and the text it
  * writes back. */
 static void test_the_rules(void)
@@ -580,6 +619,7 @@ static void test_the_rules(void)
 		"keep records source=4444444444444444444444444444444444444444444444444444444444444444"
 		" age 7d",
 		"policy records drop",
+		"keep records text=seen/ list=allow count 5",
 	};
 	static const char *const BAD[] = {
 		"prune records size 1M",
@@ -587,6 +627,10 @@ static void test_the_rules(void)
 		"prune records contact=all age 1d",
 		"prune records level=E age 1d",
 		"prune records default age 1d",
+		"prune * list=allow age 1d",
+		"prune messages list=allow age 1d",
+		"keep records list=al/low age 1d",
+		"keep records list= age 1d",
 	};
 	size_t i;
 
@@ -616,6 +660,7 @@ int main(void)
 	test_the_trim();
 	test_the_rules();
 	test_the_lists();
+	test_a_keep_by_list();
 	if (failures) {
 		fprintf(stderr, "node records_test: %d of %d checks failed\n", failures, checks);
 		return 1;
