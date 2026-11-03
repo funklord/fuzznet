@@ -214,6 +214,27 @@ def c_marks(daemon_path, scratch, sock_dir):
 			raise failed("d: a greeting its declaration takes was not set")
 		print("livecheck: d: the extension's setting was listed after fuzznet's, a value "
 		      "past its declaration refused, and one inside it set")
+		# d2: A GROUP OF HOSTS, sec 868: A, the root, sets zone1's value and
+		# puts B in zone1; B, carried both, finds the value in force on it
+		# is zone1's, while A, in no group, has the estate's.
+		b_host = ask(socks["b"], "get prekey").split()[1][4:68]
+		for line in ("set setting estate wifi/ssid home",
+		             "set setting group=zone1 wifi/ssid upstairs",
+		             "set setting host=%s group/member zone1" % b_host):
+			if ask(socks["a"], line) != "ok":
+				raise failed("d2: A's %s was refused" % line)
+		if ask(socks["a"], "get setting here wifi/ssid") != "ok estate root home":
+			raise failed("d2: A, in no group, did not have the estate's value")
+		until = time.monotonic() + 150.0
+		while True:
+			got = ask(socks["b"], "get setting here wifi/ssid")
+			if got == "ok group=zone1 root upstairs":
+				break
+			if time.monotonic() > until:
+				raise failed("d2: B's value in force stayed %r" % got)
+			time.sleep(1.0)
+		print("livecheck: d2: a group's value, set at A, stood on B, which A put in the group, "
+		      "and not on A")
 	finally:
 		for d in started.values():
 			d.stop()

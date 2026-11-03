@@ -1127,6 +1127,46 @@ static void test_settings_judged(void)
 		              && replied("malformed")
 		              && said(&ns, FZN_ORIGIN_SAME_USER, "set thing x 1") == 0u,
 		      "another user, a bad key or scope, or another subject was not refused or passed");
+		/* A GROUP OF HOSTS, sec 868: its cells set and got by name, and the
+		 * value in force here this host's own, else its first listed group's
+		 * that sets one, else the estate's. */
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate wifi/ssid home") && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting group=zone1 wifi/ssid z1")
+		              && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting group=zone1 wifi/ssid")
+		              && strcmp(reply, "ok root z1\n") == 0
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting here wifi/ssid")
+		              && strcmp(reply, "ok estate root home\n") == 0,
+		      "a group's cell was not set and got, or stood on a host not in the group");
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting host group/member zone2%20zone1")
+		              && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting here wifi/ssid")
+		              && strcmp(reply, "ok group=zone1 root z1\n") == 0
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting group=zone2 wifi/ssid z2")
+		              && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting here wifi/ssid")
+		              && strcmp(reply, "ok group=zone2 root z2\n") == 0
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting host wifi/ssid mine")
+		              && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting here wifi/ssid")
+		              && strcmp(reply, "ok host root mine\n") == 0,
+		      "the value in force here was not the host's, else its first group's, else the "
+		      "estate's");
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting group=Zone1 wifi/ssid x")
+		              && replied("malformed")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting host group/member zone1%20zone1")
+		              && replied("malformed")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting group=zone1 host/name x")
+		              && strcmp(reply, "malformed host/name is a host setting\n") == 0
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting here")
+		              && replied("malformed"),
+		      "a group name out of shape, a member list naming one twice, a host key at a "
+		      "group, or `here` with no key was taken");
+		(void)said(&ns, FZN_ORIGIN_SAME_USER, "remove setting host wifi/ssid");
+		(void)said(&ns, FZN_ORIGIN_SAME_USER, "remove setting host group/member");
+		(void)said(&ns, FZN_ORIGIN_SAME_USER, "remove setting group=zone1 wifi/ssid");
+		(void)said(&ns, FZN_ORIGIN_SAME_USER, "remove setting group=zone2 wifi/ssid");
+		(void)said(&ns, FZN_ORIGIN_SAME_USER, "remove setting estate wifi/ssid");
 		/* A DECLARED KEY'S VALUE, sec 686: refused as its reader would
 		 * ignore it, and nothing written; at the wrong scope refused; an
 		 * undeclared key written as before; a clear never refused. */

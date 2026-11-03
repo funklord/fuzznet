@@ -1,5 +1,6 @@
 #include "schema.h"
 #include "permit.h"
+#include "../state/scope.h"
 #include "../local/escape.h"
 
 #include <stdio.h>
@@ -42,6 +43,32 @@ int fzn_node_schema_log_level(const uint8_t *value, size_t len)
 static const char *permit_check(const uint8_t *value, size_t len)
 {
 	return fzn_node_permit_check(value, len);
+}
+
+/* `group/member`, sec 868: group names apart by single spaces, each one
+ * `fzn_scope_group_id` takes, none twice. */
+static const char *member_check(const uint8_t *value, size_t len)
+{
+	static const char WHY[] = "group names of a-z, 0-9 and ._-, 1 to 32 bytes, apart by "
+	                          "single spaces, none twice";
+	uint8_t id[FZN_SUBJECT_LEN], seen[16][FZN_SUBJECT_LEN];
+	size_t at = 0, n_seen = 0, i;
+
+	while (at < len) {
+		size_t start = at;
+
+		while (at < len && value[at] != ' ')
+			at++;
+		if (!fzn_scope_group_id(value + start, at - start, id) || n_seen == 16u)
+			return WHY;
+		for (i = 0; i < n_seen; i++)
+			if (memcmp(seen[i], id, sizeof(id)) == 0)
+				return WHY;
+		memcpy(seen[n_seen++], id, sizeof(id));
+		if (at < len && ++at == len)
+			return WHY;	/* a trailing space */
+	}
+	return n_seen ? NULL : WHY;
 }
 
 static const char *log_level_check(const uint8_t *value, size_t len)
@@ -98,6 +125,10 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "which local users and groups may read (r) or change (rw) a verb's subject on this "
 	  "host: group:NAME=r user:NAME=rw, #ID for a NAME (sec 852)",
 	  permit_check },
+	{ "group/member", FZN_SCHEMA_TEXT, HOST, 1u, 255u, "", "", 0u,
+	  "the groups this host is in, first first: a group's settings stand here where the "
+	  "host sets none of its own, and the first group listed that sets one wins (sec 868)",
+	  member_check },
 	{ "net/metric", FZN_SCHEMA_COUNT, HOST, 0u, 255u, "100", "", FZN_SCHEMA_ADVANCED,
 	  "this host's place in the routing manifest, lower first (sec 611)", NULL },
 	{ "net/discovery", FZN_SCHEMA_TEXT, HOST, 1u, 45u, "255.255.255.255", "", FZN_SCHEMA_ADVANCED,

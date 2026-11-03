@@ -58,7 +58,9 @@ static int value_ok(const uint8_t *value, size_t len)
 /* The scopes this build serves cells for. */
 static int scope_served(fzn_scope_t scope)
 {
-	return scope == FZN_SCOPE_HOST || scope == FZN_SCOPE_ESTATE;
+	/* GROUP SINCE sec 868: a cell about a group of hosts, its id the
+	 * group's name (`fzn_scope_group_id`). */
+	return scope == FZN_SCOPE_HOST || scope == FZN_SCOPE_GROUP || scope == FZN_SCOPE_ESTATE;
 }
 
 /* Both shapes: `rank` -1 writes none, as before sec 728. */

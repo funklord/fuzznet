@@ -146,6 +146,17 @@ int fzn_node_settings_get(const fzn_node_settings_t *ns, fzn_scope_t scope,
                           size_t key_len, uint8_t *value, size_t *value_len,
                           fzn_setting_rank_t *rank);
 
+/*
+ * THE VALUE IN FORCE HERE for `key`, sec 868: this host's own cell; else
+ * the cell of the first group in this host's `group/member` that sets one;
+ * else the estate's. 1 with the value, its rank, and where it stood --
+ * `*scope` and `about` (a group's id is its name, `fzn_scope_group_id`) --
+ * or 0 when none sets it and the caller's default stands.
+ */
+int fzn_node_settings_here(const fzn_node_settings_t *ns, const uint8_t *key, size_t key_len,
+                           uint8_t *value, size_t *value_len, fzn_setting_rank_t *rank,
+                           fzn_scope_t *scope, uint8_t about[FZN_SUBJECT_LEN]);
+
 /* One value in force: its setting as it stands, and its rank. */
 typedef void (*fzn_node_settings_each_fn)(void *ctx, const fzn_setting_t *s,
                                           fzn_setting_rank_t rank);

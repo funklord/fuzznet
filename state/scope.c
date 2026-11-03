@@ -102,3 +102,43 @@ fzn_scope_err_t fzn_scope_subject(fzn_scope_t scope, const uint8_t id[FZN_SUBJEC
 	memcpy(out, derived, FZN_SUBJECT_LEN);
 	return FZN_SCOPE_OK;
 }
+
+static int group_char(uint8_t c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+}
+
+int fzn_scope_group_id(const uint8_t *name, size_t len, uint8_t id[FZN_SUBJECT_LEN])
+{
+	size_t i;
+
+	if (!name || !id || len == 0u || len > FZN_SCOPE_GROUP_NAME_MAX || len > FZN_SUBJECT_LEN)
+		return 0;
+	for (i = 0; i < len; i++)
+		if (!group_char(name[i]))
+			return 0;
+	memset(id, 0, FZN_SUBJECT_LEN);
+	memcpy(id, name, len);
+	return 1;
+}
+
+size_t fzn_scope_group_name(const uint8_t id[FZN_SUBJECT_LEN], char out[FZN_SCOPE_GROUP_NAME_MAX + 1u])
+{
+	size_t n = 0, i;
+
+	if (!id || !out)
+		return 0;
+	while (n < FZN_SUBJECT_LEN && n < FZN_SCOPE_GROUP_NAME_MAX && id[n])
+		n++;
+	if (!n)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (!group_char(id[i]))
+			return 0;
+	for (i = n; i < FZN_SUBJECT_LEN; i++)
+		if (id[i])
+			return 0;
+	memcpy(out, id, n);
+	out[n] = '\0';
+	return n;
+}

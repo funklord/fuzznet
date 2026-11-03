@@ -885,6 +885,55 @@ static int scope_of(const fzn_node_settings_t *ns, const uint8_t *w, size_t w_le
 		*scope = FZN_SCOPE_HOST;
 		return parse_hex(w + 5u, w_len - 5u, about, FZN_SUBJECT_LEN);
 	}
+	/* A GROUP OF HOSTS, sec 868, by its name. */
+	if (w_len > 6u && memcmp(w, "group=", 6u) == 0) {
+		*scope = FZN_SCOPE_GROUP;
+		return fzn_scope_group_id(w + 6, w_len - 6u, about);
+	}
+	return 0;
+}
+
+int fzn_node_settings_here(const fzn_node_settings_t *ns, const uint8_t *key, size_t key_len,
+                           uint8_t *value, size_t *value_len, fzn_setting_rank_t *rank,
+                           fzn_scope_t *scope, uint8_t about[FZN_SUBJECT_LEN])
+{
+	static const char MEMBER[] = "group/member";
+	uint8_t groups[FZN_SETTING_VALUE_MAX];
+	size_t groups_len = 0, at = 0;
+	fzn_setting_rank_t member_rank;
+
+	if (!ns || !key || !value || !value_len || !rank || !scope || !about || !ns->id)
+		return 0;
+	if (fzn_node_settings_get(ns, FZN_SCOPE_HOST, ns->id->pubkey, key, key_len, value,
+	                          value_len, rank)) {
+		*scope = FZN_SCOPE_HOST;
+		memcpy(about, ns->id->pubkey, FZN_SUBJECT_LEN);
+		return 1;
+	}
+	/* EACH GROUP THIS HOST IS IN, in the order the host lists them. */
+	if (fzn_node_settings_get(ns, FZN_SCOPE_HOST, ns->id->pubkey, (const uint8_t *)MEMBER,
+	                          sizeof(MEMBER) - 1u, groups, &groups_len, &member_rank))
+		while (at < groups_len) {
+			size_t start = at;
+
+			while (at < groups_len && groups[at] != ' ')
+				at++;
+			if (fzn_scope_group_id(groups + start, at - start, about)
+			    && fzn_node_settings_get(ns, FZN_SCOPE_GROUP, about, key, key_len, value,
+			                             value_len, rank)) {
+				*scope = FZN_SCOPE_GROUP;
+				return 1;
+			}
+			if (at < groups_len)
+				at++;
+		}
+	if (ns->estate
+	    && fzn_node_settings_get(ns, FZN_SCOPE_ESTATE, ns->estate, key, key_len, value,
+	                             value_len, rank)) {
+		*scope = FZN_SCOPE_ESTATE;
+		memcpy(about, ns->estate, FZN_SUBJECT_LEN);
+		return 1;
+	}
 	return 0;
 }
 
@@ -935,7 +984,9 @@ static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t 
 		const char *why = NULL;
 		char detail[160];
 
-		if (e && !(e->scopes & (scope == FZN_SCOPE_ESTATE ? FZN_SCHEMA_ESTATE : FZN_SCHEMA_HOST))) {
+		/* A GROUP STANDS WHERE THE ESTATE MAY, sec 868: less than the
+		 * estate, a zone's own value for an estate's key. */
+		if (e && !(e->scopes & (scope == FZN_SCOPE_HOST ? FZN_SCHEMA_HOST : FZN_SCHEMA_ESTATE))) {
 			(void)snprintf(detail, sizeof(detail), "%.*s is %s setting", (int)key_len,
 			               (const char *)key, e->scopes & FZN_SCHEMA_ESTATE ? "an estate" : "a host");
 			return say(reply, cap, FZN_REPLY_MALFORMED, detail);
@@ -951,19 +1002,54 @@ static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t 
 	return say(reply, cap, FZN_REPLY_OK, NULL);
 }
 
-static size_t get_setting(const fzn_node_settings_t *ns, const uint8_t *at, size_t left,
-                          char *reply, size_t cap)
+/* `get setting here KEY`, sec 868: the value in force on this host and
+ * where it stood -- `ok host RANK VALUE`, `ok group=NAME RANK VALUE` or
+ * `ok estate RANK VALUE`, or `ok absent`. */
+static size_t get_here(const fzn_node_settings_t *ns, const uint8_t *key, size_t key_len,
+                       char *reply, size_t cap)
 {
-	static const char USAGE[] = "get setting SCOPE KEY";
 	uint8_t about[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX];
-	char detail[8u + 3u * FZN_SETTING_VALUE_MAX];
-	const uint8_t *w, *key;
-	size_t w_len, key_len, value_len = 0, n;
+	char detail[64u + 3u * FZN_SETTING_VALUE_MAX], name[FZN_SCOPE_GROUP_NAME_MAX + 1u];
+	size_t value_len = 0, n;
 	fzn_setting_rank_t rank;
 	fzn_scope_t scope;
 	int whole = 0, k;
 
-	if (!word(&at, &left, &w, &w_len) || !scope_of(ns, w, w_len, &scope, about)
+	if (!fzn_node_settings_here(ns, key, key_len, value, &value_len, &rank, &scope, about))
+		return say(reply, cap, FZN_REPLY_OK, "absent");
+	if (scope == FZN_SCOPE_GROUP) {
+		if (!fzn_scope_group_name(about, name))
+			return 0;
+		k = snprintf(detail, sizeof(detail), "group=%s %s ", name, RANKS[rank]);
+	} else {
+		k = snprintf(detail, sizeof(detail), "%s %s ", fzn_scope_name(scope), RANKS[rank]);
+	}
+	if (k < 0)
+		return 0;
+	n = (size_t)k + escape(value, value_len, detail + k, sizeof(detail) - (size_t)k, &whole);
+	if (!whole)
+		return 0;
+	return answer(reply, cap, FZN_REPLY_OK, detail, n);
+}
+
+static size_t get_setting(const fzn_node_settings_t *ns, const uint8_t *at, size_t left,
+                          char *reply, size_t cap)
+{
+	static const char USAGE[] = "get setting SCOPE KEY, or get setting here KEY";
+	uint8_t about[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX];
+	char detail[8u + 3u * FZN_SETTING_VALUE_MAX];
+	const uint8_t *w = NULL, *key;
+	size_t w_len = 0, key_len, value_len = 0, n;
+	fzn_setting_rank_t rank;
+	fzn_scope_t scope;
+	int whole = 0, k;
+
+	if (word(&at, &left, &w, &w_len) && is_word(w, w_len, "here")) {
+		if (!word(&at, &left, &key, &key_len) || !fzn_setting_key_ok(key, key_len) || left)
+			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		return get_here(ns, key, key_len, reply, cap);
+	}
+	if (!w || !scope_of(ns, w, w_len, &scope, about)
 	    || !word(&at, &left, &key, &key_len) || !fzn_setting_key_ok(key, key_len) || left)
 		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
 	if (!fzn_node_settings_get(ns, scope, about, key, key_len, value, &value_len, &rank))

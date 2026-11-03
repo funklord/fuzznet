@@ -107,4 +107,16 @@ int fzn_scope_widens(fzn_scope_t from, fzn_scope_t to);
 fzn_scope_err_t fzn_scope_subject(fzn_scope_t scope, const uint8_t id[FZN_SUBJECT_LEN],
                                   const fzn_hash_ops_t *hash, uint8_t out[FZN_SUBJECT_LEN]);
 
+/* A GROUP'S ID, sec 868: its NAME, 1 to FZN_SCOPE_GROUP_NAME_MAX bytes of
+ * a-z, 0-9 and `._-`, zero-padded to FZN_SUBJECT_LEN -- readable wherever
+ * the id is shown, and a subject apart from any host's, since the subject
+ * hashes the scope in (`fzn_scope_subject`). 1, or 0 for a name out of
+ * shape. */
+#define FZN_SCOPE_GROUP_NAME_MAX 32u
+int fzn_scope_group_id(const uint8_t *name, size_t len, uint8_t id[FZN_SUBJECT_LEN]);
+
+/* THE NAME an id made by `fzn_scope_group_id` holds, NUL-ended into `out`:
+ * its length, or 0 for an id no name makes. */
+size_t fzn_scope_group_name(const uint8_t id[FZN_SUBJECT_LEN], char out[FZN_SCOPE_GROUP_NAME_MAX + 1u]);
+
 #endif /* FZN_SCOPE_H */

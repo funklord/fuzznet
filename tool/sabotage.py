@@ -3754,6 +3754,13 @@ SABOTAGES = [
 		"published events are not numbered on, and a reader's cursor never moves -- sec 866",
 	),
 	(
+		"setting-here-a-group-stands",
+		"node/settings.c",
+		"\t\t\t\t*scope = FZN_SCOPE_GROUP;\n\t\t\t\treturn 1;",
+		"\t\t\t\t*scope = FZN_SCOPE_GROUP;\n\t\t\t\tbreak;",
+		"a host in a group is given the estate's value over its group's -- sec 868",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

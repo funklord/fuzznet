@@ -79647,3 +79647,70 @@ card:
   error.
 
 It passed on the first run.
+
+## 868. Settings for a group of hosts, 2026-11-03
+
+netcfgd waits on this (its project.md, the fourth of sec 724's askers).
+The hard half of "which nodes need a value" is answered by a value's
+scope, and the place it meets netcfgd's "every node whose rules reference
+it" is group membership, "which fuzznet has no settings for yet".
+`FZN_SCOPE_GROUP` has been in the vocabulary since sec 420, defined there
+as "less than the estate: a zone, a building, a VLAN domain". But the
+setting object refused it: `scope_served` took host and estate alone.
+
+**Built:**
+- **A group's cell.**
+  - The setting object serves `FZN_SCOPE_GROUP` (`state/setting.c`).
+  - A group's id is its name, 1 to 32 bytes of a-z, 0-9 and `._-`,
+    zero-padded (`fzn_scope_group_id`, `fzn_scope_group_name`). That
+    keeps it readable wherever an id is shown. Its subject is apart from
+    any host's, since `fzn_scope_subject` hashes the scope in.
+  - The verbs take `group=NAME` as a scope: `set setting group=zone1
+    wifi/ssid upstairs`, and `get` and `remove` alike.
+  - Who may set one is who may set the estate's, a root or an admin
+    (`fzn_node_apply_rank`, unchanged): a host has standing for its own
+    host cells alone.
+- **Membership is a host's own setting,** `group/member`, its groups by
+  name, first first (declared in `node/schema.c`, a name refused twice).
+  A host's admin or root sets it for the host, or the host itself.
+- **The value in force here:**
+  - this host's own cell;
+  - else the first group in its `group/member` that sets the key;
+  - else the estate's.
+
+  This is `fzn_node_settings_here` in C, for an extension in-process,
+  and `get setting here KEY` on the socket. The answer names where the
+  value stood: `ok group=zone1 root upstairs`.
+- **A declared key** may stand at a group wherever it may stand at the
+  estate: a group is a zone's own value for an estate's key. A host-only
+  key is refused at a group.
+
+**Measured:**
+- `apply_test`, 173 checks:
+  - a group's cell set and got by name;
+  - the estate's value on a host in no group, the first listed group's
+    on a member, its own over both;
+  - refused: an upper-case group name, a member list naming one twice, a
+    host key at a group, and `here` with no key.
+- `live_ext` d2: A, the root, sets zone1's value and puts B in zone1.
+  After the round B's value in force is zone1's, while A keeps the
+  estate's.
+- `setting_test` now holds that a group's cell is issued and opens as
+  one, where it held the refusal.
+- Sabotage: `setting-here-a-group-stands`.
+
+**What this does not do, and it is the holder's question:**
+- **Reach is not enforced.** Sec 420 says a group value is "seen by the
+  group's members only". A group cell travels as an estate cell does,
+  in its setter's estate stream, so every host of the estate holds its
+  bytes, and only members resolve it as theirs. That serves netcfgd's
+  question of which node a value applies to. It does not keep a value
+  from the estate's other hosts. Doing that means sealing the value to
+  the group's members, as messages are sealed, which is netcfgd's open
+  secrets question (a roaming key or a mesh password) and a format
+  change.
+- **An older build refuses a group cell it is carried,** since its
+  setting object served host and estate alone. It counts the cell
+  refused and goes on with the rest of the stream, so an estate of mixed
+  builds keeps its other settings. The old build's members simply do
+  not hold group values.

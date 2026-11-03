@@ -186,14 +186,22 @@ static void test_what_is_refused(void)
 	              && !issue(0x10, FZN_SCOPE_ESTATE, 0x10, 1u, "k", 0, "a value", obj2, &len2),
 	      "an unprintable or long value, or a clear with a value, was issued");
 	signing_as = 0x10;
-	CHECK(fzn_setting_issue(who, &SIGN, FZN_SCOPE_GROUP, subject, 1u, (const uint8_t *)"k", 1u, 1,
-	                        (const uint8_t *)"v", 1u, obj2, &len2)
-	              == FZN_SETTING_ERR_SCOPE
-	              && fzn_setting_issue(who, &SIGN, FZN_SCOPE_HOST_PRIVATE, subject, 1u,
+	/* A GROUP'S CELL IS SERVED SINCE sec 868, and opens as one. */
+	{
+		fzn_setting_t g;
+
+		CHECK(fzn_setting_issue(who, &SIGN, FZN_SCOPE_GROUP, subject, 1u, (const uint8_t *)"k",
+		                        1u, 1, (const uint8_t *)"v", 1u, obj2, &len2)
+		              == FZN_SETTING_OK
+		              && fzn_setting_open(obj2, len2, &SIGN, &g) == FZN_SETTING_OK
+		              && g.scope == FZN_SCOPE_GROUP,
+		      "a group's cell was not issued, or did not open as one");
+	}
+	CHECK(fzn_setting_issue(who, &SIGN, FZN_SCOPE_HOST_PRIVATE, subject, 1u,
 	                                   (const uint8_t *)"k", 1u, 1, (const uint8_t *)"v", 1u, obj2,
 	                                   &len2)
-	                         == FZN_SETTING_ERR_SCOPE,
-	      "a scope with no cell, or one not served, was issued");
+	              == FZN_SETTING_ERR_SCOPE,
+	      "a scope with no cell was issued");
 	/* The object above, each way broken. */
 	memcpy(bad, obj, len);
 	bad[len - 1u] ^= 1u;
