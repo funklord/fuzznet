@@ -693,9 +693,11 @@ static fzn_node_shelf_err_t fetch_spans(fzn_node_shelf_t *shelf, held_t *h,
 		    != FZN_MSG_OK)
 			return FZN_NODE_SHELF_ERR_MALFORMED;
 		if (!ask(ask_ctx, request, len, reply, sizeof(reply), &reply_len)) {
-			/* UNANSWERED: half as much asked next round. */
+			/* UNANSWERED: half as much asked next round -- half of what
+			 * was asked, which the text's last leaves may make less
+			 * than the most. */
 			if (span)
-				*span = most > 1u ? most / 2u : 1u;
+				*span = ranges[0].count > 1u ? (uint32_t)(ranges[0].count / 2u) : 1u;
 			return FZN_NODE_SHELF_ERR_NO_ANSWER;
 		}
 		if (fzn_msg_peek(reply, reply_len, &type) != FZN_MSG_OK)

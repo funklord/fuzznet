@@ -3600,9 +3600,16 @@ SABOTAGES = [
 		"a peer whose many-piece answers are lost is asked the same span until it is given up on, and a file never finishes at 20 per cent loss -- sec 839",
 	),
 	(
+		"files-span-halves-what-was-asked",
+		"node/files.c",
+		"\tif (count && f->span[peer] > count)\n",
+		"\tif (0)\n",
+		"a 30-leaf file halved from a ceiling of 64 is asked whole twice more before the span shrinks -- sec 839",
+	),
+	(
 		"shelf-span-shrinks-on-loss",
 		"node/shelf.c",
-		"\t\t\tif (span)\n\t\t\t\t*span = most > 1u ? most / 2u : 1u;\n",
+		"\t\t\tif (span)\n\t\t\t\t*span = ranges[0].count > 1u ? (uint32_t)(ranges[0].count / 2u) : 1u;\n",
 		"",
 		"a want whose large answers are lost asks the same sixteen leaves every round, and a long note text never arrives at 20 per cent loss -- sec 839",
 	),

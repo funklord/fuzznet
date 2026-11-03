@@ -923,6 +923,16 @@ static void charge(fzn_node_files_fetching_t *f, size_t peer, int silent)
 	}
 }
 
+/* WHAT WAS ASKED, before a silence halves it (sec 839): a span shorter
+ * than the most, the file's last or a small file's whole, halves from its
+ * own length, not from a ceiling it never reached -- 64 halved twice is
+ * still a whole 30-leaf file asked again. */
+static void asked(fzn_node_files_fetching_t *f, size_t peer, uint64_t count)
+{
+	if (count && f->span[peer] > count)
+		f->span[peer] = (uint32_t)count;
+}
+
 static void drop_out(fzn_node_files_fetching_t *f, size_t slot)
 {
 	f->out[slot].live = 0;
@@ -1044,6 +1054,7 @@ int fzn_node_files_fetching_next(fzn_node_files_fetching_t *f, uint64_t now_ms, 
 	if (fzn_transfer_expire(&f->transfer, now_ms))
 		for (slot = 0; slot < FZN_TRANSFER_MAX_ASSIGNS; slot++)
 			if (f->out[slot].live && !still_assigned(f, slot)) {
+				asked(f, f->out[slot].peer, f->out[slot].range.count);
 				charge(f, f->out[slot].peer, 1);
 				drop_out(f, slot);
 			}
@@ -1145,6 +1156,7 @@ void fzn_node_files_fetching_take(fzn_node_files_fetching_t *f, uint32_t tag,
 	if (!reply) {
 		(void)fzn_transfer_failed(&f->transfer, (uint32_t)k, f->out[slot].range.first,
 		                          f->out[slot].range.count);
+		asked(f, k, f->out[slot].range.count);
 		drop_out(f, slot);
 		charge(f, k, 1);
 		return;

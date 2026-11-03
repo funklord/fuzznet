@@ -78369,6 +78369,13 @@ C's want twice with one reply of 31103 bytes in 31 pieces.
 - `node/test/files_test`: a peer that loses every answer of more than
   four leaves still gives the 301-leaf file whole. With the halving
   taken out, the fetch ends without it.
+- **And it halves what was asked, not the ceiling.** The first live run
+  after the fix still showed 31-piece replies: a 30-leaf file is asked
+  whole, and 64 halved is 32, which asks the whole file again. A
+  silence now halves the span actually asked. In files_test a 30-leaf
+  file from that peer meets two silences before its first answer, where
+  halving the ceiling meets four. The shelf halves its asked range the
+  same way.
 
 The test was changed first, on a wrong diagnosis. Each turn had
 restarted B mid-fetch, and phase f now keeps B up while C fetches. That

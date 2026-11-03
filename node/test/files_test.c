@@ -589,6 +589,56 @@ static void test_a_lossy_peer_is_asked_less(const fzn_node_files_t *A,
 	CHECK(entries(dir_s) == 0u && rmdir(dir_s) == 0, "the lossy fetch's store did not empty");
 }
 
+/* A SHORT FILE FROM A LOSSY PEER, sec 839: a 30-leaf file's first span is
+ * its largest canonical one, 16 leaves, and a silence halves what was
+ * asked -- 8, then 4, which comes: two silences. Halved from the ceiling
+ * of 64 instead, 32 still asks 16 again, and it is four. One span out at
+ * a time, so the silences before the first answer are counted. */
+static void test_a_short_file_halves_what_was_asked(const fzn_node_files_t *A,
+                                                    const fzn_node_file_ref_t *ref)
+{
+	static fzn_node_files_t B;
+	static fzn_node_files_fetching_t f;
+	static uint8_t reply[FZN_NODE_FILES_REPLY_MAX];
+	uint8_t request[FZN_MSG_WANT_LEN];
+	size_t len_req, peer, holders = 0, passes = 0, silences = 0;
+	uint32_t tag;
+	uint64_t placed = 0, length = 0;
+	char dir_s[160];
+	int answered = 0;
+
+	(void)snprintf(dir_s, sizeof(dir_s), "%s/short", top);
+	CHECK(fzn_node_files_init(&B, dir_s, &HASH, &AEAD, &RNG) == FZN_NODE_FILES_OK
+	              && fzn_node_files_want(&B, ref->root, ref->length) == FZN_NODE_FILES_OK
+	              && fzn_node_files_fetching_begin(&f, &B, ref->root, 1u, 1u, UINT64_MAX)
+	                         == FZN_NODE_FILES_OK,
+	      "fixture: a fetch of a 30-leaf file, a span at a time");
+	while (!fzn_node_files_fetching_over(&f) && passes++ < 5000u) {
+		size_t len;
+
+		if (!fzn_node_files_fetching_next(&f, 1000u, &peer, &tag, request, sizeof(request),
+		                                  &len_req))
+			continue;
+		len = fzn_node_files_answer(A, request, len_req, reply, sizeof(reply));
+		if (!(tag & FZN_NODE_FILES_TAG_HOLDS) && f.out[tag & 0xffu].range.count > 4u) {
+			if (!answered)
+				silences++;
+			fzn_node_files_fetching_take(&f, tag, NULL, 0, 1000u);
+			continue;
+		}
+		if (!(tag & FZN_NODE_FILES_TAG_HOLDS))
+			answered = 1;
+		fzn_node_files_fetching_take(&f, tag, len ? reply : NULL, len, 1000u);
+	}
+	CHECK(silences == 2u, "a short file's span did not halve from what was asked");
+	CHECK(fzn_node_files_fetching_end(&f, &placed, &holders) == FZN_NODE_FILES_OK
+	              && fzn_node_files_held(&B, ref->root, &length) == FZN_NODE_FILES_OK
+	              && length == ref->length,
+	      "a short file from a lossy peer did not end whole");
+	(void)fzn_node_files_remove(&B, ref->root);
+	CHECK(entries(dir_s) == 0u && rmdir(dir_s) == 0, "the short fetch's store did not empty");
+}
+
 int main(void)
 {
 	static const size_t SIZES[] = { 1u, 1024u, 1025u, (70u * 1024u) + 17u, 300u * 1024u };
@@ -1149,6 +1199,16 @@ int main(void)
 		test_the_fetch_as_steps(&F, &stepped);
 		test_a_lossy_peer_is_asked_less(&F, &stepped);
 		(void)fzn_node_files_remove(&F, stepped.root);
+	}
+	/* AND OF A SHORT ONE, 30 leaves, as live_groups' phase f sends. */
+	{
+		fzn_node_file_ref_t short_ref;
+
+		CHECK(make_source(src_path, (30u * 1024u) - 100u)
+		              && fzn_node_files_put(&F, src_path, &short_ref) == FZN_NODE_FILES_OK,
+		      "fixture: A holds a file of 30 leaves");
+		test_a_short_file_halves_what_was_asked(&F, &short_ref);
+		(void)fzn_node_files_remove(&F, short_ref.root);
 	}
 
 	/* REMOVED BY NAME, and what is left is an assertion. */
