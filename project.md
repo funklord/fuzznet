@@ -78772,3 +78772,37 @@ to an interface netcfgd depends on, so it is the holder's.
 - **Not chosen:** `--group` with a group of the deployment's choosing.
   It admits the GUI user to fuzznet's own verbs as well, more than
   netcfgd asks.
+
+## 850. The catalogue under loss, and a seed that replayed the same loss, 2026-11-03
+
+Sec 689's scenario bar for the catalogue, the next area after groups
+(sec 839). `tool/live_catalog.py` gains `--loss P`: both daemons at that
+loss against `make fuzznetd-faults`, with three times the rounds.
+
+**The first ten runs failed four of four before they were stopped,** and
+not for the node. `fault/fault.c` seeds its loss from `FZN_FAULT_SEED`
+when given, and from the daemon's pid otherwise. The scripts gave the
+run's pid, so every daemon start replayed exactly the same drops.
+live_catalog restarts B every round, so B met the same loss in every
+round: the same journal pull, 5 requests sent and 2 datagrams read, each
+time. That is not loss, and no number of rounds gets past it.
+
+**Fixed:** the three `--loss` modes written this run (catalogue, groups
+and notes) no longer give a seed, so each daemon seeds from its own pid.
+The catalogue then passed ten runs of ten at 20 per cent loss.
+
+**What this leaves:**
+- **The groups and notes batches of secs 839 and 850 ran with the seed
+  fixed.** Groups restart each daemon every turn, so their loss was the
+  same per restart. They passed, but under less varied loss than "20
+  per cent" suggests. Neither has been run since the seed went.
+- **The estate, chat and erasure scripts (secs 742 to 745) still give a
+  seed.** They restart a daemon only between phases, a few times a
+  journey, so replay touches them far less. Not changed here.
+
+**The catalogue's authorization bar is not met.** Its verbs live in
+`node/daemon.c` as statics, refused to any caller but this node's own
+user, and no unit test reaches them. A live test would need a second
+uid. sec 689's survey named this ("the remote handlers are untestable
+where they live"). Testing the gate means moving the catalogue's verbs
+out of `daemon.c` first.

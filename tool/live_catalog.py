@@ -14,6 +14,10 @@ with a grant it can pass on, pulling from A.
     g  A makes a group; B, holding none, learns it from its sibling at its
        next round, with the same members (sec 626)
 
+`--loss P` runs both daemons at FZN_FAULT_LOSS=P, one seed per run, against
+a daemon built by `make fuzznetd-faults`, with three times the rounds: sec
+689's scenario bar for the catalogue (sec 850).
+
 Against a daemon that does not follow its siblings' catalogue stream, B
 never lists A's name; against one that does not sync its siblings' groups,
 B never lists A's group.
@@ -50,6 +54,17 @@ ROUNDS = 4
 
 
 def main(argv):
+	global ROUNDS
+	if len(argv) == 4 and argv[2] == "--loss" and argv[3].isdigit():
+		# UNDER LOSS a round may miss what it asked for: three times the
+		# rounds, and the time for them (sec 850).
+		os.environ["FZN_FAULT_LOSS"] = argv[3]
+		# NO SEED GIVEN, sec 850: each daemon seeds its loss from its own pid.
+		# Given one, every start replayed the same drops, and a script that
+		# restarts a daemon each round met the same loss every round.
+		ROUNDS *= 3
+		live_trim.DEADLINE = time.monotonic() + 1500.0
+		argv = argv[:2]
 	if len(argv) != 2:
 		print("usage: live_catalog.py PATH_TO_FUZZNETD", file=sys.stderr)
 		return 2

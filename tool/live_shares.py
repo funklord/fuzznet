@@ -71,7 +71,9 @@ def main(argv):
 	global WAIT
 	if len(argv) == 4 and argv[2] == "--loss" and argv[3].isdigit():
 		os.environ["FZN_FAULT_LOSS"] = argv[3]
-		os.environ["FZN_FAULT_SEED"] = str(os.getpid())
+		# NO SEED GIVEN, sec 850: each daemon seeds its loss from its own pid.
+		# Given one, every start replayed the same drops, and a script that
+		# restarts a daemon each round met the same loss every round.
 		os.environ["FZN_TUNE_PULL_EVERY"] = "5"
 		WAIT = 120.0
 		live_trim.DEADLINE = time.monotonic() + 1200.0

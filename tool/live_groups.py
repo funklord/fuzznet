@@ -102,7 +102,9 @@ def main(argv):
 		# UNDER LOSS a round may miss what it asked for, so each wait has
 		# more rounds and the whole more time (sec 839).
 		os.environ["FZN_FAULT_LOSS"] = argv[3]
-		os.environ["FZN_FAULT_SEED"] = str(os.getpid())
+		# NO SEED GIVEN, sec 850: each daemon seeds its loss from its own pid.
+		# Given one, every start replayed the same drops, and a script that
+		# restarts a daemon each round met the same loss every round.
 		ROUNDS *= 3
 		KEPT_WAIT = 200.0
 		live_trim.DEADLINE = time.monotonic() + 1500.0
