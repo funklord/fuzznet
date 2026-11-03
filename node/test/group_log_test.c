@@ -369,6 +369,110 @@ static void test_the_admins_change_by_a_majority(void)
 	      "an admin leaving did not end the open proposals");
 }
 
+/* EVERY BOUND AT ITS EDGE, sec 689's scale bar for groups (sec 839): the
+ * last member, admin, open proposal and host each taken, the next refused
+ * FULL, and a refused act leaves the log where it was -- its head and its
+ * place unmoved, so every host refuses it alike. */
+static void test_the_bounds_hold_at_their_edges(void)
+{
+	static fzn_group_t g, before;
+	fzn_group_act_t a;
+	uint8_t nonce[32], who[32];
+	size_t i;
+	uint8_t u, adm;
+
+	/* MEMBERS: the maker and 255 more, then one past. Members are added
+	 * by root and need not sign, so their roots are two bytes apart. */
+	memset(nonce, 0x41, sizeof(nonce));
+	act(&a, FZN_GROUP_ACT_CREATE, 0x11u, NULL, 0u, NULL, nonce);
+	(void)apply(&g, &a);
+	for (i = 1u; i < FZN_GROUP_MEMBERS_MAX; i++) {
+		memset(who, 0xa0, sizeof(who));
+		who[0] = (uint8_t)i;
+		who[1] = (uint8_t)(i >> 8);
+		if (next(&g, FZN_GROUP_ACT_ADD, 0x11u, who) != FZN_GROUP_LOG_OK)
+			break;
+	}
+	CHECK(g.n_members == FZN_GROUP_MEMBERS_MAX, "a group did not take its last member");
+	before = g;
+	memset(who, 0xb0, sizeof(who));
+	CHECK(next(&g, FZN_GROUP_ACT_ADD, 0x11u, who) == FZN_GROUP_LOG_ERR_FULL
+	              && g.n_members == FZN_GROUP_MEMBERS_MAX && g.seq == before.seq
+	              && memcmp(g.head, before.head, 32u) == 0 && g.epoch == before.epoch,
+	      "a member past the bound was taken, or its refusal moved the log");
+
+	/* ADMINS: 0x21 to 0x2f made admins beside the maker, each by every
+	 * admin proposing it in turn until a majority carries it; 16 in all,
+	 * and a seventeenth refused. */
+	memset(nonce, 0x42, sizeof(nonce));
+	act(&a, FZN_GROUP_ACT_CREATE, 0x11u, NULL, 0u, NULL, nonce);
+	(void)apply(&g, &a);
+	for (u = 0x21u; u <= 0x30u; u++) {
+		root_of(who, u);
+		(void)next(&g, FZN_GROUP_ACT_ADD, 0x11u, who);
+	}
+	for (u = 0x21u; u <= 0x2fu; u++) {
+		root_of(who, u);
+		for (adm = 0x11u; !fzn_group_is_admin(&g, who) && adm < u; adm++) {
+			uint8_t root[32];
+
+			root_of(root, adm);
+			if (fzn_group_is_admin(&g, root))
+				(void)next(&g, FZN_GROUP_ACT_ADMIN_ADD, adm, who);
+		}
+	}
+	CHECK(g.n_admins == FZN_GROUP_ADMINS_MAX, "a group did not take its last admin");
+	root_of(who, 0x30u);
+	before = g;
+	CHECK(next(&g, FZN_GROUP_ACT_ADMIN_ADD, 0x11u, who) == FZN_GROUP_LOG_ERR_FULL
+	              && g.n_admins == FZN_GROUP_ADMINS_MAX && g.n_proposals == 0u
+	              && g.seq == before.seq,
+	      "an admin past the bound was proposed, or its refusal moved the log");
+
+	/* OPEN PROPOSALS: two admins, so each needs both; eight left open,
+	 * and a ninth refused. */
+	memset(nonce, 0x43, sizeof(nonce));
+	act(&a, FZN_GROUP_ACT_CREATE, 0x11u, NULL, 0u, NULL, nonce);
+	(void)apply(&g, &a);
+	for (u = 0x21u; u <= 0x2au; u++) {
+		root_of(who, u);
+		(void)next(&g, FZN_GROUP_ACT_ADD, 0x11u, who);
+	}
+	root_of(who, 0x21u);
+	(void)next(&g, FZN_GROUP_ACT_ADMIN_ADD, 0x11u, who);
+	for (u = 0x22u; u < 0x22u + FZN_GROUP_PROPOSALS_MAX; u++) {
+		root_of(who, u);
+		(void)next(&g, FZN_GROUP_ACT_ADMIN_ADD, 0x11u, who);
+	}
+	CHECK(g.n_admins == 2u && g.n_proposals == FZN_GROUP_PROPOSALS_MAX,
+	      "a group did not hold its last open proposal");
+	root_of(who, 0x2au);
+	before = g;
+	CHECK(next(&g, FZN_GROUP_ACT_ADMIN_ADD, 0x11u, who) == FZN_GROUP_LOG_ERR_FULL
+	              && g.n_proposals == FZN_GROUP_PROPOSALS_MAX && g.seq == before.seq,
+	      "a proposal past the bound was opened, or its refusal moved the log");
+
+	/* HOSTS: the table filled to its bound by hand -- a member's own host
+	 * is its root here, so 512 would need chains -- and a member's host
+	 * naming itself then refused. */
+	memset(nonce, 0x44, sizeof(nonce));
+	act(&a, FZN_GROUP_ACT_CREATE, 0x11u, NULL, 0u, NULL, nonce);
+	(void)apply(&g, &a);
+	root_of(who, 0x21u);
+	(void)next(&g, FZN_GROUP_ACT_ADD, 0x11u, who);
+	for (i = g.n_hosts; i < FZN_GROUP_HOSTS_MAX; i++) {
+		memset(g.hosts[i].key, 0xc0, FZN_PUBKEY_LEN);
+		g.hosts[i].key[0] = (uint8_t)i;
+		g.hosts[i].key[1] = (uint8_t)(i >> 8);
+		memcpy(g.hosts[i].owner, g.hosts[0].owner, FZN_PUBKEY_LEN);
+	}
+	g.n_hosts = FZN_GROUP_HOSTS_MAX;
+	before = g;
+	CHECK(next(&g, FZN_GROUP_ACT_HOST, 0x21u, NULL) == FZN_GROUP_LOG_ERR_FULL
+	              && g.n_hosts == FZN_GROUP_HOSTS_MAX && g.seq == before.seq,
+	      "a host past the bound was listed, or its refusal moved the log");
+}
+
 static void test_a_fork_keeps_the_lower_hash(void)
 {
 	fzn_group_act_t create, add2, x, y, after;
@@ -696,6 +800,7 @@ int main(void)
 	test_an_act_is_its_signers();
 	test_who_may_do_what();
 	test_the_admins_change_by_a_majority();
+	test_the_bounds_hold_at_their_edges();
 	test_a_fork_keeps_the_lower_hash();
 	test_an_epoch_is_sealed_to_listed_hosts();
 	test_a_backfill_goes_newest_first_and_not_when_off();

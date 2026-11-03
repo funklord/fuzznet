@@ -78324,3 +78324,30 @@ face on the same store, so that it follows:
 With the follower's tick taken out, b4 fails. `node/test/ext_daemon`'s
 own check at its return now judges only its own socket, face file and
 claim, since a follower's face file is the other process's.
+
+## 839. Groups taken through the bars: bounds, authorization, loss, 2026-11-03
+
+With the subset cleared (sec 833), groups are the next area for the bars.
+Whether that is the holder's order is still asked; this run guessed
+groups first, as the last run did.
+
+**Bounds, at the edge.** No test reached any group limit. `node/test/
+group_log_test` now does, and each refusal leaves the log where it was,
+head and place unmoved, so every host refuses the act alike:
+- 256 members taken, and the 257th refused FULL;
+- 16 admins made, each carried by a majority, and a 17th proposal
+  refused;
+- 8 open proposals, and a 9th refused;
+- 512 hosts, the table filled by hand, since a member's host here is its
+  root and 512 would need chains, and a 513th naming itself refused.
+
+Sabotage holds each guard: `group-members-bound`, `group-admins-bound`,
+`group-proposals-bound` and `group-hosts-bound`.
+
+**Authorization, every verb.** Only `add group` was tried from another
+user. `node/test/admin_test` now tries every group verb as another local
+user: `list`, `get`, `set` and `remove group`, `add` and `remove member`
+and `admin`, and `get epoch`. Each is refused. A change verb is refused
+by the gate every change verb meets first, and a read by the groups'
+own. Sabotage `groups-own-user-only` and
+`groups-own-user-names-every-verb` hold that gate.

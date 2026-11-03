@@ -1938,6 +1938,31 @@ int main(void)
 		CHECK(ask(&admin, &member, "add group family", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED,
 		      "another user made a group");
+		/* EVERY GROUP VERB, sec 689's authorization bar for groups (sec
+		 * 839): another user is refused each one, reads included -- a
+		 * change by the gate every change verb meets first, a read by the
+		 * groups' own. */
+		{
+			static const char *const OTHERS[] = {
+				"list group",
+				"get group family",
+				"set group family backfill 0",
+				"remove group family",
+				"add member family erin",
+				"remove member family erin",
+				"add admin family erin",
+				"remove admin family erin",
+				"get epoch family",
+			};
+			size_t o;
+
+			for (o = 0; o < sizeof(OTHERS) / sizeof(OTHERS[0]); o++)
+				CHECK(ask(&admin, &member, OTHERS[o], reply, sizeof(reply), &reply_len)
+				              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+				                         == FZN_REPLY_DENIED,
+				      "another user was not refused a group verb");
+
+		}
 		CHECK(ask(&admin, &owner, "add group fam-ily", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 		                         == FZN_REPLY_MALFORMED,
