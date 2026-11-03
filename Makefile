@@ -6537,12 +6537,12 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
-# NOT PART OF `make check`, on the same argument `make schema` uses: it needs
-# a sibling checkout, and qtty is pre-alpha with the API movement its README
-# promises. A gate that breaks for another tree's reasons is one people switch
-# off, and the two guards that need nothing installed -- the format property
-# in trust_view_test and the banned-call sweep in `make style` -- run in
-# `check` where they belong.
+# THIS STRICT TARGET IS NOT PART OF `make check`: a developer who types it
+# wants an error when it cannot run. `qttycheck` below runs the same work in
+# `check`, with each missing precondition turned into a SKIP (sec 205). The
+# names the test uses are all in qtty's documents, which qtty's own
+# `guide-check` compiles in its `check`, so a qtty change removing one fails
+# there first (sec 834).
 #
 # WHAT IT BUYS THAT THEY CANNOT. They assert what a widget HOLDS and what it
 # does not CALL. This renders, and rendering is what found a trust view

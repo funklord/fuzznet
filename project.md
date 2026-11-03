@@ -68558,6 +68558,9 @@ delay it too." Sec 688's wording fix was already built and stands.
 **Until the subset clears the bar, nothing outside it gets new work.**
 Requests from fuzzypickles outside it are recorded, not built.
 
+**Cleared, the holder said 2026-11-03** (sec 833), so the freeze is
+off.
+
 ### Where it stands, surveyed 2026-10-22
 
 Three read-only surveys, one per group of areas: their verbs, live
@@ -78039,15 +78042,61 @@ subset, without checking that rule first:
   notes;
 - `7c0a46e`, a sticker reference carrying words (sec 830) -- stickers.
 
-**Whether the subset has cleared its bar is not recorded.** All five
-journeys -- the estate, 1:1 chat, retention and logs, reachability,
-location -- have a section for each bar (secs 707 to 808), and the last
-`/go` run asked the holder whether groups, notes and files go through
-the remaining bars next. No answer is recorded. If the subset has
-cleared, the three stand; if not, each is one commit and can be
-reverted alone, and fuzzypickles, told of all three, would be told
-again. **The holder's call.** The rest of the run's work -- the
+**The subset has cleared its bar: the holder, 2026-11-03, "yes, the
+subset has cleared; keep all three".** All five journeys -- the estate,
+1:1 chat, retention and logs, reachability, location -- have a section
+for each bar (secs 707 to 808). So the three commits stand, and sec
+689's freeze is off: fuzzypickles' requests recorded under it (sec
+702's sticker format, sec 824's group gaps) are open work now. Whether
+groups, notes and files go through the same bars next is still not
+answered. The rest of the run's work -- the
 revocation fix (sec 829), the request events and naming (sec 825), the
 netcfgd answers and the extension's descriptors (secs 827, 831), and the
 test-port changes -- lies inside the subset or serves its consumers'
 running of it.
+
+## 834. Two messages from the inbox, 2026-11-03
+
+Recorded here before they were deleted from `.git/cc-inbox/`, by their
+timestamps.
+
+**qtty on its documented API (2026-11-03 00:01)**, measured in qtty's
+8.662 to 8.665. qtty's `make guide-check` compiles every symbol its
+documents name against its public headers, inside its `make check`, so
+a documented name cannot be removed without its own gate failing. The
+five names `gui/test/qtty_render_test.cpp` uses that were undocumented
+-- `Qtty::Cell`, `Qtty::Color::Indexed`, `Qtty::Color::Rgb`,
+`Qtty::GridMetrics::cells` and `::cw` -- are documented now, so every
+name the test uses is gated there. Their trap for whoever edits
+`cell_grey()`: a `Color`'s `value()` is 0 when its `kind()` is
+`Default`, and a plain window is all `Default`; `cell_grey()` already
+asks `kind()` first.
+
+They read the test as kept out of this tree's `make check`. It is not,
+since sec 205: `qttycheck` runs it in `check` whenever the widgets are
+built, and says SKIPPED otherwise; only the strict `qtty` target is
+outside, and its comment gave qtty's API movement as a reason, which
+their measurement answers. The comment now says so. The submodule is
+still pinned at 1c0d649 (2026-09-07), from before those names were
+documented; moving the pin is work for when a widget change needs it.
+
+**netcfgd runs in fuzznetd's loop (2026-11-03 12:11).** Its holder chose
+the in-loop face (netcfgd 10.669; secs 827, 831 here), "ask fuzznet to
+poll extension fds during waits". Five asks, each against `node/daemon.c`
+at `49b2312`:
+1. **Poll the extension's descriptors during a wait in turn**, calling
+   `ready` for each readable one. A confirm window is a deadline the
+   operator races, and a wait of up to 6.3 s (sec 747) reads as a hung
+   daemon.
+2. **Say what `ready` and `tick` may call, and whether either runs
+   mid-step.** netcfgd's `ready` only drains its descriptor; its
+   reconcile pass runs from `tick` for up to a few hundred ms.
+3. **A local request in-process.** netcfgd's recorder sends `add record`
+   and `list record` to the face's socket, which the face's own thread
+   serves: a deadlock once netcfgd is the face.
+4. **A clean stop**: today the socket and `face` file are left behind as
+   at a SIGTERM, and a follower sees a stale face.
+5. **A restart after a join re-executes the argv fuzznet parsed**, which
+   lacks netcfgd's own options.
+And to confirm: `tick` follows every pass, not once a second. Taken, in
+that order of cost; each lands where its section says.
