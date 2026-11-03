@@ -78388,8 +78388,10 @@ C's want twice with one reply of 31103 bytes in 31 pieces.
   build): nine passed. The one failure was setup, b0. B had 30 s to
   keep A's contact request, which A's asked pass sends again only a
   round later. That wait is now 200 s under loss, and runs 5 to 10 ran
-  with it and passed. The groups journey has not been run ten times
-  clean with every fix of this section in place.
+  with it and passed.
+- **Then ten runs clean,** at 20 per cent loss, against a fault build
+  carrying every fix of this section and sec 844's (built at 8baa731):
+  ten passed, from 186 to 542 s each.
 - **The notes journey, `tool/live_shares.py --loss 20`:** ten runs, ten
   passed. Its rounds run every 5 s in the fault build
   (`FZN_TUNE_PULL_EVERY`), and each wait is 120 s.
