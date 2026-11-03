@@ -8927,6 +8927,9 @@ static const fzn_daemon_ext_t *daemon_ext;
 static volatile sig_atomic_t stop_due;
 /* THE NODE AS IT SERVES, for `fzn_daemon_local`; NULL until it does. */
 static fzn_node_state_t *serving_state;
+/* OR THE CORE DIRECTORY WHOSE FACE THIS PROCESS FOLLOWS, sec 838. */
+static const char *following_dir;
+static size_t follower_ask(const char *line, size_t len, char *reply, size_t cap);
 
 void fzn_daemon_stop(void)
 {
@@ -8943,12 +8946,17 @@ size_t fzn_daemon_local(const char *line, char *reply, size_t cap)
 	fzn_authz_verdict_t verdict;
 	size_t len, n = 0;
 
-	if (!serving_state || waiting_in_turn || inside || !line || !reply || cap < 2u)
+	if ((!serving_state && !following_dir) || waiting_in_turn || inside || !line || !reply
+	    || cap < 2u)
 		return 0;
 	len = strlen(line);
 	if (len == 0u || len >= FZN_REQUEST_MAX || memchr(line, '\n', len)
 	    || !fzn_vocabulary_split((const uint8_t *)line, len, &request))
 		return 0;
+	/* A FOLLOWER ASKS THE FACE, sec 838: another process, so its socket is
+	 * no deadlock, and the answer is the one a client of either gets. */
+	if (!serving_state)
+		return follower_ask(line, len, reply, cap);
 	memset(&peer, 0, sizeof(peer));
 	peer.pid = (int64_t)getpid();
 	peer.uid = (uint32_t)getuid();
@@ -15296,6 +15304,32 @@ static int face_socket(const char *core_dir, char *out, size_t cap)
 	return n > 0u && out[0] == '/';
 }
 
+/* A LOCAL REQUEST OF THE EXTENSION'S, asked of the face by a follower
+ * (sec 838): connected, sent and answered as any client is, within 5 s.
+ * The reply's length with its newline, or 0. */
+static size_t follower_ask(const char *line, size_t len, char *reply, size_t cap)
+{
+	char face[1100];
+	const char *space = memchr(line, ' ', len);
+	size_t verb_len = space ? (size_t)(space - line) : len, got = 0;
+	int fd = -1;
+	fzn_client_err_t err;
+
+	if (!following_dir || !face_socket(following_dir, face, sizeof(face))
+	    || fzn_client_connect(face, &fd) != FZN_CLIENT_OK)
+		return 0;
+	err = fzn_client_send(fd, (const uint8_t *)line, verb_len,
+	                      space ? (const uint8_t *)space + 1 : NULL,
+	                      space ? len - verb_len - 1u : 0u);
+	if (err == FZN_CLIENT_OK)
+		err = fzn_client_recv(fd, (uint8_t *)reply, cap - 1u, &got, 5000u);
+	fzn_client_close(fd);
+	if (err != FZN_CLIENT_OK || !got)
+		return 0;
+	reply[got] = '\n';
+	return got + 1u;
+}
+
 /* ONE CONNECTION PASSED THROUGH: a client's, and the follower's own to the
  * face, the bytes copied each way as they come -- so a request is answered
  * as the face answers it, and `get events` streams as long as either end
@@ -15396,7 +15430,8 @@ static int follow_step(follow_t *f, const short ev[2])
 
 static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_t *claim)
 {
-	static struct pollfd pfd[1u + 2u * FOLLOW_MAX];
+	static struct pollfd pfd[1u + 2u * FOLLOW_MAX + FZN_NODE_OWN_FDS_MAX];
+	int own[FZN_NODE_OWN_FDS_MAX];
 	int lfd = -1;
 
 	if (!sock_path) {
@@ -15409,8 +15444,9 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 		return 1;
 	}
 	fprintf(stderr, "fuzznetd: following the face of %s, serving on %s\n", core_dir, sock_path);
+	following_dir = core_dir;
 	for (;;) {
-		size_t k, n = follows_n;
+		size_t k, n = follows_n, n_own, first_own;
 		int r;
 
 		pfd[0].fd = lfd;
@@ -15435,7 +15471,31 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 					p->fd = -1;
 			}
 		}
-		r = poll(pfd, 1u + 2u * n, 1000);
+		/* AN EXTENSION'S OWN DESCRIPTORS, as the face's loop polls them, sec
+		 * 838: a daemon following the face is still that daemon. */
+		first_own = 1u + 2u * n;
+		n_own = ext_fds(NULL, own, FZN_NODE_OWN_FDS_MAX);
+		if (n_own > FZN_NODE_OWN_FDS_MAX)
+			n_own = FZN_NODE_OWN_FDS_MAX;
+		for (k = 0; k < n_own; k++) {
+			pfd[first_own + k].fd = own[k];
+			pfd[first_own + k].events = POLLIN;
+			pfd[first_own + k].revents = 0;
+		}
+		r = poll(pfd, first_own + n_own, 1000);
+		for (k = 0; r > 0 && k < n_own; k++)
+			if (pfd[first_own + k].revents & (POLLIN | POLLHUP | POLLERR))
+				ext_ready(NULL, own[k]);
+		ext_tick();
+		/* ASKED TO STOP, sec 838: the socket closed and removed. A follower
+		 * holds no claim and writes no face file. */
+		if (stop_due) {
+			while (follows_n)
+				follow_drop(follows_n - 1u);
+			fzn_socket_close(lfd, sock_path);
+			following_dir = NULL;
+			return 0;
+		}
 		/* BACKWARD, so a connection dropped moves one already stepped. */
 		for (k = n; r > 0 && k-- > 0;) {
 			short ev[2] = { pfd[1u + 2u * k].revents, pfd[2u + 2u * k].revents };

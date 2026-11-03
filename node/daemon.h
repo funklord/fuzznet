@@ -101,7 +101,11 @@ typedef struct fzn_daemon_ext {
 	 * one readable, so a descriptor waits no longer there than on a pass.
 	 * So `ready` may run in the middle of a step, and must do no more than
 	 * take its descriptor's input into the daemon's own memory: of
-	 * fuzznet's calls only `fzn_daemon_stop` is allowed in it. */
+	 * fuzznet's calls only `fzn_daemon_stop` is allowed in it.
+	 *
+	 * AND IN A FOLLOWER, sec 838: a process that finds another holding the
+	 * face follows it, and still polls these and ticks, so the daemon's
+	 * own work goes on while it does. */
 	size_t (*fds)(void *ctx, int *out, size_t cap);
 	void (*ready)(void *ctx, int fd);
 	/* WORK ON A TIMER, sec 831: called after EVERY pass of the node's loop,
@@ -140,13 +144,15 @@ int fzn_daemon_journal_append(const uint8_t *object, size_t len);
  * not answer while blocked writing to it. The reply's length in `reply`,
  * at most `cap`, ending in a newline; 0 when it cannot be asked: before
  * the node serves, inside a wait in turn (from `ready`), inside another
- * such request, or with a line that is too long or no request. */
+ * such request, or with a line that is too long or no request. In a
+ * follower it is asked of the face, over its socket, within 5 s (sec 838). */
 size_t fzn_daemon_local(const char *line, char *reply, size_t cap);
 
 /* STOP THE NODE, sec 835: once the pass or the step under way ends,
  * `fzn_daemon_main` closes and removes its local socket, removes the
  * `face` file, releases the claim on the core directory and returns 0, so
- * a follower takes over the face at once. Safe from `ready`, `tick` and a
+ * a follower takes over the face at once. A follower closes and removes
+ * its socket and returns 0 (sec 838). Safe from `ready`, `tick` and a
  * signal handler; only a flag is set. */
 void fzn_daemon_stop(void);
 

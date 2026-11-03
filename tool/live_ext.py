@@ -19,6 +19,10 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
        fuzznet's handlers, and refused from inside another; asked by its
        FIFO to stop, the node returns 0 with its socket and `face` file
        removed (sec 835)
+    b4 started beside a face on the same store, it follows; its FIFO is
+       still read and its tick still runs, a request it asks in-process is
+       answered by the face, and asked to stop it returns 0 with its own
+       socket removed, the face serving on (sec 838)
     c  two of them, A the root of an estate and B joined to it by verbs:
        `add mark hello` at A writes a journal record of the extension's
        kind into A's stream, and B's extension applies it -- `get marks`
@@ -294,6 +298,61 @@ def main(argv):
 				             % (code, os.path.exists(sock), os.path.exists(face)))
 			print("livecheck: b3: a request asked in-process was fuzznet's, refused inside "
 			      "another, and a stop asked removed the socket and the face file")
+
+			# b4: A FOLLOWER IS STILL THE DAEMON, sec 838.
+			face_proc = subprocess.Popen(base, stdout=log, stderr=subprocess.STDOUT,
+			                             start_new_session=True)
+			try:
+				if not ask(sock, "status").startswith("ok "):
+					raise failed("b4: the face did not answer")
+				fsock = os.path.join(sock_dir, "f")
+				ferr_path = os.path.join(scratch, "follower.err")
+				ferr = open(ferr_path, "w")
+				fargs = [a for a in base if not a.startswith("--socket=")]
+				follower = subprocess.Popen(fargs + ["--socket=" + fsock, "--poke=" + fifo],
+				                            stdout=ferr, stderr=subprocess.STDOUT,
+				                            start_new_session=True)
+				try:
+					until = time.monotonic() + 10.0
+					while "following the face" not in open(ferr_path).read():
+						if time.monotonic() > until or follower.poll() is not None:
+							raise failed("b4: the second daemon did not follow: %r"
+							             % open(ferr_path).read()[-300:])
+						time.sleep(0.2)
+					poke(b"L")
+					until = time.monotonic() + 10.0
+					while "ext_daemon: inproc" not in open(ferr_path).read():
+						if time.monotonic() > until:
+							raise failed("b4: the follower's tick asked nothing in-process")
+						time.sleep(0.2)
+					said = [l for l in open(ferr_path).read().splitlines()
+					        if l.startswith("ext_daemon: inproc")][-1]
+					if not said.startswith("ext_daemon: inproc ok ") or "refused" in said:
+						raise failed("b4: the follower's request in-process was %r" % said)
+					poke(b"S")
+					try:
+						code = follower.wait(timeout=10)
+					except subprocess.TimeoutExpired:
+						raise failed("b4: asked to stop, the follower went on")
+					if code != 0 or os.path.exists(fsock):
+						raise failed("b4: the follower stopped with %d, socket left %s"
+						             % (code, os.path.exists(fsock)))
+					if not ask(sock, "status").startswith("ok "):
+						raise failed("b4: the face stopped serving with its follower")
+				finally:
+					if follower.poll() is None:
+						os.killpg(follower.pid, signal.SIGKILL)
+						follower.wait(timeout=10)
+					ferr.close()
+			finally:
+				os.killpg(face_proc.pid, signal.SIGTERM)
+				try:
+					face_proc.wait(timeout=10)
+				except subprocess.TimeoutExpired:
+					os.killpg(face_proc.pid, signal.SIGKILL)
+					face_proc.wait(timeout=10)
+			print("livecheck: b4: following a face, the extension's FIFO was read and its tick "
+			      "ran, its request in-process was the face's, and a stop removed its socket")
 			c_marks(daemon_path=daemon, scratch=scratch, sock_dir=sock_dir)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)

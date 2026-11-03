@@ -163,6 +163,10 @@ static void own_tick(void *ctx, uint64_t now)
 			inproc[n] = '\0';
 		else
 			(void)snprintf(inproc, sizeof(inproc), "ok refused\n");
+		/* SAID, for a follower, whose own verbs nobody can ask: its socket
+		 * passes every request to the face (sec 838). */
+		fprintf(stderr, "ext_daemon: inproc %s", inproc);
+		fflush(stderr);
 	}
 }
 
@@ -298,27 +302,50 @@ int main(int argc, char **argv)
 	given[n] = NULL;
 	ext.restart_argv = argv;
 	n = fzn_daemon_main(n, given, &ext);
-	/* RETURNED FROM A STOP, sec 835: the socket and the face file are gone
-	 * already, before this program's own shutdown work and its exit -- the
-	 * atexit that removes the face at an exit is not what a follower can
-	 * wait for. 3 when either is left. */
-	for (i = 0; i < argc; i++) {
-		char face[300];
+	/* RETURNED FROM A STOP, sec 835: the socket gone already, before this
+	 * program's own shutdown work and its exit -- and, where this process
+	 * was the face, the face file and the claim too: the atexit that
+	 * removes the face at an exit is not what a follower can wait for. A
+	 * face file naming another socket is another process's, this one
+	 * having followed it (sec 838). 3 when anything of its own is left. */
+	{
 		const char *dir = NULL, *sock = NULL;
+		char path[300], named[300];
+		int theirs = 0;
 
-		if (strncmp(argv[i], "--fuzznet-dir=", 14u) == 0)
-			dir = argv[i] + 14;
-		if (strncmp(argv[i], "--socket=", 9u) == 0)
-			sock = argv[i] + 9;
-		if (dir && (size_t)snprintf(face, sizeof(face), "%s/face", dir) < sizeof(face)
-		    && access(face, F_OK) == 0) {
-			fprintf(stderr, "ext_daemon: returned with %s left\n", face);
+		for (i = 0; i < argc; i++) {
+			if (strncmp(argv[i], "--fuzznet-dir=", 14u) == 0)
+				dir = argv[i] + 14;
+			if (strncmp(argv[i], "--socket=", 9u) == 0)
+				sock = argv[i] + 9;
+		}
+		if (sock && access(sock, F_OK) == 0) {
+			fprintf(stderr, "ext_daemon: returned with %s left\n", sock);
 			return 3;
 		}
-		/* AND THE CLAIM FREE: a lock of this process's own, on another
-		 * open of the file, is refused while the node still holds it. */
-		if (dir && (size_t)snprintf(face, sizeof(face), "%s/claim", dir) < sizeof(face)) {
-			int cfd = open(face, O_RDWR);
+		if (dir && (size_t)snprintf(path, sizeof(path), "%s/face", dir) < sizeof(path)) {
+			FILE *f = fopen(path, "r");
+
+			if (f) {
+				size_t got = fread(named, 1u, sizeof(named) - 1u, f);
+
+				(void)fclose(f);
+				named[got] = '\0';
+				if (got && named[got - 1u] == '\n')
+					named[got - 1u] = '\0';
+				if (!sock || strcmp(named, sock) == 0) {
+					fprintf(stderr, "ext_daemon: returned with %s left\n", path);
+					return 3;
+				}
+				theirs = 1;
+			}
+		}
+		/* AND THE CLAIM FREE, unless another process is the face: a lock of
+		 * this process's own, on another open of the file, is refused while
+		 * the node still holds it. */
+		if (dir && !theirs
+		    && (size_t)snprintf(path, sizeof(path), "%s/claim", dir) < sizeof(path)) {
+			int cfd = open(path, O_RDWR);
 
 			if (cfd >= 0 && flock(cfd, LOCK_EX | LOCK_NB) != 0) {
 				fprintf(stderr, "ext_daemon: returned with the claim held\n");
@@ -326,10 +353,6 @@ int main(int argc, char **argv)
 			}
 			if (cfd >= 0)
 				(void)close(cfd);
-		}
-		if (sock && access(sock, F_OK) == 0) {
-			fprintf(stderr, "ext_daemon: returned with %s left\n", sock);
-			return 3;
 		}
 	}
 	return n;

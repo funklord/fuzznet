@@ -78288,3 +78288,39 @@ show them under the group.
 - Phase e2: A is C's contact and a member, and shares a note with the
   group. C's `list sharer @family` names A and B, and its plain `list
   sharer` still names A as a contact.
+
+## 838. An extension still runs while its process follows a face, 2026-11-03
+
+Found while answering netcfgd (sec 835). A daemon that starts while
+another process holds its store's claim follows that face (sec 666).
+Until now the follower's loop passed connections through and did
+nothing else:
+- it never polled the extension's descriptors;
+- it never called its tick;
+- `fzn_daemon_stop` could not end it;
+- `fzn_daemon_local` refused, since no node serves in that process.
+
+For netcfgd this would be a network daemon doing nothing while a
+fuzznetd held the face. netcfgd's holder chose netcfgd as the face, so
+the case is a start beside a running fuzznetd, not the design.
+
+**Built:**
+- The follower's loop polls the extension's descriptors beside its
+  connections, calls `ready` for each readable one, and ticks after
+  every pass, as the face's loop does.
+- `fzn_daemon_stop` ends it: its socket is closed and removed, and it
+  returns 0. It holds no claim and wrote no face file.
+- `fzn_daemon_local` asks the face over its socket, within 5 s. That is
+  no deadlock, since the face is another process, and the answer is the
+  one any client of either gets.
+
+**Measured:** `tool/live_ext.py` b4 starts the extension daemon beside a
+face on the same store, so that it follows:
+- its FIFO is read;
+- its tick asks `status` in-process, and the face answers it;
+- asked to stop, it returns 0 with its socket removed, and the face
+  serves on.
+
+With the follower's tick taken out, b4 fails. `node/test/ext_daemon`'s
+own check at its return now judges only its own socket, face file and
+claim, since a follower's face file is the other process's.
