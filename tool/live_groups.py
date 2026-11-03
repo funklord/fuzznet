@@ -62,6 +62,8 @@ KEPT_RE = re.compile(r"a contact request from ([0-9a-f]{16}), waiting")
 ROUND_END_RE = ROUND_DONE_RE
 PREKEY_HOST = slice(4, 68)
 ROUNDS = 4
+# HOW LONG B AND C ARE GIVEN TO KEEP A'S CONTACT REQUEST.
+KEPT_WAIT = 30.0
 PAYLOAD_LEN = 30000
 WHOLE_RE = re.compile(r"file [0-9a-f]{8}, (\d+) bytes, whole from (\d+) peer\(s\)")
 PULLED_RE = re.compile(r"(\d+) shared note record\(s\) from 127\.0\.0\.1")
@@ -95,13 +97,14 @@ def epoch(sock, who, name):
 
 
 def main(argv):
-	global ROUNDS
+	global ROUNDS, KEPT_WAIT
 	if len(argv) == 4 and argv[2] == "--loss" and argv[3].isdigit():
 		# UNDER LOSS a round may miss what it asked for, so each wait has
 		# more rounds and the whole more time (sec 839).
 		os.environ["FZN_FAULT_LOSS"] = argv[3]
 		os.environ["FZN_FAULT_SEED"] = str(os.getpid())
 		ROUNDS *= 3
+		KEPT_WAIT = 200.0
 		live_trim.DEADLINE = time.monotonic() + 1500.0
 	elif len(argv) != 2:
 		print("usage: live_groups.py PATH_TO_FUZZNETD [--loss P]", file=sys.stderr)
@@ -153,7 +156,10 @@ def main(argv):
 				got = ask(socks["a"], "add contact %s %s" % (name, card.split(" ", 1)[1].strip()))
 				if got.strip() != "ok " + keys[who]:
 					raise failed("A's add contact %s answered %r" % (name, got))
-				started[who].wait_for(KEPT_RE, "%s keeping A's request" % who.upper())
+				# A LOST REQUEST IS SENT AGAIN by A's asked pass, a round
+				# later: under loss the wait spans more than one (sec 839).
+				started[who].wait_for(KEPT_RE, "%s keeping A's request" % who.upper(),
+				                      within=KEPT_WAIT)
 				expect(socks[who], who, "grant request %s alice" % keys["a"], "ok")
 
 			# a: the group, made at A and learned at B and C.

@@ -78384,6 +78384,12 @@ C's want twice with one reply of 31103 bytes in 31 pieces.
   The fetch also says, at debug, whom it asks, a begin that failed, and
   an end that placed nothing. A fetch that ended silently is what made
   this read as a node fault.
+- **Ten runs at 20 per cent loss** (`make fuzznetd-faults`, e42a1a2's
+  build): nine passed. The one failure was setup, b0. B had 30 s to
+  keep A's contact request, which A's asked pass sends again only a
+  round later. That wait is now 200 s under loss, and runs 5 to 10 ran
+  with it and passed. The groups journey has not been run ten times
+  clean with every fix of this section in place.
 - **The cost:** a peer that has really gone is given up on later. Its
   span halves to one leaf first, up to six silences, before the three
   that end it: about 27 s at the 3 s span deadline, where it was about
