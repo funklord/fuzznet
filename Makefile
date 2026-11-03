@@ -123,6 +123,15 @@ CFLAGS_WARN := -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
                -Wstrict-prototypes -Wvla
 CFLAGS  += $(CFLAGS_WARN)
 
+# EACH FUNCTION AND OBJECT IN A SECTION OF ITS OWN, and the daemons linked
+# with what nothing reaches left out, sec 860: 63 kB of fuzznetd's 938 kB
+# of text was code no path called, measured 2026-11-03. It is also what
+# makes a service left out of a build (sec 856) leave its code behind: a
+# flag cuts the entry points, and the linker drops what they alone reached.
+# A build direction, not a warning, so it is on CFLAGS for every source.
+CFLAGS  += -ffunction-sections -fdata-sections
+LDFLAGS_GC := -Wl,--gc-sections
+
 # WHAT GENERATED AND VENDORED SOURCES GET, and why this is derived rather than
 # written out.
 #
@@ -4626,7 +4635,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/location/location.o \
               $(MONO_OBJS) $(FLOG_OBJS)
 $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(FUZZNETD_LINK)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
+	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 
 # A DAEMON WITH AN EXTENSION, sec 673: a main of its own calling
 # fzn_daemon_main with options and verbs fuzznet does not have, as fzpd
@@ -4634,7 +4643,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(FUZZNETD_LINK)
 EXT_DAEMON := $(if $(FUZZNETD),$(BUILD_DIR)/node/test/ext_daemon)
 $(BUILD_DIR)/node/test/ext_daemon: $(BUILD_DIR)/node/test/ext_daemon.o $(FUZZNETD_LINK)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
+	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 
 # Provisioning the remote hop end to end under real Monocypher primitives:
 # the same crypto set remote_test links, plus provision/provision.o for the
@@ -5733,7 +5742,8 @@ check: style test installcheck ctcheck sancheck arrangements qrcheck qttycheck l
 # first -- fuzzypickles', at Android API 28, where libzstd is absent. So
 # `check` builds `all` once with each off, in a directory of its own beside
 # the sanitizer's.
-ARRANGEMENTS ?= FZN_LOG_PACK=0 FZN_LOG_FILE=0 FZN_SPOOL_FILE=0 FZN_CLAIM_FILE=0
+ARRANGEMENTS ?= FZN_LOG_PACK=0 FZN_LOG_FILE=0 FZN_SPOOL_FILE=0 FZN_CLAIM_FILE=0 \
+                $(LEAN_SERVICES)
 
 arrangements:
 	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
@@ -7592,6 +7602,20 @@ clean:
 		echo "removing $(BUILD_DIR)-san"; \
 		rm -rf "$(BUILD_DIR)-san"; \
 	fi
+	@# AND THE TWO DAEMONS BUILT AGAIN INTO TREES OF THEIR OWN, the same
+	@# shape: `fuzznetd-faults`' and `lean`'s (sec 856), each a directory
+	@# the build made under the checked BUILD_DIR. Neither was in a list
+	@# here, and the check below named their objects when either existed.
+	@for d in "$(BUILD_DIR)/faults" "$(BUILD_DIR)/lean"; do \
+		if [ -d "$$d" ]; then echo "removing $$d"; rm -rf "$$d"; fi; \
+	done
+	@# AND `arrangements`' trees, one an arrangement, each named from the
+	@# list that made it -- `.-arr-FZN_LOG_FILE` and its kind were left
+	@# behind by every run, and the check below named them.
+	@for a in $(ARRANGEMENTS); do \
+		d="$(BUILD_DIR)-arr-$${a%%=*}"; \
+		if [ -d "$$d" ]; then echo "removing $$d"; rm -rf "$$d"; fi; \
+	done
 	@# THE CODEGEN CONTROLS, which `ctcheck` compiles from a sed of a real
 	@# source into $(BUILD_DIR)/tool/ and which were in no list here. They
 	@# have no `.d`: both are built from stdin with $(FZN_PROBE_CPPFLAGS),

@@ -79179,6 +79179,22 @@ with both services out. `livecheck-lean` asks `list catalog` and `get
 catalog` of the lean build, which answers `unsupported`; `live_catalog`
 passes on the full build.
 
+**What leaving every service out can save, measured 2026-11-03.** netcfgd
+expected "the consumer services' ~980 KB" to come off a router's install
+(sec 851). The whole of fuzznetd's text is 938 KB, so that cannot be
+right. The objects linked into it total 763 KB:
+- the node itself, `node/daemon.o`, 207 KB;
+- logs, 65 KB;
+- messages, 56 KB (the messaging core, which stays);
+- files and blobs, 32 KB (carried for every service, which stays);
+- notes and the shelf, 85 KB;
+- groups, 25 KB.
+
+The rest is the protocol, the store and the crypto. Notes and groups,
+with their parts of `daemon.o`, are what is left to win: roughly 150 to
+200 KB in all, a fifth of the binary at most. The services were never
+most of the binary.
+
 ## 857. An extension's verbs on a node with no capability, 2026-11-03
 
 netcfgd's first finding of 17:00 (sec 851), at 5e3b41a: a daemon started
@@ -79314,3 +79330,46 @@ id. `get sticker PACK` answers `ok ID`, or 0 for a pack before version 3.
   digests summed, carries and all, as does a one-sticker pack.
 - `make schema SITU_DIR=../situ` passes.
 - Sabotage: `sticker-pack-id-from-the-art`, `sticker-turn-within-a-circle`.
+
+## 860. The daemons linked without the code nothing reaches, 2026-11-03
+
+While measuring what the service flags save (sec 856), fuzznetd was
+linked with `-ffunction-sections -fdata-sections` and `--gc-sections`.
+**63 kB of its 938 kB of text was code no path called:** library
+functions the daemon never uses, carried because each object is linked
+whole.
+
+**Built:**
+- Every source is compiled with each function and object in a section of
+  its own (`CFLAGS`).
+- fuzznetd and `ext_daemon` are linked with `LDFLAGS_GC`
+  (`-Wl,--gc-sections`).
+- Text: 875,659 bytes full, 844,491 lean (stickers and the catalogue out).
+  Before: 938,419 and 917,515.
+
+**Why it matters beyond the 63 kB:** with it, a service flag need only
+cut the service's entry points, its verbs and its round hooks, and the
+linker drops whatever they alone reached. Without it every object listed
+on the link line is kept whole, so each flag also had to edit the link
+line and fence every helper. This is how notes and groups can follow
+(sec 856) without splitting `node/notes.c` by hand.
+
+**Cleaning, found on the way:** `make clean` left the trees that
+`fuzznetd-faults`, `lean` and `arrangements` build into, and its own
+check said so. Each is now removed by name from the list that made it.
+`arrangements` also builds `all` with each service flag off, so a flag
+that breaks the build alone is caught in `check`. A `./build/` tree, an
+out-of-tree build somebody made by hand, still trips that check. clean
+cannot know it, and it is not this build's to remove.
+
+**Measured:**
+- `make test`, including the codegen gate, passes on objects rebuilt from
+  clean.
+- `live_lean`, `live_ext` and `live_stickers` pass on the daemons linked
+  this way.
+
+**A convention question for the other trees, signalled rather than
+made:** signalled to claude-guidelines in its inbox, message
+20261103T2050Z. Every private tree builds with `-Os` for size. Whether
+the others should also pass `--gc-sections` is a cross-project question,
+for that tree's pass.
