@@ -3761,6 +3761,13 @@ SABOTAGES = [
 		"a host in a group is given the estate's value over its group's -- sec 868",
 	),
 	(
+		"relay-route-spares-own-frames",
+		"node/serve.c",
+		"\t\t    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    && !opens_here(state, frame, flen, head.sender)) {",
+		"\t\t    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    && (1 || !opens_here(state, frame, flen, head.sender))) {",
+		"a peer's frame to this node under a routed message id is sent to the asker and lost -- sec 871",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",
@@ -13795,8 +13802,8 @@ SABOTAGES = [
 	(
 		"serve-routes-answers-back",
 		"node/serve.c",
-		"\t\t    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)) {\n",
-		"\t\t    && 0 && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)) {\n",
+		"\t\t    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    && !opens_here",
+		"\t\t    && 0 && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    && !opens_here",
 		"a relayed frame's answer is opened here and dropped, and the asker waits out every relayed request -- sec 622",
 	),
 	(

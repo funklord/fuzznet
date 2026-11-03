@@ -79771,3 +79771,38 @@ which is the cost of one remote request. **No asynchronous form is
 built.** A client that meets the introduction window asks again, as the
 refusal says. Reopen this if a consumer measures a call refused or a
 client delayed in practice.
+
+## 871. A relayed answer routed by whose it is, not by its id alone, 2026-11-04
+
+Sec 622's last open item. A relay host keeps a route, (target, message
+id) to the asker's address, for ten seconds, and sends every frame from
+the target under that id back to the asker unread. The frame's head
+names no recipient. So a frame the target sent to the relay host itself,
+under the same id within the route's life, went to the asker. The asker
+could not open it, and the relay host never saw it. The holder,
+2026-11-04: fix it, "change frame format as required".
+
+**Decided: no frame-format change, because none is required.**
+- A frame says whose it is by opening. The relay host tries it, on a
+  copy, under the sender's session with this host.
+  - A frame sealed for the relay host opens there, and is served as any
+    frame is.
+  - An answer sealed for the asker cannot open there, and goes back
+    whole.
+- The trial costs one commitment check for a frame from one of this
+  host's own peers under a routed id: about 600 ns, since a wrong key
+  fails before any AEAD (`wire/seal.h`). A frame from a host that is not
+  this host's peer cannot be for it, and is routed as before.
+- **Rejected: a recipient or answer marker in the head.** Every
+  consumer's frames would change, fuzzypickles' among them, along with
+  the situ contract, the known-answer vectors and every fuzz corpus, to
+  say what the seal already proves.
+
+**Measured, `pair_test`, 403 checks:**
+- The route test now seals its routed frame under keys the node does not
+  hold for the device, since its earlier frame was the node's own,
+  exactly the collision. It is sent on whole and unread.
+- **New:** the device's frame to the node, under the routed id while the
+  route stands, is answered here, and nothing reaches the asker's socket.
+- Sabotage: `relay-route-spares-own-frames`, which routes every routed
+  id's frame back as before.

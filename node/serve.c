@@ -29,6 +29,25 @@ const fzn_node_peer_t *fzn_node_find_peer(const fzn_node_peer_t *peers,
 	return NULL;
 }
 
+
+/* WHETHER `frame` IS SEALED FOR THIS NODE by `sender`, one of its peers:
+ * opened on a copy, so the frame goes on whole if it is not. sec 871. */
+static int opens_here(const fzn_node_state_t *state, const uint8_t *frame, size_t flen,
+                      const uint8_t *sender)
+{
+	static uint8_t trial[FZN_UDP_DATAGRAM_MAX];
+	const fzn_node_peer_t *peer;
+	fzn_opened_t opened;
+
+	if (!state->hash || !state->aead || flen > sizeof(trial)
+	    || !(peer = fzn_node_find_peer(state->peers, state->peer_count, sender)))
+		return 0;
+	memcpy(trial, frame, flen);
+	return fzn_seal_open(trial, flen, peer->recv_key, peer->recv_ckey, state->hash, state->aead,
+	                     &opened)
+	       == FZN_SEAL_OK;
+}
+
 static void serve_ready_local(fzn_node_state_t *state)
 {
 	int cfd, subscribed = 0;
@@ -175,14 +194,21 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	}
 	now = state->clock ? state->clock() : 0u;
 	/* AN ANSWER TO A FRAME THIS NODE RELAYED, sec 622: sent back, unread,
-	 * to whoever asked for the relay. Asked before any key is chosen: it
-	 * is sealed for somebody else, and opening it here would only drop it. */
+	 * to whoever asked for the relay -- unless the frame is this node's
+	 * own, sec 871. A route keys on the sender and the message id, and a
+	 * peer's frame to THIS node under the same id within the route's life
+	 * was sent to the asker, who could not open it, and lost here. The
+	 * head names no recipient, so the frame says whose it is by opening:
+	 * tried on a copy under the sender's session with this node, which an
+	 * answer sealed for the asker does not open (a wrong key fails at the
+	 * commitment, before any AEAD). */
 	if (state->relay) {
 		fzn_peek_t head;
 		fzn_udp_addr_t back;
 
 		if (fzn_seal_peek(frame, flen, &head) == FZN_SEAL_OK
-		    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)) {
+		    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)
+		    && !opens_here(state, frame, flen, head.sender)) {
 			(void)fzn_udp_send(state->udp_fd, &back, frame, flen);
 			return;
 		}

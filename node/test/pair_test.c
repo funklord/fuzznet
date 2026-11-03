@@ -1588,16 +1588,24 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		                         != FZN_CALLER_OK,
 		      "a hello was answered, handed to the handler, or not noted");
 
-		/* A ROUTE BACK: a frame from the device under a routed message goes
-		 * to where the route says, unread, and no handler sees it. */
+		/* A ROUTE BACK: a frame from the device under a routed message,
+		 * sealed for somebody else -- the asker the relay carried for --
+		 * goes to where the route says, unread, and no handler sees it.
+		 * Sealed here under keys the node does not hold for the device. */
 		CHECK(fzn_udp_bind(AF_INET, "127.0.0.1", 0, &b_fd) == FZN_UDP_OK
 		              && fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(b_fd), &b_addr)
 		                         == FZN_UDP_OK,
 		      "fixture: a third socket");
-		CHECK(fzn_caller_seal(&caller, PING, sizeof(PING), 3500u, &m, frame, sizeof(frame),
-		                      &flen)
-		              == FZN_CALLER_OK,
-		      "fixture: a frame to route");
+		{
+			fzn_caller_t other = caller;
+
+			memset(other.send_key, 0x5a, sizeof(other.send_key));
+			memset(other.send_ckey, 0x5b, sizeof(other.send_ckey));
+			CHECK(fzn_caller_seal(&other, PING, sizeof(PING), 3500u, &m, frame, sizeof(frame),
+			                      &flen)
+			              == FZN_CALLER_OK,
+			      "fixture: a frame to route, sealed for another");
+		}
 		fzn_node_relay_route(&tbl, device->id.pubkey, m, &b_addr, 3000u);
 		handler_granted = 0;
 		pfd.fd = b_fd;
@@ -1610,6 +1618,26 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		                         == FZN_UDP_OK
 		              && got_len == flen && memcmp(got_frame, frame, flen) == 0,
 		      "a routed frame was not sent on whole, or was handed to the handler");
+		/* THE NODE'S OWN FRAME UNDER A ROUTED MESSAGE, sec 871: the device
+		 * asks the node itself under the same message id while the route
+		 * stands. It opens here, so it is answered here, and nothing is
+		 * sent on to the route's asker. Before, it went to the asker, who
+		 * could not open it. */
+		{
+			struct pollfd bp = { b_fd, POLLIN, 0 };
+			uint32_t again = caller.next_msg;
+
+			caller.next_msg = m;
+			handler_granted = 0;
+			CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &m) == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1 && handler_granted
+			              && fzn_caller_recv(&caller, m, reply, sizeof(reply), &reply_len, 2000u)
+			                         == FZN_CALLER_OK
+			              && poll(&bp, 1, 300) == 0,
+			      "a frame for this node under a routed message was sent to the asker, or "
+			      "not answered here");
+			caller.next_msg = again;
+		}
 		if (b_fd >= 0)
 			fzn_udp_close(b_fd);
 		state.relay = NULL;
