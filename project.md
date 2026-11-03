@@ -78794,8 +78794,9 @@ The catalogue then passed ten runs of ten at 20 per cent loss.
 **What this leaves:**
 - **The groups and notes batches of secs 839 and 850 ran with the seed
   fixed.** Groups restart each daemon every turn, so their loss was the
-  same per restart. They passed, but under less varied loss than "20
-  per cent" suggests. Neither has been run since the seed went.
+  same per restart, and passed under less varied loss than "20 per
+  cent" suggests. **Run again without it the same day:** notes ten of
+  ten, groups ten of ten (226 to 372 s each).
 - **The estate, chat and erasure scripts (secs 742 to 745) still give a
   seed.** They restart a daemon only between phases, a few times a
   journey, so replay touches them far less. Not changed here.
