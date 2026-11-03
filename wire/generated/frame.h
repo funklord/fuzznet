@@ -11,6 +11,12 @@
 
 #include "situ.h"
 
+#if !defined(SITU_RUNTIME_ABI)
+#error "the situ.h on the include path predates SITU_RUNTIME_ABI, so it is older than this generated header. An installed libsitu-dev shadows a tree's own runtime/c/situ.h whenever it comes first on the include path."
+#elif SITU_RUNTIME_ABI != 1
+#error "the situ.h on the include path is a different runtime ABI than this header was generated for. Regenerate against the runtime you link, or put that runtime first on the include path."
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -525,7 +531,8 @@ situ_err_t situ_fzn_frame_validate(situ_view_t view);
 situ_err_t situ_fzn_frame_check(situ_view_t view, uint32_t *which);
 #define SITU_FZN_FRAME_HOP_CHECK 0u
 #define SITU_FZN_FRAME_HEAD_CHECK 1u
-#define SITU_FZN_FRAME_TAG_CHECK 2u
+#define SITU_FZN_FRAME_SEALED_CHECK 2u
+#define SITU_FZN_FRAME_TAG_CHECK 3u
 
 #ifdef __cplusplus
 }

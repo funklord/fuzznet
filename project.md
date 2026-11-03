@@ -78230,9 +78230,16 @@ bounds. Fixed, and held by sabotage entry `sticker-ref-ends-at-id`.
   - phase f: a derived id equals hashlib's BLAKE2b, and a sticker with
     no description has a reference ending at its id.
 - `make schema SITU_DIR=../situ`: the sticker wire and map are current
-  at situ ae1dc696. The gate itself stops on `wire/generated/frame.c` is
-  stale; that file was last generated 2026-09-20 and situ has moved
-  since. It predates this change and is left for its own pass.
+  at situ ae1dc696. The gate also found `wire/generated/frame.c` stale,
+  last generated 2026-09-20.
+  - **Regenerated the same day**, with the vendored runtime moved from
+    c44c064 to ae1dc696. The gate now passes whole.
+  - situ's frame code adds a check that the sealed region fits the
+    frame. Here it changes nothing: the tag check after it already
+    requires the tag, which follows the region, to be inside the frame.
+  - The runtime gains `SITU_RUNTIME_ABI`, so a stale installed `situ.h`
+    ahead on the include path fails to compile rather than mis-typing.
+  - `make test` passes.
 
 ## 837. A group's name reaches its members, and its notebook its contacts, 2026-11-03
 

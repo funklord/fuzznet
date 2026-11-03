@@ -147,6 +147,13 @@ situ_err_t situ_fzn_frame_check(situ_view_t view, uint32_t *which)
 			return err;
 		}
 	}
+	/* fzn_frame.sealed: the extent its codec gives the interior has to fit
+	 * the frame. The accessor clamps; this is where a region that
+	 * does not fit is called malformed (26.776). */
+	if (situ_remaining_u32(view.limit, 96u) < (situ_nonneg_u32((int64_t)32 + (int64_t)((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 94u))))))) {
+		*which = SITU_FZN_FRAME_SEALED_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
 	/* fzn_frame.tag: its offset is a sum of lengths the message
 	 * chose, so the frame is not known to contain it. The accessor
 	 * answers safely; this is where the message is called malformed. */
