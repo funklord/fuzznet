@@ -79195,6 +79195,27 @@ with their parts of `daemon.o`, are what is left to win: roughly 150 to
 200 KB in all, a fifth of the binary at most. The services were never
 most of the binary.
 
+**Notes' verbs, the third flagged, 2026-11-03,** once the linker drops
+what nothing reaches (sec 860).
+- **What goes:** `FZN_NOTES=0` leaves `admin.notes_local` unset, and with
+  it every notes verb: note, folder, list, item, history and shared. The
+  linker drops what only they reached.
+- **What stays:** filing and indexing the estate's note records,
+  answering a peer's notes sync, carrying the texts on the shelf, and
+  history retention. So a lean node still keeps and relays the estate's
+  notes.
+- **Text:** 807,691 bytes lean with stickers, the catalogue and notes'
+  verbs out, against 875,659 full.
+- **Measured:** `livecheck-lean` asks the lean build `list note top`,
+  `add note`, `list history` and `list shared`, which answer
+  `unsupported`.
+- **Not measured:** a lean node relaying notes between two full ones. The
+  carriage code is unchanged by construction, since only the verbs'
+  entry was cut, but no live script has a lean node in an estate yet.
+- **`livecheck` needs notes on:** seven of its scripts write notes to
+  test other things. It says SKIPPED otherwise, as for a build without
+  log files, and `livecheck-lean` covers the lean build.
+
 ## 857. An extension's verbs on a node with no capability, 2026-11-03
 
 netcfgd's first finding of 17:00 (sec 851), at 5e3b41a: a daemon started

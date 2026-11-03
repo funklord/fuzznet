@@ -18032,7 +18032,14 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 						node_notes.chain_ctx = &node_journal;
 					}
 #endif
+#ifdef FZN_NOTES_ON
+					/* THE NOTES VERBS, a consumer service left out with
+					 * FZN_NOTES=0 (sec 856): the linker then drops what
+					 * they alone reach (sec 860). Filing, indexing,
+					 * answering a peer's sync and carrying the texts stay,
+					 * the estate's notes kept and relayed in every build. */
 					admin.notes_local = fzn_node_notes_local;
+#endif
 					admin.notes_remote = fzn_node_notes_remote;
 					admin.notes_ctx = &node_notes;
 					notes_on = 1;

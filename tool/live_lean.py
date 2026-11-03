@@ -54,6 +54,8 @@ def ask(sock, line, within=20.0):
 GONE = {
 	"stickers": ["list sticker", "get sticker 00 1", "remove sticker 00"],
 	"catalogue": ["list catalog", "get catalog " + "00" * 32],
+	"notes": ["list note top", "add note top hello", "list history " + "00" * 16,
+	          "list shared"],
 }
 
 
