@@ -49,9 +49,20 @@ fzn_node_apply_outcome_t fzn_node_records_file(const fzn_node_records_t *nr,
 	return err == FZN_BUCKETS_OK ? FZN_NODE_APPLY_APPLIED : FZN_NODE_APPLY_NOT_SAVED;
 }
 
+static fzn_node_records_err_t write_record(const fzn_node_records_t *nr, const uint8_t *key,
+                                           size_t key_len, int set, const uint8_t *value,
+                                           size_t value_len);
+
 fzn_node_records_err_t fzn_node_records_write(const fzn_node_records_t *nr, const uint8_t *key,
                                               size_t key_len, const uint8_t *value,
                                               size_t value_len)
+{
+	return write_record(nr, key, key_len, 1, value, value_len);
+}
+
+static fzn_node_records_err_t write_record(const fzn_node_records_t *nr, const uint8_t *key,
+                                           size_t key_len, int set, const uint8_t *value,
+                                           size_t value_len)
 {
 	uint8_t bytes[FZN_SETTING_MAX];
 	size_t len = 0;
@@ -65,7 +76,7 @@ fzn_node_records_err_t fzn_node_records_write(const fzn_node_records_t *nr, cons
 	/* HOST SCOPE ABOUT ITSELF, at the host's own rank: what a host may
 	 * always say of itself, and all a record ever is. */
 	switch (fzn_setting_issue_ranked(nr->id->pubkey, nr->id->sign, FZN_SCOPE_HOST,
-	                                 nr->id->pubkey, now, key, key_len, 1, value, value_len,
+	                                 nr->id->pubkey, now, key, key_len, set, value, value_len,
 	                                 FZN_SETTING_RANK_HOST, bytes, &len)) {
 	case FZN_SETTING_OK:
 		break;
@@ -90,7 +101,46 @@ struct held {
 	size_t key_len;
 	uint64_t version;
 	uint64_t place; /* among its key and host's, newest first, from 0 */
+	/* A LIST'S RECORD that decides its member, sec 854: the newest of its
+	 * key of every host's, ties by the greater host. Never let go. */
+	int resolves;
 };
+
+/* BY KEY, newest first of every host's, ties by the greater host, then
+ * id: the order a list's member is resolved in, sec 854. */
+static int by_key_resolving(const void *a, const void *b)
+{
+	const struct held *x = a, *y = b;
+	size_t n = x->key_len < y->key_len ? x->key_len : y->key_len;
+	int c;
+
+	if ((c = memcmp(x->key, y->key, n)) != 0)
+		return c;
+	if (x->key_len != y->key_len)
+		return x->key_len < y->key_len ? -1 : 1;
+	if (x->version != y->version)
+		return x->version > y->version ? -1 : 1;
+	if ((c = memcmp(x->host, y->host, FZN_PUBKEY_LEN)) != 0)
+		return -c;
+	return memcmp(x->id, y->id, FZN_BUCKETS_ID_LEN);
+}
+
+static int by_member(const void *a, const void *b)
+{
+	const fzn_node_list_member_t *x = a, *y = b;
+	size_t n = x->member_len < y->member_len ? x->member_len : y->member_len;
+	int c = memcmp(x->member, y->member, n);
+
+	if (c)
+		return c;
+	return x->member_len < y->member_len ? -1 : x->member_len > y->member_len;
+}
+
+static int is_list_key(const uint8_t *key, size_t len)
+{
+	return len > FZN_NODE_LIST_PREFIX_LEN
+	       && memcmp(key, FZN_NODE_LIST_PREFIX, FZN_NODE_LIST_PREFIX_LEN) == 0;
+}
 
 /* BY HOST AND KEY, newest first within them, ties by id: a total order. */
 static int by_key_newest(const void *a, const void *b)
@@ -204,6 +254,7 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 				memcpy(all[n_all].key, s.key, s.key_len);
 				all[n_all].key_len = s.key_len;
 				all[n_all].version = s.version;
+				all[n_all].resolves = 0;
 				n_all++;
 			}
 			pos += got;
@@ -216,6 +267,14 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 		free(all);
 		return err;
 	}
+	/* EACH LIST MEMBER'S DECIDING RECORD, sec 854: kept whatever the rules
+	 * say, so no host's trim changes what a list resolves to. The records
+	 * it supersedes are weighed as any. */
+	qsort(all, n_all, sizeof(*all), by_key_resolving);
+	for (i = 0; i < n_all; i++)
+		all[i].resolves = is_list_key(all[i].key, all[i].key_len)
+		                  && (i == 0 || all[i].key_len != all[i - 1u].key_len
+		                      || memcmp(all[i].key, all[i - 1u].key, all[i].key_len) != 0);
 	qsort(all, n_all, sizeof(*all), by_key_newest);
 	for (i = 0; i < n_all; i++)
 		all[i].place = i && memcmp(all[i].host, all[i - 1u].host, FZN_PUBKEY_LEN) == 0
@@ -224,9 +283,9 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 		                       ? all[i - 1u].place + 1u
 		                       : 0u;
 	for (i = 0; i < n_all; i++) {
-		int pruned = 0, kept = 0;
+		int pruned = 0, kept = all[i].resolves;
 
-		for (r = 0; r < n; r++) {
+		for (r = 0; r < n && !kept; r++) {
 			if (!reaches(&rules[r], &all[i]))
 				continue;
 			if (rules[r].kind == FZN_RETAIN_KEEP && within(&rules[r], &all[i], now_ms))
@@ -543,6 +602,276 @@ static size_t get_record(const fzn_node_records_t *nr, const uint8_t *at, size_t
 	return answer(reply, cap, FZN_REPLY_OK, detail, n + wrote);
 }
 
+/* ---- lists, sec 854 ---------------------------------------------------- */
+
+/* A LIST'S NAME OR MEMBER: a key's word, without the `/` that separates
+ * them. */
+static int list_word_ok(const uint8_t *w, size_t n)
+{
+	return n && !memchr(w, '/', n) && fzn_setting_key_ok(w, n);
+}
+
+/* `list/NAME/MEMBER` into `key`: its length, or 0 when it is longer than a
+ * key. */
+static size_t list_key(const uint8_t *name, size_t name_len, const uint8_t *member,
+                       size_t member_len, uint8_t key[FZN_SETTING_KEY_MAX])
+{
+	size_t n = FZN_NODE_LIST_PREFIX_LEN + name_len + 1u + member_len;
+
+	if (n > FZN_SETTING_KEY_MAX)
+		return 0;
+	memcpy(key, FZN_NODE_LIST_PREFIX, FZN_NODE_LIST_PREFIX_LEN);
+	memcpy(key + FZN_NODE_LIST_PREFIX_LEN, name, name_len);
+	key[FZN_NODE_LIST_PREFIX_LEN + name_len] = '/';
+	memcpy(key + FZN_NODE_LIST_PREFIX_LEN + name_len + 1u, member, member_len);
+	return n;
+}
+
+fzn_node_records_err_t fzn_node_records_list_change(const fzn_node_records_t *nr,
+                                                    const uint8_t *name, size_t name_len,
+                                                    const uint8_t *member, size_t member_len,
+                                                    int in, const uint8_t *value,
+                                                    size_t value_len)
+{
+	uint8_t key[FZN_SETTING_KEY_MAX];
+	size_t key_len;
+
+	if (!name || !member || !list_word_ok(name, name_len) || !list_word_ok(member, member_len)
+	    || (!in && value_len)
+	    || !(key_len = list_key(name, name_len, member, member_len, key)))
+		return FZN_NODE_RECORDS_MALFORMED;
+	return write_record(nr, key, key_len, in ? 1 : 0, value, value_len);
+}
+
+int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name,
+                               size_t name_len,
+                               void (*each)(void *ctx, const fzn_node_list_member_t *m),
+                               void *ctx)
+{
+	static uint8_t ids[FZN_BUCKETS_CHUNK][FZN_BUCKETS_ID_LEN];
+	static uint8_t item[FZN_BUCKETS_ITEM_MAX];
+	uint8_t prefix[FZN_SETTING_KEY_MAX];
+	fzn_node_list_member_t *rows = NULL;
+	fzn_bucket_t *list = NULL;
+	size_t room = 0, n_buckets = 0, n_rows = 0, cap_rows = 0, prefix_len, i, j;
+	int ok = 1;
+
+	if (!nr || !nr->b || !nr->verify || !each || !name || !list_word_ok(name, name_len)
+	    || FZN_NODE_LIST_PREFIX_LEN + name_len + 1u >= FZN_SETTING_KEY_MAX)
+		return 0;
+	memcpy(prefix, FZN_NODE_LIST_PREFIX, FZN_NODE_LIST_PREFIX_LEN);
+	memcpy(prefix + FZN_NODE_LIST_PREFIX_LEN, name, name_len);
+	prefix[FZN_NODE_LIST_PREFIX_LEN + name_len] = '/';
+	prefix_len = FZN_NODE_LIST_PREFIX_LEN + name_len + 1u;
+	if (fzn_buckets_list_all(nr->b, FZN_BUCKETS_RECORDS, &list, &room, &n_buckets)
+	    != FZN_BUCKETS_OK) {
+		free(list);
+		return 0;
+	}
+	for (i = 0; i < n_buckets && ok; i++) {
+		uint64_t pos = 0, total = 0;
+
+		do {
+			size_t got = 0;
+
+			if (fzn_buckets_ids(nr->b, FZN_BUCKETS_RECORDS, list[i].subject, list[i].month,
+			                    pos, ids, FZN_BUCKETS_CHUNK, &got, &total)
+			    != FZN_BUCKETS_OK) {
+				ok = 0;
+				break;
+			}
+			for (j = 0; j < got; j++) {
+				uint8_t subject[FZN_PUBKEY_LEN];
+				uint32_t month = 0;
+				size_t len = 0, k;
+				fzn_setting_t s;
+				fzn_node_list_member_t *m;
+
+				if (fzn_buckets_item(nr->b, FZN_BUCKETS_RECORDS, ids[j], item, sizeof(item),
+				                     &len, NULL, NULL)
+				            != FZN_BUCKETS_OK
+				    || !fzn_node_records_place(nr, item, len, subject, &month, &s)
+				    || s.key_len <= prefix_len || memcmp(s.key, prefix, prefix_len) != 0
+				    || !list_word_ok(s.key + prefix_len, s.key_len - prefix_len))
+					continue;
+				/* ONE ROW A MEMBER, the newest of every host's, ties by
+				 * the greater host: every node holding the same records
+				 * resolves the same. */
+				for (k = 0; k < n_rows; k++)
+					if (rows[k].member_len == s.key_len - prefix_len
+					    && memcmp(rows[k].member, s.key + prefix_len, rows[k].member_len) == 0)
+						break;
+				if (k < n_rows
+				    && (s.version < rows[k].at
+				        || (s.version == rows[k].at
+				            && memcmp(subject, rows[k].host, FZN_PUBKEY_LEN) <= 0)))
+					continue;
+				if (k == n_rows) {
+					if (n_rows == cap_rows) {
+						size_t cap = cap_rows ? cap_rows * 2u : 32u;
+						fzn_node_list_member_t *more = realloc(rows, cap * sizeof(*more));
+
+						if (!more) {
+							ok = 0;
+							break;
+						}
+						rows = more;
+						cap_rows = cap;
+					}
+					n_rows++;
+				}
+				m = &rows[k];
+				m->member_len = s.key_len - prefix_len;
+				memcpy(m->member, s.key + prefix_len, m->member_len);
+				m->member[m->member_len] = '\0';
+				memcpy(m->host, subject, FZN_PUBKEY_LEN);
+				m->at = s.version;
+				m->in = s.set;
+				m->value_len = s.set ? s.value_len : 0u;
+				if (m->value_len)
+					memcpy(m->value, s.value, m->value_len);
+			}
+			pos += got;
+			if (!got)
+				break;
+		} while (pos < total && ok);
+	}
+	free(list);
+	if (ok) {
+		qsort(rows, n_rows, sizeof(*rows), by_member);
+		for (i = 0; i < n_rows; i++)
+			each(ctx, &rows[i]);
+	}
+	free(rows);
+	return ok;
+}
+
+struct listing {
+	const uint8_t *member; /* `get`'s one, or NULL for every one */
+	size_t member_len;
+	size_t from, seen, shown, used, limit;
+	int more, found;
+	fzn_node_list_member_t one;
+	char *items;
+};
+
+static void list_one(void *ctx, const fzn_node_list_member_t *m)
+{
+	struct listing *l = ctx;
+	char line[2u + FZN_SETTING_KEY_MAX + 3u * FZN_SETTING_VALUE_MAX];
+	size_t n = 0, wrote = 0;
+
+	if (l->member) {
+		if (m->member_len == l->member_len && memcmp(m->member, l->member, m->member_len) == 0) {
+			l->one = *m;
+			l->found = 1;
+		}
+		return;
+	}
+	if (!m->in || l->more || l->seen++ < l->from)
+		return;
+	line[n++] = ' ';
+	memcpy(line + n, m->member, m->member_len);
+	n += m->member_len;
+	line[n++] = ',';
+	if (fzn_escape(m->value, m->value_len, line + n, sizeof(line) - n, &wrote) != m->value_len)
+		return;
+	n += wrote;
+	/* A MEMBER GOES IN WHOLE OR NOT AT ALL. */
+	if (l->used + n > l->limit) {
+		l->more = 1;
+		return;
+	}
+	memcpy(l->items + l->used, line, n);
+	l->used += n;
+	l->shown++;
+}
+
+/* `add listed NAME MEMBER [VALUE]`, `remove listed NAME MEMBER`,
+ * `get listed NAME MEMBER` and `list listed NAME [FROM]`. */
+static size_t listed(const fzn_node_records_t *nr, fzn_verb_t verb, const uint8_t *at,
+                     size_t left, char *reply, size_t cap)
+{
+	static const char USAGE[] = "add listed NAME MEMBER [VALUE], remove listed NAME MEMBER, "
+	                            "get listed NAME MEMBER, list listed NAME [FROM]";
+	static char items[FZN_REPLY_MAX], detail[FZN_REPLY_MAX];
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	const uint8_t *name, *member = NULL, *w;
+	size_t name_len, member_len = 0, value_len = 0, w_len, i;
+	struct listing l;
+
+	memset(&l, 0, sizeof(l));
+	if (!word(&at, &left, &name, &name_len) || !list_word_ok(name, name_len))
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	if (verb != FZN_VERB_LIST
+	    && (!word(&at, &left, &member, &member_len) || !list_word_ok(member, member_len)))
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	if (verb == FZN_VERB_ADD) {
+		while (left && *at == ' ') {
+			at++;
+			left--;
+		}
+		if (left && !fzn_unescape(at, left, value, sizeof(value), &value_len))
+			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		left = 0;
+	}
+	if (verb == FZN_VERB_LIST && word(&at, &left, &w, &w_len))
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || l.from > ((size_t)1 << 30))
+				return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+			l.from = (l.from * 10u) + (size_t)(w[i] - '0');
+		}
+	if (left)
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	if (verb == FZN_VERB_ADD || verb == FZN_VERB_REMOVE) {
+		fzn_node_records_err_t err;
+
+		if (!nr->id)
+			return say(reply, cap, FZN_REPLY_UNSUPPORTED, "this node writes no records");
+		err = fzn_node_records_list_change(nr, name, name_len, member, member_len,
+		                                   verb == FZN_VERB_ADD, value, value_len);
+		if (err == FZN_NODE_RECORDS_MALFORMED)
+			return say(reply, cap, FZN_REPLY_MALFORMED, "a list's name and member are one "
+			                                            "key together, at most 64 bytes");
+		if (err == FZN_NODE_RECORDS_GONE)
+			return say(reply, cap, FZN_REPLY_DENIED, "this month's records were let go here");
+		if (err != FZN_NODE_RECORDS_OK)
+			return say(reply, cap, FZN_REPLY_ERROR, "the record was not kept");
+		return say(reply, cap, FZN_REPLY_OK, NULL);
+	}
+	l.member = member;
+	l.member_len = member_len;
+	l.items = items;
+	l.limit = fzn_reply_ok_room(cap) > 32u ? fzn_reply_ok_room(cap) - 32u : 0u;
+	if (l.limit > sizeof(items))
+		l.limit = sizeof(items);
+	if (!fzn_node_records_list_each(nr, name, name_len, list_one, &l))
+		return say(reply, cap, FZN_REPLY_ERROR, "the list could not be read");
+	if (verb == FZN_VERB_GET) {
+		size_t wrote = 0;
+
+		if (!l.found)
+			return say(reply, cap, FZN_REPLY_OK, "absent");
+		if (!l.one.in)
+			return say(reply, cap, FZN_REPLY_OK, "out");
+		if (!l.one.value_len)
+			return say(reply, cap, FZN_REPLY_OK, "in");
+		memcpy(detail, "in ", 3u);
+		if (fzn_escape(l.one.value, l.one.value_len, detail + 3, sizeof(detail) - 3u, &wrote)
+		    != l.one.value_len)
+			return 0;
+		return answer(reply, cap, FZN_REPLY_OK, detail, 3u + wrote);
+	}
+	{
+		int c = snprintf(detail, sizeof(detail), "%zu %zu %d", l.from, l.shown, l.more);
+
+		if (c < 0 || (size_t)c + l.used > sizeof(detail))
+			return 0;
+		memcpy(detail + c, items, l.used);
+		return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)c + l.used);
+	}
+}
+
 size_t fzn_node_records_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                               char *reply, size_t reply_cap)
 {
@@ -554,7 +883,19 @@ size_t fzn_node_records_local(void *ctx, fzn_origin_t origin, const fzn_request_
 		return 0;
 	at = request->arg;
 	left = request->arg_len;
-	if (!word(&at, &left, &subject, &subject_len) || !is_word(subject, subject_len, "record"))
+	if (!word(&at, &left, &subject, &subject_len))
+		return 0;
+	if (is_word(subject, subject_len, "listed")) {
+		if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_REMOVE
+		    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
+			return 0;
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED, "lists need this node's own user");
+		if (!nr->b || !nr->verify)
+			return say(reply, reply_cap, FZN_REPLY_UNSUPPORTED, "no store for records");
+		return listed(nr, request->parsed, at, left, reply, reply_cap);
+	}
+	if (!is_word(subject, subject_len, "record"))
 		return 0;
 	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_LIST
 	    && request->parsed != FZN_VERB_GET)

@@ -79015,3 +79015,68 @@ in `node/daemon.c`.
   verb is added, because it would hand fuzznet bytes it cannot judge,
   where a procedure name is something a permit (sec 852) can name.
   128 and 129 keep their numbers for peers still speaking them.
+
+## 854. Lists: records under a list key, the estate's, 2026-11-03
+
+The third generic subsystem in the holder's order (sec 852): "it needs
+lists". The holder agreed on 2026-11-03 (sec 851) that netcfgd's lists
+are records under a list key (sec 752).
+
+**A list is the records under `list/NAME/`, one key per member.** Any
+host of the estate writes them, and they are carried as every record is
+(sec 814).
+- **A member is in** while the newest record of its key is set. That is
+  the newest of every host's, with a tie broken by the greater host key.
+- **A member is out** once that newest record is a clear: a setting with
+  `set` 0, the shape `state/setting.h` already has for removing a value.
+- So a list resolves as a setting does, newest first, and every node
+  holding the same records resolves it the same. It also keeps the
+  history of its changes, as records do. A member may carry a value,
+  for example a station's name.
+- NAME and MEMBER are a key's words without `/`, together at most a
+  key's 64 bytes.
+
+**The verbs,** this node's own user, or one granted the subject `listed`
+(sec 852):
+
+    add listed NAME MEMBER [VALUE]   MEMBER in, with VALUE (%XX undone)
+    remove listed NAME MEMBER        MEMBER out
+    get listed NAME MEMBER           ok in [VALUE], ok out, or ok absent
+    list listed NAME [FROM]          ok FROM SHOWN MORE, then MEMBER,VALUE
+                                     for each member in, by member
+
+The subject is `listed` because `add list` makes a checklist note (sec
+442). In C, `fzn_node_records_list_change` and
+`fzn_node_records_list_each` (`node/records.h`) do the same without a
+reply line.
+
+**A list is never trimmed away.** The records trim (sec 815) keeps each
+member's deciding record whatever the rules say, and weighs only the
+records it supersedes. A host whose rules drop records therefore never
+changes what a list resolves to: the deciding record is kept on every
+host.
+
+**Rejected:**
+- **Lists as settings,** one estate setting per member. Each would be
+  journaled in the estate stream for ever, which is what records exist
+  to avoid (sec 814). A setting also needs rank to choose between
+  writers, where a list here is every member host's to change.
+- **A list as one record holding every member.** Two hosts changing
+  different members at once would overwrite each other, and a list of a
+  few thousand MACs would not fit one record.
+
+**Measured, `records_test`, 54 checks:**
+- absent, then in with a value, and in without one;
+- listed by member, and paged by FROM; another list holding none of them;
+- removed and out;
+- another host's newer clear takes a member out here, and of two changes
+  in one ms the greater host's wins;
+- added again after a removal, in;
+- a drop policy leaves each member's deciding record, with the answers
+  unchanged, and takes what it superseded;
+- refused: another user, a `/` in a name or member, a key too long, and a
+  value on a removal.
+
+**Not yet:** a keep rule naming a list's members, `list=NAME`, which
+keeps the records whose key holds a member (sec 752: "a keep rule may
+name a list's members by reading the list"). That is next.

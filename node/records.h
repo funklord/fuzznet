@@ -35,6 +35,24 @@
  *     get record KEY [HOST]         ok HOST,KEY,AT,VALUE: the newest record
  *                                   of KEY held, of any host or of HOST's
  *                                   (sec 816); `absent` when none is
+ *
+ * LISTS, sec 854: a list is the records under `list/NAME/`, one key a
+ * member, written by any host of the estate and carried as every record
+ * is. A member is IN while the newest record of its key -- of every host's,
+ * ties by the greater host -- is set, and OUT once that one is a clear
+ * (`state/setting.h`'s `set` 0). So a list resolves as a setting does,
+ * newest first, the same on every node holding the same records, and
+ * keeps the history of its changes as records do. NAME and MEMBER are a
+ * key's words without `/`, together at most a key long.
+ *
+ *     add listed NAME MEMBER [VALUE]   MEMBER in, with VALUE (%XX undone)
+ *     remove listed NAME MEMBER        MEMBER out
+ *     get listed NAME MEMBER           ok in [VALUE], ok out, or ok absent
+ *     list listed NAME [FROM]          ok FROM SHOWN MORE, then MEMBER,VALUE
+ *                                      for each member in, by member
+ *
+ * A LIST IS NEVER TRIMMED AWAY: the record deciding each member is kept
+ * whatever the rules say, and only those it supersedes are weighed.
  */
 
 #ifndef FZN_NODE_RECORDS_H
@@ -48,6 +66,7 @@
 #include "provision.h"
 #include "../local/vocabulary.h"
 #include "../chain/authz.h"
+#include "../state/setting.h"
 
 typedef struct fzn_node_records {
 	const fzn_buckets_t *b;
@@ -104,6 +123,37 @@ struct fzn_retain_rule;
 fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
                                              const struct fzn_retain_rule *rules, size_t n,
                                              uint64_t now_ms, size_t *gone);
+
+/* LISTS, sec 854. */
+#define FZN_NODE_LIST_PREFIX "list/"
+#define FZN_NODE_LIST_PREFIX_LEN 5u
+
+typedef struct fzn_node_list_member {
+	char member[FZN_SETTING_KEY_MAX + 1u]; /* NUL-ended */
+	size_t member_len;
+	uint8_t host[FZN_PUBKEY_LEN]; /* who wrote the deciding record */
+	uint64_t at;                  /* its version, ms */
+	int in;                       /* 1 in, 0 out */
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	size_t value_len;
+} fzn_node_list_member_t;
+
+/* THIS HOST CHANGES A LIST: MEMBER `in` (with `value`) or out, signed now
+ * and kept. MALFORMED for a name or member out of shape, or a value given
+ * with `in` 0. */
+fzn_node_records_err_t fzn_node_records_list_change(const fzn_node_records_t *nr,
+                                                    const uint8_t *name, size_t name_len,
+                                                    const uint8_t *member, size_t member_len,
+                                                    int in, const uint8_t *value,
+                                                    size_t value_len);
+
+/* EACH MEMBER OF LIST `name` THAT ANY HOLDS A RECORD OF, resolved, to
+ * `each` in order of member -- out ones too, `in` 0. 1, or 0 when the
+ * records could not be read (and `each` was not called). */
+int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name,
+                               size_t name_len,
+                               void (*each)(void *ctx, const fzn_node_list_member_t *m),
+                               void *ctx);
 
 /* The verbs above, as a local handler: 0 for a request that is not one. */
 size_t fzn_node_records_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,

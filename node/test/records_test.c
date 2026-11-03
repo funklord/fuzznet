@@ -459,6 +459,117 @@ static void test_the_trim(void)
 	}
 }
 
+/* A CLEAR `by` signs about itself at `at` ms: a list member out. */
+static size_t a_clear(uint8_t *out, uint8_t by, uint64_t at, const char *key)
+{
+	uint8_t setter[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	memset(setter, by, sizeof(setter));
+	signing_as = by;
+	if (fzn_setting_issue_ranked(setter, &SIGN, FZN_SCOPE_HOST, setter, at,
+	                             (const uint8_t *)key, strlen(key), 0, NULL, 0u,
+	                             FZN_SETTING_RANK_HOST, out, &len)
+	    != FZN_SETTING_OK)
+		return 0;
+	return len;
+}
+
+/* LISTS, sec 854: records under `list/NAME/`, a member in while the newest
+ * record of its key -- any host's, ties by the greater host -- is set. */
+static void test_the_lists(void)
+{
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms };
+	fzn_retain_rule_t rules[2];
+	uint8_t item[FZN_SETTING_MAX], other[FZN_PUBKEY_LEN];
+	size_t len, gone = 0;
+
+	memset(&node, 0, sizeof(node));
+	memset(&me, 0, sizeof(me));
+	memset(me.pubkey, 0x44, sizeof(me.pubkey));
+	me.sign = &SIGN;
+	memset(other, 0x55, sizeof(other));
+	clock_ms = 1793500000000ull;
+	signing_as = 0x44;
+
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "get listed allow aa-bb") && replied("ok absent"),
+	      "a member never listed was not absent");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "add listed allow aa-bb the%20kitchen")
+	              && replied("ok"),
+	      "a member with a value was not added");
+	clock_ms += 1000u;
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "add listed allow cc") && replied("ok"),
+	      "a member with no value was not added");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "get listed allow aa-bb")
+	              && strcmp(reply, "ok in the%20kitchen\n") == 0,
+	      "a member in did not read as in, with its value");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "list listed allow")
+	              && strcmp(reply, "ok 0 2 0 aa-bb,the%20kitchen cc,\n") == 0,
+	      "the list's members were not listed, by member");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "list listed allow 1")
+	              && strcmp(reply, "ok 1 1 0 cc,\n") == 0,
+	      "FROM did not page the members");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "list listed deny")
+	              && strcmp(reply, "ok 0 0 0\n") == 0,
+	      "another list held this one's members");
+	clock_ms += 1000u;
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "remove listed allow cc") && replied("ok")
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "get listed allow cc") && replied("ok out")
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "list listed allow")
+	              && strcmp(reply, "ok 0 1 0 aa-bb,the%20kitchen\n") == 0,
+	      "a member removed was still in");
+
+	/* ANOTHER HOST'S NEWER CLEAR takes a member out here: a list is the
+	 * estate's, resolved newest first. */
+	clock_ms += 1000u;
+	len = a_clear(item, 0x55, clock_ms, "list/allow/aa-bb");
+	CHECK(fzn_node_records_file(&nr, other, fzn_message_epoch_of(clock_ms), item, len)
+	              == FZN_NODE_APPLY_APPLIED
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "get listed allow aa-bb")
+	              && replied("ok out"),
+	      "another host's newer removal did not take the member out");
+	/* AND A TIE, ONE MS: the greater host decides, here 0x55's clear over
+	 * 0x44's add of the same moment. */
+	signing_as = 0x44;
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "add listed allow aa-bb") && replied("ok")
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "get listed allow aa-bb")
+	              && replied("ok out"),
+	      "of two changes in one ms, the lesser host's won");
+	clock_ms += 1000u;
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "add listed allow aa-bb") && replied("ok")
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "get listed allow aa-bb")
+	              && strcmp(reply, "ok in\n") == 0,
+	      "a member added again after its removal was not in");
+
+	/* A LIST IS NEVER TRIMMED AWAY: a drop policy takes the superseded
+	 * records and leaves each member's deciding one. aa-bb's four (two
+	 * here, one of 0x55's, one more here) leave one; cc's two leave one. */
+	rules[0] = rule("policy records drop");
+	CHECK(fzn_node_records_trim(&nr, rules, 1, clock_ms, &gone) == FZN_NODE_RECORDS_OK
+	              && held_of(&nr, "list/allow/aa-bb") == 1u && held_of(&nr, "list/allow/cc") == 1u
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "get listed allow aa-bb")
+	              && strcmp(reply, "ok in\n") == 0
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "get listed allow cc") && replied("ok out"),
+	      "a trim took a member's deciding record, or kept what it superseded");
+
+	/* REFUSED: another user, a `/` in a name or member, a key too long, and
+	 * a value on a removal. */
+	CHECK(said(&nr, FZN_ORIGIN_LOCAL, "list listed allow") && replied("denied"),
+	      "another user listed a list");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "add listed al/low aa") && replied("malformed")
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "add listed allow a/b")
+	              && replied("malformed"),
+	      "a `/` in a name or member was taken");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER,
+	           "add listed allow "
+	           "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	              && replied("malformed"),
+	      "a member past a key's length was taken");
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "remove listed allow aa-bb why")
+	              && replied("malformed"),
+	      "a removal with a value was taken");
+}
+
 /* THE RULES' WORDS, sec 815: what parses, what does not, and the text it
  * writes back. */
 static void test_the_rules(void)
@@ -504,6 +615,7 @@ int main(void)
 	test_the_verbs();
 	test_the_trim();
 	test_the_rules();
+	test_the_lists();
 	if (failures) {
 		fprintf(stderr, "node records_test: %d of %d checks failed\n", failures, checks);
 		return 1;

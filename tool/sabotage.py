@@ -3684,6 +3684,27 @@ SABOTAGES = [
 		"the first half of a malformed grant list is taken -- sec 852",
 	),
 	(
+		"list-deciding-record-kept",
+		"node/records.c",
+		"\t\tint pruned = 0, kept = all[i].resolves;",
+		"\t\tint pruned = 0, kept = 0;",
+		"a records trim lets a list member's deciding record go, and the member changes -- sec 854",
+	),
+	(
+		"list-newest-of-every-host",
+		"node/records.c",
+		"\t\t\t\t    && (s.version < rows[k].at\n",
+		"\t\t\t\t    && (s.version > rows[k].at\n",
+		"a list member is decided by its oldest record, not its newest -- sec 854",
+	),
+	(
+		"list-tie-by-greater-host",
+		"node/records.c",
+		"\t\t\t\t            && memcmp(subject, rows[k].host, FZN_PUBKEY_LEN) <= 0)))",
+		"\t\t\t\t            && memcmp(subject, rows[k].host, FZN_PUBKEY_LEN) >= 0)))",
+		"two changes of one ms resolve differently on different nodes -- sec 854",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",
