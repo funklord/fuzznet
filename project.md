@@ -79945,3 +79945,32 @@ key, a mesh password, a passphrase. The holder said to build it on
     value of its own.
   - A bogus box in B's cell is refused at B.
 - Sabotage: `sealed-value-never-read-as-its-box`.
+
+## 875. A sealed value reaches a host that joins the group later, 2026-11-04
+
+Sec 874 sealed a value to the group's members as they were then. A host
+that joined later had nothing until somebody sealed again by hand.
+netcfgd's own words name the case: "a roaming key or a mesh password
+reaching a new access point wants a path of its own".
+
+**Built:**
+- **The sealer keeps a copy for itself.** `set sealed` also boxes the
+  value to the sealing host, in its own cell `sealed/GROUP/KEY`. The
+  group's name and the key are therefore at most 56 bytes together.
+- **Each minute, the sealer's node walks its copies** and opens each with
+  its own prekey secret. It seals the value to every member of the group
+  whose cell of the key holds no value yet: a host that joined, or whose
+  prekey arrived, since.
+- A member that already holds a box is left alone, so nothing is sealed
+  again every minute.
+- The sealer still needs a root's or an admin's standing to write
+  another host's cell, as at sealing.
+
+**What it does not do:** a host that leaves keeps its box, as in sec
+874. And a copy is only renewed by the host that sealed it, so if that
+host is gone, a later member waits for somebody to seal again.
+
+**Measured, `live_ext` d6:** A, outside zone1 when d5 sealed the
+passphrase, joins zone1. Within the minute A's value in force is the
+passphrase. A's cell had no value before, and only the tick writes one,
+so the check cannot pass without it.

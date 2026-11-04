@@ -321,6 +321,21 @@ def c_marks(daemon_path, scratch, sock_dir):
 			time.sleep(1.0)
 		print("livecheck: d5: a value sealed to zone1 was read opened by its member, held only "
 		      "as a box outside it, and a box the member cannot open was refused")
+		# d6: A LATER MEMBER, sec 875: A, outside zone1 when the passphrase was
+		# sealed, joins it; within a minute the sealer's copy is sealed again
+		# to it, and A's value in force is the passphrase.
+		if ask(socks["a"], "set setting host group/member zone1") != "ok":
+			raise failed("d6: A could not join zone1")
+		until = time.monotonic() + 150.0
+		while True:
+			got = ask(socks["a"], "get setting here wifi/psk")
+			if got == "ok host root s3cret%20pass":
+				break
+			if time.monotonic() > until:
+				raise failed("d6: A, joined to zone1, read %r" % got)
+			time.sleep(2.0)
+		print("livecheck: d6: a host that joined zone1 after the value was sealed was sealed "
+		      "it too, by the sealer's copy")
 	finally:
 		for d in started.values():
 			d.stop()

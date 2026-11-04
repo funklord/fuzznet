@@ -9301,21 +9301,100 @@ static size_t unseal_here(void *ctx, const uint8_t *value, size_t len, uint8_t *
 	return n;
 }
 
+/* VALUE SEALED TO `host`'s PREKEY and written into its cell of KEY: 1,
+ * 0 when its prekey is not held or the write failed, -1 when this node may
+ * not write that cell. */
+static int seal_to(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *key, size_t key_len,
+                   const uint8_t *value, size_t value_len)
+{
+	uint8_t record[FZN_PREKEY_LEN_TOTAL], box[FZN_SETTING_VALUE_MAX];
+	char text[FZN_SETTING_VALUE_MAX];
+	const uint8_t *public_key = NULL;
+	fzn_prekey_record_t pk;
+	size_t box_len = 0, k;
+	fzn_node_settings_err_t err;
+
+	if (memcmp(host, node_settings.id->pubkey, FZN_PUBKEY_LEN) == 0)
+		public_key = fzn_agree_secret_public(contact_id->agree_secret);
+	else if (fzn_node_siblings_prekey(node_apply.store, host, record) == FZN_NODE_SIBLINGS_OK
+	         && fzn_prekey_open(record, sizeof(record), &pk) == FZN_PREKEY_OK)
+		public_key = pk.prekey;
+	if (!public_key
+	    || fzn_box_seal(contact_id->agree, contact_id->hash, contact_aead_ops, contact_rng_ops,
+	                    public_key, value, value_len, box, sizeof(box), &box_len)
+	               != FZN_BOX_OK
+	    || FZN_NODE_SETTINGS_SEALED_LEN + 2u * box_len > sizeof(text))
+		return 0;
+	memcpy(text, FZN_NODE_SETTINGS_SEALED, FZN_NODE_SETTINGS_SEALED_LEN);
+	for (k = 0; k < box_len; k++) {
+		text[FZN_NODE_SETTINGS_SEALED_LEN + 2u * k] = "0123456789abcdef"[box[k] >> 4];
+		text[FZN_NODE_SETTINGS_SEALED_LEN + 2u * k + 1u] = "0123456789abcdef"[box[k] & 15u];
+	}
+	fzn_wipe(box, sizeof(box));
+	err = fzn_node_settings_write(&node_settings, FZN_SCOPE_HOST, host, key, key_len, 1,
+	                              (const uint8_t *)text,
+	                              FZN_NODE_SETTINGS_SEALED_LEN + 2u * box_len);
+	return err == FZN_NODE_SETTINGS_OK ? 1 : err == FZN_NODE_SETTINGS_REFUSED ? -1 : 0;
+}
+
+/* EVERY HOST WHOSE PREKEY IS HELD, and this one, into `hosts`: how many,
+ * or -1. */
+static long sealing_hosts(uint8_t (**hosts)[FZN_PUBKEY_LEN], size_t *cap)
+{
+	size_t count = 0;
+
+	for (;;) {
+		fzn_node_siblings_err_t e = fzn_node_siblings_list(node_apply.store, *hosts, *cap, &count);
+
+		if (e == FZN_NODE_SIBLINGS_OK)
+			break;
+		if (e != FZN_NODE_SIBLINGS_ROOM
+		    || !heap_room((void **)hosts, cap, count + 1u, sizeof(**hosts)))
+			return -1;
+	}
+	if (!heap_room((void **)hosts, cap, count + 1u, sizeof(**hosts)))
+		return -1;
+	memcpy((*hosts)[count++], node_settings.id->pubkey, FZN_PUBKEY_LEN);
+	return (long)count;
+}
+
+/* THE SEALER'S OWN COPY, sec 875: `sealed/GROUP/KEY` in this host's own cell,
+ * the value boxed to this host, so its node can seal it again to a host
+ * that joins the group later -- netcfgd's "a roaming key reaching a new
+ * access point". Its key, or 0 when GROUP and KEY together are too long. */
+#define FZND_SEALED_COPY "sealed/"
+static size_t sealed_copy_key(const uint8_t group[FZN_SUBJECT_LEN], const uint8_t *key,
+                              size_t key_len, uint8_t out[FZN_SETTING_KEY_MAX])
+{
+	char name[FZN_SCOPE_GROUP_NAME_MAX + 1u];
+	size_t n = fzn_scope_group_name(group, name), len = 7u + n + 1u + key_len;
+
+	if (!n || len > FZN_SETTING_KEY_MAX)
+		return 0;
+	memcpy(out, FZND_SEALED_COPY, 7u);
+	memcpy(out + 7u, name, n);
+	out[7u + n] = '/';
+	memcpy(out + 8u + n, key, key_len);
+	return len;
+}
+
 /* `set sealed group=NAME KEY VALUE`, sec 874: VALUE sealed to each host of
  * the group -- by its `group/member`, this host among them -- and written
  * into that host's own cell of KEY, which only that host opens; `get
- * setting here KEY` on a member answers it opened. `ok SEALED MISSING`,
- * MISSING the members whose prekey this node does not hold. A root's or an
- * admin's, since it writes other hosts' cells. */
+ * setting here KEY` on a member answers it opened. Its copy kept for
+ * later members (sec 875). `ok SEALED MISSING`, MISSING the members whose
+ * prekey this node does not hold. A root's or an admin's, since it writes
+ * other hosts' cells. */
 static size_t sealed_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap)
 {
 	static uint8_t (*hosts)[FZN_PUBKEY_LEN];
 	static size_t hosts_cap;
 	const uint8_t *at = request->arg, *w, *key;
-	size_t left = request->arg_len, w_len, key_len, value_len = 0, count = 0, i, sealed = 0,
-	       missing = 0;
-	uint8_t group[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX];
+	size_t left = request->arg_len, w_len, key_len, value_len = 0, i, sealed = 0, missing = 0,
+	       copy_len;
+	uint8_t group[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX], copy[FZN_SETTING_KEY_MAX];
+	long count;
 
 	if (request->parsed != FZN_VERB_SET || !at || !next_word(&at, &left, &w, &w_len) || w_len != 6u
 	    || memcmp(w, "sealed", 6u) != 0)
@@ -9329,6 +9408,9 @@ static size_t sealed_local(fzn_origin_t origin, const fzn_request_t *request, ch
 	    || !fzn_scope_group_id(w + 6, w_len - 6u, group) || !next_word(&at, &left, &key, &key_len)
 	    || !fzn_setting_key_ok(key, key_len))
 		return (size_t)snprintf(reply, cap, "malformed set sealed group=NAME KEY VALUE\n");
+	if (!(copy_len = sealed_copy_key(group, key, key_len, copy)))
+		return (size_t)snprintf(reply, cap, "malformed the group's name and the key together "
+		                                    "are at most 56 bytes\n");
 	while (left && *at == ' ') {
 		at++;
 		left--;
@@ -9338,73 +9420,108 @@ static size_t sealed_local(fzn_origin_t origin, const fzn_request_t *request, ch
 	if (value_len > FZND_SEALED_MAX)
 		return (size_t)snprintf(reply, cap, "malformed a sealed value is at most %u bytes\n",
 		                        (unsigned)FZND_SEALED_MAX);
-	/* EVERY HOST WHOSE PREKEY IS HELD, and this one. */
-	for (;;) {
-		fzn_node_siblings_err_t e = fzn_node_siblings_list(node_apply.store, hosts, hosts_cap,
-		                                                    &count);
-
-		if (e == FZN_NODE_SIBLINGS_OK)
-			break;
-		if (e != FZN_NODE_SIBLINGS_ROOM
-		    || !heap_room((void **)&hosts, &hosts_cap, count + 1u, sizeof(*hosts)))
-			return (size_t)snprintf(reply, cap, "error the hosts could not be listed\n");
-	}
-	if (!heap_room((void **)&hosts, &hosts_cap, count + 1u, sizeof(*hosts)))
-		return (size_t)snprintf(reply, cap, "error no room\n");
-	memcpy(hosts[count++], node_settings.id->pubkey, FZN_PUBKEY_LEN);
-	for (i = 0; i < count; i++) {
-		uint8_t record[FZN_PREKEY_LEN_TOTAL], box[FZN_SETTING_VALUE_MAX];
-		char text[FZN_SETTING_VALUE_MAX];
-		const uint8_t *public_key;
-		fzn_prekey_record_t pk;
-		size_t box_len = 0, k, j;
-		fzn_node_settings_err_t err;
+	if ((count = sealing_hosts(&hosts, &hosts_cap)) < 0)
+		return (size_t)snprintf(reply, cap, "error the hosts could not be listed\n");
+	for (i = 0; i < (size_t)count; i++) {
+		size_t j;
+		int r;
 
 		for (j = 0; j < i; j++)
 			if (memcmp(hosts[j], hosts[i], FZN_PUBKEY_LEN) == 0)
 				break;
 		if (j < i || !host_in_group(hosts[i], group))
 			continue;
-		if (memcmp(hosts[i], node_settings.id->pubkey, FZN_PUBKEY_LEN) == 0) {
-			public_key = fzn_agree_secret_public(contact_id->agree_secret);
-		} else if (fzn_node_siblings_prekey(node_apply.store, hosts[i], record)
-		                   == FZN_NODE_SIBLINGS_OK
-		           && fzn_prekey_open(record, sizeof(record), &pk) == FZN_PREKEY_OK) {
-			public_key = pk.prekey;
-		} else {
-			missing++;
-			continue;
-		}
-		if (!public_key
-		    || fzn_box_seal(contact_id->agree, contact_id->hash, contact_aead_ops,
-		                    contact_rng_ops, public_key, value, value_len, box, sizeof(box),
-		                    &box_len)
-		               != FZN_BOX_OK
-		    || FZN_NODE_SETTINGS_SEALED_LEN + 2u * box_len > sizeof(text)) {
-			missing++;
-			continue;
-		}
-		memcpy(text, FZN_NODE_SETTINGS_SEALED, FZN_NODE_SETTINGS_SEALED_LEN);
-		for (k = 0; k < box_len; k++) {
-			text[FZN_NODE_SETTINGS_SEALED_LEN + 2u * k] = "0123456789abcdef"[box[k] >> 4];
-			text[FZN_NODE_SETTINGS_SEALED_LEN + 2u * k + 1u] = "0123456789abcdef"[box[k] & 15u];
-		}
-		err = fzn_node_settings_write(&node_settings, FZN_SCOPE_HOST, hosts[i], key, key_len, 1,
-		                              (const uint8_t *)text,
-		                              FZN_NODE_SETTINGS_SEALED_LEN + 2u * box_len);
-		fzn_wipe(box, sizeof(box));
-		if (err == FZN_NODE_SETTINGS_REFUSED)
+		r = seal_to(hosts[i], key, key_len, value, value_len);
+		if (r < 0) {
+			fzn_wipe(value, sizeof(value));
 			return (size_t)snprintf(reply, cap, "denied sealing writes other hosts' cells, a "
 			                                    "root's or an admin's\n");
-		if (err != FZN_NODE_SETTINGS_OK) {
-			missing++;
-			continue;
 		}
-		sealed++;
+		if (r)
+			sealed++;
+		else
+			missing++;
 	}
+	/* AND THE COPY, to this host, for a member that comes later. */
+	(void)seal_to(node_settings.id->pubkey, copy, copy_len, value, value_len);
 	fzn_wipe(value, sizeof(value));
 	journal_pushed = 1;
 	return (size_t)snprintf(reply, cap, "ok %zu %zu\n", sealed, missing);
+}
+
+/* A LATER MEMBER, sec 875: each minute, every copy this host sealed is
+ * sealed again to each member of its group whose cell of the key holds no
+ * value yet -- a host that joined, or whose prekey arrived, since. A
+ * member's existing box is left alone. */
+#define FZND_SEALED_COPIES_MAX 64u
+static struct sealed_copy {
+	uint8_t key[FZN_SETTING_KEY_MAX];
+	size_t key_len;
+} sealed_copies[FZND_SEALED_COPIES_MAX];
+static size_t n_sealed_copies;
+static size_t sealed_later;
+
+static void sealed_copy_seen(void *ctx, const fzn_setting_t *st, fzn_setting_rank_t rank)
+{
+	(void)ctx;
+	(void)rank;
+	if (st->scope != FZN_SCOPE_HOST || !node_settings.id
+	    || memcmp(st->about, node_settings.id->pubkey, FZN_PUBKEY_LEN) != 0 || st->key_len <= 7u
+	    || memcmp(st->key, FZND_SEALED_COPY, 7u) != 0
+	    || n_sealed_copies == FZND_SEALED_COPIES_MAX)
+		return;
+	memcpy(sealed_copies[n_sealed_copies].key, st->key, st->key_len);
+	sealed_copies[n_sealed_copies++].key_len = st->key_len;
+}
+
+static void sealed_tick(void)
+{
+	static uint64_t last;
+	static uint8_t (*hosts)[FZN_PUBKEY_LEN];
+	static size_t hosts_cap;
+	uint64_t now = wall_clock();
+	size_t c, i;
+	long count;
+
+	if (now < last + 60u || !contact_id || !contact_id->agree_secret || !contact_aead_ops
+	    || !contact_rng_ops || !node_apply.store || !node_settings.id || !node_settings.unseal)
+		return;
+	last = now;
+	n_sealed_copies = 0;
+	if (fzn_node_settings_each(&node_settings, sealed_copy_seen, NULL) != FZN_NODE_SETTINGS_OK
+	    || !n_sealed_copies || (count = sealing_hosts(&hosts, &hosts_cap)) < 0)
+		return;
+	for (c = 0; c < n_sealed_copies; c++) {
+		const uint8_t *k = sealed_copies[c].key + 7u, *slash;
+		size_t rest = sealed_copies[c].key_len - 7u, value_len = 0, boxed_len = 0;
+		uint8_t group[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX], boxed[FZN_SETTING_VALUE_MAX];
+		fzn_setting_rank_t rank;
+
+		if (!(slash = memchr(k, '/', rest))
+		    || !fzn_scope_group_id(k, (size_t)(slash - k), group)
+		    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, node_settings.id->pubkey,
+		                              sealed_copies[c].key, sealed_copies[c].key_len, boxed,
+		                              &boxed_len, &rank)
+		    || !(value_len = unseal_here(NULL, boxed, boxed_len, value, sizeof(value))))
+			continue;
+		for (i = 0; i < (size_t)count; i++) {
+			uint8_t held[FZN_SETTING_VALUE_MAX];
+			size_t held_len = 0, key_len = rest - (size_t)(slash - k) - 1u;
+
+			if (!host_in_group(hosts[i], group)
+			    || fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, hosts[i], slash + 1,
+			                             key_len, held, &held_len, &rank))
+				continue;
+			if (seal_to(hosts[i], slash + 1, key_len, value, value_len) > 0) {
+				sealed_later++;
+				journal_pushed = 1;
+				say(FZN_ENTRY_NOTE, "node/sealed", "a sealed %.*s reached a later member "
+				    "%02x%02x%02x%02x", (int)key_len, (const char *)(slash + 1), hosts[i][0],
+				    hosts[i][1], hosts[i][2], hosts[i][3]);
+			}
+		}
+		fzn_wipe(value, sizeof(value));
+	}
 }
 
 /* A LOCAL CALLER THIS NODE WOULD DENY, judged by the node's own user's
@@ -19261,6 +19378,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			/* gpsd's newest fix, when sampling is on, sec 678. */
 			location_tick();
 			stages_tick();
+			sealed_tick();
 			ext_tick();
 #ifdef FZN_LOG_FILE_ON
 			log_settings_tick();
@@ -19303,6 +19421,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	while (!identity_reset && !rejoin_due && !stop_due) {
 		location_tick();
 		stages_tick();
+		sealed_tick();
 		ext_tick();
 #ifdef FZN_LOG_FILE_ON
 		log_settings_tick();
