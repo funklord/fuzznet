@@ -236,6 +236,9 @@ static fzn_group_log_err_t act_with(const fzn_node_groups_t *g, uint8_t kind, co
 	return FZN_GROUP_LOG_OK;
 }
 
+/* How many of one name a host tries before a group goes by its id. */
+#define GROUP_NAME_TRIES 16u
+
 fzn_contact_err_t fzn_node_groups_name_learned(const fzn_node_groups_t *g,
                                                const uint8_t id[FZN_GROUP_ID_LEN])
 {
@@ -252,11 +255,22 @@ fzn_contact_err_t fzn_node_groups_name_learned(const fzn_node_groups_t *g,
 	if (fzn_group_log_act(&g->log, id, 0u, bytes, sizeof(bytes), &len) == FZN_GROUP_LOG_OK
 	    && fzn_group_act_decode(bytes, len, &a) == FZN_GROUP_ACT_OK
 	    && a.kind == FZN_GROUP_ACT_CREATE && a.payload_len > 1u
-	    && a.payload[0] == CREATE_NAME_VERSION
-	    && fzn_node_group_rename(g->log.store, id, (const char *)a.payload + 1,
-	                             a.payload_len - 1u)
-	               == FZN_CONTACT_OK)
-		return FZN_CONTACT_OK;
+	    && a.payload[0] == CREATE_NAME_VERSION) {
+		/* ANOTHER GROUP HERE GOES BY IT, sec 890: this one by `name_2` and on,
+		 * as a contact's clash is (sec 888). A name is this host's. */
+		size_t nth;
+
+		for (nth = 1u; nth <= GROUP_NAME_TRIES; nth++) {
+			char want[FZN_CONTACT_NAME_MAX];
+			size_t n = fzn_contact_name_nth((const char *)a.payload + 1, a.payload_len - 1u, nth,
+			                                want);
+
+			if (!n)
+				break;
+			if (fzn_node_group_rename(g->log.store, id, want, n) == FZN_CONTACT_OK)
+				return FZN_CONTACT_OK;
+		}
+	}
 	for (i = 0; i < 8u; i++)
 		(void)snprintf(name + 2u * i, 3u, "%02x", id[i]);
 	return fzn_node_group_rename(g->log.store, id, name, 16u);

@@ -685,6 +685,51 @@ static void test_the_last_admin_is_told_the_ways_out(void)
 	      "with another admin, the leave was still refused");
 }
 
+/* TWO GROUPS OF ONE NAME AT A MEMBER, sec 890: fuzzypickles' group-same-name.
+ * The second goes by `crew_2`, each still found by its id. */
+static void test_two_groups_of_one_name(void)
+{
+	struct user *a = &users[0];
+	uint8_t first[FZN_GROUP_ID_LEN], second[FZN_GROUP_ID_LEN], found[FZN_GROUP_ID_LEN];
+	char reply[1024], name[FZN_CONTACT_NAME_MAX + 1u];
+	size_t i, len = 0;
+	int read = 1;
+
+	user_up(a, 0x33u);
+	CHECK(verb(a, "add group crew", reply, sizeof(reply)) && strncmp(reply, "ok ", 3) == 0,
+	      "fixture: the first crew");
+	for (i = 0; i < FZN_GROUP_ID_LEN; i++) {
+		unsigned v = 0;
+
+		read &= sscanf(reply + 3u + 2u * i, "%2x", &v) == 1;
+		first[i] = (uint8_t)v;
+	}
+	CHECK(read && fzn_node_group_rename(a->groups.log.store, first, "was", 3u) == FZN_CONTACT_OK
+	              && verb(a, "add group crew", reply, sizeof(reply))
+	              && strncmp(reply, "ok ", 3) == 0,
+	      "fixture: a second group made crew, the first renamed");
+	for (i = 0; i < FZN_GROUP_ID_LEN; i++) {
+		unsigned v = 0;
+
+		read &= sscanf(reply + 3u + 2u * i, "%2x", &v) == 1;
+		second[i] = (uint8_t)v;
+	}
+	/* AS IF LEARNED: this host has no name for the first, whose maker called
+	 * it crew, and the second holds that here. */
+	CHECK(read && a->groups.log.store->remove(a->groups.log.store->ctx, FZN_PERSIST_GROUP_LABEL,
+	                                          first),
+	      "fixture: the first's name forgotten here");
+	CHECK(fzn_node_groups_name_learned(&a->groups, first) == FZN_CONTACT_OK
+	              && fzn_node_group_name(a->groups.log.store, first, name, &len) == FZN_CONTACT_OK
+	              && len == 6u && memcmp(name, "crew_2", 6u) == 0,
+	      "a group whose maker's name is held here did not go by name_2");
+	CHECK(fzn_node_group_find(a->groups.log.store, "crew", 4u, found) == FZN_CONTACT_OK
+	              && memcmp(found, second, sizeof(found)) == 0
+	              && fzn_node_group_find(a->groups.log.store, "crew_2", 6u, found) == FZN_CONTACT_OK
+	              && memcmp(found, first, sizeof(found)) == 0,
+	      "the two groups are not each found by its own name");
+}
+
 /* sec 803: `u`'s host rotates its prekey, the old secret wiped. */
 static void rotate(struct user *u, uint8_t seed_byte)
 {
@@ -812,6 +857,7 @@ int main(void)
 	test_lines_are_held_in_order();
 	test_lines_trimmed_from_a_base();
 	test_a_members_host_is_its_members();
+	test_two_groups_of_one_name();
 	test_the_last_admin_is_told_the_ways_out();
 	test_a_host_whose_prekey_rotated();
 	if (failures) {

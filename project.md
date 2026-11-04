@@ -80405,3 +80405,18 @@ is written and no host need be told.
 **Measured, `tool/live_names.py`:** two admins each name a different key bob,
 both then agree, and a rename on one reaches the same person on both. Against
 the daemon before, A's bob is the lower key and B's the higher.
+
+## 890. A member's second group of one name goes by `name_2`, 2026-11-05
+
+fuzzypickles' `group-same-name`. A group is its id and its name is this
+host's (sec 516), so two groups a member learns under one maker's name were
+already two: the second went by its id's first 8 bytes in hex, which works
+and reads as nothing. It now goes by `crew_2`, as a contact's clash does
+(sec 888), and past 16 by its id still. Unlike a contact's name this is one
+host's, so it needs no agreement.
+
+`groups_test`, 109 checks: each found by its own name.
+
+**A correction to `4312c3a`:** its `Fixes:` trailer names `11e52c3a4f15`,
+which is no commit, written by hand. The faults came from `dcd352a` (the
+table) and `ed0d1b9` (the sticker). Left in place, the commit being pushed.
