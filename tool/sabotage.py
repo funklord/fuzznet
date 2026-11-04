@@ -3782,6 +3782,13 @@ SABOTAGES = [
 		"one setter's confirm lets another's stage of the same token go -- sec 873",
 	),
 	(
+		"sealed-value-never-read-as-its-box",
+		"node/settings.c",
+		"\t\t\tif (!n)\n\t\t\t\treturn -1;",
+		"\t\t\tif (!n)\n\t\t\t\treturn 1;",
+		"a sealed value a host cannot open is handed out as though it were the value -- sec 874",
+	),
+	(
 		"revoke-saves-the-record",
 		"node/revoke.c",
 		"\tif (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, row, blob, sizeof(blob)))\n\t\treturn FZN_NODE_REVOKE_NOT_SAVED;\n",

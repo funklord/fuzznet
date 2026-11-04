@@ -90,7 +90,17 @@ typedef struct fzn_node_settings {
 	                  uint32_t stream, uint8_t host[FZN_PUBKEY_LEN], uint64_t *received,
 	                  uint64_t *heard_ms);
 	void *siblings_ctx;
+	/* A VALUE SEALED TO THIS HOST, sec 874: a host cell whose value opens
+	 * FZN_NODE_SETTINGS_SEALED is opened by this into `out` (`cap`), its
+	 * length, or 0 when it is sealed to another key. NULL leaves such a
+	 * value unopened. */
+	size_t (*unseal)(void *ctx, const uint8_t *value, size_t len, uint8_t *out, size_t cap);
+	void *unseal_ctx;
 } fzn_node_settings_t;
+
+/* A SEALED VALUE's opening, sec 874: `box:` and the box in lower-case hex. */
+#define FZN_NODE_SETTINGS_SEALED "box:"
+#define FZN_NODE_SETTINGS_SEALED_LEN 4u
 
 /*
  * WHETHER EVERY SETTING `setter` MADE, AS HELD HERE, STANDS UNDER A LINE,
@@ -174,7 +184,9 @@ fzn_node_settings_err_t fzn_node_settings_write_staged(const fzn_node_settings_t
  * the cell of the first group in this host's `group/member` that sets one;
  * else the estate's. 1 with the value, its rank, and where it stood --
  * `*scope` and `about` (a group's id is its name, `fzn_scope_group_id`) --
- * or 0 when none sets it and the caller's default stands.
+ * or 0 when none sets it and the caller's default stands. A value sealed
+ * to this host (sec 874) is answered opened; one this host cannot open is
+ * -1, never a value read as though it were the plaintext.
  */
 int fzn_node_settings_here(const fzn_node_settings_t *ns, const uint8_t *key, size_t key_len,
                            uint8_t *value, size_t *value_len, fzn_setting_rank_t *rank,

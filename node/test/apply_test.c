@@ -525,6 +525,16 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 
 static char reply[2048];
 
+/* A STUB UNSEAL, sec 874: `box:6f70656e` opens to "opened", nothing else. */
+static size_t stub_unseal(void *ctx, const uint8_t *value, size_t len, uint8_t *out, size_t cap)
+{
+	(void)ctx;
+	if (len != 12u || memcmp(value, "box:6f70656e", 12u) != 0 || cap < 6u)
+		return 0;
+	memcpy(out, "opened", 6u);
+	return 6u;
+}
+
 static size_t said(fzn_node_settings_t *ns, fzn_origin_t origin, const char *line)
 {
 	fzn_request_t req;
@@ -1162,6 +1172,21 @@ static void test_settings_judged(void)
 		              && replied("malformed"),
 		      "a group name out of shape, a member list naming one twice, a host key at a "
 		      "group, or `here` with no key was taken");
+		/* A VALUE SEALED TO THIS HOST, sec 874: answered opened, and one
+		 * this host cannot open refused, never read as its box. */
+		ns.unseal = stub_unseal;
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting host wifi/psk box:6f70656e")
+		              && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting here wifi/psk")
+		              && strcmp(reply, "ok host root opened\n") == 0
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting host wifi/psk box:00")
+		              && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting here wifi/psk")
+		              && strcmp(reply, "error the value is sealed to a key this host lacks\n")
+		                         == 0,
+		      "a sealed value was not opened, or one that would not open was read as its box");
+		ns.unseal = NULL;
+		(void)said(&ns, FZN_ORIGIN_SAME_USER, "remove setting host wifi/psk");
 		(void)said(&ns, FZN_ORIGIN_SAME_USER, "remove setting host wifi/ssid");
 		(void)said(&ns, FZN_ORIGIN_SAME_USER, "remove setting host group/member");
 		(void)said(&ns, FZN_ORIGIN_SAME_USER, "remove setting group=zone1 wifi/ssid");

@@ -284,6 +284,43 @@ def c_marks(daemon_path, scratch, sock_dir):
 			raise failed("d4: a stage was still held after its deadline")
 		print("livecheck: d4: an unconfirmed staged change was reverted by A and by B each, a "
 		      "confirmed one stood, and one written over was not undone")
+		# d5: A VALUE SEALED TO A GROUP, sec 874: A seals zone1's passphrase;
+		# B, zone1's one member, reads it opened; A, outside the group, holds
+		# only the box in B's cell; and a box B cannot open is refused, never
+		# read as the value.
+		until = time.monotonic() + 120.0
+		while True:
+			got = ask(socks["a"], "set sealed group=zone1 wifi/psk s3cret%20pass")
+			if got == "ok 1 0":
+				break
+			if time.monotonic() > until:
+				raise failed("d5: A's set sealed answered %r" % got)
+			time.sleep(2.0)
+		raw = ask(socks["a"], "get setting host=%s wifi/psk" % b_host)
+		if not raw.startswith("ok root box:") or "s3cret" in raw:
+			raise failed("d5: B's cell as A holds it was %r" % raw)
+		if ask(socks["a"], "get setting here wifi/psk") != "ok absent":
+			raise failed("d5: A, outside the group, had a value of its own")
+		until = time.monotonic() + 150.0
+		while True:
+			got = ask(socks["b"], "get setting here wifi/psk")
+			if got == "ok host root s3cret%20pass":
+				break
+			if time.monotonic() > until:
+				raise failed("d5: B's value in force stayed %r" % got)
+			time.sleep(1.0)
+		if ask(socks["a"], "set setting host=%s wifi/bad box:%s" % (b_host, "00" * 60)) != "ok":
+			raise failed("d5: A could not write a bogus box")
+		until = time.monotonic() + 150.0
+		while True:
+			got = ask(socks["b"], "get setting here wifi/bad")
+			if got.startswith("error ") and "sealed" in got:
+				break
+			if time.monotonic() > until:
+				raise failed("d5: a box B cannot open was answered %r" % got)
+			time.sleep(1.0)
+		print("livecheck: d5: a value sealed to zone1 was read opened by its member, held only "
+		      "as a box outside it, and a box the member cannot open was refused")
 	finally:
 		for d in started.values():
 			d.stop()

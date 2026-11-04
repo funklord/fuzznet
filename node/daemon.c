@@ -370,6 +370,9 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
                          const fzn_request_t *request, char *reply, size_t cap);
 static size_t staged_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
+static size_t sealed_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap);
+static int host_in_group(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t group[FZN_SUBJECT_LEN]);
 static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *caller,
                            const fzn_peer_t *peer, const uint8_t *args, size_t args_len,
                            uint8_t *answer, size_t cap, unsigned *status);
@@ -511,6 +514,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = location_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = staged_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = sealed_local(origin, request, reply, reply_cap);
 #ifdef FZND_STICKERS
 	if (!n && node_stickers.files)
 		n = fzn_node_stickers_local(&node_stickers, origin, request, reply, reply_cap);
@@ -9261,6 +9266,145 @@ static size_t staged_local(fzn_origin_t origin, const fzn_request_t *request, ch
 			(void)snprintf(hex + 2u * i, 3u, "%02x", token[i]);
 		return (size_t)snprintf(reply, cap, "ok %s\n", hex);
 	}
+}
+
+/* ---- values sealed to a group's members, sec 874 ------------------------ */
+
+/* THE MOST A SEALED VALUE HOLDS: a setting's value is `box:` and the box
+ * in hex, so (256 - 4) / 2 bytes of box, less its overhead. */
+#define FZND_SEALED_MAX ((FZN_SETTING_VALUE_MAX - FZN_NODE_SETTINGS_SEALED_LEN) / 2u \
+                         - FZN_BOX_OVERHEAD)
+
+/* A VALUE SEALED TO THIS HOST, opened with its prekey's secret: the
+ * plaintext's length, or 0 (`node_settings.unseal`). */
+static size_t unseal_here(void *ctx, const uint8_t *value, size_t len, uint8_t *out, size_t cap)
+{
+	uint8_t box[FZN_SETTING_VALUE_MAX];
+	size_t i, n = 0, hex_len = len - FZN_NODE_SETTINGS_SEALED_LEN;
+	const uint8_t *hex = value + FZN_NODE_SETTINGS_SEALED_LEN;
+
+	(void)ctx;
+	if (!contact_id || !contact_id->agree_secret || !contact_aead_ops || hex_len % 2u
+	    || hex_len / 2u > sizeof(box))
+		return 0;
+	for (i = 0; i < hex_len / 2u; i++) {
+		int hi = nibble_of(hex[2u * i]), lo = nibble_of(hex[2u * i + 1u]);
+
+		if (hi < 0 || lo < 0)
+			return 0;
+		box[i] = (uint8_t)((hi << 4) | lo);
+	}
+	if (fzn_box_open(contact_id->agree_secret, contact_id->agree, contact_id->hash,
+	                 contact_aead_ops, box, hex_len / 2u, out, cap, &n)
+	    != FZN_BOX_OK)
+		return 0;
+	return n;
+}
+
+/* `set sealed group=NAME KEY VALUE`, sec 874: VALUE sealed to each host of
+ * the group -- by its `group/member`, this host among them -- and written
+ * into that host's own cell of KEY, which only that host opens; `get
+ * setting here KEY` on a member answers it opened. `ok SEALED MISSING`,
+ * MISSING the members whose prekey this node does not hold. A root's or an
+ * admin's, since it writes other hosts' cells. */
+static size_t sealed_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap)
+{
+	static uint8_t (*hosts)[FZN_PUBKEY_LEN];
+	static size_t hosts_cap;
+	const uint8_t *at = request->arg, *w, *key;
+	size_t left = request->arg_len, w_len, key_len, value_len = 0, count = 0, i, sealed = 0,
+	       missing = 0;
+	uint8_t group[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX];
+
+	if (request->parsed != FZN_VERB_SET || !at || !next_word(&at, &left, &w, &w_len) || w_len != 6u
+	    || memcmp(w, "sealed", 6u) != 0)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied sealed values are this node's own user's\n");
+	if (!contact_id || !contact_id->agree_secret || !contact_aead_ops || !contact_rng_ops
+	    || !node_apply.store || !node_settings.id)
+		return (size_t)snprintf(reply, cap, "unsupported this node seals nothing\n");
+	if (!next_word(&at, &left, &w, &w_len) || w_len <= 6u || memcmp(w, "group=", 6u) != 0
+	    || !fzn_scope_group_id(w + 6, w_len - 6u, group) || !next_word(&at, &left, &key, &key_len)
+	    || !fzn_setting_key_ok(key, key_len))
+		return (size_t)snprintf(reply, cap, "malformed set sealed group=NAME KEY VALUE\n");
+	while (left && *at == ' ') {
+		at++;
+		left--;
+	}
+	if (!left || !fzn_unescape(at, left, value, sizeof(value), &value_len) || !value_len)
+		return (size_t)snprintf(reply, cap, "malformed set sealed group=NAME KEY VALUE\n");
+	if (value_len > FZND_SEALED_MAX)
+		return (size_t)snprintf(reply, cap, "malformed a sealed value is at most %u bytes\n",
+		                        (unsigned)FZND_SEALED_MAX);
+	/* EVERY HOST WHOSE PREKEY IS HELD, and this one. */
+	for (;;) {
+		fzn_node_siblings_err_t e = fzn_node_siblings_list(node_apply.store, hosts, hosts_cap,
+		                                                    &count);
+
+		if (e == FZN_NODE_SIBLINGS_OK)
+			break;
+		if (e != FZN_NODE_SIBLINGS_ROOM
+		    || !heap_room((void **)&hosts, &hosts_cap, count + 1u, sizeof(*hosts)))
+			return (size_t)snprintf(reply, cap, "error the hosts could not be listed\n");
+	}
+	if (!heap_room((void **)&hosts, &hosts_cap, count + 1u, sizeof(*hosts)))
+		return (size_t)snprintf(reply, cap, "error no room\n");
+	memcpy(hosts[count++], node_settings.id->pubkey, FZN_PUBKEY_LEN);
+	for (i = 0; i < count; i++) {
+		uint8_t record[FZN_PREKEY_LEN_TOTAL], box[FZN_SETTING_VALUE_MAX];
+		char text[FZN_SETTING_VALUE_MAX];
+		const uint8_t *public_key;
+		fzn_prekey_record_t pk;
+		size_t box_len = 0, k, j;
+		fzn_node_settings_err_t err;
+
+		for (j = 0; j < i; j++)
+			if (memcmp(hosts[j], hosts[i], FZN_PUBKEY_LEN) == 0)
+				break;
+		if (j < i || !host_in_group(hosts[i], group))
+			continue;
+		if (memcmp(hosts[i], node_settings.id->pubkey, FZN_PUBKEY_LEN) == 0) {
+			public_key = fzn_agree_secret_public(contact_id->agree_secret);
+		} else if (fzn_node_siblings_prekey(node_apply.store, hosts[i], record)
+		                   == FZN_NODE_SIBLINGS_OK
+		           && fzn_prekey_open(record, sizeof(record), &pk) == FZN_PREKEY_OK) {
+			public_key = pk.prekey;
+		} else {
+			missing++;
+			continue;
+		}
+		if (!public_key
+		    || fzn_box_seal(contact_id->agree, contact_id->hash, contact_aead_ops,
+		                    contact_rng_ops, public_key, value, value_len, box, sizeof(box),
+		                    &box_len)
+		               != FZN_BOX_OK
+		    || FZN_NODE_SETTINGS_SEALED_LEN + 2u * box_len > sizeof(text)) {
+			missing++;
+			continue;
+		}
+		memcpy(text, FZN_NODE_SETTINGS_SEALED, FZN_NODE_SETTINGS_SEALED_LEN);
+		for (k = 0; k < box_len; k++) {
+			text[FZN_NODE_SETTINGS_SEALED_LEN + 2u * k] = "0123456789abcdef"[box[k] >> 4];
+			text[FZN_NODE_SETTINGS_SEALED_LEN + 2u * k + 1u] = "0123456789abcdef"[box[k] & 15u];
+		}
+		err = fzn_node_settings_write(&node_settings, FZN_SCOPE_HOST, hosts[i], key, key_len, 1,
+		                              (const uint8_t *)text,
+		                              FZN_NODE_SETTINGS_SEALED_LEN + 2u * box_len);
+		fzn_wipe(box, sizeof(box));
+		if (err == FZN_NODE_SETTINGS_REFUSED)
+			return (size_t)snprintf(reply, cap, "denied sealing writes other hosts' cells, a "
+			                                    "root's or an admin's\n");
+		if (err != FZN_NODE_SETTINGS_OK) {
+			missing++;
+			continue;
+		}
+		sealed++;
+	}
+	fzn_wipe(value, sizeof(value));
+	journal_pushed = 1;
+	return (size_t)snprintf(reply, cap, "ok %zu %zu\n", sealed, missing);
 }
 
 /* A LOCAL CALLER THIS NODE WOULD DENY, judged by the node's own user's
@@ -18225,6 +18369,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_settings.schema = &node_schema;
 				/* WHO HOLDS A SETTING, sec 811: siblings and their digests. */
 				node_settings.sibling_at = sibling_listed_at;
+				/* VALUES SEALED TO THIS HOST, sec 874. */
+				node_settings.unseal = unseal_here;
 				siblings_self = identity.pubkey;
 				node_responsible.hash = &hash_ops;
 				node_responsible.host_at = estate_host_at;

@@ -970,6 +970,19 @@ int fzn_node_settings_here(const fzn_node_settings_t *ns, const uint8_t *key, si
 	                          value_len, rank)) {
 		*scope = FZN_SCOPE_HOST;
 		memcpy(about, ns->id->pubkey, FZN_SUBJECT_LEN);
+		/* SEALED TO THIS HOST, sec 874: opened, or refused whole. */
+		if (*value_len >= FZN_NODE_SETTINGS_SEALED_LEN
+		    && memcmp(value, FZN_NODE_SETTINGS_SEALED, FZN_NODE_SETTINGS_SEALED_LEN) == 0) {
+			uint8_t plain[FZN_SETTING_VALUE_MAX];
+			size_t n = ns->unseal ? ns->unseal(ns->unseal_ctx, value, *value_len, plain,
+			                                   sizeof(plain))
+			                      : 0u;
+
+			if (!n)
+				return -1;
+			memcpy(value, plain, n);
+			*value_len = n;
+		}
 		return 1;
 	}
 	/* EACH GROUP THIS HOST IS IN, in the order the host lists them. */
@@ -1075,9 +1088,12 @@ static size_t get_here(const fzn_node_settings_t *ns, const uint8_t *key, size_t
 	size_t value_len = 0, n;
 	fzn_setting_rank_t rank;
 	fzn_scope_t scope;
-	int whole = 0, k;
+	int whole = 0, k, here;
 
-	if (!fzn_node_settings_here(ns, key, key_len, value, &value_len, &rank, &scope, about))
+	here = fzn_node_settings_here(ns, key, key_len, value, &value_len, &rank, &scope, about);
+	if (here < 0)
+		return say(reply, cap, FZN_REPLY_ERROR, "the value is sealed to a key this host lacks");
+	if (!here)
 		return say(reply, cap, FZN_REPLY_OK, "absent");
 	if (scope == FZN_SCOPE_GROUP) {
 		if (!fzn_scope_group_name(about, name))

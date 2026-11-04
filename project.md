@@ -79898,3 +79898,50 @@ change the window is for.
 
 **Not built:** a staged clear (`remove staged`). A stage sets a value;
 a clear can be staged later by the same machinery if a consumer needs it.
+
+## 874. Values sealed to a group's members, 2026-11-04
+
+Sec 868 left a group's values readable by every estate host, since they
+travel in the estate stream. netcfgd needs some kept secret: a roaming
+key, a mesh password, a passphrase. The holder said to build it on
+2026-11-04.
+
+**Decided: seal to each member host, not to a group key.**
+- `set sealed group=NAME KEY VALUE` seals VALUE to the prekey of each
+  host in the group (by its `group/member`, this host among them). Each
+  box is written into that host's own cell of KEY, as `box:` and the box
+  in hex.
+  - Every host's prekey is already carried in the estate stream (sec
+    579), so no key is distributed for this.
+  - A member's `get setting here KEY`, and `fzn_node_settings_here`, open
+    it with the host's own prekey secret and answer the plaintext.
+  - A box the host cannot open is refused (`-1` in C, an error on the
+    socket), never handed out as though it were the value.
+  - A non-member holds only boxes it cannot open.
+- The answer is `ok SEALED MISSING`, MISSING the members whose prekey
+  this node does not hold.
+- Sealing writes other hosts' cells, so it is a root's or an admin's.
+- **The value is at most 76 bytes**, a setting's 256 printable bytes
+  less the hex and the box's 50: enough for a WPA passphrase (63) or a
+  hex key of 32 bytes.
+- **Rejected: a group key boxed to each member.** It would need key
+  distribution, a re-key when a member leaves, and epochs. Sealing per
+  host needs none of that, and the cost is one box per member per value.
+
+**What sealing does not do:**
+- A host removed from the group keeps what it was sealed before, as any
+  holder of a secret does. Seal again, and remove its cell, to stop it
+  reading the next value.
+- A member whose prekey rotates after a value was sealed may not open
+  it. Seal again after a rotation.
+
+**Measured:**
+- `apply_test`, 174 checks: with a stub unseal, a sealed host cell is
+  answered opened, and one that will not open is answered with the
+  error, never as its box.
+- `live_ext` d5, with B zone1's one member: A seals a passphrase.
+  - B reads it opened.
+  - A, outside the group, holds only `box:...` in B's cell, and has no
+    value of its own.
+  - A bogus box in B's cell is refused at B.
+- Sabotage: `sealed-value-never-read-as-its-box`.
