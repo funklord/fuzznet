@@ -5667,8 +5667,8 @@ SABOTAGES = [
 	(
 		"notes-import-takeout-reads-notes-only",
 		"node/notes.c",
-		"\t\t\tif (!ends_with(e->d_name, \".json\"))\n\t\t\t\tcontinue;\n",
-		"",
+		"\treturn ends_with(e->d_name, \".json\") || ends_with(e->d_name, \".ics\");",
+		"\t(void)e;\n\treturn 1;",
 		"every attachment in a Takeout is parsed as a note and refused -- sec 440",
 	),
 	(

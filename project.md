@@ -80306,3 +80306,14 @@ so each gets a test here first.
 **Not taken yet, from the same list:** `contacts-same-name`, `group-same-name`,
 `groups-across-a-nat`, `sender-at-a-shared-address`,
 `notes-share-from-one-of-two-hosts`, `notes-share-to-a-group`.
+
+## 885. An import reads a directory in order of name, 2026-11-05
+
+fuzzypickles, inbox 2026-11-04 22:47: a Takeout of ten notes listed in the
+filesystem's hash order, so one export read differently on two hosts. `add
+import` walked `readdir`. It now walks `scandir` by bytes, not the locale.
+Against the old walk, `notes_test`'s ten listed out of order.
+
+A directory's `.ics` files are read as well: it answered `ok` with zero
+counts, which reads as an empty export. Each is taken as a calendar alone
+is, and one that will not read is refused by its file's name.

@@ -997,6 +997,54 @@ static void test_import(void)
 	              && has(",eggs") && has(",first") && has(",second"),
 	      "all four are in the folder");
 
+	/* IN ORDER OF NAME, sec 885, whatever order the filesystem gives, and a
+	 * calendar in a directory read as a calendar. Ten names, so a hash order
+	 * that happens to sort is one in millions. */
+	{
+		static const char *const WORDS[] = { "alpha", "bravo", "charlie", "delta", "echo",
+		                                     "foxtrot", "golf", "hotel", "india", "juliet" };
+		char sub[96], one[160], json[160], names[96];
+		const char *at = NULL;
+		size_t i;
+		int in_order = 1;
+
+		snprintf(sub, sizeof(sub), "%s/ordered", dir);
+		CHECK(mkdir(sub, 0700) == 0, "fixture: a directory of ten notes");
+		for (i = 10u; i > 0u; i--) {
+			snprintf(one, sizeof(one), "%s/%zu-%s.json", sub, i - 1u, WORDS[i - 1u]);
+			snprintf(json, sizeof(json), "{\"title\":\"%s\",\"textContent\":\"t\","
+			         "\"createdTimestampUsec\":17000000000%02zu000}", WORDS[i - 1u], i);
+			CHECK(put_file(one, json, strlen(json)), "fixture: a note of the ten");
+		}
+		snprintf(one, sizeof(one), "%s/z.ics", sub);
+		CHECK(put_file(one, ics, sizeof(ics) - 1u), "fixture: a calendar among them");
+		CHECK(ask("add folder top Ordered") == FZN_REPLY_OK, "fixture: a folder for the ten");
+		take_id(names);
+		snprintf(line, sizeof(line), "add import %s %s", names, sub);
+		CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "11 1 1 0 0", 10u),
+		      "a directory's ten notes import, and its calendar is read: its dated journal "
+		      "already here, its undated one with nothing to know it by");
+		snprintf(line, sizeof(line), "list note %s", names);
+		CHECK(ask(line) == FZN_REPLY_OK, "the ten are listed");
+		for (i = 0; i < 10u; i++) {
+			char want[32];
+			const char *here;
+
+			snprintf(want, sizeof(want), ",%s", WORDS[i]);
+			here = strstr(detail_of(), want);
+			if (!here || (at && here < at))
+				in_order = 0;
+			at = here;
+		}
+		CHECK(in_order, "a directory's notes are listed in order of their names");
+		for (i = 0; i < 10u; i++) {
+			snprintf(one, sizeof(one), "%s/%zu-%s.json", sub, i, WORDS[i]);
+			CHECK(unlink(one) == 0, "cleanup: a note of the ten");
+		}
+		snprintf(one, sizeof(one), "%s/z.ics", sub);
+		CHECK(unlink(one) == 0 && rmdir(sub) == 0, "cleanup: the ordered directory");
+	}
+
 	/* PAST THE BOUND, REFUSED AND NAMED BY ITS FILE, never cut. */
 	memset(big, ' ', sizeof(big));
 	CHECK(put_file(f_big, big, FZN_NODE_NOTES_IMPORT_FILE_MAX + 1u),

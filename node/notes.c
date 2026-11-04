@@ -1876,6 +1876,35 @@ static void import_keep_file(fzn_notes_import_run_t *run, const char *path, cons
 	free(json);
 }
 
+/* One KNotes calendar in a directory, refused by its file as a Keep note is. */
+static void import_ics_file(fzn_notes_import_run_t *run, const char *path, const char *name)
+{
+	size_t len = 0;
+	int too_big = 0;
+	uint8_t *ics = slurp(path, FZN_NODE_NOTES_IMPORT_ICS_MAX, &len, &too_big);
+
+	if (!ics) {
+		fzn_notes_import_refuse(run, too_big ? FZN_NOTES_IMPORT_TOO_LONG
+		                                     : FZN_NOTES_IMPORT_UNPARSED,
+		                        (const uint8_t *)name, strlen(name));
+		return;
+	}
+	(void)fzn_notes_import_knotes(ics, len, fzn_notes_import_take, run, fzn_notes_import_refuse,
+	                              run);
+	free(ics);
+}
+
+/* WHAT A DIRECTORY'S IMPORT READS, and the order: bytes, not the locale's. */
+static int importable(const struct dirent *e)
+{
+	return ends_with(e->d_name, ".json") || ends_with(e->d_name, ".ics");
+}
+
+static int by_name(const struct dirent **a, const struct dirent **b)
+{
+	return strcmp((*a)->d_name, (*b)->d_name);
+}
+
 /* `add import PARENT PATH`: a KNotes `.ics`, a Keep note's `.json`, or a
  * Takeout directory of them, into the folder PARENT. sec 440. The node reads
  * PATH as itself, which is why the verb needs its own user. Answers
@@ -1921,28 +1950,31 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 	run.refused_ctx = &names;
 
 	if (S_ISDIR(st.st_mode)) {
-		/* A TAKEOUT: every `.json` in the directory is one note; anything
-		 * else in it -- attachments, the HTML twin of each note -- is not
-		 * a note and is left alone. */
-		DIR *dir = opendir(path);
-		struct dirent *e;
+		/* A TAKEOUT: every `.json` in the directory is one note, and an
+		 * `.ics` a KNotes calendar; anything else in it -- attachments, the
+		 * HTML twin of each note -- is not a note and is left alone. IN
+		 * ORDER OF NAME, sec 885: readdir's is the filesystem's hash, and an
+		 * export reads the same on every host. */
+		struct dirent **entries = NULL;
+		int count = scandir(path, &entries, importable, by_name), i;
 
-		if (!dir)
+		if (count < 0)
 			return say(reply, cap, FZN_REPLY_ERROR, "cannot read that directory");
-		while ((e = readdir(dir)) != NULL) {
+		for (i = 0; i < count; i++) {
+			const char *name = entries[i]->d_name;
 			char file[1024];
 
-			if (!ends_with(e->d_name, ".json"))
-				continue;
-			k = snprintf(file, sizeof(file), "%s/%s", path, e->d_name);
-			if (k < 0 || (size_t)k >= sizeof(file)) {
-				fzn_notes_import_refuse(&run, FZN_NOTES_IMPORT_UNPARSED,
-				                        (const uint8_t *)e->d_name, strlen(e->d_name));
-				continue;
-			}
-			import_keep_file(&run, file, e->d_name);
+			k = snprintf(file, sizeof(file), "%s/%s", path, name);
+			if (k < 0 || (size_t)k >= sizeof(file))
+				fzn_notes_import_refuse(&run, FZN_NOTES_IMPORT_UNPARSED, (const uint8_t *)name,
+				                        strlen(name));
+			else if (ends_with(name, ".ics"))
+				import_ics_file(&run, file, name);
+			else
+				import_keep_file(&run, file, name);
+			free(entries[i]);
 		}
-		(void)closedir(dir);
+		free(entries);
 	} else if (ends_with(path, ".ics")) {
 		size_t len = 0;
 		int too_big = 0;
