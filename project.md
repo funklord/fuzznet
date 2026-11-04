@@ -80015,3 +80015,31 @@ arrives. With the old count restored it fails as reported:
   - `stream`: publishes only records fetched from another host.
   - `estate`: phase b reads exactly the next event after phase a's own
     writes, so applying them does not raise it.
+
+## 877. The value in force, read in-process: `fzn_daemon_setting_here`, 2026-11-04
+
+netcfgd, inbox 2026-11-04 00:56. It resolves zone secrets from sealed
+group values (sec 874) on the loop's thread, from three places:
+- from `tick`;
+- from inside a procedure, which is an operator's `apply --at`, the case
+  zone secrets exist for;
+- from `ready`.
+
+`fzn_daemon_local` is refused inside a procedure and inside `ready`. A
+second socket connection from inside the loop would wait on the loop
+that serves it. And `fzn_node_settings_here` needs the daemon's static
+store, which nothing exposed.
+
+**Built: `fzn_daemon_setting_here(key, key_len, value, cap, &len)`**
+(`node/daemon.h`).
+- It is `fzn_node_settings_here` on the node's own store, with its 1, 0
+  and -1, and a value sealed to this host comes back opened.
+- It only reads, so it is safe from `tick`, `ready` and a procedure.
+- It answers 0 before the node serves, in a follower (which holds no
+  settings), and for a value past `cap`.
+
+**Measured, `live_ext` d7:** `ext_daemon`'s new `setting` procedure calls
+it from inside a procedure.
+- On B, `wifi/psk` answers the sealed passphrase opened.
+- `wifi/bad`, a box B cannot open, answers `sealed`.
+- A key nobody set answers `absent`.

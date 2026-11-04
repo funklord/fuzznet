@@ -168,7 +168,7 @@ def c_marks(daemon_path, scratch, sock_dir):
 		                  extra=["--echo-as=fecho"])
 		started["af"] = follower
 		until = time.monotonic() + 20.0
-		while "offering 2 procedure" not in follower.stderr():
+		while "offering 3 procedure" not in follower.stderr():
 			if time.monotonic() > until or follower.proc.poll() is not None:
 				raise failed("c2: A's follower offered nothing: %r" % follower.stderr()[-300:])
 			time.sleep(0.2)
@@ -336,6 +336,17 @@ def c_marks(daemon_path, scratch, sock_dir):
 			time.sleep(2.0)
 		print("livecheck: d6: a host that joined zone1 after the value was sealed was sealed "
 		      "it too, by the sealer's copy")
+		# d7: THE VALUE IN FORCE READ IN-PROCESS, sec 877, from inside a
+		# procedure, where a local request is refused: B's sealed passphrase
+		# opened, a box it cannot open said so, and a key nobody set absent.
+		for line, want in (("call setting wifi/psk", "ok in%20s3cret%20pass"),
+		                   ("call setting wifi/bad", "ok sealed"),
+		                   ("call setting wifi/none", "ok absent")):
+			got = ask(socks["b"], line)
+			if got != want:
+				raise failed("d7: B's %s answered %r" % (line, got))
+		print("livecheck: d7: a procedure read the value in force in-process, a sealed one "
+		      "opened and one it cannot open said so")
 	finally:
 		for d in started.values():
 			d.stop()
@@ -571,7 +582,7 @@ def main(argv):
 					# A PROCEDURE THE FOLLOWER ALONE HAS, sec 853 step 3: the face
 					# forwards it, unread, and answers what the follower said.
 					until = time.monotonic() + 10.0
-					while "offering 2 procedure" not in open(ferr_path).read():
+					while "offering 3 procedure" not in open(ferr_path).read():
 						if time.monotonic() > until:
 							raise failed("b4: the follower offered no procedure: %r"
 							             % open(ferr_path).read()[-300:])

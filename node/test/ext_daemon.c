@@ -296,9 +296,39 @@ static size_t fill(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
 	return n;
 }
 
+/* `setting KEY`, sec 877: the value in force here, read from inside a
+ * procedure -- `in VALUE`, `absent`, or `sealed` for one this host cannot
+ * open. */
+static size_t setting(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
+                      const uint8_t *args, size_t args_len, uint8_t *answer, size_t cap)
+{
+	uint8_t value[256];
+	size_t len = 0;
+	int here;
+
+	(void)ctx;
+	(void)caller;
+	(void)peer;
+	here = fzn_daemon_setting_here(args, args_len, value, sizeof(value), &len);
+	if (here < 0 && cap >= 6u) {
+		memcpy(answer, "sealed", 6u);
+		return 6u;
+	}
+	if (!here && cap >= 6u) {
+		memcpy(answer, "absent", 6u);
+		return 6u;
+	}
+	if (here <= 0 || len + 3u > cap)
+		return 0;
+	memcpy(answer, "in ", 3u);
+	memcpy(answer + 3, value, len);
+	return 3u + len;
+}
+
 static const fzn_daemon_procedure_t procedures[] = {
 	{ echo_name, echo },
 	{ "fill", fill },
+	{ "setting", setting },
 };
 
 static size_t remote(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], int contact,

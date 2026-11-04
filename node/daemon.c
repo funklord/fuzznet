@@ -8985,6 +8985,34 @@ void fzn_daemon_stop(void)
 	stop_due = 1;
 }
 
+int fzn_daemon_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, size_t cap,
+                            size_t *len)
+{
+	uint8_t got[FZN_SETTING_VALUE_MAX], about[FZN_SUBJECT_LEN];
+	size_t got_len = 0;
+	fzn_setting_rank_t rank;
+	fzn_scope_t scope;
+	int here;
+
+	if (len)
+		*len = 0;
+	if (!serving_state || following_dir || !node_settings.store || !node_settings.id || !key
+	    || !value || !len || !fzn_setting_key_ok(key, key_len))
+		return 0;
+	here = fzn_node_settings_here(&node_settings, key, key_len, got, &got_len, &rank, &scope,
+	                              about);
+	if (here <= 0)
+		return here;
+	if (got_len > cap) {
+		fzn_wipe(got, sizeof(got));
+		return 0;
+	}
+	memcpy(value, got, got_len);
+	*len = got_len;
+	fzn_wipe(got, sizeof(got));
+	return 1;
+}
+
 size_t fzn_daemon_publish(const char *subject, const char *name)
 {
 	/* SERVING, and not in the middle of a step, as for a local request. */

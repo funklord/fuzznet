@@ -223,6 +223,17 @@ size_t fzn_daemon_local(const char *line, char *reply, size_t cap);
  * the face's (sec 838). */
 size_t fzn_daemon_publish(const char *subject, const char *name);
 
+/* THE VALUE IN FORCE HERE for `key`, sec 877: `fzn_node_settings_here` on
+ * the node's own store -- this host's own cell, else its first group's
+ * that sets it, else the estate's, a value sealed to this host opened (sec
+ * 874) -- into `value` (`cap` bytes), `*len` long. 1, 0 for none set (the
+ * caller's default stands) or a value past `cap`, -1 for one sealed to a
+ * key this host lacks. Only reads, so it is safe from `tick`, `ready` and a
+ * procedure alike, where `fzn_daemon_local` is refused. 0 before the node
+ * serves, and in a follower, which holds no settings of its own. */
+int fzn_daemon_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, size_t cap,
+                            size_t *len);
+
 /* STOP THE NODE, sec 835: once the pass or the step under way ends,
  * `fzn_daemon_main` closes and removes its local socket, removes the
  * `face` file, releases the claim on the core directory and returns 0, so
