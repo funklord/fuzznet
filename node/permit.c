@@ -38,6 +38,7 @@ int fzn_node_permit_subject_ok(const char *subject, size_t n)
 /* ONE GRANT, `KIND:NAME=RIGHTS`, parsed: 1 with its fields, or 0. */
 struct grant {
 	int group;		/* 1 a group, 0 a user */
+	int anyone;		/* `any`: every local user */
 	char name[64];		/* the name, or the digits after `#` */
 	int numeric;
 	unsigned rights;
@@ -49,6 +50,14 @@ static int parse_grant(const char *w, size_t n, struct grant *g)
 	size_t name_len, i, r;
 
 	memset(g, 0, sizeof(*g));
+	/* ANY LOCAL USER, sec 883: a call alone, whose procedure is handed the
+	 * caller and judges it. `r` and `w` reach fuzznet's own verbs, with no
+	 * judge behind them, so those always name somebody. */
+	if (n == 5u && memcmp(w, "any=x", 5u) == 0) {
+		g->anyone = 1;
+		g->rights = FZN_PERMIT_CALL;
+		return 1;
+	}
 	if (n > 6u && memcmp(w, "group:", 6u) == 0) {
 		g->group = 1;
 		name = w + 6;
@@ -133,7 +142,7 @@ const char *fzn_node_permit_check(const uint8_t *value, size_t len)
 
 	if (!value || !walk(value, len, NULL, NULL, &any))
 		return "grants are group:NAME=r, user:NAME=rwx -- r, w, x in order, w never without r "
-		       "-- or #ID for a NAME, apart by spaces";
+		       "-- or #ID for a NAME, or any=x, apart by spaces";
 	return any ? NULL : "no grant";
 }
 
@@ -151,6 +160,10 @@ static int matches(void *ctx, const struct grant *g)
 
 	if ((g->rights & a->right) != a->right)
 		return 0;
+	if (g->anyone) {
+		a->allowed = 1;
+		return 1;
+	}
 	if (!g->group) {
 		uid_t uid;
 

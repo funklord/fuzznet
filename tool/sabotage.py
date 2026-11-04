@@ -3796,6 +3796,13 @@ SABOTAGES = [
 		"a confirm with a deadline opens, which nothing could issue -- sec 881",
 	),
 	(
+		"permit-any-is-a-call-alone",
+		"node/permit.c",
+		"\t\tg->rights = FZN_PERMIT_CALL;\n\t\treturn 1;",
+		"\t\tg->rights = FZN_PERMIT_CALL | FZN_PERMIT_READ | FZN_PERMIT_CHANGE;\n\t\treturn 1;",
+		"any=x gives every local user fuzznet's own verbs of the subject, with no judge behind them -- sec 883",
+	),
+	(
 		"sealed-value-never-read-as-its-box",
 		"node/settings.c",
 		"\t\t\tif (!n)\n\t\t\t\treturn -1;",

@@ -80234,3 +80234,23 @@ and an unset key, from its tick and from a procedure the face forwards.
 Three forwarded reads take under 2 s, so none waited out a timeout. With
 the ask-back taken out, `call fsetting` is `error the follower serving
 fsetting failed`.
+
+## 883. Any local user may call a procedure, 2026-11-05
+
+netcfgd, inbox 2026-11-04 22:51: its requests go as `call ask`, and a tier
+of `any` had no grant to write, which keeps its old JSON socket alive
+against its decision 0309.
+
+**Built: the grant `any=x`.** Every local user may call that subject.
+
+**A call only.** A procedure is handed the caller and judges it (sec 849);
+`r` and `w` reach fuzznet's own verbs, with nothing behind them to judge,
+so those always name somebody. `any=r`, `any=rx` and the rest are refused
+when written, and honoured nowhere. The trust subjects (sec 852) stay
+ungrantable.
+
+Nothing else was in the way: the socket is mode 0777 and authenticated by
+`SO_PEERCRED`.
+
+**Measured:** `permit_test`, 20 checks. Sabotage:
+`permit-any-is-a-call-alone`.

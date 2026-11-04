@@ -17,7 +17,9 @@
  *     group:netcfgd=r user:alice=rw user:#1001=r
  *
  * A name is a user's or group's as this machine's databases say; `#N` is a
- * numeric id. A caller so permitted is served that subject's verbs as the
+ * numeric id. `any=x` lets every local user call the subject (sec 883): a
+ * call only, for a procedure judges its own caller, and no fuzznet verb
+ * does. A caller so permitted is served that subject's verbs as the
  * node's own user is; nothing is kept for it, and it subscribes to nothing.
  *
  * NOT GRANTABLE: the subjects that are the estate's trust -- identity,

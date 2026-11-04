@@ -77,6 +77,14 @@ int main(void)
 	ok(allows("user:#2001=x", &p, FZN_PERMIT_CALL) && !allows("user:#2001=x", &p, FZN_PERMIT_READ)
 	           && !allows("user:#2001=rw", &p, FZN_PERMIT_CALL),
 	   "a call grant was not a call alone");
+	/* ANY LOCAL USER, sec 883: a call, and nothing else. */
+	ok(check("any=x") == NULL && check("user:a=r any=x") == NULL, "any=x was refused");
+	ok(check("any=r") && check("any=rx") && check("any=rw") && check("any=rwx") && check("any=")
+	           && check("any") && check("any:x=x"),
+	   "any with more than a call was taken");
+	ok(allows("any=x", &p, FZN_PERMIT_CALL), "any=x did not let a local user call");
+	ok(!allows("any=x", &p, FZN_PERMIT_READ) && !allows("any=x", &p, FZN_PERMIT_CHANGE),
+	   "any=x gave more than a call");
 	/* A GROUP LIST NOT READ is no membership. */
 	peer_of(&p, 2001, 2001, 0, 0);
 	p.groups[0] = 77;
