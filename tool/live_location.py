@@ -6,6 +6,8 @@ that waits for the node's WATCH and then sends TPV reports, a good fix and
 a poor one in turn.
 
     a  sampling is off until it is set: `get location` says `ok 0 off`
+    a2 aimed at the stand-in with location off, by the stand-in's own count
+       the node never connects, whatever `get location` would say of it
     b  `location/gpsd` aimed at the stand-in, `location/every` 1 and
        `location/enabled` on (sec 686's spelling): the node connects and sends WATCH, its link
        reads `watching`, the good fixes are kept and the 500 m ones
@@ -78,6 +80,7 @@ class stand_in(threading.Thread):
 	"""gpsd enough for the node: a WATCH heard, then reports."""
 
 	def __init__(self):
+		self.accepted = 0
 		super().__init__(daemon=True)
 		self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -92,6 +95,7 @@ class stand_in(threading.Thread):
 		while not self.stop.is_set():
 			try:
 				conn, _ = self.listener.accept()
+				self.accepted += 1
 			except socket.timeout:
 				continue
 			conn.settimeout(0.5)
@@ -152,6 +156,20 @@ def main(argv):
 				raise failed("a: before it was set, get location said %r" % got)
 			print("livecheck: a: sampling was off until it was set")
 
+			# a2: NOT REACHED OUT TO, by the stand-in's own count rather than the
+			# node's word: aimed at gpsd with a second's sampling, and nothing
+			# said of `location/enabled`, or said off, it never connects.
+			for key, value in (("location/gpsd", "127.0.0.1 %d" % gpsd.port),
+			                   ("location/every", "1")):
+				if ask(sock, "set setting host %s %s" % (key, value)) != "ok":
+					raise failed("a2: %s was refused" % key)
+			time.sleep(4.0)
+			if ask(sock, "set setting host location/enabled off") != "ok":
+				raise failed("a2: location/enabled off was refused")
+			time.sleep(3.0)
+			if gpsd.accepted:
+				raise failed("a2: gpsd was reached %d time(s) with location off" % gpsd.accepted)
+			print("livecheck: a2: aimed at gpsd with location off, the node never connected")
 			for key, value in (("location/gpsd", "127.0.0.1 %d" % gpsd.port),
 			                   ("location/every", "1"), ("location/enabled", "on")):
 				if ask(sock, "set setting host %s %s" % (key, value)) != "ok":

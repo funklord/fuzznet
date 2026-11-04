@@ -1220,6 +1220,21 @@ int main(void)
 		                         == 0u
 		              && fzn_node_files_answer(&F, q, qlen, answer_, sizeof(answer_)) > 0u,
 		      "a private file was served to a contact, or not to a member");
+		/* ONE ANSWER FOR PRIVATE AND FOR NEVER HEARD OF, sec 884: the same
+		 * nothing, so a contact asking cannot tell what this host holds. */
+		{
+			uint8_t nobody_root[FZN_BLOB_HASH_LEN], q2[FZN_MSG_WANT_LEN];
+			size_t q2_len = 0;
+
+			memset(nobody_root, 0x5a, sizeof(nobody_root));
+			CHECK(fzn_msg_have_query_encode(nobody_root, q2, sizeof(q2), &q2_len) == FZN_MSG_OK
+			              && q2_len == qlen
+			              && fzn_node_files_answer_shared(&F, bob, q2, q2_len, answer_,
+			                                              sizeof(answer_))
+			                         == fzn_node_files_answer_shared(&F, bob, q, qlen, answer_,
+			                                                         sizeof(answer_)),
+			      "a private file was answered otherwise than one never heard of");
+		}
 		(void)snprintf(line, sizeof(line), "file %s public", root_hex);
 		CHECK(said(&F, FZN_VERB_SET, line, reply, sizeof(reply)) && strcmp(reply, "ok") == 0
 		              && fzn_node_files_shared_with(&F, t.root, bob)

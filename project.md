@@ -80254,3 +80254,55 @@ Nothing else was in the way: the socket is mode 0777 and authenticated by
 
 **Measured:** `permit_test`, 20 checks. Sabotage:
 `permit-any-is-a-call-alone`.
+
+## 884. What fuzzypickles' scenarios held, tested here, 2026-11-05
+
+fuzzypickles, inbox 2026-11-04 22:38: its step 3 deletes fzpd's core and
+the scenarios testing it, and it read all 98 against these tests. For
+some, no test here was found. Each is a property that would go unguarded,
+so each gets a test here first.
+
+**Taken, each with its control:**
+- **`no-reply-to-strangers`**, `tool/live_strangers.py` a: 1492 datagrams
+  of every first byte, shape and length, and probes naming unknown keys,
+  draw nothing from A. A probe naming B, from the same socket, draws 144
+  bytes, so A was listening and the socket would have heard.
+- **`rendezvous-introduction`, `lan-discovery`**, b: a frame of B's,
+  copied after delivery and sent from the stranger's socket, moves
+  nothing. c is b's control: a frame held back from A and sent first by
+  the stranger does move B there, so b's refusal is the replay window's.
+  **That is the limit, stated:** whoever can stop a frame on the path can
+  redirect it. It reads nothing by it, frames being sealed, and whoever
+  stands there could drop them anyway.
+- **`location-off-unless-asked`**, `live_location` a2: the stand-in gpsd's
+  own count, not the node's word.
+- **`relay-cannot-read`**, `live_relay` g, which found sec 886.
+- **`blob-private-is-invisible`**, `files_test`: a contact asking after a
+  private file and a root never heard of get one answer.
+- **`group-removal-rekeys-the-other-device`,
+  `group-membership-boundaries`**, `live_group_hosts` e2: A's line after
+  removing C reaches B2, and nothing in C's store holds it.
+- **`peer-address-follows-a-move`**, `tool/live_moved.py`: B comes back on
+  another port telling nobody, and lines go both ways, also after A
+  restarts.
+- **`group-store-gate`**, `live_group_backfill` d, which found sec 886.
+- **`blob-rot-is-found-unasked`**, `tool/live_rot.py` a to c: a byte flipped
+  under B's store is said by B within its scrub periods, and fetched again
+  from A with nobody asking.
+- **`notes-empty-the-trash`**, `live_rot` d and e: emptied with B away the
+  note leaves A's listing and is not erased, and B's return ends it on both.
+
+**Their two questions, measured by `live_group_backfill` c:**
+- **Can a node play a file while it arrives?** Yes. C reads the opening
+  range of a 6 MiB file during its fetch, `ok partial`, and the bytes are
+  the file's (sec 495).
+- **Does a member added later open a file granted to the group earlier?**
+  Yes, and this reverses fzpd. A grant to a group is read at the request
+  (secs 626, 630), as lines and a share catching up are (sec 625's backfill
+  default). fzpd pinned a file to the epoch of its sharing, which nothing
+  here chose. To keep a file from later members, grant it to the members
+  by name.
+
+**Not taken yet, from the same list:** `contacts-same-name`, `group-same-name`,
+`groups-across-a-nat`, `sender-at-a-shared-address`,
+`notes-share-from-one-of-two-hosts`, `notes-share-to-a-group`.

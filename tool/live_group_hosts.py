@@ -22,6 +22,8 @@ has them; B2 is a second device of B's user, joined to B's estate by verbs
     d  B2 writes a line to the group; C files it, as B's user's, from B2
     e  A, back, removes C; C learns its own removal from A and no longer
        lists the group
+    e2 A's next line reaches B2, and C's whole store never holds its text;
+       B2's does, so the search finds what is there (sec 884)
 
 Against a daemon that syncs a group's log only with contacts' hosts and
 the estate's, phase c never takes B2's act: nobody else is up to carry it;
@@ -308,6 +310,41 @@ def main(argv):
 				raise failed("e: C, removed, still holds %r%s"
 				             % (groups(socks["c"], "c"), tail(started["c"], ("group",))))
 			print("livecheck: e: A removed C, and C learned its removal from A")
+
+			# e2: WHAT COMES AFTER IS NOT C'S, sec 884: A's next line reaches B2,
+			# a member still, and C's whole store never holds its text.
+			after = "after_the_removal"
+			expect(socks["a"], "a", "add message @family out %s %s" % ("e2" * 16, after), "ok")
+			reached = False
+			for rnd in range(ROUNDS):
+				for who in ("a", "b2", "c"):
+					turn(who, "%s-e2%d" % (who, rnd))
+				if after in ask(socks["b2"], "list message @" + b2_name):
+					reached = True
+					break
+			if not reached:
+				raise failed("e2: A's line never reached B2, so C's silence proves nothing%s"
+				             % tail(started["b2"], ("group", "lines")))
+			for who in ("a", "c"):
+				turn(who, "%s-e2z" % who)
+
+			def holds(store):
+				for at, _, files in os.walk(store):
+					for f in files:
+						try:
+							with open(os.path.join(at, f), "rb") as data:
+								if after.encode() in data.read():
+									return os.path.join(at, f)
+						except OSError:
+							pass
+				return None
+
+			if holds(dirs["c"]):
+				raise failed("e2: C, removed, holds the later line in %s" % holds(dirs["c"]))
+			if not holds(dirs["b2"]):
+				raise failed("e2: B2's store does not hold the line: the search proves nothing")
+			print("livecheck: e2: A's line after the removal reached B2, and nothing in C's store "
+			      "holds it")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

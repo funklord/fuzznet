@@ -6745,17 +6745,20 @@ else
 	@timeout 540 python3 tool/live_relay.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_introduce.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_lan.py $(FUZZNETD)
+	@timeout 280 python3 tool/live_strangers.py $(FUZZNETD)
+	@timeout 430 python3 tool/live_moved.py $(FUZZNETD)
+	@timeout 570 python3 tool/live_rot.py $(FUZZNETD)
 	@timeout 600 python3 tool/live_groups.py $(FUZZNETD)
 ifdef CATALOG_ON
 	@timeout 540 python3 tool/live_catalog.py $(FUZZNETD)
 endif
 	@timeout 340 python3 tool/live_join.py $(FUZZNETD)
 	@timeout 1100 python3 tool/live_group_hosts.py $(FUZZNETD)
-	@timeout 500 python3 tool/live_group_backfill.py $(FUZZNETD)
+	@timeout 660 python3 tool/live_group_backfill.py $(FUZZNETD)
 	@timeout 90 python3 tool/live_socket.py $(FUZZNETD)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@timeout 560 python3 tool/live_ext.py $(EXT_DAEMON)
-	@timeout 150 python3 tool/live_location.py $(FUZZNETD)
+	@timeout 170 python3 tool/live_location.py $(FUZZNETD)
 ifdef STICKERS_ON
 	@timeout 150 python3 tool/live_stickers.py $(FUZZNETD)
 endif
