@@ -431,8 +431,12 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 			derive = 1;
 	}
 	if (why) {
+		/* SAID BEFORE IT GOES: `why` is the spec's own word, in what
+		 * `building_done` frees (fuzzypickles, under ASan). */
+		size_t said = REPLY("error %s would not read beside the spec\n", why);
+
 		building_done(&b);
-		return REPLY("error %s would not read beside the spec\n", why);
+		return said;
 	}
 	/* AN ID FROM ITS ART for each sticker the spec gave none, sec 702: one
 	 * sticker's files end to end in a scratch, the hash being one call.

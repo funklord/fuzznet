@@ -80361,3 +80361,24 @@ own.
 - `live_group_backfill` d: C under drop holds nothing in the clear, and
   under no rule files the line.
 - `messages_test`. Sabotage: `drop-keeps-no-month-from-a-peer`.
+
+## 887. Two memory faults fuzzypickles' sanitized node found, 2026-11-05
+
+fuzzypickles ran its node scenarios against a fuzznetd built with ASan and
+UBSan, inbox 2026-11-04 23:11 and 23:15, at 11e52c3.
+
+- **`put sticker` read freed memory.** A spec naming art that is not there
+  went to `building_done`, which frees the spec's words, and then formatted
+  one of them into the refusal. So any local client could take down a
+  sanitized node with a typo, and an ordinary one read freed memory for
+  the error text. The reply is said first. `live_stickers` a holds it.
+- **`grow_table` left a new table's first rows unzeroed.** `contact_room`
+  grows three tables from a count of fixed rows, and on the first growth
+  the table is NULL, so those rows came from `realloc(NULL)` and were never
+  cleared. `gt->held` then held garbage: a wild read here, hidden by a fresh
+  mmap, and a wild write on an allocator that hands back used memory, which
+  a phone's may. A table not yet made is zeroed from its first row.
+
+**The lesson is a gap in `sancheck`:** it runs the suite and no live
+script, so neither was reachable from it. A live run over a sanitized build
+is what found them.

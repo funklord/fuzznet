@@ -15416,6 +15416,10 @@ static int grow_table(void **table, size_t old_n, size_t new_n, size_t size)
 
 	if (!grown)
 		return 0;
+	/* A TABLE'S FIRST ROOM IS NOT ZEROED BY ANYBODY ELSE: a caller's `old_n`
+	 * counts fixed rows that a table not yet made does not have. */
+	if (!*table)
+		old_n = 0;
 	memset((uint8_t *)grown + old_n * size, 0, (new_n - old_n) * size);
 	*table = grown;
 	return 1;

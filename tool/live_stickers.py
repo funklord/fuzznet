@@ -118,6 +118,17 @@ def main(argv):
 			                         "--log-dir=" + os.path.join(scratch, "log"),
 			                         "--fuzznet-service=1", "--fuzznet-product=1"],
 			                        stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+			# A SPEC NAMING ART THAT IS NOT THERE is refused in words, and the
+			# node goes on: it answered from memory it had just freed, which a
+			# sanitized build dies on (fuzzypickles, inbox 2026-11-04).
+			missing = os.path.join(packdir, "missing.spec")
+			with open(spec) as f, open(missing, "w") as g:
+				g.write(f.read().replace("art/wave.png", "art/gone.png"))
+			refused = ask(sock, "put sticker " + missing)
+			if not refused.startswith("error ") or "would not read beside the spec" not in refused:
+				raise failed("a: a spec naming no art answered %r" % refused)
+			if not ask(sock, "status").startswith("ok "):
+				raise failed("a: the node did not answer after a refused spec")
 			got = ask(sock, "put sticker " + spec).split()
 			if len(got) != 2 or got[0] != "ok" or len(got[1]) != 64:
 				raise failed("a: put sticker answered %r" % got)
