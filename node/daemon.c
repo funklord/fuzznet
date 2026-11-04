@@ -9386,6 +9386,26 @@ static long sealing_hosts(uint8_t (**hosts)[FZN_PUBKEY_LEN], size_t *cap)
 	return (long)count;
 }
 
+/* A HOST A SECRET MAY BE SEALED TO, sec 879: one in `group` by a
+ * `group/member` an admin or a root stands behind, whose own standing holds
+ * now. A host's own word puts it in a group for what it reads (sec 868), and
+ * is no reason to hand it a secret: any device could say it. And a prekey
+ * and a membership outlive a revocation -- a stolen device's are still held,
+ * and what was set for it still reads -- so neither says it stands. */
+static int sealable(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t group[FZN_SUBJECT_LEN])
+{
+	static const char MEMBER[] = "group/member";
+	uint8_t names[FZN_SETTING_VALUE_MAX];
+	size_t len = 0;
+	fzn_setting_rank_t rank;
+
+	return host_in_group(host, group)
+	       && fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, host, (const uint8_t *)MEMBER,
+	                                sizeof(MEMBER) - 1u, names, &len, &rank)
+	       && rank >= FZN_SETTING_RANK_ADMIN
+	       && fzn_node_apply_rank(&node_apply, host, FZN_SCOPE_HOST, host, &rank) == 1;
+}
+
 /* THE SEALER'S OWN COPY, sec 875: `sealed/GROUP/KEY` in this host's own cell,
  * the value boxed to this host, so its node can seal it again to a host
  * that joins the group later -- netcfgd's "a roaming key reaching a new
@@ -9457,7 +9477,7 @@ static size_t sealed_local(fzn_origin_t origin, const fzn_request_t *request, ch
 		for (j = 0; j < i; j++)
 			if (memcmp(hosts[j], hosts[i], FZN_PUBKEY_LEN) == 0)
 				break;
-		if (j < i || !host_in_group(hosts[i], group))
+		if (j < i || !sealable(hosts[i], group))
 			continue;
 		r = seal_to(hosts[i], key, key_len, value, value_len);
 		if (r < 0) {
@@ -9536,7 +9556,7 @@ static void sealed_tick(void)
 			uint8_t held[FZN_SETTING_VALUE_MAX];
 			size_t held_len = 0, key_len = rest - (size_t)(slash - k) - 1u;
 
-			if (!host_in_group(hosts[i], group)
+			if (!sealable(hosts[i], group)
 			    || fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, hosts[i], slash + 1,
 			                             key_len, held, &held_len, &rank))
 				continue;

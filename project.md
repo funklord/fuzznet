@@ -79917,7 +79917,9 @@ key, a mesh password, a passphrase. The holder said to build it on
     it with the host's own prekey secret and answer the plaintext.
   - A box the host cannot open is refused (`-1` in C, an error on the
     socket), never handed out as though it were the value.
-  - A non-member holds only boxes it cannot open.
+  - A non-member holds only boxes it cannot open. A host is a member here
+    by a `group/member` an admin or a root stands behind, and only while it
+    stands: sec 879.
 - The answer is `ok SEALED MISSING`, MISSING the members whose prekey
   this node does not hold.
 - Sealing writes other hosts' cells, so it is a root's or an admin's.
@@ -80085,3 +80087,45 @@ and the holder's word of 2026-11-04 for 871 to 875):
 - `live_ext` now runs about seven minutes. Its Makefile bound is 560 s.
 
 **Waiting on the holder:** nothing.
+
+## 879. A secret sealed only to a member an admin named, and who still stands, 2026-11-04
+
+Found reading sec 875's tick for sec 878's open item. Two holes, and
+both let a device a sealed value was kept from read it.
+
+**A revoked host was sealed the value.** `sealing_hosts` is every prekey
+kept, and `host_in_group` reads `group/member`. Neither says a host
+stands: a prekey outlives a revocation, and so does what was set for the
+host before its cut. So `set sealed`, and each minute's tick for a host
+with no box yet, sealed a passphrase to a stolen device. The other walks
+over kept prekeys, pairing (sec 579) and a contact's devices, already
+judge the host; a group's own hosts are sec 784's.
+
+**A host's own word was enough.** `group/member` is a host's own setting
+(sec 868), which is right for what it reads: a host that says it is in
+zone1 takes zone1's values, which any estate host can read anyway. For a
+secret it meant any member device could set the word and be sealed the
+value within the minute, against sec 874's "a non-member holds only
+boxes". Ranks separate devices (sec 540), so the word has to be somebody
+else's.
+
+**Decided:** a value is sealed to a host in the group by a `group/member`
+in force at an admin's or a root's rank, whose own standing holds now
+(`sealable`). The rest of sec 868 is unchanged: a host's own word still
+places it for the values it reads. A root or an admin host may still
+join by itself, its word being at that rank. So a new access point
+reaches a roaming key when an operator names it, as `set setting
+host=KEY group/member zone1`, and not before.
+
+**Measured, `live_estate`:**
+- c2: D is in zone1 by R's word, and revoked. R's `set sealed` answers
+  `ok 1 0`, A2 alone; a minute on, past the tick, D's cell is absent.
+  Against the code before: `ok 2 0`, D sealed with A2.
+- f: E says it is in zone1 and A2's `set sealed` still answers `ok 1 0`,
+  with E's cell absent. With the rank test taken out it answers `ok 2 0`.
+
+**And what was looked at next, the same shape, and clean.** A revoked
+sibling's pairing is not removed (sec 579 only declines a new one), so
+whether this node still pushes to it was measured rather than read: c1
+has R set a value after D's revocation, A1 reads it, and six rounds on D
+has not heard it. It stays as a check.

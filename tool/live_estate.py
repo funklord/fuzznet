@@ -21,6 +21,10 @@ successor) and E (a device paired by the second root).
        D's grant stands no more, h/before still reads and h/mid does not
        (sec 706): kept before the second vote came, it was past A1's cut.
        D, writing throughout, sets h/after, which never reads at R
+    c2 R seals a value to zone1, of which D is still a member by a setting
+       made before its cut: A2, the other member, reads it, and a minute on
+       D's cell holds nothing; E, in zone1 by its own word alone, is sealed
+       nothing either (sec 879)
     d  a succession: R re-keys A1 as N, N joins by the card R answers, and
        R lists A1 succeeded by N, counting, and N holding the member
        capability
@@ -460,6 +464,12 @@ def main(argv):
 				polled(who, "get setting estate revocation/k", lambda g: g == "ok root 2",
 				       "not k of 2 set by the root")
 			expect(socks["d"], "d", "set setting host h/before 1", "ok")
+			expect(socks["r"], "r", "set setting host=%s group/member zone1" % keys["d"], "ok")
+			expect(socks["a2"], "a2", "set setting host group/member zone1", "ok")
+			polled("r", "get setting host=%s group/member" % keys["d"],
+			       lambda g: g == "ok root zone1", "not D's membership of zone1")
+			polled("r", "get setting host=%s group/member" % keys["a2"],
+			       lambda g: g.endswith(" zone1"), "not A2's membership of zone1")
 			for who in ("r", "a1", "a2"):
 				polled(who, "get setting host=%s h/before" % keys["d"],
 				       lambda g: g == "ok host 1", "not D's h/before")
@@ -500,6 +510,33 @@ def main(argv):
 			      "h/before stands at R, h/mid and h/after (%s at D) do not"
 			      % (writing["n"], ", then was refused its own" if writing["denied"] else "",
 			         after.split()[0]))
+
+			# c1: NOTHING NEW REACHES IT: R's next setting reaches A1, and D, its
+			# grant gone, never hears it.
+			expect(socks["r"], "r", "set setting estate h/news 1", "ok")
+			polled("a1", "get setting estate h/news", lambda g: g == "ok root 1",
+			       "not R's setting after D's revocation")
+			time.sleep(6.0 * float(ROUND_S))
+			got = said("d", "get setting estate h/news")
+			if got != "ok absent":
+				raise failed("c1: D, revoked, still heard R's setting: %r" % got)
+			print("livecheck: c1: a setting made after D's revocation reached A1 and not D")
+
+			# c2: A SECRET AND A REVOKED MEMBER, sec 879: D is still in zone1 by
+			# the setting it made before its cut, and its prekey is still held.
+			# R seals zone1's passphrase: to A2, and not to D, by `set sealed`
+			# or by the tick that serves a later member.
+			got = said("r", "set sealed group=zone1 wifi/psk s3cret%20pass")
+			if got != "ok 1 0":
+				raise failed("c2: R's set sealed answered %r, not A2 alone" % got)
+			polled("a2", "get setting here wifi/psk", lambda g: g.endswith(" s3cret%20pass"),
+			       "not the passphrase sealed to A2")
+			time.sleep(65.0)
+			got = said("r", "get setting host=%s wifi/psk" % keys["d"])
+			if got != "ok absent":
+				raise failed("c2: a revoked D was sealed the passphrase: %r" % got)
+			print("livecheck: c2: a value sealed to zone1 reached A2 and not D, revoked and "
+			      "still listed as a member")
 
 			# d: R re-keys A1 as N.
 			os.mkdir(dirs["n"])
@@ -608,6 +645,16 @@ def main(argv):
 			print("livecheck: f: R added A2 as a root; A2 removed R (%d "
 			      "refusal(s) first) and R was stopped, paired E, and E reads A2 as its root"
 			      % len(refused))
+			# A HOST'S OWN WORD IS NO KEY, sec 879: E says it is in zone1, and a
+			# minute on is sealed nothing; A2, a root, says so, and it is.
+			expect(socks["e"], "e", "set setting host group/member zone1", "ok")
+			polled("a2", "get setting host=%s group/member" % keys["e"],
+			       lambda g: g == "ok host zone1", "not E's own word of zone1")
+			expect(socks["a2"], "a2", "set sealed group=zone1 wifi/own s3cret", "ok 1 0")
+			got = said("a2", "get setting host=%s wifi/own" % keys["e"])
+			if got != "ok absent":
+				raise failed("f: E, in zone1 by its own word, was sealed a value: %r" % got)
+			print("livecheck: f: E, in zone1 by its own word alone, was sealed nothing")
 			# A PASS'S LOGS TOO, when asked: what a debug line says of traffic
 			# that went wrong and recovered is in runs that pass.
 			if args.keep and args.keep_passed:
