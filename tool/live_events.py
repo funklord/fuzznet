@@ -11,7 +11,8 @@ One daemon over one store, and clients of its local socket:
     c  FZN_NODE_EVENTS_MAX subscribers are taken and the next is not: its
        `get events` is answered as any request, and the connection closed
     d  one line added to a conversation raises `event message` once, not
-       again when the node absorbs its own record (sec 876)
+       again when the node absorbs its own record (sec 876); and one
+       catalogue assertion raises `event catalog` once
 
 Against a daemon that keeps no subscribers, phase a waits for nothing to
 come; against one that blocks on a subscriber, phase b does.
@@ -170,7 +171,24 @@ def main(argv):
 				got = [l for l in subs[0].lines_within(3.0) if l.startswith("event message")]
 				if got != ["event message -"]:
 					raise failed("d: one line raised %r" % got)
-				print("livecheck: d: one line added raised `event message` once")
+				# AND THE CATALOGUE, the same shape: the verb indexes its own
+				# record as it answers.
+				src = os.path.join(scratch, "song")
+				with open(src, "wb") as f:
+					f.write(b"la" * 600)
+				put = ask(sock, "put file " + src).split()
+				if len(put) != 3 or put[0] != "ok":
+					raise failed("d: put file answered %r" % put)
+				for sub in subs:
+					sub.lines_within(0.5)
+				reply = ask(sock, "add catalog %s name song" % put[1][:64])
+				if reply != "ok":
+					raise failed("d: add catalog answered %r" % reply)
+				got = [l for l in subs[0].lines_within(3.0) if l.startswith("event catalog")]
+				if len(got) != 1:
+					raise failed("d: one catalogue assertion raised %r" % got)
+				print("livecheck: d: one line added raised `event message` once, and one "
+				      "catalogue assertion `event catalog` once")
 			finally:
 				for sub in subs:
 					sub.close()

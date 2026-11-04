@@ -13531,6 +13531,8 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 }
 #else
 static fzn_node_catalog_t node_catalog;
+/* SET while `add`/`remove catalog` index their own record, sec 876. */
+static int catalog_hushed;
 static struct catalog_cursor {
 	uint8_t key[FZN_PUBKEY_LEN];
 	uint64_t at;
@@ -13585,7 +13587,10 @@ static void index_catalog(void)
 	}
 	if (taken) {
 		say(FZN_ENTRY_INFO, "catalog", "%zu catalogue record(s) taken", taken);
-		publish("catalog", NULL);
+		/* NOT WHERE THE VERB TELLS IT, sec 876: an assertion made here is
+		 * published as `add catalog` answers, naming the file. */
+		if (!catalog_hushed)
+			publish("catalog", NULL);
 	}
 }
 
@@ -13773,7 +13778,9 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 	                               root, body, len, wall_ms(), NULL)
 	    != FZN_NODE_JOURNAL_OK)
 		return (size_t)snprintf(reply, cap, "error the journal would not take it\n");
+	catalog_hushed = 1;
 	index_catalog();
+	catalog_hushed = 0;
 	journal_pushed = 1;
 	return (size_t)snprintf(reply, cap, "ok\n");
 }

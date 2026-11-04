@@ -80001,3 +80001,17 @@ written here raises it once, as the verb answers.
 `add message`; over the next three seconds exactly one `event message -`
 arrives. With the old count restored it fails as reported:
 `['event message -', 'event message -']`.
+
+**The same shape, searched for next: the catalogue had it too.**
+- `add catalog` indexes its own record inside the verb, and the index
+  published `catalog -`. Then the verb's `ok` published `catalog ROOT`.
+  Phase d, extended to one assertion, read both.
+- The index is now quiet while the verb indexes its own record, and the
+  verb's event, which names the file, is the one told. Indexing another
+  host's records still publishes.
+- **Searched and clean:**
+  - `note`: the verb files a note itself, so indexing it later counts it
+    held, not filed.
+  - `stream`: publishes only records fetched from another host.
+  - `estate`: phase b reads exactly the next event after phase a's own
+    writes, so applying them does not raise it.
