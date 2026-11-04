@@ -56,6 +56,13 @@ typedef struct fzn_contact {
 /* Whether `name` is a contact name. */
 int fzn_contact_name_ok(const char *name, size_t len);
 
+/* THE NAME THE `nth` (from 1) OF SEVERAL KEYS CALLED `name` GOES BY, sec 887:
+ * `name` itself for the first, `name_N` for the rest, `name` cut to fit, into
+ * `out` (FZN_CONTACT_NAME_MAX bytes). Its length, or 0 for a name that is
+ * none or an `nth` of 0. */
+size_t fzn_contact_name_nth(const char *name, size_t len, size_t nth,
+                            char out[FZN_CONTACT_NAME_MAX]);
+
 /* Add `key` as `name`, or rename it when it is held. TAKEN when another key
  * has the name. A rename keeps when it was added. */
 fzn_contact_err_t fzn_contact_add(const fzn_persist_ops_t *store,

@@ -80382,3 +80382,26 @@ UBSan, inbox 2026-11-04 23:11 and 23:15, at 11e52c3.
 **The lesson is a gap in `sancheck`:** it runs the suite and no live
 script, so neither was reachable from it. A live run over a sanitized build
 is what found them.
+
+## 888. One name for two people means one person on every host, 2026-11-05
+
+Sec 699 left a name another key holds here "for a later round". fuzzypickles'
+`contacts-same-name` is what that costs: two hosts apart each call a
+different person bob, the settings are per key so both stand, each host keeps
+its own, and a line typed to bob reaches a different person by device.
+
+**Decided: the lower key keeps the name, and the rest go by `name_2` and on,
+in order of key.** Every host computes it from the same settings, so nothing
+is written and no host need be told.
+- **Rejected: fzpd's answer,** each host keeping its own as bob and the
+  other's as bob_2. It keeps the fault: `bob` still means two people.
+- A person may lose a name it was given on this host, and see `bob_2`. Names
+  are presentation and keys identify (sec 516), so the user renames one, as
+  `add contact` does, and that reaches the same person everywhere.
+- A clash is between equals. A root's word outranks an admin's at the setting
+  (sec 728) before any of this.
+- `fzn_contact_name_nth` cuts a name at its limit to fit the suffix.
+
+**Measured, `tool/live_names.py`:** two admins each name a different key bob,
+both then agree, and a rename on one reaches the same person on both. Against
+the daemon before, A's bob is the lower key and B's the higher.

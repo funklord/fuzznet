@@ -125,6 +125,20 @@ int main(void)
 	key_of(0xcc, c);
 
 	/* ---- names */
+	{
+		char nth[FZN_CONTACT_NAME_MAX];
+		size_t named = fzn_contact_name_nth("bob", 3u, 1u, nth);
+
+		CHECK(named == 3u && memcmp(nth, "bob", 3u) == 0, "the first of a name keeps it");
+		named = fzn_contact_name_nth("bob", 3u, 2u, nth);
+		CHECK(named == 5u && memcmp(nth, "bob_2", 5u) == 0, "the second is name_2");
+		named = fzn_contact_name_nth("abcdefghijklmnopqrstuvwxyz012345", 32u, 12u, nth);
+		CHECK(named == 32u && memcmp(nth + 29, "_12", 3u) == 0 && fzn_contact_name_ok(nth, named),
+		      "a name at its limit is cut to fit, and is still a name");
+		CHECK(fzn_contact_name_nth("bob", 3u, 0u, nth) == 0u
+		              && fzn_contact_name_nth("b b", 3u, 2u, nth) == 0u,
+		      "no nth, or no name, is 0");
+	}
 	CHECK(fzn_contact_name_ok("alice_2", 7u) && !fzn_contact_name_ok("", 0u)
 	              && !fzn_contact_name_ok("al ice", 6u) && !fzn_contact_name_ok("alice-2", 7u)
 	              && !fzn_contact_name_ok("x", 0u)

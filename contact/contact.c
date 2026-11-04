@@ -5,6 +5,7 @@
 #include "../wire/bytes.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #define BODY_LEN(n) (1u + (size_t)(n) + 8u)
@@ -51,6 +52,28 @@ int fzn_contact_name_ok(const char *name, size_t len)
 			return 0;
 	}
 	return 1;
+}
+
+size_t fzn_contact_name_nth(const char *name, size_t len, size_t nth,
+                            char out[FZN_CONTACT_NAME_MAX])
+{
+	char tail[24];
+	int k;
+
+	if (!out || nth == 0u || !fzn_contact_name_ok(name, len))
+		return 0;
+	if (nth == 1u) {
+		memcpy(out, name, len);
+		return len;
+	}
+	k = snprintf(tail, sizeof(tail), "_%zu", nth);
+	if (k <= 0 || (size_t)k >= FZN_CONTACT_NAME_MAX)
+		return 0;
+	if (len > FZN_CONTACT_NAME_MAX - (size_t)k)
+		len = FZN_CONTACT_NAME_MAX - (size_t)k;
+	memcpy(out, name, len);
+	memcpy(out + len, tail, (size_t)k);
+	return len + (size_t)k;
 }
 
 fzn_contact_err_t fzn_contact_get(const fzn_persist_ops_t *store,

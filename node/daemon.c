@@ -12468,35 +12468,92 @@ static fzn_contact_err_t contacts_list(struct contacts_room *r, size_t *n)
 /* THE NAMES THE ESTATE GAVE, taken by each contact this host holds whose
  * name here is another. A name another key holds here is left for a round
  * that has moved that key on. */
+/* ONE ESTATE NAME AND WHOSE IT IS: the order every host agrees on. */
+struct estate_name {
+	char name[FZN_CONTACT_NAME_MAX];
+	size_t len;
+	uint8_t key[FZN_PUBKEY_LEN];
+	char now[FZN_CONTACT_NAME_MAX]; /* what this host calls it at present */
+	size_t now_len;
+};
+
+static int estate_name_order(const void *a, const void *b)
+{
+	const struct estate_name *x = a, *y = b;
+	size_t n = x->len < y->len ? x->len : y->len;
+	int c = memcmp(x->name, y->name, n);
+
+	if (!c && x->len != y->len)
+		c = x->len < y->len ? -1 : 1;
+	return c ? c : memcmp(x->key, y->key, FZN_PUBKEY_LEN);
+}
+
+/* THE ESTATE'S NAMES, taken each round. TWO PEOPLE GIVEN ONE NAME on two
+ * hosts while apart, sec 887: the lower key keeps it, and the rest go by
+ * `name_2` and on, in order of key -- so `bob` is one person on every host,
+ * and no host need be told. Both settings stand as they were written. A
+ * rename that finds the name still held is met again on the second pass,
+ * once its holder has moved. */
 static void take_contact_names(void)
 {
 	static struct contacts_room room;
+	static struct estate_name *names;
+	static size_t names_cap;
 	fzn_contact_t *all;
 	uint8_t cell[CONTACT_NAME_KEY_LEN], value[FZN_SETTING_VALUE_MAX];
 	fzn_setting_rank_t rank;
-	size_t n = 0, i, len, taken = 0;
+	size_t n = 0, i, len, held = 0, taken = 0;
+	int pass;
 
 	/* LISTED, NOT WALKED: renaming writes the contacts' own slot. */
 	if (!node_apply.store || !node_settings.store || !node_settings.estate
-	    || contacts_list(&room, &n) != FZN_CONTACT_OK)
+	    || contacts_list(&room, &n) != FZN_CONTACT_OK
+	    || !heap_room((void **)&names, &names_cap, n + 1u, sizeof(*names)))
 		return;
 	all = room.at;
 	for (i = 0; i < n; i++) {
-		fzn_contact_err_t err;
-
 		len = 0;
 		contact_name_key(all[i].key, cell);
 		if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, cell,
 		                           sizeof(cell), value, &len, &rank)
-		    || !fzn_contact_name_ok((const char *)value, len)
-		    || (len == all[i].name_len && memcmp(value, all[i].name, len) == 0))
+		    || !fzn_contact_name_ok((const char *)value, len))
 			continue;
-		err = fzn_contact_add(node_apply.store, all[i].key, (const char *)value, len, wall_ms());
-		if (err == FZN_CONTACT_OK)
-			taken++;
-		else
-			say(FZN_ENTRY_DEBUG, "contact/names", "%.*s not taken for %s here: %s", (int)len,
-			    (const char *)value, all[i].name, fzn_contact_err_str(err));
+		memcpy(names[held].name, value, len);
+		names[held].len = len;
+		memcpy(names[held].key, all[i].key, FZN_PUBKEY_LEN);
+		memcpy(names[held].now, all[i].name, all[i].name_len);
+		names[held++].now_len = all[i].name_len;
+	}
+	qsort(names, held, sizeof(*names), estate_name_order);
+	for (pass = 0; pass < 2; pass++) {
+		size_t nth = 0, renamed = 0;
+
+		for (i = 0; i < held; i++) {
+			struct estate_name *c = &names[i];
+			char want[FZN_CONTACT_NAME_MAX];
+			size_t want_len;
+			fzn_contact_err_t err;
+
+			nth = i && names[i].len == names[i - 1u].len
+			              && memcmp(names[i].name, names[i - 1u].name, names[i].len) == 0
+			              ? nth + 1u
+			              : 1u;
+			want_len = fzn_contact_name_nth(names[i].name, names[i].len, nth, want);
+			if (!want_len || (want_len == c->now_len && memcmp(want, c->now, want_len) == 0))
+				continue;
+			err = fzn_contact_add(node_apply.store, c->key, want, want_len, wall_ms());
+			if (err == FZN_CONTACT_OK) {
+				memcpy(c->now, want, want_len);
+				c->now_len = want_len;
+				renamed++;
+			} else if (pass) {
+				say(FZN_ENTRY_DEBUG, "contact/names", "%.*s not taken for %.*s here: %s",
+				    (int)want_len, want, (int)c->now_len, c->now, fzn_contact_err_str(err));
+			}
+		}
+		taken += renamed;
+		if (!renamed)
+			break;
 	}
 	if (taken)
 		say(FZN_ENTRY_INFO, "contact/names", "%zu contact(s) named as the estate names them",
