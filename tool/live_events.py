@@ -10,6 +10,8 @@ One daemon over one store, and clients of its local socket:
        and the daemon answers a request as before
     c  FZN_NODE_EVENTS_MAX subscribers are taken and the next is not: its
        `get events` is answered as any request, and the connection closed
+    d  one line added to a conversation raises `event message` once, not
+       again when the node absorbs its own record (sec 876)
 
 Against a daemon that keeps no subscribers, phase a waits for nothing to
 come; against one that blocks on a subscriber, phase b does.
@@ -63,6 +65,27 @@ class subscriber:
 			self.buf += chunk
 		line, self.buf = self.buf.split(b"\n", 1)
 		return line.decode()
+
+	def lines_within(self, seconds):
+		"""Every line that arrives within `seconds`."""
+		got = []
+		until = time.monotonic() + seconds
+		while time.monotonic() < until and left() > 0.1:
+			while b"\n" in self.buf:
+				line, self.buf = self.buf.split(b"\n", 1)
+				got.append(line.decode())
+			self.s.settimeout(max(0.05, min(0.5, until - time.monotonic())))
+			try:
+				chunk = self.s.recv(4096)
+			except socket.timeout:
+				continue
+			if not chunk:
+				break
+			self.buf += chunk
+		while b"\n" in self.buf:
+			line, self.buf = self.buf.split(b"\n", 1)
+			got.append(line.decode())
+		return got
 
 	def close(self):
 		self.s.close()
@@ -135,6 +158,19 @@ def main(argv):
 					raise failed("c: a subscriber within the bound was not told")
 				print("livecheck: c: %d subscribers taken, the next answered as a request "
 				      "(%r) and closed" % (EVENTS_MAX, extra.first))
+
+				# d: ONE LINE, ONE EVENT, sec 876 -- fuzzypickles saw two, the
+				# second when the node absorbed its own record.
+				expect(sock, "d", "add contact alice " + "5a" * 32, "ok")
+				for sub in subs:
+					sub.lines_within(0.5)
+				reply = ask(sock, "add message alice in %032x hello" % 1)
+				if reply != "ok":
+					raise failed("d: add message answered %r" % reply)
+				got = [l for l in subs[0].lines_within(3.0) if l.startswith("event message")]
+				if got != ["event message -"]:
+					raise failed("d: one line raised %r" % got)
+				print("livecheck: d: one line added raised `event message` once")
 			finally:
 				for sub in subs:
 					sub.close()

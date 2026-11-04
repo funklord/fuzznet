@@ -79974,3 +79974,30 @@ host is gone, a later member waits for somebody to seal again.
 passphrase, joins zone1. Within the minute A's value in force is the
 passphrase. A's cell had no value before, and only the tick writes one,
 so the check cannot pass without it.
+
+## 876. One line, one `message` event, 2026-11-04
+
+fuzzypickles, inbox 2026-11-04 00:18, measured at 13569db: with `get
+events` open, each `add message alice in ID TEXT` raised `event message
+-` twice. Half the pairs came in the same millisecond, and half a second
+apart. fzptui reloads a conversation on each, and a reload took down a
+sticker shown for the arriving line. They fixed their side, and asked
+fuzznet to weigh the cause.
+
+**Why:**
+- The verb's `ok` publishes `message` (sec 609).
+- Then the node absorbs its own message stream. `messages_absorb`
+  publishes `message` again whenever a device's stream gained records,
+  and this node's own device was counted among them.
+- So the second event was the node noticing its own line. It came
+  within the same pass when the absorb ran at once, or a second later
+  when the loop's next pass absorbed it.
+
+**Fixed:** the absorb's `read` counts other devices' streams only. A line
+from another device, or a mark, still raises `message` there. A line
+written here raises it once, as the verb answers.
+
+**Measured:** `live_events` phase d. A subscriber, a contact, and one
+`add message`; over the next three seconds exactly one `event message -`
+arrives. With the old count restored it fails as reported:
+`['event message -', 'event message -']`.

@@ -533,7 +533,11 @@ fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
 		uint64_t *was = cursor_at(nm, nm->devices[d], 0);
 
 		if (was) {
-			tally->read += *was != nm->at[d];
+			/* ANOTHER DEVICE'S records only, sec 876: this node's own
+			 * were told as the verb that wrote them answered `ok`, and
+			 * counted again here they raised `message` twice for one
+			 * line (fuzzypickles, 2026-11-04). */
+			tally->read += *was != nm->at[d] && !same_key(nm->devices[d], nm->m.issuer);
 			*was = nm->at[d];
 		}
 	}
