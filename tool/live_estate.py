@@ -36,7 +36,8 @@ successor) and E (a device paired by the second root).
        crash
     f  recovery: R adds A2 as a root; A2 removes R from the roots, and R is
        stopped for good; A2 pairs E, and E joins and reads what A2 sets as
-       root
+       root; A2 names E in zone1, and its copy of the value R sealed in c2
+       reaches E with R gone (sec 880)
 
 `--skew S` runs A1's clock S seconds ahead and D's S behind, by faketime.
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed per run;
@@ -537,6 +538,10 @@ def main(argv):
 				raise failed("c2: a revoked D was sealed the passphrase: %r" % got)
 			print("livecheck: c2: a value sealed to zone1 reached A2 and not D, revoked and "
 			      "still listed as a member")
+			# AND THE COPIES, sec 880: A2, an admin, holds one of its own, boxed
+			# to it, for phase f, where R is gone.
+			polled("a2", "get setting host=%s sealed/zone1/wifi/psk" % keys["a2"],
+			       lambda g: " box:" in g, "not a copy of the sealed value")
 
 			# d: R re-keys A1 as N.
 			os.mkdir(dirs["n"])
@@ -655,6 +660,13 @@ def main(argv):
 			if got != "ok absent":
 				raise failed("f: E, in zone1 by its own word, was sealed a value: %r" % got)
 			print("livecheck: f: E, in zone1 by its own word alone, was sealed nothing")
+			# A SEALED VALUE OUTLIVES ITS SEALER, sec 880: A2 names E in zone1
+			# with R stopped for good, and A2's copy serves it within the minute.
+			expect(socks["a2"], "a2", "set setting host=%s group/member zone1" % keys["e"], "ok")
+			polled("e", "get setting here wifi/psk", lambda g: g.endswith(" s3cret%20pass"),
+			       "not the value R sealed, by A2's copy", within=max(settle, 180.0))
+			print("livecheck: f: E, named in zone1 with its sealer gone, read the value from "
+			      "A2's copy")
 			# A PASS'S LOGS TOO, when asked: what a debug line says of traffic
 			# that went wrong and recovered is in runs that pass.
 			if args.keep and args.keep_passed:

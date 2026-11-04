@@ -9406,10 +9406,12 @@ static int sealable(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t group[FZN_
 	       && fzn_node_apply_rank(&node_apply, host, FZN_SCOPE_HOST, host, &rank) == 1;
 }
 
-/* THE SEALER'S OWN COPY, sec 875: `sealed/GROUP/KEY` in this host's own cell,
- * the value boxed to this host, so its node can seal it again to a host
- * that joins the group later -- netcfgd's "a roaming key reaching a new
- * access point". Its key, or 0 when GROUP and KEY together are too long. */
+/* A COPY, secs 875 and 880: `sealed/GROUP/KEY` in a host's own cell, the
+ * value boxed to that host, so its node can seal it again to a host that
+ * joins the group later -- netcfgd's "a roaming key reaching a new access
+ * point". The sealer holds one, and so does every host that could seal
+ * again, so the value outlives its sealer. Its key, or 0 when GROUP and KEY
+ * together are too long. */
 #define FZND_SEALED_COPY "sealed/"
 static size_t sealed_copy_key(const uint8_t group[FZN_SUBJECT_LEN], const uint8_t *key,
                               size_t key_len, uint8_t out[FZN_SETTING_KEY_MAX])
@@ -9426,11 +9428,48 @@ static size_t sealed_copy_key(const uint8_t group[FZN_SUBJECT_LEN], const uint8_
 	return len;
 }
 
+/* THE RANK `host` WRITES ANOTHER HOST'S CELL AT, ROOT or ADMIN: 1 with it, or
+ * 0 for a host that writes only its own. Judged of a cell that is nobody's. */
+static int sealing_rank(const uint8_t host[FZN_PUBKEY_LEN], fzn_setting_rank_t *rank)
+{
+	static const uint8_t nobody[FZN_SUBJECT_LEN];
+
+	return fzn_node_apply_rank(&node_apply, host, FZN_SCOPE_HOST, nobody, rank) == 1;
+}
+
+/* THE COPY HANDED ON, sec 880, to each other host that could seal again at no
+ * higher rank than `ceiling` -- a renewal then never stands above what its
+ * sealer's next word can replace. `again` writes over a copy a host holds,
+ * for a value sealed anew; otherwise a host holding one is left alone. How
+ * many were written. */
+static size_t copy_handed_on(const uint8_t (*hosts)[FZN_PUBKEY_LEN], size_t count,
+                             const uint8_t *copy, size_t copy_len, const uint8_t *value,
+                             size_t value_len, fzn_setting_rank_t ceiling, int again)
+{
+	size_t i, n = 0;
+
+	for (i = 0; i < count; i++) {
+		uint8_t held[FZN_SETTING_VALUE_MAX];
+		size_t held_len = 0;
+		fzn_setting_rank_t rank;
+
+		if (memcmp(hosts[i], node_settings.id->pubkey, FZN_PUBKEY_LEN) == 0
+		    || !sealing_rank(hosts[i], &rank) || rank > ceiling
+		    || (!again
+		        && fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, hosts[i], copy, copy_len,
+		                                 held, &held_len, &rank)))
+			continue;
+		if (seal_to(hosts[i], copy, copy_len, value, value_len) > 0)
+			n++;
+	}
+	return n;
+}
+
 /* `set sealed group=NAME KEY VALUE`, sec 874: VALUE sealed to each host of
  * the group -- by its `group/member`, this host among them -- and written
  * into that host's own cell of KEY, which only that host opens; `get
- * setting here KEY` on a member answers it opened. Its copy kept for
- * later members (sec 875). `ok SEALED MISSING`, MISSING the members whose
+ * setting here KEY` on a member answers it opened. Its copies kept for
+ * later members (secs 875, 880). `ok SEALED MISSING`, MISSING the members whose
  * prekey this node does not hold. A root's or an admin's, since it writes
  * other hosts' cells. */
 static size_t sealed_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -9442,6 +9481,7 @@ static size_t sealed_local(fzn_origin_t origin, const fzn_request_t *request, ch
 	size_t left = request->arg_len, w_len, key_len, value_len = 0, i, sealed = 0, missing = 0,
 	       copy_len;
 	uint8_t group[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX], copy[FZN_SETTING_KEY_MAX];
+	fzn_setting_rank_t own_rank;
 	long count;
 
 	if (request->parsed != FZN_VERB_SET || !at || !next_word(&at, &left, &w, &w_len) || w_len != 6u
@@ -9490,23 +9530,29 @@ static size_t sealed_local(fzn_origin_t origin, const fzn_request_t *request, ch
 		else
 			missing++;
 	}
-	/* AND THE COPY, to this host, for a member that comes later. */
+	/* AND THE COPIES, for a member that comes later: this host's, and those
+	 * of the hosts that could serve it once this one is gone. */
 	(void)seal_to(node_settings.id->pubkey, copy, copy_len, value, value_len);
+	if (sealing_rank(node_settings.id->pubkey, &own_rank))
+		(void)copy_handed_on((const uint8_t (*)[FZN_PUBKEY_LEN])hosts, (size_t)count, copy,
+		                     copy_len, value, value_len, own_rank, 1);
 	fzn_wipe(value, sizeof(value));
 	journal_pushed = 1;
 	return (size_t)snprintf(reply, cap, "ok %zu %zu\n", sealed, missing);
 }
 
-/* A LATER MEMBER, sec 875: each minute, every copy this host sealed is
- * sealed again to each member of its group whose cell of the key holds no
- * value yet -- a host that joined, or whose prekey arrived, since. A
- * member's existing box is left alone. */
-#define FZND_SEALED_COPIES_MAX 64u
+/* A LATER MEMBER, secs 875 and 880: each minute, every copy this host holds
+ * is sealed again to each member of its group whose cell of the key holds
+ * no value yet -- a host that joined, or whose prekey arrived, since -- and
+ * handed on to a host that could seal and holds none. A member's existing
+ * box is left alone. A copy put here by a lower rank than this host's is
+ * not renewed from: this host's box would stand above that sealer's next
+ * value. */
 static struct sealed_copy {
 	uint8_t key[FZN_SETTING_KEY_MAX];
 	size_t key_len;
-} sealed_copies[FZND_SEALED_COPIES_MAX];
-static size_t n_sealed_copies;
+} *sealed_copies;
+static size_t n_sealed_copies, sealed_copies_cap;
 static size_t sealed_later;
 
 static void sealed_copy_seen(void *ctx, const fzn_setting_t *st, fzn_setting_rank_t rank)
@@ -9516,7 +9562,8 @@ static void sealed_copy_seen(void *ctx, const fzn_setting_t *st, fzn_setting_ran
 	if (st->scope != FZN_SCOPE_HOST || !node_settings.id
 	    || memcmp(st->about, node_settings.id->pubkey, FZN_PUBKEY_LEN) != 0 || st->key_len <= 7u
 	    || memcmp(st->key, FZND_SEALED_COPY, 7u) != 0
-	    || n_sealed_copies == FZND_SEALED_COPIES_MAX)
+	    || !heap_room((void **)&sealed_copies, &sealed_copies_cap, n_sealed_copies + 1u,
+	                  sizeof(*sealed_copies)))
 		return;
 	memcpy(sealed_copies[n_sealed_copies].key, st->key, st->key_len);
 	sealed_copies[n_sealed_copies++].key_len = st->key_len;
@@ -9529,6 +9576,7 @@ static void sealed_tick(void)
 	static size_t hosts_cap;
 	uint64_t now = wall_clock();
 	size_t c, i;
+	fzn_setting_rank_t own_rank;
 	long count;
 
 	if (now < last + 60u || !contact_id || !contact_id->agree_secret || !contact_aead_ops
@@ -9537,21 +9585,27 @@ static void sealed_tick(void)
 	last = now;
 	n_sealed_copies = 0;
 	if (fzn_node_settings_each(&node_settings, sealed_copy_seen, NULL) != FZN_NODE_SETTINGS_OK
-	    || !n_sealed_copies || (count = sealing_hosts(&hosts, &hosts_cap)) < 0)
+	    || !n_sealed_copies || !sealing_rank(node_settings.id->pubkey, &own_rank)
+	    || (count = sealing_hosts(&hosts, &hosts_cap)) < 0)
 		return;
 	for (c = 0; c < n_sealed_copies; c++) {
 		const uint8_t *k = sealed_copies[c].key + 7u, *slash;
 		size_t rest = sealed_copies[c].key_len - 7u, value_len = 0, boxed_len = 0;
 		uint8_t group[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX], boxed[FZN_SETTING_VALUE_MAX];
-		fzn_setting_rank_t rank;
+		fzn_setting_rank_t rank, copy_rank;
 
 		if (!(slash = memchr(k, '/', rest))
 		    || !fzn_scope_group_id(k, (size_t)(slash - k), group)
 		    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, node_settings.id->pubkey,
 		                              sealed_copies[c].key, sealed_copies[c].key_len, boxed,
-		                              &boxed_len, &rank)
+		                              &boxed_len, &copy_rank)
+		    || copy_rank < own_rank
 		    || !(value_len = unseal_here(NULL, boxed, boxed_len, value, sizeof(value))))
 			continue;
+		if (copy_handed_on((const uint8_t (*)[FZN_PUBKEY_LEN])hosts, (size_t)count,
+		                   sealed_copies[c].key, sealed_copies[c].key_len, value, value_len,
+		                   own_rank, 0))
+			journal_pushed = 1;
 		for (i = 0; i < (size_t)count; i++) {
 			uint8_t held[FZN_SETTING_VALUE_MAX];
 			size_t held_len = 0, key_len = rest - (size_t)(slash - k) - 1u;

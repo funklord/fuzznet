@@ -79969,8 +79969,8 @@ reaching a new access point wants a path of its own".
   another host's cell, as at sealing.
 
 **What it does not do:** a host that leaves keeps its box, as in sec
-874. And a copy is only renewed by the host that sealed it, so if that
-host is gone, a later member waits for somebody to seal again.
+874. ~~And a copy is only renewed by the host that sealed it.~~ Other
+hosts hold copies since sec 880.
 
 **Measured, `live_ext` d6:** A, outside zone1 when d5 sealed the
 passphrase, joins zone1. Within the minute A's value in force is the
@@ -80072,10 +80072,8 @@ and the holder's word of 2026-11-04 for 871 to 875):
 **Open, none asked for:**
 - **A staged clear** (`remove staged`). The machinery of sec 873 would
   carry it.
-- **A sealed value reaching a later member once its sealer is gone.** A
-  member host cannot write others' cells, and an admin host does not know
-  the value's group without the sealer's copy. The fix would be to seal
-  that copy to every admin host too.
+- ~~A sealed value reaching a later member once its sealer is gone.~~
+  Built in sec 880.
 - **A contact's key as a `message` event's NAME.** fuzzypickles says it
   does not need this.
 
@@ -80129,3 +80127,47 @@ sibling's pairing is not removed (sec 579 only declines a new one), so
 whether this node still pushes to it was measured rather than read: c1
 has R set a value after D's revocation, A1 reads it, and six rounds on D
 has not heard it. It stays as a check.
+
+## 880. A sealed value outlives its sealer, 2026-11-04
+
+Sec 875's copy lived with the sealer alone, so a later member waited on
+that host: sec 878's open item, and a real one, since a sealer is an
+operator's laptop as often as a root.
+
+**Built:**
+- **`set sealed` hands the copy on,** boxed to each host that could seal
+  again, in that host's own `sealed/GROUP/KEY` cell. A value sealed
+  again writes over them.
+- **The tick serves from any copy this host holds,** whoever wrote it, and
+  hands one on to a host that could seal and has none: an admin made
+  after the value was sealed, or one whose prekey arrived since.
+- Two hosts serving one later member each write a box of the one value,
+  and either opens.
+- The walk's table of copies grows; it stopped at 64, and the 65th value
+  on a host had no later members.
+
+**The rank rule.** A setting stands at its writer's rank, so a root's box
+stands above an admin's, whatever its age. If a root renewed from an
+admin's copy, that admin's next `set sealed` would be hidden under it.
+So a copy goes only to a host of no higher rank than its sealer's and the
+hander's, and a host renews only from a copy of at least its own rank.
+A root's value is served by roots and admins, an admin's by admins. An
+admin's value with no other admin left waits for a root to seal it, which
+a root's standing does in one verb.
+
+**Who can read it is not widened.** A root or an admin could already name
+itself a member and be sealed the value, so holding a copy gives it
+nothing it could not take. A non-member with neither rank holds nothing
+it can open, now that sec 879 holds.
+
+**What it does not do:** a holder away while a value was sealed anew may
+hand a later member the value it last knew, for as long as it has not
+pulled the new copy, and the member's box then stands. Sealing again
+mends it. Nothing here tells a box's generation.
+And a value is not withdrawn: a clear reaches one cell at one rank, and
+copies stand in several. To retire a secret, seal its replacement, which
+writes over every copy at the sealer's rank.
+
+**Measured, `live_estate` f:** R seals in c2, and A2 holds its own copy.
+R is removed and stopped for good. A2 names E in zone1, and E reads the
+value within the minute. With the hand-on taken out: the run fails at the check that A2 holds a copy, `ok absent`.
