@@ -61467,10 +61467,12 @@ Sec 564's second stage.
   segment keep rule holds whole segments, an entry keep rule holds its
   entries.
 - **Messages under drop**: a month stays only where a keep rule covers a
-  line of it. The current month stays whatever the rules, as before.
+  line of it. ~~The current month stays whatever the rules, as before.~~ The
+  trim still lets go by the month; nothing new comes in, since sec 886.
 - **`fzn_messages_wanted`** answers whether this device would hold a
-  conversation's month were it here. Not a month gone here; always the
-  current month; otherwise the month's newest line is judged, at the
+  conversation's month were it here. Not a month gone here, nor one of a
+  conversation this host keeps none of (sec 886); always the current
+  month; otherwise the month's newest line is judged, at the
   month's end, against the lines held of later months. It errs toward
   fetching: lines of later months not held yet are not counted, so a month
   the trim would keep is never refused, and one fetched and then trimmed
@@ -80317,3 +80319,45 @@ Against the old walk, `notes_test`'s ten listed out of order.
 A directory's `.ics` files are read as well: it answered `ok` with zero
 counts, which reads as an empty export. Each is taken as a calendar alone
 is, and one that will not read is refused by its file's name.
+
+## 886. A host that keeps no messages keeps none from a sibling, 2026-11-05
+
+Found by sec 884's `relay-cannot-read` and `group-store-gate`. Sec 566:
+"under `drop`, an item is held only where a keep rule covers it, so 'store
+nothing' is one line". Sec 613 refuses a contact's delivery on that. Two
+other ways in did not ask, and lines rest in the clear (sec 526), so a
+relay on a machine its owner trusts less was holding them readable.
+
+- **From a sibling.** `fzn_messages_wanted` answered the current month
+  wanted before it looked at the policy, by sec 566's "the current month
+  stays whatever the rules". That is the trim's reason, a month being what
+  it lets go, and it predates sec 613. So B1 in `live_relay` refused A's
+  line and then took it from B2, for the rest of the month.
+- **From a sibling, at a start.** `line_rules` is filled inside a round, and
+  a push is served from the moment the daemon runs, so before its first
+  round a restarted host asked no rule at all. Fixing the first alone left
+  `live_relay` failing: its B1 restarts often.
+- **From the journal.** A sibling's lines also ride its message stream, and
+  `fzn_messages_absorb` kept what it read. Nothing was asked there at all:
+  `wanted` governs buckets. So the store gained the `keeps` hook the node
+  already had, and a sibling's line of a conversation not kept is read past.
+  This host's own lines are its own.
+- **A group's line.** `group_file` opened every line into the conversation
+  with no question asked.
+
+**Fixed.** A host keeping none of a conversation wants none of its months,
+and files no group line of it. A group's lines stay as they came, sealed,
+for the members this host serves, and unfiled, so a change of the rules
+files them. A keep rule reaching the conversation keeps the current month
+wanted, as before.
+
+**Unchanged:** the trim still lets go by the month, so lines held before
+the policy was set stay until theirs passes. This host's own lines are its
+own.
+
+**Measured:**
+- `live_relay` g: every line went through B1, and nothing it wrote holds
+  one. Before: a `MESSAGE_LINE` row held the text.
+- `live_group_backfill` d: C under drop holds nothing in the clear, and
+  under no rule files the line.
+- `messages_test`. Sabotage: `drop-keeps-no-month-from-a-peer`.

@@ -12,6 +12,12 @@ them. A makes the group family alone.
        S0's second note -- and neither S0 nor the note it held before C
        joined
 
+    c  a file granted to the group before C joined: C fetches it whole by
+       its reference, and exports the same bytes; and while it arrives C reads
+       its opening range, which is the file's (secs 495, 884)
+    d  C under `policy messages drop`: A's line to the group is in nothing C
+       wrote in the clear, and C started with no rule files it (sec 886)
+
 Against a daemon that reads a group share's reach at the request alone, as
 sec 471 did, phase b finds S0 and its first note at C.
 
@@ -35,9 +41,11 @@ from live_trim import ask, failed  # noqa: E402
 from live_groups import KEPT_RE, PREKEY_HOST  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 420.0
+live_trim.DEADLINE = time.monotonic() + 600.0
 
 ROUNDS = 6
+# PAST ONE ROUND'S LEAVES, 4096 of 1024 bytes, so it is seen arriving.
+PLAYED_LEN = 6 * 1024 * 1024
 
 
 def main(argv):
@@ -59,9 +67,9 @@ def main(argv):
 		socks = {k: os.path.join(sock_dir, k) for k in port}
 		started = {}
 
-		def up(who, tag):
+		def up(who, tag, extra=()):
 			started[who] = daemon(run, tag, dirs[who], socks[who],
-			                      extra=["--udp-port=" + port[who]])
+			                      extra=["--udp-port=" + port[who]] + list(extra))
 			return started[who]
 
 		def turn(who, tag):
@@ -115,6 +123,15 @@ def main(argv):
 			                                                     s1 + ",@family,1"}:
 				raise failed("a: A's list share answered %r" % rows)
 			print("livecheck: a: A shared S0 not catching up and S1 catching up")
+			# AND A FILE GRANTED TO THE GROUP before C is in it, for phase c.
+			payload = os.path.join(scratch, "granted-before")
+			with open(payload, "wb") as f:
+				f.write(os.urandom(PLAYED_LEN))
+			put = ask(socks["a"], "put file " + payload)
+			if not put.startswith("ok "):
+				raise failed("a: put file answered %r" % put)
+			ref = put.split()[1]
+			expect(socks["a"], "a", "grant file %s @family" % ref[:64], "ok")
 
 			# b: C joins a second later; A writes into S0 after.
 			time.sleep(1.5)
@@ -137,6 +154,89 @@ def main(argv):
 				raise failed("b: C, a later member, holds what S0 held before it joined: %r"
 				             % top.strip())
 			print("livecheck: b: C, joining later, got S1 whole and S0 only from its joining")
+
+			# c: THE GRANT REACHES WHO IS A MEMBER WHEN ASKED, secs 626 and 630: C,
+			# added after it, fetches the file whole by its reference, and what
+			# it exports is the file. fuzzypickles' fzpd pinned a file to the
+			# epoch of its sharing, and refused this; a node's reach is the
+			# group's, as it is for lines and a share catching up.
+			expect(socks["c"], "c", "fetch file " + ref, "ok")
+			whole = False
+			tries = partial = 0
+			for rnd in range(ROUNDS):
+				turn("c", "c-c%d" % rnd)
+				until = time.monotonic() + 20.0
+				while time.monotonic() < until and not whole:
+					# PLAYED AS IT ARRIVES, sec 495: the opening range, read while
+					# the rest is on its way, is the file's own bytes.
+					part = os.path.join(scratch, "part-%d" % tries)
+					tries += 1
+					said = ask(socks["c"], "get file %s 0 4096 %s" % (ref, part)).strip()
+					if said == "ok partial":
+						with open(payload, "rb") as f, open(part, "rb") as g:
+							if f.read(4096) != g.read():
+								raise failed("c: the range read while arriving is not the file's")
+						partial += 1
+					if os.path.exists(part):
+						os.unlink(part)
+					whole = ask(socks["c"], "get file %s check" % ref[:64]).strip() == "ok intact"
+					time.sleep(0.2)
+				if whole:
+					break
+			if not whole:
+				raise failed("c: C, a later member, never held the file granted before it joined: "
+				             "%r" % ask(socks["c"], "get file " + ref[:64]))
+			out = os.path.join(scratch, "granted-out")
+			expect(socks["c"], "c", "get file %s %s" % (ref, out), "ok")
+			with open(payload, "rb") as f, open(out, "rb") as g:
+				if f.read() != g.read():
+					raise failed("c: what C exported is not the file")
+			if not partial:
+				raise failed("c: no read of the file saw it partial in %d tries: the range read "
+				             "was never tried on a file arriving" % tries)
+			print("livecheck: c: C, added after a file was granted to the group, fetched it "
+			      "whole, reading its opening %d time(s) as it arrived" % partial)
+
+			# d: A HOST THAT KEEPS NO MESSAGES OPENS NO GROUP LINE, sec 886. C
+			# under `policy messages drop`: A's line comes, and nothing in C's
+			# store holds its text. Started with no rule, C files it, so the
+			# line was there to be filed.
+			text = "a-line-to-a-host-that-keeps-none"
+			started.pop("c").stop()
+			up("c", "c-drop", ["--log-rule=policy messages drop"])
+			started["c"].wait_for(ROUND_DONE_RE, "C's round under drop", within=60.0)
+			expect(socks["a"], "a", "add message @family out %s %s" % ("d4" * 16, text), "ok")
+			for rnd in range(3):
+				turn("a", "a-d%d" % rnd)
+				started.pop("c").stop()
+				up("c", "c-drop%d" % rnd, ["--log-rule=policy messages drop"])
+				started["c"].wait_for(ROUND_DONE_RE, "C's round under drop", within=60.0)
+
+			def clear(store):
+				for at, _, files in os.walk(store):
+					for f in files:
+						try:
+							with open(os.path.join(at, f), "rb") as data:
+								if text.encode() in data.read():
+									return os.path.join(at, f)
+						except OSError:
+							pass
+				return None
+
+			if clear(dirs["c"]):
+				raise failed("d: C, keeping no messages, holds the line in %s" % clear(dirs["c"]))
+			filed = False
+			started.pop("c").stop()
+			up("c", "c-keep")
+			until = time.monotonic() + 90.0
+			while time.monotonic() < until and not filed:
+				filed = text in ask(socks["c"], "list message @family")
+				time.sleep(1.0)
+			if not filed:
+				raise failed("d: C, under no rule, never filed the line: phase d's silence proves "
+				             "nothing: %r" % ask(socks["c"], "list message @family")[:300])
+			print("livecheck: d: C under drop held A's group line sealed and opened none; with "
+			      "no rule it filed it")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

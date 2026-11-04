@@ -1649,9 +1649,15 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 	if (fzn_record_kind(rec) == FZN_MESSAGE_LINE_KIND
 	    && fzn_message_line_read(fzn_record_body(rec), fzn_record_body_len(rec), &p)
 	    && p.part + 1u == p.parts) {
+		/* A SIBLING'S LINE OF A CONVERSATION THIS HOST KEEPS NONE OF, sec
+		 * 886: passed by, as a delivery of it would be refused. This
+		 * device's own are its own. */
+		int passed = m->keeps && memcmp(device, m->issuer, FZN_PUBKEY_LEN) != 0
+		             && !m->keeps(m->keeps_ctx, contact);
+
 		/* A TRIMMED MONTH'S LINE is reported to nobody: its key is not to
-		 * be asked for, nor given. */
-		if (seen && !is_gone(m, contact, p.epoch)) {
+		 * be asked for, nor given; and nor is one passed by. */
+		if (seen && !passed && !is_gone(m, contact, p.epoch)) {
 			int held = key_of(m, contact, p.epoch, device, key);
 
 			memset(key, 0, sizeof(key));
@@ -1664,11 +1670,15 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 			size_t body_len[2] = { 0, 0 };
 			size_t held = parts_of(m, device, seq, rec, &p, body, body_len) ? p.parts : 0u;
 
-			if (!keep_line(m, contact, device, seq, fzn_record_issued_at(rec), &p, body,
-			               body_len, held)
-			    || (held && !item_keep(m, contact, p.epoch, device, seq, p.parts))
-			    || !set_cursor(m, device, seq))
+			if (passed) {
+				if (!set_cursor(m, device, seq))
+					return FZN_MESSAGES_ERR_BACKEND;
+			} else if (!keep_line(m, contact, device, seq, fzn_record_issued_at(rec), &p, body,
+			                      body_len, held)
+			           || (held && !item_keep(m, contact, p.epoch, device, seq, p.parts))
+			           || !set_cursor(m, device, seq)) {
 				return FZN_MESSAGES_ERR_BACKEND;
+			}
 		}
 	} else if (fresh && fzn_record_kind(rec) == FZN_MESSAGE_MARK_KIND
 	           && fzn_message_mark_read(fzn_record_body(rec), fzn_record_body_len(rec), &mark)) {
@@ -2688,6 +2698,14 @@ fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain
 		return FZN_MESSAGES_OK;
 	*wanted = 1;
 	drops = fzn_retain_policy_drops(rules, n_rules, FZN_RETAIN_MESSAGES);
+	/* A HOST THAT KEEPS NONE OF THIS CONVERSATION wants none of it, this
+	 * month's least of all, sec 886: a delivery is refused by the same
+	 * answer (sec 613), and a sibling's copy must not bring in what the
+	 * refusal kept out. */
+	if (drops && !fzn_messages_keeps(rules, n_rules, contact)) {
+		*wanted = 0;
+		return FZN_MESSAGES_OK;
+	}
 	/* THE CURRENT MONTH IS NEVER TRIMMED, so it is always wanted. */
 	if (epoch >= fzn_message_epoch_of(now_ms))
 		return FZN_MESSAGES_OK;

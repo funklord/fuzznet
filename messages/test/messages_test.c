@@ -1421,11 +1421,11 @@ static void test_a_month_wanted(void)
 	 : -1)
 	CHECK(WANTED(NULL, 0u, 677u) == 1, "with no rule, June is wanted");
 	r[0] = rule_of("policy messages drop");
-	CHECK(WANTED(r, 1u, 677u) == 0 && WANTED(r, 1u, 681u) == 1,
-	      "under drop alone June is not, and the current month is");
+	CHECK(WANTED(r, 1u, 677u) == 0 && WANTED(r, 1u, 681u) == 0,
+	      "under drop alone no month is, the current one included (sec 886)");
 	r[1] = rule_of("keep messages age 50d");
-	CHECK(WANTED(r, 2u, 677u) == 0 && WANTED(r, 2u, 679u) == 1,
-	      "under drop with a keep of 50 days, August is and June is not");
+	CHECK(WANTED(r, 2u, 677u) == 0 && WANTED(r, 2u, 679u) == 1 && WANTED(r, 2u, 681u) == 1,
+	      "under drop with a keep of 50 days, October and August are and June is not");
 	r[0] = rule_of("prune messages count 4");
 	CHECK(WANTED(r, 1u, 677u) == 0 && WANTED(r, 1u, 679u) == 1,
 	      "past the newest four lines held, June is not wanted; August, with two newer, is");
@@ -1433,6 +1433,31 @@ static void test_a_month_wanted(void)
 	CHECK(trim(&A, r, 1u) && trimmed.months == 1u && WANTED(NULL, 0u, 678u) == 0,
 	      "a month trimmed here is not wanted, whatever the rules");
 #undef WANTED
+}
+
+/* A SIBLING'S LINE OF A CONVERSATION KEPT BY NOBODY HERE, sec 886: read past,
+ * its text in no row, this device's own kept. */
+static int rows_hold(device_t *d, const char *text);
+
+static int keeps_nothing(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	(void)contact;
+	return 0;
+}
+
+static void test_a_host_that_keeps_none(void)
+{
+	setup();
+	A.m.keeps = keeps_nothing;
+	CHECK(write_in(&B, 681u, X, 1u, "b's line") && write_in(&A, 681u, X, 2u, "a's own"),
+	      "fixture: a line of B's, and one of A's own");
+	sync_a();
+	keys_b_to_a();
+	CHECK(readable(&A, X, 1u) == -1 && !rows_hold(&A, "b's line"),
+	      "a sibling's line was kept by a host that keeps none of the conversation");
+	CHECK(rows_hold(&A, "a's own"), "this host's own line was passed by");
+	A.m.keeps = NULL;
 }
 
 /* EVERY DEVICE'S KEY FOR THE MONTH goes, and a trimmed month's lines are not
@@ -2015,6 +2040,7 @@ int main(void)
 	test_each_all_and_a_default();
 	test_trimming_under_a_policy();
 	test_a_month_wanted();
+	test_a_host_that_keeps_none();
 	test_the_current_month_stays();
 	test_a_trim_reaches_every_device_key();
 	test_reindex_rebuilds_from_nothing();

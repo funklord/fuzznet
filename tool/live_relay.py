@@ -26,6 +26,8 @@ host behind a NAT would -- and says hello to B1 from its serving socket.
     f  B1 killed by SIGKILL as A's fifth line goes through it; started
        again, B2's next hello tells it where B2 is, and A's rounds relay the
        line, which B2 lists once (secs 757, 759)
+    g  the text of a line relayed through B1 is in nothing B1 wrote, store or
+       log, and is in B2's store, so the search finds what is there (sec 884)
 
 `--skew S` runs B1 S seconds ahead and B2 S behind, by faketime (sec 757).
 
@@ -66,6 +68,8 @@ RELAYED_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1 through 127\.0\.0\.1
 # before them (sec 637).
 ROUND_END_RE = ROUND_DONE_RE
 LINE = "61" * 16
+# ONE LINE'S TEXT, looked for by phase g in what the relay holds.
+RELAYED_TEXT = "the-quiet-words-a-relay-must-not-hold"
 LATER = "62" * 16
 FINAL = "63" * 16
 FOURTH = "64" * 16
@@ -215,7 +219,8 @@ def main(argv):
 
 			# b: the line, relayed through B1 to B2.
 			turn("b2", "b2-c")
-			expect(socks["a"], "a", "add message %s out %s relayed" % (keys["b1"], LINE), "ok")
+			expect(socks["a"], "a", "add message %s out %s %s" % (keys["b1"], LINE, RELAYED_TEXT),
+			       "ok")
 			try:
 				started["a"].wait_for(RELAYED_RE, "A's line relayed through B1")
 			except failed:
@@ -362,6 +367,35 @@ def main(argv):
 				             % (listed.count("," + FIFTH + ","), listed[:300]))
 			print("livecheck: f: B1 killed with A's fifth line on its way; started again, the "
 			      "line reached B2 once")
+
+			# g: THE RELAY READ NOTHING: every line went through B1, and nothing
+			# B1 wrote, store or log, holds the text. B2's store holds it, so
+			# the search finds what is there.
+			def holding(paths):
+				found = []
+				for top in paths:
+					for at, _, names in os.walk(top):
+						for name in names:
+							try:
+								with open(os.path.join(at, name), "rb") as f:
+									if RELAYED_TEXT.encode() in f.read():
+										found.append(os.path.join(at, name))
+							except OSError:
+								pass
+				return found
+
+			logs = [os.path.join(scratch, n) for n in os.listdir(scratch)
+			        if n.startswith("log-b1")]
+			if len(logs) < 2:
+				raise failed("g: B1's logs were not where they are looked for: %r" % logs)
+			leaked = holding([dirs["b1"]] + logs)
+			if leaked:
+				raise failed("g: the relay holds the text in %r" % leaked)
+			if not holding([dirs["b2"]]):
+				raise failed("g: B2's store does not hold the text either: the search proves "
+				             "nothing")
+			print("livecheck: g: every line went through B1, and nothing it wrote holds one; "
+			      "B2's store does")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

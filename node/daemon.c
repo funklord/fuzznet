@@ -3018,6 +3018,8 @@ static fzn_node_apply_outcome_t line_file(void *ctx, const uint8_t contact[FZN_P
 	}
 }
 
+static int keeps_here(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN]);
+
 /* A MONTH THIS NODE WOULD HOLD, by its rules, sec 566: one it would trim
  * is not fetched. A store that cannot answer fetches, as before rules were
  * asked: a month fetched and trimmed costs a fetch. */
@@ -3026,6 +3028,11 @@ static int line_wanted(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_
 	const struct line_rules *lr = (const struct line_rules *)ctx;
 	int wanted = 1;
 
+	/* A CONVERSATION THIS HOST KEEPS NONE OF, by the rules as they are now,
+	 * sec 886. `lr` is filled in a round, and a sibling's push is served
+	 * from the start: with nothing read yet, every restart let one in. */
+	if (!keeps_here(NULL, contact))
+		return 0;
 	return fzn_messages_wanted(&node_messages.m, lr->rules, lr->n, lr->now_ms, contact, epoch,
 	                           &wanted)
 	                       == FZN_MESSAGES_OK
@@ -11763,6 +11770,11 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 	size_t n = 0, i, len = 0, filed = 0;
 	uint32_t s;
 
+	/* A HOST THAT KEEPS NONE OF THIS CONVERSATION opens none of it, sec 886:
+	 * filed is in the clear. Its lines stay as they came, sealed, for the
+	 * members it serves, and unfiled, so a change of the rules files them. */
+	if (!keeps_here(NULL, g->id))
+		return 0;
 	if (fzn_group_lines_heads(&group_lines, g->id, heads, FZN_GROUP_HOSTS_MAX, &n)
 	    != FZN_GROUP_LINES_OK)
 		return 0;
@@ -18657,6 +18669,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				    == FZN_MESSAGES_OK) {
 					messages_on = 1;
 					node_messages.keeps = keeps_here;
+					node_messages.m.keeps = keeps_here;
 					node_messages.takes_over = takes_over_line;
 #if defined(FZN_SPOOL_FILE_ON)
 					node_messages.m.on_text = text_seen;

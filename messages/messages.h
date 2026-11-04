@@ -153,6 +153,11 @@ typedef struct fzn_messages {
 	                const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, const uint8_t *text,
 	                size_t len);
 	void *on_text_ctx;
+	/* WHETHER THIS HOST KEEPS `contact`'S LINES, sec 886: a sibling's line of
+	 * a conversation it does not is passed by as the journal is read. NULL
+	 * keeps every one. */
+	int (*keeps)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN]);
+	void *keeps_ctx;
 } fzn_messages_t;
 
 /* One line as a listing gives it. */

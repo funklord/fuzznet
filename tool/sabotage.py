@@ -3803,6 +3803,20 @@ SABOTAGES = [
 		"any=x gives every local user fuzznet's own verbs of the subject, with no judge behind them -- sec 883",
 	),
 	(
+		"drop-keeps-no-month-from-a-peer",
+		"messages/messages.c",
+		"\tif (drops && !fzn_messages_keeps(rules, n_rules, contact)) {",
+		"\tif (0 && drops && !fzn_messages_keeps(rules, n_rules, contact)) {",
+		"a host under `policy messages drop` takes this month's lines from a sibling, in the clear, after refusing them from the sender -- sec 886",
+	),
+	(
+		"drop-reads-no-sibling-line",
+		"messages/messages.c",
+		"\t\tint passed = m->keeps && memcmp(device, m->issuer, FZN_PUBKEY_LEN) != 0\n",
+		"\t\tint passed = 0 && m->keeps && memcmp(device, m->issuer, FZN_PUBKEY_LEN) != 0\n",
+		"a host keeping none of a conversation stores a sibling's line in the clear as it reads the journal -- sec 886",
+	),
+	(
 		"sealed-value-never-read-as-its-box",
 		"node/settings.c",
 		"\t\t\tif (!n)\n\t\t\t\treturn -1;",
@@ -10058,8 +10072,8 @@ SABOTAGES = [
 	(
 		"messages-trim-gone-not-lacked",
 		"messages/messages.c",
-		"\t\tif (seen && !is_gone(m, contact, p.epoch)) {",
-		"\t\tif (seen) {",
+		"\t\tif (seen && !passed && !is_gone(m, contact, p.epoch)) {",
+		"\t\tif (seen && !passed) {",
 		"a trimmed month's lines are reported lacking, so its key is asked for again -- sec 531",
 	),
 	(
@@ -10114,8 +10128,8 @@ SABOTAGES = [
 	(
 		"messages-row-written-at",
 		"messages/messages.c",
-		"\t\t\tif (!keep_line(m, contact, device, seq, fzn_record_issued_at(rec), &p, body,",
-		"\t\t\tif (!keep_line(m, contact, device, seq, 0u, &p, body,",
+		"\t\t\t} else if (!keep_line(m, contact, device, seq, fzn_record_issued_at(rec), &p, body,",
+		"\t\t\t} else if (!keep_line(m, contact, device, seq, 0u, &p, body,",
 		"an absorbed line loses when it was written, and everyone's page its order of time -- sec 536",
 	),
 	(
@@ -10916,7 +10930,7 @@ SABOTAGES = [
 	(
 		'messages-absorb-keeps-items',
 		'messages/messages.c',
-		'\t\t\t    || (held && !item_keep(m, contact, p.epoch, device, seq, p.parts))\n',
+		'\t\t\t           || (held && !item_keep(m, contact, p.epoch, device, seq, p.parts))\n',
 		'',
 		'a line absorbed from the journal is never handed on once the journal is cut -- sec 564',
 	),
