@@ -9,7 +9,8 @@
  *                     of what is written there, `T<ms>\n` is a time on the
  *                     monotonic clock to measure the read's lateness
  *                     against, `L` asks the next tick for an in-process
- *                     `status`, `E` for `event ext-poke -` to the node's
+ *                     `status`, `H` for the value in force of three keys
+ *                     (sec 882), `E` for `event ext-poke -` to the node's
  *                     subscribers (sec 843), and `S` stops the node (sec
  *                     835)
  *   --own-word=WORD   this program's own option, parsed here and NOT
@@ -76,7 +77,7 @@ static unsigned long pokes, ticks;
 static char poke_line[32];
 static size_t poke_line_len;
 static unsigned long late_ms;
-static int want_inproc, want_event;
+static int want_inproc, want_event, want_here;
 static char inproc[256] = "ok none\n";
 
 static unsigned long mono_ms(void)
@@ -98,6 +99,7 @@ static struct {
 static size_t n_marks, last_mark = (size_t)-1;
 
 static char echo_name[33] = "echo";
+static char setting_name[33] = "setting";
 
 static const char *option(void *ctx, const char *name, const char *value)
 {
@@ -119,6 +121,11 @@ static const char *option(void *ctx, const char *name, const char *value)
 			if (!((value[i] >= 'a' && value[i] <= 'z') || (value[i] >= '0' && value[i] <= '9')))
 				return "a procedure's name is 1 to 32 of a-z and 0-9";
 		memcpy(echo_name, value, n + 1u);
+	}
+	if (strcmp(name, "--setting-as") == 0) {
+		if (!value || !*value || strlen(value) >= sizeof(setting_name))
+			return "a procedure's name is 1 to 32 of a-z and 0-9";
+		memcpy(setting_name, value, strlen(value) + 1u);
 	}
 	if (strcmp(name, "--poke") == 0) {
 		if (!value || !*value || strlen(value) >= sizeof(poke_path))
@@ -168,6 +175,8 @@ static void own_ready(void *ctx, int fd)
 			poke_line[poke_line_len++] = c;
 		else if (c == 'L')
 			want_inproc = 1;
+		else if (c == 'H')
+			want_here = 1;
 		else if (c == 'E')
 			want_event = 1;
 		else if (c == 'S')
@@ -183,6 +192,23 @@ static void own_tick(void *ctx, uint64_t now)
 	if (want_event) {
 		want_event = 0;
 		(void)fzn_daemon_publish("ext-poke", NULL);
+	}
+	/* THE VALUE IN FORCE, read from the tick, sec 882: said, as `inproc` is. */
+	if (want_here) {
+		static const char *const KEYS[] = { "ext/plain", "ext/sealed", "ext/none" };
+		size_t i;
+
+		want_here = 0;
+		for (i = 0; i < 3u; i++) {
+			uint8_t value[256];
+			size_t len = 0;
+			int here = fzn_daemon_setting_here((const uint8_t *)KEYS[i], strlen(KEYS[i]), value,
+			                                   sizeof(value), &len);
+
+			fprintf(stderr, "ext_daemon: here %s %d %.*s\n", KEYS[i], here, (int)len,
+			        (const char *)value);
+		}
+		fflush(stderr);
 	}
 	if (want_inproc) {
 		size_t n = fzn_daemon_local("status", inproc, sizeof(inproc) - 1u);
@@ -328,7 +354,7 @@ static size_t setting(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
 static const fzn_daemon_procedure_t procedures[] = {
 	{ echo_name, echo },
 	{ "fill", fill },
-	{ "setting", setting },
+	{ setting_name, setting },
 };
 
 static size_t remote(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], int contact,
@@ -372,6 +398,7 @@ static const fzn_daemon_option_t options[] = {
 	{ "--quiet", 0, "taken, and nothing else" },
 	{ "--poke", 1, "a FIFO to watch among its own descriptors" },
 	{ "--echo-as", 1, "the name its echo procedure is called by" },
+	{ "--setting-as", 1, "the name its setting procedure is called by" },
 };
 
 /* ITS SETTINGS, sec 686: one of its own, and -- with FZN_EXT_CLASH set in

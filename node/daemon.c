@@ -8985,6 +8985,9 @@ void fzn_daemon_stop(void)
 	stop_due = 1;
 }
 
+static int follower_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, size_t cap,
+                                 size_t *len);
+
 int fzn_daemon_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, size_t cap,
                             size_t *len)
 {
@@ -8996,6 +8999,8 @@ int fzn_daemon_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, 
 
 	if (len)
 		*len = 0;
+	if (key && value && len && following_dir && fzn_setting_key_ok(key, key_len))
+		return follower_setting_here(key, key_len, value, cap, len);
 	if (!serving_state || following_dir || !node_settings.store || !node_settings.id || !key
 	    || !value || !len || !fzn_setting_key_ok(key, key_len))
 		return 0;
@@ -16503,6 +16508,66 @@ static size_t follower_ask(const char *line, size_t len, char *reply, size_t cap
 	return got + 1u;
 }
 
+/* A FORWARDED CALL BEING ANSWERED HERE, sec 882: its connection to the face,
+ * or -1. The face is waiting on it and serves nothing else meanwhile, so a
+ * procedure's read goes back along it rather than to the face's socket. */
+static int forward_fd = -1;
+
+/* THE VALUE IN FORCE, asked of the face, sec 882: the face's node reads its
+ * store and opens a value sealed to this host, so the prekey's secret stays
+ * in the one process that holds it. As `fzn_daemon_setting_here`; a face
+ * that does not answer is -1, for the caller's default must not stand in
+ * for a value nobody could read. */
+static int follower_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, size_t cap,
+                                 size_t *len)
+{
+	static const char ASK[] = "get setting here ";
+	char line[sizeof(ASK) + FZN_SETTING_KEY_MAX + 8u], reply[64u + 3u * FZN_SETTING_VALUE_MAX];
+	const uint8_t *at = (const uint8_t *)reply, *w;
+	uint8_t plain[FZN_SETTING_VALUE_MAX];
+	size_t got = 0, left, w_len, n = 0;
+	int here = -1;
+
+	if (forward_fd >= 0) {
+		size_t head = 5u;
+
+		memcpy(line, "here ", head);
+		memcpy(line + head, key, key_len);
+		line[head + key_len] = '\n';
+		if (follow_send(forward_fd, line, head + key_len + 1u) != (ssize_t)(head + key_len + 1u)
+		    || fzn_client_recv(forward_fd, (uint8_t *)reply, sizeof(reply) - 1u, &got, 2000u)
+		               != FZN_CLIENT_OK)
+			got = 0;
+	} else {
+		memcpy(line, ASK, sizeof(ASK) - 1u);
+		memcpy(line + sizeof(ASK) - 1u, key, key_len);
+		got = follower_ask(line, sizeof(ASK) - 1u + key_len, reply, sizeof(reply));
+		if (got && reply[got - 1u] == '\n')
+			got--;
+	}
+	left = got;
+	/* `ok absent`, `ok WHERE RANK VALUE`, or anything else: refused. */
+	if (next_word(&at, &left, &w, &w_len) && w_len == 2u && memcmp(w, "ok", 2u) == 0
+	    && next_word(&at, &left, &w, &w_len)) {
+		if (w_len == 6u && memcmp(w, "absent", 6u) == 0) {
+			here = 0;
+		} else if (next_word(&at, &left, &w, &w_len)
+		           && (!next_word(&at, &left, &w, &w_len)
+		               || fzn_unescape(w, w_len, plain, sizeof(plain), &n))) {
+			if (n <= cap) {
+				memcpy(value, plain, n);
+				*len = n;
+				here = 1;
+			} else {
+				here = 0;
+			}
+		}
+	}
+	fzn_wipe(reply, sizeof(reply));
+	fzn_wipe(plain, sizeof(plain));
+	return here;
+}
+
 /* ---- procedures a follower serves, sec 853 step 3 ----------------------
  *
  * A FOLLOWER WITH PROCEDURES OFFERS THEM to the face: it listens on a socket
@@ -16684,8 +16749,10 @@ static void offer_serve(void)
 		(void)close(fd);
 		return;
 	}
+	forward_fd = fd;
 	n = p->call(daemon_ext ? daemon_ext->ctx : NULL, from_len == 1u ? NULL : caller, local_caller ? &peer : NULL,
 	            args, args_len, answer, sizeof(answer));
+	forward_fd = -1;
 	if (!n || n > sizeof(answer)) {
 		say_to(fd, "failed\n");
 		(void)close(fd);
@@ -16702,6 +16769,30 @@ static void offer_serve(void)
 	(void)close(fd);
 }
 
+/* A READ A FORWARDED PROCEDURE ASKED, sec 882: the value in force, as `get
+ * setting here` answers it to any local client of this user, and nothing
+ * else -- so nothing a step holds moves under the forward. */
+static void forward_read(int fd, const char *key, size_t key_len)
+{
+	static const char ASK[] = "get setting here ";
+	char line[sizeof(ASK) + FZN_SETTING_KEY_MAX + 8u], reply[64u + 3u * FZN_SETTING_VALUE_MAX];
+	fzn_request_t request;
+	size_t n = 0;
+
+	if (key_len <= FZN_SETTING_KEY_MAX) {
+		memcpy(line, ASK, sizeof(ASK) - 1u);
+		memcpy(line + sizeof(ASK) - 1u, key, key_len);
+		if (fzn_vocabulary_split((const uint8_t *)line, sizeof(ASK) - 1u + key_len, &request))
+			n = fzn_node_settings_local(&node_settings, FZN_ORIGIN_SAME_USER, &request, reply,
+			                            sizeof(reply));
+	}
+	if (n && n <= sizeof(reply))
+		(void)follow_send(fd, reply, n);
+	else
+		say_to(fd, "error\n");
+	fzn_wipe(reply, sizeof(reply));
+}
+
 /* A CALL OF A NAME THIS PROCESS HAS NONE OF, forwarded to the follower
  * that offered it, sec 853 step 3: the answer's length, `*status` OK; or 0
  * with UNKNOWN where no follower offered it, FAILED where one did and
@@ -16713,6 +16804,7 @@ static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *
 	static char line[OFFER_LINE_MAX], got[8u + 3u * FZND_CALL_ANSWER_MAX];
 	char path[1200], sock[1100], nm[FZN_CALL_NAME_MAX + 1u], from[2u * FZN_PUBKEY_LEN + 1u];
 	size_t w = 0, at, got_len = 0, n = 0, i;
+	uint64_t began;
 	FILE *f;
 	int fd = -1;
 
@@ -16750,11 +16842,26 @@ static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *
 		    nm, sock);
 		return 0;
 	}
-	if (follow_send(fd, line, at + w + 1u) != (ssize_t)(at + w + 1u)
-	    || fzn_client_recv(fd, (uint8_t *)got, sizeof(got) - 1u, &got_len, 3000u)
-	               != FZN_CLIENT_OK) {
+	if (follow_send(fd, line, at + w + 1u) != (ssize_t)(at + w + 1u)) {
 		fzn_client_close(fd);
 		return 0;
+	}
+	/* THE PROCEDURE'S OWN READS, sec 882, answered until its answer comes,
+	 * all within the one 3 s: this loop is what it would otherwise wait on. */
+	began = mono_ms();
+	for (;;) {
+		uint64_t spent = mono_ms() - began;
+
+		if (spent >= 3000u
+		    || fzn_client_recv(fd, (uint8_t *)got, sizeof(got) - 1u, &got_len,
+		                       3000u - (unsigned)spent)
+		               != FZN_CLIENT_OK) {
+			fzn_client_close(fd);
+			return 0;
+		}
+		if (got_len <= 5u || memcmp(got, "here ", 5u) != 0)
+			break;
+		forward_read(fd, got + 5, got_len - 5u);
 	}
 	fzn_client_close(fd);
 	if (got_len == 7u && memcmp(got, "unknown", 7u) == 0) {

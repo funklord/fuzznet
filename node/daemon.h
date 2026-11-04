@@ -230,7 +230,9 @@ size_t fzn_daemon_publish(const char *subject, const char *name);
  * caller's default stands) or a value past `cap`, -1 for one sealed to a
  * key this host lacks. Only reads, so it is safe from `tick`, `ready` and a
  * procedure alike, where `fzn_daemon_local` is refused. 0 before the node
- * serves, and in a follower, which holds no settings of its own. */
+ * serves. A FOLLOWER ASKS ITS FACE (sec 882), whose node opens what is
+ * sealed, within 5 s and 2 s inside a procedure; -1 when the face does not
+ * answer, so a caller's default never stands in for a value not read. */
 int fzn_daemon_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, size_t cap,
                             size_t *len);
 

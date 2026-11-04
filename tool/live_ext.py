@@ -26,7 +26,9 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
     b4 started beside a face on the same store, it follows; its FIFO is
        still read and its tick still runs, a request it asks in-process is
        answered by the face, and asked to stop it returns 0 with its own
-       socket removed, the face serving on (sec 838)
+       socket removed, the face serving on (sec 838); and it reads the value
+       in force, a sealed one included, from its tick and from a procedure
+       the face forwards to it (sec 882)
     b5 started on the face's own socket path, as two daemons told no
        `--socket` both are, it follows with no socket of its own, still
        ticks, and stops leaving the face's socket and the face serving
@@ -569,7 +571,7 @@ def main(argv):
 				ferr = open(ferr_path, "w")
 				fargs = [a for a in base if not a.startswith("--socket=")]
 				follower = subprocess.Popen(fargs + ["--socket=" + fsock, "--poke=" + fifo,
-				                                     "--echo-as=fecho"],
+				                                     "--echo-as=fecho", "--setting-as=fsetting"],
 				                            stdout=ferr, stderr=subprocess.STDOUT,
 				                            start_new_session=True)
 				try:
@@ -603,6 +605,40 @@ def main(argv):
 					        if l.startswith("ext_daemon: inproc")][-1]
 					if not said.startswith("ext_daemon: inproc ok ") or "refused" in said:
 						raise failed("b4: the follower's request in-process was %r" % said)
+					# THE VALUE IN FORCE, READ BY A FOLLOWER, sec 882: from its tick
+					# through the face's socket, and from a procedure the face is
+					# waiting on, back along the forward. A sealed value is opened
+					# by the face, the follower holding no prekey.
+					for line in ("set setting host ext/plain hello%20there",
+					             "set setting host group/member fzone",
+					             "set sealed group=fzone ext/sealed hush"):
+						got = ask(sock, line)
+						if got not in ("ok", "ok 1 0"):
+							raise failed("b4: %s answered %r" % (line, got))
+					poke(b"H")
+					until = time.monotonic() + 10.0
+					while "ext_daemon: here ext/none" not in open(ferr_path).read():
+						if time.monotonic() > until:
+							raise failed("b4: the follower's tick read no setting")
+						time.sleep(0.2)
+					said = [l for l in open(ferr_path).read().splitlines()
+					        if l.startswith("ext_daemon: here")]
+					if said != ["ext_daemon: here ext/plain 1 hello there",
+					            "ext_daemon: here ext/sealed 1 hush",
+					            "ext_daemon: here ext/none 0 "]:
+						raise failed("b4: the follower's tick read %r" % said)
+					began = time.monotonic()
+					for line, want in (("call fsetting ext/plain", "ok in%20hello%20there"),
+					                   ("call fsetting ext/sealed", "ok in%20hush"),
+					                   ("call fsetting ext/none", "ok absent")):
+						got = ask(sock, line)
+						if got != want:
+							raise failed("b4: %s answered %r" % (line, got))
+					if time.monotonic() - began > 2.0:
+						raise failed("b4: three forwarded reads took %.1f s: one waited out a "
+						             "timeout" % (time.monotonic() - began))
+					print("livecheck: b4: a follower read the value in force from its tick and "
+					      "from a forwarded procedure, a sealed one opened by the face")
 					poke(b"S")
 					try:
 						code = follower.wait(timeout=10)

@@ -80197,3 +80197,40 @@ opened, 12944 refused. Each of three faults seeded in a copy of
 the signature's place (3322), and no length check at all, which it read
 as a revert outside the object. Sabotage: `stage-one-encoding`,
 `stage-confirm-carries-no-deadline`.
+
+## 882. A follower reads the value in force, 2026-11-05
+
+netcfgd, inbox 2026-11-04 22:29: its `@secret:estate:KEY` resolves through
+`fzn_daemon_setting_here`, which answered 0 in a follower, so with
+fuzznetd as the face every estate secret read as no value. The holder
+wants the two running side by side.
+
+**Decided: the follower asks the face, rather than reading the store.**
+- A value sealed to this host opens with the prekey's secret, which then
+  stays in the one process that holds it. Reading the store directly would
+  load it into a second one, and give the store a second reader of its
+  settings outside the claim (sec 827).
+- `fzn_daemon_local` was never refused in a follower, only in the face's
+  own process, since a follower's ask goes to another process. So from
+  `tick` and `ready` the read is `get setting here KEY` over the face's
+  socket, within 5 s.
+
+**A procedure is the case that needed care.** The face blocks in
+`call_forward` while a follower's procedure runs, and serves nothing else,
+so a procedure asking the socket would wait out the forward and fail.
+- The forward's own connection carries the read: the procedure writes
+  `here KEY`, the face answers it as `get setting here` does, and goes on
+  waiting for the answer, all within its one 3 s.
+- **Rejected: serving local clients during the forward**, as a wait in
+  turn can (sec 727). `call_local` is on the stack with static buffers,
+  and a second `call` would write over them. The forward answers this one
+  read and nothing else.
+
+**A face that does not answer is -1, not 0.** 0 lets a caller's default
+stand, and a default must not stand in for a secret nobody could read.
+
+**Measured, `live_ext` b4:** a follower reads a plain value, a sealed one
+and an unset key, from its tick and from a procedure the face forwards.
+Three forwarded reads take under 2 s, so none waited out a timeout. With
+the ask-back taken out, `call fsetting` is `error the follower serving
+fsetting failed`.
