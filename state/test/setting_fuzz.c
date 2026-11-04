@@ -3,7 +3,8 @@
  * estate's configuration, sec 540, as it reaches a host from another of
  * the estate's -- sec 689's journey 1. Both shapes: the plain one, and the
  * one stating its setter's rank (sec 728), which came after the harnesses
- * that open settings in passing.
+ * that open settings in passing. Each scope a setting serves, a group's
+ * (sec 868) among them.
  *
  * THE LIE IS SIGNED. A bent setting whose signature no longer holds is
  * refused at the last check, and a harness that only bent the bytes would
@@ -202,7 +203,8 @@ int main(int argc, char **argv)
 	for (c = 0; c < cases; c++) {
 		uint8_t setter[FZN_PUBKEY_LEN], about[FZN_SUBJECT_LEN], key[FZN_SETTING_KEY_MAX];
 		uint8_t value[FZN_SETTING_VALUE_MAX];
-		fzn_scope_t scope = (next() & 1u) ? FZN_SCOPE_ESTATE : FZN_SCOPE_HOST;
+		static const fzn_scope_t SCOPES[] = { FZN_SCOPE_HOST, FZN_SCOPE_GROUP, FZN_SCOPE_ESTATE };
+		fzn_scope_t scope = SCOPES[next() % 3u];
 		uint64_t version = next() >> (next() % 64u);
 		size_t key_len = 1u + (size_t)(next() % FZN_SETTING_KEY_MAX);
 		size_t value_len = (size_t)(next() % (FZN_SETTING_VALUE_MAX + 1u));

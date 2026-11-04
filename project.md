@@ -80171,3 +80171,29 @@ writes over every copy at the sealer's rank.
 **Measured, `live_estate` f:** R seals in c2, and A2 holds its own copy.
 R is removed and stopped for good. A2 names E in zone1, and E reads the
 value within the minute. With the hand-on taken out: the run fails at the check that A2 holds a copy, `ok absent`.
+
+## 881. A stage fuzzed, and a group's setting, 2026-11-04
+
+Sec 689's fuzzing bar, for what came after the harnesses. A stage (sec
+873) is an object any host's stream may bring, held by every other host,
+and it had a unit test and no harness. `setting_fuzz` never issued the
+group scope sec 868 added.
+
+**Built:** `stage_fuzz`, in `setting_fuzz`'s shape: the body bent, then
+signed by whatever key its setter field now names, each open at the edge
+of an unreadable page. It holds a round trip, one encoding, and a revert
+within the object. `setting_fuzz` now issues all three scopes.
+
+**Read while there, and sound:** a stage is held only from the stream of
+its own setter, its revert must be that setter's, and at the deadline
+the revert is taken only while the cell stands at the version just before
+it, by that setter. So a member cannot replay an old root's setting as a
+revert. `call NAME at estate` (sec 872) is judged on each host, as a call
+is, and the relay's trial (sec 871) decides nothing but whose frame it is.
+
+**Measured:** 20000 cases: 3143 bent stages and 3913 bent confirms
+opened, 12944 refused. Each of three faults seeded in a copy of
+`stage.c` failed it: a confirm with a deadline (618 failures), bytes past
+the signature's place (3322), and no length check at all, which it read
+as a revert outside the object. Sabotage: `stage-one-encoding`,
+`stage-confirm-carries-no-deadline`.

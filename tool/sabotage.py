@@ -3782,6 +3782,20 @@ SABOTAGES = [
 		"one setter's confirm lets another's stage of the same token go -- sec 873",
 	),
 	(
+		"stage-one-encoding",
+		"node/stage.c",
+		"\tif (len != FZN_STAGE_HEAD + rl + FZN_SIG_LEN || rl > FZN_STAGE_REVERT_MAX)",
+		"\tif (len < FZN_STAGE_HEAD + rl + FZN_SIG_LEN || rl > FZN_STAGE_REVERT_MAX)",
+		"a stage with bytes after its signature's place opens, so two byte strings are one stage -- sec 881",
+	),
+	(
+		"stage-confirm-carries-no-deadline",
+		"node/stage.c",
+		"(out->act == FZN_STAGE_ACT_CONFIRM && (rl || out->deadline_ms))",
+		"(out->act == FZN_STAGE_ACT_CONFIRM && rl)",
+		"a confirm with a deadline opens, which nothing could issue -- sec 881",
+	),
+	(
 		"sealed-value-never-read-as-its-box",
 		"node/settings.c",
 		"\t\t\tif (!n)\n\t\t\t\treturn -1;",

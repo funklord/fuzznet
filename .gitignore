@@ -194,6 +194,7 @@
 /state/test/scope_test
 /state/test/setting_test
 /state/test/setting_fuzz
+/node/test/stage_fuzz
 /notes/test/note_test
 /notes/test/note_fuzz
 /notes/test/notes_sync_fuzz

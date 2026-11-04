@@ -469,7 +469,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
-             node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c \
+             node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c node/test/stage_fuzz.c \
              node/test/serve_test.c node/test/replies_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              spool/test/message_fuzz.c \
@@ -695,6 +695,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/messages/test/attachment_fuzz \
              $(BUILD_DIR)/state/test/setting_fuzz \
+             $(BUILD_DIR)/node/test/stage_fuzz \
              $(BUILD_DIR)/sticker/test/sticker_fuzz \
              $(BUILD_DIR)/node/test/group_fuzz \
              $(BUILD_DIR)/notes/test/note_fuzz \
@@ -2281,6 +2282,12 @@ $(BUILD_DIR)/trust/test/trust_walk_test: $(BUILD_DIR)/trust/test/trust_walk_test
 # nothing: blob/ and tree/ give it constants only. sec 422.
 $(BUILD_DIR)/notes/test/note_test: $(BUILD_DIR)/notes/test/note_test.o \
                                    $(BUILD_DIR)/notes/note.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A stage and its confirm as a host's stream brings them, fuzzed, sec 881.
+$(BUILD_DIR)/node/test/stage_fuzz: $(BUILD_DIR)/node/test/stage_fuzz.o \
+                                   $(BUILD_DIR)/node/stage.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5269,6 +5276,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/messages/test/attachment_fuzz \
              $(BUILD_DIR)/state/test/setting_fuzz \
+             $(BUILD_DIR)/node/test/stage_fuzz \
              $(BUILD_DIR)/sticker/test/sticker_fuzz \
              $(BUILD_DIR)/node/test/group_fuzz \
              $(BUILD_DIR)/notes/test/note_fuzz \
