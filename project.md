@@ -80043,3 +80043,45 @@ it from inside a procedure.
 - On B, `wifi/psk` answers the sealed passphrase opened.
 - `wifi/bad`, a box B cannot open, answers `sealed`.
 - A key nobody set answers `absent`.
+
+## 878. Where this stands, folded 2026-11-04
+
+A session's fold, so the next one starts from the record rather than
+from memory. Everything below is committed and pushed, the tree is level
+with origin, and the inbox is empty.
+
+**Built across secs 852 to 877, in the order the holder set** (sec 851,
+and the holder's word of 2026-11-04 for 871 to 875):
+- Local permissions, 852.
+- `call` by name, here, across hosts and through a follower: 853, with
+  the bound on its answer in 863.
+- Lists and records under a prefix: 854, 855 and 861.
+- The consumer services as build flags, with unreachable code dropped at
+  link: 856 and 860.
+- Huge pages refused before main, 862.
+- Events since a cursor, 866.
+- Group-scoped settings and `get setting here`, 868.
+- The relay route, 871.
+- Command propagation, 872.
+- The staged commit, 873.
+- Sealed group values and later members: 874 and 875.
+- The in-process reader, 877.
+
+**Open, none asked for:**
+- **A staged clear** (`remove staged`). The machinery of sec 873 would
+  carry it.
+- **A sealed value reaching a later member once its sealer is gone.** A
+  member host cannot write others' cells, and an admin host does not know
+  the value's group without the sealer's copy. The fix would be to seal
+  that copy to every admin host too.
+- **A contact's key as a `message` event's NAME.** fuzzypickles says it
+  does not need this.
+
+**Notes for the next session:**
+- `fzn_node_settings_here` and `fzn_daemon_setting_here` answer -1 for a
+  value sealed to a key this host lacks. Test for `> 0`, not for nonzero.
+- An older build refuses a group cell (sec 868) or a stage object (sec
+  873) it is carried, and goes on with the rest of the stream.
+- `live_ext` now runs about seven minutes. Its Makefile bound is 560 s.
+
+**Waiting on the holder:** nothing.
