@@ -109,8 +109,10 @@ def main(argv):
 
 	run.fuzznetd = os.path.abspath(argv[1])
 	run.started = []
-	port_a = str(28000 + os.getpid() % 2000)
-	port_c = str(30000 + os.getpid() % 2000)
+	# PAST FUZZYPICKLES' FIXED PORTS, 29800 to 31000: its suite runs on this
+	# machine beside this one (sec 892).
+	port_a = str(47000 + os.getpid() % 2000)
+	port_c = str(49000 + os.getpid() % 2000)
 	with tempfile.TemporaryDirectory(prefix="fzn-live.") as scratch, \
 	     tempfile.TemporaryDirectory(prefix="fzs.", dir="/tmp") as sock_dir:
 		run.scratch = scratch

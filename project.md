@@ -80460,3 +80460,42 @@ absorb.
 **Measured, `live_groups` d1:** a running B files A's line and its subscriber
 hears `event message` and the group's id. With the publish taken out, it hears
 nothing past `ok events`.
+
+## 892. Where this stands, folded 2026-11-05
+
+Everything is committed and pushed, the tree is level with origin, and the
+inbox is empty. Since sec 878: secs 879 to 891.
+
+**Verified on the final code:** `make test`, `make style`, `make livecheck`
+(235 phase lines, no failure, the new scripts among them) and `make
+livecheck-faults`, which is where `live_estate` runs.
+
+**`make livecheck-san`, its first run as a target: 0 reports, 18 scripts
+passed, and `live_siblings` failed once**, at phase a: "after 6 rounds each, a
+pairing taken at B False, at C False". Unexplained. Repeated at once, it passed
+4 of 4 sanitized and 2 of 2 plain, which is what an intermittent fault does and
+clears nothing. Neither host paired in any of twelve daemons, so it is no late
+log line. **The candidate, not proved:** its ports were 28000 to 32000, across
+fuzzypickles' fixed 29800 to 31000, and a suite of theirs was running. The run's
+logs went with its scratch. Its ports are moved past theirs; if it fails again
+there, this was not the cause.
+
+**Leaks:** nothing reports through `live_ext`'s clean stops. A daemon stopped
+by SIGTERM dies without LeakSanitizer running, since nothing here handles that
+signal, so a live script over `fuzznetd` says nothing about leaks. Memory
+reachable from a static is not a leak to it either.
+
+**Two trailers are wrong and stand, the commits being pushed.** `4312c3a`'s
+names no commit (sec 890). `aaf69c2`'s reads `09b200d0aa52`, its first seven
+right, for `09b200d3379d`.
+
+**Open, none asked for:**
+- A staged clear (sec 873), for want of a consumer.
+- `sec 880`'s limits: a holder away at a reseal may hand on the old value, and
+  a sealed value is replaced, never withdrawn.
+
+**Waiting on others:** fuzzypickles' pin and its step 3, told of every fix; fzpd
+on `fzn_daemon_main` is its tree's work. netcfgd told of `any=x`, the follower's
+read, and sec 879.
+
+**Waiting on the holder:** nothing.
