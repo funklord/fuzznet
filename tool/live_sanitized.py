@@ -8,8 +8,9 @@ runs over a sanitized daemon.
 
 Reports go to files, one per process, so a daemon that died and a script that
 passed anyway are both seen: ANY report fails the run, whatever the script
-said. Leaks are not looked for: a daemon stopped by a signal leaves what it
-would have freed at exit, and they would bury the rest.
+said. That covers leaks: SIGTERM stops a serving daemon cleanly (sec 897), so
+LeakSanitizer runs at its exit. A daemon a script KILLs, as a crash test does,
+says nothing of them.
 
 A run with no script run has tested nothing, so a list that reaches none
 fails too.
@@ -29,8 +30,9 @@ import tempfile
 SCRIPTS = ("live_events", "live_stickers", "live_location", "live_socket", "live_face",
            "live_strangers", "live_rot", "live_moved", "live_names", "live_share_sibling", "live_groups",
            "live_group_backfill", "live_group_hosts", "live_contacts", "live_pairing",
-           "live_relay", "live_siblings", "live_shares", "live_catalog")
-SCRIPT_S = 1500
+           "live_relay", "live_siblings", "live_shares", "live_catalog", "live_join",
+           "live_invite")
+SCRIPT_S = 2400
 
 
 def main(argv):
@@ -43,7 +45,7 @@ def main(argv):
 	ran = 0
 	with tempfile.TemporaryDirectory(prefix="fzn-san.") as logs:
 		env = dict(os.environ)
-		env["ASAN_OPTIONS"] = "detect_leaks=0:log_path=" + os.path.join(logs, "asan")
+		env["ASAN_OPTIONS"] = "detect_leaks=1:log_path=" + os.path.join(logs, "asan")
 		env["UBSAN_OPTIONS"] = "print_stacktrace=1:log_path=" + os.path.join(logs, "ubsan")
 		for name in SCRIPTS:
 			path = os.path.join(here, name + ".py")

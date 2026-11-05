@@ -9077,6 +9077,27 @@ void fzn_daemon_stop(void)
 	stop_due = 1;
 }
 
+/* SIGTERM IS ASKED TO STOP, sec 897, while serving and where a program calling
+ * this has not said otherwise. A daemon that died by the signal ran no exit, so
+ * LeakSanitizer never spoke, and a run over one said nothing about leaks. */
+static void on_terminate(int sig)
+{
+	(void)sig;
+	stop_due = 1;
+}
+
+static void stop_on_terminate(void)
+{
+	struct sigaction was, now;
+
+	if (sigaction(SIGTERM, NULL, &was) != 0 || was.sa_handler != SIG_DFL)
+		return;
+	memset(&now, 0, sizeof(now));
+	now.sa_handler = on_terminate;
+	sigemptyset(&now.sa_mask);
+	(void)sigaction(SIGTERM, &now, NULL);
+}
+
 static int follower_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, size_t cap,
                                  size_t *len);
 
@@ -19484,6 +19505,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		}
 	}
 
+	stop_on_terminate();
 	if (npulls || notes_on || state.reassembly) {
 		uint64_t next_pull = 0, last_fresh_round = 0, round_now = 0, round_began_ms = 0;
 		/* THE ROUND'S PERIOD, FZND_PULL_EVERY, or sec 692's bench's in a test

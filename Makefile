@@ -6785,7 +6785,7 @@ else
 ifdef CATALOG_ON
 	@timeout 540 python3 tool/live_catalog.py $(FUZZNETD)
 endif
-	@timeout 340 python3 tool/live_join.py $(FUZZNETD)
+	@timeout 420 python3 tool/live_join.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_invite.py $(FUZZNETD)
 	@timeout 1100 python3 tool/live_group_hosts.py $(FUZZNETD)
 	@timeout 660 python3 tool/live_group_backfill.py $(FUZZNETD)

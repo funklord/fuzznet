@@ -154,6 +154,8 @@
 #include <fuzznet/node/records.h>
 #include <fuzznet/node/decisions.h>
 #include <fuzznet/node/invite.h>
+#include <fuzznet/node/stage.h>
+#include <fuzznet/node/permit.h>
 #include <fuzznet/node/responsible.h>
 #include <fuzznet/messages/messages.h>
 #include <fuzznet/node/messages.h>
@@ -370,6 +372,8 @@
 #include "node/records.h"
 #include "node/decisions.h"
 #include "node/invite.h"
+#include "node/stage.h"
+#include "node/permit.h"
 #include "node/responsible.h"
 #include "messages/messages.h"
 #include "node/messages.h"

@@ -194,7 +194,9 @@ def main(argv):
 			# d2: B NAMES ITSELF, sec 848: its own host/name, carried with its
 			# records, ends B's row at A, escaped.
 			expect(socks["b"], "b", "set setting host host/name my laptop", "ok")
-			until = time.monotonic() + 120.0
+			# TWO ROUNDS, measured at 120.1 s every time, so a bound of 120 failed
+			# one run in four or so (sec 897).
+			until = time.monotonic() + 200.0
 			while True:
 				listed = ask(socks["a"], "list sibling").split()
 				if any(e.startswith(key_b + ",") and e.endswith(",my%20laptop")
