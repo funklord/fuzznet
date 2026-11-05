@@ -20,6 +20,7 @@ made-up keys serve.
        the first host's record comes
     h  two jobs decide one subject apart from different grounds; each decides
        again from both, reaches one value, and the fork closes with no person
+    i  an estate setting a person writes is tracked the same way
 
 Against a daemon that settles a clash by key, as sec 888 did, the higher key
 goes by bob_2 and phase b never agrees; against one that leaves it for a later
@@ -228,6 +229,15 @@ def main(argv):
 				raise failed("h: A's heads are %r" % got)
 			print("livecheck: h: two deciders forked, and each deciding from both grounds "
 			      "settled it with no person")
+
+			# i: AN ESTATE SETTING WRITTEN TWO WAYS APART, by the verb a person uses.
+			retried("a", "set setting estate room/temp 19", "ok")
+			retried("b", "set setting estate room/temp 21", "ok")
+			forks_settle(["19", "21"], "i")
+			expect(socks["a"], "a", "set setting estate room/temp 20", "ok")
+			forks_settle([], "i")
+			print("livecheck: i: an estate setting written two ways apart was shown, and "
+			      "settled by writing it again")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

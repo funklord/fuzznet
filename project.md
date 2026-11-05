@@ -80532,6 +80532,8 @@ nothing said.
   membership and a stream's WHO did not.
 - **`add contact` says so at once:** `ok clash KEY ...`, up to four, and the
   add stands. A client reading the first word reads what it read before.
+- **The card form, `add contact NAME CARD`,** keeps its `ok ROOT`, which a client
+  reads, and does not warn.
 - **A clash made on two hosts apart has no rename to warn at.** It shows at the
   next use, by the refusal, and in `list contact`, where the name is listed
   twice.
@@ -80643,9 +80645,11 @@ The two travel apart (a setting in the estate stream, a record by reconcile). A
 base taken from the records alone reported a fork for every rename made soon
 after another host's. `live_names` g is that case.
 
-**Tracked so far: a contact's name.** `contact_named` writes both. The rest of
-the estate's cells are not, each costing a record a write and most having nothing
-to show: a cell earns it when a user would want both sides.
+**Tracked: every estate cell a person writes,** by `set setting`, `remove
+setting` and a contact's name. What this node's own code writes is not, being no
+decision of anybody's and written often, and neither is a host's own cell, which
+only it writes. A key past 56 bytes, or a value past a record's room, goes
+untracked and stands all the same.
 
 **The cost.** One record a tracked write. `list fork` walks every record, which
 is why the daemon looks only after a decision is filed or written, at a round's

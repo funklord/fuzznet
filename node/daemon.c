@@ -12724,14 +12724,40 @@ static void contact_name_key(const uint8_t *who, uint8_t key[CONTACT_NAME_KEY_LE
 	memcpy(key + 13u, hex, 32u);
 }
 
+/* AN ESTATE CELL WRITTEN, recorded as decided, sec 895: the setting now in force
+ * and what stood before it. A key past a decision's room, or a value past a
+ * record's, goes untracked, and the setting stands all the same. */
+static void setting_decided(void *ctx, const uint8_t *key, size_t key_len, const uint8_t *value,
+                            size_t value_len, uint64_t seen, const uint8_t *seen_by)
+{
+	fzn_node_decision_ref_t ref;
+	uint64_t version = 0;
+	uint8_t setter[FZN_PUBKEY_LEN];
+
+	(void)ctx;
+	forks_due = 1;
+	if (!node_records.b || key_len > FZN_NODE_DECIDED_SUBJECT_MAX
+	    || !fzn_node_settings_standing_of(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate,
+	                                      key, key_len, &version, setter))
+		return;
+	if (seen_by) {
+		ref.number = seen;
+		memcpy(ref.host, seen_by, FZN_PUBKEY_LEN);
+	}
+	if (fzn_node_decisions_write(&node_records, key, key_len, version, seen_by ? &ref : NULL, NULL,
+	                             0u, value, value_len)
+	    != FZN_NODE_RECORDS_OK)
+		say(FZN_ENTRY_DEBUG, "decisions", "%.*s written and not recorded as decided", (int)key_len,
+		    (const char *)key);
+}
+
 static void contact_named(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const char *name,
                           size_t name_len)
 {
 	uint8_t cell[CONTACT_NAME_KEY_LEN];
 	fzn_node_settings_err_t serr;
-	fzn_node_decision_ref_t seen;
-	uint64_t version = 0;
-	uint8_t setter[FZN_PUBKEY_LEN];
+	uint64_t seen = 0;
+	uint8_t seen_by[FZN_PUBKEY_LEN];
 	int had;
 
 	(void)ctx;
@@ -12740,25 +12766,18 @@ static void contact_named(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const ch
 	contact_name_key(key, cell);
 	/* WHAT THIS HOST SAW, sec 895, before its word replaces it. */
 	had = fzn_node_settings_standing_of(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate,
-	                                    cell, sizeof(cell), &seen.number, seen.host);
+	                                    cell, sizeof(cell), &seen, seen_by);
 	serr = fzn_node_settings_write(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, cell,
 	                               sizeof(cell), name != NULL, (const uint8_t *)name,
 	                               name ? name_len : 0u);
 	if (serr == FZN_NODE_SETTINGS_OK) {
 		journal_pushed = 1;
-		forks_due = 1;
-		if (node_records.b
-		    && fzn_node_settings_standing_of(&node_settings, FZN_SCOPE_ESTATE,
-		                                     node_settings.estate, cell, sizeof(cell), &version,
-		                                     setter)
-		    && fzn_node_decisions_write(&node_records, cell, sizeof(cell), version,
-		                                had ? &seen : NULL, NULL, 0u, (const uint8_t *)name,
-		                                name ? name_len : 0u)
-		               != FZN_NODE_RECORDS_OK)
-			say(FZN_ENTRY_WARNING, "decisions", "a contact's name was not recorded as decided");
-	} else
+		setting_decided(NULL, cell, sizeof(cell), (const uint8_t *)name, name ? name_len : 0u,
+		                had ? seen : 0u, had ? seen_by : NULL);
+	} else {
 		say(FZN_ENTRY_DEBUG, "contact/names", "a contact's name kept on this host alone: %s",
 		    fzn_node_settings_err_str(serr));
+	}
 }
 
 /* ROOM FOR EVERY CONTACT, sec 704: grown when a listing says there are
@@ -19093,6 +19112,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_records.id = &identity;
 				node_records.now_ms = wall_ms;
 				node_records.filed = record_filed;
+				node_settings.decided = setting_decided;
 				admin.records_local = records_and_decisions_local;
 				admin.records_ctx = &node_records;
 				admin.settings = &node_settings;

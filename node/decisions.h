@@ -4,7 +4,8 @@
  * A setting resolves to one value a cell (sec 728), so of two writes made
  * apart the later stands and the earlier is gone with nothing said. Two hosts
  * of an estate are usually one person, who made both on purpose and is owed
- * being told. So a change worth that is also written as a DECISION: the record
+ * being told. So a person's write to an estate cell, a contact's name among
+ * them, is also written as a DECISION: the record
  * (`node/records.h`) `decided/SUBJECT`, saying what was decided and what its
  * writer had seen when it did.
  *

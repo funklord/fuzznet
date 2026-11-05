@@ -1035,11 +1035,13 @@ static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t 
                           char *reply, size_t cap)
 {
 	static const char USAGE[] = "set setting SCOPE KEY VALUE, or remove setting SCOPE KEY";
-	uint8_t about[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX];
+	uint8_t about[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX], seen_by[FZN_PUBKEY_LEN];
 	const uint8_t *w, *key;
 	size_t w_len, key_len, value_len = 0;
 	fzn_scope_t scope;
 	fzn_node_settings_err_t err;
+	uint64_t seen = 0;
+	int had;
 
 	if (!word(&at, &left, &w, &w_len) || !scope_of(ns, w, w_len, &scope, about)
 	    || !word(&at, &left, &key, &key_len) || !fzn_setting_key_ok(key, key_len))
@@ -1071,9 +1073,16 @@ static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t 
 			return say(reply, cap, FZN_REPLY_MALFORMED, detail);
 		}
 	}
+	/* WHAT THIS HOST SAW, sec 895, before its word replaces it: a person's
+	 * write to what the estate shares is told, as it may have been made apart. */
+	had = scope == FZN_SCOPE_ESTATE && ns->decided
+	      && fzn_node_settings_standing_of(ns, scope, about, key, key_len, &seen, seen_by);
 	err = fzn_node_settings_write(ns, scope, about, key, key_len, set, value, value_len);
 	if (err != FZN_NODE_SETTINGS_OK)
 		return refuse(reply, cap, err);
+	if (scope == FZN_SCOPE_ESTATE && ns->decided)
+		ns->decided(ns->decided_ctx, key, key_len, set ? value : NULL, set ? value_len : 0u,
+		            had ? seen : 0u, had ? seen_by : NULL);
 	return say(reply, cap, FZN_REPLY_OK, NULL);
 }
 

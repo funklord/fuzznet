@@ -96,6 +96,13 @@ typedef struct fzn_node_settings {
 	 * value unopened. */
 	size_t (*unseal)(void *ctx, const uint8_t *value, size_t len, uint8_t *out, size_t cap);
 	void *unseal_ctx;
+	/* A PERSON WROTE AN ESTATE CELL by `set setting` or `remove setting`, sec
+	 * 895: `value` NULL for a clear, `seen` and `seen_by` the setting in force
+	 * before it, 0 and NULL for none. What this node's own code writes is not
+	 * told. May be NULL. */
+	void (*decided)(void *ctx, const uint8_t *key, size_t key_len, const uint8_t *value,
+	                size_t value_len, uint64_t seen, const uint8_t *seen_by);
+	void *decided_ctx;
 } fzn_node_settings_t;
 
 /* A SEALED VALUE's opening, sec 874: `box:` and the box in lower-case hex. */
