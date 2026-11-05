@@ -68,10 +68,12 @@
  *   FZN_PRODUCT_TEST          this tree's tests and scenarios, and its
  *                             consumers': never a build that ships, so a
  *                             test node and a person's never share one.
- *   FZN_PRODUCT_FUZZYPICKLES  fuzzypickles. */
+ *   FZN_PRODUCT_FUZZYPICKLES  fuzzypickles.
+ *   FZN_PRODUCT_NETCFGD       netcfgd, and the fuzznetd a phone pairs with it. */
 #define FZN_SERVICE_NODE 1u
 #define FZN_PRODUCT_TEST 1u
 #define FZN_PRODUCT_FUZZYPICKLES 2u
+#define FZN_PRODUCT_NETCFGD 3u
 
 /* The longest consumer-supplied name. Bounded so the derivation's input
  * buffer is a fixed size and the function allocates nothing, which is this

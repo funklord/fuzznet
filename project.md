@@ -77138,9 +77138,11 @@ than restate:
   consumers'. It is never shipped, so a test node and a person's never
   share a product. The scenarios' 1 and 1 already mean this.
 - **`FZN_PRODUCT_FUZZYPICKLES` 2.**
+- **`FZN_PRODUCT_NETCFGD` 3,** asked for 2026-11-05: a phone's fuzznetd and
+  the host's netcfgd must share a pair that ships.
 
-A number is assigned when a consumer needs one, as sec 127 said. netcfgd
-has none until it asks. fuzznetd still requires both options: a default
+A number is assigned when a consumer needs one, as sec 127 said. fuzznetd
+still requires both options: a default
 would choose a product for a program that is not this one.
 
 **The default store:** a run that keeps a store, serving or a store
