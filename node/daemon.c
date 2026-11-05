@@ -5116,6 +5116,16 @@ static int groups_held(fzn_group_held_t *room, uint8_t (**ids)[FZN_GROUP_ID_LEN]
  * conversation here -- a rule trimmed it -- so a line a rule pruned is not
  * kept, nor served to a member, sealed. A month no rule trimmed keeps
  * every line, nothing being trimmed by default (sec 531). */
+static int host_flag(const char *key);
+
+/* WHETHER THIS HOST CARRIES A GROUP'S SEALED LINES, sec 894: it keeps the
+ * conversation, or it relays. A host that does neither takes none, and serves
+ * only what it wrote: `drop` is "store nothing", sealed or not. */
+static int group_carried_here(const uint8_t id[FZN_GROUP_ID_LEN])
+{
+	return keeps_here(NULL, id) || host_flag("relay/enabled") == 1;
+}
+
 static size_t group_lines_trim_gone(void)
 {
 	static fzn_group_held_t ids_room;
@@ -5124,7 +5134,8 @@ static size_t group_lines_trim_gone(void)
 	static uint8_t bytes[FZN_GROUP_LINE_MAX];
 	static fzn_group_line_t peeked;
 	size_t n = 0, i, k, nh, len, removed, total = 0;
-	uint32_t s, upto;
+	uint32_t s, upto, month, this_month = fzn_message_epoch_of(wall_ms());
+	int kept, relays = host_flag("relay/enabled") == 1;
 
 	if (!group_lines.store || !node_messages.m.store
 	    || !groups_held(&ids_room, &ids, &n))
@@ -5134,16 +5145,26 @@ static size_t group_lines_trim_gone(void)
 		if (fzn_group_lines_heads(&group_lines, ids[i], heads, FZN_GROUP_HOSTS_MAX, &nh)
 		    != FZN_GROUP_LINES_OK)
 			continue;
+		kept = keeps_here(NULL, ids[i]);
 		for (k = 0; k < nh; k++) {
+			int own_host = contact_id
+			               && memcmp(heads[k].host, contact_id->pubkey, FZN_PUBKEY_LEN) == 0;
+
 			upto = heads[k].base;
 			for (s = heads[k].base + 1u; s <= heads[k].have; s++) {
 				len = 0;
 				if (fzn_group_lines_get(&group_lines, ids[i], heads[k].host, s, bytes,
 				                        sizeof(bytes), &len)
 				            != FZN_GROUP_LINES_OK
-				    || fzn_group_line_peek(bytes, len, &peeked) != FZN_GROUP_LINE_OK
-				    || !fzn_messages_month_gone(&node_messages.m, ids[i],
-				                                fzn_message_epoch_of(peeked.stime)))
+				    || fzn_group_line_peek(bytes, len, &peeked) != FZN_GROUP_LINE_OK)
+					break;
+				month = fzn_message_epoch_of(peeked.stime);
+				/* NOT KEPT HERE, sec 894: a conversation with no filed month has
+				 * none to go, so nothing below ever let its lines go. A relay
+				 * carries the current month, and a host that is neither carries
+				 * none. This host's own are its own, others reading them here. */
+				if (!fzn_messages_month_gone(&node_messages.m, ids[i], month)
+				    && (kept || own_host || (relays && month >= this_month)))
 					break;
 				upto = s;
 			}
@@ -12117,6 +12138,8 @@ static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t
 		    || !fzn_group_is_member(&g, own.owner))
 			continue;
 		lines_sealed += group_seal_own(&g, &own);
+		if (!group_carried_here(g.id))
+			continue;
 		gi = n_lines_groups;
 		memcpy(lines_groups[n_lines_groups++], g.id, FZN_GROUP_ID_LEN);
 		for (j = 0; j < npulls; j++)

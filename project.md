@@ -80344,10 +80344,11 @@ relay on a machine its owner trusts less was holding them readable.
   with no question asked.
 
 **Fixed.** A host keeping none of a conversation wants none of its months,
-and files no group line of it. A group's lines stay as they came, sealed,
+and files no group line of it. ~~A group's lines stay as they came, sealed,
 for the members this host serves, and unfiled, so a change of the rules
-files them. A keep rule reaching the conversation keeps the current month
-wanted, as before.
+files them.~~ Sec 894: they were kept for good, and a host that neither keeps
+nor relays now takes none. A keep rule reaching the conversation keeps the
+current month wanted, as before.
 
 **Unchanged:** the trim still lets go by the month, so lines held before
 the policy was set stay until theirs passes. This host's own lines are its
@@ -80548,3 +80549,38 @@ A rename on A reaches the same person on B, and `bob` then answers. `contact_tes
 **For a client:** fuzzypickles' `contacts-same-name` pins sec 888's names and is
 told. A verb that used to be sure of a name can now answer that error, which a
 script must read as "ask the user", not as a fault.
+
+## 894. A host that keeps nothing and relays nothing carries no group's lines, 2026-11-05
+
+The holder's, on sec 880's copies: an admin host with no relay and no retention
+should not be storing a bunch of traffic. A sealed value is no traffic, one
+small cell a key and in every node's settings. But sec 886 had left a group's
+lines "sealed, for the members this host serves", and a reading of it said they
+went when their month was trimmed. Measured, they did not go at all.
+
+**Measured, `live_group_backfill` d, before:** C under `policy messages drop`
+took 31 sealed lines of 31 from A, its store growing 18045 bytes, about 580 a
+line for 400 of text. And `group_lines_trim_gone` walks while a line's month is
+gone from the conversation, which on a host filing none it never is, so the one
+promise of "for now" was false: they stayed for good.
+
+**Decided:** a host carries a group's sealed lines when it keeps the
+conversation, or when `relay/enabled` is on (`group_carried_here`).
+- **Neither:** it takes none, and lets go what it held of others'. `drop` is
+  "store nothing" (sec 566), sealed or not.
+- **A relay under `drop`:** it carries the current month and lets a past one go.
+- **Its own lines stay,** whatever the rule: it wrote them, and others read
+  them here.
+- **What it costs:** a line that reached a member only through such a host
+  now waits for its writer or another member. That is what the user who said
+  `drop` on a host without `relay/enabled` asked for.
+- A change of the rules still files what follows, and what any member still
+  holds, as `have` starts where it was.
+
+**A trim goes from the oldest,** stopping at the first line it may not let go,
+as it always has. A line written late under an old date sits behind newer ones
+until they go.
+
+**Measured, after:** 0 of 32 taken, the store growing 519 bytes. With
+`relay/enabled`, 33 taken and the past month's line let go at the next pass. With
+no rule, C files the line it never carried.

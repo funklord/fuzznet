@@ -15,8 +15,10 @@ them. A makes the group family alone.
     c  a file granted to the group before C joined: C fetches it whole by
        its reference, and exports the same bytes; and while it arrives C reads
        its opening range, which is the file's (secs 495, 884)
-    d  C under `policy messages drop`: A's line to the group is in nothing C
-       wrote in the clear, and C started with no rule files it (sec 886)
+    d  C under `policy messages drop`, keeping nothing and relaying nothing,
+       takes none of A's lines, sealed or not (sec 894); relaying it carries
+       them and lets a past month go; and started with no rule it files them
+       (sec 886)
 
 Against a daemon that reads a group share's reach at the request alone, as
 sec 471 did, phase b finds S0 and its first note at C.
@@ -29,6 +31,7 @@ Exit 0 on a pass, 1 on a failure.
 """
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -44,6 +47,9 @@ import live_trim  # noqa: E402
 live_trim.DEADLINE = time.monotonic() + 600.0
 
 ROUNDS = 6
+DROP_LINES = 30
+LINES_TAKEN_RE = re.compile(r"lines pass: \d+ sealed, (\d+) taken")
+SEALED_GONE_RE = re.compile(r"(\d+) sealed group line\(s\) trimmed")
 # PAST ONE ROUND'S LEAVES, 4096 of 1024 bytes, so it is seen arriving.
 PLAYED_LEN = 6 * 1024 * 1024
 
@@ -205,12 +211,55 @@ def main(argv):
 			started.pop("c").stop()
 			up("c", "c-drop", ["--log-rule=policy messages drop"])
 			started["c"].wait_for(ROUND_DONE_RE, "C's round under drop", within=60.0)
+			# FIRST, as a line of a past month is: a trim goes from the oldest.
+			expect(socks["a"], "a", "add message @family out %s at %d old-month-line"
+			       % ("d6" * 16, int((time.time() - 45 * 86400) * 1000)), "ok")
 			expect(socks["a"], "a", "add message @family out %s %s" % ("d4" * 16, text), "ok")
+			for i in range(DROP_LINES):
+				expect(socks["a"], "a", "add message @family out %032x %s" % (0xd5 << 120 | i,
+				       "traffic-" + "x" * 400), "ok")
+
+			def stored(store):
+				return sum(os.path.getsize(os.path.join(at, f))
+				           for at, _, files in os.walk(store) for f in files)
+
+			before = stored(dirs["c"])
+			taken = 0
 			for rnd in range(3):
 				turn("a", "a-d%d" % rnd)
+				taken += sum(int(n) for n in LINES_TAKEN_RE.findall(started["c"].log()))
 				started.pop("c").stop()
 				up("c", "c-drop%d" % rnd, ["--log-rule=policy messages drop"])
 				started["c"].wait_for(ROUND_DONE_RE, "C's round under drop", within=60.0)
+			taken += sum(int(n) for n in LINES_TAKEN_RE.findall(started["c"].log()))
+			print("livecheck: d: C under drop took %d sealed line(s) of %d; its store went from %d "
+			      "to %d bytes" % (taken, DROP_LINES + 2, before, stored(dirs["c"])))
+			if taken:
+				raise failed("d: C, with no retention and no relay, carries %d sealed line(s)" % taken)
+
+			# d2: A RELAY CARRIES THE MONTH AND NO MORE, sec 894: under drop C
+			# takes lines again once it relays, and lets go a month gone by.
+			expect(socks["c"], "c", "set setting host relay/enabled 1", "ok")
+			expect(socks["a"], "a", "add message @family out %s this-month-line" % ("d7" * 16), "ok")
+			turn("a", "a-d2")
+			started.pop("c").stop()
+			up("c", "c-relay", ["--log-rule=policy messages drop"])
+			started["c"].wait_for(ROUND_DONE_RE, "C's round relaying", within=60.0)
+			turn("a", "a-d3")
+			until = time.monotonic() + 120.0
+			relayed = []
+			while time.monotonic() < until and not sum(int(n) for n in relayed):
+				relayed = LINES_TAKEN_RE.findall(started["c"].log())
+				time.sleep(1.0)
+			if not sum(int(n) for n in relayed):
+				raise failed("d: C, relaying, took no line")
+			# THE TRIM RUNS AT A START AND HOURLY.
+			started.pop("c").stop()
+			up("c", "c-relay2", ["--log-rule=policy messages drop"])
+			went = started["c"].wait_for(SEALED_GONE_RE, "the past month's line let go", within=60.0)
+			print("livecheck: d: C, relaying, took %d line(s) and let %s of a past month go"
+			      % (sum(int(n) for n in relayed), went.group(1)))
+			expect(socks["c"], "c", "set setting host relay/enabled 0", "ok")
 
 			def clear(store):
 				for at, _, files in os.walk(store):
@@ -230,7 +279,14 @@ def main(argv):
 			up("c", "c-keep")
 			until = time.monotonic() + 90.0
 			while time.monotonic() < until and not filed:
-				filed = text in ask(socks["c"], "list message @family")
+				at, more = 0, 1
+				while more and not filed:
+					page = ask(socks["c"], "list message @family %d" % at)
+					words = page.split()
+					if len(words) < 4 or words[0] != "ok":
+						break
+					filed = text in page
+					at, more = at + int(words[2]), int(words[3])
 				time.sleep(1.0)
 			if not filed:
 				raise failed("d: C, under no rule, never filed the line: phase d's silence proves "
