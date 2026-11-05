@@ -21,8 +21,8 @@ const char *fzn_contact_err_str(fzn_contact_err_t err)
 	case FZN_CONTACT_ERR_NAME:
 		return "not a contact name: 1 to 32 of A-Z, a-z, 0-9 and _";
 	case FZN_CONTACT_ERR_TAKEN:
-		/* THE TABLE HOLDS GROUPS AS WELL, sec 865: a group's name clashing
-		 * was answered as a contact's, which sent a person to the wrong list. */
+		/* ONLY A GROUP'S NOW, sec 893; said for either since sec 865, when a
+		 * group's name clashing was answered as a contact's alone. */
 		return "a contact or a group already has that name";
 	case FZN_CONTACT_ERR_ABSENT:
 		return "no such contact";
@@ -34,6 +34,8 @@ const char *fzn_contact_err_str(fzn_contact_err_t err)
 		return "a contact entry will not read";
 	case FZN_CONTACT_ERR_ROOM:
 		return "more contacts held than the caller had room for";
+	case FZN_CONTACT_ERR_AMBIGUOUS:
+		return "two contacts have that name: give the key";
 	}
 	return "unknown";
 }
@@ -180,22 +182,72 @@ fzn_contact_err_t fzn_contact_list(const fzn_persist_ops_t *store, fzn_contact_t
 	return FZN_CONTACT_OK;
 }
 
-/* THE ONE NAMED, found as the walk passes it. */
+/* THOSE NAMED, counted as the walk passes them. */
 struct contacts_named {
 	const char *name;
 	size_t len;
-	fzn_contact_t *out;
-	int found;
+	const uint8_t *except;
+	uint8_t (*keys)[FZN_PUBKEY_LEN];
+	size_t cap, n;
 };
 
 static int contact_named(void *ctx, const fzn_contact_t *c)
 {
 	struct contacts_named *f = ctx;
 
-	if (c->name_len == f->len && memcmp(c->name, f->name, f->len) == 0) {
-		*f->out = *c;
-		f->found = 1;
+	if (c->name_len == f->len && memcmp(c->name, f->name, f->len) == 0
+	    && !(f->except && memcmp(c->key, f->except, FZN_PUBKEY_LEN) == 0)) {
+		if (f->n < f->cap)
+			memcpy(f->keys[f->n], c->key, FZN_PUBKEY_LEN);
+		f->n++;
+	}
+	return 1;
+}
+
+fzn_contact_err_t fzn_contact_named(const fzn_persist_ops_t *store, const char *name,
+                                    size_t name_len, const uint8_t *except,
+                                    uint8_t (*keys)[FZN_PUBKEY_LEN], size_t cap, size_t *count)
+{
+	struct contacts_named f;
+	fzn_contact_err_t err;
+
+	if (!store || !name || !count || (cap && !keys))
+		return FZN_CONTACT_ERR_MALFORMED;
+	if (!fzn_contact_name_ok(name, name_len))
+		return FZN_CONTACT_ERR_NAME;
+	f.name = name;
+	f.len = name_len;
+	f.except = except;
+	f.keys = keys;
+	f.cap = cap;
+	f.n = 0;
+	err = fzn_contact_each(store, contact_named, &f);
+	if (err != FZN_CONTACT_OK)
+		return err;
+	*count = f.n;
+	return FZN_CONTACT_OK;
+}
+
+static int hex_digit(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	return c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+}
+
+/* `name` AS A KEY: 1 when it is 64 hex digits. */
+static int key_of(const char *name, size_t len, uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	if (len != FZN_PUBKEY_LEN * 2u)
 		return 0;
+	for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+		int hi = hex_digit(name[2u * i]), lo = hex_digit(name[2u * i + 1u]);
+
+		if (hi < 0 || lo < 0)
+			return 0;
+		key[i] = (uint8_t)(hi * 16 + lo);
 	}
 	return 1;
 }
@@ -203,30 +255,27 @@ static int contact_named(void *ctx, const fzn_contact_t *c)
 fzn_contact_err_t fzn_contact_find(const fzn_persist_ops_t *store, const char *name,
                                    size_t name_len, fzn_contact_t *out)
 {
-	struct contacts_named f;
+	uint8_t keys[2][FZN_PUBKEY_LEN], key[FZN_PUBKEY_LEN];
+	size_t n = 0;
 	fzn_contact_err_t err;
 
 	if (!store || !name || !out)
 		return FZN_CONTACT_ERR_MALFORMED;
-	if (!fzn_contact_name_ok(name, name_len))
-		return FZN_CONTACT_ERR_NAME;
-	f.name = name;
-	f.len = name_len;
-	f.out = out;
-	f.found = 0;
-	err = fzn_contact_each(store, contact_named, &f);
+	if (key_of(name, name_len, key))
+		return fzn_contact_get(store, key, out);
+	err = fzn_contact_named(store, name, name_len, NULL, keys, 2u, &n);
 	if (err != FZN_CONTACT_OK)
 		return err;
-	return f.found ? FZN_CONTACT_OK : FZN_CONTACT_ERR_ABSENT;
+	if (n > 1u)
+		return FZN_CONTACT_ERR_AMBIGUOUS;
+	return n ? fzn_contact_get(store, keys[0], out) : FZN_CONTACT_ERR_ABSENT;
 }
 
 /* WHAT AN ADD MUST KNOW of the contacts held: whether this key is one, and
- * when it was added; whether another key has the name. */
+ * when it was added. */
 struct contacts_adding {
 	const uint8_t *key;
-	const char *name;
-	size_t len;
-	int held, taken;
+	int held;
 	uint64_t added;
 };
 
@@ -237,12 +286,6 @@ static int contact_adding(void *ctx, const fzn_contact_t *c)
 	if (memcmp(c->key, a->key, FZN_PUBKEY_LEN) == 0) {
 		a->held = 1;
 		a->added = c->added_at_ms;
-		return 1;
-	}
-	/* ONE NAME, ONE KEY: a name is how a person picks a contact, and two
-	 * keys under one name is a choice made for them. */
-	if (c->name_len == a->len && memcmp(c->name, a->name, a->len) == 0) {
-		a->taken = 1;
 		return 0;
 	}
 	return 1;
@@ -262,15 +305,11 @@ fzn_contact_err_t fzn_contact_add(const fzn_persist_ops_t *store,
 	if (!fzn_contact_name_ok(name, name_len))
 		return FZN_CONTACT_ERR_NAME;
 	a.key = key;
-	a.name = name;
-	a.len = name_len;
-	a.held = a.taken = 0;
+	a.held = 0;
 	a.added = now_ms;
 	err = fzn_contact_each(store, contact_adding, &a);
 	if (err != FZN_CONTACT_OK)
 		return err;
-	if (a.taken)
-		return FZN_CONTACT_ERR_TAKEN;
 	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN(name_len), FZN_PERSIST_BLOB_CONTACT)
 	    != FZN_PERSIST_OK)
 		return FZN_CONTACT_ERR_MALFORMED;

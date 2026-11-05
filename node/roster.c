@@ -438,7 +438,7 @@ fzn_node_roster_err_t fzn_node_roster_name_arrivals(const fzn_node_roster_t *nr,
 		fzn_contact_t c;
 		fzn_contact_err_t cerr;
 		char name[FZN_CONTACT_NAME_MAX + 1u];
-		size_t digits, d;
+		size_t digits, d, others = 0;
 
 		if (fzn_node_roster_standing(nr, subject, revocations, k) != FZN_ROSTER_ACTIVE
 		    || (member && member(member_ctx, subject)))
@@ -456,10 +456,12 @@ fzn_node_roster_err_t fzn_node_roster_name_arrivals(const fzn_node_roster_t *nr,
 			for (d = 0; d < digits; d++)
 				name[2u + d] = HEX[(subject[d / 2u] >> ((d % 2u) ? 0 : 4)) & 15u];
 			name[2u + digits] = '\0';
-			cerr = fzn_contact_add(store, subject, name, 2u + digits, now_ms);
-			if (cerr != FZN_CONTACT_ERR_TAKEN)
+			cerr = fzn_contact_named(store, name, 2u + digits, NULL, NULL, 0u, &others);
+			if (cerr != FZN_CONTACT_OK || !others)
 				break;
 		}
+		if (cerr == FZN_CONTACT_OK)
+			cerr = fzn_contact_add(store, subject, name, 2u + digits, now_ms);
 		if (cerr != FZN_CONTACT_OK)
 			return FZN_NODE_ROSTER_STORE;
 		(*named)++;

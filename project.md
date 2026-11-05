@@ -80383,6 +80383,11 @@ is what found them.
 
 ## 888. One name for two people means one person on every host, 2026-11-05
 
+**~~Reversed by the holder, 2026-11-05: sec 893.~~ Two people may share a name
+now, and the name is refused where it is used.** What follows was built and
+stood for a day. It renamed a person behind its user, so `bob` could come to
+mean somebody else on a host, and a grant typed to it then went there.
+
 Sec 699 left a name another key holds here "for a later round". fuzzypickles'
 `contacts-same-name` is what that costs: two hosts apart each call a
 different person bob, the settings are per key so both stand, each host keeps
@@ -80499,3 +80504,47 @@ on `fzn_daemon_main` is its tree's work. netcfgd told of `any=x`, the follower's
 read, and sec 879.
 
 **Waiting on the holder:** nothing.
+
+## 893. Two people may share a name, and it is refused where it is used, 2026-11-05
+
+The holder's, on sec 888: a contact has a key, so a name need not be unique;
+warn at the rename. Sec 888 settled a clash by moving the higher key to
+`bob_2` on every host, which ended the disagreement between devices and made a
+worse fault. If this host's user called Y bob and X has the lower key, `bob`
+here silently became X, and a name resolves to a key at the moment it is typed,
+so `grant`, `remove contact` and a line all then reached the wrong person with
+nothing said.
+
+**Decided:**
+- **A name is presentation, a key identifies (sec 516).** `fzn_contact_add`
+  no longer refuses a name another key holds, and no host renames anyone:
+  `take_contact_names` takes the estate's word for each contact and that is
+  all it does.
+- **A name two contacts hold is refused where it is used:**
+  `fzn_contact_find` answers AMBIGUOUS, `error two contacts have that name:
+  give the key`, and never picks. All eleven uses of a name go through it.
+- **Every verb taking a name takes the key,** as `fzn_contact_find` reads 64
+  hex as one, which no name can be (sec 516). Four verbs had that of their own;
+  `remove contact`, `grant share`, `add received`, `remove received`, group
+  membership and a stream's WHO did not.
+- **`add contact` says so at once:** `ok clash KEY ...`, up to four, and the
+  add stands. A client reading the first word reads what it read before.
+- **A clash made on two hosts apart has no rename to warn at.** It shows at the
+  next use, by the refusal, and in `list contact`, where the name is listed
+  twice.
+- **Rejected: refusing only the second name given,** which is what `TAKEN`
+  did: it decides by who was heard first, which differs by host.
+- `crew_2` stays (sec 890): a group's name is one host's, and agrees with
+  nothing.
+- A roster contact's made-up `c_HEX` still lengthens past a name held, which
+  asks `fzn_contact_named` where it read `TAKEN`.
+
+**Measured, `tool/live_names.py`:** two admins each call a different key bob.
+Both hosts hold both, refuse `bob` at `list message`, `list device` and
+`remove contact`, and take the key. A third bob answers `ok clash` naming both.
+A rename on A reaches the same person on B, and `bob` then answers. `contact_test`,
+29 checks. Sabotage: `contact-shared-name-refused`.
+
+**For a client:** fuzzypickles' `contacts-same-name` pins sec 888's names and is
+told. A verb that used to be sure of a name can now answer that error, which a
+script must read as "ask the user", not as a fault.

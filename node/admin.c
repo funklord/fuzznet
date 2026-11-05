@@ -1214,6 +1214,32 @@ static uint64_t admin_now_ms(const fzn_node_admin_t *admin)
 }
 
 /* `add contact NAME KEY`: a key outside the estate, by a name. */
+/* `ok`, or `ok clash KEY ...` where others hold the name, sec 893: the add
+ * stands, and the user hears now rather than at a refused verb later. */
+static size_t contact_added(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN],
+                            const uint8_t *name, size_t name_len, char *reply, size_t cap)
+{
+	static const char DIGITS[] = "0123456789abcdef";
+	uint8_t others[4][FZN_PUBKEY_LEN];
+	char detail[6u + 4u * (FZN_PUBKEY_LEN * 2u + 1u)];
+	size_t n = 0, i, j, at = 5u;
+
+	if (fzn_contact_named(admin->store, (const char *)name, name_len, key, others, 4u, &n)
+	            != FZN_CONTACT_OK
+	    || !n)
+		return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+	memcpy(detail, "clash", 5u);
+	for (i = 0; i < n && i < 4u; i++) {
+		detail[at++] = ' ';
+		for (j = 0; j < FZN_PUBKEY_LEN; j++) {
+			detail[at++] = DIGITS[others[i][j] >> 4];
+			detail[at++] = DIGITS[others[i][j] & 15u];
+		}
+	}
+	detail[at] = '\0';
+	return answer_text(reply, cap, FZN_REPLY_OK, detail);
+}
+
 static size_t add_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
                           char *reply, size_t cap)
 {
@@ -1231,8 +1257,9 @@ static size_t add_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, why);
 	if (r == -3)
 		return answer_text(reply, cap, FZN_REPLY_DENIED, why);
-	return r == 0 ? answer_text(reply, cap, FZN_REPLY_OK, NULL)
-	              : answer_text(reply, cap, FZN_REPLY_ERROR, why);
+	if (r != 0)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, why);
+	return contact_added(admin, key, name, name_len, reply, cap);
 }
 
 int fzn_node_admin_contact_add(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN],

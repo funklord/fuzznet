@@ -156,8 +156,34 @@ int main(void)
 	CHECK(fzn_contact_find(&OPS, "alice", 5u, &got) == FZN_CONTACT_OK
 	              && memcmp(got.key, a, FZN_PUBKEY_LEN) == 0,
 	      "and found by name");
-	CHECK(fzn_contact_add(&OPS, b, "alice", 5u, 200u) == FZN_CONTACT_ERR_TAKEN,
-	      "a second key under her name is refused");
+	/* ---- a name two people share, sec 893 */
+	{
+		char hex[FZN_PUBKEY_LEN * 2u + 1u];
+		uint8_t others[2][FZN_PUBKEY_LEN];
+		size_t k, count = 0;
+
+		CHECK(fzn_contact_add(&OPS, b, "alice", 5u, 200u) == FZN_CONTACT_OK,
+		      "a second key under her name is kept");
+		CHECK(fzn_contact_find(&OPS, "alice", 5u, &got) == FZN_CONTACT_ERR_AMBIGUOUS,
+		      "and the name is refused, not guessed");
+		CHECK(fzn_contact_named(&OPS, "alice", 5u, a, others, 2u, &count) == FZN_CONTACT_OK
+		              && count == 1u && memcmp(others[0], b, FZN_PUBKEY_LEN) == 0,
+		      "the other holder is named");
+		CHECK(fzn_contact_named(&OPS, "alice", 5u, NULL, NULL, 0u, &count) == FZN_CONTACT_OK
+		              && count == 2u,
+		      "and both are counted with no room given");
+		for (k = 0; k < FZN_PUBKEY_LEN; k++)
+			snprintf(hex + 2u * k, 3u, "%02x", b[k]);
+		CHECK(fzn_contact_find(&OPS, hex, FZN_PUBKEY_LEN * 2u, &got) == FZN_CONTACT_OK
+		              && memcmp(got.key, b, FZN_PUBKEY_LEN) == 0,
+		      "her key finds the one meant");
+		hex[0] = hex[0] == 'f' ? 'e' : 'f';
+		CHECK(fzn_contact_find(&OPS, hex, FZN_PUBKEY_LEN * 2u, &got) == FZN_CONTACT_ERR_ABSENT,
+		      "a key held by no contact is absent");
+		hex[0] = 'x';
+		CHECK(fzn_contact_find(&OPS, hex, FZN_PUBKEY_LEN * 2u, &got) == FZN_CONTACT_ERR_NAME,
+		      "64 characters that are no key are no name either");
+	}
 	CHECK(fzn_contact_add(&OPS, b, "bob", 3u, 200u) == FZN_CONTACT_OK
 	              && fzn_contact_add(&OPS, c, "carol", 5u, 300u) == FZN_CONTACT_OK,
 	      "bob and carol are added");

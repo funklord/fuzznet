@@ -1192,21 +1192,38 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
 /* ---- the verbs ------------------------------------------------------------ */
 
 /* WHO: a contact's name, or a key in hex. */
+static int who_ambiguous;
+
 static int who(const fzn_node_messages_t *nm, const uint8_t *w, size_t w_len,
                uint8_t key[FZN_PUBKEY_LEN])
 {
 	fzn_contact_t c;
+	fzn_contact_err_t err;
 
+	who_ambiguous = 0;
 	if (parse_hex(w, w_len, key, FZN_PUBKEY_LEN))
 		return 1;
 	/* `@NAME` IS A GROUP, sec 629: its conversation is keyed by its id. */
 	if (w_len > 1u && w[0] == '@')
 		return fzn_node_group_find(nm->m.store, (const char *)w + 1, w_len - 1u, key)
 		       == FZN_CONTACT_OK;
-	if (fzn_contact_find(nm->m.store, (const char *)w, w_len, &c) != FZN_CONTACT_OK)
+	err = fzn_contact_find(nm->m.store, (const char *)w, w_len, &c);
+	who_ambiguous = err == FZN_CONTACT_ERR_AMBIGUOUS;
+	if (err != FZN_CONTACT_OK)
 		return 0;
 	memcpy(key, c.key, FZN_PUBKEY_LEN);
 	return 1;
+}
+
+/* A `who` THAT FAILED, answered: a name two people share is no mistake of the
+ * line's, and is said as what it is, sec 893. */
+static size_t who_refused(char *reply, size_t cap, const char *usage)
+{
+	if (who_ambiguous) {
+		who_ambiguous = 0;
+		return say(reply, cap, FZN_REPLY_ERROR, fzn_contact_err_str(FZN_CONTACT_ERR_AMBIGUOUS));
+	}
+	return say(reply, cap, FZN_REPLY_MALFORMED, usage);
 }
 
 static int direction_of(const uint8_t *w, size_t w_len, uint8_t *d)
@@ -1262,7 +1279,7 @@ static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 	int first;
 
 	if (!line_of(nm, &at, &left, contact, &direction, id))
-		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		return who_refused(reply, cap, USAGE);
 	rest = at;
 	rest_left = left;
 	if (word(&rest, &rest_left, &w, &w_len) && is_word(w, w_len, "at")) {
@@ -1353,7 +1370,7 @@ static size_t set(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 	} else {
 		if (!line_of(nm, &at, &left, contact, &direction, id)
 		    || !word(&at, &left, &w, &w_len) || !state_of(w, w_len, &state) || left)
-			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+			return who_refused(reply, cap, USAGE);
 		err = fzn_messages_mark(&nm->m, contact, direction, id, state);
 	}
 	if (err != FZN_MESSAGES_OK)
@@ -1455,8 +1472,7 @@ static size_t get(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 		return get_held_back(nm, NULL, reply, cap);
 	if (!word(&at, &left, &w, &w_len) || !who(nm, w, w_len, contact)
 	    || !word(&at, &left, &w, &w_len) || left)
-		return say(reply, cap, FZN_REPLY_MALFORMED,
-		           "get message WHO unread|held-back, owed, or held-back");
+		return who_refused(reply, cap, "get message WHO unread|held-back, owed, or held-back");
 	if (is_word(w, w_len, "held-back"))
 		return get_held_back(nm, contact, reply, cap);
 	if (!is_word(w, w_len, "unread"))
@@ -1507,7 +1523,7 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 	if (word(&at, &left, &w, &w_len)) {
 		if (!all_digits(w, w_len) || w_len == 2u * FZN_PUBKEY_LEN) {
 			if (!who(nm, w, w_len, contact))
-				return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+				return who_refused(reply, cap, USAGE);
 			filter = contact;
 			if (!word(&at, &left, &w, &w_len))
 				w_len = 0;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One name given to two people on two hosts: `make livecheck`, sec 887.
+"""One name given to two people on two hosts: `make livecheck`, sec 893.
 
 Two hosts of a user's, A and B, admins of R's estate, apart while each adds
 a different person as bob. Two admins, since a root's word outranks an
@@ -7,13 +7,16 @@ admin's: a clash is between equals. A contact here is a name for a key, so two
 made-up keys serve.
 
     a  A names key K1 bob, and B names K2 bob, each before hearing the other
-    b  both hosts hold both, and agree: the lower key is bob and the higher
-       bob_2 on each, so `bob` is one person on every device
-    c  renaming the higher reaches the same person on both, and frees
-       nothing else: bob stays the lower key's
+    b  both hosts call both people bob, and neither was renamed behind its
+       user. `bob` is refused on each, for what it might reach, and a key
+       reaches the one meant
+    c  a name given where it is already held is kept, and said to clash
+    d  renaming one reaches the same person on both, and `bob` then means
+       the other on every host
 
-Against a daemon that leaves a clash for a later round, as sec 699 did, each
-host keeps its own bob and phase b never agrees.
+Against a daemon that settles a clash by key, as sec 888 did, the higher key
+goes by bob_2 and phase b never agrees; against one that leaves it for a later
+round, as sec 699 did, each host keeps its own bob.
 
 BOUNDED FROM INSIDE as live_rejoin.py is, whose daemon handling this reuses:
 one deadline, each daemon in its own process group, and every daemon
@@ -34,10 +37,11 @@ from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-DEADLINE_S = 300.0
-SETTLE_S = 120.0
+DEADLINE_S = 420.0
+SETTLE_S = 180.0
 LOW = "11" * 32
 HIGH = "ee" * 32
+THIRD = "77" * 32
 
 
 def main(argv):
@@ -134,14 +138,38 @@ def main(argv):
 			retried("b", "add contact bob " + HIGH, "ok")
 			print("livecheck: a: A named one key bob, and B another")
 
-			# b: ONE ANSWER ON EVERY HOST.
-			agreed({LOW: "bob", HIGH: "bob_2"}, "b")
-			print("livecheck: b: both hosts call the lower key bob and the higher bob_2")
+			# b: BOTH ARE BOB, and bob is no answer to who.
+			agreed({LOW: "bob", HIGH: "bob"}, "b")
+			for who in ("a", "b"):
+				expect(socks[who], who, "list message bob",
+				       "error two contacts have that name: give the key")
+				expect(socks[who], who, "list device bob",
+				       "error two contacts have that name: give the key")
+				expect(socks[who], who, "remove contact bob",
+				       "error two contacts have that name: give the key")
+				got = ask(socks[who], "list message " + HIGH)
+				if not got.startswith("ok"):
+					raise failed("b: by key %s answered %r" % (who.upper(), got))
+			print("livecheck: b: both hosts hold two bobs, refuse the name, and take a key")
 
-			# c: A RENAME reaches the same person.
+			# c: SAID TO CLASH, and kept.
+			expect(socks["a"], "a", "add contact third " + THIRD, "ok")
+			got = ask(socks["a"], "add contact bob " + THIRD).split()
+			if got[:2] != ["ok", "clash"] or sorted(got[2:]) != sorted([LOW, HIGH]):
+				raise failed("c: a third bob answered %r" % got)
+			if names("a").get(THIRD) != "bob":
+				raise failed("c: A does not hold the third as bob: %r" % names("a"))
+			expect(socks["a"], "a", "remove contact " + THIRD, "ok")
+			print("livecheck: c: a third bob was kept and said to clash with both")
+
+			# d: A RENAME reaches the same person, and bob comes to mean one.
 			expect(socks["a"], "a", "add contact robert " + HIGH, "ok")
-			agreed({LOW: "bob", HIGH: "robert"}, "c")
-			print("livecheck: c: renamed on A, the higher key is robert on both, bob unmoved")
+			agreed({LOW: "bob", HIGH: "robert"}, "d")
+			for who in ("a", "b"):
+				got = ask(socks[who], "list message bob")
+				if not got.startswith("ok"):
+					raise failed("d: `list message bob` on %s answered %r" % (who.upper(), got))
+			print("livecheck: d: renamed on A, the higher key is robert on both, and bob is one")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
@@ -151,7 +179,7 @@ def main(argv):
 		finally:
 			for d in started.values():
 				d.stop()
-	print("livecheck: one name given to two people came to mean one person on every host")
+	print("livecheck: two people sharing a name stayed two, and no host guessed between them")
 	return 0
 
 

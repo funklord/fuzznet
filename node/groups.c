@@ -256,8 +256,8 @@ fzn_contact_err_t fzn_node_groups_name_learned(const fzn_node_groups_t *g,
 	    && fzn_group_act_decode(bytes, len, &a) == FZN_GROUP_ACT_OK
 	    && a.kind == FZN_GROUP_ACT_CREATE && a.payload_len > 1u
 	    && a.payload[0] == CREATE_NAME_VERSION) {
-		/* ANOTHER GROUP HERE GOES BY IT, sec 890: this one by `name_2` and on,
-		 * as a contact's clash is (sec 888). A name is this host's. */
+		/* ANOTHER GROUP HERE GOES BY IT, sec 890: this one by `name_2` and on.
+		 * A name is this host's. */
 		size_t nth;
 
 		for (nth = 1u; nth <= GROUP_NAME_TRIES; nth++) {

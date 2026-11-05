@@ -5301,11 +5301,11 @@ SABOTAGES = [
 		"a contact name with a space in it splits a command line into two words -- sec 435",
 	),
 	(
-		"contact-one-name-one-key",
+		"contact-shared-name-refused",
 		"contact/contact.c",
-		"\tif (a.taken)\n\t\treturn FZN_CONTACT_ERR_TAKEN;\n",
+		"\tif (n > 1u)\n\t\treturn FZN_CONTACT_ERR_AMBIGUOUS;\n",
 		"",
-		"two keys under one name, and a person picking a contact by name gets whichever the list met first -- sec 435",
+		"two keys under one name, and a person picking a contact by name gets whichever the walk met first -- sec 893",
 	),
 	(
 		"contact-rename-keeps-time",
@@ -5319,7 +5319,7 @@ SABOTAGES = [
 		"contact/contact.c",
 		"\terr = fzn_contact_each(store, contact_adding, &a);\n\tif (err != FZN_CONTACT_OK)\n\t\treturn err;\n",
 		"\t(void)fzn_contact_each(store, contact_adding, &a);\n",
-		"a store that cannot list reads as empty, and a name already taken is given out again -- sec 435",
+		"a store that cannot list reads as empty, and a rename forgets when the contact was added -- sec 435",
 	),
 	(
 		"admin-contact-refuses-members",
