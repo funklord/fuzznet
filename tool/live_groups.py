@@ -14,6 +14,8 @@ not know each other.
        to all three, which each come to hold it (sec 627)
     d  A writes a line to the group and B and C file it as A's; C writes one
        and B, which is not C's contact, files it through A, as C's (sec 629)
+    d1 A's next line, filed by a running B, raises `event message` naming the
+       group at B's subscriber (sec 891)
     e  B shares a note with the group; C, which is not B's contact, pairs
        B's host through the group and pulls the note from B (sec 630)
     e2 A, a contact of C's AND a member, shares a note with the group, and
@@ -43,6 +45,7 @@ Exit 0 on a pass, 1 on a failure.
 
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -240,6 +243,44 @@ def main(argv):
 				             % (missing, ask(socks["b"], "list message @" + name),
 				                "".join("\n  " + l for l in told[-14:])))
 			print("livecheck: d: A's line reached B and C, and C's reached B through A")
+
+			# d1: A LINE FILED IS TOLD, sec 891: a client counts a group's unread
+			# by `event message`. B left running, and subscribed; A's next line
+			# is filed by B's own round, and B's subscriber hears of it.
+			sub = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+			sub.settimeout(5.0)
+			try:
+				sub.connect(socks["b"])
+				sub.sendall(b"get events\n")
+				heard = b""
+				while b"\n" not in heard:
+					heard += sub.recv(256)
+				if not heard.startswith(b"ok events"):
+					raise failed("d1: get events answered %r" % heard)
+				expect(socks["a"], "a", "add message @family out %s told_to_b" % ("d1" * 16), "ok")
+				turn("a", "a-d1")
+				until = time.monotonic() + 150.0
+				while not has_line("b", "told_to_b", "alice"):
+					if time.monotonic() > until:
+						raise failed("d1: B never filed A's line")
+					time.sleep(1.0)
+				sub.settimeout(3.0)
+				try:
+					while b"event message " not in heard:
+						got = sub.recv(4096)
+						if not got:
+							break
+						heard += got
+				except socket.timeout:
+					pass
+				told = [l for l in heard.decode(errors="replace").splitlines()
+				        if l.startswith("event message ")]
+				if not any(len(l.split()[2]) == 64 for l in told):
+					raise failed("d1: B's line was filed and its subscriber heard %r" % heard[-200:])
+			finally:
+				sub.close()
+			print("livecheck: d1: a line filed from another member raised `event message`, naming "
+			      "the group")
 
 			# d2: MORE THAN A PAGE AT ONCE, sec 657: A writes 22 lines between
 			# two rounds; every one is sealed and reaches B, the oldest two

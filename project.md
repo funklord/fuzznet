@@ -80441,3 +80441,22 @@ after a removal reaches A and not C. `group-same-name`, sec 890.
 proves it, no path reads the address, and `live_strangers` already runs B through
 a proxy that rewrites its port. `sender-at-a-shared-address` is the same.
 That closes sec 884's list.
+
+## 891. A group line filed is told, 2026-11-05
+
+fuzzypickles, inbox 2026-11-04 23:59: sec 876's fix cost them `crew (2)`. A
+group line reaches the store by `fzn_messages_import`, which writes to this
+node's own stream, so it had only ever raised `message` by accident, through
+the absorb of that stream, which sec 876 narrowed to other devices. Their
+diagnosis was right, and they held their pin at 13569db on it.
+
+**Fixed:** `group_file` publishes `message` naming the group, once a pass that
+filed anything, as a contact's line names its conversation.
+
+**The other ways a line lands were read for the same shape:** delivery and a
+reconciled line publish where they file. Only the group path leaned on the
+absorb.
+
+**Measured, `live_groups` d1:** a running B files A's line and its subscriber
+hears `event message` and the group's id. With the publish taken out, it hears
+nothing past `ok events`.

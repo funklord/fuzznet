@@ -11817,6 +11817,15 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 	}
 	fzn_wipe(secret, sizeof(secret));
 	fzn_wipe(&line, sizeof(line));
+	/* A LINE FILED FROM ANOTHER MEMBER, told as a contact's is, naming its
+	 * conversation, sec 891. It had been told by accident, by the absorb of
+	 * this node's own stream, which sec 876 narrowed. */
+	if (filed) {
+		char hex[2u * FZN_GROUP_ID_LEN + 1u];
+
+		hex_of(g->id, FZN_GROUP_ID_LEN, hex);
+		publish("message", hex);
+	}
 	return filed;
 }
 
