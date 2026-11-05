@@ -151,9 +151,11 @@ def main(argv):
 									raise failed("a: put file answered %r" % reply)
 								ref = reply.split()[1]
 							d.wait_for(RECONCILE_RE, "reconcile pass")
-							taken[who] = taken[who] or took(d)
 						finally:
 							d.stop()
+						# READ AFTER THE STOP: a pairing is said a few ms past the
+						# reconcile line, and once taken it is never said again.
+						taken[who] = taken[who] or took(d)
 					if all(taken.values()):
 						break
 				if not all(taken.values()):

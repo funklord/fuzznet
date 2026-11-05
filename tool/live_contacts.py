@@ -422,7 +422,7 @@ def main(argv):
 			expect(socks["r2"], "r2", "add message %s out %s restored" % (keys["s"], LINE_5),
 			       "ok")
 			r2.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: [1-9]\d* delivered"),
-			            "R2's delivery, restored", within=90.0)
+			            "R2's delivery, restored", within=180.0)
 			filed = estate_lines(socks, keys["r"])
 			if filed.get(LINE_5, ("", "", ""))[2] != "restored":
 				raise failed("e: S's estate holds %r once R withdrew%s" % (filed, said(r2, s)))
@@ -464,7 +464,7 @@ def main(argv):
 			expect(socks["s"], "s", "add message rory out %s to%%20r" % LINE_6, "ok")
 			settled_re = re.compile(r"\d+ line\(s\) weighed over \d+ member\(s\), [1-9]\d* gone "
 			                        r"not waited for: [1-9]\d* settled")
-			until = time.monotonic() + 150.0
+			until = time.monotonic() + 300.0
 			filer = None
 			while filer is None and time.monotonic() < until:
 				for who in ("r", "r2"):
@@ -536,7 +536,7 @@ def main(argv):
 				raise failed("f: R's grant to R3 still stands at k 1: %r" % r3_grant)
 			down("s")
 			s = up("s", "s-f2")
-			s.wait_for(dropped_r3, "S dropping R3 on R2's vote at k 1", within=150.0)
+			s.wait_for(dropped_r3, "S dropping R3 on R2's vote at k 1", within=300.0)
 			listed = ask(socks["s"], "list device rory").split()
 			if keys["r3"] in {row.split(",")[0] for row in listed[3:]}:
 				raise failed("f: S still lists R3: %r" % listed)

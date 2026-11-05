@@ -80773,9 +80773,10 @@ exists for, and no timing fault of a test.
 
 **Fixed: `contact_hosts_turned`.** The contact's root leads every round, being
 where a revocation and a k are made, and the rest turn a place a round, so with
-the root quiet no one of them holds the news. **The first version turned the root
-out of first place too,** and S then missed R's withdrawal for rounds at a time,
-which `live_contacts` e caught under the sanitizer.
+the root quiet no one of them holds the news. The first version turned the root
+out of first place too, which reads wrong on its face. It was blamed for a failure
+at e2 that came back with the root leading, so that blame was not earned: e2 was
+a bound of 90 s (sec 901).
 - **Rejected: every host asked every round.** A pass's cost times its hosts, for
   what a turn reaches within a few rounds.
 - **Rejected: the root alone.** A root may be offline, and sec 782 is why members
@@ -80850,15 +80851,31 @@ code (896), SIGTERM stops cleanly and leaks are looked for (897), a contact's ro
 is asked first (898), a held event stream (899), a kept reply goes only where it
 was asked from (900). `FZN_PRODUCT_NETCFGD` is 3.
 
+**Gates at `03a3337`, nothing beside them:** `make test`, `installcheck`, `style`,
+`livecheck` (252 lines), `livecheck-faults` pass. `livecheck-san`: 19 scripts
+passed, 0 reports, leaks on, and two failed.
+
+**`live_siblings`' failure is explained, and sec 892's candidate was wrong.** It came
+back with its ports moved and no other suite up, so ports were not it. C takes its
+pairing once, says so 15 ms past the reconcile line, and the script read the log
+at that line and stopped the daemon: read after the stop now, 5 of 5 and more.
+
+**`live_contacts` under the sanitizer, open.** Bounds of 90 and 150 s at e2 and f2
+are 180 and 300 now, a sanitized round being 66 s, and neither failed again. **f0
+still fails, 3 runs in 14, at 300 s as at 150, so it is no bound.** In the run with
+logs, S made no offer of the line at all: R and R2 had nothing to settle, so the
+fault is on S's side of delivery. Not seen plain. It wants a probe at S's delivery,
+as sec 898's did.
+
 **Open, unexplained, said as that:**
 - **`live_names` b failed once** in `make livecheck`: after 180 s neither host had
-  the other's name. It then passed 18 of 18 on its own. Logs went with the run.
-  Three orphaned daemons of this session's and later 54 more were up on that
-  port range for part of the day, from runs killed by an outer `timeout`, which
-  may or may not bear on it. Not concluded.
-- **`live_siblings`' sec 892 failure** has not returned, and has not been explained.
-- **Why sec 897's stop raised `live_contacts`' failure rate** (sec 898).
-- **`live_faults` j** failed once at its 60 s bound, with other runs beside it.
+  the other's name. It then passed 18 of 18 alone, and in every gate since. Logs
+  went with the run. Orphaned daemons of this session's were up on those ports for
+  part of the day, from runs killed by an outer `timeout`, which may or may not
+  bear on it. Not concluded.
+- **Why sec 897's stop raised `live_contacts`' f2 failures** (sec 898).
+- **`live_faults` j** failed once at its 60 s bound, with other runs beside it, and
+  passed alone.
 
 **A lesson of this run:** `timeout` around a live script kills the script and not
 its daemons, whose process groups are their own. Stop one with `-s INT`, or let it
