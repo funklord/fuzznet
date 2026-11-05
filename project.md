@@ -80650,9 +80650,11 @@ decision of anybody's and written often, and neither is a host's own cell, which
 only it writes. A key past 56 bytes, or a value past a record's room, goes
 untracked and stands all the same.
 
-**The cost.** One record a tracked write. `list fork` walks every record, which
-is why the daemon looks only after a decision is filed or written, at a round's
-end.
+**The cost.** One record a tracked write. The decisions are read from the records
+once and kept in memory, walking being every record of every kind, each with its
+signature, which a host that observes often cannot pay at each `add contact`. A
+decision from a peer, or a trim that let some go, has them read again. The daemon
+looks for forks only after a decision is filed or written, at a round's end.
 
 **Limits, said:**
 - A base past a record's room is left out, leaving a fork open rather than hiding
@@ -80769,9 +80771,11 @@ the root's word for as long as it answered first. A device that keeps answering
 could hold off news of its own revocation. That is a hole in what this library
 exists for, and no timing fault of a test.
 
-**Fixed: `contact_hosts_turned`.** The contact's root leads, being where a
-revocation and a k are made, and the hosts turn a place a round, so a root gone
-quiet or a host behind holds nothing back for long.
+**Fixed: `contact_hosts_turned`.** The contact's root leads every round, being
+where a revocation and a k are made, and the rest turn a place a round, so with
+the root quiet no one of them holds the news. **The first version turned the root
+out of first place too,** and S then missed R's withdrawal for rounds at a time,
+which `live_contacts` e caught under the sanitizer.
 - **Rejected: every host asked every round.** A pass's cost times its hosts, for
   what a turn reaches within a few rounds.
 - **Rejected: the root alone.** A root may be offline, and sec 782 is why members

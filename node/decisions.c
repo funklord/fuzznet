@@ -172,15 +172,43 @@ static void mark_superseded(struct held *all, size_t n)
 	}
 }
 
+/* EVERY DECISION HELD, read once. Walking opens every record of every kind,
+ * and a host that observes often holds far more of those than it does
+ * decisions, so a write must not pay for that walk. */
+static struct gathered kept;
+static int kept_whole;
+
+void fzn_node_decisions_forget(void)
+{
+	free(kept.at);
+	memset(&kept, 0, sizeof(kept));
+	kept_whole = 0;
+}
+
 static int gather_all(const fzn_node_records_t *nr, struct gathered *g)
 {
 	static const uint8_t PREFIX[] = FZN_NODE_DECIDED_PREFIX;
+	size_t i;
 
-	if (!fzn_node_records_under(nr, PREFIX, FZN_NODE_DECIDED_PREFIX_LEN, gather, g) || g->failed) {
-		free(g->at);
-		g->at = NULL;
-		return 0;
+	if (!kept_whole) {
+		fzn_node_decisions_forget();
+		if (!fzn_node_records_under(nr, PREFIX, FZN_NODE_DECIDED_PREFIX_LEN, gather, &kept)
+		    || kept.failed) {
+			fzn_node_decisions_forget();
+			return 0;
+		}
+		kept_whole = 1;
 	}
+	g->at = kept.n ? malloc(kept.n * sizeof(*g->at)) : NULL;
+	if (kept.n && !g->at)
+		return 0;
+	for (i = 0; i < kept.n; i++)
+		if (!g->subject
+		    || (kept.at[i].d.subject_len == g->subject_len
+		        && memcmp(kept.at[i].d.subject, g->subject, g->subject_len) == 0)) {
+			g->at[g->n] = kept.at[i];
+			g->at[g->n++].superseded = 0;
+		}
 	if (g->n)
 		qsort(g->at, g->n, sizeof(*g->at), by_subject_newest);
 	mark_superseded(g->at, g->n);
@@ -263,6 +291,7 @@ fzn_node_records_err_t fzn_node_decisions_write(const fzn_node_records_t *nr,
 	char bases[FZN_SETTING_VALUE_MAX + 1u];
 	struct gathered g;
 	size_t self_len, bases_len = 0, fixed, i, at;
+	fzn_node_records_err_t err;
 
 	if (!nr || !nr->id || !nr->now_ms || !subject_ok(subject, subject_len)
 	    || (grounds && !grounds_ok(grounds, grounds_len)) || (value_len && !value))
@@ -321,7 +350,24 @@ fzn_node_records_err_t fzn_node_decisions_write(const fzn_node_records_t *nr,
 	at += value_len;
 	memcpy(key, FZN_NODE_DECIDED_PREFIX, FZN_NODE_DECIDED_PREFIX_LEN);
 	memcpy(key + FZN_NODE_DECIDED_PREFIX_LEN, subject, subject_len);
-	return fzn_node_records_write(nr, key, FZN_NODE_DECIDED_PREFIX_LEN + subject_len, text, at);
+	err = fzn_node_records_write(nr, key, FZN_NODE_DECIDED_PREFIX_LEN + subject_len, text, at);
+	if (err == FZN_NODE_RECORDS_OK) {
+		/* KEPT AS IT WENT OUT, so the next write has seen this one. */
+		static fzn_setting_t mine;
+
+		memset(&mine, 0, sizeof(mine));
+		memcpy(mine.key, key, FZN_NODE_DECIDED_PREFIX_LEN + subject_len);
+		mine.key_len = FZN_NODE_DECIDED_PREFIX_LEN + subject_len;
+		memcpy(mine.value, text, at);
+		mine.value_len = at;
+		memcpy(mine.setter, nr->id->pubkey, FZN_PUBKEY_LEN);
+		mine.version = nr->now_ms();
+		mine.set = 1;
+		gather(&kept, &mine);
+		if (kept.failed)
+			fzn_node_decisions_forget();
+	}
+	return err;
 }
 
 /* ---- the verbs --------------------------------------------------------- */

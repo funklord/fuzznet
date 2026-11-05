@@ -103,6 +103,11 @@ long fzn_node_decisions_heads(const fzn_node_records_t *nr, const uint8_t *subje
 long fzn_node_decisions_forks(const fzn_node_records_t *nr,
                               void (*each)(void *ctx, const fzn_node_decision_t *d), void *ctx);
 
+/* WHAT IS HELD OF DECISIONS IS READ AGAIN AT THE NEXT ASKING: for a record that
+ * came from a peer, or a trim that let some go. This node's own writes need
+ * no telling. */
+void fzn_node_decisions_forget(void);
+
 /* The verbs above, as a local handler: 0 for a request that is not one. */
 size_t fzn_node_decisions_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                 char *reply, size_t reply_cap);

@@ -5378,6 +5378,13 @@ SABOTAGES = [
 		"two writers who reached one answer are shown as a fork, and deciders never settle -- sec 895",
 	),
 	(
+		"decisions-read-once",
+		"node/decisions.c",
+		"\t\tkept_whole = 1;\n",
+		"",
+		"every write walks every record a host holds, and a host that observes often cannot pay for it -- sec 895",
+	),
+	(
 		"decisions-superseded-marked",
 		"node/decisions.c",
 		"\t\t\t\t\tall[i].superseded = 1;\n",

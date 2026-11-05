@@ -3114,8 +3114,10 @@ static void record_filed(void *ctx, const fzn_setting_t *s)
 {
 	(void)ctx;
 	if (s->key_len > FZN_NODE_DECIDED_PREFIX_LEN
-	    && memcmp(s->key, FZN_NODE_DECIDED_PREFIX, FZN_NODE_DECIDED_PREFIX_LEN) == 0)
+	    && memcmp(s->key, FZN_NODE_DECIDED_PREFIX, FZN_NODE_DECIDED_PREFIX_LEN) == 0) {
+		fzn_node_decisions_forget();
 		forks_due = 1;
+	}
 }
 
 /* THE FORKS HELD, said when their number moves. Every host holding the same
@@ -5267,6 +5269,8 @@ static void messages_trim(uint64_t now)
 		fzn_node_records_err_t rerr =
 		        fzn_node_records_trim(&node_records, mine, n_mine, wall_ms(), &gone);
 
+		if (gone)
+			fzn_node_decisions_forget();
 		if (rerr != FZN_NODE_RECORDS_OK)
 			say(FZN_ENTRY_WARNING, "records", "trimming by the rules failed (%d)", (int)rerr);
 		else if (gone)
@@ -11496,18 +11500,16 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 /* WHO IS ASKED FIRST, sec 898. A talk stops at the first host that answers, and
  * what it answers may be old: a member behind its journal, or a device its
  * owner revoked, which stopped pulling, and so says nothing of it. Always the
- * same one, a contact's news never came. So the contact's root leads, it being
- * where a revocation and a k are made, and the hosts turn a place each round,
- * so a root gone quiet or a host behind holds nothing back for long. */
+ * same one, a contact's news never came. So the contact's root leads every
+ * round, it being where a revocation and a k are made, and the rest turn a
+ * place a round, so that with the root quiet no one of them holds the news. */
 static void contact_hosts_turned(struct contact_talk *ct, size_t turn)
 {
 	struct pull_target *hosts[FZND_CONTACT_HOSTS_TRIED];
 	const char *names[FZND_CONTACT_HOSTS_TRIED];
-	size_t i, by;
+	size_t i, by, first = 0, n;
 
-	if (ct->n_hosts < 2u)
-		return;
-	for (i = 1; i < ct->n_hosts; i++)
+	for (i = 0; i < ct->n_hosts; i++)
 		if (memcmp(ct->hosts[i]->pairing.node, ct->contact, FZN_PUBKEY_LEN) == 0) {
 			struct pull_target *pt = ct->hosts[0];
 			const char *name = ct->names[0];
@@ -11516,15 +11518,19 @@ static void contact_hosts_turned(struct contact_talk *ct, size_t turn)
 			ct->names[0] = ct->names[i];
 			ct->hosts[i] = pt;
 			ct->names[i] = name;
+			first = 1;
 			break;
 		}
-	by = turn % ct->n_hosts;
-	for (i = 0; i < ct->n_hosts; i++) {
-		hosts[i] = ct->hosts[(i + by) % ct->n_hosts];
-		names[i] = ct->names[(i + by) % ct->n_hosts];
+	n = ct->n_hosts - first;
+	if (n < 2u)
+		return;
+	by = turn % n;
+	for (i = 0; i < n; i++) {
+		hosts[i] = ct->hosts[first + (i + by) % n];
+		names[i] = ct->names[first + (i + by) % n];
 	}
-	memcpy(ct->hosts, hosts, ct->n_hosts * sizeof(hosts[0]));
-	memcpy(ct->names, names, ct->n_hosts * sizeof(names[0]));
+	memcpy(ct->hosts + first, hosts, n * sizeof(hosts[0]));
+	memcpy(ct->names + first, names, n * sizeof(names[0]));
 }
 
 static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now)

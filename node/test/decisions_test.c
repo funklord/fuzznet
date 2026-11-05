@@ -218,9 +218,14 @@ static int raw(uint8_t host, const char *text)
 {
 	static const uint8_t KEY[] = "decided/tune/x";
 
+	int ok;
+
 	be(host);
-	return fzn_node_records_write(&nr, KEY, sizeof(KEY) - 1u, (const uint8_t *)text, strlen(text))
-	       == FZN_NODE_RECORDS_OK;
+	ok = fzn_node_records_write(&nr, KEY, sizeof(KEY) - 1u, (const uint8_t *)text, strlen(text))
+	     == FZN_NODE_RECORDS_OK;
+	/* AS A RECORD FROM A PEER IS TOLD. */
+	fzn_node_decisions_forget();
+	return ok;
 }
 
 static int decide(uint8_t host, const char *grounds, const char *value)
@@ -259,6 +264,7 @@ static void seen_row(void *ctx, const fzn_node_decision_t *d)
 static void reset(void)
 {
 	memset(&node, 0, sizeof(node));
+	fzn_node_decisions_forget();
 }
 
 int main(void)
@@ -282,6 +288,16 @@ int main(void)
 	CHECK(fzn_node_decisions_heads(&nr, SUBJECT, SUBJECT_LEN, seen_row, &rows) == 1
 	              && !strcmp(rows.value[0], "two"),
 	      "and it is the head");
+
+	/* ---- held, and read again only when told */
+	{
+		long n = heads();
+
+		memset(&node, 0, sizeof(node));
+		CHECK(heads() == n, "the store is not walked again for a read");
+		fzn_node_decisions_forget();
+		CHECK(heads() == 0, "until it is told");
+	}
 
 	/* ---- apart */
 	reset();
