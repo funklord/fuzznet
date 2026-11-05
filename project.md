@@ -80862,10 +80862,10 @@ at that line and stopped the daemon: read after the stop now, 5 of 5 and more.
 
 **`live_contacts` under the sanitizer, open.** Bounds of 90 and 150 s at e2 and f2
 are 180 and 300 now, a sanitized round being 66 s, and neither failed again. **f0
-still fails, 3 runs in 14, at 300 s as at 150, so it is no bound.** In the run with
-logs, S made no offer of the line at all: R and R2 had nothing to settle, so the
-fault is on S's side of delivery. Not seen plain. It wants a probe at S's delivery,
-as sec 898's did.
+still fails, 3 runs in 14, at 300 s as at 150, so it is no bound.** In one run with
+logs, S's last three rounds offered no line, and R and R2 weighed none. That was a
+tail of the log, since deleted: whether S offered earlier was not read. Not seen
+plain. It wants a probe at S's delivery, as sec 898's did, and the logs kept.
 
 **Open, unexplained, said as that:**
 - **`live_names` b failed once** in `make livecheck`: after 180 s neither host had
@@ -80889,3 +80889,20 @@ reach its own deadline.
 **Waiting on others:** fuzzypickles' `contacts-same-name` expectation, its pin and
 step 3, and fzpd on `fzn_daemon_main`. A real second user for sec 899, on either
 side. Open from before: a staged clear (sec 873), sec 880's limits.
+
+## 902. fzpd is gone, and a member's high water asked about, 2026-11-05
+
+From fuzzypickles (inbox message 20261105T1213Z): its `ec5b9c2` removes fzpd, its
+core and 98 scenarios on the holder's word, and its clients run on this node alone.
+So "fzpd on `fzn_daemon_main`" is no longer open anywhere above; sec 901's waiting
+list reads without it. Their pin stands at `aaf69c2`.
+
+**For `tool/live_fzp.py`:** `--socket-path`, `--state-dir`, `--profile`, `--config`,
+`--peer-port` and `--via` are gone. `--my-address` and `--address` are read and
+ignored, and they will stop reading them when told this tree has dropped them.
+
+**Asked, not yet a request:** their roster showed whether each group member held
+this host's lines (has all, behind), and `get group` gives no per-member high water.
+No verb answers that. No reason against one: a host holds each writer's head
+(`fzn_group_lines_heads`), though what a member holds is what it last asked from,
+which this host would have to keep. Open until they ask.
