@@ -183,7 +183,7 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	 * it goes to its own handler before any frame check reads it. */
 	if (flen && frame[0] == FZN_BOX_MARK) {
 		if (state->on_box)
-			state->on_box(state->on_box_ctx, frame, flen);
+			state->on_box(state->on_box_ctx, frame, flen, &from);
 		return;
 	}
 	/* A LAN PROBE, sec 624, the same way. */

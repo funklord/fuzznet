@@ -101,10 +101,11 @@ typedef struct fzn_node_state {
 	void *on_remote_ctx;
 	/* A SEALED BOX FROM A KEY WITH NO SESSION HERE, sec 619: a datagram
 	 * opening with FZN_BOX_MARK (`session/box.h`), which no frame does --
-	 * a stranger's contact request. Handed over as received, and
-	 * answered with nothing: the asker learns of approval
-	 * from the user's first offer (sec 614). NULL drops every box. */
-	void (*on_box)(void *ctx, const uint8_t *box, size_t len);
+	 * a stranger's contact request, or an invite's ask (sec 896), which is
+	 * why it says where it came from. Handed over as received. A contact
+	 * request is answered with nothing: the asker learns of approval from
+	 * the user's first offer (sec 614). NULL drops every box. */
+	void (*on_box)(void *ctx, const uint8_t *box, size_t len, const fzn_udp_addr_t *from);
 	void *on_box_ctx;
 	/* A LAN PROBE, sec 624: a datagram opening with FZN_NODE_PROBE_MARK,
 	 * which no frame and no box does, handed over with where it came from

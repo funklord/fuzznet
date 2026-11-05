@@ -47,6 +47,7 @@
 #include "routing.h"
 #include "contact_card.h"
 #include "contact_request.h"
+#include "invite.h"
 #include "groups.h"
 #include "group_lines.h"
 #include "streams.h"
@@ -393,6 +394,8 @@ static size_t relay_local(fzn_origin_t origin, const fzn_request_t *request, cha
                           size_t cap);
 static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
+static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap);
 static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap);
 static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -491,6 +494,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = request_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = identity_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = invite_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = join_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -8633,11 +8638,13 @@ static int ours(const uint8_t key[FZN_PUBKEY_LEN])
 	       || fzn_node_apply_rank(&node_apply, key, FZN_SCOPE_HOST, key, &rank) == 1;
 }
 
+static void invite_box(const uint8_t *plain, size_t len, const fzn_udp_addr_t *from);
+
 /* A BOX A STRANGER SENT, sec 619: opened, read as a contact request to
  * this host, checked, and queued for this user to approve -- or, from a
  * contact already standing, its card's host kept as that contact's
  * device. Anything else is dropped without a word. */
-static void contact_box(void *ctx, const uint8_t *box, size_t len)
+static void contact_box(void *ctx, const uint8_t *box, size_t len, const fzn_udp_addr_t *from)
 {
 	static uint64_t window, opened;
 	static uint8_t plain[FZN_UDP_DATAGRAM_MAX];
@@ -8659,8 +8666,14 @@ static void contact_box(void *ctx, const uint8_t *box, size_t len)
 	opened++;
 	if (fzn_box_open(contact_id->agree_secret, contact_id->agree, contact_id->hash,
 	                 contact_aead_ops, box, len, plain, sizeof(plain), &n)
-	            != FZN_BOX_OK
-	    || fzn_contact_request_decode(plain, n, &r) != FZN_CONTACT_REQUEST_OK)
+	            != FZN_BOX_OK)
+		return;
+	/* AN INVITE'S, sec 896, which is no contact request. */
+	if (fzn_invite_kind(plain, n)) {
+		invite_box(plain, n, from);
+		return;
+	}
+	if (fzn_contact_request_decode(plain, n, &r) != FZN_CONTACT_REQUEST_OK)
 		return;
 	err = fzn_contact_request_verify(&r, contact_id->sign, node_apply.capability,
 	                                 contact_id->pubkey, now);
@@ -10104,6 +10117,272 @@ static size_t ext_local_from(void *ctx, fzn_origin_t origin, const fzn_peer_t *p
 	return ext_local(ctx, origin, request, reply, cap);
 }
 
+/* ---- an invite, sec 896 --------------------------------------------------
+ *
+ * The host's half lives in `invites`, in memory alone: a secret that outlives
+ * a restart is one more thing on disk, and a person shows a code and uses it
+ * at once. The device's half is `invited`.
+ */
+#define FZND_INVITE_ASK_EVERY_S 3u
+#define FZND_INVITE_ASK_FOR_S 300u
+
+static fzn_invites_t invites;
+static struct {
+	int on;
+	fzn_invite_t invite;
+	fzn_invite_card_t card;
+	uint64_t next_ask, until;
+} invited;
+
+/* THE HOST: an ask opened, the device paired once, and its card sent back
+ * where the ask came from. */
+static void invite_asked(const uint8_t *plain, const fzn_udp_addr_t *from)
+{
+	static uint8_t answer[FZN_INVITE_ANSWER_MAX], box[FZN_UDP_DATAGRAM_MAX];
+	const uint8_t *secret = plain + FZN_INVITE_MARK_LEN;
+	const uint8_t *record = secret + FZN_INVITE_SECRET_LEN;
+	char hex[2u * FZN_PUBKEY_LEN + 1u];
+	fzn_prekey_record_t opened;
+	fzn_invite_open_t *r;
+	size_t part, n, box_len = 0;
+
+	if (!peers_state || peers_state->udp_fd < 0
+	    || fzn_prekey_open(record, FZN_PREKEY_LEN_TOTAL, &opened) != FZN_PREKEY_OK)
+		return;
+	r = fzn_invites_find(&invites, secret, opened.host, wall_clock());
+	if (!r) {
+		say(FZN_ENTRY_DEBUG, "node/invite", "an invite's ask refused");
+		return;
+	}
+	if (!r->claimed) {
+		const char *why = NULL;
+
+		if (!fzn_node_admin_pair_invited(running_admin, record, r->delegable, r->card,
+		                                 sizeof(r->card), &r->card_len, &why)) {
+			say(FZN_ENTRY_WARNING, "node/invite", "an invited device was not paired: %s",
+			    why ? why : "refused");
+			return;
+		}
+		r->claimed = 1;
+		memcpy(r->device, opened.host, FZN_PUBKEY_LEN);
+		hex_of(opened.host, FZN_PUBKEY_LEN, hex);
+		say(FZN_ENTRY_NOTE, "node/invite", "%.16s joined by an invite", hex);
+		publish("member", hex);
+	}
+	for (part = 0; (n = fzn_invite_answer(r->secret, r->card, r->card_len, part, answer)) != 0;
+	     part++)
+		if (fzn_box_seal(contact_id->agree, contact_id->hash, contact_aead_ops, contact_rng_ops,
+		                 record + FZN_PREKEY_OFF_PREKEY, answer, n, box, sizeof(box), &box_len)
+		            == FZN_BOX_OK)
+			(void)fzn_udp_send(peers_state->udp_fd, from, box, box_len);
+}
+
+static size_t join_card(const uint8_t *card, size_t card_len, const uint8_t *w_host,
+                        size_t n_host, unsigned long port, char *reply, size_t cap);
+
+/* THE DEVICE: the card whole. Believed only as the invite's host's: it signs a
+ * card, and whoever else read the code signs none of its. */
+static void invite_card_whole(void)
+{
+	static char said[FZN_REPLY_MAX];
+	fzn_provision_card_t opened;
+	fzn_prekey_record_t sponsor;
+
+	if (fzn_provision_open(invited.card.bytes, invited.card.len, &opened) != FZN_PROVISION_OK
+	    || fzn_prekey_open(opened.prekey, FZN_PREKEY_LEN_TOTAL, &sponsor) != FZN_PREKEY_OK
+	    || !fzn_ct_memeq(sponsor.host, invited.invite.host, FZN_PUBKEY_LEN)) {
+		say(FZN_ENTRY_WARNING, "node/invite", "a card answering the invite is not its host's");
+		memset(&invited.card, 0, sizeof(invited.card));
+		return;
+	}
+	(void)join_card(invited.card.bytes, invited.card.len, (const uint8_t *)invited.invite.where,
+	                invited.invite.where_len, invited.invite.port, said, sizeof(said));
+	say(rejoin_due ? FZN_ENTRY_INFO : FZN_ENTRY_WARNING, "node/invite", "joining by an invite: %s",
+	    said);
+	fzn_wipe(&invited, sizeof(invited));
+}
+
+static void invite_box(const uint8_t *plain, size_t len, const fzn_udp_addr_t *from)
+{
+	if (fzn_invite_kind(plain, len) == 1) {
+		invite_asked(plain, from);
+		return;
+	}
+	if (invited.on && fzn_invite_card_take(&invited.card, invited.invite.secret, plain, len))
+		invite_card_whole();
+}
+
+/* THE ASK, sent again until it is answered or given up. */
+static void invite_tick(void)
+{
+	static uint8_t ask[FZN_INVITE_ASK_LEN], box[FZN_UDP_DATAGRAM_MAX];
+	uint64_t now;
+	size_t box_len = 0;
+	fzn_udp_addr_t to;
+
+	if (!invited.on || (now = wall_clock()) < invited.next_ask)
+		return;
+	if (now >= invited.until) {
+		say(FZN_ENTRY_WARNING, "node/invite", "the invite's host did not answer");
+		fzn_wipe(&invited, sizeof(invited));
+		publish("join", "failed");
+		return;
+	}
+	invited.next_ask = now + FZND_INVITE_ASK_EVERY_S;
+	fzn_invite_ask(invited.invite.secret, joining.id->prekey_record, ask);
+	if (fzn_box_seal(contact_id->agree, contact_id->hash, contact_aead_ops, contact_rng_ops,
+	                 invited.invite.agree, ask, sizeof(ask), box, sizeof(box), &box_len)
+	            == FZN_BOX_OK
+	    && fzn_udp_resolve(contact_family, invited.invite.where, invited.invite.port, &to)
+	               == FZN_UDP_OK)
+		(void)fzn_udp_send(peers_state->udp_fd, &to, box, box_len);
+}
+
+/* `add join FZI1:...`: the asking begun. Its end is a start again in place. */
+static size_t join_invited(const uint8_t *text, size_t len, char *reply, size_t cap)
+{
+	fzn_invite_t parsed;
+
+	if (!fzn_invite_parse((const char *)text, len, &parsed))
+		return (size_t)snprintf(reply, cap, "malformed that is not an invite\n");
+	if (!peers_state || peers_state->udp_fd < 0 || !contact_id || !contact_rng_ops)
+		return (size_t)snprintf(reply, cap, "error this node listens on no UDP port\n");
+	memset(&invited, 0, sizeof(invited));
+	invited.invite = parsed;
+	invited.on = 1;
+	invited.until = wall_clock() + FZND_INVITE_ASK_FOR_S;
+	fzn_wipe(&parsed, sizeof(parsed));
+	return (size_t)snprintf(reply, cap, "ok asking\n");
+}
+
+/* `add invite [delegable] [LIFE]`: `ok TEXT`, one use, LIFE seconds, a person
+ * shows it. `remove invite`: every one ended. `get invite`: `ok N` open.
+ * `get join`: `ok asking` while an invite's ask is out, or `ok idle`. */
+static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap)
+{
+	const uint8_t *at = request->arg, *subject, *w;
+	size_t left = request->arg_len, subject_len, w_len, i;
+	char text[FZN_INVITE_TEXT_MAX], where[FZN_PROVISION_HOST_MAX + 1u];
+	uint64_t life = FZN_INVITE_LIFE_S, now = wall_clock();
+	fzn_invite_t in;
+	uint16_t port = 0;
+	int delegable = 0;
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len))
+		return 0;
+	if (subject_len == 4u && memcmp(subject, "join", 4u) == 0
+	    && request->parsed == FZN_VERB_GET && !left)
+		return (size_t)snprintf(reply, cap, "ok %s\n", invited.on ? "asking" : "idle");
+	if (subject_len != 6u || memcmp(subject, "invite", 6u) != 0)
+		return 0;
+	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_GET
+	    && request->parsed != FZN_VERB_REMOVE)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied an invite is this node's own user's\n");
+	if (request->parsed == FZN_VERB_GET)
+		return (size_t)snprintf(reply, cap, "ok %zu\n", fzn_invites_live(&invites, now));
+	if (request->parsed == FZN_VERB_REMOVE)
+		return (size_t)snprintf(reply, cap, "ok %zu\n", fzn_invites_clear(&invites, now));
+	if (!running_admin || !contact_id || !contact_rng_ops)
+		return (size_t)snprintf(reply, cap, "error this node pairs nobody\n");
+	while (next_word(&at, &left, &w, &w_len)) {
+		if (w_len == 9u && memcmp(w, "delegable", 9u) == 0) {
+			delegable = 1;
+			continue;
+		}
+		for (i = 0, life = 0; i < w_len && life <= FZN_INVITE_LIFE_MAX_S; i++) {
+			if (w[i] < '0' || w[i] > '9')
+				return (size_t)snprintf(reply, cap,
+				                        "malformed add invite [delegable] [LIFE]\n");
+			life = life * 10u + (uint64_t)(w[i] - '0');
+		}
+		if (!life || life > FZN_INVITE_LIFE_MAX_S)
+			return (size_t)snprintf(reply, cap, "malformed LIFE is 1 to %u seconds\n",
+			                        (unsigned)FZN_INVITE_LIFE_MAX_S);
+	}
+	if (!own_address((void *)contact_id->pubkey, where, &port))
+		return (size_t)snprintf(reply, cap, "error this host has no net/address to invite to\n");
+	memset(&in, 0, sizeof(in));
+	in.where_len = strlen(where);
+	if (in.where_len > FZN_INVITE_WHERE_MAX)
+		return (size_t)snprintf(reply, cap, "error this host's address is too long to invite "
+		                                    "to\n");
+	memcpy(in.where, where, in.where_len);
+	in.port = port;
+	memcpy(in.host, contact_id->pubkey, FZN_PUBKEY_LEN);
+	memcpy(in.agree, contact_id->prekey_record + FZN_PREKEY_OFF_PREKEY, FZN_PUBKEY_LEN);
+	if (!contact_rng_ops->fill(contact_rng_ops->ctx, in.secret, sizeof(in.secret)))
+		return (size_t)snprintf(reply, cap, "error no randomness\n");
+	if (!fzn_invite_text(&in, text, sizeof(text))) {
+		fzn_wipe(&in, sizeof(in));
+		return (size_t)snprintf(reply, cap, "error this host's address will not go in an "
+		                                    "invite\n");
+	}
+	if (!fzn_invites_add(&invites, in.secret, delegable, now, now + life)) {
+		fzn_wipe(&in, sizeof(in));
+		return (size_t)snprintf(reply, cap, "error %u invites are open: remove invite\n",
+		                        (unsigned)FZN_INVITES_MAX);
+	}
+	fzn_wipe(&in, sizeof(in));
+	return (size_t)snprintf(reply, cap, "ok %s\n", text);
+}
+
+/* JOIN BY `card`, at `w_host` and `port` if told and where it says if not: the
+ * verb's answer, `ok ROOT` with the daemon due to start again. */
+static size_t join_card(const uint8_t *card, size_t card_len, const uint8_t *w_host,
+                        size_t n_host, unsigned long port, char *reply, size_t cap)
+{
+	char where[FZN_UDP_HOST_MAX + 8u];
+	fzn_node_pairing_t paired;
+	fzn_node_pair_err_t perr;
+	size_t i;
+	int k;
+
+	/* NOT TOLD WHERE: the card's sponsor, where the card says it is. Read
+	 * before the join, so a card that says nowhere joins nothing. */
+	if (!w_host) {
+		fzn_provision_card_t opened;
+
+		if (fzn_provision_open(card, card_len, &opened) != FZN_PROVISION_OK)
+			return (size_t)snprintf(reply, cap, "malformed that is not a card\n");
+		if (!opened.host_len)
+			return (size_t)snprintf(reply, cap, "malformed the card says nowhere: add join "
+			                                    "CARD HOST PORT\n");
+		if (opened.host_len >= FZN_UDP_HOST_MAX)
+			return (size_t)snprintf(reply, cap, "unsupported the card's host is longer than "
+			                                    "this node reaches\n");
+		w_host = opened.host;
+		n_host = opened.host_len;
+		port = opened.port;
+	}
+	perr = fzn_node_join(joining.id, card, card_len, wall_clock(), joining.store, joining.trust,
+	                     &paired);
+	fzn_wipe(&paired, sizeof(paired));
+	if (perr != FZN_NODE_PAIR_OK)
+		return (size_t)snprintf(reply, cap, "error not joined: %s\n",
+		                        fzn_node_pair_err_str(perr));
+	/* WHERE THE ROOT IS, kept under its key: what a start with no
+	 * `--root-at` pulls from. */
+	k = snprintf(where, sizeof(where), "%.*s %lu", (int)n_host, (const char *)w_host, port);
+	if (k <= 0 || (size_t)k >= sizeof(where)
+	    || !joining.store->save(joining.store->ctx, FZN_PERSIST_ROOT_AT,
+	                            fzn_trust_root(joining.trust), (const uint8_t *)where, (size_t)k))
+		return (size_t)snprintf(reply, cap, "error joined, and where the root is reached "
+		                                    "was not kept: start with --root-at\n");
+	rejoin_due = 1;
+	say(FZN_ENTRY_NOTE, "node/identity", "joined the estate rooted at %02x%02x%02x%02x, "
+	                                     "reached at %s; starting again",
+	    fzn_trust_root(joining.trust)[0], fzn_trust_root(joining.trust)[1],
+	    fzn_trust_root(joining.trust)[2], fzn_trust_root(joining.trust)[3], where);
+	k = snprintf(reply, cap, "ok ");
+	for (i = 0; i < FZN_PUBKEY_LEN && (size_t)k + 2u < cap; i++)
+		k += snprintf(reply + k, cap - (size_t)k, "%02x", fzn_trust_root(joining.trust)[i]);
+	return (size_t)k + (size_t)snprintf(reply + k, cap - (size_t)k, "\n");
+}
+
+
 /* A NODE WITH NO CAPABILITY, sec 857: started with no `--fuzznet-service`
  * and `--fuzznet-product`, it has no remote hop and none of fuzznet's verbs
  * that need one -- but an extension's verbs and procedures are still its
@@ -10140,12 +10419,9 @@ static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char
 	const uint8_t *at = request->arg, *subject, *w_card = NULL, *w_host = NULL, *w_port = NULL;
 	size_t left = request->arg_len, subject_len, n_card = 0, n_host = 0, n_port = 0;
 	uint8_t card[FZN_PROVISION_MAX_LEN];
-	char text[FZN_PROVISION_TEXT_MAX_LEN], where[FZN_UDP_HOST_MAX + 8u];
-	fzn_node_pairing_t paired;
-	fzn_node_pair_err_t perr;
+	char text[FZN_PROVISION_TEXT_MAX_LEN];
 	size_t card_len = 0, i;
 	unsigned long port = 0;
-	int k;
 
 	if (request->parsed != FZN_VERB_ADD || !at || !next_word(&at, &left, &subject, &subject_len)
 	    || subject_len != 4u || memcmp(subject, "join", 4u) != 0)
@@ -10155,6 +10431,17 @@ static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char
 		                                    "user's\n");
 	if (!joining.id || !joining.trust || !joining.store)
 		return (size_t)snprintf(reply, cap, "error this node keeps no state to join with\n");
+	/* AN INVITE, sec 896: nothing beside it, and the card comes by network. */
+	if (left > FZN_INVITE_TEXT_PREFIX_LEN) {
+		const uint8_t *peek = at;
+		size_t peek_left = left, n_peek = 0;
+		const uint8_t *w_peek = NULL;
+
+		if (next_word(&peek, &peek_left, &w_peek, &n_peek) && !peek_left
+		    && n_peek > FZN_INVITE_TEXT_PREFIX_LEN
+		    && memcmp(w_peek, FZN_INVITE_TEXT_PREFIX, FZN_INVITE_TEXT_PREFIX_LEN) == 0)
+			return join_invited(w_peek, n_peek, reply, cap);
+	}
 	/* HOST AND PORT TOGETHER OR NEITHER: told, they win over the card's. */
 	if (!next_word(&at, &left, &w_card, &n_card) || n_card >= sizeof(text)
 	    || (left && (!next_word(&at, &left, &w_host, &n_host)
@@ -10196,46 +10483,7 @@ static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char
 	}
 	if (fzn_provision_from_text(text, card, sizeof(card), &card_len) != FZN_PROVISION_OK)
 		return (size_t)snprintf(reply, cap, "malformed that is not a card\n");
-	/* NOT TOLD WHERE: the card's sponsor, where the card says it is. Read
-	 * before the join, so a card that says nowhere joins nothing. */
-	if (!w_host) {
-		fzn_provision_card_t opened;
-
-		if (fzn_provision_open(card, card_len, &opened) != FZN_PROVISION_OK)
-			return (size_t)snprintf(reply, cap, "malformed that is not a card\n");
-		if (!opened.host_len)
-			return (size_t)snprintf(reply, cap, "malformed the card says nowhere: add join "
-			                                    "CARD HOST PORT\n");
-		if (opened.host_len >= FZN_UDP_HOST_MAX)
-			return (size_t)snprintf(reply, cap, "unsupported the card's host is longer than "
-			                                    "this node reaches\n");
-		w_host = opened.host;
-		n_host = opened.host_len;
-		port = opened.port;
-	}
-	perr = fzn_node_join(joining.id, card, card_len, wall_clock(), joining.store, joining.trust,
-	                     &paired);
-	fzn_wipe(&paired, sizeof(paired));
-	if (perr != FZN_NODE_PAIR_OK)
-		return (size_t)snprintf(reply, cap, "error not joined: %s\n",
-		                        fzn_node_pair_err_str(perr));
-	/* WHERE THE ROOT IS, kept under its key: what a start with no
-	 * `--root-at` pulls from. */
-	k = snprintf(where, sizeof(where), "%.*s %lu", (int)n_host, (const char *)w_host, port);
-	if (k <= 0 || (size_t)k >= sizeof(where)
-	    || !joining.store->save(joining.store->ctx, FZN_PERSIST_ROOT_AT,
-	                            fzn_trust_root(joining.trust), (const uint8_t *)where, (size_t)k))
-		return (size_t)snprintf(reply, cap, "error joined, and where the root is reached "
-		                                    "was not kept: start with --root-at\n");
-	rejoin_due = 1;
-	say(FZN_ENTRY_NOTE, "node/identity", "joined the estate rooted at %02x%02x%02x%02x, "
-	                                     "reached at %s; starting again",
-	    fzn_trust_root(joining.trust)[0], fzn_trust_root(joining.trust)[1],
-	    fzn_trust_root(joining.trust)[2], fzn_trust_root(joining.trust)[3], where);
-	k = snprintf(reply, cap, "ok ");
-	for (i = 0; i < FZN_PUBKEY_LEN && (size_t)k + 2u < cap; i++)
-		k += snprintf(reply + k, cap - (size_t)k, "%02x", fzn_trust_root(joining.trust)[i]);
-	return (size_t)k + (size_t)snprintf(reply + k, cap - (size_t)k, "\n");
+	return join_card(card, card_len, w_host, n_host, port, reply, cap);
 }
 
 /* `set admin CHAIN|PATH`, sec 658: the admin chain `grant admin` answered
@@ -19719,6 +19967,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			location_tick();
 			stages_tick();
 			sealed_tick();
+			invite_tick();
 			ext_tick();
 #ifdef FZN_LOG_FILE_ON
 			log_settings_tick();
@@ -19762,6 +20011,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		location_tick();
 		stages_tick();
 		sealed_tick();
+		invite_tick();
 		ext_tick();
 #ifdef FZN_LOG_FILE_ON
 		log_settings_tick();

@@ -325,6 +325,14 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap);
 
+/* PAIR AN INVITED DEVICE, sec 896: the host of `prekey` paired into the running
+ * node as `add peer` pairs one, its card into `card`, however long, for the
+ * caller to send in parts. 1, or 0 with `*why` (may be NULL). */
+int fzn_node_admin_pair_invited(fzn_node_admin_t *admin,
+                                const uint8_t prekey[FZN_PREKEY_LEN_TOTAL], int delegable,
+                                uint8_t *card, size_t card_cap, size_t *card_len,
+                                const char **why);
+
 /* PAIR A SIBLING, sec 579: the host of `prekey` (a prekey record a member of
  * this estate carried) paired into the running node as `add peer` pairs a
  * device -- saved, served from now, its grant logged in this node's stream

@@ -80664,3 +80664,64 @@ after the other on two hosts never fork; and two jobs fork, decide again from
 both grounds, and close it with no person. Sabotage: `decisions-base-whole`,
 `decisions-one-value-no-fork`,
 `decisions-superseded-marked`.
+
+## 896. A device joins by one code read off a host's screen, 2026-11-05
+
+Asked by netcfgd (inbox message 20261105T0931Z). On a phone, pairing by a code is
+the first thing a user does, and files are not easy to move there. A join is two
+carries, and only one has a road: a phone can read a screen, and a host has no
+camera and nobody types 277 hex digits.
+
+**Built: `node/invite.{h,c}`, one carry, host to device.**
+
+    host:    add invite [delegable] [LIFE]   ok FZI1:...
+    device:  add join FZI1:...               ok asking, then started again
+    host:    event member KEY
+
+- **The code** says the host's key, its box key, a 16 byte secret and where it
+  is, in upper-case base32 for a QR code's alphanumeric mode. 151 characters for
+  `127.0.0.1`.
+- **The prekey goes back over the network,** sealed to the host, as a contact
+  request is (sec 619), and the card returns sealed to the device, in parts, a
+  card being able to pass a datagram. So a box now says where it came from.
+- **The device asks every 3 seconds for 5 minutes.** An ask sent again is answered
+  the same card, so a lost datagram costs a retry and nothing is paired twice.
+  `get join` says `asking` or `idle`.
+- **The secret is in memory alone,** so a restart ends every code. LIFE is 600
+  seconds unless said, at most a day. `get invite` counts those open, and
+  `remove invite` ends them. At most 16, a person showing one at a time.
+- **`delegable`** as in `add peer`: what a device joining the estate needs.
+
+**The device believes the host by the card.** A card is signed by its sponsor, and
+the device takes only one signed by the key in the code. So a person who
+photographs a code and answers first can sign no card this device accepts.
+
+**netcfgd's two questions, answered:**
+- **Can it be short enough to type? No.** A key to seal to and a secret are 48
+  bytes at the least, and a short code would need a PAKE and something to find
+  the host by. Neither is built, so QR it is, and a phone with no camera uses
+  `add peer` as before. A PAKE is the road if a typed code is ever wanted.
+- **Is the secret enough, with no word from the host's user?** Decided yes. The
+  code is shown to whoever stands at the console, for ten minutes, once, and
+  that person could type `add peer` anyway. The new member is told at once by
+  `event member`, and a device admitted wrongly is revoked as any is. **Rejected:
+  a word before the card goes,** which puts a second person-step in what this
+  exists to make one. It is the holder's to overrule: the risk is a code seen by
+  somebody else, over a shoulder or in a photograph, inside its life.
+
+**What it does not do:** a host with no `net/address` shows no code, and one past
+45 bytes neither. The address must be reachable from the device. A device
+behind a NAT is answered at the address its ask came from, so that case holds; a
+host behind one is not reached, as for any contact.
+
+**Measured, `tool/live_invite.py`:** D joins by the code alone and R's subscriber
+hears its key. E, told the used code, joins nothing, and then joins by its own, so
+the one use was what stopped it. A lapsed code and an ended one join nobody. G,
+told a code altered to name another host, is paired by R and refuses R's card.
+`invite_test`, 54 checks.
+
+**The first run failed on a fault of mine worth keeping:** `contact_id->agree` is
+the agreement's ops, and `memcpy` took it as the host's box key with no warning,
+so every code named a key nobody held. The box key is in the prekey record.
+Nothing but the live run could show it, since a unit test of the text round-trips
+any 32 bytes.

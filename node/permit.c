@@ -10,7 +10,7 @@
 
 /* THE ESTATE'S TRUST, never a person's outside fuzznet (sec 852). */
 static const char *const RESERVED[] = {
-	"identity", "backup", "join", "root",   "admin",  "peer",
+	"identity", "backup", "join", "invite", "root", "admin", "peer",
 	"grant",    "capability", "revocation", "events", "permit",
 	/* AND EVERY SETTING, these grants among them: a grant on `setting`
 	 * would let its holder write its own. */

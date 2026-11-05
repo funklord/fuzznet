@@ -252,6 +252,42 @@ int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
 	return err ? -1 : 1;
 }
 
+int fzn_node_admin_pair_invited(fzn_node_admin_t *admin,
+                                const uint8_t prekey[FZN_PREKEY_LEN_TOTAL], int delegable,
+                                uint8_t *card, size_t card_cap, size_t *card_len,
+                                const char **why)
+{
+	static uint8_t proof[FZN_PROVISION_PROOF_MAX][FZN_PROVISION_PROOF_ITEM_LEN];
+	static fzn_node_authority_t by_identity;
+	const fzn_node_authority_t *authority;
+	fzn_prekey_record_t record;
+	size_t i;
+	const char *err;
+
+	if (why)
+		*why = NULL;
+	if (!admin || !admin->id || !admin->state || !admin->store || !admin->peers || !prekey
+	    || !card || !card_len
+	    || fzn_prekey_open(prekey, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK)
+		return 0;
+	for (i = 0; i < admin->state->peer_count; i++)
+		if (fzn_ct_memeq(admin->state->peers[i].sender, record.host, FZN_PUBKEY_LEN)) {
+			if (why)
+				*why = "this device is already paired here";
+			return 0;
+		}
+	authority = admin->authority;
+	if (admin->roots
+	    && memcmp(admin->state->config.root, admin->id->pubkey, FZN_PUBKEY_LEN) != 0
+	    && fzn_node_roots_identity_root(admin->roots, admin->store, admin->id->pubkey, proof,
+	                                    &by_identity) == FZN_NODE_ROOTS_OK)
+		authority = &by_identity;
+	err = pair_running(admin, record, authority, delegable, card, card_cap, card_len);
+	if (why)
+		*why = err;
+	return !err;
+}
+
 /* Is `arg` the subject `peer`, alone or followed by a space and more? Sets
  * `rest` to what follows the space, or to nothing for `peer` alone. */
 static int subject_peer(const fzn_request_t *request, const uint8_t **rest, size_t *rest_len)
