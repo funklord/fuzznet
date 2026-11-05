@@ -356,11 +356,11 @@ fzn_node_records_err_t fzn_node_decisions_write(const fzn_node_records_t *nr,
 		static fzn_setting_t mine;
 
 		memset(&mine, 0, sizeof(mine));
-		memcpy(mine.key, key, FZN_NODE_DECIDED_PREFIX_LEN + subject_len);
+		mine.key = key;
 		mine.key_len = FZN_NODE_DECIDED_PREFIX_LEN + subject_len;
-		memcpy(mine.value, text, at);
+		mine.value = text;
 		mine.value_len = at;
-		memcpy(mine.setter, nr->id->pubkey, FZN_PUBKEY_LEN);
+		mine.setter = nr->id->pubkey;
 		mine.version = nr->now_ms();
 		mine.set = 1;
 		gather(&kept, &mine);
