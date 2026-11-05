@@ -80432,8 +80432,7 @@ table) and `ed0d1b9` (the sticker). Left in place, the commit being pushed.
 Sec 887's lesson, built. `make livecheck-san` builds fuzznetd under ASan and
 UBSan and runs the live scripts over it (`tool/live_sanitized.py`). Reports go
 to files, so any report fails the run, whatever the script said: a daemon that
-died under a script that passed is seen. Leaks are not looked for, a daemon
-stopped by a signal leaving what it would free at exit.
+died under a script that passed is seen. Leaks are looked for since sec 897.
 
 Not in `check`, being as long again as `livecheck`.
 
@@ -80729,3 +80728,58 @@ the agreement's ops, and `memcpy` took it as the host's box key with no warning,
 so every code named a key nobody held. The box key is in the prekey record.
 Nothing but the live run could show it, since a unit test of the text round-trips
 any 32 bytes.
+
+## 897. SIGTERM stops a serving daemon cleanly, so leaks are looked for, 2026-11-05
+
+Sec 889 left leaks unlooked for: SIGTERM killed a daemon outright, so LeakSanitizer
+never ran, and a first "no leaks" there meant nothing.
+
+**Built:** while serving, SIGTERM is asked to stop, as `fzn_daemon_stop` is (sec
+835), where the disposition is still the default, so a program calling
+`fzn_daemon_main` that has its own handler keeps it. A one-shot command is left
+alone, having no loop that would notice. A follower too, for now.
+
+**`make livecheck-san` now sets `detect_leaks=1`,** with `live_join` and
+`live_invite` added. **The control:** a 77 byte leak planted in `stop_serving`,
+stopped by SIGTERM under `live_socket`, gave one report naming that line. So the
+0 reports of this run are a reading, as sec 892's were not.
+
+**Measured, leaks on:** 21 scripts, 0 reports. Two failed in that run. `live_names`
+was this session's own doing, its phase i written after the binary was built; it
+passes rebuilt. `live_contacts` is sec 898.
+
+**`live_siblings`, sec 892's one failure, passed,** on its new ports, once, which
+clears nothing for an intermittent fault and is said as that.
+
+**A bound found marginal:** `live_join` d2 waits two rounds and took 120.1 s on
+every run, on the code before this session too, against a bound of 120. It failed
+one run in about four. Now 200.
+
+## 898. A contact's stale host could hold back its own revocation, 2026-11-05
+
+Found by the sanitized run: `live_contacts` f failed at "S dropping R3 on R2's
+vote at k 1": seven runs of ten on the daemon with sec 897's stop, and none of
+four without it.
+
+**The fault.** A contact's exchange stops at the first of its hosts that answers.
+A probe at the judging showed S at `k=2` for every round: the host answering was
+not R, and had no k setting to give (`k phase: reply 4`). So a host behind its
+journal, or the revoked device itself, which stops pulling, stood between S and
+the root's word for as long as it answered first. A device that keeps answering
+could hold off news of its own revocation. That is a hole in what this library
+exists for, and no timing fault of a test.
+
+**Fixed: `contact_hosts_turned`.** The contact's root leads, being where a
+revocation and a k are made, and the hosts turn a place a round, so a root gone
+quiet or a host behind holds nothing back for long.
+- **Rejected: every host asked every round.** A pass's cost times its hosts, for
+  what a turn reaches within a few rounds.
+- **Rejected: the root alone.** A root may be offline, and sec 782 is why members
+  pass these on.
+
+**Measured:** 6 of 6 sanitized with leaks on, 0 reports, against 7 failures in 10
+before. Plain, `make livecheck`.
+
+**Not explained:** why sec 897's stop raised the rate from none in four to about
+seven in ten. The host order is what fails, and how a clean stop moves it was not
+found. The fault above stands either way, the code having no reason to prefer R.

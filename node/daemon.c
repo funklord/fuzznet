@@ -11448,8 +11448,43 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 	}
 }
 
+/* WHO IS ASKED FIRST, sec 898. A talk stops at the first host that answers, and
+ * what it answers may be old: a member behind its journal, or a device its
+ * owner revoked, which stopped pulling, and so says nothing of it. Always the
+ * same one, a contact's news never came. So the contact's root leads, it being
+ * where a revocation and a k are made, and the hosts turn a place each round,
+ * so a root gone quiet or a host behind holds nothing back for long. */
+static void contact_hosts_turned(struct contact_talk *ct, size_t turn)
+{
+	struct pull_target *hosts[FZND_CONTACT_HOSTS_TRIED];
+	const char *names[FZND_CONTACT_HOSTS_TRIED];
+	size_t i, by;
+
+	if (ct->n_hosts < 2u)
+		return;
+	for (i = 1; i < ct->n_hosts; i++)
+		if (memcmp(ct->hosts[i]->pairing.node, ct->contact, FZN_PUBKEY_LEN) == 0) {
+			struct pull_target *pt = ct->hosts[0];
+			const char *name = ct->names[0];
+
+			ct->hosts[0] = ct->hosts[i];
+			ct->names[0] = ct->names[i];
+			ct->hosts[i] = pt;
+			ct->names[i] = name;
+			break;
+		}
+	by = turn % ct->n_hosts;
+	for (i = 0; i < ct->n_hosts; i++) {
+		hosts[i] = ct->hosts[(i + by) % ct->n_hosts];
+		names[i] = ct->names[(i + by) % ct->n_hosts];
+	}
+	memcpy(ct->hosts, hosts, ct->n_hosts * sizeof(hosts[0]));
+	memcpy(ct->names, names, ct->n_hosts * sizeof(names[0]));
+}
+
 static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
+	static size_t contact_turn;
 	size_t i, k;
 
 	contacts_asked = 0;
@@ -11502,8 +11537,11 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 			ct->names[ct->n_hosts++] = host;
 		}
 	}
-	for (k = 0; k < n_contact_talks; k++)
+	contact_turn++;
+	for (k = 0; k < n_contact_talks; k++) {
+		contact_hosts_turned(&contact_talks[k], contact_turn - 1u);
 		(void)contact_talk_begin(&contact_talks[k]);
+	}
 	/* WHAT THE ESTATE'S MEMBERS KEEP, asked of every one at once, sec 636;
 	 * `contact_settle` pairs and says what came. */
 	for (i = 0; i < npulls && n_devices_talks < FZND_ROUND_TARGETS_MAX; i++) {
