@@ -14,6 +14,8 @@ stranger's, holds no key.
     b  A COPIED HELLO MOVES NOTHING. A frame of B's, delivered and then sent
        again from the stranger's socket, is dropped: `get lan` never shows
        that socket and nothing comes back
+    b2 NOR A COPY MADE AT ONCE, inside the seconds a request's reply is kept for
+       its caller's resend: it goes only where the request came from (sec 900)
     c  THE COPY WAS REAL. The proxy holds B's frames back and the stranger
        sends the first copy instead: `get lan` shows the stranger where B
        said hello. So phase b's silence was the replay window's, and not a
@@ -45,7 +47,7 @@ from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-DEADLINE_S = 240.0
+DEADLINE_S = 420.0
 PROBE_LEN = 144
 PROBE_MARK = 0xFC
 BOX_MARK = 0xFB
@@ -235,6 +237,29 @@ def main(argv):
 				raise failed("b: a copied frame of B's moved B to the stranger's socket")
 			print("livecheck: b: %d frames of B's, copied after delivery, moved nothing and "
 			      "drew nothing" % len(copies))
+
+			# b2: NOR A COPY INSIDE THE WINDOW A RESEND IS ANSWERED IN, sec 900: a
+			# request's reply is kept 6 s for its caller, and goes to no one else.
+			at = len(via.passed)
+			tried = 0
+			until = time.monotonic() + 100.0
+			while time.monotonic() < until and tried < 30:
+				if len(via.passed) == at:
+					time.sleep(0.02)
+					continue
+				fresh, at = via.passed[at:], len(via.passed)
+				time.sleep(0.15)
+				for frame in fresh:
+					stranger.sendto(frame, a_at)
+					tried += 1
+				back = heard(stranger, 0.3)
+				if back:
+					raise failed("b2: A answered a copy at once, after %d: %d datagram(s) of %d "
+					             "byte(s)" % (tried, len(back), len(back[0])))
+			if not tried:
+				raise failed("b2: B sent A nothing to copy")
+			print("livecheck: b2: %d frames of B's, copied within a resend's window, drew nothing"
+			      % tried)
 
 			# c: THE COPY WAS REAL.
 			via.held.clear()

@@ -65,6 +65,19 @@ int main(void)
 	/* A PIECE FOUND BY SENDER, MESSAGE AND EXPIRY, sec 741, and by nothing
 	 * less: a host started again stamps another expiry, and an expiry of
 	 * 0 tells no request from another. */
+	/* ANSWERED WHERE IT WAS ASKED FROM, sec 900. */
+	got = fzn_node_replies_find(&r, a, 7u, B("ping"), 101u, &len);
+	CHECK(fzn_node_replies_answers(&r, got, "anywhere", 8u), "a reply kept from nowhere said goes anywhere");
+	fzn_node_replies_where(&r, b, 7u, "here", 4u);
+	CHECK(fzn_node_replies_answers(&r, got, "there", 5u), "another's where is not marked on it");
+	fzn_node_replies_where(&r, a, 7u, "here", 4u);
+	CHECK(fzn_node_replies_answers(&r, got, "here", 4u), "it goes where it was asked from");
+	CHECK(!fzn_node_replies_answers(&r, got, "hers", 4u) && !fzn_node_replies_answers(&r, got, "her", 3u)
+	              && !fzn_node_replies_answers(&r, got, NULL, 0u),
+	      "and nowhere else");
+	CHECK(!fzn_node_replies_answers(&r, (const uint8_t *)"none", "here", 4u),
+	      "what was never kept goes nowhere");
+
 	fzn_node_replies_keep(&r, b, 9u, 2000u, B("whole"), 100u, B("done"));
 	got = fzn_node_replies_find_piece(&r, b, 9u, 2000u, 102u, &len);
 	CHECK(got && len == 4u && memcmp(got, "done", 4u) == 0,

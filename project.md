@@ -80819,3 +80819,56 @@ Same uid, the one account a script has: the road a second user takes differs onl
 by the verdict, which this path does not read. Sabotage: `events-held-hears-no-trust`,
 `events-held-word-to-its-hyphen`, `events-held-word-moves-with-it`,
 `events-held-bound`.
+
+## 900. A kept reply goes only where its request came from, 2026-11-05
+
+Found by `make livecheck`: `live_strangers` b, "A answered 1 copied frame of
+B's", once, after passing for a day. Sec 737 keeps a reply a few seconds so a
+caller's resend is answered and its handler not run again. A frame is its
+sender's whoever sends it, so a stranger's copy of one opened, matched, and drew
+the kept reply, sent to the stranger's address. It was sealed, so nothing was
+read. But it broke what sec 884 says of a stranger, and a node would reflect a
+kept reply at any address a copier named. Phase b's copies are a second old, so it
+was seen only when the last frames were a request with its reply still kept.
+
+**Proved before fixing:** a new phase, b2, copies each frame as it passes. Against
+the daemon before, it was answered within 4 frames, 170 bytes.
+
+**Fixed:** where a request came from is kept with its reply, and a copy from
+elsewhere is dropped: not answered, and not run again. A resend comes from the
+caller's own socket, so it is answered as before. b2 then: 35 frames, nothing.
+
+**The limit:** a caller whose address changes between sending and resending goes
+unanswered for that message, and asks again as a new one.
+
+## 901. Where this stands, folded 2026-11-05
+
+**Built since sec 892, all on the holder's word or a consumer's asking:** two
+people may share a name (893), a host keeping and relaying nothing carries no
+group's lines (894), what is decided apart is tracked (895), a device joins by one
+code (896), SIGTERM stops cleanly and leaks are looked for (897), a contact's root
+is asked first (898), a held event stream (899), a kept reply goes only where it
+was asked from (900). `FZN_PRODUCT_NETCFGD` is 3.
+
+**Open, unexplained, said as that:**
+- **`live_names` b failed once** in `make livecheck`: after 180 s neither host had
+  the other's name. It then passed 18 of 18 on its own. Logs went with the run.
+  Three orphaned daemons of this session's and later 54 more were up on that
+  port range for part of the day, from runs killed by an outer `timeout`, which
+  may or may not bear on it. Not concluded.
+- **`live_siblings`' sec 892 failure** has not returned, and has not been explained.
+- **Why sec 897's stop raised `live_contacts`' failure rate** (sec 898).
+- **`live_faults` j** failed once at its 60 s bound, with other runs beside it.
+
+**A lesson of this run:** `timeout` around a live script kills the script and not
+its daemons, whose process groups are their own. Stop one with `-s INT`, or let it
+reach its own deadline.
+
+**Waiting on the holder:**
+- Sec 896: is the secret alone enough, with no word from the host's user?
+- A right to hold a word's events for `any` (netcfgd's asking): sec 883 refused
+  `any=r`, and it would let any local user take the 4 held slots.
+
+**Waiting on others:** fuzzypickles' `contacts-same-name` expectation, its pin and
+step 3, and fzpd on `fzn_daemon_main`. A real second user for sec 899, on either
+side. Open from before: a staged clear (sec 873), sec 880's limits.

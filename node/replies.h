@@ -15,6 +15,13 @@
  * stamps a later one. Without it a late piece opened a partial nothing
  * finished, holding its sender's one reassembly slot for the hold.
  *
+ * ANSWERED ONLY WHERE IT WAS ASKED FROM, sec 900. A frame is its sender's
+ * whoever sends it, and a copy from a stranger's socket opens and matches.
+ * Its reply is sealed, so nothing is read, but a node that sends it there
+ * reflects a kept reply at any address a copier names. So where a request came
+ * from is kept with it, and a copy from elsewhere is dropped: not answered, and
+ * not run again.
+ *
  * BOUNDED IN ENTRIES AND IN BYTES, the oldest let go first. Letting one
  * go loses nothing but the saving: a resend of it runs its handler.
  */
@@ -27,6 +34,8 @@
 #include "../session/commitment.h"
 
 #define FZN_NODE_REPLIES_DIGEST_LEN 32u
+/* A socket address's bytes, an IPv6 one being 28. */
+#define FZN_NODE_REPLIES_WHERE_MAX 32u
 /* LONGER THAN A CALLER WAITS, 3 s, so a resend near its deadline still
  * finds its reply; short, so a host started again that asks the same
  * thing a few seconds later is not answered from its last run. */
@@ -40,6 +49,8 @@ typedef struct fzn_node_reply_kept {
 	uint64_t at;
 	size_t len;
 	uint8_t *bytes;
+	uint8_t where[FZN_NODE_REPLIES_WHERE_MAX];
+	size_t where_len; /* 0: nowhere said, and answered anywhere */
 } fzn_node_reply_kept_t;
 
 typedef struct fzn_node_replies {
@@ -56,6 +67,14 @@ typedef struct fzn_node_replies {
  * held, each kept `ttl_s` seconds. 0 for a null or a zero. */
 int fzn_node_replies_init(fzn_node_replies_t *r, fzn_node_reply_kept_t *kept, size_t cap,
                           size_t bytes_max, uint64_t ttl_s, const fzn_hash_ops_t *hash);
+
+/* THE REPLY JUST KEPT for (`sender`, `msg`) CAME FROM `where`, `len` bytes. */
+void fzn_node_replies_where(fzn_node_replies_t *r, const uint8_t sender[32], uint32_t msg,
+                            const void *where, size_t len);
+
+/* WHETHER `kept`, as a find answered it, may go to `where`, `len` bytes. */
+int fzn_node_replies_answers(const fzn_node_replies_t *r, const uint8_t *kept, const void *where,
+                             size_t len);
 
 /* THE REPLY KEPT for this request at `now` (seconds), `*len` of it; NULL
  * when none is, or it has expired. */

@@ -6776,7 +6776,7 @@ else
 	@timeout 540 python3 tool/live_relay.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_introduce.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_lan.py $(FUZZNETD)
-	@timeout 280 python3 tool/live_strangers.py $(FUZZNETD)
+	@timeout 460 python3 tool/live_strangers.py $(FUZZNETD)
 	@timeout 430 python3 tool/live_moved.py $(FUZZNETD)
 	@timeout 570 python3 tool/live_rot.py $(FUZZNETD)
 	@timeout 1560 python3 tool/live_names.py $(FUZZNETD)

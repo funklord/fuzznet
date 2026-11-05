@@ -149,7 +149,8 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	                                     opened->payload, opened->payload_len, now,
 	                                     &reply_len))
 	               != NULL) {
-		send_reply(state, peer, from, opened, kept, reply_len, 1);
+		if (fzn_node_replies_answers(state->replies, kept, from->storage, from->len))
+			send_reply(state, peer, from, opened, kept, reply_len, 1);
 		return;
 	}
 	state->asking_from = from;
@@ -163,9 +164,12 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	 * reply rather than a shorter one. */
 	if (reply_len > reply_cap)
 		reply_len = 0;
-	if (reply_len > 0 && state->replies)
+	if (reply_len > 0 && state->replies) {
 		fzn_node_replies_keep(state->replies, opened->sender, opened->msg, opened->expires_at,
 		                      opened->payload, opened->payload_len, now, reply, reply_len);
+		fzn_node_replies_where(state->replies, opened->sender, opened->msg, from->storage,
+		                       from->len);
+	}
 	send_reply(state, peer, from, opened, reply, reply_len, 0);
 }
 
@@ -303,7 +307,8 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 			                                           opened.msg, opened.expires_at,
 			                                           now, &kept_len))
 			               != NULL) {
-				if (opened.index == 0u)
+				if (opened.index == 0u
+				    && fzn_node_replies_answers(state->replies, kept, from.storage, from.len))
 					send_reply(state, peer, &from, &opened, kept, kept_len, 1);
 				return;
 			}

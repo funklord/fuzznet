@@ -5364,6 +5364,13 @@ SABOTAGES = [
 		"others' subscribers fill the room this node's own user needs -- sec 899",
 	),
 	(
+		"replies-only-where-asked",
+		"node/replies.c",
+		"\t\treturn (len < sizeof(k->where) ? len : sizeof(k->where)) == k->where_len\n\t\t       && memcmp(k->where, where, k->where_len) == 0;\n",
+		"\t\treturn 1;\n",
+		"a stranger's copy of a recent frame draws the kept reply, and a node reflects it at any address -- sec 900",
+	),
+	(
 		"decisions-base-whole",
 		"node/decisions.c",
 		"\t\tif ((at == bases || at[-1] == ',') && (at[len] == ',' || at[len] == '\\0'))\n",
