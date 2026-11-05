@@ -4198,11 +4198,18 @@ static size_t routing_local(fzn_origin_t origin, const fzn_request_t *request, c
 static int keeps_here(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
 {
 	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
-	size_t n;
+	static uint64_t read_at;
+	static size_t n;
+	uint64_t now = wall_clock();
 
 	(void)ctx;
-	n = fzn_retain_select_messages(rules, gather_rules(rules), dlog.has_host ? dlog.host : NULL,
-	                               here_machine(), rules);
+	/* READ ONCE A SECOND: asked for each line an absorb walks, sec 886, and
+	 * gathering the rules reads the settings. */
+	if (now != read_at || !now) {
+		n = fzn_retain_select_messages(rules, gather_rules(rules),
+		                               dlog.has_host ? dlog.host : NULL, here_machine(), rules);
+		read_at = now;
+	}
 	return fzn_messages_keeps(rules, n, contact);
 }
 
