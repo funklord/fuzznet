@@ -80305,9 +80305,7 @@ so each gets a test here first.
   here chose. To keep a file from later members, grant it to the members
   by name.
 
-**Not taken yet, from the same list:** `contacts-same-name`, `group-same-name`,
-`groups-across-a-nat`, `sender-at-a-shared-address`,
-`notes-share-from-one-of-two-hosts`, `notes-share-to-a-group`.
+The rest of the same list: secs 888 to 890.
 
 ## 885. An import reads a directory in order of name, 2026-11-05
 
@@ -80420,3 +80418,26 @@ host's, so it needs no agreement.
 **A correction to `4312c3a`:** its `Fixes:` trailer names `11e52c3a4f15`,
 which is no commit, written by hand. The faults came from `dcd352a` (the
 table) and `ed0d1b9` (the sticker). Left in place, the commit being pushed.
+
+## 889. The live scripts over a sanitized daemon, 2026-11-05
+
+Sec 887's lesson, built. `make livecheck-san` builds fuzznetd under ASan and
+UBSan and runs the live scripts over it (`tool/live_sanitized.py`). Reports go
+to files, so any report fails the run, whatever the script said: a daemon that
+died under a script that passed is seen. Leaks are not looked for, a daemon
+stopped by a signal leaving what it would free at exit.
+
+Not in `check`, being as long again as `livecheck`.
+
+**Measured:** seventeen scripts over a sanitized daemon, no report. The
+run's reporting is its own control: the same options over the code before sec
+887 wrote `asan.N` and `live_stickers` failed.
+
+**Also from sec 884's list, added with it:** `notes-share-from-one-of-two-hosts`,
+`tool/live_share_sibling.py`: a note S2 writes into a folder S shared reaches R,
+and the next. `notes-share-to-a-group`, `live_group_hosts` e3: a note shared
+after a removal reaches A and not C. `group-same-name`, sec 890.
+`groups-across-a-nat` is not taken: a frame names its sender and the seal
+proves it, no path reads the address, and `live_strangers` already runs B through
+a proxy that rewrites its port. `sender-at-a-shared-address` is the same.
+That closes sec 884's list.

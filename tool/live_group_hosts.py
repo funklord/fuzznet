@@ -24,6 +24,7 @@ has them; B2 is a second device of B's user, joined to B's estate by verbs
        lists the group
     e2 A's next line reaches B2, and C's whole store never holds its text;
        B2's does, so the search finds what is there (sec 884)
+    e3 a note B2 shares with the group after that reaches A and not C
 
 Against a daemon that syncs a group's log only with contacts' hosts and
 the estate's, phase c never takes B2's act: nobody else is up to carry it;
@@ -345,6 +346,29 @@ def main(argv):
 				raise failed("e2: B2's store does not hold the line: the search proves nothing")
 			print("livecheck: e2: A's line after the removal reached B2, and nothing in C's store "
 			      "holds it")
+
+			# e3: NOR A LATER NOTE: B2 shares one with the group; A, a member, pulls
+			# it, and C, removed, does not. A's pull is what makes C's silence mean
+			# anything: C's rounds ran beside it.
+			later = "shared-after-the-removal"
+			made = ask(socks["b2"], "add note top " + later)
+			if not made.startswith("ok "):
+				raise failed("e3: B2's add note answered %r" % made)
+			expect(socks["b2"], "b2", "add share %s @%s" % (made.split()[1], b2_name), "ok")
+			reached = False
+			for rnd in range(ROUNDS):
+				for who in ("b2", "a", "c"):
+					turn(who, "%s-e3%d" % (who, rnd))
+				if pulled(socks["a"], later):
+					reached = True
+					break
+			if not reached:
+				raise failed("e3: A never pulled B2's later note, so C's silence proves nothing%s"
+				             % tail(started["a"], ("group", "received", "refused")))
+			turn("c", "c-e3z")
+			if pulled(socks["c"], later):
+				raise failed("e3: C, removed, pulled a note shared after its removal")
+			print("livecheck: e3: a note shared after the removal reached A and not C")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

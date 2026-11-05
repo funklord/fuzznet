@@ -2072,7 +2072,7 @@ endif
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(PROG_OBJS:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -5790,6 +5790,16 @@ sancheck:
 	@echo "sancheck: the suite under AddressSanitizer and UBSan"
 	@$(MAKE) --no-print-directory runtests BUILD_DIR=$(BUILD_DIR)-san SANITIZE=1
 
+# THE LIVE SCRIPTS OVER A SANITIZED DAEMON, sec 889: `sancheck` reaches what
+# the suite does, and two faults only a running node reached were found from
+# outside it. Any report fails, whatever the script said. Its own target,
+# being as long again as `livecheck`.
+livecheck-san:
+	@test -n "$(BUILD_DIR)" || { echo "BUILD_DIR is empty; refusing"; exit 1; }
+	@case "$(BUILD_DIR)" in /*) echo "BUILD_DIR must be relative; refusing"; exit 1 ;; esac
+	@$(MAKE) --no-print-directory SANITIZE=1 BUILD_DIR=$(BUILD_DIR)-san $(BUILD_DIR)-san/fuzznetd
+	@timeout 21000 python3 tool/live_sanitized.py $(BUILD_DIR)-san/fuzznetd
+
 # A SUB-MAKE MAKE DOES NOT MARK RECURSIVE. sec 525. Make runs a recipe line
 # naming $(MAKE) even under `make -n`, and the sub-make inherits the -n --
 # so EVERYTHING ELSE ON THAT LINE runs for real in a dry run, and anything
@@ -6748,6 +6758,8 @@ else
 	@timeout 280 python3 tool/live_strangers.py $(FUZZNETD)
 	@timeout 430 python3 tool/live_moved.py $(FUZZNETD)
 	@timeout 570 python3 tool/live_rot.py $(FUZZNETD)
+	@timeout 310 python3 tool/live_names.py $(FUZZNETD)
+	@timeout 430 python3 tool/live_share_sibling.py $(FUZZNETD)
 	@timeout 600 python3 tool/live_groups.py $(FUZZNETD)
 ifdef CATALOG_ON
 	@timeout 540 python3 tool/live_catalog.py $(FUZZNETD)
