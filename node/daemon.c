@@ -89,6 +89,7 @@
 #include "reconcile.h"
 #include "settings.h"
 #include "records.h"
+#include "decisions.h"
 #include "responsible.h"
 #include "siblings.h"
 #endif
@@ -3097,6 +3098,49 @@ static fzn_node_apply_outcome_t record_file(void *ctx, const uint8_t subject[FZN
                                             uint32_t month, const uint8_t *item, size_t len)
 {
 	return fzn_node_records_file((const fzn_node_records_t *)ctx, subject, month, item, len);
+}
+
+/* A DECISION ARRIVED, sec 895: the forks are looked at again at the round's
+ * end, since walking every record for each one filed would cost what a host
+ * that observes often cannot pay. */
+static int forks_due = 1;
+
+static void record_filed(void *ctx, const fzn_setting_t *s)
+{
+	(void)ctx;
+	if (s->key_len > FZN_NODE_DECIDED_PREFIX_LEN
+	    && memcmp(s->key, FZN_NODE_DECIDED_PREFIX, FZN_NODE_DECIDED_PREFIX_LEN) == 0)
+		forks_due = 1;
+}
+
+/* THE FORKS HELD, said when their number moves. Every host holding the same
+ * records finds the same, so each says so of itself. */
+static void forks_look(void)
+{
+	static long told;
+	long now;
+
+	if (!forks_due)
+		return;
+	forks_due = 0;
+	now = fzn_node_decisions_forks(&node_records, NULL, NULL);
+	if (now < 0 || now == told)
+		return;
+	told = now;
+	say(FZN_ENTRY_NOTE, "decisions", "%ld decision(s) made apart wait to be settled", now);
+	publish("fork", NULL);
+}
+
+static size_t records_and_decisions_local(void *ctx, fzn_origin_t origin,
+                                          const fzn_request_t *request, char *reply,
+                                          size_t reply_cap)
+{
+	size_t n = fzn_node_decisions_local(ctx, origin, request, reply, reply_cap);
+
+	if (!n)
+		return fzn_node_records_local(ctx, origin, request, reply, reply_cap);
+	forks_due = 1;
+	return n;
 }
 
 static fzn_reconcile_filer_t records_filer = { record_file, NULL, &node_records,
@@ -12437,17 +12481,34 @@ static void contact_named(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const ch
 {
 	uint8_t cell[CONTACT_NAME_KEY_LEN];
 	fzn_node_settings_err_t serr;
+	fzn_node_decision_ref_t seen;
+	uint64_t version = 0;
+	uint8_t setter[FZN_PUBKEY_LEN];
+	int had;
 
 	(void)ctx;
 	if (!node_settings.store || !node_settings.estate)
 		return;
 	contact_name_key(key, cell);
+	/* WHAT THIS HOST SAW, sec 895, before its word replaces it. */
+	had = fzn_node_settings_standing_of(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate,
+	                                    cell, sizeof(cell), &seen.number, seen.host);
 	serr = fzn_node_settings_write(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, cell,
 	                               sizeof(cell), name != NULL, (const uint8_t *)name,
 	                               name ? name_len : 0u);
-	if (serr == FZN_NODE_SETTINGS_OK)
+	if (serr == FZN_NODE_SETTINGS_OK) {
 		journal_pushed = 1;
-	else
+		forks_due = 1;
+		if (node_records.b
+		    && fzn_node_settings_standing_of(&node_settings, FZN_SCOPE_ESTATE,
+		                                     node_settings.estate, cell, sizeof(cell), &version,
+		                                     setter)
+		    && fzn_node_decisions_write(&node_records, cell, sizeof(cell), version,
+		                                had ? &seen : NULL, NULL, 0u, (const uint8_t *)name,
+		                                name ? name_len : 0u)
+		               != FZN_NODE_RECORDS_OK)
+			say(FZN_ENTRY_WARNING, "decisions", "a contact's name was not recorded as decided");
+	} else
 		say(FZN_ENTRY_DEBUG, "contact/names", "a contact's name kept on this host alone: %s",
 		    fzn_node_settings_err_str(serr));
 }
@@ -18783,7 +18844,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_records.verify = &sign_ops;
 				node_records.id = &identity;
 				node_records.now_ms = wall_ms;
-				admin.records_local = fzn_node_records_local;
+				node_records.filed = record_filed;
+				admin.records_local = records_and_decisions_local;
 				admin.records_ctx = &node_records;
 				admin.settings = &node_settings;
 				admin.remote_ran = remote_ran;
@@ -19422,6 +19484,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					}
 					/* AND AS THE ESTATE NAMES THEM, sec 699. */
 					take_contact_names();
+					forks_look();
 					break;
 				case ROUND_MEMBERS:
 					/* THE ESTATE'S MEMBERS, asked of every peer at once, the

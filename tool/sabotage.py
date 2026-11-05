@@ -5308,6 +5308,27 @@ SABOTAGES = [
 		"two keys under one name, and a person picking a contact by name gets whichever the walk met first -- sec 893",
 	),
 	(
+		"decisions-base-whole",
+		"node/decisions.c",
+		"\t\tif ((at == bases || at[-1] == ',') && (at[len] == ',' || at[len] == '\\0'))\n",
+		"\t\tif (1)\n",
+		"a base that merely contains another decision's name supersedes it, and a fork is hidden -- sec 895",
+	),
+	(
+		"decisions-one-value-no-fork",
+		"node/decisions.c",
+		"\t\t\telse if (h->d.value_len != first->d.value_len\n\t\t\t         || memcmp(h->d.value, first->d.value, h->d.value_len) != 0)\n",
+		"\t\t\telse\n",
+		"two writers who reached one answer are shown as a fork, and deciders never settle -- sec 895",
+	),
+	(
+		"decisions-superseded-marked",
+		"node/decisions.c",
+		"\t\t\t\t\tall[i].superseded = 1;\n",
+		"\t\t\t\t\t(void)all;\n",
+		"a decision that saw the last does not replace it, and every rename is a fork -- sec 895",
+	),
+	(
 		"contact-rename-keeps-time",
 		"contact/contact.c",
 		"\t\ta->added = c->added_at_ms;\n",

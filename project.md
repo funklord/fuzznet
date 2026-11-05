@@ -80586,3 +80586,81 @@ until they go.
 **Measured, after:** 0 of 32 taken, the store growing 519 bytes. With
 `relay/enabled`, 33 taken and the past month's line let go at the next pass. With
 no rule, C files the line it never carried.
+
+## 895. What was decided apart is tracked, and shown until it is settled, 2026-11-05
+
+The holder's, with sec 893: two hosts renaming a record on one estate are usually
+the same person, so they should keep track of doing unsyncable changes during a
+split. And later: two batch jobs, or two AIs, renaming one record. Those should
+be reconcilable, which is doable if their decision matrix and grounds reach
+eventual consensus.
+
+**The gap.** A setting resolves to one value a cell, so of two writes made apart
+the later stands, and the earlier is replaced with nothing said. A setting says
+when it was written and not what its writer had seen, so no host can tell two
+writes made apart from two made one after the other.
+
+**Built: `node/decisions.{h,c}`.** A change worth tracking is also written as a
+record, `decided/SUBJECT`, as `SELF BASES GROUNDS VALUE`: its own name, what its
+writer had seen, one word of grounds (`-` for a person), and the value.
+- **Heads** are the decisions no other held names as a base. They come from the
+  records alone, so every host holding the same records finds the same ones and
+  nothing is agreed or sent. This is a multi-value register: the base list does
+  what a version vector does, sized by the heads open and not the hosts ever
+  seen.
+- **A fork** is a subject whose heads disagree. `list fork` shows both sides,
+  `get decided SUBJECT` a subject's heads, and the event `fork` says the number
+  moved.
+- **Heads of one value are no fork.** Two writers who reach one answer have
+  agreed.
+- **A write closes it,** naming every head. A person does that by making the
+  change again.
+- **It says and does not rule.** What stands is the setting's, by rank and
+  version. A fork is only shown, so nothing a host does depends on the records
+  having arrived.
+
+**Deciders that are programs need nothing further.** Told of a fork, each decides
+again from both sides' grounds. Two running one matrix over one set of grounds
+write one value, whose heads are no fork, and it closes with no person. So what
+is asked of a decider is that it be a function of its grounds, and `add decided
+SUBJECT [grounds=WORD] VALUE` is its verb. The grounds word is the decider's: a
+hash of its inputs, or a list of what it read. Open, for a first real consumer: a
+decider's grounds passing the 64 bytes a word has, and a matrix that differs
+between versions of one job, which forks for good until they match.
+
+**Why a record and not the setting.**
+- **Rejected: a base in the setting.** A wire change to the object every node
+  applies, and the loser's value would still be gone, which a user must see to
+  choose.
+- **Rejected: telling by the clock.** Writes a minute apart with a split between
+  them, and writes a minute apart with a sync between them, look alike.
+- **Rejected: a version vector per cell.** It grows with the hosts that ever
+  wrote, and heads give the same answer.
+
+**A base names a setting by its version and setter,** which a decision's SELF
+repeats, so a host that has the setting and not yet the record still names it.
+The two travel apart (a setting in the estate stream, a record by reconcile). A
+base taken from the records alone reported a fork for every rename made soon
+after another host's. `live_names` g is that case.
+
+**Tracked so far: a contact's name.** `contact_named` writes both. The rest of
+the estate's cells are not, each costing a record a write and most having nothing
+to show: a cell earns it when a user would want both sides.
+
+**The cost.** One record a tracked write. `list fork` walks every record, which
+is why the daemon looks only after a decision is filed or written, at a round's
+end.
+
+**Limits, said:**
+- A base past a record's room is left out, leaving a fork open rather than hiding
+  one. It takes about ten open heads.
+- `policy records drop` forgets a host's forks, as it does any record.
+- A root's name outranks an admin's at the cell (sec 728) whatever the order, and
+  the fork is still shown.
+
+**Measured:** `decisions_test`, and `live_names` e to h: renamed two ways at once,
+both hosts show both; named again on B, the fork closes on both; renames one
+after the other on two hosts never fork; and two jobs fork, decide again from
+both grounds, and close it with no person. Sabotage: `decisions-base-whole`,
+`decisions-one-value-no-fork`,
+`decisions-superseded-marked`.

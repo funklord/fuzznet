@@ -71,6 +71,7 @@
 #include "../chain/authz.h"
 #include "../state/setting.h"
 
+struct fzn_setting;
 typedef struct fzn_node_records {
 	const fzn_buckets_t *b;
 	const fzn_sign_ops_t *verify;
@@ -78,6 +79,9 @@ typedef struct fzn_node_records {
 	 * keeps others'. */
 	const fzn_node_identity_t *id;
 	uint64_t (*now_ms)(void);
+	/* TOLD OF EACH RECORD A PEER HANDED ON AND KEPT, sec 895. May be NULL. */
+	void (*filed)(void *ctx, const struct fzn_setting *s);
+	void *filed_ctx;
 } fzn_node_records_t;
 
 /* A RECORD'S PLACE: its setter, the month of its version, and the setting
@@ -159,6 +163,11 @@ int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name
                                size_t name_len,
                                void (*each)(void *ctx, const fzn_node_list_member_t *m),
                                void *ctx);
+
+/* EVERY RECORD HELD WHOSE KEY OPENS WITH `prefix`, of every host's, to `each`,
+ * in no order. 1, or 0 when the records could not be read. */
+int fzn_node_records_under(const fzn_node_records_t *nr, const uint8_t *prefix, size_t prefix_len,
+                           void (*each)(void *ctx, const struct fzn_setting *s), void *ctx);
 
 /* The verbs above, as a local handler: 0 for a request that is not one. */
 size_t fzn_node_records_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,

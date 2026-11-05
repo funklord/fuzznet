@@ -13,6 +13,13 @@ made-up keys serve.
     c  a name given where it is already held is kept, and said to clash
     d  renaming one reaches the same person on both, and `bob` then means
        the other on every host
+    e  one person renames one contact two ways, on A and on B, before either
+       hears: one stands, and `list fork` shows both on both hosts (sec 895)
+    f  making the change again on one host, having seen both, closes it on both
+    g  renames one after the other on two hosts make no fork, however late
+       the first host's record comes
+    h  two jobs decide one subject apart from different grounds; each decides
+       again from both, reaches one value, and the fork closes with no person
 
 Against a daemon that settles a clash by key, as sec 888 did, the higher key
 goes by bob_2 and phase b never agrees; against one that leaves it for a later
@@ -37,7 +44,7 @@ from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-DEADLINE_S = 420.0
+DEADLINE_S = 1500.0
 SETTLE_S = 180.0
 LOW = "11" * 32
 HIGH = "ee" * 32
@@ -170,6 +177,57 @@ def main(argv):
 				if not got.startswith("ok"):
 					raise failed("d: `list message bob` on %s answered %r" % (who.upper(), got))
 			print("livecheck: d: renamed on A, the higher key is robert on both, and bob is one")
+
+			# e: ONE PERSON RENAMED APART, sec 895: the same contact named two ways,
+			# neither host having heard. One stands, and both are shown on each.
+			def fork_on(who):
+				rows = ask(socks[who], "list fork").split()[4:]
+				return sorted(r.split(",")[4] for r in rows if "," in r)
+
+			def forks_settle(want, what):
+				until = time.monotonic() + SETTLE_S
+				while True:
+					held = {who: fork_on(who) for who in ("a", "b")}
+					if all(v == want for v in held.values()):
+						return
+					if time.monotonic() > until:
+						raise failed("%s: the hosts hold forks %r" % (what, held))
+					time.sleep(1.0)
+
+			retried("a", "add contact dave " + LOW, "ok")
+			retried("b", "add contact david " + LOW, "ok")
+			forks_settle(["dave", "david"], "e")
+			print("livecheck: e: one contact named two ways apart is shown as a fork on both")
+
+			# f: CHOSEN, on either host, by making the change again.
+			expect(socks["b"], "b", "add contact dave " + LOW, "ok")
+			forks_settle([], "f")
+			agreed({LOW: "dave"}, "f")
+			print("livecheck: f: named again on B having seen both, the fork closed on both")
+
+			# g: NO FORK WITHOUT A SPLIT: B renames as soon as the setting shows
+			# A's, whatever has become of A's record.
+			expect(socks["a"], "a", "add contact daniel " + LOW, "ok")
+			agreed({LOW: "daniel"}, "g")
+			expect(socks["b"], "b", "add contact dan " + LOW, "ok")
+			agreed({LOW: "dan"}, "g")
+			time.sleep(2.0)
+			forks_settle([], "g")
+			print("livecheck: g: renames one after the other, on two hosts, never forked")
+
+			# h: TWO JOBS DECIDE APART, then each again from both grounds.
+			retried("a", "add decided tune/x grounds=g1 5", "ok")
+			retried("b", "add decided tune/x grounds=g2 7", "ok")
+			forks_settle(["5", "7"], "h")
+			retried("a", "add decided tune/x grounds=g1+g2 7", "ok")
+			retried("b", "add decided tune/x grounds=g1+g2 7", "ok")
+			forks_settle([], "h")
+			got = ask(socks["a"], "get decided tune/x").split()
+			if got[0] != "ok" or not all(r.endswith(",g1+g2,7") or r.endswith(",g1%2bg2,7")
+			                             for r in got[2:]):
+				raise failed("h: A's heads are %r" % got)
+			print("livecheck: h: two deciders forked, and each deciding from both grounds "
+			      "settled it with no person")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

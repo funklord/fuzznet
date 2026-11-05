@@ -152,6 +152,7 @@
 #include <fuzznet/node/file_holds.h>
 #include <fuzznet/node/attachments.h>
 #include <fuzznet/node/records.h>
+#include <fuzznet/node/decisions.h>
 #include <fuzznet/node/responsible.h>
 #include <fuzznet/messages/messages.h>
 #include <fuzznet/node/messages.h>
@@ -366,6 +367,7 @@
 #include "node/file_holds.h"
 #include "node/attachments.h"
 #include "node/records.h"
+#include "node/decisions.h"
 #include "node/responsible.h"
 #include "messages/messages.h"
 #include "node/messages.h"

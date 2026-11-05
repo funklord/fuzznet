@@ -38,15 +38,20 @@ fzn_node_apply_outcome_t fzn_node_records_file(const fzn_node_records_t *nr,
 	uint8_t setter[FZN_PUBKEY_LEN];
 	uint32_t at = 0;
 	fzn_buckets_err_t err;
+	fzn_setting_t s;
 
-	if (!nr || !nr->b || !subject || !fzn_node_records_place(nr, item, len, setter, &at, NULL)
+	if (!nr || !nr->b || !subject || !fzn_node_records_place(nr, item, len, setter, &at, &s)
 	    || at != month || !fzn_ct_memeq(setter, subject, FZN_PUBKEY_LEN))
 		return FZN_NODE_APPLY_REFUSED;
 	err = fzn_buckets_add(nr->b, FZN_BUCKETS_RECORDS, subject, month, item, len, NULL);
 	/* A MONTH LET GO HERE is not taken back for a peer's holding it. */
 	if (err == FZN_BUCKETS_GONE)
 		return FZN_NODE_APPLY_APPLIED;
-	return err == FZN_BUCKETS_OK ? FZN_NODE_APPLY_APPLIED : FZN_NODE_APPLY_NOT_SAVED;
+	if (err != FZN_BUCKETS_OK)
+		return FZN_NODE_APPLY_NOT_SAVED;
+	if (nr->filed)
+		nr->filed(nr->filed_ctx, &s);
+	return FZN_NODE_APPLY_APPLIED;
 }
 
 static fzn_node_records_err_t write_record(const fzn_node_records_t *nr, const uint8_t *key,
@@ -836,6 +841,57 @@ int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name
 			each(ctx, &rows[i]);
 	}
 	free(rows);
+	return ok;
+}
+
+int fzn_node_records_under(const fzn_node_records_t *nr, const uint8_t *prefix, size_t prefix_len,
+                           void (*each)(void *ctx, const struct fzn_setting *s), void *ctx)
+{
+	static uint8_t ids[FZN_BUCKETS_CHUNK][FZN_BUCKETS_ID_LEN];
+	static uint8_t item[FZN_BUCKETS_ITEM_MAX];
+	fzn_bucket_t *list = NULL;
+	size_t room = 0, n_buckets = 0, i, j;
+	int ok = 1;
+
+	if (!nr || !nr->b || !nr->verify || !each || (prefix_len && !prefix))
+		return 0;
+	if (fzn_buckets_list_all(nr->b, FZN_BUCKETS_RECORDS, &list, &room, &n_buckets)
+	    != FZN_BUCKETS_OK) {
+		free(list);
+		return 0;
+	}
+	for (i = 0; i < n_buckets && ok; i++) {
+		uint64_t pos = 0, total = 0;
+
+		do {
+			size_t got = 0;
+
+			if (fzn_buckets_ids(nr->b, FZN_BUCKETS_RECORDS, list[i].subject, list[i].month,
+			                    pos, ids, FZN_BUCKETS_CHUNK, &got, &total)
+			    != FZN_BUCKETS_OK) {
+				ok = 0;
+				break;
+			}
+			for (j = 0; j < got; j++) {
+				uint8_t subject[FZN_PUBKEY_LEN];
+				uint32_t month = 0;
+				size_t len = 0;
+				fzn_setting_t s;
+
+				if (fzn_buckets_item(nr->b, FZN_BUCKETS_RECORDS, ids[j], item, sizeof(item),
+				                     &len, NULL, NULL)
+				            != FZN_BUCKETS_OK
+				    || !fzn_node_records_place(nr, item, len, subject, &month, &s)
+				    || s.key_len < prefix_len || memcmp(s.key, prefix, prefix_len) != 0)
+					continue;
+				each(ctx, &s);
+			}
+			pos += got;
+			if (!got)
+				break;
+		} while (pos < total && ok);
+	}
+	free(list);
 	return ok;
 }
 
