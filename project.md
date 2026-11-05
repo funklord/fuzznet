@@ -80862,10 +80862,15 @@ at that line and stopped the daemon: read after the stop now, 5 of 5 and more.
 
 **`live_contacts` under the sanitizer, open.** Bounds of 90 and 150 s at e2 and f2
 are 180 and 300 now, a sanitized round being 66 s, and neither failed again. **f0
-still fails, 3 runs in 14, at 300 s as at 150, so it is no bound.** In one run with
-logs, S's last three rounds offered no line, and R and R2 weighed none. That was a
-tail of the log, since deleted: whether S offered earlier was not read. Not seen
-plain. It wants a probe at S's delivery, as sec 898's did, and the logs kept.
+failed 3 runs of 9 in a row, at 300 s as at 150, so it was no bound, and then
+passed 17 of 17 and the full run, with nothing changed between.** Why it stopped
+is not known, and passing is what an intermittent fault does. In one failing run,
+S's last three rounds offered no line and R and R2 weighed none. That was a tail
+of the log, since deleted: whether S offered earlier was not read. Not seen plain.
+If it returns, keep the logs and read S's whole delivery.
+
+**`make livecheck-san` at `4677d9d`, nothing beside it:** 21 scripts, no report,
+leaks on: its first clean run.
 
 **Open, unexplained, said as that:**
 - **`live_names` b failed once** in `make livecheck`: after 180 s neither host had
