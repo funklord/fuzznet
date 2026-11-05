@@ -126,6 +126,18 @@ fzn_node_serve_err_t fzn_node_serve_local_judged(const fzn_node_config_t *config
                                                  fzn_node_local_handler_t on_denied,
                                                  void *denied_ctx)
 {
+	return fzn_node_serve_local_held(config, fd, peer, on_local, ctx, subscribed, on_denied,
+	                                 denied_ctx, NULL, NULL, NULL);
+}
+
+fzn_node_serve_err_t fzn_node_serve_local_held(const fzn_node_config_t *config, int fd,
+                                               const fzn_peer_t *peer,
+                                               fzn_node_local_handler_t on_local, void *ctx,
+                                               int *subscribed,
+                                               fzn_node_local_handler_t on_denied,
+                                               void *denied_ctx, fzn_node_local_hears_t hears,
+                                               void *hears_ctx, char *word)
+{
 	fzn_origin_t origin;
 	fzn_authz_verdict_t verdict;
 	fzn_line_t reader;
@@ -216,6 +228,22 @@ fzn_node_serve_err_t fzn_node_serve_local_judged(const fzn_node_config_t *config
 
 		if (write_all(fd, OK_EVENTS, sizeof(OK_EVENTS) - 1u) != 0)
 			return FZN_NODE_SERVE_IO;
+		*subscribed = 1;
+		return FZN_NODE_SERVE_OK;
+	}
+	/* HELD ON A WORD, sec 899: whoever `hears` says may read it, this node's
+	 * own user or not. `word` filled says which sort of subscriber this is. */
+	if (subscribed && hears && word && fzn_vocabulary_split(line, line_len, &request)
+	    && request.parsed == FZN_VERB_GET && request.arg_len > 7u
+	    && request.arg_len - 7u <= FZN_NODE_LOCAL_WORD_MAX
+	    && memcmp(request.arg, "events ", 7u) == 0
+	    && hears(hears_ctx, peer, request.arg + 7u, request.arg_len - 7u)) {
+		static const char OK_EVENTS[] = "ok events\n";
+
+		if (write_all(fd, OK_EVENTS, sizeof(OK_EVENTS) - 1u) != 0)
+			return FZN_NODE_SERVE_IO;
+		memcpy(word, request.arg + 7u, request.arg_len - 7u);
+		word[request.arg_len - 7u] = '\0';
 		*subscribed = 1;
 		return FZN_NODE_SERVE_OK;
 	}

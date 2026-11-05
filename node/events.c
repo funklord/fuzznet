@@ -88,7 +88,19 @@ int fzn_node_events_room(const fzn_node_events_t *ev)
 	return ev && ev->n < FZN_NODE_EVENTS_MAX;
 }
 
-int fzn_node_events_add(fzn_node_events_t *ev, int fd)
+int fzn_node_events_room_held(const fzn_node_events_t *ev)
+{
+	size_t i, held = 0;
+
+	if (!fzn_node_events_room(ev))
+		return 0;
+	for (i = 0; i < ev->n; i++)
+		if (ev->only[i][0])
+			held++;
+	return held < FZN_NODE_EVENTS_HELD_MAX;
+}
+
+static int take(fzn_node_events_t *ev, int fd, const char *word)
 {
 	int flags;
 
@@ -97,8 +109,22 @@ int fzn_node_events_add(fzn_node_events_t *ev, int fd)
 	flags = fcntl(fd, F_GETFL);
 	if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0)
 		return 0;
+	(void)snprintf(ev->only[ev->n], sizeof(ev->only[0]), "%s", word);
 	ev->fds[ev->n++] = fd;
 	return 1;
+}
+
+int fzn_node_events_add(fzn_node_events_t *ev, int fd)
+{
+	return take(ev, fd, "");
+}
+
+int fzn_node_events_add_held(fzn_node_events_t *ev, int fd, const char *word)
+{
+	if (!word || !word[0] || strlen(word) >= sizeof(ev->only[0])
+	    || !fzn_node_events_room_held(ev))
+		return 0;
+	return take(ev, fd, word);
 }
 
 /* Subscriber `i` dropped and closed; the last takes its place. */
@@ -106,6 +132,7 @@ static void drop(fzn_node_events_t *ev, size_t i)
 {
 	(void)close(ev->fds[i]);
 	ev->fds[i] = ev->fds[--ev->n];
+	memcpy(ev->only[i], ev->only[ev->n], sizeof(ev->only[0]));
 	ev->dropped++;
 }
 
@@ -117,7 +144,18 @@ static int word_of(const char *s, size_t max, const char *allowed)
 	return n > 0u && n <= max && strspn(s, allowed) == n;
 }
 
-size_t fzn_node_events_publish(fzn_node_events_t *ev, const char *subject, const char *name)
+/* WHETHER SUBSCRIBER `i` HEARS `subject`: all do but the held, who hear only
+ * an extension's, under their word and a hyphen. */
+static int hears(const fzn_node_events_t *ev, size_t i, const char *subject, int extension)
+{
+	size_t n = strlen(ev->only[i]);
+
+	if (!n)
+		return 1;
+	return extension && strncmp(subject, ev->only[i], n) == 0 && subject[n] == '-';
+}
+
+static size_t publish(fzn_node_events_t *ev, const char *subject, const char *name, int extension)
 {
 	char line[16u + FZN_NODE_EVENTS_SUBJECT_MAX + FZN_NODE_EVENTS_NAME_MAX];
 	size_t i, took = 0;
@@ -145,8 +183,13 @@ size_t fzn_node_events_publish(fzn_node_events_t *ev, const char *subject, const
 	/* A WHOLE LINE OR THE SUBSCRIBER GOES: a part of one would leave the
 	 * next line joined to it, and waiting for room would block the node. */
 	for (i = 0; i < ev->n;) {
-		ssize_t w = send(ev->fds[i], line, (size_t)len, MSG_NOSIGNAL | MSG_DONTWAIT);
+		ssize_t w;
 
+		if (!hears(ev, i, subject, extension)) {
+			i++;
+			continue;
+		}
+		w = send(ev->fds[i], line, (size_t)len, MSG_NOSIGNAL | MSG_DONTWAIT);
 		if (w == (ssize_t)len) {
 			took++;
 			ev->sent++;
@@ -158,6 +201,17 @@ size_t fzn_node_events_publish(fzn_node_events_t *ev, const char *subject, const
 		drop(ev, i);
 	}
 	return took;
+}
+
+size_t fzn_node_events_publish(fzn_node_events_t *ev, const char *subject, const char *name)
+{
+	return publish(ev, subject, name, 0);
+}
+
+size_t fzn_node_events_publish_extension(fzn_node_events_t *ev, const char *subject,
+                                         const char *name)
+{
+	return publish(ev, subject, name, 1);
 }
 
 int fzn_node_events_ready(fzn_node_events_t *ev, int fd)

@@ -9136,7 +9136,7 @@ size_t fzn_daemon_publish(const char *subject, const char *name)
 	/* SERVING, and not in the middle of a step, as for a local request. */
 	if (!serving_state || waiting_in_turn)
 		return 0;
-	return fzn_node_events_publish(&node_events, subject, name);
+	return fzn_node_events_publish_extension(&node_events, subject, name);
 }
 
 /* A LOCAL REQUEST IN-PROCESS, sec 835: the line read as the socket reads
@@ -9785,6 +9785,30 @@ static size_t permit_judge(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	    (int)subject_len, (const char *)subject);
 	return local_handle(ctx, FZN_AUTHZ_GRANTED_UNGUARDED, FZN_ORIGIN_SAME_USER, peer, request,
 	                    reply, cap);
+}
+
+/* WHO MAY HOLD `get events WORD`, sec 899: one that may read WORD by a grant.
+ * This node's own user is asked the same, so a word nobody granted is no
+ * subscription for anyone, and is answered as any verb. */
+static int permit_hears(void *ctx, const fzn_peer_t *peer, const uint8_t *word, size_t len)
+{
+	char key[sizeof(FZN_PERMIT_KEY_PREFIX) + FZN_PERMIT_SUBJECT_MAX];
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t value_len = 0;
+
+	(void)ctx;
+	if (!routing_self || !peer || !fzn_node_permit_subject_ok((const char *)word, len))
+		return 0;
+	(void)snprintf(key, sizeof(key), "%s%.*s", FZN_PERMIT_KEY_PREFIX, (int)len,
+	               (const char *)word);
+	if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, routing_self,
+	                           (const uint8_t *)key, strlen(key), value, &value_len, &rank)
+	    || !fzn_node_permit_allows(value, value_len, peer, FZN_PERMIT_READ))
+		return 0;
+	say(FZN_ENTRY_INFO, "local/permit", "uid %lu holds %.*s's events, as granted",
+	    (unsigned long)peer->uid, (int)len, (const char *)word);
+	return 1;
 }
 
 /* AN EXTENSION'S OPTION, `arg` as typed: 1 taken, 0 not one of its, -1
@@ -19238,6 +19262,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			state.on_local_ctx = &admin;
 			/* OTHER LOCAL USERS, as this node's own user grants them, sec 852. */
 			state.on_local_denied = permit_judge;
+			state.hears = permit_hears;
 			state.on_local_denied_ctx = &admin;
 			/* THE ESTATE'S ROUTING MANIFEST, sec 611. */
 			admin.routing_remote = routing_remote;

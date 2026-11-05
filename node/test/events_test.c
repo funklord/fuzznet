@@ -48,6 +48,54 @@ static int pair(int sv[2])
 	return socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0;
 }
 
+/* HELD, sec 899: only an extension's, only its word's, within its bound. */
+static void test_held(void)
+{
+	static fzn_node_events_t ev;
+	int own[2], held[2], other[2], more[FZN_NODE_EVENTS_HELD_MAX][2];
+	char buf[256];
+	size_t i;
+
+	fzn_node_events_init(&ev);
+	CHECK(pair(own) && pair(held) && pair(other) && fzn_node_events_add(&ev, own[0])
+	              && fzn_node_events_add_held(&ev, held[0], "net")
+	              && fzn_node_events_add_held(&ev, other[0], "raid"),
+	      "fixture: this node's user's, and two held");
+	CHECK(fzn_node_events_publish(&ev, "member", "ab") == 1u, "fuzznet's reaches its own alone");
+	CHECK(drain(held[1], buf, sizeof(buf)) == 0u, "a held subscriber hears none of fuzznet's");
+	CHECK(fzn_node_events_publish(&ev, "net-drift", NULL) == 1u,
+	      "fuzznet's own under a word's name stays fuzznet's");
+	CHECK(drain(held[1], buf, sizeof(buf)) == 0u, "and is not heard");
+	CHECK(fzn_node_events_publish_extension(&ev, "net-drift", NULL) == 2u,
+	      "an extension's reaches its word's and this node's user's");
+	CHECK(drain(held[1], buf, sizeof(buf)) && strcmp(buf, "event net-drift -\n") == 0,
+	      "whole");
+	CHECK(drain(other[1], buf, sizeof(buf)) == 0u, "another word hears nothing of it");
+	CHECK(fzn_node_events_publish_extension(&ev, "network", NULL) == 1u
+	              && fzn_node_events_publish_extension(&ev, "net", NULL) == 1u,
+	      "a word is matched to its hyphen, not as a prefix");
+	CHECK(drain(held[1], buf, sizeof(buf)) == 0u, "so neither is heard");
+	/* DROPPED, a word stays with its own. */
+	(void)drain(own[1], buf, sizeof(buf));
+	close(own[1]);
+	CHECK(fzn_node_events_ready(&ev, own[0]), "the first goes");
+	CHECK(fzn_node_events_publish_extension(&ev, "raid-state", NULL) == 1u,
+	      "and the last, moved into its place, keeps its word");
+	CHECK(drain(other[1], buf, sizeof(buf)) && strcmp(buf, "event raid-state -\n") == 0,
+	      "heard by it");
+	/* THE BOUND. */
+	for (i = 0; i + 2u < FZN_NODE_EVENTS_HELD_MAX; i++)
+		CHECK(pair(more[i]) && fzn_node_events_add_held(&ev, more[i][0], "net"), "room");
+	CHECK(pair(more[FZN_NODE_EVENTS_HELD_MAX - 1u])
+	              && !fzn_node_events_room_held(&ev)
+	              && !fzn_node_events_add_held(&ev, more[FZN_NODE_EVENTS_HELD_MAX - 1u][0], "net"),
+	      "others' subscribers stop short of the room this node's user needs");
+	CHECK(fzn_node_events_room(&ev), "which is still there");
+	CHECK(!fzn_node_events_add_held(&ev, more[FZN_NODE_EVENTS_HELD_MAX - 1u][0], ""),
+	      "no word is no held subscriber");
+	fzn_node_events_close(&ev);
+}
+
 static void test_lines_whole_and_only_well_formed(void)
 {
 	fzn_node_events_t ev;
@@ -202,6 +250,7 @@ static void test_since_a_cursor(void)
 
 int main(void)
 {
+	test_held();
 	test_lines_whole_and_only_well_formed();
 	test_one_gone_or_slow_is_dropped();
 	test_room_and_close();

@@ -106,6 +106,9 @@ typedef struct fzn_node_state {
 	 * request is answered with nothing: the asker learns of approval from
 	 * the user's first offer (sec 614). NULL drops every box. */
 	void (*on_box)(void *ctx, const uint8_t *box, size_t len, const fzn_udp_addr_t *from);
+	/* WHO MAY HOLD `get events WORD`, sec 899. NULL takes none. */
+	fzn_node_local_hears_t hears;
+	void *hears_ctx;
 	void *on_box_ctx;
 	/* A LAN PROBE, sec 624: a datagram opening with FZN_NODE_PROBE_MARK,
 	 * which no frame and no box does, handed over with where it came from

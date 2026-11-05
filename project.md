@@ -80783,3 +80783,35 @@ before. Plain, `make livecheck`.
 **Not explained:** why sec 897's stop raised the rate from none in four to about
 seven in ten. The host order is what fails, and how a clean stop moves it was not
 found. The fault above stands either way, the code having no reason to prefer R.
+
+## 899. A permitted caller holds an extension's events, and none of fuzznet's, 2026-11-05
+
+Asked by netcfgd (its decision 0309). Its node runs as root, and a desktop tray, a
+GUI and `ncfg monitor` run as ordinary users, so they held netcfgd's JSON socket
+for a stream of its changes. `get events` was the node's own user's, and
+`events` is not grantable, for what it tells of the estate's trust. Polling a
+cursor loses the descriptor a tray and a TUI wait on.
+
+**Built: `get events WORD`.** A caller a permit lets read WORD (`local/permit/WORD`,
+`r`) holds a stream, as `ok events`, of what the extension publishes as `WORD-...`.
+- **Never fuzznet's own.** The node keeps which side published, so a subject of
+  fuzznet's under a word's name is not heard. `fzn_daemon_publish` is the only
+  road in, `fzn_node_events_publish_extension` beneath it.
+- **To the hyphen:** `net` hears `net-drift`, and neither `net` nor `network`.
+- **The same for this node's own user:** a word nobody granted is no
+  subscription for anyone. This user's plain `get events` still hears everything.
+- **At most 4 of the 8,** so others' subscribers cannot fill the room this node's
+  own user needs.
+- **The grant is read at the asking.** A permit withdrawn ends nothing already
+  held, which is enough for events that say only what to read again, and each
+  such read is judged afresh.
+
+**`node/permit.h` said a permitted caller "subscribes to nothing";** it now says
+to what. `events` stays ungrantable: the word is the extension's, never that one.
+
+**Measured:** `events_test`, 58 checks. `live_ext` b3b: no grant, no subscription;
+granted, a setting written and an extension's poke give `event ext-poke -` alone.
+Same uid, the one account a script has: the road a second user takes differs only
+by the verdict, which this path does not read. Sabotage: `events-held-hears-no-trust`,
+`events-held-word-to-its-hyphen`, `events-held-word-moves-with-it`,
+`events-held-bound`.

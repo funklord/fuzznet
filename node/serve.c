@@ -52,16 +52,21 @@ static void serve_ready_local(fzn_node_state_t *state)
 {
 	int cfd, subscribed = 0;
 	fzn_peer_t peer;
+	char word[FZN_NODE_LOCAL_WORD_MAX + 1u] = "";
 
 	if (fzn_socket_accept(state->listen_fd, &cfd, &peer) != FZN_SOCKET_OK)
 		return;
 	/* A SUBSCRIPTION TAKEN ONLY WHILE THERE IS ROOM for it, sec 609: past
 	 * that, `get events` reaches the handler as any request does. */
-	(void)fzn_node_serve_local_judged(&state->config, cfd, &peer, state->on_local,
-	                                  state->on_local_ctx,
-	                                  fzn_node_events_room(state->events) ? &subscribed : NULL,
-	                                  state->on_local_denied, state->on_local_denied_ctx);
-	if (subscribed && fzn_node_events_add(state->events, cfd))
+	(void)fzn_node_serve_local_held(&state->config, cfd, &peer, state->on_local,
+	                                state->on_local_ctx,
+	                                fzn_node_events_room(state->events) ? &subscribed : NULL,
+	                                state->on_local_denied, state->on_local_denied_ctx,
+	                                fzn_node_events_room_held(state->events) ? state->hears : NULL,
+	                                state->hears_ctx, word);
+	if (subscribed
+	    && (word[0] ? fzn_node_events_add_held(state->events, cfd, word)
+	                : fzn_node_events_add(state->events, cfd)))
 		return;
 	(void)close(cfd);
 }

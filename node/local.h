@@ -126,6 +126,21 @@ fzn_node_serve_err_t fzn_node_serve_local_kept(const fzn_node_config_t *config, 
  * fuzznetd's judge is the node's own user's grants (`node/permit.h`), so a
  * root daemon's GUI and operators reach the subjects granted them and
  * nothing else. */
+/* THE SAME, AND `get events WORD` TAKEN WHERE `hears` SAYS `peer` MAY HOLD WORD,
+ * sec 899, whoever it is: `*subscribed` 1 with `word`
+ * (FZN_NODE_LOCAL_WORD_MAX + 1 bytes) NUL-ended. Left empty by the caller, it
+ * stays so for a plain `get events`. */
+#define FZN_NODE_LOCAL_WORD_MAX 14u
+typedef int (*fzn_node_local_hears_t)(void *ctx, const fzn_peer_t *peer, const uint8_t *word,
+                                      size_t len);
+fzn_node_serve_err_t fzn_node_serve_local_held(const fzn_node_config_t *config, int fd,
+                                               const fzn_peer_t *peer,
+                                               fzn_node_local_handler_t on_local, void *ctx,
+                                               int *subscribed,
+                                               fzn_node_local_handler_t on_denied,
+                                               void *denied_ctx, fzn_node_local_hears_t hears,
+                                               void *hears_ctx, char *word);
+
 fzn_node_serve_err_t fzn_node_serve_local_judged(const fzn_node_config_t *config, int fd,
                                                  const fzn_peer_t *peer,
                                                  fzn_node_local_handler_t on_local, void *ctx,
