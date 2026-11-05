@@ -10173,8 +10173,9 @@ static size_t ext_local_from(void *ctx, fzn_origin_t origin, const fzn_peer_t *p
  * at once. The device's half is `invited`.
  */
 #define FZND_INVITE_ASK_EVERY_S 3u
-#define FZND_INVITE_ASK_FOR_S 300u
+#define FZND_INVITE_ASK_FOR_S 900u
 
+static int hexval(uint8_t c);
 static fzn_invites_t invites;
 static struct {
 	int on;
@@ -10206,6 +10207,17 @@ static void invite_asked(const uint8_t *plain, const fzn_udp_addr_t *from)
 	if (!r->claimed) {
 		const char *why = NULL;
 
+		/* WAITING ON A PERSON, sec 896: named once, and its asks go on. */
+		if (r->confirm && !r->approved) {
+			if (!r->asked) {
+				r->asked = 1;
+				memcpy(r->device, opened.host, FZN_PUBKEY_LEN);
+				hex_of(opened.host, FZN_PUBKEY_LEN, hex);
+				say(FZN_ENTRY_NOTE, "node/invite", "%.16s waits on `grant invite`", hex);
+				publish("invite", hex);
+			}
+			return;
+		}
 		if (!fzn_node_admin_pair_invited(running_admin, record, r->delegable, r->card,
 		                                 sizeof(r->card), &r->card_len, &why)) {
 			say(FZN_ENTRY_WARNING, "node/invite", "an invited device was not paired: %s",
@@ -10304,8 +10316,11 @@ static size_t join_invited(const uint8_t *text, size_t len, char *reply, size_t 
 	return (size_t)snprintf(reply, cap, "ok asking\n");
 }
 
-/* `add invite [delegable] [LIFE]`: `ok TEXT`, one use, LIFE seconds, a person
- * shows it. `remove invite`: every one ended. `get invite`: `ok N` open.
+/* `add invite [delegable] [open|confirm] [LIFE]`: `ok TEXT`, one use, LIFE
+ * seconds, a person shows it; confirmed or not as the host setting
+ * `invite/confirm` says, unless told. `remove invite`: every one ended.
+ * `get invite`: `ok N` open. `list invite`: `ok N KEY ...`, the devices waiting.
+ * `grant invite KEY` lets one in, and `remove invite KEY` turns it away.
  * `get join`: `ok asking` while an invite's ask is out, or `ok idle`. */
 static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap)
@@ -10316,7 +10331,8 @@ static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, ch
 	uint64_t life = FZN_INVITE_LIFE_S, now = wall_clock();
 	fzn_invite_t in;
 	uint16_t port = 0;
-	int delegable = 0;
+	int delegable = 0, confirm = host_flag("invite/confirm") == 1;
+	uint8_t key[FZN_PUBKEY_LEN];
 
 	if (!at || !next_word(&at, &left, &subject, &subject_len))
 		return 0;
@@ -10326,12 +10342,52 @@ static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, ch
 	if (subject_len != 6u || memcmp(subject, "invite", 6u) != 0)
 		return 0;
 	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_GET
-	    && request->parsed != FZN_VERB_REMOVE)
+	    && request->parsed != FZN_VERB_REMOVE && request->parsed != FZN_VERB_LIST
+	    && request->parsed != FZN_VERB_GRANT)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return (size_t)snprintf(reply, cap, "denied an invite is this node's own user's\n");
 	if (request->parsed == FZN_VERB_GET)
 		return (size_t)snprintf(reply, cap, "ok %zu\n", fzn_invites_live(&invites, now));
+	if (request->parsed == FZN_VERB_LIST) {
+		size_t n = 0, out;
+		char hex[2u * FZN_PUBKEY_LEN + 1u];
+
+		for (i = 0; i < FZN_INVITES_MAX; i++)
+			if (fzn_invites_waiting(&invites, invites.rows[i].device, now) == &invites.rows[i])
+				n++;
+		out = (size_t)snprintf(reply, cap, "ok %zu", n);
+		for (i = 0; i < FZN_INVITES_MAX; i++)
+			if (fzn_invites_waiting(&invites, invites.rows[i].device, now) == &invites.rows[i]
+			    && out + sizeof(hex) + 2u < cap) {
+				hex_of(invites.rows[i].device, FZN_PUBKEY_LEN, hex);
+				out += (size_t)snprintf(reply + out, cap - out, " %s", hex);
+			}
+		return out + (size_t)snprintf(reply + out, cap - out, "\n");
+	}
+	if (request->parsed == FZN_VERB_GRANT
+	    || (request->parsed == FZN_VERB_REMOVE && left)) {
+		fzn_invite_open_t *r;
+
+		if (!next_word(&at, &left, &w, &w_len) || left || w_len != 2u * FZN_PUBKEY_LEN)
+			return (size_t)snprintf(reply, cap, "malformed grant invite KEY, or remove "
+			                                    "invite [KEY]\n");
+		for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+			int hi = hexval(w[2u * i]), lo = hexval(w[2u * i + 1u]);
+
+			if (hi < 0 || lo < 0)
+				return (size_t)snprintf(reply, cap, "malformed not a key\n");
+			key[i] = (uint8_t)(hi * 16 + lo);
+		}
+		r = fzn_invites_waiting(&invites, key, now);
+		if (!r || r->approved)
+			return (size_t)snprintf(reply, cap, "error no device waits by that key\n");
+		if (request->parsed == FZN_VERB_GRANT)
+			r->approved = 1;
+		else
+			fzn_wipe(r, sizeof(*r));
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 	if (request->parsed == FZN_VERB_REMOVE)
 		return (size_t)snprintf(reply, cap, "ok %zu\n", fzn_invites_clear(&invites, now));
 	if (!running_admin || !contact_id || !contact_rng_ops)
@@ -10341,10 +10397,16 @@ static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, ch
 			delegable = 1;
 			continue;
 		}
+		if ((w_len == 7u && memcmp(w, "confirm", 7u) == 0)
+		    || (w_len == 4u && memcmp(w, "open", 4u) == 0)) {
+			confirm = w_len == 7u;
+			continue;
+		}
 		for (i = 0, life = 0; i < w_len && life <= FZN_INVITE_LIFE_MAX_S; i++) {
 			if (w[i] < '0' || w[i] > '9')
 				return (size_t)snprintf(reply, cap,
-				                        "malformed add invite [delegable] [LIFE]\n");
+				                        "malformed add invite [delegable] [open|confirm] "
+				                        "[LIFE]\n");
 			life = life * 10u + (uint64_t)(w[i] - '0');
 		}
 		if (!life || life > FZN_INVITE_LIFE_MAX_S)
@@ -10369,7 +10431,7 @@ static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, ch
 		return (size_t)snprintf(reply, cap, "error this host's address will not go in an "
 		                                    "invite\n");
 	}
-	if (!fzn_invites_add(&invites, in.secret, delegable, now, now + life)) {
+	if (!fzn_invites_add(&invites, in.secret, delegable, confirm, now, now + life)) {
 		fzn_wipe(&in, sizeof(in));
 		return (size_t)snprintf(reply, cap, "error %u invites are open: remove invite\n",
 		                        (unsigned)FZN_INVITES_MAX);

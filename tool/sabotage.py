@@ -5315,10 +5315,17 @@ SABOTAGES = [
 		"a code used by one device is taken by another, and whoever read it joins -- sec 896",
 	),
 	(
+		"invite-wait-is-one-devices",
+		"node/invite.c",
+		"\t\t    || (r->asked && !fzn_ct_memeq(r->device, device, FZN_PUBKEY_LEN)))\n",
+		"\t\t    )\n",
+		"a second device asks past the one a person is deciding on, and takes its place -- sec 896",
+	),
+	(
 		"invite-lapses",
 		"node/invite.c",
-		"\t\treturn r->expires_at > now ? r : NULL;\n",
-		"\t\treturn r;\n",
+		"\t\tif (r->expires_at <= now\n",
+		"\t\tif (0\n",
 		"a code past its life still admits -- sec 896",
 	),
 	(

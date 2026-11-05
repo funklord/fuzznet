@@ -17,6 +17,11 @@ hold nothing but what they read, and nothing is carried back by a person.
        named host did not sign, and stays unjoined
     g  E, refused in c, joins by a code of its own: what stopped it was the
        one use, not the device
+    h  CONFIRMED: a code that needs a word from R's user. F waits, named by
+       `list invite` and `event invite`, and is not paired; a second device
+       cannot ask past it; `remove invite KEY` turns one away; `grant invite
+       KEY` lets F in. And `invite/confirm` makes that the host's default,
+       which `open` overrides
 
 Against a daemon that takes a used code again, phase c pairs E; against one
 that believes any card, phase f joins G.
@@ -43,7 +48,7 @@ from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 280.0
+live_trim.DEADLINE = time.monotonic() + 400.0
 
 PREKEY_HOST = slice(4, 68)
 QUIET_S = 12.0
@@ -208,6 +213,34 @@ def main(argv):
 			expect(socks["e"], "e", "add join " + code(), "ok asking")
 			joined("e", key_e, "g")
 			print("livecheck: g: E joined by its own code: the one use was what stopped it")
+
+			# h: CONFIRMED. F first turned away, then let in.
+			def waiting(key):
+				until = time.monotonic() + SETTLE_S
+				while key not in ask(socks["r"], "list invite").split():
+					if time.monotonic() > until:
+						raise failed("h: %s never waited: %r" % (key, ask(socks["r"], "list invite")))
+					time.sleep(0.5)
+
+			refused = code("add invite delegable confirm")
+			expect(socks["f"], "f", "add join " + refused, "ok asking")
+			waiting(key_f)
+			if paired(key_f):
+				raise failed("h: R paired F with nobody's word")
+			expect(socks["r"], "r", "remove invite " + key_f, "ok")
+			stays_out("f", key_f, "h")
+			expect(socks["r"], "r", "set setting host invite/confirm 1", "ok")
+			second = code()
+			expect(socks["f"], "f", "add join " + second, "ok asking")
+			waiting(key_f)
+			expect(socks["r"], "r", "grant invite " + "00" * 32,
+			       "error no device waits by that key")
+			stays_out("f", key_f, "h")
+			expect(socks["r"], "r", "grant invite " + key_f, "ok")
+			joined("f", key_f, "h")
+			expect(socks["r"], "r", "list invite", "ok 0")
+			print("livecheck: h: a confirmed code held F until R's user said, and turned it away "
+			      "when told; invite/confirm made that the default")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -171,7 +171,7 @@ static int live(const fzn_invite_open_t *r, uint64_t now)
 }
 
 fzn_invite_open_t *fzn_invites_add(fzn_invites_t *t, const uint8_t secret[FZN_INVITE_SECRET_LEN],
-                                   int delegable, uint64_t now, uint64_t expires_at)
+                                   int delegable, int confirm, uint64_t now, uint64_t expires_at)
 {
 	size_t i;
 
@@ -189,6 +189,7 @@ fzn_invite_open_t *fzn_invites_add(fzn_invites_t *t, const uint8_t secret[FZN_IN
 		memcpy(r->secret, secret, FZN_INVITE_SECRET_LEN);
 		r->expires_at = expires_at;
 		r->delegable = delegable;
+		r->confirm = confirm;
 		return r;
 	}
 	return NULL;
@@ -208,7 +209,27 @@ fzn_invite_open_t *fzn_invites_find(fzn_invites_t *t, const uint8_t secret[FZN_I
 			continue;
 		if (r->claimed)
 			return fzn_ct_memeq(r->device, device, FZN_PUBKEY_LEN) ? r : NULL;
-		return r->expires_at > now ? r : NULL;
+		if (r->expires_at <= now
+		    || (r->asked && !fzn_ct_memeq(r->device, device, FZN_PUBKEY_LEN)))
+			return NULL;
+		return r;
+	}
+	return NULL;
+}
+
+fzn_invite_open_t *fzn_invites_waiting(fzn_invites_t *t, const uint8_t device[FZN_PUBKEY_LEN],
+                                       uint64_t now)
+{
+	size_t i;
+
+	if (!t || !device)
+		return NULL;
+	for (i = 0; i < FZN_INVITES_MAX; i++) {
+		fzn_invite_open_t *r = &t->rows[i];
+
+		if (r->used && r->asked && !r->claimed && r->expires_at > now
+		    && fzn_ct_memeq(r->device, device, FZN_PUBKEY_LEN))
+			return r;
 	}
 	return NULL;
 }

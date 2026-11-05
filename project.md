@@ -80706,13 +80706,15 @@ photographs a code and answers first can sign no card this device accepts.
   bytes at the least, and a short code would need a PAKE and something to find
   the host by. Neither is built, so QR it is, and a phone with no camera uses
   `add peer` as before. A PAKE is the road if a typed code is ever wanted.
-- **Is the secret enough, with no word from the host's user?** Decided yes. The
-  code is shown to whoever stands at the console, for ten minutes, once, and
-  that person could type `add peer` anyway. The new member is told at once by
-  `event member`, and a device admitted wrongly is revoked as any is. **Rejected:
-  a word before the card goes,** which puts a second person-step in what this
-  exists to make one. It is the holder's to overrule: the risk is a code seen by
-  somebody else, over a shoulder or in a photograph, inside its life.
+- **Is the secret enough, with no word from the host's user?** Settled by the
+  holder, 2026-11-05: both, and configurable. `add invite open` admits on the
+  secret alone, for a code shown at the console. `add invite confirm` holds the
+  first device to ask until the host's user says: it is named by `event invite`
+  and `list invite`, `grant invite KEY` lets it in, and `remove invite KEY` turns
+  it away. A second device cannot ask past the one waiting. The host setting
+  `invite/confirm` chooses when `add invite` does not, off unless set, as a code
+  shown at a console is what most people mean. A device asks for 15 minutes, for
+  a person to get to it.
 
 **What it does not do:** a host with no `net/address` shows no code, and one past
 45 bytes neither. The address must be reachable from the device. A device
@@ -80887,7 +80889,7 @@ its daemons, whose process groups are their own. Stop one with `-s INT`, or let 
 reach its own deadline.
 
 **Waiting on the holder:**
-- Sec 896: is the secret alone enough, with no word from the host's user?
+- Whether fzpd stands (sec 902).
 - A right to hold a word's events for `any` (netcfgd's asking): sec 883 refused
   `any=r`, and it would let any local user take the 4 held slots.
 
@@ -80899,8 +80901,18 @@ side. Open from before: a staged clear (sec 873), sec 880's limits.
 
 From fuzzypickles (inbox message 20261105T1213Z): its `ec5b9c2` removes fzpd, its
 core and 98 scenarios on the holder's word, and its clients run on this node alone.
-So "fzpd on `fzn_daemon_main`" is no longer open anywhere above; sec 901's waiting
-list reads without it. Their pin stands at `aaf69c2`.
+Their pin stands at `aaf69c2`.
+
+**And the holder, 2026-11-05, here: "fzpd and netcfgd are to remain, fuzznetd is
+primarily used by fuzznet-based software to test concurrency with their own daemon,
+as two of the exact same daemon shouldn't be able to occupy the exact same
+namespace."** That does not fit the removal above, whose commit quotes the holder's
+"go ahead with step 3, clients are just mostly deactivated functionality server
+nodes". Which stands is the holder's, put to them. A daemon of a consumer's is
+`fzn_daemon_main` with its extension (sec 667), so what fuzznet offers either way
+is unchanged. Also the holder's, the same day: clients have the same basic
+capabilities as nodes, most features hardcoded out, and understand and make the
+same checks any node would.
 
 **For `tool/live_fzp.py`:** `--socket-path`, `--state-dir`, `--profile`, `--config`,
 `--peer-port` and `--via` are gone. `--my-address` and `--address` are read and

@@ -154,6 +154,8 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "host-private, or estate to let the estate's members gather this host's log; unset, "
 	  "`--log-scope`'s, host-private by default (sec 735)",
 	  log_scope_check },
+	{ "invite/confirm", FZN_SCHEMA_FLAG, HOST, 0u, 0u, "off", "", 0u,
+	  "an invite waits for this host's user unless `add invite open` says not (sec 896)", NULL },
 	{ "relay/enabled", FZN_SCHEMA_FLAG, HOST, 0u, 0u, "off", "", 0u,
 	  "this host relays frames for others (sec 622)", NULL },
 	{ "relay/quota", FZN_SCHEMA_COUNT, HOST, 0u, 1000000000000000000u, "104857600", "bytes",

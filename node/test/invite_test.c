@@ -149,7 +149,7 @@ static void test_table(void)
 	memset(s, 1, sizeof(s));
 	memset(dev, 2, sizeof(dev));
 	memset(other, 3, sizeof(other));
-	r = fzn_invites_add(&t, s, 1, 100u, 700u);
+	r = fzn_invites_add(&t, s, 1, 0, 100u, 700u);
 	CHECK(r && r->delegable && fzn_invites_live(&t, 100u) == 1u, "an invite is open");
 	CHECK(fzn_invites_find(&t, s, dev, 699u) == r, "found within its life");
 	CHECK(fzn_invites_find(&t, s, dev, 700u) == NULL, "and not past it");
@@ -164,18 +164,42 @@ static void test_table(void)
 
 	for (i = 0; i < FZN_INVITES_MAX - 1u; i++) {
 		s[0] = (uint8_t)(10u + i);
-		CHECK(fzn_invites_add(&t, s, 0, 100u, 700u) != NULL, "room for the rest");
+		CHECK(fzn_invites_add(&t, s, 0, 0, 100u, 700u) != NULL, "room for the rest");
 	}
 	s[0] = 200u;
-	CHECK(fzn_invites_add(&t, s, 0, 100u, 700u) == NULL, "past the table, refused");
-	CHECK(fzn_invites_add(&t, s, 0, 800u, 900u) != NULL, "and a lapsed one gives way");
+	CHECK(fzn_invites_add(&t, s, 0, 0, 100u, 700u) == NULL, "past the table, refused");
+	CHECK(fzn_invites_add(&t, s, 0, 0, 800u, 900u) != NULL, "and a lapsed one gives way");
 	CHECK(fzn_invites_clear(&t, 800u) == 1u && fzn_invites_live(&t, 800u) == 0u
 	              && fzn_invites_find(&t, s, dev, 800u) == NULL,
 	      "ended, nothing answers");
 }
 
+/* A DEVICE WAITING ON A PERSON. */
+static void test_confirmed(void)
+{
+	static fzn_invites_t t;
+	uint8_t s[FZN_INVITE_SECRET_LEN], dev[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN];
+	fzn_invite_open_t *r;
+
+	memset(s, 4, sizeof(s));
+	memset(dev, 5, sizeof(dev));
+	memset(other, 6, sizeof(other));
+	r = fzn_invites_add(&t, s, 1, 1, 100u, 700u);
+	CHECK(r && r->confirm && !r->approved, "a confirmed invite is open");
+	CHECK(fzn_invites_waiting(&t, dev, 100u) == NULL, "and nobody waits on it yet");
+	r->asked = 1;
+	memcpy(r->device, dev, sizeof(dev));
+	CHECK(fzn_invites_waiting(&t, dev, 200u) == r, "a device that asked waits");
+	CHECK(fzn_invites_waiting(&t, other, 200u) == NULL, "no other does");
+	CHECK(fzn_invites_find(&t, s, dev, 200u) == r, "it may go on asking");
+	CHECK(fzn_invites_find(&t, s, other, 200u) == NULL, "and another may not ask past it");
+	CHECK(fzn_invites_waiting(&t, dev, 700u) == NULL && fzn_invites_find(&t, s, dev, 700u) == NULL,
+	      "a wait ends with the invite's life");
+}
+
 int main(void)
 {
+	test_confirmed();
 	test_text();
 	test_exchange();
 	test_table();

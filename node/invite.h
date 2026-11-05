@@ -22,10 +22,16 @@
  * A card can pass a datagram, so it goes in parts. The ask is safe to repeat:
  * the same device is answered the same card, and any other refused.
  *
- * WHO IS BELIEVED. The host, by the secret and by nothing else: whoever holds the
- * text may join. The device, by the card: it must be signed by `host`, as a card
- * says of its sponsor, so a person who photographed the text cannot answer with
- * a card of their own.
+ * WHO IS BELIEVED. The device believes a card signed by `host`, as a card says of
+ * its sponsor, so a person who photographed the text cannot answer with a card of
+ * their own. The host, by one of two kinds of invite, the holder's of 2026-11-05:
+ *
+ *   OPEN      the secret alone: whoever holds the text joins.
+ *   CONFIRMED the first device to ask waits, named to the host's user, until
+ *             `grant invite KEY`; `remove invite KEY` turns it away. Its asks go
+ *             on meanwhile, and the first after the grant is answered the card.
+ *
+ * `add invite` says which, or the host setting `invite/confirm` does.
  */
 
 #ifndef FZN_NODE_INVITE_H
@@ -105,6 +111,9 @@ typedef struct fzn_invite_open {
 	uint8_t secret[FZN_INVITE_SECRET_LEN];
 	uint64_t expires_at;
 	int delegable;
+	int confirm;                            /* a person says yes first */
+	int asked;                              /* `device` waits on that */
+	int approved;                           /* and has it */
 	int claimed;                            /* a device has it */
 	uint8_t device[FZN_PUBKEY_LEN];
 	uint8_t card[FZN_PROVISION_MAX_LEN];
@@ -117,13 +126,18 @@ typedef struct fzn_invites {
 
 /* A NEW ONE: its row, or NULL with every row live. The lapsed go first. */
 fzn_invite_open_t *fzn_invites_add(fzn_invites_t *t, const uint8_t secret[FZN_INVITE_SECRET_LEN],
-                                   int delegable, uint64_t now, uint64_t expires_at);
+                                   int delegable, int confirm, uint64_t now, uint64_t expires_at);
 
 /* THE ROW OF `secret` THAT `device` MAY HAVE: unclaimed and not lapsed, or
  * claimed by this device, which is the ask sent again and may outlast the
- * invite's life while its card is fetched. NULL otherwise. */
+ * invite's life while its card is fetched. One waiting on a person is this
+ * device's alone. NULL otherwise. */
 fzn_invite_open_t *fzn_invites_find(fzn_invites_t *t, const uint8_t secret[FZN_INVITE_SECRET_LEN],
                                     const uint8_t device[FZN_PUBKEY_LEN], uint64_t now);
+
+/* THE ROW WHERE `device` WAITS ON A PERSON, or NULL. */
+fzn_invite_open_t *fzn_invites_waiting(fzn_invites_t *t, const uint8_t device[FZN_PUBKEY_LEN],
+                                       uint64_t now);
 
 /* EVERY INVITE ENDED, secret and card wiped: how many were live. */
 size_t fzn_invites_clear(fzn_invites_t *t, uint64_t now);
