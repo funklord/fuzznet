@@ -1008,21 +1008,58 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		again.rng = &rng_ops;
 		again.reasm = &table;
 		again.hops = 1u;
-		CHECK(again.next_msg == 0u
-		              && fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, STALE, sizeof(STALE),
-		                                           0u, 0u, 1u, 0u, &hash_ops, &rng_ops, &aead,
-		                                           frame, sizeof(frame), &flen)
+		again.next_msg = 7u;
+		CHECK(fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, STALE, sizeof(STALE), 7u, 0u,
+		                                1u, 0u, &hash_ops, &rng_ops, &aead, frame, sizeof(frame),
+		                                &flen)
 		                         == 0
 		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
 		              && fzn_caller_send(&again, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
-		              && msg == 0u && fzn_node_run_once(&state, 1000) == 1
+		              && msg == 7u && fzn_node_run_once(&state, 1000) == 1
 		              && fzn_caller_recv(&again, msg, reply, sizeof(reply), &reply_len, 2000u)
 		                         == FZN_CALLER_OK
 		              && reply_len == sizeof(STALE) && memcmp(reply, STALE, sizeof(STALE)) == 0,
-		      "control: a caller built again from 0 did not take a late reply to the old "
-		      "message 0 as its own message 0's answer");
+		      "control: a caller built again on a number used did not take a late reply to "
+		      "the old message as its own answer");
 		/* The node's own answer to it, still on the socket, read away. */
 		(void)fzn_caller_recv(&again, msg, reply, sizeof(reply), &reply_len, 500u);
+
+		/* A HOST STARTED AGAIN, sec 910: on a new port, asking what its last
+		 * run asked, its reply still kept. Both begin somewhere of their own,
+		 * so the second is a new request: run and answered, not taken for a
+		 * stranger's copy of the first. */
+		{
+			int restarted_fd[2] = { -1, -1 };
+			uint32_t first_msg = 0;
+			int r;
+
+			for (r = 0; r < 2; r++) {
+				CHECK(fzn_udp_bind(AF_INET, "127.0.0.1", 0, &restarted_fd[r]) == FZN_UDP_OK,
+				      "fixture: a restarted host's socket would not bind");
+				memset(&again, 0, sizeof(again));
+				fzn_node_pairing_caller(&pairing, device->id.pubkey, &again);
+				again.fd = restarted_fd[r];
+				again.node = node_addr;
+				again.hash = &hash_ops;
+				again.aead = &aead;
+				again.rng = &rng_ops;
+				again.reasm = &table;
+				again.hops = 1u;
+				CHECK(fzn_caller_send(&again, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+				              && fzn_node_run_once(&state, 1000) == 1
+				              && fzn_caller_recv(&again, msg, reply, sizeof(reply), &reply_len,
+				                                 1000u)
+				                         == FZN_CALLER_OK
+				              && reply_len == sizeof(PONG)
+				              && memcmp(reply, PONG, sizeof(PONG)) == 0 && msg != 0u
+				              && (r == 0 || msg != first_msg),
+				      "a host started again and repeating its first request, on a new port, "
+				      "went unanswered");
+				first_msg = msg;
+			}
+			close(restarted_fd[0]);
+			close(restarted_fd[1]);
+		}
 
 		given_up = caller.next_msg++;
 		fzn_caller_forget(&caller, given_up);

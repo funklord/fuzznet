@@ -5,9 +5,9 @@
  * keys, a vote, a pairing) would otherwise act twice.
  *
  * A REQUEST IS THE SAME ONE when its sender, its message number and its
- * bytes match. The bytes are in the key, by hash, because a caller made
- * afresh numbers its messages from 0: a host started again would
- * otherwise be answered its last run's reply to a different request.
+ * bytes match. The bytes are in the key, by hash, so that a number met
+ * again is not answered another request's reply. A caller begins its numbers
+ * somewhere of its own (sec 910), so a host started again is not its last run.
  *
  * A PIECE OF A REQUEST ANSWERED ALREADY, sec 741, is known by its sender,
  * its message number and its expiry, a piece carrying no bytes of the

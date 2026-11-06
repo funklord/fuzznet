@@ -900,6 +900,16 @@ SABOTAGES = [
 		"leaves one free and the leak cannot be seen. sec 369",
 	),
 	(
+		"caller-begins-its-numbers-at-0",
+		"node/caller.c",
+		"\tif (caller->next_msg != 0u || !caller->rng || !caller->rng->fill\n",
+		"\tif (1 || caller->next_msg != 0u || !caller->rng || !caller->rng->fill\n",
+		"a caller begins its numbers somewhere of its own. From 0, a host "
+		"started again is its last run by sender, number and bytes, and its "
+		"first request, repeated from a new port, is dropped as a stranger's "
+		"copy of the old one: 3 s and no answer. sec 910",
+	),
+	(
 		"caller-reports-the-msg-it-sent",
 		"node/caller.c",
 		"\t*msg = caller->next_msg++;\n\treturn send_as(",

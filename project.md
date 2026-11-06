@@ -72901,9 +72901,10 @@ The plan avoids the audit:
 1. **The server keeps the replies it sent.** A request whose sender,
    message number and bytes match one answered within the last few
    seconds is answered with the kept reply, and its handler is not run.
-   - The bytes are in the key, by hash, because a new caller numbers its
-     messages from 0. A host started again would otherwise be answered
-     its last run's reply to a different request.
+   - The bytes are in the key, by hash, so a number met again is not
+     answered another request's reply. A new caller numbered from 0 when
+     this was written; sec 910 ended that, as the bytes alone did not
+     keep a host started again from being taken for its last run.
    - Kept replies are bounded in total bytes, and expire a little past
      the caller's wait.
 2. **The caller resends.** `fzn_caller_ask` waits for progress in slices.
@@ -80695,7 +80696,9 @@ camera and nobody types 277 hex digits.
 - **The secret is in memory alone,** so a restart ends every code. LIFE is 600
   seconds unless said, at most a day. `get invite` counts those open, and
   `remove invite` ends them. At most 16, a person showing one at a time.
-- **`delegable`** as in `add peer`: what a device joining the estate needs.
+- **`delegable`** as in `add peer`: what a device joining the estate needs. It is
+  not admin: until it holds that, what such a device names a contact stays on that
+  host, so no fork (sec 895) arises from it.
 
 **The device believes the host by the card.** A card is signed by its sponsor, and
 the device takes only one signed by the key in the code. So a person who
@@ -80844,7 +80847,8 @@ elsewhere is dropped: not answered, and not run again. A resend comes from the
 caller's own socket, so it is answered as before. b2 then: 35 frames, nothing.
 
 **The limit:** a caller whose address changes between sending and resending goes
-unanswered for that message, and asks again as a new one.
+unanswered for that message, and asks again as a new one. This fix also dropped a
+restarted host's new request, which is not a resend: sec 910.
 
 ## 901. Where this stands, folded 2026-11-05
 
@@ -80924,7 +80928,7 @@ ignored, and they will stop reading them when told this tree has dropped them.
 this host's lines (has all, behind), and `get group` gives no per-member high water.
 No verb answers that. No reason against one: a host holds each writer's head
 (`fzn_group_lines_heads`), though what a member holds is what it last asked from,
-which this host would have to keep. Open until they ask.
+which this host would have to keep. Open until they ask. They have: sec 910.
 
 ## 903. No limit on connections but memory, tested at thousands, 2026-11-06
 
@@ -81114,3 +81118,35 @@ ranks have it. Clearing the root's setting gives the value back to them.
 **Measured, `tool/live_votes.py`:** T's user refused; a member's vote refused; one
 admin's of k 2 changes nothing for two rounds; a second's carries on T; a root sets
 it alone and the old votes do not change it back. `votes_test`.
+
+## 910. A caller begins its numbers somewhere of its own, 2026-11-06
+
+Netcfgd's message 20261106T0215Z, at their `ba567ec2`: a host started again, on a new
+port, repeated its first request within a few seconds and waited out its 3 s,
+`error the host did not answer`. Numbered from 0, its request matched the last run's
+kept reply by sender, number and bytes, and since sec 900 the new address had it
+dropped as a stranger's copy, neither answered nor run. Before sec 900 it was answered
+the last run's reply, which sec 737 meant the bytes to prevent, and they do not where
+a request is repeated exactly. So that was wrong twice, and netcfgd worked round it.
+
+**Fixed:** a caller's first number is drawn from its `rng`, with the first thing it
+sends. `next_msg` 0 means not begun, and a number copied or carried is kept. No change
+on the wire and none at the far side: a request from a new run is now simply a new
+request. The bytes stay in the key, for a number met again.
+
+**Rejected:** the expiry in the key, one line, as sec 741's pieces have. It is in
+seconds, so a restart within the second is still its last run. A boot number in the
+key would need a wire change for what a random start gives.
+
+**Measured:** `pair_test`, two fresh callers on the same keys, each on its own port,
+asking the same bytes inside the kept window: both answered, and with the draw taken
+out both go unanswered (407 checks, 2 failures). Sabotage
+`caller-begins-its-numbers-at-0`. Netcfgd's own reproduction not run here.
+
+**Also from fuzzypickles' 20261106T0206Z:** they took `a634dce`. A device joined by a
+code writes a contact's name on that host alone until it holds admin, so no fork
+(sec 895) can arise from it, though `delegable` reads as if one could. Said beside
+the invite now.
+
+**Asked, sec 902's question:** a member's high water in a group, so a person can see
+who has their lines. Not built yet.

@@ -115,12 +115,30 @@ fzn_caller_err_t fzn_caller_resend(fzn_caller_t *caller, const uint8_t *payload,
 	return send_as(caller, payload, payload_len, expires_at, msg);
 }
 
+/* A CALLER NOT YET NUMBERING STARTS SOMEWHERE OF ITS OWN, sec 910. Numbered
+ * from 0, a host started again was the last run by sender, number and bytes
+ * wherever it repeated its first request: answered that run's kept reply, or
+ * since sec 900, from its new port, dropped as a stranger's copy. Never 0, which
+ * says not yet. A source that fails leaves it so, and the seal then refuses. */
+static void start_numbering(fzn_caller_t *caller)
+{
+	uint8_t bytes[sizeof(caller->next_msg)];
+
+	if (caller->next_msg != 0u || !caller->rng || !caller->rng->fill
+	    || !caller->rng->fill(caller->rng->ctx, bytes, sizeof(bytes)))
+		return;
+	memcpy(&caller->next_msg, bytes, sizeof(bytes));
+	if (caller->next_msg == 0u)
+		caller->next_msg = 1u;
+}
+
 fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
                                  size_t payload_len, uint64_t expires_at,
                                  uint32_t *msg)
 {
 	if (!caller || !msg)
 		return FZN_CALLER_ERR_MALFORMED;
+	start_numbering(caller);
 	*msg = caller->next_msg++;
 	return send_as(caller, payload, payload_len, expires_at, *msg);
 }
@@ -569,6 +587,7 @@ static fzn_caller_err_t seal_one(fzn_caller_t *caller, const uint8_t *payload,
 	}
 	if (payload_len > (size_t)FZN_SPLIT_MAX_PAYLOAD)
 		return FZN_CALLER_ERR_REQUEST_TOO_LONG;
+	start_numbering(caller);
 	if (!given)
 		*msg = caller->next_msg++;
 	memset(&what, 0, sizeof(what));
@@ -603,6 +622,7 @@ fzn_caller_err_t fzn_caller_hello(fzn_caller_t *caller, int fd, uint64_t expires
 	what.sender = caller->sender;
 	what.capability = caller->capability.b;
 	what.expires_at = in_their_terms(caller, expires_at);
+	start_numbering(caller);
 	what.msg = caller->next_msg++;
 	what.chunks = 1;
 	what.kind = FZN_KIND_NOP;
