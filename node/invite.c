@@ -5,6 +5,7 @@
 #include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static const char BASE32[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -170,6 +171,19 @@ static int live(const fzn_invite_open_t *r, uint64_t now)
 	return r->used && (r->claimed || r->expires_at > now);
 }
 
+static fzn_invite_open_t *row_filled(fzn_invite_open_t *r,
+                                     const uint8_t secret[FZN_INVITE_SECRET_LEN], int delegable,
+                                     int confirm, uint64_t expires_at)
+{
+	fzn_wipe(r, sizeof(*r));
+	r->used = 1;
+	memcpy(r->secret, secret, FZN_INVITE_SECRET_LEN);
+	r->expires_at = expires_at;
+	r->delegable = delegable;
+	r->confirm = confirm;
+	return r;
+}
+
 fzn_invite_open_t *fzn_invites_add(fzn_invites_t *t, const uint8_t secret[FZN_INVITE_SECRET_LEN],
                                    int delegable, int confirm, uint64_t now, uint64_t expires_at)
 {
@@ -177,22 +191,31 @@ fzn_invite_open_t *fzn_invites_add(fzn_invites_t *t, const uint8_t secret[FZN_IN
 
 	if (!t || !secret)
 		return NULL;
-	for (i = 0; i < FZN_INVITES_MAX; i++) {
+	for (i = 0; i < t->cap; i++) {
 		fzn_invite_open_t *r = &t->rows[i];
 
 		/* A CLAIMED ROW lives to answer its device again, and gives way
 		 * once its life has passed. */
 		if (live(r, now) && r->expires_at > now)
 			continue;
-		fzn_wipe(r, sizeof(*r));
-		r->used = 1;
-		memcpy(r->secret, secret, FZN_INVITE_SECRET_LEN);
-		r->expires_at = expires_at;
-		r->delegable = delegable;
-		r->confirm = confirm;
-		return r;
+		return row_filled(r, secret, delegable, confirm, expires_at);
 	}
-	return NULL;
+	{
+		size_t cap = t->cap ? t->cap * 2u : 16u;
+		fzn_invite_open_t *more = calloc(cap, sizeof(*more));
+
+		if (!more)
+			return NULL;
+		if (t->cap) {
+			memcpy(more, t->rows, t->cap * sizeof(*more));
+			fzn_wipe(t->rows, t->cap * sizeof(*more));
+		}
+		free(t->rows);
+		t->rows = more;
+		i = t->cap;
+		t->cap = cap;
+		return row_filled(&t->rows[i], secret, delegable, confirm, expires_at);
+	}
 }
 
 fzn_invite_open_t *fzn_invites_find(fzn_invites_t *t, const uint8_t secret[FZN_INVITE_SECRET_LEN],
@@ -202,7 +225,7 @@ fzn_invite_open_t *fzn_invites_find(fzn_invites_t *t, const uint8_t secret[FZN_I
 
 	if (!t || !secret || !device)
 		return NULL;
-	for (i = 0; i < FZN_INVITES_MAX; i++) {
+	for (i = 0; i < t->cap; i++) {
 		fzn_invite_open_t *r = &t->rows[i];
 
 		if (!r->used || !fzn_ct_memeq(r->secret, secret, FZN_INVITE_SECRET_LEN))
@@ -224,7 +247,7 @@ fzn_invite_open_t *fzn_invites_waiting(fzn_invites_t *t, const uint8_t device[FZ
 
 	if (!t || !device)
 		return NULL;
-	for (i = 0; i < FZN_INVITES_MAX; i++) {
+	for (i = 0; i < t->cap; i++) {
 		fzn_invite_open_t *r = &t->rows[i];
 
 		if (r->used && r->asked && !r->claimed && r->expires_at > now
@@ -240,7 +263,7 @@ size_t fzn_invites_clear(fzn_invites_t *t, uint64_t now)
 
 	if (!t)
 		return 0;
-	for (i = 0; i < FZN_INVITES_MAX; i++) {
+	for (i = 0; i < t->cap; i++) {
 		if (live(&t->rows[i], now) && !t->rows[i].claimed)
 			n++;
 		fzn_wipe(&t->rows[i], sizeof(t->rows[i]));
@@ -254,7 +277,7 @@ size_t fzn_invites_live(const fzn_invites_t *t, uint64_t now)
 
 	if (!t)
 		return 0;
-	for (i = 0; i < FZN_INVITES_MAX; i++)
+	for (i = 0; i < t->cap; i++)
 		if (live(&t->rows[i], now) && !t->rows[i].claimed)
 			n++;
 	return n;

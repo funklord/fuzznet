@@ -80923,3 +80923,64 @@ this host's lines (has all, behind), and `get group` gives no per-member high wa
 No verb answers that. No reason against one: a host holds each writer's head
 (`fzn_group_lines_heads`), though what a member holds is what it last asked from,
 which this host would have to keep. Open until they ask.
+
+## 903. No limit on connections but memory, tested at thousands, 2026-11-06
+
+The holder: fuzznet nodes should handle thousands of connections and be tested for
+it, and a limit is added only on recognising a hard requirement that needs it. Sec
+899's 4 held subscribers met no such requirement, and neither did the 8 subscribers
+under them, carried from fzpd, the follower's 64 connections or an invite table's 16.
+All four are gone: each table grows.
+
+**And a limit nobody had written.** The node read each local connection's request
+as it accepted it, with a 5 s timeout, so a client that opened and said nothing held
+the node for 5 s and everyone behind it. A connection now waits in a table, polled
+with the rest, and is served once its line is whole; silent past 5 s, it is closed.
+The listener is drained each pass, a pass polling everything open, and takes
+`SOMAXCONN` in place of 16.
+
+**Measured, `live_events` c:** 3000 subscribers each told; then 3000 silent
+connections open and `status` answered in 0.052 s. With one accept a pass it took
+2.1 s. `invite_test`: 5000 invites.
+
+**Audited and not yet done:** counts in the code that may be real limits, some only
+a table's first room, to be told apart one by one: group members 256, hosts of a
+group 512, admins 16, file shares, sibling, peer and pull targets, a daemon's own
+descriptors 16, requests in flight 64.
+
+## 904. A local user is a principal, 2026-11-06
+
+The holder: most features should be possible on a local link, and rules need to be
+able to name that case. `local:NAME`, `local:@GROUP` and `local:#UID` are the
+spelling in `local/permit/SUBJECT`; `user:` and `group:` stay, as written so far.
+That is the grammar alone. Which other rules take it, and what is grantable, wait
+on the holder's terminology (hosts, and what a key is for), asked 2026-11-06.
+
+## 905. With backfill off, a later member reads what follows its joining, 2026-11-06
+
+Reported by fuzzypickles (20261105T2325Z), who read it as adding a member opening no
+epoch. Adding one does open one, as `judge` shows. **The fault:** a line is sealed at
+the next round, under the epoch of that moment, so one written just before the add
+was sealed under the epoch the new member holds, and it read that line.
+
+**Fixed:**
+- **A line is sealed under the epoch it was written in** (`group_epoch_at`), past
+  each member added since, to the end of the second as a joining's floor is (sec
+  656). A removal stops the walk, so what was written before it stays from
+  whoever came after and from the removed alike.
+- **A line from before this host joined is passed over,** where `group_file` waited
+  at it for a secret that is not coming, and everything after it waited too.
+- **A file granted to the group before a member joined is refused it** with backfill
+  off (`group_reaches`), by the grant's time and the joining's floor, as a note share
+  is. `fzn_node_group_joined_ms` moved from notes to groups for that.
+- **`get group NAME backfill`** answers `ok 0` or `ok 1`, asked by fuzzypickles.
+
+**Measured:** `live_group_backfill` d3: the line and the file before the join stay
+from C, and those after reach it. **Control:** with the line's epoch left as the
+current one, C reads the earlier line and d3 fails.
+
+**A line in the same second as the add counts as before it,** so it is kept from the
+new member rather than handed over, sec 22's asymmetry.
+
+**Not built:** a limit by time or size for what a later member reads. The holder
+chose a group setting, travelling in the log, so every host gives the same answer.

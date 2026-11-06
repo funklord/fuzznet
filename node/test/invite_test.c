@@ -162,13 +162,24 @@ static void test_table(void)
 	memset(s, 9, sizeof(s));
 	CHECK(fzn_invites_find(&t, s, dev, 200u) == NULL, "a secret nobody issued");
 
-	for (i = 0; i < FZN_INVITES_MAX - 1u; i++) {
-		s[0] = (uint8_t)(10u + i);
-		CHECK(fzn_invites_add(&t, s, 0, 0, 100u, 700u) != NULL, "room for the rest");
+	/* AS MANY AS ARE MADE, sec 903. */
+	for (i = 0; i < 5000u; i++) {
+		s[0] = (uint8_t)i;
+		s[1] = (uint8_t)(i >> 8);
+		s[2] = 0xeeu;
+		CHECK(fzn_invites_add(&t, s, 0, 0, 100u, 700u) != NULL, "room for every invite");
 	}
-	s[0] = 200u;
-	CHECK(fzn_invites_add(&t, s, 0, 0, 100u, 700u) == NULL, "past the table, refused");
-	CHECK(fzn_invites_add(&t, s, 0, 0, 800u, 900u) != NULL, "and a lapsed one gives way");
+	s[0] = 7u;
+	s[1] = 0u;
+	CHECK(fzn_invites_find(&t, s, dev, 200u) != NULL, "and the first still found past a growth");
+	CHECK(fzn_invites_live(&t, 200u) == 5000u, "all of them open");
+	{
+		size_t cap = t.cap;
+
+		s[2] = 0xddu;
+		CHECK(fzn_invites_add(&t, s, 0, 0, 800u, 900u) != NULL && t.cap == cap,
+		      "a lapsed one gives way before the table grows");
+	}
 	CHECK(fzn_invites_clear(&t, 800u) == 1u && fzn_invites_live(&t, 800u) == 0u
 	              && fzn_invites_find(&t, s, dev, 800u) == NULL,
 	      "ended, nothing answers");

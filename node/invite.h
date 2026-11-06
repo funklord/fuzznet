@@ -50,9 +50,8 @@
 #define FZN_INVITE_FIXED_LEN (2u * FZN_PUBKEY_LEN + FZN_INVITE_SECRET_LEN + 2u)
 #define FZN_INVITE_TEXT_MAX \
 	(FZN_INVITE_TEXT_PREFIX_LEN + ((FZN_INVITE_FIXED_LEN + FZN_INVITE_WHERE_MAX) * 8u + 4u) / 5u + 1u)
-/* OPEN AT ONCE on a host: a person shows one at a time, and the secret is kept
- * in memory alone, so a restart ends them. */
-#define FZN_INVITES_MAX 16u
+/* THE SECRET IS KEPT IN MEMORY ALONE, so a restart ends every invite. As many
+ * may be open as a host's user makes, sec 903. */
 #define FZN_INVITE_LIFE_S 600u
 #define FZN_INVITE_LIFE_MAX_S 86400u
 
@@ -121,10 +120,12 @@ typedef struct fzn_invite_open {
 } fzn_invite_open_t;
 
 typedef struct fzn_invites {
-	fzn_invite_open_t rows[FZN_INVITES_MAX];
+	fzn_invite_open_t *rows;
+	size_t cap;
 } fzn_invites_t;
 
-/* A NEW ONE: its row, or NULL with every row live. The lapsed go first. */
+/* A NEW ONE: its row, a lapsed one's where there is one, or NULL with no
+ * memory. A row is good until the next add. */
 fzn_invite_open_t *fzn_invites_add(fzn_invites_t *t, const uint8_t secret[FZN_INVITE_SECRET_LEN],
                                    int delegable, int confirm, uint64_t now, uint64_t expires_at);
 

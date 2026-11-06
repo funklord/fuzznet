@@ -23,15 +23,13 @@
  * or hangs up, is dropped too: after `ok events` the connection is the
  * node's to write and the client's to read.
  *
- * FZN_NODE_EVENTS_MAX subscribers at once, fzpd's own bound; past it a
- * `get events` is not taken.
+ * AS MANY SUBSCRIBERS AS ASK, sec 903: the table grows. It held 8, fzpd's own
+ * bound, and a limit stands here only for a hard requirement that needs it.
  *
  * A HELD SUBSCRIBER, sec 899: `get events WORD`, for a local caller a permit
  * lets read WORD (`node/permit.h`), who is no user of this node. It hears
  * only what an extension published under `WORD-...`, and never one of fuzznet's
- * own, which say what the estate's trust is doing. At most
- * FZN_NODE_EVENTS_HELD_MAX, so others' subscribers cannot fill the room this
- * node's own user needs.
+ * own, which say what the estate's trust is doing.
  */
 #ifndef FZN_NODE_EVENTS_H
 #define FZN_NODE_EVENTS_H
@@ -39,8 +37,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define FZN_NODE_EVENTS_MAX 8u
-#define FZN_NODE_EVENTS_HELD_MAX 4u
 /* The longest SUBJECT and NAME: a word, and a 64-hex-digit key. */
 #define FZN_NODE_EVENTS_SUBJECT_MAX 16u
 #define FZN_NODE_EVENTS_NAME_MAX 64u
@@ -58,10 +54,10 @@ typedef struct fzn_node_event_kept {
 } fzn_node_event_kept_t;
 
 typedef struct fzn_node_events {
-	int fds[FZN_NODE_EVENTS_MAX];
+	int *fds;
 	/* A HELD SUBSCRIBER'S WORD; empty for one that hears everything. */
-	char only[FZN_NODE_EVENTS_MAX][FZN_NODE_EVENTS_SUBJECT_MAX + 1u];
-	size_t n;
+	char (*only)[FZN_NODE_EVENTS_SUBJECT_MAX + 1u];
+	size_t n, cap;
 	/* NUMBERED FROM 1, the next to be published's; the kept a ring. */
 	uint64_t next;
 	fzn_node_event_kept_t kept[FZN_NODE_EVENTS_KEPT];
@@ -73,19 +69,13 @@ typedef struct fzn_node_events {
 
 void fzn_node_events_init(fzn_node_events_t *ev);
 
-/* Whether another subscriber would be taken. */
-int fzn_node_events_room(const fzn_node_events_t *ev);
-
-/* TAKE `fd` AS A SUBSCRIBER: owned from here, made non-blocking. 0 when
- * there is no room or the descriptor will not be made non-blocking, and
- * then `fd` is still the caller's. */
+/* TAKE `fd` AS A SUBSCRIBER: owned from here, made non-blocking. 0 when there
+ * is no memory or the descriptor will not be made non-blocking, and then `fd`
+ * is still the caller's. */
 int fzn_node_events_add(fzn_node_events_t *ev, int fd);
 
-/* WHETHER A SUBSCRIBER HEARING ONLY `word` WOULD BE TAKEN, sec 899. */
-int fzn_node_events_room_held(const fzn_node_events_t *ev);
-
 /* AS `fzn_node_events_add`, hearing only what an extension publishes under
- * `word`. 0 past FZN_NODE_EVENTS_HELD_MAX, or for no word. */
+ * `word`. 0 as there, or for no word. */
 int fzn_node_events_add_held(fzn_node_events_t *ev, int fd, const char *word);
 
 /* PUBLISH `event SUBJECT NAME` to every subscriber but those held. SUBJECT a

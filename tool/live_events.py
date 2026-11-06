@@ -8,8 +8,8 @@ One daemon over one store, and clients of its local socket:
        setting -` and `event note -`, in that order
     b  one subscriber hangs up; the next change still reaches the other,
        and the daemon answers a request as before
-    c  FZN_NODE_EVENTS_MAX subscribers are taken and the next is not: its
-       `get events` is answered as any request, and the connection closed
+    c  thousands of subscribers are each told, and thousands of connections
+       that say nothing hold no request back (sec 903)
     d  one line added to a conversation raises `event message` once, not
        again when the node absorbs its own record (sec 876); and one
        catalogue assertion raises `event catalog` once
@@ -27,6 +27,7 @@ Exit 0 on a pass, 1 on a failure.
 import os
 import socket
 import subprocess
+import resource
 import sys
 import tempfile
 import time
@@ -36,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import command, daemon, expect  # noqa: E402
 from live_trim import ask, failed, left  # noqa: E402
 
-EVENTS_MAX = 8
+MANY = 3000
 
 
 class subscriber:
@@ -142,23 +143,39 @@ def main(argv):
 				print("livecheck: b: one subscriber gone, the other still told and the "
 				      "daemon still answering")
 
-				# c: the bound. One is held; seven more fill it, and the
-				# next is answered as any request is, then closed.
-				for i in range(EVENTS_MAX - 1):
+				# c: THOUSANDS, sec 903: as many subscribers as ask, each told, and
+				# as many connections that have said nothing, none of which holds a
+				# request back.
+				soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+				resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+				for i in range(MANY):
 					subs.append(subscriber(sock, "c%d" % i))
 					if subs[-1].first != "ok events":
 						raise failed("c: subscriber %d answered %r" % (i, subs[-1].first))
-				extra = subscriber(sock, "c-extra")
-				after = extra.line()
-				extra.close()
-				if extra.first == "ok events" or after is not None:
-					raise failed("c: a subscriber past %d was answered %r, then %r"
-					             % (EVENTS_MAX, extra.first, after))
 				expect(sock, "c", "set setting host x/seen 3", "ok")
 				if any(sub.line() != "event setting -" for sub in subs):
-					raise failed("c: a subscriber within the bound was not told")
-				print("livecheck: c: %d subscribers taken, the next answered as a request "
-				      "(%r) and closed" % (EVENTS_MAX, extra.first))
+					raise failed("c: a subscriber among %d was not told" % len(subs))
+				quiet = []
+				for _ in range(MANY):
+					q = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+					q.connect(sock)
+					quiet.append(q)
+				began = time.monotonic()
+				said = ask(sock, "status")
+				took = time.monotonic() - began
+				if not said.startswith("ok ") or took > 1.0:
+					raise failed("c: behind %d silent connections, status took %.1f s: %r"
+					             % (MANY, took, said))
+				for q in quiet:
+					q.close()
+				for sub in subs[2:]:
+					sub.close()
+				del subs[2:]
+				expect(sock, "c", "set setting host x/seen 4", "ok")
+				if any(sub.line() != "event setting -" for sub in subs):
+					raise failed("c: after %d left, the rest were not told" % MANY)
+				print("livecheck: c: %d subscribers told, and %d silent connections held "
+				      "nothing back: status in %.3f s" % (MANY, MANY, took))
 
 				# d: ONE LINE, ONE EVENT, sec 876 -- fuzzypickles saw two, the
 				# second when the node absorbed its own record.

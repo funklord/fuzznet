@@ -52,12 +52,11 @@ static int pair(int sv[2])
 static void test_held(void)
 {
 	static fzn_node_events_t ev;
-	int own[2], held[2], other[2], more[FZN_NODE_EVENTS_HELD_MAX][2];
+	int own[2], held[2], other[2], more[1][2];
 	char buf[256];
-	size_t i;
 
 	fzn_node_events_init(&ev);
-	CHECK(pair(own) && pair(held) && pair(other) && fzn_node_events_add(&ev, own[0])
+	CHECK(pair(more[0]) && pair(own) && pair(held) && pair(other) && fzn_node_events_add(&ev, own[0])
 	              && fzn_node_events_add_held(&ev, held[0], "net")
 	              && fzn_node_events_add_held(&ev, other[0], "raid"),
 	      "fixture: this node's user's, and two held");
@@ -83,16 +82,9 @@ static void test_held(void)
 	      "and the last, moved into its place, keeps its word");
 	CHECK(drain(other[1], buf, sizeof(buf)) && strcmp(buf, "event raid-state -\n") == 0,
 	      "heard by it");
-	/* THE BOUND. */
-	for (i = 0; i + 2u < FZN_NODE_EVENTS_HELD_MAX; i++)
-		CHECK(pair(more[i]) && fzn_node_events_add_held(&ev, more[i][0], "net"), "room");
-	CHECK(pair(more[FZN_NODE_EVENTS_HELD_MAX - 1u])
-	              && !fzn_node_events_room_held(&ev)
-	              && !fzn_node_events_add_held(&ev, more[FZN_NODE_EVENTS_HELD_MAX - 1u][0], "net"),
-	      "others' subscribers stop short of the room this node's user needs");
-	CHECK(fzn_node_events_room(&ev), "which is still there");
-	CHECK(!fzn_node_events_add_held(&ev, more[FZN_NODE_EVENTS_HELD_MAX - 1u][0], ""),
-	      "no word is no held subscriber");
+	CHECK(fzn_node_events_publish(&ev, "member", "ab") == 0u,
+	      "and hears none of fuzznet's from its new place");
+	CHECK(!fzn_node_events_add_held(&ev, more[0][0], ""), "no word is no held subscriber");
 	fzn_node_events_close(&ev);
 }
 
@@ -170,34 +162,26 @@ static void test_one_gone_or_slow_is_dropped(void)
 
 static void test_room_and_close(void)
 {
-	fzn_node_events_t ev;
-	int sv[FZN_NODE_EVENTS_MAX + 1u][2];
+	static fzn_node_events_t ev;
+	static int sv[300][2];
 	size_t i;
 	char buf[8];
 
+	/* PAST WHAT THE TABLE STARTS WITH, sec 903: each taken and told. */
 	fzn_node_events_init(&ev);
-	for (i = 0; i < FZN_NODE_EVENTS_MAX; i++)
-		CHECK(pair(sv[i]) && fzn_node_events_add(&ev, sv[i][0]), "fixture: a subscriber");
-	CHECK(!fzn_node_events_room(&ev) && pair(sv[i]) && !fzn_node_events_add(&ev, sv[i][0]),
-	      "a subscriber past the bound was taken");
-	CHECK(write(sv[i][0], "x", 1) == 1, "a subscriber not taken was closed");
-	(void)close(sv[i][0]);
-	(void)close(sv[i][1]);
+	for (i = 0; i < 300u; i++)
+		CHECK(pair(sv[i]) && fzn_node_events_add(&ev, sv[i][0]), "a subscriber was not taken");
+	CHECK(fzn_node_events_publish(&ev, "message", NULL) == 300u, "one was not told");
 	fzn_node_events_close(&ev);
-	CHECK(ev.n == 0u && fzn_node_events_room(&ev), "close left a subscriber");
-	/* CLOSED: each client end reads its end of file. */
-	for (i = 0; i < FZN_NODE_EVENTS_MAX; i++) {
-		CHECK(read(sv[i][1], buf, sizeof(buf)) == 0, "a subscriber was not closed");
+	CHECK(ev.n == 0u, "close left a subscriber");
+	/* CLOSED: each client end reads its line, then its end of file. */
+	for (i = 0; i < 300u; i++) {
+		CHECK(drain(sv[i][1], buf, sizeof(buf)) > 0u, "a line was not there to read");
 		(void)close(sv[i][1]);
 	}
-	CHECK(!fzn_node_events_add(NULL, 0) && !fzn_node_events_room(NULL)
-	              && fzn_node_events_publish(NULL, "message", NULL) == 0u,
-	      "a missing set was used");
+	CHECK(!fzn_node_events_add(NULL, 0), "an add to nothing was taken");
 }
 
-/* WHAT HAPPENED SINCE A CURSOR, sec 866: numbered from 1, kept with no
- * subscriber, paged within an escaped budget, and a reader told when it
- * fell behind the ring or asks past its end. */
 static void test_since_a_cursor(void)
 {
 	static fzn_node_events_t ev;

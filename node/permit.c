@@ -58,7 +58,15 @@ static int parse_grant(const char *w, size_t n, struct grant *g)
 		g->rights = FZN_PERMIT_CALL;
 		return 1;
 	}
-	if (n > 6u && memcmp(w, "group:", 6u) == 0) {
+	/* `local:NAME` AND `local:@GROUP`, sec 904: a local user as a principal,
+	 * the spelling every rule that names one takes. `user:` and `group:` are
+	 * the same two, as they were first written. */
+	if (n > 7u && memcmp(w, "local:@", 7u) == 0) {
+		g->group = 1;
+		name = w + 7;
+	} else if (n > 6u && memcmp(w, "local:", 6u) == 0) {
+		name = w + 6;
+	} else if (n > 6u && memcmp(w, "group:", 6u) == 0) {
 		g->group = 1;
 		name = w + 6;
 	} else if (n > 5u && memcmp(w, "user:", 5u) == 0) {

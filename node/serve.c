@@ -4,8 +4,12 @@
 
 #include "serve.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -48,27 +52,98 @@ static int opens_here(const fzn_node_state_t *state, const uint8_t *frame, size_
 	       == FZN_SEAL_OK;
 }
 
-static void serve_ready_local(fzn_node_state_t *state)
-{
-	int cfd, subscribed = 0;
+/* A LOCAL CONNECTION WAITING FOR ITS REQUEST, sec 903. Reading it at once, as
+ * this did, let a client that opened and said nothing hold the node for 5 s,
+ * and everyone behind it: a hundred such were eight minutes of a daemon not
+ * answering. So it waits here, polled with the rest, and is served when its
+ * line has come whole. */
+#define WAITING_MS 5000u
+
+struct fzn_node_waiting {
+	int fd;
 	fzn_peer_t peer;
+	uint64_t since_ms;
+};
+
+static uint64_t monotonic_ms(void)
+{
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+		return 0;
+	return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+
+static void waiting_drop(fzn_node_state_t *state, size_t i)
+{
+	state->waiting[i] = state->waiting[--state->n_waiting];
+}
+
+static void serve_connection(fzn_node_state_t *state, int cfd, const fzn_peer_t *peer)
+{
+	int subscribed = 0;
 	char word[FZN_NODE_LOCAL_WORD_MAX + 1u] = "";
 
-	if (fzn_socket_accept(state->listen_fd, &cfd, &peer) != FZN_SOCKET_OK)
-		return;
-	/* A SUBSCRIPTION TAKEN ONLY WHILE THERE IS ROOM for it, sec 609: past
-	 * that, `get events` reaches the handler as any request does. */
-	(void)fzn_node_serve_local_held(&state->config, cfd, &peer, state->on_local,
-	                                state->on_local_ctx,
-	                                fzn_node_events_room(state->events) ? &subscribed : NULL,
+	(void)fzn_node_serve_local_held(&state->config, cfd, peer, state->on_local,
+	                                state->on_local_ctx, state->events ? &subscribed : NULL,
 	                                state->on_local_denied, state->on_local_denied_ctx,
-	                                fzn_node_events_room_held(state->events) ? state->hears : NULL,
-	                                state->hears_ctx, word);
+	                                state->hears, state->hears_ctx, word);
 	if (subscribed
 	    && (word[0] ? fzn_node_events_add_held(state->events, cfd, word)
 	                : fzn_node_events_add(state->events, cfd)))
 		return;
 	(void)close(cfd);
+}
+
+/* WAITING CONNECTION `i`: served once its line is whole, or a line's room is
+ * full, which the request's reader refuses; closed when it hung up. */
+static void waiting_step(fzn_node_state_t *state, size_t i)
+{
+	uint8_t peek[FZN_REQUEST_MAX + 1u];
+	struct fzn_node_waiting w = state->waiting[i];
+	ssize_t n = recv(w.fd, peek, sizeof(peek), MSG_PEEK | MSG_DONTWAIT);
+
+	if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+		return;
+	waiting_drop(state, i);
+	if (n <= 0) {
+		(void)close(w.fd);
+		return;
+	}
+	if (!memchr(peek, '\n', (size_t)n) && (size_t)n < sizeof(peek)) {
+		state->waiting[state->n_waiting++] = w;
+		return;
+	}
+	serve_connection(state, w.fd, &w.peer);
+}
+
+/* EVERY CONNECTION THE LISTENER HOLDS, not one a pass: a pass polls everything
+ * open, so one at a time is that cost for each of thousands. */
+static void serve_ready_local(fzn_node_state_t *state)
+{
+	int cfd, flags = fcntl(state->listen_fd, F_GETFL);
+	fzn_peer_t peer;
+
+	if (flags >= 0 && !(flags & O_NONBLOCK))
+		(void)fcntl(state->listen_fd, F_SETFL, flags | O_NONBLOCK);
+	while (fzn_socket_accept(state->listen_fd, &cfd, &peer) == FZN_SOCKET_OK) {
+		if (state->n_waiting == state->waiting_cap) {
+			size_t cap = state->waiting_cap ? state->waiting_cap * 2u : 16u;
+			struct fzn_node_waiting *more = realloc(state->waiting, cap * sizeof(*more));
+
+			if (!more) {
+				(void)close(cfd);
+				return;
+			}
+			state->waiting = more;
+			state->waiting_cap = cap;
+		}
+		state->waiting[state->n_waiting].fd = cfd;
+		state->waiting[state->n_waiting].peer = peer;
+		state->waiting[state->n_waiting].since_ms = monotonic_ms();
+		state->n_waiting++;
+		waiting_step(state, state->n_waiting - 1u);
+	}
 }
 
 /* Call the consumer's handler and send whatever it answers.
@@ -351,14 +426,42 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 {
-	struct pollfd fds[2u + FZN_NODE_EVENTS_MAX + FZN_NODE_ASKS_MAX + FZN_NODE_OWN_FDS_MAX];
-	int subscribers[FZN_NODE_EVENTS_MAX], awaited[FZN_NODE_ASKS_MAX], own[FZN_NODE_OWN_FDS_MAX];
-	nfds_t nfds = 0, first_sub, first_ask, first_own;
-	size_t n_sub = 0, n_ask = 0, n_own = 0, s;
+	struct pollfd *fds;
+	int *subscribers, awaited[FZN_NODE_ASKS_MAX], own[FZN_NODE_OWN_FDS_MAX];
+	nfds_t nfds = 0, first_sub, first_ask, first_own, first_wait;
+	size_t n_sub = 0, n_ask = 0, n_own = 0, n_wait, s, want;
 	int li = -1, ui = -1, handled = 0, r;
+	uint64_t now_ms;
 
 	if (!state)
 		return 0;
+	/* ROOM FOR EVERY DESCRIPTOR, however many are open, sec 903. */
+	want = 2u + (state->events ? state->events->n : 0u) + state->n_waiting + FZN_NODE_ASKS_MAX
+	       + FZN_NODE_OWN_FDS_MAX;
+	if (want > state->polled_cap) {
+		size_t cap = want * 2u;
+		struct pollfd *more = realloc(state->polled, cap * sizeof(*more));
+		int *subs;
+
+		if (!more)
+			return 0;
+		state->polled = more;
+		subs = realloc(state->polled_subscribers, cap * sizeof(*subs));
+		if (!subs)
+			return 0;
+		state->polled_subscribers = subs;
+		state->polled_cap = cap;
+	}
+	fds = state->polled;
+	subscribers = state->polled_subscribers;
+	/* A CONNECTION THAT SAID NOTHING IN TIME goes, as it went by its read's
+	 * timeout. Backward, as dropping one moves the last into its place. */
+	now_ms = monotonic_ms();
+	for (s = state->n_waiting; s > 0u; s--)
+		if (now_ms - state->waiting[s - 1u].since_ms >= WAITING_MS) {
+			(void)close(state->waiting[s - 1u].fd);
+			waiting_drop(state, s - 1u);
+		}
 	if (state->listen_fd >= 0) {
 		fds[nfds].fd = state->listen_fd;
 		fds[nfds].events = POLLIN;
@@ -384,6 +487,15 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 			fds[nfds].revents = 0;
 			nfds++;
 		}
+	/* EACH LOCAL CONNECTION STILL SAYING ITS REQUEST, sec 903. */
+	first_wait = nfds;
+	n_wait = state->n_waiting;
+	for (s = 0; s < n_wait; s++) {
+		fds[nfds].fd = state->waiting[s].fd;
+		fds[nfds].events = POLLIN;
+		fds[nfds].revents = 0;
+		nfds++;
+	}
 	/* EACH SOCKET A REQUEST AWAITS ITS ANSWER ON, sec 636. */
 	first_ask = nfds;
 	if (state->asks) {
@@ -432,6 +544,12 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 	for (s = 0; s < n_sub; s++)
 		if (fds[first_sub + s].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) {
 			(void)fzn_node_events_ready(state->events, subscribers[s]);
+			handled++;
+		}
+	/* BACKWARD, so a connection dropped moves only one already looked at. */
+	for (s = n_wait; s > 0u; s--)
+		if (fds[first_wait + s - 1u].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) {
+			waiting_step(state, s - 1u);
 			handled++;
 		}
 	if (li >= 0 && (fds[li].revents & POLLIN)) {

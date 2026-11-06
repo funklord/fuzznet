@@ -10353,11 +10353,11 @@ static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, ch
 		size_t n = 0, out;
 		char hex[2u * FZN_PUBKEY_LEN + 1u];
 
-		for (i = 0; i < FZN_INVITES_MAX; i++)
+		for (i = 0; i < invites.cap; i++)
 			if (fzn_invites_waiting(&invites, invites.rows[i].device, now) == &invites.rows[i])
 				n++;
 		out = (size_t)snprintf(reply, cap, "ok %zu", n);
-		for (i = 0; i < FZN_INVITES_MAX; i++)
+		for (i = 0; i < invites.cap; i++)
 			if (fzn_invites_waiting(&invites, invites.rows[i].device, now) == &invites.rows[i]
 			    && out + sizeof(hex) + 2u < cap) {
 				hex_of(invites.rows[i].device, FZN_PUBKEY_LEN, hex);
@@ -10433,8 +10433,7 @@ static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, ch
 	}
 	if (!fzn_invites_add(&invites, in.secret, delegable, confirm, now, now + life)) {
 		fzn_wipe(&in, sizeof(in));
-		return (size_t)snprintf(reply, cap, "error %u invites are open: remove invite\n",
-		                        (unsigned)FZN_INVITES_MAX);
+		return (size_t)snprintf(reply, cap, "error no memory for another invite\n");
 	}
 	fzn_wipe(&in, sizeof(in));
 	return (size_t)snprintf(reply, cap, "ok %s\n", text);
@@ -17420,7 +17419,6 @@ static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *
  * holds it open. Each direction holds what the other end has not yet taken,
  * and is read again only once that is written: a slow reader holds its own
  * connection back and no other. */
-#define FOLLOW_MAX 64u
 #define FOLLOW_BUF 4096u
 
 typedef struct {
@@ -17431,8 +17429,8 @@ typedef struct {
 	int shut[2];			/* fd[d]'s writing half shut */
 } follow_t;
 
-static follow_t follows[FOLLOW_MAX];
-static size_t follows_n;
+static follow_t *follows;
+static size_t follows_n, follows_cap;
 
 static void follow_drop(size_t k)
 {
@@ -17455,8 +17453,8 @@ static void follow_open(int cfd, const fzn_peer_t *peer, const char *core_dir)
 		(void)close(cfd);
 		return;
 	}
-	if (follows_n == FOLLOW_MAX) {
-		say_to(cfd, "error a follower holds as many connections as it can\n");
+	if (!heap_room((void **)&follows, &follows_cap, follows_n + 1u, sizeof(*follows))) {
+		say_to(cfd, "error a follower has no memory for another connection\n");
 		(void)close(cfd);
 		return;
 	}
@@ -17514,7 +17512,8 @@ static int follow_step(follow_t *f, const short ev[2])
 
 static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_t *claim)
 {
-	static struct pollfd pfd[1u + 2u * FOLLOW_MAX + FZN_NODE_OWN_FDS_MAX + 1u];
+	static struct pollfd *pfd;
+	static size_t pfd_cap;
 	int own[FZN_NODE_OWN_FDS_MAX];
 	int lfd = -1;
 	/* THE PATH ITS OWN, to remove at the end; not when it is the face's. */
@@ -17527,7 +17526,7 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 	 * in. fuzznetd alone, with nothing to pass through, has nothing to
 	 * follow for. */
 	if (sock_path) {
-		fzn_socket_err_t serr = fzn_socket_listen(sock_path, 0777u, 16, &lfd);
+		fzn_socket_err_t serr = fzn_socket_listen(sock_path, 0777u, SOMAXCONN, &lfd);
 
 		if (serr != FZN_SOCKET_OK) {
 			char face[1100];
@@ -17556,6 +17555,10 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 		size_t k, n = follows_n, n_own, first_own, offer_at;
 		int r;
 
+		if (!heap_room((void **)&pfd, &pfd_cap, 2u + 2u * n + FZN_NODE_OWN_FDS_MAX, sizeof(*pfd))) {
+			say(FZN_ENTRY_ERROR, "node", "no memory to poll %zu connections", n);
+			return 1;
+		}
 		pfd[0].fd = lfd;
 		pfd[0].events = POLLIN;
 		for (k = 0; k < n; k++) {
@@ -18893,7 +18896,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * in-process peer-credential check, which the kernel fills and no
 	 * client can forge. A deployment may tighten ownership and mode on
 	 * top of that. */
-	if (sock_path && fzn_socket_listen(sock_path, 0777u, 16, &lfd) != FZN_SOCKET_OK) {
+	if (sock_path && fzn_socket_listen(sock_path, 0777u, SOMAXCONN, &lfd) != FZN_SOCKET_OK) {
 		say(FZN_ENTRY_ERROR, "node", "could not listen on %s", sock_path);
 		return 1;
 	}

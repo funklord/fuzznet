@@ -67,6 +67,9 @@
 #define FZN_NODE_REPLY_CEILING \
 	((size_t)FZN_SPLIT_MAX_PAYLOAD * (size_t)FZN_REASM_MAX_CHUNKS)
 
+struct pollfd;
+struct fzn_node_waiting;
+
 typedef struct fzn_node_state {
 	fzn_node_config_t config;
 	int listen_fd;	/* the AF_UNIX listener, or -1 */
@@ -109,6 +112,14 @@ typedef struct fzn_node_state {
 	/* WHO MAY HOLD `get events WORD`, sec 899. NULL takes none. */
 	fzn_node_local_hears_t hears;
 	void *hears_ctx;
+	/* LOCAL CONNECTIONS NOT YET A WHOLE REQUEST, sec 903, and the poll's own
+	 * room: grown as they fill, the node's to keep. A connection that has
+	 * said nothing waits here and holds no other back. */
+	struct fzn_node_waiting *waiting;
+	size_t n_waiting, waiting_cap;
+	struct pollfd *polled;
+	int *polled_subscribers;
+	size_t polled_cap;
 	void *on_box_ctx;
 	/* A LAN PROBE, sec 624: a datagram opening with FZN_NODE_PROBE_MARK,
 	 * which no frame and no box does, handed over with where it came from

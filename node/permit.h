@@ -14,9 +14,11 @@
  * without `r`), or CALL it as a procedure (`x`, sec 853). It is the host
  * setting `local/permit/SUBJECT`, whose value is one or more grants:
  *
- *     group:netcfgd=r user:alice=rw user:#1001=r
+ *     local:@netcfgd=r local:alice=rw local:#1001=r
  *
- * A name is a user's or group's as this machine's databases say; `#N` is a
+ * `local:NAME` is a local user as a principal, `local:@NAME` a group of them
+ * (sec 904); `user:NAME` and `group:NAME`, as first written, mean the same. A
+ * name is a user's or group's as this machine's databases say; `#N` is a
  * numeric id. `any=x` lets every local user call the subject (sec 883): a
  * call only, for a procedure judges its own caller, and no fuzznet verb
  * does. A caller so permitted is served that subject's verbs as the

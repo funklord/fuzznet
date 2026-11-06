@@ -45,6 +45,10 @@ int main(void)
 	fzn_peer_t p;
 
 	/* THE GRAMMAR. */
+	ok(check("local:alice=rw local:@netcfgd=r local:#1001=x") == NULL,
+	   "a local user or group, as a principal, was refused");
+	ok(check("local:=r") && check("local:@=r") && check("local:alice"),
+	   "a local principal with no name or no rights was taken");
 	ok(check("group:netcfgd=r") == NULL && check("user:alice=rw  group:#44=r") == NULL,
 	   "well-formed grants were refused");
 	ok(check("user:a=x") == NULL && check("user:a=rx") == NULL && check("user:a=rwx") == NULL,
@@ -65,6 +69,9 @@ int main(void)
 	   "a trust subject, or one no setting key can name, was grantable");
 	/* BY NUMBER: user, primary group, supplementary group. */
 	peer_of(&p, 2001, 2001, 1, 77);
+	ok(allows("local:#2001=r", &p, FZN_PERMIT_READ) && allows("local:@#77=r", &p, FZN_PERMIT_READ)
+	           && !allows("local:#2002=r", &p, FZN_PERMIT_READ),
+	   "local: did not name the user and group it says");
 	ok(allows("user:#2001=r", &p, FZN_PERMIT_READ) && !allows("user:#2001=r", &p, FZN_PERMIT_CHANGE),
 	   "a read grant was not a read, or was a change");
 	ok(allows("user:#2001=rw", &p, FZN_PERMIT_CHANGE) && allows("user:#2001=rw", &p, FZN_PERMIT_READ),

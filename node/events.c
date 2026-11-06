@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -83,28 +84,31 @@ size_t fzn_node_events_since(const fzn_node_events_t *ev, uint64_t from, char *o
 	return len;
 }
 
-int fzn_node_events_room(const fzn_node_events_t *ev)
+static int room(fzn_node_events_t *ev)
 {
-	return ev && ev->n < FZN_NODE_EVENTS_MAX;
-}
+	size_t cap = ev->cap ? ev->cap * 2u : 16u;
+	int *fds;
+	char (*only)[FZN_NODE_EVENTS_SUBJECT_MAX + 1u];
 
-int fzn_node_events_room_held(const fzn_node_events_t *ev)
-{
-	size_t i, held = 0;
-
-	if (!fzn_node_events_room(ev))
+	if (ev->n < ev->cap)
+		return 1;
+	fds = realloc(ev->fds, cap * sizeof(*fds));
+	if (!fds)
 		return 0;
-	for (i = 0; i < ev->n; i++)
-		if (ev->only[i][0])
-			held++;
-	return held < FZN_NODE_EVENTS_HELD_MAX;
+	ev->fds = fds;
+	only = realloc(ev->only, cap * sizeof(*only));
+	if (!only)
+		return 0;
+	ev->only = only;
+	ev->cap = cap;
+	return 1;
 }
 
 static int take(fzn_node_events_t *ev, int fd, const char *word)
 {
 	int flags;
 
-	if (!fzn_node_events_room(ev) || fd < 0)
+	if (!ev || fd < 0 || !room(ev))
 		return 0;
 	flags = fcntl(fd, F_GETFL);
 	if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0)
@@ -121,8 +125,7 @@ int fzn_node_events_add(fzn_node_events_t *ev, int fd)
 
 int fzn_node_events_add_held(fzn_node_events_t *ev, int fd, const char *word)
 {
-	if (!word || !word[0] || strlen(word) >= sizeof(ev->only[0])
-	    || !fzn_node_events_room_held(ev))
+	if (!ev || !word || !word[0] || strlen(word) > FZN_NODE_EVENTS_SUBJECT_MAX)
 		return 0;
 	return take(ev, fd, word);
 }
@@ -234,4 +237,9 @@ void fzn_node_events_close(fzn_node_events_t *ev)
 		return;
 	while (ev->n)
 		drop(ev, ev->n - 1u);
+	free(ev->fds);
+	free(ev->only);
+	ev->fds = NULL;
+	ev->only = NULL;
+	ev->cap = 0;
 }
