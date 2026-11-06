@@ -145,9 +145,26 @@ int main(void)
 		bad[2] = 3u;
 		bad[3] = 2u;
 		CHECK(fzn_bearer_take(&j, bad, 20u, &whole) == 0u, "an index past the count was taken");
+		/* A SHORT PIECE MID-FRAME, and then its last: taken, the two would make
+		 * a frame with a hole in it. */
+		bad[0] = 0x51u;
 		bad[2] = 0u;
 		bad[3] = 2u;
+		CHECK(fzn_bearer_take(&j, bad, 20u, &whole) == 0u, "a short piece finished a frame");
+		bad[2] = 1u;
 		CHECK(fzn_bearer_take(&j, bad, 20u, &whole) == 0u, "a short piece was taken as a full one");
+		memset(slots, 0, sizeof(slots));
+		/* PIECES RUNNING PAST THE FRAME: 26 of 47 bytes is 1222, past 1168, and
+		 * if all were taken the last would finish it. */
+		bad[0] = 0x52u;
+		bad[3] = 26u;
+		for (i = 0, got = 0; i < 26u; i++) {
+			bad[2] = (uint8_t)i;
+			got = fzn_bearer_take(&j, bad, 51u, &whole);
+		}
+		CHECK(got == 0u, "a frame past the largest was joined");
+		memset(slots, 0, sizeof(slots));
+		bad[0] = 0u;
 		bad[3] = 255u;
 		CHECK(fzn_bearer_take(&j, bad, 51u, &whole) == 0u, "more pieces than a frame was taken");
 		bad[2] = 145u;

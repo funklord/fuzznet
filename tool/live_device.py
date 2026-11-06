@@ -14,6 +14,7 @@ that passes is held to the link's size, and may be lost.
     b  over 51-byte units with 10 per cent of units lost, each way, so that a
        frame of several pieces is often lost whole: asked again and again, it
        still is, every time, and units were seen to be lost
+    b2 the bridge on a terminal rather than a pipe, as it would hold a UART
     c  a device of another estate holds a session R never made, and is answered
        nothing
     d  R revokes D: the same image is answered no more
@@ -30,6 +31,7 @@ Exit 0 on a pass, 1 on a failure.
 """
 
 import os
+import pty
 import random
 import select
 import subprocess
@@ -47,6 +49,8 @@ import live_trim  # noqa: E402
 live_trim.DEADLINE = time.monotonic() + 200.0
 
 LOSSY_ASKS = 6
+# A TIME ASK AND A SHORT CALL ARE EACH FOUR PIECES AT 51 BYTES (phase a).
+UNITS_A_FRAME = 4
 
 END = 0xC0
 ESC = 0xDB
@@ -83,17 +87,24 @@ class wire:
 		os.write(self.sink, bytes([END]) + coded + bytes([END]))
 
 
-def on_the_air(run, image, unit, loss, name, args, port):
+def on_the_air(run, image, unit, loss, name, args, port, tty=False):
 	"""The device asks `name` through a bridge at `port`: its exit and what it said,
-	and the units that went each way."""
+	and the units that went each way. With `tty` the bridge reads a terminal, as it
+	would a UART, and this script holds the far end of it."""
 	rng = random.Random()
-	bridge = subprocess.Popen([run.bridge, "--unit=%d" % unit, "--udp=127.0.0.1:%s" % port],
-	                          stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+	argv = [run.bridge, "--unit=%d" % unit, "--udp=127.0.0.1:%s" % port]
+	master = slave = -1
+	if tty:
+		master, slave = pty.openpty()
+		bridge = subprocess.Popen(argv + ["--serial=" + os.ttyname(slave)],
+		                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+	else:
+		bridge = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 	sim = subprocess.Popen([run.sim, image, str(unit), name] + ([args] if args else []),
 	                       stdin=subprocess.PIPE, stdout=subprocess.PIPE,
 	                       stderr=subprocess.PIPE)
-	up = wire(sim.stdout.fileno(), bridge.stdin.fileno(), unit, loss, rng)
-	down = wire(bridge.stdout.fileno(), sim.stdin.fileno(), unit, loss, rng)
+	up = wire(sim.stdout.fileno(), master if tty else bridge.stdin.fileno(), unit, loss, rng)
+	down = wire(master if tty else bridge.stdout.fileno(), sim.stdin.fileno(), unit, loss, rng)
 	try:
 		until = time.monotonic() + 40.0
 		while sim.poll() is None and time.monotonic() < until:
@@ -116,6 +127,9 @@ def on_the_air(run, image, unit, loss, name, args, port):
 			except subprocess.TimeoutExpired:
 				p.kill()
 				p.wait()
+		for fd in (master, slave):
+			if fd >= 0:
+				os.close(fd)
 
 
 def main(argv):
@@ -168,17 +182,25 @@ def main(argv):
 			      % (up.passed, down.passed, said[:60]))
 
 			# b: a lossy link. A POSITIVE CONTROL: units must be seen lost.
-			lost = heard = 0
+			lost = heard = sent = 0
 			for _ in range(LOSSY_ASKS):
 				code, said, up, down = on_the_air(run, image, 51, 0.10, "events", "0", port)
 				if code != 0:
 					raise failed("b: at 10 per cent loss the device said %r (%d)" % (said, code))
 				lost += up.lost + down.lost
+				sent += (up.lost + up.passed) // UNITS_A_FRAME
 				heard += up.lost + down.lost + up.passed + down.passed
 			if not lost:
 				raise failed("b: no unit was lost in %d, so nothing was tested" % heard)
-			print("livecheck: b: answered %d times of %d over 51-byte units, %d of %d units lost"
-			      % (LOSSY_ASKS, LOSSY_ASKS, lost, heard))
+			print("livecheck: b: answered %d times of %d over 51-byte units, %d of %d units "
+			      "lost, %d frames sent for %d exchanges"
+			      % (LOSSY_ASKS, LOSSY_ASKS, lost, heard, sent, 2 * LOSSY_ASKS))
+
+			# b2: through a terminal, where a line discipline would eat bytes.
+			code, said, _, _ = on_the_air(run, image, 51, 0.0, "events", "0", port, tty=True)
+			if code != 0:
+				raise failed("b2: over a terminal the device said %r (%d)" % (said, code))
+			print("livecheck: b2: answered through a terminal, as a UART would carry it")
 
 			# c: another estate's.
 			code, said, _, _ = on_the_air(run, image_p, 222, 0.0, "events", "0", port)

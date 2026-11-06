@@ -111,8 +111,11 @@ int main(int argc, char **argv)
 	d.bearer = &bearer;
 	d.join = &join;
 	d.uptime_ms = monotonic_ms;
-	d.wait_ms = 1500u;
-	d.tries = 8u;
+	/* A LOOPBACK'S ANSWER COMES AT ONCE, so waits are short and tries many: at 10
+	 * per cent of units lost a frame of four pieces each way gets through about
+	 * two tries in five, which 8 tries missed often enough to fail a run. */
+	d.wait_ms = 400u;
+	d.tries = 30u;
 	d.life_s = 60u;
 	err = fzn_device_call(&d, argv[3], (const uint8_t *)args, strlen(args), answer,
 	                      sizeof(answer), &len, &status);

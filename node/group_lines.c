@@ -102,28 +102,48 @@ fzn_group_lines_err_t fzn_group_lines_head(const fzn_group_lines_t *l,
 	return head_decode(bytes, n, out) ? FZN_GROUP_LINES_OK : FZN_GROUP_LINES_ERR_BACKEND;
 }
 
+/* THE HEADS OF ONE GROUP, walked from every group's, sec 913. */
+struct heads_walk {
+	const fzn_group_lines_t *l;
+	const uint8_t *group;
+	fzn_group_line_head_t *out;
+	size_t cap, count;
+};
+
+static int head_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct heads_walk *w = arg;
+	uint8_t bytes[HEAD_LEN];
+	size_t len = 0;
+
+	if (w->l->store->load(w->l->store->ctx, FZN_PERSIST_GROUP_LINE_HEAD, subject, bytes,
+	                      sizeof(bytes), &len)
+	    && head_decode(bytes, len, &w->out[w->count])
+	    && memcmp(w->out[w->count].group, w->group, FZN_GROUP_ID_LEN) == 0)
+		w->count++;
+	return w->count < w->cap;
+}
+
 fzn_group_lines_err_t fzn_group_lines_heads(const fzn_group_lines_t *l,
                                             const uint8_t group[FZN_GROUP_ID_LEN],
                                             fzn_group_line_head_t *out, size_t cap,
                                             size_t *count)
 {
-	static uint8_t subjects[FZN_GROUP_LINE_HEADS_MAX][FZN_PUBKEY_LEN];
-	uint8_t bytes[HEAD_LEN];
-	size_t n = 0, i, len = 0;
+	struct heads_walk w;
 
 	if (!usable(l) || !group || !out || !count)
 		return FZN_GROUP_LINES_ERR_MALFORMED;
 	*count = 0;
-	if (!l->store->list
-	    || !l->store->list(l->store->ctx, FZN_PERSIST_GROUP_LINE_HEAD, (uint8_t *)subjects,
-	                       FZN_GROUP_LINE_HEADS_MAX, &n))
+	if (!cap)
+		return FZN_GROUP_LINES_OK;
+	w.l = l;
+	w.group = group;
+	w.out = out;
+	w.cap = cap;
+	w.count = 0;
+	if (!fzn_persist_each(l->store, FZN_PERSIST_GROUP_LINE_HEAD, head_walked, &w))
 		return FZN_GROUP_LINES_ERR_BACKEND;
-	for (i = 0; i < n && *count < cap; i++)
-		if (l->store->load(l->store->ctx, FZN_PERSIST_GROUP_LINE_HEAD, subjects[i], bytes,
-		                   sizeof(bytes), &len)
-		    && head_decode(bytes, len, &out[*count])
-		    && memcmp(out[*count].group, group, FZN_GROUP_ID_LEN) == 0)
-			(*count)++;
+	*count = w.count;
 	return FZN_GROUP_LINES_OK;
 }
 

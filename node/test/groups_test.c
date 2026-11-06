@@ -193,6 +193,57 @@ static int signer(void *ctx, fzn_contact_device_t *out)
 	return 1;
 }
 
+/* A STORE OF MANY GROUPS' HEADS, made as they are walked, sec 913: more than any
+ * table held, and only the last of them the group asked about. */
+#define MANY_HEADS 5000u
+static const uint8_t MANY_GROUP = 0x77u;
+
+static int many_load(void *ctx, fzn_persist_slot_t slot, const uint8_t subject[FZN_PUBKEY_LEN],
+                     uint8_t *out, size_t cap, size_t *len)
+{
+	unsigned at = ((unsigned)subject[0] << 8) | subject[1];
+
+	(void)ctx;
+	(void)slot;
+	if (cap < 1u + 32u + 32u + 12u)
+		return 0;
+	memset(out, 0, 1u + 32u + 32u + 12u);
+	out[0] = 2u;
+	memset(out + 1, at + 1u == MANY_HEADS ? MANY_GROUP : 0x78u, 32u);
+	memcpy(out + 33, subject, 32u);
+	*len = 1u + 32u + 32u + 12u;
+	return 1;
+}
+
+static int many_each(void *ctx, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	uint8_t subject[FZN_PUBKEY_LEN];
+	unsigned i;
+
+	(void)ctx;
+	(void)slot;
+	memset(subject, 0, sizeof(subject));
+	for (i = 0; i < MANY_HEADS; i++) {
+		subject[0] = (uint8_t)(i >> 8);
+		subject[1] = (uint8_t)i;
+		if (!fn(arg, subject))
+			break;
+	}
+	return 1;
+}
+
+static int many_save(void *ctx, fzn_persist_slot_t slot, const uint8_t subject[FZN_PUBKEY_LEN],
+                     const uint8_t *in, size_t len)
+{
+	(void)ctx;
+	(void)slot;
+	(void)subject;
+	(void)in;
+	(void)len;
+	return 1;
+}
+
 static void user_up(struct user *u, uint8_t first)
 {
 	uint8_t seed[FZN_AGREE_SECRET_LEN];
@@ -615,6 +666,24 @@ static void test_lines_trimmed_from_a_base(void)
 	              && fzn_group_lines_head(&l, group, fresh, &h) == FZN_GROUP_LINES_OK
 	              && h.base == 6u && h.have == 7u,
 	      "a host's first line past its head was not taken from there");
+	/* MORE HEADS ACROSS THE GROUPS THAN A TABLE HELD, sec 913. */
+	{
+		fzn_persist_ops_t many;
+		fzn_group_lines_t ml;
+		fzn_group_line_head_t found[2];
+		uint8_t asked[32];
+		size_t nf = 9u;
+
+		memset(&many, 0, sizeof(many));
+		many.load = many_load;
+		many.save = many_save;
+		many.each = many_each;
+		ml.store = &many;
+		ml.hash = &HASH;
+		memset(asked, MANY_GROUP, sizeof(asked));
+		CHECK(fzn_group_lines_heads(&ml, asked, found, 2u, &nf) == FZN_GROUP_LINES_OK && nf == 1u,
+		      "a head among 5000 was not found");
+	}
 	/* A MEMBER'S HIGH WATER, sec 911. */
 	{
 		fzn_group_line_water_t w;

@@ -34,9 +34,6 @@
 
 #include "group_line.h"
 
-/* Heads one host holds across every group. */
-#define FZN_GROUP_LINE_HEADS_MAX 1024u
-
 typedef enum fzn_group_lines_err {
 	FZN_GROUP_LINES_OK = 0,
 	FZN_GROUP_LINES_ERR_MALFORMED = -1, /* a null, or a field out of range */

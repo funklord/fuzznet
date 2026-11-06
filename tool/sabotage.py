@@ -14531,6 +14531,13 @@ SABOTAGES = [
 		"an answer past the device's room is copied over what follows it -- sec 912",
 	),
 	(
+		"group-heads-walk-stops",
+		"node/group_lines.c",
+		"\treturn w->count < w->cap;\n",
+		"\treturn 0;\n",
+		"a group's heads are looked for in the first row of every group's -- sec 913",
+	),
+	(
 		"group-water-said-again-writes",
 		"node/group_lines.c",
 		"== FZN_GROUP_LINES_OK && was.have == have)\n",

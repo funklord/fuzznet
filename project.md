@@ -81239,6 +81239,11 @@ reply answers it (sec 900), and numbers begin somewhere of their own (sec 910).
   each unit to the link's size: over 51-byte units, 8 units up and 8 down for the time
   and a call; 6 of 6 answered at 10 per cent of units lost (17 of 200 lost in one run);
   another estate's device answered nothing; the same image answered nothing once revoked.
+- **Pieces multiply loss.** A frame of 4 pieces each way gets through 0.9^8, 43 per cent
+  of tries, at 10 per cent of units lost, and 8 runs measured it: 12 exchanges took
+  about 28 frames, so a frame's whole cost is paid about two and a half times. 8 tries
+  a call failed 2 runs of 5, which is why `device_sim` makes 30. A real radio's airtime
+  has no such room, so a lossy long-range link is where a smaller head would pay.
 - `make device-check`, in `check`: what a board builds compiles with no system header
   but `tool/freestanding/string.h`. Five libc functions.
 - **Size:** a device linked whole with `--gc-sections`, Monocypher included: 18.8 KB of
@@ -81256,7 +81261,8 @@ test expected a refusal, and that was the test's mistake.
 
 **What it cannot do yet:**
 - **No real radio.** Nothing here has met one, and the serial side is SLIP to a modem
-  that passes units. Which modem is a choice for whoever holds one.
+  that passes units, tested through a pty (`live_device` b2). Which modem is a choice
+  for whoever holds one.
 - **Answers of one frame only,** 1021 bytes. A gateway's procedure pages longer.
 - **Nothing pushed:** a light polls. A device hearing an event needs a host that keeps
   speaking to something that does not ask, which a radio's duty cycle makes a real
@@ -81265,6 +81271,26 @@ test expected a refusal, and that was the test's mistake.
   payload. A smaller head would be a wire change, and is the holder's.
 - **`fuzznetd` has no procedure a button does anything with.** `events` is what this
   test reads, and a press is the consumer's procedure.
+- **A device may call every procedure its gateway has.** `call_remote` asks only that
+  the caller be a member, and a grant on a name (sec 852) binds local callers. So a
+  stolen button can do what any host's call can, until revoked. Whether a device gets
+  a narrower right is the holder's.
 
 **Rejected:** a bearer inside the daemon, for now. A bridge beside it needs no change
 there, and a daemon with a radio can come when one does.
+
+## 913. A host's group lines stopped at 1025 heads, 2026-11-06
+
+Found reading the line sync for sec 911, on sec 903's audit. `fzn_group_lines_heads`
+listed every head of every group into a table of 1024, to find one group's. `list` fails
+past its room, rightly (sec 704), so at the 1025th head, across all this host's groups,
+each group's sync answered "the lines did not read", and no line was asked for, filed
+or served, in any group. 50 groups of 21 writers is enough. Read from the code; no
+daemon was run into it.
+
+**Now a walk,** by `fzn_persist_each`, with no table. `groups_test` finds one head among
+5000. A store with no `each` keeps sec 704's fallback of 4096, and says so by failing.
+
+**Left, said in sec 911:** a sync names 24 heads, a one-frame bound from before requests
+were chunked. Past 24 writers, lines already held are sent again and refused. Raising it
+changes what a peer of an older build accepts, so it wants its own step.
