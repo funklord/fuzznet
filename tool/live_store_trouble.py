@@ -201,6 +201,19 @@ def inside(fuzznetd):
 			d.stop()
 			d = None
 
+			# d2: stderr follows --log-level down (sec 929).
+			quiet = os.path.join(scratch, "q")
+			os.mkdir(quiet)
+			command(run, ["--fuzznet-dir=" + quiet, "--new-root"], None)
+			d = daemon(run, "q0", quiet, sock, extra=["--log-level=warning"])
+			want_ok(sock, "status", "d2")
+			said = d.stderr()
+			d.stop()
+			d = None
+			if "identity" in said or "logging to" in said:
+				raise failed("d2: at warning, stderr said %r" % said[:200])
+			print("livecheck: d2: at warning a daemon's stderr kept quiet")
+
 			# e: a key that will not read: a directory where its file was.
 			keyed = os.path.join(scratch, "k")
 			os.mkdir(keyed)

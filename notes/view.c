@@ -10,9 +10,15 @@ fzn_notes_err_t fzn_notes_view_load(const fzn_notes_store_t *store, fzn_notes_vi
 	fzn_tree_walk_t walk;
 	size_t count = 0, i;
 	fzn_notes_err_t err;
+	uint64_t stamp;
 
 	if (!store || !view)
 		return FZN_NOTES_ERR_MALFORMED;
+	/* NOTHING WRITTEN SINCE, sec 928: as loaded. */
+	stamp = store->stamp ? store->stamp(store->stamp_ctx) : 0u;
+	if (store->stamp && view->loaded_from == store->ops && view->loaded_at == stamp)
+		return FZN_NOTES_OK;
+	view->loaded_from = NULL;
 	view->arena_used = 0;
 	view->count = 0;
 	view->unreadable = 0;
@@ -48,6 +54,10 @@ fzn_notes_err_t fzn_notes_view_load(const fzn_notes_store_t *store, fzn_notes_vi
 	    && fzn_tree_reachable(view->nodes, view->count, view->mark, sizeof(view->mark), &walk)
 	               != FZN_TREE_OK)
 		return FZN_NOTES_ERR_MALFORMED;
+	if (store->stamp) {
+		view->loaded_from = store->ops;
+		view->loaded_at = stamp;
+	}
 	return FZN_NOTES_OK;
 }
 

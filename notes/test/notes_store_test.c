@@ -384,7 +384,8 @@ static void test_capacity_and_erase(void)
 	int ok = 1, wrote = 0;
 
 	wipe();
-	for (i = 0; i < FZN_NOTES_MAX && ok; i++) {
+	store.bound = 1000u;
+	for (i = 0; i < store.bound && ok; i++) {
 		uint8_t key[FZN_PUBKEY_LEN];
 
 		/* One writer per claim keeps every note id unique without
@@ -401,6 +402,7 @@ static void test_capacity_and_erase(void)
 	CHECK(ok, "fixture: the store fills to its bound");
 	note_of(1, KEY_A, 10, 0, 1, "one too many");
 	CHECK(put(1, NULL) == FZN_NOTES_ERR_FULL, "one claim past the bound is refused");
+	store.bound = 0;
 	subject_of(10, id);
 	CHECK(fzn_notes_get(&store, id, KEY_A, out, sizeof(out), &len) == FZN_NOTES_ERR_ABSENT,
 	      "and nothing was written for it");

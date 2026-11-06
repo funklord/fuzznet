@@ -81742,12 +81742,23 @@ cache now holds `note` too, with rows of up to 4 KiB and 64 MiB a slot, and answ
 RAM. A slot past its budget is not whole, and what it lacks is asked of the store. An add is
 flat at about 3.6 ms to 1200.
 
-**`FZN_NOTES_MAX` cannot simply be raised.** At 65536 the daemon does not link: `relocation
-truncated`, its static tables past the 2 GB a small code model reaches, and 262144 the same.
-So sec 914's raising of a number is over for this bound. **What it takes:** the tables that
-hold every note at once, about 30 in `notes/` and `node/`, on the heap and grown as sec 704's
-contacts are, starting with what `share_talks` multiplies. Not started. Rosters past 256, sec
-927, are the same kind of job.
+**`FZN_NOTES_MAX` is 262144 now.** This section first said 65536 would not link. That was false:
+the build reused objects from a try at 262144, as a changed `CPPFLAGS` rebuilds nothing, and a
+clean directory linked it. What did stop 262144 was 2 GB of static tables, most of it a pull's
+`want`, 64 share talks of it. Those two tables are on the heap now, grown as an index asks.
+Static memory is 904 MB, untouched until used: a host of 12000 notes is resident at 17 MB.
+
+**Three more walls stood behind the number:**
+- **A sync's index counted in 16 bits,** so 65536 claims read as none. `total` and `from` are 32
+  bits now, a wire change, in `notes/sync.situ`.
+- **`fzn_node_shelf_collect` loaded every note once a text,** and at 7000 notes held the daemon
+  past 20 s. A view now stands while `fzn_notes_store_t.stamp` does.
+- **The title cache scanned its whole table a note.** It looks in one window of 16 now, a root
+  being a hash, and holds 16384 whatever the bound, as it is a cache.
+
+**Still growing:** an add rereads the view, each row hashed to check it is filed where it is, 1.5
+ms a thousand notes, so about 150 ms at 100000. A view kept up to date would end it. **Rosters
+past 256** (sec 927) are next: a group is one row, copied whole.
 
 ## 929. Netcfgd ran its RAM host, and four requests, 2026-11-06
 
@@ -81758,12 +81769,11 @@ work, an apply with a window and its confirm from another host among them. `get 
 replaced its statvfs. That closes sec 918's open item. It also now runs a node on its own run
 directory, `--no-log-file`.
 
-**Open, none blocking:**
-- **`--log-level` does not reach stderr** (netcfgd). `say` prints to INFO whatever the level, and
-  main's own `fprintf`s, `identity` and `serving on` among them, print always. A router's `logread`
-  is where it shows. `say` is one line; the `fprintf`s want going through.
+**Taken, and one open:**
+- **`--log-level` reaches stderr now** (netcfgd), `say` and `identity`. Other startup `fprintf`s
+  print always, as most of them are errors on the way out.
 - **A procedure cannot answer later** (netcfgd). A wifi scan through `ask` held the loop up to
   10 s, so netcfgd moved it to a thread of its own, answering `ask again`. Works, so not needed.
-- **`list location` names a host, not its contact** (fuzzypickles' 20261106T1657Z, item 8).
-- **A group has no line count** (item 9): a count or head in `list group` would let unread skip
-  a group that has not moved. `get group NAME water` holds part of it.
+- **`list location` ends `,CONTACT`,** `-` for none (fuzzypickles' 20261106T1657Z, item 8).
+- **`list group` ends `,LINES`,** those held here of every host, so unread can skip a group
+  that has not moved (item 9). A row costs a read a host of the group.

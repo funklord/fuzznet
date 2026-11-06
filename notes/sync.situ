@@ -44,7 +44,7 @@ enum fzn_notes_sync_type : u8 {
 struct fzn_notes_sync_index_query {
 	u8                   version [must_eq = 2];
 	fzn_notes_sync_type  type    [must_eq = index_query];
-	u16                  from;
+	u32                  from;
 }
 
 // A claim as an index names it: the key notes/store.c files it under, a
@@ -57,8 +57,8 @@ struct fzn_notes_sync_claim {
 struct fzn_notes_sync_index {
 	u8                    version [must_eq = 2];
 	fzn_notes_sync_type   type    [must_eq = index];
-	u16                   total;                     // claims the server offers
-	u16                   from;                      // the first in this page
+	u32                   total;                     // claims the server offers
+	u32                   from;                      // the first in this page
 	u16                   count   [max = 256];       // FZN_NOTES_MAX
 	fzn_notes_sync_claim  claims[count];
 }

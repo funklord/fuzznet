@@ -103,6 +103,7 @@ fzn_notes_err_t fzn_notes_store_init(fzn_notes_store_t *store, const fzn_persist
 {
 	if (!store || !ops || !ops->load || !ops->save || !ops->list || !hash || !hash->hash)
 		return FZN_NOTES_ERR_MALFORMED;
+	memset(store, 0, sizeof(*store));
 	store->ops = ops;
 	store->hash = hash;
 	store->purged = NULL;
@@ -343,7 +344,7 @@ fzn_notes_err_t fzn_notes_put(const fzn_notes_store_t *store, const uint8_t *rec
 		 * refuses too. */
 		if (fzn_notes_claims(store, keys, FZN_NOTES_MAX, &count) != FZN_NOTES_OK)
 			return FZN_NOTES_ERR_FULL;
-		if (count >= FZN_NOTES_MAX)
+		if (count >= (store->bound ? store->bound : FZN_NOTES_MAX))
 			return FZN_NOTES_ERR_FULL;
 	}
 	/* SHAPE falls through: a held record that will not open is damage, and

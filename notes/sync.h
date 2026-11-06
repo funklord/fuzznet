@@ -119,8 +119,8 @@ enum fzn_notes_sync_type {
 #define FZN_NOTES_SYNC_PURGES_MAX 16u
 
 #define FZN_NOTES_SYNC_HEAD_LEN 2u
-#define FZN_NOTES_SYNC_INDEX_QUERY_LEN 4u
-#define FZN_NOTES_SYNC_INDEX_HEAD_LEN 8u
+#define FZN_NOTES_SYNC_INDEX_QUERY_LEN 6u
+#define FZN_NOTES_SYNC_INDEX_HEAD_LEN 12u
 #define FZN_NOTES_SYNC_CLAIM_LEN (FZN_PUBKEY_LEN + 8u)
 #define FZN_NOTES_SYNC_LIST_HEAD_LEN 3u
 /* Records asked for, and sent, at once. */
@@ -241,7 +241,11 @@ typedef struct fzn_notes_pulling {
 	fzn_notes_writer_t writers[FZN_NOTES_SYNC_WRITERS_MAX]; /* a share's, the policy's */
 	int phase;
 	size_t from, total, pages;             /* the index read so far */
-	uint8_t want[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	/* ON THE HEAP, grown as an index asks, sec 928: 64 share talks of these came to
+	 * most of a daemon's static memory. Kept for the next pull, so a pulling must
+	 * not be cleared. */
+	uint8_t (*want)[FZN_PUBKEY_LEN];
+	size_t want_cap;
 	size_t n_want, at, batch;              /* the records asked so far */
 	fzn_notes_sync_tally_t tally;
 } fzn_notes_pulling_t;
@@ -288,7 +292,8 @@ fzn_notes_sync_err_t fzn_notes_sync_wraps(const fzn_notes_store_t *store,
 typedef struct fzn_notes_wrapping {
 	const fzn_notes_store_t *store;
 	int give, phase;
-	uint8_t lacking[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	uint8_t (*lacking)[FZN_TREE_ID_LEN]; /* as `want` is */
+	size_t lacking_cap;
 	size_t n_lacking, from, count; /* the page asked */
 	size_t given_n, given_len;     /* the give sent */
 	fzn_notes_wrap_tally_t tally;

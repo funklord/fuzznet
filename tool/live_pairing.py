@@ -364,7 +364,7 @@ def main(argv):
 			reply = ask(socks["b"], "list location").split()
 			rows = [r.split(",") for r in reply[1:] if r.startswith(keys["a"][:16] + ",")]
 			if len(rows) != 1 or rows[0][3:6] != ["59.3300000", "18.0700000", "1792600000"] \
-			   or rows[0][-1] != "1":
+			   or rows[0][11] != "1":
 				raise failed("g: B lists %r of A's fixes, not one on the coarse grid" % reply)
 			print("livecheck: g: A's fix listed exact at A, and on the 0.01 degree grid at B")
 
@@ -388,11 +388,11 @@ def main(argv):
 
 			expect(socks["a"], "a", "grant stream location bob 0", "ok")
 			rows = add_fix(4)
-			if len(rows) != 1 or rows[0][3:5] != ["59.3293230", "18.0685810"] or rows[0][-1] != "0":
+			if len(rows) != 1 or rows[0][3:5] != ["59.3293230", "18.0685810"] or rows[0][11] != "0":
 				raise failed("g2: granted level 0, B lists %r of record 4, not it exact" % rows)
 			expect(socks["a"], "a", "grant stream location bob 2", "ok")
 			rows = add_fix(5)
-			if len(rows) != 1 or rows[0][3:5] != ["59.3000000", "18.1000000"] or rows[0][-1] != "1":
+			if len(rows) != 1 or rows[0][3:5] != ["59.3000000", "18.1000000"] or rows[0][11] != "1":
 				raise failed("g2: granted level 2, B lists %r of record 5, not it on the 0.1 "
 				             "degree grid" % rows)
 			expect(socks["a"], "a", "revoke stream location bob", "ok")

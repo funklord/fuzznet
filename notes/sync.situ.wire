@@ -1,4 +1,4 @@
-# situ wire signature v2
+# situ wire signature v1
 # schema: sync.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
@@ -39,18 +39,18 @@ struct fzn_notes_sync_given size=3
 struct fzn_notes_sync_hop size=179
   @0x0000   179       u8         bytes  big
 
-struct fzn_notes_sync_index size=8..10248
+struct fzn_notes_sync_index size=12..10252
   @0x0000   1         u8         version  must_eq=2
   @0x0001   1         fzn_notes_sync_type type  must_eq=index
-  @0x0002   2         u16        total  big
-  @0x0004   2         u16        from  big
-  @0x0006   2         u16        count  big max=256
-  @0x0008   0..10240  fzn_notes_sync_claim claims  sized-by=count
+  @0x0002   4         u32        total  big
+  @0x0006   4         u32        from  big
+  @0x000a   2         u16        count  big max=256
+  @0x000c   0..10240  fzn_notes_sync_claim claims  sized-by=count
 
-struct fzn_notes_sync_index_query size=4
+struct fzn_notes_sync_index_query size=6
   @0x0000   1         u8         version  must_eq=2
   @0x0001   1         fzn_notes_sync_type type  must_eq=index_query
-  @0x0002   2         u16        from  big
+  @0x0002   4         u32        from  big
 
 struct fzn_notes_sync_key size=32
   @0x0000   32        u8         key  big

@@ -744,6 +744,7 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 {
 	static fzn_group_held_t all;
 	uint8_t (*ids)[FZN_GROUP_ID_LEN];
+	fzn_group_line_head_t line_head;
 	static fzn_group_t held;
 	static fzn_contact_device_t self;
 	static char detail[FZN_REPLY_MAX];
@@ -779,7 +780,9 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 		return 0;
 	used = (size_t)n;
 	for (i = from; i < count; i++) {
-		char name[FZN_CONTACT_NAME_MAX + 1u], item[FZN_CONTACT_NAME_MAX + 16u + 65u + 2u];
+		char name[FZN_CONTACT_NAME_MAX + 1u], item[FZN_CONTACT_NAME_MAX + 16u + 65u + 2u + 21u];
+		unsigned long lines;
+		size_t h;
 		char id_hex[FZN_GROUP_ID_LEN * 2u + 1u];
 		size_t name_len = 0;
 		int k;
@@ -795,8 +798,13 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 		hex_of(ids[i], FZN_GROUP_ID_LEN, id_hex);
 		id_hex[FZN_GROUP_ID_LEN * 2u] = '\0';
 		/* WHETHER THIS USER MAY CHANGE IT, sec 927, so a client need not ask each. */
-		k = snprintf(item, sizeof(item), " %s,%zu,%s,%d", name, held.n_members, id_hex,
-		             have_self && fzn_group_is_admin(&held, self.owner) ? 1 : 0);
+		lines = 0;
+		for (h = 0; g->lines && h < held.n_hosts; h++)
+			if (fzn_group_lines_head(g->lines, ids[i], held.hosts[h].key, &line_head)
+			    == FZN_GROUP_LINES_OK)
+				lines += line_head.have;
+		k = snprintf(item, sizeof(item), " %s,%zu,%s,%d,%lu", name, held.n_members, id_hex,
+		             have_self && fzn_group_is_admin(&held, self.owner) ? 1 : 0, lines);
 		if (k < 0 || limit - used < (size_t)k)
 			break;
 		memcpy(detail + used, item, (size_t)k);

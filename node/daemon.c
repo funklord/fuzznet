@@ -269,6 +269,9 @@ static void on_crash(int sig)
 }
 #endif
 
+/* What stderr says, by `--log-level`. */
+static fzn_entry_level_t stderr_level = FZN_ENTRY_INFO;
+
 /* One message of the serving daemon: its old stderr line, and an entry. */
 #if defined(__GNUC__)
 #define FZND_SAY_PRINTF __attribute__((format(printf, 3, 4)))
@@ -300,7 +303,7 @@ static int say_v(fzn_entry_level_t level, const char *subsystem, const fzn_entry
 
 	if (k < 0)
 		return 0;
-	if (level <= FZN_ENTRY_INFO)
+	if (level <= stderr_level)
 		fprintf(stderr, "fuzznetd: %s\n", text);
 #ifdef FZN_LOG_FILE_ON
 	if (dlog.on) {
@@ -13468,6 +13471,13 @@ static uint64_t contacts_stamp(void *ctx)
 	       + store_delta.dropped;
 }
 
+/* THE SAME FOR A NOTE, sec 928. */
+static uint64_t notes_stamp(void *ctx)
+{
+	(void)ctx;
+	return note_cache.changes + store_delta.writes + store_delta.flushed + store_delta.dropped;
+}
+
 /* EVERY CONTACT, into `r` grown to hold them. */
 static fzn_contact_err_t contacts_list(struct contacts_room *r, size_t *n)
 {
@@ -14324,6 +14334,9 @@ static size_t location_row(const uint8_t *origin, uint64_t seq, char *row, size_
 	fzn_location_fix_t f;
 	char host[17], lat[FZN_LOCATION_DEGREES_TEXT_MAX], lon[FZN_LOCATION_DEGREES_TEXT_MAX];
 	char alt[8] = "-", bearing[8] = "-", ae[12] = "-", an[12] = "-", av[12] = "-";
+	uint8_t owner[FZN_PUBKEY_LEN];
+	fzn_contact_t who;
+	const char *whose = "-";
 	int n;
 
 	if (fzn_streams_get(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN, origin,
@@ -14346,9 +14359,13 @@ static size_t location_row(const uint8_t *origin, uint64_t seq, char *row, size_
 		(void)snprintf(an, sizeof(an), "%lu", (unsigned long)fzn_location_acc_decode(f.acc_n));
 	if (f.has_alt && f.acc_v != FZN_LOCATION_ACC_UNKNOWN)
 		(void)snprintf(av, sizeof(av), "%lu", (unsigned long)fzn_location_acc_decode(f.acc_v));
-	n = snprintf(row, cap, " %s,%llu,%llu,%s,%s,%lu,%s,%s,%s,%s,%s,%u", host,
+	/* WHOSE IT IS, sec 929, so a client need not ask per contact; `-` for none. */
+	if (running_admin && fzn_node_admin_contact_of(running_admin, origin, owner)
+	    && fzn_contact_get(node_apply.store, owner, &who) == FZN_CONTACT_OK)
+		whose = who.name;
+	n = snprintf(row, cap, " %s,%llu,%llu,%s,%s,%lu,%s,%s,%s,%s,%s,%u,%s", host,
 	             (unsigned long long)r.seq, (unsigned long long)r.at, lat, lon,
-	             (unsigned long)f.utc_s, alt, bearing, ae, an, av, (unsigned)f.is_coarse);
+	             (unsigned long)f.utc_s, alt, bearing, ae, an, av, (unsigned)f.is_coarse, whose);
 	return n > 0 && (size_t)n < cap ? (size_t)n : 0u;
 }
 
@@ -18655,9 +18672,13 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			const char *v = argv[i] + 12;
 			int l = fzn_node_schema_log_level((const uint8_t *)v, strlen(v));
 
-			if (l)
+			if (l) {
 				log_keep = (fzn_entry_level_t)l;
-			else {
+				/* STDERR FOLLOWS IT DOWN, sec 929: a router's `logread` is where
+				 * it shows, and info is as much as stderr ever says. */
+				stderr_level = l < (int)FZN_ENTRY_INFO ? (fzn_entry_level_t)l
+				                                       : FZN_ENTRY_INFO;
+			} else {
 				fprintf(stderr, "fuzznetd: --log-level: one of critical, error, warning, "
 				                "note, info, verbose, debug, trace, or its letter\n");
 				return 2;
@@ -19001,9 +19022,11 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		memcpy(state.node_pubkey, identity.pubkey, FZN_PUBKEY_LEN);
 		memcpy(state.config.root, fzn_trust_root(&trust), FZN_PUBKEY_LEN);
 		booted = 1;
-		fprintf(stderr, "fuzznetd: identity ");
-		print_hex(stderr, identity.pubkey, FZN_PUBKEY_LEN);
-		fprintf(stderr, " %s %s\n", created ? "created in" : "loaded from", store_dir);
+		if (stderr_level >= FZN_ENTRY_INFO) {
+			fprintf(stderr, "fuzznetd: identity ");
+			print_hex(stderr, identity.pubkey, FZN_PUBKEY_LEN);
+			fprintf(stderr, " %s %s\n", created ? "created in" : "loaded from", store_dir);
+		}
 #ifdef FZN_RECORD_STORE_FILE_ON
 		/* THE OPERATION JOURNAL WRAPS THE STORE FROM HERE, sec 523: its
 		 * entries are signed as this node, so not before the identity.
@@ -20240,6 +20263,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				                        (const uint8_t (*)[FZN_PUBKEY_LEN])pull_keys, npulls,
 				                        estate_ms)
 				    == FZN_NOTES_OK) {
+					node_notes.store.stamp = notes_stamp;
 					admit_writers(&state, running_roots);
 #ifdef FZN_SPOOL_FILE_ON
 					if (shelf_on) {

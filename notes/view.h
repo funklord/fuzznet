@@ -45,6 +45,9 @@ typedef struct fzn_notes_view {
 	size_t count;
 	/* Claims held that did not read as a note node. */
 	size_t unreadable;
+	/* What this view was loaded from, while the store's stamp stands. */
+	const fzn_persist_ops_t *loaded_from;
+	uint64_t loaded_at;
 } fzn_notes_view_t;
 
 /* Load every claim the store holds. The store's own put admitted each one;

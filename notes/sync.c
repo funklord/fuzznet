@@ -98,6 +98,25 @@ static size_t offered(const fzn_notes_store_t *store, const fzn_notes_sync_scope
 	return n;
 }
 
+/* ROOM FOR `need` of `size` bytes in `*table`, grown by doubling. What no memory
+ * leaves out is asked for at the next round. */
+static int room_for(void **table, size_t *cap, size_t need, size_t size)
+{
+	size_t grown = *cap ? *cap : 64u;
+	void *at;
+
+	if (need <= *cap)
+		return 1;
+	while (grown < need)
+		grown *= 2u;
+	at = realloc(*table, grown * size);
+	if (!at)
+		return 0;
+	*table = at;
+	*cap = grown;
+	return 1;
+}
+
 static size_t answer_index(const fzn_notes_store_t *store, const fzn_notes_sync_scope_t *scope,
                            const uint8_t *request, size_t request_len, uint8_t *reply,
                            size_t cap)
@@ -108,7 +127,7 @@ static size_t answer_index(const fzn_notes_store_t *store, const fzn_notes_sync_
 
 	if (request_len != FZN_NOTES_SYNC_INDEX_QUERY_LEN || cap < FZN_NOTES_SYNC_INDEX_HEAD_LEN)
 		return 0;
-	from = fzn_get_be16(request + 2);
+	from = fzn_get_be32(request + 2);
 	total = offered(store, scope, keys, seqs);
 	if (from > total)
 		from = total;
@@ -122,9 +141,9 @@ static size_t answer_index(const fzn_notes_store_t *store, const fzn_notes_sync_
 		n++;
 	}
 	head(reply, FZN_NOTES_SYNC_INDEX);
-	fzn_put_be16(reply + 2, (uint16_t)total);
-	fzn_put_be16(reply + 4, (uint16_t)from);
-	fzn_put_be16(reply + 6, (uint16_t)n);
+	fzn_put_be32(reply + 2, (uint32_t)total);
+	fzn_put_be32(reply + 6, (uint32_t)from);
+	fzn_put_be16(reply + 10, (uint16_t)n);
 	return FZN_NOTES_SYNC_INDEX_HEAD_LEN + (n * FZN_NOTES_SYNC_CLAIM_LEN);
 }
 
@@ -637,7 +656,7 @@ static fzn_notes_sync_err_t pull_end(fzn_notes_pulling_t *p, int *done, fzn_note
 static void pull_index_query(const fzn_notes_pulling_t *p, uint8_t *request, size_t *len)
 {
 	head(request, FZN_NOTES_SYNC_INDEX_QUERY);
-	fzn_put_be16(request + 2, (uint16_t)p->from);
+	fzn_put_be32(request + 2, (uint32_t)p->from);
 	*len = FZN_NOTES_SYNC_INDEX_QUERY_LEN;
 }
 
@@ -743,9 +762,9 @@ fzn_notes_sync_err_t fzn_notes_sync_pull_step(fzn_notes_pulling_t *p, const uint
 		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_INDEX)
 		    || reply_len < FZN_NOTES_SYNC_INDEX_HEAD_LEN)
 			return pull_end(p, done, FZN_NOTES_SYNC_SHAPE);
-		p->total = fzn_get_be16(reply + 2);
-		count = fzn_get_be16(reply + 6);
-		if (fzn_get_be16(reply + 4) != p->from
+		p->total = fzn_get_be32(reply + 2);
+		count = fzn_get_be16(reply + 10);
+		if (fzn_get_be32(reply + 6) != p->from
 		    || reply_len != FZN_NOTES_SYNC_INDEX_HEAD_LEN + (count * FZN_NOTES_SYNC_CLAIM_LEN)
 		    || count > p->total - p->from || (count == 0u && p->from < p->total))
 			return pull_end(p, done, FZN_NOTES_SYNC_SHAPE);
@@ -754,7 +773,9 @@ fzn_notes_sync_err_t fzn_notes_sync_pull_step(fzn_notes_pulling_t *p, const uint
 			                   + (i * FZN_NOTES_SYNC_CLAIM_LEN);
 
 			if (p->n_want < FZN_NOTES_MAX
-			    && wanted(p->store, c, fzn_get_be64(c + FZN_PUBKEY_LEN)))
+			    && wanted(p->store, c, fzn_get_be64(c + FZN_PUBKEY_LEN))
+			    && room_for((void **)&p->want, &p->want_cap, p->n_want + 1u,
+			                sizeof(*p->want)))
 				memcpy(p->want[p->n_want++], c, FZN_PUBKEY_LEN);
 		}
 		p->from += count;
@@ -1094,7 +1115,9 @@ fzn_notes_sync_err_t fzn_notes_sync_wraps_begin(fzn_notes_wrapping_t *w,
 	held = held_ids(store, ids);
 	for (i = 0; i < held; i++)
 		if (!fzn_notes_purged(store, ids[i])
-		    && fzn_notes_wrap_get(store, ids[i], key) == FZN_NOTES_ERR_ABSENT)
+		    && fzn_notes_wrap_get(store, ids[i], key) == FZN_NOTES_ERR_ABSENT
+		    && room_for((void **)&w->lacking, &w->lacking_cap, w->n_lacking + 1u,
+		                sizeof(*w->lacking)))
 			memcpy(w->lacking[w->n_lacking++], ids[i], FZN_TREE_ID_LEN);
 	memset(key, 0, sizeof(key));
 	return wraps_next(w, request, request_len, done);

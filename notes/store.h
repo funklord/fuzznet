@@ -88,7 +88,7 @@
  * a person's notes reach: sec 914. Tables sized by this are static, and touched
  * only as far as they are filled. */
 #ifndef FZN_NOTES_MAX /* smaller in a `small` build, sec 922 */
-#define FZN_NOTES_MAX 16384u
+#define FZN_NOTES_MAX 262144u
 #endif
 
 typedef enum fzn_notes_err {
@@ -186,6 +186,13 @@ typedef struct fzn_notes_store {
 	 * stream. NULL after `fzn_notes_store_init`, and for a sharer's tree. */
 	void (*purged)(void *ctx, const uint8_t id[FZN_SUBJECT_LEN]);
 	void *purged_ctx;
+	/* Claims this store takes, 0 for FZN_NOTES_MAX: a test need not fill that many. */
+	size_t bound;
+	/* A NUMBER THAT MOVES WITH ANY NOTE WRITTEN, sec 928, so a view loaded and not
+	 * moved since is not loaded again: collecting texts loaded every note once a
+	 * text, which at 7000 notes held the daemon past 20 s. NULL loads each time. */
+	uint64_t (*stamp)(void *ctx);
+	void *stamp_ctx;
 	/* KEEP WHAT A NEWER RECORD SUPERSEDES, sec 581, as the note's history.
 	 * 0 after `fzn_notes_store_init`, and for a sharer's tree. */
 	int history;

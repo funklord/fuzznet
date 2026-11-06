@@ -268,7 +268,7 @@ static int write(fzn_notes_author_t *a, const char *title, uint8_t id[FZN_TREE_I
 
 static size_t held(fzn_notes_store_t *store)
 {
-	uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	static uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
 	size_t n = 0;
 
 	return fzn_notes_claims(store, keys, FZN_NOTES_MAX, &n) == FZN_NOTES_OK ? n : 0u;
@@ -802,7 +802,7 @@ static void test_share_scope(void)
 	uint8_t f[FZN_TREE_ID_LEN], g[FZN_TREE_ID_LEN], h[FZN_TREE_ID_LEN], o[FZN_TREE_ID_LEN];
 	static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 	uint8_t seeds[2][FZN_TREE_ID_LEN];
-	uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	static uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
 	uint8_t request[FZN_NOTES_SYNC_LIST_HEAD_LEN + (4u * FZN_PUBKEY_LEN)];
 	static uint8_t reply[FZN_NOTES_SYNC_REPLY_MAX];
 	uint8_t purge[FZN_NOTES_SYNC_PURGE_LEN];

@@ -32,21 +32,21 @@ struct fzn_notes_sync_given size=3
 struct fzn_notes_sync_hop size=179 atomic=NonAtomic
   fzn_notes_sync_hop.bytes               offset=AbsoluteStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
 
-struct fzn_notes_sync_index size=8..10248 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+struct fzn_notes_sync_index size=12..10252 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   fzn_notes_sync_index.version           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_notes_sync_index.type              offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_notes_sync_index.total             offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
-  fzn_notes_sync_index.from              offset=AbsoluteStatic(0x04) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
-  fzn_notes_sync_index.count             offset=AbsoluteStatic(0x06) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
-  fzn_notes_sync_index.claims            offset=AbsoluteStatic(0x08) size=Bounded(0, 10240) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_notes_sync_index.total             offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_notes_sync_index.from              offset=AbsoluteStatic(0x06) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_notes_sync_index.count             offset=AbsoluteStatic(0x0A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_notes_sync_index.claims            offset=AbsoluteStatic(0x0C) size=Bounded(0, 10240) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
   fzn_notes_sync_index.claims[]          offset=FrameStatic(0x00) size=Fixed(40) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
   fzn_notes_sync_index.claims[].key      offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   fzn_notes_sync_index.claims[].seq      offset=FrameStatic(0x20) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
 
-struct fzn_notes_sync_index_query size=4 repr=ValueConverted
+struct fzn_notes_sync_index_query size=6 repr=ValueConverted atomic=NonAtomic
   fzn_notes_sync_index_query.version     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_notes_sync_index_query.type        offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_notes_sync_index_query.from        offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_notes_sync_index_query.from        offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
 
 struct fzn_notes_sync_key size=32 atomic=NonAtomic
   fzn_notes_sync_key.key                 offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

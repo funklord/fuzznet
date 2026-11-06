@@ -4788,7 +4788,7 @@ SABOTAGES = [
 	(
 		"notes-put-bounds-claims",
 		"notes/store.c",
-		"\t\tif (count >= FZN_NOTES_MAX)\n\t\t\treturn FZN_NOTES_ERR_FULL;\n",
+		"\t\tif (count >= (store->bound ? store->bound : FZN_NOTES_MAX))\n\t\t\treturn FZN_NOTES_ERR_FULL;\n",
 		"",
 		"a host takes claims past what a view or a list can hold, and the next list fails for every note -- sec 425",
 	),
@@ -14393,8 +14393,8 @@ SABOTAGES = [
 	(
 		"group-listed-with-id",
 		"node/groups.c",
-		"\" %s,%zu,%s,%d\", name, held.n_members, id_hex,",
-		"\" %s,%zu,%d\", name, held.n_members,",
+		"\" %s,%zu,%s,%d,%lu\", name, held.n_members, id_hex,",
+		"\" %s,%zu,%d,%lu\", name, held.n_members,",
 		"list group carries no id, so a client keys on a name -- sec 647",
 	),
 	(

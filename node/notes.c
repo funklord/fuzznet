@@ -281,7 +281,10 @@ static fzn_notes_err_t read_note(const fzn_node_notes_t *n, const fzn_notes_stor
  * root never changes, so an entry never goes stale; it goes when collection
  * drops its root (`fzn_node_notes_names_blob`), which a purge does at once
  * (sec 520). In memory only: never carried, never on disk. */
-#define TITLES_MAX FZN_NOTES_MAX
+#define TITLES_MAX (FZN_NOTES_MAX < 16384u ? FZN_NOTES_MAX : 16384u)
+/* A ROOT LOOKS IN ONE WINDOW OF THE TABLE, sec 928, where it scanned all of it: a root
+ * is a hash, so its own bytes spread it, and a page of notes cost a whole table a note. */
+#define TITLE_WINDOW 16u
 
 static struct title {
 	uint8_t root[FZN_BLOB_HASH_LEN];
@@ -294,28 +297,46 @@ static struct title {
 static uint64_t titles_clock;
 size_t fzn_node_notes_title_opens;
 
+static size_t title_home(const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	return ((size_t)root[0] | ((size_t)root[1] << 8) | ((size_t)root[2] << 16)) % TITLES_MAX;
+}
+
+/* The entry of `root`, in its window. */
+static struct title *title_find(const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	size_t home = title_home(root), k;
+
+	for (k = 0; k < TITLE_WINDOW && k < TITLES_MAX; k++) {
+		struct title *t = &titles[(home + k) % TITLES_MAX];
+
+		if (t->used && memcmp(t->root, root, FZN_BLOB_HASH_LEN) == 0)
+			return t;
+	}
+	return NULL;
+}
+
 static struct title *title_at(const uint8_t root[FZN_BLOB_HASH_LEN])
 {
-	size_t i;
+	struct title *t = title_find(root);
 
-	for (i = 0; i < TITLES_MAX; i++)
-		if (titles[i].used && memcmp(titles[i].root, root, FZN_BLOB_HASH_LEN) == 0) {
-			titles[i].used = ++titles_clock;
-			return &titles[i];
-		}
-	return NULL;
+	if (t)
+		t->used = ++titles_clock;
+	return t;
 }
 
 /* An entry for `root` from `note`, over the slot listed longest ago. */
 static void title_keep(const uint8_t root[FZN_BLOB_HASH_LEN], const fzn_note_t *note)
 {
-	size_t i, at = 0;
+	size_t home = title_home(root), k, i, at = home;
 
 	if (note->title_len > FZN_NOTE_TITLE_MAX || note->labels_len > FZN_NOTE_LABELS_MAX)
 		return;
-	for (i = 1; i < TITLES_MAX && titles[at].used; i++)
+	for (k = 1; k < TITLE_WINDOW && k < TITLES_MAX && titles[at].used; k++) {
+		i = (home + k) % TITLES_MAX;
 		if (!titles[i].used || titles[i].used < titles[at].used)
 			at = i;
+	}
 	memcpy(titles[at].root, root, FZN_BLOB_HASH_LEN);
 	titles[at].title_len = note->title_len;
 	titles[at].labels_len = note->labels_len;
@@ -328,21 +349,15 @@ static void title_keep(const uint8_t root[FZN_BLOB_HASH_LEN], const fzn_note_t *
 
 int fzn_node_notes_title_cached(const uint8_t root[FZN_BLOB_HASH_LEN])
 {
-	size_t i;
-
-	for (i = 0; root && i < TITLES_MAX; i++)
-		if (titles[i].used && memcmp(titles[i].root, root, FZN_BLOB_HASH_LEN) == 0)
-			return 1;
-	return 0;
+	return root && title_find(root);
 }
 
 static void title_drop(const uint8_t root[FZN_BLOB_HASH_LEN])
 {
-	size_t i;
+	struct title *t = title_find(root);
 
-	for (i = 0; i < TITLES_MAX; i++)
-		if (titles[i].used && memcmp(titles[i].root, root, FZN_BLOB_HASH_LEN) == 0)
-			memset(&titles[i], 0, sizeof(titles[i]));
+	if (t)
+		memset(t, 0, sizeof(*t));
 }
 
 /* Checklists, below: `get` and `set` reach them. sec 442. */

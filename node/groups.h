@@ -19,9 +19,11 @@
  *     add admin GROUP CONTACT          a proposal, or an approval of one
  *     remove admin GROUP CONTACT       the same
  *     set group GROUP backfill 0|1     an admin's
- *     list group [FROM]                ok TOTAL FROM NAME,COUNT,ID,ADMIN ..., those this user
- *                                      is in; ID the group's, 64 hex (sec 647); ADMIN 1 where
- *                                      this user may change it (sec 927)
+ *     list group [FROM]                ok TOTAL FROM NAME,COUNT,ID,ADMIN,LINES ..., those this
+ *                                      user is in; ID the group's, 64 hex (sec 647); ADMIN 1
+ *                                      where this user may change it (sec 927); LINES how many
+ *                                      are held here, so a client skips a group not moved
+ *                                      (sec 929)
  *     get group NAME                   ok COUNT MEMBER ..., an admin as *NAME; stops where
  *                                      the reply fills, COUNT still all of them
  *     get group NAME member [FROM]     ok TOTAL FROM MEMBER ..., paged (sec 927)
