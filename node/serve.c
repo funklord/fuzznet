@@ -423,6 +423,23 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 		serve_reply(state, peer, &from, result, &opened, now);
 }
 
+void fzn_node_serve_release(fzn_node_state_t *state)
+{
+	size_t i;
+
+	if (!state)
+		return;
+	for (i = 0; i < state->n_waiting; i++)
+		(void)close(state->waiting[i].fd);
+	free(state->waiting);
+	free(state->polled);
+	free(state->polled_subscribers);
+	state->waiting = NULL;
+	state->polled = NULL;
+	state->polled_subscribers = NULL;
+	state->n_waiting = state->waiting_cap = state->polled_cap = 0;
+}
+
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 {
 	struct pollfd *fds;

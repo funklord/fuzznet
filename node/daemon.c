@@ -17013,6 +17013,7 @@ static void face_write(const char *core_dir, const char *sock)
 static int stop_serving(int lfd, const char *sock_path, int ufd)
 {
 	say(FZN_ENTRY_NOTE, "node", "stopping, as asked");
+	fzn_node_serve_release(serving_state);
 	fzn_socket_close(lfd, sock_path);
 	if (ufd >= 0)
 		fzn_udp_close(ufd);

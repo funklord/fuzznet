@@ -81022,12 +81022,7 @@ The holder's, settling how the project talks and what each part is.
   again later during an update, and then modified by the consumer. So it is settings
   and grants at first. **On an update, the holder's:** the consumer applies its own
   special values again after the preset, and values the user may configure are
-  kept. **The profile says which values the user may configure.** Not built.
-  Measured against that: no such marker exists. `state/schema.h` has `ADVANCED`,
-  which only hides a key, and sec 686 folded fzpd's "what may change it" axis into
-  rank. Rank is close and not it: it says which device's word stands, and within
-  one user all devices are that user. So a profile wants a per-key "user may set
-  this", read by `set setting`, beside the preset's values.
+  kept. Built: sec 908.
 
 **Later, the holder's:** the rule by time and size for what a later member reads, a
 group setting (sec 905); telling sec 903's audited counts apart; and "node" where it
@@ -81043,3 +81038,49 @@ manifest` nor their archive, so a name changed here would break their build.
 main, and `make daemon-flags` prints `FZN_DAEMON_CFLAGS` and `FZN_DAEMON_LIBS`, which
 are all a program with a main of its own needs. `make daemon-link-check` compiles
 such a main in scratch from those two lines alone, links it and runs it.
+
+## 908. A profile: what a kind of host starts with, and who may change it, 2026-11-06
+
+The holder's, over several messages. `node/presets.{h,c}`.
+
+**A preset is values, applied at the start and again during an update, then the
+consumer's to change.** `--preset=NAME`, or `preset` in `fzn_daemon_ext_t`, with
+`preset_values` of the consumer's own applied over it and `preset_revision` moved when
+they change. `preset/applied` says what was last applied, so a start with nothing new
+writes nothing.
+
+**Each value says who may change it,** the lowest rank `set setting` takes on this
+host's own cell: `host`, `admin`, `root`, or `nobody`, which is the profile's. `nobody`
+is written whenever the profile applies; the rest only where the cell is empty, so
+what somebody chose outlives an update. `state/schema.h` had no such marker, and sec
+686 folded fzpd's "what may change it" into rank, which says whose word stands and
+not who may touch a key. `list preset` gives each value with its rank.
+
+**A preset names its build,** the holder's: `make PRESET=NAME` steers what is compiled
+in, `full`, `small` or `client`, and a binary refuses a preset of another build.
+**Presets of one build differ only in values, so those marked `user` can be switched
+with no rebuild,** by `set preset NAME`, kept in `preset/chosen`: `userd`, `vault` and
+`relay`. `rootd` and `embedded-device` are not a user's to choose.
+
+**A client's configuration is its own small file,** `local/client_config.{h,c}`, the
+holder's choice of three, outside the store: `KEY VALUE` lines only that client
+writes, so nothing to lock. A client needs where its daemon is before it can reach
+one, so this cannot live in the daemon. `ui-client`, `one-shot-client` and
+`insecure-client` are presets written through the same `fzn_preset_apply`.
+
+**Values to check:** each preset's values and ranks are a first reading of the
+holder's names, not the holder's. `small` turns off log packing and nothing else
+yet.
+
+**Limits:**
+- A rank binds this host's own `set setting`. An admin's write from another host is
+  judged there, which holds no profile of this one's.
+- k-of-n is not built. **Decided, the holder's:** the estate's k, no per-value k,
+  voters root and admin hosts. A root acting alone, as in revocation (sec 403), is a
+  proposal. Settings have no vote: a setting is one signed write that stands at once.
+
+**Measured:** `presets_test`, `client_config_test`, `tool/live_preset.py`: applied and
+said; a root changes a root's value and nobody the profile's own; a restart writes
+nothing; an update keeps what was chosen; `set preset relay` holds over a restart and
+refuses `rootd` and another build's. By hand, a `PRESET=embedded-device` build refuses
+`vault` and applies its own.

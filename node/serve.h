@@ -251,6 +251,10 @@ const fzn_node_peer_t *fzn_node_find_peer(const fzn_node_peer_t *peers,
 /* One poll-and-dispatch iteration, waiting at most timeout_ms (-1 blocks).
  * Accepts a ready local connection and serves it, receives a ready datagram
  * and serves it. Returns the number of descriptors served, 0 on a timeout. */
+/* WHAT SERVING GREW, sec 903, given back as the node stops: connections still
+ * saying their request closed. The state may serve again after. */
+void fzn_node_serve_release(fzn_node_state_t *state);
+
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms);
 
 /* A WAIT THAT ANSWERS PEERS: until `fd` is readable, or `timeout_ms` has
