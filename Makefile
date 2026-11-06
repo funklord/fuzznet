@@ -160,6 +160,19 @@ ifeq ($(FAULTS),1)
 CPPFLAGS += -DFZN_TEST_FAULTS
 endif
 
+# THE EMBEDDED PROFILE, sec 922, the holder's: "a profile that deactivates just
+# about everything at build time so we have to reactivate only what we need".
+# Every switch below defaults off under it, and `FZN_NOTES=1` on the command
+# line brings one back. Above their own defaults, which `?=` then leaves alone.
+ifeq ($(PRESET),embedded-device)
+FZN_STICKERS ?= 0
+FZN_CATALOG ?= 0
+FZN_NOTES ?= 0
+FZN_GROUPS ?= 0
+FZN_LOG_PACK ?= 0
+FZN_LOG_FILE ?= 0
+endif
+
 # THE CONSUMER SERVICES, sec 856, on the holder's of 2026-11-03: each one
 # can be left out of a build -- the service, its verbs and its own use of
 # its data -- "kept separate from the ability to relay and store those
@@ -1033,8 +1046,11 @@ FZN_BLAME_ZSTD := no libzstd was found to compile and link against (zstd.h and $
 # A PRESET'S BUILD, sec 908: `make PRESET=NAME BUILD_DIR=DIR`, DIR its own, as these
 # change what every object holds. Presets of the `full` build need none of it.
 ifeq ($(PRESET),embedded-device)
-FZN_LOG_PACK ?= 0
 CPPFLAGS += -DFZN_PRESET_BUILD=\"small\"
+# THE TABLES A DESKTOP SIZES FOR THOUSANDS, sec 922: 171 MB of bss otherwise.
+CPPFLAGS += -DFZN_NOTES_MAX=64u -DFZN_NODE_RECEIVED_MAX=2u -DFZN_NOTES_SHARES_MAX=16u \
+            -DFZN_NODE_FILES_SHARES_MAX=16u -DFZND_GROUP_SHARES_MAX=2u \
+            -DFZND_PULL_TARGETS_MAX=2u -DFZND_SIBLING_TARGETS_MAX=2u
 endif
 ifneq ($(filter ui-client one-shot-client insecure-client,$(PRESET)),)
 CPPFLAGS += -DFZN_PRESET_BUILD=\"client\"
@@ -2094,7 +2110,7 @@ endif
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(PROG_OBJS:.o=.d)
 
-.PHONY: livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -6958,6 +6974,20 @@ lean:
 livecheck-lean: lean $(FUZZNETD)
 	@timeout 620 python3 tool/live_lean.py $(BUILD_DIR)/lean/fuzznetd $(FUZZNETD)
 
+# THE EMBEDDED PROFILE, sec 922: nearly everything off, `FZN_NOTES=1` and its like
+# bringing back what a board needs. Held to what the lean build is held to, and to
+# carrying a device, with tables a board can give.
+EMBEDDED_BSS_MAX := 33554432
+embedded:
+	$(MAKE) PRESET=embedded-device BUILD_DIR=$(BUILD_DIR)/embedded $(BUILD_DIR)/embedded/fuzznetd
+
+livecheck-embedded: embedded $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
+	@bss=$$(size $(BUILD_DIR)/embedded/fuzznetd | awk 'NR==2{print $$3}'); \
+	 echo "livecheck: embedded: $$bss bytes of bss, at most $(EMBEDDED_BSS_MAX)"; \
+	 test "$$bss" -le $(EMBEDDED_BSS_MAX)
+	@timeout 620 python3 tool/live_lean.py $(BUILD_DIR)/embedded/fuzznetd $(FUZZNETD)
+	@timeout 220 python3 tool/live_device.py $(BUILD_DIR)/embedded/fuzznetd $(BRIDGE) $(DEVICE_SIM)
+
 # THE FAULTS FIRE, sec 689 step 0b: tool/live_faults.py against the faulty
 # daemon, so a scenario built on a fault is known to have one. Then the
 # estate's journey (sec 707), on rounds the fault build makes short, and a
@@ -7815,7 +7845,7 @@ clean:
 	@# shape: `fuzznetd-faults`' and `lean`'s (sec 856), each a directory
 	@# the build made under the checked BUILD_DIR. Neither was in a list
 	@# here, and the check below named their objects when either existed.
-	@for d in "$(BUILD_DIR)/faults" "$(BUILD_DIR)/lean"; do \
+	@for d in "$(BUILD_DIR)/faults" "$(BUILD_DIR)/lean" "$(BUILD_DIR)/embedded"; do \
 		if [ -d "$$d" ]; then echo "removing $$d"; rm -rf "$$d"; fi; \
 	done
 	@# AND `arrangements`' trees, one an arrangement, each named from the

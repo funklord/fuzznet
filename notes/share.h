@@ -41,7 +41,9 @@
 #include "../chain/service.h"
 
 #define FZN_NOTES_SHARE_NAME "fuzznet.notes.share"
+#ifndef FZN_NOTES_SHARES_MAX /* smaller in a `small` build, sec 922 */
 #define FZN_NOTES_SHARES_MAX 1024u
+#endif
 
 /* WHETHER A GROUP SHARE CATCHES UP A MEMBER WHO JOINS LATER, sec 655, the
  * holder's of 2026-10-20: per share, its default the group's own `backfill`

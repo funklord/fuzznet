@@ -87,7 +87,9 @@
  * failure is FZN_NOTES_ERR_FULL rather than a silent drop. It was 256, which
  * a person's notes reach: sec 914. Tables sized by this are static, and touched
  * only as far as they are filled. */
+#ifndef FZN_NOTES_MAX /* smaller in a `small` build, sec 922 */
 #define FZN_NOTES_MAX 16384u
+#endif
 
 typedef enum fzn_notes_err {
 	FZN_NOTES_OK = 0,

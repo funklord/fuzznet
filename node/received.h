@@ -23,7 +23,9 @@
 #include "../persist/persist.h"
 
 /* Sharers whose trees a host holds, sec 914. */
+#ifndef FZN_NODE_RECEIVED_MAX /* smaller in a `small` build, sec 922 */
 #define FZN_NODE_RECEIVED_MAX 64u
+#endif
 /* A host name or address: 1 to 253 bytes, none of them a space or control,
  * so a row reads back as one word. */
 #define FZN_NODE_RECEIVED_HOST_MAX 253u

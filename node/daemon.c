@@ -1540,9 +1540,13 @@ static uint64_t estate_clock(void)
  * its own socket and reassembly table, so a late answer from one is never
  * read as another's. Eight, because an estate's nodes are a household's and
  * every one costs a pull a minute. sec 401. */
+#ifndef FZND_PULL_TARGETS_MAX /* smaller in a `small` build, sec 922 */
 #define FZND_PULL_TARGETS_MAX 8u
+#endif
 /* AND THE SIBLINGS A ROUND ADDS, sec 586: as many again, after them. */
+#ifndef FZND_SIBLING_TARGETS_MAX /* smaller in a `small` build, sec 922 */
 #define FZND_SIBLING_TARGETS_MAX 8u
+#endif
 #define FZND_ROUND_TARGETS_MAX (FZND_PULL_TARGETS_MAX + FZND_SIBLING_TARGETS_MAX)
 
 #ifdef FZN_SPOOL_FILE_ON
@@ -6725,7 +6729,9 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
  * member's host (sec 630, its membership checked when it was loaded).
  * sec 437. */
 /* A GROUP'S MEMBERS' HOSTS ASKED FOR THEIR SHARES, sec 630. */
+#ifndef FZND_GROUP_SHARES_MAX /* smaller in a `small` build, sec 922 */
 #define FZND_GROUP_SHARES_MAX 32u
+#endif
 
 struct share_talk {
 	fzn_node_talk_t talk;

@@ -264,7 +264,9 @@ fzn_node_files_err_t fzn_node_files_scrub_step(fzn_node_files_t *files, int *che
  *
  * THE CONTACT ASKING has already been found a contact and served by the
  * share capability (`node/admin.c`); this answers only which files. */
+#ifndef FZN_NODE_FILES_SHARES_MAX /* smaller in a `small` build, sec 922 */
 #define FZN_NODE_FILES_SHARES_MAX 4096u
+#endif
 
 /* A grantee meaning every contact of this node. */
 extern const uint8_t FZN_NODE_FILES_EVERY_CONTACT[FZN_PUBKEY_LEN];

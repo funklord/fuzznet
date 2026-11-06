@@ -81574,3 +81574,112 @@ a rule per host, or rank, and no consumer has one yet.
 
 `permit_test`; `live_device` c2, a device kept out and let in, on every rule; `live_ext`
 c2b, a procedure saying `none`.
+
+## 922. The embedded profile: everything off, and back by name, 2026-11-06
+
+The holder: "embedded is a profile that deactivates just about everything at build time so
+we have to reactivate only what we need." `small` turned off log packing and nothing else.
+
+`make embedded` is `PRESET=embedded-device`: stickers, catalog, notes, groups, log files
+and log packing default off, and `FZN_NOTES=1` on the line brings one back, measured: 37 kB
+of text and 3 MB of bss, the verbs linked. **Its tables are a board's too.** Sized for
+thousands (sec 914), a daemon's static tables came to 171 MB of bss, nearly all of it
+`share_talks`, `titles`, `notes_talks` and `view`. A `small` build sets the seven bounds
+behind them, and `#ifndef` lets a build name its own.
+
+| | text | bss |
+|---|---|---|
+| full `fuzznetd` | 940,610 | 185,576,960 |
+| `make embedded` | 789,540 | 16,920,256 |
+| the same, `FZN_NOTES=1` | 827,470 | 20,046,848 |
+| `device/`, sec 912 | about 18,800 | |
+
+`livecheck-embedded`: bss under 32 MiB, `live_lean`'s gone and kept, and `live_device`
+against it.
+
+**This is the mechanism, not the end.** Text fell by 16 per cent, because what is left has
+no switch: `node/daemon.c` alone is 151 kB of the 573 kB of functions, then messages 38 kB,
+files 17 kB, contact devices 16 kB. `FZN_SPOOL_FILE=0` builds no daemon at all
+(`FUZZNETD` needs it). A switch costs an `#ifdef` at each hook, and sec 860's linker
+then drops the rest. 4.4 MB of the bss left is `contact_slot_bufs`. Below all of this
+stands `device/`, for what has no daemon.
+
+## 923. What each consumer uses, measured, 2026-11-06
+
+The holder asked to measure sec 915's classes. Each fuzznet symbol mapped to its module, and
+looked for in each consumer's built binaries; verbs from each consumer's sources.
+
+| linked, shared of union | modules | files |
+|---|---|---|
+| fzpd, netcfgd | 28 of 32 | 88 of 97 |
+| fzpd, raidcfgd | 15 of 34 | 25 of 102 |
+| netcfgd, raidcfgd | 16 of 31 | 26 of 94 |
+| fzp's clients, netcfgd | 7 of 30 | 8 of 90 |
+| beerssh, anything | 0 | 0 |
+
+**Linking does not answer it.** Netcfgd and fzpd share nearly everything because each builds
+in the whole daemon, sec 907, and a symbol linked is not a symbol called. **What they ask
+does:** fuzzypickles' clients make 92 kinds of call, notes, groups, files, messages and the
+rest; netcfgd sends `call`, `list peer`, `get events`, `add record`, `list record`; raidcfgd's
+bridge `revoke peer`, `remove revocation`, `get revocation` and pairing. Fzp and netcfgd
+share only `peer`. So sec 915's "very little overlap" holds of use, and of nothing built:
+a system consumer carries a user consumer's whole daemon. That is sec 922's case for
+switches, and netcfgd is the first customer.
+
+**Raidcfgd is not netcfgd's twin:** its daemon links only `local/`, its bridge and tray
+pairing, trust and sessions, 11 of 68 node files to netcfgd's 61. Within system software the
+overlap is the small part. **Beerssh links nothing**, so "in beersshd if it links fuzznet" is
+not yet so (sec 925).
+
+**Limits:** symbols from today's tree against each consumer's pin, raidcfgd's of 2026-09-28;
+weak and duplicate symbols dropped; verbs matched by name, and netcfgd's Rust not traced.
+
+## 924. A smaller frame head: what each byte buys, 2026-11-06
+
+The holder: "What are the pros and cons? Smaller is always better, but at what cost? We don't
+care about wire changes at all yet." So sec 349's and sec 912's reluctance about the wire is
+gone, and what remains is what each field does.
+
+| field | bytes | buys | can be | costs |
+|---|---|---|---|---|
+| version, hops, hint, reserved | 5 | relays, sec 153 | 1 direct | a relay's policy, so direct frames only |
+| kind | 1 | | folded into the 1 | nothing |
+| sender | 32 | any frame stands alone, sec 8's sleeping peer | 4, a session's handle | a live session at both ends; the key off the air is a gain |
+| expires_at | 8 | a command's expiry | 0, sealed with commands | a check moves after the decryption |
+| nonce | 24 | no state: safe at random | 8, a counter | a counter reused after a crash breaks the seal, so new keys each boot |
+| commitment | 16 | one frame cannot mean two things | 0 in a session | none once both ends hold one agreed key; checked at its start |
+| msg, index, chunks | 8 | one shape for all frames | 0 for a unit | a second path in reassembly |
+| length | 2 | | 0 where a datagram says | a bearer must delimit |
+| capability | 32 | a revoked host's next frame is refused | 4, a handle looked up each frame | sec 349 stands if the lookup is per frame |
+| tag | 16 | | stays | 8 would halve forgery's work |
+
+**Two designs follow.** Trimming this frame in place saves about 7 bytes with nothing lost,
+and no consumer would notice. **A session frame** saves 111: 1 of head, 4 of handle, 8 of
+counter, 4 of capability and 16 of tag, 33 bytes beside 144. A keystroke is 62 bytes on UDP
+rather than 173. On LoRa a call fits one 51-byte unit with 18 to spare, rather than three:
+at sec 912's 10 per cent loss about 10 per cent lost a try rather than 43.
+
+**What it costs, whichever way it is sold:**
+- A session where this library says it has none. State at both ends, about 100 bytes a peer,
+  a table and its limit, and a handshake of one full frame each way before the first short one.
+- Two frame shapes, so a second parser, fuzz harness and set of sabotages.
+- A receiver that lost the session cannot open or even name the sender. It must stay silent
+  or be a reflector, so the sender falls back to a full frame after a silence: on a radio,
+  seconds. Rebooting a device costs that each time, which is its new keys anyway.
+- Nothing stored or relayed can use it: sec 8's asleep peer keeps the full frame, always.
+
+**Recommended, not built:** the full frame stays for everything first, stored or relayed, and
+a session frame is added for a live pair. Beerssh and LoRa are both that case. The holder's.
+
+## 925. A shell: where it goes, 2026-11-06
+
+The holder, of beerssh's shell service: "Probably yes, and maybe we should put it in beersshd
+if it links fuzznet." It does not yet (sec 923). The split that suits sec 7: **fuzznet carries
+and gates; beersshd starts the process.** Starting something as the right user wants a
+privileged daemon, which fuzznet is not and netcfgd's is for its own reasons.
+
+- **A one-shot command needs nothing new:** beersshd links `libfuzznetd.a` (sec 907), names a
+  procedure with `rule` `none` (sec 921), and a host opens it with `remote/permit/shell`.
+- **A terminal does:** a procedure answers once, in 4096 bytes. A two-way stream at
+  keystroke latency is sec 924's session frame, or as near as the full frame comes.
+- **The ladder's fifth turn class** (sec 917) is not built, as there is no traffic to give it.
