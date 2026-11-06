@@ -105,7 +105,11 @@ int main(void)
 	CHECK(!fzn_preset_may(vault, NULL, 0u, "relay/enabled", 13u, FZN_PRESET_HOST)
 	              && !fzn_preset_may(vault, NULL, 0u, "relay/enabled", 13u, FZN_PRESET_ADMIN)
 	              && fzn_preset_may(vault, NULL, 0u, "relay/enabled", 13u, FZN_PRESET_ROOT),
-	      "a root's value is a root's alone");
+	      "a voted value is a root's alone to set");
+	CHECK(!strcmp(fzn_preset_who_word(FZN_PRESET_VOTE), "vote"), "and said so");
+	CHECK(!fzn_preset_may(fzn_preset_find("embedded-device", 15u), NULL, 0u, "relay/enabled", 13u,
+	                      FZN_PRESET_ADMIN),
+	      "a root's value is a root's");
 	CHECK(!fzn_preset_may(vault, NULL, 0u, "invite/confirm", 14u, FZN_PRESET_HOST)
 	              && fzn_preset_may(vault, NULL, 0u, "invite/confirm", 14u, FZN_PRESET_ADMIN)
 	              && fzn_preset_may(vault, NULL, 0u, "invite/confirm", 14u, FZN_PRESET_ROOT),

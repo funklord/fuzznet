@@ -48,6 +48,7 @@
 #include "contact_card.h"
 #include "contact_request.h"
 #include "invite.h"
+#include "votes.h"
 #include "groups.h"
 #include "group_lines.h"
 #include "streams.h"
@@ -394,6 +395,8 @@ static size_t relay_local(fzn_origin_t origin, const fzn_request_t *request, cha
                           size_t cap);
 static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
+static size_t vote_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                         size_t cap);
 static size_t preset_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
 static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -496,6 +499,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = request_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = identity_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = vote_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = preset_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -3113,6 +3118,7 @@ static fzn_node_apply_outcome_t record_file(void *ctx, const uint8_t subject[FZN
  * end, since walking every record for each one filed would cost what a host
  * that observes often cannot pay. */
 static int forks_due = 1;
+static int votes_due = 1;
 
 static void record_filed(void *ctx, const fzn_setting_t *s)
 {
@@ -3122,6 +3128,9 @@ static void record_filed(void *ctx, const fzn_setting_t *s)
 		fzn_node_decisions_forget();
 		forks_due = 1;
 	}
+	if (s->key_len > FZN_NODE_VOTE_PREFIX_LEN
+	    && memcmp(s->key, FZN_NODE_VOTE_PREFIX, FZN_NODE_VOTE_PREFIX_LEN) == 0)
+		votes_due = 1;
 }
 
 /* THE FORKS HELD, said when their number moves. Every host holding the same
@@ -10277,6 +10286,116 @@ static void preset_tick(void)
 	preset_done = 1;
 	journal_pushed = 1;
 	say(FZN_ENTRY_NOTE, "node/preset", "the profile %s applied: %ld value(s) written", want, wrote);
+}
+
+/* THE VOTES FOR THIS HOST, sec 909, each by the standing of who signed it. */
+static int vote_stands(void *ctx, const uint8_t voter[FZN_PUBKEY_LEN])
+{
+	static const uint8_t nobody[FZN_SUBJECT_LEN];
+	fzn_setting_rank_t rank;
+
+	(void)ctx;
+	return fzn_node_apply_rank(&node_apply, voter, FZN_SCOPE_HOST, nobody, &rank) == 1
+	       && rank >= FZN_SETTING_RANK_ADMIN;
+}
+
+/* A VOTE'S KEY, this profile giving it to a vote, and no higher word in force: a
+ * root's stands over what this host writes at its own rank. */
+static int vote_votable(void *ctx, const uint8_t *key, size_t key_len, uint64_t *in_force_ms)
+{
+	const uint8_t *self = node_settings.id->pubkey;
+	const fzn_preset_value_t *v =
+	        fzn_preset_value_of(active_preset, daemon_ext ? daemon_ext->preset_values : NULL,
+	                            daemon_ext ? daemon_ext->n_preset_values : 0u, (const char *)key,
+	                            key_len);
+	uint8_t value[FZN_SETTING_VALUE_MAX], setter[FZN_PUBKEY_LEN];
+	fzn_setting_rank_t held, own;
+	size_t len = 0;
+	uint64_t version = 0;
+
+	(void)ctx;
+	if (!v || v->who != FZN_PRESET_VOTE
+	    || fzn_node_apply_rank(&node_apply, self, FZN_SCOPE_HOST, self, &own) != 1)
+		return 0;
+	if (fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, self, key, key_len, value, &len, &held)
+	    && held > own)
+		return 0;
+	if (fzn_node_settings_standing_of(&node_settings, FZN_SCOPE_HOST, self, key, key_len, &version,
+	                                  setter))
+		*in_force_ms = version * 1000u;
+	return 1;
+}
+
+static void vote_carried(void *ctx, const uint8_t *key, size_t key_len, const uint8_t *value,
+                         size_t value_len)
+{
+	(void)ctx;
+	if (fzn_node_settings_write(&node_settings, FZN_SCOPE_HOST, node_settings.id->pubkey, key,
+	                            key_len, 1, value, value_len)
+	    == FZN_NODE_SETTINGS_OK) {
+		journal_pushed = 1;
+		say(FZN_ENTRY_NOTE, "node/preset", "%.*s changed by the estate's vote", (int)key_len,
+		    (const char *)key);
+	} else {
+		say(FZN_ENTRY_WARNING, "node/preset", "a vote on %.*s was carried and not written",
+		    (int)key_len, (const char *)key);
+	}
+}
+
+static void votes_look(void)
+{
+	const fzn_node_vote_ops_t ops = { NULL, vote_stands, vote_votable, vote_carried };
+
+	if (!votes_due || !node_records.b || !node_settings.id)
+		return;
+	votes_due = 0;
+	if (active_preset || (daemon_ext && daemon_ext->n_preset_values))
+		(void)fzn_node_votes_count(&node_records, node_settings.id->pubkey, estate_k(), &ops);
+}
+
+/* `add vote setting HOST KEY VALUE`, sec 909: HOST 64 hex or `self`, by a host that
+ * stands as an admin or a root. */
+static size_t vote_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)
+{
+	static const char HEAD[] = "vote setting ";
+	const uint8_t *at, *w, *key;
+	size_t left, w_len, key_len, value_len = 0, i;
+	uint8_t host[FZN_PUBKEY_LEN], value[FZN_SETTING_VALUE_MAX];
+
+	if (request->parsed != FZN_VERB_ADD || !request->arg || request->arg_len < sizeof(HEAD)
+	    || memcmp(request->arg, HEAD, sizeof(HEAD) - 1u) != 0)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied a vote is this node's own user's\n");
+	if (!node_records.b || !node_settings.id || !vote_stands(NULL, node_settings.id->pubkey))
+		return (size_t)snprintf(reply, cap, "denied only an admin or a root votes\n");
+	at = request->arg + sizeof(HEAD) - 1u;
+	left = request->arg_len - (sizeof(HEAD) - 1u);
+	if (!next_word(&at, &left, &w, &w_len) || !next_word(&at, &left, &key, &key_len))
+		return (size_t)snprintf(reply, cap, "malformed add vote setting HOST KEY VALUE\n");
+	if (w_len == 4u && memcmp(w, "self", 4u) == 0) {
+		memcpy(host, node_settings.id->pubkey, FZN_PUBKEY_LEN);
+	} else {
+		if (w_len != 2u * FZN_PUBKEY_LEN)
+			return (size_t)snprintf(reply, cap, "malformed not a host's key\n");
+		for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+			int hi = hexval(w[2u * i]), lo = hexval(w[2u * i + 1u]);
+
+			if (hi < 0 || lo < 0)
+				return (size_t)snprintf(reply, cap, "malformed not a host's key\n");
+			host[i] = (uint8_t)(hi * 16 + lo);
+		}
+	}
+	while (left && *at == ' ') {
+		at++;
+		left--;
+	}
+	if (!left || !fzn_unescape(at, left, value, sizeof(value), &value_len))
+		return (size_t)snprintf(reply, cap, "malformed add vote setting HOST KEY VALUE\n");
+	if (fzn_node_vote(&node_records, host, key, key_len, value, value_len) != FZN_NODE_RECORDS_OK)
+		return (size_t)snprintf(reply, cap, "error the vote was not kept\n");
+	votes_due = 1;
+	return (size_t)snprintf(reply, cap, "ok\n");
 }
 
 /* `get preset` and `list preset`, this node's own user's. */
@@ -20132,6 +20251,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					/* AND AS THE ESTATE NAMES THEM, sec 699. */
 					take_contact_names();
 					forks_look();
+					votes_look();
 					break;
 				case ROUND_MEMBERS:
 					/* THE ESTATE'S MEMBERS, asked of every peer at once, the

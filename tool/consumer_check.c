@@ -155,6 +155,7 @@
 #include <fuzznet/node/decisions.h>
 #include <fuzznet/node/invite.h>
 #include <fuzznet/node/presets.h>
+#include <fuzznet/node/votes.h>
 #include <fuzznet/local/client_config.h>
 #include <fuzznet/node/stage.h>
 #include <fuzznet/node/permit.h>
@@ -375,6 +376,7 @@
 #include "node/decisions.h"
 #include "node/invite.h"
 #include "node/presets.h"
+#include "node/votes.h"
 #include "local/client_config.h"
 #include "node/stage.h"
 #include "node/permit.h"

@@ -11,6 +11,8 @@
  *   ADMIN   a host holding an admin's standing.
  *   ROOT    a root.
  *   NOBODY  none: it is the profile's, written whenever the profile is applied.
+ *   VOTE    k admins of the estate, counted by this host, or a root alone, as a
+ *           revocation takes (`node/votes.h`). Never `set setting` below a root.
  *
  * All but NOBODY are configurable, and written only where the cell has no value,
  * so a value somebody chose outlives an update. A key the profile does not name is
@@ -34,7 +36,7 @@
  *
  *     set preset NAME     a user preset of this build, chosen and applied
  *     get preset     ok NAME, or ok none
- *     list preset    ok N, then each value as KEY,host|admin|root|nobody,VALUE
+ *     list preset    ok N, then each value as KEY,host|admin|root|nobody|vote,VALUE
  */
 
 #ifndef FZN_NODE_PRESETS_H
@@ -48,6 +50,7 @@
 #define FZN_PRESET_ADMIN 1
 #define FZN_PRESET_ROOT 2
 #define FZN_PRESET_NOBODY 3
+#define FZN_PRESET_VOTE 4
 #define FZN_PRESET_APPLIED_KEY "preset/applied"
 #define FZN_PRESET_CHOSEN_KEY "preset/chosen"
 
@@ -59,7 +62,7 @@
 typedef struct fzn_preset_value {
 	const char *key;
 	const char *value;
-	int who; /* FZN_PRESET_HOST .. FZN_PRESET_NOBODY */
+	int who; /* FZN_PRESET_HOST .. FZN_PRESET_VOTE */
 } fzn_preset_value_t;
 
 typedef struct fzn_preset {

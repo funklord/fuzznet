@@ -81075,12 +81075,42 @@ yet.
 **Limits:**
 - A rank binds this host's own `set setting`. An admin's write from another host is
   judged there, which holds no profile of this one's.
-- k-of-n is not built. **Decided, the holder's:** the estate's k, no per-value k,
-  voters root and admin hosts. A root acting alone, as in revocation (sec 403), is a
-  proposal. Settings have no vote: a setting is one signed write that stands at once.
+- k-of-n: sec 909.
 
 **Measured:** `presets_test`, `client_config_test`, `tool/live_preset.py`: applied and
 said; a root changes a root's value and nobody the profile's own; a restart writes
 nothing; an update keeps what was chosen; `set preset relay` holds over a restart and
 refuses `rootd` and another build's. By hand, a `PRESET=embedded-device` build refuses
 `vault` and applies its own.
+
+## 909. A value changed by the estate's k, or a root alone, 2026-11-06
+
+The holder's: a profile may give a value to a vote, by the estate's k, with no k of
+its own, the voters being root and admin hosts, and a root alone being enough, as in
+a revocation (sec 403). `node/votes.{h,c}`.
+
+**The marker is `vote`,** beside `host`, `admin`, `root` and `nobody`. `set setting`
+takes it from a root alone. `vault` and nothing else uses it so far, for
+`relay/enabled`.
+
+**A vote is a record,** `vote/HOST/KEY` = VALUE by `add vote setting HOST KEY VALUE`,
+so it is signed by its voter and reaches every host as a record does, with no new
+wire. A voter's newest is its vote, so voting again replaces it.
+
+**The host the value is on counts, and writes its own cell at k.** It takes nobody's
+word for the count: each vote is judged by its signer's standing now. A vote older
+than the value in force counts for nothing, so what was carried cannot change a
+value back. The count runs only when a vote arrives or is written.
+
+**Rejected: the last voter writing the cell.** That host's word would stand for k
+others', and a host's cell would be written from outside at an admin's rank.
+
+**A root's word stands over a vote.** A value carried is written at this host's own
+rank, so while a root's value is in force, votes are not counted at all, as sec 728's
+ranks have it. Clearing the root's setting gives the value back to them.
+
+**Host cells only.** A vote on an estate cell has no one host to count it. Not built.
+
+**Measured, `tool/live_votes.py`:** T's user refused; a member's vote refused; one
+admin's of k 2 changes nothing for two rounds; a second's carries on T; a root sets
+it alone and the old votes do not change it back. `votes_test`.

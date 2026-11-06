@@ -175,6 +175,7 @@
 /node/test/decisions_test
 /node/test/invite_test
 /node/test/presets_test
+/node/test/votes_test
 /local/test/client_config_test
 /node/test/responsible_test
 /node/test/group_fuzz

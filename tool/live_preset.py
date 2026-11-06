@@ -85,7 +85,7 @@ def main(argv):
 			if value("relay/enabled") != "ok root on":
 				raise failed("a: relay/enabled is %r" % value("relay/enabled"))
 			rows = ask(sock, "list preset").split()
-			if rows[:2] != ["ok", "4"] or "relay/enabled,root,on" not in rows \
+			if rows[:2] != ["ok", "4"] or "relay/enabled,vote,on" not in rows \
 			   or "location/enabled,nobody,off" not in rows:
 				raise failed("a: list preset answered %r" % rows)
 			print("livecheck: a: the vault profile applied its 4 values and said who may change each")

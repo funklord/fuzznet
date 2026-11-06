@@ -47,7 +47,7 @@ from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-DEADLINE_S = 420.0
+DEADLINE_S = 500.0
 PROBE_LEN = 144
 PROBE_MARK = 0xFC
 BOX_MARK = 0xFB
@@ -161,7 +161,8 @@ def main(argv):
 			expect(socks["b"], "b", "set setting host net/address 127.0.0.1 %d" % port["b"], "ok")
 			expect(socks["a"], "a", "set setting host net/discovery 127.0.0.1", "ok")
 			expect(socks["b"], "b", "set setting host x/here 1", "ok")
-			until = time.monotonic() + 120.0
+			# TWO ROUNDS, 120 s and a little: a bound of 120 failed now and then.
+			until = time.monotonic() + 200.0
 			while ask(socks["a"], "get setting host=%s x/here" % b_key.hex()) != "ok host 1":
 				if time.monotonic() > until:
 					raise failed("A never held B's setting")

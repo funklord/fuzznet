@@ -19,7 +19,7 @@ static const fzn_preset_value_t ROOTD[] = {
 };
 
 static const fzn_preset_value_t VAULT[] = {
-	{ "relay/enabled", "on", FZN_PRESET_ROOT },
+	{ "relay/enabled", "on", FZN_PRESET_VOTE },
 	{ "relay/quota", "0", FZN_PRESET_ADMIN },
 	{ "invite/confirm", "on", FZN_PRESET_ADMIN },
 	{ "location/enabled", "off", FZN_PRESET_NOBODY },
@@ -118,6 +118,8 @@ int fzn_preset_may(const fzn_preset_t *preset, const fzn_preset_value_t *extra, 
 {
 	const fzn_preset_value_t *v = fzn_preset_value_of(preset, extra, n_extra, key, key_len);
 
+	if (v && v->who == FZN_PRESET_VOTE)
+		return rank >= FZN_PRESET_ROOT;
 	return !v || (v->who != FZN_PRESET_NOBODY && rank >= v->who);
 }
 
@@ -126,6 +128,7 @@ const char *fzn_preset_who_word(int who)
 	return who == FZN_PRESET_HOST    ? "host"
 	       : who == FZN_PRESET_ADMIN ? "admin"
 	       : who == FZN_PRESET_ROOT  ? "root"
+	       : who == FZN_PRESET_VOTE  ? "vote"
 	                                 : "nobody";
 }
 
