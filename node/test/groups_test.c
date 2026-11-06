@@ -615,6 +615,42 @@ static void test_lines_trimmed_from_a_base(void)
 	              && fzn_group_lines_head(&l, group, fresh, &h) == FZN_GROUP_LINES_OK
 	              && h.base == 6u && h.have == 7u,
 	      "a host's first line past its head was not taken from there");
+	/* A MEMBER'S HIGH WATER, sec 911. */
+	{
+		fzn_group_line_water_t w;
+		uint8_t said[2u * 36u];
+		uint32_t have = 99u;
+
+		CHECK(fzn_group_lines_water(&l, group, fresh, &w) == FZN_GROUP_LINES_ERR_ABSENT,
+		      "a host that said nothing had a high water");
+		CHECK(fzn_group_lines_water_keep(&l, group, fresh, 5u, 1000u) == FZN_GROUP_LINES_OK
+		              && fzn_group_lines_water(&l, group, fresh, &w) == FZN_GROUP_LINES_OK
+		              && w.have == 5u && w.at == 1000u,
+		      "a high water did not read as said");
+		CHECK(fzn_group_lines_water_keep(&l, group, fresh, 5u, 2000u) == FZN_GROUP_LINES_OK
+		              && fzn_group_lines_water(&l, group, fresh, &w) == FZN_GROUP_LINES_OK
+		              && w.at == 1000u,
+		      "a high water said again moved its time, so a quiet round wrote");
+		CHECK(fzn_group_lines_water_keep(&l, group, fresh, 3u, 3000u) == FZN_GROUP_LINES_OK
+		              && fzn_group_lines_water(&l, group, fresh, &w) == FZN_GROUP_LINES_OK
+		              && w.have == 3u && w.at == 3000u,
+		      "a host's lower word did not stand");
+		CHECK(fzn_group_lines_water(&l, group, host, &w) == FZN_GROUP_LINES_ERR_ABSENT,
+		      "one host's high water read as another's");
+		fzn_group_lines_water_forget(&l, group, fresh);
+		CHECK(fzn_group_lines_water(&l, group, fresh, &w) == FZN_GROUP_LINES_ERR_ABSENT,
+		      "a forgotten high water stayed");
+		memcpy(said, fresh, 32u);
+		fzn_put_be32(said + 32u, 1u);
+		memcpy(said + 36u, host, 32u);
+		fzn_put_be32(said + 68u, 7u);
+		CHECK(fzn_group_lines_water_said(said, 2u, 2u, host, &have) == 1 && have == 7u,
+		      "a sync's second head was not read");
+		CHECK(fzn_group_lines_water_said(said, 1u, 2u, host, &have) == 1 && have == 0u,
+		      "a sync with room that left this host out did not say none");
+		CHECK(fzn_group_lines_water_said(said, 1u, 1u, host, &have) == 0,
+		      "a full sync that left this host out said none");
+	}
 	/* A VERSION 1 HEAD, as stored before sec 664, reads as base 0. */
 	{
 		uint8_t subject[32], v1[1u + 32u + 32u + 4u + 4u], in[1u + 32u + 32u + 4u];

@@ -16,6 +16,8 @@ not know each other.
        and B, which is not C's contact, files it through A, as C's (sec 629)
     d1 A's next line, filed by a running B, raises `event message` naming the
        group at B's subscriber (sec 891)
+    d0 `get group family water` at A: B and C each said they hold all of A's
+       lines; a further line leaves them behind until they next ask (sec 911)
     e  B shares a note with the group; C, which is not B's contact, pairs
        B's host through the group and pulls the note from B (sec 630)
     e2 A, a contact of C's AND a member, shares a note with the group, and
@@ -243,6 +245,38 @@ def main(argv):
 				             % (missing, ask(socks["b"], "list message @" + name),
 				                "".join("\n  " + l for l in told[-14:])))
 			print("livecheck: d: A's line reached B and C, and C's reached B through A")
+
+			# d0: A MEMBER'S HIGH WATER, sec 911: what each host's sync said it
+			# holds of A's lines. Asked of A only, so a round of B and C says it.
+			def water():
+				reply = ask(socks["a"], "get group family water").split()
+				if len(reply) < 4 or reply[0] != "ok" or reply[2] != "0":
+					raise failed("d0: get group family water answered %r" % reply)
+				rows = [r.split(",") for r in reply[4:]]
+				if int(reply[1]) != 2 or sorted(r[0] for r in rows) != ["bob", "carol"]:
+					raise failed("d0: A's water named %r" % reply)
+				return int(reply[3]), {r[0]: r[2] for r in rows}
+
+			def caught_up(tag):
+				for rnd in range(ROUNDS):
+					mine, said = water()
+					if mine and all(v == str(mine) for v in said.values()):
+						return mine
+					for who in ("b", "c", "a"):
+						turn(who, "%s-%s%d" % (who, tag, rnd))
+				raise failed("d0: A holds %d of its lines and its members said %r"
+				             % water())
+
+			held = caught_up("w")
+			expect(socks["a"], "a", "add message @family out %s behind" % ("d0" * 16), "ok")
+			turn("a", "a-d0")
+			mine, said = water()
+			if mine != held + 1 or set(said.values()) - {str(held), str(mine)}:
+				raise failed("d0: after one more line A holds %d, they said %r, was %d"
+				             % (mine, said, held))
+			again = caught_up("x")
+			print("livecheck: d0: bob and carol said they hold A's %d line(s), then its %d"
+			      % (held, again))
 
 			# d1: A LINE FILED IS TOLD, sec 891: a client counts a group's unread
 			# by `event message`. B left running, and subscribed; A's next line

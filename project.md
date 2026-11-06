@@ -80933,7 +80933,8 @@ ignored, and they will stop reading them when told this tree has dropped them.
 this host's lines (has all, behind), and `get group` gives no per-member high water.
 No verb answers that. No reason against one: a host holds each writer's head
 (`fzn_group_lines_heads`), though what a member holds is what it last asked from,
-which this host would have to keep. Open until they ask. They have: sec 910.
+which this host would have to keep. Open until they ask. They have: sec 910. Built:
+sec 911.
 
 ## 903. No limit on connections but memory, tested at thousands, 2026-11-06
 
@@ -81162,4 +81163,39 @@ code writes a contact's name on that host alone until it holds admin, so no fork
 the invite now.
 
 **Asked, sec 902's question:** a member's high water in a group, so a person can see
-who has their lines. Not built yet.
+who has their lines. Built: sec 911.
+
+## 911. A member's high water: who says they hold this host's lines, 2026-11-06
+
+The holder's "yes build the high water", on fuzzypickles' asking (secs 902, 910): their
+roster showed whether each member held this host's lines, and no verb answered it.
+
+    get group GROUP water [FROM]
+        ok TOTAL FROM MINE MEMBER,HOST,HAVE,AT ...
+
+**Nothing new on the wire.** A member's sync already names how far it holds each
+writer, so `group_lines_remote` keeps what it says of this host, in
+`FZN_PERSIST_GROUP_LINE_WATER`, not core. MINE is this host's own head. A host that has
+said nothing here reads `-,-`, which is not 0.
+
+**By host, not by member.** Lines reach a member's hosts one by one, and a member with
+two hosts is as far as the furthest of them. The reader says which it wants.
+
+**What it does not say:**
+- **It is a floor.** A host that takes these lines through another member says nothing
+  here until it next asks this one, and a round asks one host of each contact, so a
+  member can hold more than its row says.
+- **It is that host's word,** and it counts lines held, sealed or filed, not lines read.
+- **Past 24 writers a sync may not name this host** (`FZND_GROUP_HEADS_MAX`), and a full
+  list that leaves it out says nothing rather than 0.
+
+**Its latest word stands, higher or lower:** a host put back from an old copy holds
+less, and the largest ever said would hide that.
+
+**Written only when it changes,** with the time it changed, so a quiet group's rounds
+write nothing. AT is therefore when the number moved, not when the host last asked.
+**Rejected:** every writer's head from every member, which is hosts squared per group
+for a question asked about this host's own lines.
+
+**Forgotten with the group,** when this host forgets it. Hosts gone from the group drop
+out of the page, which walks the group's hosts.

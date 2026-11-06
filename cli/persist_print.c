@@ -146,6 +146,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "how far one host's lines in a group are held here";
 	case FZN_PERSIST_GROUP_LINE_SENDER:
 		return "the member who wrote one line of a group";
+	case FZN_PERSIST_GROUP_LINE_WATER:
+		return "what a member's host last said it holds of this host's lines";
 	case FZN_PERSIST_STREAM_RECORD:
 		return "one record of an app stream, at each level it offers";
 	case FZN_PERSIST_STREAM_HEAD:

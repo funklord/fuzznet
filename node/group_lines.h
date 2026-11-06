@@ -22,8 +22,9 @@
  * which `messages/` has no field for.
  *
  * Kept in FZN_PERSIST_GROUP_LINE (a line), FZN_PERSIST_GROUP_LINE_HEAD (a
- * head) and FZN_PERSIST_GROUP_LINE_SENDER (a filed id's sender), none of
- * them core: a line lost is fetched again from any member's host.
+ * head), FZN_PERSIST_GROUP_LINE_SENDER (a filed id's sender) and
+ * FZN_PERSIST_GROUP_LINE_WATER (a member's high water), none of them core:
+ * a line lost is fetched again from any member's host.
  */
 #ifndef FZN_NODE_GROUP_LINES_H
 #define FZN_NODE_GROUP_LINES_H
@@ -103,6 +104,42 @@ fzn_group_lines_err_t fzn_group_lines_trim(const fzn_group_lines_t *l,
  * trimmed (sec 664). HELD as `fzn_group_lines_put`. */
 fzn_group_lines_err_t fzn_group_lines_put_from(const fzn_group_lines_t *l, uint32_t n,
                                                const uint8_t *bytes, size_t len);
+
+/* A MEMBER'S HIGH WATER, sec 911: how much of this host's lines in `group`
+ * `host` last said it holds, and when that last changed, ms. Its sync names
+ * its heads, so this costs no byte on the wire. It is that host's word, and
+ * a floor: a host that takes these lines through another member says nothing
+ * here until it next asks this one. */
+typedef struct fzn_group_line_water {
+	uint32_t have;
+	uint64_t at;
+} fzn_group_line_water_t;
+
+/* WHAT A SYNC SAYS of `self`'s lines: its `entries` heads at `heads`, each a
+ * host's key and a 4-byte place, `entries_max` being all a sync can name. 1
+ * with `*have`. A host it leaves out it holds none of, unless the list was
+ * full, which then says nothing, and 0. */
+int fzn_group_lines_water_said(const uint8_t *heads, size_t entries, size_t entries_max,
+                               const uint8_t self[FZN_PUBKEY_LEN], uint32_t *have);
+
+/* `host` SAID `have`, at `at`: written only when that differs from what it
+ * last said, so a quiet group's rounds write nothing. Its latest word
+ * stands, higher or lower: a host restored from an old copy holds less. */
+fzn_group_lines_err_t fzn_group_lines_water_keep(const fzn_group_lines_t *l,
+                                                 const uint8_t group[FZN_GROUP_ID_LEN],
+                                                 const uint8_t host[FZN_PUBKEY_LEN],
+                                                 uint32_t have, uint64_t at);
+
+/* What `host` last said; ABSENT when it has said nothing here. */
+fzn_group_lines_err_t fzn_group_lines_water(const fzn_group_lines_t *l,
+                                            const uint8_t group[FZN_GROUP_ID_LEN],
+                                            const uint8_t host[FZN_PUBKEY_LEN],
+                                            fzn_group_line_water_t *out);
+
+/* What `host` said, forgotten, its group gone from here. */
+void fzn_group_lines_water_forget(const fzn_group_lines_t *l,
+                                  const uint8_t group[FZN_GROUP_ID_LEN],
+                                  const uint8_t host[FZN_PUBKEY_LEN]);
 
 /* `host`'s lines in `group` filed here up to `filed`. */
 fzn_group_lines_err_t fzn_group_lines_filed(const fzn_group_lines_t *l,

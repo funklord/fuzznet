@@ -415,13 +415,17 @@ typedef enum fzn_persist_slot {
 	 * a token and a deadline -- held until its confirm, or applied at the
 	 * deadline. `node/stage.h` keeps it. sec 873. */
 	FZN_PERSIST_STAGE = 69u,
+	/* Per (group, member's host): what it last said it holds of this host's
+	 * lines. Not core: its next ask says so again. `node/group_lines.h`.
+	 * sec 911. */
+	FZN_PERSIST_GROUP_LINE_WATER = 70u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 70u
+#define FZN_PERSIST_SLOT_END 71u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

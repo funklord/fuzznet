@@ -29,6 +29,10 @@ const char *fzn_group_lines_err_str(fzn_group_lines_err_t err)
 #define HEAD_LEN_V1 (1u + FZN_GROUP_ID_LEN + FZN_PUBKEY_LEN + 4u + 4u)
 #define HEAD_LEN (HEAD_LEN_V1 + 4u)
 
+/* A HIGH WATER: its version, what was said, and when. */
+#define WATER_VERSION 1u
+#define WATER_LEN (1u + 4u + 8u)
+
 /* A ROW'S SUBJECT: the hash of a label and the parts that name it. */
 static int subject_of(const fzn_hash_ops_t *hash, char kind, const uint8_t *group,
                       const uint8_t *key, uint32_t n, uint8_t out[FZN_PUBKEY_LEN])
@@ -121,6 +125,75 @@ fzn_group_lines_err_t fzn_group_lines_heads(const fzn_group_lines_t *l,
 		    && memcmp(out[*count].group, group, FZN_GROUP_ID_LEN) == 0)
 			(*count)++;
 	return FZN_GROUP_LINES_OK;
+}
+
+fzn_group_lines_err_t fzn_group_lines_water(const fzn_group_lines_t *l,
+                                            const uint8_t group[FZN_GROUP_ID_LEN],
+                                            const uint8_t host[FZN_PUBKEY_LEN],
+                                            fzn_group_line_water_t *out)
+{
+	uint8_t bytes[WATER_LEN], subject[FZN_PUBKEY_LEN];
+	size_t n = 0;
+
+	if (!usable(l) || !group || !host || !out)
+		return FZN_GROUP_LINES_ERR_MALFORMED;
+	if (!subject_of(l->hash, 'w', group, host, 0u, subject))
+		return FZN_GROUP_LINES_ERR_BACKEND;
+	if (!l->store->load(l->store->ctx, FZN_PERSIST_GROUP_LINE_WATER, subject, bytes, sizeof(bytes),
+	                    &n))
+		return FZN_GROUP_LINES_ERR_ABSENT;
+	if (n != WATER_LEN || bytes[0] != WATER_VERSION)
+		return FZN_GROUP_LINES_ERR_BACKEND;
+	out->have = fzn_get_be32(bytes + 1);
+	out->at = fzn_get_be64(bytes + 5);
+	return FZN_GROUP_LINES_OK;
+}
+
+int fzn_group_lines_water_said(const uint8_t *heads, size_t entries, size_t entries_max,
+                               const uint8_t self[FZN_PUBKEY_LEN], uint32_t *have)
+{
+	size_t k;
+
+	for (k = 0; k < entries; k++, heads += FZN_PUBKEY_LEN + 4u)
+		if (memcmp(heads, self, FZN_PUBKEY_LEN) == 0) {
+			*have = fzn_get_be32(heads + FZN_PUBKEY_LEN);
+			return 1;
+		}
+	*have = 0;
+	return entries < entries_max;
+}
+
+fzn_group_lines_err_t fzn_group_lines_water_keep(const fzn_group_lines_t *l,
+                                                 const uint8_t group[FZN_GROUP_ID_LEN],
+                                                 const uint8_t host[FZN_PUBKEY_LEN],
+                                                 uint32_t have, uint64_t at)
+{
+	uint8_t bytes[WATER_LEN], subject[FZN_PUBKEY_LEN];
+	fzn_group_line_water_t was;
+
+	if (!usable(l) || !group || !host)
+		return FZN_GROUP_LINES_ERR_MALFORMED;
+	if (fzn_group_lines_water(l, group, host, &was) == FZN_GROUP_LINES_OK && was.have == have)
+		return FZN_GROUP_LINES_OK;
+	bytes[0] = WATER_VERSION;
+	fzn_put_be32(bytes + 1, have);
+	fzn_put_be64(bytes + 5, at);
+	if (!subject_of(l->hash, 'w', group, host, 0u, subject)
+	    || !l->store->save(l->store->ctx, FZN_PERSIST_GROUP_LINE_WATER, subject, bytes,
+	                       sizeof(bytes)))
+		return FZN_GROUP_LINES_ERR_BACKEND;
+	return FZN_GROUP_LINES_OK;
+}
+
+void fzn_group_lines_water_forget(const fzn_group_lines_t *l,
+                                  const uint8_t group[FZN_GROUP_ID_LEN],
+                                  const uint8_t host[FZN_PUBKEY_LEN])
+{
+	uint8_t subject[FZN_PUBKEY_LEN];
+
+	if (usable(l) && group && host && l->store->remove
+	    && subject_of(l->hash, 'w', group, host, 0u, subject))
+		(void)l->store->remove(l->store->ctx, FZN_PERSIST_GROUP_LINE_WATER, subject);
 }
 
 fzn_group_lines_err_t fzn_group_lines_put(const fzn_group_lines_t *l, uint32_t n,

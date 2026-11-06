@@ -482,6 +482,7 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_ATTACHMENT:
 	case FZN_PERSIST_CONTACT_REFUSED:
 	case FZN_PERSIST_STAGE:
+	case FZN_PERSIST_GROUP_LINE_WATER:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */

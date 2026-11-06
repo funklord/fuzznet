@@ -692,6 +692,7 @@ static size_t forget_group(const fzn_node_groups_t *g, const uint8_t *id, char *
 	uint8_t subject[FZN_PUBKEY_LEN], in[FZN_GROUP_ID_LEN + 4u];
 	fzn_group_log_err_t err;
 	uint32_t s;
+	size_t i;
 	int alone;
 
 	err = fzn_group_log_get(g->log.store, id, &held);
@@ -719,6 +720,8 @@ static size_t forget_group(const fzn_node_groups_t *g, const uint8_t *id, char *
 	if (!g->log.store->remove)
 		return say(reply, cap, FZN_REPLY_ERROR, "this store cannot forget");
 	(void)g->log.store->remove(g->log.store->ctx, FZN_PERSIST_GROUP_LABEL, id);
+	for (i = 0; i < held.n_hosts; i++)
+		fzn_group_lines_water_forget(g->lines, id, held.hosts[i].key);
 	if (!alone)
 		return say(reply, cap, FZN_REPLY_OK, NULL);
 	(void)g->log.store->remove(g->log.store->ctx, FZN_PERSIST_GROUP, id);
@@ -853,6 +856,70 @@ static size_t get_group_backfill(const fzn_node_groups_t *g, const uint8_t *id, 
 	return say(reply, cap, FZN_REPLY_OK, held.backfill ? "1" : "0");
 }
 
+/* `get group NAME water [FROM]`, sec 911: a page of the group's other hosts,
+ * each with what it last said it holds of this host's lines. By host and not
+ * by member, since a member's lines reach its hosts one by one; a member is
+ * as far as the furthest of them, which is the reader's to say. */
+static size_t get_group_water(const fzn_node_groups_t *g, const uint8_t *id, const uint8_t *word,
+                              size_t word_len, char *reply, size_t cap)
+{
+	static fzn_group_t held;
+	static fzn_contact_device_t self;
+	static char detail[FZN_REPLY_MAX];
+	const uint8_t *mine;
+	fzn_group_line_head_t head;
+	size_t limit = fzn_reply_ok_room(cap), from = 0, used, i, total = 0, at = 0;
+	int n;
+
+	for (i = 0; word && i < word_len; i++) {
+		if (word[i] < '0' || word[i] > '9' || from > 100000000u)
+			return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+		from = (from * 10u) + (size_t)(word[i] - '0');
+	}
+	if (!g->lines || !g->signer || !g->signer(g->signer_ctx, &self))
+		return say(reply, cap, FZN_REPLY_ERROR, "this host keeps no lines");
+	if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+		return say(reply, cap, FZN_REPLY_ERROR, "the group did not read");
+	mine = fzn_contact_device_key(&self);
+	if (fzn_group_lines_head(g->lines, id, mine, &head) != FZN_GROUP_LINES_OK)
+		return say(reply, cap, FZN_REPLY_ERROR, "the lines did not read");
+	for (i = 0; i < held.n_hosts; i++)
+		total += memcmp(held.hosts[i].key, mine, FZN_PUBKEY_LEN) != 0;
+	if (from > total)
+		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last host");
+	n = snprintf(detail, sizeof(detail), "%zu %zu %lu", total, from, (unsigned long)head.have);
+	if (n < 0 || (size_t)n >= limit)
+		return 0;
+	used = (size_t)n;
+	for (i = 0; i < held.n_hosts; i++) {
+		fzn_contact_t c;
+		fzn_group_line_water_t water;
+		char who[FZN_PUBKEY_LEN * 2u + 1u], host[FZN_PUBKEY_LEN * 2u + 1u];
+		char item[FZN_CONTACT_NAME_MAX + (FZN_PUBKEY_LEN * 4u) + 48u];
+		const char *name = who;
+		int k;
+
+		if (memcmp(held.hosts[i].key, mine, FZN_PUBKEY_LEN) == 0 || at++ < from)
+			continue;
+		hex_of(held.hosts[i].owner, FZN_PUBKEY_LEN, who);
+		who[FZN_PUBKEY_LEN * 2u] = '\0';
+		hex_of(held.hosts[i].key, FZN_PUBKEY_LEN, host);
+		host[FZN_PUBKEY_LEN * 2u] = '\0';
+		if (fzn_contact_get(g->log.store, held.hosts[i].owner, &c) == FZN_CONTACT_OK)
+			name = c.name;
+		if (fzn_group_lines_water(g->lines, id, held.hosts[i].key, &water) == FZN_GROUP_LINES_OK)
+			k = snprintf(item, sizeof(item), " %s,%s,%lu,%llu", name, host,
+			             (unsigned long)water.have, (unsigned long long)water.at);
+		else
+			k = snprintf(item, sizeof(item), " %s,%s,-,-", name, host);
+		if (k < 0 || limit - used < (size_t)k)
+			break;
+		memcpy(detail + used, item, (size_t)k);
+		used += (size_t)k;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
 static size_t get_group(const fzn_node_groups_t *g, const uint8_t *id, char *reply, size_t cap)
 {
 	static fzn_group_t held;
@@ -947,10 +1014,13 @@ size_t fzn_node_groups_local(const fzn_node_groups_t *g, const fzn_request_t *re
 		return answer(reply, cap, FZN_REPLY_OK, detail, k > 0 ? (size_t)k : 0u);
 	}
 	if (is_word(subject, subject_len, "group")) {
-		if (request->parsed == FZN_VERB_GET)
+		if (request->parsed == FZN_VERB_GET) {
+			if (other && is_word(other, other_len, "water"))
+				return get_group_water(g, id, value, value_len, reply, cap);
 			return other && is_word(other, other_len, "backfill")
 			               ? get_group_backfill(g, id, reply, cap)
 			               : get_group(g, id, reply, cap);
+		}
 		if (request->parsed == FZN_VERB_REMOVE)
 			return forget_group(g, id, reply, cap);
 		/* `set group GROUP backfill 0|1`. */

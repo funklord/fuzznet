@@ -22,6 +22,12 @@
  *     list group [FROM]                ok TOTAL FROM NAME,COUNT,ID ..., those this user is in;
  *                                      ID the group's, 64 hex (sec 647)
  *     get group NAME                   ok COUNT MEMBER ..., an admin as *NAME
+ *     get group NAME water [FROM]      ok TOTAL FROM MINE MEMBER,HOST,HAVE,AT ...:
+ *                                      MINE this host's lines in the group; for
+ *                                      each other host, how many of them it
+ *                                      last said it holds and when that
+ *                                      changed, ms, `-,-` for one that has said
+ *                                      nothing here (sec 911)
  *     get epoch GROUP                  ok EPOCH held|none, this host's secret
  *
  * GROUP, and NAME where a group is found, is this host's name for it or
@@ -34,6 +40,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "group_lines.h"
 #include "group_log.h"
 #include "../contact/contact.h"
 #include "../local/vocabulary.h"
@@ -110,6 +117,9 @@ typedef struct fzn_node_groups {
 	const fzn_agree_ops_t *agree;
 	const fzn_aead_ops_t *aead;
 	const fzn_agree_secret_t *agree_secret;
+	/* THE LINES HELD HERE, sec 911, for what members say they hold. NULL:
+	 * this host keeps none. */
+	const fzn_group_lines_t *lines;
 } fzn_node_groups_t;
 
 /* MAKE AN ACT on `id`'s head -- or with `id` NULL a new group, its id into

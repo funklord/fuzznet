@@ -12309,6 +12309,18 @@ static void group_sync_start(struct pull_target *pt, const uint8_t *owner, int o
 
 static fzn_group_lines_t group_lines;
 
+/* WHAT `sender` JUST SAID IT HOLDS of this host's lines, sec 911. */
+static void group_water_note(const fzn_group_t *g, const uint8_t *sender, const uint8_t *heads,
+                             size_t entries)
+{
+	uint32_t have = 0;
+
+	if (contact_id && fzn_group_host(g, sender)
+	    && fzn_group_lines_water_said(heads, entries, FZND_GROUP_HEADS_MAX, contact_id->pubkey,
+	                                  &have))
+		(void)fzn_group_lines_water_keep(&group_lines, g->id, sender, have, wall_ms());
+}
+
 static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
                                  size_t request_len, uint8_t *reply, size_t reply_cap)
 {
@@ -12333,6 +12345,7 @@ static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
 	    || fzn_group_log_get(node_apply.store, request + 2, &g) != FZN_GROUP_LOG_OK
 	    || (!own && !fzn_group_is_member(&g, owner)))
 		return (size_t)snprintf((char *)reply, reply_cap, "denied lines only to members\n");
+	group_water_note(&g, sender, request + 3u + FZN_GROUP_ID_LEN, entries);
 	if (cap < 4u
 	    || fzn_group_lines_heads(&group_lines, g.id, heads, FZN_GROUP_HOSTS_MAX, &n)
 	               != FZN_GROUP_LINES_OK)
@@ -19722,6 +19735,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			/* A GROUP'S LINES, sec 629. */
 			group_lines.store = node_apply.store;
 			group_lines.hash = &hash_ops;
+			node_groups.lines = &group_lines;
 			/* APP STREAMS, sec 632. */
 			node_streams.store = node_apply.store;
 			node_streams.hash = &hash_ops;

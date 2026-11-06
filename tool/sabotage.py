@@ -14461,6 +14461,20 @@ SABOTAGES = [
 		"a trim removes lines and leaves the base where it was -- sec 664",
 	),
 	(
+		"group-water-said-again-writes",
+		"node/group_lines.c",
+		"== FZN_GROUP_LINES_OK && was.have == have)\n",
+		"== FZN_GROUP_LINES_OK && 0)\n",
+		"a member's high water said again is written, every round of a quiet group -- sec 911",
+	),
+	(
+		"group-water-full-sync-says-none",
+		"node/group_lines.c",
+		"\treturn entries < entries_max;\n",
+		"\treturn 1;\n",
+		"a sync too full to name this host says it holds none of its lines -- sec 911",
+	),
+	(
 		"group-lines-put-from-trims",
 		"node/group_lines.c",
 		"\tif (n > h.have + 1u) {\n\t\terr = fzn_group_lines_trim(",
