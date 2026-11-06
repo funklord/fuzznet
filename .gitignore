@@ -339,3 +339,8 @@ __pycache__/
 /live-repeat/
 /faults/
 /lean/
+/fuzznet-bridge
+/device-check/
+/device/test/device_sim
+/device/test/device_test
+/net/test/bearer_test

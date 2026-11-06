@@ -42525,7 +42525,8 @@ link -- so a LoRa transport wants a much smaller frame and leans harder on
 chunking, and the 1024-byte leaf and the payload length bound become numbers
 to revisit per link rather than constants. That is a transport-profile
 decision, named here so the person who writes the LoRa transport meets it
-in the design rather than as a surprise.
+in the design rather than as a surprise. **Met in sec 912:** a frame goes as pieces
+on the bearer, and the frame itself is unchanged.
 
 ## 314. catalog supersedes catalog/, and the ATTRIBUTE wire encoding, 2026-09-18
 
@@ -81091,7 +81092,8 @@ yet.
 said; a root changes a root's value and nobody the profile's own; a restart writes
 nothing; an update keeps what was chosen; `set preset relay` holds over a restart and
 refuses `rootd` and another build's. By hand, a `PRESET=embedded-device` build refuses
-`vault` and applies its own.
+`vault` and applies its own. The holder's embedded device is smaller than any preset's
+daemon: sec 912.
 
 ## 909. A value changed by the estate's k, or a root alone, 2026-11-06
 
@@ -81199,3 +81201,70 @@ for a question asked about this host's own lines.
 
 **Forgotten with the group,** when this host forgets it. Hosts gone from the group drop
 out of the page, which walks the group's hosts.
+
+## 912. The smallest host: a button or a light, on a link with no IP, 2026-11-06
+
+The holder: "embedded might simply be a device with a button or an led or other
+display to control or view something on the fuzznet. It is very minimal, but has
+communication, possibly not via ethernet at all. Could be LoRa or manual key exchanges
+even." Sec 313 had said where this would land, and sec 48 what it would cost the frame.
+
+**Three pieces, and no change to the wire:**
+
+- **`device/device.{h,c}`, the host.** Sends `call NAME ARGS` to one host, its gateway,
+  and reads the answer. A button is a call, and a light is a call on a timer. No store,
+  no relay, no rounds, no listening.
+- **`net/bearer.{h,c}`, the link.** A bearer sends and hears units of at most `unit`
+  bytes. A sealed frame is 144 bytes before its payload, so it goes as pieces, and a
+  piece lost loses the frame. SLIP beside it, for a UART.
+- **`net/bridge.c`, `fuzznet-bridge`.** A bearer on one side and a host's UDP port on the
+  other, on the machine the radio is plugged into. **It holds no key and checks
+  nothing:** it passes sealed frames, as sec 3's bridge does. `make bridge`.
+
+**The manual key exchange is the existing pairing, done off the device:** `--prekey`,
+`--pair`, `--accept`, as any device, in a store on a person's machine, and then
+`--device-image=NODE_HEX` writes what that left, 263 characters (`FZD1:`) to type or
+flash. So a device runs no Ed25519 and no X25519, only a hash, the AEAD and a random
+source. A plain pair, not `--delegable`: it passes nothing on. Revoked as any peer.
+
+**No clock needed.** An expiry is judged by the gateway's clock, so a device counts from
+its start and asks the time by sec 719's probe, which a host answers whatever a frame's
+expiry. After a call goes unanswered it asks again.
+
+**One press is one press:** a resend goes under the same message and bytes, so a kept
+reply answers it (sec 900), and numbers begin somewhere of their own (sec 910).
+
+**Measured:**
+- `tool/live_device.py`, a real daemon, a bridge and this script as the radio, holding
+  each unit to the link's size: over 51-byte units, 8 units up and 8 down for the time
+  and a call; 6 of 6 answered at 10 per cent of units lost (17 of 200 lost in one run);
+  another estate's device answered nothing; the same image answered nothing once revoked.
+- `make device-check`, in `check`: what a board builds compiles with no system header
+  but `tool/freestanding/string.h`. Five libc functions.
+- **Size:** a device linked whole with `--gc-sections`, Monocypher included: 18.8 KB of
+  text and 2.9 KB of bss, on x86-64 at `-Os`. **That is a stand-in.** No ARM or RISC-V
+  linker is here. Objects by clang for Cortex-M0: `device.c` 1.9 KB, `bearer.c` 0.9 KB,
+  `seal.c` 2.0 KB. Peak stack, not measured: about 2.5 KB by reading, a request's room
+  and a unit's, and what the cipher takes.
+- **Airtime is the likely limit:** a first call is 16 units at 51 bytes, the time and
+  the call, and EU868's duty cycle (sec 48) sits on top. No airtime was measured.
+
+**Found: a device paired to a host is answered as a member** (`call_remote`, by
+`fzn_node_apply_rank`), though sec 553 says it is not in that estate. Both hold: 553 is
+what its own store believes, and this is the root's view of a peer it granted. My first
+test expected a refusal, and that was the test's mistake.
+
+**What it cannot do yet:**
+- **No real radio.** Nothing here has met one, and the serial side is SLIP to a modem
+  that passes units. Which modem is a choice for whoever holds one.
+- **Answers of one frame only,** 1021 bytes. A gateway's procedure pages longer.
+- **Nothing pushed:** a light polls. A device hearing an event needs a host that keeps
+  speaking to something that does not ask, which a radio's duty cycle makes a real
+  design question.
+- **A full 144 bytes on every frame.** At 51 bytes that is three units before any
+  payload. A smaller head would be a wire change, and is the holder's.
+- **`fuzznetd` has no procedure a button does anything with.** `events` is what this
+  test reads, and a press is the consumer's procedure.
+
+**Rejected:** a bearer inside the daemon, for now. A bridge beside it needs no change
+there, and a daemon with a radio can come when one does.

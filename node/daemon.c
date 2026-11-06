@@ -41,6 +41,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "daemon.h"
+#include "../device/device.h"
 #include "types.h"
 #include "serve.h"
 #include "talk.h"
@@ -17126,6 +17127,7 @@ static void usage(const char *prog)
 	        " [fuzznet options]\n"
 	        "       %s --fuzznet-dir=DIR --pair=PREKEY_HEX [--delegable] [fuzznet options]\n"
 	        "       %s --fuzznet-dir=DIR --prekey\n"
+	        "       %s --fuzznet-dir=DIR --device-image=NODE_HEX\n"
 	        "       %s --fuzznet-dir=DIR --new-root\n"
 	        "       %s --fuzznet-dir=DIR --set-admin CHAIN [fuzznet options]\n"
 	        "       %s --fuzznet-dir=DIR --accept=CARD [--join]\n"
@@ -17155,7 +17157,7 @@ static void usage(const char *prog)
 	        "              merged by time; --gather-ring prints their flight recorders,\n"
 	        "              and --short shortens what repeats from line to line\n"
 	        "%s",
-	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, prog, fzn_cli_usage());
+	        prog, prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, prog, fzn_cli_usage());
 	/* AND WHAT THE DAEMON CALLING THIS TAKES BESIDE, sec 673. */
 	if (daemon_ext && daemon_ext->n_options) {
 		size_t i;
@@ -18111,6 +18113,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	fzn_cli_t cli;
 	const char *pair_hex = NULL;
 	int show_prekey = 0;
+	const char *device_image = NULL;
 	const char *accept_text = NULL;
 	const char *set_admin = NULL;
 	static fzn_node_admin_chain_t own_admin;
@@ -18167,6 +18170,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			set_admin = argv[++i];
 		} else if (!strcmp(argv[i], "--delegable")) {
 			delegable = 1;
+		} else if (!strncmp(argv[i], "--device-image=", 15)) {
+			device_image = argv[i] + 15;
 		} else if (!strcmp(argv[i], "--join")) {
 			join = 1;
 		} else if (!strcmp(argv[i], "--ask") && i + 1 < argc) {
@@ -18403,8 +18408,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		}
 		cli.dir = default_dir;
 	}
-	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
-	    && !gather_program && !gather_ring && !check_log
+	if (!sock_path && !pair_hex && !show_prekey && !device_image && !new_root && !accept_text
+	    && !ask_line && !gather_program && !gather_ring && !check_log
 	    && !set_admin && !replaying && udp_port < 0 && !cli.dir) {
 		usage(argv[0]);
 		return 2;
@@ -18414,7 +18419,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * `$XDG_RUNTIME_DIR/fuzznet/fuzznetd.sock` (`local/socket.h`), its
 	 * directory made this user's and 0700, where a client looks when it is
 	 * told nowhere. A one-shot command serves nothing and takes none. */
-	serving = cli.dir && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
+	serving = cli.dir && !pair_hex && !show_prekey && !device_image && !new_root && !accept_text
+	          && !ask_line
 	          && !gather_program && !gather_ring && !check_log && !set_admin && !replaying;
 	if (!sock_path && serving) {
 		static char default_sock[108]; /* sun_path's length on Linux */
@@ -18725,6 +18731,37 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		}
 		print_hex(stdout, identity.prekey_record, FZN_PREKEY_LEN_TOTAL);
 		printf("\n");
+		return 0;
+	}
+
+	/* WHAT A DEVICE HOLDS, sec 912: this store's pairing to its gateway, NODE,
+	 * as text to type or flash, so a device runs no signature and no agreement.
+	 * The session's keys are in it, so it is a secret, as a seed is, and the
+	 * store it came from is then the device's and nobody else's. */
+	if (device_image) {
+		static fzn_node_pairing_t pairing;
+		fzn_device_image_t image;
+		char text[FZN_DEVICE_IMAGE_TEXT_LEN + 1u];
+		uint8_t node[FZN_PUBKEY_LEN];
+
+		if (!booted || !store_ops) {
+			fprintf(stderr, "fuzznetd: --device-image needs --fuzznet-dir, and no --identity\n");
+			return 2;
+		}
+		if (!hex_pubkey(device_image, node)
+		    || fzn_node_pairing_load(store_ops, node, &pairing) != FZN_PERSIST_OK) {
+			fprintf(stderr, "fuzznetd: --device-image: this store holds no pairing to that host\n");
+			return 1;
+		}
+		memcpy(image.sender, identity.pubkey, sizeof(image.sender));
+		memcpy(image.capability, pairing.capability.b, sizeof(image.capability));
+		memcpy(image.send_key, pairing.send_key, sizeof(image.send_key));
+		memcpy(image.send_ckey, pairing.send_ckey, sizeof(image.send_ckey));
+		fzn_device_image_text(&image, text);
+		printf("%s\n", text);
+		fzn_wipe(&image, sizeof(image));
+		fzn_wipe(text, sizeof(text));
+		fzn_wipe(&pairing, sizeof(pairing));
 		return 0;
 	}
 

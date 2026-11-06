@@ -207,6 +207,8 @@
 #include <fuzznet/local/escape.h>
 #include <fuzznet/local/client.h>
 #include <fuzznet/net/udp.h>
+#include <fuzznet/net/bearer.h>
+#include <fuzznet/device/device.h>
 #include <fuzznet/node/node.h>
 #include <fuzznet/node/local.h>
 #include <fuzznet/node/remote.h>
@@ -427,6 +429,8 @@
 #include "local/socket.h"
 #include "local/escape.h"
 #include "net/udp.h"
+#include "net/bearer.h"
+#include "device/device.h"
 #include "node/node.h"
 #include "node/local.h"
 #include "node/remote.h"

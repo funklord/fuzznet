@@ -211,7 +211,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
-             net/udp.c fault/fault.c \
+             net/udp.c net/bearer.c device/device.c fault/fault.c \
              node/node.c node/local.c node/remote.c node/serve.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
@@ -277,7 +277,7 @@ OBJS       = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 # Program sources: a main(), so neither a library object nor a test.
 # fuzznetd is the first executable this project builds (sec 300); the
 # C-source census names PROG_SRCS so a program is accounted for too.
-PROG_SRCS := node/fuzznetd.c node/test/ext_daemon.c
+PROG_SRCS := node/fuzznetd.c node/test/ext_daemon.c net/bridge.c device/test/device_sim.c
 PROG_OBJS := $(PROG_SRCS:%.c=$(BUILD_DIR)/%.o)
 
 # The objects fuzznetd and its runtime test both link: the node, the
@@ -313,7 +313,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/client.h local/escape.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
-             net/udp.h fault/fault.h \
+             net/udp.h net/bearer.h device/device.h fault/fault.h \
              node/node.h node/local.h node/remote.h node/serve.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
@@ -468,7 +468,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
-             net/test/udp_test.c \
+             net/test/udp_test.c net/test/bearer_test.c \
              node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c node/test/stage_fuzz.c \
              node/test/serve_test.c node/test/replies_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
@@ -620,6 +620,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/line_test \
              $(BUILD_DIR)/local/test/socket_test \
              $(BUILD_DIR)/net/test/udp_test \
+             $(BUILD_DIR)/net/test/bearer_test \
              $(BUILD_DIR)/node/test/node_test \
              $(BUILD_DIR)/node/test/local_test \
              $(BUILD_DIR)/node/test/permit_test \
@@ -1761,7 +1762,8 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               node/test/remote_test.c \
               node/test/provision_test.c \
               node/test/pair_test.c \
-              node/test/admin_test.c
+              node/test/admin_test.c \
+              device/test/device_test.c
 
 ifdef MONO_ON
 MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
@@ -1835,7 +1837,8 @@ OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
               $(MONO_KAT) $(MONO_RKAT) $(MONO_BKAT) $(MONO_HKAT) \
-              $(MONO_NREM) $(MONO_NPROV) $(MONO_NPAIR) $(MONO_NADM)
+              $(MONO_NREM) $(MONO_NPROV) $(MONO_NPAIR) $(MONO_NADM) \
+              $(BUILD_DIR)/device/test/device_test
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src -I$(MONOCYPHER_DIR)/src/optional
 
 # Vendored, so it is compiled with its own terms rather than ours.
@@ -3948,6 +3951,12 @@ $(BUILD_DIR)/net/test/udp_test: $(BUILD_DIR)/net/test/udp_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A frame in pieces, sec 912. It links only what it tests.
+$(BUILD_DIR)/net/test/bearer_test: $(BUILD_DIR)/net/test/bearer_test.o \
+                                   $(BUILD_DIR)/net/bearer.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # The node's access core, decided without a socket or a key. Its test .o
 # needs -Inode for "node.h"; it links the authz stack because node_decide
 # calls fzn_authz_decide, and local/peer.o for the group verdict.
@@ -4673,7 +4682,8 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode. FUZZNETD_LINK is everything but that main: the
 # node as a call (sec 670), which another daemon's main links too.
-FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/location/location.o \
+FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
+              $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
@@ -4728,6 +4738,53 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(FUZZNETD_LINK)
 # fzn_daemon_main with options and verbs fuzznet does not have, as fzpd
 # will. Built by `livecheck`, which runs it, and by nothing else.
 EXT_DAEMON := $(if $(FUZZNETD),$(BUILD_DIR)/node/test/ext_daemon)
+
+# THE SMALLEST HOST, sec 912: what a device runs, and all it links, as a board
+# would link it plus a system random source. The bridge beside it is a program
+# a person runs where a radio is plugged in, so it has a target of its own and
+# is in no default build; `livecheck` builds both. DEVICE_CORE_OBJS is the list
+# `device-size` measures.
+BRIDGE := $(if $(FUZZNETD),$(BUILD_DIR)/fuzznet-bridge)
+DEVICE_SIM := $(if $(FUZZNETD),$(BUILD_DIR)/device/test/device_sim)
+DEVICE_CORE_OBJS := $(BUILD_DIR)/device/device.o $(BUILD_DIR)/net/bearer.o \
+                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/commitment.o \
+                    $(BUILD_DIR)/session/random.o $(BUILD_DIR)/session/aead_monocypher.o \
+                    $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
+                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+
+.PHONY: bridge device-check
+bridge: $(BUILD_DIR)/fuzznet-bridge
+
+# WHAT A BOARD BUILDS, compiled as a board would: freestanding, no system header
+# but the compiler's own and tool/freestanding/string.h, so an include of a socket
+# or of stdio in anything a device links fails here and not on somebody's bench.
+DEVICE_BOARD_SRCS := device/device.c net/bearer.c wire/seal.c session/commitment.c \
+                     session/random.c session/aead_monocypher.c \
+                     session/hash_monocypher.c constant_time/constant_time.c
+device-check:
+	@mkdir -p $(BUILD_DIR)/device-check
+	@for f in $(DEVICE_BOARD_SRCS); do \
+		$(CC) -std=c11 -Os -ffreestanding -nostdinc \
+		      -isystem "$$($(CC) -print-file-name=include)" -Itool/freestanding \
+		      -I$(MONOCYPHER_DIR)/src -Iwire/generated -I. \
+		      -c $$f -o $(BUILD_DIR)/device-check/$$(basename $$f .c).o || exit 1; \
+	done
+	@echo "device-check: $(words $(DEVICE_BOARD_SRCS)) sources build with no system header"
+
+$(BUILD_DIR)/fuzznet-bridge: $(BUILD_DIR)/net/bridge.o $(BUILD_DIR)/net/bearer.o \
+                             $(BUILD_DIR)/net/udp.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@
+
+$(BUILD_DIR)/device/test/device_sim: $(BUILD_DIR)/device/test/device_sim.o $(DEVICE_CORE_OBJS) \
+                                     $(BUILD_DIR)/session/random_linux.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@
+
+$(BUILD_DIR)/device/test/device_test: $(BUILD_DIR)/device/test/device_test.o $(DEVICE_CORE_OBJS) \
+                                      $(BUILD_DIR)/session/random_linux.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 # THE DAEMON AS A CONSUMER LINKS IT, sec 907: every object of fuzznetd but its
 # main, so a program with a main of its own links `fzn_daemon_main` without
 # reading this file's variables. `make daemon-flags` prints what to compile and
@@ -4962,6 +5019,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(BUILD_DIR)/device/device.o $(BUILD_DIR)/net/bearer.o \
                                       $(BUILD_DIR)/chunk/erasure.o \
                                       $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/contact/contact.o \
@@ -5813,7 +5871,7 @@ reach:
 # project.md sec 53 has the eight-cell matrix.
 #
 # It costs 1.8s here.
-check: style test installcheck ctcheck sancheck arrangements qrcheck qttycheck livecheck \
+check: style test installcheck device-check ctcheck sancheck arrangements qrcheck qttycheck livecheck \
        livecheck-lean
 
 # THE SUITE AGAIN UNDER AddressSanitizer AND UBSan, on the holder's
@@ -6811,7 +6869,7 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # going round in turn take live_erasure.py past the others' 240 s, so its own
 # deadline is 480 s and its timeout 600, and live_contacts.py's 900 and 1080; it needs packed logs to cut, and says
 # it is skipped in a build without them.
-livecheck: $(FUZZNETD) $(EXT_DAEMON)
+livecheck: $(FUZZNETD) $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON),$(NOTES_ON),$(GROUPS_ON)),)
 	@echo "livecheck: SKIPPED -- it needs fuzznetd, the record store, log files, notes" \
 	      "and groups (its scripts use both to test others), and this build lacks one"
@@ -6843,6 +6901,7 @@ ifdef CATALOG_ON
 endif
 	@timeout 420 python3 tool/live_join.py $(FUZZNETD)
 	@timeout 440 python3 tool/live_invite.py $(FUZZNETD)
+	@timeout 220 python3 tool/live_device.py $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 300 python3 tool/live_preset.py $(FUZZNETD)
 	@timeout 700 python3 tool/live_votes.py $(FUZZNETD)
 	@timeout 1100 python3 tool/live_group_hosts.py $(FUZZNETD)
@@ -7711,7 +7770,8 @@ MONO_CLEAN := $(MONO_SRCS:%.c=$(BUILD_DIR)/%.o) $(MONO_SRCS:%.c=$(BUILD_DIR)/%.d
 # The daemon, named whether or not this build made it: `clean` removes what
 # SOME build made, and the one before may have had the binding.
 PROG_CLEAN := $(PROG_OBJS) $(PROG_OBJS:.o=.d) $(BUILD_DIR)/fuzznetd \
-              $(BUILD_DIR)/node/test/ext_daemon
+              $(BUILD_DIR)/node/test/ext_daemon $(BUILD_DIR)/fuzznet-bridge \
+              $(BUILD_DIR)/device/test/device_sim
 
 clean:
 	@# THE SANITIZER TREE, which `sancheck` keeps between runs so that an
