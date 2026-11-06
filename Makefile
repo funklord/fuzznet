@@ -4691,6 +4691,25 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(FUZZNETD_LINK)
 # fzn_daemon_main with options and verbs fuzznet does not have, as fzpd
 # will. Built by `livecheck`, which runs it, and by nothing else.
 EXT_DAEMON := $(if $(FUZZNETD),$(BUILD_DIR)/node/test/ext_daemon)
+# THE DAEMON AS A CONSUMER LINKS IT, sec 907: every object of fuzznetd but its
+# main, so a program with a main of its own links `fzn_daemon_main` without
+# reading this file's variables. `make daemon-flags` prints what to compile and
+# link with, and `make daemon-link-check` links a main from those alone.
+$(BUILD_DIR)/libfuzznetd.a: $(FUZZNETD_LINK)
+	@mkdir -p $(dir $@)
+	@rm -f $@
+	$(AR) rcs $@ $(sort $(filter %.o,$^))
+
+.PHONY: daemon-lib daemon-flags daemon-link-check
+daemon-lib: $(BUILD_DIR)/libfuzznetd.a
+
+daemon-flags:
+	@echo "FZN_DAEMON_CFLAGS=-I$(abspath .) -I$(abspath node) -I$(abspath wire/generated)"
+	@echo "FZN_DAEMON_LIBS=$(abspath $(BUILD_DIR)/libfuzznetd.a) $(LDFLAGS_GC) $(if $(LOG_PACK_ON),$(ZSTD_LIBS))"
+
+daemon-link-check: $(BUILD_DIR)/libfuzznetd.a
+	@tool/daemon_link_check.sh "$(CC)" "$(MAKE)"
+
 $(BUILD_DIR)/node/test/ext_daemon: $(BUILD_DIR)/node/test/ext_daemon.o $(FUZZNETD_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))

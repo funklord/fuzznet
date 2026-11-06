@@ -300,6 +300,7 @@ __pycache__/
 /messages/test/messages_test
 /node/test/messages_test
 /fuzznetd
+/libfuzznetd.a
 /.situ-head/
 /.gen.new/
 
