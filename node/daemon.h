@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "presets.h"
 #include "../chain/authz.h"
 #include "../chain/chain.h"
 #include "../local/peer.h"
@@ -172,6 +173,13 @@ typedef struct fzn_daemon_ext {
 	 * (`call NAME at HOST ARGS` there). NULL and 0 for none. */
 	const struct fzn_daemon_procedure *procedures;
 	size_t n_procedures;
+	/* ITS PROFILE, sec 908: a preset's name (`node/presets.h`), NULL for none,
+	 * and values of its own applied over it, `preset_revision` moved when they
+	 * change. `--preset=` wins over `preset`. */
+	const char *preset;
+	const fzn_preset_value_t *preset_values;
+	size_t n_preset_values;
+	uint32_t preset_revision;
 } fzn_daemon_ext_t;
 
 /* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,

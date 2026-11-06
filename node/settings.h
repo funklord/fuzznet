@@ -103,6 +103,10 @@ typedef struct fzn_node_settings {
 	void (*decided)(void *ctx, const uint8_t *key, size_t key_len, const uint8_t *value,
 	                size_t value_len, uint64_t seen, const uint8_t *seen_by);
 	void *decided_ctx;
+	/* THIS HOST'S PROFILE, sec 908: whether `rank` may change `key` on this
+	 * host's own cell by `set setting`. NULL for every key. */
+	int (*may_set)(void *ctx, const uint8_t *key, size_t key_len, fzn_setting_rank_t rank);
+	void *may_set_ctx;
 } fzn_node_settings_t;
 
 /* A SEALED VALUE's opening, sec 874: `box:` and the box in lower-case hex. */

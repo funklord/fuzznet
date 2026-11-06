@@ -30,7 +30,7 @@ import tempfile
 SCRIPTS = ("live_events", "live_stickers", "live_location", "live_socket", "live_face",
            "live_strangers", "live_rot", "live_moved", "live_names", "live_share_sibling", "live_groups",
            "live_group_backfill", "live_group_hosts", "live_contacts", "live_pairing",
-           "live_relay", "live_siblings", "live_shares", "live_catalog", "live_join",
+           "live_relay", "live_siblings", "live_shares", "live_catalog", "live_join", "live_preset",
            "live_invite")
 SCRIPT_S = 2400
 

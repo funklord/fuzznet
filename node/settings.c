@@ -1073,6 +1073,16 @@ static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t 
 			return say(reply, cap, FZN_REPLY_MALFORMED, detail);
 		}
 	}
+	/* THIS HOST'S PROFILE, sec 908: on its own cell, by its rank. */
+	if (scope == FZN_SCOPE_HOST && ns->may_set && ns->id
+	    && memcmp(about, ns->id->pubkey, FZN_PUBKEY_LEN) == 0) {
+		fzn_setting_rank_t rank = FZN_SETTING_RANK_HOST;
+
+		(void)fzn_node_apply_rank(ns->apply, ns->id->pubkey, scope, about, &rank);
+		if (!ns->may_set(ns->may_set_ctx, key, key_len, rank))
+			return say(reply, cap, FZN_REPLY_DENIED,
+			           "this host's profile keeps that setting from this rank");
+	}
 	/* WHAT THIS HOST SAW, sec 895, before its word replaces it: a person's
 	 * write to what the estate shares is told, as it may have been made apart. */
 	had = scope == FZN_SCOPE_ESTATE && ns->decided

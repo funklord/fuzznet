@@ -394,6 +394,8 @@ static size_t relay_local(fzn_origin_t origin, const fzn_request_t *request, cha
                           size_t cap);
 static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
+static size_t preset_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap);
 static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
 static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -494,6 +496,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = request_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = identity_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = preset_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = invite_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -10173,6 +10177,163 @@ static size_t ext_local_from(void *ctx, fzn_origin_t origin, const fzn_peer_t *p
 #define FZND_INVITE_ASK_FOR_S 900u
 
 static int hexval(uint8_t c);
+/* ---- this host's profile, sec 908 ---------------------------------------- */
+
+static const fzn_preset_t *active_preset;
+static const char *preset_named;
+
+static int preset_get(void *ctx, const char *key, char *value, size_t cap, size_t *len)
+{
+	uint8_t held[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t n = 0;
+
+	(void)ctx;
+	if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, node_settings.id->pubkey,
+	                           (const uint8_t *)key, strlen(key), held, &n, &rank)
+	    || n > cap)
+		return 0;
+	memcpy(value, held, n);
+	*len = n;
+	return 1;
+}
+
+static int preset_set(void *ctx, const char *key, const char *value)
+{
+	(void)ctx;
+	return fzn_node_settings_write(&node_settings, FZN_SCOPE_HOST, node_settings.id->pubkey,
+	                               (const uint8_t *)key, strlen(key), 1, (const uint8_t *)value,
+	                               strlen(value))
+	       == FZN_NODE_SETTINGS_OK;
+}
+
+static int preset_may(void *ctx, const uint8_t *key, size_t key_len, fzn_setting_rank_t rank)
+{
+	static const char APPLIED[] = FZN_PRESET_APPLIED_KEY;
+	static const char CHOSEN[] = FZN_PRESET_CHOSEN_KEY;
+
+	(void)ctx;
+	if ((key_len == sizeof(APPLIED) - 1u && memcmp(key, APPLIED, key_len) == 0)
+	    || (key_len == sizeof(CHOSEN) - 1u && memcmp(key, CHOSEN, key_len) == 0))
+		return 0;
+	return fzn_preset_may(active_preset, daemon_ext ? daemon_ext->preset_values : NULL,
+	                      daemon_ext ? daemon_ext->n_preset_values : 0u, (const char *)key, key_len,
+	                      (int)rank);
+}
+
+/* APPLIED ONCE A HOST MAY WRITE ITS OWN CELLS, and when it or the consumer's values
+ * moved: `preset/applied` says what was last. */
+static int preset_chose, preset_done;
+
+static void preset_tick(void)
+{
+	static uint64_t next;
+	const fzn_preset_ops_t ops = { NULL, preset_get, preset_set };
+	const fzn_preset_value_t *extra = daemon_ext ? daemon_ext->preset_values : NULL;
+	size_t n_extra = daemon_ext ? daemon_ext->n_preset_values : 0u, len = 0;
+	char want[64], held[64];
+	fzn_setting_rank_t rank;
+	uint64_t now;
+	long wrote;
+
+	if (preset_done || !node_settings.store || !node_settings.id)
+		return;
+	now = wall_clock();
+	if (now < next)
+		return;
+	next = now + 5u;
+	/* THE USER'S CHOICE, sec 908, over what the program started as. */
+	if (!preset_chose) {
+		preset_chose = 1;
+		if (preset_get(NULL, FZN_PRESET_CHOSEN_KEY, held, sizeof(held), &len)) {
+			const fzn_preset_t *p = fzn_preset_find(held, len);
+
+			if (p && p->user && fzn_preset_fits(p))
+				active_preset = p;
+		}
+		len = 0;
+	}
+	if (!active_preset && !n_extra) {
+		preset_done = 1;
+		return;
+	}
+	if (fzn_node_apply_rank(&node_apply, node_settings.id->pubkey, FZN_SCOPE_HOST,
+	                        node_settings.id->pubkey, &rank)
+	    != 1)
+		return;
+	(void)snprintf(want, sizeof(want), "%s %lu.%lu", active_preset ? active_preset->name : "-",
+	               active_preset ? (unsigned long)active_preset->revision : 0ul,
+	               daemon_ext ? (unsigned long)daemon_ext->preset_revision : 0ul);
+	if (preset_get(NULL, FZN_PRESET_APPLIED_KEY, held, sizeof(held) - 1u, &len) && len == strlen(want)
+	    && memcmp(held, want, len) == 0) {
+		preset_done = 1;
+		return;
+	}
+	wrote = fzn_preset_apply(active_preset, extra, n_extra, &ops);
+	if (wrote < 0 || !preset_set(NULL, FZN_PRESET_APPLIED_KEY, want)) {
+		say(FZN_ENTRY_WARNING, "node/preset", "the profile %s was not applied", want);
+		return;
+	}
+	preset_done = 1;
+	journal_pushed = 1;
+	say(FZN_ENTRY_NOTE, "node/preset", "the profile %s applied: %ld value(s) written", want, wrote);
+}
+
+/* `get preset` and `list preset`, this node's own user's. */
+static size_t preset_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap)
+{
+	const fzn_preset_value_t *extra = daemon_ext ? daemon_ext->preset_values : NULL;
+	size_t n_extra = daemon_ext ? daemon_ext->n_preset_values : 0u, i, out, n = 0;
+	size_t n_own = active_preset ? active_preset->n_values : 0u;
+
+	/* `set preset NAME`: one of this build's, marked a user's. */
+	if (request->parsed == FZN_VERB_SET && request->arg && request->arg_len > 7u
+	    && memcmp(request->arg, "preset ", 7u) == 0) {
+		const char *name = (const char *)request->arg + 7;
+		size_t name_len = request->arg_len - 7u;
+		const fzn_preset_t *p = fzn_preset_find(name, name_len);
+
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return (size_t)snprintf(reply, cap, "denied a profile is this node's own user's\n");
+		if (!p)
+			return (size_t)snprintf(reply, cap, "error no profile is called that\n");
+		if (!p->user || !fzn_preset_fits(p))
+			return (size_t)snprintf(reply, cap, "denied that profile takes a rebuild or an "
+			                                    "administrator\n");
+		if (!node_settings.store || !node_settings.id || !preset_set(NULL, FZN_PRESET_CHOSEN_KEY, p->name))
+			return (size_t)snprintf(reply, cap, "error the choice was not kept\n");
+		active_preset = p;
+		preset_chose = 1;
+		preset_done = 0;
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	if (!request->arg || request->arg_len != 6u || memcmp(request->arg, "preset", 6u) != 0
+	    || (request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_LIST))
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied a profile is this node's own user's\n");
+	if (request->parsed == FZN_VERB_GET)
+		return (size_t)snprintf(reply, cap, "ok %s\n",
+		                        active_preset ? active_preset->name : n_extra ? "-" : "none");
+	for (i = 0; i < n_own; i++)
+		if (fzn_preset_value_of(active_preset, extra, n_extra, active_preset->values[i].key,
+		                        strlen(active_preset->values[i].key))
+		    == &active_preset->values[i])
+			n++;
+	out = (size_t)snprintf(reply, cap, "ok %zu", n + n_extra);
+	for (i = 0; i < n_own + n_extra && out + 96u < cap; i++) {
+		const fzn_preset_value_t *v = i < n_extra ? &extra[i] : &active_preset->values[i - n_extra];
+
+		if (i >= n_extra
+		    && fzn_preset_value_of(active_preset, extra, n_extra, v->key, strlen(v->key)) != v)
+			continue;
+		out += (size_t)snprintf(reply + out, cap - out, " %s,%s,%s", v->key,
+		                        fzn_preset_who_word(v->who), v->value);
+	}
+	return out + (size_t)snprintf(reply + out, cap - out, "\n");
+}
+
 static fzn_invites_t invites;
 static struct {
 	int on;
@@ -18016,6 +18177,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				return 2;
 			}
 			log_segment = (uint64_t)v;
+		} else if (!strncmp(argv[i], "--preset=", 9u)) {
+			preset_named = argv[i] + 9;
 		} else if (!strncmp(argv[i], "--log-rule=", 11u)) {
 			const char *v = argv[i] + 11;
 
@@ -19315,6 +19478,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_records.now_ms = wall_ms;
 				node_records.filed = record_filed;
 				node_settings.decided = setting_decided;
+				node_settings.may_set = preset_may;
 				admin.records_local = records_and_decisions_local;
 				admin.records_ctx = &node_records;
 				admin.settings = &node_settings;
@@ -19649,6 +19813,17 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		}
 	}
 
+	{
+		const char *name = preset_named ? preset_named : daemon_ext ? daemon_ext->preset : NULL;
+
+		if (name && (!(active_preset = fzn_preset_find(name, strlen(name)))
+		             || !fzn_preset_fits(active_preset))) {
+			say(FZN_ENTRY_ERROR, "node/preset", "no profile %s in a %s build", name,
+			    FZN_PRESET_BUILD);
+			fzn_socket_close(lfd, sock_path);
+			return 2;
+		}
+	}
 	stop_on_terminate();
 	if (npulls || notes_on || state.reassembly) {
 		uint64_t next_pull = 0, last_fresh_round = 0, round_now = 0, round_began_ms = 0;
@@ -20192,6 +20367,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			stages_tick();
 			sealed_tick();
 			invite_tick();
+			preset_tick();
 			ext_tick();
 #ifdef FZN_LOG_FILE_ON
 			log_settings_tick();
@@ -20236,6 +20412,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		stages_tick();
 		sealed_tick();
 		invite_tick();
+		preset_tick();
 		ext_tick();
 #ifdef FZN_LOG_FILE_ON
 		log_settings_tick();

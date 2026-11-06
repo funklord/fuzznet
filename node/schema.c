@@ -1,3 +1,4 @@
+#include "presets.h"
 #include "schema.h"
 #include "permit.h"
 #include "../state/scope.h"
@@ -125,6 +126,10 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "which local users and groups may read (r) or change (rw) a verb's subject on this "
 	  "host: group:NAME=r user:NAME=rw, #ID for a NAME (sec 852)",
 	  permit_check },
+	{ FZN_PRESET_CHOSEN_KEY, FZN_SCHEMA_TEXT, HOST, 1u, 32u, "", "", FZN_SCHEMA_ADVANCED,
+	  "the profile this host's user chose, by `set preset` (sec 908)", NULL },
+	{ FZN_PRESET_APPLIED_KEY, FZN_SCHEMA_TEXT, HOST, 1u, 64u, "", "", FZN_SCHEMA_ADVANCED,
+	  "the profile last applied here, and its revisions (sec 908)", NULL },
 	{ "local/events", FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
 	  "which local users and groups may hold `get events`, hearing what this application "
 	  "publishes and none of fuzznet's: local:NAME=r local:@GROUP=r (sec 899)",
