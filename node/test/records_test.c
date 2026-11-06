@@ -221,7 +221,7 @@ static size_t a_record(uint8_t *out, uint8_t by, uint8_t about, fzn_scope_t scop
 
 static void test_a_record_filed(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, NULL, NULL, NULL, NULL };
 	uint8_t item[FZN_SETTING_MAX], subject[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN];
 	uint32_t month = 0, at = fzn_message_epoch_of(clock_ms);
 	size_t len;
@@ -274,7 +274,7 @@ static void test_a_record_filed(void)
 
 static void test_the_verbs(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
 	char want[256];
 	size_t i, shown = 0, rest = 0;
 	int more = 0, more2 = 1;
@@ -385,7 +385,7 @@ static size_t held_of(const fzn_node_records_t *nr, const char *key)
 /* TRIMMED BY THE RULES, sec 815. */
 static void test_the_trim(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
 	fzn_retain_rule_t rules[4];
 	size_t gone = 0, i;
 	uint8_t item[FZN_SETTING_MAX], other[FZN_PUBKEY_LEN];
@@ -463,7 +463,7 @@ static void test_the_trim(void)
  * record held; FROM counts what the prefix selects. */
 static void test_a_listing_under_a_prefix(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
 
 	memset(&node, 0, sizeof(node));
 	memset(&me, 0, sizeof(me));
@@ -516,7 +516,7 @@ static size_t a_clear(uint8_t *out, uint8_t by, uint64_t at, const char *key)
  * record of its key -- any host's, ties by the greater host -- is set. */
 static void test_the_lists(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
 	fzn_retain_rule_t rules[2];
 	uint8_t item[FZN_SETTING_MAX], other[FZN_PUBKEY_LEN];
 	size_t len, gone = 0;
@@ -612,7 +612,7 @@ static void test_the_lists(void)
  * a station's records are no longer kept. */
 static void test_a_keep_by_list(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
 	fzn_retain_rule_t rules[2];
 	size_t gone = 0, i;
 
