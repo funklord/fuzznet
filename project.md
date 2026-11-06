@@ -81748,3 +81748,22 @@ So sec 914's raising of a number is over for this bound. **What it takes:** the 
 hold every note at once, about 30 in `notes/` and `node/`, on the heap and grown as sec 704's
 contacts are, starting with what `share_talks` multiplies. Not started. Rosters past 256, sec
 927, are the same kind of job.
+
+## 929. Netcfgd ran its RAM host, and four requests, 2026-11-06
+
+**Netcfgd's 20261106T1531Z, pinned at `b81184c`:** `node_ram_host.sh` stops a joined host, makes
+its store read-only and starts it again with no `netcfgd.sock`, so only fuzznet can answer.
+`status`, `ask`, `askpart`, `hosts`, `eventlog`, `get events`, `list peer` and the remote hop all
+work, an apply with a window and its confirm from another host among them. `get node` has
+replaced its statvfs. That closes sec 918's open item. It also now runs a node on its own run
+directory, `--no-log-file`.
+
+**Open, none blocking:**
+- **`--log-level` does not reach stderr** (netcfgd). `say` prints to INFO whatever the level, and
+  main's own `fprintf`s, `identity` and `serving on` among them, print always. A router's `logread`
+  is where it shows. `say` is one line; the `fprintf`s want going through.
+- **A procedure cannot answer later** (netcfgd). A wifi scan through `ask` held the loop up to
+  10 s, so netcfgd moved it to a thread of its own, answering `ask again`. Works, so not needed.
+- **`list location` names a host, not its contact** (fuzzypickles' 20261106T1657Z, item 8).
+- **A group has no line count** (item 9): a count or head in `list group` would let unread skip
+  a group that has not moved. `get group NAME water` holds part of it.
