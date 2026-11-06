@@ -263,6 +263,14 @@ int main(void)
 	      "a voter that changed its mind no longer counts for the old");
 	CHECK(vote(0xa1u, "on") && count(2u) == 1 && !strcmp(carried_value, "on"), "and counts for the new");
 
+	/* ---- an older vote met after a newer, as one from a peer is filed late */
+	reset();
+	CHECK(vote(0xb0u, "on") && vote(0xb1u, "on"), "two voters say on");
+	clock_ms -= 10000u;
+	CHECK(vote(0xb0u, "off") && vote(0xb1u, "off"), "and what they said before arrives after");
+	clock_ms += 20000u;
+	CHECK(count(2u) == 1 && !strcmp(carried_value, "on"), "each is counted for its newest");
+
 	/* ---- who is counted */
 	reset();
 	CHECK(vote(0xa1u, "off") && vote(NO_STANDING, "off") && count(2u) == 0,
