@@ -14601,6 +14601,27 @@ SABOTAGES = [
 		"what a read-only disk holds can no longer be read -- sec 919",
 	),
 	(
+		"remote-permit-first-half",
+		"node/permit.c",
+		"\tif (!host || fzn_node_remote_permit_check(value, len))\n\t\treturn 0;\n",
+		"\tif (!host)\n\t\treturn 0;\n",
+		"half a malformed rule lets a caller in -- sec 921",
+	),
+	(
+		"remote-permit-admin-is-anyone",
+		"node/permit.c",
+		"(word_is(value + at, n, \"admin\") && rank >= FZN_SETTING_RANK_ADMIN)",
+		"word_is(value + at, n, \"admin\")",
+		"any member passes a rule that says admin -- sec 921",
+	),
+	(
+		"remote-permit-host-any",
+		"node/permit.c",
+		"(host_word(value + at, n, key) && memcmp(key, host, FZN_PUBKEY_LEN) == 0)",
+		"host_word(value + at, n, key)",
+		"a rule naming one host lets in every member -- sec 921",
+	),
+	(
 		"delta-flush-past-refusal",
 		"persist/delta.c",
 		"\t\tif (!wrote) {\n\t\t\td->stuck = 1;\n\t\t\treturn done;\n\t\t}\n",

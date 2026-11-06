@@ -17,6 +17,8 @@ that passes is held to the link's size, and may be lost.
     b2 the bridge on a terminal rather than a pipe, as it would hold a UART
     c  a device of another estate holds a session R never made, and is answered
        nothing
+    c2 a rule at R says who may call `events` (sec 921): none, root and a rule for
+       every procedure keep D out, and `host:D` and `member` let it in
     d  R revokes D: the same image is answered no more
 
 Against a bridge that passes a frame in pieces past the unit, every phase fails
@@ -207,6 +209,23 @@ def main(argv):
 			if code == 0:
 				raise failed("c: a device of another estate was answered: %r" % said)
 			print("livecheck: c: a device of another estate was answered nothing: %s" % said[:60])
+
+			# c2: each call by a rule. A device is a member, and holds no more than a
+			# rule leaves it.
+			device_host = prekey[PREKEY_HOST]
+			for key, rule, answered in (("remote/permit/events", "none", False),
+			                            ("remote/permit/events", "root", False),
+			                            ("remote/permit/events", "host:" + device_host, True),
+			                            ("remote/permit", "none", True),
+			                            ("remote/permit/events", "member", True)):
+				reply = ask(sock, "set setting host %s %s" % (key, rule))
+				if not reply.startswith("ok"):
+					raise failed("c2: %s %s answered %r" % (key, rule[:12], reply))
+				code, said, _, _ = on_the_air(run, image, 222, 0.0, "events", "0", port)
+				if (code == 0) != answered:
+					raise failed("c2: under %s %s the device said %r (%d)"
+					             % (key, rule[:12], said, code))
+			print("livecheck: c2: each rule let the device in or kept it out: %s" % said[:60])
 
 			# d: revoked.
 			reply = ask(sock, "revoke peer " + prekey[PREKEY_HOST])

@@ -170,7 +170,7 @@ def c_marks(daemon_path, scratch, sock_dir):
 		                  extra=["--echo-as=fecho"])
 		started["af"] = follower
 		until = time.monotonic() + 20.0
-		while "offering 3 procedure" not in follower.stderr():
+		while "offering 4 procedure" not in follower.stderr():
 			if time.monotonic() > until or follower.proc.poll() is not None:
 				raise failed("c2: A's follower offered nothing: %r" % follower.stderr()[-300:])
 			time.sleep(0.2)
@@ -194,6 +194,18 @@ def c_marks(daemon_path, scratch, sock_dir):
 		      "and applied by B's extension")
 		# c3: A'S EVENTS FROM B, sec 866: B asks what A published since 0,
 		# and is told A's `add mark` among them, with a cursor to ask on.
+		# c2b: a procedure shut by its own word, sec 921: no member, until a rule.
+		got = ask(socks["b"], "call shut at %s x" % a_host)
+		if got.startswith("ok"):
+			raise failed("c2b: a procedure saying none was answered: %r" % got)
+		got = ask(socks["a"], "set setting host remote/permit/shut member")
+		if not got.startswith("ok"):
+			raise failed("c2b: the rule answered %r" % got)
+		got = ask(socks["b"], "call shut at %s x" % a_host)
+		if not got.startswith("ok"):
+			raise failed("c2b: a rule opened it and B was refused: %r" % got)
+		print("livecheck: c2b: a procedure saying none refused a member, until a rule said")
+
 		got = ask(socks["b"], "call events at %s 0" % a_host)
 		words = got.split()
 		if len(words) < 2 or words[0] != "ok" or "%20mark%20" not in words[1]:
@@ -591,7 +603,7 @@ def main(argv):
 					# A PROCEDURE THE FOLLOWER ALONE HAS, sec 853 step 3: the face
 					# forwards it, unread, and answers what the follower said.
 					until = time.monotonic() + 10.0
-					while "offering 3 procedure" not in open(ferr_path).read():
+					while "offering 4 procedure" not in open(ferr_path).read():
 						if time.monotonic() > until:
 							raise failed("b4: the follower offered no procedure: %r"
 							             % open(ferr_path).read()[-300:])

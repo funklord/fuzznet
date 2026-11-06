@@ -40,6 +40,16 @@ static void peer_of(fzn_peer_t *p, uint32_t uid, uint32_t gid, int known, uint32
 	}
 }
 
+static const char *remote_check(const char *value)
+{
+	return fzn_node_remote_permit_check((const uint8_t *)value, strlen(value));
+}
+
+static int remote_rule(const char *value, const uint8_t *host, fzn_setting_rank_t rank)
+{
+	return fzn_node_remote_permit_allows((const uint8_t *)value, strlen(value), host, rank);
+}
+
 int main(void)
 {
 	fzn_peer_t p;
@@ -108,6 +118,41 @@ int main(void)
 	   "a name was not looked up");
 	ok(!allows("user:no-such-user-here=rw", &p, FZN_PERMIT_READ),
 	   "a name that does not resolve granted something");
+
+	/* WHO MAY CALL FROM ANOTHER HOST, sec 921. */
+	{
+		static const char HEX_A[] =
+		        "host:0101010101010101010101010101010101010101010101010101010101010101";
+		uint8_t a[FZN_PUBKEY_LEN], b[FZN_PUBKEY_LEN];
+		char two[160];
+
+		memset(a, 1, sizeof(a));
+		memset(b, 2, sizeof(b));
+		ok(remote_rule("member", a, FZN_SETTING_RANK_HOST), "member let no member in");
+		ok(!remote_rule("admin", a, FZN_SETTING_RANK_HOST)
+		           && remote_rule("admin", a, FZN_SETTING_RANK_ADMIN)
+		           && remote_rule("admin", a, FZN_SETTING_RANK_ROOT),
+		   "admin was not admin and above");
+		ok(!remote_rule("root", a, FZN_SETTING_RANK_ADMIN)
+		           && remote_rule("root", a, FZN_SETTING_RANK_ROOT),
+		   "root was not the root's");
+		ok(!remote_rule("none", a, FZN_SETTING_RANK_ROOT), "none let the root in");
+		ok(remote_rule(HEX_A, a, FZN_SETTING_RANK_HOST)
+		           && !remote_rule(HEX_A, b, FZN_SETTING_RANK_ROOT),
+		   "host:HEX did not name one host alone");
+		(void)snprintf(two, sizeof(two), "root %s", HEX_A);
+		ok(remote_rule(two, a, FZN_SETTING_RANK_HOST) && remote_rule(two, b, FZN_SETTING_RANK_ROOT)
+		           && !remote_rule(two, b, FZN_SETTING_RANK_ADMIN),
+		   "a list did not let in each it named, and only them");
+		ok(remote_check("member") == NULL && remote_check(two) == NULL, "a rule was refused");
+		ok(remote_check("") && remote_check(" member") && remote_check("member ")
+		           && remote_check("member  root") && remote_check("host:01")
+		           && remote_check("Member") && remote_check("none root"),
+		   "a rule out of shape was taken");
+		/* A VALUE THAT DOES NOT PARSE lets nobody in, not by its first half. */
+		ok(!remote_rule("member nonsense", a, FZN_SETTING_RANK_ROOT),
+		   "half a malformed rule was taken");
+	}
 
 	printf("permit_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

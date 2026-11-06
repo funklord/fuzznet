@@ -81271,10 +81271,8 @@ test expected a refusal, and that was the test's mistake.
   payload. A smaller head would be a wire change, and is the holder's.
 - **`fuzznetd` has no procedure a button does anything with.** `events` is what this
   test reads, and a press is the consumer's procedure.
-- **A device may call every procedure its gateway has.** `call_remote` asks only that
-  the caller be a member, and a grant on a name (sec 852) binds local callers. So a
-  stolen button can do what any host's call can, until revoked. Whether a device gets
-  a narrower right is the holder's.
+- **A device may call what its gateway's rules leave it** (sec 921); with none set, every
+  procedure, as any member may.
 
 **Rejected:** a bearer inside the daemon, for now. A bridge beside it needs no change
 there, and a daemon with a radio can come when one does.
@@ -81550,3 +81548,29 @@ host cannot read its key yet`. Nothing else is served, as nothing can be signed 
 which part went is the operator's. A shape or a mismatch likewise. **Not dealt with:** an
 empty directory where a store should be, a mount not yet there, reads as a fresh host and
 makes a key. Telling those apart needs something on the mount point, and nothing says so.
+
+## 921. Each call from another host, gated by a rule, 2026-11-06
+
+The holder, of a device calling every procedure of its gateway: "Each call should probably
+be gated by the permission system." `call_remote` asked only that the caller be a member,
+and sec 852's grants bind local callers.
+
+**A rule is a host's setting:** `remote/permit/NAME` for a procedure, `remote/permit` for
+every one with none of its own. Its words are `member`, `admin`, `root`, `host:HEX`, `none`,
+any of which lets the caller in, so a button is `host:HEX`. A stranger is refused before a
+rule is read, and revocation stands above all of it. A rule that does not parse lets nobody
+in, and is refused when written. It binds a call at the estate or a group as well, and
+one forwarded to a follower, as all pass through `call_remote`.
+
+**None set is `member`, as it was,** because netcfgd's `ask` and `status` depend on it and
+no consumer has written a rule. Closed by default is one setting away: `remote/permit none`.
+**A procedure can say it itself:** `fzn_daemon_procedure_t.rule`, below a rule named for it
+and above the host's default, so a shell is `none` and nobody has one until a host says so.
+
+**Rejected: `list:NAME`** for many hosts. Any host of an estate may write a list (sec 854),
+so a member could add itself. Rules are settings, where rank decides. **The cost that
+leaves:** a value is 256 bytes, so three `host:HEX` to a rule. Thousands of devices want
+a rule per host, or rank, and no consumer has one yet.
+
+`permit_test`; `live_device` c2, a device kept out and let in, on every rule; `live_ext`
+c2b, a procedure saying `none`.

@@ -352,9 +352,11 @@ static size_t setting(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
 }
 
 static const fzn_daemon_procedure_t procedures[] = {
-	{ echo_name, echo },
-	{ "fill", fill },
-	{ setting_name, setting },
+	{ echo_name, echo, NULL },
+	{ "fill", fill, NULL },
+	{ setting_name, setting, NULL },
+	/* SHUT UNTIL A HOST SAYS OTHERWISE, as a shell would be, sec 921. */
+	{ "shut", echo, "none" },
 };
 
 static size_t remote(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], int contact,
@@ -437,7 +439,8 @@ int main(int argc, char **argv)
 	static fzn_daemon_ext_t ext = {
 		NULL, options, sizeof(options) / sizeof(options[0]), option, local, remote, apply,
 		settings, sizeof(settings) / sizeof(settings[0]), own_fds, own_ready, own_tick,
-		NULL, local_from, procedures, sizeof(procedures) / sizeof(procedures[0]),
+		NULL, local_from, procedures, sizeof(procedures) / sizeof(procedures[0]), NULL, NULL,
+		0u, 0u,
 	};
 
 	static char *given[64];

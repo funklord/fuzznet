@@ -15403,7 +15403,7 @@ static size_t events_call(void *ctx, const uint8_t *caller, const fzn_peer_t *pe
 /* FUZZNET'S OWN PROCEDURES, sec 866: asked before an extension's, so no
  * extension's name hides one. */
 static const fzn_daemon_procedure_t builtin_procedures[] = {
-	{ "events", events_call },
+	{ "events", events_call, NULL },
 };
 
 static const fzn_daemon_procedure_t *procedure_of(const uint8_t *name, size_t len)
@@ -15425,8 +15425,29 @@ static const fzn_daemon_procedure_t *procedure_of(const uint8_t *name, size_t le
 	return NULL;
 }
 
-/* A CALL FROM ANOTHER HOST: an estate member's alone, answered by the
- * procedure of that name, its bytes carried and read by nothing here. The
+/* WHETHER MEMBER `sender` MAY CALL `name` HERE, sec 921: its own rule; what the
+ * procedure says of itself, `said`; the rule for every procedure; or any member. */
+static int call_permitted(const uint8_t *sender, const uint8_t *name, size_t name_len,
+                          const char *said)
+{
+	char key[sizeof(FZN_REMOTE_PERMIT_KEY_PREFIX) + FZN_CALL_NAME_MAX];
+	char rule[FZN_SETTING_VALUE_MAX + 1u];
+	fzn_setting_rank_t rank = FZN_SETTING_RANK_HOST;
+
+	(void)snprintf(key, sizeof(key), FZN_REMOTE_PERMIT_KEY_PREFIX "%.*s", (int)name_len,
+	               (const char *)name);
+	if (!host_text(key, rule, sizeof(rule))) {
+		if (said)
+			(void)snprintf(rule, sizeof(rule), "%s", said);
+		else if (!host_text(FZN_REMOTE_PERMIT_KEY, rule, sizeof(rule)))
+			return 1;
+	}
+	(void)fzn_node_apply_rank(&node_apply, sender, FZN_SCOPE_HOST, sender, &rank);
+	return fzn_node_remote_permit_allows((const uint8_t *)rule, strlen(rule), sender, rank);
+}
+
+/* A CALL FROM ANOTHER HOST: an estate member's alone, and one a rule lets in, answered
+ * by the procedure of that name, its bytes carried and read by nothing here. The
  * answer is the type, a status and the procedure's bytes. */
 static size_t call_remote(const uint8_t *sender, const uint8_t *request, size_t len,
                           uint8_t *reply, size_t cap)
@@ -15449,8 +15470,13 @@ static size_t call_remote(const uint8_t *sender, const uint8_t *request, size_t 
 		reply[2] = FZN_CALL_UNKNOWN;
 		return 3u;
 	}
+	p = procedure_of(request + 3, name_len);
+	if (!call_permitted(sender, request + 3, name_len, p ? p->rule : NULL)) {
+		reply[2] = FZN_CALL_DENIED;
+		return 3u;
+	}
 	/* NOT THIS PROCESS'S, and perhaps a follower's: forwarded unread. */
-	if (!(p = procedure_of(request + 3, name_len))) {
+	if (!p) {
 		unsigned status = FZN_CALL_UNKNOWN;
 
 		n = call_forward(request + 3, name_len, sender, NULL, request + 3 + name_len,

@@ -227,3 +227,94 @@ int fzn_node_permit_allows(const uint8_t *value, size_t len, const fzn_peer_t *p
 	(void)walk(value, len, matches, &a, &any);
 	return a.allowed;
 }
+
+/* ---- who may call from another host, sec 921 -------------------------------- */
+
+#define REMOTE_HOST_WORD "host:"
+#define REMOTE_HOST_WORD_LEN 5u
+
+static int hex_value(uint8_t c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	return -1;
+}
+
+static int word_is(const uint8_t *word, size_t n, const char *name)
+{
+	return n == strlen(name) && memcmp(word, name, n) == 0;
+}
+
+/* `word` as a key, when it is `host:HEX`. */
+static int host_word(const uint8_t *word, size_t n, uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	if (n != REMOTE_HOST_WORD_LEN + 2u * FZN_PUBKEY_LEN
+	    || memcmp(word, REMOTE_HOST_WORD, REMOTE_HOST_WORD_LEN) != 0)
+		return 0;
+	for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+		int hi = hex_value(word[REMOTE_HOST_WORD_LEN + 2u * i]);
+		int lo = hex_value(word[REMOTE_HOST_WORD_LEN + 2u * i + 1u]);
+
+		if (hi < 0 || lo < 0)
+			return 0;
+		key[i] = (uint8_t)((hi << 4) | lo);
+	}
+	return 1;
+}
+
+const char *fzn_node_remote_permit_check(const uint8_t *value, size_t len)
+{
+	static const char *const SHAPE =
+	        "a rule is member, admin, root, host:HEX or none, apart by spaces";
+	uint8_t key[FZN_PUBKEY_LEN];
+	size_t at = 0, words = 0;
+	int none = 0;
+
+	if (!value || !len)
+		return SHAPE;
+	while (at < len) {
+		size_t n = 0;
+
+		while (at + n < len && value[at + n] != ' ')
+			n++;
+		if (!n)
+			return SHAPE;
+		if (word_is(value + at, n, "none"))
+			none = 1;
+		else if (!word_is(value + at, n, "member") && !word_is(value + at, n, "admin")
+		         && !word_is(value + at, n, "root") && !host_word(value + at, n, key))
+			return SHAPE;
+		words++;
+		at += n;
+		if (at < len && ++at == len)
+			return SHAPE;
+	}
+	return none && words > 1u ? "none stands alone" : NULL;
+}
+
+int fzn_node_remote_permit_allows(const uint8_t *value, size_t len,
+                                  const uint8_t host[FZN_PUBKEY_LEN], fzn_setting_rank_t rank)
+{
+	uint8_t key[FZN_PUBKEY_LEN];
+	size_t at = 0;
+
+	if (!host || fzn_node_remote_permit_check(value, len))
+		return 0;
+	while (at < len) {
+		size_t n = 0;
+
+		while (at + n < len && value[at + n] != ' ')
+			n++;
+		if (word_is(value + at, n, "member")
+		    || (word_is(value + at, n, "admin") && rank >= FZN_SETTING_RANK_ADMIN)
+		    || (word_is(value + at, n, "root") && rank >= FZN_SETTING_RANK_ROOT)
+		    || (host_word(value + at, n, key) && memcmp(key, host, FZN_PUBKEY_LEN) == 0))
+			return 1;
+		at += n + 1u;
+	}
+	return 0;
+}

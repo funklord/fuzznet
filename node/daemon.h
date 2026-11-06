@@ -63,6 +63,10 @@ typedef struct fzn_daemon_procedure {
 	const char *name;
 	size_t (*call)(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
 	               const uint8_t *args, size_t args_len, uint8_t *answer, size_t cap);
+	/* WHO MAY CALL IT FROM ANOTHER HOST where no rule on this host says, sec 921, in
+	 * `remote/permit`'s words: a shell's is `none`, so nobody has one until a host
+	 * says so. NULL is the host's own default, then `member`. */
+	const char *rule;
 } fzn_daemon_procedure_t;
 
 /* WHAT A DAEMON ADDS TO THE NODE (sec 666 stage 4, as sec 672 rewrote it):

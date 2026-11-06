@@ -39,6 +39,7 @@
 #include <stdint.h>
 
 #include "../local/peer.h"
+#include "../state/setting.h"
 
 #define FZN_PERMIT_READ 1u
 #define FZN_PERMIT_CHANGE 2u
@@ -66,5 +67,31 @@ const char *fzn_node_permit_check(const uint8_t *value, size_t len);
 int fzn_node_permit_allows(const uint8_t *value, size_t len, const fzn_peer_t *peer,
                            unsigned right);
 /* (`right` is one of FZN_PERMIT_READ, _CHANGE and _CALL.) */
+
+/*
+ * WHO MAY CALL A PROCEDURE FROM ANOTHER HOST, sec 921, the holder's: "each call
+ * should probably be gated by the permission system". A rule is a host's setting,
+ * `remote/permit/NAME` for one procedure and `remote/permit` for every procedure
+ * with no rule of its own; none set is `member`, as it was.
+ *
+ *     member     any host with standing in this estate
+ *     admin      a host of admin rank or above
+ *     root       the root's
+ *     host:HEX   this host, by its key
+ *     none       nobody
+ *
+ * Words apart by spaces, and any word that names the caller lets it in, so a rule
+ * is a list of who, and a button is `host:HEX`. A stranger is refused before a rule
+ * is read. A value that does not parse lets nobody in, not even by its first half.
+ */
+#define FZN_REMOTE_PERMIT_KEY "remote/permit"
+#define FZN_REMOTE_PERMIT_KEY_PREFIX "remote/permit/"
+
+/* NULL when `value` is a well-formed rule, or why it is not. */
+const char *fzn_node_remote_permit_check(const uint8_t *value, size_t len);
+
+/* 1 when the member `host`, of `rank`, is let in by the rule in `value`. */
+int fzn_node_remote_permit_allows(const uint8_t *value, size_t len,
+                                  const uint8_t host[FZN_PUBKEY_LEN], fzn_setting_rank_t rank);
 
 #endif /* FZN_NODE_PERMIT_H */

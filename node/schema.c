@@ -51,6 +51,11 @@ static const char *pressure_rank_check(const uint8_t *value, size_t len)
 	return "trace, copy or user";
 }
 
+static const char *remote_permit_check(const uint8_t *value, size_t len)
+{
+	return fzn_node_remote_permit_check(value, len);
+}
+
 static const char *permit_check(const uint8_t *value, size_t len)
 {
 	return fzn_node_permit_check(value, len);
@@ -136,6 +141,13 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "which local users and groups may read (r) or change (rw) a verb's subject on this "
 	  "host: group:NAME=r user:NAME=rw, #ID for a NAME (sec 852)",
 	  permit_check },
+	{ FZN_REMOTE_PERMIT_KEY_PREFIX, FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
+	  "which hosts of the estate may call this procedure here: member, admin, root, "
+	  "host:HEX or none, apart by spaces (sec 921)",
+	  remote_permit_check },
+	{ FZN_REMOTE_PERMIT_KEY, FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
+	  "the same, for every procedure with no rule of its own; member when unset (sec 921)",
+	  remote_permit_check },
 	{ FZN_PRESET_CHOSEN_KEY, FZN_SCHEMA_TEXT, HOST, 1u, 32u, "", "", FZN_SCHEMA_ADVANCED,
 	  "the profile this host's user chose, by `set preset` (sec 908)", NULL },
 	{ FZN_PRESET_APPLIED_KEY, FZN_SCHEMA_TEXT, HOST, 1u, 64u, "", "", FZN_SCHEMA_ADVANCED,
