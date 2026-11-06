@@ -21,6 +21,9 @@
  *                             does: no cleanup, no core
  *   FZN_FAULT_WRITE_BUDGET=B  after B bytes written, every write fails as
  *                             a full disk does, ENOSPC
+ *   FZN_FAULT_NO_RAM=1        the store's delta and the journal's held
+ *                             rows get no memory (sec 917): a full disk
+ *                             then refuses a write, as it did before them
  *
  * Each fault taken is said once on stderr, `fault: ...`, so a test can
  * tell a fault from a failure.
@@ -53,6 +56,10 @@ void fzn_fault_point(const char *name);
  * once the budget is spent. */
 int fzn_fault_write(size_t n);
 
+/* 1 while memory may be had for what a disk will not take, 0 with
+ * FZN_FAULT_NO_RAM set. */
+int fzn_fault_ram(void);
+
 /* THE KNOB `name`: FZN_TUNE_<name> when it is set to 1 to `max`, else
  * `def`. Said once on stderr when it is set. */
 unsigned long fzn_fault_tune(const char *name, unsigned long def, unsigned long max);
@@ -60,6 +67,7 @@ unsigned long fzn_fault_tune(const char *name, unsigned long def, unsigned long 
 #define FZN_FAULT_DATAGRAM() fzn_fault_datagram()
 #define FZN_FAULT_POINT(name) fzn_fault_point(name)
 #define FZN_FAULT_WRITE(n) fzn_fault_write(n)
+#define FZN_FAULT_RAM() fzn_fault_ram()
 #define FZN_TUNE(name, def, max) fzn_fault_tune(name, def, max)
 
 #else
@@ -67,6 +75,7 @@ unsigned long fzn_fault_tune(const char *name, unsigned long def, unsigned long 
 #define FZN_FAULT_DATAGRAM() FZN_FAULT_SEND
 #define FZN_FAULT_POINT(name) ((void)0)
 #define FZN_FAULT_WRITE(n) 1
+#define FZN_FAULT_RAM() 1
 #define FZN_TUNE(name, def, max) (def)
 
 #endif

@@ -137,11 +137,11 @@ def main(argv):
 					# d: `get node`, sec 687: the port A was told to serve on, read
 					# back from its socket, and a start time within this run.
 					words = ask(a_sock, "get node").split()
-					if len(words) != 5 or words[:3] != ["ok", "udp", port] \
+					if len(words) < 5 or words[:3] != ["ok", "udp", port] \
 					   or words[3] != "started" or abs(int(words[4]) - time.time()) > 600:
 						raise failed("d: get node at A answered %r" % words)
 					words = ask(b_sock, "get node").split()
-					if len(words) != 5 or words[:3] != ["ok", "udp", "-"] or words[3] != "started":
+					if len(words) < 5 or words[:3] != ["ok", "udp", "-"] or words[3] != "started":
 						raise failed("d: get node at B answered %r" % words)
 					print("livecheck: d: get node gave A's port %s, B's %s, and when each "
 					      "started" % (port, words[2]))

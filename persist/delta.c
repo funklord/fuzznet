@@ -2,6 +2,8 @@
 
 #include "delta.h"
 
+#include "../fault/fault.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -18,6 +20,8 @@ typedef struct fzn_persist_delta_row {
 
 static void *take(const fzn_persist_delta_t *d, size_t len)
 {
+	if (!FZN_FAULT_RAM())
+		return NULL;
 	return d->alloc ? d->alloc(len) : malloc(len);
 }
 

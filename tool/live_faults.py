@@ -11,9 +11,10 @@ the scenarios built on them test something:
        SIGKILL at its first save -- at start, or at the setting asked --
        saying where; started again without it, it serves from the same
        store
-    c  a full disk: with FZN_FAULT_WRITE_BUDGET=1 a daemon says the disk
-       is full, and a setting it cannot save is refused rather than
-       answered `ok`
+    c  a full disk: with FZN_FAULT_WRITE_BUDGET=1 and FZN_FAULT_NO_RAM a
+       daemon says the disk is full, and a setting it cannot save is
+       refused rather than answered `ok`; with memory it is kept in RAM,
+       `store ram`, and goes with the host (sec 917)
     d  rounds at FZN_TUNE_PULL_EVERY=2, one of the build's knobs (sec
        693): R's contact S does not advertise, and over six of R's
        contact passes refuses R its manifest once, saying why (sec 699)
@@ -119,7 +120,14 @@ from live_events import subscriber  # noqa: E402
 
 # A CONTACT PASS that asked S: phase d's.
 PASS_RE = re.compile(r"contact pass: [1-9]\d* contact\(s\) asked")
-FAULTS = ("FZN_FAULT_LOSS", "FZN_FAULT_CRASH", "FZN_FAULT_WRITE_BUDGET", "FZN_FAULT_SEED")
+FAULTS = ("FZN_FAULT_LOSS", "FZN_FAULT_CRASH", "FZN_FAULT_WRITE_BUDGET", "FZN_FAULT_SEED",
+          "FZN_FAULT_NO_RAM")
+
+
+def full(budget):
+	"""A disk full past `budget` bytes with no memory to hold what it refuses:
+	the store's own answer, under the delta of sec 917, which phase c tests."""
+	return {"FZN_FAULT_WRITE_BUDGET": str(budget), "FZN_FAULT_NO_RAM": "1"}
 
 
 def faulted(env):
@@ -209,7 +217,7 @@ def trim_faults(run, scratch, sock_dir):
 	for budget in range(0, 400000, 250):
 		tag = "r-%d" % budget
 		fresh(tag)
-		faulted({"FZN_FAULT_WRITE_BUDGET": str(budget)})
+		faulted(full(budget))
 		try:
 			node = live_trim.daemon(q, tag, extra=rule)
 		except failed:
@@ -339,7 +347,7 @@ def location_faults(run, scratch, sock_dir):
 		os.mkdir(d)
 		command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
 		try:
-			node = started("t%d" % budget, d, sock, {"FZN_FAULT_WRITE_BUDGET": str(budget)})
+			node = started("t%d" % budget, d, sock, full(budget))
 		except failed:
 			continue  # full before it could serve
 		try:
@@ -571,8 +579,8 @@ def main(argv):
 			print("livecheck: b: the daemon died by SIGKILL at persist.synced and served "
 			      "again from its store")
 
-			# c: a disk full from the first byte.
-			faulted({"FZN_FAULT_WRITE_BUDGET": "1"})
+			# c: a disk full from the first byte, memory gone with it.
+			faulted(full(1))
 			c = daemon(run, "c3", c_dir, c_sock)
 			faulted({})
 			try:
@@ -582,8 +590,35 @@ def main(argv):
 					raise failed("c: a full disk answered %r and said %r" % (reply, said[-300:]))
 			finally:
 				c.stop()
-			print("livecheck: c: the disk was full, said so, and the setting was refused: %r"
-			      % reply)
+			print("livecheck: c: disk full and no memory, said so, and the setting was refused: "
+			      "%r" % reply)
+
+			# c: the same disk with memory: kept in RAM, said to be, read back,
+			# and lost by stopping, which is the bargain of sec 917.
+			faulted({"FZN_FAULT_WRITE_BUDGET": "1"})
+			c = daemon(run, "c4", c_dir, c_sock)
+			faulted({})
+			try:
+				reply = ask(c_sock, "set setting host x/full 1")
+				back = ask(c_sock, "get setting host x/full")
+				if reply != "ok" or not back.startswith("ok ") or back == "ok absent":
+					raise failed("c: with memory a full disk answered %r, then %r" % (reply, back))
+				until = time.monotonic() + 10.0
+				while " store ram " not in ask(c_sock, "get node") + " ":
+					if time.monotonic() > until:
+						raise failed("c: a row held was not said: %r" % ask(c_sock, "get node"))
+					time.sleep(0.1)
+			finally:
+				c.stop()
+			c = daemon(run, "c5", c_dir, c_sock)
+			try:
+				back = ask(c_sock, "get setting host x/full")
+				if back != "ok absent":
+					raise failed("c: a row never written outlived its host: %r" % back)
+			finally:
+				c.stop()
+			print("livecheck: c: with memory the setting was kept in RAM, said so, read back, "
+			      "and went with the host")
 
 			# d: a contact that does not advertise, asked its manifest once.
 			s_dir, r_dir = (os.path.join(scratch, k) for k in ("s", "r"))
@@ -1108,7 +1143,7 @@ def main(argv):
 				sock = os.path.join(sock_dir, "n%d" % (budget // 250))
 				os.mkdir(d)
 				command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
-				faulted({"FZN_FAULT_WRITE_BUDGET": str(budget)})
+				faulted(full(budget))
 				try:
 					node = daemon(run, "n%d" % budget, d, sock)
 				except failed:
@@ -1268,7 +1303,7 @@ def main(argv):
 					sock = os.path.join(sock_dir, "p%d" % (budget // 250))
 					os.mkdir(d)
 					command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
-					faulted({"FZN_FAULT_WRITE_BUDGET": str(budget)})
+					faulted(full(budget))
 					try:
 						node = daemon(run, "p%d" % budget, d, sock,
 						              extra=["--udp-port=%d" % (o_port + 1)])

@@ -20,6 +20,7 @@ static struct {
 	int budgeted;
 	unsigned long long budget, spent;
 	int full_said;
+	int no_ram;
 } f;
 
 static unsigned percent(const char *name)
@@ -62,6 +63,8 @@ static void read_once(void)
 		f.budgeted = 1;
 		f.budget = strtoull(v, NULL, 10);
 	}
+	v = getenv("FZN_FAULT_NO_RAM");
+	f.no_ram = v && *v;
 }
 
 /* xorshift64: a test's faults repeat under one seed. */
@@ -96,6 +99,12 @@ void fzn_fault_point(const char *name)
 	(void)fflush(stderr);
 	(void)kill(getpid(), SIGKILL);
 	_exit(137);
+}
+
+int fzn_fault_ram(void)
+{
+	read_once();
+	return !f.no_ram;
 }
 
 int fzn_fault_write(size_t n)

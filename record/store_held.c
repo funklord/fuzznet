@@ -2,6 +2,8 @@
 
 #include "store_held.h"
 
+#include "../fault/fault.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -81,7 +83,8 @@ static int hold(fzn_record_held_t *h, const uint8_t *issuer, uint32_t stream, ui
 				h->refused++;
 				return 0;
 			}
-	while (!(r = h->alloc ? h->alloc(sizeof(*r) + len) : malloc(sizeof(*r) + len)))
+	while (!FZN_FAULT_RAM()
+	       || !(r = h->alloc ? h->alloc(sizeof(*r) + len) : malloc(sizeof(*r) + len)))
 		if (!shed_one(h)) {
 			h->refused++;
 			return 0;
