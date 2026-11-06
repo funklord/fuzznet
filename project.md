@@ -81012,6 +81012,10 @@ The holder's, settling how the project talks and what each part is.
   904) names a host, and rules treat it as any other. Inside one user nothing is
   checked, so a program of the same user needs no permit.
 - **A user in several estates is v2:** not planned, and not to be built now.
+- **"Root" is the one word for the host holding an estate's root key.** Fuzzypickles
+  has called that the vault. **"Vault" is reserved** for a capability and permission
+  profile, when those are made for different apps and configurations: the daemon on
+  a large storage server that stores and relays everything known to the estate.
 
 **Later, the holder's:** the rule by time and size for what a later member reads, a
 group setting (sec 905); telling sec 903's audited counts apart; and "node" where it
