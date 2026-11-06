@@ -80984,3 +80984,35 @@ new member rather than handed over, sec 22's asymmetry.
 
 **Not built:** a limit by time or size for what a later member reads. The holder
 chose a group setting, travelling in the log, so every host gives the same answer.
+
+## 906. What the words mean: host, machine, daemon, client, 2026-11-06
+
+The holder's, settling how the project talks and what each part is.
+
+- **A machine** is the physical computer.
+- **A host** is one user account's fuzznet presence on a machine, the unit of
+  identity and of authorisation. Every user is a separate host, since auth barriers
+  have to exist between them; several hosts on one machine are normal, in one estate
+  or in different ones.
+- **Daemons and clients** are processes of a host, any number, several daemons
+  being different apps. Within a user auth is always granted, so from outside they
+  are one host and delegate external work amongst themselves.
+- **"Node" means nothing specific,** only the English word. New prose says host.
+  `fzn_node_*` and `node/` keep their names for now, a rename touching every
+  consumer for no change in behaviour.
+- **A host has a key.** The one question open is when it is made: at any run, or
+  first needed. Today, at the daemon's first start (`node/identity.h`).
+- **Clients and daemons are delineated by the app.** For all the software so far, a
+  client does not touch the disk or relay, by configuration or by what is hardcoded,
+  which also means less consensus and locking to get right. It has a daemon's
+  checks and most features hardcoded out.
+- **A local link between hosts is authenticated by the OS,** so `local:alice` (sec
+  904) names a host, and rules treat it as any other. Inside one user nothing is
+  checked, so a program of the same user needs no permit.
+- **A user in several estates is v2:** not planned, and not to be built now.
+
+**From fuzzypickles' 20261105T2325Z, beyond secs 902 and 905:** a sanctioned way for a
+consumer to link `fzn_daemon_main` is asked for, fzpd's build reading
+`FUZZNETD_LINK`, `LDFLAGS_GC` and `ZSTD_LIBS` from this Makefile, and `daemon.o`
+being in neither `make manifest` nor their archive. Open. So is its rule by time and
+size, now a group setting (sec 905).
