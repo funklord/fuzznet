@@ -64,6 +64,17 @@ fzn_contact_err_t fzn_node_group_rename(const fzn_persist_ops_t *store,
 /* THE GROUPS `root` IS A MEMBER OF, among those held, into `out`, grown to
  * hold them (sec 773): what a grant to a group is read through, at the
  * request. */
+/* WHEN `member` JOINED group `id`, sec 804, as a floor in milliseconds: the end
+ * of the second of its last ADD act, or of the CREATE act for the user who made
+ * it (`fzn_node_group_floor_ms`). A MEMBER WHOSE JOINING THIS HOST CANNOT SEE --
+ * no such act read -- is UINT64_MAX, withheld everything: taken as there from
+ * the start it was handed the history a share kept from later members, the one
+ * error sec 22 cannot undo. */
+uint64_t fzn_node_group_floor_ms(uint64_t joined_at_s);
+uint64_t fzn_node_group_joined_ms(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
+                                  const uint8_t id[FZN_GROUP_ID_LEN], const fzn_group_t *g,
+                                  const uint8_t *member);
+
 fzn_contact_err_t fzn_node_group_ids_of(const fzn_persist_ops_t *store,
                                         const uint8_t root[FZN_PUBKEY_LEN],
                                         fzn_group_held_t *out);

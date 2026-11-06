@@ -19,6 +19,8 @@ them. A makes the group family alone.
        takes none of A's lines, sealed or not (sec 894); relaying it carries
        them and lets a past month go; and started with no rule it files them
        (sec 886)
+    d3 a group with backfill off: a line written and a file granted before C
+       joined stay from it, and what follows reaches it (sec 905)
 
 Against a daemon that reads a group share's reach at the request alone, as
 sec 471 did, phase b finds S0 and its first note at C.
@@ -44,7 +46,7 @@ from live_trim import ask, failed  # noqa: E402
 from live_groups import KEPT_RE, PREKEY_HOST  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 600.0
+live_trim.DEADLINE = time.monotonic() + 1100.0
 
 ROUNDS = 6
 DROP_LINES = 30
@@ -293,6 +295,56 @@ def main(argv):
 				             "nothing: %r" % ask(socks["c"], "list message @family")[:300])
 			print("livecheck: d: C under drop held A's group line sealed and opened none; with "
 			      "no rule it filed it")
+
+			# d3: A GROUP THAT DOES NOT BACKFILL, sec 905: a line written and a file
+			# granted before C joined stay out of its reach, and what follows
+			# reaches it. Written just before the add, so the line is sealed after
+			# it: sealed at the epoch of that moment, it reached C.
+			made("a", "add group shut")
+			expect(socks["a"], "a", "set group shut backfill 0", "ok")
+			expect(socks["a"], "a", "get group shut backfill", "ok 0")
+			turn("a", "a-shut0")
+			expect(socks["a"], "a", "add message @shut out %s before-joining" % ("e1" * 16), "ok")
+			def small_file(name):
+				path = os.path.join(scratch, name)
+				with open(path, "wb") as f:
+					f.write(name.encode() * 400)
+				got = ask(socks["a"], "put file " + path)
+				if not got.startswith("ok "):
+					raise failed("d3: put file answered %r" % got)
+				return got.split()[1]
+
+			kept_from = small_file("before-file")
+			expect(socks["a"], "a", "grant file %s @shut" % kept_from[:64], "ok")
+			expect(socks["a"], "a", "add member shut carol", "ok")
+			time.sleep(1.1)
+			expect(socks["a"], "a", "add message @shut out %s after-joining" % ("e2" * 16), "ok")
+			given = small_file("after-file")
+			expect(socks["a"], "a", "grant file %s @shut" % given[:64], "ok")
+			until = time.monotonic() + 200.0
+			seen = ""
+			# LEFT RUNNING: a host restarted each round never reaches its lines pass
+			# with its contact's host answered.
+			while time.monotonic() < until and "after-joining" not in seen:
+				seen = ask(socks["c"], "list message @shut")
+				time.sleep(2.0)
+			if "after-joining" not in seen:
+				raise failed("d3: C never read what followed its joining: %r" % seen[:300])
+			if "before-joining" in seen:
+				raise failed("d3: C, with backfill off, read what came before it joined")
+			expect(socks["c"], "c", "fetch file " + kept_from, "ok")
+			expect(socks["c"], "c", "fetch file " + given, "ok")
+			had = False
+			until = time.monotonic() + 200.0
+			while time.monotonic() < until and not had:
+				had = ask(socks["c"], "get file %s check" % given[:64]).strip() == "ok intact"
+				time.sleep(1.0)
+			if not had:
+				raise failed("d3: C never fetched a file granted after it joined")
+			if ask(socks["c"], "get file %s check" % kept_from[:64]).strip() == "ok intact":
+				raise failed("d3: C, with backfill off, fetched a file granted before it joined")
+			print("livecheck: d3: with backfill off C read what followed its joining, and not "
+			      "what came before")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

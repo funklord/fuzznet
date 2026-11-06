@@ -2280,46 +2280,13 @@ static uint64_t reach_floor[FZN_NOTES_MAX];
 
 uint64_t fzn_node_notes_join_floor_ms(uint64_t joined_at_s)
 {
-	/* THE END OF THE SECOND IT JOINED, sec 656: an act's time is whole
-	 * seconds, and a record written earlier in that second came before the
-	 * joining. Withheld rather than handed over, sec 22's asymmetry: a
-	 * share made again catches up, and a note handed over is not recalled.
-	 * A time past any record's is the floor that admits none. */
-	if (joined_at_s >= UINT64_MAX / 1000u - 1u)
-		return UINT64_MAX;
-	return (joined_at_s + 1u) * 1000u;
+	return fzn_node_group_floor_ms(joined_at_s);
 }
 
-/* WHEN `member` JOINED group `id`, as a floor in milliseconds: its last ADD
- * act's own time, or the CREATE act's for the user who made it, rounded up
- * (`fzn_node_notes_join_floor_ms`). A MEMBER WHOSE JOINING THIS HOST CANNOT
- * SEE -- no such act read -- is UINT64_MAX, withheld everything, sec 804:
- * taken as there from the start it was handed the history a share kept
- * from later members, the one error sec 22 cannot undo. */
 static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fzn_group_t *g,
                           const uint8_t *member)
 {
-	static uint8_t act[FZN_GROUP_ACT_MAX];
-	static fzn_group_act_t a;
-	fzn_group_log_ops_t log;
-	uint64_t at = 0;
-	uint32_t s;
-	size_t len = 0;
-	int seen = 0;
-
-	memset(&log, 0, sizeof(log));
-	log.store = n->store.ops;
-	log.hash = n->store.hash;
-	for (s = 0; s < g->seq; s++)
-		if (fzn_group_log_act(&log, id, s, act, sizeof(act), &len) == FZN_GROUP_LOG_OK
-		    && fzn_group_act_decode(act, len, &a) == FZN_GROUP_ACT_OK
-		    && ((a.kind == FZN_GROUP_ACT_ADD && memcmp(a.subject, member, FZN_PUBKEY_LEN) == 0)
-		        || (a.kind == FZN_GROUP_ACT_CREATE
-		            && memcmp(a.signer.owner, member, FZN_PUBKEY_LEN) == 0))) {
-			at = a.at;
-			seen = 1;
-		}
-	return seen ? fzn_node_notes_join_floor_ms(at) : UINT64_MAX;
+	return fzn_node_group_joined_ms(n->store.ops, n->store.hash, id, g, member);
 }
 
 /* What the subtrees shared with `sender` reach in the view now, into

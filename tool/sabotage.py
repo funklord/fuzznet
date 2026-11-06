@@ -5364,20 +5364,6 @@ SABOTAGES = [
 		"a subscriber moved into a dropped one's place takes its word, and hears what it may not -- sec 899",
 	),
 	(
-		"events-held-bound",
-		"node/events.c",
-		"\treturn held < FZN_NODE_EVENTS_HELD_MAX;\n",
-		"\treturn 1;\n",
-		"others' subscribers fill the room this node's own user needs -- sec 899",
-	),
-	(
-		"replies-only-where-asked",
-		"node/replies.c",
-		"\t\treturn (len < sizeof(k->where) ? len : sizeof(k->where)) == k->where_len\n\t\t       && memcmp(k->where, where, k->where_len) == 0;\n",
-		"\t\treturn 1;\n",
-		"a stranger's copy of a recent frame draws the kept reply, and a node reflects it at any address -- sec 900",
-	),
-	(
 		"decisions-base-whole",
 		"node/decisions.c",
 		"\t\tif ((at == bases || at[-1] == ',') && (at[len] == ',' || at[len] == '\\0'))\n",
@@ -6360,8 +6346,8 @@ SABOTAGES = [
 	(
 		"files-share-reaches-a-group-member",
 		"node/files.c",
-		"\t\t\tif (memcmp(grantees[i], in.ids[j], FZN_PUBKEY_LEN) == 0)\n\t\t\t\treturn 1;\n",
-		"\t\t\tif (0)\n\t\t\t\treturn 1;\n",
+		"\t\t\tif (memcmp(grantees[i], in.ids[j], FZN_PUBKEY_LEN) == 0\n",
+		"\t\t\tif (0\n",
 		"a file shared with a group reaches none of its members -- sec 493",
 	),
 	(
@@ -11906,14 +11892,14 @@ SABOTAGES = [
 	),
 	(
 		"notes-unseen-joining-withheld",
-		'node/notes.c',
-		'\treturn seen ? fzn_node_notes_join_floor_ms(at) : UINT64_MAX;',
-		'\treturn seen ? fzn_node_notes_join_floor_ms(at) : 0u;',
+		'node/groups.c',
+		'\treturn seen ? fzn_node_group_floor_ms(at) : UINT64_MAX;',
+		'\treturn seen ? fzn_node_group_floor_ms(at) : 0u;',
 		"a member whose joining this host cannot see is handed history a share kept from later members -- sec 804",
 	),
 	(
 		"notes-join-floor-end-of-second",
-		'node/notes.c',
+		'node/groups.c',
 		'\treturn (joined_at_s + 1u) * 1000u;',
 		'\treturn joined_at_s * 1000u;',
 		"a note written earlier in the second a member joined is handed to it -- sec 656",

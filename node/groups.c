@@ -802,6 +802,57 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 
 /* `get group NAME`: `ok COUNT MEMBER ...`, by contact name -- a member this
  * host has no contact for by its root's hex, and an admin marked `*`. */
+uint64_t fzn_node_group_floor_ms(uint64_t joined_at_s)
+{
+	/* THE END OF THE SECOND IT JOINED, sec 656: an act's time is whole
+	 * seconds, and a record written earlier in that second came before the
+	 * joining. Withheld rather than handed over, sec 22's asymmetry: a
+	 * share made again catches up, and a note handed over is not recalled.
+	 * A time past any record's is the floor that admits none. */
+	if (joined_at_s >= UINT64_MAX / 1000u - 1u)
+		return UINT64_MAX;
+	return (joined_at_s + 1u) * 1000u;
+}
+
+uint64_t fzn_node_group_joined_ms(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
+                                  const uint8_t id[FZN_GROUP_ID_LEN], const fzn_group_t *g,
+                                  const uint8_t *member)
+{
+	static uint8_t act[FZN_GROUP_ACT_MAX];
+	static fzn_group_act_t a;
+	fzn_group_log_ops_t log;
+	uint64_t at = 0;
+	uint32_t s;
+	size_t len = 0;
+	int seen = 0;
+
+	memset(&log, 0, sizeof(log));
+	log.store = store;
+	log.hash = hash;
+	for (s = 0; s < g->seq; s++)
+		if (fzn_group_log_act(&log, id, s, act, sizeof(act), &len) == FZN_GROUP_LOG_OK
+		    && fzn_group_act_decode(act, len, &a) == FZN_GROUP_ACT_OK
+		    && ((a.kind == FZN_GROUP_ACT_ADD && memcmp(a.subject, member, FZN_PUBKEY_LEN) == 0)
+		        || (a.kind == FZN_GROUP_ACT_CREATE
+		            && memcmp(a.signer.owner, member, FZN_PUBKEY_LEN) == 0))) {
+			at = a.at;
+			seen = 1;
+		}
+	return seen ? fzn_node_group_floor_ms(at) : UINT64_MAX;
+}
+
+/* `get group NAME backfill`: `ok 0` or `ok 1`, sec 905: whether a later member
+ * reads what came before it. */
+static size_t get_group_backfill(const fzn_node_groups_t *g, const uint8_t *id, char *reply,
+                                 size_t cap)
+{
+	static fzn_group_t held;
+
+	if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+		return say(reply, cap, FZN_REPLY_ERROR, "the group did not read");
+	return say(reply, cap, FZN_REPLY_OK, held.backfill ? "1" : "0");
+}
+
 static size_t get_group(const fzn_node_groups_t *g, const uint8_t *id, char *reply, size_t cap)
 {
 	static fzn_group_t held;
@@ -897,7 +948,9 @@ size_t fzn_node_groups_local(const fzn_node_groups_t *g, const fzn_request_t *re
 	}
 	if (is_word(subject, subject_len, "group")) {
 		if (request->parsed == FZN_VERB_GET)
-			return get_group(g, id, reply, cap);
+			return other && is_word(other, other_len, "backfill")
+			               ? get_group_backfill(g, id, reply, cap)
+			               : get_group(g, id, reply, cap);
 		if (request->parsed == FZN_VERB_REMOVE)
 			return forget_group(g, id, reply, cap);
 		/* `set group GROUP backfill 0|1`. */

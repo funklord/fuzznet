@@ -1646,6 +1646,30 @@ fzn_node_files_err_t fzn_node_files_shares_of(const fzn_node_files_t *files,
 	return FZN_NODE_FILES_OK;
 }
 
+/* WHETHER A SHARE TO GROUP `id` REACHES `sender`, sec 905: always while the group
+ * backfills; otherwise a member gets what was granted after it joined, as a
+ * line and a note share do. A row or a group that will not read reaches nobody. */
+static int group_reaches(const fzn_node_files_t *files, const uint8_t root[FZN_BLOB_HASH_LEN],
+                         const uint8_t id[FZN_PUBKEY_LEN], const uint8_t sender[FZN_PUBKEY_LEN])
+{
+	static fzn_group_t held;
+	uint8_t key[FZN_PUBKEY_LEN], blob[SHARE_BLOB];
+	size_t len = 0;
+
+	if (fzn_group_log_get(files->store, id, &held) != FZN_GROUP_LOG_OK)
+		return 0;
+	if (held.backfill)
+		return 1;
+	if (!share_key(files, root, id, key)
+	    || !files->store->load(files->store->ctx, FZN_PERSIST_FILE_SHARE, key, blob, sizeof(blob),
+	                           &len)
+	    || fzn_persist_head_check(blob, len, SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
+	               != FZN_PERSIST_OK)
+		return 0;
+	return fzn_get_be64(blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN + FZN_PUBKEY_LEN)
+	       >= fzn_node_group_joined_ms(files->store, files->hash, id, &held, sender);
+}
+
 int fzn_node_files_shared_with(const fzn_node_files_t *files,
                                const uint8_t root[FZN_BLOB_HASH_LEN],
                                const uint8_t sender[FZN_PUBKEY_LEN])
@@ -1669,7 +1693,8 @@ int fzn_node_files_shared_with(const fzn_node_files_t *files,
 		return 0;
 	for (i = 0; i < n; i++)
 		for (j = 0; j < in.n; j++)
-			if (memcmp(grantees[i], in.ids[j], FZN_PUBKEY_LEN) == 0)
+			if (memcmp(grantees[i], in.ids[j], FZN_PUBKEY_LEN) == 0
+			    && group_reaches(files, root, in.ids[j], sender))
 				return 1;
 	return 0;
 }

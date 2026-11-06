@@ -6788,7 +6788,7 @@ endif
 	@timeout 420 python3 tool/live_join.py $(FUZZNETD)
 	@timeout 440 python3 tool/live_invite.py $(FUZZNETD)
 	@timeout 1100 python3 tool/live_group_hosts.py $(FUZZNETD)
-	@timeout 660 python3 tool/live_group_backfill.py $(FUZZNETD)
+	@timeout 1160 python3 tool/live_group_backfill.py $(FUZZNETD)
 	@timeout 90 python3 tool/live_socket.py $(FUZZNETD)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@timeout 560 python3 tool/live_ext.py $(EXT_DAEMON)

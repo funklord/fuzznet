@@ -12170,15 +12170,46 @@ static int seal_wanted(const fzn_message_t *p, const uint8_t *self)
  * pages stopped at FZN_MESSAGES_WALK_MAX, so a line further back than
  * that was never sealed. Not from the owed floor alone: a group's lines
  * are delivered and never settled, so its floor never rises. */
+/* THE EPOCH A LINE WRITTEN AT `ms` BELONGS TO, sec 905. Lines are sealed at the
+ * next round, and sealed under the epoch of that moment one written before a
+ * member joined reached it, with the group's backfill off. So a group that
+ * does not backfill goes back past each member added since the line, to the
+ * end of the second, as a joining's floor does (sec 656). A removal stops the
+ * walk: what was written before it is sealed where the removed cannot read. */
+static uint32_t group_epoch_at(const fzn_group_t *g, uint64_t ms)
+{
+	static uint8_t act[FZN_GROUP_ACT_MAX];
+	static fzn_group_act_t a;
+	uint32_t epoch = g->epoch, s;
+	size_t len = 0;
+
+	if (g->backfill)
+		return epoch;
+	for (s = g->seq; s > 0u && epoch > 1u; s--) {
+		if (fzn_group_log_act(&node_groups.log, g->id, s - 1u, act, sizeof(act), &len)
+		            != FZN_GROUP_LOG_OK
+		    || fzn_group_act_decode(act, len, &a) != FZN_GROUP_ACT_OK)
+			break;
+		if (a.kind != FZN_GROUP_ACT_ADD && a.kind != FZN_GROUP_ACT_REMOVE
+		    && a.kind != FZN_GROUP_ACT_LEAVE)
+			continue;
+		if (a.kind != FZN_GROUP_ACT_ADD || (a.at + 1u) * 1000u <= ms)
+			break;
+		epoch--;
+	}
+	return epoch;
+}
+
 static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *own)
 {
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
 	static fzn_group_line_t line;
 	static uint8_t bytes[FZN_GROUP_LINE_MAX];
-	uint8_t secret[FZN_GROUP_SECRET_LEN];
+	uint8_t secret[FZN_GROUP_SECRET_LEN], earlier[FZN_GROUP_SECRET_LEN];
 	const uint8_t *self = fzn_contact_device_key(own);
 	fzn_group_line_head_t head;
 	size_t count = 0, i, len = 0, sealed = 0;
+	uint32_t epoch;
 	uint64_t at = 0;
 	int more = 1;
 
@@ -12197,17 +12228,25 @@ static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *o
 			if (!seal_wanted(p, self)
 			    || fzn_group_lines_head(&group_lines, g->id, self, &head) != FZN_GROUP_LINES_OK)
 				continue;
+			/* ITS OWN EPOCH'S SECRET, or it waits: a later epoch reaches a
+			 * member it was kept from. */
+			epoch = group_epoch_at(g, p->stime);
+			if (epoch != g->epoch
+			    && fzn_node_groups_secret(&node_groups, g->id, epoch, earlier)
+			               != FZN_GROUP_LOG_OK)
+				continue;
 			memset(&line, 0, sizeof(line));
 			memcpy(line.group, g->id, FZN_GROUP_ID_LEN);
-			line.epoch = g->epoch;
+			line.epoch = epoch;
 			memcpy(line.sender, own->owner, FZN_PUBKEY_LEN);
 			memcpy(line.host, self, FZN_PUBKEY_LEN);
 			memcpy(line.id, p->id, FZN_GROUP_LINE_ID_LEN);
 			line.stime = p->stime;
 			memcpy(line.text, p->text, p->text_len);
 			line.text_len = p->text_len;
-			if (fzn_group_line_seal(&line, secret, contact_hash_ops, contact_aead_ops,
-			                        contact_rng_ops, bytes, sizeof(bytes), &len)
+			if (fzn_group_line_seal(&line, epoch != g->epoch ? earlier : secret,
+			                        contact_hash_ops, contact_aead_ops, contact_rng_ops, bytes,
+			                        sizeof(bytes), &len)
 			            != FZN_GROUP_LINE_OK
 			    || fzn_group_lines_put(&group_lines, head.have + 1u, bytes, len)
 			               != FZN_GROUP_LINES_OK
@@ -12222,6 +12261,7 @@ static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *o
 		}
 	}
 	fzn_wipe(secret, sizeof(secret));
+	fzn_wipe(earlier, sizeof(earlier));
 	return sealed;
 }
 
@@ -12239,6 +12279,7 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 	uint8_t secret[FZN_GROUP_SECRET_LEN], filed_id[FZN_GROUP_LINE_ID_LEN];
 	size_t n = 0, i, len = 0, filed = 0;
 	uint32_t s;
+	const fzn_group_host_t *me = fzn_group_host(g, fzn_contact_device_key(own));
 
 	/* A HOST THAT KEEPS NONE OF THIS CONVERSATION opens none of it, sec 886:
 	 * filed is in the clear. Its lines stay as they came, sealed, for the
@@ -12257,9 +12298,18 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 			if (fzn_group_lines_get(&group_lines, g->id, heads[i].host, s, bytes, sizeof(bytes),
 			                        &len)
 			            != FZN_GROUP_LINES_OK
-			    || fzn_group_line_peek(bytes, len, &line) != FZN_GROUP_LINE_OK
-			    || fzn_node_groups_secret(&node_groups, g->id, line.epoch, secret)
-			               != FZN_GROUP_LOG_OK)
+			    || fzn_group_line_peek(bytes, len, &line) != FZN_GROUP_LINE_OK)
+				break;
+			/* FROM BEFORE THIS HOST JOINED A GROUP THAT DOES NOT BACKFILL, sec
+			 * 905: its secret is not coming, and what follows must not wait. */
+			if (!g->backfill && me && line.epoch < me->joined_epoch) {
+				if (fzn_group_lines_filed(&group_lines, g->id, heads[i].host, s)
+				    != FZN_GROUP_LINES_OK)
+					break;
+				continue;
+			}
+			if (fzn_node_groups_secret(&node_groups, g->id, line.epoch, secret)
+			    != FZN_GROUP_LOG_OK)
 				break;
 			if (fzn_group_line_open(bytes, len, secret, contact_hash_ops, contact_aead_ops, &line)
 			            == FZN_GROUP_LINE_OK
