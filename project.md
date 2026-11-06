@@ -81020,8 +81020,14 @@ The holder's, settling how the project talks and what each part is.
   `one-shot-client`, `rootd`, `userd`, `vault`, `insecure-client`, `embedded-device`.
   **For now a profile is a preset, the holder's:** values applied at the start, or
   again later during an update, and then modified by the consumer. So it is settings
-  and grants at first, and no new mechanism at run time. Open: whether an update's
-  applying again overwrites a value the consumer changed. Not built.
+  and grants at first. **On an update, the holder's:** the consumer applies its own
+  special values again after the preset, and values the user may configure are
+  kept. **The profile says which values the user may configure.** Not built.
+  Measured against that: no such marker exists. `state/schema.h` has `ADVANCED`,
+  which only hides a key, and sec 686 folded fzpd's "what may change it" axis into
+  rank. Rank is close and not it: it says which device's word stands, and within
+  one user all devices are that user. So a profile wants a per-key "user may set
+  this", read by `set setting`, beside the preset's values.
 
 **Later, the holder's:** the rule by time and size for what a later member reads, a
 group setting (sec 905); telling sec 903's audited counts apart; and "node" where it
