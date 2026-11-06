@@ -398,14 +398,17 @@ static void test_the_bounds_hold_at_their_edges(void)
 	memset(nonce, 0x41, sizeof(nonce));
 	act(&a, FZN_GROUP_ACT_CREATE, 0x11u, NULL, 0u, NULL, nonce);
 	(void)apply(&g, &a);
-	for (i = 1u; i < FZN_GROUP_MEMBERS_MAX; i++) {
-		memset(who, 0xa0, sizeof(who));
-		who[0] = (uint8_t)i;
-		who[1] = (uint8_t)(i >> 8);
-		if (next(&g, FZN_GROUP_ACT_ADD, 0x11u, who) != FZN_GROUP_LOG_OK)
-			break;
+	/* SET UP TO ONE SHORT OF THE BOUND, as an act apiece would take hours, sec 930. */
+	for (i = 1u; i + 1u < FZN_GROUP_MEMBERS_MAX; i++) {
+		memset(g.members[i], 0xa0, FZN_PUBKEY_LEN);
+		g.members[i][0] = (uint8_t)i;
+		g.members[i][1] = (uint8_t)(i >> 8);
 	}
-	CHECK(g.n_members == FZN_GROUP_MEMBERS_MAX, "a group did not take its last member");
+	g.n_members = FZN_GROUP_MEMBERS_MAX - 1u;
+	memset(who, 0xa1, sizeof(who));
+	CHECK(next(&g, FZN_GROUP_ACT_ADD, 0x11u, who) == FZN_GROUP_LOG_OK
+	              && g.n_members == FZN_GROUP_MEMBERS_MAX,
+	      "a group did not take its last member");
 	before = g;
 	memset(who, 0xb0, sizeof(who));
 	CHECK(next(&g, FZN_GROUP_ACT_ADD, 0x11u, who) == FZN_GROUP_LOG_ERR_FULL
@@ -488,7 +491,7 @@ static void test_the_bounds_hold_at_their_edges(void)
 static void test_a_fork_keeps_the_lower_hash(void)
 {
 	fzn_group_act_t create, add2, x, y, after;
-	fzn_group_t g;
+	static fzn_group_t g;
 	fzn_group_offer_t did;
 	uint8_t nonce[32], u2[32], u3[32], u4[32], id[32], hx[32], hy[32];
 	const fzn_group_act_t *low, *high;
@@ -563,7 +566,7 @@ static void test_a_fork_keeps_the_lower_hash(void)
 static void test_a_replace_cut_short_is_finished(void)
 {
 	fzn_group_act_t create, add2, x, y, after;
-	fzn_group_t g;
+	static fzn_group_t g;
 	fzn_group_offer_t did;
 	uint8_t nonce[32], u2[32], u3[32], u4[32], id[32], hx[32], hy[32], hlow[32];
 	const fzn_group_act_t *low, *high;
@@ -732,7 +735,7 @@ static void test_a_backfill_goes_newest_first_and_not_when_off(void)
 static void test_the_log_reads_back(void)
 {
 	fzn_group_act_t create, a;
-	fzn_group_t g;
+	static fzn_group_t g;
 	fzn_group_offer_t did;
 	uint8_t nonce[32], id[32], ids[4][32], bytes[FZN_GROUP_ACT_MAX], u2[32];
 	size_t n = 0, dropped;

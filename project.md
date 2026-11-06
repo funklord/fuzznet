@@ -81719,8 +81719,8 @@ daemon, which is the test's positive control.
 |---|---|---|
 | 1 | add contact quadratic | fixed, sec 926 and above |
 | 2 | a reply holds 1 KB | left: see below |
-| 3 | a group's roster cut | `get group NAME member [FROM]`, paged. The 256 stands |
-| 4 | 16384 notes | stands: sec 928 |
+| 3 | a group's roster cut | `get group NAME member [FROM]`, paged; the 256 is 65535, sec 930 |
+| 4 | 16384 notes | 262144, sec 928 |
 | 5 | a call a contact for location | `list stream NAME granted [FROM]`: `ok TOTAL FROM CONTACT,LEVEL` |
 | 6 | 20 ms a request | fixed above |
 | 7 | no admin flag | `list group` ends `,ADMIN`, 1 where this user may change it |
@@ -81731,9 +81731,6 @@ after test that pins paging with a fixed count fails, as forty notes now fit one
 fixed by scaling would lose what it tests. With a page at 0.5 ms and a connection at 0.2, 20000
 contacts is about a second, so the cost it would save is gone. Not needed until measured to be.
 
-**Rosters past 256 and notes past 16384** are one job: a `fzn_group_t` is copied whole into 30
-static buffers and saved as one row, so tens of thousands of members wants it paged on disk
-too, not a larger constant. Not started.
 
 ## 928. A note's cost, and what stands before hundreds of thousands, 2026-11-06
 
@@ -81757,8 +81754,7 @@ Static memory is 904 MB, untouched until used: a host of 12000 notes is resident
   being a hash, and holds 16384 whatever the bound, as it is a cache.
 
 **Still growing:** an add rereads the view, each row hashed to check it is filed where it is, 1.5
-ms a thousand notes, so about 150 ms at 100000. A view kept up to date would end it. **Rosters
-past 256** (sec 927) are next: a group is one row, copied whole.
+ms a thousand notes, so about 150 ms at 100000. A view kept up to date would end it.
 
 ## 929. Netcfgd ran its RAM host, and four requests, 2026-11-06
 
@@ -81777,3 +81773,15 @@ directory, `--no-log-file`.
 - **`list location` ends `,CONTACT`,** `-` for none (fuzzypickles' 20261106T1657Z, item 8).
 - **`list group` ends `,LINES`,** those held here of every host, so unread can skip a group
   that has not moved (item 9). A row costs a read a host of the group.
+
+## 930. A group of tens of thousands, 2026-11-06
+
+The holder's figure, by fuzzypickles: people in a group in the tens of thousands.
+`FZN_GROUP_MEMBERS_MAX` and `FZN_GROUP_HOSTS_MAX` are 65535, what a group's row counts in 16 bits.
+A `small` build keeps 64 and 128. Read often, a group no longer clears its two tables on decode.
+Static memory goes to 1.14 GB, untouched until used.
+
+**Measured:** a member added 37 ms at 3500, 47 at 4250, contact included, and `list group` 24 ms.
+**A group is still one row:** each act rewrites it, so an add grows about 10 ms a thousand, and
+30000 members take about an hour and a half to add. A row a member is the end of that. Sealing an
+epoch to every host is linear too, and belongs to sec 625's design, not to this bound.

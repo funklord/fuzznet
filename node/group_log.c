@@ -455,7 +455,11 @@ static int group_decode(const uint8_t *in, size_t len, fzn_group_t *g)
 {
 	size_t at = 0, k, n;
 
-	memset(g, 0, sizeof(*g));
+	/* ALL BUT THE TWO TABLES, sec 930, which are read as far as their counts: a
+	 * group is read often, and they are 13 MB to clear. */
+	memset(g, 0, offsetof(fzn_group_t, members));
+	memset(&g->n_members, 0, offsetof(fzn_group_t, hosts) - offsetof(fzn_group_t, n_members));
+	memset(&g->n_hosts, 0, sizeof(*g) - offsetof(fzn_group_t, n_hosts));
 #define NEED(x)                         \
 	do {                            \
 		if (len - at < (size_t)(x)) \

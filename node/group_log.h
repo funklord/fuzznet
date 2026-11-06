@@ -58,11 +58,16 @@
 #include "group_act.h"
 #include "../persist/persist.h"
 
-#define FZN_GROUP_MEMBERS_MAX 256u
+/* AS A ROW COUNTS THEM, in 16 bits, sec 930; smaller in a `small` build. */
+#ifndef FZN_GROUP_MEMBERS_MAX
+#define FZN_GROUP_MEMBERS_MAX 65535u
+#endif
 #define FZN_GROUP_ADMINS_MAX 16u
 #define FZN_GROUP_PROPOSALS_MAX 8u
 /* Members' hosts a group knows, sec 627. */
-#define FZN_GROUP_HOSTS_MAX 512u
+#ifndef FZN_GROUP_HOSTS_MAX
+#define FZN_GROUP_HOSTS_MAX 65535u
+#endif
 /* Epochs whose commitment a group keeps, and so whose secret a later host
  * can still be given: the newest this many. */
 #define FZN_GROUP_EPOCHS_KEPT 64u
