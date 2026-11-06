@@ -80895,8 +80895,10 @@ its daemons, whose process groups are their own. Stop one with `-s INT`, or let 
 reach its own deadline.
 
 **Waiting on the holder:**
-- A right to hold a word's events for `any` (netcfgd's asking): sec 883 refused
-  `any=r`, and it would let any local user take the 4 held slots.
+- A right to hold the application's events for `any` (netcfgd's asking): sec 883
+  refused `any=r`. The 4 held slots this line once feared for are gone (sec 903), and
+  the word with them (sec 899), so what is left to weigh is any local user hearing
+  what the application publishes through `local/events`.
 
 **Waiting on others:** fuzzypickles' `contacts-same-name` expectation, its pin and
 step 3, and fzpd on `fzn_daemon_main`. A real second user for sec 899, on either
@@ -81144,7 +81146,15 @@ key would need a wire change for what a random start gives.
 **Measured:** `pair_test`, two fresh callers on the same keys, each on its own port,
 asking the same bytes inside the kept window: both answered, and with the draw taken
 out both go unanswered (407 checks, 2 failures). Sabotage
-`caller-begins-its-numbers-at-0`. Netcfgd's own reproduction not run here.
+`caller-begins-its-numbers-at-0`.
+
+**Measured by netcfgd, against its own reproduction, its linger taken out:** the
+first `--at` after a restart failed at `ba567ec2` and passed at `e9b815a3`, three
+runs of three. Of 40 `--at` across daemon stops, 1 went unanswered at `ba567ec2` and
+none at `e9b815a3`, in three runs. It drops the linger and repins to `e9b815a3`.
+
+**Gates on this code:** `make livecheck` and `make livecheck-faults` both exit 0,
+with `test`, `installcheck` and `style` at `a3d1fd9`.
 
 **Also from fuzzypickles' 20261106T0206Z:** they took `a634dce`. A device joined by a
 code writes a contact's name on that host alone until it holds admin, so no fork
