@@ -248,7 +248,7 @@ static fzn_node_files_err_t open_whole(const fzn_node_files_t *files,
 	    || h->leaves != leaves || stat(tree_path, &st) != 0
 	    || (uint64_t)st.st_size != fzn_blob_levels_bytes(leaves))
 		return FZN_NODE_FILES_ERR_ABSENT;
-	ops = fzn_spool_file_open(&h->file, path);
+	ops = fzn_spool_file_reopen(&h->file, path);
 	if (!ops)
 		return FZN_NODE_FILES_ERR_STORE;
 	(void)fzn_spool_file_resume(&h->file, root, leaves, present,
@@ -1780,7 +1780,7 @@ static int open_any(const fzn_node_files_t *files, const uint8_t root[FZN_BLOB_H
 	/* NO SIDECAR YET: wanted and not begun, nothing here. */
 	if (fzn_spool_file_leaves(path, root, &leaves) != FZN_SPOOL_OK || leaves != h->leaves)
 		return 1;
-	ops = fzn_spool_file_open(&h->file, path);
+	ops = fzn_spool_file_reopen(&h->file, path);
 	if (!ops)
 		return 1;
 	(void)fzn_spool_file_resume(&h->file, root, leaves, present, FZN_SPOOL_BITMAP_LEN(leaves));

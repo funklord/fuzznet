@@ -56,6 +56,14 @@ typedef struct fzn_spool_file {
  */
 const fzn_spool_ops_t *fzn_spool_file_open(fzn_spool_file_t *file, const char *path);
 
+/*
+ * Opens the spool ALREADY at `path`, creating nothing: for writing where the
+ * disk allows and for reading where it does not, so a store mounted read-only
+ * goes on serving what it holds (sec 919). A write through a spool opened for
+ * reading fails as a full disk's does.
+ */
+const fzn_spool_ops_t *fzn_spool_file_reopen(fzn_spool_file_t *file, const char *path);
+
 /* Closes the descriptor. Safe on a struct that never opened. */
 void fzn_spool_file_close(fzn_spool_file_t *file);
 

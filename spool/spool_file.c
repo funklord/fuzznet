@@ -42,6 +42,7 @@
 
 #include "../wire/bytes.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -148,6 +149,24 @@ const fzn_spool_ops_t *fzn_spool_file_open(fzn_spool_file_t *file, const char *p
 	if (file->fd < 0)
 		return NULL;
 
+	file->ops.read_at = file_read;
+	file->ops.write_at = file_write;
+	file->ops.sync = file_sync;
+	file->ops.ctx = file;
+	return &file->ops;
+}
+
+const fzn_spool_ops_t *fzn_spool_file_reopen(fzn_spool_file_t *file, const char *path)
+{
+	if (!file || !path)
+		return NULL;
+	if ((size_t)snprintf(file->bits, sizeof(file->bits), "%s.bits", path) >= sizeof(file->bits))
+		return NULL;
+	file->fd = open(path, O_RDWR | O_CLOEXEC);
+	if (file->fd < 0 && (errno == EROFS || errno == EACCES))
+		file->fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (file->fd < 0)
+		return NULL;
 	file->ops.read_at = file_read;
 	file->ops.write_at = file_write;
 	file->ops.sync = file_sync;

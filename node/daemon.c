@@ -446,6 +446,7 @@ static fzn_pressure_turns_t host_turns;
 static fzn_pressure_rules_t host_rules;
 /* RECORDS THE JOURNAL HOLDS IN RAM, as of the last tick. */
 static size_t journal_held_rows;
+static size_t shelf_held_texts; /* a shelf's, sec 919 */
 
 /* `get node`, sec 687: what a client cannot learn otherwise -- the port
  * this node is reached on, which only it knows when the system chose it,
@@ -470,11 +471,14 @@ static size_t node_local(const fzn_request_t *request, char *reply, size_t cap)
 		if (store_delta_on)
 			fzn_persist_delta_status(&store_delta, &held);
 		return (size_t)snprintf(reply, cap,
-		                        "ok udp %s started %llu pressure %s store %s held %zu dropped %lu\n",
+		                        "ok udp %s started %llu pressure %s store %s held %zu dropped %lu "
+		                        "identity held\n",
 		                        udp, (unsigned long long)node_started,
 		                        fzn_pressure_state_str(host_pressure.state),
-		                        held.stuck || held.rows || journal_held_rows ? "ram" : "disk",
-		                        held.rows + journal_held_rows, held.dropped);
+		                        held.stuck || held.rows || journal_held_rows || shelf_held_texts
+		                                ? "ram"
+		                                : "disk",
+		                        held.rows + journal_held_rows + shelf_held_texts, held.dropped);
 	}
 }
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -9146,6 +9150,94 @@ static void on_terminate(int sig)
 	stop_due = 1;
 }
 
+/*
+ * A KEY THAT WILL NOT READ, sec 920. The store says a part of this host's identity is
+ * there and will not give it: a late mount, an unlocked disk, a bad sector, a wrong
+ * owner. Creating one would bring this host up as a stranger, and exiting leaves a
+ * supervisor restarting something nobody can ask about. So a daemon waits: it holds
+ * its socket, says what it is waiting for, and goes on to start the moment the key
+ * reads. Nothing else is served, as nothing here can be signed or checked.
+ *
+ * `get node` answers `identity waiting`; anything else is told why it cannot be done.
+ * Returns 0 when asked to stop, 1 for another try after `ms`.
+ */
+#define FZND_IDENTITY_RETRY_MS 2000
+#define FZND_IDENTITY_ASK_MS 200
+
+static int identity_wait_fd = -1;
+static void stop_on_terminate(void);
+
+static void identity_answer(int fd)
+{
+	char line[FZN_REQUEST_MAX + 1u], reply[160];
+	struct pollfd p = { fd, POLLIN, 0 };
+	size_t have = 0;
+	int n;
+
+	while (have + 1u < sizeof(line) && !memchr(line, '\n', have)
+	       && poll(&p, 1u, FZND_IDENTITY_ASK_MS) > 0) {
+		ssize_t got = read(fd, line + have, sizeof(line) - 1u - have);
+
+		if (got <= 0)
+			break;
+		have += (size_t)got;
+	}
+	if (have >= 9u && memcmp(line, "get node\n", 9u) == 0)
+		n = snprintf(reply, sizeof(reply),
+		             "ok udp - started %llu pressure survival store unreadable held 0 "
+		             "dropped 0 identity waiting\n",
+		             (unsigned long long)node_started);
+	else
+		n = snprintf(reply, sizeof(reply), "error this host cannot read its key yet\n");
+	if (n > 0)
+		(void)!write(fd, reply, (size_t)n);
+}
+
+static int identity_wait(const char *path, int ms)
+{
+	uint64_t until;
+
+	if (identity_wait_fd < 0) {
+		fprintf(stderr, "fuzznetd: the store will not give this host's key; waiting for it "
+		                "on %s\n", path);
+		stop_on_terminate();
+		if (!node_started)
+			node_started = wall_clock();
+		if (fzn_socket_listen(path, 0777u, 16, &identity_wait_fd) != FZN_SOCKET_OK)
+			identity_wait_fd = -1;
+	}
+	until = mono_ms() + (uint64_t)ms;
+	while (!stop_due && mono_ms() < until) {
+		struct pollfd p = { identity_wait_fd, POLLIN, 0 };
+		fzn_peer_t peer;
+		int cfd = -1;
+
+		if (poll(&p, identity_wait_fd >= 0 ? 1u : 0u, 100) > 0
+		    && fzn_socket_accept(identity_wait_fd, &cfd, &peer) == FZN_SOCKET_OK) {
+			identity_answer(cfd);
+			(void)close(cfd);
+		}
+	}
+	if (stop_due) {
+		if (identity_wait_fd >= 0)
+			fzn_socket_close(identity_wait_fd, path);
+		identity_wait_fd = -1;
+		fprintf(stderr, "fuzznetd: stopped, still waiting for this host's key\n");
+		return 0;
+	}
+	return 1;
+}
+
+/* The socket given back, for the daemon proper to take. */
+static void identity_wait_end(const char *path)
+{
+	if (identity_wait_fd < 0)
+		return;
+	fzn_socket_close(identity_wait_fd, path);
+	identity_wait_fd = -1;
+	fprintf(stderr, "fuzznetd: this host's key reads again\n");
+}
+
 static void stop_on_terminate(void)
 {
 	struct sigaction was, now;
@@ -14114,6 +14206,19 @@ static void pressure_tick(void)
 		held.bytes += bytes;
 	}
 #endif
+#ifdef FZN_SPOOL_FILE_ON
+	/* TEXTS IN RAM, sec 919: what a peer can send again goes where the ladder
+	 * says REFETCH goes, and what is left counts as held. */
+	if (shelf_on) {
+		(void)fzn_node_shelf_flush(&shelf);
+		if (!fzn_pressure_admits(host_pressure.state, FZN_RANK_REFETCH))
+			(void)fzn_node_shelf_shed(&shelf);
+		shelf_held_texts = shelf.ram_texts;
+		held.rows += shelf.ram_texts;
+		held.bytes += shelf.ram_bytes;
+		held.dropped += shelf.ram_dropped;
+	}
+#endif
 	memset(&in, 0, sizeof(in));
 	in.store_held = held.rows != 0u;
 	in.delta_bytes = held.bytes;
@@ -18742,11 +18847,19 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		env.hash = &hash_ops;
 		env.agree = &agree_ops;
 		env.log = NULL; /* this main reports on stderr below */
-		found.seed = fzn_persist_file_holds(&core_file, FZN_PERSIST_OWN_IDENTITY, NULL);
-		found.prekey = fzn_persist_file_holds(&core_file, FZN_PERSIST_OWN_PREKEY, NULL);
-		found.trust = fzn_persist_file_holds(&core_file, FZN_PERSIST_TRUST, NULL);
-		ierr = fzn_node_identity_boot(&env, &found, wall_clock(), &agree_secret, &trust,
-		                              &identity, &created);
+		for (;;) {
+			found.seed = fzn_persist_file_holds(&core_file, FZN_PERSIST_OWN_IDENTITY, NULL);
+			found.prekey = fzn_persist_file_holds(&core_file, FZN_PERSIST_OWN_PREKEY, NULL);
+			found.trust = fzn_persist_file_holds(&core_file, FZN_PERSIST_TRUST, NULL);
+			ierr = fzn_node_identity_boot(&env, &found, wall_clock(), &agree_secret, &trust,
+			                              &identity, &created);
+			/* A KEY THAT WILL NOT READ, sec 920: waited for, not guessed at. */
+			if (ierr != FZN_NODE_IDENTITY_STORE || !serving || !sock_path)
+				break;
+			if (!identity_wait(sock_path, FZND_IDENTITY_RETRY_MS))
+				return 0;
+		}
+		identity_wait_end(sock_path);
 		if (ierr != FZN_NODE_IDENTITY_OK) {
 			fprintf(stderr, "fuzznetd: no identity from %s: %s\n", store_dir,
 			        fzn_node_identity_err_str(ierr));

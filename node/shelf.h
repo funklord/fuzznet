@@ -65,6 +65,9 @@
 	((size_t)FZN_MSG_DATA_OFF_PROOF + ((size_t)FZN_MSG_MAX_PROOF * FZN_BLOB_HASH_LEN)      \
 	 + ((size_t)FZN_NODE_SHELF_SPAN * (4u + FZN_BLOB_SEALED_MAX)))
 
+/* What a shelf holds in RAM for a disk that will not take it, sec 919. */
+#define FZN_NODE_SHELF_RAM_BUDGET (16u * 1024u * 1024u)
+
 /* Texts waiting for their leaves. */
 #define FZN_NODE_SHELF_WANTS 16u
 
@@ -101,6 +104,8 @@ typedef struct fzn_node_shelf_want {
 	uint32_t span;
 } fzn_node_shelf_want_t;
 
+struct fzn_node_shelf_ram;
+
 typedef struct fzn_node_shelf {
 	char dir[FZN_NODE_SHELF_DIR_MAX];
 	const fzn_hash_ops_t *hash;
@@ -113,9 +118,17 @@ typedef struct fzn_node_shelf {
 	int fresh;
 	/* Where the scrub left off, sec 452: the root it checked last. */
 	uint8_t scrub_after[FZN_BLOB_HASH_LEN];
+	/* TEXTS THE DISK WOULD NOT TAKE, sec 919, oldest first. */
+	struct fzn_node_shelf_ram *ram, *ram_newest;
+	size_t ram_texts, ram_bytes, ram_budget;
+	unsigned long ram_dropped;
+	/* The allocator, so a test can make it refuse. NULL: calloc and free. */
+	void *(*alloc)(size_t len);
+	void (*release)(void *at);
 } fzn_node_shelf_t;
 
-/* Over `dir`, which is created mode 0700 if it is not there. */
+/* Over `dir`, which is created mode 0700 if it is not there, or at the first
+ * flush where the disk will not make it now (sec 919). */
 fzn_node_shelf_err_t fzn_node_shelf_init(fzn_node_shelf_t *shelf, const char *dir,
                                          const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
                                          const fzn_random_ops_t *rng);
@@ -252,6 +265,28 @@ typedef int (*fzn_node_shelf_keep_t)(void *ctx, const uint8_t root[FZN_BLOB_HASH
  * stays gone and is counted. */
 fzn_node_shelf_err_t fzn_node_shelf_collect(fzn_node_shelf_t *shelf, fzn_node_shelf_keep_t keep,
                                             void *keep_ctx, size_t *kept, size_t *removed);
+
+/*
+ * A SHELF WITH A DISK THAT WILL NOT WRITE, sec 919. A text the disk refuses, sealed
+ * here or arriving from a peer, is kept in RAM, sealed as it would be on disk, and
+ * reads, fetches and answers find it there first, so nothing above the shelf knows.
+ * It is the delta of `persist/delta.h` for what is no row, and its bargain: a host
+ * stopped with texts here loses them.
+ *
+ * WHAT GOES: `ram_budget` bytes. A text a peer sent can be asked for again and goes
+ * first, oldest first; one sealed here has no other copy and is never given up, so
+ * past the budget a new one is refused and its note with it.
+ */
+
+/* WRITE EVERY WHOLE TEXT HELD to the disk, oldest first, stopping at the first it
+ * refuses. How many went. */
+size_t fzn_node_shelf_flush(fzn_node_shelf_t *shelf);
+
+/* GIVE UP every text held that a peer can send again. How many went. */
+size_t fzn_node_shelf_shed(fzn_node_shelf_t *shelf);
+
+/* Every text held in RAM let go, on a shelf that is done with. */
+void fzn_node_shelf_free(fzn_node_shelf_t *shelf);
 
 /* The remote hop's hook: `fzn_node_shelf_answer` with `ctx` as the shelf. */
 size_t fzn_node_shelf_remote(void *ctx, const uint8_t *request, size_t request_len,

@@ -81452,9 +81452,8 @@ second daemon to fight over. A directory that is not there stays fatal.
 are at risk.
 
 **What it does not do yet:**
-- **Notes and files do not open on a read-only store:** `no shelf for texts`, `no store
-  for files`, so `add note` is refused. Those write around the store. Files are low on
-  the ladder. Notes text is the one worth doing next.
+- **The file store takes nothing on a disk that will not write:** what it holds reads, and
+  a new file is refused. Files are low on the ladder. Notes text no longer stops: sec 919.
 - **Memory is judged from `/proc/meminfo`,** not a cgroup's limit, so a container's own
   ceiling is not seen. A kernel OOM kill cannot be caught. The delta sheds when the
   allocator refuses; the rest of the daemon relies on sec 704's tables saying so.
@@ -81465,8 +81464,8 @@ are at risk.
 - **Turns bind remote requests,** not local verbs.
 - **The log file:** every entry stays in the flight recorder in RAM, and lines the disk
   refuses are lost from the file. Debug lines are not yet held back first.
-- **A store that cannot be READ** is still refused: `fzn_persist_file_holds` says it cannot
-  tell, and a host never makes a new key over that, or it comes up a stranger.
+- **A store that cannot be READ:** `fzn_persist_file_holds` says it cannot tell, and a host
+  never makes a new key over that, or it comes up a stranger. It waits for its key: sec 920.
 
 ## 918. Netcfgd on a RAM host, and beerssh's shell, 2026-11-06
 
@@ -81497,3 +81496,57 @@ signatures a second, and it holds secrets. Its byte log is plain C so it can mov
 **Read against this tree, not built:** the shell is sec 915's hybrid and sec 917's fifth
 turn class. Its frame is the same question as sec 912's smaller head, from the other end,
 so two consumers now ask it. Open with the holder.
+
+## 919. A note goes on when the disk will not, 2026-11-06
+
+The holder asked for this next. Texts live on the shelf as spools, not rows, so sec 917's
+delta never saw them, and `add note` was refused on a read-only store.
+
+**A text the disk refuses is kept in RAM, sealed as it would be on disk:** a spool's slots
+and bitmap behind `fzn_spool_ops_t`, a second home a held text can have. Sealing, opening,
+fetching, proofs and serving all go through the spool, so none of them knows. `open_held`
+looks in RAM first. `fzn_node_shelf_flush`, once a second from `pressure_tick`, writes each
+whole text as a put would, sidecar last, and stops at the first the disk refuses.
+
+**What goes:** 16 MiB. A text from a peer can be asked for again, so it goes first, oldest
+first, and at SCARCE all of them go, as REFETCH does. A text sealed here has no other copy
+and is never given up: past the budget a new one is refused and its note with it. Part of
+a text stays in RAM until it is whole, as a disk would not hold it either. `get node`
+counts held texts in `held`, and they feed the ladder.
+
+**Reads go on:** `fzn_spool_file_reopen` opens what is already there, for reading where the
+disk will not write, and creates nothing. The file store reads through it too. A shelf
+whose directory cannot be made opens anyway and makes it at the first flush.
+
+**Not durable,** sec 917's bargain: a host stopped with texts here loses them, and a note
+row flushed without its text is a note whose text is missing. Texts are flushed in the
+same second as rows but not as one act.
+
+**What the gates found.** Two of sec 917's own gates failed on `b81184c`, after it was
+pushed, and neither was a crash. `live_transfer` asked `get node` for exactly five words.
+`live_faults` c, n, p, r and t still held that a full disk refuses, which the delta made
+false: an act answered `ok` may now be in RAM only. Those phases still test something real,
+as the store's refusal is what is left when memory has gone too, so `FZN_FAULT_NO_RAM`
+takes the delta's memory and they run under it; phase c tests both, and that a row never
+written goes with its host.
+
+## 920. A host that cannot read its key waits for it, 2026-11-06
+
+Netcfgd asked what a host with no key may do; the holder: it "makes sense for certain
+consumers, but this sounds like a startup problem that should be dealt with". So it is dealt
+with at startup, and no keyless mode was built.
+
+**The store says a part of the identity is there and will not give it:** a late mount, a
+disk not yet unlocked, a bad sector, a wrong owner. `fzn_node_identity_boot` answers STORE.
+Exiting left a supervisor restarting something nobody could ask; making a key brings the
+host up a stranger. A daemon now holds its socket and tries again every 2 s, and starts as
+itself the moment the key reads.
+
+**While it waits** `get node` answers `identity waiting` and everything else `error this
+host cannot read its key yet`. Nothing else is served, as nothing can be signed or checked.
+`get node` ends `identity held` otherwise, so netcfgd can tell, which is what it asked for.
+
+**Not waited for:** a store holding part of an identity, refused by name as before, since
+which part went is the operator's. A shape or a mismatch likewise. **Not dealt with:** an
+empty directory where a store should be, a mount not yet there, reads as a fresh host and
+makes a key. Telling those apart needs something on the mount point, and nothing says so.

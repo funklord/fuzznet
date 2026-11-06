@@ -950,6 +950,152 @@ static void clean(const char *dir)
 		}
 }
 
+/* A SHELF WITH A DISK THAT WILL NOT WRITE, sec 919. */
+static void *refusing_alloc(size_t len)
+{
+	(void)len;
+	return NULL;
+}
+
+static void test_a_disk_that_will_not_write(void)
+{
+	peer_t honest = { &A, 0, 0, 0, 0, 0 };
+	peer_t from_ram = { NULL, 0, 0, 0, 0, 0 };
+	fzn_node_shelf_t D, E, again;
+	fzn_note_blob_ref_t ref, ref2, ref3;
+	char dir_d[96], dir_e[96], dir_f[96], path[600];
+	static const uint8_t words[] = "held in ram until the disk comes back";
+	size_t len = 0;
+	fzn_note_err_t terr;
+	uint64_t length = 0;
+
+	if (geteuid() == 0)
+		return; /* a mode does not stop root */
+	(void)snprintf(dir_d, sizeof(dir_d), "%s/rd", top);
+	(void)snprintf(dir_e, sizeof(dir_e), "%s/re", top);
+	(void)snprintf(dir_f, sizeof(dir_f), "%s/rf", top);
+	CHECK(fzn_node_shelf_init(&D, dir_d, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK, "D opens");
+	CHECK(chmod(dir_d, 0500) == 0, "D's disk stops taking writes");
+
+	/* SEALED HERE: in RAM, and nothing above the shelf can tell. */
+	CHECK(fzn_node_shelf_put(&D, words, sizeof(words), &ref) == FZN_NODE_SHELF_OK,
+	      "a text is taken though the disk will not write");
+	remember(ref.root);
+	CHECK(D.ram_texts == 1u && D.ram_bytes > 0u, "and it is held in RAM");
+	CHECK(fzn_node_shelf_held(&D, ref.root, &length) == FZN_NODE_SHELF_OK
+	              && length == sizeof(words),
+	      "it is held, at its length");
+	CHECK(fzn_node_shelf_open(&D, &ref, out, sizeof(out), &len, &terr) == FZN_NODE_SHELF_OK
+	              && len == sizeof(words) && memcmp(out, words, len) == 0,
+	      "it opens");
+	from_ram.shelf = &D;
+	CHECK(fzn_node_shelf_init(&E, dir_e, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK
+	              && fzn_node_shelf_fetch(&E, ref.root, ref.length, ask, &from_ram)
+	                         == FZN_NODE_SHELF_OK,
+	      "a peer fetches it from RAM");
+	CHECK(E.ram_texts == 0u, "and keeps it on its own disk");
+
+	/* A FLUSH STOPS AT THE DISK. */
+	CHECK(fzn_node_shelf_flush(&D) == 0u && D.ram_texts == 1u,
+	      "a flush the disk refuses keeps the text");
+	file_of(dir_d, ref.root, ".bits", path, sizeof(path));
+	CHECK(!exists(path), "and leaves nothing of it");
+
+	/* FROM A PEER, ALSO HELD, AND THE ONE THAT CAN GO. */
+	CHECK(fzn_node_shelf_fetch(&D, big.root, big.length, ask, &honest) == FZN_NODE_SHELF_OK,
+	      "a text from a peer arrives though the disk will not write");
+	CHECK(D.ram_texts == 2u, "in RAM, beside the first");
+	CHECK(fzn_node_shelf_open(&D, &big, out, sizeof(out), &len, &terr) == FZN_NODE_SHELF_OK
+	              && len == big.length && memcmp(out, text_b, big.length) == 0,
+	      "and it opens whole");
+
+	/* THE BUDGET: what a peer can send again goes first, what was sealed here never. */
+	D.ram_budget = D.ram_bytes;
+	CHECK(fzn_node_shelf_put(&D, words, sizeof(words), &ref2) == FZN_NODE_SHELF_OK,
+	      "past the budget a new text is taken");
+	remember(ref2.root);
+	CHECK(D.ram_dropped == 1u
+	              && fzn_node_shelf_held(&D, big.root, &length) == FZN_NODE_SHELF_ERR_ABSENT,
+	      "and the peer's text went for it");
+	CHECK(fzn_node_shelf_held(&D, ref.root, &length) == FZN_NODE_SHELF_OK,
+	      "and the one sealed here did not");
+	D.ram_budget = D.ram_bytes;
+	CHECK(fzn_node_shelf_put(&D, words, sizeof(words), &ref3) == FZN_NODE_SHELF_ERR_STORE,
+	      "with only this host's own left, a new text is refused");
+	CHECK(fzn_node_shelf_held(&D, ref.root, &length) == FZN_NODE_SHELF_OK
+	              && fzn_node_shelf_held(&D, ref2.root, &length) == FZN_NODE_SHELF_OK,
+	      "and neither of its own was given up");
+	D.ram_budget = FZN_NODE_SHELF_RAM_BUDGET;
+	D.alloc = refusing_alloc;
+	CHECK(fzn_node_shelf_put(&D, words, sizeof(words), &ref3) == FZN_NODE_SHELF_ERR_STORE,
+	      "with no memory to be had, it is refused too");
+	D.alloc = NULL;
+
+	/* SHED: only what can be had again. */
+	CHECK(fzn_node_shelf_fetch(&D, big.root, big.length, ask, &honest) == FZN_NODE_SHELF_OK
+	              && D.ram_texts == 3u,
+	      "the peer's text is fetched again");
+	CHECK(fzn_node_shelf_shed(&D) == 1u && D.ram_texts == 2u,
+	      "shedding gives up that one alone");
+
+	/* PART OF A TEXT ARRIVED: not the disk's until it is whole. */
+	{
+		static uint8_t data[FZN_NODE_SHELF_REPLY_MAX];
+		size_t data_len = 0;
+		uint64_t count = 0;
+		int complete = 1;
+
+		CHECK(fzn_node_shelf_data_at(&A, big.root, 0u, data, sizeof(data), &data_len, &count)
+		                      == FZN_NODE_SHELF_OK
+		              && fzn_node_shelf_place(&D, big.root, big.length, data, data_len, &complete)
+		                         == FZN_NODE_SHELF_OK
+		              && !complete && D.ram_texts == 3u,
+		      "part of a text waits in RAM");
+	}
+
+	/* THE DISK COMES BACK. */
+	CHECK(chmod(dir_d, 0700) == 0, "D's disk takes writes again");
+	CHECK(fzn_node_shelf_flush(&D) == 2u && D.ram_texts == 1u,
+	      "a flush writes each whole text out of RAM, and leaves the part");
+	file_of(dir_d, big.root, ".bits", path, sizeof(path));
+	CHECK(!exists(path), "of which the disk holds nothing");
+	CHECK(fzn_node_shelf_shed(&D) == 1u && D.ram_bytes == 0u, "and the part can be let go");
+	CHECK(fzn_node_shelf_init(&again, dir_d, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK
+	              && fzn_node_shelf_open(&again, &ref, out, sizeof(out), &len, &terr)
+	                         == FZN_NODE_SHELF_OK
+	              && len == sizeof(words) && memcmp(out, words, len) == 0,
+	      "and another shelf over the same disk opens it");
+	CHECK(fzn_node_shelf_open(&again, &ref2, out, sizeof(out), &len, &terr) == FZN_NODE_SHELF_OK,
+	      "and the second");
+	file_of(dir_d, ref.root, ".bits", path, sizeof(path));
+	CHECK(exists(path), "by the sidecar a disk's text has");
+
+	/* A SHELF OPENED WHERE ITS DIRECTORY COULD NOT BE MADE. */
+	CHECK(chmod(top, 0500) == 0, "the parent stops taking writes");
+	CHECK(fzn_node_shelf_init(&E, dir_f, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK,
+	      "a shelf opens with no directory and none to be made");
+	CHECK(fzn_node_shelf_put(&E, words, sizeof(words), &ref3) == FZN_NODE_SHELF_OK,
+	      "and takes a text");
+	remember(ref3.root);
+	CHECK(chmod(top, 0700) == 0 && fzn_node_shelf_flush(&E) == 1u, "and writes it when it can");
+	CHECK(fzn_node_shelf_open(&E, &ref3, out, sizeof(out), &len, &terr) == FZN_NODE_SHELF_OK,
+	      "from the directory made then");
+
+	/* READS GO ON FROM A DISK THAT WILL NOT WRITE. */
+	CHECK(chmod(dir_d, 0500) == 0, "D's disk stops again");
+	file_of(dir_d, ref.root, "", path, sizeof(path));
+	CHECK(chmod(path, 0400) == 0, "and a text's file is read-only");
+	CHECK(fzn_node_shelf_open(&again, &ref, out, sizeof(out), &len, &terr) == FZN_NODE_SHELF_OK,
+	      "a text on a disk that will not write still opens");
+	CHECK(chmod(path, 0600) == 0 && chmod(dir_d, 0700) == 0, "D's disk writes again");
+	fzn_node_shelf_free(&D);
+	fzn_node_shelf_free(&E);
+	clean(dir_d);
+	clean(dir_e);
+	clean(dir_f);
+	CHECK(rmdir(dir_d) == 0 && rmdir(dir_e) == 0 && rmdir(dir_f) == 0, "their directories go");
+}
+
 int main(void)
 {
 	(void)snprintf(top, sizeof(top), "/tmp/fzn-shelf-test-XXXXXX");
@@ -974,6 +1120,7 @@ int main(void)
 	test_a_fetch_brings_the_text_across();
 	test_a_long_text_travels_in_spans();
 	test_a_small_reply_gets_a_smaller_span();
+	test_a_disk_that_will_not_write();
 	test_nothing_is_created_for_a_named_root();
 	test_a_lying_peer_writes_nothing_and_the_fetch_resumes();
 	test_pushed_spans_arrive_whole_or_not_at_all();

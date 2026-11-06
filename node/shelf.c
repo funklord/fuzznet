@@ -4,12 +4,14 @@
 
 #include "shelf.h"
 
+#include "../fault/fault.h"
 #include "../wire/bytes.h"
 
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -23,10 +25,24 @@ _Static_assert(FZN_NODE_SHELF_WANTS > 0u, "a shelf remembers no wants");
 
 static const char HEX[] = "0123456789abcdef";
 
-/* One blob held open: the file, the spool over it, its bitmap. */
+/* A TEXT IN RAM, sec 919: a spool's slots and bitmap, as the disk would have them. */
+typedef struct fzn_node_shelf_ram {
+	struct fzn_node_shelf_ram *newer;
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	uint64_t length;
+	uint64_t leaves;
+	int own; /* sealed here: no peer has it to send again */
+	uint8_t present[FZN_NOTE_TEXT_PRESENT_LEN];
+	fzn_spool_ops_t ops;
+	size_t size;
+	uint8_t slots[];
+} ram_t;
+
+/* One blob held open: the file or the text in RAM, the spool over it, its bitmap. */
 typedef struct held {
 	fzn_spool_file_t file;
 	fzn_spool_t spool;
+	ram_t *ram;
 	uint8_t present[FZN_NOTE_TEXT_PRESENT_LEN];
 	uint64_t length;
 	uint64_t leaves;
@@ -151,6 +167,143 @@ static size_t sealed_len_of(const held_t *h, uint64_t index)
 	       + FZN_BLOB_LEAF_OVERHEAD;
 }
 
+/* ---- texts in RAM, sec 919 ------------------------------------------------ */
+
+static int ram_read(void *ctx, uint64_t offset, uint8_t *out, size_t len)
+{
+	const ram_t *r = ctx;
+
+	if (offset > r->size || len > r->size - offset)
+		return 0;
+	memcpy(out, r->slots + offset, len);
+	return 1;
+}
+
+static int ram_write(void *ctx, uint64_t offset, const uint8_t *bytes, size_t len)
+{
+	ram_t *r = ctx;
+
+	if (offset > r->size || len > r->size - offset)
+		return 0;
+	memcpy(r->slots + offset, bytes, len);
+	return 1;
+}
+
+static int ram_sync(void *ctx)
+{
+	(void)ctx;
+	return 1;
+}
+
+static ram_t *ram_find(const fzn_node_shelf_t *shelf, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	ram_t *r;
+
+	for (r = shelf->ram; r; r = r->newer)
+		if (memcmp(r->root, root, FZN_BLOB_HASH_LEN) == 0)
+			return r;
+	return NULL;
+}
+
+/* Take `r`, whose elder is `before` or NULL, off the list and let it go. */
+static void ram_drop(fzn_node_shelf_t *shelf, ram_t *before, ram_t *r)
+{
+	if (before)
+		before->newer = r->newer;
+	else
+		shelf->ram = r->newer;
+	if (shelf->ram_newest == r)
+		shelf->ram_newest = before;
+	shelf->ram_texts--;
+	shelf->ram_bytes -= r->size;
+	if (shelf->release)
+		shelf->release(r);
+	else
+		free(r);
+}
+
+static void ram_forget(fzn_node_shelf_t *shelf, ram_t *gone)
+{
+	ram_t *r, *before = NULL;
+
+	for (r = shelf->ram; r && r != gone; before = r, r = r->newer)
+		;
+	if (r)
+		ram_drop(shelf, before, r);
+}
+
+/* The oldest text a peer can send again given up. 0 when none is here. */
+static int ram_shed_one(fzn_node_shelf_t *shelf)
+{
+	ram_t *r, *before = NULL;
+
+	for (r = shelf->ram; r; before = r, r = r->newer)
+		if (!r->own) {
+			ram_drop(shelf, before, r);
+			shelf->ram_dropped++;
+			return 1;
+		}
+	return 0;
+}
+
+/* ROOM FOR A TEXT of `length`, not yet on the list. `own` says it has no other copy. */
+static ram_t *ram_new(fzn_node_shelf_t *shelf, uint64_t length, int own)
+{
+	size_t last = 0, size;
+	uint64_t leaves = 0;
+	ram_t *r = NULL;
+
+	if (!geometry(length, &leaves, &last))
+		return NULL;
+	size = (size_t)leaves * FZN_BLOB_SEALED_MAX;
+	while (shelf->ram_bytes + size > shelf->ram_budget)
+		if (!ram_shed_one(shelf))
+			return NULL;
+	while (!FZN_FAULT_RAM()
+	       || !(r = shelf->alloc ? shelf->alloc(sizeof(*r) + size)
+	                             : malloc(sizeof(*r) + size)))
+		if (!ram_shed_one(shelf))
+			return NULL;
+	memset(r, 0, sizeof(*r) + size);
+	r->length = length;
+	r->leaves = leaves;
+	r->own = own;
+	r->size = size;
+	r->ops.read_at = ram_read;
+	r->ops.write_at = ram_write;
+	r->ops.sync = ram_sync;
+	r->ops.ctx = r;
+	return r;
+}
+
+static void ram_link(fzn_node_shelf_t *shelf, ram_t *r)
+{
+	if (shelf->ram_newest)
+		shelf->ram_newest->newer = r;
+	else
+		shelf->ram = r;
+	shelf->ram_newest = r;
+	shelf->ram_texts++;
+	shelf->ram_bytes += r->size;
+}
+
+/* A spool over `r`, into `h`. */
+static int ram_hold(ram_t *r, held_t *h)
+{
+	h->ram = r;
+	h->length = r->length;
+	return geometry(r->length, &h->leaves, &h->last)
+	       && fzn_spool_open(&h->spool, r->root, r->leaves, r->present, sizeof(r->present),
+	                         &r->ops)
+	                  == FZN_SPOOL_OK;
+}
+
+/* What a checkpoint is, for either home: a text in RAM has its bitmap there. */
+static fzn_spool_err_t held_checkpoint(const held_t *h)
+{
+	return h->ram ? FZN_SPOOL_OK : fzn_spool_file_checkpoint(&h->file, &h->spool);
+}
+
 /* Open the blob `root` for reading, whole or not. ABSENT without opening
  * anything when there is no sidecar for it, or its length is missing or
  * disagrees with the sidecar about the leaf count. */
@@ -160,16 +313,19 @@ static fzn_node_shelf_err_t open_held(const fzn_node_shelf_t *shelf,
 	char path[FZN_SPOOL_FILE_PATH_MAX], len_path[FZN_SPOOL_FILE_PATH_MAX];
 	const fzn_spool_ops_t *ops;
 	uint64_t leaves = 0;
+	ram_t *r;
 
 	memset(h, 0, sizeof(*h));
 	h->file.fd = -1;
+	if ((r = ram_find(shelf, root)) != NULL)
+		return ram_hold(r, h) ? FZN_NODE_SHELF_OK : FZN_NODE_SHELF_ERR_STORE;
 	if (!path_of(shelf, root, "", path) || !path_of(shelf, root, ".len", len_path))
 		return FZN_NODE_SHELF_ERR_MALFORMED;
 	if (fzn_spool_file_leaves(path, root, &leaves) != FZN_SPOOL_OK
 	    || !read_length(len_path, &h->length) || !geometry(h->length, &h->leaves, &h->last)
 	    || h->leaves != leaves)
 		return FZN_NODE_SHELF_ERR_ABSENT;
-	ops = fzn_spool_file_open(&h->file, path);
+	ops = fzn_spool_file_reopen(&h->file, path);
 	if (!ops)
 		return FZN_NODE_SHELF_ERR_STORE;
 	(void)fzn_spool_file_resume(&h->file, root, leaves, h->present, sizeof(h->present));
@@ -212,8 +368,63 @@ fzn_node_shelf_err_t fzn_node_shelf_init(fzn_node_shelf_t *shelf, const char *di
 	shelf->hash = hash;
 	shelf->aead = aead;
 	shelf->rng = rng;
-	if (mkdir(dir, 0700) != 0 && errno != EEXIST)
+	shelf->ram_budget = FZN_NODE_SHELF_RAM_BUDGET;
+	if (mkdir(dir, 0700) != 0 && errno != EEXIST && errno != EROFS && errno != EACCES
+	    && errno != ENOSPC && errno != EDQUOT)
 		return FZN_NODE_SHELF_ERR_STORE;
+	return FZN_NODE_SHELF_OK;
+}
+
+/* THE LENGTH, THEN THE LEAVES, THEN THE SIDECAR: a blob is held from the moment
+ * its sidecar appears under its root, so that is last. */
+static int publish(const fzn_node_shelf_t *shelf, const uint8_t root[FZN_BLOB_HASH_LEN],
+                   uint64_t length, const char *work, const char *work_bits)
+{
+	char path[FZN_SPOOL_FILE_PATH_MAX], bits[FZN_SPOOL_FILE_PATH_MAX];
+
+	return path_of(shelf, root, "", path) && path_of(shelf, root, ".bits", bits)
+	       && write_length(shelf, root, length) && rename(work, path) == 0
+	       && rename(work_bits, bits) == 0;
+}
+
+/* The working names a text is written under until its root is known. */
+static int work_names(const fzn_node_shelf_t *shelf, char work[FZN_SPOOL_FILE_PATH_MAX],
+                      char work_bits[FZN_SPOOL_FILE_PATH_MAX])
+{
+	int n = snprintf(work, FZN_SPOOL_FILE_PATH_MAX, "%s/put", shelf->dir);
+	int m = snprintf(work_bits, FZN_SPOOL_FILE_PATH_MAX, "%s/put.bits", shelf->dir);
+
+	if (n <= 0 || (size_t)n >= FZN_SPOOL_FILE_PATH_MAX || m <= 0
+	    || (size_t)m >= FZN_SPOOL_FILE_PATH_MAX)
+		return 0;
+	/* A WORKING NAME LEFT BY A CRASH is replaced, never resumed: it is a
+	 * blob under a key nobody kept. */
+	(void)remove(work);
+	(void)remove(work_bits);
+	return 1;
+}
+
+/* THE DISK WOULD NOT: sealed into RAM, under the same fresh key a disk's would be. */
+static fzn_node_shelf_err_t put_in_ram(fzn_node_shelf_t *shelf, const uint8_t *text, size_t len,
+                                       fzn_note_blob_ref_t *ref)
+{
+	fzn_spool_t spool;
+	fzn_note_err_t err;
+	ram_t *r = ram_new(shelf, len, 1);
+
+	if (!r)
+		return FZN_NODE_SHELF_ERR_STORE;
+	err = fzn_note_text_seal(shelf->hash, shelf->aead, shelf->rng, text, len, &r->ops, r->present,
+	                         sizeof(r->present), &spool, ref);
+	if (err != FZN_NOTE_OK) {
+		if (shelf->release)
+			shelf->release(r);
+		else
+			free(r);
+		return FZN_NODE_SHELF_ERR_TEXT;
+	}
+	memcpy(r->root, ref->root, FZN_BLOB_HASH_LEN);
+	ram_link(shelf, r);
 	return FZN_NODE_SHELF_OK;
 }
 
@@ -222,45 +433,39 @@ fzn_node_shelf_err_t fzn_node_shelf_put(fzn_node_shelf_t *shelf, const uint8_t *
 {
 	static uint8_t present[FZN_NOTE_TEXT_PRESENT_LEN];
 	char work[FZN_SPOOL_FILE_PATH_MAX], work_bits[FZN_SPOOL_FILE_PATH_MAX];
-	char path[FZN_SPOOL_FILE_PATH_MAX], bits[FZN_SPOOL_FILE_PATH_MAX];
 	fzn_spool_file_t file;
 	fzn_spool_t spool;
 	const fzn_spool_ops_t *ops;
 	fzn_note_err_t err;
-	int n, m;
 
 	if (!shelf || !text || !ref)
 		return FZN_NODE_SHELF_ERR_MALFORMED;
-	n = snprintf(work, sizeof(work), "%s/put", shelf->dir);
-	m = snprintf(work_bits, sizeof(work_bits), "%s/put.bits", shelf->dir);
-	if (n <= 0 || (size_t)n >= sizeof(work) || m <= 0 || (size_t)m >= sizeof(work_bits))
+	if (!work_names(shelf, work, work_bits))
 		return FZN_NODE_SHELF_ERR_MALFORMED;
-	/* A WORKING NAME LEFT BY A CRASH is replaced, never resumed: it is a
-	 * blob under a key nobody kept. */
-	(void)remove(work);
-	(void)remove(work_bits);
 	file.fd = -1;
 	ops = fzn_spool_file_open(&file, work);
 	if (!ops)
-		return FZN_NODE_SHELF_ERR_STORE;
+		return put_in_ram(shelf, text, len, ref);
 	err = fzn_note_text_seal(shelf->hash, shelf->aead, shelf->rng, text, len, ops, present,
 	                         sizeof(present), &spool, ref);
 	if (err != FZN_NOTE_OK) {
 		fzn_spool_file_close(&file);
 		(void)remove(work);
-		return err == FZN_NOTE_ERR_STORE ? FZN_NODE_SHELF_ERR_STORE : FZN_NODE_SHELF_ERR_TEXT;
+		return err == FZN_NOTE_ERR_STORE ? put_in_ram(shelf, text, len, ref)
+		                                 : FZN_NODE_SHELF_ERR_TEXT;
 	}
 	if (fzn_spool_file_checkpoint(&file, &spool) != FZN_SPOOL_OK) {
 		fzn_spool_file_close(&file);
-		return FZN_NODE_SHELF_ERR_STORE;
+		(void)remove(work);
+		(void)remove(work_bits);
+		return put_in_ram(shelf, text, len, ref);
 	}
 	fzn_spool_file_close(&file);
-	/* THE LENGTH, THEN THE LEAVES, THEN THE SIDECAR: a blob is held from
-	 * the moment its sidecar appears under its root, so that is last. */
-	if (!path_of(shelf, ref->root, "", path) || !path_of(shelf, ref->root, ".bits", bits)
-	    || !write_length(shelf, ref->root, len) || rename(work, path) != 0
-	    || rename(work_bits, bits) != 0)
-		return FZN_NODE_SHELF_ERR_STORE;
+	if (!publish(shelf, ref->root, len, work, work_bits)) {
+		(void)remove(work);
+		(void)remove(work_bits);
+		return put_in_ram(shelf, text, len, ref);
+	}
 	return FZN_NODE_SHELF_OK;
 }
 
@@ -492,7 +697,7 @@ fzn_node_shelf_err_t fzn_node_shelf_verify(fzn_node_shelf_t *shelf,
 	/* EVERY LEAF BACK TO THE WANT-LIST, and the sidecar says so, so the
 	 * blob is no longer held from this moment and across a restart. */
 	(void)fzn_spool_forget(&h.spool, 0u, h.leaves);
-	err = fzn_spool_file_checkpoint(&h.file, &h.spool) == FZN_SPOOL_OK
+	err = held_checkpoint(&h) == FZN_SPOOL_OK
 	              ? FZN_NODE_SHELF_OK
 	              : FZN_NODE_SHELF_ERR_STORE;
 	fzn_spool_file_close(&h.file);
@@ -597,6 +802,75 @@ fzn_node_shelf_err_t fzn_node_shelf_collect(fzn_node_shelf_t *shelf, fzn_node_sh
 	return err;
 }
 
+/* WRITE ONE WHOLE TEXT out of RAM, as a put would have: under the working name, its
+ * sidecar last. */
+static int ram_to_disk(fzn_node_shelf_t *shelf, ram_t *r)
+{
+	char work[FZN_SPOOL_FILE_PATH_MAX], work_bits[FZN_SPOOL_FILE_PATH_MAX];
+	fzn_spool_file_t file;
+	fzn_spool_t spool;
+	const fzn_spool_ops_t *ops;
+	int ok;
+
+	if (!work_names(shelf, work, work_bits))
+		return 0;
+	file.fd = -1;
+	ops = fzn_spool_file_open(&file, work);
+	if (!ops)
+		return 0;
+	ok = ops->write_at(ops->ctx, 0u, r->slots, r->size)
+	     && fzn_spool_open(&spool, r->root, r->leaves, r->present, sizeof(r->present), ops)
+	                == FZN_SPOOL_OK
+	     && fzn_spool_file_checkpoint(&file, &spool) == FZN_SPOOL_OK;
+	fzn_spool_file_close(&file);
+	ok = ok && publish(shelf, r->root, r->length, work, work_bits);
+	if (!ok) {
+		(void)remove(work);
+		(void)remove(work_bits);
+	}
+	return ok;
+}
+
+size_t fzn_node_shelf_flush(fzn_node_shelf_t *shelf)
+{
+	ram_t *r, *next, *before = NULL;
+	size_t went = 0;
+
+	if (!shelf || !shelf->ram)
+		return 0;
+	(void)mkdir(shelf->dir, 0700);
+	for (r = shelf->ram; r; r = next) {
+		static held_t h;
+
+		next = r->newer;
+		/* A TEXT PART WAY THROUGH ARRIVING stays, as it would not be held on disk. */
+		if (!ram_hold(r, &h) || !fzn_spool_complete(&h.spool)) {
+			before = r;
+			continue;
+		}
+		if (!ram_to_disk(shelf, r))
+			break;
+		ram_drop(shelf, before, r);
+		went++;
+	}
+	return went;
+}
+
+size_t fzn_node_shelf_shed(fzn_node_shelf_t *shelf)
+{
+	size_t went = 0;
+
+	while (shelf && ram_shed_one(shelf))
+		went++;
+	return went;
+}
+
+void fzn_node_shelf_free(fzn_node_shelf_t *shelf)
+{
+	while (shelf && shelf->ram)
+		ram_drop(shelf, NULL, shelf->ram);
+}
+
 size_t fzn_node_shelf_remote(void *ctx, const uint8_t *request, size_t request_len,
                              uint8_t *reply, size_t reply_cap)
 {
@@ -639,7 +913,7 @@ static fzn_node_shelf_err_t place_data(fzn_node_shelf_t *shelf, held_t *h, const
 	                         siblings)
 	    != FZN_SPOOL_OK)
 		return FZN_NODE_SHELF_ERR_UNVERIFIED;
-	if (fzn_spool_file_checkpoint(&h->file, &h->spool) != FZN_SPOOL_OK)
+	if (held_checkpoint(h) != FZN_SPOOL_OK)
 		return FZN_NODE_SHELF_ERR_STORE;
 	return FZN_NODE_SHELF_OK;
 }
@@ -718,6 +992,25 @@ static fzn_node_shelf_err_t fetch_spans(fzn_node_shelf_t *shelf, held_t *h,
  * file open; HELD when the text is here whole already, and the file is not
  * opened then. */
 #define HELD_ALREADY 1
+
+/* THE DISK WOULD NOT TAKE THIS TEXT: begun in RAM, sec 919. */
+static int receive_in_ram(fzn_node_shelf_t *shelf, held_t *h,
+                          const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length,
+                          fzn_node_shelf_err_t *err)
+{
+	ram_t *r = ram_new(shelf, length, 0);
+
+	if (!r) {
+		*err = FZN_NODE_SHELF_ERR_STORE;
+		return 0;
+	}
+	memcpy(r->root, root, FZN_BLOB_HASH_LEN);
+	ram_link(shelf, r);
+	if (!ram_hold(r, h))
+		*err = FZN_NODE_SHELF_ERR_STORE;
+	return 0;
+}
+
 static int open_to_receive(fzn_node_shelf_t *shelf, held_t *h,
                            const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length,
                            fzn_node_shelf_err_t *err)
@@ -726,6 +1019,7 @@ static int open_to_receive(fzn_node_shelf_t *shelf, held_t *h,
 	const fzn_spool_ops_t *ops;
 	uint64_t have = 0, before = 0;
 	int had_length;
+	ram_t *r;
 
 	*err = FZN_NODE_SHELF_OK;
 	memset(h, 0, sizeof(*h));
@@ -740,16 +1034,30 @@ static int open_to_receive(fzn_node_shelf_t *shelf, held_t *h,
 		return HELD_ALREADY;
 	}
 	h->length = length;
+	if ((r = ram_find(shelf, root)) != NULL) {
+		if (!ram_hold(r, h)) {
+			*err = FZN_NODE_SHELF_ERR_STORE;
+			return 0;
+		}
+		if (r->length == length)
+			return 0;
+		/* THE RULE BELOW, FOR A TEXT BEGUN IN RAM: a last leaf proved its length,
+		 * and a length that proved nothing is begun again at the new one. */
+		if (fzn_spool_has(&h->spool, r->leaves - 1u)) {
+			*err = FZN_NODE_SHELF_ERR_MALFORMED;
+			return 0;
+		}
+		ram_forget(shelf, r);
+		return receive_in_ram(shelf, h, root, length, err);
+	}
 	if (!path_of(shelf, root, "", path) || !path_of(shelf, root, ".len", len_path)) {
 		*err = FZN_NODE_SHELF_ERR_MALFORMED;
 		return 0;
 	}
 	had_length = read_length(len_path, &before);
 	ops = fzn_spool_file_open(&h->file, path);
-	if (!ops) {
-		*err = FZN_NODE_SHELF_ERR_STORE;
-		return 0;
-	}
+	if (!ops)
+		return receive_in_ram(shelf, h, root, length, err);
 	/* RESUMED, so a fetch cut off part way asks only for the rest. */
 	(void)fzn_spool_file_resume(&h->file, root, h->leaves, h->present, sizeof(h->present));
 	if (fzn_spool_open(&h->spool, root, h->leaves, h->present, sizeof(h->present), ops)
@@ -770,8 +1078,8 @@ static int open_to_receive(fzn_node_shelf_t *shelf, held_t *h,
 	}
 	if (!write_length(shelf, root, length)) {
 		fzn_spool_file_close(&h->file);
-		*err = FZN_NODE_SHELF_ERR_STORE;
-		return 0;
+		h->file.fd = -1;
+		return receive_in_ram(shelf, h, root, length, err);
 	}
 	return 0;
 }
@@ -846,7 +1154,7 @@ static fzn_node_shelf_err_t fetch_with(fzn_node_shelf_t *shelf,
 	if (open_to_receive(shelf, &h, root, length, &err) == HELD_ALREADY || err != FZN_NODE_SHELF_OK)
 		return err;
 	err = fetch_spans(shelf, &h, root, ask, ask_ctx, span);
-	if (fzn_spool_file_checkpoint(&h.file, &h.spool) != FZN_SPOOL_OK
+	if (held_checkpoint(&h) != FZN_SPOOL_OK
 	    && err == FZN_NODE_SHELF_OK)
 		err = FZN_NODE_SHELF_ERR_STORE;
 	fzn_spool_file_close(&h.file);
