@@ -80868,14 +80868,14 @@ back with its ports moved and no other suite up, so ports were not it. C takes i
 pairing once, says so 15 ms past the reconcile line, and the script read the log
 at that line and stopped the daemon: read after the stop now, 5 of 5 and more.
 
-**`live_contacts` under the sanitizer, open.** Bounds of 90 and 150 s at e2 and f2
-are 180 and 300 now, a sanitized round being 66 s, and neither failed again. **f0
-failed 3 runs of 9 in a row, at 300 s as at 150, so it was no bound, and then
-passed 17 of 17 and the full run, with nothing changed between.** Why it stopped
-is not known, and passing is what an intermittent fault does. In one failing run,
-S's last three rounds offered no line and R and R2 weighed none. That was a tail
-of the log, since deleted: whether S offered earlier was not read. Not seen plain.
-If it returns, keep the logs and read S's whole delivery.
+**`live_contacts` f0, explained 2026-11-06.** Bounds of 90 and 150 s at e2 and f2 are
+180 and 300 now, a sanitized round being 66 s. f0 went on failing now and then, in
+the plain suite too, so "under the sanitizer" was wrong, and so was reading a tail
+of S's log as S offering nothing. With every log kept: S delivered the line, and
+**R3 filed and settled it.** R3 has no address of its own, but says hello to R, and R
+advertises where a host was seen (sec 697), so S may reach it, by timing. That is
+right. The script looked only at R and R2, believing R3 unreachable. It now takes R3
+as a filer, and such a run leaves sec 802 unasked.
 
 **`make livecheck-san` at `4677d9d`, nothing beside it:** 21 scripts, no report,
 leaks on: its first clean run.
@@ -80895,7 +80895,6 @@ its daemons, whose process groups are their own. Stop one with `-s INT`, or let 
 reach its own deadline.
 
 **Waiting on the holder:**
-- Whether fzpd stands (sec 902).
 - A right to hold a word's events for `any` (netcfgd's asking): sec 883 refused
   `any=r`, and it would let any local user take the 4 held slots.
 
@@ -80905,20 +80904,24 @@ side. Open from before: a staged clear (sec 873), sec 880's limits.
 
 ## 902. fzpd is gone, and a member's high water asked about, 2026-11-05
 
-From fuzzypickles (inbox message 20261105T1213Z): its `ec5b9c2` removes fzpd, its
-core and 98 scenarios on the holder's word, and its clients run on this node alone.
-Their pin stands at `aaf69c2`.
+**~~fzpd is gone.~~ It stays.** Fuzzypickles' message 20261105T1213Z said its
+`ec5b9c2` removed fzpd, and its message 20261105T2325Z corrects that: fzpd is
+`fzn_daemon_main` with a small main of theirs, ext all zero for now, and fuzzypickles
+ships it, on Android as `libfzpd.so`. The holder, there: "All fuzznet-based software
+has full functionality and is able to coexist even when they write the same files
+and deal with the same estate, fuzzypickles does not install fuzznetd, we use it
+for testing the aforementioned coexistence", and "fzpd will at some point diverge
+with unique code surrounding its fuzznet core." And here: their shape is to be more
+like fuzznetd than they were, almost completely.
 
 **And the holder, 2026-11-05, here: "fzpd and netcfgd are to remain, fuzznetd is
 primarily used by fuzznet-based software to test concurrency with their own daemon,
 as two of the exact same daemon shouldn't be able to occupy the exact same
-namespace."** That does not fit the removal above, whose commit quotes the holder's
-"go ahead with step 3, clients are just mostly deactivated functionality server
-nodes". Which stands is the holder's, put to them. A daemon of a consumer's is
-`fzn_daemon_main` with its extension (sec 667), so what fuzznet offers either way
-is unchanged. Also the holder's, the same day: clients have the same basic
+namespace."** Also the holder's, the same day: clients have the same basic
 capabilities as nodes, most features hardcoded out, and understand and make the
-same checks any node would.
+same checks any node would; most features should be possible on a local link, a
+local user being a principal rules can name; and fuzznet nodes should handle
+thousands of connections, tested, with no limit but one a hard requirement needs.
 
 **For `tool/live_fzp.py`:** `--socket-path`, `--state-dir`, `--profile`, `--config`,
 `--peer-port` and `--via` are gone. `--my-address` and `--address` are read and
