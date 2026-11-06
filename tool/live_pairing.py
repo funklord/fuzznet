@@ -356,7 +356,7 @@ def main(argv):
 			rows = [r.split(",") for r in reply[1:]]
 			if reply[:1] != ["ok"] or len(rows) != 1 or rows[0][1] != "3" \
 			   or rows[0][3:] != ["59.3293230", "18.0685810", "1792600000", "31", "90", "5", "9",
-			                      "20", "0"]:
+			                      "20", "0", "-"]:
 				raise failed("g: A lists %r, not its fix exact" % reply)
 			time.sleep(2.5)
 			fetched(lambda: any(r.startswith(keys["a"][:16] + ",")
