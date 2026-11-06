@@ -81355,3 +81355,29 @@ local socket, which is the part hardest to see the worth of with one consumer a 
 
 **Not measured:** which modules each consumer links. That would make "very little
 overlap" a number.
+
+## 916. A store that cannot be written stops a host from opening, 2026-11-06
+
+Netcfgd's 20261106T1027Z, with what it reports the holder said there: "fuzznet must not
+be able to fail in this way. It is a vital control protocol. Even if we can't write, we
+must have all core functionality working in RAM. And we must start pruning history so we
+don't start filling RAM and have to oom-die." A relay, so asked of the holder here.
+
+**Reproduced here at `35e3261`:** a store made, bind-mounted read-only in a namespace,
+and a daemon started on it: `the claim at .../claim would not open`, exit 1. No node, no
+socket, no protocol. Netcfgd measured the other two: full while running, it stays up and
+says a record was not kept; started on a full store, it serves.
+
+**What it would take, read and not built:**
+- **The claim** (one daemon to a store) cannot be made on a read-only filesystem, and has
+  to be held some other way, or given up there.
+- **A RAM layer over `fzn_persist_ops_t`:** reads fall through to the file store, and a
+  save the file store refuses stays in RAM, under a budget, oldest non-core rows going
+  first. The ops table makes this one module.
+- **Writers that do not go through those ops,** the record store, spool files and logs,
+  each need the same answer. That is the larger part.
+- **A store that cannot be read** holds the key: netcfgd asks what identity a host then
+  has. Not answered.
+
+**Asked by netcfgd:** a call that says a host is running from RAM, in place of its
+statvfs every 10 s. It keeps `netcfgd.sock` until this exists.
