@@ -81720,7 +81720,7 @@ daemon, which is the test's positive control.
 | 1 | add contact quadratic | fixed, sec 926 and above |
 | 2 | a reply holds 1 KB | left: see below |
 | 3 | a group's roster cut | `get group NAME member [FROM]`, paged. The 256 stands |
-| 4 | 16384 notes | stands. Sec 914's tables are static, 22 MB of titles alone, and 200000 wants them grown on the heap |
+| 4 | 16384 notes | stands: sec 928 |
 | 5 | a call a contact for location | `list stream NAME granted [FROM]`: `ok TOTAL FROM CONTACT,LEVEL` |
 | 6 | 20 ms a request | fixed above |
 | 7 | no admin flag | `list group` ends `,ADMIN`, 1 where this user may change it |
@@ -81734,3 +81734,17 @@ contacts is about a second, so the cost it would save is gone. Not needed until 
 **Rosters past 256 and notes past 16384** are one job: a `fzn_group_t` is copied whole into 30
 static buffers and saved as one row, so tens of thousands of members wants it paged on disk
 too, not a larger constant. Not started.
+
+## 928. A note's cost, and what stands before hundreds of thousands, 2026-11-06
+
+`add note` was the same shape as sec 926: 18 ms at 1200 notes, 1000 opens an add at 850. The
+cache now holds `note` too, with rows of up to 4 KiB and 64 MiB a slot, and answers `list` from
+RAM. A slot past its budget is not whole, and what it lacks is asked of the store. An add is
+flat at about 3.6 ms to 1200.
+
+**`FZN_NOTES_MAX` cannot simply be raised.** At 65536 the daemon does not link: `relocation
+truncated`, its static tables past the 2 GB a small code model reaches, and 262144 the same.
+So sec 914's raising of a number is over for this bound. **What it takes:** the tables that
+hold every note at once, about 30 in `notes/` and `node/`, on the heap and grown as sec 704's
+contacts are, starting with what `share_talks` multiplies. Not started. Rosters past 256, sec
+927, are the same kind of job.

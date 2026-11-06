@@ -23,6 +23,10 @@
 #include "persist.h"
 
 #define FZN_PERSIST_CACHE_BUCKETS 16384u
+/* A row past this is not held, and leaves the slot not whole. */
+#define FZN_PERSIST_CACHE_ROW_MAX 4096u
+/* What one slot may hold. Past it the rest is asked of the store. */
+#define FZN_PERSIST_CACHE_BUDGET_DEFAULT (64u * 1024u * 1024u)
 
 struct fzn_persist_cache_row;
 
@@ -32,8 +36,9 @@ typedef struct fzn_persist_cache {
 	void *(*alloc)(size_t len); /* NULL: malloc and free, so a test can refuse */
 	void (*release)(void *at);
 	struct fzn_persist_cache_row **buckets; /* made at the first walk */
-	size_t rows;
+	size_t rows, bytes, budget;
 	int whole; /* every row of the slot is here, so a miss is an absence */
+	unsigned rest; /* walks to leave to the store, after a fill that could not finish */
 	unsigned long walks, misses;
 	uint64_t changes; /* saves and removes of the slot, so a list can tell it is current */
 } fzn_persist_cache_t;

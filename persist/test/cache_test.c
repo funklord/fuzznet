@@ -198,6 +198,33 @@ int main(void)
 	refuse_writes = 0;
 	CHECK(reads(&ops, 2u, 102u), "and the row is still there");
 
+	/* LISTED FROM RAM, a short room refused as the ops say. */
+	{
+		uint8_t subjects[8][FZN_PUBKEY_LEN];
+		size_t n = 0;
+
+		CHECK(count(&ops) == 5u && c.whole, "fixture: whole");
+		before = loads;
+		walks = 0;
+		CHECK(ops.list(ops.ctx, SLOT, (uint8_t *)subjects, 8u, &n) && n == 5u && walks == 0u
+		              && loads == before,
+		      "a list asks no store");
+		CHECK(!ops.list(ops.ctx, SLOT, (uint8_t *)subjects, 4u, &n), "a list past its room fails");
+	}
+
+	/* A BUDGET: past it, what is left is the store's. */
+	fzn_persist_cache_drop(&c);
+	c.budget = 2u;
+	CHECK(count(&ops) == 5u && !c.whole && c.rows == 2u, "past the budget the slot is not whole");
+	CHECK(reads(&ops, 1u, 101u) && reads(&ops, 5u, 105u), "and all of it reads");
+	c.budget = FZN_PERSIST_CACHE_BUDGET_DEFAULT;
+
+	/* A FAILED FILL RESTS: not retried on each walk. */
+	walks = 0;
+	before = loads;
+	CHECK(count(&ops) == 5u && walks == 1u && loads == before,
+	      "a walk after a failed fill goes straight to the store");
+
 	/* A ROW THAT WILL NOT READ: walked, and not called absent. */
 	fzn_persist_cache_drop(&c);
 	key(k, 4u);

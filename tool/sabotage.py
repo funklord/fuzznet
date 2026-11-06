@@ -14631,8 +14631,8 @@ SABOTAGES = [
 	(
 		"cache-unreadable-is-absent",
 		"persist/cache.c",
-		"\tc->whole = f.ok;\n\treturn f.ok;\n",
-		"\tc->whole = 1;\n\treturn 1;\n",
+		"\tc->whole = f.ok;\n\tif (!f.ok)\n",
+		"\tc->whole = 1;\n\tif (!f.ok)\n",
 		"a row that would not read is called absent, a contact gone by a bad sector -- sec 926",
 	),
 	(

@@ -11,8 +11,11 @@ typedef struct fzn_persist_cache_row {
 	struct fzn_persist_cache_row *chain;
 	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len;
-	uint8_t bytes[FZN_PERSIST_MAX];
+	uint8_t bytes[];
 } row_t;
+
+/* A FILL THAT COULD NOT FINISH is not tried on every walk: it costs what it saves. */
+#define REST_AFTER_A_FAILED_FILL 1024u
 
 static void *take(const fzn_persist_cache_t *c, size_t len)
 {
@@ -58,6 +61,7 @@ static void forget(fzn_persist_cache_t *c, const uint8_t *subject)
 			row_t *r = *at;
 
 			*at = r->chain;
+			c->bytes -= r->len;
 			give(c, r);
 			c->rows--;
 			return;
@@ -68,26 +72,27 @@ static void forget(fzn_persist_cache_t *c, const uint8_t *subject)
  * whole, when there is no room or it will not fit. */
 static int keep(fzn_persist_cache_t *c, const uint8_t *subject, const uint8_t *bytes, size_t len)
 {
-	row_t *r = find(c, subject);
+	row_t *r;
+	size_t b;
 
 	if (!c->buckets)
 		return 0;
-	if (!r && len <= FZN_PERSIST_MAX && (r = take(c, sizeof(*r))) != NULL) {
-		size_t b = bucket_of(subject);
-
-		memcpy(r->subject, subject, FZN_PUBKEY_LEN);
-		r->chain = c->buckets[b];
-		c->buckets[b] = r;
-		c->rows++;
-	}
-	if (!r || len > FZN_PERSIST_MAX) {
-		forget(c, subject);
+	/* A NEW ROW EACH TIME, as a row's length is its own. */
+	forget(c, subject);
+	if (len > FZN_PERSIST_CACHE_ROW_MAX || c->bytes + len > c->budget
+	    || !(r = take(c, sizeof(*r) + len))) {
 		c->whole = 0;
 		return 0;
 	}
+	b = bucket_of(subject);
+	memcpy(r->subject, subject, FZN_PUBKEY_LEN);
 	if (len)
 		memcpy(r->bytes, bytes, len);
 	r->len = len;
+	r->chain = c->buckets[b];
+	c->buckets[b] = r;
+	c->rows++;
+	c->bytes += len;
 	return 1;
 }
 
@@ -154,12 +159,6 @@ static int cache_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subje
 	return 1;
 }
 
-static int cache_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max, size_t *count)
-{
-	fzn_persist_cache_t *c = ctx;
-
-	return c->base->list && c->base->list(c->base->ctx, slot, out, max, count);
-}
 
 /* A ROW OF THE STORE'S, read in on the first walk. One that will not read is not
  * walked past here: its caller is told of it, and the cache is not whole. */
@@ -171,7 +170,7 @@ struct filling {
 static int filled(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
 {
 	struct filling *f = arg;
-	uint8_t bytes[FZN_PERSIST_MAX];
+	static uint8_t bytes[FZN_PERSIST_CACHE_ROW_MAX];
 	size_t len = 0;
 
 	if (!f->c->base->load(f->c->base->ctx, f->c->slot, subject, bytes, sizeof(bytes), &len)
@@ -195,9 +194,43 @@ static int fill(fzn_persist_cache_t *c)
 	f.c = c;
 	f.ok = 1;
 	if (!fzn_persist_each(c->base, c->slot, filled, &f))
-		return 0;
+		f.ok = 0;
 	c->whole = f.ok;
+	if (!f.ok)
+		c->rest = REST_AFTER_A_FAILED_FILL;
 	return f.ok;
+}
+
+/* The slot held whole, by a fill if it is time for one. */
+static int held_whole(fzn_persist_cache_t *c)
+{
+	if (c->whole)
+		return 1;
+	if (c->rest) {
+		c->rest--;
+		return 0;
+	}
+	return fill(c);
+}
+
+static int cache_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max, size_t *count)
+{
+	fzn_persist_cache_t *c = ctx;
+	size_t b, n = 0;
+
+	if (slot != c->slot || !held_whole(c))
+		return c->base->list && c->base->list(c->base->ctx, slot, out, max, count);
+	/* TRUNCATION IS A FAILURE, by the ops' own rule. */
+	if (c->rows > max)
+		return 0;
+	for (b = 0; b < FZN_PERSIST_CACHE_BUCKETS; b++) {
+		const row_t *r;
+
+		for (r = c->buckets[b]; r; r = r->chain)
+			memcpy(out + (n++) * FZN_PUBKEY_LEN, r->subject, FZN_PUBKEY_LEN);
+	}
+	*count = n;
+	return 1;
 }
 
 static int cache_each(void *ctx, fzn_persist_slot_t slot,
@@ -206,7 +239,7 @@ static int cache_each(void *ctx, fzn_persist_slot_t slot,
 	fzn_persist_cache_t *c = ctx;
 	size_t b;
 
-	if (slot != c->slot || (!c->whole && !fill(c)))
+	if (slot != c->slot || !held_whole(c))
 		return fzn_persist_each(c->base, slot, fn, arg);
 	c->walks++;
 	for (b = 0; b < FZN_PERSIST_CACHE_BUCKETS; b++) {
@@ -235,7 +268,9 @@ void fzn_persist_cache_drop(fzn_persist_cache_t *c)
 	give(c, c->buckets);
 	c->buckets = NULL;
 	c->rows = 0;
+	c->bytes = 0;
 	c->whole = 0;
+	c->rest = 0;
 }
 
 void fzn_persist_cache_init(fzn_persist_cache_t *c, const fzn_persist_ops_t *base,
@@ -244,6 +279,7 @@ void fzn_persist_cache_init(fzn_persist_cache_t *c, const fzn_persist_ops_t *bas
 	memset(c, 0, sizeof(*c));
 	c->base = base;
 	c->slot = slot;
+	c->budget = FZN_PERSIST_CACHE_BUDGET_DEFAULT;
 	memset(ops, 0, sizeof(*ops));
 	ops->load = cache_load;
 	ops->save = cache_save;
