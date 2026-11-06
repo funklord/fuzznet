@@ -14622,6 +14622,27 @@ SABOTAGES = [
 		"a rule naming one host lets in every member -- sec 921",
 	),
 	(
+		"cache-refused-save-still-whole",
+		"persist/cache.c",
+		"\t\tif (slot == c->slot && subject) {\n\t\t\tforget(c, subject);\n\t\t\tc->whole = 0;\n\t\t}\n\t\treturn 0;\n\t}\n\tif (slot == c->slot && subject && c->buckets)\n",
+		"\t\treturn 0;\n\t}\n\tif (slot == c->slot && subject && c->buckets)\n",
+		"after a refused save the cache says what it held, whatever the store now does -- sec 926",
+	),
+	(
+		"cache-unreadable-is-absent",
+		"persist/cache.c",
+		"\tc->whole = f.ok;\n\treturn f.ok;\n",
+		"\tc->whole = 1;\n\treturn 1;\n",
+		"a row that would not read is called absent, a contact gone by a bad sector -- sec 926",
+	),
+	(
+		"cache-remove-leaves-row",
+		"persist/cache.c",
+		"\tif (slot == c->slot && subject)\n\t\tforget(c, subject);\n\treturn 1;\n",
+		"\treturn 1;\n",
+		"a removed contact goes on being found -- sec 926",
+	),
+	(
 		"delta-flush-past-refusal",
 		"persist/delta.c",
 		"\t\tif (!wrote) {\n\t\t\td->stuck = 1;\n\t\t\treturn done;\n\t\t}\n",

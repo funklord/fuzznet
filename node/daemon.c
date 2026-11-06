@@ -42,6 +42,7 @@
 
 #include "daemon.h"
 #include "../device/device.h"
+#include "../persist/cache.h"
 #include "../persist/delta.h"
 #include "pressure.h"
 #include "types.h"
@@ -439,6 +440,8 @@ static uint64_t node_started;
 
 /* THE STORE'S DELTA AND THE HOST'S PRESSURE, sec 917. */
 static fzn_persist_delta_t store_delta;
+static fzn_persist_cache_t contact_cache;
+static fzn_persist_ops_t contact_cached;
 static fzn_persist_ops_t store_delta_ops;
 static int store_delta_on;
 static fzn_pressure_t host_pressure;
@@ -18845,8 +18848,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			return 1;
 		}
 		fzn_persist_route_ops(&route, &routed);
+		/* THE CONTACTS IN RAM, sec 926: looked up by name, so walked often. */
+		fzn_persist_cache_init(&contact_cache, &routed, FZN_PERSIST_CONTACT, &contact_cached);
 		/* A STORE THAT GOES ON WHEN ITS DISK WILL NOT, sec 917. */
-		fzn_persist_delta_init(&store_delta, &routed, 0u, &store_delta_ops);
+		fzn_persist_delta_init(&store_delta, &contact_cached, 0u, &store_delta_ops);
 		store_delta_on = 1;
 		store_ops = &store_delta_ops;
 		dlog.store = store_ops;

@@ -81683,3 +81683,22 @@ privileged daemon, which fuzznet is not and netcfgd's is for its own reasons.
 - **A terminal does:** a procedure answers once, in 4096 bytes. A two-way stream at
   keystroke latency is sec 924's session frame, or as near as the full frame comes.
 - **The ladder's fifth turn class** (sec 917) is not built, as there is no traffic to give it.
+
+## 926. A contact found without opening every contact, 2026-11-06
+
+**Fuzzypickles' 20261106T1420Z,** measured at its holder-given figures of tens of thousands of
+contacts: `add contact` took 16 ms at first and 100 ms at 1600, quadratic overall. Reproduced
+at 33 ms by 1000, and traced: 1600 opens an add at 800 contacts, as the slot is one file a row
+and a name is found by walking them (`fzn_contact_find`, `fzn_contact_each`).
+
+**`persist/cache.{h,c}` holds one slot's rows in RAM.** The first walk reads them; after it a
+load, a walk and a miss touch no disk. A save or remove goes to the store first and the row
+follows what it took, so it never says what the store does not hold, and a row that will not
+read or no memory leaves it not whole: slower, not wrong. Beneath the delta, so a row the disk
+refused is the delta's and one the delta gives up was never here. **Only `contact` for now:**
+it is what a name walks, and rows are at most 96 bytes.
+
+Measured after: 7.5 ms an add at 1000, 10.3 at 2000, a floor of 5.5 ms that is one `fsync` and
+rename. **Still linear in the contacts,** as a walk in RAM is, so a hash by name is the next
+step if 20000 proves slow. A status stayed flat at 0.2 ms both ways, so fuzzypickles' item 6,
+20 ms a request at 1500, was not seen on `status` and awaits its own rerun.
