@@ -81467,3 +81467,33 @@ are at risk.
   refuses are lost from the file. Debug lines are not yet held back first.
 - **A store that cannot be READ** is still refused: `fzn_persist_file_holds` says it cannot
   tell, and a host never makes a new key over that, or it comes up a stranger.
+
+## 918. Netcfgd on a RAM host, and beerssh's shell, 2026-11-06
+
+**Netcfgd's 20261106T1216Z, on the holder's word there:**
+- Pinned at `e9b815a3`, its 10 s linger gone, and `make daemon-flags` links its phone
+  daemon with `FUZZNETD_LINK` no longer named: the same 3109 symbols, 16 bytes more
+  stripped, arm64-v8a too. That is sec 907 working for a consumer.
+- **What it needs up on a RAM host:** `ask`, `askpart`, `status`, `eventlog`, `hosts`,
+  `get events`, the remote hop, `list peer`. It writes only `add record`, which may be lost.
+  Not yet run against sec 917 by netcfgd.
+- **Unstaged on either side:** a store going read-only under a running daemon. A remount is
+  refused as busy while files are open for writing; the kernel's own remount after an I/O
+  error does not ask. Sec 917's a starts read-only and c fills a disk running, so the
+  delta's path is the same, but this route is not measured.
+- **The key:** netcfgd goes on managing a network with no identity, so a host that cannot
+  read its key need not stop for its sake, if it can tell. Sec 917 still refuses. The
+  holder's to weigh: what a host with no key may do.
+- `netcfgd.sock` goes once it has moved to `get node`.
+
+**Beerssh's 20261106T1232Z.** Its v2 session design wants, as requests: a shell service
+(a capability, started as the right user, a one-shot command apart from a terminal session
+above the core); a compact session frame, 144 bytes being about 173 a keystroke with IP
+and UDP; "only with spare bandwidth" for a low stream beside a latency-sensitive one; and
+whether two apps on one phone each hold their own identity. And a measurement: terminal
+output cannot be `fzn_log`, 81 MB/s through a pty against 512-byte bodies and 7507
+signatures a second, and it holds secrets. Its byte log is plain C so it can move here.
+
+**Read against this tree, not built:** the shell is sec 915's hybrid and sec 917's fifth
+turn class. Its frame is the same question as sec 912's smaller head, from the other end,
+so two consumers now ask it. Open with the holder.
