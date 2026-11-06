@@ -105,7 +105,24 @@ def stop_process(proc, wrapped):
 	/dev/shm only when its child exits, so signalling the group killed it
 	first and left them behind. They accumulated -- 55 pairs in a day --
 	until a wrapper given a recycled pid met a stale name and refused to
-	start ("sem_open: File exists"). project.md sec 555."""
+	start ("sem_open: File exists"). project.md sec 555.
+
+	AND ITS TWO NAMES GO HOWEVER IT ENDED, sec 917: a wrapper KILLed, or dead
+	before this was called, removes nothing. By its own pid, so a concurrent
+	run's are not touched."""
+	try:
+		stop_quietly(proc, wrapped)
+	finally:
+		if wrapped and proc.poll() is not None:
+			for name in ("sem.faketime_sem_%d", "faketime_shm_%d"):
+				try:
+					os.unlink("/dev/shm/" + name % proc.pid)
+				except OSError:
+					pass
+
+
+def stop_quietly(proc, wrapped):
+	"""`stop_process`, its stopping."""
 	if proc.poll() is not None:
 		return
 	kids = []
