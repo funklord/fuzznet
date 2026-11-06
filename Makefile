@@ -224,7 +224,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
-             net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/pressure.c record/store_held.c fault/fault.c \
+             net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
              node/node.c node/local.c node/remote.c node/serve.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
@@ -326,7 +326,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/client.h local/escape.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
-             net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/pressure.h record/store_held.h fault/fault.h \
+             net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
              node/node.h node/local.h node/remote.h node/serve.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
@@ -481,7 +481,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
-             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c \
+             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c node/test/verify_memo_test.c \
              node/test/pressure_test.c record/test/held_test.c \
              node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c node/test/stage_fuzz.c \
              node/test/serve_test.c node/test/replies_test.c \
@@ -637,6 +637,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/net/test/bearer_test \
              $(BUILD_DIR)/persist/test/delta_test \
              $(BUILD_DIR)/persist/test/cache_test \
+             $(BUILD_DIR)/node/test/verify_memo_test \
              $(BUILD_DIR)/node/test/pressure_test \
              $(BUILD_DIR)/record/test/held_test \
              $(BUILD_DIR)/node/test/node_test \
@@ -3979,6 +3980,11 @@ $(BUILD_DIR)/persist/test/delta_test: $(BUILD_DIR)/persist/test/delta_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/node/test/verify_memo_test: $(BUILD_DIR)/node/test/verify_memo_test.o \
+                                         $(BUILD_DIR)/node/verify_memo.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/persist/test/cache_test: $(BUILD_DIR)/persist/test/cache_test.o \
                                       $(BUILD_DIR)/persist/cache.o $(PERSIST_OBJS)
 	@mkdir -p $(dir $@)
@@ -4726,7 +4732,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # "serve.h" without -Inode. FUZZNETD_LINK is everything but that main: the
 # node as a call (sec 670), which another daemon's main links too.
 FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
-              $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/persist/cache.o $(BUILD_DIR)/node/pressure.o \
+              $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/persist/cache.o $(BUILD_DIR)/node/verify_memo.o $(BUILD_DIR)/node/pressure.o \
               $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \

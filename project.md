@@ -81785,3 +81785,25 @@ Static memory goes to 1.14 GB, untouched until used.
 **A group is still one row:** each act rewrites it, so an add grows about 10 ms a thousand, and
 30000 members take about an hour and a half to add. A row a member is the end of that. Sealing an
 epoch to every host is linear too, and belongs to sec 625's design, not to this bound.
+
+## 931. A round that held the loop, 2026-11-06
+
+**Fuzzypickles' 20261106T1825Z, at `13235fc`:** past 1500 to 1700 contacts a run of `add contact`
+failed with no answer in time, and answered again, and 20000 did not reach 5000 in nine minutes,
+so rounds grew with the contacts. It asked for a round that yields, or that costs what changed.
+
+**Sampled in the stall:** Ed25519 checks. Settings are verified whenever they are read, so
+`fzn_node_settings_each` and `standing` cost a check a row, about 150 us, several walks a round,
+over everything held; applying a round's new records added its own.
+
+**`node/verify_memo.{h,c}` remembers a signature that verified,** by a hash of key, message and
+signature, as `fzn_sign_ops_t` over the real one, so every path has it. Only a success is kept
+and the whole digest compared, so any byte different is checked afresh. 262144 slots, 8 MB when
+filled. It says nothing of whether a key still stands, which was never the check's.
+
+**Measured:** 17000 contacts in 160 s on this machine, an add at 15 ms, none past a 3 s wait, a
+round landing every 60 s among them. Before, the wait ran out at about 1700.
+
+**Not done, and not now needed:** a round still does not yield. A burst of writes costs one
+real check each in the next round, so 9000 new contacts is seconds of a held loop. A budget a
+round would end that; it was not measured to matter.

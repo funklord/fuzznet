@@ -43,6 +43,7 @@
 #include "daemon.h"
 #include "../device/device.h"
 #include "../persist/cache.h"
+#include "verify_memo.h"
 #include "../persist/delta.h"
 #include "pressure.h"
 #include "types.h"
@@ -18457,6 +18458,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	fzn_aead_ops_t aead_ops;
 	fzn_random_ops_t rng_ops;
 	fzn_sign_ops_t sign_ops;
+	static fzn_sign_ops_t sign_ops_checked;
+	static fzn_verify_memo_t verify_memo;
 	fzn_sign_seat_t seat;
 	/* A SECOND SIGNER for the root key this node may hold beside its
 	 * identity, sec 409: two keys, two seats, never one signer re-armed. */
@@ -18848,7 +18851,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	fzn_aead_monocypher_init(&aead_ops);
 	fzn_random_system_init(&rng_ops);
 	memset(&signer, 0, sizeof(signer));
-	fzn_sign_monocypher_init(&sign_ops, &signer);
+	fzn_sign_monocypher_init(&sign_ops_checked, &signer);
+	/* A SIGNATURE CHECKED ONCE, sec 931. */
+	fzn_verify_memo_init(&verify_memo, &sign_ops_checked, &hash_ops, &sign_ops);
 	fzn_sign_monocypher_seat_init(&seat, &signer);
 	fzn_sign_monocypher_init(&root_sign_ops, &root_signer);
 	fzn_sign_monocypher_seat_init(&root_seat, &root_signer);

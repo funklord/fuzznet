@@ -14643,6 +14643,20 @@ SABOTAGES = [
 		"a removed contact goes on being found -- sec 926",
 	),
 	(
+		"memo-forgets-the-message",
+		"node/verify_memo.c",
+		"\tif (!m->hash->hash(m->hash->ctx, all, FZN_VERIFY_MEMO_DIGEST, msg, msg_len))\n\t\treturn 0;\n",
+		"\tmemset(all, 0, FZN_VERIFY_MEMO_DIGEST);\n\t(void)msg;\n\t(void)msg_len;\n",
+		"a signature good for one message passes for any other -- sec 931",
+	),
+	(
+		"memo-keeps-a-failure",
+		"node/verify_memo.c",
+		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig))\n\t\treturn 0;\n\tif (slot)\n",
+		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig)) {\n\t\tif (slot)\n\t\t\tmemcpy(slot, digest, FZN_VERIFY_MEMO_DIGEST);\n\t\treturn 0;\n\t}\n\tif (slot)\n",
+		"a forgery remembered passes the second time it is shown -- sec 931",
+	),
+	(
 		"delta-flush-past-refusal",
 		"persist/delta.c",
 		"\t\tif (!wrote) {\n\t\t\td->stuck = 1;\n\t\t\treturn done;\n\t\t}\n",

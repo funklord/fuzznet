@@ -347,5 +347,6 @@ __pycache__/
 /net/test/bearer_test
 /persist/test/delta_test
 /persist/test/cache_test
+/node/test/verify_memo_test
 /node/test/pressure_test
 /record/test/held_test
