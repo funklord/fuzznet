@@ -226,6 +226,64 @@ static fzn_node_serve_err_t exchange_judged(const fzn_node_config_t *cfg, const 
 	return r;
 }
 
+/* HELD, sec 899: another user `hears` lets is subscribed as held, whatever the
+ * policy says of it; one it does not is refused; and this node's own user holds
+ * a whole subscription, never asking. */
+static int hears_said, hears_asked;
+
+static int hears_stub(void *ctx, const fzn_peer_t *peer)
+{
+	(void)ctx;
+	(void)peer;
+	hears_asked++;
+	return hears_said;
+}
+
+static void held_exchange(const fzn_node_config_t *cfg, const fzn_peer_t *p, const char *line,
+                          int *subscribed, int *held, char *resp, size_t cap)
+{
+	int sv[2];
+	ssize_t n;
+
+	*subscribed = *held = 0;
+	resp[0] = '\0';
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0)
+		return;
+	wr(sv[0], line, strlen(line));
+	wr(sv[0], "\n", 1);
+	(void)fzn_node_serve_local_held(cfg, sv[1], p, record, NULL, subscribed, NULL, NULL,
+	                                hears_stub, NULL, held);
+	n = read(sv[0], resp, cap - 1u);
+	resp[n > 0 ? (size_t)n : 0] = '\0';
+	close(sv[0]);
+	close(sv[1]);
+}
+
+static void test_a_caller_held(void)
+{
+	fzn_node_config_t cfg = base_config();
+	fzn_peer_t stranger, own;
+	int subscribed, held;
+	char resp[128];
+
+	mk_peer(&stranger, 2000, 0, 0);
+	mk_peer(&own, cfg.uid, 0, 0);
+	hears_said = 1;
+	held_exchange(&cfg, &stranger, "get events", &subscribed, &held, resp, sizeof(resp));
+	ok(subscribed && held && strcmp(resp, "ok events\n") == 0,
+	   "a caller that hears lets was not held");
+	hears_said = 0;
+	held_exchange(&cfg, &stranger, "get events", &subscribed, &held, resp, sizeof(resp));
+	ok(!subscribed && !held && strncmp(resp, "denied", 6) == 0,
+	   "a caller that hears does not let was subscribed");
+	hears_said = 1;
+	held_exchange(&cfg, &stranger, "get status", &subscribed, &held, resp, sizeof(resp));
+	ok(!subscribed && !held, "another verb subscribed");
+	hears_asked = 0;
+	held_exchange(&cfg, &own, "get events", &subscribed, &held, resp, sizeof(resp));
+	ok(subscribed && !held && hears_asked == 0, "this node's own user was held, or asked about");
+}
+
 /* A DENIED CALLER JUDGED, sec 852 -- in fuzznetd by the node's own user's
  * grants (`node/permit.h`): another user, of no
  * group this node serves, reaches the judge alone -- never the node's own
@@ -469,6 +527,7 @@ int main(void)
 	}
 
 	test_a_denied_caller_judged();
+	test_a_caller_held();
 	printf("local_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

@@ -9791,27 +9791,24 @@ static size_t permit_judge(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	                    reply, cap);
 }
 
-/* WHO MAY HOLD `get events WORD`, sec 899: one that may read WORD by a grant.
- * This node's own user is asked the same, so a word nobody granted is no
- * subscription for anyone, and is answered as any verb. */
-static int permit_hears(void *ctx, const fzn_peer_t *peer, const uint8_t *word, size_t len)
+/* WHO BEYOND THIS NODE'S OWN USER MAY HOLD `get events`, sec 899: one the host
+ * setting `local/events` lets read. A setting of its own, as `events` is no
+ * subject a permit may name: what a grant on it would reach is fuzznet's. */
+static int permit_hears(void *ctx, const fzn_peer_t *peer)
 {
-	char key[sizeof(FZN_PERMIT_KEY_PREFIX) + FZN_PERMIT_SUBJECT_MAX];
+	static const char KEY[] = "local/events";
 	uint8_t value[FZN_SETTING_VALUE_MAX];
 	fzn_setting_rank_t rank;
 	size_t value_len = 0;
 
 	(void)ctx;
-	if (!routing_self || !peer || !fzn_node_permit_subject_ok((const char *)word, len))
-		return 0;
-	(void)snprintf(key, sizeof(key), "%s%.*s", FZN_PERMIT_KEY_PREFIX, (int)len,
-	               (const char *)word);
-	if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, routing_self,
-	                           (const uint8_t *)key, strlen(key), value, &value_len, &rank)
+	if (!routing_self || !peer
+	    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, routing_self,
+	                              (const uint8_t *)KEY, sizeof(KEY) - 1u, value, &value_len, &rank)
 	    || !fzn_node_permit_allows(value, value_len, peer, FZN_PERMIT_READ))
 		return 0;
-	say(FZN_ENTRY_INFO, "local/permit", "uid %lu holds %.*s's events, as granted",
-	    (unsigned long)peer->uid, (int)len, (const char *)word);
+	say(FZN_ENTRY_INFO, "local/permit", "uid %lu holds the application's events, as granted",
+	    (unsigned long)peer->uid);
 	return 1;
 }
 

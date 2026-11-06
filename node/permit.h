@@ -22,9 +22,9 @@
  * numeric id. `any=x` lets every local user call the subject (sec 883): a
  * call only, for a procedure judges its own caller, and no fuzznet verb
  * does. A caller so permitted is served that subject's verbs as the
- * node's own user is; nothing is kept for it. One that may read SUBJECT may
- * hold `get events SUBJECT` (sec 899), hearing what the extension publishes
- * as `SUBJECT-...`, and it subscribes to nothing else.
+ * node's own user is; nothing is kept for it. The host setting `local/events`,
+ * of the same grants, lets a caller hold `get events` (sec 899), hearing what
+ * the application publishes, and it subscribes to nothing else.
  *
  * NOT GRANTABLE: the subjects that are the estate's trust -- identity,
  * backup, join, root, admin, peer, grant, capability, revocation, events,

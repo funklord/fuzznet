@@ -125,6 +125,10 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "which local users and groups may read (r) or change (rw) a verb's subject on this "
 	  "host: group:NAME=r user:NAME=rw, #ID for a NAME (sec 852)",
 	  permit_check },
+	{ "local/events", FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
+	  "which local users and groups may hold `get events`, hearing what this application "
+	  "publishes and none of fuzznet's: local:NAME=r local:@GROUP=r (sec 899)",
+	  permit_check },
 	{ "group/member", FZN_SCHEMA_TEXT, HOST, 1u, 255u, "", "", 0u,
 	  "the groups this host is in, first first: a group's settings stand here where the "
 	  "host sets none of its own, and the first group listed that sets one wins (sec 868)",

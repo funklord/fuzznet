@@ -109,7 +109,8 @@ typedef struct fzn_node_state {
 	 * request is answered with nothing: the asker learns of approval from
 	 * the user's first offer (sec 614). NULL drops every box. */
 	void (*on_box)(void *ctx, const uint8_t *box, size_t len, const fzn_udp_addr_t *from);
-	/* WHO MAY HOLD `get events WORD`, sec 899. NULL takes none. */
+	/* WHO BEYOND THIS NODE'S OWN USER MAY HOLD `get events`, sec 899. NULL takes
+	 * none. */
 	fzn_node_local_hears_t hears;
 	void *hears_ctx;
 	/* LOCAL CONNECTIONS NOT YET A WHOLE REQUEST, sec 903, and the poll's own

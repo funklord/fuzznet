@@ -26,10 +26,10 @@
  * AS MANY SUBSCRIBERS AS ASK, sec 903: the table grows. It held 8, fzpd's own
  * bound, and a limit stands here only for a hard requirement that needs it.
  *
- * A HELD SUBSCRIBER, sec 899: `get events WORD`, for a local caller a permit
- * lets read WORD (`node/permit.h`), who is no user of this node. It hears
- * only what an extension published under `WORD-...`, and never one of fuzznet's
- * own, which say what the estate's trust is doing.
+ * A HELD SUBSCRIBER, sec 899: `get events` from a local caller who is no user of
+ * this node, let by the setting `local/events`. It hears what the application
+ * this daemon is publishes (`fzn_daemon_publish`), and never one of fuzznet's own,
+ * which say what the estate's trust is doing.
  */
 #ifndef FZN_NODE_EVENTS_H
 #define FZN_NODE_EVENTS_H
@@ -55,8 +55,8 @@ typedef struct fzn_node_event_kept {
 
 typedef struct fzn_node_events {
 	int *fds;
-	/* A HELD SUBSCRIBER'S WORD; empty for one that hears everything. */
-	char (*only)[FZN_NODE_EVENTS_SUBJECT_MAX + 1u];
+	/* 1 for a held subscriber, 0 for one that hears everything. */
+	uint8_t *held;
 	size_t n, cap;
 	/* NUMBERED FROM 1, the next to be published's; the kept a ring. */
 	uint64_t next;
@@ -74,9 +74,8 @@ void fzn_node_events_init(fzn_node_events_t *ev);
  * is still the caller's. */
 int fzn_node_events_add(fzn_node_events_t *ev, int fd);
 
-/* AS `fzn_node_events_add`, hearing only what an extension publishes under
- * `word`. 0 as there, or for no word. */
-int fzn_node_events_add_held(fzn_node_events_t *ev, int fd, const char *word);
+/* AS `fzn_node_events_add`, hearing only what the application publishes. */
+int fzn_node_events_add_held(fzn_node_events_t *ev, int fd);
 
 /* PUBLISH `event SUBJECT NAME` to every subscriber but those held. SUBJECT a
  * lowercase word, NAME lowercase hex or `-` (NULL for `-`); anything else is
@@ -84,8 +83,7 @@ int fzn_node_events_add_held(fzn_node_events_t *ev, int fd, const char *word);
  * subscribers took it. */
 size_t fzn_node_events_publish(fzn_node_events_t *ev, const char *subject, const char *name);
 
-/* THE SAME FROM AN EXTENSION: and to each subscriber held on the word that
- * opens SUBJECT, up to its first `-`. */
+/* THE SAME FROM THE APPLICATION: and to each held subscriber. */
 size_t fzn_node_events_publish_extension(fzn_node_events_t *ev, const char *subject,
                                          const char *name);
 

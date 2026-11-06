@@ -80799,29 +80799,31 @@ for a stream of its changes. `get events` was the node's own user's, and
 `events` is not grantable, for what it tells of the estate's trust. Polling a
 cursor loses the descriptor a tray and a TUI wait on.
 
-**Built: `get events WORD`.** A caller a permit lets read WORD (`local/permit/WORD`,
-`r`) holds a stream, as `ok events`, of what the extension publishes as `WORD-...`.
-- **Never fuzznet's own.** The node keeps which side published, so a subject of
-  fuzznet's under a word's name is not heard. `fzn_daemon_publish` is the only
-  road in, `fzn_node_events_publish_extension` beneath it.
-- **To the hyphen:** `net` hears `net-drift`, and neither `net` nor `network`.
-- **The same for this node's own user:** a word nobody granted is no
-  subscription for anyone. This user's plain `get events` still hears everything.
-- **At most 4 of the 8,** so others' subscribers cannot fill the room this node's
-  own user needs.
+**Built: `get events` for a caller the host setting `local/events` lets read,** which
+holds a stream, as `ok events`, of what the application publishes.
+- **Never fuzznet's own.** The node keeps which side published.
+  `fzn_daemon_publish` is the only road in, `fzn_node_events_publish_extension`
+  beneath it.
+- **No word.** It first took one, `get events WORD`, with a permit on WORD and
+  subjects under `WORD-`: a second name for an application the daemon already is.
+  The holder had it removed. A daemon runs one application, so there is nothing to
+  name. Its subjects are its own to spell.
+- **A setting of its own,** since `events` is no subject a permit may name: a grant
+  on it would reach `get events since`, which is fuzznet's.
+- **This node's own user** still hears everything, and needs no setting.
 - **The grant is read at the asking.** A permit withdrawn ends nothing already
   held, which is enough for events that say only what to read again, and each
   such read is judged afresh.
 
 **`node/permit.h` said a permitted caller "subscribes to nothing";** it now says
-to what. `events` stays ungrantable: the word is the extension's, never that one.
+to what.
 
-**Measured:** `events_test`, 58 checks. `live_ext` b3b: no grant, no subscription;
-granted, a setting written and an extension's poke give `event ext-poke -` alone.
-Same uid, the one account a script has: the road a second user takes differs only
-by the verdict, which this path does not read. Sabotage: `events-held-hears-no-trust`,
-`events-held-word-to-its-hyphen`, `events-held-word-moves-with-it`,
-`events-held-bound`.
+**Measured:** `local_test` serves a second uid: held where `hears` lets it, denied
+where not, and this node's own user whole and unasked. `events_test`: a held
+subscriber hears the application and not fuzznet, also once moved in the table.
+`live_ext` b3b: the setting's grammar. A script has one account, so a real second
+user is for a consumer to confirm. Sabotage: `events-held-hears-no-trust`,
+`events-held-stays-held`.
 
 ## 900. A kept reply goes only where its request came from, 2026-11-05
 
@@ -81000,8 +81002,8 @@ The holder's, settling how the project talks and what each part is.
 - **"Node" means nothing specific,** only the English word. New prose says host.
   `fzn_node_*` and `node/` keep their names for now, a rename touching every
   consumer for no change in behaviour.
-- **A host has a key.** The one question open is when it is made: at any run, or
-  first needed. Today, at the daemon's first start (`node/identity.h`).
+- **A host has a key,** made at the daemon's first start (`node/identity.h`), the
+  holder's. A local socket connection may come to be an alternative to it.
 - **Clients and daemons are delineated by the app.** For all the software so far, a
   client does not touch the disk or relay, by configuration or by what is hardcoded,
   which also means less consensus and locking to get right. It has a daemon's
@@ -81011,8 +81013,17 @@ The holder's, settling how the project talks and what each part is.
   checked, so a program of the same user needs no permit.
 - **A user in several estates is v2:** not planned, and not to be built now.
 
-**From fuzzypickles' 20261105T2325Z, beyond secs 902 and 905:** a sanctioned way for a
-consumer to link `fzn_daemon_main` is asked for, fzpd's build reading
-`FUZZNETD_LINK`, `LDFLAGS_GC` and `ZSTD_LIBS` from this Makefile, and `daemon.o`
-being in neither `make manifest` nor their archive. Open. So is its rule by time and
-size, now a group setting (sec 905).
+**Later, the holder's:** the rule by time and size for what a later member reads, a
+group setting (sec 905); telling sec 903's audited counts apart; and "node" where it
+means a fuzznet host rather than the English word.
+
+## 907. A consumer links the daemon by a target, 2026-11-06
+
+Fuzzypickles' 20261105T2325Z: fzpd linked inside this Makefile, reading
+`FUZZNETD_LINK`, `LDFLAGS_GC` and `ZSTD_LIBS`, as `daemon.o` is in neither `make
+manifest` nor their archive, so a name changed here would break their build.
+
+**Built:** `make daemon-lib` makes `libfuzznetd.a`, everything fuzznetd is but its
+main, and `make daemon-flags` prints `FZN_DAEMON_CFLAGS` and `FZN_DAEMON_LIBS`, which
+are all a program with a main of its own needs. `make daemon-link-check` compiles
+such a main in scratch from those two lines alone, links it and runs it.

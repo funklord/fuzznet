@@ -522,35 +522,12 @@ def main(argv):
 				time.sleep(0.2)
 			if not got.startswith("ok ") or got == "ok refused" or "extension" in got:
 				raise failed("b3: status asked in-process was answered %r" % got)
-			# b3b: HELD ON A WORD, sec 899. With no grant it is no subscription;
-			# with one it hears the extension's under that word, and none of
-			# fuzznet's.
-			got = ask(sock, "get events ext")
-			if got.startswith("ok events"):
-				raise failed("b3b: `get events ext` with no grant answered %r" % got)
-			if ask(sock, "set setting host local/permit/ext user:#%d=r" % os.getuid()) != "ok":
-				raise failed("b3b: the grant was refused")
-			held = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-			held.settimeout(10.0)
-			try:
-				held.connect(sock)
-				held.sendall(b"get events ext\n")
-				heard = b""
-				while b"\n" not in heard:
-					heard += held.recv(256)
-				if not heard.startswith(b"ok events"):
-					raise failed("b3b: `get events ext` granted answered %r" % heard)
-				# FUZZNET'S OWN FIRST: a setting written, then the extension's.
-				if ask(sock, "set setting host local/permit/ext user:#%d=r" % os.getuid()) != "ok":
-					raise failed("b3b: the grant again was refused")
-				poke(b"E")
-				while b"event ext-poke" not in heard:
-					heard += held.recv(256)
-				events = [l for l in heard.decode().splitlines() if l.startswith("event ")]
-				if events != ["event ext-poke -"]:
-					raise failed("b3b: a held subscriber heard %r" % events)
-			finally:
-				held.close()
+			# b3b: `local/events`, sec 899: its grammar a permit's. Who it lets in is
+			# `local_test`'s, a script having one account.
+			if ask(sock, "set setting host local/events local:#%d=r" % os.getuid()) != "ok":
+				raise failed("b3b: local/events refused a grant")
+			if not ask(sock, "set setting host local/events nobody").startswith("malformed"):
+				raise failed("b3b: local/events took what is no grant")
 
 			# A CHANGE OF ITS OWN, told to the node's subscribers (sec 843).
 			sub = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

@@ -81,16 +81,15 @@ static void waiting_drop(fzn_node_state_t *state, size_t i)
 
 static void serve_connection(fzn_node_state_t *state, int cfd, const fzn_peer_t *peer)
 {
-	int subscribed = 0;
-	char word[FZN_NODE_LOCAL_WORD_MAX + 1u] = "";
+	int subscribed = 0, held = 0;
 
 	(void)fzn_node_serve_local_held(&state->config, cfd, peer, state->on_local,
 	                                state->on_local_ctx, state->events ? &subscribed : NULL,
 	                                state->on_local_denied, state->on_local_denied_ctx,
-	                                state->hears, state->hears_ctx, word);
+	                                state->hears, state->hears_ctx, &held);
 	if (subscribed
-	    && (word[0] ? fzn_node_events_add_held(state->events, cfd, word)
-	                : fzn_node_events_add(state->events, cfd)))
+	    && (held ? fzn_node_events_add_held(state->events, cfd)
+	             : fzn_node_events_add(state->events, cfd)))
 		return;
 	(void)close(cfd);
 }

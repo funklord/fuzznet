@@ -88,7 +88,7 @@ static int room(fzn_node_events_t *ev)
 {
 	size_t cap = ev->cap ? ev->cap * 2u : 16u;
 	int *fds;
-	char (*only)[FZN_NODE_EVENTS_SUBJECT_MAX + 1u];
+	uint8_t *held;
 
 	if (ev->n < ev->cap)
 		return 1;
@@ -96,15 +96,15 @@ static int room(fzn_node_events_t *ev)
 	if (!fds)
 		return 0;
 	ev->fds = fds;
-	only = realloc(ev->only, cap * sizeof(*only));
-	if (!only)
+	held = realloc(ev->held, cap);
+	if (!held)
 		return 0;
-	ev->only = only;
+	ev->held = held;
 	ev->cap = cap;
 	return 1;
 }
 
-static int take(fzn_node_events_t *ev, int fd, const char *word)
+static int take(fzn_node_events_t *ev, int fd, int held)
 {
 	int flags;
 
@@ -113,21 +113,19 @@ static int take(fzn_node_events_t *ev, int fd, const char *word)
 	flags = fcntl(fd, F_GETFL);
 	if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0)
 		return 0;
-	(void)snprintf(ev->only[ev->n], sizeof(ev->only[0]), "%s", word);
+	ev->held[ev->n] = (uint8_t)held;
 	ev->fds[ev->n++] = fd;
 	return 1;
 }
 
 int fzn_node_events_add(fzn_node_events_t *ev, int fd)
 {
-	return take(ev, fd, "");
+	return take(ev, fd, 0);
 }
 
-int fzn_node_events_add_held(fzn_node_events_t *ev, int fd, const char *word)
+int fzn_node_events_add_held(fzn_node_events_t *ev, int fd)
 {
-	if (!ev || !word || !word[0] || strlen(word) > FZN_NODE_EVENTS_SUBJECT_MAX)
-		return 0;
-	return take(ev, fd, word);
+	return take(ev, fd, 1);
 }
 
 /* Subscriber `i` dropped and closed; the last takes its place. */
@@ -135,7 +133,7 @@ static void drop(fzn_node_events_t *ev, size_t i)
 {
 	(void)close(ev->fds[i]);
 	ev->fds[i] = ev->fds[--ev->n];
-	memcpy(ev->only[i], ev->only[ev->n], sizeof(ev->only[0]));
+	ev->held[i] = ev->held[ev->n];
 	ev->dropped++;
 }
 
@@ -145,17 +143,6 @@ static int word_of(const char *s, size_t max, const char *allowed)
 	size_t n = s ? strlen(s) : 0u;
 
 	return n > 0u && n <= max && strspn(s, allowed) == n;
-}
-
-/* WHETHER SUBSCRIBER `i` HEARS `subject`: all do but the held, who hear only
- * an extension's, under their word and a hyphen. */
-static int hears(const fzn_node_events_t *ev, size_t i, const char *subject, int extension)
-{
-	size_t n = strlen(ev->only[i]);
-
-	if (!n)
-		return 1;
-	return extension && strncmp(subject, ev->only[i], n) == 0 && subject[n] == '-';
 }
 
 static size_t publish(fzn_node_events_t *ev, const char *subject, const char *name, int extension)
@@ -188,7 +175,7 @@ static size_t publish(fzn_node_events_t *ev, const char *subject, const char *na
 	for (i = 0; i < ev->n;) {
 		ssize_t w;
 
-		if (!hears(ev, i, subject, extension)) {
+		if (ev->held[i] && !extension) {
 			i++;
 			continue;
 		}
@@ -238,8 +225,8 @@ void fzn_node_events_close(fzn_node_events_t *ev)
 	while (ev->n)
 		drop(ev, ev->n - 1u);
 	free(ev->fds);
-	free(ev->only);
+	free(ev->held);
 	ev->fds = NULL;
-	ev->only = NULL;
+	ev->held = NULL;
 	ev->cap = 0;
 }
