@@ -6947,6 +6947,7 @@ endif
 	@timeout 440 python3 tool/live_invite.py $(FUZZNETD)
 	@timeout 220 python3 tool/live_device.py $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 520 python3 tool/live_many_notes.py $(FUZZNETD)
+	@timeout 220 python3 tool/live_many_contacts.py $(FUZZNETD)
 	@timeout 240 python3 tool/live_store_trouble.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_preset.py $(FUZZNETD)
 	@timeout 700 python3 tool/live_votes.py $(FUZZNETD)

@@ -2932,6 +2932,10 @@ static void roots_watched(void)
 static void own_acts_applied(const fzn_node_admin_t *admin, const char *reply, size_t n)
 {
 	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	/* WHERE THE LAST LOOK ENDED, sec 927: every request answered `ok` walked all that
+	 * the round had yet to apply, 20 ms a request at 1500 contacts. A record is looked
+	 * at once here, and the round takes the rest. */
+	static uint64_t looked_to;
 	fzn_node_apply_tally_t tally;
 	uint64_t next, pending, seq;
 	fzn_record_t rec;
@@ -2944,7 +2948,11 @@ static void own_acts_applied(const fzn_node_admin_t *admin, const char *reply, s
 	if (!pending || pending >= next)
 		return;
 	memset(&tally, 0, sizeof(tally));
-	for (seq = next - pending; seq < next; seq++)
+	seq = next - pending;
+	if (looked_to > seq && looked_to <= next)
+		seq = looked_to;
+	looked_to = next;
+	for (; seq < next; seq++)
 		if (fzn_record_store_get(&node_journal.store, admin->id->pubkey, FZN_NODE_JOURNAL_STREAM,
 		                         seq, buf, sizeof(buf), &rec)
 		            == FZN_RECORD_STORE_OK
@@ -13452,6 +13460,14 @@ static int contacts_room(void *ctx, size_t needed)
 	return 1;
 }
 
+/* A NUMBER THAT MOVES WITH ANY CONTACT WRITTEN, sec 927, held in RAM or flushed. */
+static uint64_t contacts_stamp(void *ctx)
+{
+	(void)ctx;
+	return contact_cache.changes + store_delta.writes + store_delta.flushed
+	       + store_delta.dropped;
+}
+
 /* EVERY CONTACT, into `r` grown to hold them. */
 static fzn_contact_err_t contacts_list(struct contacts_room *r, size_t *n)
 {
@@ -13955,6 +13971,8 @@ static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, ch
  *                                     granted (sec 645)
  *     fetch stream NAME [WHO]         asked at once of WHO's hosts, or of
  *                                     this user's own
+ *     list stream NAME granted [FROM] `ok TOTAL FROM CONTACT,LEVEL ...`: the contacts
+ *                                     holding a level of it (sec 927)
  *     list stream NAME [FROM]         `ok ORIGIN,SEQ,AT,HEX[,HEX...] ...`,
  *                                     the newest 16 held of each host; with
  *                                     FROM, `ok TOTAL FROM` and a page from
@@ -14511,6 +14529,62 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 	}
 }
 
+/* `list stream NAME granted [FROM]`, sec 927: `ok TOTAL FROM CONTACT,LEVEL ...`, the
+ * contacts holding a level of the stream, a group's grant among them, in the order the
+ * store walks them, so paged while nothing changes. */
+struct streams_granted_walk {
+	const char *name;
+	size_t name_len, from, total, used, limit;
+	char *detail;
+	int full;
+};
+
+static int streams_granted_one(void *ctx, const fzn_contact_t *c)
+{
+	struct streams_granted_walk *w = ctx;
+	int level = stream_level_of(w->name, w->name_len, c->key);
+	char item[FZN_CONTACT_NAME_MAX + 16u];
+	int k;
+
+	if (level < 0)
+		return 1;
+	if (w->total++ < w->from || w->full)
+		return 1;
+	k = snprintf(item, sizeof(item), " %s,%d", c->name, level);
+	if (k < 0 || w->limit - w->used < (size_t)k) {
+		w->full = 1;
+		return 1;
+	}
+	memcpy(w->detail + w->used, item, (size_t)k);
+	w->used += (size_t)k;
+	return 1;
+}
+
+static size_t streams_granted_list(const char *name, size_t name_len, size_t from, char *reply,
+                                   size_t cap)
+{
+	static char detail[FZN_REPLY_MAX];
+	struct streams_granted_walk w;
+	int n;
+
+	memset(&w, 0, sizeof(w));
+	w.name = name;
+	w.name_len = name_len;
+	w.from = from;
+	w.limit = fzn_reply_ok_room(cap) < sizeof(detail) ? fzn_reply_ok_room(cap) : sizeof(detail);
+	w.detail = detail;
+	if (fzn_contact_each(node_apply.store, streams_granted_one, &w) != FZN_CONTACT_OK)
+		return (size_t)snprintf(reply, cap, "error the contacts did not read\n");
+	if (from > w.total)
+		return (size_t)snprintf(reply, cap, "malformed past the last grant\n");
+	n = snprintf(reply, cap, "ok %zu %zu", w.total, from);
+	if (n < 0 || (size_t)n + w.used + 2u > cap)
+		return 0;
+	memcpy(reply + n, detail, w.used);
+	reply[(size_t)n + w.used] = '\n';
+	return (size_t)n + w.used + 1u;
+}
+
 /* ONE ROW OF `list stream`, ` HOST,SEQ,AT,HEX[,HEX...]`, `-` for an empty
  * rendition: its length, 0 for no record -- and with `row` NULL, 1 for
  * one. A record's longest fits STREAM_ROW_MAX. */
@@ -14594,6 +14668,22 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
 		long long from = -1;
 		static char row[STREAM_ROW_MAX];
 
+		/* `list stream NAME granted [FROM]`, sec 927: who holds it, in one
+		 * walk, where a client asked `get stream` once a contact. */
+		{
+			const uint8_t *ahead = at;
+			size_t ahead_left = left;
+
+			if (next_word(&ahead, &ahead_left, &w, &w_len) && w_len == 7u
+			    && memcmp(w, "granted", 7u) == 0) {
+				if (next_word(&ahead, &ahead_left, &w, &w_len)
+				    && (ahead_left || !word_number(w, w_len, 0, 1000000000, &from)))
+					return (size_t)snprintf(reply, cap,
+					                        "malformed list stream NAME granted [FROM]\n");
+				return streams_granted_list((const char *)name, name_len,
+				                            from < 0 ? 0u : (size_t)from, reply, cap);
+			}
+		}
 		/* `list stream NAME [FROM]`, sec 770, paged as `list location` is:
 		 * two records of four full renditions passed a reply. */
 		if (next_word(&at, &left, &w, &w_len)
@@ -19744,6 +19834,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			admin.peers_room = peers_room;
 			peers_admin = &admin;
 			admin.contacts_room = contacts_room;
+			admin.contacts_stamp = contacts_stamp;
 			contacts_admin = &admin;
 			admin.roster_room = roster_room_now;
 			admin.id = &identity;

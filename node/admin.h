@@ -104,6 +104,13 @@ typedef struct fzn_node_admin {
 	size_t contacts_cap;
 	int (*contacts_room)(void *ctx, size_t needed);
 	void *contacts_room_ctx;
+	/* A LIST KEPT WHILE NOTHING MOVES, sec 927: a page costs a sort of every contact,
+	 * so 20000 contacts cost 1430 sorts. The hook answers a number that moves with
+	 * any contact written; NULL lists afresh each page. */
+	uint64_t (*contacts_stamp)(void *ctx);
+	uint64_t contacts_stamped;
+	size_t contacts_stamped_n;
+	int contacts_stamp_held;
 	/* ROOM FOR THE ROSTER, sec 704: a contact's add or removal that found
 	 * a roster table full asks once, and is written again when the hook
 	 * has given `nr` larger tables (`fzn_node_roster_use`) and answers 1.

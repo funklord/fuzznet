@@ -107,6 +107,8 @@ static int hold(fzn_persist_delta_t *d, fzn_persist_slot_t slot, const uint8_t *
 	row_t *r, *was = find(d, slot, subject);
 	size_t b;
 
+	d->writes++;
+
 	if (rank < FZN_RANK_CONTROL) {
 		size_t freed = was ? was->len : 0u;
 

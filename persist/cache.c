@@ -127,8 +127,11 @@ static int cache_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 		}
 		return 0;
 	}
-	if (slot == c->slot && subject && c->buckets)
-		(void)keep(c, subject, bytes, len);
+	if (slot == c->slot) {
+		c->changes++;
+		if (subject && c->buckets)
+			(void)keep(c, subject, bytes, len);
+	}
 	return 1;
 }
 
@@ -143,8 +146,11 @@ static int cache_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subje
 		}
 		return 0;
 	}
-	if (slot == c->slot && subject)
-		forget(c, subject);
+	if (slot == c->slot) {
+		c->changes++;
+		if (subject)
+			forget(c, subject);
+	}
 	return 1;
 }
 

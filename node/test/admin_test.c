@@ -2007,7 +2007,7 @@ int main(void)
 			      "fixture: family's id");
 			for (k = 0; k < sizeof(fid); k++)
 				snprintf(fid_hex + 2u * k, 3u, "%02x", fid[k]);
-			snprintf(want, sizeof(want), "1 0 family,2,%s", fid_hex);
+			snprintf(want, sizeof(want), "1 0 family,2,%s,1", fid_hex);
 			CHECK(ask(&admin, &owner, "list group", reply, sizeof(reply), &reply_len)
 			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,

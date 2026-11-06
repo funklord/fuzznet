@@ -779,7 +779,7 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 		return 0;
 	used = (size_t)n;
 	for (i = from; i < count; i++) {
-		char name[FZN_CONTACT_NAME_MAX + 1u], item[FZN_CONTACT_NAME_MAX + 16u + 65u];
+		char name[FZN_CONTACT_NAME_MAX + 1u], item[FZN_CONTACT_NAME_MAX + 16u + 65u + 2u];
 		char id_hex[FZN_GROUP_ID_LEN * 2u + 1u];
 		size_t name_len = 0;
 		int k;
@@ -794,7 +794,9 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 		 * host's alone. */
 		hex_of(ids[i], FZN_GROUP_ID_LEN, id_hex);
 		id_hex[FZN_GROUP_ID_LEN * 2u] = '\0';
-		k = snprintf(item, sizeof(item), " %s,%zu,%s", name, held.n_members, id_hex);
+		/* WHETHER THIS USER MAY CHANGE IT, sec 927, so a client need not ask each. */
+		k = snprintf(item, sizeof(item), " %s,%zu,%s,%d", name, held.n_members, id_hex,
+		             have_self && fzn_group_is_admin(&held, self.owner) ? 1 : 0);
 		if (k < 0 || limit - used < (size_t)k)
 			break;
 		memcpy(detail + used, item, (size_t)k);
@@ -956,6 +958,52 @@ static size_t get_group(const fzn_node_groups_t *g, const uint8_t *id, char *rep
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
 
+/* `get group NAME member [FROM]`, sec 927: `ok TOTAL FROM MEMBER ...`, paged, as a
+ * group's roster outgrows one reply and `get group` stops where the reply fills. */
+static size_t get_group_members(const fzn_node_groups_t *g, const uint8_t *id, const uint8_t *word,
+                                size_t word_len, char *reply, size_t cap)
+{
+	static fzn_group_t held;
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = fzn_reply_ok_room(cap), used, i, from = 0;
+	int n;
+
+	for (i = 0; word && i < word_len; i++) {
+		if (word[i] < '0' || word[i] > '9' || from > 100000000u)
+			return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+		from = (from * 10u) + (size_t)(word[i] - '0');
+	}
+	if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+		return say(reply, cap, FZN_REPLY_ERROR, "the group did not read");
+	if (from > held.n_members)
+		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last member");
+	n = snprintf(detail, sizeof(detail), "%zu %zu", held.n_members, from);
+	if (n < 0 || (size_t)n >= limit)
+		return 0;
+	used = (size_t)n;
+	for (i = from; i < held.n_members; i++) {
+		fzn_contact_t c;
+		char who[1u + (FZN_PUBKEY_LEN * 2u)];
+		size_t who_len = 0;
+
+		if (fzn_group_is_admin(&held, held.members[i]))
+			who[who_len++] = '*';
+		if (fzn_contact_get(g->log.store, held.members[i], &c) == FZN_CONTACT_OK) {
+			memcpy(who + who_len, c.name, c.name_len);
+			who_len += c.name_len;
+		} else {
+			hex_of(held.members[i], FZN_PUBKEY_LEN, who + who_len);
+			who_len += FZN_PUBKEY_LEN * 2u;
+		}
+		if (limit - used < 1u + who_len)
+			break;
+		detail[used++] = ' ';
+		memcpy(detail + used, who, who_len);
+		used += who_len;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
 size_t fzn_node_groups_local(const fzn_node_groups_t *g, const fzn_request_t *request,
                              char *reply, size_t cap)
 {
@@ -1017,6 +1065,8 @@ size_t fzn_node_groups_local(const fzn_node_groups_t *g, const fzn_request_t *re
 		if (request->parsed == FZN_VERB_GET) {
 			if (other && is_word(other, other_len, "water"))
 				return get_group_water(g, id, value, value_len, reply, cap);
+			if (other && is_word(other, other_len, "member"))
+				return get_group_members(g, id, value, value_len, reply, cap);
 			return other && is_word(other, other_len, "backfill")
 			               ? get_group_backfill(g, id, reply, cap)
 			               : get_group(g, id, reply, cap);

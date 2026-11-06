@@ -329,6 +329,9 @@ def main(argv):
 			# WHAT B MAY READ, as A answers it (sec 645): nothing, then level 1.
 			expect(socks["a"], "a", "get stream location bob", "ok none")
 			expect(socks["a"], "a", "grant stream location bob 1", "ok")
+			got = ask(socks["a"], "list stream location granted")
+			if got != "ok 1 0 bob,1":
+				raise failed("list stream location granted answered %r" % got)
 			expect(socks["a"], "a", "get stream location bob", "ok 1")
 			time.sleep(2.5)
 			fetched(lambda: len(held_at_b()) == 2)

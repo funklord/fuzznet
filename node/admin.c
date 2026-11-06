@@ -1382,6 +1382,7 @@ static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t
 	fzn_contact_err_t cerr;
 	const uint8_t *w;
 	size_t w_len;
+	uint64_t stamp;
 	int n;
 
 	if (next_word(&rest, &rest_len, &w, &w_len))
@@ -1390,15 +1391,24 @@ static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t
 				return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	cerr = fzn_contact_list(admin->store, all, room, &count);
-	/* MORE THAN THE ROOM, sec 704: room asked for, and listed again. */
-	if (cerr == FZN_CONTACT_ERR_ROOM && admin->contacts_room
-	    && admin->contacts_room(admin->contacts_room_ctx, count)) {
-		all = admin->contacts;
-		cerr = fzn_contact_list(admin->store, all, admin->contacts_cap, &count);
+	stamp = admin->contacts_stamp ? admin->contacts_stamp(admin->contacts_room_ctx) : 0u;
+	if (admin->contacts_stamp && admin->contacts_stamp_held && stamp == admin->contacts_stamped) {
+		count = admin->contacts_stamped_n;
+	} else {
+		admin->contacts_stamp_held = 0;
+		cerr = fzn_contact_list(admin->store, all, room, &count);
+		/* MORE THAN THE ROOM, sec 704: room asked for, and listed again. */
+		if (cerr == FZN_CONTACT_ERR_ROOM && admin->contacts_room
+		    && admin->contacts_room(admin->contacts_room_ctx, count)) {
+			all = admin->contacts;
+			cerr = fzn_contact_list(admin->store, all, admin->contacts_cap, &count);
+		}
+		if (cerr != FZN_CONTACT_OK)
+			return answer_text(reply, cap, FZN_REPLY_ERROR, "the contacts did not read");
+		admin->contacts_stamped = stamp;
+		admin->contacts_stamped_n = count;
+		admin->contacts_stamp_held = 1;
 	}
-	if (cerr != FZN_CONTACT_OK)
-		return answer_text(reply, cap, FZN_REPLY_ERROR, "the contacts did not read");
 	if (from > count)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last contact");
 	n = snprintf(detail, sizeof(detail), "%zu %zu", count, from);

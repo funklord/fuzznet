@@ -110,7 +110,7 @@ def main(argv):
 			reply = ask(socks[who], "list group").split()
 			if len(reply) < 3 or reply[0] != "ok":
 				raise failed("%s: list group answered %r" % (who, reply))
-			return sorted(w.split(",")[1:] for w in reply[3:])
+			return sorted(w.split(",")[1:3] for w in reply[3:])
 
 		def until(check, what):
 			for rnd in range(ROUNDS):

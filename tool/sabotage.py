@@ -14393,8 +14393,8 @@ SABOTAGES = [
 	(
 		"group-listed-with-id",
 		"node/groups.c",
-		"\" %s,%zu,%s\", name, held.n_members, id_hex);",
-		"\" %s,%zu\", name, held.n_members);",
+		"\" %s,%zu,%s,%d\", name, held.n_members, id_hex,",
+		"\" %s,%zu,%d\", name, held.n_members,",
 		"list group carries no id, so a client keys on a name -- sec 647",
 	),
 	(
@@ -14624,8 +14624,8 @@ SABOTAGES = [
 	(
 		"cache-refused-save-still-whole",
 		"persist/cache.c",
-		"\t\tif (slot == c->slot && subject) {\n\t\t\tforget(c, subject);\n\t\t\tc->whole = 0;\n\t\t}\n\t\treturn 0;\n\t}\n\tif (slot == c->slot && subject && c->buckets)\n",
-		"\t\treturn 0;\n\t}\n\tif (slot == c->slot && subject && c->buckets)\n",
+		"\t\tif (slot == c->slot && subject) {\n\t\t\tforget(c, subject);\n\t\t\tc->whole = 0;\n\t\t}\n\t\treturn 0;\n\t}\n\tif (slot == c->slot) {\n\t\tc->changes++;\n\t\tif (subject && c->buckets)\n",
+		"\t\treturn 0;\n\t}\n\tif (slot == c->slot) {\n\t\tc->changes++;\n\t\tif (subject && c->buckets)\n",
 		"after a refused save the cache says what it held, whatever the store now does -- sec 926",
 	),
 	(
@@ -14638,8 +14638,8 @@ SABOTAGES = [
 	(
 		"cache-remove-leaves-row",
 		"persist/cache.c",
-		"\tif (slot == c->slot && subject)\n\t\tforget(c, subject);\n\treturn 1;\n",
-		"\treturn 1;\n",
+		"\t\tif (subject)\n\t\t\tforget(c, subject);\n\t}\n\treturn 1;\n",
+		"\t}\n\treturn 1;\n",
 		"a removed contact goes on being found -- sec 926",
 	),
 	(

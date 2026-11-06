@@ -203,6 +203,15 @@ def main(argv):
 			if len(me) != 3 or me[0] != "ok" or "*" + me[2] not in members(socks["a"], "a", "family"):
 				raise failed("a: A's get identity answered %r, and A's members are %r"
 				             % (me, members(socks["a"], "a", "family")))
+			# a1: A KNOWS IT IS ADMIN, B THAT IT IS NOT, from the listing alone, and the
+			# roster reads in pages (sec 927).
+			for who, group, flag in (("a", "family", "1"), ("b", name, "0")):
+				rows = ask(socks[who], "list group").split()[3:]
+				if [w.split(",")[3] for w in rows if w.startswith(group + ",")] != [flag]:
+					raise failed("a1: %s's list group gave %r" % (who, rows))
+			got = ask(socks["b"], "get group %s member 1" % name).split()
+			if got[:3] != ["ok", "3", "1"] or len(got) != 5:
+				raise failed("a1: get group member 1 answered %r" % got)
 			print("livecheck: a: A made the group, and B and C learned it from A, A its admin")
 
 			# a2: each host named in the log, and the epoch's secret sealed to

@@ -55,6 +55,7 @@ typedef struct fzn_persist_delta {
 	struct fzn_persist_delta_row *oldest, *newest;
 	size_t rows, bytes;
 	unsigned long dropped, refused, flushed;
+	uint64_t writes; /* rows taken, so a list can tell it is current */
 	int stuck; /* the store beneath refused, and has not been asked since */
 } fzn_persist_delta_t;
 

@@ -81698,7 +81698,39 @@ read or no memory leaves it not whole: slower, not wrong. Beneath the delta, so 
 refused is the delta's and one the delta gives up was never here. **Only `contact` for now:**
 it is what a name walks, and rows are at most 96 bytes.
 
-Measured after: 7.5 ms an add at 1000, 10.3 at 2000, a floor of 5.5 ms that is one `fsync` and
-rename. **Still linear in the contacts,** as a walk in RAM is, so a hash by name is the next
-step if 20000 proves slow. A status stayed flat at 0.2 ms both ways, so fuzzypickles' item 6,
-20 ms a request at 1500, was not seen on `status` and awaits its own rerun.
+That took an add from 33 ms at 1000 to 7.5, and left it growing: sec 927 found the rest.
+
+## 927. What a request cost at thousands of contacts, and the rest of the list, 2026-11-06
+
+**The same message's item 6, 20 ms a request at 1500 contacts, was not the contacts.**
+`status` stayed flat, as it answers no `ok` of the kind, and a page of `list contact` cost 52 ms.
+Traced to `own_acts_applied`: every request answered `ok` read all of this host's records the
+round had yet to apply, so a host writing fast paid for each past write on each request.
+It now looks at a record once. **An add is flat at 6.5 ms to 3000, one `fsync` and rename, and a
+page 0.5 ms.** A sorted list was also being remade each page; it is kept until a contact moves.
+
+`live_many_contacts` counts `syscr` in /proc, so load cannot pass or fail it: 1899 reads for
+the first hundred adds and 1899 for the last, against 121,699 and 1,161,708 for this morning's
+daemon, which is the test's positive control.
+
+**Fuzzypickles' list, each:**
+
+| | | |
+|---|---|---|
+| 1 | add contact quadratic | fixed, sec 926 and above |
+| 2 | a reply holds 1 KB | left: see below |
+| 3 | a group's roster cut | `get group NAME member [FROM]`, paged. The 256 stands |
+| 4 | 16384 notes | stands. Sec 914's tables are static, 22 MB of titles alone, and 200000 wants them grown on the heap |
+| 5 | a call a contact for location | `list stream NAME granted [FROM]`: `ok TOTAL FROM CONTACT,LEVEL` |
+| 6 | 20 ms a request | fixed above |
+| 7 | no admin flag | `list group` ends `,ADMIN`, 1 where this user may change it |
+
+**A larger reply was tried and backed out.** `FZN_REPLY_MAX` at 16384 builds once two things
+that used it as a line, not a reply, are held at 1024: a card's depth and a log entry. Then test
+after test that pins paging with a fixed count fails, as forty notes now fit one page, and each
+fixed by scaling would lose what it tests. With a page at 0.5 ms and a connection at 0.2, 20000
+contacts is about a second, so the cost it would save is gone. Not needed until measured to be.
+
+**Rosters past 256 and notes past 16384** are one job: a `fzn_group_t` is copied whole into 30
+static buffers and saved as one row, so tens of thousands of members wants it paged on disk
+too, not a larger constant. Not started.

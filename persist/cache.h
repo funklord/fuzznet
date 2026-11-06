@@ -35,6 +35,7 @@ typedef struct fzn_persist_cache {
 	size_t rows;
 	int whole; /* every row of the slot is here, so a miss is an absence */
 	unsigned long walks, misses;
+	uint64_t changes; /* saves and removes of the slot, so a list can tell it is current */
 } fzn_persist_cache_t;
 
 /* A cache of `slot` over `base`, its ops into `ops`. `c` must outlive `ops`. */
