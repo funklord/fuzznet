@@ -81018,7 +81018,10 @@ The holder's, settling how the project talks and what each part is.
   a large storage server that stores and relays everything known to the estate.
 - **Profiles, suggested by the holder and not designed:** `ui-client`,
   `one-shot-client`, `rootd`, `userd`, `vault`, `insecure-client`, `embedded-device`.
-  Open: what a profile is made of, and whether it is fixed at build or chosen at run.
+  **For now a profile is a preset, the holder's:** values applied at the start, or
+  again later during an update, and then modified by the consumer. So it is settings
+  and grants at first, and no new mechanism at run time. Open: whether an update's
+  applying again overwrites a value the consumer changed. Not built.
 
 **Later, the holder's:** the rule by time and size for what a later member reads, a
 group setting (sec 905); telling sec 903's audited counts apart; and "node" where it
