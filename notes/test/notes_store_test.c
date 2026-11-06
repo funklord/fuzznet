@@ -93,7 +93,7 @@ static uint8_t KEY_A[FZN_PUBKEY_LEN], KEY_B[FZN_PUBKEY_LEN], KEY_C[FZN_PUBKEY_LE
 
 /* 4400 since sec 581: the history's bound is 4096 versions, and its case
  * holds them all with the claim beside them. */
-#define MEM_ROWS 4400u
+#define MEM_ROWS 21000u
 
 struct row {
 	int used;
@@ -390,6 +390,7 @@ static void test_capacity_and_erase(void)
 		/* One writer per claim keeps every note id unique without
 		 * running out of single-byte ids. */
 		memcpy(key, KEY_A, sizeof(key));
+		key[30] = (uint8_t)(KEY_A[30] ^ (i >> 8));
 		key[31] = (uint8_t)i;
 		memcpy(writers[0].key, key, FZN_PUBKEY_LEN);
 		note_of(0, key, 9, 0, 1, "x");

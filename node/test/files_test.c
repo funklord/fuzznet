@@ -235,7 +235,7 @@ struct mem_entry {
 	size_t len;
 };
 /* ROOM FOR EVERY SHARE A NODE KEEPS, and the rows beside them (sec 846). */
-static struct mem_entry mem[512];
+static struct mem_entry mem[4608];
 
 static struct mem_entry *mem_find(fzn_persist_slot_t slot, const uint8_t *subject, int make)
 {

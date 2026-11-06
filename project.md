@@ -51656,7 +51656,7 @@ rather than restarted.
 - **A held record that will not open is replaced** rather than freezing
   its note.
 - **The bound, `FZN_NOTES_MAX` 256 claims**, checked before anything is
-  written.
+  written. 16384 since sec 914.
 - **The view:** every claim a node, reachability from `tree/`, the root's
   children then everything it cannot reach at top level, contested ids,
   and a count of claims that would not read instead of a smaller store.
@@ -80959,7 +80959,7 @@ connections open and `status` answered in 0.052 s. With one accept a pass it too
 **Audited and not yet done:** counts in the code that may be real limits, some only
 a table's first room, to be told apart one by one: group members 256, hosts of a
 group 512, admins 16, file shares, sibling, peer and pull targets, a daemon's own
-descriptors 16, requests in flight 64.
+descriptors 16, requests in flight 64. Begun in sec 914.
 
 ## 904. A local user is a principal, 2026-11-06
 
@@ -81294,3 +81294,64 @@ daemon was run into it.
 **Left, said in sec 911:** a sync names 24 heads, a one-frame bound from before requests
 were chunked. Past 24 writers, lines already held are sent again and refused. Raising it
 changes what a peer of an older build accepts, so it wants its own step.
+
+## 914. A host refused its 257th note, 2026-11-06
+
+Walking sec 903's audit, on the holder's "check these when possible", with the shape of
+sec 913's bug as the lens: a fixed table a user can fill.
+
+**Measured: `add note` answered `error no room for another note` at the 257th.** Sec 425's
+"bound" of 256 claims was written when a claim was thought of as a rare thing and has
+stood since. No requirement behind it: a host of a notes app could hold 256 notes.
+
+**Raised, not removed:**
+
+    FZN_NOTES_MAX              256 -> 16384   claims on a host
+    FZN_NODE_RECEIVED_MAX        8 -> 64      sharers whose trees a host holds
+    FZN_NOTES_SHARES_MAX        64 -> 1024    note shares made
+    FZN_NODE_FILES_SHARES_MAX  256 -> 4096    file shares made
+
+**Why a number and not a table that grows:** about 30 static tables in `notes/` and
+`node/notes.c` are sized by the first, and a view's arena with them. Growing them is the
+right end, and a larger step. These are the same tables with room, and they cost little:
+146 MB of bss, which is address space, and 7 MB resident at 1500 notes. **They are still
+limits with no hard requirement behind them,** so this does not close sec 903's rule.
+
+**Measured at the larger bound:** `tool/live_many_notes.py`: 1000 notes taken in 9 s, and
+all at a second host 3 s after it started. Adds slow as a store fills, each reading every
+claim: about 10 ms each to 1000, and 5000 did not finish in 280 s beside other load. So
+the next limit is that walk, well before 16384. The unit suite passes, its bound tests
+moved to fill the new sizes.
+
+**Left of the audit:** group members 256, hosts 512, admins 16, a host's sibling, peer
+and pull targets, descriptors 16, requests in flight 64, and sec 911's 24 heads in a
+sync. `FZN_NOTES_HISTORY_MAX` 4096 stays: it is a deliberate bound, oldest let go first.
+
+## 915. Three classes of consumer, 2026-11-06
+
+The holder: "classify the consumers of fuzznet into 3 categories, IMO the first two of
+these categories have very little overlap, but everything within them has huge overlap",
+and "This is why we are not yet seeing the advantages of fuzznet, because the current
+two main consumers are in completely different classes."
+
+- **User software:** fuzzypickles, future hydra, media libraries, players, emulator
+  frontends, and software to come.
+- **System software:** netcfgd, raidcfgd and the like.
+- **System-user hybrids:** a possible future for beerssh and beersshd; others may evolve
+  into this.
+
+**Read against the tree, a reading and not a measurement:** user software shares
+contacts, groups, messages, notes, files and sync across a person's devices. System
+software shares settings by rank, records, calls, votes and local users as principals.
+Both stand on the envelope, chains, revocation, pairing, reconcile, retention and the
+local socket, which is the part hardest to see the worth of with one consumer a class.
+
+**What follows, proposed and not decided:**
+- A feature's first second-consumer in its class is the first real test of it. Most of
+  what is here has been proved by one.
+- A hybrid crosses from a machine's estate to its users', so it may bring the
+  multi-estate question (sec 906, v2) forward. The holder's to weigh.
+- The smallest host (sec 912) is a kind of host and not a fourth class.
+
+**Not measured:** which modules each consumer links. That would make "very little
+overlap" a number.

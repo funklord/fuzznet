@@ -2683,7 +2683,7 @@ int main(void)
 					              == FZN_NODE_RECEIVED_OK,
 					      "fixture: a share up to the bound");
 				}
-				memset(rk, 0x7f, sizeof(rk));
+				memset(rk, 0x6f, sizeof(rk));
 				CHECK(fzn_node_received_add(&node.ops, rk, "h", 1u, 1u, 0u)
 				              == FZN_NODE_RECEIVED_ERR_FULL,
 				      "a share past the bound was taken");

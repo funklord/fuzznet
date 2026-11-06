@@ -22,8 +22,8 @@
 
 #include "../persist/persist.h"
 
-/* Sharers, matching `notes/received.h`'s room for eight trees. */
-#define FZN_NODE_RECEIVED_MAX 8u
+/* Sharers whose trees a host holds, sec 914. */
+#define FZN_NODE_RECEIVED_MAX 64u
 /* A host name or address: 1 to 253 bytes, none of them a space or control,
  * so a row reads back as one word. */
 #define FZN_NODE_RECEIVED_HOST_MAX 253u

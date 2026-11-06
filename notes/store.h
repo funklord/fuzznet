@@ -84,8 +84,10 @@
 
 /* Claims one host may hold: a node nobody has fought over costs one, a
  * contested node one per writer. A bound rather than a promise, and the
- * failure is FZN_NOTES_ERR_FULL rather than a silent drop. */
-#define FZN_NOTES_MAX 256u
+ * failure is FZN_NOTES_ERR_FULL rather than a silent drop. It was 256, which
+ * a person's notes reach: sec 914. Tables sized by this are static, and touched
+ * only as far as they are filled. */
+#define FZN_NOTES_MAX 16384u
 
 typedef enum fzn_notes_err {
 	FZN_NOTES_OK = 0,
