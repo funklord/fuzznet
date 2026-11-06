@@ -99,6 +99,8 @@ typedef struct fzn_record_store_file {
 	uint8_t issuer[FZN_PUBKEY_LEN];
 	uint32_t stream;
 	int cached;
+	int read_only; /* the cached descriptor reads and no more, sec 917 */
+	int dir_may_lack; /* no directory reads as empty: a disk could not make it */
 	fzn_record_store_ops_t ops;
 } fzn_record_store_file_t;
 

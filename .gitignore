@@ -344,3 +344,6 @@ __pycache__/
 /device/test/device_sim
 /device/test/device_test
 /net/test/bearer_test
+/persist/test/delta_test
+/node/test/pressure_test
+/record/test/held_test

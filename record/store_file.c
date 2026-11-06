@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* The highest sequence whose slot offset still fits. A sequence is a uint64
@@ -54,21 +55,39 @@ static int stream_path(const fzn_record_store_file_t *file, const uint8_t issuer
 	return wrote >= 0 && (size_t)wrote < FZN_RECORD_STORE_FILE_PATH_MAX;
 }
 
+/* NOTHING THERE TO READ, on a disk that would not make it: not a broken store. */
+#define STREAM_ABSENT (-2)
+
 /* Open the file for one (issuer, stream), reusing the cached descriptor when
- * it is already the right one. Returns the descriptor or -1. */
+ * it is already the right one. Returns the descriptor, or -1, or for a read
+ * STREAM_ABSENT.
+ *
+ * A DISK THAT WILL NOT BE WRITTEN STILL READS, sec 917: a read falls back to a
+ * read-only descriptor, which a later write replaces, and a write makes the
+ * directory a read-only disk could not. */
 static int stream_fd(fzn_record_store_file_t *file, const uint8_t issuer[FZN_PUBKEY_LEN],
-                     uint32_t stream)
+                     uint32_t stream, int writing)
 {
 	char path[FZN_RECORD_STORE_FILE_PATH_MAX];
-	int fd;
+	int fd, read_only = 0;
 
 	if (file->cached && file->stream == stream
-	    && memcmp(file->issuer, issuer, FZN_PUBKEY_LEN) == 0)
+	    && memcmp(file->issuer, issuer, FZN_PUBKEY_LEN) == 0 && (!writing || !file->read_only))
 		return file->fd;
 	if (!stream_path(file, issuer, stream, path))
 		return -1;
 
 	fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+	if (fd < 0 && errno == ENOENT && writing && mkdir(file->dir, 0700) == 0)
+		fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+	if (fd < 0 && !writing) {
+		fd = open(path, O_RDONLY | O_CLOEXEC);
+		/* NO FILE IN A DIRECTORY THERE IS NOTHING WRITTEN. No directory is a
+		 * broken store, unless its owner has said a disk could not make one. */
+		if (fd < 0 && errno == ENOENT && (file->dir_may_lack || access(file->dir, F_OK) == 0))
+			return STREAM_ABSENT;
+		read_only = 1;
+	}
 	if (fd < 0)
 		return -1;
 
@@ -78,6 +97,7 @@ static int stream_fd(fzn_record_store_file_t *file, const uint8_t issuer[FZN_PUB
 	memcpy(file->issuer, issuer, FZN_PUBKEY_LEN);
 	file->stream = stream;
 	file->cached = 1;
+	file->read_only = read_only;
 	return fd;
 }
 
@@ -96,7 +116,7 @@ static int store_file_put(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint3
 	if (seq == 0u || seq > MAX_SEQ)
 		return 0;
 
-	fd = stream_fd(file, issuer, stream);
+	fd = stream_fd(file, issuer, stream, 1);
 	if (fd < 0)
 		return 0;
 
@@ -135,7 +155,9 @@ static int store_file_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint3
 	if (seq == 0u || seq > MAX_SEQ)
 		return 0;
 
-	fd = stream_fd(file, issuer, stream);
+	fd = stream_fd(file, issuer, stream, 0);
+	if (fd == STREAM_ABSENT)
+		return 0;
 	if (fd < 0) {
 		/* The file could not be opened at all, which is a broken store
 		 * rather than a missing record -- see `record/store.h` on why
@@ -189,7 +211,7 @@ static int store_file_cut(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint3
 
 	if (!file || !issuer || from == 0u || below <= from || below - 1u > MAX_SEQ)
 		return 0;
-	fd = stream_fd(file, issuer, stream);
+	fd = stream_fd(file, issuer, stream, 1);
 	if (fd < 0)
 		return 0;
 	for (seq = below - 1u; seq >= from; seq--)

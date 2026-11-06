@@ -41,6 +41,16 @@ int fzn_node_schema_log_level(const uint8_t *value, size_t len)
 	return 0;
 }
 
+/* WHERE A RULE PUTS A KIND OF WORK, sec 917: nothing it says reaches what must
+ * work, which `node/pressure.h` keeps out of a rule's reach. */
+static const char *pressure_rank_check(const uint8_t *value, size_t len)
+{
+	if ((len == 5u && memcmp(value, "trace", 5u) == 0)
+	    || (len == 4u && (memcmp(value, "copy", 4u) == 0 || memcmp(value, "user", 4u) == 0)))
+		return NULL;
+	return "trace, copy or user";
+}
+
 static const char *permit_check(const uint8_t *value, size_t len)
 {
 	return fzn_node_permit_check(value, len);
@@ -134,6 +144,11 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "which local users and groups may hold `get events`, hearing what this application "
 	  "publishes and none of fuzznet's: local:NAME=r local:@GROUP=r (sec 899)",
 	  permit_check },
+	{ "pressure/rank/", FZN_SCHEMA_TEXT, HOST, 1u, 16u, "", "", FZN_SCHEMA_ADVANCED,
+	  "where a kind of work stands when this host is short of disk, memory or network: "
+	  "trace, copy or user, for streams, relay, files, group-lines, notes, messages, "
+	  "reconcile (sec 917)",
+	  pressure_rank_check },
 	{ "group/member", FZN_SCHEMA_TEXT, HOST, 1u, 255u, "", "", 0u,
 	  "the groups this host is in, first first: a group's settings stand here where the "
 	  "host sets none of its own, and the first group listed that sets one wins (sec 868)",

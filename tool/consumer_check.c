@@ -208,6 +208,9 @@
 #include <fuzznet/local/client.h>
 #include <fuzznet/net/udp.h>
 #include <fuzznet/net/bearer.h>
+#include <fuzznet/persist/delta.h>
+#include <fuzznet/node/pressure.h>
+#include <fuzznet/record/store_held.h>
 #include <fuzznet/device/device.h>
 #include <fuzznet/node/node.h>
 #include <fuzznet/node/local.h>
@@ -430,6 +433,9 @@
 #include "local/escape.h"
 #include "net/udp.h"
 #include "net/bearer.h"
+#include "persist/delta.h"
+#include "node/pressure.h"
+#include "record/store_held.h"
 #include "device/device.h"
 #include "node/node.h"
 #include "node/local.h"

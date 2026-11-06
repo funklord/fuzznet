@@ -427,6 +427,20 @@ typedef enum fzn_persist_slot {
  * and store lists name. */
 #define FZN_PERSIST_SLOT_END 71u
 
+/* WHAT GOES FIRST WHEN THINGS GET HAIRY, sec 917: every kind of data a host
+ * holds has a rank, and traffic has the same ones (`node/pressure.h`). Lowest
+ * goes first; `fzn_persist_slot_rank` says which a slot is, and a slot nobody
+ * ranked counts as the highest, so forgetting costs memory and not safety. */
+typedef enum fzn_rank {
+	FZN_RANK_TRACE = 0,   /* what was seen: hints, telemetry. Lost is lost */
+	FZN_RANK_REFETCH = 1, /* a copy: any peer has it, or it is an old version */
+	FZN_RANK_USER = 2,    /* what a person or a program wrote */
+	FZN_RANK_CONTROL = 3, /* how the host is reached and told what to do */
+	FZN_RANK_IDENTITY = 4 /* who it is, and what keeps an attacker out */
+} fzn_rank_t;
+
+fzn_rank_t fzn_persist_slot_rank(fzn_persist_slot_t slot);
+
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,
 	FZN_PERSIST_ERR_MALFORMED,

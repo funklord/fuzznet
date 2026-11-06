@@ -54,6 +54,10 @@ fzn_claim_err_t fzn_claim_file_open(fzn_claim_file_t *claim_file, const char *pa
 	/* O_CLOEXEC so an exec'd child does not inherit the claim -- see the
 	 * header on the fork hazard, which this covers only half of. */
 	fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+	/* A STORE THAT WILL NOT BE WRITTEN, sec 917: a lock needs only a descriptor,
+	 * so the claim a store already has is taken the same. */
+	if (fd < 0)
+		fd = open(path, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
 		return FZN_CLAIM_ERR_BACKEND;
 

@@ -81380,4 +81380,90 @@ says a record was not kept; started on a full store, it serves.
   has. Not answered.
 
 **Asked by netcfgd:** a call that says a host is running from RAM, in place of its
-statvfs every 10 s. It keeps `netcfgd.sock` until this exists.
+statvfs every 10 s. It keeps `netcfgd.sock` until this exists. **Built: sec 917.**
+
+## 917. A host goes on when disk and memory will not: the delta and the ladder, 2026-11-06
+
+The holder, over several messages: "build the RAM fallback for read-only stores, we maybe
+want this in the shape of buffered commands or buffered delta for store (readable), do
+what shape you think is best. fuzznet is a core system component so it must remain
+functional even in the most extreme cases like disk full and memory reaching full. We
+should probably have a state diagram or priorities for what can go first if things get
+very hairy, this will also help network congestion decisionmaking."
+
+**A buffered delta, not buffered commands.** `persist/delta.h` over the store's ops, and
+`record/store_held.h` over the journal's. A write the disk refuses stays in RAM, reads see
+RAM first, and once a second what is held is written back, oldest first. **Rejected:
+commands,** which would have to be run again later against a later state and judged
+again, as a grant replayed after a revocation it preceded. A row is a result, already
+judged, and a key saved a thousand times is one row.
+
+**The ladder,** `node/pressure.h`. One ranking for data and traffic, so the store, memory
+and congestion read one table:
+
+    CALM ---> TIGHT ---> SCARCE ---> SURVIVAL      up at once
+         <---       <---        <---               down a step per 30 s below it
+
+    rank       holds                               CALM  TIGHT SCARCE SURVIVAL
+    IDENTITY   keys, trust, roots, revocations     yes   yes   yes    yes
+    CONTROL    grants, rules, settings, peers,     yes   yes   yes    yes
+               commands, logs, a group's acts
+    USER       notes, messages, records            yes   yes   yes    no
+    REFETCH    file transfers, group chat, relay   yes   yes   no     no
+    TRACE      streams, hints                      yes   no    no     no
+
+    store    in RAM TIGHT; past half the budget SCARCE; past 7/8 SURVIVAL
+    memory   under 10 per cent free TIGHT, 5 SCARCE, 2 SURVIVAL
+    network  the caller's word, and nothing feeds it yet
+
+High, the holder's: "capability/permission/rule/config propagation, also commands, logging,
+and possibly the future shell subsystem", and "adding and revoking peers". Low: "file
+transfers, media and group chats etc." A slot nobody ranked counts as IDENTITY, so
+forgetting one costs memory and not safety.
+
+**The top is not an order,** the holder's: "we probably need a round-robin scheme, as they
+are interdependent and all need to work, to avoid priority inversion". From SCARCE on,
+256 requests a second are shared among propagation, peers, commands and logging: each
+class active of late is sure of its equal share, and what one leaves unused another
+takes, so one alone may have it all. A flood of logs cannot keep a revocation waiting
+(`pressure_test`). A shell, when there is one, is a fifth class. 256 is a first guess.
+
+**Ranks below CONTROL are rules,** the holder's "Maybe these priorities should also live in
+rules?": `pressure/rank/NAME`, trace, copy or user, for streams, relay, files,
+group-lines, notes, messages, reconcile. Group chat is low for netcfgd and most of the
+point for fuzzypickles (sec 915). **Nothing a rule says reaches CONTROL,** because a rule
+that shed rule propagation could never be undone from outside. Rules bind traffic; which
+rows the delta sheds is `fzn_persist_slot_rank`, compiled.
+
+**`get node`** says `pressure STATE store disk|ram held N dropped N`, netcfgd's asking, and
+each move is logged and told as `event pressure STATE`.
+
+**Measured:** `tool/live_store_trouble.py`, a real daemon in a mount namespace. Read-only
+from the start, it opened and took a setting, a record, a peer and that peer's
+revocation; with the disk back all of it flushed unasked and stood a restart. On a
+tmpfs filled while running, it kept a setting and a record and flushed when room came.
+Unit: `delta_test`, `held_test`, `pressure_test`.
+
+**The claim** falls back to a read-only descriptor, a lock needing no write. A store never
+claimed on a disk that will take no file goes on unclaimed: nothing can be written for a
+second daemon to fight over. A directory that is not there stays fatal.
+
+**NOT durable.** A host stopped with rows held loses them, and `get node` says how many
+are at risk.
+
+**What it does not do yet:**
+- **Notes and files do not open on a read-only store:** `no shelf for texts`, `no store
+  for files`, so `add note` is refused. Those write around the store. Files are low on
+  the ladder. Notes text is the one worth doing next.
+- **Memory is judged from `/proc/meminfo`,** not a cgroup's limit, so a container's own
+  ceiling is not seen. A kernel OOM kill cannot be caught. The delta sheds when the
+  allocator refuses; the rest of the daemon relies on sec 704's tables saying so.
+- **Nothing feeds the network input.** The ladder is ready for it, and no congestion
+  signal is measured yet.
+- **Shedding is of what is asked of this host.** Its own rounds still fetch what the ladder
+  has let go.
+- **Turns bind remote requests,** not local verbs.
+- **The log file:** every entry stays in the flight recorder in RAM, and lines the disk
+  refuses are lost from the file. Debug lines are not yet held back first.
+- **A store that cannot be READ** is still refused: `fzn_persist_file_holds` says it cannot
+  tell, and a host never makes a new key over that, or it comes up a stranger.

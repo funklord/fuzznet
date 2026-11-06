@@ -37,6 +37,7 @@
 #include "../chain/revocation.h"
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "../record/store_file.h"
+#include "../record/store_held.h"
 #endif
 
 /* The estate stream: every act a key signs for its estate, one chain per key.
@@ -69,6 +70,7 @@ typedef struct fzn_node_journal {
 	fzn_journal_entry_t entries[FZN_NODE_JOURNAL_STREAMS_MAX];
 #ifdef FZN_RECORD_STORE_FILE_ON
 	fzn_record_store_file_t file;
+	fzn_record_held_t held; /* what the file would not take, sec 917 */
 	int has_file;
 #endif
 	fzn_record_store_t store;
@@ -80,6 +82,10 @@ typedef struct fzn_node_journal {
 	 * not stand, and every stream is read from 1. */
 	const fzn_persist_ops_t *keep;
 } fzn_node_journal_t;
+
+/* WHAT THE DISK WOULD NOT TAKE, WRITTEN BACK if it will now, sec 917: how many
+ * records went, and how many and how many bytes are still held in RAM. */
+size_t fzn_node_journal_flush(fzn_node_journal_t *nj, size_t *held, size_t *bytes);
 
 /* OVER ANY RECORD STORE, `ops`, which must outlive it: memory for a suite,
  * the file store for a daemon. sec 504: a journal needs a store, not a disk.

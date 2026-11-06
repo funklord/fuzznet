@@ -211,7 +211,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
-             net/udp.c net/bearer.c device/device.c fault/fault.c \
+             net/udp.c net/bearer.c device/device.c persist/delta.c node/pressure.c record/store_held.c fault/fault.c \
              node/node.c node/local.c node/remote.c node/serve.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
@@ -313,7 +313,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/client.h local/escape.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
-             net/udp.h net/bearer.h device/device.h fault/fault.h \
+             net/udp.h net/bearer.h device/device.h persist/delta.h node/pressure.h record/store_held.h fault/fault.h \
              node/node.h node/local.h node/remote.h node/serve.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
@@ -468,7 +468,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
-             net/test/udp_test.c net/test/bearer_test.c \
+             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c \
+             node/test/pressure_test.c record/test/held_test.c \
              node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c node/test/stage_fuzz.c \
              node/test/serve_test.c node/test/replies_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
@@ -621,6 +622,9 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/socket_test \
              $(BUILD_DIR)/net/test/udp_test \
              $(BUILD_DIR)/net/test/bearer_test \
+             $(BUILD_DIR)/persist/test/delta_test \
+             $(BUILD_DIR)/node/test/pressure_test \
+             $(BUILD_DIR)/record/test/held_test \
              $(BUILD_DIR)/node/test/node_test \
              $(BUILD_DIR)/node/test/local_test \
              $(BUILD_DIR)/node/test/permit_test \
@@ -1108,7 +1112,7 @@ endif
 # Wherever node/roots.o links this follows it: the roots judge a cut by the
 # journal since sec 506; and node/notes' suite links it since sec 517, its
 # notes chained into a journal's stream 0.
-FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/node/opjournal.o \
+FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/record/store_held.o $(BUILD_DIR)/node/opjournal.o \
                          $(BUILD_DIR)/record/exchange.o \
                          $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/record/journal.o \
                          $(BUILD_DIR)/record/store.o \
@@ -3951,6 +3955,22 @@ $(BUILD_DIR)/net/test/udp_test: $(BUILD_DIR)/net/test/udp_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A store that goes on when its disk will not, and what goes first, sec 917.
+$(BUILD_DIR)/persist/test/delta_test: $(BUILD_DIR)/persist/test/delta_test.o \
+                                      $(BUILD_DIR)/persist/delta.o $(PERSIST_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/node/test/pressure_test: $(BUILD_DIR)/node/test/pressure_test.o \
+                                      $(BUILD_DIR)/node/pressure.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/record/test/held_test: $(BUILD_DIR)/record/test/held_test.o \
+                                    $(BUILD_DIR)/record/store_held.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # A frame in pieces, sec 912. It links only what it tests.
 $(BUILD_DIR)/net/test/bearer_test: $(BUILD_DIR)/net/test/bearer_test.o \
                                    $(BUILD_DIR)/net/bearer.o
@@ -4683,6 +4703,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # "serve.h" without -Inode. FUZZNETD_LINK is everything but that main: the
 # node as a call (sec 670), which another daemon's main links too.
 FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
+              $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/node/pressure.o \
               $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
@@ -5020,6 +5041,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/device/device.o $(BUILD_DIR)/net/bearer.o \
+                                      $(BUILD_DIR)/node/pressure.o \
                                       $(BUILD_DIR)/chunk/erasure.o \
                                       $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/contact/contact.o \
@@ -6903,6 +6925,7 @@ endif
 	@timeout 440 python3 tool/live_invite.py $(FUZZNETD)
 	@timeout 220 python3 tool/live_device.py $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 520 python3 tool/live_many_notes.py $(FUZZNETD)
+	@timeout 240 python3 tool/live_store_trouble.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_preset.py $(FUZZNETD)
 	@timeout 700 python3 tool/live_votes.py $(FUZZNETD)
 	@timeout 1100 python3 tool/live_group_hosts.py $(FUZZNETD)

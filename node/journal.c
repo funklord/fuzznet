@@ -74,9 +74,24 @@ fzn_node_journal_err_t fzn_node_journal_init(fzn_node_journal_t *nj, const char 
 	}
 	nj->file = opening;
 	nj->file.ops.ctx = &nj->file;
-	nj->store.ops = &nj->file.ops;
+	/* A JOURNAL THAT GOES ON WHEN ITS DISK WILL NOT, sec 917. */
+	fzn_record_held_init(&nj->held, &nj->file.ops, 0u);
+	nj->store.ops = &nj->held.ops;
 	nj->has_file = 1;
 	return FZN_NODE_JOURNAL_OK;
+}
+
+size_t fzn_node_journal_flush(fzn_node_journal_t *nj, size_t *held, size_t *bytes)
+{
+	size_t done = 0;
+
+	if (nj && nj->has_file && (nj->held.rows || nj->held.stuck))
+		done = fzn_record_held_flush(&nj->held);
+	if (held)
+		*held = nj && nj->has_file ? nj->held.rows : 0u;
+	if (bytes)
+		*bytes = nj && nj->has_file ? nj->held.bytes : 0u;
+	return done;
 }
 #endif
 

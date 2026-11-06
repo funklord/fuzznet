@@ -42,6 +42,8 @@
 
 #include "daemon.h"
 #include "../device/device.h"
+#include "../persist/delta.h"
+#include "pressure.h"
 #include "types.h"
 #include "serve.h"
 #include "talk.h"
@@ -435,6 +437,16 @@ static fzn_node_schema_t node_schema;
 static int node_udp_fd = -1;
 static uint64_t node_started;
 
+/* THE STORE'S DELTA AND THE HOST'S PRESSURE, sec 917. */
+static fzn_persist_delta_t store_delta;
+static fzn_persist_ops_t store_delta_ops;
+static int store_delta_on;
+static fzn_pressure_t host_pressure;
+static fzn_pressure_turns_t host_turns;
+static fzn_pressure_rules_t host_rules;
+/* RECORDS THE JOURNAL HOLDS IN RAM, as of the last tick. */
+static size_t journal_held_rows;
+
 /* `get node`, sec 687: what a client cannot learn otherwise -- the port
  * this node is reached on, which only it knows when the system chose it,
  * and when it started. Word pairs, so a field added later breaks no
@@ -451,8 +463,19 @@ static size_t node_local(const fzn_request_t *request, char *reply, size_t cap)
 		(void)snprintf(udp, sizeof(udp), "-");
 	else
 		(void)snprintf(udp, sizeof(udp), "%u", (unsigned)port);
-	return (size_t)snprintf(reply, cap, "ok udp %s started %llu\n", udp,
-	                        (unsigned long long)node_started);
+	{
+		fzn_persist_delta_status_t held;
+
+		memset(&held, 0, sizeof(held));
+		if (store_delta_on)
+			fzn_persist_delta_status(&store_delta, &held);
+		return (size_t)snprintf(reply, cap,
+		                        "ok udp %s started %llu pressure %s store %s held %zu dropped %lu\n",
+		                        udp, (unsigned long long)node_started,
+		                        fzn_pressure_state_str(host_pressure.state),
+		                        held.stuck || held.rows || journal_held_rows ? "ram" : "disk",
+		                        held.rows + journal_held_rows, held.dropped);
+	}
 }
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
@@ -1397,15 +1420,29 @@ static size_t metered_remote(void *ctx, fzn_node_remote_result_t result, const f
                              uint8_t *reply, size_t reply_cap)
 {
 	const fzn_node_admin_t *admin = ctx;
-	size_t n = fzn_node_admin_remote(ctx, result, req, reply, reply_cap);
+	size_t n;
 	uint8_t key[FZN_METER_KEY_MAX];
 	size_t key_len = 0;
 	char peer[FZN_METER_PEER_MAX + 1u];
+	fzn_meter_family_t family = FZN_METER_OTHER;
 
+	if (req)
+		family = fzn_meter_family_of(req->payload, req->payload_len, key, &key_len);
+	/* WHAT THE LADDER HAS LET GO, sec 917: said, so the asker waits for nothing. */
+	if (req && result == FZN_NODE_REMOTE_GRANTED
+	    && !fzn_pressure_admits(host_pressure.state,
+	                            fzn_pressure_ruled_rank(&host_rules, family, req->payload,
+	                                                    req->payload_len)))
+		n = (size_t)snprintf((char *)reply, reply_cap, "error this host is shedding: %s\n",
+		                     fzn_pressure_state_str(host_pressure.state));
+	/* WHAT MUST WORK TAKES TURNS once things are bad, so none waits on another. */
+	else if (req && result == FZN_NODE_REMOTE_GRANTED && host_pressure.state >= FZN_PRESSURE_SCARCE
+	         && fzn_pressure_turn_class(family) != FZN_TURN_CLASSES
+	         && !fzn_pressure_turn(&host_turns, fzn_pressure_turn_class(family), wall_clock()))
+		n = (size_t)snprintf((char *)reply, reply_cap, "error this host is taking turns\n");
+	else
+		n = fzn_node_admin_remote(ctx, result, req, reply, reply_cap);
 	if (req) {
-		fzn_meter_family_t family = fzn_meter_family_of(req->payload, req->payload_len, key,
-		                                                &key_len);
-
 		peer_text(admin && admin->state ? admin->state->asking_from : NULL, peer, sizeof(peer));
 		fzn_meter_count(&traffic, family, peer, key, key_len, n <= reply_cap ? n : 0u,
 		                req->payload_len, wall_clock());
@@ -2504,11 +2541,16 @@ static int journal_for(const char *store_dir, fzn_node_roots_t *roots, const fzn
 		if (!store_dir)
 			return 0;
 		w = snprintf(records_dir, sizeof(records_dir), "%s/records", store_dir);
+		/* NO DIRECTORY MADE IS NO REASON TO STOP, sec 917: a disk that will not
+		 * take one holds the journal in RAM, and the first write that can makes
+		 * it. */
+		if (w > 0 && (size_t)w < sizeof(records_dir))
+			(void)mkdir(records_dir, 0700);
 		if (w <= 0 || (size_t)w >= sizeof(records_dir)
-		    || (mkdir(records_dir, 0700) != 0 && errno != EEXIST)
 		    || fzn_node_journal_init(&node_journal, records_dir, sign, hash)
 		               != FZN_NODE_JOURNAL_OK)
 			return 0;
+		node_journal.file.dir_may_lack = access(records_dir, F_OK) != 0;
 		journal_on = 1;
 	}
 	/* THE SPINE AND THE BASES IN THE NODE'S STORE, secs 546 and 547, so an
@@ -14001,6 +14043,91 @@ static void log_settings_tick(void)
 }
 #endif
 
+/* HOW MUCH MEMORY IS LEFT, from /proc/meminfo: 0 in `*total` where it cannot be
+ * read, which says nothing. */
+static void memory_read(uint64_t *available, uint64_t *total)
+{
+	char line[128];
+	unsigned long long v;
+	FILE *f = fopen("/proc/meminfo", "r");
+
+	*available = *total = 0;
+	if (!f)
+		return;
+	while (fgets(line, sizeof(line), f)) {
+		if (sscanf(line, "MemTotal: %llu", &v) == 1)
+			*total = v;
+		else if (sscanf(line, "MemAvailable: %llu", &v) == 1)
+			*available = v;
+	}
+	fclose(f);
+	if (!*available)
+		*total = 0;
+}
+
+/* THE RULES ON WHAT GOES FIRST, read afresh, so a change stands within a second. */
+static void pressure_rules_read(void)
+{
+	char key[64], value[16];
+	unsigned i;
+
+	for (i = 0; i < FZN_RULED_COUNT; i++) {
+		fzn_rank_t rank;
+
+		(void)snprintf(key, sizeof(key), FZN_PRESSURE_RULE_PREFIX "%s",
+		               fzn_pressure_rule_name((fzn_pressure_ruled_t)i));
+		host_rules.set[i] = 0;
+		if (host_text(key, value, sizeof(value))
+		    && fzn_pressure_rule_value((const uint8_t *)value, strlen(value), &rank)) {
+			host_rules.set[i] = 1;
+			host_rules.rank[i] = rank;
+		}
+	}
+}
+
+/* ONCE A SECOND: what the delta holds written back if the store will take it,
+ * and the ladder read afresh, sec 917. A move is said, and told. */
+static void pressure_tick(void)
+{
+	static uint64_t last;
+	fzn_persist_delta_status_t held;
+	fzn_pressure_input_t in;
+	uint64_t now = wall_clock();
+	int moved = 0;
+
+	if (now == last || !store_delta_on)
+		return;
+	last = now;
+	pressure_rules_read();
+	fzn_persist_delta_status(&store_delta, &held);
+	if (held.rows || held.stuck) {
+		(void)fzn_persist_delta_flush(&store_delta);
+		fzn_persist_delta_status(&store_delta, &held);
+	}
+#ifdef FZN_RECORD_STORE_FILE_ON
+	if (journal_on) {
+		size_t rows = 0, bytes = 0;
+
+		(void)fzn_node_journal_flush(&node_journal, &rows, &bytes);
+		journal_held_rows = rows;
+		held.rows += rows;
+		held.bytes += bytes;
+	}
+#endif
+	memset(&in, 0, sizeof(in));
+	in.store_held = held.rows != 0u;
+	in.delta_bytes = held.bytes;
+	in.delta_budget = held.budget;
+	memory_read(&in.mem_available_kb, &in.mem_total_kb);
+	(void)fzn_pressure_step(&host_pressure, fzn_pressure_level(&in), &moved);
+	if (moved) {
+		say(host_pressure.state == FZN_PRESSURE_CALM ? FZN_ENTRY_NOTE : FZN_ENTRY_WARNING, "node",
+		    "pressure %s: %zu row(s) held in RAM of %zu byte(s), %lu dropped",
+		    fzn_pressure_state_str(host_pressure.state), held.rows, held.bytes, held.dropped);
+		publish("pressure", fzn_pressure_state_str(host_pressure.state));
+	}
+}
+
 static void location_tick(void)
 {
 	char where[FZN_GPSD_HOST_MAX + 8u], host[FZN_GPSD_HOST_MAX + 1u];
@@ -18547,19 +18674,28 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		(void)snprintf(claim_path, sizeof(claim_path), "%s/claim", store_dir);
 		if (fzn_claim_file_open(&claim_file, claim_path, &claim_ops) != FZN_CLAIM_OK
 		    || fzn_claim_init(&claim, &claim_ops) != FZN_CLAIM_OK) {
-			fprintf(stderr, "fuzznetd: the claim at %s would not open -- is %s a store?\n",
-			        claim_path, store_dir);
-			return 1;
+			/* A DIRECTORY THERE AND NOTHING WRITABLE, sec 917: a store never
+			 * claimed, on a disk that will take no file. Nothing can be written
+			 * for a second daemon to fight over, so this one goes on alone. A
+			 * directory that is not there stays fatal, as a mistyped name. */
+			if (access(store_dir, R_OK | X_OK) != 0) {
+				fprintf(stderr, "fuzznetd: the claim at %s would not open -- is %s a store?\n",
+				        claim_path, store_dir);
+				return 1;
+			}
+			fprintf(stderr, "fuzznetd: the claim at %s cannot be made: going on unclaimed\n",
+			        claim_path);
+		} else {
+			cerr = fzn_claim_take(&claim);
+			if (cerr == FZN_CLAIM_ERR_HELD)
+				return follower_main(sock_path, store_dir, &claim);
+			if (cerr != FZN_CLAIM_OK) {
+				fprintf(stderr, "fuzznetd: the claim at %s cannot be decided\n", claim_path);
+				return 1;
+			}
+			face_dir = store_dir;
+			face_claim = &claim;
 		}
-		cerr = fzn_claim_take(&claim);
-		if (cerr == FZN_CLAIM_ERR_HELD)
-			return follower_main(sock_path, store_dir, &claim);
-		if (cerr != FZN_CLAIM_OK) {
-			fprintf(stderr, "fuzznetd: the claim at %s cannot be decided\n", claim_path);
-			return 1;
-		}
-		face_dir = store_dir;
-		face_claim = &claim;
 	}
 #endif
 	if (store_dir) {
@@ -18572,7 +18708,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			return 1;
 		}
 		fzn_persist_route_ops(&route, &routed);
-		store_ops = &routed;
+		/* A STORE THAT GOES ON WHEN ITS DISK WILL NOT, sec 917. */
+		fzn_persist_delta_init(&store_delta, &routed, 0u, &store_delta_ops);
+		store_delta_on = 1;
+		store_ops = &store_delta_ops;
 		dlog.store = store_ops;
 	} else if (cli.store) {
 		fprintf(stderr, "fuzznetd: --fuzznet-store needs --fuzznet-dir: the identity "
@@ -20533,6 +20672,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			/* A REQUEST NEVER FINISHED gives its slot back. */
 			if (state.reassembly)
 				(void)fzn_reasm_expire(state.reassembly, wall_clock());
+			pressure_tick();
 			/* gpsd's newest fix, when sampling is on, sec 678. */
 			location_tick();
 			stages_tick();
@@ -20579,6 +20719,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * secs 638, 835: a node with nothing to pull still serves both verbs. */
 	serving_state = &state;
 	while (!identity_reset && !rejoin_due && !stop_due) {
+		pressure_tick();
 		location_tick();
 		stages_tick();
 		sealed_tick();
