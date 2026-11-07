@@ -1,4 +1,4 @@
-/* Vendored from situ's runtime/c/ at ae1dc696, unmodified below this
+/* Vendored from situ's runtime/c/ at 830ef9c1, unmodified below this
  * comment. `make schema SITU_DIR=...` re-copies both files and refuses on
  * drift, so this cannot quietly diverge.
  *
@@ -723,6 +723,18 @@ static inline int64_t situ_leaf_i64(int64_t value)
 	return value;
 }
 
+/* How many bits are set, for `popcount` (26.899). */
+static inline int64_t situ_popcount_i64(int64_t value)
+{
+	uint64_t bits = (uint64_t)value;
+	int64_t  set  = 0;
+
+	for (; bits != 0u; bits &= bits - 1u) {
+		set++;
+	}
+	return set;
+}
+
 /* A computed length, with a negative result read as zero (14.2b).
  *
  * Zero rather than a refusal: a member of negative length is a member with
@@ -744,6 +756,20 @@ static inline uint32_t situ_nonneg_u32(int64_t value)
 	return value > (int64_t)UINT32_MAX ? UINT32_MAX : (uint32_t)value;
 }
 
+/* A value a parent hands a `parameter`, held to what the parameter can hold.
+ *
+ * The range is proved by reading a `[min]` or a `[max]`, which are checks, so
+ * a message that breaks one reaches this out of range. Held rather than cast
+ * for `situ_nonneg_u32`'s reason: the child is empty and `validate` refuses
+ * the message for the rule it broke (26.904). */
+static inline int64_t situ_clamp_i64(int64_t value, int64_t low, int64_t high)
+{
+	if (value < low) {
+		return low;
+	}
+	return value > high ? high : value;
+}
+
 /* How many bytes remain in a view from `at`. Saturating, and that is the whole
  * of it: `at` is arithmetic over length fields the message controls, so it can
  * exceed the limit whatever the schema says. `limit - at` in `uint32_t` then
@@ -753,6 +779,14 @@ static inline uint32_t situ_nonneg_u32(int64_t value)
  * Found by fuzzing a schema that had a `[remaining]` tail after two
  * attacker-controlled lengths -- and found only once every schema started
  * being fuzzed rather than two of them. */
+/* Where a member `back` bytes from the frame's end starts, and past the frame
+ * where the frame is shorter, so the read refuses and no other byte is taken
+ * for it (26.905). */
+static inline uint32_t situ_from_end_u32(uint32_t limit, uint32_t back)
+{
+	return limit >= back ? limit - back : limit;
+}
+
 static inline uint32_t situ_remaining_u32(uint32_t limit, uint32_t at)
 {
 	return at >= limit ? 0u : limit - at;
@@ -775,6 +809,32 @@ static inline uint32_t situ_remaining_u32(uint32_t limit, uint32_t at)
  *
  * Found by fuzzing `example/packet` under an address sanitizer, three seconds
  * into the first run that was fuzzing rather than eight random inputs. */
+/* `sum(lens)`: the elements of a run of unsigned integers added up, for a
+ * length table standing apart from what it sizes (26.896). Only the elements
+ * `room` holds, and saturating, because each is a number the message chose. */
+static inline uint32_t situ_sum_run(const uint8_t *p, uint32_t count,
+                                    uint32_t width, int big, uint32_t room)
+{
+	uint64_t total = 0;
+	uint32_t at;
+
+	for (at = 0; at < count && (uint64_t)(at + 1u) * width <= room; at++) {
+		uint64_t value = 0;
+		uint32_t byte;
+
+		for (byte = 0; byte < width; byte++) {
+			const uint32_t from = big ? byte : width - 1u - byte;
+
+			value = (value << 8) | p[at * width + from];
+		}
+		if (value >= 0xFFFFFFFFu - total) {
+			return 0xFFFFFFFFu;
+		}
+		total += value;
+	}
+	return (uint32_t)total;
+}
+
 static inline uint32_t situ_advance_u32(uint32_t at, uint32_t by, uint32_t limit)
 {
 	const uint32_t room = situ_remaining_u32(limit, at);
@@ -1924,6 +1984,213 @@ static inline uint32_t situ_varint_be_put(uint8_t *p, uint32_t avail,
 }
 
 /* Encoded length of a value, so a writer can tell whether it still fits. */
+/* A marked integer: a first byte below `direct` is the value, and marker
+ * `first + i` says `widths[i]` bytes hold it, in the order `big` says. `widths`
+ * is a nibble per marker, low first. Anything else is no number in this form:
+ * BER's indefinite 0x80, MySQL's NULL at 0xFB.
+ *
+ * Returns bytes consumed, or 0 where the buffer ends inside it, the marker is
+ * no marker, or the whole is longer than `max_bytes`. */
+static inline uint32_t situ_varint_marked_get(const uint8_t *p, uint32_t avail,
+        uint32_t max_bytes, uint32_t direct, uint32_t first, uint32_t count,
+        uint32_t widths, int big, uint64_t *out)
+{
+	uint64_t acc = 0;
+	uint32_t n;
+	uint32_t i;
+
+	if (avail == 0u) {
+		return 0;
+	}
+	if (p[0] < direct) {
+		*out = p[0];
+		return 1u;
+	}
+	if (p[0] < first || p[0] - first >= count) {
+		return 0;
+	}
+
+	n = (widths >> (4u * (p[0] - first))) & 0xFu;
+	if (n + 1u > avail || n + 1u > max_bytes) {
+		return 0;
+	}
+	for (i = 0u; i < n; i++) {
+		acc |= (uint64_t)p[1u + i] << (8u * (big ? n - 1u - i : i));
+	}
+
+	*out = acc;
+	return n + 1u;
+}
+
+/* The shortest encoding of a value under `situ_varint_marked_get`. */
+static inline uint32_t situ_varint_marked_len(uint64_t value, uint32_t direct,
+        uint32_t count, uint32_t widths)
+{
+	uint32_t i;
+
+	if (value < direct) {
+		return 1u;
+	}
+	for (i = 0u; i < count; i++) {
+		const uint32_t n = (widths >> (4u * i)) & 0xFu;
+
+		if (n >= 8u || value < (UINT64_C(1) << (8u * n))) {
+			return n + 1u;
+		}
+	}
+	return 0;
+}
+
+/* Encode one marked integer minimally. Returns bytes written, or 0 if there is
+ * no room. */
+static inline uint32_t situ_varint_marked_put(uint8_t *p, uint32_t avail,
+        uint64_t value, uint32_t direct, uint32_t first, uint32_t count,
+        uint32_t widths, int big)
+{
+	const uint32_t total = situ_varint_marked_len(value, direct, count, widths);
+	uint32_t i;
+	uint32_t at = 0u;
+
+	if (total == 0u || total > avail) {
+		return 0;
+	}
+	if (total == 1u) {
+		p[0] = (uint8_t)value;
+		return 1u;
+	}
+	while (((widths >> (4u * at)) & 0xFu) != total - 1u) {
+		at++;
+	}
+	p[0] = (uint8_t)(first + at);
+	for (i = 0u; i < total - 1u; i++) {
+		p[1u + i] = (uint8_t)(value
+		            >> (8u * (big ? total - 2u - i : i)));
+	}
+	return total;
+}
+
+/* The three published tables. `ast.MARKED` names each, and each reader holds a
+ * copy, since a walker carries no table of its own to be handed. */
+#define SITU_DER_FORM         0x80u, 0x81u, 8u, 0x87654321u, 1
+#define SITU_COMPACTSIZE_FORM 0xFDu, 0xFDu, 3u, 0x842u, 0
+#define SITU_LENENC_FORM      0xFBu, 0xFCu, 3u, 0x832u, 0
+
+static inline uint32_t situ_varint_der_get(const uint8_t *p, uint32_t avail,
+        uint32_t max_bytes, uint64_t *out)
+{
+	return situ_varint_marked_get(p, avail, max_bytes, SITU_DER_FORM, out);
+}
+
+static inline uint32_t situ_varint_der_len(uint64_t value)
+{
+	return situ_varint_marked_len(value, 0x80u, 8u, 0x87654321u);
+}
+
+static inline uint32_t situ_varint_der_put(uint8_t *p, uint32_t avail,
+        uint64_t value)
+{
+	return situ_varint_marked_put(p, avail, value, SITU_DER_FORM);
+}
+
+static inline uint32_t situ_varint_compactsize_get(const uint8_t *p,
+        uint32_t avail, uint32_t max_bytes, uint64_t *out)
+{
+	return situ_varint_marked_get(p, avail, max_bytes, SITU_COMPACTSIZE_FORM,
+	                              out);
+}
+
+static inline uint32_t situ_varint_compactsize_len(uint64_t value)
+{
+	return situ_varint_marked_len(value, 0xFDu, 3u, 0x842u);
+}
+
+static inline uint32_t situ_varint_compactsize_put(uint8_t *p, uint32_t avail,
+        uint64_t value)
+{
+	return situ_varint_marked_put(p, avail, value, SITU_COMPACTSIZE_FORM);
+}
+
+static inline uint32_t situ_varint_lenenc_get(const uint8_t *p, uint32_t avail,
+        uint32_t max_bytes, uint64_t *out)
+{
+	return situ_varint_marked_get(p, avail, max_bytes, SITU_LENENC_FORM, out);
+}
+
+static inline uint32_t situ_varint_lenenc_len(uint64_t value)
+{
+	return situ_varint_marked_len(value, 0xFBu, 3u, 0x832u);
+}
+
+static inline uint32_t situ_varint_lenenc_put(uint8_t *p, uint32_t avail,
+        uint64_t value)
+{
+	return situ_varint_marked_put(p, avail, value, SITU_LENENC_FORM);
+}
+
+/* Decode one QUIC varint (RFC 9000, section 16): the top two bits of the
+ * first byte say one, two, four or eight bytes and the rest is the value, high
+ * byte first. Returns bytes consumed, or 0 if the buffer ends inside it or the
+ * first byte says more than `max_bytes`. */
+static inline uint32_t situ_varint_quic_get(const uint8_t *p, uint32_t avail,
+        uint32_t max_bytes, uint64_t *out)
+{
+	uint64_t acc;
+	uint32_t n;
+	uint32_t i;
+
+	if (avail == 0u) {
+		return 0;
+	}
+
+	n = 1u << (p[0] >> 6);
+	if (n > avail || n > max_bytes) {
+		return 0;
+	}
+
+	acc = p[0] & 0x3Fu;
+	for (i = 1u; i < n; i++) {
+		acc = (acc << 8) | p[i];
+	}
+
+	*out = acc;
+	return n;
+}
+
+/* The shortest encoding of a value under `situ_varint_quic_get`. */
+static inline uint32_t situ_varint_quic_len(uint64_t value)
+{
+	if (value < (UINT64_C(1) << 6)) {
+		return 1u;
+	}
+	if (value < (UINT64_C(1) << 14)) {
+		return 2u;
+	}
+	if (value < (UINT64_C(1) << 30)) {
+		return 4u;
+	}
+	return 8u;
+}
+
+/* Encode one QUIC varint minimally. Returns bytes written, or 0 if there is
+ * no room or the value needs more than sixty-two bits. */
+static inline uint32_t situ_varint_quic_put(uint8_t *p, uint32_t avail,
+        uint64_t value)
+{
+	const uint32_t n = situ_varint_quic_len(value);
+	uint32_t i;
+
+	if (n > avail || value >= (UINT64_C(1) << 62)) {
+		return 0;
+	}
+
+	for (i = 0u; i < n; i++) {
+		p[i] = (uint8_t)(value >> (8u * (n - 1u - i)));
+	}
+	p[0] = (uint8_t)(p[0] | (uint8_t)((n == 1u ? 0u : n == 2u ? 1u
+	                                  : n == 4u ? 2u : 3u) << 6));
+	return n;
+}
+
 static inline uint32_t situ_varint_len(uint64_t value)
 {
 	uint32_t n = 1;
