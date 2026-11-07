@@ -121,6 +121,10 @@ typedef struct fzn_node_state {
 	struct pollfd *polled;
 	int *polled_subscribers;
 	size_t polled_cap;
+	/* A WAIT'S OWN, sec 949: it may run inside a pass still reading `polled`.
+	 * Read to its end before anything is served, as a wait may run in a wait. */
+	struct pollfd *wait_polled;
+	size_t wait_polled_cap;
 	void *on_box_ctx;
 	/* A LAN PROBE, sec 624: a datagram opening with FZN_NODE_PROBE_MARK,
 	 * which no frame and no box does, handed over with where it came from

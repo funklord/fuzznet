@@ -14800,6 +14800,20 @@ SABOTAGES = [
 		"a change waits out a round, 60 s for a lamp; live_objects only, as a round is the loop's -- sec 948",
 	),
 	(
+		"wait-leaves-the-parked",
+		"node/serve.c",
+		"\t\tsize_t n_own = 0, n_wait = local && state ? state->n_waiting : 0u, s;\n",
+		"\t\tsize_t n_own = 0, n_wait = 0u, s;\n",
+		"a client whose line comes after its connection waits out every silent peer of a round, past its own wait -- sec 949",
+	),
+	(
+		"wait-serves-the-parked-unasked",
+		"node/serve.c",
+		"\t\tsize_t n_own = 0, n_wait = local && state ? state->n_waiting : 0u, s;\n",
+		"\t\tsize_t n_own = 0, n_wait = state ? state->n_waiting : 0u, s;\n",
+		"a wait not saying local runs a handler inside a handler -- sec 949",
+	),
+	(
 		"named-unsorted",
 		"node/notes.c",
 		"\t\t\tqsort(named.roots, named.count, FZN_BLOB_HASH_LEN, root_order);\n",

@@ -148,6 +148,38 @@ static void test_run_once_local(void)
 			} else {
 				ok(0, "a client did not connect for the wait");
 			}
+			/* A CLIENT WHOSE LINE COMES AFTER ITS CONNECTION, sec 949: accepted
+			 * in one wait and parked, as connect and write are two calls, and
+			 * served by the next wait, not by the end of a round's waits. */
+			cfd = connect_to(path);
+			if (cfd >= 0) {
+				struct pollfd pfd = { cfd, POLLIN, 0 };
+
+				ok(fzn_node_wait_answering(&state, wfd, 100u, 1) == 0
+				           && state.n_waiting == 1u,
+				   "a connection with nothing said yet was not parked");
+				(void)write(cfd, "hello\n", 6);
+				ok(fzn_node_wait_answering(&state, wfd, 300u, 1) == 0,
+				   "a wait over a parked client was not 0");
+				n = poll(&pfd, 1, 200) == 1 ? read(cfd, resp, sizeof(resp) - 1) : -1;
+				resp[n > 0 ? (size_t)n : 0] = '\0';
+				ok(n > 0 && strstr(resp, "served") && state.n_waiting == 0u,
+				   "a parked client's line went unread through a wait saying local");
+				cfd = (close(cfd), -1);
+				/* AND NOT THROUGH ONE NOT SAYING IT, as it would run a handler
+				 * inside a handler. */
+				cfd = connect_to(path);
+				if (cfd >= 0) {
+					(void)fzn_node_wait_answering(&state, wfd, 100u, 1);
+					(void)write(cfd, "hello\n", 6);
+					(void)fzn_node_wait_answering(&state, wfd, 150u, 0);
+					ok(recv(cfd, resp, sizeof(resp) - 1, MSG_DONTWAIT) < 0
+					           && state.n_waiting == 1u,
+					   "a wait not saying local served a parked client");
+					(void)close(cfd);
+					(void)fzn_node_run_once(&state, 200);
+				}
+			}
 			fzn_udp_close(wfd);
 		} else {
 			ok(0, "the waiting socket would not bind");

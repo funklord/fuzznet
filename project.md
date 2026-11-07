@@ -82313,10 +82313,9 @@ on the ADD that spans the note is rare, so those runs alone prove little; the un
 proof. A KEYS act is refused when made again, either way, as it carries no payload then, and the next
 tend draws one: not this section's.
 
-**Open, not understood:** once in 71 runs before the fix `add contact` on A passed the socket's 5 s,
-on a daemon past its first round. That command touches no network, and it did not come back alone or
-under load, so this says nothing about what held the loop. `live_group_skew` printed no log for it;
-it does now.
+Once in 71 runs before the fix `add contact` on A passed the socket's 5 s. Sec 949 found the same
+symptom and its cause, though this one left no log to show it was that. `live_group_skew` prints one
+now.
 
 ## 947. A user's acts past the sixteenth, 2026-11-07
 
@@ -82401,3 +82400,38 @@ it, a value the lamp may not have refused. `live_objects` and `live_device` run 
   passed on the next run. Objects touch no stage. Hosts sweep stages once a second, so a read just as
   the settings stood could race a sweep, but that is a reading: the run printed nothing of it, and
   the check now waits 5 s and says what it holds.
+
+## 949. A client whose line came after its connection, 2026-11-07
+
+The gates at 111b07d failed again, on `live_estate`: `remove root` went unanswered on its socket.
+With sec 946's `add contact` that was two, and a stall nobody explains is not a flake. A wrapper
+round `ask` sampled every daemon the moment a request went 2 s unanswered: **23 of 30 runs had
+one, 43 events, on unrelated verbs,** and 9 runs failed (gdb's own pause fed those). gdb arrived after
+each stall, so a timer reset every pass of the loop dumped a backtrace from inside it: 204 of 211 in
+`fzn_node_wait_answering`, under `peer_ask`, nearly all in `reconcile_estate` or `introduce_siblings`.
+
+**That wait answers local clients, and it left out the ones parked.** Sec 903 parks a connection that
+has not said its line, so one client cannot hold another up, and a pass polls them. The wait accepted
+connections and tried each once. `connect` and `write` are two calls, so a client caught between them
+was parked, and no wait looked at it again. A round's waits for silent peers run one after another,
+3 s each, so with two peers down the client's line sat past its 5 s. Every verb, on any host with
+peers away, from e8518d9, which added the parking.
+
+**The wait polls the parked now, when it says `local`,** and serves them as a pass does. A wait not
+saying `local` is inside a handler and leaves them, as it would run a handler in a handler.
+
+**Its own poll buffer, and read to the end before anything is served.** My first fix passed its test
+and was wrong: a wait can run in a wait, as a parked client's handler may ask a peer, so a shared
+buffer is refilled or moved under the outer one. The stack array stays for the common case, and every
+readiness flag is taken into locals first.
+
+**Measured,** the same wrapper, three lanes of 10: 43 events and 9 failures before, **0 and 0** after,
+30 of 30. `serve_test` failed first on the parked client, and passes;
+`wait-leaves-the-parked` and `wait-serves-the-parked-unasked` guard it.
+
+**Not shown:** that sec 946's `add contact` was this, as it left no log, though it is the same
+symptom on a daemon whose peers were joining. Sec 933's stall in fuzzypickles' seed, not reproduced
+here in hosts with no peer away, is a candidate; only their run can say.
+
+**Still held:** a wait not saying `local` serves no local client, so a client waits out a handler
+that asks a peer. Every wait of a round says `local`, and the watchdog saw none of the other kind.

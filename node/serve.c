@@ -575,11 +575,13 @@ void fzn_node_serve_release(fzn_node_state_t *state)
 		(void)close(state->waiting[i].fd);
 	free(state->waiting);
 	free(state->polled);
+	free(state->wait_polled);
 	free(state->polled_subscribers);
 	state->waiting = NULL;
 	state->polled = NULL;
+	state->wait_polled = NULL;
 	state->polled_subscribers = NULL;
-	state->n_waiting = state->waiting_cap = state->polled_cap = 0;
+	state->n_waiting = state->waiting_cap = state->polled_cap = state->wait_polled_cap = 0;
 }
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
@@ -737,15 +739,32 @@ int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms
 	if (fd < 0)
 		return 0;
 	for (;;) {
-		struct pollfd fds[3u + FZN_NODE_OWN_FDS_MAX];
-		int own[FZN_NODE_OWN_FDS_MAX];
-		nfds_t nfds = 1, first_own;
-		size_t n_own = 0, s;
-		int ui = -1, li = -1, r;
+		struct pollfd base[3u + FZN_NODE_OWN_FDS_MAX], *fds = base;
+		int own[FZN_NODE_OWN_FDS_MAX], own_said[FZN_NODE_OWN_FDS_MAX];
+		nfds_t nfds = 1, first_own, first_wait, at;
+		size_t n_own = 0, n_wait = local && state ? state->n_waiting : 0u, s;
+		int ui = -1, li = -1, r, udp_said, local_said, parked_said = 0;
 		uint64_t now = since_boot_ms();
 
 		if (now >= until)
 			return 0;
+		if (n_wait) {
+			size_t want = 3u + FZN_NODE_OWN_FDS_MAX + n_wait;
+
+			if (want > state->wait_polled_cap) {
+				struct pollfd *more = realloc(state->wait_polled, want * 2u * sizeof(*more));
+
+				if (more) {
+					state->wait_polled = more;
+					state->wait_polled_cap = want * 2u;
+				}
+			}
+			/* NO ROOM: the parked wait for a pass, as they did. */
+			if (want <= state->wait_polled_cap)
+				fds = state->wait_polled;
+			else
+				n_wait = 0;
+		}
 		fds[0].fd = fd;
 		fds[0].events = POLLIN;
 		fds[0].revents = 0;
@@ -775,6 +794,17 @@ int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms
 				nfds++;
 			}
 		}
+		/* EACH LOCAL CONNECTION STILL SAYING ITS REQUEST, as a pass polls them:
+		 * connect and write are two calls, so one accepted in a wait is often
+		 * parked, and a round's waits for silent peers run one after another,
+		 * past what a client waits. Sec 949. */
+		first_wait = nfds;
+		for (s = 0; s < n_wait; s++) {
+			fds[nfds].fd = state->waiting[s].fd;
+			fds[nfds].events = POLLIN;
+			fds[nfds].revents = 0;
+			nfds++;
+		}
 		r = poll(fds, nfds, (int)(until - now));
 		if (r < 0)
 			continue; /* interrupted: the deadline still bounds it */
@@ -782,12 +812,27 @@ int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms
 			return 0;
 		if (fds[0].revents & (POLLIN | POLLERR | POLLHUP))
 			return 1;
+		/* ALL OF IT READ BEFORE ANYTHING IS SERVED: a handler may ask a peer, and
+		 * that wait fills `wait_polled` again. */
 		for (s = 0; s < n_own; s++)
-			if (fds[first_own + s].revents & (POLLIN | POLLHUP | POLLERR))
+			own_said[s] = (fds[first_own + s].revents & (POLLIN | POLLHUP | POLLERR)) != 0;
+		udp_said = ui >= 0 && (fds[ui].revents & POLLIN);
+		local_said = li >= 0 && (fds[li].revents & POLLIN);
+		for (at = first_wait; at < first_wait + n_wait; at++)
+			parked_said |= (fds[at].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) != 0;
+		for (s = 0; s < n_own; s++)
+			if (own_said[s])
 				state->own_ready(state->own_ctx, own[s]);
-		if (ui >= 0 && (fds[ui].revents & POLLIN))
+		/* EACH PARKED CONNECTION LOOKED AT, one with nothing to say left as it is.
+		 * BACKWARD, so one dropped moves only one already looked at, and against
+		 * the count as it now stands, as what is served may serve others. */
+		if (parked_said)
+			for (s = state->n_waiting; s > 0u; s--)
+				if (s <= state->n_waiting)
+					waiting_step(state, s - 1u);
+		if (udp_said)
 			serve_ready_datagram(state);
-		if (li >= 0 && (fds[li].revents & POLLIN))
+		if (local_said)
 			serve_ready_local(state);
 	}
 }
