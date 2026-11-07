@@ -82333,6 +82333,10 @@ at its time. `lost-acts-stop-at-a-bound` and `lost-acts-keep-anyones` guard the 
 loses the act, within one round. Nothing keeps an act whose author is offline on the kept head
 either; that is sec 626's design.
 
+**netcfgd took it** (inbox 20261107T1942Z, their 10.755): at 364241c their `make check` exits 0,
+`make live` passes what runs there, and `make hull-mips` has one estate across two byte orders at
+39 of 39. Our full gates at 11e8d78 passed, faults twice, so nothing was owed back.
+
 ## 948. Named objects: `living_room_lamp` = on or off, 2026-11-07
 
 The holder, relayed in fuzzypickles' 20261107T1716Z and not heard here directly: "for embedded we
