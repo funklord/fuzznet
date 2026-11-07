@@ -176,19 +176,30 @@ int fzn_node_group_host_owner(const fzn_persist_ops_t *store, const uint8_t self
 
 static fzn_group_log_err_t act_with(const fzn_node_groups_t *g, uint8_t kind, const uint8_t *id,
                                     const uint8_t *subject, uint8_t setting, uint64_t value,
-                                    const uint8_t *payload, size_t payload_len, uint8_t *made);
+                                    const uint8_t *payload, size_t payload_len, uint64_t at,
+                                    uint8_t *made);
 
 fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind,
                                         const uint8_t *id, const uint8_t subject[FZN_PUBKEY_LEN],
                                         uint8_t setting, uint64_t value,
                                         uint8_t made[FZN_GROUP_ID_LEN])
 {
-	return act_with(g, kind, id, subject, setting, value, NULL, 0u, made);
+	return act_with(g, kind, id, subject, setting, value, NULL, 0u, 0u, made);
 }
 
+fzn_group_log_err_t fzn_node_groups_act_again(const fzn_node_groups_t *g, uint8_t kind,
+                                              const uint8_t *id,
+                                              const uint8_t subject[FZN_PUBKEY_LEN],
+                                              uint8_t setting, uint64_t value, uint64_t at)
+{
+	return act_with(g, kind, id, subject, setting, value, NULL, 0u, at, NULL);
+}
+
+/* `at` 0 is now. */
 static fzn_group_log_err_t act_with(const fzn_node_groups_t *g, uint8_t kind, const uint8_t *id,
                                     const uint8_t *subject, uint8_t setting, uint64_t value,
-                                    const uint8_t *payload, size_t payload_len, uint8_t *made)
+                                    const uint8_t *payload, size_t payload_len, uint64_t at,
+                                    uint8_t *made)
 {
 	static fzn_group_act_t a;
 	static fzn_group_t held;
@@ -221,7 +232,7 @@ static fzn_group_log_err_t act_with(const fzn_node_groups_t *g, uint8_t kind, co
 	}
 	a.setting = setting;
 	a.value = value;
-	a.at = g->clock();
+	a.at = at ? at : g->clock();
 	if (!g->signer(g->signer_ctx, &a.signer)
 	    || fzn_group_act_sign(&a, g->host_sign) != FZN_GROUP_ACT_OK
 	    || fzn_group_act_encode(&a, bytes, sizeof(bytes), &n) != FZN_GROUP_ACT_OK)
@@ -424,7 +435,7 @@ static fzn_group_log_err_t seal_keys(const fzn_node_groups_t *g, const fzn_group
 		memcpy(entry, to[i]->key, FZN_PUBKEY_LEN);
 	}
 	return act_with(g, FZN_GROUP_ACT_KEYS, held->id, commit, 0u, epoch, payload,
-	                i * FZN_GROUP_KEY_ENTRY_LEN, NULL);
+	                i * FZN_GROUP_KEY_ENTRY_LEN, 0u, NULL);
 }
 
 /* WHETHER THIS HOST'S PREKEY IS NOT THE ONE ITS HOST ACT CARRIES, sec 803:
@@ -660,7 +671,8 @@ static size_t make_group(const fzn_node_groups_t *g, const uint8_t *name, size_t
 
 		carried[0] = CREATE_NAME_VERSION;
 		memcpy(carried + 1, name, name_len);
-		err = act_with(g, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, carried, 1u + name_len, id);
+		err = act_with(g, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, carried, 1u + name_len, 0u,
+		               id);
 	}
 	if (err != FZN_GROUP_LOG_OK)
 		return log_refusal(reply, cap, err);

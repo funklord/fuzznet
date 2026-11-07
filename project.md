@@ -82126,7 +82126,14 @@ GB with no swap, which is a small VPS as well as a router.
   that will not read does.
 
 Static memory is 434 MB, from 1136. Under `ulimit -v 500000` it starts; before, it died at 900000.
-That limit is a stand-in for overcommit, and no small machine has run it. `make livecheck` refuses
+That limit is a stand-in for overcommit, and no small machine has run this default: netcfgd's
+20261107T1339Z expects 434 MB still refused at 128 MB, and did not run it. Under netcfgd's own named
+bounds at 60934e2, on OpenWrt 24.10.4 malta-be with 128 MB and a real kernel, a serving node has
+20.5 MB of bss and 4.7 MB resident, with 51 MB of 118 available. On x86-64 its peak is 6.5 MB, against
+6.4 before the heap move. The same message has one estate across two byte orders passing, 39 of 39
+as an all-native control: join, status, `ask`, an apply with a window, a configuration in pieces,
+`monitor --at`. The big-endian side ran under qemu-user, so its sockets on a real kernel are
+untested. `make hull-mips` in netcfgd reproduces it. `make livecheck` refuses
 more than 512 MiB. **Not done:** 434 MB is about 15 tables of 8 MB, 25 of 7 and `titles`. Consumers
 name their own bounds, as netcfgd does at 21 MB, so a 256 MB host of the full default still waits.
 
@@ -82267,5 +82274,47 @@ every sharer from disk, and 24% in `take_wraps` reading every claim again for ea
 A first pull of 2200 goes from 28 s to 5 s. The worst client answer through the texts after it was
 0.22 s to 0.49 s over three runs, no change to speak of.
 
-**Open:** the texts are the long part now: 34 s, with 19 s of CPU on the sharer and 11 s on the
-recipient. Not looked at further; the sharer's check of each request is the place to start.
+**A host full, steady state,** 5000 shared notes with every text held, profiled through two rounds:
+2.6% of a core, and no client answer past 0.42 s. Nothing else grows as the shelf did; over half of
+what is left is the scrub, which is paced.
+
+**Open:** the texts are square at the sharer, 31 s at 2200 and 179 s at 5000, the worst answer 1.46 s.
+`fzn_node_notes_shares_blob` reads every claim for each request, and it is left so on purpose: it is
+why unsharing stops a text at once, and a memo of the answer would have to end with every way a share
+can. An index of which claims name a root, kept by the notes stamp, would take the read and leave the
+decision fresh, as what a claim names does not depend on who asks. Not built: three minutes at 5000
+hurts nobody yet.
+
+## 946. An add made again, past what was written meanwhile, 2026-11-07
+
+The gates at a57c6eb passed but for `livecheck-faults`, where `live_group_skew` failed. Repeated
+alone it passed, then failed 1 run in 6, and 3 in 48: C, added to the group, read `ok 0 0` for 120 s,
+without A's note written after it joined. Not load: 24 runs in three lanes under an fsync load all
+passed, and 16 alone. All three failures logged A's `made again`, as 8 of the 48 runs did.
+
+**A member's floor is its ADD act's time, sec 722, and an act a fork drops is made again, sec 626,
+with `fzn_node_groups_act`, which reads the clock.** So when another host's tend act took the fork,
+the ADD came back a few seconds later than the user made it, the floor moved past the note written
+in between, and sec 656's rule withheld that note for good. Nothing in the log was wrong: every
+host agreed on the later time. A user who adds someone and writes at once is who meets this, on any
+group with a second host tending, and the member never learns what it missed.
+
+**`fzn_node_groups_act_again` makes the act at the time of the one it replaces.** The user acted
+then. Nothing orders acts by time, and a signer's card is checked at the act's time, so a card
+issued between the two refuses the act, and it is logged as not made again. The other choice was to
+hold the note back until the add settled; it needs the writer to know a fork is coming.
+
+`act-again-stamps-now` guards the stamp, in `node/test/groups_test.c`. The daemon's copy of the time
+into `group_redo` has no guard: losing it brings back this rate and no unit test sees it.
+
+**Measured after it,** one binary, a switch for the old stamp, 40 runs of each side by side: every
+ADD and HOST act came back in both, so the time refuses nothing; the old stamp failed one run, with
+an ADD made again, and the fix none, 4 ADDs made again among its 40, and 96 more runs passed. A fork
+on the ADD that spans the note is rare, so those runs alone prove little; the unit test is the
+proof. A KEYS act is refused when made again, either way, as it carries no payload then, and the next
+tend draws one: not this section's.
+
+**Open, not understood:** once in 71 runs before the fix `add contact` on A passed the socket's 5 s,
+on a daemon past its first round. That command touches no network, and it did not come back alone or
+under load, so this says nothing about what held the loop. `live_group_skew` printed no log for it;
+it does now.

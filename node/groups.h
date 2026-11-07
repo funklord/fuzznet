@@ -134,6 +134,15 @@ fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind
                                         uint8_t setting, uint64_t value,
                                         uint8_t made[FZN_GROUP_ID_LEN]);
 
+/* AN ACT A FORK DROPPED, MADE AGAIN on the kept head, at the time it was
+ * made, sec 946. The user acted then: a member's floor is its ADD act's
+ * time, so an ADD stamped at the making again would withhold from that
+ * member what was written in between. */
+fzn_group_log_err_t fzn_node_groups_act_again(const fzn_node_groups_t *g, uint8_t kind,
+                                              const uint8_t *id,
+                                              const uint8_t subject[FZN_PUBKEY_LEN],
+                                              uint8_t setting, uint64_t value, uint64_t at);
+
 /* A GROUP LEARNED FROM ANOTHER HOST, named here if it is not yet, sec 837:
  * by the name its maker gave it, carried in its CREATE act, where that
  * name is free here -- and otherwise, or for a group made before the name

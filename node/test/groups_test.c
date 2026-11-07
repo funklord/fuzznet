@@ -64,9 +64,11 @@ static int stub_verify(void *ctx, const uint8_t pk[FZN_PUBKEY_LEN], const uint8_
 	return memcmp(want, sig, FZN_SIG_LEN) == 0;
 }
 
+static uint64_t test_now = 5000u;
+
 static uint64_t fixed_clock(void)
 {
-	return 5000u;
+	return test_now;
 }
 
 /* ---- a store per host --------------------------------------------------- */
@@ -407,6 +409,37 @@ static void test_a_secret_drawn_on_a_lost_fork_is_let_go(void)
 	      "fixture: B holds a wrong secret");
 	(void)tend(b, id);
 	CHECK(same_secret(a, b, id, g.epoch), "B kept the wrong secret over the one committed to");
+}
+
+/* AN ADD MADE AGAIN KEEPS ITS TIME, sec 946: the user added the member at
+ * 5000, and a note of 5002 is the member's, though the fork that dropped
+ * the act was only seen at 5003. */
+static void test_an_add_made_again_keeps_its_time(void)
+{
+	struct user *a = &users[0], *b = &users[1], *c = &users[2];
+	static fzn_group_t g;
+	uint8_t id[FZN_GROUP_ID_LEN];
+
+	user_up(a, 0x11u);
+	user_up(b, 0x22u);
+	user_up(c, 0x33u);
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id);
+	test_now = 5003u;
+	CHECK(fzn_node_groups_act_again(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u, 0u,
+	                                5000u)
+	          == FZN_GROUP_LOG_OK,
+	      "the add is made again");
+	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, c->device.owner, 0u, 0u, NULL)
+	          == FZN_GROUP_LOG_OK,
+	      "and another member added now");
+	test_now = 5000u;
+	(void)fzn_group_log_get(&a->ops, id, &g);
+	CHECK(fzn_node_group_joined_ms(&a->ops, &HASH, id, &g, b->device.owner)
+	          == fzn_node_group_floor_ms(5000u),
+	      "its floor is when the user added it");
+	CHECK(fzn_node_group_joined_ms(&a->ops, &HASH, id, &g, c->device.owner)
+	          == fzn_node_group_floor_ms(5003u),
+	      "and an act made now has the clock's time");
 }
 
 /* A LINE written at one member's host, read at another's, sec 628. */
@@ -958,6 +991,7 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 	test_epochs_reach_members_and_no_one_else();
 	test_a_secret_drawn_on_a_lost_fork_is_let_go();
+	test_an_add_made_again_keeps_its_time();
 	test_a_line_is_read_by_members_alone();
 	test_lines_are_held_in_order();
 	test_lines_trimmed_from_a_base();

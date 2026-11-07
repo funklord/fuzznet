@@ -14716,6 +14716,13 @@ SABOTAGES = [
 		"two writers' claims on a note are asked for its key twice -- sec 945",
 	),
 	(
+		"act-again-stamps-now",
+		"node/groups.c",
+		"\ta.at = at ? at : g->clock();\n",
+		"\ta.at = g->clock();\n",
+		"an ADD a fork dropped takes the time of its making again, and the member's floor moves past what was written meanwhile -- sec 946",
+	),
+	(
 		"named-unsorted",
 		"node/notes.c",
 		"\t\t\tqsort(named.roots, named.count, FZN_BLOB_HASH_LEN, root_order);\n",

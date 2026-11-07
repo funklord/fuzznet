@@ -12215,7 +12215,7 @@ static struct {
 	uint8_t kind, setting;
 	uint8_t group[FZN_GROUP_ID_LEN];
 	uint8_t subject[FZN_PUBKEY_LEN];
-	uint64_t value;
+	uint64_t value, at;
 } group_redo[FZND_GROUP_REDO_MAX];
 static size_t n_group_redo;
 
@@ -12233,6 +12233,7 @@ static void group_dropped(void *ctx, const uint8_t *bytes, size_t len)
 	memcpy(group_redo[n_group_redo].group, a.group, FZN_GROUP_ID_LEN);
 	memcpy(group_redo[n_group_redo].subject, a.subject, FZN_PUBKEY_LEN);
 	group_redo[n_group_redo].value = a.value;
+	group_redo[n_group_redo].at = a.at;
 	n_group_redo++;
 }
 
@@ -12243,9 +12244,9 @@ static void group_redo_all(void)
 	size_t i, made = 0;
 
 	for (i = 0; i < n_group_redo; i++)
-		made += fzn_node_groups_act(&node_groups, group_redo[i].kind, group_redo[i].group,
-		                            group_redo[i].subject, group_redo[i].setting,
-		                            group_redo[i].value, NULL)
+		made += fzn_node_groups_act_again(&node_groups, group_redo[i].kind, group_redo[i].group,
+		                                  group_redo[i].subject, group_redo[i].setting,
+		                                  group_redo[i].value, group_redo[i].at)
 		        == FZN_GROUP_LOG_OK;
 	if (n_group_redo)
 		say(FZN_ENTRY_INFO, "node/groups", "%zu act(s) of this host's lost a fork, %zu made again",

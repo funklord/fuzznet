@@ -226,6 +226,18 @@ def main(argv):
 					for line in tail:
 						print("livecheck:     %s" % line)
 			return 1
+		except OSError as e:
+			# A SOCKET'S WAIT PASSED, sec 946: once in 71 runs, not understood,
+			# and with no daemon's log printed then.
+			print("livecheck: FAILED -- %r" % (e,))
+			for name in sorted(os.listdir(scratch)):
+				if name.endswith(".err"):
+					with open(os.path.join(scratch, name), errors="replace") as f:
+						tail = f.read().splitlines()[-60:]
+					print("livecheck: --- %s" % name)
+					for line in tail:
+						print("livecheck:     %s" % line)
+			return 1
 		except subprocess.TimeoutExpired as e:
 			print("livecheck: FAILED -- a command passed its deadline: %s" % e)
 			return 1
