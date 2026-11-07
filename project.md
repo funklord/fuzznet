@@ -81806,7 +81806,7 @@ round landing every 60 s among them. Before, the wait ran out at about 1700.
 
 **Not done, and not now needed:** a round still does not yield. A burst of writes costs one
 real check each in the next round, measured in sec 933 at 1.7 s for 5000 new contacts. A budget
-a round would end that; it was not measured to matter.
+a round would end that; it was not measured to matter. Tending groups was measured to, sec 941.
 
 ## 932. The session frame, 2026-11-07
 
@@ -81977,9 +81977,11 @@ file of every store, and each test and tool that names one. **Row a member is dr
 **Notes grow by something else:** 3.5 ms at 1000, 9.8 at 6000, about what sec 928 had.
 
 **A save checks the directory's time before it writes.** `index_wrote` takes the new time, so a
-row a follower wrote just before a save would otherwise pass as this store's own and never be
-read: found reading the code in sec 939, not seen to happen. A change inside the same clock tick
-as a read still goes unseen, as the time cannot show it.
+row put in the directory just before a save would otherwise pass as this store's own and never be
+read. A claim makes one process the writer and a follower writes nothing (`persist/cache.h`), so
+nothing does this today: `49197f2`'s message saying a follower could is wrong. It is what this
+section promises, for a stat a save. A change inside the same clock tick as a read still goes
+unseen, as the time cannot show it.
 
 `persist_file_test`, 5 sabotages. Without the index's own bookkeeping every walk is right and
 slow, so the test shows it by a row no read was told of, the directory's time put back.
@@ -82090,3 +82092,22 @@ is cubic at worst. Nothing has measured one past a few notes.
 `notes_test` holds pages kept with the stamp on, as the daemon has it: with none, nothing is kept
 and the test would pass for that. `live_many_notes` a2 counts a listing in CPU, 7 ticks at 1000
 against about 90. 5 sabotages, and 2 aimed at the new code.
+
+## 941. A thousand groups on one host, 2026-11-07
+
+**The same message of fuzzypickles' as sec 940:** 3000 groups added in 84 s, worst 14.2 s on one
+add. Reproduced, and two faults, not one.
+
+- **An add read every group's name twice,** by file: 2020 opens an add at 1000, `make_group`'s
+  clash check and the rename's. The same shape as sec 926, so `fzn_persist_cache` holds
+  `FZN_PERSIST_GROUP_LABEL` too. 3000 groups in 84 s is 10 s, and an add grows still, in RAM.
+- **One step of the round tended every group,** drawing, sealing and signing each new one's epoch.
+  That was the 14.2 s, and at 12000 it ran past the 3 s a client waits, at the 60 s round
+  whatever was being asked: nothing to do with the add it landed on.
+  `group_tend_slice` does 50 ms a pass of the loop, requests answered between, as
+  `logs_verifying` does. **Rejected: so many acts a round,** which leaves 12000 new groups hours from
+  their keys. So a pass may run into the next round, which waits for it rather than starting another.
+
+`live_many_groups`: 303 reads a hundred at the start and 300 at 3000, a client answered within
+0.13 s through the round, 3000 acts made. Both a daemon before the cache and one with it and no
+slice fail it, stalled past the wait.

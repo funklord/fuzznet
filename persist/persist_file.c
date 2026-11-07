@@ -494,9 +494,10 @@ static int row_at(const struct slot_rows *r, const uint8_t *subject, size_t *at)
 	return 0;
 }
 
-/* ABOUT TO WRITE, so what has moved the directory until now is somebody else's: a
- * follower shares this store. Asked first, or the time `index_wrote` takes would
- * pass their row off as this store's doing, and it would never be read. */
+/* ABOUT TO WRITE, so what has moved the directory until now is not this write. A
+ * claim makes one process the writer, so nothing does today; a hand in the directory
+ * would. Asked first, or the time `index_wrote` takes would pass that off as this
+ * store's doing, and it would never be read. */
 static void index_before(const fzn_persist_file_t *store)
 {
 	struct fzn_persist_file_index *x = store->index;

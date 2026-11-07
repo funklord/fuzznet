@@ -445,14 +445,14 @@ static uint64_t node_started;
 
 /* THE STORE'S DELTA AND THE HOST'S PRESSURE, sec 917. */
 static fzn_persist_delta_t store_delta;
-static fzn_persist_cache_t contact_cache, note_cache;
+static fzn_persist_cache_t contact_cache, note_cache, label_cache;
 /* WHAT HAS VERIFIED, and where it is kept across a start, sec 938. */
 static fzn_verify_memo_t verify_memo;
 static char verify_memo_path[512];
 static size_t verify_memo_kept;
 #define FZND_VERIFY_MEMO_EVERY_S 600u
 #define FZND_VERIFY_MEMO_MOVED 256u
-static fzn_persist_ops_t contact_cached, note_cached;
+static fzn_persist_ops_t contact_cached, note_cached, label_cached;
 static fzn_persist_ops_t store_delta_ops;
 static int store_delta_on;
 static fzn_pressure_t host_pressure;
@@ -13206,8 +13206,41 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 			group_sync_start(&group_shares_in[i].pt, group_shares_in[i].sharer, 0, now);
 }
 
+/* THIS HOST'S DUTIES TO EVERY GROUP HELD, sec 627, a slice each pass of the loop, sec
+ * 941: an epoch drawn, sealed and signed a group, all in one step, held the loop 14 s
+ * at 3000 groups and past a client's wait at 12000. By time, as a count a round would
+ * leave new groups hours from their keys; what few groups ask ends in the first slice. */
+#define FZND_TEND_SLICE_MS 50u
+
+static struct {
+	fzn_group_held_t room;
+	uint8_t (*ids)[FZN_GROUP_ID_LEN];
+	size_t n, at, made;
+	int on;
+} tending;
+
+static void group_tend_slice(void)
+{
+	uint64_t until;
+	size_t one = 0;
+
+	if (!tending.on)
+		return;
+	until = mono_ms() + FZND_TEND_SLICE_MS;
+	while (tending.at < tending.n) {
+		if (fzn_node_groups_tend(&node_groups, tending.ids[tending.at++], &one)
+		    == FZN_GROUP_LOG_OK)
+			tending.made += one;
+		if (mono_ms() >= until)
+			return;
+	}
+	tending.on = 0;
+	if (tending.made)
+		say(FZN_ENTRY_INFO, "node/groups", "%zu group act(s) made tending", tending.made);
+}
+
 /* THE GROUPS ROUND'S END, once its siblings have answered: what came taken
- * stock of, and this host's duties done. */
+ * stock of, and this host's duties begun. */
 static void group_settle(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	size_t i, taken = 0;
@@ -13218,19 +13251,13 @@ static void group_settle(struct pull_target *pulls, size_t npulls, uint64_t now)
 		taken += group_sync_talks[i].taken;
 	group_redo_all();
 	/* THIS HOST'S DUTIES to every group held, sec 627: named among its
-	 * hosts, the epoch's secret drawn, sealed, backfilled, opened. */
-	{
-		static fzn_group_held_t ids_room;
-		uint8_t (*ids)[FZN_GROUP_ID_LEN] = NULL;
-		size_t n = 0, made = 0, one;
-
-		if (groups_held(&ids_room, &ids, &n))
-			for (i = 0; i < n; i++)
-				if (fzn_node_groups_tend(&node_groups, ids[i], &one) == FZN_GROUP_LOG_OK)
-					made += one;
-		if (made)
-			say(FZN_ENTRY_INFO, "node/groups", "%zu group act(s) made tending", made);
+	 * hosts, the epoch's secret drawn, sealed, backfilled, opened. A pass not
+	 * finished goes on, and the next round's waits for it. */
+	if (!tending.on && groups_held(&tending.room, &tending.ids, &tending.n)) {
+		tending.at = tending.made = 0;
+		tending.on = 1;
 	}
+	group_tend_slice();
 	if (taken)
 		say(FZN_ENTRY_INFO, "node/groups", "group pass: %zu act(s) taken", taken);
 	/* THE LINES ASKED, the round waiting; `group_lines_settle` files them. */
@@ -19030,8 +19057,11 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		/* THE CONTACTS AND NOTES IN RAM, sec 926, 928: walked often. */
 		fzn_persist_cache_init(&note_cache, &routed, FZN_PERSIST_NOTE, &note_cached);
 		fzn_persist_cache_init(&contact_cache, &note_cached, FZN_PERSIST_CONTACT, &contact_cached);
+		/* AND EVERY GROUP'S NAME, walked twice an `add group`, sec 941. */
+		fzn_persist_cache_init(&label_cache, &contact_cached, FZN_PERSIST_GROUP_LABEL,
+		                       &label_cached);
 		/* A STORE THAT GOES ON WHEN ITS DISK WILL NOT, sec 917. */
-		fzn_persist_delta_init(&store_delta, &contact_cached, 0u, &store_delta_ops);
+		fzn_persist_delta_init(&store_delta, &label_cached, 0u, &store_delta_ops);
 		store_delta_on = 1;
 		store_ops = &store_delta_ops;
 		dlog.store = store_ops;
@@ -21050,7 +21080,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * A COPY BEING VERIFIED takes its next step and waits for
 			 * nothing either (sec 751). */
 			verify_memo_keep(now);
+			group_tend_slice();
 			(void)fzn_node_run_once(&state, (round_step && !round_pending) || logs_verifying()
+			                                                || tending.on
 			                                        ? 0
 			                                        : 1000);
 			/* AN IDENTITY RESET, sec 620, its answer out: wiped once more,

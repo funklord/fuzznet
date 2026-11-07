@@ -14670,7 +14670,7 @@ SABOTAGES = [
 		"\tif (!dir_time_of(store, &now) || now.tv_sec != x->dir_time.tv_sec\n"
 		"\t    || now.tv_nsec != x->dir_time.tv_nsec)\n\t\tx->whole = 0;\n",
 		"\t(void)now;\n",
-		"a row a follower wrote just before a save is never read -- sec 936",
+		"a row put in the directory just before a save is never read -- sec 936",
 	),
 	(
 		"notes-page-outlives-a-write",

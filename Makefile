@@ -7001,6 +7001,8 @@ endif
 	@timeout 170 python3 tool/live_session.py $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 520 python3 tool/live_many_notes.py $(FUZZNETD)
 	@timeout 220 python3 tool/live_many_contacts.py $(FUZZNETD)
+	@$(if $(GROUPS_ON),timeout 200 python3 tool/live_many_groups.py $(FUZZNETD),echo \
+	  "livecheck: many groups SKIPPED -- this build has no groups")
 	@timeout 240 python3 tool/live_store_trouble.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_preset.py $(FUZZNETD)
 	@timeout 700 python3 tool/live_votes.py $(FUZZNETD)
