@@ -540,6 +540,10 @@ def main(argv):
 				raise failed("b3b: local/events refused a grant")
 			if not ask(sock, "set setting host local/events nobody").startswith("malformed"):
 				raise failed("b3b: local/events took what is no grant")
+			if ask(sock, "set setting host local/events any=r") != "ok":
+				raise failed("b3b: local/events refused any=r")
+			if not ask(sock, "set setting host local/permit/status any=r").startswith("malformed"):
+				raise failed("b3b: any=r was taken beyond local/events")
 
 			# A CHANGE OF ITS OWN, told to the node's subscribers (sec 843).
 			sub = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

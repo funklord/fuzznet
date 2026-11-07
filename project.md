@@ -81655,8 +81655,8 @@ gone, and what remains is what each field does.
 **Two designs follow.** Trimming this frame in place saves about 7 bytes with nothing lost,
 and no consumer would notice. **A session frame** saves 111: 1 of head, 4 of handle, 8 of
 counter, 4 of capability and 16 of tag, 33 bytes beside 144. A keystroke is 62 bytes on UDP
-rather than 173. On LoRa a call fits one 51-byte unit with 18 to spare, rather than three:
-at sec 912's 10 per cent loss about 10 per cent lost a try rather than 43.
+rather than 173. On LoRa a call fits one 51-byte unit, rather than four: at sec 912's 10 per
+cent of units lost, about 19 per cent of tries are lost, one unit each way, rather than 57.
 
 **What it costs, whichever way it is sold:**
 - A session where this library says it has none. State at both ends, about 100 bytes a peer,
@@ -81804,8 +81804,8 @@ filled. It says nothing of whether a key still stands, which was never the check
 round landing every 60 s among them. Before, the wait ran out at about 1700.
 
 **Not done, and not now needed:** a round still does not yield. A burst of writes costs one
-real check each in the next round, so 9000 new contacts is seconds of a held loop. A budget a
-round would end that; it was not measured to matter.
+real check each in the next round, measured in sec 933 at 1.7 s for 5000 new contacts. A budget
+a round would end that; it was not measured to matter.
 
 ## 932. The session frame, 2026-11-07
 
@@ -81865,3 +81865,30 @@ pays:** `net/bearer.h`'s 4 bytes on a frame of one piece.
 **Also:** `make schema` stopped at `wire/frame.situ` from sec 930 on: every `.wire` said signature
 format v2 and situc compares as v3, so it checked nothing after the first file. Regenerated, each
 differs in that line alone, and it passes whole against situ `830ef9c1` (`761c8d4`).
+
+## 933. `any=r` on `local/events`, and a burst of adds measured, 2026-11-07
+
+**The holder said go ahead on `any` for `local/events`.** `any=r` is a word of that setting alone
+(`fzn_node_permit_events_check`, `fzn_node_permit_hears`): every local user may then hold `get
+events`, and hears what the application publishes and never fuzznet's own (sec 899). Still
+refused on `local/permit/`, where a read reaches a fuzznet verb with nothing behind it to judge.
+
+**Fuzzypickles' 20261106T2148Z, at `c562ac3`:** adds by `node_probe` with retries stalled past the
+client's timeout from 2148 contacts, 3300 in nine minutes, and it asked for a bulk seed or a
+round that yields. **Not reproduced here, in any host tried.** Over the socket, `add contact NAME
+HEX`, watching every wait:
+
+| host | adds | longest wait |
+|---|---|---|
+| `fuzznetd` alone | 2000 at once, then 8 a second to 4238 | under 0.2 s |
+| `fuzznetd` and a joined member | the same | under 0.2 s |
+| fuzzypickles' `fzpd`, its build of c6cfdd4 | the same, to 3916 | 0.21 s |
+| `fuzznetd` alone | as fast as it goes, 15656 in 150 s | 1.7 s, at 13843 |
+
+So what stalled is not a round over those contacts. **Unknown, and its to say:** what its run does
+beyond this line. **`tool/seed_contacts.py SOCKET COUNT`** is the seed it asked for, at about 100
+a second, and needs no change to any host. A round's budget stays unbuilt, for the reason sec 931
+gives: nothing has measured it to matter.
+
+**Sec 924's loss figure was wrong,** and `c8f6f3b`'s message repeats it: a call's two units lose
+19 per cent of tries, not 10.

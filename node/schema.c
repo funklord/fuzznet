@@ -61,6 +61,11 @@ static const char *permit_check(const uint8_t *value, size_t len)
 	return fzn_node_permit_check(value, len);
 }
 
+static const char *events_permit_check(const uint8_t *value, size_t len)
+{
+	return fzn_node_permit_events_check(value, len);
+}
+
 /* `group/member`, sec 868: group names apart by single spaces, each one
  * `fzn_scope_group_id` takes, none twice. */
 static const char *member_check(const uint8_t *value, size_t len)
@@ -154,8 +159,9 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "the profile last applied here, and its revisions (sec 908)", NULL },
 	{ "local/events", FZN_SCHEMA_TEXT, HOST, 1u, 256u, "", "", 0u,
 	  "which local users and groups may hold `get events`, hearing what this application "
-	  "publishes and none of fuzznet's: local:NAME=r local:@GROUP=r (sec 899)",
-	  permit_check },
+	  "publishes and none of fuzznet's: local:NAME=r local:@GROUP=r, or any=r for every "
+	  "local user (secs 899, 933)",
+	  events_permit_check },
 	{ "pressure/rank/", FZN_SCHEMA_TEXT, HOST, 1u, 16u, "", "", FZN_SCHEMA_ADVANCED,
 	  "where a kind of work stands when this host is short of disk, memory or network: "
 	  "trace, copy or user, for streams, relay, files, group-lines, notes, messages, "

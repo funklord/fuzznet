@@ -102,6 +102,23 @@ int main(void)
 	ok(allows("any=x", &p, FZN_PERMIT_CALL), "any=x did not let a local user call");
 	ok(!allows("any=x", &p, FZN_PERMIT_READ) && !allows("any=x", &p, FZN_PERMIT_CHANGE),
 	   "any=x gave more than a call");
+	/* `local/events`, sec 933: `any=r` there, and nowhere else. */
+	ok(fzn_node_permit_events_check((const uint8_t *)"any=r", 5u) == NULL
+	           && fzn_node_permit_events_check((const uint8_t *)"user:#9=r any=r", 15u) == NULL,
+	   "any=r was refused on local/events");
+	ok(fzn_node_permit_events_check((const uint8_t *)"any=rw", 6u) != NULL
+	           && fzn_node_permit_events_check((const uint8_t *)"nobody", 6u) != NULL
+	           && fzn_node_permit_events_check((const uint8_t *)"", 0u) != NULL
+	           && fzn_node_permit_events_check((const uint8_t *)"  ", 2u) != NULL,
+	   "local/events took what is no grant");
+	ok(fzn_node_permit_hears((const uint8_t *)"any=r", 5u, &p), "any=r kept a caller out");
+	ok(fzn_node_permit_hears((const uint8_t *)"user:#2002=r user:#2001=r", 25u, &p),
+	   "a named caller was kept out");
+	ok(!fzn_node_permit_hears((const uint8_t *)"user:#2002=r", 12u, &p),
+	   "somebody else's grant let a caller in");
+	ok(!fzn_node_permit_hears((const uint8_t *)"any=x", 5u, &p), "a call let a caller hear");
+	ok(!fzn_node_permit_hears((const uint8_t *)"any=r nobody", 12u, &p),
+	   "a value that does not parse let a caller in");
 	/* A GROUP LIST NOT READ is no membership. */
 	peer_of(&p, 2001, 2001, 0, 0);
 	p.groups[0] = 77;

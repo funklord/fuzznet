@@ -9978,7 +9978,7 @@ static int permit_hears(void *ctx, const fzn_peer_t *peer)
 	if (!routing_self || !peer
 	    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, routing_self,
 	                              (const uint8_t *)KEY, sizeof(KEY) - 1u, value, &value_len, &rank)
-	    || !fzn_node_permit_allows(value, value_len, peer, FZN_PERMIT_READ))
+	    || !fzn_node_permit_hears(value, value_len, peer))
 		return 0;
 	say(FZN_ENTRY_INFO, "local/permit", "uid %lu holds the application's events, as granted",
 	    (unsigned long)peer->uid);

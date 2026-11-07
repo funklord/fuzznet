@@ -24,7 +24,9 @@
  * does. A caller so permitted is served that subject's verbs as the
  * node's own user is; nothing is kept for it. The host setting `local/events`,
  * of the same grants, lets a caller hold `get events` (sec 899), hearing what
- * the application publishes, and it subscribes to nothing else.
+ * the application publishes, and it subscribes to nothing else. There alone,
+ * `any=r` lets every local user hear it (sec 933): fuzznet's own events never
+ * reach that stream, so it says only what the application chose to publish.
  *
  * NOT GRANTABLE: the subjects that are the estate's trust -- identity,
  * backup, join, root, admin, peer, grant, capability, revocation, events,
@@ -55,6 +57,12 @@
  * setting family's word is,
  * not one of the trust subjects above. */
 int fzn_node_permit_subject_ok(const char *subject, size_t n);
+
+/* `local/events`: NULL when `value` is well-formed, or why it is not. */
+const char *fzn_node_permit_events_check(const uint8_t *value, size_t len);
+
+/* 1 WHEN `local/events`'S `value` LETS `peer` HEAR the application. */
+int fzn_node_permit_hears(const uint8_t *value, size_t len, const fzn_peer_t *peer);
 
 /* NULL when `value` is a well-formed list of grants, or why it is not:
  * the schema's check, and so the reader's. */

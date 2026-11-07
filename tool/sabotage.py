@@ -14643,6 +14643,13 @@ SABOTAGES = [
 		"a removed contact goes on being found -- sec 926",
 	),
 	(
+		"events-any-reaches-every-grant",
+		"node/permit.c",
+		"\tif (n == 5u && memcmp(w, \"any=x\", 5u) == 0) {\n",
+		"\tif (n == 5u && (memcmp(w, \"any=x\", 5u) == 0 || memcmp(w, EVERYONE_HEARS, 5u) == 0)) {\n",
+		"any=r taken on local/permit/ as well: every local user reads a fuzznet verb -- sec 933",
+	),
+	(
 		"session-forgery-moves-the-window",
 		"wire/session_frame.c",
 		"\tcounter = fzn_get_be32(frame + COUNTER_AT);\n\t/* 0 IS NEVER SEALED",

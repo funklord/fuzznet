@@ -35,6 +35,10 @@ int fzn_node_permit_subject_ok(const char *subject, size_t n)
 	return 1;
 }
 
+/* EVERY LOCAL USER MAY HEAR THE APPLICATION, sec 933: a word of `local/events`
+ * and of nothing else, so no fuzznet verb is ever anyone's. */
+#define EVERYONE_HEARS "any=r"
+
 /* ONE GRANT, `KIND:NAME=RIGHTS`, parsed: 1 with its fields, or 0. */
 struct grant {
 	int group;		/* 1 a group, 0 a user */
@@ -226,6 +230,76 @@ int fzn_node_permit_allows(const uint8_t *value, size_t len, const fzn_peer_t *p
 		return 0;
 	(void)walk(value, len, matches, &a, &any);
 	return a.allowed;
+}
+
+/* EACH WORD OF `value`, to `each`, until it says stop: what it said. */
+static int each_word(const uint8_t *value, size_t len,
+                     int (*each)(void *ctx, const uint8_t *word, size_t n), void *ctx)
+{
+	size_t at = 0;
+
+	while (at < len) {
+		size_t start;
+		int said;
+
+		while (at < len && value[at] == ' ')
+			at++;
+		if (at == len)
+			break;
+		start = at;
+		while (at < len && value[at] != ' ')
+			at++;
+		if ((said = each(ctx, value + start, at - start)) != 0)
+			return said;
+	}
+	return 0;
+}
+
+static int is_everyone(const uint8_t *word, size_t n)
+{
+	return n == sizeof(EVERYONE_HEARS) - 1u && memcmp(word, EVERYONE_HEARS, n) == 0;
+}
+
+struct hearing {
+	const fzn_peer_t *peer;
+	size_t words;
+};
+
+/* -1 AT THE FIRST WORD THAT IS NO GRANT. */
+static int word_checks(void *ctx, const uint8_t *word, size_t n)
+{
+	((struct hearing *)ctx)->words++;
+	return is_everyone(word, n) || !fzn_node_permit_check(word, n) ? 0 : -1;
+}
+
+/* 1 AT THE FIRST WORD THAT LETS THE CALLER HEAR. */
+static int word_lets_in(void *ctx, const uint8_t *word, size_t n)
+{
+	return is_everyone(word, n)
+	       || fzn_node_permit_allows(word, n, ((struct hearing *)ctx)->peer, FZN_PERMIT_READ);
+}
+
+const char *fzn_node_permit_events_check(const uint8_t *value, size_t len)
+{
+	struct hearing h;
+
+	h.peer = NULL;
+	h.words = 0;
+	if (!value || each_word(value, len, word_checks, &h) != 0)
+		return "grants are local:NAME=r or local:@GROUP=r, or #ID for a NAME, or any=r for every "
+		       "local user, apart by spaces";
+	return h.words ? NULL : "no grant";
+}
+
+int fzn_node_permit_hears(const uint8_t *value, size_t len, const fzn_peer_t *peer)
+{
+	struct hearing h;
+
+	h.peer = peer;
+	h.words = 0;
+	if (!peer || fzn_node_permit_events_check(value, len))
+		return 0;
+	return each_word(value, len, word_lets_in, &h) == 1;
 }
 
 /* ---- who may call from another host, sec 921 -------------------------------- */
