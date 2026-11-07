@@ -82033,6 +82033,18 @@ The full gates at `33ef9cf`, in a clone, found two things the per-commit runs ha
   bought rather than on what a walk returns. Held now as sec 936 says, which is where the hole
   in `index_wrote` showed.
 
+**And the gate at `49197f2` stopped at `faketime: sem_open: File exists`,** not at this tree:
+faketime names its semaphore by its pid, a run killed leaves one, and 22 were in `/dev/shm` with
+their pids dead and `pid_max` 32768. It dies before fuzznetd starts, so `live_trim.start_daemon` and
+`live_rejoin.command` go again, forced with a stub failing twice. The files are left, some being
+the other account's.
+
+**netcfgd's 20261107T0906Z:** a bss larger than RAM and swap is refused at exec under default
+overcommit too, before `main`, with nothing logged: 173 MB on a 128 MB OpenWrt. So sec 930's
+"untouched until used" holds for resident memory and not for starting: sec 941. Its 32-bit warning
+in `catalog/index.c` is fixed. fuzznet ran under procd on a big-endian malta kernel in qemu, 128 MB,
+4.6 MB resident, one idle node: `make hull-malta` in netcfgd.
+
 **fuzzypickles' stall is gone by its own measure** (20261107T0803Z, at `4bf3278`): `seed_contacts.py`
 on fzpd, 20000 contacts in 196 s, longest wait 2.9 s at 19707, `fzp peer-list` 3.7 s, fzptui's
 first list 7.1 s, fzpd 58 MB resident. Its first run was `node_probe` spawned per add at `c562ac3`

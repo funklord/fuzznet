@@ -21,11 +21,16 @@ static size_t get_u32(const uint8_t *p)
 	       | ((size_t)p[2] << 8) | (size_t)p[3];
 }
 
-/* Does `v` fit the four-byte field? On a 32-bit host every size_t does, and
- * the comparison is written so that says so rather than warning. */
+/* Does `v` fit the four-byte field? On a 32-bit host every size_t does, and a
+ * comparison saying so is a warning there, as netcfgd's build found. */
 static int fits_u32(size_t v)
 {
-	return (uint64_t)v <= 0xffffffffu;
+#if SIZE_MAX > 0xffffffffu
+	return v <= 0xffffffffu;
+#else
+	(void)v;
+	return 1;
+#endif
 }
 
 /* One length-prefixed opaque field, in or out. Provenance is three of them

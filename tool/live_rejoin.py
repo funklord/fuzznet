@@ -81,7 +81,8 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_trim import ask, failed, left, stop_process  # noqa: E402
+from live_trim import FAKETIME_CLASH, FAKETIME_TRIES, ask, failed, left, start_daemon, \
+                      stop_process  # noqa: E402
 
 CAPABILITY = ["--fuzznet-service=1", "--fuzznet-product=1"]
 CUT_RE = re.compile(r"cut pass: a window of (\d+) day\(s\), (\d+) record\(s\) cut")
@@ -144,7 +145,10 @@ def command(run, args, fake):
 		argv = ["faketime", "-f", fake] + argv
 	env = dict(os.environ)
 	env["FAKETIME_DONT_FAKE_MONOTONIC"] = "1"
-	r = subprocess.run(argv, capture_output=True, timeout=min(20.0, left()), env=env)
+	for _ in range(FAKETIME_TRIES):
+		r = subprocess.run(argv, capture_output=True, timeout=min(20.0, left()), env=env)
+		if FAKETIME_CLASH.encode() not in r.stderr:
+			break
 	if r.returncode != 0:
 		raise failed("%s answered %d: %s" % (args[1], r.returncode,
 		                                     r.stderr.decode(errors="replace")[:400]))
@@ -181,16 +185,7 @@ class daemon:
 			env["FAKETIME_DONT_FAKE_MONOTONIC"] = "1"
 		self.err_path = os.path.join(run.scratch, tag + ".err")
 		self.err = open(self.err_path, "wb")
-		self.proc = subprocess.Popen(argv, stdout=self.err, stderr=subprocess.STDOUT,
-		                             env=env, start_new_session=True)
-		run.started.append(self.proc.pid)
-		while not os.path.exists(sock):
-			if self.proc.poll() is not None:
-				raise failed("%s: the daemon exited before listening:\n%s"
-				             % (tag, self.stderr()))
-			if left() < 0.1:
-				break
-			time.sleep(0.1)
+		start_daemon(self, run, argv, env, sock, tag)
 
 	def stderr(self):
 		self.err.flush()

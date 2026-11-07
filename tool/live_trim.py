@@ -147,6 +147,34 @@ def stop_quietly(proc, wrapped):
 		proc.wait(timeout=10)
 
 
+# FAKETIME NAMES ITS SEMAPHORE BY ITS PID, and a run killed leaves one behind: a pid come
+# round again dies here before fuzznetd starts, so going again is safe. 22 such were
+# in /dev/shm when it failed a gate, sec 939.
+FAKETIME_CLASH = "faketime: sem_open"
+FAKETIME_TRIES = 5
+
+
+def start_daemon(d, run, argv, env, sock, tag):
+	"""`argv` started as `d.proc`, and waited for until it listens on `sock`."""
+	for attempt in range(FAKETIME_TRIES):
+		d.proc = subprocess.Popen(argv, stdout=d.err, stderr=subprocess.STDOUT,
+		                          env=env, start_new_session=True)
+		run.started.append(d.proc.pid)
+		while not os.path.exists(sock):
+			if d.proc.poll() is not None:
+				break
+			if left() < 0.1:
+				return
+			time.sleep(0.1)
+		else:
+			return
+		said = d.stderr()
+		if FAKETIME_CLASH not in said or attempt == FAKETIME_TRIES - 1:
+			raise failed("%s: the daemon exited before listening:\n%s" % (tag, said))
+		d.err.seek(0)
+		d.err.truncate()
+
+
 class daemon:
 	"""One fuzznetd over the node, stopped and reaped on every path out."""
 
@@ -166,16 +194,7 @@ class daemon:
 			env["FAKETIME_DONT_FAKE_MONOTONIC"] = "1"
 		self.err_path = os.path.join(run.scratch, tag + ".err")
 		self.err = open(self.err_path, "wb")
-		self.proc = subprocess.Popen(argv, stdout=self.err, stderr=subprocess.STDOUT,
-		                             env=env, start_new_session=True)
-		run.started.append(self.proc.pid)
-		while not os.path.exists(run.sock):
-			if self.proc.poll() is not None:
-				raise failed("%s: the daemon exited before listening:\n%s"
-				             % (tag, self.stderr()))
-			if left() < 0.1:
-				break
-			time.sleep(0.1)
+		start_daemon(self, run, argv, env, run.sock, tag)
 
 	def stderr(self):
 		self.err.flush()
