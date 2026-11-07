@@ -14723,6 +14723,27 @@ SABOTAGES = [
 		"an ADD a fork dropped takes the time of its making again, and the member's floor moves past what was written meanwhile -- sec 946",
 	),
 	(
+		"lost-act-forgets-its-time",
+		"node/groups.c",
+		"\trow->at = a.at;\n",
+		"\trow->at = 0u;\n",
+		"a dropped act is kept without its time, so it comes back at the clock's -- sec 946",
+	),
+	(
+		"lost-acts-stop-at-a-bound",
+		"node/groups.c",
+		"\tif (lost->n == lost->cap) {\n",
+		"\tif (lost->n == 16u)\n\t\treturn 1;\n\tif (lost->n == lost->cap) {\n",
+		"past 16 a user's dropped acts are silently not made again, a removal among them -- sec 947",
+	),
+	(
+		"lost-acts-keep-anyones",
+		"node/groups.c",
+		"\t    || memcmp(fzn_contact_device_key(&a.signer), fzn_contact_device_key(&self), FZN_PUBKEY_LEN)\n\t               != 0)\n\t\treturn 1;\n",
+		"\t    )\n\t\treturn 1;\n",
+		"a host makes again acts other hosts signed, as its own -- sec 626",
+	),
+	(
 		"named-unsorted",
 		"node/notes.c",
 		"\t\t\tqsort(named.roots, named.count, FZN_BLOB_HASH_LEN, root_order);\n",

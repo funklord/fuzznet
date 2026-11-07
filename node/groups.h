@@ -134,14 +134,33 @@ fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind
                                         uint8_t setting, uint64_t value,
                                         uint8_t made[FZN_GROUP_ID_LEN]);
 
-/* AN ACT A FORK DROPPED, MADE AGAIN on the kept head, at the time it was
- * made, sec 946. The user acted then: a member's floor is its ADD act's
- * time, so an ADD stamped at the making again would withhold from that
- * member what was written in between. */
-fzn_group_log_err_t fzn_node_groups_act_again(const fzn_node_groups_t *g, uint8_t kind,
-                                              const uint8_t *id,
-                                              const uint8_t subject[FZN_PUBKEY_LEN],
-                                              uint8_t setting, uint64_t value, uint64_t at);
+/* THIS HOST'S OWN ACTS A FORK DROPPED, sec 626, kept until the sync that
+ * dropped them is done: the log is not offered into from inside an offer.
+ * As many as were dropped, sec 947: each is something the user did. */
+typedef struct {
+	struct fzn_node_groups_lost_act {
+		uint8_t kind, setting;
+		uint8_t group[FZN_GROUP_ID_LEN];
+		uint8_t subject[FZN_PUBKEY_LEN];
+		uint64_t value, at;
+	} *acts;
+	size_t n, cap;
+} fzn_node_groups_lost_t;
+
+/* A DROPPED ACT, as the log's `dropped` hands it: kept if it is this host's.
+ * 0 when it is and memory ran out, and it will not be made again. */
+int fzn_node_groups_lost_keep(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
+                              const uint8_t *bytes, size_t len);
+
+/* EACH MADE AGAIN on the kept head, where it still means something -- one
+ * made moot or no longer allowed by the act it lost to is let go -- and
+ * `lost` left empty. How many were made; `*tried` how many were kept.
+ *
+ * AT THE TIME IT WAS MADE, sec 946. The user acted then: a member's floor is
+ * its ADD act's time, so an ADD stamped now would withhold from that member
+ * what was written in between. */
+size_t fzn_node_groups_lost_redo(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
+                                 size_t *tried);
 
 /* A GROUP LEARNED FROM ANOTHER HOST, named here if it is not yet, sec 837:
  * by the name its maker gave it, carried in its CREATE act, where that

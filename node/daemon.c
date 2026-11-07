@@ -12207,51 +12207,23 @@ static void contact_settle(void)
 
 static fzn_node_groups_t node_groups;
 
-/* THIS HOST'S OWN ACTS A FORK DROPPED, made again on the kept head once the
- * sync that dropped them is done: the log is not offered into from inside
- * an offer. sec 626. */
-#define FZND_GROUP_REDO_MAX 16u
-static struct {
-	uint8_t kind, setting;
-	uint8_t group[FZN_GROUP_ID_LEN];
-	uint8_t subject[FZN_PUBKEY_LEN];
-	uint64_t value, at;
-} group_redo[FZND_GROUP_REDO_MAX];
-static size_t n_group_redo;
+static fzn_node_groups_lost_t group_lost;
 
 static void group_dropped(void *ctx, const uint8_t *bytes, size_t len)
 {
-	fzn_group_act_t a;
-
 	(void)ctx;
-	if (n_group_redo == FZND_GROUP_REDO_MAX || !contact_id
-	    || fzn_group_act_decode(bytes, len, &a) != FZN_GROUP_ACT_OK
-	    || memcmp(fzn_contact_device_key(&a.signer), contact_id->pubkey, FZN_PUBKEY_LEN) != 0)
-		return;
-	group_redo[n_group_redo].kind = a.kind;
-	group_redo[n_group_redo].setting = a.setting;
-	memcpy(group_redo[n_group_redo].group, a.group, FZN_GROUP_ID_LEN);
-	memcpy(group_redo[n_group_redo].subject, a.subject, FZN_PUBKEY_LEN);
-	group_redo[n_group_redo].value = a.value;
-	group_redo[n_group_redo].at = a.at;
-	n_group_redo++;
+	if (!fzn_node_groups_lost_keep(&node_groups, &group_lost, bytes, len))
+		say(FZN_ENTRY_INFO, "node/groups",
+		    "an act of this host's lost a fork, and no memory to make it again");
 }
 
-/* EACH DROPPED ACT MADE AGAIN, where it still means something: one made
- * moot or no longer allowed by the act it lost to is let go. */
 static void group_redo_all(void)
 {
-	size_t i, made = 0;
+	size_t tried = 0, made = fzn_node_groups_lost_redo(&node_groups, &group_lost, &tried);
 
-	for (i = 0; i < n_group_redo; i++)
-		made += fzn_node_groups_act_again(&node_groups, group_redo[i].kind, group_redo[i].group,
-		                                  group_redo[i].subject, group_redo[i].setting,
-		                                  group_redo[i].value, group_redo[i].at)
-		        == FZN_GROUP_LOG_OK;
-	if (n_group_redo)
+	if (tried)
 		say(FZN_ENTRY_INFO, "node/groups", "%zu act(s) of this host's lost a fork, %zu made again",
-		    n_group_redo, made);
-	n_group_redo = 0;
+		    tried, made);
 }
 
 static int groups_signer(void *ctx, fzn_contact_device_t *out)

@@ -411,35 +411,77 @@ static void test_a_secret_drawn_on_a_lost_fork_is_let_go(void)
 	CHECK(same_secret(a, b, id, g.epoch), "B kept the wrong secret over the one committed to");
 }
 
-/* AN ADD MADE AGAIN KEEPS ITS TIME, sec 946: the user added the member at
- * 5000, and a note of 5002 is the member's, though the fork that dropped
- * the act was only seen at 5003. */
-static void test_an_add_made_again_keeps_its_time(void)
+/* A's ACTS A FORK DROPS, as the daemon keeps them. */
+static fzn_node_groups_lost_t lost_acts;
+static const fzn_node_groups_t *losing;
+
+static void on_dropped(void *ctx, const uint8_t *bytes, size_t len)
+{
+	(void)ctx;
+	(void)fzn_node_groups_lost_keep(losing, &lost_acts, bytes, len);
+}
+
+/* ACTS A FORK DROPPED COME BACK, secs 946 and 947: every one, however many,
+ * and each at its own time. The user added the members at 5000 and a note of
+ * 5002 is theirs, though the fork was only seen at 5003. Which branch a fork
+ * keeps goes by hash, so the fixture tries until B's act is the lower. */
+#define LOST_ADDS 40u
+
+static void test_acts_a_fork_dropped_come_back(void)
 {
 	struct user *a = &users[0], *b = &users[1], *c = &users[2];
 	static fzn_group_t g;
-	uint8_t id[FZN_GROUP_ID_LEN];
+	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	uint8_t id[FZN_GROUP_ID_LEN], subject[FZN_PUBKEY_LEN];
+	size_t i, len = 0, made, tried = 0;
+	uint32_t seq;
+	unsigned attempt;
 
-	user_up(a, 0x11u);
-	user_up(b, 0x22u);
-	user_up(c, 0x33u);
-	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id);
-	test_now = 5003u;
-	CHECK(fzn_node_groups_act_again(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u, 0u,
-	                                5000u)
+	for (attempt = 0; attempt < 64u && !lost_acts.n; attempt++) {
+		test_now = 5000u + attempt * 10u;
+		user_up(a, 0x11u);
+		user_up(b, 0x22u);
+		user_up(c, 0x33u);
+		losing = &a->groups;
+		a->groups.log.dropped = on_dropped;
+		(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id);
+		(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u, 0u,
+		                          NULL);
+		sync(a, b, id);
+		(void)tend(b, id);
+		for (i = 0; i < LOST_ADDS; i++) {
+			memset(subject, (int)(0x40u + i), sizeof(subject));
+			(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, subject, 0u, 0u, NULL);
+		}
+		test_now += 3u;
+		sync(b, a, id);
+	}
+	CHECK(lost_acts.n >= LOST_ADDS, "fixture: B's act took the fork from A's adds");
+	(void)fzn_group_log_get(&b->ops, id, &g);
+	seq = g.seq - 1u;
+	CHECK(fzn_group_log_act(&b->groups.log, id, seq, bytes, sizeof(bytes), &len)
 	          == FZN_GROUP_LOG_OK,
-	      "the add is made again");
+	      "fixture: B's act");
+	tried = lost_acts.n;
+	CHECK(fzn_node_groups_lost_keep(&a->groups, &lost_acts, bytes, len) && lost_acts.n == tried,
+	      "an act another host signed is not A's to make again");
+	made = fzn_node_groups_lost_redo(&a->groups, &lost_acts, &tried);
+	CHECK(made >= LOST_ADDS && lost_acts.n == 0u, "every add is made again, past any bound");
+	(void)fzn_group_log_get(&a->ops, id, &g);
+	memset(subject, (int)(0x40u + LOST_ADDS - 1u), sizeof(subject));
+	CHECK(fzn_group_is_member(&g, subject), "the last add among them stands");
+	CHECK(fzn_node_group_joined_ms(&a->ops, &HASH, id, &g, subject)
+	          == fzn_node_group_floor_ms(test_now - 3u),
+	      "its floor is when the user added it");
 	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, c->device.owner, 0u, 0u, NULL)
 	          == FZN_GROUP_LOG_OK,
 	      "and another member added now");
-	test_now = 5000u;
 	(void)fzn_group_log_get(&a->ops, id, &g);
-	CHECK(fzn_node_group_joined_ms(&a->ops, &HASH, id, &g, b->device.owner)
-	          == fzn_node_group_floor_ms(5000u),
-	      "its floor is when the user added it");
 	CHECK(fzn_node_group_joined_ms(&a->ops, &HASH, id, &g, c->device.owner)
-	          == fzn_node_group_floor_ms(5003u),
-	      "and an act made now has the clock's time");
+	          == fzn_node_group_floor_ms(test_now),
+	      "an act made now has the clock's time");
+	a->groups.log.dropped = NULL;
+	test_now = 5000u;
 }
 
 /* A LINE written at one member's host, read at another's, sec 628. */
@@ -991,7 +1033,7 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 	test_epochs_reach_members_and_no_one_else();
 	test_a_secret_drawn_on_a_lost_fork_is_let_go();
-	test_an_add_made_again_keeps_its_time();
+	test_acts_a_fork_dropped_come_back();
 	test_a_line_is_read_by_members_alone();
 	test_lines_are_held_in_order();
 	test_lines_trimmed_from_a_base();

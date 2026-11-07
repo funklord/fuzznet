@@ -187,12 +187,51 @@ fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind
 	return act_with(g, kind, id, subject, setting, value, NULL, 0u, 0u, made);
 }
 
-fzn_group_log_err_t fzn_node_groups_act_again(const fzn_node_groups_t *g, uint8_t kind,
-                                              const uint8_t *id,
-                                              const uint8_t subject[FZN_PUBKEY_LEN],
-                                              uint8_t setting, uint64_t value, uint64_t at)
+int fzn_node_groups_lost_keep(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
+                              const uint8_t *bytes, size_t len)
 {
-	return act_with(g, kind, id, subject, setting, value, NULL, 0u, at, NULL);
+	static fzn_group_act_t a;
+	static fzn_contact_device_t self;
+	struct fzn_node_groups_lost_act *row;
+
+	if (!g || !lost || !g->signer || !g->signer(g->signer_ctx, &self)
+	    || fzn_group_act_decode(bytes, len, &a) != FZN_GROUP_ACT_OK
+	    || memcmp(fzn_contact_device_key(&a.signer), fzn_contact_device_key(&self), FZN_PUBKEY_LEN)
+	               != 0)
+		return 1;
+	if (lost->n == lost->cap) {
+		size_t cap = lost->cap ? lost->cap * 2u : 16u;
+		void *more = realloc(lost->acts, cap * sizeof(*lost->acts));
+
+		if (!more)
+			return 0;
+		lost->acts = more;
+		lost->cap = cap;
+	}
+	row = &lost->acts[lost->n++];
+	row->kind = a.kind;
+	row->setting = a.setting;
+	memcpy(row->group, a.group, FZN_GROUP_ID_LEN);
+	memcpy(row->subject, a.subject, FZN_PUBKEY_LEN);
+	row->value = a.value;
+	row->at = a.at;
+	return 1;
+}
+
+size_t fzn_node_groups_lost_redo(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
+                                 size_t *tried)
+{
+	size_t i, made = 0;
+
+	for (i = 0; i < lost->n; i++)
+		made += act_with(g, lost->acts[i].kind, lost->acts[i].group, lost->acts[i].subject,
+		                 lost->acts[i].setting, lost->acts[i].value, NULL, 0u, lost->acts[i].at,
+		                 NULL)
+		        == FZN_GROUP_LOG_OK;
+	*tried = lost->n;
+	free(lost->acts);
+	memset(lost, 0, sizeof(*lost));
+	return made;
 }
 
 /* `at` 0 is now. */

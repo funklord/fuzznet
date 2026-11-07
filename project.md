@@ -82299,13 +82299,12 @@ in between, and sec 656's rule withheld that note for good. Nothing in the log w
 host agreed on the later time. A user who adds someone and writes at once is who meets this, on any
 group with a second host tending, and the member never learns what it missed.
 
-**`fzn_node_groups_act_again` makes the act at the time of the one it replaces.** The user acted
+**An act made again keeps the time of the one it replaces.** The user acted
 then. Nothing orders acts by time, and a signer's card is checked at the act's time, so a card
 issued between the two refuses the act, and it is logged as not made again. The other choice was to
 hold the note back until the add settled; it needs the writer to know a fork is coming.
 
-`act-again-stamps-now` guards the stamp, in `node/test/groups_test.c`. The daemon's copy of the time
-into `group_redo` has no guard: losing it brings back this rate and no unit test sees it.
+`act-again-stamps-now` and `lost-act-forgets-its-time` guard it, in `node/test/groups_test.c`.
 
 **Measured after it,** one binary, a switch for the old stamp, 40 runs of each side by side: every
 ADD and HOST act came back in both, so the time refuses nothing; the old stamp failed one run, with
@@ -82318,3 +82317,19 @@ tend draws one: not this section's.
 on a daemon past its first round. That command touches no network, and it did not come back alone or
 under load, so this says nothing about what held the loop. `live_group_skew` printed no log for it;
 it does now.
+
+## 947. A user's acts past the sixteenth, 2026-11-07
+
+Reading sec 946's path for its neighbours: `group_dropped` kept 16 of this host's dropped acts and
+ignored the rest. A host that made more than that on a branch which lost, an admin offline adding or
+removing members, lost the remainder with only a count to show for it. A removal among them is a
+member the user believes gone. Not seen in a run; read from the code, and shown in the test at 40.
+
+The queue is `fzn_node_groups_lost_t` in `node/groups.c` now, grown to what was dropped and freed
+when made again, in place of a table in `node/daemon.c`. That is also what let a unit test reach the
+path: `test_acts_a_fork_dropped_come_back` loses 40 adds to a real fork and sees every one back, each
+at its time. `lost-acts-stop-at-a-bound` and `lost-acts-keep-anyones` guard the rest.
+
+**Open:** a queue held in memory dies with the daemon: a restart between a drop and the making again
+loses the act, within one round. Nothing keeps an act whose author is offline on the kept head
+either; that is sec 626's design.
