@@ -2243,7 +2243,7 @@ static void test_the_join_floor_at_its_second(void)
 	static const uint8_t zero[FZN_RECORD_ID_LEN];
 	const uint64_t joined_s = 1793000000ull;
 	uint64_t floor[1];
-	fzn_notes_sync_scope_t scope;
+	fzn_notes_sync_scope_t scope = { 0 };
 	fzn_record_t late_in_second, next_second;
 	size_t len0 = 0, len1 = 0;
 

@@ -2215,6 +2215,10 @@ static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, s
 	            != FZN_NOTES_OK
 	    || fzn_notes_store_init(&store, &ops, n->store.hash) != FZN_NOTES_OK)
 		return say(reply, cap, FZN_REPLY_ERROR, "the shared notes would not open");
+	/* A VIEW KEPT, as this host's own is, sec 942: `ops` is this call's, and at one
+	 * address each call, so the stamp is what tells two sharers apart. */
+	store.stamp = fzn_notes_received_stamp;
+	store.stamp_ctx = &seam;
 	return listing ? list(n, &store, 1, at, left, reply, cap) : get(n, &store, at, left, reply, cap);
 }
 
@@ -2349,6 +2353,46 @@ static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 
 static uint64_t reach_floor[FZN_NOTES_MAX];
 
+static int reach_order(const void *a, const void *b)
+{
+	return memcmp(reach[*(const uint32_t *)a], reach[*(const uint32_t *)b], FZN_TREE_ID_LEN);
+}
+
+/* `reach` IN ORDER, each note's floor staying beside it, sec 942. `room` is as large. */
+static void reach_sort(fzn_notes_sync_scope_t *scope, uint8_t (*room)[FZN_TREE_ID_LEN])
+{
+	static uint32_t order[FZN_NOTES_MAX];
+	static uint64_t floors[FZN_NOTES_MAX];
+	size_t i;
+
+	for (i = 0; i < scope->count; i++)
+		order[i] = (uint32_t)i;
+	qsort(order, scope->count, sizeof(order[0]), reach_order);
+	for (i = 0; i < scope->count; i++) {
+		memcpy(room[i], reach[order[i]], FZN_TREE_ID_LEN);
+		floors[i] = reach_floor[order[i]];
+	}
+	memcpy(reach, room, scope->count * (size_t)FZN_TREE_ID_LEN);
+	memcpy(reach_floor, floors, scope->count * sizeof(floors[0]));
+	scope->sorted = 1;
+}
+
+/* WHERE `id` STANDS in the first `count` of `reach`, in order, or `count`. */
+static size_t reach_at(const uint8_t *id, size_t count)
+{
+	size_t low = 0, high = count;
+
+	while (low < high) {
+		size_t mid = low + (high - low) / 2u;
+
+		if (memcmp(reach[mid], id, FZN_TREE_ID_LEN) < 0)
+			low = mid + 1u;
+		else
+			high = mid;
+	}
+	return low < count && memcmp(reach[low], id, FZN_TREE_ID_LEN) == 0 ? low : count;
+}
+
 uint64_t fzn_node_notes_join_floor_ms(uint64_t joined_at_s)
 {
 	return fzn_node_group_floor_ms(joined_at_s);
@@ -2384,6 +2428,7 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 	scope->ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
 	scope->count = 0;
 	scope->floor_ms = NULL;
+	scope->sorted = 0;
 	if (!sender
 	    || fzn_notes_share_with(&n->store, sender, seeds, FZN_NOTES_SHARES_MAX, &seed_count)
 	               != FZN_NOTES_OK)
@@ -2444,21 +2489,20 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 		for (k = 0; k < scope->count; k++)
 			reach_floor[k] = 0;
 	}
+	reach_sort(scope, one_reach);
 	if (!floored)
 		return;
 	for (i = 0; i < seed_count; i++) {
+		size_t sorted = scope->count;
+
 		if (!seed_floor[i])
 			continue;
 		more = fzn_notes_share_reach(view, (const uint8_t (*)[FZN_TREE_ID_LEN])&seeds[i], 1u,
 		                             one_reach, FZN_NOTES_MAX);
 		for (k = 0; k < more; k++) {
-			size_t at;
+			size_t at = reach_at(one_reach[k], sorted);
 
-			for (at = 0; at < scope->count
-			             && memcmp(reach[at], one_reach[k], FZN_TREE_ID_LEN) != 0;
-			     at++)
-				;
-			if (at < scope->count) {
+			if (at < sorted) {
 				if (reach_floor[at] && seed_floor[i] < reach_floor[at])
 					reach_floor[at] = seed_floor[i];
 			} else if (scope->count < FZN_NOTES_MAX) {
@@ -2466,6 +2510,7 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 				reach_floor[scope->count++] = seed_floor[i];
 			}
 		}
+		reach_sort(scope, one_reach);
 	}
 	scope->floor_ms = reach_floor;
 }

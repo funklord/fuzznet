@@ -807,7 +807,7 @@ static void test_share_scope(void)
 	static uint8_t reply[FZN_NOTES_SYNC_REPLY_MAX];
 	uint8_t purge[FZN_NOTES_SYNC_PURGE_LEN];
 	uint8_t partners[4][FZN_PUBKEY_LEN];
-	fzn_notes_sync_scope_t scope;
+	fzn_notes_sync_scope_t scope = { 0 };
 	scoped_peer_t from_a = { &store_a, &scope };
 	fzn_notes_sync_tally_t t;
 	fzn_notes_wrap_tally_t wt;
@@ -955,7 +955,7 @@ static void test_share_scope_floor(void)
 	uint8_t g[FZN_TREE_ID_LEN], h[FZN_TREE_ID_LEN];
 	static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 	static uint64_t floors[FZN_NOTES_MAX];
-	fzn_notes_sync_scope_t scope;
+	fzn_notes_sync_scope_t scope = { 0 };
 	scoped_peer_t from_a = { &store_a, &scope };
 	static uint8_t record[FZN_RECORD_MAX_LEN];
 	fzn_notes_sync_tally_t t;
@@ -992,7 +992,7 @@ static void test_received(void)
 	uint8_t by_b[FZN_TREE_ID_LEN];
 	static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 	uint8_t seed[1][FZN_TREE_ID_LEN];
-	fzn_notes_sync_scope_t scope;
+	fzn_notes_sync_scope_t scope = { 0 };
 	scoped_peer_t from_a = { &store_a, &scope };
 	fzn_notes_received_t seam, other_seam;
 	fzn_persist_ops_t seam_ops, other_ops;

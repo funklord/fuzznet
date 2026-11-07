@@ -4,13 +4,14 @@ sec 914.
 
 A is an estate's root and B a member of it, joined by a card.
 
-    a  A takes 1000 notes, past the 256 it refused beyond, and lists them all
+    a  A takes 2500 notes, past the 256 it refused beyond and past a full index page,
+       and lists them all
     a2 and each page of them costs the page, in CPU, so a listing is not the square of
        what is held (sec 940)
-    b  B, started after, holds all 1000 within its rounds
+    b  B, started after, holds all 2500 within its rounds (sec 942)
 
 Against a daemon bound at 256 claims, a stops at the 257th. Against one working out
-the list for each page, a2 counts about 90 ticks.
+the list for each page, a2 runs far past its ticks. Against a slot not in whole pieces, b stops short.
 
 BOUNDED FROM INSIDE as live_rejoin.py is: one deadline, each daemon in its own
 process group, and every daemon checked gone.
@@ -32,7 +33,7 @@ import live_trim  # noqa: E402
 
 live_trim.DEADLINE = time.monotonic() + 500.0
 
-NOTES = 1000
+NOTES = 2500
 # CPU ticks a listing of NOTES may take, rounds landing in it included.
 LISTING_TICKS = 40
 

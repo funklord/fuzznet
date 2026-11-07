@@ -81738,6 +81738,9 @@ cache now holds `note` too, with rows of up to 4 KiB and 64 MiB a slot, and answ
 RAM. A slot past its budget is not whole, and what it lacks is asked of the store. An add is
 flat at about 3.6 ms to 1200.
 
+**Sec 942 found this section's "more notes than a host could once hold" stopped at about 2000:**
+a member got no further, whatever the bound said.
+
 **`FZN_NOTES_MAX` is 262144 now.** This section first said 65536 would not link. That was false:
 the build reused objects from a try at 262144, as a changed `CPPFLAGS` rebuilds nothing, and a
 clean directory linked it. What did stop 262144 was 2 GB of static tables, most of it a pull's
@@ -82085,9 +82088,8 @@ read every note's purge row. `get note` paid for the first as well.
 | 3000 notes, 250 pages | 24.8 s | 0.2 s |
 | 12400 notes, 1034 pages | not finished in 4 minutes | 0.7 s |
 
-The first page after a write works it all out: 24 ms at 3000, 107 at 12400. **Still slow:** a
-sharer's tree has no stamp, so each of its pages loads the view, and `fzn_notes_received_roots`
-is cubic at worst. Nothing has measured one past a few notes.
+The first page after a write works it all out: 24 ms at 3000, 107 at 12400. A sharer's tree: sec
+942.
 
 `notes_test` holds pages kept with the stamp on, as the daemon has it: with none, nothing is kept
 and the test would pass for that. `live_many_notes` a2 counts a listing in CPU, 7 ticks at 1000
@@ -82127,3 +82129,40 @@ Static memory is 434 MB, from 1136. Under `ulimit -v 500000` it starts; before, 
 That limit is a stand-in for overcommit, and no small machine has run it. `make livecheck` refuses
 more than 512 MiB. **Not done:** 434 MB is about 15 tables of 8 MB, 25 of 7 and `titles`. Consumers
 name their own bounds, as netcfgd does at 21 MB, so a 256 MB host of the full default still waits.
+
+
+## 942. A full page nobody could receive, 2026-11-07
+
+Going to measure a sharer's tree for sec 940, a share of 2000 notes pulled nothing in 240 s, and
+1000 pulled in 6 s. The only sign: "shared notes from 127.0.0.1: the peer did not answer", each
+round. **I read the sender's code, found `fzn_notes_share_reach` square, called it confirmed and
+fixed it. The share still did not arrive.** The sender was idle in `poll`, and its log said it had
+answered: 69132 bytes in 68 pieces.
+
+**A reply slot was 69132 bytes, the largest reply. `fzn_reasm_accept` takes a message when a piece
+fits `buf_capacity / chunks`:** 69132 / 68 is 1016, a piece is 1024, so it was TOO_LARGE, for a
+reply exactly the size of the slot. **Any reply past 68608 bytes could not be received**, and a
+full index page is what a host sends past about 2000 notes. `FZND_PULL_REPLY_MAX` is in whole
+pieces now, and a `_Static_assert` holds it.
+
+**It was not only shares.** A member of an estate stopped at the same wall: 128 of 4000 notes after
+100 s, and all 4000 in 8 s with the fix. `live_many_notes` stopped at 1000, sec 914, just short of
+it, so sec 928's walls were taken down in front of one nothing had reached. It holds 2500 now.
+Every full page of anything took this path, and only notes have been measured.
+
+**What was done on the way stands, as cost and not as this cause:**
+- **`fzn_notes_share_reach` walks out from what is reached,** over claims sorted by parent, not
+  every node against everything reached. `fzn_notes_sync_scope_t.sorted` lets a claim be looked up.
+  A note's floor stays beside it through the sort, by a permutation.
+- **A sharer's tree has a stamp,** `fzn_notes_received_stamp`: it moves with any shared row written,
+  all three writes being in `notes/received.c`, and differs by sharer, as `ops` is at one address
+  for all of them. So its pages come from a view and a list kept, as sec 940's do.
+- **`fzn_notes_received_roots` sorts** rather than asking every claim of every claim.
+
+`live_many_shared`: 2200 notes in 28 s, every page in 6 CPU ticks; a daemon before the fix holds 0.
+Paging 1000 went from 1.3 s to under 0.05 s, measured by reading one store with each binary.
+
+**Still open:** `fzn_notes_put` lists every claim to check the bound, and a sharer's list reads every
+shared row, so a first pull is square: 2000 in 18 s, with the loop held past a client's wait, and
+`live_many_shared` retries through it. A count kept by sharer would end it. Rows the delta gives up
+move no stamp, so a view can hold such a row until the next write.

@@ -5,6 +5,7 @@
 #include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* Sixteen bytes, as this tree's other derivation labels are. */
@@ -231,15 +232,47 @@ fzn_notes_err_t fzn_notes_share_with(const fzn_notes_store_t *store,
 	return FZN_NOTES_OK;
 }
 
+static int claim_by_id(const void *a, const void *b)
+{
+	return memcmp((*(const fzn_tree_node_t *const *)a)->id,
+	              (*(const fzn_tree_node_t *const *)b)->id, FZN_TREE_ID_LEN);
+}
+
+static int claim_by_parent(const void *a, const void *b)
+{
+	return memcmp((*(const fzn_tree_node_t *const *)a)->parent,
+	              (*(const fzn_tree_node_t *const *)b)->parent, FZN_TREE_ID_LEN);
+}
+
+/* THE FIRST OF `rows` AT OR PAST `id`, by each row's id or its parent. */
+static size_t first_at(const fzn_tree_node_t *const *rows, size_t count, const uint8_t *id,
+                       int by_parent)
+{
+	size_t low = 0, high = count;
+
+	while (low < high) {
+		size_t mid = low + (high - low) / 2u;
+		const uint8_t *at = by_parent ? rows[mid]->parent : rows[mid]->id;
+
+		if (memcmp(at, id, FZN_TREE_ID_LEN) < 0)
+			low = mid + 1u;
+		else
+			high = mid;
+	}
+	return low;
+}
+
 size_t fzn_notes_share_reach(const fzn_notes_view_t *view,
                              const uint8_t (*seeds)[FZN_TREE_ID_LEN], size_t seed_count,
                              uint8_t (*out)[FZN_TREE_ID_LEN], size_t cap)
 {
-	size_t n = 0, i, j;
-	int grew = 1;
+	static const fzn_tree_node_t *under[FZN_NOTES_MAX], *named[FZN_NOTES_MAX];
+	static uint8_t seen[FZN_NOTES_MAX];
+	size_t n = 0, i, j, k, at, held;
 
 	if (!view || !seeds || !out)
 		return 0;
+	held = view->count;
 	for (i = 0; i < seed_count && n < cap; i++) {
 		int have = 0;
 
@@ -248,25 +281,30 @@ size_t fzn_notes_share_reach(const fzn_notes_view_t *view,
 		if (!have)
 			memcpy(out[n++], seeds[i], FZN_TREE_ID_LEN);
 	}
-	/* A FIXED POINT, not a walk: a node joins when any claim on it names a
-	 * parent already reached. Passes are bounded by the view's size, so a
-	 * cycle cannot keep it going. */
-	while (grew && n < cap) {
-		grew = 0;
-		for (i = 0; i < view->count && n < cap; i++) {
-			int have = 0, under = 0;
-
-			for (j = 0; j < n && !have; j++)
-				have = memcmp(out[j], view->nodes[i].id, FZN_TREE_ID_LEN) == 0;
-			if (have)
-				continue;
-			for (j = 0; j < n && !under; j++)
-				under = memcmp(out[j], view->nodes[i].parent, FZN_TREE_ID_LEN) == 0;
-			if (!under)
-				continue;
-			memcpy(out[n++], view->nodes[i].id, FZN_TREE_ID_LEN);
-			grew = 1;
-		}
+	for (i = 0; i < held; i++)
+		under[i] = named[i] = &view->nodes[i];
+	if (held > 1u) {
+		qsort(under, held, sizeof(under[0]), claim_by_parent);
+		qsort(named, held, sizeof(named[0]), claim_by_id);
 	}
+	memset(seen, 0, held);
+	for (i = 0; i < n; i++) {
+		at = first_at(named, held, out[i], 0);
+		if (at < held && memcmp(named[at]->id, out[i], FZN_TREE_ID_LEN) == 0)
+			seen[at] = 1u;
+	}
+	/* A WALK OUT FROM WHAT IS REACHED: a node joins when any claim on it names a
+	 * parent already reached, and each joins once, so a cycle ends. Every node
+	 * tried against everything reached was the square of a shared folder, and past
+	 * about 1500 notes a share's first question went unanswered, sec 942. */
+	for (i = 0; i < n; i++)
+		for (k = first_at(under, held, out[i], 1);
+		     k < held && memcmp(under[k]->parent, out[i], FZN_TREE_ID_LEN) == 0 && n < cap; k++) {
+			at = first_at(named, held, under[k]->id, 0);
+			if (seen[at])
+				continue;
+			seen[at] = 1u;
+			memcpy(out[n++], under[k]->id, FZN_TREE_ID_LEN);
+		}
 	return n;
 }

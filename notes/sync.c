@@ -43,16 +43,32 @@ static int key_order(const void *a, const void *b)
 
 /* ---- the server ---------------------------------------------------------- */
 
+/* WHERE `id` STANDS in `scope`, or its count. */
+static size_t scope_at(const fzn_notes_sync_scope_t *scope, const uint8_t *id)
+{
+	size_t low = 0, high = scope->count, i;
+
+	if (!scope->sorted) {
+		for (i = 0; i < scope->count; i++)
+			if (memcmp(scope->ids[i], id, FZN_TREE_ID_LEN) == 0)
+				return i;
+		return scope->count;
+	}
+	while (low < high) {
+		size_t mid = low + (high - low) / 2u;
+
+		if (memcmp(scope->ids[mid], id, FZN_TREE_ID_LEN) < 0)
+			low = mid + 1u;
+		else
+			high = mid;
+	}
+	return low < scope->count && memcmp(scope->ids[low], id, FZN_TREE_ID_LEN) == 0 ? low
+	                                                                               : scope->count;
+}
+
 static int in_scope(const fzn_notes_sync_scope_t *scope, const uint8_t *id)
 {
-	size_t i;
-
-	if (!scope)
-		return 1;
-	for (i = 0; i < scope->count; i++)
-		if (memcmp(scope->ids[i], id, FZN_TREE_ID_LEN) == 0)
-			return 1;
-	return 0;
+	return !scope || scope_at(scope, id) < scope->count;
 }
 
 /* `rec` within `scope`: its note in it, and the record no older than the
@@ -65,10 +81,10 @@ int fzn_notes_sync_scope_admits(const fzn_notes_sync_scope_t *scope, fzn_record_
 
 	if (!scope)
 		return 1;
-	for (i = 0; i < scope->count; i++)
-		if (memcmp(scope->ids[i], id, FZN_TREE_ID_LEN) == 0)
-			return !scope->floor_ms || fzn_record_issued_ms(rec) >= scope->floor_ms[i];
-	return 0;
+	i = scope_at(scope, id);
+	if (i == scope->count)
+		return 0;
+	return !scope->floor_ms || fzn_record_issued_ms(rec) >= scope->floor_ms[i];
 }
 
 /* What this store offers: its claims, IN KEY ORDER so a page means the same

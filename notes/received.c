@@ -38,6 +38,9 @@ static int row_key(const fzn_notes_received_t *seam, const uint8_t claim[FZN_PUB
 
 /* A row as it is stored, checked to be a SHARED_NOTE blob; its record is
  * the bytes past the prefix. */
+/* MOVES WITH ANY SHARED ROW WRITTEN, by whichever sharer: all three writes are here. */
+static uint64_t rows_written;
+
 /* EVERY ROW'S KEY, room on the heap at first use, sec 941: 64 MB a caller, and static
  * memory larger than RAM and swap is refused at exec. Each caller's its own, kept. */
 static int rows_room(uint8_t (**keys)[FZN_PUBKEY_LEN])
@@ -121,6 +124,7 @@ static int seam_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	memcpy(row + FZN_PERSIST_HEAD_LEN, seam->sharer, FZN_PUBKEY_LEN);
 	memcpy(row + FZN_PERSIST_HEAD_LEN + FZN_PUBKEY_LEN, subject, FZN_PUBKEY_LEN);
 	memcpy(row + FZN_PERSIST_HEAD_LEN + PREFIX_LEN, bytes + FZN_PERSIST_HEAD_LEN, record_len);
+	rows_written++;
 	return seam->base->save(seam->base->ctx, FZN_PERSIST_SHARED_NOTE, key, row,
 	                        FZN_PERSIST_HEAD_LEN + PREFIX_LEN + record_len);
 }
@@ -180,7 +184,19 @@ static int seam_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subjec
 		return 1; /* nothing else is held, so it is gone */
 	if (!subject || !seam->base->remove || !row_key(seam, subject, key))
 		return 0;
+	rows_written++;
 	return seam->base->remove(seam->base->ctx, FZN_PERSIST_SHARED_NOTE, key);
+}
+
+uint64_t fzn_notes_received_stamp(void *ctx)
+{
+	const fzn_notes_received_t *seam = (const fzn_notes_received_t *)ctx;
+	uint64_t who = 0;
+	size_t i;
+
+	for (i = 0; i < sizeof(who); i++)
+		who = (who << 8) | seam->sharer[i];
+	return rows_written ^ who;
 }
 
 fzn_notes_err_t fzn_notes_received_ops(fzn_notes_received_t *seam, const fzn_persist_ops_t *base,
@@ -241,6 +257,7 @@ fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
 		    && wrap_key_of(hash, sharer, fzn_record_subject(rec), wrap_row)
 		    && !base->remove(base->ctx, FZN_PERSIST_NOTE_WRAP, wrap_row))
 			break;
+		rows_written++;
 		if (!base->remove(base->ctx, FZN_PERSIST_SHARED_NOTE, keys[i]))
 			break;
 		n++;
@@ -250,31 +267,58 @@ fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
 	return i < held ? FZN_NOTES_ERR_BACKEND : FZN_NOTES_OK;
 }
 
+static int by_id(const void *a, const void *b)
+{
+	return memcmp((*(const fzn_tree_node_t *const *)a)->id,
+	              (*(const fzn_tree_node_t *const *)b)->id, FZN_TREE_ID_LEN);
+}
+
+/* WHERE `id`'S FIRST CLAIM STANDS in `claims`, sorted by id; `count` when none does. */
+static size_t first_claim(const fzn_tree_node_t *const *claims, size_t count, const uint8_t *id)
+{
+	size_t low = 0, high = count;
+
+	while (low < high) {
+		size_t mid = low + (high - low) / 2u;
+
+		if (memcmp(claims[mid]->id, id, FZN_TREE_ID_LEN) < 0)
+			low = mid + 1u;
+		else
+			high = mid;
+	}
+	return low < count && memcmp(claims[low]->id, id, FZN_TREE_ID_LEN) == 0 ? low : count;
+}
+
+/* THE CLAIMS SORTED, so a parent is looked up: asked of every claim, each page of a
+ * sharer's tree cost the square of what it held, sec 942. */
 size_t fzn_notes_received_roots(const fzn_notes_view_t *view, const fzn_tree_node_t **out,
                                 size_t cap)
 {
-	size_t n = 0, i, j, k;
+	static const fzn_tree_node_t *claims[FZN_NOTES_MAX];
+	static uint8_t seen[FZN_NOTES_MAX];
+	size_t n = 0, i, k, at;
 
 	if (!view || !out)
 		return 0;
+	for (i = 0; i < view->count; i++)
+		claims[i] = &view->nodes[i];
+	if (view->count > 1u)
+		qsort(claims, view->count, sizeof(claims[0]), by_id);
+	memset(seen, 0, view->count);
 	for (i = 0; i < view->count && n < cap; i++) {
-		int parent_held = 0, listed = 0;
+		int parent_held = 0;
 
-		/* ANY CLAIM ON THIS NOTE naming a held parent places it. */
-		for (k = 0; k < view->count && !parent_held; k++) {
-			if (memcmp(view->nodes[k].id, view->nodes[i].id, FZN_TREE_ID_LEN) != 0)
-				continue;
-			for (j = 0; j < view->count && !parent_held; j++)
-				parent_held = memcmp(view->nodes[j].id, view->nodes[k].parent,
-				                     FZN_TREE_ID_LEN)
-				              == 0;
-		}
-		if (parent_held)
-			continue;
 		/* ONCE, however many writers claim it. */
-		for (j = 0; j < n && !listed; j++)
-			listed = memcmp(out[j]->id, view->nodes[i].id, FZN_TREE_ID_LEN) == 0;
-		if (!listed)
+		at = first_claim(claims, view->count, view->nodes[i].id);
+		if (seen[at])
+			continue;
+		seen[at] = 1u;
+		/* ANY CLAIM ON THIS NOTE naming a held parent places it. */
+		for (k = at; k < view->count && !parent_held
+		             && memcmp(claims[k]->id, view->nodes[i].id, FZN_TREE_ID_LEN) == 0;
+		     k++)
+			parent_held = first_claim(claims, view->count, claims[k]->parent) != view->count;
+		if (!parent_held)
 			out[n++] = &view->nodes[i];
 	}
 	return n;

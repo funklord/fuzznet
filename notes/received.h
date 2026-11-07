@@ -67,6 +67,11 @@ fzn_notes_err_t fzn_notes_received_sharers(const fzn_persist_ops_t *base,
                                            uint8_t (*out)[FZN_PUBKEY_LEN], size_t cap,
                                            size_t *count);
 
+/* A `fzn_notes_store_t.stamp` for a store over `seam` as its ctx: moves with any shared
+ * row written, and differs from one sharer to the next, so a view of one is not taken
+ * for another's. sec 942. */
+uint64_t fzn_notes_received_stamp(void *ctx);
+
 /* THE ROOTS OF A SHARER'S TREE as this node holds it: the notes whose parent
  * it does not hold, `cap` of them, in the view's order. `notes/view.h`'s top
  * level is the wrong question here -- every note of a shared subtree is

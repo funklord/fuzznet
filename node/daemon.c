@@ -1613,7 +1613,12 @@ static int shelf_open(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out, s
  * answer a peer sends -- a shelf's DATA, a notes sync's RECORDS -- since the
  * default reply is 512 bytes. secs 424 and 432. */
 static uint8_t node_reply[FZND_REPLY_MAX];
-#define FZND_PULL_REPLY_MAX FZND_REPLY_MAX
+/* IN WHOLE PIECES, sec 942: a slot takes a message when its room divided by the pieces
+ * is a piece, so a reply of 69132 bytes, 68 pieces, was too large for a slot of 69132
+ * and every full page went unanswered. A share of 2000 notes never arrived. */
+#define FZND_PULL_REPLY_MAX                                                                   \
+	(((FZND_REPLY_MAX + FZN_SPLIT_MAX_PAYLOAD - 1u) / FZN_SPLIT_MAX_PAYLOAD)                 \
+	 * FZN_SPLIT_MAX_PAYLOAD)
 
 /* THE REQUESTS THIS NODE REASSEMBLES, sec 447: a request past one frame
  * arrives in pieces, and sec 370 gave the node a table to put them back
@@ -2220,6 +2225,7 @@ static void admit_writers(const fzn_node_state_t *state, const fzn_node_roots_t 
  * Metered as `peer_ask` meters, a link's requests and answers counted and
  * a refusal in words said. */
 _Static_assert(FZND_PULL_REPLY_MAX >= 16384u, "a members page fits the round's answers");
+_Static_assert(FZND_PULL_REPLY_MAX % FZN_SPLIT_MAX_PAYLOAD == 0, "a full reply fits its slot");
 
 static fzn_node_asks_t round_asks;
 static uint8_t round_reply[FZND_PULL_REPLY_MAX];

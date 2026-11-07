@@ -149,6 +149,9 @@ typedef struct fzn_notes_sync_scope {
 	 * before its note's floor is out of scope -- what a group share that
 	 * does not catch up a later member serves it, sec 655. 0 is no floor. */
 	const uint64_t *floor_ms;
+	/* `ids` ARE IN ORDER, each once, so a note is looked up: every claim tried
+	 * against every id was the square of a share, sec 942. 0 is read in turn. */
+	int sorted;
 } fzn_notes_sync_scope_t;
 
 /* WHETHER `rec` IS WITHIN `scope`: its note in it, and the record no older

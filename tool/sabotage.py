@@ -5509,8 +5509,8 @@ SABOTAGES = [
 	(
 		"share-reach-below-only",
 		"notes/share.c",
-		"\t\t\tif (!under)\n\t\t\t\tcontinue;\n",
-		"",
+		"\t\t     k < held && memcmp(under[k]->parent, out[i], FZN_TREE_ID_LEN) == 0 && n < cap; k++) {\n",
+		"\t\t     k < held && n < cap; k++) {\n",
 		"a share of one subtree reaches every note in the view -- sec 436",
 	),
 	(
@@ -5628,8 +5628,8 @@ SABOTAGES = [
 	(
 		"received-roots-parent-not-held",
 		"notes/received.c",
-		"\t\tif (parent_held)\n\t\t\tcontinue;\n",
-		"",
+		"\t\tif (!parent_held)\n\t\t\tout[n++] = &view->nodes[i];\n",
+		"\t\tout[n++] = &view->nodes[i];\n",
 		"every note of a sharer's tree is a root, and the shared folder reads flat -- sec 437",
 	),
 	(
@@ -14421,8 +14421,8 @@ SABOTAGES = [
 	(
 		"scope-floor-honoured",
 		"notes/sync.c",
-		"\t\t\treturn !scope->floor_ms || fzn_record_issued_ms(rec) >= scope->floor_ms[i];\n",
-		"\t\t\treturn 1;\n",
+		"\treturn !scope->floor_ms || fzn_record_issued_ms(rec) >= scope->floor_ms[i];\n",
+		"\treturn 1;\n",
 		"a later member is served what a share held before it joined -- sec 655",
 	),
 	(
@@ -14671,6 +14671,41 @@ SABOTAGES = [
 		"\t    || now.tv_nsec != x->dir_time.tv_nsec)\n\t\tx->whole = 0;\n",
 		"\t(void)now;\n",
 		"a row put in the directory just before a save is never read -- sec 936",
+	),
+	(
+		"share-scope-floor-left-behind",
+		"node/notes.c",
+		"\t\tfloors[i] = reach_floor[order[i]];\n",
+		"\t\tfloors[i] = reach_floor[i];\n",
+		"a note's floor stays where the sort left it, so another note's floor is served -- sec 655, 942",
+	),
+	(
+		"share-scope-unsorted",
+		"node/notes.c",
+		"\tqsort(order, scope->count, sizeof(order[0]), reach_order);\n",
+		"",
+		"a scope said to be in order is not, so what a share reaches is not found -- sec 942",
+	),
+	(
+		"share-walks-a-cycle",
+		"notes/share.c",
+		"\t\t\tif (seen[at])\n\t\t\t\tcontinue;\n\t\t\tseen[at] = 1u;\n",
+		"",
+		"a note reached twice goes in twice, and a cycle runs to the cap -- sec 942",
+	),
+	(
+		"shared-stamp-misses-a-write",
+		"notes/received.c",
+		"\trows_written++;\n\treturn seam->base->save(seam->base->ctx, FZN_PERSIST_SHARED_NOTE, key, row,\n",
+		"\treturn seam->base->save(seam->base->ctx, FZN_PERSIST_SHARED_NOTE, key, row,\n",
+		"a note pulled into a sharer's tree is not seen until something else moves it -- sec 942",
+	),
+	(
+		"shared-stamp-one-for-all",
+		"notes/received.c",
+		"\treturn rows_written ^ who;\n",
+		"\t(void)who;\n\treturn rows_written;\n",
+		"one sharer's page answers with another's tree -- sec 942",
 	),
 	(
 		"notes-page-outlives-a-write",
