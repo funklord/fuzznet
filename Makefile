@@ -4328,7 +4328,9 @@ $(BUILD_DIR)/node/test/serve_test.o: node/test/serve_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -c $< -o $@
 
 $(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
-                                   $(NODE_SERVE_OBJS)
+                                   $(NODE_SERVE_OBJS) $(BUILD_DIR)/session/aead_monocypher.o \
+                                   $(BUILD_DIR)/session/hash_monocypher.o \
+                                   $(BUILD_DIR)/session/random_linux.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

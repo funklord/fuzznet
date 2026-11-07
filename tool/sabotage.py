@@ -14713,6 +14713,27 @@ SABOTAGES = [
 		"the signature stops short of the digests, so a digest changed in the file is believed -- sec 938",
 	),
 	(
+		"session-frame-skips-the-capability",
+		"node/serve.c",
+		"\tresult = fzn_node_serve_authorise(&state->config, &held, state->sign, now, &opened);\n",
+		"\tresult = FZN_NODE_REMOTE_GRANTED;\n",
+		"a session outlives a revocation for every request but a call, which asks again: live_device could not see this -- sec 932",
+	),
+	(
+		"session-frame-skips-the-expiry",
+		"node/serve.c",
+		"\tif (!state->replay || got.expires_at <= now || got.expires_at > now + state->replay->max_ahead) {\n",
+		"\tif (!state->replay) {\n",
+		"a frame held back and let go later is a press an hour late -- sec 932",
+	),
+	(
+		"session-outlives-its-peer",
+		"node/serve.c",
+		"\tif (!found || memcmp(found->recv_key, s->root, FZN_AEAD_KEY_LEN) != 0) {\n\t\tfzn_node_sessions_drop(s);\n\t\treturn;\n\t}\n\theld = *found;\n",
+		"\tif (!found)\n\t\tfound = &state->peers[0];\n\theld = *found;\n",
+		"a peer unpaired still speaks in its session -- sec 932",
+	),
+	(
 		"session-forgery-moves-the-window",
 		"wire/session_frame.c",
 		"\tcounter = fzn_get_be32(frame + COUNTER_AT);\n\t/* 0 IS NEVER SEALED",

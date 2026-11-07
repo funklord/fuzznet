@@ -7,7 +7,11 @@
 #define _DEFAULT_SOURCE /* mkdtemp under -std=c11 */
 
 #include "serve.h"
+#include "sessions.h"
 #include "../local/socket.h"
+#include "../session/aead_monocypher.h"
+#include "../session/hash_monocypher.h"
+#include "../session/random_system.h"
 #include "../session/box.h" /* FZN_BOX_MARK */
 
 #include <arpa/inet.h>
@@ -248,6 +252,181 @@ static int bound(int *fd, fzn_udp_addr_t *to)
 	return fzn_udp_resolve(AF_INET, "127.0.0.1", ntohs(at.sin_port), to) == FZN_UDP_OK;
 }
 
+/* A SESSION FRAME THROUGH THE LOOP, sec 932. The peer here holds no chain, so it
+ * stands for a host revoked since its session began: the frame opens, and the
+ * capability is what must say no, on every frame. */
+static struct {
+	int calls, granted, denied;
+	uint32_t msg;
+	size_t cap_ok;
+} remoted;
+static int said_calls;
+static uint8_t session_capability[FZN_CAP_ID_LEN];
+
+static size_t session_remote(void *ctx, fzn_node_remote_result_t result, const fzn_opened_t *req,
+                             uint8_t *reply, size_t reply_cap)
+{
+	(void)ctx;
+	remoted.calls++;
+	remoted.granted += result == FZN_NODE_REMOTE_GRANTED;
+	remoted.denied += result == FZN_NODE_REMOTE_DENIED;
+	remoted.msg = req->msg;
+	remoted.cap_ok = memcmp(req->capability, session_capability, FZN_CAP_ID_LEN) == 0;
+	if (reply_cap < 2u)
+		return 0;
+	memcpy(reply, "no", 2u);
+	return 2u;
+}
+
+static void session_said(void *ctx, const fzn_opened_t *said)
+{
+	(void)ctx;
+	(void)said;
+	said_calls++;
+}
+
+static uint64_t session_now(void)
+{
+	return 1000u;
+}
+
+static void session_send(int fd, const fzn_udp_addr_t *to, fzn_session_end_t *end, uint32_t msg,
+                         uint32_t expires, const fzn_aead_ops_t *aead, uint8_t *kept, size_t *n)
+{
+	ok(fzn_session_frame_seal(end, msg, expires, (const uint8_t *)"hi", 2u, kept,
+	                          FZN_SESSION_FRAME_MAX, n, aead)
+	           == FZN_SESSION_FRAME_OK,
+	   "a session frame did not seal");
+	(void)fzn_udp_send(fd, to, kept, *n);
+}
+
+static void test_run_once_session(void)
+{
+	static fzn_node_peer_t peer;
+	static fzn_replay_entry_t entries[8];
+	static fzn_replay_window_t replay;
+	fzn_node_sessions_t sessions;
+	fzn_node_state_t state;
+	fzn_hash_ops_t hash;
+	fzn_aead_ops_t aead;
+	fzn_random_ops_t rng;
+	fzn_session_end_t asker;
+	fzn_session_opened_t got;
+	fzn_udp_addr_t to, to_asker, from;
+	uint8_t ask[FZN_SESSION_ASK_LEN], grant[FZN_SESSION_GRANT_LEN];
+	uint8_t frame[FZN_SESSION_FRAME_MAX], back[FZN_SESSION_FRAME_MAX];
+	size_t n = 0, back_len = 0;
+	int ufd = -1, sfd = -1;
+
+	fzn_hash_monocypher_init(&hash);
+	fzn_aead_monocypher_init(&aead);
+	fzn_random_system_init(&rng);
+	memset(&sessions, 0, sizeof(sessions));
+	memset(&peer, 0, sizeof(peer));
+	memset(peer.sender, 0x51, sizeof(peer.sender));
+	memset(peer.recv_key, 0x52, sizeof(peer.recv_key));
+	memset(session_capability, 0x53, sizeof(session_capability));
+	memset(ask, 0x54, sizeof(ask));
+	memset(&remoted, 0, sizeof(remoted));
+	said_calls = 0;
+	if (!bound(&ufd, &to) || !bound(&sfd, &to_asker)) {
+		ok(0, "the datagram sockets would not bind");
+		goto out;
+	}
+	ok(fzn_replay_init(&replay, entries, 8u, 60u) == FZN_FRESH_OK, "fixture: the window");
+	ok(fzn_node_sessions_grant(&sessions, peer.sender, session_capability, peer.recv_key, ask,
+	                           5000u, &hash, &rng, grant),
+	   "an ask was not granted");
+	ok(fzn_session_end_derive(&asker, &hash, peer.recv_key, ask, grant, 1), "the asker");
+	memset(&state, 0, sizeof(state));
+	state.listen_fd = -1;
+	state.udp_fd = ufd;
+	state.hash = &hash;
+	state.aead = &aead;
+	state.rng = &rng;
+	state.replay = &replay;
+	state.clock = session_now;
+	state.peers = &peer;
+	state.peer_count = 1u;
+	state.sessions = &sessions;
+	state.on_remote = session_remote;
+	state.on_said = session_said;
+
+	/* OPENS, AND THE CAPABILITY SAYS NO. */
+	session_send(sfd, &to, &asker, 9u, 1030u, &aead, frame, &n);
+	(void)fzn_node_run_once(&state, 1000);
+	ok(remoted.calls == 1 && remoted.denied == 1 && remoted.granted == 0,
+	   "a session frame went past the capability its peer no longer holds");
+	ok(remoted.msg == 9u && remoted.cap_ok, "a session frame lost its message or its capability");
+
+	/* ITS ANSWER IN THE SESSION. */
+	{
+		struct pollfd p = { sfd, POLLIN, 0 };
+
+		ok(poll(&p, 1, 1000) == 1
+		           && fzn_udp_recv(sfd, back, sizeof(back), &back_len, &from) == FZN_UDP_OK,
+		   "no answer came");
+		ok(back_len == FZN_SESSION_FRAME_OVERHEAD + 2u
+		           && fzn_session_frame_open(&asker, back, back_len, &aead, &got)
+		                      == FZN_SESSION_FRAME_OK
+		           && got.msg == 9u,
+		   "the answer was not a session frame of that message");
+	}
+
+	/* ONCE. */
+	session_send(sfd, &to, &asker, 10u, 1030u, &aead, frame, &n);
+	(void)fzn_node_run_once(&state, 1000);
+	ok(remoted.calls == 2, "a frame was not served");
+	(void)fzn_udp_send(sfd, &to, frame, n);
+	(void)fzn_node_run_once(&state, 200);
+	ok(remoted.calls == 2, "a frame played back was served");
+
+	/* EXPIRED, AND PAST THE HORIZON. */
+	session_send(sfd, &to, &asker, 11u, 1000u, &aead, frame, &n);
+	(void)fzn_node_run_once(&state, 1000);
+	session_send(sfd, &to, &asker, 12u, 1061u, &aead, frame, &n);
+	(void)fzn_node_run_once(&state, 1000);
+	ok(remoted.calls == 2, "an expiry past its window was served");
+
+	/* WORDS, FROM ONE WHOSE CAPABILITY FAILS, are told to nobody. */
+	session_send(sfd, &to, &asker, 0u, 1030u, &aead, frame, &n);
+	(void)fzn_node_run_once(&state, 1000);
+	ok(said_calls == 0 && remoted.calls == 2, "a word passed a capability that failed");
+
+	/* SAID FROM THIS END, to where the last frame came from. */
+	ok(fzn_node_serve_say(&state, peer.sender, (const uint8_t *)"ring", 4u) == 1,
+	   "a word to a session in use did not go");
+	{
+		struct pollfd p = { sfd, POLLIN, 0 };
+
+		while (poll(&p, 1, 300) == 1
+		       && fzn_udp_recv(sfd, back, sizeof(back), &back_len, &from) == FZN_UDP_OK) {
+			if (fzn_session_frame_open(&asker, back, back_len, &aead, &got)
+			            == FZN_SESSION_FRAME_OK
+			    && got.msg == 0u)
+				break;
+			got.msg = 1u;
+		}
+		ok(got.msg == 0u && got.payload_len == 4u && memcmp(got.payload, "ring", 4u) == 0,
+		   "a word did not reach the peer");
+	}
+
+	/* THE PEER GONE: the session with it. */
+	state.peer_count = 0u;
+	session_send(sfd, &to, &asker, 13u, 1030u, &aead, frame, &n);
+	(void)fzn_node_run_once(&state, 1000);
+	ok(remoted.calls == 2 && !fzn_node_sessions_find(&sessions, asker.speaks_to),
+	   "a session outlived its peer");
+	ok(fzn_node_serve_say(&state, peer.sender, (const uint8_t *)"x", 1u) == 0,
+	   "a word went to a session gone");
+out:
+	fzn_node_sessions_release(&sessions);
+	if (ufd >= 0)
+		fzn_udp_close(ufd);
+	if (sfd >= 0)
+		fzn_udp_close(sfd);
+}
+
 /* A WAIT THAT ANSWERS PEERS, sec 720: while a request asked in turn waits on
  * its own socket, what the node's socket receives is served -- two hosts
  * asking each other at once each waited out the other's timeout before --
@@ -376,6 +555,7 @@ int main(void)
 	test_find_peer();
 	test_run_once_local();
 	test_run_once_probe();
+	test_run_once_session();
 	test_wait_answering();
 	test_run_once_own_fds();
 	test_wait_answering_own_fds();

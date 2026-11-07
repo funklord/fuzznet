@@ -81251,8 +81251,9 @@ reply answers it (sec 900), and numbers begin somewhere of their own (sec 910).
   linker is here. Objects by clang for Cortex-M0: `device.c` 1.9 KB, `bearer.c` 0.9 KB,
   `seal.c` 2.0 KB. Peak stack, not measured: about 2.5 KB by reading, a request's room
   and a unit's, and what the cipher takes.
-- **Airtime is the likely limit:** a first call is 16 units at 51 bytes, the time and
-  the call, and EU868's duty cycle (sec 48) sits on top. No airtime was measured.
+- **Airtime is the likely limit:** a first call is about 11 units at 51 bytes, the ask,
+  its grant and the call (sec 932), and EU868's duty cycle (sec 48) sits on top. No
+  airtime was measured.
 
 **Found: a device paired to a host is answered as a member** (`call_remote`, by
 `fzn_node_apply_rank`), though sec 553 says it is not in that estate. Both hold: 553 is
@@ -81830,6 +81831,11 @@ and no forward secrecy of its own.
 **A revoked host's next frame is refused** (sec 349): `fzn_node_serve_authorise` runs on every
 session frame, from the peer as it stands. Authorising was split out of `fzn_node_serve_datagram`
 for that. A peer gone, or paired afresh, takes its session with it.
+
+**`live_device` d did not prove that.** With the check removed it still passed, as a call asks
+afresh whether its caller is a member. Every other request on a session frame has only this
+check, so `serve_test` now drives a frame through the loop from a peer whose capability fails:
+denied, its answer in the session, played back, expired, its peer gone.
 
 **No stranger can fill the table.** An ask opens under a pair key, so a table holds at most two a
 peer: one in use, one granted and unused. It grows with the peers and has no other limit.
