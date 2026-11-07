@@ -81858,8 +81858,7 @@ a session.
   another shape, so not a measured increase. `device-check` holds at 9 sources.
 
 **Not built:** a daemon as the asker, so its own calls and rounds go full. A client on a host and
-the far end speaking first are sec 935. **What a unit still pays:** `net/bearer.h`'s 4 bytes on
-a frame of one piece.
+the far end speaking first are sec 935.
 
 **Also:** `make schema` stopped at `wire/frame.situ` from sec 930 on: every `.wire` said signature
 format v2 and situc compares as v3, so it checked nothing after the first file. Regenerated, each
@@ -81971,3 +81970,10 @@ file of every store, and each test and tool that names one. **Row a member is dr
 **Notes grow by something else:** 3.5 ms at 1000, 9.8 at 6000, about what sec 928 had.
 
 `persist_file_test`, 4 sabotages.
+
+## 937. A session frame goes bare on a radio, 2026-11-07
+
+A piece's head is 4 bytes, and a frame of one piece needs none of them. A session frame that fits
+a unit now goes as it is: its mark says what it is, and a piece's link id never opens with that
+byte. 51 bytes of a 51-byte unit rather than 47, so a call has 18 bytes for its name and arguments
+where it had 14. A full frame keeps its head, as it goes in pieces on any radio.

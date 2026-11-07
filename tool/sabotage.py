@@ -14692,6 +14692,13 @@ SABOTAGES = [
 		"a walker that removes shifts the rows beneath it, so every other is skipped -- sec 936",
 	),
 	(
+		"bearer-piece-reads-as-bare",
+		"net/bearer.c",
+		"\tif ((id >> 8) == FZN_SESSION_FRAME_MARK)\n\t\tid = (uint16_t)(id ^ 0x0100u);\n",
+		"",
+		"a piece whose id opens with the mark is taken whole, and its frame lost -- sec 937",
+	),
+	(
 		"session-forgery-moves-the-window",
 		"wire/session_frame.c",
 		"\tcounter = fzn_get_be32(frame + COUNTER_AT);\n\t/* 0 IS NEVER SEALED",

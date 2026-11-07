@@ -4,6 +4,8 @@
 
 #include <string.h>
 
+#include "../wire/session_frame.h"
+
 size_t fzn_bearer_pieces(size_t len, size_t unit)
 {
 	size_t room, n;
@@ -23,8 +25,14 @@ int fzn_bearer_send(const fzn_bearer_t *b, uint16_t id, const uint8_t *frame, si
 
 	if (b && b->whole && b->send && frame)
 		return len <= FZN_BEARER_FRAME_MAX ? b->send(b->ctx, frame, len) : 0;
+	/* A SESSION FRAME THAT FITS GOES BARE: its mark says what it is, and a piece's
+	 * id never opens with it. Four more bytes of a 51-byte unit (sec 937). */
+	if (b && b->send && frame && len && len <= b->unit && frame[0] == FZN_SESSION_FRAME_MARK)
+		return b->send(b->ctx, frame, len);
 	if (!b || !b->send || !frame || !(n = fzn_bearer_pieces(len, b->unit)))
 		return 0;
+	if ((id >> 8) == FZN_SESSION_FRAME_MARK)
+		id = (uint16_t)(id ^ 0x0100u);
 	room = b->unit - FZN_BEARER_HEAD_LEN;
 	for (i = 0; i < n; i++, at += room) {
 		size_t part = len - at < room ? len - at : room;
@@ -75,6 +83,10 @@ size_t fzn_bearer_take(fzn_bearer_join_t *j, const uint8_t *unit, size_t len,
 	if (!j || !j->held || !j->n_held || !unit || !frame || len <= FZN_BEARER_HEAD_LEN
 	    || len > j->unit || j->unit < FZN_BEARER_UNIT_MIN || j->unit > FZN_BEARER_UNIT_MAX)
 		return 0;
+	if (unit[0] == FZN_SESSION_FRAME_MARK) {
+		*frame = unit;
+		return len;
+	}
 	room = j->unit - FZN_BEARER_HEAD_LEN;
 	part = len - FZN_BEARER_HEAD_LEN;
 	id = (uint16_t)(((uint16_t)unit[0] << 8) | unit[1]);

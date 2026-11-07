@@ -1,6 +1,7 @@
 /* A frame in pieces and back, and SLIP: net/bearer.h. */
 
 #include "../bearer.h"
+#include "../../wire/session_frame.h"
 #include "../udp.h"
 
 #include <stdio.h>
@@ -90,6 +91,35 @@ int main(void)
 			      "a frame's pieces in reverse came back changed");
 		}
 	}
+
+	/* A SESSION FRAME THAT FITS GOES BARE, sec 937: no head, and whole on arrival. */
+	b.unit = j.unit = 51u;
+	pattern(frame, 51u, 9u);
+	frame[0] = FZN_SESSION_FRAME_MARK;
+	n_units = 0;
+	CHECK(fzn_bearer_send(&b, 0x1234u, frame, 51u) == 1 && n_units == 1u && unit_lens[0] == 51u,
+	      "a session frame that fits went with a head");
+	got = fzn_bearer_take(&j, units[0], unit_lens[0], &whole);
+	CHECK(got == 51u && memcmp(whole, frame, 51u) == 0, "a bare frame did not come back");
+	/* TOO LONG FOR THE UNIT, it goes in pieces as any frame. */
+	pattern(frame, 52u, 10u);
+	frame[0] = FZN_SESSION_FRAME_MARK;
+	n_units = 0;
+	CHECK(fzn_bearer_send(&b, 0x1234u, frame, 52u) == 1 && n_units == 2u,
+	      "a session frame past the unit went bare");
+	for (i = 0, got = 0; i < n_units; i++)
+		got = fzn_bearer_take(&j, units[i], unit_lens[i], &whole);
+	CHECK(got == 52u && memcmp(whole, frame, 52u) == 0, "its pieces did not come back");
+	/* A PIECE'S ID NEVER OPENS WITH THE MARK, or it would read as a frame. */
+	pattern(frame, 200u, 11u);
+	n_units = 0;
+	CHECK(fzn_bearer_send(&b, (uint16_t)(FZN_SESSION_FRAME_MARK << 8) | 5u, frame, 200u) == 1,
+	      "a frame would not go");
+	for (i = 0, got = 0; i < n_units; i++) {
+		CHECK(units[i][0] != FZN_SESSION_FRAME_MARK, "a piece opened with the mark");
+		got = fzn_bearer_take(&j, units[i], unit_lens[i], &whole);
+	}
+	CHECK(got == 200u && memcmp(whole, frame, 200u) == 0, "those pieces did not come back");
 
 	/* A PIECE HEARD TWICE counts once. */
 	b.unit = j.unit = 51u;

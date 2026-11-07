@@ -18,6 +18,9 @@
  *
  *     piece   link id (2, big-endian) | index (1) | count (1) | bytes
  *
+ * A SESSION FRAME THAT FITS A UNIT GOES BARE (sec 937): its first byte says what
+ * it is, and a piece's link id never opens with that byte.
+ *
  * The link id is the sender's own number for this frame, so that two senders'
  * pieces in the air at once are not joined. Two that collide make a frame that
  * does not open, which costs that frame and nothing else. BOTH ENDS OF A LINK
