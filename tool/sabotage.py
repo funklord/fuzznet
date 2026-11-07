@@ -3556,8 +3556,8 @@ SABOTAGES = [
 	(
 		"wait-in-turn-polls-own-fds",
 		"node/serve.c",
-		"\t\tfor (s = 0; s < n_own; s++)\n\t\t\tif (fds[first_own + s].revents & (POLLIN | POLLHUP | POLLERR))\n\t\t\t\tstate->own_ready(state->own_ctx, own[s]);\n\t\tif (ui >= 0",
-		"\t\tif (ui >= 0",
+		"\t\tfor (s = 0; s < n_own; s++)\n\t\t\tif (own_said[s])\n\t\t\t\tstate->own_ready(state->own_ctx, own[s]);\n",
+		"",
 		"a daemon's own descriptor left untold through a wait in turn waits out the round's step, up to 3 s, and netcfgd's confirm window reads as a hung daemon -- sec 835",
 	),
 	(
@@ -13728,8 +13728,8 @@ SABOTAGES = [
 	(
 		"wait-answering-serves-local",
 		"node/serve.c",
-		"\t\tif (li >= 0 && (fds[li].revents & POLLIN))\n\t\t\tserve_ready_local(state);",
-		"\t\tif (li >= 0 && (fds[li].revents & POLLIN))\n\t\t\t(void)state;",
+		"\t\tif (local_said)\n\t\t\tserve_ready_local(state);",
+		"\t\tif (local_said)\n\t\t\t(void)state;",
 		"a local client waits out every in-turn wait, past its own timeout -- sec 727",
 	),
 	(
@@ -13742,8 +13742,8 @@ SABOTAGES = [
 	(
 		"wait-answering-serves-peers",
 		"node/serve.c",
-		"\t\tif (ui >= 0 && (fds[ui].revents & POLLIN))\n\t\t\tserve_ready_datagram(state);",
-		"\t\tif (ui >= 0 && (fds[ui].revents & POLLIN))\n\t\t\t(void)state;",
+		"\t\tif (udp_said)\n\t\t\tserve_ready_datagram(state);",
+		"\t\tif (udp_said)\n\t\t\t(void)state;",
 		"two hosts asking each other in turn each wait out the other's timeout -- sec 720",
 	),
 	(
