@@ -6908,6 +6908,8 @@ static void shares_start(const struct share_ref *targets, size_t n_targets, int 
 		            != FZN_NOTES_OK
 		    || fzn_notes_store_init(&st->tree, &st->ops, node_notes.store.hash) != FZN_NOTES_OK)
 			continue;
+		st->tree.at_most = fzn_notes_received_at_most;
+		st->tree.at_most_ctx = &st->seam;
 		st->live = 1;
 		len = 0;
 		done = 0;

@@ -995,6 +995,53 @@ static void test_share_scope_floor(void)
 	      "and not G, whose record is older than its floor");
 }
 
+/* THE BOUND OF A SHARER'S TREE, sec 945: a ceiling says "well under it" without reading
+ * a row, and the rows decide at the bound, either way. */
+static void test_received_bound(void)
+{
+	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
+	uint8_t ids[6][FZN_TREE_ID_LEN];
+	static uint8_t record[FZN_RECORD_MAX_LEN];
+	fzn_notes_received_t seam, other_seam;
+	fzn_persist_ops_t seam_ops, other_ops;
+	fzn_notes_store_t tree, other;
+	size_t i, len = 0;
+
+	reset();
+	for (i = 0; i < 6u; i++)
+		CHECK(write(&a, "note", ids[i]), "fixture: a note on A");
+	CHECK(fzn_notes_received_ops(&seam, &ops_b, &HASH, KEY_A, &seam_ops) == FZN_NOTES_OK
+	              && fzn_notes_store_init(&tree, &seam_ops, &HASH) == FZN_NOTES_OK
+	              && fzn_notes_received_ops(&other_seam, &ops_b, &HASH, KEY_B, &other_ops)
+	                         == FZN_NOTES_OK
+	              && fzn_notes_store_init(&other, &other_ops, &HASH) == FZN_NOTES_OK,
+	      "fixture: two sharers' trees over one store");
+	tree.at_most = fzn_notes_received_at_most;
+	tree.at_most_ctx = &seam;
+	tree.bound = 3u;
+	for (i = 0; i < 3u; i++) {
+		CHECK(fzn_notes_get(&store_a, ids[i], KEY_A, record, sizeof(record), &len) == FZN_NOTES_OK
+		              && fzn_notes_put(&tree, record, len, both(), &sign_b, NULL, NULL)
+		                         == FZN_NOTES_OK,
+		      "a tree takes a note under its bound");
+	}
+	CHECK(fzn_notes_get(&store_a, ids[3], KEY_A, record, sizeof(record), &len) == FZN_NOTES_OK
+	              && fzn_notes_put(&tree, record, len, both(), &sign_b, NULL, NULL)
+	                         == FZN_NOTES_ERR_FULL,
+	      "and not past it, though the seam counted before those were written");
+	/* ANOTHER SHARER'S WRITES RAISE THE CEILING, and take no room in this tree. */
+	for (i = 3u; i < 6u; i++)
+		CHECK(fzn_notes_get(&store_a, ids[i], KEY_A, record, sizeof(record), &len)
+		                      == FZN_NOTES_OK
+		              && fzn_notes_put(&other, record, len, both(), &sign_b, NULL, NULL)
+		                         == FZN_NOTES_OK,
+		      "fixture: rows in another sharer's tree");
+	tree.bound = 4u;
+	CHECK(fzn_notes_get(&store_a, ids[3], KEY_A, record, sizeof(record), &len) == FZN_NOTES_OK
+	              && fzn_notes_put(&tree, record, len, both(), &sign_b, NULL, NULL) == FZN_NOTES_OK,
+	      "a ceiling at the bound is no refusal: the rows decide");
+}
+
 static void test_received(void)
 {
 	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
@@ -1288,6 +1335,45 @@ static void test_wrap_exchange(void)
 		CHECK(nonzero == 0u, "a give's keys were left in the request after its answer");
 	}
 
+	/* A NOTE PURGED BETWEEN THE ASKING AND THE ANSWER, sec 945: the loop answers between
+	 * the two, and the answer's key is not kept. */
+	{
+		static fzn_notes_wrapping_t w;
+		static uint8_t request[FZN_NOTES_SYNC_WRAPS_REPLY_MAX], reply[FZN_NOTES_SYNC_WRAPS_REPLY_MAX];
+		uint8_t four[FZN_TREE_ID_LEN];
+		size_t request_len = 0, reply_len = 0;
+		int done = 0;
+
+		CHECK(write(&a, "four", four)
+		              && fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &from_a, &t)
+		                         == FZN_NOTES_SYNC_OK
+		              && fzn_notes_sync_wraps_begin(&w, &store_b, 0, request, sizeof(request),
+		                                            &request_len, &done)
+		                         == FZN_NOTES_SYNC_OK
+		              && !done && ask(&from_a, request, request_len, reply, sizeof(reply), &reply_len),
+		      "fixture: B has asked A for the key of a fourth note, and been answered");
+		CHECK(fzn_notes_mark_purged(&store_b, four) == FZN_NOTES_OK, "fixture: purged meanwhile");
+		(void)fzn_notes_sync_wraps_step(&w, reply, reply_len, request, sizeof(request),
+		                                &request_len, &done);
+		CHECK(fzn_notes_wrap_get(&store_b, four, key) == FZN_NOTES_ERR_ABSENT
+		              && w.tally.refused == 1u,
+		      "a key arriving for a note purged since is not kept");
+	}
+
+	/* TWO WRITERS' CLAIMS ON ONE NOTE are one note to ask a key for, sec 945. */
+	{
+		fzn_notes_author_t b_on_a = author_on(&store_a, KEY_B, &sign_b);
+		uint8_t five[FZN_TREE_ID_LEN];
+
+		CHECK(write(&a, "five", five) && fzn_notes_move(&b_on_a, five, one, 9000u) == FZN_NOTES_OK
+		              && fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &from_a, &t)
+		                         == FZN_NOTES_SYNC_OK,
+		      "fixture: B holds two writers' claims on a note, and not its key");
+		CHECK(fzn_notes_sync_wraps(&store_b, ask, &from_a, 0, &wt) == FZN_NOTES_SYNC_OK
+		              && wt.asked == 1u && wt.taken == 1u,
+		      "its key is asked for once");
+	}
+
 	CHECK(give_one(&store_b, KEY_A, nowhere, 0x11) == 0u
 	              && fzn_notes_wrap_get(&store_b, nowhere, key) == FZN_NOTES_ERR_ABSENT,
 	      "a key for a note B does not index is not planted");
@@ -1348,6 +1434,7 @@ int main(void)
 	test_share_scope();
 	test_share_scope_floor();
 	test_received();
+	test_received_bound();
 	test_partner_from_purges_query();
 	test_wrap_exchange();
 

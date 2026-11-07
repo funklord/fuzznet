@@ -342,10 +342,16 @@ fzn_notes_err_t fzn_notes_put(const fzn_notes_store_t *store, const uint8_t *rec
 		/* A NEW CLAIM, AND THE BOUND IS CHECKED BEFORE IT IS WRITTEN. A
 		 * backend holding more than the bound fails the list, which
 		 * refuses too. */
-		if (fzn_notes_claims(store, keys, FZN_NOTES_MAX, &count) != FZN_NOTES_OK)
-			return FZN_NOTES_ERR_FULL;
-		if (count >= (store->bound ? store->bound : FZN_NOTES_MAX))
-			return FZN_NOTES_ERR_FULL;
+		size_t bound = store->bound ? store->bound : FZN_NOTES_MAX;
+
+		/* WELL UNDER IT, a backend can say so without reading every claim, which
+		 * was the square of a first pull, sec 945. At the bound, the list decides. */
+		if (!store->at_most || !store->at_most(store->at_most_ctx, &count) || count >= bound) {
+			if (fzn_notes_claims(store, keys, FZN_NOTES_MAX, &count) != FZN_NOTES_OK)
+				return FZN_NOTES_ERR_FULL;
+			if (count >= bound)
+				return FZN_NOTES_ERR_FULL;
+		}
 	}
 	/* SHAPE falls through: a held record that will not open is damage, and
 	 * damage must not freeze a note against a good record replacing it. */

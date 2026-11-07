@@ -82162,10 +82162,8 @@ Every full page of anything took this path, and only notes have been measured.
 `live_many_shared`: 2200 notes in 28 s, every page in 6 CPU ticks; a daemon before the fix holds 0.
 Paging 1000 went from 1.3 s to under 0.05 s, measured by reading one store with each binary.
 
-**Still open:** `fzn_notes_put` lists every claim to check the bound, and a sharer's list reads every
-shared row, so a first pull is square: 2000 in 18 s, with the loop held past a client's wait, and
-`live_many_shared` retries through it. A count kept by sharer would end it. Rows the delta gives up
-move no stamp, so a view can hold such a row until the next write.
+**Still open:** rows the delta gives up move no stamp, so a view can hold such a row until the next
+write. The square first pull this named is sec 945's.
 
 **The full gates failed this section's commit, sec 943,** and the worst cost of a large share was
 one it had not seen.
@@ -82248,3 +82246,26 @@ member in 10 s. `live_many_shared` b and `live_many_notes` b2 fail on the daemon
 inside it, as `fetch_texts` between rounds has always been. A peer stopped part way through a batch
 was not tried, only one stopped before the first. `texts-stop-at-a-batch` is live scripts' alone,
 and survives a sabotage run of `make test`.
+
+## 945. A first pull that read every row for each note, 2026-11-07
+
+Sec 942 left a first pull square. A profile of one, this time before any change: 65% in
+`fzn_notes_put` asking `fzn_notes_claims` for its bound, which over a seam reads every shared row of
+every sharer from disk, and 24% in `take_wraps` reading every claim again for each page of keys.
+
+- **A ceiling, `fzn_notes_store_t.at_most`,** beside `stamp` and set the same way by the one caller
+  with a seam: counted once a seam, every shared row written since taken as a claim of this tree,
+  whichever tree it was. Well under the bound nothing is read. At the bound the list decides, so the
+  figure may overstate and never refuses or admits on its own word.
+- **Rejected: an op in `fzn_persist_ops_t`,** tried first. A positional initialiser warned under
+  `-Wextra`, and there are many, and each field-by-field builder needed it zeroed, for one caller.
+- **A page of keys takes what was asked,** which came from the held list when `lacking` was built, so
+  the claims are not read again a page. A note purged since, as the loop answers between pages, is
+  refused by `fzn_notes_wrap_put`. `answer_give` still checks: nothing asked it.
+- **`held_ids` sorts,** rather than comparing each id with all before it.
+
+A first pull of 2200 goes from 28 s to 5 s. The worst client answer through the texts after it was
+0.22 s to 0.49 s over three runs, no change to speak of.
+
+**Open:** the texts are the long part now: 34 s, with 19 s of CPU on the sharer and 11 s on the
+recipient. Not looked at further; the sharer's check of each request is the place to start.

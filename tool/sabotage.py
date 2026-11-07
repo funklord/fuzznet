@@ -4788,7 +4788,7 @@ SABOTAGES = [
 	(
 		"notes-put-bounds-claims",
 		"notes/store.c",
-		"\t\tif (count >= (store->bound ? store->bound : FZN_NOTES_MAX))\n\t\t\treturn FZN_NOTES_ERR_FULL;\n",
+		"\t\t\tif (count >= bound)\n\t\t\t\treturn FZN_NOTES_ERR_FULL;\n",
 		"",
 		"a host takes claims past what a view or a list can hold, and the next list fails for every note -- sec 425",
 	),
@@ -14686,6 +14686,34 @@ SABOTAGES = [
 		"\tif (free_slot == FZN_NODE_SHELF_WANTS)\n\t\treturn FZN_NODE_SHELF_ERR_FULL;\n",
 		"\tif (free_slot == FZN_NODE_SHELF_WANTS)\n\t\treturn FZN_NODE_SHELF_OK;\n",
 		"a fill runs past what the wants hold, and the texts it passed are never asked -- sec 944",
+	),
+	(
+		"received-ceiling-forgets-writes",
+		"notes/received.c",
+		"\t*count = seam->claims + (size_t)(rows_written - seam->counted_at);\n",
+		"\t*count = seam->claims;\n",
+		"a seam's first count stands for ever, and a tree runs past its bound -- sec 945",
+	),
+	(
+		"put-refuses-at-the-ceiling",
+		"notes/store.c",
+		"\t\tif (!store->at_most || !store->at_most(store->at_most_ctx, &count) || count >= bound) {\n",
+		"\t\tif (!store->at_most || !store->at_most(store->at_most_ctx, &count)) {\n",
+		"a note is taken on the ceiling's word at the bound, whatever the rows say -- sec 945",
+	),
+	(
+		"put-ceiling-refuses",
+		"notes/store.c",
+		"\t\t\tif (fzn_notes_claims(store, keys, FZN_NOTES_MAX, &count) != FZN_NOTES_OK)\n\t\t\t\treturn FZN_NOTES_ERR_FULL;\n\t\t\tif (count >= bound)\n",
+		"\t\t\tif (count >= bound)\n",
+		"a ceiling raised by another sharer's rows refuses a note this tree has room for -- sec 945",
+	),
+	(
+		"held-ids-twice",
+		"notes/sync.c",
+		"\t\tif (!i || memcmp(ids[i], ids[j - 1u], FZN_TREE_ID_LEN) != 0) {\n",
+		"\t\t{\n",
+		"two writers' claims on a note are asked for its key twice -- sec 945",
 	),
 	(
 		"named-unsorted",

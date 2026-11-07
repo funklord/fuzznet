@@ -45,6 +45,10 @@ typedef struct fzn_notes_received {
 	const fzn_persist_ops_t *base;
 	const fzn_hash_ops_t *hash;
 	uint8_t sharer[FZN_PUBKEY_LEN];
+	/* This tree's claims as counted, and the shared rows written then, sec 945. */
+	int counted;
+	size_t claims;
+	uint64_t counted_at;
 } fzn_notes_received_t;
 
 /* Fill `seam` and `ops` so a store over `ops` holds `sharer`'s tree in
@@ -71,6 +75,10 @@ fzn_notes_err_t fzn_notes_received_sharers(const fzn_persist_ops_t *base,
  * row written, and differs from one sharer to the next, so a view of one is not taken
  * for another's. sec 942. */
 uint64_t fzn_notes_received_stamp(void *ctx);
+
+/* A `fzn_notes_store_t.at_most` for the same: counted once a seam, every shared row
+ * written since taken as a claim of this tree. sec 945. */
+int fzn_notes_received_at_most(void *ctx, size_t *count);
 
 /* THE ROOTS OF A SHARER'S TREE as this node holds it: the notes whose parent
  * it does not hold, `cap` of them, in the view's order. `notes/view.h`'s top

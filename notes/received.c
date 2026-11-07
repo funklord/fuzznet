@@ -2,6 +2,7 @@
 
 #include "received.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -138,7 +139,7 @@ static int seam_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 	uint8_t check[FZN_PUBKEY_LEN];
 	size_t held = 0, i, n = 0, len;
 
-	if (!out || !count)
+	if (!count)
 		return 0;
 	*count = 0;
 	if (slot != FZN_PERSIST_NOTE)
@@ -162,10 +163,27 @@ static int seam_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 		/* TRUNCATION IS A FAILURE, as `persist.h` asks of every list. */
 		if (n >= max)
 			return 0;
-		memcpy(out + (n * FZN_PUBKEY_LEN), prefix + FZN_PUBKEY_LEN, FZN_PUBKEY_LEN);
+		if (out)
+			memcpy(out + (n * FZN_PUBKEY_LEN), prefix + FZN_PUBKEY_LEN, FZN_PUBKEY_LEN);
 		n++;
 	}
 	*count = n;
+	return 1;
+}
+
+/* NO MORE THAN THIS MANY CLAIMS: counted once a seam, and every shared row written
+ * since taken as a new claim of this tree, whichever it was. sec 945. */
+int fzn_notes_received_at_most(void *ctx, size_t *count)
+{
+	fzn_notes_received_t *seam = (fzn_notes_received_t *)ctx;
+
+	if (!seam->counted) {
+		if (!seam_list(ctx, FZN_PERSIST_NOTE, NULL, SIZE_MAX, &seam->claims))
+			return 0;
+		seam->counted = 1;
+		seam->counted_at = rows_written;
+	}
+	*count = seam->claims + (size_t)(rows_written - seam->counted_at);
 	return 1;
 }
 
@@ -210,6 +228,7 @@ fzn_notes_err_t fzn_notes_received_ops(fzn_notes_received_t *seam, const fzn_per
 	seam->base = base;
 	seam->hash = hash;
 	memcpy(seam->sharer, sharer, FZN_PUBKEY_LEN);
+	seam->counted = 0;
 	ops->load = seam_load;
 	ops->save = seam_save;
 	ops->list = seam_list;

@@ -193,6 +193,11 @@ typedef struct fzn_notes_store {
 	 * text, which at 7000 notes held the daemon past 20 s. NULL loads each time. */
 	uint64_t (*stamp)(void *ctx);
 	void *stamp_ctx;
+	/* A CEILING ON THE CLAIMS HELD, where listing them is dear: `*count` is no lower
+	 * than the truth, and 0 is returned where it cannot say. Optional: `fzn_notes_put`
+	 * asks it first, and the list when it is NULL or names a figure at the bound. sec 945. */
+	int (*at_most)(void *ctx, size_t *count);
+	void *at_most_ctx;
 	/* KEEP WHAT A NEWER RECORD SUPERSEDES, sec 581, as the note's history.
 	 * 0 after `fzn_notes_store_init`, and for a sharer's tree. */
 	int history;

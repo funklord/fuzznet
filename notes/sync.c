@@ -352,28 +352,38 @@ static size_t answer_ack(const fzn_notes_store_t *store, const uint8_t *sender,
 /* ---- wrap keys, sec 520 ---------------------------------------------------- */
 
 /* The notes this store indexes, each once: every claim's subject. */
+static int id_order(const void *a, const void *b)
+{
+	return memcmp(a, b, FZN_TREE_ID_LEN);
+}
+
 static size_t held_ids(const fzn_notes_store_t *store, uint8_t (*ids)[FZN_TREE_ID_LEN])
 {
 	static uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
 	static uint8_t record[FZN_RECORD_MAX_LEN];
-	size_t count = 0, i, j, n = 0;
+	size_t count = 0, i, j = 0, n = 0;
 
 	if (fzn_notes_claims(store, keys, FZN_NOTES_MAX, &count) != FZN_NOTES_OK)
 		return 0;
 	for (i = 0; i < count; i++) {
 		fzn_record_t rec;
 		size_t len = 0;
-		int seen = 0;
 
 		if (fzn_notes_get_key(store, keys[i], record, sizeof(record), &len) != FZN_NOTES_OK
 		    || fzn_record_open(record, len, &rec) != FZN_RECORD_OK)
 			continue;
-		for (j = 0; j < n && !seen; j++)
-			seen = memcmp(ids[j], fzn_record_subject(rec), FZN_TREE_ID_LEN) == 0;
-		if (!seen)
-			memcpy(ids[n++], fzn_record_subject(rec), FZN_TREE_ID_LEN);
+		memcpy(ids[n++], fzn_record_subject(rec), FZN_TREE_ID_LEN);
 	}
-	return n;
+	/* EACH ONCE, as two writers' claims on a note name it twice. */
+	if (n > 1u)
+		qsort(ids, n, FZN_TREE_ID_LEN, id_order);
+	for (i = 0; i < n; i++)
+		if (!i || memcmp(ids[i], ids[j - 1u], FZN_TREE_ID_LEN) != 0) {
+			if (i != j)
+				memcpy(ids[j], ids[i], FZN_TREE_ID_LEN);
+			j++;
+		}
+	return j;
 }
 
 static int listed(const uint8_t (*ids)[FZN_TREE_ID_LEN], size_t n, const uint8_t *id)
@@ -1170,8 +1180,18 @@ fzn_notes_sync_err_t fzn_notes_sync_wraps_step(fzn_notes_wrapping_t *w, const ui
 			            reply + FZN_NOTES_SYNC_LIST_HEAD_LEN
 			                    + (j * FZN_NOTES_SYNC_WRAP_ENTRY_LEN)))
 				return wraps_end(w, done, FZN_NOTES_SYNC_SHAPE);
-		w->tally.taken += take_wraps(w->store, reply + FZN_NOTES_SYNC_LIST_HEAD_LEN, got,
-		                             &w->tally.refused);
+		/* AND SO HELD: what was asked is what `lacking` found, so the claims are not
+		 * read again a page, sec 945. A note purged since, as the loop answers between
+		 * pages, is refused by the put. */
+		for (j = 0; j < got; j++) {
+			const uint8_t *e = reply + FZN_NOTES_SYNC_LIST_HEAD_LEN
+			                   + (j * FZN_NOTES_SYNC_WRAP_ENTRY_LEN);
+
+			if (fzn_notes_wrap_put(w->store, e, e + FZN_TREE_ID_LEN) == FZN_NOTES_OK)
+				w->tally.taken++;
+			else
+				w->tally.refused++;
+		}
 		w->from += w->count;
 		return wraps_next(w, request, request_len, done);
 	}
