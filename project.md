@@ -81264,9 +81264,8 @@ test expected a refusal, and that was the test's mistake.
   that passes units, tested through a pty (`live_device` b2). Which modem is a choice
   for whoever holds one.
 - **Answers of one frame only,** 1021 bytes. A gateway's procedure pages longer.
-- **Nothing pushed:** a light polls. A device hearing an event needs a host that keeps
-  speaking to something that does not ask, which a radio's duty cycle makes a real
-  design question.
+- **A light can be told (sec 935),** while the radio is listening. When to listen, under a
+  duty cycle, is still a board's question.
 - **A full 144 bytes on the first frame of a session,** sec 932: the ask and its grant.
 - **`fuzznetd` has no procedure a button does anything with.** `events` is what this
   test reads, and a press is the consumer's procedure.
@@ -81679,8 +81678,8 @@ privileged daemon, which fuzznet is not and netcfgd's is for its own reasons.
 
 - **A one-shot command needs nothing new:** beersshd links `libfuzznetd.a` (sec 907), names a
   procedure with `rule` `none` (sec 921), and a host opens it with `remote/permit/shell`.
-- **A terminal does:** a procedure answers once, in 4096 bytes. A two-way stream at
-  keystroke latency is sec 932's session frame, which so far carries calls.
+- **A terminal does:** a procedure answers once, in 4096 bytes. Sec 935 is what it stands on:
+  words each way in a session. Resending and order are beersshd's, as with mosh over UDP.
 - **The ladder's fifth turn class** (sec 917) is not built, as there is no traffic to give it.
 
 ## 926. A contact found without opening every contact, 2026-11-06
@@ -81858,9 +81857,9 @@ a session.
 - Text of `device_sim` 25.1 KB against sec 912's 18.8 KB whole-device figure, taken before and in
   another shape, so not a measured increase. `device-check` holds at 9 sources.
 
-**Not built:** a host as the asker. Only the device asks, so a daemon's own calls go full, and
-beersshd's terminal needs that and a way for the far end to speak first. **What a unit still
-pays:** `net/bearer.h`'s 4 bytes on a frame of one piece.
+**Not built:** a daemon as the asker, so its own calls and rounds go full. A client on a host and
+the far end speaking first are sec 935. **What a unit still pays:** `net/bearer.h`'s 4 bytes on
+a frame of one piece.
 
 **Also:** `make schema` stopped at `wire/frame.situ` from sec 930 on: every `.wire` said signature
 format v2 and situc compares as v3, so it checked nothing after the first file. Regenerated, each
@@ -81919,3 +81918,29 @@ last place to spend storage on someone else's lines. So `make lean` keeps both, 
 
 **What stays is the daemon:** `node/daemon.c` is 139 kB of 703, and contact devices 17 kB, which has
 no flag to fold on: 11 sites, for 2 per cent. Below this stands `device/`, for what has no daemon.
+
+## 935. A session spoken in from both ends, 2026-11-07
+
+Sec 932 carried calls, so nothing could speak unasked: no light without polling, no terminal
+output. **A session frame with message 0 is said:** answered by nothing, kept by nothing, and
+judged as any frame, by the capability and then a rule.
+
+- **`fzn_daemon_say(HOST, BYTES, LEN)`** speaks first, to where `HOST`'s last frame came from, so
+  it follows a peer that moves. A peer holding no session is told nothing: 0, and the caller goes
+  another way.
+- **`fzn_daemon_ext_t.said`** hears a host. A procedure's rule applies by the name `said`:
+  `remote/permit/said`, then `remote/permit`, then member (sec 921).
+- **`fzn_device_say`, `.heard`, `fzn_device_listen`.** A word heard during a call is told and not
+  taken for its answer. A call's number is never 0.
+- **A client on a host needs nothing else:** `fzn_udp_bearer` makes a bearer of a socket, and
+  `fzn_bearer_t.whole` sends a frame as it is, with no pieces. So `device/` is what a beerssh
+  client links for a session, given an image.
+
+**No delivery promised.** Each word goes once, in the order sealed, and a window takes it late. A
+terminal needs more than that, and how much depends on what it sends: a mosh-like state sync
+wants nothing else; a byte stream wants resends. That is beersshd's, and it costs no bytes here
+to leave open. Rejected: building a stream here before a consumer has used a word.
+
+`live_session`: said and said back over UDP; R spoke first; a rule keeps a word out and lets it
+back; R's word found D through a bridge at 51-byte units; revoked, D is heard no more.
+`device_test`, 2 sabotages.

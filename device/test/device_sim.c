@@ -3,12 +3,15 @@
  * board would run it, its bearer SLIP on stdin and stdout. It asks a call and
  * says on stderr what came back.
  *
- *     device_sim IMAGE UNIT NAME [ARGS [PRESSES [LIFE]]]
+ *     device_sim IMAGE UNIT|udp:HOST:PORT NAME [ARGS [PRESSES [LIFE]]]
  *
  * PRESSES calls, 1 by default, a moment apart, in the one session they share,
  * each living LIFE seconds, 60 by default. LIFE 0 is a call already expired, by a
  * clock set back after the session's grant, and so few tries that no second grant
  * sets it right.
+ * `udp:` goes straight to a host's port, as a client on a host would. NAME `-` says
+ * ARGS rather than calling, and exits 4 unless each was answered (sec 935). What
+ * the gateway says unasked is printed as it is heard.
  * Stops when each has been answered or a call's tries run out, each try bounded
  * by `wait_ms`; nothing here waits on anything else.
  */
@@ -20,10 +23,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "../device.h"
+#include "../../net/udp.h"
 #include "../../session/aead_monocypher.h"
 #include "../../session/hash_monocypher.h"
 #include "../../session/random_system.h"
@@ -79,6 +84,15 @@ static size_t stream_recv(void *ctx, uint8_t *out, size_t cap, unsigned wait_ms)
 	}
 }
 
+static unsigned long heard_count;
+
+static void heard(void *ctx, const uint8_t *bytes, size_t len)
+{
+	(void)ctx;
+	heard_count++;
+	fprintf(stderr, "device: heard %zu byte(s): %.*s\n", len, (int)len, (const char *)bytes);
+}
+
 int main(int argc, char **argv)
 {
 	static fzn_device_t d;
@@ -89,6 +103,7 @@ int main(int argc, char **argv)
 	fzn_random_ops_t rng;
 	fzn_bearer_t bearer;
 	fzn_bearer_join_t join;
+	static fzn_udp_link_t link;
 	const char *args = argc > 4 ? argv[4] : "";
 	unsigned long presses = argc > 5 ? strtoul(argv[5], NULL, 10) : 1u, p;
 	fzn_device_err_t err;
@@ -122,6 +137,19 @@ int main(int argc, char **argv)
 	d.wait_ms = 400u;
 	d.tries = 30u;
 	d.life_s = argc > 6 ? (unsigned)strtoul(argv[6], NULL, 10) : 60u;
+	if (strncmp(argv[2], "udp:", 4u) == 0) {
+		char *colon = strrchr(argv[2] + 4, ':');
+
+		if (!colon)
+			return 2;
+		*colon = '\0';
+		if (fzn_udp_resolve(AF_INET, argv[2] + 4, (uint16_t)strtoul(colon + 1, NULL, 10), &link.to)
+		            != FZN_UDP_OK
+		    || fzn_udp_bind(AF_INET, NULL, 0u, &link.fd) != FZN_UDP_OK)
+			return 2;
+		fzn_udp_bearer(&bearer, &link);
+	}
+	d.heard = heard;
 	if (d.life_s == 0u) {
 		d.tries = 3u;
 		if (fzn_device_open(&d) != FZN_DEVICE_OK)
@@ -133,6 +161,14 @@ int main(int argc, char **argv)
 
 		if (p)
 			(void)nanosleep(&moment, NULL);
+		if (strcmp(argv[3], "-") == 0) {
+			if ((err = fzn_device_say(&d, (const uint8_t *)args, strlen(args))) != FZN_DEVICE_OK) {
+				fprintf(stderr, "device: %s\n", fzn_device_err_str(err));
+				return 1;
+			}
+			fzn_device_listen(&d, d.wait_ms);
+			continue;
+		}
 		err = fzn_device_call(&d, argv[3], (const uint8_t *)args, strlen(args), answer,
 		                      sizeof(answer), &len, &status);
 		if (err != FZN_DEVICE_OK) {
@@ -143,6 +179,9 @@ int main(int argc, char **argv)
 		        (const char *)answer);
 		if (status != 0u)
 			return 3;
+		fzn_device_listen(&d, 100u);
 	}
+	if (strcmp(argv[3], "-") == 0 && heard_count < presses)
+		return 4;
 	return 0;
 }

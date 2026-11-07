@@ -52,6 +52,9 @@
 typedef struct fzn_bearer {
 	void *ctx;
 	size_t unit; /* the most one send carries, FZN_BEARER_UNIT_MIN and up */
+	/* A FRAME GOES WHOLE, as a datagram does: no pieces and no head, so a host
+	 * on UDP speaks to a host's port with nothing between (sec 935). */
+	int whole;
 	/* ONE UNIT SENT. 0 when it could not go. */
 	int (*send)(void *ctx, const uint8_t *bytes, size_t len);
 	/* ONE UNIT HEARD, within `wait_ms`, into `out`: its length, 0 for none. */

@@ -15577,6 +15577,27 @@ static int call_permitted(const uint8_t *sender, const uint8_t *name, size_t nam
 	return fzn_node_remote_permit_allows((const uint8_t *)rule, strlen(rule), sender, rank);
 }
 
+/* SAID IN A SESSION, sec 935: a member's, and one `said`'s rule lets in, as a call
+ * by that name would be. */
+static void said_remote(void *ctx, const fzn_opened_t *said)
+{
+	static const uint8_t NAME[] = "said";
+	fzn_node_relay_asker_t asker;
+
+	(void)ctx;
+	if (!daemon_ext || !daemon_ext->said)
+		return;
+	asker_of(said->sender, &asker);
+	if (!asker.member || !call_permitted(said->sender, NAME, sizeof(NAME) - 1u, NULL))
+		return;
+	daemon_ext->said(daemon_ext->ctx, said->sender, said->payload, said->payload_len);
+}
+
+int fzn_daemon_say(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, size_t len)
+{
+	return serving_state && fzn_node_serve_say(serving_state, host, bytes, len);
+}
+
 /* A CALL FROM ANOTHER HOST: an estate member's alone, and one a rule lets in, answered
  * by the procedure of that name, its bytes carried and read by nothing here. The
  * answer is the type, a status and the procedure's bytes. */
@@ -18886,6 +18907,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	state.clock = wall_clock;
 	state.clock_ms = wall_ms;
 	state.sessions = &granted_sessions;
+	state.on_said = said_remote;
 
 	/* THE CAPABILITY THE REMOTE HOP REQUIRES, which this main never set.
 	 * `state` is zeroed, so the hop required the all-zero capability id --

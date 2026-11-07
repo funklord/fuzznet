@@ -1,12 +1,14 @@
 /* See udp.h. */
 
 #include "udp.h"
+#include "bearer.h"
 #include "../fault/fault.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -314,4 +316,36 @@ fzn_udp_err_t fzn_udp_broadcast(int fd)
 		return FZN_UDP_ERR_MALFORMED;
 	return setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on)) == 0 ? FZN_UDP_OK
 	                                                                      : FZN_UDP_ERR_SYSTEM;
+}
+
+static int link_send(void *ctx, const uint8_t *bytes, size_t len)
+{
+	const fzn_udp_link_t *link = ctx;
+
+	return fzn_udp_send(link->fd, &link->to, bytes, len) == FZN_UDP_OK;
+}
+
+static size_t link_recv(void *ctx, uint8_t *out, size_t cap, unsigned wait_ms)
+{
+	const fzn_udp_link_t *link = ctx;
+	struct pollfd p;
+	fzn_udp_addr_t from;
+	size_t len = 0;
+
+	p.fd = link->fd;
+	p.events = POLLIN;
+	p.revents = 0;
+	if (poll(&p, 1, (int)wait_ms) <= 0 || fzn_udp_recv(link->fd, out, cap, &len, &from) != FZN_UDP_OK)
+		return 0;
+	return len;
+}
+
+void fzn_udp_bearer(struct fzn_bearer *bearer, fzn_udp_link_t *link)
+{
+	memset(bearer, 0, sizeof(*bearer));
+	bearer->ctx = link;
+	bearer->unit = FZN_BEARER_UNIT_MAX;
+	bearer->whole = 1;
+	bearer->send = link_send;
+	bearer->recv = link_recv;
 }

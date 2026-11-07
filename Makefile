@@ -4869,7 +4869,7 @@ $(BUILD_DIR)/fuzznet-bridge: $(BUILD_DIR)/net/bridge.o $(BUILD_DIR)/net/bearer.o
 	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@
 
 $(BUILD_DIR)/device/test/device_sim: $(BUILD_DIR)/device/test/device_sim.o $(DEVICE_CORE_OBJS) \
-                                     $(BUILD_DIR)/session/random_linux.o
+                                     $(BUILD_DIR)/session/random_linux.o $(BUILD_DIR)/net/udp.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(LDFLAGS_GC) $^ -o $@
 
@@ -6996,6 +6996,7 @@ endif
 	@timeout 420 python3 tool/live_join.py $(FUZZNETD)
 	@timeout 440 python3 tool/live_invite.py $(FUZZNETD)
 	@timeout 220 python3 tool/live_device.py $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
+	@timeout 170 python3 tool/live_session.py $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 520 python3 tool/live_many_notes.py $(FUZZNETD)
 	@timeout 220 python3 tool/live_many_contacts.py $(FUZZNETD)
 	@timeout 240 python3 tool/live_store_trouble.py $(FUZZNETD)

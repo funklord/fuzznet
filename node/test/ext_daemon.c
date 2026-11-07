@@ -351,8 +351,31 @@ static size_t setting(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
 	return 3u + len;
 }
 
+/* SPEAKS FIRST, sec 935: `ring` says `ring` in the caller's session, then answers. */
+static size_t ring(void *ctx, const uint8_t *caller, const fzn_peer_t *peer, const uint8_t *args,
+                   size_t args_len, uint8_t *answer, size_t cap)
+{
+	(void)ctx;
+	(void)peer;
+	(void)args;
+	(void)args_len;
+	if (cap < 4u || !caller)
+		return 0;
+	memcpy(answer, fzn_daemon_say(caller, (const uint8_t *)"ring", 4u) ? "rung" : "mute", 4u);
+	return 4u;
+}
+
+/* WHAT A HOST SAYS IN A SESSION, said back, sec 935. */
+static void said_back(void *ctx, const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
+                      size_t len)
+{
+	(void)ctx;
+	(void)fzn_daemon_say(host, bytes, len);
+}
+
 static const fzn_daemon_procedure_t procedures[] = {
 	{ echo_name, echo, NULL },
+	{ "ring", ring, NULL },
 	{ "fill", fill, NULL },
 	{ setting_name, setting, NULL },
 	/* SHUT UNTIL A HOST SAYS OTHERWISE, as a shell would be, sec 921. */
@@ -440,7 +463,7 @@ int main(int argc, char **argv)
 		NULL, options, sizeof(options) / sizeof(options[0]), option, local, remote, apply,
 		settings, sizeof(settings) / sizeof(settings[0]), own_fds, own_ready, own_tick,
 		NULL, local_from, procedures, sizeof(procedures) / sizeof(procedures[0]), NULL, NULL,
-		0u, 0u,
+		0u, 0u, said_back,
 	};
 
 	static char *given[64];

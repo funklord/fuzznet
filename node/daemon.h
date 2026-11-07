@@ -184,6 +184,11 @@ typedef struct fzn_daemon_ext {
 	const fzn_preset_value_t *preset_values;
 	size_t n_preset_values;
 	uint32_t preset_revision;
+	/* SAID IN A SESSION, sec 935: `len` bytes from `host`, a member a rule lets in,
+	 * as `remote/permit/said` says, or `remote/permit`. No answer goes back but
+	 * what `fzn_daemon_say` sends. Order is the frames' and none is resent: what
+	 * must arrive is the daemon's to ask again for. NULL drops them. */
+	void (*said)(void *ctx, const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, size_t len);
 } fzn_daemon_ext_t;
 
 /* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,
@@ -255,5 +260,11 @@ int fzn_daemon_setting_here(const uint8_t *key, size_t key_len, uint8_t *value, 
  * its socket and returns 0 (sec 838). Safe from `ready`, `tick` and a
  * signal handler; only a flag is set. */
 void fzn_daemon_stop(void);
+
+/* SPEAK FIRST, sec 935: `len` bytes to `host` in the session it holds here, to where
+ * it was last heard. A device's light with nothing to poll, a terminal's output.
+ * 1 sent, which says nothing of arriving; 0 when `host` holds no session, or
+ * the bytes are past FZN_SESSION_FRAME_PAYLOAD_MAX. */
+int fzn_daemon_say(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, size_t len);
 
 #endif /* FZN_NODE_DAEMON_H */

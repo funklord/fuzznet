@@ -96,6 +96,20 @@ fzn_node_session_t *fzn_node_sessions_find(fzn_node_sessions_t *t, uint32_t hand
 	return &t->table[slot];
 }
 
+fzn_node_session_t *fzn_node_sessions_of(fzn_node_sessions_t *t,
+                                         const uint8_t sender[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	if (!t || !sender)
+		return NULL;
+	for (i = 0; i < t->cap; i++)
+		if (t->table[i].used && t->table[i].confirmed
+		    && memcmp(t->table[i].sender, sender, FZN_PUBKEY_LEN) == 0)
+			return &t->table[i];
+	return NULL;
+}
+
 void fzn_node_sessions_confirm(fzn_node_sessions_t *t, fzn_node_session_t *s)
 {
 	size_t i;

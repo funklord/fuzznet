@@ -36,6 +36,7 @@
 #include "../session/random.h"
 #include "../wire/session_frame.h"
 
+#define FZN_NODE_SESSION_FROM_MAX 128u
 #define FZN_NODE_SESSION_SLOT_BITS 24u
 #define FZN_NODE_SESSION_SLOT_MASK ((1u << FZN_NODE_SESSION_SLOT_BITS) - 1u)
 
@@ -48,6 +49,10 @@ typedef struct fzn_node_session {
 	/* THE EXCHANGE AS IT WENT, so an ask heard again is granted the same. */
 	uint8_t ask[FZN_SESSION_ASK_LEN];
 	uint8_t grant[FZN_SESSION_GRANT_LEN];
+	/* WHERE ITS LAST FRAME CAME FROM: a frame this host says first goes there, so
+	 * it follows a peer that moves. */
+	uint8_t from[FZN_NODE_SESSION_FROM_MAX];
+	unsigned from_len;
 	uint8_t used;
 	uint8_t confirmed; /* a frame of it has opened */
 } fzn_node_session_t;
@@ -70,6 +75,10 @@ int fzn_node_sessions_grant(fzn_node_sessions_t *t, const uint8_t sender[FZN_PUB
 
 /* WHAT `handle` NAMES, or NULL. Good until the table next grants. */
 fzn_node_session_t *fzn_node_sessions_find(fzn_node_sessions_t *t, uint32_t handle);
+
+/* THE SESSION `sender` USES, or NULL: confirmed, as only a frame says where it is. */
+fzn_node_session_t *fzn_node_sessions_of(fzn_node_sessions_t *t,
+                                         const uint8_t sender[FZN_PUBKEY_LEN]);
 
 /* `s`'S FIRST FRAME OPENED: it stands, and whatever `sender` held before goes. */
 void fzn_node_sessions_confirm(fzn_node_sessions_t *t, fzn_node_session_t *s);

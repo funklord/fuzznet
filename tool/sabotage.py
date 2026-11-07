@@ -14650,6 +14650,20 @@ SABOTAGES = [
 		"any=r taken on local/permit/ as well: every local user reads a fuzznet verb -- sec 933",
 	),
 	(
+		"device-word-taken-for-an-answer",
+		"device/device.c",
+		"\t\t\tif (got.msg == 0u) {\n\t\t\t\tif (d->heard)\n\t\t\t\t\td->heard(d->heard_ctx, got.payload, got.payload_len);\n\t\t\t\tcontinue;\n\t\t\t}\n\t\t\tif (got.msg == msg) {\n",
+		"\t\t\t{\n",
+		"what a gateway says unasked read as the call's answer -- sec 935",
+	),
+	(
+		"device-message-reaches-0",
+		"device/device.c",
+		"\tif (d->next_msg == 0u)\n\t\td->next_msg = 1u;\n\treturn msg;\n",
+		"\treturn msg;\n",
+		"a call numbered 0 is said, and nothing answers it -- sec 935",
+	),
+	(
 		"session-forgery-moves-the-window",
 		"wire/session_frame.c",
 		"\tcounter = fzn_get_be32(frame + COUNTER_AT);\n\t/* 0 IS NEVER SEALED",

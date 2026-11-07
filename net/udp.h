@@ -122,6 +122,15 @@ fzn_udp_err_t fzn_udp_broadcast(int fd);
 fzn_udp_err_t fzn_udp_addr_text(const fzn_udp_addr_t *addr, char host[FZN_UDP_HOST_MAX],
                                 uint16_t *port);
 
+/* A BEARER OVER THIS SOCKET, to one address, for `device/device.h` on a host (sec
+ * 935): frames go whole. `link` is the bearer's context and outlives it. */
+typedef struct fzn_udp_link {
+	int fd;
+	fzn_udp_addr_t to;
+} fzn_udp_link_t;
+struct fzn_bearer;
+void fzn_udp_bearer(struct fzn_bearer *bearer, fzn_udp_link_t *link);
+
 void fzn_udp_close(int fd);
 
 #endif

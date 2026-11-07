@@ -169,14 +169,26 @@ static int await(fzn_device_t *d, uint32_t msg, unsigned wait_ms, const uint8_t 
 		if (now >= until)
 			return 0;
 		n = d->bearer->recv(d->bearer->ctx, unit, sizeof(unit), (unsigned)(until - now));
-		if (!n || !(len = fzn_bearer_take(d->join, unit, n, &whole)))
+		if (n && d->bearer->whole) {
+			whole = unit;
+			len = n;
+		} else if (!n || !(len = fzn_bearer_take(d->join, unit, n, &whole))) {
+			continue;
+		}
+		if (len > sizeof(d->frame))
 			continue;
 		memcpy(d->frame, whole, len);
 		if (d->frame[0] == FZN_SESSION_FRAME_MARK) {
-			if (d->session_up
-			    && fzn_session_frame_open(&d->session, d->frame, len, d->aead, &got)
-			               == FZN_SESSION_FRAME_OK
-			    && got.msg == msg) {
+			if (!d->session_up
+			    || fzn_session_frame_open(&d->session, d->frame, len, d->aead, &got)
+			               != FZN_SESSION_FRAME_OK)
+				continue;
+			if (got.msg == 0u) {
+				if (d->heard)
+					d->heard(d->heard_ctx, got.payload, got.payload_len);
+				continue;
+			}
+			if (got.msg == msg) {
 				*payload = got.payload;
 				*payload_len = got.payload_len;
 				return 1;
@@ -196,11 +208,17 @@ static int await(fzn_device_t *d, uint32_t msg, unsigned wait_ms, const uint8_t 
 
 static uint32_t next_message(fzn_device_t *d)
 {
+	uint32_t msg;
+
 	/* BEGUN SOMEWHERE OF ITS OWN, sec 910: a device that restarts must not
 	 * ask its first question under the number it asked one before. */
 	if (d->next_msg == 0u && (!fill(d, &d->next_msg, sizeof(d->next_msg)) || d->next_msg == 0u))
 		d->next_msg = 1u;
-	return d->next_msg++;
+	msg = d->next_msg++;
+	/* NEVER 0, which is a frame nobody answers (sec 935). */
+	if (d->next_msg == 0u)
+		d->next_msg = 1u;
+	return msg;
 }
 
 /* ONE TRY AT A SESSION. The same ask until it is answered, so a gateway that heard
@@ -328,4 +346,40 @@ fzn_device_err_t fzn_device_call(fzn_device_t *d, const char *name, const uint8_
 		return FZN_DEVICE_OK;
 	}
 	return FZN_DEVICE_ERR_SILENT;
+}
+
+fzn_device_err_t fzn_device_say(fzn_device_t *d, const uint8_t *bytes, size_t len)
+{
+	fzn_device_err_t err;
+	fzn_session_frame_err_t sealed;
+	size_t frame_len = 0;
+	uint16_t link_id;
+	int64_t now_ms;
+	int ok;
+
+	if (!usable(d) || (!bytes && len) || len > FZN_SESSION_FRAME_PAYLOAD_MAX)
+		return FZN_DEVICE_ERR_MALFORMED;
+	if ((err = fzn_device_open(d)) != FZN_DEVICE_OK)
+		return err;
+	now_ms = (int64_t)d->uptime_ms(d->uptime_ctx) + d->clock_offset_ms;
+	sealed = fzn_session_frame_seal(&d->session, 0u, (uint32_t)(now_ms / 1000) + d->life_s, bytes,
+	                                len, d->frame, sizeof(d->frame), &frame_len, d->aead);
+	if (sealed == FZN_SESSION_FRAME_ERR_SPENT) {
+		d->session_up = 0;
+		return FZN_DEVICE_ERR_SILENT;
+	}
+	link_id = fresh_link_id(d, &ok);
+	if (sealed != FZN_SESSION_FRAME_OK || !ok)
+		return FZN_DEVICE_ERR_SEAL;
+	return fzn_bearer_send(d->bearer, link_id, d->frame, frame_len) ? FZN_DEVICE_OK
+	                                                                : FZN_DEVICE_ERR_SEND;
+}
+
+void fzn_device_listen(fzn_device_t *d, unsigned wait_ms)
+{
+	const uint8_t *none;
+	size_t none_len;
+
+	if (usable(d))
+		(void)await(d, 0u, wait_ms, &none, &none_len);
 }

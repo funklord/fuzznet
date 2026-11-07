@@ -51,6 +51,18 @@ static fzn_session_end_t gate_end;
 static int gate_up;
 static unsigned asks_seen, units_up, units_down;
 static uint32_t gate_handle;
+/* SAID, sec 935: what the gateway took with no message, and heard from it. */
+static unsigned said_seen, heard_seen;
+static int say_first;
+static uint8_t heard_bytes[16];
+
+static void heard(void *ctx, const uint8_t *bytes, size_t len)
+{
+	(void)ctx;
+	heard_seen++;
+	if (len <= sizeof(heard_bytes))
+		memcpy(heard_bytes, bytes, len);
+}
 
 /* What the gateway sends, waiting for the device to hear it. */
 static uint8_t queue[64][FZN_BEARER_UNIT_MAX];
@@ -119,6 +131,10 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 			return 1;
 		CHECK(fzn_session_frame_open(&gate_end, frame, n, &aead, &got) == FZN_SESSION_FRAME_OK,
 		      "a device's session frame did not open");
+		if (got.msg == 0u) {
+			said_seen++;
+			return 1;
+		}
 		seen_msgs[frames_seen++ % 16u] = got.msg;
 		last_expiry = got.expires_at;
 		if (answers_to_lose) {
@@ -130,6 +146,13 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 		reply[1] = FZN_TYPE_CALLED;
 		reply[2] = (uint8_t)answer_status;
 		memcpy(reply + 3, got.payload + 3, got.payload[2]);
+		if (say_first) {
+			CHECK(fzn_session_frame_seal(&gate_end, 0u, 0u, (const uint8_t *)"ding", 4u, out,
+			                             sizeof(out), &out_len, &aead)
+			              == FZN_SESSION_FRAME_OK,
+			      "the gateway could not say");
+			CHECK(fzn_bearer_send(&back, 79u, out, out_len) == 1, "the gateway could not send");
+		}
 		if (answer_in_full) {
 			memset(&opened, 0, sizeof(opened));
 			opened.msg = got.msg;
@@ -347,6 +370,38 @@ int main(void)
 	              == FZN_DEVICE_OK
 	              && asks_seen == 2u,
 	      "silence did not lead to asking again");
+
+	/* SAID, sec 935: no answer asked, and a word heard in the middle of a call is
+	 * told, and is not taken for its answer. */
+	device_up(&d, &b, &j, &slot, 51u);
+	d.heard = heard;
+	said_seen = heard_seen = 0;
+	units_up = 0;
+	CHECK(fzn_device_say(&d, (const uint8_t *)"hi", 2u) == FZN_DEVICE_OK, "a word was not said");
+	CHECK(asks_seen == 1u && said_seen == 1u, "a word did not ask a session first, or was not said");
+	units_up = 0;
+	CHECK(fzn_device_say(&d, (const uint8_t *)"hi", 2u) == FZN_DEVICE_OK && units_up == 1u
+	              && said_seen == 2u && asks_seen == 1u,
+	      "a word in a session took more than a unit");
+	say_first = 1;
+	status = 9u;
+	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
+	              == FZN_DEVICE_OK
+	              && status == 0u && len == 5u,
+	      "a word heard in a call was taken for its answer");
+	say_first = 0;
+	CHECK(heard_seen == 1u && memcmp(heard_bytes, "ding", 4u) == 0, "a word in a call was not told");
+	CHECK(fzn_device_say(&d, NULL, 2u) == FZN_DEVICE_ERR_MALFORMED, "no bytes were said");
+	/* NOTHING TO HEAR: a listen ends at its wait. */
+	uptime = 1000u;
+	fzn_device_listen(&d, 500u);
+	CHECK(uptime >= 1500u, "a listen ended early");
+	/* A MESSAGE NUMBER IS NEVER THE ONE NOBODY ANSWERS. */
+	d.next_msg = UINT32_MAX;
+	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
+	              == FZN_DEVICE_OK
+	              && d.next_msg == 1u,
+	      "a message number went round to 0");
 
 	/* A LOST FRAME: sent again. */
 	device_up(&d, &b, &j, &slot, 51u);

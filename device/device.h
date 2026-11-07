@@ -26,6 +26,9 @@
  * and all it holds. `make device-check` compiles this for a board, with no
  * system header, and it needs five functions of a C library.
  *
+ * ON A HOST TOO, sec 935: nothing here needs a radio. `fzn_udp_bearer` makes a bearer
+ * of a socket, so a client that wants a session has this.
+ *
  * WHAT IT CANNOT DO: read an answer past one frame, 1024 bytes less the
  * call's three. That is a call the device should not make, and its gateway's
  * procedure is the one to page it.
@@ -103,6 +106,10 @@ typedef struct fzn_device {
 	uint8_t ask[FZN_SESSION_ASK_LEN];
 	uint32_t ask_msg;
 	int asking;
+	/* WHAT THE GATEWAY SAYS UNASKED, sec 935, told as it is heard: during a call
+	 * as much as in `fzn_device_listen`. NULL drops it. */
+	void (*heard)(void *ctx, const uint8_t *bytes, size_t len);
+	void *heard_ctx;
 	uint8_t frame[FZN_BEARER_FRAME_MAX];
 } fzn_device_t;
 
@@ -118,5 +125,12 @@ fzn_device_err_t fzn_device_open(fzn_device_t *d);
 fzn_device_err_t fzn_device_call(fzn_device_t *d, const char *name, const uint8_t *args,
                                  size_t args_len, uint8_t *answer, size_t cap,
                                  size_t *answer_len, unsigned *status);
+
+/* SAY `len` BYTES TO THE GATEWAY, in the session, asking no answer (sec 935). Sent
+ * once: nothing says it arrived. A session is asked for first where none stands. */
+fzn_device_err_t fzn_device_say(fzn_device_t *d, const uint8_t *bytes, size_t len);
+
+/* HEAR THE GATEWAY for `wait_ms`, each thing it says told to `heard`. */
+void fzn_device_listen(fzn_device_t *d, unsigned wait_ms);
 
 #endif /* FZN_DEVICE_H */

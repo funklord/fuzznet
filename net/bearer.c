@@ -21,6 +21,8 @@ int fzn_bearer_send(const fzn_bearer_t *b, uint16_t id, const uint8_t *frame, si
 	uint8_t piece[FZN_BEARER_UNIT_MAX];
 	size_t n, i, room, at = 0;
 
+	if (b && b->whole && b->send && frame)
+		return len <= FZN_BEARER_FRAME_MAX ? b->send(b->ctx, frame, len) : 0;
 	if (!b || !b->send || !frame || !(n = fzn_bearer_pieces(len, b->unit)))
 		return 0;
 	room = b->unit - FZN_BEARER_HEAD_LEN;

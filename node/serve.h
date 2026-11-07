@@ -146,6 +146,10 @@ typedef struct fzn_node_state {
 	 * and a session frame is served as a full frame would be, its answer in
 	 * one when it fits. NULL asks are dropped and session frames unread. */
 	struct fzn_node_sessions *sessions;
+	/* A SESSION FRAME WITH NO MESSAGE, sec 935: said, and answered by nothing, from
+	 * a peer whose capability stands. NULL drops them. */
+	void (*on_said)(void *ctx, const fzn_opened_t *said);
+	void *on_said_ctx;
 	/* THE TIME IN A GRANT, ms: NULL says `clock`'s, in whole seconds. */
 	uint64_t (*clock_ms)(void);
 	/* THE SESSION THE REQUEST BEING ANSWERED CAME IN, as its slot plus one, for
@@ -263,6 +267,11 @@ const fzn_node_peer_t *fzn_node_find_peer(const fzn_node_peer_t *peers,
 /* WHAT SERVING GREW, sec 903, given back as the node stops: connections still
  * saying their request closed. The state may serve again after. */
 void fzn_node_serve_release(fzn_node_state_t *state);
+
+/* SAY `payload` TO `sender` IN ITS SESSION, unasked, to where its last frame came
+ * from. 1 sent, or 0: it holds no session here, or the payload is too long. */
+int fzn_node_serve_say(fzn_node_state_t *state, const uint8_t sender[FZN_PUBKEY_LEN],
+                       const uint8_t *payload, size_t len);
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms);
 

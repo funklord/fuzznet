@@ -313,6 +313,10 @@ static void serve_session_frame(fzn_node_state_t *state, uint8_t *frame, size_t 
 	if (fzn_session_frame_open(&s->end, frame, flen, state->aead, &got) != FZN_SESSION_FRAME_OK)
 		return;
 	fzn_node_sessions_confirm(sessions, s);
+	if (from->len <= sizeof(s->from)) {
+		memcpy(s->from, from->storage, from->len);
+		s->from_len = from->len;
+	}
 	now = state->clock ? state->clock() : 0u;
 	/* THE FULL FRAME'S EXPIRY, read after the seal as it was sealed: a frame
 	 * held back and let go later is refused as one would be. The counter
@@ -341,9 +345,34 @@ static void serve_session_frame(fzn_node_state_t *state, uint8_t *frame, size_t 
 	opened.kind = FZN_KIND_UNIT;
 	result = fzn_node_serve_authorise(&state->config, &held, state->sign, now, &opened);
 	state->asking_hops = 0;
+	/* SAID, sec 935: nothing to answer, and nothing kept. */
+	if (got.msg == 0u) {
+		if (result == FZN_NODE_REMOTE_GRANTED && state->on_said)
+			state->on_said(state->on_said_ctx, &opened);
+		return;
+	}
 	state->answering = (size_t)(s - sessions->table) + 1u;
 	serve_reply(state, &held, from, result, &opened, now);
 	state->answering = 0;
+}
+
+int fzn_node_serve_say(fzn_node_state_t *state, const uint8_t sender[FZN_PUBKEY_LEN],
+                       const uint8_t *payload, size_t len)
+{
+	uint8_t frame[FZN_SESSION_FRAME_MAX];
+	fzn_node_session_t *s;
+	fzn_udp_addr_t to;
+	size_t frame_len = 0;
+
+	if (!state || !state->aead || !(s = fzn_node_sessions_of(state->sessions, sender))
+	    || !s->from_len
+	    || fzn_session_frame_seal(&s->end, 0u, 0u, payload, len, frame, sizeof(frame), &frame_len,
+	                              state->aead)
+	               != FZN_SESSION_FRAME_OK)
+		return 0;
+	memcpy(to.storage, s->from, s->from_len);
+	to.len = s->from_len;
+	return fzn_udp_send(state->udp_fd, &to, frame, frame_len) == FZN_UDP_OK;
 }
 
 static void serve_ready_datagram(fzn_node_state_t *state)
