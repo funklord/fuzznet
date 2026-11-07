@@ -81596,9 +81596,9 @@ behind them, and `#ifndef` lets a build name its own.
 `livecheck-embedded`: bss under 32 MiB, `live_lean`'s gone and kept, and `live_device`
 against it.
 
-**This is the mechanism, not the end.** Text fell by 16 per cent, because what is left has
+**This is the mechanism, not the end.** Text fell by 16 per cent, because what was left had
 no switch: `node/daemon.c` alone is 151 kB of the 573 kB of functions, then messages 38 kB,
-files 17 kB, contact devices 16 kB. `FZN_SPOOL_FILE=0` builds no daemon at all
+files 17 kB, contact devices 16 kB. Sec 934 took messages and files out. `FZN_SPOOL_FILE=0` builds no daemon at all
 (`FUZZNETD` needs it). A switch costs an `#ifdef` at each hook, and sec 860's linker
 then drops the rest. 4.4 MB of the bss left is `contact_slot_bufs`. Below all of this
 stands `device/`, for what has no daemon.
@@ -81892,3 +81892,30 @@ gives: nothing has measured it to matter.
 
 **Sec 924's loss figure was wrong,** and `c8f6f3b`'s message repeats it: a call's two units lose
 19 per cent of tries, not 10.
+
+## 934. The minimal configuration: messages and files out, 2026-11-07
+
+The holder, on which board sec 922's next switches should serve: "No specific board, it is just a
+minimal configuration." So none was waited for. `FZN_MESSAGES` and `FZN_FILES` default on, and off
+under `make embedded`, either back by name.
+
+**A constant, not an `#ifdef` at each of about 66 sites.** `messages_on` and `files_on` were
+already what each path asked, so a build without one has `enum { files_on = 0 }`: every branch
+behind it is dead, and sec 860's linker drops what only those reached. Only the wiring is
+guarded.
+
+| `make embedded` | text | bss |
+|---|---|---|
+| as sec 922, with sessions | 799,244 | 15,981,984 |
+| messages and files out | 703,468 | 14,027,520 |
+| `FZN_MESSAGES=1` | 765,908 | 14,508,064 |
+| `FZN_FILES=1` | 735,172 | 15,501,472 |
+
+**These two go further than sec 856's services.** A service left out still carries its data for
+the estate. A host without these neither offers nor carries them, because a minimal host is the
+last place to spend storage on someone else's lines. So `make lean` keeps both, and they are not in
+`LEAN_SERVICES`. `live_lean --minimal` holds `make embedded` to answering their verbs
+`unsupported`, and C's record and note still pass through it to B. Its bss bound is 16 MiB now.
+
+**What stays is the daemon:** `node/daemon.c` is 139 kB of 703, and contact devices 17 kB, which has
+no flag to fold on: 11 sites, for 2 per cent. Below this stands `device/`, for what has no daemon.

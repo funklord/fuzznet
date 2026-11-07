@@ -169,6 +169,8 @@ FZN_STICKERS ?= 0
 FZN_CATALOG ?= 0
 FZN_NOTES ?= 0
 FZN_GROUPS ?= 0
+FZN_MESSAGES ?= 0
+FZN_FILES ?= 0
 FZN_LOG_PACK ?= 0
 FZN_LOG_FILE ?= 0
 endif
@@ -206,6 +208,21 @@ CPPFLAGS += -DFZN_GROUPS_ON
 GROUPS_ON := 1
 else ifneq ($(FZN_GROUPS),0)
 $(error FZN_GROUPS must be 1 or 0 -- got "$(FZN_GROUPS)")
+endif
+# NOT SERVICES IN SEC 856'S SENSE, sec 934: a host built without one neither
+# offers it nor carries it, as `node/daemon.c` leaves the whole of it unwired. So
+# they are the minimal configuration's, and `make lean` keeps both.
+FZN_MESSAGES ?= 1
+ifeq ($(FZN_MESSAGES),1)
+CPPFLAGS += -DFZN_MESSAGES_ON
+else ifneq ($(FZN_MESSAGES),0)
+$(error FZN_MESSAGES must be 1 or 0 -- got "$(FZN_MESSAGES)")
+endif
+FZN_FILES ?= 1
+ifeq ($(FZN_FILES),1)
+CPPFLAGS += -DFZN_FILES_ON
+else ifneq ($(FZN_FILES),0)
+$(error FZN_FILES must be 1 or 0 -- got "$(FZN_FILES)")
 endif
 LEAN_SERVICES := FZN_STICKERS=0 FZN_CATALOG=0 FZN_NOTES=0 FZN_GROUPS=0
 
@@ -7017,7 +7034,7 @@ livecheck-lean: lean $(FUZZNETD)
 # THE EMBEDDED PROFILE, sec 922: nearly everything off, `FZN_NOTES=1` and its like
 # bringing back what a board needs. Held to what the lean build is held to, and to
 # carrying a device, with tables a board can give.
-EMBEDDED_BSS_MAX := 33554432
+EMBEDDED_BSS_MAX := 16777216
 embedded:
 	$(MAKE) PRESET=embedded-device BUILD_DIR=$(BUILD_DIR)/embedded $(BUILD_DIR)/embedded/fuzznetd
 
@@ -7025,7 +7042,7 @@ livecheck-embedded: embedded $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	@bss=$$(size $(BUILD_DIR)/embedded/fuzznetd | awk 'NR==2{print $$3}'); \
 	 echo "livecheck: embedded: $$bss bytes of bss, at most $(EMBEDDED_BSS_MAX)"; \
 	 test "$$bss" -le $(EMBEDDED_BSS_MAX)
-	@timeout 620 python3 tool/live_lean.py $(BUILD_DIR)/embedded/fuzznetd $(FUZZNETD)
+	@timeout 620 python3 tool/live_lean.py --minimal $(BUILD_DIR)/embedded/fuzznetd $(FUZZNETD)
 	@timeout 220 python3 tool/live_device.py $(BUILD_DIR)/embedded/fuzznetd $(BRIDGE) $(DEVICE_SIM)
 
 # THE FAULTS FIRE, sec 689 step 0b: tool/live_faults.py against the faulty

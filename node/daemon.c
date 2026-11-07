@@ -1566,7 +1566,13 @@ static uint64_t estate_clock(void)
 static fzn_node_shelf_t shelf;
 /* THE NODE'S FILES, sec 490, beside the texts. */
 static fzn_node_files_t files;
+/* OFF AT BUILD, sec 934, a constant: every `if (files_on)` is then dead, and the
+ * linker drops what only those branches reach. */
+#ifdef FZN_FILES_ON
 static int files_on;
+#else
+enum { files_on = 0 };
+#endif
 /* THE FILES CONVERSATIONS SENT, and what holds each, sec 795. */
 static fzn_attachments_t node_attachments;
 static int shelf_on;
@@ -2388,7 +2394,11 @@ static int journal_on;
 /* THE NODE'S CONVERSATIONS, sec 527: lines on every device's stream 3,
  * carried by the journal; keys carried member to member each round. */
 static fzn_node_messages_t node_messages;
+#ifdef FZN_MESSAGES_ON
 static int messages_on;
+#else
+enum { messages_on = 0 };
+#endif
 static int messages_devices_room(fzn_node_messages_t *nm, size_t want);
 
 /* THE OPERATION JOURNAL, secs 523 and 524: switchable, off unless asked
@@ -19989,6 +19999,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				 * the user's devices by the newest: estate time, sec 719
 				 * stage 4, so a device whose clock is off neither files lines
 				 * out of place nor loses a later read mark (sec 723). */
+#ifdef FZN_MESSAGES_ON
 				if (fzn_node_messages_init(&node_messages, store_ops, &node_journal,
 				                           identity.pubkey, &sign_ops, &rng_ops, &aead_ops,
 				                           &hash_ops, estate_ms)
@@ -20009,6 +20020,13 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				} else {
 					say(FZN_ENTRY_WARNING, "messages", "no conversations: the journal refused");
 				}
+#else
+				(void)takes_over_line;
+#if defined(FZN_SPOOL_FILE_ON)
+				(void)text_seen;
+				(void)file_of_here;
+#endif
+#endif
 				follow_estate(identity.pubkey, &state, &estate_roots);
 				node_apply.journal = &node_journal;
 				node_apply.revocations = &revoked;
@@ -20224,6 +20242,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					say(FZN_ENTRY_WARNING, "shelf", "no shelf for texts under %s",
 					        bulk_dir);
 				}
+#ifdef FZN_FILES_ON
 				n = snprintf(shelf_dir, sizeof(shelf_dir), "%s/files", bulk_dir);
 				if (n > 0 && (size_t)n < sizeof(shelf_dir)
 				    && fzn_node_files_init(&files, shelf_dir, &hash_ops, &aead_ops,
@@ -20246,6 +20265,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					say(FZN_ENTRY_WARNING, "files", "no store for files under %s",
 					    bulk_dir);
 				}
+#else
+				(void)files_local_refs;
+				(void)files_shared;
+				(void)files_forget;
+				(void)file_holds_begin;
+#endif
 			}
 #endif
 			/* NOTES, sec 431: admitted from this node and the nodes it

@@ -19,7 +19,10 @@ out.
             whose one pull peer is A, comes to hold both -- the lean node
             keeping and handing on what its own build cannot use
 
-Usage: live_lean.py PATH_TO_LEAN_FUZZNETD [PATH_TO_FULL_FUZZNETD]
+    --minimal  for `make embedded`, sec 934: messages and files are left out too,
+               so they are gone, and no file is kept
+
+Usage: live_lean.py [--minimal] PATH_TO_LEAN_FUZZNETD [PATH_TO_FULL_FUZZNETD]
 """
 
 import os
@@ -68,6 +71,11 @@ GONE = {
 	"notes": ["list note top", "add note top hello", "list history " + "00" * 16,
 	          "list shared"],
 	"groups": ["list group", "add group friends", "get group " + "00" * 32],
+}
+# AND WHAT THE MINIMAL CONFIGURATION LEAVES OUT BESIDE THEM.
+GONE_MINIMAL = {
+	"messages": ["list message", "add message self out 1 hello"],
+	"files": ["list file", "put file /nonexistent"],
 }
 
 
@@ -150,8 +158,12 @@ def estate(lean_path, full_path, scratch, sock_dir):
 
 
 def main(argv):
+	minimal = len(argv) > 1 and argv[1] == "--minimal"
+	if minimal:
+		argv = argv[:1] + argv[2:]
+		GONE.update(GONE_MINIMAL)
 	if len(argv) not in (2, 3):
-		print("usage: live_lean.py PATH_TO_LEAN_FUZZNETD [PATH_TO_FULL_FUZZNETD]",
+		print("usage: live_lean.py [--minimal] PATH_TO_LEAN_FUZZNETD [PATH_TO_FULL_FUZZNETD]",
 		      file=sys.stderr)
 		return 2
 	daemon_path = os.path.abspath(argv[1])
@@ -183,16 +195,17 @@ def main(argv):
 			if ask(sock, "add listed allow aa-bb") != "ok" \
 			   or ask(sock, "get listed allow aa-bb") != "ok in":
 				raise failed("lists were not kept by the lean build")
-			src = os.path.join(scratch, "pack")
-			with open(src, "wb") as f:
-				f.write(os.urandom(5000))
-			got = ask(sock, "put file " + src)
-			if not got.startswith("ok "):
-				raise failed("a file was not kept by the lean build: %r" % got)
-			root = got.split()[1][:64]
-			listed = ask(sock, "list file")
-			if not listed.startswith("ok ") or root not in listed:
-				raise failed("the lean build did not list the file put, %s: %r" % (root, listed))
+			if not minimal:
+				src = os.path.join(scratch, "pack")
+				with open(src, "wb") as f:
+					f.write(os.urandom(5000))
+				got = ask(sock, "put file " + src)
+				if not got.startswith("ok "):
+					raise failed("a file was not kept by the lean build: %r" % got)
+				root = got.split()[1][:64]
+				listed = ask(sock, "list file")
+				if not listed.startswith("ok ") or root not in listed:
+					raise failed("the lean build did not list the file put, %s: %r" % (root, listed))
 			# NO HUGE PAGE, sec 862, where the kernel hands them out always:
 			# fuzznetd runs itself again when one was faulted before main.
 			with open("/sys/kernel/mm/transparent_hugepage/enabled") as f:
@@ -204,8 +217,8 @@ def main(argv):
 						huge = int(line.split()[1])
 			if always and huge:
 				raise failed("the lean daemon holds %d kB of huge pages" % huge)
-			print("livecheck-lean: kept: status, records, lists and files%s"
-			      % (", and no huge page" if always else ""))
+			print("livecheck-lean: kept: status, records, lists%s%s"
+			      % ("" if minimal else " and files", ", and no huge page" if always else ""))
 			if len(argv) == 3:
 				estate(daemon_path, os.path.abspath(argv[2]), scratch, sock_dir)
 		except failed as e:
