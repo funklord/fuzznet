@@ -170,7 +170,7 @@ def c_marks(daemon_path, scratch, sock_dir):
 		                  extra=["--echo-as=fecho"])
 		started["af"] = follower
 		until = time.monotonic() + 20.0
-		while "offering 4 procedure" not in follower.stderr():
+		while "procedure(s) to the face" not in follower.stderr():
 			if time.monotonic() > until or follower.proc.poll() is not None:
 				raise failed("c2: A's follower offered nothing: %r" % follower.stderr()[-300:])
 			time.sleep(0.2)
@@ -607,7 +607,7 @@ def main(argv):
 					# A PROCEDURE THE FOLLOWER ALONE HAS, sec 853 step 3: the face
 					# forwards it, unread, and answers what the follower said.
 					until = time.monotonic() + 10.0
-					while "offering 4 procedure" not in open(ferr_path).read():
+					while "procedure(s) to the face" not in open(ferr_path).read():
 						if time.monotonic() > until:
 							raise failed("b4: the follower offered no procedure: %r"
 							             % open(ferr_path).read()[-300:])

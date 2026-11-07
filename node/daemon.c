@@ -1577,7 +1577,7 @@ static fzn_node_files_t files;
 #ifdef FZN_FILES_ON
 static int files_on;
 #else
-enum { files_on = 0 };
+#define files_on 0
 #endif
 /* THE FILES CONVERSATIONS SENT, and what holds each, sec 795. */
 static fzn_attachments_t node_attachments;
@@ -2403,7 +2403,7 @@ static fzn_node_messages_t node_messages;
 #ifdef FZN_MESSAGES_ON
 static int messages_on;
 #else
-enum { messages_on = 0 };
+#define messages_on 0
 #endif
 static int messages_devices_room(fzn_node_messages_t *nm, size_t want);
 

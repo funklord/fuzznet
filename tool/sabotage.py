@@ -3514,8 +3514,8 @@ SABOTAGES = [
 	(
 		"file-remove-absent-is-gone",
 		"persist/persist_file.c",
-		"\tif (unlink(path) == 0 || errno == ENOENT)\n",
-		"\tif (unlink(path) == 0)\n",
+		"\tif (unlink(path) == 0 || errno == ENOENT) {\n",
+		"\tif (unlink(path) == 0) {\n",
 		"a second removal answering failure makes a retry after a lost reply look like a fault, and the caller's question was whether it is gone -- sec 379",
 	),
 	(
@@ -14491,43 +14491,36 @@ SABOTAGES = [
 	(
 		"device-resend-is-a-new-message",
 		"device/device.c",
-		"\t\terr = send_once(d, payload, len, msg, (uint64_t)(now_ms / 1000) + d->life_s);\n",
-		"\t\tmsg = next_message(d);\n\t\terr = send_once(d, payload, len, msg, (uint64_t)(now_ms / 1000) + d->life_s);\n",
+		"\t\tsealed = fzn_session_frame_seal(&d->session, msg,\n",
+		"\t\tmsg = next_message(d);\n\t\tsealed = fzn_session_frame_seal(&d->session, msg,\n",
 		"a device's resend goes as a new message, so one press can count twice -- sec 912",
 	),
 	(
 		"device-takes-another-answer",
 		"device/device.c",
-		"\t\t    && opened->kind != FZN_KIND_NOP && opened->msg == msg && opened->chunks == 1u)\n",
-		"\t\t    && opened->kind != FZN_KIND_NOP && opened->chunks == 1u)\n",
+		"\t\t\tif (got.msg == msg) {\n",
+		"\t\t\tif (got.msg != 0u) {\n",
 		"a device takes another question's answer as this one's -- sec 912",
 	),
 	(
 		"device-time-of-another-ask",
 		"device/device.c",
-		"\t\t    || opened.payload[1] != FZN_TYPE_TIME\n\t\t    || memcmp(opened.payload + 2, ask + 2, PROBE_NONCE_LEN) != 0)\n",
-		"\t\t    || opened.payload[1] != FZN_TYPE_TIME)\n",
+		"\t\t    && opened.kind != FZN_KIND_NOP && opened.msg == msg && opened.chunks == 1u) {\n",
+		"\t\t    && opened.kind != FZN_KIND_NOP && opened.chunks == 1u) {\n",
 		"a device sets its clock from an answer to another ask -- sec 912",
-	),
-	(
-		"device-silence-keeps-its-clock",
-		"device/device.c",
-		"\td->clock_known = 0;\n\treturn FZN_DEVICE_ERR_SILENT;\n",
-		"\treturn FZN_DEVICE_ERR_SILENT;\n",
-		"a device whose clock drifted past the window never asks again -- sec 912",
 	),
 	(
 		"device-expiry-by-its-own-clock",
 		"device/device.c",
-		"\t\tint64_t now_ms = (int64_t)d->uptime_ms(d->uptime_ctx) + d->clock_offset_ms;\n",
-		"\t\tint64_t now_ms = (int64_t)d->uptime_ms(d->uptime_ctx);\n",
+		"\t\tnow_ms = (int64_t)d->uptime_ms(d->uptime_ctx) + d->clock_offset_ms;\n",
+		"\t\tnow_ms = (int64_t)d->uptime_ms(d->uptime_ctx);\n",
 		"a device stamps an expiry by its uptime, and every request is already expired -- sec 912",
 	),
 	(
 		"device-cut-answer-given",
 		"device/device.c",
-		"\t\t    || opened.payload_len - CALL_HEAD_LEN > cap || (!answer && opened.payload_len > 3u))\n",
-		"\t\t    || (!answer && opened.payload_len > 3u))\n",
+		"\t\t    || heard[1] != FZN_TYPE_CALLED || heard_len - CALL_HEAD_LEN > cap\n",
+		"\t\t    || heard[1] != FZN_TYPE_CALLED\n",
 		"an answer past the device's room is copied over what follows it -- sec 912",
 	),
 	(
@@ -14668,7 +14661,16 @@ SABOTAGES = [
 		"persist/persist_file.c",
 		"\tindex_wrote(store, slot, subject, 1);\n",
 		"",
-		"a save the index did not hear: a host's walk leaves out what it just wrote -- sec 936",
+		"a save the index did not hear: every walk reads the directory again, right and "
+		"as slow as sec 936 found it -- sec 936",
+	),
+	(
+		"index-takes-a-change-for-its-own",
+		"persist/persist_file.c",
+		"\tif (!dir_time_of(store, &now) || now.tv_sec != x->dir_time.tv_sec\n"
+		"\t    || now.tv_nsec != x->dir_time.tv_nsec)\n\t\tx->whole = 0;\n",
+		"\t(void)now;\n",
+		"a row a follower wrote just before a save is never read -- sec 936",
 	),
 	(
 		"index-misses-a-remove",
@@ -14827,8 +14829,8 @@ SABOTAGES = [
 	(
 		"memo-keeps-a-failure",
 		"node/verify_memo.c",
-		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig))\n\t\treturn 0;\n\tif (slot)\n",
-		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig)) {\n\t\tif (slot)\n\t\t\tmemcpy(slot, digest, FZN_VERIFY_MEMO_DIGEST);\n\t\treturn 0;\n\t}\n\tif (slot)\n",
+		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig))\n\t\treturn 0;\n\tif (slot) {\n",
+		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig)) {\n\t\tif (slot)\n\t\t\tmemcpy(slot, digest, FZN_VERIFY_MEMO_DIGEST);\n\t\treturn 0;\n\t}\n\tif (slot) {\n",
 		"a forgery remembered passes the second time it is shown -- sec 931",
 	),
 	(

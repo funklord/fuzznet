@@ -256,6 +256,7 @@ static void test_the_filesystem_refusing(const char *scratch)
 			window[n] = 'w';
 		window[505] = '\0';
 
+		memset(&hollow, 0, sizeof(hollow));
 		hollow.dir = window;
 		hollow.ops.load = ops->load;
 		hollow.ops.save = ops->save;
@@ -553,6 +554,25 @@ static size_t walked_in(const fzn_persist_ops_t *ops, fzn_persist_slot_t slot)
 	return w.n;
 }
 
+/* A ROW PUT IN `where` BY HAND, as another process would; its name left in `path`. */
+static void row_beside(const char *where, size_t key, char *path, size_t cap)
+{
+	uint8_t subject[FZN_PUBKEY_LEN];
+	size_t i;
+	FILE *f;
+
+	walk_key(subject, key);
+	snprintf(path, cap, "%s/%u-", where, (unsigned)FZN_PERSIST_PEER);
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		snprintf(path + strlen(path), 3u, "%02x", subject[i]);
+	f = fopen(path, "wb");
+	expect(f != NULL, "fixture: a row written beside it");
+	if (f) {
+		(void)fputc(1, f);
+		(void)fclose(f);
+	}
+}
+
 /* sec 936: what the directory holds, kept in memory, says what the directory says. */
 static void test_the_directory_held(void)
 {
@@ -563,7 +583,8 @@ static void test_the_directory_held(void)
 	uint8_t subject[FZN_PUBKEY_LEN], byte = 1u;
 	struct timespec tick = { 0, 30000000 };
 	size_t i, count = 0;
-	FILE *f;
+	struct timespec times[2];
+	struct stat st;
 
 	snprintf(where, sizeof(where), "%s/held", dir);
 	if (mkdir(where, 0700) != 0 || !(ops = fzn_persist_file_init(&store, where))) {
@@ -602,20 +623,38 @@ static void test_the_directory_held(void)
 
 	/* THE DIRECTORY CHANGED BEHIND IT: read again. */
 	(void)nanosleep(&tick, NULL);
-	walk_key(subject, 40u);
-	snprintf(path, sizeof(path), "%s/%u-", where, (unsigned)FZN_PERSIST_PEER);
-	for (i = 0; i < FZN_PUBKEY_LEN; i++)
-		snprintf(path + strlen(path), 3u, "%02x", subject[i]);
-	f = fopen(path, "wb");
-	expect(f != NULL, "fixture: a row written beside it");
-	if (f) {
-		(void)fputc(1, f);
-		(void)fclose(f);
-	}
+	row_beside(where, 40u, path, sizeof(path));
 	expect(walked_in(ops, FZN_PERSIST_PEER) == 20u, "a row written beside it was not seen");
 	(void)nanosleep(&tick, NULL);
 	expect(unlink(path) == 0, "fixture: a row removed beside it");
 	expect(walked_in(ops, FZN_PERSIST_PEER) == 19u, "a row removed beside it was still walked");
+
+	/* ITS OWN SAVE IS NOT THE DIRECTORY MOVING: nothing is read after one. Read again,
+	 * every walk would be right and as slow as before, so what shows it is a row no
+	 * read has been told of, the directory's time put back. */
+	(void)nanosleep(&tick, NULL);
+	walk_key(subject, 41u);
+	expect(ops->save(ops->ctx, FZN_PERSIST_PEER, subject, &byte, 1u) == 1, "save refused");
+	expect(stat(where, &st) == 0, "fixture: the directory's time");
+	row_beside(where, 42u, path, sizeof(path));
+	times[0] = st.st_atim;
+	times[1] = st.st_mtim;
+	expect(utimensat(AT_FDCWD, where, times, 0) == 0, "fixture: the time put back");
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 20u, "a save of its own read the directory again");
+
+	/* AND SOMEBODY ELSE'S ROW BEFORE A SAVE IS NOT TAKEN FOR THAT SAVE. */
+	(void)nanosleep(&tick, NULL);
+	expect(unlink(path) == 0, "fixture: a row removed beside it");
+	row_beside(where, 43u, path, sizeof(path));
+	(void)nanosleep(&tick, NULL);
+	walk_key(subject, 44u);
+	expect(ops->save(ops->ctx, FZN_PERSIST_PEER, subject, &byte, 1u) == 1, "save refused");
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 22u, "a row beside a save was lost to it");
+	for (i = 41u; i <= 44u; i++) {
+		walk_key(subject, i);
+		expect(ops->remove(ops->ctx, FZN_PERSIST_PEER, subject) == 1, "remove refused");
+	}
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 19u, "what was added stayed");
 
 	/* A WALKER MAY CHANGE WHAT IT WALKS. */
 	expect(fzn_persist_each(ops, FZN_PERSIST_PEER, walk_and_remove, (void *)ops) == 1,

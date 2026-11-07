@@ -81975,7 +81975,13 @@ file of every store, and each test and tool that names one. **Row a member is dr
 
 **Notes grow by something else:** 3.5 ms at 1000, 9.8 at 6000, about what sec 928 had.
 
-`persist_file_test`, 4 sabotages.
+**A save checks the directory's time before it writes.** `index_wrote` takes the new time, so a
+row a follower wrote just before a save would otherwise pass as this store's own and never be
+read: found reading the code in sec 939, not seen to happen. A change inside the same clock tick
+as a read still goes unseen, as the time cannot show it.
+
+`persist_file_test`, 5 sabotages. Without the index's own bookkeeping every walk is right and
+slow, so the test shows it by a row no read was told of, the directory's time put back.
 
 ## 937. A session frame goes bare on a radio, 2026-11-07
 
@@ -82012,3 +82018,29 @@ counts CPU rather than time: d, 95 ticks with the memo, 2982 signatures remember
 the file changed, and 0 remembered. `verify_memo_test`, 2 sabotages. Up to 8 MB on disk.
 
 **A crash** starts from the last save, up to 10 minutes old.
+
+## 939. What the last gates found, 2026-11-07
+
+The full gates at `33ef9cf`, in a clone, found two things the per-commit runs had not.
+
+- **`live_ext` was failing from `6589aaf`.** `ring` made the test daemon's procedures five, and
+  the script waited for `offering 4`. So `make livecheck` stopped there, and `live_location`,
+  `live_transfer`, `live_stickers` and `live_erasure` did not run. It now waits for the offer, not
+  its count: `fecho` answering is what shows the procedure came.
+- **`index-misses-a-save` survived, and said the wrong thing.** A save the index misses still moves
+  the directory, so the next walk reads it again: right, and slow. It is a guard on what sec 936
+  bought rather than on what a walk returns. Held now as sec 936 says, which is where the hole
+  in `index_wrote` showed.
+
+**fuzzypickles' stall is gone by its own measure** (20261107T0803Z, at `4bf3278`): `seed_contacts.py`
+on fzpd, 20000 contacts in 196 s, longest wait 2.9 s at 19707, `fzp peer-list` 3.7 s, fzptui's
+first list 7.1 s, fzpd 58 MB resident. Its first run was `node_probe` spawned per add at `c562ac3`
+and before, not rerun in that form, so what caused the stall is not established.
+
+**And `make style` was failing, which the earlier sections did not know.** Eight sabotage entries
+stopped matching when their code moved, in `c8f6f3b`, `80fa41b` and `4b01664`: `--verify` runs at
+the end of the target, and it said so at `33ef9cf`. Each section's "gates passed" since then does
+not cover style. `fcb9de3`'s `enum { files_on = 0 }` failed `enum_gate` the same way, and is a
+`#define` now. Seven are aimed at the code that replaced theirs.
+`device-silence-keeps-its-clock` is removed: a clock now comes with a grant, so it is
+`device-session-never-given-up`.

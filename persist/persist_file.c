@@ -218,6 +218,7 @@ static int file_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 /* THE LARGEST SAVE COMPARED WITH WHAT IS THERE before it is written. */
 #define SAME_MAX 4096u
 
+static void index_before(const fzn_persist_file_t *store);
 static void index_wrote(const fzn_persist_file_t *store, fzn_persist_slot_t slot,
                         const uint8_t *subject, int kept);
 
@@ -263,6 +264,7 @@ static int file_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 		}
 	}
 
+	index_before(store);
 	/* 0600 AT CREATION. `fopen` would use the umask, which a daemon does
 	 * not control and which has left secrets group-readable in worse
 	 * places than this. */
@@ -490,6 +492,21 @@ static int row_at(const struct slot_rows *r, const uint8_t *subject, size_t *at)
 	}
 	*at = low;
 	return 0;
+}
+
+/* ABOUT TO WRITE, so what has moved the directory until now is somebody else's: a
+ * follower shares this store. Asked first, or the time `index_wrote` takes would
+ * pass their row off as this store's doing, and it would never be read. */
+static void index_before(const fzn_persist_file_t *store)
+{
+	struct fzn_persist_file_index *x = store->index;
+	struct timespec now;
+
+	if (!x || !x->whole)
+		return;
+	if (!dir_time_of(store, &now) || now.tv_sec != x->dir_time.tv_sec
+	    || now.tv_nsec != x->dir_time.tv_nsec)
+		x->whole = 0;
 }
 
 /* THIS STORE WROTE, or removed, so the index follows, and the directory's new time
@@ -722,6 +739,7 @@ static int file_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subjec
 		return 0;
 	if (!path_for(path, sizeof(path), store->dir, slot, subject, NULL))
 		return 0;
+	index_before(store);
 	if (unlink(path) == 0 || errno == ENOENT) {
 		index_wrote(store, slot, subject, 0);
 		return 1;
