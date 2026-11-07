@@ -800,10 +800,11 @@ static void test_share_scope(void)
 {
 	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
 	uint8_t f[FZN_TREE_ID_LEN], g[FZN_TREE_ID_LEN], h[FZN_TREE_ID_LEN], o[FZN_TREE_ID_LEN];
+	uint8_t under_o[FZN_TREE_ID_LEN];
 	static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 	uint8_t seeds[2][FZN_TREE_ID_LEN];
 	static uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
-	uint8_t request[FZN_NOTES_SYNC_LIST_HEAD_LEN + (4u * FZN_PUBKEY_LEN)];
+	uint8_t request[FZN_NOTES_SYNC_LIST_HEAD_LEN + (5u * FZN_PUBKEY_LEN)];
 	static uint8_t reply[FZN_NOTES_SYNC_REPLY_MAX];
 	uint8_t purge[FZN_NOTES_SYNC_PURGE_LEN];
 	uint8_t partners[4][FZN_PUBKEY_LEN];
@@ -815,8 +816,9 @@ static void test_share_scope(void)
 
 	reset();
 	CHECK(write(&a, "folder", f) && write_under(&a, f, "child", g)
-	              && write_under(&a, g, "grandchild", h) && write(&a, "other", o),
-	      "fixture: F above G above H, and O beside F");
+	              && write_under(&a, g, "grandchild", h) && write(&a, "other", o)
+	              && write_under(&a, o, "under other", under_o),
+	      "fixture: F above G above H, and O beside F with a note of its own");
 	CHECK(fzn_notes_view_load(&store_a, &view) == FZN_NOTES_OK, "fixture: A's view");
 	memcpy(seeds[0], f, FZN_TREE_ID_LEN);
 	n = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds, 1u, reach,
@@ -825,7 +827,16 @@ static void test_share_scope(void)
 	              && has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, g)
 	              && has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, h),
 	      "a share of F reaches F, G and H");
-	CHECK(!has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, o), "and not O");
+	CHECK(!has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, o)
+	              && !has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, under_o),
+	      "and not O, or what is under it");
+	/* BOTH WAYS ROUND: claims lie in parent order, so a walk that runs past its
+	 * parent's children meets the other tree from whichever sorts first. */
+	memcpy(seeds[0], o, FZN_TREE_ID_LEN);
+	n = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds, 1u, reach,
+	                          FZN_NOTES_MAX);
+	CHECK(n == 2u && has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, under_o),
+	      "a share of O reaches O and its note, and nothing of F");
 	memcpy(seeds[0], g, FZN_TREE_ID_LEN);
 	memcpy(seeds[1], f, FZN_TREE_ID_LEN);
 	CHECK(fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds, 2u, reach,
@@ -872,12 +883,12 @@ static void test_share_scope(void)
 	}
 
 	/* ASKED BY KEY for every claim A holds, it still answers the scope's. */
-	CHECK(fzn_notes_claims(&store_a, keys, FZN_NOTES_MAX, &n) == FZN_NOTES_OK && n == 4u,
-	      "fixture: A's four claim keys");
+	CHECK(fzn_notes_claims(&store_a, keys, FZN_NOTES_MAX, &n) == FZN_NOTES_OK && n == 5u,
+	      "fixture: A's five claim keys");
 	request[0] = FZN_NOTES_SYNC_VERSION;
 	request[1] = FZN_NOTES_SYNC_RECORDS_QUERY;
-	request[2] = 4u;
-	for (i = 0; i < 4u; i++)
+	request[2] = 5u;
+	for (i = 0; i < 5u; i++)
 		memcpy(request + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_PUBKEY_LEN), keys[i],
 		       FZN_PUBKEY_LEN);
 	CHECK(fzn_notes_sync_answer_scoped(&store_a, &scope, request, sizeof(request), reply,

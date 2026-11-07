@@ -281,6 +281,9 @@ int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
 /* Whether a note this node holds -- in its own tree or any sharer's -- has
  * its text in the blob `root`: what collecting the shelf keeps. sec 443. */
 int fzn_node_notes_names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN]);
+/* Around a collection, on and then off, with no write between: what the trees name is
+ * read once for all its blobs, not once a blob. sec 943. */
+void fzn_node_notes_collecting(int on);
 
 /* THE TEXTS THIS NODE'S NOTE HISTORY NAMES, sec 581, read once for a
  * collection: each collection calls this first, so a version kept, or a

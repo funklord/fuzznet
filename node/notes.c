@@ -896,21 +896,6 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 
 /* ---- collecting texts, sec 443 ------------------------------------------ */
 
-/* Whether any claim in `view` names the blob `root`. */
-static int view_names(const fzn_notes_view_t *v, const uint8_t root[FZN_BLOB_HASH_LEN])
-{
-	size_t i;
-
-	for (i = 0; i < v->count; i++) {
-		fzn_note_blob_ref_t ref;
-
-		if (fzn_notes_ref_of(&v->nodes[i], &ref)
-		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)
-			return 1;
-	}
-	return 0;
-}
-
 static int names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN]);
 
 int fzn_node_notes_names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN])
@@ -950,30 +935,68 @@ void fzn_node_notes_history_refresh(fzn_node_notes_t *n)
 		history_unread = 1;
 }
 
-static int names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN])
+/* WHAT EVERY TREE NAMES, sorted, sec 943: read once for a collection and asked of each
+ * blob. Read for each blob, every sharer's tree came from disk once a text held, and a
+ * round held the loop 56 ms a text at 2200 notes. No write comes between two blobs of a
+ * collection, as the loop runs it whole. */
+static struct {
+	uint8_t (*roots)[FZN_BLOB_HASH_LEN];
+	size_t count, cap;
+	int collecting, read, keep_all;
+} named;
+
+static int root_order(const void *a, const void *b)
+{
+	return memcmp(a, b, FZN_BLOB_HASH_LEN);
+}
+
+static int named_add(const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	if (named.count == named.cap) {
+		size_t cap = named.cap ? named.cap * 2u : 256u;
+		void *more = realloc(named.roots, cap * (size_t)FZN_BLOB_HASH_LEN);
+
+		if (!more)
+			return 0;
+		named.roots = more;
+		named.cap = cap;
+	}
+	memcpy(named.roots[named.count++], root, FZN_BLOB_HASH_LEN);
+	return 1;
+}
+
+static int named_add_view(const fzn_notes_view_t *v)
+{
+	size_t i;
+
+	for (i = 0; i < v->count; i++) {
+		fzn_note_blob_ref_t ref;
+
+		if (fzn_notes_ref_of(&v->nodes[i], &ref) && !named_add(ref.root))
+			return 0;
+	}
+	return 1;
+}
+
+/* Nonzero with every root named by this host's tree, its history and each sharer's. */
+static int named_read(fzn_node_notes_t *n)
 {
 	static uint8_t (*sharers)[FZN_PUBKEY_LEN];
 	size_t count = 0, i;
 
-	if (!n || !root)
-		return 1;
-	/* NO ROOM TO LOOK KEEPS EVERYTHING, as a tree that will not read does. */
 	if (!sharers && !(sharers = malloc(FZN_NOTES_RECEIVED_ROWS * (size_t)FZN_PUBKEY_LEN)))
-		return 1;
-	/* A TREE THAT WILL NOT READ KEEPS EVERYTHING: a text removed because
-	 * its note could not be looked at is a text lost. */
-	if (fzn_notes_view_load(&n->store, view) != FZN_NOTES_OK || view_names(view, root))
-		return 1;
-	/* AN EARLIER VERSION'S TEXT, sec 581; and a history that would not read
-	 * keeps everything, as a tree that will not read does. */
+		return 0;
+	if (fzn_notes_view_load(&n->store, view) != FZN_NOTES_OK || !named_add_view(view))
+		return 0;
+	/* AN EARLIER VERSION'S TEXT, sec 581. */
 	if (history_unread)
-		return 1;
+		return 0;
 	for (i = 0; i < n_history_roots; i++)
-		if (memcmp(history_roots[i], root, FZN_BLOB_HASH_LEN) == 0)
-			return 1;
+		if (!named_add(history_roots[i]))
+			return 0;
 	if (fzn_notes_received_sharers(n->store.ops, sharers, FZN_NOTES_RECEIVED_ROWS, &count)
 	    != FZN_NOTES_OK)
-		return 1;
+		return 0;
 	for (i = 0; i < count; i++) {
 		fzn_notes_received_t seam;
 		fzn_persist_ops_t ops;
@@ -982,10 +1005,47 @@ static int names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN]
 		if (fzn_notes_received_ops(&seam, n->store.ops, n->store.hash, sharers[i], &ops)
 		            != FZN_NOTES_OK
 		    || fzn_notes_store_init(&tree, &ops, n->store.hash) != FZN_NOTES_OK
-		    || fzn_notes_view_load(&tree, view) != FZN_NOTES_OK || view_names(view, root))
-			return 1;
+		    || fzn_notes_view_load(&tree, view) != FZN_NOTES_OK || !named_add_view(view))
+			return 0;
 	}
-	return 0;
+	return 1;
+}
+
+static void named_drop(void)
+{
+	free(named.roots);
+	named.roots = NULL;
+	named.count = named.cap = 0;
+	named.read = named.keep_all = 0;
+}
+
+void fzn_node_notes_collecting(int on)
+{
+	named_drop();
+	named.collecting = on;
+}
+
+static int names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	int found;
+
+	if (!n || !root)
+		return 1;
+	if (!named.read) {
+		/* A TREE THAT WILL NOT READ KEEPS EVERYTHING: a text removed because
+		 * its note could not be looked at is a text lost. So does no room to
+		 * look, and a history that would not read. */
+		named.keep_all = !named_read(n);
+		named.read = 1;
+		if (named.count > 1u)
+			qsort(named.roots, named.count, FZN_BLOB_HASH_LEN, root_order);
+	}
+	found = named.keep_all
+	        || (named.count
+	            && bsearch(root, named.roots, named.count, FZN_BLOB_HASH_LEN, root_order));
+	if (!named.collecting)
+		named_drop();
+	return found;
 }
 
 static int keep_named(void *ctx, const uint8_t *root)
@@ -1156,14 +1216,17 @@ static size_t collect_texts(fzn_node_notes_t *n, const uint8_t *at, size_t left,
 {
 	char detail[48];
 	size_t kept = 0, removed = 0;
-	int k;
+	int k, collected;
 
 	if (!is_word(at, left, "unused"))
 		return say(reply, cap, FZN_REPLY_MALFORMED, "remove text unused");
 	if (!n->collect)
 		return say(reply, cap, FZN_REPLY_ERROR, "this node keeps no long texts");
 	fzn_node_notes_history_refresh(n);
-	if (!n->collect(n->text_ctx, keep_named, n, &kept, &removed))
+	fzn_node_notes_collecting(1);
+	collected = n->collect(n->text_ctx, keep_named, n, &kept, &removed);
+	fzn_node_notes_collecting(0);
+	if (!collected)
 		return say(reply, cap, FZN_REPLY_ERROR, "the texts would not all be looked at");
 	k = snprintf(detail, sizeof(detail), "%zu %zu", removed, kept);
 	return answer(reply, cap, FZN_REPLY_OK, detail, k > 0 ? (size_t)k : 0u);

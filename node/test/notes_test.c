@@ -192,11 +192,14 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
  * seen; 0 for none. */
 static fzn_persist_slot_t fail_list;
 
+static size_t notes_lists;
+
 static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max, size_t *count)
 {
 	size_t i, n = 0;
 
 	(void)ctx;
+	notes_lists++;
 	if (fail_list && slot == fail_list)
 		return 0;
 	for (i = 0; i < MEM_ROWS; i++)
@@ -564,12 +567,14 @@ static void test_pages_kept(void)
 	/* A PURGE MOVES NO NOTE, and is still left out. */
 	snprintf(line, sizeof(line), "set note %s trash", bin);
 	CHECK(ask(line) == FZN_REPLY_OK, "fixture: trashed");
-	CHECK(ask("list note top") == FZN_REPLY_OK, "fixture: the top kept");
+	/* ITS OWN PAGE: the first holds a dozen of these, so a note left on the page where
+	 * it stands is not seen from the top. */
+	CHECK(ask("list note top 40") == FZN_REPLY_OK && has(bin), "fixture: the top kept, with it");
 	at = (unsigned long)notes_written;
 	CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "1 1"),
 	      "fixture: the purge waits");
 	CHECK(notes_written == at, "fixture: a purge queued wrote no note");
-	CHECK(ask("list note top") == FZN_REPLY_OK && !has(bin), "a page kept leaves out a purge");
+	CHECK(ask("list note top 40") == FZN_REPLY_OK && !has(bin), "a page kept leaves out a purge");
 }
 
 static void test_trash(void)
@@ -718,6 +723,38 @@ static int indexed(const uint8_t *sender, int shared)
 	if (n < FZN_NOTES_SYNC_INDEX_HEAD_LEN)
 		return -1;
 	return (int)((n - FZN_NOTES_SYNC_INDEX_HEAD_LEN) / FZN_NOTES_SYNC_CLAIM_LEN);
+}
+
+static void id_of(const char *hex, uint8_t id[FZN_TREE_ID_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < FZN_TREE_ID_LEN; i++) {
+		unsigned v;
+
+		(void)sscanf(hex + (2u * i), "%2x", &v);
+		id[i] = (uint8_t)v;
+	}
+}
+
+/* Whether this host's own note `hex` is among what `sender` is offered. */
+static int offered_to(const uint8_t *sender, const char *hex)
+{
+	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+	static uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
+	uint8_t id[FZN_TREE_ID_LEN], key[FZN_PUBKEY_LEN];
+	size_t n = fzn_node_notes_remote(&notes, sender, 1, query, sizeof(query), out, sizeof(out));
+	size_t at;
+
+	id_of(hex, id);
+	if (fzn_notes_claim_key(&notes.store, id, SELF, key) != FZN_NOTES_OK)
+		return 0;
+	for (at = FZN_NOTES_SYNC_INDEX_HEAD_LEN; at + FZN_NOTES_SYNC_CLAIM_LEN <= n;
+	     at += FZN_NOTES_SYNC_CLAIM_LEN)
+		if (memcmp(out + at, key, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	return 0;
 }
 
 /* SHARES, sec 436: the table's verbs, and a contact's request answered with
@@ -890,6 +927,51 @@ static void test_group_share(void)
 
 /* READING A SHARER'S TREE, sec 437: `list shared` and `get shared` over
  * the notes carol shared, which pulling filed in her tree. */
+/* A SCOPE IS SEARCHED IN ID ORDER, sec 942, and a note's floor goes with it. An id
+ * is random, so a scope of a few notes is rarely in order by chance, and the notes
+ * of the two folders lie among each other once sorted. */
+static void test_share_scope_in_order(void)
+{
+	enum { EACH = 16 };
+	uint8_t carol[FZN_PUBKEY_LEN];
+	static fzn_group_t family;
+	char open_folder[65], floored_folder[65], line[200];
+	static char open_notes[EACH][65], floored_notes[EACH][65];
+	size_t i, seen_open = 0, seen_floored = 0;
+
+	setup(1);
+	memset(carol, 0xc4, sizeof(carol));
+	CHECK(fzn_contact_add(&OPS, carol, "carol", 5u, 1u) == FZN_CONTACT_OK
+	              && group_make(&OPS, "family", 0x6fu, &family) && group_join(&OPS, &family, carol),
+	      "fixture: carol, in the group family");
+	CHECK(ask("add folder top open") == FZN_REPLY_OK, "fixture: a folder for carol");
+	take_id(open_folder);
+	CHECK(ask("add folder top floored") == FZN_REPLY_OK, "fixture: a folder for the group");
+	take_id(floored_folder);
+	for (i = 0; i < EACH; i++) {
+		snprintf(line, sizeof(line), "add note %s a", open_folder);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: a note for carol");
+		take_id(open_notes[i]);
+		snprintf(line, sizeof(line), "add note %s b", floored_folder);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: a note for the group");
+		take_id(floored_notes[i]);
+	}
+	snprintf(line, sizeof(line), "add share %s carol", open_folder);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: one folder shared with carol");
+	CHECK(indexed(carol, 1) == EACH + 1, "every note of a share is found in its scope");
+
+	/* THE FLOOR OF SEC 804: a joining this host cannot see serves nothing of a share
+	 * that does not catch up, so which notes she is offered says whose floor is whose. */
+	snprintf(line, sizeof(line), "add share %s @family backfill 0", floored_folder);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: the other shared with the group, no catching up");
+	for (i = 0; i < EACH; i++) {
+		seen_open += (size_t)offered_to(carol, open_notes[i]);
+		seen_floored += (size_t)offered_to(carol, floored_notes[i]);
+	}
+	CHECK(seen_open == EACH, "a note with no floor keeps none when another share has one");
+	CHECK(seen_floored == 0u, "and a note under a floor keeps it through the sort");
+}
+
 static void test_shared_reads(void)
 {
 	uint8_t carol[FZN_PUBKEY_LEN], hid[FZN_TREE_ID_LEN], gid[FZN_TREE_ID_LEN];
@@ -955,6 +1037,36 @@ static void test_shared_reads(void)
 	CHECK(!has(f), "and not this node's own F");
 	snprintf(line, sizeof(line), "list shared carol %s", g);
 	CHECK(ask(line) == FZN_REPLY_OK && has(h) && has(",grandchild"), "G's child is listed");
+	/* A VIEW KEPT OF HER TREE, sec 942: a note pulled in is seen on the next page. */
+	{
+		char late[65];
+		uint8_t late_id[FZN_TREE_ID_LEN];
+
+		snprintf(line, sizeof(line), "add note %s late", g);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: a note written under G");
+		take_id(late);
+		id_of(late, late_id);
+		snprintf(line, sizeof(line), "list shared carol %s", g);
+		CHECK(ask(line) == FZN_REPLY_OK && !has(late), "fixture: not yet in carol's tree");
+		CHECK(fzn_notes_get(&notes.store, late_id, SELF, record, sizeof(record), &len)
+		                      == FZN_NOTES_OK
+		              && fzn_notes_put(&tree, record, len, notes.author.policy, &SIGN, &wrote,
+		                               NULL)
+		                         == FZN_NOTES_OK,
+		      "fixture: and pulled into it");
+		CHECK(ask(line) == FZN_REPLY_OK && has(late), "a note pulled in is seen on the next page");
+	}
+	/* AND ANOTHER SHARER'S TREE IS ANOTHER VIEW, with the same ops at the same address. */
+	{
+		uint8_t dave[FZN_PUBKEY_LEN];
+
+		memset(dave, 0xd4, sizeof(dave));
+		CHECK(fzn_contact_add(&OPS, dave, "dave", 4u, 1u) == FZN_CONTACT_OK,
+		      "fixture: dave, who shared nothing");
+		CHECK(ask("list shared carol top") == FZN_REPLY_OK && has(g), "fixture: carol's top kept");
+		CHECK(ask("list shared dave top") == FZN_REPLY_OK && !strncmp(detail_of(), "0 0", 3u),
+		      "one sharer's page does not answer with another's tree");
+	}
 	snprintf(line, sizeof(line), "get shared carol %s", h);
 	CHECK(ask(line) == FZN_REPLY_OK && has(" grandchild"), "and read");
 	snprintf(line, sizeof(line), "get shared carol %s", f);
@@ -1509,6 +1621,64 @@ static void test_history_trimmed(void)
 		              && removed == 2u && versions_of(a) == 0ul,
 		      "prune age 1s took a version written within it, or kept one older");
 	}
+}
+
+/* A note with a text of its own in a blob, and that blob's root. */
+static void note_with_text(int mark, uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	static char text[5001];
+	char note[65], path[64], line[160];
+	FILE *f;
+
+	memset(text, 'a' + (mark % 26), sizeof(text) - 1u);
+	text[0] = (char)('0' + (mark / 26));
+	CHECK(ask("add note top long") == FZN_REPLY_OK, "fixture: a note");
+	take_id(note);
+	snprintf(path, sizeof(path), "/tmp/fzn-notes-named-%ld.in", (long)getpid());
+	f = fopen(path, "wb");
+	CHECK(f && fwrite(text, 1u, sizeof(text) - 1u, f) > 0u, "fixture: a file");
+	if (f)
+		(void)fclose(f);
+	snprintf(line, sizeof(line), "set note %s file %s", note, path);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: its text a blob");
+	(void)unlink(path);
+	blob_stub_last_root(root);
+}
+
+/* WHAT THE TREES NAME IS READ ONCE A COLLECTION, sec 943, and for no longer. */
+static void test_a_collection_reads_once(void)
+{
+	enum { TEXTS = 16 };
+	static uint8_t roots[TEXTS][FZN_BLOB_HASH_LEN];
+	uint8_t nobody[FZN_BLOB_HASH_LEN], late[FZN_BLOB_HASH_LEN];
+	size_t i, found = 0, before, one, all;
+
+	setup(0);
+	for (i = 0; i < TEXTS; i++)
+		note_with_text((int)i, roots[i]);
+	memset(nobody, 0x5e, sizeof(nobody));
+
+	before = notes_lists;
+	CHECK(!fzn_node_notes_names_blob(&notes, nobody), "no note names this root");
+	one = notes_lists - before;
+	CHECK(one > 0u, "fixture: an answer alone reads the trees");
+
+	before = notes_lists;
+	fzn_node_notes_collecting(1);
+	for (i = 0; i < TEXTS; i++)
+		found += (size_t)(fzn_node_notes_names_blob(&notes, roots[i]) != 0);
+	CHECK(!fzn_node_notes_names_blob(&notes, nobody), "in a collection, still nothing");
+	fzn_node_notes_collecting(0);
+	all = notes_lists - before;
+	CHECK(found == TEXTS, "every text a note names is found in a collection");
+	CHECK(all == one, "a collection reads the trees once, not once a text");
+
+	/* A TEXT WRITTEN AFTER IS NAMED: what a collection read would remove it. */
+	fzn_node_notes_collecting(1);
+	CHECK(!fzn_node_notes_names_blob(&notes, nobody), "fixture: a collection that read");
+	fzn_node_notes_collecting(0);
+	note_with_text(TEXTS, late);
+	CHECK(fzn_node_notes_names_blob(&notes, late), "a text written after a collection is named");
 }
 
 static void test_collecting_texts(void)
@@ -2283,12 +2453,14 @@ int main(void)
 	test_admission();
 	test_share();
 	test_group_share();
+	test_share_scope_in_order();
 	test_shared_reads();
 	test_the_join_floor_at_its_second();
 	test_import();
 	test_checklist();
 	test_pages_kept();
 	test_collecting_texts();
+	test_a_collection_reads_once();
 	test_history();
 	test_history_trimmed();
 	test_members_join_the_admitted_set();

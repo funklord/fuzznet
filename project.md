@@ -82166,3 +82166,59 @@ Paging 1000 went from 1.3 s to under 0.05 s, measured by reading one store with 
 shared row, so a first pull is square: 2000 in 18 s, with the loop held past a client's wait, and
 `live_many_shared` retries through it. A count kept by sharer would end it. Rows the delta gives up
 move no stamp, so a view can hold such a row until the next write.
+
+**The full gates failed this section's commit, sec 943,** and the worst cost of a large share was
+one it had not seen.
+
+## 943. What the gates found at 60934e2, 2026-11-07
+
+Sec 942 was committed on the commit gates, which run no live script and no sabotage. The full
+gates afterwards failed twice, and following both found a fault larger than the one sec 942 fixed.
+
+**`live_many_shared` failed: "a listing of 2200 took 590 CPU ticks", against 6 alone.** Not the
+listing. Listing without pause across rounds, 353 of 355 took 4 to 8 ticks and the two a round
+landed in took 258 and 347, so the bound of 150 was under one idle round. 590 itself was not
+reproduced; it is that class. The script takes the least of four listings now, as a view loaded a
+page costs thousands on every one of them.
+
+**A round's cost was not the pull.** A profile with stacks put 54% of an idle round in
+`fzn_node_shelf_collect`: `names_blob` ran once a text, and read every sharer's tree from disk each
+time, so a collection cost texts times notes. Measured on R with 2200 notes held: 92 ticks at 16
+texts, 180 at 32, 262 at 48, 340 at 64, about 56 ms a text, and texts arrive 16 a round. **Under
+four minutes after a share, at 80 texts, a client's `remove text unused` went unanswered,** and a
+whole shelf would have held the loop some two minutes every round. Nothing saw it, as every script
+ended before the shelf filled, and sec 942's "the loop held" was blamed on the pull.
+
+- **What the trees name is read once a collection,** `fzn_node_notes_collecting` around it, into a
+  sorted set that each blob asks. It is read at the first blob, so an empty shelf reads nothing. No
+  write comes between two blobs, as the loop runs a collection whole.
+- **One path.** An answer outside a collection builds the same set and drops it, so "named" has one
+  definition. A tree or history that will not read, or no memory for the set, keeps everything, as
+  before.
+- **The set dies with the collection,** since a set held past it would remove a text written after.
+  Two guards say so.
+
+A collection of 16 texts: 106 ticks before, 6 now. `live_many_shared` c fails on the older daemon.
+
+**Six sabotages survived, five of them entries sec 942 added without running them,** each a test
+that could not show its fault:
+
+- `share-reach-below-only`: `O` was top-level, and claims lie in parent order, so a walk running on
+  past its parent never met it. Now F and O each hold notes, and each is shared in turn.
+- `notes-page-outlives-a-purge`: **a vacuous check.** `list note top` answers the first page of 44
+  notes, and the note was on a later one, so `!has(bin)` could not fail. It looks on its own page
+  now, having first seen the note there.
+- `share-scope-unsorted`, `share-scope-floor-left-behind`: two notes are often in order, and a floor
+  moved to the wrong note keeps the count, so `test_share_scope_in_order` has 16 notes a folder and
+  says which are offered.
+- `shared-stamp-misses-a-write`, `shared-stamp-one-for-all`: no test wrote into a tree between two
+  listings, or listed two sharers in turn.
+
+**`sessions_test` failed about one run in 256 from the commit that added it** (10 of 3000): a new
+grant takes the old slot and draws the same 8 bits above it, and the test read that as the old
+session found. In the product that may stand, as a frame of the old session is refused by the keys.
+The test asks by the ask now, 0 of 3000. It surfaced as a sabotage "caught" by an unrelated test;
+**a CAUGHT is worth reading for what caught it.**
+
+**Open:** bodies arrive 16 a round, `FZN_NODE_SHELF_WANTS`, so a share of 2200 is two hours from
+being readable.

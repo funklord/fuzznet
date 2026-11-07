@@ -106,7 +106,11 @@ int main(void)
 
 	/* ANOTHER ASK, none confirmed: the newest stands, and one slot. */
 	CHECK(grant(alice, 2u, g2, a2), "a second ask was not granted");
-	CHECK(used() == 1u && !fzn_node_sessions_find(&table, handle_of(g1)),
+	/* BY ITS ASK, not by the first handle: the new one takes the slot, and draws the
+	 * same eight bits above it one time in 256. A frame of the old session is then
+	 * refused by the keys, which is why that may stand. */
+	s = fzn_node_sessions_find(&table, handle_of(g2));
+	CHECK(used() == 1u && s && memcmp(s->ask, a2, sizeof(a2)) == 0,
 	      "two unconfirmed sessions for one sender");
 
 	/* CONFIRMED, by a frame. */

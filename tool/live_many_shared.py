@@ -7,7 +7,8 @@ S shares a folder of 2200 notes with R, a contact, past what one index page hold
        refused as too large, so a share past about 2000 notes never arrived, and the
        only sign was "the peer did not answer" each round
     b  each page of the tree read back, each note once, in CPU ticks that are not
-       the view loaded again a page
+       the view loaded again a page, the least of a few listings
+    c  a collection of the shelf in CPU ticks that are not every tree read a text
 
 Against a daemon whose reply slot is not in whole pieces, a holds nothing.
 
@@ -30,13 +31,20 @@ from live_shares import PREKEY_HOST  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 230.0
+live_trim.DEADLINE = time.monotonic() + 290.0
 
 NOTES = 2200
 WAIT_S = 150.0
-# CPU ticks a listing may take, rounds landing in it included. The view loaded a page
-# is thousands.
+# CPU ticks a listing may take, the least of LISTINGS. The view loaded a page is
+# thousands on every listing. A listing is 4 to 8; one a round lands in was 258 and 347
+# of 355 measured, and 590 in a full livecheck, so one listing alone says nothing.
 LISTING_TICKS = 150
+LISTINGS = 4
+# CPU ticks a collection may take with the texts of a round on the shelf. Read for each
+# text, every tree came from disk again: 92 at 16 texts, 56 ms each, and a shelf of
+# 2200 would have held the loop two minutes a round.
+COLLECT_TICKS = 40
+COLLECT_TEXTS = 16
 
 
 def retried(sock, line):
@@ -116,15 +124,35 @@ def main(argv):
 			print("livecheck: a: R took a share of %d notes in %.0f s"
 			      % (NOTES, time.monotonic() - began))
 
-			# b: the round over, so what is counted is the pages.
-			before = cpu_ticks(r.proc.pid)
-			seen = listed(socks["r"], folder)
-			ticks = cpu_ticks(r.proc.pid) - before
+			# b: rounds come a minute apart, so they cannot land in every listing.
+			ticks = None
+			for _ in range(LISTINGS):
+				before = cpu_ticks(r.proc.pid)
+				seen = listed(socks["r"], folder)
+				took = cpu_ticks(r.proc.pid) - before
+				ticks = took if ticks is None else min(ticks, took)
 			if len(seen) != NOTES or len(set(seen)) != NOTES:
 				raise failed("b: %d rows, %d notes, of %d" % (len(seen), len(set(seen)), NOTES))
 			if ticks > LISTING_TICKS:
 				raise failed("b: a listing of %d took %d CPU ticks" % (NOTES, ticks))
 			print("livecheck: b: every page of %d read back in %d CPU ticks" % (NOTES, ticks))
+
+			# c: a collection reads the trees once, not once a text.
+			kept, ticks = 0, None
+			while time.monotonic() - began < WAIT_S + 60.0 and kept < COLLECT_TEXTS:
+				words = retried(socks["r"], "remove text unused").split()
+				kept = int(words[2]) if len(words) == 3 and words[0] == "ok" else 0
+				time.sleep(1.0)
+			if kept < COLLECT_TEXTS:
+				raise failed("c: R holds %d texts of %d" % (kept, NOTES))
+			for _ in range(LISTINGS):
+				before = cpu_ticks(r.proc.pid)
+				retried(socks["r"], "remove text unused")
+				took = cpu_ticks(r.proc.pid) - before
+				ticks = took if ticks is None else min(ticks, took)
+			if ticks > COLLECT_TICKS:
+				raise failed("c: a collection of %d texts took %d CPU ticks" % (kept, ticks))
+			print("livecheck: c: a collection of %d texts took %d CPU ticks" % (kept, ticks))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

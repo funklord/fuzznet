@@ -17202,12 +17202,15 @@ static int shelf_span(void *ctx, const uint8_t *root, uint64_t first, uint8_t *o
 static void collect_texts(void)
 {
 	size_t kept = 0, removed = 0;
+	fzn_node_shelf_err_t err;
 
 	if (!shelf_on || !notes_on)
 		return;
 	fzn_node_notes_history_refresh(&node_notes);
-	if (fzn_node_shelf_collect(&shelf, keep_blob, &node_notes, &kept, &removed)
-	    != FZN_NODE_SHELF_OK)
+	fzn_node_notes_collecting(1);
+	err = fzn_node_shelf_collect(&shelf, keep_blob, &node_notes, &kept, &removed);
+	fzn_node_notes_collecting(0);
+	if (err != FZN_NODE_SHELF_OK)
 		say(FZN_ENTRY_ERROR, "shelf/collect", "the shelf would not all be collected");
 	else if (removed)
 		say(FZN_ENTRY_INFO, "shelf/collect", "%zu text(s) no note names removed, %zu kept", removed,
