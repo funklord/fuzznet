@@ -13,11 +13,14 @@
  * consumers.
  */
 
+#define _POSIX_C_SOURCE 200809L /* nanosleep */
+
 #include "../persist_file.h"
 
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
@@ -532,6 +535,103 @@ gone:
 	expect(rmdir(where) == 0, "the walk's directory would not go: a file it did not name");
 }
 
+/* A WALKER THAT REMOVES WHAT IT IS HANDED, as a sweep does. */
+static int walk_and_remove(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	const fzn_persist_ops_t *ops = arg;
+
+	return ops->remove(ops->ctx, FZN_PERSIST_PEER, subject);
+}
+
+/* HOW MANY `ops` WALKS IN `slot`, and that the sum of their first bytes is right. */
+static size_t walked_in(const fzn_persist_ops_t *ops, fzn_persist_slot_t slot)
+{
+	struct walked w;
+
+	memset(&w, 0, sizeof(w));
+	expect(fzn_persist_each(ops, slot, walk_one, &w) == 1, "a walk refused");
+	return w.n;
+}
+
+/* sec 936: what the directory holds, kept in memory, says what the directory says. */
+static void test_the_directory_held(void)
+{
+	static char where[320], path[448];
+	static uint8_t room[64 * FZN_PUBKEY_LEN];
+	fzn_persist_file_t store;
+	const fzn_persist_ops_t *ops;
+	uint8_t subject[FZN_PUBKEY_LEN], byte = 1u;
+	struct timespec tick = { 0, 30000000 };
+	size_t i, count = 0;
+	FILE *f;
+
+	snprintf(where, sizeof(where), "%s/held", dir);
+	if (mkdir(where, 0700) != 0 || !(ops = fzn_persist_file_init(&store, where))) {
+		expect(0, "fixture: the held directory");
+		return;
+	}
+	/* A ROW BEFORE IT WAS ASKED FOR, read at the first walk. */
+	walk_key(subject, 0u);
+	expect(ops->save(ops->ctx, FZN_PERSIST_PEER, subject, &byte, 1u) == 1, "save refused");
+	expect(ops->save(ops->ctx, FZN_PERSIST_TRUST, NULL, &byte, 1u) == 1, "save refused");
+	fzn_persist_file_index_on(&store);
+	expect(store.index != NULL, "no index");
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 1u, "a row saved before was not read");
+	expect(walked_in(ops, FZN_PERSIST_CONTACT) == 0u, "another slot's row was walked");
+
+	/* SAVED AND REMOVED THROUGH IT, in any order, and said back in the list. */
+	for (i = 20u; i-- > 1u;) {
+		walk_key(subject, i);
+		expect(ops->save(ops->ctx, FZN_PERSIST_PEER, subject, &byte, 1u) == 1, "save refused");
+	}
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 20u, "a saved row was not walked");
+	/* SAVED AGAIN IS ONE ROW, changed or not. */
+	walk_key(subject, 3u);
+	byte = 2u;
+	expect(ops->save(ops->ctx, FZN_PERSIST_PEER, subject, &byte, 1u) == 1, "save refused");
+	byte = 1u;
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 20u, "a row saved again counted twice");
+	expect(ops->remove(ops->ctx, FZN_PERSIST_PEER, subject) == 1, "remove refused");
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 19u, "a removed row was walked");
+	expect(ops->remove(ops->ctx, FZN_PERSIST_PEER, subject) == 1, "a second remove refused");
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 19u, "removing nothing moved the rows");
+	expect(ops->list(ops->ctx, FZN_PERSIST_PEER, room, 64u, &count) == 1 && count == 19u,
+	       "a list did not agree with the walk");
+	expect(!ops->list(ops->ctx, FZN_PERSIST_PEER, room, 18u, &count),
+	       "a list with too little room did not refuse");
+
+	/* THE DIRECTORY CHANGED BEHIND IT: read again. */
+	(void)nanosleep(&tick, NULL);
+	walk_key(subject, 40u);
+	snprintf(path, sizeof(path), "%s/%u-", where, (unsigned)FZN_PERSIST_PEER);
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		snprintf(path + strlen(path), 3u, "%02x", subject[i]);
+	f = fopen(path, "wb");
+	expect(f != NULL, "fixture: a row written beside it");
+	if (f) {
+		(void)fputc(1, f);
+		(void)fclose(f);
+	}
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 20u, "a row written beside it was not seen");
+	(void)nanosleep(&tick, NULL);
+	expect(unlink(path) == 0, "fixture: a row removed beside it");
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 19u, "a row removed beside it was still walked");
+
+	/* A WALKER MAY CHANGE WHAT IT WALKS. */
+	expect(fzn_persist_each(ops, FZN_PERSIST_PEER, walk_and_remove, (void *)ops) == 1,
+	       "a walk that removes refused");
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 0u, "a walk that removed left rows");
+
+	/* OFF, it says what the directory says. */
+	walk_key(subject, 1u);
+	expect(ops->save(ops->ctx, FZN_PERSIST_PEER, subject, &byte, 1u) == 1, "save refused");
+	fzn_persist_file_index_off(&store);
+	expect(store.index == NULL && walked_in(ops, FZN_PERSIST_PEER) == 1u, "off did not go back");
+	(void)ops->remove(ops->ctx, FZN_PERSIST_PEER, subject);
+	(void)ops->remove(ops->ctx, FZN_PERSIST_TRUST, NULL);
+	expect(rmdir(where) == 0, "the held directory would not go: a file it did not name");
+}
+
 int main(void)
 {
 	fzn_persist_file_t store;
@@ -566,6 +666,7 @@ int main(void)
 		goto out;
 
 	test_a_slot_walked_past_any_list();
+	test_the_directory_held();
 
 	for (i = 0; i < sizeof(in); i++)
 		in[i] = (uint8_t)(i + 1u);

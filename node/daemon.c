@@ -19002,6 +19002,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			        route.core ? bulk_dir : store_dir);
 			return 1;
 		}
+		/* WHAT EACH DIRECTORY HOLDS, sec 936: a slot's walk no more reads them all. */
+		fzn_persist_file_index_on(&core_file);
+		if (route.store != route.core)
+			fzn_persist_file_index_on(&bulk_file);
 		fzn_persist_route_ops(&route, &routed);
 		/* THE CONTACTS AND NOTES IN RAM, sec 926, 928: walked often. */
 		fzn_persist_cache_init(&note_cache, &routed, FZN_PERSIST_NOTE, &note_cached);

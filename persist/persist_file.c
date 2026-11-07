@@ -42,6 +42,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <dirent.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -217,6 +218,9 @@ static int file_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 /* THE LARGEST SAVE COMPARED WITH WHAT IS THERE before it is written. */
 #define SAME_MAX 4096u
 
+static void index_wrote(const fzn_persist_file_t *store, fzn_persist_slot_t slot,
+                        const uint8_t *subject, int kept);
+
 static int file_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                      const uint8_t *bytes, size_t len)
 {
@@ -328,6 +332,7 @@ static int file_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	}
 	/* AND AFTER THE MOVE, before a caller has heard it worked. */
 	FZN_FAULT_POINT("persist.renamed");
+	index_wrote(store, slot, subject, 1);
 	return 1;
 }
 
@@ -349,6 +354,197 @@ static int unhex(char c)
 	return -1;
 }
 
+/* ---- what the directory holds, sec 936 ---------------------------------- */
+
+#define SUBJECT_HEX_LEN 64u
+
+struct slot_rows {
+	uint8_t *rows; /* subjects, sorted */
+	size_t n, cap;
+};
+
+struct fzn_persist_file_index {
+	struct slot_rows slots[FZN_PERSIST_FILE_SLOT_MAX + 1u];
+	struct timespec dir_time;
+	int whole;
+};
+
+static int by_subject(const void *a, const void *b)
+{
+	return memcmp(a, b, FZN_PUBKEY_LEN);
+}
+
+static int dir_time_of(const fzn_persist_file_t *store, struct timespec *out)
+{
+	struct stat st;
+
+	if (stat(store->dir, &st) != 0)
+		return 0;
+	*out = st.st_mtim;
+	return 1;
+}
+
+static int row_room(struct slot_rows *r)
+{
+	uint8_t *more;
+	size_t cap;
+
+	if (r->n < r->cap)
+		return 1;
+	cap = r->cap ? r->cap * 2u : 8u;
+	if (!(more = realloc(r->rows, cap * FZN_PUBKEY_LEN)))
+		return 0;
+	r->rows = more;
+	r->cap = cap;
+	return 1;
+}
+
+/* `n`, a file's name, as a slot and a subject: 1, or 0 for what is not a row. */
+static int name_parts(const char *n, unsigned *slot, uint8_t subject[FZN_PUBKEY_LEN])
+{
+	size_t len = strlen(n), head = len > SUBJECT_HEX_LEN ? len - SUBJECT_HEX_LEN : 0u;
+	unsigned i;
+
+	if ((head != 2u && head != 3u) || n[head - 1u] != '-' || n[0] < '0' || n[0] > '9')
+		return 0;
+	*slot = (unsigned)(n[0] - '0');
+	if (head == 3u) {
+		if (n[0] == '0' || n[1] < '0' || n[1] > '9')
+			return 0;
+		*slot = *slot * 10u + (unsigned)(n[1] - '0');
+	}
+	for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+		int hi = unhex(n[head + (i * 2u)]), lo = unhex(n[head + 1u + (i * 2u)]);
+
+		if (hi < 0 || lo < 0)
+			return 0;
+		subject[i] = (uint8_t)((hi << 4) | lo);
+	}
+	return 1;
+}
+
+/* THE DIRECTORY READ IN ONE PASS. Its time is taken first, so what moves during
+ * the pass reads as moved. 1, or 0 with the index not whole. */
+static int index_read(fzn_persist_file_t *store)
+{
+	struct fzn_persist_file_index *x = store->index;
+	struct dirent *ent;
+	DIR *d;
+	unsigned s;
+
+	x->whole = 0;
+	for (s = 0; s <= FZN_PERSIST_FILE_SLOT_MAX; s++)
+		x->slots[s].n = 0;
+	if (!dir_time_of(store, &x->dir_time) || !(d = opendir(store->dir)))
+		return 0;
+	while ((ent = readdir(d)) != NULL) {
+		uint8_t subject[FZN_PUBKEY_LEN];
+
+		if (!name_parts(ent->d_name, &s, subject))
+			continue;
+		if (!row_room(&x->slots[s])) {
+			(void)closedir(d);
+			return 0;
+		}
+		memcpy(x->slots[s].rows + x->slots[s].n++ * FZN_PUBKEY_LEN, subject, FZN_PUBKEY_LEN);
+	}
+	(void)closedir(d);
+	for (s = 0; s <= FZN_PERSIST_FILE_SLOT_MAX; s++)
+		if (x->slots[s].n)
+			qsort(x->slots[s].rows, x->slots[s].n, FZN_PUBKEY_LEN, by_subject);
+	x->whole = 1;
+	return 1;
+}
+
+/* THE ROWS OF `slot` TO ANSWER FROM, or NULL to read the directory as ever. */
+static const struct slot_rows *index_of(fzn_persist_file_t *store, fzn_persist_slot_t slot)
+{
+	struct fzn_persist_file_index *x = store->index;
+	struct timespec now;
+
+	if (!x || !dir_time_of(store, &now))
+		return NULL;
+	if ((!x->whole || now.tv_sec != x->dir_time.tv_sec || now.tv_nsec != x->dir_time.tv_nsec)
+	    && !index_read(store))
+		return NULL;
+	return &x->slots[(unsigned)slot];
+}
+
+/* WHERE `subject` STANDS IN `r`, or would: 1 when it is there. */
+static int row_at(const struct slot_rows *r, const uint8_t *subject, size_t *at)
+{
+	size_t low = 0, high = r->n;
+
+	while (low < high) {
+		size_t mid = low + (high - low) / 2u;
+		int cmp = memcmp(r->rows + mid * FZN_PUBKEY_LEN, subject, FZN_PUBKEY_LEN);
+
+		if (cmp == 0) {
+			*at = mid;
+			return 1;
+		}
+		if (cmp < 0)
+			low = mid + 1u;
+		else
+			high = mid;
+	}
+	*at = low;
+	return 0;
+}
+
+/* THIS STORE WROTE, or removed, so the index follows, and the directory's new time
+ * is its own doing. Only a whole index moves; one with no room goes unwhole, and
+ * is read again when next asked. */
+static void index_wrote(const fzn_persist_file_t *store, fzn_persist_slot_t slot,
+                        const uint8_t *subject, int kept)
+{
+	struct fzn_persist_file_index *x = store->index;
+	struct slot_rows *r;
+	size_t at;
+	int held;
+
+	if (!x || !x->whole)
+		return;
+	if (subject) {
+		r = &x->slots[(unsigned)slot];
+		held = row_at(r, subject, &at);
+		if (kept && !held) {
+			if (!row_room(r)) {
+				x->whole = 0;
+				return;
+			}
+			memmove(r->rows + (at + 1u) * FZN_PUBKEY_LEN, r->rows + at * FZN_PUBKEY_LEN,
+			        (r->n - at) * FZN_PUBKEY_LEN);
+			memcpy(r->rows + at * FZN_PUBKEY_LEN, subject, FZN_PUBKEY_LEN);
+			r->n++;
+		} else if (!kept && held) {
+			memmove(r->rows + at * FZN_PUBKEY_LEN, r->rows + (at + 1u) * FZN_PUBKEY_LEN,
+			        (r->n - at - 1u) * FZN_PUBKEY_LEN);
+			r->n--;
+		}
+	}
+	if (!dir_time_of(store, &x->dir_time))
+		x->whole = 0;
+}
+
+void fzn_persist_file_index_on(fzn_persist_file_t *store)
+{
+	if (store && !store->index)
+		store->index = calloc(1u, sizeof(*store->index));
+}
+
+void fzn_persist_file_index_off(fzn_persist_file_t *store)
+{
+	unsigned s;
+
+	if (!store || !store->index)
+		return;
+	for (s = 0; s <= FZN_PERSIST_FILE_SLOT_MAX; s++)
+		free(store->index->slots[s].rows);
+	free(store->index);
+	store->index = NULL;
+}
+
 /* WHICH SUBJECTS THIS DIRECTORY HOLDS FOR `slot`.
  *
  * A file is `<slot><dash><64 hex>`, so listing is a directory scan and a
@@ -366,6 +562,7 @@ static int file_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
                      size_t *count)
 {
 	fzn_persist_file_t *store = (fzn_persist_file_t *)ctx;
+	const struct slot_rows *held;
 	DIR *d;
 	struct dirent *ent;
 	size_t found = 0;
@@ -387,6 +584,14 @@ static int file_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 	prefix[prefix_len++] = '-';
 	prefix[prefix_len] = '\0';
 	*count = 0;
+	if ((held = index_of(store, slot)) != NULL) {
+		if (held->n > max)
+			return 0;
+		if (held->n)
+			memcpy(out, held->rows, held->n * FZN_PUBKEY_LEN);
+		*count = held->n;
+		return 1;
+	}
 	d = opendir(store->dir);
 	if (!d)
 		return 0;
@@ -430,6 +635,7 @@ static int file_each(void *ctx, fzn_persist_slot_t slot,
                      int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
 {
 	fzn_persist_file_t *store = (fzn_persist_file_t *)ctx;
+	const struct slot_rows *held;
 	DIR *d;
 	struct dirent *ent;
 	char prefix[4];
@@ -442,6 +648,21 @@ static int file_each(void *ctx, fzn_persist_slot_t slot,
 	prefix[prefix_len++] = (char)('0' + ((unsigned)slot % 10u));
 	prefix[prefix_len++] = '-';
 	prefix[prefix_len] = '\0';
+	/* A COPY WALKED, as `fn` may save and remove, which moves the rows. */
+	if ((held = index_of(store, slot)) != NULL) {
+		size_t i, n = held->n;
+		uint8_t *rows = n ? malloc(n * FZN_PUBKEY_LEN) : NULL;
+
+		if (rows || !n) {
+			if (n)
+				memcpy(rows, held->rows, n * FZN_PUBKEY_LEN);
+			for (i = 0; i < n; i++)
+				if (!fn(arg, rows + i * FZN_PUBKEY_LEN))
+					break;
+			free(rows);
+			return 1;
+		}
+	}
 	d = opendir(store->dir);
 	if (!d)
 		return 0;
@@ -501,8 +722,10 @@ static int file_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subjec
 		return 0;
 	if (!path_for(path, sizeof(path), store->dir, slot, subject, NULL))
 		return 0;
-	if (unlink(path) == 0 || errno == ENOENT)
+	if (unlink(path) == 0 || errno == ENOENT) {
+		index_wrote(store, slot, subject, 0);
 		return 1;
+	}
 	say_failed(store, "remove", path, errno);
 	return 0;
 }
@@ -523,6 +746,7 @@ const fzn_persist_ops_t *fzn_persist_file_init(fzn_persist_file_t *store, const 
 	/* Quiet unless somebody asks. The header says why an init failure
 	 * above cannot be reported through this field. */
 	store->log = NULL;
+	store->index = NULL;
 	store->ops.load = file_load;
 	store->ops.save = file_save;
 	store->ops.list = file_list;

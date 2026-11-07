@@ -29,7 +29,27 @@ typedef struct fzn_persist_file {
 	fzn_persist_ops_t ops;
 	/* Where this store says what happened, or NULL for silence. */
 	struct flog_t *log;
+	/* WHAT THE DIRECTORY HOLDS, once `fzn_persist_file_index_on` is asked. */
+	struct fzn_persist_file_index *index;
 } fzn_persist_file_t;
+
+/*
+ * LISTING A SLOT WITHOUT READING THE DIRECTORY, sec 936. Every slot lives in one
+ * directory, so a walk of any slot read the names of all of them: a host's whole
+ * store, thousands of files, for a slot of two. It was 70 per cent of a group's
+ * `add member`, through a walk of one's own siblings.
+ *
+ * ASKED FOR, as this holds the subjects in memory, 33 bytes a file, for the life of
+ * the store: a daemon's. Read in one pass at the first list or walk, and from then
+ * on a save and a remove keep it. A directory that changed some other way, as its
+ * own time says, is read again, so it can be slower and not wrong; two writers
+ * within one tick of that clock are what the claim (`claim/`) already forbids.
+ * No memory leaves it off, and the directory is read as before.
+ */
+void fzn_persist_file_index_on(fzn_persist_file_t *store);
+
+/* ITS MEMORY LET GO, and listing goes back to the directory. */
+void fzn_persist_file_index_off(fzn_persist_file_t *store);
 
 /*
  * Give this store somewhere to say what happened, or NULL to silence it.

@@ -81780,9 +81780,9 @@ A `small` build keeps 64 and 128. Read often, a group no longer clears its two t
 Static memory goes to 1.14 GB, untouched until used.
 
 **Measured:** a member added 37 ms at 3500, 47 at 4250, contact included, and `list group` 24 ms.
-**A group is still one row:** each act rewrites it, so an add grows about 10 ms a thousand, and
-30000 members take about an hour and a half to add. A row a member is the end of that. Sealing an
-epoch to every host is linear too, and belongs to sec 625's design, not to this bound.
+**That growth was not the row,** as this entry first said it was: sec 936. A member is 8 ms flat
+to 8000 now, so a row a member is not needed for this figure. Sealing an epoch to every host is
+linear, and belongs to sec 625's design, not to this bound.
 
 ## 931. A round that held the loop, 2026-11-06
 
@@ -81944,3 +81944,30 @@ to leave open. Rejected: building a stream here before a consumer has used a wor
 `live_session`: said and said back over UDP; R spoke first; a rule keeps a word out and lets it
 back; R's word found D through a bridge at 51-byte units; revoked, D is heard no more.
 `device_test`, 2 sabotages.
+
+## 936. A slot's walk read the whole store, 2026-11-07
+
+A member's add grew 10 ms a thousand, and sec 930 blamed the group's row. **Measured with `perf`:
+70 per cent of an add was `getdents`.** `act_with` asks who signs, which walks this host's
+siblings: a slot of one or two files. A store is one directory, so `file_each` and `file_list`
+read every file's name in it to find them. So every walk of any slot paid for all that was held,
+contacts and acts alike, on every path that lists.
+
+**`fzn_persist_file_index_on`:** one pass over the directory, the subjects sorted by slot in
+memory, 33 bytes a file, kept by this store's own saves and removes. A directory that moved some
+other way, as its time says, is read again. Asked for, by the daemon, so a tool holds no memory
+and nothing else changes. No memory leaves it off.
+
+| member added | before | after |
+|---|---|---|
+| at 2000 | 18 ms | 6 ms |
+| at 4250 | 47 ms | 8 ms |
+| at 8000 | | 8 ms |
+
+So 30000 members is about 5 minutes, not an hour and a half, by the flat figure and not measured
+that far. **Rejected: a directory a slot,** which ends the scan with no memory but moves every
+file of every store, and each test and tool that names one. **Row a member is dropped** (sec 930).
+
+**Notes grow by something else:** 3.5 ms at 1000, 9.8 at 6000, about what sec 928 had.
+
+`persist_file_test`, 4 sabotages.
