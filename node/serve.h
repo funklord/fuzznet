@@ -142,6 +142,15 @@ typedef struct fzn_node_state {
 	 * serving ones, each answer handed to its callback, each past its
 	 * deadline failed. NULL awaits nothing. */
 	fzn_node_asks_t *asks;
+	/* THE SESSIONS GRANTED HERE, sec 932: with this set a peer may ask for one,
+	 * and a session frame is served as a full frame would be, its answer in
+	 * one when it fits. NULL asks are dropped and session frames unread. */
+	struct fzn_node_sessions *sessions;
+	/* THE TIME IN A GRANT, ms: NULL says `clock`'s, in whole seconds. */
+	uint64_t (*clock_ms)(void);
+	/* THE SESSION THE REQUEST BEING ANSWERED CAME IN, as its slot plus one, for
+	 * the length of serving it, and 0 for a full frame. */
+	size_t answering;
 	/* WHERE THE REQUEST BEING ANSWERED CAME FROM, sec 621: set for the
 	 * length of an `on_remote` call and NULL otherwise, so a handler can
 	 * tell a peer the address it saw -- and never decides who the peer is

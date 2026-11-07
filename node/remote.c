@@ -6,11 +6,19 @@
 
 #include "../frame/freshness.h"
 #include "clocks.h"
+#include "types.h"
 #include "../log/cause.h"
+#include "../wire/session_frame.h"
 
 /* WHETHER THE REQUEST IS A TIME ASK, through the cause envelope a daemon
  * puts round every request it sends (`log/cause.h`, sec 465) as the admin
  * handler looks through it later. */
+int fzn_node_session_is_ask(const uint8_t *payload, size_t len)
+{
+	return payload && len == 2u + FZN_SESSION_ASK_LEN && payload[0] == FZN_TYPES_VERSION_SHARED
+	       && payload[1] == FZN_TYPE_SESSION_ASK;
+}
+
 static int time_ask(const fzn_opened_t *opened)
 {
 	fzn_entry_name_t cause, origin;
@@ -18,6 +26,8 @@ static int time_ask(const fzn_opened_t *opened)
 	size_t in_len = 0;
 
 	if (fzn_node_time_is_ask(opened->payload, opened->payload_len))
+		return 1;
+	if (fzn_node_session_is_ask(opened->payload, opened->payload_len))
 		return 1;
 	return fzn_cause_unwrap(opened->payload, opened->payload_len, &cause, &origin, &in, &in_len)
 	               == FZN_CAUSE_OK
@@ -36,9 +46,6 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 {
 	const uint8_t *sender;
 	fzn_opened_t scratch;
-	fzn_authz_verdict_t verdict;
-	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
-	size_t i;
 
 	if (!config || !peer || !hash || !aead || !frame || !replay)
 		return FZN_NODE_REMOTE_DROPPED;
@@ -72,6 +79,18 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 	    && fzn_replay_admit(replay, opened->nonce, opened->expires_at, FZN_EXPIRY_REQUIRED, now)
 	               != FZN_FRESH_OK)
 		return FZN_NODE_REMOTE_DROPPED;
+
+	return fzn_node_serve_authorise(config, peer, sign, now, opened);
+}
+
+fzn_node_remote_result_t fzn_node_serve_authorise(const fzn_node_config_t *config,
+                                                  const fzn_node_peer_t *peer,
+                                                  const fzn_sign_ops_t *sign, uint64_t now,
+                                                  const fzn_opened_t *opened)
+{
+	fzn_authz_verdict_t verdict;
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	size_t i;
 
 	/* Open the peer's owned hop bytes into views the decision reads. The
 	 * views point into peer->hop_bytes, which outlives this call. */

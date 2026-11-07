@@ -45,7 +45,12 @@ static fzn_bearer_t back;
 static unsigned frames_seen, drop_frames, answers_to_lose, answer_status;
 static uint32_t seen_msgs[16];
 static uint64_t last_expiry;
-static int say_stranger, answer_wrong_nonce, answer_wrong_msg;
+static int say_stranger, grant_wrong, answer_wrong_msg, answer_in_full;
+/* THE GATEWAY'S END OF THE SESSION, and what it granted last. */
+static fzn_session_end_t gate_end;
+static int gate_up;
+static unsigned asks_seen, units_up, units_down;
+static uint32_t gate_handle;
 
 /* What the gateway sends, waiting for the device to hear it. */
 static uint8_t queue[64][FZN_BEARER_UNIT_MAX];
@@ -54,6 +59,7 @@ static size_t queue_len[64], queue_head, queue_tail;
 static int to_device(void *ctx, const uint8_t *bytes, size_t len)
 {
 	(void)ctx;
+	units_down++;
 	memcpy(queue[queue_tail % 64u], bytes, len);
 	queue_len[queue_tail++ % 64u] = len;
 	return 1;
@@ -94,6 +100,7 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 	size_t n;
 
 	(void)ctx;
+	units_up++;
 	if (!(n = fzn_bearer_take(&gate_join, bytes, len, &whole)))
 		return 1;
 	if (drop_frames) {
@@ -101,6 +108,54 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 		return 1;
 	}
 	memcpy(frame, whole, n);
+	/* A SESSION FRAME: what a gateway started again cannot read, and says
+	 * nothing to. */
+	if (frame[0] == FZN_SESSION_FRAME_MARK) {
+		fzn_session_opened_t got;
+		uint8_t out[FZN_SESSION_FRAME_MAX];
+		size_t out_len = 0;
+
+		if (!gate_up)
+			return 1;
+		CHECK(fzn_session_frame_open(&gate_end, frame, n, &aead, &got) == FZN_SESSION_FRAME_OK,
+		      "a device's session frame did not open");
+		seen_msgs[frames_seen++ % 16u] = got.msg;
+		last_expiry = got.expires_at;
+		if (answers_to_lose) {
+			answers_to_lose--;
+			return 1;
+		}
+		CHECK(got.payload[1] == FZN_TYPE_CALL, "a session frame held no call");
+		reply[0] = FZN_TYPES_VERSION_SHARED;
+		reply[1] = FZN_TYPE_CALLED;
+		reply[2] = (uint8_t)answer_status;
+		memcpy(reply + 3, got.payload + 3, got.payload[2]);
+		if (answer_in_full) {
+			memset(&opened, 0, sizeof(opened));
+			opened.msg = got.msg;
+			gateway_says(&opened, reply, 3u + got.payload[2], image.send_key, image.send_ckey);
+			return 1;
+		}
+		if (say_stranger) {
+			static fzn_session_end_t other;
+			uint8_t bad[3] = { FZN_TYPES_VERSION_SHARED, FZN_TYPE_CALLED, 99u };
+
+			memset(&other, 0, sizeof(other));
+			memset(other.send_key, 0x15, sizeof(other.send_key));
+			other.speaks_to = gate_end.speaks_to;
+			CHECK(fzn_session_frame_seal(&other, got.msg, 0u, bad, sizeof(bad), out, sizeof(out),
+			                             &out_len, &aead)
+			              == FZN_SESSION_FRAME_OK,
+			      "a stranger could not seal");
+			CHECK(fzn_bearer_send(&back, 76u, out, out_len) == 1, "a stranger could not send");
+		}
+		CHECK(fzn_session_frame_seal(&gate_end, got.msg + (answer_wrong_msg ? 1u : 0u), 0u, reply,
+		                             3u + got.payload[2], out, sizeof(out), &out_len, &aead)
+		              == FZN_SESSION_FRAME_OK,
+		      "the gateway could not seal in the session");
+		CHECK(fzn_bearer_send(&back, 78u, out, out_len) == 1, "the gateway could not send");
+		return 1;
+	}
 	if (fzn_seal_open(frame, n, image.send_key, image.send_ckey, &hash, &aead, &opened)
 	    != FZN_SEAL_OK) {
 		CHECK(0, "a device's frame did not open");
@@ -109,7 +164,11 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 	CHECK(memcmp(opened.sender, image.sender, FZN_PUBKEY_LEN) == 0, "the frame's sender moved");
 	CHECK(memcmp(opened.capability, image.capability, FZN_CAP_ID_LEN) == 0,
 	      "the frame's capability moved");
+	CHECK(opened.payload_len == 2u + FZN_SESSION_ASK_LEN
+	              && opened.payload[1] == FZN_TYPE_SESSION_ASK,
+	      "a full frame held anything but an ask");
 	seen_msgs[frames_seen++ % 16u] = opened.msg;
+	asks_seen++;
 	if (answers_to_lose) {
 		answers_to_lose--;
 		return 1;
@@ -125,21 +184,16 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 		gateway_says(&opened, reply, 3u, wrong_key, wrong_ckey);
 	}
 	reply[0] = FZN_TYPES_VERSION_SHARED;
-	if (opened.payload[1] == FZN_TYPE_TIME_ASK) {
-		reply[1] = FZN_TYPE_TIME;
-		memcpy(reply + 2, opened.payload + 2, 16u);
-		if (answer_wrong_nonce)
-			reply[2] ^= 1u;
-		fzn_put_be64(reply + 18, GATEWAY_TIME_MS);
-		gateway_says(&opened, reply, 26u, image.send_key, image.send_ckey);
-		return 1;
-	}
-	last_expiry = opened.expires_at;
-	CHECK(opened.payload[1] == FZN_TYPE_CALL, "a device sent neither ask nor call");
-	reply[1] = FZN_TYPE_CALLED;
-	reply[2] = (uint8_t)answer_status;
-	memcpy(reply + 3, opened.payload + 3, opened.payload[2]);
-	gateway_says(&opened, reply, 3u + opened.payload[2], image.send_key, image.send_ckey);
+	reply[1] = FZN_TYPE_SESSION_GRANT;
+	memset(reply + 2, 0x5A, FZN_SESSION_RANDOM_LEN);
+	gate_handle += 0x1001u;
+	fzn_put_be32(reply + 2 + FZN_SESSION_RANDOM_LEN, gate_handle);
+	fzn_put_be64(reply + 2 + FZN_SESSION_RANDOM_LEN + 4u, GATEWAY_TIME_MS);
+	CHECK(fzn_session_end_derive(&gate_end, &hash, image.send_key, opened.payload + 2, reply + 2, 0),
+	      "the gateway could not derive");
+	gate_up = 1;
+	gateway_says(&opened, reply, grant_wrong ? 3u : 2u + FZN_SESSION_GRANT_LEN, image.send_key,
+	             image.send_ckey);
 	return 1;
 }
 
@@ -190,6 +244,8 @@ static void device_up(fzn_device_t *d, fzn_bearer_t *b, fzn_bearer_join_t *j,
 	d->life_s = 60u;
 	queue_head = queue_tail = 0;
 	frames_seen = 0;
+	asks_seen = 0;
+	gate_up = 0;
 }
 
 int main(void)
@@ -229,7 +285,7 @@ int main(void)
 	text[FZN_DEVICE_IMAGE_PREFIX_LEN + 1u] = '9';
 	CHECK(fzn_device_image_from_text(text, strlen(text), &again) == 0, "another version read");
 
-	/* A CALL, ON EACH UNIT: the time asked first, then the call. */
+	/* A CALL, ON EACH UNIT: a session asked for first, then the call in it. */
 	for (k = 0; k < sizeof(units) / sizeof(units[0]); k++) {
 		device_up(&d, &b, &j, &slot, units[k]);
 		uptime = 777000u;
@@ -239,7 +295,7 @@ int main(void)
 		      "a call was not answered");
 		CHECK(status == 0u && len == 5u && memcmp(answer, "press", 5u) == 0,
 		      "a call's answer did not read");
-		CHECK(frames_seen == 2u && d.clock_known, "the time was not asked first");
+		CHECK(frames_seen == 2u && d.session_up && asks_seen == 1u, "no session was asked first");
 		/* AN EXPIRY IN THE GATEWAY'S TERMS, though this device has no such clock. */
 		CHECK(last_expiry >= GATEWAY_TIME_MS / 1000u + 59u
 		              && last_expiry <= GATEWAY_TIME_MS / 1000u + 61u,
@@ -247,7 +303,52 @@ int main(void)
 		CHECK(seen_msgs[0] != seen_msgs[1], "the ask and the call shared a message");
 	}
 
-	/* A LOST FRAME: sent again, and the clock asked once. */
+	/* WHAT IT IS FOR: at 51 bytes the next call is one unit each way, where a
+	 * full frame takes four. */
+	device_up(&d, &b, &j, &slot, 51u);
+	CHECK(fzn_device_open(&d) == FZN_DEVICE_OK, "no session");
+	units_up = units_down = 0;
+	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
+	              == FZN_DEVICE_OK,
+	      "a call in a session was not answered");
+	CHECK(units_up == 1u && units_down == 1u, "a call in a session took more than a unit each way");
+	CHECK(asks_seen == 1u, "a standing session was asked for again");
+
+	/* AN ANSWER TOO LONG FOR ONE GOES FULL, and a device opens that as well. */
+	device_up(&d, &b, &j, &slot, 222u);
+	answer_in_full = 1;
+	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
+	              == FZN_DEVICE_OK
+	              && len == 5u,
+	      "a full frame's answer was not taken in a session");
+	answer_in_full = 0;
+
+	/* THE GATEWAY STARTED AGAIN: it says nothing, the device gives the session up
+	 * and asks, and the press goes again under its own number, so a kept reply
+	 * would answer it. */
+	device_up(&d, &b, &j, &slot, 51u);
+	d.tries = 8u;
+	CHECK(fzn_device_open(&d) == FZN_DEVICE_OK, "no session");
+	answers_to_lose = 3u;
+	frames_seen = 0;
+	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
+	              == FZN_DEVICE_OK,
+	      "a gateway started again was not asked again");
+	CHECK(asks_seen == 2u, "the session was not asked for again");
+	CHECK(seen_msgs[0] == seen_msgs[(frames_seen - 1u) % 16u],
+	      "a resend under a new session went as a new press");
+
+	/* ONE THAT SAYS NOTHING AT ALL, as a gateway with no such session does. */
+	device_up(&d, &b, &j, &slot, 51u);
+	d.tries = 8u;
+	CHECK(fzn_device_open(&d) == FZN_DEVICE_OK, "no session");
+	gate_up = 0;
+	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
+	              == FZN_DEVICE_OK
+	              && asks_seen == 2u,
+	      "silence did not lead to asking again");
+
+	/* A LOST FRAME: sent again. */
 	device_up(&d, &b, &j, &slot, 51u);
 	drop_frames = 2u;
 	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
@@ -256,7 +357,7 @@ int main(void)
 
 	/* A LOST ANSWER: the same message, so a kept reply can answer it. */
 	device_up(&d, &b, &j, &slot, 222u);
-	CHECK(fzn_device_clock(&d) == FZN_DEVICE_OK, "the clock was not asked");
+	CHECK(fzn_device_open(&d) == FZN_DEVICE_OK, "no session");
 	frames_seen = 0;
 	answers_to_lose = 1u;
 	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
@@ -265,15 +366,15 @@ int main(void)
 	CHECK(frames_seen == 2u && seen_msgs[0] == seen_msgs[1],
 	      "a resend went as a new message, so a press could count twice");
 
-	/* NOBODY THERE: the tries are bounded, and the clock is asked again. */
+	/* NOBODY THERE: the tries are bounded, and the session given up. */
 	device_up(&d, &b, &j, &slot, 222u);
-	CHECK(fzn_device_clock(&d) == FZN_DEVICE_OK, "the clock was not asked");
+	CHECK(fzn_device_open(&d) == FZN_DEVICE_OK, "no session");
 	drop_frames = 1000u;
 	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
 	              == FZN_DEVICE_ERR_SILENT,
 	      "silence was not said");
 	drop_frames = 0;
-	CHECK(!d.clock_known, "a silent gateway left the clock believed");
+	CHECK(!d.session_up, "a silent gateway left the session believed");
 
 	/* A STRANGER ON THE SAME RADIO: its frame does not open, and is passed over. */
 	device_up(&d, &b, &j, &slot, 222u);
@@ -287,19 +388,18 @@ int main(void)
 
 	/* ANOTHER QUESTION'S ANSWER is not this one's. */
 	device_up(&d, &b, &j, &slot, 222u);
-	CHECK(fzn_device_clock(&d) == FZN_DEVICE_OK, "the clock was not asked");
+	CHECK(fzn_device_open(&d) == FZN_DEVICE_OK, "no session");
 	answer_wrong_msg = 1;
 	CHECK(fzn_device_call(&d, "press", NULL, 0u, answer, sizeof(answer), &len, &status)
 	              == FZN_DEVICE_ERR_SILENT,
 	      "another message's answer was taken");
 	answer_wrong_msg = 0;
 
-	/* A TIME FOR ANOTHER ASK sets no clock. */
+	/* WHAT IS NO GRANT begins no session. */
 	device_up(&d, &b, &j, &slot, 222u);
-	answer_wrong_nonce = 1;
-	CHECK(fzn_device_clock(&d) == FZN_DEVICE_ERR_ANSWER && !d.clock_known,
-	      "a time answering another ask was taken");
-	answer_wrong_nonce = 0;
+	grant_wrong = 1;
+	CHECK(fzn_device_open(&d) == FZN_DEVICE_ERR_ANSWER && !d.session_up, "no grant was taken");
+	grant_wrong = 0;
 
 	/* NOT CALLS. */
 	device_up(&d, &b, &j, &slot, 222u);

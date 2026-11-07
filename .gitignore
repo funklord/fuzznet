@@ -348,5 +348,8 @@ __pycache__/
 /persist/test/delta_test
 /persist/test/cache_test
 /node/test/verify_memo_test
+/node/test/sessions_test
+/wire/test/session_frame_test
+/wire/test/session_frame_fuzz
 /node/test/pressure_test
 /record/test/held_test

@@ -1,0 +1,37 @@
+// The session frame, project.md secs 924 and 932: 33 bytes before a payload,
+// for two ends that are both awake. The hand-written codec is
+// wire/session_frame.c; this is its checked contract, in `make schema`'s list.
+//
+// What the schema cannot say and the codec checks: the counter is never 0, and
+// never one already heard; the text opens under the direction's key, its nonce
+// the counter, with the nine bytes of head as associated data.
+
+target buffer;
+endian big;
+
+// A frame is this head, then the sealed text, then a 16-byte tag, and the
+// datagram's end says where the tag is: no length is sent.
+struct fzn_session_frame_head {
+	u8   mark [must_eq = 250];
+	u32  handle;                     // the receiver's number for the session
+	u32  counter [min = 1];          // this direction's; never again under this key
+}
+
+// What the seal opens to, the payload after it.
+struct fzn_session_text {
+	u32  msg;
+	u32  expires;                    // seconds, 0 for none
+}
+
+// The bodies of the two full frames that begin one, after a payload's version
+// and type (node/types.h).
+struct fzn_session_ask {
+	u8   random[16];
+	u32  handle;                     // what the asker hears under
+}
+
+struct fzn_session_grant {
+	u8   random[16];
+	u32  handle;                     // what the granter hears under
+	u64  now_ms;                     // the granter's clock
+}

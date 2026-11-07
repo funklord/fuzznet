@@ -1,0 +1,30 @@
+# situ capability map v1
+# schema: session_frame.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_session_ask size=20 repr=ValueConverted atomic=NonAtomic
+  fzn_session_ask.random                 offset=AbsoluteStatic(0x00) size=Fixed(16) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_session_ask.handle                 offset=AbsoluteStatic(0x10) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+
+struct fzn_session_frame_head size=9 repr=ValueConverted atomic=NonAtomic
+  fzn_session_frame_head.mark            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_session_frame_head.handle          offset=AbsoluteStatic(0x01) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_session_frame_head.counter         offset=AbsoluteStatic(0x05) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_session_grant size=28 repr=ValueConverted atomic=NonAtomic
+  fzn_session_grant.random               offset=AbsoluteStatic(0x00) size=Fixed(16) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_session_grant.handle               offset=AbsoluteStatic(0x10) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_session_grant.now_ms               offset=AbsoluteStatic(0x14) size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_session_text size=8 repr=ValueConverted
+  fzn_session_text.msg                   offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_session_text.expires               offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord

@@ -7,10 +7,15 @@
 #include "../node/types.h"
 #include "../wire/bytes.h"
 
-/* THE TIME PROBE, as `node/clocks.h` states it. Not called from there, as
- * that file serves a daemon's `list clock` and needs stdio. */
-#define PROBE_NONCE_LEN 16u
-#define PROBE_ANSWER_LEN (2u + PROBE_NONCE_LEN + 8u)
+/* A FULL FRAME ASKS FOR A SESSION AND ONE GRANTS IT: version, type and body. */
+#define ASK_PAYLOAD_LEN (2u + FZN_SESSION_ASK_LEN)
+#define GRANT_PAYLOAD_LEN (2u + FZN_SESSION_GRANT_LEN)
+#define HANDLE_AT FZN_SESSION_RANDOM_LEN
+
+/* TRIES HEARD NOTHING BEFORE THE SESSION IS THOUGHT LOST. One lost unit is common
+ * on a radio and costs a resend; asking again costs eight units, and a gateway
+ * started again says nothing at all, so this is a sender's only way to know. */
+#define SILENCE_BEFORE_ASKING 3u
 
 /* A CALL AS `call_remote` READS IT, and the most one frame holds. */
 #define CALL_HEAD_LEN 3u
@@ -106,26 +111,37 @@ static int fill(const fzn_device_t *d, void *out, size_t len)
 	return d->rng->fill(d->rng->ctx, (uint8_t *)out, len);
 }
 
-/* `payload` SEALED AS MESSAGE `msg` AND SENT, under a fresh nonce. */
-static fzn_device_err_t send_once(fzn_device_t *d, const uint8_t *payload, size_t len,
-                                  uint32_t msg, uint64_t expires_at)
+static uint16_t fresh_link_id(fzn_device_t *d, int *ok)
+{
+	uint16_t id = 0;
+
+	*ok = fill(d, &id, sizeof(id));
+	return id;
+}
+
+/* `payload` SEALED AS MESSAGE `msg` IN A FULL FRAME AND SENT, under a fresh nonce:
+ * only ever an ask. */
+static fzn_device_err_t send_full(fzn_device_t *d, const uint8_t *payload, size_t len, uint32_t msg)
 {
 	fzn_send_t what;
 	size_t frame_len = 0;
-	uint16_t link_id = 0;
+	uint16_t link_id;
+	int ok;
 
 	memset(&what, 0, sizeof(what));
 	what.sender = d->image.sender;
 	what.capability = d->image.capability;
 	what.payload = payload;
 	what.payload_len = len;
-	what.expires_at = expires_at;
+	/* ANSWERED WHATEVER ITS EXPIRY: this frame is how it learns the time. */
+	what.expires_at = 1u;
 	what.msg = msg;
 	what.index = 0;
 	what.chunks = 1u;
 	what.kind = FZN_KIND_UNIT;
 	what.hops = 1u;
-	if (!fill(d, &link_id, sizeof(link_id))
+	link_id = fresh_link_id(d, &ok);
+	if (!ok
 	    || fzn_seal_build(d->frame, sizeof(d->frame), &frame_len, &what, d->image.send_key,
 	                      d->image.send_ckey, d->hash, d->rng, d->aead)
 	               != FZN_SEAL_OK)
@@ -134,9 +150,11 @@ static fzn_device_err_t send_once(fzn_device_t *d, const uint8_t *payload, size_
 	                                                                : FZN_DEVICE_ERR_SEND;
 }
 
-/* THE ANSWER TO `msg`, within `wait_ms`: 1 with `opened`. What is not this
- * device's does not open, and on a radio most of what is heard is not. */
-static int await(fzn_device_t *d, uint32_t msg, unsigned wait_ms, fzn_opened_t *opened)
+/* THE ANSWER TO `msg`, within `wait_ms`, in whichever frame it came: 1 with its
+ * payload, in `d->frame`. What is not this device's does not open, and on a radio
+ * most of what is heard is not. */
+static int await(fzn_device_t *d, uint32_t msg, unsigned wait_ms, const uint8_t **payload,
+                 size_t *payload_len)
 {
 	uint8_t unit[FZN_BEARER_UNIT_MAX];
 	uint64_t until = d->uptime_ms(d->uptime_ctx) + wait_ms;
@@ -144,6 +162,8 @@ static int await(fzn_device_t *d, uint32_t msg, unsigned wait_ms, fzn_opened_t *
 	for (;;) {
 		uint64_t now = d->uptime_ms(d->uptime_ctx);
 		const uint8_t *whole = NULL;
+		fzn_session_opened_t got;
+		fzn_opened_t opened;
 		size_t n, len;
 
 		if (now >= until)
@@ -152,11 +172,25 @@ static int await(fzn_device_t *d, uint32_t msg, unsigned wait_ms, fzn_opened_t *
 		if (!n || !(len = fzn_bearer_take(d->join, unit, n, &whole)))
 			continue;
 		memcpy(d->frame, whole, len);
+		if (d->frame[0] == FZN_SESSION_FRAME_MARK) {
+			if (d->session_up
+			    && fzn_session_frame_open(&d->session, d->frame, len, d->aead, &got)
+			               == FZN_SESSION_FRAME_OK
+			    && got.msg == msg) {
+				*payload = got.payload;
+				*payload_len = got.payload_len;
+				return 1;
+			}
+			continue;
+		}
 		if (fzn_seal_open(d->frame, len, d->image.send_key, d->image.send_ckey, d->hash, d->aead,
-		                  opened)
+		                  &opened)
 		            == FZN_SEAL_OK
-		    && opened->kind != FZN_KIND_NOP && opened->msg == msg && opened->chunks == 1u)
+		    && opened.kind != FZN_KIND_NOP && opened.msg == msg && opened.chunks == 1u) {
+			*payload = opened.payload;
+			*payload_len = opened.payload_len;
 			return 1;
+		}
 	}
 }
 
@@ -169,38 +203,58 @@ static uint32_t next_message(fzn_device_t *d)
 	return d->next_msg++;
 }
 
-fzn_device_err_t fzn_device_clock(fzn_device_t *d)
+/* ONE TRY AT A SESSION. The same ask until it is answered, so a gateway that heard
+ * it twice gives the grant it gave (`node/sessions.h`). */
+static fzn_device_err_t ask_once(fzn_device_t *d)
 {
-	uint8_t ask[2u + PROBE_NONCE_LEN];
-	fzn_opened_t opened;
-	uint32_t msg;
+	uint8_t ask[ASK_PAYLOAD_LEN];
+	const uint8_t *grant;
+	size_t grant_len;
+	uint64_t sent, got;
+	fzn_device_err_t err;
+
+	if (!d->asking) {
+		if (!fill(d, d->ask, FZN_SESSION_RANDOM_LEN)
+		    || !fill(d, d->ask + HANDLE_AT, sizeof(uint32_t)))
+			return FZN_DEVICE_ERR_SEAL;
+		d->ask_msg = next_message(d);
+		d->asking = 1;
+	}
+	ask[0] = FZN_TYPES_VERSION_SHARED;
+	ask[1] = FZN_TYPE_SESSION_ASK;
+	memcpy(ask + 2, d->ask, FZN_SESSION_ASK_LEN);
+	sent = d->uptime_ms(d->uptime_ctx);
+	if ((err = send_full(d, ask, sizeof(ask), d->ask_msg)) != FZN_DEVICE_OK)
+		return err;
+	if (!await(d, d->ask_msg, d->wait_ms, &grant, &grant_len))
+		return FZN_DEVICE_ERR_SILENT;
+	if (grant_len != GRANT_PAYLOAD_LEN || grant[0] != FZN_TYPES_VERSION_SHARED
+	    || grant[1] != FZN_TYPE_SESSION_GRANT)
+		return FZN_DEVICE_ERR_ANSWER;
+	if (!fzn_session_end_derive(&d->session, d->hash, d->image.send_key, d->ask, grant + 2, 1))
+		return FZN_DEVICE_ERR_SEAL;
+	got = d->uptime_ms(d->uptime_ctx);
+	d->clock_offset_ms = (int64_t)fzn_get_be64(grant + 2u + HANDLE_AT + 4u)
+	                     - (int64_t)(sent + (got - sent) / 2u);
+	d->session_up = 1;
+	d->silent = 0;
+	d->asking = 0;
+	return FZN_DEVICE_OK;
+}
+
+fzn_device_err_t fzn_device_open(fzn_device_t *d)
+{
 	unsigned t;
 
 	if (!usable(d))
 		return FZN_DEVICE_ERR_MALFORMED;
-	ask[0] = FZN_TYPES_VERSION_SHARED;
-	ask[1] = FZN_TYPE_TIME_ASK;
-	if (!fill(d, ask + 2, PROBE_NONCE_LEN))
-		return FZN_DEVICE_ERR_SEAL;
-	msg = next_message(d);
-	for (t = 0; t < d->tries; t++) {
-		uint64_t sent = d->uptime_ms(d->uptime_ctx), got;
-		fzn_device_err_t err = send_once(d, ask, sizeof(ask), msg, 1u);
-
-		if (err != FZN_DEVICE_OK)
-			return err;
-		if (!await(d, msg, d->wait_ms, &opened))
-			continue;
-		if (opened.payload_len != PROBE_ANSWER_LEN
-		    || opened.payload[0] != FZN_TYPES_VERSION_SHARED
-		    || opened.payload[1] != FZN_TYPE_TIME
-		    || memcmp(opened.payload + 2, ask + 2, PROBE_NONCE_LEN) != 0)
-			return FZN_DEVICE_ERR_ANSWER;
-		got = d->uptime_ms(d->uptime_ctx);
-		d->clock_offset_ms = (int64_t)fzn_get_be64(opened.payload + 2u + PROBE_NONCE_LEN)
-		                     - (int64_t)(sent + (got - sent) / 2u);
-		d->clock_known = 1;
+	if (d->session_up)
 		return FZN_DEVICE_OK;
+	for (t = 0; t < d->tries; t++) {
+		fzn_device_err_t err = ask_once(d);
+
+		if (err != FZN_DEVICE_ERR_SILENT)
+			return err;
 	}
 	return FZN_DEVICE_ERR_SILENT;
 }
@@ -210,9 +264,8 @@ fzn_device_err_t fzn_device_call(fzn_device_t *d, const char *name, const uint8_
                                  size_t *answer_len, unsigned *status)
 {
 	uint8_t payload[PAYLOAD_MAX];
-	fzn_opened_t opened;
-	fzn_device_err_t err;
-	size_t name_len, len;
+	const uint8_t *heard;
+	size_t name_len, len, heard_len;
 	uint32_t msg;
 	unsigned t;
 
@@ -222,8 +275,6 @@ fzn_device_err_t fzn_device_call(fzn_device_t *d, const char *name, const uint8_
 	len = CALL_HEAD_LEN + name_len + args_len;
 	if (!name_len || name_len > FZN_CALL_NAME_MAX || len > sizeof(payload))
 		return FZN_DEVICE_ERR_MALFORMED;
-	if (!d->clock_known && (err = fzn_device_clock(d)) != FZN_DEVICE_OK)
-		return err;
 	payload[0] = FZN_TYPES_VERSION_SHARED;
 	payload[1] = FZN_TYPE_CALL;
 	payload[2] = (uint8_t)name_len;
@@ -232,24 +283,49 @@ fzn_device_err_t fzn_device_call(fzn_device_t *d, const char *name, const uint8_
 		memcpy(payload + CALL_HEAD_LEN + name_len, args, args_len);
 	msg = next_message(d);
 	for (t = 0; t < d->tries; t++) {
-		int64_t now_ms = (int64_t)d->uptime_ms(d->uptime_ctx) + d->clock_offset_ms;
+		fzn_session_frame_err_t sealed;
+		size_t frame_len = 0;
+		uint16_t link_id;
+		int64_t now_ms;
+		int ok;
 
-		err = send_once(d, payload, len, msg, (uint64_t)(now_ms / 1000) + d->life_s);
-		if (err != FZN_DEVICE_OK)
-			return err;
-		if (!await(d, msg, d->wait_ms, &opened))
+		if (!d->session_up) {
+			fzn_device_err_t err = ask_once(d);
+
+			if (err == FZN_DEVICE_ERR_SILENT)
+				continue;
+			if (err != FZN_DEVICE_OK)
+				return err;
+		}
+		now_ms = (int64_t)d->uptime_ms(d->uptime_ctx) + d->clock_offset_ms;
+		sealed = fzn_session_frame_seal(&d->session, msg,
+		                                (uint32_t)(now_ms / 1000) + d->life_s, payload, len, d->frame,
+		                                sizeof(d->frame), &frame_len, d->aead);
+		if (sealed == FZN_SESSION_FRAME_ERR_SPENT) {
+			d->session_up = 0;
 			continue;
-		if (opened.payload_len < CALL_HEAD_LEN || opened.payload[0] != FZN_TYPES_VERSION_SHARED
-		    || opened.payload[1] != FZN_TYPE_CALLED
-		    || opened.payload_len - CALL_HEAD_LEN > cap || (!answer && opened.payload_len > 3u))
+		}
+		link_id = fresh_link_id(d, &ok);
+		if (sealed != FZN_SESSION_FRAME_OK || !ok)
+			return FZN_DEVICE_ERR_SEAL;
+		if (!fzn_bearer_send(d->bearer, link_id, d->frame, frame_len))
+			return FZN_DEVICE_ERR_SEND;
+		if (!await(d, msg, d->wait_ms, &heard, &heard_len)) {
+			/* NOTHING TO BE TOLD BY, so the silence is the telling. */
+			if (++d->silent >= SILENCE_BEFORE_ASKING)
+				d->session_up = 0;
+			continue;
+		}
+		d->silent = 0;
+		if (heard_len < CALL_HEAD_LEN || heard[0] != FZN_TYPES_VERSION_SHARED
+		    || heard[1] != FZN_TYPE_CALLED || heard_len - CALL_HEAD_LEN > cap
+		    || (!answer && heard_len > CALL_HEAD_LEN))
 			return FZN_DEVICE_ERR_ANSWER;
-		*status = opened.payload[2];
-		*answer_len = opened.payload_len - CALL_HEAD_LEN;
+		*status = heard[2];
+		*answer_len = heard_len - CALL_HEAD_LEN;
 		if (*answer_len)
-			memcpy(answer, opened.payload + CALL_HEAD_LEN, *answer_len);
+			memcpy(answer, heard + CALL_HEAD_LEN, *answer_len);
 		return FZN_DEVICE_OK;
 	}
-	/* ASKED AGAIN NEXT TIME: its clock may be why nothing answered. */
-	d->clock_known = 0;
 	return FZN_DEVICE_ERR_SILENT;
 }

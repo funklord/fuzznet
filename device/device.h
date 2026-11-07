@@ -18,11 +18,11 @@
  * any host is, and a device stolen is a host revoked.
  *
  * NO CLOCK NEEDED. An expiry is judged by the gateway's clock, so a device
- * counts time from its start and asks the gateway what time that is, by the
- * time probe (sec 719), which a host answers whatever a frame's expiry. Its
+ * counts time from its start and learns what time that is from the grant of
+ * its session (sec 932), which a host answers whatever a frame's expiry. Its
  * only clock is `uptime_ms`, which needs to tick and need not be set.
  *
- * NO ALLOCATION, NO POSIX: `fzn_device_t` and its bearer's one slot are 2.6 KB
+ * NO ALLOCATION, NO POSIX: `fzn_device_t` and its bearer's one slot are 2.8 KB
  * and all it holds. `make device-check` compiles this for a board, with no
  * system header, and it needs five functions of a C library.
  *
@@ -42,6 +42,7 @@
 #include "../session/commitment.h"
 #include "../session/random.h"
 #include "../wire/seal.h"
+#include "../wire/session_frame.h"
 
 /* THE IMAGE: what a device holds, and all of it secret but its key. */
 #define FZN_DEVICE_IMAGE_VERSION 1u
@@ -91,20 +92,29 @@ typedef struct fzn_device {
 	unsigned tries;
 	/* HOW LONG A REQUEST LIVES, seconds. */
 	unsigned life_s;
-	/* THE GATEWAY'S CLOCK LESS `uptime_ms`, once `clock_known`. */
+	/* THE GATEWAY'S CLOCK LESS `uptime_ms`, once a grant has said it. */
 	int64_t clock_offset_ms;
-	int clock_known;
 	uint32_t next_msg; /* 0 until the first, then drawn: sec 910 */
+	/* THE SESSION WITH THE GATEWAY, sec 932: what a call goes in, while
+	 * `session_up`. An ask goes out in full and lives until it is answered. */
+	fzn_session_end_t session;
+	int session_up;
+	unsigned silent; /* tries in a row that heard nothing */
+	uint8_t ask[FZN_SESSION_ASK_LEN];
+	uint32_t ask_msg;
+	int asking;
 	uint8_t frame[FZN_BEARER_FRAME_MAX];
 } fzn_device_t;
 
-/* ASK THE GATEWAY THE TIME. `fzn_device_call` does this when it must. */
-fzn_device_err_t fzn_device_clock(fzn_device_t *d);
+/* A SESSION WITH THE GATEWAY, which also says the time. `fzn_device_call` does this
+ * when it must; OK at once while one stands. */
+fzn_device_err_t fzn_device_open(fzn_device_t *d);
 
 /* `call NAME ARGS` OF THE GATEWAY: `*status` its FZN_CALL_* and its answer's
- * bytes in `answer`, `*answer_len` of them. Sent again under a fresh nonce
- * until answered, the gateway keeping its reply, so a button pressed once
- * is one press (sec 900). */
+ * bytes in `answer`, `*answer_len` of them. Sent in the session, one radio unit
+ * where it fits, and again until answered, the gateway keeping its reply, so a
+ * button pressed once is one press (sec 900), under whichever session it took:
+ * tries that hear nothing give up the session and ask for another. */
 fzn_device_err_t fzn_device_call(fzn_device_t *d, const char *name, const uint8_t *args,
                                  size_t args_len, uint8_t *answer, size_t cap,
                                  size_t *answer_len, unsigned *status);

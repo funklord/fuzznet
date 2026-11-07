@@ -1,12 +1,16 @@
 /*
  * A DEVICE OVER A STREAM, for `tool/live_device.py`: `device/device.h` as a
- * board would run it, its bearer SLIP on stdin and stdout. It asks one call and
+ * board would run it, its bearer SLIP on stdin and stdout. It asks a call and
  * says on stderr what came back.
  *
- *     device_sim IMAGE UNIT NAME [ARGS] [--presses N]
+ *     device_sim IMAGE UNIT NAME [ARGS [PRESSES [LIFE]]]
  *
- * Stops when it has been answered or its tries run out, each try bounded by
- * `wait_ms`; nothing here waits on anything else.
+ * PRESSES calls, 1 by default, a moment apart, in the one session they share,
+ * each living LIFE seconds, 60 by default. LIFE 0 is a call already expired, by a
+ * clock set back after the session's grant, and so few tries that no second grant
+ * sets it right.
+ * Stops when each has been answered or a call's tries run out, each try bounded
+ * by `wait_ms`; nothing here waits on anything else.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -86,6 +90,7 @@ int main(int argc, char **argv)
 	fzn_bearer_t bearer;
 	fzn_bearer_join_t join;
 	const char *args = argc > 4 ? argv[4] : "";
+	unsigned long presses = argc > 5 ? strtoul(argv[5], NULL, 10) : 1u, p;
 	fzn_device_err_t err;
 	size_t len = 0;
 	unsigned status = 0;
@@ -116,14 +121,28 @@ int main(int argc, char **argv)
 	 * two tries in five, which 8 tries missed often enough to fail a run. */
 	d.wait_ms = 400u;
 	d.tries = 30u;
-	d.life_s = 60u;
-	err = fzn_device_call(&d, argv[3], (const uint8_t *)args, strlen(args), answer,
-	                      sizeof(answer), &len, &status);
-	if (err != FZN_DEVICE_OK) {
-		fprintf(stderr, "device: %s\n", fzn_device_err_str(err));
-		return 1;
+	d.life_s = argc > 6 ? (unsigned)strtoul(argv[6], NULL, 10) : 60u;
+	if (d.life_s == 0u) {
+		d.tries = 3u;
+		if (fzn_device_open(&d) != FZN_DEVICE_OK)
+			return 1;
+		d.clock_offset_ms -= 5000;
 	}
-	fprintf(stderr, "device: status %u, %zu byte(s): %.*s\n", status, len, (int)len,
-	        (const char *)answer);
-	return status == 0u ? 0 : 3;
+	for (p = 0; p < presses; p++) {
+		const struct timespec moment = { 0, 150000000 };
+
+		if (p)
+			(void)nanosleep(&moment, NULL);
+		err = fzn_device_call(&d, argv[3], (const uint8_t *)args, strlen(args), answer,
+		                      sizeof(answer), &len, &status);
+		if (err != FZN_DEVICE_OK) {
+			fprintf(stderr, "device: %s\n", fzn_device_err_str(err));
+			return 1;
+		}
+		fprintf(stderr, "device: status %u, %zu byte(s): %.*s\n", status, len, (int)len,
+		        (const char *)answer);
+		if (status != 0u)
+			return 3;
+	}
+	return 0;
 }

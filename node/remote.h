@@ -84,6 +84,17 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
                                                  size_t frame_len,
                                                  fzn_opened_t *opened);
 
+/* WHETHER A REQUEST THAT OPENED MAY GO ON: step 7 alone, the capability chain
+ * this peer holds judged now. A session frame has no other, and comes here on
+ * every frame, so a host revoked mid-session is refused at its next. */
+fzn_node_remote_result_t fzn_node_serve_authorise(const fzn_node_config_t *config,
+                                                  const fzn_node_peer_t *peer,
+                                                  const fzn_sign_ops_t *sign, uint64_t now,
+                                                  const fzn_opened_t *opened);
+
+/* WHETHER `payload` ASKS FOR A SESSION, sec 932. */
+int fzn_node_session_is_ask(const uint8_t *payload, size_t len);
+
 /* Seal a reply from this node back to `peer`, under the session that opened
  * the peer's frames. The session key is symmetric, so the caller opens the
  * reply with the key it seals requests with. `node_pubkey` is the node's

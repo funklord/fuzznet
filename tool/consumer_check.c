@@ -209,6 +209,8 @@
 #include <fuzznet/net/udp.h>
 #include <fuzznet/net/bearer.h>
 #include <fuzznet/node/verify_memo.h>
+#include <fuzznet/node/sessions.h>
+#include <fuzznet/wire/session_frame.h>
 #include <fuzznet/persist/cache.h>
 #include <fuzznet/persist/delta.h>
 #include <fuzznet/node/pressure.h>
@@ -436,6 +438,8 @@
 #include "net/udp.h"
 #include "net/bearer.h"
 #include "node/verify_memo.h"
+#include "node/sessions.h"
+#include "wire/session_frame.h"
 #include "persist/cache.h"
 #include "persist/delta.h"
 #include "node/pressure.h"

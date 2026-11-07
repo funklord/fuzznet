@@ -225,7 +225,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
              net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
-             node/node.c node/local.c node/remote.c node/serve.c node/replies.c \
+             node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
@@ -260,7 +260,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chunk/reassembly.c \
              chunk/split.c chunk/erasure.c \
              tree/tree.c \
-             wire/seal.c wire/relay.c \
+             wire/seal.c wire/session_frame.c wire/relay.c \
              session/random.c session/random_linux.c session/agree.c \
              session/session.c session/box.c \
              version/version.c \
@@ -297,7 +297,7 @@ PROG_OBJS := $(PROG_SRCS:%.c=$(BUILD_DIR)/%.o)
 # two transports, the seal and chain stack, and the nonce source the
 # seal reaches for. No Monocypher: the crypto ops are passed in, so a
 # node with no provisioned peers links none.
-NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
+NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
                    $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/node.o \
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
@@ -327,7 +327,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
-             node/node.h node/local.h node/remote.h node/serve.h node/replies.h \
+             node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
@@ -360,7 +360,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chunk/reassembly.h \
              chunk/split.h chunk/erasure.h \
              tree/tree.h \
-             wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
+             wire/seal.h wire/session_frame.h wire/relay.h wire/bytes.h session/aead.h \
              session/random.h session/random_system.h session/agree.h \
              session/session.h session/box.h \
              version/version.h \
@@ -481,7 +481,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
-             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c node/test/verify_memo_test.c \
+             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c node/test/verify_memo_test.c wire/test/session_frame_test.c node/test/sessions_test.c \
              node/test/pressure_test.c record/test/held_test.c \
              node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c node/test/stage_fuzz.c \
              node/test/serve_test.c node/test/replies_test.c \
@@ -530,7 +530,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/ledger_fuzz.c \
              tree/test/tree_fuzz.c \
              tree/test/tree_kat_test.c \
-             wire/test/seal_fuzz.c \
+             wire/test/seal_fuzz.c wire/test/session_frame_fuzz.c \
              record/test/record_kat_test.c
 # Recursive for OBJS's reason: the file backends append to TEST_SRCS below.
 TEST_OBJS  = $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
@@ -638,6 +638,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/persist/test/delta_test \
              $(BUILD_DIR)/persist/test/cache_test \
              $(BUILD_DIR)/node/test/verify_memo_test \
+             $(BUILD_DIR)/wire/test/session_frame_test \
+             $(BUILD_DIR)/node/test/sessions_test \
              $(BUILD_DIR)/node/test/pressure_test \
              $(BUILD_DIR)/record/test/held_test \
              $(BUILD_DIR)/node/test/node_test \
@@ -708,6 +710,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/ledger_fuzz \
              $(BUILD_DIR)/tree/test/tree_fuzz \
              $(BUILD_DIR)/wire/test/seal_fuzz \
+             $(BUILD_DIR)/wire/test/session_frame_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
@@ -3985,6 +3988,27 @@ $(BUILD_DIR)/node/test/verify_memo_test: $(BUILD_DIR)/node/test/verify_memo_test
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+SESSION_FRAME_TEST_OBJS := $(BUILD_DIR)/wire/session_frame.o \
+                           $(BUILD_DIR)/session/aead_monocypher.o \
+                           $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o
+
+$(BUILD_DIR)/wire/test/session_frame_test: $(BUILD_DIR)/wire/test/session_frame_test.o \
+                                           $(SESSION_FRAME_TEST_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/wire/test/session_frame_fuzz: $(BUILD_DIR)/wire/test/session_frame_fuzz.o \
+                                           $(SESSION_FRAME_TEST_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/node/test/sessions_test: $(BUILD_DIR)/node/test/sessions_test.o \
+                                      $(BUILD_DIR)/node/sessions.o $(SESSION_FRAME_TEST_OBJS) \
+                                      $(BUILD_DIR)/session/random.o \
+                                      $(BUILD_DIR)/session/random_linux.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/persist/test/cache_test: $(BUILD_DIR)/persist/test/cache_test.o \
                                       $(BUILD_DIR)/persist/cache.o $(PERSIST_OBJS)
 	@mkdir -p $(dir $@)
@@ -4332,7 +4356,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
-              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
               $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
               $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
@@ -4385,7 +4409,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
-              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
@@ -4498,7 +4522,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
-                   $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
+                   $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
                    $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
                    $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
@@ -4797,7 +4821,8 @@ EXT_DAEMON := $(if $(FUZZNETD),$(BUILD_DIR)/node/test/ext_daemon)
 BRIDGE := $(if $(FUZZNETD),$(BUILD_DIR)/fuzznet-bridge)
 DEVICE_SIM := $(if $(FUZZNETD),$(BUILD_DIR)/device/test/device_sim)
 DEVICE_CORE_OBJS := $(BUILD_DIR)/device/device.o $(BUILD_DIR)/net/bearer.o \
-                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/session/commitment.o \
+                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/session_frame.o \
+                    $(BUILD_DIR)/session/commitment.o \
                     $(BUILD_DIR)/session/random.o $(BUILD_DIR)/session/aead_monocypher.o \
                     $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
                     $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
@@ -4808,7 +4833,7 @@ bridge: $(BUILD_DIR)/fuzznet-bridge
 # WHAT A BOARD BUILDS, compiled as a board would: freestanding, no system header
 # but the compiler's own and tool/freestanding/string.h, so an include of a socket
 # or of stdio in anything a device links fails here and not on somebody's bench.
-DEVICE_BOARD_SRCS := device/device.c net/bearer.c wire/seal.c session/commitment.c \
+DEVICE_BOARD_SRCS := device/device.c net/bearer.c wire/seal.c wire/session_frame.c session/commitment.c \
                      session/random.c session/aead_monocypher.c \
                      session/hash_monocypher.c constant_time/constant_time.c
 device-check:
@@ -4866,7 +4891,7 @@ $(BUILD_DIR)/node/test/provision_test.o: node/test/provision_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
-              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o \
               $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/local.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/socket.o \
@@ -5069,7 +5094,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
-                                      $(BUILD_DIR)/device/device.o $(BUILD_DIR)/net/bearer.o \
+                                      $(BUILD_DIR)/device/device.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/net/bearer.o \
                                       $(BUILD_DIR)/node/pressure.o \
                                       $(BUILD_DIR)/chunk/erasure.o \
                                       $(BUILD_DIR)/node/siblings.o \
@@ -5450,6 +5475,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/record/test/ledger_fuzz \
              $(BUILD_DIR)/tree/test/tree_fuzz \
              $(BUILD_DIR)/wire/test/seal_fuzz \
+             $(BUILD_DIR)/wire/test/session_frame_fuzz \
              $(BUILD_DIR)/blob/test/blob_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
@@ -6799,7 +6825,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               record/store_file.situ catalog/attribute.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ \
               record/exchange.situ \
-              notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
+              wire/session_frame.situ notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting.situ \
               node/reconcile.situ node/buckets.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \

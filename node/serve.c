@@ -14,8 +14,11 @@
 #include <unistd.h>
 
 #include "local.h"
+#include "sessions.h"
+#include "types.h"
 #include "../local/socket.h"
 #include "../net/udp.h"
+#include "../wire/bytes.h"
 #include "../wire/seal.h"
 #include "../session/box.h" /* FZN_BOX_MARK, and nothing to link */
 
@@ -168,6 +171,23 @@ static void send_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 
 	if (reply_len == 0u || !state->rng)
 		return;
+	/* IN THE SESSION IT CAME IN, where it fits; in pieces otherwise, as a
+	 * session frame is one unit and a peer holding a session still opens full
+	 * frames. */
+	if (state->answering && reply_len <= FZN_SESSION_FRAME_PAYLOAD_MAX) {
+		fzn_node_session_t *s = &state->sessions->table[state->answering - 1u];
+
+		if (fzn_session_frame_seal(&s->end, opened->msg, 0u, reply, reply_len, reply_frame,
+		                           sizeof(reply_frame), &reply_frame_len, state->aead)
+		    == FZN_SESSION_FRAME_OK) {
+			if (fzn_udp_send(state->udp_fd, from, reply_frame, reply_frame_len) == FZN_UDP_OK)
+				sent = 1u;
+			if (state->on_replied)
+				state->on_replied(state->on_replied_ctx, opened, reply_len, sent, 1u, kept,
+				                  from);
+			return;
+		}
+	}
 	/* ONE PLAN FOR BOTH CASES. A reply that fits in a frame
 	 * plans as one piece, so there is no short path here to
 	 * disagree with the long one -- which is where a
@@ -247,6 +267,85 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	send_reply(state, peer, from, opened, reply, reply_len, 0);
 }
 
+/* A PEER ASKS FOR A SESSION, its full frame having opened and passed: granted, in
+ * a full frame, or not answered at all, when it stays on full frames. */
+static void serve_session_ask(fzn_node_state_t *state, const fzn_node_peer_t *peer,
+                              const fzn_udp_addr_t *from, const fzn_opened_t *opened, uint64_t now)
+{
+	uint8_t grant[2u + FZN_SESSION_GRANT_LEN];
+	uint64_t now_ms = state->clock_ms ? state->clock_ms() : now * 1000u;
+
+	grant[0] = FZN_TYPES_VERSION_SHARED;
+	grant[1] = FZN_TYPE_SESSION_GRANT;
+	if (fzn_node_sessions_grant(state->sessions, peer->sender, opened->capability, peer->recv_key,
+	                            opened->payload + 2u, now_ms, state->hash, state->rng, grant + 2u))
+		send_reply(state, peer, from, opened, grant, sizeof(grant), 0);
+}
+
+/* A SESSION FRAME, sec 932. What its handle finds says who it is from; the
+ * rest is a full frame's way, with the peer as it stands now: gone, or paired
+ * afresh, and the session is too, and a capability is judged here, each frame.
+ * Nothing is said to what does not open: nobody can be named to say it to. */
+static void serve_session_frame(fzn_node_state_t *state, uint8_t *frame, size_t flen,
+                                const fzn_udp_addr_t *from)
+{
+	fzn_node_sessions_t *sessions = state->sessions;
+	fzn_session_opened_t got;
+	fzn_node_session_t *s;
+	const fzn_node_peer_t *found;
+	fzn_node_peer_t held;
+	fzn_opened_t opened;
+	fzn_node_remote_result_t result;
+	uint8_t nonce[FZN_AEAD_NONCE_LEN];
+	uint8_t sender[FZN_PUBKEY_LEN], capability[FZN_CAP_ID_LEN];
+	uint32_t handle;
+	uint64_t now;
+
+	if (!sessions || !state->aead || !fzn_session_frame_handle(frame, flen, &handle)
+	    || !(s = fzn_node_sessions_find(sessions, handle)))
+		return;
+	found = fzn_node_find_peer(state->peers, state->peer_count, s->sender);
+	if (!found || memcmp(found->recv_key, s->root, FZN_AEAD_KEY_LEN) != 0) {
+		fzn_node_sessions_drop(s);
+		return;
+	}
+	held = *found;
+	if (fzn_session_frame_open(&s->end, frame, flen, state->aead, &got) != FZN_SESSION_FRAME_OK)
+		return;
+	fzn_node_sessions_confirm(sessions, s);
+	now = state->clock ? state->clock() : 0u;
+	/* THE FULL FRAME'S EXPIRY, read after the seal as it was sealed: a frame
+	 * held back and let go later is refused as one would be. The counter
+	 * has done the replay's work. */
+	if (!state->replay || got.expires_at <= now || got.expires_at > now + state->replay->max_ahead) {
+		if (state->on_stale && state->replay)
+			state->on_stale(state->on_stale_ctx, held.sender, got.expires_at, now,
+			                state->replay->max_ahead);
+		return;
+	}
+	/* HELD BY VALUE, as a handler may grow nothing here but may reload peers,
+	 * and the table is read again by slot when the answer goes. */
+	memcpy(sender, s->sender, sizeof(sender));
+	memcpy(capability, s->capability, sizeof(capability));
+	memset(nonce, 0, sizeof(nonce));
+	fzn_put_be32(nonce + sizeof(nonce) - 4u, got.counter);
+	memset(&opened, 0, sizeof(opened));
+	opened.sender = sender;
+	opened.capability = capability;
+	opened.nonce = nonce;
+	opened.payload = got.payload;
+	opened.payload_len = got.payload_len;
+	opened.expires_at = got.expires_at;
+	opened.msg = got.msg;
+	opened.chunks = 1u;
+	opened.kind = FZN_KIND_UNIT;
+	result = fzn_node_serve_authorise(&state->config, &held, state->sign, now, &opened);
+	state->asking_hops = 0;
+	state->answering = (size_t)(s - sessions->table) + 1u;
+	serve_reply(state, &held, from, result, &opened, now);
+	state->answering = 0;
+}
+
 static void serve_ready_datagram(fzn_node_state_t *state)
 {
 	uint8_t frame[FZN_UDP_DATAGRAM_MAX];
@@ -267,6 +366,11 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	if (flen && frame[0] == FZN_BOX_MARK) {
 		if (state->on_box)
 			state->on_box(state->on_box_ctx, frame, flen, &from);
+		return;
+	}
+	/* A SESSION FRAME, the same way. */
+	if (flen && frame[0] == FZN_SESSION_FRAME_MARK) {
+		serve_session_frame(state, frame, flen, &from);
 		return;
 	}
 	/* A LAN PROBE, sec 624, the same way. */
@@ -333,6 +437,15 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	if (result != FZN_NODE_REMOTE_DROPPED && opened.kind == FZN_KIND_NOP) {
 		if (state->relay)
 			fzn_node_relay_saw(state->relay, peer->sender, &from, now);
+		state->asking_hops = 0;
+		return;
+	}
+	/* A SESSION ASKED FOR, sec 932: by a caller that stands, and answered by
+	 * nothing else. A denied one is told nothing. */
+	if (result != FZN_NODE_REMOTE_DROPPED
+	    && fzn_node_session_is_ask(opened.payload, opened.payload_len)) {
+		if (result == FZN_NODE_REMOTE_GRANTED && state->sessions)
+			serve_session_ask(state, peer, &from, &opened, now);
 		state->asking_hops = 0;
 		return;
 	}

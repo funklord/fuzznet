@@ -81267,8 +81267,7 @@ test expected a refusal, and that was the test's mistake.
 - **Nothing pushed:** a light polls. A device hearing an event needs a host that keeps
   speaking to something that does not ask, which a radio's duty cycle makes a real
   design question.
-- **A full 144 bytes on every frame.** At 51 bytes that is three units before any
-  payload. A smaller head would be a wire change, and is the holder's.
+- **A full 144 bytes on the first frame of a session,** sec 932: the ask and its grant.
 - **`fuzznetd` has no procedure a button does anything with.** `events` is what this
   test reads, and a press is the consumer's procedure.
 - **A device may call what its gateway's rules leave it** (sec 921); with none set, every
@@ -81668,8 +81667,8 @@ at sec 912's 10 per cent loss about 10 per cent lost a try rather than 43.
   seconds. Rebooting a device costs that each time, which is its new keys anyway.
 - Nothing stored or relayed can use it: sec 8's asleep peer keeps the full frame, always.
 
-**Recommended, not built:** the full frame stays for everything first, stored or relayed, and
-a session frame is added for a live pair. Beerssh and LoRa are both that case. The holder's.
+**Built, sec 932, on the holder's word of 2026-11-07:** the full frame stays for everything
+first, stored or relayed, and a session frame is added for a live pair.
 
 ## 925. A shell: where it goes, 2026-11-06
 
@@ -81681,7 +81680,7 @@ privileged daemon, which fuzznet is not and netcfgd's is for its own reasons.
 - **A one-shot command needs nothing new:** beersshd links `libfuzznetd.a` (sec 907), names a
   procedure with `rule` `none` (sec 921), and a host opens it with `remote/permit/shell`.
 - **A terminal does:** a procedure answers once, in 4096 bytes. A two-way stream at
-  keystroke latency is sec 924's session frame, or as near as the full frame comes.
+  keystroke latency is sec 932's session frame, which so far carries calls.
 - **The ladder's fifth turn class** (sec 917) is not built, as there is no traffic to give it.
 
 ## 926. A contact found without opening every contact, 2026-11-06
@@ -81807,3 +81806,62 @@ round landing every 60 s among them. Before, the wait ran out at about 1700.
 **Not done, and not now needed:** a round still does not yield. A burst of writes costs one
 real check each in the next round, so 9000 new contacts is seconds of a held loop. A budget a
 round would end that; it was not measured to matter.
+
+## 932. The session frame, 2026-11-07
+
+The holder, of sec 924: "yes build the session frame". 33 bytes before a payload where a full
+frame takes 144, for two ends both awake. `wire/session_frame.{h,c,situ}`, `node/sessions.{h,c}`.
+
+    mark 0xFA | handle 4 | counter 4 | SEALED: msg 4, expires 4, payload | tag 16
+
+**Sec 924's sketch held, and its bytes moved.** It kept a capability handle and an 8-byte counter
+and dropped `msg` and `expires`. Dropping `msg` loses sec 900's one press, so it stayed; so did
+`expires`, as a frame held back and let go an hour later is a press an hour late. The capability
+needs no bytes, as a session has one, named in the full frame that asked; a counter of 4 stops at
+its top and asks again. 33 either way.
+
+**Asked and granted in full frames,** under the pair's key, `FZN_TYPE_SESSION_ASK` and `_GRANT`.
+Each end draws 16 bytes and names the handle it hears under, and the keys are a hash of the pair's
+key and all of that, one key a direction. **Both randoms are why a counter may start at 1 again:**
+a device that crashed has a key it never used. **The grant says the time,** so the clock probe
+left the device: its first call is one exchange fewer, 5 units up and 6 down at 51 bytes against
+8 and 8. A device still has no Ed25519 and no X25519, so a session has the pair key's strength
+and no forward secrecy of its own.
+
+**A revoked host's next frame is refused** (sec 349): `fzn_node_serve_authorise` runs on every
+session frame, from the peer as it stands. Authorising was split out of `fzn_node_serve_datagram`
+for that. A peer gone, or paired afresh, takes its session with it.
+
+**No stranger can fill the table.** An ask opens under a pair key, so a table holds at most two a
+peer: one in use, one granted and unused. It grows with the peers and has no other limit.
+
+**A replay reaches nothing.** An ask is answered whatever its expiry, as the time probe is,
+because a device knows no time yet. So a recorded ask can be played back, and gets a grant whose
+keys its player cannot derive, and the session in use stands: a granted one replaces it only when
+its first frame opens. An ask heard again gets the same grant, or a device that heard the first
+of two would speak a session already replaced.
+
+**A receiver that lost the session stays silent,** having nobody to name. A device gives a session
+up after 3 silent tries and asks again, keeping the same `msg` and bytes, so a kept reply answers
+it and a press stays one. What is too long for a session frame goes full, in pieces, and a device
+opens both. Nothing relayed or stored uses it; a full frame is always still taken from a peer in
+a session.
+
+**Measured,** `live_device` through a real daemon and bridge at 51-byte units:
+- a2: 5 calls in 9 units up, 4 for the ask and 1 a call. Before, 4 a call. A call's answer here is
+  longer than one unit, so down is 14: 33 and a payload past 18 bytes is two.
+- a3: each call played back on the air: nothing more comes down.
+- a4: a call past its expiry goes unanswered. c3: R restarted between calls, and the device asks
+  again. d: revoked mid-session, the next call is refused.
+- `session_frame_test` (every byte bound; a forgery moves no window; once each), `sessions_test`,
+  `session_frame_fuzz`, and 12 sabotages.
+- Text of `device_sim` 25.1 KB against sec 912's 18.8 KB whole-device figure, taken before and in
+  another shape, so not a measured increase. `device-check` holds at 9 sources.
+
+**Not built:** a host as the asker. Only the device asks, so a daemon's own calls go full, and
+beersshd's terminal needs that and a way for the far end to speak first. **What a unit still
+pays:** `net/bearer.h`'s 4 bytes on a frame of one piece.
+
+**Also:** `make schema` stopped at `wire/frame.situ` from sec 930 on: every `.wire` said signature
+format v2 and situc compares as v3, so it checked nothing after the first file. Regenerated, each
+differs in that line alone, and it passes whole against situ `830ef9c1` (`761c8d4`).

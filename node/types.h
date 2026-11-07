@@ -70,6 +70,12 @@
  * answer the type, a status (`FZN_CALL_*`) and the procedure's bytes. */
 #define FZN_TYPE_CALL 49u
 #define FZN_TYPE_CALLED 50u
+/* A SESSION ASKED FOR, and granted, sec 932 (`wire/session_frame.h`): version 2,
+ * the type, and the body that file gives. An ask is answered whatever its
+ * expiry, as a device's first frame goes before it knows the time, and kept out
+ * of the replay window, as a replayed one reaches nothing (`node/sessions.h`). */
+#define FZN_TYPE_SESSION_ASK 51u
+#define FZN_TYPE_SESSION_GRANT 52u
 #define FZN_CALL_OK 0u
 #define FZN_CALL_UNKNOWN 1u
 #define FZN_CALL_DENIED 2u

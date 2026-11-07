@@ -48,6 +48,7 @@
 #include "pressure.h"
 #include "types.h"
 #include "serve.h"
+#include "sessions.h"
 #include "talk.h"
 #include "routing.h"
 #include "contact_card.h"
@@ -6084,6 +6085,9 @@ static size_t n_sibling_targets;
 /* ---- introductions, sec 623 ------------------------------------------------ */
 
 static fzn_node_relay_t relay_tables;
+/* THE SESSIONS GRANTED, sec 932: memory only, so a host started again has none
+ * and its peers ask again. */
+static fzn_node_sessions_t granted_sessions;
 /* THE RELAY'S ROOM: a frame's answers routed back, and where each device
  * was last seen. Any sender fills them, so they are bounded. sec 704. */
 #define FZND_RELAY_ROUTES 1024u
@@ -17684,6 +17688,7 @@ static int stop_serving(int lfd, const char *sock_path, int ufd)
 {
 	say(FZN_ENTRY_NOTE, "node", "stopping, as asked");
 	fzn_node_serve_release(serving_state);
+	fzn_node_sessions_release(&granted_sessions);
 	fzn_socket_close(lfd, sock_path);
 	if (ufd >= 0)
 		fzn_udp_close(ufd);
@@ -18869,6 +18874,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	state.rng = &rng_ops;
 	state.replay = &replay;
 	state.clock = wall_clock;
+	state.clock_ms = wall_ms;
+	state.sessions = &granted_sessions;
 
 	/* THE CAPABILITY THE REMOTE HOP REQUIRES, which this main never set.
 	 * `state` is zeroed, so the hop required the all-zero capability id --
