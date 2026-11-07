@@ -1,0 +1,20 @@
+// The signatures a host has verified, kept across a start, project.md sec 938. The
+// hand-written codec is node/verify_memo.c; this is its checked contract, in `make
+// schema`'s list.
+//
+// What the schema cannot say and the codec checks: `signature` is this host's own, over
+// a hash of everything before it, and nothing is read until it verifies.
+
+target buffer;
+endian big;
+
+struct fzn_verify_memo_digest {
+	u8   digest[32];                 // of a key, a message and a signature
+}
+
+struct fzn_verify_memo_file {
+	u8   version [must_eq = 1];
+	u32  count;
+	fzn_verify_memo_digest digests[count];
+	u8   signature[64];
+}

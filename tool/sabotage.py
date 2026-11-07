@@ -14699,6 +14699,20 @@ SABOTAGES = [
 		"a piece whose id opens with the mark is taken whole, and its frame lost -- sec 937",
 	),
 	(
+		"memo-file-believed-unsigned",
+		"node/verify_memo.c",
+		"\t    || !m->inner->verify(m->inner->ctx, own, hashed, sizeof(hashed), file + body)\n",
+		"",
+		"a memo nobody signed taken in: a forgery added to the file passes every check -- sec 938",
+	),
+	(
+		"memo-file-hash-covers-no-digest",
+		"node/verify_memo.c",
+		"\t    || !m->hash->hash(m->hash->ctx, hashed, sizeof(hashed), file, body)\n",
+		"\t    || !m->hash->hash(m->hash->ctx, hashed, sizeof(hashed), file, FILE_HEAD_LEN)\n",
+		"the signature stops short of the digests, so a digest changed in the file is believed -- sec 938",
+	),
+	(
 		"session-forgery-moves-the-window",
 		"wire/session_frame.c",
 		"\tcounter = fzn_get_be32(frame + COUNTER_AT);\n\t/* 0 IS NEVER SEALED",

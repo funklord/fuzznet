@@ -12,6 +12,13 @@
  *
  * Direct-mapped: a slot taken by another is only a check done again. No memory means no
  * memo, and every check made.
+ *
+ * KEPT ACROSS A START, sec 938: a host verifies all it holds before it serves, 1 ms a
+ * contact, so a restart at 20000 contacts answered nothing for 20 s. So the memo is
+ * saved, SIGNED BY THIS HOST'S OWN KEY over a hash of it: one check takes it all back,
+ * and no one without that key can add a forgery to it. A file that does not read or
+ * does not verify is passed over, and every check made, so it can only be slower.
+ * What it remembers is still only that these bytes verified.
  */
 #ifndef FZN_NODE_VERIFY_MEMO_H
 #define FZN_NODE_VERIFY_MEMO_H
@@ -33,6 +40,10 @@ typedef struct fzn_verify_memo {
 	uint8_t (*table)[FZN_VERIFY_MEMO_DIGEST]; /* made at the first check */
 	int no_room;
 	unsigned long hits, checks;
+	/* THIS HOST'S KEY, once known: what it signs needs no checking when read back,
+	 * so its own records cost nothing at the first start after they were written. */
+	const uint8_t *own;
+	unsigned long added, added_saved; /* digests taken in, and at the last save */
 } fzn_verify_memo_t;
 
 /* `ops`, which verify through `m` and sign through `inner`. `inner` and `hash` must
@@ -41,5 +52,14 @@ void fzn_verify_memo_init(fzn_verify_memo_t *m, const fzn_sign_ops_t *inner,
                           const fzn_hash_ops_t *hash, fzn_sign_ops_t *ops);
 
 void fzn_verify_memo_free(fzn_verify_memo_t *m);
+
+/* THE MEMO, signed, written whole over `path`, by the `inner` it was given. 1, or 0
+ * with whatever was there left alone. */
+int fzn_verify_memo_save(fzn_verify_memo_t *m, const char *path);
+
+/* WHAT `path` REMEMBERS, signed by `own`, taken in: how many digests, 0 when it is
+ * absent, or any of it is not as it was saved. */
+size_t fzn_verify_memo_load(fzn_verify_memo_t *m, const char *path,
+                            const uint8_t own[FZN_PUBKEY_LEN]);
 
 #endif /* FZN_NODE_VERIFY_MEMO_H */

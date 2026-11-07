@@ -81975,5 +81975,34 @@ file of every store, and each test and tool that names one. **Row a member is dr
 
 A piece's head is 4 bytes, and a frame of one piece needs none of them. A session frame that fits
 a unit now goes as it is: its mark says what it is, and a piece's link id never opens with that
-byte. 51 bytes of a 51-byte unit rather than 47, so a call has 18 bytes for its name and arguments
-where it had 14. A full frame keeps its head, as it goes in pieces on any radio.
+byte. 51 bytes of a 51-byte unit rather than 47, so a call has 15 bytes for its name and arguments
+where it had 11. A full frame keeps its head, as it goes in pieces on any radio.
+
+## 938. A start that verified everything again, 2026-11-07
+
+Measuring what sec 936 left, a host restarted with 8000 contacts answered its first request after
+9.75 s, on this machine under a gate's load, and 15000 ran past a 5 s wait. The process is up in
+0.1 s: what it does then is `fzn_node_roster_load` and `follow_estate`, every record read and
+its signature checked, before it serves. So a host's restart grew with what it held, and sec 931's
+memo started empty each time.
+
+**The memo is kept:** `STORE/verified`, saved at a clean stop, and when 256 new digests have
+come, at most every 10 minutes. `node/verify_memo.situ`.
+- **Signed by this host's own key,** over a hash of the whole file, so one check takes it all back
+  and nobody without that key can add a forgery. A file that does not read or does not verify is
+  passed over, and every check is made: slower, and not wrong. Nothing is believed before the
+  signature is, and a host with a new key starts from nothing.
+- **What this host signs is remembered as it signs,** or its own records, most of a store, would
+  be checked at the first start after they were written. A digest holds the key, so a signature
+  made under another key only misses.
+- It still says only that these bytes verified. Whether a key stands is asked apart.
+
+**Rejected:** serving before the replay ends, which is the larger answer, as every handler assumes
+a roster and a journal applied. And trusting the store unsigned: records are checked at read so
+that a file changed at rest is caught, and that stays true.
+
+**Measured:** 9.75 s to 2.49 s at 8000 contacts, what is left not profiled. `live_many_contacts`
+counts CPU rather than time: d, 95 ticks with the memo, 2982 signatures remembered; e, 170 with
+the file changed, and 0 remembered. `verify_memo_test`, 2 sabotages. Up to 8 MB on disk.
+
+**A crash** starts from the last save, up to 10 minutes old.

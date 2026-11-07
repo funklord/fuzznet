@@ -11,6 +11,10 @@ Counted in system calls, from /proc, so a loaded machine cannot pass or fail it.
     c  every page of `list contact` read back, each contact once, and a contact
        added between pages is seen, as a list kept is one no write has moved
 
+    d  stopped and started: the checks of all held are remembered, signed, so it
+       verifies next to nothing again (sec 938). Against a memo not kept, thousands
+    e  and with the file changed, it is passed over, and everything is verified
+
 Against a daemon that walks either, a or b counts thousands.
 
 BOUNDED FROM INSIDE as live_rejoin.py is: one deadline, the daemon in its own process
@@ -20,6 +24,7 @@ Exit 0 on a pass, 1 on a failure.
 """
 
 import os
+import re
 import sys
 import tempfile
 import time
@@ -37,6 +42,7 @@ SAMPLE = 100
 # Reads a request may grow by, past its share when nothing grows: a round may land in
 # a sample.
 SLACK = 400
+REMEMBERED = re.compile(r"(\d+) verified signatures remembered")
 
 
 def reads(pid):
@@ -46,6 +52,13 @@ def reads(pid):
 			if line.startswith("syscr:"):
 				return int(line.split()[1])
 	raise failed("no syscr in /proc/%d/io" % pid)
+
+
+def cpu_ticks(pid):
+	"""User and system time `pid` has spent, in clock ticks."""
+	with open("/proc/%d/stat" % pid) as f:
+		fields = f.read().rsplit(")", 1)[1].split()
+	return int(fields[11]) + int(fields[12])
 
 
 def add(sock, i):
@@ -130,6 +143,38 @@ def main(argv):
 			if len(set(seen)) < CONTACTS:
 				raise failed("c: %d of %d contacts came back" % (len(set(seen)), total))
 			print("livecheck: c: every page read back, and a contact added was seen")
+
+			# d: a restart. Counted in CPU, from the same /proc as the rest.
+			d.stop()
+			d = daemon(run, "s1", store, sock)
+			if not ask(sock, "list contact 0").startswith("ok "):
+				raise failed("d: nothing answered after a start")
+			quick = cpu_ticks(d.proc.pid)
+			kept = d.wait_for(REMEMBERED, "what was remembered")
+			if int(kept.group(1)) < CONTACTS:
+				raise failed("d: not what it verified was remembered across a start")
+			print("livecheck: d: started again in %d CPU ticks, %s signatures remembered"
+			      % (quick, kept.group(1)))
+
+			# e: a memo changed on disk.
+			d.stop()
+			path = os.path.join(store, "verified")
+			with open(path, "r+b") as f:
+				f.seek(100)
+				byte = f.read(1)
+				f.seek(100)
+				f.write(bytes([byte[0] ^ 1]))
+			d = daemon(run, "s2", store, sock)
+			if not ask(sock, "list contact 0").startswith("ok "):
+				raise failed("e: nothing answered after a start")
+			slow = cpu_ticks(d.proc.pid)
+			kept = d.wait_for(REMEMBERED, "what was remembered")
+			if kept.group(1) != "0":
+				raise failed("e: a changed memo was believed")
+			if slow <= quick:
+				raise failed("e: %d ticks with no memo, %d with one" % (slow, quick))
+			print("livecheck: e: a changed memo was passed over: %d CPU ticks against %d"
+			      % (slow, quick))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

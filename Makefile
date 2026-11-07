@@ -6842,7 +6842,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               record/store_file.situ catalog/attribute.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ \
               record/exchange.situ \
-              wire/session_frame.situ notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
+              wire/session_frame.situ node/verify_memo.situ notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting.situ \
               node/reconcile.situ node/buckets.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \

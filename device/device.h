@@ -22,7 +22,7 @@
  * its session (sec 932), which a host answers whatever a frame's expiry. Its
  * only clock is `uptime_ms`, which needs to tick and need not be set.
  *
- * NO ALLOCATION, NO POSIX: `fzn_device_t` and its bearer's one slot are 2.8 KB
+ * NO ALLOCATION, NO POSIX: `fzn_device_t` and its bearer's one slot are 2.7 KB
  * and all it holds. `make device-check` compiles this for a board, with no
  * system header, and it needs five functions of a C library.
  *

@@ -1,0 +1,23 @@
+# situ capability map v1
+# schema: verify_memo.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_verify_memo_digest size=32 atomic=NonAtomic
+  fzn_verify_memo_digest.digest          offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_verify_memo_file size=69..137438953509 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_verify_memo_file.version           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_verify_memo_file.count             offset=AbsoluteStatic(0x01) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_verify_memo_file.digests           offset=AbsoluteStatic(0x05) size=Bounded(0, 137438953440) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_verify_memo_file.digests[]         offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_verify_memo_file.digests[].digest  offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_verify_memo_file.signature         offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable

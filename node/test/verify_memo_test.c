@@ -1,9 +1,12 @@
+#define _POSIX_C_SOURCE 200809L
+
 /* verify_memo_test -- `node/verify_memo.h`, sec 931: a signature that verified costs a
  * hash after that, and any byte different is checked as though none had been. */
 #include "../verify_memo.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 static int failures, checks;
 
@@ -39,7 +42,7 @@ static int stub_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
 
 /* A signature is good when its first byte is the message's, unless it is revoked. */
 static unsigned inner_checks, signs;
-static int refuse_all;
+static int refuse_all, sign_truly;
 
 static int inner_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uint8_t *msg,
                         size_t msg_len, const uint8_t sig[FZN_SIG_LEN])
@@ -53,10 +56,11 @@ static int inner_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const u
 static int inner_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
 {
 	(void)ctx;
-	(void)msg;
 	(void)msg_len;
 	signs++;
 	memset(sig, 7, FZN_SIG_LEN);
+	if (sign_truly)
+		sig[0] = msg[0];
 	return 1;
 }
 
@@ -103,6 +107,86 @@ int main(void)
 
 	CHECK(ops.sign(ops.ctx, sig, msg, sizeof(msg)) && signs == 1u && sig[0] == 7u,
 	      "signing did not reach the one beneath");
+
+	/* WHAT THIS HOST SIGNS needs no checking when read back, under its own key alone. */
+	m.own = key;
+	sign_truly = 1;
+	memset(msg2, 'c', sizeof(msg2));
+	CHECK(ops.sign(ops.ctx, sig, msg2, sizeof(msg2)), "a signature was not made");
+	inner_checks = 0;
+	CHECK(ops.verify(ops.ctx, key, msg2, sizeof(msg2), sig) && inner_checks == 0u,
+	      "what this host signed was checked");
+	CHECK(ops.verify(ops.ctx, other, msg2, sizeof(msg2), sig) && inner_checks == 1u,
+	      "another key's check was taken from this host's signing");
+	m.own = NULL;
+
+	/* KEPT ACROSS A START, sec 938. */
+	{
+		static char path[128];
+		fzn_verify_memo_t again;
+		fzn_sign_ops_t ops2;
+		uint8_t bytes[1024];
+		size_t len;
+		FILE *f;
+
+		sig[0] = 'a';
+		sig[63] = 0;
+		refuse_all = 0;
+		sign_truly = 1;
+		CHECK(ops.verify(ops.ctx, key, msg, sizeof(msg), sig), "a check did not pass");
+		snprintf(path, sizeof(path), "/tmp/fzn-memo-%ld", (long)getpid());
+		CHECK(fzn_verify_memo_save(&m, path) == 1, "the memo was not saved");
+		f = fopen(path, "rb");
+		CHECK(f != NULL, "no file");
+		len = f ? fread(bytes, 1u, sizeof(bytes), f) : 0u;
+		if (f)
+			fclose(f);
+
+		/* TAKEN BACK: a check it held costs nothing. */
+		fzn_verify_memo_init(&again, &INNER, &HASH, &ops2);
+		CHECK(fzn_verify_memo_load(&again, path, key) >= 1u, "the memo did not come back");
+		inner_checks = 0;
+		CHECK(ops2.verify(ops2.ctx, key, msg, sizeof(msg), sig) && inner_checks == 0u,
+		      "what was saved was checked again");
+		msg[0] ^= 1u;
+		refuse_all = 1;
+		CHECK(!ops2.verify(ops2.ctx, key, msg, sizeof(msg), sig) && inner_checks == 1u,
+		      "another message passed on a memo taken back");
+		refuse_all = 0;
+		msg[0] ^= 1u;
+		fzn_verify_memo_free(&again);
+
+		/* NOT OURS, NOT WHOLE, NOT THERE: nothing is believed. */
+		fzn_verify_memo_init(&again, &INNER, &HASH, &ops2);
+		refuse_all = 1;
+		CHECK(fzn_verify_memo_load(&again, path, key) == 0u, "a signature that fails was taken");
+		refuse_all = 0;
+		bytes[6] ^= 1u;
+		f = fopen(path, "wb");
+		if (f) {
+			fwrite(bytes, 1u, len, f);
+			fclose(f);
+		}
+		CHECK(fzn_verify_memo_load(&again, path, key) == 0u, "a changed digest was taken");
+		bytes[6] ^= 1u;
+		f = fopen(path, "wb");
+		if (f) {
+			fwrite(bytes, 1u, len - 1u, f);
+			fclose(f);
+		}
+		CHECK(fzn_verify_memo_load(&again, path, key) == 0u, "a short file was taken");
+		bytes[0] ^= 1u;
+		f = fopen(path, "wb");
+		if (f) {
+			fwrite(bytes, 1u, len, f);
+			fclose(f);
+		}
+		CHECK(fzn_verify_memo_load(&again, path, key) == 0u, "another version was taken");
+		CHECK(unlink(path) == 0, "fixture: the file");
+		CHECK(fzn_verify_memo_load(&again, path, key) == 0u, "no file was a memo");
+		CHECK(!again.table, "a refused file made a table");
+		fzn_verify_memo_free(&again);
+	}
 	fzn_verify_memo_free(&m);
 
 	printf("verify_memo_test: %d checks, %d failure(s)\n", checks, failures);

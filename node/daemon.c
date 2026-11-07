@@ -446,6 +446,12 @@ static uint64_t node_started;
 /* THE STORE'S DELTA AND THE HOST'S PRESSURE, sec 917. */
 static fzn_persist_delta_t store_delta;
 static fzn_persist_cache_t contact_cache, note_cache;
+/* WHAT HAS VERIFIED, and where it is kept across a start, sec 938. */
+static fzn_verify_memo_t verify_memo;
+static char verify_memo_path[512];
+static size_t verify_memo_kept;
+#define FZND_VERIFY_MEMO_EVERY_S 600u
+#define FZND_VERIFY_MEMO_MOVED 256u
 static fzn_persist_ops_t contact_cached, note_cached;
 static fzn_persist_ops_t store_delta_ops;
 static int store_delta_on;
@@ -17715,9 +17721,24 @@ static void face_write(const char *core_dir, const char *sock)
 /* STOPPED AS ASKED, sec 835: the socket closed and removed, the face file
  * removed and the claim released, so a follower takes the face at once
  * rather than finding a stale one. */
+/* KEPT WHEN IT MOVED: at start, once what it read is verified, then now and then. So
+ * a host that crashes starts as fast as its last save, and the disk is not worn. */
+static void verify_memo_keep(uint64_t now)
+{
+	static uint64_t next;
+
+	if (!verify_memo_path[0] || now < next
+	    || verify_memo.added < verify_memo.added_saved + FZND_VERIFY_MEMO_MOVED)
+		return;
+	next = now + FZND_VERIFY_MEMO_EVERY_S;
+	(void)fzn_verify_memo_save(&verify_memo, verify_memo_path);
+}
+
 static int stop_serving(int lfd, const char *sock_path, int ufd)
 {
 	say(FZN_ENTRY_NOTE, "node", "stopping, as asked");
+	if (verify_memo_path[0] && verify_memo.added != verify_memo.added_saved)
+		(void)fzn_verify_memo_save(&verify_memo, verify_memo_path);
 	fzn_node_serve_release(serving_state);
 	fzn_node_sessions_release(&granted_sessions);
 	fzn_socket_close(lfd, sock_path);
@@ -18495,7 +18516,6 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	fzn_random_ops_t rng_ops;
 	fzn_sign_ops_t sign_ops;
 	static fzn_sign_ops_t sign_ops_checked;
-	static fzn_verify_memo_t verify_memo;
 	fzn_sign_seat_t seat;
 	/* A SECOND SIGNER for the root key this node may hold beside its
 	 * identity, sec 409: two keys, two seats, never one signer re-armed. */
@@ -19070,6 +19090,15 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		memcpy(state.node_pubkey, identity.pubkey, FZN_PUBKEY_LEN);
 		memcpy(state.config.root, fzn_trust_root(&trust), FZN_PUBKEY_LEN);
 		booted = 1;
+		/* WHAT HAS VERIFIED, before anything is read: sec 938. */
+		if (serving && (size_t)snprintf(verify_memo_path, sizeof(verify_memo_path), "%s/verified",
+		                                store_dir)
+		                       < sizeof(verify_memo_path)) {
+			verify_memo_kept = fzn_verify_memo_load(&verify_memo, verify_memo_path, identity.pubkey);
+			verify_memo.own = identity.pubkey;
+		} else {
+			verify_memo_path[0] = '\0';
+		}
 		if (stderr_level >= FZN_ENTRY_INFO) {
 			fprintf(stderr, "fuzznetd: identity ");
 			print_hex(stderr, identity.pubkey, FZN_PUBKEY_LEN);
@@ -19954,6 +19983,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				                             &state.config.remote_capability, &sign_ops,
 				                             &estate_roots.ops, &hash_ops);
 
+				if (verify_memo_path[0])
+					say(FZN_ENTRY_INFO, "node", "%zu verified signatures remembered",
+					    verify_memo_kept);
 				/* EACH RECORD WRITTEN AS A ROOT, in the root's log. sec 413. */
 				node_roster.wrote = fzn_node_admin_log_roster;
 				node_roster.wrote_ctx = &admin;
@@ -21017,6 +21049,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * conversations waits here, their answers polled with the rest.
 			 * A COPY BEING VERIFIED takes its next step and waits for
 			 * nothing either (sec 751). */
+			verify_memo_keep(now);
 			(void)fzn_node_run_once(&state, (round_step && !round_pending) || logs_verifying()
 			                                        ? 0
 			                                        : 1000);
