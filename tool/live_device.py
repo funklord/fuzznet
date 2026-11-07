@@ -277,6 +277,31 @@ def main(argv):
 					             % (key, rule[:12], said, code))
 			print("livecheck: c2: each rule let the device in or kept it out: %s" % said[:60])
 
+			# c2b: a named object, sec 948: a button sets it and a light reads it, by
+			# a call, under the same rules; R signs and says the device set it.
+			reply = ask(sock, "add object lamp on off")
+			if not reply.startswith("ok"):
+				raise failed("c2b: add object answered %r" % reply)
+			code, said, _, _ = on_the_air(run, image, 51, 0.0, "object", "set lamp on", port)
+			if code == 0:
+				raise failed("c2b: under `remote/permit none` a device set an object: %r" % said)
+			reply = ask(sock, "set setting host remote/permit/object host:" + device_host)
+			if not reply.startswith("ok"):
+				raise failed("c2b: the rule answered %r" % reply)
+			code, said, _, _ = on_the_air(run, image, 51, 0.0, "object", "set lamp on", port)
+			if code != 0 or "on" not in said:
+				raise failed("c2b: the button said %r (%d)" % (said, code))
+			reply = ask(sock, "get object lamp")
+			if not reply.startswith("ok on ") or device_host not in reply:
+				raise failed("c2b: R reads %r, not on and set by the device" % reply)
+			code, said, _, _ = on_the_air(run, image, 51, 0.0, "object", "get lamp", port)
+			if code != 0 or "on" not in said:
+				raise failed("c2b: the light said %r (%d)" % (said, code))
+			code, said, _, _ = on_the_air(run, image, 51, 0.0, "object", "set lamp dim", port)
+			if code == 0:
+				raise failed("c2b: a value the lamp may not have was answered: %r" % said)
+			print("livecheck: c2b: a button set an object, R says who, a light read it")
+
 			# c3: R started again in the middle: the session is gone with it, R says
 			# nothing to a frame it cannot read, and the device asks for another.
 			def restart():

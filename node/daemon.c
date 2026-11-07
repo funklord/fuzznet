@@ -97,6 +97,7 @@
 #include "reconcile.h"
 #include "settings.h"
 #include "records.h"
+#include "objects.h"
 #include "decisions.h"
 #include "responsible.h"
 #include "siblings.h"
@@ -3209,9 +3210,34 @@ static fzn_node_apply_outcome_t record_file(void *ctx, const uint8_t subject[FZN
 static int forks_due = 1;
 static int votes_due = 1;
 
+/* NAMED OBJECTS, sec 948. A change is heard here at once, and starts a round so
+ * it does not wait out one: a lamp is not a 60 s thing. At most one round a gap,
+ * as a value may change faster than a host should go round. */
+#define FZND_OBJECT_ROUND_GAP_S 2u
+static fzn_node_objects_t node_objects;
+static int object_round_due;
+
+static void hex_of(const uint8_t *b, size_t n, char *out);
+
+static void object_changed(const uint8_t *name, size_t name_len)
+{
+	char hex[2u * FZN_NODE_OBJECT_NAME_MAX + 1u];
+
+	if (name_len > FZN_NODE_OBJECT_NAME_MAX)
+		return;
+	hex_of(name, name_len, hex);
+	(void)fzn_node_events_publish_extension(&node_events, "object", hex);
+	object_round_due = 1;
+}
+
 static void record_filed(void *ctx, const fzn_setting_t *s)
 {
+	char object[FZN_NODE_OBJECT_NAME_MAX + 1u];
+	size_t object_len = fzn_node_object_of_key(s->key, s->key_len, object);
+
 	(void)ctx;
+	if (object_len)
+		object_changed((const uint8_t *)object, object_len);
 	if (s->key_len > FZN_NODE_DECIDED_PREFIX_LEN
 	    && memcmp(s->key, FZN_NODE_DECIDED_PREFIX, FZN_NODE_DECIDED_PREFIX_LEN) == 0) {
 		fzn_node_decisions_forget();
@@ -3244,8 +3270,11 @@ static size_t records_and_decisions_local(void *ctx, fzn_origin_t origin,
                                           const fzn_request_t *request, char *reply,
                                           size_t reply_cap)
 {
-	size_t n = fzn_node_decisions_local(ctx, origin, request, reply, reply_cap);
+	size_t n = fzn_node_objects_local(&node_objects, origin, request, reply, reply_cap);
 
+	if (n)
+		return n;
+	n = fzn_node_decisions_local(ctx, origin, request, reply, reply_cap);
 	if (!n)
 		return fzn_node_records_local(ctx, origin, request, reply, reply_cap);
 	forks_due = 1;
@@ -15583,10 +15612,21 @@ static size_t events_call(void *ctx, const uint8_t *caller, const fzn_peer_t *pe
 	                             FZN_DAEMON_CALL_ESCAPED_MAX);
 }
 
+/* `object`, sec 948: what a device has for a named object. A local caller is
+ * this host; another is named on the value, so it says who set it. */
+static size_t object_call(void *ctx, const uint8_t *caller, const fzn_peer_t *peer,
+                          const uint8_t *args, size_t args_len, uint8_t *answer, size_t cap)
+{
+	(void)ctx;
+	(void)peer;
+	return fzn_node_object_call(&node_objects, caller, args, args_len, answer, cap);
+}
+
 /* FUZZNET'S OWN PROCEDURES, sec 866: asked before an extension's, so no
  * extension's name hides one. */
 static const fzn_daemon_procedure_t builtin_procedures[] = {
 	{ "events", events_call, NULL },
+	{ "object", object_call, NULL },
 };
 
 static const fzn_daemon_procedure_t *procedure_of(const uint8_t *name, size_t len)
@@ -20280,6 +20320,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_records.id = &identity;
 				node_records.now_ms = wall_ms;
 				node_records.filed = record_filed;
+				node_objects.records = &node_records;
+				node_objects.changed = object_changed;
 				node_settings.decided = setting_decided;
 				node_settings.may_set = preset_may;
 				admin.records_local = records_and_decisions_local;
@@ -20789,7 +20831,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				successions_room(&node_successions);
 			if (messages_on)
 				messages_keys_room(&node_messages);
-			if (!round_step && (now >= next_pull || next_pull > now + pull_every)) {
+			if (!round_step
+			    && (now >= next_pull || next_pull > now + pull_every
+			        || (object_round_due && now >= round_now + FZND_OBJECT_ROUND_GAP_S))) {
+				object_round_due = 0;
 				plan = round_plan;
 				plan_at = 0;
 				round_step = plan[0];

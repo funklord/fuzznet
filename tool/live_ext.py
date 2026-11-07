@@ -294,8 +294,17 @@ def c_marks(daemon_path, scratch, sock_dir):
 			if time.monotonic() > until:
 				raise failed("d4: after the deadline the settings stood %r" % seen)
 			time.sleep(2.0)
-		if ask(socks["b"], "list staged") != "ok 0" or ask(socks["a"], "list staged") != "ok 0":
-			raise failed("d4: a stage was still held after its deadline")
+		# EACH HOST SWEEPS ITS STAGES ONCE A SECOND, and A's revert can reach B just
+		# before B's sweep, so the settings stand before the last stage goes.
+		until = time.monotonic() + 5.0
+		while True:
+			held = {w: ask(socks[w], "list staged") for w in ("a", "b")}
+			if all(v == "ok 0" for v in held.values()):
+				break
+			if time.monotonic() > until:
+				raise failed("d4: a stage was still held after its deadline: %r" % held)
+			print("livecheck: d4: a stage waiting for its sweep: %r" % held)
+			time.sleep(0.5)
 		print("livecheck: d4: an unconfirmed staged change was reverted by A and by B each, a "
 		      "confirmed one stood, and one written over was not undone")
 		# d5: A VALUE SEALED TO A GROUP, sec 874: A seals zone1's passphrase;

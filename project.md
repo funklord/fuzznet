@@ -81268,8 +81268,8 @@ test expected a refusal, and that was the test's mistake.
 - **A light can be told (sec 935),** while the radio is listening. When to listen, under a
   duty cycle, is still a board's question.
 - **A full 144 bytes on the first frame of a session,** sec 932: the ask and its grant.
-- **`fuzznetd` has no procedure a button does anything with.** `events` is what this
-  test reads, and a press is the consumer's procedure.
+- **~~`fuzznetd` has no procedure a button does anything with.~~** `object` is one, sec 948. Any
+  other press is the consumer's procedure.
 - **A device may call what its gateway's rules leave it** (sec 921); with none set, every
   procedure, as any member may.
 
@@ -82333,3 +82333,71 @@ at its time. `lost-acts-stop-at-a-bound` and `lost-acts-keep-anyones` guard the 
 **Open:** a queue held in memory dies with the daemon: a restart between a drop and the making again
 loses the act, within one round. Nothing keeps an act whose author is offline on the kept head
 either; that is sec 626's design.
+
+## 948. Named objects: `living_room_lamp` = on or off, 2026-11-07
+
+The holder, relayed in fuzzypickles' 20261107T1716Z and not heard here directly: "for embedded we
+need to have subsystem similar to the RPC we already have but where named objects are created,
+something like living_room_lamp = [on/off] So one node sets it and then another node
+subscribes/polls it". Sec 912 had left it open: "`fuzznetd` has no procedure a button does anything
+with". This is one.
+
+**An object is two members of reserved lists,** sec 854: `object` holds what it may be and
+`object-value` what it is. Everything asked of it a list already does: carried between the estate's
+hosts, resolved newest first and the same on each, its setter and time kept, read after a host was
+away, its deciding record never trimmed, paged. `node/objects.{h,c}` is verbs over that and no store.
+
+    add object NAME [VALUE...]   allowed values, none for any word; again, the same, writes nothing
+    set object NAME VALUE
+    get object NAME              ok VALUE AT BY ALLOWED, or ok absent
+    list object [FROM]           ok FROM SHOWN MORE, then NAME,VALUE,AT,BY,ALLOWED
+    remove object NAME
+    event object HEX             a change, to any client held; HEX is the name's bytes
+    call object get NAME         the procedure: the value alone, as airtime is the limit
+    call object set NAME VALUE
+
+ALLOWED is `on|off`, or `*`. VALUE and BY are `-` while none was set, so `-` is no value. A name is
+a-z 0-9 `_` to 32 bytes, as its hex is an event's name; a value is one word to 64.
+
+**Who may is the gate at the host that signs:** `local/permit/object` for local callers (sec 852,
+`r` and `w`), `remote/permit/object` for other hosts and devices (sec 921). A reader does not judge
+another host's record, as an estate is one user's (its members are trusted alike). So a rule binds
+callers of that host, and a device's rule is its gateway's. `add listed` and `remove listed` refuse
+the two lists, which would pass a value by what it may be and by `w` on `object`.
+
+**A device has only `call`, and its gateway signs for it,** naming it on the value (`VALUE HEX`), so
+BY is the button and not the gateway. A light polls. Sec 935's being told is not used yet.
+
+**Newest wins is not the writer's clock.** Lists resolve by version, written by the host's own
+clock, so sec 722's fault was here: a host 900 s behind answers ok and changes nothing anybody
+reads. A change is written past the newest row held, cleared or not, so one made after reading
+always takes. Two hosts setting at once still resolve by version, the same everywhere.
+
+**A change starts a round,** at most one in 2 s, on the host that made it and on each that files it.
+Records only move in a round, 60 s by default. Filing what is held already starts none, so it ends.
+
+**Rejected:**
+- settings, which have a rank and a value and are the holder's "config is a kind of record": sec 854's
+  reasons hold, each change journaled for ever in the estate stream, and a lamp changes all day;
+- a frame of its own to push a change: two rounds cost 2 s here and no wire change, and a radio's
+  airtime is the device's side, which polls;
+- a rule on the object, judged by every reader: a device is no signer, so a reader could only
+  believe the gateway's word for who set it, and the rule would bind nothing.
+
+**Measured:** `records_test`, 51 checks new; `live_objects` on real daemons at the default round: a
+set heard on the other host in 2.0 s and 2.1 s each way, on the embedded build too, and with the
+trigger off no event in 15 s. A host away for a set reads it when back. `live_device` c2b over 51-byte
+units: a button kept out by `remote/permit none`, let in by `host:HEX`, named at R, a light reading
+it, a value the lamp may not have refused. `live_objects` and `live_device` run in `livecheck` and
+`livecheck-embedded`. Eight sabotages, `object-waits-for-a-round` by the control above.
+
+**Open:**
+- each `get` walks the two lists, read from disk. A light polling a host of thousands of records
+  pays that; not measured, and a memo by the records stamp is the answer if it hurts.
+- only an estate's hosts. A contact or a group's member reads nothing; no consumer has asked.
+- a subscription is a client's on its host: nothing tells a device, which polls.
+- a value is one word. A number is one; a sentence is not.
+- `live_ext` d4 failed once with objects built, `a stage was still held after its deadline`, and
+  passed on the next run. Objects touch no stage. Hosts sweep stages once a second, so a read just as
+  the settings stood could race a sweep, but that is a reading: the run printed nothing of it, and
+  the check now waits 5 s and says what it holds.

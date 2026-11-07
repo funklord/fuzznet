@@ -952,6 +952,11 @@ static size_t listed(const fzn_node_records_t *nr, fzn_verb_t verb, const uint8_
 	memset(&l, 0, sizeof(l));
 	if (!word(&at, &left, &name, &name_len) || !list_word_ok(name, name_len))
 		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	/* AN OBJECT'S LISTS, sec 948: read here, and written by `set object` alone,
+	 * which checks a value and which a `listed` grant is not. */
+	if ((verb == FZN_VERB_ADD || verb == FZN_VERB_REMOVE)
+	    && (is_word(name, name_len, "object") || is_word(name, name_len, "object-value")))
+		return say(reply, cap, FZN_REPLY_DENIED, "that list is the object verbs'");
 	if (verb != FZN_VERB_LIST
 	    && (!word(&at, &left, &member, &member_len) || !list_word_ok(member, member_len)))
 		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);

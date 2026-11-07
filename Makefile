@@ -247,7 +247,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/attachment.c messages/messages.c node/messages.c \
-             node/file_holds.c node/attachments.c node/records.c node/decisions.c node/invite.c node/presets.c node/votes.c local/client_config.c node/responsible.c \
+             node/file_holds.c node/attachments.c node/records.c node/objects.c node/decisions.c node/invite.c node/presets.c node/votes.c local/client_config.c node/responsible.c \
              contact/contact.c \
              log/rules.c \
              node/received.c node/members.c \
@@ -349,7 +349,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/attachment.h messages/messages.h node/messages.h \
-             node/file_holds.h node/attachments.h node/records.h node/decisions.h node/invite.h node/presets.h node/votes.h local/client_config.h node/responsible.h \
+             node/file_holds.h node/attachments.h node/records.h node/objects.h node/decisions.h node/invite.h node/presets.h node/votes.h local/client_config.h node/responsible.h \
              contact/contact.h \
              log/rules.h \
              node/received.h node/members.h \
@@ -4657,7 +4657,8 @@ $(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
 # A host's records, sec 814: a setting its host signs about itself, kept in
 # the records kind of the buckets.
 $(BUILD_DIR)/node/test/records_test: $(BUILD_DIR)/node/test/records_test.o \
-                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/buckets.o \
+                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o \
+                                     $(BUILD_DIR)/node/buckets.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \
@@ -4806,7 +4807,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
-              $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/node/presets.o $(BUILD_DIR)/node/votes.o $(BUILD_DIR)/node/responsible.o \
+              $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/node/presets.o $(BUILD_DIR)/node/votes.o $(BUILD_DIR)/node/responsible.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/fault/fault.o \
               $(BUILD_DIR)/log/view.o $(BUILD_DIR)/node/log_list.o $(BUILD_DIR)/node/clocks.o \
@@ -7003,7 +7004,8 @@ ifdef CATALOG_ON
 endif
 	@timeout 420 python3 tool/live_join.py $(FUZZNETD)
 	@timeout 440 python3 tool/live_invite.py $(FUZZNETD)
-	@timeout 220 python3 tool/live_device.py $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
+	@timeout 280 python3 tool/live_device.py $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
+	@timeout 230 python3 tool/live_objects.py $(FUZZNETD)
 	@timeout 170 python3 tool/live_session.py $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 660 python3 tool/live_many_notes.py $(FUZZNETD)
 	@timeout 440 python3 tool/live_many_shared.py $(FUZZNETD)
@@ -7055,7 +7057,8 @@ livecheck-embedded: embedded $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	 echo "livecheck: embedded: $$bss bytes of bss, at most $(EMBEDDED_BSS_MAX)"; \
 	 test "$$bss" -le $(EMBEDDED_BSS_MAX)
 	@timeout 620 python3 tool/live_lean.py --minimal $(BUILD_DIR)/embedded/fuzznetd $(FUZZNETD)
-	@timeout 220 python3 tool/live_device.py $(BUILD_DIR)/embedded/fuzznetd $(BRIDGE) $(DEVICE_SIM)
+	@timeout 280 python3 tool/live_device.py $(BUILD_DIR)/embedded/fuzznetd $(BRIDGE) $(DEVICE_SIM)
+	@timeout 230 python3 tool/live_objects.py $(BUILD_DIR)/embedded/fuzznetd
 
 # THE FAULTS FIRE, sec 689 step 0b: tool/live_faults.py against the faulty
 # daemon, so a scenario built on a fault is known to have one. Then the

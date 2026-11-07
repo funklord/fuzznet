@@ -6,6 +6,7 @@
  * tested. */
 
 #include "../records.h"
+#include "../objects.h"
 #include "../../state/setting.h"
 #include "../../messages/line.h"
 #include "../../log/retain.h"
@@ -690,6 +691,188 @@ static void test_the_rules(void)
 	}
 }
 
+static size_t object_said(const fzn_node_objects_t *o, fzn_origin_t origin, const char *line)
+{
+	fzn_request_t req;
+
+	memset(reply, 0, sizeof(reply));
+	if (!fzn_vocabulary_split((const uint8_t *)line, strlen(line), &req))
+		return 0;
+	return fzn_node_objects_local((void *)o, origin, &req, reply, sizeof(reply));
+}
+
+static size_t heard;
+
+static void on_changed(const uint8_t *name, size_t name_len)
+{
+	(void)name;
+	(void)name_len;
+	heard++;
+}
+
+/* A VALUE ANOTHER HOST SET, filed as a peer hands it on. */
+static int filed_from(const fzn_node_records_t *nr, uint8_t by, uint64_t at, const char *key,
+                      const char *value)
+{
+	uint8_t item[FZN_SETTING_MAX], who[FZN_PUBKEY_LEN];
+	size_t len = a_record(item, by, by, FZN_SCOPE_HOST, at, key, value);
+
+	memset(who, by, sizeof(who));
+	signing_as = 0x44;
+	return len && fzn_node_records_file(nr, who, fzn_message_epoch_of(at), item, len)
+	                      == FZN_NODE_APPLY_APPLIED;
+}
+
+static void test_named_objects(void)
+{
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
+	fzn_node_objects_t o = { &nr, on_changed };
+	char name[FZN_NODE_OBJECT_NAME_MAX + 1u], hex[2u * FZN_PUBKEY_LEN + 1u], want[256];
+	uint8_t caller[FZN_PUBKEY_LEN], answered[32];
+	static const char KEY[] = "list/object-value/lamp";
+	size_t i;
+
+	memset(&node, 0, sizeof(node));
+	memset(&me, 0, sizeof(me));
+	memset(me.pubkey, 0x44, sizeof(me.pubkey));
+	me.sign = &SIGN;
+	clock_ms = 1793500000000ull;
+	signing_as = 0x44;
+	heard = 0;
+	memset(hex, '4', 2u * FZN_PUBKEY_LEN);
+	hex[2u * FZN_PUBKEY_LEN] = '\0';
+
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && replied("ok absent"),
+	      "an object never made was not absent");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp on") && replied("error no such"),
+	      "an object never made took a value");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "add object lamp on off") && replied("ok")
+	              && heard == 1u,
+	      "an object was not made, or not told of");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp")
+	              && strcmp(reply, "ok - 0 - on|off\n") == 0,
+	      "an object not yet set did not say so");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "add object lamp on off") && replied("ok")
+	              && heard == 1u,
+	      "making the same object again wrote something");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "add object lamp dim") && replied("error"),
+	      "another object over a name took");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp dim") && replied("denied"),
+	      "a value it may not have took");
+	clock_ms += 1000u;
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp on") && replied("ok")
+	              && heard == 2u,
+	      "a value was not set");
+	snprintf(want, sizeof(want), "ok on %llu %s on|off\n", (unsigned long long)clock_ms, hex);
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && strcmp(reply, want) == 0,
+	      "a value did not read with when and who");
+	CHECK(object_said(&o, FZN_ORIGIN_NONE, "get object lamp") && replied("denied"),
+	      "another user read an object");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp on off") && replied("malformed")
+	              && object_said(&o, FZN_ORIGIN_SAME_USER, "add object LAMP on")
+	              && replied("malformed")
+	              && object_said(&o, FZN_ORIGIN_SAME_USER, "add object odd - on")
+	              && replied("malformed"),
+	      "a set of two words, a capital name or the value `-` took");
+
+	/* A HOST WHOSE CLOCK IS BEHIND still changes it, having read it. */
+	clock_ms -= 900000u;
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp off") && replied("ok")
+	              && object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && replied("ok off "),
+	      "a set by a clock behind lost to the value it read");
+	clock_ms += 900000u;
+
+	/* ANOTHER HOST'S NEWER VALUE is the value here, and says who. */
+	CHECK(filed_from(&nr, 0x55u, clock_ms + 5000u, KEY, "on"),
+	      "fixture: another host's value filed");
+	memset(hex, '5', 2u * FZN_PUBKEY_LEN);
+	snprintf(want, sizeof(want), "ok on %llu %s on|off\n",
+	         (unsigned long long)(clock_ms + 5000u), hex);
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && strcmp(reply, want) == 0,
+	      "another host's newer value was not the value");
+	CHECK(fzn_node_object_of_key((const uint8_t *)KEY, strlen(KEY), name) == 4u
+	              && strcmp(name, "lamp") == 0
+	              && fzn_node_object_of_key((const uint8_t *)"list/object/lamp", 16u, name) == 4u
+	              && !fzn_node_object_of_key((const uint8_t *)"list/allow/lamp", 15u, name),
+	      "a record's key did not name its object, or named one it was not");
+
+	/* A DEVICE, by the procedure: its gateway signs, and names it. */
+	memset(caller, 0x66, sizeof(caller));
+	memset(hex, '6', 2u * FZN_PUBKEY_LEN);
+	CHECK(fzn_node_object_call(&o, caller, (const uint8_t *)"set lamp off", 12u, answered,
+	                           sizeof(answered))
+	              == 3u
+	              && memcmp(answered, "off", 3u) == 0,
+	      "a call's set did not answer the value");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && replied("ok off ")
+	              && strstr(reply, hex),
+	      "a value set for a device did not name it");
+	CHECK(fzn_node_object_call(&o, caller, (const uint8_t *)"get lamp", 8u, answered,
+	                           sizeof(answered))
+	              == 3u
+	              && memcmp(answered, "off", 3u) == 0,
+	      "a call's get did not answer the value");
+	CHECK(!fzn_node_object_call(&o, caller, (const uint8_t *)"set lamp dim", 12u, answered,
+	                            sizeof(answered))
+	              && !fzn_node_object_call(&o, caller, (const uint8_t *)"get door", 8u, answered,
+	                                       sizeof(answered))
+	              && !fzn_node_object_call(&o, caller, (const uint8_t *)"burn lamp", 9u, answered,
+	                                       sizeof(answered)),
+	      "a call out of shape was answered");
+
+	/* LISTED AND PAGED, every value at its row. */
+	for (i = 0; i < 20u; i++) {
+		char line[64];
+
+		snprintf(line, sizeof(line), "add object door_%02zu", i);
+		CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, line) && replied("ok"), "fixture: an object");
+	}
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object door_07 ajar") && replied("ok"),
+	      "any word went to an object with no values");
+	{
+		size_t from = 0, seen = 0, shown = 0, pages = 0;
+		int more = 1, door = 0, lamp = 0;
+
+		while (more && pages++ < 30u) {
+			char line[64];
+			unsigned long f = 0;
+
+			snprintf(line, sizeof(line), "list object %zu", from);
+			CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, line)
+			              && sscanf(reply, "ok %lu %zu %d", &f, &shown, &more) == 3,
+			      "a listing was not read");
+			door += strstr(reply, " door_07,ajar,") != NULL;
+			lamp += strstr(reply, " lamp,off,") != NULL;
+			seen += shown;
+			from += shown;
+			CHECK(shown || !more, "a page showed nothing and said more");
+		}
+		CHECK(seen == 21u && door == 1 && lamp == 1,
+		      "the pages did not hold every object once, with its value");
+	}
+
+	/* THE LISTS ARE THE VERBS', as `set object` checks what `add listed` would not. */
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "add listed object-value lamp dim") && replied("denied")
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "remove listed object lamp")
+	              && replied("denied"),
+	      "a list verb wrote an object's list");
+
+	/* REMOVED, and made again: it begins with no value, by a clock behind too. */
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "remove object lamp") && replied("ok")
+	              && object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp")
+	              && replied("ok absent"),
+	      "a removed object stood");
+	clock_ms -= 900000u;
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "add object lamp on off") && replied("ok")
+	              && object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp")
+	              && strcmp(reply, "ok - 0 - on|off\n") == 0,
+	      "an object made again by a clock behind was lost, or kept its old value");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp on") && replied("ok")
+	              && object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && replied("ok on "),
+	      "a value after a clear, by a clock behind, lost to the clear");
+	clock_ms += 900000u;
+}
+
 int main(void)
 {
 	test_a_record_filed();
@@ -699,6 +882,7 @@ int main(void)
 	test_the_lists();
 	test_a_keep_by_list();
 	test_a_listing_under_a_prefix();
+	test_named_objects();
 	if (failures) {
 		fprintf(stderr, "node records_test: %d of %d checks failed\n", failures, checks);
 		return 1;
