@@ -81779,7 +81779,7 @@ directory, `--no-log-file`.
 The holder's figure, by fuzzypickles: people in a group in the tens of thousands.
 `FZN_GROUP_MEMBERS_MAX` and `FZN_GROUP_HOSTS_MAX` are 65535, what a group's row counts in 16 bits.
 A `small` build keeps 64 and 128. Read often, a group no longer clears its two tables on decode.
-Static memory goes to 1.14 GB, untouched until used.
+Static memory goes to 1.14 GB, untouched until used, and sec 941 found what that costs.
 
 **Measured:** a member added 37 ms at 3500, 47 at 4250, contact included, and `list group` 24 ms.
 **That growth was not the row,** as this entry first said it was: sec 936. A member is 8 ms flat
@@ -82111,3 +82111,19 @@ add. Reproduced, and two faults, not one.
 `live_many_groups`: 303 reads a hundred at the start and 300 at 3000, a client answered within
 0.13 s through the round, 3000 acts made. Both a daemon before the cache and one with it and no
 slice fail it, stalled past the wait.
+
+
+**And a host that will not start on a small machine.** netcfgd's 20261107T0906Z, in sec 939: static
+memory past RAM and swap is refused at exec, before anything can log. "Untouched until used" was
+true of resident memory only, and I had parked it as a 32-bit matter. It is any machine under 1.14
+GB with no swap, which is a small VPS as well as a router.
+
+- **`view`, 189 MB, on the heap** from `fzn_node_notes_init`, which answers BACKEND without room.
+- **`notes_talks`, 160 MB,** at the first round with a peer: a round with no room says so.
+- **Five tables of 64 MB,** each at first use. `names_blob` with no room keeps everything, as a tree
+  that will not read does.
+
+Static memory is 434 MB, from 1136. Under `ulimit -v 500000` it starts; before, it died at 900000.
+That limit is a stand-in for overcommit, and no small machine has run it. `make livecheck` refuses
+more than 512 MiB. **Not done:** 434 MB is about 15 tables of 8 MB, 25 of 7 and `titles`. Consumers
+name their own bounds, as netcfgd does at 21 MB, so a 256 MB host of the full default still waits.

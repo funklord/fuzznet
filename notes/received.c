@@ -2,6 +2,7 @@
 
 #include "received.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* Sixteen bytes, as this tree's other derivation labels are. */
@@ -37,6 +38,15 @@ static int row_key(const fzn_notes_received_t *seam, const uint8_t claim[FZN_PUB
 
 /* A row as it is stored, checked to be a SHARED_NOTE blob; its record is
  * the bytes past the prefix. */
+/* EVERY ROW'S KEY, room on the heap at first use, sec 941: 64 MB a caller, and static
+ * memory larger than RAM and swap is refused at exec. Each caller's its own, kept. */
+static int rows_room(uint8_t (**keys)[FZN_PUBKEY_LEN])
+{
+	if (!*keys)
+		*keys = malloc(FZN_NOTES_RECEIVED_ROWS * (size_t)FZN_PUBKEY_LEN);
+	return *keys != NULL;
+}
+
 static int row_read(const fzn_persist_ops_t *base, const uint8_t key[FZN_PUBKEY_LEN],
                     uint8_t *row, size_t *len)
 {
@@ -119,7 +129,7 @@ static int seam_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
                      size_t *count)
 {
 	const fzn_notes_received_t *seam = (const fzn_notes_received_t *)ctx;
-	static uint8_t keys[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
+	static uint8_t (*keys)[FZN_PUBKEY_LEN];
 	static uint8_t row[ROW_MAX];
 	uint8_t check[FZN_PUBKEY_LEN];
 	size_t held = 0, i, n = 0, len;
@@ -129,6 +139,8 @@ static int seam_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 	*count = 0;
 	if (slot != FZN_PERSIST_NOTE)
 		return 1;
+	if (!rows_room(&keys))
+		return 0;
 	if (!seam->base->list(seam->base->ctx, FZN_PERSIST_SHARED_NOTE, (uint8_t *)keys,
 	                      FZN_NOTES_RECEIVED_ROWS, &held))
 		return 0;
@@ -197,12 +209,14 @@ fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
                                           const fzn_hash_ops_t *hash,
                                           const uint8_t sharer[FZN_PUBKEY_LEN], size_t *removed)
 {
-	static uint8_t keys[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
+	static uint8_t (*keys)[FZN_PUBKEY_LEN];
 	static uint8_t row[ROW_MAX];
 	size_t held = 0, i, n = 0, len;
 
 	if (removed)
 		*removed = 0;
+	if (!rows_room(&keys))
+		return FZN_NOTES_ERR_BACKEND;
 	if (!base || !base->list || !base->load || !hash || !hash->hash || !sharer)
 		return FZN_NOTES_ERR_MALFORMED;
 	if (!base->remove)
@@ -270,13 +284,15 @@ fzn_notes_err_t fzn_notes_received_sharers(const fzn_persist_ops_t *base,
                                            uint8_t (*out)[FZN_PUBKEY_LEN], size_t cap,
                                            size_t *count)
 {
-	static uint8_t keys[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
+	static uint8_t (*keys)[FZN_PUBKEY_LEN];
 	static uint8_t row[ROW_MAX];
 	size_t held = 0, i, j, n = 0, len;
 
 	if (!base || !base->list || !base->load || !out || !count)
 		return FZN_NOTES_ERR_MALFORMED;
 	*count = 0;
+	if (!rows_room(&keys))
+		return FZN_NOTES_ERR_BACKEND;
 	if (!base->list(base->ctx, FZN_PERSIST_SHARED_NOTE, (uint8_t *)keys, FZN_NOTES_RECEIVED_ROWS,
 	                &held))
 		return FZN_NOTES_ERR_BACKEND;

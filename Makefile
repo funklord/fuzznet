@@ -6965,11 +6965,17 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # going round in turn take live_erasure.py past the others' 240 s, so its own
 # deadline is 480 s and its timeout 600, and live_contacts.py's 900 and 1080; it needs packed logs to cut, and says
 # it is skipped in a build without them.
+# STATIC MEMORY PAST RAM AND SWAP IS REFUSED AT EXEC, sec 941, before anything can be
+# logged: a small machine, by default overcommit. What grows goes on the heap.
+FUZZNETD_BSS_MAX := 536870912
 livecheck: $(FUZZNETD) $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON),$(NOTES_ON),$(GROUPS_ON)),)
 	@echo "livecheck: SKIPPED -- it needs fuzznetd, the record store, log files, notes" \
 	      "and groups (its scripts use both to test others), and this build lacks one"
 else
+	@bss=$$(size $(FUZZNETD) | awk 'NR==2{print $$3}'); \
+	 echo "livecheck: $$bss bytes of bss, at most $(FUZZNETD_BSS_MAX)"; \
+	 test "$$bss" -le $(FUZZNETD_BSS_MAX)
 	@timeout 420 python3 tool/live_trim.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_cut.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_rejoin.py $(FUZZNETD)

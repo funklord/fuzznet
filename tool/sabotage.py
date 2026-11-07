@@ -5999,15 +5999,15 @@ SABOTAGES = [
 	(
 		"notes-collect-keeps-own-tree",
 		"node/notes.c",
-		"\tif (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK || view_names(&view, root))\n\t\treturn 1;\n",
-		"\tif (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK)\n\t\treturn 1;\n",
+		"\tif (fzn_notes_view_load(&n->store, view) != FZN_NOTES_OK || view_names(view, root))\n\t\treturn 1;\n",
+		"\tif (fzn_notes_view_load(&n->store, view) != FZN_NOTES_OK)\n\t\treturn 1;\n",
 		"the text of this node's own long note is collected -- sec 443",
 	),
 	(
 		"notes-collect-keeps-sharer-trees",
 		"node/notes.c",
-		"\t\t    || fzn_notes_view_load(&tree, &view) != FZN_NOTES_OK || view_names(&view, root))\n\t\t\treturn 1;\n",
-		"\t\t    || fzn_notes_view_load(&tree, &view) != FZN_NOTES_OK)\n\t\t\treturn 1;\n",
+		"\t\t    || fzn_notes_view_load(&tree, view) != FZN_NOTES_OK || view_names(view, root))\n\t\t\treturn 1;\n",
+		"\t\t    || fzn_notes_view_load(&tree, view) != FZN_NOTES_OK)\n\t\t\treturn 1;\n",
 		"a shared note's text is collected while the share stands -- sec 443",
 	),
 	(
@@ -14675,7 +14675,7 @@ SABOTAGES = [
 	(
 		"notes-page-outlives-a-write",
 		"node/notes.c",
-		"\tif (purges_read && listed.generation == view.generation && listed.shared == shared\n",
+		"\tif (purges_read && listed.generation == view->generation && listed.shared == shared\n",
 		"\tif (purges_read && listed.generation && listed.shared == shared\n",
 		"a page from a list kept past a write points at nodes a load moved -- sec 940",
 	),
@@ -14696,7 +14696,7 @@ SABOTAGES = [
 	(
 		"notes-dispute-outlives-a-view",
 		"node/notes.c",
-		"\tif (disputed.generation != view.generation) {\n",
+		"\tif (disputed.generation != view->generation) {\n",
 		"\tif (!disputed.generation) {\n",
 		"a note moved by another writer is not said to be disputed -- sec 940",
 	),

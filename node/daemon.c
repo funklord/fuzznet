@@ -5718,7 +5718,8 @@ struct notes_talk {
 		fzn_notes_sync_err_t err;
 	} purges;
 };
-static struct notes_talk notes_talks[FZND_ROUND_TARGETS_MAX];
+/* ON THE HEAP at the first round, sec 941: 160 MB a host with no peers never uses. */
+static struct notes_talk *notes_talks;
 static size_t n_notes_talks;
 
 static int wraps_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
@@ -5776,6 +5777,11 @@ static void notes_start(struct pull_target *pulls, size_t npulls, uint64_t now)
 	n_notes_talks = 0;
 	if (!notes_on)
 		return;
+	if (npulls && !notes_talks
+	    && !(notes_talks = calloc(FZND_ROUND_TARGETS_MAX, sizeof(*notes_talks)))) {
+		say(FZN_ENTRY_WARNING, "node/notes", "no memory to talk to peers this round");
+		return;
+	}
 	notes_before_peers();
 	for (t = 0; t < npulls && n_notes_talks < FZND_ROUND_TARGETS_MAX; t++) {
 		struct notes_talk *nt = &notes_talks[n_notes_talks];

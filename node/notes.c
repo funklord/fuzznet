@@ -26,7 +26,9 @@ static const char HEX[] = "0123456789abcdef";
 
 /* The tree this node reads back: every claim at full size, so it is static
  * and shared by the verbs, which the node's one loop runs one at a time. */
-static fzn_notes_view_t view;
+/* ON THE HEAP, sec 941: a table of static memory larger than RAM and swap is refused
+ * at exec, before anything can be logged. */
+static fzn_notes_view_t *view;
 
 /* Below: a purge marked here, said in this node's stream. sec 519. */
 static void told_purged(void *ctx, const uint8_t id[FZN_SUBJECT_LEN]);
@@ -144,6 +146,8 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
 	if (!notes || !sign || !rng || !self || (peer_count && !peers) || (pull_count && !pulls)
 	    || peer_count > FZN_NODE_NOTES_WRITERS || pull_count > FZN_NODE_NOTES_WRITERS)
 		return FZN_NOTES_ERR_MALFORMED;
+	if (!view && !(view = calloc(1u, sizeof(*view))))
+		return FZN_NOTES_ERR_BACKEND;
 	memset(notes, 0, sizeof(*notes));
 	err = fzn_notes_store_init(&notes->store, store, hash);
 	if (err != FZN_NOTES_OK)
@@ -162,7 +166,7 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
 		memcpy(notes->pulls[i].key, pulls[i], FZN_PUBKEY_LEN);
 	notes->pull_count = pull_count;
 	notes->author.store = &notes->store;
-	notes->author.view = &view;
+	notes->author.view = view;
 	notes->author.issuer = notes->admitted[0].key;
 	notes->author.sign = sign;
 	notes->author.rng = rng;
@@ -199,22 +203,22 @@ size_t fzn_node_notes_admit_members(fzn_node_notes_t *notes, const uint8_t (*key
 static const fzn_tree_node_t *find(const fzn_node_notes_t *n, const uint8_t id[FZN_TREE_ID_LEN],
                                    size_t *at)
 {
-	size_t i, first = view.count;
+	size_t i, first = view->count;
 
-	for (i = 0; i < view.count; i++) {
-		if (memcmp(view.nodes[i].id, id, FZN_TREE_ID_LEN) != 0)
+	for (i = 0; i < view->count; i++) {
+		if (memcmp(view->nodes[i].id, id, FZN_TREE_ID_LEN) != 0)
 			continue;
-		if (memcmp(view.writers[i], n->author.issuer, FZN_PUBKEY_LEN) == 0) {
+		if (memcmp(view->writers[i], n->author.issuer, FZN_PUBKEY_LEN) == 0) {
 			*at = i;
-			return &view.nodes[i];
+			return &view->nodes[i];
 		}
-		if (first == view.count)
+		if (first == view->count)
 			first = i;
 	}
-	if (first == view.count)
+	if (first == view->count)
 		return NULL;
 	*at = first;
-	return &view.nodes[first];
+	return &view->nodes[first];
 }
 
 /* A NOTE MARKED PURGED HERE, sec 519: said in this node's notes stream, so
@@ -479,7 +483,7 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 		size_t idx = 0;
 		const fzn_tree_node_t *node;
 
-		if (fzn_notes_view_load(&n->store, &view) == FZN_NOTES_OK
+		if (fzn_notes_view_load(&n->store, view) == FZN_NOTES_OK
 		    && (node = find(n, id, &idx)) != NULL && node->content_type == FZN_NOTE_TYPE_LIST)
 			return say(reply, cap, FZN_REPLY_ERROR,
 			           "a checklist's items change through the item verbs");
@@ -573,11 +577,11 @@ static int id_cmp(const void *a, const void *b)
 
 static int is_disputed(const uint8_t id[FZN_TREE_ID_LEN])
 {
-	if (disputed.generation != view.generation) {
-		disputed.n = fzn_notes_contested(&view, disputed.ids, FZN_NOTES_MAX);
+	if (disputed.generation != view->generation) {
+		disputed.n = fzn_notes_contested(view, disputed.ids, FZN_NOTES_MAX);
 		if (disputed.n > FZN_NOTES_MAX)
 			disputed.n = FZN_NOTES_MAX;
-		disputed.generation = view.generation;
+		disputed.generation = view->generation;
 	}
 	return bsearch(id, disputed.ids, disputed.n, FZN_TREE_ID_LEN, id_cmp) != NULL;
 }
@@ -617,23 +621,23 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	err = fzn_notes_view_load(store, &view);
+	err = fzn_notes_view_load(store, view);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	purges_read = fzn_notes_purge_list(store, purges, FZN_NOTES_PURGE_MAX, &n_purges)
 	              == FZN_NOTES_OK;
-	if (purges_read && listed.generation == view.generation && listed.shared == shared
+	if (purges_read && listed.generation == view->generation && listed.shared == shared
 	    && memcmp(listed.parent, parent, FZN_TREE_ID_LEN) == 0 && listed.n_purges == n_purges
 	    && memcmp(listed.purges, purges, n_purges * FZN_TREE_ID_LEN) == 0) {
 		count = listed.count;
 	} else {
 		listed.generation = 0u;
 		if (fzn_tree_is_root(parent) && shared)
-			count = fzn_notes_received_roots(&view, out, FZN_NOTES_MAX);
+			count = fzn_notes_received_roots(view, out, FZN_NOTES_MAX);
 		else
 			err = fzn_tree_is_root(parent)
-			              ? fzn_notes_top_level(&view, out, FZN_NOTES_MAX, &count, &cut)
-			              : fzn_notes_children(&view, parent, out, FZN_NOTES_MAX, &count,
+			              ? fzn_notes_top_level(view, out, FZN_NOTES_MAX, &count, &cut)
+			              : fzn_notes_children(view, parent, out, FZN_NOTES_MAX, &count,
 			                                   &cut);
 		if (err != FZN_NOTES_OK)
 			return refuse(reply, cap, err);
@@ -645,7 +649,7 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 				out[j++] = out[i];
 		count = j;
 		if (purges_read) {
-			listed.generation = view.generation;
+			listed.generation = view->generation;
 			listed.shared = shared;
 			memcpy(listed.parent, parent, FZN_TREE_ID_LEN);
 			memcpy(listed.purges, purges, n_purges * FZN_TREE_ID_LEN);
@@ -662,7 +666,7 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 	used = (size_t)k;
 	for (i = from; i < count; i++) {
 		const fzn_tree_node_t *node = out[i];
-		size_t idx = (size_t)(node - view.nodes), wrote = 0, took;
+		size_t idx = (size_t)(node - view->nodes), wrote = 0, took;
 		char item[ID_HEX + 32u];
 		int is_contested = is_disputed(node->id), m;
 		fzn_note_t note;
@@ -706,7 +710,7 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 		hex_of(node->id, FZN_TREE_ID_LEN, item);
 		m = snprintf(item + ID_HEX, sizeof(item) - ID_HEX, ",%u,%u,%d,%d,",
 		             (unsigned)node->content_type, (unsigned)flags,
-		             fzn_notes_reachable(&view, idx), is_contested);
+		             fzn_notes_reachable(view, idx), is_contested);
 		if (m < 0 || (size_t)m >= sizeof(item) - ID_HEX)
 			return 0;
 		/* An item goes in whole or not at all: a page ends where the
@@ -753,11 +757,11 @@ static void note_standing(const fzn_notes_store_t *store, const uint8_t id[FZN_T
 	size_t i;
 
 	*reachable = *contested = 0;
-	if (fzn_notes_view_load(store, &view) != FZN_NOTES_OK)
+	if (fzn_notes_view_load(store, view) != FZN_NOTES_OK)
 		return;
-	for (i = 0; i < view.count; i++)
-		if (memcmp(view.nodes[i].id, id, FZN_TREE_ID_LEN) == 0)
-			*reachable |= fzn_notes_reachable(&view, i);
+	for (i = 0; i < view->count; i++)
+		if (memcmp(view->nodes[i].id, id, FZN_TREE_ID_LEN) == 0)
+			*reachable |= fzn_notes_reachable(view, i);
 	*contested = is_disputed(id);
 }
 
@@ -881,7 +885,7 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, id) || fzn_tree_is_root(id))
 		return say(reply, cap, FZN_REPLY_MALFORMED, "get note ID [text [FROM] | file PATH]");
-	err = fzn_notes_view_load(store, &view);
+	err = fzn_notes_view_load(store, view);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	node = find(n, id, &idx);
@@ -948,14 +952,17 @@ void fzn_node_notes_history_refresh(fzn_node_notes_t *n)
 
 static int names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN])
 {
-	static uint8_t sharers[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
+	static uint8_t (*sharers)[FZN_PUBKEY_LEN];
 	size_t count = 0, i;
 
 	if (!n || !root)
 		return 1;
+	/* NO ROOM TO LOOK KEEPS EVERYTHING, as a tree that will not read does. */
+	if (!sharers && !(sharers = malloc(FZN_NOTES_RECEIVED_ROWS * (size_t)FZN_PUBKEY_LEN)))
+		return 1;
 	/* A TREE THAT WILL NOT READ KEEPS EVERYTHING: a text removed because
 	 * its note could not be looked at is a text lost. */
-	if (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK || view_names(&view, root))
+	if (fzn_notes_view_load(&n->store, view) != FZN_NOTES_OK || view_names(view, root))
 		return 1;
 	/* AN EARLIER VERSION'S TEXT, sec 581; and a history that would not read
 	 * keeps everything, as a tree that will not read does. */
@@ -975,7 +982,7 @@ static int names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN]
 		if (fzn_notes_received_ops(&seam, n->store.ops, n->store.hash, sharers[i], &ops)
 		            != FZN_NOTES_OK
 		    || fzn_notes_store_init(&tree, &ops, n->store.hash) != FZN_NOTES_OK
-		    || fzn_notes_view_load(&tree, &view) != FZN_NOTES_OK || view_names(&view, root))
+		    || fzn_notes_view_load(&tree, view) != FZN_NOTES_OK || view_names(view, root))
 			return 1;
 	}
 	return 0;
@@ -1181,12 +1188,12 @@ static int own_note_names(fzn_node_notes_t *n, const uint8_t *root, uint64_t len
 {
 	size_t i;
 
-	if (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK)
+	if (fzn_notes_view_load(&n->store, view) != FZN_NOTES_OK)
 		return 0;
-	for (i = 0; i < view.count; i++) {
+	for (i = 0; i < view->count; i++) {
 		fzn_note_blob_ref_t ref;
 
-		if (fzn_notes_ref_of(&view.nodes[i], &ref)
+		if (fzn_notes_ref_of(&view->nodes[i], &ref)
 		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0 && ref.length == length)
 			return 1;
 	}
@@ -1302,14 +1309,14 @@ int fzn_node_notes_push_texts_begin(fzn_node_notes_texting_t *x, fzn_node_notes_
 	x->n = n;
 	x->n_roots = x->at = 0;
 	*done = 0;
-	if (!n->place || !n->span || fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK)
+	if (!n->place || !n->span || fzn_notes_view_load(&n->store, view) != FZN_NOTES_OK)
 		return texts_end(x, done, 1);
 	/* EVERY TEXT A NOTE HERE NAMES, each once. */
-	for (i = 0; i < view.count && x->n_roots < FZN_NOTES_MAX; i++) {
+	for (i = 0; i < view->count && x->n_roots < FZN_NOTES_MAX; i++) {
 		fzn_note_blob_ref_t ref;
 		int seen = 0;
 
-		if (!fzn_notes_ref_of(&view.nodes[i], &ref))
+		if (!fzn_notes_ref_of(&view->nodes[i], &ref))
 			continue;
 		for (j = 0; j < x->n_roots && !seen; j++)
 			seen = memcmp(x->roots[j], ref.root, FZN_BLOB_HASH_LEN) == 0;
@@ -1430,7 +1437,7 @@ static size_t open_list(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 	fzn_notes_err_t err;
 
 	if (!node) {
-		err = fzn_notes_view_load(store, &view);
+		err = fzn_notes_view_load(store, view);
 		if (err != FZN_NOTES_OK)
 			return refuse(reply, cap, err);
 		node = find(n, id, &idx);
@@ -1689,7 +1696,7 @@ static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 			continue;
 		memcpy(asked[n_asked++].key, partners[i], FZN_PUBKEY_LEN);
 	}
-	err = fzn_notes_purge_trash(&n->store, &view, n->author.issuer,
+	err = fzn_notes_purge_trash(&n->store, view, n->author.issuer,
 	                            fzn_notes_asking(asked, n_asked), now(n), &queued);
 	/* THE QUEUE OF DELETIONS IS FULL, sec 484: said as what it is. The
 	 * store's word for FULL is about notes, and the person asked to delete
@@ -1702,9 +1709,9 @@ static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 		return refuse(reply, cap, err);
 	/* What is still waiting for consent, so the reply says which: the
 	 * view is the one emptying loaded, before anything was erased. */
-	for (i = 0; i < view.count; i++)
-		if (memcmp(view.writers[i], n->author.issuer, FZN_PUBKEY_LEN) == 0
-		    && fzn_notes_purge_pending(&n->store, view.nodes[i].id))
+	for (i = 0; i < view->count; i++)
+		if (memcmp(view->writers[i], n->author.issuer, FZN_PUBKEY_LEN) == 0
+		    && fzn_notes_purge_pending(&n->store, view->nodes[i].id))
 			pending++;
 	if (pending)
 		n->fresh = 1;
@@ -1771,11 +1778,11 @@ static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size
 	}
 	/* A NOTE THIS NODE HOLDS, so a typo is refused rather than shared and
 	 * served empty. */
-	err = fzn_notes_view_load(&n->store, &view);
+	err = fzn_notes_view_load(&n->store, view);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
-	for (i = 0; i < view.count && !found; i++)
-		found = memcmp(view.nodes[i].id, subtree, FZN_TREE_ID_LEN) == 0;
+	for (i = 0; i < view->count && !found; i++)
+		found = memcmp(view->nodes[i].id, subtree, FZN_TREE_ID_LEN) == 0;
 	if (!found)
 		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
 	err = fzn_notes_share_add(&n->store, subtree, contact.key, now(n));
@@ -1999,7 +2006,7 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 	/* INTO A FOLDER THIS NODE HOLDS, or the top: notes under an id nobody
 	 * holds would land where no listing reaches them. */
 	if (!fzn_tree_is_root(run.folder)) {
-		if (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK
+		if (fzn_notes_view_load(&n->store, view) != FZN_NOTES_OK
 		    || !find(n, run.folder, &idx))
 			return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
 	}
@@ -2084,7 +2091,7 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 static size_t list_sharers(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
                            size_t cap)
 {
-	static uint8_t sharers[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
+	static uint8_t (*sharers)[FZN_PUBKEY_LEN];
 	static char detail[FZN_REPLY_MAX];
 	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, from = 0, used, i, kept;
@@ -2093,6 +2100,8 @@ static size_t list_sharers(fzn_node_notes_t *n, const uint8_t *at, size_t left, 
 	int m, have_word, only = 0;
 	uint8_t group_id[FZN_GROUP_ID_LEN];
 
+	if (!sharers && !(sharers = malloc(FZN_NOTES_RECEIVED_ROWS * (size_t)FZN_PUBKEY_LEN)))
+		return say(reply, cap, FZN_REPLY_ERROR, "no memory to list sharers");
 	have_word = word(&at, &left, &w, &w_len);
 	if (have_word && w_len > 1u && w[0] == '@') {
 		fzn_contact_err_t gerr =
@@ -2415,7 +2424,7 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 				seed_count++;
 			}
 		}
-	if (!seed_count || fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK)
+	if (!seed_count || fzn_notes_view_load(&n->store, view) != FZN_NOTES_OK)
 		return;
 	/* THE SEEDS WITH NO FLOOR FIRST, together, their notes floor 0. */
 	open = 0;
@@ -2429,7 +2438,7 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 		for (i = 0; i < seed_count; i++)
 			if (!seed_floor[i])
 				memcpy(open_seeds[o++], seeds[i], FZN_TREE_ID_LEN);
-		scope->count = fzn_notes_share_reach(&view,
+		scope->count = fzn_notes_share_reach(view,
 		                                     (const uint8_t (*)[FZN_TREE_ID_LEN])open_seeds, o,
 		                                     reach, FZN_NOTES_MAX);
 		for (k = 0; k < scope->count; k++)
@@ -2440,7 +2449,7 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 	for (i = 0; i < seed_count; i++) {
 		if (!seed_floor[i])
 			continue;
-		more = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])&seeds[i], 1u,
+		more = fzn_notes_share_reach(view, (const uint8_t (*)[FZN_TREE_ID_LEN])&seeds[i], 1u,
 		                             one_reach, FZN_NOTES_MAX);
 		for (k = 0; k < more; k++) {
 			size_t at;

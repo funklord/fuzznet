@@ -450,6 +450,13 @@ int main(void)
 	      "another message's answer was taken");
 	answer_wrong_msg = 0;
 
+	/* A GRANT TO ANOTHER ASK sets no clock: its time is not an answer to this one. */
+	device_up(&d, &b, &j, &slot, 222u);
+	answer_wrong_msg = 1;
+	CHECK(fzn_device_open(&d) == FZN_DEVICE_ERR_SILENT && !d.session_up && d.clock_offset_ms == 0,
+	      "a grant to another ask was taken");
+	answer_wrong_msg = 0;
+
 	/* WHAT IS NO GRANT begins no session. */
 	device_up(&d, &b, &j, &slot, 222u);
 	grant_wrong = 1;
