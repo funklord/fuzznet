@@ -82220,5 +82220,31 @@ session found. In the product that may stand, as a frame of the old session is r
 The test asks by the ask now, 0 of 3000. It surfaced as a sabotage "caught" by an unrelated test;
 **a CAUGHT is worth reading for what caught it.**
 
-**Open:** bodies arrive 16 a round, `FZN_NODE_SHELF_WANTS`, so a share of 2200 is two hours from
-being readable.
+Sec 944 took up what this left: bodies arrived 16 a round.
+
+## 944. A tree's texts past a round's batch, 2026-11-07
+
+Every note's content is a blob (sec 514), so a note whose text has not come lists as pending and
+reads as nothing. `FZN_NODE_SHELF_WANTS` is 16, and the wants were filled once a round, so a share
+of 2200 held 48 texts after two minutes and was two hours from being readable. A new estate member
+was better only by luck: 976 of 2500 after two minutes.
+
+**The table stays 16, as a batch, and is not the bound any more.** A larger table alone moves the
+cost, since a fetch is asked in turn and a whole tree of them would hold the loop for as long.
+Instead a fill stops where the wants are full and says where, and each pass between rounds takes
+the next batch, the loop answering between them and waiting for nothing while one is due. Measured
+at localhost: a share of 2200 all held in 33 s, no answer to a client past 0.36 s; 2500 on an estate
+member in 10 s. `live_many_shared` b and `live_many_notes` b2 fail on the daemon before.
+
+- **It ends** at the end of the tree, at a batch that brings nothing, where a fill finds no room
+  (wants that did not come, which the next round asks again), or at the next round's fill. With the
+  peer stopped and the wants full, B spent 0 to 1 CPU ticks in 3 s through a whole round.
+- **A share is kept by the sharer's key,** and its target looked up for each batch. A pointer into
+  the target tables would dangle: a change of contacts or groups rebuilds them between rounds.
+- **A fill and a fetch never overlap,** as the view is also a client's, and the peer's wait can
+  answer one.
+
+**Open:** localhost only. On a link of 30 ms a batch is 0.5 s of the loop, with no client answered
+inside it, as `fetch_texts` between rounds has always been. A peer stopped part way through a batch
+was not tried, only one stopped before the first. `texts-stop-at-a-batch` is live scripts' alone,
+and survives a sabotage run of `make test`.

@@ -14673,6 +14673,21 @@ SABOTAGES = [
 		"a row put in the directory just before a save is never read -- sec 936",
 	),
 	(
+		"texts-stop-at-a-batch",
+		"node/daemon.c",
+		"\t\t\t\telse\n\t\t\t\t\ttexts_more();\n",
+		"",
+		"a tree's texts come 16 a round, and a share is hours from being readable; "
+		"live_many_shared and live_many_notes only, as a batch is the loop's -- sec 944",
+	),
+	(
+		"shelf-wants-full-unsaid",
+		"node/shelf.c",
+		"\tif (free_slot == FZN_NODE_SHELF_WANTS)\n\t\treturn FZN_NODE_SHELF_ERR_FULL;\n",
+		"\tif (free_slot == FZN_NODE_SHELF_WANTS)\n\t\treturn FZN_NODE_SHELF_OK;\n",
+		"a fill runs past what the wants hold, and the texts it passed are never asked -- sec 944",
+	),
+	(
 		"named-unsorted",
 		"node/notes.c",
 		"\t\t\tqsort(named.roots, named.count, FZN_BLOB_HASH_LEN, root_order);\n",

@@ -9,6 +9,7 @@ A is an estate's root and B a member of it, joined by a card.
     a2 and each page of them costs the page, in CPU, so a listing is not the square of
        what is held (sec 940)
     b  B, started after, holds all 2500 within its rounds (sec 942)
+    b2 and their texts in minutes, not 16 a round (sec 944)
 
 Against a daemon bound at 256 claims, a stops at the 257th. Against one working out
 the list for each page, a2 runs far past its ticks. Against a slot not in whole pieces, b stops short.
@@ -31,9 +32,10 @@ from live_rejoin import command, daemon  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 500.0
+live_trim.DEADLINE = time.monotonic() + 640.0
 
 NOTES = 2500
+TEXTS_WAIT_S = 120.0
 # CPU ticks a listing of NOTES may take, rounds landing in it included.
 LISTING_TICKS = 40
 
@@ -115,6 +117,19 @@ def main(argv):
 			if count != NOTES:
 				raise failed("b: B holds %d of %d after 300 s" % (count, NOTES))
 			print("livecheck: b: B held all %d in %.0f s" % (NOTES, time.monotonic() - began))
+
+			# b2: and their texts, past a round's batch of 16 (sec 944).
+			began = time.monotonic()
+			kept = 0
+			while time.monotonic() - began < TEXTS_WAIT_S and kept < NOTES:
+				words = ask(b_sock, "remove text unused").split()
+				kept = int(words[2]) if len(words) == 3 and words[0] == "ok" else kept
+				time.sleep(0.5)
+			if kept < NOTES:
+				raise failed("b2: B holds %d texts of %d after %.0f s"
+				             % (kept, NOTES, TEXTS_WAIT_S))
+			print("livecheck: b2: B held all %d texts in %.0f s"
+			      % (NOTES, time.monotonic() - began))
 		except failed as e:
 			print("livecheck: FAILED: %s" % e, file=sys.stderr)
 			return 1

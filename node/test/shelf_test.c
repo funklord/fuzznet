@@ -833,6 +833,22 @@ static void test_wants_are_remembered_until_fetched(void)
 	      "a text already here is not remembered");
 	CHECK(fzn_node_shelf_want(&W, small.root, 0u) == FZN_NODE_SHELF_ERR_MALFORMED,
 	      "nor is a length of zero");
+	/* THE WANTS ARE A BATCH, and say when they are full, sec 944: that is where a fill
+	 * stops and the next one takes up. */
+	{
+		uint8_t other[FZN_BLOB_HASH_LEN];
+
+		for (i = 0; i < FZN_NODE_SHELF_WANTS; i++) {
+			memset(other, (int)(0x40u + i), sizeof(other));
+			CHECK(fzn_node_shelf_want(&W, other, small.length) == FZN_NODE_SHELF_OK,
+			      "a want takes a place");
+		}
+		memset(other, 0xee, sizeof(other));
+		CHECK(fzn_node_shelf_want(&W, other, small.length) == FZN_NODE_SHELF_ERR_FULL,
+		      "and past the last place the shelf says it is full");
+		for (i = 0; i < FZN_NODE_SHELF_WANTS; i++)
+			W.wants[i].live = 0;
+	}
 	file_of(dir_w, small.root, "", path, sizeof(path));
 	(void)remove(path);
 	file_of(dir_w, small.root, ".bits", path, sizeof(path));

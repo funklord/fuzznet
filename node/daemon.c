@@ -5623,6 +5623,30 @@ static void notes_before_peers(void)
 	}
 }
 
+#ifdef FZN_SPOOL_FILE_ON
+/* TEXTS PAST THE SHELF'S WANTS, sec 944. The wants are a batch: what a tree names beyond
+ * one was asked the next round, 16 a minute, and a share of 2200 was two hours from
+ * being readable. So a fill stops where the wants are full and says where, and each
+ * pass between rounds takes the next batch, the loop answering between them. It ends
+ * at the end of the tree, or when a batch brings nothing, or with the next round's fill. */
+static size_t want_texts(const fzn_notes_view_t *v, size_t from)
+{
+	for (; from < v->count; from++) {
+		fzn_note_blob_ref_t ref;
+
+		if (fzn_notes_ref_of(&v->nodes[from], &ref)
+		    && fzn_node_shelf_want(&shelf, ref.root, ref.length) == FZN_NODE_SHELF_ERR_FULL)
+			break;
+	}
+	return from;
+}
+
+static struct {
+	int on;
+	size_t at;
+} own_texts;
+#endif
+
 static void notes_after_peers(void)
 {
 	/* AND WHAT THE SILENT PIN, sec 472: a purge waiting a month on nodes
@@ -5644,14 +5668,9 @@ static void notes_after_peers(void)
 	if (shelf_on
 	    && fzn_notes_view_load(&node_notes.store, node_notes.author.view) == FZN_NOTES_OK) {
 		const fzn_notes_view_t *v = node_notes.author.view;
-		size_t i;
 
-		for (i = 0; i < v->count; i++) {
-			fzn_note_blob_ref_t ref;
-
-			if (fzn_notes_ref_of(&v->nodes[i], &ref))
-				(void)fzn_node_shelf_want(&shelf, ref.root, ref.length);
-		}
+		own_texts.at = want_texts(v, 0);
+		own_texts.on = own_texts.at < v->count;
 	}
 #endif
 }
@@ -6799,6 +6818,16 @@ struct share_talk {
 _Static_assert(FZND_PULL_REPLY_MAX >= FZN_NOTES_SYNC_REPLY_MAX,
                "a notes answer fits the round's answers");
 static struct share_talk share_talks[FZND_SHARE_TALKS_MAX];
+#ifdef FZN_SPOOL_FILE_ON
+/* A SHARE WITH TEXTS STILL TO ASK, sec 944: by the sharer's key, as a target stands in
+ * tables a change of contacts or groups rebuilds between rounds. One gone ends it. */
+static struct share_texts {
+	uint8_t sharer[FZN_PUBKEY_LEN];
+	size_t at;
+} share_texts[FZND_SHARE_TALKS_MAX];
+static size_t n_share_texts;
+#endif
+
 /* WHAT A SHARES PASS ASKS: a target, whose tree it pulls into, and where
  * it is said to be. An accepted share's, a group member's host's, or a
  * contact's host's (sec 826). */
@@ -6930,18 +6959,18 @@ static void shares_settle(void)
 			const fzn_notes_view_t *v = node_notes.author.view;
 			struct peer_asking asking = { &target->pt->caller, wall_clock(), target->host,
 			                               target->pt };
-			size_t k, got;
+			size_t k = want_texts(v, 0), count = v->count, got;
 
-			for (k = 0; k < v->count; k++) {
-				fzn_note_blob_ref_t ref;
-
-				if (fzn_notes_ref_of(&v->nodes[k], &ref))
-					(void)fzn_node_shelf_want(&shelf, ref.root, ref.length);
-			}
 			got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 			if (got)
 				say(FZN_ENTRY_INFO, "notes/received", "%zu shared text(s) from %s", got,
 				        target->host);
+			if (got && k < count && n_share_texts < FZND_SHARE_TALKS_MAX) {
+				struct share_texts *more = &share_texts[n_share_texts++];
+
+				memcpy(more->sharer, target->sharer, FZN_PUBKEY_LEN);
+				more->at = k;
+			}
 		}
 #endif
 	}
@@ -7193,6 +7222,9 @@ static void pull_received(uint64_t now)
 	static size_t contact_from;
 	size_t n = 0, i, take;
 
+#ifdef FZN_SPOOL_FILE_ON
+	n_share_texts = 0;
+#endif
 	for (i = 0; i < nshares_in && n < FZND_SHARE_TALKS_MAX; i++) {
 		share_refs[n].pt = &shares_in[i].pt;
 		share_refs[n].sharer = shares_in[i].sharer;
@@ -17577,6 +17609,96 @@ static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
 }
 #endif
 
+#ifdef FZN_SPOOL_FILE_ON
+/* THE NEXT BATCH, sec 944, one a pass and none while a round runs: the view is the
+ * client's as well, so a fill and a fetch never overlap. */
+static int share_target(const uint8_t *sharer, struct share_ref *out)
+{
+	size_t i;
+
+	for (i = 0; i < nshares_in; i++)
+		if (shares_in[i].pt.fd >= 0
+		    && memcmp(shares_in[i].sharer, sharer, FZN_PUBKEY_LEN) == 0) {
+			out->pt = &shares_in[i].pt;
+			out->host = shares_in[i].host;
+			return 1;
+		}
+	for (i = 0; i < ncontact_targets; i++)
+		if (contact_targets[i].pt.fd >= 0
+		    && memcmp(contact_targets[i].contact, sharer, FZN_PUBKEY_LEN) == 0) {
+			out->pt = &contact_targets[i].pt;
+			out->host = contact_targets[i].host;
+			return 1;
+		}
+	for (i = 0; i < ngroup_shares_in; i++)
+		if (group_shares_in[i].pt.fd >= 0
+		    && memcmp(group_shares_in[i].sharer, sharer, FZN_PUBKEY_LEN) == 0) {
+			out->pt = &group_shares_in[i].pt;
+			out->host = group_shares_in[i].host;
+			return 1;
+		}
+	return 0;
+}
+
+static void texts_more(void)
+{
+	fzn_notes_view_t *v = node_notes.author.view;
+
+	if (own_texts.on) {
+		size_t from = own_texts.at;
+
+		if (fzn_notes_view_load(&node_notes.store, v) != FZN_NOTES_OK) {
+			own_texts.on = 0;
+			return;
+		}
+		own_texts.at = want_texts(v, from);
+		/* NO ROOM MADE is wants that did not come: the next round asks again. */
+		own_texts.on = own_texts.at < v->count && own_texts.at != from;
+		return;
+	}
+	if (n_share_texts) {
+		struct share_texts *more = &share_texts[n_share_texts - 1u];
+		fzn_notes_received_t seam;
+		fzn_persist_ops_t ops;
+		fzn_notes_store_t tree;
+		struct share_ref target;
+		size_t count, got;
+
+		if (!share_target(more->sharer, &target)
+		    || fzn_notes_received_ops(&seam, node_notes.store.ops, node_notes.store.hash,
+		                           more->sharer, &ops)
+		            != FZN_NOTES_OK
+		    || fzn_notes_store_init(&tree, &ops, node_notes.store.hash) != FZN_NOTES_OK
+		    || fzn_notes_view_load(&tree, v) != FZN_NOTES_OK) {
+			n_share_texts--;
+			return;
+		}
+		more->at = want_texts(v, more->at);
+		count = v->count;
+		{
+			struct peer_asking asking = { &target.pt->caller, wall_clock(), target.host,
+			                              target.pt };
+
+			got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
+		}
+		if (got)
+			say(FZN_ENTRY_INFO, "notes/received", "%zu shared text(s) from %s", got,
+			        target.host);
+		if (!got || more->at >= count)
+			n_share_texts--;
+	}
+}
+#endif
+
+static int texts_waiting(void)
+{
+#ifdef FZN_SPOOL_FILE_ON
+	return own_texts.on || n_share_texts;
+#else
+	return 0;
+#endif
+}
+
 static void usage(const char *prog)
 {
 	fprintf(stderr,
@@ -20962,6 +21084,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				 * round. sec 424. */
 				if (shelf.fresh)
 					fetch_texts(pulls, npulls, now);
+				else
+					texts_more();
 				if (files.fresh)
 					fetch_files(pulls, npulls, now);
 #endif
@@ -21098,6 +21222,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			group_tend_slice();
 			(void)fzn_node_run_once(&state, (round_step && !round_pending) || logs_verifying()
 			                                                || tending.on
+			                                                || (!round_step && texts_waiting())
 			                                        ? 0
 			                                        : 1000);
 			/* AN IDENTITY RESET, sec 620, its answer out: wiped once more,
