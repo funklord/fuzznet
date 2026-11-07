@@ -494,6 +494,16 @@ static void test_the_view(void)
 	CHECK(fzn_notes_view_load(&store, &view) == FZN_NOTES_OK
 	              && fzn_notes_contested(&view, contested, 4u) == 1u && contested[0][0] == 2u,
 	      "a note under two parents is contested, once");
+	note_of(1, KEY_B, 1, 3, 3, "B moved the folder too");
+	CHECK(put(1, NULL) == FZN_NOTES_OK, "fixture: B moves 1");
+	CHECK(fzn_notes_view_load(&store, &view) == FZN_NOTES_OK
+	              && fzn_notes_contested(&view, contested, 4u) == 2u
+	              && memcmp(contested[0], contested[1], FZN_TREE_ID_LEN) < 0,
+	      "contested ids come in order, for a caller to search");
+	CHECK(fzn_notes_contested(&view, contested, 1u) == 2u,
+	      "and the count is all of them, past what fits");
+	note_of(1, KEY_B, 1, 0, 4, "B put the folder back");
+	CHECK(put(1, NULL) == FZN_NOTES_OK, "fixture: B moves 1 back");
 	CHECK(fzn_notes_children(&view, root, out, 16u, &n, &cut) == FZN_NOTES_OK && n == 2u,
 	      "and shows at the root as well as in the folder");
 
@@ -506,7 +516,7 @@ static void test_the_view(void)
 				r = &rows[i];
 		if (r)
 			r->bytes[FZN_PERSIST_HEAD_LEN + 10u] ^= 0x01u;
-		CHECK(fzn_notes_view_load(&store, &view) == FZN_NOTES_OK && view.count == 6u
+		CHECK(fzn_notes_view_load(&store, &view) == FZN_NOTES_OK && view.count == 7u
 		              && view.unreadable == 1u,
 		      "a damaged claim is counted as unreadable, not dropped silently");
 	}

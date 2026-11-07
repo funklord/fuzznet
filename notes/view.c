@@ -2,6 +2,7 @@
 
 #include "view.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 fzn_notes_err_t fzn_notes_view_load(const fzn_notes_store_t *store, fzn_notes_view_t *view)
@@ -19,6 +20,7 @@ fzn_notes_err_t fzn_notes_view_load(const fzn_notes_store_t *store, fzn_notes_vi
 	if (store->stamp && view->loaded_from == store->ops && view->loaded_at == stamp)
 		return FZN_NOTES_OK;
 	view->loaded_from = NULL;
+	view->generation++;
 	view->arena_used = 0;
 	view->count = 0;
 	view->unreadable = 0;
@@ -118,30 +120,38 @@ int fzn_notes_reachable(const fzn_notes_view_t *view, size_t i)
 	return view && i < view->count && view->mark[i] != 0u;
 }
 
+static int claim_cmp(const void *a, const void *b)
+{
+	const fzn_tree_node_t *x = *(const fzn_tree_node_t *const *)a;
+	const fzn_tree_node_t *y = *(const fzn_tree_node_t *const *)b;
+	int cmp = memcmp(x->id, y->id, FZN_TREE_ID_LEN);
+
+	return cmp ? cmp : memcmp(x->parent, y->parent, FZN_TREE_ID_LEN);
+}
+
+/* THE CLAIMS SORTED, so one note's stand together, its parents in order: every pair
+ * compared cost two thirds of a page at 3000 notes, sec 940. */
 size_t fzn_notes_contested(const fzn_notes_view_t *view, uint8_t (*out)[FZN_TREE_ID_LEN],
                            size_t cap)
 {
-	size_t found = 0, i, j;
+	static const fzn_tree_node_t *claims[FZN_NOTES_MAX];
+	size_t found = 0, i, end;
 
 	if (!view)
 		return 0;
-	for (i = 0; i < view->count; i++) {
-		const uint8_t *id = view->nodes[i].id;
-		int earlier = 0, contested = 0;
+	for (i = 0; i < view->count; i++)
+		claims[i] = &view->nodes[i];
+	if (view->count > 1u)
+		qsort(claims, view->count, sizeof(claims[0]), claim_cmp);
+	for (i = 0; i < view->count; i = end) {
+		const uint8_t *id = claims[i]->id;
 
-		/* EACH ID ONCE: counted at its first claim only. */
-		for (j = 0; j < i && !earlier; j++)
-			earlier = memcmp(view->nodes[j].id, id, FZN_TREE_ID_LEN) == 0;
-		if (earlier)
-			continue;
+		for (end = i + 1u;
+		     end < view->count && memcmp(claims[end]->id, id, FZN_TREE_ID_LEN) == 0; end++)
+			;
 		/* Two claims under ONE parent are two writers agreeing on where
 		 * a note is, which is not a contest. */
-		for (j = i + 1u; j < view->count; j++)
-			if (memcmp(view->nodes[j].id, id, FZN_TREE_ID_LEN) == 0
-			    && memcmp(view->nodes[j].parent, view->nodes[i].parent, FZN_TREE_ID_LEN)
-			               != 0)
-				contested = 1;
-		if (!contested)
+		if (memcmp(claims[i]->parent, claims[end - 1u]->parent, FZN_TREE_ID_LEN) == 0)
 			continue;
 		if (out && found < cap)
 			memcpy(out[found], id, FZN_TREE_ID_LEN);

@@ -90,6 +90,7 @@ static int toy_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const uin
 }
 
 static fzn_sign_ops_t SIGN = { toy_verify, toy_sign, SELF };
+static fzn_sign_ops_t PEER_SIGN = { toy_verify, toy_sign, PEER };
 
 static uint64_t counter = 11;
 
@@ -155,6 +156,15 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 	return 1;
 }
 
+/* NOTES WRITTEN, as the daemon's stamp counts them: a purge's row moves nothing. */
+static uint64_t notes_written;
+
+static uint64_t written_stamp(void *ctx)
+{
+	(void)ctx;
+	return notes_written;
+}
+
 static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                     const uint8_t *bytes, size_t len)
 {
@@ -162,6 +172,7 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	size_t i;
 
 	(void)ctx;
+	notes_written += slot == FZN_PERSIST_NOTE;
 	for (i = 0; !r && i < MEM_ROWS; i++)
 		if (!rows[i].used)
 			r = &rows[i];
@@ -204,6 +215,7 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	struct row *r = find_row(slot, subject);
 
 	(void)ctx;
+	notes_written += slot == FZN_PERSIST_NOTE;
 	if (r)
 		r->used = 0;
 	return 1;
@@ -481,6 +493,83 @@ static void test_paging(void)
 	              && at == from,
 	      "the next page starts where the last ended");
 	CHECK(ask("list note top 41") == FZN_REPLY_MALFORMED, "past the end is malformed");
+}
+
+/* sec 940: pages come from a list kept, and say what a list worked out afresh would.
+ * The stamp is on, as the daemon's is: with none every page works it out. */
+static void test_pages_kept(void)
+{
+	char line[256], folder[65], bin[65], moved[65];
+	uint8_t id[FZN_TREE_ID_LEN], up[FZN_TREE_ID_LEN];
+	fzn_notes_author_t other;
+	unsigned long total = 0, at = 0;
+	size_t i;
+
+	setup(1);
+	notes.store.stamp = written_stamp;
+	for (i = 0; i < 40u; i++) {
+		snprintf(line, sizeof(line), "add note top a rather long title for note number %02zu",
+		         i);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: forty notes");
+	}
+	CHECK(ask("add folder top Shop") == FZN_REPLY_OK, "fixture: a folder");
+	take_id(folder);
+	CHECK(ask("add note top bin") == FZN_REPLY_OK, "fixture: a note to bin");
+	take_id(bin);
+	CHECK(ask("add note top moved") == FZN_REPLY_OK, "fixture: a note to dispute");
+	take_id(moved);
+	CHECK(ask("list note top") == FZN_REPLY_OK && !strncmp(detail_of(), "43 0 ", 5u),
+	      "a list, kept");
+	CHECK(ask("list note top 13") == FZN_REPLY_OK
+	              && sscanf(detail_of(), "%lu %lu", &total, &at) == 2 && total == 43u && at == 13u,
+	      "the next page comes from it");
+
+	/* ANOTHER PARENT IS ANOTHER LIST. */
+	snprintf(line, sizeof(line), "add note %s eggs", folder);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: a child");
+	snprintf(line, sizeof(line), "list note %s", folder);
+	CHECK(ask("list note top") == FZN_REPLY_OK, "fixture: the top kept");
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "1 0 ", 4u) && has("eggs"),
+	      "a folder after the top is the folder's");
+
+	/* A NOTE WRITTEN IS SEEN ON THE NEXT PAGE. */
+	CHECK(ask("list note top") == FZN_REPLY_OK, "fixture: the top kept");
+	CHECK(ask("add note top late") == FZN_REPLY_OK, "fixture: a note added");
+	CHECK(ask("list note top 40") == FZN_REPLY_OK && !strncmp(detail_of(), "44 40 ", 6u)
+	              && has("late"),
+	      "a note added shows on the next page");
+
+	/* A PLACE DISPUTED IS SAID ON THE PAGE, and a page kept does not hide it. */
+	snprintf(line, sizeof(line), "%s,1,0,1,0,moved", moved);
+	CHECK(ask("list note top 40") == FZN_REPLY_OK && has(line), "fixture: not yet disputed");
+	for (i = 0; i < FZN_TREE_ID_LEN; i++) {
+		unsigned v;
+
+		(void)sscanf(moved + (2u * i), "%2x", &v);
+		id[i] = (uint8_t)v;
+		(void)sscanf(folder + (2u * i), "%2x", &v);
+		up[i] = (uint8_t)v;
+	}
+	other = notes.author;
+	other.issuer = PEER;
+	other.sign = &PEER_SIGN;
+	CHECK(fzn_notes_move(&other, id, up, now_ms()) == FZN_NOTES_OK,
+	      "fixture: another writer moves the note");
+	snprintf(line, sizeof(line), "%s,1,0,1,1,moved", moved);
+	CHECK(ask("list note top 40") == FZN_REPLY_OK && has(line),
+	      "a note under two parents is said to be, on the page");
+	snprintf(line, sizeof(line), "get note %s", moved);
+	CHECK(ask(line) == FZN_REPLY_OK && has(" 1 1 moved"), "and by get note");
+
+	/* A PURGE MOVES NO NOTE, and is still left out. */
+	snprintf(line, sizeof(line), "set note %s trash", bin);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: trashed");
+	CHECK(ask("list note top") == FZN_REPLY_OK, "fixture: the top kept");
+	at = (unsigned long)notes_written;
+	CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "1 1"),
+	      "fixture: the purge waits");
+	CHECK(notes_written == at, "fixture: a purge queued wrote no note");
+	CHECK(ask("list note top") == FZN_REPLY_OK && !has(bin), "a page kept leaves out a purge");
 }
 
 static void test_trash(void)
@@ -2198,6 +2287,7 @@ int main(void)
 	test_the_join_floor_at_its_second();
 	test_import();
 	test_checklist();
+	test_pages_kept();
 	test_collecting_texts();
 	test_history();
 	test_history_trimmed();

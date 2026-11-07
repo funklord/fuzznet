@@ -48,6 +48,9 @@ typedef struct fzn_notes_view {
 	/* What this view was loaded from, while the store's stamp stands. */
 	const fzn_persist_ops_t *loaded_from;
 	uint64_t loaded_at;
+	/* MOVES WITH EVERY LOAD THAT READ, so what a caller worked out from this view, and
+	 * every node it points at, is good while this stands. sec 940. */
+	uint64_t generation;
 } fzn_notes_view_t;
 
 /* Load every claim the store holds. The store's own put admitted each one;
@@ -69,8 +72,9 @@ fzn_notes_err_t fzn_notes_top_level(const fzn_notes_view_t *view, const fzn_tree
 /* Whether the root can reach nodes[i]. Out of range is 0. */
 int fzn_notes_reachable(const fzn_notes_view_t *view, size_t i);
 
-/* The note ids claimed under more than one parent, each once, `cap` of them
- * written; returns how many there are. */
+/* The note ids claimed under more than one parent, each once and in the order of
+ * the ids, so a caller may search them; `cap` of them written; returns how many
+ * there are. */
 size_t fzn_notes_contested(const fzn_notes_view_t *view, uint8_t (*out)[FZN_TREE_ID_LEN],
                            size_t cap);
 

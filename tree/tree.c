@@ -2,6 +2,7 @@
 
 #include "../wire/bytes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* THE TABLE, PINNED AT COMPILE TIME, which `record/record.c` has had since it
@@ -145,6 +146,16 @@ int fzn_tree_cmp(const fzn_tree_node_t *a, const fzn_tree_node_t *b)
 	return memcmp(a->id, b->id, (size_t)FZN_TREE_ID_LEN);
 }
 
+/* Sibling order, and claims the same in it as they stood in `nodes`. */
+static int child_cmp(const void *a, const void *b)
+{
+	const fzn_tree_node_t *x = *(const fzn_tree_node_t *const *)a;
+	const fzn_tree_node_t *y = *(const fzn_tree_node_t *const *)b;
+	int cmp = fzn_tree_cmp(x, y);
+
+	return cmp ? cmp : (x > y) - (x < y);
+}
+
 fzn_tree_err_t fzn_tree_children(const fzn_tree_node_t *nodes, size_t count,
                                  const uint8_t parent[FZN_TREE_ID_LEN],
                                  const fzn_tree_node_t **out, size_t out_cap,
@@ -164,8 +175,6 @@ fzn_tree_err_t fzn_tree_children(const fzn_tree_node_t *nodes, size_t count,
 	walk->truncated = 0;
 
 	for (i = 0; i < count; i++) {
-		size_t j;
-
 		walk->examined++;
 		if (memcmp(nodes[i].parent, parent,
 		           (size_t)FZN_TREE_ID_LEN) != 0)
@@ -182,17 +191,12 @@ fzn_tree_err_t fzn_tree_children(const fzn_tree_node_t *nodes, size_t count,
 			continue;
 		}
 
-		/* Insertion sort into the output. The sibling counts this
-		 * serves are small, and it needs no scratch beyond the array
-		 * the caller already supplied -- sec 2. */
-		for (j = walk->emitted; j > 0u; j--) {
-			if (fzn_tree_cmp(out[j - 1u], &nodes[i]) <= 0)
-				break;
-			out[j] = out[j - 1u];
-		}
-		out[j] = &nodes[i];
-		walk->emitted++;
+		out[walk->emitted++] = &nodes[i];
 	}
+	/* SORTED IN THE CALLER'S ARRAY, as sec 2 asks: no scratch of its own. Insertion
+	 * into it was square in the siblings, and a note's top holds all of them, sec 940. */
+	if (walk->emitted > 1u)
+		qsort(out, walk->emitted, sizeof(out[0]), child_cmp);
 
 	return FZN_TREE_OK;
 }

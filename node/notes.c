@@ -559,19 +559,54 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 
 /* ---- list ---------------------------------------------------------------- */
 
+/* WHAT A VIEW'S NOTES ARE IN DISPUTE, worked out once a view, sec 940. */
+static struct {
+	uint64_t generation;
+	size_t n;
+	uint8_t ids[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+} disputed;
+
+static int id_cmp(const void *a, const void *b)
+{
+	return memcmp(a, b, FZN_TREE_ID_LEN);
+}
+
+static int is_disputed(const uint8_t id[FZN_TREE_ID_LEN])
+{
+	if (disputed.generation != view.generation) {
+		disputed.n = fzn_notes_contested(&view, disputed.ids, FZN_NOTES_MAX);
+		if (disputed.n > FZN_NOTES_MAX)
+			disputed.n = FZN_NOTES_MAX;
+		disputed.generation = view.generation;
+	}
+	return bsearch(id, disputed.ids, disputed.n, FZN_TREE_ID_LEN, id_cmp) != NULL;
+}
+
+/* THE LAST LIST ASKED FOR, in order, so a page costs the page, sec 940. Good while the
+ * view stands and no purge has come or gone: paged through, each page worked out the
+ * whole list, so a listing cost the square of what was held. */
+static struct {
+	uint64_t generation;
+	int shared;
+	uint8_t parent[FZN_TREE_ID_LEN];
+	uint8_t purges[FZN_NOTES_PURGE_MAX][FZN_TREE_ID_LEN];
+	size_t n_purges, count;
+	const fzn_tree_node_t *out[FZN_NOTES_MAX];
+} listed;
+
 /* `store` is this node's notes, or a sharer's tree when `shared` is set
  * (sec 437): then the top is the shared subtrees' roots. */
 static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, int shared, const uint8_t *at, size_t left,
                    char *reply, size_t cap)
 {
-	static const fzn_tree_node_t *out[FZN_NOTES_MAX];
-	static uint8_t contested[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	static uint8_t purges[FZN_NOTES_PURGE_MAX][FZN_TREE_ID_LEN];
 	static char detail[FZN_REPLY_MAX];
+	const fzn_tree_node_t **out = listed.out;
 	size_t limit = fzn_reply_ok_room(cap);
 	uint8_t parent[FZN_TREE_ID_LEN];
 	const uint8_t *w;
-	size_t w_len, count = 0, from = 0, used, i, j, n_contested;
-	int cut = 0, k;
+	size_t w_len, count = 0, from = 0, used, i, j, n_purges = 0;
+	int cut = 0, k, purges_read;
 	fzn_notes_err_t err;
 
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, parent))
@@ -585,24 +620,41 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 	err = fzn_notes_view_load(store, &view);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
-	if (fzn_tree_is_root(parent) && shared)
-		count = fzn_notes_received_roots(&view, out, FZN_NOTES_MAX);
-	else
-		err = fzn_tree_is_root(parent)
-		              ? fzn_notes_top_level(&view, out, FZN_NOTES_MAX, &count, &cut)
-		              : fzn_notes_children(&view, parent, out, FZN_NOTES_MAX, &count, &cut);
-	if (err != FZN_NOTES_OK)
-		return refuse(reply, cap, err);
-	/* A NOTE PENDING PURGE IS LEFT OUT: one a user emptied must not come
-	 * back into view because a node that holds it has not answered yet.
-	 * sec 434. */
-	for (i = 0, j = 0; i < count; i++)
-		if (!fzn_notes_purge_pending(store, out[i]->id))
-			out[j++] = out[i];
-	count = j;
+	purges_read = fzn_notes_purge_list(store, purges, FZN_NOTES_PURGE_MAX, &n_purges)
+	              == FZN_NOTES_OK;
+	if (purges_read && listed.generation == view.generation && listed.shared == shared
+	    && memcmp(listed.parent, parent, FZN_TREE_ID_LEN) == 0 && listed.n_purges == n_purges
+	    && memcmp(listed.purges, purges, n_purges * FZN_TREE_ID_LEN) == 0) {
+		count = listed.count;
+	} else {
+		listed.generation = 0u;
+		if (fzn_tree_is_root(parent) && shared)
+			count = fzn_notes_received_roots(&view, out, FZN_NOTES_MAX);
+		else
+			err = fzn_tree_is_root(parent)
+			              ? fzn_notes_top_level(&view, out, FZN_NOTES_MAX, &count, &cut)
+			              : fzn_notes_children(&view, parent, out, FZN_NOTES_MAX, &count,
+			                                   &cut);
+		if (err != FZN_NOTES_OK)
+			return refuse(reply, cap, err);
+		/* A NOTE PENDING PURGE IS LEFT OUT: one a user emptied must not come
+		 * back into view because a node that holds it has not answered yet.
+		 * sec 434. */
+		for (i = 0, j = 0; i < count; i++)
+			if (!fzn_notes_purge_pending(store, out[i]->id))
+				out[j++] = out[i];
+		count = j;
+		if (purges_read) {
+			listed.generation = view.generation;
+			listed.shared = shared;
+			memcpy(listed.parent, parent, FZN_TREE_ID_LEN);
+			memcpy(listed.purges, purges, n_purges * FZN_TREE_ID_LEN);
+			listed.n_purges = n_purges;
+			listed.count = count;
+		}
+	}
 	if (from > count)
 		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last note");
-	n_contested = fzn_notes_contested(&view, contested, FZN_NOTES_MAX);
 	/* The head, TOTAL FROM, then as many items as fit. */
 	k = snprintf(detail, sizeof(detail), "%zu %zu", count, from);
 	if (k < 0 || (size_t)k >= limit)
@@ -612,7 +664,7 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 		const fzn_tree_node_t *node = out[i];
 		size_t idx = (size_t)(node - view.nodes), wrote = 0, took;
 		char item[ID_HEX + 32u];
-		int is_contested = 0, m;
+		int is_contested = is_disputed(node->id), m;
 		fzn_note_t note;
 		fzn_note_meta_t meta;
 		const uint8_t *title = (const uint8_t *)"", *labels = title;
@@ -620,8 +672,6 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 		const struct title *cached = NULL;
 		uint8_t flags = 0;
 
-		for (j = 0; j < n_contested && j < FZN_NOTES_MAX; j++)
-			is_contested |= memcmp(contested[j], node->id, FZN_TREE_ID_LEN) == 0;
 		/* THE TITLE IS IN THE BLOB, so a note whose blob is not here
 		 * lists by its meta, marked pending (sec 514). A blob opened
 		 * once is listed from the cache after (sec 522). */
@@ -700,8 +750,7 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 static void note_standing(const fzn_notes_store_t *store, const uint8_t id[FZN_TREE_ID_LEN],
                           int *reachable, int *contested)
 {
-	static uint8_t ids[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
-	size_t i, n_contested;
+	size_t i;
 
 	*reachable = *contested = 0;
 	if (fzn_notes_view_load(store, &view) != FZN_NOTES_OK)
@@ -709,9 +758,7 @@ static void note_standing(const fzn_notes_store_t *store, const uint8_t id[FZN_T
 	for (i = 0; i < view.count; i++)
 		if (memcmp(view.nodes[i].id, id, FZN_TREE_ID_LEN) == 0)
 			*reachable |= fzn_notes_reachable(&view, i);
-	n_contested = fzn_notes_contested(&view, ids, FZN_NOTES_MAX);
-	for (i = 0; i < n_contested && i < FZN_NOTES_MAX; i++)
-		*contested |= memcmp(ids[i], id, FZN_TREE_ID_LEN) == 0;
+	*contested = is_disputed(id);
 }
 
 static size_t answer_note(fzn_node_notes_t *n, const fzn_notes_store_t *store,

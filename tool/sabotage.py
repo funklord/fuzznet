@@ -4844,8 +4844,8 @@ SABOTAGES = [
 	(
 		"notebook-view-contested-needs-two-parents",
 		"notes/view.c",
-		"\t\t\t    && memcmp(view->nodes[j].parent, view->nodes[i].parent, FZN_TREE_ID_LEN)\n\t\t\t               != 0)\n",
-		"\t\t\t    )\n",
+		"\t\tif (memcmp(claims[i]->parent, claims[end - 1u]->parent, FZN_TREE_ID_LEN) == 0)\n",
+		"\t\tif (end - i == 1u)\n",
 		"two writers agreeing on where a note is are reported as a conflict -- sec 425",
 	),
 	(
@@ -5292,8 +5292,8 @@ SABOTAGES = [
 	(
 		"node-notes-list-hides-pending",
 		"node/notes.c",
-		"\t\tif (!fzn_notes_purge_pending(store, out[i]->id))\n\t\t\tout[j++] = out[i];\n",
-		"\t\tif (1)\n\t\t\tout[j++] = out[i];\n",
+		"\t\t\tif (!fzn_notes_purge_pending(store, out[i]->id))\n\t\t\t\tout[j++] = out[i];\n",
+		"\t\t\tif (1)\n\t\t\t\tout[j++] = out[i];\n",
 		"a note the user emptied comes back into view while a node that holds it has not answered -- sec 434",
 	),
 	(
@@ -14671,6 +14671,41 @@ SABOTAGES = [
 		"\t    || now.tv_nsec != x->dir_time.tv_nsec)\n\t\tx->whole = 0;\n",
 		"\t(void)now;\n",
 		"a row a follower wrote just before a save is never read -- sec 936",
+	),
+	(
+		"notes-page-outlives-a-write",
+		"node/notes.c",
+		"\tif (purges_read && listed.generation == view.generation && listed.shared == shared\n",
+		"\tif (purges_read && listed.generation && listed.shared == shared\n",
+		"a page from a list kept past a write points at nodes a load moved -- sec 940",
+	),
+	(
+		"notes-page-of-another-parent",
+		"node/notes.c",
+		"\t    && memcmp(listed.parent, parent, FZN_TREE_ID_LEN) == 0 && listed.n_purges == n_purges\n",
+		"\t    && listed.n_purges == n_purges\n",
+		"a folder's page answers with the list last asked for -- sec 940",
+	),
+	(
+		"notes-page-outlives-a-purge",
+		"node/notes.c",
+		"\t    && memcmp(listed.parent, parent, FZN_TREE_ID_LEN) == 0 && listed.n_purges == n_purges\n\t    && memcmp(listed.purges, purges, n_purges * FZN_TREE_ID_LEN) == 0) {\n",
+		"\t    && memcmp(listed.parent, parent, FZN_TREE_ID_LEN) == 0) {\n",
+		"a note emptied comes back on a page, as a purge moves no note -- sec 434, 940",
+	),
+	(
+		"notes-dispute-outlives-a-view",
+		"node/notes.c",
+		"\tif (disputed.generation != view.generation) {\n",
+		"\tif (!disputed.generation) {\n",
+		"a note moved by another writer is not said to be disputed -- sec 940",
+	),
+	(
+		"tree-children-unsorted",
+		"tree/tree.c",
+		"\tif (walk->emitted > 1u)\n\t\tqsort(out, walk->emitted, sizeof(out[0]), child_cmp);\n",
+		"\t(void)child_cmp;\n",
+		"siblings come in the order they were read, not the order they say -- sec 940",
 	),
 	(
 		"index-misses-a-remove",

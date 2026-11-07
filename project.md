@@ -81753,7 +81753,8 @@ Static memory is 904 MB, untouched until used: a host of 12000 notes is resident
   being a hash, and holds 16384 whatever the bound, as it is a cache.
 
 **Still growing:** an add rereads the view, each row hashed to check it is filed where it is, 1.5
-ms a thousand notes, so about 150 ms at 100000. A view kept up to date would end it.
+ms a thousand notes, so about 150 ms at 100000. A view kept up to date would end it. A listing
+grew too, by the square, and this section did not look at it: sec 940.
 
 ## 929. Netcfgd ran its RAM host, and four requests, 2026-11-06
 
@@ -82044,3 +82045,36 @@ not cover style. `fcb9de3`'s `enum { files_on = 0 }` failed `enum_gate` the same
 `#define` now. Seven are aimed at the code that replaced theirs.
 `device-silence-keeps-its-clock` is removed: a clock now comes with a grant, so it is
 `device-session-never-given-up`.
+
+## 940. A page that cost the whole list, 2026-11-07
+
+**Fuzzypickles' 20261107T0918Z, at `4bf3278`:** a page of `list note` took 0.09 s from any FROM at
+3000 notes, a page being about twelve, so `fzp notes-list` was 250 requests and 25 s, and 12391
+notes had not finished after four minutes. Reproduced here at 99 ms a page and 24.8 s. I had
+parked this after sec 928 as a constant factor. It was not.
+
+**Measured with `perf`:** 86 per cent `fzn_notes_contested`, every claim compared with every other,
+on each page. Behind it each page sorted the siblings by insertion, square in what is held, and
+read every note's purge row. `get note` paid for the first as well.
+
+- **`fzn_notes_contested` sorts the claims,** and says the ids in order.
+- **`fzn_tree_children` sorts with `qsort`** in the caller's array. Its comment said the sibling
+  counts it serves are small; a note's top holds all of them. Claims the same in sibling order
+  keep the order they were read in.
+- **`list` keeps the last list,** in `node/notes.c`, while `fzn_notes_view_t.generation` stands and
+  the same purges are queued. A generation moves with each load that reads, so a list and the
+  nodes it points at die together. A purge is a row of another slot and moves no note, so its ids
+  are read each page: 32 at most. What is disputed is kept by generation too.
+
+| whole listing | before | after |
+|---|---|---|
+| 3000 notes, 250 pages | 24.8 s | 0.2 s |
+| 12400 notes, 1034 pages | not finished in 4 minutes | 0.7 s |
+
+The first page after a write works it all out: 24 ms at 3000, 107 at 12400. **Still slow:** a
+sharer's tree has no stamp, so each of its pages loads the view, and `fzn_notes_received_roots`
+is cubic at worst. Nothing has measured one past a few notes.
+
+`notes_test` holds pages kept with the stamp on, as the daemon has it: with none, nothing is kept
+and the test would pass for that. `live_many_notes` a2 counts a listing in CPU, 7 ticks at 1000
+against about 90. 5 sabotages, and 2 aimed at the new code.

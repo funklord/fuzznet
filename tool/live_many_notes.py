@@ -5,9 +5,12 @@ sec 914.
 A is an estate's root and B a member of it, joined by a card.
 
     a  A takes 1000 notes, past the 256 it refused beyond, and lists them all
+    a2 and each page of them costs the page, in CPU, so a listing is not the square of
+       what is held (sec 940)
     b  B, started after, holds all 1000 within its rounds
 
-Against a daemon bound at 256 claims, a stops at the 257th.
+Against a daemon bound at 256 claims, a stops at the 257th. Against one working out
+the list for each page, a2 counts about 90 ticks.
 
 BOUNDED FROM INSIDE as live_rejoin.py is: one deadline, each daemon in its own
 process group, and every daemon checked gone.
@@ -22,6 +25,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from live_many_contacts import cpu_ticks  # noqa: E402
 from live_rejoin import command, daemon  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
@@ -29,6 +33,8 @@ import live_trim  # noqa: E402
 live_trim.DEADLINE = time.monotonic() + 500.0
 
 NOTES = 1000
+# CPU ticks a listing of NOTES may take, rounds landing in it included.
+LISTING_TICKS = 40
 
 
 def held(sock):
@@ -37,6 +43,19 @@ def held(sock):
 	if len(words) < 2 or words[0] != "ok" or not words[1].isdigit():
 		raise failed("list note top answered %r" % words[:3])
 	return int(words[1])
+
+
+def listed(sock):
+	"""Every page of `list note top` read: the ids that came back."""
+	seen, at, total = [], 0, None
+	while total is None or at < total:
+		words = ask(sock, "list note top %d" % at).split()
+		if len(words) < 3 or words[0] != "ok":
+			raise failed("a2: list note top %d answered %r" % (at, words[:3]))
+		total = int(words[1])
+		seen += [w.split(",")[0] for w in words[3:]]
+		at += len(words) - 3
+	return seen
 
 
 def main(argv):
@@ -73,6 +92,15 @@ def main(argv):
 			if held(a_sock) != NOTES:
 				raise failed("a: A lists %d of %d" % (held(a_sock), NOTES))
 			print("livecheck: a: A took %d notes in %.0f s" % (NOTES, time.monotonic() - began))
+
+			before = cpu_ticks(a.proc.pid)
+			seen = listed(a_sock)
+			ticks = cpu_ticks(a.proc.pid) - before
+			if len(set(seen)) != NOTES or len(seen) != NOTES:
+				raise failed("a2: %d rows, %d notes, of %d" % (len(seen), len(set(seen)), NOTES))
+			if ticks > LISTING_TICKS:
+				raise failed("a2: a listing of %d took %d CPU ticks" % (NOTES, ticks))
+			print("livecheck: a2: every page of %d read back in %d CPU ticks" % (NOTES, ticks))
 
 			b = daemon(run, "b0", b_dir, b_sock, extra=["--root-at", "127.0.0.1", port])
 			began = time.monotonic()
