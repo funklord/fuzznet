@@ -81756,7 +81756,8 @@ Static memory is 904 MB, untouched until used: a host of 12000 notes is resident
   being a hash, and holds 16384 whatever the bound, as it is a cache.
 
 **Still growing:** an add rereads the view, each row hashed to check it is filed where it is, 1.5
-ms a thousand notes, so about 150 ms at 100000. A view kept up to date would end it. A listing
+ms a thousand notes, so about 150 ms at 100000 -- **measured far worse in sec 962**, square, and
+ended there by a view kept up to date. A listing
 grew too, by the square, and this section did not look at it: sec 940.
 
 ## 929. Netcfgd ran its RAM host, and four requests, 2026-11-06
@@ -82715,3 +82716,30 @@ host. Eight is sec 401's figure for a household. Taking them in turns would clos
 sockets and the numbering carried per sibling (sec 737), so it waits for an estate past nine hosts.
 The pull targets given on the command line are refused past eight at start; the journal, notes and
 devices passes take every target the round has.
+
+## 962. An add that read every note, measured square, 2026-11-08
+
+Sec 928 left `add note` rereading the view, "1.5 ms a thousand notes". Measured on a root adding
+notes into one folder, an add after each 2000: **18.7 ms at 2000, 68.5 at 4000, 153 at 6000, 261 at
+8000 and 423.5 at 10000**, and the 10000 took 27 minutes: square, not linear. Each write moves the
+store's stamp, so the next add found its view stale and read every claim, opened it, and walked
+reachability -- a fixed point that scans the nodes for each one's parent. The holder's figure for
+notes is hundreds of thousands.
+
+**The view now takes the note it just made** (`fzn_notes_view_took`): after a create's write, when
+the view stood at the stamp read just before, the claim written goes into it as a load would read
+it and the view is current at the new stamp, its generation moved (sec 940). A new note has a fresh
+id, so no node is its child: it is reached when its parent is. Anything else -- a node already
+held under that id, no room, a store without a stamp -- leaves the next load to read the store.
+**Safe as the daemon is one thread:** nothing writes between a create's load and its write.
+
+**Measured, the same:** an add 2.9 ms at 2000, 3.5 at 6000 and 5.2 at 20000, and the 20000 took
+about 100 s. What is left grows with the folder: the order among its children.
+
+**Tested:** `test_a_view_kept_by_its_adds` gives the test store a stamp moved by every write, makes
+201 notes in a folder and at the root, and after each compares the view kept with a load of every
+claim -- the same nodes, each reached alike -- and checks it current; a write it did not take has
+the next load read the store. `view-not-kept-by-an-add` and `view-took-unreached` guard it.
+
+**Not this:** an edit, a move or a purge still has the next add read every claim, as does a claim
+arriving from a peer. Those are one read each, not one an add.

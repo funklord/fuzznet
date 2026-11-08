@@ -130,6 +130,15 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 	return 1;
 }
 
+/* EVERY WRITE COUNTED, a stamp for a store that keeps one (sec 962). */
+static uint64_t writes;
+
+static uint64_t writes_stamp(void *ctx)
+{
+	(void)ctx;
+	return writes;
+}
+
 static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                     const uint8_t *bytes, size_t len)
 {
@@ -137,6 +146,7 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	size_t i;
 
 	(void)ctx;
+	writes++;
 	if (len > sizeof(r->bytes))
 		return 0;
 	for (i = 0; !r && i < MEM_ROWS; i++)
@@ -175,6 +185,7 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	struct row *r = find(slot, subject);
 
 	(void)ctx;
+	writes++;
 	if (r)
 		r->used = 0;
 	return 1;
@@ -1673,6 +1684,67 @@ static void test_history_bound(void)
 	wipe();
 }
 
+/* A VIEW KEPT CURRENT BY THE ADDS, sec 962, over a store with a stamp: after
+ * each of 200 notes made in folders and at the root, it holds what a load of
+ * every claim reads -- the same nodes, each reached alike -- and the next add
+ * does not read every claim again. A write the view did not take still has
+ * the next load read the store. */
+static int same_view(const fzn_notes_view_t *x, const fzn_notes_view_t *y)
+{
+	size_t i, j;
+
+	if (x->count != y->count)
+		return 0;
+	for (i = 0; i < x->count; i++) {
+		for (j = 0; j < y->count; j++)
+			if (memcmp(x->nodes[i].id, y->nodes[j].id, FZN_TREE_ID_LEN) == 0)
+				break;
+		if (j == y->count || x->mark[i] != y->mark[j]
+		    || memcmp(x->nodes[i].parent, y->nodes[j].parent, FZN_TREE_ID_LEN) != 0
+		    || x->nodes[i].order != y->nodes[j].order)
+			return 0;
+	}
+	return 1;
+}
+
+static void test_a_view_kept_by_its_adds(void)
+{
+	static fzn_notes_view_t fresh;
+	fzn_sign_ops_t ops_a;
+	fzn_notes_author_t a = author_as(KEY_A, &ops_a);
+	uint8_t root[FZN_TREE_ID_LEN], folder[FZN_TREE_ID_LEN], id[FZN_TREE_ID_LEN];
+	fzn_note_t note = titled("n", "t");
+	size_t i, differ = 0, made = 0;
+	uint64_t generation;
+
+	wipe();
+	memset(root, 0, sizeof(root));
+	store.stamp = writes_stamp;
+	note = titled("f", "");
+	made += fzn_notes_create(&a, root, FZN_NOTE_TYPE_FOLDER, &note, 7000u, folder)
+	        == FZN_NOTES_OK;
+	note = titled("n", "t");
+	for (i = 0; i < 200u; i++) {
+		made += fzn_notes_create(&a, i % 3u ? folder : root, FZN_NOTE_TYPE_NOTE, &note,
+		                         7001u + i, id)
+		        == FZN_NOTES_OK;
+		memset(&fresh, 0, sizeof(fresh));
+		if (fzn_notes_view_load(&store, &fresh) != FZN_NOTES_OK
+		    || author_view.loaded_at != writes || !same_view(&author_view, &fresh))
+			differ++;
+	}
+	CHECK(made == 201u && differ == 0u,
+	      "a view kept by its adds was not what a load reads, or not current");
+	/* AND A WRITE IT DID NOT TAKE: the next load reads the store. */
+	generation = author_view.generation;
+	writes++;
+	CHECK(fzn_notes_view_load(&store, &author_view) == FZN_NOTES_OK
+	              && author_view.generation != generation && author_view.loaded_at == writes,
+	      "a view stood past a write it did not take");
+	store.stamp = NULL;
+	wipe();
+}
+
 int main(void)
 {
 	memset(KEY_A, 0xa1, sizeof(KEY_A));
@@ -1686,6 +1758,7 @@ int main(void)
 	test_capacity_and_erase();
 	test_the_view();
 	test_authoring();
+	test_a_view_kept_by_its_adds();
 	test_purge();
 	test_history_bound();
 	test_import_parsing();

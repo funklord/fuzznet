@@ -14758,6 +14758,20 @@ SABOTAGES = [
 		"a host makes again acts other hosts signed, as its own -- sec 626",
 	),
 	(
+		"view-not-kept-by-an-add",
+		"notes/author.c",
+		"\tif (err == FZN_NOTES_OK)\n\t\t(void)fzn_notes_view_took(",
+		"\tif (0)\n\t\t(void)fzn_notes_view_took(",
+		"each add reads every claim again, 1.5 ms a thousand notes -- sec 962",
+	),
+	(
+		"view-took-unreached",
+		"notes/view.c",
+		"\t\t\tview->mark[view->count] = 1u;\n",
+		"\t\t\tview->mark[view->count] = 0u;\n",
+		"a note added in a folder is not reached in the view kept -- sec 962",
+	),
+	(
 		"snapshot-listed-to-a-room",
 		"node/opjournal.c",
 		"\t\t\tif (room > ((size_t)1 << 24)) {\n\t\t\t\tgoto cut_short;\n",

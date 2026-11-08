@@ -63,6 +63,42 @@ fzn_notes_err_t fzn_notes_view_load(const fzn_notes_store_t *store, fzn_notes_vi
 	return FZN_NOTES_OK;
 }
 
+int fzn_notes_view_took(const fzn_notes_store_t *store, fzn_notes_view_t *view, uint64_t stamp,
+                        const uint8_t *record, size_t len)
+{
+	uint8_t *slot;
+	fzn_record_t rec;
+	fzn_tree_node_t node;
+	size_t i;
+
+	if (!store || !view || !record || !store->stamp || view->loaded_from != store->ops
+	    || view->loaded_at != stamp || view->count >= FZN_NOTES_MAX
+	    || sizeof(view->arena) - view->arena_used < len)
+		return 0;
+	slot = view->arena + view->arena_used;
+	memcpy(slot, record, len);
+	if (fzn_record_open(slot, len, &rec) != FZN_RECORD_OK
+	    || fzn_record_kind(rec) != FZN_NOTE_KIND || fzn_tree_open(rec, &node) != FZN_TREE_OK)
+		return 0;
+	/* A NODE HELD UNDER ITS ID already is not a new note: read afresh. */
+	for (i = 0; i < view->count; i++)
+		if (memcmp(view->nodes[i].id, node.id, FZN_TREE_ID_LEN) == 0) {
+			view->loaded_from = NULL;
+			return 0;
+		}
+	view->mark[view->count] = fzn_tree_is_root(node.parent) ? 1u : 0u;
+	for (i = 0; i < view->count && !view->mark[view->count]; i++)
+		if (view->mark[i] && memcmp(view->nodes[i].id, node.parent, FZN_TREE_ID_LEN) == 0)
+			view->mark[view->count] = 1u;
+	view->arena_used += len;
+	view->nodes[view->count] = node;
+	view->writers[view->count] = fzn_record_issuer(rec);
+	view->count++;
+	view->generation++;
+	view->loaded_at = store->stamp(store->stamp_ctx);
+	return 1;
+}
+
 fzn_notes_err_t fzn_notes_children(const fzn_notes_view_t *view,
                                    const uint8_t parent[FZN_TREE_ID_LEN],
                                    const fzn_tree_node_t **out, size_t cap, size_t *count,

@@ -57,6 +57,15 @@ typedef struct fzn_notes_view {
  * a record this build cannot open as a node is counted in `unreadable`. */
 fzn_notes_err_t fzn_notes_view_load(const fzn_notes_store_t *store, fzn_notes_view_t *view);
 
+/* A NOTE JUST MADE HERE, its claim `record` (`len` bytes) taken into `view`
+ * as a load would have read it, sec 962: when the view stood at `stamp`
+ * before the write and nothing else was written since, it is current again
+ * without reading every claim -- 1.5 ms a thousand notes an add. A new note
+ * has a fresh id, so no node is its child: it is reached when its parent
+ * is. 0 when it was not taken, and the next load reads the store. */
+int fzn_notes_view_took(const fzn_notes_store_t *store, fzn_notes_view_t *view, uint64_t stamp,
+                        const uint8_t *record, size_t len);
+
 /* The claims under `parent`, in sibling order, into a caller-owned array.
  * `*truncated` (may be NULL) is set when `out` ran out: then the array is NOT
  * the first `cap` children, since a later node may sort before one written. */

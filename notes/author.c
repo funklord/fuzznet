@@ -185,6 +185,10 @@ static fzn_notes_err_t index_takes(const fzn_notes_author_t *a, const uint8_t id
 }
 
 /* Build, chain as this host's next note record, and put. */
+/* THE CLAIM `write_note` LAST WROTE, for a view to take (sec 962). */
+static const uint8_t *written_record;
+static size_t written_len;
+
 static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
                                   const uint8_t id[FZN_TREE_ID_LEN],
                                   const uint8_t parent[FZN_TREE_ID_LEN], uint64_t order,
@@ -196,6 +200,8 @@ static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
 	static uint8_t record[FZN_RECORD_MAX_LEN];
 	size_t body_len = 0, record_len = 0;
 	int wrote = 0;
+
+	written_len = 0;
 	fzn_notes_err_t err;
 
 	if (fzn_note_meta_write(meta, content) != FZN_NOTE_OK
@@ -215,6 +221,8 @@ static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
 	err = fzn_notes_put(a->store, record, record_len, a->policy, a->sign, &wrote, NULL);
 	if (err != FZN_NOTES_OK)
 		return err;
+	written_record = record;
+	written_len = wrote ? record_len : 0u;
 	/* A RECORD THE INDEX CALLS OLDER than the one it holds from this host
 	 * is a store kept before sec 517, whose own records were numbered by a
 	 * counter the chain starts below. It is not migrated: said, not
@@ -256,7 +264,7 @@ fzn_notes_err_t fzn_notes_create_dated(const fzn_notes_author_t *author,
 {
 	fzn_note_meta_t meta;
 	fzn_note_t content;
-	uint64_t order = 0;
+	uint64_t order = 0, stamp;
 	fzn_notes_err_t err;
 
 	if (!author_ok(author) || !author->rng || !author->rng->fill || !parent || !fields
@@ -307,9 +315,15 @@ fzn_notes_err_t fzn_notes_create_dated(const fzn_notes_author_t *author,
 	err = fzn_notes_view_load(author->store, author->view);
 	if (err != FZN_NOTES_OK)
 		return err;
+	stamp = author->store->stamp ? author->store->stamp(author->store->stamp_ctx) : 0u;
 	err = order_after(author->view, parent, NULL, &order);
 	if (err == FZN_NOTES_OK)
 		err = write_note(author, id_out, parent, order, content_type, &meta, now_ms);
+	/* THE VIEW KEPT CURRENT, sec 962: the claim just written taken into
+	 * it, as the next add would otherwise read every claim again. */
+	if (err == FZN_NOTES_OK)
+		(void)fzn_notes_view_took(author->store, author->view, stamp, written_record,
+		                          written_len);
 	/* A NOTE NEVER WRITTEN keeps no wrap key behind it. */
 	if (err != FZN_NOTES_OK)
 		(void)fzn_notes_wrap_erase(author->store, id_out);
