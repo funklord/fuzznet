@@ -5509,8 +5509,8 @@ SABOTAGES = [
 	(
 		"share-add-keeps-time",
 		"notes/share.c",
-		"\tif (share_get(store, key, &held) == FZN_NOTES_OK)\n\t\treturn FZN_NOTES_OK;\n\terr = fzn_notes_share_list",
-		"\terr = fzn_notes_share_list",
+		"\tif (share_get(store, key, &held) == FZN_NOTES_OK)\n\t\treturn FZN_NOTES_OK;\n#ifdef FZN_NOTES_SHARES_MAX\n",
+		"#ifdef FZN_NOTES_SHARES_MAX\n",
 		"sharing again rewrites when a subtree was first shared -- sec 436",
 	),
 	(
@@ -8899,8 +8899,8 @@ SABOTAGES = [
 	(
 		"group-scope-reads-membership",
 		"node/notes.c",
-		"\tif (fzn_node_group_ids_of(n->store.ops, sender, &in) == FZN_CONTACT_OK\n",
-		"\tif (0\n",
+		"\tif (fzn_node_group_ids_of(n->store.ops, sender, &in) == FZN_CONTACT_OK && in.n)\n",
+		"\tif (0 && in.n)\n",
 		"a subtree shared with a group reaches none of its members -- secs 471, 626",
 	),
 	(
@@ -14756,6 +14756,20 @@ SABOTAGES = [
 		"\t    || memcmp(fzn_contact_device_key(&a.signer), fzn_contact_device_key(&self), FZN_PUBKEY_LEN)\n\t               != 0)\n\t\treturn 0;\n",
 		"\t    )\n\t\treturn 0;\n",
 		"a host makes again acts other hosts signed, as its own -- sec 626",
+	),
+	(
+		"shared-scope-names-the-sender",
+		"node/notes.c",
+		"\t\tif (memcmp(rows[r].contact, sender, FZN_PUBKEY_LEN) == 0) {\n",
+		"\t\tif (1) {\n",
+		"a subtree shared with one contact is served to every contact who asks -- sec 958",
+	),
+	(
+		"note-shares-listed-to-a-room",
+		"notes/share.c",
+		"\t\tif (max > ((size_t)1 << 24))\n\t\t\treturn FZN_NOTES_ERR_BACKEND;\n\t\tmax *= 2u;\n",
+		"\t\treturn FZN_NOTES_ERR_BACKEND;\n",
+		"note shares past the first room read fail whole, and a contact is shared nothing -- sec 958",
 	),
 	(
 		"files-listed-to-1024",

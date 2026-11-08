@@ -75,21 +75,77 @@ static fzn_notes_err_t share_get(const fzn_notes_store_t *store,
 	return FZN_NOTES_OK;
 }
 
+/* EVERY ROW'S KEY, into `*keys` grown as needed: a list holding more than
+ * it was asked for fails, so the room doubles until it holds them. */
+static fzn_notes_err_t share_keys(const fzn_notes_store_t *store, uint8_t **keys, size_t *room,
+                                  size_t *held)
+{
+	size_t max = *room ? *room : 64u;
+
+	*held = 0;
+	if (!store->ops->list)
+		return FZN_NOTES_ERR_BACKEND;
+	for (;;) {
+		if (max > *room) {
+			uint8_t *more = realloc(*keys, max * FZN_PUBKEY_LEN);
+
+			if (!more)
+				return FZN_NOTES_ERR_BACKEND;
+			*keys = more;
+			*room = max;
+		}
+		if (store->ops->list(store->ops->ctx, FZN_PERSIST_NOTE_SHARE, *keys, max, held))
+			return FZN_NOTES_OK;
+		if (max > ((size_t)1 << 24))
+			return FZN_NOTES_ERR_BACKEND;
+		max *= 2u;
+	}
+}
+
+static uint8_t *listed_keys;
+static size_t listed_room;
+
 fzn_notes_err_t fzn_notes_share_list(const fzn_notes_store_t *store, fzn_notes_share_t *out,
                                      size_t cap, size_t *count)
 {
-	static uint8_t keys[FZN_NOTES_SHARES_MAX][FZN_PUBKEY_LEN];
 	size_t held = 0, i, n = 0;
+	fzn_notes_err_t err;
 
 	if (!store || !store->ops || !out || !count)
 		return FZN_NOTES_ERR_MALFORMED;
 	*count = 0;
-	if (!store->ops->list
-	    || !store->ops->list(store->ops->ctx, FZN_PERSIST_NOTE_SHARE, (uint8_t *)keys,
-	                         FZN_NOTES_SHARES_MAX, &held))
-		return FZN_NOTES_ERR_BACKEND;
+	err = share_keys(store, &listed_keys, &listed_room, &held);
+	if (err != FZN_NOTES_OK)
+		return err;
 	for (i = 0; i < held && n < cap; i++)
-		if (share_get(store, keys[i], &out[n]) == FZN_NOTES_OK)
+		if (share_get(store, listed_keys + i * FZN_PUBKEY_LEN, &out[n]) == FZN_NOTES_OK)
+			n++;
+	*count = n;
+	return FZN_NOTES_OK;
+}
+
+fzn_notes_err_t fzn_notes_share_all(const fzn_notes_store_t *store, fzn_notes_share_t **out,
+                                    size_t *room, size_t *count)
+{
+	size_t held = 0, i, n = 0;
+	fzn_notes_err_t err;
+
+	if (!store || !store->ops || !out || !room || !count)
+		return FZN_NOTES_ERR_MALFORMED;
+	*count = 0;
+	err = share_keys(store, &listed_keys, &listed_room, &held);
+	if (err != FZN_NOTES_OK)
+		return err;
+	if (held > *room) {
+		fzn_notes_share_t *more = realloc(*out, held * sizeof(**out));
+
+		if (!more)
+			return FZN_NOTES_ERR_BACKEND;
+		*out = more;
+		*room = held;
+	}
+	for (i = 0; i < held; i++)
+		if (share_get(store, listed_keys + i * FZN_PUBKEY_LEN, &(*out)[n]) == FZN_NOTES_OK)
 			n++;
 	*count = n;
 	return FZN_NOTES_OK;
@@ -99,11 +155,9 @@ fzn_notes_err_t fzn_notes_share_add(const fzn_notes_store_t *store,
                                     const uint8_t subtree[FZN_TREE_ID_LEN],
                                     const uint8_t contact[FZN_PUBKEY_LEN], uint64_t now_ms)
 {
-	static fzn_notes_share_t all[FZN_NOTES_SHARES_MAX];
 	uint8_t key[FZN_PUBKEY_LEN], blob[BLOB_LEN];
 	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
 	fzn_notes_share_t held;
-	size_t count = 0;
 	fzn_notes_err_t err;
 
 	if (!store || !store->ops || !subtree || !contact)
@@ -113,11 +167,18 @@ fzn_notes_err_t fzn_notes_share_add(const fzn_notes_store_t *store,
 		return err;
 	if (share_get(store, key, &held) == FZN_NOTES_OK)
 		return FZN_NOTES_OK;
-	err = fzn_notes_share_list(store, all, FZN_NOTES_SHARES_MAX, &count);
-	if (err != FZN_NOTES_OK)
-		return err;
-	if (count >= FZN_NOTES_SHARES_MAX)
-		return FZN_NOTES_ERR_FULL;
+#ifdef FZN_NOTES_SHARES_MAX
+	/* A `small` BUILD'S BOUND, sec 922: its rows counted, few as they are. */
+	{
+		size_t count = 0;
+
+		err = share_keys(store, &listed_keys, &listed_room, &count);
+		if (err != FZN_NOTES_OK)
+			return err;
+		if (count >= FZN_NOTES_SHARES_MAX)
+			return FZN_NOTES_ERR_FULL;
+	}
+#endif
 	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN, FZN_PERSIST_BLOB_NOTE_SHARE)
 	    != FZN_PERSIST_OK)
 		return FZN_NOTES_ERR_MALFORMED;
@@ -188,7 +249,8 @@ fzn_notes_err_t fzn_notes_share_remove(const fzn_notes_store_t *store,
 fzn_notes_err_t fzn_notes_share_forget(const fzn_notes_store_t *store,
                                        const uint8_t contact[FZN_PUBKEY_LEN], size_t *removed)
 {
-	static fzn_notes_share_t all[FZN_NOTES_SHARES_MAX];
+	static fzn_notes_share_t *all;
+	static size_t room;
 	size_t count = 0, i;
 	fzn_notes_err_t err;
 
@@ -197,7 +259,7 @@ fzn_notes_err_t fzn_notes_share_forget(const fzn_notes_store_t *store,
 	*removed = 0;
 	if (!store->ops->remove)
 		return FZN_NOTES_ERR_UNSUPPORTED;
-	err = fzn_notes_share_list(store, all, FZN_NOTES_SHARES_MAX, &count);
+	err = fzn_notes_share_all(store, &all, &room, &count);
 	if (err != FZN_NOTES_OK)
 		return err;
 	for (i = 0; i < count; i++) {
@@ -215,14 +277,15 @@ fzn_notes_err_t fzn_notes_share_with(const fzn_notes_store_t *store,
                                      const uint8_t contact[FZN_PUBKEY_LEN],
                                      uint8_t (*out)[FZN_TREE_ID_LEN], size_t cap, size_t *count)
 {
-	static fzn_notes_share_t all[FZN_NOTES_SHARES_MAX];
+	static fzn_notes_share_t *all;
+	static size_t room;
 	size_t held = 0, i, n = 0;
 	fzn_notes_err_t err;
 
 	if (!store || !contact || !out || !count)
 		return FZN_NOTES_ERR_MALFORMED;
 	*count = 0;
-	err = fzn_notes_share_list(store, all, FZN_NOTES_SHARES_MAX, &held);
+	err = fzn_notes_share_all(store, &all, &room, &held);
 	if (err != FZN_NOTES_OK)
 		return err;
 	for (i = 0; i < held && n < cap; i++)

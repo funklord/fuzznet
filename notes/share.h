@@ -41,9 +41,9 @@
 #include "../chain/service.h"
 
 #define FZN_NOTES_SHARE_NAME "fuzznet.notes.share"
-#ifndef FZN_NOTES_SHARES_MAX /* smaller in a `small` build, sec 922 */
-#define FZN_NOTES_SHARES_MAX 1024u
-#endif
+/* AS MANY SHARES AS THE STORE HOLDS, sec 958: a fixed 1024 was refused past,
+ * and the store's list failed outright once it held more. A `small` build
+ * (sec 922) may set FZN_NOTES_SHARES_MAX to bound them. */
 
 /* WHETHER A GROUP SHARE CATCHES UP A MEMBER WHO JOINS LATER, sec 655, the
  * holder's of 2026-10-20: per share, its default the group's own `backfill`
@@ -65,7 +65,7 @@ fzn_notes_err_t fzn_notes_share_capability(uint32_t service, uint32_t product,
                                            const fzn_hash_ops_t *hash, fzn_cap_id_t *out);
 
 /* Record that `subtree` is shared with `contact`; a share already held is
- * kept, with its time. FULL past FZN_NOTES_SHARES_MAX. */
+ * kept, with its time. FULL past a `small` build's FZN_NOTES_SHARES_MAX. */
 fzn_notes_err_t fzn_notes_share_add(const fzn_notes_store_t *store,
                                     const uint8_t subtree[FZN_TREE_ID_LEN],
                                     const uint8_t contact[FZN_PUBKEY_LEN], uint64_t now_ms);
@@ -95,6 +95,12 @@ fzn_notes_err_t fzn_notes_share_forget(const fzn_notes_store_t *store,
 /* Every share, `cap` of them. */
 fzn_notes_err_t fzn_notes_share_list(const fzn_notes_store_t *store, fzn_notes_share_t *out,
                                      size_t cap, size_t *count);
+
+/* EVERY SHARE, into `*out`, grown with realloc as needed: `*room` its room,
+ * NULL and 0 to begin, kept by the caller for the next call and freed with
+ * free(). `*count` how many. */
+fzn_notes_err_t fzn_notes_share_all(const fzn_notes_store_t *store, fzn_notes_share_t **out,
+                                    size_t *room, size_t *count);
 
 /* The subtrees shared with `contact`, `cap` of them, into `out`. A count of
  * 0 is a contact this node shares nothing with, whose requests reach

@@ -16,6 +16,7 @@
 #include "../sync.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failures;
@@ -796,6 +797,129 @@ static void test_share_table(void)
 	}
 }
 
+/* PAST THE 1024 A TABLE HELD, sec 958: 1100 subtrees shared with one
+ * contact, in a store of its own sized for small rows -- each taken, listed
+ * and shared with it, and all taken back when it is forgotten. */
+#define MANY_SHARES 1100u
+
+static struct small_row {
+	int used;
+	uint8_t subject[FZN_PUBKEY_LEN];
+	uint8_t bytes[128];
+	size_t len;
+} small_rows[MANY_SHARES + 8u];
+
+static struct small_row *small_find(const uint8_t *subject, int make)
+{
+	size_t i;
+	struct small_row *free_one = NULL;
+
+	for (i = 0; i < sizeof(small_rows) / sizeof(small_rows[0]); i++) {
+		if (!small_rows[i].used) {
+			if (!free_one)
+				free_one = &small_rows[i];
+			continue;
+		}
+		if (memcmp(small_rows[i].subject, subject, FZN_PUBKEY_LEN) == 0)
+			return &small_rows[i];
+	}
+	if (!make || !free_one)
+		return NULL;
+	free_one->used = 1;
+	memcpy(free_one->subject, subject, FZN_PUBKEY_LEN);
+	return free_one;
+}
+
+static int small_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                      size_t cap, size_t *len)
+{
+	struct small_row *r = slot == FZN_PERSIST_NOTE_SHARE && subject ? small_find(subject, 0) : NULL;
+
+	(void)ctx;
+	if (!r || r->len > cap)
+		return 0;
+	memcpy(out, r->bytes, r->len);
+	*len = r->len;
+	return 1;
+}
+
+static int small_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                      const uint8_t *bytes, size_t len)
+{
+	struct small_row *r = slot == FZN_PERSIST_NOTE_SHARE && subject && len <= 128u
+	                              ? small_find(subject, 1)
+	                              : NULL;
+
+	(void)ctx;
+	if (!r)
+		return 0;
+	memcpy(r->bytes, bytes, len);
+	r->len = len;
+	return 1;
+}
+
+static int small_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max,
+                      size_t *count)
+{
+	size_t i, n = 0;
+
+	(void)ctx;
+	for (i = 0; i < sizeof(small_rows) / sizeof(small_rows[0]); i++)
+		if (slot == FZN_PERSIST_NOTE_SHARE && small_rows[i].used) {
+			if (n == max)
+				return 0;
+			memcpy(out + n * FZN_PUBKEY_LEN, small_rows[i].subject, FZN_PUBKEY_LEN);
+			n++;
+		}
+	*count = n;
+	return 1;
+}
+
+static int small_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	struct small_row *r = slot == FZN_PERSIST_NOTE_SHARE && subject ? small_find(subject, 0) : NULL;
+
+	(void)ctx;
+	if (r)
+		memset(r, 0, sizeof(*r));
+	return 1;
+}
+
+static void test_many_shares(void)
+{
+	static fzn_persist_ops_t small_ops = { small_load, small_save, small_list, small_remove,
+		                               NULL, NULL };
+	static fzn_notes_share_t *all;
+	static uint8_t with[MANY_SHARES + 8u][FZN_TREE_ID_LEN];
+	fzn_notes_store_t big = store_a;
+	uint8_t contact[FZN_PUBKEY_LEN], subtree[FZN_TREE_ID_LEN];
+	size_t i, refused = 0, room = 0, n = 0, removed = 0;
+
+#ifdef FZN_NOTES_SHARES_MAX
+	return; /* a `small` build keeps its bound, tested in the table above */
+#endif
+	memset(small_rows, 0, sizeof(small_rows));
+	big.ops = &small_ops;
+	memset(contact, 0xc5, sizeof(contact));
+	for (i = 0; i < MANY_SHARES; i++) {
+		memset(subtree, 0x31, sizeof(subtree));
+		memcpy(subtree, &i, sizeof(i));
+		refused += fzn_notes_share_add(&big, subtree, contact, 1000u + i) != FZN_NOTES_OK;
+	}
+	CHECK(refused == 0u && fzn_notes_share_all(&big, &all, &room, &n) == FZN_NOTES_OK
+	              && n == MANY_SHARES,
+	      "a share past 1024 was refused, or not listed");
+	CHECK(fzn_notes_share_with(&big, contact, with, MANY_SHARES + 8u, &n) == FZN_NOTES_OK
+	              && n == MANY_SHARES,
+	      "a contact was not shared every subtree past 1024");
+	CHECK(fzn_notes_share_forget(&big, contact, &removed) == FZN_NOTES_OK
+	              && removed == MANY_SHARES
+	              && fzn_notes_share_all(&big, &all, &room, &n) == FZN_NOTES_OK && n == 0u,
+	      "forgetting the contact did not take every share past 1024");
+	free(all);
+	all = NULL;
+}
+
 static void test_share_scope(void)
 {
 	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
@@ -1431,6 +1555,7 @@ int main(void)
 	test_paging();
 	test_purge_conversation();
 	test_share_table();
+	test_many_shares();
 	test_share_scope();
 	test_share_scope_floor();
 	test_received();

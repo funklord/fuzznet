@@ -1862,7 +1862,8 @@ static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size
 static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
                           size_t cap)
 {
-	static fzn_notes_share_t all[FZN_NOTES_SHARES_MAX];
+	static fzn_notes_share_t *all;
+	static size_t room;
 	static char detail[FZN_REPLY_MAX];
 	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, from = 0, used, i;
@@ -1873,11 +1874,11 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 
 	if (word(&at, &left, &w, &w_len))
 		for (i = 0; i < w_len; i++) {
-			if (w[i] < '0' || w[i] > '9' || from > FZN_NOTES_SHARES_MAX)
+			if (w[i] < '0' || w[i] > '9' || from > ((size_t)1 << 30))
 				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	err = fzn_notes_share_list(&n->store, all, FZN_NOTES_SHARES_MAX, &count);
+	err = fzn_notes_share_all(&n->store, &all, &room, &count);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	if (from > count)
@@ -2479,10 +2480,13 @@ static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fz
 static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
                          fzn_notes_sync_scope_t *scope)
 {
-	static uint8_t seeds[FZN_NOTES_SHARES_MAX][FZN_TREE_ID_LEN];
-	static uint64_t seed_floor[FZN_NOTES_SHARES_MAX];
+	/* AS MANY AS ARE SHARED, sec 958: every row read once, the sender's own
+	 * and its groups' taken from it, into room grown to the rows. */
+	static fzn_notes_share_t *rows;
+	static size_t rows_room, seeds_room;
+	static uint8_t (*seeds)[FZN_TREE_ID_LEN], (*open_seeds)[FZN_TREE_ID_LEN];
+	static uint64_t *seed_floor;
 	static fzn_group_held_t in;
-	static fzn_notes_share_t rows[FZN_NOTES_SHARES_MAX];
 	static uint8_t one_reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 	static fzn_group_t held;
 	size_t seed_count = 0, n_rows = 0, g, r, i, k, open = 0, more;
@@ -2492,22 +2496,36 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 	scope->count = 0;
 	scope->floor_ms = NULL;
 	scope->sorted = 0;
-	if (!sender
-	    || fzn_notes_share_with(&n->store, sender, seeds, FZN_NOTES_SHARES_MAX, &seed_count)
-	               != FZN_NOTES_OK)
+	if (!sender || fzn_notes_share_all(&n->store, &rows, &rows_room, &n_rows) != FZN_NOTES_OK
+	    || !n_rows)
 		return;
-	for (i = 0; i < seed_count; i++)
-		seed_floor[i] = 0;
+	if (n_rows > seeds_room) {
+		void *a = realloc(seeds, n_rows * sizeof(*seeds));
+
+		if (a)
+			seeds = a;
+		a = a ? realloc(open_seeds, n_rows * sizeof(*open_seeds)) : NULL;
+		if (a)
+			open_seeds = a;
+		a = a ? realloc(seed_floor, n_rows * sizeof(*seed_floor)) : NULL;
+		if (!a)
+			return;
+		seed_floor = a;
+		seeds_room = n_rows;
+	}
+	for (r = 0; r < n_rows; r++)
+		if (memcmp(rows[r].contact, sender, FZN_PUBKEY_LEN) == 0) {
+			memcpy(seeds[seed_count], rows[r].subtree, FZN_TREE_ID_LEN);
+			seed_floor[seed_count++] = 0;
+		}
 	/* AND EVERY GROUP'S IT IS IN, sec 471: a group share is one row under
 	 * the group's id, so membership is read now, at the request. */
-	if (fzn_node_group_ids_of(n->store.ops, sender, &in) == FZN_CONTACT_OK
-	    && in.n
-	    && fzn_notes_share_list(&n->store, rows, FZN_NOTES_SHARES_MAX, &n_rows) == FZN_NOTES_OK)
+	if (fzn_node_group_ids_of(n->store.ops, sender, &in) == FZN_CONTACT_OK && in.n)
 		for (g = 0; g < in.n; g++) {
 			uint64_t joined = 0;
 			int read = 0;
 
-			for (r = 0; r < n_rows && seed_count < FZN_NOTES_SHARES_MAX; r++) {
+			for (r = 0; r < n_rows && seed_count < seeds_room; r++) {
 				int catch_up;
 
 				if (memcmp(rows[r].contact, in.ids[g], FZN_PUBKEY_LEN) != 0)
@@ -2540,7 +2558,6 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 		open += seed_floor[i] == 0;
 	scope->count = 0;
 	if (open) {
-		static uint8_t open_seeds[FZN_NOTES_SHARES_MAX][FZN_TREE_ID_LEN];
 		size_t o = 0;
 
 		for (i = 0; i < seed_count; i++)

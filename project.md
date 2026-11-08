@@ -82627,5 +82627,30 @@ loads a round. At fuzzypickles' 20000 files it is 60000 a round.
 found is kept in a set in the daemon and not asked of the store again. Exact, then, and not a guess
 that can go stale; the first round after a start still reads each distinct root once.
 
-**Open, and not this:** an idle root opens about 4500 setting rows (slot 38) in 130 s, with 10 files
-as with 3000: 35 a second, whatever it holds. Not yet traced to its reader.
+**Not this, and meant:** an idle root opens about 4500 setting rows (slot 38) in 130 s, with 10 files
+as with 3000. Traced: `pressure_tick` reads its rules afresh each second, so a change stands within a
+second (sec 917), and `location_tick` and `log_settings_tick` read theirs; small files, mostly
+absent, about 35 a second.
+
+## 958. Note shares past 1024, 2026-11-08
+
+The lens of secs 953-955 turned on the notes: a share of a subtree with a contact or a group was
+refused past FZN_NOTES_SHARES_MAX, 1024, honestly as FULL; but **the store's list of rows was asked
+for 1024 keys, and a list holding more fails whole,** so a store past it -- one written by a build
+before the bound, or restored -- listed no share at all, and every contact was shared nothing. Each
+add listed every row to count them, and each contact's request read every row through a table of
+1024.
+
+**As many as the store holds,** on the holder's rule: rows listed into room grown until the list
+holds them, `fzn_notes_share_all` for a caller that wants every one, and no count on an add but in a
+`small` build (sec 922), which keeps its bound. **What a contact is served** (`shared_scope`) reads
+the rows once, the contact's own and its groups' taken from them, into room grown to the rows: the
+same rows as `fzn_notes_share_with` gave it, which it no longer calls.
+
+**Tested:** `test_many_shares` shares 1100 subtrees with one contact in a store of small rows: each
+taken, listed and shared with it, and all taken back when the contact is forgotten.
+`note-shares-listed-to-a-room` guards the growth, and `shared-scope-names-the-sender` the scope, as
+`share-with-names-the-contact` guards a path the daemon no longer takes for it.
+
+**Open:** a contact's request still reads every share row, as before; an index by grantee, as files
+have since sec 954, waits for a host with shares in the thousands.
