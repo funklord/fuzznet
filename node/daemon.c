@@ -15433,6 +15433,63 @@ static void file_refs_take(const uint8_t *reply, size_t len)
 	fzn_wipe(round_reply, len);
 }
 
+/* THE ROOTS WHOSE REFERENCE IS HELD HERE, sec 957: a reference is never let
+ * go (`node/file_refs.h`), so a root found once is not asked of the store
+ * again, where every round read one for each catalogue entry -- 60000 at a
+ * library of 20000 files. Grown; an empty slot is all zero, which no file's
+ * root is in practice, and one that were would only be read again. */
+static struct {
+	uint8_t (*roots)[FZN_BLOB_HASH_LEN];
+	size_t n, slots;
+} refs_held;
+
+static int ref_held_slot(const uint8_t root[FZN_BLOB_HASH_LEN], size_t *at)
+{
+	static const uint8_t ZERO[FZN_BLOB_HASH_LEN];
+	size_t i;
+
+	if (!refs_held.slots)
+		return 0;
+	/* A ROOT IS A HASH, so its first bytes spread it. */
+	for (i = 0, *at = 0; i < sizeof(size_t); i++)
+		*at = (*at << 8) | root[i];
+	*at &= refs_held.slots - 1u;
+	while (memcmp(refs_held.roots[*at], ZERO, FZN_BLOB_HASH_LEN) != 0) {
+		if (memcmp(refs_held.roots[*at], root, FZN_BLOB_HASH_LEN) == 0)
+			return 1;
+		*at = (*at + 1u) & (refs_held.slots - 1u);
+	}
+	return 0;
+}
+
+static void ref_held_add(const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	size_t at, i;
+
+	if (2u * (refs_held.n + 1u) > refs_held.slots) {
+		static const uint8_t ZERO[FZN_BLOB_HASH_LEN];
+		size_t slots = refs_held.slots ? refs_held.slots * 2u : 1024u, old = refs_held.slots;
+		uint8_t(*was)[FZN_BLOB_HASH_LEN] = refs_held.roots;
+		uint8_t(*more)[FZN_BLOB_HASH_LEN] = calloc(slots, FZN_BLOB_HASH_LEN);
+
+		if (!more)
+			return; /* asked of the store again, as before */
+		refs_held.roots = more;
+		refs_held.slots = slots;
+		refs_held.n = 0;
+		for (i = 0; i < old; i++)
+			if (memcmp(was[i], ZERO, FZN_BLOB_HASH_LEN) != 0 && !ref_held_slot(was[i], &at)) {
+				memcpy(refs_held.roots[at], was[i], FZN_BLOB_HASH_LEN);
+				refs_held.n++;
+			}
+		free(was);
+	}
+	if (!ref_held_slot(root, &at)) {
+		memcpy(refs_held.roots[at], root, FZN_BLOB_HASH_LEN);
+		refs_held.n++;
+	}
+}
+
 /* EVERY FILE THE CATALOGUE NAMES whose reference is not held here, asked of
  * each peer of the estate at once (sec 634; 636). */
 static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t now)
@@ -15457,9 +15514,12 @@ static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t n
 #ifdef FZN_CATALOG_ON
 		fzn_node_catalog_assertion_at(&node_catalog, i, &a);
 #endif
-		if (!a.live || a.entity_len != FZN_BLOB_HASH_LEN
-		    || fzn_node_file_ref_get(node_apply.store, a.entity, ref))
+		if (!a.live || a.entity_len != FZN_BLOB_HASH_LEN || ref_held_slot(a.entity, &k))
 			continue;
+		if (fzn_node_file_ref_get(node_apply.store, a.entity, ref)) {
+			ref_held_add(a.entity);
+			continue;
+		}
 		for (k = 0; k < want
 		            && memcmp(host_shared_request + 3u + k * FZN_BLOB_HASH_LEN, a.entity,
 		                      FZN_BLOB_HASH_LEN) != 0;

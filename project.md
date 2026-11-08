@@ -82548,8 +82548,8 @@ time: **against the daemon before, 1021 of 1021 listed, of at least 1200, and it
 `catalog-entity-chain-lost-on-grow`, `catalog-retract-counted-live` and `catalog-short-read-newest`
 guard the module.
 
-**Open:** `file_refs_round` still reads every live entry each round and asks the store for each
-one's reference, which at 60000 is 60000 loads a round where every reference is held.
+**Open** then: `file_refs_round` read every live entry each round and asked the store for each
+one's reference. Sec 957.
 
 ## 954. A library of 4096 shared files, and each share reading every one, 2026-11-08
 
@@ -82615,3 +82615,17 @@ is the client socket:** Windows has AF_UNIX for SOCK_STREAM only.
 **Not begun here:** a port is a direction the holder has not given this tree directly, and it
 reaches every module that touches the system. It waits for the holder's word; fuzzypickles' count
 is the starting list.
+
+## 957. A store load for each catalogue entry, every round, 2026-11-08
+
+Left open by sec 953: `file_refs_round` asks the store for the reference of each live catalogue entry
+every round, to find the files whose reference this host lacks. **Measured,** a root with 3000 files
+of three names, opens traced over 130 s idle: 34660 before, 19663 after, the difference the 9000
+loads a round. At fuzzypickles' 20000 files it is 60000 a round.
+
+**A reference is never let go** (`node/file_refs.h` has no removal), so a root whose reference was
+found is kept in a set in the daemon and not asked of the store again. Exact, then, and not a guess
+that can go stale; the first round after a start still reads each distinct root once.
+
+**Open, and not this:** an idle root opens about 4500 setting rows (slot 38) in 130 s, with 10 files
+as with 3000: 35 a second, whatever it holds. Not yet traced to its reader.
