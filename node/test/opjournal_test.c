@@ -533,6 +533,41 @@ static void test_the_first_generation_takes_a_snapshot(void)
 	      "so a replay rebuilds what was there before any write it entered");
 }
 
+/* A SLOT LISTED PAST THE FIRST ROOM, sec 959: a store whose list refuses
+ * any room under 5000, as one holding that many rows does, still has its
+ * generation opened with every row -- where a fixed 4096 put every
+ * rotation off for good, file and note shares being unbounded. */
+static size_t list_needs;
+
+static int roomy_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max, size_t *count)
+{
+	if (max < list_needs)
+		return 0;
+	return mem_list(ctx, slot, out, max, count);
+}
+
+static void test_a_slot_past_the_first_room(void)
+{
+	uint8_t alice[FZN_PUBKEY_LEN];
+	fzn_opjournal_replay_tally_t t;
+
+	memset(&base, 0, sizeof(base));
+	memset(&replayed, 0, sizeof(replayed));
+	memset(gens, 0, sizeof(gens));
+	memset(alice, 0xa1, sizeof(alice));
+	wire_up();
+	base_ops.list = roomy_list;
+	list_needs = 5000u;
+	CHECK(base_ops.save(&base, FZN_PERSIST_CONTACT, alice, (const uint8_t *)"alice", 5u),
+	      "fixture: a row written before the journal");
+	CHECK(fzn_opjournal_start(&oj) && oj.first == 1u && oj.last == 1u && entries() == 2u,
+	      "a store listed past the first room was not snapshot whole");
+	CHECK(fzn_opjournal_replay(&oj, 0u, 99u, &into, &t) && t.saved == 1u
+	              && holds(&replayed, FZN_PERSIST_CONTACT, alice, "alice"),
+	      "and its snapshot does not replay to it");
+	list_needs = 0u;
+}
+
 /* ROTATION: the next generation opens with a snapshot of the state, the
  * oldest past `keep` is dropped whole, bytes and all, and each generation
  * replays alone. */
@@ -684,6 +719,7 @@ int main(void)
 	test_a_journal_that_refuses();
 	test_the_budget();
 	test_the_first_generation_takes_a_snapshot();
+	test_a_slot_past_the_first_room();
 	test_generations_rotate();
 	test_a_cut_short_snapshot_is_dropped();
 	test_a_rotation_is_put_off();

@@ -4,6 +4,7 @@
 
 #include "../wire/bytes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 _Static_assert(FZN_OPJOURNAL_OFF_LENGTH + 4u == FZN_OPJOURNAL_ENTRY_LEN,
@@ -267,7 +268,11 @@ static int snapshot_row(fzn_opjournal_t *oj, uint64_t g, fzn_persist_slot_t slot
  */
 static int open_generation(fzn_opjournal_t *oj, uint64_t g)
 {
-	static uint8_t subjects[FZN_OPJOURNAL_SNAPSHOT_ROWS * FZN_PUBKEY_LEN];
+	/* AS MANY ROWS AS A SLOT HOLDS, sec 959: a list holding more than it
+	 * is asked for fails, and with file and note shares unbounded (secs
+	 * 954, 958) a fixed 4096 would put every rotation off for good. */
+	static uint8_t *subjects;
+	static size_t room;
 	fzn_node_journal_t *nj = oj->generations.open(oj->generations.ctx, g);
 	fzn_opjournal_entry_t e;
 	uint64_t count = 0;
@@ -289,10 +294,30 @@ static int open_generation(fzn_opjournal_t *oj, uint64_t g)
 				goto cut_short;
 			continue;
 		}
-		if (!oj->base->list
-		    || !oj->base->list(oj->base->ctx, (fzn_persist_slot_t)slot, subjects,
-		                       FZN_OPJOURNAL_SNAPSHOT_ROWS, &n))
+		if (!oj->base->list)
 			goto cut_short;
+		for (;;) {
+			if (!room || !subjects) {
+				uint8_t *first = malloc((size_t)FZN_OPJOURNAL_SNAPSHOT_ROWS * FZN_PUBKEY_LEN);
+
+				if (!first)
+					goto cut_short;
+				subjects = first;
+				room = FZN_OPJOURNAL_SNAPSHOT_ROWS;
+			}
+			if (oj->base->list(oj->base->ctx, (fzn_persist_slot_t)slot, subjects, room, &n))
+				break;
+			if (room > ((size_t)1 << 24)) {
+				goto cut_short;
+			} else {
+				uint8_t *more = realloc(subjects, 2u * room * FZN_PUBKEY_LEN);
+
+				if (!more)
+					goto cut_short;
+				subjects = more;
+				room *= 2u;
+			}
+		}
 		for (i = 0; i < n; i++)
 			if (!snapshot_row(oj, g, (fzn_persist_slot_t)slot,
 			                  subjects + (i * FZN_PUBKEY_LEN), 1, &count))

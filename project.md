@@ -82654,3 +82654,22 @@ taken, listed and shared with it, and all taken back when the contact is forgott
 
 **Open:** a contact's request still reads every share row, as before; an index by grantee, as files
 have since sec 954, waits for a host with shares in the thousands.
+
+## 959. The op journal's snapshot past 4096 rows of a slot, 2026-11-08
+
+Found by the lens of sec 958 -- a store's list asked for a fixed number of keys fails whole when it
+holds more -- turned on every caller. The op journal (sec 524) opens each generation with a snapshot
+of every core row, listing each slot into a room of 4096 (FZN_OPJOURNAL_SNAPSHOT_ROWS); a slot past
+it fails the list, and the rotation is put off rather than open a generation that does not replay.
+**4096 was exactly where file shares stopped**, and secs 954 and 958 took the bound off them and
+off note shares, both core slots: a host past it would never rotate its op journal again.
+
+**The room grows until the list holds the slot,** from 4096. `test_a_slot_past_the_first_room`
+gives the journal a store whose list refuses any room under 5000, as one holding that many does,
+and the generation opens and replays; `snapshot-listed-to-a-room` guards it.
+
+**Not this, as read:** the fallbacks of `fzn_persist_each` and the buckets' listing keep a room of
+4096, but every store the daemon stacks -- file, cache, delta, route, op journal -- walks a slot
+with `each`, so neither is reached there. **Received shares stop at 64 sharers** (sec 914), and
+honestly, as FULL; a round pulls every sharer at once into a slot of its own, so more needs pulls in
+turns -- its own piece of work.

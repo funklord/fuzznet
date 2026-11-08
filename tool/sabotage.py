@@ -14758,6 +14758,13 @@ SABOTAGES = [
 		"a host makes again acts other hosts signed, as its own -- sec 626",
 	),
 	(
+		"snapshot-listed-to-a-room",
+		"node/opjournal.c",
+		"\t\t\tif (room > ((size_t)1 << 24)) {\n\t\t\t\tgoto cut_short;\n",
+		"\t\t\tif (1) {\n\t\t\t\tgoto cut_short;\n",
+		"a slot past 4096 rows puts every rotation of the op journal off for good -- sec 959",
+	),
+	(
 		"shared-scope-names-the-sender",
 		"node/notes.c",
 		"\t\tif (memcmp(rows[r].contact, sender, FZN_PUBKEY_LEN) == 0) {\n",

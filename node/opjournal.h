@@ -86,9 +86,10 @@
  * rotation has a place to open the next before the oldest is dropped. */
 #define FZN_OPJOURNAL_GENERATIONS_MAX 4u
 
-/* The most rows of one slot a snapshot takes. A slot holding more cannot be
- * listed whole, and the rotation is put off rather than open a generation
- * that does not replay to the state. */
+/* THE ROOM A SNAPSHOT FIRST LISTS A SLOT INTO, grown while the slot holds
+ * more (sec 959). A slot that cannot be listed whole still puts the
+ * rotation off rather than open a generation that does not replay to the
+ * state. */
 #define FZN_OPJOURNAL_SNAPSHOT_ROWS 4096u
 
 typedef struct fzn_opjournal_entry {
