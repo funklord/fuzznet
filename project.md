@@ -82575,5 +82575,43 @@ no bound to break. `shares-index-misses-a-share`,
 `shares-index-outlives-a-removal`, `shares-chain-lost-on-grow` and `shared-with-misses-public`
 guard it.
 
-**Still at 1024:** `fzn_node_files_list`, so `list file` and the scrub see at most 1024 files, and a
-page of `list file` reads the directory again. Next.
+**Still at 1024** then: `fzn_node_files_list`, so `list file` and the scrub saw at most 1024 files.
+Sec 955.
+
+## 955. `list file` and the scrub, past 1024 files, 2026-11-08
+
+Found beside sec 954: `fzn_node_files_list` read the store's directory into a table of 1024, so
+`list file`, the scrub and the daemon's own walk of what it holds saw the first 1024 roots in
+directory order and nothing of the rest. Of fuzzypickles' 20000 files, 18976 were in no listing and
+never scrubbed. **Measured** on the daemon before: 3000 files put, `list file` said 1024 of 1024.
+
+**Every file now,** in a sorted list of roots kept with the store and read from the directory again
+when its time has moved -- or moved within a second of the last read, as a change in one tick of a
+coarse clock would not move it. The scrub finds its next file by halves. The files arriving, a
+`.len` with no whole blob beside it, come from the same read: **each page of `list file` asked for
+them by reading the directory and opening every whole file's `.len`,** 6200 opens a page at 1500
+files.
+
+**Measured, a root, 3000 files:** every one listed in 214 pages, 2.0 s; 20 s with the directory
+read for the arriving ones each page, and 9.0 s for 73 pages on the daemon before, which stopped at
+1024. `files_test` puts 1100 files: each listed, `list file` page by page reaches them all, the
+scrub goes on past the 1024th, and a file put or deleted shows at once, also from a listing kept
+with the directory set a minute back. `files-listed-to-1024`, `files-listing-never-read-again` and
+`files-scrub-restarts` guard it.
+
+## 956. What stops a mingw build of the clients, as fuzzypickles counted it, 2026-11-08
+
+Reported by fuzzypickles (inbox 20261108T0941Z), relaying the holder's ask for macOS and Windows
+through fmake: their own code compiles under x86_64-w64-mingw32-gcc, and what stops a link is fuzznet.
+Their count at 11e8d78, first error per file, over every tracked `.c` outside test/, tool/, gui/ and
+attic/: 9 `mkdir` with a mode, 9 `sys/socket.h`, 7 `sys/mman.h`, 6 `poll.h`, 4 `O_CLOEXEC`, 4
+`arpa/inet.h`, 3 each `sys/resource.h`, `pread`, `mkdtemp`, `grp.h`, and one or two of `sys/wait.h`,
+`netdb.h`, `pwd.h`, `setenv`, `scandir`, `lstat`, `getline`, `geteuid`, `fsync`, `SIGKILL`; the
+include-path errors were their flags. The port they name: winsock2 (WSAStartup once, closesocket,
+WSAPoll), a mapping or a read for `mmap`, `pread` as ReadFile at an offset, ownership checks with an
+answer for a profile's ACL, `mkdir`'s mode, `O_CLOEXEC`, `fsync` as `_commit`. **The open question
+is the client socket:** Windows has AF_UNIX for SOCK_STREAM only.
+
+**Not begun here:** a port is a direction the holder has not given this tree directly, and it
+reaches every module that touches the system. It waits for the holder's word; fuzzypickles' count
+is the starting list.

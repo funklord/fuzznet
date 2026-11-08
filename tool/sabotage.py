@@ -6447,8 +6447,8 @@ SABOTAGES = [
 	(
 		"files-wanted-ends-when-whole",
 		"node/files.c",
-		"\t\t    || fzn_node_files_held(files, root, &have) == FZN_NODE_FILES_OK\n\t\t    || !path_of(files, root, \".len\", len_path) || !read_length(len_path, &length))\n",
-		"\t\t    || !path_of(files, root, \".len\", len_path) || !read_length(len_path, &length))\n",
+		"\t\t\tif (!x->n || !bsearch(x->wanted[i], x->roots, x->n, sizeof(x->roots[0]), by_root))\n",
+		"\t\t\tif (1)\n",
 		"a file fetched whole is still wanted, and asked for again every round for ever -- sec 491",
 	),
 	(
@@ -14756,6 +14756,27 @@ SABOTAGES = [
 		"\t    || memcmp(fzn_contact_device_key(&a.signer), fzn_contact_device_key(&self), FZN_PUBKEY_LEN)\n\t               != 0)\n\t\treturn 0;\n",
 		"\t    )\n\t\treturn 0;\n",
 		"a host makes again acts other hosts signed, as its own -- sec 626",
+	),
+	(
+		"files-listed-to-1024",
+		"node/files.c",
+		"\twhile ((e = readdir(d)) != NULL) {\n\t\tuint64_t length = 0;\n\t\tuint8_t root[FZN_BLOB_HASH_LEN];\n",
+		"\twhile ((e = readdir(d)) != NULL && x->n < 1024u) {\n\t\tuint64_t length = 0;\n\t\tuint8_t root[FZN_BLOB_HASH_LEN];\n",
+		"files past the 1024th are in no listing and never scrubbed -- sec 955",
+	),
+	(
+		"files-listing-never-read-again",
+		"node/files.c",
+		"\tif (x->held && st.st_mtim.tv_sec == x->dir_time.tv_sec\n\t    && st.st_mtim.tv_nsec == x->dir_time.tv_nsec\n",
+		"\tif (x->held\n",
+		"a file put or deleted is not seen by the listings that follow -- sec 955",
+	),
+	(
+		"files-scrub-restarts",
+		"node/files.c",
+		"\ti = lo;\n\tif (i == count)\n\t\ti = 0;\n",
+		"\ti = 0;\n",
+		"the scrub checks the first file again and again, never the rest -- sec 955",
 	),
 	(
 		"shares-index-misses-a-share",

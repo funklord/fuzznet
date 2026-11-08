@@ -582,34 +582,123 @@ static int by_root(const void *a, const void *b)
 	return memcmp(a, b, FZN_BLOB_HASH_LEN);
 }
 
+/* THE FILES HELD, sec 955: every one, where 1024 were read and the rest
+ * were in no listing and never scrubbed. Read again when the directory's
+ * time has moved, or moved within a second of the last read, as a change
+ * in the same tick of a coarse clock would not move it. */
+struct fzn_node_files_roots {
+	uint8_t (*roots)[FZN_BLOB_HASH_LEN];
+	size_t n, cap;
+	/* AND THOSE WANTED: a `.len` with no whole blob beside it. */
+	uint8_t (*wanted)[FZN_BLOB_HASH_LEN];
+	size_t n_wanted, cap_wanted;
+	int held;
+	struct timespec dir_time, read_at;
+};
+
+static int root_into(uint8_t (**list)[FZN_BLOB_HASH_LEN], size_t *n, size_t *cap,
+                     const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	if (*n == *cap) {
+		size_t more_cap = *cap ? *cap * 2u : 256u;
+		void *more = realloc(*list, more_cap * FZN_BLOB_HASH_LEN);
+
+		if (!more)
+			return 0;
+		*list = more;
+		*cap = more_cap;
+	}
+	memcpy((*list)[(*n)++], root, FZN_BLOB_HASH_LEN);
+	return 1;
+}
+
+static int held_roots(const fzn_node_files_t *files, const uint8_t (**roots)[FZN_BLOB_HASH_LEN],
+                      size_t *count)
+{
+	struct fzn_node_files_roots *x = files->roots;
+	struct stat st;
+	struct timespec now;
+	struct dirent *e;
+	DIR *d;
+
+	if (!x) {
+		x = calloc(1u, sizeof(*x));
+		if (!x)
+			return 0;
+		/* KEPT FROM A CONST CALLER as a cache is: read from the directory,
+		 * which says the same either way. */
+		((fzn_node_files_t *)files)->roots = x;
+	}
+	if (stat(files->dir, &st) != 0 || clock_gettime(CLOCK_REALTIME, &now) != 0)
+		return 0;
+	if (x->held && st.st_mtim.tv_sec == x->dir_time.tv_sec
+	    && st.st_mtim.tv_nsec == x->dir_time.tv_nsec
+	    && x->read_at.tv_sec > x->dir_time.tv_sec + 1) {
+		*roots = (const uint8_t(*)[FZN_BLOB_HASH_LEN])x->roots;
+		*count = x->n;
+		return 1;
+	}
+	x->held = 0;
+	x->n = 0;
+	x->n_wanted = 0;
+	d = opendir(files->dir);
+	if (!d)
+		return 0;
+	/* A NAME OF THE STORE'S OWN SHAPE, `<64 hex>.bits`, and only those
+	 * whole: a blob part way through a transfer is not listed. Each
+	 * `<64 hex>.len` too, the wanted among them sorted out after. */
+	while ((e = readdir(d)) != NULL) {
+		uint64_t length = 0;
+		uint8_t root[FZN_BLOB_HASH_LEN];
+		size_t name = strlen(e->d_name);
+
+		if (name == ROOT_HEX + 4u && strcmp(e->d_name + ROOT_HEX, ".len") == 0
+		    && from_hex((const uint8_t *)e->d_name, ROOT_HEX, root, FZN_BLOB_HASH_LEN)) {
+			if (!root_into(&x->wanted, &x->n_wanted, &x->cap_wanted, root)) {
+				(void)closedir(d);
+				return 0;
+			}
+			continue;
+		}
+		if (name != ROOT_HEX + 5u || strcmp(e->d_name + ROOT_HEX, ".bits") != 0
+		    || !from_hex((const uint8_t *)e->d_name, ROOT_HEX, root, FZN_BLOB_HASH_LEN)
+		    || fzn_node_files_held(files, root, &length) != FZN_NODE_FILES_OK)
+			continue;
+		if (!root_into(&x->roots, &x->n, &x->cap, root)) {
+			(void)closedir(d);
+			return 0;
+		}
+	}
+	(void)closedir(d);
+	qsort(x->roots, x->n, sizeof(x->roots[0]), by_root);
+	{
+		size_t i, kept = 0;
+
+		for (i = 0; i < x->n_wanted; i++)
+			if (!x->n || !bsearch(x->wanted[i], x->roots, x->n, sizeof(x->roots[0]), by_root))
+				memmove(x->wanted[kept++], x->wanted[i], FZN_BLOB_HASH_LEN);
+		x->n_wanted = kept;
+	}
+	x->dir_time = st.st_mtim;
+	x->read_at = now;
+	x->held = 1;
+	*roots = (const uint8_t(*)[FZN_BLOB_HASH_LEN])x->roots;
+	*count = x->n;
+	return 1;
+}
+
 fzn_node_files_err_t fzn_node_files_list(const fzn_node_files_t *files,
                                          uint8_t (*roots)[FZN_BLOB_HASH_LEN], size_t cap,
                                          size_t *count)
 {
-	static uint8_t found[1024][FZN_BLOB_HASH_LEN];
-	struct dirent *e;
+	const uint8_t(*found)[FZN_BLOB_HASH_LEN] = NULL;
 	size_t n = 0, i;
-	DIR *d;
 
 	if (!files || (cap && !roots) || !count)
 		return FZN_NODE_FILES_ERR_MALFORMED;
 	*count = 0;
-	d = opendir(files->dir);
-	if (!d)
+	if (!held_roots(files, &found, &n))
 		return FZN_NODE_FILES_ERR_STORE;
-	/* A NAME OF THE STORE'S OWN SHAPE, `<64 hex>.bits`, and only those
-	 * whole: a blob part way through a transfer is not listed. */
-	while ((e = readdir(d)) != NULL && n < sizeof(found) / sizeof(found[0])) {
-		uint64_t length = 0;
-
-		if (strlen(e->d_name) != ROOT_HEX + 5u || strcmp(e->d_name + ROOT_HEX, ".bits") != 0
-		    || !from_hex((const uint8_t *)e->d_name, ROOT_HEX, found[n], FZN_BLOB_HASH_LEN)
-		    || fzn_node_files_held(files, found[n], &length) != FZN_NODE_FILES_OK)
-			continue;
-		n++;
-	}
-	(void)closedir(d);
-	qsort(found, n, sizeof(found[0]), by_root);
 	for (i = 0; i < n && i < cap; i++)
 		memcpy(roots[i], found[i], FZN_BLOB_HASH_LEN);
 	*count = n;
@@ -773,33 +862,30 @@ fzn_node_files_err_t fzn_node_files_want(fzn_node_files_t *files,
 size_t fzn_node_files_wanted(const fzn_node_files_t *files, uint8_t (*roots)[FZN_BLOB_HASH_LEN],
                              uint64_t *lengths, size_t cap)
 {
-	struct dirent *e;
-	size_t n = 0;
-	DIR *d;
+	const uint8_t(*whole)[FZN_BLOB_HASH_LEN] = NULL;
+	size_t n = 0, n_whole = 0, i;
 
 	if (!files)
 		return 0;
-	d = opendir(files->dir);
-	if (!d)
+	/* FROM THE DIRECTORY AS LAST READ, sec 955: every page of `list file`
+	 * asks this, and reading it each time read every file. */
+	if (!held_roots(files, &whole, &n_whole))
 		return 0;
-	/* `<64 hex>.len` WITH NO WHOLE BLOB beside it. */
-	while ((e = readdir(d)) != NULL) {
-		uint8_t root[FZN_BLOB_HASH_LEN];
+	for (i = 0; i < files->roots->n_wanted; i++) {
+		const uint8_t *root = files->roots->wanted[i];
 		char len_path[FZN_SPOOL_FILE_PATH_MAX];
-		uint64_t length = 0, have = 0;
+		uint64_t length = 0;
 
-		if (strlen(e->d_name) != ROOT_HEX + 4u || strcmp(e->d_name + ROOT_HEX, ".len") != 0
-		    || !from_hex((const uint8_t *)e->d_name, ROOT_HEX, root, sizeof(root))
-		    || fzn_node_files_held(files, root, &have) == FZN_NODE_FILES_OK
-		    || !path_of(files, root, ".len", len_path) || !read_length(len_path, &length))
+		/* NOT WHOLE: the read sorted those out, and a blob made whole is
+		 * named into the directory, which moves its time. */
+		if (!path_of(files, root, ".len", len_path) || !read_length(len_path, &length))
 			continue;
 		if (roots && n < cap) {
-			memcpy(roots[n], root, sizeof(root));
+			memcpy(roots[n], root, FZN_BLOB_HASH_LEN);
 			lengths[n] = length;
 		}
 		n++;
 	}
-	(void)closedir(d);
 	return n;
 }
 
@@ -1498,22 +1584,29 @@ out:
 fzn_node_files_err_t fzn_node_files_scrub_step(fzn_node_files_t *files, int *checked,
                                                uint64_t *dropped)
 {
-	static uint8_t roots[1024][FZN_BLOB_HASH_LEN];
+	const uint8_t(*roots)[FZN_BLOB_HASH_LEN] = NULL;
 	fzn_node_files_err_t err;
-	size_t count = 0, i;
+	size_t count = 0, i, lo, hi;
 
 	if (!files || !checked || !dropped)
 		return FZN_NODE_FILES_ERR_MALFORMED;
 	*checked = 0;
 	*dropped = 0;
-	err = fzn_node_files_list(files, roots, sizeof(roots) / sizeof(roots[0]), &count);
-	if (err != FZN_NODE_FILES_OK || count == 0u)
-		return err;
-	if (count > sizeof(roots) / sizeof(roots[0]))
-		count = sizeof(roots) / sizeof(roots[0]);
-	/* THE NEXT AFTER THE LAST, wrapping: the list is in order of root. */
-	for (i = 0; i < count && memcmp(roots[i], files->scrub_after, FZN_BLOB_HASH_LEN) <= 0; i++)
-		;
+	if (!held_roots(files, &roots, &count))
+		return FZN_NODE_FILES_ERR_STORE;
+	if (count == 0u)
+		return FZN_NODE_FILES_OK;
+	/* THE NEXT AFTER THE LAST, wrapping: the list is in order of root, so
+	 * found by halves, every file in its turn however many there are. */
+	for (lo = 0, hi = count; lo < hi;) {
+		size_t mid = lo + (hi - lo) / 2u;
+
+		if (memcmp(roots[mid], files->scrub_after, FZN_BLOB_HASH_LEN) <= 0)
+			lo = mid + 1u;
+		else
+			hi = mid;
+	}
+	i = lo;
 	if (i == count)
 		i = 0;
 	memcpy(files->scrub_after, roots[i], FZN_BLOB_HASH_LEN);
@@ -1586,7 +1679,15 @@ struct fzn_node_files_shares {
 
 void fzn_node_files_release(fzn_node_files_t *files)
 {
-	if (!files || !files->shares)
+	if (!files)
+		return;
+	if (files->roots) {
+		free(files->roots->roots);
+		free(files->roots->wanted);
+		free(files->roots);
+		files->roots = NULL;
+	}
+	if (!files->shares)
 		return;
 	free(files->shares->rows);
 	free(files->shares->heads);
@@ -2150,28 +2251,27 @@ static size_t change_share(fzn_node_files_t *files, fzn_verb_t verb, const uint8
 static size_t list_files(const fzn_node_files_t *files, const uint8_t *arg, size_t arg_len,
                          char *reply, size_t cap)
 {
-	static uint8_t roots[1024][FZN_BLOB_HASH_LEN];
+	const uint8_t(*roots)[FZN_BLOB_HASH_LEN] = NULL;
 	char detail[FZN_REPLY_MAX + 1u];
 	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, from = 0, used, i;
-	fzn_node_files_err_t err;
 	int n;
 
 	for (i = 0; i < arg_len; i++) {
-		if (arg[i] < '0' || arg[i] > '9' || from > 1024u)
+		if (arg[i] < '0' || arg[i] > '9' || from > ((size_t)1 << 30))
 			return answer(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 		from = (from * 10u) + (size_t)(arg[i] - '0');
 	}
-	err = fzn_node_files_list(files, roots, sizeof(roots) / sizeof(roots[0]), &count);
-	if (err != FZN_NODE_FILES_OK)
-		return refused(reply, cap, err);
+	/* EVERY FILE, sec 955, and the directory read once while it stands. */
+	if (!held_roots(files, &roots, &count))
+		return refused(reply, cap, FZN_NODE_FILES_ERR_STORE);
 	if (from > count)
 		return answer(reply, cap, FZN_REPLY_MALFORMED, "past the last file");
 	n = snprintf(detail, sizeof(detail), "%zu %zu", count, from);
 	if (n < 0 || (size_t)n >= limit)
 		return 0;
 	used = (size_t)n;
-	for (i = from; i < count && i < sizeof(roots) / sizeof(roots[0]); i++) {
+	for (i = from; i < count; i++) {
 		char hex[ROOT_HEX + 1u], item[ROOT_HEX + 40u];
 		uint64_t length = 0;
 		int m;

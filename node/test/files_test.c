@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 static int failures;
@@ -464,6 +465,91 @@ static size_t said(fzn_node_files_t *files, fzn_verb_t parsed, const char *arg, 
 		n--;
 	reply[n] = '\0';
 	return n;
+}
+
+/* EVERY FILE HELD, sec 955: 1100 files, past the 1024 a listing read, each
+ * listed by `fzn_node_files_list` and once in `list file` read a page at a
+ * time; the scrub reaches one past 1024; a file put shows at once in the
+ * listing, and one deleted goes from it. All removed after. */
+#define MANY_FILES 1100u
+
+static void test_every_file_is_listed(fzn_node_files_t *F)
+{
+	static fzn_node_file_ref_t made[MANY_FILES + 1u];
+	static uint8_t roots[MANY_FILES + 8u][FZN_BLOB_HASH_LEN];
+	static char reply[FZN_REPLY_MAX + 2u];
+	size_t i, before = 0, count = 0, from = 0, rows = 0, pages = 0, wrong = 0;
+	int checked = 0;
+	uint64_t dropped = 0;
+	char arg[32];
+
+	(void)fzn_node_files_list(F, NULL, 0u, &before);
+	for (i = 0; i < MANY_FILES; i++) {
+		FILE *f = fopen(src_path, "wb");
+
+		if (!f)
+			break;
+		fprintf(f, "file %zu\n", i);
+		fclose(f);
+		wrong += fzn_node_files_put(F, src_path, &made[i]) != FZN_NODE_FILES_OK;
+	}
+	CHECK(wrong == 0u && fzn_node_files_list(F, roots, MANY_FILES + 8u, &count) == FZN_NODE_FILES_OK
+	              && count == before + MANY_FILES,
+	      "past 1024 files, the listing did not hold every one");
+	for (;;) {
+		char *at;
+		unsigned long total = 0, f0 = 0;
+
+		snprintf(arg, sizeof(arg), "file %zu", from);
+		if (!said(F, FZN_VERB_LIST, arg, reply, sizeof(reply))
+		    || sscanf(reply, "ok %lu %lu", &total, &f0) != 2 || f0 != from)
+			break;
+		pages++;
+		for (at = strchr(reply + 3, ' '), at = at ? strchr(at + 1, ' ') : NULL; at;
+		     at = strchr(at + 1, ' '))
+			rows++;
+		if (rows <= from || rows >= total)
+			break;
+		from = rows;
+	}
+	CHECK(rows >= count && pages > 1u, "list file a page at a time did not reach every file");
+	/* THE SCRUB past 1024: after the 1050th root, the 1051st. */
+	memcpy(F->scrub_after, roots[1050], FZN_BLOB_HASH_LEN);
+	CHECK(fzn_node_files_scrub_step(F, &checked, &dropped) == FZN_NODE_FILES_OK && checked
+	              && memcmp(F->scrub_after, roots[1051], FZN_BLOB_HASH_LEN) == 0,
+	      "the scrub did not go on past 1024 files");
+	/* AT ONCE, both ways, and from a listing kept: the directory's time set
+	 * a minute back, so a listing read now is trusted, until a put moves
+	 * it. */
+	{
+		struct timespec back[2];
+		FILE *f;
+
+		(void)clock_gettime(CLOCK_REALTIME, &back[0]);
+		back[0].tv_sec -= 60;
+		back[1] = back[0];
+		CHECK(utimensat(AT_FDCWD, dir, back, 0) == 0
+		              && fzn_node_files_list(F, NULL, 0u, &count) == FZN_NODE_FILES_OK
+		              && fzn_node_files_list(F, NULL, 0u, &count) == FZN_NODE_FILES_OK
+		              && count == before + MANY_FILES,
+		      "fixture: a listing kept, the directory a minute old");
+		f = fopen(src_path, "wb");
+		if (f) {
+			fprintf(f, "one more\n");
+			fclose(f);
+		}
+	}
+	CHECK(fzn_node_files_put(F, src_path, &made[MANY_FILES]) == FZN_NODE_FILES_OK
+	              && fzn_node_files_list(F, NULL, 0u, &count) == FZN_NODE_FILES_OK
+	              && count == before + MANY_FILES + 1u
+	              && fzn_node_files_remove(F, made[MANY_FILES].root) == FZN_NODE_FILES_OK
+	              && fzn_node_files_list(F, NULL, 0u, &count) == FZN_NODE_FILES_OK
+	              && count == before + MANY_FILES,
+	      "a file put or deleted was not seen by the next listing");
+	for (i = 0; i < MANY_FILES; i++)
+		(void)fzn_node_files_remove(F, made[i].root);
+	CHECK(fzn_node_files_list(F, NULL, 0u, &count) == FZN_NODE_FILES_OK && count == before,
+	      "the files removed were still listed");
 }
 
 /* THE FETCH AS STEPS, sec 694: several spans out at once and answered in
@@ -1414,6 +1500,8 @@ int main(void)
 		test_a_short_file_halves_what_was_asked(&F, &short_ref);
 		(void)fzn_node_files_remove(&F, short_ref.root);
 	}
+
+	test_every_file_is_listed(&F);
 
 	/* REMOVED BY NAME, and what is left is an assertion. */
 	for (i = 0; i < 4u; i++)

@@ -132,6 +132,9 @@ typedef struct fzn_node_files {
 	 * as shares are made and taken back here: every writer of the rows is
 	 * this module. `fzn_node_files_release` lets it go. */
 	struct fzn_node_files_shares *shares;
+	/* THE FILES HELD, by root, sec 955: read from `dir` and kept while
+	 * the directory is unchanged since, by its time. */
+	struct fzn_node_files_roots *roots;
 } fzn_node_files_t;
 
 /* Over `dir`, created mode 0700 when it is not there. */
