@@ -13,6 +13,8 @@ with a grant it can pass on, pulling from A.
     c  A takes its name back: B lists B's alone, and one holder
     g  A makes a group; B, holding none, learns it from its sibling at its
        next round, with the same members (sec 626)
+    l  A catalogues 400 files of three names, past the 1024 entries a table
+       held, and lists every entry once, a page at a time (sec 953)
 
 `--loss P` runs both daemons at FZN_FAULT_LOSS=P, one seed per run, against
 a daemon built by `make fuzznetd-faults`, with three times the rounds: sec
@@ -52,6 +54,8 @@ PREKEY_HOST = slice(4, 68)
 PAYLOAD_LEN = 20000
 ROUNDS = 4
 
+
+LIBRARY_FILES = 400
 
 def main(argv):
 	global ROUNDS
@@ -242,6 +246,38 @@ def main(argv):
 				raise failed("add group family answered %r, not ok and an id" % made)
 			until(lambda: len(groups("b")) == 1 and groups("b") == groups("a"), "g")
 			print("livecheck: g: A made a group, and its sibling B learned it")
+
+			# l: a library past the old table (sec 953): 400 files of three
+			# names, 1200 entries, where 1024 kept about 340 files and `add`
+			# answered ok for the rest. Read a page at a time, every entry once.
+			lib = os.path.join(scratch, "lib")
+			for i in range(LIBRARY_FILES):
+				with open(lib, "wb") as f:
+					f.write(b"track %d\n" % i)
+				put = ask(socks["a"], "put file " + lib)
+				if not put.startswith("ok "):
+					raise failed("l: put file %d answered %r" % (i, put))
+				for name, value in (("name", "t%d.ogg" % i), ("kind", "song"),
+				                    ("duration", "%d" % (1000 + i))):
+					expect(socks["a"], "a", "add catalog %s %s %s" % (put.split()[1][:64], name,
+					                                                  value), "ok")
+			seen, frm, total = set(), 0, None
+			while True:
+				page = ask(socks["a"], "list catalog %d" % frm).split()
+				if page[:1] != ["ok"] or page[2] != str(frm):
+					raise failed("l: the page from %d answered %r" % (frm, page[:3]))
+				total = int(page[1])
+				for row in page[3:]:
+					if row in seen:
+						raise failed("l: %r listed twice" % row)
+					seen.add(row)
+				frm += len(page) - 3
+				if len(page) == 3 or frm >= total:
+					break
+			if total < 3 * LIBRARY_FILES or len(seen) != total:
+				raise failed("l: %d of %d entries listed, of at least %d" %
+				             (len(seen), total, 3 * LIBRARY_FILES))
+			print("livecheck: l: %d entries listed a page at a time, each once" % total)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

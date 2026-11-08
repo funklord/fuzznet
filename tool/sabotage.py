@@ -14765,6 +14765,27 @@ SABOTAGES = [
 		"a host makes again acts other hosts signed, as its own -- sec 626",
 	),
 	(
+		"catalog-entity-chain-lost-on-grow",
+		"node/catalog.c",
+		"\t\t\tat = entity_slot(c, e->entity);\n\t\t\tc->entities[at] = i + 1u;\n",
+		"",
+		"a file's catalogue entries are lost to it once the tables grow -- sec 953",
+	),
+	(
+		"catalog-retract-counted-live",
+		"node/catalog.c",
+		"\t\tc->live -= e->live != 0;\n",
+		"",
+		"a catalogue entry taken back is still counted live -- sec 953",
+	),
+	(
+		"catalog-short-read-newest",
+		"node/catalog.c",
+		"\t\tif (k < cap) {\n",
+		"\t\tif (n < cap) {\n",
+		"a short read of a file's entries gives its newest, not its first -- sec 953",
+	),
+	(
 		"page-resumes-one-past",
 		"node/records.c",
 		"\t\tfirst_item = page->item;\n",

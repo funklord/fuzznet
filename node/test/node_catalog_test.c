@@ -95,6 +95,71 @@ static void test_the_latest_record_stands(void)
 	      "a record of another kind was taken");
 }
 
+/* A LIBRARY, sec 953: 20000 files of three attributes each, held by two
+ * hosts, every one kept and found -- a fixed 1024 listed about 340 files.
+ * Retracting a third of the names leaves them counted dead; a later record
+ * of an entry changes it in place. */
+#define LIBRARY 20000u
+
+static void test_a_library_is_kept_whole(void)
+{
+	static const char *const NAMES[] = { "name", "kind", "duration" };
+	uint8_t a[32], b[32], file[32], body[256];
+	fzn_catalog_assertion_t set[8], one;
+	size_t i, k, len, wrong = 0, live = 0;
+	char value[32];
+
+	fzn_node_catalog_free(&cat);
+	memset(a, 0xaa, sizeof(a));
+	memset(b, 0xbb, sizeof(b));
+	memset(file, 0, sizeof(file));
+	for (i = 0; i < LIBRARY; i++) {
+		memcpy(file, &i, sizeof(i));
+		for (k = 0; k < 3u; k++) {
+			snprintf(value, sizeof(value), "%s%zu", NAMES[k], i);
+			len = attribute(NAMES[k], value, body, sizeof(body));
+			wrong += fzn_node_catalog_take(&cat, i % 2u ? a : b, file, i + 1u,
+			                               FZN_CATALOG_ATTRIBUTE_KIND, body, len)
+			         != FZN_NODE_CATALOG_OK;
+		}
+	}
+	CHECK(wrong == 0u && cat.count == 3u * LIBRARY && cat.live == 3u * LIBRARY,
+	      "a library past any table was not kept whole");
+	for (i = 0; i < LIBRARY; i += 3u) {
+		memcpy(file, &i, sizeof(i));
+		wrong += fzn_node_catalog_take(&cat, i % 2u ? a : b, file, i + 2u,
+		                               FZN_CATALOG_RETRACT_KIND, (const uint8_t *)"name", 4u)
+		         != FZN_NODE_CATALOG_OK;
+	}
+	for (i = 0; i < LIBRARY; i++) {
+		memcpy(file, &i, sizeof(i));
+		snprintf(value, sizeof(value), "kind%zu", i);
+		if (fzn_node_catalog_count_of(&cat, file) != 3u
+		    || fzn_node_catalog_assertions(&cat, file, set, 8u) != 3u
+		    || set[0].name_len != 4u || memcmp(set[0].name, "name", 4u) != 0
+		    || set[0].live != (i % 3u != 0u) || set[1].value_len != strlen(value)
+		    || memcmp(set[1].value, value, set[1].value_len) != 0)
+			wrong++;
+	}
+	for (i = 0; i < cat.count; i++) {
+		fzn_node_catalog_assertion_at(&cat, i, &one);
+		live += one.live != 0;
+	}
+	CHECK(wrong == 0u && cat.count == 3u * LIBRARY && cat.live == live
+	              && live == 3u * LIBRARY - (LIBRARY + 2u) / 3u,
+	      "a file's entries were not found by it, in order, or the live count drifted");
+	/* THE FIRST `cap` TAKEN, when fewer are asked for than there are. */
+	memset(file, 0, sizeof(file));
+	i = 7u;
+	memcpy(file, &i, sizeof(i));
+	memset(set, 0, sizeof(set));
+	CHECK(fzn_node_catalog_assertions(&cat, file, set, 2u) == 2u && set[0].name_len == 4u
+	              && memcmp(set[0].name, "name", 4u) == 0 && set[1].name_len == 4u
+	              && memcmp(set[1].name, "kind", 4u) == 0 && !set[2].name,
+	      "a short read of a file's entries was not its first ones");
+	fzn_node_catalog_free(&cat);
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -109,6 +174,7 @@ int main(void)
 {
 	test_the_suite_can_tell_pass_from_fail();
 	test_the_latest_record_stands();
+	test_a_library_is_kept_whole();
 	if (failures) {
 		fprintf(stderr, "node node_catalog_test: %d of %d checks failed\n", failures, checks);
 		return 1;

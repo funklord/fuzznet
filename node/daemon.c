@@ -15021,11 +15021,21 @@ static void index_catalog(void)
 			                         c->at + 1u, bytes, sizeof(bytes), &rec)
 			    != FZN_RECORD_STORE_OK)
 				break;
-			taken += fzn_node_catalog_take(&node_catalog, fzn_record_issuer(rec),
-			                               fzn_record_subject(rec), fzn_record_seq(rec),
-			                               fzn_record_kind(rec), fzn_record_body(rec),
-			                               fzn_record_body_len(rec))
-			         == FZN_NODE_CATALOG_OK;
+			{
+				fzn_node_catalog_err_t err = fzn_node_catalog_take(
+				        &node_catalog, fzn_record_issuer(rec), fzn_record_subject(rec),
+				        fzn_record_seq(rec), fzn_record_kind(rec), fzn_record_body(rec),
+				        fzn_record_body_len(rec));
+
+				/* NOT PAST A RECORD NOT TAKEN, sec 953: the cursor moving
+				 * on lost it until the next start. */
+				if (err == FZN_NODE_CATALOG_ERR_FULL) {
+					say(FZN_ENTRY_WARNING, "catalog",
+					    "no memory for the catalogue; taken again later");
+					break;
+				}
+				taken += err == FZN_NODE_CATALOG_OK;
+			}
 		}
 	}
 	if (taken) {
@@ -15078,10 +15088,20 @@ static size_t catalog_escape(const uint8_t *b, size_t n, char *out, size_t cap)
 	return fzn_escape(b, n, out, cap, &w) == n ? w : 0u;
 }
 
+/* WHERE `list catalog`'S LAST PAGE ENDED, sec 953: its FROM counts live
+ * entries, so each page counted every one before it. Kept while nothing in
+ * the catalogue changed, for the same listing. */
+static struct {
+	int held;
+	size_t from, entry;
+	uint64_t changed;
+} catalog_page;
+
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap)
 {
-	static fzn_catalog_assertion_t set[FZN_NODE_CATALOG_MAX];
+	static fzn_catalog_assertion_t *set;
+	static size_t set_cap;
 	static uint8_t plain[FZN_NODE_CATALOG_VALUE_MAX];
 	static char shown[3u * FZN_NODE_CATALOG_VALUE_MAX];
 	static uint8_t body[FZN_RECORD_MAX_LEN];
@@ -15129,7 +15149,16 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 
 		if (!have_root)
 			return (size_t)snprintf(reply, cap, "malformed get catalog ROOT\n");
-		n = fzn_node_catalog_assertions(&node_catalog, root, set, FZN_NODE_CATALOG_MAX);
+		n = fzn_node_catalog_count_of(&node_catalog, root);
+		if (n > set_cap) {
+			fzn_catalog_assertion_t *more = realloc(set, n * sizeof(*set));
+
+			if (!more)
+				return (size_t)snprintf(reply, cap, "error no memory\n");
+			set = more;
+			set_cap = n;
+		}
+		n = fzn_node_catalog_assertions(&node_catalog, root, set, n);
 		if (fzn_catalog_holders(set, n, root, FZN_PUBKEY_LEN, who, 64u, &count, &dropped)
 		    != FZN_CATALOG_OK)
 			return (size_t)snprintf(reply, cap, "error the holders did not read\n");
@@ -15144,30 +15173,69 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 		                 : (size_t)snprintf(reply, cap, "error too many to say\n");
 	}
 	if (request->parsed == FZN_VERB_LIST) {
-		n = fzn_node_catalog_assertions(&node_catalog, have_root ? root : NULL, set,
-		                                FZN_NODE_CATALOG_MAX);
-		for (i = 0; i < n; i++)
-			live += set[i].live != 0;
+		size_t first = 0, total;
+
+		/* ONE FILE'S, its own few; or every entry, in the order taken. */
+		if (have_root) {
+			n = fzn_node_catalog_count_of(&node_catalog, root);
+			if (n > set_cap) {
+				fzn_catalog_assertion_t *more = realloc(set, n * sizeof(*set));
+
+				if (!more)
+					return (size_t)snprintf(reply, cap, "error no memory\n");
+				set = more;
+				set_cap = n;
+			}
+			n = fzn_node_catalog_assertions(&node_catalog, root, set, n);
+			for (i = 0; i < n; i++)
+				live += set[i].live != 0;
+			total = n;
+		} else {
+			live = node_catalog.live;
+			total = node_catalog.count;
+		}
 		if (from > live)
 			return (size_t)snprintf(reply, cap, "malformed past the last assertion\n");
+		/* THE PAGE AFTER THE LAST of every entry, where it ended, sec 953:
+		 * FROM counts live entries, so each page counted all before it. */
+		k = 0;
+		if (!have_root && catalog_page.held && catalog_page.changed == node_catalog.changed
+		    && from && catalog_page.from == from && catalog_page.entry <= total) {
+			first = catalog_page.entry;
+			k = from;
+		}
+		catalog_page.held = 0;
 		/* `ok TOTAL FROM ROOT,NAME,VALUE,ISSUER ...`, VALUE escaped, as many
 		 * as fit: the next page is asked FROM plus those shown (sec 652). */
 		out = (size_t)snprintf(reply, cap, "ok %zu %zu", live, from);
-		for (i = 0, k = 0; i < n; i++) {
+		for (i = first; i < total; i++) {
+			fzn_catalog_assertion_t one;
+			const fzn_catalog_assertion_t *e = &one;
 			char entity[2u * FZN_PUBKEY_LEN + 1u], issuer[17], row[600];
 			size_t shown_len;
 			int r;
 
-			if (!set[i].live || k++ < from)
+			if (have_root)
+				e = &set[i];
+			else
+				fzn_node_catalog_assertion_at(&node_catalog, i, &one);
+			if (!e->live || k++ < from)
 				continue;
-			hex_of(set[i].entity, FZN_PUBKEY_LEN, entity);
-			hex_of(set[i].issuer, 8u, issuer);
-			shown_len = catalog_escape(set[i].value, set[i].value_len, shown, sizeof(shown));
-			r = snprintf(row, sizeof(row), " %s,%.*s,%.*s,%s", entity, (int)set[i].name_len,
-			             (const char *)set[i].name, (int)shown_len, shown, issuer);
+			hex_of(e->entity, FZN_PUBKEY_LEN, entity);
+			hex_of(e->issuer, 8u, issuer);
+			shown_len = catalog_escape(e->value, e->value_len, shown, sizeof(shown));
+			r = snprintf(row, sizeof(row), " %s,%.*s,%.*s,%s", entity, (int)e->name_len,
+			             (const char *)e->name, (int)shown_len, shown, issuer);
 			/* ROOM FOR THE ROW AND THE NEWLINE, or the page ends here. */
-			if (r < 0 || (size_t)r >= sizeof(row) || out + (size_t)r + 2u > cap)
+			if (r < 0 || (size_t)r >= sizeof(row) || out + (size_t)r + 2u > cap) {
+				if (!have_root) {
+					catalog_page.held = 1;
+					catalog_page.changed = node_catalog.changed;
+					catalog_page.from = k - 1u;
+					catalog_page.entry = i;
+				}
 				break;
+			}
 			memcpy(reply + out, row, (size_t)r);
 			out += (size_t)r;
 		}
@@ -15369,7 +15437,6 @@ static void file_refs_take(const uint8_t *reply, size_t len)
  * each peer of the estate at once (sec 634; 636). */
 static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
-	static fzn_catalog_assertion_t set[FZN_NODE_CATALOG_MAX];
 	uint8_t ref[FZN_NODE_FILE_REF_LEN];
 	size_t n, i, k, want = 0;
 
@@ -15378,23 +15445,28 @@ static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t n
 	if (!journal_on || !node_apply.store)
 		return;
 #ifdef FZN_CATALOG_ON
-	n = fzn_node_catalog_assertions(&node_catalog, NULL, set, FZN_NODE_CATALOG_MAX);
+	n = node_catalog.count;
 #else
 	n = 0;	/* NO CATALOGUE, sec 856: no file it names to ask for. */
 #endif
 	for (i = 0; i < n && want < FZND_FILE_REFS_MAX; i++) {
 		uint8_t *slot = host_shared_request + 3u + want * FZN_BLOB_HASH_LEN;
+		fzn_catalog_assertion_t a;
 
-		if (!set[i].live || set[i].entity_len != FZN_BLOB_HASH_LEN
-		    || fzn_node_file_ref_get(node_apply.store, set[i].entity, ref))
+		memset(&a, 0, sizeof(a));
+#ifdef FZN_CATALOG_ON
+		fzn_node_catalog_assertion_at(&node_catalog, i, &a);
+#endif
+		if (!a.live || a.entity_len != FZN_BLOB_HASH_LEN
+		    || fzn_node_file_ref_get(node_apply.store, a.entity, ref))
 			continue;
 		for (k = 0; k < want
-		            && memcmp(host_shared_request + 3u + k * FZN_BLOB_HASH_LEN, set[i].entity,
+		            && memcmp(host_shared_request + 3u + k * FZN_BLOB_HASH_LEN, a.entity,
 		                      FZN_BLOB_HASH_LEN) != 0;
 		     k++)
 			;
 		if (k == want) {
-			memcpy(slot, set[i].entity, FZN_BLOB_HASH_LEN);
+			memcpy(slot, a.entity, FZN_BLOB_HASH_LEN);
 			want++;
 		}
 	}

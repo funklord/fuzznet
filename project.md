@@ -82518,3 +82518,35 @@ it also checks a write, a filing and a trim each move the count. `page-resumes-o
 
 **One page kept, for one reader:** two readers paging at once take turns reading from the start,
 which is no worse than before.
+
+## 953. A library past 1024 catalogue entries, answered ok and listed nowhere, 2026-11-08
+
+Reported by fuzzypickles (inbox 20261108T0953Z), measured on fzpd at 3ed4e63: 20000 private files
+put and catalogued, every `add catalog` answered `ok`, and `list catalog` gave 1024 rows. The
+catalogue was a fixed table of 1024 (entity, issuer, attribute) entries, each with a 504-byte value
+in place; a file of a name, a kind and a duration is three, so a library listed about 340 files.
+**Worse than a cap:** the record was in the journal, `index_catalog` met the full table, and moved
+its cursor past the record all the same, so it was lost until the next start, and that start lost
+it again past 1024.
+
+**As large as memory holds now,** on the holder's rule of no arbitrary caps (fuzzypickles relayed
+"virtually unlimited" for the library): the entries a grown array, each value on the heap at its
+length, found by hash on (issuer, entity, attribute) and chained by entity, so a take costs the same
+at 60000 as at 0 and a file's entries are read without walking the rest. A running count of the
+live ones answers a listing's total. `FULL` now means no memory, changes nothing, and the cursor
+stops at that record to take it again.
+
+**A listing of every entry starts where the last page ended,** kept while nothing in the catalogue
+changed, as `list record` does since sec 952: FROM counts live entries, so each page counted all
+before it. One file's listing reads its own few.
+
+**Measured:** a root, 3000 files of three names: 7.6, 7.2 and 7.3 s a thousand, flat; 9000 entries
+listed in 900 pages, 0.21 s. `node_catalog_test` takes 20000 files of three names from two hosts,
+retracts a third of the names, and finds every file's three in order, with the live count kept; it
+runs in 0.12 s. `live_catalog` phase l catalogues 400 files and lists every entry once a page at a
+time: **against the daemon before, 1021 of 1021 listed, of at least 1200, and it failed.**
+`catalog-entity-chain-lost-on-grow`, `catalog-retract-counted-live` and `catalog-short-read-newest`
+guard the module.
+
+**Open:** `file_refs_round` still reads every live entry each round and asks the store for each
+one's reference, which at 60000 is 60000 loads a round where every reference is held.

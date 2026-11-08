@@ -34,8 +34,6 @@
 #define FZN_CATALOG_STREAM 4u
 #define FZN_CATALOG_ATTRIBUTE_KIND 0x38u
 #define FZN_CATALOG_RETRACT_KIND 0x138u
-/* Entries one host keeps: (entity, issuer, attribute) triples. */
-#define FZN_NODE_CATALOG_MAX 1024u
 #define FZN_NODE_CATALOG_NAME_MAX 64u
 #define FZN_NODE_CATALOG_VALUE_MAX 504u
 
@@ -43,7 +41,7 @@ typedef enum fzn_node_catalog_err {
 	FZN_NODE_CATALOG_OK = 0,
 	FZN_NODE_CATALOG_ERR_MALFORMED = -1, /* a null, or a body that is not one */
 	FZN_NODE_CATALOG_ERR_STALE = -2,     /* a record older than the one standing */
-	FZN_NODE_CATALOG_ERR_FULL = -3       /* FZN_NODE_CATALOG_MAX entries */
+	FZN_NODE_CATALOG_ERR_FULL = -3       /* no memory for another entry */
 } fzn_node_catalog_err_t;
 
 const char *fzn_node_catalog_err_str(fzn_node_catalog_err_t err);
@@ -53,35 +51,54 @@ typedef struct fzn_node_catalog_entry {
 	uint8_t entity[32];
 	uint8_t name[FZN_NODE_CATALOG_NAME_MAX];
 	size_t name_len;
-	uint8_t value[FZN_NODE_CATALOG_VALUE_MAX];
-	size_t value_len;
+	uint8_t *value; /* value_len bytes, held by the catalogue */
+	size_t value_len, value_cap;
 	fzn_catalog_class_t attr_class;
 	fzn_catalog_scope_t scope;
 	fzn_catalog_merge_t merge;
 	fzn_catalog_capability_t capability;
 	uint64_t seq;
 	int live;
+	size_t same_entity; /* the entry before it about its entity, or SIZE_MAX */
 } fzn_node_catalog_entry_t;
 
+/* AS LARGE AS MEMORY HOLDS, sec 953: a library of 20000 files is 60000
+ * entries, and a fixed 1024 listed about 340 files and dropped the rest
+ * while `add catalog` answered ok. Entries are found by hash, by (issuer,
+ * entity, attribute) and by entity, so taking one costs the same at 60000
+ * as at 0. Grown by the catalogue; `fzn_node_catalog_free` lets it go. */
 typedef struct fzn_node_catalog {
-	fzn_node_catalog_entry_t entries[FZN_NODE_CATALOG_MAX];
-	size_t count;
+	fzn_node_catalog_entry_t *entries; /* in the order first taken */
+	size_t count, cap;
+	size_t live;     /* entries live */
+	uint64_t changed; /* each record taken that changed an entry */
+	size_t *keys;     /* by (issuer, entity, name): entry + 1, 0 empty */
+	size_t *entities; /* by entity: its newest entry + 1, 0 empty */
+	size_t slots;     /* of each table, a power of two */
 } fzn_node_catalog_t;
 
 void fzn_node_catalog_init(fzn_node_catalog_t *c);
+void fzn_node_catalog_free(fzn_node_catalog_t *c);
 
 /* TAKE one record of `issuer`'s catalogue stream: place `seq`, `kind`, its
  * subject `entity` and `body`. STALE when a later record of that (issuer,
  * entity, attribute) already stands; a record of another kind is
- * MALFORMED. */
+ * MALFORMED; FULL when memory ran out, and then nothing changed. */
 fzn_node_catalog_err_t fzn_node_catalog_take(fzn_node_catalog_t *c, const uint8_t issuer[32],
                                              const uint8_t entity[32], uint64_t seq,
                                              uint32_t kind, const uint8_t *body,
                                              size_t body_len);
 
 /* THE ASSERTIONS about `entity` -- every entity with NULL -- live and dead,
- * as `catalog/` reads them, borrowing from `c`; `cap` of them. */
+ * as `catalog/` reads them, borrowing from `c`; `cap` of them, in the
+ * order they were first taken. `fzn_node_catalog_count_of` says how many
+ * there are about one entity. */
 size_t fzn_node_catalog_assertions(const fzn_node_catalog_t *c, const uint8_t *entity,
                                    fzn_catalog_assertion_t *out, size_t cap);
+size_t fzn_node_catalog_count_of(const fzn_node_catalog_t *c, const uint8_t entity[32]);
+
+/* Entry `i` of `c->count` as an assertion, borrowing from `c`. */
+void fzn_node_catalog_assertion_at(const fzn_node_catalog_t *c, size_t i,
+                                   fzn_catalog_assertion_t *out);
 
 #endif /* FZN_NODE_CATALOG_H */
