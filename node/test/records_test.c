@@ -994,6 +994,89 @@ static void test_the_cache_resolves_as_the_records(void)
 	fzn_node_records_cache_free(&cache);
 }
 
+/* A PAGE ANSWERED WHERE THE LAST ENDED, sec 952, is the page read from the
+ * start: page by page through 300 records, with a reader of another prefix
+ * between pages, and a record written halfway that the next page must count. */
+static void test_pages_resumed_are_pages_read(void)
+{
+	static fzn_node_records_cache_t cache;
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, &cache };
+	fzn_node_records_t plain = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
+	static char resumed[2048], read[2048];
+	size_t from = 0, pages = 0, differ = 0, i;
+	char line[96];
+
+	memset(&node, 0, sizeof(node));
+	memset(&me, 0, sizeof(me));
+	memset(me.pubkey, 0x44, sizeof(me.pubkey));
+	me.sign = &SIGN;
+	signing_as = 0x44;
+	clock_ms = 1793500000000ull;
+	fzn_node_records_cache_free(&cache);
+	for (i = 0; i < 300u; i++) {
+		char key[32];
+
+		clock_ms++;
+		snprintf(key, sizeof(key), "%s/k%03u", i % 3u ? "seen" : "other", (unsigned)i);
+		(void)fzn_node_records_write(&nr, (const uint8_t *)key, strlen(key),
+		                             (const uint8_t *)"a-value-of-some-length", 22u);
+	}
+	for (;;) {
+		unsigned long f = 0, shown = 0;
+		int more = 0;
+
+		snprintf(line, sizeof(line), "list record self under seen/ %zu", from);
+		if (!said(&nr, FZN_ORIGIN_SAME_USER, line))
+			break;
+		memcpy(resumed, reply, sizeof(resumed));
+		if (!said(&plain, FZN_ORIGIN_SAME_USER, line))
+			break;
+		memcpy(read, reply, sizeof(read));
+		differ += strcmp(resumed, read) != 0;
+		if (sscanf(resumed, "ok %lu %lu %d", &f, &shown, &more) != 3 || !shown)
+			break;
+		from += shown;
+		pages++;
+		/* ANOTHER READER between two pages, and later a record written:
+		 * the pages between resume where the last ended. */
+		if (pages == 2u)
+			(void)said(&nr, FZN_ORIGIN_SAME_USER, "list record self under other/ 1");
+		if (pages == 4u) {
+			clock_ms++;
+			(void)fzn_node_records_write(&nr, (const uint8_t *)"seen/a000", 9u,
+			                             (const uint8_t *)"new", 3u);
+		}
+		if (!more)
+			break;
+	}
+	CHECK(differ == 0u && pages > 6u && from == 201u,
+	      "a page resumed was not the page read from the start");
+	/* WHAT MAKES A PAGE KEPT STALE: a record written, one filed, and a trim
+	 * that let some go, each counted -- a record before where a page ended
+	 * changes what FROM counts. */
+	{
+		uint64_t was = cache.written;
+		uint8_t item[FZN_SETTING_MAX], other[FZN_PUBKEY_LEN];
+		fzn_retain_rule_t drop = rule("policy records drop");
+		size_t len, gone = 0;
+
+		clock_ms++;
+		(void)fzn_node_records_write(&nr, (const uint8_t *)"seen/b", 6u, (const uint8_t *)"x", 1u);
+		CHECK(cache.written == was + 1u, "a record written did not make a page kept stale");
+		memset(other, 0x55, sizeof(other));
+		len = a_record(item, 0x55, 0x55, FZN_SCOPE_HOST, clock_ms, "seen/c", "y");
+		signing_as = 0x44;
+		CHECK(len && fzn_node_records_file(&nr, other, fzn_message_epoch_of(clock_ms), item, len)
+		                     == FZN_NODE_APPLY_APPLIED
+		              && cache.written == was + 2u,
+		      "a record filed did not make a page kept stale");
+		CHECK(fzn_node_records_trim(&nr, &drop, 1, clock_ms, &gone) == FZN_NODE_RECORDS_OK
+		              && gone > 0u && cache.written > was + 2u,
+		      "a trim that let records go did not make a page kept stale");
+	}
+	fzn_node_records_cache_free(&cache);
+}
+
 static void test_the_lists(void)
 {
 	static fzn_node_records_cache_t cache;
@@ -1025,6 +1108,7 @@ int main(void)
 	test_a_listing_under_a_prefix();
 	test_named_objects();
 	test_the_cache_resolves_as_the_records();
+	test_pages_resumed_are_pages_read();
 	if (failures) {
 		fprintf(stderr, "node records_test: %d of %d checks failed\n", failures, checks);
 		return 1;

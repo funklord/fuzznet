@@ -39,9 +39,11 @@ static void forget_lists(const fzn_node_records_t *nr)
 {
 	size_t i;
 
-	if (nr->cache)
-		for (i = 0; i < FZN_NODE_RECORDS_CACHED; i++)
-			nr->cache->lists[i].held = 0;
+	if (!nr->cache)
+		return;
+	nr->cache->written++;
+	for (i = 0; i < FZN_NODE_RECORDS_CACHED; i++)
+		nr->cache->lists[i].held = 0;
 }
 
 void fzn_node_records_cache_free(fzn_node_records_cache_t *cache)
@@ -532,10 +534,13 @@ static size_t list_records(const fzn_node_records_t *nr, const uint8_t *at, size
 	static uint8_t item[FZN_BUCKETS_ITEM_MAX];
 	fzn_bucket_t *list = NULL;
 	size_t room = 0, n_buckets = 0, from = 0, seen = 0, shown = 0, used = 0, limit, i, j, k;
-	uint8_t host[FZN_PUBKEY_LEN];
+	size_t first = 0, stop_bucket = 0;
+	uint64_t first_item = 0, stop_item = 0;
+	uint8_t host[FZN_PUBKEY_LEN] = { 0 };
 	const uint8_t *w, *prefix = NULL;
 	size_t w_len, prefix_len = 0;
 	int one = 0, more = 0;
+	fzn_node_records_page_t *page = nr->cache ? &nr->cache->page : NULL;
 
 	if (word(&at, &left, &w, &w_len)) {
 		if (is_word(w, w_len, "self") && nr->id) {
@@ -578,8 +583,21 @@ static size_t list_records(const fzn_node_records_t *nr, const uint8_t *at, size
 	limit = fzn_reply_ok_room(cap) > 32u ? fzn_reply_ok_room(cap) - 32u : 0u;
 	if (limit > sizeof(items))
 		limit = sizeof(items);
-	for (i = 0; i < n_buckets && !more; i++) {
-		uint64_t pos = 0, total = 0;
+	/* THE PAGE AFTER THE LAST, where it ended: the same reader's, as nothing
+	 * written since moved a record, and its bucket is where it was. */
+	if (page && page->held && page->written == nr->cache->written && from && page->from == from
+	    && page->one == one && (!one || memcmp(page->host, host, FZN_PUBKEY_LEN) == 0)
+	    && page->prefix_len == prefix_len
+	    && (!prefix_len || memcmp(page->prefix, prefix, prefix_len) == 0)
+	    && page->bucket < n_buckets
+	    && memcmp(list[page->bucket].subject, page->subject, FZN_PUBKEY_LEN) == 0
+	    && list[page->bucket].month == page->month) {
+		first = page->bucket;
+		first_item = page->item;
+		seen = from;
+	}
+	for (i = first; i < n_buckets && !more; i++) {
+		uint64_t pos = i == first ? first_item : 0, total = 0;
 
 		if (one && memcmp(list[i].subject, host, FZN_PUBKEY_LEN) != 0)
 			continue;
@@ -629,6 +647,8 @@ static size_t list_records(const fzn_node_records_t *nr, const uint8_t *at, size
 				 * the next does not fit. */
 				if (used + n > limit) {
 					more = 1;
+					stop_bucket = i;
+					stop_item = pos + j;
 					break;
 				}
 				memcpy(items + used, line, n);
@@ -639,6 +659,22 @@ static size_t list_records(const fzn_node_records_t *nr, const uint8_t *at, size
 			if (!got)
 				break;
 		} while (pos < total && !more);
+	}
+	if (page) {
+		page->held = more;
+		if (more) {
+			page->written = nr->cache->written;
+			page->from = from + shown;
+			page->one = one;
+			memcpy(page->host, host, FZN_PUBKEY_LEN);
+			page->prefix_len = prefix_len;
+			if (prefix_len)
+				memcpy(page->prefix, prefix, prefix_len);
+			page->bucket = stop_bucket;
+			memcpy(page->subject, list[stop_bucket].subject, FZN_PUBKEY_LEN);
+			page->month = list[stop_bucket].month;
+			page->item = stop_item;
+		}
 	}
 	free(list);
 	{
@@ -840,6 +876,8 @@ static void note_listed(const fzn_node_records_t *nr, const uint8_t subject[FZN_
 {
 	size_t i, prefix_len;
 
+	if (nr->cache)
+		nr->cache->written++;
 	if (!nr->cache || s->key_len <= FZN_NODE_LIST_PREFIX_LEN
 	    || memcmp(s->key, FZN_NODE_LIST_PREFIX, FZN_NODE_LIST_PREFIX_LEN) != 0)
 		return;

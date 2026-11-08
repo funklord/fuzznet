@@ -168,9 +168,29 @@ typedef struct fzn_node_records_cached {
 	int held;
 } fzn_node_records_cached_t;
 
+/* WHERE `list record`'S LAST PAGE ENDED, sec 952: a page is FROM records
+ * along, so each began by reading every one before it, and 8000 records read
+ * a page at a time took 50 s. The next page asked for starts here instead,
+ * while nothing has been written since. */
+typedef struct fzn_node_records_page {
+	int held;
+	uint64_t written; /* the cache's count when it was kept */
+	size_t from;      /* the FROM it answers */
+	int one;
+	uint8_t host[FZN_PUBKEY_LEN];
+	uint8_t prefix[FZN_SETTING_KEY_MAX];
+	size_t prefix_len; /* 0: none */
+	size_t bucket;     /* among `fzn_buckets_list_all`'s, as listed then */
+	uint8_t subject[FZN_PUBKEY_LEN];
+	uint32_t month;
+	uint64_t item; /* the first not shown, in its bucket */
+} fzn_node_records_page_t;
+
 typedef struct fzn_node_records_cache {
 	fzn_node_records_cached_t lists[FZN_NODE_RECORDS_CACHED];
-	size_t next; /* the one a list not held takes */
+	size_t next;      /* the one a list not held takes */
+	uint64_t written; /* records written, filed or let go through it */
+	fzn_node_records_page_t page;
 } fzn_node_records_cache_t;
 
 /* What the cache holds let go. It may be used again after. */

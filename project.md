@@ -82470,8 +82470,8 @@ each compares the cache with a read of every record. `list-cache-misses-a-filing
 `list-cache-misses-a-write`, `list-cache-unsorted` and `list-cache-any-name` guard it.
 
 **Open:** the records still grow with each set; a `prune records text=list/object-value/ count 1`
-rule bounds them, and none is there by default. `get record` and `list record` still read every
-record (sec 816), and nothing calls them often.
+rule bounds them, and none is there by default. `get record` still reads every record (sec 816);
+`list record` paged in sec 952.
 
 ## 951. An act a fork dropped, kept across a stop, 2026-11-08
 
@@ -82492,3 +82492,29 @@ again at the start. An add made twice is moot and let go.
 
 **Tested:** `test_acts_a_fork_dropped_come_back` drops the queue in memory after the fork, as a stop
 would, and reads all 40 back from the store, once each; after the making again a start reads none.
+
+## 952. `list record` a page at a time, read from the start each page, 2026-11-08
+
+Found beside sec 950: a page is FROM records along, counted among those that match, so each page
+opened every record before it to count them. **8000 records under one prefix, read a page at a time,
+took 50 s, and 2000 took 2.4 s**: square in what is held, and the daemon serves nobody else
+meanwhile. netcfgd reads its stations this way (sec 861).
+
+**Where the last page ended is kept,** in the cache sec 950 gave `node_records`: the bucket, the
+item in it, and the FROM the next page will ask for, with the reader's host and prefix. A request
+for exactly that FROM by the same reader starts there. Anything else reads from the start, as
+before, so the answer never depends on whether a page was kept.
+
+**Kept only while nothing moved:** the cache counts each record written, filed or let go through
+it, and a page kept under another count is not used. A record written before where a page ended
+changes what FROM counts; one after it does not, but the count does not tell them apart.
+
+**Measured, the same root:** 2000 records in 200 pages, 0.087 s; 8000 in 800 pages, 0.82 s.
+
+**Tested:** `test_pages_resumed_are_pages_read` pages through 300 records with and without the
+cache and compares every page, with another reader's page between two of them and a write later;
+it also checks a write, a filing and a trim each move the count. `page-resumes-one-past`,
+`page-resumed-counts-from-zero`, `page-kept-past-a-write` and `page-kept-past-a-trim` guard it.
+
+**One page kept, for one reader:** two readers paging at once take turns reading from the start,
+which is no worse than before.
