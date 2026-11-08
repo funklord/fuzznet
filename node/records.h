@@ -82,6 +82,9 @@ typedef struct fzn_node_records {
 	/* TOLD OF EACH RECORD A PEER HANDED ON AND KEPT, sec 895. May be NULL. */
 	void (*filed)(void *ctx, const struct fzn_setting *s);
 	void *filed_ctx;
+	/* THE LISTS RESOLVED, kept between reads. May be NULL, and every list
+	 * is read from the records each time. */
+	struct fzn_node_records_cache *cache;
 } fzn_node_records_t;
 
 /* A RECORD'S PLACE: its setter, the month of its version, and the setting
@@ -147,6 +150,32 @@ typedef struct fzn_node_list_member {
 	size_t value_len;
 } fzn_node_list_member_t;
 
+/* A LIST'S MEMBERS AS RESOLVED, kept between reads: resolving reads and
+ * opens every record held, so a named object read by a device's poll cost
+ * 25 microseconds for each record the host held (sec 950). A record written
+ * or filed through a `fzn_node_records_t` holding this cache is taken into
+ * the lists held as resolving would; a trim, or a write that failed, empties
+ * it.
+ *
+ * EVERY WRITER OF THE RECORDS GOES THROUGH THIS MODULE, so that is enough: a
+ * store written some other way must not share a cache. */
+#define FZN_NODE_RECORDS_CACHED 4u
+typedef struct fzn_node_records_cached {
+	char name[FZN_SETTING_KEY_MAX];
+	size_t name_len;
+	fzn_node_list_member_t *rows; /* by member */
+	size_t n, cap;
+	int held;
+} fzn_node_records_cached_t;
+
+typedef struct fzn_node_records_cache {
+	fzn_node_records_cached_t lists[FZN_NODE_RECORDS_CACHED];
+	size_t next; /* the one a list not held takes */
+} fzn_node_records_cache_t;
+
+/* What the cache holds let go. It may be used again after. */
+void fzn_node_records_cache_free(fzn_node_records_cache_t *cache);
+
 /* THIS HOST CHANGES A LIST: MEMBER `in` (with `value`) or out, signed now
  * and kept. MALFORMED for a name or member out of shape, or a value given
  * with `in` 0. */
@@ -158,7 +187,8 @@ fzn_node_records_err_t fzn_node_records_list_change(const fzn_node_records_t *nr
 
 /* EACH MEMBER OF LIST `name` THAT ANY HOLDS A RECORD OF, resolved, to
  * `each` in order of member -- out ones too, `in` 0. 1, or 0 when the
- * records could not be read (and `each` was not called). */
+ * records could not be read (and `each` was not called). `each` must not
+ * write records. */
 int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name,
                                size_t name_len,
                                void (*each)(void *ctx, const fzn_node_list_member_t *m),

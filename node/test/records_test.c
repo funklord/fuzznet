@@ -222,7 +222,7 @@ static size_t a_record(uint8_t *out, uint8_t by, uint8_t about, fzn_scope_t scop
 
 static void test_a_record_filed(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, NULL, NULL, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, NULL, NULL, NULL, NULL, NULL };
 	uint8_t item[FZN_SETTING_MAX], subject[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN];
 	uint32_t month = 0, at = fzn_message_epoch_of(clock_ms);
 	size_t len;
@@ -275,7 +275,7 @@ static void test_a_record_filed(void)
 
 static void test_the_verbs(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
 	char want[256];
 	size_t i, shown = 0, rest = 0;
 	int more = 0, more2 = 1;
@@ -386,7 +386,7 @@ static size_t held_of(const fzn_node_records_t *nr, const char *key)
 /* TRIMMED BY THE RULES, sec 815. */
 static void test_the_trim(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
 	fzn_retain_rule_t rules[4];
 	size_t gone = 0, i;
 	uint8_t item[FZN_SETTING_MAX], other[FZN_PUBKEY_LEN];
@@ -464,7 +464,7 @@ static void test_the_trim(void)
  * record held; FROM counts what the prefix selects. */
 static void test_a_listing_under_a_prefix(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
 
 	memset(&node, 0, sizeof(node));
 	memset(&me, 0, sizeof(me));
@@ -514,10 +514,14 @@ static size_t a_clear(uint8_t *out, uint8_t by, uint64_t at, const char *key)
 }
 
 /* LISTS, sec 854: records under `list/NAME/`, a member in while the newest
- * record of its key -- any host's, ties by the greater host -- is set. */
-static void test_the_lists(void)
+ * record of its key -- any host's, ties by the greater host -- is set.
+ *
+ * RUN TWICE, sec 950: reading from the records each time, and through a
+ * cache that each write and filing must change as resolving would -- each
+ * read here follows a change that alters what it answers. */
+static void lists_with(fzn_node_records_cache_t *cache)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, cache };
 	fzn_retain_rule_t rules[2];
 	uint8_t item[FZN_SETTING_MAX], other[FZN_PUBKEY_LEN];
 	size_t len, gone = 0;
@@ -613,7 +617,7 @@ static void test_the_lists(void)
  * a station's records are no longer kept. */
 static void test_a_keep_by_list(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
 	fzn_retain_rule_t rules[2];
 	size_t gone = 0, i;
 
@@ -723,9 +727,9 @@ static int filed_from(const fzn_node_records_t *nr, uint8_t by, uint64_t at, con
 	                      == FZN_NODE_APPLY_APPLIED;
 }
 
-static void test_named_objects(void)
+static void objects_with(fzn_node_records_cache_t *cache)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, cache };
 	fzn_node_objects_t o = { &nr, on_changed };
 	char name[FZN_NODE_OBJECT_NAME_MAX + 1u], hex[2u * FZN_PUBKEY_LEN + 1u], want[256];
 	uint8_t caller[FZN_PUBKEY_LEN], answered[32];
@@ -873,6 +877,143 @@ static void test_named_objects(void)
 	clock_ms += 900000u;
 }
 
+struct listed {
+	fzn_node_list_member_t rows[16];
+	size_t n;
+	int over;
+};
+
+static void listed_row(void *ctx, const fzn_node_list_member_t *m)
+{
+	struct listed *l = ctx;
+
+	if (l->n == sizeof(l->rows) / sizeof(l->rows[0])) {
+		l->over = 1;
+		return;
+	}
+	l->rows[l->n++] = *m;
+}
+
+static int same_listed(const struct listed *a, const struct listed *b)
+{
+	size_t i;
+
+	if (a->over || b->over || a->n != b->n)
+		return 0;
+	for (i = 0; i < a->n; i++)
+		if (a->rows[i].member_len != b->rows[i].member_len
+		    || memcmp(a->rows[i].member, b->rows[i].member, a->rows[i].member_len) != 0
+		    || memcmp(a->rows[i].host, b->rows[i].host, FZN_PUBKEY_LEN) != 0
+		    || a->rows[i].at != b->rows[i].at || a->rows[i].in != b->rows[i].in
+		    || a->rows[i].value_len != b->rows[i].value_len
+		    || memcmp(a->rows[i].value, b->rows[i].value, a->rows[i].value_len) != 0)
+			return 0;
+	return 1;
+}
+
+/* THE CACHE RESOLVES AS THE RECORDS DO, sec 950: 400 changes to two lists,
+ * this host's and two others' filed as a peer hands them on, ties of one ms,
+ * older ones arriving late, clears, records of no list, and a trim. After
+ * each, both lists read through the cache are what reading every record
+ * says. */
+static void test_the_cache_resolves_as_the_records(void)
+{
+	static fzn_node_records_cache_t cache;
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, &cache };
+	fzn_node_records_t plain = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
+	static const char *const LISTS[] = { "a", "b" };
+	static struct listed cached, read;
+	fzn_retain_rule_t drop = rule("policy records drop");
+	uint32_t seed = 12345u;
+	size_t step, l, gone = 0, differ = 0, filed = 0, written = 0;
+
+	memset(&node, 0, sizeof(node));
+	memset(&me, 0, sizeof(me));
+	memset(me.pubkey, 0x44, sizeof(me.pubkey));
+	me.sign = &SIGN;
+	clock_ms = 1793500000000ull;
+	fzn_node_records_cache_free(&cache);
+	for (step = 0; step < 400u; step++) {
+		uint32_t r;
+		char key[32], value[8];
+		uint8_t item[FZN_SETTING_MAX], who[FZN_PUBKEY_LEN];
+		size_t len;
+
+		seed = seed * 1103515245u + 12345u;
+		r = seed >> 8;
+		if (r % 4u)
+			clock_ms += r % 3u; /* a tie one time in three */
+		snprintf(key, sizeof(key), "list/%s/m%u", LISTS[(r >> 4) % 2u], (unsigned)((r >> 6) % 5u));
+		snprintf(value, sizeof(value), "v%u", (unsigned)(step % 7u));
+		switch ((r >> 10) % 8u) {
+		case 0: case 1: case 2:
+			signing_as = 0x44;
+			written += fzn_node_records_list_change(&nr, (const uint8_t *)LISTS[(r >> 4) % 2u], 1u,
+			                                        (const uint8_t *)key + 7, strlen(key) - 7u,
+			                                        (r >> 13) % 3u != 0u,
+			                                        (r >> 13) % 3u ? (const uint8_t *)value : NULL,
+			                                        (r >> 13) % 3u ? strlen(value) : 0u)
+			           == FZN_NODE_RECORDS_OK;
+			break;
+		case 3: case 4: case 5: {
+			uint8_t by = (r >> 14) % 2u ? 0x55 : 0x33;
+			/* LATE, one time in four: older than what is held. */
+			uint64_t at = (r >> 15) % 4u ? clock_ms : clock_ms - 5u;
+
+			len = (r >> 17) % 3u ? a_record(item, by, by, FZN_SCOPE_HOST, at, key, value)
+			                     : a_clear(item, by, at, key);
+			memset(who, by, sizeof(who));
+			signing_as = 0x44;
+			filed += len && fzn_node_records_file(&nr, who, fzn_message_epoch_of(at), item, len)
+			                        == FZN_NODE_APPLY_APPLIED;
+			break;
+		}
+		case 6:
+			signing_as = 0x44;
+			(void)fzn_node_records_write(&nr, (const uint8_t *)"seen/x", 6u,
+			                             (const uint8_t *)value, strlen(value));
+			break;
+		default:
+			if (step % 40u == 7u)
+				(void)fzn_node_records_trim(&nr, &drop, 1, clock_ms, &gone);
+			break;
+		}
+		for (l = 0; l < 2u; l++) {
+			memset(&cached, 0, sizeof(cached));
+			memset(&read, 0, sizeof(read));
+			if (!fzn_node_records_list_each(&nr, (const uint8_t *)LISTS[l], 1u, listed_row,
+			                                &cached)
+			    || !fzn_node_records_list_each(&plain, (const uint8_t *)LISTS[l], 1u, listed_row,
+			                                   &read)
+			    || !same_listed(&cached, &read))
+				differ++;
+		}
+	}
+	CHECK(differ == 0u && written > 50u && filed > 50u,
+	      "a list read through the cache was not what its records resolve to");
+	fzn_node_records_cache_free(&cache);
+}
+
+static void test_the_lists(void)
+{
+	static fzn_node_records_cache_t cache;
+
+	lists_with(NULL);
+	fzn_node_records_cache_free(&cache);
+	lists_with(&cache);
+	fzn_node_records_cache_free(&cache);
+}
+
+static void test_named_objects(void)
+{
+	static fzn_node_records_cache_t cache;
+
+	objects_with(NULL);
+	fzn_node_records_cache_free(&cache);
+	objects_with(&cache);
+	fzn_node_records_cache_free(&cache);
+}
+
 int main(void)
 {
 	test_a_record_filed();
@@ -883,6 +1024,7 @@ int main(void)
 	test_a_keep_by_list();
 	test_a_listing_under_a_prefix();
 	test_named_objects();
+	test_the_cache_resolves_as_the_records();
 	if (failures) {
 		fprintf(stderr, "node records_test: %d of %d checks failed\n", failures, checks);
 		return 1;

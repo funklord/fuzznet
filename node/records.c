@@ -31,6 +31,30 @@ int fzn_node_records_place(const fzn_node_records_t *nr, const uint8_t *item, si
 	return 1;
 }
 
+static void note_listed(const fzn_node_records_t *nr, const uint8_t subject[FZN_PUBKEY_LEN],
+                        const fzn_setting_t *s);
+
+/* A RECORD LET GO, OR A WRITE THAT FAILED: no list resolved before holds. */
+static void forget_lists(const fzn_node_records_t *nr)
+{
+	size_t i;
+
+	if (nr->cache)
+		for (i = 0; i < FZN_NODE_RECORDS_CACHED; i++)
+			nr->cache->lists[i].held = 0;
+}
+
+void fzn_node_records_cache_free(fzn_node_records_cache_t *cache)
+{
+	size_t i;
+
+	if (!cache)
+		return;
+	for (i = 0; i < FZN_NODE_RECORDS_CACHED; i++)
+		free(cache->lists[i].rows);
+	memset(cache, 0, sizeof(*cache));
+}
+
 fzn_node_apply_outcome_t fzn_node_records_file(const fzn_node_records_t *nr,
                                                const uint8_t subject[FZN_PUBKEY_LEN],
                                                uint32_t month, const uint8_t *item, size_t len)
@@ -49,6 +73,7 @@ fzn_node_apply_outcome_t fzn_node_records_file(const fzn_node_records_t *nr,
 		return FZN_NODE_APPLY_APPLIED;
 	if (err != FZN_BUCKETS_OK)
 		return FZN_NODE_APPLY_NOT_SAVED;
+	note_listed(nr, subject, &s);
 	if (nr->filed)
 		nr->filed(nr->filed_ctx, &s);
 	return FZN_NODE_APPLY_APPLIED;
@@ -94,6 +119,21 @@ static fzn_node_records_err_t write_record(const fzn_node_records_t *nr, const u
 	                      fzn_message_epoch_of(now), bytes, len, NULL);
 	if (err == FZN_BUCKETS_GONE)
 		return FZN_NODE_RECORDS_GONE;
+	if (err == FZN_BUCKETS_OK) {
+		fzn_setting_t s;
+
+		memset(&s, 0, sizeof(s));
+		s.version = now;
+		s.key = key;
+		s.key_len = key_len;
+		s.set = set;
+		s.value = value;
+		s.value_len = set ? value_len : 0u;
+		note_listed(nr, nr->id->pubkey, &s);
+	} else {
+		/* A FAILED ADD MAY HAVE WRITTEN. */
+		forget_lists(nr);
+	}
 	return err == FZN_BUCKETS_OK ? FZN_NODE_RECORDS_OK : FZN_NODE_RECORDS_BACKEND;
 }
 
@@ -382,6 +422,10 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 		}
 		went++;
 	}
+	/* NOT NEEDED, as a trim keeps what decides each member: emptied all
+	 * the same, once in a pass, so the cache never depends on that. */
+	if (went || err != FZN_NODE_RECORDS_OK)
+		forget_lists(nr);
 	free(all);
 	for (r = 0; r < n; r++)
 		free(ms[r].m);
@@ -741,6 +785,82 @@ fzn_node_records_err_t fzn_node_records_list_change(const fzn_node_records_t *nr
 	return write_record(nr, key, key_len, in ? 1 : 0, value, value_len);
 }
 
+/* ONE ROW A MEMBER, the newest of every host's, ties by the greater host:
+ * every node holding the same records resolves the same. `s` a record of
+ * the list, `subject` its setter, into `rows` unordered: 1 for a row added,
+ * 0 for one changed or left, -1 for no room. */
+static int take(fzn_node_list_member_t **rows, size_t *n_rows, size_t *cap_rows,
+                const uint8_t subject[FZN_PUBKEY_LEN], const fzn_setting_t *s, size_t prefix_len)
+{
+	fzn_node_list_member_t *m;
+	size_t k;
+	int added = 0;
+
+	for (k = 0; k < *n_rows; k++)
+		if ((*rows)[k].member_len == s->key_len - prefix_len
+		    && memcmp((*rows)[k].member, s->key + prefix_len, (*rows)[k].member_len) == 0)
+			break;
+	if (k < *n_rows
+	    && (s->version < (*rows)[k].at
+	        || (s->version == (*rows)[k].at
+	            && memcmp(subject, (*rows)[k].host, FZN_PUBKEY_LEN) <= 0)))
+		return 0;
+	if (k == *n_rows) {
+		if (*n_rows == *cap_rows) {
+			size_t cap = *cap_rows ? *cap_rows * 2u : 32u;
+			fzn_node_list_member_t *more = realloc(*rows, cap * sizeof(*more));
+
+			if (!more)
+				return -1;
+			*rows = more;
+			*cap_rows = cap;
+		}
+		(*n_rows)++;
+		added = 1;
+	}
+	m = &(*rows)[k];
+	m->member_len = s->key_len - prefix_len;
+	memcpy(m->member, s->key + prefix_len, m->member_len);
+	m->member[m->member_len] = '\0';
+	memcpy(m->host, subject, FZN_PUBKEY_LEN);
+	m->at = s->version;
+	m->in = s->set;
+	m->value_len = s->set ? s->value_len : 0u;
+	if (m->value_len)
+		memcpy(m->value, s->value, m->value_len);
+	return added;
+}
+
+/* A RECORD KEPT, into each list the cache holds that it is a member of, as
+ * resolving every record again would: so a host that sets an object often
+ * does not read all it holds for each set (sec 950). A record of no list
+ * held changes nothing held. */
+static void note_listed(const fzn_node_records_t *nr, const uint8_t subject[FZN_PUBKEY_LEN],
+                        const fzn_setting_t *s)
+{
+	size_t i, prefix_len;
+
+	if (!nr->cache || s->key_len <= FZN_NODE_LIST_PREFIX_LEN
+	    || memcmp(s->key, FZN_NODE_LIST_PREFIX, FZN_NODE_LIST_PREFIX_LEN) != 0)
+		return;
+	for (i = 0; i < FZN_NODE_RECORDS_CACHED; i++) {
+		fzn_node_records_cached_t *l = &nr->cache->lists[i];
+		int added;
+
+		prefix_len = FZN_NODE_LIST_PREFIX_LEN + l->name_len + 1u;
+		if (!l->held || s->key_len <= prefix_len
+		    || memcmp(s->key + FZN_NODE_LIST_PREFIX_LEN, l->name, l->name_len) != 0
+		    || s->key[prefix_len - 1u] != '/'
+		    || !list_word_ok(s->key + prefix_len, s->key_len - prefix_len))
+			continue;
+		added = take(&l->rows, &l->n, &l->cap, subject, s, prefix_len);
+		if (added < 0)
+			l->held = 0;
+		else if (added)
+			qsort(l->rows, l->n, sizeof(*l->rows), by_member);
+	}
+}
+
 int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name,
                                size_t name_len,
                                void (*each)(void *ctx, const fzn_node_list_member_t *m),
@@ -761,6 +881,17 @@ int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name
 	memcpy(prefix + FZN_NODE_LIST_PREFIX_LEN, name, name_len);
 	prefix[FZN_NODE_LIST_PREFIX_LEN + name_len] = '/';
 	prefix_len = FZN_NODE_LIST_PREFIX_LEN + name_len + 1u;
+	if (nr->cache)
+		for (i = 0; i < FZN_NODE_RECORDS_CACHED; i++) {
+			size_t at = nr->cache->lists[i].n;
+
+			if (!nr->cache->lists[i].held || nr->cache->lists[i].name_len != name_len
+			    || memcmp(nr->cache->lists[i].name, name, name_len) != 0)
+				continue;
+			for (j = 0; j < at; j++)
+				each(ctx, &nr->cache->lists[i].rows[j]);
+			return 1;
+		}
 	if (fzn_buckets_list_all(nr->b, FZN_BUCKETS_RECORDS, &list, &room, &n_buckets)
 	    != FZN_BUCKETS_OK) {
 		free(list);
@@ -781,9 +912,8 @@ int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name
 			for (j = 0; j < got; j++) {
 				uint8_t subject[FZN_PUBKEY_LEN];
 				uint32_t month = 0;
-				size_t len = 0, k;
+				size_t len = 0;
 				fzn_setting_t s;
-				fzn_node_list_member_t *m;
 
 				if (fzn_buckets_item(nr->b, FZN_BUCKETS_RECORDS, ids[j], item, sizeof(item),
 				                     &len, NULL, NULL)
@@ -792,42 +922,10 @@ int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name
 				    || s.key_len <= prefix_len || memcmp(s.key, prefix, prefix_len) != 0
 				    || !list_word_ok(s.key + prefix_len, s.key_len - prefix_len))
 					continue;
-				/* ONE ROW A MEMBER, the newest of every host's, ties by
-				 * the greater host: every node holding the same records
-				 * resolves the same. */
-				for (k = 0; k < n_rows; k++)
-					if (rows[k].member_len == s.key_len - prefix_len
-					    && memcmp(rows[k].member, s.key + prefix_len, rows[k].member_len) == 0)
-						break;
-				if (k < n_rows
-				    && (s.version < rows[k].at
-				        || (s.version == rows[k].at
-				            && memcmp(subject, rows[k].host, FZN_PUBKEY_LEN) <= 0)))
-					continue;
-				if (k == n_rows) {
-					if (n_rows == cap_rows) {
-						size_t cap = cap_rows ? cap_rows * 2u : 32u;
-						fzn_node_list_member_t *more = realloc(rows, cap * sizeof(*more));
-
-						if (!more) {
-							ok = 0;
-							break;
-						}
-						rows = more;
-						cap_rows = cap;
-					}
-					n_rows++;
+				if (take(&rows, &n_rows, &cap_rows, subject, &s, prefix_len) < 0) {
+					ok = 0;
+					break;
 				}
-				m = &rows[k];
-				m->member_len = s.key_len - prefix_len;
-				memcpy(m->member, s.key + prefix_len, m->member_len);
-				m->member[m->member_len] = '\0';
-				memcpy(m->host, subject, FZN_PUBKEY_LEN);
-				m->at = s.version;
-				m->in = s.set;
-				m->value_len = s.set ? s.value_len : 0u;
-				if (m->value_len)
-					memcpy(m->value, s.value, m->value_len);
 			}
 			pos += got;
 			if (!got)
@@ -835,13 +933,30 @@ int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name
 		} while (pos < total && ok);
 	}
 	free(list);
-	if (ok) {
-		qsort(rows, n_rows, sizeof(*rows), by_member);
+	if (!ok) {
+		free(rows);
+		return 0;
+	}
+	qsort(rows, n_rows, sizeof(*rows), by_member);
+	if (nr->cache) {
+		fzn_node_records_cache_t *c = nr->cache;
+		size_t k = c->next++ % FZN_NODE_RECORDS_CACHED;
+
+		free(c->lists[k].rows);
+		memcpy(c->lists[k].name, name, name_len);
+		c->lists[k].name_len = name_len;
+		c->lists[k].rows = rows;
+		c->lists[k].n = n_rows;
+		c->lists[k].cap = cap_rows;
+		c->lists[k].held = 1;
 		for (i = 0; i < n_rows; i++)
 			each(ctx, &rows[i]);
+		return 1;
 	}
+	for (i = 0; i < n_rows; i++)
+		each(ctx, &rows[i]);
 	free(rows);
-	return ok;
+	return 1;
 }
 
 int fzn_node_records_under(const fzn_node_records_t *nr, const uint8_t *prefix, size_t prefix_len,

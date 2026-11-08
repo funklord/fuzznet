@@ -82439,3 +82439,37 @@ here in hosts with no peer away, is a candidate; only their run can say.
 
 **Still held:** a wait not saying `local` serves no local client, so a client waits out a handler
 that asks a peer. Every wait of a round says `local`, and the watchdog saw none of the other kind.
+
+## 950. A named object read by reading every record, 2026-11-08
+
+Sec 948 left `get object` unmeasured at many records. Measured on a root: **25 us per record held,
+every read**, as resolving a list read and opened every record of every host to find the few under
+`list/object/`, and an object is two lists. 2000 other records made a `get` 50 ms, on this machine.
+
+**And a set made it worse.** Each `set object` is a record, and records are kept until a rule says
+otherwise (sec 815), so an object set often slows its own reads: 2000 sets of one lamp, nothing
+else held, gave 50 ms a `get` and 65 ms a `set`, and took 76 s together. A device that polls, or a
+lamp an automation sets each minute, is that case, and a small host is slower per record.
+
+**The lists resolved are kept between reads now,** in a cache the daemon gives `node_records`. A
+record written or filed is taken into the lists held, by the same rule a read resolves by (`take`,
+one function for both), so nothing is read again for a change. A record of no list changes nothing
+held. A trim empties it, though a trim keeps what decides each member, so the cache never depends
+on that; so does a write that failed.
+
+**Safe because every writer of the records is `node/records.c`:** the reconcile reads buckets and
+files what it takes through `fzn_node_records_file`. A store written some other way must not share
+a cache, as the header says.
+
+**Measured, the same root:** `get` 0.2 ms and `set` 2 ms at 0, 2000 and 8000 other records, and at
+2000 sets; the 2000 sets took 4.9 s. The first read after a start still reads everything, once.
+
+**Tested:** the lists and objects tests run twice, without a cache and with one, each read following
+a change that alters it. `test_the_cache_resolves_as_the_records` makes 400 changes to two lists --
+this host's, two others' filed late or in the same ms, clears, other records, a trim -- and after
+each compares the cache with a read of every record. `list-cache-misses-a-filing`,
+`list-cache-misses-a-write`, `list-cache-unsorted` and `list-cache-any-name` guard it.
+
+**Open:** the records still grow with each set; a `prune records text=list/object-value/ count 1`
+rule bounds them, and none is there by default. `get record` and `list record` still read every
+record (sec 816), and nothing calls them often.

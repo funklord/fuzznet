@@ -3028,6 +3028,7 @@ static void apply_journal(void)
 /* A HOST'S RECORDS, sec 814: kept in the records kind of the buckets, on
  * the node's store; every one filed as its setter signed it. */
 static fzn_node_records_t node_records;
+static fzn_node_records_cache_t node_records_cache;
 static fzn_buckets_t records_store;
 
 /* WHAT ONE CALLER IS SERVED OF THE APPEND-ONLY KINDS, sec 567: every
@@ -20320,6 +20321,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_records.id = &identity;
 				node_records.now_ms = wall_ms;
 				node_records.filed = record_filed;
+				node_records.cache = &node_records_cache;
 				node_objects.records = &node_records;
 				node_objects.changed = object_changed;
 				node_settings.decided = setting_decided;
