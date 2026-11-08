@@ -82696,3 +82696,22 @@ three in one round, as before.
 **Not guarded by a sabotage:** the turns are the daemon's round, which only a live run reaches.
 `node-received-bounded` guarded the bound that went; `node-received-listed-to-a-room` guards the
 listing's growth, which `admin_test` meets past the 64 a round pulls.
+
+## 961. The files asked for a reference, from the first entry every round, 2026-11-08
+
+The lens of sec 960 -- a round's loop that stops at its slots, starting from the first each time --
+over the daemon's other round builders. `file_refs_round` asks the estate's hosts for the reference
+of up to 32 files a round (FZND_FILE_REFS_MAX) whose reference this host lacks, walking the catalogue
+from its first entry. **A file no host can give a reference for kept its place,** so 32 such held
+every round's places for good, and the files after them were never asked for.
+
+**The walk now starts where the last ended,** wrapping, so every file missing a reference is asked
+for in its turn. Not unit-tested: the round is the daemon's; `live_catalog`, whose B takes A's
+reference for its file this way, passes.
+
+**Read, and left:** the siblings a round adds are the first FZND_SIBLING_TARGETS_MAX, 8, of the
+estate's hosts in the order listed, every round (sec 586): a ninth sibling is not pulled by this
+host. Eight is sec 401's figure for a household. Taking them in turns would close each round's
+sockets and the numbering carried per sibling (sec 737), so it waits for an estate past nine hosts.
+The pull targets given on the command line are refused past eight at start; the journal, notes and
+devices passes take every target the round has.

@@ -15602,8 +15602,12 @@ static void ref_held_add(const uint8_t root[FZN_BLOB_HASH_LEN])
  * each peer of the estate at once (sec 634; 636). */
 static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
+	/* WHERE THE LAST ROUND'S ASKING ENDED, sec 961: from the first entry
+	 * every round, files no peer can give a reference for held the 32 places
+	 * for good, and the files after them were never asked for. */
+	static size_t refs_from;
 	uint8_t ref[FZN_NODE_FILE_REF_LEN];
-	size_t n, i, k, want = 0;
+	size_t n, i, k, want = 0, seen;
 
 	n_host_talks = host_talks_begun = 0;
 	file_refs_taken = 0;
@@ -15614,10 +15618,14 @@ static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t n
 #else
 	n = 0;	/* NO CATALOGUE, sec 856: no file it names to ask for. */
 #endif
-	for (i = 0; i < n && want < FZND_FILE_REFS_MAX; i++) {
+	if (refs_from >= n)
+		refs_from = 0;
+	for (seen = 0, i = refs_from; seen < n && want < FZND_FILE_REFS_MAX;
+	     seen++, i = i + 1u < n ? i + 1u : 0u) {
 		uint8_t *slot = host_shared_request + 3u + want * FZN_BLOB_HASH_LEN;
 		fzn_catalog_assertion_t a;
 
+		refs_from = i + 1u;
 		memset(&a, 0, sizeof(a));
 #ifdef FZN_CATALOG_ON
 		fzn_node_catalog_assertion_at(&node_catalog, i, &a);
