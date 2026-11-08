@@ -187,8 +187,9 @@ fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind
 	return act_with(g, kind, id, subject, setting, value, NULL, 0u, 0u, made);
 }
 
-int fzn_node_groups_lost_keep(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
-                              const uint8_t *bytes, size_t len)
+/* -1 for no memory, 0 for an act not this host's, 1 kept into `lost`. */
+static int lost_row(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
+                    const uint8_t *bytes, size_t len, uint8_t held[FZN_PUBKEY_LEN])
 {
 	static fzn_group_act_t a;
 	static fzn_contact_device_t self;
@@ -198,13 +199,13 @@ int fzn_node_groups_lost_keep(const fzn_node_groups_t *g, fzn_node_groups_lost_t
 	    || fzn_group_act_decode(bytes, len, &a) != FZN_GROUP_ACT_OK
 	    || memcmp(fzn_contact_device_key(&a.signer), fzn_contact_device_key(&self), FZN_PUBKEY_LEN)
 	               != 0)
-		return 1;
+		return 0;
 	if (lost->n == lost->cap) {
 		size_t cap = lost->cap ? lost->cap * 2u : 16u;
 		void *more = realloc(lost->acts, cap * sizeof(*lost->acts));
 
 		if (!more)
-			return 0;
+			return -1;
 		lost->acts = more;
 		lost->cap = cap;
 	}
@@ -215,7 +216,76 @@ int fzn_node_groups_lost_keep(const fzn_node_groups_t *g, fzn_node_groups_lost_t
 	memcpy(row->subject, a.subject, FZN_PUBKEY_LEN);
 	row->value = a.value;
 	row->at = a.at;
+	memcpy(row->held, held, FZN_PUBKEY_LEN);
 	return 1;
+}
+
+int fzn_node_groups_lost_keep(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
+                              const uint8_t *bytes, size_t len)
+{
+	uint8_t held[FZN_PUBKEY_LEN];
+	int kept;
+
+	memset(held, 0, sizeof(held));
+	if (g && g->log.hash && bytes)
+		(void)g->log.hash->hash(g->log.hash->ctx, held, FZN_PUBKEY_LEN, bytes, len);
+	kept = lost_row(g, lost, bytes, len, held);
+	if (kept < 0)
+		return 0;
+	/* ON DISK BEFORE THE ROUND ENDS: the log has already let it go. */
+	if (kept && g->log.store && g->log.store->save)
+		(void)g->log.store->save(g->log.store->ctx, FZN_PERSIST_GROUP_LOST, held, bytes, len);
+	return 1;
+}
+
+long fzn_node_groups_lost_load(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost)
+{
+	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	uint8_t *keys = NULL;
+	size_t max = 16u, n = 0, i;
+	long loaded = 0;
+
+	if (!g || !lost || !g->log.store || !g->log.store->list || !g->log.store->load)
+		return -1;
+	/* AS MANY AS ARE HELD: a list holding more than it was asked for fails. */
+	for (;;) {
+		uint8_t *more = realloc(keys, max * FZN_PUBKEY_LEN);
+
+		if (!more) {
+			free(keys);
+			return -1;
+		}
+		keys = more;
+		if (g->log.store->list(g->log.store->ctx, FZN_PERSIST_GROUP_LOST, keys, max, &n))
+			break;
+		if (max > ((size_t)1 << 20)) {
+			free(keys);
+			return -1;
+		}
+		max *= 2u;
+	}
+	for (i = 0; i < n; i++) {
+		size_t len = 0, j;
+		int kept;
+
+		/* ONE KEPT IN MEMORY ALREADY is not made twice. */
+		for (j = 0; j < lost->n; j++)
+			if (memcmp(lost->acts[j].held, keys + i * FZN_PUBKEY_LEN, FZN_PUBKEY_LEN) == 0)
+				break;
+		if (j < lost->n)
+			continue;
+		if (!g->log.store->load(g->log.store->ctx, FZN_PERSIST_GROUP_LOST,
+		                        keys + i * FZN_PUBKEY_LEN, bytes, sizeof(bytes), &len))
+			continue;
+		kept = lost_row(g, lost, bytes, len, keys + i * FZN_PUBKEY_LEN);
+		if (kept < 0) {
+			free(keys);
+			return -1;
+		}
+		loaded += kept;
+	}
+	free(keys);
+	return loaded;
 }
 
 size_t fzn_node_groups_lost_redo(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
@@ -223,11 +293,16 @@ size_t fzn_node_groups_lost_redo(const fzn_node_groups_t *g, fzn_node_groups_los
 {
 	size_t i, made = 0;
 
-	for (i = 0; i < lost->n; i++)
+	for (i = 0; i < lost->n; i++) {
 		made += act_with(g, lost->acts[i].kind, lost->acts[i].group, lost->acts[i].subject,
 		                 lost->acts[i].setting, lost->acts[i].value, NULL, 0u, lost->acts[i].at,
 		                 NULL)
 		        == FZN_GROUP_LOG_OK;
+		/* MADE, OR LET GO as moot: either way not to be tried at a start. */
+		if (g->log.store && g->log.store->remove)
+			(void)g->log.store->remove(g->log.store->ctx, FZN_PERSIST_GROUP_LOST,
+			                           lost->acts[i].held);
+	}
 	*tried = lost->n;
 	free(lost->acts);
 	memset(lost, 0, sizeof(*lost));

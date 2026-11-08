@@ -483,6 +483,7 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_CONTACT_REFUSED:
 	case FZN_PERSIST_STAGE:
 	case FZN_PERSIST_GROUP_LINE_WATER:
+	case FZN_PERSIST_GROUP_LOST:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */
@@ -548,6 +549,7 @@ fzn_rank_t fzn_persist_slot_rank(fzn_persist_slot_t slot)
 	case FZN_PERSIST_NOTE_WRAP:
 	case FZN_PERSIST_STREAM_GRANT:
 	case FZN_PERSIST_STAGE:
+	case FZN_PERSIST_GROUP_LOST:
 		return FZN_RANK_CONTROL;
 	default:
 		return FZN_RANK_IDENTITY;

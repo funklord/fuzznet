@@ -154,6 +154,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("refused request");
 	case FZN_PERSIST_STAGE:
 		return QStringLiteral("staged change");
+	case FZN_PERSIST_GROUP_LOST:
+		return QStringLiteral("group act lost to a fork");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here -- once, in the build after persist.h changes, and not

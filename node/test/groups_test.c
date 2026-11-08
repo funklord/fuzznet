@@ -16,6 +16,7 @@
 #include "../../session/random_system.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int checks, failures;
@@ -465,8 +466,18 @@ static void test_acts_a_fork_dropped_come_back(void)
 	tried = lost_acts.n;
 	CHECK(fzn_node_groups_lost_keep(&a->groups, &lost_acts, bytes, len) && lost_acts.n == tried,
 	      "an act another host signed is not A's to make again");
+	/* A STOP BEFORE THE MAKING AGAIN, sec 951: what memory held is gone,
+	 * and the start reads the same acts back from disk, once each. */
+	free(lost_acts.acts);
+	memset(&lost_acts, 0, sizeof(lost_acts));
+	CHECK(fzn_node_groups_lost_load(&a->groups, &lost_acts) == (long)tried
+	              && lost_acts.n == tried && fzn_node_groups_lost_load(&a->groups, &lost_acts) == 0
+	              && lost_acts.n == tried,
+	      "the acts a fork dropped did not come back after a stop, or came twice");
 	made = fzn_node_groups_lost_redo(&a->groups, &lost_acts, &tried);
 	CHECK(made >= LOST_ADDS && lost_acts.n == 0u, "every add is made again, past any bound");
+	CHECK(fzn_node_groups_lost_load(&a->groups, &lost_acts) == 0 && lost_acts.n == 0u,
+	      "an act made again was read back at the next start");
 	(void)fzn_group_log_get(&a->ops, id, &g);
 	memset(subject, (int)(0x40u + LOST_ADDS - 1u), sizeof(subject));
 	CHECK(fzn_group_is_member(&g, subject), "the last add among them stands");

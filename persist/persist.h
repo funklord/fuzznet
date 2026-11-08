@@ -419,13 +419,18 @@ typedef enum fzn_persist_slot {
 	 * lines. Not core: its next ask says so again. `node/group_lines.h`.
 	 * sec 911. */
 	FZN_PERSIST_GROUP_LINE_WATER = 70u,
+	/* Per act, keyed by its hash: an act of this host's a fork dropped, as
+	 * the log handed it, until it is made again on the kept head -- so a
+	 * restart between the two does not lose what the user did.
+	 * `node/groups.h` keeps it. sec 951. */
+	FZN_PERSIST_GROUP_LOST = 71u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 71u
+#define FZN_PERSIST_SLOT_END 72u
 
 /* WHAT GOES FIRST WHEN THINGS GET HAIRY, sec 917: every kind of data a host
  * holds has a rank, and traffic has the same ones (`node/pressure.h`). Lowest

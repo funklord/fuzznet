@@ -14737,10 +14737,31 @@ SABOTAGES = [
 		"past 16 a user's dropped acts are silently not made again, a removal among them -- sec 947",
 	),
 	(
+		"lost-act-not-on-disk",
+		"node/groups.c",
+		"\tif (kept && g->log.store && g->log.store->save)\n",
+		"\tif (0)\n",
+		"an act a fork dropped is lost when the host stops before making it -- sec 951",
+	),
+	(
+		"lost-act-kept-on-disk-once-made",
+		"node/groups.c",
+		"\t\tif (g->log.store && g->log.store->remove)\n",
+		"\t\tif (0)\n",
+		"an act made again is made again at every start -- sec 951",
+	),
+	(
+		"lost-act-read-twice",
+		"node/groups.c",
+		"\t\tif (j < lost->n)\n\t\t\tcontinue;\n",
+		"",
+		"an act kept in memory is read again from disk and made twice -- sec 951",
+	),
+	(
 		"lost-acts-keep-anyones",
 		"node/groups.c",
-		"\t    || memcmp(fzn_contact_device_key(&a.signer), fzn_contact_device_key(&self), FZN_PUBKEY_LEN)\n\t               != 0)\n\t\treturn 1;\n",
-		"\t    )\n\t\treturn 1;\n",
+		"\t    || memcmp(fzn_contact_device_key(&a.signer), fzn_contact_device_key(&self), FZN_PUBKEY_LEN)\n\t               != 0)\n\t\treturn 0;\n",
+		"\t    )\n\t\treturn 0;\n",
 		"a host makes again acts other hosts signed, as its own -- sec 626",
 	),
 	(

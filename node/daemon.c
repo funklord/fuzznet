@@ -12249,7 +12249,23 @@ static void group_dropped(void *ctx, const uint8_t *bytes, size_t len)
 
 static void group_redo_all(void)
 {
-	size_t tried = 0, made = fzn_node_groups_lost_redo(&node_groups, &group_lost, &tried);
+	static int loaded;
+	size_t tried = 0, made;
+
+	/* WHAT A STOP LEFT UNMADE, sec 951: read here, at the first round's
+	 * end, where this host can sign; one kept since is not taken twice. */
+	if (!loaded) {
+		long held = fzn_node_groups_lost_load(&node_groups, &group_lost);
+
+		loaded = 1;
+		if (held > 0)
+			say(FZN_ENTRY_INFO, "node/groups",
+			    "%ld act(s) of this host's a fork dropped before a stop, to make again", held);
+		else if (held < 0)
+			say(FZN_ENTRY_WARNING, "node/groups",
+			    "the acts a fork dropped before a stop could not be read");
+	}
+	made = fzn_node_groups_lost_redo(&node_groups, &group_lost, &tried);
 
 	if (tried)
 		say(FZN_ENTRY_INFO, "node/groups", "%zu act(s) of this host's lost a fork, %zu made again",

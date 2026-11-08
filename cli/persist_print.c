@@ -170,6 +170,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a contact request this user refused, so it is not shown again";
 	case FZN_PERSIST_STAGE:
 		return "a staged change's revert, applied at its deadline unless confirmed";
+	case FZN_PERSIST_GROUP_LOST:
+		return "an act of this host's a fork dropped, until it is made again";
 	}
 	*known = 0;
 	return "an unknown slot";

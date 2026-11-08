@@ -136,19 +136,25 @@ fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind
 
 /* THIS HOST'S OWN ACTS A FORK DROPPED, sec 626, kept until the sync that
  * dropped them is done: the log is not offered into from inside an offer.
- * As many as were dropped, sec 947: each is something the user did. */
+ * As many as were dropped, sec 947: each is something the user did.
+ *
+ * AND ON DISK, sec 951, as the log handed each over, in
+ * FZN_PERSIST_GROUP_LOST under its hash: the making again waits for a
+ * round's end, and a host stopped before it lost the act. */
 typedef struct {
 	struct fzn_node_groups_lost_act {
 		uint8_t kind, setting;
 		uint8_t group[FZN_GROUP_ID_LEN];
 		uint8_t subject[FZN_PUBKEY_LEN];
 		uint64_t value, at;
+		uint8_t held[FZN_PUBKEY_LEN]; /* its key on disk */
 	} *acts;
 	size_t n, cap;
 } fzn_node_groups_lost_t;
 
-/* A DROPPED ACT, as the log's `dropped` hands it: kept if it is this host's.
- * 0 when it is and memory ran out, and it will not be made again. */
+/* A DROPPED ACT, as the log's `dropped` hands it: kept if it is this host's,
+ * in memory and on disk. 0 when it is and memory ran out, and it will not be
+ * made again; one not written to disk is made again unless the host stops. */
 int fzn_node_groups_lost_keep(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
                               const uint8_t *bytes, size_t len);
 
@@ -161,6 +167,11 @@ int fzn_node_groups_lost_keep(const fzn_node_groups_t *g, fzn_node_groups_lost_t
  * what was written in between. */
 size_t fzn_node_groups_lost_redo(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost,
                                  size_t *tried);
+
+/* AT A START: the acts kept on disk and not yet made again, into `lost`, to
+ * be made at the next `fzn_node_groups_lost_redo`. How many; -1 when the
+ * store could not be listed, or memory ran out. */
+long fzn_node_groups_lost_load(const fzn_node_groups_t *g, fzn_node_groups_lost_t *lost);
 
 /* A GROUP LEARNED FROM ANOTHER HOST, named here if it is not yet, sec 837:
  * by the name its maker gave it, carried in its CREATE act, where that

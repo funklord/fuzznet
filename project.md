@@ -82329,9 +82329,8 @@ when made again, in place of a table in `node/daemon.c`. That is also what let a
 path: `test_acts_a_fork_dropped_come_back` loses 40 adds to a real fork and sees every one back, each
 at its time. `lost-acts-stop-at-a-bound` and `lost-acts-keep-anyones` guard the rest.
 
-**Open:** a queue held in memory dies with the daemon: a restart between a drop and the making again
-loses the act, within one round. Nothing keeps an act whose author is offline on the kept head
-either; that is sec 626's design.
+**Open:** ~~a queue held in memory dies with the daemon~~, kept on disk since sec 951. Nothing keeps
+an act whose author is offline on the kept head either; that is sec 626's design.
 
 **netcfgd took it** (inbox 20261107T1942Z, their 10.755): at 364241c their `make check` exits 0,
 `make live` passes what runs there, and `make hull-mips` has one estate across two byte orders at
@@ -82473,3 +82472,23 @@ each compares the cache with a read of every record. `list-cache-misses-a-filing
 **Open:** the records still grow with each set; a `prune records text=list/object-value/ count 1`
 rule bounds them, and none is there by default. `get record` and `list record` still read every
 record (sec 816), and nothing calls them often.
+
+## 951. An act a fork dropped, kept across a stop, 2026-11-08
+
+Sec 947's open half. The making again waits for the round's end, and an act a peer's push dropped
+waits for this host's next round: up to a minute, by default, in which a stop lost what the user
+did, with nothing to say so. A host upgraded or rebooted in that minute is the case.
+
+**Each dropped act of this host's is written as the log handed it,** under its hash, in
+`FZN_PERSIST_GROUP_LOST` (slot 71), and removed when it is made again or let go as moot. The bytes
+are the act's own signed encoding, so the slot adds no layout of its own. It is bulk and of the
+control rank, as a staged change is (slot 69): something the user did, not what keeps anyone out.
+
+**Read back at the first round's end,** in `group_redo_all`, where this host can sign and so tell
+its own acts. One kept in memory since the start is not taken twice.
+
+**Made at least once:** a stop after an act is made again and before its row is removed makes it
+again at the start. An add made twice is moot and let go.
+
+**Tested:** `test_acts_a_fork_dropped_come_back` drops the queue in memory after the fork, as a stop
+would, and reads all 40 back from the store, once each; after the making again a start reads none.
