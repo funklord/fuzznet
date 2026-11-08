@@ -82550,3 +82550,30 @@ guard the module.
 
 **Open:** `file_refs_round` still reads every live entry each round and asks the store for each
 one's reference, which at 60000 is 60000 loads a round where every reference is held.
+
+## 954. A library of 4096 shared files, and each share reading every one, 2026-11-08
+
+The other half of fuzzypickles' 20261108T0953Z, measured on fzpd at 3ed4e63 with `put file PATH
+public`: 2000 in 26.9 s, 4000 in 102 s, and the 4097th refused, "as many as this node keeps". A
+share is a row of (root, grantee), so 4096 files shared once was a fixed table's whole, and a
+library shared with a group and a sibling half of it. **Each share listed every row** to count them;
+and, read for this, so did every `shares_of` -- once a file in `list file` and in its status -- and
+every `shared_with`, which answers each contact's fetch.
+
+**No bound now,** on the holder's rule (a `small` build may still set FZN_NODE_FILES_SHARES_MAX,
+sec 922): sharing again reads one row by its key; whether a contact may fetch reads the rows that
+could let it, by key -- the file public, shared with it, or with a group it is in; and a file's
+shares are read from an index by root, built from the rows at first use and kept as shares are made
+here. A share stopped, a file deleted or a group forgotten -- seldom -- has it read again at its
+next use. **Every writer of the rows is `node/files.c`**, as for the records (sec 950).
+
+**Measured, a root:** 5000 public files at 5.5, 5.0, 4.9, 5.4 and 5.0 s a thousand, flat through
+and past 4096. `files_test` shares one file 4200 times, past the old table: every one taken,
+counted, the last served, and the same read again as at a start; deleting the file leaves none. The
+small build's bound is tested where it is set; `files-shares-bound` is gone, as the sabotage run builds
+no bound to break. `shares-index-misses-a-share`,
+`shares-index-outlives-a-removal`, `shares-chain-lost-on-grow` and `shared-with-misses-public`
+guard it.
+
+**Still at 1024:** `fzn_node_files_list`, so `list file` and the scrub see at most 1024 files, and a
+page of `list file` reads the directory again. Next.

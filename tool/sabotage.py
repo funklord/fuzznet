@@ -3645,13 +3645,6 @@ SABOTAGES = [
 		"a want past the bound is taken, and the fetch's table of wants is read short of it -- sec 846",
 	),
 	(
-		"files-shares-bound",
-		"node/files.c",
-		"\tif (n >= FZN_NODE_FILES_SHARES_MAX)\n\t\treturn FZN_NODE_FILES_ERR_FULL;\n",
-		"",
-		"a share past the bound is written, and every listing of shares read into its table is cut short of it -- sec 846",
-	),
-	(
 		"local-denied-judged",
 		"node/local.c",
 		"\tif (on_denied && verdict == FZN_AUTHZ_DENIED && fzn_vocabulary_split(",
@@ -6405,8 +6398,8 @@ SABOTAGES = [
 	(
 		"files-share-reaches-a-group-member",
 		"node/files.c",
-		"\t\t\tif (memcmp(grantees[i], in.ids[j], FZN_PUBKEY_LEN) == 0\n",
-		"\t\t\tif (0\n",
+		"\t\tif (row_held(files, root, in.ids[j]) && group_reaches(files, root, in.ids[j], sender))\n",
+		"\t\tif (0 && row_held(files, root, in.ids[j]) && group_reaches(files, root, in.ids[j], sender))\n",
 		"a file shared with a group reaches none of its members -- sec 493",
 	),
 	(
@@ -14763,6 +14756,34 @@ SABOTAGES = [
 		"\t    || memcmp(fzn_contact_device_key(&a.signer), fzn_contact_device_key(&self), FZN_PUBKEY_LEN)\n\t               != 0)\n\t\treturn 0;\n",
 		"\t    )\n\t\treturn 0;\n",
 		"a host makes again acts other hosts signed, as its own -- sec 626",
+	),
+	(
+		"shares-index-misses-a-share",
+		"node/files.c",
+		"\tif (!index_add(x, root, grantee))\n\t\tindex_forget(files);\n\treturn FZN_NODE_FILES_OK;\n",
+		"\treturn FZN_NODE_FILES_OK;\n",
+		"a file shared is not counted among its shares until a start -- sec 954",
+	),
+	(
+		"shares-index-outlives-a-removal",
+		"node/files.c",
+		"\tif (files->shares) {\n\t\tfiles->shares->built = 0;\n",
+		"\tif (0) {\n\t\tfiles->shares->built = 0;\n",
+		"a share taken back, or a file deleted, still counts its shares -- sec 954",
+	),
+	(
+		"shares-chain-lost-on-grow",
+		"node/files.c",
+		"\t\tfor (i = 0; i < x->n; i++)\n\t\t\tx->heads[head_slot(x, x->rows[i].root)] = i + 1u;\n",
+		"",
+		"a file's shares are lost to it once the index grows -- sec 954",
+	),
+	(
+		"shared-with-misses-public",
+		"node/files.c",
+		"\tif (row_held(files, root, FZN_NODE_FILES_EVERY_CONTACT) || row_held(files, root, sender))\n",
+		"\tif (row_held(files, root, sender))\n",
+		"a public file is refused to a contact it was not shared with by name -- sec 954",
 	),
 	(
 		"catalog-entity-chain-lost-on-grow",

@@ -128,12 +128,19 @@ typedef struct fzn_node_files {
 	 * live too -- or NULL: then no file is served to a contact and the
 	 * share verbs are unsupported. Set by the caller after init. */
 	const fzn_persist_ops_t *store;
+	/* THE SHARES BY ROOT, sec 954, read from `store` at first use and kept
+	 * as shares are made and taken back here: every writer of the rows is
+	 * this module. `fzn_node_files_release` lets it go. */
+	struct fzn_node_files_shares *shares;
 } fzn_node_files_t;
 
 /* Over `dir`, created mode 0700 when it is not there. */
 fzn_node_files_err_t fzn_node_files_init(fzn_node_files_t *files, const char *dir,
                                          const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
                                          const fzn_random_ops_t *rng);
+
+/* What `files` holds in memory let go; it may be used again after. */
+void fzn_node_files_release(fzn_node_files_t *files);
 
 /* SEAL THE FILE AT `path` under a fresh key, and say what references it. A
  * working name holds it until it is whole and named by its root, so a crash
@@ -263,10 +270,11 @@ fzn_node_files_err_t fzn_node_files_scrub_step(fzn_node_files_t *files, int *che
  * 478's rule).
  *
  * THE CONTACT ASKING has already been found a contact and served by the
- * share capability (`node/admin.c`); this answers only which files. */
-#ifndef FZN_NODE_FILES_SHARES_MAX /* smaller in a `small` build, sec 922 */
-#define FZN_NODE_FILES_SHARES_MAX 4096u
-#endif
+ * share capability (`node/admin.c`); this answers only which files.
+ *
+ * AS MANY AS THE STORE HOLDS, sec 954: a library of 4096 files shared once
+ * was a fixed table's whole, and each share listed every row before it. A
+ * `small` build (sec 922) may set FZN_NODE_FILES_SHARES_MAX to bound them. */
 
 /* A grantee meaning every contact of this node. */
 extern const uint8_t FZN_NODE_FILES_EVERY_CONTACT[FZN_PUBKEY_LEN];

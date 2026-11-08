@@ -147,6 +147,8 @@ fzn_node_files_err_t fzn_node_files_init(fzn_node_files_t *files, const char *di
 	return FZN_NODE_FILES_OK;
 }
 
+void fzn_node_files_release(fzn_node_files_t *files);
+
 /* ---- a file descriptor as the levels' storage --------------------------- */
 
 static int fd_read(void *ctx, uint64_t offset, uint8_t *out, size_t len)
@@ -1566,13 +1568,156 @@ static int share_read(const fzn_node_files_t *files, const uint8_t key[FZN_PUBKE
 	return share_key(files, root, grantee, again) && memcmp(again, key, FZN_PUBKEY_LEN) == 0;
 }
 
-/* Every row's key, `*n` of them. */
-static int share_keys(const fzn_node_files_t *files, uint8_t (*keys)[FZN_PUBKEY_LEN], size_t *n)
+/* ---- the shares by root, sec 954 ------------------------------------------ */
+
+struct share_row {
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	size_t next; /* the row before it of its root, or SIZE_MAX */
+};
+
+struct fzn_node_files_shares {
+	int built;
+	struct share_row *rows;
+	size_t n, cap;
+	size_t *heads; /* by root: its newest row + 1, 0 empty */
+	size_t slots;  /* a power of two, at least twice the rows */
+};
+
+void fzn_node_files_release(fzn_node_files_t *files)
 {
-	*n = 0;
-	return files->store && files->store->load && files->store->list
-	       && files->store->list(files->store->ctx, FZN_PERSIST_FILE_SHARE, (uint8_t *)keys,
-	                             FZN_NODE_FILES_SHARES_MAX, n);
+	if (!files || !files->shares)
+		return;
+	free(files->shares->rows);
+	free(files->shares->heads);
+	free(files->shares);
+	files->shares = NULL;
+}
+
+static size_t head_slot(const struct fzn_node_files_shares *x, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	uint64_t h = 14695981039346656037ull;
+	size_t i, at;
+
+	for (i = 0; i < FZN_BLOB_HASH_LEN; i++) {
+		h ^= root[i];
+		h *= 1099511628211ull;
+	}
+	at = (size_t)h & (x->slots - 1u);
+	while (x->heads[at] && memcmp(x->rows[x->heads[at] - 1u].root, root, FZN_BLOB_HASH_LEN) != 0)
+		at = (at + 1u) & (x->slots - 1u);
+	return at;
+}
+
+/* ONE ROW MORE into the index: 0 when memory ran out, and then the index
+ * is let go, to be read again. */
+static int index_add(struct fzn_node_files_shares *x, const uint8_t root[FZN_BLOB_HASH_LEN],
+                     const uint8_t grantee[FZN_PUBKEY_LEN])
+{
+	size_t at, i;
+
+	if (x->n == x->cap) {
+		size_t cap = x->cap ? x->cap * 2u : 64u;
+		struct share_row *more = realloc(x->rows, cap * sizeof(*more));
+
+		if (!more)
+			return 0;
+		x->rows = more;
+		x->cap = cap;
+	}
+	if (2u * (x->n + 1u) > x->slots) {
+		size_t slots = x->slots ? x->slots * 2u : 128u;
+		size_t *heads = calloc(slots, sizeof(*heads));
+
+		if (!heads)
+			return 0;
+		free(x->heads);
+		x->heads = heads;
+		x->slots = slots;
+		/* EACH ROOT'S NEWEST heads its chain, as when it was added. */
+		for (i = 0; i < x->n; i++)
+			x->heads[head_slot(x, x->rows[i].root)] = i + 1u;
+	}
+	memcpy(x->rows[x->n].root, root, FZN_BLOB_HASH_LEN);
+	memcpy(x->rows[x->n].grantee, grantee, FZN_PUBKEY_LEN);
+	at = head_slot(x, root);
+	x->rows[x->n].next = x->heads[at] ? x->heads[at] - 1u : SIZE_MAX;
+	x->heads[at] = x->n + 1u;
+	x->n++;
+	return 1;
+}
+
+/* A ROW TAKEN BACK: the index is read again at its next use, as a row goes
+ * seldom -- a share stopped, a file deleted, a group forgotten. */
+static void index_forget(const fzn_node_files_t *files)
+{
+	if (files->shares) {
+		files->shares->built = 0;
+		files->shares->n = 0;
+		if (files->shares->heads)
+			memset(files->shares->heads, 0, files->shares->slots * sizeof(*files->shares->heads));
+	}
+}
+
+/* THE INDEX, read from the store's rows when it is not held: NULL when the
+ * store could not be listed or memory ran out. */
+static struct fzn_node_files_shares *shares_index(const fzn_node_files_t *files)
+{
+	struct fzn_node_files_shares *x = files->shares;
+	uint8_t *keys = NULL, r[FZN_BLOB_HASH_LEN], g[FZN_PUBKEY_LEN];
+	size_t max = 256u, n = 0, i;
+
+	if (!files->store || !files->store->load || !files->store->list)
+		return NULL;
+	if (!x) {
+		x = calloc(1u, sizeof(*x));
+		if (!x)
+			return NULL;
+		/* KEPT FROM A CONST CALLER as a cache is: what it holds is read
+		 * from the store, which says the same either way. */
+		((fzn_node_files_t *)files)->shares = x;
+	}
+	if (x->built)
+		return x;
+	/* AS MANY AS ARE HELD: a list holding more than it was asked for fails. */
+	for (;;) {
+		uint8_t *more = realloc(keys, max * FZN_PUBKEY_LEN);
+
+		if (!more) {
+			free(keys);
+			return NULL;
+		}
+		keys = more;
+		if (files->store->list(files->store->ctx, FZN_PERSIST_FILE_SHARE, keys, max, &n))
+			break;
+		if (max > ((size_t)1 << 24)) {
+			free(keys);
+			return NULL;
+		}
+		max *= 2u;
+	}
+	x->n = 0;
+	if (x->heads)
+		memset(x->heads, 0, x->slots * sizeof(*x->heads));
+	for (i = 0; i < n; i++)
+		if (share_read(files, keys + i * FZN_PUBKEY_LEN, r, g) && !index_add(x, r, g)) {
+			free(keys);
+			index_forget(files);
+			return NULL;
+		}
+	free(keys);
+	x->built = 1;
+	return x;
+}
+
+/* WHETHER (root, grantee) IS A ROW, read by its key alone. */
+static int row_held(const fzn_node_files_t *files, const uint8_t root[FZN_BLOB_HASH_LEN],
+                    const uint8_t grantee[FZN_PUBKEY_LEN])
+{
+	uint8_t key[FZN_PUBKEY_LEN], r[FZN_BLOB_HASH_LEN], g[FZN_PUBKEY_LEN];
+
+	return files->store && files->store->load && share_key(files, root, grantee, key)
+	       && share_read(files, key, r, g);
 }
 
 fzn_node_files_err_t fzn_node_files_share(fzn_node_files_t *files,
@@ -1580,10 +1725,9 @@ fzn_node_files_err_t fzn_node_files_share(fzn_node_files_t *files,
                                           const uint8_t grantee[FZN_PUBKEY_LEN], int add,
                                           uint64_t now_ms)
 {
-	static uint8_t keys[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
 	uint8_t key[FZN_PUBKEY_LEN], blob[SHARE_BLOB], r[FZN_BLOB_HASH_LEN], g[FZN_PUBKEY_LEN];
 	uint64_t length = 0;
-	size_t n = 0, len = 0;
+	struct fzn_node_files_shares *x;
 
 	if (!files || !root || !grantee || !files->store || !files->store->save
 	    || !files->store->load || !share_key(files, root, grantee, key))
@@ -1593,6 +1737,7 @@ fzn_node_files_err_t fzn_node_files_share(fzn_node_files_t *files,
 			return FZN_NODE_FILES_ERR_MALFORMED;
 		if (!share_read(files, key, r, g))
 			return FZN_NODE_FILES_ERR_ABSENT;
+		index_forget(files);
 		return files->store->remove(files->store->ctx, FZN_PERSIST_FILE_SHARE, key)
 		               ? FZN_NODE_FILES_OK
 		               : FZN_NODE_FILES_ERR_STORE;
@@ -1601,25 +1746,28 @@ fzn_node_files_err_t fzn_node_files_share(fzn_node_files_t *files,
 	 * served nothing. */
 	if (fzn_node_files_held(files, root, &length) != FZN_NODE_FILES_OK)
 		return FZN_NODE_FILES_ERR_ABSENT;
-	/* SHARED AGAIN KEEPS THE ROW AND ITS TIME. */
-	if (files->store->load(files->store->ctx, FZN_PERSIST_FILE_SHARE, key, blob, sizeof(blob),
-	                       &len)
-	    && share_read(files, key, r, g))
+	/* SHARED AGAIN KEEPS THE ROW AND ITS TIME: one row read, not all. */
+	if (share_read(files, key, r, g))
 		return FZN_NODE_FILES_OK;
-	if (!share_keys(files, keys, &n))
+	x = shares_index(files);
+	if (!x)
 		return FZN_NODE_FILES_ERR_STORE;
-	/* FULL, said as full, sec 846: it read as "the disk refused". */
-	if (n >= FZN_NODE_FILES_SHARES_MAX)
+#ifdef FZN_NODE_FILES_SHARES_MAX
+	/* FULL, said as full, sec 846: a `small` build's bound, sec 922. */
+	if (x->n >= FZN_NODE_FILES_SHARES_MAX)
 		return FZN_NODE_FILES_ERR_FULL;
+#endif
 	if (fzn_persist_head_write(blob, sizeof(blob), SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
 	    != FZN_PERSIST_OK)
 		return FZN_NODE_FILES_ERR_STORE;
 	memcpy(blob + FZN_PERSIST_HEAD_LEN, root, FZN_BLOB_HASH_LEN);
 	memcpy(blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN, grantee, FZN_PUBKEY_LEN);
 	fzn_put_be64(blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN + FZN_PUBKEY_LEN, now_ms);
-	return files->store->save(files->store->ctx, FZN_PERSIST_FILE_SHARE, key, blob, sizeof(blob))
-	               ? FZN_NODE_FILES_OK
-	               : FZN_NODE_FILES_ERR_STORE;
+	if (!files->store->save(files->store->ctx, FZN_PERSIST_FILE_SHARE, key, blob, sizeof(blob)))
+		return FZN_NODE_FILES_ERR_STORE;
+	if (!index_add(x, root, grantee))
+		index_forget(files);
+	return FZN_NODE_FILES_OK;
 }
 
 fzn_node_files_err_t fzn_node_files_shares_of(const fzn_node_files_t *files,
@@ -1627,20 +1775,23 @@ fzn_node_files_err_t fzn_node_files_shares_of(const fzn_node_files_t *files,
                                               uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t cap,
                                               size_t *count)
 {
-	static uint8_t keys[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
-	uint8_t r[FZN_BLOB_HASH_LEN], g[FZN_PUBKEY_LEN];
-	size_t n = 0, i;
+	struct fzn_node_files_shares *x;
+	size_t at, i;
 
 	if (!files || !root || (cap && !grantees) || !count)
 		return FZN_NODE_FILES_ERR_MALFORMED;
 	*count = 0;
-	if (!share_keys(files, keys, &n))
-		return files->store ? FZN_NODE_FILES_ERR_STORE : FZN_NODE_FILES_ERR_MALFORMED;
-	for (i = 0; i < n; i++) {
-		if (!share_read(files, keys[i], r, g) || memcmp(r, root, FZN_BLOB_HASH_LEN) != 0)
-			continue;
+	if (!files->store)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	x = shares_index(files);
+	if (!x)
+		return FZN_NODE_FILES_ERR_STORE;
+	if (!x->slots)
+		return FZN_NODE_FILES_OK;
+	at = head_slot(x, root);
+	for (i = x->heads[at] ? x->heads[at] - 1u : SIZE_MAX; i != SIZE_MAX; i = x->rows[i].next) {
 		if (*count < cap)
-			memcpy(grantees[*count], g, FZN_PUBKEY_LEN);
+			memcpy(grantees[*count], x->rows[i].grantee, FZN_PUBKEY_LEN);
 		(*count)++;
 	}
 	return FZN_NODE_FILES_OK;
@@ -1670,32 +1821,25 @@ static int group_reaches(const fzn_node_files_t *files, const uint8_t root[FZN_B
 	       >= fzn_node_group_joined_ms(files->store, files->hash, id, &held, sender);
 }
 
+/* THE ROWS THAT COULD LET `sender` HAVE `root`, each read by its key: the
+ * file public, shared with it, or with a group it is in -- not every row. */
 int fzn_node_files_shared_with(const fzn_node_files_t *files,
                                const uint8_t root[FZN_BLOB_HASH_LEN],
                                const uint8_t sender[FZN_PUBKEY_LEN])
 {
-	static uint8_t grantees[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
 	static fzn_group_held_t in;
-	size_t n = 0, i, j;
+	size_t j;
 
-	if (!files || !root || !sender
-	    || fzn_node_files_shares_of(files, root, grantees, FZN_NODE_FILES_SHARES_MAX, &n)
-	               != FZN_NODE_FILES_OK)
+	if (!files || !root || !sender || !files->store)
 		return 0;
-	if (n > FZN_NODE_FILES_SHARES_MAX)
-		n = FZN_NODE_FILES_SHARES_MAX;
-	for (i = 0; i < n; i++)
-		if (memcmp(grantees[i], FZN_NODE_FILES_EVERY_CONTACT, FZN_PUBKEY_LEN) == 0
-		    || memcmp(grantees[i], sender, FZN_PUBKEY_LEN) == 0)
-			return 1;
+	if (row_held(files, root, FZN_NODE_FILES_EVERY_CONTACT) || row_held(files, root, sender))
+		return 1;
 	/* AND EVERY GROUP IT IS IN, read now, at the request. */
 	if (fzn_node_group_ids_of(files->store, sender, &in) != FZN_CONTACT_OK)
 		return 0;
-	for (i = 0; i < n; i++)
-		for (j = 0; j < in.n; j++)
-			if (memcmp(grantees[i], in.ids[j], FZN_PUBKEY_LEN) == 0
-			    && group_reaches(files, root, in.ids[j], sender))
-				return 1;
+	for (j = 0; j < in.n; j++)
+		if (row_held(files, root, in.ids[j]) && group_reaches(files, root, in.ids[j], sender))
+			return 1;
 	return 0;
 }
 
@@ -1703,24 +1847,30 @@ int fzn_node_files_shared_with(const fzn_node_files_t *files,
 static fzn_node_files_err_t forget_rows(fzn_node_files_t *files, const uint8_t *match,
                                         int by_root, size_t *removed)
 {
-	static uint8_t keys[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
-	uint8_t r[FZN_BLOB_HASH_LEN], g[FZN_PUBKEY_LEN];
-	size_t n = 0, i;
+	struct fzn_node_files_shares *x;
+	uint8_t key[FZN_PUBKEY_LEN];
+	size_t i;
+	fzn_node_files_err_t err = FZN_NODE_FILES_OK;
 
 	*removed = 0;
 	if (!files->store)
 		return FZN_NODE_FILES_OK;
-	if (!share_keys(files, keys, &n) || !files->store->remove)
+	x = shares_index(files);
+	if (!x || !files->store->remove)
 		return FZN_NODE_FILES_ERR_STORE;
-	for (i = 0; i < n; i++) {
-		if (!share_read(files, keys[i], r, g)
-		    || memcmp(by_root ? r : g, match, FZN_PUBKEY_LEN) != 0)
+	for (i = 0; i < x->n; i++) {
+		if (memcmp(by_root ? x->rows[i].root : x->rows[i].grantee, match, FZN_PUBKEY_LEN) != 0)
 			continue;
-		if (!files->store->remove(files->store->ctx, FZN_PERSIST_FILE_SHARE, keys[i]))
-			return FZN_NODE_FILES_ERR_STORE;
+		if (!share_key(files, x->rows[i].root, x->rows[i].grantee, key)
+		    || !files->store->remove(files->store->ctx, FZN_PERSIST_FILE_SHARE, key)) {
+			err = FZN_NODE_FILES_ERR_STORE;
+			break;
+		}
 		(*removed)++;
 	}
-	return FZN_NODE_FILES_OK;
+	if (*removed || err != FZN_NODE_FILES_OK)
+		index_forget(files);
+	return err;
 }
 
 fzn_node_files_err_t fzn_node_files_forget(fzn_node_files_t *files,
@@ -1798,9 +1948,7 @@ fzn_node_files_err_t fzn_node_files_status(const fzn_node_files_t *files,
                                            fzn_node_file_status_t *status)
 {
 	static held_t h;
-	static uint8_t grantees[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
 	uint64_t length = 0;
-	size_t k;
 	int opened = 0;
 
 	if (!files || !root || !status)
@@ -1817,15 +1965,11 @@ fzn_node_files_err_t fzn_node_files_status(const fzn_node_files_t *files,
 	status->wanted = !status->whole;
 	status->busy = is_busy(files, root);
 	if (files->store
-	    && fzn_node_files_shares_of(files, root, grantees, FZN_NODE_FILES_SHARES_MAX,
-	                                &status->shares)
-	               == FZN_NODE_FILES_OK)
-		for (k = 0; k < status->shares && k < FZN_NODE_FILES_SHARES_MAX; k++)
-			if (memcmp(grantees[k], FZN_NODE_FILES_EVERY_CONTACT, FZN_PUBKEY_LEN) == 0) {
-				status->public_ = 1;
-				status->shares--;
-				break;
-			}
+	    && fzn_node_files_shares_of(files, root, NULL, 0u, &status->shares) == FZN_NODE_FILES_OK
+	    && row_held(files, root, FZN_NODE_FILES_EVERY_CONTACT)) {
+		status->public_ = 1;
+		status->shares--;
+	}
 	return FZN_NODE_FILES_OK;
 }
 
@@ -2036,18 +2180,13 @@ static size_t list_files(const fzn_node_files_t *files, const uint8_t *arg, size
 			continue;
 		to_hex(roots[i], FZN_BLOB_HASH_LEN, hex);
 		{
-			static uint8_t grantees[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
-			size_t shares = 0, k;
+			size_t shares = 0;
 			int public_ = 0;
 
 			if (files->store
-			    && fzn_node_files_shares_of(files, roots[i], grantees,
-			                                FZN_NODE_FILES_SHARES_MAX, &shares)
+			    && fzn_node_files_shares_of(files, roots[i], NULL, 0u, &shares)
 			               == FZN_NODE_FILES_OK)
-				for (k = 0; k < shares && k < FZN_NODE_FILES_SHARES_MAX; k++)
-					if (memcmp(grantees[k], FZN_NODE_FILES_EVERY_CONTACT, FZN_PUBKEY_LEN)
-					    == 0)
-						public_ = 1;
+				public_ = row_held(files, roots[i], FZN_NODE_FILES_EVERY_CONTACT);
 			m = snprintf(item, sizeof(item), " %s,%llu%s%s", hex,
 			             (unsigned long long)length, public_ ? ",public" : "",
 			             shares > (size_t)public_ ? ",shared" : "");

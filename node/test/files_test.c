@@ -234,8 +234,9 @@ struct mem_entry {
 	uint8_t bytes[512];
 	size_t len;
 };
-/* ROOM FOR EVERY SHARE A NODE KEEPS, and the rows beside them (sec 846). */
-static struct mem_entry mem[4608];
+/* ROOM FOR SHARES PAST THE 4096 A TABLE HELD, and the rows beside them
+ * (secs 846, 954). */
+static struct mem_entry mem[8192];
 
 static struct mem_entry *mem_find(fzn_persist_slot_t slot, const uint8_t *subject, int make)
 {
@@ -1299,13 +1300,17 @@ int main(void)
 			for (k = 0; k < sizeof(mem) / sizeof(mem[0]); k++)
 				if (mem[k].used && mem[k].slot == FZN_PERSIST_FILE_SHARE)
 					mem[k].subject[0] ^= 1u;
+			/* READ AGAIN, as at a start: the store was written behind the
+			 * module's back, which only a start may see. */
+			fzn_node_files_release(&F);
 			CHECK(fzn_node_files_shares_of(&F, pub_root, NULL, 0, &n) == FZN_NODE_FILES_OK
 			              && n == 0u,
 			      "a row copied under another key was read as a share");
 		}
-		/* THE SHARES AT THEIR BOUND, sec 846: taken to the last, the next
-		 * refused as full -- "the disk refused" before -- and one held
-		 * shared again still taken. */
+#ifdef FZN_NODE_FILES_SHARES_MAX
+		/* THE SHARES AT A `small` BUILD'S BOUND, secs 846 and 922: taken to
+		 * the last, the next refused as full -- "the disk refused" before --
+		 * and one held shared again still taken. */
 		{
 			uint8_t grantee[FZN_PUBKEY_LEN];
 			size_t held = 0, k;
@@ -1336,6 +1341,41 @@ int main(void)
 			      "a share held, shared again at the bound, was refused");
 			(void)fzn_node_files_remove(&F, many.root);
 		}
+#else
+		/* PAST THE TABLE THAT WAS, sec 954: 4200 shares of one file, past the
+		 * 4096 rows a fixed table held, every one taken and counted, the
+		 * last served, and the same read again as at a start. Deleting the
+		 * file takes every row. */
+		{
+			uint8_t grantee[FZN_PUBKEY_LEN];
+			size_t k, refused = 0, shares = 0, again = 0;
+			fzn_node_file_ref_t many;
+
+			CHECK(make_source(src_path, 3000u)
+			              && fzn_node_files_put(&F, src_path, &many) == FZN_NODE_FILES_OK,
+			      "fixture: a file held, to share many times");
+			for (k = 0; k < 4200u; k++) {
+				memset(grantee, 0x5e, sizeof(grantee));
+				grantee[0] = (uint8_t)k;
+				grantee[1] = (uint8_t)(k >> 8);
+				refused += fzn_node_files_share(&F, many.root, grantee, 1, 1000u)
+				           != FZN_NODE_FILES_OK;
+			}
+			CHECK(refused == 0u
+			              && fzn_node_files_shares_of(&F, many.root, NULL, 0, &shares)
+			                         == FZN_NODE_FILES_OK
+			              && shares == 4200u && fzn_node_files_shared_with(&F, many.root, grantee),
+			      "a share past 4096 was refused, not counted, or not served");
+			fzn_node_files_release(&F);
+			CHECK(fzn_node_files_shares_of(&F, many.root, NULL, 0, &again) == FZN_NODE_FILES_OK
+			              && again == 4200u,
+			      "the shares read again were not the shares made");
+			(void)fzn_node_files_remove(&F, many.root);
+			CHECK(fzn_node_files_shares_of(&F, many.root, NULL, 0, &shares) == FZN_NODE_FILES_OK
+			              && shares == 0u,
+			      "a file deleted kept its shares");
+		}
+#endif
 		F.store = NULL;
 		for (i = 0; i < sizeof(mem) / sizeof(mem[0]); i++)
 			mem[i].used = 0;
