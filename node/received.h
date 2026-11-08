@@ -22,7 +22,9 @@
 
 #include "../persist/persist.h"
 
-/* Sharers whose trees a host holds, sec 914. */
+/* SHARERS PULLED IN ONE ROUND, sec 914: as many as are accepted are held
+ * (sec 960), and past this many the daemon pulls them in turns, round by
+ * round, as it takes contacts' hosts. */
 #ifndef FZN_NODE_RECEIVED_MAX /* smaller in a `small` build, sec 922 */
 #define FZN_NODE_RECEIVED_MAX 64u
 #endif
@@ -33,7 +35,7 @@
 typedef enum fzn_node_received_err {
 	FZN_NODE_RECEIVED_OK = 0,
 	FZN_NODE_RECEIVED_ERR_MALFORMED = -1, /* a null, a host that is not one, port 0 */
-	FZN_NODE_RECEIVED_ERR_FULL = -2,      /* FZN_NODE_RECEIVED_MAX are held */
+	FZN_NODE_RECEIVED_ERR_FULL = -2,      /* no longer said: none is a bound, sec 960 */
 	FZN_NODE_RECEIVED_ERR_ABSENT = -3,    /* nothing accepted from that sharer */
 	FZN_NODE_RECEIVED_ERR_BACKEND = -4,   /* the store refused, or cannot list */
 	FZN_NODE_RECEIVED_ERR_SHAPE = -5      /* a held row will not read */
@@ -52,8 +54,7 @@ typedef struct fzn_node_received {
 /* Whether `host` is one: 1 to 253 bytes from 0x21 to 0x7e. */
 int fzn_node_received_host_ok(const char *host, size_t len);
 
-/* Record a share from `sharer`, replacing its address when it is held.
- * FULL past FZN_NODE_RECEIVED_MAX. */
+/* Record a share from `sharer`, replacing its address when it is held. */
 fzn_node_received_err_t fzn_node_received_add(const fzn_persist_ops_t *store,
                                         const uint8_t sharer[FZN_PUBKEY_LEN], const char *host,
                                         size_t host_len, uint16_t port, uint64_t now_ms);
@@ -65,6 +66,12 @@ fzn_node_received_err_t fzn_node_received_get(const fzn_persist_ops_t *store,
 /* Every share accepted, `cap` of them. */
 fzn_node_received_err_t fzn_node_received_list(const fzn_persist_ops_t *store,
                                          fzn_node_received_t *out, size_t cap, size_t *count);
+
+/* EVERY SHARE ACCEPTED, into `*out` grown with realloc: `*room` its room,
+ * NULL and 0 to begin, kept by the caller and freed with free(). */
+fzn_node_received_err_t fzn_node_received_all(const fzn_persist_ops_t *store,
+                                        fzn_node_received_t **out, size_t *room,
+                                        size_t *count);
 
 /* Stop pulling `sharer`. ABSENT when nothing was accepted from it. What was
  * pulled stays until `notes/received.h`'s forget. */

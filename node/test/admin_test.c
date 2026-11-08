@@ -37,6 +37,7 @@
 #include "../../session/random_system.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -2683,10 +2684,23 @@ int main(void)
 					              == FZN_NODE_RECEIVED_OK,
 					      "fixture: a share up to the bound");
 				}
+				/* PAST WHAT A ROUND PULLS AT ONCE, sec 960: taken, and
+				 * every one listed, the list grown past its first room. */
 				memset(rk, 0x6f, sizeof(rk));
-				CHECK(fzn_node_received_add(&node.ops, rk, "h", 1u, 1u, 0u)
-				              == FZN_NODE_RECEIVED_ERR_FULL,
-				      "a share past the bound was taken");
+				{
+					static fzn_node_received_t *every;
+					size_t room = 0, listed = 0;
+
+					CHECK(fzn_node_received_add(&node.ops, rk, "h", 1u, 1u, 0u)
+					                      == FZN_NODE_RECEIVED_OK
+					              && fzn_node_received_all(&node.ops, &every, &room, &listed)
+					                         == FZN_NODE_RECEIVED_OK
+					              && listed >= FZN_NODE_RECEIVED_MAX + 1u,
+					      "a share past a round's turn was refused, or not listed");
+					free(every);
+					every = NULL;
+				}
+				(void)fzn_node_received_remove(&node.ops, rk);
 				memset(rk, 0x70, sizeof(rk));
 				CHECK(fzn_node_received_add(&node.ops, rk, "other", 5u, 2u, 0u)
 				                      == FZN_NODE_RECEIVED_OK

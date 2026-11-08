@@ -4,6 +4,7 @@
 
 #include "../wire/bytes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #define BODY_LEN(n) (1u + (size_t)(n) + 2u + 8u)
@@ -70,21 +71,78 @@ fzn_node_received_err_t fzn_node_received_get(const fzn_persist_ops_t *store,
 	return FZN_NODE_RECEIVED_OK;
 }
 
+/* EVERY ROW'S KEY, into room grown until the list holds them: a list asked
+ * for fewer keys than it holds fails whole. */
+static uint8_t *listed_keys;
+static size_t listed_room;
+
+static fzn_node_received_err_t received_keys(const fzn_persist_ops_t *store, size_t *held)
+{
+	size_t max = listed_room ? listed_room : 64u;
+
+	*held = 0;
+	for (;;) {
+		if (max > listed_room) {
+			uint8_t *more = realloc(listed_keys, max * FZN_PUBKEY_LEN);
+
+			if (!more)
+				return FZN_NODE_RECEIVED_ERR_BACKEND;
+			listed_keys = more;
+			listed_room = max;
+		}
+		if (store->list(store->ctx, FZN_PERSIST_RECEIVED_SHARE, listed_keys, max, held))
+			return FZN_NODE_RECEIVED_OK;
+		if (max > ((size_t)1 << 24))
+			return FZN_NODE_RECEIVED_ERR_BACKEND;
+		max *= 2u;
+	}
+}
+
 fzn_node_received_err_t fzn_node_received_list(const fzn_persist_ops_t *store,
                                                fzn_node_received_t *out, size_t cap,
                                                size_t *count)
 {
-	uint8_t keys[FZN_NODE_RECEIVED_MAX][FZN_PUBKEY_LEN];
 	size_t held = 0, i, n = 0;
+	fzn_node_received_err_t err;
 
 	if (!store || !store->list || !out || !count)
 		return FZN_NODE_RECEIVED_ERR_MALFORMED;
 	*count = 0;
-	if (!store->list(store->ctx, FZN_PERSIST_RECEIVED_SHARE, (uint8_t *)keys,
-	                 FZN_NODE_RECEIVED_MAX, &held))
-		return FZN_NODE_RECEIVED_ERR_BACKEND;
+	err = received_keys(store, &held);
+	if (err != FZN_NODE_RECEIVED_OK)
+		return err;
 	for (i = 0; i < held && n < cap; i++)
-		if (fzn_node_received_get(store, keys[i], &out[n]) == FZN_NODE_RECEIVED_OK)
+		if (fzn_node_received_get(store, listed_keys + i * FZN_PUBKEY_LEN, &out[n])
+		    == FZN_NODE_RECEIVED_OK)
+			n++;
+	*count = n;
+	return FZN_NODE_RECEIVED_OK;
+}
+
+fzn_node_received_err_t fzn_node_received_all(const fzn_persist_ops_t *store,
+                                              fzn_node_received_t **out, size_t *room,
+                                              size_t *count)
+{
+	size_t held = 0, i, n = 0;
+	fzn_node_received_err_t err;
+
+	if (!store || !store->list || !out || !room || !count)
+		return FZN_NODE_RECEIVED_ERR_MALFORMED;
+	*count = 0;
+	err = received_keys(store, &held);
+	if (err != FZN_NODE_RECEIVED_OK)
+		return err;
+	if (held > *room) {
+		fzn_node_received_t *more = realloc(*out, held * sizeof(**out));
+
+		if (!more)
+			return FZN_NODE_RECEIVED_ERR_BACKEND;
+		*out = more;
+		*room = held;
+	}
+	for (i = 0; i < held; i++)
+		if (fzn_node_received_get(store, listed_keys + i * FZN_PUBKEY_LEN, &(*out)[n])
+		    == FZN_NODE_RECEIVED_OK)
 			n++;
 	*count = n;
 	return FZN_NODE_RECEIVED_OK;
@@ -95,23 +153,13 @@ fzn_node_received_err_t fzn_node_received_add(const fzn_persist_ops_t *store,
                                               const char *host, size_t host_len, uint16_t port,
                                               uint64_t now_ms)
 {
-	fzn_node_received_t all[FZN_NODE_RECEIVED_MAX];
 	uint8_t blob[BLOB_MAX];
 	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
-	size_t count = 0, i;
-	int held = 0;
-	fzn_node_received_err_t err;
 
+	/* AS MANY AS ARE ACCEPTED, sec 960: none counted, as none is a bound. */
 	if (!store || !store->save || !sharer || !fzn_node_received_host_ok(host, host_len)
 	    || port == 0u)
 		return FZN_NODE_RECEIVED_ERR_MALFORMED;
-	err = fzn_node_received_list(store, all, FZN_NODE_RECEIVED_MAX, &count);
-	if (err != FZN_NODE_RECEIVED_OK)
-		return err;
-	for (i = 0; i < count; i++)
-		held |= memcmp(all[i].sharer, sharer, FZN_PUBKEY_LEN) == 0;
-	if (!held && count >= FZN_NODE_RECEIVED_MAX)
-		return FZN_NODE_RECEIVED_ERR_FULL;
 	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN(host_len),
 	                           FZN_PERSIST_BLOB_RECEIVED_SHARE)
 	    != FZN_PERSIST_OK)

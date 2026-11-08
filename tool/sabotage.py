@@ -5689,11 +5689,11 @@ SABOTAGES = [
 		"a share this node stopped taking stays readable from a copy nobody refreshes -- sec 437",
 	),
 	(
-		"node-received-bounded",
+		"node-received-listed-to-a-room",
 		"node/received.c",
-		"\tif (!held && count >= FZN_NODE_RECEIVED_MAX)\n\t\treturn FZN_NODE_RECEIVED_ERR_FULL;\n",
-		"",
-		"the accepted shares grow past what a list returns, and then none is pulled -- sec 437",
+		"\t\tif (max > ((size_t)1 << 24))\n\t\t\treturn FZN_NODE_RECEIVED_ERR_BACKEND;\n\t\tmax *= 2u;\n",
+		"\t\treturn FZN_NODE_RECEIVED_ERR_BACKEND;\n",
+		"the accepted shares grow past what a list returns, and then none is pulled -- secs 437, 960",
 	),
 	(
 		"shelf-permitted-asks-the-permit",

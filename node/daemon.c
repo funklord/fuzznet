@@ -6777,12 +6777,27 @@ static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, si
 }
 #endif
 
-static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
-                          const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
-                          const fzn_random_ops_t *rng)
+/* EVERY SHARE ACCEPTED, sec 960, and the turn of them a round pulls: past
+ * FZN_NODE_RECEIVED_MAX, the next that many each round, wrapping past the
+ * last, as the contacts' hosts are taken; the first turn after a start
+ * drawn, as for the members' hosts. Read anew when the verbs change the
+ * table. */
+static fzn_node_received_t *received_rows;
+static size_t received_room, n_received, received_from;
+static int received_turn_fresh; /* a turn opened by a load, not yet pulled */
+static int received_turn_drawn;
+static struct {
+	int family;
+	const uint8_t *self;
+	const fzn_hash_ops_t *hash;
+	const fzn_aead_ops_t *aead;
+	const fzn_random_ops_t *rng;
+} received_with;
+
+/* THIS ROUND'S TURN of the sharers opened, those of the last closed. */
+static void open_received_turn(void)
 {
-	static fzn_node_received_t rows[FZN_NODE_RECEIVED_MAX];
-	size_t count = 0, i;
+	size_t i, k;
 
 	for (i = 0; i < nshares_in; i++) {
 		if (shares_in[i].pt.fd >= 0)
@@ -6790,34 +6805,74 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
 		fzn_wipe(&shares_in[i].pt.pairing, sizeof(shares_in[i].pt.pairing));
 	}
 	nshares_in = 0;
-	if (!notes_on
-	    || fzn_node_received_list(node_notes.store.ops, rows, FZN_NODE_RECEIVED_MAX, &count)
-	               != FZN_NODE_RECEIVED_OK)
+	if (!n_received)
 		return;
-	for (i = 0; i < count; i++) {
+	received_from %= n_received;
+	for (k = 0; k < n_received && k < FZN_NODE_RECEIVED_MAX; k++) {
+		const fzn_node_received_t *row = &received_rows[(received_from + k) % n_received];
 		struct share_target *sh = &shares_in[nshares_in];
 		struct pull_target *pt = &sh->pt;
 
 		memset(sh, 0, sizeof(*sh));
 		pt->fd = -1;
-		memcpy(sh->host, rows[i].host, rows[i].host_len);
-		sh->host[rows[i].host_len] = '\0';
-		memcpy(sh->sharer, rows[i].sharer, FZN_PUBKEY_LEN);
+		memcpy(sh->host, row->host, row->host_len);
+		sh->host[row->host_len] = '\0';
+		memcpy(sh->sharer, row->sharer, FZN_PUBKEY_LEN);
 		pt->host = sh->host;
-		pt->port = rows[i].port;
+		pt->port = row->port;
 		/* A ROW WITH NO PAIRING is reported and skipped: the others are
 		 * still pulled. */
-		if (fzn_node_pairing_load(node_notes.store.ops, rows[i].sharer, &pt->pairing)
+		if (fzn_node_pairing_load(node_notes.store.ops, row->sharer, &pt->pairing)
 		    != FZN_PERSIST_OK) {
 			say(FZN_ENTRY_WARNING, "notes/received", "a share from %s holds no pairing", sh->host);
 			continue;
 		}
-		if (!open_target(pt, family, self, hash, aead, rng)) {
+		if (!open_target(pt, received_with.family, received_with.self, received_with.hash,
+		                 received_with.aead, received_with.rng)) {
 			say(FZN_ENTRY_WARNING, "notes/received", "could not reach for a share at %s", sh->host);
 			continue;
 		}
 		nshares_in++;
 	}
+}
+
+/* THE NEXT TURN, at a round's pull: the same sharers while they fit. */
+static void next_received_turn(void)
+{
+	if (received_turn_fresh) {
+		received_turn_fresh = 0;
+		return;
+	}
+	if (n_received <= FZN_NODE_RECEIVED_MAX)
+		return;
+	received_from += FZN_NODE_RECEIVED_MAX;
+	open_received_turn();
+}
+
+static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
+                          const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
+                          const fzn_random_ops_t *rng)
+{
+	received_with.family = family;
+	received_with.self = self;
+	received_with.hash = hash;
+	received_with.aead = aead;
+	received_with.rng = rng;
+	if (!received_turn_drawn && rng && rng->fill) {
+		uint8_t b[4] = { 0 };
+
+		(void)rng->fill(rng->ctx, b, sizeof(b));
+		received_from = (size_t)fzn_get_be32(b);
+		received_turn_drawn = 1;
+	}
+	n_received = 0;
+	if (notes_on
+	    && fzn_node_received_all(node_notes.store.ops, &received_rows, &received_room,
+	                             &n_received)
+	               != FZN_NODE_RECEIVED_OK)
+		n_received = 0;
+	open_received_turn();
+	received_turn_fresh = 1;
 }
 
 /* Each share into its sharer's tree: `targets`, `n` of them, an accepted
@@ -7257,6 +7312,7 @@ static void pull_received(uint64_t now)
 #ifdef FZN_SPOOL_FILE_ON
 	n_share_texts = 0;
 #endif
+	next_received_turn();
 	for (i = 0; i < nshares_in && n < FZND_SHARE_TALKS_MAX; i++) {
 		share_refs[n].pt = &shares_in[i].pt;
 		share_refs[n].sharer = shares_in[i].sharer;
@@ -12946,14 +13002,31 @@ static int group_host_device(const fzn_group_t *g, const fzn_group_host_t *h,
 
 /* EVERY OTHER MEMBER'S HOSTS, paired and opened afresh from the log as it
  * stands: at the groups round's start, to sync the log with (sec 642), and
- * again for the share pass, after the round's acts are taken. */
+ * again for the share pass, after the round's acts are taken.
+ *
+ * IN TURNS, sec 960: past FZND_GROUP_SHARES_MAX hosts the same first ones
+ * were asked every round and the rest never. Every host is paired every
+ * round; the ones asked are the next that many of those reached, wrapping,
+ * both calls of one round asking the same. The first turn after a start is
+ * drawn, as a host started often would otherwise ask the first ones only. */
+struct member_host {
+	uint8_t owner[FZN_PUBKEY_LEN];
+	uint8_t record[FZN_PREKEY_LEN_TOTAL];
+	char address[FZN_NODE_RECEIVED_HOST_MAX + 1u];
+	uint16_t port;
+};
+static struct member_host *member_hosts;
+static size_t member_hosts_room, member_from, member_next;
+static uint64_t member_round;
+static int member_drawn;
+
 static void member_targets_build(uint64_t now)
 {
 	static fzn_group_held_t ids_room;
 	uint8_t (*ids)[FZN_GROUP_ID_LEN] = NULL;
 	static fzn_group_t g;
 	static fzn_contact_device_t own, d;
-	size_t n = 0, i, k, paired = 0;
+	size_t n = 0, i, k, paired = 0, askable = 0, t;
 	const char *why;
 
 	for (i = 0; i < ngroup_shares_in; i++) {
@@ -12966,13 +13039,24 @@ static void member_targets_build(uint64_t now)
 	    || !groups_signer(NULL, &own)
 	    || !groups_held(&ids_room, &ids, &n))
 		return;
+	if (!member_drawn && contact_rng_ops && contact_rng_ops->fill) {
+		uint8_t b[4] = { 0 };
+
+		(void)contact_rng_ops->fill(contact_rng_ops->ctx, b, sizeof(b));
+		member_next = (size_t)fzn_get_be32(b);
+		member_drawn = 1;
+	}
+	if (now != member_round) {
+		member_round = now;
+		member_from = member_next;
+	}
 	for (i = 0; i < n; i++) {
 		if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK
 		    || !fzn_group_is_member(&g, own.owner))
 			continue;
 		for (k = 0; k < g.n_hosts; k++) {
 			const fzn_group_host_t *h = &g.hosts[k];
-			struct share_target *sh = &group_shares_in[ngroup_shares_in];
+			struct member_host *m;
 			int r;
 
 			if (memcmp(h->owner, own.owner, FZN_PUBKEY_LEN) == 0
@@ -12996,26 +13080,50 @@ static void member_targets_build(uint64_t now)
 			if (r < 0)
 				say(FZN_ENTRY_DEBUG, "node/groups", "a member's host was not paired: %s",
 				    why ? why : "it would not pair");
-			/* ASKED, every host of the member that is reached somewhere. */
-			if (ngroup_shares_in == FZND_GROUP_SHARES_MAX || !d.port || !d.address_len
-			    || d.address_len > FZN_NODE_RECEIVED_HOST_MAX)
+			/* REACHED SOMEWHERE, so one to ask in its turn. */
+			if (!d.port || !d.address_len || d.address_len > FZN_NODE_RECEIVED_HOST_MAX)
 				continue;
-			memset(sh, 0, sizeof(*sh));
-			sh->pt.fd = -1;
-			memcpy(sh->host, d.address, d.address_len);
-			sh->host[d.address_len] = '\0';
-			memcpy(sh->sharer, h->owner, FZN_PUBKEY_LEN);
-			sh->pt.host = sh->host;
-			sh->pt.port = d.port;
-			if (fzn_node_pairing_derive(contact_id, d.record,
-			                            &running_admin->state->config.share_capability, now,
-			                            &sh->pt.pairing)
-			            != FZN_NODE_PAIR_OK
-			    || !open_target(&sh->pt, contact_family, contact_id->pubkey, contact_hash_ops,
-			                    contact_aead_ops, contact_rng_ops))
-				continue;
-			ngroup_shares_in++;
+			if (askable == member_hosts_room) {
+				size_t room = member_hosts_room ? member_hosts_room * 2u : 32u;
+				struct member_host *more = realloc(member_hosts, room * sizeof(*more));
+
+				if (!more)
+					continue;
+				member_hosts = more;
+				member_hosts_room = room;
+			}
+			m = &member_hosts[askable++];
+			memcpy(m->owner, h->owner, FZN_PUBKEY_LEN);
+			memcpy(m->record, d.record, sizeof(m->record));
+			memcpy(m->address, d.address, d.address_len);
+			m->address[d.address_len] = '\0';
+			m->port = d.port;
 		}
+	}
+	/* THIS ROUND'S TURN, wrapping past the last to the first. */
+	for (t = 0; askable && t < askable && t < FZND_GROUP_SHARES_MAX; t++) {
+		const struct member_host *m = &member_hosts[(member_from + t) % askable];
+		struct share_target *sh = &group_shares_in[ngroup_shares_in];
+
+		memset(sh, 0, sizeof(*sh));
+		sh->pt.fd = -1;
+		memcpy(sh->host, m->address, sizeof(sh->host));
+		memcpy(sh->sharer, m->owner, FZN_PUBKEY_LEN);
+		sh->pt.host = sh->host;
+		sh->pt.port = m->port;
+		if (fzn_node_pairing_derive(contact_id, m->record,
+		                            &running_admin->state->config.share_capability, now,
+		                            &sh->pt.pairing)
+		            != FZN_NODE_PAIR_OK
+		    || !open_target(&sh->pt, contact_family, contact_id->pubkey, contact_hash_ops,
+		                    contact_aead_ops, contact_rng_ops))
+			continue;
+		ngroup_shares_in++;
+	}
+	if (askable > FZND_GROUP_SHARES_MAX) {
+		member_next = (member_from % askable) + FZND_GROUP_SHARES_MAX;
+		say(FZN_ENTRY_DEBUG, "node/groups", "member hosts asked in turn: from %zu of %zu",
+		    member_from % askable, askable);
 	}
 	if (paired)
 		say(FZN_ENTRY_INFO, "node/groups", "%zu member host(s) paired", paired);

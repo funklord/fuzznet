@@ -1910,14 +1910,14 @@ static size_t accept_share(fzn_node_admin_t *admin, const uint8_t *rest, size_t 
  * contact since forgotten naming its key. */
 static size_t list_received(fzn_node_admin_t *admin, char *reply, size_t cap)
 {
-	fzn_node_received_t all[FZN_NODE_RECEIVED_MAX];
+	static fzn_node_received_t *all;
+	static size_t room;
 	static char detail[FZN_REPLY_MAX];
 	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, used, i, k;
 	int n;
 
-	if (fzn_node_received_list(admin->store, all, FZN_NODE_RECEIVED_MAX, &count)
-	    != FZN_NODE_RECEIVED_OK)
+	if (fzn_node_received_all(admin->store, &all, &room, &count) != FZN_NODE_RECEIVED_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, "the accepted shares did not read");
 	n = snprintf(detail, sizeof(detail), "%zu", count);
 	if (n < 0 || (size_t)n >= limit)

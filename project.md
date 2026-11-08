@@ -82670,6 +82670,29 @@ and the generation opens and replays; `snapshot-listed-to-a-room` guards it.
 
 **Not this, as read:** the fallbacks of `fzn_persist_each` and the buckets' listing keep a room of
 4096, but every store the daemon stacks -- file, cache, delta, route, op journal -- walks a slot
-with `each`, so neither is reached there. **Received shares stop at 64 sharers** (sec 914), and
-honestly, as FULL; a round pulls every sharer at once into a slot of its own, so more needs pulls in
-turns -- its own piece of work.
+with `each`, so neither is reached there. **Received shares stopped at 64 sharers** (sec 914),
+honestly, as FULL; pulled in turns since sec 960.
+
+## 960. Sharers and members' hosts past a round's slots, in turns, 2026-11-08
+
+Two of a kind. **Shares accepted** stopped at 64 sharers (FZN_NODE_RECEIVED_MAX), refused as FULL,
+as a round pulled every sharer at once, each into a socket and a reply slot of its own. **A group's
+members' hosts** were asked for their shares up to FZND_GROUP_SHARES_MAX, 32, a round -- and past it,
+**the same first 32 every round and the rest never**: in a group of 20 people with two devices
+each, some members' shared notes never arrived, and nothing said so.
+
+**As many as there are now, asked in turns,** as the contacts' hosts already were (sec 826): every
+sharer is held, and every member's host paired every round; each round opens the next turn of each
+-- the slots' worth, wrapping past the last -- and the two calls of the groups round ask the same
+turn. **The first turn after a start is drawn**: the live scripts restart a daemon each round, and
+so does a host started often, which would otherwise ask the first ones only -- the fault again.
+`list received` reads every row; the store's list grows until it holds them, as in sec 958.
+
+**Tested** on a fuzznetd built with both windows at one: `live_group_hosts`, whose C asks three
+member hosts, with a log line naming each turn, saw turns from 0, 1 and 2 of 3 over its rounds and
+passed whole; `live_shares` and `live_group_backfill` passed. On the default build its a2 asks all
+three in one round, as before.
+
+**Not guarded by a sabotage:** the turns are the daemon's round, which only a live run reaches.
+`node-received-bounded` guarded the bound that went; `node-received-listed-to-a-room` guards the
+listing's growth, which `admin_test` meets past the 64 a round pulls.
