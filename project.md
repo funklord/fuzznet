@@ -82612,9 +82612,9 @@ WSAPoll), a mapping or a read for `mmap`, `pread` as ReadFile at an offset, owne
 answer for a profile's ACL, `mkdir`'s mode, `O_CLOEXEC`, `fsync` as `_commit`. **The open question
 is the client socket:** Windows has AF_UNIX for SOCK_STREAM only.
 
-**Not begun here:** a port is a direction the holder has not given this tree directly, and it
-reaches every module that touches the system. It waits for the holder's word; fuzzypickles' count
-is the starting list.
+**Not begun here:** the holder's word since, sec 967: the port waits for a fuzznet near completion,
+is done here first and tested, and nothing dependent asks for it meanwhile. fuzzypickles' count is
+the starting list.
 
 ## 957. A store load for each catalogue entry, every round, 2026-11-08
 
@@ -82893,3 +82893,29 @@ socket's 5 s twice -- `live_objects` at its phase b, `live_files_many` during it
 on this machine. Since, 0 of 14 runs failed, at load up to 37, so this says nothing yet about what
 held the loop, and load is not shown to be it. The scripts raise the timeout bare and print no
 daemon log for it.
+
+## 967. Windows and macOS wait for a fuzznet near completion, 2026-11-09
+
+**The holder, 2026-11-09:** "windows and other difficult legacy ports (win/mac) are for when
+fuzznet is nearing completion. Write this up so nothing dependent asks for it before it is done
+here first and tested."
+
+So the order is fixed, and it binds every consumer:
+
+- **No port of fuzznet to Windows or macOS is begun until fuzznet is near completion.** What near
+  completion means is the holder's to say; until they say it, the answer to "may we port now" is
+  no, and asking again is not needed.
+- **The port is done here first, and tested here**, before any consumer builds on it: fuzznet holds
+  every system call a consumer's network and storage reach (sec 672, the holder's: all network
+  code is fuzznet's), so a
+  port made in a consumer would be a fork of fuzznet's system layer. Nothing dependent -- fzp, fzpd,
+  netcfgd, raidcfgd, beerssh -- ports its own use of fuzznet, carries patches for it, or asks for
+  it meanwhile.
+- **What is kept ready:** fuzzypickles' count of what stops a mingw build (sec 956) is the starting
+  list, and the open question there -- the client socket, Windows having AF_UNIX for SOCK_STREAM
+  only -- is the first design question when the port begins.
+- **Meanwhile nothing here is written to make the port harder:** new code reaching the system goes
+  through the layers that already hold it (`spool/`, `net/`, `local/`), so the list does not grow
+  by a module that calls the system directly.
+
+**Told:** fuzzypickles, which relayed the ask (inbox 20261108T0941Z), through its inbox.
