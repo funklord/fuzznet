@@ -5,6 +5,7 @@
     b  a value set on R reaches a client held on A as an event, well inside a
        round, and A reads it with when and who; the same from A to R
     c  A goes away, R sets, and A come back reads the last value
+    d  R's older values go at its next start's trim, each host's newest staying
 
 The default round is 60 s, so `FAST_S` says a change did not wait for one.
 
@@ -160,6 +161,25 @@ def main(argv):
 			polled("a", "get object lamp", lambda g: g.startswith("ok on "),
 			       "not the value set while it was away", 70.0)
 			print("livecheck: c: A, away for a set, reads the last value")
+
+			# d: older values go by default, sec 963. R sets four times more
+			# and starts again, whose first trim pass runs at start: each
+			# host's newest value alone stays, and the value reads the same.
+			for v in ("off", "on", "off", "on"):
+				expect(socks["r"], "r", "set object lamp " + v, "ok")
+			under = "list record under list/object-value/lamp"
+			rows = said("r", under).split()[4:]
+			if len(rows) < 6:
+				raise failed("d: R held %d values before its trim: %r" % (len(rows), rows))
+			value = said("r", "get object lamp")
+			started["r"].stop()
+			up("r", "r2")
+			polled("r", "status", lambda g: g.startswith("ok "), "not answering", 30.0)
+			got = polled("r", under, lambda g: len(g.split()[4:]) == 2,
+			             "not each host's newest value alone", 30.0)
+			if said("r", "get object lamp") != value:
+				raise failed("d: the trim changed the value: %r" % said("r", "get object lamp"))
+			print("livecheck: d: %d values trimmed to each host's newest, %r" % (len(rows), got))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			for name in sorted(os.listdir(scratch)):

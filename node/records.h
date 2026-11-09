@@ -136,6 +136,18 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
                                              const struct fzn_retain_rule *rules, size_t n,
                                              uint64_t now_ms, size_t *gone);
 
+/*
+ * WHAT EVERY HOST'S TRIM WEIGHS BESIDE ITS RULES, sec 963, the holder's
+ * 2026-11-09: an object's values, each host's newest alone. A lamp set
+ * every minute otherwise grew a record a minute for good, and none of the
+ * older ones changes what the object reads (sec 854's deciding record is
+ * kept whatever the rules say). A keep rule reaching them keeps more --
+ * `keep records text=list/object-value/ count 100` -- as a keep wins over
+ * a prune. Written into `out`, at most `room`; how many.
+ */
+#define FZN_NODE_RECORDS_DEFAULT_RULE "prune records text=list/object-value/ count 1"
+size_t fzn_node_records_defaults(struct fzn_retain_rule *out, size_t room);
+
 /* LISTS, sec 854. */
 #define FZN_NODE_LIST_PREFIX "list/"
 #define FZN_NODE_LIST_PREFIX_LEN 5u

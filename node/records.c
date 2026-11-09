@@ -282,6 +282,16 @@ static int reaches(const fzn_retain_rule_t *r, const struct held *h, const struc
 	       && holds_text(h, r) && (!r->list[0] || holds_member(h, ms));
 }
 
+size_t fzn_node_records_defaults(fzn_retain_rule_t *out, size_t room)
+{
+	static const char RULE[] = FZN_NODE_RECORDS_DEFAULT_RULE;
+
+	if (!out || !room)
+		return 0;
+	memset(out, 0, sizeof(*out));
+	return fzn_retain_parse(RULE, sizeof(RULE) - 1u, out) == FZN_RETAIN_OK ? 1u : 0u;
+}
+
 static int within(const fzn_retain_rule_t *r, const struct held *h, uint64_t now_ms)
 {
 	if (r->limit == FZN_RETAIN_COUNT)

@@ -14898,6 +14898,20 @@ SABOTAGES = [
 		"a list read through the cache misses what a peer handed on -- sec 950",
 	),
 	(
+		"object-values-kept-two",
+		"node/records.h",
+		'"prune records text=list/object-value/ count 1"',
+		'"prune records text=list/object-value/ count 2"',
+		"each host keeps two of an object's values, not its newest alone -- sec 963",
+	),
+	(
+		"object-values-no-default",
+		"node/records.c",
+		"\treturn fzn_retain_parse(RULE, sizeof(RULE) - 1u, out) == FZN_RETAIN_OK ? 1u : 0u;\n",
+		"\treturn 0u;\n",
+		"no default rule, so an object's values grow a record a set for good -- sec 963",
+	),
+	(
 		"list-cache-misses-a-write",
 		"node/records.c",
 		"\t\tnote_listed(nr, nr->id->pubkey, &s);\n",

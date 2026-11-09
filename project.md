@@ -82470,9 +82470,8 @@ this host's, two others' filed late or in the same ms, clears, other records, a 
 each compares the cache with a read of every record. `list-cache-misses-a-filing`,
 `list-cache-misses-a-write`, `list-cache-unsorted` and `list-cache-any-name` guard it.
 
-**Open:** the records still grow with each set; a `prune records text=list/object-value/ count 1`
-rule bounds them, and none is there by default. `get record` still reads every record (sec 816);
-`list record` paged in sec 952.
+**Open:** `get record` still reads every record (sec 816); `list record` paged in sec 952. The
+records growing with each set are bounded by default since sec 963.
 
 ## 951. An act a fork dropped, kept across a stop, 2026-11-08
 
@@ -82743,3 +82742,35 @@ the next load read the store. `view-not-kept-by-an-add` and `view-took-unreached
 
 **Not this:** an edit, a move or a purge still has the next add read every claim, as does a claim
 arriving from a peer. Those are one read each, not one an add.
+
+## 963. An object's older values go by default, 2026-11-09
+
+Sec 950 left the records of an object growing with each set, a lamp set every minute keeping a
+record a minute for good, and asked whether `prune records text=list/object-value/ count 1` should
+be there by default. **The holder's answer, 2026-11-09: yes.**
+
+**Every host's trim weighs it beside its own rules** (`fzn_node_records_defaults`,
+`FZN_NODE_RECORDS_DEFAULT_RULE`): each host's newest value of each object stays, and the others go
+at the next trim pass, which runs at a start and then hourly. Nothing a reader sees changes: an
+object resolves to its newest value, which is its host's newest and is kept whatever the rules say
+(sec 854's deciding record). A record let go stays counted in its bucket, so no peer sends it back.
+
+**More is kept by a keep rule**, as a keep wins over a prune: `keep records
+text=list/object-value/ count 100`, or an `age`, for whoever wants the history here. The history
+of a value is otherwise a log's job. The default is applied at the trim, never written into a
+rule set, so a later change of it reaches every host that did not choose otherwise (a config
+records choices, not values).
+
+**Cost:** with no rule over records the trim read nothing; now every host reads every record once
+an hour. At the 25 us a record measured for a whole read in sec 950, that is 0.2 s an hour at 8000
+records.
+
+**Tested, `records_test`:** an object set seven times here and once by another host keeps two
+records after a trim with the default alone, reads the same value with the same when and who, and
+an unset object's record stays; four more sets under a `keep ... count 3` beside it keep this
+host's newest three. `object-values-kept-two` and `object-values-no-default` guard it, both caught
+by hand.
+
+**Measured live, `live_objects` phase d:** R sets the lamp four more times, holding 7 values of two
+hosts, and starts again: its first trim leaves 2, one a host, and the value reads the same.
+**Control:** a fuzznetd whose trim is not handed the default failed phase d with all 7 held.

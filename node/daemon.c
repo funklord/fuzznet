@@ -5398,8 +5398,11 @@ static void messages_trim(uint64_t now)
 		                                          dlog.has_host ? dlog.host : NULL,
 		                                          here_machine(), mine),
 		       gone = 0;
-		fzn_node_records_err_t rerr =
-		        fzn_node_records_trim(&node_records, mine, n_mine, wall_ms(), &gone);
+		fzn_node_records_err_t rerr;
+
+		/* AND THE DEFAULTS, sec 963: an object's older values. */
+		n_mine += fzn_node_records_defaults(mine + n_mine, FZN_RETAIN_RULES_MAX - n_mine);
+		rerr = fzn_node_records_trim(&node_records, mine, n_mine, wall_ms(), &gone);
 
 		if (gone)
 			fzn_node_decisions_forget();

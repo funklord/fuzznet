@@ -383,6 +383,22 @@ static size_t held_of(const fzn_node_records_t *nr, const char *key)
 	return n;
 }
 
+/* Every record under `prefix` held, of any host: one page's count, or
+ * (size_t)-1 when it took more than one. */
+static size_t held_under(const fzn_node_records_t *nr, const char *prefix)
+{
+	char line[128];
+	unsigned long from = 0;
+	size_t shown = 0;
+	int more = 1;
+
+	(void)snprintf(line, sizeof(line), "list record under %s", prefix);
+	if (!said(nr, FZN_ORIGIN_SAME_USER, line)
+	    || sscanf(reply, "ok %lu %zu %d", &from, &shown, &more) != 3 || more)
+		return (size_t)-1;
+	return shown;
+}
+
 /* TRIMMED BY THE RULES, sec 815. */
 static void test_the_trim(void)
 {
@@ -875,6 +891,40 @@ static void objects_with(fzn_node_records_cache_t *cache)
 	              && object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && replied("ok on "),
 	      "a value after a clear, by a clock behind, lost to the clear");
 	clock_ms += 900000u;
+
+	/* AN OBJECT'S OLDER VALUES GO BY DEFAULT, sec 963: each host's newest
+	 * stays, so the value reads as it did; a keep keeps more. */
+	{
+		fzn_retain_rule_t d[2];
+		char before[sizeof(reply)];
+		size_t gone = 0, n_d = fzn_node_records_defaults(d, 1u);
+
+		CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && replied("ok on ")
+		              && n_d == 1u && d[0].kind == FZN_RETAIN_PRUNE
+		              && d[0].data == FZN_RETAIN_RECORDS && held_under(&nr, KEY) > 3u,
+		      "fixture: an object set many times, and the default rule");
+		(void)object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp");
+		memcpy(before, reply, sizeof(before));
+		CHECK(fzn_node_records_trim(&nr, d, n_d, clock_ms, &gone) == FZN_NODE_RECORDS_OK
+		              && gone && held_under(&nr, KEY) == 2u
+		              && object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp")
+		              && strcmp(reply, before) == 0
+		              && held_under(&nr, "list/object-value/door_07") == 1u,
+		      "the default did not keep each host's newest value alone, or changed the value");
+		for (i = 0; i < 4u; i++) {
+			clock_ms += 1000u;
+			CHECK(object_said(&o, FZN_ORIGIN_SAME_USER,
+			                  i % 2u ? "set object lamp on" : "set object lamp off")
+			              && replied("ok"),
+			      "fixture: the lamp set again");
+		}
+		d[1] = rule("keep records text=list/object-value/ count 3");
+		CHECK(fzn_node_records_trim(&nr, d, 2u, clock_ms, &gone) == FZN_NODE_RECORDS_OK
+		              && held_under(&nr, KEY) == 4u
+		              && object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp")
+		              && replied("ok on "),
+		      "a keep did not keep this host's newest three over the default");
+	}
 }
 
 struct listed {
