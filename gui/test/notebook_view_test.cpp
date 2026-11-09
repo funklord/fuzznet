@@ -881,6 +881,32 @@ static void test_contested_and_elsewhere_are_said(void)
 	canned_line = canned_reply = NULL;
 }
 
+/* A REFUSAL SAID WHERE THE PERSON IS LOOKING, sec 990: to the host's notice
+ * hook when it gives one, in the status line when not, and logged either way. */
+static void test_a_refusal_is_said_inline(void)
+{
+	QStringList log, notices;
+
+	setup();
+	{
+		fzn_notebook_view w(node_ask, nullptr);
+
+		w.set_log([&log](const QString &l) { log << l; });
+		w.set_notice([&notices](const QString &l) { notices << l; });
+		CHECK(w.new_note(QStringLiteral("n")) && !w.share_with(QStringLiteral("nobody"))
+		              && notices.size() == 1 && notices[0].startsWith(QStringLiteral("Not shared"))
+		              && log.contains(notices[0]),
+		      "a refused share reaches the notice hook, and the log");
+	}
+	{
+		fzn_notebook_view w(node_ask, nullptr);
+
+		CHECK(w.new_note(QStringLiteral("m")) && !w.share_with(QStringLiteral("nobody"))
+		              && w.status().startsWith(QStringLiteral("Not shared")),
+		      "with no hook it is said in the status line");
+	}
+}
+
 /* A PHONE HELD UPRIGHT, sec 989: the rows of buttons wrap, so the widget
  * fits 360 pixels, where their sum once set it at 823. */
 static void test_it_fits_a_phone(void)
@@ -1099,6 +1125,7 @@ int main(int argc, char **argv)
 	test_labels_are_edited_and_shown();
 	test_every_field_has_an_accessible_name();
 	test_it_fits_a_phone();
+	test_a_refusal_is_said_inline();
 	test_contested_and_elsewhere_are_said();
 	test_a_notes_history_is_read_and_restored();
 	test_a_checklists_history_shows_its_items();

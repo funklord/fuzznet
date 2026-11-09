@@ -76,6 +76,10 @@ public:
 
 	/* One line for the host's log: what was done, or why it was not. */
 	void set_log(std::function<void(const QString &)> log) { m_log = std::move(log); }
+	/* WHAT THE PERSON SHOULD SEE NOW, sec 990: a refusal of what they just
+	 * did, said inline as well as logged -- in the host's own way when it
+	 * gives one, in the status line otherwise. */
+	void set_notice(std::function<void(const QString &)> notice) { m_notice = std::move(notice); }
 
 	/* Re-read the trees, the open folder and the open note. The host calls
 	 * it when the surface is shown and on its own timer; nothing here polls. */
@@ -171,6 +175,7 @@ private:
 	 * and its status: 1 ok, 0 refused (detail says why), -1 no answer. */
 	int ask(const QString &line, QString *detail);
 	void say(const QString &line);
+	void fail(const QString &line);
 	void refresh_trees();
 	void refresh_list();
 	void refresh_note();
@@ -189,6 +194,7 @@ private:
 	fzn_notebook_view_ask_t m_ask;
 	void *m_ask_ctx;
 	std::function<void(const QString &)> m_log;
+	std::function<void(const QString &)> m_notice;
 
 	/* Whose tree: empty is this user's own, else a contact's name. */
 	QString m_tree;

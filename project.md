@@ -83254,8 +83254,8 @@ is older than 34fd5a1, and intermittent; being found (sec 979).
 this one lacks before it can be swapped in: ~~labels editable and shown in the row~~, sec 983;
 ~~a group's notebook opened, not only `list received`~~, sec 988; ~~a backfill choice when
 sharing to a group~~, sec 986; ~~the "elsewhere" and "contested" states shown~~, sec 987; a phone's width (~~flowing rows~~, sec 989, and a
-More menu); ~~accessible names~~ (sec 983) and `tr()`; a hook to say something to the person inline, apart from
-the log.
+More menu); ~~accessible names~~ (sec 983) and `tr()`; ~~a hook to say something to the person inline, apart from
+the log~~, sec 990.
 
 **Open, notes import** (`notes/import.c`, T1355Z): ~~a title past the limit shortened and the
 note kept~~, ~~the format chosen by content, not the name's suffix~~ and ~~a reason per
@@ -83569,3 +83569,21 @@ same build.
 **Open:** a host-scoped setting written apart is not tracked as a decision (sec 895 tracks estate
 cells only), so `location/enabled` and the other host settings declare a direction no fork reads
 yet; the declaration is in place for when one does.
+
+## 990. notebook_view says a refusal where the person is looking, 2026-11-10
+
+The last of fuzzypickles' notebook_view gaps but two (inbox T1340Z; sec 978). Every refusal of
+what the person had just done -- a share to a name that is no contact, a title the node would not
+take, a text that would not save, twenty in all -- went only to the host's log, which the person
+using the widget is not reading.
+
+**Built:** `set_notice`, beside `set_log`: the host's way to put something in front of the person
+now. Each of the twenty refusals goes to the log as before and to the notice hook, or, where the
+host gives none, to the widget's status line. What was done, and the routine words, stay in the
+log alone.
+
+**Measured:** `notebook_view_test` -- a share to nobody reaches the hook and the log, and with no
+hook the status line. `notebook-view-refusal-only-logged` guards it.
+
+**Still open of T1340Z:** `tr()` -- no widget in `gui/` translates yet, so it is a decision for all
+of them at once, not this one alone -- and a More menu (sec 989).

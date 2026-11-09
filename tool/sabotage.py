@@ -14954,13 +14954,6 @@ SABOTAGES = [
 		"an imported title past the bound is kept whole, past what a note may hold -- sec 982",
 	),
 	(
-		"safe-direction-reversed",
-		"state/schema.c",
-		"\treturn (e->flags & FZN_SCHEMA_SAFE_LOWER) ? y < x : y > x;\n",
-		"\treturn (e->flags & FZN_SCHEMA_SAFE_LOWER) ? y > x : y < x;\n",
-		"of two values written apart the less restrictive stands -- sec 981",
-	),
-	(
 		"import-refusal-reason-lost",
 		"node/notes.c",
 		"\tcase FZN_NOTES_IMPORT_PENDING:\n\t\treturn \"pending\";\n",
@@ -15058,6 +15051,20 @@ SABOTAGES = [
 		"\tauto *trash_row = new flow_row();\n",
 		"\tauto *trash_row = new QHBoxLayout();\n",
 		"the row of nine note actions sets the notebook wider than a phone -- sec 989",
+	),
+	(
+		"notebook-view-refusal-only-logged",
+		"gui/notebook_view.cpp",
+		"\tsay(line);\n\tif (m_notice)\n\t\tm_notice(line);\n\telse\n\t\tset_status(line);\n",
+		"\tsay(line);\n",
+		"a refusal of what the person just did goes only to a log they are not reading -- sec 990",
+	),
+	(
+		"safe-direction-reversed",
+		"state/schema.c",
+		"\treturn (e->flags & FZN_SCHEMA_SAFE_LOWER) ? y < x : y > x;\n",
+		"\treturn (e->flags & FZN_SCHEMA_SAFE_LOWER) ? y > x : y < x;\n",
+		"of two values written apart the less restrictive stands -- sec 981",
 	),
 	(
 		"sticker-why-counts-from-zero",

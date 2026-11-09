@@ -526,6 +526,17 @@ void fzn_notebook_view::say(const QString &line)
 		m_log(line);
 }
 
+/* A REFUSAL OF WHAT THE PERSON JUST DID, sec 990: logged, and said where
+ * they are looking. */
+void fzn_notebook_view::fail(const QString &line)
+{
+	say(line);
+	if (m_notice)
+		m_notice(line);
+	else
+		set_status(line);
+}
+
 void fzn_notebook_view::set_status(const QString &text)
 {
 	m_status->setText(text);
@@ -1027,7 +1038,7 @@ bool fzn_notebook_view::restore_version()
 	if ((!title.isEmpty()
 	     && ask(QStringLiteral("set note %1 title %2").arg(m_open, title), &why) != 1)
 	    || ask(QStringLiteral("set note %1 file %2").arg(m_open, file.fileName()), &why) != 1) {
-		say(QStringLiteral("The version was not restored: %1").arg(why));
+		fail(QStringLiteral("The version was not restored: %1").arg(why));
 		return false;
 	}
 	m_viewing = -1;
@@ -1148,7 +1159,7 @@ bool fzn_notebook_view::new_note(const QString &title)
 	if (shared() || one_line.isEmpty())
 		return false;
 	if (ask(QStringLiteral("add note %1 %2").arg(parent_id(), one_line), &id) != 1) {
-		say(QStringLiteral("The note was not made: %1").arg(id));
+		fail(QStringLiteral("The note was not made: %1").arg(id));
 		return false;
 	}
 	m_open = id;
@@ -1168,7 +1179,7 @@ bool fzn_notebook_view::new_folder(const QString &title)
 	if (shared() || one_line.isEmpty())
 		return false;
 	if (ask(QStringLiteral("add folder %1 %2").arg(parent_id(), one_line), &id) != 1) {
-		say(QStringLiteral("The folder was not made: %1").arg(id));
+		fail(QStringLiteral("The folder was not made: %1").arg(id));
 		return false;
 	}
 	refresh_list();
@@ -1184,7 +1195,7 @@ bool fzn_notebook_view::new_list(const QString &title)
 	if (shared() || one_line.isEmpty())
 		return false;
 	if (ask(QStringLiteral("add list %1 %2").arg(parent_id(), one_line), &id) != 1) {
-		say(QStringLiteral("The list was not made: %1").arg(id));
+		fail(QStringLiteral("The list was not made: %1").arg(id));
 		return false;
 	}
 	m_open = id;
@@ -1204,7 +1215,7 @@ bool fzn_notebook_view::add_item(const QString &text)
 	if (shared() || !m_is_list || one_line.isEmpty())
 		return false;
 	if (ask(QStringLiteral("add item %1 %2").arg(m_open, one_line), &why) != 1) {
-		say(QStringLiteral("The item was not added: %1").arg(why));
+		fail(QStringLiteral("The item was not added: %1").arg(why));
 		return false;
 	}
 	refresh_note();
@@ -1223,7 +1234,7 @@ bool fzn_notebook_view::toggle_item(int index)
 	                .arg(m_ticks[index] ? QStringLiteral("uncheck") : QStringLiteral("check")),
 	        &why)
 	    != 1) {
-		say(QStringLiteral("The item was not changed: %1").arg(why));
+		fail(QStringLiteral("The item was not changed: %1").arg(why));
 		return false;
 	}
 	refresh_note();
@@ -1237,7 +1248,7 @@ bool fzn_notebook_view::remove_item(int index)
 	if (shared() || !m_is_list || index < 0 || index >= m_ticks.size())
 		return false;
 	if (ask(QStringLiteral("remove item %1 %2").arg(m_open).arg(index), &why) != 1) {
-		say(QStringLiteral("The item was not removed: %1").arg(why));
+		fail(QStringLiteral("The item was not removed: %1").arg(why));
 		return false;
 	}
 	refresh_note();
@@ -1263,7 +1274,7 @@ bool fzn_notebook_view::move_here()
 	if (shared() || m_cut.isEmpty() || m_trash)
 		return false;
 	if (ask(QStringLiteral("set note %1 parent %2").arg(m_cut, parent_id()), &why) != 1) {
-		say(QStringLiteral("Not moved: %1").arg(why));
+		fail(QStringLiteral("Not moved: %1").arg(why));
 		return false;
 	}
 	say(QStringLiteral("Moved %1 to %2.")
@@ -1286,7 +1297,7 @@ bool fzn_notebook_view::save()
 		return false;
 	if (!title.isEmpty()
 	    && ask(QStringLiteral("set note %1 title %2").arg(m_open, title), &why) != 1) {
-		say(QStringLiteral("The title was not saved: %1").arg(why));
+		fail(QStringLiteral("The title was not saved: %1").arg(why));
 		return false;
 	}
 	/* THE LABELS, sec 983, only when changed: each trimmed, empty ones
@@ -1302,7 +1313,7 @@ bool fzn_notebook_view::save()
 		                                             : QStringLiteral(" ") + words.join(QLatin1Char(' '))),
 		        &why)
 		    != 1) {
-			say(QStringLiteral("The labels were not saved: %1").arg(why));
+			fail(QStringLiteral("The labels were not saved: %1").arg(why));
 			return false;
 		}
 		m_labels_read = m_labels->text();
@@ -1311,13 +1322,13 @@ bool fzn_notebook_view::save()
 	 * request line. A folder has none to save. */
 	if (m_body->isEnabled() && !m_is_list) {
 		if (!file.open() || file.write(m_body->toPlainText().toUtf8()) < 0) {
-			say(QStringLiteral("The text could not be written out to save."));
+			fail(QStringLiteral("The text could not be written out to save."));
 			return false;
 		}
 		file.close();
 		if (ask(QStringLiteral("set note %1 file %2").arg(m_open, file.fileName()), &why)
 		    != 1) {
-			say(QStringLiteral("The text was not saved: %1").arg(why));
+			fail(QStringLiteral("The text was not saved: %1").arg(why));
 			return false;
 		}
 	}
@@ -1333,7 +1344,7 @@ bool fzn_notebook_view::trash()
 	if (shared() || m_open.isEmpty())
 		return false;
 	if (ask(QStringLiteral("set note %1 trash").arg(m_open), &why) != 1) {
-		say(QStringLiteral("Not moved to the trash: %1").arg(why));
+		fail(QStringLiteral("Not moved to the trash: %1").arg(why));
 		return false;
 	}
 	m_open.clear();
@@ -1351,7 +1362,7 @@ bool fzn_notebook_view::restore()
 	if (shared() || m_open.isEmpty())
 		return false;
 	if (ask(QStringLiteral("set note %1 untrash").arg(m_open), &why) != 1) {
-		say(QStringLiteral("Not restored: %1").arg(why));
+		fail(QStringLiteral("Not restored: %1").arg(why));
 		return false;
 	}
 	m_open.clear();
@@ -1385,7 +1396,7 @@ bool fzn_notebook_view::empty_trash()
 	if (shared())
 		return false;
 	if (ask(QStringLiteral("remove note trash"), &detail) != 1) {
-		say(QStringLiteral("The trash was not emptied: %1").arg(detail));
+		fail(QStringLiteral("The trash was not emptied: %1").arg(detail));
 		return false;
 	}
 	/* `QUEUED PENDING`: what waits is waiting on other nodes, and says so. */
@@ -1409,7 +1420,7 @@ bool fzn_notebook_view::import_file(const QString &path)
 	if (shared() || path.isEmpty())
 		return false;
 	if (ask(QStringLiteral("add import %1 %2").arg(parent_id(), path), &detail) != 1) {
-		say(QStringLiteral("Nothing was imported: %1").arg(detail));
+		fail(QStringLiteral("Nothing was imported: %1").arg(detail));
 		return false;
 	}
 	/* `IMPORTED ALREADY UNDATED REFUSED PENDING ATTACHED REASON,NAME ...`
@@ -1467,7 +1478,7 @@ bool fzn_notebook_view::share_with(const QString &contact, int backfill)
 	if (contact.startsWith(QLatin1Char('@')) && backfill >= 0)
 		line += QStringLiteral(" backfill %1").arg(backfill ? 1 : 0);
 	if (ask(line, &why) != 1) {
-		say(QStringLiteral("Not shared: %1").arg(why));
+		fail(QStringLiteral("Not shared: %1").arg(why));
 		return false;
 	}
 	refresh_shares();
@@ -1482,7 +1493,7 @@ bool fzn_notebook_view::unshare_with(const QString &contact)
 	if (shared() || m_open.isEmpty() || contact.isEmpty())
 		return false;
 	if (ask(QStringLiteral("remove share %1 %2").arg(m_open, contact), &why) != 1) {
-		say(QStringLiteral("Not unshared: %1").arg(why));
+		fail(QStringLiteral("Not unshared: %1").arg(why));
 		return false;
 	}
 	refresh_shares();
@@ -1502,7 +1513,7 @@ bool fzn_notebook_view::pin(bool on)
 	                                                         : QStringLiteral("unpin")),
 	        &why)
 	    != 1) {
-		say(QStringLiteral("Not changed: %1").arg(why));
+		fail(QStringLiteral("Not changed: %1").arg(why));
 		return false;
 	}
 	refresh_list();
@@ -1520,7 +1531,7 @@ bool fzn_notebook_view::archive(bool on)
 	                                                         : QStringLiteral("unarchive")),
 	        &why)
 	    != 1) {
-		say(QStringLiteral("Not changed: %1").arg(why));
+		fail(QStringLiteral("Not changed: %1").arg(why));
 		return false;
 	}
 	/* IT LEAVES THIS VIEW for the other, so nothing stays open here. */
