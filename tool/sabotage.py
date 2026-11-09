@@ -14898,6 +14898,27 @@ SABOTAGES = [
 		"a list read through the cache misses what a peer handed on -- sec 950",
 	),
 	(
+		"grant-index-by-grantor",
+		"node/apply.c",
+		"\treturn ap->grants[fnv(key, FZN_PUBKEY_LEN) % ap->grants_cap].first_by_grantee;\n",
+		"\treturn ap->grants[fnv(key, FZN_PUBKEY_LEN) % ap->grants_cap].first_by_hop;\n",
+		"a walk by the index reads the wrong chain, and finds no grant naming a key -- sec 969",
+	),
+	(
+		"grant-index-keeps-no-tail",
+		"node/apply.c",
+		"\tif (by_grantee->last_by_grantee)\n",
+		"\tif (0)\n",
+		"each grant added starts its chain again, so the index finds the last alone -- sec 969",
+	),
+	(
+		"grant-index-no-dedupe",
+		"node/apply.c",
+		"\t\t\tif (memcmp(ap->grants[at - 1u].hop, body, FZN_HOP_LEN) == 0)\n\t\t\t\treturn 0;\n",
+		"\t\t\tif (0)\n\t\t\t\treturn 0;\n",
+		"a grant held already is indexed again, through the index's hop chains -- sec 969",
+	),
+	(
 		"sync-load-grows-at-rest",
 		"node/sync_load.c",
 		"(st.now <= sample_at(s, s->samples[q], 0) || rises < s->n / 2u)",

@@ -36,9 +36,10 @@ from live_rejoin import command, daemon, expect, free_slot  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 600.0
+live_trim.DEADLINE = time.monotonic() + 600.0 + 20.0 * max(0, int(os.environ.get("FZN_LIVE_MEMBERS", "11")) - 11)
 
-MEMBERS = 11
+# FZN_LIVE_MEMBERS for a larger estate, measured by hand (sec 964).
+MEMBERS = int(os.environ.get("FZN_LIVE_MEMBERS", "11"))
 ROUND_S = "3"
 ASKED_RE = re.compile(r"a sibling in this round's turn: 127\.0\.0\.1 port (\d+)")
 LEFT = 3
@@ -57,7 +58,7 @@ def main(argv):
 	os.environ["FZN_TUNE_PULL_EVERY"] = ROUND_S
 	who = ["r"] + ["m%02d" % i for i in range(MEMBERS)]
 	members = who[1:]
-	base = free_slot(36000, 16, 120, len(who))
+	base = free_slot(36000, 64, 30, len(who))
 	port = {k: base + i for i, k in enumerate(who)}
 	with tempfile.TemporaryDirectory(prefix="fzn-live.") as scratch, \
 	     tempfile.TemporaryDirectory(prefix="fzs.", dir="/tmp") as sock_dir:
@@ -113,6 +114,37 @@ def main(argv):
 				time.sleep(1.0)
 			print("livecheck: a: each of %d members asked all %d siblings in turns, in %.0f s"
 			      % (MEMBERS, MEMBERS - 1, time.monotonic() - began))
+			loads = sorted(int(ask(socks[k], "get sync-load").split()[1]) for k in members)
+			# CPU, by the pids started here: each daemon's user and system time
+			# over 10 s, so a round's cost is told from a machine's load.
+			def ticks():
+				out = {}
+				for k in who:
+					try:
+						with open("/proc/%d/stat" % started[k].proc.pid) as f:
+							fields = f.read().rsplit(")", 1)[1].split()
+						out[k] = int(fields[11]) + int(fields[12])
+					except (OSError, IndexError, ValueError):
+						pass
+				return out
+			t0, w0 = ticks(), time.monotonic()
+			if os.environ.get("FZN_LIVE_PERF"):
+				# A PROFILE of one member over the same 10 s, by hand (sec 968).
+				import subprocess
+				subprocess.run(["perf", "record", "-q", "-F", "499", "-e", "cpu-clock:u", "--call-graph", "dwarf,16384",
+				                "-p", str(started[members[0]].proc.pid), "-o",
+				                os.environ["FZN_LIVE_PERF"], "--", "sleep", "10"],
+				               timeout=60, check=False)
+			else:
+				time.sleep(10.0)
+			t1, w1 = ticks(), time.monotonic()
+			hz = os.sysconf("SC_CLK_TCK")
+			used = sorted((t1[k] - t0[k]) / hz / (w1 - w0) * 100.0 for k in t1 if k in t0)
+			print("livecheck: a: CPU per daemon, per cent of one core over %.0f s: min %.1f, "
+			      "median %.1f, max %.1f, %d daemons" % (w1 - w0, used[0], used[len(used) // 2],
+			                                            used[-1], len(used)))
+			print("livecheck: a: the members' sync-load, per cent of a %s s round: %s"
+			      % (ROUND_S, loads))
 
 			# b: three left, among themselves.
 			left = members[-LEFT:]
@@ -132,8 +164,8 @@ def main(argv):
 							raise failed("b: %s never read %s's cell: %r"
 							             % (k, other, ask(socks[k], line)))
 						time.sleep(0.5)
-			print("livecheck: b: with R and eight members away, the three left read one "
-			      "another's cells in %.0f s" % (time.monotonic() - began))
+			print("livecheck: b: with R and %d members away, the three left read one "
+			      "another's cells in %.0f s" % (MEMBERS - LEFT, time.monotonic() - began))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			for name in sorted(os.listdir(scratch)):

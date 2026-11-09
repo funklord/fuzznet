@@ -2300,6 +2300,33 @@ static void test_an_index_of_thousands(void)
 	              && memcmp(hops[0], hop, FZN_HOP_LEN) == 0
 	              && (member[1] = member[2] = 0, fzn_node_apply_chain(&ap, member, &cap, hops, &n)),
 	      "given room, the round did not take the other 744 grants, or lost the first");
+	/* THE INDEX ANSWERS AS THE SCAN, sec 969: each member's chain, and keys
+	 * no grant names, walked by the index and then by every grant. */
+	{
+		uint8_t by_index[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], by_scan[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+		size_t n_index = 0, n_scan = 0, same = 0, k;
+		int in_use = ap.indexed_grants == ap.grants && ap.indexed_used == ap.grants_used;
+
+		for (k = 0; k < 1020u; k++) {
+			int a, b;
+
+			key(member, k < 1000u ? 0x2c : 0x3d);
+			member[1] = (uint8_t)(k >> 8);
+			member[2] = (uint8_t)k;
+			ap.indexed_grants = ap.grants;
+			a = fzn_node_apply_chain(&ap, member, &cap, by_index, &n_index);
+			ap.indexed_grants = NULL;
+			b = fzn_node_apply_chain(&ap, member, &cap, by_scan, &n_scan);
+			same += a == b && (k < 1000u) == a && (!a || (n_index == n_scan
+			                                       && memcmp(by_index, by_scan,
+			                                                 n_index * FZN_HOP_LEN) == 0));
+		}
+		ap.indexed_grants = ap.grants;
+		CHECK(in_use && same == 1020u,
+		      "the index was not built, or a chain walked by it was not the scan's");
+		CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && ap.grants_used == 1000u,
+		      "a grant held already was indexed again");
+	}
 	memset(&fresh, 0, sizeof(fresh));
 	fresh.store = &store;
 	fresh.hash = &HASH;
@@ -2308,6 +2335,9 @@ static void test_an_index_of_thousands(void)
 	              && again && fzn_node_apply_use_grants(&fresh, again, 2048u)
 	              && fzn_node_apply_load_grants(&fresh, &loaded) && fresh.grants_used == 1000u,
 	      "a fresh context did not ask for room for 1000 kept grants, or not load them in it");
+	CHECK(fzn_node_apply_load_grants(&fresh, &loaded) && loaded == 0u
+	              && fresh.grants_used == 1000u,
+	      "grants loaded again were indexed again, by the index's hop chains (sec 969)");
 	fzn_node_journal_close(&nj);
 	free(room);
 	free(again);

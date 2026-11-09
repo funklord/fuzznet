@@ -82919,3 +82919,65 @@ So the order is fixed, and it binds every consumer:
   by a module that calls the system directly.
 
 **Told:** fuzzypickles, which relayed the ask (inbox 20261108T0941Z), through its inbox.
+
+## 968. What an estate's size costs each host, measured, 2026-11-09
+
+The holder's aim of sec 964, an almost unlimited number of machines, measured past the siblings'
+turns. `live_estate_turns` takes `FZN_LIVE_MEMBERS` and reports each member's sync-load and its
+daemon's CPU over 10 s, from the pids it started; `FZN_LIVE_PERF` profiles one member meanwhile.
+
+**Measured, 3 s rounds, one machine (24 cores, load 16-30 from other work):**
+
+| members | all siblings asked | sync-load, members | CPU a daemon, median (max) |
+|---|---|---|---|
+| 11 | 13 s | 19-51 % | 2.1 % (2.3) |
+| 30 | 31-41 s | 26-114 % | 7.0 % (14.6) |
+
+Each host asks 8 siblings a round whatever the estate's size, and is asked by about 8, yet its
+CPU grew about as the estate did: some work each round walks every sibling or more. At the default
+60 s round 7 % is 0.35 %; grown as measured, a thousand machines would cost each host about 12 % of
+a core at the default round, the estate's sum square in its size.
+
+**Where, by `perf` on one member of 30** (user time, call graphs): a quarter of the samples in
+`fzn_ct_memeq` under two linear scans --
+- **the chain walk** (`node/apply.c`): `walk_up`, `dead_at` and `mark_dead` each scan every grant
+  indexed for every step, and a round asks a rank or a chain for every sibling, contact and line it
+  settles. Siblings pair one another (sec 579), each host logging a grant to every other, so an
+  estate of N hosts holds about N squared grants, and a round costs a host about N cubed compares;
+- **the journal plan** (`record/sync.c`): `theirs_for` and `follows` scan the peer's positions for
+  each stream this host follows, square in the streams, for each sibling pulled.
+
+**And a ceiling:** `FZN_SYNC_MAX_POSITIONS`, 1024 positions a digest is read to, set while the
+plan was square (its 2.05 s at 200,000 positions). An estate past about a thousand streams would
+have the rest of a digest unread, so their journals would not be pulled by position.
+
+**The order of the fixes:** the grants indexed by grantee, so a walk reads only the grants naming
+the key it is at (sec 969); the plan by sorted lookup, after which the ceiling can follow what
+reassembly bounds; and the N squared grants themselves -- whether siblings need a grant each from
+each other, where membership of the estate already says what the pairing grant says -- a change of
+sec 579's model, weighed as its own piece.
+
+## 969. The grants indexed by grantee and by hop, 2026-11-09
+
+Sec 968's first fix. **Each grant slot carries two hash chains' ends and links** -- by grantee for
+the walk, by hop for an add's check that the grant is new -- so the index needs no room but the
+table's and nothing to free (`node/apply.h`). A chain keeps grants in the order they were added, so
+a walk meets them as the scan did and chooses the chain it chose. The index is read only while the
+table, its count and its room are what it was built over; a grant taken back after a failed save,
+a table moved to more room, or a count set by hand leaves every grant scanned until the next add
+builds it again, and room given rebuilds it at once.
+
+**Tested, `apply_test`:** over 1000 grants, each member's chain and 20 keys no grant names, walked
+by the index and then by every grant, the same; and 1000 kept grants loaded a second time add none.
+`grant-index-by-grantor`, `grant-index-keeps-no-tail` and `grant-index-no-dedupe` guard it, caught
+by hand.
+
+**Measured, `live_estate_turns` at 30 members:** CPU a daemon median 6.7 % (max 13.3), from 7.0
+(14.6): at 30 the estate's 900 grants were not most of it. The profile after it: 60 % of one member's
+time in `fzn_holdings_digest`, every reconcile digest -- served and asked -- loading and hashing
+every object of every class again. That, and FZN_HOLDINGS_MAX, are next.
+
+**Found with it, and open:** FZN_HOLDINGS_MAX, 4096 objects a class. A class past it is FULL, and
+reconcile passes it over (`tally->full`). Grants alone are about N squared in an estate of N hosts,
+so past 64 machines the estate's grants would no longer reconcile; and a user's notes past 4096
+claims the same.

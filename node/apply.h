@@ -69,6 +69,12 @@ typedef struct fzn_node_grant {
 	 * `dead_left` hops left, in walk `dead_walk`. sec 700, 704. */
 	uint32_t dead_walk;
 	size_t dead_left;
+	/* THE INDEX'S OWN, sec 969: chains by grantee and by hop, each a
+	 * grant's place plus one, 0 ending one. A slot holds the first and
+	 * last of the chain hashed to its place, used or not, so the index
+	 * needs no room but the table's. */
+	uint32_t first_by_grantee, last_by_grantee, next_by_grantee;
+	uint32_t first_by_hop, last_by_hop, next_by_hop;
 } fzn_node_grant_t;
 
 struct fzn_node_roots;
@@ -112,6 +118,10 @@ typedef struct fzn_node_apply {
 	 * when a grant found it full, 0 otherwise. */
 	fzn_node_grant_t *grants;
 	size_t grants_cap, grants_used, grants_wanted;
+	/* WHAT THE INDEX WAS BUILT OVER, sec 969: read only while these are
+	 * the table's, else every grant is scanned as before. */
+	const fzn_node_grant_t *indexed_grants;
+	size_t indexed_used, indexed_cap;
 	fzn_node_grant_t grants_own[FZN_NODE_APPLY_GRANTS_MAX];
 } fzn_node_apply_t;
 

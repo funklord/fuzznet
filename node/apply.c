@@ -30,6 +30,74 @@ static int ever_root(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LE
 	       || (ap->roots && fzn_node_roots_known(ap->roots, key));
 }
 
+/* THE GRANTS BY GRANTEE AND BY HOP, sec 969. A walk scanned every grant at
+ * every step, and an add every grant for its hop; siblings pair one another
+ * (sec 579), so an estate of N hosts holds about N squared grants, and a
+ * round's ranks cost a host N cubed compares (sec 968). Each chain is kept in
+ * the order grants were added, so a walk meets them as the scan did. */
+static uint64_t fnv(const uint8_t *b, size_t n)
+{
+	uint64_t h = 14695981039346656037ull;
+
+	while (n--)
+		h = (h ^ *b++) * 1099511628211ull;
+	return h;
+}
+
+static int indexed(const fzn_node_apply_t *ap)
+{
+	return ap->grants && ap->indexed_grants == ap->grants && ap->indexed_used == ap->grants_used
+	       && ap->indexed_cap == ap->grants_cap && ap->grants_cap
+	       && ap->grants_cap <= UINT32_MAX - 1u;
+}
+
+/* The first grant whose grantee hashes with `key`, its place plus one. */
+static uint32_t first_naming(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	return ap->grants[fnv(key, FZN_PUBKEY_LEN) % ap->grants_cap].first_by_grantee;
+}
+
+static void link_grant(fzn_node_apply_t *ap, size_t i)
+{
+	fzn_node_grant_t *g = &ap->grants[i];
+	fzn_node_grant_t *by_grantee = &ap->grants[fnv(g->grantee, FZN_PUBKEY_LEN) % ap->grants_cap];
+	fzn_node_grant_t *by_hop = &ap->grants[fnv(g->hop, FZN_HOP_LEN) % ap->grants_cap];
+	uint32_t me = (uint32_t)i + 1u;
+
+	g->next_by_grantee = g->next_by_hop = 0;
+	if (by_grantee->last_by_grantee)
+		ap->grants[by_grantee->last_by_grantee - 1u].next_by_grantee = me;
+	else
+		by_grantee->first_by_grantee = me;
+	by_grantee->last_by_grantee = me;
+	if (by_hop->last_by_hop)
+		ap->grants[by_hop->last_by_hop - 1u].next_by_hop = me;
+	else
+		by_hop->first_by_hop = me;
+	by_hop->last_by_hop = me;
+}
+
+/* BUILT AGAIN over the table as it stands: after it moved, grew, or lost a
+ * grant, or was set by hand. 0 when it cannot be: then nothing reads it. */
+static int index_rebuild(fzn_node_apply_t *ap)
+{
+	size_t i;
+
+	ap->indexed_grants = NULL;
+	if (!ap->grants || !ap->grants_cap || ap->grants_cap > UINT32_MAX - 1u
+	    || ap->grants_used > ap->grants_cap)
+		return 0;
+	for (i = 0; i < ap->grants_cap; i++)
+		ap->grants[i].first_by_grantee = ap->grants[i].last_by_grantee =
+		        ap->grants[i].first_by_hop = ap->grants[i].last_by_hop = 0;
+	for (i = 0; i < ap->grants_used; i++)
+		link_grant(ap, i);
+	ap->indexed_grants = ap->grants;
+	ap->indexed_used = ap->grants_used;
+	ap->indexed_cap = ap->grants_cap;
+	return 1;
+}
+
 /* A WALK UP FROM A KEY, which tries each grant naming it until one reaches a
  * root, sec 700. Taking the first grant found, and giving up when its grantor
  * reached no root, let a stranger's grant naming a member -- signed by the
@@ -54,6 +122,18 @@ static int dead_at(const struct chain_walk *w, const uint8_t *key, size_t left)
 {
 	size_t i;
 
+	if (indexed(w->ap)) {
+		uint32_t at;
+
+		for (at = first_naming(w->ap, key); at; at = w->ap->grants[at - 1u].next_by_grantee) {
+			const fzn_node_grant_t *g = &w->ap->grants[at - 1u];
+
+			if (g->dead_walk == w->walk && g->dead_left >= left
+			    && fzn_ct_memeq(g->grantee, key, FZN_PUBKEY_LEN))
+				return 1;
+		}
+		return 0;
+	}
 	for (i = 0; i < w->ap->grants_used; i++)
 		if (w->ap->grants[i].dead_walk == w->walk && w->ap->grants[i].dead_left >= left
 		    && fzn_ct_memeq(w->ap->grants[i].grantee, key, FZN_PUBKEY_LEN))
@@ -64,10 +144,14 @@ static int dead_at(const struct chain_walk *w, const uint8_t *key, size_t left)
 static void mark_dead(struct chain_walk *w, const uint8_t *key, size_t left)
 {
 	size_t i;
+	int by_index = indexed(w->ap);
+	uint32_t at = by_index ? first_naming(w->ap, key) : 0;
 
-	for (i = 0; i < w->ap->grants_used; i++) {
-		fzn_node_grant_t *g = &w->ap->grants[i];
+	for (i = 0; by_index ? at != 0 : i < w->ap->grants_used; i++) {
+		fzn_node_grant_t *g = &w->ap->grants[by_index ? at - 1u : i];
 
+		if (by_index)
+			at = g->next_by_grantee;
 		if (!fzn_ct_memeq(g->grantee, key, FZN_PUBKEY_LEN))
 			continue;
 		if (g->dead_walk != w->walk || g->dead_left < left)
@@ -95,9 +179,15 @@ static int walk_up(struct chain_walk *w, const uint8_t *at, size_t depth, size_t
 	 * vote. */
 	if (depth + 1u >= FZN_CHAIN_MAX_HOPS || dead_at(w, at, FZN_CHAIN_MAX_HOPS - depth))
 		return 0;
-	for (pass = 0; pass < 2u; pass++)
-		for (i = 0; i < ap->grants_used; i++) {
-			const fzn_node_grant_t *g = &ap->grants[i];
+	for (pass = 0; pass < 2u; pass++) {
+		int by_index = indexed(ap);
+		uint32_t next = by_index ? first_naming(ap, at) : 0;
+
+		for (i = 0; by_index ? next != 0 : i < ap->grants_used; i++) {
+			const fzn_node_grant_t *g = &ap->grants[by_index ? next - 1u : i];
+
+			if (by_index)
+				next = g->next_by_grantee;
 
 			if ((g->hop[FZN_HOP_OFF_DELEGABLE] == 1u) != (pass == 0u)
 			    || !fzn_ct_memeq(g->grantee, at, FZN_PUBKEY_LEN)
@@ -107,6 +197,7 @@ static int walk_up(struct chain_walk *w, const uint8_t *at, size_t depth, size_t
 			if (walk_up(w, g->grantor, depth + 1u, depth_out))
 				return 1;
 		}
+	}
 	mark_dead(w, at, FZN_CHAIN_MAX_HOPS - depth);
 	return 0;
 }
@@ -162,6 +253,7 @@ int fzn_node_apply_use_grants(fzn_node_apply_t *ap, fzn_node_grant_t *grants, si
 	ap->grants = grants;
 	ap->grants_cap = capacity;
 	ap->grants_wanted = 0;
+	(void)index_rebuild(ap);
 	return 1;
 }
 
@@ -176,9 +268,17 @@ static int index_add(fzn_node_apply_t *ap, const uint8_t *body, size_t len)
 	if (len != FZN_HOP_LEN || fzn_hop_open(body, len, &hop) != FZN_CHAIN_OK)
 		return -1;
 	index_room(ap);
-	for (i = 0; i < ap->grants_used; i++)
-		if (memcmp(ap->grants[i].hop, body, FZN_HOP_LEN) == 0)
-			return 0;
+	if (indexed(ap) || index_rebuild(ap)) {
+		uint32_t at = ap->grants[fnv(body, FZN_HOP_LEN) % ap->grants_cap].first_by_hop;
+
+		for (; at; at = ap->grants[at - 1u].next_by_hop)
+			if (memcmp(ap->grants[at - 1u].hop, body, FZN_HOP_LEN) == 0)
+				return 0;
+	} else {
+		for (i = 0; i < ap->grants_used; i++)
+			if (memcmp(ap->grants[i].hop, body, FZN_HOP_LEN) == 0)
+				return 0;
+	}
 	/* A FULL INDEX WAITS FOR ROOM rather than evicting or refusing: a grant
 	 * forgotten is a chain nothing can rebuild, and every vote under it
 	 * would wait; refused, it was marked applied and lost. sec 704. */
@@ -187,11 +287,28 @@ static int index_add(fzn_node_apply_t *ap, const uint8_t *body, size_t len)
 		return -2;
 	}
 	g = &ap->grants[ap->grants_used++];
-	memset(g, 0, sizeof(*g));
+	{
+		/* THE SLOT'S CHAIN ENDS are the index's, used or not. */
+		uint32_t fg = g->first_by_grantee, lg = g->last_by_grantee, fh = g->first_by_hop,
+		         lh = g->last_by_hop;
+
+		memset(g, 0, sizeof(*g));
+		g->first_by_grantee = fg;
+		g->last_by_grantee = lg;
+		g->first_by_hop = fh;
+		g->last_by_hop = lh;
+	}
 	memcpy(g->hop, body, FZN_HOP_LEN);
 	memcpy(g->grantor, fzn_hop_grantor(hop), FZN_PUBKEY_LEN);
 	memcpy(g->grantee, fzn_hop_grantee(hop), FZN_PUBKEY_LEN);
 	g->capability = *fzn_hop_capability(hop);
+	if (ap->indexed_grants == ap->grants && ap->indexed_used + 1u == ap->grants_used
+	    && ap->indexed_cap == ap->grants_cap) {
+		link_grant(ap, ap->grants_used - 1u);
+		ap->indexed_used = ap->grants_used;
+	} else {
+		(void)index_rebuild(ap);
+	}
 	return 1;
 }
 
