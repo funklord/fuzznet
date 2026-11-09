@@ -106,13 +106,12 @@ typedef enum fzn_sync_err {
  * this host does not follow. A peer that can spend a megabyte to buy a second
  * of somebody else's CPU has an amplifier, and repeating it is free.
  *
- * WHY 1024, WHICH IS A POLICY AND NOT A DERIVATION. It is bounded above by
- * what a consumer could deliver in one piece -- `chunk/split.h`'s
- * `FZN_SPLIT_MAX_PAYLOAD` and `chunk/reassembly.h`'s `FZN_REASM_MAX_CHUNKS`
- * put roughly 5,900 positions in the largest message this library will
- * reassemble -- and it is far above any journal in this tree, so an honest
- * digest never reaches it. At this ceiling the worst case against a 64-entry
- * journal is about 21 ms rather than unbounded.
+ * WHY 8192, WHICH IS A POLICY AND NOT A DERIVATION. It was 1024 while a plan
+ * cost the positions times the journal (21 ms at the ceiling against a
+ * 64-entry journal); a plan sorts the positions now (sec 972), 2.9 ms for 8192
+ * against 8192 streams, so the ceiling follows an estate's size instead: a
+ * host's streams grow with the estate's hosts, and a digest is asked for in
+ * pages, its count 16 bits, so one message no longer bounds it.
  *
  * WHY NOT `journal->capacity`, WHICH LOOKS TIGHTER AND IS WRONG. A peer
  * legitimately follows more streams than this host does. A host following two
@@ -126,7 +125,13 @@ typedef enum fzn_sync_err {
  * omitting it is a thing no comparison can prevent. What the ceiling does not
  * do, since `fzn_sync_plan_fetch` walks this host's journal, is let anything
  * the peer sends displace a request for a stream it did advertise. */
-#define FZN_SYNC_MAX_POSITIONS 1024u
+/* RAISED TO 8192, sec 974, once the plan was not square (sec 972): an estate's
+ * streams grow with its hosts, and 1024 left a host past a thousand of them
+ * reading part of each digest. A digest is paged, its count 16 bits; the room
+ * here is what a plan holds. Smaller in a `small` build, sec 922. */
+#ifndef FZN_SYNC_MAX_POSITIONS
+#define FZN_SYNC_MAX_POSITIONS 8192u
+#endif
 
 /* One issuer's position, as a peer reports it. This is what a host puts on
  * the wire to say what it has; how it is encoded is the consumer's, for the

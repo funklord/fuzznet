@@ -83110,3 +83110,20 @@ switched to `relay` it takes `on`. **Control:** the old `apply_table` failed f w
 
 **Not here:** the client presets (`local/client_config.c`) are not applied yet; when they are, they
 need the same record in the client's file.
+
+## 974. A digest read to 8192 positions, 2026-11-09
+
+Sec 972's open half, walked from the aim of sec 964 before the run stopped. FZN_SYNC_MAX_POSITIONS,
+1024, was the most of a peer's digest a host reads -- the room a pull and a push page it into, and
+what a plan examines -- set while a plan cost the positions times the journal. A host's streams
+grow with its estate's hosts, so past about a thousand of them a host read part of each digest and
+the rest of the estate's journals were not pulled by position.
+
+**8192 now**, `#ifndef` so a build may say otherwise; the `small` build says 256 (sec 922). A digest
+is already asked for in pages (`record/exchange.c`), its count 16 bits, so no one message bounds it.
+**Measured:** a plan of 8192 positions against 8192 followed streams, 2.9 ms. The daemon's bss grew
+18 MB, untouched until a digest fills it. `sync_test` and `sync_fuzz`, which are written against the
+ceiling's name, pass; the fuzz's crowds past the ceiling take 3.3 s.
+
+**Left:** an estate past 8192 streams, and the N squared grants of sec 579 well before it (sec 968),
+which is the question put to the holder.
