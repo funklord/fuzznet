@@ -15032,6 +15032,20 @@ SABOTAGES = [
 		"an opened note whose folder is not here does not say so -- sec 987",
 	),
 	(
+		"notebook-view-group-sharers-not-offered",
+		"gui/notebook_view.cpp",
+		"\t\t\t\t} else if (kind == QStringLiteral(\"group\")) {\n",
+		"\t\t\t\t} else if (kind == QStringLiteral(\"groups\")) {\n",
+		"a group member's shared tree, no contact here, cannot be opened -- sec 988",
+	),
+	(
+		"notebook-view-contact-offered-twice",
+		"gui/notebook_view.cpp",
+		"\t\t\t\t\tif (m_trees->findData(name) < 0)\n",
+		"\t\t\t\t\tif (m_trees->findData(name) < 1000)\n",
+		"a contact whose share was received is offered twice in the chooser -- sec 988",
+	),
+	(
 		"sticker-why-counts-from-zero",
 		"sticker/pack.c",
 		"\t\t\t\t               i + 1u, j + 1u, (unsigned long long)e->id);\n",

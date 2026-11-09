@@ -558,6 +558,9 @@ static void test_a_shared_tree_reads_and_cannot_be_written(void)
 	received = "ok 1 carol,127.0.0.1,7000";
 	fzn_notebook_view w(node_ask, nullptr);
 
+	CHECK(w.tree_choices().count(QStringLiteral("Shared by carol")) == 1,
+	      "carol is offered once, though both the received list and the sharers name her "
+	      "(sec 988)");
 	CHECK(w.open_tree(QStringLiteral("carol")), "carol's tree opens");
 	CHECK(w.listed_ids() == QStringList{ g }, "its top is what she shared, not this user's F");
 	CHECK(w.open_note(g) && w.title_text() == QStringLiteral("shared"), "the note reads");
@@ -568,6 +571,16 @@ static void test_a_shared_tree_reads_and_cannot_be_written(void)
 	CHECK(w.open_tree(QString()) && index_of(w.listed_ids(), f) >= 0
 	              && index_of(w.listed_ids(), g) < 0,
 	      "back in this user's own tree, F is at the top again");
+	/* A GROUP'S NOTEBOOK, sec 988: a member who shared with a group and is no
+	 * contact here, and a removed one, offered by key. */
+	canned_line = "list sharer 0";
+	canned_reply = "ok 2 0 ab12cd34ef,group,@family 99887766aa,gone,-";
+	CHECK(w.open_tree(QString())
+	              && w.tree_choices().contains(QStringLiteral("Shared in @family by ab12cd34"))
+	              && w.tree_choices().contains(
+	                         QStringLiteral("Shared by a removed contact, 99887766")),
+	      "a group member's tree and a removed contact's are offered");
+	canned_line = canned_reply = NULL;
 }
 
 static void test_an_export_is_imported_into_the_open_folder(void)

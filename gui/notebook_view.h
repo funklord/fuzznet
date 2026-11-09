@@ -145,6 +145,8 @@ public:
 	QString status() const;
 	QString location() const;
 	QString title_text() const;
+	/* THE TREES ON OFFER, as the chooser names them (sec 988). */
+	QStringList tree_choices() const;
 	/* THE OPEN NOTE'S LABELS as the field shows them, comma-separated
 	 * (sec 983). */
 	QString labels_text() const;

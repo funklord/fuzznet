@@ -83252,7 +83252,7 @@ is older than 34fd5a1, and intermittent; being found (sec 979).
 
 **Open, notebook_view** (`gui/notebook_view.cpp`, T1340Z), what fuzzypickles' notes widget has and
 this one lacks before it can be swapped in: ~~labels editable and shown in the row~~, sec 983;
-a group's notebook opened, not only `list received`; ~~a backfill choice when
+~~a group's notebook opened, not only `list received`~~, sec 988; ~~a backfill choice when
 sharing to a group~~, sec 986; ~~the "elsewhere" and "contested" states shown~~, sec 987; a phone's width (flowing rows, a
 More menu); ~~accessible names~~ (sec 983) and `tr()`; a hook to say something to the person inline, apart from
 the log.
@@ -83500,3 +83500,20 @@ canned `get note` -- a node with a second device's move is more than this suite 
 flags themselves are the library's, tested in `notes_store_test`. The suite's node answers one
 named line from a fixture now (`canned_line`), as it already did `add import`.
 `notebook-view-contested-unsaid` and `notebook-view-elsewhere-unsaid` guard it.
+
+## 988. notebook_view opens a group member's shared tree, 2026-11-09
+
+The next of fuzzypickles' notebook_view gaps (inbox T1340Z; sec 978). The tree chooser offered
+"My notes" and each contact in `list received` -- sec 437's shares, accepted from a contact by name.
+A member who shared with a group (sec 630) and is no contact here lands in a tree of its own, which
+`list sharer` names (sec 640, and `@GROUP` since sec 837), and the chooser never read it: a group's
+notebook could not be opened from this widget at all.
+
+**Built:** after `list received`, `notebook_view` reads every page of `list sharer` and offers each
+user whose tree is held: a contact as "Shared by NAME", once even where both lists name them; a
+group member as "Shared in @GROUP by KEY" and a removed contact as "Shared by a removed contact,
+KEY", the first eight hex digits of the key, each opened by its key, which `list shared` takes.
+
+**Measured:** `notebook_view_test` -- carol, held as a received share and as a sharer, is offered
+once; a canned `list sharer` page offers a group member and a removed contact.
+`notebook-view-group-sharers-not-offered` and `notebook-view-contact-offered-twice` guard it.

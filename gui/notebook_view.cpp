@@ -479,6 +479,45 @@ void fzn_notebook_view::refresh_trees()
 			m_trees->addItem(QStringLiteral("Shared by %1").arg(name), name);
 		}
 	}
+	/* AND EVERY USER WHOSE TREE IS HELD, sec 988: `list sharer` pages of
+	 * `KEY,KIND,NAME`. A member who shared with a group and is no contact
+	 * here -- a group's notebook -- was in no list above, so it could not
+	 * be opened at all. Opened by key, which `list shared` takes. A contact
+	 * already named above is not offered twice. */
+	{
+		size_t from = 0, total = 0, guard;
+
+		for (guard = 0; guard < 64u; guard++) {
+			QStringList words;
+
+			if (ask(QStringLiteral("list sharer %1").arg(from), &detail) != 1)
+				break;
+			words = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+			if (words.size() < 2)
+				break;
+			total = words[0].toULongLong();
+			for (i = 2; i < words.size(); i++) {
+				QString key = words[i].section(QLatin1Char(','), 0, 0);
+				QString kind = words[i].section(QLatin1Char(','), 1, 1);
+				QString name = unescape(words[i].section(QLatin1Char(','), 2));
+
+				from++;
+				if (kind == QStringLiteral("contact")) {
+					if (m_trees->findData(name) < 0)
+						m_trees->addItem(QStringLiteral("Shared by %1").arg(name), name);
+				} else if (kind == QStringLiteral("group")) {
+					m_trees->addItem(
+					        QStringLiteral("Shared in %1 by %2").arg(name, key.left(8)), key);
+				} else {
+					m_trees->addItem(
+					        QStringLiteral("Shared by a removed contact, %1").arg(key.left(8)),
+					        key);
+				}
+			}
+			if (from >= total || words.size() == 2)
+				break;
+		}
+	}
 	for (i = 0; i < m_trees->count(); i++)
 		if (m_trees->itemData(i).toString() == m_tree)
 			at = i;
@@ -1441,6 +1480,16 @@ QString fzn_notebook_view::location() const
 QString fzn_notebook_view::title_text() const
 {
 	return m_title->text();
+}
+
+QStringList fzn_notebook_view::tree_choices() const
+{
+	QStringList out;
+	int i;
+
+	for (i = 0; i < m_trees->count(); i++)
+		out << m_trees->itemText(i);
+	return out;
 }
 
 QString fzn_notebook_view::labels_text() const
