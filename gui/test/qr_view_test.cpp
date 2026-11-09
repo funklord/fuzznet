@@ -66,7 +66,8 @@ int main(int argc, char **argv)
 	/* A REFUSAL SAYS WHY, IN THE LIBRARY'S WORDS. A blank square and a
 	 * failed encode must not look alike. */
 	{
-		QString huge(4000, QLatin1Char('A'));
+		/* PAST VERSION 40 AT L, 4296 alphanumeric characters (sec 977). */
+		QString huge(5000, QLatin1Char('A'));
 
 		view.show_text(huge, FZN_QR_LEVEL_L);
 		CHECK(!view.has_code(), "a payload nothing holds produced a code anyway");

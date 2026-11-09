@@ -1075,7 +1075,7 @@ CPPFLAGS += -DFZN_NOTES_MAX=64u -DFZN_NODE_RECEIVED_MAX=2u -DFZN_NOTES_SHARES_MA
             -DFZN_NODE_FILES_SHARES_MAX=16u -DFZND_GROUP_SHARES_MAX=2u \
             -DFZND_PULL_TARGETS_MAX=2u -DFZND_SIBLING_TARGETS_MAX=2u \
             -DFZN_GROUP_MEMBERS_MAX=64u -DFZN_GROUP_HOSTS_MAX=128u \
-            -DFZN_SYNC_MAX_POSITIONS=256u
+            -DFZN_SYNC_MAX_POSITIONS=256u -DFZN_QR_VERSION_MAX=15u
 endif
 ifneq ($(filter ui-client one-shot-client insecure-client,$(PRESET)),)
 CPPFLAGS += -DFZN_PRESET_BUILD=\"client\"
@@ -7114,6 +7114,9 @@ livecheck-repeat: $(FUZZNETD)
 # next line then failed for the reason the skip had just excused. It reported
 # SKIPPED and non-zero in one run -- both halves true and the pair meaningless,
 # which is evidence.md's count-and-exit-code again.
+# QUIRC'S REGIONS PAST 254, sec 977: it labels connected regions in a pixel of
+# eight bits by default, and a code past about version 25 has more, so it found
+# no code at all -- every mask, every level -- where the code was whole.
 qrcheck:
 	@set -e; \
 	if [ -z "$(QUIRC_DIR)" ]; then \
@@ -7136,10 +7139,10 @@ qrcheck:
 	trap 'rm -rf "$$scratch"' EXIT INT TERM; \
 	rm -rf "$$scratch"; mkdir -p "$$scratch"; \
 	for u in quirc decode identify version_db; do \
-		$(CC) $(GEN_CFLAGS) -w -I"$(QUIRC_DIR)/lib" -c \
+		$(CC) $(GEN_CFLAGS) -w -DQUIRC_MAX_REGIONS=65534 -I"$(QUIRC_DIR)/lib" -c \
 		      "$(QUIRC_DIR)/lib/$$u.c" -o "$$scratch/$$u.o"; \
 	done; \
-	$(CC) $(CFLAGS) -I. -I"$(QUIRC_DIR)/lib" qr/test/qr_quirc_check.c qr/qr.c \
+	$(CC) $(CFLAGS) -DQUIRC_MAX_REGIONS=65534 -I. -I"$(QUIRC_DIR)/lib" qr/test/qr_quirc_check.c qr/qr.c \
 	      cli/qr_print.c "$$scratch"/quirc.o "$$scratch"/decode.o \
 	      "$$scratch"/identify.o "$$scratch"/version_db.o \
 	      -lm -o "$$scratch/qrcheck"; \

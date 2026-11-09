@@ -13,11 +13,10 @@ extern "C" {
 
 fzn_qr_level_t fzn_provision_view::code_level()
 {
-	/* LEVEL L, BECAUSE IT IS THE ONLY ONE THAT FITS. See the header: 682
-	 * characters go into version 15 at L and into no version at all at M,
-	 * Q or H. A function rather than a literal at the call site, so the
-	 * suite can assert the choice against the encoder rather than against
-	 * a copy of it. */
+	/* LEVEL L, BECAUSE IT GIVES THE SMALLEST CODE. See the header. A
+	 * function rather than a literal at the call site, so the suite can
+	 * assert the choice against the encoder rather than against a copy of
+	 * it. */
 	return FZN_QR_LEVEL_L;
 }
 

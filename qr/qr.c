@@ -6,12 +6,19 @@
 
 /* ---- the tables, which are the part an independent decoder adjudicates ---- */
 
-/* Total codewords -- data plus error correction -- per version, 1..15. */
-static const uint16_t TOTAL_CODEWORDS[] = { 0,  26,  44,  70,  100, 134, 172, 196,
-                                            242, 292, 346, 404, 466, 532, 581, 655 };
+/* Total codewords -- data plus error correction -- per version, 1..40,
+ * generated with the EC and ALIGN tables from the standard's formulas, which
+ * reproduce versions 1..15 as they stood (sec 977). */
+static const uint16_t TOTAL_CODEWORDS[] = {
+	0, 26, 44, 70, 100, 134, 172, 196, 242, 292,
+	346, 404, 466, 532, 581, 655, 733, 815, 901, 991,
+	1085, 1156, 1258, 1364, 1474, 1588, 1706, 1828, 1921, 2051,
+	2185, 2323, 2465, 2611, 2761, 2876, 3034, 3196, 3362, 3532,
+	3706,
+};
 
 /*
- * The largest entry above, which is version 15's.
+ * The largest entry above, which is version 40's.
  *
  * IT IS A MACRO BECAUSE A `const` ARRAY IS NOT A CONSTANT EXPRESSION IN C.
  * `uint8_t stream[TOTAL_CODEWORDS[FZN_QR_VERSION_MAX]]` therefore declared a
@@ -26,7 +33,11 @@ static const uint16_t TOTAL_CODEWORDS[] = { 0,  26,  44,  70,  100, 134, 172, 19
  * sizes. That costs one comparison, and it turns what a grown table would
  * otherwise cause -- two buffers overflowing on the stack -- into a refusal.
  */
+#if FZN_QR_VERSION_MAX > 15
+#define QR_CODEWORDS_MAX 3706u
+#else
 #define QR_CODEWORDS_MAX 655u
+#endif
 
 /* Per (version, level): error-correction codewords in every block, the number
  * of blocks in group 1, and the number in group 2. Group 2's blocks each hold
@@ -56,21 +67,88 @@ static const struct ec_spec EC[FZN_QR_VERSION_MAX + 1u][4] = {
 	{ { 26, 4, 0 }, { 22, 8, 1 }, { 24, 8, 4 }, { 22, 12, 4 } },
 	{ { 30, 3, 1 }, { 24, 4, 5 }, { 20, 11, 5 }, { 24, 11, 5 } },
 	{ { 22, 5, 1 }, { 24, 5, 5 }, { 30, 5, 7 }, { 24, 11, 7 } },
+#if FZN_QR_VERSION_MAX > 15
+	{ { 24, 5, 1 }, { 28, 7, 3 }, { 24, 15, 2 }, { 30, 3, 13 } },
+	{ { 28, 1, 5 }, { 28, 10, 1 }, { 28, 1, 15 }, { 28, 2, 17 } },
+	{ { 30, 5, 1 }, { 26, 9, 4 }, { 28, 17, 1 }, { 28, 2, 19 } },
+	{ { 28, 3, 4 }, { 26, 3, 11 }, { 26, 17, 4 }, { 26, 9, 16 } },
+	{ { 28, 3, 5 }, { 26, 3, 13 }, { 30, 15, 5 }, { 28, 15, 10 } },
+	{ { 28, 4, 4 }, { 26, 17, 0 }, { 28, 17, 6 }, { 30, 19, 6 } },
+	{ { 28, 2, 7 }, { 28, 17, 0 }, { 30, 7, 16 }, { 24, 34, 0 } },
+	{ { 30, 4, 5 }, { 28, 4, 14 }, { 30, 11, 14 }, { 30, 16, 14 } },
+	{ { 30, 6, 4 }, { 28, 6, 14 }, { 30, 11, 16 }, { 30, 30, 2 } },
+	{ { 26, 8, 4 }, { 28, 8, 13 }, { 30, 7, 22 }, { 30, 22, 13 } },
+	{ { 28, 10, 2 }, { 28, 19, 4 }, { 28, 28, 6 }, { 30, 33, 4 } },
+	{ { 30, 8, 4 }, { 28, 22, 3 }, { 30, 8, 26 }, { 30, 12, 28 } },
+	{ { 30, 3, 10 }, { 28, 3, 23 }, { 30, 4, 31 }, { 30, 11, 31 } },
+	{ { 30, 7, 7 }, { 28, 21, 7 }, { 30, 1, 37 }, { 30, 19, 26 } },
+	{ { 30, 5, 10 }, { 28, 19, 10 }, { 30, 15, 25 }, { 30, 23, 25 } },
+	{ { 30, 13, 3 }, { 28, 2, 29 }, { 30, 42, 1 }, { 30, 23, 28 } },
+	{ { 30, 17, 0 }, { 28, 10, 23 }, { 30, 10, 35 }, { 30, 19, 35 } },
+	{ { 30, 17, 1 }, { 28, 14, 21 }, { 30, 29, 19 }, { 30, 11, 46 } },
+	{ { 30, 13, 6 }, { 28, 14, 23 }, { 30, 44, 7 }, { 30, 59, 1 } },
+	{ { 30, 12, 7 }, { 28, 12, 26 }, { 30, 39, 14 }, { 30, 22, 41 } },
+	{ { 30, 6, 14 }, { 28, 6, 34 }, { 30, 46, 10 }, { 30, 2, 64 } },
+	{ { 30, 17, 4 }, { 28, 29, 14 }, { 30, 49, 10 }, { 30, 24, 46 } },
+	{ { 30, 4, 18 }, { 28, 13, 32 }, { 30, 48, 14 }, { 30, 42, 32 } },
+	{ { 30, 20, 4 }, { 28, 40, 7 }, { 30, 43, 22 }, { 30, 10, 67 } },
+	{ { 30, 19, 6 }, { 28, 18, 31 }, { 30, 34, 34 }, { 30, 20, 61 } },
+#endif
 };
 
 /* Where alignment patterns sit, per version. Version 1 has none; from 2 on
  * the standard gives a coordinate list and a pattern goes at every pair
  * except the three that would sit on a finder. */
-/* FOUR COLUMNS, BECAUSE VERSION 14 IS WHERE A FOURTH COORDINATE APPEARS.
- * Three was enough through version 13 and silently wrong from 14, where the
+/* SEVEN COLUMNS, BECAUSE VERSION 35 IS WHERE A SEVENTH COORDINATE APPEARS.
+ * It was four, version 14's: three had been silently wrong from 14, where the
  * pattern at 66 simply went missing -- quirc decoded every version but that
  * one, at all four levels, which is what a per-version table error looks
  * like from outside. A zero ends the list. */
-static const uint8_t ALIGN[FZN_QR_VERSION_MAX + 1u][4] = {
-	{ 0, 0, 0, 0 },   { 0, 0, 0, 0 },   { 6, 18, 0, 0 },  { 6, 22, 0, 0 },
-	{ 6, 26, 0, 0 },  { 6, 30, 0, 0 },  { 6, 34, 0, 0 },  { 6, 22, 38, 0 },
-	{ 6, 24, 42, 0 }, { 6, 26, 46, 0 }, { 6, 28, 50, 0 }, { 6, 30, 54, 0 },
-	{ 6, 32, 58, 0 }, { 6, 34, 62, 0 }, { 6, 26, 46, 66 }, { 6, 26, 48, 70 },
+#define QR_ALIGN_MAX 7u
+static const uint8_t ALIGN[FZN_QR_VERSION_MAX + 1u][QR_ALIGN_MAX] = {
+	{ 0 },
+	{ 0 },
+	{ 6, 18 },
+	{ 6, 22 },
+	{ 6, 26 },
+	{ 6, 30 },
+	{ 6, 34 },
+	{ 6, 22, 38 },
+	{ 6, 24, 42 },
+	{ 6, 26, 46 },
+	{ 6, 28, 50 },
+	{ 6, 30, 54 },
+	{ 6, 32, 58 },
+	{ 6, 34, 62 },
+	{ 6, 26, 46, 66 },
+	{ 6, 26, 48, 70 },
+#if FZN_QR_VERSION_MAX > 15
+	{ 6, 26, 50, 74 },
+	{ 6, 30, 54, 78 },
+	{ 6, 30, 56, 82 },
+	{ 6, 30, 58, 86 },
+	{ 6, 34, 62, 90 },
+	{ 6, 28, 50, 72, 94 },
+	{ 6, 26, 50, 74, 98 },
+	{ 6, 30, 54, 78, 102 },
+	{ 6, 28, 54, 80, 106 },
+	{ 6, 32, 58, 84, 110 },
+	{ 6, 30, 58, 86, 114 },
+	{ 6, 34, 62, 90, 118 },
+	{ 6, 26, 50, 74, 98, 122 },
+	{ 6, 30, 54, 78, 102, 126 },
+	{ 6, 26, 52, 78, 104, 130 },
+	{ 6, 30, 56, 82, 108, 134 },
+	{ 6, 34, 60, 86, 112, 138 },
+	{ 6, 30, 58, 86, 114, 142 },
+	{ 6, 34, 62, 90, 118, 146 },
+	{ 6, 30, 54, 78, 102, 126, 150 },
+	{ 6, 24, 50, 76, 102, 128, 154 },
+	{ 6, 28, 54, 80, 106, 132, 158 },
+	{ 6, 32, 58, 84, 110, 136, 162 },
+	{ 6, 26, 54, 82, 110, 138, 166 },
+	{ 6, 30, 58, 86, 114, 142, 170 },
+#endif
 };
 
 /*
@@ -365,8 +443,8 @@ static void draw_function(uint8_t *m, unsigned size, unsigned version)
 
 	/* Alignment patterns at every pair of listed coordinates, except the
 	 * three that would land on a finder. */
-	for (a = 0; a < 4u && ALIGN[version][a]; a++) {
-		for (b = 0; b < 4u && ALIGN[version][b]; b++) {
+	for (a = 0; a < QR_ALIGN_MAX && ALIGN[version][a]; a++) {
+		for (b = 0; b < QR_ALIGN_MAX && ALIGN[version][b]; b++) {
 			unsigned cx = ALIGN[version][a];
 			unsigned cy = ALIGN[version][b];
 			int dx;
@@ -610,6 +688,13 @@ static unsigned penalty(const uint8_t *m, unsigned size)
 fzn_qr_err_t fzn_qr_encode(const char *text, size_t text_len, fzn_qr_level_t level,
                            uint8_t *out, size_t out_cap, size_t *size_out)
 {
+	return fzn_qr_encode_as(text, text_len, level, -1, out, out_cap, size_out, NULL, NULL);
+}
+
+fzn_qr_err_t fzn_qr_encode_as(const char *text, size_t text_len, fzn_qr_level_t level,
+                              int force_mask, uint8_t *out, size_t out_cap, size_t *size_out,
+                              unsigned *version_out, unsigned *mask_out)
+{
 	uint8_t stream[QR_CODEWORDS_MAX];
 	uint8_t interleaved[QR_CODEWORDS_MAX];
 	uint8_t ecbuf[FZN_QR_VERSION_MAX * 4u][31];
@@ -632,14 +717,14 @@ fzn_qr_err_t fzn_qr_encode(const char *text, size_t text_len, fzn_qr_level_t lev
 
 	if (!text || !size_out || (int)level < 0 || (int)level > 3)
 		return FZN_QR_ERR_MALFORMED;
-	if (!out && out_cap > 0)
+	if ((!out && out_cap > 0) || force_mask < -1 || force_mask > 7)
 		return FZN_QR_ERR_MALFORMED;
 
 	version = fzn_qr_version_for(text, text_len, level);
 	if (version == 0)
 		return FZN_QR_ERR_TOO_LONG;
 	/* THE TABLE MUST FIT THE BUFFERS, checked rather than assumed. See
-	 * QR_CODEWORDS_MAX: extending TOTAL_CODEWORDS past version 15 without
+	 * QR_CODEWORDS_MAX: extending TOTAL_CODEWORDS past the largest version without
 	 * moving the constant refuses here instead of overflowing `stream` and
 	 * `interleaved`, which is the failure a VLA was hiding by growing the
 	 * frame to suit. */
@@ -648,6 +733,8 @@ fzn_qr_err_t fzn_qr_encode(const char *text, size_t text_len, fzn_qr_level_t lev
 
 	size = 17u + 4u * version;
 	*size_out = size;
+	if (version_out)
+		*version_out = version;
 	if (out_cap < (size_t)size * size)
 		return FZN_QR_ERR_FULL;
 
@@ -714,23 +801,27 @@ fzn_qr_err_t fzn_qr_encode(const char *text, size_t text_len, fzn_qr_level_t lev
 		for (i = 0; i < blocks; i++)
 			interleaved[at++] = ecbuf[i][j];
 
-	/* THE MATRIX, once per mask, keeping the least penalised. */
+	/* THE MATRIX, once per mask, keeping the least penalised -- or the one
+	 * mask asked for, as a reference matrix is drawn. */
 	for (mask = 0; mask < 8u; mask++) {
 		unsigned score;
 
+		if (force_mask >= 0 && mask != (unsigned)force_mask)
+			continue;
 		memset(work, 0, (size_t)size * size);
 		draw_function(work, size, version);
 		place_data(work, size, interleaved, at);
 		apply_mask(work, size, mask);
 		draw_format(work, size, level, mask);
 		score = penalty(work, size);
-		if (mask == 0 || score < best_score) {
+		if (force_mask >= 0 || mask == 0 || score < best_score) {
 			best_score = score;
 			best_mask = mask;
 			memcpy(best, work, (size_t)size * size);
 		}
 	}
-	(void)best_mask;
+	if (mask_out)
+		*mask_out = best_mask;
 
 	for (i = 0; i < size * size; i++)
 		out[i] = (uint8_t)(best[i] & M_VALUE);

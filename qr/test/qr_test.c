@@ -160,7 +160,7 @@ int main(void)
 
 	/* THE LARGEST CODE THIS LIBRARY CLAIMS TO MAKE, ACTUALLY MADE.
 	 *
-	 * QR_CODEWORDS_MAX in qr.c is sized for version 15's 655 codewords, and
+	 * QR_CODEWORDS_MAX in qr.c is sized for the largest version's codewords, and
 	 * until sec 170 nothing here encoded one: every successful case was a
 	 * small version, so the buffers that bound holds were never filled and
 	 * a bound too small for them would have gone unnoticed. The length is
@@ -168,7 +168,7 @@ int main(void)
 	 * constant that must agree with the capacity tables and nothing would
 	 * check that it still did. */
 	{
-		static char big[3000];
+		static char big[4400];
 		size_t at = 0;
 		size_t sized = 0;
 		int found = 0;
@@ -189,10 +189,35 @@ int main(void)
 		      "the largest version did not produce the largest size");
 	}
 
+	/* WHAT IT CHOSE, SAID, AND A MASK ASKED FOR, sec 977: the version with
+	 * the size, the mask chosen, and a forced mask drawn as asked. */
+	{
+		static uint8_t again[FZN_QR_MODULES_MAX];
+		size_t s1 = 0, s2 = 0;
+		unsigned v = 0, m = 9, m2 = 9;
+
+		CHECK(fzn_qr_encode_as("HELLO WORLD", 11u, FZN_QR_LEVEL_M, -1, modules,
+		                       sizeof(modules), &s1, &v, &m)
+		                      == FZN_QR_OK
+		              && v == fzn_qr_version_for("HELLO WORLD", 11u, FZN_QR_LEVEL_M)
+		              && s1 == 17u + 4u * v && m < 8u,
+		      "the version and mask chosen were not said");
+		CHECK(fzn_qr_encode_as("HELLO WORLD", 11u, FZN_QR_LEVEL_M, (int)((m + 1u) % 8u), again,
+		                       sizeof(again), &s2, NULL, &m2)
+		                      == FZN_QR_OK
+		              && m2 == (m + 1u) % 8u && s2 == s1
+		              && memcmp(modules, again, s1 * s1) != 0,
+		      "a mask asked for was not the one drawn");
+		CHECK(fzn_qr_encode_as("HELLO", 5u, FZN_QR_LEVEL_L, 8, modules, sizeof(modules), &s1,
+		                       NULL, NULL)
+		              == FZN_QR_ERR_MALFORMED,
+		      "a mask out of range was taken");
+	}
+
 	/* REFUSALS. A payload nothing holds, and a buffer too small, are
 	 * different answers and a caller acts on them differently. */
 	{
-		static char huge[4000];
+		static char huge[4400];
 		size_t sized = 0;
 
 		memset(huge, 'A', sizeof(huge) - 1u);

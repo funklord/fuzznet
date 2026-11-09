@@ -52,7 +52,15 @@
 /*
  * The largest version this encodes.
  *
- * FIFTEEN, AND THE CARD NEEDS ALL OF IT. `fzn_provision_text` is 682
+ * FORTY, THE STANDARD'S LAST, since sec 977: a join approval is 705
+ * alphanumeric characters and a card with seeds about 1018, past what
+ * version 15 holds at L (758), as fuzzypickles measured; the holder's no
+ * arbitrary limits. The tables past 15 are generated from the standard's
+ * formulas, which reproduce 1..15 as they stood, and `make qrcheck` decodes
+ * every version at every level. A `small` build keeps 15 (sec 922): a
+ * version-40 encode takes about 75 KB of stack.
+ *
+ * FIFTEEN WAS WHAT THE CARD FIRST NEEDED, ALL OF IT. `fzn_provision_text` is 682
  * alphanumeric characters, which is version 15 at level L exactly -- 523 data
  * codewords against the 471 the payload needs, and version 14 does not hold
  * it.
@@ -70,10 +78,12 @@
  * `make qrcheck` would adjudicate the additions the same way it adjudicated
  * these. Shorter payloads have every level available.
  */
-#define FZN_QR_VERSION_MAX 15u
+#ifndef FZN_QR_VERSION_MAX
+#define FZN_QR_VERSION_MAX 40u
+#endif
 
-/* Modules across a version-15 code: 17 + 4 * 15. A caller sizing for the
- * largest needs this squared. */
+/* Modules across the largest code: 17 + 4 * FZN_QR_VERSION_MAX. A caller
+ * sizing for the largest needs this squared. */
 #define FZN_QR_SIZE_MAX (17u + 4u * FZN_QR_VERSION_MAX)
 #define FZN_QR_MODULES_MAX (FZN_QR_SIZE_MAX * FZN_QR_SIZE_MAX)
 
@@ -130,6 +140,15 @@ const char *fzn_qr_err_str(fzn_qr_err_t err);
 
 fzn_qr_err_t fzn_qr_encode(const char *text, size_t text_len, fzn_qr_level_t level,
                            uint8_t *out, size_t out_cap, size_t *size_out);
+
+/* AS `fzn_qr_encode`, saying what it chose, sec 977: the version into
+ * `*version_out` (written with `size`, so a caller sizing first learns it) and
+ * the mask into `*mask_out`, either may be NULL. `force_mask` 0..7 draws that
+ * mask rather than the least penalised, as a reference matrix is; -1 chooses.
+ * MALFORMED for a mask out of range. */
+fzn_qr_err_t fzn_qr_encode_as(const char *text, size_t text_len, fzn_qr_level_t level,
+                              int force_mask, uint8_t *out, size_t out_cap, size_t *size_out,
+                              unsigned *version_out, unsigned *mask_out);
 
 /* The smallest version that would hold `text_len` characters at `level`, or
  * zero when none up to FZN_QR_VERSION_MAX would. Exposed so a caller can size

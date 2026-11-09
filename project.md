@@ -83199,3 +83199,79 @@ passes every phase, B and C pairing in 2 rounds.
 removes them, and they cost what they did. A host on the old code waits for a sibling's grant a new
 host no longer mints, so it does not ask that sibling directly until it is updated -- the sibling
 still asks it, and the estate's data still reaches it through others.
+
+## 977. QR codes to version 40, and what was chosen said, 2026-11-09
+
+Asked by fuzzypickles (inbox 20261109T1355Z, and T1424Z quoting the holder: "when you find
+something you think needs changing tell fuzznet to improve it. Like QR codes.. we will likely
+stumble upon the need for more data"). The encoder stopped at version 15, 758 alphanumeric
+characters at L; a join approval is 705 and a card with its seeds about 1018, and fuzzypickles kept
+its own encoder for the versions past it. The holder's no arbitrary limits decides the rest.
+
+**To version 40, the standard's last** (`FZN_QR_VERSION_MAX`, overridable; the `small` build keeps
+15, a version-40 encode taking about 75 KB of stack). The tables past 15 are generated from the
+standard's formulas -- the raw module count for the codewords, the block counts per level, and the
+alignment positions -- which reproduce versions 1..15 exactly as they stood, and match the vendored
+quirc's own table for every version and level but one coordinate (its version 21 lists 92 for the
+last alignment pattern, which sits at the size less 7, 94). Seven alignment columns, from version
+35; the count field is 13 bits for alphanumeric from version 27, as it already said.
+
+**What was chosen, said** (`fzn_qr_encode_as`): the version, with the size, and the mask; and a mask
+forced, 0..7, for a reference matrix, as fuzzypickles' encoder offered.
+
+**`make qrcheck` decodes every version at every level now** -- 204 of 204, version 40 at each level's
+full alphanumeric capacity (4296, 3391, 2420, 1852). Two things stood in its way, both quirc's: it
+labels connected regions in eight bits by default, 254 at most, and a code past about version 25
+has more, so it found nothing at all, every mask, every level -- built now with
+`QUIRC_MAX_REGIONS=65534`; and past version 30 it now and then reports a phantom second code among a
+long payload's runs, which decodes as nothing -- the check takes the one that decodes. Measured
+first that these were quirc's: at version 24 H some masks were found and others not, at every
+scale, and the same at version 12 from the tables that stood. **Controls, by hand:** the count
+field put back to 11 bits past 26 leaves 152 of 204; four alignment columns, 128.
+
+**`qr_test`:** the largest version encodes at the largest size, a payload past it is refused, and
+the version, the mask and a forced mask are said and drawn as asked.
+
+**Not done, of the same message:** a camera-shaped round trip in the suite (defocused, mirrored),
+which fuzzypickles' `client/test/scan_test.c` has.
+
+## 978. What fuzzypickles asks of fuzznet, 2026-11-09
+
+Recorded from fuzzypickles' inbox messages of 2026-11-09 (T1340Z, T1355Z, T1424Z, T1552Z, T1718Z,
+T2012Z), so the messages can go. The holder to fuzzypickles, quoted there: "When you find something
+you think needs changing tell fuzznet to improve it." Each is a requirement here; how each is met is
+this tree's.
+
+**Done:** QR to version 40, its version and mask said (sec 977, T1355Z/T1424Z); c267ffd's reconcile
+fault (T1718Z), fixed in 633576d before the message arrived.
+
+**Reported, and not this tree's commit:** "34fd5a1c: a group member sometimes never reads the earlier
+line" (T2012Z). Reproduced from fuzzypickles' scenario in a scratch clone: 3 of 6 failed at 34fd5a1
+(one of them void, the script edited under a run) and 1 of 6 at e3ce161, the commit before it. So it
+is older than 34fd5a1, and intermittent; being found (sec 979).
+
+**Open, notebook_view** (`gui/notebook_view.cpp`, T1340Z), what fuzzypickles' notes widget has and
+this one lacks before it can be swapped in: labels editable and shown in the row (`set note ID
+labels`, sec 869); a group's notebook opened, not only `list received`; a backfill choice when
+sharing to a group; the "elsewhere" and "contested" states shown; a phone's width (flowing rows, a
+More menu); accessible names and `tr()`; a hook to say something to the person inline, apart from
+the log.
+
+**Open, notes import** (`notes/import.c`, T1355Z): a title past the limit shortened and the note
+kept; the format chosen by content, not the name's suffix; a reason per refusal (dropped at
+`node/notes.c` around `add import`); bounds past a 16 MiB calendar and a 1 MiB Keep file, and a walk
+deeper than one level (Takeout/Keep); Keep attachments and colour said, not dropped silently; the
+store not reloaded per dated note.
+
+**Open, settings schema** (`node/schema.c`, T1355Z): a safe direction per setting, the more
+restrictive winning between writes made apart -- sec 389 decision 4 and sec 418, the holder's,
+never built (next); "default after invalid" said; an advertised declaration for what peers observe;
+sensitive settings answered by whether they are set, not their value; `location/accuracy` bounded
+at 61440.
+
+**Open, stickers** (`sticker/pack.c`, `node/stickers.c`, T1355Z/T1552Z): a reference of 84 bytes of
+words and a 96-byte description refused by `fzn_sticker_ref_format` though `FZN_STICKER_REF_MAX`
+(533) passes `FZN_STICKER_REF_SENT_MAX` (512), so parse takes what format refuses; a pack that will
+not build says which sticker and why (`stickers 3 and 5 have one id`), by position and id; ids
+derived once per shared art; whether a newer pack's unknown field refusing the whole pack is the
+trade wanted, recorded.

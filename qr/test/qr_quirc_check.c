@@ -49,11 +49,26 @@ static int roundtrip_typed(const char *text, fzn_qr_level_t level, int want_type
 			}
 	quirc_end(q);
 	n = quirc_count(q);
-	if (n != 1) { snprintf(why, why_cap, "quirc found %d codes", n); quirc_destroy(q); return 0; }
-	quirc_extract(q, 0, &code);
-	if (quirc_decode(&code, &data) != QUIRC_SUCCESS) {
-		snprintf(why, why_cap, "quirc could not decode");
-		quirc_destroy(q); return 0;
+	/* ONE CODE DECODED OF WHAT QUIRC FOUND, sec 977: past version 30 it
+	 * now and then reports a second, a phantom among a long payload's runs,
+	 * which decodes as nothing; the code drawn is the one that decodes. */
+	{
+		int i, decoded = 0;
+
+		for (i = 0; i < n; i++) {
+			struct quirc_data d;
+
+			quirc_extract(q, i, &code);
+			if (quirc_decode(&code, &d) == QUIRC_SUCCESS) {
+				data = d;
+				decoded++;
+			}
+		}
+		if (n < 1 || decoded != 1) {
+			snprintf(why, why_cap, "quirc found %d codes, %d decoded", n, decoded);
+			quirc_destroy(q);
+			return 0;
+		}
 	}
 	if (data.payload_len != (int)strlen(text) ||
 	    memcmp(data.payload, text, strlen(text)) != 0)
@@ -175,7 +190,9 @@ static int decode_printed(const char *text, const char *want)
 int main(void)
 {
 	static const char *NAMES[] = { "L", "M", "Q", "H" };
-	char text[900], why[128];
+	/* ROOM FOR VERSION 40 AT L, 4296 alphanumeric characters (sec 977). */
+	static char text[4400];
+	char why[128];
 	int level, pass = 0, fail = 0;
 	unsigned v;
 

@@ -120,11 +120,14 @@ public:
 	QString code_text() const;
 
 	/*
-	 * THE ERROR CORRECTION LEVEL A CARD IS ENCODED AT, and it is not a
-	 * preference. Measured: a card's text is 682 characters, which fits
-	 * version 15 at level L and NO version at M, Q or H. The suite pins
-	 * that, so a later change to the card's layout that pushes it past
-	 * what a code can hold fails here rather than in somebody's camera.
+	 * THE ERROR CORRECTION LEVEL A CARD IS ENCODED AT: L, the smallest code
+	 * for the text, so the largest modules a camera reads off a screen,
+	 * where nothing scratches or covers it. It was L because nothing else
+	 * fitted -- 682 characters at version 15, the encoder's last -- and since
+	 * the encoder reaches version 40 (sec 977) M fits too, at a larger code.
+	 * The suite pins that L is the smallest and that the card fits it, so a
+	 * card that grows past what a code holds fails here rather than in
+	 * somebody's camera.
 	 */
 	static fzn_qr_level_t code_level();
 

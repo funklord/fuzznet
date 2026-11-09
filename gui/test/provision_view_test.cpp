@@ -250,9 +250,8 @@ int main(int argc, char **argv)
 		      "bytes that are not a card were offered as a code");
 	}
 
-	/* THE LEVEL IS FORCED, NOT CHOSEN. A card's text fits version 15 at L
-	 * and no version at M, Q or H -- so this is not a preference and a
-	 * later card layout that grows past a code must fail here. */
+	/* THE LEVEL GIVES THE SMALLEST CODE (sec 977: it was the only one that
+	 * fitted, at version 15), and a card that grows past a code fails here. */
 	{
 		static char text[FZN_PROVISION_TEXT_MAX_LEN];
 		size_t n;
@@ -267,15 +266,15 @@ int main(int argc, char **argv)
 		CHECK(fzn_qr_version_for(text, n, FZN_QR_LEVEL_L) > 0u,
 		      "a card does not fit a QR code at level L, so pairing by code "
 		      "cannot work at all");
-		CHECK(fzn_qr_version_for(text, n, FZN_QR_LEVEL_M) == 0u &&
-		              fzn_qr_version_for(text, n, FZN_QR_LEVEL_Q) == 0u &&
-		              fzn_qr_version_for(text, n, FZN_QR_LEVEL_H) == 0u,
-		      "a card fits at a level above L, so the claim that L is forced "
-		      "is no longer true and the comment saying so is wrong");
+		CHECK(fzn_qr_version_for(text, n, FZN_QR_LEVEL_L) <=
+		                      fzn_qr_version_for(text, n, FZN_QR_LEVEL_M) ||
+		              fzn_qr_version_for(text, n, FZN_QR_LEVEL_M) == 0u,
+		      "a card gives a smaller code at a level above L, so L is not the "
+		      "smallest and the comment saying so is wrong");
 
 		/* AND UPPERCASE IS LOAD-BEARING. Lowercasing leaves QR
 		 * alphanumeric mode, and provision.h chose base32 for exactly
-		 * that reason. */
+		 * that reason: lowered, the card needs a larger code, or none. */
 		{
 			static char lowered[FZN_PROVISION_TEXT_MAX_LEN];
 			size_t i;
@@ -285,9 +284,11 @@ int main(int argc, char **argv)
 				if (lowered[i] >= 'A' && lowered[i] <= 'Z')
 					lowered[i] = (char)(lowered[i] + 32);
 
-			CHECK(fzn_qr_version_for(lowered, n, FZN_QR_LEVEL_L) == 0u,
-			      "a lowercased card still fits, so provision.h's reason for "
-			      "uppercase base32 is not the one stated");
+			CHECK(fzn_qr_version_for(lowered, n, FZN_QR_LEVEL_L) == 0u ||
+			              fzn_qr_version_for(lowered, n, FZN_QR_LEVEL_L) >
+			                      fzn_qr_version_for(text, n, FZN_QR_LEVEL_L),
+			      "a lowercased card fits as small a code, so provision.h's "
+			      "reason for uppercase base32 is not the one stated");
 		}
 	}
 
