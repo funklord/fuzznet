@@ -618,12 +618,29 @@ fzn_notes_err_t fzn_notes_import_knotes(const uint8_t *ics, size_t len, fzn_note
 
 /* ---- the run ------------------------------------------------------------- */
 
+/* WHETHER THIS ENTRY IS IN THE PAGE, sec 991: 1 to take it, 0 to pass it
+ * over, -1 past the page -- the run then stops. */
+static int in_page(fzn_notes_import_run_t *run)
+{
+	size_t at = run->seen++;
+
+	if (at < run->from)
+		return 0;
+	if (run->batch && at - run->from >= run->batch) {
+		run->stopped = 1;
+		return -1;
+	}
+	return 1;
+}
+
 void fzn_notes_import_refuse(void *ctx, fzn_notes_import_refusal_t why, const uint8_t *t,
                              size_t t_len)
 {
 	fzn_notes_import_run_t *run = (fzn_notes_import_run_t *)ctx;
 
 	if (!run)
+		return;
+	if (!run->in_take && in_page(run) <= 0)
 		return;
 	run->refused++;
 	if (run->on_refused)
@@ -671,15 +688,30 @@ static int imported_before(const fzn_notes_import_run_t *run,
 	return unknown ? -1 : 0;
 }
 
+static int take_one(fzn_notes_import_run_t *run, const fzn_notes_import_entry_t *e);
+
 int fzn_notes_import_take(void *ctx, const fzn_notes_import_entry_t *e)
 {
 	fzn_notes_import_run_t *run = (fzn_notes_import_run_t *)ctx;
+	int page, stop;
+
+	if (!run || !run->author || !e)
+		return 1;
+	page = in_page(run);
+	if (page <= 0)
+		return page < 0;
+	run->in_take = 1;
+	stop = take_one(run, e);
+	run->in_take = 0;
+	return stop;
+}
+
+static int take_one(fzn_notes_import_run_t *run, const fzn_notes_import_entry_t *e)
+{
 	uint8_t id[FZN_TREE_ID_LEN];
 	fzn_note_t note;
 	fzn_notes_err_t err;
 
-	if (!run || !run->author || !e)
-		return 1;
 	if (e->created_at_ms) {
 		int before = imported_before(run, e);
 

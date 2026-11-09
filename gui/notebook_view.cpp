@@ -1414,28 +1414,40 @@ bool fzn_notebook_view::empty_trash()
 
 bool fzn_notebook_view::import_file(const QString &path)
 {
-	QString detail;
-	QStringList f;
+	/* IMPORTED ALREADY UNDATED REFUSED PENDING ATTACHED, summed over the
+	 * pages, and the refused named as they came. */
+	qulonglong sum[6] = { 0, 0, 0, 0, 0, 0 };
+	QStringList refused;
+	qulonglong from = 0;
+	int page;
 
 	if (shared() || path.isEmpty())
 		return false;
-	if (ask(QStringLiteral("add import %1 %2").arg(parent_id(), path), &detail) != 1) {
-		fail(QStringLiteral("Nothing was imported: %1").arg(detail));
-		return false;
-	}
-	/* `IMPORTED ALREADY UNDATED REFUSED PENDING ATTACHED REASON,NAME ...`
-	 * (ATTACHED since sec 985): what did
-	 * not come across is named while the user still has the export, with
-	 * why (sec 982), and PENDING of them will come across once their
-	 * content is here (sec 578). */
-	f = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-	say(QStringLiteral("Imported %1 note(s); %2 were here already.")
-	            .arg(f.value(0), f.value(1)));
-	if (f.value(3).toInt() > 0) {
-		QStringList refused;
+	/* A PAGE AT A TIME, sec 991: `... ATTACHED NEXT REASON,NAME ...`, NEXT
+	 * the FROM to ask again with, 0 when done -- so the node answers its
+	 * other callers between pages of a large export. */
+	for (page = 0; page < 4096; page++) {
+		QString detail;
+		QStringList f;
 		int i;
 
-		for (i = 6; i < f.size(); i++) {
+		if (ask(from ? QStringLiteral("add import %1 %2 %3").arg(parent_id()).arg(from).arg(path)
+		             : QStringLiteral("add import %1 %2").arg(parent_id(), path),
+		        &detail)
+		    != 1) {
+			fail(QStringLiteral("Nothing %1was imported: %2")
+			             .arg(page ? QStringLiteral("more ") : QString(), detail));
+			if (!page)
+				return false;
+			break;
+		}
+		/* What did not come across is named while the user still has the
+		 * export, with why (sec 982), and PENDING of them will come across
+		 * once their content is here (sec 578); ATTACHED since sec 985. */
+		f = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+		for (i = 0; i < 6; i++)
+			sum[i] += f.value(i).toULongLong();
+		for (i = 7; i < f.size(); i++) {
 			const int comma = f[i].indexOf(QLatin1Char(','));
 			const QString why = comma < 0 ? QString() : f[i].left(comma);
 			const QString name = unescape(comma < 0 ? f[i] : f[i].mid(comma + 1));
@@ -1451,19 +1463,26 @@ bool fzn_notebook_view::import_file(const QString &path)
 			else
 				refused << name;
 		}
+		from = f.value(6).toULongLong();
+		if (!from)
+			break;
+	}
+	say(QStringLiteral("Imported %1 note(s); %2 were here already.").arg(sum[0]).arg(sum[1]));
+	if (sum[3] > 0) {
 		say(QStringLiteral("%1 could not be imported: %2")
-		            .arg(f.value(3), refused.join(QStringLiteral(", "))));
-		if (f.value(4).toInt() > 0)
+		            .arg(sum[3])
+		            .arg(refused.join(QStringLiteral(", "))));
+		if (sum[4] > 0)
 			say(QStringLiteral("%1 of them match notes whose content has not arrived "
 			                   "here yet; import the same file again once it has.")
-			            .arg(f.value(4)));
+			            .arg(sum[4]));
 	}
 	/* WHAT CAME ACROSS WITHOUT ITS FILES, sec 985: said, so a picture or a
 	 * recording is not lost without a word. */
-	if (f.value(5).toInt() > 0)
+	if (sum[5] > 0)
 		say(QStringLiteral("%1 imported note(s) had files attached, which were not imported; "
 		                   "they are in the export beside each note.")
-		            .arg(f.value(5)));
+		            .arg(sum[5]));
 	refresh_list();
 	return true;
 }

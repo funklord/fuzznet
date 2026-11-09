@@ -220,6 +220,8 @@ static fzn_node_notes_t notes;
 static int quiet;            /* the node does not answer */
 static const char *received; /* the `list received` reply, or NULL for none */
 static const char *imported;  /* an `add import` reply in place of the node's, or NULL */
+/* And for the page from 256, sec 991, or NULL. */
+static const char *imported_next;
 /* A reply in place of the node's to one line exactly, or NULL (sec 987). */
 static const char *canned_line, *canned_reply;
 static unsigned asked;
@@ -281,6 +283,8 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 	asked++;
 	if (quiet)
 		return 0;
+	if (imported_next && !strncmp(line, "add import ", 11u) && strstr(line, " 256 /"))
+		return (size_t)snprintf(reply, cap, "%s\n", imported_next);
 	if (imported && !strncmp(line, "add import ", 11u))
 		return (size_t)snprintf(reply, cap, "%s\n", imported);
 	if (canned_line && !strcmp(line, canned_line))
@@ -615,7 +619,7 @@ static void test_an_export_is_imported_into_the_open_folder(void)
 
 	/* REFUSED, AND PENDING OF THEM, sec 578: a canned reply, since a note
 	 * whose content has not arrived needs a second host. */
-	imported = "ok 1 0 0 2 1 0 unparsed,bad%20one pending,waiting";
+	imported = "ok 1 0 0 2 1 0 0 unparsed,bad%20one pending,waiting";
 	CHECK(w.import_file(QString::fromLatin1(path)) && log.size() >= 3
 	              && log[log.size() - 2] == QStringLiteral("2 could not be imported: bad one (not readable), "
 	                                                     "waiting (content not here yet)")
@@ -623,11 +627,21 @@ static void test_an_export_is_imported_into_the_open_folder(void)
 	                                              "arrived here yet; import the same file again "
 	                                              "once it has."),
 	      "the refused are named, and the pending among them told to import again");
-	imported = "ok 0 0 0 1 0 0 too-long,bad";
+	imported = "ok 0 0 0 1 0 0 0 too-long,bad";
 	CHECK(w.import_file(QString::fromLatin1(path))
 	              && log.last() == QStringLiteral("1 could not be imported: bad (too long)"),
 	      "with none pending, nothing more is said");
-	imported = "ok 2 0 0 0 0 1";
+	/* TWO PAGES, sec 991: summed, the refused of both named. */
+	imported = "ok 200 50 0 1 0 2 256 unparsed,first";
+	imported_next = "ok 30 0 0 1 0 0 0 too-long,second";
+	CHECK(w.import_file(QString::fromLatin1(path)) && log.size() >= 3
+	              && log[log.size() - 3] == QStringLiteral("Imported 230 note(s); 50 were here already.")
+	              && log[log.size() - 2]
+	                         == QStringLiteral("2 could not be imported: first (not readable), "
+	                                           "second (too long)"),
+	      "an import of two pages is said as one, its counts summed");
+	imported_next = NULL;
+	imported = "ok 2 0 0 0 0 1 0";
 	CHECK(w.import_file(QString::fromLatin1(path))
 	              && log.last() == QStringLiteral("1 imported note(s) had files attached, which "
 	                                              "were not imported; they are in the export "

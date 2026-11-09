@@ -132,6 +132,14 @@ typedef struct fzn_notes_import_run {
 	/* Where refusals are named, or NULL. */
 	fzn_notes_import_refused_fn on_refused;
 	void *refused_ctx;
+	/* A PAGE OF THE EXPORT, sec 991: the entries before FROM are passed
+	 * over, and BATCH of them taken (0 for all); STOPPED once the next
+	 * would pass the page. An entry is a note the parsers hand over or
+	 * refuse, counted in the export's own order, so the same FROM finds
+	 * the same place again. */
+	size_t from, batch, seen;
+	int stopped;
+	int in_take; /* a refusal from inside a take is that entry's, not another */
 } fzn_notes_import_run_t;
 
 /* The parser callback: create one note under the run's folder -- its content

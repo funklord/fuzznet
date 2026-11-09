@@ -83371,9 +83371,8 @@ with `fuzznetd` importing Takeouts of numbered Keep notes, first and second impo
 and 0.0 s, 1000 2.4 s and 0.1 s, 2000 4.6 s and 0.1 s, 8000 23.5 s and 0.9 s. The second import does
 nothing but those checks, so they cost about 0.1 ms a note at 8000, and an index of them, drafted,
 was not taken; the first is the notes' writing, about 3 ms a note at 8000, a little more than
-linear. **What the measurement found instead, open:** `add import` runs to its end inside one
-request, so a host importing 8000 notes answered nobody else for 23 s; an import in pieces across
-loop passes, answering at once and saying when done, is the shape it wants.
+linear. **What the measurement found instead:** `add import` ran to its end inside one request,
+so a host importing 8000 notes answered nobody else for 23 s -- imported in pages since sec 991.
 
 **Still open of T1355Z's import list:** the bounds and the deeper
 Takeout walk, and Keep attachments and colour said rather than dropped silently.
@@ -83628,3 +83627,31 @@ a sensitive cell answer only whether it is set. Not taken. The verbs answer this
 should not show it over a shoulder, which is the client's to honour when it draws a list. A secret
 is a sealed value (sec 879), not a setting, and its value is never in a reply. A node that hid it
 would need a second verb to reveal it, to the same person.
+
+## 991. `add import` a page at a time, 2026-11-10
+
+Sec 982's measurement: a Takeout of 8000 notes imported inside one request in 23.5 s, during which
+the host answered no other caller and ran no round -- and the bound is 262,144 notes. **Built:**
+`add import PARENT [FROM] PATH` takes FZN_NODE_NOTES_IMPORT_BATCH (256) notes from FROM and answers
+a seventh count, NEXT, the FROM to ask again with, or 0 when done -- the paging every `list` verb
+here already does. An entry is a note the parsers hand over or refuse, counted in the export's own
+order (a directory by name, a calendar by its own order), so the same FROM finds the same place.
+Before the page a Keep file, being one entry whatever it holds, is counted without being read; a
+calendar is read, its entries being its own. A refusal made while a note is taken (pending, too
+long, failed) is that note's and is not counted again. `notebook_view` asks page after page and
+says the sums, so its person sees one import. A reply change, made because it is free (sec 924);
+fuzzypickles is told.
+
+**Measured:** `notes_test`, with its page set to four (`import_batch`, 0 for the default, so a
+suite need not write hundreds): ten notes come as 4, 4 and 2 with NEXT 4, 8 and 0, and a second
+import recognises all ten in the same pages; a calendar paged by one passes its first entry over on
+the second page. `notebook_view_test` sums two canned pages. `fuzznetd` importing a Takeout of 8000:
+32 pages in 25.0 s, **the longest request 1.02 s** where the one request took 23.5; a second import
+of it, 32 pages in 1.6 s, the longest 0.20 s. `import-page-never-ends` and
+`import-page-skips-nothing` guard it.
+
+**The bounds, looked at again and kept** (sec 985 left them open): a Keep note's file is read to 1
+MiB, and a note's text holds 256 KiB, so a file past the bound cannot hold a note that fits, JSON's
+escapes allowed for; a calendar is read to 16 MiB, some tens of thousands of notes, and is read again
+for each page -- a read and parse of up to 16 MiB a page, not measured. A calendar past it is refused and
+named, not cut.

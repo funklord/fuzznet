@@ -2111,10 +2111,25 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 		return r;
 
 	memset(&run, 0, sizeof(run));
+	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, run.folder))
+		return say(reply, cap, FZN_REPLY_MALFORMED, "add import PARENT [FROM] PATH");
+	/* A PAGE AT A TIME, sec 991: FROM, all digits, where the last answer's
+	 * NEXT said; a path is absolute, so the two are told apart. */
+	if (left && at[0] >= '0' && at[0] <= '9') {
+		size_t i;
+
+		if (!word(&at, &left, &w, &w_len))
+			return say(reply, cap, FZN_REPLY_MALFORMED, "add import PARENT [FROM] PATH");
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || run.from > FZN_NOTES_MAX)
+				return say(reply, cap, FZN_REPLY_MALFORMED, "FROM is a count");
+			run.from = (run.from * 10u) + (size_t)(w[i] - '0');
+		}
+	}
+	run.batch = n->import_batch ? n->import_batch : FZN_NODE_NOTES_IMPORT_BATCH;
 	/* AN ABSOLUTE PATH ONLY, sec 662. */
-	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, run.folder) || left == 0u
-	    || left >= sizeof(path) || memchr(at, '\0', left) || at[0] != '/')
-		return say(reply, cap, FZN_REPLY_MALFORMED, "add import PARENT PATH, PATH absolute");
+	if (left == 0u || left >= sizeof(path) || memchr(at, '\0', left) || at[0] != '/')
+		return say(reply, cap, FZN_REPLY_MALFORMED, "add import PARENT [FROM] PATH, PATH absolute");
 	memcpy(path, at, left);
 	path[left] = '\0';
 	/* INTO A FOLDER THIS NODE HOLDS, or the top: notes under an id nobody
@@ -2176,6 +2191,19 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 			const char *name = entries[i]->d_name;
 			char file[1024];
 
+			/* PAST THE PAGE, the rest is the next request's; BEFORE IT, a
+			 * Keep note is one entry whatever it holds, so it is counted
+			 * and not read (sec 991). A calendar is read, its entries
+			 * being its own. */
+			if (run.stopped) {
+				free(entries[i]);
+				continue;
+			}
+			if (run.seen < run.from && !ends_with(name, ".ics")) {
+				run.seen++;
+				free(entries[i]);
+				continue;
+			}
 			k = snprintf(file, sizeof(file), "%s/%s", path, name);
 			if (k < 0 || (size_t)k >= sizeof(file))
 				fzn_notes_import_refuse(&run, FZN_NOTES_IMPORT_UNPARSED, (const uint8_t *)name,
@@ -2206,8 +2234,9 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 		return say(reply, cap, FZN_REPLY_MALFORMED,
 		           "a KNotes .ics, a Keep .json, or a Takeout directory");
 	}
-	k = snprintf(detail, sizeof(detail), "%zu %zu %zu %zu %zu %zu", run.imported, run.already,
-	             run.undated, run.refused, run.pending, run.attached);
+	k = snprintf(detail, sizeof(detail), "%zu %zu %zu %zu %zu %zu %zu", run.imported, run.already,
+	             run.undated, run.refused, run.pending, run.attached,
+	             run.stopped ? run.from + run.batch : (size_t)0);
 	if (k < 0 || (size_t)k >= limit)
 		return 0;
 	/* THE NAMES AS FAR AS THERE IS ROOM; the count above is all of them. */

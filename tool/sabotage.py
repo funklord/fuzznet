@@ -5159,8 +5159,8 @@ SABOTAGES = [
 	(
 		"node-notes-import-answers-pending",
 		"node/notes.c",
-		"\t             run.undated, run.refused, run.pending, run.attached);\n",
-		"\t             run.undated, run.refused, (size_t)0, run.attached);\n",
+		"\t             run.undated, run.refused, run.pending, run.attached,\n",
+		"\t             run.undated, run.refused, (size_t)0, run.attached,\n",
 		"the import reply says none of the refused are pending, and the notebook never tells the user to import again -- sec 578",
 	),
 	(
@@ -5831,15 +5831,15 @@ SABOTAGES = [
 	(
 		"notebook-view-tells-pending",
 		"gui/notebook_view.cpp",
-		"\t\tif (f.value(4).toInt() > 0)\n",
+		"\t\tif (sum[4] > 0)\n",
 		"\t\tif (0)\n",
 		"a note refused only because its content has not arrived reads as lost, though importing again brings it -- sec 578",
 	),
 	(
 		"notebook-view-import-names-after-five",
 		"gui/notebook_view.cpp",
+		"\t\tfor (i = 7; i < f.size(); i++) {\n",
 		"\t\tfor (i = 6; i < f.size(); i++) {\n",
-		"\t\tfor (i = 5; i < f.size(); i++) {\n",
 		"the pending count is named as a refused note -- sec 578",
 	),
 	(
@@ -14988,6 +14988,20 @@ SABOTAGES = [
 		"\tif (e->attachments)\n\t\trun->attached++;\n",
 		"\tif (!e->attachments)\n\t\trun->attached++;\n",
 		"a note whose files stay in the export is not said to have them -- sec 985",
+	),
+	(
+		"import-page-never-ends",
+		"notes/import.c",
+		"\tif (run->batch && at - run->from >= run->batch) {\n",
+		"\tif (run->batch && at - run->from >= run->batch + 1000u) {\n",
+		"an import runs past its page and holds the host to the end of the export -- sec 991",
+	),
+	(
+		"import-page-skips-nothing",
+		"notes/import.c",
+		"\tif (at < run->from)\n\t\treturn 0;\n",
+		"",
+		"a page from FROM takes the export from its start again -- sec 991",
 	),
 	(
 		"notebook-view-labels-never-saved",

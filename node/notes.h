@@ -59,12 +59,16 @@
  *     set note ID item N check     tick item N (from 0), or uncheck it
  *     set note ID item N text TEXT reword it
  *     remove item ID N             remove it
- *     add import PARENT PATH       a KNotes calendar, a Keep note or a
+ *     add import PARENT [FROM] PATH
+ *                                  a KNotes calendar, a Keep note or a
  *                                  Takeout directory into PARENT (sec 440),
- *                                  a file known by what it holds; answers
- *                                  IMPORTED ALREADY UNDATED REFUSED PENDING
- *                                  ATTACHED -- imported with files left in
- *                                  the export (sec 985) -- and each refused
+ *                                  a file known by what it holds, a page of
+ *                                  FZN_NODE_NOTES_IMPORT_BATCH notes from
+ *                                  FROM (sec 991); answers IMPORTED ALREADY
+ *                                  UNDATED REFUSED PENDING ATTACHED --
+ *                                  imported with files left in the export
+ *                                  (sec 985) -- NEXT, the FROM to ask again
+ *                                  with or 0 when done, and each refused
  *                                  note as REASON,TITLE:
  *                                  unparsed, too-long, failed or pending
  *                                  (sec 982)
@@ -131,6 +135,13 @@
 #define FZN_NODE_NOTES_IMPORT_FILE_MAX (1024u * 1024u)
 #define FZN_NODE_NOTES_IMPORT_ICS_MAX (16u * 1024u * 1024u)
 
+/* HOW MANY NOTES ONE `add import` TAKES, sec 991: an import of 8000 ran to
+ * its end in one request and the host answered nobody for 23 s; a page
+ * of this many is under a second, and the caller asks again from NEXT. */
+#ifndef FZN_NODE_NOTES_IMPORT_BATCH
+#define FZN_NODE_NOTES_IMPORT_BATCH 256u
+#endif
+
 /* Remove the texts `keep` does not keep -- the node's shelf, in practice
  * (`fzn_node_shelf_collect`); `keep` is handed `keep_ctx`. Nonzero on
  * success, with the counts. sec 443. */
@@ -195,6 +206,9 @@ typedef struct fzn_node_notes {
 	 * the trash leaves purges waiting, for a caller that converses on a
 	 * timer to do so now instead; the caller clears it. sec 449. */
 	int fresh;
+	/* Notes one `add import` takes, sec 991: 0 for
+	 * FZN_NODE_NOTES_IMPORT_BATCH; a suite gives fewer. */
+	size_t import_batch;
 } fzn_node_notes_t;
 
 /*

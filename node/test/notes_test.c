@@ -1186,12 +1186,12 @@ static void test_import(void)
 	snprintf(line, sizeof(line), "add import %s %s", folder, dir);
 	CHECK(ask_as(FZN_ORIGIN_LOCAL, line) == FZN_REPLY_DENIED,
 	      "another user may not make the node read a path");
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "2 0 0 1 0 0 ", 12u),
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "2 0 0 1 0 0 0 ", 14u),
 	      "a Takeout imports its two notes and refuses the one that will not parse");
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 2 0 1 0 0", 11u),
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 2 0 1 0 0 0", 13u),
 	      "a second import recognises both and writes nothing");
 	snprintf(line, sizeof(line), "add import %s %s", folder, f_ics);
-	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 1 0 0 0"),
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 1 0 0 0 0"),
 	      "a KNotes calendar imports both journals, one of them undated");
 	snprintf(line, sizeof(line), "list note %s", folder);
 	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "4 0", 3u) && has(",milk")
@@ -1208,7 +1208,7 @@ static void test_import(void)
 		CHECK(put_file(cal_txt, ics, sizeof(ics) - 1u) && put_file(bare, milk, sizeof(milk) - 1u),
 		      "fixture: a calendar and a note under other names");
 		snprintf(line, sizeof(line), "add import %s %s", folder, cal_txt);
-		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "1 1 1 0 0 0"),
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "1 1 1 0 0 0 0"),
 		      "a calendar named .txt is read as one: its dated note is here already, and "
 		      "its undated one imported again, as sec 440 has it");
 		snprintf(line, sizeof(line), "add import %s %s", folder, bare);
@@ -1230,10 +1230,10 @@ static void test_import(void)
 		              && put_file(one, milk, sizeof(milk) - 1u),
 		      "fixture: an extracted archive");
 		snprintf(line, sizeof(line), "add import %s %s", folder, top);
-		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 1 0 0 0 0"),
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 1 0 0 0 0 0"),
 		      "the archive's top finds Takeout/Keep, and its note is here already");
 		snprintf(line, sizeof(line), "add import %s %s", folder, take);
-		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 1 0 0 0 0"),
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 1 0 0 0 0 0"),
 		      "and so does Takeout");
 		CHECK(unlink(one) == 0 && rmdir(keep) == 0 && rmdir(take) == 0 && rmdir(top) == 0,
 		      "cleanup: the archive");
@@ -1249,7 +1249,7 @@ static void test_import(void)
 		snprintf(f_beach, sizeof(f_beach), "%s.beach.json", dir);
 		snprintf(line, sizeof(line), "add import %s %s", folder, f_beach);
 		CHECK(put_file(f_beach, photo, sizeof(photo) - 1u) && ask(line) == FZN_REPLY_OK
-		              && !strcmp(detail_of(), "1 0 0 0 0 1"),
+		              && !strcmp(detail_of(), "1 0 0 0 0 1 0"),
 		      "a note with a file beside it is imported and counted as attached");
 		snprintf(line, sizeof(line), "list note %s", folder);
 		{
@@ -1270,6 +1270,57 @@ static void test_import(void)
 			}
 		}
 		CHECK(unlink(f_beach) == 0, "cleanup: the attached note");
+	}
+
+	/* A PAGE AT A TIME, sec 991: ten notes in pages of four are three pages,
+	 * and a second import recognises them in the same three. */
+	{
+		char many[112], one[160], page[3][400];
+		int i2;
+
+		snprintf(many, sizeof(many), "%s.many", dir);
+		CHECK(mkdir(many, 0700) == 0, "fixture: a Takeout of ten");
+		for (i2 = 0; i2 < 10; i2++) {
+			char json[160];
+			int jn = snprintf(json, sizeof(json),
+			                  "{\"title\":\"m%d\",\"textContent\":\"x\","
+			                  "\"createdTimestampUsec\":%d000000}",
+			                  i2, 1500000000 + i2);
+
+			snprintf(one, sizeof(one), "%s/m%02d.json", many, i2);
+			if (!put_file(one, json, (size_t)jn))
+				break;
+		}
+		CHECK(i2 == 10, "fixture: ten notes written");
+		notes.import_batch = 4u;
+		snprintf(page[0], sizeof(page[0]), "add import %s %s", folder, many);
+		snprintf(page[1], sizeof(page[1]), "add import %s 4 %s", folder, many);
+		snprintf(page[2], sizeof(page[2]), "add import %s 8 %s", folder, many);
+		CHECK(ask(page[0]) == FZN_REPLY_OK && !strcmp(detail_of(), "4 0 0 0 0 0 4"),
+		      "the first page is four notes, and says where the next begins");
+		CHECK(ask(page[1]) == FZN_REPLY_OK && !strcmp(detail_of(), "4 0 0 0 0 0 8"),
+		      "the second is the next four");
+		CHECK(ask(page[2]) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 0 0 0 0 0"),
+		      "the third is the last two, and says it is the last");
+		CHECK(ask(page[0]) == FZN_REPLY_OK && !strcmp(detail_of(), "0 4 0 0 0 0 4")
+		              && ask(page[1]) == FZN_REPLY_OK && !strcmp(detail_of(), "0 4 0 0 0 0 8")
+		              && ask(page[2]) == FZN_REPLY_OK && !strcmp(detail_of(), "0 2 0 0 0 0 0"),
+		      "imported again, the same pages recognise all ten");
+		/* A CALENDAR PAGED, its entries counted by the parser's own order:
+		 * the dated one here already, then the undated one, which sec 440
+		 * imports every time. */
+		notes.import_batch = 1u;
+		snprintf(page[0], sizeof(page[0]), "add import %s %s", folder, f_ics);
+		snprintf(page[1], sizeof(page[1]), "add import %s 1 %s", folder, f_ics);
+		CHECK(ask(page[0]) == FZN_REPLY_OK && !strcmp(detail_of(), "0 1 0 0 0 0 1")
+		              && ask(page[1]) == FZN_REPLY_OK && !strcmp(detail_of(), "1 0 1 0 0 0 0"),
+		      "a calendar is paged by its own entries, the first passed over on the second page");
+		notes.import_batch = 0u;
+		for (i2 = 0; i2 < 10; i2++) {
+			snprintf(one, sizeof(one), "%s/m%02d.json", many, i2);
+			(void)unlink(one);
+		}
+		CHECK(rmdir(many) == 0, "cleanup: the Takeout of ten");
 	}
 
 	/* IN ORDER OF NAME, sec 885, whatever order the filesystem gives, and a
@@ -1325,7 +1376,7 @@ static void test_import(void)
 	CHECK(put_file(f_big, big, FZN_NODE_NOTES_IMPORT_FILE_MAX + 1u),
 	      "fixture: a Keep file one byte past the bound");
 	snprintf(line, sizeof(line), "add import %s %s", folder, f_big);
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 0 0 1 0 0 ", 12u)
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 0 0 1 0 0 0 ", 14u)
 	              && has(" too-long,") && has(".big.json"),
 	      "a file past the bound is refused and named");
 
@@ -1339,12 +1390,12 @@ static void test_import(void)
 
 		snprintf(line, sizeof(line), "add import %s %s", folder, f_tea);
 		CHECK(put_file(f_tea, tea, sizeof(tea) - 1u) && ask(line) == FZN_REPLY_OK
-		              && !strcmp(detail_of(), "1 0 0 0 0 0"),
+		              && !strcmp(detail_of(), "1 0 0 0 0 0 0"),
 		      "fixture: a note imported");
 		blob_stub_last_root(root);
 		memcpy(ref.root, root, sizeof(root));
 		blob_stub_drop(&ref);
-		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0 0 1 1 0 pending,tea"),
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0 0 1 1 0 0 pending,tea"),
 		      "imported again while its content is not here, it is refused as pending, "
 		      "counted and named");
 	}
