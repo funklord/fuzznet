@@ -83253,7 +83253,7 @@ is older than 34fd5a1, and intermittent; being found (sec 979).
 **Open, notebook_view** (`gui/notebook_view.cpp`, T1340Z), what fuzzypickles' notes widget has and
 this one lacks before it can be swapped in: ~~labels editable and shown in the row~~, sec 983;
 ~~a group's notebook opened, not only `list received`~~, sec 988; ~~a backfill choice when
-sharing to a group~~, sec 986; ~~the "elsewhere" and "contested" states shown~~, sec 987; a phone's width (flowing rows, a
+sharing to a group~~, sec 986; ~~the "elsewhere" and "contested" states shown~~, sec 987; a phone's width (~~flowing rows~~, sec 989, and a
 More menu); ~~accessible names~~ (sec 983) and `tr()`; a hook to say something to the person inline, apart from
 the log.
 
@@ -83517,3 +83517,21 @@ KEY", the first eight hex digits of the key, each opened by its key, which `list
 **Measured:** `notebook_view_test` -- carol, held as a received share and as a sharer, is offered
 once; a canned `list sharer` page offers a group member and a removed contact.
 `notebook-view-group-sharers-not-offered` and `notebook-view-contact-offered-twice` guard it.
+
+## 989. notebook_view fits a phone held upright, 2026-11-10
+
+The next of fuzzypickles' notebook_view gaps (inbox T1340Z; sec 978). Each row of buttons was a
+`QHBoxLayout`, and a row's minimum width is the sum of its buttons', so the nine note actions alone
+set the whole widget at 823 pixels -- more than twice a phone's 360.
+
+**Built:** `flow_row`, a layout inside `gui/notebook_view.cpp`, lays its widgets left to right and
+onto a next line where the width runs out, each at its size hint, and answers its height for a
+width so the column above it makes room. The note actions, the edit, item, history and share rows
+use it. Kept in the one file, being the one widget that needs it, and needing no moc.
+
+**Measured:** the minimum width is 199 pixels; `notebook_view_test` holds it at 360 or less, and a
+grab at 360 by 1100 showed every row wrapped and none overlapping.
+`notebook-view-trash-row-does-not-wrap` guards it. **Lost on the way:** the item and share fields no longer stretch to fill a wide
+row; they take their size hint.
+
+**Still open:** a More menu, which fuzzypickles' widget had for the actions a phone uses least.

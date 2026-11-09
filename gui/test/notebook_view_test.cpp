@@ -881,6 +881,17 @@ static void test_contested_and_elsewhere_are_said(void)
 	canned_line = canned_reply = NULL;
 }
 
+/* A PHONE HELD UPRIGHT, sec 989: the rows of buttons wrap, so the widget
+ * fits 360 pixels, where their sum once set it at 823. */
+static void test_it_fits_a_phone(void)
+{
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	CHECK(w.minimumSizeHint().width() <= 360,
+	      "the notebook is wider than a phone held upright");
+}
+
 /* EVERY FIELD, LIST AND CHOOSER NAMED for a screen reader, sec 983: a button
  * is named by its text, these by nothing unless given one. */
 static void test_every_field_has_an_accessible_name(void)
@@ -1087,6 +1098,7 @@ int main(int argc, char **argv)
 	test_a_pending_note_says_so_and_labels_show();
 	test_labels_are_edited_and_shown();
 	test_every_field_has_an_accessible_name();
+	test_it_fits_a_phone();
 	test_contested_and_elsewhere_are_said();
 	test_a_notes_history_is_read_and_restored();
 	test_a_checklists_history_shows_its_items();

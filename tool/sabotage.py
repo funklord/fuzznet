@@ -15046,6 +15046,13 @@ SABOTAGES = [
 		"a contact whose share was received is offered twice in the chooser -- sec 988",
 	),
 	(
+		"notebook-view-trash-row-does-not-wrap",
+		"gui/notebook_view.cpp",
+		"\tauto *trash_row = new flow_row();\n",
+		"\tauto *trash_row = new QHBoxLayout();\n",
+		"the row of nine note actions sets the notebook wider than a phone -- sec 989",
+	),
+	(
 		"sticker-why-counts-from-zero",
 		"sticker/pack.c",
 		"\t\t\t\t               i + 1u, j + 1u, (unsigned long long)e->id);\n",

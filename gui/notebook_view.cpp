@@ -16,6 +16,7 @@ extern "C" {
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLayout>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
@@ -101,6 +102,91 @@ static QString unescape(const QString &text)
 	return QString::fromUtf8(out);
 }
 
+/* A ROW THAT WRAPS, sec 989: its widgets left to right, and onto the next
+ * line where the width runs out, so a row of buttons fits a phone held
+ * upright rather than setting the whole widget's width to its sum. Each
+ * widget keeps its size hint; a row is as tall as its tallest. */
+class flow_row : public QLayout {
+public:
+	explicit flow_row(int gap = 6) : m_gap(gap) {}
+	~flow_row() override
+	{
+		while (QLayoutItem *item = flow_row::takeAt(0))
+			delete item;
+	}
+	void addItem(QLayoutItem *item) override { m_items.append(item); }
+	int count() const override { return (int)m_items.size(); }
+	QLayoutItem *itemAt(int i) const override { return m_items.value(i); }
+	QLayoutItem *takeAt(int i) override
+	{
+		return i >= 0 && i < m_items.size() ? m_items.takeAt(i) : nullptr;
+	}
+	Qt::Orientations expandingDirections() const override { return {}; }
+	bool hasHeightForWidth() const override { return true; }
+	int heightForWidth(int width) const override { return place(QRect(0, 0, width, 0), false); }
+	void setGeometry(const QRect &rect) override
+	{
+		QLayout::setGeometry(rect);
+		(void)place(rect, true);
+	}
+	/* ONE LINE when there is room; at the least, the widest one alone. */
+	QSize sizeHint() const override
+	{
+		QSize all(0, 0);
+
+		for (QLayoutItem *item : m_items)
+			if (!item->isEmpty()) {
+				all.rwidth() += item->sizeHint().width() + (all.width() ? m_gap : 0);
+				all.setHeight(qMax(all.height(), item->sizeHint().height()));
+			}
+		return all + margin_size();
+	}
+	QSize minimumSize() const override
+	{
+		QSize least(0, 0);
+
+		for (QLayoutItem *item : m_items)
+			if (!item->isEmpty())
+				least = least.expandedTo(item->sizeHint());
+		return least + margin_size();
+	}
+
+private:
+	QSize margin_size() const
+	{
+		const QMargins m = contentsMargins();
+
+		return QSize(m.left() + m.right(), m.top() + m.bottom());
+	}
+	/* Laid out in `rect`, or only measured: the height it takes. */
+	int place(const QRect &rect, bool apply) const
+	{
+		const QRect area = rect.marginsRemoved(contentsMargins());
+		int x = area.x(), y = area.y(), line = 0;
+
+		for (QLayoutItem *item : m_items) {
+			QSize size;
+
+			if (item->isEmpty())
+				continue;
+			size = item->sizeHint().boundedTo(QSize(area.width(), QWIDGETSIZE_MAX));
+			if (x > area.x() && x + size.width() > area.x() + area.width()) {
+				x = area.x();
+				y += line + m_gap;
+				line = 0;
+			}
+			if (apply)
+				item->setGeometry(QRect(QPoint(x, y), size));
+			x += size.width() + m_gap;
+			line = qMax(line, size.height());
+		}
+		return y + line - rect.y() + contentsMargins().bottom();
+	}
+
+	QList<QLayoutItem *> m_items;
+	int m_gap;
+};
+
 static QDateTime version_when(const QString &item)
 {
 	return QDateTime::fromMSecsSinceEpoch(
@@ -133,9 +219,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 {
 	auto *outer = new QVBoxLayout(this);
 	auto *top = new QHBoxLayout();
-	auto *edit_row = new QHBoxLayout();
-	auto *trash_row = new QHBoxLayout();
-	auto *share_row = new QHBoxLayout();
+	auto *edit_row = new flow_row();
+	auto *trash_row = new flow_row();
+	auto *share_row = new flow_row();
 
 	m_trees = new QComboBox(this);
 	m_up = new QPushButton(QStringLiteral("Up"), this);
@@ -234,7 +320,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_remove_item = new QPushButton(QStringLiteral("Remove item"), this);
 	m_cut_button = new QPushButton(QStringLiteral("Cut"), this);
 	m_move_here = new QPushButton(QStringLiteral("Move here"), this);
-	auto *item_row = new QHBoxLayout();
+	auto *item_row = new flow_row();
 	m_share_to = new QComboBox(this);
 	/* FOR A GROUP, WHETHER A LATER MEMBER GETS WHAT CAME BEFORE, sec 986:
 	 * the group's own setting until somebody chooses, and that is a choice
@@ -279,11 +365,11 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_history->setAccessibleName(QStringLiteral("Earlier version"));
 	m_backfill->setAccessibleName(QStringLiteral("What a later group member gets"));
 	m_restore_version->setObjectName(QStringLiteral("restore_version"));
-	auto *history_row = new QHBoxLayout();
+	auto *history_row = new flow_row();
 
 	history_row->addWidget(new QLabel(QStringLiteral("History"), this));
 	history_row->addWidget(m_history_day);
-	history_row->addWidget(m_history, 1);
+	history_row->addWidget(m_history);
 	history_row->addWidget(m_restore_version);
 
 	top->addWidget(m_trees);
@@ -293,7 +379,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	edit_row->addWidget(m_new_folder);
 	edit_row->addWidget(m_new_list);
 	edit_row->addWidget(m_save);
-	item_row->addWidget(m_item_text, 1);
+	item_row->addWidget(m_item_text);
 	item_row->addWidget(m_add_item);
 	item_row->addWidget(m_toggle);
 	item_row->addWidget(m_remove_item);
@@ -307,7 +393,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	trash_row->addWidget(m_archive);
 	trash_row->addWidget(m_cut_button);
 	trash_row->addWidget(m_move_here);
-	share_row->addWidget(m_share_to, 1);
+	share_row->addWidget(m_share_to);
 	share_row->addWidget(m_backfill);
 	share_row->addWidget(m_share);
 	share_row->addWidget(m_unshare);
