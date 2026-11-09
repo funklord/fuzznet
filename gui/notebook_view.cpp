@@ -236,6 +236,14 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_move_here = new QPushButton(QStringLiteral("Move here"), this);
 	auto *item_row = new QHBoxLayout();
 	m_share_to = new QComboBox(this);
+	/* FOR A GROUP, WHETHER A LATER MEMBER GETS WHAT CAME BEFORE, sec 986:
+	 * the group's own setting until somebody chooses, and that is a choice
+	 * too -- it follows the group if the group's changes. */
+	m_backfill = new QComboBox(this);
+	m_backfill->addItem(QStringLiteral("Later members: as the group says"), -1);
+	m_backfill->addItem(QStringLiteral("Later members: get earlier notes"), 1);
+	m_backfill->addItem(QStringLiteral("Later members: new notes only"), 0);
+	m_backfill->setVisible(false);
 	m_share = new QPushButton(QStringLiteral("Share"), this);
 	m_unshare = new QPushButton(QStringLiteral("Unshare"), this);
 	m_shared_with = new QLabel(this);
@@ -269,6 +277,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_warning->setAccessibleName(QStringLiteral("Before sharing"));
 	m_history_day->setAccessibleName(QStringLiteral("Day of an earlier version"));
 	m_history->setAccessibleName(QStringLiteral("Earlier version"));
+	m_backfill->setAccessibleName(QStringLiteral("What a later group member gets"));
 	m_restore_version->setObjectName(QStringLiteral("restore_version"));
 	auto *history_row = new QHBoxLayout();
 
@@ -299,6 +308,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	trash_row->addWidget(m_cut_button);
 	trash_row->addWidget(m_move_here);
 	share_row->addWidget(m_share_to, 1);
+	share_row->addWidget(m_backfill);
 	share_row->addWidget(m_share);
 	share_row->addWidget(m_unshare);
 	outer->addLayout(top);
@@ -385,8 +395,12 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 			        view_version(m_history->itemData(at).toInt());
 	        });
 	connect(m_restore_version, &QPushButton::clicked, this, [this]() { restore_version(); });
-	connect(m_share, &QPushButton::clicked, this,
-	        [this]() { share_with(m_share_to->currentText()); });
+	connect(m_share, &QPushButton::clicked, this, [this]() {
+		share_with(m_share_to->currentText(), m_backfill->currentData().toInt());
+	});
+	connect(m_share_to, &QComboBox::currentTextChanged, this, [this](const QString &to) {
+		m_backfill->setVisible(to.startsWith(QLatin1Char('@')));
+	});
 	connect(m_unshare, &QPushButton::clicked, this,
 	        [this]() { unshare_with(m_share_to->currentText()); });
 	refresh();
@@ -917,13 +931,23 @@ void fzn_notebook_view::refresh_shares()
 		m_share_to->setCurrentIndex(i);
 	if (m_open.isEmpty())
 		return;
-	/* `ok TOTAL FROM SUBTREE,NAME ...`: where the open note goes. */
+	/* `ok TOTAL FROM SUBTREE,NAME ...`: where the open note goes -- and
+	 * for a group SUBTREE,@GROUP,BACKFILL, what a later member gets as it
+	 * stands (sec 986). */
 	if (ask(QStringLiteral("list share"), &detail) == 1) {
 		QStringList words = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
 
 		for (i = 2; i < words.size(); i++)
-			if (words[i].section(QLatin1Char(','), 0, 0) == m_open)
-				with << words[i].section(QLatin1Char(','), 1, 1);
+			if (words[i].section(QLatin1Char(','), 0, 0) == m_open) {
+				QString to = words[i].section(QLatin1Char(','), 1, 1);
+				QString later = words[i].section(QLatin1Char(','), 2, 2);
+
+				if (to.startsWith(QLatin1Char('@')) && !later.isEmpty())
+					to += later == QStringLiteral("1")
+					              ? QStringLiteral(" (later members get earlier notes)")
+					              : QStringLiteral(" (later members get new notes only)");
+				with << to;
+			}
 	}
 	m_shared_with->setText(with.isEmpty() ? QStringLiteral("Not shared.")
 	                                      : QStringLiteral("Shared with %1.")
@@ -1292,13 +1316,16 @@ bool fzn_notebook_view::import_file(const QString &path)
 	return true;
 }
 
-bool fzn_notebook_view::share_with(const QString &contact)
+bool fzn_notebook_view::share_with(const QString &contact, int backfill)
 {
 	QString why;
+	QString line = QStringLiteral("add share %1 %2").arg(m_open, contact);
 
 	if (shared() || m_open.isEmpty() || contact.isEmpty())
 		return false;
-	if (ask(QStringLiteral("add share %1 %2").arg(m_open, contact), &why) != 1) {
+	if (contact.startsWith(QLatin1Char('@')) && backfill >= 0)
+		line += QStringLiteral(" backfill %1").arg(backfill ? 1 : 0);
+	if (ask(line, &why) != 1) {
 		say(QStringLiteral("Not shared: %1").arg(why));
 		return false;
 	}

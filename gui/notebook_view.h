@@ -112,7 +112,9 @@ public:
 	 * goes on Cancel, or once its action is taken. */
 	void ask_empty_trash();
 	void ask_new_folder();
-	bool share_with(const QString &contact);
+	/* `backfill` for a group, sec 986: -1 the group's own setting, 1 a
+	 * member who joins later gets what was shared before, 0 not. */
+	bool share_with(const QString &contact, int backfill = -1);
 	bool unshare_with(const QString &contact);
 	void show_trash(bool on);
 	/* PINNED AND ARCHIVED, sec 444: a pinned note is marked and listed
@@ -253,6 +255,7 @@ private:
 	QPushButton *m_cut_button;
 	QPushButton *m_move_here;
 	QComboBox *m_share_to;
+	QComboBox *m_backfill;
 	QPushButton *m_share;
 	QPushButton *m_unshare;
 	QLabel *m_shared_with;

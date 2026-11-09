@@ -83252,8 +83252,8 @@ is older than 34fd5a1, and intermittent; being found (sec 979).
 
 **Open, notebook_view** (`gui/notebook_view.cpp`, T1340Z), what fuzzypickles' notes widget has and
 this one lacks before it can be swapped in: ~~labels editable and shown in the row~~, sec 983;
-a group's notebook opened, not only `list received`; a backfill choice when
-sharing to a group; the "elsewhere" and "contested" states shown; a phone's width (flowing rows, a
+a group's notebook opened, not only `list received`; ~~a backfill choice when
+sharing to a group~~, sec 986; the "elsewhere" and "contested" states shown; a phone's width (flowing rows, a
 More menu); ~~accessible names~~ (sec 983) and `tr()`; a hook to say something to the person inline, apart from
 the log.
 
@@ -83463,3 +83463,21 @@ every line edit, text edit, chooser and list and refuses one with none;
 
 **Still open of T1340Z:** a group's notebook opened, a backfill choice when sharing to a group, the
 elsewhere and contested states shown, a phone's width, `tr()`, and an inline notice hook.
+
+## 986. notebook_view: what a later group member gets, chosen when sharing, 2026-11-09
+
+The next of fuzzypickles' notebook_view gaps (inbox T1340Z; sec 978). `add share SUBTREE @GROUP
+backfill 0|1` (sec 655) says whether a member who joins later gets what was shared before, and
+`list share` says how it stands, but `notebook_view` shared with a group by the group's setting
+alone and did not say which.
+
+**Built:** beside the share chooser, shown when a group is chosen, a second chooser: "Later
+members: as the group says", "... get earlier notes", "... new notes only". The first sends no
+`backfill` word, so the share follows the group's own setting and moves with it -- a choice not to
+choose, kept as one, so that when the group's setting changes this share follows it; the other two
+pin it. "Shared with" names, for each group, what a later member
+gets as it stands: `@family (later members get new notes only)`.
+
+**Measured:** `notebook_view_test` shares with a group by its own setting, then chooses new notes
+only and earlier notes, and reads each back from the line; the accessible-name walk (sec 983)
+covers the new chooser. `notebook-view-backfill-choice-ignored` guards it.

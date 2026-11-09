@@ -489,8 +489,20 @@ static void test_sharing_is_warned_before_and_said_after(void)
 	      "the share chooser offers the contact and then the group, and not the suspended "
 	      "one");
 	CHECK(w.share_with(QStringLiteral("@family"))
-	              && w.shared_with() == QStringLiteral("Shared with @family."),
-	      "shared with the group, and the widget says so by its name");
+	              && w.shared_with().startsWith(QStringLiteral("Shared with @family (later members ")),
+	      "shared with the group, and the widget says so by its name and what a later member "
+	      "gets");
+	/* WHAT A LATER MEMBER GETS, chosen, sec 986. */
+	CHECK(w.share_with(QStringLiteral("@family"), 0)
+	              && w.shared_with()
+	                         == QStringLiteral("Shared with @family (later members get new notes "
+	                                           "only)."),
+	      "chosen as new notes only, it is said so");
+	CHECK(w.share_with(QStringLiteral("@family"), 1)
+	              && w.shared_with()
+	                         == QStringLiteral("Shared with @family (later members get earlier "
+	                                           "notes)."),
+	      "and chosen again as earlier notes too");
 	CHECK(w.unshare_with(QStringLiteral("@family"))
 	              && w.shared_with() == QStringLiteral("Not shared."),
 	      "and unshared");

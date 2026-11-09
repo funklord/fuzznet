@@ -15011,6 +15011,13 @@ SABOTAGES = [
 		"the list of notes is nothing to a screen reader -- sec 983",
 	),
 	(
+		"notebook-view-backfill-choice-ignored",
+		"gui/notebook_view.cpp",
+		"\tif (contact.startsWith(QLatin1Char('@')) && backfill >= 0)\n",
+		"\tif (contact.startsWith(QLatin1Char('@')) && backfill > 1)\n",
+		"what a later group member gets, chosen when sharing, is not sent -- sec 986",
+	),
+	(
 		"sticker-why-counts-from-zero",
 		"sticker/pack.c",
 		"\t\t\t\t               i + 1u, j + 1u, (unsigned long long)e->id);\n",
