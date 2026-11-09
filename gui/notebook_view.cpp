@@ -1164,9 +1164,10 @@ bool fzn_notebook_view::import_file(const QString &path)
 		say(QStringLiteral("Nothing was imported: %1").arg(detail));
 		return false;
 	}
-	/* `IMPORTED ALREADY UNDATED REFUSED PENDING NAME ...`: what did not come
-	 * across is named while the user still has the export, and PENDING of
-	 * them will come across once their content is here (sec 578). */
+	/* `IMPORTED ALREADY UNDATED REFUSED PENDING REASON,NAME ...`: what did
+	 * not come across is named while the user still has the export, with
+	 * why (sec 982), and PENDING of them will come across once their
+	 * content is here (sec 578). */
 	f = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
 	say(QStringLiteral("Imported %1 note(s); %2 were here already.")
 	            .arg(f.value(0), f.value(1)));
@@ -1174,8 +1175,22 @@ bool fzn_notebook_view::import_file(const QString &path)
 		QStringList refused;
 		int i;
 
-		for (i = 5; i < f.size(); i++)
-			refused << unescape(f[i]);
+		for (i = 5; i < f.size(); i++) {
+			const int comma = f[i].indexOf(QLatin1Char(','));
+			const QString why = comma < 0 ? QString() : f[i].left(comma);
+			const QString name = unescape(comma < 0 ? f[i] : f[i].mid(comma + 1));
+
+			if (why == QLatin1String("unparsed"))
+				refused << QStringLiteral("%1 (not readable)").arg(name);
+			else if (why == QLatin1String("too-long"))
+				refused << QStringLiteral("%1 (too long)").arg(name);
+			else if (why == QLatin1String("pending"))
+				refused << QStringLiteral("%1 (content not here yet)").arg(name);
+			else if (why == QLatin1String("failed"))
+				refused << QStringLiteral("%1 (could not be stored)").arg(name);
+			else
+				refused << name;
+		}
 		say(QStringLiteral("%1 could not be imported: %2")
 		            .arg(f.value(3), refused.join(QStringLiteral(", "))));
 		if (f.value(4).toInt() > 0)

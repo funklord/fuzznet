@@ -59,10 +59,13 @@
  *     set note ID item N check     tick item N (from 0), or uncheck it
  *     set note ID item N text TEXT reword it
  *     remove item ID N             remove it
- *     add import PARENT PATH       a KNotes .ics, a Keep .json or a Takeout
- *                                  directory into PARENT (sec 440); answers
+ *     add import PARENT PATH       a KNotes calendar, a Keep note or a
+ *                                  Takeout directory into PARENT (sec 440),
+ *                                  a file known by what it holds; answers
  *                                  IMPORTED ALREADY UNDATED REFUSED PENDING
- *                                  and the refused notes' titles
+ *                                  and each refused note as REASON,TITLE:
+ *                                  unparsed, too-long, failed or pending
+ *                                  (sec 982)
  *     list history ID [FROM]       its earlier versions, oldest first:
  *                                  `MS,WRITER,here|pending,TITLE` (sec 581)
  *     get history ID N [text [FROM] | items [FROM] | file PATH]

@@ -5838,8 +5838,8 @@ SABOTAGES = [
 	(
 		"notebook-view-import-names-after-five",
 		"gui/notebook_view.cpp",
-		"\t\tfor (i = 5; i < f.size(); i++)\n",
-		"\t\tfor (i = 4; i < f.size(); i++)\n",
+		"\t\tfor (i = 5; i < f.size(); i++) {\n",
+		"\t\tfor (i = 4; i < f.size(); i++) {\n",
 		"the pending count is named as a refused note -- sec 578",
 	),
 	(
@@ -14945,6 +14945,28 @@ SABOTAGES = [
 		"\t\twhile (n--)\n\t\t\tmatched[first + n] = 1;\n",
 		"\t\t(void)n;\n",
 		"every position reads as an issuer this host does not follow -- sec 972",
+	),
+	(
+		"import-title-not-cut",
+		"notes/import.c",
+		"\t\tkeep--;\n\treturn keep;\n}\n",
+		"\t\tkeep--;\n\treturn n;\n}\n",
+		"an imported title past the bound is kept whole, past what a note may hold -- sec 982",
+	),
+	(
+		"import-refusal-reason-lost",
+		"node/notes.c",
+		"\tcase FZN_NOTES_IMPORT_PENDING:\n\t\treturn \"pending\";\n",
+		"\tcase FZN_NOTES_IMPORT_PENDING:\n\t\treturn \"failed\";\n",
+		"a note refused for content not yet here is said to have failed, so its user "
+		"does not know to import again -- sec 982",
+	),
+	(
+		"import-format-by-name",
+		"node/notes.c",
+		"\tif (i < got && head[i] == '{')\n\t\treturn 'j';\n",
+		"\tif (i < got && head[i] == '{')\n\t\treturn 0;\n",
+		"a Keep note with no .json suffix is called no export, though it is one -- sec 982",
 	),
 	(
 		"sticker-why-counts-from-zero",

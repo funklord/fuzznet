@@ -1255,7 +1255,7 @@ static struct got {
 	uint64_t created;
 } got[8];
 static size_t got_count;
-static size_t got_long_len;
+static size_t got_long_len, got_title_len;
 static int refusals[8];
 static size_t refusal_count;
 
@@ -1266,6 +1266,7 @@ static int collect(void *ctx, const fzn_notes_import_entry_t *e)
 	(void)ctx;
 	got_count++;
 	got_long_len = e->text_len;
+	got_title_len = e->title_len;
 	g->type = e->content_type;
 	g->title_len = e->title_len < 64u ? e->title_len : 64u;
 	g->text_len = e->text_len < 64u ? e->text_len : 64u;
@@ -1409,6 +1410,31 @@ static void test_import_parsing(void)
 	              && refusals[0] == FZN_NOTES_IMPORT_TOO_LONG,
 	      "a text past the bound is refused as too long");
 
+	/* A TITLE PAST THE BOUND, sec 982: the note kept, the title cut at a
+	 * character's start, here two-byte characters, 300 bytes of them. */
+	{
+		static const char head[] = "{\"title\":\"";
+		static const char tail[] = "\",\"textContent\":\"kept\"}";
+		size_t k;
+
+		n = sizeof(head) - 1u;
+		memcpy(big, head, n);
+		for (k = 0; k < 150u; k++) {
+			big[n++] = 0xc3u;
+			big[n++] = 0xa9u;
+		}
+		memcpy(big + n, tail, sizeof(tail) - 1u);
+		n += sizeof(tail) - 1u;
+	}
+	reset_collect();
+	got_title_len = 0;
+	CHECK(fzn_notes_import_keep(big, n, collect, NULL, note_refusal, NULL) == FZN_NOTES_OK
+	              && got_count == 1u && refusal_count == 0u && got_title_len <= FZN_NOTE_TITLE_MAX
+	              && got_title_len >= FZN_NOTE_TITLE_MAX - 1u && got_title_len % 2u == 0u
+	              && got[0].text_len == 4u && memcmp(got[0].text, "kept", 4u) == 0,
+	      "a Keep note with a title past the bound was refused, or its title cut inside a "
+	      "character");
+
 	/* ---- KNotes */
 	{
 		static const char ics[] =
@@ -1466,6 +1492,30 @@ static void test_import_parsing(void)
 	CHECK(fzn_notes_import_knotes(big, n, collect, NULL, note_refusal, NULL) == FZN_NOTES_OK
 	              && got_count == 1u && got_long_len == 20000u,
 	      "a 20,000-byte folded description arrives whole");
+
+	/* A SUMMARY PAST THE BOUND, sec 982: the note kept, its title cut at a
+	 * character's start. */
+	{
+		static const char head[] = "BEGIN:VJOURNAL\r\nSUMMARY:";
+		static const char tail[] = "\r\nDESCRIPTION:kept\r\nEND:VJOURNAL\r\n";
+		size_t k;
+
+		n = sizeof(head) - 1u;
+		memcpy(big, head, n);
+		for (k = 0; k < 150u; k++) {
+			big[n++] = 0xc3u;
+			big[n++] = 0xa9u;
+		}
+		memcpy(big + n, tail, sizeof(tail) - 1u);
+		n += sizeof(tail) - 1u;
+	}
+	reset_collect();
+	got_title_len = 0;
+	CHECK(fzn_notes_import_knotes(big, n, collect, NULL, note_refusal, NULL) == FZN_NOTES_OK
+	              && got_count == 1u && refusal_count == 0u && got_title_len <= FZN_NOTE_TITLE_MAX
+	              && got_title_len % 2u == 0u && got_title_len >= FZN_NOTE_TITLE_MAX - 1u,
+	      "a KNotes note with a summary past the bound was refused, or its title cut inside a "
+	      "character");
 }
 
 static void test_import_run(void)

@@ -212,7 +212,7 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	return 1;
 }
 
-static fzn_persist_ops_t OPS = { mem_load, mem_save, mem_list, mem_remove, NULL, NULL };
+static fzn_persist_ops_t OPS = { mem_load, mem_save, mem_list, mem_remove, NULL, NULL, NULL };
 
 /* ---- the node, asked as the widget asks it ------------------------------ */
 
@@ -586,16 +586,17 @@ static void test_an_export_is_imported_into_the_open_folder(void)
 
 	/* REFUSED, AND PENDING OF THEM, sec 578: a canned reply, since a note
 	 * whose content has not arrived needs a second host. */
-	imported = "ok 1 0 0 2 1 bad%20one waiting";
+	imported = "ok 1 0 0 2 1 unparsed,bad%20one pending,waiting";
 	CHECK(w.import_file(QString::fromLatin1(path)) && log.size() >= 3
-	              && log[log.size() - 2] == QStringLiteral("2 could not be imported: bad one, waiting")
+	              && log[log.size() - 2] == QStringLiteral("2 could not be imported: bad one (not readable), "
+	                                                     "waiting (content not here yet)")
 	              && log.last() == QStringLiteral("1 of them match notes whose content has not "
 	                                              "arrived here yet; import the same file again "
 	                                              "once it has."),
 	      "the refused are named, and the pending among them told to import again");
-	imported = "ok 0 0 0 1 0 bad";
+	imported = "ok 0 0 0 1 0 too-long,bad";
 	CHECK(w.import_file(QString::fromLatin1(path))
-	              && log.last() == QStringLiteral("1 could not be imported: bad"),
+	              && log.last() == QStringLiteral("1 could not be imported: bad (too long)"),
 	      "with none pending, nothing more is said");
 	imported = NULL;
 	(void)unlink(path);

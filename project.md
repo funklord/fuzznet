@@ -83257,9 +83257,9 @@ sharing to a group; the "elsewhere" and "contested" states shown; a phone's widt
 More menu); accessible names and `tr()`; a hook to say something to the person inline, apart from
 the log.
 
-**Open, notes import** (`notes/import.c`, T1355Z): a title past the limit shortened and the note
-kept; the format chosen by content, not the name's suffix; a reason per refusal (dropped at
-`node/notes.c` around `add import`); bounds past a 16 MiB calendar and a 1 MiB Keep file, and a walk
+**Open, notes import** (`notes/import.c`, T1355Z): ~~a title past the limit shortened and the
+note kept~~, ~~the format chosen by content, not the name's suffix~~ and ~~a reason per
+refusal~~, all sec 982; bounds past a 16 MiB calendar and a 1 MiB Keep file, and a walk
 deeper than one level (Takeout/Keep); Keep attachments and colour said, not dropped silently; the
 store not reloaded per dated note.
 
@@ -83275,6 +83275,17 @@ words and a 96-byte description refused by `fzn_sticker_ref_format` though `FZN_
 not build says which sticker and why (`stickers 3 and 5 have one id`), by position and id; ids
 derived once per shared art; whether a newer pack's unknown field refusing the whole pack is the
 trade wanted, recorded.
+
+**Later the same evening** (T2114Z, T2126Z). The sticker spec read to 64 KiB is fixed in sec 980.
+**Two wrong contact-name refusals, unreproduced:** in a fuzzypickles run at e3ce161, 300 contacts
+`p1..p300` added and all listed, then 40 `group-add-member` calls; two answered "no such contact"
+and "two contacts have that name: give the key", at load 21, and 40 of 40 passed twice since,
+alone. `fzn_contact_find` walks the store by `fzn_persist_each` and no path was found that answers
+either wrongly for a name held once. **One candidate that is not a contacts fault:** this tree's
+session was running fuzzypickles' group scenario in a scratch clone at that moment, and its node
+took a port the run wanted -- so a request may have reached the wrong host, whose contacts are
+other ones. Open; the experiment that would settle it, a run with the ports kept apart under the
+same load, has not been made.
 
 ## 980. Sticker packs of hundreds, references that fit, refusals that say which, 2026-11-09
 
@@ -83306,3 +83317,51 @@ an emoji flagged big. `sticker_test` names each; `sticker-why-counts-from-zero` 
 
 **Not done, of the same messages:** ids derived once per shared art (each sticker's art is hashed
 apart today), and whether a newer pack's unknown field refusing the whole pack is the trade wanted.
+
+## 982. Notes import: long titles cut, files known by content, each refusal's reason, 2026-11-09
+
+Asked by fuzzypickles (inbox T1355Z; sec 978) as its notes moved onto `notes/import.c`.
+
+**A title past what a note holds is cut, and the note kept** (`title_cut`): a Keep JSON or KNotes
+title longer than 255 bytes refused the whole note as too long, so a note somebody wrote with a
+long first line did not come across at all. The title is shortened now at a character's start --
+never inside a UTF-8 sequence -- and the text, where the whole line still is, kept whole.
+`notes_store_test` imports a 300-byte title of each format and a title whose cut lands inside a
+two-byte character; `import-title-not-cut` guards it.
+
+**Each refused note says why** (`add import`): the reply named the refused titles and counted the
+pending, but a reader could not tell a malformed note from one too long from one whose content had
+not arrived, and each wants something different of them -- fix the file, shorten the note, try
+again, or wait and import again. Each is `REASON,TITLE` now, REASON one of `unparsed`, `too-long`,
+`failed` or `pending`; the title is escaped, so its own commas are `%2C` and the first comma splits.
+A wire change in a reply, made because it is free (sec 924). `notebook_view` says the reason beside
+each name -- "bad one (not readable), waiting (content not here yet)". `notes_test` reads
+`too-long,` for a file past the bound and `pending,tea` for a held note;
+`import-refusal-reason-lost` guards the second.
+
+**A file known by what it holds** (`sniff_export`): `add import` read a file as a calendar only if
+its name ended `.ics`, and as a Keep note only if `.json`, and called anything else no export -- so
+a calendar a mail client saved as `notes.txt`, or a note with its suffix lost, would not import.
+A single file is read now by its first bytes, after any byte-order mark and white space:
+`BEGIN:VCALENDAR` a calendar, `{` a Keep note. Where they say neither, the suffix still decides, so
+a `.json` past the bound or empty is refused and named as a note, not called no export. Inside a
+Takeout directory the suffix still chooses, since the directory holds the HTML twin of every note
+and its attachments beside them. `notes_test` imports the calendar saved as `.txt` and a Keep note
+with no suffix; `import-format-by-name` guards it. The renamed calendar's undated note is imported
+again, as sec 440 has an undated note on every import, and the test says so.
+
+**Also:** `notebook_view_test` and `retention_view_test` initialised `fzn_persist_ops_t` without
+the `stamp` op 633576d added, a warning in C++ that the C tests had been given; both carry it now.
+
+**The store reloaded per dated note, measured rather than changed:** each dated note an import
+takes is checked against every dated note held, which reads like the square of the export. Timed
+with `fuzznetd` importing Takeouts of numbered Keep notes, first and second import: 500 notes 1.3 s
+and 0.0 s, 1000 2.4 s and 0.1 s, 2000 4.6 s and 0.1 s, 8000 23.5 s and 0.9 s. The second import does
+nothing but those checks, so they cost about 0.1 ms a note at 8000, and an index of them, drafted,
+was not taken; the first is the notes' writing, about 3 ms a note at 8000, a little more than
+linear. **What the measurement found instead, open:** `add import` runs to its end inside one
+request, so a host importing 8000 notes answered nobody else for 23 s; an import in pieces across
+loop passes, answering at once and saying when done, is the shape it wants.
+
+**Still open of T1355Z's import list:** the bounds and the deeper
+Takeout walk, and Keep attachments and colour said rather than dropped silently.

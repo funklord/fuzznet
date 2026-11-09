@@ -1198,6 +1198,25 @@ static void test_import(void)
 	              && has(",eggs") && has(",first") && has(",second"),
 	      "all four are in the folder");
 
+	/* BY WHAT IT HOLDS, NOT ITS NAME, sec 982: the same calendar saved as
+	 * `.txt`, and a Keep note with no suffix, are each recognised. */
+	{
+		char cal_txt[112], bare[112];
+
+		snprintf(cal_txt, sizeof(cal_txt), "%s.cal.txt", dir);
+		snprintf(bare, sizeof(bare), "%s.milk", dir);
+		CHECK(put_file(cal_txt, ics, sizeof(ics) - 1u) && put_file(bare, milk, sizeof(milk) - 1u),
+		      "fixture: a calendar and a note under other names");
+		snprintf(line, sizeof(line), "add import %s %s", folder, cal_txt);
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "1 1 1 0 0"),
+		      "a calendar named .txt is read as one: its dated note is here already, and "
+		      "its undated one imported again, as sec 440 has it");
+		snprintf(line, sizeof(line), "add import %s %s", folder, bare);
+		CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 1 ", 4u),
+		      "a Keep note with no suffix is read as one");
+		CHECK(unlink(cal_txt) == 0 && unlink(bare) == 0, "cleanup: the renamed exports");
+	}
+
 	/* IN ORDER OF NAME, sec 885, whatever order the filesystem gives, and a
 	 * calendar in a directory read as a calendar. Ten names, so a hash order
 	 * that happens to sort is one in millions. */
@@ -1252,7 +1271,7 @@ static void test_import(void)
 	      "fixture: a Keep file one byte past the bound");
 	snprintf(line, sizeof(line), "add import %s %s", folder, f_big);
 	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 0 0 1 0 ", 10u)
-	              && has("big.json"),
+	              && has(" too-long,") && has(".big.json"),
 	      "a file past the bound is refused and named");
 
 	/* A HELD NOTE WHOSE CONTENT HAS NOT ARRIVED, sec 578: the entry is
@@ -1270,7 +1289,7 @@ static void test_import(void)
 		blob_stub_last_root(root);
 		memcpy(ref.root, root, sizeof(root));
 		blob_stub_drop(&ref);
-		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0 0 1 1 tea"),
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0 0 1 1 pending,tea"),
 		      "imported again while its content is not here, it is refused as pending, "
 		      "counted and named");
 	}

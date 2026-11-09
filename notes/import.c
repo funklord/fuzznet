@@ -59,6 +59,19 @@ static int hex4(const uint8_t *s, size_t len, size_t at, unsigned *out)
 }
 
 /* Append `n` bytes, or note that the value ran past `cap`. */
+/* A TITLE PAST THE LIMIT, SHORTENED, sec 982: `n` bytes of whole characters
+ * held, cut to at most FZN_NOTE_TITLE_MAX at a character's start. A long
+ * title refused the whole note, its text with it, where fuzzypickles' import
+ * kept the note and cut the title; the text is what the note is. */
+static size_t title_cut(const uint8_t *t, size_t n)
+{
+	size_t keep = n < FZN_NOTE_TITLE_MAX ? n : FZN_NOTE_TITLE_MAX;
+
+	while (keep && keep < n && (t[keep] & 0xc0u) == 0x80u)
+		keep--;
+	return keep;
+}
+
 static void put(uint8_t *out, size_t cap, size_t *n, const uint8_t *b, size_t k, int *over)
 {
 	if (*over || !out || cap - *n < k) {
@@ -300,9 +313,13 @@ fzn_notes_err_t fzn_notes_import_keep(const uint8_t *json, size_t len, fzn_notes
 			i = v;
 		}
 		if (depth == 1u) {
-			if (key_is(key, key_len, "title"))
+			if (key_is(key, key_len, "title")) {
 				r = json_string(json, len, &i, title, sizeof(title), &e.title_len);
-			else if (key_is(key, key_len, "textContent") && !have_list)
+				if (r == STR_LONG) {
+					e.title_len = title_cut(title, e.title_len);
+					r = STR_OK;
+				}
+			} else if (key_is(key, key_len, "textContent") && !have_list)
 				r = json_string(json, len, &i, text, sizeof(text), &e.text_len);
 			else if (key_is(key, key_len, "listContent")) {
 				/* THE LIST WINS over any text beside it: Keep writes one or
@@ -539,7 +556,10 @@ fzn_notes_err_t fzn_notes_import_knotes(const uint8_t *ics, size_t len, fzn_note
 		if ((v = ics_value(line_len, "SUMMARY", &v_len)) != NULL) {
 			int r = ics_unescape(v, v_len, title, sizeof(title), &e.title_len);
 
-			too_long |= r == 0;
+			if (r == 0) {
+				e.title_len = title_cut(title, sizeof(title));
+				r = 1;
+			}
 			bad |= r < 0;
 		} else if ((v = ics_value(line_len, "DESCRIPTION", &v_len)) != NULL) {
 			int r = ics_unescape(v, v_len, text, sizeof(text), &e.text_len);

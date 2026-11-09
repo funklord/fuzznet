@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -1930,34 +1931,82 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 
 /* ---- add import --------------------------------------------------------- */
 
-/* The titles of what an import refused, escaped and space-separated, as far
- * as the reply has room: what a user searches their export for. */
+/* What an import refused, as `REASON,TITLE` and space-separated, as far as
+ * the reply has room: the title is what a user searches their export for,
+ * and the reason is what they do next -- fix the file, shorten a note, try
+ * again, or wait for content still on its way (sec 982). The title is
+ * escaped, so its commas are `%2C` and the first comma splits. */
 struct refused_names {
 	char text[FZN_REPLY_MAX];
 	size_t used;
 	int cut;
 };
 
+static const char *refusal_word(fzn_notes_import_refusal_t why)
+{
+	switch (why) {
+	case FZN_NOTES_IMPORT_UNPARSED:
+		return "unparsed";
+	case FZN_NOTES_IMPORT_TOO_LONG:
+		return "too-long";
+	case FZN_NOTES_IMPORT_PENDING:
+		return "pending";
+	case FZN_NOTES_IMPORT_FAILED:
+	default:
+		return "failed";
+	}
+}
+
 static void name_refused(void *ctx, fzn_notes_import_refusal_t why, const uint8_t *title,
                          size_t title_len)
 {
 	struct refused_names *names = (struct refused_names *)ctx;
+	const char *word = refusal_word(why);
+	size_t word_len = strlen(word);
 	size_t wrote = 0;
 
-	(void)why;
-	if (names->cut || sizeof(names->text) - names->used < 2u) {
+	if (names->cut || sizeof(names->text) - names->used < word_len + 3u) {
 		names->cut = 1;
 		return;
 	}
 	names->text[names->used] = ' ';
+	memcpy(names->text + names->used + 1u, word, word_len);
+	names->text[names->used + 1u + word_len] = ',';
 	if (escape(title_len ? title : (const uint8_t *)"(untitled)",
-	           title_len ? title_len : 10u, names->text + names->used + 1u,
-	           sizeof(names->text) - names->used - 1u, &wrote)
+	           title_len ? title_len : 10u, names->text + names->used + 2u + word_len,
+	           sizeof(names->text) - names->used - 2u - word_len, &wrote)
 	    < (title_len ? title_len : 10u)) {
 		names->cut = 1;
 		return;
 	}
-	names->used += 1u + wrote;
+	names->used += 2u + word_len + wrote;
+}
+
+/* WHICH EXPORT A FILE IS, BY WHAT IT HOLDS, sec 982: a KNotes calendar
+ * opens `BEGIN:VCALENDAR`, a Keep note `{`, after any byte-order mark and
+ * white space. A name is what a person or a mail client gave the file, and
+ * a calendar saved as `notes.txt` or a note with no suffix is still one.
+ * 'i', 'j', or 0 for neither. */
+static int sniff_export(const char *path)
+{
+	static const char cal[] = "BEGIN:VCALENDAR";
+	uint8_t head[64];
+	size_t got, i = 0;
+	FILE *f = fopen(path, "rb");
+
+	if (!f)
+		return 0;
+	got = fread(head, 1u, sizeof(head), f);
+	(void)fclose(f);
+	if (got >= 3u && head[0] == 0xefu && head[1] == 0xbbu && head[2] == 0xbfu)
+		i = 3u;
+	while (i < got && (head[i] == ' ' || head[i] == '\t' || head[i] == '\r' || head[i] == '\n'))
+		i++;
+	if (i < got && head[i] == '{')
+		return 'j';
+	if (got - i >= sizeof(cal) - 1u && !strncasecmp((const char *)head + i, cal, sizeof(cal) - 1u))
+		return 'i';
+	return 0;
 }
 
 /* A whole file into memory, refused past `max` -- one byte more is read so a
@@ -2055,6 +2104,7 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 	const uint8_t *w;
 	size_t w_len, idx = 0, r = no_content_store(n, reply, cap);
 	struct stat st;
+	int sniffed;
 	int k;
 
 	if (r)
@@ -2082,6 +2132,10 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 	run.on_refused = name_refused;
 	run.refused_ctx = &names;
 
+	/* A FILE BY WHAT IT HOLDS, and by its name only where that says nothing
+	 * -- a `.json` past the bound or empty is still refused and named as
+	 * a Keep note, not called no export. */
+	sniffed = S_ISDIR(st.st_mode) ? 0 : sniff_export(path);
 	if (S_ISDIR(st.st_mode)) {
 		/* A TAKEOUT: every `.json` in the directory is one note, and an
 		 * `.ics` a KNotes calendar; anything else in it -- attachments, the
@@ -2108,7 +2162,7 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 			free(entries[i]);
 		}
 		free(entries);
-	} else if (ends_with(path, ".ics")) {
+	} else if (sniffed == 'i' || (!sniffed && ends_with(path, ".ics"))) {
 		size_t len = 0;
 		int too_big = 0;
 		uint8_t *ics = slurp(path, FZN_NODE_NOTES_IMPORT_ICS_MAX, &len, &too_big);
@@ -2119,7 +2173,7 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 		(void)fzn_notes_import_knotes(ics, len, fzn_notes_import_take, &run,
 		                              fzn_notes_import_refuse, &run);
 		free(ics);
-	} else if (ends_with(path, ".json")) {
+	} else if (sniffed == 'j' || (!sniffed && ends_with(path, ".json"))) {
 		const char *base = strrchr(path, '/');
 
 		import_keep_file(&run, path, base ? base + 1 : path);
