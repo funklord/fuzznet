@@ -670,7 +670,9 @@ static int held_roots(const fzn_node_files_t *files, const uint8_t (**roots)[FZN
 		}
 	}
 	(void)closedir(d);
-	qsort(x->roots, x->n, sizeof(x->roots[0]), by_root);
+	/* NONE HELD leaves `roots` NULL, which qsort may not be handed. */
+	if (x->n)
+		qsort(x->roots, x->n, sizeof(x->roots[0]), by_root);
 	{
 		size_t i, kept = 0;
 

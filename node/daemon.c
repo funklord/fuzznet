@@ -17763,13 +17763,45 @@ static int fetch_link_up(struct fetch_link *l, const struct pull_target *pt, fzn
 	return 1;
 }
 
+/* EVERY FILE WANTED AND NOT WHOLE, sec 965, into room grown to hold them:
+ * it was 64, while `fzn_node_files_wanted` counts every one, so past 64 the
+ * turn below read a root and a length beyond the arrays. How many; their
+ * lengths' sum into `*bytes` (may be NULL). */
+static uint8_t (*wanted_roots)[FZN_BLOB_HASH_LEN];
+static uint64_t *wanted_lengths;
+static size_t wanted_room;
+
+static size_t files_wanted_all(uint64_t *bytes)
+{
+	size_t n = fzn_node_files_wanted(&files, NULL, NULL, 0), i;
+
+	if (n > wanted_room) {
+		size_t room = n + n / 4u + FZN_NODE_FILES_WANTS_MAX;
+		uint8_t (*r)[FZN_BLOB_HASH_LEN] = realloc(wanted_roots, room * sizeof(*r));
+		uint64_t *l;
+
+		if (r)
+			wanted_roots = r;
+		l = r ? realloc(wanted_lengths, room * sizeof(*l)) : NULL;
+		if (l)
+			wanted_lengths = l;
+		if (r && l)
+			wanted_room = room;
+	}
+	n = fzn_node_files_wanted(&files, wanted_roots, wanted_lengths, wanted_room);
+	if (n > wanted_room)
+		n = wanted_room;
+	if (bytes)
+		for (*bytes = 0, i = 0; i < n; i++)
+			*bytes += wanted_lengths[i];
+	return n;
+}
+
 /* THE PUMP, each pass of the loop and at a round's fetch step: begins the
  * next wanted file when none is out, sends what the fetch would ask while
  * the asks have room, and ends it when it is over. */
 static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
-	static uint8_t roots[FZN_NODE_FILES_WANTS_MAX][FZN_BLOB_HASH_LEN];
-	static uint64_t lengths[FZN_NODE_FILES_WANTS_MAX];
 	static uint8_t slot_bufs[FZND_FETCH_SLOTS][FZND_PULL_REPLY_MAX];
 	static fzn_partial_t slots[FZND_FETCH_SLOTS];
 	/* THE KNOBS, constants but in sec 692's bench, read once. */
@@ -17800,7 +17832,7 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		if (!files.fresh)
 			return;
 		files.fresh = 0;
-		n = fzn_node_files_wanted(&files, roots, lengths, FZN_NODE_FILES_WANTS_MAX);
+		n = files_wanted_all(NULL);
 		if (!n)
 			return;
 		/* THE NEXT WANTED FILE IN TURN, so a file several batches long does
@@ -17838,7 +17870,7 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		/* WHO A FETCH ASKS, and a fetch that did not begin, said (sec 839):
 		 * a lossy run's file that never came said nothing of either. */
 		{
-			const uint8_t *r = roots[fetch_cursor];
+			const uint8_t *r = wanted_roots[fetch_cursor];
 			fzn_node_files_err_t berr;
 
 			say(FZN_ENTRY_DEBUG, "files",
@@ -17858,7 +17890,7 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 				return;
 			}
 		}
-		fetch_length = lengths[fetch_cursor];
+		fetch_length = wanted_lengths[fetch_cursor];
 		fetch_active = 1;
 	}
 	/* WHAT THE FETCH WOULD ASK, while the asks have room. */

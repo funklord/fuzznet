@@ -82814,3 +82814,26 @@ eight members stopped, the three left set a cell each and read one another's in 
 **Left as they were:** the pull targets the command line names, refused past eight at start; and
 `list responsible` and the sibling positions of sec 811, each of which lists the siblings once per
 host it answers -- square in the estate's size, on a local verb, not a round.
+
+## 965. More than 64 files wanted read past the turn's room, 2026-11-09
+
+The lens of sec 964 -- a fixed room for what an estate of any size holds -- over the fetch.
+`fetch_files` took the wanted files into room for FZN_NODE_FILES_WANTS_MAX, 64, while
+`fzn_node_files_wanted` counts every one it reads, and the turn through them (`fetch_cursor %= n`)
+went by the count. **Past 64 wanted files, a fetch began from a root and a length read beyond the
+arrays**: undefined behaviour, which an ordinary build survived as asks for garbage roots refused
+and a fetch never begun, until the first 64 were whole and the rest fell inside the room.
+
+**Every wanted file now has room** (`files_wanted_all`), grown to the count, and the turn goes over
+all of them. The same count is sync-load's (sec 966).
+
+**Measured live, `live_files_many`:** a member wanting 70 files of its root's takes all 70 whole in
+3 s, on an ordinary daemon and on a sanitized one (`make SANITIZE=1`). **Its control does not
+reach the fault:** with the old room put back, the sanitized run passes as well, since files
+completed leave the list as fast as the turn moves and the turn never passed 64. Reaching it needs
+files that never come, each waiting out its fetch; the fault is shown by the reading above.
+
+**And two found on the way**, by the sanitized daemon stopping at its start: a store holding no
+file sorted a NULL list in the held roots' read (`node/files.c`, sec 955's), guarded here; and
+every host's records trim, running since sec 963, sorted a NULL list on a store holding no record --
+fixed in 2de8ce7, whose `Fixes:` trailer names `1391c18f5c55` where the commit is 1391c1804dbd.
