@@ -220,6 +220,8 @@ static fzn_node_notes_t notes;
 static int quiet;            /* the node does not answer */
 static const char *received; /* the `list received` reply, or NULL for none */
 static const char *imported;  /* an `add import` reply in place of the node's, or NULL */
+/* A reply in place of the node's to one line exactly, or NULL (sec 987). */
+static const char *canned_line, *canned_reply;
 static unsigned asked;
 
 /* `list contact`, as admin answers it, from the contacts in the store -- a
@@ -281,6 +283,8 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 		return 0;
 	if (imported && !strncmp(line, "add import ", 11u))
 		return (size_t)snprintf(reply, cap, "%s\n", imported);
+	if (canned_line && !strcmp(line, canned_line))
+		return (size_t)snprintf(reply, cap, "%s\n", canned_reply);
 	if (!strcmp(line, "list received"))
 		return (size_t)snprintf(reply, cap, "%s\n", received ? received : "ok 0");
 	if (!strcmp(line, "list contact"))
@@ -827,6 +831,43 @@ static void test_labels_are_edited_and_shown(void)
 	CHECK(w.open_note(note) && w.labels_text().isEmpty(), "and stay cleared");
 }
 
+/* WHERE A NOTE STANDS, SAID, sec 987: one under two folders and one whose
+ * folder is not here, from a listing and a `get note` canned as a node with
+ * a second device's move would answer. */
+static void test_contested_and_elsewhere_are_said(void)
+{
+	static char listing[512], got[256];
+	const QString c = QStringLiteral("cc").repeated(32), e = QStringLiteral("ee").repeated(32);
+
+	setup();
+	snprintf(listing, sizeof(listing), "ok 3 0 %s,%d,0,1,1,moved, %s,%d,0,0,0,lost, %s,%d,0,1,0,plain,",
+	         c.toLatin1().constData(), FZN_NOTE_TYPE_NOTE, e.toLatin1().constData(),
+	         FZN_NOTE_TYPE_NOTE, QStringLiteral("aa").repeated(32).toLatin1().constData(),
+	         FZN_NOTE_TYPE_NOTE);
+	canned_line = "list note top 0";
+	canned_reply = listing;
+	fzn_notebook_view w(node_ask, nullptr);
+
+	CHECK(w.listed_texts()
+	              == QStringList({ QStringLiteral("moved (in two folders)"),
+	                               QStringLiteral("lost (its folder is not here)"),
+	                               QStringLiteral("plain") }),
+	      "a contested note and one whose folder is not here are said in their rows");
+	/* A FOLDER, so no text is asked for and the status is the note's own. */
+	snprintf(got, sizeof(got), "ok %d 0 1 1 %s blob 0 1 1 moved", FZN_NOTE_TYPE_FOLDER,
+	         QStringLiteral("00").repeated(32).toLatin1().constData());
+	canned_line = "get note cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+	canned_reply = got;
+	CHECK(w.open_note(c) && w.status().contains(QStringLiteral("two folders")),
+	      "opened, a contested note says it is in two folders");
+	snprintf(got, sizeof(got), "ok %d 0 1 1 %s blob 0 0 0 lost", FZN_NOTE_TYPE_FOLDER,
+	         QStringLiteral("00").repeated(32).toLatin1().constData());
+	canned_line = "get note eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+	CHECK(w.open_note(e) && w.status().contains(QStringLiteral("folder is not here")),
+	      "and one whose folder is not here says so");
+	canned_line = canned_reply = NULL;
+}
+
 /* EVERY FIELD, LIST AND CHOOSER NAMED for a screen reader, sec 983: a button
  * is named by its text, these by nothing unless given one. */
 static void test_every_field_has_an_accessible_name(void)
@@ -1033,6 +1074,7 @@ int main(int argc, char **argv)
 	test_a_pending_note_says_so_and_labels_show();
 	test_labels_are_edited_and_shown();
 	test_every_field_has_an_accessible_name();
+	test_contested_and_elsewhere_are_said();
 	test_a_notes_history_is_read_and_restored();
 	test_a_checklists_history_shows_its_items();
 	test_history_is_grouped_by_day();

@@ -546,6 +546,15 @@ void fzn_notebook_view::refresh_list()
 			                         : QString();
 			if (!pending && !labels.isEmpty())
 				shown += QStringLiteral("  [%1]").arg(labels);
+			/* WHERE IT STANDS, sec 987: a note moved apart on two devices
+			 * is under two folders at once, and one whose folder this
+			 * host does not hold is shown at the top -- each said, where
+			 * before it looked like any other row. A shared tree's top is
+			 * every root the sharer sent, none reachable, so not there. */
+			if (f.value(4) == QStringLiteral("1"))
+				shown += QStringLiteral(" (in two folders)");
+			else if (f.value(3) == QStringLiteral("0") && !shared() && m_path.isEmpty())
+				shown += QStringLiteral(" (its folder is not here)");
 			auto *item = new QListWidgetItem(pinned ? QStringLiteral("* ") + shown : shown);
 
 			item->setData(ROLE_ID, f[0]);
@@ -667,6 +676,13 @@ void fzn_notebook_view::refresh_note()
 					m_labels->setText(m_labels_read);
 				}
 			}
+			/* `... REACHABLE CONTESTED TITLE`, sec 828, said, sec 987. */
+			if (f.value(8) == QStringLiteral("1"))
+				set_status(QStringLiteral("This note was moved to two folders on two devices, "
+				                          "and is shown in both."));
+			else if (f.value(7) == QStringLiteral("0") && !shared())
+				set_status(QStringLiteral("This note's folder is not here yet, so it is shown "
+				                          "at the top."));
 			if (pending) {
 				set_status(QStringLiteral("This note's content is not here yet; it can be "
 				                          "moved, pinned or trashed, not edited."));

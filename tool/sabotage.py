@@ -15018,6 +15018,20 @@ SABOTAGES = [
 		"what a later group member gets, chosen when sharing, is not sent -- sec 986",
 	),
 	(
+		"notebook-view-contested-unsaid",
+		"gui/notebook_view.cpp",
+		"\t\t\tif (f.value(4) == QStringLiteral(\"1\"))\n",
+		"\t\t\tif (f.value(4) == QStringLiteral(\"2\"))\n",
+		"a note moved apart into two folders lists as any other -- sec 987",
+	),
+	(
+		"notebook-view-elsewhere-unsaid",
+		"gui/notebook_view.cpp",
+		"\t\t\telse if (f.value(7) == QStringLiteral(\"0\") && !shared())\n",
+		"\t\t\telse if (f.value(7) == QStringLiteral(\"2\") && !shared())\n",
+		"an opened note whose folder is not here does not say so -- sec 987",
+	),
+	(
 		"sticker-why-counts-from-zero",
 		"sticker/pack.c",
 		"\t\t\t\t               i + 1u, j + 1u, (unsigned long long)e->id);\n",

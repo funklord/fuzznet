@@ -83253,7 +83253,7 @@ is older than 34fd5a1, and intermittent; being found (sec 979).
 **Open, notebook_view** (`gui/notebook_view.cpp`, T1340Z), what fuzzypickles' notes widget has and
 this one lacks before it can be swapped in: ~~labels editable and shown in the row~~, sec 983;
 a group's notebook opened, not only `list received`; ~~a backfill choice when
-sharing to a group~~, sec 986; the "elsewhere" and "contested" states shown; a phone's width (flowing rows, a
+sharing to a group~~, sec 986; ~~the "elsewhere" and "contested" states shown~~, sec 987; a phone's width (flowing rows, a
 More menu); ~~accessible names~~ (sec 983) and `tr()`; a hook to say something to the person inline, apart from
 the log.
 
@@ -83481,3 +83481,22 @@ gets as it stands: `@family (later members get new notes only)`.
 **Measured:** `notebook_view_test` shares with a group by its own setting, then chooses new notes
 only and earlier notes, and reads each back from the line; the accessible-name walk (sec 983)
 covers the new chooser. `notebook-view-backfill-choice-ignored` guards it.
+
+## 987. notebook_view says where a note stands: two folders, or none here, 2026-11-09
+
+The next of fuzzypickles' notebook_view gaps (inbox T1340Z; sec 978). Since sec 522 a listing's row
+carries REACHABLE and CONTESTED, and since sec 828 `get note` does too, but `notebook_view` read
+neither: a note moved apart on two devices, and so under two folders at once, and one whose folder
+this host does not hold, shown at the top, looked like any other note.
+
+**Built:** a contested row ends "(in two folders)"; an unreachable one at this user's own top level
+ends "(its folder is not here)" -- not in a shared tree, whose top is every root the sharer sent,
+none of them reachable by construction (`notes_sync_test`). Opened, each says so in the status
+line. The words claim nothing about how a contest ends; that is the notes model's, not this
+widget's.
+
+**Measured:** `notebook_view_test` reads both rows from a canned listing and both statuses from a
+canned `get note` -- a node with a second device's move is more than this suite builds, and the
+flags themselves are the library's, tested in `notes_store_test`. The suite's node answers one
+named line from a fixture now (`canned_line`), as it already did `add import`.
+`notebook-view-contested-unsaid` and `notebook-view-elsewhere-unsaid` guard it.
