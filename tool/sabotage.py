@@ -14898,6 +14898,20 @@ SABOTAGES = [
 		"a list read through the cache misses what a peer handed on -- sec 950",
 	),
 	(
+		"sync-plan-takes-the-smallest",
+		"record/sync.c",
+		"\t\tt = sorted[first + n - 1u];\n\n\t\tadd_range(mine->issuer",
+		"\t\tt = sorted[first];\n\n\t\tadd_range(mine->issuer",
+		"a fetch plans from the smallest of a peer's duplicate positions, so the peer's order decides -- sec 972",
+	),
+	(
+		"sync-plan-marks-nothing-followed",
+		"record/sync.c",
+		"\t\twhile (n--)\n\t\t\tmatched[first + n] = 1;\n",
+		"\t\t(void)n;\n",
+		"every position reads as an issuer this host does not follow -- sec 972",
+	),
+	(
 		"reconcile-ids-share-the-buckets-room",
 		"node/reconcile.c",
 		"static size_t served_ids_room, held_ids_room;\n",

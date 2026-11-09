@@ -2,9 +2,69 @@
 
 #include "sync.h"
 
-#include "../constant_time/constant_time.h"
-
+#include <stdlib.h>
 #include <string.h>
+
+/* THE PEER'S POSITIONS, SORTED ONCE A PLAN, sec 972: by issuer, stream, and
+ * `received` ascending, so the largest of a run of duplicates is its last.
+ * Each followed stream was looked up by scanning every position, and each
+ * position by scanning the journal: square in the streams, for every peer
+ * pulled, and an estate's streams grow with its hosts (sec 968). Room for
+ * FZN_SYNC_MAX_POSITIONS, which bounds what a plan examines. The keys are
+ * public, so the search compares them as memcmp does. */
+static const fzn_sync_position_t *sorted[FZN_SYNC_MAX_POSITIONS];
+static uint8_t matched[FZN_SYNC_MAX_POSITIONS];
+
+static int by_position(const void *a, const void *b)
+{
+	const fzn_sync_position_t *x = *(const fzn_sync_position_t *const *)a;
+	const fzn_sync_position_t *y = *(const fzn_sync_position_t *const *)b;
+	int c = memcmp(x->issuer, y->issuer, FZN_PUBKEY_LEN);
+
+	if (c)
+		return c;
+	if (x->stream != y->stream)
+		return x->stream < y->stream ? -1 : 1;
+	if (x->received != y->received)
+		return x->received < y->received ? -1 : 1;
+	return 0;
+}
+
+static void sort_theirs(const fzn_sync_position_t *theirs, size_t look)
+{
+	size_t i;
+
+	for (i = 0; i < look; i++) {
+		sorted[i] = &theirs[i];
+		matched[i] = 0;
+	}
+	if (look)
+		qsort(sorted, look, sizeof(sorted[0]), by_position);
+}
+
+/* The run of sorted positions for (issuer, stream): its first, and how
+ * many; 0 for none. */
+static size_t run_of(size_t look, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                     size_t *first)
+{
+	size_t lo = 0, hi = look, end;
+
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo) / 2u;
+		int c = memcmp(sorted[mid]->issuer, issuer, FZN_PUBKEY_LEN);
+
+		if (c < 0 || (c == 0 && sorted[mid]->stream < stream))
+			lo = mid + 1u;
+		else
+			hi = mid;
+	}
+	for (end = lo; end < look && sorted[end]->stream == stream
+	               && memcmp(sorted[end]->issuer, issuer, FZN_PUBKEY_LEN) == 0;
+	     end++)
+		;
+	*first = lo;
+	return end - lo;
+}
 
 /* The peer's position for (issuer, stream), or NULL.
  *
@@ -25,40 +85,14 @@
  * `max_per_request` already bounds and which costs the peer rather than this
  * host. So the largest is conservative where it matters and merely bounded
  * where it does not. */
-static const fzn_sync_position_t *theirs_for(const fzn_sync_position_t *theirs,
-                                              size_t their_count,
-                                              const uint8_t issuer[FZN_PUBKEY_LEN],
-                                              uint32_t stream)
-{
-	const fzn_sync_position_t *hit = NULL;
-
-	for (size_t i = 0; i < their_count; i++) {
-		if (theirs[i].stream != stream ||
-		    !fzn_ct_memeq(theirs[i].issuer, issuer, FZN_PUBKEY_LEN))
-			continue;
-		if (!hit || theirs[i].received > hit->received)
-			hit = &theirs[i];
-	}
-
-	return hit;
-}
+/* -- kept since sec 972 by `run_of`, which takes the LAST of a sorted run:
+ * the largest `received`, whichever order the sender put them in. */
 
 /* Whether this host follows (issuer, stream). Scans all of them for the
  * reason `journal.c`'s own lookup does: a table with a duplicate in it should
  * not answer differently depending on which copy is met first. */
-static int follows(const fzn_journal_t *journal, const uint8_t issuer[FZN_PUBKEY_LEN],
-                   uint32_t stream)
-{
-	int found = 0;
-
-	for (size_t i = 0; i < journal->used; i++) {
-		if (journal->entries[i].stream == stream &&
-		    fzn_ct_memeq(journal->entries[i].issuer, issuer, FZN_PUBKEY_LEN))
-			found = 1;
-	}
-
-	return found;
-}
+/* -- kept since sec 972 by marking each position a followed stream's run
+ * holds; a duplicate in the journal marks the same positions again. */
 
 /* How many of the peer's positions to look at, recording the rest.
  *
@@ -215,10 +249,16 @@ fzn_sync_err_t fzn_sync_plan_fetch(const fzn_journal_t *journal,
 	 * together cost twice `look` times `journal->used`, and twice a ceiling
 	 * is still a ceiling. Unbounded it would have doubled a cost that was
 	 * already the peer's to set. */
-	for (size_t i = 0; i < look; i++) {
-		if (!follows(journal, theirs[i].issuer, theirs[i].stream))
-			plan->unknown_issuers++;
+	sort_theirs(theirs, look);
+	for (size_t k = 0; k < journal->used; k++) {
+		size_t first, n = run_of(look, journal->entries[k].issuer, journal->entries[k].stream,
+		                         &first);
+
+		while (n--)
+			matched[first + n] = 1;
 	}
+	for (size_t i = 0; i < look; i++)
+		plan->unknown_issuers += !matched[i];
 
 	/* Second pass: the plan itself, walking THIS HOST'S JOURNAL.
 	 *
@@ -232,10 +272,11 @@ fzn_sync_err_t fzn_sync_plan_fetch(const fzn_journal_t *journal,
 	for (size_t k = 0; k < journal->used; k++) {
 		const fzn_journal_entry_t *mine = &journal->entries[k];
 		const fzn_sync_position_t *t;
+		size_t first, n = run_of(look, mine->issuer, mine->stream, &first);
 
-		t = theirs_for(theirs, look, mine->issuer, mine->stream);
-		if (!t)
+		if (!n)
 			continue;
+		t = sorted[first + n - 1u];
 
 		add_range(mine->issuer, mine->stream, mine->received, t->received,
 		          max_per_request, out, out_cap, plan);
@@ -257,13 +298,16 @@ fzn_sync_err_t fzn_sync_plan_offer(const fzn_journal_t *journal,
 		return FZN_SYNC_ERR_MALFORMED;
 
 	look = to_examine(their_count, plan);
+	sort_theirs(theirs, look);
 
 	/* Walk OUR positions, because an offer is about what we have. */
 	for (size_t i = 0; i < journal->used; i++) {
-		const fzn_sync_position_t *t;
+		const fzn_sync_position_t *t = NULL;
+		size_t first, n = run_of(look, journal->entries[i].issuer, journal->entries[i].stream,
+		                         &first);
 
-		t = theirs_for(theirs, look, journal->entries[i].issuer,
-		               journal->entries[i].stream);
+		if (n)
+			t = sorted[first + n - 1u];
 		if (!t) {
 			/* AN ABSENT POSITION IS NOT A POSITION OF ZERO.
 			 *

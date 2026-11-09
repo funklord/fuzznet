@@ -83052,3 +83052,28 @@ the fault, and is replaced above.
 
 Still about linear in the estate: the journal plan (square in the streams, sec 968), the ranks a
 round asks, and the ceiling of 1024 positions a digest is read to, are what is left.
+
+## 972. The journal plan by sorted lookup, 2026-11-09
+
+Sec 968's second scan. `fzn_sync_plan_fetch` and `fzn_sync_plan_offer` looked up each stream this
+host follows by scanning every position a peer's digest gave, and the fetch each position by
+scanning the journal: square in the streams, for every peer a round pulls, and an estate's streams
+grow with its hosts.
+
+**The positions examined are sorted once a plan** (`record/sync.c`): by issuer, stream and
+`received`, into room for FZN_SYNC_MAX_POSITIONS, the most a plan examines. A followed stream's
+positions are then a run found by binary search, and its last is the largest `received` -- the rule
+`theirs_for` kept against a sender's ordering, now kept by the sort. The issuers a peer follows and
+this host does not are the positions no followed stream's run marked. The keys are public, so they
+compare as `memcmp` does; the constant-time compare was the scan's.
+
+**Measured, 1024 streams against 1024 positions, an offer plan:** 106.7 ms, now 0.2 ms, the same
+513 ranges. **Tested:** `sync_test`'s 117 checks and `sync_fuzz`'s 20,000 cases, whose order and
+duplicates change nothing; `sync-plan-takes-the-smallest` and `sync-plan-marks-nothing-followed`,
+caught by hand.
+
+**Open, for an estate past a few thousand streams:** FZN_SYNC_MAX_POSITIONS, 1024, was set while
+the plan was square (sec 968) and can rise now that it is not; but a digest is one message, and
+reassembly holds about 5,900 positions. Past that, a digest must be asked for in pages -- a change
+to the exchange, weighed with the N squared grants of sec 579's pairing (sec 968), which is the
+larger cost of an estate that size.
