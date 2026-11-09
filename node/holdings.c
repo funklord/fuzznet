@@ -87,49 +87,87 @@ static int object_in(const struct class_shape *shape, const uint8_t *row, size_t
 	return 0;
 }
 
+/* A CLASS'S SUBJECTS, every one, into room grown to hold them, sec 970: a
+ * walk, as `list` refuses past its caller's room. */
+struct subjects {
+	uint8_t (*s)[FZN_PUBKEY_LEN];
+	size_t n, room;
+	int failed;
+};
+
+static int subject_in(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct subjects *w = arg;
+
+	if (w->n == w->room) {
+		size_t room = w->room ? w->room * 2u : 256u;
+		uint8_t (*more)[FZN_PUBKEY_LEN] = realloc(w->s, room * sizeof(*more));
+
+		if (!more) {
+			w->failed = 1;
+			return 0;
+		}
+		w->s = more;
+		w->room = room;
+	}
+	memcpy(w->s[w->n++], subject, FZN_PUBKEY_LEN);
+	return 1;
+}
+
 fzn_holdings_err_t fzn_holdings_each(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
                                      fzn_holdings_class_t cls, fzn_holdings_fn each, void *ctx,
                                      size_t *count)
 {
-	static uint8_t rows[FZN_HOLDINGS_MAX * FZN_PUBKEY_LEN];
 	static uint8_t row[4096];
 	const struct class_shape *shape;
-	size_t n = 0, i, handed = 0;
+	struct subjects w;
+	size_t i, handed = 0;
+	fzn_holdings_err_t err = FZN_HOLDINGS_OK;
 
 	if (count)
 		*count = 0;
-	if (!store || !store->list || !store->load || !hash || !hash->hash || !each
+	if (!store || (!store->list && !store->each) || !store->load || !hash || !hash->hash || !each
 	    || (unsigned)cls >= FZN_HOLDINGS_CLASSES)
 		return FZN_HOLDINGS_MALFORMED;
 	shape = &SHAPES[cls];
-	/* A LIST THAT DOES NOT FIT FAILS, by the persist ops' own rule, and a
-	 * class listed in part is not a class digested. */
-	if (!store->list(store->ctx, shape->slot, rows, FZN_HOLDINGS_MAX, &n))
-		return FZN_HOLDINGS_FULL;
-	for (i = 0; i < n; i++) {
+	memset(&w, 0, sizeof(w));
+	/* A WALK THAT DID NOT END FAILS: a class listed in part is not a class
+	 * digested. */
+	if (!fzn_persist_each(store, shape->slot, subject_in, &w) || w.failed) {
+		free(w.s);
+		return FZN_HOLDINGS_BACKEND;
+	}
+	for (i = 0; i < w.n; i++) {
 		uint8_t id[FZN_HOLDINGS_ID_LEN];
 		size_t len = 0, at = 0, object_len = 0;
 
-		if (!store->load(store->ctx, shape->slot, rows + (i * FZN_PUBKEY_LEN), row, sizeof(row),
-		                 &len))
-			return FZN_HOLDINGS_BACKEND;
+		if (!store->load(store->ctx, shape->slot, w.s[i], row, sizeof(row), &len)) {
+			err = FZN_HOLDINGS_BACKEND;
+			break;
+		}
 		if (!object_in(shape, row, len, &at, &object_len))
 			continue;
-		if (!hash->hash(hash->ctx, id, sizeof(id), row + at, object_len))
-			return FZN_HOLDINGS_BACKEND;
+		if (!hash->hash(hash->ctx, id, sizeof(id), row + at, object_len)) {
+			err = FZN_HOLDINGS_BACKEND;
+			break;
+		}
 		handed++;
 		if (!each(ctx, id, row + at, object_len))
 			break;
 	}
+	free(w.s);
 	if (count)
 		*count = handed;
-	return FZN_HOLDINGS_OK;
+	return err;
 }
 
 struct collecting {
 	uint8_t (*ids)[FZN_HOLDINGS_ID_LEN];
 	size_t max, n;
 	int full;
+	/* GROWN, sec 970: `ids` is `*grown`, realloc'd past `max`. */
+	uint8_t (**grown)[FZN_HOLDINGS_ID_LEN];
+	size_t *room;
 };
 
 static int collect(void *ctx, const uint8_t id[FZN_HOLDINGS_ID_LEN], const uint8_t *object,
@@ -139,6 +177,15 @@ static int collect(void *ctx, const uint8_t id[FZN_HOLDINGS_ID_LEN], const uint8
 
 	(void)object;
 	(void)len;
+	if (c->n >= c->max && c->grown) {
+		size_t room = c->max ? c->max * 2u : 256u;
+		uint8_t (*more)[FZN_HOLDINGS_ID_LEN] = realloc(*c->grown, room * sizeof(*more));
+
+		if (more) {
+			*c->grown = c->ids = more;
+			*c->room = c->max = room;
+		}
+	}
 	if (c->n >= c->max) {
 		c->full = 1;
 		return 0;
@@ -167,12 +214,43 @@ fzn_holdings_err_t fzn_holdings_ids(const fzn_persist_ops_t *store, const fzn_ha
 	c.max = max;
 	c.n = 0;
 	c.full = 0;
+	c.grown = NULL;
+	c.room = NULL;
 	err = fzn_holdings_each(store, hash, cls, collect, &c, NULL);
 	if (err != FZN_HOLDINGS_OK)
 		return err;
 	if (c.full)
 		return FZN_HOLDINGS_FULL;
-	qsort(ids, c.n, FZN_HOLDINGS_ID_LEN, by_id);
+	if (c.n)
+		qsort(ids, c.n, FZN_HOLDINGS_ID_LEN, by_id);
+	*count = c.n;
+	return FZN_HOLDINGS_OK;
+}
+
+fzn_holdings_err_t fzn_holdings_ids_all(const fzn_persist_ops_t *store,
+                                        const fzn_hash_ops_t *hash, fzn_holdings_class_t cls,
+                                        uint8_t (**ids)[FZN_HOLDINGS_ID_LEN], size_t *room,
+                                        size_t *count)
+{
+	struct collecting c;
+	fzn_holdings_err_t err;
+
+	if (!ids || !room || !count)
+		return FZN_HOLDINGS_MALFORMED;
+	*count = 0;
+	c.ids = *ids;
+	c.max = *ids ? *room : 0;
+	c.n = 0;
+	c.full = 0;
+	c.grown = ids;
+	c.room = room;
+	err = fzn_holdings_each(store, hash, cls, collect, &c, NULL);
+	if (err != FZN_HOLDINGS_OK)
+		return err;
+	if (c.full)
+		return FZN_HOLDINGS_BACKEND;
+	if (c.n)
+		qsort(*ids, c.n, FZN_HOLDINGS_ID_LEN, by_id);
 	*count = c.n;
 	return FZN_HOLDINGS_OK;
 }
@@ -188,8 +266,9 @@ fzn_holdings_err_t fzn_holdings_digest(const fzn_persist_ops_t *store,
                                        uint8_t digest[FZN_HOLDINGS_ID_LEN], size_t *count)
 {
 	static const char DOMAIN[] = "fuzznet.holdings";
-	static uint8_t in[sizeof(DOMAIN) - 1u + 1u + 8u
-	                  + (size_t)FZN_HOLDINGS_MAX * FZN_HOLDINGS_ID_LEN];
+	/* GROWN, sec 970, and kept for the next digest. */
+	static uint8_t (*ids)[FZN_HOLDINGS_ID_LEN], *in;
+	static size_t ids_room, in_room;
 	size_t n = 0, at = sizeof(DOMAIN) - 1u;
 	fzn_holdings_err_t err;
 
@@ -197,11 +276,20 @@ fzn_holdings_err_t fzn_holdings_digest(const fzn_persist_ops_t *store,
 		*count = 0;
 	if (!digest)
 		return FZN_HOLDINGS_MALFORMED;
-	err = fzn_holdings_ids(store, hash, cls,
-	                       (uint8_t (*)[FZN_HOLDINGS_ID_LEN])(in + at + 1u + 8u),
-	                       FZN_HOLDINGS_MAX, &n);
+	err = fzn_holdings_ids_all(store, hash, cls, &ids, &ids_room, &n);
 	if (err != FZN_HOLDINGS_OK)
 		return err;
+	if (at + 1u + 8u + (n * FZN_HOLDINGS_ID_LEN) > in_room) {
+		size_t want = at + 1u + 8u + (n * FZN_HOLDINGS_ID_LEN);
+		uint8_t *more = realloc(in, want);
+
+		if (!more)
+			return FZN_HOLDINGS_BACKEND;
+		in = more;
+		in_room = want;
+	}
+	if (n)
+		memcpy(in + at + 1u + 8u, ids, n * FZN_HOLDINGS_ID_LEN);
 	memcpy(in, DOMAIN, at);
 	in[at] = (uint8_t)cls;
 	fzn_put_be64(in + at + 1u, (uint64_t)n);

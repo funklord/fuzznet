@@ -82981,3 +82981,25 @@ every object of every class again. That, and FZN_HOLDINGS_MAX, are next.
 reconcile passes it over (`tally->full`). Grants alone are about N squared in an estate of N hosts,
 so past 64 machines the estate's grants would no longer reconcile; and a user's notes past 4096
 claims the same.
+
+## 970. A class of holdings past 4096, listed and digested whole, 2026-11-09
+
+Sec 969's open half. FZN_HOLDINGS_MAX, 4096, was the most objects of one class a node listed or
+digested; past it the class was FULL and reconcile passed it over. An estate of N hosts holds about
+N squared grants (sec 968), so **past 64 machines the estate's grants no longer reconciled**, and a
+user past 4096 note claims the same.
+
+**A class is walked now** (`fzn_persist_each`, so no `list` room to fit) and its ids grown to its
+size: `fzn_holdings_ids_all`, which the digest, the ids a peer is served and the ids a round holds
+all use. `fzn_holdings_ids` with a caller's `max` is kept, FULL past it. FZN_HOLDINGS_MAX stays as
+what one round fetches of a class from one peer, the rest the next round: a batch, not a ceiling.
+The digest's and the reply's wire forms are unchanged -- a count was 32 bits and the ids are paged.
+
+**Tested, `apply_test`:** a class of 5000 grants, made up by the store as it loads them and
+walked, digests whole and lists 5000 ids ascending; `holdings-not-grown` guards it, caught by hand.
+`reconcile-answer-lists-into-its-own-buffer` (sec 555) re-aimed at the grown buffers, which it
+now makes one: caught.
+
+**Not yet:** every digest still reads and hashes the class again (sec 969's profile), and a peer
+paging through the ids has them read again for each page -- square in a class's size. A digest
+kept while the store's slot has not moved is sec 971.

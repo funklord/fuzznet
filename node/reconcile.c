@@ -55,8 +55,9 @@ static int is(const uint8_t *m, size_t len, uint8_t type)
  * of its own round -- or one process playing both sides, as a suite does --
  * would otherwise overwrite the list the round is searching, and fetch what
  * it holds. 128 KiB each is not stack. sec 555. */
-static uint8_t served_ids[FZN_HOLDINGS_MAX][FZN_HOLDINGS_ID_LEN];
-static uint8_t ids_buf[FZN_HOLDINGS_MAX][FZN_HOLDINGS_ID_LEN];
+/* GROWN, sec 970: a class's every id, served and held. */
+static uint8_t (*served_ids)[FZN_HOLDINGS_ID_LEN], (*ids_buf)[FZN_HOLDINGS_ID_LEN];
+static size_t served_room, ids_room;
 
 static size_t answer_digest(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
                             uint8_t *reply, size_t reply_cap)
@@ -100,8 +101,8 @@ static size_t answer_ids(const fzn_persist_ops_t *store, const fzn_hash_ops_t *h
 		return 0;
 	cls = request[2];
 	from = fzn_get_be32(request + 3u);
-	if (fzn_holdings_ids(store, hash, (fzn_holdings_class_t)cls, served_ids, FZN_HOLDINGS_MAX,
-	                     &n) != FZN_HOLDINGS_OK)
+	if (fzn_holdings_ids_all(store, hash, (fzn_holdings_class_t)cls, &served_ids, &served_room,
+	                         &n) != FZN_HOLDINGS_OK)
 		return 0;
 	count = from < n ? n - from : 0u;
 	room = (reply_cap - FZN_RECONCILE_IDS_HEAD_LEN) / FZN_HOLDINGS_ID_LEN;
@@ -794,8 +795,8 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, const fzn_reconcil
 			continue;
 		}
 		if (herr != FZN_HOLDINGS_OK
-		    || fzn_holdings_ids(ap->store, ap->hash, (fzn_holdings_class_t)c, ids_buf,
-		                        FZN_HOLDINGS_MAX, &n_mine) != FZN_HOLDINGS_OK)
+		    || fzn_holdings_ids_all(ap->store, ap->hash, (fzn_holdings_class_t)c, &ids_buf,
+		                            &ids_room, &n_mine) != FZN_HOLDINGS_OK)
 			return FZN_RECONCILE_ERR_STORE;
 		tally->classes++;
 		total = their_count[c];

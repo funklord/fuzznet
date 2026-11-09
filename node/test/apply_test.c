@@ -1771,6 +1771,64 @@ static void fake_hop(uint8_t out[FZN_HOP_LEN], uint8_t fill)
 	out[1] = FZN_OBJECT_HOP;
 }
 
+/* A CLASS PAST THE OLD ROOM, sec 970: 5000 grants, made up from their row's
+ * number as the store loads them, walked rather than listed. */
+#define WIDE_ROWS 5000u
+
+static int wide_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                     size_t cap, size_t *len)
+{
+	(void)ctx;
+	if (slot != FZN_PERSIST_GRANT || cap < FZN_HOP_LEN)
+		return 0;
+	fake_hop(out, 0x44);
+	memcpy(out + 8, subject, 4);
+	*len = FZN_HOP_LEN;
+	return 1;
+}
+
+static int wide_each(void *ctx, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	uint8_t subject[FZN_PUBKEY_LEN];
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; slot == FZN_PERSIST_GRANT && i < WIDE_ROWS; i++) {
+		memset(subject, 0, sizeof(subject));
+		fzn_put_be32(subject, (uint32_t)(i * 2654435761u));
+		if (!fn(arg, subject))
+			break;
+	}
+	return 1;
+}
+
+static void test_holdings_past_the_old_room(void)
+{
+	fzn_persist_ops_t store;
+	uint8_t (*ids)[FZN_HOLDINGS_ID_LEN] = NULL, d[FZN_HOLDINGS_ID_LEN];
+	size_t room = 0, n = 0, n_digest = 0, i;
+	int ascending = 1;
+
+	memset(&store, 0, sizeof(store));
+	store.load = wide_load;
+	store.each = wide_each;
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, d, &n_digest)
+	                      == FZN_HOLDINGS_OK
+	              && n_digest == WIDE_ROWS,
+	      "a class of 5000 grants was not digested whole");
+	CHECK(fzn_holdings_ids_all(&store, &HASH, FZN_HOLDINGS_GRANTS, &ids, &room, &n)
+	                      == FZN_HOLDINGS_OK
+	              && n == WIDE_ROWS && room >= n,
+	      "a class of 5000 grants was not listed whole");
+	for (i = 1; ids && i < n; i++)
+		ascending &= memcmp(ids[i - 1u], ids[i], FZN_HOLDINGS_ID_LEN) < 0;
+	CHECK(ascending && n && fzn_holdings_among((const uint8_t(*)[FZN_HOLDINGS_ID_LEN])ids, n,
+	                                           ids[n - 1u]),
+	      "5000 ids were not ascending, or the last not found");
+	free(ids);
+}
+
 /* HOLDINGS, sec 550: a class is the rows of its slot that hold its object.
  * Three grants planted in one order and then in another give one digest; a
  * row of another tag or length is passed over; a different set gives a
@@ -2393,6 +2451,7 @@ int main(void)
 	test_settings_judged();
 	test_setting_holders();
 	test_holdings();
+	test_holdings_past_the_old_room();
 	test_a_capability_held();
 	test_a_grant_is_its_grantors();
 	test_settings_at_thousands();

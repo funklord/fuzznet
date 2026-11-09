@@ -33,8 +33,11 @@
 
 #define FZN_HOLDINGS_ID_LEN 32u
 
-/* The most objects of one class a node lists or digests: past it the class
- * is FULL rather than silently a subset. */
+/* THE MOST IDS ONE ROUND FETCHES OF ONE CLASS, from one peer: the rest
+ * the next round. It was the most a class could hold, sec 970, past which
+ * the class was FULL and passed over -- and an estate of N hosts holds
+ * about N squared grants, so past 64 machines its grants no longer
+ * reconciled. A class is listed and digested whole now. */
 #define FZN_HOLDINGS_MAX 4096u
 
 typedef enum fzn_holdings_class {
@@ -89,6 +92,14 @@ fzn_holdings_err_t fzn_holdings_ids(const fzn_persist_ops_t *store, const fzn_ha
                                     fzn_holdings_class_t cls,
                                     uint8_t (*ids)[FZN_HOLDINGS_ID_LEN], size_t max,
                                     size_t *count);
+
+/* THE CLASS'S IDS, ascending, EVERY ONE, sec 970: into `*ids`, grown to
+ * `*room` as they need (realloc; the caller frees). BACKEND when the store
+ * would not walk or room could not be had. */
+fzn_holdings_err_t fzn_holdings_ids_all(const fzn_persist_ops_t *store,
+                                        const fzn_hash_ops_t *hash, fzn_holdings_class_t cls,
+                                        uint8_t (**ids)[FZN_HOLDINGS_ID_LEN], size_t *room,
+                                        size_t *count);
 
 /* Whether `id` is among `count` ascending `ids`. */
 int fzn_holdings_among(const uint8_t (*ids)[FZN_HOLDINGS_ID_LEN], size_t count,

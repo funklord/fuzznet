@@ -12298,8 +12298,8 @@ SABOTAGES = [
 	(
 		"reconcile-answer-lists-into-its-own-buffer",
 		"node/reconcile.c",
-		"\tif (fzn_holdings_ids(store, hash, (fzn_holdings_class_t)cls, served_ids, FZN_HOLDINGS_MAX,",
-		"\tif (fzn_holdings_ids(store, hash, (fzn_holdings_class_t)cls, ids_buf, FZN_HOLDINGS_MAX,",
+		"static uint8_t (*served_ids)[FZN_HOLDINGS_ID_LEN], (*ids_buf)[FZN_HOLDINGS_ID_LEN];\nstatic size_t served_room, ids_room;\n",
+		"#define served_ids ids_buf\n#define served_room ids_room\nstatic uint8_t (*ids_buf)[FZN_HOLDINGS_ID_LEN];\nstatic size_t ids_room;\n",
 		"an answer overwrites the list a round in the same process is searching, and the round fetches what it holds -- sec 555",
 	),
 	(
@@ -14896,6 +14896,13 @@ SABOTAGES = [
 		"\tnote_listed(nr, subject, &s);\n\tif (nr->filed)",
 		"\tif (nr->filed)",
 		"a list read through the cache misses what a peer handed on -- sec 950",
+	),
+	(
+		"holdings-not-grown",
+		"node/holdings.c",
+		"\tif (c->n >= c->max && c->grown) {\n",
+		"\tif (c->n >= c->max && c->grown && c->max < 4096u) {\n",
+		"a class of holdings stops at 4096 again, and reconcile passes it over -- sec 970",
 	),
 	(
 		"grant-index-by-grantor",
