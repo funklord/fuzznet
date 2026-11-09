@@ -14,8 +14,9 @@
  *   VOTE    k admins of the estate, counted by this host, or a root alone, as a
  *           revocation takes (`node/votes.h`). Never `set setting` below a root.
  *
- * All but NOBODY are configurable, and written only where the cell has no value,
- * so a value somebody chose outlives an update. A key the profile does not name is
+ * All but NOBODY are configurable, and written where the cell has no value or
+ * holds what the preset last wrote there (sec 973), so a value somebody chose
+ * outlives an update and one the preset chose follows it. A key the profile does not name is
  * the user's, as it always was.
  *
  * ON AN UPDATE the preset is applied, then the consumer's own values over it, so
@@ -53,6 +54,9 @@
 #define FZN_PRESET_VOTE 4
 #define FZN_PRESET_APPLIED_KEY "preset/applied"
 #define FZN_PRESET_CHOSEN_KEY "preset/chosen"
+/* WHAT THE PRESET WROTE IN A CELL, sec 973: under this prefix and the key, so a
+ * revision replaces only what is still the preset's. Nobody's to set. */
+#define FZN_PRESET_WROTE_PREFIX "preset/wrote/"
 
 /* WHAT THIS BINARY WAS BUILT AS: `full`, `small` or `client`. */
 #ifndef FZN_PRESET_BUILD

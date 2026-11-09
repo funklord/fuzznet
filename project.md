@@ -83077,3 +83077,36 @@ the plan was square (sec 968) and can rise now that it is not; but a digest is o
 reassembly holds about 5,900 positions. Past that, a digest must be asked for in pages -- a change
 to the exchange, weighed with the N squared grants of sec 579's pairing (sec 968), which is the
 larger cost of an estate that size.
+
+## 973. A preset's value follows its revision, a person's stands, 2026-11-09
+
+Reported by claude-guidelines, 2026-11-09, from a sweep for the global rule "a config file records
+choices, not values" (the holder's, 2026-11-06), and read here at `node/presets.c`: `apply_table`
+skipped every configurable key that held a value -- "what somebody chose stands, however it got
+there". A preset's first application wrote its values into the host's cells, so from then on they
+were indistinguishable from a person's: **a revision of a preset never reached a host that had run
+the one before**, and a user's switch to another preset left the first one's values in place. The
+header's "bump a revision ... applies them again" held only for keys nobody may set.
+
+**What a preset wrote is recorded** under `preset/wrote/` and the key (FZN_PRESET_WROTE_PREFIX), a
+host cell of its own. A configurable cell still holding what the preset wrote is the preset's, and a
+revision or another preset replaces it and the record; a cell holding anything else is a choice and
+stands. **A person's word on a key the preset names lets the record go** -- the daemon's gate on
+`set setting` and `remove setting` (`preset_may`) -- so a value chosen equal to the preset's stands
+too, which a comparison with the default could not see. `preset/wrote/` is nobody's to set.
+
+**A host from before the records** has none. A value equal to the preset's now is taken as the
+preset's and recorded; any other stays a choice, as an old preset value cannot be told from a
+person's -- the loss the global rule says no migration can undo, kept to that.
+
+**Tested, `presets_test`:** a revision replaces what the preset wrote and leaves a person's; a
+value chosen equal to the preset's, its record let go, outlives the next revision; another preset
+takes over what the first wrote; a host from before the records adopts the preset's value and
+keeps another. `preset-value-stands-however-written` and `preset-marks-nothing` guard it, and
+`preset-chosen-value-kept` (sec 908) re-aimed: all caught by hand.
+
+**Measured live, `live_preset` phase f:** a fresh host under `userd` holds `relay/enabled off`;
+switched to `relay` it takes `on`. **Control:** the old `apply_table` failed f with `off` kept.
+
+**Not here:** the client presets (`local/client_config.c`) are not applied yet; when they are, they
+need the same record in the client's file.

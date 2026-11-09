@@ -10612,14 +10612,35 @@ static int preset_may(void *ctx, const uint8_t *key, size_t key_len, fzn_setting
 {
 	static const char APPLIED[] = FZN_PRESET_APPLIED_KEY;
 	static const char CHOSEN[] = FZN_PRESET_CHOSEN_KEY;
+	static const char WROTE[] = FZN_PRESET_WROTE_PREFIX;
+	const fzn_preset_value_t *extra = daemon_ext ? daemon_ext->preset_values : NULL;
+	size_t n_extra = daemon_ext ? daemon_ext->n_preset_values : 0u;
+	char mark_key[128], held[256];
+	size_t held_len = 0;
+	int may;
 
 	(void)ctx;
 	if ((key_len == sizeof(APPLIED) - 1u && memcmp(key, APPLIED, key_len) == 0)
-	    || (key_len == sizeof(CHOSEN) - 1u && memcmp(key, CHOSEN, key_len) == 0))
+	    || (key_len == sizeof(CHOSEN) - 1u && memcmp(key, CHOSEN, key_len) == 0)
+	    || (key_len >= sizeof(WROTE) - 1u && memcmp(key, WROTE, sizeof(WROTE) - 1u) == 0))
 		return 0;
-	return fzn_preset_may(active_preset, daemon_ext ? daemon_ext->preset_values : NULL,
-	                      daemon_ext ? daemon_ext->n_preset_values : 0u, (const char *)key, key_len,
-	                      (int)rank);
+	may = fzn_preset_may(active_preset, extra, n_extra, (const char *)key, key_len, (int)rank);
+	/* A PERSON'S WORD ON A KEY THE PRESET NAMES is theirs from now, sec 973:
+	 * the mark of what the preset wrote is let go, so no revision replaces
+	 * it -- a value equal to the preset's included. */
+	if (may && fzn_preset_value_of(active_preset, extra, n_extra, (const char *)key, key_len)
+	    && key_len + sizeof(WROTE) <= sizeof(mark_key)) {
+		memcpy(mark_key, WROTE, sizeof(WROTE) - 1u);
+		memcpy(mark_key + sizeof(WROTE) - 1u, key, key_len);
+		mark_key[sizeof(WROTE) - 1u + key_len] = '\0';
+		if (preset_get(NULL, mark_key, held, sizeof(held), &held_len)
+		    && fzn_node_settings_write(&node_settings, FZN_SCOPE_HOST, node_settings.id->pubkey,
+		                               (const uint8_t *)mark_key, strlen(mark_key), 0, NULL, 0)
+		               != FZN_NODE_SETTINGS_OK)
+			say(FZN_ENTRY_WARNING, "presets", "the mark of what the preset wrote in %s stayed",
+			    mark_key);
+	}
+	return may;
 }
 
 /* APPLIED ONCE A HOST MAY WRITE ITS OWN CELLS, and when it or the consumer's values

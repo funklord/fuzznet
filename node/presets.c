@@ -2,6 +2,7 @@
 
 #include "presets.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* WHAT EACH KIND OF HOST STARTS WITH. Bump a revision when its values change,
@@ -132,23 +133,64 @@ const char *fzn_preset_who_word(int who)
 	                                 : "nobody";
 }
 
+static int same(const char *held, size_t len, const char *value)
+{
+	return len == strlen(value) && memcmp(held, value, len) == 0;
+}
+
+/*
+ * WHAT A PRESET WROTE, sec 973, kept under FZN_PRESET_WROTE_PREFIX and the key:
+ * the value it put in a configurable cell. A cell still holding it is the
+ * preset's, and a revision or another preset replaces it; a cell holding
+ * anything else is somebody's choice and stands. It was "a cell with a value
+ * stands, however it got there", so a value a preset wrote was a choice from
+ * then on, and no revision ever reached a host that had run the one before.
+ * `set setting` on a key the preset names lets go of the mark (the daemon's
+ * gate), so a person who sets today's value has chosen it too.
+ *
+ * A HOST FROM BEFORE has no marks. A value equal to the preset's now is taken
+ * as the preset's; any other stays a choice, as an old preset value cannot be
+ * told from a person's.
+ */
 static long apply_table(const fzn_preset_value_t *t, size_t n, const fzn_preset_ops_t *ops)
 {
-	char held[256];
-	size_t i, len;
+	char held[256], mark[256], mark_key[128];
+	size_t i, len, mark_len;
 	long wrote = 0;
 
 	for (i = 0; t && i < n; i++) {
-		int has;
+		int has, marked = 0, keeps_mark = t[i].who != FZN_PRESET_NOBODY;
 
 		len = 0;
 		has = ops->get(ops->ctx, t[i].key, held, sizeof(held), &len);
-		/* WHAT SOMEBODY CHOSE STANDS, however it got there. */
-		if (has && t[i].who != FZN_PRESET_NOBODY)
+		if (keeps_mark) {
+			int at = snprintf(mark_key, sizeof(mark_key), "%s%s", FZN_PRESET_WROTE_PREFIX,
+			                  t[i].key);
+
+			keeps_mark = at > 0 && (size_t)at < sizeof(mark_key);
+			mark_len = 0;
+			marked = keeps_mark
+			         && ops->get(ops->ctx, mark_key, mark, sizeof(mark), &mark_len);
+		}
+		/* SOMEBODY'S CHOICE STANDS: a value the preset did not write. */
+		if (has && t[i].who != FZN_PRESET_NOBODY
+		    && !(marked && len == mark_len && memcmp(held, mark, len) == 0)) {
+			if (marked || !same(held, len, t[i].value) || !keeps_mark)
+				continue;
+			/* FROM BEFORE THE MARKS, and the preset's value: the preset's. */
+			if (!ops->set(ops->ctx, mark_key, t[i].value))
+				return -1;
 			continue;
-		if (has && len == strlen(t[i].value) && memcmp(held, t[i].value, len) == 0)
+		}
+		if (has && same(held, len, t[i].value)) {
+			if (keeps_mark && !(marked && same(mark, mark_len, t[i].value))
+			    && !ops->set(ops->ctx, mark_key, t[i].value))
+				return -1;
 			continue;
+		}
 		if (!ops->set(ops->ctx, t[i].key, t[i].value))
+			return -1;
+		if (keeps_mark && !ops->set(ops->ctx, mark_key, t[i].value))
 			return -1;
 		wrote++;
 	}

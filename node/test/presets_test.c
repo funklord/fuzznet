@@ -18,10 +18,10 @@ static int checks, failures;
 		}                                                                          \
 	} while (0)
 
-#define CELLS 16
+#define CELLS 32
 
 static struct {
-	char key[32], value[32];
+	char key[64], value[32];
 } cells[CELLS];
 static int n_cells, writes, refuse_at;
 
@@ -148,6 +148,53 @@ int main(void)
 	refuse_at = 0;
 	CHECK(fzn_preset_apply(vault, NULL, 0u, NULL) == -1, "no way to write is said");
 	CHECK(fzn_preset_apply(NULL, NULL, 0u, &OPS) == 0, "nothing to apply writes nothing");
+
+	/* ---- a revision reaches what the preset wrote, sec 973 */
+	{
+		static const fzn_preset_value_t V1[] = {
+			{ "a/x", "one", FZN_PRESET_HOST },
+			{ "a/y", "one", FZN_PRESET_HOST },
+			{ "a/z", "one", FZN_PRESET_ADMIN },
+		};
+		static const fzn_preset_value_t V2[] = {
+			{ "a/x", "two", FZN_PRESET_HOST },
+			{ "a/y", "two", FZN_PRESET_HOST },
+			{ "a/z", "two", FZN_PRESET_ADMIN },
+		};
+		static const fzn_preset_value_t OTHER[] = {
+			{ "a/x", "three", FZN_PRESET_HOST },
+		};
+
+		n_cells = 0;
+		CHECK(fzn_preset_apply(NULL, V1, 3u, &OPS) == 3 && !strcmp(cell("a/x"), "one")
+		              && !strcmp(cell(FZN_PRESET_WROTE_PREFIX "a/x"), "one"),
+		      "a first application did not write and mark");
+		cell_set(NULL, "a/y", "mine");
+		CHECK(fzn_preset_apply(NULL, V2, 3u, &OPS) == 2 && !strcmp(cell("a/x"), "two")
+		              && !strcmp(cell("a/z"), "two") && !strcmp(cell("a/y"), "mine")
+		              && !strcmp(cell(FZN_PRESET_WROTE_PREFIX "a/x"), "two"),
+		      "a revision did not replace what the preset wrote, or replaced a choice");
+		/* A PERSON'S WORD, the mark let go (the daemon's gate does it on `set
+		 * setting`): today's value, chosen, outlives the next revision. */
+		cell_set(NULL, FZN_PRESET_WROTE_PREFIX "a/z", "");
+		CHECK(fzn_preset_apply(NULL, V1, 3u, &OPS) >= 1 && !strcmp(cell("a/z"), "two")
+		              && !strcmp(cell("a/x"), "one"),
+		      "a value chosen equal to the preset's did not stand");
+		/* ANOTHER PRESET takes over what this one wrote. */
+		CHECK(fzn_preset_apply(NULL, OTHER, 1u, &OPS) == 1 && !strcmp(cell("a/x"), "three"),
+		      "another preset did not replace what the first wrote");
+		/* A HOST FROM BEFORE THE MARKS: the preset's value now is adopted, any
+		 * other stands. */
+		n_cells = 0;
+		cell_set(NULL, "a/x", "one");
+		cell_set(NULL, "a/y", "old");
+		CHECK(fzn_preset_apply(NULL, V1, 3u, &OPS) == 1
+		              && !strcmp(cell(FZN_PRESET_WROTE_PREFIX "a/x"), "one")
+		              && !strcmp(cell("a/y"), "old") && !strcmp(cell(FZN_PRESET_WROTE_PREFIX "a/y"), "")
+		              && fzn_preset_apply(NULL, V2, 3u, &OPS) == 2 && !strcmp(cell("a/x"), "two")
+		              && !strcmp(cell("a/y"), "old"),
+		      "a host from before the marks did not adopt the preset's value, or took another's");
+	}
 
 	printf("presets_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

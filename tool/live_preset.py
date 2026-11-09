@@ -13,6 +13,8 @@ One store, a root, started with `--preset=`.
     d2 `set preset` switches among a build's user presets, refusing one no user
        may choose and another build's, and the choice outlives a restart
     e  a name no profile has ends the start
+    f  on a fresh host, what one preset wrote and nobody chose follows a switch to
+       another (sec 973)
 
 The rank below root needs a second host: `presets_test` holds that.
 
@@ -163,6 +165,27 @@ def main(argv):
 			if done.returncode == 0:
 				raise failed("e: a profile nobody has started a daemon")
 			print("livecheck: e: a name no profile has ended the start")
+
+			# f: WHAT A PRESET WROTE FOLLOWS ANOTHER, sec 973: a fresh host under
+			# userd holds its relay/enabled off, chosen by nobody; switched to
+			# relay, it takes relay's on.
+			store = os.path.join(scratch, "f")
+			os.mkdir(store)
+			command(run, ["--fuzznet-dir=" + store, "--new-root"], None)
+			d = up("f1", "userd")
+			d.wait_for(ROUND_DONE_RE, "f's first round", within=60.0)
+			if not value("relay/enabled").endswith(" off"):
+				raise failed("f: under userd relay/enabled is %r" % value("relay/enabled"))
+			expect(sock, "f", "set preset relay", "ok")
+			until = time.monotonic() + 20.0
+			while not value("relay/enabled").endswith(" on"):
+				if time.monotonic() > until:
+					raise failed("f: switched to relay, relay/enabled is %r"
+					             % value("relay/enabled"))
+				time.sleep(0.3)
+			print("livecheck: f: what userd wrote and nobody chose followed the switch to relay")
+			d.stop()
+			d = None
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

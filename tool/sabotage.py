@@ -5362,9 +5362,9 @@ SABOTAGES = [
 	(
 		"preset-chosen-value-kept",
 		"node/presets.c",
-		"\t\tif (has && t[i].who != FZN_PRESET_NOBODY)\n\t\t\tcontinue;\n",
-		"",
-		"an update writes over what somebody chose -- sec 908",
+		"\t\tif (has && t[i].who != FZN_PRESET_NOBODY\n",
+		"\t\tif (0 && has && t[i].who != FZN_PRESET_NOBODY\n",
+		"an update writes over what somebody chose -- sec 908, re-aimed in sec 973",
 	),
 	(
 		"preset-rank-judged",
@@ -14896,6 +14896,20 @@ SABOTAGES = [
 		"\tnote_listed(nr, subject, &s);\n\tif (nr->filed)",
 		"\tif (nr->filed)",
 		"a list read through the cache misses what a peer handed on -- sec 950",
+	),
+	(
+		"preset-value-stands-however-written",
+		"node/presets.c",
+		"\t\t    && !(marked && len == mark_len && memcmp(held, mark, len) == 0)) {\n",
+		"\t\t    && 1) {\n",
+		"a value a preset wrote is a choice from then on, and no revision reaches it -- sec 973",
+	),
+	(
+		"preset-marks-nothing",
+		"node/presets.c",
+		"\t\tif (keeps_mark && !ops->set(ops->ctx, mark_key, t[i].value))\n\t\t\treturn -1;\n\t\twrote++;\n",
+		"\t\twrote++;\n",
+		"a preset writes no mark, so what it wrote reads as somebody's choice -- sec 973",
 	),
 	(
 		"sync-plan-takes-the-smallest",
