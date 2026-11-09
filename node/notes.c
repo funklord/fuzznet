@@ -2136,6 +2136,31 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 	 * -- a `.json` past the bound or empty is still refused and named as
 	 * a Keep note, not called no export. */
 	sniffed = S_ISDIR(st.st_mode) ? 0 : sniff_export(path);
+	/* A TAKEOUT FROM ITS TOP, sec 985: Google's archive holds the notes in
+	 * `Takeout/Keep`, and a person picks the folder they extracted, or
+	 * `Takeout` in it. Where PATH holds no note of its own and one of those
+	 * is a directory, the notes are read there. Only that name: the other
+	 * services' exports beside it are JSON too, and are not notes. */
+	if (S_ISDIR(st.st_mode)) {
+		static const char *const deeper[] = { "/Keep", "/Takeout/Keep" };
+		struct dirent **own = NULL;
+		int own_count = scandir(path, &own, importable, by_name), d;
+
+		for (d = 0; d < own_count; d++)
+			free(own[d]);
+		free(own);
+		for (d = 0; own_count == 0 && d < 2; d++) {
+			char sub[sizeof(path)];
+			struct stat sub_st;
+
+			k = snprintf(sub, sizeof(sub), "%s%s", path, deeper[d]);
+			if (k > 0 && (size_t)k < sizeof(sub) && stat(sub, &sub_st) == 0
+			    && S_ISDIR(sub_st.st_mode)) {
+				memcpy(path, sub, (size_t)k + 1u);
+				break;
+			}
+		}
+	}
 	if (S_ISDIR(st.st_mode)) {
 		/* A TAKEOUT: every `.json` in the directory is one note, and an
 		 * `.ics` a KNotes calendar; anything else in it -- attachments, the
@@ -2181,8 +2206,8 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 		return say(reply, cap, FZN_REPLY_MALFORMED,
 		           "a KNotes .ics, a Keep .json, or a Takeout directory");
 	}
-	k = snprintf(detail, sizeof(detail), "%zu %zu %zu %zu %zu", run.imported, run.already,
-	             run.undated, run.refused, run.pending);
+	k = snprintf(detail, sizeof(detail), "%zu %zu %zu %zu %zu %zu", run.imported, run.already,
+	             run.undated, run.refused, run.pending, run.attached);
 	if (k < 0 || (size_t)k >= limit)
 		return 0;
 	/* THE NAMES AS FAR AS THERE IS ROOM; the count above is all of them. */

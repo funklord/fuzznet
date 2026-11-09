@@ -1253,6 +1253,8 @@ static struct got {
 	size_t title_len, text_len, labels_len;
 	uint8_t flags;
 	uint64_t created;
+	uint32_t colour;
+	size_t attachments;
 } got[8];
 static size_t got_count;
 static size_t got_long_len, got_title_len;
@@ -1276,6 +1278,8 @@ static int collect(void *ctx, const fzn_notes_import_entry_t *e)
 	memcpy(g->labels, e->labels, g->labels_len);
 	g->flags = e->flags;
 	g->created = e->created_at_ms;
+	g->colour = e->colour;
+	g->attachments = e->attachments;
 	return 0;
 }
 
@@ -1327,6 +1331,23 @@ static void test_import_parsing(void)
 	      "with its title, text, pin and creation time");
 	CHECK(got[0].labels_len == 10u && memcmp(got[0].labels, "home\0dairy", 10u) == 0,
 	      "and both its labels, separated as a note's are");
+	CHECK(got[0].colour == 0u && got[0].attachments == 0u,
+	      "DEFAULT is no colour, and no attachments are none");
+	/* ITS COLOUR KEPT AND ITS FILES COUNTED, sec 985: Keep's export names
+	 * a colour and lists each file beside the note. */
+	reset_collect();
+	CHECK(keep("{\"color\":\"RED\",\"title\":\"photo\",\"textContent\":\"x\","
+	           "\"attachments\":[{\"filePath\":\"a.png\",\"mimetype\":\"image/png\"},"
+	           "{\"filePath\":\"b.3gp\",\"mimetype\":\"audio/3gpp\"}]}")
+	              == FZN_NOTES_OK
+	              && got_count == 1u && got[0].colour == 0xF28B82FFu && got[0].attachments == 2u
+	              && is(got[0].text, got[0].text_len, "x"),
+	      "a Keep colour is kept and its attachments are counted");
+	reset_collect();
+	CHECK(keep("{\"color\":\"CHARTREUSE\",\"title\":\"odd\",\"textContent\":\"y\"}")
+	              == FZN_NOTES_OK
+	              && got_count == 1u && got[0].colour == 0u,
+	      "a colour Keep does not name is unset, and the note kept");
 	reset_collect();
 	CHECK(keep("{\"attachments\":[{\"title\":\"not this\"}],\"title\":\"real\"}")
 	              == FZN_NOTES_OK

@@ -83259,9 +83259,9 @@ the log.
 
 **Open, notes import** (`notes/import.c`, T1355Z): ~~a title past the limit shortened and the
 note kept~~, ~~the format chosen by content, not the name's suffix~~ and ~~a reason per
-refusal~~, all sec 982; bounds past a 16 MiB calendar and a 1 MiB Keep file, and a walk
-deeper than one level (Takeout/Keep); Keep attachments and colour said, not dropped silently; the
-store not reloaded per dated note.
+refusal~~, all sec 982; bounds past a 16 MiB calendar and a 1 MiB Keep file; ~~a walk deeper
+than one level (Takeout/Keep)~~ and ~~Keep attachments and colour said, not dropped silently~~,
+sec 985; ~~the store not reloaded per dated note~~, measured in sec 982 and not the cost.
 
 **Open, settings schema** (`node/schema.c`, T1355Z): a safe direction per setting, the more
 restrictive winning between writes made apart -- sec 389 decision 4 and sec 418, the holder's,
@@ -83315,8 +83315,16 @@ and its id: `stickers 3 and 5 have one id, N (the same art, or the same number g
 missing for a rendition, `flagged sound and has none`, a message or name sticker with `no text box`,
 an emoji flagged big. `sticker_test` names each; `sticker-why-counts-from-zero` guards the places.
 
-**Not done, of the same messages:** ids derived once per shared art (each sticker's art is hashed
-apart today), and whether a newer pack's unknown field refusing the whole pack is the trade wanted.
+**Settled since, of the same messages** (sec 985's session): **ids derived once per shared art**
+is not taken. A sticker's id hashes all its renditions and its sound together, so two stickers that
+share one art and differ in nothing else are one sticker, refused; ones that differ elsewhere hash
+different bytes anyway, and art hashed once would mean an id over hashes of the parts -- every
+pack's ids changed for a cost of milliseconds. **A newer pack refused whole** is the trade kept:
+a pack's id and its stickers' are over its bytes, and a reader that skipped a field it did not know
+-- a sound flag, a box's paint -- would show a sticker without what the field says, with nothing to
+tell the person; a refused pack is at least seen not to open. (That the refusal names a newer
+version, rather than a bad pack, is not done: `fzn_sticker_pack_open` answers 0 for both.) fuzzypickles' CBOR manifest
+skipped unknown keys, and that is the behaviour given up, on purpose.
 
 ## 982. Notes import: long titles cut, files known by content, each refusal's reason, 2026-11-09
 
@@ -83397,3 +83405,35 @@ pass with it.
 **Seen on the way, and fuzzypickles':** fifteen `fzp object-watch --name living_room_lamp`
 processes orphaned to init with their working directory in fuzzypickles' tree, from its own lamp
 scenario -- told there, not touched here.
+
+## 985. A Takeout from its top, Keep colours kept, attachments said, 2026-11-09
+
+The rest of fuzzypickles' notes import list that is this tree's to do (inbox T1355Z; sec 978).
+Its own sec 22 calls a silent loss the thing an import must never do, and two were here.
+
+**A Takeout from its top:** Google's archive holds the notes in `Takeout/Keep`, and a person picks
+the folder they extracted, or `Takeout` in it -- and the directory branch read only `.json` and
+`.ics` directly inside PATH, so it found nothing and said `0 0 0 0 0`. Where PATH holds no note of
+its own and `PATH/Keep` or `PATH/Takeout/Keep` is a directory, the notes are read there now. Only
+that name, not a general walk: the other services' exports beside it are JSON too, and would come
+back as a refusal for every file. `notes_test` imports from both levels of an extracted archive;
+`import-takeout-top-not-walked` guards it.
+
+**Keep's colour kept:** the export names a colour (`RED`, `TEAL`, ...) and a note carries one
+(`0xRRGGBBAA`, sec 869), but the parser dropped it. Mapped now to the colours Keep paints; `DEFAULT`
+and a name not in the table are unset, and the note is kept either way. `notes_store_test` parses
+`RED` and an unknown name; `notes_test` reads `CBF0F8FF` back by `get note ID meta` for an imported
+`BLUE`; `import-colour-dropped` guards the second.
+
+**Attachments said:** a Keep note's pictures and recordings are files beside its `.json`, listed
+in its `attachments`, and the note came across without them and without a word. Fuzznet imports
+the note and not the files -- a blob per file, shared with the note, is a larger piece of work --
+and says so: the `add import` reply carries a sixth count, ATTACHED, the notes imported with files
+left in the export, before the refused names; `notebook_view` says "N imported note(s) had files
+attached, which were not imported; they are in the export beside each note." A reply change, made
+because it is free (sec 924); fuzzypickles is told. `import-attachments-unsaid` guards it, and
+`node-notes-import-answers-pending` and `notebook-view-import-names-after-five` were moved to the
+new shape.
+
+**Still open:** the files themselves imported, and the bounds -- a calendar past 16 MiB and a Keep
+note past 1 MiB are refused whole.

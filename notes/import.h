@@ -64,6 +64,10 @@ typedef struct fzn_notes_import_entry {
 	size_t labels_len;
 	uint8_t flags;           /* PINNED, ARCHIVED, TRASHED */
 	uint64_t created_at_ms;  /* 0 when the source did not say */
+	uint32_t colour;         /* 0xRRGGBBAA, 0 unset (sec 985) */
+	/* Files the source keeps beside the note, not imported: said, so
+	 * nothing is lost without a word (sec 985). */
+	size_t attachments;
 } fzn_notes_import_entry_t;
 
 /* Called once per note parsed. Nonzero stops the parse. */
@@ -124,6 +128,7 @@ typedef struct fzn_notes_import_run {
 	size_t undated;  /* imported with no creation time to recognise them by */
 	size_t refused;  /* every refusal, whichever stage it came from */
 	size_t pending;  /* of those, PENDING: import again once content arrives */
+	size_t attached; /* imported with files beside them left in the export */
 	/* Where refusals are named, or NULL. */
 	fzn_notes_import_refused_fn on_refused;
 	void *refused_ctx;

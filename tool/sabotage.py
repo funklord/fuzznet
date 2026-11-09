@@ -5159,8 +5159,8 @@ SABOTAGES = [
 	(
 		"node-notes-import-answers-pending",
 		"node/notes.c",
-		"\t             run.undated, run.refused, run.pending);\n",
-		"\t             run.undated, run.refused, (size_t)0);\n",
+		"\t             run.undated, run.refused, run.pending, run.attached);\n",
+		"\t             run.undated, run.refused, (size_t)0, run.attached);\n",
 		"the import reply says none of the refused are pending, and the notebook never tells the user to import again -- sec 578",
 	),
 	(
@@ -5838,8 +5838,8 @@ SABOTAGES = [
 	(
 		"notebook-view-import-names-after-five",
 		"gui/notebook_view.cpp",
+		"\t\tfor (i = 6; i < f.size(); i++) {\n",
 		"\t\tfor (i = 5; i < f.size(); i++) {\n",
-		"\t\tfor (i = 4; i < f.size(); i++) {\n",
 		"the pending count is named as a refused note -- sec 578",
 	),
 	(
@@ -14967,6 +14967,27 @@ SABOTAGES = [
 		"\tif (i < got && head[i] == '{')\n\t\treturn 'j';\n",
 		"\tif (i < got && head[i] == '{')\n\t\treturn 0;\n",
 		"a Keep note with no .json suffix is called no export, though it is one -- sec 982",
+	),
+	(
+		"import-takeout-top-not-walked",
+		"node/notes.c",
+		"\tfor (d = 0; own_count == 0 && d < 2; d++) {\n",
+		"\tfor (d = 0; own_count == 0 && d < 0; d++) {\n",
+		"an extracted Takeout archive picked from its top imports nothing -- sec 985",
+	),
+	(
+		"import-colour-dropped",
+		"notes/import.c",
+		"\tnote.colour = e->colour;\n",
+		"\tnote.colour = 0u;\n",
+		"a Keep note's colour is parsed and then not given to the note -- sec 985",
+	),
+	(
+		"import-attachments-unsaid",
+		"notes/import.c",
+		"\tif (e->attachments)\n\t\trun->attached++;\n",
+		"\tif (!e->attachments)\n\t\trun->attached++;\n",
+		"a note whose files stay in the export is not said to have them -- sec 985",
 	),
 	(
 		"sticker-why-counts-from-zero",

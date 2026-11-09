@@ -215,7 +215,28 @@ static uint64_t parse_uint(const uint8_t *s, size_t len, size_t at)
 	return n ? v : 0u;
 }
 
-enum { IN_NONE, IN_LIST, IN_LABELS };
+enum { IN_NONE, IN_LIST, IN_LABELS, IN_ATTACHMENTS };
+
+/* KEEP'S COLOURS by the names its export writes, as Keep paints them
+ * (0xRRGGBBAA, opaque); DEFAULT and a name not here are unset, sec 985. */
+static uint32_t keep_colour(const uint8_t *name, size_t len)
+{
+	static const struct {
+		const char *name;
+		uint32_t rgba;
+	} named[] = {
+		{ "RED", 0xF28B82FFu },    { "ORANGE", 0xFBBC04FFu }, { "YELLOW", 0xFFF475FFu },
+		{ "GREEN", 0xCCFF90FFu },  { "TEAL", 0xA7FFEBFFu },   { "BLUE", 0xCBF0F8FFu },
+		{ "CERULEAN", 0xAECBFAFFu }, { "GRAY", 0xE8EAEDFFu }, { "PURPLE", 0xD7AEFBFFu },
+		{ "PINK", 0xFDCFE8FFu },   { "BROWN", 0xE6C9A8FFu },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(named) / sizeof(named[0]); i++)
+		if (strlen(named[i].name) == len && memcmp(named[i].name, name, len) == 0)
+			return named[i].rgba;
+	return 0u;
+}
 
 fzn_notes_err_t fzn_notes_import_keep(const uint8_t *json, size_t len, fzn_notes_import_fn fn,
                                       void *ctx, fzn_notes_import_refused_fn refused,
@@ -248,6 +269,8 @@ fzn_notes_err_t fzn_notes_import_keep(const uint8_t *json, size_t len, fzn_notes
 				in_depth = depth;
 			}
 			pending = IN_NONE;
+			if (c == '{' && in == IN_ATTACHMENTS && depth == in_depth + 1u)
+				e.attachments++;
 			if (c == '{' && in != IN_NONE && depth == in_depth + 1u) {
 				item_len = 0;
 				item_checked = 0;
@@ -332,6 +355,17 @@ fzn_notes_err_t fzn_notes_import_keep(const uint8_t *json, size_t len, fzn_notes
 			} else if (key_is(key, key_len, "labels")) {
 				pending = IN_LABELS;
 				continue;
+			} else if (key_is(key, key_len, "attachments")) {
+				pending = IN_ATTACHMENTS;
+				continue;
+			} else if (key_is(key, key_len, "color")) {
+				uint8_t name[16];
+				size_t name_len = 0;
+
+				r = json_string(json, len, &i, name, sizeof(name), &name_len);
+				if (r == STR_OK)
+					e.colour = keep_colour(name, name_len);
+				r = r == STR_LONG ? STR_OK : r;
 			} else if (key_is(key, key_len, "isPinned")) {
 				e.flags |= is_true(json, len, i) ? FZN_NOTE_FLAG_PINNED : 0u;
 				continue;
@@ -669,6 +703,7 @@ int fzn_notes_import_take(void *ctx, const fzn_notes_import_entry_t *e)
 	note.text_len = e->text_len;
 	note.labels = e->labels;
 	note.labels_len = e->labels_len;
+	note.colour = e->colour;
 	note.flags = e->flags;
 	err = fzn_notes_create_dated(run->author, run->folder, e->content_type, &note,
 	                             e->created_at_ms, run->now_ms, id);
@@ -681,6 +716,8 @@ int fzn_notes_import_take(void *ctx, const fzn_notes_import_entry_t *e)
 		return err == FZN_NOTES_ERR_FULL;
 	}
 	run->imported++;
+	if (e->attachments)
+		run->attached++;
 	if (!e->created_at_ms)
 		run->undated++;
 	return 0;

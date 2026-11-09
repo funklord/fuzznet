@@ -1186,12 +1186,12 @@ static void test_import(void)
 	snprintf(line, sizeof(line), "add import %s %s", folder, dir);
 	CHECK(ask_as(FZN_ORIGIN_LOCAL, line) == FZN_REPLY_DENIED,
 	      "another user may not make the node read a path");
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "2 0 0 1 0 ", 10u),
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "2 0 0 1 0 0 ", 12u),
 	      "a Takeout imports its two notes and refuses the one that will not parse");
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 2 0 1 0", 9u),
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 2 0 1 0 0", 11u),
 	      "a second import recognises both and writes nothing");
 	snprintf(line, sizeof(line), "add import %s %s", folder, f_ics);
-	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 1 0 0"),
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 1 0 0 0"),
 	      "a KNotes calendar imports both journals, one of them undated");
 	snprintf(line, sizeof(line), "list note %s", folder);
 	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "4 0", 3u) && has(",milk")
@@ -1208,13 +1208,68 @@ static void test_import(void)
 		CHECK(put_file(cal_txt, ics, sizeof(ics) - 1u) && put_file(bare, milk, sizeof(milk) - 1u),
 		      "fixture: a calendar and a note under other names");
 		snprintf(line, sizeof(line), "add import %s %s", folder, cal_txt);
-		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "1 1 1 0 0"),
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "1 1 1 0 0 0"),
 		      "a calendar named .txt is read as one: its dated note is here already, and "
 		      "its undated one imported again, as sec 440 has it");
 		snprintf(line, sizeof(line), "add import %s %s", folder, bare);
 		CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 1 ", 4u),
 		      "a Keep note with no suffix is read as one");
 		CHECK(unlink(cal_txt) == 0 && unlink(bare) == 0, "cleanup: the renamed exports");
+	}
+
+	/* FROM THE ARCHIVE'S TOP, sec 985: the notes in `Takeout/Keep` are
+	 * found from the folder extracted, and from `Takeout` in it. */
+	{
+		char top[112], take[128], keep[136], one[160];
+
+		snprintf(top, sizeof(top), "%s.archive", dir);
+		snprintf(take, sizeof(take), "%s/Takeout", top);
+		snprintf(keep, sizeof(keep), "%s/Keep", take);
+		snprintf(one, sizeof(one), "%s/milk.json", keep);
+		CHECK(mkdir(top, 0700) == 0 && mkdir(take, 0700) == 0 && mkdir(keep, 0700) == 0
+		              && put_file(one, milk, sizeof(milk) - 1u),
+		      "fixture: an extracted archive");
+		snprintf(line, sizeof(line), "add import %s %s", folder, top);
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 1 0 0 0 0"),
+		      "the archive's top finds Takeout/Keep, and its note is here already");
+		snprintf(line, sizeof(line), "add import %s %s", folder, take);
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 1 0 0 0 0"),
+		      "and so does Takeout");
+		CHECK(unlink(one) == 0 && rmdir(keep) == 0 && rmdir(take) == 0 && rmdir(top) == 0,
+		      "cleanup: the archive");
+	}
+
+	/* WITH FILES BESIDE IT, sec 985: imported, and counted ATTACHED. */
+	{
+		static const char photo[] = "{\"title\":\"beach\",\"textContent\":\"sand\","
+		                            "\"color\":\"BLUE\",\"createdTimestampUsec\":1700000000777000,"
+		                            "\"attachments\":[{\"filePath\":\"beach.jpg\"}]}";
+		char f_beach[112];
+
+		snprintf(f_beach, sizeof(f_beach), "%s.beach.json", dir);
+		snprintf(line, sizeof(line), "add import %s %s", folder, f_beach);
+		CHECK(put_file(f_beach, photo, sizeof(photo) - 1u) && ask(line) == FZN_REPLY_OK
+		              && !strcmp(detail_of(), "1 0 0 0 0 1"),
+		      "a note with a file beside it is imported and counted as attached");
+		snprintf(line, sizeof(line), "list note %s", folder);
+		{
+			const char *at = ask(line) == FZN_REPLY_OK ? strstr(detail_of(), ",beach,") : NULL;
+			const char *start = at;
+			char id[65];
+
+			while (start && start > detail_of() && start[-1] != ' ')
+				start--;
+			CHECK(start && (size_t)(strchr(start, ',') - start) == 64u,
+			      "fixture: the attached note listed");
+			if (start) {
+				memcpy(id, start, 64u);
+				id[64] = '\0';
+				snprintf(line, sizeof(line), "get note %s meta", id);
+				CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "CBF0F8FF ", 9u),
+				      "and its Keep colour is the note's");
+			}
+		}
+		CHECK(unlink(f_beach) == 0, "cleanup: the attached note");
 	}
 
 	/* IN ORDER OF NAME, sec 885, whatever order the filesystem gives, and a
@@ -1270,7 +1325,7 @@ static void test_import(void)
 	CHECK(put_file(f_big, big, FZN_NODE_NOTES_IMPORT_FILE_MAX + 1u),
 	      "fixture: a Keep file one byte past the bound");
 	snprintf(line, sizeof(line), "add import %s %s", folder, f_big);
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 0 0 1 0 ", 10u)
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 0 0 1 0 0 ", 12u)
 	              && has(" too-long,") && has(".big.json"),
 	      "a file past the bound is refused and named");
 
@@ -1284,12 +1339,12 @@ static void test_import(void)
 
 		snprintf(line, sizeof(line), "add import %s %s", folder, f_tea);
 		CHECK(put_file(f_tea, tea, sizeof(tea) - 1u) && ask(line) == FZN_REPLY_OK
-		              && !strcmp(detail_of(), "1 0 0 0 0"),
+		              && !strcmp(detail_of(), "1 0 0 0 0 0"),
 		      "fixture: a note imported");
 		blob_stub_last_root(root);
 		memcpy(ref.root, root, sizeof(root));
 		blob_stub_drop(&ref);
-		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0 0 1 1 pending,tea"),
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0 0 1 1 0 pending,tea"),
 		      "imported again while its content is not here, it is refused as pending, "
 		      "counted and named");
 	}

@@ -1164,7 +1164,8 @@ bool fzn_notebook_view::import_file(const QString &path)
 		say(QStringLiteral("Nothing was imported: %1").arg(detail));
 		return false;
 	}
-	/* `IMPORTED ALREADY UNDATED REFUSED PENDING REASON,NAME ...`: what did
+	/* `IMPORTED ALREADY UNDATED REFUSED PENDING ATTACHED REASON,NAME ...`
+	 * (ATTACHED since sec 985): what did
 	 * not come across is named while the user still has the export, with
 	 * why (sec 982), and PENDING of them will come across once their
 	 * content is here (sec 578). */
@@ -1175,7 +1176,7 @@ bool fzn_notebook_view::import_file(const QString &path)
 		QStringList refused;
 		int i;
 
-		for (i = 5; i < f.size(); i++) {
+		for (i = 6; i < f.size(); i++) {
 			const int comma = f[i].indexOf(QLatin1Char(','));
 			const QString why = comma < 0 ? QString() : f[i].left(comma);
 			const QString name = unescape(comma < 0 ? f[i] : f[i].mid(comma + 1));
@@ -1198,6 +1199,12 @@ bool fzn_notebook_view::import_file(const QString &path)
 			                   "here yet; import the same file again once it has.")
 			            .arg(f.value(4)));
 	}
+	/* WHAT CAME ACROSS WITHOUT ITS FILES, sec 985: said, so a picture or a
+	 * recording is not lost without a word. */
+	if (f.value(5).toInt() > 0)
+		say(QStringLiteral("%1 imported note(s) had files attached, which were not imported; "
+		                   "they are in the export beside each note.")
+		            .arg(f.value(5)));
 	refresh_list();
 	return true;
 }

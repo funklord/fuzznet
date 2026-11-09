@@ -63,7 +63,9 @@
  *                                  Takeout directory into PARENT (sec 440),
  *                                  a file known by what it holds; answers
  *                                  IMPORTED ALREADY UNDATED REFUSED PENDING
- *                                  and each refused note as REASON,TITLE:
+ *                                  ATTACHED -- imported with files left in
+ *                                  the export (sec 985) -- and each refused
+ *                                  note as REASON,TITLE:
  *                                  unparsed, too-long, failed or pending
  *                                  (sec 982)
  *     list history ID [FROM]       its earlier versions, oldest first:
