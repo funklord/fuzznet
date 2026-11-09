@@ -12606,8 +12606,8 @@ SABOTAGES = [
 	(
 		"notebook-a-version-is-read-only",
 		"gui/notebook_view.cpp",
-		"\tm_viewing = n;\n\tm_title->setReadOnly(true);\n\tm_body->setReadOnly(true);\n",
-		"\tm_viewing = n;\n\tm_title->setReadOnly(true);\n",
+		"\tm_labels->setReadOnly(true);\n\tm_body->setReadOnly(true);\n",
+		"\tm_labels->setReadOnly(true);\n",
 		"an earlier version can be typed into as though it were the note -- sec 603",
 	),
 	(
@@ -14988,6 +14988,27 @@ SABOTAGES = [
 		"\tif (e->attachments)\n\t\trun->attached++;\n",
 		"\tif (!e->attachments)\n\t\trun->attached++;\n",
 		"a note whose files stay in the export is not said to have them -- sec 985",
+	),
+	(
+		"notebook-view-labels-never-saved",
+		"gui/notebook_view.cpp",
+		"\tif (!m_labels->isReadOnly() && m_labels->text() != m_labels_read) {\n",
+		"\tif (!m_labels->isReadOnly() && m_labels->text() == m_labels_read) {\n",
+		"labels typed into a note are not saved with it -- sec 983",
+	),
+	(
+		"notebook-view-labels-not-in-row",
+		"gui/notebook_view.cpp",
+		"\t\t\tif (!pending && !labels.isEmpty())\n\t\t\t\tshown += ",
+		"\t\t\tif (pending && !labels.isEmpty())\n\t\t\t\tshown += ",
+		"a note's labels are shown only on hover, not in its row -- sec 983",
+	),
+	(
+		"notebook-view-list-unnamed",
+		"gui/notebook_view.cpp",
+		"\tm_list->setAccessibleName(QStringLiteral(\"Notes\"));\n",
+		"",
+		"the list of notes is nothing to a screen reader -- sec 983",
 	),
 	(
 		"sticker-why-counts-from-zero",

@@ -774,10 +774,10 @@ static void test_a_pending_note_says_so_and_labels_show(void)
 	              && !w.listed_texts().contains(QStringLiteral("never listed")),
 	      "a note whose blob has not arrived lists as not here yet");
 	for (i = 0; i < w.list()->count(); i++)
-		if (w.list()->item(i)->text() == QStringLiteral("tagged"))
+		if (w.list()->item(i)->text() == QStringLiteral("tagged  [home, work]"))
 			row = i;
 	CHECK(row >= 0 && w.list()->item(row)->toolTip() == QStringLiteral("home, work"),
-	      "a labelled note shows its labels on hover");
+	      "a labelled note shows its labels in its row and on hover (sec 983)");
 	{
 		char hex[65];
 		int k;
@@ -787,6 +787,51 @@ static void test_a_pending_note_says_so_and_labels_show(void)
 		CHECK(w.open_note(QString::fromLatin1(hex)), "fixture: the pending note opens");
 		CHECK(!w.editable(), "opened, a pending note's content cannot be edited");
 	}
+}
+
+/* A NOTE'S LABELS EDITED, sec 983: typed as `a, b`, saved, read back on
+ * opening and shown in the row; a label with a space and a comma-free
+ * escape kept whole; cleared by emptying the field. */
+static void test_labels_are_edited_and_shown(void)
+{
+	QString note;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	CHECK(w.new_note(QStringLiteral("errands")), "fixture: a note");
+	note = w.open_id();
+	CHECK(w.labels_text().isEmpty(), "a new note has no labels");
+	w.set_labels_text(QStringLiteral(" to do , home,,"));
+	CHECK(w.save(), "labels are saved with the note");
+	CHECK(w.listed_texts().contains(QStringLiteral("errands  [to do, home]")),
+	      "and shown in its row, a label with a space kept whole");
+	w.set_labels_text(QString());
+	CHECK(w.open_note(note) && w.labels_text() == QStringLiteral("to do, home"),
+	      "opened again, the labels are read back");
+	w.set_labels_text(QString());
+	CHECK(w.save() && w.listed_texts().contains(QStringLiteral("errands")),
+	      "emptied and saved, they are cleared");
+	CHECK(w.open_note(note) && w.labels_text().isEmpty(), "and stay cleared");
+}
+
+/* EVERY FIELD, LIST AND CHOOSER NAMED for a screen reader, sec 983: a button
+ * is named by its text, these by nothing unless given one. */
+static void test_every_field_has_an_accessible_name(void)
+{
+	QStringList unnamed;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	for (QWidget *c : w.findChildren<QWidget *>())
+		if ((qobject_cast<QLineEdit *>(c) || qobject_cast<QPlainTextEdit *>(c)
+		     || qobject_cast<QComboBox *>(c) || qobject_cast<QListWidget *>(c))
+		    && c->accessibleName().isEmpty())
+			unnamed << QString::fromLatin1(c->metaObject()->className());
+	CHECK(unnamed.isEmpty(), "a field, list or chooser has no accessible name");
+	if (!unnamed.isEmpty())
+		fprintf(stderr, "  unnamed: %s\n", unnamed.join(QStringLiteral(", ")).toUtf8().constData());
 }
 
 /* A NOTE'S HISTORY, sec 603: its earlier versions listed, one read
@@ -974,6 +1019,8 @@ int main(int argc, char **argv)
 	test_pinned_first_and_the_archive_apart();
 	test_a_refresh_keeps_the_readers_place();
 	test_a_pending_note_says_so_and_labels_show();
+	test_labels_are_edited_and_shown();
+	test_every_field_has_an_accessible_name();
 	test_a_notes_history_is_read_and_restored();
 	test_a_checklists_history_shows_its_items();
 	test_history_is_grouped_by_day();

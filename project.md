@@ -83251,10 +83251,10 @@ line" (T2012Z). Reproduced from fuzzypickles' scenario in a scratch clone: 3 of 
 is older than 34fd5a1, and intermittent; being found (sec 979).
 
 **Open, notebook_view** (`gui/notebook_view.cpp`, T1340Z), what fuzzypickles' notes widget has and
-this one lacks before it can be swapped in: labels editable and shown in the row (`set note ID
-labels`, sec 869); a group's notebook opened, not only `list received`; a backfill choice when
+this one lacks before it can be swapped in: ~~labels editable and shown in the row~~, sec 983;
+a group's notebook opened, not only `list received`; a backfill choice when
 sharing to a group; the "elsewhere" and "contested" states shown; a phone's width (flowing rows, a
-More menu); accessible names and `tr()`; a hook to say something to the person inline, apart from
+More menu); ~~accessible names~~ (sec 983) and `tr()`; a hook to say something to the person inline, apart from
 the log.
 
 **Open, notes import** (`notes/import.c`, T1355Z): ~~a title past the limit shortened and the
@@ -83437,3 +83437,29 @@ new shape.
 
 **Still open:** the files themselves imported, and the bounds -- a calendar past 16 MiB and a Keep
 note past 1 MiB are refused whole.
+
+## 983. notebook_view: labels edited and shown, every field named, 2026-11-09
+
+The first of fuzzypickles' notebook_view gaps (inbox T1340Z; sec 978). Sec 869 gave the node
+`set note ID labels` and `get note ID meta`, and the listing carried the labels since sec 522, but
+`notebook_view` showed them only on hover and could not change them.
+
+**Built** (`gui/notebook_view.cpp`): a labels field under the title, typed as `to do, home` --
+commas between, since a label may hold a space -- read by `get note ID meta` on opening -- a
+shared tree's by `get shared ... meta`, untested there -- and written by `save()` only when it changed, each label trimmed, empty ones
+dropped, and each sent as one escaped word; emptied, the labels are cleared. Read-only where the
+title is: a shared tree, a note whose content is not here, an earlier version. Each row shows its
+labels after the title, `errands  [to do, home]`, and on hover as before.
+
+**Measured:** `notebook_view_test` (210 checks) types labels with a space and stray commas, saves,
+reads them back from the row and on reopening, then clears them; the sec 514 test reads the
+labelled row. `notebook-view-labels-never-saved` and `notebook-view-labels-not-in-row` guard it.
+
+**Every field named for a screen reader:** a button is named by its text, but the tree chooser,
+the list, the title, the text, the folder name, the new item, the share chooser and the history's
+two choosers were named by nothing. Each has an accessible name now. `notebook_view_test` walks
+every line edit, text edit, chooser and list and refuses one with none;
+`notebook-view-list-unnamed` guards it.
+
+**Still open of T1340Z:** a group's notebook opened, a backfill choice when sharing to a group, the
+elsewhere and contested states shown, a phone's width, `tr()`, and an inline notice hook.

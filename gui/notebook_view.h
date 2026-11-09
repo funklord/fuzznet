@@ -143,6 +143,10 @@ public:
 	QString status() const;
 	QString location() const;
 	QString title_text() const;
+	/* THE OPEN NOTE'S LABELS as the field shows them, comma-separated
+	 * (sec 983). */
+	QString labels_text() const;
+	void set_labels_text(const QString &text);
 	QString body_text() const;
 	QString shared_with() const;
 	/* Whom the open note can be shared with: contacts by name, then groups
@@ -224,6 +228,10 @@ private:
 	QPushButton *m_pin;
 	QPushButton *m_archive;
 	QLineEdit *m_title;
+	/* A NOTE'S LABELS, sec 983: edited as `a, b`, and what was read, so a
+	 * save writes them only when they changed. */
+	QLineEdit *m_labels;
+	QString m_labels_read;
 	QPlainTextEdit *m_body;
 	QPushButton *m_new_note;
 	QPushButton *m_new_folder;

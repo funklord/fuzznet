@@ -57,6 +57,28 @@ size_t fzn_notebook_view_socket_ask(void *ctx, const char *line, char *reply, si
 	return len;
 }
 
+/* A WORD for a request line, as `node/notes.c` reads one: a byte below
+ * 0x21, `%`, `,` and 0x7f as `%XX`. */
+static QString escape_word(const QString &text)
+{
+	static const char hex[] = "0123456789ABCDEF";
+	QByteArray in = text.toUtf8(), out;
+	int i;
+
+	for (i = 0; i < in.size(); i++) {
+		unsigned char c = (unsigned char)in[i];
+
+		if (c < 0x21u || c == '%' || c == ',' || c == 0x7fu) {
+			out.append('%');
+			out.append(hex[c >> 4]);
+			out.append(hex[c & 15u]);
+		} else {
+			out.append((char)c);
+		}
+	}
+	return QString::fromUtf8(out);
+}
+
 /* `%XX` back to the byte, as `node/notes.c` escapes a title. */
 static QString unescape(const QString &text)
 {
@@ -126,6 +148,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_pin = new QPushButton(QStringLiteral("Pin"), this);
 	m_archive = new QPushButton(QStringLiteral("Archive"), this);
 	m_title = new QLineEdit(this);
+	m_labels = new QLineEdit(this);
+	m_labels->setPlaceholderText(QStringLiteral("Labels, separated by commas"));
+	m_labels->setAccessibleName(QStringLiteral("Labels"));
 	/* PLAIN TEXT BY CONSTRUCTION: a note's own text never renders as rich
 	 * text (fuzzypickles' sec 28). */
 	m_body = new QPlainTextEdit(this);
@@ -228,6 +253,22 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_history = new QComboBox(this);
 	m_history->setObjectName(QStringLiteral("history"));
 	m_restore_version = new QPushButton(QStringLiteral("Restore this version"), this);
+	/* ACCESSIBLE NAMES, sec 983: a screen reader names a button by its
+	 * text, and every field, list and chooser here by nothing at all
+	 * without these. */
+	m_trees->setAccessibleName(QStringLiteral("Whose notes"));
+	m_location->setAccessibleName(QStringLiteral("Folder"));
+	m_status->setAccessibleName(QStringLiteral("Status"));
+	m_list->setAccessibleName(QStringLiteral("Notes"));
+	m_title->setAccessibleName(QStringLiteral("Title"));
+	m_body->setAccessibleName(QStringLiteral("Text"));
+	m_folder_name->setAccessibleName(QStringLiteral("Folder name"));
+	m_item_text->setAccessibleName(QStringLiteral("New item"));
+	m_share_to->setAccessibleName(QStringLiteral("Share with"));
+	m_shared_with->setAccessibleName(QStringLiteral("Shared with"));
+	m_warning->setAccessibleName(QStringLiteral("Before sharing"));
+	m_history_day->setAccessibleName(QStringLiteral("Day of an earlier version"));
+	m_history->setAccessibleName(QStringLiteral("Earlier version"));
 	m_restore_version->setObjectName(QStringLiteral("restore_version"));
 	auto *history_row = new QHBoxLayout();
 
@@ -266,6 +307,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	outer->addLayout(trash_row);
 	outer->addWidget(m_empty_bar);
 	outer->addWidget(m_title);
+	outer->addWidget(m_labels);
 	outer->addWidget(m_body, 1);
 	outer->addLayout(history_row);
 	outer->addLayout(item_row);
@@ -482,15 +524,21 @@ void fzn_notebook_view::refresh_list()
 			QString shown = pending                         ? QStringLiteral("(not here yet)")
 			                : type == FZN_NOTE_TYPE_FOLDER ? title + QStringLiteral("/")
 			                                                : title;
+			/* THE LABELS IN THE ROW, sec 983, after the title -- a seventh
+			 * field since sec 522 -- and on hover as before. */
+			QString labels = f.size() >= 7 && !f[6].isEmpty()
+			                         ? unescape(f[6]).split(QLatin1Char('\0')).join(
+			                                   QStringLiteral(", "))
+			                         : QString();
+			if (!pending && !labels.isEmpty())
+				shown += QStringLiteral("  [%1]").arg(labels);
 			auto *item = new QListWidgetItem(pinned ? QStringLiteral("* ") + shown : shown);
 
 			item->setData(ROLE_ID, f[0]);
 			item->setData(ROLE_TYPE, type);
 			item->setData(ROLE_TITLE, title);
-			/* THE LABELS, a seventh field since sec 522, shown on hover. */
-			if (f.size() >= 7 && !f[6].isEmpty())
-				item->setToolTip(unescape(f[6]).split(QLatin1Char('\0')).join(
-				        QStringLiteral(", ")));
+			if (!labels.isEmpty())
+				item->setToolTip(labels);
 			/* PINNED FIRST, in the order they came; the rest after. */
 			if (pinned)
 				m_list->insertItem(pinned_at++, item);
@@ -569,6 +617,8 @@ void fzn_notebook_view::refresh_note()
 	m_restore_version->setEnabled(false);
 
 	m_title->clear();
+	m_labels->clear();
+	m_labels_read.clear();
 	m_body->clear();
 	m_is_list = false;
 	m_ticks.clear();
@@ -590,6 +640,19 @@ void fzn_notebook_view::refresh_note()
 			 * edit of it the node would refuse. It can still be moved,
 			 * pinned or trashed. */
 			pending = f.value(5) == QStringLiteral("pending");
+			/* THE LABELS, sec 983: `ok COLOUR LABELS`, a NUL between two. */
+			if (!pending && type != FZN_NOTE_TYPE_FOLDER) {
+				QString meta;
+
+				if (ask(QStringLiteral("%1 meta").arg(get), &meta) == 1) {
+					QString raw = unescape(meta.section(QLatin1Char(' '), 1));
+
+					m_labels_read = raw.isEmpty() ? QString()
+					                              : raw.split(QLatin1Char('\0')).join(
+					                                        QStringLiteral(", "));
+					m_labels->setText(m_labels_read);
+				}
+			}
 			if (pending) {
 				set_status(QStringLiteral("This note's content is not here yet; it can be "
 				                          "moved, pinned or trashed, not edited."));
@@ -619,6 +682,7 @@ void fzn_notebook_view::refresh_note()
 		}
 	}
 	m_title->setReadOnly(!editing || pending);
+	m_labels->setReadOnly(!editing || pending || !have);
 	m_body->setReadOnly(!editing || m_is_list || pending);
 	m_new_list->setEnabled(editing);
 	m_item_text->setEnabled(editing && m_is_list && !pending);
@@ -763,6 +827,7 @@ bool fzn_notebook_view::show_version(int n)
 	}
 	m_viewing = n;
 	m_title->setReadOnly(true);
+	m_labels->setReadOnly(true);
 	m_body->setReadOnly(true);
 	m_save->setEnabled(false);
 	m_restore_version->setEnabled(m_version_text);
@@ -1059,6 +1124,24 @@ bool fzn_notebook_view::save()
 		say(QStringLiteral("The title was not saved: %1").arg(why));
 		return false;
 	}
+	/* THE LABELS, sec 983, only when changed: each trimmed, empty ones
+	 * dropped, one escaped word apiece; none clears them. */
+	if (!m_labels->isReadOnly() && m_labels->text() != m_labels_read) {
+		QStringList words;
+
+		for (const QString &one : m_labels->text().split(QLatin1Char(',')))
+			if (!one.trimmed().isEmpty())
+				words << escape_word(one.trimmed());
+		if (ask(QStringLiteral("set note %1 labels%2")
+		                .arg(m_open, words.isEmpty() ? QString()
+		                                             : QStringLiteral(" ") + words.join(QLatin1Char(' '))),
+		        &why)
+		    != 1) {
+			say(QStringLiteral("The labels were not saved: %1").arg(why));
+			return false;
+		}
+		m_labels_read = m_labels->text();
+	}
 	/* THE TEXT THROUGH A FILE: it may hold newlines and be far past one
 	 * request line. A folder has none to save. */
 	if (m_body->isEnabled() && !m_is_list) {
@@ -1315,6 +1398,16 @@ QString fzn_notebook_view::location() const
 QString fzn_notebook_view::title_text() const
 {
 	return m_title->text();
+}
+
+QString fzn_notebook_view::labels_text() const
+{
+	return m_labels->text();
+}
+
+void fzn_notebook_view::set_labels_text(const QString &text)
+{
+	m_labels->setText(text);
 }
 
 QString fzn_notebook_view::body_text() const
