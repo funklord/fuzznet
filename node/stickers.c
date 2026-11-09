@@ -19,8 +19,11 @@
 #define KEY_ROOT_BYTES 28u
 #define KEY_LEN (KEY_PREFIX_LEN + 2u * KEY_ROOT_BYTES)
 #define REF_HEX (2u * FZN_NODE_FILE_REF_LEN)
-/* The longest spec read: a person's text, never a library. */
-#define SPEC_MAX (64u * 1024u)
+/* THE LONGEST SPEC READ: as long as the pack it describes may be, sec 978.
+ * It was 64 KiB, "a person's text", which refused a pack past about 400
+ * stickers where sec 702 says no cap on stickers; a spec is read into room
+ * of its own size, so this bounds only what one file may ask for. */
+#define SPEC_MAX FZN_STICKER_PACK_MAX_LEN
 
 static const char HEX[] = "0123456789abcdef";
 
@@ -470,9 +473,22 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 		pack = NULL;
 	}
 	if (!pack) {
+		char reason[160];
+		size_t said;
+
+		/* WHICH STICKER, AND WHY, sec 980. */
+		if (fzn_sticker_pack_why(&b.m,
+		                         (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])b.art,
+		                         (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])b.art_len,
+		                         (const uint8_t *const *)b.sound, b.sound_len, reason,
+		                         sizeof(reason))) {
+			building_done(&b);
+			said = (size_t)snprintf(reply, cap, "malformed the pack would not build: %s\n",
+			                        reason);
+			return said < cap ? said : 0u;
+		}
 		building_done(&b);
-		return REPLY("malformed the pack would not build: two stickers of one id or one "
-		             "art, a sound or a box missing\n");
+		return REPLY("malformed the pack would not build\n");
 	}
 	/* PUT AS ANY FILE IS, from a working name in the files' directory. */
 	scratch_path(st, scratch, sizeof(scratch));

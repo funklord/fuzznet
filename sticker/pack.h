@@ -188,6 +188,19 @@ int fzn_sticker_pack_build(const fzn_sticker_manifest_t *m,
                            const uint8_t *const sound[], const uint32_t sound_len[],
                            uint8_t *out, size_t cap, size_t *len);
 
+/* WHY A PACK WILL NOT BUILD, sec 980, said of the sticker by its place in
+ * the spec (1-based) and its id: two of one id (`stickers 3 and 5 have one id
+ * ...`, the same art when the ids were derived), art or a sound missing, a
+ * sound flagged and none carried, a message or name sticker with no text
+ * box, an emoji flagged big. The build's refusal was one sentence for all of
+ * them, and a pack of forty had nothing to find its fault by. 1 with the
+ * reason in `why` (NUL ended, cut to `cap`), 0 when none of these holds. */
+int fzn_sticker_pack_why(const fzn_sticker_manifest_t *m,
+                         const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
+                         const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
+                         const uint8_t *const sound[], const uint32_t sound_len[], char *why,
+                         size_t cap);
+
 /* AN ID FOR EACH STICKER WITHOUT ONE, sec 702: the first 8 bytes, big
  * endian, of BLAKE2b-256 (`hash`) over its renditions' bytes in manifest
  * order and then its sound's; a 0 becomes 1. fuzzypickles' derivation
@@ -308,7 +321,9 @@ typedef struct fzn_sticker_ref {
  * length or an id of 0, a description too long or holding a line break,
  * words that are not valid text, or a reference past
  * FZN_STICKER_REF_SENT_MAX. With no description it ends at the id or the
- * words. */
+ * words. A DESCRIPTION IS SHORTENED, at a character's start, or left out,
+ * so the reference fits FZN_STICKER_REF_SENT_MAX (sec 980): only words that
+ * do not fit refuse it. */
 int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, size_t *len);
 
 /* `fzn:sticker/...` or fuzzypickles' `fzp:sticker/...` back: 1, or 0 for

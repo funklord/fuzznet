@@ -83275,3 +83275,34 @@ words and a 96-byte description refused by `fzn_sticker_ref_format` though `FZN_
 not build says which sticker and why (`stickers 3 and 5 have one id`), by position and id; ids
 derived once per shared art; whether a newer pack's unknown field refusing the whole pack is the
 trade wanted, recorded.
+
+## 980. Sticker packs of hundreds, references that fit, refusals that say which, 2026-11-09
+
+Asked by fuzzypickles as its editor and clients moved onto `sticker/pack.c` (inbox T1355Z,
+T1552Z, T2126Z; sec 978).
+
+**A spec as long as its pack** (`node/stickers.c` SPEC_MAX): read to 64 KiB, "a person's text", so
+`put sticker` refused a pack past about 400 stickers -- a spec line, a description and a rendition
+are some 150 bytes a sticker -- where sec 702 says no cap on stickers. Bound now by
+FZN_STICKER_PACK_MAX_LEN, the pack's own; the spec is read into room of its own size. Measured live,
+`live_files_many`: R puts a pack of 500 stickers, its spec 67,685 bytes. **Control:** the 64 KiB
+bound answered "the spec would not read".
+
+**A reference that fits a message** (`fzn_sticker_ref_format`): the most words a sticker has (84
+bytes, escaped three to one) and the longest description (96) came to 533 bytes against the 512 a
+message carries, and the reference was refused, though `fzn_sticker_ref_parse` reads up to
+FZN_STICKER_REF_MAX. The description is shortened now, at a character's start, or left out, so the
+reference fits; words that do not fit still refuse it. The description is a reader's aid and the
+words are the sticker's. `sticker_test`: the longest words and description write at most 512 bytes,
+the words whole and the description cut between characters; the check that such a reference was
+refused is restated. `sticker-ref-description-never-cut` guards it.
+
+**Which sticker, and why** (`fzn_sticker_pack_why`): a pack that would not build was refused with
+one sentence for four causes -- "two stickers of one id or one art, a sound or a box missing" --
+and a pack of forty had nothing to find its fault by. Said now by the sticker's place in the spec
+and its id: `stickers 3 and 5 have one id, N (the same art, or the same number given twice)`, art
+missing for a rendition, `flagged sound and has none`, a message or name sticker with `no text box`,
+an emoji flagged big. `sticker_test` names each; `sticker-why-counts-from-zero` guards the places.
+
+**Not done, of the same messages:** ids derived once per shared art (each sticker's art is hashed
+apart today), and whether a newer pack's unknown field refusing the whole pack is the trade wanted.

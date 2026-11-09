@@ -191,6 +191,59 @@ static void write_pack(writer_t *w, const fzn_sticker_manifest_t *m,
 static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *out,
                      const uint8_t **data, size_t *data_len);
 
+int fzn_sticker_pack_why(const fzn_sticker_manifest_t *m,
+                         const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
+                         const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
+                         const uint8_t *const sound[], const uint32_t sound_len[], char *why,
+                         size_t cap)
+{
+	size_t i, j, r;
+
+	if (!m || !m->entries || !art || !art_len || !sound || !sound_len || !why || !cap)
+		return 0;
+	why[0] = '\0';
+	for (i = 0; i < m->count; i++) {
+		const fzn_sticker_entry_t *e = &m->entries[i];
+
+		if (!e->id) {
+			(void)snprintf(why, cap, "sticker %zu has no id", i + 1u);
+			return 1;
+		}
+		for (j = i + 1u; j < m->count; j++)
+			if (e->id == m->entries[j].id) {
+				(void)snprintf(why, cap,
+				               "stickers %zu and %zu have one id, %llu (the same art, or "
+				               "the same number given twice)",
+				               i + 1u, j + 1u, (unsigned long long)e->id);
+				return 1;
+			}
+		for (r = 0; r < e->rendition_count && r < FZN_STICKER_RENDITIONS_MAX; r++)
+			if (!art[i][r] || !art_len[i][r]) {
+				(void)snprintf(why, cap, "sticker %zu (id %llu) has no art for its rendition %zu",
+				               i + 1u, (unsigned long long)e->id, r + 1u);
+				return 1;
+			}
+		if ((sound_len[i] && !sound[i]) || ((e->flags & FZN_STICKER_FLAG_SOUND) && !sound_len[i])) {
+			(void)snprintf(why, cap, "sticker %zu (id %llu) is flagged sound and has none",
+			               i + 1u, (unsigned long long)e->id);
+			return 1;
+		}
+		if ((e->type == FZN_STICKER_MESSAGE || e->type == FZN_STICKER_NAMED)
+		    && (!e->text_limit || !e->text_w || !e->text_h)) {
+			(void)snprintf(why, cap, "sticker %zu (id %llu, %s) has no text box", i + 1u,
+			               (unsigned long long)e->id,
+			               e->type == FZN_STICKER_MESSAGE ? "message" : "name");
+			return 1;
+		}
+		if (e->type == FZN_STICKER_EMOJI && (e->flags & FZN_STICKER_FLAG_BIG)) {
+			(void)snprintf(why, cap, "sticker %zu (id %llu) is an emoji and cannot be big",
+			               i + 1u, (unsigned long long)e->id);
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int fzn_sticker_pack_build(const fzn_sticker_manifest_t *m,
                            const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
                            const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
@@ -1329,13 +1382,26 @@ int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, 
 		n = (int)at;
 	}
 	/* THE DESCRIPTION WHERE THERE IS ONE, sec 702: without, the reference
-	 * ends at the id or the words. */
-	if (ref->description_len) {
-		if ((size_t)n + 1u + ref->description_len >= cap)
-			return 0;
-		out[n++] = ' ';
-		memcpy(out + n, ref->description, ref->description_len);
-		n += (int)ref->description_len;
+	 * ends at the id or the words. SHORTENED TO FIT what a message carries,
+	 * sec 980, at a character's start: the most words a sticker may have,
+	 * escaped, and the longest description came to 533 bytes, and the
+	 * reference was refused where the words and the art it names were fine.
+	 * The description is a reader's aid; the words are the sticker's. */
+	if (ref->description_len && (size_t)n + 1u < FZN_STICKER_REF_SENT_MAX) {
+		size_t keep = ref->description_len, room = FZN_STICKER_REF_SENT_MAX - (size_t)n - 1u;
+
+		if (keep > room) {
+			keep = room;
+			while (keep && ((unsigned char)ref->description[keep] & 0xC0u) == 0x80u)
+				keep--;
+		}
+		if (keep) {
+			if ((size_t)n + 1u + keep >= cap)
+				return 0;
+			out[n++] = ' ';
+			memcpy(out + n, ref->description, keep);
+			n += (int)keep;
+		}
 	}
 	out[n] = '\0';
 	if ((size_t)n > FZN_STICKER_REF_SENT_MAX)

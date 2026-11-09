@@ -14947,6 +14947,20 @@ SABOTAGES = [
 		"every position reads as an issuer this host does not follow -- sec 972",
 	),
 	(
+		"sticker-why-counts-from-zero",
+		"sticker/pack.c",
+		"\t\t\t\t               i + 1u, j + 1u, (unsigned long long)e->id);\n",
+		"\t\t\t\t               i, j, (unsigned long long)e->id);\n",
+		"a pack's refusal names the stickers by a place the spec does not give them -- sec 980",
+	),
+	(
+		"sticker-ref-description-never-cut",
+		"sticker/pack.c",
+		"\t\tif (keep > room) {\n",
+		"\t\tif (keep > room && 0) {\n",
+		"a sticker's reference past a message is refused rather than its description shortened -- sec 980",
+	),
+	(
 		"reconcile-ids-share-the-buckets-room",
 		"node/reconcile.c",
 		"static size_t served_ids_room, held_ids_room;\n",

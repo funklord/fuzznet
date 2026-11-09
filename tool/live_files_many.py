@@ -105,6 +105,24 @@ def main(argv):
 				time.sleep(1.0)
 			print("livecheck: M took all %d files whole in %.0f s"
 			      % (FILES, time.monotonic() - began))
+
+			# A STICKER PACK OF HUNDREDS, sec 978: 500 stickers, each its own
+			# art, a spec past 64 KiB, which `put sticker` once refused.
+			pack = os.path.join(scratch, "pack")
+			os.makedirs(os.path.join(pack, "art"))
+			with open(os.path.join(pack, "big.spec"), "w") as spec:
+				spec.write("name big\n")
+				for i in range(1, 501):
+					with open(os.path.join(pack, "art", "a%d.png" % i), "wb") as f:
+						f.write(os.urandom(64))
+					spec.write("sticker %d static\ndescription a sticker of a pack of "
+					           "hundreds, number %d, described as a person would\n"
+					           "inline png 128 128 art/a%d.png\n" % (i, i, i))
+			spec_len = os.path.getsize(os.path.join(pack, "big.spec"))
+			got = ask(socks["r"], "put sticker " + os.path.join(pack, "big.spec"))
+			if spec_len <= 64 * 1024 or not got.startswith("ok "):
+				raise failed("a spec of 500 stickers, %d bytes, answered %r" % (spec_len, got))
+			print("livecheck: a pack of 500 stickers, its spec %d bytes, was put" % spec_len)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			for name in sorted(os.listdir(scratch)):

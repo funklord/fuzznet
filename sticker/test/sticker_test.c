@@ -105,6 +105,46 @@ static int build(const fzn_sticker_manifest_t *given)
 	                              &pack_len);
 }
 
+/* WHICH STICKER, AND WHY, sec 980: the build's refusal said of the sticker by
+ * its place in the spec and its id. Run on the spec the test above parsed. */
+static void test_why_a_pack_will_not_build(void)
+{
+	char why[160];
+	uint64_t id1 = m.entries[1].id;
+	uint16_t flags1 = m.entries[1].flags, limit2 = m.entries[2].text_limit;
+	uint32_t sound1 = 0;
+
+	fill_art(&m);
+	CHECK(!fzn_sticker_pack_why(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                            (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                            (const uint8_t *const *)sound, sound_len, why, sizeof(why)),
+	      "a pack that builds was given a reason not to");
+	m.entries[1].id = m.entries[0].id;
+	CHECK(fzn_sticker_pack_why(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                           (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                           (const uint8_t *const *)sound, sound_len, why, sizeof(why))
+	              && strncmp(why, "stickers 1 and 2 have one id", 28u) == 0,
+	      "two stickers of one id were not named");
+	m.entries[1].id = id1;
+	sound1 = sound_len[1];
+	sound_len[1] = 0;
+	m.entries[1].flags = (uint16_t)(flags1 | FZN_STICKER_FLAG_SOUND);
+	CHECK(fzn_sticker_pack_why(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                           (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                           (const uint8_t *const *)sound, sound_len, why, sizeof(why))
+	              && strncmp(why, "sticker 2 ", 10u) == 0 && strstr(why, "flagged sound"),
+	      "a sound flagged and missing was not named");
+	sound_len[1] = sound1;
+	m.entries[1].flags = flags1;
+	m.entries[2].text_limit = 0;
+	CHECK(fzn_sticker_pack_why(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                           (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                           (const uint8_t *const *)sound, sound_len, why, sizeof(why))
+	              && strncmp(why, "sticker 3 ", 10u) == 0 && strstr(why, "no text box"),
+	      "a message sticker with no box was not named");
+	m.entries[2].text_limit = limit2;
+}
+
 static void test_a_spec_built_and_opened(void)
 {
 	char err[96];
@@ -355,6 +395,33 @@ static void test_references(void)
 	              && memcmp(got.root, ref.root, 32u) == 0 && memcmp(got.key, ref.key, 32u) == 0
 	              && got.description_len == 13u && memcmp(got.description, "a cat, waving", 13u) == 0,
 	      "a reference did not read back");
+	/* THE MOST WORDS AND THE LONGEST DESCRIPTION, sec 980: 84 bytes of
+	 * three-byte characters, escaped to 252, and 96 of description came to
+	 * 533 and were refused. Written now, within what a message carries, the
+	 * words whole and the description shortened at a character's start. */
+	{
+		fzn_sticker_ref_t full = ref, again;
+		char big[FZN_STICKER_REF_MAX + 1u];
+		size_t big_len = 0, k;
+
+		for (k = 0; k < FZN_STICKER_TEXT_MAX; k += 3u)
+			memcpy(full.text + k, "\xe2\x82\xac", 3u);
+		full.text_len = FZN_STICKER_TEXT_MAX;
+		for (k = 0; k + 2u <= FZN_STICKER_DESC_MAX; k += 2u)
+			memcpy(full.description + k, "\xc3\xa9", 2u);
+		full.description_len = FZN_STICKER_DESC_MAX;
+		CHECK(fzn_sticker_ref_format(&full, big, sizeof(big), &big_len)
+		              && big_len <= FZN_STICKER_REF_SENT_MAX
+		              && fzn_sticker_ref_parse(big, big_len, &again)
+		              && again.text_len == FZN_STICKER_TEXT_MAX
+		              && memcmp(again.text, full.text, FZN_STICKER_TEXT_MAX) == 0
+		              && again.description_len > 0u
+		              && again.description_len < FZN_STICKER_DESC_MAX
+		              && again.description_len % 2u == 0u
+		              && memcmp(again.description, full.description, again.description_len) == 0,
+		      "the most words and the longest description did not write as a reference that "
+		      "fits, its words whole and its description cut at a character");
+	}
 	/* FUZZYPICKLES' SCHEME, read as one of these: no length in it, so 0. */
 	{
 		char old[FZN_STICKER_REF_MAX + 1u];
@@ -499,14 +566,18 @@ static void test_a_references_words(void)
 	              && got.text_len == FZN_STICKER_TEXT_MAX,
 	      "the longest plain words did not make a reference, or it read back short");
 	/* Every byte escaped, and the longest length, id and description:
-	 * 518 bytes. */
+	 * 518 bytes. Refused until sec 980; written now within a message, the
+	 * words whole and the description shortened. */
 	ref.length = UINT64_MAX;
 	ref.id = UINT64_MAX;
 	memset(ref.text, ' ', FZN_STICKER_TEXT_MAX);
 	memset(ref.description, 'd', FZN_STICKER_DESC_MAX);
 	ref.description_len = FZN_STICKER_DESC_MAX;
-	CHECK(!fzn_sticker_ref_format(&ref, text, sizeof(text), &len),
-	      "a reference longer than a message was written");
+	CHECK(fzn_sticker_ref_format(&ref, text, sizeof(text), &len)
+	              && len == FZN_STICKER_REF_SENT_MAX && fzn_sticker_ref_parse(text, len, &got)
+	              && got.text_len == FZN_STICKER_TEXT_MAX
+	              && got.description_len < FZN_STICKER_DESC_MAX,
+	      "a reference past a message was not shortened to one, its words whole");
 	/* FUZZYPICKLES' FORM WITH WORDS is read too. */
 	{
 		const char *fzp = "fzp:sticker/"
@@ -873,6 +944,7 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 int main(void)
 {
 	test_a_spec_built_and_opened();
+	test_why_a_pack_will_not_build();
 	test_what_opening_refuses();
 	test_the_spec_round_trips();
 	test_what_a_spec_refuses();
