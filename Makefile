@@ -240,7 +240,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              node/peer_persist.c \
-             node/caller.c node/meter.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
+             node/caller.c node/meter.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
              net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
              node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
@@ -342,7 +342,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              local/client.h local/escape.h \
              node/peer_persist.h node/types.h \
-             node/caller.h node/meter.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
+             node/caller.h node/meter.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
              node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
@@ -482,7 +482,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c local/test/escape_test.c \
-             node/test/types_test.c node/test/meter_test.c node/test/schema_test.c location/test/location_test.c \
+             node/test/types_test.c node/test/meter_test.c node/test/sync_load_test.c node/test/schema_test.c location/test/location_test.c \
              node/test/log_list_test.c node/test/clocks_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
              sticker/test/sticker_test.c messages/test/attachment_test.c \
@@ -615,6 +615,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/escape_test \
              $(BUILD_DIR)/node/test/types_test \
              $(BUILD_DIR)/node/test/meter_test \
+             $(BUILD_DIR)/node/test/sync_load_test \
              $(BUILD_DIR)/node/test/log_list_test \
              $(BUILD_DIR)/node/test/clocks_test \
              $(BUILD_DIR)/node/test/schema_test \
@@ -4809,7 +4810,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
               $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/node/presets.o $(BUILD_DIR)/node/votes.o $(BUILD_DIR)/node/responsible.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
-              $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/fault/fault.o \
+              $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/node/sync_load.o $(BUILD_DIR)/fault/fault.o \
               $(BUILD_DIR)/log/view.o $(BUILD_DIR)/node/log_list.o $(BUILD_DIR)/node/clocks.o \
               $(if $(LOG_FILE_ON),,$(BUILD_DIR)/log/ring.o) \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
@@ -5042,6 +5043,12 @@ $(BUILD_DIR)/messages/test/attachment_test: $(BUILD_DIR)/messages/test/attachmen
 $(BUILD_DIR)/node/test/meter_test: $(BUILD_DIR)/node/test/meter_test.o \
                                    $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/log/cause.o \
                                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Sync-load, what waits to cross and whether it drains, sec 966.
+$(BUILD_DIR)/node/test/sync_load_test: $(BUILD_DIR)/node/test/sync_load_test.o \
+                                       $(BUILD_DIR)/node/sync_load.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -7064,11 +7071,13 @@ livecheck-embedded: embedded $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 # daemon, so a scenario built on a fault is known to have one. Then the
 # estate's journey (sec 707), on rounds the fault build makes short, and a
 # later member's floor with the adder's clock 900 s behind (sec 722). And
-# an estate of eleven members past a round's siblings, asked in turns (sec 964).
+# an estate of eleven members past a round's siblings, asked in turns (sec 964);
+# and sync-load saying a queue the rounds do not drain (sec 966).
 livecheck-faults: fuzznetd-faults
 	@timeout 900 python3 tool/live_faults.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 1000 python3 tool/live_estate.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 700 python3 tool/live_estate_turns.py $(BUILD_DIR)/faults/fuzznetd
+	@timeout 330 python3 tool/live_sync_load.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 700 python3 tool/live_group_skew.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 500 python3 tool/live_logs.py $(BUILD_DIR)/faults/fuzznetd
 

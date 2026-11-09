@@ -14898,6 +14898,20 @@ SABOTAGES = [
 		"a list read through the cache misses what a peer handed on -- sec 950",
 	),
 	(
+		"sync-load-grows-at-rest",
+		"node/sync_load.c",
+		"(st.now <= sample_at(s, s->samples[q], 0) || rises < s->n / 2u)",
+		"(st.now <= sample_at(s, s->samples[q], 0))",
+		"a queue at rest that ends one up reads as growing -- sec 966",
+	),
+	(
+		"sync-load-falls-ignored",
+		"node/sync_load.c",
+		"\t	if (i && v < prev - prev / 4u)\n\t\t\tst.growing = 0;\n",
+		"",
+		"a queue the rounds drained deep on the way reads as growing -- sec 966",
+	),
+	(
 		"object-values-kept-two",
 		"node/records.h",
 		'"prune records text=list/object-value/ count 1"',

@@ -101,6 +101,7 @@
 #include "decisions.h"
 #include "responsible.h"
 #include "siblings.h"
+#include "sync_load.h"
 #endif
 #include "peer_persist.h"
 #include "notes.h"
@@ -439,6 +440,21 @@ static fzn_node_stickers_t node_stickers;
 static fzn_meter_t traffic;
 /* THE SETTINGS DECLARED, sec 686: fuzznet's, and the extension's. */
 static fzn_node_schema_t node_schema;
+/* SYNC-LOAD, sec 966: what waits to cross, sampled at each round's end,
+ * and when its warning was last said. */
+static fzn_sync_load_t sync_load;
+static uint64_t sync_load_warned;
+#define FZND_SYNC_LOAD_WARN_S 3600u
+
+/* `get sync-load`, sec 966: any local caller's, as `status` is. */
+static size_t sync_load_local(const fzn_request_t *request, char *reply, size_t cap)
+{
+	if (request->parsed != FZN_VERB_GET || !request->arg || request->arg_len != 9u
+	    || memcmp(request->arg, "sync-load", 9u) != 0)
+		return 0;
+	return fzn_sync_load_say(&sync_load, reply, cap);
+}
+
 /* WHAT `get node` SAYS, sec 687: the socket peers reach, and when this
  * daemon started. */
 static int node_udp_fd = -1;
@@ -584,6 +600,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = fzn_node_schema_local(&node_schema, origin, request, reply, reply_cap);
 	if (!n)
 		n = node_local(request, reply, reply_cap);
+	if (!n)
+		n = sync_load_local(request, reply, reply_cap);
 	/* `list log`, sec 711: this daemon's flight recorder, kept only with a
 	 * log file. */
 	if (!n)
@@ -19016,6 +19034,39 @@ void fzn_daemon_refuse_huge_pages(char *const *argv)
 #endif
 }
 
+/* A ROUND'S END, sec 966: each queue sampled, and a verdict other than ok
+ * said at most hourly, with what to do about it. */
+static void sync_load_round(uint64_t round_ms, uint64_t period_s, uint64_t now)
+{
+	uint64_t v[FZN_SYNC_QUEUES] = { 0 };
+	fzn_sync_queue_t why = FZN_SYNC_QUEUES;
+	fzn_sync_verdict_t verdict;
+
+#ifdef FZN_SPOOL_FILE_ON
+	if (files_on)
+		v[FZN_SYNC_QUEUE_FILES] = files_wanted_all(&v[FZN_SYNC_QUEUE_FILE_BYTES]);
+#endif
+	v[FZN_SYNC_QUEUE_ASKS] = fzn_node_asks_pending(&round_asks);
+	v[FZN_SYNC_QUEUE_ROUND_MS] = round_ms;
+	fzn_sync_load_sample(&sync_load, v, period_s * 1000u);
+	verdict = fzn_sync_load_verdict(&sync_load, &why);
+	if (verdict == FZN_SYNC_LOAD_OK || (sync_load_warned && now < sync_load_warned + FZND_SYNC_LOAD_WARN_S))
+		return;
+	sync_load_warned = now;
+	if (verdict == FZN_SYNC_LOAD_BUSY)
+		say(FZN_ENTRY_WARNING, "sync",
+		    "sync-load %u%%: every round of the last %u took its whole period or more, so "
+		    "this host syncs more than it can carry -- narrow what it keeps with retention "
+		    "rules (`prune`, `policy ... drop`), or what it is shared",
+		    (unsigned)fzn_sync_load_now(&sync_load), FZN_SYNC_LOAD_SAMPLES);
+	else
+		say(FZN_ENTRY_WARNING, "sync",
+		    "sync-load: %s grew through the last %u rounds, which do not drain it, so this "
+		    "host is asked to sync more than it can carry -- narrow what it keeps with "
+		    "retention rules (`prune`, `policy ... drop`), or what it is shared",
+		    fzn_sync_queue_name(why), FZN_SYNC_LOAD_SAMPLES);
+}
+
 int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 {
 	const char *sock_path = NULL;
@@ -21449,6 +21500,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					 * logged, not at a marker on the way (sec 637). */
 					say(FZN_ENTRY_DEBUG, "node/round", "a round's end, %llu ms",
 					    (unsigned long long)(mono_ms() - round_began_ms));
+					sync_load_round(mono_ms() - round_began_ms, pull_every, wall_clock());
 					break;
 				}
 				round_step = plan[++plan_at];

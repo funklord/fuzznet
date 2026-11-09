@@ -82837,3 +82837,59 @@ files that never come, each waiting out its fetch; the fault is shown by the rea
 file sorted a NULL list in the held roots' read (`node/files.c`, sec 955's), guarded here; and
 every host's records trim, running since sec 963, sorted a NULL list on a store holding no record --
 fixed in 2de8ce7, whose `Fixes:` trailer names `1391c18f5c55` where the commit is 1391c1804dbd.
+
+## 966. Sync-load: what waits to cross, and when it does not drain, 2026-11-09
+
+**The holder, 2026-11-09:** "a concept called sync-load, single or multiple value statistics, that
+is a telltale sign of an estate that is misconfigured to sync too much, telling the user to create
+better rules and better priorities. It probably should be counting transfer queues and their
+lengths."
+
+**What it counts** (`node/sync_load.h`), sampled at each round's end and kept for the last 16
+rounds, in memory:
+- `files`, the files wanted and not whole, and `file-bytes`, their lengths' sum -- the fetch's
+  queue (sec 965);
+- `asks`, the asks still out when the round ends -- what the round sent and has not heard back;
+- `round-ms`, how long the round took.
+
+**What it says, one value and several.** The single value, the LOAD, is the last round's length as
+a share of the period, per cent: at 100 rounds run back to back, and a host past it is a round
+behind for good. Per queue: its value now, its peak and mean over the window, and whether it is
+GROWING -- the window full, the last above the first, rising at half its steps or more, and no fall
+of more than a quarter between: a queue the rounds do not drain. The rises are what keep a queue at
+rest that ends one up (asks out at one round's end) from reading as growing. The VERDICT is `growing` when any queue is, `busy` when every
+round of the window took its whole period, else `ok`.
+
+    get sync-load  ->  ok LOAD VERDICT NAME,NOW,PEAK,MEAN,TREND ...
+
+Any local caller's, as `status` is, so a UI can show it. **A verdict other than ok is said** as a
+warning, at most hourly, naming the queue and what to do: narrow what the host keeps with
+retention rules (`prune`, `policy ... drop`), or what it is shared.
+
+**Chosen, and why:** a trend over a window rather than a threshold on a length, since a long queue
+the rounds are draining is a host catching up -- after a restore, or a new device's first day --
+and not misconfigured; it is a queue that keeps growing that the rules must answer. A quarter's
+fall resets it, so a host draining in steps is not called growing. Sixteen rounds, at the default
+minute, is a quarter of an hour: long enough that a burst does not warn.
+
+**Tested, `sync_load_test`:** an empty window, a queue drained, one growing a file a round (said
+first by name, with its mean), one that fell deep on the way, one at rest that ends one up, rounds
+back to back and one inside its period after them, and the reply whole or not at all.
+`sync-load-grows-at-rest` and `sync-load-falls-ignored` guard the rule, both caught by hand.
+
+**Measured live, `live_sync_load`** (in `livecheck-faults`, 2 s rounds): a quiet member says `ok
+2 ok`, every queue steady; asked a round apart for files of an estate it does not reach, it said
+`growing` with `files,8,8,2,growing` after 8, and warned. **Control:** a daemon that samples
+nothing failed phase b after 30.
+
+**Not yet, and open:** the other queues -- a sibling's journal behind its digest (sec 811), note
+texts the shelf lacks, messages' months to fetch, pushes a round left -- are counted where each is
+kept, and want the same sampling. And **priorities**: fuzznet has none to set. The holder's word
+names them; what a priority would order (a kind before another, a contact's files before a
+group's) is a design not made yet, and the warning names rules alone until it is.
+
+**Open, not understood:** in the gate run for this section, a root did not answer within the
+socket's 5 s twice -- `live_objects` at its phase b, `live_files_many` during its puts -- at load 17
+on this machine. Since, 0 of 14 runs failed, at load up to 37, so this says nothing yet about what
+held the loop, and load is not shown to be it. The scripts raise the timeout bare and print no
+daemon log for it.

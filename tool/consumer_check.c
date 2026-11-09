@@ -226,6 +226,7 @@
 #include <fuzznet/node/caller.h>
 #include <fuzznet/fault/fault.h>
 #include <fuzznet/node/meter.h>
+#include <fuzznet/node/sync_load.h>
 #include <fuzznet/node/log_list.h>
 #include <fuzznet/node/clocks.h>
 #include <fuzznet/node/schema.h>

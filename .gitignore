@@ -326,6 +326,7 @@ __pycache__/
 /node/test/ext_daemon
 /node/test/types_test
 /node/test/meter_test
+/node/test/sync_load_test
 /node/test/log_list_test
 /node/test/clocks_test
 /node/test/schema_test
