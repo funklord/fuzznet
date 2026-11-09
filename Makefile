@@ -7063,10 +7063,12 @@ livecheck-embedded: embedded $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 # THE FAULTS FIRE, sec 689 step 0b: tool/live_faults.py against the faulty
 # daemon, so a scenario built on a fault is known to have one. Then the
 # estate's journey (sec 707), on rounds the fault build makes short, and a
-# later member's floor with the adder's clock 900 s behind (sec 722).
+# later member's floor with the adder's clock 900 s behind (sec 722). And
+# an estate of eleven members past a round's siblings, asked in turns (sec 964).
 livecheck-faults: fuzznetd-faults
 	@timeout 900 python3 tool/live_faults.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 1000 python3 tool/live_estate.py $(BUILD_DIR)/faults/fuzznetd
+	@timeout 700 python3 tool/live_estate_turns.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 700 python3 tool/live_group_skew.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 500 python3 tool/live_logs.py $(BUILD_DIR)/faults/fuzznetd
 

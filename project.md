@@ -82709,12 +82709,9 @@ every round's places for good, and the files after them were never asked for.
 for in its turn. Not unit-tested: the round is the daemon's; `live_catalog`, whose B takes A's
 reference for its file this way, passes.
 
-**Read, and left:** the siblings a round adds are the first FZND_SIBLING_TARGETS_MAX, 8, of the
-estate's hosts in the order listed, every round (sec 586): a ninth sibling is not pulled by this
-host. Eight is sec 401's figure for a household. Taking them in turns would close each round's
-sockets and the numbering carried per sibling (sec 737), so it waits for an estate past nine hosts.
-The pull targets given on the command line are refused past eight at start; the journal, notes and
-devices passes take every target the round has.
+**Read, and left then:** the siblings a round adds were the first eight listed, every round. Asked
+in turns since sec 964. The pull targets given on the command line are refused past eight at
+start; the journal, notes and devices passes take every target the round has.
 
 ## 962. An add that read every note, measured square, 2026-11-08
 
@@ -82774,3 +82771,46 @@ by hand.
 **Measured live, `live_objects` phase d:** R sets the lamp four more times, holding 7 values of two
 hosts, and starts again: its first trim leaves 2, one a host, and the value reads the same.
 **Control:** a fuzznetd whose trim is not handed the default failed phase d with all 7 held.
+
+## 964. An estate's siblings asked in turns, 2026-11-09
+
+**The holder, 2026-11-09:** an estate should hold an almost unlimited number of machines, with no
+technical issues, bottlenecks or performance problems. Sec 961 had left the siblings a round adds
+as the first FZND_SIBLING_TARGETS_MAX, 8, in the order the store lists them, every round, waiting
+for an estate past nine hosts. That wait is over.
+
+**What the first eight cost**, read before the change: data still spread, since a ninth host
+pulls the first eight and pushes its own to them, but the first eight were asked by every other
+host every round, their load growing with the estate, and the rest by none. With those eight away
+-- phones off, laptops shut -- the hosts after them could not reach one another at all.
+
+**A round now asks a turn of them** (`load_siblings`): from where the last turn ended, wrapping
+past the last to the first, the start drawn at the first round so hosts started together do not
+all ask the same ones first. A sibling whose introduced address is live (sec 623) is asked first,
+its hole being open on its socket for now. The second build in a round, after the journal, keeps
+the round's turn and only adds what the journal brought. So each host asks 8 a round whatever the
+estate's size, each sibling is asked by about 8 others a round, and every one is asked directly
+within ceil(N / 8) rounds -- a change spreading faster than that, as each host that has it passes
+it on.
+
+**What turns cost, as sec 961 feared:** a sibling out of turn has its socket closed, and its
+caller's numbering carried from the last round (sec 737) goes with it. Back in a later turn it is
+asked from a new socket, so a late piece of a reply to the old one reaches a closed port, not the
+new numbering. A NAT hole to it is opened again by the asking.
+
+**Two tables the turns would have filled**, each 16 rows of one round's targets and now grown:
+- the peers passed over as silent (sec 742), whose rows a turn's new siblings could not take once
+  last round's heard filled them, so a sibling that is down would have been asked, and waited
+  for, at every ask;
+- the journal windows (sec 708), kept by host for good, so past the sixteenth peer ever asked one
+  would have been asked the whole window again -- the fault that section fixed.
+
+**Measured live, `live_estate_turns`** (in `livecheck-faults`), a root and eleven members on
+3 s rounds: (a) every member came to ask all ten of its siblings in 12 s; (b) with the root and
+eight members stopped, the three left set a cell each and read one another's in 19 s.
+**Control:** a daemon asking the first eight listed failed (a) at 300 s, each member having asked
+8 or 9 and never the same one or two.
+
+**Left as they were:** the pull targets the command line names, refused past eight at start; and
+`list responsible` and the sibling positions of sec 811, each of which lists the siblings once per
+host it answers -- square in the estate's size, on a local verb, not a round.

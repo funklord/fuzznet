@@ -1558,7 +1558,8 @@ static uint64_t estate_clock(void)
 #ifndef FZND_PULL_TARGETS_MAX /* smaller in a `small` build, sec 922 */
 #define FZND_PULL_TARGETS_MAX 8u
 #endif
-/* AND THE SIBLINGS A ROUND ADDS, sec 586: as many again, after them. */
+/* AND THE SIBLINGS A ROUND ADDS, sec 586: as many again, after them -- a
+ * turn of an estate of any size, the next ones each round (sec 964). */
 #ifndef FZND_SIBLING_TARGETS_MAX /* smaller in a `small` build, sec 922 */
 #define FZND_SIBLING_TARGETS_MAX 8u
 #endif
@@ -2067,14 +2068,18 @@ static const int address_plan[] = { ROUND_ADDRESS, ROUND_ADDRESS_SETTLE, 0 };
  * gone down since the last round costs one 3 s wait more, once. The last
  * round counts because a round's first ask lost was a miss before any
  * answer, and passed the peer over just the same. */
-static struct {
+static struct silent_row {
 	char host[FZN_UDP_HOST_MAX + 1u];
 	long port;
 	int heard;
 	int heard_before;
 	unsigned misses;
-} silent[FZND_ROUND_TARGETS_MAX];
-static size_t n_silent;
+} *silent;
+/* GROWN, sec 964: the siblings a round asks are a turn of an estate of any
+ * size, so last round's heard and this round's asked are not one round's
+ * targets. A row the table could not hold left a peer that is down asked,
+ * and waited for, at every ask. */
+static size_t n_silent, silent_room;
 
 static size_t silent_find(const struct pull_target *pt)
 {
@@ -2095,7 +2100,7 @@ static int silent_peer(const struct pull_target *pt)
 }
 
 /* The row of the peer at `host` and `port`, made when it has none;
- * FZND_ROUND_TARGETS_MAX when the table is full. */
+ * (size_t)-1 when none can be made. */
 static size_t silent_row(const char *host, long port)
 {
 	size_t i;
@@ -2103,8 +2108,17 @@ static size_t silent_row(const char *host, long port)
 	for (i = 0; i < n_silent; i++)
 		if (silent[i].port == port && strcmp(silent[i].host, host) == 0)
 			return i;
-	if (n_silent == FZND_ROUND_TARGETS_MAX || strlen(host) >= sizeof(silent[0].host))
-		return FZND_ROUND_TARGETS_MAX;
+	if (strlen(host) >= sizeof(silent[0].host))
+		return (size_t)-1;
+	if (n_silent == silent_room) {
+		size_t room = silent_room ? silent_room * 2u : FZND_ROUND_TARGETS_MAX;
+		struct silent_row *more = realloc(silent, room * sizeof(*more));
+
+		if (!more)
+			return (size_t)-1;
+		silent = more;
+		silent_room = room;
+	}
 	memset(&silent[i], 0, sizeof(silent[i]));
 	strcpy(silent[i].host, host);
 	silent[i].port = port;
@@ -2116,7 +2130,7 @@ static void silent_mark(const struct pull_target *pt)
 {
 	size_t i = silent_row(pt->host, pt->port);
 
-	if (i < FZND_ROUND_TARGETS_MAX)
+	if (i < n_silent)
 		silent[i].misses++;
 }
 
@@ -2143,7 +2157,7 @@ static void silent_heard_at(const char *host, long port)
 {
 	size_t i = silent_row(host, port);
 
-	if (i < FZND_ROUND_TARGETS_MAX) {
+	if (i < n_silent) {
 		silent[i].heard = 1;
 		silent[i].misses = 0;
 	}
@@ -2163,12 +2177,15 @@ static void silent_heard(const struct pull_target *pt)
  * that much the estate stopped converging, every round failing alike.
  * Kept by host and port across rounds, as `silent` is within one, with the
  * host copied: a round rebuilds its sibling targets. */
-static struct {
+static struct journal_window {
 	char host[FZN_UDP_HOST_MAX + 1u];
 	long port;
 	uint32_t window;
-} journal_windows[FZND_ROUND_TARGETS_MAX];
-static size_t n_journal_windows;
+} *journal_windows;
+/* GROWN, sec 964: one a peer ever asked, an estate's siblings in turns
+ * among them. A peer the table could not hold was asked at the whole
+ * window, the fault above, past the sixteenth. */
+static size_t n_journal_windows, journal_windows_room;
 
 static uint32_t *journal_window(const struct pull_target *pt)
 {
@@ -2179,8 +2196,15 @@ static uint32_t *journal_window(const struct pull_target *pt)
 	for (i = 0; i < n_journal_windows; i++)
 		if (journal_windows[i].port == pt->port && strcmp(journal_windows[i].host, pt->host) == 0)
 			return &journal_windows[i].window;
-	if (n_journal_windows == FZND_ROUND_TARGETS_MAX)
-		return NULL;
+	if (n_journal_windows == journal_windows_room) {
+		size_t room = journal_windows_room ? journal_windows_room * 2u : FZND_ROUND_TARGETS_MAX;
+		struct journal_window *more = realloc(journal_windows, room * sizeof(*more));
+
+		if (!more)
+			return NULL;
+		journal_windows = more;
+		journal_windows_room = room;
+	}
 	i = n_journal_windows++;
 	memcpy(journal_windows[i].host, pt->host, strlen(pt->host) + 1u);
 	journal_windows[i].port = pt->port;
@@ -6308,10 +6332,18 @@ static int estate_host_at(void *ctx, size_t i, uint8_t host[32])
 	return 0;
 }
 
+/* WHERE THIS ROUND'S TURN OF SIBLINGS BEGINS, sec 964: an estate holds
+ * as many machines as its user has, and a round asks
+ * FZND_SIBLING_TARGETS_MAX of them, so each round asks the next ones,
+ * wrapping past the last to the first. Drawn at the first round, so hosts
+ * started together do not all ask the same ones first. */
+static size_t sibling_from, sibling_next;
+static int sibling_drawn;
+
 static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family,
                             const uint8_t self[FZN_PUBKEY_LEN], const uint8_t *root,
                             const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
-                            const fzn_random_ops_t *rng)
+                            const fzn_random_ops_t *rng, int new_turn)
 {
 	static struct key_room hosts_room;
 	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
@@ -6322,7 +6354,8 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 		uint8_t key[FZN_PUBKEY_LEN];
 		fzn_caller_t numbering;
 	} carried[FZND_SIBLING_TARGETS_MAX];
-	size_t n = 0, i, t, built = 0, n_kept = 0, n_carried = 0;
+	size_t n = 0, i, j, t, built = 0, n_kept = 0, n_carried = 0, walked = 0;
+	int pass;
 	uint64_t now = wall_clock();
 
 	for (i = 0; i < n_sibling_targets; i++) {
@@ -6337,55 +6370,78 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 	    || siblings_list(&hosts_room, &hosts, &n, 0u)
 	               != FZN_NODE_SIBLINGS_OK)
 		n = 0;
-	for (i = 0; i < n && built < FZND_SIBLING_TARGETS_MAX; i++) {
-		struct pull_target *pt = &pulls[npulls + built];
-		struct introduced *in = intro_of(hosts[i], 0);
-		uint16_t port = 0;
-		int fd;
+	if (!sibling_drawn && rng && rng->fill) {
+		uint8_t b[4] = { 0 };
 
-		if (memcmp(hosts[i], self, FZN_PUBKEY_LEN) == 0)
-			continue;
-		for (t = 0; t < npulls
-		            && memcmp(pulls[t].is_root_at ? root : pulls[t].node, hosts[i],
-		                      FZN_PUBKEY_LEN) != 0;
-		     t++)
-			;
-		if (t < npulls)
-			continue;
-		memset(pt, 0, sizeof(*pt));
-		pt->fd = -1;
-		/* AN INTRODUCED ADDRESS FIRST, sec 623, while it lasts; else the
-		 * sibling's own `net/address`. */
-		if (in && in->until > now && in->port) {
-			(void)snprintf(sibling_hosts[built], sizeof(sibling_hosts[built]), "%s", in->host);
-			port = in->port;
-		} else if (!fzn_node_settings_address(&node_settings, hosts[i], sibling_hosts[built],
-		                                      &port)) {
-			continue;
-		}
-		if (fzn_node_pairing_load(node_apply.store, hosts[i], &pt->pairing) != FZN_PERSIST_OK)
-			continue;
-		memcpy(pt->node, hosts[i], FZN_PUBKEY_LEN);
-		pt->host = sibling_hosts[built];
-		pt->port = port;
-		fd = sibling_fd(hosts[i]);
-		if (!open_target_on(pt, fd, family, self, hash, aead, rng)) {
-			say(FZN_ENTRY_WARNING, "node/siblings", "could not reach for a sibling at %s",
-			    sibling_hosts[built]);
-			continue;
-		}
-		/* NUMBERED ON FROM LAST ROUND, sec 737: built again on the same
-		 * pairing, and usually the same socket, its caller would number
-		 * from 0, and a late piece of last round's reply would land on
-		 * this round's message of the same number. */
-		for (t = 0; t < n_carried; t++)
-			if (memcmp(carried[t].key, hosts[i], FZN_PUBKEY_LEN) == 0) {
-				fzn_caller_carry(&pt->caller, &carried[t].numbering);
-				break;
+		(void)rng->fill(rng->ctx, b, sizeof(b));
+		sibling_next = (size_t)fzn_get_be32(b);
+		sibling_drawn = 1;
+	}
+	if (new_turn)
+		sibling_from = sibling_next;
+	/* AN INTRODUCED SIBLING FIRST, whose hole is open on its socket for
+	 * now (sec 623); then this round's turn of the rest. */
+	for (pass = 0; pass < 2; pass++) {
+		for (j = 0; j < n && built < FZND_SIBLING_TARGETS_MAX; j++) {
+			struct pull_target *pt = &pulls[npulls + built];
+			struct introduced *in;
+			uint16_t port = 0;
+			int fd, intro;
+
+			i = pass ? (sibling_from + j) % n : j;
+			in = intro_of(hosts[i], 0);
+			intro = in && in->until > now && in->port;
+			if (pass)
+				walked = j + 1u;
+			if ((pass == 0) != (intro != 0))
+				continue;
+			if (memcmp(hosts[i], self, FZN_PUBKEY_LEN) == 0)
+				continue;
+			for (t = 0; t < npulls
+			            && memcmp(pulls[t].is_root_at ? root : pulls[t].node, hosts[i],
+			                      FZN_PUBKEY_LEN) != 0;
+			     t++)
+				;
+			if (t < npulls)
+				continue;
+			memset(pt, 0, sizeof(*pt));
+			pt->fd = -1;
+			/* AN INTRODUCED ADDRESS FIRST, sec 623, while it lasts; else the
+			 * sibling's own `net/address`. */
+			if (intro) {
+				(void)snprintf(sibling_hosts[built], sizeof(sibling_hosts[built]), "%s", in->host);
+				port = in->port;
+			} else if (!fzn_node_settings_address(&node_settings, hosts[i], sibling_hosts[built],
+			                                      &port)) {
+				continue;
 			}
-		memcpy(kept[n_kept].key, hosts[i], FZN_PUBKEY_LEN);
-		kept[n_kept++].fd = pt->fd;
-		built++;
+			if (fzn_node_pairing_load(node_apply.store, hosts[i], &pt->pairing) != FZN_PERSIST_OK)
+				continue;
+			memcpy(pt->node, hosts[i], FZN_PUBKEY_LEN);
+			pt->host = sibling_hosts[built];
+			pt->port = port;
+			fd = sibling_fd(hosts[i]);
+			if (!open_target_on(pt, fd, family, self, hash, aead, rng)) {
+				say(FZN_ENTRY_WARNING, "node/siblings", "could not reach for a sibling at %s",
+				    sibling_hosts[built]);
+				continue;
+			}
+			/* NUMBERED ON FROM LAST ROUND, sec 737: built again on the same
+			 * pairing, and usually the same socket, its caller would number
+			 * from 0, and a late piece of last round's reply would land on
+			 * this round's message of the same number. */
+			for (t = 0; t < n_carried; t++)
+				if (memcmp(carried[t].key, hosts[i], FZN_PUBKEY_LEN) == 0) {
+					fzn_caller_carry(&pt->caller, &carried[t].numbering);
+					break;
+				}
+			memcpy(kept[n_kept].key, hosts[i], FZN_PUBKEY_LEN);
+			kept[n_kept++].fd = pt->fd;
+			if (new_turn)
+				say(FZN_ENTRY_DEBUG, "node/siblings", "a sibling in this round's turn: %s port %u",
+				    sibling_hosts[built], (unsigned)port);
+			built++;
+		}
 	}
 	/* A SOCKET NO SIBLING USES NOW is closed. */
 	for (i = 0; i < n_sibling_sockets; i++) {
@@ -6397,6 +6453,13 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 	memcpy(sibling_sockets, kept, n_kept * sizeof(kept[0]));
 	n_sibling_sockets = n_kept;
 	n_sibling_targets = built;
+	/* THE NEXT TURN begins past the last this one walked. */
+	if (new_turn && n) {
+		sibling_next = (sibling_from % n) + (walked ? walked : n);
+		if (built == FZND_SIBLING_TARGETS_MAX && walked < n)
+			say(FZN_ENTRY_DEBUG, "node/siblings", "siblings asked in turn: from %zu of %zu",
+			    sibling_from % n, n);
+	}
 	return built;
 }
 
@@ -21128,7 +21191,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #ifdef FZN_RECORD_STORE_FILE_ON
 					npulls = npulls_base + load_siblings(pulls, npulls_base, family,
 					                                     identity.pubkey, state.config.root,
-					                                     &hash_ops, &aead_ops, &rng_ops);
+					                                     &hash_ops, &aead_ops, &rng_ops, 1);
 					answering_local = 1;
 					introduce_siblings(pulls, npulls_base, npulls, family, round_now);
 					answering_local = 0;
@@ -21200,7 +21263,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					 * rest of the round, not from the next. */
 					npulls = npulls_base + load_siblings(pulls, npulls_base, family,
 					                                     identity.pubkey, state.config.root,
-					                                     &hash_ops, &aead_ops, &rng_ops);
+					                                     &hash_ops, &aead_ops, &rng_ops, 0);
 					/* AND THEIR CLOCKS, sec 719: a sibling found this round is
 					 * measured in it, not a round later -- three devices took
 					 * about four rounds to measure each other (sec 721). Those
