@@ -3281,6 +3281,21 @@ static void record_filed(void *ctx, const fzn_setting_t *s)
 	(void)ctx;
 	if (object_len)
 		object_changed((const uint8_t *)object, object_len);
+	/* A VALUE THIS HOST CANNOT USE, sec 984: written by a host of other
+	 * declarations, it is kept, as sec 686 has it, and its reader falls back
+	 * to the default -- said now, where it was silent. Of the cells this
+	 * host reads: the estate's, and its own. */
+	{
+		const fzn_schema_entry_t *e = NULL;
+		const char *why = fzn_node_schema_unusable(&node_schema, s,
+		                                           contact_id ? contact_id->pubkey : NULL, &e);
+
+		if (why && e)
+			say(FZN_ENTRY_WARNING, "settings",
+			    "%.*s arrived as a value this host cannot use (%s); %s applies while it stands",
+			    (int)s->key_len, (const char *)s->key, why,
+			    e->def[0] ? e->def : "its unset reading");
+	}
 	if (s->key_len > FZN_NODE_DECIDED_PREFIX_LEN
 	    && memcmp(s->key, FZN_NODE_DECIDED_PREFIX, FZN_NODE_DECIDED_PREFIX_LEN) == 0) {
 		fzn_node_decisions_forget();

@@ -29,6 +29,7 @@
 #include <stdint.h>
 
 #include "../state/schema.h"
+#include "../state/setting.h"
 #include "../local/vocabulary.h"
 #include "../chain/authz.h"
 
@@ -45,6 +46,15 @@ typedef struct fzn_node_schema {
 /* THE ENTRY `key` IS, fuzznet's first; NULL when nobody declares it. */
 const fzn_schema_entry_t *fzn_node_schema_find(const fzn_node_schema_t *schema, const uint8_t *key,
                                                size_t len);
+
+/* A SETTING THIS HOST CANNOT USE, sec 984: why, when `s` sets a declared
+ * cell this host reads -- the estate's, or `own`'s host cell -- to a value
+ * its declaration refuses; NULL otherwise. `*entry` gets the declaration,
+ * whose default its readers fall back to. Such a record is kept, as sec
+ * 686 has every record another host wrote; this says so. */
+const char *fzn_node_schema_unusable(const fzn_node_schema_t *schema, const fzn_setting_t *s,
+                                     const uint8_t own[FZN_PUBKEY_LEN],
+                                     const fzn_schema_entry_t **entry);
 
 /* AN EXTENSION'S DECLARATIONS, before they are taken: NULL when every one
  * has a key, a type and a scope and none claims a cell fuzznet or an

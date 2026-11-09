@@ -15067,6 +15067,27 @@ SABOTAGES = [
 		"of two values written apart the less restrictive stands -- sec 981",
 	),
 	(
+		"schema-unusable-unsaid",
+		"node/schema.c",
+		"\treturn fzn_schema_check(e, s->value, s->value_len);\n}\n",
+		"\treturn NULL;\n}\n",
+		"a setting arriving with a value this host cannot use falls back without a word -- sec 984",
+	),
+	(
+		"schema-unusable-other-hosts-cell",
+		"node/schema.c",
+		"\t             && memcmp(s->about, own, FZN_PUBKEY_LEN) == 0)))\n",
+		"\t             && memcmp(s->about, own, FZN_PUBKEY_LEN) >= 0)))\n",
+		"another host's own cell, never read here, is warned of as unusable -- sec 984",
+	),
+	(
+		"schema-row-advertised-unsaid",
+		"node/schema.c",
+		"\tif (e->flags & FZN_SCHEMA_ADVERTISED)\n\t\t(void)strcat(flags, \"+advertised\");\n",
+		"",
+		"a setting peers can see is listed as though it were private -- sec 984",
+	),
+	(
 		"sticker-why-counts-from-zero",
 		"sticker/pack.c",
 		"\t\t\t\t               i + 1u, j + 1u, (unsigned long long)e->id);\n",

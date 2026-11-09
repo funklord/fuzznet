@@ -245,12 +245,58 @@ static void test_the_verbs(void)
 	CHECK(seen == total && pages >= 2u && theme,
 	      "the pages did not give every declaration once, the extension's among them");
 	CHECK(ask(&s, FZN_VERB_LIST, "schema location/", reply, cap) > 0
-	              && strncmp(reply, "ok 4 0 location/enabled,flag,host,0,0,off,-,-,", 46) == 0,
+	              && strncmp(reply, "ok 4 0 location/enabled,flag,host,0,0,off,-,safe-lower,", 55)
+	                         == 0,
 	      "a prefix did not narrow the listing");
 	CHECK(ask(&s, FZN_VERB_LIST, "schema location/ 3", reply, cap) > 0
-	              && strncmp(reply, "ok 4 3 location/accuracy,count,host,0,1000000,100,metres,-,",
-	                         59) == 0,
+	              && strncmp(reply, "ok 4 3 location/accuracy,count,host,0,61440,100,metres,-,",
+	                         57) == 0,
 	      "a prefix and a FROM together were not read");
+	/* WHAT PEERS SEE AND WHICH WAY IS SAFER, in a row's flags, sec 984. */
+	CHECK(ask(&s, FZN_VERB_GET, "schema net/address", reply, cap) > 0
+	              && strncmp(reply, "ok net/address,address,host,0,253,-,-,advertised,", 49) == 0
+	              && ask(&s, FZN_VERB_GET, "schema routing/public", reply, cap) > 0
+	              && strncmp(reply, "ok routing/public,flag,estate,0,0,off,-,safe-lower+advertised,",
+	                         62) == 0,
+	      "a row does not say what peers see, or which way is safer");
+	/* A VALUE THIS HOST CANNOT USE, arriving, sec 984: said for the cells it
+	 * reads, and only for a value its declaration refuses. */
+	{
+		static const uint8_t own[FZN_PUBKEY_LEN] = { 1 }, other[FZN_PUBKEY_LEN] = { 2 };
+		const fzn_schema_entry_t *e = NULL;
+		fzn_setting_t set;
+
+		memset(&set, 0, sizeof(set));
+		set.scope = FZN_SCOPE_ESTATE;
+		set.key = (const uint8_t *)"journal/window";
+		set.key_len = 14u;
+		set.set = 1;
+		set.value = (const uint8_t *)"abc";
+		set.value_len = 3u;
+		CHECK(fzn_node_schema_unusable(NULL, &set, own, &e) != NULL && e
+		              && strcmp(e->def, "60") == 0,
+		      "an estate value its declaration refuses is not said, with its default");
+		set.value = (const uint8_t *)"30";
+		set.value_len = 2u;
+		CHECK(fzn_node_schema_unusable(NULL, &set, own, &e) == NULL, "a usable value is said");
+		set.set = 0;
+		CHECK(fzn_node_schema_unusable(NULL, &set, own, &e) == NULL, "a clear is said");
+		set.set = 1;
+		set.scope = FZN_SCOPE_HOST;
+		set.key = (const uint8_t *)"location/accuracy";
+		set.key_len = 17u;
+		set.value = (const uint8_t *)"70000";
+		set.value_len = 5u;
+		set.about = other;
+		CHECK(fzn_node_schema_unusable(NULL, &set, own, &e) == NULL,
+		      "another host's own cell, which this host never reads, is said");
+		set.about = own;
+		CHECK(fzn_node_schema_unusable(NULL, &set, own, &e) != NULL,
+		      "this host's own cell past its bound is not said");
+		set.key = (const uint8_t *)"nobody/declares";
+		set.key_len = 15u;
+		CHECK(fzn_node_schema_unusable(NULL, &set, own, &e) == NULL, "an undeclared key is said");
+	}
 	CHECK(ask(&s, FZN_VERB_GET, "schema sticker/0aff", reply, cap) > 0
 	              && strncmp(reply, "ok sticker/,text,estate+host,1,256,-,-,verb,", 44) == 0
 	              && ask(&s, FZN_VERB_GET, "schema nope", reply, cap) > 0

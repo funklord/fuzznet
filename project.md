@@ -83232,8 +83232,13 @@ field put back to 11 bits past 26 leaves 152 of 204; four alignment columns, 128
 **`qr_test`:** the largest version encodes at the largest size, a payload past it is refused, and
 the version, the mask and a forced mask are said and drawn as asked.
 
-**Not done, of the same message:** a camera-shaped round trip in the suite (defocused, mirrored),
-which fuzzypickles' `client/test/scan_test.c` has.
+**A camera-shaped round trip, tried and not kept** (sec 984's session): `qr_quirc_check.c` gained
+a render turned, keystoned, at a fractional scale, softened and with noise. quirc failed it at
+version 1 -- ECC failure at 3 degrees and 4 pixels a module with nothing else applied, while 6
+pixels a module decoded at 45. So it measured quirc's sampling against a synthetic nearest-pixel
+drawing, not this tree's codes, which round-trip exact at every version and level, and no phone
+reads with quirc. Reverted. fuzzypickles' `client/test/scan_test.c` stays the camera-shaped
+check, against its own scanner.
 
 ## 978. What fuzzypickles asks of fuzznet, 2026-11-09
 
@@ -83264,9 +83269,9 @@ than one level (Takeout/Keep)~~ and ~~Keep attachments and colour said, not drop
 sec 985; ~~the store not reloaded per dated note~~, measured in sec 982 and not the cost.
 
 **Open, settings schema** (`node/schema.c`, T1355Z): ~~a safe direction per setting, the more
-restrictive winning between writes made apart~~, sec 981; "default after invalid" said; an advertised declaration for what peers observe;
-sensitive settings answered by whether they are set, not their value; `location/accuracy` bounded
-at 61440.
+restrictive winning between writes made apart~~, sec 981; ~~"default after invalid" said~~, ~~an
+advertised declaration for what peers observe~~ and ~~`location/accuracy` bounded at 61440~~, sec
+984; sensitive settings answered by whether they are set -- decided against, sec 984.
 
 **Open, stickers** (`sticker/pack.c`, `node/stickers.c`, T1355Z/T1552Z): a reference of 84 bytes of
 words and a 96-byte description refused by `fzn_sticker_ref_format` though `FZN_STICKER_REF_MAX`
@@ -83587,3 +83592,39 @@ hook the status line. `notebook-view-refusal-only-logged` guards it.
 
 **Still open of T1340Z:** `tr()` -- no widget in `gui/` translates yet, so it is a decision for all
 of them at once, not this one alone -- and a More menu (sec 989).
+
+## 984. Settings: an unusable value said, what peers see declared, accuracy bounded, 2026-11-09
+
+The rest of fuzzypickles' settings schema list (inbox T1355Z; sec 978), after sec 981's safe
+direction.
+
+**A value this host cannot use, said** (`record_filed`): sec 686 keeps a setting another host wrote
+whatever its value, so hosts of other declarations do not diverge, and its reader falls back to the
+default -- without a word, so a person who set `journal/window` from a newer build saw nothing
+happen and nothing say why. A declared cell this host reads -- the estate's, or its own host cell --
+that arrives with a value its declaration refuses is now said as a warning: the key, why, and the
+default that applies while it stands (`fzn_node_schema_unusable`, called from `record_filed`).
+Another host's own cell, which this host never reads, is not warned of. A write made here is
+refused as before (sec 686).
+
+**What peers observe, declared** (FZN_SCHEMA_ADVERTISED): `net/address`, `net/metric`,
+`routing/public` and `routing/advertise` reach contacts or the wider net, and a client can now say
+so beside them. A declaration only; nothing is sent because of it. `list schema` shows it,
+and sec 981's safe direction, in each row's flags: `+advertised`, `+safe-lower`, `+safe-higher`.
+
+**`location/accuracy` bounded at 61440:** the accuracy a fix keeps saturates at 61440 m (sec 676),
+so a gate set wider meant nothing a stored fix could show; it was bounded at 1,000,000. A value
+already written above it reads as before.
+
+**Measured:** `schema_test` -- an estate value refused is said with its default, a usable one,
+a clear, another host's own cell and an undeclared key are not, and this host's own cell past its
+bound is; `net/address` lists `+advertised` and `routing/public` `+safe-lower+advertised`; the
+`location/` listing reads its new bound. `schema-unusable-unsaid`,
+`schema-unusable-other-hosts-cell` and `schema-row-advertised-unsaid` guard it.
+
+**Sensitive settings answered by their value, decided:** fuzzypickles asked that `get setting` of
+a sensitive cell answer only whether it is set. Not taken. The verbs answer this node's own user
+(sec 535), the one person entitled to the value, who asks for it by name; the flag says a client
+should not show it over a shoulder, which is the client's to honour when it draws a list. A secret
+is a sealed value (sec 879), not a setting, and its value is never in a reply. A node that hid it
+would need a second verb to reveal it, to the same person.

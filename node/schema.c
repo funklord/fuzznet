@@ -127,9 +127,11 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  FZN_SCHEMA_ADVANCED, "how an archived segment is cut into pieces (sec 597)", erasure_check },
 	{ "archive/gone", FZN_SCHEMA_DURATION, ESTATE, 1u, 315360000u, "14d", "", FZN_SCHEMA_ADVANCED,
 	  "how long a keeper may be silent before its pieces are placed elsewhere (sec 601)", NULL },
-	{ "routing/public", FZN_SCHEMA_FLAG, ESTATE, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
+	{ "routing/public", FZN_SCHEMA_FLAG, ESTATE, 0u, 0u, "off", "",
+	  FZN_SCHEMA_SAFE_LOWER | FZN_SCHEMA_ADVERTISED,
 	  "the routing manifest offers this estate's hosts as public relays (sec 611)", NULL },
-	{ "routing/advertise", FZN_SCHEMA_FLAG, ESTATE, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
+	{ "routing/advertise", FZN_SCHEMA_FLAG, ESTATE, 0u, 0u, "off", "",
+	  FZN_SCHEMA_SAFE_LOWER | FZN_SCHEMA_ADVERTISED,
 	  "contacts are told every host of the estate, not only this node (sec 614)", NULL },
 	{ "stream/grant/", FZN_SCHEMA_COUNT, ESTATE, 0u, 3u, "", "level", FZN_SCHEMA_VERB,
 	  "the level a grantee holds of a stream, by `grant stream` (sec 660)", NULL },
@@ -137,7 +139,7 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "a contact's name, the user's on every host, by `add contact`, which checks it (sec "
 	  "699)",
 	  NULL },
-	{ "net/address", FZN_SCHEMA_ADDRESS, HOST, 0u, 253u, "", "", 0u,
+	{ "net/address", FZN_SCHEMA_ADDRESS, HOST, 0u, 253u, "", "", FZN_SCHEMA_ADVERTISED,
 	  "where this host is reached, HOST PORT, an admin's to correct (sec 579)", NULL },
 	{ "host/name", FZN_SCHEMA_TEXT, HOST, 1u, 32u, "", "", 0u,
 	  "what this host's user calls it -- laptop, phone -- as every device of the estate "
@@ -172,7 +174,8 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "the groups this host is in, first first: a group's settings stand here where the "
 	  "host sets none of its own, and the first group listed that sets one wins (sec 868)",
 	  member_check },
-	{ "net/metric", FZN_SCHEMA_COUNT, HOST, 0u, 255u, "100", "", FZN_SCHEMA_ADVANCED,
+	{ "net/metric", FZN_SCHEMA_COUNT, HOST, 0u, 255u, "100", "",
+	  FZN_SCHEMA_ADVANCED | FZN_SCHEMA_ADVERTISED,
 	  "this host's place in the routing manifest, lower first (sec 611)", NULL },
 	{ "net/discovery", FZN_SCHEMA_TEXT, HOST, 1u, 45u, "255.255.255.255", "", FZN_SCHEMA_ADVANCED,
 	  "where `fetch lan` sends its probe, or `off` (sec 624)", NULL },
@@ -184,7 +187,7 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "where gpsd is (sec 678)", NULL },
 	{ "location/every", FZN_SCHEMA_COUNT, HOST, 1u, 86400u, "30", "seconds", 0u,
 	  "the least time between fixes kept (sec 678)", NULL },
-	{ "location/accuracy", FZN_SCHEMA_COUNT, HOST, 0u, 1000000u, "100", "metres", 0u,
+	{ "location/accuracy", FZN_SCHEMA_COUNT, HOST, 0u, 61440u, "100", "metres", 0u,
 	  "a fix less certain than this is dropped; 0 keeps every fix (sec 678)", NULL },
 	{ "log/level", FZN_SCHEMA_TEXT, HOST, 1u, 8u, "", "", 0u,
 	  "the least severe level this host's log file keeps, critical to trace; unset, "
@@ -225,6 +228,27 @@ const fzn_schema_entry_t *fzn_node_schema_find(const fzn_node_schema_t *schema, 
 	if (!e && schema)
 		e = fzn_schema_find(schema->extra, schema->n_extra, key, len);
 	return e;
+}
+
+const char *fzn_node_schema_unusable(const fzn_node_schema_t *schema, const fzn_setting_t *s,
+                                     const uint8_t own[FZN_PUBKEY_LEN],
+                                     const fzn_schema_entry_t **entry)
+{
+	const fzn_schema_entry_t *e;
+
+	if (entry)
+		*entry = NULL;
+	if (!s || !s->set
+	    || !(s->scope == FZN_SCOPE_ESTATE
+	         || (s->scope == FZN_SCOPE_HOST && own && s->about
+	             && memcmp(s->about, own, FZN_PUBKEY_LEN) == 0)))
+		return NULL;
+	e = fzn_node_schema_find(schema, s->key, s->key_len);
+	if (!e)
+		return NULL;
+	if (entry)
+		*entry = e;
+	return fzn_schema_check(e, s->value, s->value_len);
 }
 
 const char *fzn_node_schema_refused(const fzn_schema_entry_t *extra, size_t n)
@@ -293,7 +317,7 @@ static size_t escaped(const char *text, char *out, size_t cap)
 /* ONE ROW, into `out`: its length, or 0 when it does not fit. */
 static size_t row_of(const fzn_schema_entry_t *e, char *out, size_t cap)
 {
-	char def[96], unit[96], summary[600], flags[40];
+	char def[96], unit[96], summary[600], flags[96];
 	int n;
 
 	flags[0] = '\0';
@@ -305,6 +329,12 @@ static size_t row_of(const fzn_schema_entry_t *e, char *out, size_t cap)
 		(void)strcat(flags, "+advanced");
 	if (e->flags & FZN_SCHEMA_VERB)
 		(void)strcat(flags, "+verb");
+	if (e->flags & FZN_SCHEMA_SAFE_LOWER)
+		(void)strcat(flags, "+safe-lower");
+	if (e->flags & FZN_SCHEMA_SAFE_HIGHER)
+		(void)strcat(flags, "+safe-higher");
+	if (e->flags & FZN_SCHEMA_ADVERTISED)
+		(void)strcat(flags, "+advertised");
 	if (!escaped(e->def, def, sizeof(def)) || !escaped(e->unit, unit, sizeof(unit))
 	    || !escaped(e->summary, summary, sizeof(summary)))
 		return 0;

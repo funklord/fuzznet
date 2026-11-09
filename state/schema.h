@@ -58,6 +58,10 @@ typedef enum fzn_schema_type {
  * the smaller count; HIGHER: `on` over `off`, the larger count. */
 #define FZN_SCHEMA_SAFE_LOWER 16u
 #define FZN_SCHEMA_SAFE_HIGHER 32u
+/* WHAT PEERS OBSERVE, sec 984: a value that reaches contacts or the wider
+ * net -- an address, a metric, a routing offer -- so a client can say so
+ * beside it. A declaration only; nothing is sent because of it. */
+#define FZN_SCHEMA_ADVERTISED 64u
 
 typedef struct fzn_schema_entry {
 	const char *key;
