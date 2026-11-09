@@ -83127,3 +83127,24 @@ ceiling's name, pass; the fuzz's crowds past the ceiling take 3.3 s.
 
 **Left:** an estate past 8192 streams, and the N squared grants of sec 579 well before it (sec 968),
 which is the question put to the holder.
+
+## 975. A host's records trimmed where it carries no messages, 2026-11-09
+
+Found by `livecheck-embedded` in sec 974's gates: `live_objects` phase d (sec 963) failed on the
+embedded build, its root holding all 7 values. **The records trim ran inside the messages' trim**,
+which the messages' round reaches only after absorbing conversations -- and a build with no
+messages, the lean and embedded hosts that objects are for, returns before it. So on those hosts no
+records rule (sec 815) and no default (sec 963) ever ran, and a lamp's values grew for good where
+they matter most. Sec 963 was gated on the full build alone.
+
+**A step of its own now** (`records_trim`), hourly as before, run at the head of the messages'
+round whether or not the host carries messages; it no longer waits on the attachments' backfill
+(sec 796), which concerns lines.
+
+**Measured live:** `live_objects` against the embedded daemon passes d, 7 values trimmed to each
+host's newest; the full build's passes as before.
+
+**And a second miss of sec 963's gates:** `live_trim` phase t asserted the records pass weighed one
+rule, and since the default it weighs two -- the one given and the default. It asserts that now.
+963 was gated by test, installcheck, style and `live_objects` on the full build; a change to what
+every host trims wanted `live_trim` and `livecheck-embedded` beside them.

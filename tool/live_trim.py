@@ -413,8 +413,10 @@ def records_trimmed(run, tag):
 				raise failed("%s: no records trim pass was logged within 30 s" % tag)
 			if got is None:
 				time.sleep(0.2)
-		if int(got.group(1)) != 1:
-			raise failed("%s: the records pass weighed %s rule(s), not one" % (tag, got.group(1)))
+		# THE RULE GIVEN, AND THE DEFAULT every host weighs beside it (sec 963).
+		if int(got.group(1)) != 2:
+			raise failed("%s: the records pass weighed %s rule(s), not the one given and the "
+			             "default" % (tag, got.group(1)))
 		listed = ask(run.sock, "list record self").split()[4:]
 		keys = [r.split(",")[1] for r in listed]
 		values = [r.split(",")[3] for r in listed]

@@ -5415,26 +5415,22 @@ static void attachments_trim(const fzn_retain_rule_t *gathered, size_t n_gathere
 static int attachments_backfill(void);
 #endif
 
-static void messages_trim(uint64_t now)
+/* A HOST'S RECORDS TRIMMED, sec 815, hourly, from the rules gathered and the
+ * defaults (sec 963) -- a step of its own since sec 975: it ran inside the
+ * messages' trim, which a host with no messages -- a lean or embedded build,
+ * the hosts objects live on -- never reaches, so no records rule and no
+ * default ever ran there. */
+static void records_trim(uint64_t now)
 {
 	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
 	static uint64_t next_trim;
-	fzn_messages_trim_tally_t tally;
-	fzn_messages_err_t err;
-	size_t n, gathered;
+	size_t gathered;
 
-	if (now < next_trim && next_trim <= now + FZND_TRIM_EVERY)
+	if (!node_records.b || (now < next_trim && next_trim <= now + FZND_TRIM_EVERY))
 		return;
-#if defined(FZN_SPOOL_FILE_ON)
-	/* NOT UNTIL THE LINES KEPT BEFORE ARE TOLD, sec 796. */
-	if (!attachments_backfill())
-		return;
-#endif
 	next_trim = now + FZND_TRIM_EVERY;
 	gathered = gather_rules(rules);
-	/* A HOST'S RECORDS, sec 815, from the rules gathered, before the
-	 * messages' selection writes over them. */
-	if (node_records.b) {
+	{
 		static fzn_retain_rule_t mine[FZN_RETAIN_RULES_MAX];
 		size_t n_mine = fzn_retain_select_records(rules, gathered,
 		                                          dlog.has_host ? dlog.host : NULL,
@@ -5455,6 +5451,25 @@ static void messages_trim(uint64_t now)
 		say(FZN_ENTRY_DEBUG, "records", "trim pass: %zu of %zu rule(s) over records", n_mine,
 		    gathered);
 	}
+}
+
+static void messages_trim(uint64_t now)
+{
+	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
+	static uint64_t next_trim;
+	fzn_messages_trim_tally_t tally;
+	fzn_messages_err_t err;
+	size_t n, gathered;
+
+	if (now < next_trim && next_trim <= now + FZND_TRIM_EVERY)
+		return;
+#if defined(FZN_SPOOL_FILE_ON)
+	/* NOT UNTIL THE LINES KEPT BEFORE ARE TOLD, sec 796. */
+	if (!attachments_backfill())
+		return;
+#endif
+	next_trim = now + FZND_TRIM_EVERY;
+	gathered = gather_rules(rules);
 #if defined(FZN_SPOOL_FILE_ON)
 	/* ATTACHMENTS FIRST, from the rules gathered, before the messages'
 	 * selection writes over them. sec 795. */
@@ -5581,6 +5596,7 @@ static void messages_round(struct pull_target *pulls, size_t npulls, uint64_t no
 {
 	size_t p;
 
+	records_trim(now);
 	if (!messages_absorb())
 		return;
 	messages_trim(now);
