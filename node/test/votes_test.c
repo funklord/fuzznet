@@ -171,7 +171,7 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 /* ---- the cases ------------------------------------------------------------ */
 
 static struct mem node;
-static const fzn_persist_ops_t STORE = { mem_load, mem_save, mem_list, mem_remove, &node, NULL };
+static const fzn_persist_ops_t STORE = { mem_load, mem_save, mem_list, mem_remove, &node, NULL, NULL };
 static const fzn_buckets_t B = { &STORE, &HASH };
 static fzn_node_identity_t me;
 static uint64_t clock_ms = 1793500000000ull; /* 2026-11 */

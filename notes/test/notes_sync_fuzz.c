@@ -211,8 +211,8 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 /* A REMOVAL THAT FAILS FOR A NOTE while `refuse_note_removal` is set: the
  * erase after a purge's last answer, failing. */
 static struct table table_a, table_b;
-static fzn_persist_ops_t ops_a = { mem_load, mem_save, mem_list, mem_remove, &table_a, NULL };
-static fzn_persist_ops_t ops_b = { mem_load, mem_save, mem_list, mem_remove, &table_b, NULL };
+static fzn_persist_ops_t ops_a = { mem_load, mem_save, mem_list, mem_remove, &table_a, NULL, NULL };
+static fzn_persist_ops_t ops_b = { mem_load, mem_save, mem_list, mem_remove, &table_b, NULL, NULL };
 static fzn_notes_store_t store_a, store_b;
 
 /* ---- writing notes on A -------------------------------------------------- */

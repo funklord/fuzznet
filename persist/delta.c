@@ -188,6 +188,15 @@ static int delta_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	return hold(d, slot, subject, bytes, len, 0);
 }
 
+/* WHERE A SLOT STANDS, sec 971: the store beneath's while nothing is held
+ * here; a row held is newer than it, and then nothing can be said. */
+static uint64_t delta_stamp(void *ctx, fzn_persist_slot_t slot)
+{
+	const fzn_persist_delta_t *d = ctx;
+
+	return d && !d->rows && d->base && d->base->stamp ? d->base->stamp(d->base->ctx, slot) : 0;
+}
+
 static int delta_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
 {
 	fzn_persist_delta_t *d = ctx;
@@ -299,6 +308,7 @@ void fzn_persist_delta_init(fzn_persist_delta_t *d, const fzn_persist_ops_t *bas
 	ops->remove = delta_remove;
 	ops->ctx = d;
 	ops->each = delta_each;
+	ops->stamp = delta_stamp;
 }
 
 size_t fzn_persist_delta_flush(fzn_persist_delta_t *d)

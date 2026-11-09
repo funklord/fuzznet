@@ -91,7 +91,7 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	return 1;
 }
 
-static fzn_persist_ops_t STORE = { mem_load, mem_save, NULL, mem_remove, NULL, NULL };
+static fzn_persist_ops_t STORE = { mem_load, mem_save, NULL, mem_remove, NULL, NULL, NULL };
 static fzn_hash_ops_t HASH;
 static fzn_attachments_t A;
 static fzn_file_holds_t H;

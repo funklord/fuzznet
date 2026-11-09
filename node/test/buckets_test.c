@@ -150,8 +150,8 @@ static size_t rows_in(const struct mem *m, fzn_persist_slot_t slot)
 }
 
 static struct mem mem_a, mem_b;
-static fzn_persist_ops_t store_a = { mem_load, mem_save, mem_list, mem_remove, &mem_a, NULL };
-static fzn_persist_ops_t store_b = { mem_load, mem_save, mem_list, mem_remove, &mem_b, NULL };
+static fzn_persist_ops_t store_a = { mem_load, mem_save, mem_list, mem_remove, &mem_a, NULL, NULL };
+static fzn_persist_ops_t store_b = { mem_load, mem_save, mem_list, mem_remove, &mem_b, NULL, NULL };
 static const fzn_buckets_t A = { &store_a, &HASH };
 static const fzn_buckets_t B = { &store_b, &HASH };
 
@@ -762,6 +762,43 @@ static void test_a_push_brings_a_peer_up(void)
 	receiving.puts = 0;
 	CHECK(push_a_to_b(&t) == FZN_RECONCILE_OK && t.buckets == 0u && receiving.puts == 0u,
 	      "a second push sent anything");
+}
+
+/* AN IDS ANSWER, THEN A BUCKETS ANSWER, from one server, sec 970: the ids'
+ * grown room was once declared under the buckets' own name, which C makes
+ * one variable, so after any class was served its ids every buckets answer
+ * failed and the asker was told `unsupported`. */
+static void test_ids_served_leave_the_buckets_room(void)
+{
+	static uint8_t reply[FZN_RECONCILE_REPLY_MIN];
+	uint8_t hop[FZN_HOP_LEN], row[FZN_PUBKEY_LEN], request[16];
+	fzn_reconcile_server_t srv;
+	size_t n;
+
+	memset(&srv, 0, sizeof(srv));
+	srv.store = &store_b;
+	srv.hash = &HASH;
+	memset(hop, 0x5a, sizeof(hop));
+	hop[0] = FZN_SIGNED_VERSION;
+	hop[1] = FZN_OBJECT_HOP;
+	memset(row, 0x5a, sizeof(row));
+	CHECK(store_b.save(store_b.ctx, FZN_PERSIST_GRANT, row, hop, sizeof(hop)),
+	      "fixture: a grant held");
+	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	request[1] = (uint8_t)FZN_RECONCILE_IDS_QUERY;
+	request[2] = (uint8_t)FZN_HOLDINGS_GRANTS;
+	fzn_put_be32(request + 3u, 0u);
+	n = fzn_reconcile_serve(&srv, request, FZN_RECONCILE_IDS_QUERY_LEN, reply, sizeof(reply));
+	CHECK(n >= FZN_RECONCILE_IDS_HEAD_LEN && reply[1] == (uint8_t)FZN_RECONCILE_IDS
+	              && fzn_get_be32(reply + 3u) >= 1u,
+	      "fixture: the grants' ids served");
+	request[1] = (uint8_t)FZN_RECONCILE_BUCKETS_QUERY;
+	request[2] = (uint8_t)FZN_BUCKETS_MESSAGES;
+	n = fzn_reconcile_serve(&srv, request, FZN_RECONCILE_BUCKETS_QUERY_LEN, reply, sizeof(reply));
+	CHECK(n >= FZN_RECONCILE_BUCKETS_HEAD_LEN && reply[1] == (uint8_t)FZN_RECONCILE_BUCKETS
+	              && fzn_get_be32(reply + 3u) >= 1u,
+	      "after ids were served, the buckets were not");
+	CHECK(store_b.remove(store_b.ctx, FZN_PERSIST_GRANT, row), "fixture: the grant let go");
 }
 
 static void test_what_a_push_does_not_leave(void)
@@ -1381,6 +1418,7 @@ int main(void)
 	test_what_is_not_taken();
 	test_a_gate_serves_only_what_it_may();
 	test_a_push_brings_a_peer_up();
+	test_ids_served_leave_the_buckets_room();
 	test_what_a_push_does_not_leave();
 	test_large_items_pulled_and_pushed();
 	test_an_item_let_go();

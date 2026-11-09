@@ -1775,10 +1775,21 @@ static void fake_hop(uint8_t out[FZN_HOP_LEN], uint8_t fill)
  * number as the store loads them, walked rather than listed. */
 #define WIDE_ROWS 5000u
 
+static size_t wide_loads;
+static uint64_t wide_at;
+
+static uint64_t wide_stamp(void *ctx, fzn_persist_slot_t slot)
+{
+	(void)ctx;
+	(void)slot;
+	return wide_at;
+}
+
 static int wide_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
                      size_t cap, size_t *len)
 {
 	(void)ctx;
+	wide_loads++;
 	if (slot != FZN_PERSIST_GRANT || cap < FZN_HOP_LEN)
 		return 0;
 	fake_hop(out, 0x44);
@@ -1826,6 +1837,45 @@ static void test_holdings_past_the_old_room(void)
 	CHECK(ascending && n && fzn_holdings_among((const uint8_t(*)[FZN_HOLDINGS_ID_LEN])ids, n,
 	                                           ids[n - 1u]),
 	      "5000 ids were not ascending, or the last not found");
+	free(ids);
+}
+
+/* A CLASS KEPT WHILE ITS SLOT STANDS, sec 971: a second digest and a listing
+ * load nothing, a stamp moved loads it again, and a store that cannot say
+ * is read each time. */
+static void test_holdings_kept_while_the_slot_stands(void)
+{
+	fzn_persist_ops_t store;
+	uint8_t (*ids)[FZN_HOLDINGS_ID_LEN] = NULL, d1[FZN_HOLDINGS_ID_LEN], d2[FZN_HOLDINGS_ID_LEN];
+	size_t room = 0, n = 0, loads;
+
+	memset(&store, 0, sizeof(store));
+	store.load = wide_load;
+	store.each = wide_each;
+	store.stamp = wide_stamp;
+	wide_at = 7u;
+	wide_loads = 0;
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, d1, &n) == FZN_HOLDINGS_OK
+	              && n == WIDE_ROWS && wide_loads == WIDE_ROWS,
+	      "fixture: the first digest read the class");
+	loads = wide_loads;
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, d2, &n) == FZN_HOLDINGS_OK
+	              && n == WIDE_ROWS && memcmp(d1, d2, sizeof(d1)) == 0
+	              && fzn_holdings_ids_all(&store, &HASH, FZN_HOLDINGS_GRANTS, &ids, &room, &n)
+	                         == FZN_HOLDINGS_OK
+	              && n == WIDE_ROWS && wide_loads == loads,
+	      "a digest and a listing of a class whose slot stood read it again");
+	wide_at = 8u;
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, d2, &n) == FZN_HOLDINGS_OK
+	              && memcmp(d1, d2, sizeof(d1)) == 0 && wide_loads == loads + WIDE_ROWS,
+	      "a stamp moved did not read the class again");
+	wide_at = 0;
+	loads = wide_loads;
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, d2, &n) == FZN_HOLDINGS_OK
+	              && fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, d2, &n)
+	                         == FZN_HOLDINGS_OK
+	              && wide_loads == loads + 2u * WIDE_ROWS,
+	      "a store that cannot say was not read each time");
 	free(ids);
 }
 
@@ -2452,6 +2502,7 @@ int main(void)
 	test_setting_holders();
 	test_holdings();
 	test_holdings_past_the_old_room();
+	test_holdings_kept_while_the_slot_stands();
 	test_a_capability_held();
 	test_a_grant_is_its_grantors();
 	test_settings_at_thousands();

@@ -107,7 +107,7 @@ static int base_each(void *ctx, fzn_persist_slot_t slot,
 	return 1;
 }
 
-static const fzn_persist_ops_t BASE = { base_load, base_save, NULL, base_remove, NULL, base_each };
+static const fzn_persist_ops_t BASE = { base_load, base_save, NULL, base_remove, NULL, base_each, NULL };
 
 static void key(uint8_t *k, uint8_t n)
 {

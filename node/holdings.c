@@ -227,17 +227,92 @@ fzn_holdings_err_t fzn_holdings_ids(const fzn_persist_ops_t *store, const fzn_ha
 	return FZN_HOLDINGS_OK;
 }
 
+/* A CLASS KEPT WHILE ITS SLOT STANDS, sec 971: every digest -- served and
+ * asked, each round, of every peer -- read and hashed the whole class again,
+ * 60 per cent of a member's time in an estate of 30 (sec 969). Kept by store,
+ * hash and the slot's stamp, so a store that cannot say (`stamp` NULL or 0)
+ * is read whole as before. */
+static struct kept_class {
+	const fzn_persist_ops_t *store;
+	const fzn_hash_ops_t *hash;
+	uint64_t stamp;
+	uint8_t (*ids)[FZN_HOLDINGS_ID_LEN];
+	size_t n, room;
+	uint8_t digest[FZN_HOLDINGS_ID_LEN];
+	int has_digest;
+} kept[FZN_HOLDINGS_CLASSES];
+
+static uint64_t stamp_of(const fzn_persist_ops_t *store, fzn_holdings_class_t cls)
+{
+	return store->stamp ? store->stamp(store->ctx, SHAPES[cls].slot) : 0;
+}
+
+/* The kept class, when it is still what the store holds. */
+static struct kept_class *kept_now(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
+                                   fzn_holdings_class_t cls)
+{
+	struct kept_class *k = &kept[cls];
+	uint64_t at = stamp_of(store, cls);
+
+	return at && k->stamp == at && k->store == store && k->hash == hash ? k : NULL;
+}
+
+/* Keep `n` ids just read, at the slot's stamp now. */
+static void keep(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
+                 fzn_holdings_class_t cls, const uint8_t (*ids)[FZN_HOLDINGS_ID_LEN], size_t n)
+{
+	struct kept_class *k = &kept[cls];
+	uint64_t at = stamp_of(store, cls);
+
+	k->stamp = 0;
+	k->has_digest = 0;
+	if (!at)
+		return;
+	if (n > k->room) {
+		uint8_t (*more)[FZN_HOLDINGS_ID_LEN] = realloc(k->ids, n * sizeof(*more));
+
+		if (!more)
+			return;
+		k->ids = more;
+		k->room = n;
+	}
+	if (n)
+		memcpy(k->ids, ids, n * FZN_HOLDINGS_ID_LEN);
+	k->n = n;
+	k->store = store;
+	k->hash = hash;
+	k->stamp = at;
+}
+
 fzn_holdings_err_t fzn_holdings_ids_all(const fzn_persist_ops_t *store,
                                         const fzn_hash_ops_t *hash, fzn_holdings_class_t cls,
                                         uint8_t (**ids)[FZN_HOLDINGS_ID_LEN], size_t *room,
                                         size_t *count)
 {
 	struct collecting c;
+	struct kept_class *k;
 	fzn_holdings_err_t err;
 
 	if (!ids || !room || !count)
 		return FZN_HOLDINGS_MALFORMED;
 	*count = 0;
+	if (!store || !hash || (unsigned)cls >= FZN_HOLDINGS_CLASSES)
+		return FZN_HOLDINGS_MALFORMED;
+	if ((k = kept_now(store, hash, cls)) != NULL) {
+		if (k->n > *room || !*ids) {
+			uint8_t (*more)[FZN_HOLDINGS_ID_LEN] = realloc(*ids, (k->n ? k->n : 1u)
+			                                                              * sizeof(*more));
+
+			if (!more)
+				return FZN_HOLDINGS_BACKEND;
+			*ids = more;
+			*room = k->n ? k->n : 1u;
+		}
+		if (k->n)
+			memcpy(*ids, k->ids, k->n * FZN_HOLDINGS_ID_LEN);
+		*count = k->n;
+		return FZN_HOLDINGS_OK;
+	}
 	c.ids = *ids;
 	c.max = *ids ? *room : 0;
 	c.n = 0;
@@ -252,6 +327,7 @@ fzn_holdings_err_t fzn_holdings_ids_all(const fzn_persist_ops_t *store,
 	if (c.n)
 		qsort(*ids, c.n, FZN_HOLDINGS_ID_LEN, by_id);
 	*count = c.n;
+	keep(store, hash, cls, (const uint8_t(*)[FZN_HOLDINGS_ID_LEN])*ids, c.n);
 	return FZN_HOLDINGS_OK;
 }
 
@@ -272,10 +348,19 @@ fzn_holdings_err_t fzn_holdings_digest(const fzn_persist_ops_t *store,
 	size_t n = 0, at = sizeof(DOMAIN) - 1u;
 	fzn_holdings_err_t err;
 
+	struct kept_class *k;
+
 	if (count)
 		*count = 0;
 	if (!digest)
 		return FZN_HOLDINGS_MALFORMED;
+	if (store && hash && (unsigned)cls < FZN_HOLDINGS_CLASSES
+	    && (k = kept_now(store, hash, cls)) != NULL && k->has_digest) {
+		memcpy(digest, k->digest, FZN_HOLDINGS_ID_LEN);
+		if (count)
+			*count = k->n;
+		return FZN_HOLDINGS_OK;
+	}
 	err = fzn_holdings_ids_all(store, hash, cls, &ids, &ids_room, &n);
 	if (err != FZN_HOLDINGS_OK)
 		return err;
@@ -296,6 +381,10 @@ fzn_holdings_err_t fzn_holdings_digest(const fzn_persist_ops_t *store,
 	if (!hash->hash(hash->ctx, digest, FZN_HOLDINGS_ID_LEN, in,
 	                at + 1u + 8u + (n * FZN_HOLDINGS_ID_LEN)))
 		return FZN_HOLDINGS_BACKEND;
+	if ((k = kept_now(store, hash, cls)) != NULL && k->n == n) {
+		memcpy(k->digest, digest, FZN_HOLDINGS_ID_LEN);
+		k->has_digest = 1;
+	}
 	if (count)
 		*count = n;
 	return FZN_HOLDINGS_OK;

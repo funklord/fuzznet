@@ -237,6 +237,8 @@ fzn_notes_err_t fzn_notes_received_ops(fzn_notes_received_t *seam, const fzn_per
 	/* NO WALK OF ITS OWN: `fzn_persist_each` walks it through
 	 * `seam_list`, which filters the base's rows by sharer. sec 704. */
 	ops->each = NULL;
+	/* NOR A STAMP: its rows are the base's, filtered. sec 971. */
+	ops->stamp = NULL;
 	return FZN_NOTES_OK;
 }
 

@@ -83003,3 +83003,52 @@ now makes one: caught.
 **Not yet:** every digest still reads and hashes the class again (sec 969's profile), and a peer
 paging through the ids has them read again for each page -- square in a class's size. A digest
 kept while the store's slot has not moved is sec 971.
+
+## 971. A class of holdings kept while its slot stands, 2026-11-09
+
+Sec 970's other half: every reconcile digest, served and asked, of every peer each round, loaded
+and hashed the whole class again -- 60 % of a member's time in an estate of 30 (sec 969) -- and a
+peer paging through the ids had them read again for every page.
+
+**A store says where a slot stands** (`fzn_persist_ops_t.stamp`, optional and after `each`, as
+`each` is after `ctx`): a number that moves whenever what the slot holds may have, 0 for "cannot
+say". The file store's is its index's (sec 936): the slot's own saves and removes since a read of
+the directory whole, the read's generation drawn from one count for the process so no two stores
+ever say one stamp; while the index is not whole, or the directory's time is not its own, 0. The
+route, the cache and the op journal say their base's; the delta its base's while it holds nothing;
+the received notes' seam none. Every library builder of the ops sets it, and every one built by
+hand in the tests is a static or zeroed, so none reads as garbage.
+
+**Holdings keep each class** -- its ids and its digest -- by store, hash and stamp, and answer
+from them while the stamp stands; a store that cannot say is read whole as before.
+
+**Tested:** `persist_file_test` -- no stamp without an index or before it reads; a save and a
+remove move their slot's stamp and not another's; a row put beside it leaves none until read again,
+then another. `apply_test` -- over the made-up 5000 grants, a second digest and a listing load
+nothing, a stamp moved loads the class once more, a store with no stamp loads each time.
+`stamp-not-moved-by-a-save` and `holdings-kept-past-their-stamp` guard it, caught by hand.
+
+**Measured, `live_estate_turns`:**
+
+| members | CPU a daemon, median (max), before | after |
+|---|---|---|
+| 11 | 2.1-2.3 % | 1.4 % (1.6) |
+| 30 | 6.7 % (13.3) | 2.2 % (4.5) |
+
+**And a fault of sec 970's, found by `live_objects` failing three runs in three:** the served ids'
+room was declared `static size_t served_room` in `node/reconcile.c`, the name the buckets' answer
+already used for its own. Two file-scope statics of one name are one variable in C, a tentative
+definition each, and nothing warned. Once a peer had been served a class's ids, the buckets' answer
+believed it had room it had not: a sanitized run of the new test reads `realloc(): invalid next
+size`, and in the daemon its listing failed and the peer was told `unsupported`, so the
+conversations exchange failed and the records after it were never asked -- R's object never reached
+A. Since c267ffd. Named apart now (`served_ids_room`, `held_ids_room`);
+`test_ids_served_leave_the_buckets_room` in `buckets_test` serves a class's ids and then the
+buckets from one server, and `reconcile-ids-share-the-buckets-room` puts the one name back: caught.
+Found by bisecting -- the stamp off, the grant index off, the walk by `list`, each still failing;
+`reconcile.c` as it was, passing -- and then reading what the peer answered, not by reading the
+diff, which looked equivalent. The first measurement after the cache, 2.6 % at 30, was taken with
+the fault, and is replaced above.
+
+Still about linear in the estate: the journal plan (square in the streams, sec 968), the ranks a
+round asks, and the ceiling of 1024 positions a digest is read to, are what is left.

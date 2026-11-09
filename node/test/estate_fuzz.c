@@ -235,7 +235,7 @@ static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max
 	return 1;
 }
 
-static const fzn_persist_ops_t STORE = { mem_load, mem_save, mem_list, NULL, NULL, NULL };
+static const fzn_persist_ops_t STORE = { mem_load, mem_save, mem_list, NULL, NULL, NULL, NULL };
 
 /* ---- what is made ------------------------------------------------------- */
 

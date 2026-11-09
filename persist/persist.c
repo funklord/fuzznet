@@ -629,6 +629,14 @@ static int route_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subje
 	return to && to->remove ? to->remove(to->ctx, slot, subject) : 0;
 }
 
+/* The stamp of the store the slot is routed to, sec 971. */
+static uint64_t route_stamp(void *ctx, fzn_persist_slot_t slot)
+{
+	const fzn_persist_ops_t *to = route_for(ctx, slot);
+
+	return to && to->stamp ? to->stamp(to->ctx, slot) : 0;
+}
+
 void fzn_persist_route_ops(fzn_persist_route_t *route, fzn_persist_ops_t *ops)
 {
 	if (!ops)
@@ -638,5 +646,6 @@ void fzn_persist_route_ops(fzn_persist_route_t *route, fzn_persist_ops_t *ops)
 	ops->list = route_list;
 	ops->remove = route_remove;
 	ops->ctx = route;
+	ops->stamp = route_stamp;
 	ops->each = route_each;
 }

@@ -429,7 +429,7 @@ static int log_walked(void *ctx, int spine, const uint8_t *bytes, size_t len)
 static void test_the_spine_outlives_a_cut(void)
 {
 	static fzn_node_journal_t a;
-	static const fzn_persist_ops_t SPINE = { mem_load, mem_save, NULL, NULL, NULL, NULL };
+	static const fzn_persist_ops_t SPINE = { mem_load, mem_save, NULL, NULL, NULL, NULL, NULL };
 	uint8_t x[FZN_PUBKEY_LEN], ids[3][FZN_RECORD_ID_LEN], acts[3][FZN_SUBJECT_LEN];
 	char path[512];
 	size_t i;
@@ -487,7 +487,7 @@ static void test_the_spine_outlives_a_cut(void)
 static void test_a_stream_read_from_its_base(void)
 {
 	static fzn_node_journal_t a, b;
-	static const fzn_persist_ops_t KEEP = { mem_load, mem_save, NULL, NULL, NULL, NULL };
+	static const fzn_persist_ops_t KEEP = { mem_load, mem_save, NULL, NULL, NULL, NULL, NULL };
 	uint8_t y[FZN_PUBKEY_LEN], ids[4][FZN_RECORD_ID_LEN], acts[4][FZN_SUBJECT_LEN];
 	uint8_t head[FZN_RECORD_ID_LEN];
 	char path[512];
@@ -573,7 +573,7 @@ static void test_a_stream_read_from_its_base(void)
 static void test_the_cut(void)
 {
 	static fzn_node_journal_t a, b;
-	static const fzn_persist_ops_t KEEP = { mem_load, mem_save, NULL, NULL, NULL, NULL };
+	static const fzn_persist_ops_t KEEP = { mem_load, mem_save, NULL, NULL, NULL, NULL, NULL };
 	uint8_t z[FZN_PUBKEY_LEN], ids[5][FZN_RECORD_ID_LEN], acts[5][FZN_SUBJECT_LEN];
 	uint8_t buf[FZN_RECORD_MAX_LEN];
 	fzn_record_t rec;
@@ -654,8 +654,8 @@ static void test_the_cut(void)
 static void test_a_stream_rebased(void)
 {
 	static fzn_node_journal_t a, b;
-	static const fzn_persist_ops_t KEEP_A = { mem_load, mem_save, NULL, NULL, NULL, NULL };
-	static const fzn_persist_ops_t KEEP_B = { mem_load, mem_save, NULL, NULL, &mem_b, NULL };
+	static const fzn_persist_ops_t KEEP_A = { mem_load, mem_save, NULL, NULL, NULL, NULL, NULL };
+	static const fzn_persist_ops_t KEEP_B = { mem_load, mem_save, NULL, NULL, &mem_b, NULL, NULL };
 	uint8_t v[FZN_PUBKEY_LEN], ids[6][FZN_RECORD_ID_LEN], acts[6][FZN_SUBJECT_LEN];
 	uint8_t below[FZN_RECORD_ID_LEN], bridge[2][FZN_NODE_JOURNAL_SPINE_ENTRY];
 	uint8_t head[FZN_RECORD_ID_LEN], reply[8192];

@@ -12298,8 +12298,8 @@ SABOTAGES = [
 	(
 		"reconcile-answer-lists-into-its-own-buffer",
 		"node/reconcile.c",
-		"static uint8_t (*served_ids)[FZN_HOLDINGS_ID_LEN], (*ids_buf)[FZN_HOLDINGS_ID_LEN];\nstatic size_t served_room, ids_room;\n",
-		"#define served_ids ids_buf\n#define served_room ids_room\nstatic uint8_t (*ids_buf)[FZN_HOLDINGS_ID_LEN];\nstatic size_t ids_room;\n",
+		"static uint8_t (*served_ids)[FZN_HOLDINGS_ID_LEN], (*ids_buf)[FZN_HOLDINGS_ID_LEN];\n",
+		"#define served_ids ids_buf\nstatic uint8_t (*ids_buf)[FZN_HOLDINGS_ID_LEN];\n#define served_ids_room held_ids_room\n",
 		"an answer overwrites the list a round in the same process is searching, and the round fetches what it holds -- sec 555",
 	),
 	(
@@ -14896,6 +14896,27 @@ SABOTAGES = [
 		"\tnote_listed(nr, subject, &s);\n\tif (nr->filed)",
 		"\tif (nr->filed)",
 		"a list read through the cache misses what a peer handed on -- sec 950",
+	),
+	(
+		"reconcile-ids-share-the-buckets-room",
+		"node/reconcile.c",
+		"static size_t served_ids_room, held_ids_room;\n",
+		"static size_t served_room, held_ids_room;\n#define served_ids_room served_room\n",
+		"the ids served and the buckets served count one room, and a peer is told `unsupported` -- sec 971",
+	),
+	(
+		"stamp-not-moved-by-a-save",
+		"persist/persist_file.c",
+		"\t\tr->moved++;\n",
+		"",
+		"a save leaves its slot's stamp standing, and a reader keeps what it no longer holds -- sec 971",
+	),
+	(
+		"holdings-kept-past-their-stamp",
+		"node/holdings.c",
+		"\treturn at && k->stamp == at && k->store == store && k->hash == hash ? k : NULL;\n",
+		"\treturn k->stamp && k->store == store && k->hash == hash ? k : NULL;\n",
+		"a class is answered as kept after its slot moved -- sec 971",
 	),
 	(
 		"holdings-not-grown",

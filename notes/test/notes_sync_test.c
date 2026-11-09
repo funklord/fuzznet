@@ -223,8 +223,8 @@ static size_t rows_of(const struct table *t, fzn_persist_slot_t slot)
 }
 
 static struct table table_a, table_b;
-static fzn_persist_ops_t ops_a = { mem_load, mem_save, mem_list, mem_remove, &table_a, NULL };
-static fzn_persist_ops_t ops_b = { mem_load, mem_save, mem_list, mem_remove, &table_b, NULL };
+static fzn_persist_ops_t ops_a = { mem_load, mem_save, mem_list, mem_remove, &table_a, NULL, NULL };
+static fzn_persist_ops_t ops_b = { mem_load, mem_save, mem_list, mem_remove, &table_b, NULL, NULL };
 static fzn_notes_store_t store_a, store_b;
 
 /* ---- writing notes on A -------------------------------------------------- */
@@ -888,7 +888,7 @@ static int small_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subje
 static void test_many_shares(void)
 {
 	static fzn_persist_ops_t small_ops = { small_load, small_save, small_list, small_remove,
-		                               NULL, NULL };
+		                               NULL, NULL, NULL };
 	static fzn_notes_share_t *all;
 	static uint8_t with[MANY_SHARES + 8u][FZN_TREE_ID_LEN];
 	fzn_notes_store_t big = store_a;

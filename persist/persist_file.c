@@ -363,12 +363,16 @@ static int unhex(char c)
 struct slot_rows {
 	uint8_t *rows; /* subjects, sorted */
 	size_t n, cap;
+	uint64_t moved; /* this store's saves and removes of the slot, sec 971 */
 };
+
+static uint64_t file_generations;
 
 struct fzn_persist_file_index {
 	struct slot_rows slots[FZN_PERSIST_FILE_SLOT_MAX + 1u];
 	struct timespec dir_time;
 	int whole;
+	uint64_t generation; /* reads of the directory whole, sec 971 */
 };
 
 static int by_subject(const void *a, const void *b)
@@ -455,6 +459,10 @@ static int index_read(fzn_persist_file_t *store)
 		if (x->slots[s].n)
 			qsort(x->slots[s].rows, x->slots[s].n, FZN_PUBKEY_LEN, by_subject);
 	x->whole = 1;
+	/* ONE COUNT FOR EVERY STORE IN THE PROCESS, so no two stores ever say one
+	 * stamp: a reader keeps by stamp, and a store made where another was
+	 * would otherwise say the old one's. */
+	x->generation = ++file_generations;
 	return 1;
 }
 
@@ -525,6 +533,7 @@ static void index_wrote(const fzn_persist_file_t *store, fzn_persist_slot_t slot
 		return;
 	if (subject) {
 		r = &x->slots[(unsigned)slot];
+		r->moved++;
 		held = row_at(r, subject, &at);
 		if (kept && !held) {
 			if (!row_room(r)) {
@@ -543,6 +552,25 @@ static void index_wrote(const fzn_persist_file_t *store, fzn_persist_slot_t slot
 	}
 	if (!dir_time_of(store, &x->dir_time))
 		x->whole = 0;
+}
+
+/* WHERE A SLOT STANDS, sec 971: what the index has read and followed since,
+ * while it is whole and the directory's time is its own; 0 otherwise, as
+ * then it cannot say what moved. */
+static uint64_t file_stamp(void *ctx, fzn_persist_slot_t slot)
+{
+	const fzn_persist_file_t *store = ctx;
+	struct fzn_persist_file_index *x = store ? store->index : NULL;
+	struct timespec now;
+
+	if (!x || !x->whole || (unsigned)slot > FZN_PERSIST_FILE_SLOT_MAX)
+		return 0;
+	if (!dir_time_of(store, &now) || now.tv_sec != x->dir_time.tv_sec
+	    || now.tv_nsec != x->dir_time.tv_nsec) {
+		x->whole = 0;
+		return 0;
+	}
+	return (x->generation << 32) + x->slots[(unsigned)slot].moved + 1u;
 }
 
 void fzn_persist_file_index_on(fzn_persist_file_t *store)
@@ -772,5 +800,6 @@ const fzn_persist_ops_t *fzn_persist_file_init(fzn_persist_file_t *store, const 
 	store->ops.remove = file_remove;
 	store->ops.ctx = store;
 	store->ops.each = file_each;
+	store->ops.stamp = file_stamp;
 	return &store->ops;
 }

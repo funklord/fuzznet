@@ -105,7 +105,7 @@ static int d_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
 	return 1;
 }
 
-static const fzn_persist_ops_t BASE = { d_load, d_save, d_list, d_remove, NULL, NULL };
+static const fzn_persist_ops_t BASE = { d_load, d_save, d_list, d_remove, NULL, NULL, NULL };
 
 static void key(uint8_t *k, uint8_t n)
 {

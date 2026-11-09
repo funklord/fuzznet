@@ -523,6 +523,14 @@ static int oj_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
 	return 1;
 }
 
+/* WHERE A SLOT STANDS, sec 971: the base's, every write going to it. */
+static uint64_t oj_stamp(void *ctx, fzn_persist_slot_t slot)
+{
+	const fzn_opjournal_t *oj = ctx;
+
+	return oj->base->stamp(oj->base->ctx, slot);
+}
+
 void fzn_opjournal_ops(fzn_opjournal_t *oj, fzn_persist_ops_t *ops)
 {
 	if (!oj || !ops)
@@ -533,6 +541,7 @@ void fzn_opjournal_ops(fzn_opjournal_t *oj, fzn_persist_ops_t *ops)
 	ops->remove = oj_remove;
 	ops->ctx = oj;
 	ops->each = oj->base && oj->base->each ? oj_each : NULL;
+	ops->stamp = oj->base && oj->base->stamp ? oj_stamp : NULL;
 }
 
 /* ---- replay ------------------------------------------------------------- */

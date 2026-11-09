@@ -573,6 +573,56 @@ static void row_beside(const char *where, size_t key, char *path, size_t cap)
 	}
 }
 
+/* sec 971: a slot's stamp moves with the store's own saves and removes of it, stands
+ * otherwise, and cannot be said while the directory moved some other way. */
+static void test_a_slot_stamped(void)
+{
+	static char where[320], path[448];
+	fzn_persist_file_t store;
+	const fzn_persist_ops_t *ops;
+	uint8_t subject[FZN_PUBKEY_LEN], byte = 1u;
+	struct timespec tick = { 0, 30000000 };
+	uint64_t peer, contact, again;
+
+	snprintf(where, sizeof(where), "%s/stamped", dir);
+	if (mkdir(where, 0700) != 0 || !(ops = fzn_persist_file_init(&store, where))) {
+		expect(0, "fixture: the stamped directory");
+		return;
+	}
+	walk_key(subject, 1u);
+	expect(ops->save(ops->ctx, FZN_PERSIST_PEER, subject, &byte, 1u) == 1, "save refused");
+	expect(ops->stamp && ops->stamp(ops->ctx, FZN_PERSIST_PEER) == 0u,
+	       "a store with no index said a stamp");
+	fzn_persist_file_index_on(&store);
+	expect(ops->stamp(ops->ctx, FZN_PERSIST_PEER) == 0u, "an index never read said a stamp");
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 1u, "fixture: the index read");
+	peer = ops->stamp(ops->ctx, FZN_PERSIST_PEER);
+	contact = ops->stamp(ops->ctx, FZN_PERSIST_CONTACT);
+	expect(peer && contact && ops->stamp(ops->ctx, FZN_PERSIST_PEER) == peer,
+	       "a read index said no stamp, or one that moved by itself");
+	walk_key(subject, 2u);
+	expect(ops->save(ops->ctx, FZN_PERSIST_PEER, subject, &byte, 1u) == 1, "save refused");
+	again = ops->stamp(ops->ctx, FZN_PERSIST_PEER);
+	expect(again && again != peer && ops->stamp(ops->ctx, FZN_PERSIST_CONTACT) == contact,
+	       "a save did not move its slot's stamp, or moved another's");
+	expect(ops->remove(ops->ctx, FZN_PERSIST_PEER, subject) == 1, "remove refused");
+	expect(ops->stamp(ops->ctx, FZN_PERSIST_PEER) != again, "a remove did not move the stamp");
+	again = ops->stamp(ops->ctx, FZN_PERSIST_PEER);
+	/* A ROW BESIDE IT: no stamp until it reads again, and then another. */
+	(void)nanosleep(&tick, NULL);
+	row_beside(where, 9u, path, sizeof(path));
+	expect(ops->stamp(ops->ctx, FZN_PERSIST_PEER) == 0u, "a row beside it left a stamp standing");
+	expect(walked_in(ops, FZN_PERSIST_PEER) == 2u, "fixture: read again");
+	expect(ops->stamp(ops->ctx, FZN_PERSIST_PEER) != 0u
+	               && ops->stamp(ops->ctx, FZN_PERSIST_PEER) != again,
+	       "read again, the stamp did not move");
+	fzn_persist_file_index_off(&store);
+	walk_key(subject, 1u);
+	expect(ops->remove(ops->ctx, FZN_PERSIST_PEER, subject) == 1 && unlink(path) == 0
+	               && rmdir(where) == 0,
+	       "fixture: the stamped directory emptied");
+}
+
 /* sec 936: what the directory holds, kept in memory, says what the directory says. */
 static void test_the_directory_held(void)
 {
@@ -706,6 +756,7 @@ int main(void)
 
 	test_a_slot_walked_past_any_list();
 	test_the_directory_held();
+	test_a_slot_stamped();
 
 	for (i = 0; i < sizeof(in); i++)
 		in[i] = (uint8_t)(i + 1u);

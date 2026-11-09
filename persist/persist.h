@@ -596,6 +596,15 @@ typedef struct fzn_persist_ops {
 	 * stack held, it is called. */
 	int (*each)(void *ctx, fzn_persist_slot_t slot,
 	            int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg);
+	/* WHERE `slot` STANDS, sec 971: a number that moves whenever what the
+	 * slot holds may have, by a save or remove through this backend or any
+	 * beneath it, or by a hand in its files. A reader may keep what it made
+	 * of the slot while the number stands. 0 is "cannot say": keep nothing.
+	 *
+	 * OPTIONAL, and AFTER `each` as that is after `ctx`: a backend that
+	 * leaves it NULL is read whole each time, as before. The same warning:
+	 * a struct filled field by field must be zeroed first. */
+	uint64_t (*stamp)(void *ctx, fzn_persist_slot_t slot);
 } fzn_persist_ops_t;
 
 /* THE SUBJECTS OF A SLOT FOR A WALKER, sec 704: `fn` per subject, through

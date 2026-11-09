@@ -273,6 +273,15 @@ void fzn_persist_cache_drop(fzn_persist_cache_t *c)
 	c->rest = 0;
 }
 
+/* WHERE A SLOT STANDS, sec 971: the store beneath's, as every write goes
+ * through to it. */
+static uint64_t cache_stamp(void *ctx, fzn_persist_slot_t slot)
+{
+	const fzn_persist_cache_t *c = ctx;
+
+	return c && c->base && c->base->stamp ? c->base->stamp(c->base->ctx, slot) : 0;
+}
+
 void fzn_persist_cache_init(fzn_persist_cache_t *c, const fzn_persist_ops_t *base,
                             fzn_persist_slot_t slot, fzn_persist_ops_t *ops)
 {
@@ -287,4 +296,5 @@ void fzn_persist_cache_init(fzn_persist_cache_t *c, const fzn_persist_ops_t *bas
 	ops->remove = cache_remove;
 	ops->ctx = c;
 	ops->each = cache_each;
+	ops->stamp = cache_stamp;
 }
