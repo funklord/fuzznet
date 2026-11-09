@@ -144,6 +144,23 @@ static void test_fuzznets_declarations(void)
 	              && fzn_schema_check(fzn_node_schema_find(NULL, B("log/segment")), B("4095"))
 	                         != NULL,
 	      "a log cell takes a value its reader would not, or refuses one it would");
+	/* THE SAFE DIRECTION, sec 981: off over on where off is safer, the larger
+	 * k, nothing of a cell declaring none or of a value it does not take. */
+	{
+		const fzn_schema_entry_t *pub = fzn_node_schema_find(NULL, B("routing/public"));
+		const fzn_schema_entry_t *k = fzn_node_schema_find(NULL, B("revocation/k"));
+		const fzn_schema_entry_t *conf = fzn_node_schema_find(NULL, B("invite/confirm"));
+		const fzn_schema_entry_t *win = fzn_node_schema_find(NULL, B("journal/window"));
+
+		CHECK(fzn_schema_safer(pub, B("on"), B("off")) && !fzn_schema_safer(pub, B("off"), B("on"))
+		              && fzn_schema_safer(pub, B("1"), B("0"))
+		              && !fzn_schema_safer(pub, B("off"), B("off"))
+		              && fzn_schema_safer(k, B("2"), B("3")) && !fzn_schema_safer(k, B("3"), B("2"))
+		              && fzn_schema_safer(conf, B("off"), B("on"))
+		              && !fzn_schema_safer(win, B("60"), B("30"))
+		              && !fzn_schema_safer(k, B("2"), B("x")),
+		      "a safe direction chose the wrong side, or one a cell does not declare");
+	}
 }
 
 static const fzn_schema_entry_t EXTRA[] = {

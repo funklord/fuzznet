@@ -14954,6 +14954,13 @@ SABOTAGES = [
 		"an imported title past the bound is kept whole, past what a note may hold -- sec 982",
 	),
 	(
+		"safe-direction-reversed",
+		"state/schema.c",
+		"\treturn (e->flags & FZN_SCHEMA_SAFE_LOWER) ? y < x : y > x;\n",
+		"\treturn (e->flags & FZN_SCHEMA_SAFE_LOWER) ? y > x : y < x;\n",
+		"of two values written apart the less restrictive stands -- sec 981",
+	),
+	(
 		"import-refusal-reason-lost",
 		"node/notes.c",
 		"\tcase FZN_NOTES_IMPORT_PENDING:\n\t\treturn \"pending\";\n",

@@ -3291,6 +3291,90 @@ static void record_filed(void *ctx, const fzn_setting_t *s)
 		votes_due = 1;
 }
 
+static void setting_decided(void *ctx, const uint8_t *key, size_t key_len, const uint8_t *value,
+                            size_t value_len, uint64_t seen, const uint8_t *seen_by);
+
+/* THE SAFER SIDE OF A FORK, sec 981 (sec 389 decision 4, the holder's): of a
+ * setting declaring a safe direction, written apart, the more restrictive
+ * stands. Collected by subject, the safest head of each kept. */
+struct safer_side {
+	uint8_t key[FZN_NODE_DECIDED_SUBJECT_MAX];
+	size_t key_len;
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	size_t value_len;
+};
+static struct safer_side *safer_sides;
+static size_t n_safer_sides, safer_sides_room;
+
+static void safer_head(void *ctx, const fzn_node_decision_t *d)
+{
+	const fzn_schema_entry_t *e =
+	        fzn_node_schema_find(&node_schema, d->subject, d->subject_len);
+	struct safer_side *s = n_safer_sides ? &safer_sides[n_safer_sides - 1u] : NULL;
+
+	(void)ctx;
+	if (!e || !(e->flags & (FZN_SCHEMA_SAFE_LOWER | FZN_SCHEMA_SAFE_HIGHER))
+	    || !(e->scopes & FZN_SCHEMA_ESTATE))
+		return;
+	/* A HEAD THE SETTING WOULD NOT TAKE is never the safer one: written
+	 * apart by a host of another version, say, it is left to its fork. */
+	if (fzn_schema_check(e, d->value, d->value_len))
+		return;
+	if (s && s->key_len == d->subject_len && !memcmp(s->key, d->subject, d->subject_len)) {
+		if (fzn_schema_safer(e, s->value, s->value_len, d->value, d->value_len)) {
+			memcpy(s->value, d->value, d->value_len);
+			s->value_len = d->value_len;
+		}
+		return;
+	}
+	if (n_safer_sides == safer_sides_room) {
+		size_t room = safer_sides_room ? safer_sides_room * 2u : 8u;
+		struct safer_side *more = realloc(safer_sides, room * sizeof(*more));
+
+		if (!more)
+			return;
+		safer_sides = more;
+		safer_sides_room = room;
+	}
+	s = &safer_sides[n_safer_sides++];
+	memcpy(s->key, d->subject, d->subject_len);
+	s->key_len = d->subject_len;
+	memcpy(s->value, d->value, d->value_len);
+	s->value_len = d->value_len;
+}
+
+/* EACH SUCH FORK SETTLED, where this host may set the estate's cell: the safest
+ * head written again, which names every head and so closes the fork. Every
+ * host computes one value from one set of heads, so hosts settling at once
+ * leave heads of one value, which is no fork. A host that may not set it
+ * leaves it to one that may. */
+static void forks_settle_safer(void)
+{
+	size_t i;
+
+	n_safer_sides = 0;
+	if (!node_settings.store || !node_settings.estate
+	    || fzn_node_decisions_forks(&node_records, safer_head, NULL) <= 0)
+		return;
+	for (i = 0; i < n_safer_sides; i++) {
+		const struct safer_side *s = &safer_sides[i];
+		uint64_t seen = 0;
+		uint8_t seen_by[FZN_PUBKEY_LEN];
+		int had = fzn_node_settings_standing_of(&node_settings, FZN_SCOPE_ESTATE,
+		                                        node_settings.estate, s->key, s->key_len,
+		                                        &seen, seen_by);
+
+		if (fzn_node_settings_write(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate,
+		                            s->key, s->key_len, 1, s->value, s->value_len)
+		    != FZN_NODE_SETTINGS_OK)
+			continue;
+		setting_decided(NULL, s->key, s->key_len, s->value, s->value_len, seen,
+		                had ? seen_by : NULL);
+		say(FZN_ENTRY_NOTE, "decisions", "%.*s written apart, settled at its safer %.*s",
+		    (int)s->key_len, (const char *)s->key, (int)s->value_len, (const char *)s->value);
+	}
+}
+
 /* THE FORKS HELD, said when their number moves. Every host holding the same
  * records finds the same, so each says so of itself. */
 static void forks_look(void)
@@ -3301,6 +3385,7 @@ static void forks_look(void)
 	if (!forks_due)
 		return;
 	forks_due = 0;
+	forks_settle_safer();
 	now = fzn_node_decisions_forks(&node_records, NULL, NULL);
 	if (now < 0 || now == told)
 		return;

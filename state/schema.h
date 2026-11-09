@@ -53,6 +53,11 @@ typedef enum fzn_schema_type {
 #define FZN_SCHEMA_SENSITIVE 2u /* a value worth not showing over a shoulder */
 #define FZN_SCHEMA_ADVANCED 4u  /* hidden until asked for */
 #define FZN_SCHEMA_VERB 8u      /* written by its own verb, not `set setting` */
+/* ITS SAFE DIRECTION, sec 981 (sec 389 decision 4, the holder's): of two
+ * values written apart, the more restrictive stands. LOWER: `off` over `on`,
+ * the smaller count; HIGHER: `on` over `off`, the larger count. */
+#define FZN_SCHEMA_SAFE_LOWER 16u
+#define FZN_SCHEMA_SAFE_HIGHER 32u
 
 typedef struct fzn_schema_entry {
 	const char *key;
@@ -74,6 +79,12 @@ const fzn_schema_entry_t *fzn_schema_find(const fzn_schema_entry_t *table, size_
 /* WHETHER TWO DECLARATIONS CLAIM ONE CELL: the same key, or a family and
  * a key or family inside it. */
 int fzn_schema_overlap(const char *a, const char *b);
+
+/* WHETHER `b` IS SAFER THAN `a` by `e`'s safe direction, sec 981: 1 when it
+ * is strictly, 0 when it is not, when the two are equal, when `e` declares
+ * no direction, or when either is not a value `e` takes. */
+int fzn_schema_safer(const fzn_schema_entry_t *e, const uint8_t *a, size_t a_len,
+                     const uint8_t *b, size_t b_len);
 
 /* `value` against `e`: NULL when it is one, or why not. */
 const char *fzn_schema_check(const fzn_schema_entry_t *e, const uint8_t *value, size_t len);

@@ -160,6 +160,35 @@ const char *fzn_schema_type_name(fzn_schema_type_t type)
 	return "text";
 }
 
+/* A FLAG OR A COUNT AS A NUMBER to order by: 1 with `*n`, or 0. */
+static int ordinal(const fzn_schema_entry_t *e, const uint8_t *v, size_t len, uint64_t *n)
+{
+	size_t i;
+
+	if (fzn_schema_check(e, v, len))
+		return 0;
+	if (e->type == FZN_SCHEMA_FLAG) {
+		*n = (len == 2u && memcmp(v, "on", 2u) == 0) || (len == 1u && v[0] == '1');
+		return 1;
+	}
+	if (e->type != FZN_SCHEMA_COUNT || !len)
+		return 0;
+	for (*n = 0, i = 0; i < len; i++)
+		*n = *n * 10u + (uint64_t)(v[i] - '0');
+	return 1;
+}
+
+int fzn_schema_safer(const fzn_schema_entry_t *e, const uint8_t *a, size_t a_len,
+                     const uint8_t *b, size_t b_len)
+{
+	uint64_t x, y;
+
+	if (!e || !a || !b || !(e->flags & (FZN_SCHEMA_SAFE_LOWER | FZN_SCHEMA_SAFE_HIGHER))
+	    || !ordinal(e, a, a_len, &x) || !ordinal(e, b, b_len, &y))
+		return 0;
+	return (e->flags & FZN_SCHEMA_SAFE_LOWER) ? y < x : y > x;
+}
+
 const char *fzn_schema_check(const fzn_schema_entry_t *e, const uint8_t *value, size_t len)
 {
 	size_t i;

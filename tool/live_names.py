@@ -21,6 +21,8 @@ made-up keys serve.
     h  two jobs decide one subject apart from different grounds; each decides
        again from both, reaches one value, and the fork closes with no person
     i  an estate setting a person writes is tracked the same way
+    j  a setting with a safe direction, written two ways apart, settles at its
+       safer side on both hosts with no person (sec 981)
 
 Against a daemon that settles a clash by key, as sec 888 did, the higher key
 goes by bob_2 and phase b never agrees; against one that leaves it for a later
@@ -238,6 +240,25 @@ def main(argv):
 			forks_settle([], "i")
 			print("livecheck: i: an estate setting written two ways apart was shown, and "
 			      "settled by writing it again")
+
+			# j: A SETTING WITH A SAFE DIRECTION, WRITTEN TWO WAYS APART, sec 981:
+			# B turns routing/public off, then A on, so the later stands by
+			# version; its safer side, off, is written by the hosts themselves
+			# and the fork closes with no person.
+			retried("b", "set setting estate routing/public off", "ok")
+			retried("a", "set setting estate routing/public on", "ok")
+			until = time.monotonic() + SETTLE_S
+			while True:
+				vals = {who: ask(socks[who], "get setting estate routing/public").split()[-1:]
+				        for who in ("a", "b")}
+				held = {who: fork_on(who) for who in ("a", "b")}
+				if all(v == ["off"] for v in vals.values()) and not any(held.values()):
+					break
+				if time.monotonic() > until:
+					raise failed("j: routing/public reads %r, forks %r" % (vals, held))
+				time.sleep(1.0)
+			print("livecheck: j: routing/public written on and off apart settled at off on both, "
+			      "with no person")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

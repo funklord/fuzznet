@@ -83263,9 +83263,8 @@ refusal~~, all sec 982; bounds past a 16 MiB calendar and a 1 MiB Keep file; ~~a
 than one level (Takeout/Keep)~~ and ~~Keep attachments and colour said, not dropped silently~~,
 sec 985; ~~the store not reloaded per dated note~~, measured in sec 982 and not the cost.
 
-**Open, settings schema** (`node/schema.c`, T1355Z): a safe direction per setting, the more
-restrictive winning between writes made apart -- sec 389 decision 4 and sec 418, the holder's,
-never built (next); "default after invalid" said; an advertised declaration for what peers observe;
+**Open, settings schema** (`node/schema.c`, T1355Z): ~~a safe direction per setting, the more
+restrictive winning between writes made apart~~, sec 981; "default after invalid" said; an advertised declaration for what peers observe;
 sensitive settings answered by whether they are set, not their value; `location/accuracy` bounded
 at 61440.
 
@@ -83535,3 +83534,38 @@ grab at 360 by 1100 showed every row wrapped and none overlapping.
 row; they take their size hint.
 
 **Still open:** a More menu, which fuzzypickles' widget had for the actions a phone uses least.
+
+## 981. Of a setting written two ways apart, the safer stands, 2026-11-09
+
+Sec 389 decision 4, the holder's, never built until now: "Each setting declares its safe direction
+... Two writes that replace the same value without seeing each other are concurrent, and the more
+restrictive one wins." Asked again by fuzzypickles (inbox T1355Z; sec 978).
+
+**The declaration** (`state/schema.h`): FZN_SCHEMA_SAFE_LOWER -- `off` over `on`, the smaller count
+-- and FZN_SCHEMA_SAFE_HIGHER, the reverse; `fzn_schema_safer` says whether one value is strictly
+safer than another, by ordinal, and answers no for equal values, an undeclared entry, or a value
+the entry does not take. **Declared** (`node/schema.c`): `revocation/k` and `invite/confirm`
+higher; `routing/public`, `routing/advertise`, `location/enabled`, `relay/enabled` and
+`remote/admin` lower. **Left undeclared:** `relay/quota`, whose 0 means no bound, so neither order
+of its numbers is the restrictive one; and every setting whose two values are choices rather than
+a looser and a tighter.
+
+**The fork settled by the hosts** (`forks_settle_safer`, run in `forks_look`): sec 895 tracks an
+estate setting written apart as a fork of `decided/` heads, until a person writes it again. For a
+setting declaring a direction, a host that may set the estate's cell now writes its safest head
+itself, which names every head and closes the fork, and says so. Every host reads one set of
+heads and so writes one value; hosts settling at once leave heads of one value, which is no fork.
+A host that may not set it leaves it to one that may. A head whose value the setting would not take -- written by a host of
+other declarations -- is never the safer one. Before sec 981 such a fork stood until a
+person settled it, and meanwhile the later write by version -- `on`, say, for `routing/public` --
+was what every host acted on.
+
+**Measured:** `schema_test`, `fzn_schema_safer` both ways for flags and counts, equal values and an
+undeclared entry; `safe-direction-reversed` guards it. Live, `live_names` phase j: B sets
+`routing/public` off and A then on, apart; both hosts read `off` and hold no fork, with nobody
+writing it again. `live_votes`, `live_groups`, `live_group_backfill` and `live_group_hosts` pass on the
+same build.
+
+**Open:** a host-scoped setting written apart is not tracked as a decision (sec 895 tracks estate
+cells only), so `location/enabled` and the other host settings declare a direction no fork reads
+yet; the declaration is in place for when one does.
