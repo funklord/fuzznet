@@ -13007,12 +13007,60 @@ static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *o
 	return sealed;
 }
 
+/* A LINE THAT WOULD NOT OPEN, sec 979, by group, host and number: how many
+ * passes it was tried. Under a secret this host holds for its epoch that is
+ * not yet the one it was sealed under -- a later member's, before the
+ * epoch's own reached it -- a line was marked filed and so never filed: a
+ * group member never read what was said before it joined, one run in
+ * three. Tried again on later passes, and filed as passed over after
+ * FZND_LINE_OPEN_TRIES, so a line that can never open does not hold the
+ * lines after it for good. */
+#define FZND_LINE_OPEN_TRIES 30u
+static struct line_try {
+	uint8_t group[FZN_GROUP_ID_LEN], host[FZN_PUBKEY_LEN];
+	uint32_t seq;
+	unsigned tries;
+} *line_tries;
+static size_t n_line_tries, line_tries_room;
+
+/* 1 to try the line again later, 0 to file it as passed over. */
+static int line_try_again(const uint8_t group[FZN_GROUP_ID_LEN],
+                          const uint8_t host[FZN_PUBKEY_LEN], uint32_t seq)
+{
+	size_t i;
+
+	for (i = 0; i < n_line_tries; i++)
+		if (line_tries[i].seq == seq && !memcmp(line_tries[i].group, group, FZN_GROUP_ID_LEN)
+		    && !memcmp(line_tries[i].host, host, FZN_PUBKEY_LEN)) {
+			if (++line_tries[i].tries < FZND_LINE_OPEN_TRIES)
+				return 1;
+			line_tries[i] = line_tries[--n_line_tries];
+			return 0;
+		}
+	if (n_line_tries == line_tries_room) {
+		size_t room = line_tries_room ? line_tries_room * 2u : 16u;
+		struct line_try *more = realloc(line_tries, room * sizeof(*more));
+
+		if (!more)
+			return 0;
+		line_tries = more;
+		line_tries_room = room;
+	}
+	memcpy(line_tries[n_line_tries].group, group, FZN_GROUP_ID_LEN);
+	memcpy(line_tries[n_line_tries].host, host, FZN_PUBKEY_LEN);
+	line_tries[n_line_tries].seq = seq;
+	line_tries[n_line_tries].tries = 1u;
+	n_line_tries++;
+	return 1;
+}
+
 /* THE LINES HELD AND NOT YET FILED in group `g`, filed: opened under their
  * epoch's secret, admitted, and written into the group's conversation as
  * IN under their filed id with their sender kept -- unless this user wrote
  * them, whose own devices carry them already. A line whose epoch's secret
- * is not here yet waits for it; one that will not open or is not admitted
- * is passed over. */
+ * is not here yet waits for it, as does one that will not open under the
+ * secret held (`line_try_again`, sec 979); one not admitted is passed
+ * over. */
 static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 {
 	static fzn_group_line_head_t heads[FZN_GROUP_HOSTS_MAX];
@@ -13053,9 +13101,27 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 			if (fzn_node_groups_secret(&node_groups, g->id, line.epoch, secret)
 			    != FZN_GROUP_LOG_OK)
 				break;
-			if (fzn_group_line_open(bytes, len, secret, contact_hash_ops, contact_aead_ops, &line)
-			            == FZN_GROUP_LINE_OK
-			    && fzn_group_line_admit(g, &line) == FZN_GROUP_LINE_OK
+			{
+				fzn_group_line_err_t oerr = fzn_group_line_open(bytes, len, secret,
+				                                                contact_hash_ops,
+				                                                contact_aead_ops, &line);
+
+				if (oerr == FZN_GROUP_LINE_ERR_OPEN) {
+					if (line_try_again(g->id, heads[i].host, s))
+						break;
+					say(FZN_ENTRY_WARNING, "node/groups",
+					    "a line would not open under its epoch's secret after %u passes, "
+					    "and was passed over",
+					    FZND_LINE_OPEN_TRIES);
+				}
+				if (oerr != FZN_GROUP_LINE_OK) {
+					if (fzn_group_lines_filed(&group_lines, g->id, heads[i].host, s)
+					    != FZN_GROUP_LINES_OK)
+						break;
+					continue;
+				}
+			}
+			if (fzn_group_line_admit(g, &line) == FZN_GROUP_LINE_OK
 			    && memcmp(line.sender, own->owner, FZN_PUBKEY_LEN) != 0
 			    && fzn_group_lines_filed_id(contact_hash_ops, line.host, line.id, filed_id)
 			    && fzn_group_lines_sender_keep(&group_lines, g->id, filed_id, line.sender)

@@ -83245,7 +83245,7 @@ this tree's.
 **Done:** QR to version 40, its version and mask said (sec 977, T1355Z/T1424Z); c267ffd's reconcile
 fault (T1718Z), fixed in 633576d before the message arrived.
 
-**Reported, and not this tree's commit:** "34fd5a1c: a group member sometimes never reads the earlier
+**Reported, and fixed in sec 979:** "34fd5a1c: a group member sometimes never reads the earlier
 line" (T2012Z). Reproduced from fuzzypickles' scenario in a scratch clone: 3 of 6 failed at 34fd5a1
 (one of them void, the script edited under a run) and 1 of 6 at e3ce161, the commit before it. So it
 is older than 34fd5a1, and intermittent; being found (sec 979).
@@ -83365,3 +83365,35 @@ loop passes, answering at once and saying when done, is the shape it wants.
 
 **Still open of T1355Z's import list:** the bounds and the deeper
 Takeout walk, and Keep attachments and colour said rather than dropped silently.
+
+## 979. A group line that would not open yet, tried again rather than passed over, 2026-11-09
+
+Reported by fuzzypickles (inbox 20261109T2012Z) against 34fd5a1: in its scenario
+`group-earlier-and-retention-on-nodes`, a member that joined a group with earlier reading on
+sometimes never read the line written before it joined -- "high water seq: 0".
+
+**Not 34fd5a1.** Reproduced from fuzzypickles' scenario in a scratch clone, fzpd built on each pin:
+34fd5a1 failed 2 of 5 runs (a sixth void, its script edited under it), e3ce161, the commit before,
+1 of 6, and a build with prints in it 1 of 8. Four of nineteen, about one in five, before any change.
+
+**The cause, by the prints:** bob's lines pass took alice's earlier line, and opening it under the
+secret bob held for its epoch answered FZN_GROUP_LINE_ERR_OPEN -- "not sealed under this secret".
+Bob held a secret for that epoch that was not yet the one the line was sealed under; the epoch's own
+reached it a round later, and lines after it opened. But `group_file` marks a line filed whatever
+became of it, so the earlier line, refused once, was never tried again.
+
+**Tried again now** (`line_try_again`): a line that will not open under its epoch's secret is left
+unfiled, and the pass stops at it for that host, so the lines after it wait in order; it is tried
+on each later pass, and after FZND_LINE_OPEN_TRIES (30) passes it is filed as passed over, with a
+warning, so a line that can never open does not hold its host's later lines for good. A line that
+opens and is not admitted, or not imported, is filed as before.
+
+**Measured, the same scenario with the change:** 12 of 12 passed (at one failure in five, twelve
+passes in a row come about one time in fifteen by chance). **Not in this tree's suite:** no live script of
+ours meets a later member reading earlier lines in this order; fuzzypickles' scenario is the
+reproduction, and is named here for that. This tree's `live_groups`, `live_group_backfill` and `live_votes`
+pass with it.
+
+**Seen on the way, and fuzzypickles':** fifteen `fzp object-watch --name living_room_lamp`
+processes orphaned to init with their working directory in fuzzypickles' tree, from its own lamp
+scenario -- told there, not touched here.
