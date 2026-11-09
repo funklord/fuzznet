@@ -400,6 +400,14 @@ fzn_node_records_err_t fzn_node_records_trim(const fzn_node_records_t *nr,
 			free(ms[r].m);
 		return err;
 	}
+	/* NOTHING HELD: nothing to weigh, and `all` NULL, which qsort may not
+	 * be handed -- every host's trim runs since sec 963, an empty store's
+	 * too. */
+	if (!n_all) {
+		for (r = 0; r < n; r++)
+			free(ms[r].m);
+		return FZN_NODE_RECORDS_OK;
+	}
 	/* EACH LIST MEMBER'S DECIDING RECORD, sec 854: kept whatever the rules
 	 * say, so no host's trim changes what a list resolves to. The records
 	 * it supersedes are weighed as any. */
@@ -985,7 +993,8 @@ int fzn_node_records_list_each(const fzn_node_records_t *nr, const uint8_t *name
 		free(rows);
 		return 0;
 	}
-	qsort(rows, n_rows, sizeof(*rows), by_member);
+	if (n_rows)
+		qsort(rows, n_rows, sizeof(*rows), by_member);
 	if (nr->cache) {
 		fzn_node_records_cache_t *c = nr->cache;
 		size_t k = c->next++ % FZN_NODE_RECORDS_CACHED;
