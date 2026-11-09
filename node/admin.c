@@ -252,6 +252,43 @@ int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
 	return err ? -1 : 1;
 }
 
+int fzn_node_admin_pair_sibling_member(fzn_node_admin_t *admin,
+                                       const uint8_t prekey[FZN_PREKEY_LEN_TOTAL],
+                                       const uint8_t (*chain)[FZN_HOP_LEN], size_t hop_count,
+                                       const char **why)
+{
+	fzn_prekey_record_t record;
+	fzn_node_pair_err_t perr;
+	size_t loaded = 0, i;
+	uint64_t now;
+
+	if (why)
+		*why = NULL;
+	if (!admin || !admin->id || !admin->state || !admin->store || !admin->peers || !prekey
+	    || !chain || fzn_prekey_open(prekey, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK)
+		return -1;
+	for (i = 0; i < admin->state->peer_count; i++)
+		if (fzn_ct_memeq(admin->state->peers[i].sender, record.host, FZN_PUBKEY_LEN))
+			return 0;
+	now = admin->state->clock ? admin->state->clock() : 0u;
+	perr = fzn_node_pair_member(admin->id, admin->state->config.root,
+	                            &admin->state->config.remote_capability, admin->store, record,
+	                            chain, hop_count, now);
+	if (perr != FZN_NODE_PAIR_OK) {
+		if (why)
+			*why = fzn_node_pair_err_str(perr);
+		return -1;
+	}
+	if (reload_peers(admin, &loaded) != FZN_PERSIST_OK) {
+		if (why)
+			*why = "paired and saved, and the running peer set did not reload";
+		return -1;
+	}
+	admin->state->peers = admin->peers;
+	admin->state->peer_count = loaded;
+	return 1;
+}
+
 int fzn_node_admin_pair_invited(fzn_node_admin_t *admin,
                                 const uint8_t prekey[FZN_PREKEY_LEN_TOTAL], int delegable,
                                 uint8_t *card, size_t card_cap, size_t *card_len,

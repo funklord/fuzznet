@@ -6094,12 +6094,21 @@ static size_t pair_siblings(const fzn_node_identity_t *id, uint64_t now)
 {
 	static struct key_room hosts_room;
 	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
-	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], own[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	uint8_t prekey[FZN_PREKEY_LEN_TOTAL];
-	size_t n = 0, i, paired = 0, accepted = 0;
+	size_t n = 0, i, paired = 0, accepted = 0, own_count = 0;
+	const uint8_t *root;
+	int by_own;
 
 	if (!running_admin || !node_apply.store || !node_apply.capability)
 		return 0;
+	/* THIS HOST'S OWN MEMBERSHIP, sec 976: what it asks every sibling by,
+	 * where it runs from the estate's root, which a sibling serves by. */
+	root = running_admin->state->config.root;
+	by_own = fzn_node_apply_chain(&node_apply, id->pubkey, node_apply.capability, own,
+	                              &own_count)
+	         && own_count
+	         && fzn_ct_memeq(own[0] + FZN_HOP_OFF_GRANTOR, root, FZN_PUBKEY_LEN);
 	if (siblings_list(&hosts_room, &hosts, &n, 0u)
 	    != FZN_NODE_SIBLINGS_OK) {
 		say(FZN_ENTRY_WARNING, "node/siblings", "the siblings' prekeys would not list");
@@ -6117,13 +6126,31 @@ static size_t pair_siblings(const fzn_node_identity_t *id, uint64_t now)
 		    || fzn_node_siblings_prekey(node_apply.store, hosts[i], prekey)
 		               != FZN_NODE_SIBLINGS_OK)
 			continue;
-		r = fzn_node_admin_pair_sibling(running_admin, prekey, &why);
+		/* SERVED BY ITS MEMBERSHIP, sec 976, where its chain runs from the
+		 * estate's root: no grant a pair. Else as sec 579 did, a grant. */
+		if (fzn_node_apply_chain(&node_apply, hosts[i], node_apply.capability, chain, &hop_count)
+		    && hop_count && fzn_ct_memeq(chain[0] + FZN_HOP_OFF_GRANTOR, root, FZN_PUBKEY_LEN))
+			r = fzn_node_admin_pair_sibling_member(running_admin, prekey,
+			                                       (const uint8_t (*)[FZN_HOP_LEN])chain,
+			                                       hop_count, &why);
+		else
+			r = fzn_node_admin_pair_sibling(running_admin, prekey, &why);
 		if (r > 0)
 			paired++;
 		else if (r < 0)
 			say(FZN_ENTRY_WARNING, "node/siblings", "a sibling was not paired: %s",
 			    why ? why : "its prekey would not open");
 		if (fzn_node_pairing_load(node_apply.store, hosts[i], &pairing) == FZN_PERSIST_OK) {
+			fzn_wipe(&pairing, sizeof(pairing));
+			continue;
+		}
+		/* ASKED BY THIS HOST'S OWN MEMBERSHIP, sec 976. */
+		if (by_own
+		    && fzn_node_pairing_from_membership(id, root, (const uint8_t (*)[FZN_HOP_LEN])own,
+		                                        own_count, prekey, now, node_apply.store,
+		                                        &pairing)
+		               == FZN_NODE_PAIR_OK) {
+			accepted++;
 			fzn_wipe(&pairing, sizeof(pairing));
 			continue;
 		}
@@ -6430,6 +6457,13 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 			if ((pass == 0) != (intro != 0))
 				continue;
 			if (memcmp(hosts[i], self, FZN_PUBKEY_LEN) == 0)
+				continue;
+			/* ONE OF THE ESTATE'S STILL, sec 976: a pairing by this host's
+			 * own membership outlives a sibling's revocation, where one built
+			 * on the sibling's grant fell with it, so a sibling revoked is
+			 * neither asked nor pushed to. */
+			if (node_apply.capability
+			    && !fzn_node_apply_holds(&node_apply, hosts[i], node_apply.capability))
 				continue;
 			for (t = 0; t < npulls
 			            && memcmp(pulls[t].is_root_at ? root : pulls[t].node, hosts[i],

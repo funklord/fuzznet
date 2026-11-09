@@ -9,6 +9,8 @@ whose rounds FZN_TUNE_PULL_EVERY makes a few seconds.
 
     a  the members pair one another through R, and every member's rounds
        come to ask each of its ten siblings, in turns of eight
+       -- by their memberships: the root signed a grant for each member and no
+       member signed one to another (sec 976)
     b  R and eight members are stopped. The three left each set a cell of
        their own, and each comes to read the other two's -- which only they
        hold, so it took them from one another
@@ -114,6 +116,23 @@ def main(argv):
 				time.sleep(1.0)
 			print("livecheck: a: each of %d members asked all %d siblings in turns, in %.0f s"
 			      % (MEMBERS, MEMBERS - 1, time.monotonic() - began))
+			# GRANTS A MEMBER, NOT A PAIR, sec 976: the root signed one for each
+			# member it admitted; a member signs none to another member, though
+			# every two serve each other -- one at most, to the root's host,
+			# which holds no chain from the root to be served by.
+			# `list grant` is paged: its TOTAL counts, and a member's one fits a page.
+			signed, grantees = {}, {}
+			for k in who:
+				words = ask(socks[k], "list grant").split()
+				signed[k] = int(words[1])
+				grantees[k] = [row.split(",")[0] for row in words[3:]]
+			member_keys = set(keys.values())
+			to_members = {k: [g for g in grantees[k] if g in member_keys] for k in members}
+			if signed["r"] != MEMBERS or any(to_members.values()) \
+			   or any(signed[k] > 1 for k in members):
+				raise failed("a: grants signed, by host: %r" % signed)
+			print("livecheck: a: %d grant(s) in the estate, none from one member to another"
+			      % sum(signed.values()))
 			loads = sorted(int(ask(socks[k], "get sync-load").split()[1]) for k in members)
 			# CPU, by the pids started here: each daemon's user and system time
 			# over 10 s, so a round's cost is told from a machine's load.

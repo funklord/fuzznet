@@ -236,6 +236,40 @@ fzn_node_pair_err_t fzn_node_pairing_from_grant(const fzn_node_identity_t *devic
                                                 fzn_node_pairing_t *out);
 
 /*
+ * SIBLINGS PAIRED BY THEIR MEMBERSHIP, sec 976, the holder's of 2026-11-09:
+ * an estate of N hosts held about N squared grants when each sibling granted
+ * every other (sec 579), and every host indexed all of them -- a thousand
+ * machines, a million grants on each. A member's own chain from the root
+ * says what a sibling's grant said: that it is one of the estate's, for the
+ * capability the estate's hosts serve one another.
+ *
+ * `fzn_node_pair_member`, THE SERVING SIDE: `device`'s host saved as a peer
+ * of this node, its session from `device`'s prekey, its authority `chain` --
+ * its membership, `hop_count` hops from `root`, verified for `cap` and ending
+ * at it -- and no grant minted or logged. REFUSED when the chain does not
+ * hold, or names this node.
+ *
+ * `fzn_node_pairing_from_membership`, THE ASKING SIDE: as
+ * `fzn_node_pairing_from_grant` with this device's own membership as `chain`
+ * and any sibling's prekey, which no hop need name. The session is the one
+ * the sibling's `fzn_node_pair_member` derives, from the two prekeys.
+ */
+fzn_node_pair_err_t fzn_node_pair_member(const fzn_node_identity_t *id,
+                                         const uint8_t root[FZN_PUBKEY_LEN],
+                                         const fzn_cap_id_t *cap, const fzn_persist_ops_t *store,
+                                         fzn_prekey_record_t device,
+                                         const uint8_t (*chain)[FZN_HOP_LEN], size_t hop_count,
+                                         uint64_t now);
+fzn_node_pair_err_t fzn_node_pairing_from_membership(const fzn_node_identity_t *device,
+                                                     const uint8_t root[FZN_PUBKEY_LEN],
+                                                     const uint8_t (*chain)[FZN_HOP_LEN],
+                                                     size_t hop_count,
+                                                     const uint8_t sibling_prekey[FZN_PREKEY_LEN_TOTAL],
+                                                     uint64_t now,
+                                                     const fzn_persist_ops_t *store,
+                                                     fzn_node_pairing_t *out);
+
+/*
  * A PAIRING TO A CONTACT'S HOST, sec 614, derived and not kept: the session
  * this device's agreement key makes against `host_prekey`, a prekey record
  * whose signature holds, for `capability` -- what the host grants a

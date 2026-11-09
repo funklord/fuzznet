@@ -83125,8 +83125,7 @@ is already asked for in pages (`record/exchange.c`), its count 16 bits, so no on
 18 MB, untouched until a digest fills it. `sync_test` and `sync_fuzz`, which are written against the
 ceiling's name, pass; the fuzz's crowds past the ceiling take 3.3 s.
 
-**Left:** an estate past 8192 streams, and the N squared grants of sec 579 well before it (sec 968),
-which is the question put to the holder.
+**Left:** an estate past 8192 streams. The N squared grants of sec 579 are gone since sec 976.
 
 ## 975. A host's records trimmed where it carries no messages, 2026-11-09
 
@@ -83148,3 +83147,55 @@ host's newest; the full build's passes as before.
 rule, and since the default it weighs two -- the one given and the default. It asserts that now.
 963 was gated by test, installcheck, style and `live_objects` on the full build; a change to what
 every host trims wanted `live_trim` and `livecheck-embedded` beside them.
+
+## 976. Siblings paired by their membership, 2026-11-09
+
+**The holder, 2026-11-09, answering sec 968's question: "yes, do membership-authorised sibling
+pairing."** Siblings paired one another by grants (sec 579): each host granted every sibling it kept
+a prekey of and logged the grant, and each built its pairing to a sibling from that sibling's grant
+to it. An estate of N hosts held about N squared grants, and every host indexed and reconciled all
+of them -- a thousand machines, a million grants on each.
+
+**A member's own chain from the estate's root says what a sibling's grant said**: that it is one of
+the estate's, for the capability the estate's hosts serve one another. So now:
+- **serving** (`fzn_node_pair_member`, `fzn_node_admin_pair_sibling_member`): a sibling is saved as a
+  peer of this host with its session from the two prekeys and its own membership chain as its
+  authority -- verified under the root this host serves by, for that capability, ending at the
+  sibling -- and no grant minted or logged. The serve path checks that chain at every request, as it
+  checked a grant, revocations included;
+- **asking** (`fzn_node_pairing_from_membership`): a host builds its pairing to a sibling from its own
+  membership and the sibling's prekey, which no hop need name; the session is the one the sibling
+  derives, so the two sides agree with nothing exchanged.
+
+**Where a chain from the estate's root is not there** -- the root's own host, which holds no chain
+from itself, or a member admitted under another root (secs 411, 419) -- `pair_siblings` pairs as sec
+579 did, by a grant: one a member, to the root's host, not one a pair.
+
+**A sibling revoked is neither asked nor pushed to** (`load_siblings`): a host's pairing to a
+sibling by its own membership outlives the sibling's revocation, where a pairing built on the
+sibling's grant fell with it. Found by `live_estate` phase c1 -- D, its membership cut by k votes,
+still heard R's next setting, pushed by a sibling -- and a round now takes a sibling only while its
+membership holds (`fzn_node_apply_holds`).
+
+**The join pairing is told apart by where it is filed**: `fzn_node_pairing_estate` found the pairing
+a node acts through by its shape -- a chain from the root, ending at this node, delegable -- and a
+pairing to a sibling by membership has that shape. It is the one filed under its last hop's grantor,
+who admitted the node; one filed under a sibling is not. Found by `live_siblings`, whose members
+then refused `--root-at` at their next start.
+
+**Tested, `pair_test`:** a sibling served by the other's membership, the session each side makes the
+other's, a request over the wire granted by it and refused once the root has revoked the asker, a chain not ending at the host or at this device and a device's own prekey refused, and a
+membership pairing filed alone not taken for the join pairing. `member-served-by-any-chain`,
+`membership-pairing-bound-to-a-grantor` and `estate-pairing-any-filed` guard it; two entries of sec
+376 and 579 re-aimed at the moved text: all caught by hand.
+
+**Measured live, `live_estate_turns`** (now checking it): 11 members, 22 grants in the estate --
+the root's 11 and one from each member to the root's host -- and none from one member to another;
+30 members, 60 grants where sec 964's estate held about 900, a daemon's CPU median 1.9 % (2.2).
+**Control:** the grant path forced, each member signed 11 and hosts indexed up to 110. `live_siblings`
+passes every phase, B and C pairing in 2 rounds.
+
+**Upgrading:** an estate's existing sibling grants stay, and the pairings built from them; nothing
+removes them, and they cost what they did. A host on the old code waits for a sibling's grant a new
+host no longer mints, so it does not ask that sibling directly until it is updated -- the sibling
+still asks it, and the estate's data still reaches it through others.

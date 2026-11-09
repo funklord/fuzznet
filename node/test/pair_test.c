@@ -2018,6 +2018,99 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		              && memcmp(built.capability.b, d_pairing.capability.b, FZN_CAP_ID_LEN) == 0
 		              && built.hop_count == 0u,
 		      "the pairing D derived from N's prekey is not the session N's card gave");
+
+		/* BY MEMBERSHIP, sec 976: D serves N by N's own chain R -> N, and N
+		 * asks D by it, no grant between them; the session each side makes
+		 * is the other's. A chain not ending at the host, or at this device,
+		 * and a device's own prekey, are refused; and N's estate pairing is
+		 * still the one it joined by, not the one to D. */
+		{
+			fzn_node_peer_t d_peers[4];
+			fzn_node_pairing_t estate_p;
+			size_t d_loaded = 0, k, served = 4;
+
+			CHECK(fzn_node_pair_member(&d.id, r.id.pubkey, cap, &d.ops, n_rec,
+			                           (const uint8_t (*)[FZN_HOP_LEN])joined.chain,
+			                           joined.hop_count, 1300u)
+			                      == FZN_NODE_PAIR_OK
+			              && fzn_node_peers_load(&d.ops, d_peers, 4, &d_loaded) == FZN_PERSIST_OK,
+			      "D would not serve N by N's membership");
+			for (k = 0; k < d_loaded; k++)
+				if (!memcmp(d_peers[k].sender, n.id.pubkey, FZN_PUBKEY_LEN))
+					served = k;
+			CHECK(fzn_node_pairing_from_membership(&n.id, r.id.pubkey,
+			                                       (const uint8_t (*)[FZN_HOP_LEN])joined.chain,
+			                                       joined.hop_count, d.id.prekey_record, 1300u,
+			                                       &n.ops, &built)
+			                      == FZN_NODE_PAIR_OK
+			              && served < d_loaded && d_peers[served].hop_count == joined.hop_count
+			              && memcmp(built.node, d.id.pubkey, FZN_PUBKEY_LEN) == 0
+			              && memcmp(built.send_key, d_peers[served].recv_key, FZN_AEAD_KEY_LEN) == 0
+			              && memcmp(built.send_ckey, d_peers[served].recv_ckey,
+			                        FZN_COMMITMENT_KEY_LEN)
+			                         == 0,
+			      "N's pairing to D by membership is not the session D serves N by");
+			/* AND ASKED OVER THE WIRE: D grants N by its membership, and once R
+			 * has revoked N, does not. */
+			{
+				static fzn_revocation_t entries[4];
+				fzn_revocation_store_t revoked = { 0 };
+				uint8_t record[FZN_REVOCATION_LEN];
+				fzn_revocation_record_t rec;
+
+				CHECK(granted_by(&d, r.id.pubkey, &n, cap, NULL) == 1,
+				      "D did not grant N, served by its membership, over the wire");
+				CHECK(fzn_revocation_store_init(&revoked, entries, 4) == FZN_CHAIN_OK
+				              && fzn_revocation_issue(r.id.pubkey, cap, n.id.pubkey, 1400u, 0u,
+				                                      NULL, &r.sign, record)
+				                         == FZN_CHAIN_OK
+				              && fzn_revocation_open(record, sizeof(record), &rec) == FZN_CHAIN_OK
+				              && fzn_revocation_admit(&revoked, fzn_revocation_offer_root(rec),
+				                                      r.id.pubkey, &d.sign, &hash_ops, NULL)
+				                         == FZN_CHAIN_OK
+				              && granted_by(&d, r.id.pubkey, &n, cap, &revoked) == 0,
+				      "D granted N, served by its membership, after R revoked it");
+			}
+			CHECK(fzn_node_pair_member(&d.id, r.id.pubkey, cap, &d.ops, n_rec,
+			                           (const uint8_t (*)[FZN_HOP_LEN])n_peers[0].hop_bytes, 2u,
+			                           1300u)
+			                      == FZN_NODE_PAIR_REFUSED
+			              && fzn_node_pairing_from_membership(
+			                         &other.id, r.id.pubkey,
+			                         (const uint8_t (*)[FZN_HOP_LEN])joined.chain,
+			                         joined.hop_count, d.id.prekey_record, 1300u, &other.ops,
+			                         &built)
+			                         == FZN_NODE_PAIR_REFUSED
+			              && fzn_node_pairing_from_membership(
+			                         &n.id, r.id.pubkey,
+			                         (const uint8_t (*)[FZN_HOP_LEN])joined.chain,
+			                         joined.hop_count, n.id.prekey_record, 1300u, &n.ops, &built)
+			                         == FZN_NODE_PAIR_REFUSED,
+			      "a chain not the host's or this device's, or a device's own prekey, paired");
+			CHECK(fzn_node_pairing_estate(&n.ops, r.id.pubkey, n.id.pubkey, &estate_p)
+			                      == FZN_PERSIST_OK
+			              && memcmp(estate_p.node, d.id.pubkey, FZN_PUBKEY_LEN) != 0,
+			      "N's pairing to D by membership was taken for the one it joined by");
+			/* AND ALONE, none: filed by itself in another store, the walk
+			 * meets nothing else that it could prefer. */
+			{
+				uint8_t blob[FZN_NODE_PAIRING_BLOB_MAX];
+				size_t blob_len = 0;
+
+				CHECK(fzn_node_pairing_from_membership(
+				              &n.id, r.id.pubkey, (const uint8_t (*)[FZN_HOP_LEN])joined.chain,
+				              joined.hop_count, d.id.prekey_record, 1300u, &n.ops, &built)
+				                      == FZN_NODE_PAIR_OK
+				              && fzn_node_pairing_pack(&built, blob, sizeof(blob), &blob_len)
+				                         == FZN_PERSIST_OK
+				              && other.ops.save(other.ops.ctx, FZN_PERSIST_PAIRED_NODE, built.node,
+				                                blob, blob_len)
+				              && fzn_node_pairing_estate(&other.ops, r.id.pubkey, n.id.pubkey,
+				                                         &estate_p)
+				                         != FZN_PERSIST_OK,
+				      "a pairing to D by membership, alone, stood in for the one N joined by");
+			}
+		}
 		{
 			uint8_t forged[FZN_PREKEY_LEN_TOTAL];
 

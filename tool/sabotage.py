@@ -3458,8 +3458,8 @@ SABOTAGES = [
 	(
 		"pair-saves-before-the-card",
 		"node/pair.c",
-		"\tif (fzn_node_peer_save(store, &peer) != FZN_PERSIST_OK) {\n",
-		"\tif (fzn_node_peer_save(store, &peer) != FZN_PERSIST_OK && 0) {\n",
+		"\t * it is wiped rather than cleared on both paths. */\n\tif (fzn_node_peer_save(store, &peer) != FZN_PERSIST_OK) {\n",
+		"\t * it is wiped rather than cleared on both paths. */\n\tif (fzn_node_peer_save(store, &peer) != FZN_PERSIST_OK && 0) {\n",
 		"a card handed out for a device the store refused is a pairing that works on the device's side and nowhere else -- sec 376",
 	),
 	(
@@ -12977,8 +12977,8 @@ SABOTAGES = [
 	(
 		"pairing-from-grant-prekey-is-the-grantors",
 		"node/pair.c",
-		"\t    || !fzn_ct_memeq(record.host, fzn_hop_grantor(hops[hop_count - 1u]), FZN_PUBKEY_LEN))\n",
-		"\t    )\n",
+		"\t        && !fzn_ct_memeq(record.host, fzn_hop_grantor(hops[hop_count - 1u]), FZN_PUBKEY_LEN))\n",
+		"\t        && 0)\n",
 		"a pairing to a sibling is built over another node's prekey, so its requests seal to a key the sibling does not hold -- sec 579",
 	),
 	(
@@ -14896,6 +14896,27 @@ SABOTAGES = [
 		"\tnote_listed(nr, subject, &s);\n\tif (nr->filed)",
 		"\tif (nr->filed)",
 		"a list read through the cache misses what a peer handed on -- sec 950",
+	),
+	(
+		"member-served-by-any-chain",
+		"node/pair.c",
+		"\t    || !fzn_ct_memeq(verified.grantee, device.host, FZN_PUBKEY_LEN)\n",
+		"\t    || 0\n",
+		"a sibling is served by a chain that ends at another host -- sec 976",
+	),
+	(
+		"membership-pairing-bound-to-a-grantor",
+		"node/pair.c",
+		"\treturn pairing_from_chain(device, root, chain, hop_count, sibling_prekey, now, store, out,\n\t                          0);\n",
+		"\treturn pairing_from_chain(device, root, chain, hop_count, sibling_prekey, now, store, out,\n\t                          1);\n",
+		"a host asks a sibling only where the sibling admitted it, as each pair needed a grant -- sec 976",
+	),
+	(
+		"estate-pairing-any-filed",
+		"node/pair.c",
+		"\t    && memcmp(fzn_hop_grantor(last), p.node, FZN_PUBKEY_LEN) == 0) {\n",
+		"\t    && 1) {\n",
+		"a sibling's pairing by membership is taken for the one the node joined by -- sec 976",
 	),
 	(
 		"preset-value-stands-however-written",

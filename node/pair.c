@@ -224,13 +224,15 @@ fzn_node_pair_err_t fzn_node_pairing_accept(const fzn_node_identity_t *device,
 	return FZN_NODE_PAIR_OK;
 }
 
-fzn_node_pair_err_t fzn_node_pairing_from_grant(const fzn_node_identity_t *device,
-                                                const uint8_t root[FZN_PUBKEY_LEN],
-                                                const uint8_t (*chain)[FZN_HOP_LEN],
-                                                size_t hop_count,
-                                                const uint8_t sponsor_prekey[FZN_PREKEY_LEN_TOTAL],
-                                                uint64_t now, const fzn_persist_ops_t *store,
-                                                fzn_node_pairing_t *out)
+/* `bound`: the prekey must be the last hop's grantor's, as a sponsor's is;
+ * 0 for a sibling paired by membership (sec 976), any host's prekey. */
+static fzn_node_pair_err_t pairing_from_chain(const fzn_node_identity_t *device,
+                                              const uint8_t root[FZN_PUBKEY_LEN],
+                                              const uint8_t (*chain)[FZN_HOP_LEN],
+                                              size_t hop_count,
+                                              const uint8_t sponsor_prekey[FZN_PREKEY_LEN_TOTAL],
+                                              uint64_t now, const fzn_persist_ops_t *store,
+                                              fzn_node_pairing_t *out, int bound)
 {
 	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
 	fzn_prekey_record_t record;
@@ -259,7 +261,9 @@ fzn_node_pair_err_t fzn_node_pairing_from_grant(const fzn_node_identity_t *devic
 		return FZN_NODE_PAIR_REFUSED;
 	/* THE PREKEY IS THE GRANTOR'S, as a card's envelope would have bound. */
 	if (fzn_prekey_open(sponsor_prekey, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK
-	    || !fzn_ct_memeq(record.host, fzn_hop_grantor(hops[hop_count - 1u]), FZN_PUBKEY_LEN))
+	    || (bound
+	        && !fzn_ct_memeq(record.host, fzn_hop_grantor(hops[hop_count - 1u]), FZN_PUBKEY_LEN))
+	    || fzn_ct_memeq(record.host, device->pubkey, FZN_PUBKEY_LEN))
 		return FZN_NODE_PAIR_REFUSED;
 	fzn_prekey_peer_init(&pinned);
 	if (fzn_prekey_pin(&pinned, record, device->sign, FZN_TRUST_PINNED, now) != FZN_PREKEY_OK)
@@ -287,6 +291,71 @@ fzn_node_pair_err_t fzn_node_pairing_from_grant(const fzn_node_identity_t *devic
 	}
 	*out = p;
 	fzn_wipe(&p, sizeof(p));
+	return FZN_NODE_PAIR_OK;
+}
+
+fzn_node_pair_err_t fzn_node_pairing_from_grant(const fzn_node_identity_t *device,
+                                                const uint8_t root[FZN_PUBKEY_LEN],
+                                                const uint8_t (*chain)[FZN_HOP_LEN],
+                                                size_t hop_count,
+                                                const uint8_t sponsor_prekey[FZN_PREKEY_LEN_TOTAL],
+                                                uint64_t now, const fzn_persist_ops_t *store,
+                                                fzn_node_pairing_t *out)
+{
+	return pairing_from_chain(device, root, chain, hop_count, sponsor_prekey, now, store, out,
+	                          1);
+}
+
+fzn_node_pair_err_t fzn_node_pairing_from_membership(const fzn_node_identity_t *device,
+                                                     const uint8_t root[FZN_PUBKEY_LEN],
+                                                     const uint8_t (*chain)[FZN_HOP_LEN],
+                                                     size_t hop_count,
+                                                     const uint8_t sibling_prekey[FZN_PREKEY_LEN_TOTAL],
+                                                     uint64_t now,
+                                                     const fzn_persist_ops_t *store,
+                                                     fzn_node_pairing_t *out)
+{
+	return pairing_from_chain(device, root, chain, hop_count, sibling_prekey, now, store, out,
+	                          0);
+}
+
+fzn_node_pair_err_t fzn_node_pair_member(const fzn_node_identity_t *id,
+                                         const uint8_t root[FZN_PUBKEY_LEN],
+                                         const fzn_cap_id_t *cap, const fzn_persist_ops_t *store,
+                                         fzn_prekey_record_t device,
+                                         const uint8_t (*chain)[FZN_HOP_LEN], size_t hop_count,
+                                         uint64_t now)
+{
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_t verified;
+	fzn_node_peer_t peer;
+	size_t i;
+
+	if (!id || !root || !cap || !store || !store->save || !device.bytes || !chain
+	    || hop_count == 0u || hop_count > FZN_CHAIN_MAX_HOPS)
+		return FZN_NODE_PAIR_MALFORMED;
+	for (i = 0; i < hop_count; i++)
+		if (fzn_hop_open(chain[i], FZN_HOP_LEN, &hops[i]) != FZN_CHAIN_OK)
+			return FZN_NODE_PAIR_REFUSED;
+	/* ITS MEMBERSHIP, under the root this node serves by, for what this node
+	 * serves, ending at the device: what the serve path will ask of it. */
+	if (fzn_chain_verify(hops, hop_count, root, cap, now, id->sign, NULL, NULL, &verified)
+	            != FZN_CHAIN_OK
+	    || !fzn_ct_memeq(verified.grantee, device.host, FZN_PUBKEY_LEN)
+	    || fzn_ct_memeq(device.host, id->pubkey, FZN_PUBKEY_LEN))
+		return FZN_NODE_PAIR_REFUSED;
+	memset(&peer, 0, sizeof(peer));
+	if (fzn_node_provision_peer(id, device, cap, now, FZN_NO_EXPIRY, now, &peer)
+	    != FZN_NODE_PROVISION_OK)
+		return FZN_NODE_PAIR_DEVICE;
+	for (i = 0; i < hop_count; i++)
+		memcpy(peer.hop_bytes[i], chain[i], FZN_HOP_LEN);
+	peer.hop_count = hop_count;
+	if (fzn_node_peer_save(store, &peer) != FZN_PERSIST_OK) {
+		fzn_wipe(&peer, sizeof(peer));
+		return FZN_NODE_PAIR_STORE;
+	}
+	fzn_wipe(&peer, sizeof(peer));
 	return FZN_NODE_PAIR_OK;
 }
 
@@ -493,7 +562,11 @@ static int estate_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
 	if (fzn_hop_open(p.chain[0], FZN_HOP_LEN, &first) == FZN_CHAIN_OK
 	    && fzn_hop_open(p.chain[p.hop_count - 1u], FZN_HOP_LEN, &last) == FZN_CHAIN_OK
 	    && memcmp(fzn_hop_grantee(last), w->self, FZN_PUBKEY_LEN) == 0
-	    && fzn_hop_delegable(last)) {
+	    && fzn_hop_delegable(last)
+	    /* FILED UNDER ITS LAST GRANTOR, who admitted this node: a sibling's
+	     * pairing by membership (sec 976) holds the same chain, filed under
+	     * the sibling. */
+	    && memcmp(fzn_hop_grantor(last), p.node, FZN_PUBKEY_LEN) == 0) {
 		if (memcmp(fzn_hop_grantor(first), w->root, FZN_PUBKEY_LEN) == 0) {
 			*w->out = p;
 			w->found = 2;

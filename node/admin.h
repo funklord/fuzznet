@@ -350,6 +350,16 @@ int fzn_node_admin_pair_invited(fzn_node_admin_t *admin,
 int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
                                 const uint8_t prekey[FZN_PREKEY_LEN_TOTAL], const char **why);
 
+/* PAIR A SIBLING BY ITS MEMBERSHIP, sec 976: as `fzn_node_admin_pair_sibling`,
+ * served from now, but its authority `chain` -- its own, `hop_count` hops from
+ * the estate's root (`fzn_node_pair_member`) -- and no grant minted or logged,
+ * so an estate holds a grant a member and not one a pair. 1, 0 or -1 as
+ * there. */
+int fzn_node_admin_pair_sibling_member(fzn_node_admin_t *admin,
+                                       const uint8_t prekey[FZN_PREKEY_LEN_TOTAL],
+                                       const uint8_t (*chain)[FZN_HOP_LEN], size_t hop_count,
+                                       const char **why);
+
 /* PAIR A CONTACT'S DEVICE, sec 614: `d`, verified by the caller, paired
  * into the running node for the share capability as `grant share` pairs a
  * contact's node -- granted by this node's own key, saved, served from now
