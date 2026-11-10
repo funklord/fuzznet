@@ -15081,6 +15081,27 @@ SABOTAGES = [
 		"of two values written apart the less restrictive stands -- sec 981",
 	),
 	(
+		"exchange-digest-room-capped",
+		"record/exchange.c",
+		"\t\tsize_t want = d->total < FZN_SYNC_MAX_POSITIONS ? d->total : FZN_SYNC_MAX_POSITIONS;\n",
+		"\t\tsize_t want = d->total < 8192u ? d->total : 8192u;\n",
+		"a pull reads a peer's digest only to 8192 positions, as it did -- sec 992",
+	),
+	(
+		"exchange-own-digest-capped",
+		"record/exchange.c",
+		"\twant = journal->used < FZN_SYNC_MAX_POSITIONS ? journal->used : FZN_SYNC_MAX_POSITIONS;\n",
+		"\twant = journal->used < 8192u ? journal->used : 8192u;\n",
+		"a host offers only its first 8192 positions in its digest -- sec 992",
+	),
+	(
+		"exchange-empty-journal-silent",
+		"record/exchange.c",
+		"\tif (want > held_room || !held) {\n",
+		"\tif (want > held_room) {\n",
+		"a host holding nothing answers no digest, and a pull from it fails -- sec 992",
+	),
+	(
 		"schema-unusable-unsaid",
 		"node/schema.c",
 		"\treturn fzn_schema_check(e, s->value, s->value_len);\n}\n",

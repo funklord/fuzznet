@@ -127,10 +127,13 @@ typedef enum fzn_sync_err {
  * the peer sends displace a request for a stream it did advertise. */
 /* RAISED TO 8192, sec 974, once the plan was not square (sec 972): an estate's
  * streams grow with its hosts, and 1024 left a host past a thousand of them
- * reading part of each digest. A digest is paged, its count 16 bits; the room
- * here is what a plan holds. Smaller in a `small` build, sec 922. */
+ * reading part of each digest. AND TO 65535, sec 992, the most a digest's
+ * 16-bit count says, once nothing was sized by it: the room a plan and a
+ * pull hold is grown to the digest in hand, so the ceiling is a bound on
+ * what a peer can make this host examine, not memory set aside. Smaller in a
+ * `small` build, sec 922. */
 #ifndef FZN_SYNC_MAX_POSITIONS
-#define FZN_SYNC_MAX_POSITIONS 8192u
+#define FZN_SYNC_MAX_POSITIONS 65535u
 #endif
 
 /* One issuer's position, as a peer reports it. This is what a host puts on

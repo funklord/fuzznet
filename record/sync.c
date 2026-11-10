@@ -12,8 +12,33 @@
  * pulled, and an estate's streams grow with its hosts (sec 968). Room for
  * FZN_SYNC_MAX_POSITIONS, which bounds what a plan examines. The keys are
  * public, so the search compares them as memcmp does. */
-static const fzn_sync_position_t *sorted[FZN_SYNC_MAX_POSITIONS];
-static uint8_t matched[FZN_SYNC_MAX_POSITIONS];
+static const fzn_sync_position_t **sorted;
+static uint8_t *matched;
+static size_t sorted_room;
+
+/* ROOM FOR `look` POSITIONS, grown to fit, sec 992: was FZN_SYNC_MAX_POSITIONS
+ * of each, set aside whether a digest came or not. 0 when it cannot be had. */
+static int sorted_fit(size_t look)
+{
+	const fzn_sync_position_t **s;
+	uint8_t *m;
+	size_t room = sorted_room ? sorted_room : 64u;
+
+	if (look <= sorted_room)
+		return 1;
+	while (room < look)
+		room *= 2u;
+	s = realloc(sorted, room * sizeof(*s));
+	if (!s)
+		return 0;
+	sorted = s;
+	m = realloc(matched, room);
+	if (!m)
+		return 0;
+	matched = m;
+	sorted_room = room;
+	return 1;
+}
 
 static int by_position(const void *a, const void *b)
 {
@@ -239,6 +264,11 @@ fzn_sync_err_t fzn_sync_plan_fetch(const fzn_journal_t *journal,
 		return FZN_SYNC_ERR_MALFORMED;
 
 	look = to_examine(their_count, plan);
+	/* NO ROOM IS A PLAN OF NOTHING, said as the positions it ignored. */
+	if (!sorted_fit(look)) {
+		plan->positions_ignored += look;
+		look = 0;
+	}
 
 	/* First pass: what they follow and this host does not. See sync.h --
 	 * reported, never requested. Adopting an issuer because a peer
@@ -298,6 +328,11 @@ fzn_sync_err_t fzn_sync_plan_offer(const fzn_journal_t *journal,
 		return FZN_SYNC_ERR_MALFORMED;
 
 	look = to_examine(their_count, plan);
+	/* NO ROOM IS A PLAN OF NOTHING, said as the positions it ignored. */
+	if (!sorted_fit(look)) {
+		plan->positions_ignored += look;
+		look = 0;
+	}
 	sort_theirs(theirs, look);
 
 	/* Walk OUR positions, because an offer is about what we have. */

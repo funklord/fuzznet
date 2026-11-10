@@ -495,6 +495,7 @@ static int fuzz_one(unsigned long c)
 						break;
 				}
 			}
+			fzn_exchange_pull_end(&s->p);
 			free(s);
 		}
 		if (!pooled)

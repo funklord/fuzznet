@@ -4,6 +4,7 @@
 
 #include "../wire/bytes.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* THE OFFSETS, pinned as literals against `record/exchange.situ`, which
@@ -39,12 +40,33 @@ static int is(const uint8_t *m, size_t len, uint8_t type)
 static size_t answer_digest(const fzn_journal_t *journal, const uint8_t *request,
                             size_t request_len, uint8_t *reply, size_t reply_cap)
 {
-	static fzn_sync_position_t held[FZN_SYNC_MAX_POSITIONS];
-	size_t total, dropped = 0, from, room, i, at;
+	/* THIS HOST'S POSITIONS, grown to its journal, sec 992: a host past
+	 * the old 8192 streams offered only the first of them. */
+	static fzn_sync_position_t *held;
+	static size_t held_room;
+	size_t total, dropped = 0, from, room, i, at, want;
 
 	if (request_len != FZN_EXCHANGE_DIGEST_QUERY_LEN || reply_cap < FZN_EXCHANGE_DIGEST_HEAD_LEN)
 		return 0;
-	total = fzn_sync_digest(journal, held, FZN_SYNC_MAX_POSITIONS, &dropped);
+	want = journal->used < FZN_SYNC_MAX_POSITIONS ? journal->used : FZN_SYNC_MAX_POSITIONS;
+	/* AN EMPTY JOURNAL ANSWERS TOO, an empty digest: room is had first. */
+	if (want > held_room || !held) {
+		size_t grow = held_room ? held_room : 64u;
+		fzn_sync_position_t *more;
+
+		while (grow < want)
+			grow *= 2u;
+		more = realloc(held, grow * sizeof(*more));
+		if (more) {
+			held = more;
+			held_room = grow;
+		}
+	}
+	if (!held)
+		return 0;
+	total = fzn_sync_digest(journal, held, held_room < FZN_SYNC_MAX_POSITIONS
+	                                               ? held_room : FZN_SYNC_MAX_POSITIONS,
+	                        &dropped);
 	from = fzn_get_be16(request + 2);
 	if (from > total)
 		from = total;
@@ -226,7 +248,24 @@ static int digest_take(fzn_exchange_digest_t *d, const uint8_t *reply, size_t re
 	    || reply_len != FZN_EXCHANGE_DIGEST_HEAD_LEN + (count * FZN_EXCHANGE_POSITION_LEN)
 	    || count > d->total - d->n || (count == 0u && d->n < d->total))
 		return -1;
-	for (i = 0; i < count && d->n < FZN_SYNC_MAX_POSITIONS; i++, d->n++) {
+	/* ROOM FOR WHAT THE PEER SAYS IT HOLDS, up to the ceiling, sec 992. */
+	{
+		size_t want = d->total < FZN_SYNC_MAX_POSITIONS ? d->total : FZN_SYNC_MAX_POSITIONS;
+
+		if (want > d->room) {
+			size_t grow = d->room ? d->room : 64u;
+			fzn_sync_position_t *more;
+
+			while (grow < want)
+				grow *= 2u;
+			more = realloc(d->theirs, grow * sizeof(*more));
+			if (!more)
+				return -1;
+			d->theirs = more;
+			d->room = grow;
+		}
+	}
+	for (i = 0; i < count && d->n < FZN_SYNC_MAX_POSITIONS && d->n < d->room; i++, d->n++) {
 		const uint8_t *at = reply + FZN_EXCHANGE_DIGEST_HEAD_LEN + (i * FZN_EXCHANGE_POSITION_LEN);
 
 		memcpy(d->theirs[d->n].issuer, at, FZN_PUBKEY_LEN);
@@ -318,8 +357,23 @@ fzn_exchange_err_t fzn_exchange_pull_step(fzn_exchange_pulling_t *p, const uint8
 		if (more)
 			return FZN_EXCHANGE_OK;
 		p->tally.positions = p->digest.n;
+		/* A REQUEST A POSITION AT MOST, so room for the digest's, sec 992. */
+		if (p->digest.n + 1u > p->plan_room) {
+			size_t grow = p->plan_room ? p->plan_room : 64u;
+			fzn_sync_request_t *grown;
+
+			while (grow < p->digest.n + 1u)
+				grow *= 2u;
+			grown = realloc(p->plan_out, grow * sizeof(*grown));
+			if (!grown) {
+				p->phase = PULL_DONE;
+				return FZN_EXCHANGE_ERR_MALFORMED;
+			}
+			p->plan_out = grown;
+			p->plan_room = grow;
+		}
 		if (fzn_sync_plan_fetch(p->journal, p->digest.theirs, p->digest.n, p->max_per_request,
-		                        p->plan_out, FZN_SYNC_MAX_POSITIONS, &p->plan)
+		                        p->plan_out, p->plan_room, &p->plan)
 		    != FZN_SYNC_OK) {
 			p->phase = PULL_DONE;
 			return FZN_EXCHANGE_ERR_MALFORMED;
@@ -344,6 +398,18 @@ fzn_exchange_err_t fzn_exchange_pull_step(fzn_exchange_pulling_t *p, const uint8
 	p->want++;
 	next_want(p, request, request_len, done);
 	return FZN_EXCHANGE_OK;
+}
+
+void fzn_exchange_pull_end(fzn_exchange_pulling_t *p)
+{
+	if (!p)
+		return;
+	free(p->digest.theirs);
+	free(p->plan_out);
+	p->digest.theirs = NULL;
+	p->digest.room = 0;
+	p->plan_out = NULL;
+	p->plan_room = 0;
 }
 
 /* THE PULL, the steps above driven by `ask` one request at a time. */
@@ -455,10 +521,11 @@ enum { PUSH_DIGEST = 1, PUSH_OFFERS = 2, PUSH_DONE = 3 };
 /* THE BOUNDS OF POSITION `p->at`: the peer's next, and this host's last. */
 static void offer_bounds(fzn_exchange_pushing_t *p)
 {
-	const fzn_sync_position_t *theirs = &p->digest.theirs[p->at];
+	const fzn_sync_position_t *theirs;
 
 	if (p->at >= p->digest.n)
 		return;
+	theirs = &p->digest.theirs[p->at];
 	p->mine = fzn_journal_next(p->journal, theirs->issuer, theirs->stream) - 1u;
 	p->seq = theirs->received + 1u;
 }
@@ -514,6 +581,15 @@ fzn_exchange_err_t fzn_exchange_push_begin(fzn_exchange_pushing_t *p, fzn_journa
 	p->at = 0;
 	digest_begin(&p->digest, message, message_len);
 	return FZN_EXCHANGE_OK;
+}
+
+void fzn_exchange_push_end(fzn_exchange_pushing_t *p)
+{
+	if (!p)
+		return;
+	free(p->digest.theirs);
+	p->digest.theirs = NULL;
+	p->digest.room = 0;
 }
 
 fzn_exchange_err_t fzn_exchange_push_step(fzn_exchange_pushing_t *p, const uint8_t *reply,

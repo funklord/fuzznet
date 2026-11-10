@@ -83072,11 +83072,10 @@ compare as `memcmp` does; the constant-time compare was the scan's.
 duplicates change nothing; `sync-plan-takes-the-smallest` and `sync-plan-marks-nothing-followed`,
 caught by hand.
 
-**Open, for an estate past a few thousand streams:** FZN_SYNC_MAX_POSITIONS, 1024, was set while
-the plan was square (sec 968) and can rise now that it is not; but a digest is one message, and
-reassembly holds about 5,900 positions. Past that, a digest must be asked for in pages -- a change
-to the exchange, weighed with the N squared grants of sec 579's pairing (sec 968), which is the
-larger cost of an estate that size.
+**~~Open, for an estate past a few thousand streams~~, wrong when written and settled since:** a
+digest was already asked for in pages (`record/exchange.c`, sec 636), so no one message bounded it;
+the ceiling rose to 8192 in sec 974 and to 65535, the wire's count, in sec 992, and the N squared
+grants went in sec 976.
 
 ## 973. A preset's value follows its revision, a person's stands, 2026-11-09
 
@@ -83125,7 +83124,8 @@ is already asked for in pages (`record/exchange.c`), its count 16 bits, so no on
 18 MB, untouched until a digest fills it. `sync_test` and `sync_fuzz`, which are written against the
 ceiling's name, pass; the fuzz's crowds past the ceiling take 3.3 s.
 
-**Left:** an estate past 8192 streams. The N squared grants of sec 579 are gone since sec 976.
+**Left:** an estate past 8192 streams -- taken in sec 992. The N squared grants of sec 579 are gone
+since sec 976.
 
 ## 975. A host's records trimmed where it carries no messages, 2026-11-09
 
@@ -83655,3 +83655,32 @@ MiB, and a note's text holds 256 KiB, so a file past the bound cannot hold a not
 escapes allowed for; a calendar is read to 16 MiB, some tens of thousands of notes, and is read again
 for each page -- a read and parse of up to 16 MiB a page, not measured. A calendar past it is refused and
 named, not cut.
+
+## 992. A digest grown to what the peer holds, to 65535 positions, 2026-11-10
+
+Sec 974 left an estate past 8192 streams, and the holder's aim for an estate is almost unlimited
+machines (sec 964). FZN_SYNC_MAX_POSITIONS was memory as well as a bound: each pull and push held
+room for that many of the peer's positions and a plan of that many requests, sixteen talks of them
+in `fuzznetd`, whether a digest came or not, and a host served its own digest from 8192 at most --
+so a host past it offered only part of what it held.
+
+**Grown now:** a digest's room is grown to what the peer says it holds, a plan's to the digest, the
+host's own digest to its journal, and the plan's sort to what it looks at; each is kept for the next
+round. FZN_SYNC_MAX_POSITIONS is a bound on what a peer can make this host examine, no longer room
+set aside, and is 65535, the most a digest's 16-bit count says (the `small` build keeps 256).
+`fzn_exchange_pulling_t` and `fzn_exchange_pushing_t` are to be zeroed before their first begin and
+let go with `fzn_exchange_pull_end` and `fzn_exchange_push_end` -- `fuzznetd`'s talks are static, so
+their room lasts the process; `exchange_fuzz`, which allocates one, ends it.
+
+**Measured:** `exchange_test` pulls a digest of 9000 positions from a host following 9000 streams,
+read whole (8192 before), and ends the pull with its room let go; and, run first, that a host
+holding nothing answers an empty digest -- the first build of this gave the server no room until it
+had positions, and `pair_test`'s carry of a root's empty journal failed on it; `exchange-digest-room-capped` and
+`exchange-own-digest-capped` put the old room back on each side and fail it, and
+`exchange-empty-journal-silent` the empty case. `fuzznetd`'s
+`journal_talks` is 193 KB where it was some 26 MB of bss, sixteen talks of two 8192-position digests
+and a plan. `sync_fuzz`'s crowds past the ceiling take 16.5 s, up from 3.3, being eight times
+larger; `sync_test` and `exchange_fuzz` pass unchanged.
+
+**Left:** past 65535 streams, the digest's count, page offset and length are 16 bits on the wire,
+and a widening is a change to the exchange (free, sec 924) not made here.

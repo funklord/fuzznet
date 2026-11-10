@@ -591,6 +591,48 @@ static void test_a_digest_of_several_pages(void)
 	      "a stream on a digest's second page was not fetched");
 }
 
+/* A DIGEST PAST THE OLD 8192, sec 992: a host following 9000 streams is read
+ * whole by a pull, where the room for it was FZN_SYNC_MAX_POSITIONS set aside
+ * at 8192 -- and a host past it was read in part. Room is grown now. */
+static void test_a_digest_past_8192(void)
+{
+	enum { STREAMS = 9000 };
+	static struct host a, b;
+	static fzn_journal_entry_t a_entries[STREAMS], b_entries[STREAMS];
+	static fzn_exchange_pulling_t p;
+	uint8_t issuer[FZN_PUBKEY_LEN], request[FZN_EXCHANGE_RECORDS_QUERY_LEN + 64u];
+	size_t i, len = 0, got = 0;
+	int done = 0, ok = 1, steps = 0;
+
+	host_init(&a);
+	host_init(&b);
+	a.reply_cap = sizeof(reply);
+	fzn_journal_init(&a.journal, a_entries, STREAMS);
+	fzn_journal_init(&b.journal, b_entries, STREAMS);
+	for (i = 0; i < STREAMS && ok; i++) {
+		key(issuer, 0x21);
+		issuer[1] = (uint8_t)(i >> 8);
+		issuer[2] = (uint8_t)i;
+		ok = fzn_journal_anchor(&a.journal, issuer, 1u, 0) == FZN_JOURNAL_OK
+		     && fzn_journal_anchor(&b.journal, issuer, 1u, 0) == FZN_JOURNAL_OK;
+	}
+	CHECK(ok, "fixture: both follow 9000 streams");
+	CHECK(fzn_exchange_pull_begin(&p, &b.journal, &b.store, &SIGN, &HASH, 64u, request,
+	                              sizeof(request), &len)
+	              == FZN_EXCHANGE_OK,
+	      "fixture: the pull begins");
+	while (!done && steps++ < 100000) {
+		if (!ask(&a, request, len, reply, sizeof(reply), &got)
+		    || fzn_exchange_pull_step(&p, reply, got, request, sizeof(request), &len, &done)
+		               != FZN_EXCHANGE_OK)
+			break;
+	}
+	CHECK(done && p.tally.positions == STREAMS,
+	      "a digest of 9000 positions was not read whole");
+	fzn_exchange_pull_end(&p);
+	CHECK(p.digest.theirs == NULL && p.plan_out == NULL, "an ended pull still holds its room");
+}
+
 /* THE PUSH BY ITS STEPS, against a taker whose digest comes one position a
  * page: both its streams offered to, and a step with no answer ending it
  * (sec 636). */
@@ -726,13 +768,33 @@ static void test_the_edges(void)
 	      "a pull with a reply buffer under one record went ahead");
 }
 
+/* AN EMPTY JOURNAL ANSWERS AN EMPTY DIGEST, sec 992 -- run first, before
+ * any digest has given the server its room: a host with nothing held had
+ * none and answered nothing, and a pull from it failed. */
+static void test_an_empty_digest(void)
+{
+	static struct host a;
+	uint8_t q[FZN_EXCHANGE_DIGEST_QUERY_LEN];
+	size_t len;
+
+	host_init(&a);
+	memset(q, 0, sizeof(q));
+	q[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	q[1] = (uint8_t)FZN_EXCHANGE_DIGEST_QUERY;
+	len = fzn_exchange_answer(&a.journal, &a.store, q, sizeof(q), reply, sizeof(reply));
+	CHECK(len == FZN_EXCHANGE_DIGEST_HEAD_LEN && reply[1] == (uint8_t)FZN_EXCHANGE_DIGEST,
+	      "an empty journal's digest was not answered");
+}
+
 int main(void)
 {
+	test_an_empty_digest();
 	test_a_push();
 	test_a_follower_learns_the_chain();
 	test_a_fork_and_a_forgery();
 	test_a_lying_server();
 	test_a_digest_of_several_pages();
+	test_a_digest_past_8192();
 	test_two_pulls_by_turns();
 	test_a_push_by_steps();
 	test_a_push_stopped_at_a_fork();

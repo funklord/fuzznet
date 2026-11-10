@@ -181,11 +181,17 @@ fzn_exchange_err_t fzn_exchange_pull(fzn_journal_t *journal, fzn_record_store_t 
  * `fzn_exchange_pull_begin` writes the first request into `request`;
  * each `fzn_exchange_pull_step` takes that request's answer -- NULL for
  * none -- and writes the next, setting `*done` instead when the pull is
- * over. Any error ends it. The tally is the struct's. */
+ * over. Any error ends it. The tally is the struct's.
+ *
+ * ZERO THE STRUCT BEFORE ITS FIRST BEGIN, and `fzn_exchange_pull_end` it
+ * when done with it, sec 992: its room for the peer's digest and the plan
+ * is grown to what the peer says and kept across begins, where it was
+ * FZN_SYNC_MAX_POSITIONS of each held whether a digest came or not. */
 /* THE PEER'S DIGEST, paged in: a pull's and a push's first requests. */
 typedef struct fzn_exchange_digest {
 	size_t n, total, pages;
-	fzn_sync_position_t theirs[FZN_SYNC_MAX_POSITIONS];
+	fzn_sync_position_t *theirs;
+	size_t room;
 } fzn_exchange_digest_t;
 
 typedef struct fzn_exchange_pulling {
@@ -196,7 +202,8 @@ typedef struct fzn_exchange_pulling {
 	uint64_t max_per_request;
 	int phase;
 	fzn_exchange_digest_t digest;
-	fzn_sync_request_t plan_out[FZN_SYNC_MAX_POSITIONS];
+	fzn_sync_request_t *plan_out;
+	size_t plan_room;
 	fzn_sync_plan_t plan;
 	size_t want;            /* the plan's request being paged */
 	uint64_t next, left;
@@ -211,6 +218,9 @@ fzn_exchange_err_t fzn_exchange_pull_begin(fzn_exchange_pulling_t *p, fzn_journa
 fzn_exchange_err_t fzn_exchange_pull_step(fzn_exchange_pulling_t *p, const uint8_t *reply,
                                           size_t reply_len, uint8_t *request, size_t cap,
                                           size_t *request_len, int *done);
+
+/* Its room let go; zeroed, it may begin again. */
+void fzn_exchange_pull_end(fzn_exchange_pulling_t *p);
 
 /* ---- the push as steps, sec 636 ------------------------------------------
  *
@@ -239,5 +249,8 @@ fzn_exchange_err_t fzn_exchange_push_begin(fzn_exchange_pushing_t *p, fzn_journa
 fzn_exchange_err_t fzn_exchange_push_step(fzn_exchange_pushing_t *p, const uint8_t *reply,
                                           size_t reply_len, uint8_t *message, size_t cap,
                                           size_t *message_len, int *done);
+
+/* The same for a push: zero it before its first begin, end it when done. */
+void fzn_exchange_push_end(fzn_exchange_pushing_t *p);
 
 #endif /* FZN_EXCHANGE_H */
