@@ -83760,3 +83760,27 @@ several writers' claims, parents among the ids, the root and ids nobody holds, s
 -- and finds the marks and counts of the two walks the same; `tree-ordered-walk-one-level` fails it.
 5000 texts: 45 s, the receiver 3530 ticks, the sharer 308; the receiver's profile is now reads,
 hashing and closing files, the work itself.
+
+## 997. The smallest host's lamp, switched from another node, end to end, 2026-11-10
+
+**The holder, 2026-11-10:** the smallest host "does not need a 'real radio' ... it is just setting up
+an object that can be switched on/off to get started and is used for other nodes too". So sec 913's
+"no radio met yet" does not hold the device back, and what had to be shown is the whole of that use.
+
+**Each part had its test, none the whole:** a device sets and reads an object held on its gateway
+(`live_device` c2b, secs 912 and 948), objects cross between hosts (`live_objects`), and a rule says
+who may call (sec 921). `tool/live_lamp.py` runs them as one: R, a root, holds `lamp` (on or off);
+A, a member, is a phone; D is the device, paired to R by hand and asking it over the simulated radio
+in 51-byte units through `fuzznet-bridge`.
+
+- **a** A switches the lamp on, and D's light, asking R, reads it on -- in 2.5 s;
+- **b** D's button switches it off, and A reads it off, set by D's host;
+- **c** a value the lamp may not take is refused on the device, as on A.
+
+**Measured:** passes with the full daemon and with the embedded build as R. In `livecheck` and
+`livecheck-embedded`. **Added beside it:** `live_files_many` (sec 965), which no target ran, to
+`livecheck`.
+
+**What a user still does by hand,** and is not wrong: `add object lamp on off` on R, the rule
+`remote/permit/object host:D`, and the device image carried over. A device's light asks on a timer,
+as sec 912 designed it; a push to a device would need it to listen, which it does not.

@@ -7033,6 +7033,8 @@ ifdef STICKERS_ON
 	@timeout 150 python3 tool/live_stickers.py $(FUZZNETD)
 endif
 	@timeout 150 python3 tool/live_transfer.py $(FUZZNETD)
+	@timeout 600 python3 tool/live_files_many.py $(FUZZNETD)
+	@timeout 280 python3 tool/live_lamp.py $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif
@@ -7067,6 +7069,7 @@ livecheck-embedded: embedded $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 620 python3 tool/live_lean.py --minimal $(BUILD_DIR)/embedded/fuzznetd $(FUZZNETD)
 	@timeout 280 python3 tool/live_device.py $(BUILD_DIR)/embedded/fuzznetd $(BRIDGE) $(DEVICE_SIM)
 	@timeout 230 python3 tool/live_objects.py $(BUILD_DIR)/embedded/fuzznetd
+	@timeout 280 python3 tool/live_lamp.py $(BUILD_DIR)/embedded/fuzznetd $(BRIDGE) $(DEVICE_SIM)
 
 # THE FAULTS FIRE, sec 689 step 0b: tool/live_faults.py against the faulty
 # daemon, so a scenario built on a fault is known to have one. Then the
