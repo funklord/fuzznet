@@ -568,6 +568,52 @@ static void test_cmp_reads_the_whole_id(void)
 	       "by the whole id, so fzn_tree_cmp is not reading it");
 }
 
+/* THE ORDERED WALK MARKS AS THE FIXED POINT DOES, sec 996: random sets of up
+ * to 200 nodes over 60 ids -- so ids repeat, as several writers' claims do --
+ * with parents drawn from the ids, the root and ids nobody holds, so cycles
+ * and orphans come too. Marks compared node by node, and the count. */
+static void test_the_ordered_walk_marks_as_the_fixed_point(void)
+{
+	static uint8_t ids[200][FZN_TREE_ID_LEN], parents[200][FZN_TREE_ID_LEN];
+	static fzn_tree_node_t nodes[200];
+	static uint8_t a[200], b[200];
+	static uint32_t order[200], queue[200];
+	uint32_t state = 12345u;
+	int round, same = 1, some_reached = 0, some_not = 0;
+
+	for (round = 0; round < 300 && same; round++) {
+		size_t count = 1u + (state >> 8) % 200u, i;
+		fzn_tree_walk_t wa, wb;
+
+		for (i = 0; i < count; i++) {
+			uint8_t id, parent;
+
+			state = state * 1664525u + 1013904223u;
+			id = (uint8_t)(1u + (state >> 24) % 60u);
+			state = state * 1664525u + 1013904223u;
+			parent = (uint8_t)((state >> 24) % 70u); /* 0 the root; past 60 nobody */
+			nodes[i] = make(ids[i], parents[i], id, parent, i);
+		}
+		if (fzn_tree_reachable(nodes, count, a, sizeof(a), &wa) != FZN_TREE_OK
+		    || fzn_tree_reachable_ordered(nodes, count, b, sizeof(b), order, queue, 200u, &wb)
+		               != FZN_TREE_OK
+		    || memcmp(a, b, count) != 0 || wa.emitted != wb.emitted)
+			same = 0;
+		some_reached |= wa.emitted > 0u;
+		some_not |= wa.emitted < count;
+	}
+	expect(same, "the ordered walk marked otherwise than the fixed point");
+	expect(some_reached && some_not, "the sets drawn were all one kind, so proved nothing");
+	{
+		fzn_tree_walk_t w;
+		uint8_t m[1];
+		uint32_t o[1], q[1];
+
+		expect_err(fzn_tree_reachable_ordered(nodes, 2u, m, 2u, o, q, 1u, &w),
+		           FZN_TREE_ERR_CAPACITY, "scratch short of the nodes");
+	}
+}
+
 int main(void)
 {
 	printf("tree_test: body %u + content, content at most %zu bytes\n",
@@ -581,6 +627,7 @@ int main(void)
 	test_children_come_back_in_sibling_order();
 	test_children_reads_the_whole_parent();
 	test_reachable_reads_the_whole_parent();
+	test_the_ordered_walk_marks_as_the_fixed_point();
 	test_cmp_reads_the_whole_id();
 	test_truncation_is_reported_not_implied();
 	test_order_exhaustion_is_reported_and_still_usable();

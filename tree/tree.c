@@ -274,6 +274,94 @@ fzn_tree_err_t fzn_tree_reachable(const fzn_tree_node_t *nodes, size_t count,
 	return FZN_TREE_OK;
 }
 
+/* BY PARENT, the order `fzn_tree_reachable_ordered` searches. A heap sort,
+ * in place and needing no context a qsort comparator could not be given. */
+static int parent_before(const fzn_tree_node_t *nodes, uint32_t a, uint32_t b)
+{
+	return memcmp(nodes[a].parent, nodes[b].parent, (size_t)FZN_TREE_ID_LEN) < 0;
+}
+
+static void sift(const fzn_tree_node_t *nodes, uint32_t *order, size_t at, size_t end)
+{
+	for (;;) {
+		size_t big = at, left = 2u * at + 1u, right = left + 1u;
+		uint32_t t;
+
+		if (left < end && parent_before(nodes, order[big], order[left]))
+			big = left;
+		if (right < end && parent_before(nodes, order[big], order[right]))
+			big = right;
+		if (big == at)
+			return;
+		t = order[at];
+		order[at] = order[big];
+		order[big] = t;
+		at = big;
+	}
+}
+
+fzn_tree_err_t fzn_tree_reachable_ordered(const fzn_tree_node_t *nodes, size_t count,
+                                          uint8_t *mark, size_t mark_cap, uint32_t *order,
+                                          uint32_t *queue, size_t scratch_cap,
+                                          fzn_tree_walk_t *walk)
+{
+	size_t i, end, head = 0, tail = 0;
+
+	if (walk == NULL)
+		return FZN_TREE_ERR_NULL;
+	if (count != 0u && (nodes == NULL || mark == NULL || order == NULL || queue == NULL))
+		return FZN_TREE_ERR_NULL;
+	if (mark_cap < count || scratch_cap < count || count > (size_t)UINT32_MAX)
+		return FZN_TREE_ERR_CAPACITY;
+	walk->emitted = 0u;
+	walk->examined = 0u;
+	walk->truncated = 0;
+	for (i = 0; i < count; i++) {
+		mark[i] = 0u;
+		order[i] = (uint32_t)i;
+	}
+	for (i = count / 2u; i-- > 0u;)
+		sift(nodes, order, i, count);
+	for (end = count; end > 1u; end--) {
+		uint32_t t = order[0];
+
+		order[0] = order[end - 1u];
+		order[end - 1u] = t;
+		sift(nodes, order, 0u, end - 1u);
+	}
+	/* THE ROOT'S CHILDREN FIRST, then each reached node's children: a node is
+	 * marked once, so a cycle, never reached, is never walked. */
+	for (i = 0; i < count; i++)
+		if (fzn_tree_is_root(nodes[i].parent)) {
+			mark[i] = 1u;
+			queue[tail++] = (uint32_t)i;
+		}
+	while (head < tail) {
+		const uint8_t *id = nodes[queue[head++]].id;
+		size_t low = 0, high = count;
+
+		while (low < high) {
+			size_t mid = low + (high - low) / 2u;
+
+			if (memcmp(nodes[order[mid]].parent, id, (size_t)FZN_TREE_ID_LEN) < 0)
+				low = mid + 1u;
+			else
+				high = mid;
+		}
+		for (; low < count
+		       && memcmp(nodes[order[low]].parent, id, (size_t)FZN_TREE_ID_LEN) == 0;
+		     low++) {
+			walk->examined++;
+			if (mark[order[low]] == 0u) {
+				mark[order[low]] = 1u;
+				queue[tail++] = order[low];
+			}
+		}
+	}
+	walk->emitted = tail;
+	return FZN_TREE_OK;
+}
+
 const char *fzn_tree_err_str(fzn_tree_err_t err)
 {
 	switch (err) {

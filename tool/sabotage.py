@@ -15102,6 +15102,13 @@ SABOTAGES = [
 		"a text written after the index was read is not found, and the old one still served -- sec 995",
 	),
 	(
+		"tree-ordered-walk-one-level",
+		"tree/tree.c",
+		"\t\t\t\tmark[order[low]] = 1u;\n\t\t\t\tqueue[tail++] = order[low];\n",
+		"\t\t\t\tmark[order[low]] = 1u;\n",
+		"the ordered walk marks the root's grandchildren unreachable -- sec 996",
+	),
+	(
 		"notes-scope-kept-past-a-write",
 		"node/notes.c",
 		"\tif (have && sender && n->store.stamp && kept_of == &n->store && stamp == kept_stamp\n",

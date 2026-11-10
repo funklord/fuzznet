@@ -42,6 +42,9 @@ typedef struct fzn_notes_view {
 	const uint8_t *writers[FZN_NOTES_MAX];
 	/* Non-zero once the root can reach nodes[i]. */
 	uint8_t mark[FZN_NOTES_MAX];
+	/* THE WALK'S SCRATCH, sec 996: the nodes by parent, and those reached. */
+	uint32_t order[FZN_NOTES_MAX];
+	uint32_t queue[FZN_NOTES_MAX];
 	size_t count;
 	/* Claims held that did not read as a note node. */
 	size_t unreadable;

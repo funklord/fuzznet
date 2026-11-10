@@ -83741,3 +83741,22 @@ alone would have left. `notes_test` runs the share's text checks with a stamp, a
 and edits a note's text to check the index is read again; `shares-blob-index-never-read-again` and
 `notes-scope-kept-past-a-write` guard them, and `notes-shares-blob-in-scope` and
 `notes-shares-blob-names-the-root` were moved to the new code.
+
+## 996. A view's reachability in n log n, 2026-11-10
+
+After sec 995 a receiver taking 5000 texts spent 6501 ticks of 76 s, a third of them in
+`fzn_tree_reachable`: its fixed point tries each unmarked node against every node, a pass at a time,
+which is the square of the notes each pass -- its comment called it count times depth -- and a view
+is loaded again whenever a note is written, so as texts land.
+
+**Built:** `fzn_tree_reachable_ordered` orders the nodes by parent once (a heap sort, in place, as
+nothing in `tree/` allocates and a qsort comparator could not be given the nodes) and walks out from
+the root's children, each node's children found by a search; a node is marked once, so a cycle,
+never reached, is never walked. Two scratch arrays the caller gives, held in the view beside `mark`.
+The view uses it; `fzn_tree_reachable` stays, the definition the new walk is held to.
+
+**Measured:** `tree_test` draws 300 random sets of up to 200 nodes over 60 ids -- repeated ids as
+several writers' claims, parents among the ids, the root and ids nobody holds, so cycles and orphans
+-- and finds the marks and counts of the two walks the same; `tree-ordered-walk-one-level` fails it.
+5000 texts: 45 s, the receiver 3530 ticks, the sharer 308; the receiver's profile is now reads,
+hashing and closing files, the work itself.

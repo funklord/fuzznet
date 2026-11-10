@@ -298,6 +298,21 @@ fzn_tree_err_t fzn_tree_reachable(const fzn_tree_node_t *nodes, size_t count,
                                   uint8_t *mark, size_t mark_cap,
                                   fzn_tree_walk_t *walk);
 
+/*
+ * THE SAME MARKS, IN n log n, sec 996: `fzn_tree_reachable` tries each
+ * unmarked node against every node, a pass at a time, which is the square of
+ * the set each pass -- 25 million compares a load at 5000 notes, and a view is
+ * loaded again whenever a note is written. Here the nodes are ordered by
+ * parent once and walked out from the root's children, each node's children
+ * found by a search. Two caller-supplied scratch arrays of `count` each, as
+ * nothing here allocates: `order` and `queue`. `mark` comes out exactly as
+ * `fzn_tree_reachable`'s; `walk->examined` counts the children looked at.
+ */
+fzn_tree_err_t fzn_tree_reachable_ordered(const fzn_tree_node_t *nodes, size_t count,
+                                          uint8_t *mark, size_t mark_cap, uint32_t *order,
+                                          uint32_t *queue, size_t scratch_cap,
+                                          fzn_tree_walk_t *walk);
+
 const char *fzn_tree_err_str(fzn_tree_err_t err);
 
 #endif /* FZN_TREE_H */

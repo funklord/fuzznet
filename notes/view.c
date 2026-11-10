@@ -53,7 +53,8 @@ fzn_notes_err_t fzn_notes_view_load(const fzn_notes_store_t *store, fzn_notes_vi
 		view->count++;
 	}
 	if (view->count > 0u
-	    && fzn_tree_reachable(view->nodes, view->count, view->mark, sizeof(view->mark), &walk)
+	    && fzn_tree_reachable_ordered(view->nodes, view->count, view->mark, sizeof(view->mark),
+	                                  view->order, view->queue, FZN_NOTES_MAX, &walk)
 	               != FZN_TREE_OK)
 		return FZN_NOTES_ERR_MALFORMED;
 	if (store->stamp) {
