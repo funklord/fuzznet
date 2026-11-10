@@ -15299,6 +15299,14 @@ SABOTAGES = [
 		"loop is the daemon's -- sec 993",
 	),
 	(
+		"loop-held-names-the-verb-alone",
+		"node/serve.c",
+		"\t\t\t\tif (c == ' ' && ++words == 2u)\n",
+		"\t\t\t\tif (c == ' ' && ++words == 1u)\n",
+		"the request that held the loop is named by its verb alone, `add` for an import; "
+		"live_loop_held only -- sec 994",
+	),
+	(
 		"wait-leaves-the-parked",
 		"node/serve.c",
 		"\t\tsize_t n_own = 0, n_wait = local && state ? state->n_waiting : 0u, s;\n",

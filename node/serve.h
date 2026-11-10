@@ -259,6 +259,11 @@ typedef struct fzn_node_state {
 	 * its poll's return to its own, in milliseconds -- the loop held by
 	 * what came in, apart from the wait for it. */
 	uint64_t held_ms;
+	/* AND WHICH LOCAL REQUEST TOOK LONGEST OF IT, sec 994: its first two
+	 * words, verb and subject -- never what follows, which may be a secret
+	 * -- or "a datagram"; empty when nothing was answered. */
+	char held_what[40];
+	uint64_t held_what_ms;
 } fzn_node_state_t;
 
 /* How many of a daemon's own descriptors a pass polls. */

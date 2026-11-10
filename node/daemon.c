@@ -1769,8 +1769,11 @@ static void loop_after_answering(const fzn_node_state_t *s)
 	const uint64_t limit = FZN_TUNE("LOOP_HELD_MS", FZND_LOOP_HELD_MS, 600000u);
 
 	if (s->held_ms >= limit)
-		say(FZN_ENTRY_WARNING, "node", "answering what came in held the loop %llu ms",
-		    (unsigned long long)s->held_ms);
+		say(FZN_ENTRY_WARNING, "node", "answering what came in held the loop %llu ms, %s%s%s "
+		    "the longest, %llu ms",
+		    (unsigned long long)s->held_ms, s->held_what[0] ? "`" : "",
+		    s->held_what[0] ? s->held_what : "nothing named", s->held_what[0] ? "`" : "",
+		    (unsigned long long)s->held_what_ms);
 	loop_free_ms = mono_ms();
 }
 

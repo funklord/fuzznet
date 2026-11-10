@@ -116,7 +116,28 @@ static void waiting_step(fzn_node_state_t *state, size_t i)
 		state->waiting[state->n_waiting++] = w;
 		return;
 	}
-	serve_connection(state, w.fd, &w.peer);
+	{
+		uint64_t began = monotonic_ms(), took;
+
+		serve_connection(state, w.fd, &w.peer);
+		took = monotonic_ms() - began;
+		if (took >= state->held_what_ms) {
+			size_t at = 0, words = 0;
+
+			/* THE VERB AND ITS SUBJECT, printable, two words at most. */
+			while (at < (size_t)n && at + 1u < sizeof(state->held_what)) {
+				uint8_t c = peek[at];
+
+				if (c == ' ' && ++words == 2u)
+					break;
+				if (c < 0x20u || c >= 0x7fu)
+					break;
+				state->held_what[at++] = (char)c;
+			}
+			state->held_what[at] = '\0';
+			state->held_what_ms = took;
+		}
+	}
 }
 
 /* EVERY CONNECTION THE LISTENER HOLDS, not one a pass: a pass polls everything
@@ -686,6 +707,8 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 	r = poll(fds, nfds, timeout_ms);
 	now_ms = monotonic_ms();
 	state->held_ms = 0;
+	state->held_what[0] = '\0';
+	state->held_what_ms = 0;
 	/* PAST ITS DEADLINE, whatever the poll said. */
 	if (state->asks)
 		handled += (int)fzn_node_asks_expire(state->asks);
@@ -719,7 +742,14 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 		handled++;
 	}
 	if (ui >= 0 && (fds[ui].revents & POLLIN)) {
+		uint64_t began = monotonic_ms(), took;
+
 		serve_ready_datagram(state);
+		took = monotonic_ms() - began;
+		if (took >= state->held_what_ms) {
+			memcpy(state->held_what, "a datagram", sizeof("a datagram"));
+			state->held_what_ms = took;
+		}
 		handled++;
 	}
 	state->held_ms = monotonic_ms() - now_ms;

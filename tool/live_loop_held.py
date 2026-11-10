@@ -8,7 +8,7 @@ sets the threshold the loop is held to.
        of its loop being held
     b  at 1 ms, the same root's own work between answers is said, naming the
        longest step; and a Takeout of 40 notes imported is said as answering
-       that held the loop
+       that held the loop, named by its verb and subject alone (sec 994)
 
 Against a daemon that times nothing, b never says either.
 
@@ -91,6 +91,13 @@ def main(argv):
 			line = [l for l in r.log().splitlines() if OWN in l][0]
 			if "the longest" not in line or "nothing timed" in line:
 				raise failed("b: the held loop did not name its longest step: %r" % line)
+			# THE REQUEST NAMED, sec 994: its verb and subject, nothing after.
+			named = [l for l in r.log().splitlines() if ANSWERING in l and "`add import`" in l]
+			if not named:
+				raise failed("b: no answering warning named `add import`: %r"
+				             % [l for l in r.log().splitlines() if ANSWERING in l][:2])
+			if take in named[0]:
+				raise failed("b: the warning carried the request's path: %r" % named[0])
 			print("livecheck: b: at 1 ms the loop's own work and an import's answering are said")
 		except failed as e:
 			print("livecheck: FAILED: %s" % e, file=sys.stderr)

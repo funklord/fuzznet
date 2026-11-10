@@ -83710,5 +83710,16 @@ loop-held warnings and its last lines before the timeout goes on as before -- th
 timed out in sec 966 raised it bare and read no log. The exception is unchanged, as some scripts
 wait for one on purpose; `live_rejoin.daemon` enters each daemon by its socket for `ask` to find.
 
-**Left:** the answering warning names no verb -- the node's dispatch would have to say which request
-it was answering.
+**Left:** the answering warning names no verb -- done in sec 994.
+
+## 994. The request that held the loop, named, 2026-11-10
+
+Sec 993's answering warning said how long and not what. `fzn_node_run_once` now times each local
+request it serves, and each pass of datagrams, and keeps the longest in `held_what` -- a request's
+first two words, its verb and subject, and nothing after them, since what follows may be a secret
+(a sealed value, a key) -- or "a datagram". The warning reads "answering what came in held the loop
+N ms, `add import` the longest, M ms".
+
+**Measured:** `live_loop_held` phase b finds `add import` named and the import's path absent from
+the line. With `loop-held-names-the-verb-alone` applied by hand -- the name cut at its first word --
+phase b fails; a daemon entry, as sec 993's is.
