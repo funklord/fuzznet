@@ -259,13 +259,22 @@ def main(argv):
 			# estate's (sec 642).
 			started.pop("a").stop()
 			expect(socks["b2"], "b2", "set group %s backfill 0" % b2_name, "ok")
-			taken = None
+			# HELD AT C, asked of C rather than read from one daemon's log: since
+			# sec 1004 B2's act starts a round, and C -- still up from b -- may
+			# take it before the turns below restart it with a fresh log.
+			def c_holds_it():
+				return ask(socks["c"], "get group %s backfill" % name).strip() == "ok 0"
+
+			deadline = time.monotonic() + 15.0
+			while not c_holds_it() and time.monotonic() < deadline:
+				time.sleep(0.5)
+			taken = c_holds_it()
 			for rnd in range(ROUNDS):
-				for who in ("b2", "c"):
-					turn(who, "%s-c%d" % (who, rnd))
-				taken = TAKEN_RE.search(started["c"].log())
 				if taken:
 					break
+				for who in ("b2", "c"):
+					turn(who, "%s-c%d" % (who, rnd))
+				taken = c_holds_it() or TAKEN_RE.search(started["c"].log())
 			if not taken:
 				raise failed("c: with A and B gone, C took no act of B2's%s"
 				             % tail(started["c"], ("group",)))

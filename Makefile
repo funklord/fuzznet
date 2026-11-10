@@ -7007,6 +7007,8 @@ else
 	@timeout 1560 python3 tool/live_names.py $(FUZZNETD)
 	@timeout 430 python3 tool/live_share_sibling.py $(FUZZNETD)
 	@timeout 600 python3 tool/live_groups.py $(FUZZNETD)
+	@$(if $(GROUPS_ON),timeout 450 python3 tool/live_soon.py $(FUZZNETD),echo \
+	  "livecheck: news soon SKIPPED -- this build has no groups")
 ifdef CATALOG_ON
 	@timeout 540 python3 tool/live_catalog.py $(FUZZNETD)
 endif

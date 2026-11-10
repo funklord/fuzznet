@@ -83961,3 +83961,88 @@ an unsaved title, labels and text kept with the cursor where it was, nothing sai
 moved, a title changed underneath kept and said, and after a save a change elsewhere shown -- with
 sabotages `notebook-view-refresh-overwrites` (7 checks fail) and
 `notebook-view-change-underneath-unsaid` (1).
+
+## 1004. News starts a round: a joining and a line in seconds, not rounds, 2026-11-10
+
+**Reported by fuzzypickles (inbox, 2026-11-10 03:56Z and 18:49Z):** `group-earlier` still failed
+about one run in five after sec 979, and `tui-group-everyone` failed one in three at `f4653c0d`,
+each a group line a member never read within the two or four minutes its scenario allows. They
+suspected `5eb048f`.
+
+**Measured on fuzznetd alone**, their order of acts reproduced: two hosts paired by card, B makes
+a group and adds A, A waits to hold it, B says a line and A waits up to 120 s for it. Eight trials
+at HEAD (`77f8654`) and eight at their pin `5d61e039`, the two run side by side: A held the group
+after one 60 s round in every trial; B's line came after one round or two -- three of eight at
+HEAD at 119.7 to 120.4 s, one of eight at `5d61e039`, which also had one that never came in 120 s.
+**Not a regression:** both versions, the same spread, and nothing in the commits between touches
+it.
+
+**Why, read from the logs.** A group is pulled. A line is sealed at its writer's next round
+(sec 905) and read at the member's next round after that, so one round or two by how the two
+hosts' timers fell. A member's first line needs the epoch's secret too, which reaches it a hop a
+round: the group learned, its host named, the secret sealed to it by an admin, that act taken.
+And the trial that failed was a fork: both daemons were started together, as fuzzypickles'
+`node_up` starts them, so their rounds ran within 100 ms of each other; A named its host in the
+same second B made an act of its own, the log forked, A's acts lost and were made again
+(sec 951), and B, which had already asked A that round, took them a round later -- the line's
+secret a round after that. Three to four minutes from a member's adding to its first line.
+
+**A contact's line seemed no better and is not the same case.** Written straight after pairing,
+three of three were read 59.1 to 59.7 s later; but a write delivers at once (sec 637), and those
+waited for the contact pass that learns the contact's hosts. Starting a round on a contact's line
+was tried and taken out: the round took the write's own delivery's place, and `live_relay` failed
+three of three, its line delivered straight to B2 a round later instead of relayed through B1 at
+once. Holding the contact's host, a line is read in 0.3 s.
+
+**Now, three changes:**
+- **A line written here is sealed between rounds**, not at the next: `messages_local_here` wraps
+  the messages verbs, and a successful `add message @GROUP` marks the seal, done by
+  `group_seal_written` as soon as the loop is between round steps. Writes in a burst seal in one
+  pass; a round under way seals them itself.
+- **A group's news starts a round**, as a named object's change does (sec 948): a group line
+  written here, an act made here --
+  a verb's, a duty's, one a fork dropped made again, all through `fzn_node_groups_t.acted`, which
+  nothing had wired -- and a member's host whose sync shows it ahead:
+  a group it names that this host lacks, a log past this one's or forked from it, or a host's
+  lines past what this one holds. The host with news asks soon; the asked, seeing it ahead, asks
+  back. So each hop of a joining and each line goes in seconds. The flag is `news_round_due`.
+- **Bounded**: a follow-up comes at least `FZND_NEWS_ROUND_GAP_S` (3 s) after the last round
+  began and at most `FZND_NEWS_FOLLOWUPS_MAX` (6) between timed rounds, the count given back by a
+  timed one. A peer that stays ahead -- acts this host refuses -- costs six rounds a minute and no
+  more, and a host with no news runs no extra round.
+
+**After, the same trials on the change:** six of six, A holding the group in 2.5 to 3.5 s and
+reading B's line in 6.0 to 6.5 s; their `group-earlier` order of acts, four of four, the
+groups held in 6 s, the earlier line in `open` and the later in `shut` read in 3 to 7 s, and
+`shut`'s earlier line still out of reach with its backfill off.
+
+`tool/live_soon.py`, in `make livecheck`: two hosts running throughout, never restarted -- the
+other group scripts restart a daemon to make its round come, which is why none of them saw this.
+Once A holds B's host, a line A writes to B alone is read within 12 s -- the write's own
+delivery, first, before any group's news; then A holds a group B adds it to within 40 s, and each
+side reads the other's line in it within 30 s -- all well inside one timed round. Measured 0.3,
+4.8, 3.0 and 3.3 s. **Control:** a daemon built with the follow-up clause switched off
+fails b, A never holding the group in 40 s. A daemon's main loop is not in `make test`, so this is a control by hand rather than
+a sabotage entry, as sec 1000's.
+
+**A script that counted one tending pass**, `live_many_groups` phase c, read 563 acts for 3000
+groups: adding them started a round, which tended the groups held by then. It sums the passes now,
+within the same 100 s, and reads 3000. And `live_group_hosts` phase c failed one run of two: B2's
+act started a round, C -- still up from phase b -- took it at once, and the turns that followed
+restarted C with a log that had nothing left to take. It asks C whether it holds the act now, by
+`get group NAME backfill`, before restarting it; two runs of two pass, and HEAD passes both.
+
+**Not changed:** a fork between two hosts acting in the same second still costs one exchange --
+now a few seconds. Hosts started at different moments rarely collide; a test that starts two
+together is the case that does.
+
+**Still a round, measured the same way and left open:** an edit to a note shared with a contact
+reaches it in 59.6 and 60.1 s (39.5 to 60.1 s once the sharer holds the contact's host), and an
+estate setting reaches the user's other host in 44.8 s --
+45.4 s with the writer's round started at once, so a round at the writer does not carry it. Both
+are pulled by the host that receives them, and nothing tells it to ask sooner: a note's would need
+a message from sharer to contact, and a setting's the journal's sync answer noticing an asker
+ahead of it. The note's was built and measured in a scratch clone -- a NEWS request opening the
+sharer's share conversation with each contact it shares with, the contact pulling that sharer
+first at a round it starts -- and gained nothing in two runs, 44.1 and 60.1 s, for a reason not
+found; it is not in the tree.

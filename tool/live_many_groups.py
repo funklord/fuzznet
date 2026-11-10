@@ -3,7 +3,7 @@
 
     a  3000 groups added: the last hundred took about what the first did, not the
        two reads of every group's name an add once cost
-    b  through the round that tends them all, a client is answered within a second.
+    b  through the rounds that tend them all, a client is answered within a second.
        One step of a round, each drawing, sealing and signing, held the loop 14 s
     c  and they were tended, each one's act made
 
@@ -84,24 +84,27 @@ def main(argv):
 			print("livecheck: a: %d groups, %d reads for an early hundred and %d for the last"
 			      % (GROUPS, early, late))
 
-			# b: asked all through the round, until what it tended is said.
+			# b: asked all through the rounds, until what they tended covers every
+			# group. MORE THAN ONE PASS since sec 1004: an act made starts a round
+			# soon, so one may begin while the groups are still being added, and
+			# tend those held by then.
 			worst = 0.0
-			done = None
-			while done is None and time.monotonic() - began < ROUND_S:
+			done = 0
+			while done < GROUPS and time.monotonic() - began < ROUND_S:
 				t = time.monotonic()
 				if not ask(sock, "status").startswith("ok "):
 					raise failed("b: status did not answer")
 				worst = max(worst, time.monotonic() - t)
-				done = TENDED.search(d.log())
+				done = sum(int(m.group(1)) for m in TENDED.finditer(d.log()))
 				time.sleep(0.05)
-			if done is None:
+			if not done:
 				raise failed("c: no group was tended in %.0f s" % ROUND_S)
 			if worst > ANSWERED_S:
 				raise failed("b: a client waited %.1f s through a round" % worst)
 			print("livecheck: b: answered within %.2f s through the round" % worst)
-			if int(done.group(1)) < GROUPS:
-				raise failed("c: %s acts for %d groups" % (done.group(1), GROUPS))
-			print("livecheck: c: %s acts made tending" % done.group(1))
+			if done < GROUPS:
+				raise failed("c: %d acts for %d groups in %.0f s" % (done, GROUPS, ROUND_S))
+			print("livecheck: c: %d acts made tending" % done)
 		except (failed, TimeoutError) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

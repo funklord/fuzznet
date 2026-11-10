@@ -3317,6 +3317,21 @@ static int votes_due = 1;
 static fzn_node_objects_t node_objects;
 static int object_round_due;
 
+/* NEWS STARTS A ROUND, sec 1004, as a named object's does: a group line
+ * written here, a group's acts made here, or a member's host showing acts
+ * or lines this one lacks. Not a contact's line, which a write delivers at
+ * once (sec 637): a round started over it took that delivery's place. Groups are pulled, so each hop of a member's joining --
+ * the group learned, its host named, the epoch's secret sealed to it -- and
+ * each line waited a round of the host that had to ask, and a joining took
+ * three minutes; now the host with news asks soon, and the asked, seeing
+ * it ahead, asks back. A follow-up comes at most one a gap and a few
+ * between timed rounds, so a peer that stays ahead -- acts this host
+ * refuses -- costs a handful of rounds a minute and no more. */
+#define FZND_NEWS_ROUND_GAP_S 3u
+#define FZND_NEWS_FOLLOWUPS_MAX 6u
+static int news_round_due;
+static unsigned news_followups;
+
 static void hex_of(const uint8_t *b, size_t n, char *out);
 
 static void object_changed(const uint8_t *name, size_t name_len)
@@ -12607,6 +12622,15 @@ static fzn_node_groups_t node_groups;
 
 static fzn_node_groups_lost_t group_lost;
 
+/* AN ACT MADE HERE -- a verb's, a duty's, one a fork dropped made again --
+ * starts a round soon (sec 1004). */
+static void group_acted(void *ctx, const uint8_t id[FZN_GROUP_ID_LEN])
+{
+	(void)ctx;
+	(void)id;
+	news_round_due = 1;
+}
+
 static void group_dropped(void *ctx, const uint8_t *bytes, size_t len)
 {
 	(void)ctx;
@@ -12751,6 +12775,16 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
 	if (cap < 4u
 	    || !groups_held(&ids_room, &ids, &n))
 		return (size_t)snprintf((char *)reply, reply_cap, "error the groups did not read\n");
+	/* A GROUP THE ASKER NAMES AND THIS HOST DOES NOT HOLD: asked back soon
+	 * (sec 1004) -- an asker names only groups this host's user is in. */
+	for (k = 0; k < entries && !news_round_due; k++) {
+		for (i = 0; i < n && memcmp(request + 3u + k * FZND_GROUP_ENTRY_LEN, ids[i],
+		                            FZN_GROUP_ID_LEN) != 0;
+		     i++)
+			;
+		if (i == n)
+			news_round_due = 1;
+	}
 	for (i = 0; i < n; i++) {
 		const uint8_t *asked = NULL;
 		uint32_t until = 0;
@@ -12766,6 +12800,11 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
 		for (k = 0; k < entries && !asked; k++)
 			if (memcmp(request + 3u + k * FZND_GROUP_ENTRY_LEN, ids[i], FZN_GROUP_ID_LEN) == 0)
 				asked = request + 3u + k * FZND_GROUP_ENTRY_LEN;
+		/* THE ASKER AHEAD, or forked from here: asked back soon (sec 1004). */
+		if (asked && (fzn_get_be32(asked + FZN_GROUP_ID_LEN) > g.seq
+		              || (fzn_get_be32(asked + FZN_GROUP_ID_LEN) == g.seq
+		                  && memcmp(asked + FZN_GROUP_ID_LEN + 4u, g.head, 32u) != 0)))
+			news_round_due = 1;
 		at = group_acts_from(ids[i], asked, reply, at, cap, &count, until);
 	}
 	reply[0] = FZND_GROUP_VERSION;
@@ -12959,6 +12998,18 @@ static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
 	    || fzn_group_lines_heads(&group_lines, g.id, heads, FZN_GROUP_HOSTS_MAX, &n)
 	               != FZN_GROUP_LINES_OK)
 		return (size_t)snprintf((char *)reply, reply_cap, "error the lines did not read\n");
+	/* THE ASKER HOLDING LINES THIS HOST LACKS, a new one of its own the
+	 * likeliest: asked back soon (sec 1004). */
+	for (k = 0; k < entries && !news_round_due; k++) {
+		const uint8_t *e = request + 3u + FZN_GROUP_ID_LEN + k * FZND_GROUP_HEAD_LEN;
+		uint32_t mine = 0;
+
+		for (i = 0; i < n; i++)
+			if (memcmp(e, heads[i].host, FZN_PUBKEY_LEN) == 0)
+				mine = heads[i].have;
+		if (fzn_get_be32(e + FZN_PUBKEY_LEN) > mine)
+			news_round_due = 1;
+	}
 	for (i = 0; i < n; i++) {
 		uint32_t from = 0, s;
 
@@ -13705,6 +13756,55 @@ static void group_lines_settle(void)
 		say(FZN_ENTRY_INFO, "node/groups", "lines pass: %zu sealed, %zu taken, %zu filed",
 		    lines_sealed, lines_taken, filed);
 }
+
+/* A LINE WRITTEN HERE SEALED AS SOON AS THE LOOP IS BETWEEN ROUNDS, sec
+ * 1004: sealed at the next round's lines pass, a line waited out this host's
+ * round and then a member's, which pulls -- one round or two by how the two
+ * hosts' timers fell, and fuzzypickles' scenarios, given two minutes, failed
+ * on the second. Sealed now, it waits for the member's round alone. Writes
+ * in a burst are sealed in one pass; a round under way seals them itself. */
+static int group_seal_due;
+
+static void group_seal_written(void)
+{
+	static fzn_group_held_t ids_room;
+	static fzn_group_t g;
+	static fzn_contact_device_t own;
+	uint8_t (*ids)[FZN_GROUP_ID_LEN] = NULL;
+	size_t n = 0, i, sealed = 0;
+
+	group_seal_due = 0;
+	if (!group_lines.store || !contact_hash_ops || !contact_aead_ops || !contact_rng_ops
+	    || !node_apply.store || !groups_signer(NULL, &own) || !groups_held(&ids_room, &ids, &n))
+		return;
+	for (i = 0; i < n; i++)
+		if (fzn_group_log_get(node_apply.store, ids[i], &g) == FZN_GROUP_LOG_OK
+		    && fzn_group_is_member(&g, own.owner))
+			sealed += group_seal_own(&g, &own);
+	if (sealed) {
+		say(FZN_ENTRY_DEBUG, "node/groups", "%zu line(s) of this host's sealed as written",
+		    sealed);
+		news_round_due = 1;
+	}
+}
+
+#if defined(FZN_RECORD_STORE_FILE_ON) && defined(FZN_MESSAGES_ON)
+/* THE MESSAGES VERBS, and a group line written among them marked for
+ * sealing (sec 1004), which then starts a round. */
+static size_t messages_local_here(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+                                  char *reply, size_t reply_cap)
+{
+	static const char line[] = "message ";
+	size_t n = fzn_node_messages_local(ctx, origin, request, reply, reply_cap);
+
+	if (n >= 2u && reply[0] == 'o' && reply[1] == 'k' && request->verb_len == 3u
+	    && memcmp(request->verb, "add", 3u) == 0 && request->arg_len > sizeof(line)
+	    && memcmp(request->arg, line, sizeof(line) - 1u) == 0
+	    && request->arg[sizeof(line) - 1u] == '@')
+		group_seal_due = 1;
+	return n;
+}
+#endif
 
 /* THE GROUPS ROUND, sec 626: every sibling, and one host of each contact
  * who is in a group held here, asked for what it has. */
@@ -20973,7 +21073,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					node_attachments.store = store_ops;
 					node_attachments.hash = &hash_ops;
 #endif
-					admin.messages_local = fzn_node_messages_local;
+					admin.messages_local = messages_local_here;
 					admin.messages_remote = fzn_node_messages_remote;
 					admin.messages_ctx = &node_messages;
 				} else {
@@ -21151,6 +21251,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			node_groups.log.member = node_apply.capability;
 			node_groups.host_sign = &sign_ops;
 			node_groups.signer = groups_signer;
+			node_groups.acted = group_acted;
 			node_groups.rng = &rng_ops;
 			/* A GROUP ACT'S TIME IS A LATER MEMBER'S FLOOR, judged against
 			 * each note's writer's clock: estate time, sec 719 stage 4, so
@@ -21552,9 +21653,20 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				successions_room(&node_successions);
 			if (messages_on)
 				messages_keys_room(&node_messages);
+			/* A GROUP LINE WRITTEN HERE, sealed between rounds, sec 1004. */
+			if (group_seal_due && !round_step)
+				group_seal_written();
 			if (!round_step
 			    && (now >= next_pull || next_pull > now + pull_every
-			        || (object_round_due && now >= round_now + FZND_OBJECT_ROUND_GAP_S))) {
+			        || (object_round_due && now >= round_now + FZND_OBJECT_ROUND_GAP_S)
+			        || (news_round_due && news_followups < FZND_NEWS_FOLLOWUPS_MAX
+			            && now >= round_now + FZND_NEWS_ROUND_GAP_S))) {
+				/* A TIMED ROUND gives the follow-ups their count back. */
+				if (now >= next_pull || next_pull > now + pull_every)
+					news_followups = 0;
+				else if (news_round_due && !object_round_due)
+					news_followups++;
+				news_round_due = 0;
 				object_round_due = 0;
 				plan = round_plan;
 				plan_at = 0;
