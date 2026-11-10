@@ -32,6 +32,7 @@ extern "C" {
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QTextCursor>
 
 #include <stdio.h>
 #include <string.h>
@@ -774,6 +775,64 @@ static void test_a_refresh_keeps_the_readers_place(void)
 	w.hide();
 }
 
+/* AN EDIT NOT YET SAVED SURVIVES A REFRESH, sec 1003: fuzzypickles' window
+ * refreshes the shown page every two seconds, and typing was thrown away
+ * between keys. Where the node's copy changes under the edit it is said, and
+ * the edit is still kept; saved, the next refresh has nothing to keep. */
+static void test_a_refresh_keeps_an_unsaved_edit(void)
+{
+	char reply[4096];
+	QString id;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+	auto *title = w.findChild<QLineEdit *>(QStringLiteral("note_title"));
+	auto *body = w.findChild<QPlainTextEdit *>();
+	QTextCursor at;
+
+	CHECK(title && body, "fixture: the title and text fields");
+	if (!title || !body)
+		return;
+	CHECK(w.new_note(QStringLiteral("Shopping")), "fixture: a note");
+	id = w.open_id();
+	body->setPlainText(QStringLiteral("milk\n"));
+	CHECK(w.save(), "fixture: its text saved");
+	w.refresh();
+	CHECK(w.body_text() == QStringLiteral("milk\n"), "a saved note reads back on a refresh");
+
+	title->setText(QStringLiteral("Shopping, Saturday"));
+	w.set_labels_text(QStringLiteral("home"));
+	body->setPlainText(QStringLiteral("milk\neggs"));
+	at = body->textCursor();
+	at.setPosition(7);
+	body->setTextCursor(at);
+	w.refresh();
+	CHECK(w.title_text() == QStringLiteral("Shopping, Saturday"), "a refresh keeps an unsaved title");
+	CHECK(w.labels_text() == QStringLiteral("home"), "and unsaved labels");
+	CHECK(w.body_text() == QStringLiteral("milk\neggs"), "and unsaved text");
+	CHECK(body->textCursor().position() == 7, "the text not rewritten: the cursor where it was");
+	CHECK(!w.status().contains(QStringLiteral("changed elsewhere")),
+	      "nothing said while nothing changed underneath");
+
+	node_ask(nullptr, ("set note " + id + " title Groceries").toUtf8().constData(), reply,
+	         sizeof(reply));
+	w.refresh();
+	CHECK(w.title_text() == QStringLiteral("Shopping, Saturday"),
+	      "changed underneath, the unsaved title is still kept");
+	CHECK(w.status().contains(QStringLiteral("changed elsewhere")), "and the change is said");
+
+	CHECK(w.save(), "the edit saved");
+	w.refresh();
+	CHECK(w.title_text() == QStringLiteral("Shopping, Saturday")
+	              && w.body_text() == QStringLiteral("milk\neggs"),
+	      "saved, it is what a refresh reads");
+	node_ask(nullptr, ("set note " + id + " title Groceries").toUtf8().constData(), reply,
+	         sizeof(reply));
+	w.refresh();
+	CHECK(w.title_text() == QStringLiteral("Groceries"),
+	      "with nothing unsaved, a change elsewhere is shown");
+}
+
 /* NOT HERE YET, AND LABELLED, secs 514 and 522: a note whose blob has not
  * arrived is a row saying so, not an empty one; a labelled note shows its
  * labels on hover. */
@@ -1174,6 +1233,7 @@ int main(int argc, char **argv)
 	test_a_note_is_cut_and_moved();
 	test_pinned_first_and_the_archive_apart();
 	test_a_refresh_keeps_the_readers_place();
+	test_a_refresh_keeps_an_unsaved_edit();
 	test_a_pending_note_says_so_and_labels_show();
 	test_labels_are_edited_and_shown();
 	test_every_field_has_an_accessible_name();

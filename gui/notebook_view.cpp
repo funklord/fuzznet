@@ -103,6 +103,17 @@ static QString unescape(const QString &text)
 	return QString::fromUtf8(out);
 }
 
+/* TEXT AS A QPlainTextEdit GIVES IT BACK, so what was read compares with what
+ * is shown (sec 1003): a line ended by CR LF or CR reads as LF, and a
+ * no-break space as a space. */
+static QString as_shown(QString text)
+{
+	text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+	text.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+	text.replace(QChar(0x00a0), QLatin1Char(' '));
+	return text;
+}
+
 /* A ROW THAT WRAPS, sec 989: its widgets left to right, and onto the next
  * line where the width runs out, so a row of buttons fits a phone held
  * upright rather than setting the whole widget's width to its sum. Each
@@ -235,6 +246,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_pin = new QPushButton(QStringLiteral("Pin"), this);
 	m_archive = new QPushButton(QStringLiteral("Archive"), this);
 	m_title = new QLineEdit(this);
+	m_title->setObjectName(QStringLiteral("note_title"));
 	m_labels = new QLineEdit(this);
 	m_labels->setPlaceholderText(QStringLiteral("Labels, separated by commas"));
 	m_labels->setAccessibleName(QStringLiteral("Labels"));
@@ -787,6 +799,14 @@ void fzn_notebook_view::refresh_note()
 	bool editing = !shared();
 	bool have = !m_open.isEmpty();
 	bool pending = false;
+	/* AN EDIT NOT YET SAVED SURVIVES A REFRESH, sec 1003, as the list keeps
+	 * the reader's place: a host refreshing on a timer otherwise threw away
+	 * what was typed between two keys. Taken here, put back below. */
+	bool same = have && editing && m_read_note == m_open;
+	bool keep_title = same && !m_title->isReadOnly() && m_title->text() != m_title_read;
+	bool keep_labels = same && !m_labels->isReadOnly() && m_labels->text() != m_labels_read;
+	bool keep_body = same && !m_body->isReadOnly() && m_body->toPlainText() != m_body_read;
+	QString title_was = m_title_read, labels_was = m_labels_read, body_was = m_body_read;
 
 	/* A VERSION BEING READ STAYS ON SCREEN across a refresh, as the list
 	 * keeps the reader's place. */
@@ -796,11 +816,16 @@ void fzn_notebook_view::refresh_note()
 	m_viewing = -1;
 	m_restore_version->setEnabled(false);
 
-	m_title->clear();
+	if (!keep_title)
+		m_title->clear();
+	m_title_read.clear();
 	m_ref.clear();
-	m_labels->clear();
+	if (!keep_labels)
+		m_labels->clear();
 	m_labels_read.clear();
-	m_body->clear();
+	if (!keep_body)
+		m_body->clear();
+	m_body_read.clear();
 	m_is_list = false;
 	m_ticks.clear();
 	m_flags = 0;
@@ -815,7 +840,9 @@ void fzn_notebook_view::refresh_note()
 
 			m_flags = f.value(1).toUInt();
 
-			m_title->setText(unescape(f.mid(9).join(QLatin1Char(' '))));
+			m_title_read = unescape(f.mid(9).join(QLatin1Char(' ')));
+			if (!keep_title)
+				m_title->setText(m_title_read);
 			m_is_list = type == FZN_NOTE_TYPE_LIST;
 			/* NOT HERE YET, sec 514: there is no content to show, and an
 			 * edit of it the node would refuse. It can still be moved,
@@ -831,7 +858,8 @@ void fzn_notebook_view::refresh_note()
 					m_labels_read = raw.isEmpty() ? QString()
 					                              : raw.split(QLatin1Char('\0')).join(
 					                                        QStringLiteral(", "));
-					m_labels->setText(m_labels_read);
+					if (!keep_labels)
+						m_labels->setText(m_labels_read);
 				}
 			}
 			/* `... REACHABLE CONTESTED TITLE`, sec 828, said, sec 987. */
@@ -864,6 +892,7 @@ void fzn_notebook_view::refresh_note()
 				}
 			} else if (m_is_list) {
 				m_body->setPlainText(items_of(get, &m_ticks).join(QLatin1Char('\n')));
+				m_body_read = m_body->toPlainText();
 			} else if (type != FZN_NOTE_TYPE_FOLDER) {
 				QTemporaryFile file;
 
@@ -875,7 +904,9 @@ void fzn_notebook_view::refresh_note()
 						QFile in(path);
 
 						if (in.open(QIODevice::ReadOnly))
-							m_body->setPlainText(QString::fromUtf8(in.readAll()));
+							m_body_read = as_shown(QString::fromUtf8(in.readAll()));
+						if (!keep_body)
+							m_body->setPlainText(m_body_read);
 					} else {
 						set_status(QStringLiteral("The text is not here yet: %1").arg(why));
 					}
@@ -887,6 +918,24 @@ void fzn_notebook_view::refresh_note()
 			have = false;
 		}
 	}
+	/* KEPT ONLY WHERE IT CAN STILL BE SAVED: gone, not here yet, or now a
+	 * list, the node's copy is shown after all. */
+	if (!have || pending || m_is_list) {
+		if (keep_title)
+			m_title->setText(m_title_read);
+		if (keep_labels)
+			m_labels->setText(m_labels_read);
+		if (keep_body)
+			m_body->setPlainText(m_body_read);
+		keep_title = keep_labels = keep_body = false;
+	}
+	m_read_note = have ? m_open : QString();
+	/* CHANGED UNDERNEATH AN EDIT: said, neither side winning in silence. */
+	if ((keep_title && m_title_read != title_was) || (keep_labels && m_labels_read != labels_was)
+	    || (keep_body && m_body_read != body_was))
+		set_status(QStringLiteral("This note was changed elsewhere while you were editing it. "
+		                          "Your edit is kept, not yet saved: saving it replaces that "
+		                          "change."));
 	m_title->setReadOnly(!editing || pending);
 	m_labels->setReadOnly(!editing || pending || !have);
 	m_body->setReadOnly(!editing || m_is_list || pending);
@@ -1011,6 +1060,8 @@ bool fzn_notebook_view::show_version(int n)
 		return false;
 	f = detail.split(QLatin1Char(' '));
 	type = f.value(0).toInt();
+	/* THE EDITOR NOW HOLDS A VERSION, not an edit (sec 1003). */
+	m_read_note.clear();
 	m_title->setText(unescape(f.mid(7).join(QLatin1Char(' '))));
 	m_body->clear();
 	/* A CHECKLIST'S ITEMS AS THEY WERE, sec 604: shown, and not restored --
@@ -1187,6 +1238,9 @@ bool fzn_notebook_view::ascend()
 
 bool fzn_notebook_view::open_note(const QString &id)
 {
+	/* OPENED IS READ AFRESH, the same note too: asked for by name, unlike a
+	 * refresh, which keeps an unsaved edit (sec 1003). */
+	m_read_note.clear();
 	m_open = id;
 	m_viewing = -1;
 	refresh_note();
@@ -1374,7 +1428,11 @@ bool fzn_notebook_view::save()
 			fail(QStringLiteral("The text was not saved: %1").arg(why));
 			return false;
 		}
+		m_body_read = m_body->toPlainText();
 	}
+	/* SAVED IS READ, sec 1003: the next refresh has nothing of this to keep. */
+	if (!title.isEmpty())
+		m_title_read = m_title->text();
 	refresh_list();
 	say(QStringLiteral("Saved."));
 	return true;

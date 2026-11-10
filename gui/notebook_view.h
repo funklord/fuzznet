@@ -249,6 +249,11 @@ private:
 	 * save writes them only when they changed. */
 	QLineEdit *m_labels;
 	QString m_labels_read;
+	/* THE TITLE AND TEXT AS READ, and the note all three were read for
+	 * (sec 1003): a refresh of that note keeps a field changed since. */
+	QString m_title_read;
+	QString m_body_read;
+	QString m_read_note;
 	QPlainTextEdit *m_body;
 	QPushButton *m_new_note;
 	QPushButton *m_new_folder;

@@ -83929,3 +83929,35 @@ AddressSanitizer and UBSan, the four file and object scripts among them, **and n
   other (sec 1000);
 - two questions for the holder: a public folder, as a file can be public (sec 493); and whether
   "streaming" was meant to include live media, which has no design.
+
+## 1003. notebook_view keeps an edit not yet saved across a refresh, 2026-11-10
+
+**Reported by fuzzypickles (inbox, 2026-11-10 16:54Z):** typing into a note in its Notes page,
+which is this view, never landed -- gone within two seconds, on the desktop and on Android. The
+header asks a host to call `refresh()` "when the page is shown and on its own timer", their
+window does so every two seconds, and `refresh_note` cleared the title, labels and text and read
+them again from the node each time. No test saw it, each calling `refresh()` at a moment of its
+own choosing.
+
+**Now:** the view keeps what it last read of the open note -- title, labels and text -- and the
+note it read them for. On a refresh of that note, a field whose widget differs from what was read
+is an edit not yet saved, and **the widget is not written at all**: the node's copy goes into the
+read value only, so the cursor, the selection and the undo history survive too, which putting the
+typed text back after a reload would have lost every two seconds. Where the node's copy moved
+underneath such an edit, the view says so ("changed elsewhere ... saving it replaces that
+change"): the edit is kept and neither side wins in silence, the rule sec 828's contested note
+follows. A save makes the saved text the read one, so the next refresh has nothing to keep.
+
+**Three cases load the node's copy anyway:** `open_note`, the same note included, since opening is
+asked for by name and the list calls it only when its current row changes, never during its own
+rebuild; a version shown from the history, which is the reader's choice and not an edit; and a
+note gone, not here yet, or a list, where an edit could not be saved. The text read is compared as
+a `QPlainTextEdit` gives it back (`as_shown`: CR LF and CR as LF, a no-break space as a space), so
+a file with either is not taken for an edit on every refresh. An item being typed into a list was
+never touched by a refresh, and still is not.
+
+The title field is named `note_title`, for a host's own tests. `notebook_view_test` covers it --
+an unsaved title, labels and text kept with the cursor where it was, nothing said while nothing
+moved, a title changed underneath kept and said, and after a save a change elsewhere shown -- with
+sabotages `notebook-view-refresh-overwrites` (7 checks fail) and
+`notebook-view-change-underneath-unsaid` (1).

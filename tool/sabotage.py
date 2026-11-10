@@ -15130,6 +15130,20 @@ SABOTAGES = [
 		"an attachment's file is asked for by its root alone, which no store fetches -- sec 1001",
 	),
 	(
+		"notebook-view-refresh-overwrites",
+		"gui/notebook_view.cpp",
+		"\tbool same = have && editing && m_read_note == m_open;\n",
+		"\tbool same = false;\n",
+		"a refresh writes the node's copy over an edit not yet saved -- sec 1003",
+	),
+	(
+		"notebook-view-change-underneath-unsaid",
+		"gui/notebook_view.cpp",
+		"\tif ((keep_title && m_title_read != title_was) || (keep_labels && m_labels_read != labels_was)\n",
+		"\tif (false && (keep_title && m_title_read != title_was) || (keep_labels && m_labels_read != labels_was)\n",
+		"a note changed underneath an unsaved edit is not said -- sec 1003",
+	),
+	(
 		"notes-scope-kept-past-a-write",
 		"node/notes.c",
 		"\tif (have && sender && n->store.stamp && kept_of == &n->store && stamp == kept_stamp\n",
