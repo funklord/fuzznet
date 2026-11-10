@@ -2482,6 +2482,22 @@ static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,
 	left = request->arg_len;
 	if (!word(&at, &left, &subject, &subject_len))
 		return 0;
+	/* `get notes`: a number that moves with every write the notes could be
+	 * in, 0 where none is kept (sec 1006) -- so a view refreshed on a timer
+	 * reads a folder of thousands only when something changed. */
+	if (is_word(subject, subject_len, "notes")) {
+		char stamp[24];
+
+		if (request->parsed != FZN_VERB_GET || left)
+			return 0;
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED,
+			           "notes need this node's own user");
+		(void)snprintf(stamp, sizeof(stamp), "%llu",
+		               (unsigned long long)(n->store.stamp ? n->store.stamp(n->store.stamp_ctx)
+		                                                   : 0u));
+		return say(reply, reply_cap, FZN_REPLY_OK, stamp);
+	}
 	if (is_word(subject, subject_len, "import")) {
 		if (request->parsed != FZN_VERB_ADD)
 			return 0;

@@ -585,8 +585,26 @@ QString fzn_notebook_view::parent_id() const
 
 void fzn_notebook_view::refresh()
 {
-	refresh_trees();
-	refresh_list();
+	QString detail;
+	quint64 stamp = 0;
+	QString key = QStringLiteral("%1\n%2\n%3%4")
+	                      .arg(m_tree, m_path.join(QLatin1Char(',')))
+	                      .arg(m_trash ? 1 : 0)
+	                      .arg(m_archived ? 1 : 0);
+
+	/* THE LISTS ONLY WHEN SOMETHING MOVED, sec 1006: a folder of 100000
+	 * notes is some 9000 requests, and a host refreshes every two seconds.
+	 * Asked before reading, so a write while it reads moves it again; a
+	 * node without the verb, or keeping no stamp, answers nothing to go by
+	 * and the lists are read every time, as before. */
+	if (ask(QStringLiteral("get notes"), &detail) == 1)
+		stamp = detail.trimmed().toULongLong();
+	if (!stamp || stamp != m_shown_stamp || key != m_shown_key) {
+		refresh_trees();
+		refresh_list();
+		m_shown_stamp = stamp;
+		m_shown_key = key;
+	}
 	refresh_note();
 	refresh_shares();
 }
@@ -617,7 +635,9 @@ void fzn_notebook_view::refresh_trees()
 	{
 		size_t from = 0, total = 0, guard;
 
-		for (guard = 0; guard < 64u; guard++) {
+		/* EVERY PAGE, sec 1006: 64 stopped at 704 sharers, unsaid. Each page
+		 * brings one at least, so the total bounds the pages. */
+		for (guard = 0; guard <= total + 1u; guard++) {
 			QStringList words;
 
 			if (ask(QStringLiteral("list sharer %1").arg(from), &detail) != 1)
@@ -667,8 +687,11 @@ void fzn_notebook_view::refresh_list()
 	m_updating = true;
 	m_list->clear();
 	/* EVERY PAGE, until the total is reached or a page brings nothing: a
-	 * reply holds as many items as fit, and the next is asked from there. */
-	for (guard = 0; guard < 64u; guard++) {
+	 * reply holds as many items as fit, and the next is asked from there.
+	 * NO CAP OF ITS OWN, sec 1006: 64 pages stopped a folder at 704 notes,
+	 * unsaid, and an imported Keep lands in one. Each page brings one row
+	 * at least, so the total bounds the pages. */
+	for (guard = 0; guard <= total + 1u; guard++) {
 		QString detail;
 		QStringList words;
 		int i, before = m_list->count();

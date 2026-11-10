@@ -128,7 +128,7 @@ static uint64_t now_ms(void)
 
 /* ---- a persist backend over memory -------------------------------------- */
 
-#define MEM_ROWS 128u
+#define MEM_ROWS 4096u /* a folder past 704 notes, sec 1006 */
 
 struct row {
 	int used;
@@ -226,6 +226,15 @@ static const char *imported_next;
 /* A reply in place of the node's to one line exactly, or NULL (sec 987). */
 static const char *canned_line, *canned_reply;
 static unsigned asked;
+/* `list note` asked, and the stamp `get notes` answers when a case sets one. */
+static unsigned list_asks;
+static uint64_t test_stamp;
+
+static uint64_t stamp_of_test(void *ctx)
+{
+	(void)ctx;
+	return test_stamp;
+}
 
 /* `list contact`, as admin answers it, from the contacts in the store -- a
  * contact named `gone` marked suspended, as the roster would mark one
@@ -282,6 +291,8 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 
 	(void)ctx;
 	asked++;
+	if (!strncmp(line, "list note ", 10u))
+		list_asks++;
 	if (quiet)
 		return 0;
 	if (imported_next && !strncmp(line, "add import ", 11u) && strstr(line, " 256 /"))
@@ -775,6 +786,34 @@ static void test_a_refresh_keeps_the_readers_place(void)
 	w.hide();
 }
 
+/* A FOLDER OF THOUSANDS, sec 1006: every note listed -- 64 pages stopped at
+ * 704, unsaid -- and a timed refresh reads the list again only when `get
+ * notes`' stamp moved. */
+static void test_a_large_folder_is_listed_whole_and_read_once(void)
+{
+	const int many = 800;
+	unsigned before;
+	int i;
+
+	setup();
+	notes.store.stamp = stamp_of_test;
+	notes.store.stamp_ctx = nullptr;
+	test_stamp = 1;
+	fzn_notebook_view w(node_ask, nullptr);
+
+	for (i = 0; i < many; i++)
+		CHECK(w.new_note(QStringLiteral("n%1").arg(i)), "fixture: many notes");
+	w.refresh();
+	CHECK(w.listed_ids().size() == many, "a folder past 704 notes is listed whole");
+	before = list_asks;
+	w.refresh();
+	CHECK(list_asks == before, "nothing moved: a refresh does not list the folder again");
+	test_stamp++;
+	w.refresh();
+	CHECK(list_asks > before, "the stamp moved: it does");
+	notes.store.stamp = nullptr;
+}
+
 /* AN EDIT NOT YET SAVED SURVIVES A REFRESH, sec 1003: fuzzypickles' window
  * refreshes the shown page every two seconds, and typing was thrown away
  * between keys. Where the node's copy changes under the edit it is said, and
@@ -1234,6 +1273,7 @@ int main(int argc, char **argv)
 	test_pinned_first_and_the_archive_apart();
 	test_a_refresh_keeps_the_readers_place();
 	test_a_refresh_keeps_an_unsaved_edit();
+	test_a_large_folder_is_listed_whole_and_read_once();
 	test_a_pending_note_says_so_and_labels_show();
 	test_labels_are_edited_and_shown();
 	test_every_field_has_an_accessible_name();

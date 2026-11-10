@@ -15130,6 +15130,20 @@ SABOTAGES = [
 		"an attachment's file is asked for by its root alone, which no store fetches -- sec 1001",
 	),
 	(
+		"notebook-view-list-capped",
+		"gui/notebook_view.cpp",
+		"\t * at least, so the total bounds the pages. */\n\tfor (guard = 0; guard <= total + 1u; guard++) {\n",
+		"\t * at least, so the total bounds the pages. */\n\tfor (guard = 0; guard < 64u; guard++) {\n",
+		"a folder is listed 64 pages deep, 704 notes, and the rest not shown -- sec 1006",
+	),
+	(
+		"notebook-view-lists-every-refresh",
+		"gui/notebook_view.cpp",
+		"\tif (!stamp || stamp != m_shown_stamp || key != m_shown_key) {\n",
+		"\tif (1) {\n",
+		"every refresh reads every page of the folder, nothing having moved -- sec 1006",
+	),
+	(
 		"notebook-view-refresh-overwrites",
 		"gui/notebook_view.cpp",
 		"\tbool same = have && editing && m_read_note == m_open;\n",

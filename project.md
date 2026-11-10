@@ -84086,3 +84086,34 @@ the call handler, in a script that makes no call, and no revocation taken from a
 host by any of its 33 daemons -- while estate items were, so 51 reached its handler and 49 did not.
 With the four renumbered, `live_contacts` passes the new check; with them put back at 49..52
 alone, it fails it -- "e: S took none of R's records from R itself".
+
+## 1006. notebook_view lists a folder whole, and reads it only when the notes moved, 2026-11-11
+
+**Reported by fuzzypickles (inbox, 2026-11-10 20:42Z):** `refresh_list` stopped after 64 pages of
+`list note PARENT FROM`, and a reply holds about 11 rows, so a folder showed its first 704 notes
+and no more, without saying so. Measured on fzpd at `5d61e039`: 2000 Keep notes imported into one
+folder, as `notes-import` makes it, and the view stopped at 704 -- the first thing a person with a
+large Keep sees, the holder's figure being notes in the hundreds of thousands. And every page was
+asked on every `refresh()`, which their window calls every two seconds: some 9000 requests a call
+at 100000 notes. `refresh_trees` had the same 64-page stop over `list sharer`.
+
+**Now:**
+- **No cap of the view's own.** Both loops read until the total; each page brings one row at
+  least, so the total bounds the pages.
+- **`get notes`**, a new verb: `ok STAMP`, a number that moves with every write the notes could
+  be in -- `notes_stamp`, sec 928's, which moves with any write to the store, received trees'
+  included -- and `ok 0` where no stamp is kept. A stamp that moves for a write that is no note's
+  costs one reading too many and nothing worse.
+- **`refresh()` reads the lists only when the stamp or the place moved** -- the tree, the path,
+  the trash and the archive. Asked before reading, so a write during the read moves it again; a
+  node without the verb, or with no stamp, answers nothing to go by, and the lists are read every
+  time as before. Opening a folder, saving and the rest still read the list at once.
+
+**Not built:** rows asked as they are scrolled to, which fuzzypickles' Library does. Pinned notes
+come first and the trash and the archive are filtered in the view, so a page of rows is not a
+page of the list without the node ordering and filtering; with the stamp, a folder is read once
+per change rather than once per refresh, which is what the timer cost.
+
+`notebook_view_test` covers it -- 800 notes listed whole; a second refresh asks no `list note`;
+one after the stamp moves does -- its memory store grown from 128 rows to 4096, with sabotages
+`notebook-view-list-capped` and `notebook-view-lists-every-refresh`, each caught by its check.

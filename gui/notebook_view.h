@@ -254,6 +254,10 @@ private:
 	QString m_title_read;
 	QString m_body_read;
 	QString m_read_note;
+	/* WHAT THE LISTS WERE LAST READ AT, sec 1006: `get notes`' stamp and the
+	 * place, so a timed refresh reads them again only when one moved. */
+	quint64 m_shown_stamp = 0;
+	QString m_shown_key;
 	QPlainTextEdit *m_body;
 	QPushButton *m_new_note;
 	QPushButton *m_new_folder;
