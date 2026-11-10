@@ -58,6 +58,20 @@ remote upload, and live in one place. fuzznet differs:
   program, host, level or text -- gathered from any member on request, and
   copied or cut into erasure-coded pieces held by other devices, which
   rebuild a lost segment from any k of them.
+- **Files that play as they arrive, and folders you can browse.** A file is
+  fetched in 1 KiB leaves, each proved against the file's root as it lands
+  and usable at once, from several of your devices or a friend's together --
+  where BitTorrent buffers a 256 KiB piece it cannot check until the whole
+  piece is in. A player gives its position and the leaves there come first;
+  seeking moves it. A folder of files shared with a contact or a group is
+  browsed by them like a directory, and stops being served the moment it is
+  unshared -- where a Syncthing folder is shared by keeping a list of device
+  keys on each machine.
+- **Down to a button.** The smallest host is a device with no IP stack and no
+  clock -- a button, a light, a small display, on a serial line or a radio of
+  51-byte frames -- set up by a key exchange typed or flashed as text, revoked
+  like any other device, and switching an object, a lamp on or off, that
+  every other device of the estate sees.
 - **A library first.** Signing, hashing, encryption and entropy are each a
   seam the consumer fills, and nothing in the library calls a primitive
   itself. It is silent unless handed a logger. The daemon is one call,
