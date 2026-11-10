@@ -15123,6 +15123,13 @@ SABOTAGES = [
 		"an attachment whose text is no file reference is written -- sec 1000",
 	),
 	(
+		"notebook-view-fetches-by-root",
+		"gui/notebook_view.cpp",
+		"\tif (ask(QStringLiteral(\"fetch file %1\").arg(m_ref), &why) != 1) {\n",
+		"\tif (ask(QStringLiteral(\"fetch file %1\").arg(m_ref.left(64)), &why) != 1) {\n",
+		"an attachment's file is asked for by its root alone, which no store fetches -- sec 1001",
+	),
+	(
 		"notes-scope-kept-past-a-write",
 		"node/notes.c",
 		"\tif (have && sender && n->store.stamp && kept_of == &n->store && stamp == kept_stamp\n",

@@ -14,6 +14,7 @@ extern "C" {
 #include <QDateTime>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLayout>
@@ -312,6 +313,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	}
 	m_folder_row->hide();
 	m_import = new QPushButton(QStringLiteral("Import"), this);
+	m_attach = new QPushButton(QStringLiteral("Attach file"), this);
+	m_fetch_file = new QPushButton(QStringLiteral("Fetch file"), this);
+	m_save_file = new QPushButton(QStringLiteral("Save file as..."), this);
 	m_new_list = new QPushButton(QStringLiteral("New list"), this);
 	m_item_text = new QLineEdit(this);
 	m_item_text->setPlaceholderText(QStringLiteral("New item"));
@@ -384,6 +388,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	item_row->addWidget(m_toggle);
 	item_row->addWidget(m_remove_item);
 	edit_row->addWidget(m_import);
+	edit_row->addWidget(m_attach);
+	edit_row->addWidget(m_fetch_file);
+	edit_row->addWidget(m_save_file);
 	trash_row->addWidget(m_show_trash);
 	trash_row->addWidget(m_trash_button);
 	trash_row->addWidget(m_restore);
@@ -454,6 +461,20 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	connect(m_move_here, &QPushButton::clicked, this, [this]() { move_here(); });
 	connect(m_restore, &QPushButton::clicked, this, [this]() { restore(); });
 	connect(m_empty, &QPushButton::clicked, this, [this]() { ask_empty_trash(); });
+	connect(m_attach, &QPushButton::clicked, this, [this]() {
+		QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Attach a file"));
+
+		if (!path.isEmpty())
+			attach_file(path);
+	});
+	connect(m_fetch_file, &QPushButton::clicked, this, [this]() { fetch_attachment(); });
+	connect(m_save_file, &QPushButton::clicked, this, [this]() {
+		QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Save the file as"),
+		                                            m_title->text());
+
+		if (!path.isEmpty())
+			save_attachment(path);
+	});
 	connect(m_import, &QPushButton::clicked, this, [this]() {
 		QString path = QFileDialog::getOpenFileName(
 		        this, QStringLiteral("Import notes"), QString(),
@@ -776,6 +797,7 @@ void fzn_notebook_view::refresh_note()
 	m_restore_version->setEnabled(false);
 
 	m_title->clear();
+	m_ref.clear();
 	m_labels->clear();
 	m_labels_read.clear();
 	m_body->clear();
@@ -822,6 +844,24 @@ void fzn_notebook_view::refresh_note()
 			if (pending) {
 				set_status(QStringLiteral("This note's content is not here yet; it can be "
 				                          "moved, pinned or trashed, not edited."));
+			} else if (type == FZN_NOTE_TYPE_ATTACHMENT) {
+				/* A FILE, sec 1001: its reference, and where the file
+				 * stands here -- `ok HELD TOTAL LENGTH whole|partial|...`. */
+				QString ref, st;
+
+				if (ask(QStringLiteral("%1 ref").arg(get), &ref) == 1)
+					m_ref = ref.trimmed();
+				if (!m_ref.isEmpty()
+				    && ask(QStringLiteral("get file %1").arg(m_ref.left(64)), &st) == 1) {
+					QStringList w = st.split(QLatin1Char(' '));
+
+					set_status(w.value(3) == QStringLiteral("whole")
+					                   ? QStringLiteral("A file of %1 bytes, here.").arg(w.value(2))
+					                   : QStringLiteral("A file of %1 bytes, %2 of %3 parts here.")
+					                             .arg(w.value(2), w.value(0), w.value(1)));
+				} else if (!m_ref.isEmpty()) {
+					set_status(QStringLiteral("A file, not here: fetch it to open it."));
+				}
 			} else if (m_is_list) {
 				m_body->setPlainText(items_of(get, &m_ticks).join(QLatin1Char('\n')));
 			} else if (type != FZN_NOTE_TYPE_FOLDER) {
@@ -841,7 +881,7 @@ void fzn_notebook_view::refresh_note()
 					}
 				}
 			}
-			m_body->setEnabled(type != FZN_NOTE_TYPE_FOLDER);
+			m_body->setEnabled(type != FZN_NOTE_TYPE_FOLDER && type != FZN_NOTE_TYPE_ATTACHMENT);
 		} else {
 			m_open.clear();
 			have = false;
@@ -875,6 +915,9 @@ void fzn_notebook_view::refresh_note()
 		m_folder_row->hide();
 	}
 	m_import->setEnabled(editing);
+	m_attach->setEnabled(editing);
+	m_fetch_file->setEnabled(!m_ref.isEmpty());
+	m_save_file->setEnabled(!m_ref.isEmpty());
 	m_share->setEnabled(editing && have);
 	m_unshare->setEnabled(editing && have);
 	m_share_to->setEnabled(editing);
@@ -1484,6 +1527,60 @@ bool fzn_notebook_view::import_file(const QString &path)
 		                   "they are in the export beside each note.")
 		            .arg(sum[5]));
 	refresh_list();
+	return true;
+}
+
+bool fzn_notebook_view::attach_file(const QString &path)
+{
+	QString put, made;
+	QStringList w;
+
+	if (shared() || path.isEmpty())
+		return false;
+	/* `ok REF private|public`, then the attachment under the folder open,
+	 * titled by the file's name. */
+	if (ask(QStringLiteral("put file %1").arg(path), &put) != 1
+	    || (w = put.split(QLatin1Char(' '))).value(0).length() != 144) {
+		fail(QStringLiteral("The file was not taken: %1").arg(put));
+		return false;
+	}
+	if (ask(QStringLiteral("add attachment %1 %2 %3")
+	                .arg(parent_id(), w.value(0), QFileInfo(path).fileName()),
+	        &made)
+	    != 1) {
+		fail(QStringLiteral("The file was not attached: %1").arg(made));
+		return false;
+	}
+	refresh_list();
+	say(QStringLiteral("Attached %1.").arg(QFileInfo(path).fileName()));
+	return open_note(made.trimmed());
+}
+
+bool fzn_notebook_view::fetch_attachment()
+{
+	QString why;
+
+	if (m_ref.isEmpty())
+		return false;
+	if (ask(QStringLiteral("fetch file %1").arg(m_ref), &why) != 1) {
+		fail(QStringLiteral("The file is not being fetched: %1").arg(why));
+		return false;
+	}
+	say(QStringLiteral("Fetching %1.").arg(m_title->text()));
+	return true;
+}
+
+bool fzn_notebook_view::save_attachment(const QString &path)
+{
+	QString why;
+
+	if (m_ref.isEmpty() || path.isEmpty())
+		return false;
+	if (ask(QStringLiteral("get file %1 %2").arg(m_ref, path), &why) != 1) {
+		fail(QStringLiteral("The file was not saved: %1").arg(why));
+		return false;
+	}
+	say(QStringLiteral("Saved %1.").arg(path));
 	return true;
 }
 

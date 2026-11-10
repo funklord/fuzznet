@@ -921,6 +921,45 @@ static void test_a_refusal_is_said_inline(void)
 	}
 }
 
+/* A FILE IN A FOLDER, sec 1001: attached through `put file`, its file's
+ * state said when opened, fetched and saved -- the file store's answers
+ * canned, as this suite's node has none. */
+static void test_a_file_is_attached_fetched_and_saved(void)
+{
+	static const char REF[] = "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff"
+	                          "0102030405060708090a0b0c0d0e0f100102030405060708090a0b0c0d0e0f10"
+	                          "0000000000012345";
+	static char put_reply[200], fetch_line[200], save_line[240];
+	QStringList log;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	w.set_log([&log](const QString &l) { log << l; });
+	snprintf(put_reply, sizeof(put_reply), "ok %s private", REF);
+	canned_line = "put file /tmp/film.mkv";
+	canned_reply = put_reply;
+	CHECK(w.attach_file(QStringLiteral("/tmp/film.mkv"))
+	              && w.listed_texts().contains(QStringLiteral("film.mkv"))
+	              && w.title_text() == QStringLiteral("film.mkv"),
+	      "a file put was not attached in the folder by its name");
+	CHECK(w.status().contains(QStringLiteral("not here")),
+	      "an attachment whose file is not here did not say so");
+	snprintf(fetch_line, sizeof(fetch_line), "fetch file %s", REF);
+	canned_line = fetch_line;
+	canned_reply = "ok";
+	CHECK(w.fetch_attachment() && log.last().startsWith(QStringLiteral("Fetching")),
+	      "the attachment's file was not asked for by its reference");
+	snprintf(save_line, sizeof(save_line), "get file %s /tmp/out.mkv", REF);
+	canned_line = save_line;
+	CHECK(w.save_attachment(QStringLiteral("/tmp/out.mkv")),
+	      "the attachment's file was not saved by its reference");
+	canned_line = canned_reply = NULL;
+	CHECK(!w.save_attachment(QStringLiteral("/tmp/out.mkv"))
+	              && w.status().startsWith(QStringLiteral("The file was not saved")),
+	      "a save the store refused was not said");
+}
+
 /* A PHONE HELD UPRIGHT, sec 989: the rows of buttons wrap, so the widget
  * fits 360 pixels, where their sum once set it at 823. */
 static void test_it_fits_a_phone(void)
@@ -1139,6 +1178,7 @@ int main(int argc, char **argv)
 	test_labels_are_edited_and_shown();
 	test_every_field_has_an_accessible_name();
 	test_it_fits_a_phone();
+	test_a_file_is_attached_fetched_and_saved();
 	test_a_refusal_is_said_inline();
 	test_contested_and_elsewhere_are_said();
 	test_a_notes_history_is_read_and_restored();

@@ -129,6 +129,13 @@ public:
 	/* A KNotes .ics, a Keep .json or a Takeout directory into the folder
 	 * open, sec 440; the Import button reaches it behind a file dialog. */
 	bool import_file(const QString &path);
+	/* FILES IN A FOLDER, sec 1001: the file at `path` put and attached to
+	 * the folder open (sec 1000); the open attachment's file fetched --
+	 * from this user's hosts, or the friend sharing it -- or saved to
+	 * `path` once here. The buttons reach these. */
+	bool attach_file(const QString &path);
+	bool fetch_attachment();
+	bool save_attachment(const QString &path);
 	/* A NOTE'S HISTORY, sec 603: its earlier versions as the node keeps
 	 * them (sec 581), the history chooser under the editor reaching these.
 	 * `n` counts from 0, the oldest first as `list history` lists them; -1
@@ -255,6 +262,11 @@ private:
 	QLineEdit *m_folder_name;
 	QPushButton *m_folder_create;
 	QPushButton *m_import;
+	QPushButton *m_attach;
+	QPushButton *m_fetch_file;
+	QPushButton *m_save_file;
+	/* The open note's file reference, in hex, when it is an attachment. */
+	QString m_ref;
 	QPushButton *m_new_list;
 	QLineEdit *m_item_text;
 	QPushButton *m_add_item;

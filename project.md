@@ -83864,5 +83864,19 @@ is given nothing of it in 30 s. **Control:** with the hook unwired, R never hold
 `attachment-served-whatever-the-scope` and `attachment-any-text` guard it; the entry that held
 ATTACHMENT unwritable is retired with the rule.
 
-**Not done:** `notebook_view` showing an attachment and fetching it; a group's members fetching
+**Not done:** ~~`notebook_view` showing an attachment and fetching it~~, sec 1001; a group's members fetching
 from each other rather than from the sharer; a browse of what a friend made public without a share.
+
+## 1001. notebook_view attaches, fetches and saves a file, 2026-11-10
+
+Sec 1000's folders of files, in the widget fuzzypickles' notes use. **Attach file** puts a file
+(`put file`) and attaches it to the folder open by its name; an attachment opened says where its
+file stands -- "A file of N bytes, here", "... K of M parts here", or "not here: fetch it" -- from
+`get file ROOT` by the reference `get note|shared ID ref` reads; **Fetch file** asks `fetch file
+REF`, from this user's hosts or the friend sharing the folder; **Save file as...** writes it out
+(`get file REF PATH`). The text field is off for an attachment, as for a folder.
+
+**Measured:** `notebook_view_test` attaches a file through a canned `put file`, finds it listed by
+name and saying it is not here, fetches and saves it by its reference, and says a save refused --
+the file store's answers canned, as the suite's node has none; `live_browse` is the end to end.
+`notebook-view-fetches-by-root` guards the reference.
