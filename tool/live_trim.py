@@ -80,6 +80,30 @@ def left():
 	return remaining
 
 
+# THE DAEMON ON EACH SOCKET, sec 993, for `ask` to read when it is not
+# answered: `live_rejoin.daemon` enters itself.
+DAEMONS = {}
+
+
+def said_when_silent(sock_path, line):
+	"""What a daemon that did not answer had said: its loop-held warnings
+	(sec 993) and its last lines, on stderr. A timeout here was raised bare
+	and the daemon's log never read (sec 966); the exception is unchanged,
+	since some scripts wait for one on purpose."""
+	d = DAEMONS.get(sock_path)
+	if d is None:
+		return
+	try:
+		lines = d.log().splitlines()
+	except Exception:
+		return
+	held = [l for l in lines if "held the loop" in l or "held it" in l]
+	print("ask: %s did not answer %r in time; it said:" % (getattr(d, "tag", sock_path), line),
+	      file=sys.stderr)
+	for l in held[-5:] + lines[-8:]:
+		print("  " + l[:240], file=sys.stderr)
+
+
 def ask(sock_path, line):
 	s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 	s.settimeout(min(5.0, left()))
@@ -92,6 +116,9 @@ def ask(sock_path, line):
 			if not chunk:
 				break
 			buf += chunk
+	except socket.timeout:
+		said_when_silent(sock_path, line)
+		raise
 	finally:
 		s.close()
 	return buf.decode(errors="replace").rstrip("\n")

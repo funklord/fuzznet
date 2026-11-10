@@ -81,6 +81,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import live_trim  # noqa: E402
 from live_trim import FAKETIME_CLASH, FAKETIME_TRIES, ask, failed, left, start_daemon, \
                       stop_process  # noqa: E402
 
@@ -186,6 +187,7 @@ class daemon:
 		self.err_path = os.path.join(run.scratch, tag + ".err")
 		self.err = open(self.err_path, "wb")
 		start_daemon(self, run, argv, env, sock, tag)
+		live_trim.DAEMONS[sock] = self
 
 	def stderr(self):
 		self.err.flush()

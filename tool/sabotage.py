@@ -15291,6 +15291,14 @@ SABOTAGES = [
 		"a change waits out a round, 60 s for a lamp; live_objects only, as a round is the loop's -- sec 948",
 	),
 	(
+		"loop-held-answering-unsaid",
+		"node/daemon.c",
+		"\tif (s->held_ms >= limit)\n",
+		"\tif (s->held_ms >= limit + 600000u)\n",
+		"a request that held the loop is answered without a word; live_loop_held only, as the "
+		"loop is the daemon's -- sec 993",
+	),
+	(
 		"wait-leaves-the-parked",
 		"node/serve.c",
 		"\t\tsize_t n_own = 0, n_wait = local && state ? state->n_waiting : 0u, s;\n",

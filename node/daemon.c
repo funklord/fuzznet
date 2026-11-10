@@ -1720,6 +1720,60 @@ static uint64_t mono_ms(void)
 	return (uint64_t)t.tv_sec * 1000u + (uint64_t)t.tv_nsec / 1000000u;
 }
 
+/* WHAT HELD THE LOOP, sec 993: the face's loop answers between its own
+ * steps, and a step that runs long answers nobody meanwhile -- a root twice
+ * did not answer a test's 5 s (sec 966), and what held it was not known.
+ * Each tick and round step is timed, the longest of a pass kept; past
+ * FZND_LOOP_HELD_MS between two answering passes, or in the answering
+ * itself, it is said with what took longest. A knob in the fault build. */
+#define FZND_LOOP_HELD_MS 1000u
+static uint64_t loop_free_ms, loop_longest_ms;
+static const char *loop_longest;
+static char loop_longest_step[32];
+
+static void loop_note(const char *what, uint64_t began)
+{
+	uint64_t took = mono_ms() - began;
+
+	if (took >= loop_longest_ms) {
+		loop_longest_ms = took;
+		loop_longest = what;
+	}
+}
+
+#define LOOP_TIMED(what, call)                                                                 \
+	do {                                                                                   \
+		uint64_t loop_began_ = mono_ms();                                              \
+		call;                                                                          \
+		loop_note(what, loop_began_);                                                  \
+	} while (0)
+
+/* Before a pass waits to answer: the loop's own work since it last did. */
+static void loop_before_answering(void)
+{
+	const uint64_t limit = FZN_TUNE("LOOP_HELD_MS", FZND_LOOP_HELD_MS, 600000u);
+	uint64_t held = loop_free_ms ? mono_ms() - loop_free_ms : 0u;
+
+	if (held >= limit)
+		say(FZN_ENTRY_WARNING, "node",
+		    "the loop's own work held it %llu ms between answers, %s the longest, %llu ms",
+		    (unsigned long long)held, loop_longest ? loop_longest : "nothing timed",
+		    (unsigned long long)loop_longest_ms);
+	loop_longest = NULL;
+	loop_longest_ms = 0;
+}
+
+/* After it answered: how long the answering took, and the clock restarted. */
+static void loop_after_answering(const fzn_node_state_t *s)
+{
+	const uint64_t limit = FZN_TUNE("LOOP_HELD_MS", FZND_LOOP_HELD_MS, 600000u);
+
+	if (s->held_ms >= limit)
+		say(FZN_ENTRY_WARNING, "node", "answering what came in held the loop %llu ms",
+		    (unsigned long long)s->held_ms);
+	loop_free_ms = mono_ms();
+}
+
 /* THE LINK TO `at`, registered with the prior when first met; its index,
  * or FZND_LINKS_MAX past the bound. Ids are index + 1. */
 static size_t link_of(const fzn_udp_addr_t *at)
@@ -21500,6 +21554,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * round's one clock, as the round in one piece did. */
 			/* A STEP STILL WAITING on its conversations holds the next. */
 			if (round_step && !round_pending) {
+				const uint64_t step_began = mono_ms();
+
+				(void)snprintf(loop_longest_step, sizeof(loop_longest_step),
+				               "round step %d", round_step);
 				switch (round_step) {
 				case ROUND_START:
 					/* EVERY PEER ASKED AGAIN, sec 587 -- and a sibling that did
@@ -21740,6 +21798,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					sync_load_round(mono_ms() - round_began_ms, pull_every, wall_clock());
 					break;
 				}
+				loop_note(loop_longest_step, step_began);
 				round_step = plan[++plan_at];
 			}
 #ifdef FZN_SPOOL_FILE_ON
@@ -21839,9 +21898,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			}
 			if (journal_pushed) {
 				journal_pushed = 0;
-				index_notes();
-				index_catalog();
-				(void)messages_absorb();
+				LOOP_TIMED("index_notes", index_notes());
+				LOOP_TIMED("index_catalog", index_catalog());
+				LOOP_TIMED("messages_absorb", (void)messages_absorb());
 			}
 			/* A WRITE THE OPERATION JOURNAL MISSED, sec 523: made, and not
 			 * entered, so a replay will not show it; or a rotation put off,
@@ -21869,35 +21928,37 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * names is named by no held note now. */
 			if (node_notes.purged_fresh) {
 				node_notes.purged_fresh = 0;
-				collect_texts();
+				LOOP_TIMED("collect_texts", collect_texts());
 			}
 #endif
 			/* A REQUEST NEVER FINISHED gives its slot back. */
 			if (state.reassembly)
 				(void)fzn_reasm_expire(state.reassembly, wall_clock());
-			pressure_tick();
+			LOOP_TIMED("pressure_tick", pressure_tick());
 			/* gpsd's newest fix, when sampling is on, sec 678. */
-			location_tick();
-			stages_tick();
-			sealed_tick();
-			invite_tick();
-			preset_tick();
-			ext_tick();
+			LOOP_TIMED("location_tick", location_tick());
+			LOOP_TIMED("stages_tick", stages_tick());
+			LOOP_TIMED("sealed_tick", sealed_tick());
+			LOOP_TIMED("invite_tick", invite_tick());
+			LOOP_TIMED("preset_tick", preset_tick());
+			LOOP_TIMED("ext_tick", ext_tick());
 #ifdef FZN_LOG_FILE_ON
-			log_settings_tick();
+			LOOP_TIMED("log_settings_tick", log_settings_tick());
 #endif
 			/* MID-ROUND, between steps, only what is waiting is answered and
 			 * the next step follows at once; a step waiting on its
 			 * conversations waits here, their answers polled with the rest.
 			 * A COPY BEING VERIFIED takes its next step and waits for
 			 * nothing either (sec 751). */
-			verify_memo_keep(now);
-			group_tend_slice();
+			LOOP_TIMED("verify_memo_keep", verify_memo_keep(now));
+			LOOP_TIMED("group_tend_slice", group_tend_slice());
+			loop_before_answering();
 			(void)fzn_node_run_once(&state, (round_step && !round_pending) || logs_verifying()
 			                                                || tending.on
 			                                                || (!round_step && texts_waiting())
 			                                        ? 0
 			                                        : 1000);
+			loop_after_answering(&state);
 			/* AN IDENTITY RESET, sec 620, its answer out: wiped once more,
 			 * for what was written since, and stopped. */
 			if (identity_reset) {
@@ -21936,7 +21997,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #ifdef FZN_LOG_FILE_ON
 		log_settings_tick();
 #endif
+		loop_before_answering();
 		(void)fzn_node_run_once(&state, logs_verifying() ? 0 : 1000);
+		loop_after_answering(&state);
 	}
 	if (rejoin_due)
 		return start_again(lfd, sock_path);

@@ -255,6 +255,10 @@ typedef struct fzn_node_state {
 	size_t (*own_fds)(void *ctx, int *fds, size_t cap);
 	void (*own_ready)(void *ctx, int fd);
 	void *own_ctx;
+	/* HOW LONG THE LAST `fzn_node_run_once` SPENT ANSWERING, sec 993: from
+	 * its poll's return to its own, in milliseconds -- the loop held by
+	 * what came in, apart from the wait for it. */
+	uint64_t held_ms;
 } fzn_node_state_t;
 
 /* How many of a daemon's own descriptors a pass polls. */

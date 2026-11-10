@@ -82892,7 +82892,8 @@ group's) is a design not made yet, and the warning names rules alone until it is
 socket's 5 s twice -- `live_objects` at its phase b, `live_files_many` during its puts -- at load 17
 on this machine. Since, 0 of 14 runs failed, at load up to 37, so this says nothing yet about what
 held the loop, and load is not shown to be it. The scripts raise the timeout bare and print no
-daemon log for it.
+daemon log for it. **Since sec 993 the daemon says what held its loop**, so the next time it
+happens the root's log names the step.
 
 ## 967. Windows and macOS wait for a fuzznet near completion, 2026-11-09
 
@@ -83684,3 +83685,30 @@ larger; `sync_test` and `exchange_fuzz` pass unchanged.
 
 **Left:** past 65535 streams, the digest's count, page offset and length are 16 bits on the wire,
 and a widening is a change to the exchange (free, sec 924) not made here.
+
+## 993. What held the loop, said, 2026-11-10
+
+Sec 966 left a root that twice did not answer a test within 5 s, and nothing to say what held it;
+sec 991 found one such holder by measuring (an import of 8000 notes, 23.5 s in one request) and
+sec 941 another (an epoch drawn and sealed in one step, 14 s). The face's loop answers between its
+own steps, so any step that runs long answers nobody meanwhile, and nothing said which.
+
+**Built:** `fzn_node_run_once` keeps `held_ms`, how long it spent answering after its poll returned.
+The face's loop times each of its ticks, each round step and the work a fresh write sets off, and
+keeps the longest of the pass. Past FZND_LOOP_HELD_MS (1000) between two answering passes the node
+warns "the loop's own work held it N ms between answers, X the longest, M ms" -- a round step named
+by its number -- and past it in the answering, "answering what came in held the loop N ms". A knob,
+`FZN_TUNE_LOOP_HELD_MS`, in the fault build.
+
+**Measured:** `live_loop_held`, in `livecheck-faults`: at the default a quiet root asked `status`
+five times says nothing; at 1 ms its own work is said with the longest step named, and a Takeout of
+40 notes imported is said as answering that held the loop. With `loop-held-answering-unsaid` applied
+by hand, phase b fails on the second; it is a daemon entry, so `make test` alone does not catch it.
+
+**And a script told:** a live script's `ask` that times out now prints, on stderr, that daemon's
+loop-held warnings and its last lines before the timeout goes on as before -- the scripts that
+timed out in sec 966 raised it bare and read no log. The exception is unchanged, as some scripts
+wait for one on purpose; `live_rejoin.daemon` enters each daemon by its socket for `ask` to find.
+
+**Left:** the answering warning names no verb -- the node's dispatch would have to say which request
+it was answering.

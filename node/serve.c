@@ -684,6 +684,8 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 		return 0;
 
 	r = poll(fds, nfds, timeout_ms);
+	now_ms = monotonic_ms();
+	state->held_ms = 0;
 	/* PAST ITS DEADLINE, whatever the poll said. */
 	if (state->asks)
 		handled += (int)fzn_node_asks_expire(state->asks);
@@ -720,6 +722,7 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 		serve_ready_datagram(state);
 		handled++;
 	}
+	state->held_ms = monotonic_ms() - now_ms;
 	return handled;
 }
 

@@ -7079,6 +7079,7 @@ livecheck-faults: fuzznetd-faults
 	@timeout 1000 python3 tool/live_estate.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 700 python3 tool/live_estate_turns.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 330 python3 tool/live_sync_load.py $(BUILD_DIR)/faults/fuzznetd
+	@timeout 150 python3 tool/live_loop_held.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 700 python3 tool/live_group_skew.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 500 python3 tool/live_logs.py $(BUILD_DIR)/faults/fuzznetd
 
