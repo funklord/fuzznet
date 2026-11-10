@@ -5705,8 +5705,8 @@ SABOTAGES = [
 	(
 		"notes-shares-blob-in-scope",
 		"node/notes.c",
-		"\t\t    && fzn_notes_sync_scope_admits(&scope, rec))\n",
-		"\t\t    && 1)\n",
+		"\t\t                      sizeof(claim_record), &len) == FZN_NOTES_OK\n\t\t    && fzn_record_open(claim_record, len, &rec) == FZN_RECORD_OK\n\t\t    && fzn_notes_sync_scope_admits(&scope, rec))\n",
+		"\t\t                      sizeof(claim_record), &len) == FZN_NOTES_OK\n\t\t    && fzn_record_open(claim_record, len, &rec) == FZN_RECORD_OK\n\t\t    && 1)\n",
 		"a text is a contact's to fetch if any note anywhere has it -- sec 438",
 	),
 	(
@@ -6856,13 +6856,6 @@ SABOTAGES = [
 		"\t\tif (note->text_len != 0 || note->labels_len != 0)\n\t\t\treturn FZN_NOTE_ERR_PARTITION;\n",
 		"",
 		"a folder carrying text renders as a note on one host and a container on another -- sec 422",
-	),
-	(
-		"note-attachment-not-writable",
-		"notes/note.c",
-		"\tcase FZN_NOTE_TYPE_FOLDER:\n\t\treturn 1;\n\tdefault:\n\t\t/* ATTACHMENT lands here",
-		"\tcase FZN_NOTE_TYPE_FOLDER:\n\tcase FZN_NOTE_TYPE_ATTACHMENT:\n\t\treturn 1;\n\tdefault:\n\t\t/* ATTACHMENT lands here",
-		"this build originates attachments it cannot yet produce a blob for -- sec 422",
 	),
 	(
 		"note-item-cannot-overrun",
@@ -15114,6 +15107,20 @@ SABOTAGES = [
 		"\t\t\t                           fzn_node_files_playhead(f->files, f->root), f->span[k],\n",
 		"\t\t\t                           0, f->span[k],\n",
 		"a file played from its middle is fetched from its start, and a player waits -- sec 998",
+	),
+	(
+		"attachment-served-whatever-the-scope",
+		"node/notes.c",
+		"\t\tif (fzn_notes_get_key(&n->store, attached[i].key, claim_record, sizeof(claim_record),\n\t\t                      &len) == FZN_NOTES_OK\n\t\t    && fzn_record_open(claim_record, len, &rec) == FZN_RECORD_OK\n\t\t    && fzn_notes_sync_scope_admits(&scope, rec))\n",
+		"\t\tif (fzn_notes_get_key(&n->store, attached[i].key, claim_record, sizeof(claim_record),\n\t\t                      &len) == FZN_NOTES_OK\n\t\t    && fzn_record_open(claim_record, len, &rec) == FZN_RECORD_OK)\n",
+		"a file attached anywhere is every contact's to fetch, share or none -- sec 1000",
+	),
+	(
+		"attachment-any-text",
+		"notes/note.c",
+		"\t\tif (note->text_len != FZN_NOTE_BLOB_REF_LEN || !note->text\n",
+		"\t\tif (!note->text\n",
+		"an attachment whose text is no file reference is written -- sec 1000",
 	),
 	(
 		"notes-scope-kept-past-a-write",

@@ -859,6 +859,43 @@ static void test_share(void)
 		notes.store.stamp = NULL;
 	}
 
+	/* A FILE IN THE SHARED FOLDER, sec 1000: an attachment, its text the
+	 * file's reference, read back by `ref`, and the file carol's to fetch
+	 * while the folder is shared with her and the attachment in it. */
+	{
+		static const char REF[] = "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff"
+		                          "0102030405060708090a0b0c0d0e0f100102030405060708090a0b0c0d0e0f10"
+		                          "0000000000012345";
+		char big[400], a[65];
+		uint8_t root[FZN_BLOB_HASH_LEN];
+		size_t i;
+
+		for (i = 0; i < sizeof(root); i++)
+			root[i] = (uint8_t)strtoul((char[]){ REF[2u * i], REF[2u * i + 1u], 0 }, NULL, 16);
+		notes.store.stamp = written_stamp;
+		snprintf(big, sizeof(big), "add attachment %s %s film.mkv", f, REF);
+		CHECK(ask(big) == FZN_REPLY_OK, "an attachment was not made");
+		take_id(a);
+		snprintf(big, sizeof(big), "get note %s ref", a);
+		CHECK(ask(big) == FZN_REPLY_OK && !strcmp(detail_of(), REF),
+		      "an attachment's reference did not read back");
+		snprintf(big, sizeof(big), "get note %s ref", f);
+		CHECK(ask(big) == FZN_REPLY_ERROR, "a folder answered a reference");
+		snprintf(big, sizeof(big), "add attachment %s %.142s film", f, REF);
+		CHECK(ask(big) == FZN_REPLY_MALFORMED, "a short reference was taken");
+		CHECK(fzn_node_notes_shares_file(&notes, carol, root),
+		      "a file in the folder shared with carol is not hers to fetch");
+		CHECK(!fzn_node_notes_shares_file(&notes, PEER, root),
+		      "and is another contact's");
+		snprintf(big, sizeof(big), "set note %s parent top", a);
+		CHECK(ask(big) == FZN_REPLY_OK && !fzn_node_notes_shares_file(&notes, carol, root),
+		      "moved out of the folder, the file was still carol's");
+		snprintf(big, sizeof(big), "set note %s parent %s", a, f);
+		CHECK(ask(big) == FZN_REPLY_OK && fzn_node_notes_shares_file(&notes, carol, root),
+		      "moved back, it was not");
+		notes.store.stamp = NULL;
+	}
+
 	CHECK(fzn_contact_remove(&OPS, carol) == FZN_CONTACT_OK, "fixture: carol forgotten");
 	CHECK(ask("list share") == FZN_REPLY_OK && has(",c4c4c4c4"),
 	      "a share whose contact was forgotten names the key");

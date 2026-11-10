@@ -17985,6 +17985,17 @@ static int shared_text_permit(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN])
 	return fzn_node_notes_shares_blob(&node_notes, (const uint8_t *)ctx, root);
 }
 
+#ifdef FZN_FILES_ON
+/* A FILE IN A SHARED FOLDER, sec 1000: served to whom a share reaches its
+ * attachment, as a note's text is. */
+static int files_also_shared(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN],
+                             const uint8_t sender[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	return notes_on && fzn_node_notes_shares_file(&node_notes, sender, root);
+}
+#endif
+
 static size_t shared_text(void *ctx, const uint8_t *sender, const uint8_t *request,
                           size_t request_len, uint8_t *reply, size_t reply_cap)
 {
@@ -21204,6 +21215,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					admin.files_forget = files_forget;
 					admin.files_ctx = &files;
 					files.store = store_ops;
+					files.also_shared = files_also_shared;
 					files_on = 1;
 					file_holds_begin();
 #ifdef FZND_STICKERS

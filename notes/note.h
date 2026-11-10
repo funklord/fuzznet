@@ -58,7 +58,8 @@ enum fzn_note_content_type {
 	FZN_NOTE_TYPE_NOTE = 0x0001,       /* text */
 	FZN_NOTE_TYPE_LIST = 0x0002,       /* a checklist; items in place of text */
 	FZN_NOTE_TYPE_FOLDER = 0x0003,     /* a container: header only */
-	FZN_NOTE_TYPE_ATTACHMENT = 0x0004  /* a blob reference, as a child node */
+	FZN_NOTE_TYPE_ATTACHMENT = 0x0004  /* a file: its text the file's blob
+	                                      reference, 72 bytes (sec 1000) */
 };
 
 /* AN UNKNOWN CONTENT TYPE IS SHOWN, NEVER DROPPED. A user's hosts do not
@@ -70,9 +71,8 @@ enum fzn_note_content_type {
 int fzn_note_type_known(uint16_t content_type);
 
 /* Whether THIS BUILD may write a node of this type: narrower than known,
- * because a writer has no newer self to defer to. ATTACHMENT is known and not
- * yet writable: attachments are the second requirement, named and not yet
- * asked for. */
+ * because a writer has no newer self to defer to. ATTACHMENT was known and
+ * not writable until sec 1000, when a folder of files to browse asked for it. */
 int fzn_note_type_writable(uint16_t content_type);
 
 #define FZN_NOTE_FLAG_PINNED       0x01u

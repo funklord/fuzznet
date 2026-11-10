@@ -333,16 +333,15 @@ static void test_error_strings_exist_for_every_code(void)
 
 
 /*
- * WHAT THIS BUILD MAY WRITE IS NARROWER THAN WHAT IT MAY READ, and the two
- * predicates must not drift into each other. The interesting case is
- * ATTACHMENT: known, deliberately not writable, and the only known type for
- * which the two answers differ. A test asserting only "unknown is unwritable"
- * would pass with fzn_note_type_writable replaced by fzn_note_type_known.
+ * WHAT THIS BUILD MAY WRITE IS NO WIDER THAN WHAT IT MAY READ. ATTACHMENT was
+ * the one type known and not writable until sec 1000, which wrote it: the two
+ * predicates now agree over every type this build knows, and stay two
+ * functions for the next type a build reads before it may write it.
  */
 static void test_writable_is_narrower_than_known(void)
 {
 	CHECK(fzn_note_type_known(FZN_NOTE_TYPE_ATTACHMENT) == 1);
-	CHECK(fzn_note_type_writable(FZN_NOTE_TYPE_ATTACHMENT) == 0);
+	CHECK(fzn_note_type_writable(FZN_NOTE_TYPE_ATTACHMENT) == 1);
 
 	CHECK(fzn_note_type_writable(FZN_NOTE_TYPE_NOTE) == 1);
 	CHECK(fzn_note_type_writable(FZN_NOTE_TYPE_LIST) == 1);
@@ -352,15 +351,37 @@ static void test_writable_is_narrower_than_known(void)
 	CHECK(fzn_note_type_writable(FZN_NOTE_TYPE_NONE) == 0);
 	CHECK(fzn_note_type_writable(0x4242) == 0);
 
-	/* And the two disagree somewhere, which is what makes them two functions.
-	 * Derived rather than asserted at one value, so a later type that made
-	 * them identical would fail here rather than pass quietly. */
+	/* NOTHING WRITABLE THAT IS NOT KNOWN, over the registry and past it. */
 	{
-		int differ = 0;
+		int wider = 0;
 		for (unsigned t = 0; t <= 0x0005u; t++)
-			if (fzn_note_type_known((uint16_t)t) != fzn_note_type_writable((uint16_t)t)) differ++;
-		CHECK(differ == 1);
+			if (fzn_note_type_writable((uint16_t)t) && !fzn_note_type_known((uint16_t)t)) wider++;
+		CHECK(wider == 0);
 	}
+}
+
+/*
+ * AN ATTACHMENT'S TEXT IS A FILE'S REFERENCE, sec 1000: 72 bytes, root, key
+ * and a length that is not 0. A text of another length, or a length of 0,
+ * is no attachment.
+ */
+static void test_an_attachment_is_a_reference(void)
+{
+	uint8_t ref[FZN_NOTE_BLOB_REF_LEN];
+	fzn_note_t n;
+
+	memset(ref, 0x5a, sizeof(ref));
+	memset(&n, 0, sizeof(n));
+	n.title = (const uint8_t *)"film";
+	n.title_len = 4u;
+	n.text = ref;
+	n.text_len = sizeof(ref);
+	CHECK(fzn_note_shape_ok(FZN_NOTE_TYPE_ATTACHMENT, &n) == FZN_NOTE_OK);
+	n.text_len = sizeof(ref) - 1u;
+	CHECK(fzn_note_shape_ok(FZN_NOTE_TYPE_ATTACHMENT, &n) == FZN_NOTE_ERR_PARTITION);
+	n.text_len = sizeof(ref);
+	memset(ref + FZN_BLOB_HASH_LEN + FZN_BLOB_KEY_LEN, 0, 8u);
+	CHECK(fzn_note_shape_ok(FZN_NOTE_TYPE_ATTACHMENT, &n) == FZN_NOTE_ERR_PARTITION);
 }
 
 /*
@@ -703,6 +724,7 @@ int main(void)
 	test_a_length_that_would_wrap_the_total_is_refused();
 	test_error_strings_exist_for_every_code();
 	test_writable_is_narrower_than_known();
+	test_an_attachment_is_a_reference();
 	test_a_folder_may_not_carry_text_or_labels();
 	test_a_list_must_hold_items_that_parse();
 	test_an_unknown_flag_is_not_written();

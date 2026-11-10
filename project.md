@@ -83827,3 +83827,42 @@ sanitized test binaries run on its own found three more: `serve_test`, `provisio
 
 **Measured:** `make sancheck` passes whole. The daemon releases its state as it stops (sec 903),
 so no running node held this.
+
+## 1000. A friend's shared folder of files: attachments written, browsed and served, 2026-11-10
+
+**The holder, 2026-11-10,** naming the secondary base functions: "file transfers, streaming and the
+distributed file browsing". A user's own library across its hosts was browsable (`list catalog`,
+`get catalog ROOT` for who holds a file, sec 633), but **a friend's files were not**: a file shared
+with a contact (sec 493) is fetched by its reference, and nothing let the contact see what it was
+offered -- the reference had to come some other way, a message's attachment at best.
+
+**The native answer was already named:** a note of type ATTACHMENT, "known and not yet writable"
+since sec 422. A folder holding attachments is a directory, and sharing it with a contact or a
+group (secs 436, 471) already carries the listing, the titles, groups, floors (sec 655), unsharing
+at once and revocation. **Decided from the aims, the holder to check:** an attachment's text is the
+file's reference -- root, key and length, the same 72 bytes as a note's blob reference -- so the
+key travels in the note, as `notes/note.h` already settled for every note's text ("THE KEY TRAVELS
+IN THE NOTE, and that is the confidentiality decision"). Sharing a folder of files shares a lasting
+capability to fetch them, which the UI must say before a person shares, as for a long note.
+
+**Built:**
+- **`notes/note.c`**: ATTACHMENT writable, and its shape a reference whose length is not 0.
+- **`add attachment PARENT REF TITLE`**, REF `put file`'s answer in hex; and **`get note ID ref`**
+  and `get shared NAME ID ref`, the reference back in hex for `fetch file` and `get file`.
+- **Served by the share** (`fzn_node_notes_shares_file`, through `fzn_node_files_t.also_shared`):
+  a contact's request for a file is answered when a share with it reaches an attachment naming the
+  file, judged against its scope at the request as a note's text is (sec 438), so a folder unshared
+  stops its files at once. The attachments are found by an index of their files' roots, read again
+  when the notes stamp moves, as sec 995's is.
+
+**Measured:** `note_test` holds the shape; `notes_test` makes an attachment, reads its reference
+back, and finds the file carol's in the shared folder, not another contact's, not once moved out,
+and hers again moved back. `tool/live_browse.py`, in `livecheck`: S puts a file and attaches it in
+`films`, shared with contact R; R lists the folder and the film by title, reads the reference,
+fetches the film from S in 0.5 s and exports the same bytes; S unshares, and R, the file removed,
+is given nothing of it in 30 s. **Control:** with the hook unwired, R never holds the film.
+`attachment-served-whatever-the-scope` and `attachment-any-text` guard it; the entry that held
+ATTACHMENT unwritable is retired with the rule.
+
+**Not done:** `notebook_view` showing an attachment and fetching it; a group's members fetching
+from each other rather than from the sharer; a browse of what a friend made public without a share.

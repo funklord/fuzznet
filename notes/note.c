@@ -31,9 +31,10 @@ int fzn_note_type_writable(uint16_t content_type)
 	case FZN_NOTE_TYPE_NOTE:
 	case FZN_NOTE_TYPE_LIST:
 	case FZN_NOTE_TYPE_FOLDER:
+	/* WRITABLE SINCE sec 1000: a file in a folder, for browsing. */
+	case FZN_NOTE_TYPE_ATTACHMENT:
 		return 1;
 	default:
-		/* ATTACHMENT lands here, the one KNOWN type that does. */
 		return 0;
 	}
 }
@@ -65,6 +66,14 @@ fzn_note_err_t fzn_note_shape_ok(uint16_t content_type, const fzn_note_t *note)
 			return e == FZN_NOTE_ERR_SHORT ? FZN_NOTE_OK : e;
 		}
 	case FZN_NOTE_TYPE_NOTE:
+		return FZN_NOTE_OK;
+	case FZN_NOTE_TYPE_ATTACHMENT:
+		/* ITS TEXT IS THE FILE'S REFERENCE, sec 1000: a blob reference's
+		 * 72 bytes, root, key and a length that is not 0 -- what a reader
+		 * fetches the file by. Anything else is no attachment. */
+		if (note->text_len != FZN_NOTE_BLOB_REF_LEN || !note->text
+		    || fzn_get_be64(note->text + FZN_BLOB_HASH_LEN + FZN_BLOB_KEY_LEN) == 0u)
+			return FZN_NOTE_ERR_PARTITION;
 		return FZN_NOTE_OK;
 	default:
 		return FZN_NOTE_ERR_TYPE;

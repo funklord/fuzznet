@@ -1981,7 +1981,13 @@ int fzn_node_files_shared_with(const fzn_node_files_t *files,
 	static fzn_group_held_t in;
 	size_t j;
 
-	if (!files || !root || !sender || !files->store)
+	if (!files || !root || !sender)
+		return 0;
+	/* AN ATTACHMENT A SHARE REACHES, sec 1000: a file in a shared folder is
+	 * the folder's, served to whom the folder is. */
+	if (files->also_shared && files->also_shared(files->also_shared_ctx, root, sender))
+		return 1;
+	if (!files->store)
 		return 0;
 	if (row_held(files, root, FZN_NODE_FILES_EVERY_CONTACT) || row_held(files, root, sender))
 		return 1;

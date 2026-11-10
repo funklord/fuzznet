@@ -399,6 +399,50 @@ static size_t add(fzn_node_notes_t *n, uint16_t type, const uint8_t *at, size_t 
 	return answer(reply, cap, FZN_REPLY_OK, hex, sizeof(hex));
 }
 
+/* `add attachment PARENT REF TITLE`, sec 1000: a file in a folder, its
+ * reference -- `put file`'s answer, in hex -- the note's text. Shared with
+ * the folder, it is what a contact browses to, and what lets the contact
+ * fetch the file (`fzn_node_notes_shares_file`). */
+static size_t add_attachment(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
+                             size_t cap)
+{
+	static const char USAGE[] = "add attachment PARENT REF TITLE";
+	uint8_t parent[FZN_TREE_ID_LEN], id[FZN_TREE_ID_LEN], ref[FZN_NOTE_BLOB_REF_LEN];
+	const uint8_t *w;
+	size_t w_len, i;
+	char hex[ID_HEX];
+	fzn_note_t note;
+	fzn_notes_err_t err;
+	size_t r = no_content_store(n, reply, cap);
+
+	if (r)
+		return r;
+	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, parent)
+	    || !word(&at, &left, &w, &w_len) || w_len != 2u * sizeof(ref) || !left)
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	for (i = 0; i < 2u * sizeof(ref); i++) {
+		const char *h = memchr(HEX, w[i], 16u);
+
+		if (!h)
+			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		if (i % 2u == 0u)
+			ref[i / 2u] = (uint8_t)((h - HEX) << 4);
+		else
+			ref[i / 2u] |= (uint8_t)(h - HEX);
+	}
+	memset(&note, 0, sizeof(note));
+	note.title = at;
+	note.title_len = left;
+	note.text = ref;
+	note.text_len = sizeof(ref);
+	err = fzn_notes_create(author_of(n), parent, FZN_NOTE_TYPE_ATTACHMENT, &note, now(n), id);
+	fzn_wipe(ref, sizeof(ref));
+	if (err != FZN_NOTES_OK)
+		return refuse(reply, cap, err);
+	hex_of(id, sizeof(id), hex);
+	return answer(reply, cap, FZN_REPLY_OK, hex, sizeof(hex));
+}
+
 /* ---- set ----------------------------------------------------------------- */
 
 static size_t set_text(fzn_node_notes_t *n, const uint8_t id[FZN_TREE_ID_LEN],
@@ -822,6 +866,16 @@ static size_t answer_note(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 	 * (00000000 unset) and the labels escaped as the listing escapes them,
 	 * the NUL between two `%00`. A field of its own, so a client reading
 	 * the summary's title as the rest of its line reads it as before. */
+	/* `get note ID ref`, sec 1000: an attachment's file reference, in hex,
+	 * what `fetch file` and `get file` take. */
+	if (is_word(field, field_len, "ref")) {
+		if (node->content_type != FZN_NOTE_TYPE_ATTACHMENT || note.text_len != FZN_NOTE_BLOB_REF_LEN)
+			return say(reply, cap, FZN_REPLY_ERROR, "not an attachment");
+		if (2u * FZN_NOTE_BLOB_REF_LEN > limit)
+			return 0;
+		hex_of(note.text, FZN_NOTE_BLOB_REF_LEN, detail);
+		return answer(reply, cap, FZN_REPLY_OK, detail, 2u * FZN_NOTE_BLOB_REF_LEN);
+	}
 	if (is_word(field, field_len, "meta")) {
 		int head = snprintf(detail, sizeof(detail), "%08lX ", (unsigned long)meta.colour);
 		size_t wrote2 = 0;
@@ -2484,6 +2538,13 @@ static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,
 			return say(reply, reply_cap, FZN_REPLY_DENIED, "notes need this node's own user");
 		return change_item(n, request->parsed == FZN_VERB_ADD, at, left, reply, reply_cap);
 	}
+	if (is_word(subject, subject_len, "attachment")) {
+		if (request->parsed != FZN_VERB_ADD)
+			return 0;
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED, "notes need this node's own user");
+		return add_attachment(n, at, left, reply, reply_cap);
+	}
 	if (!is_word(subject, subject_len, "note") && !is_word(subject, subject_len, "folder")
 	    && !is_word(subject, subject_len, "list"))
 		return 0;
@@ -2939,6 +3000,97 @@ int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
 
 		if (fzn_notes_get_key(&n->store, root_claims[i].key, claim_record,
 		                      sizeof(claim_record), &len) == FZN_NOTES_OK
+		    && fzn_record_open(claim_record, len, &rec) == FZN_RECORD_OK
+		    && fzn_notes_sync_scope_admits(&scope, rec))
+			return 1;
+	}
+	return 0;
+}
+
+/* THE FILES ATTACHMENTS NAME, sec 1000: a pair an attachment, its file's
+ * root and its claim key, sorted by root and read again when the notes stamp
+ * moves -- as `root_claims` is for the notes' own texts (sec 995). */
+static struct root_claim *attached;
+static size_t n_attached, attached_room;
+static uint64_t attached_stamp;
+static const fzn_notes_store_t *attached_of;
+static int attached_read;
+
+static int attached_fresh(fzn_node_notes_t *n)
+{
+	static uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	const fzn_notes_store_t *store = &n->store;
+	uint64_t stamp = store->stamp ? store->stamp(store->stamp_ctx) : 0u;
+	size_t i, claims = 0;
+
+	if (attached_read && attached_of == store && store->stamp && stamp == attached_stamp)
+		return 1;
+	attached_read = 0;
+	n_attached = 0;
+	if (fzn_notes_claims(store, keys, FZN_NOTES_MAX, &claims) != FZN_NOTES_OK)
+		return 0;
+	for (i = 0; i < claims; i++) {
+		fzn_tree_node_t node;
+		fzn_record_t rec;
+		fzn_note_meta_t meta;
+		fzn_note_t note;
+		size_t len = 0;
+
+		if (fzn_notes_get_key(store, keys[i], claim_record, sizeof(claim_record), &len)
+		            != FZN_NOTES_OK
+		    || fzn_record_open(claim_record, len, &rec) != FZN_RECORD_OK
+		    || fzn_tree_open(rec, &node) != FZN_TREE_OK
+		    || node.content_type != FZN_NOTE_TYPE_ATTACHMENT
+		    || read_note(n, store, &node, &meta, &note) != FZN_NOTES_OK
+		    || note.text_len != FZN_NOTE_BLOB_REF_LEN)
+			continue;
+		if (n_attached == attached_room) {
+			size_t room = attached_room ? attached_room * 2u : 64u;
+			struct root_claim *more = realloc(attached, room * sizeof(*more));
+
+			if (!more)
+				return 0;
+			attached = more;
+			attached_room = room;
+		}
+		memcpy(attached[n_attached].root, note.text, FZN_BLOB_HASH_LEN);
+		memcpy(attached[n_attached].key, keys[i], FZN_PUBKEY_LEN);
+		n_attached++;
+	}
+	if (n_attached > 1u)
+		qsort(attached, n_attached, sizeof(*attached), by_root);
+	attached_of = store;
+	attached_stamp = stamp;
+	attached_read = 1;
+	return 1;
+}
+
+int fzn_node_notes_shares_file(fzn_node_notes_t *n, const uint8_t *sender,
+                               const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	fzn_notes_sync_scope_t scope;
+	size_t lo = 0, hi, i;
+
+	if (!n || !sender || !root || !attached_fresh(n))
+		return 0;
+	hi = n_attached;
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo) / 2u;
+
+		if (memcmp(attached[mid].root, root, FZN_BLOB_HASH_LEN) < 0)
+			lo = mid + 1u;
+		else
+			hi = mid;
+	}
+	if (lo == n_attached || memcmp(attached[lo].root, root, FZN_BLOB_HASH_LEN) != 0)
+		return 0;
+	shared_scope(n, sender, &scope);
+	for (i = lo; i < n_attached && memcmp(attached[i].root, root, FZN_BLOB_HASH_LEN) == 0; i++) {
+		fzn_record_t rec;
+		size_t len = 0;
+
+		if (fzn_notes_get_key(&n->store, attached[i].key, claim_record, sizeof(claim_record),
+		                      &len) == FZN_NOTES_OK
 		    && fzn_record_open(claim_record, len, &rec) == FZN_RECORD_OK
 		    && fzn_notes_sync_scope_admits(&scope, rec))
 			return 1;

@@ -366,4 +366,12 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
  * earlier in the second is withheld; UINT64_MAX past what fits. */
 uint64_t fzn_node_notes_join_floor_ms(uint64_t joined_at_s);
 
+/* WHETHER A SHARE WITH `sender` REACHES AN ATTACHMENT NAMING THE FILE
+ * `root`, sec 1000: 1, or 0. Judged as a note's text is (sec 438), each
+ * attachment's record against the sender's scope now, so unsharing the
+ * folder stops the file at once. The attachments are found by an index of
+ * their files' roots, read again when the notes stamp moves. */
+int fzn_node_notes_shares_file(fzn_node_notes_t *n, const uint8_t *sender,
+                               const uint8_t root[FZN_BLOB_HASH_LEN]);
+
 #endif /* FZN_NODE_NOTES_H */

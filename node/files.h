@@ -144,6 +144,11 @@ typedef struct fzn_node_files {
 		uint64_t leaf;
 	} *playheads;
 	size_t n_playheads, playheads_room;
+	/* A FILE ALSO SERVED TO `sender` BY SOMETHING ELSE, sec 1000: the notes,
+	 * whose attachment naming `root` a share reaches. NULL for nothing else. */
+	int (*also_shared)(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN],
+	                   const uint8_t sender[FZN_PUBKEY_LEN]);
+	void *also_shared_ctx;
 } fzn_node_files_t;
 
 /* THE PLAYHEAD OF `root`, sec 998: the leaf its fetch asks from first, 0

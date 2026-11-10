@@ -7035,6 +7035,7 @@ endif
 	@timeout 150 python3 tool/live_transfer.py $(FUZZNETD)
 	@timeout 600 python3 tool/live_files_many.py $(FUZZNETD)
 	@timeout 280 python3 tool/live_lamp.py $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
+	@timeout 450 python3 tool/live_browse.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif
