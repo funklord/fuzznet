@@ -15109,6 +15109,13 @@ SABOTAGES = [
 		"the ordered walk marks the root's grandchildren unreachable -- sec 996",
 	),
 	(
+		"files-fetch-ignores-the-playhead",
+		"node/files.c",
+		"\t\t\t                           fzn_node_files_playhead(f->files, f->root), f->span[k],\n",
+		"\t\t\t                           0, f->span[k],\n",
+		"a file played from its middle is fetched from its start, and a player waits -- sec 998",
+	),
+	(
 		"notes-scope-kept-past-a-write",
 		"node/notes.c",
 		"\tif (have && sender && n->store.stamp && kept_of == &n->store && stamp == kept_stamp\n",

@@ -1121,6 +1121,50 @@ int main(void)
 		      "the fetched file did not export as the one put");
 		(void)remove(b_out);
 
+		/* A PLAYHEAD, sec 998: a store fetching a little from leaf 250 holds
+		 * that range, and not the file's start, which the plan reaches only
+		 * as it wraps. A positive control: with no playhead, the start. */
+		{
+			static fzn_node_files_t D;
+			char dir_d[160], part[160];
+			int whole = 1;
+
+			(void)snprintf(dir_d, sizeof(dir_d), "%s/d", top);
+			(void)snprintf(part, sizeof(part), "%s/dpart", top);
+			a_peer.asked = 0;
+			CHECK(fzn_node_files_init(&D, dir_d, &HASH, &AEAD, &RNG) == FZN_NODE_FILES_OK
+			              && fzn_node_files_want(&D, big.root, big.length) == FZN_NODE_FILES_OK
+			              && fzn_node_files_play(&D, big.root, 250u * 1024u + 7u, big.length)
+			                         == FZN_NODE_FILES_OK
+			              && fzn_node_files_playhead(&D, big.root) == 250u,
+			      "fixture: D wants the file, played from leaf 250");
+			CHECK(fzn_node_files_play(&D, big.root, big.length, big.length)
+			              == FZN_NODE_FILES_ERR_MALFORMED,
+			      "a playhead past the file was taken");
+			CHECK(fzn_node_files_fetch(&D, big.root, peer_ask, &a_peer, 10u, &placed)
+			              == FZN_NODE_FILES_ERR_ABSENT
+			              && placed >= 10u && placed <= 51u,
+			      "fixture: a little of it fetched, no further than the file's end");
+			CHECK(fzn_node_files_read_range(&D, &big, 250u * 1024u, 1024u, part, &whole)
+			              == FZN_NODE_FILES_OK,
+			      "the leaves at the playhead were not fetched first");
+			(void)remove(part);
+			CHECK(fzn_node_files_read_range(&D, &big, 0u, 1024u, part, &whole)
+			              == FZN_NODE_FILES_ERR_ABSENT,
+			      "the file's start came before the playhead's leaves");
+			(void)remove(part);
+			CHECK(fzn_node_files_play(&D, big.root, 0u, big.length) == FZN_NODE_FILES_OK
+			              && fzn_node_files_fetch(&D, big.root, peer_ask, &a_peer, 10u, &placed)
+			                         == FZN_NODE_FILES_ERR_ABSENT
+			              && fzn_node_files_read_range(&D, &big, 0u, 1024u, part, &whole)
+			                         == FZN_NODE_FILES_OK,
+			      "a seek to the start did not bring the start next");
+			(void)remove(part);
+			CHECK(fzn_node_files_remove(&D, big.root) == FZN_NODE_FILES_OK && rmdir(dir_d) == 0,
+			      "D's directory empties");
+			fzn_node_files_release(&D);
+		}
+
 		/* ---- THE SCRUB, sec 492, over B's copy. */
 		{
 			uint64_t dropped = 9;

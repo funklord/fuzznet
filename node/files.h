@@ -135,7 +135,25 @@ typedef struct fzn_node_files {
 	/* THE FILES HELD, by root, sec 955: read from `dir` and kept while
 	 * the directory is unchanged since, by its time. */
 	struct fzn_node_files_roots *roots;
+	/* WHERE EACH FILE IS BEING PLAYED FROM, sec 998: a leaf, by root, that
+	 * its fetch asks from first and wraps round from -- sec 29's streaming
+	 * policy, which the daemon's fetch never used. In memory: after a start
+	 * a file is fetched from its start until asked again. */
+	struct fzn_node_files_playhead {
+		uint8_t root[FZN_BLOB_HASH_LEN];
+		uint64_t leaf;
+	} *playheads;
+	size_t n_playheads, playheads_room;
 } fzn_node_files_t;
+
+/* THE PLAYHEAD OF `root`, sec 998: the leaf its fetch asks from first, 0
+ * when none was set. `fzn_node_files_play` sets it, MALFORMED past the
+ * file's end or for no room. */
+uint64_t fzn_node_files_playhead(const fzn_node_files_t *files,
+                                 const uint8_t root[FZN_BLOB_HASH_LEN]);
+fzn_node_files_err_t fzn_node_files_play(fzn_node_files_t *files,
+                                         const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t offset,
+                                         uint64_t length);
 
 /* Over `dir`, created mode 0700 when it is not there. */
 fzn_node_files_err_t fzn_node_files_init(fzn_node_files_t *files, const char *dir,
@@ -500,9 +518,12 @@ fzn_node_files_err_t fzn_node_files_read_range(const fzn_node_files_t *files,
  *                            private|public SHARES [busy]`, sec 495
  *     get file ROOT check    the check at rest, now: `ok intact` or
  *                            `ok dropped N`, sec 495
- *     fetch file REF         fetch it from the pull peers, the contacts
+ *     fetch file REF [at OFFSET]
+ *                            fetch it from the pull peers, the contacts
  *                            sharing with this node and the siblings it
- *                            reaches, secs 491, 493, 579
+ *                            reaches, secs 491, 493, 579; AT a byte, the
+ *                            leaves from there first, then the rest --
+ *                            asked again while it arrives, a seek (sec 998)
  *     remove file ROOT       delete it here, or stop fetching it
  *     list file [FROM]       `ok TOTAL FROM ROOT,LENGTH[,public][,shared] ...`,
  *                            files arriving after the whole ones, marked

@@ -83784,3 +83784,29 @@ in 51-byte units through `fuzznet-bridge`.
 **What a user still does by hand,** and is not wrong: `add object lamp on off` on R, the rule
 `remote/permit/object host:D`, and the device image carried over. A device's light asks on a timer,
 as sec 912 designed it; a push to a device would need it to listen, which it does not.
+
+## 998. A file played from where its player is, 2026-11-10
+
+Sec 29 decided streaming and downloading are one fetch with two orders, the streaming one asking
+from the playhead and wrapping round, and built `from` into `fzn_spool_plan_want` for it. **The
+daemon's fetch never used it:** `node/files.c` asked every span from leaf 0, so a player seeking
+three quarters into a film waited for the three quarters before it -- streaming, in the holder's
+list of secondary base functions (2026-11-10), was a mechanism nothing reached.
+
+**Built:** `fetch file REF [at OFFSET]` sets the file's playhead, and each span its fetch asks
+starts from the playhead's leaf, the plan wrapping to the rest after. Asked again while the file
+arrives it is a seek. Kept in memory by root (`fzn_node_files_play`, `fzn_node_files_playhead`):
+after a start a file is fetched from its start until asked again, its want being on disk as before.
+`get file REF OFFSET LENGTH PATH` (sec 495) already read a range while it arrives.
+
+**Measured:** `files_test` -- a store wanting a 301-leaf file from leaf 250 fetches a little and
+holds the playhead's range and not the file's start, and a seek to 0 brings the start next;
+`files-fetch-ignores-the-playhead` fails it. `tool/live_stream.py`, in `livecheck-faults`: R puts 8
+MiB, member M fetches it at three quarters with its fetch held to a window of one and 1024 leaves a
+turn (`FZN_TUNE_FETCH_WINDOW`, `FZN_TUNE_LEAVES_A_ROUND`, since over loopback a wide window takes
+the whole file in half a second and no order can be seen): the playhead's range is read with 1024
+of 8192 leaves held and the start not yet; with the playhead ignored, 7168 were held first. Then M,
+untuned, takes the file whole in 0.7 s and exports the same bytes.
+
+**Not done:** rarest-first and several peers asked for the urgent set, which sec 29 left to the
+caller; a playhead kept across a start.

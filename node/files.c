@@ -1165,7 +1165,10 @@ int fzn_node_files_fetching_next(fzn_node_files_fetching_t *f, uint64_t now_ms, 
 			k = (j + f->turn) % f->n_peers;
 			if (!f->alive[k])
 				continue;
-			if (fzn_transfer_next_want(&f->transfer, (uint32_t)k, 0, f->span[k],
+			/* FROM THE PLAYHEAD, sec 998: the leaves a player needs next
+			 * first, the rest after as the plan wraps; 0 when none is set. */
+			if (fzn_transfer_next_want(&f->transfer, (uint32_t)k,
+			                           fzn_node_files_playhead(f->files, f->root), f->span[k],
 			                           now_ms + fzn_node_files_span_deadline_ms(), &range)
 			    != FZN_TRANSFER_OK)
 				break;
@@ -1679,10 +1682,55 @@ struct fzn_node_files_shares {
 	size_t slots;  /* a power of two, at least twice the rows */
 };
 
+uint64_t fzn_node_files_playhead(const fzn_node_files_t *files,
+                                 const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	size_t i;
+
+	if (!files || !root)
+		return 0;
+	for (i = 0; i < files->n_playheads; i++)
+		if (memcmp(files->playheads[i].root, root, FZN_BLOB_HASH_LEN) == 0)
+			return files->playheads[i].leaf;
+	return 0;
+}
+
+fzn_node_files_err_t fzn_node_files_play(fzn_node_files_t *files,
+                                         const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t offset,
+                                         uint64_t length)
+{
+	size_t i;
+
+	if (!files || !root || length == 0u || offset >= length)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	for (i = 0; i < files->n_playheads; i++)
+		if (memcmp(files->playheads[i].root, root, FZN_BLOB_HASH_LEN) == 0)
+			break;
+	if (i == files->n_playheads) {
+		if (files->n_playheads == files->playheads_room) {
+			size_t room = files->playheads_room ? files->playheads_room * 2u : 8u;
+			struct fzn_node_files_playhead *more =
+			        realloc(files->playheads, room * sizeof(*more));
+
+			if (!more)
+				return FZN_NODE_FILES_ERR_MALFORMED;
+			files->playheads = more;
+			files->playheads_room = room;
+		}
+		memcpy(files->playheads[i].root, root, FZN_BLOB_HASH_LEN);
+		files->n_playheads++;
+	}
+	files->playheads[i].leaf = offset / FZN_BLOB_LEAF_SIZE;
+	return FZN_NODE_FILES_OK;
+}
+
 void fzn_node_files_release(fzn_node_files_t *files)
 {
 	if (!files)
 		return;
+	free(files->playheads);
+	files->playheads = NULL;
+	files->n_playheads = files->playheads_room = 0;
 	if (files->roots) {
 		free(files->roots->roots);
 		free(files->roots->wanted);
@@ -2415,11 +2463,34 @@ size_t fzn_node_files_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	if (request->parsed == FZN_VERB_FETCH) {
 		uint8_t bytes[FZN_NODE_FILE_REF_LEN];
 
-		if (!from_hex(arg, arg_len, bytes, sizeof(bytes)) || !fzn_node_file_ref_read(bytes, &ref)) {
+		const uint8_t *at_word = memchr(arg, ' ', arg_len);
+		size_t ref_len = at_word ? (size_t)(at_word - arg) : arg_len;
+		uint64_t offset = 0;
+		int play = 0;
+
+		/* `at OFFSET`, sec 998: a playhead, the bytes a player is at. */
+		if (at_word) {
+			size_t i = (size_t)(at_word - arg) + 1u;
+
+			if (arg_len - i < 4u || memcmp(arg + i, "at ", 3u) != 0)
+				return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "fetch file REF [at OFFSET]");
+			for (i += 3u; i < arg_len; i++) {
+				if (arg[i] < '0' || arg[i] > '9' || offset > (UINT64_MAX - 9u) / 10u)
+					return answer(reply, reply_cap, FZN_REPLY_MALFORMED,
+					              "fetch file REF [at OFFSET]");
+				offset = offset * 10u + (uint64_t)(arg[i] - '0');
+			}
+			play = 1;
+		}
+		if (!from_hex(arg, ref_len, bytes, sizeof(bytes)) || !fzn_node_file_ref_read(bytes, &ref)) {
 			fzn_wipe(bytes, sizeof(bytes));
-			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "fetch file REF");
+			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "fetch file REF [at OFFSET]");
 		}
 		fzn_wipe(bytes, sizeof(bytes));
+		if (play && fzn_node_files_play(files, ref.root, offset, ref.length) != FZN_NODE_FILES_OK) {
+			fzn_wipe(&ref, sizeof(ref));
+			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "the offset is past the file");
+		}
 		err = fzn_node_files_want(files, ref.root, ref.length);
 		fzn_wipe(&ref, sizeof(ref));
 		if (err == FZN_NODE_FILES_OK)
