@@ -397,6 +397,12 @@ def main(argv):
 			acts_re = re.compile(r"(\d+) act log entr\(ies\) taken")
 			if not any(int(m.group(1)) > 0 for m in acts_re.finditer(started["s"].log())):
 				raise failed("e: S took no entry of R2's act log from R")
+			# AND R'S RECORDS ASKED OF R ITSELF, sec 1005: from 2026-11-03 R answered
+			# that question as a CALL it refused, S read no page and went on, and S
+			# dropped R2 all the same by the paths beside it -- so nothing failed.
+			direct_re = re.compile(r"(\d+) revocation\(s\) from contacts' own hosts")
+			if not any(int(m.group(1)) > 0 for m in direct_re.finditer(started["s"].log())):
+				raise failed("e: S took none of R's records from R itself")
 			r2 = up("r2", "r2-e1")
 			r2.wait_for(PASS_RE, "R2's contact pass")
 			expect(socks["r2"], "r2", "add message %s out %s revoked" % (keys["s"], LINE_4),

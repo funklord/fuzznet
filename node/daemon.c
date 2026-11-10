@@ -11936,6 +11936,10 @@ struct devices_talk {
 static struct devices_talk devices_talks[FZND_ROUND_TARGETS_MAX];
 static size_t n_devices_talks, contacts_asked, contacts_kept;
 static size_t contact_records_taken, contact_acts_taken;
+/* REVOCATIONS TAKEN FROM A CONTACT'S OWN HOSTS, asked of them (sec 1005):
+ * from 2026-11-03 every such question was answered as a refused CALL,
+ * which no count apart from the members' could show. */
+static size_t contact_records_direct;
 
 /* ONE OF A CONTACT'S ROOT'S RECORDS, as a member passed it on: taken as that
  * root's when its issuer is a contact standing here -- signed by it, and so
@@ -12131,7 +12135,7 @@ static void take_revoked(void *ctx, const uint8_t record[FZN_REVOCATION_LEN])
 		                                  node_apply.capability, record, contact_id->sign,
 		                                  contact_hash_ops);
 	if (err == FZN_CONTACT_DEVICE_OK)
-		contact_records_taken++;
+		contact_records_taken++, contact_records_direct++;
 	else if (err != FZN_CONTACT_DEVICE_ERR_REFUSED)
 		say(FZN_ENTRY_WARNING, "contact/devices",
 		    "a contact's revocation was not kept (%s): a device it revoked may still be "
@@ -12513,7 +12517,7 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 
 	contacts_asked = 0;
 	contacts_kept = 0;
-	contact_records_taken = 0;
+	contact_records_taken = contact_records_direct = 0;
 	contact_acts_taken = 0;
 	estate_builds = 0;
 	estate_judged = 0;
@@ -12604,6 +12608,13 @@ static void contact_settle(void)
 	    "%zu act log entr(ies) taken, %zu device(s) judged by %zu estate(s) built",
 	    contacts_asked, contacts_kept, paired, ncontact_targets, contact_records_taken,
 	    dropped, contact_acts_taken, estate_judged, estate_builds);
+	/* A LINE OF ITS OWN, and only when there is one to say: added to the
+	 * pass's line, a few bytes a pass grew the log by a segment, and
+	 * `live_rejoin` phase j, counting the fossils pushed, failed three of
+	 * three (sec 1005). */
+	if (contact_records_direct)
+		say(FZN_ENTRY_DEBUG, "contact/devices",
+		    "contact pass: %zu revocation(s) from contacts' own hosts", contact_records_direct);
 }
 
 /* ---- groups, sec 626 ------------------------------------------------------- */

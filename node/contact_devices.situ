@@ -67,22 +67,22 @@ struct fzn_contact_devices_listed {
 	u8   entry[len];                        // an fzn_contact_device
 }
 
-// A CONTACT'S ROOT'S REVOCATIONS, sec 776, numbered 49 and 50 since sec 781
-// (33 and 34 are messages' HOLDS and HOLDING): the asker wants the records the
+// A CONTACT'S ROOT'S REVOCATIONS, sec 776, numbered 57 and 58 since sec 1005
+// (33 and 34 are messages' HOLDS and HOLDING, 49 a CALL): the asker wants the records the
 // answerer's root signed for the member capability -- revocations and
 // withdrawals -- so a device that root revoked is dropped at the asker.
 
 // REVOKED: a page of the root's records, from the `from`th.
 struct fzn_contact_devices_revoked {
 	u8   version [must_eq = 2];
-	u8   type [must_eq = 49];
+	u8   type [must_eq = 57];
 	u32  from;
 }
 
 // RECORDS: as many as fit, each a whole signed record.
 struct fzn_contact_devices_records {
 	u8   version [must_eq = 2];
-	u8   type [must_eq = 50];
+	u8   type [must_eq = 58];
 	u32  from;                              // the query's, echoed
 	u8   count;
 	u8   more [max = 1];
@@ -96,14 +96,14 @@ struct fzn_contact_devices_records {
 // ESTATE: a page of the answerer's estate records, from the `from`th.
 struct fzn_contact_devices_estate {
 	u8   version [must_eq = 2];
-	u8   type [must_eq = 51];
+	u8   type [must_eq = 59];
 	u32  from;
 }
 
 // ITEMS: as many as fit, after the k the answerer holds.
 struct fzn_contact_devices_items {
 	u8   version [must_eq = 2];
-	u8   type [must_eq = 52];
+	u8   type [must_eq = 60];
 	u32  from;                              // the query's, echoed
 	u8   count;
 	u8   more [max = 1];

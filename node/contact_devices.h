@@ -253,19 +253,22 @@ size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_l
  * failing open there is what this node did before, and failing shut would
  * cut a device its own estate keeps.
  *
- * NUMBERED 49 AND 50 SINCE SEC 781: sec 776 gave them 33 and 34, which
- * `node/types.h` gives messages' HOLDS and HOLDING. They only ever met in
- * a handler that checks lengths first, so no request was misread; the
- * registry now names them, and `types_test` holds them to it.
+ * NUMBERED 57 AND 58 SINCE SEC 1005, and 49 and 50 before it: sec 776 gave
+ * them 33 and 34, which `node/types.h` gives messages' HOLDS and HOLDING,
+ * and sec 853 gave 49 to a CALL, which a host's relay hook answers before
+ * this handler is asked -- so from 2026-11-03 every REVOKED, and with 51
+ * a SESSION_ASK every ESTATE, was answered as a call refused, which the
+ * asker reads as no page and passes over. `types_test` names the calls
+ * now too.
  *
- *   REVOKED  49  `from` (32 bits): the root's records, from the `from`th --
+ *   REVOKED  57  `from` (32 bits): the root's records, from the `from`th --
  *                asked of a contact's host; or, asked of a member, the
  *                contacts' roots' records it saved (sec 780)
- *   RECORDS  50  `from` echoed, how many, whether more follow, then each
+ *   RECORDS  58  `from` echoed, how many, whether more follow, then each
  *                record, FZN_REVOCATION_LEN bytes
  */
-#define FZN_CONTACT_DEVICES_REVOKED 49u
-#define FZN_CONTACT_DEVICES_RECORDS 50u
+#define FZN_CONTACT_DEVICES_REVOKED 57u
+#define FZN_CONTACT_DEVICES_RECORDS 58u
 #define FZN_CONTACT_DEVICES_REVOKED_LEN 6u
 #define FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN 8u
 
@@ -370,8 +373,8 @@ int fzn_contact_device_revoked(const fzn_contact_device_t *d,
  * failure this must not make; missing a revocation is what this node did
  * before sec 776.
  *
- *   ESTATE  51  `from` (32 bits): the answerer's estate records
- *   ITEMS   52  `from` echoed, how many, whether more follow, the k the
+ *   ESTATE  59  `from` (32 bits): the answerer's estate records
+ *   ITEMS   60  `from` echoed, how many, whether more follow, the k the
  *               answerer holds, then each item after a 16-bit length
  *
  * AN ITEM: its kind, its record after a 16-bit length, then its signer's
@@ -383,8 +386,8 @@ int fzn_contact_device_revoked(const fzn_contact_device_t *d,
 #define FZN_CONTACT_ESTATE_RECORD_MAX FZN_REVOCATION_LEN
 #define FZN_CONTACT_ESTATE_ITEM_MAX                                                           \
 	(1u + 2u + FZN_CONTACT_ESTATE_RECORD_MAX + 1u + FZN_CHAIN_MAX_HOPS * FZN_HOP_LEN)
-#define FZN_CONTACT_DEVICES_ESTATE 51u
-#define FZN_CONTACT_DEVICES_ITEMS 52u
+#define FZN_CONTACT_DEVICES_ESTATE 59u
+#define FZN_CONTACT_DEVICES_ITEMS 60u
 #define FZN_CONTACT_DEVICES_ESTATE_LEN 6u
 #define FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN 9u
 

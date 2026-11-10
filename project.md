@@ -84046,3 +84046,43 @@ ahead of it. The note's was built and measured in a scratch clone -- a NEWS requ
 sharer's share conversation with each contact it shares with, the contact pulling that sharer
 first at a round it starts -- and gained nothing in two runs, 44.1 and 60.1 s, for a reason not
 found; it is not in the tree.
+
+## 1005. A contact's revocations were answered as a refused call: types 49 and 51 taken twice, 2026-11-10
+
+**Found reading `node/types.h`** for a number to give news (sec 1004's open item): the registry
+gave 49..52 to `node/contact_devices.h` -- a contact's root's revocations (REVOKED 49, RECORDS
+50) and its estate records (ESTATE 51, ITEMS 52), sec 781 -- and the same file defined CALL 49
+(sec 853, `2fda9b0`, 2026-11-03) and SESSION_ASK 51 (sec 932), every one under version 2.
+`types_test`, which exists to refuse exactly this, listed neither the calls nor the sessions, so
+it counted 51 types and passed.
+
+**What it did.** A host's relay hook (`relay_remote`) is asked before `contact_devices` and
+answers a CALL itself, so from 2026-11-03 every REVOKED a contact's host asked of this one was
+answered `CALLED DENIED` (or `UNKNOWN` to a member); ESTATE, beside SESSION_ASK on 51, kept
+reaching its own handler. The asker reads an answer that is no page as a host older than sec 776
+and moves on, so nothing failed: a contact's revocations were no longer taken from the contact
+itself, only by the paths beside it -- records a member passes on (sec 782), a key's act log (sec 783).
+`live_contacts` passed throughout, S dropping R2 by those. A device a contact revoked was dropped
+here only where one of them reached. Estate records were not lost: whatever took 51, the session
+ask did not reach them first.
+
+**Now.** The four move to 57..60 -- fuzznet's own between its hosts, where CALL is spoken by
+netcfgd and SESSION by devices -- in the header, the situ schema and its committed `.wire` (four
+`must_eq` lines, the map unchanged), and the registry. `types_test` names TIME_ASK, TIME, CALL,
+CALLED, SESSION_ASK and SESSION_GRANT and counts 57; with the old numbers it fails "two version-2
+types are one number". A wire change, as sec 924 allows: a host before it asks 49 and is answered
+as a call by either side, which it already was.
+
+**And what would have shown it:** a debug line of its own, `contact pass: N revocation(s) from
+contacts' own hosts`, said when N is not 0, and `live_contacts` phase e requires S to have taken
+some from R itself. Of its own because the count first went into the pass's line, and those few
+bytes a pass made `live_rejoin` phase j fail three of three -- B archived 9 fossils and pushed 8,
+where HEAD passed three of three, and the old numbers with the longer line failed as well. A
+script that has no contacts now logs what it did before; **phase j counting fossils against a log
+whose length decides how many there are is open**, a race this did not cause and only showed.
+
+**Measured.** A counting build at HEAD (`3a3c0c6`), `live_contacts` once: 64 requests answered by
+the call handler, in a script that makes no call, and no revocation taken from a contact's own
+host by any of its 33 daemons -- while estate items were, so 51 reached its handler and 49 did not.
+With the four renumbered, `live_contacts` passes the new check; with them put back at 49..52
+alone, it fails it -- "e: S took none of R's records from R itself".
