@@ -83880,3 +83880,46 @@ REF`, from this user's hosts or the friend sharing the folder; **Save file as...
 name and saying it is not here, fetches and saves it by its reference, and says a save refused --
 the file store's answers canned, as the suite's node has none; `live_browse` is the end to end.
 `notebook-view-fetches-by-root` guards the reference.
+
+## 1002. Is the base working? Every gate and live script, one by one, 2026-11-10
+
+**The holder, 2026-11-10:** "What is becoming more urgent is to see if all base functionality is in
+place and working 100%? And the secondary base functionality like file transfers, streaming and the
+distributed file browsing."
+
+**How:** a clean clone at `45e307c` (submodules at their pins, from the local checkouts), every
+build and gate, then every live script `livecheck`, `livecheck-lean`, `livecheck-embedded` and
+`livecheck-faults` name -- plus `live_files_many` and `live_chat`, which no target ran -- each run
+on its own with its own timeout, so one failure hides nothing behind it, as a make recipe does.
+
+**Gates:** style, test, installcheck, device-check, ctcheck, arrangements, qrcheck and qttycheck
+passed; **sancheck failed**, four tests leaking (sec 999, fixed). **Live: 57 of 57 passed** --
+the estate, pairing, joining, invites, identity, rejoin and witness, contacts, delivery, relay,
+introductions, LAN, NAT strangers, moved hosts, names, groups (made, hosts, backfill, skew, many),
+notes (history, many, shared, sibling shares), files (rot, many, erasure, catalogue), logs,
+location, stickers, objects, the device over a radio, sessions, presets, votes, sync load, the
+loop, faults, lean and embedded builds. Each quick pass was read: genuine.
+
+**On hull,** in the tree after `0caabe6`: `hull_nat`, a member behind a NAT joining its root and
+the journal crossing both ways; and `hull_estates`, two estates behind NATs -- a phone behind a NAT
+of its own, contacts asking by card, lines both ways, a relay -- every journey passed. Neither is in
+`make check`, needing hull and `/dev/kvm`.
+
+**What the audit could not find, so built:** the smallest host's whole first use (sec 997), a
+file's playhead (sec 998), and a friend's shared folder of files (secs 1000, 1001), each with its
+live script. `-fanalyzer` over the nine library files this run changed: no warning. `livecheck-san`
+now also runs the file and object scripts (`48ecbe3`).
+
+**`make livecheck-san`, in a clean clone at `48ecbe3`:** 27 live scripts over a daemon under
+AddressSanitizer and UBSan, the four file and object scripts among them, **and no report**.
+**`livecheck-repeat`, five runs each, at `1a3f9a0`:** `browse`, `files_many`, `objects`, `lamp` and
+`stream` -- 25 of 25 passed.
+
+**Left, said as that:**
+- the intermittents sec 90x names (`live_names` b, `live_faults` j) did not recur here, which says
+  nothing either way about an intermittent fault;
+- `hull_nat` and `hull_estates` are in no target `make check` runs;
+- a group's members serve a shared folder's files from the sharer's hosts only, not from each
+  other (sec 1000);
+- two questions for the holder: a public folder, as a file can be public (sec 493); and whether
+  "streaming" was meant to include live media, which has no design.
