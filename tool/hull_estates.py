@@ -48,6 +48,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hull_nat import stop_stragglers  # noqa: E402
+
 TOOL = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TOOL)
 ROLE_S = 600
@@ -182,6 +185,7 @@ def main(argv):
 	run_id = "fze%d" % os.getpid()
 	until = time.monotonic() + DEADLINE_S
 	procs, names = [], []
+	strays = []
 	with tempfile.TemporaryDirectory(prefix="fzn-hull.") as scratch:
 		volume = os.path.join(scratch, "vol")
 		os.mkdir(volume)
@@ -241,6 +245,9 @@ def main(argv):
 						os.killpg(p.pid, signal.SIGKILL)
 						p.wait()
 				out.close()
+			# WHAT STILL RUNS IN THE SCRATCH, sec 1002: a `hull core`
+			# names nothing of the run but its directory.
+			strays = stop_stragglers(scratch)
 		said = {n: open(os.path.join(scratch, n + ".out")).read()[-800:] for n in names}
 		# THE LOGS, kept where the host can read them after: a run's finding
 		# is as good as what explains it.
@@ -271,6 +278,9 @@ def main(argv):
 	                                  text=True).stdout.splitlines() if run_id in l]
 	if left:
 		print("hull_estates: FAILED -- left running: %r" % left)
+		bad += 1
+	if strays:
+		print("hull_estates: FAILED -- left running in its scratch, now stopped: %r" % strays)
 		bad += 1
 	print("hull_estates: %s" % ("every journey passed" if not bad else "%d step(s) failed" % bad))
 	return 0 if not bad else 1

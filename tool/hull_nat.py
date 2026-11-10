@@ -58,6 +58,50 @@ def machine(conf, name, run_id, volume, segments, role, fuzznetd, opts):
 		        '\t(command "/usr/bin/python3" %s))\n' % (name, segs, volume, args))
 
 
+
+def stop_stragglers(scratch):
+	"""Whatever still runs in `scratch`, stopped: its descriptions.
+
+	A `hull core` a run started is a daemon of its own, reparented to init,
+	its command line naming nothing of the run -- only its working directory
+	does. One was found running with a machine of hull_estates' still up
+	after the script had passed, sec 1002. Given 15 s to go by itself; then
+	each is re-read just before it is signalled, so a pid reused meanwhile is
+	left alone; SIGTERM, then SIGKILL after 20 s."""
+	def found():
+		out = []
+		for pid in os.listdir("/proc"):
+			if not pid.isdigit() or int(pid) == os.getpid():
+				continue
+			try:
+				cwd = os.readlink("/proc/%s/cwd" % pid)
+				args = open("/proc/%s/cmdline" % pid, "rb").read().replace(b"\0", b" ")
+			except OSError:
+				continue
+			if cwd == scratch or cwd.startswith(scratch + "/"):
+				out.append((int(pid), args.decode(errors="replace").strip()))
+		return out
+
+	# A GRACE FIRST: what is on its way out by itself is not left running.
+	limit = time.monotonic() + 15.0
+	while found() and time.monotonic() < limit:
+		time.sleep(0.5)
+	strays = found()
+	for sig, wait in ((signal.SIGTERM, 20.0), (signal.SIGKILL, 5.0)):
+		for pid, args in found():
+			try:
+				if open("/proc/%d/cmdline" % pid, "rb").read().replace(b"\0", b" ").decode(
+				        errors="replace").strip() == args:
+					os.kill(pid, sig)
+			except OSError:
+				pass
+		limit = time.monotonic() + wait
+		while found() and time.monotonic() < limit:
+			time.sleep(0.5)
+		if not found():
+			break
+	return ["%d %s" % (pid, args) for pid, args in strays]
+
 def main(argv):
 	hull = os.environ.get("HULL") or shutil.which("hull")
 	if not hull or not os.access(hull, os.X_OK):
@@ -67,6 +111,7 @@ def main(argv):
 	run_id = "fzn%d" % os.getpid()
 	until = time.monotonic() + DEADLINE_S
 	procs = []
+	strays = []
 	with tempfile.TemporaryDirectory(prefix="fzn-hull.") as scratch:
 		volume = os.path.join(scratch, "vol")
 		os.mkdir(volume)
@@ -112,6 +157,9 @@ def main(argv):
 						os.killpg(p.pid, signal.SIGKILL)
 						p.wait()
 				out.close()
+			# WHAT STILL RUNS IN THE SCRATCH, sec 1002: a `hull core`
+			# names nothing of the run but its directory.
+			strays = stop_stragglers(scratch)
 		said = {role: open(os.path.join(scratch, role + ".out")).read()[-1500:]
 		        for role, _, _ in plan}
 	bad = []
@@ -135,6 +183,8 @@ def main(argv):
 	                                  text=True).stdout.splitlines() if run_id in l]
 	if left:
 		bad.append("left running: %r" % left)
+	if strays:
+		bad.append("left running in its scratch, now stopped: %r" % strays)
 	if bad:
 		for b in bad:
 			print("hull_nat: FAILED -- " + b)

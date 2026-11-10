@@ -83903,7 +83903,13 @@ loop, faults, lean and embedded builds. Each quick pass was read: genuine.
 **On hull,** in the tree after `0caabe6`: `hull_nat`, a member behind a NAT joining its root and
 the journal crossing both ways; and `hull_estates`, two estates behind NATs -- a phone behind a NAT
 of its own, contacts asking by card, lines both ways, a relay -- every journey passed. Neither is in
-`make check`, needing hull and `/dev/kvm`.
+`make check`, needing hull and `/dev/kvm`; **`make livecheck-hull` runs both** now, `hull_estates`
+having been in no target. **And a leak found by looking after:** one run of it passed and left a
+`hull core` running with a machine still up -- its command line naming nothing of the run, only its
+working directory the run's deleted scratch, so the script's check by run id could not see it. Both
+scripts now stop whatever still runs in their scratch after a 15 s grace, re-reading each process
+before signalling it, and fail saying so (`stop_stragglers` in `tool/hull_nat.py`); `livecheck-hull`
+passed again with it, nothing left.
 
 **What the audit could not find, so built:** the smallest host's whole first use (sec 997), a
 file's playhead (sec 998), and a friend's shared folder of files (secs 1000, 1001), each with its
@@ -83918,7 +83924,7 @@ AddressSanitizer and UBSan, the four file and object scripts among them, **and n
 **Left, said as that:**
 - the intermittents sec 90x names (`live_names` b, `live_faults` j) did not recur here, which says
   nothing either way about an intermittent fault;
-- `hull_nat` and `hull_estates` are in no target `make check` runs;
+- `hull_nat` and `hull_estates` are in `livecheck-hull` and not in `make check`, needing hull;
 - a group's members serve a shared folder's files from the sharer's hosts only, not from each
   other (sec 1000);
 - two questions for the holder: a public folder, as a file can be public (sec 493); and whether
