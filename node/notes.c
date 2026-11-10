@@ -2585,8 +2585,44 @@ static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fz
  * joined after it was made a FLOOR: the notes it reaches are served from
  * that member's joining on. A note another share reaches without one has
  * none; one two floored shares reach has the lower. */
+static void shared_scope_work(fzn_node_notes_t *n, const uint8_t *sender,
+                              fzn_notes_sync_scope_t *scope);
+
+/* THE LAST ASKER'S SCOPE KEPT, sec 995, while the notes stamp stands: a
+ * scope sorts every note twice to walk a share, and was worked out again
+ * for each text asked of it -- the square of a share at the sharer, 84 s
+ * of CPU for 5000 texts, where an index of claims (sec 995 too) had been
+ * guessed the cost. What it depends on -- the share rows, the groups, the
+ * notes -- is in the store the stamp counts; with no stamp, worked out each
+ * time as before. `reach` is written here alone. */
 static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
                          fzn_notes_sync_scope_t *scope)
+{
+	static uint8_t kept_sender[FZN_PUBKEY_LEN];
+	static fzn_notes_sync_scope_t kept;
+	static uint64_t kept_stamp;
+	static const fzn_notes_store_t *kept_of;
+	static int have;
+	uint64_t stamp = n && n->store.stamp ? n->store.stamp(n->store.stamp_ctx) : 0u;
+
+	if (have && sender && n->store.stamp && kept_of == &n->store && stamp == kept_stamp
+	    && memcmp(kept_sender, sender, FZN_PUBKEY_LEN) == 0) {
+		*scope = kept;
+		return;
+	}
+	have = 0;
+	shared_scope_work(n, sender, scope);
+	if (sender && n->store.stamp) {
+		memcpy(kept_sender, sender, FZN_PUBKEY_LEN);
+		kept = *scope;
+		kept_stamp = stamp;
+		kept_of = &n->store;
+		have = 1;
+	}
+}
+
+static void shared_scope_work(fzn_node_notes_t *n, const uint8_t *sender,
+                              fzn_notes_sync_scope_t *scope)
 {
 	/* AS MANY AS ARE SHARED, sec 958: every row read once, the sender's own
 	 * and its groups' taken from it, into room grown to the rows. */
@@ -2801,22 +2837,44 @@ fzn_notes_err_t fzn_node_notes_index_stream(fzn_node_notes_t *n, fzn_node_notes_
 	return FZN_NOTES_OK;
 }
 
-int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
-                               const uint8_t root[FZN_BLOB_HASH_LEN])
+/* WHICH CLAIMS NAME A BLOB ROOT, sec 995: a pair a claim whose note has a
+ * text, sorted by root, read again only when the notes stamp moves. A
+ * request for a text read every claim to find the one naming it, so a
+ * sharer serving a tree's texts paid the square of the tree -- 179 s at
+ * 5000 notes (sec 945). What a claim names does not depend on who asks, so
+ * the index holds no decision: each claim it finds is judged against the
+ * asker's scope at the time, and unsharing still stops a text at once. */
+struct root_claim {
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	uint8_t key[FZN_PUBKEY_LEN];
+};
+static struct root_claim *root_claims;
+static size_t n_root_claims, root_claims_room;
+static uint64_t root_claims_stamp;
+static const fzn_notes_store_t *root_claims_of;
+static int root_claims_read;
+
+static int by_root(const void *a, const void *b)
+{
+	return memcmp(((const struct root_claim *)a)->root, ((const struct root_claim *)b)->root,
+	              FZN_BLOB_HASH_LEN);
+}
+
+static uint8_t claim_record[FZN_RECORD_MAX_LEN];
+
+/* The index current for `store`: 1, or 0 when it could not be read. */
+static int root_claims_fresh(const fzn_notes_store_t *store)
 {
 	static uint8_t claim_keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
-	static uint8_t claim_record[FZN_RECORD_MAX_LEN];
-	fzn_notes_sync_scope_t scope;
+	uint64_t stamp = store->stamp ? store->stamp(store->stamp_ctx) : 0u;
 	size_t i, claims = 0;
 
-	if (!n || !sender || !root)
-		return 0;
-	shared_scope(n, sender, &scope);
-	/* EVERY CLAIM ON A NOTE IN SCOPE, whoever wrote it: what is served of a
-	 * note is every writer's record of it, so its texts are too -- each
-	 * record judged as the sync server judges it, so a floor (sec 655)
-	 * keeps an older version's text as it keeps the version. */
-	if (fzn_notes_claims(&n->store, claim_keys, FZN_NOTES_MAX, &claims) != FZN_NOTES_OK)
+	/* NO STAMP, NO KEEPING: read again each time, as before. */
+	if (root_claims_read && root_claims_of == store && store->stamp && stamp == root_claims_stamp)
+		return 1;
+	root_claims_read = 0;
+	n_root_claims = 0;
+	if (fzn_notes_claims(store, claim_keys, FZN_NOTES_MAX, &claims) != FZN_NOTES_OK)
 		return 0;
 	for (i = 0; i < claims; i++) {
 		fzn_note_blob_ref_t ref;
@@ -2824,12 +2882,65 @@ int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
 		fzn_record_t rec;
 		size_t len = 0;
 
-		if (fzn_notes_get_key(&n->store, claim_keys[i], claim_record, sizeof(claim_record),
-		                      &len) == FZN_NOTES_OK
+		if (fzn_notes_get_key(store, claim_keys[i], claim_record, sizeof(claim_record), &len)
+		            != FZN_NOTES_OK
+		    || fzn_record_open(claim_record, len, &rec) != FZN_RECORD_OK
+		    || fzn_tree_open(rec, &node) != FZN_TREE_OK || !fzn_notes_ref_of(&node, &ref))
+			continue;
+		if (n_root_claims == root_claims_room) {
+			size_t room = root_claims_room ? root_claims_room * 2u : 256u;
+			struct root_claim *more = realloc(root_claims, room * sizeof(*more));
+
+			if (!more)
+				return 0;
+			root_claims = more;
+			root_claims_room = room;
+		}
+		memcpy(root_claims[n_root_claims].root, ref.root, FZN_BLOB_HASH_LEN);
+		memcpy(root_claims[n_root_claims].key, claim_keys[i], FZN_PUBKEY_LEN);
+		n_root_claims++;
+	}
+	if (n_root_claims > 1u)
+		qsort(root_claims, n_root_claims, sizeof(*root_claims), by_root);
+	root_claims_of = store;
+	root_claims_stamp = stamp;
+	root_claims_read = 1;
+	return 1;
+}
+
+int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
+                               const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	fzn_notes_sync_scope_t scope;
+	size_t lo = 0, hi, i;
+
+	if (!n || !sender || !root)
+		return 0;
+	shared_scope(n, sender, &scope);
+	if (!root_claims_fresh(&n->store))
+		return 0;
+	hi = n_root_claims;
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo) / 2u;
+
+		if (memcmp(root_claims[mid].root, root, FZN_BLOB_HASH_LEN) < 0)
+			lo = mid + 1u;
+		else
+			hi = mid;
+	}
+	/* EVERY CLAIM NAMING IT, whoever wrote it: what is served of a note is
+	 * every writer's record of it, so its texts are too -- each record judged
+	 * as the sync server judges it, so a floor (sec 655) keeps an older
+	 * version's text as it keeps the version. */
+	for (i = lo; i < n_root_claims && memcmp(root_claims[i].root, root, FZN_BLOB_HASH_LEN) == 0;
+	     i++) {
+		fzn_record_t rec;
+		size_t len = 0;
+
+		if (fzn_notes_get_key(&n->store, root_claims[i].key, claim_record,
+		                      sizeof(claim_record), &len) == FZN_NOTES_OK
 		    && fzn_record_open(claim_record, len, &rec) == FZN_RECORD_OK
-		    && fzn_notes_sync_scope_admits(&scope, rec)
-		    && fzn_tree_open(rec, &node) == FZN_TREE_OK && fzn_notes_ref_of(&node, &ref)
-		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)
+		    && fzn_notes_sync_scope_admits(&scope, rec))
 			return 1;
 	}
 	return 0;

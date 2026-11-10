@@ -5705,15 +5705,15 @@ SABOTAGES = [
 	(
 		"notes-shares-blob-in-scope",
 		"node/notes.c",
-		"\t\t    && fzn_notes_sync_scope_admits(&scope, rec)\n",
-		"\t\t    && 1\n",
+		"\t\t    && fzn_notes_sync_scope_admits(&scope, rec))\n",
+		"\t\t    && 1)\n",
 		"a text is a contact's to fetch if any note anywhere has it -- sec 438",
 	),
 	(
 		"notes-shares-blob-names-the-root",
 		"node/notes.c",
-		"\t\t    && fzn_tree_open(rec, &node) == FZN_TREE_OK && fzn_notes_ref_of(&node, &ref)\n\t\t    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)\n",
-		"\t\t    && fzn_tree_open(rec, &node) == FZN_TREE_OK && fzn_notes_ref_of(&node, &ref))\n",
+		"\tfor (i = lo; i < n_root_claims && memcmp(root_claims[i].root, root, FZN_BLOB_HASH_LEN) == 0;\n",
+		"\tfor (i = 0; i < n_root_claims;\n",
 		"one shared note opens every text this node holds to the contact -- sec 438",
 	),
 	(
@@ -15093,6 +15093,20 @@ SABOTAGES = [
 		"\twant = journal->used < FZN_SYNC_MAX_POSITIONS ? journal->used : FZN_SYNC_MAX_POSITIONS;\n",
 		"\twant = journal->used < 8192u ? journal->used : 8192u;\n",
 		"a host offers only its first 8192 positions in its digest -- sec 992",
+	),
+	(
+		"shares-blob-index-never-read-again",
+		"node/notes.c",
+		"\tif (root_claims_read && root_claims_of == store && store->stamp && stamp == root_claims_stamp)\n",
+		"\tif (root_claims_read && root_claims_of == store && store->stamp)\n",
+		"a text written after the index was read is not found, and the old one still served -- sec 995",
+	),
+	(
+		"notes-scope-kept-past-a-write",
+		"node/notes.c",
+		"\tif (have && sender && n->store.stamp && kept_of == &n->store && stamp == kept_stamp\n",
+		"\tif (have && sender && n->store.stamp && kept_of == &n->store\n",
+		"a share's scope is kept after its notes moved, so a note moved out is still served -- sec 995",
 	),
 	(
 		"exchange-empty-journal-silent",

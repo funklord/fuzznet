@@ -815,6 +815,9 @@ static void test_share(void)
 		char path[64];
 		FILE *fp;
 
+		/* THE STAMP ON, as the daemon's is, so the index by root is kept
+		 * between asks and must be read again when a note is written. */
+		notes.store.stamp = written_stamp;
 		memset(big, 'q', sizeof(big));
 		snprintf(path, sizeof(path), "/tmp/fzn-notes-share-%ld.in", (long)getpid());
 		fp = fopen(path, "wb");
@@ -833,7 +836,27 @@ static void test_share(void)
 		      "and not another contact's");
 		root[0] ^= 1u;
 		CHECK(!fzn_node_notes_shares_blob(&notes, carol, root), "nor another root");
+		root[0] ^= 1u;
+		/* A NEW TEXT, sec 995: the index by root is read again when a note is
+		 * written, so the new blob is found and the old is not. */
+		{
+			uint8_t later[FZN_BLOB_HASH_LEN];
+
+			big[0] = 'r';
+			fp = fopen(path, "wb");
+			CHECK(fp && fwrite(big, 1u, sizeof(big), fp) == sizeof(big), "fixture: a new text");
+			if (fp)
+				(void)fclose(fp);
+			snprintf(line, sizeof(line), "set note %s file %s", g, path);
+			CHECK(ask(line) == FZN_REPLY_OK, "fixture: g's new text");
+			blob_stub_last_root(later);
+			CHECK(memcmp(later, root, sizeof(later)) != 0
+			              && fzn_node_notes_shares_blob(&notes, carol, later)
+			              && !fzn_node_notes_shares_blob(&notes, carol, root),
+			      "after an edit the new text is carol's and the old is not");
+		}
 		(void)unlink(path);
+		notes.store.stamp = NULL;
 	}
 
 	CHECK(fzn_contact_remove(&OPS, carol) == FZN_CONTACT_OK, "fixture: carol forgotten");

@@ -82279,12 +82279,9 @@ A first pull of 2200 goes from 28 s to 5 s. The worst client answer through the 
 2.6% of a core, and no client answer past 0.42 s. Nothing else grows as the shelf did; over half of
 what is left is the scrub, which is paced.
 
-**Open:** the texts are square at the sharer, 31 s at 2200 and 179 s at 5000, the worst answer 1.46 s.
-`fzn_node_notes_shares_blob` reads every claim for each request, and it is left so on purpose: it is
-why unsharing stops a text at once, and a memo of the answer would have to end with every way a share
-can. An index of which claims name a root, kept by the notes stamp, would take the read and leave the
-decision fresh, as what a claim names does not depend on who asks. Not built: three minutes at 5000
-hurts nobody yet.
+**~~Open:~~ the texts were square at the sharer**, 31 s at 2200 and 179 s at 5000 -- **taken in
+secs 995 and 996**, 5000 in 45 s. The cost was not the claims read here but the share's scope, worked
+out again for each text, and the receiver's view walk.
 
 ## 946. An add made again, past what was written meanwhile, 2026-11-07
 
@@ -83723,3 +83720,24 @@ N ms, `add import` the longest, M ms".
 **Measured:** `live_loop_held` phase b finds `add import` named and the import's path absent from
 the line. With `loop-held-names-the-verb-alone` applied by hand -- the name cut at its first word --
 phase b fails; a daemon entry, as sec 993's is.
+
+## 995. A share's texts served without working the share out each time, 2026-11-10
+
+Sec 945 left the texts square at the sharer -- 179 s for 5000 -- and guessed the cost was
+`fzn_node_notes_shares_blob` reading every claim for each text asked. **Built that first, and it was
+not the cost:** an index of which claims name a blob root, sorted, read again only when the notes
+stamp moves, each claim it finds judged against the asker's scope at the time. Counted on a run of
+2200: one rebuild across 4400 asks. And 5000 texts still took 174 s.
+
+**Measured instead:** the sharer's CPU through the texts, 8425 ticks of 158 s; a profile of it, a
+sort and a binary search -- `fzn_notes_share_reach`, which sorts every note twice to walk a share,
+called through `shared_scope` for every text. **So the last asker's scope is kept** while the notes
+stamp stands and the asker is the same; what it depends on (the share rows, the groups, the notes) is
+in the store the stamp counts, and with no stamp it is worked out each time as before. The sharer's
+CPU went to 359 ticks, and 5000 texts to 76 s; the receiver was now the cost (sec 996).
+
+**Kept both:** the index too, since it takes a read of every claim from each ask, which the scope
+alone would have left. `notes_test` runs the share's text checks with a stamp, as the daemon does,
+and edits a note's text to check the index is read again; `shares-blob-index-never-read-again` and
+`notes-scope-kept-past-a-write` guard them, and `notes-shares-blob-in-scope` and
+`notes-shares-blob-names-the-root` were moved to the new code.
