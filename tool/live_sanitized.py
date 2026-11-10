@@ -27,13 +27,13 @@ import subprocess
 import sys
 import tempfile
 
+# THE FILES AND OBJECTS, the last four, since sec 1002: transfers, a folder of
+# files a friend browses, and named objects had run over no sanitized daemon.
 SCRIPTS = ("live_events", "live_stickers", "live_location", "live_socket", "live_face",
            "live_strangers", "live_rot", "live_moved", "live_names", "live_share_sibling", "live_groups",
            "live_group_backfill", "live_group_hosts", "live_contacts", "live_pairing",
            "live_relay", "live_siblings", "live_shares", "live_catalog", "live_join", "live_preset", "live_votes",
            "live_invite",
-           # THE FILES AND OBJECTS, sec 1002: transfers, a folder of files a
-           # friend browses, and named objects ran over no sanitized daemon.
            "live_files_many", "live_browse", "live_objects", "live_transfer")
 SCRIPT_S = 2400
 
