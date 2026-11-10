@@ -673,7 +673,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 	static fzn_replay_entry_t entries[64];
 	fzn_replay_window_t replay;
 	fzn_node_pairing_t pairing;
-	fzn_node_state_t state;
+	fzn_node_state_t state = { 0 };
 	fzn_caller_t caller;
 	fzn_partial_t slots[1];
 	static uint8_t slot_buf[1][2048];
@@ -1311,6 +1311,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			      "an ask's own resend was called past FZN_CALLER_RESENDS, or the ask outlived "
 			      "its deadline");
 		}
+		fzn_node_serve_release(&client);
 	}
 
 	/* ---- CONVERSATIONS, sec 636: two at once over one caller, three
@@ -1362,6 +1363,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		      "an unanswered conversation was not ended once, at its deadline");
 		(void)fzn_node_run_once(&state, 200);
 		(void)fzn_caller_recv_any(&caller, &msg, reply, sizeof(reply), &reply_len, 200u);
+		fzn_node_serve_release(&client);
 	}
 
 	/* ---- REVOKED: the same device, the same stored pairing, and now the
@@ -1796,6 +1798,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 	fzn_wipe(&caller, sizeof(caller));
 	fzn_udp_close(node_fd);
 	fzn_udp_close(dev_fd);
+	fzn_node_serve_release(&state);
 }
 
 /* ---- one request, one answer: is `device` granted by `server` under
@@ -1809,7 +1812,7 @@ static int granted_by(struct node *server, const uint8_t root[FZN_PUBKEY_LEN],
 	static fzn_replay_entry_t entries[16];
 	fzn_replay_window_t replay;
 	fzn_node_pairing_t pairing;
-	fzn_node_state_t state;
+	fzn_node_state_t state = { 0 };
 	fzn_caller_t caller;
 	fzn_partial_t slots[1];
 	static uint8_t slot_buf[1][2048];
@@ -1870,6 +1873,7 @@ out:
 		fzn_udp_close(sfd);
 	if (dfd >= 0)
 		fzn_udp_close(dfd);
+	fzn_node_serve_release(&state);
 	return result;
 }
 
@@ -2377,7 +2381,7 @@ static int carried_over_hop(struct node *root, struct node *member, const fzn_ca
 	static uint8_t served[16384], reply[16384], slot_buf[1][16384];
 	fzn_replay_window_t replay;
 	fzn_node_pairing_t pairing;
-	fzn_node_state_t state;
+	fzn_node_state_t state = { 0 };
 	fzn_node_admin_t admin;
 	fzn_caller_t caller;
 	fzn_partial_t slots[1];
@@ -2453,6 +2457,7 @@ out:
 		fzn_udp_close(sfd);
 	if (dfd >= 0)
 		fzn_udp_close(dfd);
+	fzn_node_serve_release(&state);
 	return result;
 }
 

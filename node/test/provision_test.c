@@ -924,5 +924,6 @@ int main(void)
 		fzn_agree_secret_wipe(&sk[h]);
 
 	printf("node_provision_test: %d checks, %d failure(s)\n", checks, failures);
+	fzn_node_serve_release(&state);
 	return failures ? 1 : 0;
 }

@@ -145,6 +145,9 @@ static void test_one_gone_or_slow_is_dropped(void)
 	}
 	(void)close(a[1]);
 	CHECK(fzn_node_events_publish(&ev, "message", NULL) == 0u, "an event reached nobody");
+	/* ITS ROOM LET GO: every subscriber dropped still leaves the table
+	 * allocated, and `make sancheck` found it leaked here (sec 999). */
+	fzn_node_events_close(&ev);
 }
 
 static void test_room_and_close(void)

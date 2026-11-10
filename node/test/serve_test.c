@@ -192,6 +192,7 @@ static void test_run_once_local(void)
 
 	fzn_socket_close(lfd, path);
 	(void)rmdir(dir);
+	fzn_node_serve_release(&state);
 }
 
 /* A LAN PROBE, sec 624: a datagram opening 0xFC goes to on_probe whole,
@@ -269,6 +270,7 @@ out:
 		fzn_udp_close(ufd);
 	if (sfd >= 0)
 		fzn_udp_close(sfd);
+	fzn_node_serve_release(&state);
 }
 
 /* A port bound on loopback, its fd and the address to send to it. */
@@ -457,6 +459,7 @@ out:
 		fzn_udp_close(ufd);
 	if (sfd >= 0)
 		fzn_udp_close(sfd);
+	fzn_node_serve_release(&state);
 }
 
 /* A WAIT THAT ANSWERS PEERS, sec 720: while a request asked in turn waits on
@@ -502,6 +505,7 @@ out:
 		fzn_udp_close(wfd);
 	if (sfd >= 0)
 		fzn_udp_close(sfd);
+	fzn_node_serve_release(&state);
 }
 
 /* A DAEMON'S OWN DESCRIPTORS, sec 831: the node's pass polls what
@@ -547,6 +551,7 @@ static void test_run_once_own_fds(void)
 	close(own_pipe[0]);
 	close(own_pipe[1]);
 	own_pipe[0] = own_pipe[1] = -1;
+	fzn_node_serve_release(&state);
 }
 
 /* AND IN A WAIT IN TURN, sec 835: a request waiting up to 3 s on its own
@@ -580,6 +585,7 @@ static void test_wait_answering_own_fds(void)
 	close(own_pipe[1]);
 	own_pipe[0] = own_pipe[1] = -1;
 	fzn_udp_close(wfd);
+	fzn_node_serve_release(&state);
 }
 
 int main(void)

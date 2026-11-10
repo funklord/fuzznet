@@ -83810,3 +83810,20 @@ untuned, takes the file whole in 0.7 s and exports the same bytes.
 
 **Not done:** rarest-first and several peers asked for the urgent set, which sec 29 left to the
 caller; a playhead kept across a start.
+
+## 999. `make sancheck` passes again: four tests that leaked, 2026-11-10
+
+A full audit at 45e307c, every gate and live script run one by one in a clean clone (the holder's
+"is all base functionality in place and working 100%?", 2026-11-10), found `sancheck` failing on
+`events_test`, and it stops at the first failure, so what lay behind was unknown. Each of the 292
+sanitized test binaries run on its own found three more: `serve_test`, `provision_test` and
+`pair_test`. **All four leaks are the tests', none the library's:**
+
+- `events_test` dropped every subscriber and never closed the table, which keeps its room;
+- the other three ran `fzn_node_run_once`, whose poll room grows (sec 903), and never called
+  `fzn_node_serve_release`, which gives it back -- twelve states in all, each released now where its
+  block ends. Two in `pair_test` could reach that release through a `goto` before their memset, so
+  they are zeroed where declared.
+
+**Measured:** `make sancheck` passes whole. The daemon releases its state as it stops (sec 903),
+so no running node held this.
