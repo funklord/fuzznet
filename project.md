@@ -85135,8 +85135,8 @@ boundary moved by a second: a hello is held while `learnt + 300 > now`, where th
 socket*, and the round sends from its target's own socket to that address -- the combination sec
 1031's A/B measured as filtered by a NAT that keys on the port. **Measured on hull the same day, and
 worse than that:** `list link` on A's root at 27.6 s read `192.168.2.10:7000,...,5,0,386,0` --
-A's round asked B five times at B's **advertised private address**, none answered, nothing
-received. So the round's hello preference did not take effect for B within the run, and A's own
+A's round asked B five times at B's **advertised private address** -- its reconcile requests,
+the ones `peer_ask` carries and the link table sees (sec 631) -- none answered, nothing received. So the round's hello preference did not take effect for B within the run, and A's own
 pulls never reach B; lines cross only because B pushes to A. Why the target kept the advertised
 address -- when targets are rebuilt against when B's first hello lands, or otherwise -- is not
 established. `tool/hull_estates.py` keeps the step (A's root's links). The next things for this
