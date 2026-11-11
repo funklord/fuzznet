@@ -84855,9 +84855,25 @@ two already get through by relay (sec 697); a call's frames are never relayed to
 calls, media players -- and show it as a statistical property of a peer. Not exaggerated, but
 cached from older transfers and requests.
 
-**Today there is none.** No caller times its requests, nothing keeps a peer's round trip, and a
-call's round trip (sec 1026) lives only while the call does. Sec 1030's path choice needs the same
-figure, so this is the measurement both rest on.
+**Corrected the same day: there is a measurement subsystem, and this builds on it.** This entry
+first said nothing measured a peer's round trip; that was wrong. `link/` (sec 202, run in fuzznetd
+since sec 631) smooths a latency and a loss for each link from every answer and every silence,
+`list link` shows them with their observation count and age, `-` where nothing was observed, and
+`gui/link_view` draws them. Beside it `node/meter.h` (sec 685) counts what crossed, by family and
+peer, and the log subsystem keeps events, not figures. So latency belongs to `link/`, not to the
+log and not to the meter. What `link/` lacks for this:
+- **keyed by address, not by peer and path**: a peer that moves starts again, and a relay path is
+  not told apart from the direct one;
+- **no spread**, only the smoothed mean;
+- **in memory, 64 links**: nothing is cached across a restart;
+- **only `peer_ask`'s requests** are observed: pulls, introductions, session asks and a call's own
+  reports (sec 1026) are not;
+- **not offered where streams are shown**, which is the holder's point.
+
+Sec 1030's path choice needs the same figure, so this is the measurement both rest on. Location is
+the nearest sibling in shape (sec 632, an app stream): a host's own samples, carried to whom it
+grants. Whether a host's measurements of a peer should travel to its own siblings that way -- so a
+phone knows what the home server has seen of a contact -- is open; local first.
 
 **Decided, from the holder's words and the aims:**
 - **A peer's latency is a smoothed round trip and its spread**, kept as TCP keeps one (RFC 6298:
@@ -84878,6 +84894,7 @@ figure, so this is the measurement both rest on.
   consumer's call screen or player shows the cached figure before a call is up and the live one
   (sec 1026) while it is; and fuzznet's own peer view gains it as a column.
 
-**The steps:** the estimator and its store (with a unit test against RFC 6298's arithmetic); the
-caller's samples, with Karn's rule tested by a resend; the verb; the session and call samples; the
-peer view's column; then telling fuzzypickles and hydra, whose call and media screens show it.
+**The steps:** `link/` gains a spread and a key of peer and path, its arithmetic tested; its
+table cached in the store; the samples it misses -- session asks, a call's reports -- fed in, the
+resent ones not (Karn's rule, tested by a resend); the verb; then telling fuzzypickles and hydra,
+whose call and media screens show it.
