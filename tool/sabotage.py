@@ -11059,8 +11059,8 @@ SABOTAGES = [
 	(
 		'fuzznetd-recv-answering-resends',
 		'node/daemon.c',
-		'\t\tif (fzn_caller_resend(caller, request, request_len, expires_at, msg) != FZN_CALLER_OK)\n\t\t\tbreak;\n\t\tresends++;\n',
-		'\t\tbreak;\n\t\tresends++;\n',
+		'\t\t    != FZN_CALLER_OK)\n\t\t\tbreak;\n\t\tresends++;\n',
+		'\t\t    != FZN_CALLER_OK || 1)\n\t\t\tbreak;\n\t\tresends++;\n',
 		"a peer's lost request is never resent, and the peer is passed over for the round; live_erasure --loss only, no unit test reaches it -- sec 737",
 	),
 	(

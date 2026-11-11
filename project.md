@@ -85146,6 +85146,21 @@ again, in the round: **the next step is the round's requests sent from the socke
 the serving socket for a hello's way, by sec 1031's own route back. `tool/hull_estates.py` keeps
 both readings as steps.
 
+**Step 2c, built: a round's requests go the way the rule names.** Where the rule's way for a host
+is a hello -- the serving socket's -- and it is the address the round's target holds, `peer_ask`
+seals the request on the target's caller as before and sends it **from the serving socket**,
+routing its answer back to the target's socket by a route of this host's own (sec 1031's
+mechanism, `send_by_serving`); a resend goes the same way, under the same message. A request past
+one frame, which a route cannot carry, and any host without a hello, go as before.
+
+**Not yet shown to help, and why:** on hull A's asks of B at its hello address still stood at 0 of
+20 answered after 90 s. Those asks are mostly not `peer_ask`'s: the round's main traffic is its
+conversations (`fzn_node_talk`, sec 636), which meter links the same way and send from the
+target's socket inside the library, untouched here. So the next step is the conversations sent by
+the same way; until then this covers the reconcile asks alone, and no answered ask has been seen.
+Nothing regressed: `live_deliver`, `live_relay`, `live_groups`, `live_soon`, the three call
+scripts and the hull journey pass.
+
 **The steps:** the table and its rule, with a unit test that holds each reader's current order as a
 case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'
 targets made a view; the link figures re-keyed by pair. Each step keeps `live_call`,
