@@ -81012,34 +81012,25 @@ The holder's, settling how the project talks and what each part is.
   meant, say **fuzznetd** for the daemon -- the binary's own name, unambiguous -- and **fuzznet
   client** for a client process; "fuzznetc" only if a client binary comes to bear that name. A
   paired phone with its own key is neither: it is a **host** (sec 1035's first naming finding).
-- **Under research, the holder's doubt the same day: these words may collide with netcfgd's.**
-  netcfgd, a consumer, uses **link** in the kernel's sense -- an interface on one host
-  (`RTM_NEWLINK`), "where the networking is configured", beside a `device`, "what has to exist
-  before a link can" (its 0250): one end, configured from that side. Its **route** is a routing
-  table's entry and its **peer** a WireGuard peer; fuzznet's `link/`, sec 622's route and its peer
-  table each mean something else. The established words for what fuzznet does are NAT traversal's
-  (ICE, RFC 8445; QUIC, RFC 9000): a **candidate** is an address a host may be reached at, typed by
-  how it was learnt -- its own (sec 906's advertised address), **reflexive** (as another saw it:
-  hellos, introductions) or **relayed** -- which is sec 1035's first normalisation already named;
-  a **candidate pair**, local and remote, is what is checked, measured and **nominated**, a relayed
-  way being a pair whose remote is a relay; and QUIC's **path** is a narrower thing than below, one
-  4-tuple with its own validation and round trip. Which to adopt is the holder's; until then the
-  entry below stands as written, and nothing is renamed to it.
-- **Link, hop, path**, the holder's correction of 2026-11-11, in their networking senses: a
-  **link** is one direct connection between two adjacent points -- host and host, or host and
-  relay -- and what `link/` measures; a **hop** is one crossing of a link by a frame, as
-  `wire/relay.h`'s hop budget counts them; a **path** is the whole way between two hosts, one link
-  or several through relays, which sec 1030 chooses between. **A path has a direction**, the
-  holder's the same day: A to B and B to A are two paths, each chosen by its sender, and they may
-  differ -- behind a NAT a host reaches out directly while the way back runs where its hellos keep
-  open, or through a relay. Loss and jitter belong to one path, counted by its receiver and
-  reported to its sender (sec 1021); a round trip belongs to the pair, and halves into a one-way
-  figure only by assumption. **So has a link**, the holder's next word: its two directions can
-  differ in whether they work at all -- a NAT passes B's datagrams to A, and A's to B only while
-  B keeps a way open -- and in loss and capacity, as an asymmetric line does. `link/` measures from
-  the sender's side, so a silence it counts as loss is either direction's; a link's state is to be
-  kept per direction, the receiver's count telling the sender which. **"Leg" is not a term**: its English
-  sense, one indivisible part of a path, is a link already.
+- **Path, leg, hop, link -- decided by the holder, 2026-11-11**, after reading netcfgd's vocabulary
+  (its link is the kernel's: an interface of a kind on one host, its 0250). fuzznet is a network
+  layer of its own and uses network words, qualified where they could be misread ("fuzznet link",
+  "estate peer"); the fault was one word, link, meaning different things. So:
+  - a **path** is the whole trip from one host to another, **per direction** -- A to B and B to A
+    are two, each chosen by its sender (sec 1030), and they may differ, as behind a NAT;
+  - a **leg** is one part of a path that fuzznet itself crosses, between two adjacent fuzznet
+    points: host to relay, relay to host, a device to its gateway. It is what is measured, **per
+    direction** (loss and jitter counted by its receiver and reported to its sender, sec 1021; a
+    round trip belongs to the pair of directions);
+  - a **hop** is a frame's crossing of one leg, as `wire/relay.h`'s hop budget counts them;
+  - a **link** is the medium a leg runs over -- Ethernet, Wi-Fi, Bluetooth, LoRa, a local pipe,
+    UDP over IP -- close to netcfgd's sense, where a link is an interface of a kind.
+  **Open from it:** `device/` names the medium "bearer" (`fzn_bearer_t`), the same thing as link
+  here under a second word -- one is to go, link preferred as the network word; `link/` measures
+  what are now legs, and moves to leg measurement, per direction, on the metric layer (sec 1034);
+  sec 1027's `struct live_leg` names the hub's path to a participant's host, which may cross a
+  relay, and is renamed for that. Bare **route** and **peer** keep their networking senses; sec
+  622's relay note and fuzznet's paired hosts take qualified names when renamed.
 - **Daemons and clients** are processes of a host, any number, several daemons
   being different apps. Within a user auth is always granted, so from outside they
   are one host and delegate external work amongst themselves.
@@ -85050,9 +85041,9 @@ why, and one is changed, where it serves better, until they are the same.
   user's, on a session with this one" -- `live_client`, `say_clients`, `has_client` and the
   `live_client_call` script are named for the wrong word, and are to be renamed with the record.
 - **Link, path, route and leg**, analysed wrongly here first and corrected by the holder the same
-  day: a path is the whole trip and a leg one indivisible part of it, as in networking. Recorded
-  in sec 906 as link, hop and path, with "leg" left to English since a link is that part. So sec
-  1027 misnamed its subject: what it calls a member's leg is the hub's **path** to that member's
+  day: a path is the whole trip and a leg one indivisible part of it, as in networking. Decided
+  in sec 906 as path, leg, hop and link, link being the medium a leg runs over. So sec 1027
+  misnamed its subject: what it calls a member's leg is the hub's **path** to that member's
   host, which may cross a relay -- `struct live_leg` and the word in sec 1027 are to be renamed.
   **"Route"** (sec 622, a relay's note of where an answer goes back) collides with the networking
   sense, a chosen path, and is to be renamed for what it is. **"Member"** now means three things --
