@@ -84961,3 +84961,37 @@ at its rate, and a declaration past the ceilings is held to them; the shared fro
 kept and its own table deleted; the meter the same way; logging by configuration, with a live test
 that a logged metric is gathered from a sibling; a call's legs; then sec 1033's latency, which by
 then is a key and a few samples.
+
+## 1035. Normalising the data models: a programme, and its first measured finding, 2026-11-11
+
+**The holder, 2026-11-11:** work very hard on data model normalisation like sec 1034's, or the
+project's complexity explodes into unmanageability; there are probably already superfluous
+subsystems and data models that one concept would serve better. Sec 5k did this once for the
+central types -- enums, identity fields, length constants -- and its standing test is the holder's
+there: the cost multiplies if the design is poor, so the size of a merge is no argument against it.
+
+**The method, as sec 5k's:** survey one shape across the whole tree, list what disagrees with
+itself, and for each either merge it or write why it is two things. Each survey ends in commits,
+not only a list. The shapes, in the order to survey them:
+
+1. **Where a host is reached.** Kept today in at least seven places, each with its own freshness
+   and its own reader: the advertised `net/address` setting; the round's pull and contact targets
+   (`caller.node`); the introductions table (sec 698); the relay's hello table (sec 622); each
+   session's `from`; the link meter, keyed by address; and the LAN probe's answers (sec 624).
+   **Measured cost:** sec 1031's fault was this -- A's round held B's root at its private address
+   while A's hello table held the way that worked, and a call never rang; the fix taught one more
+   reader to look in a second place. One model instead: a host's candidate addresses, each with
+   where it was learnt and when, and one rule that every sender asks -- the most direct that is
+   fresh, sec 1030's rule -- with the link figures (sec 1034) kept against host and address.
+2. **Named values** (sec 1034): settings, objects, records and their reserved lists, votes,
+   metrics, the meter, link figures, a call's legs -- one front, kept and carried as the schema
+   declares, bounded always.
+3. **Streams of a host's samples or lines:** location (sec 632), logs and their gathering, a
+   call's words, journal streams, bucketed reconcile (sec 565) -- which are one carrying with
+   different grants and rates, and which are genuinely different.
+4. **Per-peer tables keyed by a host or user key:** peers, contacts, contact devices, roster,
+   pull and contact targets, sessions, grants -- what each holds that another already does.
+
+**Rejected: surveying everything at once.** Sec 5k worked because it took one shape at a time and
+finished it; a tree-wide list of everything that looks alike would be the kind of report that is
+read once and not acted on.
