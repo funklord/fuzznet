@@ -85061,3 +85061,55 @@ why, and one is changed, where it serves better, until they are the same.
   of an estate, of a group, and a call's participant (sec 1022) -- the third renamed: the code's
   `live_participant`, `participant_at` and their kin, the word `FZN_LIVE_PARTICIPANT` (kind 7,
   its bytes unchanged), and the verb `get call ID participants`, where it was `members`.
+
+## 1036. Where a host is reached: the survey, sec 1035's first shape, 2026-11-11
+
+Read from the code at `fa50c0f`, `node/daemon.c` unless named. Each store, what it is keyed by, how
+fresh it is held, and who reads it:
+
+1. **The advertised address**, `net/address`, a host cell: what this host says it is at -- read by
+   `own_address` into cards, and by the routing manifest it advertises (sec 611).
+2. **A contact's advertised addresses as received**: the contact device records
+   (`fzn_contact_device_t`, `address`/`port`) and the routing manifest's entries (`fzn_routing`,
+   address, port, metric), per contact owner. Held until the next manifest; read when the contact
+   targets are rebuilt.
+3. **Where a host said hello from**: the relay's seen table (`node/relay.c`, `FZND_RELAY_SEEN`
+   entries, by host key, with when), written by the serving loop on each NOP from the serving socket (`serve.c`) --
+   a LAN probe answered (sec 624) also lands here, its answer being a hello. Read by the sibling
+   round, the contact round, `session_ask` (sec 1031) and a relay's forwarding; fresh for
+   `FZND_RELAY_SEEN_S`, 300 s.
+4. **Where a host was introduced**: `introduced[]`, by host key, as text and port, with an expiry
+   (`FZND_INTRO_S`, 600 s) and a due flag. Read by both rounds.
+5. **The round's targets**, siblings' (`loop_pulls`) and contacts' (`contact_targets`): a host and
+   port and the resolved `caller.node`, and **a socket of their own** each, kept across rounds
+   since sec 698. Rebuilt every round from 2, 3 and 4 -- a derived store, not a source.
+6. **A session's `from`**: where its last frame came from (`node/sessions.c`), and an ask's `to`;
+   read by every word a session sends, from the **serving socket**.
+7. **The link table** (`link/`, `FZND_LINKS_MAX` entries, and `link_meter`), keyed by address: a latency and a
+   loss for whatever was asked there.
+
+**What disagrees with itself:**
+- **The local side is not modelled at all**, and it matters as much as the remote: sec 1031's
+  fault was measured to be the socket an ask left from, a port B's NAT had never seen. Sessions
+  speak from the serving socket, rounds from each target's own socket, a session ask from a fresh
+  one -- three answers to "from where", each its own code's.
+- **Freshness is three numbers** -- 300 s seen, 600 s introduced, a session's "last frame" with no
+  age -- and the advertised address none.
+- **Three readers choose among 2, 3 and 4 each in their own order**: the contact round prefers a
+  hello to an introduction to the advertised address; the sibling round takes a hello only when an
+  introduction is due; `session_ask` takes a hello or else the round's target.
+- **The link figures are keyed by an address**, where everything else is keyed by a host, so a
+  host that moves loses its figures and two hosts behind one address would share them.
+
+**One model instead -- a host's candidate pairs:** for each host key, the ways it may be reached,
+each a **local socket and a remote address**, with where it was learnt (advertised, manifest,
+hello, introduced, a session's frame), when, and how long that kind holds; the leg figures (sec
+1034, per direction) kept against the pair. **One rule that every sender asks** -- a round, a
+session, a relay -- for the pair to use: the freshest direct way, sec 1030's rule, a relay only
+where none is fresh. The rounds' targets become a view of it, and the seen and introduced tables
+its writers. ICE names the parts (sec 906's research): candidate, candidate pair, nominated.
+
+**The steps:** the table and its rule, with a unit test that holds each reader's current order as a
+case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'
+targets made a view; the link figures re-keyed by pair. Each step keeps `live_call`,
+`live_relay`, `live_sibling_call` and the hull journey passing.
