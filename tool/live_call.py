@@ -12,6 +12,8 @@ contact's. Each host's own client is a caller on its socket.
     d  B sends one back; A reads it
     e  A sends video frames 1, 2, 4 and 5: B measures four received and one lost,
        and reports it, and A reads it (`get call ID quality`, sec 1021)
+    e2 a frame stamped with A's client's clock comes back in B's report, its AT and
+       how long B held it, and the client reads the round trip (sec 1026)
     f  A hangs up; B holds the call no more
 
 Against a daemon that takes no call's word from a session, a never rings; against
@@ -150,6 +152,30 @@ def main(argv):
 			      lambda: any(r.startswith("2,sent,4,1,")
 			                  for r in ask(socks["a"], "get call %s quality" % call).split()[1:]))
 			print("livecheck: e: B measured A's video, 4 received and 1 lost, and A reads it")
+
+			# e2: THE ROUND TRIP, sec 1026: a frame stamped with this client's own
+			# clock; B's report of it carries its AT back and how long B held it, and
+			# this clock's now less both is the round trip -- no clock of B's in it.
+			def ms():
+				return int(time.monotonic() * 1000) & 0xffffffff
+			stamp = ms()
+			said = ask(socks["a"], "add frame %s 2 6 %d 0 1 ab" % (call, stamp))
+			if said not in ("ok sent", "ok lost"):
+				raise failed("e2: add frame answered %r" % said)
+			row = until("e2: A never read B's report of the stamped frame",
+			            lambda: next((r for r in ask(socks["a"], "get call %s quality" % call)
+			                          .split()[1:]
+			                          if r.startswith("2,sent,") and r.split(",")[5] == str(stamp)),
+			                         None))
+			# ASKED AGAIN 1.5 s on: HELD has grown by the wait, so the trip is the same,
+			# where a HELD not carried, or not grown here, would read 1.5 s and more.
+			time.sleep(1.5)
+			row = next(r for r in ask(socks["a"], "get call %s quality" % call).split()[1:]
+			           if r.startswith("2,sent,"))
+			trip = ms() - int(row.split(",")[5]) - int(row.split(",")[6])
+			if row.split(",")[5] != str(stamp) or not 0 <= trip < 1000:
+				raise failed("e2: a round trip of %d ms, from %r" % (trip, row))
+			print("livecheck: e2: A's client reads the round trip off B's report: %d ms" % trip)
 
 			# f: A HANGS UP.
 			expect(socks["a"], "a", "set call %s hangup" % call, "ok")

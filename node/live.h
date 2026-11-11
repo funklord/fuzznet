@@ -18,11 +18,14 @@
  *                                       frame's number in its sender's
  *                                       stream, AT its capture time in the
  *                                       sender's ms, the piece of how many
- *     REPORT   STREAM 1 | RECEIVED 4 | LOST 4 | JITTER 2
+ *     REPORT   STREAM 1 | RECEIVED 4 | LOST 4 | JITTER 2 | LAST 4 | HELD 4
  *                                       what the receiver measured of a
  *                                       stream, sec 1021: pieces received
  *                                       and lost since the call began, and
- *                                       the jitter of their transit in ms
+ *                                       the jitter of their transit in ms;
+ *                                       LAST the AT of the newest piece it
+ *                                       received and HELD the ms it held
+ *                                       that before reporting (sec 1026)
  *     MEMBER   INDEX 2 | WHOM 32         who a call of several numbers INDEX
  *                                       in its frames' FROM, sec 1024
  *
@@ -59,7 +62,7 @@
 #define FZN_LIVE_MEMBER_LEN (FZN_LIVE_HEAD_LEN + 2u + FZN_PUBKEY_LEN)
 /* The members a call can number: FROM's room, less the caller's 0. */
 #define FZN_LIVE_MEMBERS_MAX 65535u
-#define FZN_LIVE_REPORT_LEN (FZN_LIVE_HEAD_LEN + 1u + 4u + 4u + 2u)
+#define FZN_LIVE_REPORT_LEN (FZN_LIVE_HEAD_LEN + 1u + 4u + 4u + 2u + 4u + 4u)
 
 #define FZN_LIVE_AUDIO 1u
 #define FZN_LIVE_VIDEO 2u
@@ -95,6 +98,11 @@ typedef struct fzn_live_word {
 	/* REPORT, and STREAM above */
 	uint32_t received, lost;
 	uint16_t jitter_ms;
+	/* THE ROUND TRIP, sec 1026, as RTCP takes it (RFC 3550, 6.4.1, LSR and
+	 * DLSR): the sender, reading LAST back in its own clock, has the round
+	 * trip as its now less LAST less HELD -- no clock of the receiver's in
+	 * it, so no offset between the two is needed. */
+	uint32_t last_at_ms, held_ms;
 } fzn_live_word_t;
 
 /* WHAT A RECEIVER MEASURES OF ONE STREAM, sec 1021. Pieces counted by number:
@@ -107,6 +115,9 @@ typedef struct fzn_live_stats {
 	uint32_t highest;
 	int64_t last_transit;
 	uint32_t jitter16; /* jitter in ms, times 16 */
+	/* THE NEWEST PIECE'S AT, and when it arrived here, sec 1026. */
+	uint32_t last_at;
+	uint64_t last_arrival_ms;
 	uint8_t started;
 } fzn_live_stats_t;
 

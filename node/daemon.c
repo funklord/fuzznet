@@ -16809,6 +16809,7 @@ static struct live_kept {
 	fzn_live_stats_t rx[FZND_LIVE_STREAMS];
 	uint32_t rx_reported[FZND_LIVE_STREAMS];
 	fzn_live_word_t tx[FZND_LIVE_STREAMS];
+	uint64_t tx_heard_ms[FZND_LIVE_STREAMS]; /* when each report came, sec 1026 */
 	uint64_t reported_ms;
 	/* A CALL THIS HOST PLACED, sec 1022: each member rung -- its user, its host,
 	 * whether a ring is still to say and whether it joined. This host is the hub,
@@ -17213,8 +17214,10 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 			}
 			break;
 		case FZN_LIVE_REPORT:
-			if (k->n_members == 1u && w.stream < FZND_LIVE_STREAMS)
+			if (k->n_members == 1u && w.stream < FZND_LIVE_STREAMS) {
 				k->tx[w.stream] = w;
+				k->tx_heard_ms[w.stream] = wall_ms();
+			}
 			break;
 		default:
 			break;
@@ -17241,8 +17244,10 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		break;
 	case FZN_LIVE_REPORT:
 		/* WHAT THE OTHER HOST HEARD of this host's frames, sec 1021. */
-		if (w.stream < FZND_LIVE_STREAMS && (k = kept_of(w.call, 1)) != NULL)
+		if (w.stream < FZND_LIVE_STREAMS && (k = kept_of(w.call, 1)) != NULL) {
 			k->tx[w.stream] = w;
+			k->tx_heard_ms[w.stream] = wall_ms();
+		}
 		break;
 	case FZN_LIVE_HANGUP:
 		live_end(c, "hung-up");
@@ -17355,6 +17360,10 @@ static void live_pump(void)
 			w.lost = k->rx[st].lost;
 			w.jitter_ms = (uint16_t)(k->rx[st].jitter16 / 16u > 0xffffu ? 0xffffu
 			                                                          : k->rx[st].jitter16 / 16u);
+			w.last_at_ms = k->rx[st].last_at;
+			w.held_ms = now_ms - k->rx[st].last_arrival_ms > 0xffffffffu
+			                    ? 0xffffffffu
+			                    : (uint32_t)(now_ms - k->rx[st].last_arrival_ms);
 			if ((len = fzn_live_write(&w, word, sizeof(word))) != 0
 			    && fzn_daemon_say(c->host, word, len))
 				k->rx_reported[st] = k->rx[st].received;
@@ -17565,11 +17574,17 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 
 		n = (size_t)snprintf(reply, cap, "ok");
 		for (st = 0; k && st < FZND_LIVE_STREAMS && n + 64u < cap; st++) {
+			/* AND THE ROUND TRIP'S TWO TERMS, sec 1026: LAST, and HELD grown by
+			 * the time the report has waited here, so the client's own now
+			 * less both is the round trip to this moment's asking. */
 			if (k->tx[st].kind == FZN_LIVE_REPORT)
-				n += (size_t)snprintf(reply + n, cap - n, " %zu,sent,%lu,%lu,%u", st,
+				n += (size_t)snprintf(reply + n, cap - n, " %zu,sent,%lu,%lu,%u,%lu,%llu", st,
 				                      (unsigned long)k->tx[st].received,
 				                      (unsigned long)k->tx[st].lost,
-				                      (unsigned)k->tx[st].jitter_ms);
+				                      (unsigned)k->tx[st].jitter_ms,
+				                      (unsigned long)k->tx[st].last_at_ms,
+				                      (unsigned long long)k->tx[st].held_ms
+				                              + (wall_ms() - k->tx_heard_ms[st]));
 			if (k->rx[st].started)
 				n += (size_t)snprintf(reply + n, cap - n, " %zu,received,%lu,%lu,%lu", st,
 				                      (unsigned long)k->rx[st].received,

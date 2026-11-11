@@ -15179,6 +15179,20 @@ SABOTAGES = [
 		"a gap past the highest piece is not counted lost -- sec 1021",
 	),
 	(
+		"live-report-held-unread",
+		"node/live.c",
+		"\t\tout->held_ms = fzn_get_be32(at + 15);\n",
+		"",
+		"a report's HELD is read as nothing, and a sender's round trip reads long by the receiver's wait -- sec 1026",
+	),
+	(
+		"live-count-keeps-no-arrival",
+		"node/live.c",
+		"\tst->last_arrival_ms = now_ms;\n",
+		"",
+		"a receiver reports HELD from no arrival at all, and the round trip is nonsense -- sec 1026",
+	),
+	(
 		"live-frame-from-unread",
 		"node/live.c",
 		"\t\tout->from = fzn_get_be16(at + 1);\n",

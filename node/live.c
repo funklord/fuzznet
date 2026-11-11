@@ -42,6 +42,8 @@ int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
 		out->received = fzn_get_be32(at + 1);
 		out->lost = fzn_get_be32(at + 5);
 		out->jitter_ms = fzn_get_be16(at + 9);
+		out->last_at_ms = fzn_get_be32(at + 11);
+		out->held_ms = fzn_get_be32(at + 15);
 		return 1;
 	case FZN_LIVE_MEMBER:
 		if (len != FZN_LIVE_MEMBER_LEN)
@@ -129,6 +131,8 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 		fzn_put_be32(at + 1, w->received);
 		fzn_put_be32(at + 5, w->lost);
 		fzn_put_be16(at + 9, w->jitter_ms);
+		fzn_put_be32(at + 11, w->last_at_ms);
+		fzn_put_be32(at + 15, w->held_ms);
 	}
 	return len;
 }
@@ -159,6 +163,8 @@ void fzn_live_count(fzn_live_stats_t *st, uint32_t seq, uint32_t at_ms, uint64_t
 		st->jitter16 = (uint32_t)((int64_t)st->jitter16 + d - (int64_t)((st->jitter16 + 8u) / 16u));
 	}
 	st->last_transit = transit;
+	st->last_at = at_ms;
+	st->last_arrival_ms = now_ms;
 }
 
 fzn_live_call_t *fzn_live_find(fzn_live_calls_t *t, const uint8_t call[FZN_LIVE_CALL_LEN])

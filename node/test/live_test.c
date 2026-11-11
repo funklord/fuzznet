@@ -117,10 +117,12 @@ static void test_reports(void)
 	w.received = 4000000u;
 	w.lost = 12u;
 	w.jitter_ms = 33u;
+	w.last_at_ms = 0x80000001u;
+	w.held_ms = 250u;
 	n = fzn_live_write(&w, buf, sizeof(buf));
 	CHECK(n == FZN_LIVE_REPORT_LEN && fzn_live_read(buf, n, &r) && r.kind == FZN_LIVE_REPORT
 	              && r.stream == FZN_LIVE_AUDIO && r.received == 4000000u && r.lost == 12u
-	              && r.jitter_ms == 33u,
+	              && r.jitter_ms == 33u && r.last_at_ms == 0x80000001u && r.held_ms == 250u,
 	      "a report did not read back");
 	CHECK(!fzn_live_read(buf, n - 1u, &r), "a report cut short was read");
 
@@ -133,6 +135,10 @@ static void test_reports(void)
 	fzn_live_count(&st, 12u, 1040u, 5150u);
 	CHECK(st.received == 4u && st.lost == 1u, "a late piece did not take one back");
 	CHECK(st.jitter16 > 0u, "an uneven transit made no jitter");
+	/* THE NEWEST TO ARRIVE, late or not, is what a round trip is read from:
+	 * HELD runs from its arrival (sec 1026). */
+	CHECK(st.last_at == 1040u && st.last_arrival_ms == 5150u,
+	      "the newest piece's AT and arrival were not kept");
 }
 
 static size_t gone_n;

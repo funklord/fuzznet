@@ -84639,3 +84639,31 @@ client, a fails; the host taking no client's word, b fails. `live_call` passes o
 **Not built:** a client's quality (REPORT) is not carried -- the host measures what reaches it;
 a client cannot yet be a member of a call of several placed elsewhere other than through its own
 host, which is already how it reaches one.
+
+## 1026. A call's round trip, read by the sender's client off the receiver's report, 2026-11-11
+
+Sec 1021's open half: the receiver reported loss and jitter, and no delay. Sec 1021 named sec 719's
+clock offset as what a delay would need; sec 719 measures offsets to seconds, and a call's delay
+is tens of ms, so that would never have served.
+
+**RTCP's way instead (RFC 3550, 6.4.1, LSR and DLSR), which needs no offset at all.** REPORT
+gains LAST 4 and HELD 4: the AT of the newest piece the receiver had, and the ms it held that
+piece before reporting. AT is the sending client's own clock, so that client has the round trip as
+its now, less LAST, less HELD -- every term in its own clock or a duration.
+
+- **The receiver keeps the newest arrival** with its count (`fzn_live_count`): its AT and when it
+  came. The newest by arrival, late or not, since HELD runs from its arrival.
+- **The sender's host keeps when each report came**, and `get call ID quality` gives a `sent` row
+  two more fields, `,LAST,HELD`, HELD grown by how long the report has waited at the host -- so
+  the client's now at the answer, less both, is the round trip, however long ago the report came.
+  The `received` rows are unchanged; the fields are appended after the old five.
+- **One-way delay is half the round trip** where the paths are alike, which is the client's to
+  assume or not.
+
+`live_test` reads LAST and HELD back and keeps the newest arrival; sabotages
+`live-report-held-unread` and `live-count-keeps-no-arrival`, caught. `live_call` phase e2: A's client
+stamps a frame with its own clock, reads the round trip off B's report, asks again 1.5 s later and
+reads the same; 0 ms on loopback. **Control:** HELD not grown at the host while the report waits,
+e2 reads 1502 ms and fails.
+
+A call of several still reports only while one member remains (sec 1022).
