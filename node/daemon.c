@@ -50,6 +50,7 @@
 #include "serve.h"
 #include "sessions.h"
 #include "live.h"
+#include "reach.h"
 #include "talk.h"
 #include "routing.h"
 #include "contact_card.h"
@@ -16732,8 +16733,23 @@ static void said_remote(void *ctx, const fzn_opened_t *said)
  * wait. */
 #define FZND_SESSION_ASKS 8u
 #define FZND_SESSION_ASK_WAIT_MS 3000u
-/* A HELLO THIS RECENT says where a host is, sec 1031: a relay's own bound (sec 622). */
-#define FZND_SESSION_HELLO_S 300u
+/* WHERE A HOST IS REACHED, sec 1036: one table and its rule (`node/reach.h`), grown
+ * once to the hello table's size. */
+#define FZND_REACH_PAIRS 4096u
+static fzn_reach_t reach_table;
+
+static int reach_ready(void)
+{
+	static int tried;
+
+	if (!tried) {
+		fzn_reach_pair_t *pairs = calloc(FZND_REACH_PAIRS, sizeof(*pairs));
+
+		tried = 1;
+		fzn_reach_init(&reach_table, pairs, pairs ? FZND_REACH_PAIRS : 0u);
+	}
+	return reach_table.cap != 0u;
+}
 static struct session_asking {
 	fzn_caller_t caller;
 	int fd;
@@ -16844,9 +16860,21 @@ static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 		uint16_t port = 0;
 		uint32_t msg = 0;
 		size_t frame_len = 0;
+		fzn_reach_pair_t way;
 
-		if (fzn_node_relay_where(serving_state->relay, host, &hello, &seen)
-		    && seen + FZND_SESSION_HELLO_S >= wall_clock() && hello.len <= sizeof(a->to)
+		/* THE WAY, BY THE ONE RULE, sec 1036: the stores this reader looked in
+		 * learnt into the table -- where it said hello, from the serving socket;
+		 * the round's target, from a socket of its own -- and the rule asked. */
+		if (reach_ready()) {
+			if (fzn_node_relay_where(serving_state->relay, host, &hello, &seen))
+				fzn_reach_learn(&reach_table, host, FZN_REACH_SERVING, &hello, FZN_REACH_HELLO,
+				                seen);
+			fzn_reach_learn(&reach_table, host, FZN_REACH_TARGET, &pt->caller.node,
+			                FZN_REACH_MANIFEST, wall_clock());
+		}
+		if (reach_ready() && fzn_reach_best(&reach_table, host, wall_clock(), &way)
+		    && way.local == FZN_REACH_SERVING && (hello = way.remote, 1)
+		    && hello.len <= sizeof(a->to)
 		    && fzn_udp_local_port(a->fd, &port) == FZN_UDP_OK
 		    && fzn_udp_resolve(((const struct sockaddr *)hello.storage)->sa_family == AF_INET6
 		                               ? AF_INET6

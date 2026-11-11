@@ -85116,6 +85116,14 @@ introduction, as the stores held them; a told address repeating a way a hello pr
 proven. `reach_test` holds the contact round's order and `session_ask`'s as cases, with lapsing,
 ties and a full table; four sabotage entries, each caught.
 
+**Step 2a, built: `session_ask` reads through the rule.** It learns the two ways it looked at
+before -- where the host said hello from, from the serving socket, and the round's target, from a
+socket of its own, as a manifest -- into the daemon's table (`FZND_REACH_PAIRS`, grown once), and
+takes `fzn_reach_best`: a fresh hello means the serving-socket ask of sec 1031, anything else the
+target as before. No behaviour is meant to change; `live_call`, `live_group_call`,
+`live_sibling_call`, `live_relay` and the hull journey pass on it. The table is fed only here so far:
+the hello and introduction tables still write, and the contact round still reads them itself.
+
 **The steps:** the table and its rule, with a unit test that holds each reader's current order as a
 case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'
 targets made a view; the link figures re-keyed by pair. Each step keeps `live_call`,
