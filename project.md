@@ -81012,6 +81012,19 @@ The holder's, settling how the project talks and what each part is.
   meant, say **fuzznetd** for the daemon -- the binary's own name, unambiguous -- and **fuzznet
   client** for a client process; "fuzznetc" only if a client binary comes to bear that name. A
   paired phone with its own key is neither: it is a **host** (sec 1035's first naming finding).
+- **Under research, the holder's doubt the same day: these words may collide with netcfgd's.**
+  netcfgd, a consumer, uses **link** in the kernel's sense -- an interface on one host
+  (`RTM_NEWLINK`), "where the networking is configured", beside a `device`, "what has to exist
+  before a link can" (its 0250): one end, configured from that side. Its **route** is a routing
+  table's entry and its **peer** a WireGuard peer; fuzznet's `link/`, sec 622's route and its peer
+  table each mean something else. The established words for what fuzznet does are NAT traversal's
+  (ICE, RFC 8445; QUIC, RFC 9000): a **candidate** is an address a host may be reached at, typed by
+  how it was learnt -- its own (sec 906's advertised address), **reflexive** (as another saw it:
+  hellos, introductions) or **relayed** -- which is sec 1035's first normalisation already named;
+  a **candidate pair**, local and remote, is what is checked, measured and **nominated**, a relayed
+  way being a pair whose remote is a relay; and QUIC's **path** is a narrower thing than below, one
+  4-tuple with its own validation and round trip. Which to adopt is the holder's; until then the
+  entry below stands as written, and nothing is renamed to it.
 - **Link, hop, path**, the holder's correction of 2026-11-11, in their networking senses: a
   **link** is one direct connection between two adjacent points -- host and host, or host and
   relay -- and what `link/` measures; a **hop** is one crossing of a link by a frame, as
