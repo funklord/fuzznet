@@ -15179,6 +15179,13 @@ SABOTAGES = [
 		"a gap past the highest piece is not counted lost -- sec 1021",
 	),
 	(
+		"live-frame-from-unread",
+		"node/live.c",
+		"\t\tout->from = fzn_get_be16(at + 1);\n",
+		"",
+		"every frame of a call of several reads as the caller's, two senders' numbering one -- sec 1024",
+	),
+	(
 		"live-piece-past-its-pieces",
 		"node/live.c",
 		"\t\treturn out->pieces != 0u && out->piece < out->pieces;\n",

@@ -56,6 +56,7 @@ static void test_words(void)
 	w.kind = FZN_LIVE_FRAME;
 	memset(w.call, 0xc3, sizeof(w.call));
 	w.stream = FZN_LIVE_VIDEO;
+	w.from = 513u;
 	w.seq = 70000u;
 	w.at_ms = 123456u;
 	w.piece = 2u;
@@ -65,18 +66,39 @@ static void test_words(void)
 	n = fzn_live_write(&w, buf, sizeof(buf));
 	CHECK(n == FZN_LIVE_FRAME_HEAD_LEN + sizeof(media), "a frame was not written");
 	CHECK(fzn_live_read(buf, n, &r) && r.kind == FZN_LIVE_FRAME && r.stream == FZN_LIVE_VIDEO
-	              && r.seq == 70000u && r.at_ms == 123456u && r.piece == 2u && r.pieces == 3u
+	              && r.from == 513u && r.seq == 70000u && r.at_ms == 123456u && r.piece == 2u
+	              && r.pieces == 3u
 	              && r.media_len == sizeof(media) && memcmp(r.media, media, sizeof(media)) == 0,
 	      "a frame did not read back");
 	w.piece = 3u;
 	CHECK(fzn_live_write(&w, buf, sizeof(buf)) == 0u, "a piece past its pieces was written");
 	/* AND ONE COME OFF THE WIRE so: piece 3 of 3 refused as it is read. */
-	buf[FZN_LIVE_HEAD_LEN + 9u] = 0u;
-	buf[FZN_LIVE_HEAD_LEN + 10u] = 3u;
+	buf[FZN_LIVE_HEAD_LEN + 11u] = 0u;
+	buf[FZN_LIVE_HEAD_LEN + 12u] = 3u;
 	CHECK(!fzn_live_read(buf, n, &r), "a piece past its pieces was read");
 	CHECK(fzn_live_write(&w, buf, 10u) == 0u, "a word past the room was written");
 	buf[1] = FZN_TYPE_LIVE + 1u;
 	CHECK(!fzn_live_is_word(buf, n), "another type was taken for a live word");
+
+	/* A MEMBER, sec 1024: who the hub numbers INDEX; 0 is the caller, never
+	 * said. */
+	{
+		uint8_t named[FZN_PUBKEY_LEN];
+
+		memset(named, 0x5a, sizeof(named));
+		memset(&w, 0, sizeof(w));
+		w.kind = FZN_LIVE_MEMBER;
+		memset(w.call, 0xc5, sizeof(w.call));
+		w.from = 300u;
+		w.whom = named;
+		n = fzn_live_write(&w, buf, sizeof(buf));
+		CHECK(n == FZN_LIVE_MEMBER_LEN && fzn_live_read(buf, n, &r) && r.kind == FZN_LIVE_MEMBER
+		              && r.from == 300u && memcmp(r.whom, named, sizeof(named)) == 0,
+		      "a member did not read back");
+		CHECK(!fzn_live_read(buf, n - 1u, &r), "a member cut short was read");
+		w.from = 0u;
+		CHECK(fzn_live_write(&w, buf, sizeof(buf)) == 0u, "the caller's 0 was said as a member");
+	}
 }
 
 /* A REPORT, and what a receiver counts: a gap lost, a late piece taking one back,

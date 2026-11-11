@@ -6,6 +6,8 @@ Three stores over loopback, A a contact of B and of C, each host running through
     b  both answer; A holds it up
     c  A sends a frame; B and C each read it
     d  B sends a frame; A reads it, and C reads it too, A's host passing it on
+       -- each frame read as from its sender, 0 the caller and B and C the
+       numbers A gave them, and each host naming those numbers (sec 1024)
     e  B hangs up; A still holds the call, and C's frame reaches A
     f  C hangs up; A holds the call no more
 
@@ -121,11 +123,14 @@ def main(argv):
 			until("b: A never held the call up", lambda: calls(socks["a"]).get(call) == "up")
 			print("livecheck: b: B and C answered, and A holds the call up")
 
+			# WHO SENT IT, sec 1024: the caller 0, B 1 and C 2, in the order A rang.
+			number = {"a": 0, "b": 1, "c": 2}
+
 			def sends(frm, seq, to):
 				said = ask(socks[frm], "add frame %s 1 %d 500 0 1 %02x" % (call, seq, seq))
 				if said not in ("ok sent", "ok lost"):
 					raise failed("%s: add frame answered %r" % (frm, said))
-				want = "1,%d,500,0,1,%02x" % (seq, seq)
+				want = "1,%d,500,0,1,%02x,%d" % (seq, seq, number[frm])
 				for t in to:
 					until("%s never read %s's frame %d" % (t.upper(), frm.upper(), seq),
 					      lambda: want in frames(socks[t], call))
@@ -135,6 +140,16 @@ def main(argv):
 			print("livecheck: c: A sent a frame, and B and C each read it")
 			sends("b", 2, ("a", "c"))
 			print("livecheck: d: B sent a frame, and A read it, and C, A's host passing it on")
+			# WHO EACH NUMBER IS: A its members, B and C each the other.
+			def members(who):
+				got = ask(socks[who], "get call %s members" % call).split()
+				return set(got[2:]) if got[:1] == ["ok"] else None
+			if members("a") != {"1," + keys["b"], "2," + keys["c"]}:
+				raise failed("d: A names its members %r" % members("a"))
+			for who, other in (("b", "c"), ("c", "b")):
+				until("d: %s never learned who %s is" % (who.upper(), other.upper()),
+				      lambda: members(who) == {"%d,%s" % (number[other], keys[other])})
+			print("livecheck: d: each frame read as from its sender, and each host names them")
 
 			# e: B HANGS UP; THE CALL GOES ON.
 			expect(socks["b"], "b", "set call %s hangup" % call, "ok")

@@ -84572,3 +84572,34 @@ caught by hand against its binary: `admin-list-root-marks-no-acting` and
 
 **Not built:** the votes on a host's setting (sec 909) -- records `vote/HOST/KEY`, not revocations --
 are not in the vote part yet; nor names for keys, which are the host's (contacts) to give.
+
+## 1024. A call's frames name their sender, 2026-11-11
+
+Sec 1022's gap: in a call of several the hub passed each member's frames on unchanged, so a
+receiver had one stream number filled by two senders, their numbering interleaved and their media
+mixed, with nothing to tell them apart.
+
+- **FRAME gains FROM, 2 bytes, after STREAM.** The caller's host numbers each member from 1 in the
+  order it rang them; 0 is the caller. A member's frame reaches the hub with any FROM, and the hub
+  writes the member's number before keeping and passing it on -- so a member cannot speak as
+  another. A call of two is the same with one member: the callee's frames read as 1 at the caller,
+  the caller's as 0 at the callee.
+- **A MEMBER word, kind 7: INDEX 2 | WHOM 32.** When a member joins, the hub says each other
+  joined member's number to it, and its number to each of them. A member host keeps the newest word
+  for each number.
+- **`list frame` rows gain FROM as a seventh field, after the media**, so a reader of the six
+  before is unchanged.
+- **`get call ID members`**: `ok N INDEX,USER ...` -- at the hub its members, at a member those
+  the hub named. 0 is the call's other end and is not listed.
+- **At most 65535 members**, FROM's room; `add call` refuses past it. A wire bound, not a table's.
+
+Two bytes rather than the sender's 32-byte key: an audio frame is tens of bytes, and a key on
+each would double it.
+
+**Verified:** `live_test` reads FROM and a MEMBER back, and refuses a MEMBER numbered 0; sabotage
+`live-frame-from-unread`, caught. `live_group_call` phase d: each frame is read as from its sender,
+A names both members, and B and C each name the other. Controls by hand: the hub not writing
+FROM, d fails at A; the hub saying no MEMBER words, d fails at B. `live_call` reads the callee's
+frame as 1 at A.
+
+**Not built:** quality per sender in a call of several (sec 1022 keeps it one member's only).

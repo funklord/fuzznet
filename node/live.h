@@ -12,16 +12,28 @@
  *     ANSWER                            taken, on one of WHOM's clients
  *     DECLINE                           refused
  *     HANGUP                            ended, by either end
- *     FRAME    STREAM 1 | SEQ 4 | AT 4 | PIECE 2 | PIECES 2 | MEDIA
+ *     FRAME    STREAM 1 | FROM 2 | SEQ 4 | AT 4 | PIECE 2 | PIECES 2 | MEDIA
  *                                       a frame's piece: STREAM the kind,
- *                                       SEQ the frame's number in it, AT its
- *                                       capture time in the sender's ms, the
- *                                       piece of how many
+ *                                       FROM who sent it (below), SEQ the
+ *                                       frame's number in its sender's
+ *                                       stream, AT its capture time in the
+ *                                       sender's ms, the piece of how many
  *     REPORT   STREAM 1 | RECEIVED 4 | LOST 4 | JITTER 2
  *                                       what the receiver measured of a
  *                                       stream, sec 1021: pieces received
  *                                       and lost since the call began, and
  *                                       the jitter of their transit in ms
+ *     MEMBER   INDEX 2 | WHOM 32         who a call of several numbers INDEX
+ *                                       in its frames' FROM, sec 1024
+ *
+ * FROM, sec 1024: in a call of several the caller's host is the hub (sec
+ * 1022) and numbers each member from 1, in the order it rang them; 0 is the
+ * caller. A member's frame reaches the hub with any FROM, and the hub writes
+ * the member's number before keeping and passing it on, so a receiver can
+ * tell two senders' numbering apart, and the hub says each member's number
+ * with a MEMBER word to every other member who has joined. A call of two is
+ * the same with one member: the callee's frames read as 1 at the caller, the
+ * caller's as 0 at the callee.
  *
  * MEDIA IS OPAQUE: the codec, the capture and the jitter buffer are the
  * client's (sec 1017). A frame past one word goes in pieces, which the
@@ -42,7 +54,11 @@
 #define FZN_LIVE_CALL_LEN 8u
 #define FZN_LIVE_HEAD_LEN (2u + 1u + FZN_LIVE_CALL_LEN)
 #define FZN_LIVE_RING_LEN (FZN_LIVE_HEAD_LEN + 1u + FZN_PUBKEY_LEN)
-#define FZN_LIVE_FRAME_HEAD_LEN (FZN_LIVE_HEAD_LEN + 1u + 4u + 4u + 2u + 2u)
+#define FZN_LIVE_FRAME_HEAD_LEN (FZN_LIVE_HEAD_LEN + 1u + 2u + 4u + 4u + 2u + 2u)
+#define FZN_LIVE_FRAME_FROM_AT (FZN_LIVE_HEAD_LEN + 1u)
+#define FZN_LIVE_MEMBER_LEN (FZN_LIVE_HEAD_LEN + 2u + FZN_PUBKEY_LEN)
+/* The members a call can number: FROM's room, less the caller's 0. */
+#define FZN_LIVE_MEMBERS_MAX 65535u
 #define FZN_LIVE_REPORT_LEN (FZN_LIVE_HEAD_LEN + 1u + 4u + 4u + 2u)
 
 #define FZN_LIVE_AUDIO 1u
@@ -58,18 +74,20 @@ typedef enum fzn_live_kind {
 	FZN_LIVE_DECLINE = 3,
 	FZN_LIVE_HANGUP = 4,
 	FZN_LIVE_FRAME = 5,
-	FZN_LIVE_REPORT = 6
+	FZN_LIVE_REPORT = 6,
+	FZN_LIVE_MEMBER = 7
 } fzn_live_kind_t;
 
 /* ONE WORD READ, pointing into the caller's bytes. */
 typedef struct fzn_live_word {
 	fzn_live_kind_t kind;
 	uint8_t call[FZN_LIVE_CALL_LEN];
-	/* RING */
+	/* RING; MEMBER's WHOM too */
 	uint8_t kinds;
 	const uint8_t *whom;
-	/* FRAME */
+	/* FRAME; MEMBER's INDEX is `from` */
 	uint8_t stream;
+	uint16_t from;
 	uint32_t seq, at_ms;
 	uint16_t piece, pieces;
 	const uint8_t *media;

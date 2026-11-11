@@ -125,11 +125,13 @@ def main(argv):
 			print("livecheck: b: B answered, and A holds the call up")
 
 			# c: A SENDS A FRAME, d: B ONE BACK.
-			for frm, to, media, seq in (("a", "b", "c0ffee", 7), ("b", "a", "0b0e", 9)):
+			# FROM, sec 1024: the caller 0, the callee its one member, 1.
+			for frm, to, media, seq, number in (("a", "b", "c0ffee", 7, 0),
+			                                   ("b", "a", "0b0e", 9, 1)):
 				said = ask(socks[frm], "add frame %s 1 %d 1234 0 1 %s" % (call, seq, media))
 				if said not in ("ok sent", "ok lost"):
 					raise failed("%s: add frame answered %r" % (frm, said))
-				want = "1,%d,1234,0,1,%s" % (seq, media)
+				want = "1,%d,1234,0,1,%s,%d" % (seq, media, number)
 				until("%s: never read %s's frame" % (to.upper(), frm.upper()),
 				      lambda: want in frames(socks[to], call))
 				print("livecheck: %s: %s sent a frame, and %s read it back the same"

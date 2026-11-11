@@ -16819,6 +16819,13 @@ static struct live_kept {
 		uint8_t ringing, joined;
 	} *members;
 	size_t n_members, members_cap;
+	/* A CALL OF SEVERAL AS A MEMBER SEES IT, sec 1024: who the hub numbers each
+	 * other member, from its MEMBER words. Grown as needed. */
+	struct live_named {
+		uint16_t index;
+		uint8_t whom[FZN_PUBKEY_LEN];
+	} *named;
+	size_t n_named, named_cap;
 	int used;
 } *live_kept;
 static size_t live_kept_cap;
@@ -16867,6 +16874,7 @@ static void kept_drop(const uint8_t call[FZN_LIVE_CALL_LEN])
 	free(k->words);
 	free(k->lens);
 	free(k->members);
+	free(k->named);
 	memset(k, 0, sizeof(*k));
 }
 
@@ -16893,6 +16901,22 @@ static size_t say_members(struct live_kept *k, const uint8_t *except, const uint
 		    && !(except && memcmp(k->members[i].host, except, FZN_PUBKEY_LEN) == 0))
 			n += (size_t)(fzn_daemon_say(k->members[i].host, bytes, len) != 0);
 	return n;
+}
+
+/* WHO THE HUB NUMBERS `index`, said to `to` in a MEMBER word. sec 1024. */
+static void say_member(struct live_kept *k, const uint8_t to[FZN_PUBKEY_LEN], size_t index)
+{
+	uint8_t word[FZN_LIVE_MEMBER_LEN];
+	fzn_live_word_t lw;
+	size_t n;
+
+	memset(&lw, 0, sizeof(lw));
+	lw.kind = FZN_LIVE_MEMBER;
+	memcpy(lw.call, k->call, FZN_LIVE_CALL_LEN);
+	lw.from = (uint16_t)(index + 1u);
+	lw.whom = k->members[index].whom;
+	if ((n = fzn_live_write(&lw, word, sizeof(word))) != 0u)
+		(void)fzn_daemon_say(to, word, n);
 }
 
 /* NONE JOINED AND NONE STILL RINGING. */
@@ -16963,6 +16987,18 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		c->heard_s = wall_clock();
 		switch (w.kind) {
 		case FZN_LIVE_ANSWER:
+			/* JOINED: told who each other joined member is, and each told
+			 * who it is, so a frame's FROM names somebody. sec 1024. */
+			if (!m->joined) {
+				size_t i, me = (size_t)(m - k->members);
+
+				for (i = 0; i < k->n_members; i++) {
+					if (i == me || !k->members[i].joined)
+						continue;
+					say_member(k, m->host, i);
+					say_member(k, k->members[i].host, me);
+				}
+			}
 			m->ringing = 0;
 			m->joined = 1;
 			if (c->state == FZN_LIVE_RINGING_OUT) {
@@ -16979,13 +17015,21 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		case FZN_LIVE_FRAME:
 			if (!m->joined || len > FZN_SESSION_FRAME_PAYLOAD_MAX)
 				break;
-			memcpy(k->words[k->total % FZND_LIVE_KEPT], bytes, len);
-			k->lens[k->total % FZND_LIVE_KEPT] = (uint16_t)len;
-			k->total++;
-			if (k->n_members == 1u && w.stream < FZND_LIVE_STREAMS)
-				fzn_live_count(&k->rx[w.stream], w.seq, w.at_ms, wall_ms());
-			/* AND ON TO EVERY OTHER MEMBER: this host is the hub. */
-			(void)say_members(k, host, bytes, len);
+			{
+				/* NUMBERED as this member, sec 1024, whatever FROM it came
+				 * with, kept so, and passed on so. */
+				uint8_t *slot = k->words[k->total % FZND_LIVE_KEPT];
+
+				memcpy(slot, bytes, len);
+				fzn_put_be16(slot + FZN_LIVE_FRAME_FROM_AT,
+				             (uint16_t)((size_t)(m - k->members) + 1u));
+				k->lens[k->total % FZND_LIVE_KEPT] = (uint16_t)len;
+				k->total++;
+				if (k->n_members == 1u && w.stream < FZND_LIVE_STREAMS)
+					fzn_live_count(&k->rx[w.stream], w.seq, w.at_ms, wall_ms());
+				/* AND ON TO EVERY OTHER MEMBER: this host is the hub. */
+				(void)say_members(k, host, slot, len);
+			}
 			{
 				char name[2u * FZN_LIVE_CALL_LEN + 1u];
 
@@ -17022,6 +17066,30 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		break;
 	case FZN_LIVE_HANGUP:
 		live_end(c, "hung-up");
+		break;
+	case FZN_LIVE_MEMBER:
+		/* WHO THE HUB NUMBERS w.from, sec 1024: the newest word for a number
+		 * stands. */
+		if ((k = kept_of(w.call, 1)) != NULL) {
+			size_t i;
+
+			for (i = 0; i < k->n_named && k->named[i].index != w.from; i++)
+				;
+			if (i == k->n_named) {
+				if (k->n_named == k->named_cap) {
+					size_t ncap = k->named_cap ? k->named_cap * 2u : 4u;
+					struct live_named *more = realloc(k->named, ncap * sizeof(*more));
+
+					if (!more)
+						break;
+					k->named = more;
+					k->named_cap = ncap;
+				}
+				k->n_named++;
+			}
+			k->named[i].index = w.from;
+			memcpy(k->named[i].whom, w.whom, FZN_PUBKEY_LEN);
+		}
 		break;
 	case FZN_LIVE_FRAME:
 		if (c->state != FZN_LIVE_UP || len > FZN_SESSION_FRAME_PAYLOAD_MAX
@@ -17209,6 +17277,12 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 			}
 			if (member_at(k, host))
 				continue;
+			if (k->n_members == FZN_LIVE_MEMBERS_MAX) {
+				kept_drop(call);
+				fzn_live_end(&node_calls, c);
+				return (size_t)snprintf(reply, cap, "error a call numbers at most %u members\n",
+				                        (unsigned)FZN_LIVE_MEMBERS_MAX);
+			}
 			if (k->n_members == k->members_cap) {
 				size_t mcap = k->members_cap ? k->members_cap * 2u : 4u;
 				struct live_member *more = realloc(k->members, mcap * sizeof(*more));
@@ -17279,6 +17353,24 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 	/* `get call ID quality`, sec 1021: `ok STREAM,DIRECTION,RECEIVED,LOST,JITTER ...`,
 	 * `sent` what the other host reported of this one's frames, `received` what
 	 * this one measured of the other's. */
+	/* `get call ID members`, sec 1024: `ok N INDEX,USER ...`, who each FROM in the
+	 * call's frames is -- at the hub its members, at a member those the hub named.
+	 * 0, the caller, is the call's other end and is not listed. */
+	if (request->parsed == FZN_VERB_GET && subject_len == 4u
+	    && next_word(&at, &left, &w, &w_len) && w_len == 7u && memcmp(w, "members", 7u) == 0) {
+		struct live_kept *k = kept_of(call, 0);
+		size_t total = k ? (k->n_members ? k->n_members : k->n_named) : 0u;
+
+		n = (size_t)snprintf(reply, cap, "ok %zu", total);
+		for (i = 0; k && i < total && n + 2u * FZN_PUBKEY_LEN + 10u < cap; i++) {
+			n += (size_t)snprintf(reply + n, cap - n, " %u,",
+			                      k->n_members ? (unsigned)(i + 1u) : (unsigned)k->named[i].index);
+			hex_of(k->n_members ? k->members[i].whom : k->named[i].whom, FZN_PUBKEY_LEN,
+			       reply + n);
+			n += 2u * FZN_PUBKEY_LEN;
+		}
+		return n + (size_t)snprintf(reply + n, cap - n, "\n");
+	}
 	if (request->parsed == FZN_VERB_GET && subject_len == 4u) {
 		struct live_kept *k = kept_of(call, 0);
 		size_t st;
@@ -17366,13 +17458,16 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 			fzn_live_word_t r;
 
 			if (!fzn_live_read(k->words[from % FZND_LIVE_KEPT], len, &r)
-			    || n + 60u + 2u * r.media_len > cap)
+			    || n + 68u + 2u * r.media_len > cap)
 				break;
 			n += (size_t)snprintf(reply + n, cap - n, " %u,%lu,%lu,%u,%u,", (unsigned)r.stream,
 			                      (unsigned long)r.seq, (unsigned long)r.at_ms,
 			                      (unsigned)r.piece, (unsigned)r.pieces);
 			hex_of(r.media, r.media_len, reply + n);
 			n += 2u * r.media_len;
+			/* WHO SENT IT, last so a reader of the six fields before is
+			 * unchanged. sec 1024. */
+			n += (size_t)snprintf(reply + n, cap - n, ",%u", (unsigned)r.from);
 		}
 		return n + (size_t)snprintf(reply + n, cap - n, "\n");
 	}

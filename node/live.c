@@ -43,14 +43,21 @@ int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
 		out->lost = fzn_get_be32(at + 5);
 		out->jitter_ms = fzn_get_be16(at + 9);
 		return 1;
+	case FZN_LIVE_MEMBER:
+		if (len != FZN_LIVE_MEMBER_LEN)
+			return 0;
+		out->from = fzn_get_be16(at);
+		out->whom = at + 2;
+		return out->from != 0u;
 	case FZN_LIVE_FRAME:
 		if (len < FZN_LIVE_FRAME_HEAD_LEN)
 			return 0;
 		out->stream = at[0];
-		out->seq = fzn_get_be32(at + 1);
-		out->at_ms = fzn_get_be32(at + 5);
-		out->piece = fzn_get_be16(at + 9);
-		out->pieces = fzn_get_be16(at + 11);
+		out->from = fzn_get_be16(at + 1);
+		out->seq = fzn_get_be32(at + 3);
+		out->at_ms = fzn_get_be32(at + 7);
+		out->piece = fzn_get_be16(at + 11);
+		out->pieces = fzn_get_be16(at + 13);
 		out->media = bytes + FZN_LIVE_FRAME_HEAD_LEN;
 		out->media_len = len - FZN_LIVE_FRAME_HEAD_LEN;
 		return out->pieces != 0u && out->piece < out->pieces;
@@ -84,6 +91,11 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 	case FZN_LIVE_REPORT:
 		len = FZN_LIVE_REPORT_LEN;
 		break;
+	case FZN_LIVE_MEMBER:
+		if (!w->whom || !w->from)
+			return 0;
+		len = FZN_LIVE_MEMBER_LEN;
+		break;
 	default:
 		return 0;
 	}
@@ -100,12 +112,16 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 		uint8_t *at = out + FZN_LIVE_HEAD_LEN;
 
 		at[0] = w->stream;
-		fzn_put_be32(at + 1, w->seq);
-		fzn_put_be32(at + 5, w->at_ms);
-		fzn_put_be16(at + 9, w->piece);
-		fzn_put_be16(at + 11, w->pieces);
+		fzn_put_be16(at + 1, w->from);
+		fzn_put_be32(at + 3, w->seq);
+		fzn_put_be32(at + 7, w->at_ms);
+		fzn_put_be16(at + 11, w->piece);
+		fzn_put_be16(at + 13, w->pieces);
 		if (w->media_len)
 			memcpy(out + FZN_LIVE_FRAME_HEAD_LEN, w->media, w->media_len);
+	} else if (w->kind == FZN_LIVE_MEMBER) {
+		fzn_put_be16(out + FZN_LIVE_HEAD_LEN, w->from);
+		memcpy(out + FZN_LIVE_HEAD_LEN + 2u, w->whom, FZN_PUBKEY_LEN);
 	} else if (w->kind == FZN_LIVE_REPORT) {
 		uint8_t *at = out + FZN_LIVE_HEAD_LEN;
 
