@@ -84933,6 +84933,17 @@ pagers, and none of them can be logged. Sec 1033's latency would have made a fou
   grantees with a transform per recipient. What it shares with metrics is the sampler and the
   carrying, and the layer should take the sampler from it rather than write a second one.
 
+**Objects and metrics share a front, not a store** (the holder asked, the same day, whether this is
+the subsystem where buttons are registered, written, read and subscribed). The front -- a name, its
+registration, reading, listing, subscribing by event, the `local/permit` and `remote/permit` gates,
+and logging by configuration -- is one, written once. The backing is two: an object (sec 948) is
+durable estate state, each write a signed record carried to every host and resolved alike
+everywhere, which suits a lamp set now and then; a metric is a local, frequent, lossy observation,
+which signing and carrying sample by sample would cost more than it is worth, and on which two hosts
+should not agree. A metric may be **published as an object** at a rate chosen per name, so its
+current value is read and subscribed estate-wide by the object path -- an embedded host's measured
+temperature is that -- while its samples stay local or go to the log.
+
 **The steps:** the layer with its table, estimator and pager, tested; `link/` moved onto it, its
 verb and tests kept and its own table deleted; the meter moved the same way; the log sampler and
 its setting, a live test that a logged metric is gathered from a sibling; a call's legs moved
