@@ -27,7 +27,8 @@ not know each other.
        (sec 837): fuzzypickles' group notebook, looking for `group` rows,
        found no member who was a contact as well
     f  B grants a file to the group; C, given its reference, fetches it
-       whole from B (sec 631)
+       whole from B (sec 631); f0, B lists whom it is shared with -- the
+       group, and a contact while granted (sec 1016)
     c  C leaves, by an act of its own; A learns it from C at A's next round,
        and the group there has two members
     c2 A and B hold the secret of the epoch C's leave began
@@ -419,6 +420,22 @@ def main(argv):
 				raise failed("f: put file answered %r" % put)
 			ref = put.split()[1]
 			expect(socks["b"], "b", "grant file %s @%s" % (ref[:64], name), "ok")
+			# f0: WHOM IT IS SHARED WITH, sec 1016: the group and a contact by
+			# name, and the contact no more once revoked.
+			def shared_with():
+				got = ask(socks["b"], "get file %s shares" % ref[:64]).split()
+				if len(got) < 3 or got[0] != "ok":
+					raise failed("f0: get file ROOT shares answered %r" % got)
+				return sorted((r.split(",")[0], r.split(",")[-1]) for r in got[3:])
+
+			expect(socks["b"], "b", "grant file %s alice" % ref[:64], "ok")
+			if shared_with() != sorted([("contact", "alice"), ("group", name)]):
+				raise failed("f0: B's file is shared with %r" % (shared_with(),))
+			expect(socks["b"], "b", "revoke file %s alice" % ref[:64], "ok")
+			if shared_with() != [("group", name)]:
+				raise failed("f0: revoked, B's file is shared with %r" % (shared_with(),))
+			print("livecheck: f0: B lists whom its file is shared with, a group and a contact, "
+			      "and the contact no more once revoked")
 			expect(socks["c"], "c", "fetch file " + ref, "ok")
 			whole = None
 			# EVERY ONE OF C'S DAEMONS THIS PHASE, searched: a fetch moves in

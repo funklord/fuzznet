@@ -84310,3 +84310,23 @@ and leaves splitting to fuzznet where fuzznet wants it. What a whole file from h
 
 **Open, and fuzznet's:** whether files are kept by stream at all. Nothing in the tree splits one
 today; this is what such a design starts from.
+
+## 1016. Whom a file is shared with, listed, 2026-11-11
+
+**Asked by fuzzypickles (inbox, 2026-11-11 02:25Z):** `grant file`, `revoke file` and `set file
+ROOT public|private` share a file, and `get file ROOT` said its tier and how many shares, and
+nothing said to whom -- so a client could offer to share and not to stop, nor show a person what
+they had given away.
+
+**Now:** `get file ROOT shares [FROM]` answers `ok TOTAL FROM ROW ...`, a ROW `contact,KEY,NAME`,
+`group,ID,NAME` or `everyone` (a public file), as many as fit a reply, the next page asked from
+FROM plus those shown. The names are this host's for the contact and the group; a grantee that is
+neither any more is a `contact` with no name. Answered where the daemon wraps the file verbs,
+the files library holding grantees as keys and knowing no names.
+
+`live_groups` phase f0: B grants its file to the group and to alice and lists both by name;
+revoked, alice is gone from the list. **Control:** the daemon before this read `shares` as an
+export path and answered `malformed`.
+
+**Not built:** the other way round, what has been shared with one contact, which fuzzypickles'
+Peers page would use; asked as a second wish, and not what blocked.

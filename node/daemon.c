@@ -16048,6 +16048,78 @@ static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request
 	if (subject_len != 4u || memcmp(subject, "file", 4u) != 0 || origin != FZN_ORIGIN_SAME_USER
 	    || !node_apply.store || !next_word(&at, &left, &w, &w_len))
 		return fzn_node_files_local(ctx, origin, request, reply, reply_cap);
+	/* `get file ROOT shares [FROM]`: whom a file is shared with, sec 1016 --
+	 * `ok TOTAL FROM ROW ...`, a ROW `contact,KEY,NAME`, `group,ID,NAME` or
+	 * `everyone`, as many as fit. fuzzypickles' 20261111T0225Z: a client could
+	 * share and not offer to stop, nothing saying to whom. */
+	if (request->parsed == FZN_VERB_GET && left >= 7u && memcmp(at, " shares", 7u) == 0
+	    && (left == 7u || at[7] == ' ') && unhex_n(w, w_len, root, sizeof(root))) {
+		static uint8_t (*grantees)[FZN_PUBKEY_LEN];
+		static size_t grantees_cap;
+		const uint8_t *f = at + 7, *fw;
+		size_t f_len = left - 7u, fw_len, total = 0, from = 0, i, used;
+		int r;
+
+		if (next_word(&f, &f_len, &fw, &fw_len)) {
+			for (i = 0; i < fw_len; i++) {
+				if (fw[i] < '0' || fw[i] > '9' || from > ((size_t)1 << 30))
+					return (size_t)snprintf(reply, reply_cap,
+					                        "malformed get file ROOT shares [FROM]\n");
+				from = from * 10u + (size_t)(fw[i] - '0');
+			}
+		}
+		if (fzn_node_files_shares_of((const fzn_node_files_t *)ctx, root, NULL, 0u, &total)
+		    != FZN_NODE_FILES_OK)
+			return (size_t)snprintf(reply, reply_cap, "error the shares did not read\n");
+		if (total > grantees_cap) {
+			uint8_t (*more)[FZN_PUBKEY_LEN] = realloc(grantees, total * sizeof(*more));
+
+			if (!more)
+				return (size_t)snprintf(reply, reply_cap, "error no memory\n");
+			grantees = more;
+			grantees_cap = total;
+		}
+		if (total && fzn_node_files_shares_of((const fzn_node_files_t *)ctx, root, grantees,
+		                                      grantees_cap, &total)
+		                     != FZN_NODE_FILES_OK)
+			return (size_t)snprintf(reply, reply_cap, "error the shares did not read\n");
+		if (from > total)
+			return (size_t)snprintf(reply, reply_cap, "malformed past the last share\n");
+		r = snprintf(reply, reply_cap, "ok %zu %zu", total, from);
+		if (r < 0 || (size_t)r >= reply_cap)
+			return 0;
+		used = (size_t)r;
+		for (i = from; i < total; i++) {
+			char row[16u + 2u * FZN_PUBKEY_LEN + FZN_CONTACT_NAME_MAX + 4u], key[2u * FZN_PUBKEY_LEN + 1u];
+			char name[FZN_CONTACT_NAME_MAX + 1u] = "";
+			const char *kind = "contact";
+			fzn_contact_t c;
+			size_t name_len = 0;
+
+			if (memcmp(grantees[i], FZN_NODE_FILES_EVERY_CONTACT, FZN_PUBKEY_LEN) == 0) {
+				r = snprintf(row, sizeof(row), " everyone");
+			} else {
+				hex_of(grantees[i], FZN_PUBKEY_LEN, key);
+				if (fzn_contact_get(node_apply.store, grantees[i], &c) == FZN_CONTACT_OK) {
+					(void)snprintf(name, sizeof(name), "%s", c.name);
+				} else if (fzn_node_group_name(node_apply.store, grantees[i], name, &name_len)
+				           == FZN_CONTACT_OK) {
+					kind = "group";
+				} else {
+					name[0] = '\0';
+				}
+				r = snprintf(row, sizeof(row), " %s,%s,%s", kind, key, name);
+			}
+			/* ROOM FOR THE ROW AND THE NEWLINE, or the page ends here. */
+			if (r < 0 || (size_t)r >= sizeof(row) || used + (size_t)r + 2u > reply_cap)
+				break;
+			memcpy(reply + used, row, (size_t)r);
+			used += (size_t)r;
+		}
+		reply[used++] = '\n';
+		reply[used] = '\0';
+		return used;
+	}
 	/* A REFERENCE GIVEN is kept; a ROOT where one is wanted is read as the
 	 * reference held -- `get file ROOT` alone is the status, and stays, and
 	 * so does `get file ROOT check`, the scrub (sec 492): read as `REF
