@@ -84995,3 +84995,32 @@ not only a list. The shapes, in the order to survey them:
 **Rejected: surveying everything at once.** Sec 5k worked because it took one shape at a time and
 finished it; a tree-wide list of everything that looks alike would be the kind of report that is
 read once and not acted on.
+
+### Words: one thing, one word; the rest of English kept for description
+
+**The holder, the same day:** just as important is very specific naming. Two things that are
+exactly the same are officially called by the same word, so as many other English words as
+possible stay free for plain description. Two things that are almost the same are analysed for
+why, and one is changed, where it serves better, until they are the same.
+
+- **One register: sec 906**, which already says what host, machine, daemon, client, root and vault
+  mean. A word given a meaning goes there, once, with what it is not; prose and code then use it
+  in that sense only, and a reader who meets the word knows it is the term and not the English.
+  The code-style rule "one word per concept, everywhere" is this, made a register.
+- **Near-same is a finding, not a style note.** It is analysed as the address model above is: why
+  are they two, and would one, changed, become the other.
+
+**First findings, from this session's own words:**
+- **"Client" was misused by sec 1025.** It calls a phone paired to the estate, on a session with
+  its host, "a client of this host"; by sec 906 a client is a *process* of a host, and a paired
+  phone with its own key is a **host** of the estate. Sec 1025's subject is "another host of the
+  user's, on a session with this one" -- `live_client`, `say_clients`, `has_client` and the
+  `live_client_call` script are named for the wrong word, and are to be renamed with the record.
+- **Link, path, route and leg** are four words for nearby things: a link (`link/`, one transport
+  over one address, measured), a path (sec 1030, direct or through a relay), a route (sec 622, a
+  relay's note of where an answer goes back) and a leg (sec 1027, a call's hop between two hosts,
+  measured). Analysed with the address model: a link is a host and an address; a path is one link,
+  or two through a relay; a leg is what a stream rides between two hosts, over a path. So leg is a
+  path in use by a stream, and its figures are the path's -- one of the two words is likely
+  superfluous, decided when sec 1034 moves the call's legs onto the metric layer. A route is a
+  relay's bookkeeping and stays its own.
