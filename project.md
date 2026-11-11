@@ -84203,3 +84203,30 @@ library knowing nothing of the catalogue; in a build without the catalogue, noth
 `live_catalog` phase c2: B, having named the file three times, removes its copy; B lists no name
 and no holder at once, and A, at its next round, no holder. **Control:** the daemon before this
 change fails c2, B still listing `tune` and itself holding.
+
+## 1010. Contacts whose keys share a name cell keep their own names, 2026-11-11
+
+**Reported by fuzzypickles (inbox, 2026-11-11 00:24Z):** past `d1645a9`, a node of 300 contacts
+and 10 groups could not add a member: `add member g1 p1` answered `no such contact`, and `add
+member g1 p300` `two contacts have that name`. They counted it as a regression of `d1645a9`.
+
+**Measured, and the regression is older.** Reproduced on fuzznetd with their keys -- `%064x` of
+i + 1000. At the moment of failure `list contact` read 300 contacts, every one named `p300`. The
+build before `d1645a9` did the same at its first timed round, 58 s in; `d1645a9` only brought a
+round on sooner, groups made starting one (sec 1004), where their scenario used to finish before
+the first.
+
+**The cause:** each contact's estate name is a setting under `contact/name/` and the first 16
+bytes of its key, hex (sec 893), and each round `take_contact_names` gives a contact the name its
+cell holds. Keys that are small numbers share those 16 bytes -- all zeros -- so all 300 wrote one
+cell, the last add winning, and the round renamed every contact to it, in the store. Real keys,
+Ed25519 public keys, do not meet in 16 bytes, and making one that does is 2^128 work; keys made up
+for a test do.
+
+**Now:** `take_contact_names` takes the contacts in prefix order and passes over any cell two of
+them share, which of them it names being past telling. The cell itself is unchanged: widening it
+to the whole key would move every estate's names to new setting keys, a change of its own.
+
+`tool/live_name_cells.py`, in `make livecheck`: three contacts of one cell and one of its own,
+three rounds started by groups made; each keeps the name it was added with and is found by it.
+**Control:** the daemon before this fails, `ann` listed as `cy`.

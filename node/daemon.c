@@ -14202,6 +14202,16 @@ static fzn_contact_err_t contacts_list(struct contacts_room *r, size_t *n)
 	return err;
 }
 
+/* TWO CONTACTS OF ONE NAME CELL, sec 1010: the cell names the first 16 bytes of a key,
+ * so two keys alike there share it, and each took the other's name -- every contact
+ * renamed to the last one added, at a round, in fuzzypickles' scenario whose keys
+ * were small numbers. Real keys do not meet there; keys made up for a test do. By
+ * that prefix, for qsort. */
+static int contact_prefix_cmp(const void *a, const void *b)
+{
+	return memcmp(((const fzn_contact_t *)a)->key, ((const fzn_contact_t *)b)->key, 16u);
+}
+
 /* THE ESTATE'S NAMES, taken each round by each contact this host holds whose
  * name here is another. Two people the estate gives one name both take it,
  * sec 893: no host renames a person, and the name is refused where it is
@@ -14219,9 +14229,15 @@ static void take_contact_names(void)
 	    || contacts_list(&room, &n) != FZN_CONTACT_OK)
 		return;
 	all = room.at;
+	/* IN PREFIX ORDER, so a cell two contacts share is seen as shared, and taken by
+	 * neither: which of them it names cannot be told from it. */
+	qsort(all, n, sizeof(*all), contact_prefix_cmp);
 	for (i = 0; i < n; i++) {
 		fzn_contact_err_t err;
 
+		if ((i > 0 && memcmp(all[i].key, all[i - 1u].key, 16u) == 0)
+		    || (i + 1u < n && memcmp(all[i].key, all[i + 1u].key, 16u) == 0))
+			continue;
 		len = 0;
 		contact_name_key(all[i].key, cell);
 		if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, cell,

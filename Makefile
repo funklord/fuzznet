@@ -7009,6 +7009,8 @@ else
 	@timeout 600 python3 tool/live_groups.py $(FUZZNETD)
 	@$(if $(GROUPS_ON),timeout 450 python3 tool/live_soon.py $(FUZZNETD),echo \
 	  "livecheck: news soon SKIPPED -- this build has no groups")
+	@$(if $(GROUPS_ON),timeout 200 python3 tool/live_name_cells.py $(FUZZNETD),echo \
+	  "livecheck: name cells SKIPPED -- this build has no groups")
 ifdef CATALOG_ON
 	@timeout 540 python3 tool/live_catalog.py $(FUZZNETD)
 endif
