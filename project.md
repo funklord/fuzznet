@@ -84933,18 +84933,31 @@ pagers, and none of them can be logged. Sec 1033's latency would have made a fou
   grantees with a transform per recipient. What it shares with metrics is the sampler and the
   carrying, and the layer should take the sampler from it rather than write a second one.
 
-**Objects and metrics share a front, not a store** (the holder asked, the same day, whether this is
-the subsystem where buttons are registered, written, read and subscribed). The front -- a name, its
-registration, reading, listing, subscribing by event, the `local/permit` and `remote/permit` gates,
-and logging by configuration -- is one, written once. The backing is two: an object (sec 948) is
-durable estate state, each write a signed record carried to every host and resolved alike
-everywhere, which suits a lamp set now and then; a metric is a local, frequent, lossy observation,
-which signing and carrying sample by sample would cost more than it is worth, and on which two hosts
-should not agree. A metric may be **published as an object** at a rate chosen per name, so its
-current value is read and subscribed estate-wide by the object path -- an embedded host's measured
-temperature is that -- while its samples stay local or go to the log.
+**One value model; how a value is kept, carried and how often, declared per value -- and bounded
+whatever is declared.** Settled with the holder the same day, in two steps. Asked whether this is
+the subsystem where buttons are registered, written, read and subscribed (sec 948's objects), the
+first answer split by kind -- an object a signed record carried estate-wide, a metric a local lossy
+observation. The holder corrected it: fuzznet has barely any values that do not propagate, or that
+are known always to be high or low rate, so kind is the wrong split.
+- **One front for every named value** -- a button, a lamp, a setting, a latency, a meter: its name,
+  registration, reading, listing, subscribing by event, the `local/permit` and `remote/permit`
+  gates, logging by configuration -- written once.
+- **What differs is declared, in the schema** (`state/schema.h`, sec 686, which already gives each
+  key its type, bounds, default and where it may stand): whether a value is **kept** (not at all,
+  its newest, or a history under the retention rules), how far it is **carried** (this host, its
+  siblings, the estate, grantees), and its **rates** -- how often it may be written to the store,
+  and how often carried. A rule may narrow them per host or estate, as retention rules do.
+- **A protection model built in, holding even when a declaration or a rule is wrong.** Values
+  written faster than their rate are **coalesced**, the newest standing for the window, never
+  queued; a value is **stored** and **carried** at most at its rate, and never past fixed ceilings
+  the layer keeps whatever is declared; and a value that hits its bound is **said once** -- in the
+  log and the metric layer's own counts -- rather than per write, so a misconfigured value can
+  neither fill a disk, flood the estate, nor drown the log that reports it.
 
-**The steps:** the layer with its table, estimator and pager, tested; `link/` moved onto it, its
-verb and tests kept and its own table deleted; the meter moved the same way; the log sampler and
-its setting, a live test that a logged metric is gathered from a sibling; a call's legs moved
-onto it; then sec 1033's latency, which by then is a key and a few samples.
+**The steps:** the schema's entries gain keeping, carrying and rates, and the protection model is
+built with them and tested first -- a value written a thousand times a second is stored and carried
+at its rate, and a declaration past the ceilings is held to them; the shared front taken out of
+`node/objects.c`; the layer's table, estimator and pager; `link/` moved onto it, its verb and tests
+kept and its own table deleted; the meter the same way; logging by configuration, with a live test
+that a logged metric is gathered from a sibling; a call's legs; then sec 1033's latency, which by
+then is a key and a few samples.
