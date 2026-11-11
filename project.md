@@ -84816,9 +84816,14 @@ the exception the holder asked about; 3 cannot be measured before 2 exists.
 
 Sec 1030's first gap, measured before it was fixed. `tool/hull_estates.py` gained a call journey:
 A's root, a public server, calls B's root, which sits behind gateway B where nothing outside can
-reach it. On the code before this, lines crossed the NAT both ways and **the call never rang**:
-A's root held B's root at `192.168.2.10:7000`, the address B advertises from behind its NAT, and
-asked the session there from a fresh socket.
+reach it. On the code before this, lines crossed the NAT both ways and **the call never rang**.
+The session was asked from a fresh socket. **Its cause is not settled, corrected the same day:**
+this entry first said A held B at `192.168.2.10:7000`, behind B's NAT -- but that was read from
+`list device`, which shows the contact's device record, and the contact round builds its target
+from the hello address where one was heard (sec 697), so the ask most likely went to the right
+address from a port B's NAT had never seen and filters (sec 1030's first gap). The change below
+moved both the address and the socket, so it holds either way; asking from a fresh socket to the
+hello address, on hull, is the experiment that would tell them apart.
 
 **Now `session_ask` asks where the host last said hello from**, when it said hello in the last
 five minutes (`FZND_SESSION_HELLO_S`, a relay's own bound, sec 622). Its hellos come from its
@@ -85006,9 +85011,9 @@ not only a list. The shapes, in the order to survey them:
    and its own reader: the advertised `net/address` setting; the round's pull and contact targets
    (`caller.node`); the introductions table (sec 698); the relay's hello table (sec 622); each
    session's `from`; the link meter, keyed by address; and the LAN probe's answers (sec 624).
-   **Measured cost:** sec 1031's fault was this -- A's round held B's root at its private address
-   while A's hello table held the way that worked, and a call never rang; the fix taught one more
-   reader to look in a second place. One model instead: a host's candidate addresses, each with
+   **Cost, likely but not proven:** sec 1031's fault may have been two of these disagreeing, or
+   only the socket an ask left from (sec 1031 says why it is unsettled); either way the fix taught
+   one more reader to look in a second place, and the seven stand regardless. One model instead: a host's candidate addresses, each with
    where it was learnt and when, and one rule that every sender asks -- the most direct that is
    fresh, sec 1030's rule -- with the link figures (sec 1034) kept against host and address.
 2. **Named values** (sec 1034): settings, objects, records and their reserved lists, votes,
