@@ -1226,6 +1226,29 @@ size_t fzn_node_groups_local(const fzn_node_groups_t *g, const fzn_request_t *re
 	else
 		kind = add ? FZN_GROUP_ACT_ADMIN_ADD : FZN_GROUP_ACT_ADMIN_REMOVE;
 	err = fzn_node_groups_act(g, kind, id, contact.key, 0u, 0u, NULL);
-	return err == FZN_GROUP_LOG_OK ? say(reply, cap, FZN_REPLY_OK, NULL)
-	                               : log_refusal(reply, cap, err);
+	if (err != FZN_GROUP_LOG_OK)
+		return log_refusal(reply, cap, err);
+	/* AN ADMIN'S CHANGE IS A PROPOSAL, carried by a majority of the admins
+	 * (sec 627): said so while it waits, sec 1012 -- a bare ok read as done,
+	 * and fuzzypickles' remove admin left the admin standing with nothing
+	 * saying why. `ok proposed APPROVALS NEEDED`; another admin approves by
+	 * asking the same. */
+	if (kind == FZN_GROUP_ACT_ADMIN_ADD || kind == FZN_GROUP_ACT_ADMIN_REMOVE) {
+		static fzn_group_t held;
+		size_t k, approvals = 0;
+		char detail[48];
+		int n;
+
+		if (fzn_group_log_get(g->log.store, id, &held) == FZN_GROUP_LOG_OK
+		    && fzn_group_is_admin(&held, contact.key) != (kind == FZN_GROUP_ACT_ADMIN_ADD)) {
+			for (k = 0; k < held.n_proposals; k++)
+				if (held.proposals[k].kind == kind
+				    && memcmp(held.proposals[k].subject, contact.key, FZN_PUBKEY_LEN) == 0)
+					approvals = held.proposals[k].n_approvals;
+			n = snprintf(detail, sizeof(detail), "proposed %zu %zu", approvals,
+			             held.n_admins / 2u + 1u);
+			return answer(reply, cap, FZN_REPLY_OK, detail, n > 0 ? (size_t)n : 0u);
+		}
+	}
+	return say(reply, cap, FZN_REPLY_OK, NULL);
 }

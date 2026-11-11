@@ -10,6 +10,8 @@ not know each other.
        carried in its CREATE act (sec 837) -- its three members, A its
        admin
     b  A makes B an admin, a majority of one; B's next round says so
+    b2 A proposes B no admin: `ok proposed 1 2`, a majority of two admins
+       being two, and B stands (sec 1012)
     a2 each host names itself in the log, and the epoch's secret is sealed
        to all three, which each come to hold it (sec 627)
     d  A writes a line to the group and B and C file it as A's; C writes one
@@ -469,6 +471,13 @@ def main(argv):
 			if "*" + keys["b"] not in got:
 				raise failed("b: B's members are %r, B not marked admin" % got)
 			print("livecheck: b: A made B an admin, and B's round says so")
+
+			# b2: A proposes B no admin, one approval of the two a majority of two
+			# admins needs -- said so, and B still one (sec 1012).
+			expect(socks["a"], "a", "remove admin family bob", "ok proposed 1 2")
+			if "*bob" not in members(socks["a"], "a", "family"):
+				raise failed("b2: one admin of two removed B alone")
+			print("livecheck: b2: A's removal of B is a proposal, said so, and B stands")
 
 			# c: C leaves; A learns it from C.
 			expect(socks["c"], "c", "remove group " + name, "ok")

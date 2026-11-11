@@ -84241,3 +84241,20 @@ kept and body replaced, gain 486 lines and lose none -- new `static inline` read
 (signed LEB, EBML, UTF-8, bijective and prefixed varints, a relaxed scan, a padded unsigned
 parse) that nothing here calls yet. `make schema` now passes whole: contract, maps, generated C,
 tamper harness and vendored runtime. `make test`, `installcheck` and `style` pass with it.
+
+## 1012. An admin's change answers that it is only proposed, until a majority carries it, 2026-11-11
+
+**Reported by fuzzypickles (inbox, 2026-11-11 00:54Z):** `remove admin gX alice` answered `ok`
+and alice stayed an admin, five seconds later as well; once, it took. They asked what the verb
+should do, and that its `ok` mean done.
+
+**By design, and said badly.** An admin's change -- `add admin` or `remove admin` -- is a proposal
+carried by a majority of the group's admins (sec 627, `judge` in `node/group_log.c`), another admin
+approving by asking the same. With one admin a majority is one, so `add admin` takes at once; with
+two, `remove admin` by one of them waits for the other, and nothing said so. The time it took was a
+group of one admin.
+
+**Now:** a change still waiting answers `ok proposed APPROVALS NEEDED` -- `ok proposed 1 2` for one
+admin of two -- and a change made answers `ok` as before, so a client reading `ok` alone is not
+broken and one that reads on can say what is wanted. `live_groups` phase b2: A proposes B no admin,
+is told `ok proposed 1 2`, and B stands. **Control:** the daemon before this answers a bare `ok`.
