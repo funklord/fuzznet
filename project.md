@@ -84898,3 +84898,42 @@ phone knows what the home server has seen of a contact -- is open; local first.
 table cached in the store; the samples it misses -- session asks, a call's reports -- fed in, the
 resent ones not (Karn's rule, tested by a resend); the verb; then telling fuzzypickles and hydra,
 whose call and media screens show it.
+
+## 1034. One metric layer, its figures loggable by configuration, 2026-11-11
+
+**The holder, 2026-11-11:** metrics need to be configurable to be loggable as well; make these
+layers generic, so code is reused and features are built and bugs removed once.
+
+**Today each figure has its own table, estimator and listing:** `link/` (latency and loss per
+address, its own smoothing, `list link`, 64 entries in memory), `node/meter` (bytes by family and
+peer, its own eviction and totals, in memory), and a call's legs (sec 1027: received, lost,
+jitter and round trip, its own counting). Three tables, three ways to evict, two estimators, three
+pagers, and none of them can be logged. Sec 1033's latency would have made a fourth.
+
+**Decided, from the holder's words:**
+- **One metric layer.** A metric is a name in the setting-key style (`link/latency`,
+  `meter/bytes`, `call/lost`), a kind -- a counter, a gauge, or an estimate with a mean and a
+  spread -- a unit, and a key: a peer, a path, a family, a stream. Producers report through one
+  call; the layer owns the table (grown as the node's tables are, sec 704, evicting the least
+  recently active and keeping evicted totals, as the meter does), the one estimator (RFC 6298's
+  mean and spread, so link's smoothing and sec 1033's latency are the same code), and the one
+  paged listing, `list metric [PREFIX] [FROM]`. `list link` and the meter's verb stay, as views of
+  it, so no consumer breaks.
+- **Loggable by configuration, off by default.** A setting per prefix,
+  `metric/log/PREFIX` = an interval in seconds, has a sampler write each metric under PREFIX as a
+  log entry, subsystem `metric/NAME`, every interval. From there everything the log does applies
+  unchanged: retention rules (secs 476, 531), signed packing, gathering from siblings and pushed
+  copies (secs 463, 482, 488). So history, statistics and their reach to other hosts are the log's,
+  not a second store's. "Default" is a choice of its own, kept as the key's absence (the
+  config-file rule): a pinned interval survives a change of default.
+- **The cache across a restart** is the newest logged sample where logging is on, and otherwise a
+  small snapshot slot the layer writes on stop -- so sec 1033's "known before the call starts"
+  needs no store of its own.
+- **Location is not a metric.** It is an app stream (sec 632), a host's samples carried to
+  grantees with a transform per recipient. What it shares with metrics is the sampler and the
+  carrying, and the layer should take the sampler from it rather than write a second one.
+
+**The steps:** the layer with its table, estimator and pager, tested; `link/` moved onto it, its
+verb and tests kept and its own table deleted; the meter moved the same way; the log sampler and
+its setting, a live test that a logged metric is gathered from a sibling; a call's legs moved
+onto it; then sec 1033's latency, which by then is a key and a few samples.
