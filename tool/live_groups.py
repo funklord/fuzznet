@@ -28,7 +28,10 @@ not know each other.
        found no member who was a contact as well
     f  B grants a file to the group; C, given its reference, fetches it
        whole from B (sec 631); f0, B lists whom it is shared with -- the
-       group, and a contact while granted (sec 1016)
+       group, and a contact while granted (sec 1016) -- and, the other way
+       round, what each may fetch: A (alice) and C through the group and
+       alice by name, and neither once the group's grant is revoked too
+       (sec 1028)
     c  C leaves, by an act of its own; A learns it from C at A's next round,
        and the group there has two members
     c2 A and B hold the secret of the epoch C's leave began
@@ -428,12 +431,33 @@ def main(argv):
 					raise failed("f0: get file ROOT shares answered %r" % got)
 				return sorted((r.split(",")[0], r.split(",")[-1]) for r in got[3:])
 
+			# AND THE OTHER WAY ROUND, sec 1028: what one contact may fetch.
+			roots["c"] = ask(socks["c"], "get identity").split()[-1]
+			def fetchable(who):
+				got = ask(socks["b"], "get file shared %s" % who).split()
+				if len(got) < 3 or got[0] != "ok" or int(got[1]) != len(got) - 3:
+					raise failed("f0: get file shared %s answered %r" % (who, got))
+				return got[3:]
+
 			expect(socks["b"], "b", "grant file %s alice" % ref[:64], "ok")
 			if shared_with() != sorted([("contact", "alice"), ("group", name)]):
 				raise failed("f0: B's file is shared with %r" % (shared_with(),))
+			if ref[:64] not in fetchable("alice") or ref[:64] not in fetchable(roots["c"]):
+				raise failed("f0: alice may fetch %r, C %r" % (fetchable("alice"),
+				                                               fetchable(roots["c"])))
 			expect(socks["b"], "b", "revoke file %s alice" % ref[:64], "ok")
 			if shared_with() != [("group", name)]:
 				raise failed("f0: revoked, B's file is shared with %r" % (shared_with(),))
+			# A, alice to B, is a member too, so may still fetch through the group;
+			# the group's grant revoked, neither may, and it is granted again for f.
+			if ref[:64] not in fetchable("alice") or ref[:64] not in fetchable(roots["c"]):
+				raise failed("f0: revoked, alice may fetch %r, C %r" % (fetchable("alice"),
+				                                                        fetchable(roots["c"])))
+			expect(socks["b"], "b", "revoke file %s @%s" % (ref[:64], name), "ok")
+			if ref[:64] in fetchable("alice") or ref[:64] in fetchable(roots["c"]):
+				raise failed("f0: the group's revoked, alice may fetch %r, C %r"
+				             % (fetchable("alice"), fetchable(roots["c"])))
+			expect(socks["b"], "b", "grant file %s @%s" % (ref[:64], name), "ok")
 			print("livecheck: f0: B lists whom its file is shared with, a group and a contact, "
 			      "and the contact no more once revoked")
 			expect(socks["c"], "c", "fetch file " + ref, "ok")

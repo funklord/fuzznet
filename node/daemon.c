@@ -16072,6 +16072,73 @@ static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request
 	if (subject_len != 4u || memcmp(subject, "file", 4u) != 0 || origin != FZN_ORIGIN_SAME_USER
 	    || !node_apply.store || !next_word(&at, &left, &w, &w_len))
 		return fzn_node_files_local(ctx, origin, request, reply, reply_cap);
+	/* `get file shared CONTACT [FROM]`: what a contact may fetch from this host,
+	 * sec 1028 -- every file held that is shared with it, with a group it is in,
+	 * or with everyone, as `ok TOTAL FROM ROOT ...`, as many as fit. sec 1016's
+	 * other way round, which fuzzypickles' Peers page asked for: what has been
+	 * given to one person. CONTACT a name or a key. */
+	if (request->parsed == FZN_VERB_GET && w_len == 6u && memcmp(w, "shared", 6u) == 0) {
+		static uint8_t (*roots)[FZN_BLOB_HASH_LEN];
+		static size_t roots_cap;
+		uint8_t who[FZN_PUBKEY_LEN];
+		fzn_contact_t c;
+		const uint8_t *cw;
+		size_t cw_len, held = 0, total = 0, from = 0, i, used;
+		int r;
+
+		if (!next_word(&at, &left, &cw, &cw_len))
+			return (size_t)snprintf(reply, reply_cap, "malformed get file shared CONTACT [FROM]\n");
+		if (unhex_n(cw, cw_len, who, sizeof(who))) {
+			/* a key as given */
+		} else if (fzn_contact_find(node_apply.store, (const char *)cw, cw_len, &c)
+		           == FZN_CONTACT_OK) {
+			memcpy(who, c.key, FZN_PUBKEY_LEN);
+		} else {
+			return (size_t)snprintf(reply, reply_cap, "error no such contact\n");
+		}
+		if (next_word(&at, &left, &cw, &cw_len)) {
+			for (i = 0; i < cw_len; i++) {
+				if (cw[i] < '0' || cw[i] > '9' || from > ((size_t)1 << 30))
+					return (size_t)snprintf(reply, reply_cap,
+					                        "malformed get file shared CONTACT [FROM]\n");
+				from = from * 10u + (size_t)(cw[i] - '0');
+			}
+		}
+		if (fzn_node_files_list((const fzn_node_files_t *)ctx, NULL, 0u, &held)
+		    != FZN_NODE_FILES_OK)
+			return (size_t)snprintf(reply, reply_cap, "error the files did not read\n");
+		if (held > roots_cap) {
+			uint8_t (*more)[FZN_BLOB_HASH_LEN] = realloc(roots, held * sizeof(*more));
+
+			if (!more)
+				return (size_t)snprintf(reply, reply_cap, "error no memory\n");
+			roots = more;
+			roots_cap = held;
+		}
+		if (held && fzn_node_files_list((const fzn_node_files_t *)ctx, roots, roots_cap, &held)
+		                    != FZN_NODE_FILES_OK)
+			return (size_t)snprintf(reply, reply_cap, "error the files did not read\n");
+		if (held > roots_cap)
+			held = roots_cap;
+		/* THE SHARED ONES, in order of root, kept at the front. */
+		for (i = 0; i < held; i++)
+			if (fzn_node_files_shared_with((const fzn_node_files_t *)ctx, roots[i], who))
+				memmove(roots[total++], roots[i], FZN_BLOB_HASH_LEN);
+		if (from > total)
+			return (size_t)snprintf(reply, reply_cap, "malformed past the last file\n");
+		r = snprintf(reply, reply_cap, "ok %zu %zu", total, from);
+		if (r < 0 || (size_t)r >= reply_cap)
+			return 0;
+		used = (size_t)r;
+		for (i = from; i < total && used + 2u * FZN_BLOB_HASH_LEN + 3u < reply_cap; i++) {
+			reply[used++] = ' ';
+			hex_of(roots[i], FZN_BLOB_HASH_LEN, reply + used);
+			used += 2u * FZN_BLOB_HASH_LEN;
+		}
+		reply[used++] = '\n';
+		reply[used] = '\0';
+		return used;
+	}
 	/* `get file ROOT shares [FROM]`: whom a file is shared with, sec 1016 --
 	 * `ok TOTAL FROM ROW ...`, a ROW `contact,KEY,NAME`, `group,ID,NAME` or
 	 * `everyone`, as many as fit. fuzzypickles' 20261111T0225Z: a client could

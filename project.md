@@ -84693,3 +84693,18 @@ d2 fails at C (`2,received,3,1`); a hub reporting only to a sole member, d2 fail
 
 **Not built:** what a member hears of another member's frames end to end -- the hub's leg to the
 sender and its leg to the receiver are each measured, and their sum is the client's to read.
+
+## 1028. What one contact may fetch from this host, listed, 2026-11-11
+
+Sec 1016's other way round, which it left not built: fuzzypickles' Peers page wants to show a
+person what they have given one contact, and `get file ROOT shares` answers only per file.
+
+**`get file shared CONTACT [FROM]`**: `ok TOTAL FROM ROOT ...`, every file held here that CONTACT
+may fetch -- shared with it, with a group it is in, or with everyone -- in order of root, as many
+as fit, paged as `get file ROOT shares` is. CONTACT a name or a key. It asks
+`fzn_node_files_shared_with`, the test a fetch itself is held to, so what is listed is what the
+contact could fetch now, not only what was granted to it by name.
+
+`live_groups` phase f0: alice granted by name and C through the group may each fetch B's file;
+alice revoked may still, being a member; the group's grant revoked, neither may. **Control:** the
+verb listing every held file, f0 fails once the group's grant is revoked.
