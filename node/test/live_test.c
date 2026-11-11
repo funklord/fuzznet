@@ -80,24 +80,24 @@ static void test_words(void)
 	buf[1] = FZN_TYPE_LIVE + 1u;
 	CHECK(!fzn_live_is_word(buf, n), "another type was taken for a live word");
 
-	/* A MEMBER, sec 1024: who the hub numbers INDEX; 0 is the caller, never
+	/* A PARTICIPANT, sec 1024: who the hub numbers INDEX; 0 is the caller, never
 	 * said. */
 	{
 		uint8_t named[FZN_PUBKEY_LEN];
 
 		memset(named, 0x5a, sizeof(named));
 		memset(&w, 0, sizeof(w));
-		w.kind = FZN_LIVE_MEMBER;
+		w.kind = FZN_LIVE_PARTICIPANT;
 		memset(w.call, 0xc5, sizeof(w.call));
 		w.from = 300u;
 		w.whom = named;
 		n = fzn_live_write(&w, buf, sizeof(buf));
-		CHECK(n == FZN_LIVE_MEMBER_LEN && fzn_live_read(buf, n, &r) && r.kind == FZN_LIVE_MEMBER
+		CHECK(n == FZN_LIVE_PARTICIPANT_LEN && fzn_live_read(buf, n, &r) && r.kind == FZN_LIVE_PARTICIPANT
 		              && r.from == 300u && memcmp(r.whom, named, sizeof(named)) == 0,
-		      "a member did not read back");
-		CHECK(!fzn_live_read(buf, n - 1u, &r), "a member cut short was read");
+		      "a participant did not read back");
+		CHECK(!fzn_live_read(buf, n - 1u, &r), "a participant cut short was read");
 		w.from = 0u;
-		CHECK(fzn_live_write(&w, buf, sizeof(buf)) == 0u, "the caller's 0 was said as a member");
+		CHECK(fzn_live_write(&w, buf, sizeof(buf)) == 0u, "the caller's 0 was said as a participant");
 	}
 }
 

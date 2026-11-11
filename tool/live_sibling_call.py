@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""A call on a client's session: a user's device rings, answers, carries and places
-calls through its host: sec 1025.
+"""A call on a sibling's session: another host of the user's -- a paired phone --
+rings, answers, carries and places calls through this host: sec 1025.
 
 Two stores over loopback, A and B, users who are contacts, as in live_call.py; and
-D, a device paired to B's estate, reaching B's host straight over UDP as a client
-on a host would (`device_sim ... live`, which says words in hex and prints in hex
+D, a phone paired to B's estate -- a sibling of B's host -- reaching it straight over
+UDP (`device_sim ... live`, which says words in hex and prints in hex
 each word it hears).
 
     a  A rings B: D, listening, hears the RING
     b  D answers: A holds the call up, and D hears A's frame
-    c  D sends a frame: A reads it as from its one member, 1
+    c  D sends a frame: A reads it as from its one participant, 1
     d  D hangs up: neither host holds the call
     e  D places a call to A: A holds it ringing in, answers, and D hears the
        answer; A hangs up and D hears that too
 
-Against a daemon that rings no client, a never hears the RING; against one that
-takes no client's word, b never holds the call up.
+Against a daemon that rings no sibling, a never hears the RING; against one that
+takes no sibling's word, b never holds the call up.
 
 BOUNDED FROM INSIDE as live_rejoin.py is, whose daemon handling this reuses: one
 deadline, each daemon in its own process group, and every device run bounded by
@@ -116,7 +116,7 @@ class device:
 
 def main(argv):
 	if len(argv) != 3:
-		print("usage: live_client_call.py PATH_TO_FUZZNETD PATH_TO_DEVICE_SIM", file=sys.stderr)
+		print("usage: live_sibling_call.py PATH_TO_FUZZNETD PATH_TO_DEVICE_SIM", file=sys.stderr)
 		return 2
 
 	class run:
@@ -205,7 +205,7 @@ def main(argv):
 			      lambda: "1,9,500,0,1,0b0e,1" in frames(socks["a"], rung[1]))
 			sending.finish()
 			running.remove(sending)
-			print("livecheck: c: D sent a frame, and A read it, from its one member")
+			print("livecheck: c: D sent a frame, and A read it, from its one participant")
 
 			# d: D HANGS UP.
 			hanging = device(run, [word(HANGUP, call)], 2)
@@ -242,7 +242,7 @@ def main(argv):
 			for who in ("a", "b"):
 				if who in started:
 					started[who].stop()
-	print("livecheck: a call was carried on a device's session, both ways")
+	print("livecheck: a call was carried on a sibling's session, both ways")
 	return 0
 
 

@@ -7044,7 +7044,7 @@ endif
 	@timeout 200 python3 tool/live_host_session.py $(EXT_DAEMON)
 	@timeout 440 python3 tool/live_call.py $(FUZZNETD)
 	@timeout 580 python3 tool/live_group_call.py $(FUZZNETD)
-	@timeout 480 python3 tool/live_client_call.py $(FUZZNETD) $(DEVICE_SIM)
+	@timeout 480 python3 tool/live_sibling_call.py $(FUZZNETD) $(DEVICE_SIM)
 	@timeout 660 python3 tool/live_many_notes.py $(FUZZNETD)
 	@timeout 440 python3 tool/live_many_shared.py $(FUZZNETD)
 	@timeout 220 python3 tool/live_many_contacts.py $(FUZZNETD)

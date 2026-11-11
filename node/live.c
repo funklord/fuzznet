@@ -45,8 +45,8 @@ int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
 		out->last_at_ms = fzn_get_be32(at + 11);
 		out->held_ms = fzn_get_be32(at + 15);
 		return 1;
-	case FZN_LIVE_MEMBER:
-		if (len != FZN_LIVE_MEMBER_LEN)
+	case FZN_LIVE_PARTICIPANT:
+		if (len != FZN_LIVE_PARTICIPANT_LEN)
 			return 0;
 		out->from = fzn_get_be16(at);
 		out->whom = at + 2;
@@ -93,10 +93,10 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 	case FZN_LIVE_REPORT:
 		len = FZN_LIVE_REPORT_LEN;
 		break;
-	case FZN_LIVE_MEMBER:
+	case FZN_LIVE_PARTICIPANT:
 		if (!w->whom || !w->from)
 			return 0;
-		len = FZN_LIVE_MEMBER_LEN;
+		len = FZN_LIVE_PARTICIPANT_LEN;
 		break;
 	default:
 		return 0;
@@ -121,7 +121,7 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 		fzn_put_be16(at + 13, w->pieces);
 		if (w->media_len)
 			memcpy(out + FZN_LIVE_FRAME_HEAD_LEN, w->media, w->media_len);
-	} else if (w->kind == FZN_LIVE_MEMBER) {
+	} else if (w->kind == FZN_LIVE_PARTICIPANT) {
 		fzn_put_be16(out + FZN_LIVE_HEAD_LEN, w->from);
 		memcpy(out + FZN_LIVE_HEAD_LEN + 2u, w->whom, FZN_PUBKEY_LEN);
 	} else if (w->kind == FZN_LIVE_REPORT) {

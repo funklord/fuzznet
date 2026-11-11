@@ -81028,9 +81028,13 @@ The holder's, settling how the project talks and what each part is.
   **Open from it:** `device/` names the medium "bearer" (`fzn_bearer_t`), the same thing as link
   here under a second word -- one is to go, link preferred as the network word; `link/` measures
   what are now legs, and moves to leg measurement, per direction, on the metric layer (sec 1034);
-  sec 1027's `struct live_leg` names the hub's path to a participant's host, which may cross a
-  relay, and is renamed for that. Bare **route** and **peer** keep their networking senses; sec
+  sec 1027's `struct live_leg` named the hub's path to a participant's host, which may cross a
+  relay, and is `struct live_path` now. Bare **route** and **peer** keep their networking senses; sec
   622's relay note and fuzznet's paired hosts take qualified names when renamed.
+  - a **sibling** is another host of the same user, as the project has long said ("that user's
+    siblings", sec 5): a paired phone is one;
+  - a **participant** is a party to a call, numbered by the caller's host (sec 1024) -- not a
+    member, which is an estate's or a group's.
 - **Daemons and clients** are processes of a host, any number, several daemons
   being different apps. Within a user auth is always granted, so from outside they
   are one host and delegate external work amongst themselves.
@@ -85038,13 +85042,17 @@ why, and one is changed, where it serves better, until they are the same.
 - **"Client" was misused by sec 1025.** It calls a phone paired to the estate, on a session with
   its host, "a client of this host"; that phone, with its own key, is a **host** of the estate,
   and "client" alone is the English word, not a term (sec 906 as amended the same day). Sec 1025's subject is "another host of the
-  user's, on a session with this one" -- `live_client`, `say_clients`, `has_client` and the
-  `live_client_call` script are named for the wrong word, and are to be renamed with the record.
+  user's, on a session with this one", a **sibling**: `live_client`, `say_clients`, `has_client`
+  and `live_client_call.py` were renamed `live_sibling`, `say_siblings`, `has_sibling` and
+  `live_sibling_call.py`, with the code's own comments.
 - **Link, path, route and leg**, analysed wrongly here first and corrected by the holder the same
   day: a path is the whole trip and a leg one indivisible part of it, as in networking. Decided
   in sec 906 as path, leg, hop and link, link being the medium a leg runs over. So sec 1027
   misnamed its subject: what it calls a member's leg is the hub's **path** to that member's
-  host, which may cross a relay -- `struct live_leg` and the word in sec 1027 are to be renamed.
+  host, which may cross a relay -- `struct live_leg` is `struct live_path` now, its reporter
+  `live_report_path`.
   **"Route"** (sec 622, a relay's note of where an answer goes back) collides with the networking
   sense, a chosen path, and is to be renamed for what it is. **"Member"** now means three things --
-  of an estate, of a group, and a call's participant (sec 1022) -- the third to be renamed.
+  of an estate, of a group, and a call's participant (sec 1022) -- the third renamed: the code's
+  `live_participant`, `participant_at` and their kin, the word `FZN_LIVE_PARTICIPANT` (kind 7,
+  its bytes unchanged), and the verb `get call ID participants`, where it was `members`.

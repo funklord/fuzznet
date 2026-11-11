@@ -127,7 +127,7 @@ def main(argv):
 			print("livecheck: b: B answered, and A holds the call up")
 
 			# c: A SENDS A FRAME, d: B ONE BACK.
-			# FROM, sec 1024: the caller 0, the callee its one member, 1.
+			# FROM, sec 1024: the caller 0, the callee its one participant, 1.
 			for frm, to, media, seq, number in (("a", "b", "c0ffee", 7, 0),
 			                                   ("b", "a", "0b0e", 9, 1)):
 				said = ask(socks[frm], "add frame %s 1 %d 1234 0 1 %s" % (call, seq, media))

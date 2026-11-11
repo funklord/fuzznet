@@ -11,11 +11,11 @@ Three stores over loopback, A a contact of B and of C, each host running through
     d2 B sends video pieces 1, 2 and 4: A, the hub, measures B's leg -- three
        received and one lost -- and reports it to B, who reads it as what it
        sent; C counts none of them, they being B's leg and not C's; A asked for
-       quality with no member's number is refused (sec 1027)
+       quality with no participant's number is refused (sec 1027)
     e  B hangs up; A still holds the call, and C's frame reaches A
     f  C hangs up; A holds the call no more
 
-Against a daemon whose hub passes no member's frame on to the others, d fails at C
+Against a daemon whose hub passes no participant's frame on to the others, d fails at C
 (run by hand, sec 1022).
 
 BOUNDED FROM INSIDE as live_rejoin.py is, whose daemon handling this reuses: one
@@ -144,15 +144,15 @@ def main(argv):
 			print("livecheck: c: A sent a frame, and B and C each read it")
 			sends("b", 2, ("a", "c"))
 			print("livecheck: d: B sent a frame, and A read it, and C, A's host passing it on")
-			# WHO EACH NUMBER IS: A its members, B and C each the other.
-			def members(who):
-				got = ask(socks[who], "get call %s members" % call).split()
+			# WHO EACH NUMBER IS: A its participants, B and C each the other.
+			def participants(who):
+				got = ask(socks[who], "get call %s participants" % call).split()
 				return set(got[2:]) if got[:1] == ["ok"] else None
-			if members("a") != {"1," + keys["b"], "2," + keys["c"]}:
-				raise failed("d: A names its members %r" % members("a"))
+			if participants("a") != {"1," + keys["b"], "2," + keys["c"]}:
+				raise failed("d: A names its participants %r" % participants("a"))
 			for who, other in (("b", "c"), ("c", "b")):
 				until("d: %s never learned who %s is" % (who.upper(), other.upper()),
-				      lambda: members(who) == {"%d,%s" % (number[other], keys[other])})
+				      lambda: participants(who) == {"%d,%s" % (number[other], keys[other])})
 			print("livecheck: d: each frame read as from its sender, and each host names them")
 
 			# d2: EACH MEMBER'S LEG ITS OWN, sec 1027.
@@ -169,7 +169,7 @@ def main(argv):
 			if any(r.startswith("2,received,") for r in quality("c")[1:]):
 				raise failed("d2: C counted B's frames as its own leg: %r" % quality("c"))
 			if not quality("a")[0].startswith("malformed"):
-				raise failed("d2: A answered quality with no member's number: %r" % quality("a"))
+				raise failed("d2: A answered quality with no participant's number: %r" % quality("a"))
 			print("livecheck: d2: A measured B's leg, 3 received and 1 lost, and B reads it; "
 			      "C counted none")
 
