@@ -96,7 +96,9 @@ class device:
 	def heard(self):
 		self.out.flush()
 		self.out.seek(0)
-		return [bytes.fromhex(line.split()[-1]) for line in self.out.read().splitlines()
+		# WHOLE LINES ONLY: the last, unended, may still be being written.
+		lines = self.out.read().split("\n")[:-1]
+		return [bytes.fromhex(line[len("device: heard hex "):]) for line in lines
 		        if line.startswith("device: heard hex ")]
 
 	def finish(self):

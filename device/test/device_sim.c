@@ -102,10 +102,20 @@ static void heard(void *ctx, const uint8_t *bytes, size_t len)
 		        (const char *)bytes);
 		return;
 	}
-	fprintf(stderr, "device: heard hex ");
-	for (i = 0; i < len; i++)
-		fprintf(stderr, "%02x", bytes[i]);
-	fprintf(stderr, "\n");
+	/* IN ONE WRITE: stderr is unbuffered, and a line printed in pieces is read
+	 * torn by whoever is watching it. */
+	{
+		static const char digits[] = "0123456789abcdef";
+		static char line[32u + 2u * FZN_BEARER_FRAME_MAX];
+		size_t at = (size_t)snprintf(line, sizeof(line), "device: heard hex ");
+
+		for (i = 0; i < len && at + 3u < sizeof(line); i++) {
+			line[at++] = digits[bytes[i] >> 4];
+			line[at++] = digits[bytes[i] & 0x0fu];
+		}
+		line[at++] = '\n';
+		(void)fwrite(line, 1u, at, stderr);
+	}
 }
 
 /* A CLIENT IN A CALL, sec 1025: each hex word of `words` said, then `seconds`
