@@ -85109,6 +85109,13 @@ session, a relay -- for the pair to use: the freshest direct way, sec 1030's rul
 where none is fresh. The rounds' targets become a view of it, and the seen and introduced tables
 its writers. ICE names the parts (sec 906's research): candidate, candidate pair, nominated.
 
+**Step 1, built:** `node/reach.{h,c}`, the table and its rule, wired to nothing yet. The rule:
+of a host's pairs still held, HELLO, then SESSION, then INTRODUCED, then MANIFEST, then
+ADVERTISED, the newer of one source; holds of 300 s for a hello and a session's frame, 600 s for an
+introduction, as the stores held them; a told address repeating a way a hello proved leaves it
+proven. `reach_test` holds the contact round's order and `session_ask`'s as cases, with lapsing,
+ties and a full table; four sabotage entries, each caught.
+
 **The steps:** the table and its rule, with a unit test that holds each reader's current order as a
 case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'
 targets made a view; the link figures re-keyed by pair. Each step keeps `live_call`,

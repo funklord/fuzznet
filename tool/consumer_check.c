@@ -212,6 +212,7 @@
 #include <fuzznet/node/verify_memo.h>
 #include <fuzznet/node/sessions.h>
 #include <fuzznet/node/live.h>
+#include <fuzznet/node/reach.h>
 #include <fuzznet/wire/session_frame.h>
 #include <fuzznet/persist/cache.h>
 #include <fuzznet/persist/delta.h>
@@ -444,6 +445,7 @@
 #include "node/verify_memo.h"
 #include "node/sessions.h"
 #include "node/live.h"
+#include "node/reach.h"
 #include "wire/session_frame.h"
 #include "persist/cache.h"
 #include "persist/delta.h"
