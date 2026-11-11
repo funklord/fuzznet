@@ -34,7 +34,7 @@ struct fzn_frame size=144..1168 mutate=Immutable address=Unstable repr=ValueConv
   fzn_frame.head.index                   offset=AbsoluteStatic(0x5A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord auth=Covered(tag)
   fzn_frame.head.chunks                  offset=AbsoluteStatic(0x5C) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord auth=Covered(tag)
   fzn_frame.head.length                  offset=AbsoluteStatic(0x5E) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord auth=Covered(tag)
-  fzn_frame.sealed                       offset=AbsoluteStatic(0x60) size=Bounded(32, 1056) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting stage=VerifyGated auth=Covered(tag)
+  fzn_frame.sealed                       offset=AbsoluteStatic(0x60) size=Bounded(32, 1056) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting stage=VerifyGated auth=Covered(tag) nonce=head.nonce
   fzn_frame.sealed.capability            offset=AbsoluteStatic(0x60) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic stage=VerifyGated auth=Covered(tag)
   fzn_frame.sealed.payload               offset=AbsoluteStatic(0x80) size=Bounded(0, 1024) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting stage=VerifyGated auth=Covered(tag)
   fzn_frame.tag                          offset=Dynamic size=Fixed(16) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Immutable address=Unstable

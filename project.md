@@ -84230,3 +84230,14 @@ to the whole key would move every estate's names to new setting keys, a change o
 `tool/live_name_cells.py`, in `make livecheck`: three contacts of one cell and one of its own,
 three rounds started by groups made; each keeps the name it was added with and is found by it.
 **Control:** the daemon before this fails, `ann` listed as `cy`.
+
+## 1011. situ's runtime taken at 570cec63, and the frame's map with it, 2026-11-11
+
+Sec 1008's open item. `make schema SITU_DIR=../situ` against situ `570cec63` stopped at
+`wire/frame.situ.map is stale`, then at `wire/generated/situ.h has drifted`. The map's one line
+gains `nonce=head.nonce`, situ naming the field that is the frame's nonce; the wire contract,
+the generated frame code and the tamper harness were current. The runtime's two files, banner
+kept and body replaced, gain 486 lines and lose none -- new `static inline` readers and writers
+(signed LEB, EBML, UTF-8, bijective and prefixed varints, a relaxed scan, a padded unsigned
+parse) that nothing here calls yet. `make schema` now passes whole: contract, maps, generated C,
+tamper harness and vendored runtime. `make test`, `installcheck` and `style` pass with it.
