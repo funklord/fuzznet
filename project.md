@@ -85158,6 +85158,12 @@ one frame, which a route cannot carry, and any host without a hello, go as befor
 conversations (`fzn_node_talk`, sec 636), which meter links the same way and send from the
 target's socket inside the library, untouched here. So the next step is the conversations sent by
 the same way; until then this covers the reconcile asks alone, and no answered ask has been seen.
+**The shape of that step:** not a second special case but one place -- `fzn_node_asks_send` and
+its resend call `fzn_caller_send` and `fzn_caller_resend` on the target's caller, as `peer_ask`
+does, so an optional send hook on the caller (`node/caller.h`), set from the rule each round,
+carries every single-frame request and resend of a hello's way from the serving socket with its
+route back; `peer_ask`'s case here is then removed, and the hull reading (A's asks of B answered)
+is what shows it.
 Nothing regressed: `live_deliver`, `live_relay`, `live_groups`, `live_soon`, the three call
 scripts and the hull journey pass.
 
