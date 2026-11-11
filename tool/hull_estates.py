@@ -59,6 +59,10 @@ TUNE = {"FZN_TUNE_PULL_EVERY": "5"}
 # A'S ROOT RELAYING, or -- HULL_ESTATES_RELAY=0 -- not: then A's phone's
 # line can reach B only by an introduction through A's root (sec 698).
 RELAY = "off" if os.environ.get("HULL_ESTATES_RELAY") == "0" else "on"
+# A CALL BETWEEN TWO HOSTS BOTH BEHIND NATS -- A's phone to B's root -- only
+# with HULL_ESTATES_BOTH_NAT=1: it fails today (sec 1032), and a known failure
+# left on would turn every run red and hide a new one.
+BOTH_NAT = os.environ.get("HULL_ESTATES_BOTH_NAT") == "1"
 LINE_B = "62" * 16
 LINE_A = "61" * 16
 
@@ -108,8 +112,10 @@ def plans():
 		 "soft": True},
 		# A CALL TO B, whose root nothing outside reaches (sec 1030): rung,
 		# answered there, and a frame each way, as directly as the NAT allows.
-		{"ask": "add call bob audio", "expect": "ok", "word": 1, "var": "call", "put": "call.ab",
-		 "label": "A's root rings B", "soft": True},
+		# ASKED AGAIN until B's host is one the round reaches, which a line
+		# from B can precede by seconds.
+		{"until": "add call bob audio", "contains": "ok ", "within": 120, "word": 1,
+		 "var": "call", "put": "call.ab", "label": "A's root rings B", "soft": True},
 		{"until": "list call", "contains": "{call},up", "within": 90,
 		 "label": "A's root holds the call to B up", "soft": True},
 		{"ask": "add frame {call} 1 1 500 0 1 c0ffee", "soft": True},
@@ -139,7 +145,20 @@ def plans():
 		{"ask": "list contact", "label": "A's phone's contacts", "keep": True, "soft": True},
 		{"ask": "add message {broot} out %s hello%%20from%%20a%%20phone" % LINE_A, "expect": "ok",
 		 "label": "A's phone writes B", "soft": True},
-	]
+	] + ([
+		# A CALL BETWEEN TWO HOSTS BOTH BEHIND NATS, sec 1032: the phone rings
+		# B's root, once A's root's call to B is over.
+		{"wait": "call.ab.done", "soft": True},
+		{"until": "add call bob audio", "contains": "ok ", "within": 120, "word": 1,
+		 "var": "call", "put": "call.pb", "label": "A's phone rings B", "soft": True},
+		{"until": "list call", "contains": "{call},up", "within": 90,
+		 "label": "A's phone holds the call to B up", "soft": True},
+		{"ask": "add frame {call} 1 1 500 0 1 c0ffee", "soft": True},
+		{"ask": "add frame {call} 1 2 520 0 1 c0ffee", "soft": True},
+		{"ask": "add frame {call} 1 3 540 0 1 c0ffee", "soft": True},
+		{"until": "list frame {call}", "contains": "0b0e", "within": 60,
+		 "label": "B's frame at A's phone", "soft": True},
+	] if BOTH_NAT else [])
 	b_root = [
 		{"cli": ["--new-root"]},
 		{"wait": "prekey.b_home", "var": "pk"},
@@ -166,6 +185,21 @@ def plans():
 		{"ask": "add frame {call} 1 1 500 0 1 0b0e", "soft": True},
 		{"ask": "add frame {call} 1 2 520 0 1 0b0e", "soft": True},
 		{"ask": "add frame {call} 1 3 540 0 1 0b0e", "soft": True},
+		{"until": "list call", "contains": "ok 0", "within": 30, "soft": True},
+		{"ask": "status", "put": "call.ab.done", "soft": True},
+	] + ([
+		# THE PHONE'S CALL, both ends behind NATs (sec 1032).
+		{"wait": "call.pb", "var": "pcall", "soft": True},
+		{"until": "list call", "contains": "{pcall},ringing-in", "within": 90,
+		 "label": "B's root hears the phone's call ring", "soft": True},
+		{"ask": "set call {pcall} answer", "expect": "ok", "label": "B's root answers the phone",
+		 "soft": True},
+		{"until": "list frame {pcall}", "contains": "c0ffee", "within": 60,
+		 "label": "the phone's frame at B's root", "soft": True},
+		{"ask": "add frame {pcall} 1 1 500 0 1 0b0e", "soft": True},
+		{"ask": "add frame {pcall} 1 2 520 0 1 0b0e", "soft": True},
+		{"ask": "add frame {pcall} 1 3 540 0 1 0b0e", "soft": True},
+	] if BOTH_NAT else []) + [
 		{"until": "list message {aroot}", "contains": "hello%20from%20a%20phone", "within": 300,
 		 "label": "A's phone's line at B's root", "soft": True},
 		# WHICH OF A'S DEVICES B KNOWS: a line relayed from one B holds no

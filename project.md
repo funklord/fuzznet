@@ -84827,3 +84827,24 @@ other than to a foreign one, or the reverse -- two phones abroad in one country 
 bandwidth of a detour home. Path choice is per leg: a call is many senders to many receivers
 (secs 1022, 1024), and each leg is measured on its own (sec 1027). Congestion and priority
 algorithms for streams are to be studied with statistics later.
+
+## 1032. A call between two hosts both behind NATs does not ring yet, 2026-11-11
+
+Measured on hull after sec 1031, in the same run: A's root to B's root passed again (rang at 11.4 s,
+up at 29.4 s, a frame each way), and **A's phone, behind a NAT of its own, calling B's root, behind
+gateway B, never rang** -- the phone's call stayed ringing out and expired, B's root never held it.
+`tool/hull_estates.py` keeps that journey behind `HULL_ESTATES_BOTH_NAT=1`, off by default, so a
+known failure does not turn every run red.
+
+**Why, from the code, not yet confirmed on hull:** neither host has a hello path to the other.
+B knows the phone with no address, so B's hellos to it go nowhere; the phone knows B only at
+`192.168.2.10`, behind B's NAT, so its hellos are lost. Sec 1031's ask waits on a hello that never
+comes, and falls back to the round's address, which nothing reaches. An introduction through A's
+root (sec 698) punches a hole -- but for the phone's **contact-target** socket and B's serving
+socket, while a call's session lives on each host's **serving** socket.
+
+**The next step, as direct as possible:** an introduction for the serving sockets, or a session
+carried on the pair an introduction punched -- the first keeps one socket for every session and
+needs the introducer to name the serving socket's mapping. Failing a hole, sec 1030's relay
+fallback: A's root, which both say hello to, forwarding the session's frames. Lines between these
+two already get through by relay (sec 697); a call's frames are never relayed today.
