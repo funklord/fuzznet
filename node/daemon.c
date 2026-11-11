@@ -15892,6 +15892,38 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 	journal_pushed = 1;
 	return (size_t)snprintf(reply, cap, "ok\n");
 }
+
+/* A FILE NO LONGER HELD HERE, its claims taken back, sec 1009: every live assertion
+ * this host made about `root` retracted, as `remove catalog ROOT NAME` does, so the
+ * holders the catalogue names stay the hosts that hold it. fuzzypickles' 20261110T2331Z:
+ * after `remove file` this host was still listed, and other devices went on asking it
+ * for bytes it had let go. How many were taken back. */
+static size_t catalog_retract_own(const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	fzn_catalog_assertion_t *set;
+	size_t n, i, taken = 0;
+
+	if (!contact_id || !(n = fzn_node_catalog_count_of(&node_catalog, root))
+	    || !(set = calloc(n, sizeof(*set))))
+		return 0;
+	n = fzn_node_catalog_assertions(&node_catalog, root, set, n);
+	for (i = 0; i < n; i++)
+		if (set[i].live && set[i].issuer_len == FZN_PUBKEY_LEN
+		    && memcmp(set[i].issuer, contact_id->pubkey, FZN_PUBKEY_LEN) == 0
+		    && fzn_node_journal_append_on(&node_journal, contact_id->pubkey, FZN_CATALOG_STREAM,
+		                                  contact_id->sign, FZN_CATALOG_RETRACT_KIND, root,
+		                                  set[i].name, set[i].name_len, wall_ms(), NULL)
+		               == FZN_NODE_JOURNAL_OK)
+			taken++;
+	free(set);
+	if (taken) {
+		catalog_hushed = 1;
+		index_catalog();
+		catalog_hushed = 0;
+		journal_pushed = 1;
+	}
+	return taken;
+}
 #endif /* FZN_CATALOG_ON */
 
 /* ---- the references of the estate's files, sec 634 --------------------------------
@@ -15965,6 +15997,12 @@ static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request
 		}
 	}
 	n = fzn_node_files_local(ctx, origin, &req, reply, reply_cap);
+#ifdef FZN_CATALOG_ON
+	/* REMOVED, AND ITS CLAIMS WITH IT, sec 1009. */
+	if (request->parsed == FZN_VERB_REMOVE && n >= 2u && reply[0] == 'o' && reply[1] == 'k'
+	    && unhex_n(w, w_len, root, sizeof(root)))
+		(void)catalog_retract_own(root);
+#endif
 	/* A PUT'S ANSWER, `ok REF TIER`. */
 	if (request->parsed == FZN_VERB_PUT && n > 3u + 2u * FZN_NODE_FILE_REF_LEN
 	    && memcmp(reply, "ok ", 3u) == 0

@@ -84186,3 +84186,20 @@ with the very `#error` the message quotes: moved there in sec 836. raidcfgd was 
 stops at `wire/frame.situ.map is stale` -- the frame's map as situ's HEAD writes it differs from
 the committed one, situ having moved past `224a7856`. `make schema` is out of `make check` and
 nothing is wrong in the code it checks; taking situ's HEAD is a re-vendor, its own piece of work.
+
+## 1009. A file removed here takes this host's catalogue claims with it, 2026-11-11
+
+**Reported by fuzzypickles (inbox, 2026-11-10 23:31Z):** after `remove file ROOT` -- this
+device's copy let go, the library entry and other devices' copies kept -- `get file ROOT` read the
+bytes as gone, but `get catalog ROOT` still listed this host among the holders and `list catalog`
+still paired the root with it. The holders are the issuers of live assertions (C8), and a removal
+retracted none, so other devices went on asking this host for bytes it no longer had.
+
+**Now:** a `remove file` that is answered `ok` retracts every live assertion this host made about
+the root, each by the RETRACT record `remove catalog ROOT NAME` writes, and the catalogue is
+indexed again at once. Done where the daemon wraps the files verbs (`files_local_refs`), the files
+library knowing nothing of the catalogue; in a build without the catalogue, nothing to do.
+
+`live_catalog` phase c2: B, having named the file three times, removes its copy; B lists no name
+and no holder at once, and A, at its next round, no holder. **Control:** the daemon before this
+change fails c2, B still listing `tune` and itself holding.

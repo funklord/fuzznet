@@ -11,6 +11,8 @@ with a grant it can pass on, pulling from A.
        what A put, and names it too: both hosts list the two names, each by
        its own host, and two holders
     c  A takes its name back: B lists B's alone, and one holder
+    c2 B removes its copy: its names go with it, at B at once and at A at
+       its next round, and nobody is listed holding the file (sec 1009)
     g  A makes a group; B, holding none, learns it from its sibling at its
        next round, with the same members (sec 626)
     l  A catalogues 400 files of three names, past the 1024 entries a table
@@ -238,6 +240,15 @@ def main(argv):
 			if holders("b", root) != [key_b[:16]]:
 				raise failed("c: B's holders are %r, not B alone" % holders("b", root))
 			print("livecheck: c: A took its name back; B lists its own alone, one holder")
+
+			# c2: B lets its copy go, and its claims with it (sec 1009).
+			expect(socks["b"], "b", "remove file " + root, "ok")
+			if holders("b", root) or listed("b", root):
+				raise failed("c2: B removed the file and still lists %r, holders %r"
+				             % (listed("b", root), holders("b", root)))
+			until(lambda: not holders("a", root), "c2")
+			print("livecheck: c2: B removed its copy, and no host is listed holding it, at B "
+			      "or at A")
 
 			# g: a group made at A, learned by its sibling B (sec 626).
 			# ITS ID ANSWERED, sec 648.
