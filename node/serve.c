@@ -456,7 +456,10 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 
 		if (fzn_seal_peek(frame, flen, &head) == FZN_SEAL_OK
 		    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)
-		    && !opens_here(state, frame, flen, head.sender)) {
+		    /* THIS HOST'S OWN ROUTE, sec 1031: an answer to its own ask, which
+		     * opens here and is still for the socket awaiting it. */
+		    && (fzn_node_relay_owns(state->relay, head.sender, head.msg, now)
+		        || !opens_here(state, frame, flen, head.sender))) {
 			(void)fzn_udp_send(state->udp_fd, &back, frame, flen);
 			return;
 		}

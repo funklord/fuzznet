@@ -58,7 +58,33 @@ void fzn_node_relay_route(fzn_node_relay_t *r, const uint8_t target[FZN_PUBKEY_L
 	r->routes[pick].msg = msg;
 	r->routes[pick].back = *back;
 	r->routes[pick].until = now + FZN_NODE_RELAY_ROUTE_S;
+	r->routes[pick].own = 0;
 	r->routes[pick].used = 1;
+}
+
+void fzn_node_relay_route_own(fzn_node_relay_t *r, const uint8_t target[FZN_PUBKEY_LEN],
+                              uint32_t msg, const fzn_udp_addr_t *back, uint64_t now)
+{
+	size_t i;
+
+	fzn_node_relay_route(r, target, msg, back, now);
+	for (i = 0; r && r->routes && target && i < r->routes_cap; i++)
+		if (r->routes[i].used && r->routes[i].msg == msg
+		    && memcmp(r->routes[i].target, target, FZN_PUBKEY_LEN) == 0)
+			r->routes[i].own = 1;
+}
+
+int fzn_node_relay_owns(const fzn_node_relay_t *r, const uint8_t sender[FZN_PUBKEY_LEN],
+                        uint32_t msg, uint64_t now)
+{
+	size_t i;
+
+	for (i = 0; r && r->routes && sender && i < r->routes_cap; i++)
+		if (r->routes[i].used && r->routes[i].own && r->routes[i].msg == msg
+		    && r->routes[i].until > now
+		    && memcmp(r->routes[i].target, sender, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	return 0;
 }
 
 int fzn_node_relay_back(const fzn_node_relay_t *r, const uint8_t sender[FZN_PUBKEY_LEN],

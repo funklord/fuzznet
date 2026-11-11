@@ -84783,3 +84783,47 @@ call's own.
 
 Gap 1 is this rule's first step: it makes direct work where it can. Gap 2 is its fallback, and 3
 the exception the holder asked about; 3 cannot be measured before 2 exists.
+
+## 1031. A call asked where a host behind a NAT said hello from, 2026-11-11
+
+Sec 1030's first gap, measured before it was fixed. `tool/hull_estates.py` gained a call journey:
+A's root, a public server, calls B's root, which sits behind gateway B where nothing outside can
+reach it. On the code before this, lines crossed the NAT both ways and **the call never rang**:
+A's root held B's root at `192.168.2.10:7000`, the address B advertises from behind its NAT, and
+asked the session there from a fresh socket.
+
+**Now `session_ask` asks where the host last said hello from**, when it said hello in the last
+five minutes (`FZND_SESSION_HELLO_S`, a relay's own bound, sec 622). Its hellos come from its
+serving socket to this one's, every twenty seconds (sec 697), and are the way its NAT keeps open
+to this host, so they are as direct a path as the host can be reached by:
+
+- the ask is sealed on its fresh socket's caller as before and **sent from the serving socket**;
+- its answer comes back to the serving socket, so it is **routed on to the fresh socket on
+  loopback** by a relay route marked this host's own (`fzn_node_relay_route_own`): sec 871's
+  check forwards a routed answer only when it does not open here, and an answer to this host's
+  own ask does, so an own route is forwarded regardless;
+- the session's frames then go, as all of them do, from the serving socket to where the session
+  was granted from, through the same open way.
+
+Where no hello is recent, the ask goes to the round's address as before.
+
+**Measured on hull, the same journey after:** A's root rings B at 12.6 s; B hears it ring at 25.0 s
+and answers; A holds the call up at 32.6 s; A's frame reaches B at 26.0 s and B's reaches A at
+33.6 s; every step of the run passes. The run before is the control. On loopback `live_call`,
+`live_group_call`, `live_client_call` and `live_relay` pass. `relay_test` holds an own route as own
+for its life and no longer once routed again for relaying; sabotage `relay-own-route-unmarked`,
+caught; two serve entries re-anchored and caught.
+
+**Not measured:** two hosts both behind NATs calling each other, which needs each to have said
+hello to the other -- sec 697's hellos go to every contact's host, so it should follow, and the
+hull topology has no such pair calling yet. And the ring took 12 s to be heard, which looks like
+waiting for a hello or a resent ask; not yet looked into.
+
+**The holder, while this was built (2026-11-11), on a further path rule**, recorded for the
+statistics sec 1030 calls for and not built: between estates, start streaming *also* to a
+recognised relay or vault host of the receiving estate when the leg to a mobile device is
+intermittent. The case is weak until measured: a user's own hosts may be better connected to each
+other than to a foreign one, or the reverse -- two phones abroad in one country would waste the
+bandwidth of a detour home. Path choice is per leg: a call is many senders to many receivers
+(secs 1022, 1024), and each leg is measured on its own (sec 1027). Congestion and priority
+algorithms for streams are to be studied with statistics later.

@@ -16732,6 +16732,8 @@ static void said_remote(void *ctx, const fzn_opened_t *said)
  * wait. */
 #define FZND_SESSION_ASKS 8u
 #define FZND_SESSION_ASK_WAIT_MS 3000u
+/* A HELLO THIS RECENT says where a host is, sec 1031: a relay's own bound (sec 622). */
+#define FZND_SESSION_HELLO_S 300u
 static struct session_asking {
 	fzn_caller_t caller;
 	int fd;
@@ -16828,6 +16830,48 @@ static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 	memcpy(a->host, host, FZN_PUBKEY_LEN);
 	memcpy(a->to, pt->caller.node.storage, pt->caller.node.len);
 	a->to_len = (unsigned)pt->caller.node.len;
+	/* WHERE THE HOST SAID HELLO FROM, sec 1031: the way its own NAT keeps open
+	 * to this host's serving socket, which is as direct as it can be reached --
+	 * where the address the round holds may be one behind that NAT, which
+	 * nothing outside reaches (measured on hull: A's root held B's root at
+	 * 192.168.2.10, and A's call never rang). So the ask goes from the serving
+	 * socket to there, and its answer, which comes back to the serving socket,
+	 * is routed on to the socket awaiting it here. */
+	if (serving_state && serving_state->relay && serving_state->udp_fd >= 0) {
+		static uint8_t frame[FZN_UDP_DATAGRAM_MAX];
+		fzn_udp_addr_t hello, back;
+		uint64_t seen = 0;
+		uint16_t port = 0;
+		uint32_t msg = 0;
+		size_t frame_len = 0;
+
+		if (fzn_node_relay_where(serving_state->relay, host, &hello, &seen)
+		    && seen + FZND_SESSION_HELLO_S >= wall_clock() && hello.len <= sizeof(a->to)
+		    && fzn_udp_local_port(a->fd, &port) == FZN_UDP_OK
+		    && fzn_udp_resolve(((const struct sockaddr *)hello.storage)->sa_family == AF_INET6
+		                               ? AF_INET6
+		                               : AF_INET,
+		                       ((const struct sockaddr *)hello.storage)->sa_family == AF_INET6
+		                               ? "::1"
+		                               : "127.0.0.1",
+		                       port, &back)
+		               == FZN_UDP_OK
+		    && fzn_caller_seal(&a->caller, request, sizeof(request), wall_clock() + 60u, &msg,
+		                       frame, sizeof(frame), &frame_len)
+		               == FZN_CALLER_OK) {
+			memcpy(a->to, hello.storage, hello.len);
+			a->to_len = (unsigned)hello.len;
+			fzn_node_relay_route_own(serving_state->relay, host, msg, &back, wall_clock());
+			if (fzn_udp_send(serving_state->udp_fd, &hello, frame, frame_len) == FZN_UDP_OK
+			    && fzn_node_asks_await(&round_asks, &a->caller, msg, FZND_SESSION_ASK_WAIT_MS,
+			                           session_granted, a)) {
+				a->live = 1;
+				return 1;
+			}
+			session_ask_close(a);
+			return 0;
+		}
+	}
 	if (!fzn_node_asks_send(&round_asks, &a->caller, request, sizeof(request),
 	                        wall_clock() + 60u, FZND_SESSION_ASK_WAIT_MS, session_granted, a)) {
 		session_ask_close(a);

@@ -55,6 +55,17 @@ static void test_routes_back(void)
 	fzn_node_relay_route(&r, t, 5u, &b, 107u);
 	CHECK(fzn_node_relay_back(&r, t, 5u, 108u, &got) && same(&got, &b),
 	      "routing the same pair again did not replace the route");
+	/* THIS HOST'S OWN, sec 1031: marked so while it stands, and a relayed
+	 * route for the same pair taking its place is no longer. */
+	CHECK(!fzn_node_relay_owns(&r, t, 5u, 108u), "a relayed route read as this host's own");
+	fzn_node_relay_route_own(&r, t, 5u, &a, 109u);
+	CHECK(fzn_node_relay_owns(&r, t, 5u, 110u) && fzn_node_relay_back(&r, t, 5u, 110u, &got)
+	              && same(&got, &a) && !fzn_node_relay_owns(&r, t, 6u, 110u),
+	      "this host's own route did not stand as its own");
+	CHECK(!fzn_node_relay_owns(&r, t, 5u, 109u + FZN_NODE_RELAY_ROUTE_S),
+	      "this host's own route stood past its life");
+	fzn_node_relay_route(&r, t, 5u, &b, 111u);
+	CHECK(!fzn_node_relay_owns(&r, t, 5u, 112u), "a route made again for relaying stayed own");
 	/* FULL: the route nearest its end gives way, not a fresh one. */
 	fzn_node_relay_init(&r);
 	for (i = 0; i < FZN_NODE_RELAY_ROUTES_MAX; i++) {

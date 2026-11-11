@@ -3766,8 +3766,8 @@ SABOTAGES = [
 	(
 		"relay-route-spares-own-frames",
 		"node/serve.c",
-		"\t\t    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    && !opens_here(state, frame, flen, head.sender)) {",
-		"\t\t    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    && (1 || !opens_here(state, frame, flen, head.sender))) {",
+		"\t\t        || !opens_here(state, frame, flen, head.sender))) {",
+		"\t\t        || 1)) {",
 		"a peer's frame to this node under a routed message id is sent to the asker and lost -- sec 871",
 	),
 	(
@@ -14036,8 +14036,8 @@ SABOTAGES = [
 	(
 		"serve-routes-answers-back",
 		"node/serve.c",
-		"\t\t    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    && !opens_here",
-		"\t\t    && 0 && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    && !opens_here",
+		"\t\t    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    /* THIS",
+		"\t\t    && 0 && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)\n\t\t    /* THIS",
 		"a relayed frame's answer is opened here and dropped, and the asker waits out every relayed request -- sec 622",
 	),
 	(
@@ -15198,6 +15198,13 @@ SABOTAGES = [
 		"\tst->last_arrival_ms = now_ms;\n",
 		"",
 		"a receiver reports HELD from no arrival at all, and the round trip is nonsense -- sec 1026",
+	),
+	(
+		"relay-own-route-unmarked",
+		"node/relay.c",
+		"\t\t\tr->routes[i].own = 1;\n",
+		"\t\t\tr->routes[i].own = 0;\n",
+		"an answer to this host's own ask opens here and is not routed on, and a call to a host behind a NAT never rings -- sec 1031",
 	),
 	(
 		"live-frame-from-unread",

@@ -45,6 +45,9 @@ typedef struct fzn_node_relay_route {
 	fzn_udp_addr_t back;
 	uint64_t until;
 	int used;
+	/* THIS HOST'S OWN, sec 1031: an answer to a frame it sent itself from its
+	 * serving socket, routed on to the socket awaiting it here. */
+	int own;
 } fzn_node_relay_route_t;
 
 typedef struct fzn_node_relay_seen {
@@ -75,6 +78,16 @@ int fzn_node_relay_use(fzn_node_relay_t *r, fzn_node_relay_route_t *routes, size
  * expired one, else the one nearest its end. */
 void fzn_node_relay_route(fzn_node_relay_t *r, const uint8_t target[FZN_PUBKEY_LEN], uint32_t msg,
                           const fzn_udp_addr_t *back, uint64_t now);
+
+/* AS `fzn_node_relay_route`, A ROUTE OF THIS HOST'S OWN, sec 1031: the answer
+ * to a frame it sent from its serving socket -- a session asked where a host
+ * behind a NAT said hello from -- routed to the socket that awaits it. */
+void fzn_node_relay_route_own(fzn_node_relay_t *r, const uint8_t target[FZN_PUBKEY_LEN],
+                              uint32_t msg, const fzn_udp_addr_t *back, uint64_t now);
+
+/* WHETHER THE ROUTE FOR `sender`'s `msg` STANDING AT `now` IS THIS HOST'S OWN. */
+int fzn_node_relay_owns(const fzn_node_relay_t *r, const uint8_t sender[FZN_PUBKEY_LEN],
+                        uint32_t msg, uint64_t now);
 
 /* WHERE A FRAME FROM `sender` FOR `msg` GOES BACK, into `back`: 1 when a
  * route stands at `now`. The route stays until it ends -- an answer may be
