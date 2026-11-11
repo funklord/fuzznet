@@ -15130,6 +15130,13 @@ SABOTAGES = [
 		"an attachment's file is asked for by its root alone, which no store fetches -- sec 1001",
 	),
 	(
+		"live-gap-not-lost",
+		"node/live.c",
+		"\t\tst->lost += seq - st->highest - 1u;\n",
+		"\t\t(void)0;\n",
+		"a gap past the highest piece is not counted lost -- sec 1021",
+	),
+	(
 		"live-piece-past-its-pieces",
 		"node/live.c",
 		"\t\treturn out->pieces != 0u && out->piece < out->pieces;\n",

@@ -84470,3 +84470,28 @@ it up; a frame each way read back with its bytes, stream, number and time; A han
 holds it. **Control:** a daemon that hands a call's word to the extension, as before, fails a.
 
 **Next:** rate and quality (step 4) and group calls (step 5), both on this.
+
+## 1021. A call's quality: what the receiver measured, reported to the sender, 2026-11-11
+
+Sec 1017's step 4, its measuring half. A sender cannot see its frames lost or late; its client
+needs to be told, to lower its rate or its resolution. The rate is the client's to change (its
+codec's), so fuzznet measures and reports and does no more.
+
+- **A REPORT word**, kind 6: a stream, the pieces received and lost since the call began, and the
+  jitter of their transit in ms.
+- **Counted at the receiving host** (`fzn_live_count`), a stream each: a gap past the highest piece
+  numbered is lost until a late one fills it; jitter as RTP keeps it (RFC 3550, 6.4.1), the mean
+  of the change in transit, a sixteenth at a time -- arrival in the receiver's ms against capture
+  in the sender's, the clocks' offset cancelling in the change.
+- **Reported each second** a call is up and a stream had frames since the last report, to the
+  other host, which keeps the last of each stream.
+- **`get call ID quality`**: `ok STREAM,DIRECTION,RECEIVED,LOST,JITTER ...`, `sent` the other host's
+  report of this one's frames, `received` this host's own measure of the other's.
+
+`live_test` reads a report back and counts a gap of two lost, a late piece taking one back, and
+jitter from an uneven transit and none from an even one; sabotage `live-gap-not-lost`.
+`live_call` phase e: A sends video pieces 1, 2, 4 and 5; B measures four received and one lost,
+and A reads B's report of it.
+
+**Not built:** a delay figure that needs the two clocks' offset (sec 719 measures it), and the
+client's adapting, which is the client's.

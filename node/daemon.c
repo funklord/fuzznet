@@ -16776,6 +16776,9 @@ int fzn_daemon_say(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, siz
  * FZND_LIVE_KEPT, numbered from 0 as they came: a client that reads more slowly than
  * they come loses the oldest, which a call would rather than wait. */
 #define FZND_LIVE_KEPT 64u
+/* STREAMS A CALL COUNTS: the kinds' numbers, audio 1 and video 2, below this. */
+#define FZND_LIVE_STREAMS 4u
+#define FZND_LIVE_REPORT_MS 1000u
 static fzn_live_calls_t node_calls;
 static struct live_kept {
 	uint8_t call[FZN_LIVE_CALL_LEN];
@@ -16785,6 +16788,12 @@ static struct live_kept {
 	uint8_t ring[FZN_LIVE_RING_LEN]; /* a ring not yet said, and its length */
 	size_t ring_len;
 	uint64_t ring_tried_ms;
+	/* QUALITY, sec 1021, a stream each: what this host measured of the frames it
+	 * received, and what the other host reported of the ones it sent. */
+	fzn_live_stats_t rx[FZND_LIVE_STREAMS];
+	uint32_t rx_reported[FZND_LIVE_STREAMS];
+	fzn_live_word_t tx[FZND_LIVE_STREAMS];
+	uint64_t reported_ms;
 	int used;
 } *live_kept;
 static size_t live_kept_cap;
@@ -16896,6 +16905,11 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 	case FZN_LIVE_DECLINE:
 		live_end(c, "declined");
 		break;
+	case FZN_LIVE_REPORT:
+		/* WHAT THE OTHER HOST HEARD of this host's frames, sec 1021. */
+		if (w.stream < FZND_LIVE_STREAMS && (k = kept_of(w.call, 1)) != NULL)
+			k->tx[w.stream] = w;
+		break;
 	case FZN_LIVE_HANGUP:
 		live_end(c, "hung-up");
 		break;
@@ -16906,6 +16920,8 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		memcpy(k->words[k->total % FZND_LIVE_KEPT], bytes, len);
 		k->lens[k->total % FZND_LIVE_KEPT] = (uint16_t)len;
 		k->total++;
+		if (w.stream < FZND_LIVE_STREAMS)
+			fzn_live_count(&k->rx[w.stream], w.seq, w.at_ms, wall_ms());
 		{
 			char name[2u * FZN_LIVE_CALL_LEN + 1u];
 
@@ -16936,6 +16952,37 @@ static void live_pump(void)
 			continue;
 		if (fzn_daemon_say(c->host, k->ring, k->ring_len))
 			k->ring_len = 0;
+	}
+	/* QUALITY REPORTED, sec 1021: each second a call is up and a stream had
+	 * frames since the last, what this host measured of it, to the other host. */
+	for (i = 0; i < live_kept_cap; i++) {
+		struct live_kept *k = &live_kept[i];
+		fzn_live_call_t *c;
+		size_t st;
+
+		if (!k->used || now_ms < k->reported_ms + FZND_LIVE_REPORT_MS
+		    || !(c = fzn_live_find(&node_calls, k->call)) || c->state != FZN_LIVE_UP)
+			continue;
+		k->reported_ms = now_ms;
+		for (st = 0; st < FZND_LIVE_STREAMS; st++) {
+			fzn_live_word_t w;
+			uint8_t word[FZN_LIVE_REPORT_LEN];
+			size_t len;
+
+			if (!k->rx[st].started || k->rx[st].received == k->rx_reported[st])
+				continue;
+			memset(&w, 0, sizeof(w));
+			w.kind = FZN_LIVE_REPORT;
+			memcpy(w.call, k->call, FZN_LIVE_CALL_LEN);
+			w.stream = (uint8_t)st;
+			w.received = k->rx[st].received;
+			w.lost = k->rx[st].lost;
+			w.jitter_ms = (uint16_t)(k->rx[st].jitter16 / 16u > 0xffffu ? 0xffffu
+			                                                          : k->rx[st].jitter16 / 16u);
+			if ((len = fzn_live_write(&w, word, sizeof(word))) != 0
+			    && fzn_daemon_say(c->host, word, len))
+				k->rx_reported[st] = k->rx[st].received;
+		}
 	}
 	if (node_calls.n)
 		(void)fzn_live_expire(&node_calls, wall_clock(), live_gone, NULL);
@@ -17060,6 +17107,28 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 			live_end(c, lw.kind == FZN_LIVE_DECLINE ? "declined" : "hung-up");
 		}
 		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	/* `get call ID quality`, sec 1021: `ok STREAM,DIRECTION,RECEIVED,LOST,JITTER ...`,
+	 * `sent` what the other host reported of this one's frames, `received` what
+	 * this one measured of the other's. */
+	if (request->parsed == FZN_VERB_GET && subject_len == 4u) {
+		struct live_kept *k = kept_of(call, 0);
+		size_t st;
+
+		n = (size_t)snprintf(reply, cap, "ok");
+		for (st = 0; k && st < FZND_LIVE_STREAMS && n + 64u < cap; st++) {
+			if (k->tx[st].kind == FZN_LIVE_REPORT)
+				n += (size_t)snprintf(reply + n, cap - n, " %zu,sent,%lu,%lu,%u", st,
+				                      (unsigned long)k->tx[st].received,
+				                      (unsigned long)k->tx[st].lost,
+				                      (unsigned)k->tx[st].jitter_ms);
+			if (k->rx[st].started)
+				n += (size_t)snprintf(reply + n, cap - n, " %zu,received,%lu,%lu,%lu", st,
+				                      (unsigned long)k->rx[st].received,
+				                      (unsigned long)k->rx[st].lost,
+				                      (unsigned long)(k->rx[st].jitter16 / 16u));
+		}
+		return n + (size_t)snprintf(reply + n, cap - n, "\n");
 	}
 	/* `add frame ID STREAM SEQ AT PIECE PIECES HEX`. */
 	if (request->parsed == FZN_VERB_ADD && subject_len == 5u) {

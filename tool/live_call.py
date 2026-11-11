@@ -10,7 +10,9 @@ contact's. Each host's own client is a caller on its socket.
     b  B answers; A lists the call up
     c  A sends a frame; B reads it back, the same bytes, stream, number and time
     d  B sends one back; A reads it
-    e  A hangs up; B holds the call no more
+    e  A sends video frames 1, 2, 4 and 5: B measures four received and one lost,
+       and reports it, and A reads it (`get call ID quality`, sec 1021)
+    f  A hangs up; B holds the call no more
 
 Against a daemon that takes no call's word from a session, a never rings; against
 one whose asked session is dropped when the other host's frame comes, b is never
@@ -133,12 +135,26 @@ def main(argv):
 				print("livecheck: %s: %s sent a frame, and %s read it back the same"
 				      % ("c" if frm == "a" else "d", frm.upper(), to.upper()))
 
-			# e: A HANGS UP.
+			# e: QUALITY, sec 1021: A sends video frames 1, 2, 4 and 5; B measures four
+			# received and one lost, and reports it, which A reads as what it sent.
+			for seq in (1, 2, 4, 5):
+				said = ask(socks["a"], "add frame %s 2 %d %d 0 1 ab" % (call, seq, 2000 + 40 * seq))
+				if said not in ("ok sent", "ok lost"):
+					raise failed("e: add frame answered %r" % said)
+			until("e: B never measured four received and one lost",
+			      lambda: any(r.startswith("2,received,4,1,")
+			                  for r in ask(socks["b"], "get call %s quality" % call).split()[1:]))
+			until("e: A never read B's report of its video",
+			      lambda: any(r.startswith("2,sent,4,1,")
+			                  for r in ask(socks["a"], "get call %s quality" % call).split()[1:]))
+			print("livecheck: e: B measured A's video, 4 received and 1 lost, and A reads it")
+
+			# f: A HANGS UP.
 			expect(socks["a"], "a", "set call %s hangup" % call, "ok")
-			until("e: B still held the call", lambda: call not in calls(socks["b"]))
+			until("f: B still held the call", lambda: call not in calls(socks["b"]))
 			if call in calls(socks["a"]):
-				raise failed("e: A still holds the call it hung up")
-			print("livecheck: e: A hung up, and neither holds the call")
+				raise failed("f: A still holds the call it hung up")
+			print("livecheck: f: A hung up, and neither holds the call")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

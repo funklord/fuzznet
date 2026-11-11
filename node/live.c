@@ -35,6 +35,14 @@ int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
 	case FZN_LIVE_DECLINE:
 	case FZN_LIVE_HANGUP:
 		return len == FZN_LIVE_HEAD_LEN;
+	case FZN_LIVE_REPORT:
+		if (len != FZN_LIVE_REPORT_LEN)
+			return 0;
+		out->stream = at[0];
+		out->received = fzn_get_be32(at + 1);
+		out->lost = fzn_get_be32(at + 5);
+		out->jitter_ms = fzn_get_be16(at + 9);
+		return 1;
 	case FZN_LIVE_FRAME:
 		if (len < FZN_LIVE_FRAME_HEAD_LEN)
 			return 0;
@@ -73,6 +81,9 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 			return 0;
 		len = FZN_LIVE_FRAME_HEAD_LEN + w->media_len;
 		break;
+	case FZN_LIVE_REPORT:
+		len = FZN_LIVE_REPORT_LEN;
+		break;
 	default:
 		return 0;
 	}
@@ -95,8 +106,43 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 		fzn_put_be16(at + 11, w->pieces);
 		if (w->media_len)
 			memcpy(out + FZN_LIVE_FRAME_HEAD_LEN, w->media, w->media_len);
+	} else if (w->kind == FZN_LIVE_REPORT) {
+		uint8_t *at = out + FZN_LIVE_HEAD_LEN;
+
+		at[0] = w->stream;
+		fzn_put_be32(at + 1, w->received);
+		fzn_put_be32(at + 5, w->lost);
+		fzn_put_be16(at + 9, w->jitter_ms);
 	}
 	return len;
+}
+
+void fzn_live_count(fzn_live_stats_t *st, uint32_t seq, uint32_t at_ms, uint64_t now_ms)
+{
+	int64_t transit, d;
+
+	if (!st)
+		return;
+	st->received++;
+	if (!st->started) {
+		st->started = 1;
+		st->highest = seq;
+	} else if (seq > st->highest) {
+		st->lost += seq - st->highest - 1u;
+		st->highest = seq;
+	} else if (st->lost) {
+		/* LATE, filling a gap counted lost. */
+		st->lost--;
+	}
+	transit = (int64_t)(now_ms & 0xffffffffu) - (int64_t)at_ms;
+	if (st->received > 1u) {
+		d = transit - st->last_transit;
+		if (d < 0)
+			d = -d;
+		/* J += (|D| - J) / 16, kept times 16. */
+		st->jitter16 = (uint32_t)((int64_t)st->jitter16 + d - (int64_t)((st->jitter16 + 8u) / 16u));
+	}
+	st->last_transit = transit;
 }
 
 fzn_live_call_t *fzn_live_find(fzn_live_calls_t *t, const uint8_t call[FZN_LIVE_CALL_LEN])

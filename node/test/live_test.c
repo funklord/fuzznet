@@ -79,6 +79,40 @@ static void test_words(void)
 	CHECK(!fzn_live_is_word(buf, n), "another type was taken for a live word");
 }
 
+/* A REPORT, and what a receiver counts: a gap lost, a late piece taking one back,
+ * and jitter rising with an uneven transit (sec 1021). */
+static void test_reports(void)
+{
+	fzn_live_word_t w, r;
+	fzn_live_stats_t st;
+	uint8_t buf[64];
+	size_t n;
+
+	memset(&w, 0, sizeof(w));
+	w.kind = FZN_LIVE_REPORT;
+	memset(w.call, 0xc4, sizeof(w.call));
+	w.stream = FZN_LIVE_AUDIO;
+	w.received = 4000000u;
+	w.lost = 12u;
+	w.jitter_ms = 33u;
+	n = fzn_live_write(&w, buf, sizeof(buf));
+	CHECK(n == FZN_LIVE_REPORT_LEN && fzn_live_read(buf, n, &r) && r.kind == FZN_LIVE_REPORT
+	              && r.stream == FZN_LIVE_AUDIO && r.received == 4000000u && r.lost == 12u
+	              && r.jitter_ms == 33u,
+	      "a report did not read back");
+	CHECK(!fzn_live_read(buf, n - 1u, &r), "a report cut short was read");
+
+	memset(&st, 0, sizeof(st));
+	fzn_live_count(&st, 10u, 1000u, 5000u);
+	fzn_live_count(&st, 11u, 1020u, 5020u);
+	fzn_live_count(&st, 14u, 1080u, 5080u);
+	CHECK(st.received == 3u && st.lost == 2u, "a gap of two not counted lost");
+	CHECK(st.jitter16 == 0u, "an even transit made jitter");
+	fzn_live_count(&st, 12u, 1040u, 5150u);
+	CHECK(st.received == 4u && st.lost == 1u, "a late piece did not take one back");
+	CHECK(st.jitter16 > 0u, "an uneven transit made no jitter");
+}
+
 static size_t gone_n;
 
 static void gone(void *ctx, const fzn_live_call_t *c)
@@ -135,6 +169,7 @@ static void test_calls(void)
 int main(void)
 {
 	test_words();
+	test_reports();
 	test_calls();
 	printf("live_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
