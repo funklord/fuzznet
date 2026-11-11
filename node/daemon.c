@@ -16785,15 +16785,22 @@ static struct live_kept {
 	uint8_t (*words)[FZN_SESSION_FRAME_PAYLOAD_MAX];
 	uint16_t *lens;
 	uint64_t total;
-	uint8_t ring[FZN_LIVE_RING_LEN]; /* a ring not yet said, and its length */
-	size_t ring_len;
-	uint64_t ring_tried_ms;
+	uint64_t ring_tried_ms; /* when the members' rings were last said */
 	/* QUALITY, sec 1021, a stream each: what this host measured of the frames it
 	 * received, and what the other host reported of the ones it sent. */
 	fzn_live_stats_t rx[FZND_LIVE_STREAMS];
 	uint32_t rx_reported[FZND_LIVE_STREAMS];
 	fzn_live_word_t tx[FZND_LIVE_STREAMS];
 	uint64_t reported_ms;
+	/* A CALL THIS HOST PLACED, sec 1022: each member rung -- its user, its host,
+	 * whether a ring is still to say and whether it joined. This host is the hub,
+	 * forwarding each joined member's frames to every other. Grown as needed. */
+	struct live_member {
+		uint8_t whom[FZN_PUBKEY_LEN];
+		uint8_t host[FZN_PUBKEY_LEN];
+		uint8_t ringing, joined;
+	} *members;
+	size_t n_members, members_cap;
 	int used;
 } *live_kept;
 static size_t live_kept_cap;
@@ -16841,7 +16848,44 @@ static void kept_drop(const uint8_t call[FZN_LIVE_CALL_LEN])
 		return;
 	free(k->words);
 	free(k->lens);
+	free(k->members);
 	memset(k, 0, sizeof(*k));
+}
+
+/* THE MEMBER OF `k` AT HOST `host`, or NULL. */
+static struct live_member *member_at(struct live_kept *k, const uint8_t host[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; k && i < k->n_members; i++)
+		if (memcmp(k->members[i].host, host, FZN_PUBKEY_LEN) == 0)
+			return &k->members[i];
+	return NULL;
+}
+
+/* `bytes` SAID TO EVERY JOINED MEMBER of `k` but the one at `except`: how many
+ * took it. */
+static size_t say_members(struct live_kept *k, const uint8_t *except, const uint8_t *bytes,
+                          size_t len)
+{
+	size_t i, n = 0;
+
+	for (i = 0; k && i < k->n_members; i++)
+		if (k->members[i].joined
+		    && !(except && memcmp(k->members[i].host, except, FZN_PUBKEY_LEN) == 0))
+			n += (size_t)(fzn_daemon_say(k->members[i].host, bytes, len) != 0);
+	return n;
+}
+
+/* NONE JOINED AND NONE STILL RINGING. */
+static int members_gone(const struct live_kept *k)
+{
+	size_t i;
+
+	for (i = 0; i < k->n_members; i++)
+		if (k->members[i].joined || k->members[i].ringing)
+			return 0;
+	return 1;
 }
 
 static void live_told(const uint8_t call[FZN_LIVE_CALL_LEN], const char *what)
@@ -16890,6 +16934,54 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		c->kinds = w.kinds;
 		c->since_s = c->heard_s = wall_clock();
 		live_told(w.call, "ring");
+		return;
+	}
+	/* A CALL THIS HOST PLACED, sec 1022: from one of its members. */
+	if (c && (k = kept_of(w.call, 0)) != NULL && k->n_members) {
+		struct live_member *m = member_at(k, host);
+
+		if (!m)
+			return;
+		c->heard_s = wall_clock();
+		switch (w.kind) {
+		case FZN_LIVE_ANSWER:
+			m->ringing = 0;
+			m->joined = 1;
+			if (c->state == FZN_LIVE_RINGING_OUT) {
+				c->state = FZN_LIVE_UP;
+				live_told(w.call, "answered");
+			}
+			break;
+		case FZN_LIVE_DECLINE:
+		case FZN_LIVE_HANGUP:
+			m->ringing = m->joined = 0;
+			if (members_gone(k))
+				live_end(c, w.kind == FZN_LIVE_DECLINE ? "declined" : "hung-up");
+			break;
+		case FZN_LIVE_FRAME:
+			if (!m->joined || len > FZN_SESSION_FRAME_PAYLOAD_MAX)
+				break;
+			memcpy(k->words[k->total % FZND_LIVE_KEPT], bytes, len);
+			k->lens[k->total % FZND_LIVE_KEPT] = (uint16_t)len;
+			k->total++;
+			if (k->n_members == 1u && w.stream < FZND_LIVE_STREAMS)
+				fzn_live_count(&k->rx[w.stream], w.seq, w.at_ms, wall_ms());
+			/* AND ON TO EVERY OTHER MEMBER: this host is the hub. */
+			(void)say_members(k, host, bytes, len);
+			{
+				char name[2u * FZN_LIVE_CALL_LEN + 1u];
+
+				hex_of(w.call, FZN_LIVE_CALL_LEN, name);
+				publish("frame", name);
+			}
+			break;
+		case FZN_LIVE_REPORT:
+			if (k->n_members == 1u && w.stream < FZND_LIVE_STREAMS)
+				k->tx[w.stream] = w;
+			break;
+		default:
+			break;
+		}
 		return;
 	}
 	if (!c || memcmp(c->host, host, FZN_PUBKEY_LEN) != 0)
@@ -16945,13 +17037,30 @@ static void live_pump(void)
 		struct live_kept *k = &live_kept[i];
 		fzn_live_call_t *c;
 
-		if (!k->used || !k->ring_len || now_ms < k->ring_tried_ms + 250u)
+		size_t m;
+
+		if (!k->used || !k->n_members || now_ms < k->ring_tried_ms + 250u)
 			continue;
 		k->ring_tried_ms = now_ms;
 		if ((c = fzn_live_find(&node_calls, k->call)) == NULL)
 			continue;
-		if (fzn_daemon_say(c->host, k->ring, k->ring_len))
-			k->ring_len = 0;
+		/* EACH MEMBER'S RING, its own WHOM, said until it goes (sec 1022). */
+		for (m = 0; m < k->n_members; m++) {
+			fzn_live_word_t w;
+			uint8_t ring[FZN_LIVE_RING_LEN];
+			size_t len;
+
+			if (k->members[m].ringing != 1u || k->members[m].joined)
+				continue;
+			memset(&w, 0, sizeof(w));
+			w.kind = FZN_LIVE_RING;
+			memcpy(w.call, k->call, FZN_LIVE_CALL_LEN);
+			w.kinds = c->kinds;
+			w.whom = k->members[m].whom;
+			if ((len = fzn_live_write(&w, ring, sizeof(ring))) != 0
+			    && fzn_daemon_say(k->members[m].host, ring, len))
+				k->members[m].ringing = 2; /* said: rung, waiting for an answer */
+		}
 	}
 	/* QUALITY REPORTED, sec 1021: each second a call is up and a stream had
 	 * frames since the last, what this host measured of it, to the other host. */
@@ -16961,7 +17070,8 @@ static void live_pump(void)
 		size_t st;
 
 		if (!k->used || now_ms < k->reported_ms + FZND_LIVE_REPORT_MS
-		    || !(c = fzn_live_find(&node_calls, k->call)) || c->state != FZN_LIVE_UP)
+		    || !(c = fzn_live_find(&node_calls, k->call)) || c->state != FZN_LIVE_UP
+		    || k->n_members > 1u)
 			continue;
 		k->reported_ms = now_ms;
 		for (st = 0; st < FZND_LIVE_STREAMS; st++) {
@@ -17038,16 +17148,18 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 		}
 		return n + (size_t)snprintf(reply + n, cap - n, "\n");
 	}
-	/* `add call CONTACT audio|video|both`. */
+	/* `add call CONTACT[,CONTACT...] audio|video|both`: one contact, or several,
+	 * this host the hub between them (sec 1022). */
 	if (request->parsed == FZN_VERB_ADD && subject_len == 4u) {
 		fzn_contact_t who;
 		uint8_t host[FZN_PUBKEY_LEN];
 		struct live_kept *k;
 		uint8_t kinds = 0;
 		char id[2u * FZN_LIVE_CALL_LEN + 1u];
+		const uint8_t *names, *name, *end;
+		size_t names_len;
 
-		if (!next_word(&at, &left, &w, &w_len)
-		    || fzn_contact_find(node_apply.store, (const char *)w, w_len, &who) != FZN_CONTACT_OK)
+		if (!next_word(&at, &left, &names, &names_len))
 			return (size_t)snprintf(reply, cap, "error no such contact\n");
 		if (next_word(&at, &left, &subject, &subject_len))
 			kinds = subject_len == 5u && memcmp(subject, "audio", 5u) == 0   ? FZN_LIVE_AUDIO
@@ -17056,28 +17168,54 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 			                ? (uint8_t)(FZN_LIVE_AUDIO | FZN_LIVE_VIDEO)
 			                : 0u;
 		if (!kinds)
-			return (size_t)snprintf(reply, cap, "malformed add call CONTACT audio|video|both\n");
-		if (!contact_host(who.key, host))
-			return (size_t)snprintf(reply, cap, "error no host of that contact is reached\n");
+			return (size_t)snprintf(reply, cap,
+			                        "malformed add call CONTACT[,CONTACT...] audio|video|both\n");
 		if (!contact_rng_ops || !contact_rng_ops->fill(contact_rng_ops->ctx, call, sizeof(call))
 		    || !(c = fzn_live_open(&node_calls, call)) || !(k = kept_of(call, 1))) {
 			if ((c = fzn_live_find(&node_calls, call)) != NULL)
 				fzn_live_end(&node_calls, c);
 			return (size_t)snprintf(reply, cap, "error no room for a call\n");
 		}
+		/* EACH CONTACT NAMED, a member: its user and the host it is rung at. */
+		for (name = names; name < names + names_len; name = end + 1) {
+			for (end = name; end < names + names_len && *end != ','; end++)
+				;
+			if (fzn_contact_find(node_apply.store, (const char *)name, (size_t)(end - name), &who)
+			            != FZN_CONTACT_OK
+			    || !contact_host(who.key, host)) {
+				kept_drop(call);
+				fzn_live_end(&node_calls, c);
+				return (size_t)snprintf(reply, cap, "error %.*s is no contact whose host is "
+				                                    "reached\n",
+				                        (int)(end - name), (const char *)name);
+			}
+			if (member_at(k, host))
+				continue;
+			if (k->n_members == k->members_cap) {
+				size_t mcap = k->members_cap ? k->members_cap * 2u : 4u;
+				struct live_member *more = realloc(k->members, mcap * sizeof(*more));
+
+				if (!more) {
+					kept_drop(call);
+					fzn_live_end(&node_calls, c);
+					return (size_t)snprintf(reply, cap, "error no room for a call\n");
+				}
+				k->members = more;
+				k->members_cap = mcap;
+			}
+			memset(&k->members[k->n_members], 0, sizeof(k->members[0]));
+			memcpy(k->members[k->n_members].whom, who.key, FZN_PUBKEY_LEN);
+			memcpy(k->members[k->n_members].host, host, FZN_PUBKEY_LEN);
+			k->members[k->n_members].ringing = 1;
+			k->n_members++;
+		}
 		c->state = FZN_LIVE_RINGING_OUT;
-		memcpy(c->host, host, FZN_PUBKEY_LEN);
+		memcpy(c->host, k->members[0].host, FZN_PUBKEY_LEN);
 		c->kinds = kinds;
 		c->since_s = c->heard_s = wall_clock();
-		memset(&lw, 0, sizeof(lw));
-		lw.kind = FZN_LIVE_RING;
-		memcpy(lw.call, call, sizeof(call));
-		lw.kinds = kinds;
-		lw.whom = who.key;
-		k->ring_len = fzn_live_write(&lw, k->ring, sizeof(k->ring));
-		k->ring_tried_ms = wall_ms();
-		if (k->ring_len && fzn_daemon_say(host, k->ring, k->ring_len))
-			k->ring_len = 0;
+		/* RUNG AT ONCE, and again each pass until said. */
+		k->ring_tried_ms = 0;
+		live_pump();
 		hex_of(call, sizeof(call), id);
 		return (size_t)snprintf(reply, cap, "ok %s\n", id);
 	}
@@ -17098,7 +17236,19 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 			return (size_t)snprintf(reply, cap, "malformed set call ID answer|decline|hangup, "
 			                                    "answer and decline to a call ringing in\n");
 		n = fzn_live_write(&lw, word, sizeof(word));
-		(void)fzn_daemon_say(c->host, word, n);
+		{
+			struct live_kept *k = kept_of(call, 0);
+			size_t m;
+
+			/* A PLACED CALL'S HANG-UP to every member rung, joined or not. */
+			if (k && k->n_members) {
+				for (m = 0; m < k->n_members; m++)
+					if (k->members[m].joined || k->members[m].ringing)
+						(void)fzn_daemon_say(k->members[m].host, word, n);
+			} else {
+				(void)fzn_daemon_say(c->host, word, n);
+			}
+		}
 		if (lw.kind == FZN_LIVE_ANSWER) {
 			c->state = FZN_LIVE_UP;
 			c->heard_s = wall_clock();
@@ -17165,6 +17315,14 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 		if (!(n = fzn_live_write(&lw, word, sizeof(word))))
 			return (size_t)snprintf(reply, cap, "malformed a piece past its pieces\n");
 		c->heard_s = wall_clock();
+		{
+			struct live_kept *k = kept_of(call, 0);
+
+			/* A PLACED CALL'S FRAME to every member joined (sec 1022). */
+			if (k && k->n_members)
+				return say_members(k, NULL, word, n) ? (size_t)snprintf(reply, cap, "ok sent\n")
+				                                     : (size_t)snprintf(reply, cap, "ok lost\n");
+		}
 		return fzn_daemon_say(c->host, word, n) ? (size_t)snprintf(reply, cap, "ok sent\n")
 		                                        : (size_t)snprintf(reply, cap, "ok lost\n");
 	}

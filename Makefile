@@ -7026,6 +7026,7 @@ endif
 	@timeout 170 python3 tool/live_session.py $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 200 python3 tool/live_host_session.py $(EXT_DAEMON)
 	@timeout 440 python3 tool/live_call.py $(FUZZNETD)
+	@timeout 580 python3 tool/live_group_call.py $(FUZZNETD)
 	@timeout 660 python3 tool/live_many_notes.py $(FUZZNETD)
 	@timeout 440 python3 tool/live_many_shared.py $(FUZZNETD)
 	@timeout 220 python3 tool/live_many_contacts.py $(FUZZNETD)

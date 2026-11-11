@@ -84495,3 +84495,33 @@ and A reads B's report of it.
 
 **Not built:** a delay figure that needs the two clocks' offset (sec 719 measures it), and the
 client's adapting, which is the client's.
+
+## 1022. A call of several, the caller's host the hub, 2026-11-11
+
+Sec 1017's step 5. A call is no longer between two hosts only: `add call CONTACT[,CONTACT...]
+KINDS` rings each contact's host at once, and the caller's host carries the call between them.
+
+- **The caller's host is the hub.** Its call keeps a member each -- the contact, its host, whether
+  its ring is still to be said, and whether it has joined. Each member is rung on its own; an
+  ANSWER joins it, a DECLINE or a HANGUP drops it, and the call ends when no member is left
+  ringing or joined. A member's frame is kept, as a 1:1 call's is, and said on to every other
+  joined member; a frame the hub's own client sends goes to every joined member.
+- **A member's host sees a 1:1 call** with the hub. Nothing on the members' side changed, and no
+  member needs a session with another member's host -- which members of different estates cannot
+  have.
+- **Why a hub and not a mesh.** Each member holds a session with the caller's host already (sec
+  1020); a mesh would need every pair of members to hold one, and two contacts of the caller are
+  not each other's contacts. The hub's uplink carries every frame n-1 times, which suits the few
+  sec 1017 step 5 is for; past a handful, a mixing or selective host is the step after.
+- **Quality is one member's only.** A hub's measure of one stream number would mix the members'
+  frames, so REPORT is kept, and sent, only while one member remains.
+
+`tool/live_group_call.py`, in `make livecheck`: A rings B and C at once, both answer; A's frame
+reaches both, B's reaches A and, through A, C; B hangs up and A and C go on; C hangs up and the
+call ends. **Control:** the hub passing no member's frame on, d fails at C. `live_call` (1:1)
+passes on the same build.
+
+**Not built:** a receiver cannot tell which member a forwarded frame came from -- the frame word
+carries no sender, so two senders' sequence numbers interleave in one stream at a third (to be
+the word's sender field, a wire change sec 924 lets be made); quality per member; a member
+added to a call already up.
