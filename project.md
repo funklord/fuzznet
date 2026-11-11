@@ -81016,7 +81016,12 @@ The holder's, settling how the project talks and what each part is.
   **link** is one direct connection between two adjacent points -- host and host, or host and
   relay -- and what `link/` measures; a **hop** is one crossing of a link by a frame, as
   `wire/relay.h`'s hop budget counts them; a **path** is the whole way between two hosts, one link
-  or several through relays, which sec 1030 chooses between. **"Leg" is not a term**: its English
+  or several through relays, which sec 1030 chooses between. **A path has a direction**, the
+  holder's the same day: A to B and B to A are two paths, each chosen by its sender, and they may
+  differ -- behind a NAT a host reaches out directly while the way back runs where its hellos keep
+  open, or through a relay. Loss and jitter belong to one path, counted by its receiver and
+  reported to its sender (sec 1021); a round trip belongs to the pair, and halves into a one-way
+  figure only by assumption. **"Leg" is not a term**: its English
   sense, one indivisible part of a path, is a link already.
 - **Daemons and clients** are processes of a host, any number, several daemons
   being different apps. Within a user auth is always granted, so from outside they
