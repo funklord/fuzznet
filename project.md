@@ -81012,6 +81012,12 @@ The holder's, settling how the project talks and what each part is.
   meant, say **fuzznetd** for the daemon -- the binary's own name, unambiguous -- and **fuzznet
   client** for a client process; "fuzznetc" only if a client binary comes to bear that name. A
   paired phone with its own key is neither: it is a **host** (sec 1035's first naming finding).
+- **Link, hop, path**, the holder's correction of 2026-11-11, in their networking senses: a
+  **link** is one direct connection between two adjacent points -- host and host, or host and
+  relay -- and what `link/` measures; a **hop** is one crossing of a link by a frame, as
+  `wire/relay.h`'s hop budget counts them; a **path** is the whole way between two hosts, one link
+  or several through relays, which sec 1030 chooses between. **"Leg" is not a term**: its English
+  sense, one indivisible part of a path, is a link already.
 - **Daemons and clients** are processes of a host, any number, several daemons
   being different apps. Within a user auth is always granted, so from outside they
   are one host and delegate external work amongst themselves.
@@ -85021,11 +85027,11 @@ why, and one is changed, where it serves better, until they are the same.
   and "client" alone is the English word, not a term (sec 906 as amended the same day). Sec 1025's subject is "another host of the
   user's, on a session with this one" -- `live_client`, `say_clients`, `has_client` and the
   `live_client_call` script are named for the wrong word, and are to be renamed with the record.
-- **Link, path, route and leg** are four words for nearby things: a link (`link/`, one transport
-  over one address, measured), a path (sec 1030, direct or through a relay), a route (sec 622, a
-  relay's note of where an answer goes back) and a leg (sec 1027, a call's hop between two hosts,
-  measured). Analysed with the address model: a link is a host and an address; a path is one link,
-  or two through a relay; a leg is what a stream rides between two hosts, over a path. So leg is a
-  path in use by a stream, and its figures are the path's -- one of the two words is likely
-  superfluous, decided when sec 1034 moves the call's legs onto the metric layer. A route is a
-  relay's bookkeeping and stays its own.
+- **Link, path, route and leg**, analysed wrongly here first and corrected by the holder the same
+  day: a path is the whole trip and a leg one indivisible part of it, as in networking. Recorded
+  in sec 906 as link, hop and path, with "leg" left to English since a link is that part. So sec
+  1027 misnamed its subject: what it calls a member's leg is the hub's **path** to that member's
+  host, which may cross a relay -- `struct live_leg` and the word in sec 1027 are to be renamed.
+  **"Route"** (sec 622, a relay's note of where an answer goes back) collides with the networking
+  sense, a chosen path, and is to be renamed for what it is. **"Member"** now means three things --
+  of an estate, of a group, and a call's participant (sec 1022) -- the third to be renamed.
