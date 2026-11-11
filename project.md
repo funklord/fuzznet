@@ -85133,14 +85133,18 @@ boundary moved by a second: a hello is held while `learnt + 300 > now`, where th
 
 **What the model shows that the round hid:** the rule answers a hello's way as *from the serving
 socket*, and the round sends from its target's own socket to that address -- the combination sec
-1031's A/B measured as filtered by a NAT that keys on the port. **Measured on hull the same day, and
-worse than that:** `list link` on A's root at 27.6 s read `192.168.2.10:7000,...,5,0,386,0` --
-A's round asked B five times at B's **advertised private address** -- its reconcile requests,
-the ones `peer_ask` carries and the link table sees (sec 631) -- none answered, nothing received. So the round's hello preference did not take effect for B within the run, and A's own
-pulls never reach B; lines cross only because B pushes to A. Why the target kept the advertised
-address -- when targets are rebuilt against when B's first hello lands, or otherwise -- is not
-established. `tool/hull_estates.py` keeps the step (A's root's links). The next things for this
-shape: why the target was not moved, and the round sending from the socket the rule names.
+1031's A/B measured as filtered by a NAT that keys on the port. **Measured on hull the same day:**
+`list link` on A's root shows its round's reconcile requests of B -- the ones `peer_ask` carries
+and the link table sees (sec 631). Before B's first hello they go to B's advertised private
+address (`192.168.2.10:7000`, 3 asked, 0 answered); once it lands the round moves to where B said
+hello (`203.0.113.2:7000`, B's gateway), so the preference works -- a first reading at 27.6 s that
+showed only the private address was read too early, and said otherwise. **But at the right address
+they are still never answered: 20 asked, 0 answered, nothing received, 90 s on.** The round sends
+from its target's own socket, and B's NAT admits only what comes from where B sent -- A's serving
+socket. So A's own pulls never reach B; lines cross only because B pushes. It is sec 1031's cause
+again, in the round: **the next step is the round's requests sent from the socket the rule names**,
+the serving socket for a hello's way, by sec 1031's own route back. `tool/hull_estates.py` keeps
+both readings as steps.
 
 **The steps:** the table and its rule, with a unit test that holds each reader's current order as a
 case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'

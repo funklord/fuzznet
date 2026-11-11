@@ -127,6 +127,15 @@ def plans():
 		# A'S OWN ASKS OF B, sec 1036: per address, asked and answered -- whether a
 		# round's pulls from behind B's NAT are answered, from the target's socket.
 		{"ask": "list link", "label": "A's root's links", "keep": True, "soft": True},
+		# AND WHETHER THEY MOVE to where B says hello from -- B's gateway's public
+		# side -- once B's hellos land (sec 1036).
+		{"until": "list link", "contains": "203.0.113.2:", "within": 120,
+		 "label": "A's root asks B where it said hello", "keep": True, "soft": True},
+		# THOSE ASKS, ONCE OBSERVED: answered or not, from the target's own socket
+		# to where B's serving socket said hello (sec 1036) -- measured at 0 of 20
+		# answered after 90 s, the socket being one B's NAT never sent to.
+		{"until": "list link", "contains": "203.0.113.2:7000,1000", "within": 120,
+		 "label": "A's root's asks of B, observed", "keep": True, "soft": True},
 		# WHAT A'S ROOT RELAYED, once A's phone has had time to ask it.
 		{"wait": "root.b"},
 		{"until": "get relay", "contains": "ok %d " % (RELAY == "on"), "within": 5,
