@@ -6429,6 +6429,24 @@ static size_t n_sibling_targets;
 /* ---- introductions, sec 623 ------------------------------------------------ */
 
 static fzn_node_relay_t relay_tables;
+
+/* WHERE A HOST IS REACHED, sec 1036: one table and its rule (`node/reach.h`), grown
+ * once to the hello table's size. */
+#define FZND_REACH_PAIRS 4096u
+static fzn_reach_t reach_table;
+
+static int reach_ready(void)
+{
+	static int tried;
+
+	if (!tried) {
+		fzn_reach_pair_t *pairs = calloc(FZND_REACH_PAIRS, sizeof(*pairs));
+
+		tried = 1;
+		fzn_reach_init(&reach_table, pairs, pairs ? FZND_REACH_PAIRS : 0u);
+	}
+	return reach_table.cap != 0u;
+}
 /* THE SESSIONS GRANTED, sec 932: memory only, so a host started again has none
  * and its peers ask again. */
 static fzn_node_sessions_t granted_sessions;
@@ -8329,17 +8347,26 @@ static void load_contact_targets(void)
 		 * where its own `net/address` may be a home network's, nobody
 		 * outside it can reach. The holder's "advertise the seen address"
 		 * of 2026-10-22, met at the end that heard it. */
-		int heard = fzn_node_relay_where(&relay_tables, fzn_contact_device_key(&kept[i]), &at,
-		                                 &when)
-		            && when + FZND_RELAY_SEEN_S >= wall_clock()
-		            && fzn_udp_addr_text(&at, seen, &seen_port) == FZN_UDP_OK;
-		/* OR WHERE IT WAS INTRODUCED, sec 698, for as long as that holds. */
-		const struct introduced *in = intro_of(fzn_contact_device_key(&kept[i]), 0);
+		/* OR WHERE IT WAS INTRODUCED, sec 698, for as long as that holds -- the two
+		 * learnt into the reach table and the one rule asked (sec 1036): a hello
+		 * before an introduction, as this round always chose. Its advertised
+		 * address stays the fallback below, unresolved here. */
+		const uint8_t *who = fzn_contact_device_key(&kept[i]);
+		const struct introduced *in = intro_of(who, 0);
+		fzn_reach_pair_t way;
+		int heard = 0;
 
-		if (!heard && in && in->until > wall_clock() && in->port) {
-			(void)snprintf(seen, sizeof(seen), "%s", in->host);
-			seen_port = in->port;
-			heard = 1;
+		if (reach_ready()) {
+			if (fzn_node_relay_where(&relay_tables, who, &at, &when))
+				fzn_reach_learn(&reach_table, who, FZN_REACH_SERVING, &at, FZN_REACH_HELLO,
+				                when);
+			if (in && in->port && in->until
+			    && fzn_udp_resolve(contact_family, in->host, in->port, &at) == FZN_UDP_OK)
+				fzn_reach_learn(&reach_table, who, FZN_REACH_TARGET, &at, FZN_REACH_INTRODUCED,
+				                in->until - FZND_INTRO_S);
+			heard = fzn_reach_best(&reach_table, who, wall_clock(), &way)
+			        && (way.source == FZN_REACH_HELLO || way.source == FZN_REACH_INTRODUCED)
+			        && fzn_udp_addr_text(&way.remote, seen, &seen_port) == FZN_UDP_OK;
 		}
 
 		if ((!kept[i].port && !heard)
@@ -16733,23 +16760,6 @@ static void said_remote(void *ctx, const fzn_opened_t *said)
  * wait. */
 #define FZND_SESSION_ASKS 8u
 #define FZND_SESSION_ASK_WAIT_MS 3000u
-/* WHERE A HOST IS REACHED, sec 1036: one table and its rule (`node/reach.h`), grown
- * once to the hello table's size. */
-#define FZND_REACH_PAIRS 4096u
-static fzn_reach_t reach_table;
-
-static int reach_ready(void)
-{
-	static int tried;
-
-	if (!tried) {
-		fzn_reach_pair_t *pairs = calloc(FZND_REACH_PAIRS, sizeof(*pairs));
-
-		tried = 1;
-		fzn_reach_init(&reach_table, pairs, pairs ? FZND_REACH_PAIRS : 0u);
-	}
-	return reach_table.cap != 0u;
-}
 static struct session_asking {
 	fzn_caller_t caller;
 	int fd;

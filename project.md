@@ -85124,6 +85124,20 @@ target as before. No behaviour is meant to change; `live_call`, `live_group_call
 `live_sibling_call`, `live_relay` and the hull journey pass on it. The table is fed only here so far:
 the hello and introduction tables still write, and the contact round still reads them itself.
 
+**Step 2b, built: the contact round reads through the rule.** It learns where the contact's host
+said hello and where it was introduced into the table and asks `fzn_reach_best`, keeping the
+order it always had, a hello before an introduction; with neither held, the contact's advertised
+address is the fallback as before, left unresolved there so a round makes no name lookups. One
+boundary moved by a second: a hello is held while `learnt + 300 > now`, where this round took
+`>=`.
+
+**What the model shows that the round hid:** the rule answers a hello's way as *from the serving
+socket*, and the round sends from its target's own socket to that address -- the combination sec
+1031's A/B measured as filtered by a NAT that keys on the port. On hull lines still cross both
+ways, B pushing to A; whether A's own pulls from B behind its NAT are answered is not measured.
+Left as the round had it, and the next thing for this shape to settle: the round sending from the
+socket the rule names, or the rule learning the target socket's own hellos.
+
 **The steps:** the table and its rule, with a unit test that holds each reader's current order as a
 case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'
 targets made a view; the link figures re-keyed by pair. Each step keeps `live_call`,
