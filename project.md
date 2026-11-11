@@ -81007,6 +81007,11 @@ The holder's, settling how the project talks and what each part is.
   identity and of authorisation. Every user is a separate host, since auth barriers
   have to exist between them; several hosts on one machine are normal, in one estate
   or in different ones.
+- **"Client" and "server" alone are the English words**, the holder's, 2026-11-11: too generic
+  to reserve, and right where the client-server sense is meant. Where a fuzznet process role is
+  meant, say **fuzznetd** for the daemon -- the binary's own name, unambiguous -- and **fuzznet
+  client** for a client process; "fuzznetc" only if a client binary comes to bear that name. A
+  paired phone with its own key is neither: it is a **host** (sec 1035's first naming finding).
 - **Daemons and clients** are processes of a host, any number, several daemons
   being different apps. Within a user auth is always granted, so from outside they
   are one host and delegate external work amongst themselves.
@@ -85012,8 +85017,8 @@ why, and one is changed, where it serves better, until they are the same.
 
 **First findings, from this session's own words:**
 - **"Client" was misused by sec 1025.** It calls a phone paired to the estate, on a session with
-  its host, "a client of this host"; by sec 906 a client is a *process* of a host, and a paired
-  phone with its own key is a **host** of the estate. Sec 1025's subject is "another host of the
+  its host, "a client of this host"; that phone, with its own key, is a **host** of the estate,
+  and "client" alone is the English word, not a term (sec 906 as amended the same day). Sec 1025's subject is "another host of the
   user's, on a session with this one" -- `live_client`, `say_clients`, `has_client` and the
   `live_client_call` script are named for the wrong word, and are to be renamed with the record.
 - **Link, path, route and leg** are four words for nearby things: a link (`link/`, one transport
