@@ -81021,7 +81021,11 @@ The holder's, settling how the project talks and what each part is.
   differ -- behind a NAT a host reaches out directly while the way back runs where its hellos keep
   open, or through a relay. Loss and jitter belong to one path, counted by its receiver and
   reported to its sender (sec 1021); a round trip belongs to the pair, and halves into a one-way
-  figure only by assumption. **"Leg" is not a term**: its English
+  figure only by assumption. **So has a link**, the holder's next word: its two directions can
+  differ in whether they work at all -- a NAT passes B's datagrams to A, and A's to B only while
+  B keeps a way open -- and in loss and capacity, as an asymmetric line does. `link/` measures from
+  the sender's side, so a silence it counts as loss is either direction's; a link's state is to be
+  kept per direction, the receiver's count telling the sender which. **"Leg" is not a term**: its English
   sense, one indivisible part of a path, is a link already.
 - **Daemons and clients** are processes of a host, any number, several daemons
   being different apps. Within a user auth is always granted, so from outside they
