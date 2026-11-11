@@ -32,10 +32,13 @@ static int stub_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
 		h ^= in[i];
 		h *= 0x100000001b3ull;
 	}
+	/* SPREAD AS A REAL HASH SPREADS, sec 1007: the memo's sets are its first bytes. */
 	for (i = 0; i < out_len; i++) {
-		h ^= (uint64_t)i + 0x9e3779b97f4a7c15ull;
-		h *= 0x100000001b3ull;
-		out[i] = (uint8_t)(h >> 32);
+		uint64_t z = h + 0x9e3779b97f4a7c15ull * (i + 1u);
+
+		z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
+		z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
+		out[i] = (uint8_t)(z ^ (z >> 31));
 	}
 	return 1;
 }
@@ -66,6 +69,51 @@ static int inner_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, s
 
 static const fzn_sign_ops_t INNER = { inner_verify, inner_sign, NULL };
 static const fzn_hash_ops_t HASH = { stub_hash, NULL };
+
+/* EVERY ONE HELD, sec 1007: as many signatures as a host of 60000 contacts reads, each
+ * verified, then all again, twice -- the third pass checks none. Direct-mapped, two that fell
+ * in one slot put each other out at every walk, some 50000 checks a round at 20000
+ * contacts; and a table of the first size would have run out of room. */
+static void test_many_are_all_held(void)
+{
+	enum { MANY = 250000 };
+	fzn_verify_memo_t m;
+	fzn_sign_ops_t ops;
+	uint8_t key[FZN_PUBKEY_LEN], sig[FZN_SIG_LEN], msg[8];
+	unsigned before;
+	uint32_t i;
+	int ok = 1;
+
+	memset(key, 3, sizeof(key));
+	memset(sig, 0, sizeof(sig));
+	fzn_verify_memo_init(&m, &INNER, &HASH, &ops);
+	for (i = 0; i < MANY; i++) {
+		memcpy(msg, &i, sizeof(i));
+		memcpy(msg + 4, "memo", 4);
+		sig[0] = msg[0];
+		ok &= ops.verify(ops.ctx, key, msg, sizeof(msg), sig);
+	}
+	CHECK(ok, "fixture: every signature verifies");
+	before = inner_checks;
+	for (i = 0; i < MANY; i++) {
+		memcpy(msg, &i, sizeof(i));
+		memcpy(msg + 4, "memo", 4);
+		sig[0] = msg[0];
+		(void)ops.verify(ops.ctx, key, msg, sizeof(msg), sig);
+	}
+	CHECK(inner_checks == before, "the second pass checked none of what the first verified");
+	before = inner_checks;
+	for (i = 0; i < MANY; i++) {
+		memcpy(msg, &i, sizeof(i));
+		memcpy(msg + 4, "memo", 4);
+		sig[0] = msg[0];
+		(void)ops.verify(ops.ctx, key, msg, sizeof(msg), sig);
+	}
+	CHECK(inner_checks == before, "a third pass checked none: nothing puts another out");
+	CHECK(m.room > FZN_VERIFY_MEMO_SLOTS, "the table grew past its first size");
+	CHECK(m.room <= 4u * MANY, "and no further than the load asks: 4 slots a digest at most");
+	fzn_verify_memo_free(&m);
+}
 
 int main(void)
 {
@@ -188,6 +236,7 @@ int main(void)
 		fzn_verify_memo_free(&again);
 	}
 	fzn_verify_memo_free(&m);
+	test_many_are_all_held();
 
 	printf("verify_memo_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

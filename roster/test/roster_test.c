@@ -376,6 +376,50 @@ static void test_two_live_incarnations(void)
 	      "at equal seq the greater writer did not win");
 }
 
+/* A THOUSAND SUBJECTS, sec 1007: past 256 entries an index finds them, every one with
+ * its own incarnation, none for a subject never added, and of two incarnations of one
+ * the greater seq still -- as walking every entry found them. */
+static void test_many_subjects_are_found(void)
+{
+	enum { MANY = 1000 };
+	static fzn_roster_entry_t entries[MANY + 8];
+	static fzn_roster_writer_t writers[4];
+	static fzn_roster_t r;
+	fzn_roster_authority_t a = authority();
+	who_t s = alice;
+	rec_t rec;
+	uint32_t i;
+	int admitted = 1, found = 1;
+
+	CHECK(fzn_roster_init(&r, entries, MANY + 8, writers, 4) == FZN_ROSTER_OK, "fixture");
+	for (i = 0; i < MANY; i++) {
+		memset(s.key, 0x5a, sizeof(s.key));
+		memcpy(s.key, &i, sizeof(i));
+		add(&rec, &root, &s, (uint8_t)(i % 200u + 1u), 1000u + i);
+		admitted &= rec.len && fzn_roster_admit(&r, view(&rec), NULL, 0, &a) == FZN_ROSTER_OK;
+	}
+	CHECK(admitted && r.used == MANY, "fixture: a thousand subjects admitted");
+	CHECK(r.index != NULL, "past 256 entries an index is made");
+	for (i = 0; i < MANY; i++) {
+		memset(s.key, 0x5a, sizeof(s.key));
+		memcpy(s.key, &i, sizeof(i));
+		found &= active_seed(&r, &s, NULL) == (uint8_t)(i % 200u + 1u);
+	}
+	CHECK(found, "every subject found, with its own incarnation");
+	memset(s.key, 0xa5, sizeof(s.key));
+	CHECK(active_seed(&r, &s, NULL) == 0u, "a subject never added is not found");
+	memset(s.key, 0x5a, sizeof(s.key));
+	i = 7u;
+	memcpy(s.key, &i, sizeof(i));
+	add(&rec, &root, &s, 250u, 5000u);
+	CHECK(fzn_roster_admit(&r, view(&rec), NULL, 0, &a) == FZN_ROSTER_OK
+	              && active_seed(&r, &s, NULL) == 250u,
+	      "of two incarnations of one subject the greater seq is active");
+	add(&rec, &root, &s, 250u, 5000u);
+	CHECK(fzn_roster_admit(&r, view(&rec), NULL, 0, &a) == FZN_ROSTER_OK && r.used == MANY + 1u,
+	      "the same add again is found, not added twice");
+}
+
 /* k DISTINCT WRITERS RETIRE; ONE WRITER TWICE IS ONE. sec 394. */
 static void test_k_distinct_removers_retire(void)
 {
@@ -989,6 +1033,7 @@ int main(void)
 	test_standing();
 	test_full();
 	test_order_independence();
+	test_many_subjects_are_found();
 	test_bundle_and_restore();
 	test_several_roots_write();
 	test_a_revoked_writers_records_stand_to_the_cut();

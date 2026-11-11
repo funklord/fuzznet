@@ -84117,3 +84117,72 @@ per change rather than once per refresh, which is what the timer cost.
 `notebook_view_test` covers it -- 800 notes listed whole; a second refresh asks no `list note`;
 one after the stamp moves does -- its memory store grown from 128 rows to 4096, with sabotages
 `notebook-view-list-capped` and `notebook-view-lists-every-refresh`, each caught by its check.
+
+## 1007. A host of 20000 contacts: every signature held once, and the roster indexed, 2026-11-11
+
+**Reported by fuzzypickles (inbox, 2026-11-10 21:12Z):** fzpd at `5d61e039` filled with 20000
+contacts by `tool/seed_contacts.py` and restarted, nothing else talking to it, took 87% of a core
+for its first 30 s, and `list contact 0` asked back to back stalled -- 14.3 s at the start, then
+3.7, 4.7 and 3.3 s among others; `fzp peer-list` 10 to 20 s where it had been 3.7. Their perf:
+`__memcmp_sse2` 20%, `fe_mul` 17%, `fe_sq` 12%, `blake2b_compress` 6%, `fzn_roster_active` 4%.
+
+**Reproduced on fuzznetd** (`contacts_scale.py`, scratch): the same seeding, a start, `list
+contact 0` for 120 s -- the first answered after 16.0 s, others waiting 4.4, 5.4 and 3.4 s, 43338
+answered. A profile of the start by DWARF unwinding: 44% in signature checks the verification
+memo (sec 931) should have spared, 16% in the roster's `find`, 10% in `fzn_roster_active`.
+
+**The memo did not hold what it was given.** Direct-mapped: two signatures that fell in one slot
+put each other out. About 83000 signatures in 262144 slots leave some 13000 slots wanted by two,
+and every walk of the settings -- `gather_rules`, the records' trim, the estate's follow, the
+journal's apply, four and more a round -- checked both of each pair again: 50355 Ed25519 checks in
+a round, measured, and the same count at the next start, the file saved at each stop still
+holding 83122 because what the round added had only put others out. So:
+- **two sets of four for each digest**, drawn from different bytes of it, and a digest put in the
+  emptier: that keeps the fullest set near the mean, so a set is seldom full;
+- **grown twice over** at three quarters taken, and when both of a digest's sets are full once a
+  quarter is taken -- below that one is put out, so digests aimed at two sets cannot double it
+  for ever. The file is read whatever its count, up to a bound on a corrupt one
+  (`FZN_VERIFY_MEMO_HELD_MAX`).
+`verify_memo_test`: 250000 signatures verified, and a second and a third pass check none, in a
+table grown to 524288 slots and no further than four a digest -- with an evenly spread stub hash,
+as a real hash is. On the way: four ways growing when any set filled reached 2097152 slots, and
+four ways evicting kept checking a few hundred each pass. Sabotages `verify-memo-never-grows` and
+`verify-memo-one-way`.
+
+**The roster walked every entry for each lookup**, and has an entry a contact: `find` at each
+record admitted, `fzn_roster_active` at each name's standing -- some 400 million comparisons a
+start at 20000. It now keeps an index of positions by subject, open addressing at most half full,
+made once past 256 entries on the heap; entries are only appended, so a position holds when the
+node moves them to a larger table, and a roster that cannot have one walks them as before. Of
+two incarnations of one subject the greater seq is still the one active, `beats` being a total
+order. `roster_test`: a thousand subjects each found with its own incarnation, none for one
+never added, the greater of two incarnations, the same add again not taken twice; sabotage
+`roster-index-finds-nothing`.
+
+**After, the same measure:** the first answer after 3.3 s, nothing later past 1.1 s, 600569
+answered in the 120 s.
+
+**Left:** the 3.3 s, and a stall of about 0.45 s at each round. A profile of 75 s after the change
+puts 44% in reading setting rows -- every walk opens 20000 files -- under `gather_rules` (28%),
+the standing each row's walk asks of the other ranks' rows (32%) and the contacts' names carried
+(16%). Keeping `gather_rules`' answer while the store's write count stood was tried in a clone
+and bought nothing measurable (3.4 s first, 0.43 s a round), so it is not in the tree; a walk of
+settings that does not read every row is what this wants.
+
+## 1008. situ's runtime here already carries the ABI guard; the frame's map is behind, 2026-11-11
+
+**From raidcfgd** (inbox, the other account, 2026-11-10 19:19Z), information and no request:
+raidcfgd took situ `31500867`, whose runtime it compared with "fuzznet's `6b9c1cd`" and found
+three additions there -- `SITU_RUNTIME_ABI`, `SITU_DER_FORM`, `SITU_COMPACTSIZE_FORM` -- and
+that fuzznet's generated headers carry no guard against an installed `situ.h` shadowing the
+tree's own. raidcfgd's bridge links its own runtime now, so nothing there depends on fuzznet's.
+
+**Measured here, and the premise is out of date:** `wire/generated/situ.h` is vendored from situ
+`224a7856`, an ancestor of `31500867` and later than `6b9c1cd`, and already defines all three --
+`SITU_RUNTIME_ABI` at 1 -- and `wire/generated/frame.h` already refuses a `situ.h` that lacks it,
+with the very `#error` the message quotes: moved there in sec 836. raidcfgd was told so.
+
+**What does stand:** `make schema SITU_DIR=../situ` against situ `31500867`, run for sec 1005,
+stops at `wire/frame.situ.map is stale` -- the frame's map as situ's HEAD writes it differs from
+the committed one, situ having moved past `224a7856`. `make schema` is out of `make check` and
+nothing is wrong in the code it checks; taking situ's HEAD is a re-vendor, its own piece of work.

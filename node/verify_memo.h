@@ -10,8 +10,8 @@
  * message, key or signature is checked as if none had been. Nothing here says a key is
  * still trusted: a check has always been of the bytes, and revocation is asked apart.
  *
- * Direct-mapped: a slot taken by another is only a check done again. No memory means no
- * memo, and every check made.
+ * In sets of four, grown as it fills (sec 1007): a way taken by another is only a check
+ * done again. No memory means no memo, and every check made.
  *
  * KEPT ACROSS A START, sec 938: a host verifies all it holds before it serves, 1 ms a
  * contact, so a restart at 20000 contacts answered nothing for 20 s. So the memo is
@@ -29,15 +29,22 @@
 #include "../chain/chain.h"
 #include "../session/commitment.h"
 
+/* THE SLOTS AT FIRST, grown twice over as three quarters are taken (sec 1007), in sets
+ * of FZN_VERIFY_MEMO_WAYS. A multiple of the ways. */
 #ifndef FZN_VERIFY_MEMO_SLOTS
 #define FZN_VERIFY_MEMO_SLOTS 262144u
 #endif
+#define FZN_VERIFY_MEMO_WAYS 4u
+/* A FILE claiming more than this is not read: a bound on what a corrupt count asks for,
+ * 2 GB of digests, and not on what a host may hold. */
+#define FZN_VERIFY_MEMO_HELD_MAX (1u << 26)
 #define FZN_VERIFY_MEMO_DIGEST 32u
 
 typedef struct fzn_verify_memo {
 	const fzn_sign_ops_t *inner;
 	const fzn_hash_ops_t *hash;
 	uint8_t (*table)[FZN_VERIFY_MEMO_DIGEST]; /* made at the first check */
+	size_t room, filled;                      /* its slots, and how many are taken */
 	int no_room;
 	unsigned long hits, checks;
 	/* THIS HOST'S KEY, once known: what it signs needs no checking when read back,

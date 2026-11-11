@@ -269,6 +269,14 @@ typedef struct fzn_roster {
 	/* The greatest `seq` any admitted record carried, so a writer here can
 	 * number its next record past everything it has seen. */
 	uint64_t seq_seen;
+	/* WHERE EACH SUBJECT'S ENTRIES ARE, sec 1007: positions plus one by the
+	 * subject, open addressing, at most half full -- made once past 256
+	 * entries, where a lookup by walking them all made a start at 20000
+	 * contacts some 400 million comparisons. On the heap; a roster that
+	 * cannot have one walks them as before. Entries are only appended, so a
+	 * position holds when the caller moves them to a larger table. */
+	uint32_t *index;
+	size_t index_cap;
 } fzn_roster_t;
 
 fzn_roster_err_t fzn_roster_init(fzn_roster_t *roster, fzn_roster_entry_t *entries,

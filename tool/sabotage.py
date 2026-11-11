@@ -15130,6 +15130,27 @@ SABOTAGES = [
 		"an attachment's file is asked for by its root alone, which no store fetches -- sec 1001",
 	),
 	(
+		"roster-index-finds-nothing",
+		"roster/roster.c",
+		"\t\t\tif (memcmp(e->subject, subject, FZN_PUBKEY_LEN) == 0\n\t\t\t    && memcmp(e->incarnation, incarnation, FZN_ROSTER_INCARNATION_LEN) == 0)\n\t\t\t\treturn e;\n",
+		"\t\t\t(void)e;\n",
+		"past 256 entries the index finds no entry, so the same add is taken twice -- sec 1007",
+	),
+	(
+		"verify-memo-never-grows",
+		"node/verify_memo.c",
+		"\t\tif (m->filled < m->room / 4u || !grow(m)) {\n",
+		"\t\tif (1) {\n",
+		"a full pair of sets puts a held digest out, and the table never grows for it -- sec 1007",
+	),
+	(
+		"verify-memo-one-way",
+		"node/verify_memo.h",
+		"#define FZN_VERIFY_MEMO_WAYS 4u\n",
+		"#define FZN_VERIFY_MEMO_WAYS 1u\n",
+		"one way a set: the memo grows for every pair that meets, far past its load -- sec 1007",
+	),
+	(
 		"notebook-view-list-capped",
 		"gui/notebook_view.cpp",
 		"\t * at least, so the total bounds the pages. */\n\tfor (guard = 0; guard <= total + 1u; guard++) {\n",
@@ -15652,8 +15673,8 @@ SABOTAGES = [
 	(
 		"memo-keeps-a-failure",
 		"node/verify_memo.c",
-		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig))\n\t\treturn 0;\n\tif (slot) {\n",
-		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig)) {\n\t\tif (slot)\n\t\t\tmemcpy(slot, digest, FZN_VERIFY_MEMO_DIGEST);\n\t\treturn 0;\n\t}\n\tif (slot) {\n",
+		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig))\n\t\treturn 0;\n\tif (have) {\n",
+		"\tif (!m->inner->verify(m->inner->ctx, pubkey, msg, msg_len, sig)) {\n\t\tif (have)\n\t\t\tkeep(m, digest);\n\t\treturn 0;\n\t}\n\tif (have) {\n",
 		"a forgery remembered passes the second time it is shown -- sec 931",
 	),
 	(

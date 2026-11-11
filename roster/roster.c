@@ -4,6 +4,8 @@
 
 #include "../chain/revocation.h"
 
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 const char *fzn_roster_err_str(fzn_roster_err_t err)
@@ -150,6 +152,8 @@ fzn_roster_err_t fzn_roster_init(fzn_roster_t *roster, fzn_roster_entry_t *entri
 	roster->entries = entries;
 	roster->capacity = capacity;
 	roster->used = 0;
+	roster->index = NULL;
+	roster->index_cap = 0;
 	roster->writers = writers;
 	roster->writer_capacity = writer_capacity;
 	roster->writers_used = 0;
@@ -157,11 +161,77 @@ fzn_roster_err_t fzn_roster_init(fzn_roster_t *roster, fzn_roster_entry_t *entri
 	return FZN_ROSTER_OK;
 }
 
+/* ---- the index, sec 1007 ----------------------------------------------- */
+
+#define INDEX_FROM 256u
+
+static size_t index_home(const uint8_t *subject, size_t cap)
+{
+	uint64_t v = 0;
+	size_t i;
+
+	for (i = 0; i < 8u; i++)
+		v |= (uint64_t)subject[i] << (8u * i);
+	return (size_t)(v & (cap - 1u));
+}
+
+static void index_put(uint32_t *index, size_t cap, const fzn_roster_entry_t *entries, size_t at)
+{
+	size_t s = index_home(entries[at].subject, cap);
+
+	while (index[s])
+		s = (s + 1u) & (cap - 1u);
+	index[s] = (uint32_t)at + 1u;
+}
+
+/* THE INDEX OVER ALL ENTRIES, made again at twice what they need: 0 when it could not
+ * be, and then there is none and lookups walk the entries. */
+static void index_remake(fzn_roster_t *roster)
+{
+	size_t cap = 512u, i;
+	uint32_t *more;
+
+	while (cap < 4u * roster->used && cap < ((size_t)1 << 30))
+		cap *= 2u;
+	free(roster->index);
+	roster->index = NULL;
+	roster->index_cap = 0;
+	if (roster->used > (size_t)UINT32_MAX - 1u || !(more = calloc(cap, sizeof(*more))))
+		return;
+	for (i = 0; i < roster->used; i++)
+		index_put(more, cap, roster->entries, i);
+	roster->index = more;
+	roster->index_cap = cap;
+}
+
+/* ENTRY `at`, NEW, TAKEN IN: the index made once there are enough, and made again
+ * when it would pass half full. */
+static void index_added(fzn_roster_t *roster, size_t at)
+{
+	if (roster->used < INDEX_FROM)
+		return;
+	if (!roster->index || 2u * roster->used > roster->index_cap)
+		index_remake(roster);
+	else
+		index_put(roster->index, roster->index_cap, roster->entries, at);
+}
+
 static fzn_roster_entry_t *find(const fzn_roster_t *roster, const uint8_t *subject,
                                 const uint8_t *incarnation)
 {
 	size_t i;
 
+	if (roster->index) {
+		for (i = index_home(subject, roster->index_cap); roster->index[i];
+		     i = (i + 1u) & (roster->index_cap - 1u)) {
+			fzn_roster_entry_t *e = &roster->entries[roster->index[i] - 1u];
+
+			if (memcmp(e->subject, subject, FZN_PUBKEY_LEN) == 0
+			    && memcmp(e->incarnation, incarnation, FZN_ROSTER_INCARNATION_LEN) == 0)
+				return e;
+		}
+		return NULL;
+	}
 	for (i = 0; i < roster->used; i++)
 		if (memcmp(roster->entries[i].subject, subject, FZN_PUBKEY_LEN) == 0
 		    && memcmp(roster->entries[i].incarnation, incarnation,
@@ -294,6 +364,7 @@ static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
 		memset(entry, 0, sizeof(*entry));
 		memcpy(entry->subject, fzn_roster_subject(rec), FZN_PUBKEY_LEN);
 		memcpy(entry->incarnation, fzn_roster_incarnation(rec), FZN_ROSTER_INCARNATION_LEN);
+		index_added(roster, roster->used - 1u);
 	}
 	if (object == (uint8_t)FZN_OBJECT_ROSTER_ADD) {
 		entry->added = 1;
@@ -499,8 +570,11 @@ int fzn_roster_active(const fzn_roster_t *roster, const uint8_t subject[FZN_PUBK
 
 	if (!roster || !roster->entries || !roster->writers || !subject)
 		return 0;
-	for (i = 0; i < roster->used; i++) {
-		const fzn_roster_entry_t *e = &roster->entries[i];
+	for (i = roster->index ? index_home(subject, roster->index_cap) : 0u;
+	     roster->index ? roster->index[i] != 0u : i < roster->used;
+	     i = roster->index ? (i + 1u) & (roster->index_cap - 1u) : i + 1u) {
+		const fzn_roster_entry_t *e =
+		        &roster->entries[roster->index ? roster->index[i] - 1u : i];
 
 		if (memcmp(e->subject, subject, FZN_PUBKEY_LEN) != 0
 		    || judge(roster, e, revocations, k) != FZN_ROSTER_ACTIVE)
