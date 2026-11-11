@@ -84290,3 +84290,23 @@ description is its own, and either letting its copy go leaves the other's standi
 `live_catalog` phase d: A puts and names a file, B fetches it naming nothing and comes to list
 the name as B's too; A removes its copy, and the file stays in the library under B's name, B
 holding it. **Control:** the daemon before this fails d, B never taking the name up.
+
+## 1015. What hydra's media files carry, should fuzznet store a file's streams apart, 2026-11-11
+
+**A signal from hydra** (inbox, 2026-11-11 02:18Z), nothing asked. The holder said (2026-11-11)
+that fuzznet may keep video on one server and audio on several, and that hydra keeps whole files
+and leaves splitting to fuzznet where fuzznet wants it. What a whole file from hydra gives:
+- **Streams copied, never re-encoded**, timestamps and the codecs' start delay (Opus pre-skip,
+  AAC priming) intact: H.264+AAC in `.mp4`, VP9+Opus in `.webm`, else `.mkv`; audio alone as it
+  came (`.webm` Opus, `.m4a` AAC). Chapters for a mix's tracklist, in ms, and tags: title, artist,
+  date, source address, description. Matroska in 250 ms clusters. Beside a mix: `.cue`, `.m3u`,
+  `.tracklist.txt`.
+- **A sound split, as hydra measured it** (mpv 0.40, MPlayer 1.5, ffmpeg 7.1.5): `-map 0:v -c copy`
+  and `-map 0:a -c copy` keep the two halves' offset, within 1 ms rejoined. Keep the chapters and
+  tags on the audio half. Not Ogg for Opus (ffmpeg writes a chapter at 20.5 s as 21.5 s there);
+  Opus in MP4 does not play in MPlayer. MPlayer joins split files but shows no chapters and plays
+  no DASH or HLS manifest, where mpv plays a DASH manifest of the two; so a player like MPlayer
+  needs the halves joined back into one file.
+
+**Open, and fuzznet's:** whether files are kept by stream at all. Nothing in the tree splits one
+today; this is what such a design starts from.
