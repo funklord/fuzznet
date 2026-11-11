@@ -84667,3 +84667,29 @@ reads the same; 0 ms on loopback. **Control:** HELD not grown at the host while 
 e2 reads 1502 ms and fails.
 
 A call of several still reports only while one member remains (sec 1022).
+
+## 1027. A call of several measures each member's leg, and reports it to that member, 2026-11-11
+
+Sec 1022 kept quality while one member remained and dropped it past that: a hub's measure of one
+stream mixed every member's frames. So in a call of several no member learned how its frames
+fared, and none could adapt its upload.
+
+- **A leg is what is measured.** A call of two is one leg; at a hub each member is its own, the
+  hub counting that member's frames apart and keeping that member's reports. `struct live_leg` in
+  `node/daemon.c` holds a leg's counts, reports and when each came.
+- **Each second the hub reports each joined member's leg to that member**, as a call of two
+  reports its one: the member reads the hub's measure of its uplink as its `sent` rows, round trip
+  included (sec 1026).
+- **A member host counts only FROM 0's frames** -- the hub's own client's, which come over its
+  leg. Other members' frames come over their own legs, which the hub measures; counted at a member
+  they interleaved their numbering with the hub client's.
+- **`get call ID quality [INDEX]`**: at a hub, member INDEX's leg; the one member's where there is
+  one, as before; refused with no INDEX in a call of several. Elsewhere unchanged.
+
+`live_group_call` phase d2: B sends video pieces 1, 2 and 4; A measures B's leg as three received
+and one lost and B reads that as sent; C counts none of them; A asked with no INDEX refuses.
+`live_call` (a call of two) passes unchanged. **Controls:** a member counting every sender's frames,
+d2 fails at C (`2,received,3,1`); a hub reporting only to a sole member, d2 fails at B.
+
+**Not built:** what a member hears of another member's frames end to end -- the hub's leg to the
+sender and its leg to the receiver are each measured, and their sum is the client's to read.

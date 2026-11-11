@@ -8,6 +8,10 @@ Three stores over loopback, A a contact of B and of C, each host running through
     d  B sends a frame; A reads it, and C reads it too, A's host passing it on
        -- each frame read as from its sender, 0 the caller and B and C the
        numbers A gave them, and each host naming those numbers (sec 1024)
+    d2 B sends video pieces 1, 2 and 4: A, the hub, measures B's leg -- three
+       received and one lost -- and reports it to B, who reads it as what it
+       sent; C counts none of them, they being B's leg and not C's; A asked for
+       quality with no member's number is refused (sec 1027)
     e  B hangs up; A still holds the call, and C's frame reaches A
     f  C hangs up; A holds the call no more
 
@@ -150,6 +154,24 @@ def main(argv):
 				until("d: %s never learned who %s is" % (who.upper(), other.upper()),
 				      lambda: members(who) == {"%d,%s" % (number[other], keys[other])})
 			print("livecheck: d: each frame read as from its sender, and each host names them")
+
+			# d2: EACH MEMBER'S LEG ITS OWN, sec 1027.
+			for seq in (1, 2, 4):
+				said = ask(socks["b"], "add frame %s 2 %d %d 0 1 ab" % (call, seq, 1000 + 40 * seq))
+				if said not in ("ok sent", "ok lost"):
+					raise failed("d2: add frame answered %r" % said)
+			def quality(who, *index):
+				return ask(socks[who], " ".join(("get call", call, "quality") + index)).split()
+			until("d2: A never measured B's leg, 3 received and 1 lost",
+			      lambda: any(r.startswith("2,received,3,1,") for r in quality("a", "1")[1:]))
+			until("d2: B never read A's report of its leg",
+			      lambda: any(r.startswith("2,sent,3,1,") for r in quality("b")[1:]))
+			if any(r.startswith("2,received,") for r in quality("c")[1:]):
+				raise failed("d2: C counted B's frames as its own leg: %r" % quality("c"))
+			if not quality("a")[0].startswith("malformed"):
+				raise failed("d2: A answered quality with no member's number: %r" % quality("a"))
+			print("livecheck: d2: A measured B's leg, 3 received and 1 lost, and B reads it; "
+			      "C counted none")
 
 			# e: B HANGS UP; THE CALL GOES ON.
 			expect(socks["b"], "b", "set call %s hangup" % call, "ok")
