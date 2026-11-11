@@ -129,9 +129,13 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 	}
 	m_vote_bar->hide();
 	m_votes_status = status_label(this);
+	m_setting_votes = new QListWidget(this);
+	m_vote_setting = new QPushButton(QStringLiteral("Vote for this value too"), this);
 	col->addWidget(m_votes, 1);
 	col->addWidget(m_vote);
 	col->addWidget(m_vote_bar);
+	col->addWidget(m_setting_votes, 1);
+	col->addWidget(m_vote_setting);
 	col->addWidget(m_votes_status);
 
 	/* THE SUCCESSIONS. */
@@ -172,6 +176,7 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 	connect(m_remove_root, &QPushButton::clicked, this, [this]() { remove_root(); });
 	connect(m_set_k, &QPushButton::clicked, this, [this]() { set_k(m_k->value()); });
 	connect(m_vote, &QPushButton::clicked, this, [this]() { ask_vote(); });
+	connect(m_vote_setting, &QPushButton::clicked, this, [this]() { vote_setting(); });
 	connect(m_confirm_succession, &QPushButton::clicked, this,
 	        [this]() { confirm_succession(); });
 	connect(m_confirm_staged, &QPushButton::clicked, this, [this]() { confirm_staged(); });
@@ -313,6 +318,80 @@ bool fzn_governance_view::fill_votes()
 	return true;
 }
 
+/* THE VOTES ON A HOST'S SETTING, sec 909: records `vote/HOST/KEY` = VALUE, read
+ * from `list record under vote/ FROM` (`ok FROM SHOWN MORE HOST,KEY,VERSION,VALUE
+ * ...`), paged. A voter's newest record for a cell is its vote; the rows are
+ * each value voted for, with how many voters stand for it. */
+bool fzn_governance_view::fill_setting_votes()
+{
+	struct vote {
+		QString voter, cell, value;
+		qulonglong version;
+	};
+	QList<vote> newest;
+	QStringList order;
+	QString detail;
+	int page, from = 0, i;
+
+	m_setting_votes->clear();
+	for (page = 0; page < SUCCESSION_PAGES; page++) {
+		QStringList w;
+		int r = ask(QStringLiteral("list record under vote/ %1").arg(from), &detail);
+		bool ok_shown = false;
+		int shown;
+
+		if (r <= 0)
+			return r == 0;
+		w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+		shown = w.size() >= 3 ? w[1].toInt(&ok_shown) : -1;
+		if (!ok_shown || shown != w.size() - 3)
+			return true;
+		for (i = 3; i < w.size(); i++) {
+			vote v;
+			int j;
+
+			v.voter = w[i].section(QLatin1Char(','), 0, 0);
+			v.cell = w[i].section(QLatin1Char(','), 1, 1);
+			v.version = w[i].section(QLatin1Char(','), 2, 2).toULongLong();
+			v.value = w[i].section(QLatin1Char(','), 3);
+			for (j = 0; j < newest.size(); j++)
+				if (newest[j].voter == v.voter && newest[j].cell == v.cell)
+					break;
+			if (j == newest.size())
+				newest << v;
+			else if (v.version >= newest[j].version)
+				newest[j] = v;
+		}
+		from += shown;
+		if (w[2] != QLatin1String("1") || shown == 0)
+			break;
+	}
+	for (const vote &v : newest) {
+		QString key = v.cell + QLatin1Char(' ') + v.value;
+
+		if (!order.contains(key))
+			order << key;
+	}
+	for (const QString &key : order) {
+		QString cell = key.section(QLatin1Char(' '), 0, 0), value = key.section(QLatin1Char(' '), 1);
+		/* `vote/HOST/KEY`: the host by its 16 hex, then the setting's key. */
+		QString host = cell.section(QLatin1Char('/'), 1, 1);
+		QString setting = cell.section(QLatin1Char('/'), 2);
+		int voters = 0;
+
+		for (const vote &v : newest)
+			voters += v.cell == cell && v.value == value;
+		add_row(m_setting_votes,
+		        QStringLiteral("%1 = %2  on %3  %4 of %5")
+		                .arg(setting, value, short_key(host))
+		                .arg(voters)
+		                .arg(m_k_held),
+		        host + QLatin1Char(' ') + setting + QLatin1Char(' ') + value);
+	}
+	titled(m_tabs, 1, "Votes", m_votes->count() + m_setting_votes->count());
+	return true;
+}
+
 bool fzn_governance_view::fill_successions()
 {
 	int page, from = 0, total = 0;
@@ -418,8 +497,8 @@ bool fzn_governance_view::fill_preset()
 
 bool fzn_governance_view::refresh()
 {
-	bool a = fill_roots(), b = fill_votes(), c = fill_successions(), d = fill_staged(),
-	     e = fill_preset();
+	bool a = fill_roots(), b = fill_votes() && fill_setting_votes(), c = fill_successions(),
+	     d = fill_staged(), e = fill_preset();
 
 	return a && b && c && d && e;
 }
@@ -518,6 +597,20 @@ void fzn_governance_view::cancel_vote()
 {
 	m_vote_bar->setProperty("key", QString());
 	m_vote_bar->hide();
+}
+
+bool fzn_governance_view::vote_setting()
+{
+	QString line = m_setting_votes->currentItem()
+	                       ? m_setting_votes->currentItem()->data(Qt::UserRole).toString()
+	                       : QString();
+
+	if (line.isEmpty()) {
+		m_votes_status->setText(QStringLiteral("Select a value voted for first."));
+		return false;
+	}
+	return act(QStringLiteral("add vote setting ") + line, m_votes_status,
+	           QStringLiteral("This host voted for it too."));
 }
 
 bool fzn_governance_view::confirm_succession()

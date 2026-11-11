@@ -9345,6 +9345,13 @@ SABOTAGES = [
 		"a row's action names the key's shortened text, which the node holds no key by -- sec 1023",
 	),
 	(
+		"governance-view-counts-superseded-votes",
+		"gui/governance_view.cpp",
+		"\t\t\telse if (v.version >= newest[j].version)\n\t\t\t\tnewest[j] = v;\n",
+		"\t\t\telse\n\t\t\t\tnewest << v;\n",
+		"a voter's older vote is shown beside its newer, and a value reads voted for that is not -- sec 1029",
+	),
+	(
 		"governance-view-says-no-answer",
 		"gui/governance_view.cpp",
 		"\tif (r < 0) {\n\t\tstatus->setText(QStringLiteral(\"The node did not answer.\"));\n\t\treturn false;\n\t}\n",

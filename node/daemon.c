@@ -10995,7 +10995,8 @@ static void votes_look(void)
 }
 
 /* `add vote setting HOST KEY VALUE`, sec 909: HOST 64 hex or `self`, by a host that
- * stands as an admin or a root. */
+ * stands as an admin or a root -- or its first 16 hex, all a vote's record names it
+ * by (sec 1029), so a vote listed can be joined from what the listing shows. */
 static size_t vote_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)
 {
 	static const char HEAD[] = "vote setting ";
@@ -11017,9 +11018,10 @@ static size_t vote_local(fzn_origin_t origin, const fzn_request_t *request, char
 	if (w_len == 4u && memcmp(w, "self", 4u) == 0) {
 		memcpy(host, node_settings.id->pubkey, FZN_PUBKEY_LEN);
 	} else {
-		if (w_len != 2u * FZN_PUBKEY_LEN)
+		if (w_len != 2u * FZN_PUBKEY_LEN && w_len != FZN_NODE_VOTE_HOST_HEX)
 			return (size_t)snprintf(reply, cap, "malformed not a host's key\n");
-		for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+		memset(host, 0, sizeof(host));
+		for (i = 0; i < w_len / 2u; i++) {
 			int hi = hexval(w[2u * i]), lo = hexval(w[2u * i + 1u]);
 
 			if (hi < 0 || lo < 0)

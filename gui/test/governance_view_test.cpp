@@ -97,6 +97,19 @@ static size_t node_ask(void *ctx, const char *line_c, char *reply, size_t cap)
 		                   ? QStringLiteral("ok 1 0123456789abcdef0123456789abcdef,1767000000,"
 		                                    "relay/enabled")
 		                   : QStringLiteral("ok 0"));
+	/* THE VOTES ON A SETTING, two pages: A's older vote for `off` superseded by
+	 * its newer for `on`, and B's for `on`. */
+	if (line == QLatin1String("list record under vote/ 0"))
+		return say(reply, cap,
+		           QStringLiteral("ok 0 2 1 %1,vote/aa00000000000000/relay/enabled,2,off"
+		                          " %2,vote/aa00000000000000/relay/enabled,4,on")
+		                   .arg(QLatin1String(ROOT_A), QLatin1String(ROOT_B)));
+	if (line == QLatin1String("list record under vote/ 2"))
+		return say(reply, cap,
+		           QStringLiteral("ok 2 1 0 %1,vote/aa00000000000000/relay/enabled,5,on")
+		                   .arg(QLatin1String(ROOT_A)));
+	if (line.startsWith(QLatin1String("add vote setting ")))
+		return say(reply, cap, QStringLiteral("ok"));
 	if (line == QLatin1String("get preset"))
 		return say(reply, cap, QStringLiteral("ok userd"));
 	if (line == QLatin1String("list preset choices"))
@@ -160,8 +173,21 @@ int main(int argc, char **argv)
 	                                                        QStringLiteral("vault") }),
 	      "the profile in force and the choices were not shown");
 
+	/* ---- A SETTING'S VOTES, each voter's newest, across both pages: one value,
+	 * two voters, and joined with what the listing showed. sec 1029. */
+	CHECK(view.rows(view.setting_votes_list()).size() == 1
+	              && view.rows(view.setting_votes_list())[0].contains(
+	                         QLatin1String("relay/enabled = on"))
+	              && view.rows(view.setting_votes_list())[0].contains(QLatin1String("2 of 2")),
+	      "a setting's votes were not the voters' newest, counted against k");
+	view.select(view.setting_votes_list(), 0);
+	CHECK(view.vote_setting()
+	              && asked_count(QStringLiteral("add vote setting aa00000000000000 relay/enabled on"))
+	                         == 1,
+	      "joining a setting's vote did not name its host, key and value");
+
 	/* ---- WHAT WAITS IS COUNTED IN THE TAB'S TITLE. */
-	CHECK(view.tab_titles().size() == 5 && view.tab_titles()[1] == QLatin1String("Votes (2)")
+	CHECK(view.tab_titles().size() == 5 && view.tab_titles()[1] == QLatin1String("Votes (3)")
 	              && view.tab_titles()[3] == QLatin1String("Staged (1)"),
 	      "a tab's title did not carry what waits in it");
 

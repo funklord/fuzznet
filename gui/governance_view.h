@@ -14,7 +14,11 @@
  *   - THE VOTES HELD (`list vote`, sec 1023): every vote to revoke this host
  *     holds, by the key it is against, as N of k. Adding this host's own vote
  *     is `revoke peer KEY`, asked first in a row of its own, since a vote that
- *     reaches k takes the device's grant with it.
+ *     reaches k takes the device's grant with it. Below them the votes on a
+ *     host's setting (sec 909), read from `list record under vote/` -- each
+ *     voter's newest -- as a value on a host with N of k for it; joining one
+ *     is `add vote setting HOST KEY VALUE` with what the listing showed
+ *     (sec 1029).
  *   - THE SUCCESSIONS (`list succession`, sec 499): each re-key, counting or
  *     waiting for confirmations; confirming one is `add succession OLD`.
  *   - THE STAGED CHANGES (`list staged`, sec 873): each change that reverts
@@ -72,6 +76,7 @@ public:
 	void ask_vote();
 	bool vote();
 	void cancel_vote();
+	bool vote_setting();
 	bool confirm_succession();
 	bool confirm_staged();
 	bool choose_preset(const QString &name);
@@ -80,6 +85,7 @@ public:
 	 * on. */
 	QListWidget *roots_list() const { return m_roots; }
 	QListWidget *votes_list() const { return m_votes; }
+	QListWidget *setting_votes_list() const { return m_setting_votes; }
 	QListWidget *successions_list() const { return m_successions; }
 	QListWidget *staged_list() const { return m_staged; }
 	QStringList rows(QListWidget *list) const;
@@ -98,6 +104,7 @@ private:
 	int ask(const QString &line, QString *detail);
 	bool fill_roots();
 	bool fill_votes();
+	bool fill_setting_votes();
 	bool fill_successions();
 	bool fill_staged();
 	bool fill_preset();
@@ -122,6 +129,8 @@ private:
 	QWidget *m_vote_bar;
 	QLabel *m_vote_question;
 	QLabel *m_votes_status;
+	QListWidget *m_setting_votes;
+	QPushButton *m_vote_setting;
 
 	QListWidget *m_successions;
 	QPushButton *m_confirm_succession;

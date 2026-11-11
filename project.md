@@ -84708,3 +84708,22 @@ contact could fetch now, not only what was granted to it by name.
 `live_groups` phase f0: alice granted by name and C through the group may each fetch B's file;
 alice revoked may still, being a member; the group's grant revoked, neither may. **Control:** the
 verb listing every held file, f0 fails once the group's grant is revoked.
+
+## 1029. The governance view shows the votes on a host's setting, and joins one, 2026-11-11
+
+Sec 1023 left them out: a vote on a host's setting (sec 909) is a record, `vote/HOST/KEY` = VALUE,
+not a revocation, so `list vote` never held it.
+
+- **Read with `list record under vote/`**, paged, each voter's newest record for a cell being its
+  vote. The Votes tab lists, under the revocation votes, each value voted for -- `KEY = VALUE on
+  HOST  N of k` -- N the voters standing for it, and the tab's count includes them.
+- **Joining one is `add vote setting HOST KEY VALUE`** with what the listing showed. A vote's record
+  names its host by the first 16 hex of its key, which is all `fzn_node_vote` ever used, so the
+  verb now takes those 16 hex as well as the whole key or `self`. Without that a listed vote could
+  not be joined from the listing.
+
+`governance_view_test`: two pages of records, a voter's older vote for `off` superseded by its
+newer for `on`, one row `relay/enabled = on ... 2 of 2`, joined as `add vote setting
+aa00000000000000 relay/enabled on`; sabotage `governance-view-counts-superseded-votes`, caught.
+`live_votes` phase c: B's carrying vote is cast naming T by its 16 hex. **Control:** the verb
+refusing the 16 hex, `malformed not a host's key`.

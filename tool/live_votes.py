@@ -6,7 +6,8 @@ its profile gives to a vote. k is 2, fuzznetd's default.
 
     a  T's user is refused the value, and so is A's own word
     b  one admin's vote changes nothing, and neither does a plain member's
-    c  a second admin's vote carries, on T, by T's own count
+    c  a second admin's vote carries, on T, by T's own count -- cast naming T by
+       the 16 hex its record names it by, as a listing shows it (sec 1029)
     d  a root alone sets it, and the votes already carried do not change it back
 
 BOUNDED FROM INSIDE as live_rejoin.py is, whose daemon handling this reuses: one
@@ -125,7 +126,8 @@ def main(argv):
 			print("livecheck: b: one admin's vote of k 2 changed nothing")
 
 			# c: k.
-			expect(socks["b"], "b", "add vote setting %s %s off" % (keys["t"], KEY), "ok")
+			# BY THE 16 HEX A VOTE'S RECORD NAMES T BY, sec 1029: the same vote.
+			expect(socks["b"], "b", "add vote setting %s %s off" % (keys["t"][:16], KEY), "ok")
 			comes_to("ok host off", "c")
 			print("livecheck: c: a second admin's vote carried on T, by T's own count")
 
