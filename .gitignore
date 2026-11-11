@@ -350,6 +350,7 @@ __pycache__/
 /persist/test/cache_test
 /node/test/verify_memo_test
 /node/test/sessions_test
+/node/test/live_test
 /wire/test/session_frame_test
 /wire/test/session_frame_fuzz
 /node/test/pressure_test

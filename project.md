@@ -84403,3 +84403,32 @@ and R hears it, from M; R says one back unasked and M hears it; a word R echoes 
 opening `noecho:` is kept and not said back, so two such hosts do not echo for ever.
 **Control:** a daemon reading no ask through the envelope fails a, M's word never going.
 `sessions_test` has the two tables, both ways.
+
+## 1019. A call's words, and the calls a host keeps, 2026-11-11
+
+Sec 1017's steps 2 and 3, their first part: the bytes a call is said in, and the table a host
+keeps of the calls it is part of. `node/live.{h,c}`, a new type `FZN_TYPE_LIVE` (61).
+
+    version 2 | FZN_TYPE_LIVE | KIND | CALL 8 | ...
+    RING     KINDS 1 | WHOM 32
+    ANSWER, DECLINE, HANGUP
+    FRAME    STREAM 1 | SEQ 4 | AT 4 | PIECE 2 | PIECES 2 | MEDIA
+
+A ring names the media wanted (audio, video, both) and the user called, whose clients are told;
+an answer, a decline and a hang-up carry nothing but the call. A frame carries its stream, its
+number in it, its capture time in the sender's ms and which piece of how many it is: 24 bytes
+before the media, so a word of 1024 carries 1000 of it. The media is opaque, and a frame missing
+a piece is the receiving client's to drop (sec 1017).
+
+The table: a row a call, ringing out, ringing in, or up; the client of this host's in it and the
+other host. A ring unanswered ends after 45 s, a call up and heard of by neither end after 30.
+Grown on room, as the node's tables are (sec 704).
+
+`live_test`: each word read back as written, a ring of no media or of an unknown one refused, a
+piece past its pieces refused written and read; twenty calls kept, found, one opened again found
+again, and expiry ending what is past its time and only that. Sabotages
+`live-piece-past-its-pieces` (which the first version of the test let survive, refusing the write
+and never the read) and `live-up-call-kept-as-ringing`.
+
+**Next:** the daemon routing these words -- a client's ring to the callee's host, the ring to
+that user's clients, the answer and hang-up back, and frames by call.

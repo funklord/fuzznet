@@ -15130,6 +15130,20 @@ SABOTAGES = [
 		"an attachment's file is asked for by its root alone, which no store fetches -- sec 1001",
 	),
 	(
+		"live-piece-past-its-pieces",
+		"node/live.c",
+		"\t\treturn out->pieces != 0u && out->piece < out->pieces;\n",
+		"\t\treturn out->pieces != 0u;\n",
+		"a frame's piece past its pieces is read -- sec 1019",
+	),
+	(
+		"live-up-call-kept-as-ringing",
+		"node/live.c",
+		"\t\tuint64_t from = c->state == FZN_LIVE_UP ? c->heard_s : c->since_s;\n",
+		"\t\tuint64_t from = c->since_s;\n",
+		"a call up is timed from its start, not from the last word heard -- sec 1019",
+	),
+	(
 		"session-grant-drops-an-ask",
 		"node/sessions.c",
 		"\t\tif (!s->used || s->confirmed || s->initiator\n",

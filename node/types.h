@@ -45,7 +45,7 @@
  *                   took again unseen), a contact's revocations and estate
  *                   records; 53, 54 since sec 782, those records passed
  *                   between members; 55, 56 since sec 783, a key's act log
- *   35, 37..52      fuzznetd's own, here
+ *   35, 37..52, 61  fuzznetd's own, here
  *   36              never allocated
  *
  * fuzznetd's own were `#define`s inside `node/daemon.c`; they live here,
@@ -77,6 +77,8 @@
  * of the replay window, as a replayed one reaches nothing (`node/sessions.h`). */
 #define FZN_TYPE_SESSION_ASK 51u
 #define FZN_TYPE_SESSION_GRANT 52u
+/* A CALL'S WORD, sec 1019 (`node/live.h`): said in a session, never answered. */
+#define FZN_TYPE_LIVE 61u
 #define FZN_CALL_OK 0u
 #define FZN_CALL_UNKNOWN 1u
 #define FZN_CALL_DENIED 2u

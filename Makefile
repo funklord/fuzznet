@@ -242,7 +242,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
              net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
-             node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/replies.c \
+             node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/live.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
@@ -344,7 +344,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
-             node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/replies.h \
+             node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/live.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
@@ -498,7 +498,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
-             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c node/test/verify_memo_test.c wire/test/session_frame_test.c node/test/sessions_test.c \
+             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c node/test/verify_memo_test.c wire/test/session_frame_test.c node/test/sessions_test.c node/test/live_test.c \
              node/test/pressure_test.c record/test/held_test.c \
              node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c node/test/stage_fuzz.c \
              node/test/serve_test.c node/test/replies_test.c \
@@ -658,6 +658,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/verify_memo_test \
              $(BUILD_DIR)/wire/test/session_frame_test \
              $(BUILD_DIR)/node/test/sessions_test \
+             $(BUILD_DIR)/node/test/live_test \
              $(BUILD_DIR)/node/test/pressure_test \
              $(BUILD_DIR)/record/test/held_test \
              $(BUILD_DIR)/node/test/node_test \
@@ -4018,6 +4019,10 @@ $(BUILD_DIR)/wire/test/session_frame_test: $(BUILD_DIR)/wire/test/session_frame_
 
 $(BUILD_DIR)/wire/test/session_frame_fuzz: $(BUILD_DIR)/wire/test/session_frame_fuzz.o \
                                            $(SESSION_FRAME_TEST_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/node/test/live_test: $(BUILD_DIR)/node/test/live_test.o $(BUILD_DIR)/node/live.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
