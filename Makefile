@@ -1239,7 +1239,7 @@ endif
 # four times -- a dangling continuation swallows the next line, and make
 # reports it against somewhere else entirely.
 GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
-            gui/retention_view.cpp \
+            gui/retention_view.cpp gui/governance_view.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1267,10 +1267,11 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
 SPEC_HDRS :=
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
-            gui/retention_view.h \
+            gui/retention_view.h gui/governance_view.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
+            gui/test/governance_view_test.cpp \
             $(if $(LOG_FILE_ON),gui/test/entries_view_test.cpp)
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
 # than an accident of the build. sec 164: it does not validate, the CLI parser
@@ -1369,6 +1370,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/qr_view_test \
               $(BUILD_DIR)/gui/test/notebook_view_test \
               $(BUILD_DIR)/gui/test/retention_view_test \
+              $(BUILD_DIR)/gui/test/governance_view_test \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/gui/test/entries_view_test)
 ifdef CLI_ON
 TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
@@ -3554,6 +3556,21 @@ $(BUILD_DIR)/gui/test/retention_view_test: $(BUILD_DIR)/gui/test/retention_view_
                                       $(BUILD_DIR)/prekey/prekey.o \
                                       $(BUILD_DIR)/ratchet/ratchet.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+
+# The estate's governance on a widget, against a node of the test's own that
+# answers each verb in the node's shape. sec 1023.
+$(BUILD_DIR)/gui/test/governance_view_test: $(BUILD_DIR)/gui/test/governance_view_test.o \
+                                       $(BUILD_DIR)/gui/governance_view.o \
+                                       $(BUILD_DIR)/local/vocabulary.o \
+                                       $(BUILD_DIR)/local/peer.o \
+                                       $(BUILD_DIR)/persist/persist.o \
+                                       $(BUILD_DIR)/trust/trust.o \
+                                       $(BUILD_DIR)/session/agree.o \
+                                       $(BUILD_DIR)/prekey/prekey.o \
+                                       $(BUILD_DIR)/ratchet/ratchet.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
 
@@ -7420,6 +7437,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(LOG_FILE_ON),$(
 	       gui/config_view.cpp gui/link_view.cpp gui/peer_view.cpp \
 	       gui/manifest_view.cpp gui/ledger_view.cpp gui/sched_view.cpp \
 	       gui/persist_view.cpp gui/notebook_view.cpp gui/retention_view.cpp \
+	       gui/governance_view.cpp \
 	       gui/provision_view.cpp \
 	       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON gui/entries_view.cpp $(BUILD_DIR)/log/gather.o \
 	         $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o \

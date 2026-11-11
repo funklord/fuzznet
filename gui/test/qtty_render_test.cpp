@@ -48,6 +48,7 @@
 #include "../persist_view.h"
 #include "../notebook_view.h"
 #include "../retention_view.h"
+#include "../governance_view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../entries_view.h"
 #endif
@@ -345,6 +346,7 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_sched_view sched_v;
 	fzn_notebook_view notes_v(empty_node, nullptr);
 	fzn_retention_view retention_v(empty_node, nullptr);
+	fzn_governance_view governance_v(empty_node, nullptr);
 #ifdef FZN_LOG_FILE_ON
 	fzn_entries_view entries_v(silent_host, nullptr);
 #endif
@@ -632,6 +634,9 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "notebook_view", &notes_v, "Nothing here yet" },
 			/* THE ESTATE'S RULES WARN BEFORE THE CLICK, sec 485. */
 			{ "retention_view", &retention_v, "every host it reaches" },
+			/* WHAT A ROOT'S CHANGE NEEDS, said before the click, on
+			 * the tab shown first, sec 1023. */
+			{ "governance_view", &governance_v, "needs a root" },
 #ifdef FZN_LOG_FILE_ON
 			/* A SILENT HOST SAYS SO, sec 468, as the notebook does: no
 			 * lines and no answer are different words. */

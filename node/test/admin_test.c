@@ -1393,6 +1393,36 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && fzn_root_view_stands(&roots.view, device.id.pubkey),
 		      "the node's own user could not add a root");
+		/* THE ROOTS READ BACK, sec 1023: both, each once, this node's own
+		 * marked as the one it acts as; and every vote, with no key. */
+		{
+			char node_hex[(FZN_PUBKEY_LEN * 2u) + 1u], said[800], want_root[200];
+			unsigned long k = 0, n = 0;
+
+			hex(node.id.pubkey, FZN_PUBKEY_LEN, node_hex);
+			said[0] = '\0';
+			if (ask(&admin, &member, "list root", reply, sizeof(reply), &reply_len)
+			    && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+			    && detail_len < sizeof(said)) {
+				memcpy(said, detail, detail_len);
+				said[detail_len] = '\0';
+			}
+			snprintf(want_root, sizeof(want_root), "%s,acting", node_hex);
+			CHECK(sscanf(said, "%lu %lu", &k, &n) == 2 && k >= 1u && n == 2u
+			              && strstr(said, want_root) && strstr(said, key)
+			              && !strstr(strstr(said, key), ",acting"),
+			      "list root did not name both roots, the node's own as acting");
+			said[0] = '\0';
+			if (ask(&admin, &member, "list vote", reply, sizeof(reply), &reply_len)
+			    && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+			    && detail_len < sizeof(said)) {
+				memcpy(said, detail, detail_len);
+				said[detail_len] = '\0';
+			}
+			snprintf(want_root, sizeof(want_root), "%s,%s,", key, node_hex);
+			CHECK(sscanf(said, "%lu %lu", &k, &n) == 2 && n >= 1u && strstr(said, want_root),
+			      "list vote with no key did not name the vote held, subject then voter");
+		}
 		snprintf(line, sizeof(line), "remove root %s zz", key);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)

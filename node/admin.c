@@ -22,6 +22,7 @@
 #include "../net/udp.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int log_grant(struct fzn_node_admin *admin, const uint8_t device[FZN_PUBKEY_LEN]);
@@ -876,6 +877,97 @@ static size_t add_succession(fzn_node_admin_t *admin, const uint8_t *rest, size_
  * its issuer and `standing` or `withdrawn`. A k-of-n revocation in progress
  * could not be seen anywhere: two voters each holding their vote and a
  * grant still standing at the root said nothing of which vote it lacked. */
+/* EVERY VOTE THIS NODE HOLDS, sec 1023: `list vote` with no key answers `ok K N
+ * GRANTEE,ISSUER,STATE ...`, the vote's subject first. What a governance view
+ * shows as the votes waiting: `list vote KEY` needs the key it is asked about,
+ * and a person looking for what is in progress has none to ask. */
+static size_t list_all_votes(fzn_node_admin_t *admin, char *reply, size_t cap)
+{
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = fzn_reply_ok_room(cap), at, i, k;
+	const fzn_revocation_store_t *store = admin->revocations;
+	int w;
+
+	if (!store)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "this node keeps no revocations");
+	k = store->quorum ? store->quorum : 1u;
+	w = snprintf(detail, sizeof(detail), "%zu %zu", k, store->used);
+	if (w < 0 || (size_t)w >= sizeof(detail))
+		return 0;
+	at = (size_t)w;
+	for (i = 0; i < store->used; i++) {
+		const fzn_revocation_t *e = &store->entries[i];
+		const char *state = e->withdrawn ? ",withdrawn" : ",standing";
+
+		if (at + 2u + (FZN_PUBKEY_LEN * 4u) + strlen(state) > limit)
+			break;
+		detail[at++] = ' ';
+		put_hex(detail + at, e->grantee, FZN_PUBKEY_LEN);
+		at += FZN_PUBKEY_LEN * 2u;
+		detail[at++] = ',';
+		put_hex(detail + at, e->issuer, FZN_PUBKEY_LEN);
+		at += FZN_PUBKEY_LEN * 2u;
+		memcpy(detail + at, state, strlen(state));
+		at += strlen(state);
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, at);
+}
+
+/* THE ESTATE'S ROOTS, sec 1023: `list root` answers `ok K N KEY[,acting] ...`,
+ * each root that stands once, `acting` on the one this node acts as. No verb
+ * read them: `add root` and `remove root` changed a set nobody could see, and
+ * `set quorum` a k nobody could read back. */
+static size_t list_roots(fzn_node_admin_t *admin, char *reply, size_t cap)
+{
+	static char detail[FZN_REPLY_MAX];
+	static uint8_t (*keys)[FZN_PUBKEY_LEN];
+	static size_t keys_cap;
+	size_t limit = fzn_reply_ok_room(cap), at, i, j, n, got, k;
+	const uint8_t *acting = NULL;
+	const fzn_sign_ops_t *sign = NULL;
+	int w;
+
+	/* ROOM FOR EVERY CANDIDATE, the genesis and each change's subject. */
+	if (admin->roots->set.used + 1u > keys_cap) {
+		uint8_t (*grown)[FZN_PUBKEY_LEN] =
+		        realloc(keys, (admin->roots->set.used + 1u) * sizeof(*keys));
+
+		if (!grown)
+			return answer_text(reply, cap, FZN_REPLY_ERROR, "out of memory");
+		keys = grown;
+		keys_cap = admin->roots->set.used + 1u;
+	}
+	got = fzn_node_roots_standing(admin->roots, keys, keys_cap);
+	/* EACH ONCE: a root removed and added again is named once per add. */
+	for (i = 0, n = 0; i < got; i++) {
+		for (j = 0; j < n && memcmp(keys[j], keys[i], FZN_PUBKEY_LEN) != 0; j++)
+			;
+		if (j == n)
+			memmove(keys[n++], keys[i], FZN_PUBKEY_LEN);
+	}
+	(void)fzn_node_roots_acting(admin->roots, admin->id->pubkey, admin->id->sign, &acting,
+	                            &sign);
+	k = admin->revocations && admin->revocations->quorum ? admin->revocations->quorum : 1u;
+	w = snprintf(detail, sizeof(detail), "%zu %zu", k, n);
+	if (w < 0 || (size_t)w >= sizeof(detail))
+		return 0;
+	at = (size_t)w;
+	for (i = 0; i < n; i++) {
+		int is_acting = acting && memcmp(acting, keys[i], FZN_PUBKEY_LEN) == 0;
+
+		if (at + 1u + (FZN_PUBKEY_LEN * 2u) + 7u > limit)
+			break;
+		detail[at++] = ' ';
+		put_hex(detail + at, keys[i], FZN_PUBKEY_LEN);
+		at += FZN_PUBKEY_LEN * 2u;
+		if (is_acting) {
+			memcpy(detail + at, ",acting", 7u);
+			at += 7u;
+		}
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, at);
+}
+
 static size_t list_votes(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
                          char *reply, size_t cap)
 {
@@ -2097,9 +2189,12 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (request->parsed == FZN_VERB_LIST
 	    && subject_word(request, "succession", &rest, &rest_len))
 		return list_successions(admin, rest, rest_len, reply, reply_cap);
-	if (request->parsed == FZN_VERB_LIST && subject_word(request, "vote", &rest, &rest_len)
-	    && rest)
-		return list_votes(admin, rest, rest_len, reply, reply_cap);
+	if (request->parsed == FZN_VERB_LIST && subject_word(request, "vote", &rest, &rest_len))
+		return rest ? list_votes(admin, rest, rest_len, reply, reply_cap)
+		            : list_all_votes(admin, reply, reply_cap);
+	if (request->parsed == FZN_VERB_LIST && subject_word(request, "root", &rest, &rest_len)
+	    && !rest && admin->roots)
+		return list_roots(admin, reply, reply_cap);
 	/* ADMINS, sec 416: only on a node whose config names the capability. */
 	if (admin->state->config.has_admin && request->parsed == FZN_VERB_GRANT
 	    && subject_word(request, "admin", &rest, &rest_len) && rest)

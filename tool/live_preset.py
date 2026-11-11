@@ -11,7 +11,8 @@ One store, a root, started with `--preset=`.
     d  an update, by another profile: what somebody chose stays, the new
        profile's own is put back, and `preset/applied` says so
     d2 `set preset` switches among a build's user presets, refusing one no user
-       may choose and another build's, and the choice outlives a restart
+       may choose and another build's, and the choice outlives a restart;
+       `list preset choices` names those it takes and no other (sec 1023)
     e  a name no profile has ends the start
     f  on a fresh host, what one preset wrote and nobody chose follows a switch to
        another (sec 973)
@@ -134,6 +135,12 @@ def main(argv):
 			d.stop()
 			d = up("r4", "userd")
 			d.wait_for(ROUND_DONE_RE, "the switch's round", within=60.0)
+			# THE CHOICES, sec 1023: the user's presets this build takes, and no other.
+			choices = ask(sock, "list preset choices").split()
+			if (choices[:1] != ["ok"] or int(choices[1]) != len(choices) - 2
+			        or "relay" not in choices or "userd" not in choices
+			        or "rootd" in choices or "embedded-device" in choices):
+				raise failed("d2: list preset choices answered %r" % choices)
 			expect(sock, "d2", "set preset relay", "ok")
 			got = ask(sock, "set preset rootd")
 			if not got.startswith("denied"):

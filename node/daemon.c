@@ -11068,6 +11068,24 @@ static size_t preset_local(fzn_origin_t origin, const fzn_request_t *request, ch
 		preset_done = 0;
 		return (size_t)snprintf(reply, cap, "ok\n");
 	}
+	/* `list preset choices`, sec 1023: the profiles `set preset` takes here --
+	 * this build's, marked a user's -- as `ok N NAME ...`. A governance view
+	 * offers them; `list preset` gives only the values of the one in force. */
+	if (request->parsed == FZN_VERB_LIST && request->arg && request->arg_len == 14u
+	    && memcmp(request->arg, "preset choices", 14u) == 0) {
+		const fzn_preset_t *p;
+		size_t names = 0;
+
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return (size_t)snprintf(reply, cap, "denied a profile is this node's own user's\n");
+		for (i = 0; (p = fzn_preset_at(i)) != NULL; i++)
+			names += p->user && fzn_preset_fits(p);
+		out = (size_t)snprintf(reply, cap, "ok %zu", names);
+		for (i = 0; (p = fzn_preset_at(i)) != NULL && out + strlen(p->name) + 3u < cap; i++)
+			if (p->user && fzn_preset_fits(p))
+				out += (size_t)snprintf(reply + out, cap - out, " %s", p->name);
+		return out + (size_t)snprintf(reply + out, cap - out, "\n");
+	}
 	if (!request->arg || request->arg_len != 6u || memcmp(request->arg, "preset", 6u) != 0
 	    || (request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_LIST))
 		return 0;

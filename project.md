@@ -84525,3 +84525,50 @@ passes on the same build.
 carries no sender, so two senders' sequence numbers interleave in one stream at a third (to be
 the word's sender field, a wire change sec 924 lets be made); quality per member; a member
 added to a call already up.
+
+## 1023. The estate's governance on a widget: roots, k, votes, re-keys, staged changes, profile, 2026-11-11
+
+**Asked by fuzzypickles (inbox 20261111T0403Z):** the node answers an estate's governance --
+votes, presets, roots, succession, quorum, staged changes -- and no client offered any of it, this
+tree's views included. By the holder's rule that a subsystem's UI travels with it, the view is
+fuzznet's to make and theirs to host, beside the notes page.
+
+**Three reads were missing, so the view could not have been written on the verbs there were:**
+
+- **`list root`** (`node/admin.c`): `ok K N KEY[,acting] ...`, each root that stands once, `acting`
+  on the key this host acts as a root with. `add root`, `remove root` and `set quorum` changed a set
+  and a k that nothing read back.
+- **`list vote` with no key**: `ok K N GRANTEE,ISSUER,STATE ...`, every vote to revoke this host
+  holds. `list vote KEY` (sec 737) needs the key, and a person looking for what is in progress has
+  none to ask with.
+- **`list preset choices`** (`node/daemon.c`): `ok N NAME ...`, the profiles `set preset` takes on
+  this build. `list preset` gives the values of the one in force only. The node's own user's, as
+  the other preset verbs are.
+
+**`gui/governance_view.{h,cpp}`**, five parts, a tab each -- five lists one above the other did
+not fit a terminal's 24 rows (`qtty_render_test`) -- each tab titled with its count, each part read
+by its own verb and each saying for itself when the node refused or did not answer:
+
+- roots and k, with Add root, Remove root and Set k;
+- votes to revoke, one row per key voted against, standing votes counted against k and the
+  withdrawn named apart; adding this host's vote is `revoke peer KEY`, asked first in a row of its
+  own, since a vote that reaches k takes the device's grant on every host;
+- re-keyed devices (`list succession`, paged), confirmed by `add succession OLD`;
+- changes waiting to be confirmed (`list staged`, sec 873), confirmed by `add confirm TOKEN`;
+- the profile in force, and a choice among the others.
+
+A key shows as its first 16 hex digits; the row keeps the whole key as its data, and an action on
+a row uses that, not the shortening.
+
+**Verified:** `admin_test` reads both roots back, the node's own marked acting, and the vote with
+no key, subject then voter. `gui/test/governance_view_test`, against a node of the test's own that
+answers each verb in the node's shape: every part read, successions across two pages, a row's
+action naming the full key, a refusal in the node's words, a vote sent only on the second step and
+not after a cancel, and a silent node said to be silent in each part. A fuzznetd answers all six reads over its socket in those shapes. Six sabotage entries, each
+caught by hand against its binary: `admin-list-root-marks-no-acting` and
+`admin-list-vote-names-no-subject` by `admin_test`; `governance-view-counts-the-withdrawn`,
+`-votes-unasked`, `-acts-on-the-shortening` and `-says-no-answer` by the view's test. `live_preset` phase d2:
+`list preset choices` names `userd` and `relay`, and neither `rootd` nor another build's.
+
+**Not built:** the votes on a host's setting (sec 909) -- records `vote/HOST/KEY`, not revocations --
+are not in the vote part yet; nor names for keys, which are the host's (contacts) to give.
