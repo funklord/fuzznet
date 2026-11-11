@@ -19,6 +19,22 @@ int fzn_node_session_is_ask(const uint8_t *payload, size_t len)
 	       && payload[1] == FZN_TYPE_SESSION_ASK;
 }
 
+const uint8_t *fzn_node_session_ask_body(const uint8_t *payload, size_t len)
+{
+	fzn_entry_name_t cause, origin;
+	const uint8_t *in = NULL;
+	size_t in_len = 0;
+
+	if (fzn_node_session_is_ask(payload, len))
+		return payload + 2;
+	/* A DAEMON'S, in the cause envelope round all it sends (sec 1018): a device
+	 * sends its ask bare, and a host asking a host was answered `unsupported`. */
+	if (payload && fzn_cause_unwrap(payload, len, &cause, &origin, &in, &in_len) == FZN_CAUSE_OK
+	    && fzn_node_session_is_ask(in, in_len))
+		return in + 2;
+	return NULL;
+}
+
 static int time_ask(const fzn_opened_t *opened)
 {
 	fzn_entry_name_t cause, origin;
@@ -27,7 +43,7 @@ static int time_ask(const fzn_opened_t *opened)
 
 	if (fzn_node_time_is_ask(opened->payload, opened->payload_len))
 		return 1;
-	if (fzn_node_session_is_ask(opened->payload, opened->payload_len))
+	if (fzn_node_session_ask_body(opened->payload, opened->payload_len))
 		return 1;
 	return fzn_cause_unwrap(opened->payload, opened->payload_len, &cause, &origin, &in, &in_len)
 	               == FZN_CAUSE_OK

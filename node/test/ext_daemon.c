@@ -35,6 +35,11 @@
  *   get own           `ok WORD`, --own-word's, or `ok none`
  *   get caller        `ok UID`, the caller's, as `local_from` is handed it
  *                     (sec 849)
+ *   add said HOST W   W said to host HOST in a session, sec 1018: `ok said`,
+ *                     or `ok asked` while one is being asked of it
+ *   get heard         `ok N HOST WORD`: the words heard, and the last one's
+ *                     host and word; `ok 0` for none. One opening `noecho:`
+ *                     is kept and not said back
  *
  * And one procedure, sec 853: `echo` answers `local ARGS` to a local
  * caller and `remote ARGS` to another host's. `--echo-as=NAME` names it
@@ -231,6 +236,11 @@ static int is(const fzn_request_t *request, fzn_verb_t verb, const char *arg)
 	       && memcmp(request->arg, arg, request->arg_len) == 0;
 }
 
+/* THE LAST WORD HEARD, sec 1018, and how many. */
+static unsigned long n_heard;
+static uint8_t heard_from[FZN_PUBKEY_LEN];
+static char heard_word[64];
+
 static size_t local(void *ctx, fzn_origin_t origin, const fzn_request_t *request, char *reply,
                     size_t cap)
 {
@@ -268,7 +278,33 @@ static size_t local(void *ctx, fzn_origin_t origin, const fzn_request_t *request
 		n = snprintf(reply, cap, "ok %zu\n", fzn_daemon_local("status", inner, sizeof(inner)));
 	} else if (is(request, FZN_VERB_GET, "own"))
 		n = snprintf(reply, cap, "ok %s\n", own_word);
-	else if (is(request, FZN_VERB_GET, "garbled"))
+	else if (request->parsed == FZN_VERB_ADD && request->arg && request->arg_len > 6u + 64u + 1u
+	         && memcmp(request->arg, "said ", 5u) == 0) {
+		/* `add said HOST WORD`, sec 1018: said to another host, `ok said`,
+		 * or `ok asked` while a session is being asked of it. */
+		uint8_t host[FZN_PUBKEY_LEN];
+		size_t k;
+		int ok = 1;
+
+		for (k = 0; k < FZN_PUBKEY_LEN; k++) {
+			unsigned v;
+
+			ok &= sscanf((const char *)request->arg + 5u + 2u * k, "%2x", &v) == 1;
+			host[k] = (uint8_t)v;
+		}
+		n = !ok ? snprintf(reply, cap, "malformed add said HOST WORD\n")
+		    : fzn_daemon_say(host, request->arg + 6u + 64u, request->arg_len - 6u - 64u)
+		            ? snprintf(reply, cap, "ok said\n")
+		            : snprintf(reply, cap, "ok asked\n");
+	} else if (is(request, FZN_VERB_GET, "heard")) {
+		char from[2u * FZN_PUBKEY_LEN + 1u];
+		size_t k;
+
+		for (k = 0; k < FZN_PUBKEY_LEN; k++)
+			snprintf(from + 2u * k, 3u, "%02x", heard_from[k]);
+		n = n_heard ? snprintf(reply, cap, "ok %lu %s %s\n", n_heard, from, heard_word)
+		            : snprintf(reply, cap, "ok 0\n");
+	} else if (is(request, FZN_VERB_GET, "garbled"))
 		n = snprintf(reply, cap, "garbled words\n");
 	else if (request->parsed == FZN_VERB_STATUS || is(request, FZN_VERB_LIST, "contact"))
 		n = snprintf(reply, cap, "ok the extension answered\n");
@@ -365,11 +401,21 @@ static size_t ring(void *ctx, const uint8_t *caller, const fzn_peer_t *peer, con
 	return 4u;
 }
 
-/* WHAT A HOST SAYS IN A SESSION, said back, sec 935. */
+/* WHAT A HOST SAYS IN A SESSION, said back, sec 935 -- kept, and said back
+ * unless it opens `noecho:`, so two of these hosts saying to each other do not
+ * echo for ever (sec 1018). */
 static void said_back(void *ctx, const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
                       size_t len)
 {
+	size_t k = len < sizeof(heard_word) - 1u ? len : sizeof(heard_word) - 1u;
+
 	(void)ctx;
+	n_heard++;
+	memcpy(heard_from, host, FZN_PUBKEY_LEN);
+	memcpy(heard_word, bytes, k);
+	heard_word[k] = '\0';
+	if (len >= 7u && memcmp(bytes, "noecho:", 7u) == 0)
+		return;
 	(void)fzn_daemon_say(host, bytes, len);
 }
 

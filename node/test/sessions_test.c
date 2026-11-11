@@ -71,6 +71,67 @@ static void first_frame(const uint8_t *ask, const uint8_t *g)
 	fzn_node_sessions_confirm(&table, s);
 }
 
+/* TWO HOSTS, sec 1018: A asks a session of B, B grants it, and each says a word the
+ * other opens, each finding the session by the handle it hears under. An ask made
+ * again before its grant is the same ask, and B's own grant to A leaves A's ask. */
+static void test_a_host_asks_a_host(void)
+{
+	static fzn_node_sessions_t a_table, b_table;
+	uint8_t a_key[FZN_PUBKEY_LEN], b_key[FZN_PUBKEY_LEN], to[4] = { 1, 2, 3, 4 };
+	uint8_t ask[FZN_SESSION_ASK_LEN], again[FZN_SESSION_ASK_LEN], g[FZN_SESSION_GRANT_LEN];
+	uint8_t other_ask[FZN_SESSION_ASK_LEN], other_grant[FZN_SESSION_GRANT_LEN];
+	uint8_t frame[FZN_SESSION_FRAME_MAX];
+	fzn_session_opened_t got;
+	fzn_node_session_t *at_a, *at_b;
+	size_t n = 0;
+
+	memset(a_key, 0xAA, sizeof(a_key));
+	memset(b_key, 0xBB, sizeof(b_key));
+	CHECK(fzn_node_sessions_ask(&a_table, b_key, capability, root, &rng, ask)
+	              && fzn_node_sessions_ask(&a_table, b_key, capability, root, &rng, again)
+	              && memcmp(ask, again, sizeof(ask)) == 0,
+	      "an ask made again before its grant was another ask");
+	CHECK(fzn_node_sessions_of(&a_table, b_key) == NULL, "an ask unanswered stands as a session");
+	/* B ASKS A TOO, and A grants it: A's own ask is not taken for an old one. */
+	memset(other_ask, 0x31, sizeof(other_ask));
+	CHECK(fzn_node_sessions_grant(&a_table, b_key, capability, root, other_ask, 1000u, &hash,
+	                              &rng, other_grant),
+	      "fixture: A grants B's own ask");
+	CHECK(fzn_node_sessions_grant(&b_table, a_key, capability, root, ask, 2000u, &hash, &rng, g),
+	      "B did not grant A's ask");
+	CHECK(fzn_node_sessions_asked(&a_table, b_key, g, &hash, to, sizeof(to)),
+	      "A did not take B's grant to its ask");
+	at_a = fzn_node_sessions_of(&a_table, b_key);
+	CHECK(at_a && at_a->initiator && at_a->from_len == sizeof(to), "A's session of B is not standing");
+	if (!at_a)
+		return;
+	/* A SAYS, B OPENS by the handle B granted under. */
+	CHECK(fzn_session_frame_seal(&at_a->end, 0u, 9u, (const uint8_t *)"hi", 2u, frame,
+	                             sizeof(frame), &n, &aead)
+	              == FZN_SESSION_FRAME_OK,
+	      "A did not seal");
+	at_b = fzn_node_sessions_find(&b_table, handle_of(g));
+	CHECK(at_b && fzn_session_frame_open(&at_b->end, frame, n, &aead, &got) == FZN_SESSION_FRAME_OK
+	              && got.payload_len == 2u && memcmp(got.payload, "hi", 2u) == 0,
+	      "B did not open A's word");
+	if (!at_b)
+		return;
+	fzn_node_sessions_confirm(&b_table, at_b);
+	/* B SAYS BACK, A OPENS by the handle A asked under. */
+	CHECK(fzn_session_frame_seal(&at_b->end, 0u, 9u, (const uint8_t *)"yo", 2u, frame,
+	                             sizeof(frame), &n, &aead)
+	              == FZN_SESSION_FRAME_OK,
+	      "B did not seal");
+	at_a = fzn_node_sessions_find(&a_table, fzn_get_be32(ask + FZN_SESSION_RANDOM_LEN));
+	CHECK(at_a && fzn_session_frame_open(&at_a->end, frame, n, &aead, &got) == FZN_SESSION_FRAME_OK
+	              && got.payload_len == 2u && memcmp(got.payload, "yo", 2u) == 0,
+	      "A did not open B's word");
+	CHECK(!fzn_node_sessions_asked(&a_table, b_key, g, &hash, NULL, 0u),
+	      "a grant taken twice");
+	fzn_node_sessions_release(&a_table);
+	fzn_node_sessions_release(&b_table);
+}
+
 int main(void)
 {
 	uint8_t alice[FZN_PUBKEY_LEN], bob[FZN_PUBKEY_LEN];
@@ -167,6 +228,7 @@ int main(void)
 
 	fzn_node_sessions_release(&table);
 	CHECK(!table.table && !table.cap, "a table let go still holds");
+	test_a_host_asks_a_host();
 	printf("sessions_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

@@ -95,6 +95,10 @@ fzn_node_remote_result_t fzn_node_serve_authorise(const fzn_node_config_t *confi
 /* WHETHER `payload` ASKS FOR A SESSION, sec 932. */
 int fzn_node_session_is_ask(const uint8_t *payload, size_t len);
 
+/* THE ASK'S BODY in `payload`, bare or in the cause envelope a daemon puts round
+ * what it sends (sec 1018); NULL when it is no ask. */
+const uint8_t *fzn_node_session_ask_body(const uint8_t *payload, size_t len);
+
 /* Seal a reply from this node back to `peer`, under the session that opened
  * the peer's frames. The session key is symmetric, so the caller opens the
  * reply with the key it seals requests with. `node_pubkey` is the node's

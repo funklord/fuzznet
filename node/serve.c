@@ -295,11 +295,14 @@ static void serve_session_ask(fzn_node_state_t *state, const fzn_node_peer_t *pe
 {
 	uint8_t grant[2u + FZN_SESSION_GRANT_LEN];
 	uint64_t now_ms = state->clock_ms ? state->clock_ms() : now * 1000u;
+	const uint8_t *ask = fzn_node_session_ask_body(opened->payload, opened->payload_len);
 
 	grant[0] = FZN_TYPES_VERSION_SHARED;
 	grant[1] = FZN_TYPE_SESSION_GRANT;
-	if (fzn_node_sessions_grant(state->sessions, peer->sender, opened->capability, peer->recv_key,
-	                            opened->payload + 2u, now_ms, state->hash, state->rng, grant + 2u))
+	if (ask
+	    && fzn_node_sessions_grant(state->sessions, peer->sender, opened->capability,
+	                               peer->recv_key, ask, now_ms, state->hash, state->rng,
+	                               grant + 2u))
 		send_reply(state, peer, from, opened, grant, sizeof(grant), 0);
 }
 
@@ -326,6 +329,9 @@ static void serve_session_frame(fzn_node_state_t *state, uint8_t *frame, size_t 
 	    || !(s = fzn_node_sessions_find(sessions, handle)))
 		return;
 	found = fzn_node_find_peer(state->peers, state->peer_count, s->sender);
+	/* A SESSION THIS HOST ASKED, sec 1018, is rooted in the key it sends under,
+	 * which between two hosts of an estate is the key its peer row holds:
+	 * measured, so the same check stands for both ends. */
 	if (!found || memcmp(found->recv_key, s->root, FZN_AEAD_KEY_LEN) != 0) {
 		fzn_node_sessions_drop(s);
 		return;
@@ -384,11 +390,16 @@ int fzn_node_serve_say(fzn_node_state_t *state, const uint8_t sender[FZN_PUBKEY_
 	fzn_node_session_t *s;
 	fzn_udp_addr_t to;
 	size_t frame_len = 0;
+	uint64_t now = state && state->clock ? state->clock() : 0u, ahead = 30u;
 
+	/* AN EXPIRY A HOST TAKES, sec 1018: 0 was taken by a device, which reads
+	 * none, and refused by a host as expired. */
+	if (state && state->replay && state->replay->max_ahead < ahead)
+		ahead = state->replay->max_ahead;
 	if (!state || !state->aead || !(s = fzn_node_sessions_of(state->sessions, sender))
 	    || !s->from_len
-	    || fzn_session_frame_seal(&s->end, 0u, 0u, payload, len, frame, sizeof(frame), &frame_len,
-	                              state->aead)
+	    || fzn_session_frame_seal(&s->end, 0u, (uint32_t)(now + ahead), payload, len, frame,
+	                              sizeof(frame), &frame_len, state->aead)
 	               != FZN_SESSION_FRAME_OK)
 		return 0;
 	memcpy(to.storage, s->from, s->from_len);
@@ -493,7 +504,7 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	/* A SESSION ASKED FOR, sec 932: by a caller that stands, and answered by
 	 * nothing else. A denied one is told nothing. */
 	if (result != FZN_NODE_REMOTE_DROPPED
-	    && fzn_node_session_is_ask(opened.payload, opened.payload_len)) {
+	    && fzn_node_session_ask_body(opened.payload, opened.payload_len)) {
 		if (result == FZN_NODE_REMOTE_GRANTED && state->sessions)
 			serve_session_ask(state, peer, &from, &opened, now);
 		state->asking_hops = 0;

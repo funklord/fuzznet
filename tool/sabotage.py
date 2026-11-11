@@ -15130,6 +15130,13 @@ SABOTAGES = [
 		"an attachment's file is asked for by its root alone, which no store fetches -- sec 1001",
 	),
 	(
+		"session-grant-drops-an-ask",
+		"node/sessions.c",
+		"\t\tif (!s->used || s->confirmed || s->initiator\n",
+		"\t\tif (!s->used || s->confirmed\n",
+		"a host's grant to a peer drops the session it asked of that peer -- sec 1018",
+	),
+	(
 		"roster-index-finds-nothing",
 		"roster/roster.c",
 		"\t\t\tif (memcmp(e->subject, subject, FZN_PUBKEY_LEN) == 0\n\t\t\t    && memcmp(e->incarnation, incarnation, FZN_ROSTER_INCARNATION_LEN) == 0)\n\t\t\t\treturn e;\n",
@@ -15631,8 +15638,8 @@ SABOTAGES = [
 	(
 		"sessions-replay-takes-the-session",
 		"node/sessions.c",
-		"\t\tif (!s->used || s->confirmed || memcmp(s->sender, sender, FZN_PUBKEY_LEN) != 0)\n",
-		"\t\tif (!s->used || memcmp(s->sender, sender, FZN_PUBKEY_LEN) != 0)\n",
+		"\t\tif (!s->used || s->confirmed || s->initiator\n",
+		"\t\tif (!s->used || s->initiator\n",
 		"an old ask played back ends the session in use, with no key -- sec 932",
 	),
 	(

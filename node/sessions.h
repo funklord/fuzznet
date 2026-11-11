@@ -55,6 +55,9 @@ typedef struct fzn_node_session {
 	unsigned from_len;
 	uint8_t used;
 	uint8_t confirmed; /* a frame of it has opened */
+	/* THIS HOST ASKED IT, sec 1018, of another host: `root` is then the key this
+	 * host sends under, and it stands once the grant is taken. */
+	uint8_t initiator;
 } fzn_node_session_t;
 
 typedef struct fzn_node_sessions {
@@ -79,6 +82,22 @@ fzn_node_session_t *fzn_node_sessions_find(fzn_node_sessions_t *t, uint32_t hand
 /* THE SESSION `sender` USES, or NULL: confirmed, as only a frame says where it is. */
 fzn_node_session_t *fzn_node_sessions_of(fzn_node_sessions_t *t,
                                          const uint8_t sender[FZN_PUBKEY_LEN]);
+
+/* AN ASK OF `peer`, sec 1018: a slot kept, and `ask_out` the body to send it in a
+ * full frame, naming the handle the slot hears under. `root` the key this host
+ * sends `peer` full frames under. The same ask while one is unanswered, so a
+ * grant to either try is taken. 1, or 0 when no room or no random. */
+int fzn_node_sessions_ask(fzn_node_sessions_t *t, const uint8_t peer[FZN_PUBKEY_LEN],
+                          const uint8_t capability[FZN_CAP_ID_LEN],
+                          const uint8_t root[FZN_AEAD_KEY_LEN], const fzn_random_ops_t *rng,
+                          uint8_t ask_out[FZN_SESSION_ASK_LEN]);
+
+/* `peer`'S GRANT TO THIS HOST'S ASK, taken: both keys derived, and the session
+ * standing, said to `to` until a frame of `peer`'s says where it is. 1, or 0
+ * when no ask of `peer` waits or the hash refused. */
+int fzn_node_sessions_asked(fzn_node_sessions_t *t, const uint8_t peer[FZN_PUBKEY_LEN],
+                            const uint8_t grant[FZN_SESSION_GRANT_LEN], const fzn_hash_ops_t *hash,
+                            const uint8_t *to, unsigned to_len);
 
 /* `s`'S FIRST FRAME OPENED: it stands, and whatever `sender` held before goes. */
 void fzn_node_sessions_confirm(fzn_node_sessions_t *t, fzn_node_session_t *s);

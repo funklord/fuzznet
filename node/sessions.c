@@ -54,7 +54,8 @@ int fzn_node_sessions_grant(fzn_node_sessions_t *t, const uint8_t sender[FZN_PUB
 		return 0;
 	for (i = 0; i < t->cap; i++) {
 		s = &t->table[i];
-		if (!s->used || s->confirmed || memcmp(s->sender, sender, FZN_PUBKEY_LEN) != 0)
+		if (!s->used || s->confirmed || s->initiator
+		    || memcmp(s->sender, sender, FZN_PUBKEY_LEN) != 0)
 			continue;
 		/* THE SAME ASK AGAIN: its answer was lost, and the first grant
 		 * is the one it may yet hear. */
@@ -84,6 +85,75 @@ int fzn_node_sessions_grant(fzn_node_sessions_t *t, const uint8_t sender[FZN_PUB
 	memcpy(s->grant, grant_out, FZN_SESSION_GRANT_LEN);
 	s->used = 1;
 	s->confirmed = 0;
+	return 1;
+}
+
+/* THIS HOST'S ASK OF `peer` STILL WAITING, or NULL. */
+static fzn_node_session_t *asking(fzn_node_sessions_t *t, const uint8_t peer[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < t->cap; i++)
+		if (t->table[i].used && t->table[i].initiator && !t->table[i].confirmed
+		    && memcmp(t->table[i].sender, peer, FZN_PUBKEY_LEN) == 0)
+			return &t->table[i];
+	return NULL;
+}
+
+int fzn_node_sessions_ask(fzn_node_sessions_t *t, const uint8_t peer[FZN_PUBKEY_LEN],
+                          const uint8_t capability[FZN_CAP_ID_LEN],
+                          const uint8_t root[FZN_AEAD_KEY_LEN], const fzn_random_ops_t *rng,
+                          uint8_t ask_out[FZN_SESSION_ASK_LEN])
+{
+	fzn_node_session_t *s;
+	uint32_t drawn;
+	size_t i;
+
+	if (!t || !peer || !capability || !root || !rng || !rng->fill || !ask_out)
+		return 0;
+	if ((s = asking(t, peer)) != NULL && memcmp(s->root, root, FZN_AEAD_KEY_LEN) == 0) {
+		memcpy(ask_out, s->ask, FZN_SESSION_ASK_LEN);
+		return 1;
+	}
+	if (s)
+		fzn_node_sessions_drop(s);
+	if ((i = free_slot(t)) == SIZE_MAX)
+		return 0;
+	s = &t->table[i];
+	if (!rng->fill(rng->ctx, ask_out, FZN_SESSION_RANDOM_LEN)
+	    || !rng->fill(rng->ctx, (uint8_t *)&drawn, sizeof(drawn)))
+		return 0;
+	fzn_put_be32(ask_out + HANDLE_AT, (drawn & ~FZN_NODE_SESSION_SLOT_MASK) | (uint32_t)i);
+	memcpy(s->sender, peer, FZN_PUBKEY_LEN);
+	memcpy(s->capability, capability, FZN_CAP_ID_LEN);
+	memcpy(s->root, root, FZN_AEAD_KEY_LEN);
+	memcpy(s->ask, ask_out, FZN_SESSION_ASK_LEN);
+	/* FOUND BY ITS HANDLE before the grant comes, as `find` reads `hears_as`. */
+	s->end.hears_as = fzn_get_be32(ask_out + HANDLE_AT);
+	s->used = 1;
+	s->initiator = 1;
+	s->confirmed = 0;
+	return 1;
+}
+
+int fzn_node_sessions_asked(fzn_node_sessions_t *t, const uint8_t peer[FZN_PUBKEY_LEN],
+                            const uint8_t grant[FZN_SESSION_GRANT_LEN], const fzn_hash_ops_t *hash,
+                            const uint8_t *to, unsigned to_len)
+{
+	fzn_node_session_t *s;
+
+	if (!t || !peer || !grant || !hash || (to_len && !to) || to_len > sizeof(s->from)
+	    || !(s = asking(t, peer)))
+		return 0;
+	if (!fzn_session_end_derive(&s->end, hash, s->root, s->ask, grant, 1)) {
+		fzn_node_sessions_drop(s);
+		return 0;
+	}
+	memcpy(s->grant, grant, FZN_SESSION_GRANT_LEN);
+	if (to_len)
+		memcpy(s->from, to, to_len);
+	s->from_len = to_len;
+	fzn_node_sessions_confirm(t, s);
 	return 1;
 }
 

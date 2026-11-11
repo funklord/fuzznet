@@ -16621,9 +16621,130 @@ static void said_remote(void *ctx, const fzn_opened_t *said)
 	daemon_ext->said(daemon_ext->ctx, said->sender, said->payload, said->payload_len);
 }
 
+/* ---- a session asked of another host, sec 1018 ---------------------------------
+ *
+ * A host held no session with another host: only a device asked one (sec 932).
+ * So a word said to a host with none asks one, in a full frame from a socket of its
+ * own, as a fetch's links are, to the address its round reaches that host at; the
+ * grant taken, the session stands, and the next word goes. A call's frames take
+ * the same path (sec 1017). At most a few asked at once, each given up after its
+ * wait. */
+#define FZND_SESSION_ASKS 8u
+#define FZND_SESSION_ASK_WAIT_MS 3000u
+static struct session_asking {
+	fzn_caller_t caller;
+	int fd;
+	uint8_t host[FZN_PUBKEY_LEN];
+	uint8_t to[FZN_NODE_SESSION_FROM_MAX];
+	unsigned to_len;
+	int live;
+} session_asks[FZND_SESSION_ASKS];
+
+/* THE ROUND'S TARGET for `host`: an estate peer's, or a contact host's. */
+static struct pull_target *target_of(const uint8_t host[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls; i++)
+		if (memcmp(loop_pulls[i].pairing.node, host, FZN_PUBKEY_LEN) == 0)
+			return &loop_pulls[i];
+	for (i = 0; i < ncontact_targets; i++)
+		if (memcmp(contact_targets[i].pt.pairing.node, host, FZN_PUBKEY_LEN) == 0)
+			return &contact_targets[i].pt;
+	return NULL;
+}
+
+static void session_ask_close(struct session_asking *a)
+{
+	if (a->fd >= 0)
+		fzn_udp_close(a->fd);
+	fzn_wipe(&a->caller, sizeof(a->caller));
+	a->fd = -1;
+	a->live = 0;
+}
+
+static void session_granted(void *ctx, const uint8_t *reply, size_t len)
+{
+	struct session_asking *a = ctx;
+
+	if (!reply || len != 2u + FZN_SESSION_GRANT_LEN)
+		say(FZN_ENTRY_DEBUG, "node/session", "a session asked of %02x%02x%02x%02x: %s %.*s",
+		    a->host[0], a->host[1], a->host[2], a->host[3],
+		    reply ? "answered with no grant:" : "no answer", reply ? (int)(len < 60u ? len : 60u) : 0,
+		    reply ? (const char *)reply : "");
+	if (reply && len == 2u + FZN_SESSION_GRANT_LEN && reply[0] == FZN_TYPES_VERSION_SHARED
+	    && reply[1] == FZN_TYPE_SESSION_GRANT
+	    && fzn_node_sessions_asked(&granted_sessions, a->host, reply + 2, contact_hash_ops,
+	                               a->to, a->to_len))
+		say(FZN_ENTRY_DEBUG, "node/session", "a session with %02x%02x%02x%02x, asked and granted",
+		    a->host[0], a->host[1], a->host[2], a->host[3]);
+	session_ask_close(a);
+}
+
+/* ASKED OF `host`, unless an ask of it waits: 1 when one is on its way. */
+static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
+{
+	uint8_t request[2u + FZN_SESSION_ASK_LEN];
+	struct session_asking *a = NULL;
+	struct pull_target *pt;
+	fzn_reasm_t *table;
+	size_t i;
+
+	for (i = 0; i < FZND_SESSION_ASKS; i++) {
+		if (session_asks[i].live && memcmp(session_asks[i].host, host, FZN_PUBKEY_LEN) == 0)
+			return 1;
+		if (!session_asks[i].live && !a)
+			a = &session_asks[i];
+	}
+	if (!a || !contact_hash_ops || !contact_rng_ops || !(pt = target_of(host))
+	    || pt->caller.node.len == 0u || pt->caller.node.len > sizeof(a->to)
+	    || !(table = contact_table())) {
+		say(FZN_ENTRY_DEBUG, "node/session", "no session asked of %02x%02x%02x%02x: %s",
+		    host[0], host[1], host[2], host[3],
+		    !a ? "too many asked at once"
+		    : !(pt = target_of(host)) ? "no round reaches it"
+		                               : "no address for it, or no table");
+		return 0;
+	}
+	a->fd = -1;
+	{
+		const struct sockaddr *sa = (const struct sockaddr *)pt->caller.node.storage;
+
+		if (fzn_udp_bind(sa->sa_family == AF_INET6 ? AF_INET6 : AF_INET, NULL, 0, &a->fd)
+		    != FZN_UDP_OK)
+			return 0;
+	}
+	if (!fzn_node_sessions_ask(&granted_sessions, host, pt->pairing.capability.b,
+	                           pt->pairing.send_key, contact_rng_ops, request + 2)) {
+		session_ask_close(a);
+		return 0;
+	}
+	request[0] = FZN_TYPES_VERSION_SHARED;
+	request[1] = FZN_TYPE_SESSION_ASK;
+	a->caller = pt->caller;
+	a->caller.fd = a->fd;
+	a->caller.reasm = table;
+	memcpy(a->host, host, FZN_PUBKEY_LEN);
+	memcpy(a->to, pt->caller.node.storage, pt->caller.node.len);
+	a->to_len = (unsigned)pt->caller.node.len;
+	if (!fzn_node_asks_send(&round_asks, &a->caller, request, sizeof(request),
+	                        wall_clock() + 60u, FZND_SESSION_ASK_WAIT_MS, session_granted, a)) {
+		session_ask_close(a);
+		return 0;
+	}
+	a->live = 1;
+	return 1;
+}
+
 int fzn_daemon_say(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, size_t len)
 {
-	return serving_state && fzn_node_serve_say(serving_state, host, bytes, len);
+	if (!serving_state)
+		return 0;
+	if (fzn_node_serve_say(serving_state, host, bytes, len))
+		return 1;
+	/* NO SESSION WITH IT: one asked, and the caller says again (sec 1018). */
+	(void)session_ask(host);
+	return 0;
 }
 
 /* A CALL FROM ANOTHER HOST: an estate member's alone, and one a rule lets in, answered

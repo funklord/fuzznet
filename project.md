@@ -84373,3 +84373,33 @@ on to another host.
    already measures a link.
 5. Group calls: each member's frames to every other while few, a member's host forwarding past
    that.
+
+## 1018. A host asks a session of another host, and the two say words both ways, 2026-11-11
+
+Sec 1017's first step. A session was asked only by a device (sec 932); now a daemon asks one of
+another host when it has a word for it and no session.
+
+- **`fzn_node_sessions_ask` and `_asked`** (`node/sessions.c`): an ask keeps a slot in the same
+  table the granted sessions are in, its handle naming the slot, so a frame back finds it by
+  handle as any other; the grant taken, both keys are derived as the asker and the session stands,
+  said to the peer's address until a frame of the peer's says where it is. An ask made again
+  before its grant is the same ask, and a grant this host gives that peer meanwhile leaves its own
+  ask alone (`session-grant-drops-an-ask`).
+- **`fzn_daemon_say`** with no session asks one -- in a full frame, from a socket of its own as a
+  fetch's links are, to the address its round reaches the host at (an estate peer's or a contact
+  host's) -- and answers 0; the word said again once the grant is in goes.
+- **A daemon's ask came in a cause envelope** (`log/cause.h`), which every request a daemon sends
+  goes in, and was answered `unsupported`: a device sends its ask bare.
+  `fzn_node_session_ask_body` finds the ask either way.
+- **A host's word now carries an expiry a host takes**, 30 s or the replay window's limit: it was
+  0, which a device reads past and a host refused as expired.
+- **The session's root is checked as before** at both ends: between two hosts of an estate the key
+  the asker sends under is the one its peer row holds. An exemption for the asker was tried, and a
+  control without it passed, so it is not in the tree; pairs of contacts are not measured yet.
+
+`tool/live_host_session.py`, in `make livecheck`, over the extension daemon, whose `add said HOST
+WORD` and `get heard` it uses: M, joined to R, says a word to R -- `ok asked`, then `ok said` --
+and R hears it, from M; R says one back unasked and M hears it; a word R echoes comes back. A word
+opening `noecho:` is kept and not said back, so two such hosts do not echo for ever.
+**Control:** a daemon reading no ask through the envelope fails a, M's word never going.
+`sessions_test` has the two tables, both ways.

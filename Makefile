@@ -7019,6 +7019,7 @@ endif
 	@timeout 280 python3 tool/live_device.py $(FUZZNETD) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 230 python3 tool/live_objects.py $(FUZZNETD)
 	@timeout 170 python3 tool/live_session.py $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
+	@timeout 200 python3 tool/live_host_session.py $(EXT_DAEMON)
 	@timeout 660 python3 tool/live_many_notes.py $(FUZZNETD)
 	@timeout 440 python3 tool/live_many_shared.py $(FUZZNETD)
 	@timeout 220 python3 tool/live_many_contacts.py $(FUZZNETD)
