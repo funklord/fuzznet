@@ -84727,3 +84727,59 @@ newer for `on`, one row `relay/enabled = on ... 2 of 2`, joined as `add vote set
 aa00000000000000 relay/enabled on`; sabotage `governance-view-counts-superseded-votes`, caught.
 `live_votes` phase c: B's carrying vote is cast naming T by its 16 hex. **Control:** the verb
 refusing the 16 hex, `malformed not a host's key`.
+
+## 1030. A stream's path: as direct as possible, and another only on a measured reason, 2026-11-11
+
+**The holder, 2026-11-11:** streaming and downloading work fundamentally differently. Streaming is
+latency sensitive, so its rule is to be as direct as possible, unless there are known issues with
+that; and perhaps a measurement process that finds the unusual cases where a different path is
+better -- "I don't know if this can ever be the case."
+
+**It can be the case, and the measured literature says how often and why.** Savage et al., *The
+End-to-End Effects of Internet Path Selection* (SIGCOMM 1999, the Detour study), found that for a
+large share of host pairs some path through an intermediate host beat the default route on round
+trip, loss or bandwidth -- the Internet's routing is not shortest-path. Andersen et al., *Resilient
+Overlay Networks* (SOSP 2001) built on it, and found the gain lay mostly in **loss and outages**:
+an overlay saw a failing path and routed around it within seconds, where BGP took minutes. Its
+latency gains for well-connected pairs were usually small. So the rule stands, with its exception
+named: **direct by default; another path when direct is known to fail, or is measured worse by a
+clear margin for long enough, and direct probed again.**
+
+**Downloading is the other case.** A download wants throughput and finishing, not latency: it may
+take any path and many at once -- pieces from several hosts, relays, retries -- and sec 491's
+transfers already do. A stream's frames are never resent, so a path's delay and loss are the
+call's own.
+
+### What there is, measured against the rule
+
+- **A call's words already go direct once a session stands.** `fzn_node_serve_say` seals each
+  frame and sends it to the address the peer's last frame came from (`s->from`), from the serving
+  socket, so it follows a peer that moves. No relay is in the path.
+- **The round trip of that path is measured** each second a stream flows (sec 1026), per leg in a
+  call of several (sec 1027). That is the measurement a path choice needs.
+- **Where a host is behind a NAT, the holder chose "both, relay fallback"** (sec 697): advertise
+  the address a host is seen from, punch a hole through an introduction extended to contacts (sec
+  698), and relay through a reachable host the target says hello to (sec 622) only when that
+  fails. A stream's rule fits inside that choice: it is the same order, held more strictly.
+
+### The gaps, in the order to close them
+
+1. **A call's session is asked from a fresh socket.** `session_ask` binds a new UDP socket for
+   each ask and sends from it to the round's address for the host; sec 698 punches the NAT's hole
+   for the contact target's **own** socket. Behind a NAT that filters by endpoint the ask comes
+   from a port the hole was not opened for, and is dropped -- so a call fails exactly where a
+   line, asked from the target's socket, gets through. The ask should go where the hole is.
+2. **A host reachable only through a relay cannot hold a call.** A relay (sec 622) forwards a
+   request and routes its answer back by message id for ten seconds; a session's frames carry a
+   handle, not a message id, and are never relayed. The fallback sec 697 chose has no stream half:
+   a relay would need to forward a session's frames both ways for as long as the session stands,
+   under the same refusals (`relay/enabled`, members and standing contacts, one hop, a quota).
+3. **The measurement process.** With a relay path possible, each call knows two round trips: the
+   direct one (sec 1026's reports) and the relayed one, probed now and then. The rule for
+   switching: stay direct unless direct is failing -- reports stop or loss passes a bound -- or
+   the other path's round trip is lower by a clear margin, held over several reports; and probe
+   direct again on a timer, so a path chosen for an outage does not outlive it. Hysteresis both
+   ways, so a call does not flap between paths.
+
+Gap 1 is this rule's first step: it makes direct work where it can. Gap 2 is its fallback, and 3
+the exception the holder asked about; 3 cannot be measured before 2 exists.
