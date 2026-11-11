@@ -84258,3 +84258,17 @@ group of one admin.
 admin of two -- and a change made answers `ok` as before, so a client reading `ok` alone is not
 broken and one that reads on can say what is wanted. `live_groups` phase b2: A proposes B no admin,
 is told `ok proposed 1 2`, and B stands. **Control:** the daemon before this answers a bare `ok`.
+
+## 1013. The settings held in memory, as contacts, notes and labels are, 2026-11-11
+
+Sec 1007's open item: at 20000 contacts a round still stalled about 0.45 s, the walks of every
+setting row -- the retention rules, the standing each row asks of the other ranks', the names
+carried -- reading a file a row, 20000 a walk, several walks a round. The settings slot now sits
+behind a `fzn_persist_cache_t` of its own, as the contacts' (sec 927), the notes' and the group
+labels' (sec 941) do, between the labels' cache and the delta store (sec 917): a walk reads RAM
+once the slot is held whole, and a write goes through to the store as before.
+
+The same measure as sec 1007's, 20000 contacts and a restart: the first answer after 2.9 s where
+it was 3.3, the stall at each round 0.17 s where it was 0.45, and 870810 answered in 120 s where
+614072 were. `make test`, `installcheck`, `style`, and `live_preset`, `live_objects`,
+`live_lamp`, `live_names`, `live_rejoin` and `live_votes`, which read and write settings, pass.

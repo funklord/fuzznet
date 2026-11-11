@@ -462,14 +462,14 @@ static uint64_t node_started;
 
 /* THE STORE'S DELTA AND THE HOST'S PRESSURE, sec 917. */
 static fzn_persist_delta_t store_delta;
-static fzn_persist_cache_t contact_cache, note_cache, label_cache;
+static fzn_persist_cache_t contact_cache, note_cache, label_cache, setting_cache;
 /* WHAT HAS VERIFIED, and where it is kept across a start, sec 938. */
 static fzn_verify_memo_t verify_memo;
 static char verify_memo_path[512];
 static size_t verify_memo_kept;
 #define FZND_VERIFY_MEMO_EVERY_S 600u
 #define FZND_VERIFY_MEMO_MOVED 256u
-static fzn_persist_ops_t contact_cached, note_cached, label_cached;
+static fzn_persist_ops_t contact_cached, note_cached, label_cached, setting_cached;
 static fzn_persist_ops_t store_delta_ops;
 static int store_delta_on;
 static fzn_pressure_t host_pressure;
@@ -20096,8 +20096,13 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		/* AND EVERY GROUP'S NAME, walked twice an `add group`, sec 941. */
 		fzn_persist_cache_init(&label_cache, &contact_cached, FZN_PERSIST_GROUP_LABEL,
 		                       &label_cached);
+		/* AND EVERY SETTING, sec 1013: walked whole by the retention rules, the
+		 * standing of each row and the names carried, several times a round, a
+		 * file each -- at 20000 contacts, 20000 files a walk and 0.45 s a round. */
+		fzn_persist_cache_init(&setting_cache, &label_cached, FZN_PERSIST_SETTING,
+		                       &setting_cached);
 		/* A STORE THAT GOES ON WHEN ITS DISK WILL NOT, sec 917. */
-		fzn_persist_delta_init(&store_delta, &label_cached, 0u, &store_delta_ops);
+		fzn_persist_delta_init(&store_delta, &setting_cached, 0u, &store_delta_ops);
 		store_delta_on = 1;
 		store_ops = &store_delta_ops;
 		dlog.store = store_ops;
