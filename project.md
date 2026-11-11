@@ -84330,3 +84330,46 @@ export path and answered `malformed`.
 
 **Not built:** the other way round, what has been shared with one contact, which fuzzypickles'
 Peers page would use; asked as a second wish, and not what blocked.
+
+## 1017. Live audio and video: calls, carried on sessions, 2026-11-11
+
+**The holder, 2026-11-11:** "streaming live audio and video will be used for video-calls, calls
+and other streaming subsystems." Sec 29's streaming is of a stored file, fetched from its playhead
+(sec 998), and sec 104 settled that there is one transport and no byte-stream reader. A call is
+the other case: its media does not exist until it is sent, so there is no root to fetch, nothing
+to keep, and a frame late is a frame lost.
+
+**What exists for it.** Sec 932's session frame -- 33 bytes before a payload, sealed under keys
+two ends drew, a counter window, an expiry -- and sec 935's *said* word on it: sent once, in the
+order sealed, taken late by the window and never resent. That is a live frame's delivery, word for
+word. And `chunk/`'s reassembly drops a message past its expiry (sec 104): a frame cut into
+pieces is whole by its deadline or gone.
+
+**What is missing.** A session is between a device -- or a client on a host, which links `device/`
+(sec 935) -- and that host. A daemon cannot ask one of another daemon (sec 932, "not built"), so
+two users' hosts have no session between them, and nothing carries a word from one host's client
+on to another host.
+
+**Decided, from the aims:**
+- **The path is client -> its host -> the other host -> its client**, each hop a session: the
+  clients' to their own hosts already, the hosts' to each other the first thing built. The hosts
+  are what the capability chains, revocation, relays (sec 622) and NAT handling already stand
+  behind; a client speaking to a stranger's host directly would bypass all of them.
+- **Media is opaque.** The codec, the capture and the jitter buffer are the client's -- hydra's
+  note (sec 1015) is what such a client starts from. fuzznet carries a frame with its stream, its
+  sequence and the sender's capture time in ms, so a receiver can play out and see what was lost.
+- **A frame larger than a word goes in pieces**, reassembled with the frame's deadline as its
+  expiry, and dropped whole when a piece is late. Never resent; never stored; never journaled.
+- **Who may call is who may already reach this host:** a contact, a member of a group held in
+  common, a host of this estate -- the session's own authorisation (sec 932) on every frame, so a
+  revocation ends a call at its next frame.
+
+**The steps, in order:**
+1. A daemon asks a session of another host, and the two say words both ways.
+2. A live stream: a client's words for a stream forwarded by its host to the other host, and
+   from there to that host's client.
+3. A call set up: ring, answer, decline, hang up; one stream a direction and a kind.
+4. Rate and quality: the receiver's loss and delay reported, the sender adapting; `link/`
+   already measures a link.
+5. Group calls: each member's frames to every other while few, a member's host forwarding past
+   that.
