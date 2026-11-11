@@ -85133,10 +85133,14 @@ boundary moved by a second: a hello is held while `learnt + 300 > now`, where th
 
 **What the model shows that the round hid:** the rule answers a hello's way as *from the serving
 socket*, and the round sends from its target's own socket to that address -- the combination sec
-1031's A/B measured as filtered by a NAT that keys on the port. On hull lines still cross both
-ways, B pushing to A; whether A's own pulls from B behind its NAT are answered is not measured.
-Left as the round had it, and the next thing for this shape to settle: the round sending from the
-socket the rule names, or the rule learning the target socket's own hellos.
+1031's A/B measured as filtered by a NAT that keys on the port. **Measured on hull the same day, and
+worse than that:** `list link` on A's root at 27.6 s read `192.168.2.10:7000,...,5,0,386,0` --
+A's round asked B five times at B's **advertised private address**, none answered, nothing
+received. So the round's hello preference did not take effect for B within the run, and A's own
+pulls never reach B; lines cross only because B pushes to A. Why the target kept the advertised
+address -- when targets are rebuilt against when B's first hello lands, or otherwise -- is not
+established. `tool/hull_estates.py` keeps the step (A's root's links). The next things for this
+shape: why the target was not moved, and the round sending from the socket the rule names.
 
 **The steps:** the table and its rule, with a unit test that holds each reader's current order as a
 case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'

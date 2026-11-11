@@ -124,6 +124,9 @@ def plans():
 		{"until": "list frame {call}", "contains": "0b0e", "within": 60,
 		 "label": "B's frame at A's root", "soft": True},
 		{"ask": "set call {call} hangup", "soft": True},
+		# A'S OWN ASKS OF B, sec 1036: per address, asked and answered -- whether a
+		# round's pulls from behind B's NAT are answered, from the target's socket.
+		{"ask": "list link", "label": "A's root's links", "keep": True, "soft": True},
 		# WHAT A'S ROOT RELAYED, once A's phone has had time to ask it.
 		{"wait": "root.b"},
 		{"until": "get relay", "contains": "ok %d " % (RELAY == "on"), "within": 5,
