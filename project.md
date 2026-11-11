@@ -84432,3 +84432,41 @@ and never the read) and `live-up-call-kept-as-ringing`.
 
 **Next:** the daemon routing these words -- a client's ring to the callee's host, the ring to
 that user's clients, the answer and hang-up back, and frames by call.
+
+## 1020. A call rung, answered, carried both ways and hung up, between contacts' hosts, 2026-11-11
+
+Sec 1017's steps 2 and 3, with sec 1019's words. **One change to sec 1017's path, and why:** the
+client here is a program on its host's own socket, as fuzzypickles' clients are, so a call runs
+client -> host by the local socket, host -> host by a session (sec 1018), host -> client by an
+event and a read. A client on a session of its own (`device/`) can come later, the same words.
+
+**The verbs**, the node's own user's:
+
+    add call CONTACT audio|video|both    -> ok ID     rings that contact's first host reached
+    set call ID answer|decline|hangup    -> ok        answer and decline to a call ringing in
+    list call                            -> ok N ID,STATE,KINDS ...   ringing-out|ringing-in|up
+    add frame ID STREAM SEQ AT PIECE PIECES HEX  -> ok sent | ok lost
+    list frame ID [FROM]                 -> ok TOTAL FROM STREAM,SEQ,AT,PIECE,PIECES,HEX ...
+
+and subscribers told `event call ID ring|answered|declined|hung-up|ended` and `event frame ID`.
+An event's name is short (64), so a frame is told and then read; on a host's own socket that is a
+round trip of well under a millisecond.
+
+**What a host does with a word another host said:** a ring for this host's user opens a call
+ringing in, and a ring for anyone else is dropped; an answer, a decline, a hang-up and a frame
+move or end a call only from the host that call is with. Words are taken from a contact's host
+or one of this estate's -- before the extension, which hears only the estate's own. A ring said
+before the session with that host stands is said again each pass, every 250 ms, until it goes or
+the ring's 45 s end. A frame not said is `ok lost`, never kept to resend. A call's last 64
+frames received are kept for its clients; one reading more slowly than they come loses the
+oldest.
+
+**And contacts' hosts hold a session through the same root check** sec 1018 kept: measured here,
+where a contact's host asks and the other answers with frames.
+
+`tool/live_call.py`, in `make livecheck`: two users who are contacts, each waiting until it
+holds the other's host; A rings, B holds it ringing in after about a second; B answers and A holds
+it up; a frame each way read back with its bytes, stream, number and time; A hangs up and neither
+holds it. **Control:** a daemon that hands a call's word to the extension, as before, fails a.
+
+**Next:** rate and quality (step 4) and group calls (step 5), both on this.

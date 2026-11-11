@@ -49,6 +49,7 @@
 #include "types.h"
 #include "serve.h"
 #include "sessions.h"
+#include "live.h"
 #include "talk.h"
 #include "routing.h"
 #include "contact_card.h"
@@ -516,6 +517,9 @@ static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, ch
                            size_t cap);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
+/* `add call`, `set call`, `list call`, `add frame`, `list frame`: sec 1020. */
+static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                          size_t cap);
 static void index_catalog(void);
 static void catalog_skip(const uint8_t *issuer, uint64_t to);
 /* `fetch lan`, sec 624: its probes sent, how many, and why none. */
@@ -619,6 +623,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = catalog_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = calls_local(origin, request, reply, reply_cap);
 	if (n) {
 		publish_change(request, reply, n, reply_cap);
 		return n;
@@ -16607,12 +16613,20 @@ static int call_permitted(const uint8_t *sender, const uint8_t *name, size_t nam
 
 /* SAID IN A SESSION, sec 935: a member's, and one `said`'s rule lets in, as a call
  * by that name would be. */
+static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, size_t len);
+
 static void said_remote(void *ctx, const fzn_opened_t *said)
 {
 	static const uint8_t NAME[] = "said";
 	fzn_node_relay_asker_t asker;
 
 	(void)ctx;
+	/* A CALL'S WORD, sec 1020: a contact's host or one of this estate's may
+	 * say one, and the extension hears none. */
+	if (fzn_live_is_word(said->payload, said->payload_len)) {
+		live_heard(said->sender, said->payload, said->payload_len);
+		return;
+	}
 	if (!daemon_ext || !daemon_ext->said)
 		return;
 	asker_of(said->sender, &asker);
@@ -16744,6 +16758,379 @@ int fzn_daemon_say(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, siz
 		return 1;
 	/* NO SESSION WITH IT: one asked, and the caller says again (sec 1018). */
 	(void)session_ask(host);
+	return 0;
+}
+
+/* ---- calls, sec 1020: sec 1017's steps 2 and 3 -------------------------------------
+ *
+ * A CLIENT ON THIS HOST'S SOCKET calls a contact: `add call CONTACT audio|video|both`
+ * rings that contact's host, and answers the call's id; the other host's clients are
+ * told `event call ID` and see it in `list call`; `set call ID answer|decline|hangup`
+ * says what was decided; `add frame ID STREAM SEQ AT PIECE PIECES HEX` sends a frame's
+ * piece, and the other side's clients, told `event frame ID`, read what came with
+ * `list frame ID [FROM]`. Each hop host to host a word in a session (sec 1018), said
+ * once: a frame that does not get there is lost, as a call's should be. A ring said
+ * before the session stands is said again each pass until it does or the ring ends.
+ *
+ * The frames a call received are kept for its clients to read, the last
+ * FZND_LIVE_KEPT, numbered from 0 as they came: a client that reads more slowly than
+ * they come loses the oldest, which a call would rather than wait. */
+#define FZND_LIVE_KEPT 64u
+static fzn_live_calls_t node_calls;
+static struct live_kept {
+	uint8_t call[FZN_LIVE_CALL_LEN];
+	uint8_t (*words)[FZN_SESSION_FRAME_PAYLOAD_MAX];
+	uint16_t *lens;
+	uint64_t total;
+	uint8_t ring[FZN_LIVE_RING_LEN]; /* a ring not yet said, and its length */
+	size_t ring_len;
+	uint64_t ring_tried_ms;
+	int used;
+} *live_kept;
+static size_t live_kept_cap;
+
+static struct live_kept *kept_of(const uint8_t call[FZN_LIVE_CALL_LEN], int make)
+{
+	struct live_kept *free_one = NULL, *more;
+	size_t i, cap;
+
+	for (i = 0; i < live_kept_cap; i++) {
+		if (live_kept[i].used && memcmp(live_kept[i].call, call, FZN_LIVE_CALL_LEN) == 0)
+			return &live_kept[i];
+		if (!live_kept[i].used && !free_one)
+			free_one = &live_kept[i];
+	}
+	if (!make)
+		return NULL;
+	if (!free_one) {
+		cap = live_kept_cap ? live_kept_cap * 2u : 4u;
+		if (!(more = realloc(live_kept, cap * sizeof(*more))))
+			return NULL;
+		memset(more + live_kept_cap, 0, (cap - live_kept_cap) * sizeof(*more));
+		live_kept = more;
+		free_one = &live_kept[live_kept_cap];
+		live_kept_cap = cap;
+	}
+	memset(free_one, 0, sizeof(*free_one));
+	free_one->words = calloc(FZND_LIVE_KEPT, sizeof(*free_one->words));
+	free_one->lens = calloc(FZND_LIVE_KEPT, sizeof(*free_one->lens));
+	if (!free_one->words || !free_one->lens) {
+		free(free_one->words);
+		free(free_one->lens);
+		return NULL;
+	}
+	memcpy(free_one->call, call, FZN_LIVE_CALL_LEN);
+	free_one->used = 1;
+	return free_one;
+}
+
+static void kept_drop(const uint8_t call[FZN_LIVE_CALL_LEN])
+{
+	struct live_kept *k = kept_of(call, 0);
+
+	if (!k)
+		return;
+	free(k->words);
+	free(k->lens);
+	memset(k, 0, sizeof(*k));
+}
+
+static void live_told(const uint8_t call[FZN_LIVE_CALL_LEN], const char *what)
+{
+	char name[2u * FZN_LIVE_CALL_LEN + 16u];
+
+	hex_of(call, FZN_LIVE_CALL_LEN, name);
+	(void)snprintf(name + 2u * FZN_LIVE_CALL_LEN, sizeof(name) - 2u * FZN_LIVE_CALL_LEN, " %s",
+	               what);
+	publish("call", name);
+}
+
+static void live_end(fzn_live_call_t *c, const char *why)
+{
+	live_told(c->call, why);
+	kept_drop(c->call);
+	fzn_live_end(&node_calls, c);
+}
+
+static void live_gone(void *ctx, const fzn_live_call_t *c)
+{
+	(void)ctx;
+	live_told(c->call, "ended");
+	kept_drop(c->call);
+}
+
+/* A CALL'S WORD from another host. A ring for this host's user opens a call; the
+ * rest move or end one this host has with that host; a frame is kept. */
+static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, size_t len)
+{
+	uint8_t owner[FZN_PUBKEY_LEN];
+	fzn_live_word_t w;
+	fzn_live_call_t *c;
+	struct live_kept *k;
+	int own = 0;
+
+	if (!fzn_live_read(bytes, len, &w) || !group_owner_of(host, owner, &own))
+		return;
+	c = fzn_live_find(&node_calls, w.call);
+	if (w.kind == FZN_LIVE_RING) {
+		if (c || !estate_owner() || memcmp(w.whom, estate_owner(), FZN_PUBKEY_LEN) != 0
+		    || !(c = fzn_live_open(&node_calls, w.call)))
+			return;
+		c->state = FZN_LIVE_RINGING_IN;
+		memcpy(c->host, host, FZN_PUBKEY_LEN);
+		c->kinds = w.kinds;
+		c->since_s = c->heard_s = wall_clock();
+		live_told(w.call, "ring");
+		return;
+	}
+	if (!c || memcmp(c->host, host, FZN_PUBKEY_LEN) != 0)
+		return;
+	c->heard_s = wall_clock();
+	switch (w.kind) {
+	case FZN_LIVE_ANSWER:
+		if (c->state == FZN_LIVE_RINGING_OUT) {
+			c->state = FZN_LIVE_UP;
+			live_told(w.call, "answered");
+		}
+		break;
+	case FZN_LIVE_DECLINE:
+		live_end(c, "declined");
+		break;
+	case FZN_LIVE_HANGUP:
+		live_end(c, "hung-up");
+		break;
+	case FZN_LIVE_FRAME:
+		if (c->state != FZN_LIVE_UP || len > FZN_SESSION_FRAME_PAYLOAD_MAX
+		    || !(k = kept_of(w.call, 1)))
+			break;
+		memcpy(k->words[k->total % FZND_LIVE_KEPT], bytes, len);
+		k->lens[k->total % FZND_LIVE_KEPT] = (uint16_t)len;
+		k->total++;
+		{
+			char name[2u * FZN_LIVE_CALL_LEN + 1u];
+
+			hex_of(w.call, FZN_LIVE_CALL_LEN, name);
+			publish("frame", name);
+		}
+		break;
+	default:
+		break;
+	}
+}
+
+/* EACH PASS: a ring said again until its session stands, and calls past their time
+ * ended. */
+static void live_pump(void)
+{
+	uint64_t now_ms = wall_ms();
+	size_t i;
+
+	for (i = 0; i < live_kept_cap; i++) {
+		struct live_kept *k = &live_kept[i];
+		fzn_live_call_t *c;
+
+		if (!k->used || !k->ring_len || now_ms < k->ring_tried_ms + 250u)
+			continue;
+		k->ring_tried_ms = now_ms;
+		if ((c = fzn_live_find(&node_calls, k->call)) == NULL)
+			continue;
+		if (fzn_daemon_say(c->host, k->ring, k->ring_len))
+			k->ring_len = 0;
+	}
+	if (node_calls.n)
+		(void)fzn_live_expire(&node_calls, wall_clock(), live_gone, NULL);
+}
+
+/* THE HOST TO RING for contact `who`: its first host this host can reach. */
+static int contact_host(const uint8_t who[FZN_PUBKEY_LEN], uint8_t host[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < ncontact_targets; i++)
+		if (!contact_targets[i].down
+		    && memcmp(contact_targets[i].contact, who, FZN_PUBKEY_LEN) == 0) {
+			memcpy(host, contact_targets[i].pt.pairing.node, FZN_PUBKEY_LEN);
+			return 1;
+		}
+	return 0;
+}
+
+static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                          size_t cap)
+{
+	const uint8_t *at = request->arg, *subject, *w;
+	size_t left = request->arg_len, subject_len, w_len, i;
+	uint8_t call[FZN_LIVE_CALL_LEN], word[FZN_SESSION_FRAME_PAYLOAD_MAX];
+	fzn_live_word_t lw;
+	fzn_live_call_t *c;
+	size_t n;
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len)
+	    || !((subject_len == 4u && memcmp(subject, "call", 4u) == 0)
+	         || (subject_len == 5u && memcmp(subject, "frame", 5u) == 0)))
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied calls are this user's\n");
+	if (!contact_id || !serving_state)
+		return (size_t)snprintf(reply, cap, "unsupported this node makes no calls\n");
+	/* `list call`: `ok N ID,STATE,KINDS ...`. */
+	if (request->parsed == FZN_VERB_LIST && subject_len == 4u) {
+		n = (size_t)snprintf(reply, cap, "ok %zu", node_calls.n);
+		for (i = 0; i < node_calls.cap && n + 40u < cap; i++) {
+			const fzn_live_call_t *r = &node_calls.rows[i];
+			char id[2u * FZN_LIVE_CALL_LEN + 1u];
+
+			if (!r->used)
+				continue;
+			hex_of(r->call, FZN_LIVE_CALL_LEN, id);
+			n += (size_t)snprintf(reply + n, cap - n, " %s,%s,%u", id,
+			                      r->state == FZN_LIVE_UP            ? "up"
+			                      : r->state == FZN_LIVE_RINGING_IN ? "ringing-in"
+			                                                         : "ringing-out",
+			                      (unsigned)r->kinds);
+		}
+		return n + (size_t)snprintf(reply + n, cap - n, "\n");
+	}
+	/* `add call CONTACT audio|video|both`. */
+	if (request->parsed == FZN_VERB_ADD && subject_len == 4u) {
+		fzn_contact_t who;
+		uint8_t host[FZN_PUBKEY_LEN];
+		struct live_kept *k;
+		uint8_t kinds = 0;
+		char id[2u * FZN_LIVE_CALL_LEN + 1u];
+
+		if (!next_word(&at, &left, &w, &w_len)
+		    || fzn_contact_find(node_apply.store, (const char *)w, w_len, &who) != FZN_CONTACT_OK)
+			return (size_t)snprintf(reply, cap, "error no such contact\n");
+		if (next_word(&at, &left, &subject, &subject_len))
+			kinds = subject_len == 5u && memcmp(subject, "audio", 5u) == 0   ? FZN_LIVE_AUDIO
+			        : subject_len == 5u && memcmp(subject, "video", 5u) == 0 ? FZN_LIVE_VIDEO
+			        : subject_len == 4u && memcmp(subject, "both", 4u) == 0
+			                ? (uint8_t)(FZN_LIVE_AUDIO | FZN_LIVE_VIDEO)
+			                : 0u;
+		if (!kinds)
+			return (size_t)snprintf(reply, cap, "malformed add call CONTACT audio|video|both\n");
+		if (!contact_host(who.key, host))
+			return (size_t)snprintf(reply, cap, "error no host of that contact is reached\n");
+		if (!contact_rng_ops || !contact_rng_ops->fill(contact_rng_ops->ctx, call, sizeof(call))
+		    || !(c = fzn_live_open(&node_calls, call)) || !(k = kept_of(call, 1))) {
+			if ((c = fzn_live_find(&node_calls, call)) != NULL)
+				fzn_live_end(&node_calls, c);
+			return (size_t)snprintf(reply, cap, "error no room for a call\n");
+		}
+		c->state = FZN_LIVE_RINGING_OUT;
+		memcpy(c->host, host, FZN_PUBKEY_LEN);
+		c->kinds = kinds;
+		c->since_s = c->heard_s = wall_clock();
+		memset(&lw, 0, sizeof(lw));
+		lw.kind = FZN_LIVE_RING;
+		memcpy(lw.call, call, sizeof(call));
+		lw.kinds = kinds;
+		lw.whom = who.key;
+		k->ring_len = fzn_live_write(&lw, k->ring, sizeof(k->ring));
+		k->ring_tried_ms = wall_ms();
+		if (k->ring_len && fzn_daemon_say(host, k->ring, k->ring_len))
+			k->ring_len = 0;
+		hex_of(call, sizeof(call), id);
+		return (size_t)snprintf(reply, cap, "ok %s\n", id);
+	}
+	if (!next_word(&at, &left, &w, &w_len) || !unhex_n(w, w_len, call, sizeof(call))
+	    || !(c = fzn_live_find(&node_calls, call)))
+		return (size_t)snprintf(reply, cap, "error no such call\n");
+	/* `set call ID answer|decline|hangup`. */
+	if (request->parsed == FZN_VERB_SET && subject_len == 4u) {
+		memset(&lw, 0, sizeof(lw));
+		memcpy(lw.call, call, sizeof(call));
+		if (!next_word(&at, &left, &w, &w_len))
+			w_len = 0;
+		lw.kind = w_len == 6u && memcmp(w, "answer", 6u) == 0    ? FZN_LIVE_ANSWER
+		          : w_len == 7u && memcmp(w, "decline", 7u) == 0 ? FZN_LIVE_DECLINE
+		          : w_len == 6u && memcmp(w, "hangup", 6u) == 0  ? FZN_LIVE_HANGUP
+		                                                          : (fzn_live_kind_t)0;
+		if (!lw.kind || (lw.kind != FZN_LIVE_HANGUP && c->state != FZN_LIVE_RINGING_IN))
+			return (size_t)snprintf(reply, cap, "malformed set call ID answer|decline|hangup, "
+			                                    "answer and decline to a call ringing in\n");
+		n = fzn_live_write(&lw, word, sizeof(word));
+		(void)fzn_daemon_say(c->host, word, n);
+		if (lw.kind == FZN_LIVE_ANSWER) {
+			c->state = FZN_LIVE_UP;
+			c->heard_s = wall_clock();
+			live_told(call, "answered");
+		} else {
+			live_end(c, lw.kind == FZN_LIVE_DECLINE ? "declined" : "hung-up");
+		}
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	/* `add frame ID STREAM SEQ AT PIECE PIECES HEX`. */
+	if (request->parsed == FZN_VERB_ADD && subject_len == 5u) {
+		static uint8_t media[FZN_SESSION_FRAME_PAYLOAD_MAX];
+		unsigned long v[5];
+
+		memset(&lw, 0, sizeof(lw));
+		for (i = 0; i < 5u; i++) {
+			char num[24];
+
+			if (!next_word(&at, &left, &w, &w_len) || w_len >= sizeof(num))
+				return (size_t)snprintf(reply, cap, "malformed add frame ID STREAM SEQ AT "
+				                                    "PIECE PIECES HEX\n");
+			memcpy(num, w, w_len);
+			num[w_len] = '\0';
+			v[i] = strtoul(num, NULL, 10);
+		}
+		if (!next_word(&at, &left, &w, &w_len) || w_len % 2u
+		    || w_len / 2u > sizeof(media) - FZN_LIVE_FRAME_HEAD_LEN
+		    || !unhex_n(w, w_len, media, w_len / 2u))
+			return (size_t)snprintf(reply, cap, "malformed the media, hex, at most %u bytes\n",
+			                        (unsigned)(sizeof(media) - FZN_LIVE_FRAME_HEAD_LEN));
+		if (c->state != FZN_LIVE_UP)
+			return (size_t)snprintf(reply, cap, "error the call is not up\n");
+		lw.kind = FZN_LIVE_FRAME;
+		memcpy(lw.call, call, sizeof(call));
+		lw.stream = (uint8_t)v[0];
+		lw.seq = (uint32_t)v[1];
+		lw.at_ms = (uint32_t)v[2];
+		lw.piece = (uint16_t)v[3];
+		lw.pieces = (uint16_t)v[4];
+		lw.media = media;
+		lw.media_len = w_len / 2u;
+		if (!(n = fzn_live_write(&lw, word, sizeof(word))))
+			return (size_t)snprintf(reply, cap, "malformed a piece past its pieces\n");
+		c->heard_s = wall_clock();
+		return fzn_daemon_say(c->host, word, n) ? (size_t)snprintf(reply, cap, "ok sent\n")
+		                                        : (size_t)snprintf(reply, cap, "ok lost\n");
+	}
+	/* `list frame ID [FROM]`: `ok TOTAL FROM STREAM,SEQ,AT,PIECE,PIECES,HEX ...`, those
+	 * still kept from FROM on, as many as fit. */
+	if (request->parsed == FZN_VERB_LIST && subject_len == 5u) {
+		struct live_kept *k = kept_of(call, 0);
+		uint64_t from = 0, total = k ? k->total : 0u, first;
+
+		if (next_word(&at, &left, &w, &w_len)) {
+			for (i = 0; i < w_len && w[i] >= '0' && w[i] <= '9'; i++)
+				from = from * 10u + (uint64_t)(w[i] - '0');
+			if (i != w_len)
+				return (size_t)snprintf(reply, cap, "malformed list frame ID [FROM]\n");
+		}
+		first = total > FZND_LIVE_KEPT ? total - FZND_LIVE_KEPT : 0u;
+		if (from < first)
+			from = first;
+		n = (size_t)snprintf(reply, cap, "ok %llu %llu", (unsigned long long)total,
+		                     (unsigned long long)from);
+		for (; k && from < total; from++) {
+			size_t len = k->lens[from % FZND_LIVE_KEPT];
+			fzn_live_word_t r;
+
+			if (!fzn_live_read(k->words[from % FZND_LIVE_KEPT], len, &r)
+			    || n + 60u + 2u * r.media_len > cap)
+				break;
+			n += (size_t)snprintf(reply + n, cap - n, " %u,%lu,%lu,%u,%u,", (unsigned)r.stream,
+			                      (unsigned long)r.seq, (unsigned long)r.at_ms,
+			                      (unsigned)r.piece, (unsigned)r.pieces);
+			hex_of(r.media, r.media_len, reply + n);
+			n += 2u * r.media_len;
+		}
+		return n + (size_t)snprintf(reply + n, cap - n, "\n");
+	}
 	return 0;
 }
 
@@ -22402,6 +22789,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * A COPY BEING VERIFIED takes its next step and waits for
 			 * nothing either (sec 751). */
 			LOOP_TIMED("verify_memo_keep", verify_memo_keep(now));
+			LOOP_TIMED("live_pump", live_pump());
 			LOOP_TIMED("group_tend_slice", group_tend_slice());
 			loop_before_answering();
 			(void)fzn_node_run_once(&state, (round_step && !round_pending) || logs_verifying()
