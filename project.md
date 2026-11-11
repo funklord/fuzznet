@@ -84603,3 +84603,39 @@ FROM, d fails at A; the hub saying no MEMBER words, d fails at B. `live_call` re
 frame as 1 at A.
 
 **Not built:** quality per sender in a call of several (sec 1022 keeps it one member's only).
+
+## 1025. A call on a client's session: a user's device rings, answers and places calls, 2026-11-11
+
+Sec 1017's step 2, its client half. A call reached only the local socket's client (secs
+1020-1024); a user's device -- a phone paired to the estate, on a session with its host (secs 932,
+935) -- could neither be rung nor speak in one. The path sec 1017 decided, client -> its host ->
+the other host -> its client, now has both ends.
+
+- **A client is one of this estate's, with a session it asked of this host.** Not the call's
+  other host, nor a member of a call this host placed.
+- **A call ringing in rings every client too**, its RING said as it came; the first ANSWER takes
+  the call, and the host says HANGUP to the clients still ringing. An answer on the local socket
+  stops them the same way, and so does the call ending unanswered. live.h already said ANSWER is
+  "taken, on one of WHOM's clients"; this is that.
+- **A client places a call by saying a RING** whose WHOM is a contact's user, in a call id of
+  its own choosing; the host rings that contact's host as `add call` would, the client being the
+  call's.
+- **Only the client the call is on speaks in it**: its frames go on to the other host (or every
+  joined member, where this host is a hub), FROM written 0; its HANGUP ends the call. Words from
+  the other host -- ANSWER, FRAME, MEMBER -- go on to it, and the end is told it by `live_end`
+  and by expiry alike.
+- **A client is heard before it is rung.** A session stands at the host only once a frame of it
+  has opened, which is also how the host learns where the client is; `device_sim`'s `live` mode
+  says an empty word first. A real client keeps its session alive with traffic of its own.
+
+The other host is not told which client has the call: it sees the same call either way.
+
+`tool/live_client_call.py`, in `make livecheck`: A and B contacts, D a device paired to B's
+estate, as a client over UDP. A rings B and D hears it; D answers, A holds the call up and D hears
+A's frame; D's frame reaches A as from member 1; D hangs up and neither host holds the call; D
+places a call to A, hears it answered and hears it hung up. **Controls:** the host ringing no
+client, a fails; the host taking no client's word, b fails. `live_call` passes on the same build.
+
+**Not built:** a client's quality (REPORT) is not carried -- the host measures what reaches it;
+a client cannot yet be a member of a call of several placed elsewhere other than through its own
+host, which is already how it reaches one.

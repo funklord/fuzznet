@@ -12,6 +12,10 @@
  * `udp:` goes straight to a host's port, as a client on a host would. NAME `-` says
  * ARGS rather than calling, and exits 4 unless each was answered (sec 935). What
  * the gateway says unasked is printed as it is heard.
+ * NAME `live`, sec 1025: a client in a call. An empty word is said first, which
+ * confirms the session and says where it is; ARGS is words in hex, comma-separated,
+ * said in turn; then PRESSES seconds are listened through,
+ * each word heard printed in hex, `device: heard hex HEX`.
  * Stops when each has been answered or a call's tries run out, each try bounded
  * by `wait_ms`; nothing here waits on anything else.
  */
@@ -85,12 +89,63 @@ static size_t stream_recv(void *ctx, uint8_t *out, size_t cap, unsigned wait_ms)
 }
 
 static unsigned long heard_count;
+static int heard_in_hex;
 
 static void heard(void *ctx, const uint8_t *bytes, size_t len)
 {
+	size_t i;
+
 	(void)ctx;
 	heard_count++;
-	fprintf(stderr, "device: heard %zu byte(s): %.*s\n", len, (int)len, (const char *)bytes);
+	if (!heard_in_hex) {
+		fprintf(stderr, "device: heard %zu byte(s): %.*s\n", len, (int)len,
+		        (const char *)bytes);
+		return;
+	}
+	fprintf(stderr, "device: heard hex ");
+	for (i = 0; i < len; i++)
+		fprintf(stderr, "%02x", bytes[i]);
+	fprintf(stderr, "\n");
+}
+
+/* A CLIENT IN A CALL, sec 1025: each hex word of `words` said, then `seconds`
+ * listened through. 1 on a word that would not go. */
+static int live_mode(fzn_device_t *d, const char *words, unsigned long seconds)
+{
+	static uint8_t word[FZN_BEARER_FRAME_MAX];
+	const char *at = words;
+	uint64_t until;
+	fzn_device_err_t err;
+
+	heard_in_hex = 1;
+	/* HEARD FIRST, with nothing in it: a host says nothing to a client whose
+	 * session no frame has confirmed, nor knows where it is. */
+	if ((err = fzn_device_say(d, word, 0u)) != FZN_DEVICE_OK) {
+		fprintf(stderr, "device: %s\n", fzn_device_err_str(err));
+		return 1;
+	}
+	while (*at) {
+		size_t n = 0;
+		unsigned v;
+
+		while (at[0] && at[0] != ',' && at[1] && n < sizeof(word) && sscanf(at, "%2x", &v) == 1) {
+			word[n++] = (uint8_t)v;
+			at += 2;
+		}
+		if (*at == ',')
+			at++;
+		else if (*at)
+			return 1;
+		if ((err = fzn_device_say(d, word, n)) != FZN_DEVICE_OK) {
+			fprintf(stderr, "device: %s\n", fzn_device_err_str(err));
+			return 1;
+		}
+		fprintf(stderr, "device: said %zu byte(s)\n", n);
+	}
+	until = monotonic_ms(NULL) + (uint64_t)seconds * 1000u;
+	while (monotonic_ms(NULL) < until)
+		fzn_device_listen(d, 200u);
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -150,6 +205,8 @@ int main(int argc, char **argv)
 		fzn_udp_bearer(&bearer, &link);
 	}
 	d.heard = heard;
+	if (strcmp(argv[3], "live") == 0)
+		return live_mode(&d, args, argc > 5 ? presses : 0u);
 	if (d.life_s == 0u) {
 		d.tries = 3u;
 		if (fzn_device_open(&d) != FZN_DEVICE_OK)
