@@ -84848,3 +84848,36 @@ carried on the pair an introduction punched -- the first keeps one socket for ev
 needs the introducer to name the serving socket's mapping. Failing a hole, sec 1030's relay
 fallback: A's root, which both say hello to, forwarding the session's frames. Lines between these
 two already get through by relay (sec 697); a call's frames are never relayed today.
+
+## 1033. Latency as a peer's measured property, shown where streams are, 2026-11-11
+
+**The holder, 2026-11-11:** for streaming, keep latency in mind; write it out in streaming GUIs --
+calls, media players -- and show it as a statistical property of a peer. Not exaggerated, but
+cached from older transfers and requests.
+
+**Today there is none.** No caller times its requests, nothing keeps a peer's round trip, and a
+call's round trip (sec 1026) lives only while the call does. Sec 1030's path choice needs the same
+figure, so this is the measurement both rest on.
+
+**Decided, from the holder's words and the aims:**
+- **A peer's latency is a smoothed round trip and its spread**, kept as TCP keeps one (RFC 6298:
+  SRTT and RTTVAR, gains 1/8 and 1/4), with the number of samples and when the last came. Shown as
+  that and nothing better: never a single best sample, never a one-way figure unless labelled as
+  half a round trip.
+- **Samples come from everything already exchanged:** each request a caller sends and has answered
+  (send to answer), counted only when it was not resent (Karn's rule, so a resend's answer is not
+  credited to the wrong send); a session asked and granted; and a call's own reports (sec 1026),
+  which measure the path the media takes.
+- **Kept per peer host and per path** -- direct, or through a named relay -- because the path is
+  what a stream would take, and sec 1030 compares them. Cached in the store, so a figure survives a
+  restart and is there before the first frame of the next call.
+- **Shown with its age and count**: "about 40 ms (+-8), 120 samples, 3 min ago"; a figure older
+  than a day is shown as stale rather than as current, and a peer with too few samples as "not yet
+  known" rather than a guess.
+- **Read by a verb** -- `get peer KEY latency`, `ok SRTT VAR SAMPLES AGE PATH` per path -- so a
+  consumer's call screen or player shows the cached figure before a call is up and the live one
+  (sec 1026) while it is; and fuzznet's own peer view gains it as a column.
+
+**The steps:** the estimator and its store (with a unit test against RFC 6298's arithmetic); the
+caller's samples, with Karn's rule tested by a resend; the verb; the session and call samples; the
+peer view's column; then telling fuzzypickles and hydra, whose call and media screens show it.
