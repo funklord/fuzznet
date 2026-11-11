@@ -84272,3 +84272,21 @@ The same measure as sec 1007's, 20000 contacts and a restart: the first answer a
 it was 3.3, the stall at each round 0.17 s where it was 0.45, and 870810 answered in 120 s where
 614072 were. `make test`, `installcheck`, `style`, and `live_preset`, `live_objects`,
 `live_lamp`, `live_names`, `live_rejoin` and `live_votes`, which read and write settings, pass.
+
+## 1014. A file fetched whole takes up the description its estate gave it, 2026-11-11
+
+**Asked by fuzzypickles (inbox, 2026-11-11 02:05Z)**, after sec 1009: a file one host named and
+another device of the same user fetched, naming nothing, left every device's library when the
+first removed its copy -- the name was the first host's assertion, retracted with its copy, though
+the second still held the bytes. Should the description survive, or should a fetching host assert?
+
+**Decided from the aims:** a library does not lose a file its user still holds, and the
+catalogue's rule stands that only a holder asserts (C5e). So the fetching host asserts: when a
+fetch leaves a file whole here, `catalog_adopt` asserts, as this host, each name another host of
+this estate gave the file -- once a name, and not one this host asserts already. A contact's names
+are not taken up: a description is the user's, among the user's own hosts. Afterwards each host's
+description is its own, and either letting its copy go leaves the other's standing.
+
+`live_catalog` phase d: A puts and names a file, B fetches it naming nothing and comes to list
+the name as B's too; A removes its copy, and the file stays in the library under B's name, B
+holding it. **Control:** the daemon before this fails d, B never taking the name up.

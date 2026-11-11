@@ -15940,6 +15940,62 @@ static size_t catalog_retract_own(const uint8_t root[FZN_BLOB_HASH_LEN])
 	}
 	return taken;
 }
+
+/* A FILE TAKEN IN WHOLE, its description taken up, sec 1014: each name another host of
+ * this estate gave it, asserted again by this host, which now holds it -- once a name,
+ * and not one this host asserts already. A description was its writer's alone, so a
+ * file one host named and another fetched left every library when the first let its
+ * copy go (sec 1009), though the second held it; fuzzypickles' 20261111T0205Z. How
+ * many were asserted. */
+static size_t catalog_adopt(const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	static uint8_t body[FZN_RECORD_MAX_LEN];
+	fzn_catalog_assertion_t *set;
+	uint8_t owner[FZN_PUBKEY_LEN];
+	size_t n, i, k, len, taken = 0;
+	int own;
+
+	if (!contact_id || !(n = fzn_node_catalog_count_of(&node_catalog, root))
+	    || !(set = calloc(n, sizeof(*set))))
+		return 0;
+	n = fzn_node_catalog_assertions(&node_catalog, root, set, n);
+	for (i = 0; i < n; i++) {
+		fzn_catalog_assertion_t a = set[i];
+
+		if (!a.live || a.issuer_len != FZN_PUBKEY_LEN
+		    || memcmp(a.issuer, contact_id->pubkey, FZN_PUBKEY_LEN) == 0
+		    || !group_owner_of(a.issuer, owner, &own) || !own)
+			continue;
+		/* ONE A NAME: not one this host asserts, nor one an earlier entry had. */
+		for (k = 0; k < n; k++) {
+			int same = set[k].live && set[k].name_len == a.name_len
+			           && memcmp(set[k].name, a.name, a.name_len) == 0;
+			int mine = set[k].issuer_len == FZN_PUBKEY_LEN
+			           && memcmp(set[k].issuer, contact_id->pubkey, FZN_PUBKEY_LEN) == 0;
+
+			if (same && (mine || k < i))
+				break;
+		}
+		if (k < n)
+			continue;
+		a.issuer = contact_id->pubkey;
+		len = 0;
+		if (fzn_catalog_attribute_encode(&a, body, sizeof(body), &len) == FZN_CATALOG_OK
+		    && fzn_node_journal_append_on(&node_journal, contact_id->pubkey, FZN_CATALOG_STREAM,
+		                                  contact_id->sign, FZN_CATALOG_ATTRIBUTE_KIND, root, body,
+		                                  len, wall_ms(), NULL)
+		               == FZN_NODE_JOURNAL_OK)
+			taken++;
+	}
+	free(set);
+	if (taken) {
+		catalog_hushed = 1;
+		index_catalog();
+		catalog_hushed = 0;
+		journal_pushed = 1;
+	}
+	return taken;
+}
 #endif /* FZN_CATALOG_ON */
 
 /* ---- the references of the estate's files, sec 634 --------------------------------
@@ -18401,9 +18457,14 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		fetch_close_links();
 		err = fzn_node_files_fetching_end(&fetching, &placed, &holders);
 		fetch_active = 0;
-		if (err == FZN_NODE_FILES_OK && placed)
+		if (err == FZN_NODE_FILES_OK && placed) {
 			say(FZN_ENTRY_INFO, "files", "file %02x%02x%02x%02x, %llu bytes, whole from %zu peer(s)",
 			    r[0], r[1], r[2], r[3], (unsigned long long)fetch_length, holders);
+#ifdef FZN_CATALOG_ON
+			/* HOLDING IT NOW, its description too, sec 1014. */
+			(void)catalog_adopt(r);
+#endif
+		}
 		else if (placed)
 			say(FZN_ENTRY_DEBUG, "files", "%llu leaf(s) of file %02x%02x%02x%02x from %zu peer(s)",
 			    (unsigned long long)placed, r[0], r[1], r[2], r[3], holders);

@@ -13,6 +13,9 @@ with a grant it can pass on, pulling from A.
     c  A takes its name back: B lists B's alone, and one holder
     c2 B removes its copy: its names go with it, at B at once and at A at
        its next round, and nobody is listed holding the file (sec 1009)
+    d  A names a second file and B fetches it, naming nothing; B takes up
+       A's name as it holds the file whole, so when A removes its copy the
+       file keeps its name in the library, B's, and B holding it (sec 1014)
     g  A makes a group; B, holding none, learns it from its sibling at its
        next round, with the same members (sec 626)
     l  A catalogues 400 files of three names, past the 1024 entries a table
@@ -249,6 +252,27 @@ def main(argv):
 			until(lambda: not holders("a", root), "c2")
 			print("livecheck: c2: B removed its copy, and no host is listed holding it, at B "
 			      "or at A")
+
+			# d: A names a file B only fetches; A lets its copy go, and the file
+			# stays in the library, B having taken up its name (sec 1014).
+			clip = os.path.join(scratch, "clip")
+			with open(clip, "wb") as f:
+				f.write(os.urandom(20000))
+			put = ask(socks["a"], "put file " + clip).split()
+			if len(put) < 2 or put[0] != "ok":
+				raise failed("d: put file answered %r" % put)
+			clip_root = put[1][:64]
+			expect(socks["a"], "a", "add catalog %s name clip" % clip_root, "ok")
+			until(lambda: listed("b", clip_root) == [("clip", key_a[:16])], "d-name")
+			expect(socks["b"], "b", "fetch file " + clip_root, "ok")
+			until(lambda: ask(socks["b"], "get file %s check" % clip_root).strip() == "ok intact",
+			      "d-fetch")
+			until(lambda: ("clip", key_b[:16]) in listed("b", clip_root), "d-adopt")
+			expect(socks["a"], "a", "remove file " + clip_root, "ok")
+			until(lambda: listed("a", clip_root) == [("clip", key_b[:16])], "d-left")
+			if holders("a", clip_root) != [key_b[:16]]:
+				raise failed("d: A's holders are %r, not B" % holders("a", clip_root))
+			print("livecheck: d: A let go of a file B fetched; its name stays, B's, and B holds it")
 
 			# g: a group made at A, learned by its sibling B (sec 626).
 			# ITS ID ANSWERED, sec 648.
