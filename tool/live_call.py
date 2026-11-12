@@ -215,6 +215,12 @@ def main(argv):
 			started["a"].wait_for(re.compile(r"metric/link .*127\.0\.0\.1:%s," % port["b"]),
 			                      "A logging its link to B under metric/link", within=30.0)
 			print("livecheck: h: A logs its link to B under metric/link")
+			# AND ITS METER, sec 1054: the families that carried anything, each
+			# FAMILY,UP,DOWN,RATE_UP,RATE_DOWN,PEERS.
+			expect(socks["a"], "a", "set setting host metric/log/meter 10", "ok")
+			started["a"].wait_for(re.compile(r"metric/meter .*[a-z-]+,\d+,\d+,\d+,\d+,\d+"),
+			                      "A logging its meter under metric/meter", within=30.0)
+			print("livecheck: h: and its meter under metric/meter")
 
 			# g: RUNG BOTH WAYS, each right after the last is gone.
 			for frm, to, name in (("b", "a", "ada"), ("a", "b", "bea")) * 3:

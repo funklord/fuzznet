@@ -85576,3 +85576,13 @@ to B under `metric/link` within 30 s; against the daemon before this, h fails.
 
 **Not yet:** the meter's families (`list transfer`) the same way, and the metric layer's own table
 that `link/` and the meter move onto (sec 1034's later steps).
+
+## 1054. The meter logged by configuration, 2026-11-12
+
+Sec 1053's next family: `metric/log/meter`, seconds, has each of the meter's families (sec 685,
+`list transfer`) that carried anything said under `metric/meter` every so many seconds:
+`FAMILY,UP,DOWN,RATE_UP,RATE_DOWN,PEERS` -- bytes up and down since its rows appeared (rows evicted
+past the bound included), the last window's rates summed over its rows, and how many peers its rows
+hold. The same schema family and the same floor of 10 s as sec 1053.
+
+**Verified:** `live_call` phase h sets it at A and reads a `metric/meter` line within 30 s.

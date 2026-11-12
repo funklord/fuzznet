@@ -1876,6 +1876,42 @@ static void metric_log_links(uint64_t now)
 	}
 }
 
+/* AND THE METER'S FAMILIES, sec 1054: `metric/log/meter` has each family that
+ * carried anything said under `metric/meter` -- its name, bytes up and down
+ * since its rows appeared, the last window's rates, and how many peers its rows
+ * hold -- every so many seconds, as `metric/log/link` has the links. */
+static void metric_log_meter(uint64_t now)
+{
+	static uint64_t next;
+	uint64_t every = host_number("metric/log/meter", 0u);
+	size_t f, i;
+
+	if (!every) {
+		next = 0;
+		return;
+	}
+	if (every < 10u)
+		every = 10u;
+	if (next && now < next)
+		return;
+	next = now + every;
+	for (f = 0; f < FZN_METER_FAMILIES; f++) {
+		uint64_t up = traffic.evicted_up[f], down = traffic.evicted_down[f], rup = 0, rdown = 0;
+
+		for (i = 0; i < traffic.n[f]; i++) {
+			up += traffic.rows[f][i].up;
+			down += traffic.rows[f][i].down;
+			rup += traffic.rows[f][i].rate_up;
+			rdown += traffic.rows[f][i].rate_down;
+		}
+		if (up || down)
+			say(FZN_ENTRY_INFO, "metric/meter", "%s,%llu,%llu,%llu,%llu,%zu",
+			    fzn_meter_family_name((fzn_meter_family_t)f), (unsigned long long)up,
+			    (unsigned long long)down, (unsigned long long)rup, (unsigned long long)rdown,
+			    traffic.n[f]);
+	}
+}
+
 /* `list link [FROM]`, sec 631: `ok COUNT UNMEASURED` and per link
  * `HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED` --
  * latency in ms and loss per mille as estimated, `-` for both on a link
@@ -23919,6 +23955,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				/* HELLO to the peers it pulls from, sec 622. */
 				say_hello(pulls, npulls, state.udp_fd, now);
 				metric_log_links(now);
+				metric_log_meter(now);
 				/* A STREAM FETCH ASKED, at once, sec 632; WHERE THIS HOST IS
 				 * SEEN, asked now, sec 621: each a plan of its own, every host
 				 * at once and the loop answering meanwhile (sec 636). One
