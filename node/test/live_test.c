@@ -52,6 +52,15 @@ static void test_words(void)
 	      "a hang-up did not read back");
 	CHECK(!fzn_live_read(buf, n + 1u, &r), "a hang-up with bytes after it was read");
 
+	/* RINGING, sec 1062: the callee's answer to each ring, bare as a hang-up. */
+	memset(&w, 0, sizeof(w));
+	w.kind = FZN_LIVE_RINGING;
+	memset(w.call, 0xc3, sizeof(w.call));
+	n = fzn_live_write(&w, buf, sizeof(buf));
+	CHECK(n == FZN_LIVE_HEAD_LEN && fzn_live_read(buf, n, &r) && r.kind == FZN_LIVE_RINGING
+	              && r.call[0] == 0xc3u,
+	      "a ringing did not read back");
+
 	memset(&w, 0, sizeof(w));
 	w.kind = FZN_LIVE_FRAME;
 	memset(w.call, 0xc3, sizeof(w.call));

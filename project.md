@@ -85715,3 +85715,63 @@ Found while gating sec 1059, and measured as older than this day's work.
   printed nothing (its output buffered) and left its three daemons running, orphaned -- found and
   stopped by hand. The bound is 660 s now, past the script's own, so the script ends itself and
   stops what it started.
+
+## 1061. The protocol normalised: one binary message set on every leg, the holder's, 2026-11-12
+
+**The holder, 2026-11-12**, asked what "word" and "verb" meant here, and set the direction:
+
+- **No text parsed for control between hosts.** fuzznet is a high-level agentic protocol with the
+  efficiency of a hand-rolled binary one. Every host-to-host reply that is a text line today --
+  the relay's `ok` / `denied WHY`, an introduction's `ok HOST PORT`, sec 455's "a reply opening with
+  a letter is the peer's line" -- becomes a binary status and typed fields.
+- **The same protocol on every leg, the local one included**, unencrypted there. Today a host's
+  own clients (fuzzypickles' window, the CLI) speak text command lines on the local socket; that
+  moves onto the binary message set, staged with fuzzypickles, a text rendering left to the CLI.
+- **Message kinds normalised into clear categories.** `fzn_live_word_t` is a poor name: it is the
+  call's message, and the family is **call** (`fzn_call_msg_t`). Today a message is a version byte
+  -- in fact a family (spool 1, shared 2, cause 3, gather 4, reconcile 6, journal exchange 7) --
+  then a type byte, family 2 a flat list of 19 types in owner ranges, and a call a third, kind byte.
+  The scheme becomes two levels, each a clear category: a family byte, then a type within it.
+- **Ringing is a state both ends keep checking**, dropped fast when either goes, the stream joined
+  when the callee accepts; the ring is only its indicator. Today it is not: a callee ignores the
+  caller's repeated rings and ends a ringing call 45 s after the first, a caller hears nothing back
+  while ringing, and hangup and decline are said once.
+- **`list link` becomes `list leg`** (sec 906's words), fuzzypickles told the same commit.
+
+**Measured, and the holder's assumption corrected:** shorter codes for more frequent messages buy
+nothing here. Every code is one fixed byte; a session frame costs 33 bytes before its payload (9
+head, 8 sealed head, 16 AEAD tag) and a call's media frame another 26 of its own head, so the code is
+about 2 per cent of the overhead. What frequency should shape is the head: a field fixed for a
+session or a call -- the call's 8-byte id, repeated in every media frame -- set up once and named
+by a small index after.
+
+**The order, the holder's:** ringing as a checked state; `list leg`; the host-to-host replies to
+binary; the call family and the two-level family/type scheme registered in sec 906; the local leg
+on the binary protocol. With it, an analysis of what else in the protocol wants normalising the
+same way, since much changes anyway.
+
+## 1062. Ringing is a state both ends check, 2026-11-12
+
+The holder's, sec 1061: "Calling is a state that is vigorously checked that both sides are online
+so it can be dropped fast if either of them becomes unavailable, or connect the stream once the
+other side accepts. The ringing is just an indicator of that state." It was not so: a callee took a
+caller's repeated rings (sec 1039) as nothing and ended a ringing call 45 s after the first, a
+caller heard nothing back while it rang, and a hangup or a decline was said once.
+
+- **The callee answers each ring with RINGING** (`FZN_LIVE_RINGING`, 8, a bare call message), and
+  each ring is the caller still there; each RINGING is the callee still there.
+- **Either end drops a ringing call** when it has heard nothing of the other for
+  `FZN_LIVE_RING_SILENT_MS`, 5 s -- five rounds, since one ring and its RINGING both arrive only
+  about two times in three at 20 per cent loss, and three rounds missed in a row would drop a good
+  call one time in twenty. A caller that has heard **no** RINGING `FZN_LIVE_RING_REACH_MS`, 15 s,
+  after ringing drops the call as **unreachable**: the time a session takes to stand, through a
+  relay too. The event's word in the log is `gone` or `unreachable`.
+- **A hangup or a decline is said three times**, a second apart; the far end, having ended the
+  call, takes a repeat as nothing (sec 1039).
+- Held to this: a call this host rang or was rung on itself. A call carried through a sibling (sec
+  1025) keeps its own rule, unchanged here.
+- An answered call is as before: up, and ended after `FZN_LIVE_IDLE_S` with nothing heard.
+
+**Verified:** `live_call` phase i -- B rings A and is stopped while ringing; A drops the call
+5.2 s after, where it rang on for 45; A rings B, gone, and drops it as unreachable after 15.2 s.
+`live_test`: a RINGING reads back. Phases a to h unchanged.

@@ -34,6 +34,7 @@ int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
 	case FZN_LIVE_ANSWER:
 	case FZN_LIVE_DECLINE:
 	case FZN_LIVE_HANGUP:
+	case FZN_LIVE_RINGING:
 		return len == FZN_LIVE_HEAD_LEN;
 	case FZN_LIVE_REPORT:
 		if (len != FZN_LIVE_REPORT_LEN)
@@ -83,6 +84,7 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 	case FZN_LIVE_ANSWER:
 	case FZN_LIVE_DECLINE:
 	case FZN_LIVE_HANGUP:
+	case FZN_LIVE_RINGING:
 		len = FZN_LIVE_HEAD_LEN;
 		break;
 	case FZN_LIVE_FRAME:

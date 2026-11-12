@@ -20,6 +20,8 @@ contact's. Each host's own client is a caller on its socket.
        `list call` (sec 1040), as the ringing end names the user it rang; the
        caller hangs up and the callee holds it no more. A ring said once and lost
        was a call never rung (sec 1039): fuzzypickles saw one in three missed
+    i  B rings A and is stopped while ringing: A drops the call within seconds, not
+       45; A rings B, gone, and drops it as unreachable (sec 1062)
 
 Against a daemon that takes no call's word from a session, a never rings; against
 one whose asked session is dropped when the other host's frame comes, b is never
@@ -243,6 +245,29 @@ def main(argv):
 				      lambda: rung[1] not in calls(socks[to]))
 				print("livecheck: g: %s rang %s, heard after %.1f s, named either end, hung up"
 				      % (frm.upper(), to.upper(), time.monotonic() - began))
+
+			# i: RINGING IS A STATE BOTH ENDS CHECK, sec 1062. B rings A and is stopped
+			# while it rings: A, ringing in, drops the call within a few seconds of
+			# B's rings stopping, where it rang on for 45. Then A rings B, gone: no
+			# RINGING ever comes, and A drops it as unreachable.
+			rung = ask(socks["b"], "add call ada audio").split()
+			if len(rung) != 2 or rung[0] != "ok":
+				raise failed("i: B's add call answered %r" % rung)
+			until("i: A never held B's ring", lambda: calls(socks["a"]).get(rung[1]) == "ringing-in")
+			started.pop("b").stop()
+			began = time.monotonic()
+			until("i: A still rang 8 s after B was stopped",
+			      lambda: rung[1] not in calls(socks["a"]), 8.0)
+			print("livecheck: i: B stopped while ringing, A dropped the call after %.1f s"
+			      % (time.monotonic() - began))
+			rung = ask(socks["a"], "add call bea audio").split()
+			if len(rung) != 2 or rung[0] != "ok":
+				raise failed("i: A's add call answered %r" % rung)
+			began = time.monotonic()
+			until("i: A still rang B, gone, after 20 s",
+			      lambda: rung[1] not in calls(socks["a"]), 20.0)
+			print("livecheck: i: A rang B, gone, and dropped it as unreachable after %.1f s"
+			      % (time.monotonic() - began))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

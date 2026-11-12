@@ -70,6 +70,14 @@
 /* HOW LONG A CALL RINGS unanswered, and is kept with no frame either way. */
 #define FZN_LIVE_RING_S 45u
 #define FZN_LIVE_IDLE_S 30u
+/* RINGING IS A STATE BOTH ENDS KEEP CHECKING, sec 1062, the holder's: the caller
+ * says RING each second and the callee answers each with RINGING; either end
+ * hearing nothing of the other for FZN_LIVE_RING_SILENT_MS drops the call --
+ * five rounds, so a lossy path does not drop a good one -- and a caller that has
+ * heard no RINGING at all FZN_LIVE_RING_REACH_MS after ringing drops it as
+ * unreachable, the time a session takes to stand, through a relay too. */
+#define FZN_LIVE_RING_SILENT_MS 5000u
+#define FZN_LIVE_RING_REACH_MS 15000u
 
 typedef enum fzn_live_kind {
 	FZN_LIVE_RING = 1,
@@ -78,7 +86,8 @@ typedef enum fzn_live_kind {
 	FZN_LIVE_HANGUP = 4,
 	FZN_LIVE_FRAME = 5,
 	FZN_LIVE_REPORT = 6,
-	FZN_LIVE_PARTICIPANT = 7
+	FZN_LIVE_PARTICIPANT = 7,
+	FZN_LIVE_RINGING = 8 /* the callee to each RING, sec 1062: still here, ringing */
 } fzn_live_kind_t;
 
 /* ONE WORD READ, pointing into the caller's bytes. */
@@ -150,6 +159,11 @@ typedef struct fzn_live_call {
 	uint8_t host[FZN_PUBKEY_LEN];
 	uint8_t kinds;
 	uint64_t since_s, heard_s;
+	/* RINGING CHECKED, sec 1062: when the other end was last heard ringing, ms --
+	 * a RING at the callee, a RINGING at the caller -- 0 for never; and whether
+	 * this call is held to it, a call this host rang or was rung on itself. */
+	uint64_t heard_ms, since_ms;
+	uint8_t checked;
 	uint8_t used;
 } fzn_live_call_t;
 

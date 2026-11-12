@@ -17647,6 +17647,66 @@ static size_t live_bare(fzn_live_kind_t kind, const uint8_t call[FZN_LIVE_CALL_L
 	return fzn_live_write(&lw, out, FZN_LIVE_HEAD_LEN);
 }
 
+/* RINGING, sec 1062: this end still here, to `host` for `call`. */
+static void live_ringing(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t call[FZN_LIVE_CALL_LEN])
+{
+	uint8_t word[FZN_LIVE_HEAD_LEN];
+	size_t n = live_bare(FZN_LIVE_RINGING, call, word);
+
+	if (n)
+		(void)fzn_daemon_say(host, word, n);
+}
+
+/* A CALL'S END SAID AGAIN, sec 1062: a hangup or a decline said once was lost
+ * with one datagram, and the other end rang or held the call on until its own
+ * time ran out. Said now and twice more a second apart; the far end, having
+ * ended the call, takes the repeats as nothing (sec 1039). */
+#define FZND_LIVE_ENDINGS 16u
+static struct live_ending {
+	uint8_t host[FZN_PUBKEY_LEN];
+	uint8_t word[FZN_LIVE_HEAD_LEN];
+	size_t len;
+	unsigned left;
+	uint64_t next_ms;
+} live_endings[FZND_LIVE_ENDINGS];
+
+static void live_say_ending(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *word, size_t len)
+{
+	size_t i, at = 0;
+
+	(void)fzn_daemon_say(host, word, len);
+	if (len > FZN_LIVE_HEAD_LEN)
+		return;
+	for (i = 0; i < FZND_LIVE_ENDINGS; i++) {
+		if (!live_endings[i].left) {
+			at = i;
+			break;
+		}
+		if (live_endings[i].next_ms < live_endings[at].next_ms)
+			at = i;
+	}
+	memcpy(live_endings[at].host, host, FZN_PUBKEY_LEN);
+	memcpy(live_endings[at].word, word, len);
+	live_endings[at].len = len;
+	live_endings[at].left = 2u;
+	live_endings[at].next_ms = wall_ms() + 1000u;
+}
+
+static void live_endings_pump(uint64_t now_ms)
+{
+	size_t i;
+
+	for (i = 0; i < FZND_LIVE_ENDINGS; i++) {
+		struct live_ending *e = &live_endings[i];
+
+		if (!e->left || now_ms < e->next_ms)
+			continue;
+		(void)fzn_daemon_say(e->host, e->word, e->len);
+		e->left--;
+		e->next_ms = now_ms + 1000u;
+	}
+}
+
 /* A CALL ENDED, told its siblings: the one that has it, or, while it rang in with
  * none, every sibling it rang. */
 static void live_end_siblings(const fzn_live_call_t *c)
@@ -17813,6 +17873,15 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		return;
 	}
 	if (w.kind == FZN_LIVE_RING) {
+		/* RINGING CHECKED, sec 1062: each ring of a call ringing in here from its
+		 * caller's host is the caller still there, and is answered RINGING, this
+		 * end still here. */
+		if (c && c->state == FZN_LIVE_RINGING_IN && c->checked
+		    && memcmp(c->host, host, FZN_PUBKEY_LEN) == 0) {
+			c->heard_ms = wall_ms();
+			live_ringing(host, w.call);
+			return;
+		}
 		if (c || !estate_owner() || memcmp(w.whom, estate_owner(), FZN_PUBKEY_LEN) != 0
 		    || !(c = fzn_live_open(&node_calls, w.call)))
 			return;
@@ -17820,6 +17889,9 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		memcpy(c->host, host, FZN_PUBKEY_LEN);
 		c->kinds = w.kinds;
 		c->since_s = c->heard_s = wall_clock();
+		c->since_ms = c->heard_ms = wall_ms();
+		c->checked = 1;
+		live_ringing(host, w.call);
 		live_told(w.call, "ring");
 		/* AND EACH SIBLING ON A SESSION, sec 1025: the first to answer takes it. */
 		say_siblings(NULL, bytes, len);
@@ -17833,6 +17905,10 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 			return;
 		c->heard_s = wall_clock();
 		switch (w.kind) {
+		case FZN_LIVE_RINGING:
+			/* STILL RINGING THERE, sec 1062. */
+			c->heard_ms = wall_ms();
+			return;
 		case FZN_LIVE_ANSWER:
 			/* JOINED: told who each other joined participant is, and each told
 			 * who it is, so a frame's FROM names somebody. sec 1024. */
@@ -18014,6 +18090,21 @@ static void live_pump(void)
 {
 	uint64_t now_ms = wall_ms();
 	size_t i;
+
+	live_endings_pump(now_ms);
+	/* RINGING CHECKED, sec 1062: a call ringing in whose caller stopped ringing,
+	 * or ringing out whose callee stopped answering RINGING -- or never did --
+	 * dropped, not left ringing until its 45 s. */
+	for (i = 0; i < node_calls.cap; i++) {
+		fzn_live_call_t *c = &node_calls.rows[i];
+
+		if (!c->used || !c->checked
+		    || (c->state != FZN_LIVE_RINGING_IN && c->state != FZN_LIVE_RINGING_OUT))
+			continue;
+		if (c->heard_ms ? now_ms > c->heard_ms + FZN_LIVE_RING_SILENT_MS
+		                : now_ms > c->since_ms + FZN_LIVE_RING_REACH_MS)
+			live_end(c, c->heard_ms ? "gone" : "unreachable");
+	}
 
 	for (i = 0; i < live_kept_cap; i++) {
 		struct live_kept *k = &live_kept[i];
@@ -18207,6 +18298,10 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 		memcpy(c->host, k->participants[0].host, FZN_PUBKEY_LEN);
 		c->kinds = kinds;
 		c->since_s = c->heard_s = wall_clock();
+		/* HELD TO RINGING CHECKED, sec 1062: no RINGING heard yet. */
+		c->since_ms = wall_ms();
+		c->heard_ms = 0;
+		c->checked = 1;
 		/* RUNG AT ONCE, and again each pass until said. */
 		k->ring_tried_ms = 0;
 		live_pump();
@@ -18238,9 +18333,13 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 			if (k && k->n_participants) {
 				for (m = 0; m < k->n_participants; m++)
 					if (k->participants[m].joined || k->participants[m].ringing)
-						(void)fzn_daemon_say(k->participants[m].host, word, n);
-			} else {
+						lw.kind == FZN_LIVE_ANSWER
+						        ? (void)fzn_daemon_say(k->participants[m].host, word, n)
+						        : live_say_ending(k->participants[m].host, word, n);
+			} else if (lw.kind == FZN_LIVE_ANSWER) {
 				(void)fzn_daemon_say(c->host, word, n);
+			} else {
+				live_say_ending(c->host, word, n);
 			}
 		}
 		/* TAKEN OR REFUSED HERE, sec 1025: the siblings it rang stop ringing. */
