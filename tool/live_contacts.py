@@ -460,18 +460,21 @@ def main(argv):
 				time.sleep(1.0)
 			else:
 				raise failed("f: S2 never listed R3 among R's devices: %r" % listed)
-			# f0: SETTLEMENT PAST A MEMBER NEVER HEARD (sec 802). R3 is up and
-			# pulls from R, but has no address, so R knows it as a member and
-			# never hears it. Before sec 802 such a member was never judged
-			# gone, and every line R filed waited on it for ever. Now R's first
-			# asking starts R3's silence, and past R's `archive/gone` of 3 s
-			# the line settles over R2 alone; R3 takes it from R as it pulls.
+			# f0: SETTLEMENT PAST A MEMBER NEVER HEARD (sec 802). Before sec 802 a
+			# member R never heard was never judged gone, and every line R filed
+			# waited on it for ever. Now R's first asking starts its silence, and
+			# past R's `archive/gone` of 3 s the line settles over R2 alone.
+			# R3 IS STOPPED FOR IT, sec 1036: with no address it was never heard
+			# while it ran, until R's sibling round took the way its hellos keep
+			# open -- since then R hears it, and the line settled with none gone,
+			# leaving sec 802 unasked. Stopped, R3 is a member R cannot hear, which
+			# is what this phase is about; it starts again after, and takes the
+			# line from R as it pulls.
 			# WHICHEVER OF R's HOSTS S DELIVERS TO files the line and settles it.
+			down("r3")
 			expect(socks["s"], "s", "add message rory out %s to%%20r" % LINE_6, "ok")
 			settled_re = re.compile(r"\d+ line\(s\) weighed over \d+ member\(s\), [1-9]\d* gone "
 			                        r"not waited for: [1-9]\d* settled")
-			r3_settled_re = re.compile(r"\d+ line\(s\) weighed over \d+ member\(s\), \d+ gone "
-			                           r"not waited for: [1-9]\d* settled")
 			until = time.monotonic() + 300.0
 			filer = None
 			while filer is None and time.monotonic() < until:
@@ -480,13 +483,6 @@ def main(argv):
 						filer = who
 						break
 				else:
-					# R3 HAS NO ADDRESS OF ITS OWN, but says hello to R, and R
-					# advertises where it was seen (sec 697): S may reach it, and
-					# then R3 files the line and settles it over R and R2, which
-					# is right, and leaves sec 802 unasked this run.
-					if r3_settled_re.search(started["r3"].log()):
-						filer = "r3"
-						break
 					time.sleep(1.0)
 			if filer is None:
 				raise failed("f0: neither R nor R2 settled S's line without R3%s"
@@ -494,8 +490,9 @@ def main(argv):
 			held = lines(socks[filer], filer, keys["s"]).get(LINE_6, ("", "", ""))
 			if held[0] != "in" or held[1] != "settled":
 				raise failed("f0: %s holds S's line as %r" % (filer.upper(), held))
-			print("livecheck: f0: %s settled S's line%s" % (filer.upper(), "" if filer == "r3" else
-			      ", R3 known, never heard and judged gone"))
+			print("livecheck: f0: %s settled S's line, R3 known, never heard and judged gone"
+			      % filer.upper())
+			r3 = up("r3", "r3-f0")
 			# DOWN FROM HERE TO THE PHASE'S END, so the only way R2's vote and
 			# R's new k can reach it is through S.
 			down("s2")
