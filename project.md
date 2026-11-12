@@ -85275,3 +85275,33 @@ The Roots tab's row of four -- Add root, Remove root, k, Set k -- is two rows no
 Profile tab's chooser sits above its button. Measured offscreen at the default font: the view's
 `minimumSizeHint` was 370 px wide, and is 210. `governance_view_test` holds it to 320, as
 `notebook_view_test` holds the notebook to 360 (sec 989); against the old layout that check fails.
+
+## 1039. A ring is said again until it is answered, 2026-11-12
+
+Reported by fuzzypickles 2026-11-12 (inbox 20261112T0342Z), at our b808927f: in their window's call
+test, desk rings dag every time, but dag ringing desk right after that call is gone never showed
+at desk in about one run of three, four of some twelve suites, some of them on a loaded machine.
+
+**The cause, from the code:** `live_pump` said each participant's ring once. Once
+`fzn_daemon_say` had sent it on a session, the participant was marked rung and the ring was
+never said again -- so a single datagram lost, a socket buffer full on a loaded machine, was a
+call that never rang, left ringing out until `FZN_LIVE_RING_S`. Sec 1020 said a call's words once
+on purpose, as a frame should be; a ring is not a frame.
+
+- **Said again each `FZND_LIVE_RING_AGAIN_MS`, 1 s,** until the participant answers or declines,
+  or the ring ends. The far end takes a ring for a call it holds as nothing, as it already did.
+- **A call ended is remembered**, its id among the last `FZN_LIVE_ENDED`, 32, in
+  `fzn_live_calls_t`, and `fzn_live_open` refuses one: a ring said again and arriving after a
+  decline would otherwise have opened the declined call a second time.
+
+**Verified:** `live_test` -- a call ended is not opened again by its id, a new one is, and the
+oldest of 33 is forgotten; sabotage `live-ended-forgotten` is caught by it. `live_call` phase g,
+B ringing A at once after A's call is gone and then A B, three times each way, each heard.
+**Reproduced under loss**, with the fault build's `FZN_FAULT_LOSS=20` and ten rings alternating
+as phase g's: the daemon before this heard **7 of 10**, near fuzzypickles' one in three, and this
+one **10 of 10**. Without loss the old daemon heard all 18 of three runs of phase g here, so the
+loss is what fuzzypickles' loaded machine supplied. The resend itself lives in fuzznetd, which no
+unit test reaches, so no sabotage entry guards it; the loss run is its check.
+
+Their addendum, a group line from dag missing in four other runs, is not explained by this; it
+waits on their logs (node logs at level D, `node/session` and `contact/devices`).

@@ -17059,6 +17059,7 @@ int fzn_daemon_say(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, siz
 /* STREAMS A CALL COUNTS: the kinds' numbers, audio 1 and video 2, below this. */
 #define FZND_LIVE_STREAMS 4u
 #define FZND_LIVE_REPORT_MS 1000u
+#define FZND_LIVE_RING_AGAIN_MS 1000u
 static fzn_live_calls_t node_calls;
 /* ONE PATH'S QUALITY, sec 1021, a stream each: what this host measured of the
  * frames it received over the path, and what the far end reported of those it
@@ -17087,6 +17088,7 @@ static struct live_kept {
 		uint8_t whom[FZN_PUBKEY_LEN];
 		uint8_t host[FZN_PUBKEY_LEN];
 		uint8_t ringing, joined;
+		uint64_t rung_ms; /* when its ring was last said, sec 1039 */
 		struct live_path path; /* this hub's path to the participant, sec 1027 */
 	} *participants;
 	size_t n_participants, participants_cap;
@@ -17628,7 +17630,13 @@ static void live_pump(void)
 			uint8_t ring[FZN_LIVE_RING_LEN];
 			size_t len;
 
-			if (k->participants[m].ringing != 1u || k->participants[m].joined)
+			/* SAID AGAIN each FZND_LIVE_RING_AGAIN_MS until answered or declined,
+			 * sec 1039: said once, one datagram lost was a call never rung -- one
+			 * ring in three on a loaded machine. The far end holds the call by its
+			 * id and takes a ring again as nothing. */
+			if (!k->participants[m].ringing || k->participants[m].joined
+			    || (k->participants[m].ringing == 2u
+			        && now_ms < k->participants[m].rung_ms + FZND_LIVE_RING_AGAIN_MS))
 				continue;
 			memset(&w, 0, sizeof(w));
 			w.kind = FZN_LIVE_RING;
@@ -17636,8 +17644,10 @@ static void live_pump(void)
 			w.kinds = c->kinds;
 			w.whom = k->participants[m].whom;
 			if ((len = fzn_live_write(&w, ring, sizeof(ring))) != 0
-			    && fzn_daemon_say(k->participants[m].host, ring, len))
+			    && fzn_daemon_say(k->participants[m].host, ring, len)) {
 				k->participants[m].ringing = 2; /* said: rung, waiting for an answer */
+				k->participants[m].rung_ms = now_ms;
+			}
 		}
 	}
 	/* QUALITY REPORTED, sec 1021: each second a call is up and a stream had

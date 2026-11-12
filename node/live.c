@@ -188,6 +188,9 @@ fzn_live_call_t *fzn_live_open(fzn_live_calls_t *t, const uint8_t call[FZN_LIVE_
 		return NULL;
 	if ((c = fzn_live_find(t, call)) != NULL)
 		return c;
+	for (i = 0; i < FZN_LIVE_ENDED; i++)
+		if (memcmp(t->ended[i], call, FZN_LIVE_CALL_LEN) == 0)
+			return NULL;
 	for (i = 0; i < t->cap && t->rows[i].used; i++)
 		;
 	if (i == t->cap) {
@@ -210,6 +213,8 @@ void fzn_live_end(fzn_live_calls_t *t, fzn_live_call_t *c)
 {
 	if (!t || !c || !c->used)
 		return;
+	memcpy(t->ended[t->ended_next], c->call, FZN_LIVE_CALL_LEN);
+	t->ended_next = (t->ended_next + 1u) % FZN_LIVE_ENDED;
 	memset(c, 0, sizeof(*c));
 	t->n--;
 }

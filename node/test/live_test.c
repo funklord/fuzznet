@@ -190,6 +190,22 @@ static void test_calls(void)
 	CHECK(t.n == 1u && up->used, "the call heard at 130 did not stay");
 	fzn_live_end(&t, up);
 	CHECK(t.n == 0u, "an ended call stays counted");
+	/* ENDED AND REMEMBERED, sec 1039: a ring said again after a decline opens
+	 * nothing; a new call opens; the oldest is forgotten past FZN_LIVE_ENDED. */
+	memset(id, 2, sizeof(id));
+	CHECK(fzn_live_open(&t, id) == NULL && t.n == 0u, "an ended call was opened again by its id");
+	for (i = 0; i < FZN_LIVE_ENDED; i++) {
+		memset(id, (int)(100u + i), sizeof(id));
+		c = fzn_live_open(&t, id);
+		CHECK(c != NULL, "a new call was refused among ended ones");
+		if (c)
+			fzn_live_end(&t, c);
+	}
+	memset(id, 2, sizeof(id));
+	c = fzn_live_open(&t, id);
+	CHECK(c != NULL, "the oldest ended call was not forgotten past FZN_LIVE_ENDED");
+	if (c)
+		fzn_live_end(&t, c);
 	fzn_live_release(&t);
 	CHECK(!t.rows && !t.cap, "a table let go still holds");
 }

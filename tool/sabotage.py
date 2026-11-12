@@ -15291,6 +15291,13 @@ SABOTAGES = [
 		"a request to a host behind a NAT leaves from a socket the NAT never admits, and is never answered -- sec 1036",
 	),
 	(
+		"live-ended-forgotten",
+		"node/live.c",
+		"\t\tif (memcmp(t->ended[i], call, FZN_LIVE_CALL_LEN) == 0)\n",
+		"\t\tif (0 && memcmp(t->ended[i], call, FZN_LIVE_CALL_LEN) == 0)\n",
+		"a ring said again after a decline opens the declined call a second time -- sec 1039",
+	),
+	(
 		"relay-own-route-unmarked",
 		"node/relay.c",
 		"\t\t\tr->routes[i].own = 1;\n",

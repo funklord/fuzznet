@@ -153,18 +153,26 @@ typedef struct fzn_live_call {
 	uint8_t used;
 } fzn_live_call_t;
 
+/* CALLS ENDED that a late word may still name: a ring is said again until it is
+ * answered (sec 1039), and one said again past a decline must not open the call a
+ * second time. The newest kept, the oldest forgotten. */
+#define FZN_LIVE_ENDED 32u
+
 typedef struct fzn_live_calls {
 	fzn_live_call_t *rows;
 	size_t cap, n;
+	uint8_t ended[FZN_LIVE_ENDED][FZN_LIVE_CALL_LEN];
+	size_t ended_next;
 } fzn_live_calls_t;
 
 /* `call`'S ROW, or NULL. */
 fzn_live_call_t *fzn_live_find(fzn_live_calls_t *t, const uint8_t call[FZN_LIVE_CALL_LEN]);
 
-/* A ROW FOR `call`, new or the one held, grown as needed; NULL with no memory. */
+/* A ROW FOR `call`, new or the one held, grown as needed; NULL with no memory,
+ * or for a call among the last FZN_LIVE_ENDED ended here. */
 fzn_live_call_t *fzn_live_open(fzn_live_calls_t *t, const uint8_t call[FZN_LIVE_CALL_LEN]);
 
-/* `c` ENDED, its row free. */
+/* `c` ENDED, its row free, its id kept among the ended. */
 void fzn_live_end(fzn_live_calls_t *t, fzn_live_call_t *c);
 
 /* ROWS PAST THEIR TIME at `now_s` ended -- ringing past FZN_LIVE_RING_S, or up
