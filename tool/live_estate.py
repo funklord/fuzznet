@@ -352,7 +352,9 @@ def main(argv):
 					if got.startswith("denied"):
 						writing["denied"] = True
 						return
-					if got != "ok":
+					# HELD TO ITS WINDOW, sec 1037: a write a third of a second
+					# after the last is taken at the window's end, `ok held`.
+					if got not in ("ok", "ok held"):
 						writing["error"] = got
 						return
 					writing["n"] += 1

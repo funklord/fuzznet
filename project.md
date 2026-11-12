@@ -86169,3 +86169,18 @@ split is temporary and ends with the verbs.
 
 **Left for later in sec 1061's order:** `get routing` and `get address` as binary request and
 reply; an admin's remote verbs and `fuzznetd --ask` with the local leg.
+
+## 1079. live_estate's writer takes a held write: refused since the settings rate gate, 2026-11-12
+
+**Found running `livecheck-faults` for sec 1078:** `live_estate` phase c failed, `D's own writes
+were answered 'ok held'`, and failed identically on HEAD's daemon before sec 1078 -- so not
+sec 1078's doing.
+
+**Why:** phase c's writer sets `h/n` on D a third of a second apart, throughout the phase, and
+took any answer but `ok` as an error. Since settings were gated (sec 1037, 1042), a write inside
+its key's window, a second by default, is answered `ok held` and taken at the window's end --
+the design, not a fault. The writer was never told, and `live_estate` runs only in
+`livecheck-faults`.
+
+**Now** the writer takes `ok held` as a write taken. What phase c measures -- D refused its own
+writes once it has learned its revocation -- is unchanged.
