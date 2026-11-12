@@ -15340,6 +15340,13 @@ SABOTAGES = [
 		"a relayed session's frames are sent on whatever its asker's quota says -- sec 1050",
 	),
 	(
+		"metric-estimate-unrounded",
+		"node/metric.c",
+		"\treturn (total >> FZN_METRIC_SMOOTH_SHIFT) + (sample > old && (total & (parts - 1u)) != 0u);\n",
+		"\treturn (total >> FZN_METRIC_SMOOTH_SHIFT);\n",
+		"a metric's estimate parts from link/'s, and a steady sample is approached for ever -- sec 1055",
+	),
+	(
 		"relay-own-route-unmarked",
 		"node/relay.c",
 		"\t\t\tr->routes[i].own = 1;\n",

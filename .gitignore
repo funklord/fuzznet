@@ -354,6 +354,7 @@ __pycache__/
 /node/test/live_test
 /node/test/reach_test
 /node/test/rate_test
+/node/test/metric_test
 /wire/test/session_frame_test
 /wire/test/session_frame_fuzz
 /node/test/pressure_test

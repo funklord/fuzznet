@@ -85586,3 +85586,27 @@ past the bound included), the last window's rates summed over its rows, and how 
 hold. The same schema family and the same floor of 10 s as sec 1053.
 
 **Verified:** `live_call` phase h sets it at A and reads a `metric/meter` line within 30 s.
+
+## 1055. The metric layer's table, 2026-11-12
+
+Sec 1034's step "the layer's table, estimator and pager", the first piece of one front for every
+measured value. Each subsystem kept its own table -- `link/` a link's latency and loss (sec 631),
+the meter a family's bytes (sec 685) -- each with its own names, room and listing. `node/metric.{h,c}`
+is the one they move onto.
+
+- **A value is named**, a path of the schema's words (`link/127.0.0.1:7000/latency`), so a listing
+  and a logging rule select by prefix (sec 1053's `metric/log/NAME`).
+- **Its estimate is `link/`'s to the bit**: it begins at a prior, and each sample moves it seven
+  parts the old to one the sample, rounded up when rising so a steady sample is reached. A value
+  with no observation says so, since a prior is no measurement.
+- **The room is the caller's** (sec 704): `fzn_metrics_use` moves the table onto larger room, and
+  a full table refuses a new name rather than forget an old one with its measurements.
+- **Listed by prefix in pages**, in the order the names came, with where the next page begins.
+
+**Verified:** `metric_test`, 14 checks -- names out of shape refused, a name opened again its own
+row, a prior not an observation; the estimate equal to `link/`'s at every one of 31 samples,
+linked beside it, and a steady sample reached; a full table refusing and larger room keeping; pages
+under a prefix. Sabotage `metric-estimate-unrounded` is caught.
+
+**Next:** `link/`'s figures moved onto it -- `list link` and its tests kept, its own table gone --
+then the meter, then a call's paths, as sec 1034 orders them.
