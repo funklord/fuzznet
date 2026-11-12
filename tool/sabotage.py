@@ -15305,6 +15305,20 @@ SABOTAGES = [
 		"a ring said again after a decline opens the declined call a second time -- sec 1039",
 	),
 	(
+		"relay-session-any-sender",
+		"node/relay.c",
+		"\t\tif (w->used && w->until > now && w->handle == handle && same_at(&w->from, from)) {\n",
+		"\t\tif (w->used && w->until > now && w->handle == handle) {\n",
+		"a relay forwards a session's frames from any host that names its handle -- sec 1045",
+	),
+	(
+		"serve-session-unrelayed",
+		"node/serve.c",
+		"\t\tif (state->relay && state->udp_fd >= 0\n",
+		"\t\tif (0 && state->relay && state->udp_fd >= 0\n",
+		"a session's frames reach a relay and go no further -- sec 1045",
+	),
+	(
 		"relay-own-route-unmarked",
 		"node/relay.c",
 		"\t\t\tr->routes[i].own = 1;\n",

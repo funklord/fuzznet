@@ -38,6 +38,10 @@
 #define FZN_NODE_RELAY_SEEN_MAX 64u
 /* How long a forwarded frame's answers are routed back, seconds. */
 #define FZN_NODE_RELAY_ROUTE_S 10u
+/* A SESSION RELAYED, sec 1045: its frames forwarded both ways while either end
+ * keeps talking -- each frame forwarded moves its route's end this far on. */
+#define FZN_NODE_RELAY_SESSION_S 60u
+#define FZN_NODE_RELAY_SESSIONS_MAX 32u
 
 typedef struct fzn_node_relay_route {
 	uint8_t target[FZN_PUBKEY_LEN];
@@ -49,6 +53,17 @@ typedef struct fzn_node_relay_route {
 	 * serving socket, routed on to the socket awaiting it here. */
 	int own;
 } fzn_node_relay_route_t;
+
+/* ONE WAY OF A SESSION RELAYED, sec 1045: a session frame from `from` carrying
+ * `handle` -- the receiver's, as every session frame does -- goes on to `to`
+ * unread. A session's frames carry a handle, not a sender or a message id, so a
+ * request's route cannot carry them; two of these, one each way, can. */
+typedef struct fzn_node_relay_session {
+	fzn_udp_addr_t from, to;
+	uint32_t handle;
+	uint64_t until;
+	int used;
+} fzn_node_relay_session_t;
 
 typedef struct fzn_node_relay_seen {
 	uint8_t key[FZN_PUBKEY_LEN];
@@ -63,6 +78,7 @@ typedef struct fzn_node_relay {
 	size_t routes_cap, seen_cap;
 	fzn_node_relay_route_t own_routes[FZN_NODE_RELAY_ROUTES_MAX];
 	fzn_node_relay_seen_t own_seen[FZN_NODE_RELAY_SEEN_MAX];
+	fzn_node_relay_session_t sessions[FZN_NODE_RELAY_SESSIONS_MAX];
 } fzn_node_relay_t;
 
 void fzn_node_relay_init(fzn_node_relay_t *r);
@@ -94,6 +110,19 @@ int fzn_node_relay_owns(const fzn_node_relay_t *r, const uint8_t sender[FZN_PUBK
  * several frames. */
 int fzn_node_relay_back(const fzn_node_relay_t *r, const uint8_t sender[FZN_PUBKEY_LEN],
                         uint32_t msg, uint64_t now, fzn_udp_addr_t *back);
+
+/* A SESSION RELAYED between `a`, whose handle is `a_handle`, and `b`, whose is
+ * `b_handle`, sec 1045: a frame from `a` carrying `b_handle` goes to `b`, and one
+ * from `b` carrying `a_handle` to `a`, until FZN_NODE_RELAY_SESSION_S passes with
+ * neither. Both ways replaced where either is held already, else an ended way's
+ * place, else the nearest its end. 0 when an argument is missing. */
+int fzn_node_relay_session(fzn_node_relay_t *r, const fzn_udp_addr_t *a, uint32_t a_handle,
+                           const fzn_udp_addr_t *b, uint32_t b_handle, uint64_t now);
+
+/* WHERE A SESSION FRAME from `from` carrying `handle` goes on to, into `to`: 1
+ * when a way stands at `now`, its end then moved on. */
+int fzn_node_relay_session_to(fzn_node_relay_t *r, const fzn_udp_addr_t *from, uint32_t handle,
+                              uint64_t now, fzn_udp_addr_t *to);
 
 /* `key` WAS SEEN at `at` at `now`: replacing its last, else the oldest. */
 void fzn_node_relay_saw(fzn_node_relay_t *r, const uint8_t key[FZN_PUBKEY_LEN],

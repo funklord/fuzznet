@@ -8,6 +8,7 @@
 
 #include "serve.h"
 #include "sessions.h"
+#include "relay.h"
 #include "../local/socket.h"
 #include "../session/aead_monocypher.h"
 #include "../session/hash_monocypher.h"
@@ -588,12 +589,101 @@ static void test_wait_answering_own_fds(void)
 	fzn_node_serve_release(&state);
 }
 
+static int same_addr(const fzn_udp_addr_t *a, const fzn_udp_addr_t *b)
+{
+	return a->len == b->len && memcmp(a->storage, b->storage, a->len) == 0;
+}
+
+/* A SESSION RELAYED THROUGH THE LOOP, sec 1045: a session frame whose handle no
+ * session here holds goes on, byte for byte, where a way stands for it from where
+ * it came; from anywhere else, nowhere. */
+static void test_run_once_relays_a_session(void)
+{
+	static fzn_node_relay_t relay;
+	fzn_node_sessions_t mine, theirs;
+	fzn_node_state_t state;
+	fzn_hash_ops_t hash;
+	fzn_aead_ops_t aead;
+	fzn_random_ops_t rng;
+	fzn_session_end_t end;
+	fzn_udp_addr_t at_relay, at_a, at_b, at_c, from;
+	uint8_t key[FZN_AEAD_KEY_LEN], sender[FZN_PUBKEY_LEN], cap[FZN_CAP_ID_LEN];
+	uint8_t ask[FZN_SESSION_ASK_LEN], grant[FZN_SESSION_GRANT_LEN];
+	uint8_t frame[FZN_SESSION_FRAME_MAX], got[FZN_SESSION_FRAME_MAX];
+	size_t n = 0, got_len = 0;
+	int rfd = -1, afd = -1, bfd = -1, cfd = -1;
+	struct pollfd p;
+
+	fzn_hash_monocypher_init(&hash);
+	fzn_aead_monocypher_init(&aead);
+	fzn_random_system_init(&rng);
+	memset(&mine, 0, sizeof(mine));
+	memset(&theirs, 0, sizeof(theirs));
+	memset(key, 0x61, sizeof(key));
+	memset(sender, 0x62, sizeof(sender));
+	memset(cap, 0x63, sizeof(cap));
+	memset(ask, 0x64, sizeof(ask));
+	if (!bound(&rfd, &at_relay) || !bound(&afd, &at_a) || !bound(&bfd, &at_b)
+	    || !bound(&cfd, &at_c)) {
+		ok(0, "the datagram sockets would not bind");
+		goto out;
+	}
+	/* B's session, granted at B: A's frames to B carry B's handle. The relay
+	 * holds no session of its own with either. */
+	ok(fzn_node_sessions_grant(&theirs, sender, cap, key, ask, 5000u, &hash, &rng, grant)
+	           && fzn_session_end_derive(&end, &hash, key, ask, grant, 1),
+	   "fixture: a session between A and B");
+	fzn_node_relay_init(&relay);
+	ok(fzn_node_relay_session(&relay, &at_a, 0x0a0a0a0au, &at_b, end.speaks_to, 1000u),
+	   "the session was not relayed");
+	memset(&state, 0, sizeof(state));
+	state.listen_fd = -1;
+	state.udp_fd = rfd;
+	state.hash = &hash;
+	state.aead = &aead;
+	state.rng = &rng;
+	state.clock = session_now;
+	state.sessions = &mine;
+	state.relay = &relay;
+
+	ok(fzn_session_frame_seal(&end, 7u, 1030u, (const uint8_t *)"hi", 2u, frame, sizeof(frame),
+	                          &n, &aead)
+	           == FZN_SESSION_FRAME_OK,
+	   "fixture: a session frame");
+	(void)fzn_udp_send(afd, &at_relay, frame, n);
+	(void)fzn_node_run_once(&state, 1000);
+	p.fd = bfd;
+	p.events = POLLIN;
+	p.revents = 0;
+	ok(poll(&p, 1, 1000) == 1 && fzn_udp_recv(bfd, got, sizeof(got), &got_len, &from) == FZN_UDP_OK
+	           && got_len == n && memcmp(got, frame, n) == 0 && same_addr(&from, &at_relay),
+	   "A's session frame did not reach B from the relay, byte for byte");
+
+	/* FROM A THIRD HOST, the same frame: no way stands from there. */
+	(void)fzn_udp_send(cfd, &at_relay, frame, n);
+	(void)fzn_node_run_once(&state, 300);
+	p.revents = 0;
+	ok(poll(&p, 1, 300) == 0, "a session frame from a host no way names was forwarded");
+out:
+	fzn_node_sessions_release(&mine);
+	fzn_node_sessions_release(&theirs);
+	if (rfd >= 0)
+		fzn_udp_close(rfd);
+	if (afd >= 0)
+		fzn_udp_close(afd);
+	if (bfd >= 0)
+		fzn_udp_close(bfd);
+	if (cfd >= 0)
+		fzn_udp_close(cfd);
+}
+
 int main(void)
 {
 	test_find_peer();
 	test_run_once_local();
 	test_run_once_probe();
 	test_run_once_session();
+	test_run_once_relays_a_session();
 	test_wait_answering();
 	test_run_once_own_fds();
 	test_wait_answering_own_fds();

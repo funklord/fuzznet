@@ -106,6 +106,77 @@ int fzn_node_relay_back(const fzn_node_relay_t *r, const uint8_t sender[FZN_PUBK
 	return 0;
 }
 
+static int same_at(const fzn_udp_addr_t *a, const fzn_udp_addr_t *b)
+{
+	return a->len == b->len && memcmp(a->storage, b->storage, a->len) == 0;
+}
+
+/* ONE WAY's place: the same way, else an empty or ended one, else the nearest
+ * its end -- never `keep`, the other way just placed. */
+static fzn_node_relay_session_t *way_place(fzn_node_relay_t *r, const fzn_udp_addr_t *from,
+                                           uint32_t handle, uint64_t now,
+                                           const fzn_node_relay_session_t *keep)
+{
+	fzn_node_relay_session_t *pick = NULL;
+	size_t i;
+
+	for (i = 0; i < FZN_NODE_RELAY_SESSIONS_MAX && !pick; i++)
+		if (r->sessions[i].used && r->sessions[i].handle == handle
+		    && same_at(&r->sessions[i].from, from))
+			pick = &r->sessions[i];
+	for (i = 0; i < FZN_NODE_RELAY_SESSIONS_MAX && !pick; i++)
+		if (&r->sessions[i] != keep && (!r->sessions[i].used || r->sessions[i].until <= now))
+			pick = &r->sessions[i];
+	if (pick)
+		return pick;
+	/* NONE FREE: the nearest its end. */
+	for (i = 0; i < FZN_NODE_RELAY_SESSIONS_MAX; i++)
+		if (&r->sessions[i] != keep && (!pick || r->sessions[i].until < pick->until))
+			pick = &r->sessions[i];
+	return pick;
+}
+
+int fzn_node_relay_session(fzn_node_relay_t *r, const fzn_udp_addr_t *a, uint32_t a_handle,
+                           const fzn_udp_addr_t *b, uint32_t b_handle, uint64_t now)
+{
+	fzn_node_relay_session_t *one, *two;
+
+	if (!r || !a || !b || !a->len || !b->len)
+		return 0;
+	one = way_place(r, a, b_handle, now, NULL);
+	one->from = *a;
+	one->to = *b;
+	one->handle = b_handle;
+	one->until = now + FZN_NODE_RELAY_SESSION_S;
+	one->used = 1;
+	two = way_place(r, b, a_handle, now, one);
+	two->from = *b;
+	two->to = *a;
+	two->handle = a_handle;
+	two->until = now + FZN_NODE_RELAY_SESSION_S;
+	two->used = 1;
+	return 1;
+}
+
+int fzn_node_relay_session_to(fzn_node_relay_t *r, const fzn_udp_addr_t *from, uint32_t handle,
+                              uint64_t now, fzn_udp_addr_t *to)
+{
+	size_t i;
+
+	if (!r || !from || !to)
+		return 0;
+	for (i = 0; i < FZN_NODE_RELAY_SESSIONS_MAX; i++) {
+		fzn_node_relay_session_t *w = &r->sessions[i];
+
+		if (w->used && w->until > now && w->handle == handle && same_at(&w->from, from)) {
+			*to = w->to;
+			w->until = now + FZN_NODE_RELAY_SESSION_S;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 void fzn_node_relay_saw(fzn_node_relay_t *r, const uint8_t key[FZN_PUBKEY_LEN],
                         const fzn_udp_addr_t *at, uint64_t now)
 {

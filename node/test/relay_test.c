@@ -243,6 +243,52 @@ static void test_who_may_ask(void)
 	      "reached");
 }
 
+/* A SESSION RELAYED, sec 1045: each way forwards its own handle from its own
+ * end, and nothing else; a frame moves the way's end on; ended, it forwards
+ * nothing; a full table gives way the nearest its end, never the way just made. */
+static void test_a_session_relayed(void)
+{
+	static fzn_node_relay_t r;
+	fzn_udp_addr_t a = addr_of("127.0.0.1", 5000u), b = addr_of("127.0.0.1", 5001u),
+	               c = addr_of("127.0.0.1", 5002u), got;
+	unsigned i;
+
+	fzn_node_relay_init(&r);
+	CHECK(fzn_node_relay_session(&r, &a, 0xa1u, &b, 0xb1u, 100u), "a session was not relayed");
+	CHECK(fzn_node_relay_session_to(&r, &a, 0xb1u, 101u, &got) && same(&got, &b),
+	      "a frame from A for B's handle did not go to B");
+	CHECK(fzn_node_relay_session_to(&r, &b, 0xa1u, 101u, &got) && same(&got, &a),
+	      "a frame from B for A's handle did not go to A");
+	CHECK(!fzn_node_relay_session_to(&r, &a, 0xa1u, 101u, &got)
+	              && !fzn_node_relay_session_to(&r, &c, 0xb1u, 101u, &got),
+	      "a frame for its sender's own handle, or from a third host, was forwarded");
+	CHECK(fzn_node_relay_session_to(&r, &a, 0xb1u, 100u + FZN_NODE_RELAY_SESSION_S - 1u, &got)
+	              && fzn_node_relay_session_to(&r, &a, 0xb1u,
+	                                           100u + 2u * FZN_NODE_RELAY_SESSION_S - 2u, &got),
+	      "a frame did not move its way's end on");
+	/* B's way last moved on at 101. */
+	CHECK(!fzn_node_relay_session_to(&r, &b, 0xa1u, 101u + FZN_NODE_RELAY_SESSION_S, &got),
+	      "a way neither end used went on forwarding past its end");
+	CHECK(fzn_node_relay_session(&r, &a, 0xa1u, &c, 0xb1u, 300u)
+	              && fzn_node_relay_session_to(&r, &a, 0xb1u, 301u, &got) && same(&got, &c),
+	      "the same way relayed again did not replace where it goes");
+	for (i = 0; i < FZN_NODE_RELAY_SESSIONS_MAX; i++) {
+		fzn_udp_addr_t x = addr_of("127.0.0.1", (uint16_t)(6000u + i));
+
+		(void)fzn_node_relay_session(&r, &x, 0x1000u + i, &b, 0x2000u + i, 400u + i);
+	}
+	{
+		fzn_udp_addr_t last = addr_of("127.0.0.1", (uint16_t)(6000u + FZN_NODE_RELAY_SESSIONS_MAX - 1u));
+
+		CHECK(fzn_node_relay_session_to(&r, &last, 0x2000u + FZN_NODE_RELAY_SESSIONS_MAX - 1u,
+		                                400u + FZN_NODE_RELAY_SESSIONS_MAX, &got)
+		              && fzn_node_relay_session_to(&r, &b, 0x1000u + FZN_NODE_RELAY_SESSIONS_MAX - 1u,
+		                                           400u + FZN_NODE_RELAY_SESSIONS_MAX, &got)
+		              && same(&got, &last),
+		      "a full table gave way a way just made");
+	}
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -260,6 +306,7 @@ int main(void)
 	test_routes_back();
 	test_where_peers_said_hello();
 	test_a_relay_given_room();
+	test_a_session_relayed();
 	if (failures) {
 		fprintf(stderr, "node relay_test: %d of %d checks failed\n", failures, checks);
 		return 1;

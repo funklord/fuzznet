@@ -85370,3 +85370,37 @@ decides who governs their estate.
 Every input, list and chooser in the view is named now, and `governance_view_test` walks them as
 `notebook_view_test` does (sec 983), spin boxes included and a spin box's own editor excused.
 **Control:** with the key's name removed the check fails, naming the `QLineEdit`.
+
+## 1045. A session relayed: the relay's ways and its serve loop, step 1, 2026-11-12
+
+Sec 1030's gap 2, the goal gap this run found largest: **a host reachable only through a relay
+cannot hold a call**, since a relay (sec 622) routes a request's answer back by sender and message
+id, and a session's frames carry neither -- only the receiver's handle. So two hosts with no hole
+between them (sec 1038 punches one where it can) have no call at all.
+
+**The design.** A relay keeps, beside its routes, **session ways**: a session frame from address X
+carrying handle H goes on, unread, to address Y. One session relayed is two ways -- A's frames
+carry B's handle, B's carry A's -- and each frame forwarded moves its way's end on
+`FZN_NODE_RELAY_SESSION_S`, 60 s, so a way lives while the call talks and lapses when it stops.
+A session's own handle is where the relay looks first: a frame for a session of the relay's own is
+never forwarded.
+
+**Step 1, built:** `fzn_node_relay_session` and `fzn_node_relay_session_to` in `node/relay.{h,c}`,
+`FZN_NODE_RELAY_SESSIONS_MAX` ways held in the relay's table. `relay_test`: each way forwards its
+own handle from its own end and nothing else; a frame moves its end on; an unused way stops
+forwarding; the same way again replaces where it goes; a full table gives way the nearest its end
+and never the way just made. **And the serve loop forwards:** a session frame whose handle no
+session of the host's own holds goes on, byte for byte, from the serving socket where a way stands
+for it from the address it came from (`node/serve.c`); `serve_test` sends one through a relay to a
+third socket, and the same frame from a fourth address goes nowhere. Sabotages
+`relay-session-any-sender` and `serve-session-unrelayed`, each caught.
+
+**Step 2, next:** the requests. At the relay, `FZN_TYPE_RELAY_SESSION` -- the target's key and
+both handles -- judged as a relayed frame is (`relay/enabled`, members and standing contacts, one
+hop, the target seen, the quota), recording the two ways; nothing records one yet, so nothing is
+forwarded today. At the asker, a session ask
+unanswered directly asked through the relay as a request is today, the ways asked for once the
+grant names both handles, and the session's address set to the relay's. **Step 3:** a hull journey
+where no hole is punched -- B's root with introductions refused -- and a call that rings and
+carries frames through A's root. Sec 1030's gap 3, choosing between paths by measurement, follows
+once a relayed path exists to measure.

@@ -325,9 +325,21 @@ static void serve_session_frame(fzn_node_state_t *state, uint8_t *frame, size_t 
 	uint32_t handle;
 	uint64_t now;
 
-	if (!sessions || !state->aead || !fzn_session_frame_handle(frame, flen, &handle)
-	    || !(s = fzn_node_sessions_find(sessions, handle)))
+	if (!sessions || !state->aead || !fzn_session_frame_handle(frame, flen, &handle))
 		return;
+	if (!(s = fzn_node_sessions_find(sessions, handle))) {
+		/* A SESSION RELAYED, sec 1045: no session of this host's own holds the
+		 * handle, and a way stands for it from where the frame came -- sent on,
+		 * unread. A frame of this host's own is never forwarded: its handle
+		 * finds its session first. */
+		fzn_udp_addr_t to;
+
+		if (state->relay && state->udp_fd >= 0
+		    && fzn_node_relay_session_to(state->relay, from, handle,
+		                                 state->clock ? state->clock() : 0u, &to))
+			(void)fzn_udp_send(state->udp_fd, &to, frame, flen);
+		return;
+	}
 	found = fzn_node_find_peer(state->peers, state->peer_count, s->sender);
 	/* A SESSION THIS HOST ASKED, sec 1018, is rooted in the key it sends under,
 	 * which between two hosts of an estate is the key its peer row holds:
