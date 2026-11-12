@@ -85878,3 +85878,39 @@ remains in fuzzypickles is to be looked at and transferred -- most of what is in
 the move as commits on its vendored fuzznet for this tree to read, adapt to its gates and apply --
 it being the typed API the binary local leg (sec 1061 step 5) will sit under unchanged for its
 users; then the rest of the inventory, by value, beside sec 1061's normalisation.
+
+## 1070. The features fuzznet serves its consumers: the register
+
+**The holder, 2026-11-12:** "let's maintain a list of features that fuzznet is to potentially serve
+to its consumers, anything pertaining to them belongs in fuzznet and not in a consumer. As an
+example: fuzzypickles was under the impression that chat and calls were fuzzypickles' value-adds.
+They're not, another consumer needs to be able to use them, therefore they go here."
+
+**The rule:** a feature another consumer could want is fuzznet's -- its protocol, its state, its
+typed client API, its views (Qt Widgets, hostable through an ask callback), its CLI, its tests.
+A consumer keeps only what is its own: its window's arrangement, its branding, its platform's
+packaging. Where a consumer holds part of a listed feature, that part is to move here. This section
+is the register, rewritten in place as features land; "where" says where each lives today
+(2026-11-12), from fuzzypickles' own inventory (sec 1069) and this tree.
+
+| Feature | In fuzznet | Still in a consumer, to move | Missing |
+|---|---|---|---|
+| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view` | fuzzypickles' Setup, Hosts pages | a hostable provision view |
+| Pairing, joining, invites, cards | protocol, `qr_view` encode | QR decode (`client/scan.c`), this host's addresses for a card (`client/own_address.c`) | |
+| Contacts, requests, suspension, names | protocol, state | contact screens | a contacts view |
+| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state | conversation screens, read marks per device for groups | group read position; unread for every conversation in one reply; a read at the held position silent (sec 1069) |
+| Stickers | packs (situ schema), fetch | sticker reader (`client/sticker_read.c`), sticker UI | a sticker view |
+| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); ring time set by the receiver; call-hammer protection; a call view |
+| Location, Nearby | fixes, grants, levels | distance, bearing, a fix's age (`client/geo.c`), Nearby UI | a location view |
+| Notes | protocol, store, sharing, `notebook_view` | | |
+| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed) | Library playback UI, share target | a hostable transfer view; a library (catalogue) view |
+| Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
+| Settings, schema, presets, votes | protocol, schema, rate gate | Settings page | a settings-schema view |
+| Logs, retention, metrics | logging, retention, `retention_view`, `log_view`, `metric/log/*` | | retention view's spoken names and 320 px (sec 1069) |
+| Named objects (buttons, lamps) | protocol, store, rate gate | | an objects view |
+| Registered remote procedures (RRPC) for extensions | protocol (named procedure call) | | the RRPC rename (sec 1061) |
+| Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed) | Connection page | hostable link, peer, sync, capability, revocation, trust views |
+| The typed client: every node command as a function and struct | `local/client.h` (untyped) | `client/calls.c` and its structs, ~10k lines -- moving first | |
+| Terminal graphics | `qtty/` vendored | terminal client's drawing | |
+| CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
+| Encodings (hex, base64) | private copies per module | `common/encoding.c` | one public codec |
