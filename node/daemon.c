@@ -16944,6 +16944,10 @@ static struct {
 	uint64_t until;
 } session_relay_due[FZND_SESSION_ASKS];
 
+/* WHICH RELAY CANDIDATE IS TRIED, sec 1051: moved on by each relayed ask refused
+ * or unanswered, so one that cannot help holds nobody to it. */
+static size_t session_relay_turn;
+
 static void session_relay_mark(const uint8_t host[FZN_PUBKEY_LEN], uint64_t until)
 {
 	size_t i, at = 0;
@@ -17065,6 +17069,7 @@ static void session_relayed_answered(void *ctx, const uint8_t *reply, size_t len
 		    reply ? (int)(len < 80u ? len - 1u : 80u) : 9,
 		    reply ? (const char *)reply : "no answer");
 		session_relay_unmark(a->host);
+		session_relay_turn++;
 		session_ask_close(a);
 		return;
 	}
@@ -17086,17 +17091,31 @@ static void session_relayed_answered(void *ctx, const uint8_t *reply, size_t len
 	}
 }
 
-/* THE RELAY FOR `pt`, sec 1045: one of this host's own estate's hosts it pulls
- * from, answering and not `pt` itself -- each says hello to the contacts' hosts,
- * so the one `pt` says hello to knows where it is. */
+static long relayed_of(const struct pull_target *pt, uint64_t now);
+
+/* THE RELAY FOR `pt`, sec 1045 and 1051: the candidates are the same contact's
+ * other hosts that are up and not themselves reached only through a relay --
+ * its own estate's, which `pt` says hello to, as a relayed line's are (sec 697)
+ * -- and this host's own estate's hosts it pulls from, each said hello to by
+ * every contact's host; `session_relay_turn` picks among them. Never `pt`. */
 static struct pull_target *session_relay_of(const struct pull_target *pt)
 {
-	size_t i;
+	struct pull_target *cands[16];
+	uint64_t now = wall_clock();
+	size_t i, t, n = 0;
 
-	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls; i++)
+	for (t = 0; t < ncontact_targets && &contact_targets[t].pt != pt; t++)
+		;
+	for (i = 0; t < ncontact_targets && i < ncontact_targets && n < 8u; i++)
+		if (i != t && !contact_targets[i].down && contact_targets[i].pt.fd >= 0
+		    && memcmp(contact_targets[i].contact, contact_targets[t].contact,
+		              FZN_PUBKEY_LEN) == 0
+		    && relayed_of(&contact_targets[i].pt, now) < 0)
+			cands[n++] = &contact_targets[i].pt;
+	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls && n < 16u; i++)
 		if (&loop_pulls[i] != pt && loop_pulls[i].fd >= 0 && !silent_peer(&loop_pulls[i]))
-			return &loop_pulls[i];
-	return NULL;
+			cands[n++] = &loop_pulls[i];
+	return n ? cands[session_relay_turn % n] : NULL;
 }
 
 static void session_granted(void *ctx, const uint8_t *reply, size_t len)

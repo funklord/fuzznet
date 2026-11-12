@@ -85520,3 +85520,18 @@ it goes no further. Both ways charge the asker, who chose to route the session t
 
 **Verified:** `relay_test` -- a way names who asked for it; `serve_test` -- a frame whose charge is
 refused is not sent on, the charge asked once. Sabotage `relay-session-uncharged` is caught.
+
+## 1051. A session's relay chosen among the contact's own hosts too, and in turn, 2026-11-12
+
+Sec 1046 asked a relayed session only of this host's own estate. A relayed line already looks first
+among the contact's own other hosts (sec 697), which the host behind a NAT says hello to -- its own
+estate's -- and a session now does too: the candidates are those of the contact's hosts that are up
+and not themselves reached only through a relay, then this host's own estate's hosts it pulls from.
+
+**And they are tried in turn.** A relayed ask refused or unanswered moves `session_relay_turn` on, so
+the next relayed ask goes to the next candidate: with the contact's hosts first, a contact host that
+cannot help -- relaying nothing, as on hull -- would otherwise have held every relayed ask, and this
+host's own estate would never have been tried.
+
+**Measured on hull**, gateway B symmetric: every journey passed, the phone's first relayed asks
+refused (`this host relays nothing`) and a later one granted, `a session's ways asked of a relay: ok`.
