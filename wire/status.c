@@ -4,9 +4,8 @@
 
 #include <string.h>
 
-#include "types.h"
-#include "../wire/generated/status.h"
-#include "../wire/generated/status_build.h"
+#include "generated/status.h"
+#include "generated/status_build.h"
 
 /* THE CODES ARE THE SCHEMA'S: a value here unequal to its own there does not
  * compile. */
@@ -30,7 +29,7 @@ size_t fzn_status_write(uint8_t *out, size_t cap, fzn_status_t code, const char 
 		return 0;
 	if (why_len > FZN_STATUS_WHY_MAX)
 		why_len = FZN_STATUS_WHY_MAX;
-	if (fzn_status_message_build(out, (uint32_t)cap, 2u, FZN_TYPE_STATUS, (fzn_status_code_t)code,
+	if (fzn_status_message_build(out, (uint32_t)cap, FZN_STATUS_VERSION, FZN_STATUS_TYPE, (fzn_status_code_t)code,
 	                             (const uint8_t *)why, (uint32_t)why_len, &wrote)
 	    != SITU_OK)
 		return 0;
@@ -43,8 +42,8 @@ int fzn_status_read(const uint8_t *in, size_t len, fzn_status_t *code, const uin
 	situ_msg_t msg;
 	situ_view_t v;
 
-	if (!in || len < FZN_STATUS_HEAD_LEN || len > FZN_STATUS_LEN_MAX || in[0] != 2u
-	    || in[1] != FZN_TYPE_STATUS)
+	if (!in || len < FZN_STATUS_HEAD_LEN || len > FZN_STATUS_LEN_MAX || in[0] != FZN_STATUS_VERSION
+	    || in[1] != FZN_STATUS_TYPE)
 		return 0;
 	situ_msg_init(&msg, (uint8_t *)(uintptr_t)in, (uint32_t)len);
 	if (fzn_status_message_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK

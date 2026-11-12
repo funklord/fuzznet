@@ -28,6 +28,8 @@
 #ifndef FZN_NODE_TYPES_H
 #define FZN_NODE_TYPES_H
 
+#include "../wire/status.h"
+
 #define FZN_TYPES_VERSION_SPOOL 1u
 #define FZN_TYPES_VERSION_SHARED 2u
 #define FZN_TYPES_VERSION_CAUSE 3u
@@ -50,7 +52,7 @@
  *   63, 64          `node/contact_devices.h`'s K_SETTING and K_SET since sec
  *                   1064, which took 55 and 56 again beside its own act log
  *   65              fuzznetd's STATUS, here, since sec 1076: an answer of ok or
- *                   why not, from node/status.situ
+ *                   why not, from wire/status.situ
  *   66              fuzznetd's INTRODUCED, here, since sec 1077, from
  *                   node/introduced.situ
  *   36              never allocated
@@ -89,8 +91,9 @@
  * end's key, the asker's handle and the other end's, 4 bytes each. Answered
  * `ok` or `denied WHY`. */
 #define FZN_TYPE_RELAY_SESSION 62u
-/* A STATUS, sec 1076: a host's answer carrying no data, ok or why not. */
-#define FZN_TYPE_STATUS 65u
+/* A STATUS, sec 1076: a host's answer carrying no data, ok or why not; its
+ * codec in wire/status.h since sec 1078, which names the number. */
+#define FZN_TYPE_STATUS FZN_STATUS_TYPE
 /* WHERE AN INTRODUCED HOST SAID HELLO FROM, sec 1077: INTRODUCE's answer. */
 #define FZN_TYPE_INTRODUCED 66u
 #define FZN_RELAY_SESSION_LEN (2u + 32u + 4u + 4u)

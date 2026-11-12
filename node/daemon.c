@@ -53,7 +53,7 @@
 #include "reach.h"
 #include "metric.h"
 #include "guard.h"
-#include "status.h"
+#include "../wire/status.h"
 #include "../wire/generated/introduced.h"
 #include "../wire/generated/introduced_build.h"
 #include "talk.h"
@@ -1186,18 +1186,14 @@ static void log_round(void)
 static size_t logs_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                           size_t request_len, uint8_t *reply, size_t reply_cap)
 {
-	static const char REFUSAL[] = "denied this host's log is host-private\n";
-
 	(void)ctx;
 	if (!request || request_len < 2u || request[0] != FZN_GATHER_VERSION)
 		return 0;
 	if (request[1] != FZN_GATHER_QUERY && request[1] != FZN_GATHER_RING_QUERY)
 		return 0;
 	if (!dlog.on || !dlog.estate_scope) {
-		if (reply_cap < sizeof(REFUSAL) - 1u)
-			return 0;
-		memcpy(reply, REFUSAL, sizeof(REFUSAL) - 1u);
-		return sizeof(REFUSAL) - 1u;
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED,
+		                        "this host's log is host-private");
 	}
 	/* THE FLIGHT RECORDER, sec 464: each page at debug, so asking for it
 	 * does not crowd out what it holds. */
@@ -1482,13 +1478,13 @@ static size_t metered_remote(void *ctx, fzn_node_remote_result_t result, const f
 	    && !fzn_pressure_admits(host_pressure.state,
 	                            fzn_pressure_ruled_rank(&host_rules, family, req->payload,
 	                                                    req->payload_len)))
-		n = (size_t)snprintf((char *)reply, reply_cap, "error this host is shedding: %s\n",
+		n = fzn_status_write(reply, reply_cap, FZN_STATUS_SHEDDING,
 		                     fzn_pressure_state_str(host_pressure.state));
 	/* WHAT MUST WORK TAKES TURNS once things are bad, so none waits on another. */
 	else if (req && result == FZN_NODE_REMOTE_GRANTED && host_pressure.state >= FZN_PRESSURE_SCARCE
 	         && fzn_pressure_turn_class(family) != FZN_TURN_CLASSES
 	         && !fzn_pressure_turn(&host_turns, fzn_pressure_turn_class(family), wall_clock()))
-		n = (size_t)snprintf((char *)reply, reply_cap, "error this host is taking turns\n");
+		n = fzn_status_write(reply, reply_cap, FZN_STATUS_BUSY, "this host is taking turns");
 	else
 		n = fzn_node_admin_remote(ctx, result, req, reply, reply_cap);
 	if (req) {
@@ -13190,14 +13186,14 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
 
 	if (request_len < 3u
 	    || request_len != 3u + (size_t)request[2] * FZND_GROUP_ENTRY_LEN || request[2] > FZND_GROUP_SYNC_MAX)
-		return (size_t)snprintf((char *)reply, reply_cap, "malformed a group sync\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_MALFORMED, "a group sync");
 	if (!node_apply.store || !node_groups.log.store
 	    || (!group_owner_of(sender, owner, &own) && !member_host_owner(sender, owner)))
-		return (size_t)snprintf((char *)reply, reply_cap, "denied groups only to members\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED, "groups only to members");
 	entries = request[2];
 	if (cap < 4u
 	    || !groups_held(&ids_room, &ids, &n))
-		return (size_t)snprintf((char *)reply, reply_cap, "error the groups did not read\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR, "the groups did not read");
 	/* A GROUP THE ASKER NAMES AND THIS HOST DOES NOT HOLD: asked back soon
 	 * (sec 1004) -- an asker names only groups this host's user is in. */
 	for (k = 0; k < entries && !news_round_due; k++) {
@@ -13407,7 +13403,7 @@ static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
 	    || request[2u + FZN_GROUP_ID_LEN] > FZND_GROUP_HEADS_MAX
 	    || request_len != 3u + FZN_GROUP_ID_LEN
 	                              + (size_t)request[2u + FZN_GROUP_ID_LEN] * FZND_GROUP_HEAD_LEN)
-		return (size_t)snprintf((char *)reply, reply_cap, "malformed a group lines sync\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_MALFORMED, "a group lines sync");
 	entries = request[2u + FZN_GROUP_ID_LEN];
 	/* A MEMBER'S HOST too, sec 643, for a group listing its user, as a
 	 * contact's host is answered. */
@@ -13415,12 +13411,12 @@ static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
 	    || (!group_owner_of(sender, owner, &own) && !member_host_owner(sender, owner))
 	    || fzn_group_log_get(node_apply.store, request + 2, &g) != FZN_GROUP_LOG_OK
 	    || (!own && !fzn_group_is_member(&g, owner)))
-		return (size_t)snprintf((char *)reply, reply_cap, "denied lines only to members\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED, "lines only to members");
 	group_water_note(&g, sender, request + 3u + FZN_GROUP_ID_LEN, entries);
 	if (cap < 4u
 	    || fzn_group_lines_heads(&group_lines, g.id, heads, FZN_GROUP_HOSTS_MAX, &n)
 	               != FZN_GROUP_LINES_OK)
-		return (size_t)snprintf((char *)reply, reply_cap, "error the lines did not read\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR, "the lines did not read");
 	/* THE ASKER HOLDING LINES THIS HOST LACKS, a new one of its own the
 	 * likeliest: asked back soon (sec 1004). */
 	for (k = 0; k < entries && !news_round_due; k++) {
@@ -14705,9 +14701,9 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 
 	if (request_len < 2u
 	    || !fzn_streams_query_decode(request + 2, request_len - 2u, &name, &name_len, &since))
-		return (size_t)snprintf((char *)reply, reply_cap, "malformed a stream query\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_MALFORMED, "a stream query");
 	if (!contact_id || !node_streams.store)
-		return (size_t)snprintf((char *)reply, reply_cap, "error this node keeps no streams\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR, "this node keeps no streams");
 	/* WHO ASKS, judged in `node/streams.c` (sec 769). */
 	memset(&asker, 0, sizeof(asker));
 	asker.level = -1;
@@ -14719,9 +14715,9 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 	if (!asker.member && (asker.contact || asker.group_host))
 		asker.level = stream_level_of(name, name_len, owner);
 	if ((why = fzn_streams_refuse_query(&asker, &whole, &level)) != NULL)
-		return (size_t)snprintf((char *)reply, reply_cap, "denied %s\n", why);
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED, why);
 	if (!stream_ask_allowed(sender, now))
-		return (size_t)snprintf((char *)reply, reply_cap, "denied asked too soon\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_BUSY, "asked too soon");
 	/* THIS HOST'S OWN STREAM, never another's it holds. */
 	last = fzn_streams_last(&node_streams, name, name_len, contact_id->pubkey);
 	for (s = since + 1u; s <= last && cap > at; s++) {
@@ -16653,10 +16649,10 @@ static size_t file_refs_remote(const uint8_t *sender, const uint8_t *request, si
 
 	if (request_len < 3u || request[2] > FZND_FILE_REFS_MAX
 	    || request_len != 3u + (size_t)request[2] * FZN_BLOB_HASH_LEN)
-		return (size_t)snprintf((char *)reply, reply_cap, "malformed a reference want\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_MALFORMED, "a reference want");
 	if (!node_apply.store || !group_owner_of(sender, owner, &own) || !own)
-		return (size_t)snprintf((char *)reply, reply_cap,
-		                        "denied references to this estate's hosts alone\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED,
+		                        "references to this estate's hosts alone");
 	n = request[2];
 	for (i = 0; i < n && at + FZN_NODE_FILE_REF_LEN <= reply_cap; i++)
 		if (fzn_node_file_ref_get(node_apply.store, request + 3u + i * FZN_BLOB_HASH_LEN, ref)) {

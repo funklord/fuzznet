@@ -11,6 +11,7 @@
  */
 
 #include "../../log/cause.h"
+#include "../../wire/status.h"
 #include "../../notes/share.h"
 #include "../groups.h"
 #include "../admin.h"
@@ -2512,9 +2513,14 @@ int main(void)
 			env[20] = 0u; /* inside the cause's name */
 			env[17] = 0u; /* the cause's user, empty */
 			n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
-			CHECK(n && fzn_reply_of(out, n, &detail, &detail_len) == FZN_REPLY_MALFORMED
-			              && caused_calls == 1,
-			      "an envelope that does not read was handled rather than refused");
+			{
+				fzn_status_t code;
+
+				/* A STATUS MALFORMED, sec 1078: an envelope is a binary request. */
+				CHECK(n && fzn_status_read(out, n, &code, NULL, NULL)
+				              && code == FZN_STATUS_MALFORMED && caused_calls == 1,
+				      "an envelope that does not read was handled rather than refused");
+			}
 			admin.caused = NULL;
 			req.payload = (const uint8_t *)"list peer";
 			req.payload_len = 9u;
@@ -2798,6 +2804,7 @@ int main(void)
 		static const uint8_t mine[] = { 2u, 128u, 7u }, declined[] = { 2u, 191u },
 		                     below[] = { 2u, 127u }, other_version[] = { 7u, 128u };
 		size_t n;
+		fzn_status_t code; /* an extension's type is binary: refused in STATUS, sec 1078 */
 
 		admin.extension_remote = extension_remote_stub;
 		n = remote_bytes(&admin, device.id.pubkey, mine, sizeof(mine), reply, sizeof(reply));
@@ -2805,7 +2812,7 @@ int main(void)
 		      "an extension's remote type was not answered by it, as from a member");
 		n = remote_bytes(&admin, device.id.pubkey, declined, sizeof(declined), reply,
 		                 sizeof(reply));
-		CHECK(n && fzn_reply_of(reply, n - 1u, &detail, &detail_len) == FZN_REPLY_UNSUPPORTED,
+		CHECK(n && fzn_status_read(reply, n, &code, NULL, NULL) && code == FZN_STATUS_UNSUPPORTED,
 		      "a type of the range the extension declines was not unsupported");
 		extension_remote_asked = 0;
 		(void)remote_bytes(&admin, device.id.pubkey, below, sizeof(below), reply,
@@ -2816,7 +2823,7 @@ int main(void)
 		      "a type outside the range, or another version's, reached the extension");
 		admin.extension_remote = NULL;
 		n = remote_bytes(&admin, device.id.pubkey, mine, sizeof(mine), reply, sizeof(reply));
-		CHECK(n && fzn_reply_of(reply, n - 1u, &detail, &detail_len) == FZN_REPLY_UNSUPPORTED,
+		CHECK(n && fzn_status_read(reply, n, &code, NULL, NULL) && code == FZN_STATUS_UNSUPPORTED,
 		      "with no extension, its type was not unsupported");
 	}
 	/* AND A MEMBER'S ROW OF THE TABLE, sec 700: every member hook, and none

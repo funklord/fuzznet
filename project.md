@@ -86131,3 +86131,41 @@ relay's.
 **Measured:** `wire/test/introduced_vectors`, two golden vectors (an IPv4 and an IPv6 address);
 `live_introduce`, `live_lan`, hull's `hull_estates`; sabotage `introduced-never-read` -- a
 sibling's introduction never taken -- caught by `live_introduce`.
+
+## 1078. The binary handlers' refusals said in STATUS, and STATUS moved to wire/, 2026-11-12
+
+**Sec 1061 step 3, third part.** Handlers that read a binary request still refused it with a text
+line, which the asker could only log or fail to decode.
+
+**STATUS moved to `wire/`** (`wire/status.{h,c}`, `wire/status.situ`, its vectors and test), so
+any layer reads one: a log's gatherer is below the node and includes nothing of it. The number
+stays in `node/types.h`'s registry, as `FZN_TYPE_STATUS`, now named from `wire/status.h`'s
+`FZN_STATUS_TYPE`.
+
+**Said in STATUS now:**
+
+| Where | Was | Now |
+|---|---|---|
+| any request past the load ladder (sec 917) | `error this host is shedding: STATE` | shedding, STATE |
+| any request while kinds take turns | `error this host is taking turns` | busy |
+| a group sync, group lines sync | `malformed` / `denied ... only to members` / `error ... did not read` | malformed / denied / error |
+| a stream query | `malformed` / `error this node keeps no streams` / `denied WHY` / `denied asked too soon` | malformed / error / denied / busy |
+| a file-reference want | `malformed` / `denied references to this estate's hosts alone` | malformed / denied |
+| a log gather of a host-private log | `denied this host's log is host-private` | denied |
+| a request in a cause envelope that does not read | `malformed` | malformed |
+| an extension's type | `denied` / `error` / `unsupported` | denied / error / unsupported |
+
+`asked too soon` became **busy**, not denied: it says ask again later, which is what busy means.
+
+**The gatherer** (`log/gather.c`) reads a STATUS denied from its four head bytes and its length --
+no codec linked, since a gather is linked into the GUI as well -- and `gather_test` answers one
+written by hand from the layout.
+
+**A contact's refusal follows its request:** a contact asks in binary (notes, devices, lines,
+files) and in two text verbs, `get routing` and `get address`, until those move (the work file's
+3d). So `admin_remote`'s two contact refusals -- `no longer a contact` and `a contact may only fetch
+what is shared with it` -- answer STATUS to a binary request and the text line to a verb. That
+split is temporary and ends with the verbs.
+
+**Left for later in sec 1061's order:** `get routing` and `get address` as binary request and
+reply; an admin's remote verbs and `fuzznetd --ask` with the local leg.

@@ -216,7 +216,6 @@
 #include <fuzznet/node/rate.h>
 #include <fuzznet/node/metric.h>
 #include <fuzznet/node/guard.h>
-#include <fuzznet/node/status.h>
 #include <fuzznet/wire/session_frame.h>
 #include <fuzznet/persist/cache.h>
 #include <fuzznet/persist/delta.h>
@@ -288,6 +287,7 @@
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
 #include <fuzznet/wire/relay.h>
+#include <fuzznet/wire/status.h>
 #include <fuzznet/wire/seal.h>
 #else
 #include "chain/chain.h"
@@ -453,7 +453,6 @@
 #include "node/rate.h"
 #include "node/metric.h"
 #include "node/guard.h"
-#include "node/status.h"
 #include "wire/session_frame.h"
 #include "persist/cache.h"
 #include "persist/delta.h"
@@ -513,6 +512,7 @@
 #include "version/version.h"
 #include "wire/bytes.h"
 #include "wire/relay.h"
+#include "wire/status.h"
 #include "wire/seal.h"
 #endif
 

@@ -6258,7 +6258,7 @@ SABOTAGES = [
 	(
 		"admin-refuses-a-broken-envelope",
 		"node/admin.c",
-		"\t\tif (cerr == FZN_CAUSE_ERR_MALFORMED)\n\t\t\treturn answer_text(out, reply_cap, FZN_REPLY_MALFORMED,\n\t\t\t                   \"the request's causes do not read\");\n",
+		"\t\tif (cerr == FZN_CAUSE_ERR_MALFORMED)\n\t\t\treturn fzn_status_write(reply, reply_cap, FZN_STATUS_MALFORMED,\n\t\t\t                        \"the request's causes do not read\");\n",
 		"",
 		"an envelope that does not read is handed on as a request nobody sent -- sec 462",
 	),
@@ -10880,8 +10880,8 @@ SABOTAGES = [
 	(
 		'log-gather-says-denied',
 		'log/gather.c',
-		'\treturn len >= 7u && memcmp(reply, "denied ", 7u) == 0;\n',
-		'\treturn 0 && len >= 7u && memcmp(reply, "denied ", 7u) == 0;\n',
+		'\treturn len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_STATUS_VERSION\n',
+		'\treturn 0 && len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_STATUS_VERSION\n',
 		"a host's refusal to be gathered reads as a reply that is no page, and the gatherer is not told why -- sec 735",
 	),
 	(
@@ -15404,7 +15404,7 @@ SABOTAGES = [
 	),
 	(
 		"status-reads-a-byte-after",
-		"node/status.c",
+		"wire/status.c",
 		"\t    || FZN_STATUS_HEAD_LEN + fzn_status_message_why_len(v) != len\n",
 		"\t    || FZN_STATUS_HEAD_LEN + fzn_status_message_why_len(v) > len\n",
 		"a status with bytes after its reason is read as one -- sec 1076",

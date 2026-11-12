@@ -5,6 +5,7 @@
 #include "gather.h"
 
 #include "../wire/bytes.h"
+#include "../wire/status.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -38,12 +39,16 @@ const char *fzn_gather_err_str(fzn_gather_err_t err)
 	return "unknown";
 }
 
-/* A HOST'S REFUSAL, sec 735: a reply of text opening `denied `, as a host
- * whose log is host-private answers. Told apart from a reply that is not
- * a page, so the gatherer is not left guessing why. */
+/* A HOST'S REFUSAL, sec 735: a STATUS denied (sec 1078; a text line opening
+ * `denied ` before), as a host whose log is host-private answers. Told apart
+ * from a reply that is not a page, so the gatherer is not left guessing why.
+ * Read from its four head bytes, its length agreeing, so a gatherer links no
+ * codec for it. */
 static int denied(const uint8_t *reply, size_t len)
 {
-	return len >= 7u && memcmp(reply, "denied ", 7u) == 0;
+	return len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_STATUS_VERSION
+	       && reply[1] == FZN_STATUS_TYPE && reply[2] == (uint8_t)FZN_STATUS_DENIED
+	       && (size_t)FZN_STATUS_HEAD_LEN + reply[3] == len;
 }
 
 static int word_ok(const char *w, size_t max)

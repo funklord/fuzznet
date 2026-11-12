@@ -1,10 +1,9 @@
-/* node status_test -- a status between hosts, sec 1076: every code written and
+/* wire status_test -- a status between hosts, sec 1076: every code written and
  * read back, a reason carried and cut, and what is no status refused -- the
  * wrong family or type, a byte after the reason, a length that disagrees, a
  * code the schema does not name, a buffer too short. */
 
 #include "../status.h"
-#include "../types.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -33,7 +32,7 @@ static void test_every_code(void)
 
 	for (i = 0; i < sizeof(codes) / sizeof(codes[0]); i++) {
 		n = fzn_status_write(buf, sizeof(buf), codes[i], NULL);
-		CHECK(n == FZN_STATUS_HEAD_LEN && buf[0] == 2u && buf[1] == FZN_TYPE_STATUS
+		CHECK(n == FZN_STATUS_HEAD_LEN && buf[0] == 2u && buf[1] == FZN_STATUS_TYPE
 		              && buf[2] == (uint8_t)codes[i] && buf[3] == 0u,
 		      "a status with no reason is not its four bytes");
 		CHECK(fzn_status_read(buf, n, &code, &why, &why_len) && code == codes[i] && why_len == 0u,
@@ -83,9 +82,9 @@ static void test_no_status(void)
 	buf[0] = 1u;
 	CHECK(!fzn_status_read(buf, n, &code, NULL, NULL), "another family's message was read");
 	buf[0] = 2u;
-	buf[1] = (uint8_t)(FZN_TYPE_STATUS - 1u);
+	buf[1] = (uint8_t)(FZN_STATUS_TYPE - 1u);
 	CHECK(!fzn_status_read(buf, n, &code, NULL, NULL), "another type was read");
-	buf[1] = FZN_TYPE_STATUS;
+	buf[1] = FZN_STATUS_TYPE;
 	buf[2] = 9u;
 	CHECK(!fzn_status_read(buf, n, &code, NULL, NULL), "a code the schema does not name was read");
 	buf[2] = FZN_STATUS_DENIED;
@@ -112,9 +111,9 @@ int main(void)
 	test_a_reason();
 	test_no_status();
 	if (failures) {
-		fprintf(stderr, "node status_test: %d of %d checks failed\n", failures, checks);
+		fprintf(stderr, "wire status_test: %d of %d checks failed\n", failures, checks);
 		return 1;
 	}
-	printf("node status_test: all %d checks passed\n", checks);
+	printf("wire status_test: all %d checks passed\n", checks);
 	return 0;
 }

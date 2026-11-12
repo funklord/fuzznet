@@ -2546,6 +2546,17 @@ int fzn_node_admin_contact_stands(const fzn_node_admin_t *admin,
 	                  == FZN_ROSTER_ACTIVE;
 }
 
+/* A PEER REFUSED IN ITS OWN TONGUE, sec 1078: a binary request with a STATUS,
+ * and a text verb -- `get routing` and `get address`, and an admin's verbs,
+ * until sec 1061 moves them -- with the line it reads. */
+static size_t refuse(const fzn_opened_t *req, uint8_t *reply, size_t cap, fzn_reply_t kind,
+                     fzn_status_t code, const char *why)
+{
+	if (req->payload && req->payload_len && req->payload[0] >= 'a' && req->payload[0] <= 'z')
+		return answer_text((char *)reply, cap, kind, why);
+	return fzn_status_write(reply, cap, code, why);
+}
+
 size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
                              const fzn_opened_t *req, uint8_t *reply, size_t reply_cap)
 {
@@ -2572,8 +2583,8 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		                                        &origin, &in, &in_len);
 
 		if (cerr == FZN_CAUSE_ERR_MALFORMED)
-			return answer_text(out, reply_cap, FZN_REPLY_MALFORMED,
-			                   "the request's causes do not read");
+			return fzn_status_write(reply, reply_cap, FZN_STATUS_MALFORMED,
+			                        "the request's causes do not read");
 		if (cerr == FZN_CAUSE_OK) {
 			inner = *req;
 			inner.payload = in;
@@ -2633,17 +2644,17 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		 * one, which every other contact hook refuses. */
 		if (shared && !fzn_node_admin_contact_of(admin, req->sender, whose)
 		    && !group_host_owner(admin, req->sender, whose))
-			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
+			return fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED, "no longer a contact");
 		n = admin->extension_remote
 		    ? admin->extension_remote(admin->extension_ctx, req->sender, shared, req->payload,
 		                              req->payload_len, reply, reply_cap)
 		    : 0u;
 
 		if (n > reply_cap)
-			return answer_text(out, reply_cap, FZN_REPLY_ERROR,
-			                   "the extension's answer is longer than the reply");
-		return n ? n : answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED,
-		                           "no extension here takes that type");
+			return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR,
+			                        "the extension's answer is longer than the reply");
+		return n ? n : fzn_status_write(reply, reply_cap, FZN_STATUS_UNSUPPORTED,
+		                                "no extension here takes that type");
 	}
 
 	/* A CONTACT, granted the share capability and nothing else, sec 436:
@@ -2667,7 +2678,8 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		 * served what is shared with its member, and nothing a contact's
 		 * own is. */
 		if (!contact && !group_host_owner(admin, req->sender, owner))
-			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
+			return refuse(req, reply, reply_cap, FZN_REPLY_DENIED, FZN_STATUS_DENIED,
+			              "no longer a contact");
 		/* ITS USER'S DEVICES, AND THIS ESTATE'S HOSTS, sec 614. */
 		if (contact && admin->contact_devices && req->payload)
 			n = admin->contact_devices(admin->contact_devices_ctx, owner, req->payload,
@@ -2696,8 +2708,8 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 			n = admin->files_shared(admin->files_ctx, owner, req->payload,
 			                        req->payload_len, reply, reply_cap);
 		return n ? n
-		         : answer_text(out, reply_cap, FZN_REPLY_DENIED,
-		                       "a contact may only fetch what is shared with it");
+		         : refuse(req, reply, reply_cap, FZN_REPLY_DENIED, FZN_STATUS_DENIED,
+		                  "a contact may only fetch what is shared with it");
 	}
 
 	/* THE CONTACT DEVICES ANOTHER MEMBER KEPT, sec 614, asked so what one

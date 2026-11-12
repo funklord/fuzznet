@@ -247,7 +247,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
              net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
-             node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/live.c node/reach.c node/rate.c node/metric.c node/guard.c node/status.c node/replies.c \
+             node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/live.c node/reach.c node/rate.c node/metric.c node/guard.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
@@ -282,7 +282,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chunk/reassembly.c \
              chunk/split.c chunk/erasure.c \
              tree/tree.c \
-             wire/seal.c wire/session_frame.c wire/relay.c \
+             wire/seal.c wire/session_frame.c wire/relay.c wire/status.c \
              session/random.c session/random_linux.c session/agree.c \
              session/session.c session/box.c \
              version/version.c \
@@ -336,7 +336,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUIL
                    $(BUILD_DIR)/ratchet/ratchet.o $(BUILD_DIR)/session/agree.o \
                    $(BUILD_DIR)/net/udp.o $(BUILD_DIR)/version/version.o \
                    $(BUILD_DIR)/frame/freshness.o \
-                   $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/chain/authz.o \
+                   $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/chain/authz.o \
                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                    $(BUILD_DIR)/chain/manifest.o \
                    $(BUILD_DIR)/session/commitment.o \
@@ -349,7 +349,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
-             node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/live.h node/reach.h node/rate.h node/metric.h node/guard.h node/status.h node/replies.h \
+             node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/live.h node/reach.h node/rate.h node/metric.h node/guard.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
@@ -382,7 +382,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chunk/reassembly.h \
              chunk/split.h chunk/erasure.h \
              tree/tree.h \
-             wire/seal.h wire/session_frame.h wire/relay.h wire/bytes.h session/aead.h \
+             wire/seal.h wire/session_frame.h wire/relay.h wire/status.h wire/bytes.h session/aead.h \
              session/random.h session/random_system.h session/agree.h \
              session/session.h session/box.h \
              version/version.h \
@@ -483,7 +483,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chunk/test/reassembly_test.c chunk/test/split_test.c chunk/test/erasure_test.c \
              session/test/commitment_test.c local/test/peer_test.c \
              wire/test/generated_test.c chunk/test/agreement_test.c \
-             wire/test/constants_test.c wire/test/seal_test.c \
+             wire/test/constants_test.c wire/test/seal_test.c wire/test/status_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c local/test/escape_test.c \
@@ -503,7 +503,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
-             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c node/test/verify_memo_test.c wire/test/session_frame_test.c node/test/sessions_test.c node/test/live_test.c node/test/reach_test.c node/test/rate_test.c node/test/metric_test.c node/test/guard_test.c node/test/status_test.c \
+             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c node/test/verify_memo_test.c wire/test/session_frame_test.c node/test/sessions_test.c node/test/live_test.c node/test/reach_test.c node/test/rate_test.c node/test/metric_test.c node/test/guard_test.c \
              node/test/pressure_test.c record/test/held_test.c \
              node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c node/test/stage_fuzz.c \
              node/test/serve_test.c node/test/replies_test.c \
@@ -613,6 +613,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/generated_test \
              $(BUILD_DIR)/wire/test/constants_test \
              $(BUILD_DIR)/wire/test/seal_test \
+             $(BUILD_DIR)/wire/test/status_test \
              $(BUILD_DIR)/wire/test/tamper_test \
              $(BUILD_DIR)/session/test/random_test \
              $(BUILD_DIR)/local/test/vocabulary_test \
@@ -671,7 +672,6 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/rate_test \
              $(BUILD_DIR)/node/test/metric_test \
              $(BUILD_DIR)/node/test/guard_test \
-             $(BUILD_DIR)/node/test/status_test \
              $(BUILD_DIR)/node/test/pressure_test \
              $(BUILD_DIR)/record/test/held_test \
              $(BUILD_DIR)/node/test/node_test \
@@ -4075,7 +4075,7 @@ $(BUILD_DIR)/wire/test/call_vectors: wire/generated/call_vectors.c wire/generate
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -lcmocka -o $@
 
-$(BUILD_DIR)/node/test/status_test: $(BUILD_DIR)/node/test/status_test.o $(BUILD_DIR)/node/status.o \
+$(BUILD_DIR)/wire/test/status_test: $(BUILD_DIR)/wire/test/status_test.o $(BUILD_DIR)/wire/status.o \
                                     $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -4438,7 +4438,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
-              $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
+              $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
@@ -4490,7 +4490,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(FUZZNETD_JOURNAL_OBJS) \
-              $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
+              $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/local/client.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
@@ -4602,7 +4602,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
-                   $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
+                   $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status.o \
                    $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
                    $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
                    $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
@@ -4861,12 +4861,12 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # node as a call (sec 670), which another daemon's main links too.
 FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/persist/cache.o $(BUILD_DIR)/node/verify_memo.o $(BUILD_DIR)/node/pressure.o $(BUILD_DIR)/node/live.o $(BUILD_DIR)/node/reach.o $(BUILD_DIR)/node/metric.o \
-              $(BUILD_DIR)/node/guard.o $(BUILD_DIR)/node/status.o $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
+              $(BUILD_DIR)/node/guard.o $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
-              $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/node/revoke.o \
+              $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/node/revoke.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
               $(BUILD_DIR)/contact/contact.o \
@@ -6934,7 +6934,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
-              roster/roster.situ chain/root_act.situ chain/succession.situ node/call.situ node/status.situ node/introduced.situ \
+              roster/roster.situ chain/root_act.situ chain/succession.situ node/call.situ wire/status.situ node/introduced.situ \
               record/exchange.situ \
               wire/session_frame.situ node/verify_memo.situ notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting.situ \
@@ -7608,9 +7608,9 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/call.situ node/call.vectors >/dev/null 2>&1
 	@# AND A STATUS'S READER AND BUILDER, and its vectors' test, sec 1076.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_status --layer edit \
-	         --out $(BUILD_DIR)/.gen.new node/status.situ >/dev/null 2>&1
+	         --out $(BUILD_DIR)/.gen.new wire/status.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_status \
-	         --out $(BUILD_DIR)/.gen.new node/status.situ node/status.vectors >/dev/null 2>&1
+	         --out $(BUILD_DIR)/.gen.new wire/status.situ wire/status.vectors >/dev/null 2>&1
 	@# AND AN INTRODUCTION'S ANSWER, sec 1077.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_introduced --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/introduced.situ >/dev/null 2>&1

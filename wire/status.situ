@@ -1,5 +1,5 @@
 // A host's answer to another that carries no data -- ok, or why not: project.md
-// sec 1076, the holder's sec 1061. It was a text line the asker read by its first
+// sec 1076 (in wire/ since sec 1078), the holder's sec 1061. It was a text line the asker read by its first
 // letter (sec 455) and parsed (`ok`, `denied WHY`). CODE is what the asker decides
 // on; WHY is for a person reading a log and is never parsed.
 

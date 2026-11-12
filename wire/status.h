@@ -1,12 +1,13 @@
 /*
- * A STATUS, project.md sec 1076: a host's answer to another that carries no
+ * A STATUS, project.md sec 1076, in wire/ since sec 1078 so any layer reads
+ * one -- a log's gatherer as well as the node: a host's answer to another that carries no
  * data -- ok, or why not -- in binary, where it was a text line the asker read
  * by its first letter (sec 455) and parsed (`ok`, `denied WHY`). The holder's,
  * sec 1061: no control between hosts rests on parsing text.
  *
  *     2 | FZN_TYPE_STATUS | CODE | WHY_LEN | WHY
  *
- * DESCRIBED BY node/status.situ, whose generated reader and builder these
+ * DESCRIBED BY wire/status.situ, whose generated reader and builder these
  * call; the codes here are the schema's, held equal to it where status.c is
  * compiled. CODE is what the asker decides on. WHY is for a person reading a
  * log and is never parsed: a host with no reason to give sends none.
@@ -17,6 +18,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* ITS TYPE in version 2, allocated in node/types.h's registry as
+ * FZN_TYPE_STATUS. */
+#define FZN_STATUS_VERSION 2u
+#define FZN_STATUS_TYPE 65u
 #define FZN_STATUS_HEAD_LEN 4u
 #define FZN_STATUS_WHY_MAX 200u
 #define FZN_STATUS_LEN_MAX (FZN_STATUS_HEAD_LEN + FZN_STATUS_WHY_MAX)
