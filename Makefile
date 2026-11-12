@@ -5082,7 +5082,8 @@ $(BUILD_DIR)/messages/test/attachment_test: $(BUILD_DIR)/messages/test/attachmen
 
 # What crosses the remote hop, by family, sec 685.
 $(BUILD_DIR)/node/test/meter_test: $(BUILD_DIR)/node/test/meter_test.o \
-                                   $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/log/cause.o \
+                                   $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/node/metric.o \
+                                   $(BUILD_DIR)/log/cause.o \
                                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

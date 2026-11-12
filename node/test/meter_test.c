@@ -116,10 +116,41 @@ static void test_a_file_root_through_a_cause(void)
 	      "a cause envelope was not looked through");
 }
 
+static size_t ask(const fzn_meter_t *m, fzn_origin_t origin, fzn_verb_t verb, const char *arg,
+                  char *reply, size_t cap);
+
+static size_t rows_of(const fzn_meter_t *m, fzn_meter_family_t family)
+{
+	uint64_t up, down, rup, rdown;
+	size_t rows;
+
+	fzn_meter_family_totals(m, family, &up, &down, &rup, &rdown, &rows);
+	return rows;
+}
+
+/* THE ROW OF `family` and `peer` as `list transfer` gives it, into `out`: 1. */
+static int row_said(const fzn_meter_t *m, const char *family, const char *peer, char *out,
+                    size_t cap)
+{
+	static char reply[65536];
+	char want[256];
+	const char *at, *end;
+
+	(void)snprintf(want, sizeof(want), " %s,%s,", family, peer);
+	if (!ask(m, FZN_ORIGIN_SAME_USER, FZN_VERB_LIST, "transfer", reply, sizeof(reply))
+	    || !(at = strstr(reply, want)))
+		return 0;
+	at++;
+	end = strpbrk(at, " \n");
+	(void)snprintf(out, cap, "%.*s", (int)(end ? end - at : (long)strlen(at)), at);
+	return 1;
+}
+
 static void test_the_table(void)
 {
 	static fzn_meter_t m;
 	uint8_t root[32];
+	char row[512], want[512];
 	size_t i;
 
 	memset(&m, 0, sizeof(m));
@@ -128,17 +159,19 @@ static void test_the_table(void)
 	fzn_meter_count(&m, FZN_METER_FILES, "10.0.0.1:1", root, 32u, 0u, 50000u, 1002u);
 	fzn_meter_count(&m, FZN_METER_FILES, "10.0.0.1:1", NULL, 0u, 7u, 0u, 1002u);
 	fzn_meter_count(&m, FZN_METER_NOTES, "10.0.0.1:1", NULL, 0u, 3u, 4u, 1002u);
-	CHECK(m.n[FZN_METER_FILES] == 2u && m.n[FZN_METER_NOTES] == 1u,
+	CHECK(rows_of(&m, FZN_METER_FILES) == 2u && rows_of(&m, FZN_METER_NOTES) == 1u,
 	      "rows are not one a peer and key, a table a family");
-	CHECK(m.rows[FZN_METER_FILES][0].up == 100u && m.rows[FZN_METER_FILES][0].down == 50000u
-	              && m.rows[FZN_METER_FILES][0].first_seen == 1000u
-	              && m.rows[FZN_METER_FILES][0].last_seen == 1002u,
+	(void)snprintf(want, sizeof(want), "files,10.0.0.1:1,%s,100,50000,0,0,1000,1002",
+	               "0707070707070707070707070707070707070707070707070707070707070707");
+	CHECK(row_said(&m, "files", "10.0.0.1:1", row, sizeof(row)) && strcmp(row, want) == 0,
 	      "a row's sums or times are wrong");
 	/* THE WINDOW CLOSES at the first count past it: 50100 bytes over
 	 * the six seconds it ran. */
 	fzn_meter_count(&m, FZN_METER_FILES, "10.0.0.1:1", root, 32u, 0u, 0u, 1006u);
-	CHECK(m.rows[FZN_METER_FILES][0].rate_down == 50000u / 6u
-	              && m.rows[FZN_METER_FILES][0].rate_up == 100u / 6u,
+	(void)snprintf(want, sizeof(want), "files,10.0.0.1:1,%s,100,50000,%u,%u,1000,1006",
+	               "0707070707070707070707070707070707070707070707070707070707070707",
+	               100u / 6u, 50000u / 6u);
+	CHECK(row_said(&m, "files", "10.0.0.1:1", row, sizeof(row)) && strcmp(row, want) == 0,
 	      "the window's rate is wrong");
 	/* A FULL TABLE evicts its least recently active row, its bytes kept. */
 	for (i = 0; i < FZN_METER_ROWS_MAX; i++) {
@@ -148,28 +181,23 @@ static void test_the_table(void)
 		fzn_meter_count(&m, FZN_METER_MESSAGES, peer, NULL, 0u, 10u, 1u, 2000u + i);
 	}
 	fzn_meter_count(&m, FZN_METER_MESSAGES, "10.0.2.0:1", NULL, 0u, 5u, 5u, 3000u);
-	CHECK(m.n[FZN_METER_MESSAGES] == FZN_METER_ROWS_MAX && m.evicted_up[FZN_METER_MESSAGES] == 10u
-	              && m.evicted_down[FZN_METER_MESSAGES] == 1u
-	              && m.n[FZN_METER_FILES] == 2u,
+	CHECK(rows_of(&m, FZN_METER_MESSAGES) == FZN_METER_ROWS_MAX
+	              && m.evicted_up[FZN_METER_MESSAGES] == 10u
+	              && m.evicted_down[FZN_METER_MESSAGES] == 1u && rows_of(&m, FZN_METER_FILES) == 2u,
 	      "the full table did not evict its oldest, or another family's rows moved");
-	{
-		int found_new = 0, found_oldest = 0;
-
-		for (i = 0; i < m.n[FZN_METER_MESSAGES]; i++) {
-			found_new |= strcmp(m.rows[FZN_METER_MESSAGES][i].peer, "10.0.2.0:1") == 0;
-			found_oldest |= strcmp(m.rows[FZN_METER_MESSAGES][i].peer, "10.0.1.0:1") == 0;
-		}
-		CHECK(found_new && !found_oldest, "the row evicted was not the least recently active");
-	}
+	CHECK(row_said(&m, "messages", "10.0.2.0:1", row, sizeof(row))
+	              && !row_said(&m, "messages", "10.0.1.0:1", row, sizeof(row)),
+	      "the row evicted was not the least recently active");
 	/* A PEER PAST THE BOUND is cut, not refused. */
 	{
-		char long_peer[200];
+		char long_peer[200], cut[FZN_METER_PEER_MAX + 1u];
 
 		memset(long_peer, 'p', sizeof(long_peer) - 1u);
 		long_peer[sizeof(long_peer) - 1u] = '\0';
+		memset(cut, 'p', FZN_METER_PEER_MAX);
+		cut[FZN_METER_PEER_MAX] = '\0';
 		fzn_meter_count(&m, FZN_METER_LOGS, long_peer, NULL, 0u, 1u, 0u, 4000u);
-		CHECK(m.n[FZN_METER_LOGS] == 1u
-		              && strlen(m.rows[FZN_METER_LOGS][0].peer) == FZN_METER_PEER_MAX,
+		CHECK(rows_of(&m, FZN_METER_LOGS) == 1u && row_said(&m, "logs", cut, row, sizeof(row)),
 		      "a long peer was not cut to the bound");
 	}
 }

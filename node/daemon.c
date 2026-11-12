@@ -1930,7 +1930,7 @@ static void metric_log_meter(uint64_t now)
 {
 	static uint64_t next;
 	uint64_t every = host_number("metric/log/meter", 0u);
-	size_t f, i;
+	size_t f;
 
 	if (!every) {
 		next = 0;
@@ -1942,19 +1942,15 @@ static void metric_log_meter(uint64_t now)
 		return;
 	next = now + every;
 	for (f = 0; f < FZN_METER_FAMILIES; f++) {
-		uint64_t up = traffic.evicted_up[f], down = traffic.evicted_down[f], rup = 0, rdown = 0;
+		uint64_t up, down, rup, rdown;
+		size_t rows;
 
-		for (i = 0; i < traffic.n[f]; i++) {
-			up += traffic.rows[f][i].up;
-			down += traffic.rows[f][i].down;
-			rup += traffic.rows[f][i].rate_up;
-			rdown += traffic.rows[f][i].rate_down;
-		}
+		fzn_meter_family_totals(&traffic, (fzn_meter_family_t)f, &up, &down, &rup, &rdown, &rows);
 		if (up || down)
 			say(FZN_ENTRY_INFO, "metric/meter", "%s,%llu,%llu,%llu,%llu,%zu",
 			    fzn_meter_family_name((fzn_meter_family_t)f), (unsigned long long)up,
 			    (unsigned long long)down, (unsigned long long)rup, (unsigned long long)rdown,
-			    traffic.n[f]);
+			    rows);
 	}
 }
 

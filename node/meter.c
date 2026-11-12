@@ -5,6 +5,7 @@
 #include "../spool/message.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 const char *fzn_meter_family_name(fzn_meter_family_t family)
@@ -91,64 +92,143 @@ fzn_meter_family_t fzn_meter_family_of(const uint8_t *payload, size_t len,
 	}
 }
 
-static void close_window(fzn_meter_row_t *r, uint64_t now)
-{
-	uint64_t span = now > r->window_start ? now - r->window_start : 1u;
+static const char HEX[] = "0123456789abcdef";
 
-	r->rate_up = r->window_up / span;
-	r->rate_down = r->window_down / span;
-	r->window_start = now;
-	r->window_up = r->window_down = 0;
+/* A ROW'S NAME, `meter/FAMILY/DIR/PEER[/KEY]`: 0 when it will not fit. */
+static int row_name(fzn_meter_family_t family, const char *dir, const char *peer,
+                    const uint8_t *key, size_t key_len, char name[FZN_METRIC_NAME_MAX + 1u])
+{
+	char clean[FZN_METER_PEER_MAX + 1u], hex[2u * FZN_METER_KEY_MAX + 2u];
+	size_t i, n = strlen(peer);
+	int k;
+
+	if (n > FZN_METER_PEER_MAX)
+		n = FZN_METER_PEER_MAX;
+	/* WHAT A NAME MAY NOT HOLD, read as `_`: a listing's separators. */
+	for (i = 0; i < n; i++)
+		clean[i] = peer[i] <= ' ' || peer[i] > '~' || peer[i] == ',' || peer[i] == '/' ? '_'
+		                                                                              : peer[i];
+	clean[n] = '\0';
+	hex[0] = '\0';
+	if (key_len) {
+		hex[0] = '/';
+		for (i = 0; i < key_len; i++) {
+			hex[1u + 2u * i] = HEX[key[i] >> 4];
+			hex[2u + 2u * i] = HEX[key[i] & 15u];
+		}
+		hex[1u + 2u * key_len] = '\0';
+	}
+	k = snprintf(name, FZN_METRIC_NAME_MAX + 1u, "meter/%s/%s/%s%s",
+	             fzn_meter_family_name(family), dir, clean, hex);
+	return k > 0 && (size_t)k <= FZN_METRIC_NAME_MAX;
+}
+
+/* ROOM FOR TWO MORE, grown. */
+static int room(fzn_meter_t *m)
+{
+	fzn_metric_t *more;
+	size_t cap;
+
+	if (!m->metrics.rows)
+		fzn_metrics_init(&m->metrics);
+	if (m->metrics.n + 2u <= m->metrics.cap)
+		return 1;
+	cap = m->metrics.cap * 2u;
+	if (!(more = calloc(cap, sizeof(*more))) || !fzn_metrics_use(&m->metrics, more, cap)) {
+		free(more);
+		return 0;
+	}
+	free(m->room);
+	m->room = more;
+	m->room_cap = cap;
+	return 1;
+}
+
+static void count_dir(fzn_meter_t *m, fzn_meter_family_t family, const char *dir,
+                      const char *peer, const uint8_t *key, size_t key_len, uint64_t bytes,
+                      uint64_t now, uint64_t *evicted)
+{
+	char name[FZN_METRIC_NAME_MAX + 1u], within[48];
+	uint64_t gone = 0;
+
+	if (!row_name(family, dir, peer, key, key_len, name) || !room(m))
+		return;
+	(void)snprintf(within, sizeof(within), "meter/%s/%s/", fzn_meter_family_name(family), dir);
+	if (!fzn_metrics_open_within(&m->metrics, name, 0u, within, FZN_METER_ROWS_MAX, &gone))
+		return;
+	*evicted += gone;
+	(void)fzn_metrics_count(&m->metrics, name, bytes, now * 1000u);
 }
 
 void fzn_meter_count(fzn_meter_t *m, fzn_meter_family_t family, const char *peer,
                      const uint8_t *key, size_t key_len, uint64_t up, uint64_t down,
                      uint64_t now)
 {
-	fzn_meter_row_t *rows, *r = NULL;
-	size_t i, n, peer_len;
-
 	if (!m || (unsigned)family >= FZN_METER_FAMILIES || !peer)
 		return;
 	if (key_len > FZN_METER_KEY_MAX || (key_len && !key))
 		key_len = 0;
-	peer_len = strlen(peer);
-	if (peer_len > FZN_METER_PEER_MAX)
-		peer_len = FZN_METER_PEER_MAX;
-	rows = m->rows[family];
-	n = m->n[family];
-	for (i = 0; i < n && !r; i++)
-		if (strlen(rows[i].peer) == peer_len && memcmp(rows[i].peer, peer, peer_len) == 0
-		    && rows[i].key_len == key_len && (!key_len || memcmp(rows[i].key, key, key_len) == 0))
-			r = &rows[i];
-	if (!r) {
-		if (n < FZN_METER_ROWS_MAX) {
-			r = &rows[m->n[family]++];
-		} else {
-			/* THE LEAST RECENTLY ACTIVE GOES, its bytes kept in the
-			 * family's evicted totals so a family's sums stay whole. */
-			r = &rows[0];
-			for (i = 1; i < n; i++)
-				if (rows[i].last_seen < r->last_seen)
-					r = &rows[i];
-			m->evicted_up[family] += r->up;
-			m->evicted_down[family] += r->down;
-		}
-		memset(r, 0, sizeof(*r));
-		memcpy(r->peer, peer, peer_len);
-		r->peer[peer_len] = '\0';
-		if (key_len)
-			memcpy(r->key, key, key_len);
-		r->key_len = key_len;
-		r->first_seen = r->window_start = now;
+	count_dir(m, family, "up", peer, key, key_len, up, now, &m->evicted_up[family]);
+	count_dir(m, family, "down", peer, key, key_len, down, now, &m->evicted_down[family]);
+}
+
+/* A ROW, `meter/FAMILY/up|down/REST`, of `family`: its direction, 1 up, 0 down,
+ * and REST; -1 when it is not one of that family's. */
+static int row_of(const fzn_metric_t *r, fzn_meter_family_t family, const char **rest)
+{
+	char up[48], down[48];
+
+	(void)snprintf(up, sizeof(up), "meter/%s/up/", fzn_meter_family_name(family));
+	(void)snprintf(down, sizeof(down), "meter/%s/down/", fzn_meter_family_name(family));
+	if (strncmp(r->name, up, strlen(up)) == 0) {
+		*rest = r->name + strlen(up);
+		return 1;
 	}
-	if (now >= r->window_start + FZN_METER_WINDOW_S)
-		close_window(r, now);
-	r->up += up;
-	r->down += down;
-	r->window_up += up;
-	r->window_down += down;
-	r->last_seen = now;
+	if (strncmp(r->name, down, strlen(down)) == 0) {
+		*rest = r->name + strlen(down);
+		return 0;
+	}
+	return -1;
+}
+
+/* THE OTHER DIRECTION OF REST, or NULL. */
+static const fzn_metric_t *partner(const fzn_meter_t *m, fzn_meter_family_t family, int up,
+                                   const char *rest)
+{
+	char name[FZN_METRIC_NAME_MAX + 1u];
+	int k = snprintf(name, sizeof(name), "meter/%s/%s/%s", fzn_meter_family_name(family),
+	                 up ? "down" : "up", rest);
+
+	return k > 0 && (size_t)k < sizeof(name) ? fzn_metrics_get(&m->metrics, name) : NULL;
+}
+
+void fzn_meter_family_totals(const fzn_meter_t *m, fzn_meter_family_t family, uint64_t *up,
+                             uint64_t *down, uint64_t *rate_up, uint64_t *rate_down,
+                             size_t *rows)
+{
+	const char *rest;
+	size_t i;
+	int dir;
+
+	*up = m ? m->evicted_up[family] : 0u;
+	*down = m ? m->evicted_down[family] : 0u;
+	*rate_up = *rate_down = 0;
+	*rows = 0;
+	for (i = 0; m && m->metrics.rows && i < m->metrics.n; i++) {
+		const fzn_metric_t *r = &m->metrics.rows[i];
+
+		if ((dir = row_of(r, family, &rest)) < 0)
+			continue;
+		if (dir) {
+			*up += r->total;
+			*rate_up += r->rate;
+			(*rows)++;
+		} else {
+			*down += r->total;
+			*rate_down += r->rate;
+			*rows += !partner(m, family, 0, rest);
+		}
+	}
 }
 
 static int next_word(const uint8_t **at, size_t *left, const uint8_t **w, size_t *n)
@@ -185,67 +265,117 @@ static int from_of(const uint8_t *w, size_t n, size_t *from)
 
 #define REPLY(...) ((size_t)snprintf(reply, cap, __VA_ARGS__))
 
-/* ROW `r` of `family` as `list transfer` writes it, into `out`. */
-static size_t row_text(fzn_meter_family_t family, const fzn_meter_row_t *r, char *out, size_t cap)
+/* A ROW of `family` as `list transfer` writes it, into `out`: the up row `u`
+ * and the down row `d`, either of which may be gone. */
+static size_t row_text(fzn_meter_family_t family, const char *rest, const fzn_metric_t *u,
+                       const fzn_metric_t *d, char *out, size_t cap)
 {
-	static const char HEX[] = "0123456789abcdef";
-	char key[2u * FZN_METER_KEY_MAX + 1u];
-	size_t i;
+	char peer[FZN_METRIC_NAME_MAX + 1u];
+	const char *key = "", *slash;
+	uint64_t first, last;
 	int n;
 
-	for (i = 0; i < r->key_len; i++) {
-		key[2u * i] = HEX[r->key[i] >> 4];
-		key[2u * i + 1u] = HEX[r->key[i] & 15u];
+	(void)snprintf(peer, sizeof(peer), "%s", rest);
+	slash = strrchr(peer, '/');
+	if (slash && strlen(slash + 1) == 2u * FZN_METER_KEY_MAX) {
+		key = slash + 1;
+		peer[slash - peer] = '\0';
 	}
-	key[2u * r->key_len] = '\0';
+	first = u && d ? (u->first_ms < d->first_ms ? u->first_ms : d->first_ms)
+	               : (u ? u->first_ms : d->first_ms);
+	last = u && d ? (u->last_ms > d->last_ms ? u->last_ms : d->last_ms)
+	              : (u ? u->last_ms : d->last_ms);
 	n = snprintf(out, cap, "%s,%s,%s,%llu,%llu,%llu,%llu,%llu,%llu",
-	             fzn_meter_family_name(family), r->peer, key, (unsigned long long)r->up,
-	             (unsigned long long)r->down, (unsigned long long)r->rate_up,
-	             (unsigned long long)r->rate_down, (unsigned long long)r->first_seen,
-	             (unsigned long long)r->last_seen);
+	             fzn_meter_family_name(family), peer, key,
+	             (unsigned long long)(u ? u->total : 0u), (unsigned long long)(d ? d->total : 0u),
+	             (unsigned long long)(u ? u->rate : 0u), (unsigned long long)(d ? d->rate : 0u),
+	             (unsigned long long)(first / 1000u), (unsigned long long)(last / 1000u));
 	return n < 0 || (size_t)n >= cap ? 0u : (size_t)n;
+}
+
+/* EACH ROW OF `family` once, as `each` sees it: an up row with its partner, and
+ * a down row whose up is gone. */
+static size_t rows_each(const fzn_meter_t *m, fzn_meter_family_t family,
+                        int (*each)(void *ctx, fzn_meter_family_t family, const char *rest,
+                                    const fzn_metric_t *u, const fzn_metric_t *d),
+                        void *ctx)
+{
+	const char *rest;
+	size_t i, seen = 0;
+	int dir;
+
+	for (i = 0; m->metrics.rows && i < m->metrics.n; i++) {
+		const fzn_metric_t *r = &m->metrics.rows[i];
+		const fzn_metric_t *p;
+
+		if ((dir = row_of(r, family, &rest)) < 0)
+			continue;
+		p = partner(m, family, dir, rest);
+		if (!dir && p)
+			continue;
+		seen++;
+		if (each && !each(ctx, family, rest, dir ? r : p, dir ? p : r))
+			break;
+	}
+	return seen;
+}
+
+struct listing {
+	char *reply;
+	size_t cap, at, index, from;
+	int full;
+};
+
+static int list_one(void *ctx, fzn_meter_family_t family, const char *rest, const fzn_metric_t *u,
+                    const fzn_metric_t *d)
+{
+	struct listing *l = ctx;
+	char row[400];
+	size_t n;
+
+	if (l->index++ < l->from)
+		return 1;
+	n = row_text(family, rest, u, d, row, sizeof(row));
+	/* ROOM FOR THE ROW, its space and the newline. */
+	if (!n || l->at + 1u + n + 1u >= l->cap) {
+		l->full = 1;
+		return 0;
+	}
+	l->reply[l->at++] = ' ';
+	memcpy(l->reply + l->at, row, n);
+	l->at += n;
+	return 1;
 }
 
 static size_t list_rows(const fzn_meter_t *m, size_t from, char *reply, size_t cap)
 {
-	size_t total = 0, index = 0, at, f, i;
+	struct listing l;
+	size_t total = 0, f;
 
 	for (f = 0; f < FZN_METER_FAMILIES; f++)
-		total += m->n[f];
-	at = (size_t)snprintf(reply, cap, "ok %zu %zu", total, from);
-	for (f = 0; f < FZN_METER_FAMILIES; f++)
-		for (i = 0; i < m->n[f]; i++, index++) {
-			char row[320];
-			size_t n;
-
-			if (index < from)
-				continue;
-			n = row_text((fzn_meter_family_t)f, &m->rows[f][i], row, sizeof(row));
-			/* ROOM FOR THE ROW, its space and the newline. */
-			if (!n || at + 1u + n + 1u >= cap)
-				goto full;
-			reply[at++] = ' ';
-			memcpy(reply + at, row, n);
-			at += n;
-		}
-full:
-	reply[at++] = '\n';
-	reply[at] = '\0';
-	return at;
+		total += rows_each(m, (fzn_meter_family_t)f, NULL, NULL);
+	l.reply = reply;
+	l.cap = cap;
+	l.index = 0;
+	l.from = from;
+	l.full = 0;
+	l.at = (size_t)snprintf(reply, cap, "ok %zu %zu", total, from);
+	for (f = 0; f < FZN_METER_FAMILIES && !l.full; f++)
+		(void)rows_each(m, (fzn_meter_family_t)f, list_one, &l);
+	reply[l.at++] = '\n';
+	reply[l.at] = '\0';
+	return l.at;
 }
 
 static size_t totals(const fzn_meter_t *m, char *reply, size_t cap)
 {
-	size_t at = (size_t)snprintf(reply, cap, "ok"), f, i;
+	size_t at = (size_t)snprintf(reply, cap, "ok"), f, rows;
 
 	for (f = 0; f < FZN_METER_FAMILIES; f++) {
-		uint64_t up = m->evicted_up[f], down = m->evicted_down[f];
+		uint64_t up, down, rup, rdown;
 		int n;
 
-		for (i = 0; i < m->n[f]; i++) {
-			up += m->rows[f][i].up;
-			down += m->rows[f][i].down;
-		}
+		fzn_meter_family_totals(m, (fzn_meter_family_t)f, &up, &down, &rup, &rdown, &rows);
 		if (!up && !down)
 			continue;
 		n = snprintf(reply + at, cap - at, " %s,%llu,%llu",

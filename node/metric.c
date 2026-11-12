@@ -126,6 +126,8 @@ int fzn_metrics_observe(fzn_metrics_t *m, const char *name, uint64_t sample, uin
 	if (!r)
 		return 0;
 	r->estimate = smooth(r->estimate, sample);
+	if (!r->observations)
+		r->first_ms = now_ms;
 	r->observations++;
 	r->last_ms = now_ms;
 	return 1;
@@ -138,7 +140,7 @@ int fzn_metrics_count(fzn_metrics_t *m, const char *name, uint64_t amount, uint6
 	if (!r)
 		return 0;
 	if (!r->observations)
-		r->window_start_ms = now_ms;
+		r->window_start_ms = r->first_ms = now_ms;
 	/* THE WINDOW ENDED: its sum a second over how long it ran, as the meter's
 	 * rows close theirs. A clock set back starts a window afresh. */
 	if (now_ms < r->window_start_ms)

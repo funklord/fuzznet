@@ -85666,3 +85666,34 @@ least recently counted, saying its 20, and leaves the rest and other prefixes al
 found, evicting nothing; a bound of none takes nothing.
 
 **Next:** `node/meter.c`'s rows onto the layer, by this.
+
+## 1059. The meter on the metric layer, 2026-11-12
+
+Sec 1034's next in order after the links (sec 1056): the meter (sec 685) keeps its bytes on the
+layer, by the count (sec 1057) and the bound within a prefix (sec 1058), instead of a fixed array of
+`FZN_METER_ROWS_MAX` rows per family in its struct.
+
+- **A row is two counts**, `meter/FAMILY/up/PEER[/KEY]` and `meter/FAMILY/down/...`, KEY its file's
+  root as 64 hex. A row's two directions are two values because the layer has one value a name;
+  each direction is bounded at `FZN_METER_ROWS_MAX` a family and evicts its least recently counted
+  into the family's evicted total, so a family's sums stay whole. Both are counted at once, so
+  they leave together.
+- **`list transfer` and `get transfer` are unchanged in form**: a row is its up count joined to
+  its down count by name, either of which may be gone, its first and last seconds the earlier and
+  later of the two. `fzn_meter_family_totals` gives a family's sums, rates and rows, which
+  `metric/log/meter` (sec 1054) now reads instead of the struct's insides.
+- **A peer's space, comma or slash is read as `_`**: a name may hold none of them, and a listing's
+  fields are separated by the first two.
+- `FZN_METRIC_NAME_MAX` is 160, room for a family, a direction, a 64-byte peer and a root. The layer
+  keeps a value's first observation, `first_ms`, which `list transfer`'s FIRST reads.
+
+**Verified:** `meter_test`, its table test rewritten to read the meter by `list transfer` and
+`fzn_meter_family_totals` rather than its struct -- the same sums, times, a window's rate of 50000
+bytes over 6 s, a full family evicting its least recently active row with its bytes kept, and a long
+peer cut -- and its verbs' paging of 41 rows unchanged; `live_call` phase h's meter line.
+
+**Not moved, and why: a call's path stats** (sec 1021's `fzn_live_stats_t`). sec 1034's order named
+a call's legs next, but their jitter is RFC 3550's estimator, one part in sixteen, not the layer's
+one in eight, and they live and die with the call. What sec 1033 asked of a peer -- its latency, cached
+from older transfers and shown where streams are -- is the link's estimate, on the layer since sec
+1056 and logged by configuration since sec 1053. A call's own figures stay with the call.

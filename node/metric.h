@@ -24,7 +24,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define FZN_METRIC_NAME_MAX 96u
+#define FZN_METRIC_NAME_MAX 160u
 #define FZN_METRIC_SMOOTH_SHIFT 3u
 #define FZN_METRIC_OWN 16u
 /* A COUNT'S WINDOW, sec 1057: its rate is what the last whole window carried,
@@ -36,6 +36,7 @@ typedef struct fzn_metric {
 	uint64_t estimate;     /* smoothed; the prior until observed */
 	uint64_t prior;
 	uint64_t observations;
+	uint64_t first_ms;     /* when first observed or counted; 0 never, sec 1059 */
 	uint64_t last_ms;      /* when last observed; 0 never */
 	/* A COUNT, sec 1057, where a value is an amount added rather than a sample
 	 * estimated -- bytes, requests: its total, and the last whole window's rate

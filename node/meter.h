@@ -33,6 +33,7 @@
 
 #include "../local/vocabulary.h"
 #include "../chain/authz.h"
+#include "metric.h"
 
 typedef enum fzn_meter_family {
 	FZN_METER_VERBS = 0,
@@ -68,25 +69,28 @@ const char *fzn_meter_family_name(fzn_meter_family_t family);
 fzn_meter_family_t fzn_meter_family_of(const uint8_t *payload, size_t len,
                                        uint8_t key[FZN_METER_KEY_MAX], size_t *key_len);
 
-typedef struct fzn_meter_row {
-	char peer[FZN_METER_PEER_MAX + 1u];
-	uint8_t key[FZN_METER_KEY_MAX];
-	size_t key_len;
-	uint64_t up, down;		/* bytes, since the row appeared */
-	uint64_t first_seen, last_seen;	/* seconds */
-	uint64_t rate_up, rate_down;	/* bytes a second, the last window */
-	uint64_t window_start, window_up, window_down;
-} fzn_meter_row_t;
-
+/* ON THE METRIC LAYER, sec 1059: each family's bytes are counts named
+ * `meter/FAMILY/up/PEER[/KEY]` and `meter/FAMILY/down/...`, KEY 64 hex, each
+ * direction at most FZN_METER_ROWS_MAX a family, the least recently counted
+ * giving its place and its bytes kept in the family's evicted total. The room
+ * is grown as rows come; a zeroed meter is ready to count. */
 typedef struct fzn_meter {
-	fzn_meter_row_t rows[FZN_METER_FAMILIES][FZN_METER_ROWS_MAX];
-	size_t n[FZN_METER_FAMILIES];
+	fzn_metrics_t metrics;
+	fzn_metric_t *room;
+	size_t room_cap;
 	uint64_t evicted_up[FZN_METER_FAMILIES], evicted_down[FZN_METER_FAMILIES];
 } fzn_meter_t;
 
+/* A FAMILY'S SUMS, its evicted rows' included: bytes up and down, the last
+ * window's rates summed over its rows, and how many rows it holds. */
+void fzn_meter_family_totals(const fzn_meter_t *m, fzn_meter_family_t family, uint64_t *up,
+                             uint64_t *down, uint64_t *rate_up, uint64_t *rate_down,
+                             size_t *rows);
+
 /* COUNT `up` bytes sent and `down` received of `family` with `peer` (text,
- * cut at FZN_METER_PEER_MAX) under `key`, at `now`, seconds. A new row
- * past the bound takes the least recently active one's place. */
+ * cut at FZN_METER_PEER_MAX, a space or comma in it read as `_`) under `key`, at
+ * `now`, seconds. A new row past the bound takes the least recently active one's
+ * place. */
 void fzn_meter_count(fzn_meter_t *m, fzn_meter_family_t family, const char *peer,
                      const uint8_t *key, size_t key_len, uint64_t up, uint64_t down,
                      uint64_t now);
