@@ -469,12 +469,12 @@ fzn_contact_device_err_t fzn_contact_estate_keep_k(const fzn_persist_ops_t *stor
  * an older version and loses; a host older than this answers no page, and
  * nothing changes.
  *
- *   K_SETTING  55  nothing more
- *   K_SET      56  a 16-bit length, then the setting's bytes: none when
+ *   K_SETTING  63  nothing more (55 until sec 1064, the act log's own)
+ *   K_SET      64  a 16-bit length, then the setting's bytes: none when
  *                  the host holds no root's setting of k
  */
-#define FZN_CONTACT_DEVICES_K_SETTING 55u
-#define FZN_CONTACT_DEVICES_K_SET 56u
+#define FZN_CONTACT_DEVICES_K_SETTING 63u
+#define FZN_CONTACT_DEVICES_K_SET 64u
 #define FZN_CONTACT_DEVICES_K_SETTING_LEN 2u
 #define FZN_CONTACT_DEVICES_K_SET_HEAD_LEN 4u
 

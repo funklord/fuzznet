@@ -72,6 +72,9 @@ static const struct {
 	{ "contact devices kept rows", FZN_CONTACT_DEVICES_KEPT_ROWS },
 	{ "contact devices acts", FZN_CONTACT_DEVICES_ACTS },
 	{ "contact devices act entries", FZN_CONTACT_DEVICES_ACT_ENTRIES },
+	/* LEFT OUT UNTIL sec 1064, and so unseen when each took a number taken. */
+	{ "contact devices k setting", FZN_CONTACT_DEVICES_K_SETTING },
+	{ "contact devices k set", FZN_CONTACT_DEVICES_K_SET },
 	{ "messages holds", FZN_NODE_MESSAGES_HOLDS },
 	{ "messages holding", FZN_NODE_MESSAGES_HOLDING },
 	{ "relay", FZN_TYPE_RELAY },
@@ -92,6 +95,7 @@ static const struct {
 	{ "called", FZN_TYPE_CALLED },
 	{ "session ask", FZN_TYPE_SESSION_ASK },
 	{ "session grant", FZN_TYPE_SESSION_GRANT },
+	{ "relay session", FZN_TYPE_RELAY_SESSION },
 	{ "live", FZN_TYPE_LIVE },
 };
 
@@ -140,7 +144,7 @@ static void test_no_two_shared_types_are_one(void)
 		if (shared[i].type == 13u || shared[i].type == 14u)
 			retired++;
 	}
-	CHECK(SHARED_N == 58u, "the table is not the 58 types the registry lists");
+	CHECK(SHARED_N == 61u, "the table is not the 61 types the registry lists");
 	CHECK(clash == 0, "two version-2 types are one number");
 	CHECK(extension == 0, "fuzznet allocated a type in the extensions' range");
 	CHECK(retired == 0, "a retired type, 13 or 14, was reused");

@@ -85775,3 +85775,27 @@ caller heard nothing back while it rang, and a hangup or a decline was said once
 **Verified:** `live_call` phase i -- B rings A and is stopped while ringing; A drops the call
 5.2 s after, where it rang on for 45; A rings B, gone, and drops it as unreachable after 15.2 s.
 `live_test`: a RINGING reads back. Phases a to h unchanged.
+
+## 1064. Three type numbers taken twice, found by sec 1061's survey, 2026-11-12
+
+Sec 1061's survey of the protocol found family 2's type numbers 53, 55 and 56 each defined twice:
+
+- **53**: sec 1046's `FZN_TYPE_RELAY_SESSION` -- this day's, taken without seeing contact devices'
+  `FZN_CONTACT_DEVICES_KEPT_ESTATE` (sec 782).
+- **55 and 56**: contact devices' own `K_SETTING` and `K_SET` (sec 1005, 2026-10-31) beside its act
+  log's `ACTS` and `ACT_ENTRIES` (sec 783), the same day.
+
+They were told apart only by exact length and by which handler a first-match chain tried first, so a
+message of one could be read as the other. `types_test`'s check that no two family-2 types are one
+could not see them: its list of every type left out all three late names. That list is the second
+place a number must be written, and it drifted, as `types.h`'s comment says it did once before
+(49 and 51).
+
+**Moved:** `FZN_TYPE_RELAY_SESSION` to 62, `K_SETTING` and `K_SET` to 63 and 64 -- the pair with no
+situ contract, the act log's being pinned in `node/contact_devices.situ`. A wire change, free (sec
+924). `types_test` lists all three now; against the numbers before, its check fails. That the list
+is kept by hand is sec 1061's to end: one table per family, from which the check reads.
+
+**And `live_call` phase e2's tolerance:** its round trip read back 1.5 s on came out `-1 ms` in one
+gate run. The client's clock and the daemon's HELD are each whole milliseconds, truncated apart, so a
+trip under a millisecond can read -1; e2 takes -1 to 999 now.

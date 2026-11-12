@@ -195,7 +195,10 @@ def main(argv):
 			row = next(r for r in ask(socks["a"], "get call %s quality" % call).split()[1:]
 			           if r.startswith("2,sent,"))
 			trip = ms() - int(row.split(",")[5]) - int(row.split(",")[6])
-			if row.split(",")[5] != str(stamp) or not 0 <= trip < 1000:
+			# -1 IS ROUNDING: the client's clock and the daemon's HELD are each
+			# whole ms, truncated apart, so a trip under one reads -1 now and then
+			# (sec 1064: one gate run in several).
+			if row.split(",")[5] != str(stamp) or not -1 <= trip < 1000:
 				raise failed("e2: a round trip of %d ms, from %r" % (trip, row))
 			print("livecheck: e2: A's client reads the round trip off B's report: %d ms" % trip)
 
