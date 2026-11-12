@@ -109,6 +109,11 @@ typedef struct fzn_journal {
 	size_t used;
 	/* Where this journal says what happened, or NULL for silence. */
 	struct flog_t *log;
+	/* AN INDEX, sec 1048, the caller's: each slot 0 or an entry's place plus
+	 * one, found by its stream and issuer, `index_cap` a power of two at least
+	 * twice `capacity`. NULL for none, when a stream is found by a scan. */
+	uint32_t *index;
+	size_t index_cap;
 } fzn_journal_t;
 
 /*
@@ -135,6 +140,14 @@ fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *
  * MALFORMED for room smaller than what it follows. */
 fzn_journal_err_t fzn_journal_use(fzn_journal_t *journal, fzn_journal_entry_t *entries,
                                    size_t capacity);
+
+/* AN INDEX OF THE CALLER'S, sec 1048: `slots` of `cap`, which must outlive it,
+ * filled from what the journal follows. Without one a stream is found by a scan
+ * of every entry, so following N streams cost N squared -- 7.5 minutes for
+ * 70000 (sec 1047). `cap` a power of two at least twice the capacity, else
+ * MALFORMED; a later `fzn_journal_use` past half of it drops the index, which
+ * the caller gives again. */
+fzn_journal_err_t fzn_journal_index(fzn_journal_t *journal, uint32_t *slots, size_t cap);
 
 /* Offer a record's position. Advances `received` by exactly one on success.
  *

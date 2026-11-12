@@ -22,10 +22,50 @@
  * the first match, for the reason `local/vocabulary.c` gives:
  * a table with a duplicate in it should not give a different answer depending
  * on which copy is met first. */
+/* WHERE A STREAM'S SLOT IS FIRST LOOKED FOR: its issuer's bytes and its number
+ * mixed, FNV-1a. An issuer is a key, so its bytes are evenly spread already; one
+ * chosen to collide only lengthens the probe toward the scan it replaced. */
+static size_t slot_of(const fzn_journal_t *journal, const uint8_t issuer[FZN_PUBKEY_LEN],
+                      uint32_t stream)
+{
+	uint64_t h = 1469598103934665603ull;
+	size_t i;
+
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		h = (h ^ issuer[i]) * 1099511628211ull;
+	for (i = 0; i < 4u; i++)
+		h = (h ^ (uint8_t)(stream >> (8u * i))) * 1099511628211ull;
+	return (size_t)h & (journal->index_cap - 1u);
+}
+
+static void index_put(fzn_journal_t *journal, size_t at)
+{
+	size_t s;
+
+	if (!journal->index)
+		return;
+	s = slot_of(journal, journal->entries[at].issuer, journal->entries[at].stream);
+	while (journal->index[s])
+		s = (s + 1u) & (journal->index_cap - 1u);
+	journal->index[s] = (uint32_t)(at + 1u);
+}
+
 static fzn_journal_entry_t *find(const fzn_journal_t *journal,
                                   const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream)
 {
 	fzn_journal_entry_t *hit = NULL;
+
+	if (journal->index) {
+		size_t s = slot_of(journal, issuer, stream);
+
+		for (; journal->index[s]; s = (s + 1u) & (journal->index_cap - 1u)) {
+			fzn_journal_entry_t *e = &journal->entries[journal->index[s] - 1u];
+
+			if (e->stream == stream && fzn_ct_memeq(e->issuer, issuer, FZN_PUBKEY_LEN))
+				return e;
+		}
+		return NULL;
+	}
 
 	for (size_t i = 0; i < journal->used; i++) {
 		if (journal->entries[i].stream == stream &&
@@ -56,6 +96,8 @@ fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *
 	journal->used = 0;
 	/* Quiet unless somebody asks. */
 	journal->log = NULL;
+	journal->index = NULL;
+	journal->index_cap = 0;
 
 	return FZN_JOURNAL_OK;
 }
@@ -72,6 +114,27 @@ fzn_journal_err_t fzn_journal_use(fzn_journal_t *journal, fzn_journal_entry_t *e
 	}
 	journal->entries = entries;
 	journal->capacity = capacity;
+	/* PAST HALF ITS INDEX, the index dropped, sec 1048: the caller gives a
+	 * larger one, and meanwhile a stream is found by the scan. */
+	if (journal->index && journal->index_cap < 2u * capacity) {
+		journal->index = NULL;
+		journal->index_cap = 0;
+	}
+	return FZN_JOURNAL_OK;
+}
+
+fzn_journal_err_t fzn_journal_index(fzn_journal_t *journal, uint32_t *slots, size_t cap)
+{
+	size_t i;
+
+	if (!journal || !journal->entries || !slots || cap < 2u * journal->capacity
+	    || (cap & (cap - 1u)) || journal->capacity >= UINT32_MAX)
+		return FZN_JOURNAL_ERR_MALFORMED;
+	memset(slots, 0, cap * sizeof(*slots));
+	journal->index = slots;
+	journal->index_cap = cap;
+	for (i = 0; i < journal->used; i++)
+		index_put(journal, i);
 	return FZN_JOURNAL_OK;
 }
 
@@ -222,6 +285,7 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 		e = &journal->entries[journal->used++];
 		memcpy(e->issuer, issuer, FZN_PUBKEY_LEN);
 		e->stream = stream;
+		index_put(journal, journal->used - 1u);
 		e->applied = 0;
 		e->received = 0;
 		e->forked = 0;

@@ -2871,6 +2871,7 @@ static int heap_room(void **table, size_t *cap, size_t want, size_t size)
  * the journal's own fill. */
 static fzn_journal_entry_t *journal_heap;
 static size_t journal_heap_cap;
+static uint32_t *journal_index;
 
 static int journal_room(size_t want)
 {
@@ -2888,6 +2889,22 @@ static int journal_room(size_t want)
 	free(journal_heap);
 	journal_heap = grown;
 	journal_heap_cap = cap;
+	/* ITS INDEX, sec 1048: twice the room, a power of two, so a stream is found
+	 * without a scan of every entry -- N squared to follow N. Without room for
+	 * it the scan goes on, slower and no less right. */
+	{
+		size_t slots = 1u;
+		uint32_t *index;
+
+		while (slots < 2u * cap)
+			slots *= 2u;
+		index = calloc(slots, sizeof(*index));
+		if (index && fzn_journal_index(&node_journal.journal, index, slots) == FZN_JOURNAL_OK) {
+			free(journal_index);
+			journal_index = index;
+		} else
+			free(index);
+	}
 	say(FZN_ENTRY_INFO, "journal", "room to follow %zu streams", cap);
 	return 1;
 }

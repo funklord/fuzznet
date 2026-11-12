@@ -118,6 +118,45 @@ static void test_a_stream_is_a_chain(void)
 	           "a chained record after an unchained one was refused against a stale head");
 }
 
+/* AN INDEX, sec 1048: given, every stream anchored is found through it, at
+ * its own position, and one never anchored is not; a room past half the index
+ * drops it, and a stream is found by the scan again; a room not a power of two,
+ * or under twice the capacity, is refused. */
+static void test_an_index(void)
+{
+	enum { STREAMS = 2000, SLOTS = 4096 };
+	static fzn_journal_entry_t entries[STREAMS], more[3u * STREAMS];
+	static uint32_t slots[SLOTS];
+	fzn_journal_t j;
+	uint8_t who[FZN_PUBKEY_LEN];
+	size_t i, found = 0;
+
+	expect_err(fzn_journal_init(&j, entries, STREAMS), FZN_JOURNAL_OK, "fixture: the journal");
+	expect_err(fzn_journal_index(&j, slots, 3000u), FZN_JOURNAL_ERR_MALFORMED,
+	           "an index not a power of two");
+	expect_err(fzn_journal_index(&j, slots, 2048u), FZN_JOURNAL_ERR_MALFORMED,
+	           "an index under twice the capacity");
+	expect_err(fzn_journal_index(&j, slots, SLOTS), FZN_JOURNAL_OK, "an index");
+	for (i = 0; i < STREAMS; i++) {
+		identity(who, (uint8_t)i);
+		who[1] = (uint8_t)(i >> 8);
+		(void)fzn_journal_anchor(&j, who, (uint32_t)(i % 7u), (uint64_t)i + 1u);
+	}
+	for (i = 0; i < STREAMS; i++) {
+		identity(who, (uint8_t)i);
+		who[1] = (uint8_t)(i >> 8);
+		found += fzn_journal_next(&j, who, (uint32_t)(i % 7u)) == (uint64_t)i + 2u;
+	}
+	expect(found == STREAMS && j.used == STREAMS, "a stream anchored was not found through the index");
+	identity(who, 0xee);
+	expect(fzn_journal_next(&j, who, 1u) == 1u, "a stream never anchored was found");
+	expect_err(fzn_journal_use(&j, more, 3u * STREAMS), FZN_JOURNAL_OK, "fixture: more room");
+	expect(j.index == NULL, "an index past half full was kept");
+	identity(who, 5);
+	who[1] = 0;
+	expect(fzn_journal_next(&j, who, 5u) == 7u, "a stream was not found by the scan once the index went");
+}
+
 int main(void)
 {
 	fzn_journal_t j;
@@ -508,6 +547,7 @@ int main(void)
 #endif
 
 	test_a_stream_is_a_chain();
+	test_an_index();
 	printf("journal_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

@@ -85461,3 +85461,23 @@ item.
 **Also seen:** `make schema` fails on HEAD as well as here, `wire/generated/situ.h has drifted from
 situ's runtime` at situ 4931647a: the vendored runtime is behind situ, and re-vendoring it is its
 own change.
+
+## 1048. The journal finds a stream by an index, 2026-11-12
+
+Sec 1047's finding: `find` in `record/journal.c` walked every entry, a constant-time compare and no
+early exit, so following N streams cost N squared -- 122.6 s to anchor 70000 streams. An estate the
+size sec 1047's digest now allows would have paid that at every start.
+
+**An index of the caller's** (sec 704), `fzn_journal_index`: open addressing, a slot per entry's
+place plus one, found by an FNV-1a of the issuer's bytes and the stream number, at least twice the
+journal's capacity and a power of two. Entries are only ever appended and keep their places when the
+journal moves to larger room, so the index needs no deletion; a `fzn_journal_use` past half the index
+drops it and the scan serves until the caller gives a larger one. Without an index a journal is
+found by the scan, as before. An issuer chosen to collide only lengthens the probe toward the scan.
+
+`fuzznetd` gives one wherever its journal grows past its own 256 (`journal_room`).
+
+**Measured:** 70000 streams anchored in 0.01 s with the index, 122.6 s by the scan. `journal_test`:
+every stream anchored found through the index at its own place, one never anchored not found, the
+index dropped past half and the scan finding again, a room not a power of two or under twice the
+capacity refused. Sabotage `journal-index-unfilled` is caught by it.

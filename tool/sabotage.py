@@ -15319,6 +15319,13 @@ SABOTAGES = [
 		"a session's frames reach a relay and go no further -- sec 1045",
 	),
 	(
+		"journal-index-unfilled",
+		"record/journal.c",
+		"\tjournal->index[s] = (uint32_t)(at + 1u);\n",
+		"\t(void)s;\n",
+		"a stream anchored is not found through the journal's index, and is anchored again -- sec 1048",
+	),
+	(
 		"relay-own-route-unmarked",
 		"node/relay.c",
 		"\t\t\tr->routes[i].own = 1;\n",
