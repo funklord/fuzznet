@@ -85697,3 +85697,17 @@ a call's legs next, but their jitter is RFC 3550's estimator, one part in sixtee
 one in eight, and they live and die with the call. What sec 1033 asked of a peer -- its latency, cached
 from older transfers and shown where streams are -- is the link's estimate, on the layer since sec
 1056 and logged by configuration since sec 1053. A call's own figures stay with the call.
+
+## 1060. live_siblings: phase j fails one run in two, and its outer bound was below its own, 2026-11-12
+
+Found while gating sec 1059, and measured as older than this day's work.
+
+- **Phase j fails about one run in two**: `C's subscriber was not told of A's stream record` -- C's
+  `fetch stream monitor` of A comes back empty for the phase's 60 s, `list stream monitor` at A
+  holding the record. Measured: at 179c40f 1 of 2 runs, at 78a9709 (before secs 1031-1059) 2 of 4.
+  Not diagnosed: the next step is a failing run with both daemons' logs kept, read at the fetch.
+- **The outer bound was below the script's own.** `make livecheck` ran it under `timeout 300`
+  while the script's deadline is 600 s and it took 217 to 347 s here. Killed from outside, it
+  printed nothing (its output buffered) and left its three daemons running, orphaned -- found and
+  stopped by hand. The bound is 660 s now, past the script's own, so the script ends itself and
+  stops what it started.

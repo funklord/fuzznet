@@ -7031,7 +7031,7 @@ else
 	@timeout 300 python3 tool/live_rejoin.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_witness.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_shares.py $(FUZZNETD)
-	@timeout 300 python3 tool/live_siblings.py $(FUZZNETD)
+	@timeout 660 python3 tool/live_siblings.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_history.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_archive.py $(FUZZNETD)
 	@timeout 120 python3 tool/live_events.py $(FUZZNETD)
