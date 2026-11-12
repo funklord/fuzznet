@@ -69,8 +69,8 @@ static void test_the_parsers(void)
 }
 
 static const fzn_schema_entry_t TABLE[] = {
-	{ "a/b", FZN_SCHEMA_COUNT, FZN_SCHEMA_ESTATE, 1u, 9u, "1", "", 0u, "an a", NULL },
-	{ "fam/", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 1u, 4u, "", "", FZN_SCHEMA_VERB, "a family", NULL },
+	{ "a/b", FZN_SCHEMA_COUNT, FZN_SCHEMA_ESTATE, 1u, 9u, "1", "", 0u, "an a", NULL, 0u },
+	{ "fam/", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 1u, 4u, "", "", FZN_SCHEMA_VERB, "a family", NULL, 0u },
 };
 
 static void test_find_and_overlap(void)
@@ -164,23 +164,23 @@ static void test_fuzznets_declarations(void)
 }
 
 static const fzn_schema_entry_t EXTRA[] = {
-	{ "app/theme", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 1u, 16u, "dark", "", 0u, "a theme", NULL },
+	{ "app/theme", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 1u, 16u, "dark", "", 0u, "a theme", NULL, 0u },
 };
 
 static void test_an_extensions(void)
 {
 	static const fzn_schema_entry_t claims[] = {
-		{ "location/enabled", FZN_SCHEMA_FLAG, FZN_SCHEMA_HOST, 0u, 0u, "", "", 0u, "x", NULL },
+		{ "location/enabled", FZN_SCHEMA_FLAG, FZN_SCHEMA_HOST, 0u, 0u, "", "", 0u, "x", NULL, 0u },
 	};
 	static const fzn_schema_entry_t inside[] = {
-		{ "sticker/abc", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 0u, 0u, "", "", 0u, "x", NULL },
+		{ "sticker/abc", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 0u, 0u, "", "", 0u, "x", NULL, 0u },
 	};
 	static const fzn_schema_entry_t twice[] = {
-		{ "app/", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 0u, 0u, "", "", 0u, "x", NULL },
-		{ "app/x", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 0u, 0u, "", "", 0u, "x", NULL },
+		{ "app/", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 0u, 0u, "", "", 0u, "x", NULL, 0u },
+		{ "app/x", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 0u, 0u, "", "", 0u, "x", NULL, 0u },
 	};
 	static const fzn_schema_entry_t scopeless[] = {
-		{ "app/x", FZN_SCHEMA_TEXT, 0u, 0u, 0u, "", "", 0u, "x", NULL },
+		{ "app/x", FZN_SCHEMA_TEXT, 0u, 0u, 0u, "", "", 0u, "x", NULL, 0u },
 	};
 	fzn_node_schema_t s = { EXTRA, 1u };
 

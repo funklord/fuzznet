@@ -74,6 +74,11 @@ typedef struct fzn_schema_entry {
 	const char *summary;
 	/* TEXT's own grammar: NULL to accept, or why not. */
 	const char *(*check)(const uint8_t *value, size_t len);
+	/* ITS WINDOW, sec 1042: written no oftener than once in this many ms, the
+	 * newest held standing for the rest (sec 1037). 0 for the rate gate's floor,
+	 * which a smaller one is raised to anyway. Last, so a table that names no
+	 * window declares none. */
+	uint32_t every_ms;
 } fzn_schema_entry_t;
 
 /* THE ENTRY `key` IS, in `table` of `n`: exact, or a family's instance. */

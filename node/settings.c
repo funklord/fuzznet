@@ -1170,12 +1170,15 @@ static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t 
 		uint8_t rkey[FZN_RATE_KEY_MAX], rvalue[FZN_RATE_VALUE_MAX];
 		size_t rkey_len = held_key(scope, about, key, key_len, rkey);
 		int first = 0;
+		/* ITS OWN WINDOW, where its entry declares one, sec 1042. */
+		const fzn_schema_entry_t *we = fzn_node_schema_find(ns->schema, key, key_len);
+		uint64_t every = we && we->every_ms ? we->every_ms : FZN_NODE_SETTINGS_EVERY_MS;
 
 		rvalue[0] = set ? 1u : 0u;
 		if (rkey_len && value_len < sizeof(rvalue)) {
 			memcpy(rvalue + 1, value, value_len);
 			if (fzn_rate_offer(ns->rate, rkey, rkey_len, rvalue, 1u + value_len,
-			                   FZN_NODE_SETTINGS_EVERY_MS, ns->now_ms(), &first)
+			                   every, ns->now_ms(), &first)
 			    == FZN_RATE_HELD) {
 				if (first && ns->held)
 					ns->held(key, key_len);

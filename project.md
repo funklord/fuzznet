@@ -85320,3 +85320,23 @@ reads three -- every parser in `tool/` splits by index and is unchanged.
 
 **Verified:** `live_call` phase g reads both ends' rows for each of six rings: the callee names
 the caller's key, the caller the key it rang.
+
+## 1042. A setting's window declared in its schema entry, 2026-11-12
+
+Sec 1037's first "not yet": the holder asked for the protection to be "specified by schema/rules",
+and a setting's window was the gate's floor for every key. `fzn_schema_entry_t` gains
+**`every_ms`**, last so that every table naming no window declares none: a write to a key whose
+entry declares one is held to that window, the newest standing for the rest, and written at its
+end; 0 is the floor, `FZN_NODE_SETTINGS_EVERY_MS`, and the gate raises anything shorter to
+`FZN_RATE_FLOOR_MS` anyway. The four quick passes of sec 1037 are unchanged.
+
+No entry of fuzznet's own declares one yet: none of its settings is written by a machine on a
+clock. The field is for a consumer's extension declaring a value fed by one -- a reading, a
+counter -- and for the metrics of sec 1034 when they are settings.
+
+**Verified:** `apply_test` -- a key declared at 5 s, four writes answered at once and the fifth
+held, nothing written at the floor's 1 s, the newest written at 5 s. Sabotage
+`setting-window-undeclared` (the floor for every key) is caught by it.
+
+**Not yet:** objects (sec 948) take their window from a declaration too once objects have a schema
+of their own; records and metrics behind the gate.

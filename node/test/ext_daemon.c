@@ -476,11 +476,11 @@ static const fzn_daemon_option_t options[] = {
  * the environment -- one that claims fuzznet's, which must end the start. */
 static const fzn_schema_entry_t settings[] = {
 	{ "ext/greeting", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 1u, 16u, "hello", "", 0u,
-	  "a greeting the extension may read", NULL },
+	  "a greeting the extension may read", NULL, 0u },
 };
 static const fzn_schema_entry_t clashing[] = {
 	{ "location/enabled", FZN_SCHEMA_FLAG, FZN_SCHEMA_HOST, 0u, 0u, "off", "", 0u,
-	  "fuzznet's, claimed", NULL },
+	  "fuzznet's, claimed", NULL, 0u },
 };
 
 /* SOMEBODY ANSWERS AT `path`: a socket a live process listens on, which a

@@ -15291,6 +15291,13 @@ SABOTAGES = [
 		"a request to a host behind a NAT leaves from a socket the NAT never admits, and is never answered -- sec 1036",
 	),
 	(
+		"setting-window-undeclared",
+		"node/settings.c",
+		"\t\tuint64_t every = we && we->every_ms ? we->every_ms : FZN_NODE_SETTINGS_EVERY_MS;\n",
+		"\t\tuint64_t every = FZN_NODE_SETTINGS_EVERY_MS;\n",
+		"a value its schema declares slow is written at the floor's pace -- sec 1042",
+	),
+	(
 		"live-ended-forgotten",
 		"node/live.c",
 		"\t\tif (memcmp(t->ended[i], call, FZN_LIVE_CALL_LEN) == 0)\n",

@@ -119,7 +119,7 @@ typedef struct fzn_node_settings {
 	uint64_t (*now_ms)(void);
 } fzn_node_settings_t;
 
-/* A CELL'S WINDOW: the rate gate's floor, until the schema declares one per key. */
+/* A CELL'S WINDOW where its schema entry declares none (sec 1042): the floor. */
 #define FZN_NODE_SETTINGS_EVERY_MS 1000u
 
 /* THE HELD WRITES WHOSE WINDOW HAS PASSED at `now_ms`, written: how many, sec 1034.

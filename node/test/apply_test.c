@@ -10,6 +10,7 @@
 #include "../apply.h"
 #include "../holdings.h"
 #include "../roster.h"
+#include "../schema.h"
 #include "../settings.h"
 #include "../siblings.h"
 #include "../succession.h"
@@ -1170,6 +1171,36 @@ static void test_settings_judged(void)
 			              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting estate gate/k")
 			              && strcmp(reply, "ok root six\n") == 0,
 			      "the window's end did not write the newest held value");
+			/* ITS OWN WINDOW, sec 1042: a key whose schema entry declares 5 s is held
+			 * past the floor's 1 s, and written at its own window's end. */
+			{
+				static const fzn_schema_entry_t slow[] = {
+					{ "gate/slow", FZN_SCHEMA_TEXT, FZN_SCHEMA_ESTATE, 0, 0, "", "", 0,
+					  "a value declared slow", NULL, 5000u },
+				};
+				static const fzn_node_schema_t declared = { slow, 1u };
+				const fzn_node_schema_t *was = ns.schema;
+				int at, now = 0;
+
+				ns.schema = &declared;
+				for (at = 0; at < 4; at++) {
+					char w[64];
+
+					(void)snprintf(w, sizeof(w), "set setting estate gate/slow v%d", at);
+					now += said(&ns, FZN_ORIGIN_SAME_USER, w) && strcmp(reply, "ok\n") == 0;
+				}
+				CHECK(now == 4 && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate gate/slow v9")
+				              && replied("ok held"),
+				      "a declared-slow key's fifth quick write was not held");
+				CHECK(fzn_node_settings_due(&ns, clock_now_ms() + FZN_NODE_SETTINGS_EVERY_MS) == 0u,
+				      "a key declared 5 s was written at the floor's 1 s");
+				clock_at += 5u;
+				CHECK(fzn_node_settings_due(&ns, clock_now_ms()) == 1u
+				              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting estate gate/slow")
+				              && strcmp(reply, "ok root v9\n") == 0,
+				      "a key's own window's end did not write its newest held value");
+				ns.schema = was;
+			}
 			ns.rate = NULL;
 			ns.now_ms = NULL;
 		}
