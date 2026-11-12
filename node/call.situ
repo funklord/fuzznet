@@ -19,6 +19,7 @@ enum kind : u8 {
 	participant = 7,   // who a call of several numbers an index
 	ringing     = 8,   // the callee still here, to each ring (sec 1062)
 	no_answer   = 9,   // the callee's ring time passed unanswered (sec 1073)
+	busy        = 10,  // the callee's guard refused the ring (sec 1074)
 	default     = error,
 }
 
@@ -71,6 +72,7 @@ struct message {
 		case kind.participant: participant       participant;
 		case kind.ringing:     nothing           ringing;
 		case kind.no_answer:   nothing           no_answer;
+		case kind.busy:        nothing           busy;
 		default: error;
 	}
 }

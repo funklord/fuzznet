@@ -93,7 +93,8 @@ typedef enum fzn_live_kind {
 	FZN_LIVE_REPORT = 6,
 	FZN_LIVE_PARTICIPANT = 7,
 	FZN_LIVE_RINGING = 8, /* the callee to each RING, sec 1062: still here, ringing */
-	FZN_LIVE_NO_ANSWER = 9 /* the callee's ring time passed, sec 1073 */
+	FZN_LIVE_NO_ANSWER = 9, /* the callee's ring time passed, sec 1073 */
+	FZN_LIVE_BUSY = 10      /* the callee's guard refused the ring, sec 1074 */
 } fzn_live_kind_t;
 
 /* ONE WORD READ, pointing into the caller's bytes. */

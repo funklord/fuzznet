@@ -188,6 +188,16 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "how long a call to this user rings unanswered before its caller is told no answer "
 	  "(sec 1073)",
 	  NULL, 0u },
+	/* sec 1074: rings a caller user may make before they are refused busy. */
+	{ "call/ring-burst", FZN_SCHEMA_COUNT, ESTATE | HOST, 1u, 1000u, "10", "rings", 0u,
+	  "rings one user may make to this one at once before more are refused busy (sec 1074)",
+	  NULL, 0u },
+	{ "call/ring-refill", FZN_SCHEMA_DURATION, ESTATE | HOST, 1u, 86400u, "1m", "", 0u,
+	  "how long a refused caller waits for one more ring (sec 1074)", NULL, 0u },
+	{ "call/block-max", FZN_SCHEMA_DURATION, ESTATE | HOST, 60u, 2592000u, "1d", "", 0u,
+	  "the longest a caller ringing on while refused is blocked, the block doubling to it "
+	  "(sec 1074)",
+	  NULL, 0u },
 	{ "location/enabled", FZN_SCHEMA_FLAG, HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
 	  "sample gpsd into the location stream; off, a position being the most sensitive thing "
 	  "kept (sec 678)",

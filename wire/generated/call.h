@@ -33,6 +33,7 @@ typedef enum fzn_call_kind {
 	FZN_CALL_KIND_PARTICIPANT = 7,
 	FZN_CALL_KIND_RINGING = 8,
 	FZN_CALL_KIND_NO_ANSWER = 9,
+	FZN_CALL_KIND_BUSY = 10,
 } fzn_call_kind_t;
 
 /** Whether a value names a member of kind (section 8.7).
@@ -49,6 +50,7 @@ static inline int fzn_call_kind_is_known(fzn_call_kind_t value)
 	case FZN_CALL_KIND_PARTICIPANT:
 	case FZN_CALL_KIND_RINGING:
 	case FZN_CALL_KIND_NO_ANSWER:
+	case FZN_CALL_KIND_BUSY:
 		return 1;
 	default:
 		return 0;
@@ -764,6 +766,21 @@ static inline situ_err_t fzn_call_message_body_no_answer_view(situ_view_t view, 
 	return situ_view_sub(view, 11u, FZN_CALL_NOTHING_SIZE_FIXED, out);
 }
 
+/** message.body.busy, present when the discriminant selects `kind.busy`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_call_message_body_busy_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_call_message_kind_get(view) != 10u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 11u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+}
+
 /* No `message_required`: one of its members has no length this can compute.
  * Framing such a message is the layer below's job -- situ can say what
  * the bytes mean and not when they have all arrived. */
@@ -806,6 +823,7 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which);
 #define FZN_CALL_MESSAGE_BODY_PARTICIPANT_CHECK 10u
 #define FZN_CALL_MESSAGE_BODY_RINGING_CHECK 11u
 #define FZN_CALL_MESSAGE_BODY_NO_ANSWER_CHECK 12u
+#define FZN_CALL_MESSAGE_BODY_BUSY_CHECK 13u
 
 #ifdef __cplusplus
 }

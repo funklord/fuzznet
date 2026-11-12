@@ -85901,7 +85901,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Contacts, requests, suspension, names | protocol, state | contact screens | a contacts view |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state | conversation screens, read marks per device for groups | group read position; unread for every conversation in one reply; a read at the held position silent (sec 1069) |
 | Stickers | packs (situ schema), fetch | sticker reader (`client/sticker_read.c`), sticker UI | a sticker view |
-| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); call-hammer protection; a call view |
+| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
 | Location, Nearby | fixes, grants, levels | distance, bearing, a fix's age (`client/geo.c`), Nearby UI | a location view |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed) | Library playback UI, share target | a hostable transfer view; a library (catalogue) view |
@@ -85988,3 +85988,57 @@ A's call ends between 3 and 12 s after B holds it, and both logs say `no-answer`
 `node/test/live_test.c` reads NO_ANSWER back, refuses it with a byte after, and expires rows at
 their own ring time, at 45 s with none, and a caller's at 600 s; sabotage entry
 `live-ring-time-ignored` drops the row's value.
+
+## 1074. Rings guarded against a caller hammering, 2026-11-12
+
+**The holder, 2026-11-12:** "a call hammer protection using a standard network method
+(counts/timers) to filter out annoying actors."
+
+**The means, `node/guard.{h,c}`:** a token bucket per key and an escalating block -- the two
+standard counts-and-timers answers, a rate limiter's and fail2ban's. A key has `burst` tokens; a
+ring takes one, one more is earned each `refill`. A ring with none is refused, and logged once. A
+key refused again while refused is blocked, the block doubling each offence from `refill` up to
+`block-max`; quiet a whole `block-max`, it starts clean. The table is the caller's and grown
+(sec 753): the daemon doubles its rows when every one holds a key, and only out of memory does a
+new key take the least recently seen row that is not blocked -- never a blocked one, which would
+set it free.
+
+**Keyed by the caller's USER**, the owner `group_owner_of` names for the ringing host: a user
+ringing from several hosts or addresses is one key. A ring from this host's own user is not
+guarded. Only a ring that would open a call asks: rings said again each second for a call already
+ringing are the call's, not new asks (sec 1039), and a refused call's id is kept among the ended,
+so its own repeats are not either.
+
+**Refused, the caller is told BUSY** -- call kind 10 in `node/call.situ`, a bare head, said three
+times as an ending is -- and ends the call `busy`. The callee's clients are never told: the point
+is that an annoying caller does not ring.
+
+**Settings, estate or host, the value in force here:**
+
+| Key | Default | Range |
+|---|---|---|
+| `call/ring-burst` | 10 rings | 1 to 1000 |
+| `call/ring-refill` | 1m | 1 s to a day |
+| `call/block-max` | 1d | a minute to 30 days |
+
+**The defaults are a judgement, and this is it:** the holder named the means, not the numbers. Ten
+rings at once covers somebody redialling a call that keeps dropping, and one a minute after that
+is slower than any person redials for long; a program ringing on past it is blocked for 1, 2, 4
+... minutes, to a day. Three rings and one per five minutes, the first draft, refused this tree's
+own `live_call`, which rings B seven times in three minutes -- and would refuse a person the same
+way.
+
+**A burst lowered holds at the next ring:** a key's tokens are cut to the burst in force on
+each ask, so a caller does not keep the rings it held under the old value. The first draft kept
+them, and `live_call` phase l failed on it: B lowered its burst from 10 to 2 after A had rung
+twice, and A's third ring was held. The phase first allowed 8 s for the call to end, and B's 5 s
+ring time from phase k ended it no-answer inside that -- only the log check caught it -- so A must
+now end it within 4 s, which BUSY, said at once, does.
+
+**Measured:** `node/test/guard_test.c`, 22 checks -- a burst admitted, the next refused and said
+once, refused again blocked, the block doubling, a quiet key clean, keys apart, a table grown
+keeping every key's tokens and block, one that cannot grow never freeing a blocked key, a burst
+lowered holding at once.
+`tool/live_call.py` phase l: B lets a user ring twice, one more a day; A's third ring ends busy
+and B never holds it. Sabotage entries `guard-never-spends-a-token` and
+`guard-forgets-its-rows-growing`.

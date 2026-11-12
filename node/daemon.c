@@ -52,6 +52,7 @@
 #include "live.h"
 #include "reach.h"
 #include "metric.h"
+#include "guard.h"
 #include "talk.h"
 #include "routing.h"
 #include "contact_card.h"
@@ -17780,6 +17781,48 @@ static void live_gone(void *ctx, const fzn_live_call_t *c)
 	kept_drop(c->call);
 }
 
+/* RINGS GUARDED, sec 1074, the holder's: a standard network means against a
+ * caller hammering -- a token bucket per caller USER, not per host or address,
+ * and a block doubling while it rings on refused. Its rows grown, never full. */
+static fzn_guard_t ring_guard;
+static fzn_guard_slot_t *ring_guard_rows;
+
+/* A SETTING IN FORCE HERE as a count or a duration in seconds, `def` unset or out
+ * of `min`..`max`. */
+static uint64_t here_amount(const char *key, int duration, uint64_t min, uint64_t max,
+                            uint64_t def)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	size_t len = 0;
+	uint64_t n = 0;
+
+	if (fzn_daemon_setting_here((const uint8_t *)key, strlen(key), value, sizeof(value), &len) != 1
+	    || !(duration ? fzn_schema_duration(value, len, min, max, &n)
+	                  : fzn_schema_count(value, len, min, max, &n)))
+		return def;
+	return n;
+}
+
+static fzn_guard_verdict_t ring_guarded(const uint8_t user[FZN_PUBKEY_LEN], int *first)
+{
+	if (fzn_guard_full(&ring_guard)) {
+		size_t cap = ring_guard.cap ? ring_guard.cap * 2u : 16u;
+		fzn_guard_slot_t *more = realloc(ring_guard_rows, cap * sizeof(*more));
+
+		if (more) {
+			if (!ring_guard.rows)
+				fzn_guard_init(&ring_guard, more, cap);
+			else
+				(void)fzn_guard_rows(&ring_guard, more, cap);
+			ring_guard_rows = more;
+		}
+	}
+	return fzn_guard_ask(&ring_guard, user, wall_ms(),
+	                     (uint32_t)here_amount("call/ring-burst", 0, 1u, 1000u, 10u),
+	                     here_amount("call/ring-refill", 1, 1u, 86400u, 60u) * 1000u,
+	                     here_amount("call/block-max", 1, 60u, 2592000u, 86400u) * 1000u, first);
+}
+
 /* THIS HOST'S RING TIME, sec 1073: `call/ring` in force here, FZN_LIVE_RING_S unset
  * or out of its range. */
 static uint32_t live_ring_s(void)
@@ -17917,6 +17960,26 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		if (c || !estate_owner() || memcmp(w.whom, estate_owner(), FZN_PUBKEY_LEN) != 0
 		    || !(c = fzn_live_open(&node_calls, w.call)))
 			return;
+		/* GUARDED, sec 1074: a caller past its rings told BUSY and never shown; the
+		 * call's id kept among the ended, so its rings said again are not asks. */
+		if (!own) {
+			int first = 0;
+			fzn_guard_verdict_t v = ring_guarded(owner, &first);
+
+			if (v != FZN_GUARD_ADMIT) {
+				uint8_t word[FZN_LIVE_HEAD_LEN];
+				size_t n = live_bare(FZN_LIVE_BUSY, w.call, word);
+
+				fzn_live_end(&node_calls, c);
+				if (n)
+					live_say_ending(host, word, n);
+				if (first)
+					say(FZN_ENTRY_INFO, "node/session",
+					    "rings from user %02x%02x%02x%02x refused busy: past its rings",
+					    owner[0], owner[1], owner[2], owner[3]);
+				return;
+			}
+		}
 		c->state = FZN_LIVE_RINGING_IN;
 		memcpy(c->host, host, FZN_PUBKEY_LEN);
 		c->kinds = w.kinds;
@@ -17982,6 +18045,12 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 					(void)fzn_daemon_say(k->sibling, bytes, len);
 			}
 			break;
+		case FZN_LIVE_BUSY:
+			/* REFUSED BY THAT HOST'S GUARD, sec 1074: as a no-answer, its own reason. */
+			m->ringing = 0;
+			if (participants_gone(k))
+				live_end(c, "busy");
+			return;
 		case FZN_LIVE_NO_ANSWER:
 			/* THAT HOST'S RING TIME PASSED, sec 1073: it stops; the call ends no-answer
 			 * once no participant rings or has joined. Its user's other hosts ring on

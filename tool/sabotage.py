@@ -15389,6 +15389,20 @@ SABOTAGES = [
 		"a call rings 45 s whatever its receiver set -- sec 1073",
 	),
 	(
+		"guard-never-spends-a-token",
+		"node/guard.c",
+		"\t\ts->tokens--;\n",
+		"\t\t(void)s->tokens;\n",
+		"a caller rings without end, its tokens never spent -- sec 1074",
+	),
+	(
+		"guard-forgets-its-rows-growing",
+		"node/guard.c",
+		"\tmemset(rows + g->cap, 0, (cap - g->cap) * sizeof(*rows));\n",
+		"\tmemset(rows, 0, cap * sizeof(*rows));\n",
+		"a table grown sets every blocked caller free -- sec 1074",
+	),
+	(
 		"session-grant-drops-an-ask",
 		"node/sessions.c",
 		"\t\tif (!s->used || s->confirmed || s->initiator\n",

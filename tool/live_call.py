@@ -28,6 +28,9 @@ contact's. Each host's own client is a caller on its socket.
     k  B sets its ring time to 5 s; A rings it and nobody answers: B ends the call
        no-answer at 5 s and tells A, which ends it no-answer -- not 45 s, nor
        gone for RINGING stopping (sec 1073)
+    l  B lets a user ring twice, one more a day; A rings twice, held, then a third
+       time: A's call ends busy within 4 s, before B's ring time, and B never holds
+       it (sec 1074)
 
 Against a daemon that takes no call's word from a session, a never rings; against
 one whose asked session is dropped when the other host's frame comes, b is never
@@ -320,6 +323,28 @@ def main(argv):
 				started[who].wait_for(re.compile(r"call %s: no-answer" % rung[1]),
 				                      "%s ending the call no-answer" % who.upper(), within=5.0)
 			print("livecheck: k: B rang 5 s; both ended the call no-answer, A after %.1f s" % took)
+
+			# l: RINGS GUARDED, sec 1074.
+			expect(socks["b"], "b", "set setting host call/ring-burst 2", "ok")
+			expect(socks["b"], "b", "set setting host call/ring-refill 1d", "ok")
+			for _ in range(2):
+				ring_reaches("l", 20.0)
+			rung = ask(socks["a"], "add call bea audio").split()
+			if len(rung) != 2 or rung[0] != "ok":
+				raise failed("l: A's add call answered %r" % rung)
+			began = time.monotonic()
+			# BUSY IS SAID AT ONCE: within 4 s, before B's 5 s ring time (phase k) could
+			# end the call as no-answer instead.
+			until("l: A still rang B 4 s on, past B's two rings",
+			      lambda: rung[1] not in calls(socks["a"]), 4.0)
+			took = time.monotonic() - began
+			if rung[1] in calls(socks["b"]):
+				raise failed("l: B held a ring past its two")
+			started["a"].wait_for(re.compile(r"call %s: busy" % rung[1]),
+			                      "A ending the call busy", within=5.0)
+			started["b"].wait_for(re.compile(r"refused busy: past its rings"),
+			                      "B saying it refused A's rings", within=5.0)
+			print("livecheck: l: B let A ring twice; the third ended busy after %.1f s" % took)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

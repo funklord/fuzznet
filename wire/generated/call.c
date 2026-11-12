@@ -198,12 +198,12 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 11u) < ((fzn_call_message_kind_get(view) == 1u ? 33u : (fzn_call_message_kind_get(view) == 2u ? 0u : (fzn_call_message_kind_get(view) == 3u ? 0u : (fzn_call_message_kind_get(view) == 4u ? 0u : (fzn_call_message_kind_get(view) == 5u ? (fzn_call_message_body_frame_extent(view)) : (fzn_call_message_kind_get(view) == 6u ? 19u : (fzn_call_message_kind_get(view) == 7u ? 34u : (fzn_call_message_kind_get(view) == 8u ? 0u : (fzn_call_message_kind_get(view) == 9u ? 0u : 0u))))))))))) {
+	if (situ_remaining_u32(view.limit, 11u) < ((fzn_call_message_kind_get(view) == 1u ? 33u : (fzn_call_message_kind_get(view) == 2u ? 0u : (fzn_call_message_kind_get(view) == 3u ? 0u : (fzn_call_message_kind_get(view) == 4u ? 0u : (fzn_call_message_kind_get(view) == 5u ? (fzn_call_message_body_frame_extent(view)) : (fzn_call_message_kind_get(view) == 6u ? 19u : (fzn_call_message_kind_get(view) == 7u ? 34u : (fzn_call_message_kind_get(view) == 8u ? 0u : (fzn_call_message_kind_get(view) == 9u ? 0u : (fzn_call_message_kind_get(view) == 10u ? 0u : 0u)))))))))))) {
 		*which = FZN_CALL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for kind.ring, kind.answer, kind.decline, kind.hangup, kind.frame, kind.report, kind.participant, kind.ringing, kind.no_answer, and `default: error` for the rest. */
-	if (fzn_call_message_kind_get(view) != 1u && fzn_call_message_kind_get(view) != 2u && fzn_call_message_kind_get(view) != 3u && fzn_call_message_kind_get(view) != 4u && fzn_call_message_kind_get(view) != 5u && fzn_call_message_kind_get(view) != 6u && fzn_call_message_kind_get(view) != 7u && fzn_call_message_kind_get(view) != 8u && fzn_call_message_kind_get(view) != 9u) {
+	/* message.body: an arm for kind.ring, kind.answer, kind.decline, kind.hangup, kind.frame, kind.report, kind.participant, kind.ringing, kind.no_answer, kind.busy, and `default: error` for the rest. */
+	if (fzn_call_message_kind_get(view) != 1u && fzn_call_message_kind_get(view) != 2u && fzn_call_message_kind_get(view) != 3u && fzn_call_message_kind_get(view) != 4u && fzn_call_message_kind_get(view) != 5u && fzn_call_message_kind_get(view) != 6u && fzn_call_message_kind_get(view) != 7u && fzn_call_message_kind_get(view) != 8u && fzn_call_message_kind_get(view) != 9u && fzn_call_message_kind_get(view) != 10u) {
 		*which = FZN_CALL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -372,6 +372,25 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_CALL_MESSAGE_BODY_NO_ANSWER_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.busy: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_call_message_body_busy_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_call_nothing_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_CALL_MESSAGE_BODY_BUSY_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {
