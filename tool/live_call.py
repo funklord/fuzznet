@@ -15,6 +15,11 @@ contact's. Each host's own client is a caller on its socket.
     e2 a frame stamped with A's client's clock comes back in B's report, its AT and
        how long B held it, and the client reads the round trip (sec 1026)
     f  A hangs up; B holds the call no more
+    g  B rings A at once, then A B, three times each way: each rung end holds the
+       call ringing in, and names the other end's user as the fourth field of
+       `list call` (sec 1040), as the ringing end names the user it rang; the
+       caller hangs up and the callee holds it no more. A ring said once and lost
+       was a call never rung (sec 1039): fuzzypickles saw one in three missed
 
 Against a daemon that takes no call's word from a session, a never rings; against
 one whose asked session is dropped when the other host's frame comes, b is never
@@ -39,7 +44,7 @@ from live_rejoin import command, daemon, expect, free_slot  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 420.0
+live_trim.DEADLINE = time.monotonic() + 500.0
 
 WAIT = 20.0
 HOSTS_S = 200.0
@@ -61,6 +66,12 @@ def until(what, test, wait=WAIT):
 def calls(sock):
 	got = ask(sock, "list call").split()
 	return {r.split(",")[0]: r.split(",")[1] for r in got[2:]} if got[:1] == ["ok"] else {}
+
+
+def rows(sock):
+	"""`list call` as ID -> its fields."""
+	got = ask(sock, "list call").split()
+	return {r.split(",")[0]: r.split(",") for r in got[2:]} if got[:1] == ["ok"] else {}
 
 
 def frames(sock, call):
@@ -183,6 +194,28 @@ def main(argv):
 			if call in calls(socks["a"]):
 				raise failed("f: A still holds the call it hung up")
 			print("livecheck: f: A hung up, and neither holds the call")
+
+			# g: RUNG BOTH WAYS, each right after the last is gone.
+			for frm, to, name in (("b", "a", "ada"), ("a", "b", "bea")) * 3:
+				rung = ask(socks[frm], "add call %s audio" % name).split()
+				if len(rung) != 2 or rung[0] != "ok":
+					raise failed("g: %s's add call answered %r" % (frm.upper(), rung))
+				began = time.monotonic()
+				row = until("g: %s never held %s's ring" % (to.upper(), frm.upper()),
+				            lambda: rows(socks[to]).get(rung[1], [None, None])[1] == "ringing-in"
+				            and rows(socks[to])[rung[1]])
+				if len(row) != 4 or row[3] != keys[frm]:
+					raise failed("g: %s's row for %s's ring names %r, not %s" % (
+					             to.upper(), frm.upper(), row, keys[frm]))
+				mine = rows(socks[frm]).get(rung[1])
+				if not mine or len(mine) != 4 or mine[3] != keys[to]:
+					raise failed("g: %s's row for its ring names %r, not %s" % (
+					             frm.upper(), mine, keys[to]))
+				expect(socks[frm], frm, "set call %s hangup" % rung[1], "ok")
+				until("g: %s still held the call %s hung up" % (to.upper(), frm.upper()),
+				      lambda: rung[1] not in calls(socks[to]))
+				print("livecheck: g: %s rang %s, heard after %.1f s, named either end, hung up"
+				      % (frm.upper(), to.upper(), time.monotonic() - began))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

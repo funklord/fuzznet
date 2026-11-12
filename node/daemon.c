@@ -17704,21 +17704,33 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 		return (size_t)snprintf(reply, cap, "denied calls are this user's\n");
 	if (!contact_id || !serving_state)
 		return (size_t)snprintf(reply, cap, "unsupported this node makes no calls\n");
-	/* `list call`: `ok N ID,STATE,KINDS ...`. */
+	/* `list call`: `ok N ID,STATE,KINDS,USER ...`. USER the call's other end, sec
+	 * 1040, so a client can say who is calling before it is answered: at the
+	 * callee the caller's user, at the caller the first user rung; `-` when this
+	 * host cannot say. A fourth field, so a client reading three reads three. */
 	if (request->parsed == FZN_VERB_LIST && subject_len == 4u) {
 		n = (size_t)snprintf(reply, cap, "ok %zu", node_calls.n);
-		for (i = 0; i < node_calls.cap && n + 40u < cap; i++) {
+		for (i = 0; i < node_calls.cap && n + 120u < cap; i++) {
 			const fzn_live_call_t *r = &node_calls.rows[i];
-			char id[2u * FZN_LIVE_CALL_LEN + 1u];
+			const struct live_kept *kr;
+			char id[2u * FZN_LIVE_CALL_LEN + 1u], user[2u * FZN_PUBKEY_LEN + 1u];
+			uint8_t owner[FZN_PUBKEY_LEN];
+			int own = 0;
 
 			if (!r->used)
 				continue;
 			hex_of(r->call, FZN_LIVE_CALL_LEN, id);
-			n += (size_t)snprintf(reply + n, cap - n, " %s,%s,%u", id,
+			if ((kr = kept_of(r->call, 0)) != NULL && kr->n_participants)
+				hex_of(kr->participants[0].whom, FZN_PUBKEY_LEN, user);
+			else if (group_owner_of(r->host, owner, &own))
+				hex_of(owner, FZN_PUBKEY_LEN, user);
+			else
+				(void)snprintf(user, sizeof(user), "-");
+			n += (size_t)snprintf(reply + n, cap - n, " %s,%s,%u,%s", id,
 			                      r->state == FZN_LIVE_UP            ? "up"
 			                      : r->state == FZN_LIVE_RINGING_IN ? "ringing-in"
 			                                                         : "ringing-out",
-			                      (unsigned)r->kinds);
+			                      (unsigned)r->kinds, user);
 		}
 		return n + (size_t)snprintf(reply + n, cap - n, "\n");
 	}

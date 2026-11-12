@@ -85305,3 +85305,18 @@ unit test reaches, so no sabotage entry guards it; the loss run is its check.
 
 Their addendum, a group line from dag missing in four other runs, is not explained by this; it
 waits on their logs (node logs at level D, `node/session` and `contact/devices`).
+
+## 1040. `list call` names the call's other end, 2026-11-12
+
+Asked by fuzzypickles 2026-11-12 (inbox 20261112T0026Z): nothing a client could read named who was
+calling -- `list call` was `ID,STATE,KINDS`, the ring's event names only the call, and `get call ID
+participants` leaves the caller out -- so a window could say only "a contact is calling", and a
+person could not choose whether to answer, the one thing a ring is for.
+
+`list call` is `ok N ID,STATE,KINDS,USER ...` now. **USER** is the other end's user key: at the
+callee the caller's user, by the host it rang from (`group_owner_of`); at the caller, the first
+user it rang; `-` where this host cannot say. A fourth field, so a client reading three still
+reads three -- every parser in `tool/` splits by index and is unchanged.
+
+**Verified:** `live_call` phase g reads both ends' rows for each of six rings: the callee names
+the caller's key, the caller the key it rang.

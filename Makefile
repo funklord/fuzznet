@@ -7053,7 +7053,7 @@ endif
 	@timeout 310 python3 tool/live_objects.py $(FUZZNETD)
 	@timeout 170 python3 tool/live_session.py $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
 	@timeout 200 python3 tool/live_host_session.py $(EXT_DAEMON)
-	@timeout 440 python3 tool/live_call.py $(FUZZNETD)
+	@timeout 560 python3 tool/live_call.py $(FUZZNETD)
 	@timeout 580 python3 tool/live_group_call.py $(FUZZNETD)
 	@timeout 480 python3 tool/live_sibling_call.py $(FUZZNETD) $(DEVICE_SIM)
 	@timeout 660 python3 tool/live_many_notes.py $(FUZZNETD)
