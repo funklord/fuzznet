@@ -4818,7 +4818,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # "serve.h" without -Inode. FUZZNETD_LINK is everything but that main: the
 # node as a call (sec 670), which another daemon's main links too.
 FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
-              $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/persist/cache.o $(BUILD_DIR)/node/verify_memo.o $(BUILD_DIR)/node/pressure.o $(BUILD_DIR)/node/live.o $(BUILD_DIR)/node/reach.o \
+              $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/persist/cache.o $(BUILD_DIR)/node/verify_memo.o $(BUILD_DIR)/node/pressure.o $(BUILD_DIR)/node/live.o $(BUILD_DIR)/node/reach.o $(BUILD_DIR)/node/metric.o \
               $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \

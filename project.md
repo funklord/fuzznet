@@ -85610,3 +85610,27 @@ under a prefix. Sabotage `metric-estimate-unrounded` is caught.
 
 **Next:** `link/`'s figures moved onto it -- `list link` and its tests kept, its own table gone --
 then the meter, then a call's paths, as sec 1034 orders them.
+
+## 1056. A link's estimates on the metric layer, 2026-11-12
+
+Sec 1055's next step: fuzznetd's links move off a `link/` table of their own onto the metric layer.
+Each link met is two metrics, `link/HOST:PORT/latency` and `link/HOST:PORT/loss`, opened at the
+pessimistic priors (1000 ms, 250 per mille) and moved by sec 202's estimator, which the layer's
+is to the bit (sec 1055): an answer moves both, a silence the loss alone. A link's observations
+are its loss's, which every answer and every silence moves. Its counts -- asked, answered, sent,
+received -- stay beside them. `list link` reads the same rows from them, unchanged in form.
+
+**And no link goes unmeasured for want of room.** The `link/` table was 64 entries, and a link met
+past them was counted as unmeasured and never estimated; the holder's estates run to many machines
+(sec 964). The counts and the metrics now grow together as links are met (sec 704); only a link met
+when no memory could be had is counted unmeasured.
+
+**Found on the way:** sec 1053's `metric/log/link` read each link's age against the wall clock,
+while a link's observations are stamped by the monotonic one, so every logged AGE was wrong. It
+reads the monotonic clock now, as `list link` always did.
+
+**Verified:** `live_call` (its phase h logs A's link to B from the new rows), `live_relay`,
+`live_contacts`, `live_siblings`, hull symmetric and plain -- whose "A's root's asks of B answered"
+step reads `list link`'s ANSWERED column -- and `make test`, `installcheck`, `style`.
+
+**Next:** the meter onto the layer, then a call's paths (sec 1034's order).
