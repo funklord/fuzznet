@@ -16976,6 +16976,45 @@ static void session_relay_unmark(const uint8_t host[FZN_PUBKEY_LEN])
 			session_relay_due[i].until = 0;
 }
 
+/* SESSIONS HELD THROUGH A RELAY, sec 1052, and when each was last asked directly:
+ * a relay chosen for an outage would otherwise outlive it, since a session does
+ * not lapse. Each is asked directly again every FZND_SESSION_RELAY_S; granted
+ * so, the direct session takes its place. */
+static struct {
+	uint8_t host[FZN_PUBKEY_LEN];
+	uint64_t since;
+	int used;
+} session_relayed[FZND_SESSION_ASKS];
+
+static void session_relayed_note(const uint8_t host[FZN_PUBKEY_LEN], uint64_t now)
+{
+	size_t i, at = 0;
+
+	for (i = 0; i < FZND_SESSION_ASKS; i++) {
+		if (session_relayed[i].used
+		    && memcmp(session_relayed[i].host, host, FZN_PUBKEY_LEN) == 0) {
+			at = i;
+			break;
+		}
+		if (!session_relayed[i].used
+		    || (session_relayed[at].used && session_relayed[i].since < session_relayed[at].since))
+			at = i;
+	}
+	memcpy(session_relayed[at].host, host, FZN_PUBKEY_LEN);
+	session_relayed[at].since = now;
+	session_relayed[at].used = 1;
+}
+
+static void session_relayed_forget(const uint8_t host[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < FZND_SESSION_ASKS; i++)
+		if (session_relayed[i].used
+		    && memcmp(session_relayed[i].host, host, FZN_PUBKEY_LEN) == 0)
+			session_relayed[i].used = 0;
+}
+
 static int session_relay_marked(const uint8_t host[FZN_PUBKEY_LEN], uint64_t now)
 {
 	size_t i;
@@ -17086,8 +17125,10 @@ static void session_relayed_answered(void *ctx, const uint8_t *reply, size_t len
 		if (a->pt)
 			a->pt->caller.via_set = 0;
 		session_granted(a, reply, len);
-		if (relay && fzn_node_sessions_of(&granted_sessions, host))
+		if (relay && fzn_node_sessions_of(&granted_sessions, host)) {
 			relay_ways_ask(relay, host);
+			session_relayed_note(host, wall_clock());
+		}
 	}
 }
 
@@ -17134,7 +17175,8 @@ static void session_granted(void *ctx, const uint8_t *reply, size_t len)
 	if (reply && len == 2u + FZN_SESSION_GRANT_LEN && reply[0] == FZN_TYPES_VERSION_SHARED
 	    && reply[1] == FZN_TYPE_SESSION_GRANT
 	    && fzn_node_sessions_asked(&granted_sessions, a->host, reply + 2, contact_hash_ops,
-	                               a->to, a->to_len))
+	                               a->to, a->to_len)
+	    && (session_relayed_forget(a->host), 1))
 		say(FZN_ENTRY_DEBUG, "node/session", "a session with %02x%02x%02x%02x, asked and granted",
 		    a->host[0], a->host[1], a->host[2], a->host[3]);
 	session_ask_close(a);
@@ -17246,6 +17288,27 @@ static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 	}
 	a->live = 1;
 	return 1;
+}
+
+/* EACH RELAYED SESSION ASKED DIRECTLY AGAIN, sec 1052, once its time comes:
+ * granted, the direct session replaces the relayed one as a confirmed session
+ * replaces any other; unanswered, the relayed one goes on, asked again later. */
+static void session_probe_direct(void)
+{
+	uint64_t now = wall_clock();
+	size_t i;
+
+	for (i = 0; i < FZND_SESSION_ASKS; i++) {
+		if (!session_relayed[i].used || session_relayed[i].since + FZND_SESSION_RELAY_S > now)
+			continue;
+		session_relayed[i].since = now;
+		session_relay_unmark(session_relayed[i].host);
+		say(FZN_ENTRY_DEBUG, "node/session",
+		    "a session with %02x%02x%02x%02x held through a relay, asked directly again",
+		    session_relayed[i].host[0], session_relayed[i].host[1], session_relayed[i].host[2],
+		    session_relayed[i].host[3]);
+		(void)session_ask(session_relayed[i].host);
+	}
 }
 
 int fzn_daemon_say(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, size_t len)
@@ -23949,6 +24012,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * nothing either (sec 751). */
 			LOOP_TIMED("verify_memo_keep", verify_memo_keep(now));
 			LOOP_TIMED("live_pump", live_pump());
+			session_probe_direct();
 			/* THE OBJECTS HELD TO THEIR WINDOW, written as it passes, sec 1034. */
 			if (node_objects.rate && node_records.now_ms)
 				(void)fzn_node_objects_due(&node_objects, node_records.now_ms());

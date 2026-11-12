@@ -85535,3 +85535,21 @@ host's own estate would never have been tried.
 
 **Measured on hull**, gateway B symmetric: every journey passed, the phone's first relayed asks
 refused (`this host relays nothing`) and a later one granted, `a session's ways asked of a relay: ok`.
+
+## 1052. A relayed session asked directly again, 2026-11-12
+
+Sec 1030's gap 3 asked that a path chosen for an outage not outlive it. A session does not lapse, so
+one granted through a relay (sec 1046) was carried through the relay for as long as either end
+talked -- however soon the direct way came back.
+
+fuzznetd now notes each session it holds through a relay and, every `FZND_SESSION_RELAY_S`, 300 s,
+asks that host's session **directly** again. Granted so, the direct session replaces the relayed one
+as any confirmed session replaces another (sec 932), and the note goes; unanswered, the relayed one
+goes on and is asked about again a period later. A direct grant is itself the measurement that the
+direct way works both ways: the ask went and the grant came back.
+
+**Not yet exercised end to end:** no environment here turns a relayed path into a direct one within
+a run -- hull's gateway stays symmetric for its whole journey, and the period is longer than the
+call. What is shown is that it changes nothing that was working: hull, symmetric and plain, passed
+with it. The rest of gap 3 -- choosing between two working paths by their measured round trips,
+with hysteresis -- waits on a call that can hold both at once.
