@@ -356,7 +356,9 @@ __pycache__/
 /node/test/rate_test
 /node/test/metric_test
 /node/test/guard_test
+/node/test/status_test
 /wire/test/call_vectors
+/wire/test/status_vectors
 /wire/test/session_frame_test
 /wire/test/session_frame_fuzz
 /node/test/pressure_test

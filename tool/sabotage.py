@@ -15403,6 +15403,20 @@ SABOTAGES = [
 		"a table grown sets every blocked caller free -- sec 1074",
 	),
 	(
+		"status-reads-a-byte-after",
+		"node/status.c",
+		"\t    || FZN_STATUS_HEAD_LEN + fzn_status_message_why_len(v) != len\n",
+		"\t    || FZN_STATUS_HEAD_LEN + fzn_status_message_why_len(v) > len\n",
+		"a status with bytes after its reason is read as one -- sec 1076",
+	),
+	(
+		"relay-ok-not-a-status",
+		"node/daemon.c",
+		"#undef RELAY_NO\n\treturn fzn_status_write(reply, reply_cap, FZN_STATUS_OK, NULL);\n",
+		"#undef RELAY_NO\n\treturn (size_t)snprintf((char *)reply, reply_cap, \"ok\\n\");\n",
+		"a relay says its ok in text, which its asker no longer reads -- sec 1076",
+	),
+	(
 		"session-grant-drops-an-ask",
 		"node/sessions.c",
 		"\t\tif (!s->used || s->confirmed || s->initiator\n",

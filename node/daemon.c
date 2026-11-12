@@ -53,6 +53,7 @@
 #include "reach.h"
 #include "metric.h"
 #include "guard.h"
+#include "status.h"
 #include "talk.h"
 #include "routing.h"
 #include "contact_card.h"
@@ -2044,10 +2045,55 @@ static void link_answered(size_t li, uint64_t began, size_t reply_len, int lost)
  * line -- a contact suspended, a capability it was not granted. Said as the
  * peer said it, since the caller will only see an answer that does not
  * parse. */
+/* A REPLY AS A LOG SAYS IT, sec 1076: a STATUS as its code's name and its
+ * reason, anything else "a reply", none "no answer". */
+static const char *status_said(const uint8_t *reply, size_t len, char *out, size_t cap)
+{
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	fzn_status_t code;
+
+	if (!reply)
+		return "no answer";
+	if (!fzn_status_read(reply, len, &code, &why, &why_len))
+		return "a reply";
+	/* A DENIAL SAYS ITS REASON ALONE: a log line already says refused. */
+	if (code == FZN_STATUS_DENIED && why_len)
+		(void)snprintf(out, cap, "%.*s", (int)why_len, (const char *)why);
+	else
+		(void)snprintf(out, cap, "%s%s%.*s", fzn_status_name(code), why_len ? " " : "",
+		               (int)why_len, (const char *)why);
+	return out;
+}
+
+/* A STATUS SAYING `code`, sec 1076. */
+static int status_is(const uint8_t *reply, size_t len, fzn_status_t code)
+{
+	fzn_status_t got;
+
+	return reply && fzn_status_read(reply, len, &got, NULL, NULL) && got == code;
+}
+
+/* A STATUS REFUSING, any code but ok. */
+static int status_refused(const uint8_t *reply, size_t len)
+{
+	fzn_status_t got;
+
+	return reply && fzn_status_read(reply, len, &got, NULL, NULL) && got != FZN_STATUS_OK;
+}
+
 static void said_refusal(const char *host, const uint8_t *reply, size_t reply_len)
 {
 	const uint8_t *detail = NULL;
 	size_t detail_len = 0, len = reply_len;
+	char said[FZN_STATUS_LEN_MAX + 16u];
+
+	/* A STATUS, sec 1076: the refusals moved off text say so in binary. */
+	if (status_refused(reply, reply_len)) {
+		say(FZN_ENTRY_WARNING, "node/peer", "%s refused: %s", host ? host : "a peer",
+		    status_said(reply, reply_len, said, sizeof(said)));
+		return;
+	}
 
 	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
 		len--;
@@ -17181,10 +17227,11 @@ static fzn_caller_t relay_ways_caller;
 
 static void relay_ways_told(void *ctx, const uint8_t *reply, size_t len)
 {
+	char said[FZN_STATUS_LEN_MAX + 16u];
+
 	(void)ctx;
-	say(FZN_ENTRY_DEBUG, "node/session", "a session's ways asked of a relay: %.*s",
-	    reply ? (int)(len && reply[len - 1u] == '\n' ? len - 1u : len) : 9,
-	    reply ? (const char *)reply : "no answer");
+	say(FZN_ENTRY_DEBUG, "node/session", "a session's ways asked of a relay: %s",
+	    status_said(reply, len, said, sizeof(said)));
 }
 
 static void relay_ways_ask(struct pull_target *relay, const uint8_t host[FZN_PUBKEY_LEN])
@@ -17215,17 +17262,18 @@ static void session_relayed_answered(void *ctx, const uint8_t *reply, size_t len
 {
 	struct session_asking *a = ctx;
 
-	if (a->pt && reply && len == 3u && memcmp(reply, "ok\n", 3u) == 0) {
+	if (a->pt && status_is(reply, len, FZN_STATUS_OK)) {
 		if (!fzn_node_asks_await(&round_asks, &a->pt->caller, a->pt->caller.as_msg,
 		                         FZND_SESSION_ASK_WAIT_MS, session_relayed_answered, a))
 			session_ask_close(a);
 		return;
 	}
-	if (!reply || (len >= 7u && memcmp(reply, "denied ", 7u) == 0)) {
+	if (!reply || status_refused(reply, len)) {
+		char said[FZN_STATUS_LEN_MAX + 16u];
+
 		say(FZN_ENTRY_DEBUG, "node/session", "a session asked of %02x%02x%02x%02x through a "
-		    "relay: %.*s", a->host[0], a->host[1], a->host[2], a->host[3],
-		    reply ? (int)(len < 80u ? len - 1u : 80u) : 9,
-		    reply ? (const char *)reply : "no answer");
+		    "relay: %s", a->host[0], a->host[1], a->host[2], a->host[3],
+		    status_said(reply, len, said, sizeof(said)));
 		session_relay_unmark(a->host);
 		session_relay_turn++;
 		session_ask_close(a);
@@ -19057,12 +19105,12 @@ static size_t relay_session_remote(const uint8_t *sender, const uint8_t *request
 	if (no) {
 		say(FZN_ENTRY_WARNING, "node/peer", "a relay for %02x%02x%02x%02x refused: %s",
 		    sender[0], sender[1], sender[2], sender[3], no);
-		return (size_t)snprintf((char *)reply, reply_cap, "denied %s\n", no);
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED, no);
 	}
 	say(FZN_ENTRY_DEBUG, "node/peer", "a session of %02x%02x%02x%02x relayed to %02x%02x%02x%02x",
 	    sender[0], sender[1], sender[2], sender[3], request[2], request[3], request[4],
 	    request[5]);
-	return (size_t)snprintf((char *)reply, reply_cap, "ok\n");
+	return fzn_status_write(reply, reply_cap, FZN_STATUS_OK, NULL);
 }
 
 static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
@@ -19129,7 +19177,7 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 #define RELAY_NO(text)                                                                     \
 	(say(FZN_ENTRY_WARNING, "node/peer", "a relay for %02x%02x%02x%02x refused: %s",       \
 	     sender[0], sender[1], sender[2], sender[3], text),                                 \
-	 (size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
+	 fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED, text))
 	/* WHO MAY, judged in `node/relay.c` (sec 762), in the order it was
 	 * judged here. */
 	{
@@ -19160,7 +19208,7 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	if (fzn_udp_send(st->udp_fd, &to, frame, inner_len) != FZN_UDP_OK)
 		return RELAY_NO("the frame would not send");
 #undef RELAY_NO
-	return (size_t)snprintf((char *)reply, reply_cap, "ok\n");
+	return fzn_status_write(reply, reply_cap, FZN_STATUS_OK, NULL);
 }
 
 /* AN INTRODUCTION, sec 623, fuzzypickles' rendezvous among an estate's
@@ -19363,13 +19411,13 @@ static void relayed_time_answered(void *ctx, const uint8_t *reply, size_t reply_
 	pt = time_asks[i].via;
 	if (pt)
 		pt->caller.via_set = 0;
-	if (pt && reply && reply_len == 3u && memcmp(reply, "ok\n", 3u) == 0) {
+	if (pt && status_is(reply, reply_len, FZN_STATUS_OK)) {
 		if (!fzn_node_asks_await(&round_asks, &pt->caller, pt->caller.as_msg, 3000u,
 		                         relayed_time_answered, ctx))
 			time_asks[i].used = 0;
 		return;
 	}
-	if (reply && reply_len >= 7u && memcmp(reply, "denied ", 7u) == 0) {
+	if (status_refused(reply, reply_len)) {
 		time_asks[i].used = 0;
 		return;
 	}
@@ -20083,24 +20131,21 @@ static void deliver_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 		/* NO MORE OKS THAN SENDS: each resend has the relay say ok again,
 		 * and each ok waiting afresh would never end for a target that
 		 * does not answer. */
-		if (reply && reply_len == 3u && memcmp(reply, "ok\n", 3u) == 0
-		    && ++dt->oks > FZN_CALLER_RESENDS + 1u) {
+		if (status_is(reply, reply_len, FZN_STATUS_OK) && ++dt->oks > FZN_CALLER_RESENDS + 1u) {
 			deliver_answered(dt, NULL, 0);
 			return;
 		}
-		if (reply && reply_len == 3u && memcmp(reply, "ok\n", 3u) == 0) {
+		if (status_is(reply, reply_len, FZN_STATUS_OK)) {
 			if (!fzn_node_asks_await_again(&round_asks, &pt->caller, pt->caller.as_msg, 3000u,
 			                               deliver_answered, dt, deliver_relay_again, dt))
 				deliver_answered(dt, NULL, 0);
 			return;
 		}
-		if (reply && reply_len >= 7u && memcmp(reply, "denied ", 7u) == 0) {
-			say(FZN_ENTRY_WARNING, "messages/deliver", "the relay to %s refused: %.*s",
-			    dt->hosts[dt->at].name,
-			    (int)(reply_len - 7u > 120u ? 120u : reply[reply_len - 1u] == '\n'
-			                                                 ? reply_len - 8u
-			                                                 : reply_len - 7u),
-			    (const char *)reply + 7);
+		if (status_refused(reply, reply_len)) {
+			char said[FZN_STATUS_LEN_MAX + 16u];
+
+			say(FZN_ENTRY_WARNING, "messages/deliver", "the relay to %s refused: %s",
+			    dt->hosts[dt->at].name, status_said(reply, reply_len, said, sizeof(said)));
 			reply = NULL;
 			reply_len = 0;
 		}

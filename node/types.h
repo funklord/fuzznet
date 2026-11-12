@@ -49,6 +49,8 @@
  *   35, 37..52, 61, 62  fuzznetd's own, here; 62 since sec 1064
  *   63, 64          `node/contact_devices.h`'s K_SETTING and K_SET since sec
  *                   1064, which took 55 and 56 again beside its own act log
+ *   65              fuzznetd's STATUS, here, since sec 1076: an answer of ok or
+ *                   why not, from node/status.situ
  *   36              never allocated
  *
  * fuzznetd's own were `#define`s inside `node/daemon.c`; they live here,
@@ -85,6 +87,8 @@
  * end's key, the asker's handle and the other end's, 4 bytes each. Answered
  * `ok` or `denied WHY`. */
 #define FZN_TYPE_RELAY_SESSION 62u
+/* A STATUS, sec 1076: a host's answer carrying no data, ok or why not. */
+#define FZN_TYPE_STATUS 65u
 #define FZN_RELAY_SESSION_LEN (2u + 32u + 4u + 4u)
 /* A CALL'S WORD, sec 1019 (`node/live.h`): said in a session, never answered. */
 #define FZN_TYPE_LIVE 61u

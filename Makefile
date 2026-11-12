@@ -233,11 +233,11 @@ LEAN_SERVICES := FZN_STICKERS=0 FZN_CATALOG=0 FZN_NOTES=0 FZN_GROUPS=0
 # under our full set today; that is luck to enjoy, not a rule to enforce on
 # somebody else's emitter.
 GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
-             wire/generated/call.c wire/generated/situ.c
+             wire/generated/call.c wire/generated/status.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
-GEN_TEST_SRCS := wire/generated/call_vectors.c
+GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -245,7 +245,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
              net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
-             node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/live.c node/reach.c node/rate.c node/metric.c node/guard.c node/replies.c \
+             node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/live.c node/reach.c node/rate.c node/metric.c node/guard.c node/status.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
@@ -347,7 +347,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
-             node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/live.h node/reach.h node/rate.h node/metric.h node/guard.h node/replies.h \
+             node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/live.h node/reach.h node/rate.h node/metric.h node/guard.h node/status.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
@@ -501,7 +501,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
-             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c node/test/verify_memo_test.c wire/test/session_frame_test.c node/test/sessions_test.c node/test/live_test.c node/test/reach_test.c node/test/rate_test.c node/test/metric_test.c node/test/guard_test.c \
+             net/test/udp_test.c net/test/bearer_test.c persist/test/delta_test.c persist/test/cache_test.c node/test/verify_memo_test.c wire/test/session_frame_test.c node/test/sessions_test.c node/test/live_test.c node/test/reach_test.c node/test/rate_test.c node/test/metric_test.c node/test/guard_test.c node/test/status_test.c \
              node/test/pressure_test.c record/test/held_test.c \
              node/test/node_test.c node/test/local_test.c node/test/permit_test.c node/test/stage_test.c node/test/stage_fuzz.c \
              node/test/serve_test.c node/test/replies_test.c \
@@ -663,10 +663,12 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/sessions_test \
              $(BUILD_DIR)/node/test/live_test \
              $(BUILD_DIR)/wire/test/call_vectors \
+             $(BUILD_DIR)/wire/test/status_vectors \
              $(BUILD_DIR)/node/test/reach_test \
              $(BUILD_DIR)/node/test/rate_test \
              $(BUILD_DIR)/node/test/metric_test \
              $(BUILD_DIR)/node/test/guard_test \
+             $(BUILD_DIR)/node/test/status_test \
              $(BUILD_DIR)/node/test/pressure_test \
              $(BUILD_DIR)/record/test/held_test \
              $(BUILD_DIR)/node/test/node_test \
@@ -4070,6 +4072,17 @@ $(BUILD_DIR)/wire/test/call_vectors: wire/generated/call_vectors.c wire/generate
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -lcmocka -o $@
 
+$(BUILD_DIR)/node/test/status_test: $(BUILD_DIR)/node/test/status_test.o $(BUILD_DIR)/node/status.o \
+                                    $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A STATUS HELD TO ITS GOLDEN VECTORS, sec 1076, as a call's messages are.
+$(BUILD_DIR)/wire/test/status_vectors: wire/generated/status_vectors.c wire/generated/status.c \
+                                       wire/generated/situ.c $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -lcmocka -o $@
+
 $(BUILD_DIR)/node/test/guard_test: $(BUILD_DIR)/node/test/guard_test.o $(BUILD_DIR)/node/guard.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -4838,7 +4851,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # node as a call (sec 670), which another daemon's main links too.
 FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/persist/delta.o $(BUILD_DIR)/persist/cache.o $(BUILD_DIR)/node/verify_memo.o $(BUILD_DIR)/node/pressure.o $(BUILD_DIR)/node/live.o $(BUILD_DIR)/node/reach.o $(BUILD_DIR)/node/metric.o \
-              $(BUILD_DIR)/node/guard.o $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
+              $(BUILD_DIR)/node/guard.o $(BUILD_DIR)/node/status.o $(BUILD_DIR)/net/bearer.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
@@ -6911,7 +6924,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
-              roster/roster.situ chain/root_act.situ chain/succession.situ node/call.situ \
+              roster/roster.situ chain/root_act.situ chain/succession.situ node/call.situ node/status.situ \
               record/exchange.situ \
               wire/session_frame.situ node/verify_memo.situ notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting.situ \
@@ -7583,8 +7596,13 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/call.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_call \
 	         --out $(BUILD_DIR)/.gen.new node/call.situ node/call.vectors >/dev/null 2>&1
+	@# AND A STATUS'S READER AND BUILDER, and its vectors' test, sec 1076.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_status --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/status.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_status \
+	         --out $(BUILD_DIR)/.gen.new node/status.situ node/status.vectors >/dev/null 2>&1
 	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h call.c call.h \
-	          call_vectors.c; do \
+	          call_vectors.c status.c status.h status_edit.h status_build.h status_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \

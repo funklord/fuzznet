@@ -86065,3 +86065,44 @@ phase h (`metric/leg`), hull's "A's root's asks of B answered" step, and the gat
 count exactly 64 -- the table's fixed size until sec 1056 moved the legs onto the metric layer,
 whose rows grow. It now counts all 140 hosts, paged, distinct, and the phase failed on a correct
 answer; it asks for every host now.
+
+## 1076. STATUS: a host's answer carrying no data, in binary, from a situ schema, 2026-11-12
+
+**Sec 1061 step 3, first part.** A host answering another with nothing but ok or why not
+answered a text line -- the relay's `ok` and `denied WHY` -- and the asker compared bytes
+against `"ok\n"` and `"denied "`. The holder: no control between hosts rests on parsing text.
+
+**STATUS, version 2 type 65** (`FZN_TYPE_STATUS`, registered in `node/types.h` and
+`types_test`):
+
+    2 | 65 | CODE | WHY_LEN | WHY
+
+CODE is what the asker decides on: ok 0, denied 1, malformed 2, error 3, unsupported 4,
+shedding 5, busy 6. WHY, at most 200 bytes, is for a person reading a log and is never parsed.
+
+**Described, not hand-written:** `node/status.situ`, with `situc build --layer edit` generating
+the reader and the builder into `wire/generated/status*`, and `situc gen-tests` its golden-vector
+test from `node/status.vectors` (written by hand from the layout, so the schema is held to a
+writer other than its compiler). The builder computes WHY_LEN from the reason itself, so a STATUS
+cannot disagree with its own length. `node/status.{h,c}` is the public face -- generated headers
+stay private -- and its codes are the schema's, held equal at compile time: a value unequal to its
+twin in the generated enum does not compile. The schema gate (`make schema`) regenerates all of it
+and compares.
+
+**Moved onto it here, the relay** (the inventory of the rest is the work file's, and sec 1061's
+order stands):
+- RELAY and RELAY_SESSION answer STATUS ok or denied with the reason they gave in words;
+- their askers read it: a session asked through a relay, a clock asked through one, a line
+  delivered through one, and the relay-ways ask's log line;
+- `said_refusal` logs a STATUS refusal from any peer, beside the text refusals not yet moved.
+
+A reply that is no STATUS is what it was before: a relayed session grant, a relayed clock, the
+target's own delivery answer. A log line saying a refusal gives a denial's reason alone --
+`the relay to HOST refused: over this host's relay quota` as before, which `live_relay` phase e
+waits for -- and any other code by its name and reason.
+
+**Measured:** `node/test/status_test.c`, 35 checks -- every code written and read back, a reason
+carried and cut at 200, and refused: a status cut short, a byte after the reason, another family
+or type, a code the schema does not name, a length past the bytes, a text refusal.
+`wire/test/status_vectors` holds the three golden vectors. Sabotage `status-reads-a-byte-after`
+is caught by status_test; `relay-ok-not-a-status` by the relay's live scripts.
