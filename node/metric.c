@@ -100,6 +100,32 @@ int fzn_metrics_observe(fzn_metrics_t *m, const char *name, uint64_t sample, uin
 	return 1;
 }
 
+int fzn_metrics_count(fzn_metrics_t *m, const char *name, uint64_t amount, uint64_t now_ms)
+{
+	fzn_metric_t *r = name ? find(m, name) : NULL;
+
+	if (!r)
+		return 0;
+	if (!r->observations)
+		r->window_start_ms = now_ms;
+	/* THE WINDOW ENDED: its sum a second over how long it ran, as the meter's
+	 * rows close theirs. A clock set back starts a window afresh. */
+	if (now_ms < r->window_start_ms)
+		r->window_start_ms = now_ms;
+	else if (now_ms >= r->window_start_ms + FZN_METRIC_WINDOW_MS) {
+		uint64_t span_ms = now_ms - r->window_start_ms;
+
+		r->rate = r->window_sum * 1000u / span_ms;
+		r->window_start_ms = now_ms;
+		r->window_sum = 0;
+	}
+	r->total += amount;
+	r->window_sum += amount;
+	r->observations++;
+	r->last_ms = now_ms;
+	return 1;
+}
+
 size_t fzn_metrics_page(const fzn_metrics_t *m, const char *prefix, size_t from, size_t max,
                         void (*row)(void *ctx, const fzn_metric_t *r), void *ctx, size_t *next)
 {

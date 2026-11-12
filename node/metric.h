@@ -27,6 +27,9 @@
 #define FZN_METRIC_NAME_MAX 96u
 #define FZN_METRIC_SMOOTH_SHIFT 3u
 #define FZN_METRIC_OWN 16u
+/* A COUNT'S WINDOW, sec 1057: its rate is what the last whole window carried,
+ * a second at a time, as the meter's rows' are (sec 685). */
+#define FZN_METRIC_WINDOW_MS 5000u
 
 typedef struct fzn_metric {
 	char name[FZN_METRIC_NAME_MAX + 1u];
@@ -34,6 +37,11 @@ typedef struct fzn_metric {
 	uint64_t prior;
 	uint64_t observations;
 	uint64_t last_ms;      /* when last observed; 0 never */
+	/* A COUNT, sec 1057, where a value is an amount added rather than a sample
+	 * estimated -- bytes, requests: its total, and the last whole window's rate
+	 * a second. */
+	uint64_t total, rate;
+	uint64_t window_start_ms, window_sum;
 	int used;
 } fzn_metric_t;
 
@@ -60,6 +68,11 @@ const fzn_metric_t *fzn_metrics_get(const fzn_metrics_t *m, const char *name);
 /* A SAMPLE of `name` at `now_ms`: its estimate moved toward it, counted. 0 when
  * there is no such row. */
 int fzn_metrics_observe(fzn_metrics_t *m, const char *name, uint64_t sample, uint64_t now_ms);
+
+/* AN AMOUNT ADDED to `name`'s count at `now_ms`, sec 1057: its total grown, and
+ * its rate a second the last whole FZN_METRIC_WINDOW_MS's once that window ends.
+ * 0 when there is no such row. */
+int fzn_metrics_count(fzn_metrics_t *m, const char *name, uint64_t amount, uint64_t now_ms);
 
 /* THE ROWS NAMED UNDER `prefix` ("" for all), in the order they were added, from
  * the `from`th of them, at most `max`, each handed to `row`: how many were, and

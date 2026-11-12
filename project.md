@@ -85634,3 +85634,19 @@ reads the monotonic clock now, as `list link` always did.
 step reads `list link`'s ANSWERED column -- and `make test`, `installcheck`, `style`.
 
 **Next:** the meter onto the layer, then a call's paths (sec 1034's order).
+
+## 1057. A count on the metric layer, 2026-11-12
+
+Sec 1034's order puts the meter on the layer after the links (sec 1056), and the meter's values are
+not samples to estimate but amounts to add: bytes up and down, with a rate over the last window
+(sec 685). So the layer gains a **count** beside the estimate: `fzn_metrics_count` adds an amount
+to a value's total and, each time `FZN_METRIC_WINDOW_MS` (5 s, the meter's window) has passed,
+says what the window carried as a rate a second, as the meter's rows close theirs -- a clock set
+back starting a window afresh. A count's estimate is left at its prior; a value is one kind or the
+other by how its writer uses it.
+
+**Verified:** `metric_test` -- three amounts in one window totalled with no rate said, 10000 bytes
+over 5 s read as 2000 a second at the window's end, a quiet window's 500 over 10 s as 50, and a
+count with no row refused.
+
+**Next:** the meter's rows onto it, `list transfer` unchanged in form.

@@ -134,6 +134,30 @@ static void test_pages(void)
 	CHECK(got == 4u && next == 4u, "all of them were not listed under the empty prefix");
 }
 
+/* A COUNT, sec 1057: amounts added to a total, the rate the last whole window's
+ * a second, nothing estimated. */
+static void test_a_count(void)
+{
+	static fzn_metrics_t m;
+	const fzn_metric_t *r;
+
+	fzn_metrics_init(&m);
+	(void)fzn_metrics_open(&m, "meter/notes/up", 0u);
+	CHECK(fzn_metrics_count(&m, "meter/notes/up", 1000u, 10000u)
+	              && fzn_metrics_count(&m, "meter/notes/up", 4000u, 12000u)
+	              && fzn_metrics_count(&m, "meter/notes/up", 5000u, 14999u),
+	      "fixture: three amounts within one window");
+	r = fzn_metrics_get(&m, "meter/notes/up");
+	CHECK(r->total == 10000u && r->rate == 0u && r->observations == 3u && r->estimate == 0u,
+	      "amounts were not totalled, or a rate was said before a window ended");
+	(void)fzn_metrics_count(&m, "meter/notes/up", 500u, 15000u);
+	CHECK(r->total == 10500u && r->rate == 2000u,
+	      "the window's end did not give its 10000 bytes over 5 s as 2000 a second");
+	(void)fzn_metrics_count(&m, "meter/notes/up", 0u, 25000u);
+	CHECK(r->rate == 50u, "a quiet window's rate was not what it carried, 500 over 10 s");
+	CHECK(!fzn_metrics_count(&m, "meter/none", 1u, 1u), "a count with no row was taken");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -151,6 +175,7 @@ int main(void)
 	test_the_estimate_is_links();
 	test_the_callers_room();
 	test_pages();
+	test_a_count();
 	if (failures) {
 		fprintf(stderr, "node metric_test: %d of %d checks failed\n", failures, checks);
 		return 1;
