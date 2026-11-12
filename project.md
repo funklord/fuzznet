@@ -85358,3 +85358,15 @@ two-word name would make unsplittable. The word goes to the log instead, `node/s
 **Verified:** `live_call` -- a client subscribed to B's events hears `event call ID` when A rings
 and again when A hangs up, B's own answer read and set aside first. **Control:** the daemon before
 this fails it at the ring.
+
+## 1044. The governance view's inputs have spoken names, 2026-11-12
+
+Reported by fuzzypickles 2026-11-12 (inbox 20261112T0501Z): hosted as its Estate page, the view
+failed its window's accessibility check, which walks every input through Qt's accessibility layer
+(what TalkBack is fed): the key field and k were spoken as nothing -- a placeholder and a spin
+box's prefix are not names. Someone using a screen reader met two unnamed boxes on the page that
+decides who governs their estate.
+
+Every input, list and chooser in the view is named now, and `governance_view_test` walks them as
+`notebook_view_test` does (sec 983), spin boxes included and a spin box's own editor excused.
+**Control:** with the key's name removed the check fails, naming the `QLineEdit`.

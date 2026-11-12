@@ -179,6 +179,18 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 	m_refresh = new QPushButton(QStringLiteral("Refresh"), this);
 	outer->addWidget(m_refresh);
 
+	/* EVERY INPUT NAMED for a screen reader, sec 1044: a placeholder and a
+	 * spin box's prefix are not read as a name, and the page that decides who
+	 * governs an estate met a screen reader with two unnamed boxes. */
+	m_key->setAccessibleName(QStringLiteral("Key"));
+	m_k->setAccessibleName(QStringLiteral("k, root signatures a revocation needs"));
+	m_roots->setAccessibleName(QStringLiteral("Roots"));
+	m_votes->setAccessibleName(QStringLiteral("Votes against a key"));
+	m_setting_votes->setAccessibleName(QStringLiteral("Votes for a setting's value"));
+	m_successions->setAccessibleName(QStringLiteral("Re-keys"));
+	m_staged->setAccessibleName(QStringLiteral("Staged changes"));
+	m_presets->setAccessibleName(QStringLiteral("Profile"));
+
 	connect(m_add_root, &QPushButton::clicked, this, [this]() { add_root(); });
 	connect(m_remove_root, &QPushButton::clicked, this, [this]() { remove_root(); });
 	connect(m_set_k, &QPushButton::clicked, this, [this]() { set_k(m_k->value()); });

@@ -9,7 +9,10 @@
 
 #include "../governance_view.h"
 
+#include <QAbstractSpinBox>
 #include <QApplication>
+#include <QComboBox>
+#include <QLineEdit>
 #include <QListWidget>
 
 #include <stdio.h>
@@ -157,6 +160,23 @@ int main(int argc, char **argv)
 	 * four made the view 370 here, and 380 in fuzzypickles' Estate page; 210 since. */
 	CHECK(view.minimumSizeHint().width() <= 320,
 	      "the view is wider than a 320 px cover screen");
+
+	/* ---- EVERY INPUT NAMED for a screen reader, sec 1044: a placeholder or a
+	 * prefix is not a name, and fuzzypickles' check found the key and k unnamed. */
+	{
+		QStringList unnamed;
+
+		for (QWidget *c : view.findChildren<QWidget *>())
+			/* A spin box's own editor is its spin box, which is named. */
+			if (!qobject_cast<QAbstractSpinBox *>(c->parentWidget())
+			    && (qobject_cast<QLineEdit *>(c) || qobject_cast<QAbstractSpinBox *>(c)
+			         || qobject_cast<QComboBox *>(c) || qobject_cast<QListWidget *>(c))
+			    && c->accessibleName().isEmpty())
+				unnamed << QString::fromLatin1(c->metaObject()->className());
+		CHECK(unnamed.isEmpty(), "an input, list or chooser has no accessible name");
+		if (!unnamed.isEmpty())
+			fprintf(stderr, "  unnamed: %s\n", unnamed.join(QStringLiteral(", ")).toUtf8().constData());
+	}
 
 	/* ---- EVERY PART READ. */
 	CHECK(view.k() == 2, "k was not read from list root");
