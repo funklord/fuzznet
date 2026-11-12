@@ -85505,3 +85505,18 @@ script's `add record` stays within a key's passes (`live_trim` adds three).
 **Not yet:** sec 1034's metrics behind the gate. Nothing in fuzznetd writes a metric as a record
 today, so this gate does not reach them; whatever path stores or carries them first takes the gate
 with it.
+
+## 1050. A relayed session's frames on its asker's quota, 2026-11-12
+
+Sec 1046's ways were charged once, for the request that asked for them; after that the relay sent on
+whatever frames came, so one request bought a contact unlimited relaying through somebody else's
+host -- a call, or anything sealed as a session frame, for as long as it kept talking.
+
+Each way now **names its owner**, the key that asked for it (`fzn_node_relay_session`'s last
+argument, handed back by `fzn_node_relay_session_to`), and the serve loop asks
+`fzn_node_state_t`'s `relay_charge` before it sends a frame on: fuzznetd charges the frame's bytes
+to the owner's `relay/quota` over `relay/window`, as a relayed request is charged, and a frame over
+it goes no further. Both ways charge the asker, who chose to route the session through this host.
+
+**Verified:** `relay_test` -- a way names who asked for it; `serve_test` -- a frame whose charge is
+refused is not sent on, the charge asked once. Sabotage `relay-session-uncharged` is caught.

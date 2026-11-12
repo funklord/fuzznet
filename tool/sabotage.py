@@ -15333,6 +15333,13 @@ SABOTAGES = [
 		"a reading fed faster than its window is kept every time -- sec 1049",
 	),
 	(
+		"relay-session-uncharged",
+		"node/serve.c",
+		"\t\t    && (!state->relay_charge\n",
+		"\t\t    && (1 || !state->relay_charge\n",
+		"a relayed session's frames are sent on whatever its asker's quota says -- sec 1050",
+	),
+	(
 		"relay-own-route-unmarked",
 		"node/relay.c",
 		"\t\t\tr->routes[i].own = 1;\n",

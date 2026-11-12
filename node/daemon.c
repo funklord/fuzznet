@@ -18527,6 +18527,14 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
 	}
 }
 
+/* A RELAYED SESSION'S FRAME, sec 1050, on its asker's quota as a relayed request
+ * is: over it, the frame goes no further. */
+static int relayed_frame_charged(void *ctx, const uint8_t owner[FZN_PUBKEY_LEN], size_t bytes)
+{
+	(void)ctx;
+	return relay_charge(owner, bytes, wall_clock());
+}
+
 /* A SESSION'S WAYS, sec 1045: the asker and the other end, each by its handle,
  * judged as a relayed frame is -- this host relaying at all, for its estate and
  * its contacts, one hop -- and the other end seen lately; charged to the asker's
@@ -18553,7 +18561,8 @@ static size_t relay_session_remote(const uint8_t *sender, const uint8_t *request
 		no = "over this host's relay quota";
 	if (!no && !fzn_node_relay_session(&relay_tables, st->asking_from,
 	                                   fzn_get_be32(request + 2 + FZN_PUBKEY_LEN), &to,
-	                                   fzn_get_be32(request + 2 + FZN_PUBKEY_LEN + 4u), now))
+	                                   fzn_get_be32(request + 2 + FZN_PUBKEY_LEN + 4u), now,
+	                                   sender))
 		no = "the session's ways would not keep";
 	if (no) {
 		say(FZN_ENTRY_WARNING, "node/peer", "a relay for %02x%02x%02x%02x refused: %s",
@@ -23073,6 +23082,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			}
 			admin.relay_remote = relay_remote;
 			state.relay = &relay_tables;
+			state.relay_charge = relayed_frame_charged;
 			/* A CONTACT'S NAME, the user's, sec 699. */
 			admin.contact_named = contact_named;
 			/* A LAN PROBE, sec 624. */

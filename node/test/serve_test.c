@@ -589,6 +589,17 @@ static void test_wait_answering_own_fds(void)
 	fzn_node_serve_release(&state);
 }
 
+static int charged;
+
+static int charge_refused(void *ctx, const uint8_t owner[FZN_PUBKEY_LEN], size_t bytes)
+{
+	(void)ctx;
+	(void)owner;
+	(void)bytes;
+	charged++;
+	return 0;
+}
+
 static int same_addr(const fzn_udp_addr_t *a, const fzn_udp_addr_t *b)
 {
 	return a->len == b->len && memcmp(a->storage, b->storage, a->len) == 0;
@@ -634,7 +645,7 @@ static void test_run_once_relays_a_session(void)
 	           && fzn_session_end_derive(&end, &hash, key, ask, grant, 1),
 	   "fixture: a session between A and B");
 	fzn_node_relay_init(&relay);
-	ok(fzn_node_relay_session(&relay, &at_a, 0x0a0a0a0au, &at_b, end.speaks_to, 1000u),
+	ok(fzn_node_relay_session(&relay, &at_a, 0x0a0a0a0au, &at_b, end.speaks_to, 1000u, NULL),
 	   "the session was not relayed");
 	memset(&state, 0, sizeof(state));
 	state.listen_fd = -1;
@@ -658,6 +669,15 @@ static void test_run_once_relays_a_session(void)
 	ok(poll(&p, 1, 1000) == 1 && fzn_udp_recv(bfd, got, sizeof(got), &got_len, &from) == FZN_UDP_OK
 	           && got_len == n && memcmp(got, frame, n) == 0 && same_addr(&from, &at_relay),
 	   "A's session frame did not reach B from the relay, byte for byte");
+
+	/* OVER ITS ASKER'S QUOTA, sec 1050: the charge refused, the frame goes no
+	 * further. */
+	state.relay_charge = charge_refused;
+	(void)fzn_udp_send(afd, &at_relay, frame, n);
+	(void)fzn_node_run_once(&state, 300);
+	p.revents = 0;
+	ok(poll(&p, 1, 300) == 0 && charged == 1, "a relayed frame over its asker's quota was sent on");
+	state.relay_charge = NULL;
 
 	/* FROM A THIRD HOST, the same frame: no way stands from there. */
 	(void)fzn_udp_send(cfd, &at_relay, frame, n);

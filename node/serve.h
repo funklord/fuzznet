@@ -172,6 +172,11 @@ typedef struct fzn_node_state {
 	 * frame check; and every granted frame's address is noted as where its
 	 * sender was seen. NULL relays nothing and notes nothing. */
 	fzn_node_relay_t *relay;
+	/* A RELAYED SESSION'S FRAME CHARGED, sec 1050: to `owner`, who asked for
+	 * the session's ways, `bytes` long; 0 drops it unsent. NULL charges
+	 * nothing. */
+	int (*relay_charge)(void *ctx, const uint8_t owner[FZN_PUBKEY_LEN], size_t bytes);
+	void *relay_charge_ctx;
 	/* WHERE A REMOTE HANDLER WRITES ITS REPLY, borrowed and sized by the
 	 * consumer; NULL uses a FZN_NODE_REPLY_MAX buffer on the node's own
 	 * stack. A consumer whose answers exceed one frame supplies one here

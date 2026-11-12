@@ -254,36 +254,47 @@ static void test_a_session_relayed(void)
 	unsigned i;
 
 	fzn_node_relay_init(&r);
-	CHECK(fzn_node_relay_session(&r, &a, 0xa1u, &b, 0xb1u, 100u), "a session was not relayed");
-	CHECK(fzn_node_relay_session_to(&r, &a, 0xb1u, 101u, &got) && same(&got, &b),
+	{
+		/* ITS OWNER, sec 1050, handed back with either way. */
+		uint8_t owner[32], seen_owner[32];
+
+		memset(owner, 0x5a, sizeof(owner));
+		memset(seen_owner, 0, sizeof(seen_owner));
+		CHECK(fzn_node_relay_session(&r, &a, 0xa1u, &b, 0xb1u, 100u, owner)
+		              && fzn_node_relay_session_to(&r, &b, 0xa1u, 100u, &got, seen_owner)
+		              && memcmp(seen_owner, owner, sizeof(owner)) == 0,
+		      "a session's way did not name who asked for it");
+	}
+	CHECK(fzn_node_relay_session(&r, &a, 0xa1u, &b, 0xb1u, 100u, NULL), "a session was not relayed");
+	CHECK(fzn_node_relay_session_to(&r, &a, 0xb1u, 101u, &got, NULL) && same(&got, &b),
 	      "a frame from A for B's handle did not go to B");
-	CHECK(fzn_node_relay_session_to(&r, &b, 0xa1u, 101u, &got) && same(&got, &a),
+	CHECK(fzn_node_relay_session_to(&r, &b, 0xa1u, 101u, &got, NULL) && same(&got, &a),
 	      "a frame from B for A's handle did not go to A");
-	CHECK(!fzn_node_relay_session_to(&r, &a, 0xa1u, 101u, &got)
-	              && !fzn_node_relay_session_to(&r, &c, 0xb1u, 101u, &got),
+	CHECK(!fzn_node_relay_session_to(&r, &a, 0xa1u, 101u, &got, NULL)
+	              && !fzn_node_relay_session_to(&r, &c, 0xb1u, 101u, &got, NULL),
 	      "a frame for its sender's own handle, or from a third host, was forwarded");
-	CHECK(fzn_node_relay_session_to(&r, &a, 0xb1u, 100u + FZN_NODE_RELAY_SESSION_S - 1u, &got)
+	CHECK(fzn_node_relay_session_to(&r, &a, 0xb1u, 100u + FZN_NODE_RELAY_SESSION_S - 1u, &got, NULL)
 	              && fzn_node_relay_session_to(&r, &a, 0xb1u,
-	                                           100u + 2u * FZN_NODE_RELAY_SESSION_S - 2u, &got),
+	                                           100u + 2u * FZN_NODE_RELAY_SESSION_S - 2u, &got, NULL),
 	      "a frame did not move its way's end on");
 	/* B's way last moved on at 101. */
-	CHECK(!fzn_node_relay_session_to(&r, &b, 0xa1u, 101u + FZN_NODE_RELAY_SESSION_S, &got),
+	CHECK(!fzn_node_relay_session_to(&r, &b, 0xa1u, 101u + FZN_NODE_RELAY_SESSION_S, &got, NULL),
 	      "a way neither end used went on forwarding past its end");
-	CHECK(fzn_node_relay_session(&r, &a, 0xa1u, &c, 0xb1u, 300u)
-	              && fzn_node_relay_session_to(&r, &a, 0xb1u, 301u, &got) && same(&got, &c),
+	CHECK(fzn_node_relay_session(&r, &a, 0xa1u, &c, 0xb1u, 300u, NULL)
+	              && fzn_node_relay_session_to(&r, &a, 0xb1u, 301u, &got, NULL) && same(&got, &c),
 	      "the same way relayed again did not replace where it goes");
 	for (i = 0; i < FZN_NODE_RELAY_SESSIONS_MAX; i++) {
 		fzn_udp_addr_t x = addr_of("127.0.0.1", (uint16_t)(6000u + i));
 
-		(void)fzn_node_relay_session(&r, &x, 0x1000u + i, &b, 0x2000u + i, 400u + i);
+		(void)fzn_node_relay_session(&r, &x, 0x1000u + i, &b, 0x2000u + i, 400u + i, NULL);
 	}
 	{
 		fzn_udp_addr_t last = addr_of("127.0.0.1", (uint16_t)(6000u + FZN_NODE_RELAY_SESSIONS_MAX - 1u));
 
 		CHECK(fzn_node_relay_session_to(&r, &last, 0x2000u + FZN_NODE_RELAY_SESSIONS_MAX - 1u,
-		                                400u + FZN_NODE_RELAY_SESSIONS_MAX, &got)
+		                                400u + FZN_NODE_RELAY_SESSIONS_MAX, &got, NULL)
 		              && fzn_node_relay_session_to(&r, &b, 0x1000u + FZN_NODE_RELAY_SESSIONS_MAX - 1u,
-		                                           400u + FZN_NODE_RELAY_SESSIONS_MAX, &got)
+		                                           400u + FZN_NODE_RELAY_SESSIONS_MAX, &got, NULL)
 		              && same(&got, &last),
 		      "a full table gave way a way just made");
 	}

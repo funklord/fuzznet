@@ -137,7 +137,8 @@ static fzn_node_relay_session_t *way_place(fzn_node_relay_t *r, const fzn_udp_ad
 }
 
 int fzn_node_relay_session(fzn_node_relay_t *r, const fzn_udp_addr_t *a, uint32_t a_handle,
-                           const fzn_udp_addr_t *b, uint32_t b_handle, uint64_t now)
+                           const fzn_udp_addr_t *b, uint32_t b_handle, uint64_t now,
+                           const uint8_t owner[FZN_PUBKEY_LEN])
 {
 	fzn_node_relay_session_t *one, *two;
 
@@ -149,17 +150,22 @@ int fzn_node_relay_session(fzn_node_relay_t *r, const fzn_udp_addr_t *a, uint32_
 	one->handle = b_handle;
 	one->until = now + FZN_NODE_RELAY_SESSION_S;
 	one->used = 1;
+	if (owner)
+		memcpy(one->owner, owner, FZN_PUBKEY_LEN);
+	else
+		memset(one->owner, 0, FZN_PUBKEY_LEN);
 	two = way_place(r, b, a_handle, now, one);
 	two->from = *b;
 	two->to = *a;
 	two->handle = a_handle;
 	two->until = now + FZN_NODE_RELAY_SESSION_S;
 	two->used = 1;
+	memcpy(two->owner, one->owner, FZN_PUBKEY_LEN);
 	return 1;
 }
 
 int fzn_node_relay_session_to(fzn_node_relay_t *r, const fzn_udp_addr_t *from, uint32_t handle,
-                              uint64_t now, fzn_udp_addr_t *to)
+                              uint64_t now, fzn_udp_addr_t *to, uint8_t owner[FZN_PUBKEY_LEN])
 {
 	size_t i;
 
@@ -170,6 +176,8 @@ int fzn_node_relay_session_to(fzn_node_relay_t *r, const fzn_udp_addr_t *from, u
 
 		if (w->used && w->until > now && w->handle == handle && same_at(&w->from, from)) {
 			*to = w->to;
+			if (owner)
+				memcpy(owner, w->owner, FZN_PUBKEY_LEN);
 			w->until = now + FZN_NODE_RELAY_SESSION_S;
 			return 1;
 		}

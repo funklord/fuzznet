@@ -333,10 +333,15 @@ static void serve_session_frame(fzn_node_state_t *state, uint8_t *frame, size_t 
 		 * unread. A frame of this host's own is never forwarded: its handle
 		 * finds its session first. */
 		fzn_udp_addr_t to;
+		uint8_t owner[FZN_PUBKEY_LEN];
 
 		if (state->relay && state->udp_fd >= 0
 		    && fzn_node_relay_session_to(state->relay, from, handle,
-		                                 state->clock ? state->clock() : 0u, &to))
+		                                 state->clock ? state->clock() : 0u, &to, owner)
+		    /* ON ITS ASKER'S QUOTA, sec 1050: a way once asked forwarded
+		     * whatever came, so one request bought unlimited relaying. */
+		    && (!state->relay_charge
+		        || state->relay_charge(state->relay_charge_ctx, owner, flen)))
 			(void)fzn_udp_send(state->udp_fd, &to, frame, flen);
 		return;
 	}

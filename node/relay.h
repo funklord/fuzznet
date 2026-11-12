@@ -61,6 +61,9 @@ typedef struct fzn_node_relay_route {
 typedef struct fzn_node_relay_session {
 	fzn_udp_addr_t from, to;
 	uint32_t handle;
+	/* WHO ASKED FOR IT, sec 1050: each frame forwarded either way is charged
+	 * to this key's relay quota. */
+	uint8_t owner[FZN_PUBKEY_LEN];
 	uint64_t until;
 	int used;
 } fzn_node_relay_session_t;
@@ -115,14 +118,17 @@ int fzn_node_relay_back(const fzn_node_relay_t *r, const uint8_t sender[FZN_PUBK
  * `b_handle`, sec 1045: a frame from `a` carrying `b_handle` goes to `b`, and one
  * from `b` carrying `a_handle` to `a`, until FZN_NODE_RELAY_SESSION_S passes with
  * neither. Both ways replaced where either is held already, else an ended way's
- * place, else the nearest its end. 0 when an argument is missing. */
+ * place, else the nearest its end; both owned by `owner`, who asked (sec 1050),
+ * NULL for none. 0 when an argument is missing. */
 int fzn_node_relay_session(fzn_node_relay_t *r, const fzn_udp_addr_t *a, uint32_t a_handle,
-                           const fzn_udp_addr_t *b, uint32_t b_handle, uint64_t now);
+                           const fzn_udp_addr_t *b, uint32_t b_handle, uint64_t now,
+                           const uint8_t owner[FZN_PUBKEY_LEN]);
 
-/* WHERE A SESSION FRAME from `from` carrying `handle` goes on to, into `to`: 1
- * when a way stands at `now`, its end then moved on. */
+/* WHERE A SESSION FRAME from `from` carrying `handle` goes on to, into `to`, and
+ * whose way it is, into `owner` when not NULL: 1 when a way stands at `now`, its
+ * end then moved on. */
 int fzn_node_relay_session_to(fzn_node_relay_t *r, const fzn_udp_addr_t *from, uint32_t handle,
-                              uint64_t now, fzn_udp_addr_t *to);
+                              uint64_t now, fzn_udp_addr_t *to, uint8_t owner[FZN_PUBKEY_LEN]);
 
 /* `key` WAS SEEN at `at` at `now`: replacing its last, else the oldest. */
 void fzn_node_relay_saw(fzn_node_relay_t *r, const uint8_t key[FZN_PUBKEY_LEN],
