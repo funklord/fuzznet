@@ -15438,6 +15438,20 @@ SABOTAGES = [
 		"a call ended leaves no reason for a client to read -- sec 1082",
 	),
 	(
+		"read-where-read-writes-a-record",
+		"messages/messages.c",
+		"\tif (fzn_messages_read_position(m, contact, held) && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0)\n\t\treturn FZN_MESSAGES_OK;\n",
+		"\tif (0 && fzn_messages_read_position(m, contact, held) && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0)\n\t\treturn FZN_MESSAGES_OK;\n",
+		"a read at the line already read writes a record each time -- sec 1084",
+	),
+	(
+		"read-where-read-publishes",
+		"node/messages.c",
+		"\t\tif (fzn_messages_read_position(&nm->m, contact, held)\n\t\t    && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0)\n\t\t\treturn say(reply, cap, FZN_REPLY_OK, \"unchanged\");\n",
+		"",
+		"a read at the line already read is published as a change -- sec 1084",
+	),
+	(
 		"session-grant-drops-an-ask",
 		"node/sessions.c",
 		"\t\tif (!s->used || s->confirmed || s->initiator\n",

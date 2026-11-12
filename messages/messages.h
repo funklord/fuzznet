@@ -221,7 +221,8 @@ uint8_t fzn_messages_state(const fzn_messages_t *m, const uint8_t contact[FZN_PU
                            uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN]);
 
 /* READ `contact`'s conversation up to the line `id`, as a record, and make
- * it the read position here. */
+ * it the read position here. At the position already held, nothing: no
+ * record, OK (sec 1084). */
 fzn_messages_err_t fzn_messages_read_up_to(const fzn_messages_t *m,
                                            const uint8_t contact[FZN_PUBKEY_LEN],
                                            const uint8_t id[FZN_MESSAGE_ID_LEN]);

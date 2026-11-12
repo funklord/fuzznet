@@ -657,6 +657,11 @@ static void publish_change(const fzn_request_t *request, const char *reply, size
 	if (n < 2u || n > reply_cap || memcmp(reply, "ok", 2u) != 0 || (n > 2u && reply[2] != ' '
 	                                                               && reply[2] != '\n'))
 		return;
+	/* `ok unchanged`, sec 1084: the verb changed nothing, so nothing is told --
+	 * a read at the line already read, which a window says each time it shows a
+	 * conversation. */
+	if (n >= 12u && memcmp(reply, "ok unchanged", 12u) == 0 && (n == 12u || reply[12] == '\n'))
+		return;
 	switch (request->parsed) {
 	case FZN_VERB_ADD:
 	case FZN_VERB_SET:

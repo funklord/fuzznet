@@ -16,6 +16,8 @@ root, with A2 joined to it; B1, a root, with B2 joined to it.
     c  read state across the user's hosts: B1 marks B's conversation read
        through the last line, and B2 reads it read too; A2 does the same
        for A1
+    c2 every conversation's unread count in one reply (`list message unread`), a
+       read repeated at the line already read publishes nothing (sec 1084)
     d  nothing owed: every host's `get message owed` comes to `ok 0 0 0`,
        no line held undelivered and none delivered unsettled
     d2 a host killed while a line is in flight: A2 is killed by SIGKILL, as
@@ -52,6 +54,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+from live_events import subscriber  # noqa: E402
 from live_groups import KEPT_RE, PREKEY_HOST  # noqa: E402
 from live_events import subscriber  # noqa: E402
 import live_trim  # noqa: E402
@@ -322,6 +325,38 @@ def main(argv):
 						raise failed("%s; %s read through %s; newest first, %r"
 						             % (e, reader, last[:4], order))
 			print("livecheck: c: B1's read and A2's reached the other host of each user")
+
+			# c2: READ STATE AS A CLIENT ASKS IT, sec 1084. Every conversation's
+			# unread count in one reply; a read repeated at the line already read
+			# publishes nothing, where a new read does.
+			got = said("b1", "list message unread").split()
+			rows = {r.split(",")[0]: r.split(",")[1:] for r in got[4:]}
+			if got[:1] != ["ok"] or len(got) < 4 or int(got[1]) < 1 or got[2] != "0" \
+			   or int(got[3]) != len(got) - 4 or rows.get(keys["a"]) != ["0", "0"]:
+				raise failed("c2: B1's list message unread answered %r" % got)
+			last = said("b1", "list message " + keys["a"]).split()[4].split(",")[2]
+			heard = subscriber(socks["b1"], "b1's events")
+			try:
+				expect(socks["b1"], "b1", "set message %s read %s" % (keys["a"], last),
+				       "ok unchanged")
+				told = [l for l in heard.lines_within(3.0)
+				        if l == "event message " + keys["a"]]
+				if told:
+					raise failed("c2: a read at the line already read was published: %r" % told)
+				expect(socks["a1"], "a1", "add message %s out %s c2%%20line" % (keys["b"], "c2" * 16),
+				       "ok")
+				polled("b1", "get message %s unread" % keys["a"], lambda g: g.split()[1:2] == ["1"],
+				       "not one unread after A1's new line")
+				told = [l for l in heard.lines_within(3.0) if l.startswith("event message")]
+				if not told:
+					raise failed("c2: A1's new line at B1 published nothing")
+			finally:
+				heard.close()
+			got = said("b1", "list message unread").split()
+			if dict((r.split(",")[0], r.split(",")[1]) for r in got[4:]).get(keys["a"]) != "1":
+				raise failed("c2: B1's list message unread after A1's line answered %r" % got)
+			print("livecheck: c2: B1 listed every conversation's unread, a read repeated was not "
+			      "published, and A1's next line was counted")
 
 			# d: nothing owed anywhere.
 			for who in WHO:

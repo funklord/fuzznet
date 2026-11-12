@@ -1363,9 +1363,16 @@ static size_t set(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 	/* `WHO read ID`: the conversation read up to that line. sec 528. */
 	if (word(&rest, &rest_left, &w, &w_len) && who(nm, w, w_len, contact)
 	    && word(&rest, &rest_left, &w, &w_len) && is_word(w, w_len, "read")) {
+		uint8_t held[FZN_MESSAGE_ID_LEN];
+
 		if (!word(&rest, &rest_left, &w, &w_len)
 		    || !parse_hex(w, w_len, id, FZN_MESSAGE_ID_LEN) || rest_left)
 			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		/* READ WHERE IT WAS READ, sec 1084, fuzzypickles': `ok unchanged`, which
+		 * the daemon publishes nothing for -- no change happened. */
+		if (fzn_messages_read_position(&nm->m, contact, held)
+		    && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0)
+			return say(reply, cap, FZN_REPLY_OK, "unchanged");
 		err = fzn_messages_read_up_to(&nm->m, contact, id);
 	} else {
 		if (!line_of(nm, &at, &left, contact, &direction, id)
@@ -1500,6 +1507,56 @@ static int all_digits(const uint8_t *w, size_t w_len)
 	return w_len > 0u;
 }
 
+/* `list message unread [FROM]`, sec 1084, fuzzypickles': `ok TOTAL FROM SHOWN
+ * KEY,COUNT,MORE ...`, every conversation's unread count in one reply -- a
+ * contact's key, or a group's id -- where a client asked `get message WHO unread`
+ * once a conversation. COUNT and MORE as `get message WHO unread` says them.
+ * Paged by conversation: the next page from FROM + SHOWN. */
+static size_t list_unread(fzn_node_messages_t *nm, size_t from, char *reply, size_t cap)
+{
+	static char items[FZN_REPLY_MAX], detail[FZN_REPLY_MAX];
+	size_t limit = fzn_reply_ok_room(cap), n = 0, b, total = 0, shown = 0, used = 0;
+	int k, full = 0;
+
+	if (!conversations_listed(nm, &n))
+		return say(reply, cap, FZN_REPLY_ERROR, "the conversations did not list");
+	for (b = 0; b < n; b++) {
+		const uint8_t *contact = buckets[b].subject;
+		char row[2u * FZN_PUBKEY_LEN + 48u];
+		size_t count = 0;
+		int more = 0;
+
+		if (b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)
+			continue;
+		/* EVERY CONVERSATION COUNTED for TOTAL; those from FROM shown while
+		 * they fit, the rest the next page's. */
+		if (total++ < from || full)
+			continue;
+		if (fzn_messages_unread(&nm->m, contact, &count, &more) != FZN_MESSAGES_OK)
+			return say(reply, cap, FZN_REPLY_ERROR, "an unread count did not read");
+		hex_of(contact, FZN_PUBKEY_LEN, row);
+		k = snprintf(row + 2u * FZN_PUBKEY_LEN, sizeof(row) - 2u * FZN_PUBKEY_LEN, ",%zu,%d",
+		             count, more);
+		if (k < 0 || (size_t)k >= sizeof(row) - 2u * FZN_PUBKEY_LEN)
+			return 0;
+		k += (int)(2u * FZN_PUBKEY_LEN);
+		/* A ROW GOES IN WHOLE, room left for the head `TOTAL FROM SHOWN`. */
+		if (LIST_HEAD_MAX + 24u + used + 1u + (size_t)k > limit || used + 1u + (size_t)k > sizeof(items)) {
+			full = 1;
+			continue;
+		}
+		items[used] = ' ';
+		memcpy(items + used + 1u, row, (size_t)k);
+		used += 1u + (size_t)k;
+		shown++;
+	}
+	k = snprintf(detail, sizeof(detail), "%zu %zu %zu", total, from, shown);
+	if (k < 0 || (size_t)k + used > limit || (size_t)k + used > sizeof(detail))
+		return 0;
+	memcpy(detail + k, items, used);
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k + used);
+}
+
 static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,
                    size_t cap)
 {
@@ -1513,6 +1570,25 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 	int more = 0, k;
 	fzn_messages_err_t err;
 
+	/* `unread`, AND A FROM OR NOTHING AFTER IT, sec 1084: every conversation's
+	 * unread count. A contact named `unread` is reached by its key. */
+	{
+		const uint8_t *u = at, *uw;
+		size_t u_left = left, uw_len, ufrom = 0, i2;
+
+		if (word(&u, &u_left, &uw, &uw_len) && is_word(uw, uw_len, "unread")) {
+			if (word(&u, &u_left, &uw, &uw_len)) {
+				if (!all_digits(uw, uw_len) || u_left)
+					return say(reply, cap, FZN_REPLY_MALFORMED, "list message unread [FROM]");
+				for (i2 = 0; i2 < uw_len; i2++) {
+					if (ufrom > (SIZE_MAX - 9u) / 10u)
+						return say(reply, cap, FZN_REPLY_MALFORMED, "list message unread [FROM]");
+					ufrom = ufrom * 10u + (size_t)(uw[i2] - '0');
+				}
+			}
+			return list_unread(nm, ufrom, reply, cap);
+		}
+	}
 	/* AN ALL-DIGIT WORD IS FROM: a contact named so is reached by its key.
 	 * But a word as long as a key is a key, digits or not -- a key's hex
 	 * can be all decimal digits, and was read as a page offset, refused as

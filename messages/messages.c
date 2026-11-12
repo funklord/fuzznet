@@ -544,11 +544,16 @@ fzn_messages_err_t fzn_messages_read_up_to(const fzn_messages_t *m,
                                            const uint8_t contact[FZN_PUBKEY_LEN],
                                            const uint8_t id[FZN_MESSAGE_ID_LEN])
 {
-	uint8_t body[FZN_MESSAGE_READ_LEN];
+	uint8_t body[FZN_MESSAGE_READ_LEN], held[FZN_MESSAGE_ID_LEN];
 	uint64_t now, before;
 
 	if (!ready(m) || !contact || !id || !fzn_message_position_write(id, body))
 		return FZN_MESSAGES_ERR_MALFORMED;
+	/* THE POSITION ALREADY HELD, sec 1084: no record, so nothing is carried to the
+	 * user's other hosts and nothing changes -- a window marking a conversation
+	 * read each time it is shown wrote one each time. */
+	if (fzn_messages_read_position(m, contact, held) && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0)
+		return FZN_MESSAGES_OK;
 	now = past_held(m->now(), read_at(m, contact));
 	before = own_head(m);
 	/* THE RECORD FIRST, as a mark's: the row is derived from it. */

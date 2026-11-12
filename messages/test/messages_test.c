@@ -950,6 +950,28 @@ static void test_a_mark_after_the_clock_steps_back(void)
 	      "a delivery mark made after the clock stepped back lost to the device's own earlier one");
 }
 
+/* A READ AT THE LINE ALREADY READ, sec 1084: no record -- nothing to carry to the
+ * user's other hosts -- and the position stands; a read further on writes one. */
+static void test_a_read_where_read_writes_nothing(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN], held[FZN_MESSAGE_ID_LEN];
+	size_t before;
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_IN, 1u, "one") && write_line(&A, X, FZN_MESSAGE_IN, 2u, "two"),
+	      "fixture: two lines in");
+	id_of(id, 1u);
+	CHECK(fzn_messages_read_up_to(&A.m, X, id) == FZN_MESSAGES_OK, "fixture: read to the first");
+	before = n_recs;
+	CHECK(fzn_messages_read_up_to(&A.m, X, id) == FZN_MESSAGES_OK && n_recs == before
+	              && fzn_messages_read_position(&A.m, X, held) && held[0] == 1u,
+	      "a read at the line already read wrote a record");
+	id_of(id, 2u);
+	CHECK(fzn_messages_read_up_to(&A.m, X, id) == FZN_MESSAGES_OK && n_recs == before + 1u
+	              && fzn_messages_read_position(&A.m, X, held) && held[0] == 2u,
+	      "a read further on wrote no record, or did not move the position");
+}
+
 /* FROM THE STORE ALONE, sec 536: a page of x's lines, and a page of
  * everyone's, read no journal record at all -- the rows and the index are
  * enough. */
@@ -2020,6 +2042,7 @@ int main(void)
 	test_no_reindex_from_a_window();
 	test_the_newest_mark_wins();
 	test_a_mark_after_the_clock_steps_back();
+	test_a_read_where_read_writes_nothing();
 	test_one_conversation_reads_only_its_own();
 	test_import_keeps_a_line_once();
 	test_read_state_travels();

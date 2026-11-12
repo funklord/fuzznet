@@ -86312,3 +86312,33 @@ one: 859 lines of output, identical, 339 words written and 181 refused alike. `l
 
 **Why one copy of the frame's media is no cost:** the builders write the body in place, so the
 two-step build -- arm, then message -- that would copy a frame's media twice is not used.
+
+## 1084. Read state as fuzzypickles asked: a read where read is nothing; every count at once, 2026-11-12
+
+**fuzzypickles' requirement (inbox 1317Z, recorded in sec 1069),** three parts.
+
+**A read at the position already held changes nothing, and says so.** `set message WHO read ID`
+at the line already read wrote a journal record each time -- carried to the user's other hosts
+and absorbed there -- and was published as a change, so a window that marks a conversation read
+each time it shows it set every other client re-reading. Now:
+- `fzn_messages_read_up_to` writes no record at the position held, and answers OK;
+- the local verb answers **`ok unchanged`**, and `publish_change` publishes nothing for a change
+  verb answered `ok unchanged` -- a rule for any verb that finds nothing to change, not this one's
+  alone. `publish_change` publishes every change verb answered `ok`, whatever the handler did, so
+  leaving the handler's own `fresh` alone (the first attempt) still told every subscriber.
+
+**`list message unread [FROM]`**: `ok TOTAL FROM SHOWN KEY,COUNT,MORE ...`, every conversation's
+unread count in one reply -- a contact's key or a group's id -- where a client asked `get message
+WHO unread` once a conversation. COUNT and MORE as that verb says them; paged by conversation from
+FROM. A contact named `unread` is reached by its key.
+
+**A group's read position on the node** looks already there, by reading the code rather than by a
+test: `set message @GROUP read ID` resolves a group (`who` takes `@NAME`, sec 629) and keeps its
+position in the same index as a contact's, and a group's lines are listed among the conversations
+`list message unread` walks. Nothing here runs it against a group yet; that is the open half.
+
+**Measured:** `messages_test` (246 checks), a read at the line already read writing no record and
+a read further on writing one; `live_chat` phase c2 -- B1's `list message unread` names A with
+none unread, a read repeated at the same line answers `ok unchanged` and is not published, and A1's
+next line is counted and published. Sabotage `read-where-read-writes-a-record` (messages_test)
+and `read-where-read-publishes` (live_chat).
