@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <string.h>
 
+/* A RATE GATE'S KEY for an object, so one gate may serve several kinds of value. */
+#define OBJECT_RATE_PREFIX "object/"
+
 static const char HEX[] = "0123456789abcdef";
 
 /* A LISTING'S PAGE: rows held while the second list is walked. */
@@ -236,10 +239,52 @@ fzn_node_object_err_t fzn_node_object_set(const fzn_node_objects_t *o, const uin
 			row[n++] = (uint8_t)HEX[by[i] & 0x0fu];
 		}
 	}
+	/* HELD TO ITS WINDOW, sec 1034, where a rate gate is set. */
+	if (o->rate) {
+		uint8_t key[FZN_RATE_KEY_MAX];
+		int first = 0;
+
+		if (sizeof(OBJECT_RATE_PREFIX) - 1u + name_len > sizeof(key))
+			return FZN_NODE_OBJECT_MALFORMED;
+		memcpy(key, OBJECT_RATE_PREFIX, sizeof(OBJECT_RATE_PREFIX) - 1u);
+		memcpy(key + sizeof(OBJECT_RATE_PREFIX) - 1u, name, name_len);
+		if (fzn_rate_offer(o->rate, key, sizeof(OBJECT_RATE_PREFIX) - 1u + name_len, row, n,
+		                   FZN_NODE_OBJECT_EVERY_MS,
+		                   o->records->now_ms ? o->records->now_ms() : 0u, &first)
+		    == FZN_RATE_HELD) {
+			if (first && o->held)
+				o->held(name, name_len);
+			return FZN_NODE_OBJECT_HELD;
+		}
+	}
 	err = change(o, FZN_NODE_OBJECT_VALUE_LIST, name, name_len, 1, row, n);
 	if (err == FZN_NODE_OBJECT_OK)
 		told(o, name, name_len);
 	return err;
+}
+
+/* A HELD VALUE WRITTEN, its window passed: the newest set, as it was taken. */
+static void write_due(void *ctx, const uint8_t *key, size_t key_len, const uint8_t *value,
+                      size_t value_len, unsigned long held)
+{
+	const fzn_node_objects_t *o = ctx;
+	const uint8_t *name = key + sizeof(OBJECT_RATE_PREFIX) - 1u;
+	size_t name_len = key_len - (sizeof(OBJECT_RATE_PREFIX) - 1u);
+
+	(void)held;
+	if (key_len <= sizeof(OBJECT_RATE_PREFIX) - 1u
+	    || memcmp(key, OBJECT_RATE_PREFIX, sizeof(OBJECT_RATE_PREFIX) - 1u) != 0)
+		return;
+	if (change(o, FZN_NODE_OBJECT_VALUE_LIST, name, name_len, 1, value, value_len)
+	    == FZN_NODE_OBJECT_OK)
+		told(o, name, name_len);
+}
+
+size_t fzn_node_objects_due(const fzn_node_objects_t *o, uint64_t now_ms)
+{
+	if (!o || !o->rate || !o->records)
+		return 0;
+	return fzn_rate_due(o->rate, now_ms, write_due, (void *)o);
 }
 
 fzn_node_object_err_t fzn_node_object_remove(const fzn_node_objects_t *o, const uint8_t *name,
@@ -496,6 +541,9 @@ size_t fzn_node_objects_local(void *ctx, fzn_origin_t origin, const fzn_request_
 		if (!word(&at, &left, &w, &w_len) || word(&at, &left, &subject, &subject_len))
 			return say(reply, reply_cap, FZN_REPLY_MALFORMED, "set object NAME VALUE");
 		err = fzn_node_object_set(o, name, name_len, w, w_len, NULL);
+		/* TAKEN, AND HELD TO ITS WINDOW, sec 1034: written when it passes. */
+		if (err == FZN_NODE_OBJECT_HELD)
+			return say(reply, reply_cap, FZN_REPLY_OK, "held");
 		break;
 	case FZN_VERB_REMOVE:
 		err = fzn_node_object_remove(o, name, name_len);
@@ -529,9 +577,14 @@ size_t fzn_node_object_call(const fzn_node_objects_t *o, const uint8_t *caller,
 	    || !word(&args, &args_len, &name, &name_len))
 		return 0;
 	if (is_word(verb, verb_len, "set")) {
+		fzn_node_object_err_t err;
+
+		/* HELD TO ITS WINDOW is taken too, sec 1034: the device is answered the
+		 * value standing until it is written. */
 		if (!word(&args, &args_len, &value, &value_len)
-		    || fzn_node_object_set(o, name, name_len, value, value_len, caller)
-		               != FZN_NODE_OBJECT_OK)
+		    || ((err = fzn_node_object_set(o, name, name_len, value, value_len, caller))
+		                != FZN_NODE_OBJECT_OK
+		        && err != FZN_NODE_OBJECT_HELD))
 			return 0;
 	} else if (!is_word(verb, verb_len, "get")) {
 		return 0;

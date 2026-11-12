@@ -24,6 +24,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "rate.h"
 #include "records.h"
 
 #define FZN_NODE_OBJECT_LIST "object"
@@ -40,7 +41,18 @@ typedef struct fzn_node_objects {
 	/* TOLD OF A CHANGE MADE HERE. May be NULL. One filed from a peer the
 	 * caller learns of by `fzn_node_object_of_key`. */
 	void (*changed)(const uint8_t *name, size_t name_len);
+	/* HOW OFTEN A VALUE IS WRITTEN, sec 1034, when set: a set within its object's
+	 * window is held, the newest standing, and written by `fzn_node_objects_due`
+	 * once the window has passed -- a button pressed a thousand times a second
+	 * is written once a window, and carried as often. `held` told the first time
+	 * an object is held after passing freely, for one line to be said. */
+	fzn_rate_t *rate;
+	void (*held)(const uint8_t *name, size_t name_len);
 } fzn_node_objects_t;
+
+/* AN OBJECT'S WINDOW: the rate gate's floor, until the schema declares one per
+ * object (sec 1034). */
+#define FZN_NODE_OBJECT_EVERY_MS 1000u
 
 typedef struct fzn_node_object {
 	char name[FZN_NODE_OBJECT_NAME_MAX + 1u];
@@ -59,7 +71,8 @@ typedef enum fzn_node_object_err {
 	FZN_NODE_OBJECT_ABSENT = -2,    /* no such object */
 	FZN_NODE_OBJECT_REFUSED = -3,   /* a value it may not have */
 	FZN_NODE_OBJECT_EXISTS = -4,    /* made already, with other values */
-	FZN_NODE_OBJECT_BACKEND = -5    /* not read, or not kept */
+	FZN_NODE_OBJECT_BACKEND = -5,   /* not read, or not kept */
+	FZN_NODE_OBJECT_HELD = 1        /* taken, and held to its window (sec 1034) */
 } fzn_node_object_err_t;
 
 /* MAKE ONE: `allowed` as the object holds it. The same object again is OK and
@@ -79,6 +92,10 @@ fzn_node_object_err_t fzn_node_object_set(const fzn_node_objects_t *o, const uin
 
 fzn_node_object_err_t fzn_node_object_get(const fzn_node_objects_t *o, const uint8_t *name,
                                           size_t name_len, fzn_node_object_t *out);
+
+/* THE HELD VALUES WHOSE WINDOW HAS PASSED at `now_ms`, written: how many, sec 1034.
+ * The daemon calls it each pass. */
+size_t fzn_node_objects_due(const fzn_node_objects_t *o, uint64_t now_ms);
 
 fzn_node_object_err_t fzn_node_object_remove(const fzn_node_objects_t *o, const uint8_t *name,
                                              size_t name_len);

@@ -15200,6 +15200,41 @@ SABOTAGES = [
 		"a receiver reports HELD from no arrival at all, and the round trip is nonsense -- sec 1026",
 	),
 	(
+		"rate-floor-ignored",
+		"node/rate.c",
+		"\ts->window_ms = every_ms < FZN_RATE_FLOOR_MS ? FZN_RATE_FLOOR_MS : every_ms;\n",
+		"\ts->window_ms = every_ms;\n",
+		"a value declared with no window is stored and carried on every write -- sec 1034",
+	),
+	(
+		"rate-window-ignored",
+		"node/rate.c",
+		"\tif (!s->pending && (!s->passed_ms || now_ms - s->passed_ms >= s->window_ms)\n",
+		"\tif (!s->pending && (1 || now_ms - s->passed_ms >= s->window_ms)\n",
+		"a button pressed a thousand times a second is stored a thousand times -- sec 1034",
+	),
+	(
+		"rate-due-spends-no-burst",
+		"node/rate.c",
+		"\t\tif (!s->used || !s->pending || now_ms - s->passed_ms < s->window_ms\n\t\t    || !burst_take(r, now_ms))\n",
+		"\t\tif (!s->used || !s->pending || now_ms - s->passed_ms < s->window_ms\n\t\t    || 0)\n",
+		"many names held at once are all handed back in one pass, past the burst -- sec 1034",
+	),
+	(
+		"rate-said-every-time",
+		"node/rate.c",
+		"\tif (!s->said) {\n",
+		"\tif (1) {\n",
+		"a flood's holding is said on every write, and the log reporting it floods -- sec 1034",
+	),
+	(
+		"rate-oldest-kept",
+		"node/rate.c",
+		"\tmemcpy(s->value, value, value_len);\n\ts->value_len = value_len;\n",
+		"\tif (!s->pending) {\n\t\tmemcpy(s->value, value, value_len);\n\t\ts->value_len = value_len;\n\t}\n",
+		"a held window hands back its first value, not the newest, and a lamp ends where it was first pressed -- sec 1034",
+	),
+	(
 		"reach-told-before-proven",
 		"node/reach.c",
 		"\t\tif (!best || p->source > best->source\n",
@@ -15482,8 +15517,8 @@ SABOTAGES = [
 	(
 		"object-call-forgets-the-device",
 		"node/objects.c",
-		"\t\t    || fzn_node_object_set(o, name, name_len, value, value_len, caller)\n",
-		"\t\t    || fzn_node_object_set(o, name, name_len, value, value_len, NULL)\n",
+		"\t\t    || ((err = fzn_node_object_set(o, name, name_len, value, value_len, caller))\n",
+		"\t\t    || ((err = fzn_node_object_set(o, name, name_len, value, value_len, NULL))\n",
 		"a value says the gateway set it, and nobody can tell which button did -- sec 948",
 	),
 	(

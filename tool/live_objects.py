@@ -6,6 +6,8 @@
        round, and A reads it with when and who; the same from A to R
     c  A goes away, R sets, and A come back reads the last value
     d  R's older values go at its next start's trim, each host's newest staying
+    e  fifty sets at once on R: the first written, the rest held to the window,
+       and the newest written once it passes, read on R and at A (sec 1034)
 
 The default round is 60 s, so `FAST_S` says a change did not wait for one.
 
@@ -28,7 +30,7 @@ from live_rejoin import command, daemon, expect, free_slot  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 200.0
+live_trim.DEADLINE = time.monotonic() + 280.0
 
 FAST_S = 15.0
 LAMP = "lamp".encode().hex()
@@ -165,7 +167,9 @@ def main(argv):
 			# d: older values go by default, sec 963. R sets four times more
 			# and starts again, whose first trim pass runs at start: each
 			# host's newest value alone stays, and the value reads the same.
+			# A WINDOW APART, sec 1034: sets inside one are held, not each recorded.
 			for v in ("off", "on", "off", "on"):
+				time.sleep(1.1)
 				expect(socks["r"], "r", "set object lamp " + v, "ok")
 			under = "list record under list/object-value/lamp"
 			rows = said("r", under).split()[4:]
@@ -180,6 +184,20 @@ def main(argv):
 			if said("r", "get object lamp") != value:
 				raise failed("d: the trim changed the value: %r" % said("r", "get object lamp"))
 			print("livecheck: d: %d values trimmed to each host's newest, %r" % (len(rows), got))
+
+			# e: A FLOOD, sec 1034: fifty sets at once on R are taken, most held to
+			# the window, and the newest is written once it passes and reaches A.
+			time.sleep(1.1)
+			answers = [said("r", "set object lamp " + ("on" if k % 2 else "off"))
+			           for k in range(50)]
+			if answers[0] != "ok" or answers[1:].count("ok held") < 45:
+				raise failed("e: a flood was answered %r" % sorted(set(answers)))
+			polled("r", "get object lamp", lambda g: g.startswith("ok on "),
+			       "not the flood's newest, on", 10.0)
+			polled("a", "get object lamp", lambda g: g.startswith("ok on "),
+			       "not the flood's newest at A", 70.0)
+			print("livecheck: e: fifty sets at once, %d held, the newest written and at A"
+			      % answers.count("ok held"))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			for name in sorted(os.listdir(scratch)):

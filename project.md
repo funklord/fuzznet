@@ -85168,3 +85168,39 @@ request's frame under its message, answered, and a refusing hook failing the sen
 case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'
 targets made a view; the link figures re-keyed by pair. Each step keeps `live_call`,
 `live_relay`, `live_sibling_call` and the hull journey passing.
+
+## 1037. A value is stored and carried no faster than its window, however declared: the gate, 2026-11-12
+
+Sec 1034's first step, the protection model, the holder's: "a built in protection model for not
+storing nor distributing a value too often even if misconfigured." Built as a gate any writer
+offers a value to before storing or sending it, `node/rate.{h,c}`, and put first on named objects
+(sec 948), where a button wired to `set object` is the misconfiguration nearest to hand.
+
+- **Coalesced, never queued.** A value offered within its name's window is held, the newest
+  standing for every one before it, and handed back once the window has passed
+  (`fzn_rate_due`). Nothing grows with the rate it is offered at.
+- **Ceilings kept whatever is declared:** a window never shorter than `FZN_RATE_FLOOR_MS`, 1 s,
+  and across every name at most `FZN_RATE_BURST`, 64, values pass in any
+  `FZN_RATE_BURST_MS` -- so a declaration of 0 is held to the floor, and many names at once
+  cannot make up in number what each is denied in rate.
+- **Said once:** the first time a name is held after passing freely, once, until it passes
+  freely again -- so the log reporting a flood is not flooded by it.
+- **The table is the caller's**, of any size; a full one gives way its least recently offered
+  name with nothing held.
+
+**On objects:** `fzn_node_objects_t` gains `rate` and `held`. A set within its object's window
+(`FZN_NODE_OBJECT_EVERY_MS`, the floor, until the schema declares one per object) is answered
+`ok held` and written at the window's end by `fzn_node_objects_due`, which fuzznetd calls each
+pass; a device's `call object set` is answered the value standing until then. fuzznetd keeps one
+gate for every object and says one line, `node/objects`, when one starts being held. A held set
+is not yet carried, so the estate sees what was written, not what was offered.
+
+**Verified:** `rate_test`, 16 checks -- a thousand writes in a second pass one and hand back the
+last, once; the floor and the burst hold; said once; a full table gives way. Five sabotage
+entries, each caught. `records_test`: a gated object's first set written, three more held and
+said once, the newest written at the window's end. `live_objects` phase e: fifty sets at once
+on R, 49 answered `ok held`, the newest written and read at A; phase d now sets a window apart.
+**Control:** fuzznetd with no gate attached answers every set `ok`, and e fails.
+
+**Not yet:** settings, records and metrics behind the same gate, and a window declared per value
+in the schema (sec 1034's keeping, carrying and rates).
