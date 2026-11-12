@@ -7601,8 +7601,8 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new >/dev/null 2>&1 || { \
 		echo "schema: situc gen-tamper failed"; \
 		rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }
-	@# AND THE CALL FAMILY'S READER AND ITS VECTORS' TEST, sec 1068.
-	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_call --layer view \
+	@# AND THE CALL FAMILY'S READER AND WRITER, sec 1068 and 1083, AND ITS VECTORS' TEST.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_call --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/call.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_call \
 	         --out $(BUILD_DIR)/.gen.new node/call.situ node/call.vectors >/dev/null 2>&1
@@ -7617,7 +7617,8 @@ schema:
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_address \
 	         --out $(BUILD_DIR)/.gen.new node/address.situ node/address.vectors >/dev/null 2>&1
 	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h call.c call.h \
-	          call_vectors.c status.c status.h status_edit.h status_build.h status_vectors.c \
+	          call_vectors.c call_edit.h call_build.h status.c status.h status_edit.h status_build.h \
+	          status_vectors.c \
 	          address.c address.h address_edit.h address_build.h \
 	          address_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \

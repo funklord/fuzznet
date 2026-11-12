@@ -7,6 +7,7 @@
 #include "types.h"
 #include "../wire/bytes.h"
 #include "../wire/generated/call.h"
+#include "../wire/generated/call_build.h"
 
 int fzn_live_is_word(const uint8_t *bytes, size_t len)
 {
@@ -97,18 +98,27 @@ int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
 	}
 }
 
+/* WRITTEN BY THE BUILDERS node/call.situ GENERATES, sec 1083, as it is read by
+ * its reader (sec 1068): the arm's body built in place after the head, the head
+ * set through the message's own setters, and the whole validated -- no offset
+ * counted here. What the schema cannot say stays: a piece within its pieces, and
+ * media with no bytes behind it. */
 size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 {
-	size_t len;
+	const uint32_t at = FZN_CALL_MESSAGE_SIZE_MIN;
+	uint32_t body = 0, room;
+	situ_err_t err = SITU_OK;
+	situ_msg_t msg;
+	situ_view_t v;
 
-	if (!w || !out)
+	if (!w || !out || cap < at || cap > UINT32_MAX)
 		return 0;
+	room = (uint32_t)cap - at;
 	switch (w->kind) {
 	case FZN_LIVE_RING:
-		len = FZN_LIVE_RING_LEN;
-		if (!w->whom || !w->kinds
-		    || (w->kinds & (uint8_t) ~(FZN_LIVE_AUDIO | FZN_LIVE_VIDEO)) != 0u)
+		if (!w->whom)
 			return 0;
+		err = fzn_call_ring_build(out + at, room, w->kinds, w->whom, &body);
 		break;
 	case FZN_LIVE_ANSWER:
 	case FZN_LIVE_DECLINE:
@@ -116,58 +126,39 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 	case FZN_LIVE_RINGING:
 	case FZN_LIVE_NO_ANSWER:
 	case FZN_LIVE_BUSY:
-		len = FZN_LIVE_HEAD_LEN;
 		break;
 	case FZN_LIVE_FRAME:
-		if (!w->pieces || w->piece >= w->pieces || (w->media_len && !w->media))
+		if (w->piece >= w->pieces || (w->media_len && !w->media) || w->media_len > UINT32_MAX)
 			return 0;
-		len = FZN_LIVE_FRAME_HEAD_LEN + w->media_len;
+		err = fzn_call_frame_build(out + at, room, w->stream, w->from, w->seq, w->at_ms, w->piece,
+		                           w->pieces, w->media, (uint32_t)w->media_len, &body);
 		break;
 	case FZN_LIVE_REPORT:
-		len = FZN_LIVE_REPORT_LEN;
+		err = fzn_call_report_build(out + at, room, w->stream, w->received, w->lost, w->jitter_ms,
+		                            w->last_at_ms, w->held_ms, &body);
 		break;
 	case FZN_LIVE_PARTICIPANT:
-		if (!w->whom || !w->from)
+		if (!w->whom)
 			return 0;
-		len = FZN_LIVE_PARTICIPANT_LEN;
+		err = fzn_call_participant_build(out + at, room, w->from, w->whom, &body);
 		break;
 	default:
 		return 0;
 	}
-	if (len > cap)
+	if (err != SITU_OK)
 		return 0;
-	out[0] = FZN_TYPES_VERSION_SHARED;
-	out[1] = FZN_TYPE_LIVE;
-	out[2] = (uint8_t)w->kind;
-	memcpy(out + 3, w->call, FZN_LIVE_CALL_LEN);
-	if (w->kind == FZN_LIVE_RING) {
-		out[FZN_LIVE_HEAD_LEN] = w->kinds;
-		memcpy(out + FZN_LIVE_HEAD_LEN + 1u, w->whom, FZN_PUBKEY_LEN);
-	} else if (w->kind == FZN_LIVE_FRAME) {
-		uint8_t *at = out + FZN_LIVE_HEAD_LEN;
-
-		at[0] = w->stream;
-		fzn_put_be16(at + 1, w->from);
-		fzn_put_be32(at + 3, w->seq);
-		fzn_put_be32(at + 7, w->at_ms);
-		fzn_put_be16(at + 11, w->piece);
-		fzn_put_be16(at + 13, w->pieces);
-		if (w->media_len)
-			memcpy(out + FZN_LIVE_FRAME_HEAD_LEN, w->media, w->media_len);
-	} else if (w->kind == FZN_LIVE_PARTICIPANT) {
-		fzn_put_be16(out + FZN_LIVE_HEAD_LEN, w->from);
-		memcpy(out + FZN_LIVE_HEAD_LEN + 2u, w->whom, FZN_PUBKEY_LEN);
-	} else if (w->kind == FZN_LIVE_REPORT) {
-		uint8_t *at = out + FZN_LIVE_HEAD_LEN;
-
-		at[0] = w->stream;
-		fzn_put_be32(at + 1, w->received);
-		fzn_put_be32(at + 5, w->lost);
-		fzn_put_be16(at + 9, w->jitter_ms);
-		fzn_put_be32(at + 11, w->last_at_ms);
-		fzn_put_be32(at + 15, w->held_ms);
-	}
-	return len;
+	situ_msg_init(&msg, out, at + body);
+	if (fzn_call_message_view(&msg, 0u, at + body, &v) != SITU_OK)
+		return 0;
+	fzn_call_message_family_set(v, FZN_TYPES_VERSION_SHARED);
+	fzn_call_message_type_set(v, FZN_TYPE_LIVE);
+	fzn_call_message_kind_set(&msg, v, (fzn_call_kind_t)w->kind);
+	if (fzn_call_message_view(&msg, 0u, at + body, &v) != SITU_OK)
+		return 0;
+	memcpy(fzn_call_message_call_ptr(v), w->call, FZN_LIVE_CALL_LEN);
+	if (fzn_call_message_validate(v) != SITU_OK)
+		return 0;
+	return at + body;
 }
 
 void fzn_live_count(fzn_live_stats_t *st, uint32_t seq, uint32_t at_ms, uint64_t now_ms)
