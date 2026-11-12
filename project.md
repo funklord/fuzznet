@@ -85395,12 +85395,39 @@ for it from the address it came from (`node/serve.c`); `serve_test` sends one th
 third socket, and the same frame from a fourth address goes nowhere. Sabotages
 `relay-session-any-sender` and `serve-session-unrelayed`, each caught.
 
-**Step 2, next:** the requests. At the relay, `FZN_TYPE_RELAY_SESSION` -- the target's key and
-both handles -- judged as a relayed frame is (`relay/enabled`, members and standing contacts, one
-hop, the target seen, the quota), recording the two ways; nothing records one yet, so nothing is
-forwarded today. At the asker, a session ask
-unanswered directly asked through the relay as a request is today, the ways asked for once the
-grant names both handles, and the session's address set to the relay's. **Step 3:** a hull journey
-where no hole is punched -- B's root with introductions refused -- and a call that rings and
-carries frames through A's root. Sec 1030's gap 3, choosing between paths by measurement, follows
-once a relayed path exists to measure.
+**Steps 2 and 3, built in sec 1046:** the request that records the ways, the asker that uses it,
+and a hull journey -- gateway B symmetric, so no hole is punched -- whose call rings and carries
+frames through A's root. Sec 1030's gap 3, choosing between paths by measurement, follows.
+
+## 1046. A call through a relay where no hole can be punched, 2026-11-12
+
+Sec 1045's step 2 and 3, built: **a call between two hosts that no introduction can join rings and
+carries frames through a relay.** Measured on hull with gateway B made symmetric -- a port of its
+own for each destination, `HULL_ESTATES_SYMMETRIC_B=1`, `masquerade random` -- where sec 1038's
+introduction cannot punch through: before this, A's phone's call to B's root never rang (six steps
+failed); after it, every journey passed, the phone rang B at 35.7 s and a frame went each way, and
+the logs show the relay at work -- the phone's `a session's ways asked of a relay: ok`, A's root's
+`a session of 37e0cc8f relayed to 8cc8ee22`. `make livecheck-hull` runs that journey after the
+plain one.
+
+- **At the relay:** `FZN_TYPE_RELAY_SESSION`, 53 -- the other end's key, the asker's handle and
+  the other end's -- judged as a relayed frame is (`relay/enabled`, members and standing contacts,
+  one hop), the other end seen within `FZND_RELAY_SEEN_S`, charged to the asker's quota; the two
+  ways recorded, `ok`, or `denied WHY` said and logged.
+- **At the asker:** a session asked directly and unanswered is asked next **through a relay** --
+  one of this host's own estate's hosts it pulls from, which hears every contact's hello -- sealed
+  for the host and carried as a relayed line is (sec 697). Its grant sets the session's address to
+  the relay's, and the ways are then asked of the relay **from the serving socket**, through the
+  caller's out hook, since that is where the session's frames leave and so the address the relay
+  keys this end's way on.
+- **Direct and relayed take turns.** A relayed ask refused or unanswered sends the next one direct
+  again. The first build held a host to the relay for five minutes, and on hull A's root -- whose
+  only pulls are its own members, relaying nothing for it -- lost its direct call to B, which the
+  baseline had passed: `denied this host relays nothing`, once a second.
+
+**Verified:** hull, symmetric and plain, every journey passed; `make test`, `installcheck`, `style`;
+`live_call`, `live_relay`, `live_contacts`, `live_sibling_call`, `live_group_call`.
+
+**Not yet:** a relay chosen among the contact's own hosts as well as this estate's; sec 1030's gap
+3, choosing between a direct path and a relayed one by measuring both, which needs a call that has
+both; and the quota counting a relayed session's frames, which today charge only its request.

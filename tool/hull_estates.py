@@ -63,6 +63,10 @@ RELAY = "off" if os.environ.get("HULL_ESTATES_RELAY") == "0" else "on"
 # unless HULL_ESTATES_BOTH_NAT=0. Gated while it failed (sec 1032); it passes
 # since sec 1038. Without it A's phone serves no socket, a phone that only pulls.
 BOTH_NAT = os.environ.get("HULL_ESTATES_BOTH_NAT") != "0"
+# GATEWAY B SYMMETRIC -- a port of its own for each destination -- with
+# HULL_ESTATES_SYMMETRIC_B=1, sec 1045: no introduction punches through it, so
+# A's phone reaches B's root only through a relay.
+SYMMETRIC_B = os.environ.get("HULL_ESTATES_SYMMETRIC_B") == "1"
 LINE_B = "62" * 16
 LINE_A = "61" * 16
 
@@ -137,7 +141,9 @@ def plans():
 		# caller's out hook, 225 of 225 after. The fields are HOST:PORT, latency,
 		# loss, observations, age, asked, ANSWERED.
 		{"until": "list link",
-		 "matches": r"203\.0\.113\.2:7000,[-\d]+,[-\d]+,\d+,[-\d]+,\d+,[1-9]\d*,",
+		 # B's port its own for each destination, where gateway B is symmetric.
+		 "matches": r"203\.0\.113\.2:%s,[-\d]+,[-\d]+,\d+,[-\d]+,\d+,[1-9]\d*,"
+		            % (r"\d+" if SYMMETRIC_B else "7000"),
 		 "within": 120, "label": "A's root's asks of B answered", "keep": True, "soft": True},
 		# WHAT A'S ROOT RELAYED, once A's phone has had time to ask it.
 		{"wait": "root.b"},
@@ -270,7 +276,8 @@ def main(argv):
 			machines.append((name, [home, "public"],
 			                 ["gateway", "/vol", fuzznetd, "NAME=" + name, "READY=ready." + name,
 			                  "HOME_ADDR=" + inside, "PUBLIC_ADDR=" + outside,
-			                  "DEADLINE=%d" % ROLE_S]))
+			                  "DEADLINE=%d" % ROLE_S]
+			                 + (["SYMMETRIC=1"] if name == "gw_b" and SYMMETRIC_B else [])))
 		for name, (seg, addr, gw, ready, steps) in plans().items():
 			if ready:
 				steps = [steps[0], steps[1], {"wait": ready}] + steps[2:]

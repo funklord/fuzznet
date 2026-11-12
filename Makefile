@@ -7139,13 +7139,16 @@ livecheck-fzp: fuzznetd-faults
 
 # NAT ON HULL, sec 692 and 695: machines on segments of their own, a
 # member behind a gateway's nftables NAT joining its root; and two estates
-# behind NATs end to end, which no target ran before sec 1002. Needs hull
+# behind NATs end to end, which no target ran before sec 1002; and again with
+# gateway B symmetric, where only a relay carries a call (sec 1046). Needs hull
 # (HULL, or hull on the PATH) and /dev/kvm; skipped, saying so, without
 # hull. tool/hull_nat.py bounds every machine and the run.
 livecheck-hull: $(FUZZNETD) fuzznetd-faults
 	@timeout 600 python3 tool/hull_nat.py $(FUZZNETD); rc=$$?; [ $$rc -eq 2 ] || exit $$rc
 	@timeout 800 python3 tool/hull_estates.py $(BUILD_DIR)/faults/fuzznetd; rc=$$?; \
 	 [ $$rc -eq 2 ] || exit $$rc
+	@HULL_ESTATES_SYMMETRIC_B=1 timeout 800 python3 tool/hull_estates.py $(BUILD_DIR)/faults/fuzznetd; \
+	 rc=$$?; [ $$rc -eq 2 ] || exit $$rc
 
 # THE LIVE SCRIPTS AGAIN AND AGAIN, sec 689 step 0a: RUNS times each of
 # SCRIPTS, named as livecheck runs them (`deliver` for live_deliver.py), a

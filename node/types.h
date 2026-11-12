@@ -77,6 +77,11 @@
  * of the replay window, as a replayed one reaches nothing (`node/sessions.h`). */
 #define FZN_TYPE_SESSION_ASK 51u
 #define FZN_TYPE_SESSION_GRANT 52u
+/* A SESSION'S WAYS ASKED OF A RELAY, sec 1045: version 2, the type, the other
+ * end's key, the asker's handle and the other end's, 4 bytes each. Answered
+ * `ok` or `denied WHY`. */
+#define FZN_TYPE_RELAY_SESSION 53u
+#define FZN_RELAY_SESSION_LEN (2u + 32u + 4u + 4u)
 /* A CALL'S WORD, sec 1019 (`node/live.h`): said in a session, never answered. */
 #define FZN_TYPE_LIVE 61u
 #define FZN_CALL_OK 0u

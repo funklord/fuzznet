@@ -181,8 +181,12 @@ def gateway(r):
 	# which confirmed a conntrack entry for it, and the masquerade then gave
 	# the other half another port. Dropped here, the entry is never
 	# confirmed. 3 of 5 introductions failed so, on one gateway or the other.
+	# SYMMETRIC=1, sec 1045: a port of its own for each destination, so no
+	# introduction can punch a hole through it and only a relay reaches behind.
+	random = " random" if r.opts.get("SYMMETRIC") == "1" else ""
 	rules = ("table ip nat {\n"
-	         " chain post { type nat hook postrouting priority 100; oifname \"eth2\" masquerade; }\n"
+	         " chain post { type nat hook postrouting priority 100; oifname \"eth2\" masquerade%s; }\n"
+	         % random +
 	         "}\n"
 	         "table ip filter {\n"
 	         " chain wan { type filter hook input priority 0; iifname \"eth2\" ct state new drop; }\n"

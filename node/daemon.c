@@ -16907,7 +16907,57 @@ static struct session_asking {
 	uint8_t to[FZN_NODE_SESSION_FROM_MAX];
 	unsigned to_len;
 	int live;
+	/* THROUGH A RELAY, sec 1045: the round target asked through `relay`. */
+	struct pull_target *pt, *relay;
+	int relayed;
 } session_asks[FZND_SESSION_ASKS];
+
+/* HOSTS WHOSE SESSION IS ASKED THROUGH A RELAY, sec 1045: one asked directly and
+ * unanswered, for FZND_SESSION_RELAY_S. */
+#define FZND_SESSION_RELAY_S 300u
+static struct {
+	uint8_t host[FZN_PUBKEY_LEN];
+	uint64_t until;
+} session_relay_due[FZND_SESSION_ASKS];
+
+static void session_relay_mark(const uint8_t host[FZN_PUBKEY_LEN], uint64_t until)
+{
+	size_t i, at = 0;
+
+	for (i = 0; i < FZND_SESSION_ASKS; i++) {
+		if (memcmp(session_relay_due[i].host, host, FZN_PUBKEY_LEN) == 0) {
+			at = i;
+			break;
+		}
+		if (session_relay_due[i].until < session_relay_due[at].until)
+			at = i;
+	}
+	memcpy(session_relay_due[at].host, host, FZN_PUBKEY_LEN);
+	session_relay_due[at].until = until;
+}
+
+/* A RELAYED ASK REFUSED OR UNANSWERED: the next asked directly again, so a relay
+ * that cannot help -- one relaying nothing, or that never heard where the host is
+ * -- holds nobody to it. Direct and relayed then take turns until one answers. */
+static void session_relay_unmark(const uint8_t host[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < FZND_SESSION_ASKS; i++)
+		if (memcmp(session_relay_due[i].host, host, FZN_PUBKEY_LEN) == 0)
+			session_relay_due[i].until = 0;
+}
+
+static int session_relay_marked(const uint8_t host[FZN_PUBKEY_LEN], uint64_t now)
+{
+	size_t i;
+
+	for (i = 0; i < FZND_SESSION_ASKS; i++)
+		if (session_relay_due[i].until > now
+		    && memcmp(session_relay_due[i].host, host, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	return 0;
+}
 
 /* THE ROUND'S TARGET for `host`: an estate peer's, or a contact host's. */
 static struct pull_target *target_of(const uint8_t host[FZN_PUBKEY_LEN])
@@ -16925,6 +16975,10 @@ static struct pull_target *target_of(const uint8_t host[FZN_PUBKEY_LEN])
 
 static void session_ask_close(struct session_asking *a)
 {
+	if (a->relayed && a->pt)
+		a->pt->caller.via_set = 0;
+	a->pt = a->relay = NULL;
+	a->relayed = 0;
 	if (a->fd >= 0)
 		fzn_udp_close(a->fd);
 	fzn_wipe(&a->caller, sizeof(a->caller));
@@ -16932,9 +16986,102 @@ static void session_ask_close(struct session_asking *a)
 	a->live = 0;
 }
 
+static void session_granted(void *ctx, const uint8_t *reply, size_t len);
+
+/* THE WAYS ASKED OF THE RELAY, sec 1045, from the serving socket -- where this
+ * host's session frames leave, and so the address the relay keys this end's way
+ * on. The caller is kept for the ask's life, as the asks hold it. */
+static fzn_caller_t relay_ways_caller;
+
+static void relay_ways_told(void *ctx, const uint8_t *reply, size_t len)
+{
+	(void)ctx;
+	say(FZN_ENTRY_DEBUG, "node/session", "a session's ways asked of a relay: %.*s",
+	    reply ? (int)(len && reply[len - 1u] == '\n' ? len - 1u : len) : 9,
+	    reply ? (const char *)reply : "no answer");
+}
+
+static void relay_ways_ask(struct pull_target *relay, const uint8_t host[FZN_PUBKEY_LEN])
+{
+	uint8_t request[FZN_RELAY_SESSION_LEN];
+	const fzn_node_session_t *s = fzn_node_sessions_of(&granted_sessions, host);
+
+	if (!s)
+		return;
+	request[0] = FZND_RELAY_VERSION;
+	request[1] = FZN_TYPE_RELAY_SESSION;
+	memcpy(request + 2, host, FZN_PUBKEY_LEN);
+	fzn_put_be32(request + 2 + FZN_PUBKEY_LEN, s->end.hears_as);
+	fzn_put_be32(request + 2 + FZN_PUBKEY_LEN + 4u, s->end.speaks_to);
+	relay_ways_caller = relay->caller;
+	relay_ways_caller.out = serving_out;
+	relay_ways_caller.out_ctx = relay->pairing.node;
+	if (!fzn_node_asks_send(&round_asks, &relay_ways_caller, request, sizeof(request),
+	                        wall_clock() + 60u, FZND_SESSION_ASK_WAIT_MS, relay_ways_told, NULL))
+		relay_ways_told(NULL, NULL, 0);
+	relay->caller.next_msg = relay_ways_caller.next_msg;
+}
+
+/* A SESSION ASKED THROUGH A RELAY, its answer: the relay's own `ok` waited past,
+ * under the same message; its refusal the end; a grant taken as a direct one is,
+ * with the relay as where the session's frames go, and its ways asked of it. */
+static void session_relayed_answered(void *ctx, const uint8_t *reply, size_t len)
+{
+	struct session_asking *a = ctx;
+
+	if (a->pt && reply && len == 3u && memcmp(reply, "ok\n", 3u) == 0) {
+		if (!fzn_node_asks_await(&round_asks, &a->pt->caller, a->pt->caller.as_msg,
+		                         FZND_SESSION_ASK_WAIT_MS, session_relayed_answered, a))
+			session_ask_close(a);
+		return;
+	}
+	if (!reply || (len >= 7u && memcmp(reply, "denied ", 7u) == 0)) {
+		say(FZN_ENTRY_DEBUG, "node/session", "a session asked of %02x%02x%02x%02x through a "
+		    "relay: %.*s", a->host[0], a->host[1], a->host[2], a->host[3],
+		    reply ? (int)(len < 80u ? len - 1u : 80u) : 9,
+		    reply ? (const char *)reply : "no answer");
+		session_relay_unmark(a->host);
+		session_ask_close(a);
+		return;
+	}
+	if (a->relay && reply && len == 2u + FZN_SESSION_GRANT_LEN) {
+		memcpy(a->to, a->relay->caller.node.storage, a->relay->caller.node.len);
+		a->to_len = (unsigned)a->relay->caller.node.len;
+	}
+	{
+		struct pull_target *relay = a->relay;
+		uint8_t host[FZN_PUBKEY_LEN];
+
+		memcpy(host, a->host, FZN_PUBKEY_LEN);
+		a->relayed = 0; /* the grant read as a direct one is, below */
+		if (a->pt)
+			a->pt->caller.via_set = 0;
+		session_granted(a, reply, len);
+		if (relay && fzn_node_sessions_of(&granted_sessions, host))
+			relay_ways_ask(relay, host);
+	}
+}
+
+/* THE RELAY FOR `pt`, sec 1045: one of this host's own estate's hosts it pulls
+ * from, answering and not `pt` itself -- each says hello to the contacts' hosts,
+ * so the one `pt` says hello to knows where it is. */
+static struct pull_target *session_relay_of(const struct pull_target *pt)
+{
+	size_t i;
+
+	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls; i++)
+		if (&loop_pulls[i] != pt && loop_pulls[i].fd >= 0 && !silent_peer(&loop_pulls[i]))
+			return &loop_pulls[i];
+	return NULL;
+}
+
 static void session_granted(void *ctx, const uint8_t *reply, size_t len)
 {
 	struct session_asking *a = ctx;
+
+	/* ASKED DIRECTLY AND UNANSWERED, sec 1045: through a relay next. */
+	if (!reply && !a->relayed)
+		session_relay_mark(a->host, wall_clock() + FZND_SESSION_RELAY_S);
 
 	if (!reply || len != 2u + FZN_SESSION_GRANT_LEN)
 		say(FZN_ENTRY_DEBUG, "node/session", "a session asked of %02x%02x%02x%02x: %s %.*s",
@@ -16963,6 +17110,9 @@ static void say_once_session_unserved(const uint8_t host[FZN_PUBKEY_LEN])
 	    host[0], host[1], host[2], host[3]);
 }
 
+static int relay_send(struct pull_target *target, struct pull_target *relay,
+                      const uint8_t *request, size_t request_len, uint64_t now, uint32_t *msg);
+
 /* ASKED OF `host`, unless an ask of it waits: 1 when one is on its way. */
 static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 {
@@ -16989,6 +17139,8 @@ static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 		return 0;
 	}
 	a->fd = -1;
+	a->pt = a->relay = NULL;
+	a->relayed = 0;
 	/* A HOST THAT SERVES NO SOCKET holds no session, sec 1038: a session's words
 	 * are said and heard on the serving socket alone (fzn_node_serve_say), so one
 	 * granted here could carry nothing, and was asked again every pass. */
@@ -17016,6 +17168,29 @@ static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 	memcpy(a->host, host, FZN_PUBKEY_LEN);
 	memcpy(a->to, pt->caller.node.storage, pt->caller.node.len);
 	a->to_len = (unsigned)pt->caller.node.len;
+	/* THROUGH A RELAY, sec 1045, where asked directly it went unanswered: sealed
+	 * for the host and handed to one of this estate's hosts, its answer awaited
+	 * on the target's socket as a relayed line's is (sec 697). */
+	{
+		struct pull_target *relay;
+		uint32_t msg = 0;
+
+		if (session_relay_marked(host, wall_clock()) && (relay = session_relay_of(pt)) != NULL) {
+			fzn_udp_close(a->fd);
+			a->fd = -1;
+			a->pt = pt;
+			a->relay = relay;
+			a->relayed = 1;
+			if (!relay_send(pt, relay, request, sizeof(request), wall_clock(), &msg)
+			    || !fzn_node_asks_await(&round_asks, &pt->caller, msg, FZND_SESSION_ASK_WAIT_MS,
+			                            session_relayed_answered, a)) {
+				session_ask_close(a);
+				return 0;
+			}
+			a->live = 1;
+			return 1;
+		}
+	}
 	/* BY THE SERVING SOCKET where the host said hello, sec 1031: the caller is a
 	 * copy of the round target's and carries its `out` (sec 1036), so where the
 	 * target's address is a hello's way the ask leaves from the serving socket and
@@ -18328,6 +18503,45 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
 	}
 }
 
+/* A SESSION'S WAYS, sec 1045: the asker and the other end, each by its handle,
+ * judged as a relayed frame is -- this host relaying at all, for its estate and
+ * its contacts, one hop -- and the other end seen lately; charged to the asker's
+ * quota as a frame of the request's size, the frames themselves forwarded by the
+ * serve loop while the session talks. */
+static size_t relay_session_remote(const uint8_t *sender, const uint8_t *request, uint8_t *reply,
+                                   size_t reply_cap)
+{
+	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
+	fzn_node_relay_asker_t asker;
+	fzn_udp_addr_t to;
+	uint64_t when = 0, now = wall_clock();
+	const char *no;
+
+	asker_of(sender, &asker);
+	no = fzn_node_relay_refuse_relay(&asker,
+	                                 st && st->udp_fd >= 0 && st->asking_from
+	                                         && host_flag("relay/enabled") == 1,
+	                                 st ? st->asking_hops : 0u, 1);
+	if (!no && (!fzn_node_relay_where(&relay_tables, request + 2, &to, &when)
+	            || when + FZND_RELAY_SEEN_S < now))
+		no = "that host has not said where it is";
+	if (!no && !relay_charge(sender, FZN_RELAY_SESSION_LEN, now))
+		no = "over this host's relay quota";
+	if (!no && !fzn_node_relay_session(&relay_tables, st->asking_from,
+	                                   fzn_get_be32(request + 2 + FZN_PUBKEY_LEN), &to,
+	                                   fzn_get_be32(request + 2 + FZN_PUBKEY_LEN + 4u), now))
+		no = "the session's ways would not keep";
+	if (no) {
+		say(FZN_ENTRY_WARNING, "node/peer", "a relay for %02x%02x%02x%02x refused: %s",
+		    sender[0], sender[1], sender[2], sender[3], no);
+		return (size_t)snprintf((char *)reply, reply_cap, "denied %s\n", no);
+	}
+	say(FZN_ENTRY_DEBUG, "node/peer", "a session of %02x%02x%02x%02x relayed to %02x%02x%02x%02x",
+	    sender[0], sender[1], sender[2], sender[3], request[2], request[3], request[4],
+	    request[5]);
+	return (size_t)snprintf((char *)reply, reply_cap, "ok\n");
+}
+
 static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                            size_t request_len, uint8_t *reply, size_t reply_cap)
 {
@@ -18378,6 +18592,9 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	if (request_len >= 2u && request[0] == FZND_RELAY_VERSION
 	    && (request[1] == FZN_TYPE_INTRODUCE || request[1] == FZN_TYPE_NOTIFY))
 		return introduce_remote(sender, request, request_len, reply, reply_cap);
+	if (request_len == FZN_RELAY_SESSION_LEN && request[0] == FZND_RELAY_VERSION
+	    && request[1] == FZN_TYPE_RELAY_SESSION)
+		return relay_session_remote(sender, request, reply, reply_cap);
 	if (request_len < FZND_RELAY_HEAD_LEN + 1u || request[0] != FZND_RELAY_VERSION
 	    || request[1] != FZN_TYPE_RELAY)
 		return 0;
