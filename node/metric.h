@@ -62,6 +62,15 @@ int fzn_metrics_use(fzn_metrics_t *m, fzn_metric_t *rows, size_t cap);
  * space or comma -- or a full table. */
 fzn_metric_t *fzn_metrics_open(fzn_metrics_t *m, const char *name, uint64_t prior);
 
+/* `name`'S ROW, found, or added at `prior` with at most `max` rows named under
+ * `within` (sec 1058): where `max` are already, the least recently observed of
+ * them gives its place, its total into `*evicted` (0 when none went), so a
+ * caller keeping a sum over `within` keeps it whole -- the meter's bound per
+ * family (sec 685), where a file's root makes a row of every transfer. NULL as
+ * `fzn_metrics_open`'s, or for `max` 0. */
+fzn_metric_t *fzn_metrics_open_within(fzn_metrics_t *m, const char *name, uint64_t prior,
+                                      const char *within, size_t max, uint64_t *evicted);
+
 /* `name`'s row, or NULL. */
 const fzn_metric_t *fzn_metrics_get(const fzn_metrics_t *m, const char *name);
 

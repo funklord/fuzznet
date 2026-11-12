@@ -85650,3 +85650,19 @@ over 5 s read as 2000 a second at the window's end, a quiet window's 500 over 10
 count with no row refused.
 
 **Next:** the meter's rows onto it, `list transfer` unchanged in form.
+
+## 1058. At most so many under a prefix, the least recent giving way, 2026-11-12
+
+The meter bounds its rows per family and evicts the least recently active into the family's totals
+(sec 685), since a file's root makes a row of every transfer and a table that only grew would grow
+with them. The layer's table refuses a new name when full, which is right for a link's estimates
+(forgetting one forgets what was measured) and wrong for such counts. So the layer gains
+`fzn_metrics_open_within`: a name opened with at most `max` rows under a prefix, past which the
+least recently observed of them gives its place and says its total, so a caller keeping a sum over
+the prefix keeps it whole.
+
+**Verified:** `metric_test` -- three rows within a bound of three evict none; a fourth evicts the
+least recently counted, saying its 20, and leaves the rest and other prefixes alone; a row held is
+found, evicting nothing; a bound of none takes nothing.
+
+**Next:** `node/meter.c`'s rows onto the layer, by this.

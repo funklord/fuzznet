@@ -15347,6 +15347,13 @@ SABOTAGES = [
 		"a metric's estimate parts from link/'s, and a steady sample is approached for ever -- sec 1055",
 	),
 	(
+		"metric-eviction-unsaid",
+		"node/metric.c",
+		"\t\t*evicted = oldest->total;\n",
+		"\t\t*evicted = 0;\n",
+		"a count evicted past its prefix's bound takes its total with it, and a family's sum shrinks -- sec 1058",
+	),
+	(
 		"relay-own-route-unmarked",
 		"node/relay.c",
 		"\t\t\tr->routes[i].own = 1;\n",

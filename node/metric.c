@@ -67,6 +67,37 @@ fzn_metric_t *fzn_metrics_open(fzn_metrics_t *m, const char *name, uint64_t prio
 	return r;
 }
 
+fzn_metric_t *fzn_metrics_open_within(fzn_metrics_t *m, const char *name, uint64_t prior,
+                                      const char *within, size_t max, uint64_t *evicted)
+{
+	fzn_metric_t *r, *oldest = NULL;
+	size_t i, n = 0, wlen = within ? strlen(within) : 0u, len = 0;
+
+	if (evicted)
+		*evicted = 0;
+	if (!m || !m->rows || !max || !name_ok(name, &len))
+		return NULL;
+	if ((r = find(m, name)) != NULL)
+		return r;
+	for (i = 0; i < m->n; i++) {
+		if (strncmp(m->rows[i].name, within, wlen) != 0)
+			continue;
+		n++;
+		if (!oldest || m->rows[i].last_ms < oldest->last_ms)
+			oldest = &m->rows[i];
+	}
+	if (n < max || !oldest)
+		return fzn_metrics_open(m, name, prior);
+	/* ITS PLACE GIVEN, its total said. */
+	if (evicted)
+		*evicted = oldest->total;
+	memset(oldest, 0, sizeof(*oldest));
+	memcpy(oldest->name, name, len + 1u);
+	oldest->estimate = oldest->prior = prior;
+	oldest->used = 1;
+	return oldest;
+}
+
 const fzn_metric_t *fzn_metrics_get(const fzn_metrics_t *m, const char *name)
 {
 	return name ? find(m, name) : NULL;

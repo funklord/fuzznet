@@ -158,6 +158,38 @@ static void test_a_count(void)
 	CHECK(!fzn_metrics_count(&m, "meter/none", 1u, 1u), "a count with no row was taken");
 }
 
+/* AT MOST SO MANY UNDER A PREFIX, sec 1058: past them the least recently
+ * counted gives its place and says its total; other prefixes untouched. */
+static void test_within(void)
+{
+	static fzn_metrics_t m;
+	uint64_t gone = 99u;
+	char name[32];
+	size_t i;
+
+	fzn_metrics_init(&m);
+	(void)fzn_metrics_open(&m, "other/x", 0u);
+	(void)fzn_metrics_count(&m, "other/x", 1u, 1u);
+	for (i = 0; i < 3u; i++) {
+		(void)snprintf(name, sizeof(name), "meter/files/%zu", i);
+		CHECK(fzn_metrics_open_within(&m, name, 0u, "meter/files/", 3u, &gone) && gone == 0u,
+		      "a row within the bound evicted one");
+		(void)fzn_metrics_count(&m, name, 10u * (i + 1u), 100u + i);
+	}
+	(void)fzn_metrics_count(&m, "meter/files/0", 5u, 200u);
+	CHECK(fzn_metrics_open_within(&m, "meter/files/new", 0u, "meter/files/", 3u, &gone)
+	              && gone == 20u && fzn_metrics_get(&m, "meter/files/1") == NULL
+	              && fzn_metrics_get(&m, "meter/files/0") != NULL
+	              && fzn_metrics_get(&m, "meter/files/new")->total == 0u
+	              && fzn_metrics_get(&m, "other/x") != NULL && m.n == 4u,
+	      "past the bound the least recently counted did not go, its total said");
+	CHECK(fzn_metrics_open_within(&m, "meter/files/0", 7u, "meter/files/", 3u, &gone)
+	              == fzn_metrics_get(&m, "meter/files/0") && gone == 0u,
+	      "a row held was not found, or evicted another");
+	CHECK(!fzn_metrics_open_within(&m, "meter/files/z", 0u, "meter/files/", 0u, &gone),
+	      "a bound of none took a row");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -176,6 +208,7 @@ int main(void)
 	test_the_callers_room();
 	test_pages();
 	test_a_count();
+	test_within();
 	if (failures) {
 		fprintf(stderr, "node metric_test: %d of %d checks failed\n", failures, checks);
 		return 1;
