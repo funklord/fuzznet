@@ -11059,8 +11059,8 @@ SABOTAGES = [
 	(
 		'fuzznetd-recv-answering-resends',
 		'node/daemon.c',
-		'\t\t    != FZN_CALLER_OK)\n\t\t\tbreak;\n\t\tresends++;\n',
-		'\t\t    != FZN_CALLER_OK || 1)\n\t\t\tbreak;\n\t\tresends++;\n',
+		'\t\tif (fzn_caller_resend(caller, request, request_len, expires_at, msg) != FZN_CALLER_OK)\n\t\t\tbreak;\n\t\tresends++;\n',
+		'\t\tbreak;\n\t\tresends++;\n',
 		"a peer's lost request is never resent, and the peer is passed over for the round; live_erasure --loss only, no unit test reaches it -- sec 737",
 	),
 	(
@@ -15226,6 +15226,13 @@ SABOTAGES = [
 		"\t    && memcmp(r->pairs[pick].host, host, FZN_PUBKEY_LEN) == 0)\n\t\treturn;\n",
 		"\t    && 0)\n\t\treturn;\n",
 		"a manifest repeating a proven way drops it to a told one, and its hold with it -- sec 1036",
+	),
+	(
+		"caller-out-ignored",
+		"node/caller.c",
+		"\t\tif (caller->out ? !caller->out(caller->out_ctx, caller, msg, frame, frame_len)\n",
+		"\t\tif (0 && caller->out ? !caller->out(caller->out_ctx, caller, msg, frame, frame_len)\n",
+		"a request to a host behind a NAT leaves from a socket the NAT never admits, and is never answered -- sec 1036",
 	),
 	(
 		"relay-own-route-unmarked",

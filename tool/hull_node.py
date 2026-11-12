@@ -27,6 +27,7 @@ VOLUME/stop appears or the deadline passes, whichever is first.
 """
 
 import json
+import re
 import os
 import socket
 import subprocess
@@ -258,8 +259,8 @@ def node(r):
 	    {"daemon": [ARG...], "env": {K: V}}          fuzznetd started, serving
 	    {"ask": LINE, "expect": PREFIX, "word": N,   a verb; its reply's word N
 	     "put": FILE, "var": V}                      kept
-	    {"until": LINE, "contains": S | "endswith": S, "within": SECONDS}
-	                                                asked again until it says so
+	    {"until": LINE, "contains": S | "endswith": S | "matches": REGEX,
+	     "within": SECONDS}                         asked again until it says so
 
 	`{V}` in a string is a variable. Every step may carry a "label", under
 	which its outcome and the seconds since the plan began are recorded; a
@@ -302,7 +303,8 @@ def node(r):
 					except OSError:
 						out = ""
 					if ("contains" in step and sub(step["contains"]) in out) \
-					   or ("endswith" in step and out.endswith(sub(step["endswith"]))):
+					   or ("endswith" in step and out.endswith(sub(step["endswith"]))) \
+					   or ("matches" in step and re.search(step["matches"], out)):
 						break
 					if time.monotonic() > until or r.left() <= 0:
 						raise failed("%r last answered %r" % (sub(step["until"]), out))

@@ -85146,26 +85146,23 @@ again, in the round: **the next step is the round's requests sent from the socke
 the serving socket for a hello's way, by sec 1031's own route back. `tool/hull_estates.py` keeps
 both readings as steps.
 
-**Step 2c, built: a round's requests go the way the rule names.** Where the rule's way for a host
-is a hello -- the serving socket's -- and it is the address the round's target holds, `peer_ask`
-seals the request on the target's caller as before and sends it **from the serving socket**,
-routing its answer back to the target's socket by a route of this host's own (sec 1031's
-mechanism, `send_by_serving`); a resend goes the same way, under the same message. A request past
-one frame, which a route cannot carry, and any host without a hello, go as before.
+**Step 3, built: every round request goes the way the rule names, by one hook on the caller.**
+Step 2c first put a special case in `peer_ask`; on hull it showed nothing, since the round's main
+traffic is its conversations (`fzn_node_talk`), which send through the caller in the library.
+So the case is gone and the caller gained an optional `out` (`node/caller.h`): when set, each
+frame a request is sent or resent as goes by it instead of the caller's socket. The daemon sets it
+on every round target's caller (`caller_out`): where the address a caller asks at is a way the rule
+learnt from a hello -- matched by address text, an IPv4-mapped form as its IPv4 -- the frame goes
+from the serving socket, its answer routed back to the caller's socket by a route of this host's
+own (sec 1031's mechanism); otherwise from the caller's socket as ever. A copy of a target's caller
+-- a session ask's, a relay's -- carries the hook with it.
 
-**Not yet shown to help, and why:** on hull A's asks of B at its hello address still stood at 0 of
-20 answered after 90 s. Those asks are mostly not `peer_ask`'s: the round's main traffic is its
-conversations (`fzn_node_talk`, sec 636), which meter links the same way and send from the
-target's socket inside the library, untouched here. So the next step is the conversations sent by
-the same way; until then this covers the reconcile asks alone, and no answered ask has been seen.
-**The shape of that step:** not a second special case but one place -- `fzn_node_asks_send` and
-its resend call `fzn_caller_send` and `fzn_caller_resend` on the target's caller, as `peer_ask`
-does, so an optional send hook on the caller (`node/caller.h`), set from the rule each round,
-carries every single-frame request and resend of a hello's way from the serving socket with its
-route back; `peer_ask`'s case here is then removed, and the hull reading (A's asks of B answered)
-is what shows it.
-Nothing regressed: `live_deliver`, `live_relay`, `live_groups`, `live_soon`, the three call
-scripts and the hull journey pass.
+**Measured on hull: A's asks of B at its hello address answered.** Before, 0 of 20 in 90 s; with
+the hook, 9 of 9 by 22.4 s and 225 of 225 by 142 s, at 7 ms and no loss. A's own round now reaches
+B behind its NAT, where lines had crossed only by B's pushes. `pair_test` holds the hook taking a
+request's frame under its message, answered, and a refusing hook failing the send; sabotage
+`caller-out-ignored`, caught. `tool/hull_estates.py` asserts the answered asks by pattern
+(`hull_node.py` gained `matches`).
 
 **The steps:** the table and its rule, with a unit test that holds each reader's current order as a
 case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'

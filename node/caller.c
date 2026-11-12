@@ -215,8 +215,10 @@ static fzn_caller_err_t send_as(fzn_caller_t *caller, const uint8_t *payload, si
 		                   caller->send_key, caller->send_ckey, caller->hash,
 		                   caller->rng, caller->aead) != FZN_SEAL_OK)
 			return FZN_CALLER_ERR_SEAL;
-		if (fzn_udp_send(caller->fd, &caller->node, frame, frame_len) !=
-		    FZN_UDP_OK)
+		/* BY ANOTHER WAY where one is set, sec 1036. */
+		if (caller->out ? !caller->out(caller->out_ctx, caller, msg, frame, frame_len)
+		                : fzn_udp_send(caller->fd, &caller->node, frame, frame_len)
+		                          != FZN_UDP_OK)
 			return FZN_CALLER_ERR_SEND;
 	}
 	caller->sends++;

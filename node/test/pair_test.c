@@ -55,6 +55,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* A CALLER'S OUT HOOK, sec 1036: counts the frames it is given and the message
+ * of the last, and sends each from the caller's own socket, or, `out_refuse`,
+ * none. */
+static unsigned out_frames;
+static int out_refuse;
+static uint32_t out_last_msg;
+
+static int counting_out(void *ctx, const fzn_caller_t *caller, uint32_t msg, const uint8_t *frame,
+                        size_t len)
+{
+	if (out_refuse)
+		return 0;
+	out_frames++;
+	*(uint32_t *)ctx = msg;
+	return fzn_udp_send(caller->fd, &caller->node, frame, len) == FZN_UDP_OK;
+}
+
 static int failures;
 static int checks;
 
@@ -738,6 +755,31 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 	              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0,
 	      "the device was not answered, so the two stored halves of a pairing do not "
 	      "make a working pair");
+
+	/* ---- ANOTHER WAY OUT, sec 1036: a caller's `out` takes each frame in place
+	 * of its socket -- here sending it on itself, so the node still answers --
+	 * and a hook that will not send makes the send fail. */
+	{
+		uint32_t way_msg = 0;
+
+		out_frames = 0;
+		out_refuse = 0;
+		caller.out = counting_out;
+		caller.out_ctx = &out_last_msg;
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &way_msg) == FZN_CALLER_OK
+		              && out_frames == 1u && out_last_msg == way_msg,
+		      "a caller's out hook did not take the request's one frame, under its message");
+		CHECK(fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, way_msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK,
+		      "a request sent by the out hook was not answered");
+		out_refuse = 1;
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &way_msg)
+		              == FZN_CALLER_ERR_SEND,
+		      "a hook that would not send was taken as sent");
+		caller.out = NULL;
+		caller.out_ctx = NULL;
+	}
 
 	/* ---- A PARTIAL LEFT IN A ONE-SLOT TABLE AGES OUT, sec 737: a piece of
 	 * a reply that came after its ask was forgotten, its partner lost,

@@ -1955,13 +1955,14 @@ static int answering_local;
  * there. */
 static int waiting_in_turn;
 
-/* A REQUEST BY THE SERVING SOCKET, sec 1036: where the rule says a host is reached
- * by the way its hellos keep open, a round's request to it goes from the serving
- * socket, as sec 1031's session ask does -- a NAT keyed on ports admits nothing
- * else, measured on hull as 0 of 20 asks answered from a target's own socket --
- * and its answer, coming back there, is routed on to the caller's socket by a
- * route of this host's own. `way_host` is the host so asked while its answer is
- * awaited, for a resend to go the same way. */
+/* A FRAME BY THE SERVING SOCKET, sec 1036, every round request's: the target
+ * callers' `out`. Where the address a caller asks at is a way the reach rule
+ * learnt from a hello -- the way a host's NAT keeps open to this host's serving
+ * socket, and the only one it admits, measured on hull as 0 of 20 asks answered
+ * from a target's own socket -- the frame goes from the serving socket and its
+ * answer, coming back there, is routed on to the caller's socket by a route of
+ * this host's own (sec 1031's mechanism). Otherwise it goes from the caller's
+ * socket, as ever. Matched by address text, an IPv4-mapped form as its IPv4. */
 /* WHERE A HOST IS REACHED, sec 1036: one table and its rule (`node/reach.h`), grown
  * once to the hello table's size. */
 #define FZND_REACH_PAIRS 4096u
@@ -1980,53 +1981,50 @@ static int reach_ready(void)
 	return reach_table.cap != 0u;
 }
 static fzn_node_state_t *serving_state;
-struct pull_target;
-static const uint8_t *target_key(const struct pull_target *pt);
-static const uint8_t *way_host;
-static fzn_udp_addr_t way_to;
+static fzn_node_state_t *serving_state;
 
-static int serving_way(const fzn_caller_t *caller, const uint8_t *host, fzn_udp_addr_t *to)
+static int same_way(const fzn_udp_addr_t *a, const fzn_udp_addr_t *b)
 {
-	fzn_reach_pair_t way;
+	char ha[FZN_UDP_HOST_MAX], hb[FZN_UDP_HOST_MAX];
+	uint16_t pa = 0, pb = 0;
+	const char *xa = ha, *xb = hb;
 
-	if (!host || !reach_ready() || !serving_state || !serving_state->relay
-	    || serving_state->udp_fd < 0 || !fzn_reach_best(&reach_table, host, wall_clock(), &way)
-	    || way.local != FZN_REACH_SERVING || way.remote.len != caller->node.len
-	    || memcmp(way.remote.storage, caller->node.storage, way.remote.len) != 0)
+	if (fzn_udp_addr_text(a, ha, &pa) != FZN_UDP_OK || fzn_udp_addr_text(b, hb, &pb) != FZN_UDP_OK
+	    || pa != pb)
 		return 0;
-	*to = way.remote;
-	return 1;
+	if (strncmp(xa, "::ffff:", 7) == 0)
+		xa += 7;
+	if (strncmp(xb, "::ffff:", 7) == 0)
+		xb += 7;
+	return strcmp(xa, xb) == 0;
 }
 
-/* SEALED ON `caller` AND SENT FROM THE SERVING SOCKET to `to`, under a fresh
- * message or, `again`, under `*msg`; its answer routed back to `caller`'s socket. */
-static fzn_caller_err_t send_by_serving(fzn_caller_t *caller, const uint8_t *host,
-                                        const fzn_udp_addr_t *to, const uint8_t *request,
-                                        size_t request_len, uint64_t expires_at, uint32_t *msg,
-                                        int again)
+static int caller_out(void *ctx, const fzn_caller_t *caller, uint32_t msg, const uint8_t *frame,
+                      size_t len)
 {
-	static uint8_t frame[FZN_UDP_DATAGRAM_MAX];
-	const struct sockaddr *sa = (const struct sockaddr *)to->storage;
-	fzn_udp_addr_t back;
-	fzn_caller_err_t err;
-	size_t frame_len = 0;
-	uint16_t port = 0;
+	uint64_t now = wall_clock();
+	size_t i;
 
-	err = again ? fzn_caller_seal_as(caller, request, request_len, expires_at, *msg, frame,
-	                                 sizeof(frame), &frame_len)
-	            : fzn_caller_seal(caller, request, request_len, expires_at, msg, frame,
-	                              sizeof(frame), &frame_len);
-	if (err != FZN_CALLER_OK)
-		return err;
-	if (fzn_udp_local_port(caller->fd, &port) != FZN_UDP_OK
-	    || fzn_udp_resolve(sa->sa_family == AF_INET6 ? AF_INET6 : AF_INET,
-	                       sa->sa_family == AF_INET6 ? "::1" : "127.0.0.1", port, &back)
-	               != FZN_UDP_OK)
-		return FZN_CALLER_ERR_SEND;
-	fzn_node_relay_route_own(serving_state->relay, host, *msg, &back, wall_clock());
-	return fzn_udp_send(serving_state->udp_fd, to, frame, frame_len) == FZN_UDP_OK
-	               ? FZN_CALLER_OK
-	               : FZN_CALLER_ERR_SEND;
+	(void)ctx;
+	for (i = 0; reach_ready() && serving_state && serving_state->relay
+	            && serving_state->udp_fd >= 0 && i < reach_table.cap; i++) {
+		const fzn_reach_pair_t *p = &reach_table.pairs[i];
+		const struct sockaddr *sa = (const struct sockaddr *)caller->node.storage;
+		fzn_udp_addr_t back;
+		uint16_t port = 0;
+
+		if (!p->used || p->local != FZN_REACH_SERVING || p->source != FZN_REACH_HELLO
+		    || (p->until && p->until <= now) || !same_way(&p->remote, &caller->node))
+			continue;
+		if (fzn_udp_local_port(caller->fd, &port) != FZN_UDP_OK
+		    || fzn_udp_resolve(sa->sa_family == AF_INET6 ? AF_INET6 : AF_INET,
+		                       sa->sa_family == AF_INET6 ? "::1" : "127.0.0.1", port, &back)
+		               != FZN_UDP_OK)
+			break;
+		fzn_node_relay_route_own(serving_state->relay, p->host, msg, &back, now);
+		return fzn_udp_send(serving_state->udp_fd, &p->remote, frame, len) == FZN_UDP_OK;
+	}
+	return fzn_udp_send(caller->fd, &caller->node, frame, len) == FZN_UDP_OK;
 }
 
 /* THE ANSWER TO `msg`, within 3 s, peers answered until its first piece
@@ -2073,10 +2071,7 @@ static fzn_caller_err_t recv_answering(fzn_caller_t *caller, uint32_t msg,
 		}
 		if (resends >= FZN_CALLER_RESENDS || mono_ms() - began >= 3000u)
 			break;
-		if ((way_host ? send_by_serving(caller, way_host, &way_to, request, request_len,
-		                                expires_at, &msg, 1)
-		              : fzn_caller_resend(caller, request, request_len, expires_at, msg))
-		    != FZN_CALLER_OK)
+		if (fzn_caller_resend(caller, request, request_len, expires_at, msg) != FZN_CALLER_OK)
 			break;
 		resends++;
 	}
@@ -2099,30 +2094,16 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 		return 0;
 	/* ITS ENVELOPE, if any, is the caller's `wrap`, sec 465. */
 	link_asked(li, request_len);
-	/* BY THE SERVING SOCKET where the rule says so, sec 1036; a request past one
-	 * frame, which a route cannot carry, goes as before. */
-	way_host = asking->pt && serving_way(asking->caller, target_key(asking->pt), &way_to)
-	                   ? target_key(asking->pt)
-	                   : NULL;
-	if (way_host && send_by_serving(asking->caller, way_host, &way_to, request, request_len,
-	                                asking->now + 300u, &msg, 0)
-	                        != FZN_CALLER_OK) {
-		way_host = NULL;
-		msg = 0;
-	}
-	if ((!way_host && msg == 0u
-	     && fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
-	                != FZN_CALLER_OK)
+	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
+	            != FZN_CALLER_OK
 	    || recv_answering(asking->caller, msg, request, request_len, asking->now + 300u, reply,
 	                      reply_cap, reply_len)
 	               != FZN_CALLER_OK) {
-		way_host = NULL;
 		link_answered(li, began, 0, 1);
 		if (asking->pt)
 			silent_mark(asking->pt);
 		return 0;
 	}
-	way_host = NULL;
 	link_answered(li, began, *reply_len, 0);
 	if (asking->pt)
 		silent_heard(asking->pt);
@@ -2147,11 +2128,6 @@ struct pull_target {
 	uint8_t *slot_buf;
 	int fd;
 };
-
-static const uint8_t *target_key(const struct pull_target *pt)
-{
-	return pt->pairing.node;
-}
 
 /* A ROUND'S STEPS, in order, sec 636: the loop runs one each pass and
  * answers between them. 0 is no round under way. */
@@ -6505,6 +6481,8 @@ static int open_target_on(struct pull_target *pt, int fd, int family,
 	pt->caller.wrap = caller_wrap;
 	pt->caller.sent = caller_sent;
 	pt->caller.answered = caller_answered;
+	pt->caller.out = caller_out;
+	pt->caller.out_ctx = NULL;
 	stamp_offset(&pt->caller, pt->pairing.node);
 	return 1;
 }
@@ -23111,6 +23089,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			pt->caller.wrap = caller_wrap;
 			pt->caller.sent = caller_sent;
 			pt->caller.answered = caller_answered;
+			pt->caller.out = caller_out;
+			pt->caller.out_ctx = NULL;
 		}
 
 		load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);

@@ -123,6 +123,14 @@ typedef struct fzn_caller {
 	             const uint8_t *payload, size_t len);
 	void (*answered)(void *ctx, const struct fzn_caller *caller, uint32_t msg, size_t len);
 	void *traffic_ctx;
+	/* ANOTHER WAY OUT, sec 1036, when set: each frame a request is sent or
+	 * resent as goes by `out` rather than from this caller's socket -- a
+	 * daemon sending a host's requests from the socket that host's NAT
+	 * admits, and routing the answer back to this caller's own socket, where
+	 * it is read as ever. 1 when the frame went. */
+	int (*out)(void *ctx, const struct fzn_caller *caller, uint32_t msg, const uint8_t *frame,
+	           size_t len);
+	void *out_ctx;
 	/* WHO ANSWERS UNDER THIS SESSION, sec 708: the sender of the last frame
 	 * that opened under its keys, set by the caller as it reads. What
 	 * `fzn_caller_forget` needs to name a reply's partial in a reassembly
