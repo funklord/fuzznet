@@ -27,7 +27,8 @@ contact's. Each host's own client is a caller on its socket.
        of its sessions, and rings said on one it forgot were lost (sec 1072)
     k  B sets its ring time to 5 s; A rings it and nobody answers: B ends the call
        no-answer at 5 s and tells A, which ends it no-answer -- not 45 s, nor
-       gone for RINGING stopping (sec 1073)
+       gone for RINGING stopping (sec 1073); `get call ID` then answers `ok ended
+       no-answer` at both ends, and phase l's `ok ended busy` (sec 1082)
     l  B lets a user ring twice, one more a day; A rings twice, held, then a third
        time: A's call ends busy within 4 s, before B's ring time, and B never holds
        it (sec 1074)
@@ -322,6 +323,11 @@ def main(argv):
 			for who in ("a", "b"):
 				started[who].wait_for(re.compile(r"call %s: no-answer" % rung[1]),
 				                      "%s ending the call no-answer" % who.upper(), within=5.0)
+			# AND A CLIENT ASKING WHY, sec 1082: both ends say it.
+			for who in ("a", "b"):
+				got = ask(socks[who], "get call %s" % rung[1]).strip()
+				if got != "ok ended no-answer":
+					raise failed("k: %s's get call answered %r, not why it ended" % (who.upper(), got))
 			print("livecheck: k: B rang 5 s; both ended the call no-answer, A after %.1f s" % took)
 
 			# l: RINGS GUARDED, sec 1074.
@@ -344,6 +350,9 @@ def main(argv):
 			                      "A ending the call busy", within=5.0)
 			started["b"].wait_for(re.compile(r"refused busy: past its rings"),
 			                      "B saying it refused A's rings", within=5.0)
+			got = ask(socks["a"], "get call %s" % rung[1]).strip()
+			if got != "ok ended busy":
+				raise failed("l: A's get call answered %r, not busy" % got)
 			print("livecheck: l: B let A ring twice; the third ended busy after %.1f s" % took)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)

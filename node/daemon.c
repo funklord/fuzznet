@@ -17823,9 +17823,78 @@ static void live_told(const uint8_t call[FZN_LIVE_CALL_LEN], const char *what)
 	publish("call", name);
 }
 
+/* WHO A CALL'S OTHER END IS, sec 1040, as `list call` names it: at the caller the
+ * first user rung, at the callee the caller's user, `-` when this host cannot say. */
+static void call_user_of(const fzn_live_call_t *r, char user[2u * FZN_PUBKEY_LEN + 1u])
+{
+	const struct live_kept *kr;
+	uint8_t owner[FZN_PUBKEY_LEN];
+	int own = 0;
+
+	if ((kr = kept_of(r->call, 0)) != NULL && kr->n_participants)
+		hex_of(kr->participants[0].whom, FZN_PUBKEY_LEN, user);
+	else if (group_owner_of(r->host, owner, &own))
+		hex_of(owner, FZN_PUBKEY_LEN, user);
+	else
+		(void)snprintf(user, 2u, "-");
+}
+
+/* A CALL ENDED, KEPT WITH WHY, sec 1082, fuzzypickles': a call left `list call` at
+ * once, so a person who rang and saw it vanish could not tell declined from busy
+ * from no answer. Kept FZND_CALL_ENDED_MS, for `get call ID` to say why. */
+#define FZND_CALL_ENDED_MS 30000u
+static struct call_ended {
+	uint8_t call[FZN_LIVE_CALL_LEN];
+	uint8_t kinds;
+	char user[2u * FZN_PUBKEY_LEN + 1u];
+	char why[16];
+	uint64_t at_ms;
+} *calls_ended;
+static size_t n_calls_ended, calls_ended_cap;
+
+/* THOSE PAST THEIR TIME let go; the rest kept in order. */
+static void calls_ended_prune(uint64_t now_ms)
+{
+	size_t i, k = 0;
+
+	for (i = 0; i < n_calls_ended; i++)
+		if (now_ms < calls_ended[i].at_ms + FZND_CALL_ENDED_MS)
+			calls_ended[k++] = calls_ended[i];
+	n_calls_ended = k;
+}
+
+static void call_ended_note(const fzn_live_call_t *c, const char *why)
+{
+	struct call_ended *e;
+	uint64_t now_ms = wall_ms();
+
+	calls_ended_prune(now_ms);
+	if (!heap_room((void **)&calls_ended, &calls_ended_cap, n_calls_ended + 1u,
+	               sizeof(*calls_ended)))
+		return;
+	e = &calls_ended[n_calls_ended++];
+	memcpy(e->call, c->call, FZN_LIVE_CALL_LEN);
+	e->kinds = c->kinds;
+	call_user_of(c, e->user);
+	(void)snprintf(e->why, sizeof(e->why), "%s", why);
+	e->at_ms = now_ms;
+}
+
+static const struct call_ended *call_ended_of(const uint8_t call[FZN_LIVE_CALL_LEN])
+{
+	size_t i;
+
+	calls_ended_prune(wall_ms());
+	for (i = n_calls_ended; i-- > 0;)
+		if (memcmp(calls_ended[i].call, call, FZN_LIVE_CALL_LEN) == 0)
+			return &calls_ended[i];
+	return NULL;
+}
+
 static void live_end(fzn_live_call_t *c, const char *why)
 {
 	live_end_siblings(c);
+	call_ended_note(c, why);
 	live_told(c->call, why);
 	kept_drop(c->call);
 	fzn_live_end(&node_calls, c);
@@ -17843,8 +17912,10 @@ static void live_gone(void *ctx, const fzn_live_call_t *c)
 
 		if (n)
 			live_say_ending(c->host, word, n);
+		call_ended_note(c, "no-answer");
 		live_told(c->call, "no-answer");
 	} else {
+		call_ended_note(c, "ended");
 		live_told(c->call, "ended");
 	}
 	kept_drop(c->call);
@@ -18436,25 +18507,18 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 	/* `list call`: `ok N ID,STATE,KINDS,USER ...`. USER the call's other end, sec
 	 * 1040, so a client can say who is calling before it is answered: at the
 	 * callee the caller's user, at the caller the first user rung; `-` when this
-	 * host cannot say. A fourth field, so a client reading three reads three. */
+	 * host cannot say. A fourth field, so a client reading three reads three.
+	 * A call ended is not listed: `get call ID` says why (sec 1082). */
 	if (request->parsed == FZN_VERB_LIST && subject_len == 4u) {
 		n = (size_t)snprintf(reply, cap, "ok %zu", node_calls.n);
 		for (i = 0; i < node_calls.cap && n + 120u < cap; i++) {
 			const fzn_live_call_t *r = &node_calls.rows[i];
-			const struct live_kept *kr;
 			char id[2u * FZN_LIVE_CALL_LEN + 1u], user[2u * FZN_PUBKEY_LEN + 1u];
-			uint8_t owner[FZN_PUBKEY_LEN];
-			int own = 0;
 
 			if (!r->used)
 				continue;
 			hex_of(r->call, FZN_LIVE_CALL_LEN, id);
-			if ((kr = kept_of(r->call, 0)) != NULL && kr->n_participants)
-				hex_of(kr->participants[0].whom, FZN_PUBKEY_LEN, user);
-			else if (group_owner_of(r->host, owner, &own))
-				hex_of(owner, FZN_PUBKEY_LEN, user);
-			else
-				(void)snprintf(user, sizeof(user), "-");
+			call_user_of(r, user);
 			n += (size_t)snprintf(reply + n, cap - n, " %s,%s,%u,%s", id,
 			                      r->state == FZN_LIVE_UP            ? "up"
 			                      : r->state == FZN_LIVE_RINGING_IN ? "ringing-in"
@@ -18557,9 +18621,17 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 		hex_of(call, sizeof(call), id);
 		return (size_t)snprintf(reply, cap, "ok %s\n", id);
 	}
-	if (!next_word(&at, &left, &w, &w_len) || !unhex_n(w, w_len, call, sizeof(call))
-	    || !(c = fzn_live_find(&node_calls, call)))
+	if (!next_word(&at, &left, &w, &w_len) || !unhex_n(w, w_len, call, sizeof(call)))
 		return (size_t)snprintf(reply, cap, "error no such call\n");
+	if (!(c = fzn_live_find(&node_calls, call))) {
+		/* ENDED IN THE LAST 30 s, sec 1082: `get call ID` says why. */
+		const struct call_ended *e = call_ended_of(call);
+
+		if (e && request->parsed == FZN_VERB_GET && !left)
+			return (size_t)snprintf(reply, cap, "ok ended %s\n", e->why);
+		return e ? (size_t)snprintf(reply, cap, "error the call ended: %s\n", e->why)
+		         : (size_t)snprintf(reply, cap, "error no such call\n");
+	}
 	/* `set call ID answer|decline|hangup`. */
 	if (request->parsed == FZN_VERB_SET && subject_len == 4u) {
 		memset(&lw, 0, sizeof(lw));

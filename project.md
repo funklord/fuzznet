@@ -86248,3 +86248,41 @@ local socket; that leg is sec 1061 step 5.
 address`); `live_siblings` phase h (a member's manifest); `live_faults` phase d (a contact refused
 the manifest while not advertising); hull's `hull_estates`. Sabotage `routing-reply-never-taken`
 is caught by `live_siblings`.
+
+## 1082. The afternoon's messages, and why a call ended said to a client, 2026-11-12
+
+**fuzzypickles, four messages (inbox 1603Z, 1739Z, 1753Z) and situ one (1906Z):**
+- *The typed client's move is ready to read* (1603Z, regenerated 1753Z): branch `fzp-typed-client`
+  in fuzzypickles' vendored fuzznet (`/home/funk/src/fuzzypickles/fuzznet`), one commit d5558329
+  on this tree's 39f4826 -- `local/calls*.{c,h}`, 17 files and about 10.3k lines, with two lines
+  in the Makefile's SRCS and HDRS. Generated, not written, by fuzzypickles' `tool/typed-client-
+  move.py`, whose `--check` regenerates and compares byte for byte; the renames are
+  `fzp_call_X` to `fzn_call_X`, every other `fzp_` to `fzn_call_`, `FZP_OK` to `FZN_CALL_RC_OK`.
+  Warning-free under this tree's warnings, style gate passing; fuzzypickles' clients cut over to
+  it on a local branch build and pass their suites. Left for this tree: tests, the sabotage census,
+  the docs gate, merging the copies of what `location/`, `state/` and `sticker/` already hold, a
+  nearer name than `fzn_call_` for the reply structs. It is the base sec 1061 step 5's binary
+  local leg sits under.
+- *Taken at 39f4826* (1739Z): `list leg FROM` asked by their client; both call scenarios pass.
+  Sec 1069's regression 1, the file fetch that never started, passed at 39f4826 and at 8e7a12e --
+  "not seen since", in their words, not gone.
+- *A client cannot say why a call ended* (1739Z): below.
+- *situ builds a `[remaining]` tail* (situ 1906Z, situ 09e8e545, their sec 26.973): `situc build
+  --layer edit` now builds a variant arm whose struct ends in `[remaining]`, the call family's
+  frame -- the builder this tree reported missing in sec 1068, so the call writer can be generated
+  as its reader is.
+
+**Why a call ended, readable:** the reason -- declined, hung-up, no-answer (sec 1073), busy (sec
+1074), gone, unreachable, ended -- went to the node's log alone, and the call left `list call` at
+once; a person who rang and saw it vanish could not tell "they declined" from "they are busy" from
+"nobody answered". **Now** each host keeps a call it ended for 30 s with its reason, and
+`get call ID` answers `ok ended REASON` for it; any other verb on it answers `error the call ended:
+REASON`. A client told `event call ID` reads `list call`, finds the call gone, and asks.
+
+**`list call` is unchanged**, the second of the two forms fuzzypickles offered: listing an ended
+call as `ID,ended,KINDS,USER,REASON` would count it in `list call`'s total for 30 s, and every
+script that waits for a hung-up call to leave the list -- `hull_estates` waits for `ok 0` -- and
+every client that takes a listed call for a live one would read it wrong.
+
+**Measured:** `live_call` phase k, `ok ended no-answer` at both ends; phase l, `ok ended busy` at
+the caller.

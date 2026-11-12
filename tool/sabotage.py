@@ -15431,6 +15431,13 @@ SABOTAGES = [
 		"a member's routing manifest, asked, is never taken -- sec 1081",
 	),
 	(
+		"call-ended-not-kept",
+		"node/daemon.c",
+		"\tlive_end_siblings(c);\n\tcall_ended_note(c, why);\n\tlive_told(c->call, why);\n",
+		"\tlive_end_siblings(c);\n\tlive_told(c->call, why);\n",
+		"a call ended leaves no reason for a client to read -- sec 1082",
+	),
+	(
 		"session-grant-drops-an-ask",
 		"node/sessions.c",
 		"\t\tif (!s->used || s->confirmed || s->initiator\n",
