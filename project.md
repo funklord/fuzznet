@@ -85855,9 +85855,10 @@ remains in fuzzypickles is to be looked at and transferred -- most of what is in
 - *dag's rings, group line and positions to desk reaching desk's sibling* (0527Z, 0618Z, logs at
   level D): dag held a session with desk's laptop -- a device joined to desk's identity, no window
   -- and dag's rings to desk's user went to it and stopped there. `add call` rings one host of a
-  contact, the first not down, where every host of the user is its user.
+  contact, the first not down, where every host of the user is its user. *Fixed, sec 1071.*
 - *Rings lost after the callee's node restarts* (0600Z, two emulators): the caller says on a
   session the restarted callee no longer holds; messages, asked anew each time, got through.
+  *Fixed, sec 1072.*
 
 **Requirements:**
 - *Video calls' media path* (1000Z): a frame of a few KB in one request, media binary; a read of
@@ -85914,3 +85915,52 @@ is the register, rewritten in place as features land; "where" says where each li
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | private copies per module | `common/encoding.c` | one public codec |
+
+## 1071. A call rings every host of the user, and the first to answer takes it, 2026-11-12
+
+**The fault, sec 1069's second regression.** `add call NAME` rang one host of the contact: the
+first of its targets not marked down. Every host of a user is that user (sec 430), and the first
+one listed may have no window -- fuzzypickles' dag rang desk, and the ring went to desk's laptop,
+joined to desk's identity, and stopped there.
+
+**Now:** each contact named becomes a participant at every target of that user that is not down,
+all rung at once in the same call. The first ANSWER takes the call for its user: the caller says
+HANGUP (by `live_say_ending`, three times, sec 1062) to that user's other hosts still ringing. A
+DECLINE from one host is the user's decline: the others are hung up the same way, so
+`participants_gone` ends the call as declined. A HANGUP from one alternate stops only that one.
+Rung hosts that never answer stay rung until the call is answered, declined, or dropped for
+silence (sec 1062's 5 s and 15 s are the call's, heard from any of them).
+
+**`get call ID quality` with no index** names the one joined participant when exactly one is
+joined, as it named the only participant before: a 1:1 call to a user with two hosts numbers two
+participants, and the query refused it as a call of several. `get call ID participants` still
+lists every host rung, joined or not.
+
+**Measured:** `tool/live_chat.py` phase d3 -- A1 rings B; B1 and B2 both hold the call ringing
+in; B2 answers; B1 drops it; hang up. Passed on the fault build, the whole journey with it.
+`live_chat.py` now runs in `make livecheck-faults`: no target ran it, so journey 2's scenario
+(sec 731) and this phase were checked only by hand. Run against a plain `make fuzznetd` it fails
+at d, a line still unsettled after 90 s -- its rounds are the default's, not the fault build's
+short ones -- which is the build it asks for, not a fault.
+
+## 1072. A ring's session asked anew when rings go unanswered, 2026-11-12
+
+**The fault, sec 1069's third regression.** A host restarted keeps none of its sessions. The
+caller still held one with it and said its rings there; the callee could open none of them, and
+every ring was lost while ordinary messages, which ask a session anew, got through.
+
+**Now:** each participant records when its first ring was said and when it last answered
+RINGING (sec 1062). Rung for `FZND_LIVE_RING_RENEW_MS`, 3 s, with no RINGING ever heard, the
+caller drops its session with that host once (`fzn_node_sessions_drop`), and the next ring asks a
+fresh one. Once only per participant, so a host that is simply gone costs one session ask, and
+sec 1062's 15 s unreachable drop still ends the call.
+
+**Measured:** `tool/live_call.py` phase j -- B started again and rung, so A holds a session with
+it; B restarted; A's next ring is held at B within 12 s -- 4.0 s measured, the renewal's 3 s
+and a ring. With the renewal disabled (`FZND_LIVE_RING_RENEW_MS` raised a thousandfold) phase j
+fails already at B's first start after phase i: A, having rung B while it was gone, held a
+session B never knew, and no ring reached B in 40 s.
+
+**Considered and not done:** renewing on every unanswered ring (a gone host would be asked a
+session each second for 15 s), and asking the callee to announce its restart to its contacts (a
+restarted host does not know who held sessions with it, and a ring must work without it).

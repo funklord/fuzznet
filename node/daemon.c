@@ -17459,6 +17459,8 @@ int fzn_daemon_say(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, siz
 #define FZND_LIVE_STREAMS 4u
 #define FZND_LIVE_REPORT_MS 1000u
 #define FZND_LIVE_RING_AGAIN_MS 1000u
+/* A RING'S SESSION ASKED ANEW after this long with no RINGING, sec 1072. */
+#define FZND_LIVE_RING_RENEW_MS 3000u
 static fzn_live_calls_t node_calls;
 /* ONE PATH'S QUALITY, sec 1021, a stream each: what this host measured of the
  * frames it received over the path, and what the far end reported of those it
@@ -17488,6 +17490,10 @@ static struct live_kept {
 		uint8_t host[FZN_PUBKEY_LEN];
 		uint8_t ringing, joined;
 		uint64_t rung_ms; /* when its ring was last said, sec 1039 */
+		/* sec 1072: when its first ring was said, when it last answered RINGING, and
+		 * whether its session was asked anew for want of one */
+		uint64_t first_ms, heard_ms;
+		uint8_t renewed;
 		struct live_path path; /* this hub's path to the participant, sec 1027 */
 	} *participants;
 	size_t n_participants, participants_cap;
@@ -17907,7 +17913,7 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		switch (w.kind) {
 		case FZN_LIVE_RINGING:
 			/* STILL RINGING THERE, sec 1062. */
-			c->heard_ms = wall_ms();
+			c->heard_ms = m->heard_ms = wall_ms();
 			return;
 		case FZN_LIVE_ANSWER:
 			/* JOINED: told who each other joined participant is, and each told
@@ -17924,6 +17930,24 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 			}
 			m->ringing = 0;
 			m->joined = 1;
+			/* THE USER'S OTHER HOSTS, rung beside this one, told it is over, sec 1071:
+			 * the first to answer takes the call for its user. */
+			{
+				size_t o;
+				uint8_t bye[FZN_LIVE_HEAD_LEN];
+				size_t bn = live_bare(FZN_LIVE_HANGUP, w.call, bye);
+
+				for (o = 0; o < k->n_participants; o++) {
+					struct live_participant *p = &k->participants[o];
+
+					if (p == m || p->joined || !p->ringing
+					    || memcmp(p->whom, m->whom, FZN_PUBKEY_LEN) != 0)
+						continue;
+					p->ringing = 0;
+					if (bn)
+						live_say_ending(p->host, bye, bn);
+				}
+			}
 			if (c->state == FZN_LIVE_RINGING_OUT) {
 				c->state = FZN_LIVE_UP;
 				live_told(w.call, "answered");
@@ -17933,6 +17957,24 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 			break;
 		case FZN_LIVE_DECLINE:
 		case FZN_LIVE_HANGUP:
+			/* DECLINED ON ONE OF A USER'S HOSTS, declined for that user, sec 1071:
+			 * its other hosts stop ringing too. */
+			if (w.kind == FZN_LIVE_DECLINE && m->ringing) {
+				size_t o;
+				uint8_t bye[FZN_LIVE_HEAD_LEN];
+				size_t bn = live_bare(FZN_LIVE_HANGUP, w.call, bye);
+
+				for (o = 0; o < k->n_participants; o++) {
+					struct live_participant *p = &k->participants[o];
+
+					if (p == m || p->joined || !p->ringing
+					    || memcmp(p->whom, m->whom, FZN_PUBKEY_LEN) != 0)
+						continue;
+					p->ringing = 0;
+					if (bn)
+						live_say_ending(p->host, bye, bn);
+				}
+			}
 			m->ringing = m->joined = 0;
 			if (participants_gone(k))
 				live_end(c, w.kind == FZN_LIVE_DECLINE ? "declined" : "hung-up");
@@ -18131,6 +18173,25 @@ static void live_pump(void)
 			    || (k->participants[m].ringing == 2u
 			        && now_ms < k->participants[m].rung_ms + FZND_LIVE_RING_AGAIN_MS))
 				continue;
+			/* A SESSION THE FAR END NO LONGER HOLDS, sec 1072: rings said on it 3 s and
+			 * no RINGING back -- a host restarted keeps none of its sessions, and a
+			 * ring said on one it forgot was lost while every message, asked anew,
+			 * got through. Dropped once, so the next ring asks a session afresh. */
+			if (k->participants[m].ringing == 2u && !k->participants[m].heard_ms
+			    && !k->participants[m].renewed
+			    && now_ms >= k->participants[m].first_ms + FZND_LIVE_RING_RENEW_MS) {
+				fzn_node_session_t *gone =
+				        fzn_node_sessions_of(&granted_sessions, k->participants[m].host);
+
+				k->participants[m].renewed = 1;
+				if (gone) {
+					fzn_node_sessions_drop(gone);
+					say(FZN_ENTRY_DEBUG, "node/session",
+					    "a session with %02x%02x%02x%02x asked anew: rings had no answer",
+					    k->participants[m].host[0], k->participants[m].host[1],
+					    k->participants[m].host[2], k->participants[m].host[3]);
+				}
+			}
 			memset(&w, 0, sizeof(w));
 			w.kind = FZN_LIVE_RING;
 			memcpy(w.call, k->call, FZN_LIVE_CALL_LEN);
@@ -18138,6 +18199,8 @@ static void live_pump(void)
 			w.whom = k->participants[m].whom;
 			if ((len = fzn_live_write(&w, ring, sizeof(ring))) != 0
 			    && fzn_daemon_say(k->participants[m].host, ring, len)) {
+				if (k->participants[m].ringing != 2u)
+					k->participants[m].first_ms = now_ms;
 				k->participants[m].ringing = 2; /* said: rung, waiting for an answer */
 				k->participants[m].rung_ms = now_ms;
 			}
@@ -18255,8 +18318,14 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 				fzn_live_end(&node_calls, c);
 			return (size_t)snprintf(reply, cap, "error no room for a call\n");
 		}
-		/* EACH CONTACT NAMED, a participant: its user and the host it is rung at. */
+		/* EACH CONTACT NAMED, a participant at EVERY HOST OF THAT USER that is up,
+		 * sec 1071: rung at once, the first to answer taking the call and the
+		 * rest told it is over -- every host of a user is that user. Rung at one,
+		 * the first listed, a ring went to a sibling with no window -- a laptop
+		 * joined to the user -- and stopped there. */
 		for (name = names; name < names + names_len; name = end + 1) {
+			size_t t;
+
 			for (end = name; end < names + names_len && *end != ','; end++)
 				;
 			if (fzn_contact_find(node_apply.store, (const char *)name, (size_t)(end - name), &who)
@@ -18268,31 +18337,37 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 				                                    "reached\n",
 				                        (int)(end - name), (const char *)name);
 			}
-			if (participant_at(k, host))
-				continue;
-			if (k->n_participants == FZN_LIVE_PARTICIPANTS_MAX) {
-				kept_drop(call);
-				fzn_live_end(&node_calls, c);
-				return (size_t)snprintf(reply, cap, "error a call numbers at most %u participants\n",
-				                        (unsigned)FZN_LIVE_PARTICIPANTS_MAX);
-			}
-			if (k->n_participants == k->participants_cap) {
-				size_t mcap = k->participants_cap ? k->participants_cap * 2u : 4u;
-				struct live_participant *more = realloc(k->participants, mcap * sizeof(*more));
-
-				if (!more) {
+			for (t = 0; t < ncontact_targets; t++) {
+				if (contact_targets[t].down
+				    || memcmp(contact_targets[t].contact, who.key, FZN_PUBKEY_LEN) != 0)
+					continue;
+				memcpy(host, contact_targets[t].pt.pairing.node, FZN_PUBKEY_LEN);
+				if (participant_at(k, host))
+					continue;
+				if (k->n_participants == FZN_LIVE_PARTICIPANTS_MAX) {
 					kept_drop(call);
 					fzn_live_end(&node_calls, c);
-					return (size_t)snprintf(reply, cap, "error no room for a call\n");
+					return (size_t)snprintf(reply, cap, "error a call numbers at most %u participants\n",
+					                        (unsigned)FZN_LIVE_PARTICIPANTS_MAX);
 				}
-				k->participants = more;
-				k->participants_cap = mcap;
+				if (k->n_participants == k->participants_cap) {
+					size_t mcap = k->participants_cap ? k->participants_cap * 2u : 4u;
+					struct live_participant *more = realloc(k->participants, mcap * sizeof(*more));
+
+					if (!more) {
+						kept_drop(call);
+						fzn_live_end(&node_calls, c);
+						return (size_t)snprintf(reply, cap, "error no room for a call\n");
+					}
+					k->participants = more;
+					k->participants_cap = mcap;
+				}
+				memset(&k->participants[k->n_participants], 0, sizeof(k->participants[0]));
+				memcpy(k->participants[k->n_participants].whom, who.key, FZN_PUBKEY_LEN);
+				memcpy(k->participants[k->n_participants].host, host, FZN_PUBKEY_LEN);
+				k->participants[k->n_participants].ringing = 1;
+				k->n_participants++;
 			}
-			memset(&k->participants[k->n_participants], 0, sizeof(k->participants[0]));
-			memcpy(k->participants[k->n_participants].whom, who.key, FZN_PUBKEY_LEN);
-			memcpy(k->participants[k->n_participants].host, host, FZN_PUBKEY_LEN);
-			k->participants[k->n_participants].ringing = 1;
-			k->n_participants++;
 		}
 		c->state = FZN_LIVE_RINGING_OUT;
 		memcpy(c->host, k->participants[0].host, FZN_PUBKEY_LEN);
@@ -18395,8 +18470,19 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 				return (size_t)snprintf(reply, cap, "malformed get call ID quality [INDEX]\n");
 		}
 		if (k && k->n_participants) {
-			if (!index && k->n_participants == 1u)
-				index = 1u;
+			/* ONE JOINED, the one meant: a user rung at several hosts is still one
+			 * participant once a host answers, sec 1071. */
+			if (!index) {
+				size_t m, joined = 0;
+
+				for (m = 0; m < k->n_participants; m++)
+					if (k->participants[m].joined || k->n_participants == 1u) {
+						joined++;
+						index = (unsigned long)m + 1u;
+					}
+				if (joined != 1u)
+					index = 0;
+			}
 			if (!index || index > k->n_participants)
 				return (size_t)snprintf(reply, cap, "malformed get call ID quality INDEX, a "
 				                                    "participant's number, in a call of several\n");

@@ -22,6 +22,9 @@ contact's. Each host's own client is a caller on its socket.
        was a call never rung (sec 1039): fuzzypickles saw one in three missed
     i  B rings A and is stopped while ringing: A drops the call within seconds, not
        45; A rings B, gone, and drops it as unreachable (sec 1062)
+    j  B started again and rung, so A holds a session with it; B restarted, and A
+       rings it at once: B holds the ring within 12 s. A restarted host keeps none
+       of its sessions, and rings said on one it forgot were lost (sec 1072)
 
 Against a daemon that takes no call's word from a session, a never rings; against
 one whose asked session is dropped when the other host's frame comes, b is never
@@ -47,7 +50,7 @@ from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 from live_events import subscriber  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 500.0
+live_trim.DEADLINE = time.monotonic() + 600.0
 
 WAIT = 20.0
 HOSTS_S = 200.0
@@ -271,6 +274,31 @@ def main(argv):
 			      lambda: rung[1] not in calls(socks["a"]), 20.0)
 			print("livecheck: i: A rang B, gone, and dropped it as unreachable after %.1f s"
 			      % (time.monotonic() - began))
+
+			# j: A RING TO A HOST RESTARTED, sec 1072. B back, rung once so A holds a
+			# session with it; B restarted, and A's next ring said at once.
+			def ring_reaches(phase, within):
+				rung = ask(socks["a"], "add call bea audio").split()
+				if len(rung) != 2 or rung[0] != "ok":
+					raise failed("%s: A's add call answered %r" % (phase, rung))
+				began = time.monotonic()
+				until("%s: B never held A's ring" % phase,
+				      lambda: calls(socks["b"]).get(rung[1]) == "ringing-in", within)
+				took = time.monotonic() - began
+				expect(socks["a"], "a", "set call %s hangup" % rung[1], "ok")
+				until("%s: B still held the call A hung up" % phase,
+				      lambda: rung[1] not in calls(socks["b"]))
+				return took
+
+			started["b"] = daemon(run, "b", dirs["b"], socks["b"],
+			                      extra=["--udp-port=" + port["b"]])
+			took = ring_reaches("j", 40.0)
+			print("livecheck: j: B started again, A's ring held after %.1f s" % took)
+			started.pop("b").stop()
+			started["b"] = daemon(run, "b", dirs["b"], socks["b"],
+			                      extra=["--udp-port=" + port["b"]])
+			took = ring_reaches("j", 12.0)
+			print("livecheck: j: B restarted, A's next ring held after %.1f s" % took)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

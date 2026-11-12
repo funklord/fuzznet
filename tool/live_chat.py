@@ -21,6 +21,8 @@ root, with A2 joined to it; B1, a root, with B2 joined to it.
     d2 a host killed while a line is in flight: A2 is killed by SIGKILL, as
        a power cut would, B1 writes a line to A, and A2 started again
        holds it; B1 owes nothing once A has it
+    d3 a call rings every host of its user: A1 rings B, B1 and B2 both ring; B2
+       answers and B1 stops (sec 1071)
     e  a contact removed: A1 removes B, and A2 lists B suspended, the
        roster being the user's (sec 489); B2 then writes a line, and no
        host of A's holds it after six rounds. B, never told it was
@@ -341,6 +343,26 @@ def main(argv):
 			       "still owing the line once A has it")
 			print("livecheck: d2: A2 killed while B1's line was on its way; started again, "
 			      "both of A's hosts hold it, and B1 owes nothing")
+
+			# d3: A CALL RINGS EVERY HOST OF ITS USER, sec 1071: A1 rings B, and B1
+			# and B2 both hold it ringing in; B2 answers, A1 holds it up, and B1
+			# stops ringing -- where one host of B's rang, the first listed.
+			def calls(who):
+				got = said(who, "list call").split()
+				return {r.split(",")[0]: r.split(",")[1] for r in got[2:]} if got[:1] == ["ok"] else {}
+			rung = said("a1", "add call %s audio" % NAME["b"]).split()
+			if len(rung) != 2 or rung[0] != "ok":
+				raise failed("d3: A1's add call answered %r" % rung)
+			for who in ("b1", "b2"):
+				polled(who, "list call", lambda g: "%s,ringing-in" % rung[1] in g,
+				       "never ringing in with A's call")
+			expect(socks["b2"], "b2", "set call %s answer" % rung[1], "ok")
+			polled("a1", "list call", lambda g: "%s,up" % rung[1] in g, "never holding the call up")
+			polled("b1", "list call", lambda g: rung[1] not in g, "still ringing once B2 answered")
+			expect(socks["a1"], "a1", "set call %s hangup" % rung[1], "ok")
+			polled("b2", "list call", lambda g: rung[1] not in g, "holding the call A1 hung up")
+			print("livecheck: d3: A1's call rang both of B's hosts; B2 answered, B1 stopped "
+			      "ringing")
 
 			# e: B removed by A; nothing of B's after reaches A.
 			expect(socks["a1"], "a1", "remove contact " + NAME["b"], "ok")
