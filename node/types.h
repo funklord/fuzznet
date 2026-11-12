@@ -53,8 +53,10 @@
  *                   1064, which took 55 and 56 again beside its own act log
  *   65              fuzznetd's STATUS, here, since sec 1076: an answer of ok or
  *                   why not, from wire/status.situ
- *   66              fuzznetd's INTRODUCED, here, since sec 1077, from
- *                   node/introduced.situ
+ *   66              fuzznetd's ADDRESS, here, since sec 1077 (INTRODUCED until
+ *                   sec 1081), from node/address.situ
+ *   67..69          fuzznetd's ADDRESS_ASK, ROUTING_ASK and ROUTING, since sec 1081:
+ *                   the verbs `get address` and `get routing` made binary
  *   36              never allocated
  *
  * fuzznetd's own were `#define`s inside `node/daemon.c`; they live here,
@@ -94,8 +96,16 @@
 /* A STATUS, sec 1076: a host's answer carrying no data, ok or why not; its
  * codec in wire/status.h since sec 1078, which names the number. */
 #define FZN_TYPE_STATUS FZN_STATUS_TYPE
-/* WHERE AN INTRODUCED HOST SAID HELLO FROM, sec 1077: INTRODUCE's answer. */
-#define FZN_TYPE_INTRODUCED 66u
+/* AN ADDRESS AND A PORT, sec 1077 and 1081: where an introduced host said hello
+ * from, INTRODUCE's answer, and where an asker was seen from, ADDRESS_ASK's. */
+#define FZN_TYPE_ADDRESS 66u
+/* WHERE THIS ASKER WAS SEEN FROM, sec 621 and 1081: two bytes, answered ADDRESS. */
+#define FZN_TYPE_ADDRESS_ASK 67u
+/* THE ROUTING MANIFEST ASKED, sec 611 and 1081: two bytes, answered ROUTING or a
+ * STATUS denied where a contact asks and the user does not advertise. */
+#define FZN_TYPE_ROUTING_ASK 68u
+/* THE MANIFEST: its two head bytes, then fzn_routing_encode's bytes. */
+#define FZN_TYPE_ROUTING 69u
 #define FZN_RELAY_SESSION_LEN (2u + 32u + 4u + 4u)
 /* A CALL'S WORD, sec 1019 (`node/live.h`): said in a session, never answered. */
 #define FZN_TYPE_LIVE 61u

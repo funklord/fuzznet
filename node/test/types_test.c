@@ -98,7 +98,10 @@ static const struct {
 	{ "relay session", FZN_TYPE_RELAY_SESSION },
 	{ "live", FZN_TYPE_LIVE },
 	{ "status", FZN_TYPE_STATUS },
-	{ "introduced", FZN_TYPE_INTRODUCED },
+	{ "address", FZN_TYPE_ADDRESS },
+	{ "address ask", FZN_TYPE_ADDRESS_ASK },
+	{ "routing ask", FZN_TYPE_ROUTING_ASK },
+	{ "routing", FZN_TYPE_ROUTING },
 };
 
 #define SHARED_N (sizeof(shared) / sizeof(shared[0]))
@@ -146,7 +149,7 @@ static void test_no_two_shared_types_are_one(void)
 		if (shared[i].type == 13u || shared[i].type == 14u)
 			retired++;
 	}
-	CHECK(SHARED_N == 63u, "the table is not the 63 types the registry lists");
+	CHECK(SHARED_N == 66u, "the table is not the 66 types the registry lists");
 	CHECK(clash == 0, "two version-2 types are one number");
 	CHECK(extension == 0, "fuzznet allocated a type in the extensions' range");
 	CHECK(retired == 0, "a retired type, 13 or 14, was reused");

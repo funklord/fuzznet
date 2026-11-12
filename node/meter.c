@@ -32,7 +32,10 @@ static fzn_meter_family_t shared_family(unsigned type)
 		return FZN_METER_CONTACT_DEVICES;
 	if (type == FZN_TYPE_RELAY)
 		return FZN_METER_RELAY;
-	if (type == FZN_TYPE_INTRODUCE || type == FZN_TYPE_NOTIFY)
+	/* AND REACHING HOSTS, sec 1081: an address asked, a manifest asked -- verbs
+	 * until then. */
+	if (type == FZN_TYPE_INTRODUCE || type == FZN_TYPE_NOTIFY || type == FZN_TYPE_ADDRESS_ASK
+	    || type == FZN_TYPE_ROUTING_ASK)
 		return FZN_METER_INTRODUCE;
 	if (type >= FZN_TYPE_GROUP_SYNC && type <= FZN_TYPE_GROUP_LINES)
 		return FZN_METER_GROUPS;

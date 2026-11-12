@@ -86211,3 +86211,40 @@ The time is the introduction's, not the ring's, and grows with how early a call 
 
 **The lesson is sec 1062's, recorded there too:** a time-out that stands for "how long X takes"
 is a measurement, and was written as a guess; hull was not run at the time.
+
+## 1081. `get routing` and `get address` between hosts made binary; INTRODUCED is ADDRESS, 2026-11-12
+
+**Sec 1061 step 3, fourth part.** Two requests one host made of another were text verb lines,
+answered in text: `get routing` (sec 611), answered `ok HEX` -- the encoded manifest in hex --
+and `get address` (sec 621), answered `ok HOST PORT` and read with `sscanf`.
+
+**Now four version-2 types** (registered in `node/types.h`):
+
+| Type | Name | Bytes |
+|---|---|---|
+| 66 | ADDRESS | `2 \| 66 \| ADDRESS_LEN \| ADDRESS \| PORT`, `node/address.situ` |
+| 67 | ADDRESS_ASK | `2 \| 67` |
+| 68 | ROUTING_ASK | `2 \| 68` |
+| 69 | ROUTING | `2 \| 69 \|` the manifest's own encoding (`fzn_routing_encode`) |
+
+**ADDRESS is sec 1077's INTRODUCED renamed:** an introduction's answer and where an asker was
+seen from are the same message -- an address and a port -- and one word for one concept is the
+rule (code-style.md). `node/address.situ` keeps type 66 and its layout; only the name and the
+generated prefix (`fzn_address`) changed.
+
+**ROUTING is the manifest's bytes behind a two-byte head**, where hex doubled them inside a text
+line; the manifest's decoder and its verification against the root are unchanged. A contact asking
+of a user that does not advertise is answered **STATUS denied**, held off on as before; a host with
+no manifest to give, STATUS error.
+
+**Who asks:** a member's round asks each sibling ROUTING_ASK, a contact's exchange asks the
+contact's host, and `fetch address` asks every host ADDRESS_ASK. The meter files both asks under
+the family that reaches hosts, beside INTRODUCE and NOTIFY, where they were counted as verbs.
+
+**Local verbs unchanged:** a host's own clients still ask `get routing` and `get address` on the
+local socket; that leg is sec 1061 step 5.
+
+**Measured:** types_test (66 types); `wire/test/address_vectors`; `live_pairing` phase d (`fetch
+address`); `live_siblings` phase h (a member's manifest); `live_faults` phase d (a contact refused
+the manifest while not advertising); hull's `hull_estates`. Sabotage `routing-reply-never-taken`
+is caught by `live_siblings`.

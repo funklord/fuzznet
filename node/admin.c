@@ -20,6 +20,7 @@
 #include "succession.h"
 #include "received.h"
 #include "../net/udp.h"
+#include "../wire/generated/address_build.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -2600,21 +2601,23 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	 * peer's own and costs one line. fuzzypickles' reflexive observation,
 	 * inside a session here, so it needs no padding against amplification:
 	 * nobody without a session is answered at all. */
-	if (req->payload && admin->state->asking_from) {
-		size_t len = req->payload_len;
+	/* ADDRESS_ASK answered ADDRESS, sec 1081, where it was the verb `get address`
+	 * answered `ok HOST PORT`. */
+	if (req->payload && admin->state->asking_from && req->payload_len == 2u
+	    && req->payload[0] == FZN_TYPES_VERSION_SHARED && req->payload[1] == FZN_TYPE_ADDRESS_ASK) {
+		char host[FZN_UDP_HOST_MAX];
+		uint16_t port = 0;
+		uint32_t wrote = 0;
 
-		while (len && (req->payload[len - 1u] == '\n' || req->payload[len - 1u] == '\r'))
-			len--;
-		if (len == 11u && memcmp(req->payload, "get address", 11u) == 0) {
-			char host[FZN_UDP_HOST_MAX], seen[FZN_UDP_HOST_MAX + 8u];
-			uint16_t port = 0;
-
-			if (fzn_udp_addr_text(admin->state->asking_from, host, &port) != FZN_UDP_OK)
-				return answer_text(out, reply_cap, FZN_REPLY_ERROR,
-				                   "the address it came from will not read");
-			(void)snprintf(seen, sizeof(seen), "%s %u", host, (unsigned)port);
-			return answer_text(out, reply_cap, FZN_REPLY_OK, seen);
-		}
+		if (fzn_udp_addr_text(admin->state->asking_from, host, &port) != FZN_UDP_OK || !port
+		    || reply_cap > UINT32_MAX
+		    || fzn_address_message_build(reply, (uint32_t)reply_cap, FZN_TYPES_VERSION_SHARED,
+		                                 FZN_TYPE_ADDRESS, (const uint8_t *)host,
+		                                 (uint32_t)strlen(host), port, &wrote)
+		               != SITU_OK)
+			return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR,
+			                        "the address it came from will not read");
+		return wrote;
 	}
 
 	/* A FRAME TO RELAY, sec 622: asked of member and contact alike, so

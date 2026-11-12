@@ -1,4 +1,4 @@
-# Golden vectors for node/introduced.situ, written by hand from its layout, so the
+# Golden vectors for node/address.situ, written by hand from its layout, so the
 # description is held to a writer other than its compiler.
 
 message v4      02 42 09 31 39 32 2E 30 2E 32 2E 37 9E 61

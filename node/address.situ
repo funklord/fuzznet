@@ -1,0 +1,20 @@
+// An address and a port: project.md sec 1077 and 1081. The answer to an INTRODUCE --
+// where the introduced host said hello from (sec 623's rendezvous among an
+// estate's hosts, sec 698's among a contact's) -- and to an ADDRESS_ASK, where
+// the asker was seen from (sec 621). They were the text line `ok HOST PORT`,
+// read by sscanf; a refusal is a STATUS (wire/status.situ). Named INTRODUCED
+// until sec 1081 gave the second use the same message.
+//
+// What the schema cannot say and the reader checks: an address is letters, digits
+// and `.-:`, as a contact device's is (node/contact_devices.situ).
+
+target buffer;
+endian big;
+
+struct message {
+	u8   family  [must_eq = 2];
+	u8   type    [must_eq = 66];
+	u8   address_len [min = 1, max = 45];
+	u8   address[address_len];
+	u16  port    [min = 1];
+}

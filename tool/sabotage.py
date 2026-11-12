@@ -15417,11 +15417,18 @@ SABOTAGES = [
 		"a relay says its ok in text, which its asker no longer reads -- sec 1076",
 	),
 	(
-		"introduced-never-read",
+		"address-never-read",
 		"node/daemon.c",
-		"\t\tif (!introduced_read(reply, len, host, &port)) {\n\t\t\tchar said[FZN_STATUS_LEN_MAX + 16u];\n\n\t\t\tsay(FZN_ENTRY_DEBUG, \"node/siblings\",",
+		"\t\tif (!address_read(reply, len, host, &port)) {\n\t\t\tchar said[FZN_STATUS_LEN_MAX + 16u];\n\n\t\t\tsay(FZN_ENTRY_DEBUG, \"node/siblings\",",
 		"\t\tif (1) {\n\t\t\tchar said[FZN_STATUS_LEN_MAX + 16u];\n\n\t\t\tsay(FZN_ENTRY_DEBUG, \"node/siblings\",",
 		"a sibling's introduction is never taken, where it is -- sec 1077",
+	),
+	(
+		"routing-reply-never-taken",
+		"node/daemon.c",
+		"\t    || reply[0] != FZN_TYPES_VERSION_SHARED || reply[1] != FZN_TYPE_ROUTING\n\t    || (n = len - 2u) > sizeof(bytes))\n",
+		"\t    || reply[0] != FZN_TYPES_VERSION_SHARED || reply[1] == FZN_TYPE_ROUTING\n\t    || (n = len - 2u) > sizeof(bytes))\n",
+		"a member's routing manifest, asked, is never taken -- sec 1081",
 	),
 	(
 		"session-grant-drops-an-ask",

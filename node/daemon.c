@@ -54,8 +54,8 @@
 #include "metric.h"
 #include "guard.h"
 #include "../wire/status.h"
-#include "../wire/generated/introduced.h"
-#include "../wire/generated/introduced_build.h"
+#include "../wire/generated/address.h"
+#include "../wire/generated/address_build.h"
 #include "talk.h"
 #include "routing.h"
 #include "contact_card.h"
@@ -2064,10 +2064,11 @@ static const char *status_said(const uint8_t *reply, size_t len, char *out, size
 	return out;
 }
 
-/* AN INTRODUCTION'S ANSWER, sec 1077: INTRODUCED read into `host` and `*port`,
+/* AN ADDRESS, sec 1077 and 1081 -- an introduction's answer, and where an asker
+ * was seen from: ADDRESS read into `host` and `*port`,
  * 1; 0 for anything else -- a STATUS refusing, or bytes of no shape. An address
  * is letters, digits and `.-:`, which the schema cannot say. */
-static int introduced_read(const uint8_t *reply, size_t len, char host[FZN_UDP_HOST_MAX],
+static int address_read(const uint8_t *reply, size_t len, char host[FZN_UDP_HOST_MAX],
                            uint16_t *port)
 {
 	situ_msg_t msg;
@@ -2075,15 +2076,15 @@ static int introduced_read(const uint8_t *reply, size_t len, char host[FZN_UDP_H
 	const uint8_t *a;
 	size_t i, n;
 
-	if (!reply || len < 2u || len > UINT32_MAX || reply[0] != 2u || reply[1] != FZN_TYPE_INTRODUCED)
+	if (!reply || len < 2u || len > UINT32_MAX || reply[0] != 2u || reply[1] != FZN_TYPE_ADDRESS)
 		return 0;
 	situ_msg_init(&msg, (uint8_t *)(uintptr_t)reply, (uint32_t)len);
-	if (fzn_introduced_message_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK
-	    || fzn_introduced_message_validate(v) != SITU_OK
-	    || 5u + fzn_introduced_message_address_len(v) != len)
+	if (fzn_address_message_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_address_message_validate(v) != SITU_OK
+	    || 5u + fzn_address_message_address_len(v) != len)
 		return 0;
-	a = fzn_introduced_message_address_ptr(v);
-	n = fzn_introduced_message_address_len(v);
+	a = fzn_address_message_address_ptr(v);
+	n = fzn_address_message_address_len(v);
 	if (n >= FZN_UDP_HOST_MAX)
 		return 0;
 	for (i = 0; i < n; i++)
@@ -2092,7 +2093,7 @@ static int introduced_read(const uint8_t *reply, size_t len, char host[FZN_UDP_H
 			return 0;
 	memcpy(host, a, n);
 	host[n] = '\0';
-	*port = fzn_introduced_message_port_get(v);
+	*port = fzn_address_message_port_get(v);
 	return 1;
 }
 
@@ -4784,17 +4785,14 @@ static int routing_take(const char *host, uint8_t *reply, size_t len,
 	size_t n;
 	fzn_routing_t got;
 
-	if (!routing_hash || !routing_sign || !node_apply.store || len < 4u
-	    || memcmp(reply, "ok ", 3u) != 0)
+	/* ROUTING, sec 1081: the manifest's own bytes after the head, where it was
+	 * `ok HEX`. */
+	if (!routing_hash || !routing_sign || !node_apply.store || len < 3u
+	    || reply[0] != FZN_TYPES_VERSION_SHARED || reply[1] != FZN_TYPE_ROUTING
+	    || (n = len - 2u) > sizeof(bytes))
 		return 0;
-	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
-		len--;
-	n = (len - 3u) / 2u;
-	if ((len - 3u) % 2u || n > sizeof(bytes))
-		return 0;
-	reply[len] = '\0';
-	if (!hex_bytes((const char *)reply + 3, bytes, n)
-	    || fzn_routing_decode(bytes, n, &got) != FZN_ROUTING_OK
+	memcpy(bytes, reply + 2, n);
+	if (fzn_routing_decode(bytes, n, &got) != FZN_ROUTING_OK
 	    || fzn_routing_verify(&got, routing_hash, routing_sign, root, node_apply.admin_capability,
 	                          now)
 	               != FZN_ROUTING_OK
@@ -4985,35 +4983,28 @@ static size_t routing_remote(void *ctx, const uint8_t *sender, int contact,
 {
 	static uint8_t bytes[FZN_ROUTING_MAX];
 	fzn_routing_t r;
-	size_t len = 0, i;
+	size_t len = 0;
 
 	(void)ctx;
 	(void)sender;
-	while (request_len && (request[request_len - 1u] == '\n' || request[request_len - 1u] == '\r'))
-		request_len--;
-	if (request_len != 11u || memcmp(request, "get routing", 11u) != 0)
+	/* ROUTING_ASK, sec 1081, where it was the verb `get routing`. */
+	if (request_len != 2u || request[0] != FZN_TYPES_VERSION_SHARED
+	    || request[1] != FZN_TYPE_ROUTING_ASK)
 		return 0;
 	/* A CONTACT TOLD PLAINLY, sec 699, rather than falling through to "may
 	 * only fetch what is shared": the asker holds off on this answer. */
-	if (contact && !estate_flag(ROUTING_ADVERTISE_KEY)) {
-		static const char why[] = "this user does not advertise where it is reached";
-		size_t n = 0;
-
-		return fzn_reply_compose(reply, reply_cap, &n, FZN_REPLY_DENIED, (const uint8_t *)why,
-		                         sizeof(why) - 1u) == FZN_COMPOSE_OK
-		               ? n
-		               : 0;
-	}
+	if (contact && !estate_flag(ROUTING_ADVERTISE_KEY))
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED,
+		                        "this user does not advertise where it is reached");
 	if (!node_apply.root
 	    || fzn_routing_load(node_apply.store, node_apply.root, &r) != FZN_ROUTING_OK
 	    || fzn_routing_encode(&r, bytes, sizeof(bytes), &len) != FZN_ROUTING_OK
-	    || reply_cap < 3u + 2u * len + 1u)
-		return 0;
-	memcpy(reply, "ok ", 3u);
-	for (i = 0; i < len; i++)
-		(void)snprintf((char *)reply + 3u + 2u * i, 3u, "%02x", bytes[i]);
-	reply[3u + 2u * len] = '\n';
-	return 3u + 2u * len + 1u;
+	    || reply_cap < 2u + len)
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR, "no routing manifest to give");
+	reply[0] = FZN_TYPES_VERSION_SHARED;
+	reply[1] = FZN_TYPE_ROUTING;
+	memcpy(reply + 2, bytes, len);
+	return 2u + len;
 }
 
 /* ONE ROUND OF RECONCILIATION against every pull peer, sec 551: what the
@@ -7427,7 +7418,7 @@ static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, si
 			}
 			pulls[k].caller.next_msg = via.next_msg;
 		}
-		if (!introduced_read(reply, len, host, &port)) {
+		if (!address_read(reply, len, host, &port)) {
 			char said[FZN_STATUS_LEN_MAX + 16u];
 
 			say(FZN_ENTRY_DEBUG, "node/siblings", "an introduction refused: %s",
@@ -12157,16 +12148,12 @@ static void restamp_peer(const uint8_t peer[FZN_PUBKEY_LEN])
 static void address_take(const struct pull_target *pt, const uint8_t *reply, size_t reply_len,
                          uint64_t now)
 {
-	char text[128], host[FZN_UDP_HOST_MAX];
+	char host[FZN_UDP_HOST_MAX];
 	size_t i;
-	unsigned port = 0;
-	int used = 0;
+	uint16_t port = 0;
 
-	if (reply_len >= sizeof(text))
-		return;
-	memcpy(text, reply, reply_len);
-	text[reply_len] = '\0';
-	if (sscanf(text, "ok %45s %u%n", host, &port, &used) != 2 || port == 0u || port > 65535u)
+	/* ADDRESS, sec 1081, where it was `ok HOST PORT`. */
+	if (!address_read(reply, reply_len, host, &port))
 		return;
 	for (i = 0; i < n_observed; i++)
 		if (memcmp(observed[i].reporter, pt->pairing.node, FZN_PUBKEY_LEN) == 0)
@@ -12650,10 +12637,11 @@ static int contact_next(struct contact_talk *ct, uint8_t *request, size_t cap, s
 		return fzn_contact_devices_query_begin(&ct->q, FZN_CONTACT_DEVICES_HOSTS, take_host,
 		                                       &ct->ht, request, cap, len);
 	}
-	if (cap < 11u)
+	if (cap < 2u)
 		return 0;
-	memcpy(request, "get routing", 11u);
-	*len = 11u;
+	request[0] = FZN_TYPES_VERSION_SHARED;
+	request[1] = FZN_TYPE_ROUTING_ASK;
+	*len = 2u;
 	return 1;
 }
 
@@ -12736,8 +12724,9 @@ static int contact_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 			return 0;
 		}
 	} else {
-		/* A REFUSAL, held off on: answered all the same. */
-		if (reply_len < 3u || memcmp(reply, "ok ", 3u) != 0)
+		/* A REFUSAL, held off on: answered all the same. Anything but the
+		 * manifest is one, a STATUS denied or a reply of no shape (sec 1081). */
+		if (reply_len < 2u || reply[0] != FZN_TYPES_VERSION_SHARED || reply[1] != FZN_TYPE_ROUTING)
 			routing_quiet_set(ct->contact, ct->now);
 		/* THE MANIFEST, taken when it verifies; the exchange stands either
 		 * way, as it did when asked in turn. Copied out: the answer is the
@@ -12859,7 +12848,7 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 			return;
 		}
 		pulls[k].caller.next_msg = via.next_msg;
-		if (!introduced_read(reply, len, host, &port)) {
+		if (!address_read(reply, len, host, &port)) {
 			char said[FZN_STATUS_LEN_MAX + 16u];
 
 			say(FZN_ENTRY_DEBUG, "contact/devices", "an introduction to %s refused: %s",
@@ -14828,8 +14817,9 @@ static size_t host_request(struct host_talk *ht)
 	size_t f = ht->items[ht->at];
 
 	if (ht->kind == HOST_ADDRESS) {
-		memcpy(ht->request, "get address", 11u);
-		return 11u;
+		ht->request[0] = FZN_TYPES_VERSION_SHARED;
+		ht->request[1] = FZN_TYPE_ADDRESS_ASK;
+		return 2u;
 	}
 	if (ht->kind == HOST_ROUTING || ht->kind == HOST_FILE_REFS) {
 		memcpy(ht->request, host_shared_request, host_shared_len);
@@ -14994,8 +14984,9 @@ static void routing_start(struct pull_target *pulls, size_t npulls, uint64_t now
 	size_t t;
 
 	n_host_talks = host_talks_begun = 0;
-	memcpy(host_shared_request, "get routing", 11u);
-	host_shared_len = 11u;
+	host_shared_request[0] = FZN_TYPES_VERSION_SHARED;
+	host_shared_request[1] = FZN_TYPE_ROUTING_ASK;
+	host_shared_len = 2u;
 	for (t = 0; t < npulls; t++)
 		if (!silent_peer(&pulls[t]) && peer_in_estate(&pulls[t]))
 			host_add(&pulls[t], HOST_ROUTING, 1, 0, now);
@@ -19328,8 +19319,8 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 			uint32_t wrote = 0;
 
 			return reply_cap <= UINT32_MAX
-			                       && fzn_introduced_message_build(
-			                                  reply, (uint32_t)reply_cap, 2u, FZN_TYPE_INTRODUCED,
+			                       && fzn_address_message_build(
+			                                  reply, (uint32_t)reply_cap, 2u, FZN_TYPE_ADDRESS,
 			                                  (const uint8_t *)host, (uint32_t)strlen(host), port,
 			                                  &wrote)
 			                                  == SITU_OK
