@@ -15382,6 +15382,13 @@ SABOTAGES = [
 		"a call up is timed from its start, not from the last word heard -- sec 1019",
 	),
 	(
+		"live-ring-time-ignored",
+		"node/live.c",
+		"\t\t                 : c->ring_s                ? c->ring_s\n",
+		"\t\t                 : 0                        ? c->ring_s\n",
+		"a call rings 45 s whatever its receiver set -- sec 1073",
+	),
+	(
 		"session-grant-drops-an-ask",
 		"node/sessions.c",
 		"\t\tif (!s->used || s->confirmed || s->initiator\n",

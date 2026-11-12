@@ -18,6 +18,7 @@ enum kind : u8 {
 	report      = 6,   // what the receiver measured of a stream
 	participant = 7,   // who a call of several numbers an index
 	ringing     = 8,   // the callee still here, to each ring (sec 1062)
+	no_answer   = 9,   // the callee's ring time passed unanswered (sec 1073)
 	default     = error,
 }
 
@@ -69,6 +70,7 @@ struct message {
 		case kind.report:      report            report;
 		case kind.participant: participant       participant;
 		case kind.ringing:     nothing           ringing;
+		case kind.no_answer:   nothing           no_answer;
 		default: error;
 	}
 }

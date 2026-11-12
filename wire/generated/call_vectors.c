@@ -139,6 +139,31 @@ static void test_message_ringing(void **state)
 	assert_memory_equal(buf, vector_message_ringing, sizeof(buf));
 }
 
+/* message / no_answer */
+static const uint8_t vector_message_no_answer[11u] = {
+	0x02, 0x3D, 0x09, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_no_answer(void **state)
+{
+	uint8_t     buf[11u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_no_answer, sizeof(buf));
+	situ_msg_init(&msg, buf, 11u);
+	assert_int_equal(fzn_call_message_view(&msg, 0, 11u, &view), SITU_OK);
+	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
+	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	assert_memory_equal(buf, vector_message_no_answer, sizeof(buf));
+}
+
 /* message / frame */
 static const uint8_t vector_message_frame[30u] = {
 	0x02, 0x3D, 0x05, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x01, 0xF4, 0x00, 0x00, 0x00, 0x01, 0xC0, 0xFF, 0xEE, 0x00,
@@ -222,6 +247,7 @@ int main(void)
 		cmocka_unit_test(test_message_decline),
 		cmocka_unit_test(test_message_hangup),
 		cmocka_unit_test(test_message_ringing),
+		cmocka_unit_test(test_message_no_answer),
 		cmocka_unit_test(test_message_frame),
 		cmocka_unit_test(test_message_report),
 		cmocka_unit_test(test_message_participant),

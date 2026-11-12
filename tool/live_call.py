@@ -25,6 +25,9 @@ contact's. Each host's own client is a caller on its socket.
     j  B started again and rung, so A holds a session with it; B restarted, and A
        rings it at once: B holds the ring within 12 s. A restarted host keeps none
        of its sessions, and rings said on one it forgot were lost (sec 1072)
+    k  B sets its ring time to 5 s; A rings it and nobody answers: B ends the call
+       no-answer at 5 s and tells A, which ends it no-answer -- not 45 s, nor
+       gone for RINGING stopping (sec 1073)
 
 Against a daemon that takes no call's word from a session, a never rings; against
 one whose asked session is dropped when the other host's frame comes, b is never
@@ -299,6 +302,24 @@ def main(argv):
 			                      extra=["--udp-port=" + port["b"]])
 			took = ring_reaches("j", 12.0)
 			print("livecheck: j: B restarted, A's next ring held after %.1f s" % took)
+
+			# k: THE RECEIVER'S RING TIME, sec 1073.
+			expect(socks["b"], "b", "set setting host call/ring 5s", "ok")
+			rung = ask(socks["a"], "add call bea audio").split()
+			if len(rung) != 2 or rung[0] != "ok":
+				raise failed("k: A's add call answered %r" % rung)
+			until("k: B never held A's ring",
+			      lambda: calls(socks["b"]).get(rung[1]) == "ringing-in")
+			began = time.monotonic()
+			until("k: A still rang B 12 s on, B ringing for 5",
+			      lambda: rung[1] not in calls(socks["a"]), 12.0)
+			took = time.monotonic() - began
+			if took < 3.0:
+				raise failed("k: A's call ended after %.1f s, before B's 5 s" % took)
+			for who in ("a", "b"):
+				started[who].wait_for(re.compile(r"call %s: no-answer" % rung[1]),
+				                      "%s ending the call no-answer" % who.upper(), within=5.0)
+			print("livecheck: k: B rang 5 s; both ended the call no-answer, A after %.1f s" % took)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

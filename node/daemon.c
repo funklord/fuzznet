@@ -17763,10 +17763,35 @@ static void live_end(fzn_live_call_t *c, const char *why)
 
 static void live_gone(void *ctx, const fzn_live_call_t *c)
 {
-	live_end_siblings(c);
 	(void)ctx;
-	live_told(c->call, "ended");
+	live_end_siblings(c);
+	/* RUNG PAST THIS HOST'S RING TIME, sec 1073: the caller told NO_ANSWER, as an
+	 * ending is told, where it heard RINGING stop and dropped the call as gone. */
+	if (c->state == FZN_LIVE_RINGING_IN) {
+		uint8_t word[FZN_LIVE_HEAD_LEN];
+		size_t n = live_bare(FZN_LIVE_NO_ANSWER, c->call, word);
+
+		if (n)
+			live_say_ending(c->host, word, n);
+		live_told(c->call, "no-answer");
+	} else {
+		live_told(c->call, "ended");
+	}
 	kept_drop(c->call);
+}
+
+/* THIS HOST'S RING TIME, sec 1073: `call/ring` in force here, FZN_LIVE_RING_S unset
+ * or out of its range. */
+static uint32_t live_ring_s(void)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	size_t len = 0;
+	uint64_t s = 0;
+
+	if (fzn_daemon_setting_here((const uint8_t *)"call/ring", 9u, value, sizeof(value), &len) != 1
+	    || !fzn_schema_duration(value, len, FZN_LIVE_RING_MIN_S, FZN_LIVE_RING_MAX_S, &s))
+		return FZN_LIVE_RING_S;
+	return (uint32_t)s;
 }
 
 static int contact_host(const uint8_t who[FZN_PUBKEY_LEN], uint8_t host[FZN_PUBKEY_LEN]);
@@ -17803,6 +17828,7 @@ static void live_from_sibling(const uint8_t sibling[FZN_PUBKEY_LEN], const fzn_l
 		c->state = FZN_LIVE_RINGING_OUT;
 		memcpy(c->host, host, FZN_PUBKEY_LEN);
 		c->kinds = w->kinds;
+		c->ring_s = FZN_LIVE_RING_MAX_S; /* the receiver's to end, sec 1073 */
 		c->since_s = c->heard_s = wall_clock();
 		k->ring_tried_ms = 0;
 		live_pump();
@@ -17894,6 +17920,7 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		c->state = FZN_LIVE_RINGING_IN;
 		memcpy(c->host, host, FZN_PUBKEY_LEN);
 		c->kinds = w.kinds;
+		c->ring_s = live_ring_s();
 		c->since_s = c->heard_s = wall_clock();
 		c->since_ms = c->heard_ms = wall_ms();
 		c->checked = 1;
@@ -17955,6 +17982,14 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 					(void)fzn_daemon_say(k->sibling, bytes, len);
 			}
 			break;
+		case FZN_LIVE_NO_ANSWER:
+			/* THAT HOST'S RING TIME PASSED, sec 1073: it stops; the call ends no-answer
+			 * once no participant rings or has joined. Its user's other hosts ring on
+			 * for their own time. */
+			m->ringing = 0;
+			if (participants_gone(k))
+				live_end(c, "no-answer");
+			return;
 		case FZN_LIVE_DECLINE:
 		case FZN_LIVE_HANGUP:
 			/* DECLINED ON ONE OF A USER'S HOSTS, declined for that user, sec 1071:
@@ -18370,6 +18405,7 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 			}
 		}
 		c->state = FZN_LIVE_RINGING_OUT;
+		c->ring_s = FZN_LIVE_RING_MAX_S; /* the receiver's to end, sec 1073 */
 		memcpy(c->host, k->participants[0].host, FZN_PUBKEY_LEN);
 		c->kinds = kinds;
 		c->since_s = c->heard_s = wall_clock();

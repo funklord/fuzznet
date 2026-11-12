@@ -183,6 +183,11 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "this host's place in the routing manifest, lower first (sec 611)", NULL, 0u },
 	{ "net/discovery", FZN_SCHEMA_TEXT, HOST, 1u, 45u, "255.255.255.255", "", FZN_SCHEMA_ADVANCED,
 	  "where `fetch lan` sends its probe, or `off` (sec 624)", NULL, 0u },
+	/* node/live.h's FZN_LIVE_RING_MIN_S, _MAX_S and _S, sec 1073. */
+	{ "call/ring", FZN_SCHEMA_DURATION, ESTATE | HOST, 5u, 600u, "45s", "", 0u,
+	  "how long a call to this user rings unanswered before its caller is told no answer "
+	  "(sec 1073)",
+	  NULL, 0u },
 	{ "location/enabled", FZN_SCHEMA_FLAG, HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
 	  "sample gpsd into the location stream; off, a position being the most sensitive thing "
 	  "kept (sec 678)",

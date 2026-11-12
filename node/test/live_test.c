@@ -61,6 +61,17 @@ static void test_words(void)
 	              && r.call[0] == 0xc3u,
 	      "a ringing did not read back");
 
+	/* NO_ANSWER, sec 1073: the callee's ring time passed, bare too. */
+	memset(&w, 0, sizeof(w));
+	w.kind = FZN_LIVE_NO_ANSWER;
+	memset(w.call, 0xc4, sizeof(w.call));
+	n = fzn_live_write(&w, buf, sizeof(buf));
+	CHECK(n == FZN_LIVE_HEAD_LEN && fzn_live_read(buf, n, &r) && r.kind == FZN_LIVE_NO_ANSWER
+	              && r.call[0] == 0xc4u,
+	      "a no-answer did not read back");
+	buf[n] = 0;
+	CHECK(!fzn_live_read(buf, n + 1u, &r), "a no-answer with a byte after it was read");
+
 	memset(&w, 0, sizeof(w));
 	w.kind = FZN_LIVE_FRAME;
 	memset(w.call, 0xc3, sizeof(w.call));
@@ -159,6 +170,40 @@ static void gone(void *ctx, const fzn_live_call_t *c)
 	gone_n++;
 }
 
+/* A ROW'S OWN RING TIME, sec 1073: the receiver's value, FZN_LIVE_RING_S unset. */
+static void test_ring_time(void)
+{
+	static fzn_live_calls_t t;
+	uint8_t id[FZN_LIVE_CALL_LEN];
+	fzn_live_call_t *set, *unset, *most;
+
+	memset(id, 1, sizeof(id));
+	set = fzn_live_open(&t, id);
+	memset(id, 2, sizeof(id));
+	unset = fzn_live_open(&t, id);
+	memset(id, 3, sizeof(id));
+	most = fzn_live_open(&t, id);
+	CHECK(set && unset && most, "fixture: three ringing calls");
+	if (!set || !unset || !most)
+		return;
+	set->state = FZN_LIVE_RINGING_IN;
+	set->ring_s = 10u;
+	unset->state = FZN_LIVE_RINGING_IN;
+	most->state = FZN_LIVE_RINGING_OUT;
+	most->ring_s = FZN_LIVE_RING_MAX_S;
+	set->since_s = unset->since_s = most->since_s = 1000u;
+	CHECK(fzn_live_expire(&t, 1009u, NULL, NULL) == 0u, "a call ended before its ring time");
+	CHECK(fzn_live_expire(&t, 1010u, NULL, NULL) == 1u && !set->used && unset->used,
+	      "a call set to ring 10 s did not end at 10 s");
+	CHECK(fzn_live_expire(&t, 1000u + FZN_LIVE_RING_S, NULL, NULL) == 1u && !unset->used
+	              && most->used,
+	      "a call with no ring time did not end at FZN_LIVE_RING_S");
+	CHECK(fzn_live_expire(&t, 1000u + FZN_LIVE_RING_MAX_S - 1u, NULL, NULL) == 0u
+	              && fzn_live_expire(&t, 1000u + FZN_LIVE_RING_MAX_S, NULL, NULL) == 1u,
+	      "a caller's call did not ring to the most a receiver may set");
+	fzn_live_release(&t);
+}
+
 static void test_calls(void)
 {
 	static fzn_live_calls_t t;
@@ -224,6 +269,7 @@ int main(void)
 	test_words();
 	test_reports();
 	test_calls();
+	test_ring_time();
 	printf("live_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

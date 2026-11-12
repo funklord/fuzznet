@@ -67,8 +67,13 @@
 #define FZN_LIVE_AUDIO 1u
 #define FZN_LIVE_VIDEO 2u
 
-/* HOW LONG A CALL RINGS unanswered, and is kept with no frame either way. */
+/* HOW LONG A CALL RINGS unanswered, and is kept with no frame either way.
+ * The RECEIVER'S to set, sec 1073: its `call/ring`, FZN_LIVE_RING_MIN_S to
+ * FZN_LIVE_RING_MAX_S, FZN_LIVE_RING_S unset; the caller rings on while RINGING
+ * comes, up to the most any receiver may set, and is told NO_ANSWER. */
 #define FZN_LIVE_RING_S 45u
+#define FZN_LIVE_RING_MIN_S 5u
+#define FZN_LIVE_RING_MAX_S 600u
 #define FZN_LIVE_IDLE_S 30u
 /* RINGING IS A STATE BOTH ENDS KEEP CHECKING, sec 1062, the holder's: the caller
  * says RING each second and the callee answers each with RINGING; either end
@@ -87,7 +92,8 @@ typedef enum fzn_live_kind {
 	FZN_LIVE_FRAME = 5,
 	FZN_LIVE_REPORT = 6,
 	FZN_LIVE_PARTICIPANT = 7,
-	FZN_LIVE_RINGING = 8 /* the callee to each RING, sec 1062: still here, ringing */
+	FZN_LIVE_RINGING = 8, /* the callee to each RING, sec 1062: still here, ringing */
+	FZN_LIVE_NO_ANSWER = 9 /* the callee's ring time passed, sec 1073 */
 } fzn_live_kind_t;
 
 /* ONE WORD READ, pointing into the caller's bytes. */
@@ -159,6 +165,8 @@ typedef struct fzn_live_call {
 	uint8_t host[FZN_PUBKEY_LEN];
 	uint8_t kinds;
 	uint64_t since_s, heard_s;
+	/* HOW LONG IT RINGS here, seconds, sec 1073; 0 for FZN_LIVE_RING_S. */
+	uint32_t ring_s;
 	/* RINGING CHECKED, sec 1062: when the other end was last heard ringing, ms --
 	 * a RING at the callee, a RINGING at the caller -- 0 for never; and whether
 	 * this call is held to it, a call this host rang or was rung on itself. */
@@ -189,7 +197,7 @@ fzn_live_call_t *fzn_live_open(fzn_live_calls_t *t, const uint8_t call[FZN_LIVE_
 /* `c` ENDED, its row free, its id kept among the ended. */
 void fzn_live_end(fzn_live_calls_t *t, fzn_live_call_t *c);
 
-/* ROWS PAST THEIR TIME at `now_s` ended -- ringing past FZN_LIVE_RING_S, or up
+/* ROWS PAST THEIR TIME at `now_s` ended -- ringing past its ring_s, or up
  * and heard of by neither end for FZN_LIVE_IDLE_S -- each told to `gone`
  * first; how many. */
 size_t fzn_live_expire(fzn_live_calls_t *t, uint64_t now_s,

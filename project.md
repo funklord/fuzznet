@@ -85901,7 +85901,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Contacts, requests, suspension, names | protocol, state | contact screens | a contacts view |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state | conversation screens, read marks per device for groups | group read position; unread for every conversation in one reply; a read at the held position silent (sec 1069) |
 | Stickers | packs (situ schema), fetch | sticker reader (`client/sticker_read.c`), sticker UI | a sticker view |
-| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); ring time set by the receiver; call-hammer protection; a call view |
+| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); call-hammer protection; a call view |
 | Location, Nearby | fixes, grants, levels | distance, bearing, a fix's age (`client/geo.c`), Nearby UI | a location view |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed) | Library playback UI, share target | a hostable transfer view; a library (catalogue) view |
@@ -85964,3 +85964,27 @@ session B never knew, and no ring reached B in 40 s.
 **Considered and not done:** renewing on every unanswered ring (a gone host would be asked a
 session each second for 15 s), and asking the callee to announce its restart to its contacts (a
 restarted host does not know who held sessions with it, and a ring must work without it).
+
+## 1073. How long a call rings is the receiver's to set, 2026-11-12
+
+**The holder, 2026-11-12:** ring time configurable by the receiver. It was a fixed 45 s
+(`FZN_LIVE_RING_S`) at both ends.
+
+**Now:** the setting `call/ring`, a duration of 5 s to 600 s, 45 s unset, estate or host -- the
+value in force on the rung host (`fzn_daemon_setting_here`: its own cell, its group's, the
+estate's). A call ringing in takes it when its row opens (`ring_s` on `fzn_live_call_t`). Past it,
+the callee says NO_ANSWER to the caller -- call kind 9 in `node/call.situ`, a bare head, said three
+times as an ending is (sec 1062) -- and tells its clients `no-answer`. The caller's row rings for
+`FZN_LIVE_RING_MAX_S`, the most any receiver may set: while RINGING comes the callee is still
+ringing, and its NO_ANSWER is what ends the call there, as `no-answer`, where before the caller
+heard RINGING stop and ended it five seconds later as `gone`.
+
+**A user rung at several hosts (sec 1071):** each host rings for its own value and says its own
+NO_ANSWER; the caller ends the call once no participant rings or has joined. One host's time
+passing does not stop the others.
+
+**Measured:** `tool/live_call.py` phase k -- B sets `call/ring` to 5s; A rings and nobody answers;
+A's call ends between 3 and 12 s after B holds it, and both logs say `no-answer`.
+`node/test/live_test.c` reads NO_ANSWER back, refuses it with a byte after, and expires rows at
+their own ring time, at 45 s with none, and a caller's at 600 s; sabotage entry
+`live-ring-time-ignored` drops the row's value.
