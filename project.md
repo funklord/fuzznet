@@ -85837,3 +85837,44 @@ datagram the writer chooses that extent. Sent to situ's inbox the same day with 
 
 **Next:** the CMD/SUBCMD families (sec 1061) and the status message as situ schemas from the
 start; asking and resending onto rungs 5 and 6; the session's sealing against situ's crypto model.
+
+## 1069. What fuzzypickles signalled on 2026-11-12, and fuzzypickles moving into fuzznet
+
+**The holder, 2026-11-12:** "most of fuzzypickles should just be using fuzznet code"; to
+fuzzypickles, of its typed client, "yes, move calls.c into fuzznet", and of its chat and call UI,
+stickers, Nearby, Library playback, the share target, camera capture and terminal graphics: "All
+of these belong in fuzznet, because as soon as any fuzznet consumer wants chat or calls, these all
+become requirements in fuzznet ... they will be the exact same chats and same calls in the exact
+same network, just viewed/used in a slightly different way." And to fuzznet the same day: what
+remains in fuzzypickles is to be looked at and transferred -- most of what is in there.
+
+**Regressions, three, the first two bisected or traced to this tree:**
+- *A file fetch that never starts* (inbox 20261112T0820Z): two fzpd nodes on loopback, a 24 MB
+  `file-send`, `file-save`, every read `play 24000000 0 0 1 0` for 30 s. 0 of 22 runs failed before
+  5f7ea13 (sec 1038, introductions and hellos moved onto the serving socket), 6 of 17 from it on.
+- *dag's rings, group line and positions to desk reaching desk's sibling* (0527Z, 0618Z, logs at
+  level D): dag held a session with desk's laptop -- a device joined to desk's identity, no window
+  -- and dag's rings to desk's user went to it and stopped there. `add call` rings one host of a
+  contact, the first not down, where every host of the user is its user.
+- *Rings lost after the callee's node restarts* (0600Z, two emulators): the caller says on a
+  session the restarted callee no longer holds; messages, asked anew each time, got through.
+
+**Requirements:**
+- *Video calls' media path* (1000Z): a frame of a few KB in one request, media binary; a read of
+  everything since FROM to a byte budget; what is kept measured in time per stream; or a client
+  connection held open for a call's media, as datagrams.
+- *Read state* (1317Z): a read at the position already held publishes nothing; unread for every
+  conversation in one reply (`list message unread [FROM]`); a group's read position on the node.
+- *The retention view to host* (0656Z): spoken names, and the 320 px cover screen.
+- *What fuzzypickles keeps that is fuzznet's* (1338Z, 1355Z): the typed client -- `client/calls.c`
+  6661 lines and `calls.h` 817, ~200 wrappers over the node's commands parsing replies into
+  structs, with `control.h`, `errors`, `capability.h`, `peer_limits.h`, `location_internal.h`, hex
+  and the sticker reader, about 10k lines -- the first unit; then QR decoding, distance and bearing,
+  this host's addresses for a card, a public hex codec, views that take an ask callback in place of
+  model structs (link, peer, sync, capability, revocation, trust, provision, transfer; a settings
+  schema view; a catalogue view); then the chat and call UI the holder named.
+
+**The order taken:** the three regressions first; then the typed client, fuzzypickles preparing
+the move as commits on its vendored fuzznet for this tree to read, adapt to its gates and apply --
+it being the typed API the binary local leg (sec 1061 step 5) will sit under unchanged for its
+users; then the rest of the inventory, by value, beside sec 1061's normalisation.
