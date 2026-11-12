@@ -86342,3 +86342,69 @@ a read further on writing one; `live_chat` phase c2 -- B1's `list message unread
 none unread, a read repeated at the same line answers `ok unchanged` and is not published, and A1's
 next line is counted and published. Sabotage `read-where-read-writes-a-record` (messages_test)
 and `read-where-read-publishes` (live_chat).
+
+## 1085. CMD and SUBCMD: the two levels in clear categories, and RRPC -- the design, 2026-11-12
+
+**The holder, 2026-11-12:** the subcommand dimension "seems to be poorly normalized. If we create
+command sub-commands, they should at the very least be very clear categories of what they do";
+"I normally call commands simply CMD_* in enums/structures, sometimes SUBCMD_*, very short and
+obvious what is meant"; and of the named procedure call, "maybe we call this RRPC, Registered
+Remote Procedure". Sec 1061 measured that shorter codes buy nothing here, every code being one
+byte, so categories are chosen for clarity alone.
+
+**Today:** every message opens with a byte called a version that is in fact a family -- spool 1,
+shared 2, cause 3, gather 4, reconcile 6, journal exchange 7 -- then a type. Family 2 is a
+grab-bag of 66 types in owner ranges: notes, members, messages, contact devices, relays and
+introductions, groups, streams, file references, clocks, the named procedure call, sessions,
+voice and video calls, STATUS, addresses and manifests, and the extensions' 128 to 191.
+
+**The scheme: byte 0 is the CMD, a category; byte 1 the SUBCMD within it.**
+
+| CMD | Value | SUBCMDs (today's numbers kept) |
+|---|---|---|
+| FILES | 1 | spool's HAVE_QUERY 1..DATA 4 (was family 1); FILE_REFS_WANT 45, FILE_REFS 46 (were 2/45, 2/46) |
+| CAUSE | 3 | unchanged |
+| GATHER | 4 | unchanged |
+| RECONCILE | 6 | unchanged |
+| EXCHANGE | 7 | unchanged |
+| NOTES | 8 | notes sync 1..10, 15..22 |
+| MEMBERS | 9 | 11, 12 |
+| MESSAGES | 10 | 23..28, 33, 34 and the holds |
+| CONTACTS | 11 | contact devices 29..32, 53..60, 63, 64 |
+| REACH | 12 | RELAY 35, INTRODUCE 37, NOTIFY 38, RELAY_SESSION 62, ADDRESS 66, ADDRESS_ASK 67, ROUTING_ASK 68, ROUTING 69 |
+| GROUPS | 13 | 39..42 |
+| STREAMS | 14 | 43, 44 |
+| TIME | 15 | ASK 47, TIME 48 |
+| RRPC | 16 | ASK 49, RESULT 50 -- the named procedure call, renamed |
+| SESSION | 17 | ASK 51, GRANT 52 |
+| CALL | 18 | the call's kind as the SUBCMD: RING 1 .. BUSY 10 -- the voice and video call alone |
+| STATUS | 19 | the code as the SUBCMD: OK 0 .. BUSY 6 |
+| EXTENSION | 20 | 0..255, all the extension's (was 2/128..191) |
+
+Family 2 is retired, as types 13 and 14 were, and 5 stays unallocated. **Keeping each SUBCMD's
+number** means most modules change only byte 0; the values are sparse inside a category, which
+costs nothing. **CALL and STATUS lose a byte each**: a call's message was `2 | 61 | KIND | ID`, and
+becomes `18 | KIND | ID`; a STATUS was `2 | 65 | CODE | LEN | WHY` and becomes `19 | CODE | LEN |
+WHY`. The extension gains a whole byte's range where it had 64 values.
+
+**Names:** `FZN_CMD_<CATEGORY>` for byte 0 and `FZN_SUBCMD_<CATEGORY>_<NAME>` for byte 1, in
+`node/types.h` beside the registry, replacing `FZN_TYPES_VERSION_*` and `FZN_TYPE_*` and each
+module's own (`FZN_NOTES_SYNC_*`, `FZN_NODE_MESSAGES_*`, `FZN_CONTACT_DEVICES_*`, `FZN_MSG_*`'s
+type values). The named procedure call becomes **RRPC**: `FZN_SUBCMD_RRPC_ASK`, `_RESULT`, its
+statuses `FZN_RRPC_OK`, `_UNKNOWN`, `_DENIED`, `_FAILED`, and "call" means the voice and video
+call alone.
+
+**Stages, each its own commit with the gates, hull and the live scripts:**
+1. **Names, no wire change:** the CMD and SUBCMD names, RRPC for the procedure call.
+2. **The split:** family 2 into the categories above; the situ schemas' `must_eq` and the vectors
+   with it; the extension's range; the meter's family read from the CMD.
+3. **CALL and STATUS** take their kind and code as the SUBCMD.
+
+**Who must hear it:** fuzzypickles, whose extension answers 2/128..191 and whose vendored
+fuzznet is pinned (each stage told the same commit); netcfgd and raidcfgd, for whom fuzznet's
+wire is design today, told when stage 2 lands. A wire change is free (sec 924), so no stage keeps
+a reader for the old bytes: both ends run the same fuzznet.
+
+**Not done here:** the typed client's prefix (`fzn_call_`, which this design gives to the voice
+call alone) is the holder's question in the work file; the local leg's binary form is sec 1061
+step 5.
