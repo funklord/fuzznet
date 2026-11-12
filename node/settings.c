@@ -1031,17 +1031,99 @@ static size_t escape(const uint8_t *b, size_t n, char *out, size_t cap, int *who
 
 static const char *const RANKS[FZN_SETTING_RANKS] = { "host", "admin", "root" };
 
+/* A WRITE BY THIS NODE'S USER, and told, sec 895: what this host saw before its
+ * word replaces it, for a person's write to what the estate shares may have been
+ * made apart. `set setting`'s, now or once its window has passed (sec 1034). */
+static fzn_node_settings_err_t write_told(const fzn_node_settings_t *ns, fzn_scope_t scope,
+                                          const uint8_t *about, const uint8_t *key,
+                                          size_t key_len, int set, const uint8_t *value,
+                                          size_t value_len)
+{
+	uint8_t seen_by[FZN_PUBKEY_LEN];
+	uint64_t seen = 0;
+	fzn_node_settings_err_t err;
+	int had;
+
+	had = scope == FZN_SCOPE_ESTATE && ns->decided
+	      && fzn_node_settings_standing_of(ns, scope, about, key, key_len, &seen, seen_by);
+	err = fzn_node_settings_write(ns, scope, about, key, key_len, set, value, value_len);
+	if (err == FZN_NODE_SETTINGS_OK && scope == FZN_SCOPE_ESTATE && ns->decided)
+		ns->decided(ns->decided_ctx, key, key_len, set ? value : NULL, set ? value_len : 0u,
+		            had ? seen : 0u, had ? seen_by : NULL);
+	return err;
+}
+
+/* A HELD WRITE'S NAME in the rate gate, sec 1034: `setting/`, the scope's digit,
+ * `/`, the subject in hex, `/`, the key -- one name per cell, so two cells never
+ * stand for each other. Its length, or 0. */
+#define HELD_PREFIX "setting/"
+static size_t held_key(fzn_scope_t scope, const uint8_t *about, const uint8_t *key, size_t key_len,
+                       uint8_t out[FZN_RATE_KEY_MAX])
+{
+	size_t n = sizeof(HELD_PREFIX) - 1u, i;
+
+	if (n + 2u + 2u * FZN_SUBJECT_LEN + 1u + key_len > FZN_RATE_KEY_MAX)
+		return 0;
+	memcpy(out, HELD_PREFIX, n);
+	out[n++] = (uint8_t)('0' + (int)scope);
+	out[n++] = '/';
+	for (i = 0; i < FZN_SUBJECT_LEN; i++) {
+		out[n++] = (uint8_t)HEX[about[i] >> 4];
+		out[n++] = (uint8_t)HEX[about[i] & 15u];
+	}
+	out[n++] = '/';
+	memcpy(out + n, key, key_len);
+	return n + key_len;
+}
+
+static int unhex_byte(uint8_t c)
+{
+	return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+}
+
+/* A HELD WRITE, its window passed: written as `set setting` would have. */
+static void write_due(void *ctx, const uint8_t *rkey, size_t rkey_len, const uint8_t *rvalue,
+                      size_t rvalue_len, unsigned long held)
+{
+	const fzn_node_settings_t *ns = ctx;
+	const size_t at = sizeof(HELD_PREFIX) - 1u;
+	uint8_t about[FZN_SUBJECT_LEN];
+	size_t i;
+
+	(void)held;
+	if (rkey_len <= at + 2u + 2u * FZN_SUBJECT_LEN + 1u || !rvalue_len
+	    || memcmp(rkey, HELD_PREFIX, at) != 0)
+		return;
+	for (i = 0; i < FZN_SUBJECT_LEN; i++) {
+		int hi = unhex_byte(rkey[at + 2u + 2u * i]), lo = unhex_byte(rkey[at + 3u + 2u * i]);
+
+		if (hi < 0 || lo < 0)
+			return;
+		about[i] = (uint8_t)(hi * 16 + lo);
+	}
+	(void)write_told(ns, (fzn_scope_t)(rkey[at] - '0'), about,
+	                 rkey + at + 3u + 2u * FZN_SUBJECT_LEN,
+	                 rkey_len - (at + 3u + 2u * FZN_SUBJECT_LEN), rvalue[0] != 0u, rvalue + 1,
+	                 rvalue_len - 1u);
+}
+
+size_t fzn_node_settings_due(const fzn_node_settings_t *ns, uint64_t now_ms)
+{
+	if (!ns || !ns->rate)
+		return 0;
+	return fzn_rate_due(ns->rate, now_ms, (const uint8_t *)HELD_PREFIX, sizeof(HELD_PREFIX) - 1u,
+	                    write_due, (void *)ns);
+}
+
 static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t *at, size_t left,
                           char *reply, size_t cap)
 {
 	static const char USAGE[] = "set setting SCOPE KEY VALUE, or remove setting SCOPE KEY";
-	uint8_t about[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX], seen_by[FZN_PUBKEY_LEN];
+	uint8_t about[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX];
 	const uint8_t *w, *key;
 	size_t w_len, key_len, value_len = 0;
 	fzn_scope_t scope;
 	fzn_node_settings_err_t err;
-	uint64_t seen = 0;
-	int had;
 
 	if (!word(&at, &left, &w, &w_len) || !scope_of(ns, w, w_len, &scope, about)
 	    || !word(&at, &left, &key, &key_len) || !fzn_setting_key_ok(key, key_len))
@@ -1083,16 +1165,27 @@ static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t 
 			return say(reply, cap, FZN_REPLY_DENIED,
 			           "this host's profile keeps that setting from this rank");
 	}
-	/* WHAT THIS HOST SAW, sec 895, before its word replaces it: a person's
-	 * write to what the estate shares is told, as it may have been made apart. */
-	had = scope == FZN_SCOPE_ESTATE && ns->decided
-	      && fzn_node_settings_standing_of(ns, scope, about, key, key_len, &seen, seen_by);
-	err = fzn_node_settings_write(ns, scope, about, key, key_len, set, value, value_len);
+	/* HELD TO ITS WINDOW, sec 1034, where a rate gate is set. */
+	if (ns->rate && ns->now_ms) {
+		uint8_t rkey[FZN_RATE_KEY_MAX], rvalue[FZN_RATE_VALUE_MAX];
+		size_t rkey_len = held_key(scope, about, key, key_len, rkey);
+		int first = 0;
+
+		rvalue[0] = set ? 1u : 0u;
+		if (rkey_len && value_len < sizeof(rvalue)) {
+			memcpy(rvalue + 1, value, value_len);
+			if (fzn_rate_offer(ns->rate, rkey, rkey_len, rvalue, 1u + value_len,
+			                   FZN_NODE_SETTINGS_EVERY_MS, ns->now_ms(), &first)
+			    == FZN_RATE_HELD) {
+				if (first && ns->held)
+					ns->held(key, key_len);
+				return say(reply, cap, FZN_REPLY_OK, "held");
+			}
+		}
+	}
+	err = write_told(ns, scope, about, key, key_len, set, value, value_len);
 	if (err != FZN_NODE_SETTINGS_OK)
 		return refuse(reply, cap, err);
-	if (scope == FZN_SCOPE_ESTATE && ns->decided)
-		ns->decided(ns->decided_ctx, key, key_len, set ? value : NULL, set ? value_len : 0u,
-		            had ? seen : 0u, had ? seen_by : NULL);
 	return say(reply, cap, FZN_REPLY_OK, NULL);
 }
 

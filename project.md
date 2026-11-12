@@ -85186,9 +85186,15 @@ storing nor distributing a value too often even if misconfigured." Built as a ga
 offers a value to before storing or sending it, `node/rate.{h,c}`, and put first on named objects
 (sec 948), where a button wired to `set object` is the misconfiguration nearest to hand.
 
-- **Coalesced, never queued.** A value offered within its name's window is held, the newest
-  standing for every one before it, and handed back once the window has passed
-  (`fzn_rate_due`). Nothing grows with the rate it is offered at.
+- **A few at once, then one a window.** A name passes `FZN_RATE_NAME_BURST`, 4, values in quick
+  succession, and earns one more each window it is not used, up to that many -- so a person or a
+  script setting a value and then changing or clearing it is answered at once, and only a rate
+  kept up is held. Measured first without it: with one pass a window, the whole `make livecheck`
+  found eight scripts that set a cell twice within a second answered `ok held`.
+- **Coalesced, never queued.** A value past its name's passes is held, the newest standing for
+  every one before it, and handed back as the name earns its next pass (`fzn_rate_due`, for
+  one kind's names at a time where one gate serves several). Nothing grows with the rate it is
+  offered at.
 - **Ceilings kept whatever is declared:** a window never shorter than `FZN_RATE_FLOOR_MS`, 1 s,
   and across every name at most `FZN_RATE_BURST`, 64, values pass in any
   `FZN_RATE_BURST_MS` -- so a declaration of 0 is held to the floor, and many names at once
@@ -85209,8 +85215,17 @@ is not yet carried, so the estate sees what was written, not what was offered.
 last, once; the floor and the burst hold; said once; a full table gives way. Five sabotage
 entries, each caught. `records_test`: a gated object's first set written, three more held and
 said once, the newest written at the window's end. `live_objects` phase e: fifty sets at once
-on R, 49 answered `ok held`, the newest written and read at A; phase d now sets a window apart.
+on R, 46 answered `ok held` past the name's four passes, the newest written and read at A; phase d
+now sets a window apart.
 **Control:** fuzznetd with no gate attached answers every set `ok`, and e fails.
 
-**Not yet:** settings, records and metrics behind the same gate, and a window declared per value
-in the schema (sec 1034's keeping, carrying and rates).
+**On settings:** `set setting` -- this node's user's writes, not what its own code writes -- is
+held the same way, `fzn_node_settings_t` gaining `rate`, `held` and `now_ms`: a write past a
+cell's passes answers `ok held` and `fzn_node_settings_due` writes the newest as `set setting`
+would have, told to `decided` alike. A held cell is named in the gate by its scope, its subject
+and its key, so two cells never stand for each other. fuzznetd keeps one gate for objects and
+settings both. `apply_test`: a cell's four quick writes, a clear among them, each answered at
+once; two more held, the last written standing; a window on, the newest written.
+
+**Not yet:** records and metrics behind the same gate, and a window declared per value in the
+schema (sec 1034's keeping, carrying and rates).

@@ -5,10 +5,17 @@
  * value's name, that a writer offers each new value to before storing or
  * sending it.
  *
- * COALESCED, NEVER QUEUED: a value offered within its name's window is held,
- * the newest standing in for every one before it, and handed back once the
- * window has passed (`fzn_rate_due`). So a button pressed a thousand times a
- * second is stored once a window, with the last press, and nothing grows.
+ * A FEW AT ONCE, THEN ONE A WINDOW: a name may pass FZN_RATE_NAME_BURST values in
+ * quick succession, and earns one more each window it is not used, up to that
+ * many -- so a person or a script setting a value and then changing or clearing
+ * it is answered at once, as before, and only a rate kept up is held. Measured
+ * first without it: eight live scripts that set a cell twice in a second were
+ * answered `ok held` (sec 1037).
+ *
+ * COALESCED, NEVER QUEUED: a value offered past that is held, the newest standing
+ * in for every one before it, and handed back as the name earns its next pass
+ * (`fzn_rate_due`). So a button pressed a thousand times a second is stored once
+ * a window, with the last press, and nothing grows.
  *
  * CEILINGS KEPT WHATEVER IS DECLARED: a name's window is never shorter than
  * FZN_RATE_FLOOR_MS, and across every name at most FZN_RATE_BURST values pass
@@ -31,10 +38,11 @@
 #include <stdint.h>
 
 #define FZN_RATE_FLOOR_MS 1000u
+#define FZN_RATE_NAME_BURST 4u
 #define FZN_RATE_BURST 64u
 #define FZN_RATE_BURST_MS 1000u
-#define FZN_RATE_KEY_MAX 96u
-#define FZN_RATE_VALUE_MAX 256u
+#define FZN_RATE_KEY_MAX 160u
+#define FZN_RATE_VALUE_MAX 320u
 
 typedef enum fzn_rate_verdict {
 	FZN_RATE_REFUSED = -1, /* malformed, or no room: the writer goes on as before */
@@ -48,6 +56,8 @@ typedef struct fzn_rate_slot {
 	uint8_t value[FZN_RATE_VALUE_MAX];
 	size_t value_len;
 	uint64_t passed_ms; /* when a value of it last passed */
+	uint64_t earned_ms; /* when its passes were last counted up */
+	unsigned passes;    /* passes it has in hand, to FZN_RATE_NAME_BURST */
 	uint64_t window_ms; /* its window, floor applied */
 	uint64_t offered_ms;
 	unsigned long held; /* values coalesced since it last passed */
@@ -71,10 +81,11 @@ fzn_rate_verdict_t fzn_rate_offer(fzn_rate_t *r, const uint8_t *key, size_t key_
                                   const uint8_t *value, size_t value_len, uint64_t every_ms,
                                   uint64_t now_ms, int *first);
 
-/* THE HELD VALUES WHOSE WINDOW HAS PASSED at `now_ms`, each handed to `due`
- * once and counted as passed: how many. A burst already spent holds them to
- * the next pass. */
-size_t fzn_rate_due(fzn_rate_t *r, uint64_t now_ms,
+/* THE HELD VALUES WHOSE WINDOW HAS PASSED at `now_ms`, of names beginning
+ * `prefix` -- one kind's, where one gate serves several -- each handed to `due`
+ * once and counted as passed: how many. A burst already spent holds them to the
+ * next pass. */
+size_t fzn_rate_due(fzn_rate_t *r, uint64_t now_ms, const uint8_t *prefix, size_t prefix_len,
                     void (*due)(void *ctx, const uint8_t *key, size_t key_len,
                                 const uint8_t *value, size_t value_len, unsigned long held),
                     void *ctx);

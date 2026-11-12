@@ -15200,6 +15200,27 @@ SABOTAGES = [
 		"a receiver reports HELD from no arrival at all, and the round trip is nonsense -- sec 1026",
 	),
 	(
+		"rate-earns-too-fast",
+		"node/rate.c",
+		"\twindows = (now_ms - s->earned_ms) / s->window_ms;\n",
+		"\twindows = 1u;\n",
+		"a name earns a pass every millisecond and a flood is stored near its own rate -- sec 1037",
+	),
+	(
+		"rate-due-takes-every-kind",
+		"node/rate.c",
+		"\t\t    || (prefix_len\n",
+		"\t\t    || (0 && prefix_len\n",
+		"one kind's pass counts another kind's held value passed and drops it, and a held setting is never written -- sec 1037",
+	),
+	(
+		"settings-held-written-at-once",
+		"node/settings.c",
+		"\t\t\t    == FZN_RATE_HELD) {\n\t\t\t\tif (first && ns->held)\n",
+		"\t\t\t    == 99) {\n\t\t\t\tif (first && ns->held)\n",
+		"a script setting a cell in a loop journals and carries every write -- sec 1037",
+	),
+	(
 		"rate-floor-ignored",
 		"node/rate.c",
 		"\ts->window_ms = every_ms < FZN_RATE_FLOOR_MS ? FZN_RATE_FLOOR_MS : every_ms;\n",
@@ -15209,15 +15230,15 @@ SABOTAGES = [
 	(
 		"rate-window-ignored",
 		"node/rate.c",
-		"\tif (!s->pending && (!s->passed_ms || now_ms - s->passed_ms >= s->window_ms)\n",
-		"\tif (!s->pending && (1 || now_ms - s->passed_ms >= s->window_ms)\n",
+		"\tif (!s->pending && s->passes && burst_take(r, now_ms)) {\n",
+		"\tif (!s->pending && burst_take(r, now_ms)) {\n",
 		"a button pressed a thousand times a second is stored a thousand times -- sec 1034",
 	),
 	(
 		"rate-due-spends-no-burst",
 		"node/rate.c",
-		"\t\tif (!s->used || !s->pending || now_ms - s->passed_ms < s->window_ms\n\t\t    || !burst_take(r, now_ms))\n",
-		"\t\tif (!s->used || !s->pending || now_ms - s->passed_ms < s->window_ms\n\t\t    || 0)\n",
+		"\t\t    || !burst_take(r, now_ms))\n",
+		"\t\t    || 0)\n",
 		"many names held at once are all handed back in one pass, past the burst -- sec 1034",
 	),
 	(

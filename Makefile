@@ -4386,7 +4386,7 @@ $(BUILD_DIR)/node/test/pair_test.o: node/test/pair_test.c
 
 $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -4442,7 +4442,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(FUZZNETD_JOURNAL_OBJS) \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
@@ -4550,7 +4550,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
 # reconcile_test (sec 551), which applies objects through the same context.
 NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DIR)/node/holdings.o \
                    $(BUILD_DIR)/node/buckets.o \
-                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
                    $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -5190,7 +5190,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                         $(BUILD_DIR)/node/pieces.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/state/setting.o \
-                                      $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o \
+                                      $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/node/routing.o \
                                       $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/node/group_act.o \

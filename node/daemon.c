@@ -3413,10 +3413,18 @@ static unsigned news_followups;
 
 static void hex_of(const uint8_t *b, size_t n, char *out);
 
-/* HOW OFTEN AN OBJECT IS WRITTEN, sec 1034: one gate for every object, its table
- * grown once; and the first time one is held, one line, not one per set. */
+/* HOW OFTEN A VALUE IS WRITTEN, sec 1034: one gate for every object and every
+ * `set setting`, its table grown once, each kind under its own names; and the
+ * first time one is held, one line, not one per write. */
 #define FZND_RATE_SLOTS 1024u
-static fzn_rate_t object_rate;
+static fzn_rate_t value_rate;
+
+static void setting_held(const uint8_t *key, size_t key_len)
+{
+	say(FZN_ENTRY_NOTE, "node/settings",
+	    "%.*s is set faster than once a window; its newest is written each window",
+	    (int)key_len, (const char *)key);
+}
 
 static void object_held(const uint8_t *name, size_t name_len)
 {
@@ -22642,9 +22650,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				{
 					fzn_rate_slot_t *slots = calloc(FZND_RATE_SLOTS, sizeof(*slots));
 
-					fzn_rate_init(&object_rate, slots, slots ? FZND_RATE_SLOTS : 0u);
-					node_objects.rate = slots ? &object_rate : NULL;
+					fzn_rate_init(&value_rate, slots, slots ? FZND_RATE_SLOTS : 0u);
+					node_objects.rate = slots ? &value_rate : NULL;
 					node_objects.held = object_held;
+					node_settings.rate = slots ? &value_rate : NULL;
+					node_settings.held = setting_held;
+					node_settings.now_ms = wall_ms;
 				}
 				node_settings.decided = setting_decided;
 				node_settings.may_set = preset_may;
@@ -23588,6 +23599,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			/* THE OBJECTS HELD TO THEIR WINDOW, written as it passes, sec 1034. */
 			if (node_objects.rate && node_records.now_ms)
 				(void)fzn_node_objects_due(&node_objects, node_records.now_ms());
+			if (node_settings.rate && node_settings.now_ms)
+				(void)fzn_node_settings_due(&node_settings, node_settings.now_ms());
 			LOOP_TIMED("group_tend_slice", group_tend_slice());
 			loop_before_answering();
 			(void)fzn_node_run_once(&state, (round_step && !round_pending) || logs_verifying()

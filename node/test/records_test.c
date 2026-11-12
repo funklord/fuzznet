@@ -934,13 +934,13 @@ static void objects_with(fzn_node_records_cache_t *cache)
 		              && replied("ok on "),
 		      "a keep did not keep this host's newest three over the default");
 	}
-	/* HELD TO ITS WINDOW, sec 1034: with a rate gate, the first set is written,
-	 * three more in the same instant are held -- `ok held`, said once, the value
-	 * read standing -- and at the window's end the newest is written, once. */
+	/* HELD TO ITS WINDOW, sec 1034: with a rate gate, an object's few passes are
+	 * written at once, two more in the same instant are held -- `ok held`, said
+	 * once, the last written standing -- and a window on the newest is written. */
 	{
 		static fzn_rate_slot_t slots[8];
 		static fzn_rate_t gate;
-		unsigned heard_before;
+		size_t heard_before;
 
 		fzn_rate_init(&gate, slots, 8u);
 		o.rate = &gate;
@@ -948,23 +948,27 @@ static void objects_with(fzn_node_records_cache_t *cache)
 		helds = 0;
 		clock_ms += 60000u;
 		heard_before = heard;
-		CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp on") && replied("ok")
-		              && heard == heard_before + 1u,
-		      "a gated object's first set was not written");
+		CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp on")
+		              && strcmp(reply, "ok\n") == 0
+		              && object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp off")
+		              && strcmp(reply, "ok\n") == 0
+		              && object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp on")
+		              && strcmp(reply, "ok\n") == 0
+		              && object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp off")
+		              && strcmp(reply, "ok\n") == 0 && heard == heard_before + 4u,
+		      "a gated object's few quick sets were not each written");
 		CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp off") && replied("ok held")
 		              && object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp on")
-		              && replied("ok held")
-		              && object_said(&o, FZN_ORIGIN_SAME_USER, "set object lamp off")
-		              && replied("ok held") && heard == heard_before + 1u && helds == 1u,
-		      "sets within the window were written, or their holding said other than once");
-		CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && replied("ok on "),
+		              && replied("ok held") && heard == heard_before + 4u && helds == 1u,
+		      "sets past an object's passes were written, or their holding said other than once");
+		CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp") && replied("ok off "),
 		      "a held set was read before it was written");
 		CHECK(fzn_node_objects_due(&o, clock_ms + FZN_NODE_OBJECT_EVERY_MS - 1u) == 0u,
 		      "a held set was written inside its window");
 		clock_ms += FZN_NODE_OBJECT_EVERY_MS;
-		CHECK(fzn_node_objects_due(&o, clock_ms) == 1u && heard == heard_before + 2u
+		CHECK(fzn_node_objects_due(&o, clock_ms) == 1u && heard == heard_before + 5u
 		              && object_said(&o, FZN_ORIGIN_SAME_USER, "get object lamp")
-		              && replied("ok off "),
+		              && replied("ok on "),
 		      "the window's end did not write the newest held set, once");
 		o.rate = NULL;
 		o.held = NULL;

@@ -516,6 +516,12 @@ static uint64_t clock_now(void)
 	return clock_at;
 }
 
+/* THE SAME CLOCK IN MS, for a rate gate's windows (sec 1034). */
+static uint64_t clock_now_ms(void)
+{
+	return clock_at * 1000u;
+}
+
 static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
 {
 	(void)ctx;
@@ -1130,6 +1136,43 @@ static void test_settings_judged(void)
 		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting estate retention/b")
 		              && strcmp(reply, "ok absent\n") == 0,
 		      "a removed setting is still got");
+		/* HELD TO ITS WINDOW, sec 1034: with a rate gate, a cell's few quick writes
+		 * go at once, two more are held -- `ok held`, the last written standing --
+		 * and the newest is written as a window passes. */
+		{
+			static fzn_rate_slot_t gate_rows[8];
+			static fzn_rate_t gate;
+
+			fzn_rate_init(&gate, gate_rows, 8u);
+			ns.rate = &gate;
+			ns.now_ms = clock_now_ms;
+			CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate gate/k one")
+			              && strcmp(reply, "ok\n") == 0
+			              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate gate/k two")
+			              && strcmp(reply, "ok\n") == 0
+			              && said(&ns, FZN_ORIGIN_SAME_USER, "remove setting estate gate/k")
+			              && strcmp(reply, "ok\n") == 0
+			              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate gate/k four")
+			              && strcmp(reply, "ok\n") == 0,
+			      "a cell's few quick writes, a clear among them, were not each answered at once");
+			CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate gate/k five")
+			              && replied("ok held")
+			              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate gate/k six")
+			              && replied("ok held")
+			              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting estate gate/k")
+			              && strcmp(reply, "ok root four\n") == 0,
+			      "writes past a cell's passes were not held, the last written standing");
+			CHECK(fzn_node_settings_due(&ns, clock_now_ms() + FZN_NODE_SETTINGS_EVERY_MS - 1u)
+			              == 0u,
+			      "a held write went inside its window");
+			clock_at += 1u;
+			CHECK(fzn_node_settings_due(&ns, clock_now_ms()) == 1u
+			              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting estate gate/k")
+			              && strcmp(reply, "ok root six\n") == 0,
+			      "the window's end did not write the newest held value");
+			ns.rate = NULL;
+			ns.now_ms = NULL;
+		}
 		CHECK(said(&ns, FZN_ORIGIN_LOCAL, "set setting estate x 1") && replied("denied")
 		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate Bad 1")
 		              && replied("malformed")

@@ -27,6 +27,23 @@ static int burst_take(fzn_rate_t *r, uint64_t now_ms)
 	return 1;
 }
 
+/* THE PASSES `s` HAS EARNED by `now_ms`: one a window since they were last
+ * counted, to FZN_RATE_NAME_BURST. */
+static void earn(fzn_rate_slot_t *s, uint64_t now_ms)
+{
+	uint64_t windows;
+
+	if (now_ms <= s->earned_ms || !s->window_ms)
+		return;
+	windows = (now_ms - s->earned_ms) / s->window_ms;
+	if (!windows)
+		return;
+	s->passes = windows >= FZN_RATE_NAME_BURST || s->passes + windows >= FZN_RATE_NAME_BURST
+	                    ? FZN_RATE_NAME_BURST
+	                    : s->passes + (unsigned)windows;
+	s->earned_ms += windows * s->window_ms;
+}
+
 static fzn_rate_slot_t *slot_of(fzn_rate_t *r, const uint8_t *key, size_t key_len)
 {
 	fzn_rate_slot_t *free_one = NULL, *oldest = NULL;
@@ -62,17 +79,19 @@ fzn_rate_verdict_t fzn_rate_offer(fzn_rate_t *r, const uint8_t *key, size_t key_
 	    || value_len > FZN_RATE_VALUE_MAX || (value_len && !value)
 	    || !(s = slot_of(r, key, key_len)))
 		return FZN_RATE_REFUSED;
+	s->window_ms = every_ms < FZN_RATE_FLOOR_MS ? FZN_RATE_FLOOR_MS : every_ms;
 	if (!s->used) {
 		s->used = 1;
 		memcpy(s->key, key, key_len);
 		s->key_len = key_len;
+		s->passes = FZN_RATE_NAME_BURST;
+		s->earned_ms = now_ms;
 	}
-	s->window_ms = every_ms < FZN_RATE_FLOOR_MS ? FZN_RATE_FLOOR_MS : every_ms;
 	s->offered_ms = now_ms;
-	/* FREE: never passed, or its window has gone by, nothing held, and the
-	 * burst not spent. */
-	if (!s->pending && (!s->passed_ms || now_ms - s->passed_ms >= s->window_ms)
-	    && burst_take(r, now_ms)) {
+	earn(s, now_ms);
+	/* FREE: a pass in hand, nothing held, and the burst not spent. */
+	if (!s->pending && s->passes && burst_take(r, now_ms)) {
+		s->passes--;
 		s->passed_ms = now_ms ? now_ms : 1u;
 		s->held = 0;
 		s->said = 0;
@@ -90,7 +109,7 @@ fzn_rate_verdict_t fzn_rate_offer(fzn_rate_t *r, const uint8_t *key, size_t key_
 	return FZN_RATE_HELD;
 }
 
-size_t fzn_rate_due(fzn_rate_t *r, uint64_t now_ms,
+size_t fzn_rate_due(fzn_rate_t *r, uint64_t now_ms, const uint8_t *prefix, size_t prefix_len,
                     void (*due)(void *ctx, const uint8_t *key, size_t key_len,
                                 const uint8_t *value, size_t value_len, unsigned long held),
                     void *ctx)
@@ -101,10 +120,15 @@ size_t fzn_rate_due(fzn_rate_t *r, uint64_t now_ms,
 		fzn_rate_slot_t *s = &r->rows[i];
 		unsigned long held;
 
-		if (!s->used || !s->pending || now_ms - s->passed_ms < s->window_ms
+		if (s->used && s->pending)
+			earn(s, now_ms);
+		if (!s->used || !s->pending || !s->passes
+		    || (prefix_len
+		        && (s->key_len < prefix_len || memcmp(s->key, prefix, prefix_len) != 0))
 		    || !burst_take(r, now_ms))
 			continue;
 		held = s->held;
+		s->passes--;
 		s->pending = 0;
 		s->passed_ms = now_ms ? now_ms : 1u;
 		s->held = 0;

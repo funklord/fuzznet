@@ -40,6 +40,7 @@
 #include <stdint.h>
 
 #include "journal.h"
+#include "rate.h"
 #include "provision.h"
 #include "../chain/authz.h"
 #include "../local/vocabulary.h"
@@ -107,7 +108,23 @@ typedef struct fzn_node_settings {
 	 * host's own cell by `set setting`. NULL for every key. */
 	int (*may_set)(void *ctx, const uint8_t *key, size_t key_len, fzn_setting_rank_t rank);
 	void *may_set_ctx;
+	/* HOW OFTEN `set setting` WRITES A CELL, sec 1034, when set: a write within
+	 * the cell's window is held, the newest standing, answered `ok held`, and
+	 * written as it would have been by `fzn_node_settings_due` once the window
+	 * has passed. `held` told the first time a key is held after passing freely;
+	 * `now_ms` the clock the windows run by. What this node's own code writes
+	 * goes as before. */
+	fzn_rate_t *rate;
+	void (*held)(const uint8_t *key, size_t key_len);
+	uint64_t (*now_ms)(void);
 } fzn_node_settings_t;
+
+/* A CELL'S WINDOW: the rate gate's floor, until the schema declares one per key. */
+#define FZN_NODE_SETTINGS_EVERY_MS 1000u
+
+/* THE HELD WRITES WHOSE WINDOW HAS PASSED at `now_ms`, written: how many, sec 1034.
+ * The daemon calls it each pass. */
+size_t fzn_node_settings_due(const fzn_node_settings_t *ns, uint64_t now_ms);
 
 /* A SEALED VALUE's opening, sec 874: `box:` and the box in lower-case hex. */
 #define FZN_NODE_SETTINGS_SEALED "box:"
