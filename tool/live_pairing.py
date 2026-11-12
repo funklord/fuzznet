@@ -14,7 +14,7 @@ A asks, B is asked, C asks and is turned away.
        and still none after C's next round sends it again (sec 858)
     d  A asks where it is seen (`fetch address`); B, its one peer, says
        127.0.0.1 (sec 621)
-    e  A's `list link` shows its link to B measured -- a latency, requests
+    e  A's `list leg` shows its link to B measured -- a latency, requests
        answered, bytes received (sec 631)
     f  A writes an app stream at three levels; B is given nothing until A
        grants it level 1, and then that level of each record (sec 632)
@@ -268,23 +268,23 @@ def main(argv):
 			print("livecheck: d: B told A it sees A at 127.0.0.1")
 
 			# e: the link to B measured at A, sec 631.
-			links = ask(socks["a"], "list link").split()
+			links = ask(socks["a"], "list leg").split()
 			to_b = [l.split(",") for l in links[3:] if l.startswith("127.0.0.1:%s," % port["b"])]
 			if len(links) < 3 or links[0] != "ok" or len(to_b) != 1 or to_b[0][1] == "-" \
 			   or int(to_b[0][3]) == 0 or int(to_b[0][6]) == 0 or int(to_b[0][8]) == 0:
-				raise failed("e: A's list link answered %r, without B measured" % (links,))
+				raise failed("e: A's list leg answered %r, without B measured" % (links,))
 			# PAGED, sec 777: the same links from FROM 0, and from 1 one fewer --
 			# by address, since their counters move between asks.
-			page = ask(socks["a"], "list link 0").split()
-			later = ask(socks["a"], "list link 1").split()
+			page = ask(socks["a"], "list leg 0").split()
+			later = ask(socks["a"], "list leg 1").split()
 			def hosts(rows):
 				return [r.split(",")[0] for r in rows]
 			if page[:1] != ["ok"] or page[3] != "0" or hosts(page[4:]) != hosts(links[3:]) \
 			   or later[3] != "1" or hosts(later[4:]) != hosts(links[4:]):
-				raise failed("e: A's list link 0 and 1 answered %r and %r, not %r paged"
+				raise failed("e: A's list leg 0 and 1 answered %r and %r, not %r paged"
 				             % (page, later, links))
-			if not ask(socks["a"], "list link x").startswith("malformed "):
-				raise failed("e: list link x was not malformed")
+			if not ask(socks["a"], "list leg x").startswith("malformed "):
+				raise failed("e: list leg x was not malformed")
 			print("livecheck: e: A measured its link to B: %s ms, %s of %s asked answered"
 			      % (to_b[0][1], to_b[0][6], to_b[0][5]))
 

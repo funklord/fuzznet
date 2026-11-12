@@ -177,7 +177,7 @@ static void test_the_verb(void)
 	              && asked(&nr, FZN_ORIGIN_SAME_USER, "list responsible a x")
 	              && strncmp(reply, "malformed", 9) == 0,
 	      "no key, or a FROM not a number, was answered");
-	CHECK(!asked(&nr, FZN_ORIGIN_SAME_USER, "list link"), "another verb was taken");
+	CHECK(!asked(&nr, FZN_ORIGIN_SAME_USER, "list leg"), "another verb was taken");
 }
 
 /* MORE HOSTS THAN ONE REPLY HOLDS: whole pages, MORE said. */

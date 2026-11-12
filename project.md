@@ -85736,7 +85736,7 @@ Found while gating sec 1059, and measured as older than this day's work.
   when the callee accepts; the ring is only its indicator. Today it is not: a callee ignores the
   caller's repeated rings and ends a ringing call 45 s after the first, a caller hears nothing back
   while ringing, and hangup and decline are said once.
-- **`list link` becomes `list leg`** (sec 906's words), fuzzypickles told the same commit.
+- **`list link` becomes `list leg`** (sec 906's words), fuzzypickles told the same commit. *Done, sec 1075.*
 
 **Measured, and the holder's assumption corrected:** shorter codes for more frequent messages buy
 nothing here. Every code is one fixed byte; a session frame costs 33 bytes before its payload (9
@@ -86042,3 +86042,26 @@ lowered holding at once.
 `tool/live_call.py` phase l: B lets a user ring twice, one more a day; A's third ring ends busy
 and B never holds it. Sabotage entries `guard-never-spends-a-token` and
 `guard-forgets-its-rows-growing`.
+
+## 1075. `list leg`: a leg named as sec 906 names it, 2026-11-12
+
+The holder's, sec 1061: `list link` becomes `list leg`. In sec 906's words a **path** is the whole
+trip, a **leg** one part of it -- this host to one address -- and a **link** the medium under it
+(Ethernet, Bluetooth, LoRa, a pipe). What fuzznetd measures per address is a leg, so the same
+rename runs through everything that names it:
+
+- the command `list leg [FROM]`, its rows unchanged in form; `list link` is no longer answered;
+- the metrics `leg/HOST:PORT/latency` and `leg/HOST:PORT/loss` (sec 1056);
+- the logging setting `metric/log/leg` and its subsystem `metric/leg` (sec 1053).
+
+The `link/` library (sec 202) keeps its name for now: it is the medium-level estimator a link's
+scheduler (`sched/`) reads, and its own rename belongs to sec 1061's normalisation pass.
+fuzzypickles, who parse `list link` in their client, told the same commit.
+
+**Verified:** `live_pairing` phase e (its paging of `list leg`), `live_faults` phase j, `live_call`
+phase h (`metric/leg`), hull's "A's root's asks of B answered" step, and the gates.
+
+**And a stale assertion found on the way:** `live_faults` phase j waited for `list leg` to
+count exactly 64 -- the table's fixed size until sec 1056 moved the legs onto the metric layer,
+whose rows grow. It now counts all 140 hosts, paged, distinct, and the phase failed on a correct
+answer; it asks for every host now.

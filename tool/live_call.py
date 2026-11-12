@@ -223,12 +223,12 @@ def main(argv):
 				raise failed("f: A still holds the call it hung up")
 			print("livecheck: f: A hung up, and neither holds the call")
 
-			# h: A'S LINKS LOGGED, sec 1053: `metric/log/link` set, each link A
-			# measured is said under metric/link -- B's among them, from the call.
-			expect(socks["a"], "a", "set setting host metric/log/link 10", "ok")
-			started["a"].wait_for(re.compile(r"metric/link .*127\.0\.0\.1:%s," % port["b"]),
-			                      "A logging its link to B under metric/link", within=30.0)
-			print("livecheck: h: A logs its link to B under metric/link")
+			# h: A'S LEGS LOGGED, sec 1053 and 1075: `metric/log/leg` set, each leg A
+			# measured is said under metric/leg -- B's among them, from the call.
+			expect(socks["a"], "a", "set setting host metric/log/leg 10", "ok")
+			started["a"].wait_for(re.compile(r"metric/leg .*127\.0\.0\.1:%s," % port["b"]),
+			                      "A logging its leg to B under metric/leg", within=30.0)
+			print("livecheck: h: A logs its leg to B under metric/leg")
 			# AND ITS METER, sec 1054: the families that carried anything, each
 			# FAMILY,UP,DOWN,RATE_UP,RATE_DOWN,PEERS.
 			expect(socks["a"], "a", "set setting host metric/log/meter 10", "ok")

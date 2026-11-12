@@ -131,16 +131,16 @@ def plans():
 		{"ask": "set call {call} hangup", "soft": True},
 		# A'S OWN ASKS OF B, sec 1036: per address, asked and answered -- whether a
 		# round's pulls from behind B's NAT are answered, from the target's socket.
-		{"ask": "list link", "label": "A's root's links", "keep": True, "soft": True},
+		{"ask": "list leg", "label": "A's root's links", "keep": True, "soft": True},
 		# AND WHETHER THEY MOVE to where B says hello from -- B's gateway's public
 		# side -- once B's hellos land (sec 1036).
-		{"until": "list link", "contains": "203.0.113.2:", "within": 120,
+		{"until": "list leg", "contains": "203.0.113.2:", "within": 120,
 		 "label": "A's root asks B where it said hello", "keep": True, "soft": True},
 		# THOSE ASKS ANSWERED: sent from A's serving socket, the one B's NAT admits
 		# (sec 1036) -- 0 of 20 answered from the target's own socket before the
 		# caller's out hook, 225 of 225 after. The fields are HOST:PORT, latency,
 		# loss, observations, age, asked, ANSWERED.
-		{"until": "list link",
+		{"until": "list leg",
 		 # B's port its own for each destination, where gateway B is symmetric.
 		 "matches": r"203\.0\.113\.2:%s,[-\d]+,[-\d]+,\d+,[-\d]+,\d+,[1-9]\d*,"
 		            % (r"\d+" if SYMMETRIC_B else "7000"),

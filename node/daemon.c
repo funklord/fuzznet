@@ -1701,7 +1701,7 @@ static void silent_heard(const struct pull_target *pt);
  * `link/` table's estimate -- a pessimistic prior that every answer and every
  * silence moves -- and beside it what crossed it: requests asked and
  * answered, bytes sent and received. In memory only, as fuzzypickles kept
- * theirs: a restart begins again. Read with `list link`. */
+ * theirs: a restart begins again. Read with `list leg` (sec 1075; `list link` before). */
 
 /* NO LINK: one met when no room could be had for it. */
 #define FZND_LINK_NONE SIZE_MAX
@@ -1722,7 +1722,7 @@ static struct link_meter {
 	uint64_t asked, answered, sent, received;
 } *link_meters;
 static size_t n_link_meters, link_meters_cap;
-/* Links met when no room could be had: not measured, and counted so `list link`
+/* Links met when no room could be had: not measured, and counted so `list leg`
  * says so rather than reading as everything. */
 static uint64_t links_unmeasured;
 
@@ -1841,8 +1841,8 @@ static size_t link_of(const fzn_udp_addr_t *at)
 	m = &link_meters[n_link_meters];
 	memset(m, 0, sizeof(*m));
 	m->at = *at;
-	(void)snprintf(m->latency, sizeof(m->latency), "link/%s:%u/latency", host, (unsigned)port);
-	(void)snprintf(m->loss, sizeof(m->loss), "link/%s:%u/loss", host, (unsigned)port);
+	(void)snprintf(m->latency, sizeof(m->latency), "leg/%s:%u/latency", host, (unsigned)port);
+	(void)snprintf(m->loss, sizeof(m->loss), "leg/%s:%u/loss", host, (unsigned)port);
 	if (!fzn_metrics_open(&link_metrics, m->latency, FZND_LINK_PRIOR_MS)
 	    || !fzn_metrics_open(&link_metrics, m->loss, FZND_LINK_PRIOR_LOSS)) {
 		links_unmeasured++;
@@ -1854,7 +1854,7 @@ static size_t link_of(const fzn_udp_addr_t *at)
 static int next_word(const uint8_t **at, size_t *left, const uint8_t **w, size_t *w_len);
 static int word_number(const uint8_t *w, size_t n, long long lo, long long hi, long long *out);
 
-/* ONE ROW OF `list link`, ` HOST:PORT,LATENCY,...`: its length, 0 for a
+/* ONE ROW OF `list leg`, ` HOST:PORT,LATENCY,...`: its length, 0 for a
  * link that will not render. Room for the longest row: an address and nine
  * numbers. */
 #define LINK_ROW_MAX (1u + FZN_UDP_HOST_MAX + 6u + 8u * 21u + 1u)
@@ -1890,9 +1890,9 @@ static size_t link_row(size_t i, uint64_t now, char *row, size_t cap)
 
 static uint64_t host_number(const char *key, uint64_t def);
 
-/* METRICS LOGGED BY CONFIGURATION, sec 1053, sec 1034's step: `metric/log/link`,
+/* METRICS LOGGED BY CONFIGURATION, sec 1053, sec 1034's step: `metric/log/leg`,
  * a host's setting of seconds, has each link with an observation logged at info
- * under `metric/link` every so many seconds -- its address, latency, loss,
+ * under `metric/leg` every so many seconds -- its address, latency, loss,
  * observations, asked and answered -- so a peer's latency has a history, and
  * the log's retention, packing and gathering apply to it unchanged. Unset, the
  * default, nothing is logged; the schema holds it to 10 s at the least, so a
@@ -1902,7 +1902,7 @@ static void metric_log_links(uint64_t now)
 	static uint64_t next;
 	/* MONOTONIC, as a link's observations are stamped: the wall clock read
 	 * against them made every logged AGE wrong (sec 1056). */
-	uint64_t every = host_number("metric/log/link", 0u), now_ms = mono_ms();
+	uint64_t every = host_number("metric/log/leg", 0u), now_ms = mono_ms();
 	char row[LINK_ROW_MAX];
 	size_t i;
 
@@ -1919,14 +1919,14 @@ static void metric_log_links(uint64_t now)
 		const fzn_metric_t *e = fzn_metrics_get(&link_metrics, link_meters[i].loss);
 
 		if (e && e->observations && link_row(i, now_ms, row, sizeof(row)))
-			say(FZN_ENTRY_INFO, "metric/link", "%s", row + 1);
+			say(FZN_ENTRY_INFO, "metric/leg", "%s", row + 1);
 	}
 }
 
 /* AND THE METER'S FAMILIES, sec 1054: `metric/log/meter` has each family that
  * carried anything said under `metric/meter` -- its name, bytes up and down
  * since its rows appeared, the last window's rates, and how many peers its rows
- * hold -- every so many seconds, as `metric/log/link` has the links. */
+ * hold -- every so many seconds, as `metric/log/leg` has the links. */
 static void metric_log_meter(uint64_t now)
 {
 	static uint64_t next;
@@ -1955,7 +1955,7 @@ static void metric_log_meter(uint64_t now)
 	}
 }
 
-/* `list link [FROM]`, sec 631: `ok COUNT UNMEASURED` and per link
+/* `list leg [FROM]`, sec 631 and 1075 (`list link` until then): `ok COUNT UNMEASURED` and per link
  * `HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED` --
  * latency in ms and loss per mille as estimated, `-` for both on a link
  * nothing has been observed on (sec 202: a prior is no measurement), age the
@@ -1977,11 +1977,11 @@ static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char
 	char row[LINK_ROW_MAX];
 
 	if (request->parsed != FZN_VERB_LIST || !at || !next_word(&at, &left, &w, &w_len)
-	    || w_len != 4u || memcmp(w, "link", 4u) != 0)
+	    || w_len != 3u || memcmp(w, "leg", 3u) != 0)
 		return 0;
 	if (next_word(&at, &left, &fw, &fw_len)
 	    && (left || !word_number(fw, fw_len, 0, 1000000000, &from)))
-		return (size_t)snprintf(reply, cap, "malformed list link [FROM]\n");
+		return (size_t)snprintf(reply, cap, "malformed list leg [FROM]\n");
 	/* THIS NODE'S OWN USER'S, sec 763: every peer's address. */
 	if (fzn_node_relay_refuse_local(origin))
 		return (size_t)snprintf(reply, cap, "denied %s\n", fzn_node_relay_refuse_local(origin));
@@ -2001,7 +2001,7 @@ static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char
 			if (from >= 0)
 				return out + (size_t)snprintf(reply + out, cap - out, "\n");
 			return (size_t)snprintf(reply, cap,
-			                        "error the list does not fit a reply: list link 0 pages "
+			                        "error the list does not fit a reply: list leg 0 pages "
 			                        "it\n");
 		}
 		memcpy(reply + out, row, rlen);
