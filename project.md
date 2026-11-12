@@ -85340,3 +85340,21 @@ held, nothing written at the floor's 1 s, the newest written at 5 s. Sabotage
 
 **Not yet:** objects (sec 948) take their window from a declaration too once objects have a schema
 of their own; records and metrics behind the gate.
+
+## 1043. A call's events reach subscribers, 2026-11-12
+
+Reported by fuzzypickles 2026-11-12 (inbox 20261112T0450Z), from its terminal client: a call rang
+in at b, `list call` showed it, and b's `get events` subscriber heard nothing. `live_told` published
+subject `call` with the name `ID WORD` -- `ring`, `answered`, why it ended -- and an event's name is
+one hex word (`node/events.c`), so `publish` refused every one unsent. Only `publish_change`'s
+`call ID`, for this host's own `set call`, got through. fuzzypickles' window had not shown it
+because its call bar also polls `list call`.
+
+**The name is the id alone**, as sec 1020's comment always said (`event call ID`); a client reads
+what changed from `list call`. Widening the grammar to let a name carry a word was the other
+offer and is refused: `get events since` lists kept events as space-separated pairs, which a
+two-word name would make unsplittable. The word goes to the log instead, `node/session` at D.
+
+**Verified:** `live_call` -- a client subscribed to B's events hears `event call ID` when A rings
+and again when A hangs up, B's own answer read and set aside first. **Control:** the daemon before
+this fails it at the ring.

@@ -17275,13 +17275,16 @@ static int participants_gone(const struct live_kept *k)
 	return 1;
 }
 
+/* `event call ID`, sec 1043: the id alone, a client reading what changed from
+ * `list call`. The word -- ring, answered, why it ended -- went in the name once,
+ * and an event's name is one hex word, so every such event was refused unsent and a
+ * subscriber never heard a call ring in. The word is logged instead. */
 static void live_told(const uint8_t call[FZN_LIVE_CALL_LEN], const char *what)
 {
-	char name[2u * FZN_LIVE_CALL_LEN + 16u];
+	char name[2u * FZN_LIVE_CALL_LEN + 1u];
 
 	hex_of(call, FZN_LIVE_CALL_LEN, name);
-	(void)snprintf(name + 2u * FZN_LIVE_CALL_LEN, sizeof(name) - 2u * FZN_LIVE_CALL_LEN, " %s",
-	               what);
+	say(FZN_ENTRY_DEBUG, "node/session", "call %s: %s", name, what);
 	publish("call", name);
 }
 

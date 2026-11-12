@@ -6,7 +6,7 @@ Each waits until it holds the other's host -- A to ring B, B to take A's words a
 contact's. Each host's own client is a caller on its socket.
 
     a  A rings B (`add call bea audio`, `ok ID`), and B lists the call ringing in,
-       and was told so (`event call ID ring`)
+       and a client subscribed to B's events was told so (`event call ID`)
     b  B answers; A lists the call up
     c  A sends a frame; B reads it back, the same bytes, stream, number and time
     d  B sends one back; A reads it
@@ -14,7 +14,7 @@ contact's. Each host's own client is a caller on its socket.
        and reports it, and A reads it (`get call ID quality`, sec 1021)
     e2 a frame stamped with A's client's clock comes back in B's report, its AT and
        how long B held it, and the client reads the round trip (sec 1026)
-    f  A hangs up; B holds the call no more
+    f  A hangs up; B holds the call no more, and B's subscriber was told so
     g  B rings A at once, then A B, three times each way: each rung end holds the
        call ringing in, and names the other end's user as the fourth field of
        `list call` (sec 1040), as the ringing end names the user it rang; the
@@ -43,6 +43,7 @@ from live_groups import PREKEY_HOST  # noqa: E402
 from live_rejoin import command, daemon, expect, free_slot  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
+from live_events import subscriber  # noqa: E402
 
 live_trim.DEADLINE = time.monotonic() + 500.0
 
@@ -121,7 +122,10 @@ def main(argv):
 				started[who].wait_for(HOSTS_RE, "%s holding the other's host" % who.upper(),
 				                      within=HOSTS_S)
 
-			# a: A RINGS B.
+			# a: A RINGS B, and a client of B's subscribed to its events hears it.
+			heard_b = subscriber(socks["b"], "b's events")
+			if heard_b.first != "ok events":
+				raise failed("a: B's `get events` answered %r" % heard_b.first)
 			rung = ask(socks["a"], "add call bea audio").split()
 			if len(rung) != 2 or rung[0] != "ok":
 				raise failed("a: add call answered %r" % rung)
@@ -131,6 +135,11 @@ def main(argv):
 			      lambda: calls(socks["b"]).get(call) == "ringing-in")
 			print("livecheck: a: A rang B, and B holds the call ringing in after %.1f s"
 			      % (time.monotonic() - began))
+			# `event call ID`, sec 1043: the id alone -- once with a word after it,
+			# which an event's name may not carry, and refused unsent.
+			if "event call %s" % call not in heard_b.lines_within(3.0):
+				raise failed("a: B's subscriber never heard `event call %s`" % call)
+			print("livecheck: a: and B's subscriber heard `event call ID`")
 
 			# b: B ANSWERS.
 			expect(socks["b"], "b", "set call %s answer" % call, "ok")
@@ -188,9 +197,14 @@ def main(argv):
 				raise failed("e2: a round trip of %d ms, from %r" % (trip, row))
 			print("livecheck: e2: A's client reads the round trip off B's report: %d ms" % trip)
 
-			# f: A HANGS UP.
+			# f: A HANGS UP. What B's subscriber heard before -- B's own answer among
+			# it -- read and set aside first, so only the end can pass.
+			heard_b.lines_within(1.0)
 			expect(socks["a"], "a", "set call %s hangup" % call, "ok")
 			until("f: B still held the call", lambda: call not in calls(socks["b"]))
+			if "event call %s" % call not in heard_b.lines_within(3.0):
+				raise failed("f: B's subscriber never heard the call end")
+			heard_b.close()
 			if call in calls(socks["a"]):
 				raise failed("f: A still holds the call it hung up")
 			print("livecheck: f: A hung up, and neither holds the call")
