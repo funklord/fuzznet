@@ -15188,7 +15188,7 @@ SABOTAGES = [
 	(
 		"live-report-held-unread",
 		"node/live.c",
-		"\t\tout->held_ms = fzn_get_be32(at + 15);\n",
+		"\t\tout->held_ms = fzn_call_report_held_ms_get(b);\n",
 		"",
 		"a report's HELD is read as nothing, and a sender's round trip reads long by the receiver's wait -- sec 1026",
 	),
@@ -15363,15 +15363,15 @@ SABOTAGES = [
 	(
 		"live-frame-from-unread",
 		"node/live.c",
-		"\t\tout->from = fzn_get_be16(at + 1);\n",
+		"\t\tout->from = fzn_call_frame_from_get(b);\n",
 		"",
 		"every frame of a call of several reads as the caller's, two senders' numbering one -- sec 1024",
 	),
 	(
 		"live-piece-past-its-pieces",
 		"node/live.c",
-		"\t\treturn out->pieces != 0u && out->piece < out->pieces;\n",
-		"\t\treturn out->pieces != 0u;\n",
+		"\t\treturn out->piece < out->pieces;\n",
+		"\t\treturn 1;\n",
 		"a frame's piece past its pieces is read -- sec 1019",
 	),
 	(

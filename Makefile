@@ -233,8 +233,11 @@ LEAN_SERVICES := FZN_STICKERS=0 FZN_CATALOG=0 FZN_NOTES=0 FZN_GROUPS=0
 # under our full set today; that is luck to enjoy, not a rule to enforce on
 # somebody else's emitter.
 GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
-             wire/generated/situ.c
+             wire/generated/call.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
+# TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
+# checks hold hand-written tests to this tree's conventions.
+GEN_TEST_SRCS := wire/generated/call_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -659,6 +662,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/session_frame_test \
              $(BUILD_DIR)/node/test/sessions_test \
              $(BUILD_DIR)/node/test/live_test \
+             $(BUILD_DIR)/wire/test/call_vectors \
              $(BUILD_DIR)/node/test/reach_test \
              $(BUILD_DIR)/node/test/rate_test \
              $(BUILD_DIR)/node/test/metric_test \
@@ -4056,7 +4060,17 @@ $(BUILD_DIR)/node/test/reach_test: $(BUILD_DIR)/node/test/reach_test.o $(BUILD_D
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(BUILD_DIR)/node/test/live_test: $(BUILD_DIR)/node/test/live_test.o $(BUILD_DIR)/node/live.o
+# A CALL'S MESSAGES HELD TO THEIR GOLDEN VECTORS, sec 1068: the test situc
+# generates from node/call.situ and node/call.vectors, the bytes node/live.c
+# wrote. It is cmocka's, a test-only dependency: absent, this fails to link
+# rather than skip.
+$(BUILD_DIR)/wire/test/call_vectors: wire/generated/call_vectors.c wire/generated/call.c \
+                                     wire/generated/situ.c $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -lcmocka -o $@
+
+$(BUILD_DIR)/node/test/live_test: $(BUILD_DIR)/node/test/live_test.o $(BUILD_DIR)/node/live.o \
+                                  $(BUILD_DIR)/wire/generated/call.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -6210,7 +6224,7 @@ style: $(OBJS)
 	@# tree, and `qr/test/qr_quirc_check.c` needs a quirc checkout. Naming
 	@# them here rather than widening the sweep keeps the gate exact -- a
 	@# third one has to be added deliberately and says why.
-	@known=" $(SRCS) $(PROG_SRCS) $(TEST_SRCS) $(GEN_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
+	@known=" $(SRCS) $(PROG_SRCS) $(TEST_SRCS) $(GEN_SRCS) $(GEN_TEST_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
 	         $(FLOG_TSRC) tool/consumer_check.c qr/test/qr_quirc_check.c "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
@@ -6892,7 +6906,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
-              roster/roster.situ chain/root_act.situ chain/succession.situ \
+              roster/roster.situ chain/root_act.situ chain/succession.situ node/call.situ \
               record/exchange.situ \
               wire/session_frame.situ node/verify_memo.situ notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting.situ \
@@ -7556,7 +7570,13 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new >/dev/null 2>&1 || { \
 		echo "schema: situc gen-tamper failed"; \
 		rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }
-	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h; do \
+	@# AND THE CALL FAMILY'S READER AND ITS VECTORS' TEST, sec 1068.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_call --layer view \
+	         --out $(BUILD_DIR)/.gen.new node/call.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_call \
+	         --out $(BUILD_DIR)/.gen.new node/call.situ node/call.vectors >/dev/null 2>&1
+	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h call.c call.h \
+	          call_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \

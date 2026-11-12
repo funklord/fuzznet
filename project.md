@@ -85799,3 +85799,41 @@ is kept by hand is sec 1061's to end: one table per family, from which the check
 **And `live_call` phase e2's tolerance:** its round trip read back 1.5 s on came out `-1 ms` in one
 gate run. The client's clock and the daemon's HELD are each whole milliseconds, truncated apart, so a
 trip under a millisecond can read -1; e2 takes -1 to 999 now.
+
+## 1068. situ for the protocol: the call family, the pilot, 2026-11-12
+
+**The holder, 2026-11-12:** "are you using situ for all of this? and as much as you should? You
+shouldn't have to write most of the protocol code, or the tests belonging to it. And the scheduler
+level in situ should be usable, (and you shouldn't need to encrypt?), if it isn't send bug reports
+to situ." It was not: of fuzznet's layouts only `wire/frame.situ` had generated C; the rest were
+contracts beside hand-written codecs, and many message families -- the call's, the relay's,
+introductions, session ask and grant, time, procedures, groups, streams -- had no schema at all.
+This day's own sec 1045, 1062 and the status message drafted for sec 1061 were hand-written
+offsets too. situ offers far more: codecs at six rungs (view, edit, relate, frame, converse,
+drive), golden-vector, codec, tamper, check and fuzz tests generated, and sealing in its crypto
+model; its rung 6 drives send, retransmit and time out with the clock a parameter and I/O
+injected (situ decision 0032, 26.98).
+
+**The pilot, the call family:** `node/call.situ` describes it as the wire stands -- family 2, type
+61, a kind, the call's id, a variant body per kind. `situc build --layer view` generates its
+reader, `wire/generated/call.{c,h}`, and `fzn_live_read` reads through it: view, validate, the
+accessors, where it counted offsets by hand. Kept in C, what the schema cannot state yet: a piece
+within its pieces (sabotage `live-piece-past-its-pieces`, its guard moved with it), and a fixed body's message holding nothing
+after it.
+
+- **Held to an independent writer:** `node/call.vectors` are eight messages, one a kind, written
+  by `live.c`'s hand-written writer; `situc gen-tests` makes `wire/generated/call_vectors.c` of
+  them, run by `make test` as `wire/test/call_vectors`, 8 of 8. A cross-check run once in
+  scratch read every kind `live.c` writes field for field through the generated reader, 9 of 9.
+- **`make schema` pins it** like the frame: `node/call.situ` among `SITU_SPECS`, its `.wire` and
+  `.map` committed, its generated reader and test regenerated and compared.
+- **cmocka** is the generated tests' framework: a test-only dependency, failing to link rather
+  than skipping where absent.
+
+**Not yet, and reported:** the writer. `situc build --layer edit` refuses a builder for a frame
+whose media is `u8 media[remaining]` -- "whose own bytes do not state its extent" -- where on a
+datagram the writer chooses that extent. Sent to situ's inbox the same day with a reproduction;
+`fzn_live_write` stays hand-written until situ answers or the frame carries its media's length.
+
+**Next:** the CMD/SUBCMD families (sec 1061) and the status message as situ schemas from the
+start; asking and resending onto rungs 5 and 6; the session's sealing against situ's crypto model.

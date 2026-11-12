@@ -1,0 +1,66 @@
+# situ wire signature v3
+# schema: call.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum kind : u8 unknown=error
+  ring=1 answer=2 decline=3 hangup=4 frame=5 report=6 participant=7 ringing=8
+
+struct frame size=15..
+  @0x0000   1         u8         stream
+  @0x0001   2         u16        from  big
+  @0x0003   4         u32        seq  big
+  @0x0007   4         u32        at_ms  big
+  @0x000b   2         u16        piece  big
+  @0x000d   2         u16        pieces  big min=1
+  @0x000f   0..       u8         media  sized-by=remaining
+
+struct message size=11..
+  @0x0000   1         u8         family  must_eq=2
+  @0x0001   1         u8         type  must_eq=61
+  @0x0002   1         kind       kind
+  @0x0003   8         u8         call  big
+  @0x000b   0..       variant    body
+  body switch: kind
+  body case 1: ring ring
+  body case 2: answer nothing
+  body case 3: decline nothing
+  body case 4: hangup nothing
+  body case 5: frame frame
+  body case 6: report report
+  body case 7: participant participant
+  body case 8: ringing nothing
+  body case default: error
+
+struct nothing size=0
+
+struct participant size=34
+  @0x0000   2         u16        index  big min=1
+  @0x0002   32        u8         whom  big
+
+struct report size=19
+  @0x0000   1         u8         stream
+  @0x0001   4         u32        received  big
+  @0x0005   4         u32        lost  big
+  @0x0009   2         u16        jitter_ms  big
+  @0x000b   4         u32        last_at_ms  big
+  @0x000f   4         u32        held_ms  big
+
+struct ring size=33
+  @0x0000   1         u8         kinds  min=1 max=3
+  @0x0001   32        u8         whom  big

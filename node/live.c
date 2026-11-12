@@ -6,6 +6,7 @@
 
 #include "types.h"
 #include "../wire/bytes.h"
+#include "../wire/generated/call.h"
 
 int fzn_live_is_word(const uint8_t *bytes, size_t len)
 {
@@ -13,59 +14,85 @@ int fzn_live_is_word(const uint8_t *bytes, size_t len)
 	       && bytes[1] == FZN_TYPE_LIVE;
 }
 
+/* THE BODY'S SIZE FOR A KIND whose body is fixed, from the schema: the message's
+ * whole length must be its head and this, nothing after it. */
+static size_t fixed_body(fzn_live_kind_t kind)
+{
+	switch (kind) {
+	case FZN_LIVE_RING:
+		return FZN_CALL_RING_SIZE_MAX;
+	case FZN_LIVE_REPORT:
+		return FZN_CALL_REPORT_SIZE_MAX;
+	case FZN_LIVE_PARTICIPANT:
+		return FZN_CALL_PARTICIPANT_SIZE_MAX;
+	default:
+		return FZN_CALL_NOTHING_SIZE_MAX;
+	}
+}
+
+/* READ BY THE READER node/call.situ GENERATES, sec 1068: its view and its
+ * validation say what the bytes are, where this file once counted offsets by
+ * hand. What the schema cannot say yet stays here: a piece within its pieces,
+ * and a fixed body's message carrying nothing after it. */
 int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
 {
-	const uint8_t *at;
+	situ_msg_t msg;
+	situ_view_t v, b;
 
-	if (!out || !fzn_live_is_word(bytes, len))
+	if (!out || !fzn_live_is_word(bytes, len) || len > UINT32_MAX)
+		return 0;
+	situ_msg_init(&msg, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_call_message_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_call_message_validate(v) != SITU_OK)
 		return 0;
 	memset(out, 0, sizeof(*out));
-	out->kind = (fzn_live_kind_t)bytes[2];
-	memcpy(out->call, bytes + 3, FZN_LIVE_CALL_LEN);
-	at = bytes + FZN_LIVE_HEAD_LEN;
+	out->kind = (fzn_live_kind_t)fzn_call_message_kind_get(v);
+	memcpy(out->call, fzn_call_message_call_ptr(v), FZN_LIVE_CALL_LEN);
+	if (out->kind != FZN_LIVE_FRAME && len != FZN_LIVE_HEAD_LEN + fixed_body(out->kind))
+		return 0;
 	switch (out->kind) {
 	case FZN_LIVE_RING:
-		if (len != FZN_LIVE_RING_LEN)
+		if (fzn_call_message_body_ring_view(v, &b) != SITU_OK)
 			return 0;
-		out->kinds = at[0];
-		out->whom = at + 1;
-		return out->kinds != 0u
-		       && (out->kinds & (uint8_t) ~(FZN_LIVE_AUDIO | FZN_LIVE_VIDEO)) == 0u;
+		out->kinds = fzn_call_ring_kinds_get(b);
+		out->whom = fzn_call_ring_whom_ptr(b);
+		return 1;
 	case FZN_LIVE_ANSWER:
 	case FZN_LIVE_DECLINE:
 	case FZN_LIVE_HANGUP:
 	case FZN_LIVE_RINGING:
-		return len == FZN_LIVE_HEAD_LEN;
+		return 1;
 	case FZN_LIVE_REPORT:
-		if (len != FZN_LIVE_REPORT_LEN)
+		if (fzn_call_message_body_report_view(v, &b) != SITU_OK)
 			return 0;
-		out->stream = at[0];
-		out->received = fzn_get_be32(at + 1);
-		out->lost = fzn_get_be32(at + 5);
-		out->jitter_ms = fzn_get_be16(at + 9);
-		out->last_at_ms = fzn_get_be32(at + 11);
-		out->held_ms = fzn_get_be32(at + 15);
+		out->stream = fzn_call_report_stream_get(b);
+		out->received = fzn_call_report_received_get(b);
+		out->lost = fzn_call_report_lost_get(b);
+		out->jitter_ms = fzn_call_report_jitter_ms_get(b);
+		out->last_at_ms = fzn_call_report_last_at_ms_get(b);
+		out->held_ms = fzn_call_report_held_ms_get(b);
 		return 1;
 	case FZN_LIVE_PARTICIPANT:
-		if (len != FZN_LIVE_PARTICIPANT_LEN)
+		if (fzn_call_message_body_participant_view(v, &b) != SITU_OK)
 			return 0;
-		out->from = fzn_get_be16(at);
-		out->whom = at + 2;
-		return out->from != 0u;
+		out->from = fzn_call_participant_index_get(b);
+		out->whom = fzn_call_participant_whom_ptr(b);
+		return 1;
 	case FZN_LIVE_FRAME:
-		if (len < FZN_LIVE_FRAME_HEAD_LEN)
+		if (fzn_call_message_body_frame_view(v, &b) != SITU_OK)
 			return 0;
-		out->stream = at[0];
-		out->from = fzn_get_be16(at + 1);
-		out->seq = fzn_get_be32(at + 3);
-		out->at_ms = fzn_get_be32(at + 7);
-		out->piece = fzn_get_be16(at + 11);
-		out->pieces = fzn_get_be16(at + 13);
-		out->media = bytes + FZN_LIVE_FRAME_HEAD_LEN;
-		out->media_len = len - FZN_LIVE_FRAME_HEAD_LEN;
-		return out->pieces != 0u && out->piece < out->pieces;
+		out->stream = fzn_call_frame_stream_get(b);
+		out->from = fzn_call_frame_from_get(b);
+		out->seq = fzn_call_frame_seq_get(b);
+		out->at_ms = fzn_call_frame_at_ms_get(b);
+		out->piece = fzn_call_frame_piece_get(b);
+		out->pieces = fzn_call_frame_pieces_get(b);
+		out->media = fzn_call_frame_media_ptr(b);
+		out->media_len = fzn_call_frame_media_len(b);
+		return out->piece < out->pieces;
+	default:
+		return 0;
 	}
-	return 0;
 }
 
 size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)

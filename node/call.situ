@@ -1,0 +1,74 @@
+// A call's messages, host to host, in a session: project.md secs 1019-1027 and
+// 1062, the pilot of sec 1068 -- the call family described here, its reader and
+// its tests generated, where node/live.c read the bytes by hand. Its writer
+// waits on situ building a message whose last member is `remaining`.
+//
+// The layout is the wire as it stands: family 2, type 61, a kind, the call's id.
+// sec 1061's CMD/SUBCMD scheme and the head set up once per call change it after.
+
+target buffer;
+endian big;
+
+enum kind : u8 {
+	ring        = 1,   // a call asked, of a user
+	answer      = 2,   // taken, on one of that user's clients
+	decline     = 3,   // refused
+	hangup      = 4,   // ended, by either end
+	frame       = 5,   // a frame's piece
+	report      = 6,   // what the receiver measured of a stream
+	participant = 7,   // who a call of several numbers an index
+	ringing     = 8,   // the callee still here, to each ring (sec 1062)
+	default     = error,
+}
+
+struct nothing {
+}
+
+// KINDS a mask of audio 1 and video 2, at least one.
+struct ring {
+	u8  kinds [min = 1, max = 3];
+	u8  whom[32];
+}
+
+struct frame {
+	u8   stream;
+	u16  from;
+	u32  seq;
+	u32  at_ms;
+	u16  piece;
+	u16  pieces [min = 1];
+	u8   media[remaining];
+}
+
+struct report {
+	u8   stream;
+	u32  received;
+	u32  lost;
+	u16  jitter_ms;
+	u32  last_at_ms;
+	u32  held_ms;
+}
+
+struct participant {
+	u16  index [min = 1];
+	u8   whom[32];
+}
+
+struct message {
+	u8         family [must_eq = 2];
+	u8         type   [must_eq = 61];
+	kind       kind;
+	u8         call[8];
+
+	variant body switch (kind) {
+		case kind.ring:        ring              ring;
+		case kind.answer:      nothing           answer;
+		case kind.decline:     nothing           decline;
+		case kind.hangup:      nothing           hangup;
+		case kind.frame:       frame             frame;
+		case kind.report:      report            report;
+		case kind.participant: participant       participant;
+		case kind.ringing:     nothing           ringing;
+		default: error;
+	}
+}
