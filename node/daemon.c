@@ -14884,8 +14884,13 @@ static void streams_start(struct pull_target *pulls, size_t npulls, uint64_t now
 	streams_begun = n_stream_fetches;
 	for (f = 0; f < streams_begun; f++) {
 		if (memcmp(stream_fetches[f].who, zero, FZN_PUBKEY_LEN) == 0) {
+			/* SILENT OR NOT, sec 1060: a fetch is the user's ask, now, and a
+			 * host marked silent stays so until a round hears it -- a minute
+			 * on, where one missed answer had a fetch ask nobody at all, as a
+			 * contact's and a group's hosts never were. A silent one costs a
+			 * wait. */
 			for (i = 0; i < npulls; i++)
-				if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i]))
+				if (peer_in_estate(&pulls[i]))
 					host_add(&pulls[i], HOST_STREAMS, 1, f, now);
 			continue;
 		}

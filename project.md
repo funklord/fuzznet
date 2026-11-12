@@ -85702,10 +85702,14 @@ from older transfers and shown where streams are -- is the link's estimate, on t
 
 Found while gating sec 1059, and measured as older than this day's work.
 
-- **Phase j fails about one run in two**: `C's subscriber was not told of A's stream record` -- C's
-  `fetch stream monitor` of A comes back empty for the phase's 60 s, `list stream monitor` at A
-  holding the record. Measured: at 179c40f 1 of 2 runs, at 78a9709 (before secs 1031-1059) 2 of 4.
-  Not diagnosed: the next step is a failing run with both daemons' logs kept, read at the fetch.
+- **Phase j failed about one run in two**: `C's subscriber was not told of A's stream record` --
+  measured at 179c40f 1 of 2 runs, at 78a9709 (before secs 1031-1059) 2 of 4. **The cause, read in a
+  failing run's kept logs:** C logged `stream fetch: 0 host(s) asked` every 5 s of the phase. C's
+  round just before had gone unanswered by A, whose loop was held up, so C marked A silent -- and
+  `fetch stream` with no WHO skipped silent hosts, while a host stays silent until a round hears
+  it, a minute on. So the user's explicit "ask now" asked nobody for the whole window. A
+  contact's and a group's fetch never checked silence. **Fixed:** an own fetch asks this user's
+  hosts silent or not, a silent one costing a wait. Measured after: 5 of 5 runs passed.
 - **The outer bound was below the script's own.** `make livecheck` ran it under `timeout 300`
   while the script's deadline is 600 s and it took 217 to 347 s here. Killed from outside, it
   printed nothing (its output buffered) and left its three daemons running, orphaned -- found and
