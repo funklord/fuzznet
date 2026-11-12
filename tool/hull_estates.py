@@ -59,10 +59,10 @@ TUNE = {"FZN_TUNE_PULL_EVERY": "5"}
 # A'S ROOT RELAYING, or -- HULL_ESTATES_RELAY=0 -- not: then A's phone's
 # line can reach B only by an introduction through A's root (sec 698).
 RELAY = "off" if os.environ.get("HULL_ESTATES_RELAY") == "0" else "on"
-# A CALL BETWEEN TWO HOSTS BOTH BEHIND NATS -- A's phone to B's root -- only
-# with HULL_ESTATES_BOTH_NAT=1: it fails today (sec 1032), and a known failure
-# left on would turn every run red and hide a new one.
-BOTH_NAT = os.environ.get("HULL_ESTATES_BOTH_NAT") == "1"
+# A CALL BETWEEN TWO HOSTS BOTH BEHIND NATS -- A's phone to B's root -- run
+# unless HULL_ESTATES_BOTH_NAT=0. Gated while it failed (sec 1032); it passes
+# since sec 1038. Without it A's phone serves no socket, a phone that only pulls.
+BOTH_NAT = os.environ.get("HULL_ESTATES_BOTH_NAT") != "0"
 LINE_B = "62" * 16
 LINE_A = "61" * 16
 
@@ -73,13 +73,14 @@ GATEWAYS = {
 }
 
 
-def joiner(name, root_at):
-	"""A device's plan up to its estate's setting: prekey, card, join, pull."""
+def joiner(name, root_at, serving=()):
+	"""A device's plan up to its estate's setting: prekey, card, join, pull.
+	SERVING, a socket of its own (--udp-port), for a host that holds sessions."""
 	return [
 		{"cli": ["--prekey"], "put": "prekey.%s" % name},
 		{"wait": "card.%s" % name, "var": "card"},
 		{"cli": ["--accept={card}", "--join"]},
-		{"daemon": ["--root-at"] + root_at.split(":"), "env": TUNE},
+		{"daemon": ["--root-at"] + root_at.split(":") + list(serving), "env": TUNE},
 	]
 
 
@@ -148,7 +149,11 @@ def plans():
 		{"until": "get setting estate e2e/a", "endswith": " 1", "within": 180,
 		 "label": "A's home machine takes A's setting", "soft": True},
 	]
-	a_phone = joiner("a_phone", "203.0.113.10:7000") + [
+	# A PHONE THAT CALLS AS ITS OWN HOST serves a socket, sec 1038: a session's
+	# words are said and heard there alone, so without one it holds none and its
+	# call never rings. Without BOTH_NAT it has none, a phone that only pulls.
+	a_phone = joiner("a_phone", "203.0.113.10:7000",
+	                 ["--udp-port=7000"] if BOTH_NAT else []) + [
 		{"until": "get setting estate e2e/a", "endswith": " 1", "within": 180,
 		 "label": "A's phone takes A's setting", "soft": True},
 		{"wait": "root.b", "var": "broot"},

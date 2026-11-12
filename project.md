@@ -84861,13 +84861,13 @@ bandwidth of a detour home. Path choice is per leg: a call is many senders to ma
 (secs 1022, 1024), and each leg is measured on its own (sec 1027). Congestion and priority
 algorithms for streams are to be studied with statistics later.
 
-## 1032. A call between two hosts both behind NATs does not ring yet, 2026-11-11
+## 1032. A call between two hosts both behind NATs did not ring, 2026-11-11
 
 Measured on hull after sec 1031, in the same run: A's root to B's root passed again (rang at 11.4 s,
 up at 29.4 s, a frame each way), and **A's phone, behind a NAT of its own, calling B's root, behind
 gateway B, never rang** -- the phone's call stayed ringing out and expired, B's root never held it.
-`tool/hull_estates.py` keeps that journey behind `HULL_ESTATES_BOTH_NAT=1`, off by default, so a
-known failure does not turn every run red.
+`tool/hull_estates.py` kept that journey behind `HULL_ESTATES_BOTH_NAT=1` while it failed. **It
+rings since sec 1038**, which built the first of the two steps below, and runs by default.
 
 **Why, from the code, not yet confirmed on hull:** neither host has a hello path to the other.
 B knows the phone with no address, so B's hellos to it go nowhere; the phone knows B only at
@@ -85229,3 +85229,37 @@ once; two more held, the last written standing; a window on, the newest written.
 
 **Not yet:** records and metrics behind the same gate, and a window declared per value in the
 schema (sec 1034's keeping, carrying and rates).
+
+## 1038. A call between two hosts both behind NATs rings, 2026-11-12
+
+Sec 1032's next step, built and measured on hull: **A's phone, behind a NAT of its own, rings B's
+root behind gateway B; B's root answers, and a frame goes each way.** `tool/hull_estates.py` runs
+that journey by default now; `HULL_ESTATES_BOTH_NAT=0` leaves it out.
+
+- **The introduction is asked from the serving socket.** `introduce_contacts` asks A's root through
+  the caller's out hook (sec 1036) with `serving_out`, which sends by `send_serving` -- the path
+  `caller_out` already took for a hello's way: the frame leaves the serving socket, and its answer
+  is routed back to the asking socket by a route of the host's own (sec 1031). So A's root names
+  the serving socket's mapping, B's root says hello there, and the hello that follows the
+  introduction leaves from the serving socket too. The hole joins the two serving sockets, where
+  a session's words are said and heard; before, it joined the phone's contact-target socket.
+- **A host that serves no socket holds no session.** `fzn_node_serve_say` says and the serve loop
+  hears a session's words on the serving socket alone, so a host run without `--udp-port` -- the
+  journey's phone until now -- could not carry a call, granted or not. It asks no session now and
+  says once why: `this host serves no socket (--udp-port)`. Its introductions are still asked,
+  from the target's socket as before sec 1038.
+- **The journey's phone serves a socket when it calls.** Without `BOTH_NAT` it serves none and
+  stays a phone that only pulls, which the rest of the journey exercises.
+
+**What the hull runs showed on the way**, each a wrong first version: an introduction refused
+outright where the host served no socket (its contact's host stayed at its private address); and
+a session ask borrowing the target's socket, granted every second while no word could ride it --
+which is how the serve-socket finding above was measured rather than read.
+
+**Verified:** hull with `BOTH_NAT`: every journey passed, the phone's call up and a frame each
+way; hull with `BOTH_NAT=0`: passed; `make test`, `installcheck`, `style`; `live_call`,
+`live_group_call`, `live_sibling_call`, `live_contacts`, `live_relay`, `live_siblings`,
+`live_deliver`.
+
+**Not yet:** a phone that serves no socket taking a call -- sec 1030's relay fallback, or a socket
+opened for the call alone. Whether a consumer's phone host serves one is that consumer's choice.

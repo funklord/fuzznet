@@ -1981,7 +1981,6 @@ static int reach_ready(void)
 	return reach_table.cap != 0u;
 }
 static fzn_node_state_t *serving_state;
-static fzn_node_state_t *serving_state;
 
 static int same_way(const fzn_udp_addr_t *a, const fzn_udp_addr_t *b)
 {
@@ -1999,6 +1998,40 @@ static int same_way(const fzn_udp_addr_t *a, const fzn_udp_addr_t *b)
 	return strcmp(xa, xb) == 0;
 }
 
+/* `frame` FROM THE SERVING SOCKET to `to`, its answer -- `host`'s, under `msg` --
+ * routed back to `caller`'s socket by a route of this host's own. 1 when sent. */
+static int send_serving(const fzn_caller_t *caller, const uint8_t *host, uint32_t msg,
+                        const fzn_udp_addr_t *to, const uint8_t *frame, size_t len)
+{
+	const struct sockaddr *sa = (const struct sockaddr *)caller->node.storage;
+	fzn_udp_addr_t back;
+	uint16_t port = 0;
+
+	if (!serving_state || !serving_state->relay || serving_state->udp_fd < 0
+	    || fzn_udp_local_port(caller->fd, &port) != FZN_UDP_OK
+	    || fzn_udp_resolve(sa->sa_family == AF_INET6 ? AF_INET6 : AF_INET,
+	                       sa->sa_family == AF_INET6 ? "::1" : "127.0.0.1", port, &back)
+	               != FZN_UDP_OK)
+		return 0;
+	fzn_node_relay_route_own(serving_state->relay, host, msg, &back, wall_clock());
+	return fzn_udp_send(serving_state->udp_fd, to, frame, len) == FZN_UDP_OK;
+}
+
+/* ALWAYS BY THE SERVING SOCKET, sec 1038: a request whose asker must be seen from
+ * there -- an introduction, so the host introduced says hello where this host's
+ * hellos are noted. `ctx` the key of the host answering. */
+static int serving_out(void *ctx, const fzn_caller_t *caller, uint32_t msg, const uint8_t *frame,
+                       size_t len)
+{
+	/* A HOST THAT SERVES NO SOCKET -- a phone run without --udp-port -- asks
+	 * from the target's own, as before sec 1038: refusing to send at all left
+	 * its introductions unasked and its contacts' hosts at their private
+	 * addresses. */
+	if (!serving_state || !serving_state->relay || serving_state->udp_fd < 0)
+		return fzn_udp_send(caller->fd, &caller->node, frame, len) == FZN_UDP_OK;
+	return send_serving(caller, (const uint8_t *)ctx, msg, &caller->node, frame, len);
+}
+
 static int caller_out(void *ctx, const fzn_caller_t *caller, uint32_t msg, const uint8_t *frame,
                       size_t len)
 {
@@ -2009,20 +2042,11 @@ static int caller_out(void *ctx, const fzn_caller_t *caller, uint32_t msg, const
 	for (i = 0; reach_ready() && serving_state && serving_state->relay
 	            && serving_state->udp_fd >= 0 && i < reach_table.cap; i++) {
 		const fzn_reach_pair_t *p = &reach_table.pairs[i];
-		const struct sockaddr *sa = (const struct sockaddr *)caller->node.storage;
-		fzn_udp_addr_t back;
-		uint16_t port = 0;
 
 		if (!p->used || p->local != FZN_REACH_SERVING || p->source != FZN_REACH_HELLO
 		    || (p->until && p->until <= now) || !same_way(&p->remote, &caller->node))
 			continue;
-		if (fzn_udp_local_port(caller->fd, &port) != FZN_UDP_OK
-		    || fzn_udp_resolve(sa->sa_family == AF_INET6 ? AF_INET6 : AF_INET,
-		                       sa->sa_family == AF_INET6 ? "::1" : "127.0.0.1", port, &back)
-		               != FZN_UDP_OK)
-			break;
-		fzn_node_relay_route_own(serving_state->relay, p->host, msg, &back, now);
-		return fzn_udp_send(serving_state->udp_fd, &p->remote, frame, len) == FZN_UDP_OK;
+		return send_serving(caller, p->host, msg, &p->remote, frame, len);
 	}
 	return fzn_udp_send(caller->fd, &caller->node, frame, len) == FZN_UDP_OK;
 }
@@ -12600,6 +12624,14 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 			return;
 		via = pulls[k].caller;
 		via.fd = ct->pt.fd;
+		/* ASKED FROM THE SERVING SOCKET, sec 1038: the introducer names where it
+		 * saw this host ask, and the contact's host says hello there -- to the
+		 * serving socket, where a hello is noted and becomes the reach rule's way,
+		 * so a call's session can be asked by it. Asked from a target's socket, the
+		 * hole joined that socket alone, and a call between two hosts behind NATs
+		 * never rang (sec 1032). */
+		via.out = serving_out;
+		via.out_ctx = pulls[k].pairing.node;
 		request[0] = FZND_INTRO_VERSION;
 		request[1] = FZN_TYPE_INTRODUCE;
 		memcpy(request + 2, ct->pt.pairing.node, FZN_PUBKEY_LEN);
@@ -12627,7 +12659,11 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 		ct->pt.port = (long)port;
 		if (fzn_udp_resolve(contact_family, host, (uint16_t)port, &ct->pt.caller.node)
 		    == FZN_UDP_OK)
-			(void)fzn_caller_hello(&ct->pt.caller, ct->pt.fd, now + 60u);
+			(void)fzn_caller_hello(&ct->pt.caller,
+			                       serving_state && serving_state->udp_fd >= 0
+			                               ? serving_state->udp_fd
+			                               : ct->pt.fd,
+			                       now + 60u);
 		say(FZN_ENTRY_INFO, "contact/devices", "a contact's host introduced at %s %u", host, port);
 	}
 }
@@ -16914,6 +16950,19 @@ static void session_granted(void *ctx, const uint8_t *reply, size_t len)
 	session_ask_close(a);
 }
 
+/* SAID ONCE, not every pass a word waits: this host serves no socket. */
+static void say_once_session_unserved(const uint8_t host[FZN_PUBKEY_LEN])
+{
+	static int said;
+
+	if (said)
+		return;
+	said = 1;
+	say(FZN_ENTRY_WARNING, "node/session",
+	    "no session asked of %02x%02x%02x%02x: this host serves no socket (--udp-port)",
+	    host[0], host[1], host[2], host[3]);
+}
+
 /* ASKED OF `host`, unless an ask of it waits: 1 when one is on its way. */
 static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 {
@@ -16940,6 +16989,13 @@ static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 		return 0;
 	}
 	a->fd = -1;
+	/* A HOST THAT SERVES NO SOCKET holds no session, sec 1038: a session's words
+	 * are said and heard on the serving socket alone (fzn_node_serve_say), so one
+	 * granted here could carry nothing, and was asked again every pass. */
+	if (!serving_state || serving_state->udp_fd < 0) {
+		say_once_session_unserved(host);
+		return 0;
+	}
 	{
 		const struct sockaddr *sa = (const struct sockaddr *)pt->caller.node.storage;
 
