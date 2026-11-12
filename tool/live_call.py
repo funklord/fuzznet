@@ -276,8 +276,8 @@ def main(argv):
 			if len(rung) != 2 or rung[0] != "ok":
 				raise failed("i: A's add call answered %r" % rung)
 			began = time.monotonic()
-			until("i: A still rang B, gone, after 20 s",
-			      lambda: rung[1] not in calls(socks["a"]), 20.0)
+			until("i: A still rang B, gone, after 50 s",
+			      lambda: rung[1] not in calls(socks["a"]), 50.0)
 			print("livecheck: i: A rang B, gone, and dropped it as unreachable after %.1f s"
 			      % (time.monotonic() - began))
 

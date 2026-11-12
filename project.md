@@ -85765,7 +85765,8 @@ caller heard nothing back while it rang, and a hangup or a decline was said once
   about two times in three at 20 per cent loss, and three rounds missed in a row would drop a good
   call one time in twenty. A caller that has heard **no** RINGING `FZN_LIVE_RING_REACH_MS`, 15 s,
   after ringing drops the call as **unreachable**: the time a session takes to stand, through a
-  relay too. The event's word in the log is `gone` or `unreachable`.
+  relay too. The event's word in the log is `gone` or `unreachable`. *15 s was a guess, and too
+  short for a callee behind a NAT: 45 s since sec 1080.*
 - **A hangup or a decline is said three times**, a second apart; the far end, having ended the
   call, takes a repeat as nothing (sec 1039).
 - Held to this: a call this host rang or was rung on itself. A call carried through a sibling (sec
@@ -86184,3 +86185,29 @@ the design, not a fault. The writer was never told, and `live_estate` runs only 
 
 **Now** the writer takes `ok held` as a write taken. What phase c measures -- D refused its own
 writes once it has learned its revocation -- is unchanged.
+
+## 1080. An unreached callee is given 45 s, not 15: sec 1062 broke a call across NATs, 2026-11-12
+
+**Found by `hull_estates`**, the two-estate NAT journey, in the gates of sec 1077: A's root
+rings B, and B's root -- known to A only at its LAN address behind B's gateway -- never held the
+ring; the call A's phone placed later rang. **Bisected over hull runs**: 12a16d2 passes the call
+steps, 15dd458 (sec 1062) and every commit after fail them.
+
+**Why:** sec 1062 drops a call whose caller has heard no RINGING `FZN_LIVE_RING_REACH_MS` after
+ringing, as unreachable, and set it at 15 s as "the time a session takes to stand, through a
+relay too" -- without measuring it. A callee behind a NAT is reached through an introduction
+(sec 623, 1032): hull measured B's root holding the ring 14.6 s after A rang on 12a16d2, and 16.2
+s with the window opened to 45 s. 15 s ended such calls before they could reach.
+
+**Now 45 s, a default ring's length.** At 30 s hull passed with B's root holding the ring 20.6 s
+after it was placed -- three measurements, 14.6, 16.2 and 20.6 s, rising with the machine's load --
+so 30 s was a margin of a half, and a second guess. A callee not reached within an ordinary ring is
+unreachable; a callee heard from is still dropped 5 s after it goes quiet (sec 1062's silence,
+unchanged), which is the case the holder's "dropped fast when either goes" is about. `live_call`
+phase i waits 50 s for the unreachable drop. Measured: `hull_estates` with the window at 45 s,
+every step passing, twice -- the second with A's ring placed 5.6 s into the run, before the
+introductions had begun, and held at B's root 27.4 s later: at 30 s that run would have failed.
+The time is the introduction's, not the ring's, and grows with how early a call is placed.
+
+**The lesson is sec 1062's, recorded there too:** a time-out that stands for "how long X takes"
+is a measurement, and was written as a guess; hull was not run at the time.

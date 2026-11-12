@@ -82,7 +82,10 @@
  * heard no RINGING at all FZN_LIVE_RING_REACH_MS after ringing drops it as
  * unreachable, the time a session takes to stand, through a relay too. */
 #define FZN_LIVE_RING_SILENT_MS 5000u
-#define FZN_LIVE_RING_REACH_MS 15000u
+/* 45 s, sec 1080, a default ring's length: hull measured a callee behind a NAT
+ * reached 14.6 to 27.4 s after the first ring, through an introduction,
+ * and 15 s dropped every such call. */
+#define FZN_LIVE_RING_REACH_MS 45000u
 
 typedef enum fzn_live_kind {
 	FZN_LIVE_RING = 1,
