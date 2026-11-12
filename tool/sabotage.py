@@ -15326,6 +15326,13 @@ SABOTAGES = [
 		"a stream anchored is not found through the journal's index, and is anchored again -- sec 1048",
 	),
 	(
+		"records-ungated",
+		"node/records.c",
+		"\tif (nr->rate && nr->now_ms\n",
+		"\tif (0 && nr->rate && nr->now_ms\n",
+		"a reading fed faster than its window is kept every time -- sec 1049",
+	),
+	(
 		"relay-own-route-unmarked",
 		"node/relay.c",
 		"\t\t\tr->routes[i].own = 1;\n",

@@ -222,7 +222,7 @@ static size_t a_record(uint8_t *out, uint8_t by, uint8_t about, fzn_scope_t scop
 
 static void test_a_record_filed(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, NULL, NULL, NULL, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 	uint8_t item[FZN_SETTING_MAX], subject[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN];
 	uint32_t month = 0, at = fzn_message_epoch_of(clock_ms);
 	size_t len;
@@ -275,7 +275,7 @@ static void test_a_record_filed(void)
 
 static void test_the_verbs(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL, NULL, NULL };
 	char want[256];
 	size_t i, shown = 0, rest = 0;
 	int more = 0, more2 = 1;
@@ -399,10 +399,61 @@ static size_t held_under(const fzn_node_records_t *nr, const char *prefix)
 	return shown;
 }
 
+/* HELD TO A WINDOW, sec 1049: with a rate gate, a key's few observations are
+ * written at once, two more in the same instant are held -- `ok held`, said
+ * once, the newest standing -- and a window on the newest is written. */
+static unsigned record_helds;
+
+static void on_record_held(const uint8_t *key, size_t key_len)
+{
+	(void)key;
+	(void)key_len;
+	record_helds++;
+}
+
+static void test_a_record_held_to_its_window(void)
+{
+	static fzn_rate_slot_t slots[8];
+	static fzn_rate_t gate;
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL, &gate, on_record_held };
+	char line[64];
+	int i, now = 0;
+
+	memset(me.pubkey, 0x44, sizeof(me.pubkey));
+	me.sign = &SIGN;
+	signing_as = 0x44;
+	fzn_rate_init(&gate, slots, 8u);
+	clock_ms += 3600000u;
+	for (i = 0; i < 4; i++) {
+		(void)snprintf(line, sizeof(line), "add record gate/temp %d", 20 + i);
+		/* A MILLISECOND APART: a record is one version per key and time. */
+		clock_ms += 1u;
+		now += said(&nr, FZN_ORIGIN_SAME_USER, line) && strcmp(reply, "ok\n") == 0;
+	}
+	CHECK(now == 4 && held_under(&nr, "gate/temp") == 4u,
+	      "a gated key's few quick observations were not each written");
+	clock_ms += 1u;
+	CHECK(said(&nr, FZN_ORIGIN_SAME_USER, "add record gate/temp 30") && replied("ok held")
+	              && (clock_ms += 1u)
+	              && said(&nr, FZN_ORIGIN_SAME_USER, "add record gate/temp 31")
+	              && replied("ok held") && held_under(&nr, "gate/temp") == 4u && record_helds == 1u,
+	      "observations past a key's passes were written, or their holding said other than once");
+	CHECK(fzn_node_records_due(&nr, clock_ms) == 0u && held_under(&nr, "gate/temp") == 4u,
+	      "a held observation was written inside its window");
+	clock_ms += FZN_NODE_RECORDS_EVERY_MS;
+	(void)fzn_node_records_due(&nr, clock_ms);
+	CHECK(held_under(&nr, "gate/temp") == 5u && strstr(reply, ",30 ") == NULL
+	              && strstr(reply, ",31"),
+	      "a window on, the newest held observation was not written, alone");
+	CHECK(fzn_node_records_due(&nr, clock_ms + FZN_NODE_RECORDS_EVERY_MS) == 0u
+	              && held_under(&nr, "gate/temp") == 5u,
+	      "a held observation was written twice");
+}
+
 /* TRIMMED BY THE RULES, sec 815. */
 static void test_the_trim(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL, NULL, NULL };
 	fzn_retain_rule_t rules[4];
 	size_t gone = 0, i;
 	uint8_t item[FZN_SETTING_MAX], other[FZN_PUBKEY_LEN];
@@ -480,7 +531,7 @@ static void test_the_trim(void)
  * record held; FROM counts what the prefix selects. */
 static void test_a_listing_under_a_prefix(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL, NULL, NULL };
 
 	memset(&node, 0, sizeof(node));
 	memset(&me, 0, sizeof(me));
@@ -537,7 +588,7 @@ static size_t a_clear(uint8_t *out, uint8_t by, uint64_t at, const char *key)
  * read here follows a change that alters what it answers. */
 static void lists_with(fzn_node_records_cache_t *cache)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, cache };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, cache, NULL, NULL };
 	fzn_retain_rule_t rules[2];
 	uint8_t item[FZN_SETTING_MAX], other[FZN_PUBKEY_LEN];
 	size_t len, gone = 0;
@@ -633,7 +684,7 @@ static void lists_with(fzn_node_records_cache_t *cache)
  * a station's records are no longer kept. */
 static void test_a_keep_by_list(void)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL, NULL, NULL };
 	fzn_retain_rule_t rules[2];
 	size_t gone = 0, i;
 
@@ -754,7 +805,7 @@ static int filed_from(const fzn_node_records_t *nr, uint8_t by, uint64_t at, con
 
 static void objects_with(fzn_node_records_cache_t *cache)
 {
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, cache };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, cache, NULL, NULL };
 	fzn_node_objects_t o = { &nr, on_changed, NULL, NULL };
 	char name[FZN_NODE_OBJECT_NAME_MAX + 1u], hex[2u * FZN_PUBKEY_LEN + 1u], want[256];
 	uint8_t caller[FZN_PUBKEY_LEN], answered[32];
@@ -1017,8 +1068,8 @@ static int same_listed(const struct listed *a, const struct listed *b)
 static void test_the_cache_resolves_as_the_records(void)
 {
 	static fzn_node_records_cache_t cache;
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, &cache };
-	fzn_node_records_t plain = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, &cache, NULL, NULL };
+	fzn_node_records_t plain = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL, NULL, NULL };
 	static const char *const LISTS[] = { "a", "b" };
 	static struct listed cached, read;
 	fzn_retain_rule_t drop = rule("policy records drop");
@@ -1098,8 +1149,8 @@ static void test_the_cache_resolves_as_the_records(void)
 static void test_pages_resumed_are_pages_read(void)
 {
 	static fzn_node_records_cache_t cache;
-	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, &cache };
-	fzn_node_records_t plain = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL };
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, &cache, NULL, NULL };
+	fzn_node_records_t plain = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL, NULL, NULL };
 	static char resumed[2048], read[2048];
 	size_t from = 0, pages = 0, differ = 0, i;
 	char line[96];
@@ -1199,6 +1250,7 @@ int main(void)
 {
 	test_a_record_filed();
 	test_the_verbs();
+	test_a_record_held_to_its_window();
 	test_the_trim();
 	test_the_rules();
 	test_the_lists();

@@ -67,6 +67,7 @@
 #include "buckets.h"
 #include "apply.h"
 #include "provision.h"
+#include "rate.h"
 #include "../local/vocabulary.h"
 #include "../chain/authz.h"
 #include "../state/setting.h"
@@ -85,7 +86,20 @@ typedef struct fzn_node_records {
 	/* THE LISTS RESOLVED, kept between reads. May be NULL, and every list
 	 * is read from the records each time. */
 	struct fzn_node_records_cache *cache;
+	/* HELD TO A WINDOW, sec 1049, where set: `add record` past a key's passes
+	 * is held, the newest observation standing for the rest, and written by
+	 * `fzn_node_records_due`; `held` told the first time a key is held after
+	 * passing freely. NULL for none. The node's own objects are gated where
+	 * they are set (sec 1037), not here. */
+	fzn_rate_t *rate;
+	void (*held)(const uint8_t *key, size_t key_len);
 } fzn_node_records_t;
+
+/* A KEY'S WINDOW, the gate's floor, sec 1049. */
+#define FZN_NODE_RECORDS_EVERY_MS 1000u
+
+/* THE HELD OBSERVATIONS WHOSE WINDOW HAS PASSED at `now_ms`, written: how many. */
+size_t fzn_node_records_due(const fzn_node_records_t *nr, uint64_t now_ms);
 
 /* A RECORD'S PLACE: its setter, the month of its version, and the setting
  * it opens as, when `item` (`len` bytes) is a record -- a host-scoped

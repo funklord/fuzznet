@@ -3467,6 +3467,13 @@ static void setting_held(const uint8_t *key, size_t key_len)
 	    (int)key_len, (const char *)key);
 }
 
+static void record_held(const uint8_t *key, size_t key_len)
+{
+	say(FZN_ENTRY_NOTE, "node/records",
+	    "%.*s is observed faster than once a window; its newest is kept each window",
+	    (int)key_len, (const char *)key);
+}
+
 static void object_held(const uint8_t *name, size_t name_len)
 {
 	say(FZN_ENTRY_NOTE, "node/objects",
@@ -22970,6 +22977,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					node_objects.held = object_held;
 					node_settings.rate = slots ? &value_rate : NULL;
 					node_settings.held = setting_held;
+					node_records.rate = slots ? &value_rate : NULL;
+					node_records.held = record_held;
 					node_settings.now_ms = wall_ms;
 				}
 				node_settings.decided = setting_decided;
@@ -23916,6 +23925,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				(void)fzn_node_objects_due(&node_objects, node_records.now_ms());
 			if (node_settings.rate && node_settings.now_ms)
 				(void)fzn_node_settings_due(&node_settings, node_settings.now_ms());
+			if (node_records.rate && node_records.now_ms)
+				(void)fzn_node_records_due(&node_records, node_records.now_ms());
 			LOOP_TIMED("group_tend_slice", group_tend_slice());
 			loop_before_answering();
 			(void)fzn_node_run_once(&state, (round_step && !round_pending) || logs_verifying()

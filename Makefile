@@ -4723,7 +4723,7 @@ $(BUILD_DIR)/node/test/invite_test: $(BUILD_DIR)/node/test/invite_test.o $(BUILD
 # What was decided while hosts were apart, sec 895.
 $(BUILD_DIR)/node/test/decisions_test: $(BUILD_DIR)/node/test/decisions_test.o \
                                      $(BUILD_DIR)/node/decisions.o \
-                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/buckets.o \
+                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \
@@ -4736,7 +4736,7 @@ $(BUILD_DIR)/node/test/decisions_test: $(BUILD_DIR)/node/test/decisions_test.o \
 # A value changed by the estate's k, sec 909.
 $(BUILD_DIR)/node/test/votes_test: $(BUILD_DIR)/node/test/votes_test.o \
                                      $(BUILD_DIR)/node/votes.o \
-                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/buckets.o \
+                                     $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \

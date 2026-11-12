@@ -85481,3 +85481,27 @@ found by the scan, as before. An issuer chosen to collide only lengthens the pro
 every stream anchored found through the index at its own place, one never anchored not found, the
 index dropped past half and the scan finding again, a room not a power of two or under twice the
 capacity refused. Sabotage `journal-index-unfilled` is caught by it.
+
+## 1049. A record held to its window, 2026-11-12
+
+Sec 1037's other "not yet": records (sec 814) behind the rate gate. A record is what a host observes
+-- a station seen, a lease, a reading -- and the holder's protection is against storing or carrying a
+value too often even when misconfigured: a sensor on a timer set to milliseconds would otherwise
+write a record each time, and every record is signed, stored and carried to the estate.
+
+`add record` is offered to the gate under `record/KEY` before it is written: a key's four quick
+observations are written at once, as sec 1037's passes are, and past them the newest stands for the
+rest, answered `ok held`, written by `fzn_node_records_due` as the key earns its next pass.
+`fzn_node_records_t` gains `rate` and `held`; `FZN_NODE_RECORDS_EVERY_MS` is the floor, 1 s.
+fuzznetd shares its one gate with objects and settings, says a `node/records` note the first time a
+key is held, and writes what is due each pass. The node's own objects are written through
+`fzn_node_records_write`, below the verb, so they stay gated once, where they are set.
+
+**Verified:** `records_test` -- four observations a millisecond apart each written, two more held
+(`ok held`, said once), nothing written in the same instant, the newest and not the one before it
+written a window on, and nothing written twice; sabotage `records-ungated` is caught. Every live
+script's `add record` stays within a key's passes (`live_trim` adds three).
+
+**Not yet:** sec 1034's metrics behind the gate. Nothing in fuzznetd writes a metric as a record
+today, so this gate does not reach them; whatever path stores or carries them first takes the gate
+with it.

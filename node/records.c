@@ -511,6 +511,25 @@ static int hex_key(const uint8_t *w, size_t w_len, uint8_t out[FZN_PUBKEY_LEN])
 	return 1;
 }
 
+#define RECORD_RATE_PREFIX "record/"
+
+static void record_due(void *ctx, const uint8_t *key, size_t key_len, const uint8_t *value,
+                       size_t value_len, unsigned long held)
+{
+	(void)held;
+	(void)fzn_node_records_write((const fzn_node_records_t *)ctx,
+	                             key + sizeof(RECORD_RATE_PREFIX) - 1u,
+	                             key_len - (sizeof(RECORD_RATE_PREFIX) - 1u), value, value_len);
+}
+
+size_t fzn_node_records_due(const fzn_node_records_t *nr, uint64_t now_ms)
+{
+	if (!nr || !nr->rate || !nr->id)
+		return 0;
+	return fzn_rate_due(nr->rate, now_ms, (const uint8_t *)RECORD_RATE_PREFIX,
+	                    sizeof(RECORD_RATE_PREFIX) - 1u, record_due, (void *)nr);
+}
+
 static size_t add_record(const fzn_node_records_t *nr, const uint8_t *at, size_t left,
                          char *reply, size_t cap)
 {
@@ -530,6 +549,23 @@ static size_t add_record(const fzn_node_records_t *nr, const uint8_t *at, size_t
 		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
 	if (!nr->id)
 		return say(reply, cap, FZN_REPLY_UNSUPPORTED, "this node writes no records");
+	/* HELD TO ITS WINDOW, sec 1049: a reading fed faster than its window -- a
+	 * sensor on a misconfigured timer -- is kept no oftener, its newest standing. */
+	if (nr->rate && nr->now_ms
+	    && sizeof(RECORD_RATE_PREFIX) - 1u + key_len <= FZN_RATE_KEY_MAX) {
+		uint8_t rkey[FZN_RATE_KEY_MAX];
+		int first = 0;
+
+		memcpy(rkey, RECORD_RATE_PREFIX, sizeof(RECORD_RATE_PREFIX) - 1u);
+		memcpy(rkey + sizeof(RECORD_RATE_PREFIX) - 1u, key, key_len);
+		if (fzn_rate_offer(nr->rate, rkey, sizeof(RECORD_RATE_PREFIX) - 1u + key_len, value,
+		                   value_len, FZN_NODE_RECORDS_EVERY_MS, nr->now_ms(), &first)
+		    == FZN_RATE_HELD) {
+			if (first && nr->held)
+				nr->held(key, key_len);
+			return say(reply, cap, FZN_REPLY_OK, "held");
+		}
+	}
 	err = fzn_node_records_write(nr, key, key_len, value, value_len);
 	if (err == FZN_NODE_RECORDS_MALFORMED)
 		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
