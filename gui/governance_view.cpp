@@ -97,12 +97,17 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 	m_set_k = new QPushButton(QStringLiteral("Set k"), this);
 	m_roots_status = status_label(this);
 	col->addWidget(m_roots, 1);
+	/* TWO ROWS, sec 1041: the roots' buttons, then k -- on one, the view was 60
+	 * px wider than a folding phone's 320 px cover screen. */
 	row = new QHBoxLayout();
 	row->addWidget(m_add_root);
 	row->addWidget(m_remove_root);
 	row->addStretch(1);
+	col->addLayout(row);
+	row = new QHBoxLayout();
 	row->addWidget(m_k);
 	row->addWidget(m_set_k);
+	row->addStretch(1);
 	col->addLayout(row);
 	/* SAID BEFORE THE CLICK. */
 	col->addWidget(note_label(this, QStringLiteral("k votes revoke a device. Changing roots or k "
@@ -163,9 +168,11 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 	m_presets = new QComboBox(this);
 	m_choose_preset = new QPushButton(QStringLiteral("Use profile"), this);
 	m_preset_status = status_label(this);
+	/* THE CHOOSER ABOVE ITS BUTTON, sec 1041, for the same screen. */
+	col->addWidget(m_presets);
 	row = new QHBoxLayout();
-	row->addWidget(m_presets, 1);
 	row->addWidget(m_choose_preset);
+	row->addStretch(1);
 	col->addLayout(row);
 	col->addWidget(m_preset_status);
 

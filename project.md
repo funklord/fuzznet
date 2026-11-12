@@ -85263,3 +85263,15 @@ way; hull with `BOTH_NAT=0`: passed; `make test`, `installcheck`, `style`; `live
 
 **Not yet:** a phone that serves no socket taking a call -- sec 1030's relay fallback, or a socket
 opened for the call alone. Whether a consumer's phone host serves one is that consumer's choice.
+
+## 1041. The governance view fits a 320 px cover screen, 2026-11-12
+
+Reported by fuzzypickles 2026-11-12 (inbox 20261112T0017Z): hosting `fzn_governance_view` (sec
+1023) as their Estate page, their check that no page scrolls sideways at a folding phone's
+cover-screen width -- 320 logical px, touch-sized controls -- found it 60 px too wide; they hold
+the page back until it fits.
+
+The Roots tab's row of four -- Add root, Remove root, k, Set k -- is two rows now, and the
+Profile tab's chooser sits above its button. Measured offscreen at the default font: the view's
+`minimumSizeHint` was 370 px wide, and is 210. `governance_view_test` holds it to 320, as
+`notebook_view_test` holds the notebook to 360 (sec 989); against the old layout that check fails.

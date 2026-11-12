@@ -153,6 +153,11 @@ int main(int argc, char **argv)
 
 	fzn_governance_view view(node_ask, nullptr);
 
+	/* ---- A FOLDING PHONE'S COVER SCREEN, sec 1041: 320 px. The roots' row of
+	 * four made the view 370 here, and 380 in fuzzypickles' Estate page; 210 since. */
+	CHECK(view.minimumSizeHint().width() <= 320,
+	      "the view is wider than a 320 px cover screen");
+
 	/* ---- EVERY PART READ. */
 	CHECK(view.k() == 2, "k was not read from list root");
 	CHECK(view.rows(view.roots_list()).size() == 1
