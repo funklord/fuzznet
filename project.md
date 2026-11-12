@@ -86106,3 +86106,28 @@ carried and cut at 200, and refused: a status cut short, a byte after the reason
 or type, a code the schema does not name, a length past the bytes, a text refusal.
 `wire/test/status_vectors` holds the three golden vectors. Sabotage `status-reads-a-byte-after`
 is caught by status_test; `relay-ok-not-a-status` by the relay's live scripts.
+
+## 1077. An introduction answered in binary: INTRODUCED, or a STATUS, 2026-11-12
+
+**Sec 1061 step 3, second part.** INTRODUCE (sec 623, and sec 698 among a contact's hosts) was a
+binary request answered by the text line `ok HOST PORT`, which the asker read with `sscanf`, and
+`denied WHY`; NOTIFY was answered `ok` or `denied WHY`, though nobody waits on it.
+
+**Now:** a data answer is a message of its own, and a refusal a STATUS (sec 1076).
+- **INTRODUCED, version 2 type 66** (`FZN_TYPE_INTRODUCED`, registered in `node/types.h`):
+  `2 | 66 | ADDRESS_LEN | ADDRESS | PORT`, an address of 1 to 45 bytes and a port of at least 1,
+  described by `node/introduced.situ` with its reader, builder and vector test generated as
+  STATUS's are. The address is carried as the letters `net/address` and a contact device carry
+  -- data, not a control word -- and the reader checks they are letters, digits and `.-:`,
+  which the schema cannot say.
+- **A refusal** is STATUS denied with the reason it gave in words; a request of the wrong shape
+  is STATUS malformed, where it was `denied malformed introduce`.
+- **NOTIFY** is answered STATUS.
+
+The two askers -- a sibling introduced (`introduce_siblings`) and a contact's host introduced
+(`introduce_contacts`) -- read INTRODUCED, and log a refusal through the same `status_said` as the
+relay's.
+
+**Measured:** `wire/test/introduced_vectors`, two golden vectors (an IPv4 and an IPv6 address);
+`live_introduce`, `live_lan`, hull's `hull_estates`; sabotage `introduced-never-read` -- a
+sibling's introduction never taken -- caught by `live_introduce`.

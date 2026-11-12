@@ -54,6 +54,8 @@
 #include "metric.h"
 #include "guard.h"
 #include "status.h"
+#include "../wire/generated/introduced.h"
+#include "../wire/generated/introduced_build.h"
 #include "talk.h"
 #include "routing.h"
 #include "contact_card.h"
@@ -2064,6 +2066,38 @@ static const char *status_said(const uint8_t *reply, size_t len, char *out, size
 		(void)snprintf(out, cap, "%s%s%.*s", fzn_status_name(code), why_len ? " " : "",
 		               (int)why_len, (const char *)why);
 	return out;
+}
+
+/* AN INTRODUCTION'S ANSWER, sec 1077: INTRODUCED read into `host` and `*port`,
+ * 1; 0 for anything else -- a STATUS refusing, or bytes of no shape. An address
+ * is letters, digits and `.-:`, which the schema cannot say. */
+static int introduced_read(const uint8_t *reply, size_t len, char host[FZN_UDP_HOST_MAX],
+                           uint16_t *port)
+{
+	situ_msg_t msg;
+	situ_view_t v;
+	const uint8_t *a;
+	size_t i, n;
+
+	if (!reply || len < 2u || len > UINT32_MAX || reply[0] != 2u || reply[1] != FZN_TYPE_INTRODUCED)
+		return 0;
+	situ_msg_init(&msg, (uint8_t *)(uintptr_t)reply, (uint32_t)len);
+	if (fzn_introduced_message_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_introduced_message_validate(v) != SITU_OK
+	    || 5u + fzn_introduced_message_address_len(v) != len)
+		return 0;
+	a = fzn_introduced_message_address_ptr(v);
+	n = fzn_introduced_message_address_len(v);
+	if (n >= FZN_UDP_HOST_MAX)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (!((a[i] >= 'a' && a[i] <= 'z') || (a[i] >= 'A' && a[i] <= 'Z')
+		      || (a[i] >= '0' && a[i] <= '9') || a[i] == '.' || a[i] == '-' || a[i] == ':'))
+			return 0;
+	memcpy(host, a, n);
+	host[n] = '\0';
+	*port = fzn_introduced_message_port_get(v);
+	return 1;
 }
 
 /* A STATUS SAYING `code`, sec 1076. */
@@ -7338,7 +7372,7 @@ static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, si
 		struct introduced *in = intro_of(pt->node, 0);
 		uint8_t request[2u + FZN_PUBKEY_LEN], reply[160];
 		char host[FZN_UDP_HOST_MAX];
-		unsigned port = 0;
+		uint16_t port = 0;
 		size_t len = 0;
 
 		if (!in || !in->due)
@@ -7397,11 +7431,11 @@ static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, si
 			}
 			pulls[k].caller.next_msg = via.next_msg;
 		}
-		reply[len] = '\0';
-		if (sscanf((const char *)reply, "ok %45s %u", host, &port) != 2 || !port
-		    || port > 65535u) {
-			say(FZN_ENTRY_DEBUG, "node/siblings", "an introduction refused: %.120s",
-			    (const char *)reply);
+		if (!introduced_read(reply, len, host, &port)) {
+			char said[FZN_STATUS_LEN_MAX + 16u];
+
+			say(FZN_ENTRY_DEBUG, "node/siblings", "an introduction refused: %s",
+			    status_said(reply, len, said, sizeof(said)));
 			continue;
 		}
 		in->due = 0;
@@ -12794,7 +12828,7 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 		struct introduced *in = intro_of(ct->pt.pairing.node, 0);
 		uint8_t request[2u + FZN_PUBKEY_LEN], reply[160];
 		char host[FZN_UDP_HOST_MAX];
-		unsigned port = 0;
+		uint16_t port = 0;
 		size_t len = 0;
 		fzn_caller_t via;
 		uint32_t msg = 0;
@@ -12829,11 +12863,11 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 			return;
 		}
 		pulls[k].caller.next_msg = via.next_msg;
-		reply[len] = '\0';
-		if (sscanf((const char *)reply, "ok %45s %u", host, &port) != 2 || !port
-		    || port > 65535u) {
-			say(FZN_ENTRY_DEBUG, "contact/devices", "an introduction to %s refused: %.120s",
-			    ct->host, (const char *)reply);
+		if (!introduced_read(reply, len, host, &port)) {
+			char said[FZN_STATUS_LEN_MAX + 16u];
+
+			say(FZN_ENTRY_DEBUG, "contact/devices", "an introduction to %s refused: %s",
+			    ct->host, status_said(reply, len, said, sizeof(said)));
 			continue;
 		}
 		(void)snprintf(in->host, sizeof(in->host), "%s", host);
@@ -19231,7 +19265,11 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 #define INTRO_NO(text)                                                                     \
 	(say(FZN_ENTRY_WARNING, "node/peer", "an introduction for %02x%02x%02x%02x refused: %s", \
 	     sender[0], sender[1], sender[2], sender[3], text),                                 \
-	 (size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
+	 fzn_status_write(reply, reply_cap, FZN_STATUS_DENIED, text))
+#define INTRO_MALFORMED(text)                                                              \
+	(say(FZN_ENTRY_WARNING, "node/peer", "an introduction for %02x%02x%02x%02x refused: %s", \
+	     sender[0], sender[1], sender[2], sender[3], text),                                 \
+	 fzn_status_write(reply, reply_cap, FZN_STATUS_MALFORMED, text))
 	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store)
 		return INTRO_NO("this host serves no introductions");
 	if (request[1] == FZN_TYPE_INTRODUCE) {
@@ -19244,7 +19282,7 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 		size_t n;
 
 		if (request_len != 2u + FZN_PUBKEY_LEN)
-			return INTRO_NO("malformed introduce");
+			return INTRO_MALFORMED("an introduce");
 		/* ONE USER'S OWN HOSTS: an introduction tells where a host is, and
 		 * that is the estate's to know. */
 		/* sec 762: judged in `node/relay.c`. */
@@ -19290,7 +19328,18 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 			fzn_wipe(&pairing, sizeof(pairing));
 			fzn_wipe(&c, sizeof(c));
 		}
-		return (size_t)snprintf((char *)reply, reply_cap, "ok %s %u\n", host, (unsigned)port);
+		{
+			uint32_t wrote = 0;
+
+			return reply_cap <= UINT32_MAX
+			                       && fzn_introduced_message_build(
+			                                  reply, (uint32_t)reply_cap, 2u, FZN_TYPE_INTRODUCED,
+			                                  (const uint8_t *)host, (uint32_t)strlen(host), port,
+			                                  &wrote)
+			                                  == SITU_OK
+			               ? (size_t)wrote
+			               : 0u;
+		}
 	}
 	/* NOTIFY: from a member, about a member or a standing contact. */
 	{
@@ -19300,10 +19349,10 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 		size_t n;
 
 		if (request_len < 3u + FZN_PUBKEY_LEN)
-			return INTRO_NO("malformed notify");
+			return INTRO_MALFORMED("a notify");
 		n = request[2u + FZN_PUBKEY_LEN];
 		if (n == 0u || n >= FZN_UDP_HOST_MAX || request_len != 5u + FZN_PUBKEY_LEN + n)
-			return INTRO_NO("malformed notify");
+			return INTRO_MALFORMED("a notify");
 		/* FROM THIS ESTATE, or, sec 698, from a standing contact's host about
 		 * another of that same contact's: a contact's server introducing its
 		 * user's phone, so the two may reach each other direct. */
@@ -19336,8 +19385,9 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 			            : ", which would not send");
 		fzn_wipe(&pairing, sizeof(pairing));
 		fzn_wipe(&c, sizeof(c));
-		return (size_t)snprintf((char *)reply, reply_cap, "ok\n");
+		return fzn_status_write(reply, reply_cap, FZN_STATUS_OK, NULL);
 	}
+#undef INTRO_MALFORMED
 #undef INTRO_NO
 }
 

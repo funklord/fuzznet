@@ -233,11 +233,13 @@ LEAN_SERVICES := FZN_STICKERS=0 FZN_CATALOG=0 FZN_NOTES=0 FZN_GROUPS=0
 # under our full set today; that is luck to enjoy, not a rule to enforce on
 # somebody else's emitter.
 GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
-             wire/generated/call.c wire/generated/status.c wire/generated/situ.c
+             wire/generated/call.c wire/generated/status.c \
+             wire/generated/introduced.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
-GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c
+GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
+                 wire/generated/introduced_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -664,6 +666,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/live_test \
              $(BUILD_DIR)/wire/test/call_vectors \
              $(BUILD_DIR)/wire/test/status_vectors \
+             $(BUILD_DIR)/wire/test/introduced_vectors \
              $(BUILD_DIR)/node/test/reach_test \
              $(BUILD_DIR)/node/test/rate_test \
              $(BUILD_DIR)/node/test/metric_test \
@@ -4083,6 +4086,13 @@ $(BUILD_DIR)/wire/test/status_vectors: wire/generated/status_vectors.c wire/gene
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -lcmocka -o $@
 
+# AN INTRODUCTION'S ANSWER HELD TO ITS GOLDEN VECTORS, sec 1077.
+$(BUILD_DIR)/wire/test/introduced_vectors: wire/generated/introduced_vectors.c \
+                                           wire/generated/introduced.c wire/generated/situ.c \
+                                           $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -lcmocka -o $@
+
 $(BUILD_DIR)/node/test/guard_test: $(BUILD_DIR)/node/test/guard_test.o $(BUILD_DIR)/node/guard.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -6924,7 +6934,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
-              roster/roster.situ chain/root_act.situ chain/succession.situ node/call.situ node/status.situ \
+              roster/roster.situ chain/root_act.situ chain/succession.situ node/call.situ node/status.situ node/introduced.situ \
               record/exchange.situ \
               wire/session_frame.situ node/verify_memo.situ notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting.situ \
@@ -7601,8 +7611,15 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/status.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_status \
 	         --out $(BUILD_DIR)/.gen.new node/status.situ node/status.vectors >/dev/null 2>&1
+	@# AND AN INTRODUCTION'S ANSWER, sec 1077.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_introduced --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/introduced.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_introduced \
+	         --out $(BUILD_DIR)/.gen.new node/introduced.situ node/introduced.vectors >/dev/null 2>&1
 	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h call.c call.h \
-	          call_vectors.c status.c status.h status_edit.h status_build.h status_vectors.c; do \
+	          call_vectors.c status.c status.h status_edit.h status_build.h status_vectors.c \
+	          introduced.c introduced.h introduced_edit.h introduced_build.h \
+	          introduced_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \

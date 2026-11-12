@@ -359,6 +359,7 @@ __pycache__/
 /node/test/status_test
 /wire/test/call_vectors
 /wire/test/status_vectors
+/wire/test/introduced_vectors
 /wire/test/session_frame_test
 /wire/test/session_frame_fuzz
 /node/test/pressure_test

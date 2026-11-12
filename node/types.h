@@ -51,6 +51,8 @@
  *                   1064, which took 55 and 56 again beside its own act log
  *   65              fuzznetd's STATUS, here, since sec 1076: an answer of ok or
  *                   why not, from node/status.situ
+ *   66              fuzznetd's INTRODUCED, here, since sec 1077, from
+ *                   node/introduced.situ
  *   36              never allocated
  *
  * fuzznetd's own were `#define`s inside `node/daemon.c`; they live here,
@@ -89,6 +91,8 @@
 #define FZN_TYPE_RELAY_SESSION 62u
 /* A STATUS, sec 1076: a host's answer carrying no data, ok or why not. */
 #define FZN_TYPE_STATUS 65u
+/* WHERE AN INTRODUCED HOST SAID HELLO FROM, sec 1077: INTRODUCE's answer. */
+#define FZN_TYPE_INTRODUCED 66u
 #define FZN_RELAY_SESSION_LEN (2u + 32u + 4u + 4u)
 /* A CALL'S WORD, sec 1019 (`node/live.h`): said in a session, never answered. */
 #define FZN_TYPE_LIVE 61u

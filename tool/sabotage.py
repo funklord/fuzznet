@@ -15417,6 +15417,13 @@ SABOTAGES = [
 		"a relay says its ok in text, which its asker no longer reads -- sec 1076",
 	),
 	(
+		"introduced-never-read",
+		"node/daemon.c",
+		"\t\tif (!introduced_read(reply, len, host, &port)) {\n\t\t\tchar said[FZN_STATUS_LEN_MAX + 16u];\n\n\t\t\tsay(FZN_ENTRY_DEBUG, \"node/siblings\",",
+		"\t\tif (1) {\n\t\t\tchar said[FZN_STATUS_LEN_MAX + 16u];\n\n\t\t\tsay(FZN_ENTRY_DEBUG, \"node/siblings\",",
+		"a sibling's introduction is never taken, where it is -- sec 1077",
+	),
+	(
 		"session-grant-drops-an-ask",
 		"node/sessions.c",
 		"\t\tif (!s->used || s->confirmed || s->initiator\n",

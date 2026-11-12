@@ -1,0 +1,5 @@
+# Golden vectors for node/introduced.situ, written by hand from its layout, so the
+# description is held to a writer other than its compiler.
+
+message v4      02 42 09 31 39 32 2E 30 2E 32 2E 37 9E 61
+message v6      02 42 03 3A 3A 31 00 01
