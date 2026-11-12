@@ -139,6 +139,10 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "a contact's name, the user's on every host, by `add contact`, which checks it (sec "
 	  "699)",
 	  NULL, 0u },
+	{ "metric/log/", FZN_SCHEMA_COUNT, HOST, 10u, 86400u, "", "seconds", 0u,
+	  "a metric family logged every so many seconds, subsystem metric/NAME; unset, not "
+	  "logged (sec 1053)",
+	  NULL, 0u },
 	{ "net/address", FZN_SCHEMA_ADDRESS, HOST, 0u, 253u, "", "", FZN_SCHEMA_ADVERTISED,
 	  "where this host is reached, HOST PORT, an admin's to correct (sec 579)", NULL, 0u },
 	{ "host/name", FZN_SCHEMA_TEXT, HOST, 1u, 32u, "", "", 0u,

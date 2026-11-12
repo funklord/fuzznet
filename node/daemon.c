@@ -1843,6 +1843,39 @@ static size_t link_row(size_t i, uint64_t now, char *row, size_t cap)
 	return k > 0 && (size_t)k < cap ? (size_t)k : 0u;
 }
 
+static uint64_t host_number(const char *key, uint64_t def);
+
+/* METRICS LOGGED BY CONFIGURATION, sec 1053, sec 1034's step: `metric/log/link`,
+ * a host's setting of seconds, has each link with an observation logged at info
+ * under `metric/link` every so many seconds -- its address, latency, loss,
+ * observations, asked and answered -- so a peer's latency has a history, and
+ * the log's retention, packing and gathering apply to it unchanged. Unset, the
+ * default, nothing is logged; the schema holds it to 10 s at the least, so a
+ * misconfigured one cannot flood the log that would report it. */
+static void metric_log_links(uint64_t now)
+{
+	static uint64_t next;
+	uint64_t every = host_number("metric/log/link", 0u), now_ms = wall_ms();
+	char row[LINK_ROW_MAX];
+	size_t i;
+
+	if (!every) {
+		next = 0;
+		return;
+	}
+	if (every < 10u)
+		every = 10u;
+	if (next && now < next)
+		return;
+	next = now + every;
+	for (i = 0; i < n_link_meters; i++) {
+		const fzn_link_entry_t *e = fzn_link_get(&link_table, (uint32_t)i + 1u);
+
+		if (e && e->observations && link_row(i, now_ms, row, sizeof(row)))
+			say(FZN_ENTRY_INFO, "metric/link", "%s", row + 1);
+	}
+}
+
 /* `list link [FROM]`, sec 631: `ok COUNT UNMEASURED` and per link
  * `HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED` --
  * latency in ms and loss per mille as estimated, `-` for both on a link
@@ -23885,6 +23918,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				 * at the next round. sec 433. */
 				/* HELLO to the peers it pulls from, sec 622. */
 				say_hello(pulls, npulls, state.udp_fd, now);
+				metric_log_links(now);
 				/* A STREAM FETCH ASKED, at once, sec 632; WHERE THIS HOST IS
 				 * SEEN, asked now, sec 621: each a plan of its own, every host
 				 * at once and the loop answering meanwhile (sec 636). One

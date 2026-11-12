@@ -85553,3 +85553,26 @@ a run -- hull's gateway stays symmetric for its whole journey, and the period is
 call. What is shown is that it changes nothing that was working: hull, symmetric and plain, passed
 with it. The rest of gap 3 -- choosing between two working paths by their measured round trips,
 with hysteresis -- waits on a call that can hold both at once.
+
+## 1053. A peer's links logged by configuration, 2026-11-12
+
+Sec 1034's step "logging by configuration", its first metric family: the holder asked for metrics
+loggable by configuration, through generic layers, and for a peer's latency to be a cached
+statistical property (sec 1033). `link/` (sec 631) already measures each address a host asks --
+latency and loss as smoothed estimates, with observations, asked and answered -- and kept it in
+memory only.
+
+**`metric/log/NAME`**, a host setting of seconds declared in the schema (10 to 86400, unset by
+default), logs that family's figures at info every so many seconds under subsystem `metric/NAME`.
+`metric/log/link` has every link with an observation said as `list link` lists it:
+`HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED`. From the log everything
+applies unchanged -- retention rules, signed packing, gathering from siblings and pushed copies --
+so a link's history and its reach to other hosts are the log's, not a second store's. Unset, the
+default, nothing is logged, kept as the key's absence; the schema holds a value to 10 s at the
+least, so a misconfigured one cannot flood the log that would report it.
+
+**Verified:** `live_call` phase h -- `set setting host metric/log/link 10` at A, and A logs its link
+to B under `metric/link` within 30 s; against the daemon before this, h fails.
+
+**Not yet:** the meter's families (`list transfer`) the same way, and the metric layer's own table
+that `link/` and the meter move onto (sec 1034's later steps).

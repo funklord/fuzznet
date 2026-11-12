@@ -209,6 +209,13 @@ def main(argv):
 				raise failed("f: A still holds the call it hung up")
 			print("livecheck: f: A hung up, and neither holds the call")
 
+			# h: A'S LINKS LOGGED, sec 1053: `metric/log/link` set, each link A
+			# measured is said under metric/link -- B's among them, from the call.
+			expect(socks["a"], "a", "set setting host metric/log/link 10", "ok")
+			started["a"].wait_for(re.compile(r"metric/link .*127\.0\.0\.1:%s," % port["b"]),
+			                      "A logging its link to B under metric/link", within=30.0)
+			print("livecheck: h: A logs its link to B under metric/link")
+
 			# g: RUNG BOTH WAYS, each right after the last is gone.
 			for frm, to, name in (("b", "a", "ada"), ("a", "b", "bea")) * 3:
 				rung = ask(socks[frm], "add call %s audio" % name).split()
