@@ -19,10 +19,11 @@
  *   3  `log/cause.h`, FZN_CAUSE_VERSION: an envelope naming a request's
  *      causes, around any other
  *   4  `log/gather.h`, FZN_GATHER_VERSION: a host's log lines
- *   5  `record/exchange.h`, FZN_EXCHANGE_VERSION: the journal
+ *   5  retired: the journal's exchange before sec 1047, its digest 16 bits
  *   6  `node/reconcile.h`, FZN_RECONCILE_VERSION: reconciliation
+ *   7  `record/exchange.h`, FZN_EXCHANGE_VERSION: the journal, since sec 1047
  *
- * Each of 1 and 3 to 6 has a type space of its own, its owner's.
+ * Each of 1, 3, 4, 6 and 7 has a type space of its own, its owner's.
  */
 #ifndef FZN_NODE_TYPES_H
 #define FZN_NODE_TYPES_H
@@ -31,8 +32,8 @@
 #define FZN_TYPES_VERSION_SHARED 2u
 #define FZN_TYPES_VERSION_CAUSE 3u
 #define FZN_TYPES_VERSION_GATHER 4u
-#define FZN_TYPES_VERSION_EXCHANGE 5u
 #define FZN_TYPES_VERSION_RECONCILE 6u
+#define FZN_TYPES_VERSION_EXCHANGE 7u
 
 /* VERSION 2'S TYPES, by owner:
  *

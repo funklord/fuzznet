@@ -67,14 +67,14 @@ static size_t answer_digest(const fzn_journal_t *journal, const uint8_t *request
 	total = fzn_sync_digest(journal, held, held_room < FZN_SYNC_MAX_POSITIONS
 	                                               ? held_room : FZN_SYNC_MAX_POSITIONS,
 	                        &dropped);
-	from = fzn_get_be16(request + 2);
+	from = fzn_get_be32(request + 2);
 	if (from > total)
 		from = total;
 	room = (reply_cap - FZN_EXCHANGE_DIGEST_HEAD_LEN) / FZN_EXCHANGE_POSITION_LEN;
 	reply[0] = (uint8_t)FZN_EXCHANGE_VERSION;
 	reply[1] = (uint8_t)FZN_EXCHANGE_DIGEST;
-	fzn_put_be16(reply + 2, (uint16_t)total);
-	fzn_put_be16(reply + 4, (uint16_t)from);
+	fzn_put_be32(reply + 2, (uint32_t)total);
+	fzn_put_be32(reply + 6, (uint32_t)from);
 	at = FZN_EXCHANGE_DIGEST_HEAD_LEN;
 	for (i = from; i < total && i - from < room; i++) {
 		memcpy(reply + at, held[i].issuer, FZN_PUBKEY_LEN);
@@ -82,7 +82,7 @@ static size_t answer_digest(const fzn_journal_t *journal, const uint8_t *request
 		fzn_put_be64(reply + at + 36u, held[i].received);
 		at += FZN_EXCHANGE_POSITION_LEN;
 	}
-	fzn_put_be16(reply + 6, (uint16_t)(i - from));
+	fzn_put_be32(reply + 10, (uint32_t)(i - from));
 	return at;
 }
 
@@ -221,7 +221,7 @@ static void digest_query(const fzn_exchange_digest_t *d, uint8_t *request, size_
 {
 	request[0] = (uint8_t)FZN_EXCHANGE_VERSION;
 	request[1] = (uint8_t)FZN_EXCHANGE_DIGEST_QUERY;
-	fzn_put_be16(request + 2, (uint16_t)d->n);
+	fzn_put_be32(request + 2, (uint32_t)d->n);
 	*len = FZN_EXCHANGE_DIGEST_QUERY_LEN;
 }
 
@@ -242,9 +242,9 @@ static int digest_take(fzn_exchange_digest_t *d, const uint8_t *reply, size_t re
 	if (!is(reply, reply_len, (uint8_t)FZN_EXCHANGE_DIGEST)
 	    || reply_len < FZN_EXCHANGE_DIGEST_HEAD_LEN)
 		return -1;
-	d->total = fzn_get_be16(reply + 2);
-	count = fzn_get_be16(reply + 6);
-	if (fzn_get_be16(reply + 4) != d->n
+	d->total = fzn_get_be32(reply + 2);
+	count = fzn_get_be32(reply + 10);
+	if (fzn_get_be32(reply + 6) != d->n
 	    || reply_len != FZN_EXCHANGE_DIGEST_HEAD_LEN + (count * FZN_EXCHANGE_POSITION_LEN)
 	    || count > d->total - d->n || (count == 0u && d->n < d->total))
 		return -1;

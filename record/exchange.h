@@ -17,7 +17,7 @@
  *     PUSHED         "taken, held, refused, forked"
  *
  * Binary because a record is up to 700 bytes and a reply line of hex is
- * bounded at 1024 characters. The first byte is the version, 5, below any
+ * bounded at 1024 characters. The first byte is the version, 7, below any
  * verb's first letter, so a node dispatching on it falls through to its
  * verbs when the message is not one of these.
  *
@@ -54,7 +54,10 @@
 #include "sync.h"
 #include "../session/commitment.h"
 
-#define FZN_EXCHANGE_VERSION 5u
+/* 7 since sec 1047: a digest's count, place and length are 32 bits, an estate
+ * past 65535 streams read whole. Not 6, which is reconciliation's
+ * (`node/types.h`); 5, the 16-bit exchange, is retired. */
+#define FZN_EXCHANGE_VERSION 7u
 
 typedef enum fzn_exchange_type {
 	FZN_EXCHANGE_DIGEST_QUERY = 1,
@@ -65,9 +68,9 @@ typedef enum fzn_exchange_type {
 	FZN_EXCHANGE_PUSHED = 6
 } fzn_exchange_type_t;
 
-#define FZN_EXCHANGE_DIGEST_QUERY_LEN 4u
+#define FZN_EXCHANGE_DIGEST_QUERY_LEN 6u
 #define FZN_EXCHANGE_POSITION_LEN 44u
-#define FZN_EXCHANGE_DIGEST_HEAD_LEN 8u
+#define FZN_EXCHANGE_DIGEST_HEAD_LEN 14u
 #define FZN_EXCHANGE_RECORDS_QUERY_LEN 48u
 #define FZN_EXCHANGE_RECORDS_HEAD_LEN 4u
 /* A PUSH is laid out as RECORDS is; PUSHED is its four counts. */

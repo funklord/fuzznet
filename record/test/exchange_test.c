@@ -633,6 +633,56 @@ static void test_a_digest_past_8192(void)
 	CHECK(p.digest.theirs == NULL && p.plan_out == NULL, "an ended pull still holds its room");
 }
 
+/* A DIGEST PAST 65535, sec 1047: a host following 70000 streams is read whole,
+ * where a digest's 16-bit total, place and length wrapped -- 70000 said 4464. */
+static void test_a_digest_past_65535(void)
+{
+	enum { STREAMS = 70000 };
+	static struct host a, b;
+	static fzn_journal_entry_t a_entries[STREAMS], b_entries[STREAMS];
+	static fzn_exchange_pulling_t p;
+	uint8_t issuer[FZN_PUBKEY_LEN], request[FZN_EXCHANGE_RECORDS_QUERY_LEN + 64u];
+	size_t i, len = 0, got = 0;
+	int done = 0, ok = 1, steps = 0;
+
+	host_init(&a);
+	host_init(&b);
+	a.reply_cap = sizeof(reply);
+	fzn_journal_init(&a.journal, a_entries, STREAMS);
+	fzn_journal_init(&b.journal, b_entries, STREAMS);
+	/* FILLED AS fzn_journal_anchor FILLS A STREAM FOLLOWED FROM THE START, not
+	 * anchored one by one: the journal finds a stream by a scan, so 70000
+	 * anchors on each side cost 7.5 minutes (sec 1047). */
+	for (i = 0; i < STREAMS; i++) {
+		fzn_journal_entry_t *e = &a_entries[i];
+
+		key(issuer, 0x22);
+		issuer[1] = (uint8_t)(i >> 16);
+		issuer[2] = (uint8_t)(i >> 8);
+		issuer[3] = (uint8_t)i;
+		memset(e, 0, sizeof(*e));
+		memcpy(e->issuer, issuer, FZN_PUBKEY_LEN);
+		e->stream = 1u;
+		e->has_head = 1;
+		b_entries[i] = *e;
+	}
+	a.journal.used = b.journal.used = STREAMS;
+	CHECK(ok, "fixture: both follow 70000 streams");
+	CHECK(fzn_exchange_pull_begin(&p, &b.journal, &b.store, &SIGN, &HASH, 64u, request,
+	                              sizeof(request), &len)
+	              == FZN_EXCHANGE_OK,
+	      "fixture: the pull begins");
+	while (!done && steps++ < 100000) {
+		if (!ask(&a, request, len, reply, sizeof(reply), &got)
+		    || fzn_exchange_pull_step(&p, reply, got, request, sizeof(request), &len, &done)
+		               != FZN_EXCHANGE_OK)
+			break;
+	}
+	CHECK(done && p.tally.positions == STREAMS,
+	      "a digest of 70000 positions was not read whole");
+	fzn_exchange_pull_end(&p);
+}
+
 /* THE PUSH BY ITS STEPS, against a taker whose digest comes one position a
  * page: both its streams offered to, and a step with no answer ending it
  * (sec 636). */
@@ -795,6 +845,7 @@ int main(void)
 	test_a_lying_server();
 	test_a_digest_of_several_pages();
 	test_a_digest_past_8192();
+	test_a_digest_past_65535();
 	test_two_pulls_by_turns();
 	test_a_push_by_steps();
 	test_a_push_stopped_at_a_fork();

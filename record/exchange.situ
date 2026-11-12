@@ -4,7 +4,7 @@
 //
 // Binary rather than a reply line, because a record is up to 700 bytes and a
 // line of hex is bounded at 1024 characters (FZN_REPLY_MAX). The first byte is
-// the message version, 5, below any verb's first letter, so a node dispatching
+// the message version, 7, below any verb's first letter, so a node dispatching
 // on it falls through to its verbs -- as notes sync (2) and gather (4) do.
 
 target buffer;
@@ -20,9 +20,9 @@ enum fzn_exchange_type : u8 {
 }
 
 struct fzn_exchange_digest_query {
-	u8                 version [must_eq = 5];
+	u8                 version [must_eq = 7];
 	fzn_exchange_type  type    [must_eq = digest_query];
-	u16                from;                 // the first position wanted
+	u32                from;                 // the first position wanted, sec 1047
 }
 
 // One (issuer, stream) and how far the answering host holds it.
@@ -33,16 +33,16 @@ struct fzn_exchange_position {
 }
 
 struct fzn_exchange_digest {
-	u8                     version [must_eq = 5];
+	u8                     version [must_eq = 7];
 	fzn_exchange_type      type    [must_eq = digest];
-	u16                    total;            // every position held
-	u16                    from;             // echoed
-	u16                    count;
+	u32                    total;            // every position held, sec 1047
+	u32                    from;             // echoed
+	u32                    count;
 	fzn_exchange_position  positions[count];
 }
 
 struct fzn_exchange_records_query {
-	u8                 version [must_eq = 5];
+	u8                 version [must_eq = 7];
 	fzn_exchange_type  type    [must_eq = records_query];
 	u8                 issuer[32];
 	u32                stream;
@@ -57,7 +57,7 @@ struct fzn_exchange_record {
 }
 
 struct fzn_exchange_records {
-	u8                   version [must_eq = 5];
+	u8                   version [must_eq = 7];
 	fzn_exchange_type    type    [must_eq = records];
 	u16                  count;
 	fzn_exchange_record  records[count];
@@ -66,7 +66,7 @@ struct fzn_exchange_records {
 // A push is laid out as RECORDS is: consecutive records of the streams the
 // taker's digest listed, sent unasked. sec 512.
 struct fzn_exchange_push {
-	u8                   version [must_eq = 5];
+	u8                   version [must_eq = 7];
 	fzn_exchange_type    type    [must_eq = push];
 	u16                  count;
 	fzn_exchange_record  records[count];
@@ -74,7 +74,7 @@ struct fzn_exchange_push {
 
 // What became of a push, record by record.
 struct fzn_exchange_pushed {
-	u8                 version [must_eq = 5];
+	u8                 version [must_eq = 7];
 	fzn_exchange_type  type    [must_eq = pushed];
 	u16                taken;
 	u16                held;

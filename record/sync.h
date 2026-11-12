@@ -131,9 +131,11 @@ typedef enum fzn_sync_err {
  * 16-bit count says, once nothing was sized by it: the room a plan and a
  * pull hold is grown to the digest in hand, so the ceiling is a bound on
  * what a peer can make this host examine, not memory set aside. Smaller in a
- * `small` build, sec 922. */
+ * `small` build, sec 922. PAST 65535 since sec 1047, the digest's fields 32
+ * bits: 1048576, some 46 MB of positions at most for a peer that claims them
+ * all -- a bound, not room, as above. */
 #ifndef FZN_SYNC_MAX_POSITIONS
-#define FZN_SYNC_MAX_POSITIONS 65535u
+#define FZN_SYNC_MAX_POSITIONS 1048576u
 #endif
 
 /* One issuer's position, as a peer reports it. This is what a host puts on

@@ -85431,3 +85431,33 @@ plain one.
 **Not yet:** a relay chosen among the contact's own hosts as well as this estate's; sec 1030's gap
 3, choosing between a direct path and a relayed one by measuring both, which needs a call that has
 both; and the quota counting a relayed session's frames, which today charge only its request.
+
+## 1047. A digest past 65535 streams, 2026-11-12
+
+Sec 992's "Left": a digest's total, place and length were 16 bits on the wire, so an estate past
+65535 streams could not be read whole -- the holder's aim is almost unlimited machines (sec 964),
+and wire changes are free (sec 924). **The exchange is version 7**: DIGEST_QUERY's place and
+DIGEST's total, place and count are 32 bits (`FZN_EXCHANGE_DIGEST_QUERY_LEN` 6,
+`FZN_EXCHANGE_DIGEST_HEAD_LEN` 14), stated in `record/exchange.situ` and its committed `.wire` and
+`.map`, regenerated with situ 4931647a. `FZN_SYNC_MAX_POSITIONS` is 1048576, a bound on what a peer
+can make this host examine -- some 46 MB of positions for one that claims them all -- not room set
+aside (sec 992). A version-5 peer and a version-7 one share no exchange message, which the schema
+gate says in as many words; every consumer builds both ends from the same fuzznet. **Not 6**, the
+first choice: `node/types.h` registers every first byte, and 6 is reconciliation's, so a digest
+query would have been read as a reconciliation -- `types_test` refused it, and now also checks that
+the exchange's byte is no other family's. 5 is retired in the registry.
+
+**Verified:** `exchange_test` reads a digest of 70000 positions whole; against the 16-bit code the
+same test fails (70000 wraps to 4464). `sync_test`, `make test`, `installcheck`, `style`, the live
+scripts that sync journals.
+
+**Found on the way, and not fixed here: the journal finds a stream by a scan.** `find` in
+`record/journal.c` walks every entry with a constant-time compare and no early exit, so following N
+streams costs N squared: the 70000-stream test spent 7.5 minutes anchoring its fixture, 97 per cent
+of it in `fzn_ct_memeq`, until it filled the entries directly. An estate the size this section
+allows would pay that on every start. An index -- the caller's room, as sec 704 asks -- is the next
+item.
+
+**Also seen:** `make schema` fails on HEAD as well as here, `wire/generated/situ.h has drifted from
+situ's runtime` at situ 4931647a: the vendored runtime is behind situ, and re-vendoring it is its
+own change.

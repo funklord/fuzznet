@@ -110,7 +110,16 @@ static void test_each_version_is_its_owners(void)
 	CHECK(FZN_RECONCILE_VERSION == FZN_TYPES_VERSION_RECONCILE,
 	      "reconciliation's version moved");
 	/* BELOW A VERB LINE'S FIRST BYTE, every one: a printable letter. */
-	CHECK(FZN_TYPES_VERSION_RECONCILE < 0x20u, "a version byte could open a verb line");
+	CHECK(FZN_TYPES_VERSION_RECONCILE < 0x20u && FZN_TYPES_VERSION_EXCHANGE < 0x20u,
+	      "a version byte could open a verb line");
+	/* NONE SHARED, sec 1047: the exchange's 6 would have been read as a
+	 * reconciliation. */
+	CHECK(FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_RECONCILE
+	              && FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_GATHER
+	              && FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_CAUSE
+	              && FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_SHARED
+	              && FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_SPOOL,
+	      "the exchange's version is another family's");
 }
 
 static void test_no_two_shared_types_are_one(void)
