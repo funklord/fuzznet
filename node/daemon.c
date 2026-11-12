@@ -6713,7 +6713,7 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 			struct pull_target *pt = &pulls[npulls + built];
 			struct introduced *in;
 			uint16_t port = 0;
-			int fd, intro;
+			int fd, intro, by_hello = 0;
 
 			i = pass ? (sibling_from + j) % n : j;
 			in = intro_of(hosts[i], 0);
@@ -6740,9 +6740,36 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 				continue;
 			memset(pt, 0, sizeof(*pt));
 			pt->fd = -1;
-			/* AN INTRODUCED ADDRESS FIRST, sec 623, while it lasts; else the
-			 * sibling's own `net/address`. */
-			if (intro) {
+			/* BY THE ONE RULE, sec 1036: where it said hello, then an introduced
+			 * address while it lasts (sec 623), then the sibling's own
+			 * `net/address` -- the contact round's order. A hello reached this
+			 * round only by being copied into the introductions, when an
+			 * introduction fell due. */
+			{
+				fzn_udp_addr_t heard_at;
+				fzn_reach_pair_t way;
+				uint64_t heard_when = 0;
+				char seen[FZN_UDP_HOST_MAX];
+				uint16_t seen_port = 0;
+
+				if (reach_ready()) {
+					if (fzn_node_relay_where(&relay_tables, hosts[i], &heard_at, &heard_when))
+						fzn_reach_learn(&reach_table, hosts[i], FZN_REACH_SERVING, &heard_at,
+						                FZN_REACH_HELLO, heard_when);
+					by_hello = fzn_reach_best(&reach_table, hosts[i], wall_clock(), &way)
+					           && way.source == FZN_REACH_HELLO
+					           && fzn_udp_addr_text(&way.remote, seen, &seen_port)
+					                      == FZN_UDP_OK;
+				}
+				if (by_hello) {
+					(void)snprintf(sibling_hosts[built], sizeof(sibling_hosts[built]), "%s",
+					               seen);
+					port = seen_port;
+				}
+			}
+			if (by_hello) {
+				/* chosen above */
+			} else if (intro) {
 				(void)snprintf(sibling_hosts[built], sizeof(sibling_hosts[built]), "%s", in->host);
 				port = in->port;
 			} else if (!fzn_node_settings_address(&node_settings, hosts[i], sibling_hosts[built],
@@ -16925,60 +16952,11 @@ static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 	memcpy(a->host, host, FZN_PUBKEY_LEN);
 	memcpy(a->to, pt->caller.node.storage, pt->caller.node.len);
 	a->to_len = (unsigned)pt->caller.node.len;
-	/* WHERE THE HOST SAID HELLO FROM, sec 1031: the way its own NAT keeps open
-	 * to this host's serving socket, which is as direct as it can be reached --
-	 * where the address the round holds may be one behind that NAT, which
-	 * nothing outside reaches (measured on hull: A's root held B's root at
-	 * 192.168.2.10, and A's call never rang). So the ask goes from the serving
-	 * socket to there, and its answer, which comes back to the serving socket,
-	 * is routed on to the socket awaiting it here. */
-	if (serving_state && serving_state->relay && serving_state->udp_fd >= 0) {
-		static uint8_t frame[FZN_UDP_DATAGRAM_MAX];
-		fzn_udp_addr_t hello, back;
-		uint64_t seen = 0;
-		uint16_t port = 0;
-		uint32_t msg = 0;
-		size_t frame_len = 0;
-		fzn_reach_pair_t way;
-
-		/* THE WAY, BY THE ONE RULE, sec 1036: the stores this reader looked in
-		 * learnt into the table -- where it said hello, from the serving socket;
-		 * the round's target, from a socket of its own -- and the rule asked. */
-		if (reach_ready()) {
-			if (fzn_node_relay_where(serving_state->relay, host, &hello, &seen))
-				fzn_reach_learn(&reach_table, host, FZN_REACH_SERVING, &hello, FZN_REACH_HELLO,
-				                seen);
-			fzn_reach_learn(&reach_table, host, FZN_REACH_TARGET, &pt->caller.node,
-			                FZN_REACH_MANIFEST, wall_clock());
-		}
-		if (reach_ready() && fzn_reach_best(&reach_table, host, wall_clock(), &way)
-		    && way.local == FZN_REACH_SERVING && (hello = way.remote, 1)
-		    && hello.len <= sizeof(a->to)
-		    && fzn_udp_local_port(a->fd, &port) == FZN_UDP_OK
-		    && fzn_udp_resolve(((const struct sockaddr *)hello.storage)->sa_family == AF_INET6
-		                               ? AF_INET6
-		                               : AF_INET,
-		                       ((const struct sockaddr *)hello.storage)->sa_family == AF_INET6
-		                               ? "::1"
-		                               : "127.0.0.1",
-		                       port, &back)
-		               == FZN_UDP_OK
-		    && fzn_caller_seal(&a->caller, request, sizeof(request), wall_clock() + 60u, &msg,
-		                       frame, sizeof(frame), &frame_len)
-		               == FZN_CALLER_OK) {
-			memcpy(a->to, hello.storage, hello.len);
-			a->to_len = (unsigned)hello.len;
-			fzn_node_relay_route_own(serving_state->relay, host, msg, &back, wall_clock());
-			if (fzn_udp_send(serving_state->udp_fd, &hello, frame, frame_len) == FZN_UDP_OK
-			    && fzn_node_asks_await(&round_asks, &a->caller, msg, FZND_SESSION_ASK_WAIT_MS,
-			                           session_granted, a)) {
-				a->live = 1;
-				return 1;
-			}
-			session_ask_close(a);
-			return 0;
-		}
-	}
+	/* BY THE SERVING SOCKET where the host said hello, sec 1031: the caller is a
+	 * copy of the round target's and carries its `out` (sec 1036), so where the
+	 * target's address is a hello's way the ask leaves from the serving socket and
+	 * its answer is routed back here -- once this function's own branch, measured
+	 * on hull by sec 1031's journey. */
 	if (!fzn_node_asks_send(&round_asks, &a->caller, request, sizeof(request),
 	                        wall_clock() + 60u, FZND_SESSION_ASK_WAIT_MS, session_granted, a)) {
 		session_ask_close(a);

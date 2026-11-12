@@ -85164,6 +85164,16 @@ request's frame under its message, answered, and a refusing hook failing the sen
 `caller-out-ignored`, caught. `tool/hull_estates.py` asserts the answered asks by pattern
 (`hull_node.py` gained `matches`).
 
+**Step 4, built: the sibling round reads through the rule, and `session_ask`'s branch is gone.**
+The sibling round chose an introduced address, else the sibling's `net/address`; a hello reached
+it only by `introduce_siblings` copying it into the introductions when one fell due -- two stores
+mixed. It now learns the hello into the table and takes it first, then the introduction, then the
+advertised address, the contact round's order. With every target's caller carrying `out` (step
+3), `session_ask` -- whose caller is a copy of the target's -- needs no serving-socket branch of
+its own: where the target's address is a hello's way the ask leaves from the serving socket and is
+routed back, as sec 1031's branch did. On hull B hears A's call ring at 22.8 s and A's asks of B
+are answered; `live_introduce`, `live_lan`, `live_relay`, `live_deliver` and the call scripts pass.
+
 **The steps:** the table and its rule, with a unit test that holds each reader's current order as a
 case; the session ask and session sends moved onto it (keeping sec 1031's hull pass); the rounds'
 targets made a view; the link figures re-keyed by pair. Each step keeps `live_call`,
