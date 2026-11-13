@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum kind : u8 unknown=error
-  ring=1 answer=2 decline=3 hangup=4 frame=5 report=6 participant=7 ringing=8 no_answer=9 busy=10 answered_elsewhere=11 declined_elsewhere=12
+  ring=1 answer=2 decline=3 hangup=4 frame=5 report=6 participant=7 ringing=8 no_answer=9 busy=10 answered_elsewhere=11 declined_elsewhere=12 media_open=128 media=129
 
 struct frame size=15..
   @0x0000   1         u8         stream
@@ -48,6 +48,8 @@ struct message size=10..
   body case 10: busy nothing
   body case 11: answered_elsewhere nothing
   body case 12: declined_elsewhere nothing
+  body case 128: media_open nothing
+  body case 129: media whole
   body case default: error
 
 struct nothing size=0
@@ -67,3 +69,10 @@ struct report size=19
 struct ring size=33
   @0x0000   1         u8         kinds  min=1 max=3
   @0x0001   32        u8         whom  big
+
+struct whole size=11..
+  @0x0000   1         u8         stream
+  @0x0001   2         u16        from  big
+  @0x0003   4         u32        seq  big
+  @0x0007   4         u32        at_ms  big
+  @0x000b   0..       u8         media  sized-by=remaining

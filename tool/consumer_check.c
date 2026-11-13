@@ -217,6 +217,7 @@
 #include <fuzznet/local/rpc_encoding.h>
 #include <fuzznet/local/rpc_compat.h>
 #include <fuzznet/local/rpc_sticker_read.h>
+#include <fuzznet/local/rpc_media.h>
 #include <fuzznet/net/udp.h>
 #include <fuzznet/net/own_address.h>
 #include <fuzznet/net/bearer.h>
@@ -466,6 +467,7 @@
 #include "local/rpc_encoding.h"
 #include "local/rpc_compat.h"
 #include "local/rpc_sticker_read.h"
+#include "local/rpc_media.h"
 #include "net/udp.h"
 #include "net/own_address.h"
 #include "net/bearer.h"

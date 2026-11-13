@@ -389,3 +389,22 @@ fzn_reply_t fzn_reply_of(const uint8_t *line, size_t line_len,
 		*detail_len = split.arg_len;
 	return fzn_reply_parse(split.verb, split.verb_len);
 }
+
+int fzn_local_binary(const uint8_t *bytes, size_t n, size_t *total)
+{
+	size_t len;
+
+	if (total)
+		*total = 0;
+	if (!bytes || !n || bytes[0] >= 0x20u)
+		return 0;
+	if (n < 2u)
+		return 1;
+	len = ((size_t)bytes[0] << 8) | bytes[1];
+	if (!len || len > FZN_LOCAL_BINARY_MAX)
+		return -1;
+	if (total)
+		*total = 2u + len;
+	return 1;
+}
+

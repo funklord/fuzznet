@@ -99,6 +99,35 @@ situ_err_t fzn_call_frame_validate(situ_view_t view)
 	return fzn_call_frame_check(view, NULL);
 }
 
+situ_err_t fzn_call_whole_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_CALL_WHOLE_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_call_whole_validate(situ_view_t view)
+{
+	return fzn_call_whole_check(view, NULL);
+}
+
 situ_err_t fzn_call_report_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -193,12 +222,12 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 10u) < ((fzn_call_message_kind_get(view) == 1u ? 33u : (fzn_call_message_kind_get(view) == 2u ? 0u : (fzn_call_message_kind_get(view) == 3u ? 0u : (fzn_call_message_kind_get(view) == 4u ? 0u : (fzn_call_message_kind_get(view) == 5u ? (fzn_call_message_body_frame_extent(view)) : (fzn_call_message_kind_get(view) == 6u ? 19u : (fzn_call_message_kind_get(view) == 7u ? 34u : (fzn_call_message_kind_get(view) == 8u ? 0u : (fzn_call_message_kind_get(view) == 9u ? 0u : (fzn_call_message_kind_get(view) == 10u ? 0u : (fzn_call_message_kind_get(view) == 11u ? 0u : (fzn_call_message_kind_get(view) == 12u ? 0u : 0u)))))))))))))) {
+	if (situ_remaining_u32(view.limit, 10u) < ((fzn_call_message_kind_get(view) == 1u ? 33u : (fzn_call_message_kind_get(view) == 2u ? 0u : (fzn_call_message_kind_get(view) == 3u ? 0u : (fzn_call_message_kind_get(view) == 4u ? 0u : (fzn_call_message_kind_get(view) == 5u ? (fzn_call_message_body_frame_extent(view)) : (fzn_call_message_kind_get(view) == 6u ? 19u : (fzn_call_message_kind_get(view) == 7u ? 34u : (fzn_call_message_kind_get(view) == 8u ? 0u : (fzn_call_message_kind_get(view) == 9u ? 0u : (fzn_call_message_kind_get(view) == 10u ? 0u : (fzn_call_message_kind_get(view) == 11u ? 0u : (fzn_call_message_kind_get(view) == 12u ? 0u : (fzn_call_message_kind_get(view) == 128u ? 0u : (fzn_call_message_kind_get(view) == 129u ? (fzn_call_message_body_media_extent(view)) : 0u)))))))))))))))) {
 		*which = FZN_CALL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for kind.ring, kind.answer, kind.decline, kind.hangup, kind.frame, kind.report, kind.participant, kind.ringing, kind.no_answer, kind.busy, kind.answered_elsewhere, kind.declined_elsewhere, and `default: error` for the rest. */
-	if (fzn_call_message_kind_get(view) != 1u && fzn_call_message_kind_get(view) != 2u && fzn_call_message_kind_get(view) != 3u && fzn_call_message_kind_get(view) != 4u && fzn_call_message_kind_get(view) != 5u && fzn_call_message_kind_get(view) != 6u && fzn_call_message_kind_get(view) != 7u && fzn_call_message_kind_get(view) != 8u && fzn_call_message_kind_get(view) != 9u && fzn_call_message_kind_get(view) != 10u && fzn_call_message_kind_get(view) != 11u && fzn_call_message_kind_get(view) != 12u) {
+	/* message.body: an arm for kind.ring, kind.answer, kind.decline, kind.hangup, kind.frame, kind.report, kind.participant, kind.ringing, kind.no_answer, kind.busy, kind.answered_elsewhere, kind.declined_elsewhere, kind.media_open, kind.media, and `default: error` for the rest. */
+	if (fzn_call_message_kind_get(view) != 1u && fzn_call_message_kind_get(view) != 2u && fzn_call_message_kind_get(view) != 3u && fzn_call_message_kind_get(view) != 4u && fzn_call_message_kind_get(view) != 5u && fzn_call_message_kind_get(view) != 6u && fzn_call_message_kind_get(view) != 7u && fzn_call_message_kind_get(view) != 8u && fzn_call_message_kind_get(view) != 9u && fzn_call_message_kind_get(view) != 10u && fzn_call_message_kind_get(view) != 11u && fzn_call_message_kind_get(view) != 12u && fzn_call_message_kind_get(view) != 128u && fzn_call_message_kind_get(view) != 129u) {
 		*which = FZN_CALL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -424,6 +453,44 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_CALL_MESSAGE_BODY_DECLINED_ELSEWHERE_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.media_open: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_call_message_body_media_open_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_call_nothing_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_CALL_MESSAGE_BODY_MEDIA_OPEN_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.media: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_call_message_body_media_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_call_whole_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_CALL_MESSAGE_BODY_MEDIA_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {

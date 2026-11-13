@@ -281,12 +281,142 @@ static void test_calls(void)
 	CHECK(!t.rows && !t.cap, "a table let go still holds");
 }
 
+/* A FRAME SPLIT AND JOINED, sec 1113: in order, out of order and beside
+ * another stream's, a lost piece's frame given up to newer ones, and the
+ * pieces a split does not make refused. */
+static fzn_live_join_t joiner;
+static uint8_t frame_a[5000], frame_b[3000];
+
+static fzn_live_word_t piece_of(const uint8_t *media, size_t len, uint8_t stream, uint32_t seq,
+                                size_t piece)
+{
+	fzn_live_word_t w;
+	size_t at = piece * FZN_LIVE_PIECE_MEDIA;
+
+	memset(&w, 0, sizeof(w));
+	w.kind = FZN_LIVE_FRAME;
+	w.stream = stream;
+	w.seq = seq;
+	w.at_ms = 1000u + seq;
+	w.piece = (uint16_t)piece;
+	w.pieces = (uint16_t)fzn_live_pieces_of(len);
+	w.media = media + at;
+	w.media_len = len - at < FZN_LIVE_PIECE_MEDIA ? len - at : FZN_LIVE_PIECE_MEDIA;
+	return w;
+}
+
+static void test_join(void)
+{
+	fzn_live_word_t w, whole;
+	size_t i, n;
+	int r = 0;
+
+	for (i = 0; i < sizeof(frame_a); i++)
+		frame_a[i] = (uint8_t)(i * 7u + 1u);
+	for (i = 0; i < sizeof(frame_b); i++)
+		frame_b[i] = (uint8_t)(i * 13u + 5u);
+	CHECK(fzn_live_pieces_of(5000) == 6 && fzn_live_pieces_of(FZN_LIVE_PIECE_MEDIA) == 1
+	              && fzn_live_pieces_of(0) == 0 && fzn_live_pieces_of(FZN_LIVE_MEDIA_MAX + 1u) == 0,
+	      "the pieces a frame goes in were miscounted");
+
+	/* IN ORDER: whole at the last piece, and not before. */
+	n = fzn_live_pieces_of(sizeof(frame_a));
+	for (i = 0; i < n; i++) {
+		w = piece_of(frame_a, sizeof(frame_a), 2, 7, i);
+		r = fzn_live_join(&joiner, &w, &whole);
+		if (i + 1u < n)
+			CHECK(r == 0, "a frame was whole before its last piece");
+	}
+	CHECK(r == 1 && whole.media_len == sizeof(frame_a) && whole.pieces == 1u && whole.seq == 7u
+	              && memcmp(whole.media, frame_a, sizeof(frame_a)) == 0,
+	      "a frame split in order was not joined whole");
+
+	/* BACKWARD, AND BESIDE ANOTHER STREAM'S. */
+	n = fzn_live_pieces_of(sizeof(frame_b));
+	for (i = n; i > 0; i--) {
+		w = piece_of(frame_b, sizeof(frame_b), 1, 8, i - 1u);
+		r = fzn_live_join(&joiner, &w, &whole);
+		if (i == 2u) {
+			fzn_live_word_t other = piece_of(frame_a, sizeof(frame_a), 2, 9, 0);
+
+			CHECK(fzn_live_join(&joiner, &other, &whole) == 0, "another stream's piece made a frame whole");
+		}
+	}
+	CHECK(r == 1 && whole.media_len == sizeof(frame_b) && whole.stream == 1u
+	              && memcmp(whole.media, frame_b, sizeof(frame_b)) == 0,
+	      "a frame split backward, beside another, was not joined whole");
+
+	/* A LOST PIECE: its frame gives way to newer ones, and never comes whole. */
+	for (i = 0; i < 2 * FZN_LIVE_JOIN_SLOTS; i++) {
+		w = piece_of(frame_a, sizeof(frame_a), 2, 100u + (uint32_t)i, 0);
+		CHECK(fzn_live_join(&joiner, &w, &whole) == 0, "a first piece made a frame whole");
+	}
+	w = piece_of(frame_a, sizeof(frame_a), 2, 100u, 1);
+	CHECK(fzn_live_join(&joiner, &w, &whole) == 0, "an evicted frame was joined from its later pieces");
+
+	/* ONE PIECE IS THE FRAME. */
+	w = piece_of(frame_b, 400, 1, 50, 0);
+	CHECK(fzn_live_join(&joiner, &w, &whole) == 1 && whole.media_len == 400, "a frame of one piece was held");
+
+	/* REFUSED: a short piece not last, a piece past its pieces, a frame past the most. */
+	w = piece_of(frame_a, sizeof(frame_a), 2, 60, 0);
+	w.media_len = 200;
+	CHECK(fzn_live_join(&joiner, &w, &whole) == -1, "a short piece that is not the last was placed");
+	w = piece_of(frame_a, sizeof(frame_a), 2, 61, 0);
+	w.piece = w.pieces;
+	CHECK(fzn_live_join(&joiner, &w, &whole) == -1, "a piece past its pieces was placed");
+	w = piece_of(frame_a, sizeof(frame_a), 2, 62, 0);
+	w.pieces = FZN_LIVE_PIECES_MAX + 1u;
+	CHECK(fzn_live_join(&joiner, &w, &whole) == -1, "a frame past the most was taken");
+}
+
+/* THE LOCAL LEG'S MESSAGES, sec 1113: a whole frame and a channel's asking
+ * read back by the local reader, and refused by the reader a host uses on
+ * another host's words -- a host never takes them from another. */
+static void test_local_messages(void)
+{
+	uint8_t out[FZN_LIVE_HEAD_LEN + 32u + FZN_LIVE_MEDIA_MAX], media[3000];
+	fzn_live_word_t w, r;
+	size_t n, i;
+
+	for (i = 0; i < sizeof(media); i++)
+		media[i] = (uint8_t)(i * 3u);
+	memset(&w, 0, sizeof(w));
+	w.kind = FZN_LIVE_MEDIA;
+	memset(w.call, 0x5a, sizeof(w.call));
+	w.stream = 2;
+	w.from = 3;
+	w.seq = 77;
+	w.at_ms = 1234;
+	w.media = media;
+	w.media_len = sizeof(media);
+	n = fzn_live_write(&w, out, sizeof(out));
+	CHECK(n && fzn_live_read_local(out, n, &r) == 1 && r.kind == FZN_LIVE_MEDIA && r.stream == 2u
+	              && r.from == 3u && r.seq == 77u && r.at_ms == 1234u && r.media_len == sizeof(media)
+	              && memcmp(r.media, media, sizeof(media)) == 0 && r.call[7] == 0x5a,
+	      "a whole frame did not read back on the local leg");
+	CHECK(!fzn_live_read(out, n, &r), "a host would take a local whole frame from another host");
+	w.kind = FZN_LIVE_MEDIA_OPEN;
+	n = fzn_live_write(&w, out, sizeof(out));
+	CHECK(n == FZN_LIVE_HEAD_LEN && fzn_live_read_local(out, n, &r) == 1 && r.kind == FZN_LIVE_MEDIA_OPEN,
+	      "a channel's asking did not read back");
+	CHECK(!fzn_live_read(out, n, &r), "a host would take a channel's asking from another host");
+	w.kind = FZN_LIVE_ANSWER;
+	n = fzn_live_write(&w, out, sizeof(out));
+	CHECK(n && !fzn_live_read_local(out, n, &r), "the local reader took a word between hosts");
+	w.kind = FZN_LIVE_MEDIA;
+	w.media_len = FZN_LIVE_MEDIA_MAX + 1u;
+	CHECK(!fzn_live_write(&w, out, sizeof(out)), "a whole frame past the most was written");
+}
+
 int main(void)
 {
 	test_words();
 	test_reports();
 	test_calls();
 	test_ring_time();
+	test_join();
+	test_local_messages();
 	printf("live_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

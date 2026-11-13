@@ -22,6 +22,10 @@ enum kind : u8 {
 	busy        = 10,  // the callee's guard refused the ring (sec 1074)
 	answered_elsewhere = 11, // another host of the callee's user answered (sec 1090)
 	declined_elsewhere = 12, // another host of the callee's user declined (sec 1090)
+	// THE LOCAL LEG'S, sec 1113: between a host and its own client only, in the
+	// range sec 1101 keeps for the local socket; a host refuses them from another.
+	media_open  = 128, // a client's channel for the call's media, held open
+	media       = 129, // a whole frame, either way on that channel
 	default     = error,
 }
 
@@ -44,6 +48,13 @@ struct frame {
 	u8   media[remaining];
 }
 
+struct whole {
+	u8   stream;
+	u16  from;
+	u32  seq;
+	u32  at_ms;
+	u8   media[remaining];
+}
 struct report {
 	u8   stream;
 	u32  received;
@@ -76,6 +87,8 @@ struct message {
 		case kind.busy:        nothing           busy;
 		case kind.answered_elsewhere: nothing    answered_elsewhere;
 		case kind.declined_elsewhere: nothing    declined_elsewhere;
+		case kind.media_open:  nothing           media_open;
+		case kind.media:       whole             media;
 		default: error;
 	}
 }

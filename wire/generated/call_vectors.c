@@ -394,6 +394,54 @@ static void test_message_participant(void **state)
 	situ_check_bytes(buf, vector_message_participant, sizeof(buf));
 }
 
+/* message / media_open */
+static const uint8_t vector_message_media_open[10u] = {
+	0x12, 0x80, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_media_open(void **state)
+{
+	uint8_t     buf[10u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_media_open, sizeof(buf));
+	situ_msg_init(&msg, buf, 10u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 10u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_media_open, sizeof(buf));
+}
+
+/* message / media */
+static const uint8_t vector_message_media[24u] = {
+	0x12, 0x81, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x01, 0xF4, 0xC0, 0xFF, 0xEE,
+};
+
+static void test_message_media(void **state)
+{
+	uint8_t     buf[24u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_media, sizeof(buf));
+	situ_msg_init(&msg, buf, 24u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 24u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_media, sizeof(buf));
+}
+
 int main(void)
 {
 	const struct situ_check_case tests[] = {
@@ -409,6 +457,8 @@ int main(void)
 		situ_check_case(test_message_frame),
 		situ_check_case(test_message_report),
 		situ_check_case(test_message_participant),
+		situ_check_case(test_message_media_open),
+		situ_check_case(test_message_media),
 	};
 
 	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");

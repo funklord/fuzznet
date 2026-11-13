@@ -45,6 +45,7 @@ Exit 0 on a pass, 1 on a failure.
 
 import os
 import re
+import socket
 import sys
 import tempfile
 import time
@@ -91,6 +92,52 @@ def frames(sock, call):
 	got = ask(sock, "list frame %s" % call).split()
 	return got[3:] if got[:1] == ["ok"] else []
 
+
+
+# A CALL'S MEDIA CHANNEL, sec 1113: two bytes of length, then the call message;
+# MEDIA_OPEN is kind 128, a whole frame MEDIA 129.
+def media_open(path, call):
+	s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+	s.settimeout(10.0)
+	s.connect(path)
+	msg = bytes([18, 128]) + bytes.fromhex(call)
+	s.sendall(len(msg).to_bytes(2, "big") + msg)
+	head = recv_exact(s, 2)
+	answer = recv_exact(s, int.from_bytes(head, "big"))
+	if answer[:2] != bytes([19, 0]):
+		raise failed("e3: a channel's asking answered %r" % answer)
+	return s
+
+
+def media_send(s, call, stream, seq, at, media):
+	msg = (bytes([18, 129]) + bytes.fromhex(call) + bytes([stream]) + (0).to_bytes(2, "big")
+	       + seq.to_bytes(4, "big") + at.to_bytes(4, "big") + media)
+	s.sendall(len(msg).to_bytes(2, "big") + msg)
+
+
+def media_recv(s, within):
+	"""The next whole frame on the channel: (stream, seq, at, from, media), or None."""
+	s.settimeout(within)
+	try:
+		head = recv_exact(s, 2)
+		msg = recv_exact(s, int.from_bytes(head, "big"))
+	except (socket.timeout, OSError):
+		return None
+	if msg[:2] != bytes([18, 129]):
+		return None
+	body = msg[10:]
+	return (body[0], int.from_bytes(body[3:7], "big"), int.from_bytes(body[7:11], "big"),
+	        int.from_bytes(body[1:3], "big"), body[11:])
+
+
+def recv_exact(s, n):
+	out = b""
+	while len(out) < n:
+		more = s.recv(n - len(out))
+		if not more:
+			raise OSError("the channel closed")
+		out += more
+	return out
 
 def main(argv):
 	if len(argv) != 2:
@@ -192,6 +239,22 @@ def main(argv):
 			if marks[:1] != ["ok"] or len(marks) != 5 or int(marks[1]) < 1 or int(marks[2]) < 4:
 				raise failed("e1: B's get marks answered %r: not 1 EF and 4 AF41" % marks)
 			print("livecheck: e1: B received %s datagrams marked EF and %s AF41" % (marks[1], marks[2]))
+
+			# e3: A WHOLE FRAME ON A HELD CHANNEL, sec 1113: each end opens one for
+			# the call; A writes a 5000-byte video frame whole -- six pieces on the
+			# wire -- and B's channel gives it back whole, as A sent it.
+			chan = {who: media_open(socks[who], call) for who in ("a", "b")}
+			try:
+				big = bytes((i * 7 + 1) & 0xff for i in range(5000))
+				media_send(chan["a"], call, 2, 31, 4321, big)
+				got = media_recv(chan["b"], 15.0)
+				if not got or got[:3] != (2, 31, 4321) or got[4] != big:
+					raise failed("e3: B's channel gave %r, not A's 5000-byte frame whole"
+					             % (got[:4] if got else got,))
+			finally:
+				for c in chan.values():
+					c.close()
+			print("livecheck: e3: A wrote a 5000-byte frame on its channel, and B's gave it whole")
 
 			# e2: THE ROUND TRIP, sec 1026: a frame stamped with this client's own
 			# clock; B's report of it carries its AT back and how long B held it, and

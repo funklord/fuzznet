@@ -9,6 +9,10 @@
 #include "../rpc_encoding.h"
 #include "../rpc_err.h"
 #include "../rpc_limits.h"
+#include "../rpc_media.h"
+
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <stdlib.h>
 
@@ -338,6 +342,76 @@ static void test_a_setting_is_cleared_where_it_was_set(void)
 	      "an estate's setting was not cleared for the estate");
 }
 
+/* A CALL'S MEDIA CHANNEL, sec 1113, over a socketpair standing in for the
+ * node: the asking and the node's answer, a whole frame sent as two bytes of
+ * length and a MEDIA, one received in two writes and handed out whole, the
+ * next receive dropping it, nothing yet, and the node closing the channel. */
+static void peer_write(int fd, const uint8_t *b, size_t n)
+{
+	if (write(fd, b, n) != (ssize_t)n)
+		failures++;
+}
+
+static void test_a_media_channel_carries_whole_frames(void)
+{
+	static const uint8_t call[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+	static const uint8_t ok_status[] = { 0, 3, 19, 0, 0 };
+	static const uint8_t denied[] = { 0, 9, 19, 1, 6, 'n', 'o', ' ', 'w', 'a', 'y' };
+	uint8_t got[64], frame[300], wire[2 + 10 + 11 + 300];
+	fzn_rpc_media_t m;
+	fzn_rpc_media_frame_t f;
+	int sv[2];
+	size_t i;
+
+	for (i = 0; i < sizeof(frame); i++)
+		frame[i] = (uint8_t)(i * 11u);
+	/* REFUSED, in the node's words. */
+	CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0, "fixture: a socketpair");
+	peer_write(sv[1], denied, sizeof(denied));
+	fzn_rpc_init(&c);
+	CHECK(fzn_rpc_media_attach(&c, &m, sv[0], call) == FZN_RPC_ERR_NOT_AUTHORIZED
+	              && strcmp(c.error, "no way") == 0,
+	      "a refused channel was not said in the node's words");
+	close(sv[0]);
+	close(sv[1]);
+
+	CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0, "fixture: a socketpair");
+	peer_write(sv[1], ok_status, sizeof(ok_status));
+	CHECK(fzn_rpc_media_attach(&c, &m, sv[0], call) == FZN_RPC_OK, "an accepted channel did not open");
+	/* THE ASKING, as the node reads it: length 10, CALL, 128, the call. */
+	CHECK(read(sv[1], got, 12) == 12 && got[0] == 0 && got[1] == 10 && got[2] == 18 && got[3] == 128
+	              && memcmp(got + 4, call, 8) == 0,
+	      "the channel's asking was not two bytes of length and a MEDIA_OPEN");
+
+	/* A WHOLE FRAME SENT: length, CALL, 129, the call, stream, from, seq, at, media. */
+	CHECK(fzn_rpc_media_send(&m, 2, 77, 1234, frame, sizeof(frame)) == FZN_RPC_OK,
+	      "a whole frame was not sent");
+	CHECK(read(sv[1], wire, sizeof(wire)) == (ssize_t)sizeof(wire)
+	              && ((size_t)wire[0] << 8 | wire[1]) == 21u + sizeof(frame) && wire[3] == 129
+	              && wire[12] == 2 && wire[18] == 77 && memcmp(wire + 23, frame, sizeof(frame)) == 0,
+	      "a whole frame did not go as one MEDIA");
+	CHECK(fzn_rpc_media_send(&m, 2, 78, 0, frame, FZN_RPC_MEDIA_MAX + 1u) == FZN_RPC_ERR_MALFORMED,
+	      "a frame past the most was sent");
+
+	/* ONE RECEIVED IN TWO WRITES: nothing until it is whole, then it whole. */
+	wire[13] = 0;
+	wire[14] = 3; /* from 3 */
+	peer_write(sv[1], wire, 40);
+	CHECK(fzn_rpc_media_recv(&m, &f) == 0, "half a frame was handed out");
+	peer_write(sv[1], wire + 40, sizeof(wire) - 40);
+	CHECK(fzn_rpc_media_recv(&m, &f) == 1 && f.stream == 2 && f.from == 3 && f.seq == 77
+	              && f.at_ms == 1234 && f.media_len == sizeof(frame)
+	              && memcmp(f.media, frame, sizeof(frame)) == 0,
+	      "a frame in two writes was not handed out whole");
+	CHECK(fzn_rpc_media_recv(&m, &f) == 0, "a frame was handed out twice");
+
+	/* THE NODE LETS IT GO. */
+	close(sv[1]);
+	CHECK(fzn_rpc_media_recv(&m, &f) == FZN_RPC_ERR_SEND_FAILED, "a closed channel read as quiet");
+	fzn_rpc_media_close(&m);
+}
+
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -364,6 +438,7 @@ int main(void)
 	test_the_schema_is_read_in_the_node_s_words();
 	test_a_setting_says_where_it_stands();
 	test_a_setting_is_cleared_where_it_was_set();
+	test_a_media_channel_carries_whole_frames();
 	test_the_suite_can_tell_pass_from_fail();
 	if (failures) {
 		fprintf(stderr, "local rpc_test: %d check(s) failed\n", failures);

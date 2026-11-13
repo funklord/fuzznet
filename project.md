@@ -87198,3 +87198,53 @@ queues rely on.
 `marks-received-uncounted` (the EF frame counted as another mark) are each caught by it. `udp_test`
 reads AF41 and an unmarked datagram back through the library; its truncation guard,
 `udp-recv-needs-msg-trunc-to-see-truncation`, followed `recvfrom` to `recvmsg` and is still caught.
+
+## 1113. A call's media on a held binary channel: video calls' path, and the local leg's first binary stage, 2026-11-13
+
+**Why now.** The holder needs a messenger to hand a friend going abroad within a week, which
+fuzzypickles is building as a focused app -- adding each other by QR, chats, stickers, calls,
+location (its project.md, 2026-11-13) -- and its record names the one thing it cannot do: **video
+calls, "not built: fuzznet's media path"**. Through `add frame` a small call, 320x240 at 15 fps, is
+seven pieces of 200 bytes a frame, ~105 requests a second each a connection, read back two pieces a
+reply; even its audio is G.711 because a 512-byte request with hex media holds no more. Its
+requirement of 2026-11-12 (1000Z): a frame of a few KB in one request, or a connection held open for
+a call's media.
+
+**Built: a held channel for a call's media.** A client sends, as its connection's first message, a
+binary **MEDIA_OPEN** for a call this host holds; the node answers a STATUS and keeps the
+connection. Each **MEDIA** the client writes is a **whole frame** -- stream, seq, time, up to 8160
+bytes of media -- which the node splits into pieces a session carries (`FZN_LIVE_PIECE_MEDIA` each,
+999 bytes) and sends as `add frame` sends one, marked as sec 1111 marks it. Each frame that arrives
+for the call is **joined** at the far node (`fzn_live_join`: a piece's place follows from its number,
+four frames in progress, the oldest giving way, and a split it did not make refused) and written to
+every channel of the call whole. A channel a client stops reading is closed rather than buffered --
+a late frame is worth nothing -- and a channel whose call ended goes. `add frame` and `list frame`
+are unchanged for clients not yet moved.
+
+**The local leg's framing, settled by this first stage** (sec 1101): a binary message is **two
+bytes of length, big-endian and below 0x2000, then the message exactly as between hosts**. The
+length's first byte is therefore always below 0x20, never a verb's letter, so a line and a binary
+message share the socket by that byte with nothing agreed first (`fzn_local_binary`). This replaces
+sec 1101's "a request ends at the client's write shutdown", which a held channel cannot use.
+
+**The messages are the call family's, from situ** (holder: situ for protocol code): `node/call.situ`
+gains `media_open = 128` and `media = 129` with a `whole` body, in the 128-191 range sec 1101 keeps
+for the local socket -- option A's shape for this one category, the holder's choice between A and B
+still open for the rest, and a renumbering if it goes the other way. The codec is regenerated with
+situ's HEAD; `fzn_live_read`, the reader a host uses on another host's words, refuses both kinds, and
+`fzn_live_read_local` takes those two and nothing else.
+
+**The typed client's half:** `local/rpc_media.h` -- `fzn_rpc_media_open(c, call_hex, &m)`, then
+`_send` a whole frame and `_recv` whole frames without blocking (`_fd` to poll), `_close`.
+
+**Measured:** `live_call` phase e3 -- each end opens a channel, A writes a 5000-byte video frame,
+six pieces on the wire, and B's channel gives it back whole, byte for byte. `live_test` joins frames
+in order, backward beside another stream's, gives a lost piece's frame up to newer ones, refuses
+three malformed pieces, and reads the local messages back while the host reader refuses them;
+`rpc_test` drives the client over a socketpair (asking, refusal in the node's words, a frame sent
+and its bytes, one received in two writes, the channel closing); `vocabulary_test` tells a binary
+message from a line; `call_vectors` 14 of 14. Eight sabotage entries, each caught.
+
+**Not yet:** a channel opened by another local user is refused (only the node's own user) -- that
+check has no test, since every test runs as one user; and the media path's other half for video,
+fuzzypickles' capture, codec and drawing, is that tree's.

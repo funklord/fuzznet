@@ -383,4 +383,19 @@ fzn_peer_verdict_t fzn_vocabulary_admit(const fzn_peer_t *peer, const uint8_t *v
 int fzn_vocabulary_names(const uint8_t *verb, size_t verb_len, const fzn_verb_rule_t *rules,
                           size_t rule_count);
 
+/* ---- a binary message, sec 1113 --------------------------------------------
+ *
+ * THE LOCAL LEG IN BINARY, sec 1101's first stage: a message is two bytes of
+ * length, big-endian, then the message exactly as one host says it to
+ * another -- its CMD, SUBCMD and fields. The length is held below 0x2000, so
+ * its first byte is always below 0x20 and never a verb's first letter: a verb
+ * line and a binary message share one socket by that byte, with nothing
+ * agreed first. */
+#define FZN_LOCAL_BINARY_MAX 0x1fffu
+
+/* WHAT `n` BYTES START: 0 a verb line (or nothing yet), 1 a binary message,
+ * `*total` its bytes with the length once both length bytes are here and 0
+ * before; -1 a length of nothing or past the most. */
+int fzn_local_binary(const uint8_t *bytes, size_t n, size_t *total);
+
 #endif /* FZN_VOCABULARY_H */

@@ -93,6 +93,75 @@ static inline situ_err_t fzn_call_frame_edit_decode(const situ_msg_t *msg,
 	return SITU_OK;
 }
 
+/* `whole`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t stream;
+	uint16_t from;
+	uint32_t seq;
+	uint32_t at_ms;
+	const uint8_t *media;	/* into your backing */
+	uint32_t media_len;
+} fzn_call_whole_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_call_whole_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_call_whole_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_call_whole_media_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_call_whole_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_call_whole_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_call_whole_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_call_whole_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->stream = fzn_call_whole_stream_get(view);
+	out->from = fzn_call_whole_from_get(view);
+	out->seq = fzn_call_whole_seq_get(view);
+	out->at_ms = fzn_call_whole_at_ms_get(view);
+	out->media_len = fzn_call_whole_media_len(view);
+	out->media     = backing + at;
+	for (uint32_t i = 0u; i < out->media_len; i++) {
+		backing[at + i] = fzn_call_whole_media_ptr(view)[i];
+	}
+	at += out->media_len;
+	(void)at;
+	return SITU_OK;
+}
+
 #ifdef __cplusplus
 }
 #endif

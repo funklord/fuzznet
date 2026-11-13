@@ -53,6 +53,7 @@
 #include <stdint.h>
 
 #include "../chain/chain.h"
+#include "../wire/session_frame.h"
 
 #define FZN_LIVE_CALL_LEN 8u
 #define FZN_LIVE_HEAD_LEN (1u + 1u + FZN_LIVE_CALL_LEN)
@@ -102,7 +103,13 @@ typedef enum fzn_live_kind {
 	 * that user's other hosts, which end the call so -- not `hung-up`, the
 	 * caller giving up, which a missed call is told by. */
 	FZN_LIVE_ANSWERED_ELSEWHERE = 11,
-	FZN_LIVE_DECLINED_ELSEWHERE = 12
+	FZN_LIVE_DECLINED_ELSEWHERE = 12,
+	/* THE LOCAL LEG'S, sec 1113, between a host and its own client only: a
+	 * channel for a call's media held open, and a whole frame on it either
+	 * way. fzn_live_read refuses both, so a host never takes them from
+	 * another; fzn_live_read_local takes them and nothing else. */
+	FZN_LIVE_MEDIA_OPEN = 128,
+	FZN_LIVE_MEDIA = 129
 } fzn_live_kind_t;
 
 /* ONE WORD READ, pointing into the caller's bytes. */
@@ -157,6 +164,52 @@ int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out);
 /* A WORD WRITTEN into `out`, its length; 0 when `cap` is short or the word is
  * malformed (a frame's piece past its pieces, or none). */
 size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap);
+
+/* A LOCAL CLIENT'S MESSAGE READ, sec 1113: a MEDIA_OPEN or a MEDIA, and
+ * nothing a host says to another. 1 when it is one. */
+int fzn_live_read_local(const uint8_t *bytes, size_t len, fzn_live_word_t *out);
+
+/* ---- a frame whole, sec 1113 ------------------------------------------------
+ *
+ * A CLIENT HANDS THE NODE A WHOLE FRAME, a video frame of a few KB, and the
+ * node splits it into pieces a session frame carries and joins them again at
+ * the far end, so a client never counts pieces (fuzzypickles' requirement of
+ * 2026-11-12, inbox 1000Z). Every piece but the last carries exactly
+ * FZN_LIVE_PIECE_MEDIA bytes, so where a piece goes follows from its number;
+ * a frame whose pieces do not -- a client's own split, from `add frame` --
+ * is not joined here and is read piece by piece as before. */
+#define FZN_LIVE_PIECE_MEDIA (FZN_SESSION_FRAME_PAYLOAD_MAX - FZN_LIVE_FRAME_HEAD_LEN)
+/* The most a whole frame carries: what the local leg's message holds (sec
+ * 1113), well past a small video call's ~1.25 KB a frame. */
+#define FZN_LIVE_MEDIA_MAX 8160u
+#define FZN_LIVE_PIECES_MAX ((FZN_LIVE_MEDIA_MAX + FZN_LIVE_PIECE_MEDIA - 1u) / FZN_LIVE_PIECE_MEDIA)
+/* FRAMES BEING JOINED AT ONCE: a stream's newest few, as later ones arrive
+ * before an earlier one's last piece; the oldest gives way. */
+#define FZN_LIVE_JOIN_SLOTS 4u
+
+/* How many pieces `media_len` bytes go in; 0 for none or past the most. */
+size_t fzn_live_pieces_of(size_t media_len);
+
+typedef struct fzn_live_join_slot {
+	int used;
+	uint8_t stream;
+	uint16_t from, pieces, have;
+	uint32_t seq, at_ms;
+	size_t len;
+	uint64_t taken; /* when its first piece came, in takes: the oldest gives way */
+	uint8_t media[FZN_LIVE_MEDIA_MAX];
+} fzn_live_join_slot_t;
+
+typedef struct fzn_live_join {
+	fzn_live_join_slot_t slot[FZN_LIVE_JOIN_SLOTS];
+	uint64_t takes;
+} fzn_live_join_t;
+
+/* ONE PIECE TAKEN: 1 when it makes its frame whole, `*whole` then that frame
+ * as one piece of one, its media in the slot until the next take; 0 when the
+ * frame waits for more; -1 for a piece that cannot be placed -- past its
+ * pieces, a size the split does not make, or a frame past the most. */
+int fzn_live_join(fzn_live_join_t *j, const fzn_live_word_t *w, fzn_live_word_t *whole);
 
 typedef enum fzn_live_state {
 	FZN_LIVE_RINGING_OUT = 1, /* this host's client rang, the other host told */

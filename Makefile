@@ -245,7 +245,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              local/rpc.c local/rpc_err.c local/rpc_describe.c \
-             local/rpc_encoding.c local/rpc_sticker_read.c \
+             local/rpc_encoding.c local/rpc_sticker_read.c local/rpc_media.c \
              hex/hex.c net/own_address.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
@@ -351,7 +351,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h \
              local/rpc.h local/rpc_types.h local/rpc_err.h local/rpc_capability.h \
              local/rpc_limits.h local/rpc_encoding.h \
-             local/rpc_compat.h local/rpc_sticker_read.h \
+             local/rpc_compat.h local/rpc_sticker_read.h local/rpc_media.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
@@ -3547,7 +3547,10 @@ $(BUILD_DIR)/qr/test/qr_test: $(BUILD_DIR)/qr/test/qr_test.o $(BUILD_DIR)/qr/qr.
 RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
             $(BUILD_DIR)/local/rpc_describe.o \
             $(BUILD_DIR)/local/rpc_encoding.o \
-            $(BUILD_DIR)/local/rpc_sticker_read.o
+            $(BUILD_DIR)/local/rpc_sticker_read.o $(BUILD_DIR)/local/rpc_media.o \
+            $(BUILD_DIR)/node/live.o $(BUILD_DIR)/wire/generated/call.o \
+            $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/wire/status.o \
+            $(BUILD_DIR)/wire/generated/status.o
 $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                                   $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \

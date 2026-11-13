@@ -54,6 +54,13 @@ struct message size=10.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.body.busy                      offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.answered_elsewhere        offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.declined_elsewhere        offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.media_open                offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.media                     offset=AbsoluteStatic(0x0A) size=Unbounded align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.media.stream              offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.media.from                offset=AbsoluteStatic(0x0B) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.media.seq                 offset=AbsoluteStatic(0x0D) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.media.at_ms               offset=AbsoluteStatic(0x11) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.media.media               offset=AbsoluteStatic(0x15) size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
 struct nothing size=0
 
@@ -72,3 +79,10 @@ struct report size=19 repr=ValueConverted atomic=NonAtomic
 struct ring size=33 atomic=NonAtomic
   ring.kinds                             offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   ring.whom                              offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+
+struct whole size=11.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  whole.stream                           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  whole.from                             offset=AbsoluteStatic(0x01) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  whole.seq                              offset=AbsoluteStatic(0x03) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  whole.at_ms                            offset=AbsoluteStatic(0x07) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  whole.media                            offset=AbsoluteStatic(0x0B) size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting

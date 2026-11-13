@@ -99,6 +99,33 @@ int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
 	}
 }
 
+int fzn_live_read_local(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
+{
+	situ_msg_t msg;
+	situ_view_t v, b;
+
+	if (!out || !fzn_live_is_word(bytes, len) || len > UINT32_MAX)
+		return 0;
+	situ_msg_init(&msg, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_call_message_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_call_message_validate(v) != SITU_OK)
+		return 0;
+	memset(out, 0, sizeof(*out));
+	out->kind = (fzn_live_kind_t)fzn_call_message_kind_get(v);
+	memcpy(out->call, fzn_call_message_call_ptr(v), FZN_LIVE_CALL_LEN);
+	if (out->kind == FZN_LIVE_MEDIA_OPEN)
+		return len == FZN_LIVE_HEAD_LEN;
+	if (out->kind != FZN_LIVE_MEDIA || fzn_call_message_body_media_view(v, &b) != SITU_OK)
+		return 0;
+	out->stream = fzn_call_whole_stream_get(b);
+	out->from = fzn_call_whole_from_get(b);
+	out->seq = fzn_call_whole_seq_get(b);
+	out->at_ms = fzn_call_whole_at_ms_get(b);
+	out->media = fzn_call_whole_media_ptr(b);
+	out->media_len = fzn_call_whole_media_len(b);
+	return out->media_len <= FZN_LIVE_MEDIA_MAX;
+}
+
 /* WRITTEN BY THE BUILDERS node/call.situ GENERATES, sec 1083, as it is read by
  * its reader (sec 1068): the arm's body built in place after the head, the head
  * set through the message's own setters, and the whole validated -- no offset
@@ -144,6 +171,15 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 		if (!w->whom)
 			return 0;
 		err = fzn_call_participant_build(out + at, room, w->from, w->whom, &body);
+		break;
+	/* THE LOCAL LEG'S, sec 1113: a channel asked for, and a whole frame. */
+	case FZN_LIVE_MEDIA_OPEN:
+		break;
+	case FZN_LIVE_MEDIA:
+		if ((w->media_len && !w->media) || w->media_len > FZN_LIVE_MEDIA_MAX)
+			return 0;
+		err = fzn_call_whole_build(out + at, room, w->stream, w->from, w->seq, w->at_ms, w->media,
+		                           (uint32_t)w->media_len, &body);
 		break;
 	default:
 		return 0;
@@ -277,3 +313,85 @@ void fzn_live_release(fzn_live_calls_t *t)
 	t->rows = NULL;
 	t->cap = t->n = 0;
 }
+
+/* ---- a frame whole, sec 1113 ---------------------------------------------- */
+
+size_t fzn_live_pieces_of(size_t media_len)
+{
+	if (!media_len || media_len > FZN_LIVE_MEDIA_MAX)
+		return 0;
+	return (media_len + FZN_LIVE_PIECE_MEDIA - 1u) / FZN_LIVE_PIECE_MEDIA;
+}
+
+int fzn_live_join(fzn_live_join_t *j, const fzn_live_word_t *w, fzn_live_word_t *whole)
+{
+	fzn_live_join_slot_t *s = NULL, *oldest = NULL;
+	size_t i, at;
+
+	if (!j || !w || !whole || w->kind != FZN_LIVE_FRAME || !w->pieces || w->piece >= w->pieces
+	    || w->pieces > FZN_LIVE_PIECES_MAX)
+		return -1;
+	/* ONE PIECE IS THE FRAME, joined by nothing. */
+	if (w->pieces == 1u) {
+		if (w->media_len > FZN_LIVE_MEDIA_MAX)
+			return -1;
+		*whole = *w;
+		return 1;
+	}
+	/* A PIECE THE SPLIT DID NOT MAKE: not the last and short, or any too long. */
+	if (w->media_len > FZN_LIVE_PIECE_MEDIA
+	    || (w->piece + 1u < w->pieces && w->media_len != FZN_LIVE_PIECE_MEDIA))
+		return -1;
+	at = (size_t)w->piece * FZN_LIVE_PIECE_MEDIA;
+	if (at + w->media_len > FZN_LIVE_MEDIA_MAX)
+		return -1;
+	for (i = 0; i < FZN_LIVE_JOIN_SLOTS && !s; i++) {
+		fzn_live_join_slot_t *c = &j->slot[i];
+
+		if (c->used && c->stream == w->stream && c->from == w->from && c->seq == w->seq)
+			s = c;
+	}
+	/* ELSE A FREE SLOT, or failing one the oldest frame's. */
+	for (i = 0; i < FZN_LIVE_JOIN_SLOTS && !s; i++) {
+		fzn_live_join_slot_t *c = &j->slot[i];
+
+		if (!c->used) {
+			oldest = c;
+			break;
+		}
+		if (!oldest || c->taken < oldest->taken)
+			oldest = c;
+	}
+	if (!s) {
+		/* A FREE SLOT, or the oldest frame's, which is lost now. */
+		s = oldest;
+		memset(s, 0, offsetof(fzn_live_join_slot_t, media));
+		s->used = 1;
+		s->stream = w->stream;
+		s->from = w->from;
+		s->seq = w->seq;
+		s->pieces = w->pieces;
+		s->taken = ++j->takes;
+	}
+	if (s->pieces != w->pieces)
+		return -1;
+	s->at_ms = w->at_ms;
+	memcpy(s->media + at, w->media, w->media_len);
+	s->have |= (uint16_t)(1u << w->piece);
+	if (w->piece + 1u == w->pieces)
+		s->len = at + w->media_len;
+	if (s->have != (uint16_t)((1u << s->pieces) - 1u))
+		return 0;
+	*whole = *w;
+	whole->stream = s->stream;
+	whole->from = s->from;
+	whole->seq = s->seq;
+	whole->at_ms = s->at_ms;
+	whole->piece = 0;
+	whole->pieces = 1;
+	whole->media = s->media;
+	whole->media_len = s->len;
+	s->used = 0;
+	return 1;
+}
+

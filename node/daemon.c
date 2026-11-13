@@ -10182,17 +10182,25 @@ size_t fzn_daemon_local(const char *line, char *reply, size_t cap)
 
 /* THE EXTENSION'S OWN DESCRIPTORS AND TIMER, sec 831, as the node's loop
  * asks for them. */
+/* A CALL'S MEDIA CHANNELS, sec 1113, polled beside the extension's. */
+static size_t media_channel_fds(int *fds, size_t cap);
+static int media_channel_ready(int fd);
+
 static size_t ext_fds(void *ctx, int *fds, size_t cap)
 {
+	size_t n = media_channel_fds(fds, cap);
+
 	(void)ctx;
-	return daemon_ext && daemon_ext->fds && daemon_ext->ready
-	       ? daemon_ext->fds(daemon_ext->ctx, fds, cap)
-	       : 0u;
+	return n + (daemon_ext && daemon_ext->fds && daemon_ext->ready
+	                    ? daemon_ext->fds(daemon_ext->ctx, fds + n, cap - n)
+	                    : 0u);
 }
 
 static void ext_ready(void *ctx, int fd)
 {
 	(void)ctx;
+	if (media_channel_ready(fd))
+		return;
 	if (daemon_ext && daemon_ext->ready)
 		daemon_ext->ready(daemon_ext->ctx, fd);
 }
@@ -17700,6 +17708,218 @@ static size_t say_participants(struct live_kept *k, const uint8_t *except, const
 	return n;
 }
 
+/* ---- a call's media on a held local channel, sec 1113 --------------------------
+ *
+ * A CLIENT OPENS A CHANNEL FOR A CALL -- a binary MEDIA_OPEN on the local
+ * socket (`local/vocabulary.h`'s framing) -- and the node keeps the connection:
+ * each MEDIA the client writes is a whole frame, split here into the pieces a
+ * session carries and sent as `add frame` sends one; each frame that arrives
+ * for the call is joined here and written to the channel whole. No hex, no
+ * request a piece, no polling: fuzzypickles' requirement for video calls
+ * (inbox 1000Z), and the first of sec 1101's local leg in binary. */
+struct media_channel {
+	int fd;
+	uint8_t call[FZN_LIVE_CALL_LEN];
+	size_t in_len;
+	uint8_t in[2u + FZN_LOCAL_BINARY_MAX];
+	fzn_live_join_t join;
+};
+static struct media_channel **media_channels;
+static size_t n_media_channels, media_channels_room;
+
+/* A message written to a channel or a fresh connection: its length, then it.
+ * 1 when written whole. A channel is no place for half a message, and a media
+ * frame late is worth nothing: one that would block is the channel's end. */
+static int local_binary_send(int fd, const uint8_t *msg, size_t len)
+{
+	uint8_t head[2];
+	struct iovec io[2];
+	struct msghdr m;
+	ssize_t n;
+
+	if (len == 0u || len > FZN_LOCAL_BINARY_MAX)
+		return 0;
+	head[0] = (uint8_t)(len >> 8);
+	head[1] = (uint8_t)len;
+	io[0].iov_base = head;
+	io[0].iov_len = 2u;
+	io[1].iov_base = (void *)(uintptr_t)msg;
+	io[1].iov_len = len;
+	memset(&m, 0, sizeof(m));
+	m.msg_iov = io;
+	m.msg_iovlen = 2;
+	do
+		n = sendmsg(fd, &m, MSG_DONTWAIT | MSG_NOSIGNAL);
+	while (n < 0 && errno == EINTR);
+	return n == (ssize_t)(2u + len);
+}
+
+static int local_binary_status(int fd, fzn_status_t code, const char *why)
+{
+	uint8_t msg[FZN_STATUS_LEN_MAX + 8u];
+	size_t n = fzn_status_write(msg, sizeof(msg), code, why);
+
+	return n && local_binary_send(fd, msg, n);
+}
+
+static void media_channel_close(size_t i)
+{
+	(void)close(media_channels[i]->fd);
+	free(media_channels[i]);
+	media_channels[i] = media_channels[--n_media_channels];
+}
+
+/* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary: a MEDIA_OPEN for a call
+ * this host holds, from its own user, keeps it as the call's channel. */
+static int local_binary(void *ctx, int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	struct media_channel *ch;
+	fzn_live_word_t w;
+	int big = 1 << 20, flags;
+
+	(void)ctx;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "a call's media is its user's"), 0;
+	if (!fzn_live_read_local(msg, len, &w) || w.kind != FZN_LIVE_MEDIA_OPEN)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a channel's asking"), 0;
+	if (!fzn_live_find(&node_calls, w.call))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "no such call"), 0;
+	if (n_media_channels == media_channels_room) {
+		size_t room = media_channels_room ? 2u * media_channels_room : 4u;
+		struct media_channel **more = realloc(media_channels, room * sizeof(*more));
+
+		if (!more)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "no room for a channel"), 0;
+		media_channels = more;
+		media_channels_room = room;
+	}
+	if (!(ch = calloc(1, sizeof(*ch))))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "no room for a channel"), 0;
+	/* NEVER BLOCKING THE NODE, and room for a few frames in flight. */
+	flags = fcntl(fd, F_GETFL, 0);
+	(void)fcntl(fd, F_SETFL, flags < 0 ? O_NONBLOCK : flags | O_NONBLOCK);
+	(void)setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &big, sizeof(big));
+	ch->fd = fd;
+	memcpy(ch->call, w.call, FZN_LIVE_CALL_LEN);
+	media_channels[n_media_channels++] = ch;
+	if (!local_binary_status(fd, FZN_STATUS_OK, NULL)) {
+		media_channel_close(n_media_channels - 1u);
+		return 1; /* closed already */
+	}
+	return 1;
+}
+
+/* A WHOLE FRAME FROM THE CLIENT, split and sent as `add frame` sends a piece. */
+static void media_channel_send(fzn_live_call_t *c, const fzn_live_word_t *whole)
+{
+	uint8_t word[FZN_SESSION_FRAME_PAYLOAD_MAX];
+	struct live_kept *k = kept_of(c->call, 0);
+	size_t pieces = fzn_live_pieces_of(whole->media_len), i, n;
+	fzn_live_word_t lw;
+
+	for (i = 0; i < pieces; i++) {
+		size_t at = i * FZN_LIVE_PIECE_MEDIA;
+
+		lw = *whole;
+		lw.kind = FZN_LIVE_FRAME;
+		memcpy(lw.call, c->call, FZN_LIVE_CALL_LEN);
+		lw.from = 0;
+		lw.piece = (uint16_t)i;
+		lw.pieces = (uint16_t)pieces;
+		lw.media = whole->media + at;
+		lw.media_len = whole->media_len - at < FZN_LIVE_PIECE_MEDIA ? whole->media_len - at
+		                                                           : FZN_LIVE_PIECE_MEDIA;
+		if (!(n = fzn_live_write(&lw, word, sizeof(word))))
+			return;
+		if (k && k->n_participants)
+			(void)say_participants(k, NULL, word, n, lw.stream);
+		else
+			(void)say_frame(c->host, word, n, lw.stream);
+	}
+	c->heard_s = wall_clock();
+}
+
+/* WHAT A CHANNEL SAID: whole frames, each sent while its call is up. 1 when
+ * `fd` was a channel's. */
+static int media_channel_ready(int fd)
+{
+	size_t i;
+
+	for (i = 0; i < n_media_channels && media_channels[i]->fd != fd; i++)
+		;
+	if (i == n_media_channels)
+		return 0;
+	{
+		struct media_channel *ch = media_channels[i];
+		ssize_t got;
+
+		do
+			got = recv(fd, ch->in + ch->in_len, sizeof(ch->in) - ch->in_len, MSG_DONTWAIT);
+		while (got < 0 && errno == EINTR);
+		if (got == 0 || (got < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+			media_channel_close(i);
+			return 1;
+		}
+		if (got > 0)
+			ch->in_len += (size_t)got;
+		for (;;) {
+			size_t total = 0;
+			fzn_live_word_t w;
+			fzn_live_call_t *c;
+
+			if (fzn_local_binary(ch->in, ch->in_len, &total) != 1) {
+				if (ch->in_len)
+					media_channel_close(i); /* a line, or a length past the most */
+				return 1;
+			}
+			if (!total || ch->in_len < total)
+				return 1;
+			if (fzn_live_read_local(ch->in + 2u, total - 2u, &w) && w.kind == FZN_LIVE_MEDIA
+			    && memcmp(w.call, ch->call, FZN_LIVE_CALL_LEN) == 0
+			    && (c = fzn_live_find(&node_calls, ch->call)) && c->state == FZN_LIVE_UP)
+				media_channel_send(c, &w);
+			memmove(ch->in, ch->in + total, ch->in_len - total);
+			ch->in_len -= total;
+		}
+	}
+}
+
+/* A FRAME'S PIECE ARRIVED FOR `call`: joined for each of its channels, and a
+ * frame made whole written to it; a channel that cannot take it goes. */
+static void media_channel_deliver(const uint8_t call[FZN_LIVE_CALL_LEN], const fzn_live_word_t *w)
+{
+	static uint8_t msg[FZN_LOCAL_BINARY_MAX];
+	size_t i, n;
+
+	for (i = n_media_channels; i > 0u; i--) {
+		struct media_channel *ch = media_channels[i - 1u];
+		fzn_live_word_t whole;
+
+		if (memcmp(ch->call, call, FZN_LIVE_CALL_LEN) != 0
+		    || fzn_live_join(&ch->join, w, &whole) != 1)
+			continue;
+		whole.kind = FZN_LIVE_MEDIA;
+		memcpy(whole.call, call, FZN_LIVE_CALL_LEN);
+		if (!(n = fzn_live_write(&whole, msg, sizeof(msg))) || !local_binary_send(ch->fd, msg, n)) {
+			say(FZN_ENTRY_INFO, "node/call", "a media channel fell behind and was closed");
+			media_channel_close(i - 1u);
+		}
+	}
+}
+
+/* THE CHANNELS POLLED, those of calls that ended closed first. */
+static size_t media_channel_fds(int *fds, size_t cap)
+{
+	size_t i, n = 0;
+
+	for (i = n_media_channels; i > 0u; i--)
+		if (!fzn_live_find(&node_calls, media_channels[i - 1u]->call))
+			media_channel_close(i - 1u);
+	for (i = 0; i < n_media_channels && n < cap; i++)
+		fds[n++] = media_channels[i]->fd;
+	return n;
+}
+
 /* WHO THE HUB NUMBERS `index`, said to `to` in a PARTICIPANT word. sec 1024. */
 static void say_participant(struct live_kept *k, const uint8_t to[FZN_PUBKEY_LEN], size_t index)
 {
@@ -18296,6 +18516,13 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 				/* EACH PARTICIPANT'S PATH ITS OWN, sec 1027. */
 				if (w.stream < FZND_LIVE_STREAMS)
 					fzn_live_count(&m->path.rx[w.stream], w.seq, w.at_ms, wall_ms());
+				/* AND TO THE HUB'S OWN CLIENT'S CHANNELS, as that participant's. */
+				{
+					fzn_live_word_t as = w;
+
+					as.from = (uint16_t)((size_t)(m - k->participants) + 1u);
+					media_channel_deliver(w.call, &as);
+				}
 				/* AND ON TO EVERY OTHER PARTICIPANT: this host is the hub; and
 				 * to the sibling the call is on, sec 1025. */
 				(void)say_participants(k, host, slot, len, w.stream);
@@ -18376,6 +18603,8 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 		if (c->state != FZN_LIVE_UP || len > FZN_SESSION_FRAME_PAYLOAD_MAX
 		    || !(k = kept_of(w.call, 1)))
 			break;
+		/* JOINED FOR THE CALL'S CHANNELS, sec 1113, as well as kept. */
+		media_channel_deliver(w.call, &w);
 		memcpy(k->words[k->total % FZND_LIVE_KEPT], bytes, len);
 		k->lens[k->total % FZND_LIVE_KEPT] = (uint16_t)len;
 		k->total++;
@@ -23302,6 +23531,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	/* AN EXTENSION'S OWN DESCRIPTORS, sec 831, in whatever node this is. */
 	state.own_fds = ext_fds;
 	state.own_ready = ext_ready;
+	/* A CALL'S MEDIA ON A HELD CHANNEL, sec 1113. */
+	state.on_binary = local_binary;
+	state.on_binary_ctx = NULL;
 	/* WHERE THE FACE SERVES, sec 666, for a follower to forward to: written
 	 * by the claim's holder alone, removed at its exit. */
 	if (face_dir && sock_path)

@@ -211,6 +211,12 @@ typedef struct fzn_node_state {
 	 * (`fzn_node_serve_local_judged`, sec 852), or NULL to deny it. */
 	fzn_node_local_handler_t on_local_denied;
 	void *on_local_denied_ctx;
+	/* A LOCAL CLIENT'S BINARY MESSAGE, sec 1113 (`fzn_local_binary`): the
+	 * message after its length, its sender's origin and `fd`, which the
+	 * handler answers on. 1 when it keeps `fd` -- a channel held open, its
+	 * own to close -- and 0 when the node closes it. NULL closes every one. */
+	int (*on_binary)(void *ctx, int fd, fzn_origin_t origin, const uint8_t *msg, size_t len);
+	void *on_binary_ctx;
 	/* STEP 8 OF SEC 4.7, WHICH THE REMOTE PATH DID NOT HAVE.
 	 *
 	 * `fzn_node_serve_datagram` runs steps 1 to 7 and stops -- sec 362

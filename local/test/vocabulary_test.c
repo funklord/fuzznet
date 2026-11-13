@@ -569,6 +569,26 @@ int main(void)
 		      "a line past the protocol's limit was not reported as TOO_LONG");
 	}
 
+	/* A BINARY MESSAGE BESIDE A VERB LINE, sec 1113: told apart by the first
+	 * byte, its length read once both bytes are here, and a length of nothing
+	 * or past the most refused. */
+	{
+		const uint8_t line[] = "get status\n", one[] = { 0x00 }, msg[] = { 0x00, 0x0a, 18, 128 },
+		              big[] = { 0x20, 0x00 }, none[] = { 0x00, 0x00 };
+		size_t total = 99;
+
+		check(fzn_local_binary(line, sizeof(line) - 1u, &total) == 0 && total == 0,
+		      "a verb line was read as a binary message");
+		check(fzn_local_binary(one, 1, &total) == 1 && total == 0,
+		      "a binary message's first byte alone was not waited on");
+		check(fzn_local_binary(msg, sizeof(msg), &total) == 1 && total == 12,
+		      "a binary message's length was not read");
+		check(fzn_local_binary(big, sizeof(big), &total) == 0,
+		      "a first byte a verb may open with was read as a binary length");
+		check(fzn_local_binary(none, sizeof(none), &total) == -1,
+		      "a binary message of nothing was taken");
+	}
+
 	printf("vocabulary_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

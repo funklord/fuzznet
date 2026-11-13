@@ -101,9 +101,11 @@ static void serve_connection(fzn_node_state_t *state, int cfd, const fzn_peer_t 
  * full, which the request's reader refuses; closed when it hung up. */
 static void waiting_step(fzn_node_state_t *state, size_t i)
 {
-	uint8_t peek[FZN_REQUEST_MAX + 1u];
+	static uint8_t peek[2u + FZN_LOCAL_BINARY_MAX];
 	struct fzn_node_waiting w = state->waiting[i];
 	ssize_t n = recv(w.fd, peek, sizeof(peek), MSG_PEEK | MSG_DONTWAIT);
+	size_t total = 0;
+	int binary;
 
 	if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
 		return;
@@ -112,7 +114,29 @@ static void waiting_step(fzn_node_state_t *state, size_t i)
 		(void)close(w.fd);
 		return;
 	}
-	if (!memchr(peek, '\n', (size_t)n) && (size_t)n < sizeof(peek)) {
+	/* A BINARY MESSAGE, sec 1113: waited for whole, then taken off the socket
+	 * and handed on with its sender's origin; one the node cannot read, or
+	 * one with nobody to take it, closes the connection. */
+	binary = fzn_local_binary(peek, (size_t)n, &total);
+	if (binary < 0) {
+		(void)close(w.fd);
+		return;
+	}
+	if (binary) {
+		if (!total || (size_t)n < total) {
+			state->waiting[state->n_waiting++] = w;
+			return;
+		}
+		if (recv(w.fd, peek, total, MSG_DONTWAIT) != (ssize_t)total || !state->on_binary
+		    || !state->on_binary(state->on_binary_ctx, w.fd,
+		                         fzn_node_local_origin(&state->config, &w.peer), peek + 2u,
+		                         total - 2u))
+			(void)close(w.fd);
+		return;
+	}
+	if ((size_t)n > FZN_REQUEST_MAX + 1u)
+		n = (ssize_t)(FZN_REQUEST_MAX + 1u);
+	if (!memchr(peek, '\n', (size_t)n) && (size_t)n < FZN_REQUEST_MAX + 1u) {
 		state->waiting[state->n_waiting++] = w;
 		return;
 	}

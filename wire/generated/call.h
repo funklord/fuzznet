@@ -36,6 +36,8 @@ typedef enum fzn_call_kind {
 	FZN_CALL_KIND_BUSY = 10,
 	FZN_CALL_KIND_ANSWERED_ELSEWHERE = 11,
 	FZN_CALL_KIND_DECLINED_ELSEWHERE = 12,
+	FZN_CALL_KIND_MEDIA_OPEN = 128,
+	FZN_CALL_KIND_MEDIA = 129,
 } fzn_call_kind_t;
 
 /** Whether a value names a member of kind (section 8.7).
@@ -55,6 +57,8 @@ static inline int fzn_call_kind_is_known(fzn_call_kind_t value)
 	case FZN_CALL_KIND_BUSY:
 	case FZN_CALL_KIND_ANSWERED_ELSEWHERE:
 	case FZN_CALL_KIND_DECLINED_ELSEWHERE:
+	case FZN_CALL_KIND_MEDIA_OPEN:
+	case FZN_CALL_KIND_MEDIA:
 		return 1;
 	default:
 		return 0;
@@ -329,6 +333,126 @@ situ_err_t fzn_call_frame_validate(situ_view_t view);
  */
 situ_err_t fzn_call_frame_check(situ_view_t view, uint32_t *which);
 #define FZN_CALL_FRAME_PIECES_CHECK 0u
+
+/* ---- struct whole ---- */
+
+#define FZN_CALL_WHOLE_SIZE_MIN   11u
+/* No FZN_CALL_WHOLE_SIZE_MAX: nothing in the schema bounds this
+ * struct's length. Give the driving length field a `[max = N]`
+ * to make it statically allocatable. */
+
+/* INVALIDATION: nothing invalidates a whole view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_call_whole_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_CALL_WHOLE_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** whole.stream : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_call_whole_stream_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_call_whole_stream_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_call_whole_stream_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+/** whole.from : u16  at AbsoluteStatic(0x01)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_call_whole_from_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 1u));
+}
+static inline void fzn_call_whole_from_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 1u, (uint16_t)value);
+}
+
+/** whole.seq : u32  at AbsoluteStatic(0x03)
+ * size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_call_whole_seq_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 3u));
+}
+static inline void fzn_call_whole_seq_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 3u, (uint32_t)value);
+}
+
+/** whole.at_ms : u32  at AbsoluteStatic(0x07)
+ * size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_call_whole_at_ms_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 7u));
+}
+static inline void fzn_call_whole_at_ms_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 7u, (uint32_t)value);
+}
+
+/** whole.media : u8  at AbsoluteStatic(0x0B)
+ * size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_call_whole_media_len(situ_view_t view)
+{
+	return situ_min_u32(situ_remaining_u32(view.limit, 11u),
+		situ_remaining_u32(view.limit, 11u));
+}
+static inline uint8_t *fzn_call_whole_media_ptr(situ_view_t view)
+{
+	return situ_base(view) + 11u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member with no upper bound on its length
+ *              changing its length moves everything after it
+ *   remedy:    bound whatever decides the extent: `[max = N]` on a length field, `max N` after `until` for a scan, `max N` on a `while` run. A `[remaining]` member is bounded only by the frame it sits in, and an aggregate by whatever inside it is unbounded
+ */
+
+/** How many bytes one `whole` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_call_whole_extent(situ_view_t view)
+{
+	uint32_t extent = 0u;
+	extent = extent + (view.limit);
+	return extent;
+}
+
+/* No `whole_required`: it ends where the view ends, so how long one is is the transport's answer rather than the message's.
+ * Framing such a message is the layer below's job -- situ can say what
+ * the bytes mean and not when they have all arrived. */
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_call_whole_validate(situ_view_t view);
 
 /* ---- struct report ---- */
 
@@ -796,6 +920,53 @@ static inline situ_err_t fzn_call_message_body_declined_elsewhere_view(situ_view
 	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
 }
 
+/** message.body.media_open, present when the discriminant selects `kind.media_open`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_call_message_body_media_open_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_call_message_kind_get(view) != 128u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+}
+
+/* message.body.media, present when the discriminant selects `kind.media`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `media` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_call_message_body_media_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 10u, situ_remaining_u32(view.limit, 10u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_call_whole_extent(whole);
+}
+static inline situ_err_t fzn_call_message_body_media_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_call_message_kind_get(view) != 129u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 10u, situ_remaining_u32(view.limit, 10u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_call_whole_extent(whole);
+	return situ_view_sub(view, 10u, size, out);
+}
+
 /* No `message_required`: one of its members has no length this can compute.
  * Framing such a message is the layer below's job -- situ can say what
  * the bytes mean and not when they have all arrived. */
@@ -840,6 +1011,8 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which);
 #define FZN_CALL_MESSAGE_BODY_BUSY_CHECK 12u
 #define FZN_CALL_MESSAGE_BODY_ANSWERED_ELSEWHERE_CHECK 13u
 #define FZN_CALL_MESSAGE_BODY_DECLINED_ELSEWHERE_CHECK 14u
+#define FZN_CALL_MESSAGE_BODY_MEDIA_OPEN_CHECK 15u
+#define FZN_CALL_MESSAGE_BODY_MEDIA_CHECK 16u
 
 #ifdef __cplusplus
 }
