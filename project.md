@@ -86569,3 +86569,31 @@ siblings, and `get call ID` says so for 30 s (sec 1082).
 **Measured:** `live_test` (97), `call_vectors` (12), `live_chat` phase d3 -- B2 answers, B1's
 `get call` says `ok ended answered-elsewhere`; a second call declined on B1 says `ok ended
 declined-elsewhere` on B2. Sabotage `answered-elsewhere-said-as-hangup` is caught there.
+
+## 1091. Stage 2's miscategorised streams and file references; a group remade under its old name, 2026-11-13
+
+**fuzzypickles reported (inbox 0315Z):** at b54490a, its `unread-marks-on-nodes` scenario lost the
+first line of a group deleted and remade under its old name in 2 runs of 3, and lost it in none of
+3 at 858d0b4.
+
+**What reading stage 2 found, and fixed:** the stream query and the file-reference want, their
+replies and their dispatch, went under `FZN_CMD_GROUPS` (13) -- eight sites in `node/daemon.c`.
+`cmdmap.py` chose a site's CMD from the first type named within three lines, and here the window
+reached the group lines above. Both ends agreed, so they worked and no gate noticed; but the
+meter counted them as groups and the pressure ladder ranked them so, giving every stream fetch
+the groups' turn class (PROPAGATION) under load. They are `FZN_CMD_STREAMS` (14) and
+`FZN_CMD_FILES` (1) now, and a scan pairing every `FZN_CMD_*` with the `FZN_SUBCMD_*` beside it
+finds no other in the tree.
+
+**What a test here finds of the reported case:** `live_groups` gains phase g -- B leaves, A deletes
+`family` and makes a new one of the same name, adds B, waits until B holds the new group by its
+id, writes a line, and B must file it under the new id and list it under `@family`. In nine runs
+that reached it, one failed: B's `@family` still named the group B had left, listing its old
+lines -- B's leave lost to a later act of the old group (as phase c records a leave can), so the
+new group could not take the name. The other eight passed, by id and by name. One occurrence is
+not a cause, and whether stage 2's turn classes made it likelier is not shown; it is open, and
+fuzzypickles is asked to rerun at this commit.
+
+**And an older intermittent fault, not stage 2's:** phase e, `C pulled nothing B shares with the
+group` -- C's group share pass asks two member hosts and pulls nothing -- failed once in four
+runs at 858d0b4, before stage 2, and three times in about ten after it. Open.

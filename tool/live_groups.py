@@ -35,6 +35,9 @@ not know each other.
     c  C leaves, by an act of its own; A learns it from C at A's next round,
        and the group there has two members
     c2 A and B hold the secret of the epoch C's leave began
+    g  B leaves, A deletes family and remakes it under the same name, adds B;
+       B learns it, and A's first line in the new group reaches B (sec 1091,
+       fuzzypickles' unread-marks scenario)
 
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P, one seed per run, against
 a daemon built by `make fuzznetd-faults`: sec 689's scenario bar for groups
@@ -559,6 +562,45 @@ def main(argv):
 				raise failed("c2: after C left the epochs held are %r" % (got,))
 			print("livecheck: c2: A and B hold epoch %d's secret, begun by C's leave"
 			      % got["a"][0])
+
+			# g: A GROUP REMADE UNDER ITS OLD NAME, fuzzypickles' unread-marks scenario
+			# (sec 1091): B leaves, A deletes family and makes a new one of the same
+			# name, adds B, and B learns it; A's first line in it reaches B.
+			expect(socks["b"], "b", "remove group family", "ok")
+			expect(socks["a"], "a", "remove group family", "ok")
+			made = ask(socks["a"], "add group family").split()
+			if made[:1] != ["ok"] or len(made) != 2:
+				raise failed("g: the remade add group family answered %r" % made)
+			new_id = made[1]
+			expect(socks["a"], "a", "add member family bob", "ok")
+			# BY ITS ID, which no older group of the name can answer for.
+			def b_holds_new():
+				return ask(socks["b"], "get group " + new_id).startswith("ok")
+			for rnd in range(ROUNDS):
+				if b_holds_new():
+					break
+				turn("a", "a-g%d" % rnd)
+				turn("b", "b-g%d" % rnd)
+			if not b_holds_new():
+				raise failed("g: B never learned the remade family %s: B holds %r"
+				             % (new_id[:16], groups(socks["b"], "b")))
+			expect(socks["a"], "a", "add message @family out %s first_in_new" % ("e1" * 16), "ok")
+			def b_has_first():
+				reply = ask(socks["b"], "list message @" + new_id)
+				return any(item.endswith(",first_in_new") for item in reply.split()[4:])
+			for rnd in range(ROUNDS):
+				if b_has_first():
+					break
+				turn("a", "a-g2%d" % rnd)
+				turn("b", "b-g2%d" % rnd)
+			if not b_has_first():
+				raise failed("g: B never filed A's first line in the remade family %s; B holds %r"
+				             % (new_id[:16], groups(socks["b"], "b")))
+			# AND ITS NAME IS THE NEW GROUP'S, not the old one B left.
+			if not ask(socks["b"], "list message @family").count(",first_in_new"):
+				raise failed("g: at B @family is not the remade group: B holds %r"
+				             % (groups(socks["b"], "b"),))
+			print("livecheck: g: A remade family under its old name, and its first line reached B")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

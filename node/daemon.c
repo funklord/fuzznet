@@ -14725,7 +14725,7 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 			break;
 		count++;
 	}
-	reply[0] = FZN_CMD_GROUPS;
+	reply[0] = FZN_CMD_STREAMS;
 	reply[1] = FZN_SUBCMD_STREAMS_RECORDS;
 	fzn_put_be16(reply + 2, (uint16_t)count);
 	return at;
@@ -14737,7 +14737,7 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 static size_t stream_query(const char *name, size_t name_len, const uint8_t *origin,
                            uint8_t *request)
 {
-	request[0] = FZN_CMD_GROUPS;
+	request[0] = FZN_CMD_STREAMS;
 	request[1] = FZN_SUBCMD_STREAMS_QUERY;
 	return 2u + fzn_streams_query_encode(name, name_len,
 	                                     fzn_streams_last(&node_streams, name, name_len, origin),
@@ -14752,7 +14752,7 @@ static size_t stream_take(const char *name, size_t name_len, const uint8_t *orig
 	uint64_t stopped = 0;
 	size_t taken = 0;
 
-	if (!reply || len < 4u || reply[0] != FZN_CMD_GROUPS
+	if (!reply || len < 4u || reply[0] != FZN_CMD_STREAMS
 	    || reply[1] != FZN_SUBCMD_STREAMS_RECORDS)
 		return 0;
 	err = fzn_streams_take(&node_streams, name, name_len, origin, reply + 4, len - 4u,
@@ -16654,7 +16654,7 @@ static size_t file_refs_remote(const uint8_t *sender, const uint8_t *request, si
 			at += FZN_NODE_FILE_REF_LEN;
 			count++;
 		}
-	reply[0] = FZN_CMD_GROUPS;
+	reply[0] = FZN_CMD_FILES;
 	reply[1] = FZN_SUBCMD_FILES_REFS;
 	reply[2] = (uint8_t)count;
 	fzn_wipe(ref, sizeof(ref));
@@ -16669,7 +16669,7 @@ static void file_refs_take(const uint8_t *reply, size_t len)
 {
 	size_t k, j, want = host_shared_request[2];
 
-	if (len < 3u || reply[0] != FZN_CMD_GROUPS || reply[1] != FZN_SUBCMD_FILES_REFS
+	if (len < 3u || reply[0] != FZN_CMD_FILES || reply[1] != FZN_SUBCMD_FILES_REFS
 	    || len != 3u + (size_t)reply[2] * FZN_NODE_FILE_REF_LEN)
 		return;
 	for (k = 0; k < reply[2]; k++) {
@@ -16793,7 +16793,7 @@ static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t n
 	}
 	if (!want)
 		return;
-	host_shared_request[0] = FZN_CMD_GROUPS;
+	host_shared_request[0] = FZN_CMD_FILES;
 	host_shared_request[1] = FZN_SUBCMD_FILES_REFS_WANT;
 	host_shared_request[2] = (uint8_t)want;
 	host_shared_len = 3u + want * FZN_BLOB_HASH_LEN;
@@ -19261,10 +19261,10 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	if (request_len >= 2u && request[0] == FZN_CMD_GROUPS
 	    && request[1] == FZN_SUBCMD_GROUPS_LINES_SYNC)
 		return group_lines_remote(sender, request, request_len, reply, reply_cap);
-	if (request_len >= 2u && request[0] == FZN_CMD_GROUPS
+	if (request_len >= 2u && request[0] == FZN_CMD_STREAMS
 	    && request[1] == FZN_SUBCMD_STREAMS_QUERY)
 		return streams_remote(sender, request, request_len, reply, reply_cap);
-	if (request_len >= 2u && request[0] == FZN_CMD_GROUPS
+	if (request_len >= 2u && request[0] == FZN_CMD_FILES
 	    && request[1] == FZN_SUBCMD_FILES_REFS_WANT)
 		return file_refs_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZN_CMD_REACH
