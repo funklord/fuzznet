@@ -1,4 +1,5 @@
 #include "link_view.h"
+#include "rpc_ask.h"
 
 #include <QFontDatabase>
 #include <QFormLayout>
@@ -19,7 +20,9 @@ static QString column(const QString &text, int width)
 	/* RIGHT-ALIGNED, AND NEVER TRUNCATED. A number cut to fit its column
 	 * is a different number, so a value too wide pushes the row out
 	 * instead -- one ugly row beats one wrong one. */
-	return text.rightJustified(width, QLatin1Char(' '));
+	/* A NEGATIVE WIDTH LEFT-ALIGNS, for a word rather than a number. */
+	return width < 0 ? text.leftJustified(-width, QLatin1Char(' '))
+	                 : text.rightJustified(width, QLatin1Char(' '));
 }
 
 static QString row_for(const fzn_link_entry_t *e)
@@ -78,6 +81,67 @@ fzn_link_view::fzn_link_view(QWidget *parent)
 	rows_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
 
 	show_links(nullptr);
+}
+
+fzn_link_view::fzn_link_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
+        : fzn_link_view(parent)
+{
+	rpc_ = new fzn_gui_rpc;
+	fzn_gui_rpc_init(rpc_, ask, ask_ctx);
+}
+
+fzn_link_view::~fzn_link_view() { delete rpc_; }
+
+/* A HOSTED ROW'S COLUMNS: where, how fast, how much of what was asked came
+ * back, and how long since anything did. */
+#define COL_ADDRESS 24
+#define COL_ANSWERED 10
+#define COL_HEARD 11
+
+bool fzn_link_view::refresh()
+{
+	if (!rpc_)
+		return false;
+	auto *legs = new fzn_rpc_link_list_resp_t;
+	if (fzn_rpc_link_list(&rpc_->c, legs) != FZN_RPC_OK) {
+		summary_->setText(QString::fromUtf8(fzn_gui_rpc_silent(rpc_)));
+		rows_->setText(QString());
+		delete legs;
+		return rpc_->c.answered;
+	}
+	size_t answering = 0, i;
+	QString rows = column(QStringLiteral("address"), -COL_ADDRESS)
+	               + column(QStringLiteral("rtt"), COL_LATENCY)
+	               + column(QStringLiteral("answered"), COL_ANSWERED)
+	               + column(QStringLiteral("heard"), COL_HEARD);
+	for (i = 0; i < legs->count; i++) {
+		const fzn_rpc_link_entry_t *l = &legs->entries[i];
+		answering += l->replied > 0;
+		if (i >= FZN_LINK_VIEW_ROWS_MAX)
+			continue;
+		rows += QLatin1Char('\n')
+		        + column(QString::fromUtf8(l->address, (int)l->address_len), -COL_ADDRESS)
+		        + column(l->replied ? QString::number(l->rtt_ms) + QStringLiteral(" ms")
+		                            : QStringLiteral("-"),
+		                 COL_LATENCY)
+		        + column(QStringLiteral("%1/%2").arg(l->replied).arg(l->sent), COL_ANSWERED)
+		        + column(l->replied ? QString::number(l->since_success_ms / 1000u)
+		                                      + QStringLiteral(" s ago")
+		                            : QStringLiteral("never"),
+		                 COL_HEARD);
+	}
+	/* THE SAME FOUR STATES as a table handed in, from what the node said:
+	 * no leg, or legs none of which has answered, or some that have. */
+	state_ = !legs->count ? NONE : answering ? MEASURED : UNMEASURED;
+	unmeasured_ = legs->count - answering;
+	rows_truncated_ = legs->count > FZN_LINK_VIEW_ROWS_MAX;
+	QString said = QStringLiteral("%1 link(s), %2 answering").arg(legs->count).arg(answering);
+	if (rows_truncated_)
+		said += QStringLiteral(", %1 not drawn").arg(legs->count - FZN_LINK_VIEW_ROWS_MAX);
+	summary_->setText(legs->count ? said : QStringLiteral("no links"));
+	rows_->setText(legs->count ? rows : QString());
+	delete legs;
+	return true;
 }
 
 void fzn_link_view::show_links(const fzn_link_table_t *table)

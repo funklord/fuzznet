@@ -14440,6 +14440,20 @@ SABOTAGES = [
 		"a contact removed on another host is offered a grant -- sec 1119",
 	),
 	(
+		"link-view-hosted-silence-keeps-rows",
+		"gui/link_view.cpp",
+		"\t\tsummary_->setText(QString::fromUtf8(fzn_gui_rpc_silent(rpc_)));\n\t\trows_->setText(QString());\n",
+		"\t\tsummary_->setText(QString::fromUtf8(fzn_gui_rpc_silent(rpc_)));\n",
+		"a node gone silent leaves the last legs drawn as though current -- sec 1121",
+	),
+	(
+		"link-view-hosted-unanswered-measured",
+		"gui/link_view.cpp",
+		"\tstate_ = !legs->count ? NONE : answering ? MEASURED : UNMEASURED;\n",
+		"\tstate_ = !legs->count ? NONE : MEASURED;\n",
+		"legs none of which has answered read as measured -- sec 1121",
+	),
+	(
 		"settings-view-filter-ignored",
 		"gui/settings_view.cpp",
 		"\t\t\tif (m_keep && !m_keep(m_keep_ctx, e->key))\n",

@@ -3821,9 +3821,9 @@ $(BUILD_DIR)/gui/test/link_view_test: $(BUILD_DIR)/gui/test/link_view_test.o \
                                      $(BUILD_DIR)/gui/link_view.o \
                                      $(BUILD_DIR)/cli/link_print.o \
                                      $(LINK_OBJ) \
-                                     $(BUILD_DIR)/sched/sched.o
+                                     $(BUILD_DIR)/sched/sched.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 
 # The pairing screen is a code plus a fingerprint, so it links the encoder,
 # the QR widget and the provisioning card's parsers. sec 171.

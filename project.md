@@ -85911,7 +85911,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
-| Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed) | Connection page | hostable link, peer, sync, capability, revocation, trust views |
+| Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121) | Connection page | hostable peer, sync, capability, revocation, trust views |
 | The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099) | fuzzypickles' copy, until it pins past it | the local leg in binary under it (sec 1101) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
@@ -87488,3 +87488,31 @@ everywhere", "Keep the trash", "Cancel the new folder").
 person who needs the screen described to them could not tell retention's
 two Adds apart, nor any of the contacts view's lists. On a folding
 phone's cover screen, six views were wider than the screen.
+
+## 1121. The link view, hosted: it asks `list leg` itself, 2026-11-13
+
+**The register's gap** (sec 1070): the link view was model-fed. A host
+had to own a `fzn_link_table_t` and hand it in, which a client with only
+a node's socket has no way to fill -- so fuzzypickles' Connection page
+kept its own drawing of the same table.
+
+`fzn_link_view` gains a second constructor taking the ask callback
+(`rpc_ask.h`), as the contacts and location views do, and `refresh`,
+which asks `list leg` through the typed client and draws a row a leg: its
+address, its round trip, how many of the probes asked came back, and how
+long since anything did. A model-fed table has no address to show, which
+is the reason the hosted rows are their own rather than squeezed into
+`fzn_link_entry_t`. The four states are kept and mean the same: no leg,
+none answering (UNMEASURED), some answering (MEASURED). A node gone
+silent is said so and its old rows cleared, not left drawn as current.
+
+The model-fed form is unchanged, and it is still what reads a table a
+consumer owns. The client parses each leg's loss figure and does not
+keep it, so the hosted rows show answered-of-asked, which it does keep.
+
+**Tests:** `link_view_test`, 82 checks, now also over a scripted node:
+two legs, one at 42 ms heard 3 s ago and one never answered; one leg
+never answered read as UNMEASURED; a silent node. Sabotage
+`link-view-hosted-silence-keeps-rows` and
+`link-view-hosted-unanswered-measured` are each caught. The second
+survived until the all-unanswered case was added.

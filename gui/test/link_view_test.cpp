@@ -41,6 +41,23 @@ static void check_at(int ok, int line, const char *what)
 
 #define CHECK(cond, what) check_at((cond) ? 1 : 0, __LINE__, (what))
 
+/* A NODE FOR THE HOSTED VIEW, sec 1121: two legs, one answering at 42 ms
+ * and heard 3 s ago, one asked four times and never answered. */
+static int legs_silent, legs_unanswered;
+
+static size_t legs_node(void *ctx, const char *line, char *reply, size_t cap)
+{
+	(void)ctx;
+	if (legs_silent)
+		return 0;
+	if (!strcmp(line, "list leg 0") && legs_unanswered)
+		return (size_t)snprintf(reply, cap, "ok 1 1 0 198.51.100.2:4000,-,-,0,-,4,0,4,0\n");
+	if (!strcmp(line, "list leg 0"))
+		return (size_t)snprintf(reply, cap, "ok 2 1 0 192.0.2.7:4000,42,0,1,3,10,9,9,9 "
+		                                    "198.51.100.2:4000,-,-,0,-,4,0,4,0\n");
+	return (size_t)snprintf(reply, cap, "error no such thing\n");
+}
+
 int main(int argc, char **argv)
 {
 	/* Before the QApplication, or it has already chosen a platform. */
@@ -192,6 +209,33 @@ int main(int argc, char **argv)
 	CHECK(view.summary_text() == none_summary, "a null table did not read as no path");
 	CHECK(view.summary_text() != down_summary, "no path reads as paths switched off");
 	CHECK(view.unmeasured() == 0u, "a null table left a stale count");
+
+	/* ---- HOSTED, sec 1121: the view asks the node itself. */
+	{
+		fzn_link_view hosted(legs_node, nullptr);
+		QStringList rows;
+
+		CHECK(hosted.refresh(), "the hosted view did not read the legs");
+		rows = hosted.rows_text().split(QLatin1Char('\n'));
+		CHECK(hosted.shown_state() == fzn_link_view::MEASURED && hosted.unmeasured() == 1u,
+		      "one answering leg of two was not MEASURED with one unmeasured");
+		CHECK(hosted.summary_text() == "2 link(s), 1 answering", "the hosted summary was wrong");
+		CHECK(rows.size() == 3 && rows.value(1).startsWith("192.0.2.7:4000")
+		              && rows.value(1).contains("42 ms") && rows.value(1).contains("9/10")
+		              && rows.value(1).contains("3 s ago"),
+		      "the answering leg's row lacks its address, round trip, answers or age");
+		CHECK(rows.value(2).startsWith("198.51.100.2:4000") && rows.value(2).contains("0/4")
+		              && rows.value(2).contains("never"),
+		      "the silent leg was not said to have never answered");
+		legs_unanswered = 1;
+		CHECK(hosted.refresh() && hosted.shown_state() == fzn_link_view::UNMEASURED
+		              && hosted.summary_text() == "1 link(s), 0 answering",
+		      "a leg that never answered read as measured");
+		legs_silent = 1;
+		CHECK(!hosted.refresh() && hosted.summary_text() == "The node did not answer."
+		              && hosted.rows_text().isEmpty(),
+		      "a silent node was not said so, or its old rows stayed");
+	}
 
 	/* The suite can tell pass from fail. */
 	{
