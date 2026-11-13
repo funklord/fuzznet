@@ -43,6 +43,19 @@ static inline int fzn_gui_rpc_answer(void *ctx, const char *verb, const char *ar
 	return FZN_RPC_OK;
 }
 
+/* WHY A CALL FAILED, in words for a person: the node's own, or the client's
+ * where it refused before asking -- a name already held, a host's own
+ * setting -- and "the node did not answer" only when nothing could be asked
+ * of it. `answered` alone cannot tell those apart, since a refusal made
+ * before asking leaves it 0 as silence does (sec 1107). */
+static inline const char *fzn_gui_rpc_silent(const fzn_gui_rpc *r)
+{
+	return !r->c.answered && (r->c.error_code == FZN_RPC_ERR_SEND_FAILED
+	                          || r->c.error_code == FZN_RPC_ERR_NO_PEER_TRANSPORT)
+	               ? "The node did not answer."
+	               : r->c.error;
+}
+
 /* Ready to call: the client initialised and asking through `ask`. */
 static inline void fzn_gui_rpc_init(fzn_gui_rpc *r, fzn_notebook_view_ask_t ask, void *ask_ctx)
 {

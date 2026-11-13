@@ -85899,7 +85899,7 @@ is the register, rewritten in place as features land; "where" says where each li
 |---|---|---|---|
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view` | fuzzypickles' Setup, Hosts pages | a hostable provision view |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
-| Contacts, requests, suspension, names | protocol, state | contact screens | a contacts view |
+| Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) | contact screens, to move onto it | suspension and a contact's states on the view |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state | conversation screens, read marks per device for groups | group read position; unread for every conversation in one reply; a read at the held position silent (sec 1069) |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
@@ -87042,3 +87042,28 @@ tree, which a phone's long flat list wants. In the backlog.
 **Tests:** `settings_view_test` has fourteen checks now: a shared setting's reach host by host, a
 host's own said to stay, advanced hidden, shown and hidden again. Sabotage `settings-view-*`, three
 more, each caught.
+
+## 1107. Contacts and pairing requests as a widget, and a refusal before asking said in words, 2026-11-13
+
+**The register's gap** (sec 1070): a contacts view. `gui/contacts_view.{h,cpp}` lists the contacts,
+each a name and its user's key's first bytes, and the pairing requests waiting here, each the name
+the requester proposes beside its host's key -- a request is unauthenticated until approved, so its
+proposed name is never shown without the key the decision rests on. A person approves a request
+under a name of their own (the proposed one offered) or rejects it, renames a contact by its key
+(how two holding one name come apart, sec 893), or removes one by name. A contact the node lists
+in a state of its own -- a row with more fields -- the client passes over, and so does this view
+for now.
+
+**A refusal made before asking was said as silence.** The typed client refuses some calls without
+asking the node -- a contact name already held, a host's own setting's holders -- and marks the
+call unanswered, as a node that did not answer is. Every view said "The node did not answer" for
+both. `gui/rpc_ask.h` now says silence only when nothing could be asked (`FZN_RPC_ERR_SEND_FAILED`,
+`_NO_PEER_TRANSPORT`) and the client's own words otherwise; the objects, settings and contacts views
+all use it. The settings view's earlier way round it (sec 1106) stays: there the schema answers
+without a call.
+
+**Tests:** `gui/test/contacts_view_test.cpp`, twelve checks against a scripted node: both lists, the
+proposed name offered and approved under another, a held name refused in the client's words with
+nothing asked, a nameless approve refused, reject, rename by key, remove by name, a refusal, silence.
+Sabotage `contacts-view-*` (four), `gui-rpc-refusal-before-asking-as-silence`, each caught; two
+objects-view entries re-pointed at the shared wording.

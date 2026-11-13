@@ -72,8 +72,7 @@ fzn_settings_view::~fzn_settings_view()
 
 static QString failed_words(const fzn_gui_rpc *r)
 {
-	return r->c.answered ? QString::fromUtf8(r->c.error)
-	                     : QObject::tr("The node did not answer.");
+	return QString::fromUtf8(fzn_gui_rpc_silent(r));
 }
 
 bool fzn_settings_view::refresh()

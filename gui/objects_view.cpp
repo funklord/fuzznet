@@ -72,8 +72,7 @@ bool fzn_objects_view::refresh()
 	int rc = fzn_rpc_object_list(&m_rpc->c, &list);
 	if (rc != FZN_RPC_OK) {
 		free(list.entries);
-		m_status->setText(m_rpc->c.answered ? QString::fromUtf8(m_rpc->c.error)
-		                                    : tr("The node did not answer."));
+		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
 		return m_rpc->c.answered;
 	}
 	m_table->setRowCount((int)list.count);
@@ -136,8 +135,7 @@ bool fzn_objects_view::set()
 		return false;
 	}
 	if (fzn_rpc_object_set(&m_rpc->c, name.constData(), value.constData()) != FZN_RPC_OK) {
-		m_status->setText(m_rpc->c.answered ? QString::fromUtf8(m_rpc->c.error)
-		                                    : tr("The node did not answer."));
+		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
 		return false;
 	}
 	/* HELD, sec 1037: written about a second from now, so the table would
@@ -171,8 +169,7 @@ bool fzn_objects_view::add()
 	}
 	/* EMPTY WORDS TAKE ANY WORD: the node's own default, nothing sent. */
 	if (fzn_rpc_object_add(&m_rpc->c, name.constData(), words.constData()) != FZN_RPC_OK) {
-		m_status->setText(m_rpc->c.answered ? QString::fromUtf8(m_rpc->c.error)
-		                                    : tr("The node did not answer."));
+		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
 		return false;
 	}
 	m_new_name->clear();
@@ -189,8 +186,7 @@ bool fzn_objects_view::remove()
 		return false;
 	QByteArray name = m_table->item(row, 0)->text().toUtf8();
 	if (fzn_rpc_object_remove(&m_rpc->c, name.constData()) != FZN_RPC_OK) {
-		m_status->setText(m_rpc->c.answered ? QString::fromUtf8(m_rpc->c.error)
-		                                    : tr("The node did not answer."));
+		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
 		return false;
 	}
 	refresh();

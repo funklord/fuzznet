@@ -14260,8 +14260,8 @@ SABOTAGES = [
 	(
 		"objects-view-refusal-wordless",
 		"gui/objects_view.cpp",
-		"\tif (fzn_rpc_object_set(&m_rpc->c, name.constData(), value.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(m_rpc->c.answered ? QString::fromUtf8(m_rpc->c.error)\n",
-		"\tif (fzn_rpc_object_set(&m_rpc->c, name.constData(), value.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(m_rpc->c.answered ? tr(\"Refused.\")\n",
+		"\tif (fzn_rpc_object_set(&m_rpc->c, name.constData(), value.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));\n",
+		"\tif (fzn_rpc_object_set(&m_rpc->c, name.constData(), value.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(tr(\"Refused.\"));\n",
 		"a refusal loses the node's words -- sec 1102",
 	),
 	(
@@ -14323,8 +14323,8 @@ SABOTAGES = [
 	(
 		"objects-view-remove-refusal-wordless",
 		"gui/objects_view.cpp",
-		"\tif (fzn_rpc_object_remove(&m_rpc->c, name.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(m_rpc->c.answered ? QString::fromUtf8(m_rpc->c.error)\n",
-		"\tif (fzn_rpc_object_remove(&m_rpc->c, name.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(m_rpc->c.answered ? tr(\"Refused.\")\n",
+		"\tif (fzn_rpc_object_remove(&m_rpc->c, name.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));\n",
+		"\tif (fzn_rpc_object_remove(&m_rpc->c, name.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(tr(\"Refused.\"));\n",
 		"a refused remove loses the node's words -- sec 1104",
 	),
 	(
@@ -14347,6 +14347,41 @@ SABOTAGES = [
 		"\t\tsaid << (r->acked >= got->local_seq ? tr(\"%1 has it.\").arg(who)\n",
 		"\t\tsaid << (r->acked >= 1 ? tr(\"%1 has it.\").arg(who)\n",
 		"a host behind the estate's version is said to have it -- sec 1106",
+	),
+	(
+		"gui-rpc-refusal-before-asking-as-silence",
+		"gui/rpc_ask.h",
+		"\treturn !r->c.answered && (r->c.error_code == FZN_RPC_ERR_SEND_FAILED\n",
+		"\treturn !r->c.answered && (1 || r->c.error_code == FZN_RPC_ERR_SEND_FAILED\n",
+		"a refusal the client makes before asking reads as a silent node -- sec 1107",
+	),
+	(
+		"contacts-view-proposed-name-not-offered",
+		"gui/contacts_view.cpp",
+		"\t\tm_name->setText(proposed == tr(\"(no name given)\") ? QString() : proposed);\n",
+		"\t\tm_name->setText(QString());\n",
+		"a request's proposed name is not offered as the local name -- sec 1107",
+	),
+	(
+		"contacts-view-approve-nameless",
+		"gui/contacts_view.cpp",
+		"\tif (name.isEmpty()) {\n\t\tm_status->setText(tr(\"Give the new contact a name first.\"));\n",
+		"\tif (0) {\n\t\tm_status->setText(tr(\"Give the new contact a name first.\"));\n",
+		"a request is approved under no name -- sec 1107",
+	),
+	(
+		"contacts-view-remove-refusal-wordless",
+		"gui/contacts_view.cpp",
+		"\tif (fzn_rpc_peer_remove(&m_rpc->c, name.constData(), (size_t)name.size()) != FZN_RPC_OK) {\n\t\tm_status->setText(failed_words(m_rpc));\n",
+		"\tif (fzn_rpc_peer_remove(&m_rpc->c, name.constData(), (size_t)name.size()) != FZN_RPC_OK) {\n\t\tm_status->setText(tr(\"Refused.\"));\n",
+		"a refused remove loses the node's words -- sec 1107",
+	),
+	(
+		"contacts-view-key-of-wrong-row",
+		"gui/contacts_view.cpp",
+		"\tif (fzn_rpc_peer_rename(&m_rpc->c, (const uint8_t *)m_keys->contact.at(row).constData(),\n",
+		"\tif (fzn_rpc_peer_rename(&m_rpc->c, (const uint8_t *)m_keys->contact.at(m_keys->contact.size() - 1 - row).constData(),\n",
+		"a rename goes to another contact's key -- sec 1107",
 	),
 	(
 		"list-message-no-group-malformed",
