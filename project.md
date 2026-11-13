@@ -87627,3 +87627,32 @@ silence. 148 px, every input named. Sabotage
 `hosts-view-address-on-another-host`,
 `hosts-view-chosen-address-not-offered` and `rpc-sibling-paired-dropped`
 are each caught.
+
+## 1125. The node's figures the client read and dropped, carried, 2026-11-13
+
+**From sec 1124's lens.** The `valid` fault was a field parsed and then
+discarded. Searched for across `local/rpc.c` -- every value a parser
+fills that nothing reads afterwards -- it found four figures the node
+sends and the typed client had no field for. The compiler cannot see
+this: handing a variable's address to a parser counts as using it.
+
+- **A leg's loss** (`list leg`'s LOSS, per mille as the node estimates
+  it) and **the observations it rests on** (OBSERVATIONS) are now
+  `fzn_rpc_link_entry_t.loss_permille` and `.observations`. Loss means
+  nothing where observations is 0, the node's `-`.
+- **The legs the node counts unmeasured** (UNMEASURED) is
+  `fzn_rpc_link_list_resp_t.unmeasured`.
+- **How many reporters agree on this host's observed address** (`get
+  address`'s AGREE) is `fzn_rpc_addr_observe_resp_t.agree`. One report
+  alone is a guess; several agreeing are not.
+
+The hosted link view (sec 1121) shows the loss where the node has
+observed anything, and a dash where it has not, the model-fed rows'
+rule: a loss nobody saw is not a rate. The leg's RECEIVED count stays
+dropped; nothing here has a use for it yet.
+
+**Tests:** `rpc_test` reads a listing with one unmeasured leg and an
+address two reporters agree on; `link_view_test` shows 2.5% for a leg
+the node puts at 25 per mille and no figure for one never observed.
+Sabotage `rpc-leg-loss-dropped`, `rpc-leg-unmeasured-dropped` and
+`rpc-address-agree-dropped` are each caught.

@@ -53,7 +53,7 @@ static size_t legs_node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "list leg 0") && legs_unanswered)
 		return (size_t)snprintf(reply, cap, "ok 1 1 0 198.51.100.2:4000,-,-,0,-,4,0,4,0\n");
 	if (!strcmp(line, "list leg 0"))
-		return (size_t)snprintf(reply, cap, "ok 2 1 0 192.0.2.7:4000,42,0,1,3,10,9,9,9 "
+		return (size_t)snprintf(reply, cap, "ok 2 1 0 192.0.2.7:4000,42,25,1,3,10,9,9,9 "
 		                                    "198.51.100.2:4000,-,-,0,-,4,0,4,0\n");
 	return (size_t)snprintf(reply, cap, "error no such thing\n");
 }
@@ -221,10 +221,12 @@ int main(int argc, char **argv)
 		      "one answering leg of two was not MEASURED with one unmeasured");
 		CHECK(hosted.summary_text() == "2 link(s), 1 answering", "the hosted summary was wrong");
 		CHECK(rows.size() == 3 && rows.value(1).startsWith("192.0.2.7:4000")
-		              && rows.value(1).contains("42 ms") && rows.value(1).contains("9/10")
+		              && rows.value(1).contains("42 ms") && rows.value(1).contains("2.5%")
+		              && rows.value(1).contains("9/10")
 		              && rows.value(1).contains("3 s ago"),
 		      "the answering leg's row lacks its address, round trip, answers or age");
 		CHECK(rows.value(2).startsWith("198.51.100.2:4000") && rows.value(2).contains("0/4")
+		              && !rows.value(2).contains("%")
 		              && rows.value(2).contains("never"),
 		      "the silent leg was not said to have never answered");
 		legs_unanswered = 1;

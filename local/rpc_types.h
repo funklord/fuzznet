@@ -1497,6 +1497,11 @@ typedef struct fzn_rpc_link_entry {
 	uint64_t budget_limit;
 	uint64_t budget_spent; /* this window's, rolled */
 	uint64_t budget_window_ms;
+	/* THE NODE'S OWN ESTIMATES, sec 1125, read and dropped before: loss per
+	 * mille, and how many observations it rests on -- 0 where the node said
+	 * `-`, nothing observed, so loss_permille means nothing there. */
+	uint16_t loss_permille;
+	uint64_t observations;
 } fzn_rpc_link_entry_t;
 
 /* The table's own bound (FZN_RPC_LINK_MAX in link_internal.h), restated here
@@ -1509,6 +1514,8 @@ typedef struct fzn_rpc_link_entry {
 typedef struct fzn_rpc_link_list_resp {
 	fzn_rpc_link_entry_t entries[FZN_RPC_LINK_LIST_MAX];
 	size_t count;
+	/* The legs the node counts as unmeasured, by its own rule (sec 1125). */
+	size_t unmeasured;
 } fzn_rpc_link_list_resp_t;
 
 #define FZN_RPC_ADDR_OBSERVE_LIST_MAX 8
@@ -1531,6 +1538,9 @@ typedef struct fzn_rpc_addr_observe_resp {
 	 * peer had a usable address -- which is a different state from "asked and
 	 * nobody answered" and must not read the same. */
 	uint16_t probes_sent;
+	/* How many of the reporters agree on the address, as the node counts
+	 * them (sec 1125): one report alone is a guess, several agreeing are not. */
+	size_t agree;
 } fzn_rpc_addr_observe_resp_t;
 
 typedef struct fzn_rpc_lan_seen_entry {

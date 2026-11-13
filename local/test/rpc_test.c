@@ -450,6 +450,25 @@ static void test_a_join_is_asked_and_then_seen(void)
 	      "a code of the wrong shape was asked");
 }
 
+/* THE NODE'S FIGURES CARRIED, sec 1125: the legs it counts unmeasured,
+ * and how many reporters agree on this host's address. */
+static void test_dropped_figures_are_carried(void)
+{
+	static const char *const legs_reply = "ok 1 1 0 192.0.2.7:4000,-,-,0,-,4,0,4,0";
+	static const char *const address_reply =
+	        "ok 2 2 0123456789abcdef,192.0.2.9,4000,7 fedcba9876543210,192.0.2.9,4000,8";
+	struct script s = { { legs_reply, address_reply }, 0, 2, 0, { { 0 } } };
+	static fzn_rpc_link_list_resp_t legs;
+	fzn_rpc_addr_observe_resp_t seen;
+
+	on(&c, &s);
+	CHECK(fzn_rpc_link_list(&c, &legs) == FZN_RPC_OK && legs.count == 1 && legs.unmeasured == 1
+	              && legs.entries[0].observations == 0,
+	      "the node's unmeasured count, or a leg's want of observations, was lost");
+	CHECK(fzn_rpc_addr_observe(&c, 0, &seen) == FZN_RPC_OK && seen.count == 2 && seen.agree == 2,
+	      "how many reporters agree was lost");
+}
+
 int main(void)
 {
 	test_groups_are_read_across_pages();
@@ -469,6 +488,7 @@ int main(void)
 	test_a_setting_is_cleared_where_it_was_set();
 	test_a_media_channel_carries_whole_frames();
 	test_a_join_is_asked_and_then_seen();
+	test_dropped_figures_are_carried();
 	test_the_suite_can_tell_pass_from_fail();
 	if (failures) {
 		fprintf(stderr, "local rpc_test: %d check(s) failed\n", failures);

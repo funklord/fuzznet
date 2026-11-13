@@ -14517,6 +14517,27 @@ SABOTAGES = [
 		"every host listed reads as paired, whatever the node judged -- sec 1124",
 	),
 	(
+		"rpc-leg-loss-dropped",
+		"local/rpc.c",
+		"\t\t\tl->loss_permille = seen && loss <= 1000u ? (uint16_t)loss : 0;\n",
+		"",
+		"a leg's loss as the node estimated it is dropped again -- sec 1125",
+	),
+	(
+		"rpc-leg-unmeasured-dropped",
+		"local/rpc.c",
+		"\t\tout->unmeasured = unmeasured;\n",
+		"",
+		"the node's count of unmeasured legs is dropped again -- sec 1125",
+	),
+	(
+		"rpc-address-agree-dropped",
+		"local/rpc.c",
+		"\tout->agree = agree;\n",
+		"",
+		"how many reporters agree on the address is dropped again -- sec 1125",
+	),
+	(
 		"settings-view-filter-ignored",
 		"gui/settings_view.cpp",
 		"\t\t\tif (m_keep && !m_keep(m_keep_ctx, e->key))\n",

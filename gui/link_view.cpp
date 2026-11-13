@@ -112,6 +112,7 @@ bool fzn_link_view::refresh()
 	size_t answering = 0, i;
 	QString rows = column(QStringLiteral("address"), -COL_ADDRESS)
 	               + column(QStringLiteral("rtt"), COL_LATENCY)
+	               + column(QStringLiteral("loss"), COL_LOSS)
 	               + column(QStringLiteral("answered"), COL_ANSWERED)
 	               + column(QStringLiteral("heard"), COL_HEARD);
 	for (i = 0; i < legs->count; i++) {
@@ -124,6 +125,14 @@ bool fzn_link_view::refresh()
 		        + column(l->replied ? QString::number(l->rtt_ms) + QStringLiteral(" ms")
 		                            : QStringLiteral("-"),
 		                 COL_LATENCY)
+		        /* THE NODE'S ESTIMATE, where it has observed anything (sec
+		         * 1125); a dash where it has not, a loss nobody saw not being
+		         * a rate -- the model-fed rows' rule. */
+		        + column(l->observations ? QString::number(l->loss_permille / 10u) + QStringLiteral(".")
+		                                           + QString::number(l->loss_permille % 10u)
+		                                           + QStringLiteral("%")
+		                                 : QStringLiteral("-"),
+		                 COL_LOSS)
 		        + column(QStringLiteral("%1/%2").arg(l->replied).arg(l->sent), COL_ANSWERED)
 		        + column(l->replied ? QString::number(l->since_success_ms / 1000u)
 		                                      + QStringLiteral(" s ago")

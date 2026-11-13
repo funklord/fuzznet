@@ -2429,7 +2429,10 @@ static int node_link_list(fzn_rpc_t *c, fzn_rpc_link_list_resp_t *out) {
 			l->sent = (uint32_t)asked;
 			l->replied = (uint32_t)answered;
 			l->since_success_ms = seen ? age * 1000u : 0;
+			l->observations = seen;
+			l->loss_permille = seen && loss <= 1000u ? (uint16_t)loss : 0;
 		}
+		out->unmeasured = unmeasured;
 		from += rows;
 		if (!rows || from >= count) break;
 	}
@@ -2459,6 +2462,7 @@ static int node_addr_observe(fzn_rpc_t *c, int probe, fzn_rpc_addr_observe_resp_
 	size_t at = 0, count = 0, agree = 0;
 	if (!node_number(rest, rest_len, &at, &count) || !node_number(rest, rest_len, &at, &agree))
 		return unreadable(c);
+	out->agree = agree;
 	while (at < rest_len) {
 		size_t end = at;
 		while (end < rest_len && rest[end] != ' ') end++;
