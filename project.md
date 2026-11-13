@@ -87303,3 +87303,72 @@ a member or not)" at info, and "not filed: <why>" at warning. The wait for a sec
 `get epoch GROUP` -- the group's name or bare id; `@ID`, as this tree's 0605Z wrote it, is refused
 as a contact name -- `ok EPOCH none` saying alice lacks it. fuzzypickles is asked for both from its
 next failing run. `live_groups` passes g and h at this change.
+
+## 1116. `live_groups` phase e read the wrong daemon's log, 2026-11-13
+
+Phase e -- B shares a note with the group, and C, not B's contact, pulls
+it from B through the group (sec 630) -- failed two or three runs in
+five, as "C pulled nothing B shares with the group", while membership,
+floors and the receive limit all checked out.
+
+**The daemon was right; the check was looking in the wrong place.** Two
+debug lines, kept, showed it. B now says what it answers a peer's notes
+sync (`notes`: "sync from KEY as a sharer's contact: N byte(s) asked, M
+answered"). C now says a share pass that learned nothing ("shared notes
+from HOST (KEY): N listed, M fetched, none new"). In every failing run,
+every C run of phase e had B's one record listed and fetched none: C
+already held it before the phase's first turn.
+
+The C that took it was the one still running from phase d. Sharing with
+the group is a group act, and since sec 1004 a group act starts a
+follow-up round on the members. So C could pull the note within moments
+of `add share`, in a process whose log no check in phase e read. The
+first turn then replaced that C, and every later run listed the note and
+fetched nothing. Whether C won that race was the whole of the
+intermittency.
+
+Phase e now searches every C run since the share, the phase-d one
+included, and says when it found the pull in an earlier run. This is the
+third instance of one lesson in these scripts: phase f of this script
+took it in sec 839, and `live_group_hosts` phase c asks C's state rather
+than a log for the same reason. **A check that reads one daemon run's
+log after a turn misses work a sec 1004 follow-up round did in the run
+the turn replaced.** Its first fix here (searching only phase e's own
+runs) was wrong, and the 'none new' line is what showed that.
+
+## 1117. The caller's resend against situ's `drive`: not yet, and why, 2026-11-13
+
+Item 90 of the run's list asked whether the caller's pairing and resend
+(`node/caller.c`, `fzn_caller_ask`, sec 737) move onto situ's rungs 5 and
+6, which sec 4.4 names as the home of a retransmission that asks again.
+The assessment read the interface situ actually generates -- the DNS
+example built at `--layer drive` from situ 0d7a6b88 -- rather than the
+decision records, and it does not fit yet:
+
+- **A resend here is the same message under a fresh nonce** (sec 737),
+  because the far end refuses a replayed one. The generated driver
+  resends the bytes it was given, through a `submit(ctx, bytes, len)`
+  that is not told which exchange it is sending, so it cannot reseal.
+- **Expiry is reported as a count.** The caller has to know which
+  message gave up, to forget its reassembly slot and answer that waiter.
+- **`match` takes the pending entry.** A reply here is many datagrams,
+  and a late piece of a settled message is dropped before reassembly so
+  that it cannot take a slot (sec 737's ring of 64). That needs a
+  non-taking "still outstanding?", asked per piece.
+- **A real bug, measured:** `step` compares 32-bit millisecond deadlines
+  with `>=`, so a send near the wrap is resent and expired one
+  millisecond later, both retries spent at once. A daemon counting
+  milliseconds since boot meets it after 49.7 days. Reproduced against
+  the generated header.
+
+All four are written into situ's `suggestion/fuzznet.md` with the
+reproduction. The per-relation timeout is a smaller misfit: the wait
+here is chosen per call (3 s for a round's asks, longer for a fetch),
+which one driver per kind of wait would cover.
+
+So the caller keeps its loop, and the item waits on situ. Once the four
+are settled, the move is the frame relation (`reply.msg == query.msg` on
+`wire/frame.situ`'s header), one driver per kind of wait, and `submit`
+sealing with `send_as`. The step shape is what fits fuzznetd's rounds
+anyway, since they already run each peer's exchange as steps
+(`talk_start_over`), not as the blocking `fzn_caller_ask`.

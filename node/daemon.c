@@ -348,6 +348,21 @@ static void say(fzn_entry_level_t level, const char *subsystem, const char *fmt,
 	va_end(ap);
 }
 
+/* A PEER'S NOTES SYNC, answered and said at debug: who asked, as which kind
+ * of asker, and how much went back. A group member who pulls nothing a
+ * sharer serves is otherwise invisible on the sharer's side (sec 1116). */
+static size_t notes_remote_said(void *ctx, const uint8_t *sender, int shared,
+                                const uint8_t *request, size_t request_len, uint8_t *reply,
+                                size_t reply_cap)
+{
+	size_t n = fzn_node_notes_remote(ctx, sender, shared, request, request_len, reply, reply_cap);
+
+	say(FZN_ENTRY_DEBUG, "notes", "sync from %02x%02x%02x%02x as %s: %zu byte(s) asked, %zu answered",
+	    sender ? sender[0] : 0u, sender ? sender[1] : 0u, sender ? sender[2] : 0u,
+	    sender ? sender[3] : 0u, shared ? "a sharer's contact" : "this estate", request_len, n);
+	return n;
+}
+
 static int say_caused(fzn_entry_level_t level, const char *subsystem,
                       const fzn_entry_name_t *cause, const fzn_entry_name_t *origin,
                       fzn_entry_name_t *named, const char *fmt, ...)
@@ -7698,6 +7713,14 @@ static void shares_settle(void)
 		else if (tally->learned || tally->refused)
 			say(FZN_ENTRY_INFO, "notes/received", "%zu shared note record(s) from %s, %zu refused",
 			        tally->learned, target->host, tally->refused);
+		else
+			/* NOTHING NEW, and why at debug: what the sharer listed and
+			 * what of it was fetched, so "held already" is told from "not
+			 * listed" (sec 1116). */
+			say(FZN_ENTRY_DEBUG, "notes/received",
+			    "shared notes from %s (%02x%02x%02x%02x): %zu listed, %zu fetched, none new",
+			    target->host, target->sharer[0], target->sharer[1], target->sharer[2],
+			    target->sharer[3], tally->offered, tally->fetched);
 		if (st->wraps_err != FZN_NOTES_SYNC_OK)
 			say(FZN_ENTRY_WARNING, "notes/received", "shared wrap keys from %s: %s",
 			        target->host, fzn_notes_sync_err_str(st->wraps_err));
@@ -24201,7 +24224,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					 * the estate's notes kept and relayed in every build. */
 					admin.notes_local = fzn_node_notes_local;
 #endif
-					admin.notes_remote = fzn_node_notes_remote;
+					admin.notes_remote = notes_remote_said;
 					admin.notes_ctx = &node_notes;
 					notes_on = 1;
 					/* SHARING, sec 436: a contact's chain for the share

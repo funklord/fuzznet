@@ -373,22 +373,37 @@ def main(argv):
 				raise failed("e: add note answered %r" % note)
 			expect(socks["b"], "b", "add share %s @%s" % (note.split()[1], name), "ok")
 			pulled = None
+			# EVERY RUN OF C SINCE THE SHARE, not its latest alone: sharing
+			# with the group is a group act, which starts a follow-up round
+			# (sec 1004), so the C still running from phase d may pull the
+			# note before the first turn here replaces it -- said in a log
+			# no later check read, and from then on C holds the note and
+			# each pass lists it and fetches nothing (sec 1116).
+			c_runs = [started["c"]] if "c" in started else []
 			for rnd in range(ROUNDS):
 				for who in ("b", "c"):
 					turn(who, "%s-e%d" % (who, rnd))
-				pulled = PULLED_RE.search(started["c"].log())
-				if pulled and int(pulled.group(1)) > 0:
+				c_runs.append(started["c"])
+				for d in c_runs:
+					found = PULLED_RE.search(d.log())
+					if found and int(found.group(1)) > 0:
+						pulled = found
+						if d is not c_runs[-1]:
+							print("livecheck: e: C pulled B's note in an earlier run, %s"
+							      % d.tag)
+						break
+				if pulled:
 					break
 			if not pulled or int(pulled.group(1)) == 0:
-				told = [l[-200:] for l in started["c"].log().splitlines()
-				        if any(w in l for w in ("group", "received", "refused", "node/peer"))]
+				told = [l[-200:] for d in c_runs for l in d.log().splitlines()
+				        if any(w in l for w in ("notes", "refused", "node/peer"))]
 				# AND B'S SIDE, which C's cannot show: whether B served the
 				# share, or refused C, in the rounds C asked it.
 				served = [l[-200:] for l in started["b"].log().splitlines()
 				          if any(w in l for w in ("share", "group", "refused", "node/peer"))]
 				raise failed("e: C pulled nothing B shares with the group%s\n B:%s\n B's "
 				             "members: %r; C's: %r"
-				             % ("".join("\n  " + l for l in told[-12:]),
+				             % ("".join("\n  " + l for l in told[-30:]),
 				                "".join("\n  " + l for l in served[-12:]),
 				                ask(socks["b"], "get group " + name),
 				                ask(socks["c"], "get group " + names["c"])))
