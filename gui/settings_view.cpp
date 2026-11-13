@@ -7,7 +7,8 @@
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QListWidget>
+#include <QHeaderView>
+#include <QTreeWidget>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -21,11 +22,13 @@ struct fzn_settings_view::entry {
 
 fzn_settings_view::fzn_settings_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
     : QWidget(parent), m_rpc(new fzn_gui_rpc), m_entries(nullptr), m_count(0), m_shown(nullptr),
-      m_shown_count(0)
+      m_shown_count(0), m_items(nullptr), m_keep(nullptr), m_keep_ctx(nullptr)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
-	m_list = new QListWidget(this);
+	m_list = new QTreeWidget(this);
+	m_list->setHeaderHidden(true);
+	m_list->setColumnCount(1);
 	m_value = new QComboBox(this);
 	m_where = new QLabel(this);
 	m_notes = new QLabel(this);
@@ -53,7 +56,13 @@ fzn_settings_view::fzn_settings_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	col->addWidget(m_reached);
 	col->addWidget(m_status);
 
-	connect(m_list, &QListWidget::currentRowChanged, [this](int r) { select(r); });
+	/* A GROUP'S OWN ROW CHOOSES NOTHING: only a setting's does. */
+	connect(m_list, &QTreeWidget::currentItemChanged,
+	        [this](QTreeWidgetItem *, QTreeWidgetItem *) {
+		        int r = current_row();
+		        if (r >= 0)
+			        select(r);
+	        });
 	connect(m_apply, &QPushButton::clicked, [this]() { apply(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_advanced, &QCheckBox::toggled, [this](bool on) { show_advanced(on); });
@@ -67,6 +76,7 @@ fzn_settings_view::~fzn_settings_view()
 {
 	delete[] m_entries;
 	delete[] m_shown;
+	delete[] m_items;
 	delete m_rpc;
 }
 
@@ -89,6 +99,8 @@ bool fzn_settings_view::refresh()
 	m_count = (int)schema->count;
 	m_entries = new entry[schema->count ? schema->count : 1];
 	m_shown = new int[schema->count ? schema->count : 1];
+	delete[] m_items;
+	m_items = new QTreeWidgetItem *[schema->count ? schema->count : 1];
 	for (size_t i = 0; i < schema->count; i++) {
 		m_entries[i].schema = schema->entries[i];
 		m_entries[i].set_at = 0;
@@ -106,14 +118,42 @@ bool fzn_settings_view::fill()
 	m_list->blockSignals(true);
 	m_list->clear();
 	m_shown_count = 0;
+	/* GROUP BY THE FIRST PART, each group where its first key falls, and the
+	 * rows numbered in the order they are drawn. */
+	QStringList order;
 	for (int i = 0; i < m_count; i++) {
-		const fzn_rpc_config_schema_entry_t *e = &m_entries[i].schema;
-		if ((e->flags & FZN_SCHEMA_ADVANCED) && !m_advanced->isChecked())
-			continue;
-		m_shown[m_shown_count++] = i;
-		m_list->addItem(QString::fromUtf8(e->key) + QStringLiteral(" -- ")
-		                + QString::fromUtf8(e->summary));
+		QString key = QString::fromUtf8(m_entries[i].schema.key);
+		QString group = key.section(QLatin1Char('.'), 0, 0);
+		if (!order.contains(group))
+			order << group;
 	}
+	for (const QString &group : order) {
+		QTreeWidgetItem *head = nullptr;
+		for (int i = 0; i < m_count; i++) {
+			const fzn_rpc_config_schema_entry_t *e = &m_entries[i].schema;
+			QString key = QString::fromUtf8(e->key);
+			if (key.section(QLatin1Char('.'), 0, 0) != group)
+				continue;
+			if ((e->flags & FZN_SCHEMA_ADVANCED) && !m_advanced->isChecked())
+				continue;
+			/* THE HOST'S OWN RULE, said by its filter. */
+			if (m_keep && !m_keep(m_keep_ctx, e->key))
+				continue;
+			/* NEVER PAST THE ARRAYS, which hold one row a setting. */
+			if (m_shown_count >= m_count)
+				break;
+			if (!head) {
+				head = new QTreeWidgetItem(m_list, { group });
+				head->setFlags(Qt::ItemIsEnabled);
+				head->setExpanded(true);
+			}
+			auto *item = new QTreeWidgetItem(head, { key + QStringLiteral(" -- ")
+			                                         + QString::fromUtf8(e->summary) });
+			m_items[m_shown_count] = item;
+			m_shown[m_shown_count++] = i;
+		}
+	}
+	m_list->expandAll();
 	m_list->blockSignals(false);
 	m_value->clear();
 	m_value->setEnabled(false);
@@ -134,10 +174,34 @@ void fzn_settings_view::show_advanced(bool on)
 	fill();
 }
 
+int fzn_settings_view::current_row() const
+{
+	QTreeWidgetItem *at = m_list->currentItem();
+	for (int i = 0; at && i < m_shown_count; i++)
+		if (m_items[i] == at)
+			return i;
+	return -1;
+}
+
 int fzn_settings_view::chosen_entry() const
 {
-	int row = m_list->currentRow();
-	return row >= 0 && row < m_shown_count ? m_shown[row] : -1;
+	int row = current_row();
+	return row >= 0 ? m_shown[row] : -1;
+}
+
+void fzn_settings_view::set_filter(keep_fn keep, void *ctx)
+{
+	m_keep = keep;
+	m_keep_ctx = ctx;
+	fill();
+}
+
+QStringList fzn_settings_view::groups() const
+{
+	QStringList out;
+	for (int i = 0; i < m_list->topLevelItemCount(); i++)
+		out << m_list->topLevelItem(i)->text(0);
+	return out;
 }
 
 bool fzn_settings_view::reach()
@@ -178,9 +242,9 @@ bool fzn_settings_view::select(int row)
 {
 	if (row < 0 || row >= m_shown_count)
 		return false;
-	if (m_list->currentRow() != row) {
+	if (current_row() != row) {
 		m_list->blockSignals(true);
-		m_list->setCurrentRow(row);
+		m_list->setCurrentItem(m_items[row]);
 		m_list->blockSignals(false);
 	}
 	entry *en = &m_entries[m_shown[row]];
@@ -245,7 +309,7 @@ void fzn_settings_view::choose(const QString &value)
 
 bool fzn_settings_view::apply()
 {
-	int row = m_list->currentRow();
+	int row = current_row();
 	int at = chosen_entry();
 	if (at < 0)
 		return false;

@@ -22,6 +22,12 @@
  * devices?" says, for a setting the estate shares, this host's version and
  * each other host's (fuzzypickles' page's two other uses, sec 1106).
  *
+ * GROUPED BY THE KEY'S FIRST PART -- `relay`, `location` -- in a tree, so a
+ * phone's screen is not one long list (sec 1108). AND THE HOST SAYS WHICH
+ * KEYS IT OFFERS, by a filter it hands in: a setting the consumer handles
+ * itself -- `location.gpsd` where the platform gives positions -- stays out,
+ * the rule the consumer's and the view still this tree's.
+ *
  * Through the typed client on the host's ask callback (`rpc_ask.h`), as the
  * objects view is. NO Q_OBJECT AND THEREFORE NO moc.
  */
@@ -39,7 +45,8 @@ struct fzn_gui_rpc;
 class QCheckBox;
 class QComboBox;
 class QLabel;
-class QListWidget;
+class QTreeWidget;
+class QTreeWidgetItem;
 class QPushButton;
 
 class fzn_settings_view : public QWidget {
@@ -60,6 +67,11 @@ public:
 	void show_advanced(bool on);
 	/* Ask where the chosen setting has reached. Whether the node answered. */
 	bool reach();
+	/* WHICH KEYS THIS HOST OFFERS: `keep` says, for each key as the node
+	 * names it (`location.gpsd`), whether to list it; NULL lists every one.
+	 * Applied at once and at every refresh. */
+	typedef bool (*keep_fn)(void *ctx, const char *key);
+	void set_filter(keep_fn keep, void *ctx);
 
 	/* WHAT IS ON SCREEN: the keys listed, the choices the chosen one offers
 	 * (the first is always the default), the one chosen, where its value
@@ -71,6 +83,8 @@ public:
 	QString notes() const;
 	QString status() const;
 	QString reached() const;
+	/* The groups listed, in order: each key's first part. */
+	QStringList groups() const;
 
 private:
 	struct fzn_gui_rpc *m_rpc;
@@ -81,8 +95,12 @@ private:
 	int m_shown_count;
 	bool fill();
 	int chosen_entry() const;
+	int current_row() const;
+	QTreeWidgetItem **m_items; /* each listed setting's row in the tree */
+	keep_fn m_keep;
+	void *m_keep_ctx;
 
-	QListWidget *m_list;
+	QTreeWidget *m_list;
 	QComboBox *m_value;
 	QLabel *m_where;
 	QLabel *m_notes;

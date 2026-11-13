@@ -70,13 +70,19 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	return (size_t)snprintf(reply, cap, "%s\n", write_reply);
 }
 
+static bool not_gps(void *ctx, const char *key)
+{
+	(void)ctx;
+	return strcmp(key, "net.gps") != 0;
+}
+
 int main(int argc, char **argv)
 {
 	qputenv("QT_QPA_PLATFORM", "offscreen");
 	QApplication app(argc, argv);
 	fzn_settings_view v(node, nullptr);
 
-	CHECK(v.refresh() && v.keys() == QStringList({ "net.gps", "call.ring", "net.token" }),
+	CHECK(v.refresh() && v.keys() == QStringList({ "net.gps", "net.token", "call.ring" }),
 	      "the settings were not listed");
 
 	/* A FLAG: the default first, saying what it is, then on and off. */
@@ -95,7 +101,7 @@ int main(int argc, char **argv)
 	      "choosing the default wrote a value instead of clearing it");
 
 	/* A DURATION: typed, the node's to judge, its notes said. */
-	CHECK(v.select(1) && v.notes().contains("5 s to 600 s") && v.notes().contains("restart")
+	CHECK(v.select(2) && v.notes().contains("5 s to 600 s") && v.notes().contains("restart")
 	              && v.notes().contains("Peers can see"),
 	      "a duration's bounds, restart or advertised note was not shown");
 	v.choose("2m");
@@ -105,11 +111,11 @@ int main(int argc, char **argv)
 
 	/* A SENSITIVE VALUE: set, never shown. */
 	snprintf(token, sizeof token, "s3cret");
-	CHECK(v.select(2) && v.chosen().isEmpty() && v.notes().contains("it is not shown"),
+	CHECK(v.select(1) && v.chosen().isEmpty() && v.notes().contains("it is not shown"),
 	      "a sensitive value was shown, or not said to be set");
 
 	/* WHERE A SHARED SETTING HAS REACHED; a host's own is said to be so. */
-	v.select(1);
+	v.select(2);
 	CHECK(v.reach() && v.reached().contains("version 4") && v.reached().contains("bb00000000000000 has it")
 	              && v.reached().contains("cc00000000000000 is behind, at 2"),
 	      "where a shared setting has reached was not said host by host");
@@ -124,9 +130,19 @@ int main(int argc, char **argv)
 	v.show_advanced(false);
 	CHECK(!v.keys().contains("net.deep"), "hiding advanced settings again did not");
 
+	/* GROUPED BY THE FIRST PART, each group where its first key falls. */
+	CHECK(v.groups() == QStringList({ "net", "call" }), "the settings were not grouped by first part");
+
+	/* THE HOST'S FILTER: a key it handles itself is not offered. */
+	v.set_filter(not_gps, nullptr);
+	CHECK(!v.keys().contains("net.gps") && v.keys().contains("net.token"),
+	      "a key the host filters out was still offered");
+	v.set_filter(nullptr, nullptr);
+	CHECK(v.keys().contains("net.gps"), "taking the filter away did not list the key again");
+
 	/* A REFUSAL IN THE NODE'S WORDS. */
 	write_reply = "malformed not a duration: forever";
-	v.select(1);
+	v.select(2);
 	v.choose("forever");
 	CHECK(!v.apply() && v.status() == "not a duration: forever",
 	      "a refusal was not said in the node's words");

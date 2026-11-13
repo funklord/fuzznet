@@ -87067,3 +87067,39 @@ proposed name offered and approved under another, a held name refused in the cli
 nothing asked, a nameless approve refused, reject, rename by key, remove by name, a refusal, silence.
 Sabotage `contacts-view-*` (four), `gui-rpc-refusal-before-asking-as-silence`, each caught; two
 objects-view entries re-pointed at the shared wording.
+
+## 1108. The settings view grouped and filtered by its host; an appliance's claim window, proposed, 2026-11-13
+
+**fuzzypickles' last two asks for the settings view** (inbox 1139Z): it pins 2c2866c with its clients
+on the typed client, and its window hosts the objects view in place of its own page on a branch. For
+its Settings page it needs a way to say which keys are offered -- on Android the app reads positions
+from the platform, so `location.gpsd` and its kin are not offered (its `offered_here`, pinned by its
+window suite) -- and the grouping this tree had in its backlog (sec 1106). **Both are in:**
+`set_filter(keep, ctx)`, a callback taking each key, the rule the consumer's and the view this
+tree's; and the keys grouped by their first part in a tree, each group where its first key falls,
+`select(row)` still the listed settings in the order drawn. `settings_view_test` has seventeen
+checks; sabotage `settings-view-filter-ignored` and `-every-group-every-key`, caught -- the second
+corrupted the heap until the rows were bounded by the arrays that hold them.
+
+**netcfgd, on pairing a node with no screen** (inbox 1144Z): the holder asked how an OpenWrt router,
+a hal9001 board or an ESP32 pairs with no display, no camera and a serial port that is hard to reach,
+to settle ONE way, and said it likely belongs in fuzznet. netcfgd measured that the direction can
+already be reversed: given an owner fuzznetd's `add invite delegable 600` code, its node ran `add
+join` and became a member (netcfgd `c/tests/node_join.sh`, caf479e6). What a router has: a button
+(OpenWrt `/etc/rc.button/NAME` with the hold time), LEDs, a LAN port trusted at first boot, a flashing
+step that can carry a file, sometimes USB and a web UI; a microcontroller has a pin.
+
+**Its proposal, a claim window:** a node in no estate accepts an owner's invite pushed to it from the
+LAN side only while a window is open -- first boot, a factory reset, or about two minutes after a
+button press -- once, then closed; the owner's app finds waiting nodes on the LAN and pushes; with
+`confirm` the owner sees the appliance's key and grants. From fuzznet it needs discovery of unclaimed
+nodes on a LAN, a message carrying an invite to one, and the window as node state an appliance's code
+opens. Optional: an invite valid until first use, for a code written into an image or printed on a
+per-device sticker, and whether a printed claim secret is an object of its own.
+
+**Not built; its cost, and whose it is.** While a window is open, anybody on that LAN can claim the
+node first: the window bounds when, not who. A printed per-device claim secret is what names who --
+the app proves it found the right device -- and is the half that makes the window safe on a shared
+LAN; with it the window only says when the device will listen. This is a new way into an estate, so
+it is the holder's to choose, with sec 912's smallest host in view. netcfgd answered the holder on
+an open SSH port too: advised against.

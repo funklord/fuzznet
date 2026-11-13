@@ -14384,6 +14384,20 @@ SABOTAGES = [
 		"a rename goes to another contact's key -- sec 1107",
 	),
 	(
+		"settings-view-filter-ignored",
+		"gui/settings_view.cpp",
+		"\t\t\tif (m_keep && !m_keep(m_keep_ctx, e->key))\n",
+		"\t\t\tif (0 && m_keep && !m_keep(m_keep_ctx, e->key))\n",
+		"a key the host handles itself is offered anyway -- sec 1108",
+	),
+	(
+		"settings-view-every-group-every-key",
+		"gui/settings_view.cpp",
+		"\t\t\tif (key.section(QLatin1Char('.'), 0, 0) != group)\n\t\t\t\tcontinue;\n",
+		"",
+		"each group lists every key, so each setting is drawn as many times as there are groups -- sec 1108",
+	),
+	(
 		"list-message-no-group-malformed",
 		"node/messages.c",
 		"\t\twho_no_group = err == FZN_CONTACT_ERR_ABSENT;\n",
