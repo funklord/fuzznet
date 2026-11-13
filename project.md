@@ -86784,3 +86784,22 @@ seen here because phase h stopped earlier.
 
 **And `list message @ID` for a group not held** answered the usage line, as though malformed;
 it says `error no such group here` now, notes' wording (`messages_test`).
+
+## 1097. live_groups phase e: what C's empty pull is not, 2026-11-13
+
+`live_groups` phase e -- B shares a note with the group, and C, a member but not B's contact,
+must pull it from B -- fails often here: 3 of 5 at 49a2b02, 2 of 6 and then 3 of 5 at b1cfde6.
+It predates this week's stages (1 of 4 at 858d0b4, sec 1091). The failure message now prints
+B's log beside C's and both hosts' `get group` member lists.
+
+**What the failures show.** C's round asks two member hosts and logs no error and no refused
+share, so its pull completed and came back empty: B served nothing. **Not membership**: in all three
+failures of that last set, B and C listed the same three members, C among them, so B's `fzn_node_group_ids_of(C)`
+finds the group. **Not the routing refusal** either: `this user does not advertise where it is
+reached` appears in failures only, but it is a contact's routing question asked when the quiet
+window after an earlier refusal has lapsed (`routing_quiet_of`), so it marks a run that ran slower,
+not a cause.
+
+**Next:** what B's scope for C holds when C asks -- the share row under the group's id, and the
+floor a member added after the share gets (`joined_ms`, sec 655), which a note made after C joined
+should pass -- and whether C's tree takes what came (`fzn_notes_received_at_most`).

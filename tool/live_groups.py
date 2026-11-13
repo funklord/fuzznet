@@ -386,9 +386,12 @@ def main(argv):
 				# share, or refused C, in the rounds C asked it.
 				served = [l[-200:] for l in started["b"].log().splitlines()
 				          if any(w in l for w in ("share", "group", "refused", "node/peer"))]
-				raise failed("e: C pulled nothing B shares with the group%s\n B:%s"
+				raise failed("e: C pulled nothing B shares with the group%s\n B:%s\n B's "
+				             "members: %r; C's: %r"
 				             % ("".join("\n  " + l for l in told[-12:]),
-				                "".join("\n  " + l for l in served[-12:])))
+				                "".join("\n  " + l for l in served[-12:]),
+				                ask(socks["b"], "get group " + name),
+				                ask(socks["c"], "get group " + names["c"])))
 			print("livecheck: e: B shared a note with the group, and C pulled it from B")
 
 			# e2: A, C's contact and a member, shares with the group too; C's
