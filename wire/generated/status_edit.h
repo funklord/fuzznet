@@ -29,8 +29,7 @@ extern "C" {
  * the backing is yours and outlives it, which is the whole trade.
  */
 typedef struct {
-	uint8_t family;
-	uint8_t type;
+	uint8_t cmd;
 	uint8_t code;
 	uint8_t why_len;
 	const uint8_t *why;	/* into your backing */
@@ -75,8 +74,7 @@ static inline situ_err_t fzn_status_message_edit_decode(const situ_msg_t *msg,
 	}
 
 	uint32_t at = 0u;
-	out->family = fzn_status_message_family_get(view);
-	out->type = fzn_status_message_type_get(view);
+	out->cmd = fzn_status_message_cmd_get(view);
 	out->code = fzn_status_message_code_get(view);
 	out->why_len = fzn_status_message_why_len_get(view);
 	out->why_len = fzn_status_message_why_len(view);

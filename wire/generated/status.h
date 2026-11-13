@@ -53,8 +53,8 @@ static inline int fzn_status_code_is_known(fzn_status_code_t value)
 
 /* ---- struct message ---- */
 
-#define FZN_STATUS_MESSAGE_SIZE_MIN   4u
-#define FZN_STATUS_MESSAGE_SIZE_MAX   204u
+#define FZN_STATUS_MESSAGE_SIZE_MIN   3u
+#define FZN_STATUS_MESSAGE_SIZE_MAX   203u
 
 /* INVALIDATION: a message view, and every view derived from
  * it, is invalidated by writing `why_len` -- those decide where the
@@ -80,85 +80,66 @@ static inline situ_err_t fzn_status_message_view(const situ_msg_t *msg, uint32_t
 	return situ_view_at(msg, offset, length, out);
 }
 
-#define FZN_STATUS_MESSAGE_FAMILY_VALUE_MIN 2u
-#define FZN_STATUS_MESSAGE_FAMILY_VALUE_MAX 2u
+#define FZN_STATUS_MESSAGE_CMD_VALUE_MIN 19u
+#define FZN_STATUS_MESSAGE_CMD_VALUE_MAX 19u
 
-/** message.family : u8  at AbsoluteStatic(0x00)
+/** message.cmd : u8  at AbsoluteStatic(0x00)
  * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint8_t fzn_status_message_family_get(situ_view_t view)
+static inline uint8_t fzn_status_message_cmd_get(situ_view_t view)
 {
 	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
 }
-static inline uint8_t *fzn_status_message_family_ptr(situ_view_t view)
+static inline uint8_t *fzn_status_message_cmd_ptr(situ_view_t view)
 {
 	return (uint8_t *)(situ_base(view) + 0u);
 }
-static inline void fzn_status_message_family_set(situ_view_t view, uint8_t value)
+static inline void fzn_status_message_cmd_set(situ_view_t view, uint8_t value)
 {
 	(situ_base(view))[0u] = (uint8_t)value;
 }
 
-#define FZN_STATUS_MESSAGE_TYPE_VALUE_MIN 65u
-#define FZN_STATUS_MESSAGE_TYPE_VALUE_MAX 65u
-
-/** message.type : u8  at AbsoluteStatic(0x01)
+/** message.code : code  at AbsoluteStatic(0x01)
  * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint8_t fzn_status_message_type_get(situ_view_t view)
+static inline fzn_status_code_t fzn_status_message_code_get(situ_view_t view)
 {
-	return (uint8_t)((uint8_t)(situ_base(view))[1u]);
+	return (fzn_status_code_t)((uint8_t)(situ_base(view))[1u]);
 }
-static inline uint8_t *fzn_status_message_type_ptr(situ_view_t view)
-{
-	return (uint8_t *)(situ_base(view) + 1u);
-}
-static inline void fzn_status_message_type_set(situ_view_t view, uint8_t value)
+static inline void fzn_status_message_code_set(situ_view_t view, fzn_status_code_t value)
 {
 	(situ_base(view))[1u] = (uint8_t)value;
 }
 
-/** message.code : code  at AbsoluteStatic(0x02)
- * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
- */
-static inline fzn_status_code_t fzn_status_message_code_get(situ_view_t view)
-{
-	return (fzn_status_code_t)((uint8_t)(situ_base(view))[2u]);
-}
-static inline void fzn_status_message_code_set(situ_view_t view, fzn_status_code_t value)
-{
-	(situ_base(view))[2u] = (uint8_t)value;
-}
-
 #define FZN_STATUS_MESSAGE_WHY_LEN_VALUE_MAX 200u
 
-/** message.why_len : u8  at AbsoluteStatic(0x03)
- * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+/** message.why_len : u8  at AbsoluteStatic(0x02)
+ * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
 static inline uint8_t fzn_status_message_why_len_get(situ_view_t view)
 {
-	return (uint8_t)((uint8_t)(situ_base(view))[3u]);
+	return (uint8_t)((uint8_t)(situ_base(view))[2u]);
 }
 static inline uint8_t *fzn_status_message_why_len_ptr(situ_view_t view)
 {
-	return (uint8_t *)(situ_base(view) + 3u);
+	return (uint8_t *)(situ_base(view) + 2u);
 }
 /* No plain setter: `why_len` decides where later members
  * start, so writing it must invalidate outstanding views. Use
  * fzn_status_message_why_len_set(),
  * which takes the message and bumps its generation. */
 
-/** message.why : u8  at AbsoluteStatic(0x04)
- * size=Bounded(0, 200) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+/** message.why : u8  at AbsoluteStatic(0x03)
+ * size=Bounded(0, 200) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
  */
 static inline uint32_t fzn_status_message_why_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[3u])),
-		situ_remaining_u32(view.limit, 4u));
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[2u])),
+		situ_remaining_u32(view.limit, 3u));
 }
 static inline uint8_t *fzn_status_message_why_ptr(situ_view_t view)
 {
-	return situ_base(view) + 4u;
+	return situ_base(view) + 3u;
 }
 
 /* No setter: mutate is Shifting.
@@ -178,7 +159,7 @@ static inline uint8_t *fzn_status_message_why_ptr(situ_view_t view)
  */
 static inline situ_err_t fzn_status_message_required(const uint8_t *data, uint32_t have, uint32_t *need)
 {
-	uint32_t at = 4u;
+	uint32_t at = 3u;
 	situ_view_t view;
 
 	/* A view over what has arrived, so every length expression below
@@ -190,12 +171,12 @@ static inline situ_err_t fzn_status_message_required(const uint8_t *data, uint32
 
 	/* message.why: reading its length means reading bytes that
 	 * have to be here first. */
-	if (have < 4u) {
+	if (have < 3u) {
 		*need = at;
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[3u]));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[2u]));
 
 		at = situ_need_u32(at, len);
 	}
@@ -211,7 +192,7 @@ static inline situ_err_t fzn_status_message_required(const uint8_t *data, uint32
  */
 static inline void fzn_status_message_why_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
-	(situ_base(view))[3u] = (uint8_t)value;
+	(situ_base(view))[2u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
 
@@ -229,11 +210,10 @@ situ_err_t fzn_status_message_validate(situ_view_t view);
  * a macro, so nothing here costs a string (0051).
  */
 situ_err_t fzn_status_message_check(situ_view_t view, uint32_t *which);
-#define FZN_STATUS_MESSAGE_FAMILY_CHECK 0u
-#define FZN_STATUS_MESSAGE_TYPE_CHECK 1u
-#define FZN_STATUS_MESSAGE_CODE_CHECK 2u
-#define FZN_STATUS_MESSAGE_WHY_LEN_CHECK 3u
-#define FZN_STATUS_MESSAGE_WHY_CHECK 4u
+#define FZN_STATUS_MESSAGE_CMD_CHECK 0u
+#define FZN_STATUS_MESSAGE_CODE_CHECK 1u
+#define FZN_STATUS_MESSAGE_WHY_LEN_CHECK 2u
+#define FZN_STATUS_MESSAGE_WHY_CHECK 3u
 
 #ifdef __cplusplus
 }

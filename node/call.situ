@@ -3,8 +3,8 @@
 // its tests generated, where node/live.c read the bytes by hand. Its writer
 // waits on situ building a message whose last member is `remaining`.
 //
-// The layout is the wire as it stands: family 2, type 61, a kind, the call's id.
-// sec 1061's CMD/SUBCMD scheme and the head set up once per call change it after.
+// FZN_CMD_CALL (18, wire/cmd.h), its kind the SUBCMD, the call's id: sec 1085 and
+// 1087, where it was family 2, type 61, then the kind.
 
 target buffer;
 endian big;
@@ -57,8 +57,7 @@ struct participant {
 }
 
 struct message {
-	u8         family [must_eq = 2];
-	u8         type   [must_eq = 61];
+	u8         cmd    [must_eq = 18];
 	kind       kind;
 	u8         call[8];
 

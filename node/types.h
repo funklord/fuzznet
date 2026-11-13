@@ -18,7 +18,7 @@
  * family 2, so most owners changed only byte 0 (sec 1085):
  *
  *   1  FILES: `spool/message.h`'s spans 1..4; file references 45, 46
- *   2  SHARED: the call (61) and STATUS (65) alone, until sec 1085 stage 3
+ *   2  retired in sec 1087: a grab-bag until sec 1085 split it
  *   3  CAUSE: `log/cause.h`, an envelope naming a request's causes
  *   4  GATHER: `log/gather.h`, a host's log lines
  *   5  retired: the journal's exchange before sec 1047, its digest 16 bits
@@ -34,6 +34,8 @@
  *  15  TIME: here, 47, 48
  *  16  RRPC: here, 49, 50
  *  17  SESSION: here, 51, 52
+ *  18  CALL: `node/live.h`, the call's kind 1..10 (`node/call.situ`)
+ *  19  STATUS: `wire/status.h`, the code 0..6 (`wire/status.situ`)
  *  20  EXTENSION: every SUBCMD the extension's
  */
 #ifndef FZN_NODE_TYPES_H
@@ -76,9 +78,6 @@
  * end's key, the asker's handle and the other end's, 4 bytes each. Answered
  * `ok` or `denied WHY`. */
 #define FZN_SUBCMD_REACH_RELAY_SESSION 62u
-/* A STATUS, sec 1076: a host's answer carrying no data, ok or why not; its
- * codec in wire/status.h since sec 1078, which names the number. */
-#define FZN_TYPE_STATUS FZN_STATUS_TYPE
 /* AN ADDRESS AND A PORT, sec 1077 and 1081: where an introduced host said hello
  * from, INTRODUCE's answer, and where an asker was seen from, ADDRESS_ASK's. */
 #define FZN_SUBCMD_REACH_ADDRESS 66u
@@ -90,8 +89,6 @@
 /* THE MANIFEST: its two head bytes, then fzn_routing_encode's bytes. */
 #define FZN_SUBCMD_REACH_ROUTING 69u
 #define FZN_RELAY_SESSION_LEN (2u + 32u + 4u + 4u)
-/* A CALL'S WORD, sec 1019 (`node/live.h`): said in a session, never answered. */
-#define FZN_TYPE_LIVE 61u
 #define FZN_RRPC_OK 0u
 #define FZN_RRPC_UNKNOWN 1u
 #define FZN_RRPC_DENIED 2u

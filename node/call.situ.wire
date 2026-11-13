@@ -30,12 +30,11 @@ struct frame size=15..
   @0x000d   2         u16        pieces  big min=1
   @0x000f   0..       u8         media  sized-by=remaining
 
-struct message size=11..
-  @0x0000   1         u8         family  must_eq=2
-  @0x0001   1         u8         type  must_eq=61
-  @0x0002   1         kind       kind
-  @0x0003   8         u8         call  big
-  @0x000b   0..       variant    body
+struct message size=10..
+  @0x0000   1         u8         cmd  must_eq=18
+  @0x0001   1         kind       kind
+  @0x0002   8         u8         call  big
+  @0x000a   0..       variant    body
   body switch: kind
   body case 1: ring ring
   body case 2: answer nothing

@@ -20,39 +20,38 @@ struct frame size=15.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
   frame.pieces                           offset=AbsoluteStatic(0x0D) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   frame.media                            offset=AbsoluteStatic(0x0F) size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
-struct message size=11.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
-  message.family                         offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
-  message.type                           offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.kind                           offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
-  message.call                           offset=AbsoluteStatic(0x03) size=Fixed(8) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body                           offset=AbsoluteStatic(0x0B) size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
-  message.body.ring                      offset=AbsoluteStatic(0x0B) size=Fixed(33) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body.ring.kinds                offset=AbsoluteStatic(0x0B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body.ring.whom                 offset=AbsoluteStatic(0x0C) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
-  message.body.answer                    offset=AbsoluteStatic(0x0B) size=Fixed(0) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body.decline                   offset=AbsoluteStatic(0x0B) size=Fixed(0) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body.hangup                    offset=AbsoluteStatic(0x0B) size=Fixed(0) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body.frame                     offset=AbsoluteStatic(0x0B) size=Unbounded align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=Shifting
-  message.body.frame.stream              offset=AbsoluteStatic(0x0B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body.frame.from                offset=AbsoluteStatic(0x0C) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
-  message.body.frame.seq                 offset=AbsoluteStatic(0x0E) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  message.body.frame.at_ms               offset=AbsoluteStatic(0x12) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  message.body.frame.piece               offset=AbsoluteStatic(0x16) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
-  message.body.frame.pieces              offset=AbsoluteStatic(0x18) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
-  message.body.frame.media               offset=AbsoluteStatic(0x1A) size=Unbounded align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
-  message.body.report                    offset=AbsoluteStatic(0x0B) size=Fixed(19) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  message.body.report.stream             offset=AbsoluteStatic(0x0B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body.report.received           offset=AbsoluteStatic(0x0C) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
-  message.body.report.lost               offset=AbsoluteStatic(0x10) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
-  message.body.report.jitter_ms          offset=AbsoluteStatic(0x14) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
-  message.body.report.last_at_ms         offset=AbsoluteStatic(0x16) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  message.body.report.held_ms            offset=AbsoluteStatic(0x1A) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  message.body.participant               offset=AbsoluteStatic(0x0B) size=Fixed(34) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  message.body.participant.index         offset=AbsoluteStatic(0x0B) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  message.body.participant.whom          offset=AbsoluteStatic(0x0D) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body.ringing                   offset=AbsoluteStatic(0x0B) size=Fixed(0) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body.no_answer                 offset=AbsoluteStatic(0x0B) size=Fixed(0) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body.busy                      offset=AbsoluteStatic(0x0B) size=Fixed(0) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+struct message size=10.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  message.kind                           offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.call                           offset=AbsoluteStatic(0x02) size=Fixed(8) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body                           offset=AbsoluteStatic(0x0A) size=Unbounded align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.ring                      offset=AbsoluteStatic(0x0A) size=Fixed(33) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.ring.kinds                offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.ring.whom                 offset=AbsoluteStatic(0x0B) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  message.body.answer                    offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.decline                   offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.hangup                    offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.frame                     offset=AbsoluteStatic(0x0A) size=Unbounded align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.frame.stream              offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.frame.from                offset=AbsoluteStatic(0x0B) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.frame.seq                 offset=AbsoluteStatic(0x0D) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.frame.at_ms               offset=AbsoluteStatic(0x11) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.frame.piece               offset=AbsoluteStatic(0x15) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.frame.pieces              offset=AbsoluteStatic(0x17) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.frame.media               offset=AbsoluteStatic(0x19) size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.report                    offset=AbsoluteStatic(0x0A) size=Fixed(19) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.report.stream             offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.report.received           offset=AbsoluteStatic(0x0B) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.report.lost               offset=AbsoluteStatic(0x0F) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.report.jitter_ms          offset=AbsoluteStatic(0x13) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.report.last_at_ms         offset=AbsoluteStatic(0x15) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.report.held_ms            offset=AbsoluteStatic(0x19) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.participant               offset=AbsoluteStatic(0x0A) size=Fixed(34) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.participant.index         offset=AbsoluteStatic(0x0A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  message.body.participant.whom          offset=AbsoluteStatic(0x0C) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+  message.body.ringing                   offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.no_answer                 offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.busy                      offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
 
 struct nothing size=0
 

@@ -86458,3 +86458,35 @@ already was, which sec 1084 answers `ok unchanged` -- sec 1084's own miss, its g
 no `livecheck-faults`. `live_groups` failed once in `livecheck`, `C pulled nothing B shares with
 the group`, under a loaded machine, and passed alone on this tree and on the commit before it:
 one occurrence, kept here to be recognised if it comes again.
+
+## 1087. CMD and SUBCMD, stage 3: the call and STATUS take their own CMD; family 2 retired, 2026-11-13
+
+**Sec 1085's stage 3.** The last two tenants of family 2 move, each to a CMD whose SUBCMD is the
+value it carried in a byte of its own:
+
+| | Was | Now |
+|---|---|---|
+| A call's message | `2 \| 61 \| KIND \| CALL 8 \| ...` | `18 \| KIND \| CALL 8 \| ...` |
+| A STATUS | `2 \| 65 \| CODE \| LEN \| WHY` | `19 \| CODE \| LEN \| WHY` |
+
+`FZN_CMD_CALL` (18) and `FZN_CMD_STATUS` (19) in `wire/cmd.h`; `FZN_CMD_SHARED` and the types
+`FZN_TYPE_LIVE` and `FZN_TYPE_STATUS` are gone, and **2 is retired** beside 5, neither given again
+-- types_test checks it. Each message is a byte shorter: a call's head is `FZN_LIVE_HEAD_LEN` 10,
+a STATUS's `FZN_STATUS_HEAD_LEN` 3, and every offset that derives from them moved with them.
+
+`node/call.situ` and `wire/status.situ` say so (`u8 cmd [must_eq = 18]`, `[must_eq = 19]`), and
+their readers, builders and vector tests are regenerated; the vectors are the old bytes with the
+two head bytes replaced by one, written by hand. The call's writer sets the head through the
+generated `fzn_call_message_cmd_set`. The log gatherer reads a denial from three head bytes, and
+`gather_test`'s hand-written refusal is `\023\001...`. `live_sibling_call.py`, which builds a
+call's bytes itself, opens them with 18.
+
+**Found by the gates:** `live_sibling_call` compared the first 11 bytes of what the device heard
+-- the old head's length, written as a number -- and never matched a RING; it takes the length of
+the word it builds now. And the schema gate, run against situ's newer HEAD (cdc6f203), found the
+generated vector tests changed: situ's `gen-tests` no longer uses cmocka, the test carrying its
+own runner, so `call_vectors`, `status_vectors` and `address_vectors` are regenerated and link
+without `-lcmocka` -- a C compiler and the situ runtime are all they need.
+
+**Measured:** live_test, status_test (34), call_vectors (10), status_vectors (3), gather_test,
+types_test, meter_test, admin_test; then the gates, livecheck, livecheck-faults and hull.

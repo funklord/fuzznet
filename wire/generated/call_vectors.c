@@ -4,280 +4,362 @@
  * catch a change to what it emits, which is a different failure.
  */
 
+#include <inttypes.h>
 #include <setjmp.h>
-#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
-#include <cmocka.h>
+/* Checks and a runner, in the file rather than a framework: what this
+ * suite needs to run is a C compiler and the situ runtime. A failed check
+ * says where and what, and leaves its test; the next test runs. */
+static jmp_buf situ_check_jump;
+
+static inline void situ_check_fail(const char *file, int line,
+		const char *what)
+{
+	printf("%s:%d: check failed: %s\n", file, line, what);
+	longjmp(situ_check_jump, 1);
+}
+
+static inline void situ_check_eq_at(uintmax_t got, uintmax_t want,
+		int equal, const char *what, const char *file, int line)
+{
+	if ((got == want) != equal) {
+		printf("%s:%d: 0x%" PRIxMAX " %s 0x%" PRIxMAX "\n", file, line,
+		       got, equal ? "!=" : "==", want);
+		situ_check_fail(file, line, what);
+	}
+}
+
+static inline void situ_check_bytes_at(const void *got, const void *want,
+		size_t count, const char *what, const char *file, int line)
+{
+	const unsigned char *a = (const unsigned char *)got;
+	const unsigned char *b = (const unsigned char *)want;
+	size_t i;
+
+	for (i = 0; i < count; i++) {
+		if (a[i] != b[i]) {
+			printf("%s:%d: byte %zu of %zu is 0x%02x, not 0x%02x\n",
+			       file, line, i, count, a[i], b[i]);
+			situ_check_fail(file, line, what);
+		}
+	}
+}
+
+#define situ_check_eq(got, want) \
+	situ_check_eq_at((uintmax_t)(got), (uintmax_t)(want), 1, \
+	                 #got " == " #want, __FILE__, __LINE__)
+#define situ_check_ne(got, want) \
+	situ_check_eq_at((uintmax_t)(got), (uintmax_t)(want), 0, \
+	                 #got " != " #want, __FILE__, __LINE__)
+#define situ_check_true(cond) \
+	do { if (!(cond)) situ_check_fail(__FILE__, __LINE__, #cond); } while (0)
+#define situ_check_false(cond) \
+	do { if (cond) situ_check_fail(__FILE__, __LINE__, "!(" #cond ")"); } while (0)
+#define situ_check_null(ptr) situ_check_true((ptr) == NULL)
+#define situ_check_non_null(ptr) situ_check_true((ptr) != NULL)
+#define situ_check_bytes(got, want, count) \
+	situ_check_bytes_at((got), (want), (size_t)(count), \
+	                    #got " == " #want, __FILE__, __LINE__)
+#define situ_check_bytes_ne(got, want, count) \
+	situ_check_true(memcmp((got), (want), (size_t)(count)) != 0)
+#define situ_check_ptr_eq(got, want) \
+	situ_check_true((const void *)(got) == (const void *)(want))
+#define situ_check_str_eq(got, want) \
+	situ_check_true(strcmp((got), (want)) == 0)
+
+struct situ_check_case {
+	const char *name;
+	void (*run)(void **state);
+};
+
+#define situ_check_case(fn) { #fn, fn }
+
+static inline int situ_check_run(const struct situ_check_case *cases,
+		size_t count, const char *group)
+{
+	volatile size_t failed = 0;
+	volatile size_t i;
+
+	printf("[==========] %s: Running %zu test(s).\n", group, count);
+	for (i = 0; i < count; i++) {
+		printf("[ RUN      ] %s\n", cases[i].name);
+		if (setjmp(situ_check_jump) == 0) {
+			cases[i].run(NULL);
+			printf("[       OK ] %s\n", cases[i].name);
+		} else {
+			failed++;
+			printf("[  FAILED  ] %s\n", cases[i].name);
+		}
+	}
+	printf("[==========] %s: %zu test(s) run.\n", group, count);
+	if (failed == 0) {
+		printf("[  PASSED  ] %zu test(s).\n", count);
+		return 0;
+	}
+	printf("[  FAILED  ] %zu test(s).\n", (size_t)failed);
+	return 1;
+}
 
 #include "call.h"
 
 /* message / ring */
-static const uint8_t vector_message_ring[44u] = {
-	0x02, 0x3D, 0x01, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x01, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
+static const uint8_t vector_message_ring[43u] = {
+	0x12, 0x01, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x01, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
 };
 
 static void test_message_ring(void **state)
+{
+	uint8_t     buf[43u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_ring, sizeof(buf));
+	situ_msg_init(&msg, buf, 43u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 43u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_ring, sizeof(buf));
+}
+
+/* message / answer */
+static const uint8_t vector_message_answer[10u] = {
+	0x12, 0x02, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_answer(void **state)
+{
+	uint8_t     buf[10u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_answer, sizeof(buf));
+	situ_msg_init(&msg, buf, 10u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 10u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_answer, sizeof(buf));
+}
+
+/* message / decline */
+static const uint8_t vector_message_decline[10u] = {
+	0x12, 0x03, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_decline(void **state)
+{
+	uint8_t     buf[10u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_decline, sizeof(buf));
+	situ_msg_init(&msg, buf, 10u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 10u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_decline, sizeof(buf));
+}
+
+/* message / hangup */
+static const uint8_t vector_message_hangup[10u] = {
+	0x12, 0x04, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_hangup(void **state)
+{
+	uint8_t     buf[10u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_hangup, sizeof(buf));
+	situ_msg_init(&msg, buf, 10u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 10u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_hangup, sizeof(buf));
+}
+
+/* message / ringing */
+static const uint8_t vector_message_ringing[10u] = {
+	0x12, 0x08, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_ringing(void **state)
+{
+	uint8_t     buf[10u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_ringing, sizeof(buf));
+	situ_msg_init(&msg, buf, 10u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 10u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_ringing, sizeof(buf));
+}
+
+/* message / no_answer */
+static const uint8_t vector_message_no_answer[10u] = {
+	0x12, 0x09, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_no_answer(void **state)
+{
+	uint8_t     buf[10u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_no_answer, sizeof(buf));
+	situ_msg_init(&msg, buf, 10u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 10u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_no_answer, sizeof(buf));
+}
+
+/* message / busy */
+static const uint8_t vector_message_busy[10u] = {
+	0x12, 0x0A, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_busy(void **state)
+{
+	uint8_t     buf[10u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_busy, sizeof(buf));
+	situ_msg_init(&msg, buf, 10u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 10u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_busy, sizeof(buf));
+}
+
+/* message / frame */
+static const uint8_t vector_message_frame[29u] = {
+	0x12, 0x05, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x01, 0xF4, 0x00, 0x00, 0x00, 0x01, 0xC0, 0xFF, 0xEE, 0x00,
+};
+
+static void test_message_frame(void **state)
+{
+	uint8_t     buf[29u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_frame, sizeof(buf));
+	situ_msg_init(&msg, buf, 29u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 29u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_frame, sizeof(buf));
+}
+
+/* message / report */
+static const uint8_t vector_message_report[29u] = {
+	0x12, 0x06, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x02, 0x1C, 0x00, 0x00, 0x00, 0x0C,
+};
+
+static void test_message_report(void **state)
+{
+	uint8_t     buf[29u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_report, sizeof(buf));
+	situ_msg_init(&msg, buf, 29u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 29u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_report, sizeof(buf));
+}
+
+/* message / participant */
+static const uint8_t vector_message_participant[44u] = {
+	0x12, 0x07, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x00, 0x02, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
+};
+
+static void test_message_participant(void **state)
 {
 	uint8_t     buf[44u];
 	situ_msg_t  msg;
 	situ_view_t view;
 
 	(void)state;
-	memcpy(buf, vector_message_ring, sizeof(buf));
-	situ_msg_init(&msg, buf, 44u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 44u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
-
-	/* Every value written back through its own setter must reproduce the
-	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
-	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_ring, sizeof(buf));
-}
-
-/* message / answer */
-static const uint8_t vector_message_answer[11u] = {
-	0x02, 0x3D, 0x02, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
-};
-
-static void test_message_answer(void **state)
-{
-	uint8_t     buf[11u];
-	situ_msg_t  msg;
-	situ_view_t view;
-
-	(void)state;
-	memcpy(buf, vector_message_answer, sizeof(buf));
-	situ_msg_init(&msg, buf, 11u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 11u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
-
-	/* Every value written back through its own setter must reproduce the
-	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
-	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_answer, sizeof(buf));
-}
-
-/* message / decline */
-static const uint8_t vector_message_decline[11u] = {
-	0x02, 0x3D, 0x03, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
-};
-
-static void test_message_decline(void **state)
-{
-	uint8_t     buf[11u];
-	situ_msg_t  msg;
-	situ_view_t view;
-
-	(void)state;
-	memcpy(buf, vector_message_decline, sizeof(buf));
-	situ_msg_init(&msg, buf, 11u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 11u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
-
-	/* Every value written back through its own setter must reproduce the
-	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
-	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_decline, sizeof(buf));
-}
-
-/* message / hangup */
-static const uint8_t vector_message_hangup[11u] = {
-	0x02, 0x3D, 0x04, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
-};
-
-static void test_message_hangup(void **state)
-{
-	uint8_t     buf[11u];
-	situ_msg_t  msg;
-	situ_view_t view;
-
-	(void)state;
-	memcpy(buf, vector_message_hangup, sizeof(buf));
-	situ_msg_init(&msg, buf, 11u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 11u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
-
-	/* Every value written back through its own setter must reproduce the
-	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
-	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_hangup, sizeof(buf));
-}
-
-/* message / ringing */
-static const uint8_t vector_message_ringing[11u] = {
-	0x02, 0x3D, 0x08, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
-};
-
-static void test_message_ringing(void **state)
-{
-	uint8_t     buf[11u];
-	situ_msg_t  msg;
-	situ_view_t view;
-
-	(void)state;
-	memcpy(buf, vector_message_ringing, sizeof(buf));
-	situ_msg_init(&msg, buf, 11u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 11u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
-
-	/* Every value written back through its own setter must reproduce the
-	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
-	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_ringing, sizeof(buf));
-}
-
-/* message / no_answer */
-static const uint8_t vector_message_no_answer[11u] = {
-	0x02, 0x3D, 0x09, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
-};
-
-static void test_message_no_answer(void **state)
-{
-	uint8_t     buf[11u];
-	situ_msg_t  msg;
-	situ_view_t view;
-
-	(void)state;
-	memcpy(buf, vector_message_no_answer, sizeof(buf));
-	situ_msg_init(&msg, buf, 11u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 11u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
-
-	/* Every value written back through its own setter must reproduce the
-	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
-	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_no_answer, sizeof(buf));
-}
-
-/* message / busy */
-static const uint8_t vector_message_busy[11u] = {
-	0x02, 0x3D, 0x0A, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
-};
-
-static void test_message_busy(void **state)
-{
-	uint8_t     buf[11u];
-	situ_msg_t  msg;
-	situ_view_t view;
-
-	(void)state;
-	memcpy(buf, vector_message_busy, sizeof(buf));
-	situ_msg_init(&msg, buf, 11u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 11u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
-
-	/* Every value written back through its own setter must reproduce the
-	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
-	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_busy, sizeof(buf));
-}
-
-/* message / frame */
-static const uint8_t vector_message_frame[30u] = {
-	0x02, 0x3D, 0x05, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x01, 0xF4, 0x00, 0x00, 0x00, 0x01, 0xC0, 0xFF, 0xEE, 0x00,
-};
-
-static void test_message_frame(void **state)
-{
-	uint8_t     buf[30u];
-	situ_msg_t  msg;
-	situ_view_t view;
-
-	(void)state;
-	memcpy(buf, vector_message_frame, sizeof(buf));
-	situ_msg_init(&msg, buf, 30u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 30u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
-
-	/* Every value written back through its own setter must reproduce the
-	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
-	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_frame, sizeof(buf));
-}
-
-/* message / report */
-static const uint8_t vector_message_report[30u] = {
-	0x02, 0x3D, 0x06, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x03, 0x00, 0x00, 0x02, 0x1C, 0x00, 0x00, 0x00, 0x0C,
-};
-
-static void test_message_report(void **state)
-{
-	uint8_t     buf[30u];
-	situ_msg_t  msg;
-	situ_view_t view;
-
-	(void)state;
-	memcpy(buf, vector_message_report, sizeof(buf));
-	situ_msg_init(&msg, buf, 30u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 30u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
-
-	/* Every value written back through its own setter must reproduce the
-	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
-	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_report, sizeof(buf));
-}
-
-/* message / participant */
-static const uint8_t vector_message_participant[45u] = {
-	0x02, 0x3D, 0x07, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x00, 0x02, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
-};
-
-static void test_message_participant(void **state)
-{
-	uint8_t     buf[45u];
-	situ_msg_t  msg;
-	situ_view_t view;
-
-	(void)state;
 	memcpy(buf, vector_message_participant, sizeof(buf));
-	situ_msg_init(&msg, buf, 45u);
-	assert_int_equal(fzn_call_message_view(&msg, 0, 45u, &view), SITU_OK);
-	assert_int_equal(fzn_call_message_validate(view), SITU_OK);
+	situ_msg_init(&msg, buf, 44u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 44u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
 
 	/* Every value written back through its own setter must reproduce the
 	 * bytes it came from. This is what catches a layout change. */
-	fzn_call_message_family_set(view, fzn_call_message_family_get(view));
-	fzn_call_message_type_set(view, fzn_call_message_type_get(view));
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
 	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
-	assert_memory_equal(buf, vector_message_participant, sizeof(buf));
+	situ_check_bytes(buf, vector_message_participant, sizeof(buf));
 }
 
 int main(void)
 {
-	const struct CMUnitTest tests[] = {
-		cmocka_unit_test(test_message_ring),
-		cmocka_unit_test(test_message_answer),
-		cmocka_unit_test(test_message_decline),
-		cmocka_unit_test(test_message_hangup),
-		cmocka_unit_test(test_message_ringing),
-		cmocka_unit_test(test_message_no_answer),
-		cmocka_unit_test(test_message_busy),
-		cmocka_unit_test(test_message_frame),
-		cmocka_unit_test(test_message_report),
-		cmocka_unit_test(test_message_participant),
+	const struct situ_check_case tests[] = {
+		situ_check_case(test_message_ring),
+		situ_check_case(test_message_answer),
+		situ_check_case(test_message_decline),
+		situ_check_case(test_message_hangup),
+		situ_check_case(test_message_ringing),
+		situ_check_case(test_message_no_answer),
+		situ_check_case(test_message_busy),
+		situ_check_case(test_message_frame),
+		situ_check_case(test_message_report),
+		situ_check_case(test_message_participant),
 	};
 
-	return cmocka_run_group_tests(tests, NULL, NULL);
+	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");
 }

@@ -511,7 +511,7 @@ situ_err_t fzn_call_participant_check(situ_view_t view, uint32_t *which);
 
 /* ---- struct message ---- */
 
-#define FZN_CALL_MESSAGE_SIZE_MIN   11u
+#define FZN_CALL_MESSAGE_SIZE_MIN   10u
 /* No FZN_CALL_MESSAGE_SIZE_MAX: nothing in the schema bounds this
  * struct's length. Give the driving length field a `[max = N]`
  * to make it statically allocatable. */
@@ -540,67 +540,48 @@ static inline situ_err_t fzn_call_message_view(const situ_msg_t *msg, uint32_t o
 	return situ_view_at(msg, offset, length, out);
 }
 
-#define FZN_CALL_MESSAGE_FAMILY_VALUE_MIN 2u
-#define FZN_CALL_MESSAGE_FAMILY_VALUE_MAX 2u
+#define FZN_CALL_MESSAGE_CMD_VALUE_MIN 18u
+#define FZN_CALL_MESSAGE_CMD_VALUE_MAX 18u
 
-/** message.family : u8  at AbsoluteStatic(0x00)
+/** message.cmd : u8  at AbsoluteStatic(0x00)
  * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint8_t fzn_call_message_family_get(situ_view_t view)
+static inline uint8_t fzn_call_message_cmd_get(situ_view_t view)
 {
 	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
 }
-static inline uint8_t *fzn_call_message_family_ptr(situ_view_t view)
+static inline uint8_t *fzn_call_message_cmd_ptr(situ_view_t view)
 {
 	return (uint8_t *)(situ_base(view) + 0u);
 }
-static inline void fzn_call_message_family_set(situ_view_t view, uint8_t value)
+static inline void fzn_call_message_cmd_set(situ_view_t view, uint8_t value)
 {
 	(situ_base(view))[0u] = (uint8_t)value;
 }
 
-#define FZN_CALL_MESSAGE_TYPE_VALUE_MIN 61u
-#define FZN_CALL_MESSAGE_TYPE_VALUE_MAX 61u
-
-/** message.type : u8  at AbsoluteStatic(0x01)
+/** message.kind : kind  at AbsoluteStatic(0x01)
  * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
- */
-static inline uint8_t fzn_call_message_type_get(situ_view_t view)
-{
-	return (uint8_t)((uint8_t)(situ_base(view))[1u]);
-}
-static inline uint8_t *fzn_call_message_type_ptr(situ_view_t view)
-{
-	return (uint8_t *)(situ_base(view) + 1u);
-}
-static inline void fzn_call_message_type_set(situ_view_t view, uint8_t value)
-{
-	(situ_base(view))[1u] = (uint8_t)value;
-}
-
-/** message.kind : kind  at AbsoluteStatic(0x02)
- * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
 static inline fzn_call_kind_t fzn_call_message_kind_get(situ_view_t view)
 {
-	return (fzn_call_kind_t)((uint8_t)(situ_base(view))[2u]);
+	return (fzn_call_kind_t)((uint8_t)(situ_base(view))[1u]);
 }
 /* No plain setter: `kind` decides where later members
  * start, so writing it must invalidate outstanding views. Use
  * fzn_call_message_kind_set(),
  * which takes the message and bumps its generation. */
 
-/** message.call : u8  at AbsoluteStatic(0x03)
- * size=Fixed(8) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+/** message.call : u8  at AbsoluteStatic(0x02)
+ * size=Fixed(8) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
  */
 #define FZN_CALL_MESSAGE_CALL_COUNT 8u
 static inline uint8_t *fzn_call_message_call_ptr(situ_view_t view)
 {
-	return situ_base(view) + 3u;
+	return situ_base(view) + 2u;
 }
 
-/* message.body : variant  at AbsoluteStatic(0x0B)
- * size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+/* message.body : variant  at AbsoluteStatic(0x0A)
+ * size=Unbounded align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
 /** `body` is a variant: exactly one of `ring`, `answer`, `decline`, `hangup` is
  * present, and which one is in the discriminant. The variant has no
@@ -619,7 +600,7 @@ static inline situ_err_t fzn_call_message_body_ring_view(situ_view_t view, situ_
 	if (fzn_call_message_kind_get(view) != 1u) {
 		return SITU_ERR_VERSION;
 	}
-	return situ_view_sub(view, 11u, FZN_CALL_RING_SIZE_FIXED, out);
+	return situ_view_sub(view, 10u, FZN_CALL_RING_SIZE_FIXED, out);
 }
 
 #define FZN_CALL_MESSAGE_BODY_RING_KINDS_VALUE_MIN 1u
@@ -637,7 +618,7 @@ static inline situ_err_t fzn_call_message_body_answer_view(situ_view_t view, sit
 	if (fzn_call_message_kind_get(view) != 2u) {
 		return SITU_ERR_VERSION;
 	}
-	return situ_view_sub(view, 11u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
 }
 
 /** message.body.decline, present when the discriminant selects `kind.decline`.
@@ -652,7 +633,7 @@ static inline situ_err_t fzn_call_message_body_decline_view(situ_view_t view, si
 	if (fzn_call_message_kind_get(view) != 3u) {
 		return SITU_ERR_VERSION;
 	}
-	return situ_view_sub(view, 11u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
 }
 
 /** message.body.hangup, present when the discriminant selects `kind.hangup`.
@@ -667,7 +648,7 @@ static inline situ_err_t fzn_call_message_body_hangup_view(situ_view_t view, sit
 	if (fzn_call_message_kind_get(view) != 4u) {
 		return SITU_ERR_VERSION;
 	}
-	return situ_view_sub(view, 11u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
 }
 
 /* message.body.frame, present when the discriminant selects `kind.frame`.
@@ -683,7 +664,7 @@ static inline uint32_t fzn_call_message_body_frame_extent(situ_view_t view)
 {
 	situ_view_t whole;
 
-	if (situ_view_sub(view, 11u, situ_remaining_u32(view.limit, 11u), &whole) != SITU_OK) {
+	if (situ_view_sub(view, 10u, situ_remaining_u32(view.limit, 10u), &whole) != SITU_OK) {
 		return 0u;
 	}
 	return fzn_call_frame_extent(whole);
@@ -695,11 +676,11 @@ static inline situ_err_t fzn_call_message_body_frame_view(situ_view_t view, situ
 	}
 	situ_view_t whole;
 
-	if (situ_view_sub(view, 11u, situ_remaining_u32(view.limit, 11u), &whole) != SITU_OK) {
+	if (situ_view_sub(view, 10u, situ_remaining_u32(view.limit, 10u), &whole) != SITU_OK) {
 		return SITU_ERR_BOUNDS;
 	}
 	const uint32_t size = fzn_call_frame_extent(whole);
-	return situ_view_sub(view, 11u, size, out);
+	return situ_view_sub(view, 10u, size, out);
 }
 
 #define FZN_CALL_MESSAGE_BODY_FRAME_PIECES_VALUE_MIN 1u
@@ -716,7 +697,7 @@ static inline situ_err_t fzn_call_message_body_report_view(situ_view_t view, sit
 	if (fzn_call_message_kind_get(view) != 6u) {
 		return SITU_ERR_VERSION;
 	}
-	return situ_view_sub(view, 11u, FZN_CALL_REPORT_SIZE_FIXED, out);
+	return situ_view_sub(view, 10u, FZN_CALL_REPORT_SIZE_FIXED, out);
 }
 
 /** message.body.participant, present when the discriminant selects `kind.participant`.
@@ -731,7 +712,7 @@ static inline situ_err_t fzn_call_message_body_participant_view(situ_view_t view
 	if (fzn_call_message_kind_get(view) != 7u) {
 		return SITU_ERR_VERSION;
 	}
-	return situ_view_sub(view, 11u, FZN_CALL_PARTICIPANT_SIZE_FIXED, out);
+	return situ_view_sub(view, 10u, FZN_CALL_PARTICIPANT_SIZE_FIXED, out);
 }
 
 #define FZN_CALL_MESSAGE_BODY_PARTICIPANT_INDEX_VALUE_MIN 1u
@@ -748,7 +729,7 @@ static inline situ_err_t fzn_call_message_body_ringing_view(situ_view_t view, si
 	if (fzn_call_message_kind_get(view) != 8u) {
 		return SITU_ERR_VERSION;
 	}
-	return situ_view_sub(view, 11u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
 }
 
 /** message.body.no_answer, present when the discriminant selects `kind.no_answer`.
@@ -763,7 +744,7 @@ static inline situ_err_t fzn_call_message_body_no_answer_view(situ_view_t view, 
 	if (fzn_call_message_kind_get(view) != 9u) {
 		return SITU_ERR_VERSION;
 	}
-	return situ_view_sub(view, 11u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
 }
 
 /** message.body.busy, present when the discriminant selects `kind.busy`.
@@ -778,7 +759,7 @@ static inline situ_err_t fzn_call_message_body_busy_view(situ_view_t view, situ_
 	if (fzn_call_message_kind_get(view) != 10u) {
 		return SITU_ERR_VERSION;
 	}
-	return situ_view_sub(view, 11u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
 }
 
 /* No `message_required`: one of its members has no length this can compute.
@@ -792,7 +773,7 @@ static inline situ_err_t fzn_call_message_body_busy_view(situ_view_t view, situ_
  */
 static inline void fzn_call_message_kind_set(situ_msg_t *msg, situ_view_t view, fzn_call_kind_t value)
 {
-	(situ_base(view))[2u] = (uint8_t)value;
+	(situ_base(view))[1u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
 
@@ -810,20 +791,19 @@ situ_err_t fzn_call_message_validate(situ_view_t view);
  * a macro, so nothing here costs a string (0051).
  */
 situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which);
-#define FZN_CALL_MESSAGE_FAMILY_CHECK 0u
-#define FZN_CALL_MESSAGE_TYPE_CHECK 1u
-#define FZN_CALL_MESSAGE_KIND_CHECK 2u
-#define FZN_CALL_MESSAGE_BODY_CHECK 3u
-#define FZN_CALL_MESSAGE_BODY_RING_CHECK 4u
-#define FZN_CALL_MESSAGE_BODY_ANSWER_CHECK 5u
-#define FZN_CALL_MESSAGE_BODY_DECLINE_CHECK 6u
-#define FZN_CALL_MESSAGE_BODY_HANGUP_CHECK 7u
-#define FZN_CALL_MESSAGE_BODY_FRAME_CHECK 8u
-#define FZN_CALL_MESSAGE_BODY_REPORT_CHECK 9u
-#define FZN_CALL_MESSAGE_BODY_PARTICIPANT_CHECK 10u
-#define FZN_CALL_MESSAGE_BODY_RINGING_CHECK 11u
-#define FZN_CALL_MESSAGE_BODY_NO_ANSWER_CHECK 12u
-#define FZN_CALL_MESSAGE_BODY_BUSY_CHECK 13u
+#define FZN_CALL_MESSAGE_CMD_CHECK 0u
+#define FZN_CALL_MESSAGE_KIND_CHECK 1u
+#define FZN_CALL_MESSAGE_BODY_CHECK 2u
+#define FZN_CALL_MESSAGE_BODY_RING_CHECK 3u
+#define FZN_CALL_MESSAGE_BODY_ANSWER_CHECK 4u
+#define FZN_CALL_MESSAGE_BODY_DECLINE_CHECK 5u
+#define FZN_CALL_MESSAGE_BODY_HANGUP_CHECK 6u
+#define FZN_CALL_MESSAGE_BODY_FRAME_CHECK 7u
+#define FZN_CALL_MESSAGE_BODY_REPORT_CHECK 8u
+#define FZN_CALL_MESSAGE_BODY_PARTICIPANT_CHECK 9u
+#define FZN_CALL_MESSAGE_BODY_RINGING_CHECK 10u
+#define FZN_CALL_MESSAGE_BODY_NO_ANSWER_CHECK 11u
+#define FZN_CALL_MESSAGE_BODY_BUSY_CHECK 12u
 
 #ifdef __cplusplus
 }

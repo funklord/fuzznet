@@ -61,7 +61,7 @@ static void test_the_families(void)
 	      "one of fuzznetd's own types is in the wrong family");
 	CHECK(of(FZN_CMD_EXTENSION, 0) == FZN_METER_EXTENSION
 	              && of(FZN_CMD_EXTENSION, 255) == FZN_METER_EXTENSION
-	              && of(FZN_CMD_SHARED, FZN_TYPE_LIVE) == FZN_METER_OTHER
+	              && of(FZN_CMD_CALL, 1) == FZN_METER_OTHER && of(FZN_CMD_STATUS, 0) == FZN_METER_OTHER
 	              && of(FZN_CMD_TIME, FZN_SUBCMD_TIME_ASK) == FZN_METER_OTHER,
 	      "the extensions' range, or what nobody allocated, is wrong");
 	CHECK(of(FZN_CMD_GATHER, 1) == FZN_METER_LOGS

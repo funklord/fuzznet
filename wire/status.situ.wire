@@ -21,9 +21,8 @@ target buffer
 enum code : u8 unknown=error
   ok=0 denied=1 malformed=2 error=3 unsupported=4 shedding=5 busy=6
 
-struct message size=4..204
-  @0x0000   1         u8         family  must_eq=2
-  @0x0001   1         u8         type  must_eq=65
-  @0x0002   1         code       code
-  @0x0003   1         u8         why_len  max=200
-  @0x0004   0..200    u8         why  sized-by=why_len
+struct message size=3..203
+  @0x0000   1         u8         cmd  must_eq=19
+  @0x0001   1         code       code
+  @0x0002   1         u8         why_len  max=200
+  @0x0003   0..200    u8         why  sized-by=why_len

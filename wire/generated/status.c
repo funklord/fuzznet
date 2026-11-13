@@ -28,14 +28,9 @@ situ_err_t fzn_status_message_check(situ_view_t view, uint32_t *which)
 		*which = 0xFFFFFFFFu;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.family [must_eq = 2] */
-	if (fzn_status_message_family_get(view) != 2) {
-		*which = FZN_STATUS_MESSAGE_FAMILY_CHECK;
-		return SITU_ERR_CONSTRAINT;
-	}
-	/* message.type [must_eq = 65] */
-	if (fzn_status_message_type_get(view) != 65) {
-		*which = FZN_STATUS_MESSAGE_TYPE_CHECK;
+	/* message.cmd [must_eq = 19] */
+	if (fzn_status_message_cmd_get(view) != 19) {
+		*which = FZN_STATUS_MESSAGE_CMD_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
 	/* message.code: `code` rejects unknown values (section 8.7) */
@@ -51,7 +46,7 @@ situ_err_t fzn_status_message_check(situ_view_t view, uint32_t *which)
 	/* message.why: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, 4u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[3u])))) {
+	if (situ_remaining_u32(view.limit, 3u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[2u])))) {
 		*which = FZN_STATUS_MESSAGE_WHY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

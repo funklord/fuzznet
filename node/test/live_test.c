@@ -97,8 +97,8 @@ static void test_words(void)
 	buf[FZN_LIVE_HEAD_LEN + 12u] = 3u;
 	CHECK(!fzn_live_read(buf, n, &r), "a piece past its pieces was read");
 	CHECK(fzn_live_write(&w, buf, 10u) == 0u, "a word past the room was written");
-	buf[1] = FZN_TYPE_LIVE + 1u;
-	CHECK(!fzn_live_is_word(buf, n), "another type was taken for a live word");
+	buf[0] = FZN_CMD_CALL + 1u;
+	CHECK(!fzn_live_is_word(buf, n), "another CMD was taken for a call's word");
 
 	/* A PARTICIPANT, sec 1024: who the hub numbers INDEX; 0 is the caller, never
 	 * said. */

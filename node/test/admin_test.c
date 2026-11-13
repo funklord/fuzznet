@@ -2803,7 +2803,7 @@ int main(void)
 		/* THE EXTENSION'S CMD, sec 1085, any SUBCMD; another CMD never reaches it. */
 		static const uint8_t mine[] = { FZN_CMD_EXTENSION, 128u, 7u },
 		                     declined[] = { FZN_CMD_EXTENSION, 191u },
-		                     below[] = { FZN_CMD_SHARED, 128u }, other_version[] = { 7u, 128u };
+		                     below[] = { FZN_CMD_CALL, 128u }, other_version[] = { 7u, 128u };
 		size_t n;
 		fzn_status_t code; /* an extension's type is binary: refused in STATUS, sec 1078 */
 

@@ -358,8 +358,7 @@ static inline situ_err_t fzn_call_participant_build(
 static inline situ_err_t fzn_call_message_build_ring(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *ring,
 		uint32_t ring_len,
@@ -377,13 +376,7 @@ static inline situ_err_t fzn_call_message_build_ring(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 1, which is this arm's case. The
@@ -470,8 +463,7 @@ static inline situ_err_t fzn_call_message_build_ring(
 static inline situ_err_t fzn_call_message_build_answer(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *answer,
 		uint32_t answer_len,
@@ -489,13 +481,7 @@ static inline situ_err_t fzn_call_message_build_answer(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 2, which is this arm's case. The
@@ -582,8 +568,7 @@ static inline situ_err_t fzn_call_message_build_answer(
 static inline situ_err_t fzn_call_message_build_decline(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *decline,
 		uint32_t decline_len,
@@ -601,13 +586,7 @@ static inline situ_err_t fzn_call_message_build_decline(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 3, which is this arm's case. The
@@ -694,8 +673,7 @@ static inline situ_err_t fzn_call_message_build_decline(
 static inline situ_err_t fzn_call_message_build_hangup(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *hangup,
 		uint32_t hangup_len,
@@ -713,13 +691,7 @@ static inline situ_err_t fzn_call_message_build_hangup(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 4, which is this arm's case. The
@@ -806,8 +778,7 @@ static inline situ_err_t fzn_call_message_build_hangup(
 static inline situ_err_t fzn_call_message_build_frame(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *frame,
 		uint32_t frame_len,
@@ -825,13 +796,7 @@ static inline situ_err_t fzn_call_message_build_frame(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 5, which is this arm's case. The
@@ -916,8 +881,7 @@ static inline situ_err_t fzn_call_message_build_frame(
 static inline situ_err_t fzn_call_message_build_report(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *report,
 		uint32_t report_len,
@@ -935,13 +899,7 @@ static inline situ_err_t fzn_call_message_build_report(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 6, which is this arm's case. The
@@ -1028,8 +986,7 @@ static inline situ_err_t fzn_call_message_build_report(
 static inline situ_err_t fzn_call_message_build_participant(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *participant,
 		uint32_t participant_len,
@@ -1047,13 +1004,7 @@ static inline situ_err_t fzn_call_message_build_participant(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 7, which is this arm's case. The
@@ -1140,8 +1091,7 @@ static inline situ_err_t fzn_call_message_build_participant(
 static inline situ_err_t fzn_call_message_build_ringing(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *ringing,
 		uint32_t ringing_len,
@@ -1159,13 +1109,7 @@ static inline situ_err_t fzn_call_message_build_ringing(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 8, which is this arm's case. The
@@ -1252,8 +1196,7 @@ static inline situ_err_t fzn_call_message_build_ringing(
 static inline situ_err_t fzn_call_message_build_no_answer(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *no_answer,
 		uint32_t no_answer_len,
@@ -1271,13 +1214,7 @@ static inline situ_err_t fzn_call_message_build_no_answer(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 9, which is this arm's case. The
@@ -1364,8 +1301,7 @@ static inline situ_err_t fzn_call_message_build_no_answer(
 static inline situ_err_t fzn_call_message_build_busy(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		const uint8_t *call,
 		const uint8_t *busy,
 		uint32_t busy_len,
@@ -1383,13 +1319,7 @@ static inline situ_err_t fzn_call_message_build_busy(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	/* kind: 10, which is this arm's case. The

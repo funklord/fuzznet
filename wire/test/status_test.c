@@ -32,9 +32,9 @@ static void test_every_code(void)
 
 	for (i = 0; i < sizeof(codes) / sizeof(codes[0]); i++) {
 		n = fzn_status_write(buf, sizeof(buf), codes[i], NULL);
-		CHECK(n == FZN_STATUS_HEAD_LEN && buf[0] == 2u && buf[1] == FZN_STATUS_TYPE
-		              && buf[2] == (uint8_t)codes[i] && buf[3] == 0u,
-		      "a status with no reason is not its four bytes");
+		CHECK(n == FZN_STATUS_HEAD_LEN && buf[0] == FZN_CMD_STATUS && buf[1] == (uint8_t)codes[i]
+		              && buf[2] == 0u,
+		      "a status with no reason is not its three bytes");
 		CHECK(fzn_status_read(buf, n, &code, &why, &why_len) && code == codes[i] && why_len == 0u,
 		      "a status did not read back as written");
 		CHECK(strcmp(fzn_status_name(codes[i]), "unknown") != 0, "a code has no name");
@@ -75,20 +75,17 @@ static void test_no_status(void)
 	size_t n = fzn_status_write(buf, sizeof(buf), FZN_STATUS_DENIED, "no");
 	fzn_status_t code;
 
-	CHECK(n == 6u, "fixture: a denial with a reason of two");
+	CHECK(n == 5u, "fixture: a denial with a reason of two");
 	CHECK(!fzn_status_read(buf, n - 1u, &code, NULL, NULL), "a status cut short was read");
 	buf[n] = 'x';
 	CHECK(!fzn_status_read(buf, n + 1u, &code, NULL, NULL), "a byte after the reason was read");
-	buf[0] = 1u;
-	CHECK(!fzn_status_read(buf, n, &code, NULL, NULL), "another family's message was read");
-	buf[0] = 2u;
-	buf[1] = (uint8_t)(FZN_STATUS_TYPE - 1u);
-	CHECK(!fzn_status_read(buf, n, &code, NULL, NULL), "another type was read");
-	buf[1] = FZN_STATUS_TYPE;
-	buf[2] = 9u;
+	buf[0] = FZN_CMD_CALL;
+	CHECK(!fzn_status_read(buf, n, &code, NULL, NULL), "another CMD's message was read");
+	buf[0] = FZN_CMD_STATUS;
+	buf[1] = 9u;
 	CHECK(!fzn_status_read(buf, n, &code, NULL, NULL), "a code the schema does not name was read");
-	buf[2] = FZN_STATUS_DENIED;
-	buf[3] = 201u;
+	buf[1] = FZN_STATUS_DENIED;
+	buf[2] = 201u;
 	CHECK(!fzn_status_read(buf, n, &code, NULL, NULL), "a reason length past the bytes was read");
 	CHECK(!fzn_status_read((const uint8_t *)"denied no\n", 10u, &code, NULL, NULL),
 	      "a text refusal was read as a status");

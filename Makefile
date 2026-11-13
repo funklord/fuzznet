@@ -4068,12 +4068,12 @@ $(BUILD_DIR)/node/test/reach_test: $(BUILD_DIR)/node/test/reach_test.o $(BUILD_D
 
 # A CALL'S MESSAGES HELD TO THEIR GOLDEN VECTORS, sec 1068: the test situc
 # generates from node/call.situ and node/call.vectors, the bytes node/live.c
-# wrote. It is cmocka's, a test-only dependency: absent, this fails to link
-# rather than skip.
+# wrote. It carries its own runner since situ's gen-tests stopped using cmocka
+# (sec 1087): a C compiler and the situ runtime are all it needs.
 $(BUILD_DIR)/wire/test/call_vectors: wire/generated/call_vectors.c wire/generated/call.c \
                                      wire/generated/situ.c $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
-	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -lcmocka -o $@
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
 $(BUILD_DIR)/wire/test/status_test: $(BUILD_DIR)/wire/test/status_test.o $(BUILD_DIR)/wire/status.o \
                                     $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o
@@ -4084,14 +4084,14 @@ $(BUILD_DIR)/wire/test/status_test: $(BUILD_DIR)/wire/test/status_test.o $(BUILD
 $(BUILD_DIR)/wire/test/status_vectors: wire/generated/status_vectors.c wire/generated/status.c \
                                        wire/generated/situ.c $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
-	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -lcmocka -o $@
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
 # AN ADDRESS HELD TO ITS GOLDEN VECTORS, sec 1077 and 1081.
 $(BUILD_DIR)/wire/test/address_vectors: wire/generated/address_vectors.c \
                                            wire/generated/address.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
-	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -lcmocka -o $@
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
 $(BUILD_DIR)/node/test/guard_test: $(BUILD_DIR)/node/test/guard_test.o $(BUILD_DIR)/node/guard.o
 	@mkdir -p $(dir $@)

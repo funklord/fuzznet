@@ -5,7 +5,7 @@
  * words, as bytes, and the calls a host is part of; what a host does with
  * them is the daemon's.
  *
- *     version 2 | FZN_TYPE_LIVE | KIND | CALL 8 | ...
+ *     FZN_CMD_CALL | KIND | CALL 8 | ...      (sec 1087; 2 | 61 | KIND before)
  *
  *     RING     KINDS 1 | WHOM 32        a call asked, of user WHOM: KINDS a
  *                                       mask of FZN_LIVE_AUDIO, _VIDEO
@@ -55,7 +55,7 @@
 #include "../chain/chain.h"
 
 #define FZN_LIVE_CALL_LEN 8u
-#define FZN_LIVE_HEAD_LEN (2u + 1u + FZN_LIVE_CALL_LEN)
+#define FZN_LIVE_HEAD_LEN (1u + 1u + FZN_LIVE_CALL_LEN)
 #define FZN_LIVE_RING_LEN (FZN_LIVE_HEAD_LEN + 1u + FZN_PUBKEY_LEN)
 #define FZN_LIVE_FRAME_HEAD_LEN (FZN_LIVE_HEAD_LEN + 1u + 2u + 4u + 4u + 2u + 2u)
 #define FZN_LIVE_FRAME_FROM_AT (FZN_LIVE_HEAD_LEN + 1u)

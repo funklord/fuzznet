@@ -96,8 +96,6 @@ static const struct {
 	{ "session ask", FZN_CMD_SESSION, FZN_SUBCMD_SESSION_ASK },
 	{ "session grant", FZN_CMD_SESSION, FZN_SUBCMD_SESSION_GRANT },
 	{ "relay session", FZN_CMD_REACH, FZN_SUBCMD_REACH_RELAY_SESSION },
-	{ "live", FZN_CMD_SHARED, FZN_TYPE_LIVE },
-	{ "status", FZN_CMD_SHARED, FZN_TYPE_STATUS },
 	{ "address", FZN_CMD_REACH, FZN_SUBCMD_REACH_ADDRESS },
 	{ "address ask", FZN_CMD_REACH, FZN_SUBCMD_REACH_ADDRESS_ASK },
 	{ "routing ask", FZN_CMD_REACH, FZN_SUBCMD_REACH_ROUTING_ASK },
@@ -107,33 +105,27 @@ static const struct {
 #define SHARED_N (sizeof(shared) / sizeof(shared[0]))
 
 /* THE CMDS, sec 1085: each below a verb line's first byte, a printable letter;
- * no two one; none the retired 5; and family 2 kept for the call and STATUS
- * alone until stage 3. */
+ * no two one; none the retired 2 or 5 (sec 1087). */
 static void test_the_cmds(void)
 {
-	static const unsigned cmds[] = { FZN_CMD_FILES,    FZN_CMD_SHARED,   FZN_CMD_CAUSE,
+	static const unsigned cmds[] = { FZN_CMD_FILES,    FZN_CMD_CALL,     FZN_CMD_CAUSE,
 		                         FZN_CMD_GATHER,   FZN_CMD_RECONCILE, FZN_CMD_EXCHANGE,
 		                         FZN_CMD_NOTES,    FZN_CMD_MEMBERS,  FZN_CMD_MESSAGES,
 		                         FZN_CMD_CONTACTS, FZN_CMD_REACH,    FZN_CMD_GROUPS,
 		                         FZN_CMD_STREAMS,  FZN_CMD_TIME,     FZN_CMD_RRPC,
-		                         FZN_CMD_SESSION,  FZN_CMD_EXTENSION };
+		                         FZN_CMD_SESSION,  FZN_CMD_STATUS,   FZN_CMD_EXTENSION };
 	size_t i, j, n = sizeof(cmds) / sizeof(cmds[0]);
-	int low = 1, apart = 1, retired = 0, shared2 = 0;
+	int low = 1, apart = 1, retired = 0;
 
 	for (i = 0; i < n; i++) {
 		low &= cmds[i] < 0x20u;
-		retired += cmds[i] == 5u;
+		retired += cmds[i] == 5u || cmds[i] == 2u;
 		for (j = i + 1u; j < n; j++)
 			apart &= cmds[i] != cmds[j];
 	}
-	for (i = 0; i < SHARED_N; i++)
-		if (shared[i].cmd == FZN_CMD_SHARED && shared[i].subcmd != FZN_TYPE_LIVE
-		    && shared[i].subcmd != FZN_TYPE_STATUS)
-			shared2++;
 	CHECK(low, "a CMD could open a verb line");
 	CHECK(apart, "two CMDs are one number");
-	CHECK(retired == 0, "the retired 5 was given again");
-	CHECK(shared2 == 0, "family 2 holds more than the call and STATUS");
+	CHECK(retired == 0, "a retired CMD, 2 or 5, was given again");
 }
 
 /* NO SUBCMD TWICE IN ONE CMD, and none in the extension's CMD, which is its own. */
@@ -153,7 +145,7 @@ static void test_no_two_subcmds_are_one(void)
 		if (shared[i].cmd == FZN_CMD_NOTES && (shared[i].subcmd == 13u || shared[i].subcmd == 14u))
 			retired++;
 	}
-	CHECK(SHARED_N == 66u, "the table is not the 66 SUBCMDs the registry lists");
+	CHECK(SHARED_N == 64u, "the table is not the 64 SUBCMDs the registry lists");
 	CHECK(clash == 0, "two SUBCMDs of one CMD are one number");
 	CHECK(extension == 0, "fuzznet allocated a SUBCMD in the extension's CMD");
 	CHECK(retired == 0, "a retired notes SUBCMD, 13 or 14, was reused");

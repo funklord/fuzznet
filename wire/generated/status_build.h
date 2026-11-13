@@ -39,8 +39,7 @@ extern "C" {
 static inline situ_err_t fzn_status_message_build(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t family,
-		uint8_t type,
+		uint8_t cmd,
 		fzn_status_code_t code,
 		const uint8_t *why_,
 		uint32_t why__len,
@@ -58,13 +57,7 @@ static inline situ_err_t fzn_status_message_build(
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_out[situ_at] = (uint8_t)family;
-	situ_at += 1u;
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)type;
+	situ_out[situ_at] = (uint8_t)cmd;
 	situ_at += 1u;
 
 	if (situ_cap - situ_at < 1u) {

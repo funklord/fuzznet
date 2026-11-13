@@ -1,6 +1,6 @@
 # Golden vectors for wire/status.situ, written by hand from the layout in its
 # header comment, so the description is held to a writer other than its compiler.
 
-message ok      02 41 00 00
-message denied  02 41 01 11 63 6F 6E 74 61 63 74 20 73 75 73 70 65 6E 64 65 64
-message busy    02 41 06 00
+message ok      13 00 00
+message denied  13 01 11 63 6F 6E 74 61 63 74 20 73 75 73 70 65 6E 64 65 64
+message busy    13 06 00

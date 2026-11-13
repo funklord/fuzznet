@@ -18,8 +18,7 @@ enum code : u8 {
 }
 
 struct message {
-	u8    family [must_eq = 2];
-	u8    type   [must_eq = 65];
+	u8    cmd [must_eq = 19];   // FZN_CMD_STATUS, wire/cmd.h; 2, 65 before sec 1087
 	code  code;
 	u8    why_len [max = 200];
 	u8    why[why_len];

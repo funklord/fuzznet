@@ -4,13 +4,105 @@
  * catch a change to what it emits, which is a different failure.
  */
 
+#include <inttypes.h>
 #include <setjmp.h>
-#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
-#include <cmocka.h>
+/* Checks and a runner, in the file rather than a framework: what this
+ * suite needs to run is a C compiler and the situ runtime. A failed check
+ * says where and what, and leaves its test; the next test runs. */
+static jmp_buf situ_check_jump;
+
+static inline void situ_check_fail(const char *file, int line,
+		const char *what)
+{
+	printf("%s:%d: check failed: %s\n", file, line, what);
+	longjmp(situ_check_jump, 1);
+}
+
+static inline void situ_check_eq_at(uintmax_t got, uintmax_t want,
+		int equal, const char *what, const char *file, int line)
+{
+	if ((got == want) != equal) {
+		printf("%s:%d: 0x%" PRIxMAX " %s 0x%" PRIxMAX "\n", file, line,
+		       got, equal ? "!=" : "==", want);
+		situ_check_fail(file, line, what);
+	}
+}
+
+static inline void situ_check_bytes_at(const void *got, const void *want,
+		size_t count, const char *what, const char *file, int line)
+{
+	const unsigned char *a = (const unsigned char *)got;
+	const unsigned char *b = (const unsigned char *)want;
+	size_t i;
+
+	for (i = 0; i < count; i++) {
+		if (a[i] != b[i]) {
+			printf("%s:%d: byte %zu of %zu is 0x%02x, not 0x%02x\n",
+			       file, line, i, count, a[i], b[i]);
+			situ_check_fail(file, line, what);
+		}
+	}
+}
+
+#define situ_check_eq(got, want) \
+	situ_check_eq_at((uintmax_t)(got), (uintmax_t)(want), 1, \
+	                 #got " == " #want, __FILE__, __LINE__)
+#define situ_check_ne(got, want) \
+	situ_check_eq_at((uintmax_t)(got), (uintmax_t)(want), 0, \
+	                 #got " != " #want, __FILE__, __LINE__)
+#define situ_check_true(cond) \
+	do { if (!(cond)) situ_check_fail(__FILE__, __LINE__, #cond); } while (0)
+#define situ_check_false(cond) \
+	do { if (cond) situ_check_fail(__FILE__, __LINE__, "!(" #cond ")"); } while (0)
+#define situ_check_null(ptr) situ_check_true((ptr) == NULL)
+#define situ_check_non_null(ptr) situ_check_true((ptr) != NULL)
+#define situ_check_bytes(got, want, count) \
+	situ_check_bytes_at((got), (want), (size_t)(count), \
+	                    #got " == " #want, __FILE__, __LINE__)
+#define situ_check_bytes_ne(got, want, count) \
+	situ_check_true(memcmp((got), (want), (size_t)(count)) != 0)
+#define situ_check_ptr_eq(got, want) \
+	situ_check_true((const void *)(got) == (const void *)(want))
+#define situ_check_str_eq(got, want) \
+	situ_check_true(strcmp((got), (want)) == 0)
+
+struct situ_check_case {
+	const char *name;
+	void (*run)(void **state);
+};
+
+#define situ_check_case(fn) { #fn, fn }
+
+static inline int situ_check_run(const struct situ_check_case *cases,
+		size_t count, const char *group)
+{
+	volatile size_t failed = 0;
+	volatile size_t i;
+
+	printf("[==========] %s: Running %zu test(s).\n", group, count);
+	for (i = 0; i < count; i++) {
+		printf("[ RUN      ] %s\n", cases[i].name);
+		if (setjmp(situ_check_jump) == 0) {
+			cases[i].run(NULL);
+			printf("[       OK ] %s\n", cases[i].name);
+		} else {
+			failed++;
+			printf("[  FAILED  ] %s\n", cases[i].name);
+		}
+	}
+	printf("[==========] %s: %zu test(s) run.\n", group, count);
+	if (failed == 0) {
+		printf("[  PASSED  ] %zu test(s).\n", count);
+		return 0;
+	}
+	printf("[  FAILED  ] %zu test(s).\n", (size_t)failed);
+	return 1;
+}
 
 #include "address.h"
 
@@ -28,8 +120,8 @@ static void test_message_v4(void **state)
 	(void)state;
 	memcpy(buf, vector_message_v4, sizeof(buf));
 	situ_msg_init(&msg, buf, 14u);
-	assert_int_equal(fzn_address_message_view(&msg, 0, 14u, &view), SITU_OK);
-	assert_int_equal(fzn_address_message_validate(view), SITU_OK);
+	situ_check_eq(fzn_address_message_view(&msg, 0, 14u, &view), SITU_OK);
+	situ_check_eq(fzn_address_message_validate(view), SITU_OK);
 
 	/* Every value written back through its own setter must reproduce the
 	 * bytes it came from. This is what catches a layout change. */
@@ -37,7 +129,7 @@ static void test_message_v4(void **state)
 	fzn_address_message_type_set(view, fzn_address_message_type_get(view));
 	fzn_address_message_address_len_set(&msg, view, fzn_address_message_address_len_get(view));
 	fzn_address_message_port_set(view, fzn_address_message_port_get(view));
-	assert_memory_equal(buf, vector_message_v4, sizeof(buf));
+	situ_check_bytes(buf, vector_message_v4, sizeof(buf));
 }
 
 /* message / v6 */
@@ -54,8 +146,8 @@ static void test_message_v6(void **state)
 	(void)state;
 	memcpy(buf, vector_message_v6, sizeof(buf));
 	situ_msg_init(&msg, buf, 8u);
-	assert_int_equal(fzn_address_message_view(&msg, 0, 8u, &view), SITU_OK);
-	assert_int_equal(fzn_address_message_validate(view), SITU_OK);
+	situ_check_eq(fzn_address_message_view(&msg, 0, 8u, &view), SITU_OK);
+	situ_check_eq(fzn_address_message_validate(view), SITU_OK);
 
 	/* Every value written back through its own setter must reproduce the
 	 * bytes it came from. This is what catches a layout change. */
@@ -63,15 +155,15 @@ static void test_message_v6(void **state)
 	fzn_address_message_type_set(view, fzn_address_message_type_get(view));
 	fzn_address_message_address_len_set(&msg, view, fzn_address_message_address_len_get(view));
 	fzn_address_message_port_set(view, fzn_address_message_port_get(view));
-	assert_memory_equal(buf, vector_message_v6, sizeof(buf));
+	situ_check_bytes(buf, vector_message_v6, sizeof(buf));
 }
 
 int main(void)
 {
-	const struct CMUnitTest tests[] = {
-		cmocka_unit_test(test_message_v4),
-		cmocka_unit_test(test_message_v6),
+	const struct situ_check_case tests[] = {
+		situ_check_case(test_message_v4),
+		situ_check_case(test_message_v6),
 	};
 
-	return cmocka_run_group_tests(tests, NULL, NULL);
+	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");
 }

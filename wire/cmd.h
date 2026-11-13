@@ -8,15 +8,14 @@
  * sit below the node. Every code is one byte, so a category is chosen for
  * clarity alone (sec 1061 measured that a shorter code buys nothing here).
  *
- * 2 was a grab-bag family until sec 1085 split it, and is retired with the
- * last of it (sec 1085 stage 3); 5 was the journal's exchange before sec 1047,
- * retired, never reused.
+ * 2 was a grab-bag family until sec 1085 split it, retired with the last of
+ * it, the call and STATUS, in sec 1087; 5 was the journal's exchange before
+ * sec 1047. Neither is given again.
  */
 #ifndef FZN_WIRE_CMD_H
 #define FZN_WIRE_CMD_H
 
 #define FZN_CMD_FILES 1u     /* spool's transfers, and file references */
-#define FZN_CMD_SHARED 2u    /* the call and STATUS, until sec 1085 stage 3 */
 #define FZN_CMD_CAUSE 3u     /* the envelope naming a request's causes */
 #define FZN_CMD_GATHER 4u    /* a member gathering a host's log */
 #define FZN_CMD_RECONCILE 6u /* the journal reconciled */
@@ -31,6 +30,8 @@
 #define FZN_CMD_TIME 15u     /* a peer's clock asked */
 #define FZN_CMD_RRPC 16u     /* a registered remote procedure, by name */
 #define FZN_CMD_SESSION 17u  /* a session asked for and granted */
+#define FZN_CMD_CALL 18u     /* a voice or video call: its kind the SUBCMD */
+#define FZN_CMD_STATUS 19u   /* ok, or why not: its code the SUBCMD */
 #define FZN_CMD_EXTENSION 20u /* the extension's, every SUBCMD its own */
 
 #endif /* FZN_WIRE_CMD_H */

@@ -5,7 +5,9 @@
  * by its first letter (sec 455) and parsed (`ok`, `denied WHY`). The holder's,
  * sec 1061: no control between hosts rests on parsing text.
  *
- *     2 | FZN_TYPE_STATUS | CODE | WHY_LEN | WHY
+ *     FZN_CMD_STATUS | CODE | WHY_LEN | WHY
+ *
+ * its CODE the SUBCMD, sec 1085 and 1087 (`2 | 65 | CODE | ...` before).
  *
  * DESCRIBED BY wire/status.situ, whose generated reader and builder these
  * call; the codes here are the schema's, held equal to it where status.c is
@@ -19,10 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* ITS TYPE in version 2, allocated in node/types.h's registry as
- * FZN_TYPE_STATUS. */
-#define FZN_STATUS_TYPE 65u
-#define FZN_STATUS_HEAD_LEN 4u
+#define FZN_STATUS_HEAD_LEN 3u
 #define FZN_STATUS_WHY_MAX 200u
 #define FZN_STATUS_LEN_MAX (FZN_STATUS_HEAD_LEN + FZN_STATUS_WHY_MAX)
 

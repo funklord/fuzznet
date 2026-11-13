@@ -10880,8 +10880,8 @@ SABOTAGES = [
 	(
 		'log-gather-says-denied',
 		'log/gather.c',
-		'\treturn len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_CMD_SHARED\n',
-		'\treturn 0 && len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_CMD_SHARED\n',
+		'\treturn len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_CMD_STATUS\n',
+		'\treturn 0 && len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_CMD_STATUS\n',
 		"a host's refusal to be gathered reads as a reply that is no page, and the gatherer is not told why -- sec 735",
 	),
 	(

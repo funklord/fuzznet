@@ -55,7 +55,7 @@ static int host(void *ctx, const uint8_t *request, size_t request_len, uint8_t *
 	if (answer_garbage) {
 		static const char NOT_A_PAGE[] = "ok and nothing";
 		/* A STATUS DENIED, sec 1078, written by hand from wire/status.h's layout. */
-		static const char REFUSAL[] = "\002\101\001\037this host's log is host-private";
+		static const char REFUSAL[] = "\023\001\037this host's log is host-private";
 		const char *say = answer_garbage == 2 ? REFUSAL : NOT_A_PAGE;
 
 		*reply_len = strlen(say);

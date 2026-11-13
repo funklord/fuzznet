@@ -181,14 +181,9 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which)
 		*which = 0xFFFFFFFFu;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.family [must_eq = 2] */
-	if (fzn_call_message_family_get(view) != 2) {
-		*which = FZN_CALL_MESSAGE_FAMILY_CHECK;
-		return SITU_ERR_CONSTRAINT;
-	}
-	/* message.type [must_eq = 61] */
-	if (fzn_call_message_type_get(view) != 61) {
-		*which = FZN_CALL_MESSAGE_TYPE_CHECK;
+	/* message.cmd [must_eq = 18] */
+	if (fzn_call_message_cmd_get(view) != 18) {
+		*which = FZN_CALL_MESSAGE_CMD_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
 	/* message.kind: `kind` rejects unknown values (section 8.7) */
@@ -198,7 +193,7 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 11u) < ((fzn_call_message_kind_get(view) == 1u ? 33u : (fzn_call_message_kind_get(view) == 2u ? 0u : (fzn_call_message_kind_get(view) == 3u ? 0u : (fzn_call_message_kind_get(view) == 4u ? 0u : (fzn_call_message_kind_get(view) == 5u ? (fzn_call_message_body_frame_extent(view)) : (fzn_call_message_kind_get(view) == 6u ? 19u : (fzn_call_message_kind_get(view) == 7u ? 34u : (fzn_call_message_kind_get(view) == 8u ? 0u : (fzn_call_message_kind_get(view) == 9u ? 0u : (fzn_call_message_kind_get(view) == 10u ? 0u : 0u)))))))))))) {
+	if (situ_remaining_u32(view.limit, 10u) < ((fzn_call_message_kind_get(view) == 1u ? 33u : (fzn_call_message_kind_get(view) == 2u ? 0u : (fzn_call_message_kind_get(view) == 3u ? 0u : (fzn_call_message_kind_get(view) == 4u ? 0u : (fzn_call_message_kind_get(view) == 5u ? (fzn_call_message_body_frame_extent(view)) : (fzn_call_message_kind_get(view) == 6u ? 19u : (fzn_call_message_kind_get(view) == 7u ? 34u : (fzn_call_message_kind_get(view) == 8u ? 0u : (fzn_call_message_kind_get(view) == 9u ? 0u : (fzn_call_message_kind_get(view) == 10u ? 0u : 0u)))))))))))) {
 		*which = FZN_CALL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

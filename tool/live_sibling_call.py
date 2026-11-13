@@ -51,7 +51,7 @@ RING, ANSWER, DECLINE, HANGUP, FRAME = 1, 2, 3, 4, 5
 
 
 def word(kind, call, rest=b""):
-	return bytes([2, 61, kind]) + call + rest
+	return bytes([18, kind]) + call + rest  # FZN_CMD_CALL, sec 1087
 
 
 def frame(call, seq, media):
@@ -177,7 +177,7 @@ def main(argv):
 				raise failed("a: add call answered %r" % rung)
 			call = bytes.fromhex(rung[1])
 			until("a: D never heard the RING",
-			      lambda: any(h[:11] == word(RING, call) for h in listening.heard()))
+			      lambda: any(h[:len(word(RING, call))] == word(RING, call) for h in listening.heard()))
 			listening.finish()
 			running.remove(listening)
 			print("livecheck: a: A rang B, and D, B's device, heard the ring")
@@ -192,7 +192,7 @@ def main(argv):
 			if said not in ("ok sent", "ok lost"):
 				raise failed("b: add frame answered %r" % said)
 			until("b: D never heard A's frame",
-			      lambda: any(h[:11] == word(FRAME, call) and h.endswith(b"\xc0\xff\xee")
+			      lambda: any(h[:len(word(FRAME, call))] == word(FRAME, call) and h.endswith(b"\xc0\xff\xee")
 			                  for h in answering.heard()))
 			answering.finish()
 			running.remove(answering)
