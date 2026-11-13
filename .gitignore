@@ -88,6 +88,7 @@
 /gui/test/conversations_view_test
 /gui/test/sticker_picker_view_test
 /gui/test/call_view_test
+/gui/test/group_view_test
 /gui/test/location_view_test
 /gui/test/authz_view_test
 /gui/test/capability_view_test

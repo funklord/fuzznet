@@ -85900,7 +85900,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
-| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
+| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view's media, which is the host's (the view itself is sec 1142) |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
@@ -87979,8 +87979,8 @@ one its Makefile line names, not the one at hand.
   library or the catalogue. Taken from it so far: the conversation list's
   newest line (sec 1136). Still open from it: the conversation list view
   itself, older lines paged on demand, sending a file from the view, the
-  sticker picker, the group menu (members, admins, delete), calls on a
-  view (sec 1142).
+  sticker picker, the group menu (members, admins, delete; sec 1143),
+  calls on a view (sec 1142).
 - **fuzzypickles 1704Z**: the newest-line requirement, sec 1136.
 - **fuzzypickles 1736Z**: the remade group's first line failed again at
   473d980, with sec 1115's readings: alice holds epoch 2, carol's water
@@ -88133,3 +88133,40 @@ known said as someone, and missed when it went; silence. Sabotage
 `call-view-any-state-responds`, `call-view-kinds-unsaid`,
 `call-view-why-unsaid` and `call-view-missed-unsaid` are each caught.
 The qtty render check sizes it at 20 columns and 274 px.
+
+## 1143. A group's members and admins, as a widget, 2026-11-14
+
+**The group half of fuzzypickles' conversation row menu** (inbox 1553Z,
+item 3: add member, admins, remove member, delete), which had no view to
+open. `gui/group_view` shows one group's members as the roster gives
+them, this user as "you" and the admins marked, and a member who is no
+contact of this user said "(not a contact)", as the typed client's
+`fzn_rpc_group_nameless_label` has it. For an admin it offers the active contacts not in
+the group to add -- a suspended or retired one is listed with its state
+(sec 1118) and the node would refuse it -- removing a member, and making
+a member an admin or no longer one. An admin change is a PROPOSAL until
+a majority of the group's admins asks the same (secs 627, 1012), so it is
+said with how many have asked rather than as done. The earlier-lines
+setting (sec 625, `group ... backfill`) is shown and, for an admin, set.
+A member who is no admin is told who changes the group and the view
+asks the node for nothing; the buttons follow the same rule.
+
+**Leaving is "delete" here.** `remove group NAME` leaves the group and
+forgets it on this host (node/groups.c `forget_group`); a group nobody
+else was ever in goes whole. There is no verb that dissolves a group for
+everybody, and the last admin of a group others are in may not leave
+until another admin is made -- the node's refusal is said in its words.
+
+**Not here:** calling everyone, which is the row menu's (sec 1144), and
+a member acted on by root key, since every verb names a contact.
+
+**Tests:** `group_view_test`, sixteen checks against a scripted node: no
+group chosen; a member who is no admin shown the members, told, and
+asking nothing; an admin offered dan but not the suspended eve, the
+earlier-lines setting read, dan added, this user and a row not there
+not removed, carol removed, an admin not made one again, a proposal
+said with 1 of 2, the setting turned off; leaving said and asked;
+silence. Sabotage `group-view-non-admin-asks`,
+`group-view-inactive-offered`, `group-view-proposal-unsaid` and
+`group-view-you-unmarked` are each caught. The qtty render check sizes
+it at 20 columns and 295 px.
