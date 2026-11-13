@@ -85902,7 +85902,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
-| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
+| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view's media, which is the host's (the view itself is sec 1142) |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132) | Library playback UI, share target | a hostable transfer view |
@@ -87980,7 +87980,7 @@ one its Makefile line names, not the one at hand.
   newest line (sec 1136). Still open from it: the conversation list view
   itself, older lines paged on demand, sending a file from the view, the
   sticker picker, the group menu (members, admins, delete), calls on a
-  view.
+  view (sec 1142).
 - **fuzzypickles 1704Z**: the newest-line requirement, sec 1136.
 - **fuzzypickles 1736Z**: the remade group's first line failed again at
   473d980, with sec 1115's readings: alice holds epoch 2, carol's water
@@ -88100,3 +88100,36 @@ one named by its words; its reference handed over; a sticker not there;
 two files kept, one refused, said with why; silence. Sabotage
 `sticker-picker-never-drawn` and `sticker-picker-refusal-unsaid` are
 each caught.
+
+## 1142. Calls, as a widget, 2026-11-14
+
+**The last of fuzzypickles' 1553Z items a view could take without the
+media** (sec 1137, "calls on a view"). `gui/call_view` lists the live
+calls as a person reads them -- "bob is calling (audio and video)",
+"Calling bob...", "In a call with bob" -- with the other end named from
+the user its row carries (sec 1040) and "someone" where the host cannot
+say. Answer and Decline are offered for a call ringing here and Hang up
+for one ringing out or up; the view refuses the others itself rather
+than sending a verb the node would refuse. `call(contact, video)` rings a
+contact, audio or audio and video. A call gone from `list call` since the
+last refresh is asked after with `get call` (sec 1082) and said with why
+-- "The call with bob ended: declined." -- and one that rang here and
+went is "Missed call from bob." (sec 1090).
+
+**The media is not here.** Capture, codecs, playback, mute and the
+camera are the host's, over the call's media channel (sec 1113); this is
+the call's state and the person's say in it. Loss and round trip
+(`fzn_rpc_quality`, secs 1021, 1026) are asked per media stream, which
+the host numbers, and the round trip is reckoned on the host's capture
+clock, so they are the host's to show beside its mute and camera. The host refreshes it on
+`event call` or on a timer, as fuzzypickles' call bar polls `list call`.
+
+**Tests:** `call_view_test`, fourteen checks against a scripted node: no
+call; ringing in said with who and kind, refused a hang-up without
+asking the node, answered, refused a second answer, hung up and said
+ended; a call out begun, refused an answer without asking, declined and
+said so; a refused ring said with the node's words; a call from nobody
+known said as someone, and missed when it went; silence. Sabotage
+`call-view-any-state-responds`, `call-view-kinds-unsaid`,
+`call-view-why-unsaid` and `call-view-missed-unsaid` are each caught.
+The qtty render check sizes it at 20 columns and 274 px.
