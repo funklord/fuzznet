@@ -87163,8 +87163,17 @@ session's seal and send with a DSCP, by the frame's stream: **audio (stream 1) E
 2) AF41, 34** (`FZN_UDP_DSCP_AF41`), RFC 8325's class for interactive video; anything else unmarked.
 All three places a frame is sent take it: a host's own client's frame to the far end or to every
 participant, the hub passing a participant's frame on, and a call carried on a sibling. Every other
-message stays unmarked. Video's class is netcfgd's to confirm against its queues (asked the same day);
-EF for both is a one-line change in `live_dscp`.
+message stays unmarked.
+
+**Video's class, confirmed by netcfgd** (inbox 1315Z, its project.md 10.837): AF41 for video, EF for
+voice. And a correction to this tree's assumption: cake's default diffserv3 has three tins -- Bulk,
+Best Effort, Voice -- and no Video; 100 AF41 datagrams through a netcfgd-applied cake land in Best
+Effort. That still argues for AF41: on Wi-Fi RFC 8325 maps it to AC_VI, its place; in cake it shares
+Best Effort, where flow isolation keeps bulk from crowding it; EF would put video in the Voice tin,
+capped at a quarter of the rate, crowding the voice beside it. A site wanting video tiered in cake
+uses diffserv4 (its Video tin takes AF4x), a key netcfgd adds when asked. The same message relays
+that the holder chose the button-asks claim (sec 1109) as the standard in netcfgd's session; a relay
+carries no authority here, and netcfgd has asked the holder to say so to this tree directly.
 
 **Measured, end to end in a real call:** `live_call` passes on it. And run with each daemon under
 `strace -e sendmsg` (a wrapper in place of the binary), phases c to e sent seven frames marked and
@@ -87174,3 +87183,18 @@ passes. No test in the suite reads a daemon's mark, so a regression here would p
 count of media that ARRIVED still marked, read with `IP_RECVTOS` on the serving socket, would close
 that and tell a person whether a path strips DSCP -- which netcfgd would want to see too. Proposed,
 not built.
+
+## 1112. The marks counted where they arrive, 2026-11-13
+
+**Sec 1111's gap closed:** no test read a daemon's mark, so a call's media sent unmarked would have
+passed every gate. Now the serving socket reads each datagram's DSCP (`fzn_udp_read_marks`, then
+`fzn_udp_recv_marked`, `IP_RECVTOS` and `IPV6_RECVTCLASS`), the node counts what arrives -- EF,
+AF41, any other mark, none -- and **`get marks`** answers `ok EF AF41 OTHER NONE`. Beyond the test
+it tells a person whether the paths to a host keep what senders set or strip it, which netcfgd's
+queues rely on.
+
+**Measured at the far end:** `live_call` phase e1 asks B after A's audio frame and video frames:
+1 EF and 4 AF41, exactly what was sent. Sabotage `call-media-unmarked` (B counts 0 and 0) and
+`marks-received-uncounted` (the EF frame counted as another mark) are each caught by it. `udp_test`
+reads AF41 and an unmarked datagram back through the library; its truncation guard,
+`udp-recv-needs-msg-trunc-to-see-truncation`, followed `recvfrom` to `recvmsg` and is still caught.

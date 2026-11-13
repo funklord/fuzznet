@@ -118,6 +118,13 @@ fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
 fzn_udp_err_t fzn_udp_send_marked(int fd, const fzn_udp_addr_t *to, const uint8_t *frame,
                                   size_t len, uint8_t dscp);
 
+/* THE MARK AS IT ARRIVED, sec 1112: after fzn_udp_read_marks, each
+ * datagram's DSCP is reported beside it, so a host can say whether the path
+ * kept what the sender set or stripped it. 0 when the kernel said nothing. */
+fzn_udp_err_t fzn_udp_read_marks(int fd);
+fzn_udp_err_t fzn_udp_recv_marked(int fd, uint8_t *buf, size_t cap, size_t *len,
+                                  fzn_udp_addr_t *from, uint8_t *dscp);
+
 /* Receive one datagram into buf[cap], setting *len. If `from` is non-NULL it
  * receives the sender's address. A datagram larger than cap is refused as
  * FZN_UDP_ERR_TRUNCATED, not copied as a short frame. */

@@ -244,24 +244,60 @@ fzn_udp_err_t fzn_udp_send_marked(int fd, const fzn_udp_addr_t *to, const uint8_
 	return err;
 }
 
+fzn_udp_err_t fzn_udp_read_marks(int fd)
+{
+	int on = 1, v4, v6;
+
+	if (fd < 0)
+		return FZN_UDP_ERR_MALFORMED;
+	/* EITHER FAMILY'S, as the socket is one or the other (or both, a v6
+	 * socket taking v4): one that does not apply is refused by the kernel and
+	 * that refusal is no fault. */
+	v4 = setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on));
+	v6 = setsockopt(fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on));
+	return v4 == 0 || v6 == 0 ? FZN_UDP_OK : FZN_UDP_ERR_SYSTEM;
+}
+
 fzn_udp_err_t fzn_udp_recv(int fd, uint8_t *buf, size_t cap, size_t *len,
                            fzn_udp_addr_t *from)
+{
+	return fzn_udp_recv_marked(fd, buf, cap, len, from, NULL);
+}
+
+fzn_udp_err_t fzn_udp_recv_marked(int fd, uint8_t *buf, size_t cap, size_t *len,
+                                  fzn_udp_addr_t *from, uint8_t *dscp)
 {
 	struct sockaddr_storage ss;
 	socklen_t sslen;
 	ssize_t n;
+	union {
+		struct cmsghdr head;
+		uint8_t room[CMSG_SPACE(sizeof(int)) * 2];
+	} control;
+	struct iovec io;
+	struct msghdr msg;
+	struct cmsghdr *c;
 
 	if (fd < 0 || !buf || !len || cap == 0)
 		return FZN_UDP_ERR_MALFORMED;
+	if (dscp)
+		*dscp = 0;
 
 	for (;;) {
-		sslen = sizeof(ss);
+		memset(&msg, 0, sizeof(msg));
+		io.iov_base = buf;
+		io.iov_len = cap;
+		msg.msg_name = &ss;
+		msg.msg_namelen = sizeof(ss);
+		msg.msg_iov = &io;
+		msg.msg_iovlen = 1;
+		msg.msg_control = control.room;
+		msg.msg_controllen = sizeof(control.room);
 		/* MSG_TRUNC so a datagram larger than cap reports its true
 		 * length rather than the copied prefix: a truncated frame is a
 		 * different frame, and one an attacker can arrange, so it is
 		 * refused below rather than parsed. */
-		n = recvfrom(fd, buf, cap, MSG_TRUNC,
-		             (struct sockaddr *)&ss, &sslen);
+		n = recvmsg(fd, &msg, MSG_TRUNC);
 		if (n >= 0)
 			break;
 		if (errno == EINTR)
@@ -273,6 +309,19 @@ fzn_udp_err_t fzn_udp_recv(int fd, uint8_t *buf, size_t cap, size_t *len,
 
 	if ((size_t)n > cap)
 		return FZN_UDP_ERR_TRUNCATED;
+	sslen = msg.msg_namelen;
+	/* THE MARK, where the kernel reports one: v4 gives the TOS byte, v6 an
+	 * int; the DSCP is its top six bits either way. */
+	for (c = CMSG_FIRSTHDR(&msg); dscp && c; c = CMSG_NXTHDR(&msg, c)) {
+		int v = -1;
+
+		if (c->cmsg_level == IPPROTO_IP && c->cmsg_type == IP_TOS)
+			v = *(const uint8_t *)CMSG_DATA(c);
+		else if (c->cmsg_level == IPPROTO_IPV6 && c->cmsg_type == IPV6_TCLASS)
+			memcpy(&v, CMSG_DATA(c), sizeof(v));
+		if (v >= 0)
+			*dscp = (uint8_t)((v >> 2) & 63);
+	}
 
 	*len = (size_t)n;
 	if (from) {

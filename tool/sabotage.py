@@ -8737,8 +8737,8 @@ SABOTAGES = [
 	(
 		"udp-recv-needs-msg-trunc-to-see-truncation",
 		"net/udp.c",
-		"recvfrom(fd, buf, cap, MSG_TRUNC,",
-		"recvfrom(fd, buf, cap, 0,",
+		"n = recvmsg(fd, &msg, MSG_TRUNC);",
+		"n = recvmsg(fd, &msg, 0);",
 		"MSG_TRUNC is what makes an oversize datagram report its true length "
 		"rather than the copied prefix; without it a truncated frame is "
 		"handed back as a short one, a different frame an attacker can craft. "
@@ -14431,6 +14431,20 @@ SABOTAGES = [
 		"\t\tcontrol.head.cmsg_type = sa->sa_family == AF_INET6 ? IPV6_TCLASS : IP_TOS;\n",
 		"\t\tcontrol.head.cmsg_type = IP_TOS;\n",
 		"a v6 datagram's mark is asked as a v4 option and is not set -- sec 1110",
+	),
+	(
+		"call-media-unmarked",
+		"node/daemon.c",
+		"\treturn stream == 1u ? (uint8_t)FZN_UDP_DSCP_EF : stream == 2u ? (uint8_t)FZN_UDP_DSCP_AF41 : 0u;\n",
+		"\treturn 0u;\n",
+		"a call's media is sent unmarked, queued behind bulk traffic -- sec 1111",
+	),
+	(
+		"marks-received-uncounted",
+		"node/serve.c",
+		"\tstate->marks_rx[dscp == FZN_UDP_DSCP_EF     ? 0\n",
+		"\tstate->marks_rx[0 ? 0\n",
+		"a datagram arriving EF is counted as some other mark -- sec 1112",
 	),
 	(
 		"list-message-no-group-malformed",

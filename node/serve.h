@@ -74,6 +74,10 @@ typedef struct fzn_node_state {
 	fzn_node_config_t config;
 	int listen_fd;	/* the AF_UNIX listener, or -1 */
 	int udp_fd;	/* the UDP socket, or -1 */
+	/* DATAGRAMS RECEIVED BY THEIR MARK, sec 1112: EF, AF41, any other DSCP,
+	 * none -- whether the path kept what senders set. Counted when the socket
+	 * reads marks (fzn_udp_read_marks); zero otherwise. */
+	uint64_t marks_rx[4];
 	/* Used only when udp_fd >= 0: the provisioned remote peers and the
 	 * crypto that opens their frames. */
 	const fzn_node_peer_t *peers;

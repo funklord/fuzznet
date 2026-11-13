@@ -12052,6 +12052,18 @@ static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, 
 		hex_of(estate_owner(), FZN_PUBKEY_LEN, root);
 		return (size_t)snprintf(reply, cap, "ok %s %s\n", host, root);
 	}
+	/* `get marks`, sec 1112: `ok EF AF41 OTHER NONE`, the datagrams this host
+	 * received by their DSCP since it started -- whether the paths to it kept
+	 * the marks a call's media is sent with (sec 1111) or stripped them. */
+	if (request->parsed == FZN_VERB_GET && subject_len == 5u && memcmp(subject, "marks", 5u) == 0) {
+		const uint64_t *m = serving_state ? serving_state->marks_rx : NULL;
+
+		return (size_t)snprintf(reply, cap, "ok %llu %llu %llu %llu\n",
+		                        (unsigned long long)(m ? m[0] : 0u),
+		                        (unsigned long long)(m ? m[1] : 0u),
+		                        (unsigned long long)(m ? m[2] : 0u),
+		                        (unsigned long long)(m ? m[3] : 0u));
+	}
 	backup = request->parsed == FZN_VERB_PUT && subject_len == 6u
 	         && memcmp(subject, "backup", 6u) == 0;
 	if (!backup
@@ -23306,6 +23318,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		state.udp_fd = ufd;
 		state.config.serves_remote = 1;
 		node_udp_fd = ufd;
+		/* EACH DATAGRAM'S MARK REPORTED, sec 1112: counted by `get marks`. */
+		if (fzn_udp_read_marks(ufd) != FZN_UDP_OK)
+			say(FZN_ENTRY_WARNING, "node", "the udp socket will not report marks");
 	}
 
 	/* THE PEERS A CONSUMER ALREADY PROVISIONED, if a store was named.

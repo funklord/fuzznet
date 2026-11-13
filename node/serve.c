@@ -442,9 +442,15 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	fzn_node_remote_result_t result;
 	uint64_t now;
 
-	if (fzn_udp_recv(state->udp_fd, frame, sizeof(frame), &flen, &from)
+	uint8_t dscp = 0;
+
+	if (fzn_udp_recv_marked(state->udp_fd, frame, sizeof(frame), &flen, &from, &dscp)
 	    != FZN_UDP_OK)
 		return;
+	state->marks_rx[dscp == FZN_UDP_DSCP_EF     ? 0
+	                : dscp == FZN_UDP_DSCP_AF41 ? 1
+	                : dscp                      ? 2
+	                                            : 3]++;
 	/* A BOX IS NO FRAME: its first byte is one no frame's version is, so
 	 * it goes to its own handler before any frame check reads it. */
 	if (flen && frame[0] == FZN_BOX_MARK) {

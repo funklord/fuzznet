@@ -170,6 +170,29 @@ int main(void)
 	ok(received_dscp(AF_INET, "127.0.0.1", FZN_UDP_DSCP_EF) == 46, "a v4 datagram marked EF arrived EF");
 	ok(received_dscp(AF_INET6, "::1", FZN_UDP_DSCP_EF) == 46, "a v6 datagram marked EF arrived EF");
 	ok(received_dscp(AF_INET, "127.0.0.1", 0) == 0, "an unmarked v4 datagram arrived marked");
+	/* AND READ BACK BY THE LIBRARY, sec 1112: fzn_udp_recv_marked reports it. */
+	{
+		int r = -1, w = -1;
+		fzn_udp_addr_t a;
+		uint8_t f[4] = { 9, 9, 9, 9 }, in[16], d = 99;
+		size_t n = 0;
+
+		ok(fzn_udp_bind(AF_INET, "127.0.0.1", 0, &r) == FZN_UDP_OK
+		           && fzn_udp_bind(AF_INET, "127.0.0.1", 0, &w) == FZN_UDP_OK
+		           && fzn_udp_read_marks(r) == FZN_UDP_OK
+		           && fzn_udp_resolve(AF_INET, "127.0.0.1", local_port(r, AF_INET), &a) == FZN_UDP_OK,
+		   "fixture: two sockets, marks read on one");
+		arm_timeout(r);
+		ok(fzn_udp_send_marked(w, &a, f, sizeof(f), FZN_UDP_DSCP_AF41) == FZN_UDP_OK
+		           && fzn_udp_recv_marked(r, in, sizeof(in), &n, NULL, &d) == FZN_UDP_OK && n == 4
+		           && d == FZN_UDP_DSCP_AF41,
+		   "a datagram marked AF41 was not read back as AF41");
+		ok(fzn_udp_send(w, &a, f, sizeof(f)) == FZN_UDP_OK
+		           && fzn_udp_recv_marked(r, in, sizeof(in), &n, NULL, &d) == FZN_UDP_OK && d == 0,
+		   "an unmarked datagram was read back marked");
+		fzn_udp_close(r);
+		fzn_udp_close(w);
+	}
 	{
 		fzn_udp_addr_t a;
 		uint8_t one = 1;

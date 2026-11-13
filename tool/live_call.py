@@ -185,6 +185,14 @@ def main(argv):
 			                  for r in ask(socks["a"], "get call %s quality" % call).split()[1:]))
 			print("livecheck: e: B measured A's video, 4 received and 1 lost, and A reads it")
 
+			# e1: THE MARKS ARRIVED, secs 1111-1112: B received A's audio frame (c)
+			# marked EF and its video frames (e) marked AF41, as B's own socket
+			# reports them -- the mark checked at the far end, not at the sender.
+			marks = ask(socks["b"], "get marks").split()
+			if marks[:1] != ["ok"] or len(marks) != 5 or int(marks[1]) < 1 or int(marks[2]) < 4:
+				raise failed("e1: B's get marks answered %r: not 1 EF and 4 AF41" % marks)
+			print("livecheck: e1: B received %s datagrams marked EF and %s AF41" % (marks[1], marks[2]))
+
 			# e2: THE ROUND TRIP, sec 1026: a frame stamped with this client's own
 			# clock; B's report of it carries its AT back and how long B held it, and
 			# this clock's now less both is the round trip -- no clock of B's in it.
