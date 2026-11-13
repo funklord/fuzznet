@@ -23,8 +23,8 @@ int main(void)
 	fzn_pressure_t p;
 	unsigned i;
 	int moved = 0;
-	const uint8_t lines[] = { FZN_TYPES_VERSION_SHARED, FZN_TYPE_GROUP_LINES_SYNC };
-	const uint8_t acts[] = { FZN_TYPES_VERSION_SHARED, FZN_TYPE_GROUP_SYNC };
+	const uint8_t lines[] = { FZN_CMD_GROUPS, FZN_SUBCMD_GROUPS_LINES_SYNC };
+	const uint8_t acts[] = { FZN_CMD_GROUPS, FZN_SUBCMD_GROUPS_SYNC };
 
 	/* THE TABLE, as the header draws it. */
 	CHECK(fzn_pressure_admits(FZN_PRESSURE_CALM, FZN_RANK_TRACE), "calm shed a trace");

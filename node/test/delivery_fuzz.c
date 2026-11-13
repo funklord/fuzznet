@@ -280,7 +280,7 @@ static size_t build(uint8_t *out, uint8_t id[FZN_MESSAGE_ID_LEN], uint8_t *text,
 	for (i = 0; i < n; i++)
 		text[i] = (uint8_t)(' ' + next() % 95u);
 	*text_len = n;
-	out[0] = FZN_NODE_MESSAGES_VERSION;
+	out[0] = FZN_CMD_MESSAGES;
 	out[1] = FZN_NODE_MESSAGES_DELIVER;
 	memcpy(out + 2, id, FZN_MESSAGE_ID_LEN);
 	fzn_put_be64(out + 2 + FZN_MESSAGE_ID_LEN, clock_ms);

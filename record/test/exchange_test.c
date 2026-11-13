@@ -369,7 +369,7 @@ static void test_a_push(void)
 		size_t len = 0, n;
 
 		CHECK(make(buf, &len, 0x58, 1, NULL, 1, id), "fixture: X's first record");
-		msg[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+		msg[0] = (uint8_t)FZN_CMD_EXCHANGE;
 		msg[1] = (uint8_t)FZN_EXCHANGE_PUSH;
 		msg[2] = 0u;
 		msg[3] = 1u;
@@ -806,7 +806,7 @@ static void test_the_edges(void)
 	CHECK(fzn_exchange_answer(&a.journal, &a.store, q, FZN_EXCHANGE_DIGEST_QUERY_LEN, reply,
 	                          sizeof(reply)) == 0u,
 	      "another message version was answered");
-	q[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	q[0] = (uint8_t)FZN_CMD_EXCHANGE;
 	q[1] = (uint8_t)FZN_EXCHANGE_RECORDS_QUERY;
 	CHECK(fzn_exchange_answer(&a.journal, &a.store, q, sizeof(q) - 1u, reply, sizeof(reply))
 	              == 0u,
@@ -829,7 +829,7 @@ static void test_an_empty_digest(void)
 
 	host_init(&a);
 	memset(q, 0, sizeof(q));
-	q[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	q[0] = (uint8_t)FZN_CMD_EXCHANGE;
 	q[1] = (uint8_t)FZN_EXCHANGE_DIGEST_QUERY;
 	len = fzn_exchange_answer(&a.journal, &a.store, q, sizeof(q), reply, sizeof(reply));
 	CHECK(len == FZN_EXCHANGE_DIGEST_HEAD_LEN && reply[1] == (uint8_t)FZN_EXCHANGE_DIGEST,

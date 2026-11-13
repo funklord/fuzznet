@@ -20,6 +20,7 @@
 #ifndef FZN_NODE_RECONCILE_H
 #define FZN_NODE_RECONCILE_H
 
+#include "../wire/cmd.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -27,7 +28,6 @@
 #include "buckets.h"
 #include "holdings.h"
 
-#define FZN_RECONCILE_VERSION 6u
 
 typedef enum fzn_reconcile_type {
 	FZN_RECONCILE_DIGEST_QUERY = 1,

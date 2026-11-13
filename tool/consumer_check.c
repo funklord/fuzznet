@@ -288,6 +288,7 @@
 #include <fuzznet/version/version.h>
 #include <fuzznet/wire/relay.h>
 #include <fuzznet/wire/status.h>
+#include <fuzznet/wire/cmd.h>
 #include <fuzznet/wire/seal.h>
 #else
 #include "chain/chain.h"
@@ -513,6 +514,7 @@
 #include "wire/bytes.h"
 #include "wire/relay.h"
 #include "wire/status.h"
+#include "wire/cmd.h"
 #include "wire/seal.h"
 #endif
 

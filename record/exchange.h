@@ -46,6 +46,7 @@
 #ifndef FZN_EXCHANGE_H
 #define FZN_EXCHANGE_H
 
+#include "../wire/cmd.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -57,7 +58,6 @@
 /* 7 since sec 1047: a digest's count, place and length are 32 bits, an estate
  * past 65535 streams read whole. Not 6, which is reconciliation's
  * (`node/types.h`); 5, the 16-bit exchange, is retired. */
-#define FZN_EXCHANGE_VERSION 7u
 
 typedef enum fzn_exchange_type {
 	FZN_EXCHANGE_DIGEST_QUERY = 1,

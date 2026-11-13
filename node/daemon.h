@@ -82,11 +82,11 @@ typedef struct fzn_daemon_procedure {
  *     in fuzznet's grammar -- the vocabulary's verbs, a subject, escaped
  *     words -- answering in its reply vocabulary (`fzn_reply_t`): a reply
  *     that is not one is answered `error` in its place.
- *   - Remote requests reach `remote` only when they are version 2's and of
- *     a type in the extensions' range (`node/types.h`), which fuzznet
- *     allocates none of. A type an extension uses is listed there with its
- *     owner, so that moving into fuzznet it keeps its number. One in that
- *     range that no extension takes is answered `unsupported`.
+ *   - Remote requests reach `remote` only when their CMD is
+ *     FZN_CMD_EXTENSION (`wire/cmd.h`, sec 1085), every SUBCMD of which is
+ *     the extension's. A SUBCMD an extension uses is listed in
+ *     `node/types.h` with its owner, so that moving into fuzznet it keeps its
+ *     number. One that no extension takes is answered `unsupported`.
  *   - Journal records of the consumer half of kinds (1 to 127,
  *     `wire/bytes.h`) reach `apply` from every host's estate stream this
  *     node follows; `fzn_daemon_journal_append` writes them into this

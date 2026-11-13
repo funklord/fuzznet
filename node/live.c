@@ -11,7 +11,7 @@
 
 int fzn_live_is_word(const uint8_t *bytes, size_t len)
 {
-	return bytes && len >= FZN_LIVE_HEAD_LEN && bytes[0] == FZN_TYPES_VERSION_SHARED
+	return bytes && len >= FZN_LIVE_HEAD_LEN && bytes[0] == FZN_CMD_SHARED
 	       && bytes[1] == FZN_TYPE_LIVE;
 }
 
@@ -150,7 +150,7 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 	situ_msg_init(&msg, out, at + body);
 	if (fzn_call_message_view(&msg, 0u, at + body, &v) != SITU_OK)
 		return 0;
-	fzn_call_message_family_set(v, FZN_TYPES_VERSION_SHARED);
+	fzn_call_message_family_set(v, FZN_CMD_SHARED);
 	fzn_call_message_type_set(v, FZN_TYPE_LIVE);
 	fzn_call_message_kind_set(&msg, v, (fzn_call_kind_t)w->kind);
 	if (fzn_call_message_view(&msg, 0u, at + body, &v) != SITU_OK)

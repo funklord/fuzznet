@@ -6279,9 +6279,9 @@ SABOTAGES = [
 	(
 		"cause-envelope-is-version-3",
 		"log/cause.c",
-		"\tout[0] = FZN_CAUSE_VERSION;\n",
-		"\tout[0] = 2u;\n",
-		"a request with its causes goes out under the notes sync family's version and is answered as a notes message -- sec 462",
+		"\tout[0] = FZN_CMD_CAUSE;\n",
+		"\tout[0] = FZN_CMD_NOTES;\n",
+		"a request with its causes goes out under the notes sync CMD and is answered as a notes message -- sec 462",
 	),
 	(
 		"logger-falls-back-to-dbus-machine-id",
@@ -10880,8 +10880,8 @@ SABOTAGES = [
 	(
 		'log-gather-says-denied',
 		'log/gather.c',
-		'\treturn len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_STATUS_VERSION\n',
-		'\treturn 0 && len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_STATUS_VERSION\n',
+		'\treturn len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_CMD_SHARED\n',
+		'\treturn 0 && len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_CMD_SHARED\n',
 		"a host's refusal to be gathered reads as a reply that is no page, and the gatherer is not told why -- sec 735",
 	),
 	(
@@ -13229,8 +13229,8 @@ SABOTAGES = [
 	(
 		"messages-delivered-names-the-line",
 		"node/messages.c",
-		"\t    || reply[0] != FZN_NODE_MESSAGES_VERSION || reply[1] != FZN_NODE_MESSAGES_DELIVERED\n\t    || memcmp(reply + 2, id, FZN_MESSAGE_ID_LEN) != 0)\n",
-		"\t    || reply[0] != FZN_NODE_MESSAGES_VERSION || reply[1] != FZN_NODE_MESSAGES_DELIVERED)\n",
+		"\t    || reply[0] != FZN_CMD_MESSAGES || reply[1] != FZN_NODE_MESSAGES_DELIVERED\n\t    || memcmp(reply + 2, id, FZN_MESSAGE_ID_LEN) != 0)\n",
+		"\t    || reply[0] != FZN_CMD_MESSAGES || reply[1] != FZN_NODE_MESSAGES_DELIVERED)\n",
 		"an answer about another line marks this one delivered, and a line nobody holds is never sent -- sec 613",
 	),
 	(
@@ -14554,8 +14554,8 @@ SABOTAGES = [
 	(
 		"device-cut-answer-given",
 		"device/device.c",
-		"\t\t    || heard[1] != FZN_TYPE_CALLED || heard_len - CALL_HEAD_LEN > cap\n",
-		"\t\t    || heard[1] != FZN_TYPE_CALLED\n",
+		"\t\t    || heard[1] != FZN_SUBCMD_RRPC_RESULT || heard_len - CALL_HEAD_LEN > cap\n",
+		"\t\t    || heard[1] != FZN_SUBCMD_RRPC_RESULT\n",
 		"an answer past the device's room is copied over what follows it -- sec 912",
 	),
 	(
@@ -15426,8 +15426,8 @@ SABOTAGES = [
 	(
 		"routing-reply-never-taken",
 		"node/daemon.c",
-		"\t    || reply[0] != FZN_TYPES_VERSION_SHARED || reply[1] != FZN_TYPE_ROUTING\n\t    || (n = len - 2u) > sizeof(bytes))\n",
-		"\t    || reply[0] != FZN_TYPES_VERSION_SHARED || reply[1] == FZN_TYPE_ROUTING\n\t    || (n = len - 2u) > sizeof(bytes))\n",
+		"\t    || reply[0] != FZN_CMD_REACH || reply[1] != FZN_SUBCMD_REACH_ROUTING\n\t    || (n = len - 2u) > sizeof(bytes))\n",
+		"\t    || reply[0] != FZN_CMD_REACH || reply[1] == FZN_SUBCMD_REACH_ROUTING\n\t    || (n = len - 2u) > sizeof(bytes))\n",
 		"a member's routing manifest, asked, is never taken -- sec 1081",
 	),
 	(
@@ -16133,18 +16133,11 @@ SABOTAGES = [
 		"sec 673: a reply is one line, so an extension answering two would leave a client reading the second as the next answer; admin_test's two-line check catches it",
 	),
 	(
-		"admin-extension-range-floor",
+		"admin-extension-cmd",
 		"node/admin.c",
-		"\t    && req->payload[1] >= FZN_TYPES_EXTENSION_FIRST\n",
-		"",
-		"sec 674: only the extensions' range reaches an extension, or it would answer fuzznet's own types; admin_test's below-the-range check catches it",
-	),
-	(
-		"admin-extension-range-version",
-		"node/admin.c",
-		"\t    && req->payload[0] == FZN_TYPES_VERSION_SHARED\n",
-		"",
-		"sec 674: the range is version 2's, and another version's type space is its owner's; admin_test's other-version check catches it",
+		"\tif (req->payload && req->payload_len >= 2u && req->payload[0] == FZN_CMD_EXTENSION) {\n",
+		"\tif (req->payload && req->payload_len >= 2u) {\n",
+		"sec 674 and 1085: only the extension's CMD reaches an extension, or it would answer fuzznet's own; admin_test's another-CMD check catches it",
 	),
 	(
 		"apply-extension-handed",
@@ -16394,8 +16387,8 @@ SABOTAGES = [
 	(
 		"meter-cause-looked-through",
 		"node/meter.c",
-		"\tif (payload[0] == FZN_TYPES_VERSION_CAUSE\n",
-		"\tif (0 && payload[0] == FZN_TYPES_VERSION_CAUSE\n",
+		"\tif (payload[0] == FZN_CMD_CAUSE\n",
+		"\tif (0 && payload[0] == FZN_CMD_CAUSE\n",
 		"sec 685: the daemon wraps what it asks in a cause envelope, so a meter that does not look through it counts every asked request as other; meter_test's cause-envelope check catches it",
 	),
 	(

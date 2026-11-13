@@ -10,7 +10,7 @@
 #define PULL_REPLY_MAX 16384u
 /* Pages a pull asks for at most: far past what FZN_NODE_PEERS_MAX needs. */
 #define PULL_PAGES_MAX 256u
-#define NOTES_SYNC_VERSION 2u
+#include "../wire/cmd.h"
 
 const char *fzn_node_members_err_str(fzn_node_members_err_t err)
 {
@@ -34,7 +34,7 @@ size_t fzn_node_members_answer(const fzn_node_config_t *config, const fzn_node_p
 	size_t total = 0, from, i, seen = 0, n = 0, used = FZN_NODE_MEMBERS_HEAD_LEN;
 
 	if (!config || (!peers && peer_count) || !request || !reply
-	    || request_len != FZN_NODE_MEMBERS_QUERY_LEN || request[0] != NOTES_SYNC_VERSION
+	    || request_len != FZN_NODE_MEMBERS_QUERY_LEN || request[0] != FZN_CMD_MEMBERS
 	    || request[1] != FZN_NODE_MEMBERS_QUERY || reply_cap < FZN_NODE_MEMBERS_HEAD_LEN)
 		return 0;
 	from = fzn_get_be16(request + 2);
@@ -61,7 +61,7 @@ size_t fzn_node_members_answer(const fzn_node_config_t *config, const fzn_node_p
 		used += need;
 		n++;
 	}
-	reply[0] = NOTES_SYNC_VERSION;
+	reply[0] = FZN_CMD_MEMBERS;
 	reply[1] = FZN_NODE_MEMBERS_REPLY;
 	fzn_put_be16(reply + 2, (uint16_t)total);
 	fzn_put_be16(reply + 4, (uint16_t)(from > total ? total : from));
@@ -96,7 +96,7 @@ enum { MEMBERS_PAGING = 1, MEMBERS_DONE = 2 };
 static void members_query(const fzn_node_members_pulling_t *p, uint8_t *request,
                           size_t *request_len)
 {
-	request[0] = NOTES_SYNC_VERSION;
+	request[0] = FZN_CMD_MEMBERS;
 	request[1] = FZN_NODE_MEMBERS_QUERY;
 	fzn_put_be16(request + 2, (uint16_t)p->from);
 	*request_len = FZN_NODE_MEMBERS_QUERY_LEN;
@@ -146,7 +146,7 @@ fzn_node_members_err_t fzn_node_members_pull_step(fzn_node_members_pulling_t *p,
 	*done = 0;
 	if (!reply)
 		return members_end(p, done, FZN_NODE_MEMBERS_ERR_NO_ANSWER);
-	if (reply_len < FZN_NODE_MEMBERS_HEAD_LEN || reply[0] != NOTES_SYNC_VERSION
+	if (reply_len < FZN_NODE_MEMBERS_HEAD_LEN || reply[0] != FZN_CMD_MEMBERS
 	    || reply[1] != FZN_NODE_MEMBERS_REPLY || fzn_get_be16(reply + 4) != p->from)
 		return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
 	p->total = fzn_get_be16(reply + 2);

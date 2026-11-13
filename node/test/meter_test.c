@@ -41,28 +41,33 @@ static fzn_meter_family_t of(unsigned version, unsigned type)
 
 static void test_the_families(void)
 {
-	CHECK(of(2, FZN_NOTES_SYNC_INDEX_QUERY) == FZN_METER_NOTES
-	              && of(2, FZN_NOTES_SYNC_GIVEN) == FZN_METER_NOTES,
+	/* ONE FAMILY A CMD, sec 1085. */
+	CHECK(of(FZN_CMD_NOTES, FZN_NOTES_SYNC_INDEX_QUERY) == FZN_METER_NOTES
+	              && of(FZN_CMD_NOTES, FZN_NOTES_SYNC_GIVEN) == FZN_METER_NOTES,
 	      "notes sync is not notes");
-	CHECK(of(2, FZN_NODE_MEMBERS_QUERY) == FZN_METER_MEMBERS, "members is not members");
-	CHECK(of(2, FZN_NODE_MESSAGES_GIVE) == FZN_METER_MESSAGES
-	              && of(2, FZN_NODE_MESSAGES_HOLDING) == FZN_METER_MESSAGES,
+	CHECK(of(FZN_CMD_MEMBERS, FZN_NODE_MEMBERS_QUERY) == FZN_METER_MEMBERS,
+	      "members is not members");
+	CHECK(of(FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_GIVE) == FZN_METER_MESSAGES
+	              && of(FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_HOLDING) == FZN_METER_MESSAGES,
 	      "messages is not messages");
-	CHECK(of(2, FZN_CONTACT_DEVICES_OFFER) == FZN_METER_CONTACT_DEVICES,
+	CHECK(of(FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_OFFER) == FZN_METER_CONTACT_DEVICES,
 	      "contact devices is not contact devices");
-	CHECK(of(2, FZN_TYPE_RELAY) == FZN_METER_RELAY && of(2, FZN_TYPE_NOTIFY) == FZN_METER_INTRODUCE
-	              && of(2, FZN_TYPE_GROUP_LINES) == FZN_METER_GROUPS
-	              && of(2, FZN_TYPE_STREAM_RECORDS) == FZN_METER_STREAMS
-	              && of(2, FZN_TYPE_FILE_REFS) == FZN_METER_FILE_REFS,
+	CHECK(of(FZN_CMD_REACH, FZN_SUBCMD_REACH_RELAY) == FZN_METER_RELAY
+	              && of(FZN_CMD_REACH, FZN_SUBCMD_REACH_NOTIFY) == FZN_METER_INTRODUCE
+	              && of(FZN_CMD_REACH, FZN_SUBCMD_REACH_ROUTING_ASK) == FZN_METER_INTRODUCE
+	              && of(FZN_CMD_GROUPS, FZN_SUBCMD_GROUPS_LINES) == FZN_METER_GROUPS
+	              && of(FZN_CMD_STREAMS, FZN_SUBCMD_STREAMS_RECORDS) == FZN_METER_STREAMS
+	              && of(FZN_CMD_FILES, FZN_SUBCMD_FILES_REFS) == FZN_METER_FILE_REFS,
 	      "one of fuzznetd's own types is in the wrong family");
-	CHECK(of(2, FZN_TYPES_EXTENSION_FIRST) == FZN_METER_EXTENSION
-	              && of(2, FZN_TYPES_EXTENSION_LAST) == FZN_METER_EXTENSION
-	              && of(2, 36) == FZN_METER_OTHER && of(2, 200) == FZN_METER_OTHER,
+	CHECK(of(FZN_CMD_EXTENSION, 0) == FZN_METER_EXTENSION
+	              && of(FZN_CMD_EXTENSION, 255) == FZN_METER_EXTENSION
+	              && of(FZN_CMD_SHARED, FZN_TYPE_LIVE) == FZN_METER_OTHER
+	              && of(FZN_CMD_TIME, FZN_SUBCMD_TIME_ASK) == FZN_METER_OTHER,
 	      "the extensions' range, or what nobody allocated, is wrong");
-	CHECK(of(FZN_GATHER_VERSION, 1) == FZN_METER_LOGS
-	              && of(FZN_EXCHANGE_VERSION, 1) == FZN_METER_JOURNAL
-	              && of(FZN_RECONCILE_VERSION, 1) == FZN_METER_RECONCILE
-	              && of(FZN_MSG_VERSION, FZN_MSG_DATA) == FZN_METER_FILES && of(9, 1) == FZN_METER_OTHER,
+	CHECK(of(FZN_CMD_GATHER, 1) == FZN_METER_LOGS
+	              && of(FZN_CMD_EXCHANGE, 1) == FZN_METER_JOURNAL
+	              && of(FZN_CMD_RECONCILE, 1) == FZN_METER_RECONCILE
+	              && of(FZN_CMD_FILES, FZN_MSG_DATA) == FZN_METER_FILES && of(5, 1) == FZN_METER_OTHER,
 	      "a version byte's family is wrong");
 	{
 		uint8_t key[FZN_METER_KEY_MAX];
@@ -99,7 +104,7 @@ static void test_a_file_root_through_a_cause(void)
 	size_t key_len = 0, n = 0;
 
 	memset(want, 0, sizeof(want));
-	want[0] = FZN_MSG_VERSION;
+	want[0] = FZN_CMD_FILES;
 	want[1] = FZN_MSG_WANT;
 	memset(want + FZN_MSG_WANT_OFF_ROOT, 0xab, 32u);
 	CHECK(fzn_meter_family_of(want, sizeof(want), key, &key_len) == FZN_METER_FILES

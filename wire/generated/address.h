@@ -50,8 +50,8 @@ static inline situ_err_t fzn_address_message_view(const situ_msg_t *msg, uint32_
 	return situ_view_at(msg, offset, length, out);
 }
 
-#define FZN_ADDRESS_MESSAGE_FAMILY_VALUE_MIN 2u
-#define FZN_ADDRESS_MESSAGE_FAMILY_VALUE_MAX 2u
+#define FZN_ADDRESS_MESSAGE_FAMILY_VALUE_MIN 12u
+#define FZN_ADDRESS_MESSAGE_FAMILY_VALUE_MAX 12u
 
 /** message.family : u8  at AbsoluteStatic(0x00)
  * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed

@@ -141,9 +141,9 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 			answers_to_lose--;
 			return 1;
 		}
-		CHECK(got.payload[1] == FZN_TYPE_CALL, "a session frame held no call");
-		reply[0] = FZN_TYPES_VERSION_SHARED;
-		reply[1] = FZN_TYPE_CALLED;
+		CHECK(got.payload[1] == FZN_SUBCMD_RRPC_ASK, "a session frame held no call");
+		reply[0] = FZN_CMD_RRPC;
+		reply[1] = FZN_SUBCMD_RRPC_RESULT;
 		reply[2] = (uint8_t)answer_status;
 		memcpy(reply + 3, got.payload + 3, got.payload[2]);
 		if (say_first) {
@@ -161,7 +161,7 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 		}
 		if (say_stranger) {
 			static fzn_session_end_t other;
-			uint8_t bad[3] = { FZN_TYPES_VERSION_SHARED, FZN_TYPE_CALLED, 99u };
+			uint8_t bad[3] = { FZN_CMD_RRPC, FZN_SUBCMD_RRPC_RESULT, 99u };
 
 			memset(&other, 0, sizeof(other));
 			memset(other.send_key, 0x15, sizeof(other.send_key));
@@ -188,7 +188,7 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 	CHECK(memcmp(opened.capability, image.capability, FZN_CAP_ID_LEN) == 0,
 	      "the frame's capability moved");
 	CHECK(opened.payload_len == 2u + FZN_SESSION_ASK_LEN
-	              && opened.payload[1] == FZN_TYPE_SESSION_ASK,
+	              && opened.payload[1] == FZN_SUBCMD_SESSION_ASK,
 	      "a full frame held anything but an ask");
 	seen_msgs[frames_seen++ % 16u] = opened.msg;
 	asks_seen++;
@@ -201,13 +201,13 @@ static int from_device(void *ctx, const uint8_t *bytes, size_t len)
 
 		memset(wrong_key, 0x13, sizeof(wrong_key));
 		memset(wrong_ckey, 0x14, sizeof(wrong_ckey));
-		reply[0] = FZN_TYPES_VERSION_SHARED;
-		reply[1] = FZN_TYPE_CALLED;
+		reply[0] = FZN_CMD_RRPC;
+		reply[1] = FZN_SUBCMD_RRPC_RESULT;
 		reply[2] = 99u;
 		gateway_says(&opened, reply, 3u, wrong_key, wrong_ckey);
 	}
-	reply[0] = FZN_TYPES_VERSION_SHARED;
-	reply[1] = FZN_TYPE_SESSION_GRANT;
+	reply[0] = FZN_CMD_SESSION;
+	reply[1] = FZN_SUBCMD_SESSION_GRANT;
 	memset(reply + 2, 0x5A, FZN_SESSION_RANDOM_LEN);
 	gate_handle += 0x1001u;
 	fzn_put_be32(reply + 2 + FZN_SESSION_RANDOM_LEN, gate_handle);

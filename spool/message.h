@@ -87,13 +87,13 @@
 #ifndef FZN_MESSAGE_H
 #define FZN_MESSAGE_H
 
+#include "../wire/cmd.h"
 #include "plan.h"
 #include "spool.h"
 
 /* The vocabulary's own version, separate from FZN_SIGNED_VERSION because
  * these are not signed objects and a shared number would tie two families
  * that move for different reasons. */
-#define FZN_MSG_VERSION 1u
 
 typedef enum fzn_msg_type {
 	/* "Do you have this blob?" -- a root and nothing else. */

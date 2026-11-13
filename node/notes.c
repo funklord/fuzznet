@@ -1339,7 +1339,7 @@ static size_t take_text(fzn_node_notes_t *n, const uint8_t *sender, const uint8_
 	uint64_t length;
 	int complete = 0;
 
-	if (request_len < 2u || request[0] != FZN_NOTES_SYNC_VERSION
+	if (request_len < 2u || request[0] != FZN_CMD_NOTES
 	    || request[1] != FZN_NOTES_SYNC_TEXT_PUSH || reply_cap < TEXT_PUSHED_LEN)
 		return 0;
 	if (request_len < TEXT_PUSH_HEAD || !n->place || !sender_admitted(n, sender))
@@ -1356,7 +1356,7 @@ static size_t take_text(fzn_node_notes_t *n, const uint8_t *sender, const uint8_
 		outcome = complete ? TEXT_WHOLE : TEXT_WANTED;
 	}
 answer:
-	reply[0] = FZN_NOTES_SYNC_VERSION;
+	reply[0] = FZN_CMD_NOTES;
 	reply[1] = FZN_NOTES_SYNC_TEXT_PUSHED;
 	reply[2] = outcome;
 	return TEXT_PUSHED_LEN;
@@ -1386,7 +1386,7 @@ static int texts_next_offer(fzn_node_notes_texting_t *x, uint8_t *request, size_
 		    || !whole_here)
 			continue;
 		x->tally.offered++;
-		request[0] = FZN_NOTES_SYNC_VERSION;
+		request[0] = FZN_CMD_NOTES;
 		request[1] = FZN_NOTES_SYNC_TEXT_PUSH;
 		memcpy(request + 2, x->roots[x->at], FZN_BLOB_HASH_LEN);
 		fzn_put_be64(request + 2 + FZN_BLOB_HASH_LEN, x->lengths[x->at]);
@@ -1456,7 +1456,7 @@ int fzn_node_notes_push_texts_step(fzn_node_notes_texting_t *x, const uint8_t *r
 	    || cap < FZN_NODE_NOTES_TEXT_REQUEST_MAX || !request_len || !done)
 		return 0;
 	*done = 0;
-	if (!reply || reply_len != TEXT_PUSHED_LEN || reply[0] != FZN_NOTES_SYNC_VERSION
+	if (!reply || reply_len != TEXT_PUSHED_LEN || reply[0] != FZN_CMD_NOTES
 	    || reply[1] != FZN_NOTES_SYNC_TEXT_PUSHED || reply[2] > TEXT_WHOLE)
 		return texts_end(x, done, 0);
 	outcome = reply[2];
@@ -3135,7 +3135,7 @@ size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
 	/* ONLY THE PURGE CONVERSATION, sec 519, AND WRAP KEYS, sec 520: a
 	 * member's notes come in the journal now, so its INDEX and RECORDS go
 	 * unanswered, and PUSH is retired. */
-	if (request_len < 2u || request[0] != FZN_NOTES_SYNC_VERSION
+	if (request_len < 2u || request[0] != FZN_CMD_NOTES
 	    || (request[1] != FZN_NOTES_SYNC_PURGE && request[1] != FZN_NOTES_SYNC_PURGE_ACK
 	        && request[1] != FZN_NOTES_SYNC_PURGES_QUERY
 	        && request[1] != FZN_NOTES_SYNC_WRAPS_QUERY

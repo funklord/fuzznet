@@ -86408,3 +86408,53 @@ a reader for the old bytes: both ends run the same fuzznet.
 **Not done here:** the typed client's prefix (`fzn_call_`, which this design gives to the voice
 call alone) is the holder's question in the work file; the local leg's binary form is sec 1061
 step 5.
+
+## 1086. CMD and SUBCMD, stage 2: family 2 split into categories, 2026-11-12
+
+**Sec 1085's stage 2, the names and the split in one pass** -- each site moved once, rather than
+renamed in one commit and given its category in the next.
+
+**`wire/cmd.h`** holds the CMDs, in wire/ so notes and the log gatherer below the node name their
+own. The family constants every module kept became its CMD: notes sync's `FZN_NOTES_SYNC_VERSION`
+is `FZN_CMD_NOTES` (8), messages' `FZN_CMD_MESSAGES` (10), contact devices' `FZN_CMD_CONTACTS`
+(11), members' local `NOTES_SYNC_VERSION` `FZN_CMD_MEMBERS` (9), the daemon's relay and
+introduction constants `FZN_CMD_REACH` (12), its group constant `FZN_CMD_GROUPS` (13); spool's,
+the cause envelope's, gather's, reconciliation's and the exchange's version constants are
+`FZN_CMD_FILES`, `_CAUSE`, `_GATHER`, `_RECONCILE`, `_EXCHANGE` at their old values. The
+daemon's own uses of the shared family took the CMD their SUBCMD names: streams 14, time 15,
+RRPC 16, sessions 17, file references under FILES (1). **The call and STATUS stay in family 2**
+(`FZN_CMD_SHARED`) for stage 3, which gives them their new layout, so no transitional layout was
+ever written.
+
+**node/types.h's own SUBCMDs are `FZN_SUBCMD_<CMD>_<NAME>`** -- `FZN_SUBCMD_REACH_RELAY`,
+`FZN_SUBCMD_TIME_REPLY` (was `FZN_TYPE_TIME`), `FZN_SUBCMD_RRPC_ASK` and `_RESULT` (were
+`FZN_TYPE_CALL` and `_CALLED`) -- and the procedure call's statuses `FZN_RRPC_OK`, `_UNKNOWN`,
+`_DENIED`, `_FAILED`, `_NAME_MAX` (were `FZN_CALL_*`). **The modules' own enums keep their names**
+(`FZN_NOTES_SYNC_*`, `FZN_NODE_MESSAGES_*`, `FZN_CONTACT_DEVICES_*`, `FZN_NODE_MEMBERS_*`,
+spool's `FZN_MSG_*`): each already names its category, and renaming them buys no clarity. The
+local verb `call NAME` is still the procedure call's; its rename to `rrpc` is the next commit.
+
+**The extension's CMD is 20**, every SUBCMD its own, where it had family 2's 128 to 191; netcfgd's
+128 and 129 keep their numbers. **The meter** reads one family per CMD, with the same family per
+message as before, where `shared_family` kept hand-written ranges of family 2.
+
+**Contracts repinned:** `notes/sync.situ` (20 messages) to 8, `messages/keys.situ` and
+`deliver.situ` to 10, `node/contact_devices.situ`'s twelve messages to 11, `node/address.situ`
+to 12, with their `.wire` and `.map`, ADDRESS's generated code and vectors. `messages/line.situ`
+and `node/buckets.situ`'s ref pin a stored format's own version 2, not the family, and stayed.
+
+**Found on the way, all tests building family-2 bytes by hand:** members_fuzz's requests (`0 bent
+requests answered` until fixed), admin_test's extension and members queries, its notes request,
+cause_test's example. types_test is rewritten for CMDs -- each entry carries its CMD, no pair
+twice, every CMD below a verb line's first byte and distinct, none the retired 5, family 2 holding
+only the call and STATUS -- where its old checks had become `FZN_CMD_FILES == FZN_CMD_FILES`
+after the rename. Sabotage entries anchored on the old names were repointed, the two on the
+extension's range made one on its CMD.
+
+**The gates' first run found three more:** `wire/cmd.h` was not an installed header, so a
+consumer's `spool/message.h` would not compile (`installcheck`); the meter's FILES case was
+mis-indented (`style`); and `live_faults` phase p took only `ok` for a read made again where it
+already was, which sec 1084 answers `ok unchanged` -- sec 1084's own miss, its gates having run
+no `livecheck-faults`. `live_groups` failed once in `livecheck`, `C pulled nothing B shares with
+the group`, under a loaded machine, and passed alone on this tree and on the commit before it:
+one occurrence, kept here to be recognised if it comes again.

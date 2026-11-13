@@ -264,7 +264,7 @@ int fzn_contact_devices_offer_request(const fzn_contact_device_t *d, uint8_t *re
 	if (!d || !request || cap < 2u || !request_len
 	    || fzn_contact_device_encode(d, request + 2, cap - 2u, &len) != FZN_CONTACT_DEVICE_OK)
 		return 0;
-	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[0] = FZN_CMD_CONTACTS;
 	request[1] = FZN_CONTACT_DEVICES_OFFER;
 	*request_len = 2u + len;
 	return 1;
@@ -273,7 +273,7 @@ int fzn_contact_devices_offer_request(const fzn_contact_device_t *d, uint8_t *re
 int fzn_contact_devices_offer_reply(const uint8_t *reply, size_t reply_len)
 {
 	if (!reply || reply_len != FZN_CONTACT_DEVICES_TAKEN_LEN
-	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_TAKEN
+	    || reply[0] != FZN_CMD_CONTACTS || reply[1] != FZN_CONTACT_DEVICES_TAKEN
 	    || reply[2] > 1u)
 		return -1;
 	return reply[2];
@@ -299,10 +299,10 @@ size_t fzn_contact_devices_offer_answer(const uint8_t *request, size_t request_l
 	static fzn_contact_device_t d;
 
 	if (!request || !take || !reply || request_len < 2u
-	    || request[0] != FZN_CONTACT_DEVICES_VERSION || request[1] != FZN_CONTACT_DEVICES_OFFER
+	    || request[0] != FZN_CMD_CONTACTS || request[1] != FZN_CONTACT_DEVICES_OFFER
 	    || reply_cap < FZN_CONTACT_DEVICES_TAKEN_LEN)
 		return 0;
-	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_TAKEN;
 	reply[2] = fzn_contact_device_decode(request + 2, request_len - 2u, &d)
 	                           == FZN_CONTACT_DEVICE_OK
@@ -317,7 +317,7 @@ size_t fzn_contact_devices_offer_answer(const uint8_t *request, size_t request_l
 static void devices_query(const fzn_contact_devices_querying_t *q, uint8_t *request,
                           size_t *request_len)
 {
-	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[0] = FZN_CMD_CONTACTS;
 	request[1] = FZN_CONTACT_DEVICES_QUERY;
 	request[2] = (uint8_t)q->from;
 	request[3] = (uint8_t)q->whose;
@@ -355,7 +355,7 @@ int fzn_contact_devices_query_step(fzn_contact_devices_querying_t *q, const uint
 	*done = 1;
 	q->live = 0;
 	if (!reply || reply_len < FZN_CONTACT_DEVICES_LIST_HEAD_LEN
-	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_LIST
+	    || reply[0] != FZN_CMD_CONTACTS || reply[1] != FZN_CONTACT_DEVICES_LIST
 	    || reply[2] != q->from || reply[4] > 1u)
 		return 0;
 	n = reply[3];
@@ -425,7 +425,7 @@ size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_l
 	size_t at = FZN_CONTACT_DEVICES_LIST_HEAD_LEN, i, n = 0, len;
 
 	if (!request || !reply || request_len != FZN_CONTACT_DEVICES_QUERY_LEN
-	    || request[0] != FZN_CONTACT_DEVICES_VERSION || request[1] != FZN_CONTACT_DEVICES_QUERY)
+	    || request[0] != FZN_CMD_CONTACTS || request[1] != FZN_CONTACT_DEVICES_QUERY)
 		return 0;
 	entry_at = request[3] == FZN_CONTACT_DEVICES_HOSTS  ? hosts_at
 	           : request[3] == FZN_CONTACT_DEVICES_KEPT ? kept_at
@@ -434,7 +434,7 @@ size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_l
 		return 0;
 	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
 		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
-	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_LIST;
 	reply[2] = request[2];
 	reply[4] = 0u;
@@ -463,7 +463,7 @@ size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_l
 static void revoked_query(const fzn_contact_revoked_querying_t *q, uint8_t *request,
                           size_t *request_len)
 {
-	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[0] = FZN_CMD_CONTACTS;
 	request[1] = FZN_CONTACT_DEVICES_REVOKED;
 	fzn_put_be32(request + 2, q->from);
 	*request_len = FZN_CONTACT_DEVICES_REVOKED_LEN;
@@ -498,7 +498,7 @@ int fzn_contact_revoked_query_step(fzn_contact_revoked_querying_t *q, const uint
 	*done = 1;
 	q->live = 0;
 	if (!reply || reply_len < FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN
-	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_RECORDS
+	    || reply[0] != FZN_CMD_CONTACTS || reply[1] != FZN_CONTACT_DEVICES_RECORDS
 	    || fzn_get_be32(reply + 2) != q->from || reply[7] > 1u)
 		return 0;
 	n = reply[6];
@@ -532,14 +532,14 @@ size_t fzn_contact_revoked_answer(const uint8_t *request, size_t request_len,
 	uint32_t from;
 
 	if (!request || !record_at || !reply || request_len != FZN_CONTACT_DEVICES_REVOKED_LEN
-	    || request[0] != FZN_CONTACT_DEVICES_VERSION
+	    || request[0] != FZN_CMD_CONTACTS
 	    || request[1] != FZN_CONTACT_DEVICES_REVOKED
 	    || reply_cap < FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN)
 		return 0;
 	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
 		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
 	from = fzn_get_be32(request + 2);
-	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_RECORDS;
 	fzn_put_be32(reply + 2, from);
 	reply[7] = 0u;
@@ -852,7 +852,7 @@ fzn_contact_device_err_t fzn_contact_estate_item_decode(const uint8_t *bytes, si
 static void estate_query(const fzn_contact_estate_querying_t *q, uint8_t *request,
                          size_t *request_len)
 {
-	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[0] = FZN_CMD_CONTACTS;
 	request[1] = FZN_CONTACT_DEVICES_ESTATE;
 	fzn_put_be32(request + 2, q->from);
 	*request_len = FZN_CONTACT_DEVICES_ESTATE_LEN;
@@ -888,7 +888,7 @@ int fzn_contact_estate_query_step(fzn_contact_estate_querying_t *q, const uint8_
 	*done = 1;
 	q->live = 0;
 	if (!reply || reply_len < FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN
-	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_ITEMS
+	    || reply[0] != FZN_CMD_CONTACTS || reply[1] != FZN_CONTACT_DEVICES_ITEMS
 	    || fzn_get_be32(reply + 2) != q->from || reply[7] > 1u || reply[8] == 0u)
 		return 0;
 	n = reply[6];
@@ -936,13 +936,13 @@ size_t fzn_contact_estate_answer(const uint8_t *request, size_t request_len,
 	uint32_t from;
 
 	if (!request || !item_at || !reply || request_len != FZN_CONTACT_DEVICES_ESTATE_LEN
-	    || request[0] != FZN_CONTACT_DEVICES_VERSION || request[1] != FZN_CONTACT_DEVICES_ESTATE
+	    || request[0] != FZN_CMD_CONTACTS || request[1] != FZN_CONTACT_DEVICES_ESTATE
 	    || reply_cap < FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN)
 		return 0;
 	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
 		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
 	from = fzn_get_be32(request + 2);
-	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_ITEMS;
 	fzn_put_be32(reply + 2, from);
 	reply[7] = 0u;
@@ -1088,7 +1088,7 @@ int fzn_contact_estate_k_query(uint8_t *request, size_t cap, size_t *request_len
 {
 	if (!request || !request_len || cap < FZN_CONTACT_DEVICES_K_SETTING_LEN)
 		return 0;
-	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[0] = FZN_CMD_CONTACTS;
 	request[1] = FZN_CONTACT_DEVICES_K_SETTING;
 	*request_len = FZN_CONTACT_DEVICES_K_SETTING_LEN;
 	return 1;
@@ -1099,12 +1099,12 @@ size_t fzn_contact_estate_k_answer(const uint8_t *request, size_t request_len,
                                    size_t reply_cap)
 {
 	if (!request || request_len != FZN_CONTACT_DEVICES_K_SETTING_LEN
-	    || request[0] != FZN_CONTACT_DEVICES_VERSION
+	    || request[0] != FZN_CMD_CONTACTS
 	    || request[1] != FZN_CONTACT_DEVICES_K_SETTING || !reply || (setting_len && !setting)
 	    || setting_len > FZN_SETTING_MAX
 	    || reply_cap < FZN_CONTACT_DEVICES_K_SET_HEAD_LEN + setting_len)
 		return 0;
-	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_K_SET;
 	fzn_put_be16(reply + 2, (uint16_t)setting_len);
 	if (setting_len)
@@ -1118,7 +1118,7 @@ int fzn_contact_estate_k_reply(const uint8_t *reply, size_t reply_len, const uin
 	size_t n;
 
 	if (!reply || !setting || !setting_len || reply_len < FZN_CONTACT_DEVICES_K_SET_HEAD_LEN
-	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_K_SET)
+	    || reply[0] != FZN_CMD_CONTACTS || reply[1] != FZN_CONTACT_DEVICES_K_SET)
 		return 0;
 	n = fzn_get_be16(reply + 2);
 	if (n > FZN_SETTING_MAX || reply_len != FZN_CONTACT_DEVICES_K_SET_HEAD_LEN + n)
@@ -1311,7 +1311,7 @@ fzn_contact_device_err_t fzn_contact_estate_take_row(const fzn_persist_ops_t *st
 static void rows_query(const fzn_contact_rows_querying_t *q, uint8_t *request,
                        size_t *request_len)
 {
-	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[0] = FZN_CMD_CONTACTS;
 	request[1] = FZN_CONTACT_DEVICES_KEPT_ESTATE;
 	fzn_put_be32(request + 2, q->from);
 	*request_len = FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN;
@@ -1345,7 +1345,7 @@ int fzn_contact_rows_query_step(fzn_contact_rows_querying_t *q, const uint8_t *r
 	*done = 1;
 	q->live = 0;
 	if (!reply || reply_len < FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN
-	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_KEPT_ROWS
+	    || reply[0] != FZN_CMD_CONTACTS || reply[1] != FZN_CONTACT_DEVICES_KEPT_ROWS
 	    || fzn_get_be32(reply + 2) != q->from || reply[7] > 1u)
 		return 0;
 	n = reply[6];
@@ -1385,14 +1385,14 @@ size_t fzn_contact_rows_answer(const uint8_t *request, size_t request_len,
 	uint32_t from;
 
 	if (!request || !row_at || !reply || request_len != FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN
-	    || request[0] != FZN_CONTACT_DEVICES_VERSION
+	    || request[0] != FZN_CMD_CONTACTS
 	    || request[1] != FZN_CONTACT_DEVICES_KEPT_ESTATE
 	    || reply_cap < FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN)
 		return 0;
 	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
 		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
 	from = fzn_get_be32(request + 2);
-	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_KEPT_ROWS;
 	fzn_put_be32(reply + 2, from);
 	reply[7] = 0u;
@@ -1418,7 +1418,7 @@ size_t fzn_contact_rows_answer(const uint8_t *request, size_t request_len,
 static void acts_query(const fzn_contact_acts_querying_t *q, uint8_t *request,
                        size_t *request_len)
 {
-	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[0] = FZN_CMD_CONTACTS;
 	request[1] = FZN_CONTACT_DEVICES_ACTS;
 	memcpy(request + 2, q->key, FZN_PUBKEY_LEN);
 	fzn_put_be32(request + 2 + FZN_PUBKEY_LEN, q->from);
@@ -1457,7 +1457,7 @@ int fzn_contact_acts_query_step(fzn_contact_acts_querying_t *q, const uint8_t *r
 	*done = 1;
 	q->live = 0;
 	if (!reply || reply_len < FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN
-	    || reply[0] != FZN_CONTACT_DEVICES_VERSION
+	    || reply[0] != FZN_CMD_CONTACTS
 	    || reply[1] != FZN_CONTACT_DEVICES_ACT_ENTRIES || fzn_get_be32(reply + 2) != q->from
 	    || reply[7] > 1u)
 		return 0;
@@ -1503,13 +1503,13 @@ size_t fzn_contact_acts_answer(const uint8_t *request, size_t request_len,
 	uint32_t from;
 
 	if (!request || !act_at || !reply || request_len != FZN_CONTACT_DEVICES_ACTS_LEN
-	    || request[0] != FZN_CONTACT_DEVICES_VERSION || request[1] != FZN_CONTACT_DEVICES_ACTS
+	    || request[0] != FZN_CMD_CONTACTS || request[1] != FZN_CONTACT_DEVICES_ACTS
 	    || reply_cap < FZN_CONTACT_DEVICES_ACT_ENTRIES_HEAD_LEN)
 		return 0;
 	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
 		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
 	from = fzn_get_be32(request + 2 + FZN_PUBKEY_LEN);
-	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[0] = FZN_CMD_CONTACTS;
 	reply[1] = FZN_CONTACT_DEVICES_ACT_ENTRIES;
 	fzn_put_be32(reply + 2, from);
 	reply[7] = 0u;

@@ -44,6 +44,7 @@
 #ifndef FZN_NODE_CONTACT_DEVICES_H
 #define FZN_NODE_CONTACT_DEVICES_H
 
+#include "../wire/cmd.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -143,7 +144,6 @@ fzn_contact_device_err_t fzn_contact_device_remove(const fzn_persist_ops_t *stor
  *   LIST   32  `from`, how many, whether more follow, then each entry
  *              after a 16-bit length
  */
-#define FZN_CONTACT_DEVICES_VERSION 2u
 #define FZN_CONTACT_DEVICES_OFFER 29u
 #define FZN_CONTACT_DEVICES_TAKEN 30u
 #define FZN_CONTACT_DEVICES_QUERY 31u

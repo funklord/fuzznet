@@ -21,12 +21,12 @@
 #ifndef FZN_LOG_CAUSE_H
 #define FZN_LOG_CAUSE_H
 
+#include "../wire/cmd.h"
 #include <stddef.h>
 #include <stdint.h>
 
 #include "entry.h"
 
-#define FZN_CAUSE_VERSION 3u
 /* An envelope's overhead at most: the version, two names, the length. */
 #define FZN_CAUSE_OVERHEAD_MAX (1u + (2u * FZN_ENTRY_NAME_RECORD_MAX) + 2u)
 

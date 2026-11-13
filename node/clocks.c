@@ -148,16 +148,16 @@ size_t fzn_node_clocks_local(fzn_node_clocks_t *c, fzn_origin_t origin,
 
 int fzn_node_time_is_ask(const uint8_t *payload, size_t len)
 {
-	return payload && len == FZN_NODE_TIME_ASK_LEN && payload[0] == FZN_TYPES_VERSION_SHARED
-	       && payload[1] == FZN_TYPE_TIME_ASK;
+	return payload && len == FZN_NODE_TIME_ASK_LEN && payload[0] == FZN_CMD_TIME
+	       && payload[1] == FZN_SUBCMD_TIME_ASK;
 }
 
 size_t fzn_node_time_ask(const uint8_t nonce[FZN_NODE_TIME_NONCE_LEN], uint8_t *out, size_t cap)
 {
 	if (!nonce || !out || cap < FZN_NODE_TIME_ASK_LEN)
 		return 0;
-	out[0] = FZN_TYPES_VERSION_SHARED;
-	out[1] = FZN_TYPE_TIME_ASK;
+	out[0] = FZN_CMD_TIME;
+	out[1] = FZN_SUBCMD_TIME_ASK;
 	memcpy(out + 2, nonce, FZN_NODE_TIME_NONCE_LEN);
 	return FZN_NODE_TIME_ASK_LEN;
 }
@@ -169,8 +169,8 @@ size_t fzn_node_time_answer(const uint8_t *ask, size_t ask_len, uint64_t now_ms,
 
 	if (!fzn_node_time_is_ask(ask, ask_len) || !out || cap < FZN_NODE_TIME_ANSWER_LEN)
 		return 0;
-	out[0] = FZN_TYPES_VERSION_SHARED;
-	out[1] = FZN_TYPE_TIME;
+	out[0] = FZN_CMD_TIME;
+	out[1] = FZN_SUBCMD_TIME_REPLY;
 	memcpy(out + 2, ask + 2, FZN_NODE_TIME_NONCE_LEN);
 	for (i = 0; i < 8u; i++)
 		out[2u + FZN_NODE_TIME_NONCE_LEN + i] = (uint8_t)(now_ms >> (56u - 8u * i));
@@ -185,7 +185,7 @@ int fzn_node_time_take(const uint8_t *answer, size_t len,
 	size_t i;
 
 	if (!answer || len != FZN_NODE_TIME_ANSWER_LEN || !nonce || !offset_ms || !rtt_ms
-	    || answer[0] != FZN_TYPES_VERSION_SHARED || answer[1] != FZN_TYPE_TIME
+	    || answer[0] != FZN_CMD_TIME || answer[1] != FZN_SUBCMD_TIME_REPLY
 	    || memcmp(answer + 2, nonce, FZN_NODE_TIME_NONCE_LEN) != 0 || got_ms < sent_ms)
 		return 0;
 	for (i = 0; i < 8u; i++)

@@ -632,7 +632,7 @@ static void test_a_gate_serves_only_what_it_may(void)
 	      "a round through the gate took more than the one bucket it may hold");
 	n = item_of(item, 1u, 25u);
 	fzn_buckets_id(&HASH, item, n, id);
-	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	request[0] = (uint8_t)FZN_CMD_RECONCILE;
 	request[1] = (uint8_t)FZN_RECONCILE_ITEM_QUERY;
 	request[2] = (uint8_t)FZN_BUCKETS_MESSAGES;
 	memcpy(request + 3u, id, sizeof(id));
@@ -649,7 +649,7 @@ static void test_a_gate_serves_only_what_it_may(void)
 	{
 		uint8_t q[FZN_RECONCILE_BUCKET_IDS_QUERY_LEN];
 
-		q[0] = (uint8_t)FZN_RECONCILE_VERSION;
+		q[0] = (uint8_t)FZN_CMD_RECONCILE;
 		q[1] = (uint8_t)FZN_RECONCILE_BUCKET_IDS_QUERY;
 		q[2] = (uint8_t)FZN_BUCKETS_MESSAGES;
 		memcpy(q + 3u, s1, FZN_PUBKEY_LEN);
@@ -784,7 +784,7 @@ static void test_ids_served_leave_the_buckets_room(void)
 	memset(row, 0x5a, sizeof(row));
 	CHECK(store_b.save(store_b.ctx, FZN_PERSIST_GRANT, row, hop, sizeof(hop)),
 	      "fixture: a grant held");
-	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	request[0] = (uint8_t)FZN_CMD_RECONCILE;
 	request[1] = (uint8_t)FZN_RECONCILE_IDS_QUERY;
 	request[2] = (uint8_t)FZN_HOLDINGS_GRANTS;
 	fzn_put_be32(request + 3u, 0u);

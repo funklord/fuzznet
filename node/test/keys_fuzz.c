@@ -353,7 +353,7 @@ static size_t build(uint8_t *b, uint8_t type, size_t n)
 {
 	size_t i, at = FZN_NODE_MESSAGES_HEAD_LEN;
 
-	b[0] = FZN_NODE_MESSAGES_VERSION;
+	b[0] = FZN_CMD_MESSAGES;
 	b[1] = type;
 	b[2] = (uint8_t)n;
 	if (type == FZN_NODE_MESSAGES_HOLDS) {
@@ -418,7 +418,7 @@ static int admitted(const uint8_t *b, size_t len)
 {
 	size_t n;
 
-	if (len < FZN_NODE_MESSAGES_HEAD_LEN || b[0] != FZN_NODE_MESSAGES_VERSION)
+	if (len < FZN_NODE_MESSAGES_HEAD_LEN || b[0] != FZN_CMD_MESSAGES)
 		return 0;
 	if (b[1] == FZN_NODE_MESSAGES_HOLDS)
 		return len == FZN_NODE_MESSAGES_HOLDS_LEN;
@@ -510,14 +510,14 @@ int main(int argc, char **argv)
 			}
 			taken += want_taken;
 			refused += want_refused;
-			if (got != FZN_NODE_MESSAGES_GIVEN_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION
+			if (got != FZN_NODE_MESSAGES_GIVEN_LEN || reply[0] != FZN_CMD_MESSAGES
 			    || reply[1] != FZN_NODE_MESSAGES_GIVEN || reply[2] != want_taken
 			    || reply[3] != want_refused)
 				fail("a GIVE was not answered with what it took and refused", c);
 		} else if (req[1] == FZN_NODE_MESSAGES_WANT) {
 			/* 3. WANT ANSWERS WHAT IS HELD. */
 			size_t at = FZN_NODE_MESSAGES_HEAD_LEN, held = 0;
-			int ok = got >= FZN_NODE_MESSAGES_HEAD_LEN && reply[0] == FZN_NODE_MESSAGES_VERSION
+			int ok = got >= FZN_NODE_MESSAGES_HEAD_LEN && reply[0] == FZN_CMD_MESSAGES
 			         && reply[1] == FZN_NODE_MESSAGES_KEYS;
 
 			n = req[2];

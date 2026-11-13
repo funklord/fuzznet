@@ -630,7 +630,7 @@ static void test_trash(void)
 	      "fixture: a node pulling from nobody, with one paired node");
 	hooks();
 	{
-		uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_CMD_NOTES,
 			                                           FZN_NOTES_SYNC_PURGES_QUERY };
 		uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 
@@ -648,7 +648,7 @@ static void test_trash(void)
 
 	/* A PARTNER STILL PULLING KEEPS ITS PIN, sec 472: it will answer. */
 	{
-		uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_CMD_NOTES,
 			                                           FZN_NOTES_SYNC_PURGES_QUERY };
 		uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 		size_t released = 9, finished = 9;
@@ -714,7 +714,7 @@ static void test_admission(void)
 /* How many claims a remote index answer names, or -1 for none. */
 static int indexed(const uint8_t *sender, int shared)
 {
-	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_CMD_NOTES,
 		                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
 	static uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 	size_t n = fzn_node_notes_remote(&notes, sender, shared, query, sizeof(query), out,
@@ -740,7 +740,7 @@ static void id_of(const char *hex, uint8_t id[FZN_TREE_ID_LEN])
 /* Whether this host's own note `hex` is among what `sender` is offered. */
 static int offered_to(const uint8_t *sender, const char *hex)
 {
-	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_CMD_NOTES,
 		                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
 	static uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 	uint8_t id[FZN_TREE_ID_LEN], key[FZN_PUBKEY_LEN];
@@ -2482,7 +2482,7 @@ static void test_pushing_texts(void)
 		uint8_t req[2u + FZN_BLOB_HASH_LEN + 8u], out[8];
 		size_t n;
 
-		req[0] = FZN_NOTES_SYNC_VERSION;
+		req[0] = FZN_CMD_NOTES;
 		req[1] = FZN_NOTES_SYNC_TEXT_PUSH;
 		memset(req + 2, 0x5e, FZN_BLOB_HASH_LEN);
 		memset(req + 2 + FZN_BLOB_HASH_LEN, 0, 8u);
@@ -2507,7 +2507,7 @@ static void test_pushing_texts(void)
 static void test_unpaired_partner(void)
 {
 	char b[65], line[200];
-	uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+	uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_CMD_NOTES,
 		                                           FZN_NOTES_SYNC_PURGES_QUERY };
 	uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 
@@ -2536,7 +2536,7 @@ static void test_unpaired_partner(void)
 static void test_a_partner_seen_in_the_future_ages_from_now(void)
 {
 	char b[65], line[200];
-	uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+	uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_CMD_NOTES,
 		                                           FZN_NOTES_SYNC_PURGES_QUERY };
 	uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 	const uint64_t back = clock_ms;

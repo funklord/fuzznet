@@ -28,8 +28,8 @@ situ_err_t fzn_address_message_check(situ_view_t view, uint32_t *which)
 		*which = 0xFFFFFFFFu;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.family [must_eq = 2] */
-	if (fzn_address_message_family_get(view) != 2) {
+	/* message.family [must_eq = 12] */
+	if (fzn_address_message_family_get(view) != 12) {
 		*which = FZN_ADDRESS_MESSAGE_FAMILY_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}

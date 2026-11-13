@@ -29,13 +29,13 @@
 #ifndef FZN_LOG_GATHER_H
 #define FZN_LOG_GATHER_H
 
+#include "../wire/cmd.h"
 #include <stddef.h>
 #include <stdint.h>
 
 #include "entry.h"
 #include "ring.h"
 
-#define FZN_GATHER_VERSION 4u
 #define FZN_GATHER_QUERY 1u
 #define FZN_GATHER_LINES 2u
 #define FZN_GATHER_RING_QUERY 3u

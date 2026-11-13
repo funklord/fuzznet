@@ -44,12 +44,12 @@
 #ifndef FZN_NOTES_SYNC_H
 #define FZN_NOTES_SYNC_H
 
+#include "../wire/cmd.h"
 #include <stddef.h>
 #include <stdint.h>
 
 #include "purge.h"
 
-#define FZN_NOTES_SYNC_VERSION 2u
 
 enum fzn_notes_sync_type {
 	FZN_NOTES_SYNC_INDEX_QUERY = 1,

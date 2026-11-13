@@ -20,31 +20,16 @@ const char *fzn_meter_family_name(fzn_meter_family_t family)
 }
 
 /* VERSION 2's TYPES TO THEIR FAMILY, as `node/types.h` allocates them. */
-static fzn_meter_family_t shared_family(unsigned type)
+/* A REACH SUBCMD'S FAMILY, sec 1085: a relay's as before; an introduction, a
+ * notify, an address or a manifest asked as reaching hosts (sec 1081); the
+ * answers, and a relayed session's ways, as other. */
+static fzn_meter_family_t reach_family(unsigned subcmd)
 {
-	if ((type >= 1u && type <= 10u) || (type >= 15u && type <= 22u))
-		return FZN_METER_NOTES;
-	if (type == 11u || type == 12u)
-		return FZN_METER_MEMBERS;
-	if ((type >= 23u && type <= 28u) || type == 33u || type == 34u)
-		return FZN_METER_MESSAGES;
-	if (type >= 29u && type <= 32u)
-		return FZN_METER_CONTACT_DEVICES;
-	if (type == FZN_TYPE_RELAY)
+	if (subcmd == FZN_SUBCMD_REACH_RELAY)
 		return FZN_METER_RELAY;
-	/* AND REACHING HOSTS, sec 1081: an address asked, a manifest asked -- verbs
-	 * until then. */
-	if (type == FZN_TYPE_INTRODUCE || type == FZN_TYPE_NOTIFY || type == FZN_TYPE_ADDRESS_ASK
-	    || type == FZN_TYPE_ROUTING_ASK)
+	if (subcmd == FZN_SUBCMD_REACH_INTRODUCE || subcmd == FZN_SUBCMD_REACH_NOTIFY || subcmd == FZN_SUBCMD_REACH_ADDRESS_ASK
+	    || subcmd == FZN_SUBCMD_REACH_ROUTING_ASK)
 		return FZN_METER_INTRODUCE;
-	if (type >= FZN_TYPE_GROUP_SYNC && type <= FZN_TYPE_GROUP_LINES)
-		return FZN_METER_GROUPS;
-	if (type == FZN_TYPE_STREAM_QUERY || type == FZN_TYPE_STREAM_RECORDS)
-		return FZN_METER_STREAMS;
-	if (type == FZN_TYPE_FILE_REFS_WANT || type == FZN_TYPE_FILE_REFS)
-		return FZN_METER_FILE_REFS;
-	if (type >= FZN_TYPES_EXTENSION_FIRST && type <= FZN_TYPES_EXTENSION_LAST)
-		return FZN_METER_EXTENSION;
 	return FZN_METER_OTHER;
 }
 
@@ -60,7 +45,7 @@ fzn_meter_family_t fzn_meter_family_of(const uint8_t *payload, size_t len,
 	if (!payload || !len)
 		return FZN_METER_OTHER;
 	/* A CAUSE ENVELOPE IS WHAT IS INSIDE IT. */
-	if (payload[0] == FZN_TYPES_VERSION_CAUSE
+	if (payload[0] == FZN_CMD_CAUSE
 	    && fzn_cause_unwrap(payload, len, &cause, &origin, &inner, &inner_len) == FZN_CAUSE_OK
 	    && inner && inner != payload)
 		return fzn_meter_family_of(inner, inner_len, key, key_len);
@@ -69,12 +54,18 @@ fzn_meter_family_t fzn_meter_family_of(const uint8_t *payload, size_t len,
 		return FZN_METER_VERBS;
 	if (len < 2u)
 		return FZN_METER_OTHER;
+	/* ONE FAMILY A CMD, sec 1085, where the shared family's types were mapped
+	 * by hand-kept ranges. */
 	switch (payload[0]) {
-	case FZN_TYPES_VERSION_SPOOL: {
-		size_t at = payload[1] == FZN_MSG_HAVE_QUERY || payload[1] == FZN_MSG_HAVE
-		            ? FZN_MSG_HAVE_OFF_ROOT
-		            : payload[1] == FZN_MSG_WANT ? FZN_MSG_WANT_OFF_ROOT : 0u;
+	case FZN_CMD_FILES: {
+		size_t at;
 
+		/* FILE REFERENCES, under FILES since sec 1086. */
+		if (payload[1] == FZN_SUBCMD_FILES_REFS_WANT || payload[1] == FZN_SUBCMD_FILES_REFS)
+			return FZN_METER_FILE_REFS;
+		at = payload[1] == FZN_MSG_HAVE_QUERY || payload[1] == FZN_MSG_HAVE
+		             ? FZN_MSG_HAVE_OFF_ROOT
+		             : payload[1] == FZN_MSG_WANT ? FZN_MSG_WANT_OFF_ROOT : 0u;
 		/* A FILE'S ROOT, where its message names one: the row's key. */
 		if (at && key && key_len && len >= at + FZN_METER_KEY_MAX) {
 			memcpy(key, payload + at, FZN_METER_KEY_MAX);
@@ -82,13 +73,27 @@ fzn_meter_family_t fzn_meter_family_of(const uint8_t *payload, size_t len,
 		}
 		return FZN_METER_FILES;
 	}
-	case FZN_TYPES_VERSION_SHARED:
-		return shared_family(payload[1]);
-	case FZN_TYPES_VERSION_GATHER:
+	case FZN_CMD_NOTES:
+		return FZN_METER_NOTES;
+	case FZN_CMD_MEMBERS:
+		return FZN_METER_MEMBERS;
+	case FZN_CMD_MESSAGES:
+		return FZN_METER_MESSAGES;
+	case FZN_CMD_CONTACTS:
+		return FZN_METER_CONTACT_DEVICES;
+	case FZN_CMD_REACH:
+		return reach_family(payload[1]);
+	case FZN_CMD_GROUPS:
+		return FZN_METER_GROUPS;
+	case FZN_CMD_STREAMS:
+		return FZN_METER_STREAMS;
+	case FZN_CMD_EXTENSION:
+		return FZN_METER_EXTENSION;
+	case FZN_CMD_GATHER:
 		return FZN_METER_LOGS;
-	case FZN_TYPES_VERSION_EXCHANGE:
+	case FZN_CMD_EXCHANGE:
 		return FZN_METER_JOURNAL;
-	case FZN_TYPES_VERSION_RECONCILE:
+	case FZN_CMD_RECONCILE:
 		return FZN_METER_RECONCILE;
 	default:
 		return FZN_METER_OTHER;

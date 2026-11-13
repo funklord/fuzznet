@@ -997,7 +997,7 @@ static void test_share_scope(void)
 		uint8_t out[FZN_NOTES_SYNC_WRAPS_REPLY_MAX];
 		size_t out_len = 0;
 
-		q[0] = FZN_NOTES_SYNC_VERSION;
+		q[0] = FZN_CMD_NOTES;
 		q[1] = FZN_NOTES_SYNC_WRAPS_QUERY;
 		q[2] = 1u;
 		memcpy(q + FZN_NOTES_SYNC_LIST_HEAD_LEN, f, FZN_TREE_ID_LEN);
@@ -1009,7 +1009,7 @@ static void test_share_scope(void)
 	/* ASKED BY KEY for every claim A holds, it still answers the scope's. */
 	CHECK(fzn_notes_claims(&store_a, keys, FZN_NOTES_MAX, &n) == FZN_NOTES_OK && n == 5u,
 	      "fixture: A's five claim keys");
-	request[0] = FZN_NOTES_SYNC_VERSION;
+	request[0] = FZN_CMD_NOTES;
 	request[1] = FZN_NOTES_SYNC_RECORDS_QUERY;
 	request[2] = 5u;
 	for (i = 0; i < 5u; i++)
@@ -1027,7 +1027,7 @@ static void test_share_scope(void)
 	              && reply[2] == 0u,
 	      "and an empty scope answers none");
 
-	purge[0] = FZN_NOTES_SYNC_VERSION;
+	purge[0] = FZN_CMD_NOTES;
 	purge[1] = FZN_NOTES_SYNC_PURGE;
 	memcpy(purge + 2, g, FZN_TREE_ID_LEN);
 	scope.count = 2u;
@@ -1047,7 +1047,7 @@ static int ask_liar(void *ctx, const uint8_t *request, size_t request_len, uint8
 {
 	if (request_len == FZN_NOTES_SYNC_WRITERS_QUERY_LEN
 	    && request[1] == FZN_NOTES_SYNC_WRITERS_QUERY && reply_cap >= 3u + FZN_PUBKEY_LEN) {
-		reply[0] = FZN_NOTES_SYNC_VERSION;
+		reply[0] = FZN_CMD_NOTES;
 		reply[1] = FZN_NOTES_SYNC_WRITERS;
 		reply[2] = 1u;
 		memcpy(reply + 3, KEY_A, FZN_PUBKEY_LEN);
@@ -1072,7 +1072,7 @@ static int ask_junk(void *ctx, const uint8_t *request, size_t request_len, uint8
 		return ask_scoped(ctx, request, request_len, reply, reply_cap, reply_len);
 	if (reply_cap < junk_len)
 		return 0;
-	reply[0] = FZN_NOTES_SYNC_VERSION;
+	reply[0] = FZN_CMD_NOTES;
 	reply[1] = FZN_NOTES_SYNC_WRITERS;
 	memset(reply + 2, 0x41, junk_len - 2u);
 	if (junk_count >= 0 && junk_len > 2u)
@@ -1258,7 +1258,7 @@ static void test_received(void)
 
 	/* EACH WRITER ONCE: A wrote two of the three, B one. */
 	{
-		uint8_t q[FZN_NOTES_SYNC_WRITERS_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		uint8_t q[FZN_NOTES_SYNC_WRITERS_QUERY_LEN] = { FZN_CMD_NOTES,
 			                                       FZN_NOTES_SYNC_WRITERS_QUERY };
 		static uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 
@@ -1377,7 +1377,7 @@ static size_t give_one(const fzn_notes_store_t *to, const uint8_t *as,
 	uint8_t msg[FZN_NOTES_SYNC_LIST_HEAD_LEN + FZN_NOTES_SYNC_WRAP_ENTRY_LEN];
 	uint8_t out[FZN_NOTES_SYNC_LIST_HEAD_LEN];
 
-	msg[0] = FZN_NOTES_SYNC_VERSION;
+	msg[0] = FZN_CMD_NOTES;
 	msg[1] = FZN_NOTES_SYNC_GIVE;
 	msg[2] = 1u;
 	memcpy(msg + FZN_NOTES_SYNC_LIST_HEAD_LEN, id, FZN_TREE_ID_LEN);
@@ -1521,7 +1521,7 @@ static void test_wrap_exchange(void)
  * answered and recorded as nothing. */
 static void test_partner_from_purges_query(void)
 {
-	uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+	uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_CMD_NOTES,
 		                                           FZN_NOTES_SYNC_PURGES_QUERY };
 	uint8_t out[FZN_NOTES_SYNC_REPLY_MAX], partners[4][FZN_PUBKEY_LEN], stranger[FZN_PUBKEY_LEN];
 	size_t n = 9;

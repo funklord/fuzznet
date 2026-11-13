@@ -34,7 +34,7 @@ struct fzn_contact_device size=175..1860
   ~         0..1432   u8         hops  sized-by=hop_count*179
 
 struct fzn_contact_devices_act_entries size=8..261893
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=56
   @0x0002   4         u32        from  big
   @0x0006   1         u8         count
@@ -42,18 +42,18 @@ struct fzn_contact_devices_act_entries size=8..261893
   @0x0008   0..261885 fzn_contact_act_listed entries  sized-by=count
 
 struct fzn_contact_devices_acts size=38
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=55
   @0x0002   32        u8         key  big
   @0x0022   4         u32        from  big
 
 struct fzn_contact_devices_estate size=6
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=59
   @0x0002   4         u32        from  big
 
 struct fzn_contact_devices_items size=9..428409
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=60
   @0x0002   4         u32        from  big
   @0x0006   1         u8         count
@@ -62,12 +62,12 @@ struct fzn_contact_devices_items size=9..428409
   @0x0009   0..428400 fzn_contact_estate_listed items  sized-by=count
 
 struct fzn_contact_devices_kept_estate size=6
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=53
   @0x0002   4         u32        from  big
 
 struct fzn_contact_devices_kept_rows size=8..436568
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=54
   @0x0002   4         u32        from  big
   @0x0006   1         u8         count
@@ -75,7 +75,7 @@ struct fzn_contact_devices_kept_rows size=8..436568
   @0x0008   0..436560 fzn_contact_estate_row rows  sized-by=count
 
 struct fzn_contact_devices_list size=5..16711940
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=32
   @0x0002   1         u8         from
   @0x0003   1         u8         count
@@ -87,18 +87,18 @@ struct fzn_contact_devices_listed size=2..65537
   @0x0002   0..65535  u8         entry  sized-by=len
 
 struct fzn_contact_devices_offer size=2..1862
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=29
   @0x0002   0..1860   u8         entry  sized-by=remaining
 
 struct fzn_contact_devices_query size=4
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=31
   @0x0002   1         u8         from
   @0x0003   1         u8         whose  max=1
 
 struct fzn_contact_devices_records size=8..61718
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=58
   @0x0002   4         u32        from  big
   @0x0006   1         u8         count
@@ -106,12 +106,12 @@ struct fzn_contact_devices_records size=8..61718
   @0x0008   0..61710  u8         records  sized-by=count*242
 
 struct fzn_contact_devices_revoked size=6
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=57
   @0x0002   4         u32        from  big
 
 struct fzn_contact_devices_taken size=3
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=11
   @0x0001   1         u8         type  must_eq=30
   @0x0002   1         u8         taken  max=1
 

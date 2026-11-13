@@ -2604,15 +2604,15 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	/* ADDRESS_ASK answered ADDRESS, sec 1081, where it was the verb `get address`
 	 * answered `ok HOST PORT`. */
 	if (req->payload && admin->state->asking_from && req->payload_len == 2u
-	    && req->payload[0] == FZN_TYPES_VERSION_SHARED && req->payload[1] == FZN_TYPE_ADDRESS_ASK) {
+	    && req->payload[0] == FZN_CMD_REACH && req->payload[1] == FZN_SUBCMD_REACH_ADDRESS_ASK) {
 		char host[FZN_UDP_HOST_MAX];
 		uint16_t port = 0;
 		uint32_t wrote = 0;
 
 		if (fzn_udp_addr_text(admin->state->asking_from, host, &port) != FZN_UDP_OK || !port
 		    || reply_cap > UINT32_MAX
-		    || fzn_address_message_build(reply, (uint32_t)reply_cap, FZN_TYPES_VERSION_SHARED,
-		                                 FZN_TYPE_ADDRESS, (const uint8_t *)host,
+		    || fzn_address_message_build(reply, (uint32_t)reply_cap, FZN_CMD_REACH,
+		                                 FZN_SUBCMD_REACH_ADDRESS, (const uint8_t *)host,
 		                                 (uint32_t)strlen(host), port, &wrote)
 		               != SITU_OK)
 			return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR,
@@ -2630,14 +2630,10 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 			return n;
 	}
 
-	/* AN EXTENSION'S TYPE, sec 674: version 2's range that fuzznet
-	 * allocates none of (`node/types.h`), handed to the extension and to
-	 * nothing else, member and contact alike -- whether it is a contact is
-	 * said, and the extension decides. */
-	if (req->payload && req->payload_len >= 2u
-	    && req->payload[0] == FZN_TYPES_VERSION_SHARED
-	    && req->payload[1] >= FZN_TYPES_EXTENSION_FIRST
-	    && req->payload[1] <= FZN_TYPES_EXTENSION_LAST) {
+	/* AN EXTENSION'S, sec 674 and 1085: its CMD, every SUBCMD its own,
+	 * handed to the extension and to nothing else, member and contact alike --
+	 * whether it is a contact is said, and the extension decides. */
+	if (req->payload && req->payload_len >= 2u && req->payload[0] == FZN_CMD_EXTENSION) {
 		int shared = fzn_node_request_shared(&admin->state->config, req->capability);
 		uint8_t whose[FZN_PUBKEY_LEN];
 		size_t n;

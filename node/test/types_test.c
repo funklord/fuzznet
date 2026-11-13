@@ -1,6 +1,6 @@
 /* node/types.h, sec 674: the registry of remote request heads, checked
- * against every owner's own constant -- each version byte its owner's, no
- * two version-2 types one, and none in the extensions' range. */
+ * against every owner's own constant -- the CMDs apart (sec 1085), no two
+ * SUBCMDs of one CMD one, and none in the extension's CMD. */
 #include "../types.h"
 #include "../members.h"
 #include "../messages.h"
@@ -32,127 +32,131 @@ static void check_at(int ok, int line, const char *what)
  * says is allocated. */
 static const struct {
 	const char *name;
-	unsigned type;
+	unsigned cmd, subcmd;
 } shared[] = {
-	{ "notes index query", FZN_NOTES_SYNC_INDEX_QUERY },
-	{ "notes index", FZN_NOTES_SYNC_INDEX },
-	{ "notes records query", FZN_NOTES_SYNC_RECORDS_QUERY },
-	{ "notes records", FZN_NOTES_SYNC_RECORDS },
-	{ "notes purge", FZN_NOTES_SYNC_PURGE },
-	{ "notes purge ack", FZN_NOTES_SYNC_PURGE_ACK },
-	{ "notes purges query", FZN_NOTES_SYNC_PURGES_QUERY },
-	{ "notes purges", FZN_NOTES_SYNC_PURGES },
-	{ "notes writers query", FZN_NOTES_SYNC_WRITERS_QUERY },
-	{ "notes writers", FZN_NOTES_SYNC_WRITERS },
-	{ "members query", FZN_NODE_MEMBERS_QUERY },
-	{ "members reply", FZN_NODE_MEMBERS_REPLY },
-	{ "notes text push", FZN_NOTES_SYNC_TEXT_PUSH },
-	{ "notes text pushed", FZN_NOTES_SYNC_TEXT_PUSHED },
-	{ "notes wraps query", FZN_NOTES_SYNC_WRAPS_QUERY },
-	{ "notes wraps", FZN_NOTES_SYNC_WRAPS },
-	{ "notes lacks query", FZN_NOTES_SYNC_LACKS_QUERY },
-	{ "notes lacks", FZN_NOTES_SYNC_LACKS },
-	{ "notes give", FZN_NOTES_SYNC_GIVE },
-	{ "notes given", FZN_NOTES_SYNC_GIVEN },
-	{ "messages give", FZN_NODE_MESSAGES_GIVE },
-	{ "messages given", FZN_NODE_MESSAGES_GIVEN },
-	{ "messages want", FZN_NODE_MESSAGES_WANT },
-	{ "messages keys", FZN_NODE_MESSAGES_KEYS },
-	{ "messages deliver", FZN_NODE_MESSAGES_DELIVER },
-	{ "messages delivered", FZN_NODE_MESSAGES_DELIVERED },
-	{ "contact devices offer", FZN_CONTACT_DEVICES_OFFER },
-	{ "contact devices taken", FZN_CONTACT_DEVICES_TAKEN },
-	{ "contact devices query", FZN_CONTACT_DEVICES_QUERY },
-	{ "contact devices list", FZN_CONTACT_DEVICES_LIST },
-	{ "contact devices revoked", FZN_CONTACT_DEVICES_REVOKED },
-	{ "contact devices records", FZN_CONTACT_DEVICES_RECORDS },
-	{ "contact devices estate", FZN_CONTACT_DEVICES_ESTATE },
-	{ "contact devices items", FZN_CONTACT_DEVICES_ITEMS },
-	{ "contact devices kept estate", FZN_CONTACT_DEVICES_KEPT_ESTATE },
-	{ "contact devices kept rows", FZN_CONTACT_DEVICES_KEPT_ROWS },
-	{ "contact devices acts", FZN_CONTACT_DEVICES_ACTS },
-	{ "contact devices act entries", FZN_CONTACT_DEVICES_ACT_ENTRIES },
+	{ "notes index query", FZN_CMD_NOTES, FZN_NOTES_SYNC_INDEX_QUERY },
+	{ "notes index", FZN_CMD_NOTES, FZN_NOTES_SYNC_INDEX },
+	{ "notes records query", FZN_CMD_NOTES, FZN_NOTES_SYNC_RECORDS_QUERY },
+	{ "notes records", FZN_CMD_NOTES, FZN_NOTES_SYNC_RECORDS },
+	{ "notes purge", FZN_CMD_NOTES, FZN_NOTES_SYNC_PURGE },
+	{ "notes purge ack", FZN_CMD_NOTES, FZN_NOTES_SYNC_PURGE_ACK },
+	{ "notes purges query", FZN_CMD_NOTES, FZN_NOTES_SYNC_PURGES_QUERY },
+	{ "notes purges", FZN_CMD_NOTES, FZN_NOTES_SYNC_PURGES },
+	{ "notes writers query", FZN_CMD_NOTES, FZN_NOTES_SYNC_WRITERS_QUERY },
+	{ "notes writers", FZN_CMD_NOTES, FZN_NOTES_SYNC_WRITERS },
+	{ "members query", FZN_CMD_MEMBERS, FZN_NODE_MEMBERS_QUERY },
+	{ "members reply", FZN_CMD_MEMBERS, FZN_NODE_MEMBERS_REPLY },
+	{ "notes text push", FZN_CMD_NOTES, FZN_NOTES_SYNC_TEXT_PUSH },
+	{ "notes text pushed", FZN_CMD_NOTES, FZN_NOTES_SYNC_TEXT_PUSHED },
+	{ "notes wraps query", FZN_CMD_NOTES, FZN_NOTES_SYNC_WRAPS_QUERY },
+	{ "notes wraps", FZN_CMD_NOTES, FZN_NOTES_SYNC_WRAPS },
+	{ "notes lacks query", FZN_CMD_NOTES, FZN_NOTES_SYNC_LACKS_QUERY },
+	{ "notes lacks", FZN_CMD_NOTES, FZN_NOTES_SYNC_LACKS },
+	{ "notes give", FZN_CMD_NOTES, FZN_NOTES_SYNC_GIVE },
+	{ "notes given", FZN_CMD_NOTES, FZN_NOTES_SYNC_GIVEN },
+	{ "messages give", FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_GIVE },
+	{ "messages given", FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_GIVEN },
+	{ "messages want", FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_WANT },
+	{ "messages keys", FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_KEYS },
+	{ "messages deliver", FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_DELIVER },
+	{ "messages delivered", FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_DELIVERED },
+	{ "contact devices offer", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_OFFER },
+	{ "contact devices taken", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_TAKEN },
+	{ "contact devices query", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_QUERY },
+	{ "contact devices list", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_LIST },
+	{ "contact devices revoked", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_REVOKED },
+	{ "contact devices records", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_RECORDS },
+	{ "contact devices estate", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_ESTATE },
+	{ "contact devices items", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_ITEMS },
+	{ "contact devices kept estate", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_KEPT_ESTATE },
+	{ "contact devices kept rows", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_KEPT_ROWS },
+	{ "contact devices acts", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_ACTS },
+	{ "contact devices act entries", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_ACT_ENTRIES },
 	/* LEFT OUT UNTIL sec 1064, and so unseen when each took a number taken. */
-	{ "contact devices k setting", FZN_CONTACT_DEVICES_K_SETTING },
-	{ "contact devices k set", FZN_CONTACT_DEVICES_K_SET },
-	{ "messages holds", FZN_NODE_MESSAGES_HOLDS },
-	{ "messages holding", FZN_NODE_MESSAGES_HOLDING },
-	{ "relay", FZN_TYPE_RELAY },
-	{ "introduce", FZN_TYPE_INTRODUCE },
-	{ "notify", FZN_TYPE_NOTIFY },
-	{ "group sync", FZN_TYPE_GROUP_SYNC },
-	{ "group acts", FZN_TYPE_GROUP_ACTS },
-	{ "group lines sync", FZN_TYPE_GROUP_LINES_SYNC },
-	{ "group lines", FZN_TYPE_GROUP_LINES },
-	{ "stream query", FZN_TYPE_STREAM_QUERY },
-	{ "stream records", FZN_TYPE_STREAM_RECORDS },
-	{ "file refs want", FZN_TYPE_FILE_REFS_WANT },
-	{ "file refs", FZN_TYPE_FILE_REFS },
+	{ "contact devices k setting", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_K_SETTING },
+	{ "contact devices k set", FZN_CMD_CONTACTS, FZN_CONTACT_DEVICES_K_SET },
+	{ "messages holds", FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_HOLDS },
+	{ "messages holding", FZN_CMD_MESSAGES, FZN_NODE_MESSAGES_HOLDING },
+	{ "relay", FZN_CMD_REACH, FZN_SUBCMD_REACH_RELAY },
+	{ "introduce", FZN_CMD_REACH, FZN_SUBCMD_REACH_INTRODUCE },
+	{ "notify", FZN_CMD_REACH, FZN_SUBCMD_REACH_NOTIFY },
+	{ "group sync", FZN_CMD_GROUPS, FZN_SUBCMD_GROUPS_SYNC },
+	{ "group acts", FZN_CMD_GROUPS, FZN_SUBCMD_GROUPS_ACTS },
+	{ "group lines sync", FZN_CMD_GROUPS, FZN_SUBCMD_GROUPS_LINES_SYNC },
+	{ "group lines", FZN_CMD_GROUPS, FZN_SUBCMD_GROUPS_LINES },
+	{ "stream query", FZN_CMD_STREAMS, FZN_SUBCMD_STREAMS_QUERY },
+	{ "stream records", FZN_CMD_STREAMS, FZN_SUBCMD_STREAMS_RECORDS },
+	{ "file refs want", FZN_CMD_FILES, FZN_SUBCMD_FILES_REFS_WANT },
+	{ "file refs", FZN_CMD_FILES, FZN_SUBCMD_FILES_REFS },
 	/* NAMED SINCE SEC 1005: absent here, 49 and 51 were taken twice. */
-	{ "time ask", FZN_TYPE_TIME_ASK },
-	{ "time", FZN_TYPE_TIME },
-	{ "call", FZN_TYPE_CALL },
-	{ "called", FZN_TYPE_CALLED },
-	{ "session ask", FZN_TYPE_SESSION_ASK },
-	{ "session grant", FZN_TYPE_SESSION_GRANT },
-	{ "relay session", FZN_TYPE_RELAY_SESSION },
-	{ "live", FZN_TYPE_LIVE },
-	{ "status", FZN_TYPE_STATUS },
-	{ "address", FZN_TYPE_ADDRESS },
-	{ "address ask", FZN_TYPE_ADDRESS_ASK },
-	{ "routing ask", FZN_TYPE_ROUTING_ASK },
-	{ "routing", FZN_TYPE_ROUTING },
+	{ "time ask", FZN_CMD_TIME, FZN_SUBCMD_TIME_ASK },
+	{ "time", FZN_CMD_TIME, FZN_SUBCMD_TIME_REPLY },
+	{ "call", FZN_CMD_RRPC, FZN_SUBCMD_RRPC_ASK },
+	{ "called", FZN_CMD_RRPC, FZN_SUBCMD_RRPC_RESULT },
+	{ "session ask", FZN_CMD_SESSION, FZN_SUBCMD_SESSION_ASK },
+	{ "session grant", FZN_CMD_SESSION, FZN_SUBCMD_SESSION_GRANT },
+	{ "relay session", FZN_CMD_REACH, FZN_SUBCMD_REACH_RELAY_SESSION },
+	{ "live", FZN_CMD_SHARED, FZN_TYPE_LIVE },
+	{ "status", FZN_CMD_SHARED, FZN_TYPE_STATUS },
+	{ "address", FZN_CMD_REACH, FZN_SUBCMD_REACH_ADDRESS },
+	{ "address ask", FZN_CMD_REACH, FZN_SUBCMD_REACH_ADDRESS_ASK },
+	{ "routing ask", FZN_CMD_REACH, FZN_SUBCMD_REACH_ROUTING_ASK },
+	{ "routing", FZN_CMD_REACH, FZN_SUBCMD_REACH_ROUTING },
 };
 
 #define SHARED_N (sizeof(shared) / sizeof(shared[0]))
 
-static void test_each_version_is_its_owners(void)
+/* THE CMDS, sec 1085: each below a verb line's first byte, a printable letter;
+ * no two one; none the retired 5; and family 2 kept for the call and STATUS
+ * alone until stage 3. */
+static void test_the_cmds(void)
 {
-	CHECK(FZN_MSG_VERSION == FZN_TYPES_VERSION_SPOOL, "spool's version is not the registry's");
-	CHECK(FZN_NOTES_SYNC_VERSION == FZN_TYPES_VERSION_SHARED
-	              && FZN_NODE_MESSAGES_VERSION == FZN_TYPES_VERSION_SHARED
-	              && FZN_CONTACT_DEVICES_VERSION == FZN_TYPES_VERSION_SHARED,
-	      "a sharer of version 2 has another version");
-	CHECK(FZN_CAUSE_VERSION == FZN_TYPES_VERSION_CAUSE, "the cause envelope's version moved");
-	CHECK(FZN_GATHER_VERSION == FZN_TYPES_VERSION_GATHER, "gather's version moved");
-	CHECK(FZN_EXCHANGE_VERSION == FZN_TYPES_VERSION_EXCHANGE, "the exchange's version moved");
-	CHECK(FZN_RECONCILE_VERSION == FZN_TYPES_VERSION_RECONCILE,
-	      "reconciliation's version moved");
-	/* BELOW A VERB LINE'S FIRST BYTE, every one: a printable letter. */
-	CHECK(FZN_TYPES_VERSION_RECONCILE < 0x20u && FZN_TYPES_VERSION_EXCHANGE < 0x20u,
-	      "a version byte could open a verb line");
-	/* NONE SHARED, sec 1047: the exchange's 6 would have been read as a
-	 * reconciliation. */
-	CHECK(FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_RECONCILE
-	              && FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_GATHER
-	              && FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_CAUSE
-	              && FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_SHARED
-	              && FZN_TYPES_VERSION_EXCHANGE != FZN_TYPES_VERSION_SPOOL,
-	      "the exchange's version is another family's");
+	static const unsigned cmds[] = { FZN_CMD_FILES,    FZN_CMD_SHARED,   FZN_CMD_CAUSE,
+		                         FZN_CMD_GATHER,   FZN_CMD_RECONCILE, FZN_CMD_EXCHANGE,
+		                         FZN_CMD_NOTES,    FZN_CMD_MEMBERS,  FZN_CMD_MESSAGES,
+		                         FZN_CMD_CONTACTS, FZN_CMD_REACH,    FZN_CMD_GROUPS,
+		                         FZN_CMD_STREAMS,  FZN_CMD_TIME,     FZN_CMD_RRPC,
+		                         FZN_CMD_SESSION,  FZN_CMD_EXTENSION };
+	size_t i, j, n = sizeof(cmds) / sizeof(cmds[0]);
+	int low = 1, apart = 1, retired = 0, shared2 = 0;
+
+	for (i = 0; i < n; i++) {
+		low &= cmds[i] < 0x20u;
+		retired += cmds[i] == 5u;
+		for (j = i + 1u; j < n; j++)
+			apart &= cmds[i] != cmds[j];
+	}
+	for (i = 0; i < SHARED_N; i++)
+		if (shared[i].cmd == FZN_CMD_SHARED && shared[i].subcmd != FZN_TYPE_LIVE
+		    && shared[i].subcmd != FZN_TYPE_STATUS)
+			shared2++;
+	CHECK(low, "a CMD could open a verb line");
+	CHECK(apart, "two CMDs are one number");
+	CHECK(retired == 0, "the retired 5 was given again");
+	CHECK(shared2 == 0, "family 2 holds more than the call and STATUS");
 }
 
-static void test_no_two_shared_types_are_one(void)
+/* NO SUBCMD TWICE IN ONE CMD, and none in the extension's CMD, which is its own. */
+static void test_no_two_subcmds_are_one(void)
 {
 	size_t i, j;
 	int clash = 0, extension = 0, retired = 0;
 
 	for (i = 0; i < SHARED_N; i++) {
 		for (j = i + 1u; j < SHARED_N; j++)
-			if (shared[i].type == shared[j].type) {
-				printf("  %s and %s are both %u\n", shared[i].name, shared[j].name,
-				       shared[i].type);
+			if (shared[i].cmd == shared[j].cmd && shared[i].subcmd == shared[j].subcmd) {
+				printf("  %s and %s are both %u/%u\n", shared[i].name, shared[j].name,
+				       shared[i].cmd, shared[i].subcmd);
 				clash++;
 			}
-		if (shared[i].type >= FZN_TYPES_EXTENSION_FIRST
-		    && shared[i].type <= FZN_TYPES_EXTENSION_LAST)
-			extension++;
-		if (shared[i].type == 13u || shared[i].type == 14u)
+		extension += shared[i].cmd == FZN_CMD_EXTENSION;
+		if (shared[i].cmd == FZN_CMD_NOTES && (shared[i].subcmd == 13u || shared[i].subcmd == 14u))
 			retired++;
 	}
-	CHECK(SHARED_N == 66u, "the table is not the 66 types the registry lists");
-	CHECK(clash == 0, "two version-2 types are one number");
-	CHECK(extension == 0, "fuzznet allocated a type in the extensions' range");
-	CHECK(retired == 0, "a retired type, 13 or 14, was reused");
+	CHECK(SHARED_N == 66u, "the table is not the 66 SUBCMDs the registry lists");
+	CHECK(clash == 0, "two SUBCMDs of one CMD are one number");
+	CHECK(extension == 0, "fuzznet allocated a SUBCMD in the extension's CMD");
+	CHECK(retired == 0, "a retired notes SUBCMD, 13 or 14, was reused");
 }
 
 static void test_the_suite_can_tell_pass_from_fail(void)
@@ -167,8 +171,8 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 
 int main(void)
 {
-	test_each_version_is_its_owners();
-	test_no_two_shared_types_are_one();
+	test_the_cmds();
+	test_no_two_subcmds_are_one();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("types_test: %d checks, %d failure(s)\n", checks, failures);

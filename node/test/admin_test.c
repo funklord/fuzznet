@@ -2329,8 +2329,7 @@ int main(void)
 		 * removed one. */
 		{
 			static const uint8_t generic[] = { 2u, 0x7eu, 0u, 0u };
-			static const uint8_t extension[] = { FZN_TYPES_VERSION_SHARED,
-			                                     FZN_TYPES_EXTENSION_FIRST, 0u, 0u };
+			static const uint8_t extension[] = { FZN_CMD_EXTENSION, 128u, 0u, 0u };
 			const unsigned contact_hooks = R_RELAY | R_CONTACT_DEVICES | R_MESSAGES_CONTACT
 			                               | R_ROUTING | R_NOTES | R_TEXT_SHARED
 			                               | R_FILES_SHARED;
@@ -2483,7 +2482,7 @@ int main(void)
 		 * which entry. */
 		{
 			static uint8_t env[FZN_CAUSE_OVERHEAD_MAX + 16u];
-			static const uint8_t bare[] = { 2u, 1u, 0u, 0u };
+			static const uint8_t bare[] = { FZN_CMD_NOTES, 1u, 0u, 0u };
 			fzn_entry_name_t cause;
 			size_t env_len = 0;
 
@@ -2801,14 +2800,17 @@ int main(void)
 	 * extension, is `unsupported`; a type below the range never reaches
 	 * it. */
 	{
-		static const uint8_t mine[] = { 2u, 128u, 7u }, declined[] = { 2u, 191u },
-		                     below[] = { 2u, 127u }, other_version[] = { 7u, 128u };
+		/* THE EXTENSION'S CMD, sec 1085, any SUBCMD; another CMD never reaches it. */
+		static const uint8_t mine[] = { FZN_CMD_EXTENSION, 128u, 7u },
+		                     declined[] = { FZN_CMD_EXTENSION, 191u },
+		                     below[] = { FZN_CMD_SHARED, 128u }, other_version[] = { 7u, 128u };
 		size_t n;
 		fzn_status_t code; /* an extension's type is binary: refused in STATUS, sec 1078 */
 
 		admin.extension_remote = extension_remote_stub;
 		n = remote_bytes(&admin, device.id.pubkey, mine, sizeof(mine), reply, sizeof(reply));
-		CHECK(n == 2u && reply[0] == 2u && reply[1] == 129u && extension_remote_contact == 0,
+		CHECK(n == 2u && reply[0] == FZN_CMD_EXTENSION && reply[1] == 129u
+		              && extension_remote_contact == 0,
 		      "an extension's remote type was not answered by it, as from a member");
 		n = remote_bytes(&admin, device.id.pubkey, declined, sizeof(declined), reply,
 		                 sizeof(reply));
@@ -3411,7 +3413,7 @@ int main(void)
 		}
 		{
 			static uint8_t page[16384];
-			uint8_t q[FZN_NODE_MEMBERS_QUERY_LEN] = { 2u, FZN_NODE_MEMBERS_QUERY, 0u, 0u };
+			uint8_t q[FZN_NODE_MEMBERS_QUERY_LEN] = { FZN_CMD_MEMBERS, FZN_NODE_MEMBERS_QUERY, 0u, 0u };
 			size_t len = fzn_node_members_answer(&state.config, all, loaded, q, sizeof(q), page,
 			                                     sizeof(page)), at;
 			int seen_contact = 0;

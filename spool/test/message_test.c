@@ -603,10 +603,10 @@ static void test_peek_refuses_a_version_and_a_type_it_does_not_know(void)
 
 	CHECK(fzn_msg_have_query_encode(root, buf, sizeof(buf), &len) == FZN_MSG_OK,
 	      "the fixture did not encode");
-	buf[FZN_MSG_OFF_VERSION] = FZN_MSG_VERSION + 1u;
+	buf[FZN_MSG_OFF_VERSION] = FZN_CMD_FILES + 1u;
 	CHECK(fzn_msg_peek(buf, len, &type) == FZN_MSG_ERR_MALFORMED,
 	      "peek accepted a future version");
-	buf[FZN_MSG_OFF_VERSION] = FZN_MSG_VERSION;
+	buf[FZN_MSG_OFF_VERSION] = FZN_CMD_FILES;
 	buf[FZN_MSG_OFF_TYPE] = 9u;
 	CHECK(fzn_msg_peek(buf, len, &type) == FZN_MSG_ERR_MALFORMED,
 	      "peek accepted an unknown type");

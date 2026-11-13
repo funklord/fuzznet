@@ -38,6 +38,7 @@
 #include <stdint.h>
 
 #include "remote.h"
+#include "../wire/cmd.h" /* FZN_CMD_MEMBERS, sec 1085 */
 
 #define FZN_NODE_MEMBERS_QUERY 11u
 #define FZN_NODE_MEMBERS_REPLY 12u

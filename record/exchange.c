@@ -32,7 +32,7 @@ const char *fzn_exchange_err_str(fzn_exchange_err_t err)
 
 static int is(const uint8_t *m, size_t len, uint8_t type)
 {
-	return m && len >= 2u && m[0] == (uint8_t)FZN_EXCHANGE_VERSION && m[1] == type;
+	return m && len >= 2u && m[0] == (uint8_t)FZN_CMD_EXCHANGE && m[1] == type;
 }
 
 /* ---- the server ------------------------------------------------------ */
@@ -71,7 +71,7 @@ static size_t answer_digest(const fzn_journal_t *journal, const uint8_t *request
 	if (from > total)
 		from = total;
 	room = (reply_cap - FZN_EXCHANGE_DIGEST_HEAD_LEN) / FZN_EXCHANGE_POSITION_LEN;
-	reply[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	reply[0] = (uint8_t)FZN_CMD_EXCHANGE;
 	reply[1] = (uint8_t)FZN_EXCHANGE_DIGEST;
 	fzn_put_be32(reply + 2, (uint32_t)total);
 	fzn_put_be32(reply + 6, (uint32_t)from);
@@ -119,7 +119,7 @@ static size_t answer_records(const fzn_journal_t *journal, fzn_record_store_t *s
 		at += 2u + rec.len;
 		count++;
 	}
-	reply[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	reply[0] = (uint8_t)FZN_CMD_EXCHANGE;
 	reply[1] = (uint8_t)FZN_EXCHANGE_RECORDS;
 	fzn_put_be16(reply + 2, (uint16_t)count);
 	return at;
@@ -219,7 +219,7 @@ static int take_records(fzn_journal_t *journal, fzn_record_store_t *store,
 
 static void digest_query(const fzn_exchange_digest_t *d, uint8_t *request, size_t *len)
 {
-	request[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	request[0] = (uint8_t)FZN_CMD_EXCHANGE;
 	request[1] = (uint8_t)FZN_EXCHANGE_DIGEST_QUERY;
 	fzn_put_be32(request + 2, (uint32_t)d->n);
 	*len = FZN_EXCHANGE_DIGEST_QUERY_LEN;
@@ -288,7 +288,7 @@ static void records_query(const fzn_exchange_pulling_t *p, uint8_t *request, siz
 {
 	const fzn_sync_request_t *want = &p->plan_out[p->want];
 
-	request[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	request[0] = (uint8_t)FZN_CMD_EXCHANGE;
 	request[1] = (uint8_t)FZN_EXCHANGE_RECORDS_QUERY;
 	memcpy(request + 2, want->issuer, FZN_PUBKEY_LEN);
 	fzn_put_be32(request + 34, want->stream);
@@ -505,7 +505,7 @@ size_t fzn_exchange_take_push(fzn_journal_t *journal, fzn_record_store_t *store,
 		}
 		taken++;
 	}
-	reply[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	reply[0] = (uint8_t)FZN_CMD_EXCHANGE;
 	reply[1] = (uint8_t)FZN_EXCHANGE_PUSHED;
 	fzn_put_be16(reply + 2, (uint16_t)taken);
 	fzn_put_be16(reply + 4, (uint16_t)held);
@@ -556,7 +556,7 @@ static void next_offer(fzn_exchange_pushing_t *p, uint8_t *message, size_t cap, 
 			p->seq++;
 		}
 		if (count) {
-			message[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+			message[0] = (uint8_t)FZN_CMD_EXCHANGE;
 			message[1] = (uint8_t)FZN_EXCHANGE_PUSH;
 			fzn_put_be16(message + 2, (uint16_t)count);
 			p->tally.offered += count;

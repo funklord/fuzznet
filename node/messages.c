@@ -610,7 +610,7 @@ static size_t want_request(const fzn_node_message_key_t *asked, size_t n, uint8_
 {
 	size_t at = FZN_NODE_MESSAGES_HEAD_LEN, j;
 
-	request[0] = FZN_NODE_MESSAGES_VERSION;
+	request[0] = FZN_CMD_MESSAGES;
 	request[1] = FZN_NODE_MESSAGES_WANT;
 	request[2] = (uint8_t)n;
 	for (j = 0; j < n; j++) {
@@ -628,7 +628,7 @@ static int want_take(fzn_node_messages_t *nm, const fzn_node_message_key_t *aske
 {
 	size_t j, k;
 
-	if (!reply || reply_len < FZN_NODE_MESSAGES_HEAD_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION
+	if (!reply || reply_len < FZN_NODE_MESSAGES_HEAD_LEN || reply[0] != FZN_CMD_MESSAGES
 	    || reply[1] != FZN_NODE_MESSAGES_KEYS || reply[2] > n
 	    || reply_len != FZN_NODE_MESSAGES_HEAD_LEN
 	                            + (size_t)reply[2] * FZN_NODE_MESSAGES_HELD_LEN)
@@ -658,7 +658,7 @@ static size_t give_request(fzn_node_messages_t *nm, size_t n, uint8_t *request)
 	uint8_t key[FZN_CONVERSATION_KEY_LEN];
 	size_t at = FZN_NODE_MESSAGES_HEAD_LEN, i;
 
-	request[0] = FZN_NODE_MESSAGES_VERSION;
+	request[0] = FZN_CMD_MESSAGES;
 	request[1] = FZN_NODE_MESSAGES_GIVE;
 	for (i = 0; i < n; i++) {
 		const fzn_node_message_key_t *g = &nm->gives[nm->n_gives - 1u - i];
@@ -751,7 +751,7 @@ int fzn_node_messages_round_step(fzn_node_messages_rounding_t *r, const uint8_t 
 		/* A GIVE'S KEYS, wiped once it is answered or is not. */
 		memset(request, 0, r->sent);
 		if (!reply || reply_len != FZN_NODE_MESSAGES_GIVEN_LEN
-		    || reply[0] != FZN_NODE_MESSAGES_VERSION || reply[1] != FZN_NODE_MESSAGES_GIVEN
+		    || reply[0] != FZN_CMD_MESSAGES || reply[1] != FZN_NODE_MESSAGES_GIVEN
 		    || (size_t)reply[2] + reply[3] > r->n)
 			return keys_end(r, done, 0);
 		r->tally.given += reply[2];
@@ -817,7 +817,7 @@ static size_t answer_give(fzn_node_messages_t *nm, const uint8_t *sender, const 
 		else
 			refused++;
 	}
-	reply[0] = FZN_NODE_MESSAGES_VERSION;
+	reply[0] = FZN_CMD_MESSAGES;
 	reply[1] = FZN_NODE_MESSAGES_GIVEN;
 	reply[2] = (uint8_t)taken;
 	reply[3] = (uint8_t)refused;
@@ -843,7 +843,7 @@ static size_t answer_want(fzn_node_messages_t *nm, const uint8_t *request, size_
 		at += FZN_NODE_MESSAGES_HELD_LEN;
 		held++;
 	}
-	reply[0] = FZN_NODE_MESSAGES_VERSION;
+	reply[0] = FZN_CMD_MESSAGES;
 	reply[1] = FZN_NODE_MESSAGES_KEYS;
 	reply[2] = (uint8_t)held;
 	return at;
@@ -858,7 +858,7 @@ size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t 
 	fzn_node_messages_t *nm = (fzn_node_messages_t *)ctx;
 
 	if (!nm || !sender || !request || !reply || request_len < FZN_NODE_MESSAGES_HEAD_LEN
-	    || request[0] != FZN_NODE_MESSAGES_VERSION)
+	    || request[0] != FZN_CMD_MESSAGES)
 		return 0;
 	if (request[1] == FZN_NODE_MESSAGES_GIVE)
 		return answer_give(nm, sender, request, request_len, reply, reply_cap);
@@ -874,7 +874,7 @@ size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t 
 /* ONE LINE'S OFFER, into `request`: its length. */
 static size_t offer_request(const fzn_message_t *line, uint8_t *request)
 {
-	request[0] = FZN_NODE_MESSAGES_VERSION;
+	request[0] = FZN_CMD_MESSAGES;
 	request[1] = FZN_NODE_MESSAGES_DELIVER;
 	memcpy(request + 2, line->id, FZN_MESSAGE_ID_LEN);
 	fzn_put_be64(request + 2 + FZN_MESSAGE_ID_LEN, line->stime);
@@ -888,7 +888,7 @@ static size_t offer_request(const fzn_message_t *line, uint8_t *request)
 static int offer_outcome(const uint8_t *reply, size_t reply_len, const uint8_t *id)
 {
 	if (!reply || reply_len != FZN_NODE_MESSAGES_DELIVERED_LEN
-	    || reply[0] != FZN_NODE_MESSAGES_VERSION || reply[1] != FZN_NODE_MESSAGES_DELIVERED
+	    || reply[0] != FZN_CMD_MESSAGES || reply[1] != FZN_NODE_MESSAGES_DELIVERED
 	    || memcmp(reply + 2, id, FZN_MESSAGE_ID_LEN) != 0)
 		return -1;
 	switch (reply[2 + FZN_MESSAGE_ID_LEN]) {
@@ -1042,7 +1042,7 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 	int written = 0;
 
 	if (!nm || !contact || !request || !reply || request_len < 2u
-	    || request[0] != FZN_NODE_MESSAGES_VERSION || request[1] != FZN_NODE_MESSAGES_DELIVER
+	    || request[0] != FZN_CMD_MESSAGES || request[1] != FZN_NODE_MESSAGES_DELIVER
 	    || reply_cap < FZN_NODE_MESSAGES_DELIVERED_LEN)
 		return 0;
 	if (request_len < FZN_NODE_MESSAGES_DELIVER_HEAD_LEN)
@@ -1064,7 +1064,7 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 		if (written)
 			nm->fresh = 1;
 	}
-	reply[0] = FZN_NODE_MESSAGES_VERSION;
+	reply[0] = FZN_CMD_MESSAGES;
 	reply[1] = FZN_NODE_MESSAGES_DELIVERED;
 	memcpy(reply + 2, id, FZN_MESSAGE_ID_LEN);
 	reply[2 + FZN_MESSAGE_ID_LEN] =
@@ -1086,7 +1086,7 @@ static size_t answer_holds(fzn_node_messages_t *nm, const uint8_t *request, size
 
 	if (request_len != FZN_NODE_MESSAGES_HOLDS_LEN || reply_cap < FZN_NODE_MESSAGES_HOLDING_LEN)
 		return 0;
-	reply[0] = FZN_NODE_MESSAGES_VERSION;
+	reply[0] = FZN_CMD_MESSAGES;
 	reply[1] = FZN_NODE_MESSAGES_HOLDING;
 	memcpy(reply + 2, id, FZN_BUCKETS_ID_LEN);
 	reply[2 + FZN_BUCKETS_ID_LEN] =
@@ -1105,12 +1105,12 @@ static int ask_holds(const fzn_node_messages_member_t *member,
 
 	if (!member->ask)
 		return -1;
-	request[0] = FZN_NODE_MESSAGES_VERSION;
+	request[0] = FZN_CMD_MESSAGES;
 	request[1] = FZN_NODE_MESSAGES_HOLDS;
 	memcpy(request + 2, contact, FZN_PUBKEY_LEN);
 	memcpy(request + 2 + FZN_PUBKEY_LEN, id, FZN_BUCKETS_ID_LEN);
 	if (!member->ask(member->ctx, request, sizeof(request), reply, sizeof(reply), &reply_len)
-	    || reply_len != FZN_NODE_MESSAGES_HOLDING_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION
+	    || reply_len != FZN_NODE_MESSAGES_HOLDING_LEN || reply[0] != FZN_CMD_MESSAGES
 	    || reply[1] != FZN_NODE_MESSAGES_HOLDING
 	    || memcmp(reply + 2, id, FZN_BUCKETS_ID_LEN) != 0
 	    || reply[2 + FZN_BUCKETS_ID_LEN] > FZN_NODE_MESSAGES_DECLINES)

@@ -1227,8 +1227,10 @@ def main(argv):
 					        ask(sock, "set message carol read " + o_in)]
 
 				def o_answered(said):
-					"""Every act answered as made with room: the contact by its key."""
-					return said[0] == "ok" and said[1].startswith("ok ") and said[2:] == ["ok"] * 3
+					"""Every act answered as made with room: the contact by its key. The
+					read made again where it already was is `ok unchanged` (sec 1084)."""
+					return said[0] == "ok" and said[1].startswith("ok ") and said[2:4] == ["ok"] * 2 \
+					       and said[4] in ("ok", "ok unchanged")
 
 				def o_stands(sock, where):
 					"""Each line listed once, whole, and the conversation read."""

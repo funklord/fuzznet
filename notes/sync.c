@@ -27,13 +27,13 @@ const char *fzn_notes_sync_err_str(fzn_notes_sync_err_t err)
 
 static void head(uint8_t *out, uint8_t type)
 {
-	out[0] = FZN_NOTES_SYNC_VERSION;
+	out[0] = FZN_CMD_NOTES;
 	out[1] = type;
 }
 
 static int is_type(const uint8_t *b, size_t len, uint8_t type)
 {
-	return len >= FZN_NOTES_SYNC_HEAD_LEN && b[0] == FZN_NOTES_SYNC_VERSION && b[1] == type;
+	return len >= FZN_NOTES_SYNC_HEAD_LEN && b[0] == FZN_CMD_NOTES && b[1] == type;
 }
 
 static int key_order(const void *a, const void *b)

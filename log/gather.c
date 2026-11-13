@@ -46,7 +46,7 @@ const char *fzn_gather_err_str(fzn_gather_err_t err)
  * codec for it. */
 static int denied(const uint8_t *reply, size_t len)
 {
-	return len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_STATUS_VERSION
+	return len >= FZN_STATUS_HEAD_LEN && reply[0] == FZN_CMD_SHARED
 	       && reply[1] == FZN_STATUS_TYPE && reply[2] == (uint8_t)FZN_STATUS_DENIED
 	       && (size_t)FZN_STATUS_HEAD_LEN + reply[3] == len;
 }
@@ -82,7 +82,7 @@ fzn_gather_err_t fzn_gather_query_encode(const fzn_gather_query_t *q, uint8_t *o
 	m = strlen(q->match);
 	if (cap < 2u + 32u + 1u + p + 1u + m)
 		return FZN_GATHER_ERR_MALFORMED;
-	out[0] = FZN_GATHER_VERSION;
+	out[0] = FZN_CMD_GATHER;
 	out[1] = FZN_GATHER_QUERY;
 	fzn_put_be64(out + 2, q->since_us);
 	fzn_put_be64(out + 10, q->until_us);
@@ -103,7 +103,7 @@ static int query_decode(const uint8_t *in, size_t len, fzn_gather_query_t *q)
 	size_t p, m;
 
 	memset(q, 0, sizeof(*q));
-	if (len < 36u || in[0] != FZN_GATHER_VERSION || in[1] != FZN_GATHER_QUERY)
+	if (len < 36u || in[0] != FZN_CMD_GATHER || in[1] != FZN_GATHER_QUERY)
 		return 0;
 	q->since_us = fzn_get_be64(in + 2);
 	q->until_us = fzn_get_be64(in + 10);
@@ -302,7 +302,7 @@ size_t fzn_gather_answer(const char *dir, const uint8_t *request, size_t request
 	int done = 1;
 	DIR *d;
 
-	if (!request || request_len < 2u || request[0] != FZN_GATHER_VERSION
+	if (!request || request_len < 2u || request[0] != FZN_CMD_GATHER
 	    || request[1] != FZN_GATHER_QUERY)
 		return 0;
 	if (!dir || !reply || reply_cap < FZN_GATHER_LINES_HEAD || !query_decode(request, request_len, &q))
@@ -374,7 +374,7 @@ size_t fzn_gather_answer(const char *dir, const uint8_t *request, size_t request
 		}
 		reader_close(&r);
 	}
-	reply[0] = FZN_GATHER_VERSION;
+	reply[0] = FZN_CMD_GATHER;
 	reply[1] = FZN_GATHER_LINES;
 	reply[2] = (uint8_t)done;
 	fzn_put_be64(reply + 3, key);
@@ -409,7 +409,7 @@ fzn_gather_err_t fzn_gather_fetch(fzn_gather_ask_t ask, void *ask_ctx,
 			return FZN_GATHER_ERR_NO_ANSWER;
 		if (denied(reply, reply_len))
 			return FZN_GATHER_ERR_DENIED;
-		if (reply_len < FZN_GATHER_LINES_HEAD || reply[0] != FZN_GATHER_VERSION
+		if (reply_len < FZN_GATHER_LINES_HEAD || reply[0] != FZN_CMD_GATHER
 		    || reply[1] != FZN_GATHER_LINES || reply[2] > 1u)
 			return FZN_GATHER_ERR_REFUSED;
 		count = fzn_get_be16(reply + 19);
@@ -476,7 +476,7 @@ size_t fzn_gather_ring_answer(const fzn_ring_t *ring, const uint8_t *request,
 {
 	struct ring_page p;
 
-	if (!request || request_len < 2u || request[0] != FZN_GATHER_VERSION
+	if (!request || request_len < 2u || request[0] != FZN_CMD_GATHER
 	    || request[1] != FZN_GATHER_RING_QUERY)
 		return 0;
 	if (!ring || !reply || reply_cap < FZN_GATHER_RING_HEAD + 2u + FZN_ENTRY_RECORD_MAX
@@ -489,7 +489,7 @@ size_t fzn_gather_ring_answer(const fzn_ring_t *ring, const uint8_t *request,
 	p.cap = reply_cap;
 	p.used = FZN_GATHER_RING_HEAD;
 	(void)fzn_ring_walk(ring, ring_take, &p);
-	reply[0] = FZN_GATHER_VERSION;
+	reply[0] = FZN_CMD_GATHER;
 	reply[1] = FZN_GATHER_RING;
 	reply[2] = (uint8_t)!p.full;
 	fzn_put_be16(reply + 3, (uint16_t)p.count);
@@ -513,7 +513,7 @@ fzn_gather_err_t fzn_gather_ring_fetch(fzn_gather_ask_t ask, void *ask_ctx, size
 		size_t reply_len = 0, pos = FZN_GATHER_RING_HEAD, k;
 		unsigned count;
 
-		request[0] = FZN_GATHER_VERSION;
+		request[0] = FZN_CMD_GATHER;
 		request[1] = FZN_GATHER_RING_QUERY;
 		request[2] = (uint8_t)started;
 		fzn_put_be64(request + 3, after);
@@ -521,7 +521,7 @@ fzn_gather_err_t fzn_gather_ring_fetch(fzn_gather_ask_t ask, void *ask_ctx, size
 			return FZN_GATHER_ERR_NO_ANSWER;
 		if (denied(reply, reply_len))
 			return FZN_GATHER_ERR_DENIED;
-		if (reply_len < FZN_GATHER_RING_HEAD || reply[0] != FZN_GATHER_VERSION
+		if (reply_len < FZN_GATHER_RING_HEAD || reply[0] != FZN_CMD_GATHER
 		    || reply[1] != FZN_GATHER_RING || reply[2] > 1u)
 			return FZN_GATHER_ERR_REFUSED;
 		count = fzn_get_be16(reply + 3);

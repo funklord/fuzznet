@@ -25,28 +25,28 @@ struct fzn_contact_device {
 	u8   hops[hop_count * 179];             // FZN_HOP_LEN each
 }
 
-// THE MESSAGES, in notes-sync's version byte and type space after
-// delivery's 28. A contact offers its user's devices and asks for this
+// THE MESSAGES, CMD CONTACTS (11, wire/cmd.h; notes-sync's family 2 until
+// sec 1085), their SUBCMDs the numbers they had after delivery's 28. A contact offers its user's devices and asks for this
 // estate's hosts; a member asks for the contact devices another member
 // kept, so what one learned reaches the rest.
 
 // OFFER: one entry, a device of the asker's user.
 struct fzn_contact_devices_offer {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 29];
 	u8   entry[remaining] max 1860;         // an fzn_contact_device, to the end
 }
 
 // TAKEN: whether the answerer took it.
 struct fzn_contact_devices_taken {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 30];
 	u8   taken [max = 1];
 }
 
 // QUERY: a page of what `whose` names, from the `from`th entry.
 struct fzn_contact_devices_query {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 31];
 	u8   from;
 	u8   whose [max = 1];                   // 0 this estate's hosts, 1 kept
@@ -54,7 +54,7 @@ struct fzn_contact_devices_query {
 
 // LIST: as many entries as fit, each after its length.
 struct fzn_contact_devices_list {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 32];
 	u8   from;                              // the query's, echoed
 	u8   count;
@@ -74,14 +74,14 @@ struct fzn_contact_devices_listed {
 
 // REVOKED: a page of the root's records, from the `from`th.
 struct fzn_contact_devices_revoked {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 57];
 	u32  from;
 }
 
 // RECORDS: as many as fit, each a whole signed record.
 struct fzn_contact_devices_records {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 58];
 	u32  from;                              // the query's, echoed
 	u8   count;
@@ -95,14 +95,14 @@ struct fzn_contact_devices_records {
 
 // ESTATE: a page of the answerer's estate records, from the `from`th.
 struct fzn_contact_devices_estate {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 59];
 	u32  from;
 }
 
 // ITEMS: as many as fit, after the k the answerer holds.
 struct fzn_contact_devices_items {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 60];
 	u32  from;                              // the query's, echoed
 	u8   count;
@@ -130,14 +130,14 @@ struct fzn_contact_estate_item {
 
 // KEPT_ESTATE: a page of the asked member's rows, from the `from`th.
 struct fzn_contact_devices_kept_estate {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 53];
 	u32  from;
 }
 
 // KEPT_ROWS: as many as fit, each after its length.
 struct fzn_contact_devices_kept_rows {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 54];
 	u32  from;                              // the query's, echoed
 	u8   count;
@@ -158,7 +158,7 @@ struct fzn_contact_estate_row {
 
 // ACTS: a page of `key`'s act log, from the `from`th entry down.
 struct fzn_contact_devices_acts {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 55];
 	u8   key[32];
 	u32  from;
@@ -166,7 +166,7 @@ struct fzn_contact_devices_acts {
 
 // ACT_ENTRIES: as many entries as fit, each after its length.
 struct fzn_contact_devices_act_entries {
-	u8   version [must_eq = 2];
+	u8   version [must_eq = 11];
 	u8   type [must_eq = 56];
 	u32  from;                              // the query's, echoed
 	u8   count;

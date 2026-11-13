@@ -238,16 +238,16 @@ static fzn_device_err_t ask_once(fzn_device_t *d)
 		d->ask_msg = next_message(d);
 		d->asking = 1;
 	}
-	ask[0] = FZN_TYPES_VERSION_SHARED;
-	ask[1] = FZN_TYPE_SESSION_ASK;
+	ask[0] = FZN_CMD_SESSION;
+	ask[1] = FZN_SUBCMD_SESSION_ASK;
 	memcpy(ask + 2, d->ask, FZN_SESSION_ASK_LEN);
 	sent = d->uptime_ms(d->uptime_ctx);
 	if ((err = send_full(d, ask, sizeof(ask), d->ask_msg)) != FZN_DEVICE_OK)
 		return err;
 	if (!await(d, d->ask_msg, d->wait_ms, &grant, &grant_len))
 		return FZN_DEVICE_ERR_SILENT;
-	if (grant_len != GRANT_PAYLOAD_LEN || grant[0] != FZN_TYPES_VERSION_SHARED
-	    || grant[1] != FZN_TYPE_SESSION_GRANT)
+	if (grant_len != GRANT_PAYLOAD_LEN || grant[0] != FZN_CMD_SESSION
+	    || grant[1] != FZN_SUBCMD_SESSION_GRANT)
 		return FZN_DEVICE_ERR_ANSWER;
 	if (!fzn_session_end_derive(&d->session, d->hash, d->image.send_key, d->ask, grant + 2, 1))
 		return FZN_DEVICE_ERR_SEAL;
@@ -291,10 +291,10 @@ fzn_device_err_t fzn_device_call(fzn_device_t *d, const char *name, const uint8_
 		return FZN_DEVICE_ERR_MALFORMED;
 	name_len = strlen(name);
 	len = CALL_HEAD_LEN + name_len + args_len;
-	if (!name_len || name_len > FZN_CALL_NAME_MAX || len > sizeof(payload))
+	if (!name_len || name_len > FZN_RRPC_NAME_MAX || len > sizeof(payload))
 		return FZN_DEVICE_ERR_MALFORMED;
-	payload[0] = FZN_TYPES_VERSION_SHARED;
-	payload[1] = FZN_TYPE_CALL;
+	payload[0] = FZN_CMD_RRPC;
+	payload[1] = FZN_SUBCMD_RRPC_ASK;
 	payload[2] = (uint8_t)name_len;
 	memcpy(payload + CALL_HEAD_LEN, name, name_len);
 	if (args_len)
@@ -335,8 +335,8 @@ fzn_device_err_t fzn_device_call(fzn_device_t *d, const char *name, const uint8_
 			continue;
 		}
 		d->silent = 0;
-		if (heard_len < CALL_HEAD_LEN || heard[0] != FZN_TYPES_VERSION_SHARED
-		    || heard[1] != FZN_TYPE_CALLED || heard_len - CALL_HEAD_LEN > cap
+		if (heard_len < CALL_HEAD_LEN || heard[0] != FZN_CMD_RRPC
+		    || heard[1] != FZN_SUBCMD_RRPC_RESULT || heard_len - CALL_HEAD_LEN > cap
 		    || (!answer && heard_len > CALL_HEAD_LEN))
 			return FZN_DEVICE_ERR_ANSWER;
 		*status = heard[2];

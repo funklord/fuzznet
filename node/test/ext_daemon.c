@@ -51,9 +51,8 @@
  *                     this one after
  *
  * Anything else it declines, and fuzznet answers `unsupported`. A remote
- * request of type 128, the first of the extensions' range (`node/types.h`),
- * it answers with type 129 and the bytes it was sent; the rest of the range
- * it declines. */
+ * request of SUBCMD 128 under the extension's CMD (`wire/cmd.h`), it answers
+ * with SUBCMD 129 and the bytes it was sent; every other it declines. */
 #define _POSIX_C_SOURCE 200809L
 
 #include "../daemon.h"

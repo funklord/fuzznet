@@ -250,7 +250,7 @@ static int fuzz_one(unsigned long c)
 		uint8_t req[64];
 		size_t len, l1, l2;
 
-		req[0] = 2u;
+		req[0] = FZN_CMD_MEMBERS;
 		req[1] = FZN_NODE_MEMBERS_QUERY;
 		req[2] = 0u;
 		req[3] = (uint8_t)below(4u);

@@ -297,8 +297,8 @@ static void serve_session_ask(fzn_node_state_t *state, const fzn_node_peer_t *pe
 	uint64_t now_ms = state->clock_ms ? state->clock_ms() : now * 1000u;
 	const uint8_t *ask = fzn_node_session_ask_body(opened->payload, opened->payload_len);
 
-	grant[0] = FZN_TYPES_VERSION_SHARED;
-	grant[1] = FZN_TYPE_SESSION_GRANT;
+	grant[0] = FZN_CMD_SESSION;
+	grant[1] = FZN_SUBCMD_SESSION_GRANT;
 	if (ask
 	    && fzn_node_sessions_grant(state->sessions, peer->sender, opened->capability,
 	                               peer->recv_key, ask, now_ms, state->hash, state->rng,

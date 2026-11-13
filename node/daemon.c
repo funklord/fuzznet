@@ -1192,7 +1192,7 @@ static size_t logs_remote(void *ctx, const uint8_t *sender, const uint8_t *reque
                           size_t request_len, uint8_t *reply, size_t reply_cap)
 {
 	(void)ctx;
-	if (!request || request_len < 2u || request[0] != FZN_GATHER_VERSION)
+	if (!request || request_len < 2u || request[0] != FZN_CMD_GATHER)
 		return 0;
 	if (request[1] != FZN_GATHER_QUERY && request[1] != FZN_GATHER_RING_QUERY)
 		return 0;
@@ -2081,7 +2081,7 @@ static int address_read(const uint8_t *reply, size_t len, char host[FZN_UDP_HOST
 	const uint8_t *a;
 	size_t i, n;
 
-	if (!reply || len < 2u || len > UINT32_MAX || reply[0] != 2u || reply[1] != FZN_TYPE_ADDRESS)
+	if (!reply || len < 2u || len > UINT32_MAX || reply[0] != FZN_CMD_REACH || reply[1] != FZN_SUBCMD_REACH_ADDRESS)
 		return 0;
 	situ_msg_init(&msg, (uint8_t *)(uintptr_t)reply, (uint32_t)len);
 	if (fzn_address_message_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK
@@ -3024,7 +3024,7 @@ static size_t journal_remote(void *ctx, const uint8_t *request, size_t request_l
 	size_t n = fzn_node_journal_answer((fzn_node_journal_t *)ctx, request, request_len, reply,
 	                                   reply_cap);
 
-	if (n && request_len >= 2u && request[0] == FZN_EXCHANGE_VERSION
+	if (n && request_len >= 2u && request[0] == FZN_CMD_EXCHANGE
 	    && request[1] == FZN_EXCHANGE_PUSH)
 		journal_pushed = 1;
 	return n;
@@ -4793,7 +4793,7 @@ static int routing_take(const char *host, uint8_t *reply, size_t len,
 	/* ROUTING, sec 1081: the manifest's own bytes after the head, where it was
 	 * `ok HEX`. */
 	if (!routing_hash || !routing_sign || !node_apply.store || len < 3u
-	    || reply[0] != FZN_TYPES_VERSION_SHARED || reply[1] != FZN_TYPE_ROUTING
+	    || reply[0] != FZN_CMD_REACH || reply[1] != FZN_SUBCMD_REACH_ROUTING
 	    || (n = len - 2u) > sizeof(bytes))
 		return 0;
 	memcpy(bytes, reply + 2, n);
@@ -4993,8 +4993,8 @@ static size_t routing_remote(void *ctx, const uint8_t *sender, int contact,
 	(void)ctx;
 	(void)sender;
 	/* ROUTING_ASK, sec 1081, where it was the verb `get routing`. */
-	if (request_len != 2u || request[0] != FZN_TYPES_VERSION_SHARED
-	    || request[1] != FZN_TYPE_ROUTING_ASK)
+	if (request_len != 2u || request[0] != FZN_CMD_REACH
+	    || request[1] != FZN_SUBCMD_REACH_ROUTING_ASK)
 		return 0;
 	/* A CONTACT TOLD PLAINLY, sec 699, rather than falling through to "may
 	 * only fetch what is shared": the asker holds off on this answer. */
@@ -5006,8 +5006,8 @@ static size_t routing_remote(void *ctx, const uint8_t *sender, int contact,
 	    || fzn_routing_encode(&r, bytes, sizeof(bytes), &len) != FZN_ROUTING_OK
 	    || reply_cap < 2u + len)
 		return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR, "no routing manifest to give");
-	reply[0] = FZN_TYPES_VERSION_SHARED;
-	reply[1] = FZN_TYPE_ROUTING;
+	reply[0] = FZN_CMD_REACH;
+	reply[1] = FZN_SUBCMD_REACH_ROUTING;
 	memcpy(reply + 2, bytes, len);
 	return 2u + len;
 }
@@ -7326,7 +7326,6 @@ static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, c
 /* THE TYPES of an introduction, in notes-sync's space after the relay's 35:
  * INTRODUCE asks a peer to introduce a sibling; NOTIFY tells that sibling
  * where the asker asked from. Answered in words. */
-#define FZND_INTRO_VERSION 2u
 
 /* SIBLINGS UNANSWERED LAST ROUND are due an introduction, sec 623. */
 static void intro_note_silent(struct pull_target *pulls, size_t from, size_t to)
@@ -7403,8 +7402,8 @@ static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, si
 			uint32_t msg = 0;
 
 			via.fd = pt->fd;
-			request[0] = FZND_INTRO_VERSION;
-			request[1] = FZN_TYPE_INTRODUCE;
+			request[0] = FZN_CMD_REACH;
+			request[1] = FZN_SUBCMD_REACH_INTRODUCE;
 			memcpy(request + 2, pt->node, FZN_PUBKEY_LEN);
 			if (fzn_caller_send(&via, request, sizeof(request), now + 300u, &msg)
 			            != FZN_CALLER_OK
@@ -12644,8 +12643,8 @@ static int contact_next(struct contact_talk *ct, uint8_t *request, size_t cap, s
 	}
 	if (cap < 2u)
 		return 0;
-	request[0] = FZN_TYPES_VERSION_SHARED;
-	request[1] = FZN_TYPE_ROUTING_ASK;
+	request[0] = FZN_CMD_REACH;
+	request[1] = FZN_SUBCMD_REACH_ROUTING_ASK;
 	*len = 2u;
 	return 1;
 }
@@ -12731,7 +12730,7 @@ static int contact_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 	} else {
 		/* A REFUSAL, held off on: answered all the same. Anything but the
 		 * manifest is one, a STATUS denied or a reply of no shape (sec 1081). */
-		if (reply_len < 2u || reply[0] != FZN_TYPES_VERSION_SHARED || reply[1] != FZN_TYPE_ROUTING)
+		if (reply_len < 2u || reply[0] != FZN_CMD_REACH || reply[1] != FZN_SUBCMD_REACH_ROUTING)
 			routing_quiet_set(ct->contact, ct->now);
 		/* THE MANIFEST, taken when it verifies; the exchange stands either
 		 * way, as it did when asked in turn. Copied out: the answer is the
@@ -12840,8 +12839,8 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 		 * never rang (sec 1032). */
 		via.out = serving_out;
 		via.out_ctx = pulls[k].pairing.node;
-		request[0] = FZND_INTRO_VERSION;
-		request[1] = FZN_TYPE_INTRODUCE;
+		request[0] = FZN_CMD_REACH;
+		request[1] = FZN_SUBCMD_REACH_INTRODUCE;
 		memcpy(request + 2, ct->pt.pairing.node, FZN_PUBKEY_LEN);
 		if (fzn_caller_send(&via, request, sizeof(request), now + 300u, &msg) != FZN_CALLER_OK
 		    || recv_answering(&via, msg, request, sizeof(request), now + 300u, reply,
@@ -13026,7 +13025,6 @@ static void contact_settle(void)
  * id, place and head hash -- answered with GROUP_ACTS, the acts the asker
  * lacks, in log order. A group the asker does not list is sent whole: that
  * is how a member's host first learns a group. */
-#define FZND_GROUP_VERSION 2u
 #define FZND_GROUP_ENTRY_LEN (FZN_GROUP_ID_LEN + 4u + 32u)
 /* Heads in one request: a request is one frame. */
 #define FZND_GROUP_SYNC_MAX 12u
@@ -13220,8 +13218,8 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
 			news_round_due = 1;
 		at = group_acts_from(ids[i], asked, reply, at, cap, &count, until);
 	}
-	reply[0] = FZND_GROUP_VERSION;
-	reply[1] = FZN_TYPE_GROUP_ACTS;
+	reply[0] = FZN_CMD_GROUPS;
+	reply[1] = FZN_SUBCMD_GROUPS_ACTS;
 	fzn_put_be16(reply + 2, (uint16_t)count);
 	return at;
 }
@@ -13255,8 +13253,8 @@ static size_t group_sync_request(const uint8_t (*ids)[FZN_GROUP_ID_LEN], size_t 
 		memcpy(e + FZN_GROUP_ID_LEN + 4u, g.head, 32u);
 		entries++;
 	}
-	request[0] = FZND_GROUP_VERSION;
-	request[1] = FZN_TYPE_GROUP_SYNC;
+	request[0] = FZN_CMD_GROUPS;
+	request[1] = FZN_SUBCMD_GROUPS_SYNC;
 	request[2] = (uint8_t)entries;
 	return 3u + entries * FZND_GROUP_ENTRY_LEN;
 }
@@ -13268,7 +13266,7 @@ static long group_acts_take(const uint8_t *reply, size_t len)
 	size_t count, k, at;
 	long taken = 0;
 
-	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZN_TYPE_GROUP_ACTS)
+	if (!reply || len < 4u || reply[0] != FZN_CMD_GROUPS || reply[1] != FZN_SUBCMD_GROUPS_ACTS)
 		return -1;
 	count = fzn_get_be16(reply + 2);
 	for (k = 0, at = 4u; k < count && at + 2u <= len; k++) {
@@ -13448,8 +13446,8 @@ static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
 			count++;
 		}
 	}
-	reply[0] = FZND_GROUP_VERSION;
-	reply[1] = FZN_TYPE_GROUP_LINES;
+	reply[0] = FZN_CMD_GROUPS;
+	reply[1] = FZN_SUBCMD_GROUPS_LINES;
 	fzn_put_be16(reply + 2, (uint16_t)count);
 	return at;
 }
@@ -13465,8 +13463,8 @@ static size_t group_lines_request(const uint8_t id[FZN_GROUP_ID_LEN], uint8_t *r
 	    != FZN_GROUP_LINES_OK)
 		return 0;
 	entries = n < FZND_GROUP_HEADS_MAX ? n : FZND_GROUP_HEADS_MAX;
-	request[0] = FZND_GROUP_VERSION;
-	request[1] = FZN_TYPE_GROUP_LINES_SYNC;
+	request[0] = FZN_CMD_GROUPS;
+	request[1] = FZN_SUBCMD_GROUPS_LINES_SYNC;
 	memcpy(request + 2, id, FZN_GROUP_ID_LEN);
 	request[2u + FZN_GROUP_ID_LEN] = (uint8_t)entries;
 	for (i = 0; i < entries; i++) {
@@ -13487,7 +13485,7 @@ static size_t group_lines_take(const uint8_t *reply, size_t len)
 	size_t count, k, at, taken = 0;
 	int any = 0;
 
-	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZN_TYPE_GROUP_LINES)
+	if (!reply || len < 4u || reply[0] != FZN_CMD_GROUPS || reply[1] != FZN_SUBCMD_GROUPS_LINES)
 		return 0;
 	count = fzn_get_be16(reply + 2);
 	for (k = 0, at = 4u; k < count && at + 6u <= len; k++) {
@@ -14727,8 +14725,8 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 			break;
 		count++;
 	}
-	reply[0] = FZND_GROUP_VERSION;
-	reply[1] = FZN_TYPE_STREAM_RECORDS;
+	reply[0] = FZN_CMD_GROUPS;
+	reply[1] = FZN_SUBCMD_STREAMS_RECORDS;
 	fzn_put_be16(reply + 2, (uint16_t)count);
 	return at;
 }
@@ -14739,8 +14737,8 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 static size_t stream_query(const char *name, size_t name_len, const uint8_t *origin,
                            uint8_t *request)
 {
-	request[0] = FZND_GROUP_VERSION;
-	request[1] = FZN_TYPE_STREAM_QUERY;
+	request[0] = FZN_CMD_GROUPS;
+	request[1] = FZN_SUBCMD_STREAMS_QUERY;
 	return 2u + fzn_streams_query_encode(name, name_len,
 	                                     fzn_streams_last(&node_streams, name, name_len, origin),
 	                                     request + 2, FZN_STREAM_QUERY_MAX);
@@ -14754,8 +14752,8 @@ static size_t stream_take(const char *name, size_t name_len, const uint8_t *orig
 	uint64_t stopped = 0;
 	size_t taken = 0;
 
-	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION
-	    || reply[1] != FZN_TYPE_STREAM_RECORDS)
+	if (!reply || len < 4u || reply[0] != FZN_CMD_GROUPS
+	    || reply[1] != FZN_SUBCMD_STREAMS_RECORDS)
 		return 0;
 	err = fzn_streams_take(&node_streams, name, name_len, origin, reply + 4, len - 4u,
 	                       fzn_get_be16(reply + 2), &taken, &stopped);
@@ -14822,8 +14820,8 @@ static size_t host_request(struct host_talk *ht)
 	size_t f = ht->items[ht->at];
 
 	if (ht->kind == HOST_ADDRESS) {
-		ht->request[0] = FZN_TYPES_VERSION_SHARED;
-		ht->request[1] = FZN_TYPE_ADDRESS_ASK;
+		ht->request[0] = FZN_CMD_REACH;
+		ht->request[1] = FZN_SUBCMD_REACH_ADDRESS_ASK;
 		return 2u;
 	}
 	if (ht->kind == HOST_ROUTING || ht->kind == HOST_FILE_REFS) {
@@ -14989,8 +14987,8 @@ static void routing_start(struct pull_target *pulls, size_t npulls, uint64_t now
 	size_t t;
 
 	n_host_talks = host_talks_begun = 0;
-	host_shared_request[0] = FZN_TYPES_VERSION_SHARED;
-	host_shared_request[1] = FZN_TYPE_ROUTING_ASK;
+	host_shared_request[0] = FZN_CMD_REACH;
+	host_shared_request[1] = FZN_SUBCMD_REACH_ROUTING_ASK;
 	host_shared_len = 2u;
 	for (t = 0; t < npulls; t++)
 		if (!silent_peer(&pulls[t]) && peer_in_estate(&pulls[t]))
@@ -16656,8 +16654,8 @@ static size_t file_refs_remote(const uint8_t *sender, const uint8_t *request, si
 			at += FZN_NODE_FILE_REF_LEN;
 			count++;
 		}
-	reply[0] = FZND_GROUP_VERSION;
-	reply[1] = FZN_TYPE_FILE_REFS;
+	reply[0] = FZN_CMD_GROUPS;
+	reply[1] = FZN_SUBCMD_FILES_REFS;
 	reply[2] = (uint8_t)count;
 	fzn_wipe(ref, sizeof(ref));
 	return at;
@@ -16671,7 +16669,7 @@ static void file_refs_take(const uint8_t *reply, size_t len)
 {
 	size_t k, j, want = host_shared_request[2];
 
-	if (len < 3u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZN_TYPE_FILE_REFS
+	if (len < 3u || reply[0] != FZN_CMD_GROUPS || reply[1] != FZN_SUBCMD_FILES_REFS
 	    || len != 3u + (size_t)reply[2] * FZN_NODE_FILE_REF_LEN)
 		return;
 	for (k = 0; k < reply[2]; k++) {
@@ -16795,8 +16793,8 @@ static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t n
 	}
 	if (!want)
 		return;
-	host_shared_request[0] = FZND_GROUP_VERSION;
-	host_shared_request[1] = FZN_TYPE_FILE_REFS_WANT;
+	host_shared_request[0] = FZN_CMD_GROUPS;
+	host_shared_request[1] = FZN_SUBCMD_FILES_REFS_WANT;
 	host_shared_request[2] = (uint8_t)want;
 	host_shared_len = 3u + want * FZN_BLOB_HASH_LEN;
 	for (i = 0; i < npulls; i++)
@@ -16817,7 +16815,6 @@ static void file_refs_settle(void)
 
 /* THE TYPES, in notes-sync's space after settlement's 34: RELAY carries a
  * target's key and a frame sealed for it. Answered in words. */
-#define FZND_RELAY_VERSION 2u
 #define FZND_RELAY_HEAD_LEN (2u + FZN_PUBKEY_LEN)
 /* WHERE A TARGET SAID HELLO FROM is trusted this long, seconds: past it a
  * NAT's mapping may have gone. */
@@ -16993,7 +16990,7 @@ static int call_name_ok(const uint8_t *name, size_t len)
 {
 	size_t i;
 
-	if (len == 0u || len > FZN_CALL_NAME_MAX)
+	if (len == 0u || len > FZN_RRPC_NAME_MAX)
 		return 0;
 	for (i = 0; i < len; i++)
 		if (!((name[i] >= 'a' && name[i] <= 'z') || (name[i] >= '0' && name[i] <= '9')))
@@ -17065,7 +17062,7 @@ static const fzn_daemon_procedure_t *procedure_of(const uint8_t *name, size_t le
 static int call_permitted(const uint8_t *sender, const uint8_t *name, size_t name_len,
                           const char *said)
 {
-	char key[sizeof(FZN_REMOTE_PERMIT_KEY_PREFIX) + FZN_CALL_NAME_MAX];
+	char key[sizeof(FZN_REMOTE_PERMIT_KEY_PREFIX) + FZN_RRPC_NAME_MAX];
 	char rule[FZN_SETTING_VALUE_MAX + 1u];
 	fzn_setting_rank_t rank = FZN_SETTING_RANK_HOST;
 
@@ -17267,8 +17264,8 @@ static void relay_ways_ask(struct pull_target *relay, const uint8_t host[FZN_PUB
 
 	if (!s)
 		return;
-	request[0] = FZND_RELAY_VERSION;
-	request[1] = FZN_TYPE_RELAY_SESSION;
+	request[0] = FZN_CMD_REACH;
+	request[1] = FZN_SUBCMD_REACH_RELAY_SESSION;
 	memcpy(request + 2, host, FZN_PUBKEY_LEN);
 	fzn_put_be32(request + 2 + FZN_PUBKEY_LEN, s->end.hears_as);
 	fzn_put_be32(request + 2 + FZN_PUBKEY_LEN + 4u, s->end.speaks_to);
@@ -17365,8 +17362,8 @@ static void session_granted(void *ctx, const uint8_t *reply, size_t len)
 		    a->host[0], a->host[1], a->host[2], a->host[3],
 		    reply ? "answered with no grant:" : "no answer", reply ? (int)(len < 60u ? len : 60u) : 0,
 		    reply ? (const char *)reply : "");
-	if (reply && len == 2u + FZN_SESSION_GRANT_LEN && reply[0] == FZN_TYPES_VERSION_SHARED
-	    && reply[1] == FZN_TYPE_SESSION_GRANT
+	if (reply && len == 2u + FZN_SESSION_GRANT_LEN && reply[0] == FZN_CMD_SESSION
+	    && reply[1] == FZN_SUBCMD_SESSION_GRANT
 	    && fzn_node_sessions_asked(&granted_sessions, a->host, reply + 2, contact_hash_ops,
 	                               a->to, a->to_len)
 	    && (session_relayed_forget(a->host), 1))
@@ -17438,8 +17435,8 @@ static int session_ask(const uint8_t host[FZN_PUBKEY_LEN])
 		session_ask_close(a);
 		return 0;
 	}
-	request[0] = FZN_TYPES_VERSION_SHARED;
-	request[1] = FZN_TYPE_SESSION_ASK;
+	request[0] = FZN_CMD_SESSION;
+	request[1] = FZN_SUBCMD_SESSION_ASK;
 	a->caller = pt->caller;
 	a->caller.fd = a->fd;
 	a->caller.reasm = table;
@@ -18856,26 +18853,26 @@ static size_t call_remote(const uint8_t *sender, const uint8_t *request, size_t 
 
 	if (len < 3u || cap < 3u)
 		return 0;
-	reply[0] = FZN_TYPES_VERSION_SHARED;
-	reply[1] = FZN_TYPE_CALLED;
+	reply[0] = FZN_CMD_RRPC;
+	reply[1] = FZN_SUBCMD_RRPC_RESULT;
 	name_len = request[2];
 	asker_of(sender, &asker);
 	if (!asker.member) {
-		reply[2] = FZN_CALL_DENIED;
+		reply[2] = FZN_RRPC_DENIED;
 		return 3u;
 	}
 	if (len < 3u + name_len || !call_name_ok(request + 3, name_len)) {
-		reply[2] = FZN_CALL_UNKNOWN;
+		reply[2] = FZN_RRPC_UNKNOWN;
 		return 3u;
 	}
 	p = procedure_of(request + 3, name_len);
 	if (!call_permitted(sender, request + 3, name_len, p ? p->rule : NULL)) {
-		reply[2] = FZN_CALL_DENIED;
+		reply[2] = FZN_RRPC_DENIED;
 		return 3u;
 	}
 	/* NOT THIS PROCESS'S, and perhaps a follower's: forwarded unread. */
 	if (!p) {
-		unsigned status = FZN_CALL_UNKNOWN;
+		unsigned status = FZN_RRPC_UNKNOWN;
 
 		n = call_forward(request + 3, name_len, sender, NULL, request + 3 + name_len,
 		                 len - 3u - name_len, reply + 3,
@@ -18887,10 +18884,10 @@ static size_t call_remote(const uint8_t *sender, const uint8_t *request, size_t 
 	n = p->call(daemon_ext ? daemon_ext->ctx : NULL, sender, NULL, request + 3 + name_len, len - 3u - name_len,
 	            reply + 3, cap - 3u < FZND_CALL_ANSWER_MAX ? cap - 3u : FZND_CALL_ANSWER_MAX);
 	if (!n || n > cap - 3u) {
-		reply[2] = FZN_CALL_FAILED;
+		reply[2] = FZN_RRPC_FAILED;
 		return 3u;
 	}
-	reply[2] = FZN_CALL_OK;
+	reply[2] = FZN_RRPC_OK;
 	return 3u + n;
 }
 
@@ -18939,9 +18936,9 @@ static unsigned call_pull(size_t i, const uint8_t *name, size_t name_len, const 
 
 	*n = 0;
 	if (wire_len > sizeof(wire))
-		return FZN_CALL_FAILED;
-	wire[0] = FZN_TYPES_VERSION_SHARED;
-	wire[1] = FZN_TYPE_CALL;
+		return FZN_RRPC_FAILED;
+	wire[0] = FZN_CMD_RRPC;
+	wire[1] = FZN_SUBCMD_RRPC_ASK;
 	wire[2] = (uint8_t)name_len;
 	memcpy(wire + 3, name, name_len);
 	if (args_len)
@@ -18950,8 +18947,8 @@ static unsigned call_pull(size_t i, const uint8_t *name, size_t name_len, const 
 	    || recv_answering(&via, msg, wire, wire_len, now + 300u, got, cap, n) != FZN_CALLER_OK)
 		return FZND_CALL_SILENT;
 	loop_pulls[i].caller.next_msg = via.next_msg;
-	if (*n < 3u || got[0] != FZN_TYPES_VERSION_SHARED || got[1] != FZN_TYPE_CALLED
-	    || got[2] > FZN_CALL_FAILED)
+	if (*n < 3u || got[0] != FZN_CMD_RRPC || got[1] != FZN_SUBCMD_RRPC_RESULT
+	    || got[2] > FZN_RRPC_FAILED)
 		return FZND_CALL_SILENT;
 	return got[2];
 }
@@ -19004,13 +19001,13 @@ static size_t call_many(const fzn_peer_t *peer, const uint8_t *name, size_t name
 	/* THIS HOST, where the call names it. */
 	if (!group || (routing_self && host_in_group(routing_self, group))) {
 		const fzn_daemon_procedure_t *p = procedure_of(name, name_len);
-		unsigned status = FZN_CALL_UNKNOWN;
+		unsigned status = FZN_RRPC_UNKNOWN;
 		int k;
 
 		if (p) {
 			n = p->call(daemon_ext ? daemon_ext->ctx : NULL, NULL, peer, args, args_len, answer,
 			            sizeof(answer));
-			status = n && n <= sizeof(answer) ? FZN_CALL_OK : FZN_CALL_FAILED;
+			status = n && n <= sizeof(answer) ? FZN_RRPC_OK : FZN_RRPC_FAILED;
 		} else {
 			(void)call_forward(name, name_len, NULL, peer, args, args_len, answer,
 			                   sizeof(answer), &status);
@@ -19119,13 +19116,13 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
 		const fzn_daemon_procedure_t *p = procedure_of(name, name_len);
 
 		if (!p) {
-			unsigned status = FZN_CALL_UNKNOWN;
+			unsigned status = FZN_RRPC_UNKNOWN;
 
 			n = call_forward(name, name_len, NULL, peer, args, args_len, answer,
 			                 sizeof(answer), &status);
-			if (status == FZN_CALL_OK)
+			if (status == FZN_RRPC_OK)
 				return call_said(answer, n, reply, cap);
-			if (status == FZN_CALL_UNKNOWN)
+			if (status == FZN_RRPC_UNKNOWN)
 				return (size_t)snprintf(reply, cap, "error no procedure %.*s here\n",
 				                        (int)name_len, (const char *)name);
 			return (size_t)snprintf(reply, cap, "error the follower serving %.*s failed\n",
@@ -19151,12 +19148,12 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
 	if (call_pull(i, name, name_len, args, args_len, got, sizeof(got), &n) == FZND_CALL_SILENT)
 		return (size_t)snprintf(reply, cap, "error the host did not answer\n");
 	switch (got[2]) {
-	case FZN_CALL_OK:
+	case FZN_RRPC_OK:
 		return call_said(got + 3, n - 3u, reply, cap);
-	case FZN_CALL_UNKNOWN:
+	case FZN_RRPC_UNKNOWN:
 		return (size_t)snprintf(reply, cap, "error no procedure %.*s there\n", (int)name_len,
 		                        (const char *)name);
-	case FZN_CALL_DENIED:
+	case FZN_RRPC_DENIED:
 		return (size_t)snprintf(reply, cap, "denied that host calls nothing for this one\n");
 	default:
 		return (size_t)snprintf(reply, cap, "error the procedure failed there\n");
@@ -19243,29 +19240,29 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 		return fzn_node_time_answer(request, request_len, wall_ms(), reply, reply_cap);
 	}
 	/* A CALL OF A NAMED PROCEDURE, sec 853. */
-	if (request_len >= 3u && request[0] == FZN_TYPES_VERSION_SHARED
-	    && request[1] == FZN_TYPE_CALL)
+	if (request_len >= 3u && request[0] == FZN_CMD_RRPC
+	    && request[1] == FZN_SUBCMD_RRPC_ASK)
 		return call_remote(sender, request, request_len, reply, reply_cap);
-	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
-	    && request[1] == FZN_TYPE_GROUP_SYNC)
+	if (request_len >= 2u && request[0] == FZN_CMD_GROUPS
+	    && request[1] == FZN_SUBCMD_GROUPS_SYNC)
 		return group_sync_remote(sender, request, request_len, reply, reply_cap);
-	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
-	    && request[1] == FZN_TYPE_GROUP_LINES_SYNC)
+	if (request_len >= 2u && request[0] == FZN_CMD_GROUPS
+	    && request[1] == FZN_SUBCMD_GROUPS_LINES_SYNC)
 		return group_lines_remote(sender, request, request_len, reply, reply_cap);
-	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
-	    && request[1] == FZN_TYPE_STREAM_QUERY)
+	if (request_len >= 2u && request[0] == FZN_CMD_GROUPS
+	    && request[1] == FZN_SUBCMD_STREAMS_QUERY)
 		return streams_remote(sender, request, request_len, reply, reply_cap);
-	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
-	    && request[1] == FZN_TYPE_FILE_REFS_WANT)
+	if (request_len >= 2u && request[0] == FZN_CMD_GROUPS
+	    && request[1] == FZN_SUBCMD_FILES_REFS_WANT)
 		return file_refs_remote(sender, request, request_len, reply, reply_cap);
-	if (request_len >= 2u && request[0] == FZND_RELAY_VERSION
-	    && (request[1] == FZN_TYPE_INTRODUCE || request[1] == FZN_TYPE_NOTIFY))
+	if (request_len >= 2u && request[0] == FZN_CMD_REACH
+	    && (request[1] == FZN_SUBCMD_REACH_INTRODUCE || request[1] == FZN_SUBCMD_REACH_NOTIFY))
 		return introduce_remote(sender, request, request_len, reply, reply_cap);
-	if (request_len == FZN_RELAY_SESSION_LEN && request[0] == FZND_RELAY_VERSION
-	    && request[1] == FZN_TYPE_RELAY_SESSION)
+	if (request_len == FZN_RELAY_SESSION_LEN && request[0] == FZN_CMD_REACH
+	    && request[1] == FZN_SUBCMD_REACH_RELAY_SESSION)
 		return relay_session_remote(sender, request, reply, reply_cap);
-	if (request_len < FZND_RELAY_HEAD_LEN + 1u || request[0] != FZND_RELAY_VERSION
-	    || request[1] != FZN_TYPE_RELAY)
+	if (request_len < FZND_RELAY_HEAD_LEN + 1u || request[0] != FZN_CMD_REACH
+	    || request[1] != FZN_SUBCMD_REACH_RELAY)
 		return 0;
 	inner_len = request_len - FZND_RELAY_HEAD_LEN;
 	/* REFUSED, said here too, sec 697: the refusal goes back to the asker's
@@ -19336,7 +19333,7 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 	 fzn_status_write(reply, reply_cap, FZN_STATUS_MALFORMED, text))
 	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store)
 		return INTRO_NO("this host serves no introductions");
-	if (request[1] == FZN_TYPE_INTRODUCE) {
+	if (request[1] == FZN_SUBCMD_REACH_INTRODUCE) {
 		static uint8_t notify[2u + FZN_PUBKEY_LEN + 1u + FZN_UDP_HOST_MAX + 2u];
 		fzn_node_pairing_t pairing;
 		fzn_caller_t c;
@@ -19375,8 +19372,8 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 			c.rng = contact_rng_ops;
 			c.hops = 1u;
 			n = strlen(asker);
-			notify[0] = FZND_INTRO_VERSION;
-			notify[1] = FZN_TYPE_NOTIFY;
+			notify[0] = FZN_CMD_REACH;
+			notify[1] = FZN_SUBCMD_REACH_NOTIFY;
 			memcpy(notify + 2, sender, FZN_PUBKEY_LEN);
 			notify[2u + FZN_PUBKEY_LEN] = (uint8_t)n;
 			memcpy(notify + 3u + FZN_PUBKEY_LEN, asker, n);
@@ -19397,7 +19394,7 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 
 			return reply_cap <= UINT32_MAX
 			                       && fzn_address_message_build(
-			                                  reply, (uint32_t)reply_cap, 2u, FZN_TYPE_ADDRESS,
+			                                  reply, (uint32_t)reply_cap, FZN_CMD_REACH, FZN_SUBCMD_REACH_ADDRESS,
 			                                  (const uint8_t *)host, (uint32_t)strlen(host), port,
 			                                  &wrote)
 			                                  == SITU_OK
@@ -19481,8 +19478,8 @@ static int relay_carry(struct pull_target *target, struct pull_target *relay,
 		return 0;
 	if (again)
 		*msg = target->caller.as_msg;
-	outer[0] = FZND_RELAY_VERSION;
-	outer[1] = FZN_TYPE_RELAY;
+	outer[0] = FZN_CMD_REACH;
+	outer[1] = FZN_SUBCMD_REACH_RELAY;
 	memcpy(outer + 2, target->pairing.node, FZN_PUBKEY_LEN);
 	memcpy(outer + FZND_RELAY_HEAD_LEN, inner, inner_len);
 	via = relay->caller;
@@ -21560,14 +21557,14 @@ static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *
                            uint8_t *answer, size_t cap, unsigned *status)
 {
 	static char line[OFFER_LINE_MAX], got[8u + 3u * FZND_CALL_ANSWER_MAX];
-	char path[1200], sock[1100], nm[FZN_CALL_NAME_MAX + 1u], from[2u * FZN_PUBKEY_LEN + 1u];
+	char path[1200], sock[1100], nm[FZN_RRPC_NAME_MAX + 1u], from[2u * FZN_PUBKEY_LEN + 1u];
 	size_t w = 0, at, got_len = 0, n = 0, i;
 	uint64_t began;
 	FILE *f;
 	int fd = -1;
 
-	*status = FZN_CALL_UNKNOWN;
-	if (!face_dir || name_len > FZN_CALL_NAME_MAX)
+	*status = FZN_RRPC_UNKNOWN;
+	if (!face_dir || name_len > FZN_RRPC_NAME_MAX)
 		return 0;
 	memcpy(nm, name, name_len);
 	nm[name_len] = '\0';
@@ -21579,7 +21576,7 @@ static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *
 	while (n && sock[n - 1u] == '\n')
 		n--;
 	sock[n] = '\0';
-	*status = FZN_CALL_FAILED;
+	*status = FZN_RRPC_FAILED;
 	if (!n || args_len > FZND_CALL_ANSWER_MAX)
 		return 0;
 	if (caller)
@@ -21623,13 +21620,13 @@ static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *
 	}
 	fzn_client_close(fd);
 	if (got_len == 7u && memcmp(got, "unknown", 7u) == 0) {
-		*status = FZN_CALL_UNKNOWN;
+		*status = FZN_RRPC_UNKNOWN;
 		return 0;
 	}
 	if (got_len < 3u || memcmp(got, "ok ", 3u) != 0
 	    || !fzn_unescape((const uint8_t *)got + 3, got_len - 3u, answer, cap, &n) || !n)
 		return 0;
-	*status = FZN_CALL_OK;
+	*status = FZN_RRPC_OK;
 	return n;
 }
 

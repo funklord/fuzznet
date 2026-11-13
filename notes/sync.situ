@@ -42,7 +42,7 @@ enum fzn_notes_sync_type : u8 {
 }
 
 struct fzn_notes_sync_index_query {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = index_query];
 	u32                  from;
 }
@@ -55,7 +55,7 @@ struct fzn_notes_sync_claim {
 }
 
 struct fzn_notes_sync_index {
-	u8                    version [must_eq = 2];
+	u8                    version [must_eq = 8];
 	fzn_notes_sync_type   type    [must_eq = index];
 	u32                   total;                     // claims the server offers
 	u32                   from;                      // the first in this page
@@ -68,7 +68,7 @@ struct fzn_notes_sync_key {
 }
 
 struct fzn_notes_sync_records_query {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = records_query];
 	u8                   count   [min = 1, max = 16];   // FZN_NOTES_SYNC_KEYS_MAX
 	fzn_notes_sync_key   keys[count];
@@ -82,7 +82,7 @@ struct fzn_notes_sync_record {
 }
 
 struct fzn_notes_sync_records {
-	u8                     version [must_eq = 2];
+	u8                     version [must_eq = 8];
 	fzn_notes_sync_type    type    [must_eq = records];
 	u8                     count   [max = 16];
 	fzn_notes_sync_record  records[count];
@@ -93,20 +93,20 @@ struct fzn_notes_sync_records {
 // that node's purges pinning it, and PURGE_ACK answers either. notes/sync.h
 // says why only the puller can drive it.
 struct fzn_notes_sync_purge {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = purge];
 	u8                   id[32];                     // the note to erase
 }
 
 struct fzn_notes_sync_purge_ack {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = purge_ack];
 	u8                   id[32];
 	u8                   erased  [max = 1];          // 1 erased, 0 not
 }
 
 struct fzn_notes_sync_purges_query {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = purges_query];
 }
 
@@ -115,7 +115,7 @@ struct fzn_notes_sync_note_id {
 }
 
 struct fzn_notes_sync_purges {
-	u8                      version [must_eq = 2];
+	u8                      version [must_eq = 8];
 	fzn_notes_sync_type     type    [must_eq = purges];
 	u8                      count   [max = 16];      // FZN_NOTES_SYNC_PURGES_MAX
 	fzn_notes_sync_note_id  ids[count];
@@ -125,7 +125,7 @@ struct fzn_notes_sync_purges {
 // capability and answered with the distinct writers of the notes the share
 // reaches, sorted. The recipient admits exactly these in the sharer's tree.
 struct fzn_notes_sync_writers_query {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = writers_query];
 }
 
@@ -134,7 +134,7 @@ struct fzn_notes_sync_writer {
 }
 
 struct fzn_notes_sync_writers {
-	u8                     version [must_eq = 2];
+	u8                     version [must_eq = 8];
 	fzn_notes_sync_type    type    [must_eq = writers];
 	u8                     count   [max = 64];       // FZN_NOTES_SYNC_WRITERS_MAX
 	fzn_notes_sync_writer  writers[count];
@@ -145,7 +145,7 @@ struct fzn_notes_sync_writers {
 // that are not contacts, each with the chain the node holds for it. The
 // asker admits a key only when its chain verifies against its own root.
 struct fzn_notes_sync_members_query {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = members_query];
 	u16                  from;
 }
@@ -161,7 +161,7 @@ struct fzn_notes_sync_member {
 }
 
 struct fzn_notes_sync_members {
-	u8                     version [must_eq = 2];
+	u8                     version [must_eq = 8];
 	fzn_notes_sync_type    type    [must_eq = members];
 	u16                    total;                     // members the server holds
 	u16                    from;                      // the first in this page
@@ -174,7 +174,7 @@ struct fzn_notes_sync_members {
 // a fetched span is. Taken only from an admitted sender, for a note the
 // server holds at that length. A request this size needs reassembly (sec 447).
 struct fzn_notes_sync_text_push {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = text_push];
 	u8                   root[32];
 	u64                  length;
@@ -182,7 +182,7 @@ struct fzn_notes_sync_text_push {
 }
 
 struct fzn_notes_sync_text_pushed {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = text_pushed];
 	u8                   outcome [max = 2];          // 0 refused, 1 wanted, 2 whole
 }
@@ -198,14 +198,14 @@ struct fzn_notes_sync_wrap {
 }
 
 struct fzn_notes_sync_wraps_query {
-	u8                      version [must_eq = 2];
+	u8                      version [must_eq = 8];
 	fzn_notes_sync_type     type    [must_eq = wraps_query];
 	u8                      count   [max = 16];
 	fzn_notes_sync_note_id  ids[count];
 }
 
 struct fzn_notes_sync_wraps {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = wraps];
 	u8                   count   [max = 16];
 	fzn_notes_sync_wrap  keys[count];
@@ -213,12 +213,12 @@ struct fzn_notes_sync_wraps {
 
 // A member only: the notes the answering node indexes without a key.
 struct fzn_notes_sync_lacks_query {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = lacks_query];
 }
 
 struct fzn_notes_sync_lacks {
-	u8                      version [must_eq = 2];
+	u8                      version [must_eq = 8];
 	fzn_notes_sync_type     type    [must_eq = lacks];
 	u8                      count   [max = 16];
 	fzn_notes_sync_note_id  ids[count];
@@ -226,14 +226,14 @@ struct fzn_notes_sync_lacks {
 
 // Taken only for a note the taker indexes, and the first key held stands.
 struct fzn_notes_sync_give {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = give];
 	u8                   count   [max = 16];
 	fzn_notes_sync_wrap  keys[count];
 }
 
 struct fzn_notes_sync_given {
-	u8                   version [must_eq = 2];
+	u8                   version [must_eq = 8];
 	fzn_notes_sync_type  type    [must_eq = given];
 	u8                   taken   [max = 16];
 }

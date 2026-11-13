@@ -35,25 +35,25 @@ struct fzn_message_key_wanted size=68
   @0x0024   32        u8         device  big
 
 struct fzn_message_keys size=3..803
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=10
   @0x0001   1         u8         type  must_eq=26
   @0x0002   1         u8         count  max=8
   @0x0003   0..800    fzn_message_key_held keys  sized-by=count
 
 struct fzn_message_keys_give size=71..547
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=10
   @0x0001   1         u8         type  must_eq=23
   @0x0002   1         u8         count  min=1 max=8
   @0x0003   68..544   fzn_message_key_given keys  big sized-by=count
 
 struct fzn_message_keys_given size=4
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=10
   @0x0001   1         u8         type  must_eq=24
   @0x0002   1         u8         taken  max=8
   @0x0003   1         u8         refused  max=8
 
 struct fzn_message_keys_want size=71..547
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=10
   @0x0001   1         u8         type  must_eq=25
   @0x0002   1         u8         count  min=1 max=8
   @0x0003   68..544   fzn_message_key_wanted keys  big sized-by=count

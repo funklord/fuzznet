@@ -15,8 +15,8 @@
  * handler looks through it later. */
 int fzn_node_session_is_ask(const uint8_t *payload, size_t len)
 {
-	return payload && len == 2u + FZN_SESSION_ASK_LEN && payload[0] == FZN_TYPES_VERSION_SHARED
-	       && payload[1] == FZN_TYPE_SESSION_ASK;
+	return payload && len == 2u + FZN_SESSION_ASK_LEN && payload[0] == FZN_CMD_SESSION
+	       && payload[1] == FZN_SUBCMD_SESSION_ASK;
 }
 
 const uint8_t *fzn_node_session_ask_body(const uint8_t *payload, size_t len)

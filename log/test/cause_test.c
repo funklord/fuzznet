@@ -40,7 +40,7 @@ static int same(const fzn_entry_name_t *a, const fzn_entry_name_t *b)
 int main(void)
 {
 	static uint8_t env[FZN_CAUSE_OVERHEAD_MAX + 64u];
-	static const uint8_t request[] = { 2u, 1u, 0u, 0u }; /* a notes index query */
+	static const uint8_t request[] = { FZN_CMD_NOTES, 1u, 0u, 0u }; /* a notes index query */
 	fzn_entry_name_t cause = name(7u), origin = name(2u), c, o;
 	const uint8_t *inner = NULL;
 	size_t len = 0, inner_len = 0;

@@ -50,7 +50,7 @@ static fzn_msg_err_t check_header(const uint8_t *bytes, size_t len, size_t need,
 {
 	if (!bytes || len < need)
 		return FZN_MSG_ERR_MALFORMED;
-	if (bytes[FZN_MSG_OFF_VERSION] != FZN_MSG_VERSION)
+	if (bytes[FZN_MSG_OFF_VERSION] != FZN_CMD_FILES)
 		return FZN_MSG_ERR_MALFORMED;
 	if (bytes[FZN_MSG_OFF_TYPE] != (uint8_t)want)
 		return FZN_MSG_ERR_MALFORMED;
@@ -59,7 +59,7 @@ static fzn_msg_err_t check_header(const uint8_t *bytes, size_t len, size_t need,
 
 static void put_header(uint8_t *out, fzn_msg_type_t type)
 {
-	out[FZN_MSG_OFF_VERSION] = (uint8_t)FZN_MSG_VERSION;
+	out[FZN_MSG_OFF_VERSION] = (uint8_t)FZN_CMD_FILES;
 	out[FZN_MSG_OFF_TYPE] = (uint8_t)type;
 }
 
@@ -69,7 +69,7 @@ fzn_msg_err_t fzn_msg_peek(const uint8_t *bytes, size_t len, fzn_msg_type_t *out
 
 	if (!bytes || !out_type || len < 2u)
 		return FZN_MSG_ERR_MALFORMED;
-	if (bytes[FZN_MSG_OFF_VERSION] != FZN_MSG_VERSION)
+	if (bytes[FZN_MSG_OFF_VERSION] != FZN_CMD_FILES)
 		return FZN_MSG_ERR_MALFORMED;
 
 	type = bytes[FZN_MSG_OFF_TYPE];

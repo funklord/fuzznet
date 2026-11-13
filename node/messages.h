@@ -47,6 +47,7 @@
 #ifndef FZN_NODE_MESSAGES_H
 #define FZN_NODE_MESSAGES_H
 
+#include "../wire/cmd.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -56,7 +57,6 @@
 #include "buckets.h"
 
 /* `messages/keys.situ`: notes-sync's version byte, types after notes' 22. */
-#define FZN_NODE_MESSAGES_VERSION 2u
 #define FZN_NODE_MESSAGES_GIVE 23u
 #define FZN_NODE_MESSAGES_GIVEN 24u
 #define FZN_NODE_MESSAGES_WANT 25u

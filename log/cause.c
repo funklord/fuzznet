@@ -35,7 +35,7 @@ fzn_cause_err_t fzn_cause_wrap(const fzn_entry_name_t *cause, const fzn_entry_na
 	need = 1u + cl + ol + 2u + inner_len;
 	if (need > cap)
 		return FZN_CAUSE_ERR_ROOM;
-	out[0] = FZN_CAUSE_VERSION;
+	out[0] = FZN_CMD_CAUSE;
 	memcpy(out + 1, c, cl);
 	memcpy(out + 1 + cl, o, ol);
 	fzn_put_be16(out + 1 + cl + ol, (uint16_t)inner_len);
@@ -54,7 +54,7 @@ fzn_cause_err_t fzn_cause_unwrap(const uint8_t *payload, size_t len, fzn_entry_n
 
 	if (!payload || !cause || !origin || !inner || !inner_len)
 		return FZN_CAUSE_ERR_MALFORMED;
-	if (len == 0u || payload[0] != FZN_CAUSE_VERSION)
+	if (len == 0u || payload[0] != FZN_CMD_CAUSE)
 		return FZN_CAUSE_NONE;
 	if (fzn_entry_name_unpack(payload + at, len - at, cause, &used) != FZN_ENTRY_OK)
 		return FZN_CAUSE_ERR_MALFORMED;

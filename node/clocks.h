@@ -86,8 +86,8 @@ size_t fzn_node_clocks_local(fzn_node_clocks_t *c, fzn_origin_t origin,
 /* ---- the time probe and offsets per peer, sec 719 stage 1 -------------- */
 
 /* THE PROBE, version 2 (`node/types.h`):
- *     ask     2 | FZN_TYPE_TIME_ASK | nonce[16]
- *     answer  2 | FZN_TYPE_TIME     | nonce[16] | time_ms (u64, big-endian)
+ *     ask     2 | FZN_SUBCMD_TIME_ASK | nonce[16]
+ *     answer  2 | FZN_SUBCMD_TIME_REPLY     | nonce[16] | time_ms (u64, big-endian)
  * A node answers an ask whatever its frame's expiry (`node/remote.c`), so
  * that two clocks already too far apart for any other request can still
  * be measured; answering changes nothing, so a replayed ask gains nothing

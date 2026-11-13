@@ -219,9 +219,8 @@ typedef struct fzn_node_admin {
 	size_t (*extension_local_from)(void *ctx, fzn_origin_t origin, const fzn_peer_t *peer,
 	                               const fzn_request_t *request, char *reply,
 	                               size_t reply_cap);
-	/* AND ITS REMOTE REQUESTS, sec 674: version 2's, of a type in
-	 * `node/types.h`'s extensions' range, and nothing else; NULL, and one
-	 * such is `unsupported`. */
+	/* AND ITS REMOTE REQUESTS, sec 674 and 1085: those of FZN_CMD_EXTENSION,
+	 * any SUBCMD, and nothing else; NULL, and one such is `unsupported`. */
 	size_t (*extension_remote)(void *ctx, const uint8_t *sender, int contact,
 	                           const uint8_t *request, size_t request_len, uint8_t *reply,
 	                           size_t reply_cap);

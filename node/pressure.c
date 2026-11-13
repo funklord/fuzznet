@@ -118,8 +118,8 @@ fzn_rank_t fzn_pressure_family_rank(fzn_meter_family_t family)
 fzn_rank_t fzn_pressure_request_rank(fzn_meter_family_t family, const uint8_t *payload,
                                      size_t len)
 {
-	if (payload && len >= 2u && payload[0] == FZN_TYPES_VERSION_SHARED
-	    && (payload[1] == FZN_TYPE_GROUP_LINES_SYNC || payload[1] == FZN_TYPE_GROUP_LINES))
+	if (payload && len >= 2u && payload[0] == FZN_CMD_GROUPS
+	    && (payload[1] == FZN_SUBCMD_GROUPS_LINES_SYNC || payload[1] == FZN_SUBCMD_GROUPS_LINES))
 		return FZN_RANK_REFETCH;
 	return fzn_pressure_family_rank(family);
 }

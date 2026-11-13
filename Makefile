@@ -382,7 +382,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chunk/reassembly.h \
              chunk/split.h chunk/erasure.h \
              tree/tree.h \
-             wire/seal.h wire/session_frame.h wire/relay.h wire/status.h wire/bytes.h session/aead.h \
+             wire/seal.h wire/session_frame.h wire/relay.h wire/status.h wire/cmd.h wire/bytes.h session/aead.h \
              session/random.h session/random_system.h session/agree.h \
              session/session.h session/box.h \
              version/version.h \

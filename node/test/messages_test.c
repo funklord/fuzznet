@@ -716,7 +716,7 @@ static void test_keys_cannot_be_planted(void)
 	      "fixture: the hub holds A's key");
 	/* B GIVES A KEY FOR THE SAME CONVERSATION AND MONTH: it is kept as
 	 * B's, never as A's, and A's at the hub is untouched. */
-	give[0] = FZN_NODE_MESSAGES_VERSION;
+	give[0] = FZN_CMD_MESSAGES;
 	give[1] = FZN_NODE_MESSAGES_GIVE;
 	give[2] = 1u;
 	memcpy(give + 3, X, FZN_PUBKEY_LEN);
@@ -878,7 +878,7 @@ static int serve(void *ctx, const uint8_t *request, size_t request_len, uint8_t 
 	size_t n = fzn_node_journal_answer(&s->to->journal, request, request_len, out, out_cap);
 
 	if (n) {
-		if (request_len >= 2u && request[0] == FZN_EXCHANGE_VERSION
+		if (request_len >= 2u && request[0] == FZN_CMD_EXCHANGE
 		    && request[1] == FZN_EXCHANGE_PUSH)
 			s->pushed = 1;
 	} else {
@@ -1433,7 +1433,7 @@ static void test_a_line_is_delivered_to_a_contact(void)
 		uint8_t req[FZN_NODE_MESSAGES_DELIVER_MAX], out[64];
 		size_t n;
 
-		req[0] = FZN_NODE_MESSAGES_VERSION;
+		req[0] = FZN_CMD_MESSAGES;
 		req[1] = FZN_NODE_MESSAGES_DELIVER;
 		memset(req + 2, 0x71, FZN_MESSAGE_ID_LEN);
 		memset(req + 2 + FZN_MESSAGE_ID_LEN, 0, 8u);
@@ -1524,7 +1524,7 @@ static int delivery_cut_at(long k, int absorb, int *cut)
 	device_up(&C, 0x77);
 	host_up(&S, &S);
 	host_up(&C, &S);
-	req[0] = FZN_NODE_MESSAGES_VERSION;
+	req[0] = FZN_CMD_MESSAGES;
 	req[1] = FZN_NODE_MESSAGES_DELIVER;
 	memset(req + 2, 0x71, FZN_MESSAGE_ID_LEN);
 	memset(req + 2 + FZN_MESSAGE_ID_LEN, 0, 8u);
@@ -1789,7 +1789,7 @@ static void test_a_holds_question_is_exact(void)
 
 	setup();
 	memset(req, 0, sizeof(req));
-	req[0] = FZN_NODE_MESSAGES_VERSION;
+	req[0] = FZN_CMD_MESSAGES;
 	req[1] = FZN_NODE_MESSAGES_HOLDS;
 	CHECK(fzn_node_messages_remote(&A.nm, B.pub, req, FZN_NODE_MESSAGES_HOLDS_LEN, out,
 	                               sizeof(out))

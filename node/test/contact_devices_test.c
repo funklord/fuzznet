@@ -787,7 +787,7 @@ static void test_the_revoked_messages(void)
 	mode = 0;
 	/* A DEVICES QUERY IS NOT THIS ONE'S, and a reply too small for a head
 	 * answers nothing. */
-	req[0] = FZN_CONTACT_DEVICES_VERSION;
+	req[0] = FZN_CMD_CONTACTS;
 	req[1] = FZN_CONTACT_DEVICES_QUERY;
 	req[2] = 0u;
 	req[3] = FZN_CONTACT_DEVICES_HOSTS;

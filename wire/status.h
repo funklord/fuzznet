@@ -15,12 +15,12 @@
 #ifndef FZN_NODE_STATUS_H
 #define FZN_NODE_STATUS_H
 
+#include "cmd.h"
 #include <stddef.h>
 #include <stdint.h>
 
 /* ITS TYPE in version 2, allocated in node/types.h's registry as
  * FZN_TYPE_STATUS. */
-#define FZN_STATUS_VERSION 2u
 #define FZN_STATUS_TYPE 65u
 #define FZN_STATUS_HEAD_LEN 4u
 #define FZN_STATUS_WHY_MAX 200u

@@ -19,7 +19,7 @@ endian big
 target buffer
 
 struct message size=6..50
-  @0x0000   1         u8         family  must_eq=2
+  @0x0000   1         u8         family  must_eq=12
   @0x0001   1         u8         type  must_eq=66
   @0x0002   1         u8         address_len  min=1 max=45
   @0x0003   1..45     u8         address  sized-by=address_len
