@@ -88069,3 +88069,34 @@ for a path (sec 794). The view says what was sent and its size.
 **Tests:** `conversation_view_test`, sixteen checks: nothing older to
 show behind four lines, and a file put private and sent to dan as an
 attachment line. Sabotage `conversation-view-file-sent-public` is caught.
+
+## 1141. Choosing a sticker, and keeping packs, as a widget, 2026-11-13
+
+**The part of fuzzypickles' sticker pages the focused app keeps** (inbox
+1553Z, item 1). `gui/sticker_picker_view` shows the packs this user
+keeps as tabs, each with its stickers. A sticker is drawn from the
+thumbnail the node renders (`fzn_rpc_sticker_art`) wherever Qt reads the
+format -- PNG, APNG's first frame, WebP -- and named by its description
+otherwise. Lottie wants thorvg, which fuzzypickles vendors and fuzznet
+does not. fuzzypickles answered the question (inbox 2226Z): views draw a
+sticker's art, stickers are fuzznet's, and thorvg comes with them,
+vendored here rather than reached through the host. Its own
+`sticker_render` draws PNG, APNG and WebP through Qt and Lottie through
+thorvg, built with its software rasteriser and Lottie loader. That is
+the next step, for this picker and for a sticker line in the
+conversation view alike. Until then fuzzypickles keeps its own
+conversation pages, and hosts these once the friend's build has left. Choosing one hands the host,
+through `on_pick`, the reference a line carries (`fzn:sticker/...`),
+which it sends as any line. "Add sticker packs" keeps pack files,
+several at once, each put here private and kept in the user's
+collection, and says "Kept N of M" with why each other was not.
+
+**Not here:** the pack editor, which the focused app leaves out, and a
+received sticker's "Keep" in the conversation.
+
+**Tests:** `sticker_picker_view_test`, six checks against a scripted
+node: one pack as a tab, a sticker drawn from the PNG the node writes and
+one named by its words; its reference handed over; a sticker not there;
+two files kept, one refused, said with why; silence. Sabotage
+`sticker-picker-never-drawn` and `sticker-picker-refusal-unsaid` are
+each caught.

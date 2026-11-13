@@ -86,6 +86,7 @@
 /gui/test/library_view_test
 /gui/test/reach_view_test
 /gui/test/conversations_view_test
+/gui/test/sticker_picker_view_test
 /gui/test/location_view_test
 /gui/test/authz_view_test
 /gui/test/capability_view_test

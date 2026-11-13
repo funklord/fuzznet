@@ -14657,6 +14657,20 @@ SABOTAGES = [
 		"a file sent in a conversation is stored public, for anyone to fetch -- sec 1140",
 	),
 	(
+		"sticker-picker-never-drawn",
+		"gui/sticker_picker_view.cpp",
+		"\t\t\t\t\tif (image.loadFromData(art, (int)art_len)) {\n",
+		"\t\t\t\t\tif (0 && image.loadFromData(art, (int)art_len)) {\n",
+		"a sticker the node renders is shown as words only -- sec 1141",
+	),
+	(
+		"sticker-picker-refusal-unsaid",
+		"gui/sticker_picker_view.cpp",
+		"\t\t\twhy << QStringLiteral(\"%1: %2\").arg(f.section(QLatin1Char('/'), -1), failed_words(m_rpc));\n",
+		"\t\t\t;\n",
+		"a pack not kept is not said with why -- sec 1141",
+	),
+	(
 		"conversation-view-read-at-own-line",
 		"gui/conversation_view.cpp",
 		"\t\tif (!lines[i].outgoing)\n\t\t\tnewest_in = &lines[i];\n",

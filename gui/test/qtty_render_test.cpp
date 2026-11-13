@@ -59,6 +59,7 @@
 #include "../library_view.h"
 #include "../reach_view.h"
 #include "../conversations_view.h"
+#include "../sticker_picker_view.h"
 #include "../location_view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../entries_view.h"
@@ -392,6 +393,7 @@ static void test_every_widget_survives_a_terminal(void)
 	(void)library_v.refresh();
 	fzn_reach_view reach_v(empty_node, nullptr);
 	fzn_conversations_view conversations_v(empty_node, nullptr);
+	fzn_sticker_picker_view picker_v(empty_node, nullptr);
 	fzn_location_view location_v(empty_node, nullptr);
 	(void)location_v.refresh();
 #ifdef FZN_LOG_FILE_ON
@@ -705,6 +707,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "reach_view", &reach_v, "is not known yet" },
 			/* NONE YET IS SAID, not an empty tree (sec 1138). */
 			{ "conversations_view", &conversations_v, "No conversations yet." },
+			/* NO PACK YET IS SAID, not an empty strip of tabs (sec 1141). */
+			{ "sticker_picker_view", &picker_v, "No sticker packs kept yet." },
 			/* NOBODY SHARING IS SAID, sec 1109. */
 			{ "location_view", &location_v, "Nobody shares a position" },
 #ifdef FZN_LOG_FILE_ON
