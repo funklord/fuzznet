@@ -14650,6 +14650,27 @@ SABOTAGES = [
 		"a group's conversation is opened as a contact's of the same name -- sec 1138",
 	),
 	(
+		"conversations-menu-sharing-unread",
+		"gui/conversations_view.cpp",
+		"\tif (on == 0)\n\t\tout << tr(\"Share my location\");\n",
+		"\tif (on >= 0)\n\t\tout << tr(\"Share my location\");\n",
+		"a contact who sees this user's location is offered sharing again -- sec 1144",
+	),
+	(
+		"conversations-menu-stop-shares",
+		"gui/conversations_view.cpp",
+		"(size_t)who.size(), on ? 1 : 0, 0, &siblings)",
+		"(size_t)who.size(), 1, 0, &siblings)",
+		"no longer sharing location shares it instead -- sec 1144",
+	),
+	(
+		"conversations-menu-call-everyone-unnamed",
+		"gui/conversations_view.cpp",
+		"\t\t\tif (members.members[i].name_len)\n",
+		"\t\t\tif (1)\n",
+		"calling a group rings members it cannot name, this user among them -- sec 1144",
+	),
+	(
 		"conversation-view-file-sent-public",
 		"gui/conversation_view.cpp",
 		"FZN_RPC_BLOB_TIER_PRIVATE, &stored)",

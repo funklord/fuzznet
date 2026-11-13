@@ -12,6 +12,7 @@ extern "C" {
 #include <QHBoxLayout>
 #include <QHash>
 #include <QLabel>
+#include <QMenu>
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -23,8 +24,10 @@ extern "C" {
 /* The most conversations shown: past it the listing is cut and said so. */
 #define CONVERSATIONS_MAX 8192u
 
-/* A ROW'S ITEM carries what to open it by. */
+/* A ROW'S ITEM carries what to open it by, and what kind of row it is. */
 #define ROLE_OPEN (Qt::UserRole)
+#define ROLE_KIND (Qt::UserRole + 1)
+enum { ROW_CONTACT = 1, ROW_GROUP = 2, ROW_UNNAMED = 3 };
 
 static QString failed_words(const fzn_gui_rpc *r)
 {
@@ -104,12 +107,31 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 			m_open(to);
 	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
+	m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
+	connect(m_tree, &QTreeWidget::customContextMenuRequested, [this](const QPoint &at) {
+		QTreeWidgetItem *item = m_tree->itemAt(at);
+		QTreeWidgetItem *head = item ? item->parent() : nullptr;
+		if (!head)
+			return;
+		const int group = m_tree->indexOfTopLevelItem(head), row = head->indexOfChild(item);
+		QMenu menu(this);
+		for (const QString &a : actions(group, row))
+			menu.addAction(a);
+		QAction *chosen = menu.exec(m_tree->viewport()->mapToGlobal(at));
+		if (chosen)
+			act(group, row, chosen->text());
+	});
 	m_status->setText(tr("No conversations yet."));
 }
 
 fzn_conversations_view::~fzn_conversations_view() { delete m_rpc; }
 
 void fzn_conversations_view::on_open(std::function<void(const QString &)> open) { m_open = open; }
+
+void fzn_conversations_view::on_action(std::function<void(const QString &, const QString &)> act)
+{
+	m_act = act;
+}
 
 void fzn_conversations_view::set_now(uint32_t utc_s) { m_now = utc_s; }
 
@@ -170,6 +192,9 @@ bool fzn_conversations_view::refresh()
 			text += tr(" (%1 unread)").arg(count);
 		auto *item = new QTreeWidgetItem(is_group ? group_head : contacts, { text });
 		item->setData(0, ROLE_OPEN, is_group ? QStringLiteral("@") + name : name);
+		item->setData(0, ROLE_KIND, is_group                  ? ROW_GROUP
+		                            : contact_name.contains(key) ? ROW_CONTACT
+		                                                         : ROW_UNNAMED);
 	}
 	contacts->setExpanded(true);
 	group_head->setExpanded(true);
@@ -208,3 +233,107 @@ QStringList fzn_conversations_view::shown() const
 }
 
 QString fzn_conversations_view::status() const { return m_status->text(); }
+
+QTreeWidgetItem *fzn_conversations_view::row_item(int group, int row) const
+{
+	QTreeWidgetItem *head = m_tree->topLevelItem(group);
+	return head && row >= 0 ? head->child(row) : nullptr;
+}
+
+/* WHETHER THIS USER'S LOCATION IS SHARED WITH A CONTACT: asked when its
+ * menu opens rather than with every refresh, since it costs a listing of
+ * who holds the stream. 1, 0, or -1 when the node could not say. */
+int fzn_conversations_view::sharing(const QString &contact)
+{
+	fzn_rpc_peer_list_resp_t peers;
+	int on = -1;
+	memset(&peers, 0, sizeof peers);
+	if (fzn_rpc_peer_list(&m_rpc->c, &peers) == FZN_RPC_OK) {
+		fzn_rpc_peer_shares(&m_rpc->c, &peers);
+		for (size_t i = 0; i < peers.count; i++)
+			if (QString::fromUtf8(peers.entries[i].name, (int)peers.entries[i].name_len) == contact)
+				on = peers.entries[i].share_location ? 1 : 0;
+	} else {
+		m_status->setText(failed_words(m_rpc));
+	}
+	free(peers.entries);
+	return on;
+}
+
+QStringList fzn_conversations_view::actions(int group, int row)
+{
+	QTreeWidgetItem *item = row_item(group, row);
+	const int kind = item ? item->data(0, ROLE_KIND).toInt() : 0;
+	if (kind == ROW_GROUP)
+		return { tr("Send a file..."), tr("Call everyone"), tr("Members and admins...") };
+	if (kind != ROW_CONTACT)
+		return {}; /* nobody to name: a contact since removed */
+	QStringList out({ tr("Send a file..."), tr("Call"), tr("Video call") });
+	const int on = sharing(item->data(0, ROLE_OPEN).toString());
+	if (on == 0)
+		out << tr("Share my location");
+	else if (on == 1)
+		out << tr("Stop sharing my location");
+	return out;
+}
+
+bool fzn_conversations_view::act(int group, int row, const QString &action)
+{
+	QTreeWidgetItem *item = row_item(group, row);
+	const int kind = item ? item->data(0, ROLE_KIND).toInt() : 0;
+	const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
+	if (kind != ROW_CONTACT && kind != ROW_GROUP)
+		return false;
+	if (kind == ROW_CONTACT && (action == tr("Share my location") || action == tr("Stop sharing my location"))) {
+		/* SHARED AS THE LOCATION VIEW'S DEFAULT HAS IT, exactly; a coarser
+		 * share is chosen there (sec 1119). */
+		const bool on = action == tr("Share my location");
+		QByteArray who = to.toUtf8();
+		int siblings = 0;
+		if (fzn_rpc_location_share(&m_rpc->c, who.constData(), (size_t)who.size(), on ? 1 : 0, 0, &siblings)
+		    != FZN_RPC_OK) {
+			m_status->setText(failed_words(m_rpc));
+			return false;
+		}
+		m_status->setText(on ? tr("%1 can see your position now.").arg(to)
+		                     : tr("%1 no longer sees your position.").arg(to));
+		return true;
+	}
+	if (!m_act)
+		return false;
+	if (action == tr("Send a file...")) {
+		m_act(QStringLiteral("file"), to);
+		return true;
+	}
+	if (kind == ROW_CONTACT && (action == tr("Call") || action == tr("Video call"))) {
+		m_act(action == tr("Call") ? QStringLiteral("call") : QStringLiteral("video"), to);
+		return true;
+	}
+	if (kind == ROW_GROUP && action == tr("Members and admins...")) {
+		m_act(QStringLiteral("members"), to.mid(1));
+		return true;
+	}
+	if (kind == ROW_GROUP && action == tr("Call everyone")) {
+		/* EVERY MEMBER THIS USER CAN NAME, this user not among them. */
+		fzn_rpc_group_show_resp_t members;
+		QByteArray name = to.mid(1).toUtf8();
+		QStringList who;
+		memset(&members, 0, sizeof members);
+		if (fzn_rpc_group_members(&m_rpc->c, name.constData(), (size_t)name.size(), &members) != FZN_RPC_OK) {
+			m_status->setText(failed_words(m_rpc));
+			free(members.members);
+			return false;
+		}
+		for (size_t i = 0; i < members.member_count; i++)
+			if (members.members[i].name_len)
+				who << QString::fromUtf8(members.members[i].name, (int)members.members[i].name_len);
+		free(members.members);
+		if (who.isEmpty()) {
+			m_status->setText(tr("Nobody else in %1 to call.").arg(to.mid(1)));
+			return false;
+		}
+		m_act(QStringLiteral("call"), who.join(QLatin1Char(',')));
+		return true;
+	}
+	return false;
+}

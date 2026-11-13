@@ -12,6 +12,14 @@
  * its name, a group as `@NAME`, as `conversation_view` takes them.
  *
  * Lines and names are other people's words, in caret form (sec 1126).
+ *
+ * EACH ROW'S MENU (sec 1144, fuzzypickles 1553Z item 3): a contact's
+ * offers sending a file, a call, a video call, and sharing this user's
+ * location with it or no longer; a group's offers sending a file, calling
+ * everyone in it, and its members and admins. Sharing is done here; the
+ * rest is the host's, told what and to whom -- a contact's name, `@NAME`
+ * for a group, and for calling a group its members' names joined by
+ * commas, as `fzn_call_view::call` takes them.
  * Through the typed client on the host's ask callback (`rpc_ask.h`).
  * NO Q_OBJECT AND THEREFORE NO moc.
  */
@@ -30,6 +38,7 @@
 class QLabel;
 class QPushButton;
 class QTreeWidget;
+class QTreeWidgetItem;
 struct fzn_gui_rpc;
 
 class fzn_conversations_view : public QWidget {
@@ -48,6 +57,15 @@ public:
 	 * (1), counted from 0 as shown. */
 	bool open(int group, int row);
 
+	/* WHAT TO DO WITH A ROW'S MENU CHOICE the host carries out: `what` is
+	 * file, call, video or members, `to` as above. */
+	void on_action(std::function<void(const QString &what, const QString &to)> act);
+
+	/* A row's menu as offered, and choosing from it -- public because a
+	 * headless test cannot open a menu. */
+	QStringList actions(int group, int row);
+	bool act(int group, int row, const QString &action);
+
 	/* The clock, seconds since 1970; 0 reads the system's. */
 	void set_now(uint32_t utc_s);
 
@@ -57,8 +75,12 @@ public:
 	QString status() const;
 
 private:
+	QTreeWidgetItem *row_item(int group, int row) const;
+	int sharing(const QString &contact);
+
 	struct fzn_gui_rpc *m_rpc;
 	std::function<void(const QString &)> m_open;
+	std::function<void(const QString &, const QString &)> m_act;
 	uint32_t m_now;
 
 	QTreeWidget *m_tree;

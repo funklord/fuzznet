@@ -85900,7 +85900,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
-| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
+| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view's media, which is the host's (the view itself is sec 1142) |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
@@ -88170,3 +88170,32 @@ silence. Sabotage `group-view-non-admin-asks`,
 `group-view-inactive-offered`, `group-view-proposal-unsaid` and
 `group-view-you-unmarked` are each caught. The qtty render check sizes
 it at 20 columns and 295 px.
+
+## 1144. Each conversation's menu, 2026-11-14
+
+**fuzzypickles' conversation row menu** (inbox 1553Z, item 3), on
+`gui/conversations_view`: a contact's row offers "Send a file...",
+"Call", "Video call", and "Share my location" or "Stop sharing my
+location" as it stands; a group's offers "Send a file...", "Call
+everyone" and "Members and admins...". A contact since removed, shown by
+its key, offers nothing, since every verb names a contact.
+
+**Sharing is done here; the rest is the host's.** The view grants or
+revokes the location stream itself, exactly as the location view's
+default has it -- a coarser share is chosen there (sec 1119) -- and says
+so. Whether a contact sees this user's location is asked when its menu
+opens, not on every refresh, since it costs a listing of who holds the
+stream. The other choices are handed to the host through `on_action`
+with a word and whom: `file` with a contact's name or `@NAME`, `call`
+or `video` with a contact's name, `members` with a group's name for
+`group_view` (sec 1143), and `call` with the names of every member this
+user can name, joined by commas, for `fzn_call_view::call` (sec 1142).
+The host owns the file chooser and where each view is shown.
+
+**Tests:** `conversations_view_test` gains ten checks: a contact's menu
+with sharing offered, one already sharing offered to stop; a video call
+handed over; sharing granted and said; stopping revoked and said; a
+group's menu; its file as `@family`, its members by name, its call to
+bob and dan without this user; a choice not offered refused. Sabotage
+`conversations-menu-sharing-unread`, `conversations-menu-stop-shares`
+and `conversations-menu-call-everyone-unnamed` are each caught.
