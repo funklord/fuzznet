@@ -469,6 +469,31 @@ static void test_dropped_figures_are_carried(void)
 	      "how many reporters agree was lost");
 }
 
+/* EVERY CONVERSATION'S NEWEST LINE, sec 1136: a file sent, a group member's
+ * text with an escape, and a contact with nothing yet, read whole. */
+static void test_every_newest_line_is_read(void)
+{
+	static const char *const reply =
+	        "ok 3 0 3 " ID_A ",30000,out,-,file,photo.jpg " ID_B
+	        ",20000,in,carol,text,see%20you%20at%208 " ID_A ",0,-,-,none,";
+	struct script s = { { reply }, 0, 1, 0, { { 0 } } };
+	static fzn_rpc_newest_entry_t out[4];
+	size_t count = 0, total = 0;
+
+	on(&c, &s);
+	CHECK(fzn_rpc_newest_all(&c, out, 4, &count, &total) == FZN_RPC_OK && count == 3 && total == 3
+	              && !strcmp(s.asked[0], "list message newest"),
+	      "the newest lines were not read in one listing");
+	CHECK(out[0].kind == FZN_RPC_NEWEST_FILE && out[0].outgoing && out[0].stime_ms == 30000
+	              && !strcmp(out[0].text, "photo.jpg") && !out[0].sender_len,
+	      "a file sent was not read as one, by its name");
+	CHECK(out[1].kind == FZN_RPC_NEWEST_TEXT && !out[1].outgoing && !strcmp(out[1].sender, "carol")
+	              && !strcmp(out[1].text, "see you at 8"),
+	      "a member's line was not read with its writer and its text unescaped");
+	CHECK(out[2].kind == FZN_RPC_NEWEST_NONE && out[2].stime_ms == 0 && !out[2].text_len,
+	      "a conversation with no line yet was not read as none");
+}
+
 int main(void)
 {
 	test_groups_are_read_across_pages();
@@ -489,6 +514,7 @@ int main(void)
 	test_a_media_channel_carries_whole_frames();
 	test_a_join_is_asked_and_then_seen();
 	test_dropped_figures_are_carried();
+	test_every_newest_line_is_read();
 	test_the_suite_can_tell_pass_from_fail();
 	if (failures) {
 		fprintf(stderr, "local rpc_test: %d check(s) failed\n", failures);

@@ -1039,6 +1039,70 @@ int fzn_rpc_message_unread(fzn_rpc_t *c, const char *peer, size_t peer_len, size
 	return FZN_RPC_OK;
 }
 
+static int node_unescape(const char *in, size_t n, char *out, size_t cap, size_t *len, int *cut);
+int fzn_rpc_newest_all(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap, size_t *count,
+                       size_t *total) {
+	*count = 0;
+	*total = 0;
+	size_t from = 0;
+	/* A page that moves shows at least one conversation; this bounds the
+	 * pages in case one does not. */
+	for (unsigned page = 0; page <= 4096u; page++) {
+		char arg[32];
+		const int arg_len = from ? snprintf(arg, sizeof arg, "message newest %zu", from)
+		                         : snprintf(arg, sizeof arg, "message newest");
+		const char *rest = NULL;
+		size_t rest_len = 0, at = 0, all = 0, start = 0, shown = 0;
+		const int rc = fzn_rpc_node(c, "list", arg, (size_t)arg_len, &rest, &rest_len);
+		if (rc != FZN_RPC_OK) return rc;
+		if (!node_number(rest, rest_len, &at, &all) || !node_number(rest, rest_len, &at, &start) ||
+		    !node_number(rest, rest_len, &at, &shown) || start != from)
+			return unreadable(c);
+		*total = all;
+		const char *p = rest + at, *end = rest + rest_len, *w;
+		size_t w_len, listed = 0;
+		while (node_word(&p, end, &w, &w_len)) {
+			const char *q = w, *stop = w + w_len, *f;
+			size_t f_len;
+			fzn_rpc_newest_entry_t e;
+			memset(&e, 0, sizeof e);
+			uint64_t stime = 0;
+			/* KEY,STIME,DIRECTION,SENDER,KIND,TEXT */
+			if (!node_field(&q, stop, &f, &f_len) || !node_key(f, f_len, e.key) ||
+			    !node_field(&q, stop, &f, &f_len) || !node_u64(f, f_len, &stime) ||
+			    !node_field(&q, stop, &f, &f_len))
+				return unreadable(c);
+			e.stime_ms = stime;
+			e.outgoing = f_len == 3 && memcmp(f, "out", 3) == 0;
+			if (!node_field(&q, stop, &f, &f_len) || f_len > FZN_RPC_PEER_NAME_MAX)
+				return unreadable(c);
+			if (!(f_len == 1 && f[0] == '-')) {
+				memcpy(e.sender, f, f_len);
+				e.sender_len = f_len;
+			}
+			if (!node_field(&q, stop, &f, &f_len)) return unreadable(c);
+			e.kind = f_len == 4 && !memcmp(f, "text", 4)      ? FZN_RPC_NEWEST_TEXT
+			         : f_len == 4 && !memcmp(f, "file", 4)    ? FZN_RPC_NEWEST_FILE
+			         : f_len == 7 && !memcmp(f, "sticker", 7) ? FZN_RPC_NEWEST_STICKER
+			         : f_len == 5 && !memcmp(f, "shell", 5)   ? FZN_RPC_NEWEST_SHELL
+			                                                  : FZN_RPC_NEWEST_NONE;
+			/* THE TEXT is the rest, escaped; empty for none. */
+			const char *t = q <= stop ? q : stop;
+			int cut = 0;
+			if (!node_unescape(t, (size_t)(stop - t), e.text, FZN_RPC_NEWEST_TEXT_MAX, &e.text_len,
+			                   &cut))
+				return unreadable(c);
+			e.text[e.text_len] = '\0';
+			listed++;
+			if (*count < cap) out[(*count)++] = e;
+		}
+		if (listed != shown) return unreadable(c);
+		from += shown;
+		if (!shown || from >= all || *count >= cap) return FZN_RPC_OK;
+	}
+	return unreadable(c);
+}
+
 int fzn_rpc_unread_all(fzn_rpc_t *c, fzn_rpc_unread_entry_t *out, size_t cap, size_t *count,
                         size_t *total) {
 	*count = 0;

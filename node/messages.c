@@ -6,12 +6,17 @@
 
 #include "../contact/contact.h"
 #include "../messages/attachment.h"
+#ifdef FZN_STICKERS_ON
+#include "../sticker/pack.h"
+#endif
+#include "group_log.h"
 #include "../local/escape.h"
 #include "group_lines.h"
 #include "groups.h"
 #include "../wire/bytes.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char HEX[] = "0123456789abcdef";
@@ -1567,6 +1572,243 @@ static size_t list_unread(fzn_node_messages_t *nm, size_t from, char *reply, siz
 	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k + used);
 }
 
+/* ---- every conversation's newest line, sec 1136 -------------------------- */
+
+/* A SHORT TEXT, the most of a line a list shows under a name: whole UTF-8
+ * characters, never one cut in two. */
+#define NEWEST_TEXT_MAX 60u
+
+typedef struct newest_row {
+	uint8_t key[FZN_PUBKEY_LEN];
+	uint64_t stime; /* 0 for a conversation with no line yet */
+} newest_row_t;
+
+static newest_row_t *newest_rows;
+static size_t newest_room;
+
+static int newest_add(const uint8_t key[FZN_PUBKEY_LEN], uint64_t stime, size_t *n)
+{
+	if (*n == newest_room) {
+		size_t room = newest_room ? newest_room * 2u : 256u;
+		newest_row_t *grown = realloc(newest_rows, room * sizeof(*grown));
+
+		if (!grown)
+			return 0;
+		newest_rows = grown;
+		newest_room = room;
+	}
+	memcpy(newest_rows[*n].key, key, FZN_PUBKEY_LEN);
+	newest_rows[*n].stime = stime;
+	(*n)++;
+	return 1;
+}
+
+/* NEWEST FIRST, a conversation with no line last, ties by key so a page
+ * boundary falls in the same place every time. */
+static int newest_order(const void *a, const void *b)
+{
+	const newest_row_t *x = a, *y = b;
+
+	if (x->stime != y->stime)
+		return x->stime > y->stime ? -1 : 1;
+	return memcmp(x->key, y->key, FZN_PUBKEY_LEN);
+}
+
+static int newest_by_key(const void *a, const void *b)
+{
+	return memcmp(((const newest_row_t *)a)->key, ((const newest_row_t *)b)->key, FZN_PUBKEY_LEN);
+}
+
+/* Whether `key` has a line among the first `with_lines` rows, sorted by key:
+ * a search, not a scan, at thousands of contacts and groups. */
+static int newest_has(const uint8_t key[FZN_PUBKEY_LEN], size_t with_lines)
+{
+	newest_row_t probe;
+
+	memcpy(probe.key, key, FZN_PUBKEY_LEN);
+	return with_lines
+	       && bsearch(&probe, newest_rows, with_lines, sizeof(*newest_rows), newest_by_key) != NULL;
+}
+
+struct newest_walk {
+	fzn_node_messages_t *nm;
+	size_t *n;
+	size_t with_lines;
+	int failed;
+};
+
+/* A CONTACT WITH NO LINE YET is listed too, so a list can say so. */
+static int newest_contact(void *ctx, const fzn_contact_t *c)
+{
+	struct newest_walk *w = ctx;
+
+	if (newest_has(c->key, w->with_lines))
+		return 1;
+	if (!newest_add(c->key, 0, w->n)) {
+		w->failed = 1;
+		return 0;
+	}
+	return 1;
+}
+
+/* WHAT A LIST SHOWS OF A LINE: its kind and a short text -- a file's name,
+ * a sticker's description, the line's first characters, or nothing for a
+ * shell whose month's key is gone. */
+static const char *newest_kind(const fzn_message_t *p, const char **text, size_t *len)
+{
+	static fzn_attachment_t file;
+#ifdef FZN_STICKERS_ON
+	static fzn_sticker_ref_t sticker;
+#endif
+	size_t n;
+
+	*text = p->text;
+	*len = 0;
+	if (!p->readable)
+		return "shell";
+	if (fzn_attachment_parse(p->text, p->text_len, &file)) {
+		*text = file.name;
+		*len = file.name_len;
+		return "file";
+	}
+#ifdef FZN_STICKERS_ON
+	if (fzn_sticker_ref_parse(p->text, p->text_len, &sticker)) {
+		*text = sticker.description;
+		*len = sticker.description_len;
+		return "sticker";
+	}
+#endif
+	n = p->text_len < NEWEST_TEXT_MAX ? p->text_len : NEWEST_TEXT_MAX;
+	/* NOT IN THE MIDDLE OF A CHARACTER: back off any continuation bytes. */
+	while (n < p->text_len && n > 0u && ((uint8_t)p->text[n] & 0xc0u) == 0x80u)
+		n--;
+	*len = n;
+	return "text";
+}
+
+/* `list message newest [FROM]`, sec 1136, fuzzypickles' (inbox 1704Z): `ok
+ * TOTAL FROM SHOWN KEY,STIME,DIRECTION,SENDER,KIND,TEXT ...`, every
+ * conversation -- a contact's key or a group's id -- with its newest line,
+ * newest first, one with no line yet last as `KEY,0,-,-,none,`. A client's
+ * conversation list is one request a refresh, where it was a request a
+ * conversation. DIRECTION `out` or `in`; SENDER a group's member who wrote
+ * an `in` line, as `list message` names one, else `-`; KIND `text`, `file`,
+ * `sticker` or `shell`; TEXT escaped, the most a list shows of it. Paged by
+ * row from FROM. */
+static size_t list_newest(fzn_node_messages_t *nm, size_t from, char *reply, size_t cap)
+{
+	static char items[FZN_REPLY_MAX], detail[FZN_REPLY_MAX];
+	static fzn_message_t newest[1];
+	size_t limit = fzn_reply_ok_room(cap), n = 0, b, rows = 0, r, shown = 0, used = 0, got = 0;
+	int k, more = 0, full = 0;
+	struct newest_walk walk;
+	fzn_group_held_t held = { NULL, 0, 0 };
+
+	if (!conversations_listed(nm, &n))
+		return say(reply, cap, FZN_REPLY_ERROR, "the conversations did not list");
+	/* EVERY CONVERSATION WITH A LINE, by its newest's time. */
+	for (b = 0; b < n; b++) {
+		const uint8_t *key = buckets[b].subject;
+
+		if (b > 0 && memcmp(buckets[b - 1u].subject, key, FZN_PUBKEY_LEN) == 0)
+			continue;
+		got = 0;
+		if (fzn_messages_page(&nm->m, key, 0, newest, 1u, &got, &more) != FZN_MESSAGES_OK)
+			return say(reply, cap, FZN_REPLY_ERROR, "a conversation's newest line did not read");
+		if (!newest_add(key, got ? (newest[0].stime ? newest[0].stime : 1u) : 0u, &rows))
+			return say(reply, cap, FZN_REPLY_ERROR, "no room to list the conversations");
+	}
+	/* AND EVERY CONTACT AND GROUP WITH NONE YET, looked up among those with
+	 * lines, sorted by key for it. */
+	if (rows)
+		qsort(newest_rows, rows, sizeof(*newest_rows), newest_by_key);
+	walk.nm = nm;
+	walk.n = &rows;
+	walk.with_lines = rows;
+	walk.failed = 0;
+	if (fzn_contact_each(nm->m.store, newest_contact, &walk) != FZN_CONTACT_OK || walk.failed)
+		return say(reply, cap, FZN_REPLY_ERROR, "the contacts did not list");
+	if (fzn_group_log_held(nm->m.store, &held) != FZN_GROUP_LOG_OK) {
+		fzn_group_held_free(&held);
+		return say(reply, cap, FZN_REPLY_ERROR, "the groups did not list");
+	}
+	for (b = 0; b < held.n; b++) {
+		if (!newest_has(held.ids[b], walk.with_lines) && !newest_add(held.ids[b], 0, &rows)) {
+			fzn_group_held_free(&held);
+			return say(reply, cap, FZN_REPLY_ERROR, "no room to list the conversations");
+		}
+	}
+	fzn_group_held_free(&held);
+	if (rows)
+		qsort(newest_rows, rows, sizeof(*newest_rows), newest_order);
+	for (r = from; r < rows && !full; r++) {
+		char row[2u * FZN_PUBKEY_LEN + 3u * FZN_CONTACT_NAME_MAX + 3u * FZN_ATTACHMENT_NAME_MAX
+		         + 3u * NEWEST_TEXT_MAX + 96u];
+		size_t h = 0, wrote = 0, text_len = 0;
+		const char *kind = "none", *text = "";
+		const fzn_message_t *p = NULL;
+
+		hex_of(newest_rows[r].key, FZN_PUBKEY_LEN, row);
+		h = 2u * FZN_PUBKEY_LEN;
+		if (newest_rows[r].stime) {
+			got = 0;
+			if (fzn_messages_page(&nm->m, newest_rows[r].key, 0, newest, 1u, &got, &more)
+			            != FZN_MESSAGES_OK
+			    || !got)
+				return say(reply, cap, FZN_REPLY_ERROR, "a conversation's newest line did not read");
+			p = &newest[0];
+			kind = newest_kind(p, &text, &text_len);
+		}
+		k = snprintf(row + h, sizeof(row) - h, ",%llu,%s,",
+		             (unsigned long long)(p ? p->stime : 0u),
+		             !p ? "-" : p->direction == FZN_MESSAGE_OUT ? "out" : "in");
+		if (k < 0 || (size_t)k >= sizeof(row) - h)
+			return 0;
+		h += (size_t)k;
+		/* A GROUP MEMBER'S LINE NAMES ITS WRITER, as `list message` does. */
+		{
+			const fzn_group_lines_t lines = { nm->m.store, nm->m.hash };
+			uint8_t sender[FZN_PUBKEY_LEN];
+			fzn_contact_t c;
+
+			if (p && p->direction == FZN_MESSAGE_IN
+			    && fzn_group_lines_sender(&lines, p->contact, p->id, sender)
+			               == FZN_GROUP_LINES_OK) {
+				if (fzn_contact_get(nm->m.store, sender, &c) == FZN_CONTACT_OK) {
+					memcpy(row + h, c.name, c.name_len);
+					h += c.name_len;
+				} else {
+					hex_of(sender, 8u, row + h);
+					h += 16u;
+				}
+			} else {
+				row[h++] = '-';
+			}
+		}
+		k = snprintf(row + h, sizeof(row) - h, ",%s,", kind);
+		if (k < 0 || (size_t)k >= sizeof(row) - h)
+			return 0;
+		h += (size_t)k;
+		if (escape((const uint8_t *)text, text_len, row + h, sizeof(row) - h, &wrote) < text_len)
+			return 0;
+		h += wrote;
+		/* A ROW GOES IN WHOLE, room left for the head `TOTAL FROM SHOWN`. */
+		if (LIST_HEAD_MAX + 24u + used + 1u + h > limit || used + 1u + h > sizeof(items)) {
+			full = 1;
+			break;
+		}
+		items[used] = ' ';
+		memcpy(items + used + 1u, row, h);
+		used += 1u + h;
+		shown++;
+	}
+	k = snprintf(detail, sizeof(detail), "%zu %zu %zu", rows, from, shown);
+	if (k < 0 || (size_t)k + used > limit || (size_t)k + used > sizeof(detail))
+		return 0;
+	memcpy(detail + k, items, used);
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k + used);
+}
+
 static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,
                    size_t cap)
 {
@@ -1581,22 +1823,28 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 	fzn_messages_err_t err;
 
 	/* `unread`, AND A FROM OR NOTHING AFTER IT, sec 1084: every conversation's
-	 * unread count. A contact named `unread` is reached by its key. */
+	 * unread count. A contact named `unread` (or `newest`) is reached by its
+	 * key. */
 	{
 		const uint8_t *u = at, *uw;
 		size_t u_left = left, uw_len, ufrom = 0, i2;
 
-		if (word(&u, &u_left, &uw, &uw_len) && is_word(uw, uw_len, "unread")) {
+		/* `newest` THE SAME WAY, sec 1136: every conversation's newest line. */
+		if (word(&u, &u_left, &uw, &uw_len)
+		    && (is_word(uw, uw_len, "unread") || is_word(uw, uw_len, "newest"))) {
+			const int unread = is_word(uw, uw_len, "unread");
+			const char *usage = unread ? "list message unread [FROM]" : "list message newest [FROM]";
+
 			if (word(&u, &u_left, &uw, &uw_len)) {
 				if (!all_digits(uw, uw_len) || u_left)
-					return say(reply, cap, FZN_REPLY_MALFORMED, "list message unread [FROM]");
+					return say(reply, cap, FZN_REPLY_MALFORMED, usage);
 				for (i2 = 0; i2 < uw_len; i2++) {
 					if (ufrom > (SIZE_MAX - 9u) / 10u)
-						return say(reply, cap, FZN_REPLY_MALFORMED, "list message unread [FROM]");
+						return say(reply, cap, FZN_REPLY_MALFORMED, usage);
 					ufrom = ufrom * 10u + (size_t)(uw[i2] - '0');
 				}
 			}
-			return list_unread(nm, ufrom, reply, cap);
+			return unread ? list_unread(nm, ufrom, reply, cap) : list_newest(nm, ufrom, reply, cap);
 		}
 	}
 	/* AN ALL-DIGIT WORD IS FROM: a contact named so is reached by its key.

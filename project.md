@@ -85900,7 +85900,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
-| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
+| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
@@ -87922,3 +87922,75 @@ consumer wants one.
 **Tests:** `reach_view_test`, ten checks: keeping up with its share, and
 falling behind with the advice. Sabotage `reach-view-falling-behind-unsaid`
 is caught.
+
+## 1136. Every conversation's newest line in one reply, 2026-11-13
+
+**fuzzypickles' requirement** (inbox 20261113T1704Z), for the conversation
+list of the focused app the holder is handing a friend this week: under
+each contact and group, the newest line and when it came. The only way to
+get one was a listing per conversation on every refresh -- the shape that
+cost 15 million requests at 3000 groups and 5000 contacts (2026-11-10).
+
+`list message newest [FROM]` answers it in one paged listing, shaped like
+`list message unread` (sec 1084): `ok TOTAL FROM SHOWN
+KEY,STIME,DIRECTION,SENDER,KIND,TEXT ...`. Every conversation is listed
+-- a contact by its key, a group by its id -- newest first, and every
+contact and group with no line yet last, as `KEY,0,-,-,none,`, so a
+list can say so. DIRECTION is `out` or `in`. SENDER is the group member
+who wrote an incoming line, named as `list message` names one. KIND is
+`text`, `file`, `sticker` or `shell` (its month's key gone). TEXT is
+what a list shows: a line's first 60 bytes cut at a character boundary,
+a file's name, or a sticker's description. Ties are broken by key, so
+pages fall in the same place on every ask. Conversations without a line
+are found by a search among those with lines, not a scan, so thousands
+of contacts and groups stay linear in the listing.
+
+The typed client reads it whole with `fzn_rpc_newest_all` into
+`fzn_rpc_newest_entry_t` (kind a `fzn_rpc_newest_kind_t`, NONE 0).
+`messages_test`, `keys_fuzz` and `delivery_fuzz` now link `sticker/pack.o`,
+which the listing reads stickers with where the build has them.
+
+**Tests:** `messages_test`'s `test_every_conversations_newest_line`:
+carol's newest a file said by its name, bob's long line cut at 60, dave
+with none last, newest first, a page from 2, a malformed FROM. `rpc_test`
+reads a file, a member's escaped text and a none. `live_chat` phase c3
+checks a real node puts A's conversation first at B1 with A1's line.
+Sabotage `messages-newest-oldest-first`,
+`messages-newest-without-the-silent` and `rpc-newest-kind-dropped` are
+each caught.
+
+**A false alarm on the way, worth the sentence because it cost an
+hour.** Run against plain `fuzznetd`, `live_chat` phase d failed every
+time -- A1 still owing two lines delivered and not settled -- at this
+commit, at HEAD before it, and at fa26de5, the last full livecheck
+recorded passing. That premise broke a bisect: the script says on its
+fourth line that it runs against `make fuzznetd-faults`' daemon, whose
+`FZN_TUNE_SETTLE_EVERY` shortens the hour between settle passes, and
+only `livecheck-faults` runs it, with `faults/fuzznetd`. Against that
+binary every phase passes, c3 included. A live script's daemon is the
+one its Makefile line names, not the one at hand.
+
+## 1137. What came in on 2026-11-13's evening, recorded
+
+- **fuzzypickles 1553Z**: what a person does on its sticker, library and
+  conversation pages, item by item -- the requirements sec 1126 was built
+  without. The focused app keeps the picker and keeping packs,
+  conversations, calls with video and location; not the editor, the
+  library or the catalogue. Taken from it so far: the conversation list's
+  newest line (sec 1136). Still open from it: the conversation list view
+  itself, older lines paged on demand, sending a file from the view, the
+  sticker picker, the group menu (members, admins, delete), calls on a
+  view.
+- **fuzzypickles 1704Z**: the newest-line requirement, sec 1136.
+- **fuzzypickles 1736Z**: the remade group's first line failed again at
+  473d980, with sec 1115's readings: alice holds epoch 2, carol's water
+  says alice holds one of carol's lines, alice lists none, and nothing in
+  alice's log says the line was passed over or not filed. Neither of the
+  two ways sec 1115 named is the cause. Open. Also once under load: an
+  object set on one host read "no such object" on the other host of the
+  estate for 60 s; passed when rerun alone. Recorded, not chased.
+- **situ fe2af3cb**: sec 1117's wrap bug is fixed in all four drivers
+  (situ 26.1008) and gap 3, a non-taking `peek`, is added (26.1009). Gaps
+  1 and 2 change rung 6's interface in four languages, so situ will shape
+  them against fuzznet's caller when fuzznet adopts rung 6, not ahead of
+  it. So item 90's next step is adopting rung 6 on situ's current runtime.

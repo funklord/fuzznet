@@ -791,6 +791,33 @@ typedef struct {
 } fzn_rpc_unread_entry_t;
 int fzn_rpc_unread_all(fzn_rpc_t *c, fzn_rpc_unread_entry_t *out, size_t cap, size_t *count,
                         size_t *total);
+/* EVERY CONVERSATION'S NEWEST LINE IN ONE REPLY, `list message newest [FROM]`
+ * (fuzznet sec 1136), what a conversation list shows under each name: newest
+ * first, a conversation with no line yet last with kind NONE. `sender` is a
+ * group member who wrote an incoming line, as `list message` names one,
+ * else empty; `text` the most a list shows -- a line's first characters, a
+ * file's name, a sticker's description. Gathered page by page into `out`, at
+ * most `cap`; `*total` how many the node has. */
+#define FZN_RPC_NEWEST_TEXT_MAX 256
+typedef enum {
+	FZN_RPC_NEWEST_NONE = 0,  /* no line yet */
+	FZN_RPC_NEWEST_TEXT = 1,
+	FZN_RPC_NEWEST_FILE = 2,
+	FZN_RPC_NEWEST_STICKER = 3,
+	FZN_RPC_NEWEST_SHELL = 4  /* its month's key is gone: nothing to show */
+} fzn_rpc_newest_kind_t;
+typedef struct {
+	uint8_t key[32];
+	uint64_t stime_ms; /* 0 with kind NONE */
+	uint8_t outgoing;
+	uint8_t kind; /* a fzn_rpc_newest_kind_t */
+	char sender[FZN_RPC_PEER_NAME_MAX + 1];
+	size_t sender_len;
+	char text[FZN_RPC_NEWEST_TEXT_MAX + 1];
+	size_t text_len;
+} fzn_rpc_newest_entry_t;
+int fzn_rpc_newest_all(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap, size_t *count,
+                       size_t *total);
 
 /* ---- the node (sec 284) ---- */
 

@@ -18,6 +18,8 @@ root, with A2 joined to it; B1, a root, with B2 joined to it.
        for A1
     c2 every conversation's unread count in one reply (`list message unread`), a
        read repeated at the line already read publishes nothing (sec 1084)
+    c3 every conversation's newest line in one reply (`list message newest`),
+       newest first (sec 1136)
     d  nothing owed: every host's `get message owed` comes to `ok 0 0 0`,
        no line held undelivered and none delivered unsettled
     d2 a host killed while a line is in flight: A2 is killed by SIGKILL, as
@@ -373,6 +375,16 @@ def main(argv):
 				raise failed("c2: B1's list message unread after A1's line answered %r" % got)
 			print("livecheck: c2: B1 listed every conversation's unread, a read repeated was not "
 			      "published, and A1's next line was counted")
+
+			# c3: EVERY CONVERSATION'S NEWEST LINE IN ONE REPLY, sec 1136: A's
+			# conversation first at B1, its newest A1's c2 line, in, as text.
+			got = said("b1", "list message newest").split()
+			first = got[4].split(",", 5) if len(got) > 4 else []
+			if got[:1] != ["ok"] or int(got[1]) < 1 or got[2] != "0" \
+			   or first[:1] != [keys["a"]] or first[2:5] != ["in", "-", "text"] \
+			   or first[5:] != ["c2%20line"]:
+				raise failed("c3: B1's list message newest answered %r" % got[:6])
+			print("livecheck: c3: B1 listed every conversation's newest line, A1's first")
 
 			# d: nothing owed anywhere.
 			for who in WHO:

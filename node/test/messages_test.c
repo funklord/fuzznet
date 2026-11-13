@@ -605,6 +605,56 @@ static void test_the_verbs(void)
 /* THE VERBS NEED THIS NODE'S OWN USER, sec 689's authorization bar for the
  * 1:1 chat journey: every messages verb from each other origin is denied,
  * and none of them changes what the user reads. */
+/* EVERY CONVERSATION'S NEWEST LINE IN ONE REPLY, sec 1136: carol's newest a
+ * file, said by its name; bob's a long line, cut to what a list shows; dave
+ * with none yet, listed last. Newest first. */
+static void test_every_conversations_newest_line(void)
+{
+	static const char REF[] = "fzn:file/"
+	                          "0303030303030303030303030303030303030303030303030303030303030303/"
+	                          "0404040404040404040404040404040404040404040404040404040404040404/"
+	                          "2500000%20photo.jpg";
+	uint8_t bob[FZN_PUBKEY_LEN], dave[FZN_PUBKEY_LEN];
+	char line[700], hex[2u * FZN_PUBKEY_LEN + 1u];
+	size_t i;
+
+	setup();
+	memset(bob, 0x62, sizeof(bob));
+	memset(dave, 0x64, sizeof(dave));
+	CHECK(fzn_contact_add(&A.store_ops, X, "carol", 5u, 1u) == FZN_CONTACT_OK
+	              && fzn_contact_add(&A.store_ops, bob, "bob", 3u, 1u) == FZN_CONTACT_OK
+	              && fzn_contact_add(&A.store_ops, dave, "dave", 4u, 1u) == FZN_CONTACT_OK,
+	      "fixture: carol, bob and dave are contacts");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "add message carol in " ID2 " at 12345 hi") && replied("ok"),
+	      "fixture: carol's older line");
+	snprintf(line, sizeof(line), "add message carol out " ID1 " at 30000 %s", REF);
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, line) && replied("ok"), "fixture: a file sent to carol, newer");
+	snprintf(line, sizeof(line), "add message bob in " ID3 " at 20000 ");
+	for (i = 0; i < 100u; i++)
+		strcat(line, "a");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, line) && replied("ok"), "fixture: bob's long line");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message newest") && replied("ok 3 0 3 "),
+	      "three conversations, every one shown");
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		snprintf(hex + 2u * i, 3u, "%02x", X[i]);
+	{
+		const char *carol = strstr(reply, hex), *b = strstr(reply, "6262626262"),
+		           *d = strstr(reply, "6464646464");
+		CHECK(carol && b && d && carol < b && b < d, "not newest first, with none yet last");
+		CHECK(carol && strstr(carol, ",30000,out,-,file,photo.jpg") == carol + 2u * FZN_PUBKEY_LEN,
+		      "carol's newest was not said as the file sent, by its name");
+		CHECK(b && strstr(b, ",20000,in,-,text,") && strlen(strstr(b, ",text,") + 6) >= 60u
+		              && strncmp(strstr(b, ",text,") + 6 + 60, " 6464", 5) == 0,
+		      "bob's long line was not cut to sixty characters");
+		CHECK(d && strstr(d, ",0,-,-,none,"), "dave, with no line yet, was not listed so");
+	}
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message newest 2") && replied("ok 3 2 1 ")
+	              && strstr(reply, "6464646464"),
+	      "a page from 2 did not start at the third");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message newest x") && replied("malformed"),
+	      "a FROM that is not a number was taken");
+}
+
 static void test_the_verbs_need_the_user(void)
 {
 	static const char *const verbs[] = {
@@ -2032,6 +2082,7 @@ int main(void)
 	memset(X, 0x58, sizeof(X));
 	test_the_suite_can_tell_pass_from_fail();
 	test_the_verbs();
+	test_every_conversations_newest_line();
 	test_the_verbs_need_the_user();
 	test_keys_travel();
 	test_keys_through_a_hub();

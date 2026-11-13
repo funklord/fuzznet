@@ -14615,6 +14615,27 @@ SABOTAGES = [
 		"a host not keeping up is said to keep up -- sec 1135",
 	),
 	(
+		"messages-newest-oldest-first",
+		"node/messages.c",
+		"\t\treturn x->stime > y->stime ? -1 : 1;\n",
+		"\t\treturn x->stime > y->stime ? 1 : -1;\n",
+		"a conversation list comes oldest first -- sec 1136",
+	),
+	(
+		"messages-newest-without-the-silent",
+		"node/messages.c",
+		"\tif (fzn_contact_each(nm->m.store, newest_contact, &walk) != FZN_CONTACT_OK || walk.failed)\n",
+		"\tif (0)\n",
+		"a contact with no line yet is left out of the conversation list -- sec 1136",
+	),
+	(
+		"rpc-newest-kind-dropped",
+		"local/rpc.c",
+		"\t\t\te.kind = f_len == 4 && !memcmp(f, \"text\", 4)      ? FZN_RPC_NEWEST_TEXT\n",
+		"\t\t\te.kind = 0 ? FZN_RPC_NEWEST_TEXT\n",
+		"what a newest line is -- a file, a sticker, text -- is dropped -- sec 1136",
+	),
+	(
 		"conversation-view-read-at-own-line",
 		"gui/conversation_view.cpp",
 		"\t\tif (!lines[i].outgoing)\n\t\t\tnewest_in = &lines[i];\n",
