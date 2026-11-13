@@ -18,7 +18,7 @@
 #include "rpc_encoding.h"
 #include "rpc_settings.h"
 #include "rpc_err.h"
-#include "rpc_location.h"
+#include "../location/location.h"
 
 #include "client.h"
 #include "escape.h"
@@ -5033,7 +5033,7 @@ static int node_location_row(const char *w, size_t w_len, const char **host,
 	e.has_bearing = (uint8_t)has_bearing;
 	e.bearing_deg = (uint16_t)bearing;
 	/* Unknown accuracy is 0 metres, as the clients' decoder gives it: no real
-	 * accuracy is 0 (location.c's fzn_rpc_location_acc_decode). */
+	 * accuracy is 0 (location.c's fzn_location_acc_decode). */
 	e.acc_e_m = has_ae ? (uint32_t)ae : 0;
 	e.acc_n_m = has_an ? (uint32_t)an : 0;
 	e.acc_v_m = has_av ? (uint32_t)av : 0;
@@ -5443,7 +5443,7 @@ static int node_degrees_text(char *out, size_t cap, int32_t e7) {
 /* `add location LAT LON [alt M] [bearing D] [acc E N] [vacc V] [at UTC]`:
  * an accuracy the fix does not know is left unsaid, which is how the node
  * spells unknown. */
-static int node_location_record(fzn_rpc_t *c, const fzn_rpc_location_fix_t *fix) {
+static int node_location_record(fzn_rpc_t *c, const fzn_location_fix_t *fix) {
 	char lat[24], lon[24], arg[192];
 	node_degrees_text(lat, sizeof lat, fix->lat_e7);
 	node_degrees_text(lon, sizeof lon, fix->lon_e7);
@@ -5452,18 +5452,18 @@ static int node_location_record(fzn_rpc_t *c, const fzn_rpc_location_fix_t *fix)
 		n += snprintf(arg + n, sizeof arg - (size_t)n, " alt %d", (int)fix->alt_m);
 	if (n > 0 && fix->has_bearing)
 		n += snprintf(arg + n, sizeof arg - (size_t)n, " bearing %u",
-		              (unsigned)fzn_rpc_location_bearing_decode(fix->bearing));
-	if (n > 0 && fix->acc_e != FZN_RPC_LOCATION_ACC_UNKNOWN && fix->acc_n != FZN_RPC_LOCATION_ACC_UNKNOWN)
+		              (unsigned)fzn_location_bearing_decode(fix->bearing));
+	if (n > 0 && fix->acc_e != FZN_LOCATION_ACC_UNKNOWN && fix->acc_n != FZN_LOCATION_ACC_UNKNOWN)
 		n += snprintf(arg + n, sizeof arg - (size_t)n, " acc %" PRIu32 " %" PRIu32,
-		              fzn_rpc_location_acc_decode(fix->acc_e), fzn_rpc_location_acc_decode(fix->acc_n));
-	if (n > 0 && fix->has_alt && fix->acc_v != FZN_RPC_LOCATION_ACC_UNKNOWN)
+		              fzn_location_acc_decode(fix->acc_e), fzn_location_acc_decode(fix->acc_n));
+	if (n > 0 && fix->has_alt && fix->acc_v != FZN_LOCATION_ACC_UNKNOWN)
 		n += snprintf(arg + n, sizeof arg - (size_t)n, " vacc %" PRIu32,
-		              fzn_rpc_location_acc_decode(fix->acc_v));
+		              fzn_location_acc_decode(fix->acc_v));
 	if (n < 0 || (size_t)n >= sizeof arg) return encode_failed(c);
 	return node_ack(c, "add", arg, n);
 }
 
-int fzn_rpc_location_record(fzn_rpc_t *c, const fzn_rpc_location_fix_t *fix, int *recorded) {
+int fzn_rpc_location_record(fzn_rpc_t *c, const fzn_location_fix_t *fix, int *recorded) {
 	*recorded = 0;
 	int rc = node_location_record(c, fix);
 	if (rc == FZN_RPC_OK) *recorded = 1;

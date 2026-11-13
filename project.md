@@ -86849,5 +86849,11 @@ control, a daemon writing a group row with its id cut to 8 characters fails it b
 error` where every renderer says `unknown`, the word the sweep reads to find a range's end, and the
 sweep walked at most 32 codes, raised to 96.
 
-**Still owed:** the copies of what `location/`, `state/` and `sticker/` already have merged into
-them; and the local leg in binary under these calls, sec 1061 step 5, now unblocked.
+**Its location copy folded** the same day: `fzn_rpc_location_fix_t` was `fzn_location_fix_t` field
+for field and its four accuracy and bearing calls passed straight through, so `rpc_location.{c,h}`
+are gone and `fzn_rpc_location_record` takes `location/`'s fix.
+
+**Still owed:** its settings model -- fuzzypickles' older bool/int/string with applies, distribution
+and source, into which the client translates the node's schema and loses a duration, an address,
+the safe direction and the advertised flag -- normalised onto `state/schema.h`'s (sec 906); and the
+local leg in binary under these calls, sec 1061 step 5, now unblocked.

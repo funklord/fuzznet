@@ -564,8 +564,8 @@ int fzn_rpc_location_fetch(fzn_rpc_t *c, const char *target, size_t target_len);
  * is switched off. On a fuzznetd node it is `add location`, which keeps
  * what it is given, so *recorded is 1 there.
  */
-struct fzn_rpc_location_fix;
-int fzn_rpc_location_record(fzn_rpc_t *c, const struct fzn_rpc_location_fix *fix, int *recorded);
+struct fzn_location_fix; /* location/location.h's fix */
+int fzn_rpc_location_record(fzn_rpc_t *c, const struct fzn_location_fix *fix, int *recorded);
 int fzn_rpc_config_schema(fzn_rpc_t *c, const char *prefix, size_t prefix_len,
                            fzn_rpc_config_schema_resp_t *out);
 int fzn_rpc_config_status(fzn_rpc_t *c, const char *key, size_t key_len, const char *instance,

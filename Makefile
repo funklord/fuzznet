@@ -244,7 +244,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c local/escape.c \
-             local/rpc.c local/rpc_err.c local/rpc_location.c local/rpc_describe.c \
+             local/rpc.c local/rpc_err.c local/rpc_describe.c \
              local/rpc_encoding.c local/rpc_settings.c local/rpc_sticker_read.c \
              hex/hex.c net/own_address.c \
              node/peer_persist.c \
@@ -350,7 +350,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h \
              local/rpc.h local/rpc_types.h local/rpc_err.h local/rpc_capability.h \
-             local/rpc_limits.h local/rpc_location.h local/rpc_encoding.h local/rpc_settings.h \
+             local/rpc_limits.h local/rpc_encoding.h local/rpc_settings.h \
              local/rpc_compat.h local/rpc_sticker_read.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
@@ -3537,7 +3537,7 @@ $(BUILD_DIR)/qr/test/qr_test: $(BUILD_DIR)/qr/test/qr_test.o $(BUILD_DIR)/qr/qr.
 # and what they call -- the local socket's client and reply words, the
 # attachment and sticker formats its structs carry, and location's fix.
 RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
-            $(BUILD_DIR)/local/rpc_location.o $(BUILD_DIR)/local/rpc_describe.o \
+            $(BUILD_DIR)/local/rpc_describe.o \
             $(BUILD_DIR)/local/rpc_encoding.o $(BUILD_DIR)/local/rpc_settings.o \
             $(BUILD_DIR)/local/rpc_sticker_read.o
 $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS) \

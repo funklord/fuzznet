@@ -16818,7 +16818,6 @@ def dirty_files(paths):
 # recorded.
 NO_GUARDS = {
 	"local/rpc_err.c": "the typed client's refusals in words: a table of strings, nothing to remove",
-	"local/rpc_location.c": "four calls straight through to location/, which location_test guards",
 	"local/rpc_settings.c": "names of the setting enums: a table of strings, nothing to remove",
 	"local/rpc_compat.h": "portability shims over libc calls, each one line of the platform's own",
 	"version/version.c": "three accessors returning macros; nothing to remove",

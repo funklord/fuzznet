@@ -214,7 +214,6 @@
 #include <fuzznet/local/rpc_err.h>
 #include <fuzznet/local/rpc_capability.h>
 #include <fuzznet/local/rpc_limits.h>
-#include <fuzznet/local/rpc_location.h>
 #include <fuzznet/local/rpc_encoding.h>
 #include <fuzznet/local/rpc_settings.h>
 #include <fuzznet/local/rpc_compat.h>
@@ -465,7 +464,6 @@
 #include "local/rpc_err.h"
 #include "local/rpc_capability.h"
 #include "local/rpc_limits.h"
-#include "local/rpc_location.h"
 #include "local/rpc_encoding.h"
 #include "local/rpc_settings.h"
 #include "local/rpc_compat.h"
