@@ -85905,7 +85905,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
-| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed) | Library playback UI, share target | a hostable transfer view; a library (catalogue) view |
+| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` (sec 1131) | Library playback UI, share target | a hostable transfer view |
 | Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
 | Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103); presets and a setting's votes on `governance_view` (secs 1023, 1029) | Settings page, to move onto it | |
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
@@ -87795,3 +87795,28 @@ a plain one -- offers neither.
 asks for no file; the file asked for by its whole reference with its
 size said; saved where asked. Sabotage
 `conversation-view-fetch-without-size` is caught.
+
+## 1131. The library, as a widget, 2026-11-13
+
+**The register's "a library (catalogue) view"** (sec 1070): the files
+this user's hosts and contacts have catalogued were fuzzypickles'
+Library page to draw. `gui/library_view` lists each with its name, kind,
+size and length, and where it is: "here", "here, and on N other
+host(s)", "on N host(s)", or "nowhere seen". "Here" is this host's own
+bytes, never its published claim -- the client's rule since 2026-11-10,
+since a claim is a claim. A size is shown only where one is known: the
+catalogue names none, and a file not held here has no bytes here to
+measure, so it reads empty rather than as 0 bytes. "Get the file" asks
+for one not held here; one already here is not asked for again. Names
+and kinds are other hosts' words, in caret form.
+
+**Not here:** playing a file while it arrives (sec 998's playhead), which
+is a player's and stays the host's.
+
+**Tests:** `library_view_test`, five checks against a scripted node
+answering the catalogue walk (`list catalog`, `get identity`, `list
+file`): a song held here and catalogued elsewhere, a talk held only
+elsewhere, each placed; the talk asked for by root; the song not asked
+for again; silence. 188 px, every input named. Sabotage
+`library-view-fetches-what-is-here` and `library-view-unknown-size-as-zero`
+are each caught.

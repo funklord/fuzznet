@@ -56,6 +56,7 @@
 #include "../hosts_view.h"
 #include "../conversation_view.h"
 #include "../forks_view.h"
+#include "../library_view.h"
 #include "../location_view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../entries_view.h"
@@ -385,6 +386,8 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_conversation_view conversation_v(empty_node, nullptr);
 	fzn_forks_view forks_v(empty_node, nullptr);
 	(void)forks_v.refresh();
+	fzn_library_view library_v(empty_node, nullptr);
+	(void)library_v.refresh();
 	fzn_location_view location_v(empty_node, nullptr);
 	(void)location_v.refresh();
 #ifdef FZN_LOG_FILE_ON
@@ -692,6 +695,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "conversation_view", &conversation_v, "No conversation is open." },
 			/* WHAT KEEPING A SIDE DOES, said first (sec 1127). */
 			{ "forks_view", &forks_v, "every host takes it" },
+			/* AN EMPTY LIBRARY IS SAID, not left a blank table (sec 1131). */
+			{ "library_view", &library_v, "The library is empty." },
 			/* NOBODY SHARING IS SAID, sec 1109. */
 			{ "location_view", &location_v, "Nobody shares a position" },
 #ifdef FZN_LOG_FILE_ON

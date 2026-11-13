@@ -14559,6 +14559,20 @@ SABOTAGES = [
 		"a file is asked for without the size its reference carries -- sec 1130",
 	),
 	(
+		"library-view-fetches-what-is-here",
+		"gui/library_view.cpp",
+		"\tif (row < 0 || row >= m_table->rowCount() || m_table->item(row, 0)->data(ROLE_HERE).toBool())\n",
+		"\tif (row < 0 || row >= m_table->rowCount())\n",
+		"a file already held here is asked for again -- sec 1131",
+	),
+	(
+		"library-view-unknown-size-as-zero",
+		"gui/library_view.cpp",
+		"\t\tm_table->setItem((int)i, 2, new QTableWidgetItem(e->size ? size_words(e->size) : QString()));\n",
+		"\t\tm_table->setItem((int)i, 2, new QTableWidgetItem(size_words(e->size)));\n",
+		"a file with no size known here reads as empty -- sec 1131",
+	),
+	(
 		"conversation-view-read-at-own-line",
 		"gui/conversation_view.cpp",
 		"\t\tif (!lines[i].outgoing)\n\t\t\tnewest_in = &lines[i];\n",
