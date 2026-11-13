@@ -86803,3 +86803,51 @@ not a cause.
 **Next:** what B's scope for C holds when C asks -- the share row under the group's id, and the
 floor a member added after the share gets (`joined_ms`, sec 655), which a note made after C joined
 should pass -- and whether C's tree takes what came (`fzn_notes_received_at_most`).
+
+## 1098. The typed client taken, as `fzn_rpc_`, 2026-11-13
+
+**The prefix is decided here**, on the holder's word of 2026-11-13 -- "do what you think is best
+about fzn_rpc_". **`fzn_rpc_`**, files `local/rpc*.{c,h}`. It is the word fuzzypickles relayed
+from the holder (sec 1091's inbox, 0127Z), its clients already cut over to it, so nobody migrates
+twice; it keeps "call" for the voice call alone, as the RRPC decision asked (sec 1085). The other
+choices this tree had raised -- `fzn_local_`, `fzn_client_` (which collides with
+`local/client.h`), keeping `fzn_call_` -- were set aside: the first costs fuzzypickles a second
+rename for a name no better, the second merges two different things, the third is excluded by
+RRPC. A remote procedure registered by name is RRPC (`FZN_CMD_RRPC`, the `rrpc` verb); `fzn_rpc_`
+is the client's typed calls over the local leg, and the two words are kept apart that way.
+
+**Taken from** fuzzypickles' branch `fzp-typed-client` (6485fe85, on 21c24786): about 140 public
+calls, each a request to the node's local socket and a parser of its answer into structs, with
+their types, refusal codes and words, limits, settings names, a sticker spec reader and a terminal
+escape. Installed with the library (`HDRS`), included by `tool/consumer_check.c`, parsed as C++
+by installcheck. Per sec 1061 the functions and structs are the surface that outlives the local
+socket going binary; the text parsing inside them is what that step replaces.
+
+**Folded on the way in:** the client's own hex (`fzn_rpc_hex_*`, 52 uses) is the public codec
+`hex/hex.h` (sec 1092) now -- the same functions, except that the copy's variable-length decode
+never set how many bytes it decoded.
+
+**Tested here for the first time:** `local/test/rpc_test.c` drives the client through its
+scripted-node hook (`fzn_rpc_t.answer`), no socket opened -- group rows across pages and a page
+from the wrong place, every conversation's unread, a refusal's code and words, `ok held`, an
+object read or absent, nothing answering, the control-character checks on a pairing request's
+name and address, a group's unread, the terminal escape, and a 70-sticker spec past the reader's
+first guess of 64. Fourteen sabotage entries (`rpc-*`), each caught; `rpc_err.c`,
+`rpc_settings.c` (string tables), `rpc_location.c` (calls straight through to `location/`) and
+`rpc_compat.h` (libc shims) are listed guard-free.
+
+**And against a running node:** the scripted node checks the client against the grammar it
+believes, and only a real daemon checks the belief. `tool/rpc_probe.c` links the same client and
+makes 26 calls at a fresh host's fuzznetd -- twenty reads, then an object added, set and read
+back, a group made and listed, and the unread counts -- each to come back OK and parsed;
+`tool/live_rpc.py` starts the daemon for it, in `make livecheck`. All 26 read at this commit. As a
+control, a daemon writing a group row with its id cut to 8 characters fails it by name
+(`fzn_rpc_group_list`); one that drops a row's optional LINES passes, as the client allows.
+
+**Its refusals in words are walked** by `wire/test/err_str_test.c` like every renderer here:
+74 codes, each with its own text. Two things gave way to it: the client's fallback said `unknown
+error` where every renderer says `unknown`, the word the sweep reads to find a range's end, and the
+sweep walked at most 32 codes, raised to 96.
+
+**Still owed:** the copies of what `location/`, `state/` and `sticker/` already have merged into
+them; and the local leg in binary under these calls, sec 1061 step 5, now unblocked.

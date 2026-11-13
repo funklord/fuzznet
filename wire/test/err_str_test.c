@@ -46,6 +46,7 @@
 #include "../../frame/freshness.h"
 #include "../../local/peer.h"
 #include "../../local/client.h"
+#include "../../local/rpc_err.h"
 #include "../../node/caller.h"
 #include "../../device/device.h"
 #include "../../node/pressure.h"
@@ -147,7 +148,8 @@
 #include <string.h>
 
 #define FZN_FALLBACK "unknown"
-#define FZN_SCAN_CAP 32
+/* Past the longest enum walked: the typed client's 74 codes (sec 1098). */
+#define FZN_SCAN_CAP 96
 
 static int failures;
 static int checks;
@@ -173,6 +175,7 @@ static const char *r_split(int v) { return fzn_split_err_str((fzn_split_err_t)v)
 static const char *r_seal(int v) { return fzn_seal_err_str((fzn_seal_err_t)v); }
 static const char *r_peer(int v) { return fzn_peer_verdict_str((fzn_peer_verdict_t)v); }
 static const char *r_client(int v) { return fzn_client_err_str((fzn_client_err_t)v); }
+static const char *r_rpc(int v) { return fzn_rpc_err_str(v); }
 static const char *r_caller(int v) { return fzn_caller_err_str((fzn_caller_err_t)v); }
 static const char *r_device(int v) { return fzn_device_err_str((fzn_device_err_t)v); }
 static const char *r_pressure(int v)
@@ -380,6 +383,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_seal_err_str", r_seal, 9 },
 	{ "fzn_peer_verdict_str", r_peer, 3 },
 	{ "fzn_client_err_str", r_client, 8 },
+	{ "fzn_rpc_err_str", r_rpc, 74 },
 	{ "fzn_caller_err_str", r_caller, 8 },
 	{ "fzn_device_err_str", r_device, 6 },
 	{ "fzn_pressure_state_str", r_pressure, 4 },

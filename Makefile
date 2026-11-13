@@ -244,6 +244,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c local/escape.c \
+             local/rpc.c local/rpc_err.c local/rpc_location.c local/rpc_describe.c \
+             local/rpc_encoding.c local/rpc_settings.c local/rpc_sticker_read.c \
              hex/hex.c net/own_address.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
@@ -347,6 +349,9 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUIL
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h \
+             local/rpc.h local/rpc_types.h local/rpc_err.h local/rpc_capability.h \
+             local/rpc_limits.h local/rpc_location.h local/rpc_encoding.h local/rpc_settings.h \
+             local/rpc_compat.h local/rpc_sticker_read.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
@@ -437,6 +442,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
              qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c \
+             local/test/rpc_test.c \
              blob/test/blob_test.c blob/test/levels_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
@@ -576,6 +582,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/store_test \
              $(BUILD_DIR)/qr/test/qr_test \
              $(BUILD_DIR)/hex/test/hex_test \
+             $(BUILD_DIR)/local/test/rpc_test \
              $(BUILD_DIR)/location/test/geo_test \
              $(BUILD_DIR)/net/test/own_address_test \
              $(BUILD_DIR)/blob/test/blob_test \
@@ -2166,7 +2173,7 @@ endif
 # nothing to do with the change. Both gui variables expand to nothing when the
 # GUI is off, so this costs a build without it nothing.
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
-       $(PROG_OBJS:.o=.d)
+       $(PROG_OBJS:.o=.d) $(BUILD_DIR)/tool/rpc_probe.d
 
 .PHONY: embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
 
@@ -3525,6 +3532,41 @@ $(BUILD_DIR)/cli/test/log_print_test: $(BUILD_DIR)/cli/test/log_print_test.o \
 $(BUILD_DIR)/qr/test/qr_test: $(BUILD_DIR)/qr/test/qr_test.o $(BUILD_DIR)/qr/qr.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
+
+# The typed client, fzn_rpc_, over a scripted node (sec 1098): its own objects
+# and what they call -- the local socket's client and reply words, the
+# attachment and sticker formats its structs carry, and location's fix.
+RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
+            $(BUILD_DIR)/local/rpc_location.o $(BUILD_DIR)/local/rpc_describe.o \
+            $(BUILD_DIR)/local/rpc_encoding.o $(BUILD_DIR)/local/rpc_settings.o \
+            $(BUILD_DIR)/local/rpc_sticker_read.o
+$(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS) \
+                                  $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
+                                  $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
+                                  $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
+                                  $(BUILD_DIR)/local/peer_linux.o \
+                                  $(BUILD_DIR)/constant_time/constant_time.o \
+                                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
+                                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o \
+                                  $(BUILD_DIR)/hex/hex.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS_GC) -o $@
+
+# AND AGAINST A RUNNING NODE: the same client linked into a probe that
+# `livecheck` runs at a fresh host's fuzznetd (tool/live_rpc.py), so the
+# grammar the client reads is the one the daemon speaks.
+RPC_PROBE := $(BUILD_DIR)/tool/rpc_probe
+$(RPC_PROBE): $(BUILD_DIR)/tool/rpc_probe.o $(RPC_OBJS) \
+                                  $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
+                                  $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
+                                  $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
+                                  $(BUILD_DIR)/local/peer_linux.o \
+                                  $(BUILD_DIR)/constant_time/constant_time.o \
+                                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
+                                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o \
+                                  $(BUILD_DIR)/hex/hex.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS_GC) -o $@
 
 # Hex, the public codec, from fuzzypickles' common/encoding: calls nothing.
 $(BUILD_DIR)/hex/test/hex_test: $(BUILD_DIR)/hex/test/hex_test.o $(BUILD_DIR)/hex/hex.o
@@ -5240,6 +5282,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(BUILD_DIR)/local/rpc_err.o \
                                       $(BUILD_DIR)/device/device.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/net/bearer.o \
                                       $(BUILD_DIR)/node/pressure.o \
                                       $(BUILD_DIR)/chunk/erasure.o \
@@ -6288,10 +6331,12 @@ style: $(OBJS)
 	@# them here rather than widening the sweep keeps the gate exact -- a
 	@# third one has to be added deliberately and says why. The third and
 	@# fourth: `qr/decode.c` and its suite, the recogniser over quirc,
-	@# built by `qrcheck` for the same reason as the quirc check.
+	@# built by `qrcheck` for the same reason as the quirc check. The fifth:
+	@# `tool/rpc_probe.c`, the typed client at a running node, built by
+	@# `livecheck`, which starts the node it needs (sec 1098).
 	@known=" $(SRCS) $(PROG_SRCS) $(TEST_SRCS) $(GEN_SRCS) $(GEN_TEST_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
 	         $(FLOG_TSRC) tool/consumer_check.c qr/test/qr_quirc_check.c \
-	         qr/decode.c qr/test/decode_test.c "; \
+	         qr/decode.c qr/test/decode_test.c tool/rpc_probe.c "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' -not -path './.claude/*' \
@@ -7098,7 +7143,7 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # STATIC MEMORY PAST RAM AND SWAP IS REFUSED AT EXEC, sec 941, before anything can be
 # logged: a small machine, by default overcommit. What grows goes on the heap.
 FUZZNETD_BSS_MAX := 536870912
-livecheck: $(FUZZNETD) $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM)
+livecheck: $(FUZZNETD) $(EXT_DAEMON) $(BRIDGE) $(DEVICE_SIM) $(RPC_PROBE)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON),$(NOTES_ON),$(GROUPS_ON)),)
 	@echo "livecheck: SKIPPED -- it needs fuzznetd, the record store, log files, notes" \
 	      "and groups (its scripts use both to test others), and this build lacks one"
@@ -7149,6 +7194,7 @@ endif
 	@timeout 220 python3 tool/live_many_contacts.py $(FUZZNETD)
 	@$(if $(GROUPS_ON),timeout 200 python3 tool/live_many_groups.py $(FUZZNETD),echo \
 	  "livecheck: many groups SKIPPED -- this build has no groups")
+	@timeout 120 python3 tool/live_rpc.py $(FUZZNETD) $(RPC_PROBE)
 	@timeout 240 python3 tool/live_store_trouble.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_preset.py $(FUZZNETD)
 	@timeout 700 python3 tool/live_votes.py $(FUZZNETD)
