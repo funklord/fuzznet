@@ -14482,6 +14482,20 @@ SABOTAGES = [
 		"a host still serving as before is read as joined -- sec 1122",
 	),
 	(
+		"devices-view-join-looked-at-after-seen",
+		"gui/devices_view.cpp",
+		"\tif (joined) {\n\t\tm_join_looks = 0;\n",
+		"\tif (joined) {\n",
+		"a join already seen goes on being asked about -- sec 1123",
+	),
+	(
+		"devices-view-join-code-untrimmed",
+		"gui/devices_view.cpp",
+		"\tQByteArray text = code.trimmed().toLatin1();\n",
+		"\tQByteArray text = code.toLatin1();\n",
+		"a pasted code's surrounding spaces make it refused -- sec 1123",
+	),
+	(
 		"settings-view-filter-ignored",
 		"gui/settings_view.cpp",
 		"\t\t\tif (m_keep && !m_keep(m_keep_ctx, e->key))\n",

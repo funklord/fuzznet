@@ -27,7 +27,7 @@ static int checks, failures;
 #define DEV1 "d1d1000000000000000000000000000000000000000000000000000000000001"
 #define DEV2 "d2d2000000000000000000000000000000000000000000000000000000000002"
 
-static int silent, confirm_on = 1, refuse_set;
+static int silent, confirm_on = 1, refuse_set, joined_after;
 static char last[200];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -39,6 +39,9 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "ok FZI1:ABCDEFGHIJKLMNOP2345\n");
 	if (!strcmp(line, "get setting host invite/confirm"))
 		return (size_t)snprintf(reply, cap, "ok invite/confirm %s\n", confirm_on ? "on" : "off");
+	/* THIS HOST SERVES AS ITSELF, until the join has been looked at twice. */
+	if (!strcmp(line, "get identity"))
+		return (size_t)snprintf(reply, cap, "ok %s %s\n", DEV1, joined_after-- > 0 ? DEV1 : DEV2);
 	if (!strcmp(line, "list invite"))
 		return (size_t)snprintf(reply, cap, "ok 2 %s %s\n", DEV1, DEV2);
 	snprintf(last, sizeof last, "%s", line);
@@ -81,6 +84,20 @@ int main(int argc, char **argv)
 	v.select_waiting(-1);
 	last[0] = '\0';
 	CHECK(!v.answer(true) && !last[0], "an answer was sent with no device chosen");
+
+	/* JOINING: the code handed over, not joined at the first look, joined at
+	 * the second; a code of the wrong shape asks nothing (sec 1123). */
+	joined_after = 2;
+	CHECK(v.join("  FZI1:WXYZ  ") && !strcmp(last, "add join FZI1:WXYZ")
+	              && v.status().contains("few minutes"),
+	      "the code was not handed to the node");
+	CHECK(v.poll_join() == 0, "this host was read as joined while serving as before");
+	CHECK(v.poll_join() == 1 && v.status() == "This device is one of your hosts now.",
+	      "the join was not seen once this host served under the user");
+	CHECK(v.poll_join() == 0, "a join already seen was looked at again");
+	last[0] = '\0';
+	CHECK(!v.join("ABCD") && !last[0] && v.status().contains("not a join code"),
+	      "a code of the wrong shape was handed over");
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");

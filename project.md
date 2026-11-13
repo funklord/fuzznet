@@ -87559,3 +87559,26 @@ twice. Its expiry is a line of its own, because at the end of a sentence
 are each caught; the first survived until the view ticked the box as a
 click does before asking. `rpc_test` drives the two join steps through
 a scripted node, and `rpc-join-unchanged-identity-joined` is caught.
+
+## 1123. Joining a device by code, from the devices view, 2026-11-13
+
+**The other half of sec 1122.** The devices view could make a code and
+answer the devices waiting on it, but a person on the new device had no
+view to type the code into. The client's join blocked its caller.
+
+The view now has a code line and a Join button. Join hands the code to
+the node with `fzn_rpc_device_join_begin` (sec 1122's first step) and
+starts a one-second timer, which asks `fzn_rpc_device_joined` until this
+host serves under the user the code came from. Then it says "This device
+is one of your hosts now". If five minutes pass first -- as long as the
+node goes on asking -- it says the code's host did not answer and to
+make a new code. Nothing waits on the node between looks, so the window
+keeps answering. A pasted code's surrounding spaces are trimmed, and a
+code of the wrong shape is refused without asking.
+
+**Tests:** `devices_view_test`, now fifteen checks: the code handed
+over, not joined at the first look, joined at the second, not looked at
+again after, a wrong-shaped code refused unasked. The render test keeps
+the view at 274 px with every input named. Sabotage
+`devices-view-join-looked-at-after-seen` and
+`devices-view-join-code-untrimmed` are each caught.

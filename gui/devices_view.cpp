@@ -8,8 +8,10 @@
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QVector>
 
@@ -19,8 +21,13 @@
  * minutes, and each waiting device is one person's to answer. */
 #define WAITING_MAX 64u
 
+/* A LOOK A SECOND for the five minutes the node goes on asking. */
+#define JOIN_LOOK_MS 1000
+#define JOIN_LOOKS 300
+
 struct fzn_devices_view::keys {
 	QVector<QByteArray> waiting; /* each waiting device's key, 32 bytes */
+	uint8_t before[32];          /* whom this host served as when it joined */
 };
 
 static QString failed_words(const fzn_gui_rpc *r)
@@ -29,7 +36,7 @@ static QString failed_words(const fzn_gui_rpc *r)
 }
 
 fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
-    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_keys(new keys)
+    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_keys(new keys), m_join_looks(0)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
@@ -47,6 +54,13 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_let_in = new QPushButton(tr("Let in"), this);
 	m_turn_away = new QPushButton(tr("Turn away"), this);
 	m_refresh = new QPushButton(tr("Refresh"), this);
+	m_join_code = new QLineEdit(this);
+	m_join_code->setPlaceholderText(QStringLiteral("FZI1:..."));
+	m_join_code->setAccessibleName(tr("A code from another of your hosts"));
+	m_join = new QPushButton(tr("Join"), this);
+	m_join->setAccessibleName(tr("Join with that code"));
+	m_join_timer = new QTimer(this);
+	m_join_timer->setInterval(JOIN_LOOK_MS);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
@@ -76,6 +90,13 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	col->addWidget(new QLabel(tr("Waiting to join"), this));
 	col->addWidget(m_waiting, 1);
 	col->addLayout(answer_row);
+	auto *joining = new QLabel(tr("Or join this device to your other hosts with their code:"), this);
+	joining->setWordWrap(true);
+	col->addWidget(joining);
+	auto *join_row = new QHBoxLayout;
+	join_row->addWidget(m_join_code, 1);
+	join_row->addWidget(m_join);
+	col->addLayout(join_row);
 	col->addWidget(m_status);
 
 	connect(m_invite, &QPushButton::clicked, [this]() { invite(); });
@@ -86,6 +107,8 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	connect(m_let_in, &QPushButton::clicked, [this]() { answer(true); });
 	connect(m_turn_away, &QPushButton::clicked, [this]() { answer(false); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
+	connect(m_join, &QPushButton::clicked, [this]() { join(m_join_code->text()); });
+	connect(m_join_timer, &QTimer::timeout, [this]() { poll_join(); });
 	m_qr->hide();
 	select_waiting(-1);
 }
@@ -185,6 +208,45 @@ bool fzn_devices_view::answer(bool let_in)
 	refresh();
 	m_status->setText(let_in ? tr("%1 is let in.").arg(who) : tr("%1 is turned away.").arg(who));
 	return true;
+}
+
+bool fzn_devices_view::join(const QString &code)
+{
+	QByteArray text = code.trimmed().toLatin1();
+
+	if (fzn_rpc_device_join_begin(&m_rpc->c, text.constData(), (size_t)text.size(), m_keys->before)
+	    != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_join->setEnabled(false);
+	m_join_looks = JOIN_LOOKS;
+	m_join_timer->start();
+	m_status->setText(tr("Asking the code's host. This can take a few minutes."));
+	return true;
+}
+
+int fzn_devices_view::poll_join()
+{
+	int joined = 0;
+
+	if (!m_join_looks)
+		return 0;
+	(void)fzn_rpc_device_joined(&m_rpc->c, m_keys->before, &joined);
+	if (joined) {
+		m_join_looks = 0;
+		m_join_timer->stop();
+		m_join->setEnabled(true);
+		m_join_code->clear();
+		m_status->setText(tr("This device is one of your hosts now."));
+		return 1;
+	}
+	if (--m_join_looks == 0) {
+		m_join_timer->stop();
+		m_join->setEnabled(true);
+		m_status->setText(tr("The code's host did not answer. Make a new code there and try again."));
+	}
+	return 0;
 }
 
 QString fzn_devices_view::code() const { return m_code->text(); }
