@@ -27,6 +27,7 @@ static int checks, failures;
 #define SONG "5050000000000000000000000000000000000000000000000000000000000001"
 #define TALK "7070000000000000000000000000000000000000000000000000000000000002"
 #define ME "cccc000000000000000000000000000000000000000000000000000000000003"
+#define MOVIE "3030000000000000000000000000000000000000000000000000000000000004"
 
 static int silent;
 static char last[200];
@@ -40,7 +41,7 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	 * the host that catalogued it. */
 	if (!strcmp(line, "list catalog 0"))
 		return (size_t)snprintf(reply, cap,
-		                        "ok 5 0 " SONG ",name,song.ogg,aaaa000000000000 " SONG
+		                        "ok 6 0 " MOVIE ",name,movie.mkv,bbbb000000000000 " SONG ",name,song.ogg,aaaa000000000000 " SONG
 		                        ",kind,audio/ogg,aaaa000000000000 " SONG
 		                        ",duration,185000,aaaa000000000000 " TALK
 		                        ",name,talk.webm,bbbb000000000000 " TALK
@@ -48,7 +49,8 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "get identity"))
 		return (size_t)snprintf(reply, cap, "ok %s %s\n", ME, ME);
 	if (!strcmp(line, "list file 0"))
-		return (size_t)snprintf(reply, cap, "ok 1 0 " SONG ",4194304\n");
+		return (size_t)snprintf(reply, cap, "ok 2 0 " SONG ",4194304 " MOVIE
+		                                    ",734003200,fetching=400/1000\n");
 	snprintf(last, sizeof last, "%s", line);
 	return (size_t)snprintf(reply, cap, "ok\n");
 }
@@ -60,16 +62,21 @@ int main(int argc, char **argv)
 	fzn_library_view v(node, nullptr);
 
 	CHECK(v.refresh()
-	              && v.rows() == QStringList({ "song.ogg | audio/ogg | 4.0 MB | 3:05 | here, and on 1 other host(s)",
+	              && v.rows() == QStringList({ "movie.mkv |  | 700.0 MB |  | arriving, 40%, from 1 host(s)",
+	                                           "song.ogg | audio/ogg | 4.0 MB | 3:05 | here, and on 1 other host(s)",
 	                                           "talk.webm | video/webm |  |  | on 1 host(s)" }),
 	      "the files were not listed with their kind, size, length and where they are");
 
-	v.select(0);
+	v.select(1);
 	last[0] = '\0';
 	CHECK(!v.fetch() && !last[0], "a file already here was asked for again");
-	v.select(1);
+	v.select(2);
 	CHECK(v.fetch() && !strcmp(last, "fetch file " TALK) && v.status().contains("talk.webm"),
 	      "the file held elsewhere was not asked for by its root");
+
+	v.select(0);
+	last[0] = '\0';
+	CHECK(!v.fetch() && !last[0], "a file on its way was asked for again");
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");

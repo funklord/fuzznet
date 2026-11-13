@@ -2670,6 +2670,7 @@ typedef struct root_file {
 	uint8_t root[32];
 	uint64_t length;
 	int whole;
+	uint16_t arriving; /* per mille while fetching, sec 1132 */
 } root_file_t;
 
 static int cmp_root_issuer(const void *a, const void *b) {
@@ -2719,12 +2720,27 @@ static int take_file(void *ctx, const char *w, size_t w_len) {
 	if (!node_field(&q, stop, &f, &f_len) || !node_key(f, f_len, root)) return 0;
 	if (!node_field(&q, stop, &f, &f_len) || !node_u64(f, f_len, &length)) return 0;
 	int whole = 1;
+	uint16_t arriving = 0;
 	while (q <= stop && node_field(&q, stop, &f, &f_len))
-		if (f_len >= 9 && memcmp(f, "fetching=", 9) == 0) whole = 0;
+		if (f_len >= 9 && memcmp(f, "fetching=", 9) == 0) {
+			whole = 0;
+			/* HELD/TOTAL, in leaves: how far, per mille, at least 1. */
+			const char *slash = memchr(f + 9, '/', f_len - 9);
+			uint64_t held = 0, total = 0;
+			if (slash && node_u64(f + 9, (size_t)(slash - f - 9), &held) &&
+			    node_u64(slash + 1, (size_t)(f + f_len - slash - 1), &total) && total &&
+			    held <= total) {
+				const uint64_t pm = held * 1000u / total;
+				arriving = (uint16_t)(pm ? pm : 1);
+			} else {
+				arriving = 1;
+			}
+		}
 	if (room_for(x->c, &x->rows, &x->room, x->count + 1, sizeof *x->rows) != FZN_RPC_OK) return 0;
 	memcpy(x->rows[x->count].root, root, 32);
 	x->rows[x->count].length = length;
 	x->rows[x->count].whole = whole;
+	x->rows[x->count].arriving = arriving;
 	x->count++;
 	return 1;
 }
@@ -2764,6 +2780,7 @@ static int node_library_fill_many(fzn_rpc_t *c, fzn_rpc_library_list_entry_t *e,
 			memcpy(fkey.root, e[i].root, 32);
 			const root_file_t *f = bsearch(&fkey, fs.rows, fs.count, sizeof *fs.rows, cmp_root_file);
 			if (f) e[i].size = f->length;
+			if (f && !f->whole) e[i].arriving_permille = f->arriving;
 			/* As the one-file path: held here is the bytes whole here, not
 			 * this host's own claim. */
 			if (f && f->whole) {

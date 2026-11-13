@@ -1120,6 +1120,11 @@ typedef struct fzn_rpc_library_list_entry {
 	 * requests a file, so a listing asked for the first FZN_RPC_LIBRARY_DETAIL_ROWS
 	 * and a view for the rest (fzn_rpc_library_detail, which still serves). */
 	uint8_t detail;
+	/* ON ITS WAY HERE, sec 1132: how much has arrived, per mille, from
+	 * `list file`'s fetching=HELD/TOTAL, which was read only as "not whole";
+	 * 0 for a file not being fetched -- whole here, or not asked for. A
+	 * fetch begun with nothing yet is 1, so it reads as begun. */
+	uint16_t arriving_permille;
 } fzn_rpc_library_list_entry_t;
 
 #define FZN_RPC_LIBRARY_DETAIL_ROWS 256u

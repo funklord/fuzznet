@@ -14561,8 +14561,8 @@ SABOTAGES = [
 	(
 		"library-view-fetches-what-is-here",
 		"gui/library_view.cpp",
-		"\tif (row < 0 || row >= m_table->rowCount() || m_table->item(row, 0)->data(ROLE_HERE).toBool())\n",
-		"\tif (row < 0 || row >= m_table->rowCount())\n",
+		"\tif (row < 0 || row >= m_table->rowCount() || m_table->item(row, 0)->data(ROLE_HERE).toBool()\n\t    || m_table",
+		"\tif (row < 0 || row >= m_table->rowCount()\n\t    || m_table",
 		"a file already held here is asked for again -- sec 1131",
 	),
 	(
@@ -14571,6 +14571,20 @@ SABOTAGES = [
 		"\t\tm_table->setItem((int)i, 2, new QTableWidgetItem(e->size ? size_words(e->size) : QString()));\n",
 		"\t\tm_table->setItem((int)i, 2, new QTableWidgetItem(size_words(e->size)));\n",
 		"a file with no size known here reads as empty -- sec 1131",
+	),
+	(
+		"rpc-library-arriving-dropped",
+		"local/rpc.c",
+		"\t\t\tif (f && !f->whole) e[i].arriving_permille = f->arriving;\n",
+		"",
+		"how far a file on its way has come is read and dropped -- sec 1132",
+	),
+	(
+		"library-view-fetches-what-is-arriving",
+		"gui/library_view.cpp",
+		"\t    || m_table->item(row, 0)->data(ROLE_ARRIVING).toBool())\n\t\treturn false;\n",
+		"\t    || 0)\n\t\treturn false;\n",
+		"a file already on its way is asked for again -- sec 1132",
 	),
 	(
 		"conversation-view-read-at-own-line",

@@ -20,6 +20,7 @@ extern "C" {
 /* A ROW'S ITEM carries the file's root, to ask for it by. */
 #define ROLE_ROOT (Qt::UserRole)
 #define ROLE_HERE (Qt::UserRole + 1)
+#define ROLE_ARRIVING (Qt::UserRole + 2)
 
 static QString failed_words(const fzn_gui_rpc *r)
 {
@@ -106,10 +107,14 @@ bool fzn_library_view::refresh()
 		const fzn_rpc_library_list_entry_t *e = &all.entries[i];
 		/* HERE IS THE BYTES ON THIS HOST; the others are claims. */
 		const unsigned others = e->holders - (e->held_here && e->holders ? 1u : 0u);
-		QString where = e->held_here ? (others ? tr("here, and on %1 other host(s)").arg(others)
+		QString where = e->arriving_permille
+		                        ? tr("arriving, %1%").arg(e->arriving_permille / 10u)
+		                : e->held_here ? (others ? tr("here, and on %1 other host(s)").arg(others)
 		                                       : tr("here"))
 		                             : others ? tr("on %1 host(s)").arg(others)
 		                                      : tr("nowhere seen");
+		if (e->arriving_permille && others)
+			where += tr(", from %1 host(s)").arg(others);
 		m_table->setItem((int)i, 0, new QTableWidgetItem(words(e->name, e->name_len)));
 		m_table->setItem((int)i, 1, new QTableWidgetItem(words(e->kind, e->kind_len)));
 		/* A SIZE ONLY WHERE ONE IS KNOWN: the catalogue names none, and a
@@ -119,6 +124,7 @@ bool fzn_library_view::refresh()
 		m_table->setItem((int)i, 4, new QTableWidgetItem(where));
 		m_table->item((int)i, 0)->setData(ROLE_ROOT, QByteArray((const char *)e->root, 32));
 		m_table->item((int)i, 0)->setData(ROLE_HERE, (bool)e->held_here);
+		m_table->item((int)i, 0)->setData(ROLE_ARRIVING, e->arriving_permille != 0);
 	}
 	m_status->setText(all.count ? QString() : tr("The library is empty."));
 	fzn_rpc_library_list_release(&all);
@@ -132,13 +138,16 @@ void fzn_library_view::select(int row)
 	if (chosen && m_table->currentRow() != row)
 		m_table->setCurrentCell(row, 0);
 	/* A FILE ALREADY HERE is not asked for again. */
-	m_fetch->setEnabled(chosen && !m_table->item(row, 0)->data(ROLE_HERE).toBool());
+	/* A FILE ALREADY HERE, or on its way, is not asked for again. */
+	m_fetch->setEnabled(chosen && !m_table->item(row, 0)->data(ROLE_HERE).toBool()
+	                    && !m_table->item(row, 0)->data(ROLE_ARRIVING).toBool());
 }
 
 bool fzn_library_view::fetch()
 {
 	int row = m_table->currentRow();
-	if (row < 0 || row >= m_table->rowCount() || m_table->item(row, 0)->data(ROLE_HERE).toBool())
+	if (row < 0 || row >= m_table->rowCount() || m_table->item(row, 0)->data(ROLE_HERE).toBool()
+	    || m_table->item(row, 0)->data(ROLE_ARRIVING).toBool())
 		return false;
 	QByteArray root = m_table->item(row, 0)->data(ROLE_ROOT).toByteArray();
 	fzn_rpc_blob_fetch_resp_t out;

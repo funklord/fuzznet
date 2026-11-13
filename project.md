@@ -85905,7 +85905,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
-| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` (sec 1131) | Library playback UI, share target | a hostable transfer view |
+| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132) | Library playback UI, share target | a hostable transfer view |
 | Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
 | Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103); presets and a setting's votes on `governance_view` (secs 1023, 1029) | Settings page, to move onto it | |
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
@@ -87820,3 +87820,31 @@ elsewhere, each placed; the talk asked for by root; the song not asked
 for again; silence. 188 px, every input named. Sabotage
 `library-view-fetches-what-is-here` and `library-view-unknown-size-as-zero`
 are each caught.
+
+## 1132. A file on its way, and how far, 2026-11-13
+
+**What sec 1130 and 1131 left a person without.** A file asked for
+arrives in the background, and nothing a host could show said how far
+it had come. `list file` already says so for each file being fetched,
+`fetching=HELD/TOTAL` in leaves, and the client read that only as "not
+whole" -- the same parsed-and-dropped shape as secs 1124 and 1128.
+
+`fzn_rpc_library_list_entry_t` gains `arriving_permille`: per mille
+arrived while a file is being fetched, at least 1 once a fetch has
+begun, 0 for a file not on its way. The library view (sec 1131) says
+"arriving, 40%, from 1 host(s)" in its Where column. A file on its way
+is not asked for again, by the button or the call.
+
+**The shape searched for once more**, across the client: a `key=value`
+field matched by its prefix with the value unread (this was the only
+one), and a field read into a scratch variable and overwritten before
+use (the only hit, `take_issuer` skipping NAME and VALUE, is deliberate:
+the catalogue walk reads them). Nothing else of the kind remains in
+`local/rpc.c`.
+
+**Tests:** `library_view_test`, six checks: a film 400 of 1000 leaves in,
+said as arriving at 40% from one host, and not asked for again.
+Sabotage `rpc-library-arriving-dropped` and
+`library-view-fetches-what-is-arriving` are each caught;
+`library-view-fetches-what-is-here` was re-pointed at the guard's new
+shape.
