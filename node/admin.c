@@ -2741,8 +2741,8 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 			return n;
 	}
 
-	/* A BLOB MESSAGE, before the line is split: its first byte is the
-	 * message version, below any verb's first letter, so the shelf
+	/* A BLOB MESSAGE, before the line is split: its first byte is its CMD,
+	 * FZN_CMD_FILES, below any verb's first letter, so the shelf
 	 * recognises it or returns 0 and the verbs follow. sec 424. */
 	if (admin->text_remote && req->payload) {
 		size_t n = admin->text_remote(admin->text_ctx, req->payload, req->payload_len, reply,
@@ -2752,7 +2752,7 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 			return n;
 	}
 
-	/* A JOURNAL MESSAGE, version byte 5, the same way. sec 501. */
+	/* A JOURNAL MESSAGE, FZN_CMD_EXCHANGE, the same way. sec 501; 1047. */
 	if (admin->journal_remote && req->payload) {
 		size_t n = admin->journal_remote(admin->journal_ctx, req->payload, req->payload_len,
 		                                 reply, reply_cap);
@@ -2761,7 +2761,7 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 			return n;
 	}
 
-	/* A RECONCILIATION MESSAGE, version byte 6, the same way. sec 551. */
+	/* A RECONCILIATION MESSAGE, FZN_CMD_RECONCILE, the same way. sec 551. */
 	if (admin->holdings_remote && req->payload) {
 		size_t n = admin->holdings_remote(admin->holdings_ctx, req->sender, req->payload,
 		                                  req->payload_len, reply, reply_cap);
@@ -2770,7 +2770,7 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 			return n;
 	}
 
-	/* A NOTES SYNC MESSAGE, version byte 2, the same way. sec 432. */
+	/* A NOTES SYNC MESSAGE, FZN_CMD_NOTES, the same way. sec 432; 1085. */
 	if (admin->notes_remote && req->payload) {
 		size_t n = admin->notes_remote(admin->notes_ctx, req->sender, 0, req->payload,
 		                               req->payload_len, reply, reply_cap);
@@ -2778,9 +2778,8 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		if (n)
 			return n;
 	}
-	/* A MEMBER'S CONVERSATION KEYS, the same version byte, types 23 to
-	 * 26. sec 527. Below the contact branch, so a contact never reaches
-	 * them. */
+	/* A MEMBER'S CONVERSATION KEYS, FZN_CMD_MESSAGES. sec 527; 1085.
+	 * Below the contact branch, so a contact never reaches them. */
 	if (admin->messages_remote && req->payload) {
 		size_t n = admin->messages_remote(admin->messages_ctx, req->sender, req->payload,
 		                                  req->payload_len, reply, reply_cap);

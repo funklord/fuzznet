@@ -9,7 +9,7 @@
  * extension (`node/daemon.h`) could not be given a range anybody checked.
  * This is that file. `node/test/types_test.c` includes every owner's
  * header and checks each number below against the owner's constant, that
- * no two version-2 types are one, and that none is an extension's.
+ * no two SUBCMDs of one CMD are one, and that none is an extension's.
  *
  * THE CMD BYTES, `wire/cmd.h`. Each is below 0x20, so none is ever the first
  * byte of a verb line (`local/vocabulary.h`), which is how the two share one
