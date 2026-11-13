@@ -16,6 +16,12 @@
  * key's first bytes where they are no contact; its read position is kept
  * by the group's id, which no rename moves (sec 1084).
  *
+ * A STICKER LINE IS DRAWN (sec 1145) from the thumbnail the node renders
+ * of a pack it holds, wherever Qt reads the format, as the sticker picker
+ * draws one; it is said in words until its pack has arrived, and always
+ * for Lottie, which wants thorvg. A sticker that came in offers "Keep
+ * this sticker pack", which keeps the pack in this user's collection.
+ *
  * Through the typed client on the host's ask callback (`rpc_ask.h`), as the
  * contacts and devices views are. NO Q_OBJECT AND THEREFORE NO moc.
  */
@@ -61,6 +67,8 @@ public:
 	 * conversation. `send_file` with no path asks which. */
 	bool show_older();
 	bool send_file(const QString &path);
+	/* A STICKER THAT CAME IN, on the chosen line: its pack kept. */
+	bool keep_pack();
 
 	/* The clock, seconds since 1970, for the times shown; 0 reads the
 	 * system's. */
@@ -69,11 +77,17 @@ public:
 	/* WHAT IS ON SCREEN: each line as shown, oldest first; the line being
 	 * written; the status line. */
 	QStringList lines() const;
+	/* Whether line `row` is drawn as a picture. */
+	bool drawn(int row) const;
 	QString text() const;
 	QString status() const;
 
 private:
+	void draw_stickers();
+
 	struct fzn_gui_rpc *m_rpc;
+	struct art;
+	art *m_art; /* each sticker drawn, for the view's life */
 	QString m_contact;
 	uint32_t m_now;
 
@@ -85,6 +99,7 @@ private:
 	QPushButton *m_save;
 	QPushButton *m_older;
 	QPushButton *m_send_file;
+	QPushButton *m_keep;
 	size_t m_max; /* the most lines shown, a page more for each "older" */
 	QLabel *m_status;
 };

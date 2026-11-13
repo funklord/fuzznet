@@ -13,6 +13,10 @@ extern "C" {
 #include <QDateTime>
 #include <QFileDialog>
 #include <QHBoxLayout>
+#include <QHash>
+#include <QIcon>
+#include <QImage>
+#include <QPixmap>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -25,6 +29,29 @@ extern "C" {
 
 /* A FILE LINE'S ITEM carries the reference it names, to fetch and save by. */
 #define ROLE_FILE (Qt::UserRole)
+/* A sticker line's pack word (144 hex) and id, "PACK ID"; and whether
+ * the line came in. */
+#define ROLE_STICKER (Qt::UserRole + 1)
+#define ROLE_IN (Qt::UserRole + 2)
+/* The most bytes of a sticker's thumbnail read, as the picker reads. */
+#define ART_MAX (256u * 1024u)
+
+struct fzn_conversation_view::art {
+	QHash<QByteArray, QIcon> drawn;
+};
+
+/* A sticker line's pack and id, "PACK ID"; empty for any other line, and
+ * for a fuzzypickles reference, which names no pack a node can read. */
+static QByteArray sticker_of(const char *text, size_t len)
+{
+	static fzn_sticker_ref_t ref;
+	char word[145];
+
+	if (!fzn_sticker_ref_parse(text, len, &ref) || !ref.length)
+		return QByteArray();
+	fzn_rpc_sticker_pack_word(&ref, ref.length, word);
+	return QByteArray(word, 144) + ' ' + QByteArray::number((qulonglong)ref.id);
+}
 
 /* The reference a line's text names, as the bytes an item keeps: root, key,
  * the size in eight bytes, then the name; empty for a line naming none. */
@@ -122,7 +149,7 @@ static QString failed_words(const fzn_gui_rpc *r)
 
 fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
                                              QWidget *parent)
-    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_now(0), m_max(LINES_PAGE)
+    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_art(new art), m_now(0), m_max(LINES_PAGE)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
@@ -130,6 +157,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_title->setWordWrap(true);
 	m_lines = new QListWidget(this);
 	m_lines->setWordWrap(true);
+	m_lines->setIconSize(QSize(64, 64));
 	m_lines->setAccessibleName(tr("The conversation's lines"));
 	m_text = new QLineEdit(this);
 	m_text->setPlaceholderText(tr("Write a line"));
@@ -139,6 +167,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_save = new QPushButton(tr("Save the file"), this);
 	m_older = new QPushButton(tr("Older lines"), this);
 	m_send_file = new QPushButton(tr("Send a file"), this);
+	m_keep = new QPushButton(tr("Keep this sticker pack"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
@@ -159,6 +188,8 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	files->addStretch(1);
 	auto *sending = new QHBoxLayout;
 	sending->addWidget(m_send_file);
+	/* NOT BESIDE THE FILE'S TWO: three there pass a 320 px cover screen. */
+	sending->addWidget(m_keep);
 	sending->addStretch(1);
 	col->addLayout(files);
 	col->addLayout(write);
@@ -172,6 +203,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	connect(m_save, &QPushButton::clicked, [this]() { save_to(QString()); });
 	connect(m_older, &QPushButton::clicked, [this]() { show_older(); });
 	connect(m_send_file, &QPushButton::clicked, [this]() { send_file(QString()); });
+	connect(m_keep, &QPushButton::clicked, [this]() { keep_pack(); });
 	select_line(-1);
 	m_title->setText(tr("No conversation is open."));
 	m_send->setEnabled(false);
@@ -179,7 +211,11 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_send_file->setEnabled(false);
 }
 
-fzn_conversation_view::~fzn_conversation_view() { delete m_rpc; }
+fzn_conversation_view::~fzn_conversation_view()
+{
+	delete m_art;
+	delete m_rpc;
+}
 
 void fzn_conversation_view::set_now(uint32_t utc_s) { m_now = utc_s; }
 
@@ -235,6 +271,8 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 		                           content_words(l->text, l->text_len))
 		                       + state_words(l));
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
+		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
+		item->setData(ROLE_IN, !l->outgoing);
 		list->addItem(item);
 	}
 	for (i = 0; i < count && !newest_in; i++)
@@ -271,6 +309,7 @@ bool fzn_conversation_view::refresh()
 		if (!group_lines(m_rpc, m_contact, m_lines, m_status, at, m_max, &answered))
 			return answered;
 		m_older->setEnabled((size_t)m_lines->count() >= m_max);
+		draw_stickers();
 		return true;
 	}
 	const uint32_t now = m_now ? m_now : (uint32_t)time(NULL);
@@ -298,6 +337,8 @@ bool fzn_conversation_view::refresh()
 		                              content_words(l->text, l->text_len))
 		                 + state_words(l));
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
+		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
+		item->setData(ROLE_IN, !l->outgoing);
 		m_lines->addItem(item);
 	}
 	for (i = 0; i < count && !newest_in; i++)
@@ -311,12 +352,14 @@ bool fzn_conversation_view::refresh()
 	               != FZN_RPC_OK) {
 		m_status->setText(tr("Shown, but not marked read: %1").arg(failed_words(m_rpc)));
 		free(lines);
+		draw_stickers();
 		return true;
 	}
 	m_status->setText(count ? QString() : tr("Nothing said yet."));
 	/* A FULL PAGE MAY HAVE MORE BEHIND IT. */
 	m_older->setEnabled(count >= m_max);
 	free(lines);
+	draw_stickers();
 	if (count)
 		m_lines->scrollToBottom();
 	return true;
@@ -354,6 +397,8 @@ void fzn_conversation_view::select_line(int row)
 	const bool file = item && !item->data(ROLE_FILE).toByteArray().isEmpty();
 	m_fetch->setEnabled(file);
 	m_save->setEnabled(file);
+	m_keep->setEnabled(item && item->data(ROLE_IN).toBool()
+	                   && !item->data(ROLE_STICKER).toByteArray().isEmpty());
 }
 
 bool fzn_conversation_view::fetch()
@@ -447,3 +492,66 @@ QStringList fzn_conversation_view::lines() const
 QString fzn_conversation_view::text() const { return m_text->text(); }
 
 QString fzn_conversation_view::status() const { return m_status->text(); }
+
+/* EACH STICKER LINE DRAWN, as the picker draws one: the thumbnail the
+ * node renders, where Qt reads it. What the node drew is kept for the
+ * view's life -- a null icon for Lottie or art Qt cannot read, said in
+ * words -- and one the node could not draw is asked again at the next
+ * refresh, since its pack may still be arriving. */
+void fzn_conversation_view::draw_stickers()
+{
+	for (int i = 0; i < m_lines->count(); i++) {
+		QListWidgetItem *item = m_lines->item(i);
+		const QByteArray sticker = item->data(ROLE_STICKER).toByteArray();
+		if (sticker.size() <= 145)
+			continue;
+		auto held = m_art->drawn.constFind(sticker);
+		if (held != m_art->drawn.constEnd()) {
+			if (!held.value().isNull())
+				item->setIcon(held.value());
+			continue;
+		}
+		uint8_t *bytes = nullptr;
+		size_t len = 0;
+		uint8_t format = 0;
+		QImage image;
+		if (fzn_rpc_sticker_art(&m_rpc->c, sticker.constData(), 144, sticker.mid(145).toULongLong(),
+		                        FZN_STICKER_THUMB, ART_MAX, &bytes, &len, &format)
+		    == FZN_RPC_OK) {
+			QIcon icon;
+			if (format != FZN_STICKER_LOTTIE && image.loadFromData(bytes, (int)len))
+				icon = QIcon(QPixmap::fromImage(image));
+			m_art->drawn.insert(sticker, icon);
+			if (!icon.isNull())
+				item->setIcon(icon);
+		}
+		free(bytes);
+	}
+}
+
+bool fzn_conversation_view::keep_pack()
+{
+	QListWidgetItem *item = m_lines->currentItem();
+	const QByteArray sticker = item ? item->data(ROLE_STICKER).toByteArray() : QByteArray();
+	uint8_t root[32];
+	int host_only = 0;
+
+	if (sticker.size() <= 145 || !item->data(ROLE_IN).toBool())
+		return false;
+	if (fzn_rpc_sticker_keep(&m_rpc->c, sticker.constData(), 144, root, &host_only) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	/* KEPT FOR THIS HOST ALONE where it may not set the estate's settings,
+	 * as put answers. */
+	m_status->setText(host_only ? tr("Kept the pack, on this device only.")
+	                            : tr("Kept the pack with your stickers."));
+	return true;
+}
+
+bool fzn_conversation_view::drawn(int row) const
+{
+	QListWidgetItem *item = row >= 0 ? m_lines->item(row) : nullptr;
+	return item && !item->icon().isNull();
+}
+

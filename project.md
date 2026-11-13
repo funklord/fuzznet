@@ -85899,9 +85899,9 @@ is the register, rewritten in place as features land; "where" says where each li
 |---|---|---|---|
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
-| Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
-| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
-| Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
+| Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | |
+| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | Lottie sticker art on the views, waiting on thorvg (sec 1141); other art is drawn (sec 1145), files said, got and saved (secs 1129-1130) |
+| Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`), `sticker_picker_view` (sec 1141), a line drawn and its pack kept (sec 1145) | sticker UI | Lottie art (sec 1141) |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view's media, which is the host's (the view itself is sec 1142) |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
@@ -88199,3 +88199,36 @@ group's menu; its file as `@family`, its members by name, its call to
 bob and dan without this user; a choice not offered refused. Sabotage
 `conversations-menu-sharing-unread`, `conversations-menu-stop-shares`
 and `conversations-menu-call-everyone-unnamed` are each caught.
+
+## 1145. A sticker line drawn, and its pack kept, 2026-11-14
+
+**The sticker half of the conversation view** (sec 1141: "for this
+picker and for a sticker line in the conversation view alike"; sec
+1141's "Not here": a received sticker's "Keep"). `gui/conversation_view`
+now draws a sticker line from the thumbnail the node renders of a pack
+it holds (`fzn_rpc_sticker_art`), wherever Qt reads the format -- PNG,
+APNG's first frame, WebP -- as the picker does, beside the words it
+already said. A line whose pack has not arrived is said in words and
+asked again at the next refresh; what the node drew is kept for the
+view's life, a Lottie sticker or art Qt cannot read as undrawable, so a
+conversation full of stickers costs one drawing each, not one a
+refresh. A fuzzypickles `fzp:` reference names no pack a node can read
+and stays in words.
+
+**Keep this sticker pack**, offered on a sticker line that came in,
+keeps the pack in this user's collection by its whole reference
+(`add sticker REF`, sec 683), and says whether it was kept on this
+device only, as put answers where the host may not set the estate's
+settings. It sits beside "Send a file" rather than the file's two
+buttons: three there made the view 323 px, past the 320 px cover
+screen the render check holds it to.
+
+**Still open:** Lottie, on this view and the picker, waits on thorvg
+(sec 1141).
+
+**Tests:** `conversation_view_test` gains four checks: dan's sticker
+drawn and his file not; a refresh draws it without asking again; a
+file's line keeps nothing; the sticker's pack kept by its whole
+reference and said. Sabotage `conversation-sticker-never-drawn`,
+`conversation-sticker-asked-again` and `conversation-keep-by-root` are
+each caught. The qtty render check sizes the view at 237 px.

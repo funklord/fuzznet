@@ -14671,6 +14671,27 @@ SABOTAGES = [
 		"calling a group rings members it cannot name, this user among them -- sec 1144",
 	),
 	(
+		"conversation-sticker-never-drawn",
+		"gui/conversation_view.cpp",
+		"\t\t\tif (format != FZN_STICKER_LOTTIE && image.loadFromData(bytes, (int)len))\n",
+		"\t\t\tif (0)\n",
+		"a sticker line is said in words though Qt reads its art -- sec 1145",
+	),
+	(
+		"conversation-sticker-asked-again",
+		"gui/conversation_view.cpp",
+		"\t\t\tm_art->drawn.insert(sticker, icon);\n",
+		"",
+		"a sticker drawn once is drawn again by the node at every refresh -- sec 1145",
+	),
+	(
+		"conversation-keep-by-root",
+		"gui/conversation_view.cpp",
+		"fzn_rpc_sticker_keep(&m_rpc->c, sticker.constData(), 144, root, &host_only)",
+		"fzn_rpc_sticker_keep(&m_rpc->c, sticker.constData(), 64, root, &host_only)",
+		"a received sticker's pack is asked by its root, not its whole reference -- sec 1145",
+	),
+	(
 		"conversation-view-file-sent-public",
 		"gui/conversation_view.cpp",
 		"FZN_RPC_BLOB_TIER_PRIVATE, &stored)",

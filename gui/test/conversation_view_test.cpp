@@ -4,12 +4,14 @@
  * shown oldest first with who wrote each and when, a line holding an escape
  * shown in caret form, the read position set at the newest line that came
  * in, a line sent and the typed text cleared, a refused send keeping it,
- * and a node that does not answer.
+ * a sticker line drawn from the art the node renders, asked once, and its
+ * pack kept (sec 1145), and a node that does not answer.
  */
 
 #include "../conversation_view.h"
 
 #include <QApplication>
+#include <QImage>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,11 +44,33 @@ static char last_set[200], last_add[200], last_file[600];
 #define FILE_ROOT "0000000000000000000000000000000000000000000000000000000000000003"
 #define FILE_KEY "0000000000000000000000000000000000000000000000000000000000000004"
 
+/* DAN'S STICKER'S PACK, as a node reads it: root, key, length 1000. */
+#define DAN_PACK                                                                                         \
+	"0000000000000000000000000000000000000000000000000000000000000001"                               \
+	"0000000000000000000000000000000000000000000000000000000000000002"                               \
+	"00000000000003e8"
+static int art_asked;
+static char last_keep[200];
+
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
+	static const char DRAW[] = "get sticker " DAN_PACK " 7 thumb ";
 	(void)ctx;
 	if (silent)
 		return 0;
+	/* THE STICKER'S ART: a PNG written where asked. */
+	if (!strncmp(line, DRAW, sizeof DRAW - 1)) {
+		QImage one(1, 1, QImage::Format_ARGB32);
+		art_asked++;
+		one.fill(Qt::red);
+		if (!one.save(QString::fromUtf8(line + sizeof DRAW - 1), "PNG"))
+			return (size_t)snprintf(reply, cap, "error could not write\n");
+		return (size_t)snprintf(reply, cap, "ok 4 1 1\n");
+	}
+	if (!strcmp(line, "add sticker " DAN_PACK)) {
+		snprintf(last_keep, sizeof last_keep, "%s", line);
+		return (size_t)snprintf(reply, cap, "ok %064d\n", 5);
+	}
 	/* NEWEST FIRST, as the node lists them: this user's "ok" at 23:52,
 	 * bob's escape at 23:51, this user's line at 23:50, and bob's hello the
 	 * day before. */
@@ -148,6 +172,16 @@ int main(int argc, char **argv)
 	              && !strcmp(last_file, "get file " FILE_ROOT FILE_KEY "00000000002625a0 /tmp/holiday.jpg")
 	              && d.status() == "Saved 2.4 MB to /tmp/holiday.jpg.",
 	      "the file was not saved where asked");
+
+	/* THE STICKER DRAWN, ASKED ONCE, AND ITS PACK KEPT, sec 1145. */
+	CHECK(d.drawn(1) && !d.drawn(0), "a sticker line was not drawn, or a file line was");
+	CHECK(d.refresh() && d.drawn(1) && art_asked == 1, "a sticker drawn once was asked for again");
+	d.select_line(0);
+	CHECK(!d.keep_pack() && !last_keep[0], "a file's line kept a pack");
+	d.select_line(1);
+	CHECK(d.keep_pack() && !strcmp(last_keep, "add sticker " DAN_PACK)
+	              && d.status() == "Kept the pack with your stickers.",
+	      "a sticker that came in did not keep its pack by its whole reference");
 
 	/* OLDER LINES AND A FILE SENT, sec 1140: four lines are not a full page,
 	 * so there is nothing older to show; a file put private and attached. */
