@@ -124,6 +124,24 @@ static void test_every_unread_count_is_read(void)
 	      "an unread row was not read as KEY,COUNT,MORE");
 }
 
+/* WHY A CALL ENDED, in a person's words, and which endings are a missed call
+ * (secs 1082, 1090): answered or turned away on another of the user's hosts
+ * is said so and never missed; a ring the caller gave up on, or nobody took,
+ * is. */
+static void test_a_missed_call_is_told_from_one_taken_elsewhere(void)
+{
+	CHECK(strcmp(fzn_rpc_ended_words("answered-elsewhere"), "answered on another of your devices") == 0,
+	      "answered-elsewhere was not said in words");
+	CHECK(strcmp(fzn_rpc_ended_words("declined-elsewhere"), "turned away on another of your devices") == 0,
+	      "declined-elsewhere was not said in words");
+	CHECK(strcmp(fzn_rpc_ended_words("eclipsed"), "eclipsed") == 0, "an unknown reason was not said as it came");
+	CHECK(fzn_rpc_missed("hung-up") && fzn_rpc_missed("no-answer") && fzn_rpc_missed("gone"),
+	      "a ring nobody took was not missed");
+	CHECK(!fzn_rpc_missed("answered-elsewhere") && !fzn_rpc_missed("declined-elsewhere")
+	              && !fzn_rpc_missed("declined") && !fzn_rpc_missed("ended") && !fzn_rpc_missed(NULL),
+	      "a call taken or turned away was called missed");
+}
+
 /* A REFUSAL: the node's code mapped, its words kept, and it was answered. */
 static void test_a_refusal_keeps_the_node_s_words(void)
 {
@@ -334,6 +352,7 @@ int main(void)
 	test_groups_are_read_across_pages();
 	test_a_group_row_that_does_not_parse_is_unreadable();
 	test_every_unread_count_is_read();
+	test_a_missed_call_is_told_from_one_taken_elsewhere();
 	test_a_refusal_keeps_the_node_s_words();
 	test_a_held_set_says_so();
 	test_an_object_is_read_or_absent();

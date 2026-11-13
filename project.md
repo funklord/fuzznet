@@ -86976,3 +86976,33 @@ a duration's notes, an estate value written for the estate, a sensitive value no
 `rpc_test` clears a host's and an estate's setting. Sabotage `settings-view-*`,
 `rpc-clear-at-the-estate` and `rpc-sensitive-value-shown`, each caught; a guard in the view that
 repeated the client's redaction was dropped, since no test could reach it past the client.
+
+## 1104. Missed calls in the typed client, and objects added and removed, 2026-11-13
+
+**From fuzzypickles' inbox, and netcfgd's:**
+- **netcfgd took 23e4f46** (0659Z, its b5d80a01, netcfgd project.md 10.832): its nodes judge a last
+  admin's delete-and-leave as this tree's do (sec 1096); full C suite and the live estate-secret
+  test pass; size +4,248 bytes.
+- **The four units are fuzzypickles' no longer** (0919Z): pinned at 23e4f46, it uses `hex/hex.h`,
+  `location/geo.c`, `net/own_address.c` and `qr/decode.c` from this tree and has deleted its copies,
+  one commit each; all 75 end-to-end scenarios pass. The remade crew's first line arrived 4 of 4
+  at 23e4f46 where it failed 3 of 7 before sec 1096; the scenario prints `get epoch` and the
+  group's water from both hosts if it misses again.
+- **Step 5's pilot and pace** (0921Z): named objects suit as the pilot -- fuzzypickles reaches them
+  from three clients and `objects-on-nodes.sh`, which also asks `rrpc object get|set` as a device
+  does; the pace is as fast as categories land, each a pin bump and a gate run there; keep the
+  text path until the last category (sec 1101). The category scheme stays the holder's.
+
+**Missed calls** (0931Z): the typed client was taken (sec 1098) at the branch before fuzzypickles
+added sec 1090's rule. Taken now from its branch `fzp-rpc-missed` (fdec3a4d), unchanged:
+`fzn_rpc_missed(reason)`, true for `hung-up`, `no-answer` and `gone` -- a ring nobody here took --
+and false for `answered-elsewhere`, `declined-elsewhere`, `declined` and `ended`; and
+`fzn_rpc_ended_words` saying the two `-elsewhere` endings in words. Its `rpc_test` case, and
+sabotage `rpc-missed-counts-taken-elsewhere`, caught.
+
+**Objects added and removed** (1003Z): fuzzypickles' Objects page also adds an object -- a name
+and its allowed words, `on off` or none for any word -- and removes the chosen one, so the
+objects view (sec 1102) does both now, by `fzn_rpc_object_add` and `_remove`; with them
+fuzzypickles hosts the view in its page's place. `refresh()` stays one `list object`, cheap
+enough for a host to call on every `object` event. `objects_view_test` has fourteen checks;
+sabotage `objects-view-nameless-add` and `-remove-refusal-wordless`, caught.

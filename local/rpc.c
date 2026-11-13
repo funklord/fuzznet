@@ -4236,6 +4236,11 @@ int fzn_rpc_ended(fzn_rpc_t *c, const char *id, char *reason, size_t cap) {
 	return FZN_RPC_OK;
 }
 
+int fzn_rpc_missed(const char *reason) {
+	return reason && (strcmp(reason, "hung-up") == 0 || strcmp(reason, "no-answer") == 0 ||
+	                  strcmp(reason, "gone") == 0);
+}
+
 const char *fzn_rpc_ended_words(const char *reason) {
 	static const struct {
 		const char *word, *said;
@@ -4247,6 +4252,8 @@ const char *fzn_rpc_ended_words(const char *reason) {
 		{"gone", "the other end went away"},
 		{"unreachable", "could not be reached"},
 		{"ended", "ended"},
+		{"answered-elsewhere", "answered on another of your devices"},
+		{"declined-elsewhere", "turned away on another of your devices"},
 	};
 	for (size_t i = 0; i < sizeof words / sizeof words[0]; i++)
 		if (strcmp(reason, words[i].word) == 0) return words[i].said;

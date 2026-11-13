@@ -13,6 +13,12 @@
  * host hands in -- `fzn_notebook_view_socket_ask`, or a test's node -- so the
  * grammar is read in one place, the client, and not again here.
  *
+ * AN OBJECT IS ADDED by its name and the words it allows -- `on off`, or
+ * nothing for any word -- and the chosen one REMOVED, fuzzypickles' Objects
+ * page's two other uses (sec 1104), so a consumer hosts this in its place.
+ * refresh() is one `list object`, cheap enough for a host to call on every
+ * `object` event the node publishes.
+ *
  * WHAT THE NODE REFUSES IS SAID IN ITS WORDS, and a node that does not answer
  * says so: "no objects" and "the node did not answer" are different words.
  * NO Q_OBJECT AND THEREFORE NO moc: buttons connect to lambdas.
@@ -47,6 +53,11 @@ public:
 	void select(int row);
 	void choose(const QString &value);
 	bool set();
+	/* A new object's name and its allowed words, space separated, empty for
+	 * any word; then add it. And remove the chosen row. */
+	void name_new(const QString &name, const QString &words);
+	bool add();
+	bool remove();
 
 	/* WHAT IS ON SCREEN: each row as NAME=VALUE, the words the chosen row
 	 * offers, and the status line. */
@@ -61,6 +72,10 @@ private:
 	QComboBox *m_value;
 	QPushButton *m_set;
 	QPushButton *m_refresh;
+	QLineEdit *m_new_name;
+	QLineEdit *m_new_words;
+	QPushButton *m_add;
+	QPushButton *m_remove;
 	QLabel *m_status;
 	QStringList m_allowed; /* each row's allowed words, `*` for any */
 };

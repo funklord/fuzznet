@@ -7,6 +7,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -30,20 +31,34 @@ fzn_objects_view::fzn_objects_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
+	m_new_name = new QLineEdit(this);
+	m_new_name->setPlaceholderText(tr("New object's name"));
+	m_new_words = new QLineEdit(this);
+	m_new_words->setPlaceholderText(tr("Its words, e.g. on off -- empty for any"));
+	m_add = new QPushButton(tr("Add"), this);
+	m_remove = new QPushButton(tr("Remove"), this);
 
 	auto *row = new QHBoxLayout;
 	row->addWidget(m_value, 1);
 	row->addWidget(m_set);
+	row->addWidget(m_remove);
 	row->addWidget(m_refresh);
+	auto *adding = new QHBoxLayout;
+	adding->addWidget(m_new_name, 1);
+	adding->addWidget(m_new_words, 1);
+	adding->addWidget(m_add);
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_table, 1);
 	col->addLayout(row);
+	col->addLayout(adding);
 	col->addWidget(m_status);
 
 	connect(m_table, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select(r); });
 	connect(m_set, &QPushButton::clicked, [this]() { set(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
+	connect(m_add, &QPushButton::clicked, [this]() { add(); });
+	connect(m_remove, &QPushButton::clicked, [this]() { remove(); });
 	select(-1);
 }
 
@@ -97,6 +112,7 @@ void fzn_objects_view::select(int row)
 	}
 	m_value->setEnabled(chosen);
 	m_set->setEnabled(chosen);
+	m_remove->setEnabled(chosen);
 }
 
 void fzn_objects_view::choose(const QString &value)
@@ -136,6 +152,49 @@ bool fzn_objects_view::set()
 		m_status->setText(tr("%1 set to %2.").arg(QString::fromUtf8(name),
 		                                          QString::fromUtf8(value)));
 	}
+	return true;
+}
+
+void fzn_objects_view::name_new(const QString &name, const QString &words)
+{
+	m_new_name->setText(name);
+	m_new_words->setText(words);
+}
+
+bool fzn_objects_view::add()
+{
+	QByteArray name = m_new_name->text().trimmed().toUtf8();
+	QByteArray words = m_new_words->text().simplified().toUtf8();
+	if (name.isEmpty()) {
+		m_status->setText(tr("Name the object first."));
+		return false;
+	}
+	/* EMPTY WORDS TAKE ANY WORD: the node's own default, nothing sent. */
+	if (fzn_rpc_object_add(&m_rpc->c, name.constData(), words.constData()) != FZN_RPC_OK) {
+		m_status->setText(m_rpc->c.answered ? QString::fromUtf8(m_rpc->c.error)
+		                                    : tr("The node did not answer."));
+		return false;
+	}
+	m_new_name->clear();
+	m_new_words->clear();
+	refresh();
+	m_status->setText(tr("%1 added.").arg(QString::fromUtf8(name)));
+	return true;
+}
+
+bool fzn_objects_view::remove()
+{
+	int row = m_table->currentRow();
+	if (row < 0 || !m_table->item(row, 0))
+		return false;
+	QByteArray name = m_table->item(row, 0)->text().toUtf8();
+	if (fzn_rpc_object_remove(&m_rpc->c, name.constData()) != FZN_RPC_OK) {
+		m_status->setText(m_rpc->c.answered ? QString::fromUtf8(m_rpc->c.error)
+		                                    : tr("The node did not answer."));
+		return false;
+	}
+	refresh();
+	m_status->setText(tr("%1 removed.").arg(QString::fromUtf8(name)));
 	return true;
 }
 

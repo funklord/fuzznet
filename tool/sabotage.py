@@ -14307,6 +14307,27 @@ SABOTAGES = [
 		"a value set on this host reads as set above it -- sec 1103",
 	),
 	(
+		"rpc-missed-counts-taken-elsewhere",
+		"local/rpc.c",
+		"\t                  strcmp(reason, \"gone\") == 0);\n",
+		"\t                  strcmp(reason, \"gone\") == 0 || strcmp(reason, \"answered-elsewhere\") == 0);\n",
+		"a call answered on another of the user's hosts is counted missed -- sec 1090",
+	),
+	(
+		"objects-view-nameless-add",
+		"gui/objects_view.cpp",
+		"\tif (name.isEmpty()) {\n\t\tm_status->setText(tr(\"Name the object first.\"));\n",
+		"\tif (0) {\n\t\tm_status->setText(tr(\"Name the object first.\"));\n",
+		"an object with no name is asked of the node -- sec 1104",
+	),
+	(
+		"objects-view-remove-refusal-wordless",
+		"gui/objects_view.cpp",
+		"\tif (fzn_rpc_object_remove(&m_rpc->c, name.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(m_rpc->c.answered ? QString::fromUtf8(m_rpc->c.error)\n",
+		"\tif (fzn_rpc_object_remove(&m_rpc->c, name.constData()) != FZN_RPC_OK) {\n\t\tm_status->setText(m_rpc->c.answered ? tr(\"Refused.\")\n",
+		"a refused remove loses the node's words -- sec 1104",
+	),
+	(
 		"list-message-no-group-malformed",
 		"node/messages.c",
 		"\t\twho_no_group = err == FZN_CONTACT_ERR_ABSENT;\n",

@@ -382,6 +382,12 @@ int fzn_rpc_ended(fzn_rpc_t *c, const char *id, char *reason, size_t cap);
 /* REASON as a person reads it; the word itself for one this client does not
  * know, so a reason fuzznet adds later is still said. */
 const char *fzn_rpc_ended_words(const char *reason);
+/* A MISSED CALL: one that rang in here and ended with REASON while still
+ * ringing -- the caller gave up (hung-up), nobody answered in time
+ * (no-answer) or the caller went (gone). Answered or turned away on another
+ * of this user's hosts is not missed (answered-elsewhere,
+ * declined-elsewhere, sec 1090), nor turned away here (declined). */
+int fzn_rpc_missed(const char *reason);
 /* A CALL'S MEDIA, opaque to the node (fuzznet sec 1020): a frame on STREAM,
  * numbered SEQ, captured at AT (the sender's own ms), said once and never
  * resent. A request is at most 512 bytes and the media goes as hex, so a

@@ -31,6 +31,8 @@ static char lamp[16] = "off";
 static const char *set_reply = "ok";
 static int silent;
 static char last_set[128];
+static char last_change[128]; /* the last add or remove asked */
+static const char *change_reply = "ok";
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -46,6 +48,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		if (strcmp(set_reply, "ok") == 0 && strncmp(line + 11, "lamp ", 5) == 0)
 			snprintf(lamp, sizeof lamp, "%s", line + 16);
 		return (size_t)snprintf(reply, cap, "%s\n", set_reply);
+	}
+	if (strncmp(line, "add object ", 11) == 0 || strncmp(line, "remove object ", 14) == 0) {
+		snprintf(last_change, sizeof last_change, "%s", line);
+		return (size_t)snprintf(reply, cap, "%s\n", change_reply);
 	}
 	return (size_t)snprintf(reply, cap, "unsupported\n");
 }
@@ -85,6 +91,23 @@ int main(int argc, char **argv)
 	v.choose("on");
 	CHECK(!v.set() && v.status() == "only an estate admin may set that",
 	      "a refusal was not said in the node's words");
+
+	/* AN OBJECT ADDED with its words, or for any word; THE CHOSEN ONE REMOVED
+	 * (sec 1104, fuzzypickles' page's other two uses). */
+	v.name_new("door", "open shut");
+	CHECK(v.add() && !strcmp(last_change, "add object door open shut") && v.status() == "door added.",
+	      "an object was not added with its words");
+	v.name_new("memo", "");
+	CHECK(v.add() && !strcmp(last_change, "add object memo"), "an object for any word sent words");
+	v.name_new("", "on off");
+	last_change[0] = '\0';
+	CHECK(!v.add() && !last_change[0], "an object with no name was asked for");
+	v.select(1);
+	CHECK(v.remove() && !strcmp(last_change, "remove object note"), "the chosen object was not removed");
+	change_reply = "denied only an estate admin may remove that";
+	v.select(0);
+	CHECK(!v.remove() && v.status() == "only an estate admin may remove that",
+	      "a refused remove was not said in the node's words");
 
 	/* NOTHING ANSWERING, which is not "no objects". */
 	silent = 1;
