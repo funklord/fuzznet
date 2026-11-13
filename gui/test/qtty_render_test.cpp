@@ -49,6 +49,7 @@
 #include "../notebook_view.h"
 #include "../retention_view.h"
 #include "../governance_view.h"
+#include "../objects_view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../entries_view.h"
 #endif
@@ -306,6 +307,9 @@ static int no_sync_op(void *ctx)
 static size_t empty_node(void *ctx, const char *line, char *reply, size_t cap)
 {
 	(void)ctx;
+	/* THE OBJECTS' LISTING SAYS FIRST, SHOWN AND MORE, sec 948. */
+	if (!strncmp(line, "list object ", 12u))
+		return (size_t)snprintf(reply, cap, "ok 0 0 0\n");
 	if (!strncmp(line, "list ", 5u))
 		return (size_t)snprintf(reply, cap, "ok 0 0\n");
 	return (size_t)snprintf(reply, cap, "error no such note\n");
@@ -347,6 +351,8 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_notebook_view notes_v(empty_node, nullptr);
 	fzn_retention_view retention_v(empty_node, nullptr);
 	fzn_governance_view governance_v(empty_node, nullptr);
+	fzn_objects_view objects_v(empty_node, nullptr);
+	(void)objects_v.refresh();
 #ifdef FZN_LOG_FILE_ON
 	fzn_entries_view entries_v(silent_host, nullptr);
 #endif
@@ -637,6 +643,8 @@ static void test_every_widget_survives_a_terminal(void)
 			/* WHAT A ROOT'S CHANGE NEEDS, said before the click, on
 			 * the tab shown first, sec 1023. */
 			{ "governance_view", &governance_v, "needs a root" },
+			/* NO OBJECTS IS SAID, not left a blank table, sec 1102. */
+			{ "objects_view", &objects_v, "No objects." },
 #ifdef FZN_LOG_FILE_ON
 			/* A SILENT HOST SAYS SO, sec 468, as the notebook does: no
 			 * lines and no answer are different words. */

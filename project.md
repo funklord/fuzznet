@@ -85898,24 +85898,24 @@ is the register, rewritten in place as features land; "where" says where each li
 | Feature | In fuzznet | Still in a consumer, to move | Missing |
 |---|---|---|---|
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view` | fuzzypickles' Setup, Hosts pages | a hostable provision view |
-| Pairing, joining, invites, cards | protocol, `qr_view` encode | QR decode (`client/scan.c`), this host's addresses for a card (`client/own_address.c`) | |
+| Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state | contact screens | a contacts view |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state | conversation screens, read marks per device for groups | group read position; unread for every conversation in one reply; a read at the held position silent (sec 1069) |
-| Stickers | packs (situ schema), fetch | sticker reader (`client/sticker_read.c`), sticker UI | a sticker view |
+| Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
-| Location, Nearby | fixes, grants, levels | distance, bearing, a fix's age (`client/geo.c`), Nearby UI | a location view |
+| Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093) | Nearby UI | a location view |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed) | Library playback UI, share target | a hostable transfer view; a library (catalogue) view |
 | Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
 | Settings, schema, presets, votes | protocol, schema, rate gate | Settings page | a settings-schema view |
 | Logs, retention, metrics | logging, retention, `retention_view`, `log_view`, `metric/log/*` | | retention view's spoken names and 320 px (sec 1069) |
-| Named objects (buttons, lamps) | protocol, store, rate gate | | an objects view |
-| Registered remote procedures (RRPC) for extensions | protocol (named procedure call) | | the RRPC rename (sec 1061) |
+| Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
+| Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed) | Connection page | hostable link, peer, sync, capability, revocation, trust views |
-| The typed client: every node command as a function and struct | `local/client.h` (untyped) | `client/calls.c` and its structs, ~10k lines -- moving first | |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099) | fuzzypickles' copy, until it pins past it | the local leg in binary under it (sec 1101) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
-| Encodings (hex, base64) | private copies per module | `common/encoding.c` | one public codec |
+| Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092) | | the tree's private hex tables moved onto it |
 
 ## 1071. A call rings every host of the user, and the first to answer takes it, 2026-11-12
 
@@ -86928,3 +86928,25 @@ admin's remote verbs (sec 1061 step 3e) ride on the same encodings and move with
 **Open:** A or B (the holder's); the pilot category and the pace (fuzzypickles', whose clients
 switch); whether netcfgd and raidcfgd's bridge, which speak the text grammar through
 `local/client.h`, move at the same time or keep text until their own pass (each project's).
+
+## 1102. The named objects as a widget, the first view on the typed client, 2026-11-13
+
+**The register's gap** (sec 1070): named objects had a protocol and a store and no view, so a
+consumer wanting a lamp's switch wrote its own. `gui/objects_view.{h,cpp}` is fuzznet's: a row an
+object -- its name, its value, who set it, the words it allows -- a value chosen from those words
+or typed where the object takes any, and Set. A held set (sec 1037) says it is on its way rather
+than reading the old value back; a refusal is said in the node's words; a node that does not
+answer is not "no objects".
+
+**The pattern for the views still missing:** the widget takes the ask callback every view here
+takes (`fzn_notebook_view_socket_ask` from a host, a scripted node from a test), and puts the
+typed client on it through the client's `answer` hook -- so the grammar is read once, in
+`local/rpc.c`, and a view never parses a reply line. When the local leg turns binary (sec 1101)
+the views do not change.
+
+**Tests:** `gui/test/objects_view_test.cpp`, nine checks against a scripted node: the rows, a
+lamp's words offered and set, a word typed, a held set, a refusal, silence. Four sabotage entries
+(`objects-view-*`), each caught.
+
+**The register's rows** brought up to date the same day: QR decode, own addresses, distance and
+bearing, the sticker spec reader, RRPC, the typed client and the hex codec are fuzznet's now.

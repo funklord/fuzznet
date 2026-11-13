@@ -1269,7 +1269,7 @@ endif
 # four times -- a dangling continuation swallows the next line, and make
 # reports it against somewhere else entirely.
 GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
-            gui/retention_view.cpp gui/governance_view.cpp \
+            gui/retention_view.cpp gui/governance_view.cpp gui/objects_view.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1304,11 +1304,11 @@ SPEC_HDRS :=
 CHECK_HDRS := qr/decode.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
-            gui/retention_view.h gui/governance_view.h \
+            gui/retention_view.h gui/governance_view.h gui/objects_view.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
-            gui/test/governance_view_test.cpp \
+            gui/test/governance_view_test.cpp gui/test/objects_view_test.cpp \
             $(if $(LOG_FILE_ON),gui/test/entries_view_test.cpp)
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
 # than an accident of the build. sec 164: it does not validate, the CLI parser
@@ -1408,6 +1408,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/notebook_view_test \
               $(BUILD_DIR)/gui/test/retention_view_test \
               $(BUILD_DIR)/gui/test/governance_view_test \
+              $(BUILD_DIR)/gui/test/objects_view_test \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/gui/test/entries_view_test)
 ifdef CLI_ON
 TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
@@ -3630,6 +3631,21 @@ $(BUILD_DIR)/gui/test/entries_view_test: $(BUILD_DIR)/gui/test/entries_view_test
                                      $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(if $(LOG_PACK_ON),$(ZSTD_LIBS)) -o $@
+
+# The named objects on a widget, sec 1102, against a scripted node: the
+# widget calls the typed client, so the client's objects come with it.
+$(BUILD_DIR)/gui/test/objects_view_test: $(BUILD_DIR)/gui/test/objects_view_test.o \
+                                      $(BUILD_DIR)/gui/objects_view.o $(RPC_OBJS) \
+                                      $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
+                                      $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
+                                      $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
+                                      $(BUILD_DIR)/local/peer_linux.o \
+                                      $(BUILD_DIR)/constant_time/constant_time.o \
+                                      $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
+                                      $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o \
+                                      $(BUILD_DIR)/hex/hex.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 
 # The notes widget, against the real note verbs in the same process: its
 # ask callback reaches node/notes.c, and local/client is the host's. sec 439.
@@ -7472,6 +7488,10 @@ qttycheck:
 # the way through that, and a fixed -j4 offered no way at all.
 QTTY_JOBS ?= 4
 
+# THE TYPED CLIENT for the views that ask through it (objects_view, sec 1102):
+# its objects and what they reach that the list below does not already hold.
+QTTY_RPC_OBJS := $(RPC_OBJS) $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/contact_card.o \
+                 $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/hex/hex.o
 QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/cli/manifest_print.o \
                     $(BUILD_DIR)/cli/ledger_print.o $(BUILD_DIR)/record/ledger.o \
@@ -7498,7 +7518,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(FLOG_OBJS) \
                     $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/retention.o \
                     $(BUILD_DIR)/catalog/catalog.o \
-                    $(BUILD_DIR)/constant_time/constant_time.o
+                    $(BUILD_DIR)/constant_time/constant_time.o $(QTTY_RPC_OBJS)
 
 qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/gather.o $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o))
 	@if [ -z "$(QTTY_DIR)" ]; then \
@@ -7594,13 +7614,13 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(LOG_FILE_ON),$(
 	       gui/config_view.cpp gui/link_view.cpp gui/peer_view.cpp \
 	       gui/manifest_view.cpp gui/ledger_view.cpp gui/sched_view.cpp \
 	       gui/persist_view.cpp gui/notebook_view.cpp gui/retention_view.cpp \
-	       gui/governance_view.cpp \
+	       gui/governance_view.cpp gui/objects_view.cpp \
 	       gui/provision_view.cpp \
 	       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON gui/entries_view.cpp $(BUILD_DIR)/log/gather.o \
 	         $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o \
 	         $(BUILD_DIR)/log/capture.o) \
 	       $(QTTY_RENDER_OBJS) \
-	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) \
+	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) $(LDFLAGS_GC) \
 	       $(if $(and $(LOG_FILE_ON),$(LOG_PACK_ON)),$(ZSTD_LIBS)) -o "$$scratch/render_test"; \
 	"$$scratch/render_test"
 
