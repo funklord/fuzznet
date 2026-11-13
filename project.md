@@ -87267,9 +87267,13 @@ from abroad, which needs a relay the holder runs". Read against what is built, i
   `relay/enabled` on (`set setting host relay/enabled on`), its quota as wanted (`relay/quota`,
   `relay/window`). The phones need nothing; the server must be up for a call to reach a phone that
   no hole reaches. A host relays only for members and standing contacts, one hop, and holds no frame.
-- **Not measured for this exact shape:** two phones, both behind NATs, one in another estate, with
-  the relay a third host of one of them. hull's journeys run a phone against a root behind a gateway;
-  a run with the relay a separate host would confirm it before the friend leaves.
+- **Measured in that shape, the same day, at 4c74d75:** `make livecheck-hull` runs it already --
+  A's root a public server relaying, A's phone behind a NAT of its own, B's root in another estate
+  behind gateway B. With B's gateway symmetric, so no hole can be punched (`HULL_ESTATES_SYMMETRIC_B=1`),
+  every journey passed: the phone's frame at B's root, B's frame at A's phone, A's root relaying --
+  after this day's send path moved to `sendmsg` and a call's media was marked (secs 1110-1111). What
+  it does not run: the friend's device as a phone serving no public address of its own beyond its NAT,
+  and the new media channel (sec 1113) over a relayed session.
 
 **fuzzypickles' fetch that never starts** (inbox 1358Z): `library-plays-what-is-arriving-on-nodes`
 has failed three times, each inside a full run directly after `tui-daemon-log-on-a-node` (an fzpd on
