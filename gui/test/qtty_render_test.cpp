@@ -76,6 +76,12 @@ extern "C" {
 #include <qtty/testing.h>
 
 #include <QApplication>
+#include <QHeaderView>
+#include <QLineEdit>
+#include <QComboBox>
+#include <QAbstractSpinBox>
+#include <QAbstractItemView>
+#include <QAbstractButton>
 #include <QString>
 #include <QStringList>
 
@@ -710,6 +716,51 @@ static void test_every_widget_survives_a_terminal(void)
 			check_at(floor_cols > 0, __LINE__, msg);
 			printf("  %-18s needs %d columns to say \"%s\"\n", cases[i].name,
 			       floor_cols, cases[i].must_show);
+			/* EVERY INPUT NAMED, NO TWO BUTTONS SPOKEN ALIKE, AND A FOLDING
+			 * PHONE'S 320 px COVER SCREEN, sec 1120 -- sec 1044's check, which
+			 * governance alone ran, held over every view. Qt's own parts (a
+			 * table's header, a chooser's popup list) are named by their
+			 * owner. The desktop's diagnostic printers are held to names only. */
+			{
+				static const char *const desk[] = { "manifest_view", "sched_view", "persist_view" };
+				QStringList unnamed, spoken, twice;
+				int wide_ok = 0;
+				size_t d;
+
+				for (QWidget *c : cases[i].widget->findChildren<QWidget *>()) {
+					QWidget *up = c->parentWidget();
+					if (qobject_cast<QHeaderView *>(c) || qobject_cast<QAbstractSpinBox *>(up)
+					    || qobject_cast<QAbstractItemView *>(up))
+						continue;
+					for (; up && !qobject_cast<QComboBox *>(up); up = up->parentWidget())
+						;
+					if (up)
+						continue;
+					if ((qobject_cast<QLineEdit *>(c) || qobject_cast<QAbstractSpinBox *>(c)
+					     || qobject_cast<QComboBox *>(c) || qobject_cast<QAbstractItemView *>(c))
+					    && c->accessibleName().isEmpty())
+						unnamed << QString::fromLatin1(c->metaObject()->className());
+					if (auto *b = qobject_cast<QAbstractButton *>(c)) {
+						QString said = b->accessibleName().isEmpty() ? b->text() : b->accessibleName();
+						if (spoken.contains(said))
+							twice << said;
+						spoken << said;
+					}
+				}
+				for (d = 0; d < sizeof(desk) / sizeof(desk[0]); d++)
+					wide_ok |= !strncmp(cases[i].name, desk[d], strlen(desk[d]));
+				printf("  %-18s at least %d px\n", cases[i].name,
+				       cases[i].widget->minimumSizeHint().width());
+				snprintf(msg, sizeof(msg), "%s leaves an input unnamed: %s", cases[i].name,
+				         unnamed.join(QStringLiteral(",")).toUtf8().constData());
+				check_at(unnamed.isEmpty(), __LINE__, msg);
+				snprintf(msg, sizeof(msg), "%s speaks two buttons alike: %s", cases[i].name,
+				         twice.join(QStringLiteral(",")).toUtf8().constData());
+				check_at(twice.isEmpty(), __LINE__, msg);
+				snprintf(msg, sizeof(msg), "%s is %d px, wider than a 320 px cover screen",
+				         cases[i].name, cases[i].widget->minimumSizeHint().width());
+				check_at(wide_ok || cases[i].widget->minimumSizeHint().width() <= 320, __LINE__, msg);
+			}
 		}
 
 		/* DO QFormLayout's OWN ROW LABELS REACH THE GRID? Every widget

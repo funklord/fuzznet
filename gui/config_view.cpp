@@ -45,6 +45,12 @@ fzn_config_view::fzn_config_view(QWidget *parent)
 	owner_->addItem(QStringLiteral("yes"));
 	owner_->addItem(QStringLiteral("no"));
 	form->addRow(QStringLiteral("Become owner"), owner_);
+	/* NAMED FOR A SCREEN READER as each row's label says, sec 1120. */
+	dir_->setAccessibleName(QString::fromUtf8(FIELDS[0].label));
+	store_->setAccessibleName(QString::fromUtf8(FIELDS[1].label));
+	service_->setAccessibleName(QString::fromUtf8(FIELDS[2].label));
+	product_->setAccessibleName(QString::fromUtf8(FIELDS[3].label));
+	owner_->setAccessibleName(QStringLiteral("Become owner"));
 
 	outer->addLayout(form);
 	outer->addWidget(message_);

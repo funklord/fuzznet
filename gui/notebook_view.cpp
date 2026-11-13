@@ -276,6 +276,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 		m_empty_confirm = new QPushButton(QStringLiteral("Empty trash"), m_empty_bar);
 		m_empty_confirm->setObjectName(QStringLiteral("empty_trash_confirm"));
 		cancel->setObjectName(QStringLiteral("empty_trash_cancel"));
+		/* SPOKEN APART from the button that opened the bar, sec 1120. */
+		m_empty_confirm->setAccessibleName(QStringLiteral("Erase the trash's notes everywhere"));
+		cancel->setAccessibleName(QStringLiteral("Keep the trash"));
 		bar->addWidget(note, 1);
 		bar->addWidget(m_empty_confirm);
 		bar->addWidget(cancel);
@@ -296,6 +299,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 		m_folder_name = new QLineEdit(m_folder_row);
 		m_folder_name->setPlaceholderText(QStringLiteral("Folder name"));
 		m_folder_name->setObjectName(QStringLiteral("new_folder_name"));
+		cancel->setAccessibleName(QStringLiteral("Cancel the new folder"));
 		m_folder_create = new QPushButton(QStringLiteral("Create"), m_folder_row);
 		m_folder_create->setObjectName(QStringLiteral("new_folder_create"));
 		m_folder_create->setEnabled(false);

@@ -49,6 +49,10 @@ fzn_entries_view::fzn_entries_view(fzn_gather_ask_t ask, void *ask_ctx, QWidget 
 	m_span = new QComboBox(this);
 	for (i = 0; i < sizeof(SPANS) / sizeof(SPANS[0]); i++)
 		m_span->addItem(QString::fromLatin1(SPAN_NAMES[i]), QVariant::fromValue(SPANS[i]));
+	/* NAMED FOR A SCREEN READER, a placeholder not being a name, sec 1120. */
+	m_program->setAccessibleName(QStringLiteral("Program"));
+	m_match->setAccessibleName(QStringLiteral("Lines holding"));
+	m_span->setAccessibleName(QStringLiteral("Over how long"));
 	m_short = new QCheckBox(QStringLiteral("Short"), this);
 	m_short->setChecked(true);
 	m_refresh = new QPushButton(QStringLiteral("Refresh"), this);
@@ -61,12 +65,17 @@ fzn_entries_view::fzn_entries_view(fzn_gather_ask_t ask, void *ask_ctx, QWidget 
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
+	/* TWO ROWS, sec 1120: on one the view was 369 px, past a folding
+	 * phone's 320 px cover screen. */
+	auto *how = new QHBoxLayout();
 	row->addWidget(m_program);
 	row->addWidget(m_match, 1);
-	row->addWidget(m_span);
-	row->addWidget(m_short);
-	row->addWidget(m_refresh);
+	how->addWidget(m_span);
+	how->addWidget(m_short);
+	how->addWidget(m_refresh);
+	how->addStretch(1);
 	outer->addLayout(row);
+	outer->addLayout(how);
 	outer->addWidget(m_status);
 	outer->addWidget(m_text, 1);
 

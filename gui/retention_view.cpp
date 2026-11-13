@@ -46,7 +46,9 @@ fzn_retention_view::fzn_retention_view(fzn_notebook_view_ask_t ask, void *ask_ct
         : QWidget(parent), m_ask(ask), m_ask_ctx(ask_ctx)
 {
 	auto *outer = new QVBoxLayout(this);
-	auto *lists = new QHBoxLayout();
+	/* ONE ABOVE THE OTHER, sec 1120: side by side they made the view 360 px,
+	 * past a folding phone's 320 px cover screen. */
+	auto *lists = new QVBoxLayout();
 	auto *node_col = new QVBoxLayout();
 	auto *estate_col = new QVBoxLayout();
 	auto *node_buttons = new QHBoxLayout();
@@ -62,6 +64,15 @@ fzn_retention_view::fzn_retention_view(fzn_notebook_view_ask_t ask, void *ask_ct
 	m_add_estate = new QPushButton(QStringLiteral("Add"), this);
 	m_remove_estate = new QPushButton(QStringLiteral("Remove"), this);
 	m_refresh = new QPushButton(QStringLiteral("Refresh"), this);
+	/* SPOKEN NAMES, sec 1120: the two Adds and the two Removes say which
+	 * list they act on, and the rule line and lists are named. */
+	m_rule->setAccessibleName(QStringLiteral("A retention rule"));
+	m_node->setAccessibleName(QStringLiteral("This node's rules"));
+	m_estate->setAccessibleName(QStringLiteral("The estate's rules"));
+	m_add_node->setAccessibleName(QStringLiteral("Add to this node's rules"));
+	m_remove_node->setAccessibleName(QStringLiteral("Remove from this node's rules"));
+	m_add_estate->setAccessibleName(QStringLiteral("Add to the estate's rules"));
+	m_remove_estate->setAccessibleName(QStringLiteral("Remove from the estate's rules"));
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 	m_estate_status = new QLabel(this);

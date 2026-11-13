@@ -72,19 +72,29 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
-	auto *row = new QHBoxLayout;
-	row->addWidget(m_name, 1);
-	row->addWidget(m_approve);
-	row->addWidget(m_reject);
-	row->addWidget(m_rename);
-	row->addWidget(m_remove);
-	row->addWidget(m_refresh);
+	/* NAMED FOR A SCREEN READER, and in three rows rather than one, sec
+	 * 1120: the name line and five buttons side by side made the view 492
+	 * px, past a folding phone's 320 px cover screen. */
+	m_requests->setAccessibleName(tr("Waiting to become contacts"));
+	m_contacts->setAccessibleName(tr("Contacts"));
+	m_name->setAccessibleName(tr("Name"));
+	auto *answer = new QHBoxLayout;
+	answer->addWidget(m_approve);
+	answer->addWidget(m_reject);
+	answer->addStretch(1);
+	auto *change = new QHBoxLayout;
+	change->addWidget(m_rename);
+	change->addWidget(m_remove);
+	change->addWidget(m_refresh);
+	change->addStretch(1);
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(new QLabel(tr("Waiting to become contacts"), this));
 	col->addWidget(m_requests, 1);
+	col->addLayout(answer);
 	col->addWidget(new QLabel(tr("Contacts"), this));
 	col->addWidget(m_contacts, 2);
-	col->addLayout(row);
+	col->addWidget(m_name);
+	col->addLayout(change);
 	col->addWidget(m_status);
 
 	connect(m_contacts, &QTableWidget::currentCellChanged,

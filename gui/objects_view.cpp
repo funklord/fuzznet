@@ -38,18 +38,28 @@ fzn_objects_view::fzn_objects_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_add = new QPushButton(tr("Add"), this);
 	m_remove = new QPushButton(tr("Remove"), this);
 
+	/* NAMED FOR A SCREEN READER, a placeholder not being a name, and in
+	 * shorter rows, sec 1120: the view was 352 px, past a folding phone's
+	 * 320 px cover screen. */
+	m_table->setAccessibleName(tr("Objects"));
+	m_value->setAccessibleName(tr("The chosen object's new value"));
+	m_new_name->setAccessibleName(tr("New object's name"));
+	m_new_words->setAccessibleName(tr("New object's words"));
 	auto *row = new QHBoxLayout;
 	row->addWidget(m_value, 1);
 	row->addWidget(m_set);
-	row->addWidget(m_remove);
-	row->addWidget(m_refresh);
+	auto *more = new QHBoxLayout;
+	more->addWidget(m_remove);
+	more->addWidget(m_refresh);
+	more->addStretch(1);
 	auto *adding = new QHBoxLayout;
-	adding->addWidget(m_new_name, 1);
 	adding->addWidget(m_new_words, 1);
 	adding->addWidget(m_add);
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_table, 1);
 	col->addLayout(row);
+	col->addLayout(more);
+	col->addWidget(m_new_name);
 	col->addLayout(adding);
 	col->addWidget(m_status);
 

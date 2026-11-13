@@ -85907,8 +85907,8 @@ is the register, rewritten in place as features land; "where" says where each li
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed) | Library playback UI, share target | a hostable transfer view; a library (catalogue) view |
 | Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
-| Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103) | Settings page, to move onto it | presets and votes on the view |
-| Logs, retention, metrics | logging, retention, `retention_view`, `log_view`, `metric/log/*` | | retention view's spoken names and 320 px (sec 1069) |
+| Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103); presets and a setting's votes on `governance_view` (secs 1023, 1029) | Settings page, to move onto it | |
+| Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed) | Connection page | hostable link, peer, sync, capability, revocation, trust views |
@@ -87444,3 +87444,47 @@ Sabotage `location-view-precision-ignored`,
 `location-view-grant-not-read-back`,
 `location-view-sharing-nothing-rowless` and
 `location-view-suspended-contact-offered` are each caught.
+
+## 1120. Every view named, spoken apart, and on a 320 px cover screen, 2026-11-13
+
+**sec 1044's check had one subject.** fuzzypickles found the governance
+view's key and k unnamed for a screen reader. The test that came of it
+walked the governance view alone, and sec 1041's 320 px width check the
+same. The register (sec 1070) still named the retention view's spoken
+names and width as missing, so the check had not reached the views
+beside the one that prompted it.
+
+`qtty_render_test` already builds every widget, so it now holds all of
+them to three things. Every input, list, table and chooser has an
+accessible name; a placeholder is not a name. No two buttons in a view
+are spoken alike. And each view's minimum width is at most 320 px,
+except the desktop's diagnostic printers (`manifest_view`, `sched_view`,
+`persist_view`), which are held to names only. Qt's own parts -- a
+table's headers and corner button, a chooser's popup list -- are named
+through their owner and passed over.
+
+Measured first, before anything was fixed:
+
+| View | Was | Now | What it lacked |
+|---|---|---|---|
+| contacts | 492 px | 274 | both tables and the name line unnamed |
+| location | 474 px | 267 | the table unnamed |
+| entries | 369 px | 277 | program, match and span unnamed |
+| retention | 360 px | 188 | rule line and both lists unnamed; "Add" and "Remove" spoken twice |
+| objects | 352 px | 188 | table, value and both new-object lines unnamed |
+| link | 332 px | 127 | -- |
+| settings | 266 px | same | tree and value unnamed |
+| config | 179 px | same | four fields and the owner chooser unnamed |
+| notebook | 215 px | same | "Empty trash" and "Cancel" each spoken twice |
+
+The fixes are row breaks where a row of buttons set the width, as sec
+1041 did for governance; retention's two lists one above the other;
+and the link view's path rows, which must not wrap, scrolling sideways
+in a scroll area rather than setting the view's width. The notebook's
+confirm and cancels now say what they do ("Erase the trash's notes
+everywhere", "Keep the trash", "Cancel the new folder").
+
+**Who this is for**, since "only for a screen reader" reads as rare: a
+person who needs the screen described to them could not tell retention's
+two Adds apart, nor any of the contacts view's lists. On a folding
+phone's cover screen, six views were wider than the screen.

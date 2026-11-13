@@ -30,6 +30,9 @@ fzn_settings_view::fzn_settings_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_list->setHeaderHidden(true);
 	m_list->setColumnCount(1);
 	m_value = new QComboBox(this);
+	/* NAMED FOR A SCREEN READER, sec 1120. */
+	m_list->setAccessibleName(tr("Settings"));
+	m_value->setAccessibleName(tr("The chosen setting's value"));
 	m_where = new QLabel(this);
 	m_notes = new QLabel(this);
 	m_notes->setWordWrap(true);

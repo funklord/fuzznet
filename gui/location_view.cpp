@@ -44,19 +44,26 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
+	/* THREE SHORT ROWS, sec 1120: the four buttons on one made the view 474
+	 * px, past a folding phone's 320 px cover screen. */
+	m_table->setAccessibleName(tr("Positions shared with you"));
 	auto *row = new QHBoxLayout;
 	row->addWidget(m_fetch);
-	row->addWidget(m_share);
-	row->addWidget(m_unshare);
 	row->addWidget(m_refresh);
+	row->addStretch(1);
 	auto *grant = new QHBoxLayout;
 	grant->addWidget(new QLabel(tr("Share yours:"), this));
 	grant->addWidget(m_precision, 1);
+	auto *give = new QHBoxLayout;
+	give->addWidget(m_share);
+	give->addWidget(m_unshare);
+	give->addStretch(1);
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_own);
 	col->addWidget(m_table, 1);
-	col->addLayout(grant);
 	col->addLayout(row);
+	col->addLayout(grant);
+	col->addLayout(give);
 	col->addWidget(m_status);
 
 	connect(m_table, &QTableWidget::currentCellChanged,

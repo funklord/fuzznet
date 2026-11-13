@@ -2,6 +2,7 @@
 
 #include <QFontDatabase>
 #include <QFormLayout>
+#include <QScrollArea>
 #include <QLabel>
 
 /* Column widths, fixed so the rows line up in the string rather than in a
@@ -58,8 +59,17 @@ fzn_link_view::fzn_link_view(QWidget *parent)
 {
 	QFormLayout *form = new QFormLayout(this);
 
+	/* THE PATHS SCROLL SIDEWAYS rather than set the view's width, sec 1120:
+	 * their rows must not wrap, and as the view's own width they made it
+	 * 332 px, past a folding phone's 320 px cover screen. */
+	QScrollArea *paths = new QScrollArea(this);
+	paths->setWidget(rows_);
+	paths->setWidgetResizable(true);
+	paths->setFrameShape(QFrame::NoFrame);
+	paths->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+	paths->setAccessibleName(QStringLiteral("Paths"));
 	form->addRow(QStringLiteral("Links"), summary_);
-	form->addRow(QStringLiteral("Paths"), rows_);
+	form->addRow(QStringLiteral("Paths"), paths);
 
 	summary_->setWordWrap(true);
 	/* THE ROWS MUST NOT WRAP. Their alignment is in the string, and a
