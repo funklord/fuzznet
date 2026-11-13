@@ -188,6 +188,7 @@
 #include <fuzznet/node/reconcile.h>
 #include <fuzznet/node/types.h>
 #include <fuzznet/location/location.h>
+#include <fuzznet/location/geo.h>
 #include <fuzznet/location/tpv.h>
 #include <fuzznet/location/gpsd.h>
 #include <fuzznet/sticker/pack.h>
@@ -428,6 +429,7 @@
 #include "node/reconcile.h"
 #include "node/types.h"
 #include "location/location.h"
+#include "location/geo.h"
 #include "location/tpv.h"
 #include "location/gpsd.h"
 #include "sticker/pack.h"

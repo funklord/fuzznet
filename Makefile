@@ -346,7 +346,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUIL
                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
-             local/client.h local/escape.h hex/hex.h \
+             local/client.h local/escape.h hex/hex.h location/geo.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
@@ -418,6 +418,12 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
 # one that was never written, because it is quoted afterwards.
 CORE_SRCS := $(SRCS)
 
+# DISTANCE AND BEARING, location/geo.c (sec 1093), is trigonometry, and the core
+# needs no maths library -- installcheck's core arm links a consumer without one.
+# So it joins SRCS after CORE_SRCS is frozen: built into the library, and a
+# program that calls it links -lm.
+SRCS      += location/geo.c
+
 # The primitive names installcheck looks for, spelled once because the probe
 # and the control that proves the probe works must not be able to drift
 # apart. Two patterns would be two claims.
@@ -430,7 +436,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
-             qr/test/qr_test.c hex/test/hex_test.c \
+             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c \
              blob/test/blob_test.c blob/test/levels_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
@@ -570,6 +576,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/store_test \
              $(BUILD_DIR)/qr/test/qr_test \
              $(BUILD_DIR)/hex/test/hex_test \
+             $(BUILD_DIR)/location/test/geo_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/blob/test/levels_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
@@ -3515,6 +3522,12 @@ $(BUILD_DIR)/qr/test/qr_test: $(BUILD_DIR)/qr/test/qr_test.o $(BUILD_DIR)/qr/qr.
 $(BUILD_DIR)/hex/test/hex_test: $(BUILD_DIR)/hex/test/hex_test.o $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
+
+# Distance, bearing and a fix's age, from fuzzypickles' client/geo.c: pure
+# arithmetic over two fixes, so it links alone, with the maths library.
+$(BUILD_DIR)/location/test/geo_test: $(BUILD_DIR)/location/test/geo_test.o $(BUILD_DIR)/location/geo.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -lm -o $@
 
 # THE C++ RULE, AND IT IS SEPARATE FROM THE C ONE ON PURPOSE. Qt's flags reach
 # only the widgets: a C source that picked them up would gain include paths it
@@ -7796,7 +7809,7 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
 	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS) \
-	       $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
+	       $(if $(LOG_PACK_ON),$(ZSTD_LIBS)) -lm
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@# AS A QT CONSUMER SEES THEM: Qt defines `slots`, `signals` and `emit`
 	@# as macros, so a header naming any of them breaks every Qt translation
@@ -7824,7 +7837,7 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
 	       $(patsubst %,$(CURDIR)/%,$(GEN_SRCS)) $(MONO_CONSUMER) \
-	       $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
+	       $(if $(LOG_PACK_ON),$(ZSTD_LIBS)) -lm
 	@$(BUILD_DIR)/installcheck/consumer_source
 	@# THE FOREIGN BUILD, DRIVEN BY `make manifest` AND NOTHING ELSE. This
 	@# arm exists to make the manifest load-bearing: it reads the emitted

@@ -15459,6 +15459,20 @@ SABOTAGES = [
 		"a character no hex digit is decoded as one -- sec 1092",
 	),
 	(
+		"geo-bearing-left-negative",
+		"location/geo.c",
+		"\tdeg = fmod(deg + 360.0, 360.0);\n\tif (deg < 0.0) deg += 360.0;\n",
+		"",
+		"a bearing west of north comes out negative, not in [0, 360) -- sec 1093",
+	),
+	(
+		"geo-bearing-meaningful-at-any-distance",
+		"location/geo.c",
+		"\treturn distance_m > FZN_GEO_BEARING_MIN_RATIO * combined_accuracy_m;\n",
+		"\treturn 1;\n",
+		"an arrow drawn between two fixes closer than their error -- sec 1093",
+	),
+	(
 		"read-where-read-writes-a-record",
 		"messages/messages.c",
 		"\tif (fzn_messages_read_position(m, contact, held) && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0)\n\t\treturn FZN_MESSAGES_OK;\n",

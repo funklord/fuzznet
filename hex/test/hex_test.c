@@ -8,7 +8,7 @@ static int failures = 0;
 #define CHECK(cond)                                                   \
   do {                                                                \
     if (!(cond)) {                                                    \
-      fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+      fprintf(stderr, "FAIL hex_test.c:%d: %s\n", __LINE__, #cond);    \
       failures++;                                                     \
     }                                                                 \
   } while (0)

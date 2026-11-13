@@ -86616,3 +86616,27 @@ entries are caught. And `/hex/test/hex_test` joins `.gitignore`.
 **What it does not do yet:** the tree keeps private hex tables of its own -- `node/admin.c` calls
 its copy the fifth, sec 368 having counted four, and `node/daemon.c` and `node/groups.c` each keep
 one; moving them onto this one is its own piece of work.
+
+## 1093. Distance and bearing between fixes, taken from fuzzypickles, 2026-11-13
+
+**The second of sec 1070's four units** (sec 1089): `location/geo.{c,h}` -- great-circle distance,
+initial bearing, elevation, whether a bearing or an elevation is worth showing against the two
+fixes' accuracies, a distance formatted to the precision the fixes carry, a 16-point compass word,
+and the screen angle for an arrow on a device that turns -- over the tree's own
+`fzn_location_fix_t`, with `location/test/geo_test.c`. Prepared by fuzzypickles' `unit-move.py` as
+01ce3db; its Makefile lines met the hex unit's at every insertion point and were merged by hand,
+both kept.
+
+**Taken with:** the header's prose rewritten for this tree, where it spoke of fuzzypickles'
+`client/` and `core/` and pointed at fuzzypickles' project.md and geolocation notes by section;
+two sabotage entries, `geo-bearing-left-negative` and `geo-bearing-meaningful-at-any-distance`,
+both caught by geo_test; the header in installcheck's consumer, the test binary in `.gitignore`.
+It is the one module of location/ that needs the maths library, so **it sits outside the core**:
+appended to SRCS after `CORE_SRCS` is frozen, built into the library, and a program that calls it
+links `-lm`. Listed in the core first, it broke installcheck's core arm, which links a consumer
+with no maths library -- the core needed none until then, and embedded builds should not start.
+
+**And a fault of sec 1092's own, found here:** style's check that every suite's failure line names
+its file reads tracked tests alone, so hex_test passed it untracked and failed it once committed,
+its `FAIL` line printing `__FILE__` rather than its name. Both hex_test's and geo_test's now name
+themselves.
