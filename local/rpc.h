@@ -243,6 +243,10 @@ int fzn_rpc_delivery_list(fzn_rpc_t *c, fzn_rpc_delivery_list_resp_t *out);
 int fzn_rpc_config_set(fzn_rpc_t *c, const char *key, size_t key_len, const char *value,
                         size_t value_len, const char *expected, size_t expected_len,
                         int *restart_required);
+/* BACK TO THE DEFAULT, sec 1103: the setting cleared where `set` writes it,
+ * so it follows the default, or a value set above this host, again. A
+ * choice as deliberate as a value, and the only way a screen offers it. */
+int fzn_rpc_config_clear(fzn_rpc_t *c, const char *key, size_t key_len);
 /* `probe` 0 only reports who has already answered; 1 also asks again. */
 int fzn_rpc_lan_discover(fzn_rpc_t *c, int probe, fzn_rpc_lan_discover_resp_t *out);
 int fzn_rpc_addr_observe(fzn_rpc_t *c, int probe, fzn_rpc_addr_observe_resp_t *out);

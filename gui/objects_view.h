@@ -27,6 +27,7 @@
 #include <QStringList>
 #include <QWidget>
 
+struct fzn_gui_rpc;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -53,11 +54,8 @@ public:
 	QStringList offered() const;
 	QString status() const;
 
-	/* The typed client and the host's callback it asks through. */
-	struct rpc;
-
 private:
-	rpc *m_rpc;
+	struct fzn_gui_rpc *m_rpc; /* the typed client on the host's callback */
 
 	QTableWidget *m_table;
 	QComboBox *m_value;

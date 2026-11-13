@@ -50,6 +50,7 @@
 #include "../retention_view.h"
 #include "../governance_view.h"
 #include "../objects_view.h"
+#include "../settings_view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../entries_view.h"
 #endif
@@ -353,6 +354,8 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_governance_view governance_v(empty_node, nullptr);
 	fzn_objects_view objects_v(empty_node, nullptr);
 	(void)objects_v.refresh();
+	fzn_settings_view settings_v(empty_node, nullptr);
+	(void)settings_v.refresh();
 #ifdef FZN_LOG_FILE_ON
 	fzn_entries_view entries_v(silent_host, nullptr);
 #endif
@@ -645,6 +648,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "governance_view", &governance_v, "needs a root" },
 			/* NO OBJECTS IS SAID, not left a blank table, sec 1102. */
 			{ "objects_view", &objects_v, "No objects." },
+			/* A NODE WITH NO SETTINGS SAYS SO, sec 1103. */
+			{ "settings_view", &settings_v, "declares no settings" },
 #ifdef FZN_LOG_FILE_ON
 			/* A SILENT HOST SAYS SO, sec 468, as the notebook does: no
 			 * lines and no answer are different words. */

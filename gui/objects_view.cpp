@@ -1,10 +1,7 @@
 /* The named objects as a widget: gui/objects_view.h, sec 1102. */
 #include "objects_view.h"
 
-extern "C" {
-#include "../local/rpc.h"
-#include "../local/rpc_err.h"
-}
+#include "rpc_ask.h"
 
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -14,45 +11,13 @@ extern "C" {
 #include <QTableWidget>
 #include <QVBoxLayout>
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* THE TYPED CLIENT ON THE HOST'S CALLBACK: its `answer` hook turns each
- * request into the line the callback sends, and the reply line back. */
-struct fzn_objects_view::rpc {
-	fzn_rpc_t c;
-	fzn_notebook_view_ask_t ask;
-	void *ask_ctx;
-};
-
-static int answered_by_ask(void *ctx, const char *verb, const char *arg, size_t arg_len,
-                           uint8_t *reply, size_t reply_cap, size_t *reply_len)
-{
-	auto *r = static_cast<fzn_objects_view::rpc *>(ctx);
-	char line[FZN_RPC_REPLY_MAX];
-	int n = arg_len ? snprintf(line, sizeof line, "%s %.*s", verb, (int)arg_len, arg)
-	                : snprintf(line, sizeof line, "%s", verb);
-
-	if (n < 0 || (size_t)n >= sizeof line)
-		return FZN_RPC_ERR_MALFORMED;
-	size_t got = r->ask(r->ask_ctx, line, (char *)reply, reply_cap);
-	if (!got)
-		return FZN_RPC_ERR_SEND_FAILED;
-	while (got && (reply[got - 1] == '\n' || reply[got - 1] == '\r'))
-		got--;
-	*reply_len = got;
-	return FZN_RPC_OK;
-}
-
 fzn_objects_view::fzn_objects_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
-    : QWidget(parent), m_rpc(new rpc)
+    : QWidget(parent), m_rpc(new fzn_gui_rpc)
 {
-	fzn_rpc_init(&m_rpc->c);
-	m_rpc->ask = ask;
-	m_rpc->ask_ctx = ask_ctx;
-	m_rpc->c.answer = answered_by_ask;
-	m_rpc->c.answer_ctx = m_rpc;
+	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
 	m_table = new QTableWidget(0, 4, this);
 	m_table->setHorizontalHeaderLabels({ tr("Object"), tr("Value"), tr("Set by"), tr("Allows") });

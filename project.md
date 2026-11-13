@@ -85907,7 +85907,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed) | Library playback UI, share target | a hostable transfer view; a library (catalogue) view |
 | Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
-| Settings, schema, presets, votes | protocol, schema, rate gate | Settings page | a settings-schema view |
+| Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103) | Settings page, to move onto it | presets and votes on the view |
 | Logs, retention, metrics | logging, retention, `retention_view`, `log_view`, `metric/log/*` | | retention view's spoken names and 320 px (sec 1069) |
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
@@ -86950,3 +86950,29 @@ lamp's words offered and set, a word typed, a held set, a refusal, silence. Four
 
 **The register's rows** brought up to date the same day: QR decode, own addresses, distance and
 bearing, the sticker spec reader, RRPC, the typed client and the hex codec are fuzznet's now.
+
+## 1103. The node's settings as a widget, and a setting cleared, 2026-11-13
+
+**The register's gap** (sec 1070): a settings-schema view. `gui/settings_view.{h,cpp}` lists every
+setting the node declares by key and summary; one chosen shows its value and where it stands -- set
+on this host, set above it (its group or the estate), or following the default -- with what the
+schema says beside it: a count's or duration's bounds, that it waits for a restart, that peers can
+see it, and for a sensitive one only whether a value is set (the client withholds the value).
+
+**"Default (VALUE)" is offered first, as a choice** (working-practice: a config records choices, not
+values). Choosing it is a clear, not today's default written down, so a later change of default
+reaches this person. The client had no clear: **`fzn_rpc_config_clear`** asks `remove setting
+SCOPE KEY` where `fzn_rpc_config_set` writes it. A flag offers `on` and `off`; every other type is
+typed and judged by the node, whose refusal is said in its words -- the widget validates nothing,
+as the configuration form leaves validation to the CLI's parser (sec 164). Followed: the
+three-way choice the guidelines name, `Default (yes)` / `yes` / `no`.
+
+**Shared with the objects view:** `gui/rpc_ask.h`, the typed client on a view's ask callback (sec
+1102), so a third view takes it rather than a third copy.
+
+**Tests:** `gui/test/settings_view_test.cpp`, nine checks against a scripted node: the listing, a
+flag's default and its two words, a flag set and read back, the default chosen again as a clear,
+a duration's notes, an estate value written for the estate, a sensitive value not shown, a refusal.
+`rpc_test` clears a host's and an estate's setting. Sabotage `settings-view-*`,
+`rpc-clear-at-the-estate` and `rpc-sensitive-value-shown`, each caught; a guard in the view that
+repeated the client's redaction was dropped, since no test could reach it past the client.

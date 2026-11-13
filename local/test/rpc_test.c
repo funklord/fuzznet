@@ -303,6 +303,23 @@ static void test_a_setting_says_where_it_stands(void)
 	      "an unset value did not read as the default");
 }
 
+/* BACK TO THE DEFAULT: `remove setting SCOPE KEY` where `set` writes it. */
+static void test_a_setting_is_cleared_where_it_was_set(void)
+{
+	struct script host = { { "ok net/gps,flag,host,0,1,off,-,-,gps", "ok" }, 0, 2, 0, { { 0 } } };
+	struct script estate = { { "ok call/ring,duration,estate,5,600,45s,s,-,ring", "ok" }, 0, 2, 0,
+		                 { { 0 } } };
+
+	on(&c, &host);
+	CHECK(fzn_rpc_config_clear(&c, "net.gps", 7) == FZN_RPC_OK
+	              && strcmp(host.asked[1], "remove setting host net/gps") == 0,
+	      "a host's setting was not cleared on the host");
+	on(&c, &estate);
+	CHECK(fzn_rpc_config_clear(&c, "call.ring", 9) == FZN_RPC_OK
+	              && strcmp(estate.asked[1], "remove setting estate call/ring") == 0,
+	      "an estate's setting was not cleared for the estate");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -327,6 +344,7 @@ int main(void)
 	test_a_long_sticker_spec_is_read_whole();
 	test_the_schema_is_read_in_the_node_s_words();
 	test_a_setting_says_where_it_stands();
+	test_a_setting_is_cleared_where_it_was_set();
 	test_the_suite_can_tell_pass_from_fail();
 	if (failures) {
 		fprintf(stderr, "local rpc_test: %d check(s) failed\n", failures);

@@ -77,6 +77,7 @@
 /gui/test/retention_view_test
 /gui/test/governance_view_test
 /gui/test/objects_view_test
+/gui/test/settings_view_test
 /gui/test/authz_view_test
 /gui/test/capability_view_test
 /gui/test/provision_view_test

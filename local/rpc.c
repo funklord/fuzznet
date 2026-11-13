@@ -5797,6 +5797,19 @@ static int node_config_set(fzn_rpc_t *c, const char *key, size_t key_len, const 
 	                snprintf(arg, sizeof arg, "setting %s %s %s", r.host ? "host" : "estate", slashed, v));
 }
 
+int fzn_rpc_config_clear(fzn_rpc_t *c, const char *key, size_t key_len) {
+	char slashed[FZN_RPC_CONFIG_KEY_MAX + 1];
+	if (!node_key_slashed(key, key_len, slashed, sizeof slashed))
+		return node_unasked(c, FZN_RPC_ERR_MALFORMED, "not a setting's key");
+	node_schema_row_t r;
+	int rc = node_schema_of(c, slashed, &r);
+	if (rc != FZN_RPC_OK) return rc;
+	/* WHERE `set` WRITES IT, so a clear undoes what a set did. */
+	char arg[FZN_REQUEST_MAX];
+	return node_ack(c, "remove", arg,
+	                snprintf(arg, sizeof arg, "setting %s %s", r.host ? "host" : "estate", slashed));
+}
+
 /*
  * Which of the user's devices hold an estate setting, on fuzznetd: `list
  * setting-holders KEY [FROM]` (fuzznet sec 811), answering `ok VERSION FROM
