@@ -1,6 +1,7 @@
 #ifndef FZN_RPC_CONTROL_H
 #define FZN_RPC_CONTROL_H
 
+#include "../state/schema.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -495,15 +496,19 @@ typedef struct fzn_rpc_location_show_resp {
 #define FZN_RPC_CONFIG_UNIT_MAX 8
 #define FZN_RPC_CONFIG_SCHEMA_PAGE_MAX 1024
 
+/* A SETTING AS THE NODE DECLARES IT, in `state/schema.h`'s words (sec 1098;
+ * sec 906): its type a fzn_schema_type_t, where it may stand FZN_SCHEMA_ESTATE
+ * and FZN_SCHEMA_HOST, its flags FZN_SCHEMA_RESTART .. FZN_SCHEMA_ADVERTISED.
+ * The client's own older model -- bool, int or string, an applies, a
+ * distribution -- was a translation that lost a duration, an address, the
+ * safe direction and the advertised flag. `min` and `max` hold for a COUNT and
+ * a DURATION (seconds), and bound a TEXT's or ADDRESS's length. */
 typedef struct fzn_rpc_config_schema_entry {
 	char key[FZN_RPC_CONFIG_KEY_MAX + 1];
 	size_t key_len;
-	uint8_t type;
-	uint8_t applies_to;
-	uint8_t distribution;
-	uint8_t capability;
-	uint8_t safe_direction;
-	uint8_t flags;
+	fzn_schema_type_t type;
+	unsigned scopes;
+	unsigned flags;
 	int64_t min, max;
 	char unit[FZN_RPC_CONFIG_UNIT_MAX + 1];
 	size_t unit_len;
@@ -526,7 +531,10 @@ typedef struct fzn_rpc_config_schema_resp {
 typedef struct fzn_rpc_config_get_resp {
 	char value[FZN_RPC_CONFIG_VALUE_MAX + 1];
 	size_t value_len;
-	uint8_t source; /* fzn_rpc_setting_source_t -- provenance, see configuration.md sec 6 */
+	/* WHERE THE VALUE STANDS: FZN_SCHEMA_HOST, set for this host;
+	 * FZN_SCHEMA_ESTATE, set for every host of the user; 0, the default. A
+	 * FLAG's value is the node's word, `on` or `off`. */
+	unsigned set_at;
 	/*
 	 * 1 when the setting is SENSITIVE and the value has been withheld
 	 * (configuration.md sec 8.3). `value` is then empty and says nothing

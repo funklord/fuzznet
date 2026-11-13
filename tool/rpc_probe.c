@@ -52,6 +52,8 @@ int main(int argc, char **argv)
 	static fzn_rpc_clock_list_t clocks;
 	static fzn_rpc_clock_estate_t clock;
 	static fzn_rpc_sticker_packs_t stickers;
+	static fzn_rpc_config_schema_resp_t schema;
+	static fzn_rpc_config_get_resp_t setting;
 	static fzn_rpc_group_create_resp_t made_group;
 	static fzn_rpc_object_t object;
 	static fzn_rpc_unread_entry_t unread[8];
@@ -89,6 +91,14 @@ int main(int argc, char **argv)
 	ASK(fzn_rpc_clock_list, &clocks);
 	ASK(fzn_rpc_clock_get, &clock);
 	ASK(fzn_rpc_sticker_list, &stickers);
+	/* EVERY SETTING THE NODE DECLARES, each row in the schema's words, and
+	 * one read back with where it stands. */
+	ASK(fzn_rpc_config_schema, "", 0, &schema);
+	if (!schema.count) {
+		failed++;
+		fprintf(stderr, "rpc_probe: the node declared no settings\n");
+	}
+	ASK(fzn_rpc_config_get, "net.address", 11, &setting);
 
 	/* AND WHAT IT IS GIVEN, read back: an object, a group, the unread. */
 	ASK(fzn_rpc_object_add, "probe_lamp", "on off");

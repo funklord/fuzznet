@@ -86853,7 +86853,37 @@ sweep walked at most 32 codes, raised to 96.
 for field and its four accuracy and bearing calls passed straight through, so `rpc_location.{c,h}`
 are gone and `fzn_rpc_location_record` takes `location/`'s fix.
 
-**Still owed:** its settings model -- fuzzypickles' older bool/int/string with applies, distribution
-and source, into which the client translates the node's schema and loses a duration, an address,
-the safe direction and the advertised flag -- normalised onto `state/schema.h`'s (sec 906); and the
-local leg in binary under these calls, sec 1061 step 5, now unblocked.
+**Still owed:** the local leg in binary under these calls, sec 1061 step 5, now unblocked. Its
+settings model is normalised in sec 1099.
+
+## 1099. The typed client's settings in the schema's words, 2026-11-13
+
+**One model of a setting, not two** (sec 906). The client came with fuzzypickles' older one --
+bool, int or string; an `applies` and a `distribution`; a `source` of default, config file or
+synced -- and translated the node's schema into it, losing what did not fit: a duration and an
+address read as plain strings, `+safe-lower`, `+safe-higher` and `+advertised` dropped, and a
+flag's `on`/`off` turned into `true`/`false`. Now `fzn_rpc_config_schema_entry_t` carries
+`state/schema.h`'s own: a `fzn_schema_type_t`, `scopes` of `FZN_SCHEMA_ESTATE` and
+`FZN_SCHEMA_HOST`, and every `FZN_SCHEMA_*` flag the row says; `fzn_rpc_config_get_resp_t` says
+where a value stands as `set_at` -- `FZN_SCHEMA_HOST`, `FZN_SCHEMA_ESTATE` (its group's or the
+estate's, set above this host) or 0, the default -- and a flag reads `on` or `off`.
+`rpc_settings.{c,h}`, the old enums and their names, are gone. Setting a flag still takes `true`
+and `false` beside `on` and `off`, so a caller mid-move is not refused.
+
+**A type word the client does not know reads as TEXT** -- shown and edited as words, which the node
+judges -- rather than refusing the whole schema the day the node grows a type.
+
+**Tests:** `rpc_test` reads a schema of an address, a duration, an unknown type and a verb's own row
+(left out), and a value set on the host, above it, and not at all; three sabotage entries, each
+caught. `rpc_probe` asks a running node for its whole schema and reads `net.address` back: 28
+calls, each parsed.
+
+**fuzzypickles adapts** its settings screens, TUI, CLI and `common/settings.c` when it pins past
+this commit: a FLAG is its toggle, a COUNT its number, the other three words the node judges.
+
+## 1100. An embedded build to test on hull, the holder's note of 2026-11-13
+
+The holder: "we may soon be able to test an embedded version using hal9001 on hull or zephyr on
+hull". The embedded profile (sec 922) has run here only as a host build (`make embedded`,
+`livecheck-embedded`). When either is usable on hull, run that profile's fuzznetd and its live
+scripts there; hal9001 is being fixed and modernised first (its `project.md`).

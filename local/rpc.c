@@ -16,7 +16,6 @@
 #include <unistd.h>
 
 #include "rpc_encoding.h"
-#include "rpc_settings.h"
 #include "rpc_err.h"
 #include "../location/location.h"
 
@@ -5562,7 +5561,7 @@ typedef struct node_schema_row {
 	char unit[FZN_RPC_CONFIG_UNIT_MAX + 1];
 	char default_value[FZN_RPC_CONFIG_VALUE_MAX + 1];
 	char summary[FZN_RPC_CONFIG_SUMMARY_MAX + 1];
-	int restart, sensitive, advanced, verb;
+	unsigned flags; /* FZN_SCHEMA_*, the node's FLAGS field read whole */
 } node_schema_row_t;
 
 static int node_unescape_field(const char *f, size_t n, char *out, size_t cap) {
@@ -5602,10 +5601,15 @@ static int node_schema_row(const char *w, size_t w_len, node_schema_row_t *r) {
 	for (const char *p = f[7], *e = f[7] + f_len[7]; p < e;) {
 		const char *plus = memchr(p, '+', (size_t)(e - p));
 		const size_t n = (size_t)((plus ? plus : e) - p);
-		r->restart |= n == 7 && memcmp(p, "restart", 7) == 0;
-		r->sensitive |= n == 9 && memcmp(p, "sensitive", 9) == 0;
-		r->advanced |= n == 8 && memcmp(p, "advanced", 8) == 0;
-		r->verb |= n == 4 && memcmp(p, "verb", 4) == 0;
+		static const struct {
+			const char *word;
+			unsigned bit;
+		} FLAGS[] = { { "restart", FZN_SCHEMA_RESTART },         { "sensitive", FZN_SCHEMA_SENSITIVE },
+		              { "advanced", FZN_SCHEMA_ADVANCED },       { "verb", FZN_SCHEMA_VERB },
+		              { "safe-lower", FZN_SCHEMA_SAFE_LOWER },   { "safe-higher", FZN_SCHEMA_SAFE_HIGHER },
+		              { "advertised", FZN_SCHEMA_ADVERTISED } };
+		for (size_t k = 0; k < sizeof FLAGS / sizeof FLAGS[0]; k++)
+			if (n == strlen(FLAGS[k].word) && memcmp(p, FLAGS[k].word, n) == 0) r->flags |= FLAGS[k].bit;
 		p = plus ? plus + 1 : e;
 	}
 	return 1;
@@ -5624,9 +5628,19 @@ static int node_key_slashed(const char *in, size_t len, char *out, size_t cap) {
 	return 1;
 }
 
-/* the clients' spelling of a node flag's value, and the node's of the clients'. */
-static const char *node_flag_text(const char *v) {
-	return strcmp(v, "on") == 0 || strcmp(v, "1") == 0 ? "true" : "false";
+/* A schema row's TYPE word as state/schema.h's type. A word this client
+ * does not know is TEXT: shown and edited as words, which the node judges,
+ * rather than the whole schema refused when the node grows a type. */
+static fzn_schema_type_t node_schema_type(const char *word) {
+	static const struct {
+		const char *word;
+		fzn_schema_type_t type;
+	} TYPES[] = { { "flag", FZN_SCHEMA_FLAG },         { "count", FZN_SCHEMA_COUNT },
+	              { "duration", FZN_SCHEMA_DURATION }, { "address", FZN_SCHEMA_ADDRESS },
+	              { "text", FZN_SCHEMA_TEXT } };
+	for (size_t k = 0; k < sizeof TYPES / sizeof TYPES[0]; k++)
+		if (strcmp(word, TYPES[k].word) == 0) return TYPES[k].type;
+	return FZN_SCHEMA_TEXT;
 }
 
 struct node_schema_ctx {
@@ -5638,7 +5652,7 @@ static int node_schema_take(void *ctx, const char *w, size_t w_len) {
 	node_schema_row_t r;
 	if (!node_schema_row(w, w_len, &r)) return 0;
 	const size_t key_len = strlen(r.key);
-	if (r.verb || r.key[key_len - 1] == '/') return 1;
+	if ((r.flags & FZN_SCHEMA_VERB) || r.key[key_len - 1] == '/') return 1;
 	if (out->count >= FZN_RPC_CONFIG_SCHEMA_PAGE_MAX) {
 		out->truncated = 1;
 		return 1;
@@ -5646,23 +5660,16 @@ static int node_schema_take(void *ctx, const char *w, size_t w_len) {
 	fzn_rpc_config_schema_entry_t *e = &out->entries[out->count++];
 	node_key_dotted(r.key, e->key, sizeof e->key);
 	e->key_len = strlen(e->key);
-	const int flag = strcmp(r.type, "flag") == 0;
-	/* A duration is text -- `14d` -- which the node judges, not a number a
-	 * screen could range-check. */
-	e->type = flag ? FZN_RPC_SETTING_BOOL : strcmp(r.type, "count") == 0 ? FZN_RPC_SETTING_INT : FZN_RPC_SETTING_STRING;
-	e->applies_to = r.host ? FZN_RPC_APPLIES_HOST_SELF : FZN_RPC_APPLIES_USER;
-	e->distribution = r.host ? FZN_RPC_DIST_LOCAL : FZN_RPC_DIST_SYNCED;
-	e->flags = (uint8_t)((r.restart ? FZN_RPC_SETTING_FLAG_RESTART_REQUIRED : 0) |
-	                     (r.sensitive ? FZN_RPC_SETTING_FLAG_SENSITIVE : 0) |
-	                     (r.advanced ? FZN_RPC_SETTING_FLAG_ADVANCED : 0));
-	if (e->type == FZN_RPC_SETTING_INT) {
-		e->min = r.min;
-		e->max = r.max;
-	}
+	/* THE NODE'S DECLARATION AS IT IS, sec 1098: its type, scopes and every
+	 * flag, a duration still a duration -- `14d`, judged by the node. */
+	e->type = node_schema_type(r.type);
+	e->scopes = (r.estate ? FZN_SCHEMA_ESTATE : 0u) | (r.host ? FZN_SCHEMA_HOST : 0u);
+	e->flags = r.flags;
+	e->min = r.min;
+	e->max = r.max;
 	snprintf(e->unit, sizeof e->unit, "%s", r.unit);
 	e->unit_len = strlen(e->unit);
-	snprintf(e->default_value, sizeof e->default_value, "%s",
-	         flag ? node_flag_text(r.default_value) : r.default_value);
+	snprintf(e->default_value, sizeof e->default_value, "%s", r.default_value);
 	e->default_value_len = strlen(e->default_value);
 	snprintf(e->summary, sizeof e->summary, "%s", r.summary);
 	e->summary_len = strlen(e->summary);
@@ -5717,7 +5724,6 @@ static int node_config_get(fzn_rpc_t *c, const char *key, size_t key_len, fzn_rp
 	if (rc != FZN_RPC_OK) return rc;
 	/* `ok RANK VALUE` (here: `ok SCOPE RANK VALUE`), the value escaped, or
 	 * `ok absent`: the default. */
-	const int flag = strcmp(r.type, "flag") == 0;
 	const char *esc = NULL;
 	int from_host = 0;
 	if (!(rest_len == 6 && memcmp(rest, "absent", 6) == 0)) {
@@ -5739,16 +5745,18 @@ static int node_config_get(fzn_rpc_t *c, const char *key, size_t key_len, fzn_rp
 		                   &cut))
 			return unreadable(c);
 		value[len] = '\0';
-		out->source = from_host ? FZN_RPC_SOURCE_CONFIG_FILE : FZN_RPC_SOURCE_SYNCED;
+		/* SET ABOVE THIS HOST -- its group's value or the estate's -- reads as
+		 * ESTATE: either way it is not this host's own. */
+		out->set_at = from_host ? FZN_SCHEMA_HOST : FZN_SCHEMA_ESTATE;
 	} else {
 		snprintf(value, sizeof value, "%s", r.default_value);
-		out->source = FZN_RPC_SOURCE_DEFAULT;
+		out->set_at = 0;
 	}
-	snprintf(out->value, sizeof out->value, "%s", flag ? node_flag_text(value) : value);
+	snprintf(out->value, sizeof out->value, "%s", value);
 	out->value_len = strlen(out->value);
 	/* Write-only, as the clients expect a sensitive one: said set or not, never
 	 * shown. */
-	if (r.sensitive) {
+	if (r.flags & FZN_SCHEMA_SENSITIVE) {
 		out->redacted = 1;
 		out->configured = esc != NULL;
 		out->value[0] = '\0';

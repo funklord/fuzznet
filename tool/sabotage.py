@@ -14223,6 +14223,27 @@ SABOTAGES = [
 		"a spec of more than 64 stickers is refused rather than read -- sec 1098",
 	),
 	(
+		"rpc-schema-advertised-dropped",
+		"local/rpc.c",
+		"{ \"advertised\", FZN_SCHEMA_ADVERTISED } };",
+		"{ \"advertised\", 0 } };",
+		"a setting peers observe reads as one they do not -- sec 1098",
+	),
+	(
+		"rpc-schema-unknown-type-refused",
+		"local/rpc.c",
+		"\treturn FZN_SCHEMA_TEXT;\n}",
+		"\treturn FZN_SCHEMA_FLAG;\n}",
+		"a type this client does not know is read as a flag -- sec 1098",
+	),
+	(
+		"rpc-setting-host-read-as-estate",
+		"local/rpc.c",
+		"out->set_at = from_host ? FZN_SCHEMA_HOST : FZN_SCHEMA_ESTATE;",
+		"out->set_at = FZN_SCHEMA_ESTATE;",
+		"a host's own value reads as set above it -- sec 1098",
+	),
+	(
 		"list-message-no-group-malformed",
 		"node/messages.c",
 		"\t\twho_no_group = err == FZN_CONTACT_ERR_ABSENT;\n",
@@ -16818,7 +16839,6 @@ def dirty_files(paths):
 # recorded.
 NO_GUARDS = {
 	"local/rpc_err.c": "the typed client's refusals in words: a table of strings, nothing to remove",
-	"local/rpc_settings.c": "names of the setting enums: a table of strings, nothing to remove",
 	"local/rpc_compat.h": "portability shims over libc calls, each one line of the platform's own",
 	"version/version.c": "three accessors returning macros; nothing to remove",
 	"fault/fault.c": "compiled out of every build `make test` makes (FZN_TEST_FAULTS, sec "

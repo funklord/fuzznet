@@ -244,6 +244,65 @@ static void test_a_long_sticker_spec_is_read_whole(void)
 	fzn_rpc_sticker_manifest_release(&m);
 }
 
+/* THE SCHEMA IN state/schema.h's WORDS, sec 1098: `list schema FROM` rows
+ * KEY,TYPE,SCOPES,MIN,MAX,DEFAULT,UNIT,FLAGS,SUMMARY -- every type and flag
+ * the node declares, kept, and a row written by its own verb left out. */
+static void test_the_schema_is_read_in_the_node_s_words(void)
+{
+	static fzn_rpc_config_schema_resp_t out;
+	struct script s = { { "ok 4 0 net/address,address,estate+host,0,64,-,-,advertised,where "
+		              "peers/retention,duration,estate,60,99999,14d,s,safe-lower+restart,how "
+		              "ui/odd,shiny,host,0,0,x,-,-,a-new-type "
+		              "net/verbal,flag,host,0,1,off,-,verb,its-own-verb" },
+		            0, 1, 0, { { 0 } } };
+
+	on(&c, &s);
+	CHECK(fzn_rpc_config_schema(&c, "", 0, &out) == FZN_RPC_OK && out.count == 3,
+	      "the schema was not read, or a verb's own row was kept");
+	CHECK(strcmp(s.asked[0], "list schema 0") == 0, "the schema was not asked so");
+	CHECK(out.count == 3 && out.entries[0].type == FZN_SCHEMA_ADDRESS
+	              && out.entries[0].scopes == (FZN_SCHEMA_ESTATE | FZN_SCHEMA_HOST)
+	              && out.entries[0].flags == FZN_SCHEMA_ADVERTISED
+	              && strcmp(out.entries[0].key, "net.address") == 0,
+	      "an address setting lost its type, a scope or its advertised flag");
+	CHECK(out.count == 3 && out.entries[1].type == FZN_SCHEMA_DURATION
+	              && out.entries[1].scopes == FZN_SCHEMA_ESTATE
+	              && out.entries[1].flags == (FZN_SCHEMA_SAFE_LOWER | FZN_SCHEMA_RESTART)
+	              && out.entries[1].min == 60 && out.entries[1].max == 99999
+	              && strcmp(out.entries[1].default_value, "14d") == 0,
+	      "a duration lost its type, bounds, default or safe direction");
+	CHECK(out.count == 3 && out.entries[2].type == FZN_SCHEMA_TEXT,
+	      "a type this client does not know was not read as text");
+}
+
+/* A VALUE AND WHERE IT STANDS: `get schema KEY`, then `get setting here
+ * KEY` -- `ok SCOPE RANK VALUE` or `ok absent`. A flag reads `on`, the
+ * node's word. */
+static void test_a_setting_says_where_it_stands(void)
+{
+	fzn_rpc_config_get_resp_t got;
+	struct script host = { { "ok net/gps,flag,host,0,1,off,-,-,gps", "ok host 2 on" }, 0, 2, 0,
+		               { { 0 } } };
+	struct script above = { { "ok net/gps,flag,host,0,1,off,-,-,gps", "ok estate 2 off" }, 0, 2,
+		                0, { { 0 } } };
+	struct script none = { { "ok net/gps,flag,host,0,1,off,-,-,gps", "ok absent" }, 0, 2, 0,
+		               { { 0 } } };
+
+	on(&c, &host);
+	CHECK(fzn_rpc_config_get(&c, "net.gps", 7, &got) == FZN_RPC_OK && got.set_at == FZN_SCHEMA_HOST
+	              && strcmp(got.value, "on") == 0,
+	      "a host's own value was not read as the host's, or not as `on`");
+	CHECK(strcmp(host.asked[1], "get setting here net/gps") == 0, "the value was not asked here");
+	on(&c, &above);
+	CHECK(fzn_rpc_config_get(&c, "net.gps", 7, &got) == FZN_RPC_OK
+	              && got.set_at == FZN_SCHEMA_ESTATE && strcmp(got.value, "off") == 0,
+	      "a value set above the host was read as its own");
+	on(&c, &none);
+	CHECK(fzn_rpc_config_get(&c, "net.gps", 7, &got) == FZN_RPC_OK && got.set_at == 0
+	              && strcmp(got.value, "off") == 0,
+	      "an unset value did not read as the default");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -266,6 +325,8 @@ int main(void)
 	test_unread_counts_past_the_read_line();
 	test_untrusted_text_is_shown_in_caret_form();
 	test_a_long_sticker_spec_is_read_whole();
+	test_the_schema_is_read_in_the_node_s_words();
+	test_a_setting_says_where_it_stands();
 	test_the_suite_can_tell_pass_from_fail();
 	if (failures) {
 		fprintf(stderr, "local rpc_test: %d check(s) failed\n", failures);
