@@ -14608,6 +14608,13 @@ SABOTAGES = [
 		"one host's report is said as agreed -- sec 1134",
 	),
 	(
+		"reach-view-falling-behind-unsaid",
+		"gui/reach_view.cpp",
+		"\t\tconst char *advice = fzn_rpc_sync_load_advice(&load);\n",
+		"\t\tconst char *advice = nullptr;\n",
+		"a host not keeping up is said to keep up -- sec 1135",
+	),
+	(
 		"conversation-view-read-at-own-line",
 		"gui/conversation_view.cpp",
 		"\t\tif (!lines[i].outgoing)\n\t\t\tnewest_in = &lines[i];\n",

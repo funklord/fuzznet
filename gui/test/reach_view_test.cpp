@@ -26,7 +26,7 @@ static int checks, failures;
 
 #define DESK "d0d0000000000000000000000000000000000000000000000000000000000001"
 
-static int silent, alone;
+static int silent, alone, behind;
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -44,6 +44,9 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "ok 1 " DESK ",192.168.1.20,4000,1700000000\n");
 	if (!strcmp(line, "fetch lan"))
 		return (size_t)snprintf(reply, cap, "ok 2 192.168.1.255\n");
+	if (!strcmp(line, "get sync-load"))
+		return behind ? (size_t)snprintf(reply, cap, "ok 112 growing peers,40,60,30,growing\n")
+		              : (size_t)snprintf(reply, cap, "ok 34 ok peers,2,9,3,steady\n");
 	if (!strcmp(line, "get relay"))
 		return (size_t)snprintf(reply, cap, "ok 1 1048576 3600 1 abcdef0123456789,4096,0\n");
 	return (size_t)snprintf(reply, cap, "error no such thing\n");
@@ -61,6 +64,12 @@ int main(int argc, char **argv)
 	      "the host found on this network was not named by its key");
 	CHECK(v.relay() == "This host relays for others: 1048576 bytes per 3600 s each; 1 using it now.",
 	      "the relay's quota and users were not said");
+	CHECK(v.keeping_up() == "Keeping up: syncing takes 34% of each round.",
+	      "keeping up was not said with its share of a round");
+	behind = 1;
+	CHECK(v.refresh() && v.keeping_up().startsWith("Not keeping up (112% of each round): more is waiting"),
+	      "falling behind was not said with fuzznet's advice");
+	behind = 0;
 	CHECK(v.ask_outside() && v.status().contains("Asked 3 host(s)"), "asking again outside was not said");
 	CHECK(v.look_here() && v.status().contains("Asked on this network"), "looking here was not said");
 

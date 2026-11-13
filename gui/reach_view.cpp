@@ -41,6 +41,8 @@ fzn_reach_view::fzn_reach_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_look_here = new QPushButton(tr("Look on this network"), this);
 	m_relay = new QLabel(this);
 	m_relay->setWordWrap(true);
+	m_load = new QLabel(this);
+	m_load->setWordWrap(true);
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
@@ -60,6 +62,7 @@ fzn_reach_view::fzn_reach_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	col->addWidget(m_found, 1);
 	col->addLayout(here_row);
 	col->addWidget(m_relay);
+	col->addWidget(m_load);
 	col->addWidget(m_status);
 
 	connect(m_ask_outside, &QPushButton::clicked, [this]() { ask_outside(); });
@@ -111,6 +114,19 @@ bool fzn_reach_view::refresh()
 	                                                   : tr("no limit"))
 	                           .arg(relay->window_s)
 	                           .arg(relay->count));
+	/* KEEPING UP, sec 1135: the share of each round sync takes, and
+	 * fuzznet's own advice when it does not keep up. A node too old to
+	 * say leaves the line empty rather than the view failed. */
+	fzn_rpc_sync_load_t load;
+	if (fzn_rpc_sync_load(&m_rpc->c, &load) == FZN_RPC_OK) {
+		const char *advice = fzn_rpc_sync_load_advice(&load);
+		m_load->setText(advice ? tr("Not keeping up (%1% of each round): %2.")
+		                                 .arg(load.load_pct)
+		                                 .arg(QString::fromUtf8(advice))
+		                       : tr("Keeping up: syncing takes %1% of each round.").arg(load.load_pct));
+	} else {
+		m_load->clear();
+	}
 	m_status->setText(QString());
 	delete lan;
 	delete relay;
@@ -157,5 +173,7 @@ QStringList fzn_reach_view::found() const
 }
 
 QString fzn_reach_view::relay() const { return m_relay->text(); }
+
+QString fzn_reach_view::keeping_up() const { return m_load->text(); }
 
 QString fzn_reach_view::status() const { return m_status->text(); }

@@ -5,7 +5,9 @@
  * hosts see this one from outside, and how many of them agree (one
  * report alone is a guess, sec 1125); which hosts answered on this
  * network; and whether this host relays for others, at what quota, and
- * for whom. A person asks again for each of the first two.
+ * for whom. A person asks again for each of the first two. And whether
+ * this host keeps up with what it syncs (sec 1135): the share of each round
+ * its sync takes, and fuzznet's own advice when it does not keep up.
  *
  * Through the typed client on the host's ask callback (`rpc_ask.h`).
  * NO Q_OBJECT AND THEREFORE NO moc.
@@ -41,6 +43,7 @@ public:
 	QString outside() const;
 	QStringList found() const;
 	QString relay() const;
+	QString keeping_up() const;
 	QString status() const;
 
 private:
@@ -51,6 +54,7 @@ private:
 	QListWidget *m_found;
 	QPushButton *m_look_here;
 	QLabel *m_relay;
+	QLabel *m_load;
 	QPushButton *m_refresh;
 	QLabel *m_status;
 };

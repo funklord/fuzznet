@@ -85911,7 +85911,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
-| Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, sec 1134) | Connection page | hostable peer, sync, capability, revocation, trust views |
+| Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
 | The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099) | fuzzypickles' copy, until it pins past it | the local leg in binary under it (sec 1101) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
@@ -87898,3 +87898,27 @@ two reports agreeing, one host found with its key, the relay's quota and
 users, asking again outside and here, a single report unconfirmed,
 silence. Sabotage `rpc-lan-key-dropped` and
 `reach-view-one-report-as-agreed` are each caught.
+
+## 1135. Whether this host keeps up, on the reach view, 2026-11-13
+
+**The last of what fuzzypickles' Connection page draws by hand** (sec
+1134): how much of each sync round this host's sync takes, and whether
+it keeps up (`get sync-load`, sec 966). The reach view says "Keeping up:
+syncing takes 34% of each round", or, when the verdict is not `ok`, "Not
+keeping up (112% of each round):" followed by fuzznet's own advice in
+the client's words (`fzn_rpc_sync_load_advice`): narrow what this host
+keeps with retention rules, or what is shared with it. A node too old to
+answer leaves the line empty rather than failing the view.
+
+**And the register's other "hostable" views, measured rather than built.**
+No page of fuzzypickles' calls the peer, sync, revocation or trust
+listings, and its Hosts page's capability use is the manual admin
+grant by pasted hex code that the governance view's admin grant and
+confirm replaced. With the Connection page's link, outside address,
+LAN, relay and sync load now on hosted views, nothing a consumer draws
+by hand is left in that row, and those views stay model-fed until a
+consumer wants one.
+
+**Tests:** `reach_view_test`, ten checks: keeping up with its share, and
+falling behind with the advice. Sabotage `reach-view-falling-behind-unsaid`
+is caught.
