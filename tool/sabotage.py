@@ -14636,6 +14636,20 @@ SABOTAGES = [
 		"what a newest line is -- a file, a sticker, text -- is dropped -- sec 1136",
 	),
 	(
+		"conversations-view-unread-unsaid",
+		"gui/conversations_view.cpp",
+		"\t\tif (count)\n\t\t\ttext += tr(\" (%1 unread)\").arg(count);\n",
+		"",
+		"a conversation's unread lines are not said in the list -- sec 1138",
+	),
+	(
+		"conversations-view-group-opened-as-contact",
+		"gui/conversations_view.cpp",
+		"\t\titem->setData(0, ROLE_OPEN, is_group ? QStringLiteral(\"@\") + name : name);\n",
+		"\t\titem->setData(0, ROLE_OPEN, name);\n",
+		"a group's conversation is opened as a contact's of the same name -- sec 1138",
+	),
+	(
 		"conversation-view-read-at-own-line",
 		"gui/conversation_view.cpp",
 		"\t\tif (!lines[i].outgoing)\n\t\t\tnewest_in = &lines[i];\n",

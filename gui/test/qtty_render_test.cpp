@@ -58,6 +58,7 @@
 #include "../forks_view.h"
 #include "../library_view.h"
 #include "../reach_view.h"
+#include "../conversations_view.h"
 #include "../location_view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../entries_view.h"
@@ -390,6 +391,7 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_library_view library_v(empty_node, nullptr);
 	(void)library_v.refresh();
 	fzn_reach_view reach_v(empty_node, nullptr);
+	fzn_conversations_view conversations_v(empty_node, nullptr);
 	fzn_location_view location_v(empty_node, nullptr);
 	(void)location_v.refresh();
 #ifdef FZN_LOG_FILE_ON
@@ -701,6 +703,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "library_view", &library_v, "The library is empty." },
 			/* NOTHING KNOWN YET IS SAID, not a blank line (sec 1134). */
 			{ "reach_view", &reach_v, "is not known yet" },
+			/* NONE YET IS SAID, not an empty tree (sec 1138). */
+			{ "conversations_view", &conversations_v, "No conversations yet." },
 			/* NOBODY SHARING IS SAID, sec 1109. */
 			{ "location_view", &location_v, "Nobody shares a position" },
 #ifdef FZN_LOG_FILE_ON

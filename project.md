@@ -87994,3 +87994,29 @@ one its Makefile line names, not the one at hand.
   1 and 2 change rung 6's interface in four languages, so situ will shape
   them against fuzznet's caller when fuzznet adopts rung 6, not ahead of
   it. So item 90's next step is adopting rung 6 on situ's current runtime.
+
+## 1138. Every conversation as a list, as a widget, 2026-11-13
+
+**What a messenger opens on** (fuzzypickles inbox 1553Z, item 3), and
+what sec 1136's listing was asked for. `gui/conversations_view` shows
+contacts and groups under two headings, each in the node's
+newest-first order. A row gives the name, the newest line and who wrote
+it -- "you: see you at 8", "carol: a file: photo.jpg", "a sticker:
+waving", "nothing said yet" -- then when, in the reader's own time (the
+time today, the date before), and how many lines are unread. That is
+four requests a refresh whatever the user holds: the newest lines (sec
+1136), the unread counts (sec 1084), and the contact and group names.
+Choosing a row tells the host through `on_open`, with the contact's name
+or `@NAME`, which is what `conversation_view` opens. A conversation
+whose contact has since been removed is shown and opened by its key.
+Lines and names are other people's words, in caret form.
+
+**Not here yet:** the per-row menu fuzzypickles' list has (send a file,
+call, share location, a group's members and admins).
+
+**Tests:** `conversations_view_test`, six checks against a scripted
+node: bob's line with two unread, dan with nothing yet, the family's
+file from carol, each under its heading and dated; bob opened by name,
+the family as `@family`; a row not there; silence. Sabotage
+`conversations-view-unread-unsaid` and
+`conversations-view-group-opened-as-contact` are each caught.
