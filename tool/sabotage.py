@@ -14587,6 +14587,13 @@ SABOTAGES = [
 		"a file already on its way is asked for again -- sec 1132",
 	),
 	(
+		"hosts-view-backup-without-directory",
+		"gui/hosts_view.cpp",
+		"\tif (at.isEmpty()) {\n\t\tm_status->setText(tr(\"Say which empty directory to back up into.\"));\n",
+		"\tif (0) {\n\t\tm_status->setText(tr(\"Say which empty directory to back up into.\"));\n",
+		"a backup is asked for with no directory given -- sec 1133",
+	),
+	(
 		"conversation-view-read-at-own-line",
 		"gui/conversation_view.cpp",
 		"\t\tif (!lines[i].outgoing)\n\t\t\tnewest_in = &lines[i];\n",

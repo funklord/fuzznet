@@ -85897,7 +85897,7 @@ is the register, rewritten in place as features land; "where" says where each li
 
 | Feature | In fuzznet | Still in a consumer, to move | Missing |
 |---|---|---|---|
-| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | a backup to a directory as a view; identity reset and host join by request left out on purpose (sec 1127) |
+| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
@@ -87848,3 +87848,22 @@ Sabotage `rpc-library-arriving-dropped` and
 `library-view-fetches-what-is-arriving` are each caught;
 `library-view-fetches-what-is-here` was re-pointed at the guard's new
 shape.
+
+## 1133. Backing this host up, from the hosts view, 2026-11-13
+
+**The register's last Setup-page item** (sec 1127 left it for a page that
+wanted it, and the hosts view is that page). The hosts view (sec 1124)
+gains a directory line and "Back up this host", which has the node copy
+this host's keys and state into an empty directory of this user's
+(`fzn_rpc_identity_backup`, `put backup DIR`) and says how many files and
+bytes it wrote, and where. The warning comes before the button, not
+after: "A backup holds this host's keys: whoever has it can act as this
+host. Keep it as safe as the device." A directory that is not empty is
+refused in the node's words; none at all is refused without asking.
+
+**Tests:** `hosts_view_test`, ten checks: a backup said with its count
+and place, a refusal in the node's words, an empty line asking
+nothing and saying why. Sabotage `hosts-view-backup-without-directory`
+is caught -- once the check read the words: the client already refuses
+an empty path without asking, so the view's own guard is the sentence a
+person reads, and a check of "nothing asked" alone passed without it.

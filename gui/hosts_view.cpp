@@ -34,6 +34,10 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_address->setAccessibleName(tr("Where the chosen host is reached"));
 	m_set = new QPushButton(tr("Set address"), this);
 	m_refresh = new QPushButton(tr("Refresh"), this);
+	m_backup_dir = new QLineEdit(this);
+	m_backup_dir->setPlaceholderText(tr("An empty directory"));
+	m_backup_dir->setAccessibleName(tr("Where to back this host up"));
+	m_back_up = new QPushButton(tr("Back up this host"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 	/* WHERE A LOST DEVICE IS DEALT WITH, said before anyone looks for it here. */
@@ -53,12 +57,24 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	col->addLayout(where);
 	col->addLayout(again);
 	col->addWidget(lost);
+	/* THE WARNING BEFORE THE BUTTON: a backup is this host, to whoever
+	 * holds it. */
+	auto *backup_note = new QLabel(tr("A backup holds this host's keys: whoever has it can act "
+	                                  "as this host. Keep it as safe as the device."),
+	                               this);
+	backup_note->setWordWrap(true);
+	col->addWidget(backup_note);
+	auto *backup = new QHBoxLayout;
+	backup->addWidget(m_backup_dir, 1);
+	backup->addWidget(m_back_up);
+	col->addLayout(backup);
 	col->addWidget(m_status);
 
 	connect(m_table, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select(r); });
 	connect(m_set, &QPushButton::clicked, [this]() { set_address(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
+	connect(m_back_up, &QPushButton::clicked, [this]() { back_up(m_backup_dir->text()); });
 	select(-1);
 }
 
@@ -121,6 +137,26 @@ bool fzn_hosts_view::set_address()
 	}
 	refresh();
 	m_status->setText(tr("%1 is reached at %2 now.").arg(QString::fromUtf8(name), QString::fromUtf8(at)));
+	return true;
+}
+
+bool fzn_hosts_view::back_up(const QString &dir)
+{
+	QByteArray at = dir.trimmed().toUtf8();
+	fzn_rpc_identity_backup_resp_t out;
+
+	if (at.isEmpty()) {
+		m_status->setText(tr("Say which empty directory to back up into."));
+		return false;
+	}
+	if (fzn_rpc_identity_backup(&m_rpc->c, at.constData(), (size_t)at.size(), &out) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_status->setText(tr("Backed up: %1 file(s), %2 byte(s), in %3.")
+	                          .arg(out.files)
+	                          .arg(out.bytes)
+	                          .arg(QString::fromUtf8(at)));
 	return true;
 }
 

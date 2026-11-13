@@ -6,6 +6,10 @@
  * other, as the node judged it when it listed them. A person sets where one
  * is reached, by HOST:PORT.
  *
+ * AND A BACKUP OF THIS HOST, sec 1133: its keys and state copied by the node
+ * into an empty directory of this user's, with the warning that matters
+ * said first -- whoever holds the copy can act as this host.
+ *
  * NOT HERE, ON PURPOSE: removing a host. A person who has lost a phone and
  * finds a Remove button beside it will take it for the end of that phone's
  * access, and it is not -- a lost device's grant ends by k votes to revoke
@@ -41,6 +45,7 @@ public:
 	void select(int row);
 	void set_address_text(const QString &address);
 	bool set_address();
+	bool back_up(const QString &dir);
 
 	/* WHAT IS ON SCREEN: each host as its cells joined by " | ", the
 	 * address line, and the status line. */
@@ -55,6 +60,8 @@ private:
 	QLineEdit *m_address;
 	QPushButton *m_set;
 	QPushButton *m_refresh;
+	QLineEdit *m_backup_dir;
+	QPushButton *m_back_up;
 	QLabel *m_status;
 };
 
