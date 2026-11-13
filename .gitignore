@@ -40,6 +40,7 @@
 /qr/test/qr_test
 /hex/test/hex_test
 /location/test/geo_test
+/net/test/own_address_test
 /record/test/store_file_test
 /record/test/store_file_nopunch_test
 /cli/test/cli_test

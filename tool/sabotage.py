@@ -15473,6 +15473,20 @@ SABOTAGES = [
 		"an arrow drawn between two fixes closer than their error -- sec 1093",
 	),
 	(
+		"own-address-link-local-ranked-first",
+		"net/own_address.c",
+		"\tif (starts_with(ip, \"169.254.\")) return 3;\n",
+		"",
+		"a self-assigned 169.254 address is offered before a real one -- sec 1094",
+	),
+	(
+		"own-address-duplicates-kept",
+		"net/own_address.c",
+		"\t\t\tif (held(out, w, c)) continue;\n",
+		"",
+		"one address offered twice when two interfaces share it -- sec 1094",
+	),
+	(
 		"read-where-read-writes-a-record",
 		"messages/messages.c",
 		"\tif (fzn_messages_read_position(m, contact, held) && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0)\n\t\treturn FZN_MESSAGES_OK;\n",

@@ -210,6 +210,7 @@
 #include <fuzznet/hex/hex.h>
 #include <fuzznet/local/client.h>
 #include <fuzznet/net/udp.h>
+#include <fuzznet/net/own_address.h>
 #include <fuzznet/net/bearer.h>
 #include <fuzznet/node/verify_memo.h>
 #include <fuzznet/node/sessions.h>
@@ -450,6 +451,7 @@
 #include "local/escape.h"
 #include "hex/hex.h"
 #include "net/udp.h"
+#include "net/own_address.h"
 #include "net/bearer.h"
 #include "node/verify_memo.h"
 #include "node/sessions.h"

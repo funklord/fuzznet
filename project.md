@@ -86640,3 +86640,18 @@ with no maths library -- the core needed none until then, and embedded builds sh
 its file reads tracked tests alone, so hex_test passed it untracked and failed it once committed,
 its `FAIL` line printing `__FILE__` rather than its name. Both hex_test's and geo_test's now name
 themselves.
+
+## 1094. A host's own addresses for a card, taken from fuzzypickles, 2026-11-13
+
+**The third of sec 1070's four units** (sec 1089): `net/own_address.{c,h}` --
+`fzn_local_ipv4_addresses` lists this machine's up, running, non-loopback IPv4 addresses, and
+`fzn_own_address_candidates` ranks the candidates a contact card or a pairing request offers as
+"your address": the advertised address first, then Wi-Fi and Ethernet, then other interfaces,
+then virtual and cellular ones, a self-assigned 169.254 address last, duplicates dropped. The
+ranking is pure -- the caller supplies the interfaces -- and tested so. Prepared as 5d91445; its
+Makefile lines met the two earlier units' and were merged keeping all three.
+
+**Taken with:** the prose pointing at this tree, the advertised address named as `net/address`
+where it said fuzzypickles' config key; the test's failure line naming its suite (sec 1093); two
+sabotage entries, `own-address-link-local-ranked-first` and `own-address-duplicates-kept`, both
+caught; the header in installcheck's consumer and the test binary in `.gitignore`.

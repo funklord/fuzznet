@@ -244,7 +244,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c local/escape.c \
-             hex/hex.c \
+             hex/hex.c net/own_address.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c \
              net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
@@ -346,7 +346,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUIL
                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
-             local/client.h local/escape.h hex/hex.h location/geo.h \
+             local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
@@ -436,7 +436,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
-             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c \
+             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c \
              blob/test/blob_test.c blob/test/levels_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
@@ -577,6 +577,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/qr/test/qr_test \
              $(BUILD_DIR)/hex/test/hex_test \
              $(BUILD_DIR)/location/test/geo_test \
+             $(BUILD_DIR)/net/test/own_address_test \
              $(BUILD_DIR)/blob/test/blob_test \
              $(BUILD_DIR)/blob/test/levels_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
@@ -3528,6 +3529,13 @@ $(BUILD_DIR)/hex/test/hex_test: $(BUILD_DIR)/hex/test/hex_test.o $(BUILD_DIR)/he
 $(BUILD_DIR)/location/test/geo_test: $(BUILD_DIR)/location/test/geo_test.o $(BUILD_DIR)/location/geo.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -lm -o $@
+
+# This host's own addresses ranked for a card, from fuzzypickles'
+# client/own_address.c: the ranking is pure and tested with given
+# interfaces; the listing reads getifaddrs.
+$(BUILD_DIR)/net/test/own_address_test: $(BUILD_DIR)/net/test/own_address_test.o $(BUILD_DIR)/net/own_address.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 
 # THE C++ RULE, AND IT IS SEPARATE FROM THE C ONE ON PURPOSE. Qt's flags reach
 # only the widgets: a C source that picked them up would gain include paths it
