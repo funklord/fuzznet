@@ -24,7 +24,8 @@ root, with A2 joined to it; B1, a root, with B2 joined to it.
        a power cut would, B1 writes a line to A, and A2 started again
        holds it; B1 owes nothing once A has it
     d3 a call rings every host of its user: A1 rings B, B1 and B2 both ring; B2
-       answers and B1 stops (sec 1071)
+       answers and B1 stops (sec 1071), saying answered elsewhere; declined on one,
+       the other says declined elsewhere (sec 1090)
     e  a contact removed: A1 removes B, and A2 lists B suspended, the
        roster being the user's (sec 489); B2 then writes a line, and no
        host of A's holds it after six rounds. B, never told it was
@@ -394,10 +395,27 @@ def main(argv):
 			expect(socks["b2"], "b2", "set call %s answer" % rung[1], "ok")
 			polled("a1", "list call", lambda g: "%s,up" % rung[1] in g, "never holding the call up")
 			polled("b1", "list call", lambda g: rung[1] not in g, "still ringing once B2 answered")
+			# AND B1 SAYS WHY, sec 1090: answered on another of B's hosts, no missed call.
+			got = said("b1", "get call %s" % rung[1]).strip()
+			if got != "ok ended answered-elsewhere":
+				raise failed("d3: B1's get call answered %r, not answered elsewhere" % got)
 			expect(socks["a1"], "a1", "set call %s hangup" % rung[1], "ok")
 			polled("b2", "list call", lambda g: rung[1] not in g, "holding the call A1 hung up")
+			# AND DECLINED ON ONE, declined on the other, said so, sec 1090.
+			rung = said("a1", "add call %s audio" % NAME["b"]).split()
+			if len(rung) != 2 or rung[0] != "ok":
+				raise failed("d3: A1's second add call answered %r" % rung)
+			for who in ("b1", "b2"):
+				polled(who, "list call", lambda g: "%s,ringing-in" % rung[1] in g,
+				       "never ringing in with A's second call")
+			expect(socks["b1"], "b1", "set call %s decline" % rung[1], "ok")
+			polled("b2", "list call", lambda g: rung[1] not in g, "still ringing once B1 declined")
+			got = said("b2", "get call %s" % rung[1]).strip()
+			if got != "ok ended declined-elsewhere":
+				raise failed("d3: B2's get call answered %r, not declined elsewhere" % got)
 			print("livecheck: d3: A1's call rang both of B's hosts; B2 answered, B1 stopped "
-			      "ringing")
+			      "ringing, answered elsewhere; a second, declined on B1, ended declined "
+			      "elsewhere on B2")
 
 			# e: B removed by A; nothing of B's after reaches A.
 			expect(socks["a1"], "a1", "remove contact " + NAME["b"], "ok")

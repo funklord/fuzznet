@@ -15438,6 +15438,13 @@ SABOTAGES = [
 		"a call ended leaves no reason for a client to read -- sec 1082",
 	),
 	(
+		"answered-elsewhere-said-as-hangup",
+		"node/daemon.c",
+		"\t\t\t\tsize_t bn = live_bare(FZN_LIVE_ANSWERED_ELSEWHERE, w.call, bye);\n",
+		"\t\t\t\tsize_t bn = live_bare(FZN_LIVE_HANGUP, w.call, bye);\n",
+		"a call answered on one of a user's hosts reads as hung up on the others, a missed call -- sec 1090",
+	),
+	(
 		"read-where-read-writes-a-record",
 		"messages/messages.c",
 		"\tif (fzn_messages_read_position(m, contact, held) && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0)\n\t\treturn FZN_MESSAGES_OK;\n",

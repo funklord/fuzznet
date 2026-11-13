@@ -63,6 +63,8 @@ int fzn_live_read(const uint8_t *bytes, size_t len, fzn_live_word_t *out)
 	case FZN_LIVE_RINGING:
 	case FZN_LIVE_NO_ANSWER:
 	case FZN_LIVE_BUSY:
+	case FZN_LIVE_ANSWERED_ELSEWHERE:
+	case FZN_LIVE_DECLINED_ELSEWHERE:
 		return 1;
 	case FZN_LIVE_REPORT:
 		if (fzn_call_message_body_report_view(v, &b) != SITU_OK)
@@ -125,6 +127,8 @@ size_t fzn_live_write(const fzn_live_word_t *w, uint8_t *out, size_t cap)
 	case FZN_LIVE_RINGING:
 	case FZN_LIVE_NO_ANSWER:
 	case FZN_LIVE_BUSY:
+	case FZN_LIVE_ANSWERED_ELSEWHERE:
+	case FZN_LIVE_DECLINED_ELSEWHERE:
 		break;
 	case FZN_LIVE_FRAME:
 		if (w->piece >= w->pieces || (w->media_len && !w->media) || w->media_len > UINT32_MAX)

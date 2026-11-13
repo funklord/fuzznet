@@ -274,6 +274,54 @@ static void test_message_busy(void **state)
 	situ_check_bytes(buf, vector_message_busy, sizeof(buf));
 }
 
+/* message / answered_elsewhere */
+static const uint8_t vector_message_answered_elsewhere[10u] = {
+	0x12, 0x0B, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_answered_elsewhere(void **state)
+{
+	uint8_t     buf[10u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_answered_elsewhere, sizeof(buf));
+	situ_msg_init(&msg, buf, 10u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 10u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_answered_elsewhere, sizeof(buf));
+}
+
+/* message / declined_elsewhere */
+static const uint8_t vector_message_declined_elsewhere[10u] = {
+	0x12, 0x0C, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D,
+};
+
+static void test_message_declined_elsewhere(void **state)
+{
+	uint8_t     buf[10u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_declined_elsewhere, sizeof(buf));
+	situ_msg_init(&msg, buf, 10u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 10u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_declined_elsewhere, sizeof(buf));
+}
+
 /* message / frame */
 static const uint8_t vector_message_frame[29u] = {
 	0x12, 0x05, 0x8B, 0x70, 0xD7, 0xEF, 0x5F, 0x91, 0xC9, 0x5D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x01, 0xF4, 0x00, 0x00, 0x00, 0x01, 0xC0, 0xFF, 0xEE, 0x00,
@@ -356,6 +404,8 @@ int main(void)
 		situ_check_case(test_message_ringing),
 		situ_check_case(test_message_no_answer),
 		situ_check_case(test_message_busy),
+		situ_check_case(test_message_answered_elsewhere),
+		situ_check_case(test_message_declined_elsewhere),
 		situ_check_case(test_message_frame),
 		situ_check_case(test_message_report),
 		situ_check_case(test_message_participant),

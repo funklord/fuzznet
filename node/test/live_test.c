@@ -61,6 +61,23 @@ static void test_words(void)
 	              && r.call[0] == 0xc3u,
 	      "a ringing did not read back");
 
+	/* ANSWERED AND DECLINED ELSEWHERE, sec 1090, bare. */
+	{
+		static const fzn_live_kind_t elsewhere[] = { FZN_LIVE_ANSWERED_ELSEWHERE,
+			                                     FZN_LIVE_DECLINED_ELSEWHERE };
+		size_t e;
+
+		for (e = 0; e < 2u; e++) {
+			memset(&w, 0, sizeof(w));
+			w.kind = elsewhere[e];
+			memset(w.call, 0xc5, sizeof(w.call));
+			n = fzn_live_write(&w, buf, sizeof(buf));
+			CHECK(n == FZN_LIVE_HEAD_LEN && fzn_live_read(buf, n, &r) && r.kind == elsewhere[e]
+			              && r.call[0] == 0xc5u,
+			      "an elsewhere did not read back");
+		}
+	}
+
 	/* NO_ANSWER, sec 1073: the callee's ring time passed, bare too. */
 	memset(&w, 0, sizeof(w));
 	w.kind = FZN_LIVE_NO_ANSWER;

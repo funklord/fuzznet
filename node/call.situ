@@ -20,6 +20,8 @@ enum kind : u8 {
 	ringing     = 8,   // the callee still here, to each ring (sec 1062)
 	no_answer   = 9,   // the callee's ring time passed unanswered (sec 1073)
 	busy        = 10,  // the callee's guard refused the ring (sec 1074)
+	answered_elsewhere = 11, // another host of the callee's user answered (sec 1090)
+	declined_elsewhere = 12, // another host of the callee's user declined (sec 1090)
 	default     = error,
 }
 
@@ -72,6 +74,8 @@ struct message {
 		case kind.ringing:     nothing           ringing;
 		case kind.no_answer:   nothing           no_answer;
 		case kind.busy:        nothing           busy;
+		case kind.answered_elsewhere: nothing    answered_elsewhere;
+		case kind.declined_elsewhere: nothing    declined_elsewhere;
 		default: error;
 	}
 }

@@ -52,6 +52,8 @@ struct message size=10.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.body.ringing                   offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.no_answer                 offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.busy                      offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.answered_elsewhere        offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.declined_elsewhere        offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
 
 struct nothing size=0
 

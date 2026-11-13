@@ -9,6 +9,8 @@ message hangup      12 04 8B 70 D7 EF 5F 91 C9 5D
 message ringing     12 08 8B 70 D7 EF 5F 91 C9 5D
 message no_answer   12 09 8B 70 D7 EF 5F 91 C9 5D
 message busy        12 0A 8B 70 D7 EF 5F 91 C9 5D
+message answered_elsewhere 12 0B 8B 70 D7 EF 5F 91 C9 5D
+message declined_elsewhere 12 0C 8B 70 D7 EF 5F 91 C9 5D
 message frame       12 05 8B 70 D7 EF 5F 91 C9 5D 01 00 00 00 00 00 07 00 00 01 F4 00 00 00 01 C0 FF EE 00
 message report      12 06 8B 70 D7 EF 5F 91 C9 5D 02 00 00 00 04 00 00 00 01 00 03 00 00 02 1C 00 00 00 0C
 message participant 12 07 8B 70 D7 EF 5F 91 C9 5D 00 02 A0 A1 A2 A3 A4 A5 A6 A7 A8 A9 AA AB AC AD AE AF B0 B1 B2 B3 B4 B5 B6 B7 B8 B9 BA BB BC BD BE BF

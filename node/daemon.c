@@ -17849,7 +17849,7 @@ static struct call_ended {
 	uint8_t call[FZN_LIVE_CALL_LEN];
 	uint8_t kinds;
 	char user[2u * FZN_PUBKEY_LEN + 1u];
-	char why[16];
+	char why[24]; /* the longest, `answered-elsewhere`, 18 */
 	uint64_t at_ms;
 } *calls_ended;
 static size_t n_calls_ended, calls_ended_cap;
@@ -18035,7 +18035,7 @@ static void live_from_sibling(const uint8_t sibling[FZN_PUBKEY_LEN], const fzn_l
 		k->has_sibling = 1;
 		c->state = FZN_LIVE_UP;
 		c->heard_s = wall_clock();
-		if ((n = live_bare(FZN_LIVE_HANGUP, w->call, word)) != 0u)
+		if ((n = live_bare(FZN_LIVE_ANSWERED_ELSEWHERE, w->call, word)) != 0u)
 			say_siblings(sibling, word, n);
 		live_told(w->call, "answered");
 		return;
@@ -18082,6 +18082,17 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 	if (!fzn_live_read(bytes, len, &w) || !group_owner_of(host, owner, &own))
 		return;
 	c = fzn_live_find(&node_calls, w.call);
+	/* TAKEN OR TURNED AWAY ON ANOTHER HOST of this user, sec 1090, fuzzypickles':
+	 * from the caller (sec 1071) or from a sibling (sec 1025), a call ringing in
+	 * here ends with that reason, so a missed call can be told from one answered
+	 * on the phone. */
+	if (c && c->state == FZN_LIVE_RINGING_IN
+	    && (w.kind == FZN_LIVE_ANSWERED_ELSEWHERE || w.kind == FZN_LIVE_DECLINED_ELSEWHERE)
+	    && (memcmp(c->host, host, FZN_PUBKEY_LEN) == 0 || (own && live_sibling(host)))) {
+		live_end(c, w.kind == FZN_LIVE_ANSWERED_ELSEWHERE ? "answered-elsewhere"
+		                                                  : "declined-elsewhere");
+		return;
+	}
 	/* A SIBLING ON A SESSION WITH THIS HOST, and not the call's other host nor a participant of
 	 * it: sec 1025. */
 	if (own && live_sibling(host) && !(c && memcmp(c->host, host, FZN_PUBKEY_LEN) == 0)
@@ -18163,11 +18174,12 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 			m->ringing = 0;
 			m->joined = 1;
 			/* THE USER'S OTHER HOSTS, rung beside this one, told it is over, sec 1071:
-			 * the first to answer takes the call for its user. */
+			 * the first to answer takes the call for its user -- told it was
+			 * answered elsewhere, sec 1090, which no missed call is. */
 			{
 				size_t o;
 				uint8_t bye[FZN_LIVE_HEAD_LEN];
-				size_t bn = live_bare(FZN_LIVE_HANGUP, w.call, bye);
+				size_t bn = live_bare(FZN_LIVE_ANSWERED_ELSEWHERE, w.call, bye);
 
 				for (o = 0; o < k->n_participants; o++) {
 					struct live_participant *p = &k->participants[o];
@@ -18208,7 +18220,7 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 			if (w.kind == FZN_LIVE_DECLINE && m->ringing) {
 				size_t o;
 				uint8_t bye[FZN_LIVE_HEAD_LEN];
-				size_t bn = live_bare(FZN_LIVE_HANGUP, w.call, bye);
+				size_t bn = live_bare(FZN_LIVE_DECLINED_ELSEWHERE, w.call, bye);
 
 				for (o = 0; o < k->n_participants; o++) {
 					struct live_participant *p = &k->participants[o];
@@ -18668,7 +18680,7 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 		/* TAKEN OR REFUSED HERE, sec 1025: the siblings it rang stop ringing. */
 		if (lw.kind != FZN_LIVE_HANGUP) {
 			uint8_t bare[FZN_LIVE_HEAD_LEN];
-			size_t b = live_bare(FZN_LIVE_HANGUP, call, bare);
+			size_t b = live_bare(FZN_LIVE_ANSWERED_ELSEWHERE, call, bare);
 
 			if (b && lw.kind == FZN_LIVE_ANSWER)
 				say_siblings(NULL, bare, b);
