@@ -85899,8 +85899,8 @@ is the register, rewritten in place as features land; "where" says where each li
 |---|---|---|---|
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view` | fuzzypickles' Setup, Hosts pages | a hostable provision view |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
-| Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) | contact screens, to move onto it | suspension and a contact's states on the view |
-| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state | conversation screens, read marks per device for groups | group read position; unread for every conversation in one reply; a read at the held position silent (sec 1069) |
+| Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
+| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084) | conversation screens, read marks per device for groups | a conversation view |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` (sec 1109) | Nearby UI, to move onto it | the precision a grant gives, on the view |
@@ -87372,3 +87372,43 @@ are settled, the move is the frame relation (`reply.msg == query.msg` on
 sealing with `send_as`. The step shape is what fits fuzznetd's rounds
 anyway, since they already run each peer's exchange as steps
 (`talk_start_over`), not as the blocking `fzn_caller_ask`.
+
+## 1118. A contact's state, listed rather than left out, 2026-11-13
+
+**The register's gap** (sec 1070): the contacts view did not show
+suspension or a contact's other states. The cause was a level down. The
+typed client dropped every `list contact` row that carried a state
+(`suspended`, `retired`, `absent`, node/admin.c, sec 489), having no
+field to say so. A contact removed on another of the user's hosts
+therefore vanished from every client. Yet sec 576 says adding it back
+resumes it, which the person cannot do for a contact they cannot see.
+
+`fzn_rpc_peer_list_entry_t` gains `state`, a `fzn_rpc_contact_state_t`:
+ACTIVE (0, so a zeroed entry reads as an ordinary contact), SUSPENDED,
+RETIRED, ABSENT. The listing carries those rows with their state. A
+state word this client does not know is still left out, since listing
+it as ordinary would be the wrong answer. Every caller inside the tree
+was read for what the extra rows do. Each is unchanged or better: the
+name-is-free check now sees a name a suspended contact still holds, as
+the node does (sec 893).
+
+`gui/contacts_view` shows a State column, empty for an ordinary contact:
+"Removed on another of your hosts", "Removed for good", "No longer held
+by your hosts". **Adding one back is the rename verb**: `add contact NAME
+KEY` on a removed contact makes it stand again (`live_shares` phase c,
+sec 576). So on a suspended or absent contact the Rename button reads
+"Add back" and says so when it is done. A contact removed for good is
+neither renamed nor added back from the view, since that state is the
+decision of as many hosts as removal takes. Remove stays available on
+every row.
+
+**fuzzypickles' copy** of the client still drops these rows until it
+pins past this commit. A caller that wants only ordinary contacts
+filters on `state`.
+
+**Tests:** `contacts_view_test` lists a suspended contact with its words
+and leaves out one in an unknown state (`later`); it adds a suspended
+contact back by its key under its name, and refuses a retired one without
+asking. Sabotage `contacts-view-state-unsaid`,
+`contacts-view-retired-added-back`, `rpc-contact-state-unknown-as-active`
+and `rpc-contact-state-row-dropped` are each caught.

@@ -324,7 +324,24 @@ typedef struct fzn_rpc_peer_list_entry {
 	 * sharing a coarsened track rather than an exact one is the wrong shape.
 	 * EXACT (0) when not sharing or when granted before precision existed. */
 	uint8_t share_precision;
+	/* WHERE THE CONTACT STANDS on this user's roster (a fzn_rpc_contact_state_t,
+	 * fuzznet sec 1118): ACTIVE (0) for an ordinary contact, so a zeroed entry
+	 * reads as one; otherwise listed with its state rather than left out, a
+	 * contact removed on another of the user's hosts being one the person
+	 * should see and may add back (sec 576). Such a contact is served nothing. */
+	uint8_t state;
 } fzn_rpc_peer_list_entry_t;
+
+/* A contact's standing, from `list contact`'s third field (node/admin.c). */
+typedef enum fzn_rpc_contact_state {
+	FZN_RPC_CONTACT_ACTIVE = 0,
+	/* Removed on another of this user's hosts: nothing shared with it. */
+	FZN_RPC_CONTACT_SUSPENDED = 1,
+	/* Removed by as many of the user's hosts as removal takes: for good. */
+	FZN_RPC_CONTACT_RETIRED = 2,
+	/* Held by no host whose record still stands -- only by revoked ones. */
+	FZN_RPC_CONTACT_ABSENT = 3
+} fzn_rpc_contact_state_t;
 
 typedef struct fzn_rpc_peer_list_resp {
 	/* Sized to what the host holds: grown by the call and kept for the next one

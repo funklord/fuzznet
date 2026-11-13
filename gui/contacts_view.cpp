@@ -18,6 +18,7 @@
 
 struct fzn_contacts_view::keys {
 	QVector<QByteArray> contact; /* each contact's user key, 32 bytes */
+	QVector<uint8_t> state;      /* each contact's fzn_rpc_contact_state_t */
 	QVector<QByteArray> request; /* each request's host key, 32 bytes */
 };
 
@@ -25,6 +26,22 @@ struct fzn_contacts_view::keys {
 static QString short_key(const uint8_t *key)
 {
 	return QString::fromLatin1(QByteArray((const char *)key, 8).toHex());
+}
+
+/* WHERE A CONTACT STANDS, in words, sec 1118: nothing for an ordinary one. */
+static QString state_words(uint8_t state)
+{
+	switch (state) {
+	case FZN_RPC_CONTACT_SUSPENDED:
+		return QObject::tr("Removed on another of your hosts");
+	case FZN_RPC_CONTACT_RETIRED:
+		return QObject::tr("Removed for good");
+	case FZN_RPC_CONTACT_ABSENT:
+		return QObject::tr("No longer held by your hosts");
+	case FZN_RPC_CONTACT_ACTIVE:
+		break;
+	}
+	return QString();
 }
 
 static QTableWidget *table(QWidget *parent, const QStringList &heads)
@@ -43,7 +60,7 @@ fzn_contacts_view::fzn_contacts_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
-	m_contacts = table(this, { tr("Contact"), tr("Key") });
+	m_contacts = table(this, { tr("Contact"), tr("Key"), tr("State") });
 	m_requests = table(this, { tr("Asks to be called"), tr("Their host's key"), tr("From") });
 	m_name = new QLineEdit(this);
 	m_name->setPlaceholderText(tr("Name"));
@@ -108,11 +125,14 @@ bool fzn_contacts_view::refresh()
 	}
 	m_contacts->setRowCount((int)list.count);
 	m_keys->contact.clear();
+	m_keys->state.clear();
 	for (size_t i = 0; i < list.count; i++) {
 		const fzn_rpc_peer_list_entry_t *p = &list.entries[i];
 		m_contacts->setItem((int)i, 0, new QTableWidgetItem(QString::fromUtf8(p->name, (int)p->name_len)));
 		m_contacts->setItem((int)i, 1, new QTableWidgetItem(short_key(p->root_pubkey)));
+		m_contacts->setItem((int)i, 2, new QTableWidgetItem(state_words(p->state)));
 		m_keys->contact.append(QByteArray((const char *)p->root_pubkey, 32));
+		m_keys->state.append(p->state);
 	}
 	m_requests->setRowCount((int)pending->count);
 	m_keys->request.clear();
@@ -145,7 +165,13 @@ void fzn_contacts_view::select_contact(int row)
 			m_contacts->setCurrentCell(row, 0);
 		m_name->setText(m_contacts->item(row, 0)->text());
 	}
-	m_rename->setEnabled(chosen);
+	/* A RENAME ADDS BACK a contact in a state (sec 576): the button says so,
+	 * and a contact removed for good is not offered either. */
+	uint8_t state = chosen ? m_keys->state.at(row) : (uint8_t)FZN_RPC_CONTACT_ACTIVE;
+	m_rename->setText(state == FZN_RPC_CONTACT_SUSPENDED || state == FZN_RPC_CONTACT_ABSENT
+	                          ? tr("Add back")
+	                          : tr("Rename"));
+	m_rename->setEnabled(chosen && state != FZN_RPC_CONTACT_RETIRED);
 	m_remove->setEnabled(chosen);
 	m_approve->setEnabled(false);
 	m_reject->setEnabled(false);
@@ -165,6 +191,7 @@ void fzn_contacts_view::select_request(int row)
 	}
 	m_approve->setEnabled(chosen);
 	m_reject->setEnabled(chosen);
+	m_rename->setText(tr("Rename"));
 	m_rename->setEnabled(false);
 	m_remove->setEnabled(false);
 }
@@ -213,12 +240,18 @@ bool fzn_contacts_view::rename()
 	int row = m_contacts->currentRow();
 	if (row < 0 || row >= m_keys->contact.size())
 		return false;
+	uint8_t state = m_keys->state.at(row);
+	if (state == FZN_RPC_CONTACT_RETIRED) {
+		m_status->setText(tr("Your hosts removed this contact for good; it is not added back here."));
+		return false;
+	}
 	QByteArray name = m_name->text().trimmed().toUtf8();
 	if (name.isEmpty()) {
 		m_status->setText(tr("Type the new name first."));
 		return false;
 	}
-	/* BY KEY, so a name two contacts share is no obstacle (sec 893). */
+	/* BY KEY, so a name two contacts share is no obstacle (sec 893). For a
+	 * contact in a state the same ask adds it back. */
 	if (fzn_rpc_peer_rename(&m_rpc->c, (const uint8_t *)m_keys->contact.at(row).constData(),
 	                        name.constData(), (size_t)name.size())
 	    != FZN_RPC_OK) {
@@ -226,7 +259,9 @@ bool fzn_contacts_view::rename()
 		return false;
 	}
 	refresh();
-	m_status->setText(tr("Renamed %1.").arg(QString::fromUtf8(name)));
+	m_status->setText(state == FZN_RPC_CONTACT_ACTIVE
+	                          ? tr("Renamed %1.").arg(QString::fromUtf8(name))
+	                          : tr("%1 is a contact again.").arg(QString::fromUtf8(name)));
 	return true;
 }
 
@@ -248,8 +283,12 @@ bool fzn_contacts_view::remove()
 QStringList fzn_contacts_view::contacts() const
 {
 	QStringList out;
-	for (int i = 0; i < m_contacts->rowCount(); i++)
-		out << m_contacts->item(i, 0)->text() + QLatin1Char(' ') + m_contacts->item(i, 1)->text();
+	for (int i = 0; i < m_contacts->rowCount(); i++) {
+		QString row = m_contacts->item(i, 0)->text() + QLatin1Char(' ') + m_contacts->item(i, 1)->text();
+		if (!m_contacts->item(i, 2)->text().isEmpty())
+			row += QLatin1String(" (") + m_contacts->item(i, 2)->text() + QLatin1Char(')');
+		out << row;
+	}
 	return out;
 }
 

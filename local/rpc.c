@@ -160,8 +160,9 @@ static int node_key(const char *p, size_t len, uint8_t out[32]) {
  *   - no address comes back; the location-share state is asked of each
  *     contact afterwards (node_peer_shares);
  *   - a contact carrying a state (`suspended`, `retired`, `absent` -- removed
- *     on another member, served nothing) is left out, there being no field
- *     here to say so and a contact listed as ordinary being the wrong answer.
+ *     on another member, served nothing) is listed with it in `state`
+ *     (sec 1118); one in a state this client does not know is left out, a
+ *     contact listed as ordinary being the wrong answer.
  */
 /*
  * Whether each contact may ask where this host is, and at what level: one
@@ -238,7 +239,18 @@ static int node_peer_list(fzn_rpc_t *c, fzn_rpc_peer_list_resp_t *out) {
 			const char *key = comma + 1;
 			const char *key_end = memchr(key, ',', e_len - name_len - 1);
 			const size_t key_len = key_end ? (size_t)(key_end - key) : e_len - name_len - 1;
-			if (key_end) continue; /* a contact in a state: see above */
+			/* A CONTACT IN A STATE, sec 1118: listed with it. A word this
+			 * client does not know is passed over, since listing it as an
+			 * ordinary contact would be the wrong answer. */
+			uint8_t state = FZN_RPC_CONTACT_ACTIVE;
+			if (key_end) {
+				const char *w = key_end + 1;
+				const size_t w_len = e_len - (size_t)(w - e);
+				if (w_len == 9 && !memcmp(w, "suspended", 9)) state = FZN_RPC_CONTACT_SUSPENDED;
+				else if (w_len == 7 && !memcmp(w, "retired", 7)) state = FZN_RPC_CONTACT_RETIRED;
+				else if (w_len == 6 && !memcmp(w, "absent", 6)) state = FZN_RPC_CONTACT_ABSENT;
+				else continue;
+			}
 			if (!name_len || name_len > FZN_RPC_PEER_NAME_MAX) return unreadable(c);
 			rc = room_for(c, &out->entries, &out->room, out->count + 1, sizeof *out->entries);
 			if (rc != FZN_RPC_OK) return rc;
@@ -248,6 +260,7 @@ static int node_peer_list(fzn_rpc_t *c, fzn_rpc_peer_list_resp_t *out) {
 			memcpy(p->name, e, name_len);
 			p->name[name_len] = '\0';
 			p->name_len = name_len;
+			p->state = state;
 			out->count++;
 		}
 		from += listed;

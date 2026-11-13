@@ -11,9 +11,11 @@
  *
  * WHAT A PERSON DOES: approve a request under a name of their own -- the
  * proposed one offered -- or reject it; rename a contact, which is how two
- * holding one name come apart (sec 893); remove one. A contact the node
- * lists in a state of its own (a row with more fields) is the client's to
- * read and is not listed here yet.
+ * holding one name come apart (sec 893); remove one. A contact in a state
+ * (sec 1118) is listed with it; one removed on another host, or held by none
+ * whose record stands, may be added back -- the same `add contact NAME KEY`
+ * a rename asks, so the button says which it does. One removed for good is
+ * not renamed or added back here.
  *
  * Through the typed client on the host's ask callback (`rpc_ask.h`), as the
  * objects and settings views are; the node's refusals in its words, and a
