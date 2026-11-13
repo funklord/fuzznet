@@ -13765,6 +13765,16 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 			/* FROM BEFORE THIS HOST JOINED A GROUP THAT DOES NOT BACKFILL, sec
 			 * 905: its secret is not coming, and what follows must not wait. */
 			if (!g->backfill && me && line.epoch < me->joined_epoch) {
+				/* SAID, sec 1139: the third way a line is passed over, and
+				 * the one fuzzypickles' remade group fits -- a first line
+				 * written at the epoch before this host's joining. */
+				say(FZN_ENTRY_INFO, "node/groups",
+				    "a line of group %02x%02x%02x%02x from host %02x%02x%02x%02x passed over: "
+				    "written at epoch %u, before this host joined at %u, and the group does "
+				    "not backfill",
+				    g->id[0], g->id[1], g->id[2], g->id[3], heads[i].host[0], heads[i].host[1],
+				    heads[i].host[2], heads[i].host[3], (unsigned)line.epoch,
+				    (unsigned)me->joined_epoch);
 				if (fzn_group_lines_filed(&group_lines, g->id, heads[i].host, s)
 				    != FZN_GROUP_LINES_OK)
 					break;
@@ -13787,6 +13797,10 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 					    FZND_LINE_OPEN_TRIES);
 				}
 				if (oerr != FZN_GROUP_LINE_OK) {
+					if (oerr != FZN_GROUP_LINE_ERR_OPEN)
+						say(FZN_ENTRY_INFO, "node/groups",
+						    "a line of group %02x%02x%02x%02x passed over: %s", g->id[0],
+						    g->id[1], g->id[2], g->id[3], fzn_group_line_err_str(oerr));
 					if (fzn_group_lines_filed(&group_lines, g->id, heads[i].host, s)
 					    != FZN_GROUP_LINES_OK)
 						break;
@@ -13799,12 +13813,13 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 				 * first line to a reason nothing logged. */
 				fzn_group_line_err_t admitted = fzn_group_line_admit(g, &line);
 				fzn_messages_err_t imported = FZN_MESSAGES_OK;
-				int own_line = memcmp(line.sender, own->owner, FZN_PUBKEY_LEN) == 0;
+				int own_line = memcmp(line.sender, own->owner, FZN_PUBKEY_LEN) == 0, tried = 0;
 
 				if (admitted == FZN_GROUP_LINE_OK && !own_line
 				    && fzn_group_lines_filed_id(contact_hash_ops, line.host, line.id, filed_id)
 				    && fzn_group_lines_sender_keep(&group_lines, g->id, filed_id, line.sender)
 				               == FZN_GROUP_LINES_OK
+				    && (tried = 1)
 				    && (imported = fzn_messages_import(&node_messages.m, g->id, FZN_MESSAGE_IN,
 				                                       filed_id, line.stime,
 				                                       (const char *)line.text, line.text_len,
@@ -13820,10 +13835,20 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 					    (unsigned)line.epoch, (unsigned)g->epoch,
 					    fzn_group_host(g, line.host) ? "listed" : "not listed",
 					    fzn_group_is_member(g, line.sender) ? "a member" : "no member");
+				else if (!own_line && !tried)
+					say(FZN_ENTRY_WARNING, "node/groups",
+					    "a line of group %02x%02x%02x%02x not filed: its id or sender was not kept",
+					    g->id[0], g->id[1], g->id[2], g->id[3]);
 				else if (!own_line && imported != FZN_MESSAGES_OK)
 					say(FZN_ENTRY_WARNING, "node/groups",
 					    "a line of group %02x%02x%02x%02x not filed: %s", g->id[0], g->id[1],
 					    g->id[2], g->id[3], fzn_messages_err_str(imported));
+				/* TAKEN AND NOTHING WRITTEN: a line by that id is held already.
+				 * Said at debug, as it is the ordinary end of a line learned twice. */
+				if (tried && imported == FZN_MESSAGES_OK && !written)
+					say(FZN_ENTRY_DEBUG, "node/groups",
+					    "a line of group %02x%02x%02x%02x was held already", g->id[0], g->id[1],
+					    g->id[2], g->id[3]);
 			}
 			if (fzn_group_lines_filed(&group_lines, g->id, heads[i].host, s)
 			    != FZN_GROUP_LINES_OK)

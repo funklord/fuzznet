@@ -88020,3 +88020,35 @@ file from carol, each under its heading and dated; bob opened by name,
 the family as `@family`; a row not there; silence. Sabotage
 `conversations-view-unread-unsaid` and
 `conversations-view-group-opened-as-contact` are each caught.
+
+## 1139. Every way a group line is passed over, said, 2026-11-13
+
+**fuzzypickles' remade group failed again** (inbox 1736Z, sec 1137) with
+sec 1115's two log lines in place and neither printed. Alice held epoch
+2's secret. Carol's water counted alice as holding one of carol's lines.
+Alice listed no message in the group. So the line reached alice, was
+held, and was marked filed without being filed -- by a path sec 1115 did
+not log.
+
+`group_file` has three more such paths, and each now says so:
+
+- **A line written before this host joined, in a group that does not
+  backfill** (sec 905), at info: its epoch, the epoch this host joined
+  at, and that the group does not backfill. This one fits the readings.
+  If carol's first line went out at epoch 1, just before alice's joining
+  moved the group to epoch 2, alice passes it over by design while
+  holding it, and carol's water counts it held. Whether the group was
+  made without backfill, or the line raced the join, the next failing
+  run's line will say.
+- **A line whose open failed for any reason but "would not open"**, at
+  info, with the reason. Only the would-not-open case was said before.
+- **A line whose id or sender was not kept**, as a warning, beside the
+  failed import sec 1115 already said.
+
+And a line taken with nothing written -- one by that id already held --
+is said at debug, as the ordinary end of a line learned twice.
+
+**Not a fix**: what fuzzypickles' scenario should expect depends on which
+line prints. If it is the first, a test that adds a member and writes at
+once must either make the group backfill or wait for the new epoch
+before writing. fuzzypickles is told.
