@@ -15445,6 +15445,20 @@ SABOTAGES = [
 		"a call answered on one of a user's hosts reads as hung up on the others, a missed call -- sec 1090",
 	),
 	(
+		"hex-decode-takes-a-wrong-length",
+		"hex/hex.c",
+		"\tif (strlen(hex) != out_len * 2) return -1;\n",
+		"",
+		"hex of the wrong length decodes into the bytes asked for -- sec 1092",
+	),
+	(
+		"hex-decode-takes-a-bad-digit",
+		"hex/hex.c",
+		"\t\tif (hex_nibble(hex[i * 2], &hi) != 0) return -1;\n",
+		"\t\t(void)hex_nibble(hex[i * 2], &hi);\n",
+		"a character no hex digit is decoded as one -- sec 1092",
+	),
+	(
 		"read-where-read-writes-a-record",
 		"messages/messages.c",
 		"\tif (fzn_messages_read_position(m, contact, held) && memcmp(held, id, FZN_MESSAGE_ID_LEN) == 0)\n\t\treturn FZN_MESSAGES_OK;\n",

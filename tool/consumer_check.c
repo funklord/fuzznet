@@ -206,6 +206,7 @@
 #include <fuzznet/local/line.h>
 #include <fuzznet/local/socket.h>
 #include <fuzznet/local/escape.h>
+#include <fuzznet/hex/hex.h>
 #include <fuzznet/local/client.h>
 #include <fuzznet/net/udp.h>
 #include <fuzznet/net/bearer.h>
@@ -445,6 +446,7 @@
 #include "local/line.h"
 #include "local/socket.h"
 #include "local/escape.h"
+#include "hex/hex.h"
 #include "net/udp.h"
 #include "net/bearer.h"
 #include "node/verify_memo.h"

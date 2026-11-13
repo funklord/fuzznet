@@ -86597,3 +86597,22 @@ fuzzypickles is asked to rerun at this commit.
 **And an older intermittent fault, not stage 2's:** phase e, `C pulled nothing B shares with the
 group` -- C's group share pass asks two member hosts and pulls nothing -- failed once in four
 runs at 858d0b4, before stage 2, and three times in about ten after it. Open.
+
+## 1092. The public hex codec, taken from fuzzypickles, 2026-11-13
+
+**The first of sec 1070's four units** (sec 1089): `hex/hex.{c,h}`, `fzn_hex_encode`,
+`fzn_hex_decode` (exactly N bytes) and `fzn_hex_decode_var` (as many as the even-length hex
+says, up to a cap), with `hex/test/hex_test.c` -- fuzzypickles' `common/encoding`, prepared by its
+`tool/unit-move.py` as commit d129c84 on its vendored fuzznet and cherry-picked here. fuzzypickles
+switches its client to this one and deletes its own copy.
+
+**Taken with two changes:** `hex_test` did not isolate either guard it named -- a hex string
+shorter than asked failed on its terminating NUL whatever the length check did, and `zzzz` failed
+on its second digit whatever the first digit's check did -- so the sabotage entries
+`hex-decode-takes-a-wrong-length` and `hex-decode-takes-a-bad-digit` survived it. It now decodes
+`abcdef` into two bytes, and `z0` and `0z` into one, each refused by one guard alone, and both
+entries are caught. And `/hex/test/hex_test` joins `.gitignore`.
+
+**What it does not do yet:** the tree keeps private hex tables of its own -- `node/admin.c` calls
+its copy the fifth, sec 368 having counted four, and `node/daemon.c` and `node/groups.c` each keep
+one; moving them onto this one is its own piece of work.
