@@ -3126,14 +3126,14 @@ static int node_siblings(fzn_rpc_t *c, fzn_rpc_sibling_list_resp_t *out) {
 		while (at < rest_len) {
 			size_t end = at;
 			while (end < rest_len && rest[end] != ' ') end++;
-			const char *q = rest + at, *stop = rest + end, *f, *where;
-			size_t f_len, where_len;
+			const char *q = rest + at, *stop = rest + end, *f, *where, *paired;
+			size_t f_len, where_len, paired_len;
 			at = end < rest_len ? end + 1 : end;
 			listed++;
 			uint8_t key[32];
 			if (!node_field(&q, stop, &f, &f_len) || !node_key(f, f_len, key) ||
-			    !node_field(&q, stop, &where, &where_len) || !node_field(&q, stop, &f, &f_len) ||
-			    !node_field(&q, stop, &f, &f_len))
+			    !node_field(&q, stop, &where, &where_len) ||
+			    !node_field(&q, stop, &paired, &paired_len) || !node_field(&q, stop, &f, &f_len))
 				return unreadable(c);
 			/* KEY,WHERE,PAIRED,HEARD[,NAME]: the device's own `host/name`
 			 * since fuzznet's sec 847, escaped, or `-`. */
@@ -3159,7 +3159,10 @@ static int node_siblings(fzn_rpc_t *c, fzn_rpc_sibling_list_resp_t *out) {
 				memcpy(e->address, where, where_len);
 				e->address_len = where_len;
 			}
-			e->valid = 1; /* listed because the estate's stream carried it */
+			/* PAIRED, as the node judged it at this listing (sec 1124): a
+			 * pairing either way, `paired`, else `unpaired`. It was read and
+			 * dropped, and every host listed as valid. */
+			e->valid = paired_len == 6 && memcmp(paired, "paired", 6) == 0;
 		}
 		from += listed;
 		if (!listed || from >= total) break;

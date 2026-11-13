@@ -14496,6 +14496,27 @@ SABOTAGES = [
 		"a pasted code's surrounding spaces make it refused -- sec 1123",
 	),
 	(
+		"hosts-view-address-on-another-host",
+		"gui/hosts_view.cpp",
+		"\tQByteArray name = m_table->item(row, 0)->text().toUtf8();\n",
+		"\tQByteArray name = m_table->item(m_table->rowCount() - 1 - row, 0)->text().toUtf8();\n",
+		"an address is set on a host other than the one chosen -- sec 1124",
+	),
+	(
+		"hosts-view-chosen-address-not-offered",
+		"gui/hosts_view.cpp",
+		"\t\tm_address->setText(at == tr(\"not known\") ? QString() : at);\n",
+		"",
+		"choosing a host leaves the last host's address in the line -- sec 1124",
+	),
+	(
+		"rpc-sibling-paired-dropped",
+		"local/rpc.c",
+		"\t\t\te->valid = paired_len == 6 && memcmp(paired, \"paired\", 6) == 0;\n",
+		"\t\t\te->valid = 1;\n",
+		"every host listed reads as paired, whatever the node judged -- sec 1124",
+	),
+	(
 		"settings-view-filter-ignored",
 		"gui/settings_view.cpp",
 		"\t\t\tif (m_keep && !m_keep(m_keep_ctx, e->key))\n",

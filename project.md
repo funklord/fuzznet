@@ -85897,7 +85897,7 @@ is the register, rewritten in place as features land; "where" says where each li
 
 | Feature | In fuzznet | Still in a consumer, to move | Missing |
 |---|---|---|---|
-| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (inviting a device, sec 1122) | fuzzypickles' Setup, Hosts pages | joining by a code on a view, which needs a join that does not block; identity, host join and the Hosts page as views |
+| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124) | fuzzypickles' Setup, Hosts pages | identity backup and reset, and host join by request, as views |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084) | conversation screens, read marks per device for groups | a conversation view |
@@ -87582,3 +87582,48 @@ again after, a wrong-shaped code refused unasked. The render test keeps
 the view at 274 px with every input named. Sabotage
 `devices-view-join-looked-at-after-seen` and
 `devices-view-join-code-untrimmed` are each caught.
+
+## 1124. This user's other hosts, as a widget, 2026-11-13
+
+**The second half of the register's Setup-and-Hosts gap** (sec 1122).
+fuzzypickles' Hosts page (`hosts_widget.cpp`, 691 lines) lists the user's
+other hosts and sets where each is reached, through the typed client.
+`gui/hosts_view` is that listing: each host's name, its key's first
+bytes, and where it is reached ("not known" where nothing says), and an
+address set on the chosen host by HOST:PORT, refused unasked when it is
+not of that shape.
+
+**Not offered, on purpose: removing a host.** A person who has lost a
+phone and finds Remove beside it will take it for the end of that
+phone's access. It is not: a lost device's grant ends by k votes to
+revoke it, which the governance view asks for. The view says so, above
+anything a person might click: "Lost a device? Vote to revoke it under
+Governance; nothing here ends its access."
+
+**And a fault in the client, found by asking what a "paired" column would
+show.** `fzn_rpc_sibling_entry_t.valid` is documented as "live-reverified
+at response-encode time, never a trusted stored flag", and the node does
+just that: `list sibling`'s third field is `paired` or `unpaired`,
+judged at each listing from the pairing store and the admin state. But
+`node_siblings` read that field into a variable it overwrote with the
+next, and set `valid` to 1 for every row. So every client showed every
+host as verified -- fuzzypickles' Hosts page included. It now reads the
+field, and the view's Paired column says yes or no as the node judged it.
+Every other reader of the flag in this tree was checked; none relied on
+the constant.
+
+**The same shape, searched for across the client:** every value a parser
+fills and nothing reads afterwards. Three are counts that only check a
+page's shape. Four are node figures the client has no field for: the leg
+listing's loss, received count and unmeasured total, and how many
+reporters agree on this host's observed address (`get address`'s
+AGREE). None of those four claims something false, as `valid` did, so
+they are a register item rather than a fault: fields to add.
+
+**Tests:** `hosts_view_test`, seven checks against a scripted node: two
+hosts, one paired with an address and one unpaired without; an address set on the chosen host by its
+key; the chosen host's address offered; a malformed one refused unasked;
+silence. 148 px, every input named. Sabotage
+`hosts-view-address-on-another-host`,
+`hosts-view-chosen-address-not-offered` and `rpc-sibling-paired-dropped`
+are each caught.
