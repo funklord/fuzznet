@@ -14650,6 +14650,13 @@ SABOTAGES = [
 		"a group's conversation is opened as a contact's of the same name -- sec 1138",
 	),
 	(
+		"conversation-view-file-sent-public",
+		"gui/conversation_view.cpp",
+		"FZN_RPC_BLOB_TIER_PRIVATE, &stored)",
+		"FZN_RPC_BLOB_TIER_PUBLIC, &stored)",
+		"a file sent in a conversation is stored public, for anyone to fetch -- sec 1140",
+	),
+	(
 		"conversation-view-read-at-own-line",
 		"gui/conversation_view.cpp",
 		"\t\tif (!lines[i].outgoing)\n\t\t\tnewest_in = &lines[i];\n",
@@ -14659,8 +14666,8 @@ SABOTAGES = [
 	(
 		"conversation-view-refused-line-lost",
 		"gui/conversation_view.cpp",
-		"\tconst bool group = m_contact.startsWith(QLatin1Char('@'));\n",
-		"\tm_text->clear();\n\tconst bool group = m_contact.startsWith(QLatin1Char('@'));\n",
+		"\tconst bool group = m_contact.startsWith(QLatin1Char('@'));\n\tif ((group ? fzn_rpc_group_send",
+		"\tm_text->clear();\n\tconst bool group = m_contact.startsWith(QLatin1Char('@'));\n\tif ((group ? fzn_rpc_group_send",
 		"a line the node refused is lost from the line being written -- sec 1126",
 	),
 	(

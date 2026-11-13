@@ -88052,3 +88052,20 @@ is said at debug, as the ordinary end of a line learned twice.
 line prints. If it is the first, a test that adds a member and writes at
 once must either make the group backfill or wait for the new epoch
 before writing. fuzzypickles is told.
+
+## 1140. Older lines, and a file sent, on the conversation view, 2026-11-13
+
+**Two of fuzzypickles' conversation items** (inbox 1553Z, item 3). The
+view showed the newest 200 lines and no way further back; "Older lines"
+asks for 200 more each time, above the lines, enabled only after a full
+page, so a short conversation offers nothing it cannot show. "Send a
+file" stores the chosen file on this node, private
+(`fzn_rpc_blob_add`), and sends it as a line (`fzn_rpc_message_attach`).
+The node writes the reference and grants the file to that conversation
+as the line goes out, so the view neither formats nor grants. The name
+sent is the file's own, which the reference refuses if it could be taken
+for a path (sec 794). The view says what was sent and its size.
+
+**Tests:** `conversation_view_test`, sixteen checks: nothing older to
+show behind four lines, and a file put private and sent to dan as an
+attachment line. Sabotage `conversation-view-file-sent-public` is caught.

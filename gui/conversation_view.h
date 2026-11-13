@@ -56,6 +56,11 @@ public:
 	void select_line(int row);
 	bool fetch();
 	bool save_to(const QString &path);
+	/* OLDER LINES, a page more each time (sec 1140), and A FILE SENT: stored
+	 * here, private, and sent as a line, which grants it to the
+	 * conversation. `send_file` with no path asks which. */
+	bool show_older();
+	bool send_file(const QString &path);
 
 	/* The clock, seconds since 1970, for the times shown; 0 reads the
 	 * system's. */
@@ -78,6 +83,9 @@ private:
 	QPushButton *m_send;
 	QPushButton *m_fetch;
 	QPushButton *m_save;
+	QPushButton *m_older;
+	QPushButton *m_send_file;
+	size_t m_max; /* the most lines shown, a page more for each "older" */
 	QLabel *m_status;
 };
 

@@ -79,6 +79,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		snprintf(last_file, sizeof last_file, "%s", line);
 		return (size_t)snprintf(reply, cap, "ok\n");
 	}
+	/* A FILE PUT HERE, PRIVATE, AND SENT AS A LINE, sec 1140. */
+	if (!strcmp(line, "put file /tmp/fzn-send-test.jpg")) {
+		snprintf(last_file, sizeof last_file, "%s", line);
+		return (size_t)snprintf(reply, cap, "ok " FILE_ROOT FILE_KEY "0000000000001000 private\n");
+	}
 	if (!strcmp(line, "list group 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 family,3," GROUP_ID ",1\n");
 	if (!strncmp(line, "set ", 4))
@@ -143,6 +148,15 @@ int main(int argc, char **argv)
 	              && !strcmp(last_file, "get file " FILE_ROOT FILE_KEY "00000000002625a0 /tmp/holiday.jpg")
 	              && d.status() == "Saved 2.4 MB to /tmp/holiday.jpg.",
 	      "the file was not saved where asked");
+
+	/* OLDER LINES AND A FILE SENT, sec 1140: four lines are not a full page,
+	 * so there is nothing older to show; a file put private and attached. */
+	CHECK(!d.show_older() || d.lines().size() == 2, "asking for older lines lost the ones shown");
+	last_add[0] = '\0';
+	CHECK(d.send_file("/tmp/fzn-send-test.jpg") && !strcmp(last_file, "put file /tmp/fzn-send-test.jpg")
+	              && !strncmp(last_add, "add message dan out ", 20) && strstr(last_add, "attach " FILE_ROOT)
+	              && strstr(last_add, "fzn-send-test.jpg") && d.status().startsWith("Sent fzn-send-test.jpg"),
+	      "a file was not put here and sent to dan as a line");
 
 	/* A GROUP, sec 1126: members named, this user's own as You, the read
 	 * position kept by the group's id, a line sent to the group. */

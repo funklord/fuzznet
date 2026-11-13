@@ -51,6 +51,9 @@ static uint64_t file_size(const QByteArray &ref)
 	return v;
 }
 
+/* LINES ASKED FOR, a page at a time: the newest first, older on demand. */
+#define LINES_PAGE 200u
+
 /* The most lines shown: the newest, as many as a conversation's screen
  * holds and a few pages more. */
 #define LINES_MAX 200u
@@ -119,7 +122,7 @@ static QString failed_words(const fzn_gui_rpc *r)
 
 fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
                                              QWidget *parent)
-    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_now(0)
+    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_now(0), m_max(LINES_PAGE)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
@@ -134,6 +137,8 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_send = new QPushButton(tr("Send"), this);
 	m_fetch = new QPushButton(tr("Get the file"), this);
 	m_save = new QPushButton(tr("Save the file"), this);
+	m_older = new QPushButton(tr("Older lines"), this);
+	m_send_file = new QPushButton(tr("Send a file"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
@@ -143,12 +148,21 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_title);
 	col->addWidget(m_lines, 1);
+	auto *older = new QHBoxLayout;
+	older->addWidget(m_older);
+	older->addStretch(1);
+	/* ABOVE THE LINES, where the older ones go. */
+	col->insertLayout(1, older);
 	auto *files = new QHBoxLayout;
 	files->addWidget(m_fetch);
 	files->addWidget(m_save);
 	files->addStretch(1);
+	auto *sending = new QHBoxLayout;
+	sending->addWidget(m_send_file);
+	sending->addStretch(1);
 	col->addLayout(files);
 	col->addLayout(write);
+	col->addLayout(sending);
 	col->addWidget(m_status);
 
 	connect(m_send, &QPushButton::clicked, [this]() { send(); });
@@ -156,9 +170,13 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	connect(m_lines, &QListWidget::currentRowChanged, [this](int r) { select_line(r); });
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
 	connect(m_save, &QPushButton::clicked, [this]() { save_to(QString()); });
+	connect(m_older, &QPushButton::clicked, [this]() { show_older(); });
+	connect(m_send_file, &QPushButton::clicked, [this]() { send_file(QString()); });
 	select_line(-1);
 	m_title->setText(tr("No conversation is open."));
 	m_send->setEnabled(false);
+	m_older->setEnabled(false);
+	m_send_file->setEnabled(false);
 }
 
 fzn_conversation_view::~fzn_conversation_view() { delete m_rpc; }
@@ -170,6 +188,8 @@ bool fzn_conversation_view::open(const QString &contact)
 	m_contact = contact;
 	m_title->setText(tr("With %1").arg(contact));
 	m_send->setEnabled(!contact.isEmpty());
+	m_send_file->setEnabled(!contact.isEmpty());
+	m_max = LINES_PAGE;
 	return refresh();
 }
 
@@ -186,17 +206,17 @@ static QString when_words(uint32_t now, uint64_t then)
 /* A GROUP'S LINES, newest first as a contact's are, each with who wrote it;
  * the read position at the newest that came in, kept by the group's id. */
 static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *list, QLabel *status,
-                        uint32_t now, bool *answered)
+                        uint32_t now, size_t max, bool *answered)
 {
 	QByteArray name = group.mid(1).toUtf8();
-	auto *lines = (fzn_rpc_group_line_t *)calloc(LINES_MAX, sizeof(fzn_rpc_group_line_t));
+	auto *lines = (fzn_rpc_group_line_t *)calloc(max, sizeof(fzn_rpc_group_line_t));
 	size_t count = 0, i;
 	const fzn_rpc_inbox_entry_t *newest_in = nullptr;
 
 	*answered = true;
 	if (!lines)
 		return false;
-	if (fzn_rpc_group_lines(&rpc->c, name.constData(), (size_t)name.size(), lines, LINES_MAX, &count)
+	if (fzn_rpc_group_lines(&rpc->c, name.constData(), (size_t)name.size(), lines, max, &count)
 	    != FZN_RPC_OK) {
 		status->setText(failed_words(rpc));
 		*answered = rpc->c.answered;
@@ -248,17 +268,20 @@ bool fzn_conversation_view::refresh()
 	if (m_contact.startsWith(QLatin1Char('@'))) {
 		bool answered = true;
 		const uint32_t at = m_now ? m_now : (uint32_t)time(NULL);
-		return group_lines(m_rpc, m_contact, m_lines, m_status, at, &answered) ? true : answered;
+		if (!group_lines(m_rpc, m_contact, m_lines, m_status, at, m_max, &answered))
+			return answered;
+		m_older->setEnabled((size_t)m_lines->count() >= m_max);
+		return true;
 	}
 	const uint32_t now = m_now ? m_now : (uint32_t)time(NULL);
 	QByteArray who = m_contact.toUtf8();
-	auto *lines = (fzn_rpc_inbox_entry_t *)calloc(LINES_MAX, sizeof(fzn_rpc_inbox_entry_t));
+	auto *lines = (fzn_rpc_inbox_entry_t *)calloc(m_max, sizeof(fzn_rpc_inbox_entry_t));
 	size_t count = 0, i;
 	const fzn_rpc_inbox_entry_t *newest_in = nullptr;
 
 	if (!lines)
 		return false;
-	if (fzn_rpc_inbox_lines(&m_rpc->c, who.constData(), (size_t)who.size(), lines, LINES_MAX, &count)
+	if (fzn_rpc_inbox_lines(&m_rpc->c, who.constData(), (size_t)who.size(), lines, m_max, &count)
 	    != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
 		free(lines);
@@ -291,6 +314,8 @@ bool fzn_conversation_view::refresh()
 		return true;
 	}
 	m_status->setText(count ? QString() : tr("Nothing said yet."));
+	/* A FULL PAGE MAY HAVE MORE BEHIND IT. */
+	m_older->setEnabled(count >= m_max);
 	free(lines);
 	if (count)
 		m_lines->scrollToBottom();
@@ -375,6 +400,39 @@ bool fzn_conversation_view::save_to(const QString &path)
 		return false;
 	}
 	m_status->setText(tr("Saved %1 to %2.").arg(size_words(out.byte_len), where));
+	return true;
+}
+
+bool fzn_conversation_view::show_older()
+{
+	if (m_contact.isEmpty())
+		return false;
+	m_max += LINES_PAGE;
+	return refresh();
+}
+
+bool fzn_conversation_view::send_file(const QString &path)
+{
+	QString from = path.isEmpty() ? QFileDialog::getOpenFileName(this, tr("Send a file")) : path;
+	if (from.isEmpty() || m_contact.isEmpty())
+		return false;
+	QByteArray at = from.toUtf8();
+	/* THE NAME SENT is the file's own, which the reference refuses if it
+	 * could be taken for a path (sec 794). */
+	QByteArray name = from.section(QLatin1Char('/'), -1).toUtf8();
+	const bool group = m_contact.startsWith(QLatin1Char('@'));
+	QByteArray to = (group ? m_contact.mid(1) : m_contact).toUtf8();
+	fzn_rpc_blob_add_resp_t stored;
+	if (fzn_rpc_blob_add(&m_rpc->c, at.constData(), (size_t)at.size(), FZN_RPC_BLOB_TIER_PRIVATE, &stored)
+	            != FZN_RPC_OK
+	    || fzn_rpc_message_attach(&m_rpc->c, to.constData(), (size_t)to.size(), group ? 1 : 0,
+	                              stored.root, name.constData(), (size_t)name.size())
+	               != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	refresh();
+	m_status->setText(tr("Sent %1, %2.").arg(QString::fromUtf8(name), size_words(stored.byte_len)));
 	return true;
 }
 
