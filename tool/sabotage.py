@@ -14594,6 +14594,20 @@ SABOTAGES = [
 		"a backup is asked for with no directory given -- sec 1133",
 	),
 	(
+		"rpc-lan-key-dropped",
+		"local/rpc.c",
+		"\t\tmemcpy(e->host_pubkey, key, 32);\n\t\tconst int w = snprintf",
+		"\t\tconst int w = snprintf",
+		"who answered on this network is read and dropped again -- sec 1134",
+	),
+	(
+		"reach-view-one-report-as-agreed",
+		"gui/reach_view.cpp",
+		"\telse if (seen.agree > 1)\n",
+		"\telse if (seen.agree > 0)\n",
+		"one host's report is said as agreed -- sec 1134",
+	),
+	(
 		"conversation-view-read-at-own-line",
 		"gui/conversation_view.cpp",
 		"\t\tif (!lines[i].outgoing)\n\t\t\tnewest_in = &lines[i];\n",

@@ -3269,6 +3269,7 @@ static int node_lan_discover(fzn_rpc_t *c, int probe, fzn_rpc_lan_discover_resp_
 			return unreadable(c);
 		if (out->count >= FZN_RPC_LAN_DISCOVER_LIST_MAX) continue;
 		fzn_rpc_lan_seen_entry_t *e = &out->entries[out->count];
+		memcpy(e->host_pubkey, key, 32);
 		const int w = snprintf(e->address, sizeof e->address, "%.*s:%llu", (int)host_len, host,
 		                       (unsigned long long)port);
 		if (w < 0 || (size_t)w >= sizeof e->address) return unreadable(c);

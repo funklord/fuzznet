@@ -1565,6 +1565,9 @@ typedef struct fzn_rpc_lan_seen_entry {
 	char address[FZN_RPC_PEER_ADDRESS_MAX + 1];
 	size_t address_len;
 	uint64_t seen_at;
+	/* WHO ANSWERED: the host's key, sec 1134 -- read and dropped before, so
+	 * a list could say where something answered and not what. */
+	uint8_t host_pubkey[32];
 } fzn_rpc_lan_seen_entry_t;
 
 #define FZN_RPC_LAN_DISCOVER_LIST_MAX 16

@@ -85911,7 +85911,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
-| Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121) | Connection page | hostable peer, sync, capability, revocation, trust views |
+| Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, sec 1134) | Connection page | hostable peer, sync, capability, revocation, trust views |
 | The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099) | fuzzypickles' copy, until it pins past it | the local leg in binary under it (sec 1101) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
@@ -87867,3 +87867,34 @@ nothing and saying why. Sabotage `hosts-view-backup-without-directory`
 is caught -- once the check read the words: the client already refuses
 an empty path without asking, so the view's own guard is the sentence a
 person reads, and a check of "nothing asked" alone passed without it.
+
+## 1134. How this host is reached, as a widget, 2026-11-13
+
+**The register's Reachability row** (sec 1070): fuzzypickles' Connection
+page draws by hand where other hosts see this one, which hosts answered
+on this network, and the relay. `gui/reach_view` shows all three through
+the typed client. Where others see this host is said with how many agree
+(sec 1125's AGREE): "Others see this host at 203.0.113.5:4000 (2 of 2
+agree)", and a single report as "nothing confirms it yet", since one
+report alone is a guess. The hosts that answered on this network are
+listed by address and key. The relay is off, or on with its quota per
+window ("no limit" for 0, which is the setting's meaning, not none) and
+how many use it now. "Ask again" and "Look on this network" ask afresh,
+and say when there was nobody to ask, which is not "asked, no answer
+yet".
+
+**And one more instance of sec 1124's shape:** the LAN listing's parser
+read each answering host's key and dropped it, so a list could say
+where something answered and not what. `fzn_rpc_lan_seen_entry_t`
+gains `host_pubkey`. sec 1132's search missed it: it followed only a
+parser's scratch field, and this key went into a variable of its own.
+Searched again in that form -- every key or number a parser fills and
+the function never reads -- the remaining hits each fill an output
+parameter, or (`node_join_install`'s root) check a reply's shape on
+the older join path; nothing shown is lost.
+
+**Tests:** `reach_view_test`, eight checks against a scripted node:
+two reports agreeing, one host found with its key, the relay's quota and
+users, asking again outside and here, a single report unconfirmed,
+silence. Sabotage `rpc-lan-key-dropped` and
+`reach-view-one-report-as-agreed` are each caught.
