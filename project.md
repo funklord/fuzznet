@@ -85903,7 +85903,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state | conversation screens, read marks per device for groups | group read position; unread for every conversation in one reply; a read at the held position silent (sec 1069) |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
-| Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093) | Nearby UI | a location view |
+| Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` (sec 1109) | Nearby UI, to move onto it | the precision a grant gives, on the view |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed) | Library playback UI, share target | a hostable transfer view; a library (catalogue) view |
 | Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
@@ -87103,3 +87103,28 @@ the app proves it found the right device -- and is the half that makes the windo
 LAN; with it the window only says when the device will listen. This is a new way into an estate, so
 it is the holder's to choose, with sec 912's smallest host in view. netcfgd answered the holder on
 an open SSH port too: advised against.
+
+## 1109. Positions shared with this user as a widget; the claim window refined, 2026-11-13
+
+**The register's gap** (sec 1070): a location view. `gui/location_view.{h,cpp}` says first whether
+this host samples its own position, from where and how often, or why it stopped; then each contact's
+newest fix -- where, how sure (a coarse fix said so), how old, and from this host's own newest fix how
+far and which way, a direction only where the two fixes' accuracy leaves it meaning something
+(`fzn_geo_bearing_is_meaningful`). A person asks a contact where they are, and grants or takes back
+their own position. Measured from here with `location/geo.c`, so the view links the maths library.
+The precision a grant gives is exact for now; a choice of it on the view is in the register.
+
+**Tests:** `gui/test/location_view_test.cpp`, ten checks against a scripted node: this host's
+sampling and own fix, a contact 1.1 km north said so with its age, a coarse fix two hours old, a
+fetch, a grant and a revoke, silence. Sabotage `location-view-*` (three), each caught.
+
+**netcfgd's addendum on the claim window** (inbox 1157Z), the holder's refinement as netcfgd relays
+it: the appliance's button runs a command that finds a node of an estate on the LAN side and asks it
+to prompt its person; on yes the owner's node sends an invite sealed to the appliance's key, which the
+request carried with what kind of device it is. netcfgd prefers it to sec 1108's push. It needs what
+sec 624 deliberately does not do: a stranger's request heard on the LAN, surfaced to a person only
+while that person has asked to add a device, the rest dropped unshown, and an answer sealed back.
+Suggested: a window on both sides, abort if two requests or two answers arrive in one window (WPS's
+overlap rule), a short value from both keys the appliance blinks and the prompt names, the joiner at
+the lowest tier. A relay carries no authority here, so this stays a design for the holder to settle
+directly; the overlap rule and the shared short value are what answer sec 1108's "who".

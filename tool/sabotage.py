@@ -14398,6 +14398,27 @@ SABOTAGES = [
 		"each group lists every key, so each setting is drawn as many times as there are groups -- sec 1108",
 	),
 	(
+		"location-view-bearing-unearned",
+		"gui/location_view.cpp",
+		"\t\t\tif (fzn_geo_bearing_is_meaningful(d, sure))\n",
+		"\t\t\tif (fzn_geo_bearing_is_meaningful(d, sure) && 0)\n",
+		"a contact's direction from here is not said -- sec 1109",
+	),
+	(
+		"location-view-coarse-unsaid",
+		"gui/location_view.cpp",
+		"\treturn f->is_coarse ? QObject::tr(\"%1, coarse\").arg(s) : s;\n",
+		"\treturn s;\n",
+		"a coarse fix reads as an exact one -- sec 1109",
+	),
+	(
+		"location-view-share-revokes",
+		"gui/location_view.cpp",
+		"\tif (fzn_rpc_location_share(&m_rpc->c, who.constData(), (size_t)who.size(), on ? 1 : 0,\n",
+		"\tif (fzn_rpc_location_share(&m_rpc->c, who.constData(), (size_t)who.size(), 0,\n",
+		"sharing one's position with a contact takes it back instead -- sec 1109",
+	),
+	(
 		"list-message-no-group-malformed",
 		"node/messages.c",
 		"\t\twho_no_group = err == FZN_CONTACT_ERR_ABSENT;\n",

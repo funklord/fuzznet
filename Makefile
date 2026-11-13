@@ -1270,7 +1270,7 @@ endif
 # reports it against somewhere else entirely.
 GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/retention_view.cpp gui/governance_view.cpp gui/objects_view.cpp \
-            gui/settings_view.cpp gui/contacts_view.cpp \
+            gui/settings_view.cpp gui/contacts_view.cpp gui/location_view.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1306,12 +1306,13 @@ CHECK_HDRS := qr/decode.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
             gui/test/governance_view_test.cpp gui/test/objects_view_test.cpp \
             gui/test/settings_view_test.cpp gui/test/contacts_view_test.cpp \
+            gui/test/location_view_test.cpp \
             $(if $(LOG_FILE_ON),gui/test/entries_view_test.cpp)
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
 # than an accident of the build. sec 164: it does not validate, the CLI parser
@@ -1414,6 +1415,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/objects_view_test \
               $(BUILD_DIR)/gui/test/settings_view_test \
               $(BUILD_DIR)/gui/test/contacts_view_test \
+              $(BUILD_DIR)/gui/test/location_view_test \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/gui/test/entries_view_test)
 ifdef CLI_ON
 TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
@@ -3657,6 +3659,13 @@ $(BUILD_DIR)/gui/test/contacts_view_test: $(BUILD_DIR)/gui/test/contacts_view_te
                                        $(BUILD_DIR)/gui/contacts_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
+# The location view measures from here with location/geo.c, so the maths
+# library comes with it (sec 1093).
+$(BUILD_DIR)/gui/test/location_view_test: $(BUILD_DIR)/gui/test/location_view_test.o \
+                                       $(BUILD_DIR)/gui/location_view.o $(RPC_LINK_OBJS) \
+                                       $(BUILD_DIR)/location/geo.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -lm -o $@
 $(BUILD_DIR)/gui/test/objects_view_test: $(BUILD_DIR)/gui/test/objects_view_test.o \
                                       $(BUILD_DIR)/gui/objects_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
@@ -7506,7 +7515,8 @@ QTTY_JOBS ?= 4
 # THE TYPED CLIENT for the views that ask through it (objects_view, sec 1102):
 # its objects and what they reach that the list below does not already hold.
 QTTY_RPC_OBJS := $(RPC_OBJS) $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/contact_card.o \
-                 $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/hex/hex.o
+                 $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/hex/hex.o \
+                 $(BUILD_DIR)/location/geo.o
 QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/cli/manifest_print.o \
                     $(BUILD_DIR)/cli/ledger_print.o $(BUILD_DIR)/record/ledger.o \
@@ -7630,12 +7640,13 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(LOG_FILE_ON),$(
 	       gui/manifest_view.cpp gui/ledger_view.cpp gui/sched_view.cpp \
 	       gui/persist_view.cpp gui/notebook_view.cpp gui/retention_view.cpp \
 	       gui/governance_view.cpp gui/objects_view.cpp gui/settings_view.cpp gui/contacts_view.cpp \
+	       gui/location_view.cpp \
 	       gui/provision_view.cpp \
 	       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON gui/entries_view.cpp $(BUILD_DIR)/log/gather.o \
 	         $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o \
 	         $(BUILD_DIR)/log/capture.o) \
 	       $(QTTY_RENDER_OBJS) \
-	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) $(LDFLAGS_GC) \
+	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) $(LDFLAGS_GC) -lm \
 	       $(if $(and $(LOG_FILE_ON),$(LOG_PACK_ON)),$(ZSTD_LIBS)) -o "$$scratch/render_test"; \
 	"$$scratch/render_test"
 

@@ -52,6 +52,7 @@
 #include "../objects_view.h"
 #include "../settings_view.h"
 #include "../contacts_view.h"
+#include "../location_view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../entries_view.h"
 #endif
@@ -310,6 +311,11 @@ static size_t empty_node(void *ctx, const char *line, char *reply, size_t cap)
 {
 	(void)ctx;
 	/* THE OBJECTS' LISTING SAYS FIRST, SHOWN AND MORE, sec 948. */
+	/* A HOST THAT DOES NOT SAMPLE ITS POSITION, sec 1109. */
+	if (!strcmp(line, "get location"))
+		return (size_t)snprintf(reply, cap, "ok 0 off 30 0 0 0 0\n");
+	if (!strcmp(line, "get identity"))
+		return (size_t)snprintf(reply, cap, "ok %064d %064d\n", 0, 0);
 	/* PAIRING REQUESTS ARE COUNTED ONCE, sec 1107. */
 	if (!strncmp(line, "list request ", 13u))
 		return (size_t)snprintf(reply, cap, "ok 0\n");
@@ -362,6 +368,8 @@ static void test_every_widget_survives_a_terminal(void)
 	(void)settings_v.refresh();
 	fzn_contacts_view contacts_v(empty_node, nullptr);
 	(void)contacts_v.refresh();
+	fzn_location_view location_v(empty_node, nullptr);
+	(void)location_v.refresh();
 #ifdef FZN_LOG_FILE_ON
 	fzn_entries_view entries_v(silent_host, nullptr);
 #endif
@@ -658,6 +666,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "settings_view", &settings_v, "declares no settings" },
 			/* NO CONTACTS IS SAID, sec 1107. */
 			{ "contacts_view", &contacts_v, "No contacts yet." },
+			/* NOBODY SHARING IS SAID, sec 1109. */
+			{ "location_view", &location_v, "Nobody shares a position" },
 #ifdef FZN_LOG_FILE_ON
 			/* A SILENT HOST SAYS SO, sec 468, as the notebook does: no
 			 * lines and no answer are different words. */
