@@ -1270,7 +1270,7 @@ endif
 # reports it against somewhere else entirely.
 GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/retention_view.cpp gui/governance_view.cpp gui/objects_view.cpp \
-            gui/settings_view.cpp gui/contacts_view.cpp gui/location_view.cpp \
+            gui/settings_view.cpp gui/contacts_view.cpp gui/location_view.cpp gui/devices_view.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1306,12 +1306,12 @@ CHECK_HDRS := qr/decode.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
             gui/test/governance_view_test.cpp gui/test/objects_view_test.cpp \
-            gui/test/settings_view_test.cpp gui/test/contacts_view_test.cpp \
+            gui/test/settings_view_test.cpp gui/test/contacts_view_test.cpp gui/test/devices_view_test.cpp \
             gui/test/location_view_test.cpp \
             $(if $(LOG_FILE_ON),gui/test/entries_view_test.cpp)
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
@@ -1415,6 +1415,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/objects_view_test \
               $(BUILD_DIR)/gui/test/settings_view_test \
               $(BUILD_DIR)/gui/test/contacts_view_test \
+              $(BUILD_DIR)/gui/test/devices_view_test \
               $(BUILD_DIR)/gui/test/location_view_test \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/gui/test/entries_view_test)
 ifdef CLI_ON
@@ -3660,6 +3661,12 @@ $(BUILD_DIR)/gui/test/settings_view_test: $(BUILD_DIR)/gui/test/settings_view_te
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/contacts_view_test: $(BUILD_DIR)/gui/test/contacts_view_test.o \
                                        $(BUILD_DIR)/gui/contacts_view.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
+# The devices view draws its code with the QR widget (sec 1122).
+$(BUILD_DIR)/gui/test/devices_view_test: $(BUILD_DIR)/gui/test/devices_view_test.o \
+                                      $(BUILD_DIR)/gui/devices_view.o $(BUILD_DIR)/gui/qr_view.o \
+                                      $(BUILD_DIR)/qr/qr.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 # The location view measures from here with location/geo.c, so the maths
@@ -7643,6 +7650,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(LOG_FILE_ON),$(
 	       gui/manifest_view.cpp gui/ledger_view.cpp gui/sched_view.cpp \
 	       gui/persist_view.cpp gui/notebook_view.cpp gui/retention_view.cpp \
 	       gui/governance_view.cpp gui/objects_view.cpp gui/settings_view.cpp gui/contacts_view.cpp \
+	       gui/devices_view.cpp \
 	       gui/location_view.cpp \
 	       gui/provision_view.cpp \
 	       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON gui/entries_view.cpp $(BUILD_DIR)/log/gather.o \

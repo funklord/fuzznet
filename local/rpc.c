@@ -2240,27 +2240,49 @@ int fzn_rpc_device_answer(fzn_rpc_t *c, const uint8_t key[32], int let_in) {
 /* `add join FZI1:...`: the node asks the host until it answers, then starts
  * again as a device of that estate, so this waits for it to serve under the
  * host's root, or says it is still asking. */
-int fzn_rpc_device_join(fzn_rpc_t *c, const char *code, size_t code_len, int *joined) {
-	*joined = 0;
+/* WHO THIS HOST SERVES AS, from `get identity` alone: HOST USER, each 64 hex. */
+static int node_user_key(fzn_rpc_t *c, uint8_t user[32]) {
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	const int rc = fzn_rpc_node(c, "get", "identity", 8, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	if (rest_len != 129 || rest[64] != ' ' || !node_key(rest + 65, 64, user)) return unreadable(c);
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_device_join_begin(fzn_rpc_t *c, const char *code, size_t code_len,
+                              uint8_t before[32]) {
 	if (code_len < 5 || memcmp(code, "FZI1:", 5) != 0 || code_len > FZN_REQUEST_MAX - 16u ||
 	    memchr(code, ' ', code_len))
 		return node_unasked(c, FZN_RPC_ERR_MALFORMED, "that is not a join code (FZI1:...)");
-	fzn_rpc_status_resp_t before;
-	int rc = node_status(c, &before);
+	int rc = node_user_key(c, before);
 	if (rc != FZN_RPC_OK) return rc;
 	char arg[FZN_REQUEST_MAX];
 	const char *rest = NULL;
 	size_t rest_len = 0;
 	const int arg_len = snprintf(arg, sizeof arg, "join %.*s", (int)code_len, code);
-	rc = fzn_rpc_node(c, "add", arg, (size_t)arg_len, &rest, &rest_len);
+	return fzn_rpc_node(c, "add", arg, (size_t)arg_len, &rest, &rest_len);
+}
+
+int fzn_rpc_device_joined(fzn_rpc_t *c, const uint8_t before[32], int *joined) {
+	uint8_t now[32];
+	*joined = 0;
+	/* A NODE STARTING AGAIN does not answer for a moment: not joined yet,
+	 * rather than a failure. */
+	if (node_user_key(c, now) == FZN_RPC_OK) *joined = memcmp(now, before, 32) != 0;
+	c->error[0] = '\0';
+	c->error_code = 0;
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_device_join(fzn_rpc_t *c, const char *code, size_t code_len, int *joined) {
+	uint8_t before[32];
+	*joined = 0;
+	const int rc = fzn_rpc_device_join_begin(c, code, code_len, before);
 	if (rc != FZN_RPC_OK) return rc;
-	for (int i = 0; i < 100; i++) {
-		fzn_rpc_status_resp_t now;
-		if (node_status(c, &now) == FZN_RPC_OK &&
-		    memcmp(now.user_pubkey, before.user_pubkey, 32) != 0) {
-			*joined = 1;
-			break;
-		}
+	for (int i = 0; i < 100 && !*joined; i++) {
+		(void)fzn_rpc_device_joined(c, before, joined);
+		if (*joined) break;
 		struct timespec tick = {0, 100000000};
 		nanosleep(&tick, NULL);
 	}

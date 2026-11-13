@@ -85897,7 +85897,7 @@ is the register, rewritten in place as features land; "where" says where each li
 
 | Feature | In fuzznet | Still in a consumer, to move | Missing |
 |---|---|---|---|
-| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view` | fuzzypickles' Setup, Hosts pages | a hostable provision view |
+| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (inviting a device, sec 1122) | fuzzypickles' Setup, Hosts pages | joining by a code on a view, which needs a join that does not block; identity, host join and the Hosts page as views |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084) | conversation screens, read marks per device for groups | a conversation view |
@@ -87516,3 +87516,46 @@ never answered read as UNMEASURED; a silent node. Sabotage
 `link-view-hosted-silence-keeps-rows` and
 `link-view-hosted-unanswered-measured` are each caught. The second
 survived until the all-unanswered case was added.
+
+## 1122. Adding a device, as a widget: the inviting side, 2026-11-13
+
+**The register's gap** (sec 1070): "a hostable provision view". Read
+against fuzzypickles' tree, that is its Setup page: 1095 lines of
+`setup_widget.cpp` drawing identity, host join, device invite and join,
+and fork settling through the typed client, and `hosts_widget.cpp`
+beside it for siblings and revocation. A device joining by one code
+(sec 896) is the part every new user meets first, so it comes first.
+
+`gui/devices_view` is that join's inviting side. It makes a code (`add
+invite delegable`), shown as text and as a QR at level M. It shows and
+changes whether this host's person is asked before a device joins (the
+host setting invite/confirm), and says beside the switch what off
+means: whoever holds a code joins. With confirming on, it lists the
+devices waiting by their keys and lets one in or turns it away by its
+full key. A switch the node refuses is put back, not left showing the
+change.
+
+**The joining side's call no longer has to block.** `fzn_rpc_device_join`
+waited about ten seconds on its caller's thread for the node to serve
+under the new identity, which on a widget is a window that stops
+answering. The client now has the same join in two steps that each
+return at once: `fzn_rpc_device_join_begin` reads who the host serves as
+and hands the code over, and `fzn_rpc_device_joined` reports whether
+that has changed. A node starting again, which does not answer for a
+moment, reads as not joined yet rather than as a failure. Both read
+`get identity` alone, not the whole status. `fzn_rpc_device_join` is
+now a loop over the two. The view's joining side, which polls
+`joined` on a timer, is next; then the rest of the Setup and Hosts
+pages the same way.
+
+**Tests:** `devices_view_test`, ten checks against a scripted node: the
+code shown and drawn and said to expire, the switch set and a refused
+one put back, two waiting devices answered by their own keys, nothing
+sent with none chosen, a silent node. The render test holds it to
+sec 1120's three rules: 274 px, every input named, no button spoken
+twice. Its expiry is a line of its own, because at the end of a sentence
+80 columns cut it off. Sabotage `devices-view-refused-switch-shown-set`,
+`devices-view-answer-wrong-device` and `devices-view-answer-unchosen`
+are each caught; the first survived until the view ticked the box as a
+click does before asking. `rpc_test` drives the two join steps through
+a scripted node, and `rpc-join-unchanged-identity-joined` is caught.

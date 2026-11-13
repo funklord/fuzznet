@@ -421,6 +421,35 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	failures = before;
 }
 
+/* A DEVICE JOINING IN TWO STEPS, sec 1122: `begin` reads who the host is and
+ * hands the code over; `joined` is 0 while the node serves as before, 0 again
+ * while it is starting again and does not answer, and 1 once it serves under
+ * another identity. A code of the wrong shape is refused unasked. */
+static void test_a_join_is_asked_and_then_seen(void)
+{
+	struct script s = { { "ok " ID_A " " ID_A, "ok", "ok " ID_A " " ID_A, "ok " ID_A " " ID_B },
+	                    0, 4, 0, { { 0 } } };
+	uint8_t before[32];
+	int joined = -1;
+
+	on(&c, &s);
+	CHECK(fzn_rpc_device_join_begin(&c, "FZI1:ABCD", 9, before) == FZN_RPC_OK
+	              && !strcmp(s.asked[0], "get identity") && !strcmp(s.asked[1], "add join FZI1:ABCD")
+	              && before[0] == 0xaa,
+	      "begin did not read the identity and hand the code over");
+	CHECK(fzn_rpc_device_joined(&c, before, &joined) == FZN_RPC_OK && joined == 0,
+	      "a host serving as before was read as joined");
+	CHECK(fzn_rpc_device_joined(&c, before, &joined) == FZN_RPC_OK && joined == 1,
+	      "a host serving under another identity was not read as joined");
+	s.refuse = 1;
+	CHECK(fzn_rpc_device_joined(&c, before, &joined) == FZN_RPC_OK && joined == 0,
+	      "a node starting again was read as joined or as a failure");
+	s.refuse = 0;
+	s.at = s.n;
+	CHECK(fzn_rpc_device_join_begin(&c, "ABCD", 4, before) == FZN_RPC_ERR_MALFORMED,
+	      "a code of the wrong shape was asked");
+}
+
 int main(void)
 {
 	test_groups_are_read_across_pages();
@@ -439,6 +468,7 @@ int main(void)
 	test_a_setting_says_where_it_stands();
 	test_a_setting_is_cleared_where_it_was_set();
 	test_a_media_channel_carries_whole_frames();
+	test_a_join_is_asked_and_then_seen();
 	test_the_suite_can_tell_pass_from_fail();
 	if (failures) {
 		fprintf(stderr, "local rpc_test: %d check(s) failed\n", failures);

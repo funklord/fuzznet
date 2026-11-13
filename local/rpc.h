@@ -508,6 +508,16 @@ int fzn_rpc_device_confirm_set(fzn_rpc_t *c, int on);
 int fzn_rpc_device_waiting(fzn_rpc_t *c, uint8_t (*keys)[32], size_t cap, size_t *count);
 int fzn_rpc_device_answer(fzn_rpc_t *c, const uint8_t key[32], int let_in);
 int fzn_rpc_device_join(fzn_rpc_t *c, const char *code, size_t code_len, int *joined);
+/* THE SAME IN TWO STEPS, neither waiting (sec 1122), for a caller with a
+ * window to keep answering: `begin` hands the code to the node and keeps who
+ * this host serves as now in `*before`; `joined` asks again and sets *joined
+ * 1 once that has changed -- the node starts again in place under the
+ * host's identity, so the change is the answer. Asked every second or so,
+ * for the five minutes the node goes on asking; the event `join failed`
+ * says it gave up. */
+int fzn_rpc_device_join_begin(fzn_rpc_t *c, const char *code, size_t code_len,
+                              uint8_t before[32]);
+int fzn_rpc_device_joined(fzn_rpc_t *c, const uint8_t before[32], int *joined);
 
 /* What was decided apart (fuzznet sec 895): each side of a subject whose hosts
  * disagree, one row a side, a subject's rows together. What stands is the

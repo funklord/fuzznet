@@ -52,6 +52,7 @@
 #include "../objects_view.h"
 #include "../settings_view.h"
 #include "../contacts_view.h"
+#include "../devices_view.h"
 #include "../location_view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../entries_view.h"
@@ -374,6 +375,8 @@ static void test_every_widget_survives_a_terminal(void)
 	(void)settings_v.refresh();
 	fzn_contacts_view contacts_v(empty_node, nullptr);
 	(void)contacts_v.refresh();
+	fzn_devices_view devices_v(empty_node, nullptr);
+	(void)devices_v.refresh();
 	fzn_location_view location_v(empty_node, nullptr);
 	(void)location_v.refresh();
 #ifdef FZN_LOG_FILE_ON
@@ -672,6 +675,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "settings_view", &settings_v, "declares no settings" },
 			/* NO CONTACTS IS SAID, sec 1107. */
 			{ "contacts_view", &contacts_v, "No contacts yet." },
+			/* WHAT THE CODE IS FOR, said before one is made, sec 1122. */
+			{ "devices_view", &devices_v, "good for ten minutes" },
 			/* NOBODY SHARING IS SAID, sec 1109. */
 			{ "location_view", &location_v, "Nobody shares a position" },
 #ifdef FZN_LOG_FILE_ON
