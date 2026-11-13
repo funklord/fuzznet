@@ -27,6 +27,9 @@ static int checks, failures;
 #define GPS "net/gps,flag,host,0,1,off,-,-,sample%20gpsd"
 #define RING "call/ring,duration,estate,5,600,45s,s,restart+advertised,how%20long%20a%20call%20rings"
 #define TOKEN "net/token,text,host,0,64,-,-,sensitive,a%20token"
+#define DEEP "net/deep,count,host,0,9,3,-,advanced,a%20knob"
+#define B_HOST "bb00000000000000000000000000000000000000000000000000000000000002"
+#define C_HOST "cc00000000000000000000000000000000000000000000000000000000000003"
 
 /* THE NODE: each setting's value, or none, and what it says to a write. */
 static char gps[32], ring[32], token[32];
@@ -44,7 +47,9 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 
 	(void)ctx;
 	if (!strcmp(line, "list schema 0"))
-		return (size_t)snprintf(reply, cap, "ok 3 0 %s %s %s\n", GPS, RING, TOKEN);
+		return (size_t)snprintf(reply, cap, "ok 4 0 %s %s %s %s\n", GPS, RING, TOKEN, DEEP);
+	if (!strcmp(line, "list setting-holders call/ring 0"))
+		return (size_t)snprintf(reply, cap, "ok 4 0 2 0 %s,4,1700 %s,2,1600\n", B_HOST, C_HOST);
 	if (sscanf(line, "get schema %31s", key) == 1)
 		return (size_t)snprintf(reply, cap, "ok %s\n",
 		                        !strcmp(key, "net/gps") ? GPS : !strcmp(key, "call/ring") ? RING : TOKEN);
@@ -102,6 +107,22 @@ int main(int argc, char **argv)
 	snprintf(token, sizeof token, "s3cret");
 	CHECK(v.select(2) && v.chosen().isEmpty() && v.notes().contains("it is not shown"),
 	      "a sensitive value was shown, or not said to be set");
+
+	/* WHERE A SHARED SETTING HAS REACHED; a host's own is said to be so. */
+	v.select(1);
+	CHECK(v.reach() && v.reached().contains("version 4") && v.reached().contains("bb00000000000000 has it")
+	              && v.reached().contains("cc00000000000000 is behind, at 2"),
+	      "where a shared setting has reached was not said host by host");
+	v.select(0);
+	CHECK(v.reach() && v.reached().contains("this host's own"),
+	      "a host's own setting was not said to stay on the host");
+
+	/* ADVANCED SETTINGS WAIT UNTIL ASKED FOR. */
+	CHECK(!v.keys().contains("net.deep"), "an advanced setting was listed before it was asked for");
+	v.show_advanced(true);
+	CHECK(v.keys().contains("net.deep") && v.keys().size() == 4, "show advanced did not list it");
+	v.show_advanced(false);
+	CHECK(!v.keys().contains("net.deep"), "hiding advanced settings again did not");
 
 	/* A REFUSAL IN THE NODE'S WORDS. */
 	write_reply = "malformed not a duration: forever";

@@ -17,6 +17,11 @@
  * a restart, that peers can see it, and a sensitive one's value is never
  * shown, only whether one is set.
  *
+ * ADVANCED SETTINGS WAIT until "Show advanced" is ticked, so the first list a
+ * person sees is the handful they change; and "Has it reached my other
+ * devices?" says, for a setting the estate shares, this host's version and
+ * each other host's (fuzzypickles' page's two other uses, sec 1106).
+ *
  * Through the typed client on the host's ask callback (`rpc_ask.h`), as the
  * objects view is. NO Q_OBJECT AND THEREFORE NO moc.
  */
@@ -31,6 +36,7 @@
 #include <QWidget>
 
 struct fzn_gui_rpc;
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QListWidget;
@@ -50,6 +56,10 @@ public:
 	bool select(int row);
 	void choose(const QString &value);
 	bool apply();
+	/* List the advanced settings too, or hide them again. */
+	void show_advanced(bool on);
+	/* Ask where the chosen setting has reached. Whether the node answered. */
+	bool reach();
 
 	/* WHAT IS ON SCREEN: the keys listed, the choices the chosen one offers
 	 * (the first is always the default), the one chosen, where its value
@@ -60,12 +70,17 @@ public:
 	QString where() const;
 	QString notes() const;
 	QString status() const;
+	QString reached() const;
 
 private:
 	struct fzn_gui_rpc *m_rpc;
 	struct entry;
 	entry *m_entries;
 	int m_count;
+	int *m_shown; /* the listed rows' entries, advanced ones left out unless asked */
+	int m_shown_count;
+	bool fill();
+	int chosen_entry() const;
 
 	QListWidget *m_list;
 	QComboBox *m_value;
@@ -73,6 +88,9 @@ private:
 	QLabel *m_notes;
 	QPushButton *m_apply;
 	QPushButton *m_refresh;
+	QCheckBox *m_advanced;
+	QPushButton *m_reach;
+	QLabel *m_reached;
 	QLabel *m_status;
 };
 

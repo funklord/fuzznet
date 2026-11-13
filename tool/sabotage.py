@@ -14328,6 +14328,27 @@ SABOTAGES = [
 		"a refused remove loses the node's words -- sec 1104",
 	),
 	(
+		"settings-view-advanced-always-listed",
+		"gui/settings_view.cpp",
+		"\t\tif ((e->flags & FZN_SCHEMA_ADVANCED) && !m_advanced->isChecked())\n",
+		"\t\tif (0)\n",
+		"advanced settings crowd the first list a person sees -- sec 1106",
+	),
+	(
+		"settings-view-host-setting-asked-holders",
+		"gui/settings_view.cpp",
+		"\tif (!(e->scopes & FZN_SCHEMA_ESTATE)) {\n",
+		"\tif (0) {\n",
+		"a host's own setting reads as a node that did not answer -- sec 1106",
+	),
+	(
+		"settings-view-behind-reads-current",
+		"gui/settings_view.cpp",
+		"\t\tsaid << (r->acked >= got->local_seq ? tr(\"%1 has it.\").arg(who)\n",
+		"\t\tsaid << (r->acked >= 1 ? tr(\"%1 has it.\").arg(who)\n",
+		"a host behind the estate's version is said to have it -- sec 1106",
+	),
+	(
 		"list-message-no-group-malformed",
 		"node/messages.c",
 		"\t\twho_no_group = err == FZN_CONTACT_ERR_ABSENT;\n",

@@ -87021,3 +87021,24 @@ whenever a leftover met a reused pid: `store_file_test`, `persist_file_test`, `p
 leftover; each still removes it as before. The suites naming a *file* by pid (eighteen more) open
 it for writing, which a leftover does not stop, and are unchanged. Measured: each suite passes
 and leaves no `/tmp/fzn-*` entry behind; the three stale directories were removed by name.
+
+## 1106. The settings view hides advanced settings and says where a change has reached, 2026-11-13
+
+**fuzzypickles' requirements** (inbox 1057Z): it would host the settings view (sec 1103) in its
+Settings page's place, whose "Default (VALUE)" it has no equal of; its page does two things the
+view did not:
+- **"Has it reached my other devices?"** -- for a setting the estate shares, `fzn_rpc_config_status`
+  (`list setting-holders`): this host's version, and each other host has it, is behind at N, or
+  has not heard. A host's own setting is said to stay on the host, from the schema's scopes,
+  without asking: the client refuses that question before the node sees it, and the view would
+  otherwise have called a refusal it never sent a silent node.
+- **Advanced settings wait** for "Show advanced": `FZN_SCHEMA_ADVANCED` rows are left out of the
+  first list, so a person first sees the handful they change. `select(row)` indexes the rows
+  listed.
+
+**Not done, and the view's to judge:** grouping keys by their first part (`relay`, `location`) in a
+tree, which a phone's long flat list wants. In the backlog.
+
+**Tests:** `settings_view_test` has fourteen checks now: a shared setting's reach host by host, a
+host's own said to stay, advanced hidden, shown and hidden again. Sabotage `settings-view-*`, three
+more, each caught.
