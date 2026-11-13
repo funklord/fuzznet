@@ -13770,16 +13770,38 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 					continue;
 				}
 			}
-			if (fzn_group_line_admit(g, &line) == FZN_GROUP_LINE_OK
-			    && memcmp(line.sender, own->owner, FZN_PUBKEY_LEN) != 0
-			    && fzn_group_lines_filed_id(contact_hash_ops, line.host, line.id, filed_id)
-			    && fzn_group_lines_sender_keep(&group_lines, g->id, filed_id, line.sender)
-			               == FZN_GROUP_LINES_OK
-			    && fzn_messages_import(&node_messages.m, g->id, FZN_MESSAGE_IN, filed_id,
-			                           line.stime, (const char *)line.text, line.text_len,
-			                           &written)
-			               == FZN_MESSAGES_OK)
-				filed += written != 0;
+			{
+				/* A LINE PASSED OVER SAYS WHY, sec 1115: it is marked filed
+				 * whatever comes of it, and fuzzypickles' remade group lost its
+				 * first line to a reason nothing logged. */
+				fzn_group_line_err_t admitted = fzn_group_line_admit(g, &line);
+				fzn_messages_err_t imported = FZN_MESSAGES_OK;
+				int own_line = memcmp(line.sender, own->owner, FZN_PUBKEY_LEN) == 0;
+
+				if (admitted == FZN_GROUP_LINE_OK && !own_line
+				    && fzn_group_lines_filed_id(contact_hash_ops, line.host, line.id, filed_id)
+				    && fzn_group_lines_sender_keep(&group_lines, g->id, filed_id, line.sender)
+				               == FZN_GROUP_LINES_OK
+				    && (imported = fzn_messages_import(&node_messages.m, g->id, FZN_MESSAGE_IN,
+				                                       filed_id, line.stime,
+				                                       (const char *)line.text, line.text_len,
+				                                       &written))
+				               == FZN_MESSAGES_OK)
+					filed += written != 0;
+				else if (admitted != FZN_GROUP_LINE_OK)
+					say(FZN_ENTRY_INFO, "node/groups",
+					    "a line of group %02x%02x%02x%02x from host %02x%02x%02x%02x passed over: "
+					    "%s (its epoch %u, the group's %u; the host %s, the sender %s)",
+					    g->id[0], g->id[1], g->id[2], g->id[3], line.host[0], line.host[1],
+					    line.host[2], line.host[3], fzn_group_line_err_str(admitted),
+					    (unsigned)line.epoch, (unsigned)g->epoch,
+					    fzn_group_host(g, line.host) ? "listed" : "not listed",
+					    fzn_group_is_member(g, line.sender) ? "a member" : "no member");
+				else if (!own_line && imported != FZN_MESSAGES_OK)
+					say(FZN_ENTRY_WARNING, "node/groups",
+					    "a line of group %02x%02x%02x%02x not filed: %s", g->id[0], g->id[1],
+					    g->id[2], g->id[3], fzn_messages_err_str(imported));
+			}
 			if (fzn_group_lines_filed(&group_lines, g->id, heads[i].host, s)
 			    != FZN_GROUP_LINES_OK)
 				break;

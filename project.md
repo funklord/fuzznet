@@ -87281,3 +87281,21 @@ for the next round's end, 60 s on. That alone does not explain 600 reads with no
 round finds no peer either, so no change is made on it: bob's node already logs which (`files`, at
 debug: "asking N peer(s) ...", "not begun", "nothing placed"), and fuzzypickles is asked to keep and
 print those lines when it fails.
+
+## 1115. A group line passed over says why, 2026-11-13
+
+**fuzzypickles' remade group's first line, again** (inbox 1451Z), in a full run at 19608440 after
+passing 4 of 4 at 23e4f46: sec 1096's fixes hold (carol holds one crew, no `crew_2`), and the
+scenario printed what the nodes held. The water says it: carol counts alice holding 1 of her lines,
+alice's messages hold none -- **the line reached alice and was held but never filed**.
+
+**Two ways that happens, and neither said so.** A held line waits, silently, for the secret of the
+epoch it is sealed under -- sealed only to the hosts the group lists when the KEYS act is made. Or
+it is **passed over for good**: a line the group's admission refuses (its epoch past the group's, a
+host or sender not the group's) or the message store will not take is marked filed and dropped, and
+only a line that would not open was logged. **Now each pass-over says why**, at alice, under
+`node/groups`: "passed over: <why> (its epoch N, the group's M; the host listed or not, the sender
+a member or not)" at info, and "not filed: <why>" at warning. The wait for a secret is read with
+`get epoch GROUP` -- the group's name or bare id; `@ID`, as this tree's 0605Z wrote it, is refused
+as a contact name -- `ok EPOCH none` saying alice lacks it. fuzzypickles is asked for both from its
+next failing run. `live_groups` passes g and h at this change.
