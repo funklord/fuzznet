@@ -47,7 +47,7 @@
 #define FZN_PERMIT_CHANGE 2u
 /* A CALL of the subject as a procedure, sec 853: only the procedure knows
  * whether it reads or changes, so it is a right of its own, `x`. */
-#define FZN_PERMIT_CALL 4u
+#define FZN_PERMIT_RRPC 4u
 
 /* The setting's family: `local/permit/` and the subject. */
 #define FZN_PERMIT_KEY_PREFIX "local/permit/"

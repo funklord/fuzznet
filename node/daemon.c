@@ -10771,7 +10771,7 @@ static size_t permit_judge(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	if (!next_word(&at, &left, &subject, &subject_len)
 	    || !fzn_node_permit_subject_ok((const char *)subject, subject_len))
 		return 0;
-	right = request->parsed == FZN_VERB_CALL ? FZN_PERMIT_CALL
+	right = request->parsed == FZN_VERB_RRPC ? FZN_PERMIT_RRPC
 	        : request->parsed == FZN_VERB_GET || request->parsed == FZN_VERB_LIST
 	                        || request->parsed == FZN_VERB_STATUS
 	                ? FZN_PERMIT_READ
@@ -18917,7 +18917,7 @@ static size_t call_said(const uint8_t *answer, size_t n, char *reply, size_t cap
 	return 4u + w;
 }
 
-/* `call NAME [at HOST] [ARGS]`, sec 853: a procedure here, or one of the
+/* `rrpc NAME [at HOST] [ARGS]`, sec 853: a procedure here, or one of the
  * estate's other hosts', HOST its key in hex, asked within the round's 3 s
  * wait. ARGS are the rest of the line, as typed. `ok ANSWER`, the answer
  * escaped. This node's own user, or one granted `x` on NAME (sec 852). */
@@ -18979,12 +18979,12 @@ static int host_in_group(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t group
 	return 0;
 }
 
-/* `call NAME at estate|group=NAME [ARGS]`, sec 872: command propagation --
+/* `rrpc NAME at estate|group=NAME [ARGS]`, sec 872: command propagation --
  * the call asked of every host it names that this node reaches, this host
  * among them where it is named, one after another in turn. `ok TOTAL
  * ANSWERED` and each host as the first 16 hex of its key and how it
  * answered: ok, unknown, denied, failed or silent. Each host's answer
- * itself is its own to read by `call NAME at HOST`; what propagation
+ * itself is its own to read by `rrpc NAME at HOST`; what propagation
  * reports is where the call ran. */
 static size_t call_many(const fzn_peer_t *peer, const uint8_t *name, size_t name_len,
                         const uint8_t *group, const uint8_t *args, size_t args_len, char *reply,
@@ -19068,7 +19068,7 @@ static size_t call_local(fzn_origin_t origin, const fzn_peer_t *peer,
 	uint8_t host[FZN_PUBKEY_LEN];
 	int remote = 0;
 
-	if (request->parsed != FZN_VERB_CALL)
+	if (request->parsed != FZN_VERB_RRPC)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return (size_t)snprintf(reply, cap, "denied calls are this node's own user's, or "
@@ -21328,7 +21328,7 @@ static int follower_setting_here(const uint8_t *key, size_t key_len, uint8_t *va
  * A FOLLOWER WITH PROCEDURES OFFERS THEM to the face: it listens on a socket
  * of its own, `procedure/PID.sock` in the core directory, and writes a file
  * `procedure/NAME` for each name holding that socket's path -- the shape of
- * the face file. The face, asked `call NAME` for a name it has none of,
+ * the face file. The face, asked `rrpc NAME` for a name it has none of,
  * reads that file and forwards the call as one line,
  *
  *     call NAME FROM UID GID ARGS
@@ -21475,7 +21475,7 @@ static void offer_serve(void)
 	}
 	memset(&peer, 0, sizeof(peer));
 	if (!left || !next_word(&at, &left, &name, &name_len) || name_len != 4u
-	    || memcmp(name, "call", 4u) != 0 || !next_word(&at, &left, &name, &name_len)
+	    || memcmp(name, "rrpc", 4u) != 0 || !next_word(&at, &left, &name, &name_len)
 	    || !call_name_ok(name, name_len) || !next_word(&at, &left, &from, &from_len)
 	    || !next_word(&at, &left, &uid_w, &uid_len) || !next_word(&at, &left, &gid_w, &gid_len)
 	    || (from_len != 1u && !unhex32(from, from_len, caller))) {
@@ -21585,10 +21585,10 @@ static size_t call_forward(const uint8_t *name, size_t name_len, const uint8_t *
 	else
 		memcpy(from, "-", 2u);
 	if (peer)
-		at = (size_t)snprintf(line, sizeof(line), "call %s %s %lu %lu ", nm, from,
+		at = (size_t)snprintf(line, sizeof(line), "rrpc %s %s %lu %lu ", nm, from,
 		                      (unsigned long)peer->uid, (unsigned long)peer->primary_gid);
 	else
-		at = (size_t)snprintf(line, sizeof(line), "call %s %s - - ", nm, from);
+		at = (size_t)snprintf(line, sizeof(line), "rrpc %s %s - - ", nm, from);
 	if (fzn_escape(args, args_len, line + at, sizeof(line) - at - 1u, &w) != args_len)
 		return 0;
 	line[at + w] = '\n';

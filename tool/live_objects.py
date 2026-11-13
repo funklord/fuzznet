@@ -151,7 +151,7 @@ def main(argv):
 			if got.split()[3] == by:
 				raise failed("b2: A's value says R set it: %r" % got)
 			print("livecheck: b2: A's set heard on R in %.1f s, and says who set it" % t)
-			got = said("r", "call object get lamp")
+			got = said("r", "rrpc object get lamp")
 			if got != "ok off":
 				raise failed("b3: a local call answered %r" % got)
 			expect(socks["r"], "r", "set setting host local/permit/object local:#1=r", "ok")

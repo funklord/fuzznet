@@ -91,15 +91,15 @@ int main(void)
 	ok(!allows("user:#2002=rw group:#78=rw", &p, FZN_PERMIT_READ),
 	   "a grant to somebody else was taken as this caller's");
 	ok(allows("user:#9=r group:#77=rw", &p, FZN_PERMIT_CHANGE), "a later grant was not read");
-	ok(allows("user:#2001=x", &p, FZN_PERMIT_CALL) && !allows("user:#2001=x", &p, FZN_PERMIT_READ)
-	           && !allows("user:#2001=rw", &p, FZN_PERMIT_CALL),
+	ok(allows("user:#2001=x", &p, FZN_PERMIT_RRPC) && !allows("user:#2001=x", &p, FZN_PERMIT_READ)
+	           && !allows("user:#2001=rw", &p, FZN_PERMIT_RRPC),
 	   "a call grant was not a call alone");
 	/* ANY LOCAL USER, sec 883: a call, and nothing else. */
 	ok(check("any=x") == NULL && check("user:a=r any=x") == NULL, "any=x was refused");
 	ok(check("any=r") && check("any=rx") && check("any=rw") && check("any=rwx") && check("any=")
 	           && check("any") && check("any:x=x"),
 	   "any with more than a call was taken");
-	ok(allows("any=x", &p, FZN_PERMIT_CALL), "any=x did not let a local user call");
+	ok(allows("any=x", &p, FZN_PERMIT_RRPC), "any=x did not let a local user call");
 	ok(!allows("any=x", &p, FZN_PERMIT_READ) && !allows("any=x", &p, FZN_PERMIT_CHANGE),
 	   "any=x gave more than a call");
 	/* `local/events`, sec 933: `any=r` there, and nowhere else. */

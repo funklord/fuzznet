@@ -86490,3 +86490,21 @@ without `-lcmocka` -- a C compiler and the situ runtime are all they need.
 
 **Measured:** live_test, status_test (34), call_vectors (10), status_vectors (3), gather_test,
 types_test, meter_test, admin_test; then the gates, livecheck, livecheck-faults and hull.
+
+## 1088. The registered procedure's local verb is `rrpc`, 2026-11-13
+
+**The holder's naming, sec 1085:** the named procedure call is RRPC, Registered Remote
+Procedure, and "call" means the voice and video call alone. Sec 1086 renamed the wire's SUBCMDs
+and statuses; this renames what a host's own clients and its followers say.
+
+- **The local verb `call NAME [at HOST|estate|group=NAME] [ARGS]` is `rrpc NAME ...`**
+  (`FZN_VERB_RRPC`, `local/vocabulary.c`). `call` is no longer a verb; `add call`, `list call`,
+  `set call` and `get call` are the voice call's, as before.
+- **The permit right** is `FZN_PERMIT_RRPC`; a permit file still spells it `x`, so nobody's
+  configuration changes.
+- **A follower's line to its face** (sec 838) opens `rrpc NAME FROM UID GID` where it opened
+  `call`, both ends in `node/daemon.c`.
+
+**Measured:** `live_ext` (procedures here, at a host, at the estate and a group, a follower's),
+`live_objects` (an object's procedure), `permit_test`, the gates. fuzzypickles and netcfgd told
+the same commit: a client that says `call NAME` is answered as an unknown verb now.

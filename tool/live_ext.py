@@ -155,7 +155,7 @@ def c_marks(daemon_path, scratch, sock_dir):
 		a_host = ask(socks["a"], "get prekey").split()[1][4:68]
 		until = time.monotonic() + 60.0
 		while True:
-			got = ask(socks["b"], "call echo at %s hi there" % a_host)
+			got = ask(socks["b"], "rrpc echo at %s hi there" % a_host)
 			if got == "ok remote%20hi%20there":
 				break
 			if time.monotonic() > until:
@@ -174,7 +174,7 @@ def c_marks(daemon_path, scratch, sock_dir):
 			if time.monotonic() > until or follower.proc.poll() is not None:
 				raise failed("c2: A's follower offered nothing: %r" % follower.stderr()[-300:])
 			time.sleep(0.2)
-		got = ask(socks["b"], "call fecho at %s from b" % a_host)
+		got = ask(socks["b"], "rrpc fecho at %s from b" % a_host)
 		if got != "ok remote%20from%20b":
 			raise failed("c2: B's call of A's follower's fecho answered %r" % got)
 		follower.stop()
@@ -195,18 +195,18 @@ def c_marks(daemon_path, scratch, sock_dir):
 		# c3: A'S EVENTS FROM B, sec 866: B asks what A published since 0,
 		# and is told A's `add mark` among them, with a cursor to ask on.
 		# c2b: a procedure shut by its own word, sec 921: no member, until a rule.
-		got = ask(socks["b"], "call shut at %s x" % a_host)
+		got = ask(socks["b"], "rrpc shut at %s x" % a_host)
 		if got.startswith("ok"):
 			raise failed("c2b: a procedure saying none was answered: %r" % got)
 		got = ask(socks["a"], "set setting host remote/permit/shut member")
 		if not got.startswith("ok"):
 			raise failed("c2b: the rule answered %r" % got)
-		got = ask(socks["b"], "call shut at %s x" % a_host)
+		got = ask(socks["b"], "rrpc shut at %s x" % a_host)
 		if not got.startswith("ok"):
 			raise failed("c2b: a rule opened it and B was refused: %r" % got)
 		print("livecheck: c2b: a procedure saying none refused a member, until a rule said")
 
-		got = ask(socks["b"], "call events at %s 0" % a_host)
+		got = ask(socks["b"], "rrpc events at %s 0" % a_host)
 		words = got.split()
 		if len(words) < 2 or words[0] != "ok" or "%20mark%20" not in words[1]:
 			raise failed("c3: B's call events at A answered %r" % got[:200])
@@ -251,14 +251,14 @@ def c_marks(daemon_path, scratch, sock_dir):
 		      "and not on A")
 		# d3: COMMAND PROPAGATION, sec 872: from B, a call at the estate runs
 		# on B and on A; at zone1, on B alone, the one host in it.
-		got = ask(socks["b"], "call echo at estate fan").split()
+		got = ask(socks["b"], "rrpc echo at estate fan").split()
 		want = {b_host[:16] + ":ok", a_host[:16] + ":ok"}
 		if got[:3] != ["ok", "2", "2"] or set(got[3:]) != want:
 			raise failed("d3: call echo at estate answered %r" % got)
-		got = ask(socks["b"], "call echo at group=zone1 fan").split()
+		got = ask(socks["b"], "rrpc echo at group=zone1 fan").split()
 		if got != ["ok", "1", "1", b_host[:16] + ":ok"]:
 			raise failed("d3: call echo at group=zone1 answered %r" % got)
-		got = ask(socks["b"], "call nosuch at estate").split()
+		got = ask(socks["b"], "rrpc nosuch at estate").split()
 		if got[:3] != ["ok", "2", "2"] or not all(r.endswith(":unknown") for r in got[3:]):
 			raise failed("d3: an unknown procedure at the estate answered %r" % got)
 		print("livecheck: d3: a call at the estate ran on both hosts, at a group on its one "
@@ -362,9 +362,9 @@ def c_marks(daemon_path, scratch, sock_dir):
 		# d7: THE VALUE IN FORCE READ IN-PROCESS, sec 877, from inside a
 		# procedure, where a local request is refused: B's sealed passphrase
 		# opened, a box it cannot open said so, and a key nobody set absent.
-		for line, want in (("call setting wifi/psk", "ok in%20s3cret%20pass"),
-		                   ("call setting wifi/bad", "ok sealed"),
-		                   ("call setting wifi/none", "ok absent")):
+		for line, want in (("rrpc setting wifi/psk", "ok in%20s3cret%20pass"),
+		                   ("rrpc setting wifi/bad", "ok sealed"),
+		                   ("rrpc setting wifi/none", "ok absent")):
 			got = ask(socks["b"], line)
 			if got != want:
 				raise failed("d7: B's %s answered %r" % (line, got))
@@ -450,24 +450,24 @@ def main(argv):
 			# FZN_DAEMON_CALL_ESCAPED_MAX (1020) bytes reaches the caller,
 			# and one byte more is refused naming it -- plain bytes, and
 			# spaces, which escape to three.
-			for line, want in (("call fill 1020", "ok " + "a" * 1020),
-			                   ("call fill 340 s", "ok " + "%20" * 340)):
+			for line, want in (("rrpc fill 1020", "ok " + "a" * 1020),
+			                   ("rrpc fill 340 s", "ok " + "%20" * 340)):
 				got = ask(sock, line)
 				if got != want:
 					raise failed("b: %s answered %r" % (line, got[:80]))
-			for line in ("call fill 1021", "call fill 341 s"):
+			for line in ("rrpc fill 1021", "rrpc fill 341 s"):
 				got = ask(sock, line)
 				if not got.startswith("error ") or "FZN_DAEMON_CALL_ESCAPED_MAX" not in got:
 					raise failed("b: %s answered %r" % (line, got[:120]))
 			# FUZZNET'S OWN PROCEDURE, sec 866: `events` from 0 -- NEXT, FIRST,
 			# and what this node published since it started.
-			got = ask(sock, "call events 0")
+			got = ask(sock, "rrpc events 0")
 			if not got.startswith("ok ") or not got[3:].split("%20")[0].isdigit():
 				raise failed("b: call events 0 answered %r" % got[:200])
-			got = ask(sock, "call echo hello world")
+			got = ask(sock, "rrpc echo hello world")
 			if got != "ok local%20hello%20world":
 				raise failed("b: call echo answered %r" % got)
-			got = ask(sock, "call nosuch")
+			got = ask(sock, "rrpc nosuch")
 			if not got.startswith("error no procedure nosuch here"):
 				raise failed("b: a call of no procedure answered %r" % got)
 			# THE CALLER'S CREDENTIALS, handed to the extension (sec 849).
@@ -621,10 +621,10 @@ def main(argv):
 							raise failed("b4: the follower offered no procedure: %r"
 							             % open(ferr_path).read()[-300:])
 						time.sleep(0.2)
-					got = ask(sock, "call fecho via the face")
+					got = ask(sock, "rrpc fecho via the face")
 					if got != "ok local%20via%20the%20face":
 						raise failed("b4: the face's forward of fecho answered %r" % got)
-					got = ask(sock, "call nosuch")
+					got = ask(sock, "rrpc nosuch")
 					if got != "error no procedure nosuch here":
 						raise failed("b4: an unoffered name answered %r" % got)
 					poke(b"L")
@@ -660,9 +660,9 @@ def main(argv):
 					            "ext_daemon: here ext/none 0 "]:
 						raise failed("b4: the follower's tick read %r" % said)
 					began = time.monotonic()
-					for line, want in (("call fsetting ext/plain", "ok in%20hello%20there"),
-					                   ("call fsetting ext/sealed", "ok in%20hush"),
-					                   ("call fsetting ext/none", "ok absent")):
+					for line, want in (("rrpc fsetting ext/plain", "ok in%20hello%20there"),
+					                   ("rrpc fsetting ext/sealed", "ok in%20hush"),
+					                   ("rrpc fsetting ext/none", "ok absent")):
 						got = ask(sock, line)
 						if got != want:
 							raise failed("b4: %s answered %r" % (line, got))
@@ -681,7 +681,7 @@ def main(argv):
 						             % (code, os.path.exists(fsock)))
 					if not ask(sock, "status").startswith("ok "):
 						raise failed("b4: the face stopped serving with its follower")
-					got = ask(sock, "call fecho again")
+					got = ask(sock, "rrpc fecho again")
 					if got != "error no procedure fecho here":
 						raise failed("b4: the stopped follower's fecho answered %r" % got)
 				finally:
@@ -750,7 +750,7 @@ def main(argv):
 				got = ask(sock, "get caller")
 				if got != "ok %d" % os.getuid():
 					raise failed("b6: with no capability, local_from was not asked: %r" % got)
-				got = ask(sock, "call echo alone")
+				got = ask(sock, "rrpc echo alone")
 				if got != "ok local%20alone":
 					raise failed("b6: with no capability, call echo answered %r" % got)
 				got = ask(sock, "get garbled")

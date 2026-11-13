@@ -59,7 +59,7 @@ static int parse_grant(const char *w, size_t n, struct grant *g)
 	 * judge behind them, so those always name somebody. */
 	if (n == 5u && memcmp(w, "any=x", 5u) == 0) {
 		g->anyone = 1;
-		g->rights = FZN_PERMIT_CALL;
+		g->rights = FZN_PERMIT_RRPC;
 		return 1;
 	}
 	/* `local:NAME` AND `local:@GROUP`, sec 904: a local user as a principal,
@@ -109,7 +109,7 @@ static int parse_grant(const char *w, size_t n, struct grant *g)
 	for (i = 1; i <= r; i++) {
 		unsigned bit = eq[i] == 'r' ? FZN_PERMIT_READ
 		               : eq[i] == 'w' ? FZN_PERMIT_CHANGE
-		               : eq[i] == 'x' ? FZN_PERMIT_CALL
+		               : eq[i] == 'x' ? FZN_PERMIT_RRPC
 		                              : 0u;
 
 		if (!bit || g->rights >= bit)
@@ -220,7 +220,7 @@ int fzn_node_permit_allows(const uint8_t *value, size_t len, const fzn_peer_t *p
 	int any = 0;
 
 	if (!value || !peer
-	    || (right != FZN_PERMIT_READ && right != FZN_PERMIT_CHANGE && right != FZN_PERMIT_CALL))
+	    || (right != FZN_PERMIT_READ && right != FZN_PERMIT_CHANGE && right != FZN_PERMIT_RRPC))
 		return 0;
 	a.peer = peer;
 	a.right = right;

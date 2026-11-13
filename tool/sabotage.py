@@ -3801,8 +3801,8 @@ SABOTAGES = [
 	(
 		"permit-any-is-a-call-alone",
 		"node/permit.c",
-		"\t\tg->rights = FZN_PERMIT_CALL;\n\t\treturn 1;",
-		"\t\tg->rights = FZN_PERMIT_CALL | FZN_PERMIT_READ | FZN_PERMIT_CHANGE;\n\t\treturn 1;",
+		"\t\tg->rights = FZN_PERMIT_RRPC;\n\t\treturn 1;",
+		"\t\tg->rights = FZN_PERMIT_RRPC | FZN_PERMIT_READ | FZN_PERMIT_CHANGE;\n\t\treturn 1;",
 		"any=x gives every local user fuzznet's own verbs of the subject, with no judge behind them -- sec 883",
 	),
 	(

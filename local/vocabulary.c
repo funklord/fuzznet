@@ -148,7 +148,7 @@ static const struct {
 	[FZN_VERB_PUT]    = { "put",    3u, 1 },
 	[FZN_VERB_GRANT]  = { "grant",  5u, 1 },
 	[FZN_VERB_REVOKE] = { "revoke", 6u, 1 },
-	[FZN_VERB_CALL]   = { "call",   4u, 1 }
+	[FZN_VERB_RRPC]   = { "rrpc",   4u, 1 }
 };
 
 static int in_table(fzn_verb_t verb)

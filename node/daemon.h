@@ -173,8 +173,8 @@ typedef struct fzn_daemon_ext {
 	size_t (*local_from)(void *ctx, fzn_origin_t origin, const fzn_peer_t *peer,
 	                     const fzn_request_t *request, char *reply, size_t cap);
 	/* ITS PROCEDURES, sec 853: what fuzznet calls by name, from this
-	 * host's clients (`call NAME ARGS`) and from the estate's other hosts
-	 * (`call NAME at HOST ARGS` there). NULL and 0 for none. */
+	 * host's clients (`rrpc NAME ARGS`) and from the estate's other hosts
+	 * (`rrpc NAME at HOST ARGS` there). NULL and 0 for none. */
 	const struct fzn_daemon_procedure *procedures;
 	size_t n_procedures;
 	/* ITS PROFILE, sec 908: a preset's name (`node/presets.h`), NULL for none,
