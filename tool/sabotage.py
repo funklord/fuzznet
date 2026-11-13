@@ -14419,6 +14419,20 @@ SABOTAGES = [
 		"sharing one's position with a contact takes it back instead -- sec 1109",
 	),
 	(
+		"udp-mark-dropped",
+		"net/udp.c",
+		"\tif (dscp) {\n\t\tconst struct sockaddr *sa",
+		"\tif (0) {\n\t\tconst struct sockaddr *sa",
+		"a call's media leaves unmarked, queued behind bulk traffic -- sec 1110",
+	),
+	(
+		"udp-mark-v6-as-v4",
+		"net/udp.c",
+		"\t\tcontrol.head.cmsg_type = sa->sa_family == AF_INET6 ? IPV6_TCLASS : IP_TOS;\n",
+		"\t\tcontrol.head.cmsg_type = IP_TOS;\n",
+		"a v6 datagram's mark is asked as a v4 option and is not set -- sec 1110",
+	),
+	(
 		"list-message-no-group-malformed",
 		"node/messages.c",
 		"\t\twho_no_group = err == FZN_CONTACT_ERR_ABSENT;\n",

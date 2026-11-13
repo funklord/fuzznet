@@ -135,14 +135,40 @@ fzn_udp_err_t fzn_udp_resolve(int family, const char *host, uint16_t port,
 }
 
 /* ONE DATAGRAM, as sent: the send itself, the faults below aside. */
-static fzn_udp_err_t send_one(int fd, const fzn_udp_addr_t *to, const uint8_t *frame, size_t len)
+static fzn_udp_err_t send_one(int fd, const fzn_udp_addr_t *to, const uint8_t *frame, size_t len,
+                              uint8_t dscp)
 {
 	ssize_t n;
+	union {
+		struct cmsghdr head;
+		uint8_t room[CMSG_SPACE(sizeof(int))];
+	} control;
+	struct iovec io;
+	struct msghdr msg;
 
+	/* THE MARK ON THIS DATAGRAM ALONE, as ancillary data: the TOS byte is the
+	 * DSCP above two ECN bits, which are left 0. */
+	memset(&msg, 0, sizeof(msg));
+	io.iov_base = (void *)frame;
+	io.iov_len = len;
+	msg.msg_name = (void *)to->storage;
+	msg.msg_namelen = (socklen_t)to->len;
+	msg.msg_iov = &io;
+	msg.msg_iovlen = 1;
+	if (dscp) {
+		const struct sockaddr *sa = (const struct sockaddr *)to->storage;
+		int tos = (int)dscp << 2;
+
+		memset(&control, 0, sizeof(control));
+		msg.msg_control = control.room;
+		msg.msg_controllen = sizeof(control.room);
+		control.head.cmsg_len = CMSG_LEN(sizeof(int));
+		control.head.cmsg_level = sa->sa_family == AF_INET6 ? IPPROTO_IPV6 : IPPROTO_IP;
+		control.head.cmsg_type = sa->sa_family == AF_INET6 ? IPV6_TCLASS : IP_TOS;
+		memcpy(CMSG_DATA(&control.head), &tos, sizeof(tos));
+	}
 	for (;;) {
-		n = sendto(fd, frame, len, 0,
-		           (const struct sockaddr *)to->storage,
-		           (socklen_t)to->len);
+		n = sendmsg(fd, &msg, 0);
 		if (n >= 0)
 			break;
 		if (errno == EINTR)
@@ -171,9 +197,15 @@ static struct {
 fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
                            const uint8_t *frame, size_t len)
 {
+	return fzn_udp_send_marked(fd, to, frame, len, 0u);
+}
+
+fzn_udp_err_t fzn_udp_send_marked(int fd, const fzn_udp_addr_t *to, const uint8_t *frame,
+                                  size_t len, uint8_t dscp)
+{
 	fzn_udp_err_t err;
 
-	if (fd < 0 || !to || !frame || len == 0)
+	if (fd < 0 || !to || !frame || len == 0 || dscp > 63u)
 		return FZN_UDP_ERR_MALFORMED;
 	if (to->len == 0 || to->len > sizeof(to->storage))
 		return FZN_UDP_ERR_MALFORMED;
@@ -187,7 +219,7 @@ fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
 	case FZN_FAULT_DROP:
 		return FZN_UDP_OK;
 	case FZN_FAULT_TWICE:
-		(void)send_one(fd, to, frame, len);
+		(void)send_one(fd, to, frame, len, dscp);
 		break;
 	case FZN_FAULT_HOLD:
 		if (!held.len) {
@@ -202,10 +234,10 @@ fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
 		break;
 	}
 #endif
-	err = send_one(fd, to, frame, len);
+	err = send_one(fd, to, frame, len, dscp);
 #ifdef FZN_TEST_FAULTS
 	if (held.len) {
-		(void)send_one(held.fd, &held.to, held.frame, held.len);
+		(void)send_one(held.fd, &held.to, held.frame, held.len, 0u);
 		held.len = 0;
 	}
 #endif

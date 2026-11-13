@@ -106,6 +106,16 @@ fzn_udp_err_t fzn_udp_resolve(int family, const char *host, uint16_t port,
 fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
                            const uint8_t *frame, size_t len);
 
+/* REAL-TIME TRAFFIC MARKED, sec 1110: as fzn_udp_send, the datagram carrying
+ * DSCP `dscp` in its IP header -- IP_TOS for v4, IPV6_TCLASS for v6 -- as a
+ * control message on this one send, so the socket's other traffic stays
+ * unmarked. EF, 46, is voice and a call's media: netcfgd's queues serve it
+ * first (its decision 0321), and Linux maps it to Wi-Fi's voice class (RFC
+ * 8325). 0 sends unmarked; past 63 is refused. */
+#define FZN_UDP_DSCP_EF 46u
+fzn_udp_err_t fzn_udp_send_marked(int fd, const fzn_udp_addr_t *to, const uint8_t *frame,
+                                  size_t len, uint8_t dscp);
+
 /* Receive one datagram into buf[cap], setting *len. If `from` is non-NULL it
  * receives the sender's address. A datagram larger than cap is refused as
  * FZN_UDP_ERR_TRUNCATED, not copied as a short frame. */

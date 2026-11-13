@@ -95,6 +95,60 @@ static void roundtrip(int family, const char *loop, size_t len)
 	fzn_udp_close(sfd);
 }
 
+/* THE MARK AS RECEIVED, sec 1110: a datagram sent marked EF arrives with that
+ * DSCP in its header, and one sent unmarked with none; read by recvmsg with
+ * IP_RECVTOS (IPV6_RECVTCLASS for v6). -1 when the mark could not be read. */
+static int received_dscp(int family, const char *loop, uint8_t dscp)
+{
+	int rfd = -1, sfd = -1, on = 1, got = -1;
+	fzn_udp_addr_t to;
+	uint8_t frame[8] = { 1, 2, 3, 4, 5, 6, 7, 8 }, in[64];
+	union {
+		struct cmsghdr head;
+		uint8_t room[CMSG_SPACE(sizeof(int)) * 2];
+	} control;
+	struct iovec io = { in, sizeof(in) };
+	struct msghdr msg;
+	struct cmsghdr *c;
+
+	if (fzn_udp_bind(family, loop, 0, &rfd) != FZN_UDP_OK
+	    || fzn_udp_bind(family, loop, 0, &sfd) != FZN_UDP_OK)
+		goto out;
+	arm_timeout(rfd);
+	if (family == AF_INET6 ? setsockopt(rfd, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on))
+	                       : setsockopt(rfd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on)))
+		goto out;
+	if (fzn_udp_resolve(family, loop, local_port(rfd, family), &to) != FZN_UDP_OK
+	    || fzn_udp_send_marked(sfd, &to, frame, sizeof(frame), dscp) != FZN_UDP_OK)
+		goto out;
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_iov = &io;
+	msg.msg_iovlen = 1;
+	msg.msg_control = control.room;
+	msg.msg_controllen = sizeof(control.room);
+	if (recvmsg(rfd, &msg, 0) != (ssize_t)sizeof(frame))
+		goto out;
+	for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
+		int v = 0;
+
+		if ((c->cmsg_level == IPPROTO_IP && c->cmsg_type == IP_TOS)
+		    || (c->cmsg_level == IPPROTO_IPV6 && c->cmsg_type == IPV6_TCLASS)) {
+			/* v4 carries one byte, v6 an int. */
+			if (c->cmsg_level == IPPROTO_IP)
+				v = *(const uint8_t *)CMSG_DATA(c);
+			else
+				memcpy(&v, CMSG_DATA(c), sizeof(v));
+			got = (v >> 2) & 63;
+		}
+	}
+out:
+	if (rfd >= 0)
+		fzn_udp_close(rfd);
+	if (sfd >= 0)
+		fzn_udp_close(sfd);
+	return got;
+}
+
 int main(void)
 {
 	int rfd = -1, sfd = -1, flags;
@@ -110,6 +164,20 @@ int main(void)
 	roundtrip(AF_INET, "127.0.0.1", FZN_UDP_DATAGRAM_MAX);
 	roundtrip(AF_INET6, "::1", 64);
 	roundtrip(AF_INET6, "::1", FZN_UDP_DATAGRAM_MAX);
+
+	/* MARKED EF, sec 1110: the DSCP reaches the wire on this datagram, and an
+	 * unmarked send carries none; past 63 is no DSCP. */
+	ok(received_dscp(AF_INET, "127.0.0.1", FZN_UDP_DSCP_EF) == 46, "a v4 datagram marked EF arrived EF");
+	ok(received_dscp(AF_INET6, "::1", FZN_UDP_DSCP_EF) == 46, "a v6 datagram marked EF arrived EF");
+	ok(received_dscp(AF_INET, "127.0.0.1", 0) == 0, "an unmarked v4 datagram arrived marked");
+	{
+		fzn_udp_addr_t a;
+		uint8_t one = 1;
+
+		ok(fzn_udp_resolve(AF_INET, "127.0.0.1", 9u, &a) == FZN_UDP_OK
+		           && fzn_udp_send_marked(0, &a, &one, 1, 64) == FZN_UDP_ERR_MALFORMED,
+		   "a DSCP past 63 was sent");
+	}
 
 	/* AN ADDRESS BACK TO TEXT, sec 621: both families, the port in host
 	 * order, and an address of neither family refused. */

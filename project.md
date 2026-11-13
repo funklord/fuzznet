@@ -87128,3 +87128,30 @@ Suggested: a window on both sides, abort if two requests or two answers arrive i
 overlap rule), a short value from both keys the appliance blinks and the prompt names, the joiner at
 the lowest tier. A relay carries no authority here, so this stays a design for the holder to settle
 directly; the overlap rule and the shared short value are what answer sec 1108's "who".
+
+## 1110. A datagram marked for real-time traffic, the first half of netcfgd's EF contract, 2026-11-13
+
+**netcfgd, on real-time traffic** (inbox 1217Z, its decision 0321, 9a44f711): the holder raised audio
+streaming -- a server with no sound card streaming to a small device (a hal9001 board with an I2S DAC),
+and Bluetooth audio handed between rooms (netcfgd 0148's last step, which it calls fuzznet's
+protocol). netcfgd owns the queues fuzznet's real-time traffic crosses and proposes one mark, **DSCP EF
+(46), set by the sender**: its `cake` runs diffserv3, whose Voice tin takes EF -- served first, held to
+a quarter of the rate -- measured with 100 EF datagrams through a netcfgd-applied cake and held by its
+`tests/live/qdisc.sh`; Linux 6.8 and later map DSCP to Wi-Fi's voice class (RFC 8325). Offered to
+fuzznet, its decisions: (1) its voice and media set EF; (2) redundancy sized from the per-link loss
+netcfgd observes, which members can read, rather than guessed; (3) the stream and its handover between
+sinks, with netcfgd saying which node's Bluetooth adapter hears a headset best.
+
+**Built: the mark on one datagram.** `fzn_udp_send_marked(fd, to, frame, len, dscp)` sends as
+`fzn_udp_send` does, the DSCP set by a control message on that send alone -- `IP_TOS` for v4,
+`IPV6_TCLASS` for v6 -- so the socket's other traffic stays unmarked; `FZN_UDP_DSCP_EF` is 46, a DSCP
+past 63 refused. `fzn_udp_send` is it with no mark; every send now goes out by `sendmsg`. `udp_test`
+reads the mark back on loopback with `IP_RECVTOS` and `IPV6_RECVTCLASS`: EF arrives EF on both
+families, an unmarked send carries none. Sabotage `udp-mark-dropped` and `udp-mark-v6-as-v4`, caught.
+
+**Not yet: the call's media marked.** A call's media leaves through a session's caller, sealed before
+the send helpers see it, and nothing there knows a frame is media -- so the mark has to come from the
+call code that sends it, through the caller to its send. That is the next step, with `live_call`
+reading the mark at the far end. Video's class is the open question: EF for voice by netcfgd's
+contract, and RFC 8325 gives video AF41; whether video takes EF too is netcfgd's queue to say.
+(2) and (3) are fuzznet's later work, recorded here with their source.
