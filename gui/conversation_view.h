@@ -49,6 +49,13 @@ public:
 	/* WHAT A PERSON DOES, public because a headless test cannot click. */
 	void set_text(const QString &text);
 	bool send();
+	/* A FILE A LINE NAMES (sec 1130): choose the line (counted from 0, oldest
+	 * first), ask for the file -- it arrives in the background, from
+	 * whoever holds it -- and save it once whole. Saving with no path asks
+	 * where, offering the sender's name for it. */
+	void select_line(int row);
+	bool fetch();
+	bool save_to(const QString &path);
 
 	/* The clock, seconds since 1970, for the times shown; 0 reads the
 	 * system's. */
@@ -69,6 +76,8 @@ private:
 	QListWidget *m_lines;
 	QLineEdit *m_text;
 	QPushButton *m_send;
+	QPushButton *m_fetch;
+	QPushButton *m_save;
 	QLabel *m_status;
 };
 

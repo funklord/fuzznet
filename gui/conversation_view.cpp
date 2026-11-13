@@ -5,10 +5,13 @@
 
 extern "C" {
 #include "../local/rpc_encoding.h"
+#include "../messages/attachment.h"
+#include "../sticker/pack.h"
 }
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -20,9 +23,94 @@ extern "C" {
 #include <string.h>
 #include <time.h>
 
+/* A FILE LINE'S ITEM carries the reference it names, to fetch and save by. */
+#define ROLE_FILE (Qt::UserRole)
+
+/* The reference a line's text names, as the bytes an item keeps: root, key,
+ * the size in eight bytes, then the name; empty for a line naming none. */
+static QByteArray file_of(const char *text, size_t len)
+{
+	static fzn_attachment_t f;
+	QByteArray out;
+
+	if (!fzn_attachment_parse(text, len, &f))
+		return out;
+	out.append((const char *)f.root, 32);
+	out.append((const char *)f.key, 32);
+	for (int i = 7; i >= 0; i--)
+		out.append((char)(uint8_t)(f.size >> (8 * i)));
+	out.append(f.name, (int)f.name_len);
+	return out;
+}
+
+static uint64_t file_size(const QByteArray &ref)
+{
+	uint64_t v = 0;
+	for (int i = 0; i < 8; i++)
+		v = (v << 8) | (uint8_t)ref.at(64 + i);
+	return v;
+}
+
 /* The most lines shown: the newest, as many as a conversation's screen
  * holds and a few pages more. */
 #define LINES_MAX 200u
+
+/* WHERE THIS USER'S OWN LINE HAS GOT TO, said after it (sec 1128); nothing
+ * for a line that came in, or one nothing is known of yet. */
+static QString state_words(const fzn_rpc_inbox_entry_t *l)
+{
+	if (!l->outgoing)
+		return QString();
+	switch ((fzn_rpc_line_state_t)l->state) {
+	case FZN_RPC_LINE_DELIVERED:
+	case FZN_RPC_LINE_SETTLED:
+		return QObject::tr(" (delivered)");
+	case FZN_RPC_LINE_HANDED_OVER:
+		return QObject::tr(" (with a relay)");
+	case FZN_RPC_LINE_NOT_DELIVERED:
+		return QObject::tr(" (not delivered)");
+	case FZN_RPC_LINE_NONE:
+		break;
+	}
+	return QString();
+}
+
+/* A SIZE as a person reads it: the sender's claim, said whole. */
+static QString size_words(uint64_t bytes)
+{
+	if (bytes < 1024u)
+		return QObject::tr("%1 bytes").arg(bytes);
+	if (bytes < 1024u * 1024u)
+		return QObject::tr("%1 KB").arg((double)bytes / 1024.0, 0, 'f', 1);
+	if (bytes < 1024u * 1024u * 1024u)
+		return QObject::tr("%1 MB").arg((double)bytes / (1024.0 * 1024.0), 0, 'f', 1);
+	return QObject::tr("%1 GB").arg((double)bytes / (1024.0 * 1024.0 * 1024.0), 0, 'f', 1);
+}
+
+/* WHAT A LINE SAYS, sec 1129: a file or a sticker said as one, by the
+ * library's own readers (`fzn_attachment_parse`, `fzn_sticker_ref_parse`),
+ * rather than as the reference it rides in; anything else as its text. All
+ * of it someone else's, so all of it in caret form. */
+static QString content_words(const char *text, size_t len)
+{
+	static fzn_attachment_t file;
+	static fzn_sticker_ref_t sticker;
+	char shown[4u * FZN_RPC_PEER_TEXT_MAX + 1u];
+
+	if (fzn_attachment_parse(text, len, &file)) {
+		fzn_rpc_tty_escape(file.name, file.name_len, shown, sizeof shown);
+		return QObject::tr("a file: %1, %2").arg(QString::fromUtf8(shown), size_words(file.size));
+	}
+	if (fzn_sticker_ref_parse(text, len, &sticker)) {
+		const char *said = sticker.text_len ? sticker.text : sticker.description;
+		size_t said_len = sticker.text_len ? sticker.text_len : sticker.description_len;
+		fzn_rpc_tty_escape(said, said_len, shown, sizeof shown);
+		return said_len ? QObject::tr("a sticker: %1").arg(QString::fromUtf8(shown))
+		                : QObject::tr("a sticker");
+	}
+	fzn_rpc_tty_escape(text, len, shown, sizeof shown);
+	return QString::fromUtf8(shown);
+}
 
 static QString failed_words(const fzn_gui_rpc *r)
 {
@@ -44,6 +132,8 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_text->setPlaceholderText(tr("Write a line"));
 	m_text->setAccessibleName(tr("A line to send"));
 	m_send = new QPushButton(tr("Send"), this);
+	m_fetch = new QPushButton(tr("Get the file"), this);
+	m_save = new QPushButton(tr("Save the file"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
@@ -53,11 +143,20 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_title);
 	col->addWidget(m_lines, 1);
+	auto *files = new QHBoxLayout;
+	files->addWidget(m_fetch);
+	files->addWidget(m_save);
+	files->addStretch(1);
+	col->addLayout(files);
 	col->addLayout(write);
 	col->addWidget(m_status);
 
 	connect(m_send, &QPushButton::clicked, [this]() { send(); });
 	connect(m_text, &QLineEdit::returnPressed, [this]() { send(); });
+	connect(m_lines, &QListWidget::currentRowChanged, [this](int r) { select_line(r); });
+	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
+	connect(m_save, &QPushButton::clicked, [this]() { save_to(QString()); });
+	select_line(-1);
 	m_title->setText(tr("No conversation is open."));
 	m_send->setEnabled(false);
 }
@@ -107,15 +206,16 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 	list->clear();
 	for (i = count; i-- > 0;) {
 		const fzn_rpc_inbox_entry_t *l = &lines[i].line;
-		char shown[4u * FZN_RPC_PEER_TEXT_MAX + 1u];
 		char who[4u * FZN_RPC_PEER_NAME_MAX + 1u];
 
-		fzn_rpc_tty_escape(l->text, l->text_len, shown, sizeof shown);
 		fzn_rpc_tty_escape(l->sender_name, l->sender_name_len, who, sizeof who);
-		list->addItem(QStringLiteral("%1 %2: %3")
+		auto *item = new QListWidgetItem(QStringLiteral("%1 %2: %3")
 		                      .arg(when_words(now, l->stime),
 		                           l->outgoing ? QObject::tr("You") : QString::fromUtf8(who),
-		                           QString::fromUtf8(shown)));
+		                           content_words(l->text, l->text_len))
+		                       + state_words(l));
+		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
+		list->addItem(item);
 	}
 	for (i = 0; i < count && !newest_in; i++)
 		if (!lines[i].line.outgoing)
@@ -168,13 +268,14 @@ bool fzn_conversation_view::refresh()
 	/* NEWEST FIRST from the node; shown oldest at the top. */
 	for (i = count; i-- > 0;) {
 		const fzn_rpc_inbox_entry_t *l = &lines[i];
-		char shown[4u * FZN_RPC_PEER_TEXT_MAX + 1u];
 
-		fzn_rpc_tty_escape(l->text, l->text_len, shown, sizeof shown);
-		m_lines->addItem(QStringLiteral("%1 %2: %3")
+		auto *item = new QListWidgetItem(QStringLiteral("%1 %2: %3")
 		                         .arg(when_words(now, l->stime),
 		                              l->outgoing ? tr("You") : m_contact,
-		                              QString::fromUtf8(shown)));
+		                              content_words(l->text, l->text_len))
+		                 + state_words(l));
+		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
+		m_lines->addItem(item);
 	}
 	for (i = 0; i < count && !newest_in; i++)
 		if (!lines[i].outgoing)
@@ -217,6 +318,63 @@ bool fzn_conversation_view::send()
 	}
 	m_text->clear();
 	refresh();
+	return true;
+}
+
+void fzn_conversation_view::select_line(int row)
+{
+	QListWidgetItem *item = row >= 0 ? m_lines->item(row) : nullptr;
+	if (item && m_lines->currentRow() != row)
+		m_lines->setCurrentRow(row);
+	const bool file = item && !item->data(ROLE_FILE).toByteArray().isEmpty();
+	m_fetch->setEnabled(file);
+	m_save->setEnabled(file);
+}
+
+bool fzn_conversation_view::fetch()
+{
+	QListWidgetItem *item = m_lines->currentItem();
+	QByteArray ref = item ? item->data(ROLE_FILE).toByteArray() : QByteArray();
+	fzn_rpc_blob_fetch_resp_t out;
+
+	if (ref.isEmpty())
+		return false;
+	if (fzn_rpc_blob_fetch_ref(&m_rpc->c, (const uint8_t *)ref.constData(),
+	                           (const uint8_t *)ref.constData() + 32, file_size(ref), &out)
+	    != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	/* THE SIZE IS THE SENDER'S CLAIM, said as one; the fetch checks the
+	 * file's own tree, so a lie fails there (sec 794). */
+	m_status->setText(tr("Asked for the file, said to be %1. It arrives in the background.")
+	                          .arg(size_words(file_size(ref))));
+	return true;
+}
+
+bool fzn_conversation_view::save_to(const QString &path)
+{
+	QListWidgetItem *item = m_lines->currentItem();
+	QByteArray ref = item ? item->data(ROLE_FILE).toByteArray() : QByteArray();
+	fzn_rpc_blob_export_resp_t out;
+
+	if (ref.isEmpty())
+		return false;
+	QString where = path;
+	if (where.isEmpty())
+		where = QFileDialog::getSaveFileName(this, tr("Save the file"),
+		                                     QString::fromUtf8(ref.mid(72)));
+	if (where.isEmpty())
+		return false;
+	QByteArray at = where.toUtf8();
+	if (fzn_rpc_blob_export(&m_rpc->c, (const uint8_t *)ref.constData(),
+	                        (const uint8_t *)ref.constData() + 32, at.constData(), (size_t)at.size(),
+	                        &out)
+	    != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_status->setText(tr("Saved %1 to %2.").arg(size_words(out.byte_len), where));
 	return true;
 }
 

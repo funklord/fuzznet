@@ -37,7 +37,10 @@ static int checks, failures;
 #define NOW 1700005600u
 
 static int silent, refuse_send;
-static char last_set[200], last_add[200];
+static char last_set[200], last_add[200], last_file[600];
+/* The file dan sent: its root is 64 hex digits of the number 3. */
+#define FILE_ROOT "0000000000000000000000000000000000000000000000000000000000000003"
+#define FILE_KEY "0000000000000000000000000000000000000000000000000000000000000004"
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -49,7 +52,7 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	 * day before. */
 	if (!strcmp(line, "list message bob 0"))
 		return (size_t)snprintf(reply, cap,
-		                        "ok 0 4 0 " BOB ",bob," ID4 ",out,delivered,1700005960000,"
+		                        "ok 0 4 0 " BOB ",bob," ID4 ",out,-,1700005960000,"
 		                        "1700005960000,1,ok " BOB ",bob," ID3 ",in,read,1700005900000,1700005900000,1,"
 		                        "see%%20you%%1b[2J " BOB ",bob," ID2 ",out,delivered,1700005800000,"
 		                        "1700005800000,1,on%%20my%%20way " BOB ",bob," ID1 ",in,read,"
@@ -62,6 +65,20 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                        "1700005900000,1,who%%20is%%20this " BOB ",@family," ID2 ",out,delivered,"
 		                        "1700005800000,1700005800000,1,dinner%%3f " BOB ",@family:carol," ID1
 		                        ",in,read,1700005700000,1700005700000,1,hi%%20all\n");
+	/* DAN SENT A FILE AND A STICKER, each riding a line's text. */
+	if (!strcmp(line, "list message dan 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 0 2 0 " BOB ",dan," ID2 ",in,-,1700005800000,1700005800000,1,"
+		                        "fzn:sticker/%064d/%064d/1000/7%%20waving " BOB ",dan," ID1 ",in,-,"
+		                        "1700005700000,1700005700000,1,fzn:file/%064d/%064d/2500000%%20holiday.jpg\n",
+		                        1, 2, 3, 4);
+	/* THE FILE, WHOLE HERE once asked for. */
+	if (!strcmp(line, "get file " FILE_ROOT))
+		return (size_t)snprintf(reply, cap, "ok 10 10 2500000 whole private 0\n");
+	if (!strncmp(line, "fetch file ", 11) || !strncmp(line, "get file ", 9)) {
+		snprintf(last_file, sizeof last_file, "%s", line);
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 	if (!strcmp(line, "list group 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 family,3," GROUP_ID ",1\n");
 	if (!strncmp(line, "set ", 4))
@@ -85,7 +102,7 @@ int main(int argc, char **argv)
 
 	v.set_now(NOW);
 	CHECK(v.open("bob")
-	              && v.lines() == QStringList({ "2023-11-13 18:26 bob: hello", "23:50 You: on my way",
+	              && v.lines() == QStringList({ "2023-11-13 18:26 bob: hello", "23:50 You: on my way (delivered)",
 	                                            "23:51 bob: see you^[[2J", "23:52 You: ok" }),
 	      "the lines were not shown oldest first, with who and when, the escape in caret form");
 	CHECK(!strcmp(last_set, "set message bob read " ID3),
@@ -105,13 +122,35 @@ int main(int argc, char **argv)
 	last_add[0] = '\0';
 	CHECK(!v.send() && !last_add[0], "an empty line was sent");
 
+	/* A FILE AND A STICKER said as what they are, sec 1129. */
+	fzn_conversation_view d(node, nullptr);
+	d.set_now(NOW);
+	CHECK(d.open("dan")
+	              && d.lines() == QStringList({ "23:48 dan: a file: holiday.jpg, 2.4 MB",
+	                                            "23:50 dan: a sticker: waving" }),
+	      "a file or a sticker was shown as its reference");
+
+	/* THE FILE, GOT AND SAVED, sec 1130: asked for by its whole reference,
+	 * saved where the person says; a sticker's line offers neither. */
+	d.select_line(1);
+	last_file[0] = '\0';
+	CHECK(!d.fetch() && !last_file[0], "a sticker's line asked for a file");
+	d.select_line(0);
+	CHECK(d.fetch() && !strcmp(last_file, "fetch file " FILE_ROOT FILE_KEY "00000000002625a0")
+	              && d.status().contains("2.4 MB"),
+	      "the file was not asked for by its whole reference, or its size not said");
+	CHECK(d.save_to("/tmp/holiday.jpg")
+	              && !strcmp(last_file, "get file " FILE_ROOT FILE_KEY "00000000002625a0 /tmp/holiday.jpg")
+	              && d.status() == "Saved 2.4 MB to /tmp/holiday.jpg.",
+	      "the file was not saved where asked");
+
 	/* A GROUP, sec 1126: members named, this user's own as You, the read
 	 * position kept by the group's id, a line sent to the group. */
 	fzn_conversation_view g(node, nullptr);
 	g.set_now(NOW);
 	last_set[0] = '\0';
 	CHECK(g.open("@family")
-	              && g.lines() == QStringList({ "23:48 carol: hi all", "23:50 You: dinner?",
+	              && g.lines() == QStringList({ "23:48 carol: hi all", "23:50 You: dinner? (delivered)",
 	                                            "23:51 c0c0c0c0c0c0c0c0: who is this" }),
 	      "the group's lines were not shown with each member named");
 	CHECK(!strcmp(last_set, "set message @" GROUP_ID " read " ID3),

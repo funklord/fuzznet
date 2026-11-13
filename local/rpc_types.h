@@ -373,7 +373,20 @@ typedef struct fzn_rpc_inbox_entry {
 	 * describe the RECIPIENT -- the other end of the conversation either
 	 * way, which is what a reader wants and why one field serves both. */
 	uint8_t outgoing;
+	/* WHERE THIS USER'S OWN LINE HAS GOT TO, as the node keeps it (sec
+	 * 1128): a fzn_rpc_line_state_t, NONE (0) for nothing yet and for a line
+	 * that came in. It was read and dropped before. */
+	uint8_t state;
 } fzn_rpc_inbox_entry_t;
+
+/* A line's state, `list message`'s STATE (node/messages.c). */
+typedef enum fzn_rpc_line_state {
+	FZN_RPC_LINE_NONE = 0,          /* `-`: nothing heard of it yet */
+	FZN_RPC_LINE_DELIVERED = 1,     /* the far end has it */
+	FZN_RPC_LINE_SETTLED = 2,       /* and has said so, the exchange closed */
+	FZN_RPC_LINE_HANDED_OVER = 3,   /* a relay holds it for the far end */
+	FZN_RPC_LINE_NOT_DELIVERED = 4  /* given up on */
+} fzn_rpc_line_state_t;
 
 
 #define FZN_RPC_LOG_LINE_MAX 240 /* matches daemon/log_retention.c's own per-line truncation

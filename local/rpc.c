@@ -984,8 +984,13 @@ static int node_line(const char *e, size_t e_len, fzn_rpc_inbox_entry_t *out, ui
 	else if (!(f_len == 2 && memcmp(f, "in", 2) == 0))
 		return 0;
 	if (!node_field(&p, end, &f, &f_len)) return 0;
-	/* The state, which an inbox entry has no field for: given back apart. */
+	/* The state, given back apart as well for a caller comparing words. */
 	if (state) *state = f, *state_len = f_len;
+	out->state = f_len == 9 && !memcmp(f, "delivered", 9)       ? FZN_RPC_LINE_DELIVERED
+	             : f_len == 7 && !memcmp(f, "settled", 7)       ? FZN_RPC_LINE_SETTLED
+	             : f_len == 11 && !memcmp(f, "handed-over", 11) ? FZN_RPC_LINE_HANDED_OVER
+	             : f_len == 13 && !memcmp(f, "not-delivered", 13) ? FZN_RPC_LINE_NOT_DELIVERED
+	                                                            : FZN_RPC_LINE_NONE;
 	if (!node_field(&p, end, &f, &f_len) || !node_u64(f, f_len, &out->stime) ||
 	    !node_field(&p, end, &f, &f_len) || !node_u64(f, f_len, &out->rtime) ||
 	    !node_field(&p, end, &f, &f_len) || !node_u64(f, f_len, &readable))

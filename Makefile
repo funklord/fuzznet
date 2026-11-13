@@ -3651,7 +3651,7 @@ $(BUILD_DIR)/gui/test/entries_view_test: $(BUILD_DIR)/gui/test/entries_view_test
 # The named objects on a widget, sec 1102, and the node's settings, sec 1103,
 # each against a scripted node: the widgets call the typed client, so the
 # client's objects come with them.
-RPC_LINK_OBJS := $(RPC_OBJS) \
+RPC_LINK_OBJS := $(RPC_OBJS) $(BUILD_DIR)/messages/attachment.o \
                  $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                  $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
                  $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
@@ -7542,6 +7542,7 @@ QTTY_JOBS ?= 4
 # THE TYPED CLIENT for the views that ask through it (objects_view, sec 1102):
 # its objects and what they reach that the list below does not already hold.
 QTTY_RPC_OBJS := $(RPC_OBJS) $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/contact_card.o \
+                 $(BUILD_DIR)/messages/attachment.o \
                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/hex/hex.o \
                  $(BUILD_DIR)/location/geo.o
 QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \

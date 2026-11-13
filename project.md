@@ -85900,7 +85900,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | a backup to a directory as a view; identity reset and host join by request left out on purpose (sec 1127) |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
-| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084); `conversation_view` for a contact (sec 1126) | conversation screens, read marks per device for groups | a group's conversation, attachments and delivery marks on the view |
+| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128) | conversation screens, read marks per device for groups | drawing a sticker's art on the view (files are said, got and saved, secs 1129-1130) |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
@@ -87724,3 +87724,74 @@ nothing kept with no side or with a subject chosen, a refusal, silence.
 Sabotage `forks-view-keeps-the-shown-text`, `forks-view-keeps-a-subject`
 and `forks-view-value-unescaped` are each caught; the second survived
 until the test could choose a subject's own row.
+
+## 1128. Where this user's own line has got to, carried and shown, 2026-11-13
+
+**The same shape as sec 1124, in the conversation's lines.** `list
+message` gives each line a state -- `-`, `delivered`, `settled`,
+`handed-over`, `not-delivered` (node/messages.c) -- and the client's
+line parser handed it back to one caller as a word and dropped it for
+every other: "the state, which an inbox entry has no field for". A
+conversation could not show whether a line had arrived.
+
+`fzn_rpc_inbox_entry_t` gains `state`, a `fzn_rpc_line_state_t`, filled
+where every listing reads a line, so a contact's lines and a group's
+carry it alike. NONE is 0, so a zeroed entry, and a line that came in,
+read as nothing known. The conversation view (sec 1126) says it after
+this user's own line: "(delivered)" once the far end has it (settled
+says the same to a reader), "(with a relay)" while a relay holds it,
+"(not delivered)" once given up, and nothing before anything is heard.
+
+**Tests:** `conversation_view_test`'s own lines now carry delivered and
+`-` states, shown and not shown. Sabotage `rpc-line-state-dropped` is
+caught, and `conversation-view-line-unescaped` re-pointed at the line
+that now carries the state.
+
+## 1129. A file or a sticker in a conversation, said as one, 2026-11-13
+
+**The conversation view's next gap** (sec 1126). A file sent in a line
+rides the line's text as `fzn:file/ROOT/KEY/SIZE NAME` (sec 794), and a
+sticker as `fzn:sticker/...` (sec 679). The view showed both as the raw
+reference -- 140 characters of hex where a person sent a photo.
+
+The view now reads each line through the library's own parsers,
+`fzn_attachment_parse` and `fzn_sticker_ref_parse` (fuzzypickles' `fzp:`
+forms included), and says "a file: holiday.jpg, 2.4 MB" or "a sticker:
+waving" (its words, else its description). A line that is neither is its
+text, as before. The name, the size and the words are the sender's
+claims and someone else's text, so they are shown in caret form, and the
+size is said as the claim it is. Nothing is fetched for being shown
+(sec 794: a file can be a gigabyte).
+
+`messages/attachment.o` joins the typed client's link objects and the
+render test's, since a view that reads a line now needs it.
+
+**Not here yet:** fetching and opening a file from the line, and drawing
+a sticker's art.
+
+**Tests:** `conversation_view_test`, eleven checks: a contact whose two
+lines are a file and a sticker, each said as what it is. Sabotage
+`conversation-view-file-shown-as-reference` is caught, and
+`conversation-view-line-unescaped` now names the plain-text path in
+`content_words`.
+
+## 1130. Getting and saving a file a conversation names, 2026-11-13
+
+**sec 1129's "not here yet", the first half.** A line naming a file now
+keeps the reference it names. Choosing it enables "Get the file", which
+asks the node for the file by its whole reference -- root, key and size
+-- from whoever holds it (`fzn_rpc_blob_fetch_ref`). The file arrives in
+the background; the view says the size it was claimed to be, since the
+fetch checks the file's own tree and a false size fails there (sec 794).
+"Save the file" exports it once whole (`fzn_rpc_blob_export`) to where
+the person says, offering the sender's name for it. That name is already
+refused if it carries a slash, a control byte or a leading dot, so it is
+never a path anyone else chose. A line that names no file -- a sticker's,
+a plain one -- offers neither.
+
+**Not here yet:** a sticker's art drawn in the line.
+
+**Tests:** `conversation_view_test`, fourteen checks: a sticker's line
+asks for no file; the file asked for by its whole reference with its
+size said; saved where asked. Sabotage
+`conversation-view-fetch-without-size` is caught.

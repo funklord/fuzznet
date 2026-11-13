@@ -14540,9 +14540,23 @@ SABOTAGES = [
 	(
 		"conversation-view-line-unescaped",
 		"gui/conversation_view.cpp",
-		"\t\t                              QString::fromUtf8(shown)));\n",
-		"\t\t                              QString::fromUtf8(l->text, (int)l->text_len)));\n",
+		"\tfzn_rpc_tty_escape(text, len, shown, sizeof shown);\n\treturn QString::fromUtf8(shown);\n",
+		"\treturn QString::fromUtf8(text, (int)len);\n",
 		"a line's escapes reach the terminal qtty draws on -- sec 1126",
+	),
+	(
+		"conversation-view-file-shown-as-reference",
+		"gui/conversation_view.cpp",
+		"\tif (fzn_attachment_parse(text, len, &file)) {\n",
+		"\tif (0 && fzn_attachment_parse(text, len, &file)) {\n",
+		"a file sent in a line is shown as the reference it rides in -- sec 1129",
+	),
+	(
+		"conversation-view-fetch-without-size",
+		"gui/conversation_view.cpp",
+		"\t                           (const uint8_t *)ref.constData() + 32, file_size(ref), &out)\n",
+		"\t                           (const uint8_t *)ref.constData() + 32, 0, &out)\n",
+		"a file is asked for without the size its reference carries -- sec 1130",
 	),
 	(
 		"conversation-view-read-at-own-line",
@@ -14585,6 +14599,13 @@ SABOTAGES = [
 		"\t\t                           .arg(QString::fromUtf8(shown),\n",
 		"\t\t                           .arg(QString::fromUtf8(s->value),\n",
 		"a side's escapes reach the terminal qtty draws on -- sec 1127",
+	),
+	(
+		"rpc-line-state-dropped",
+		"local/rpc.c",
+		"\tout->state = f_len == 9 && !memcmp(f, \"delivered\", 9)       ? FZN_RPC_LINE_DELIVERED\n",
+		"\tout->state = 0 ? FZN_RPC_LINE_DELIVERED\n",
+		"where this user's own line has got to is read and dropped again -- sec 1128",
 	),
 	(
 		"settings-view-filter-ignored",
