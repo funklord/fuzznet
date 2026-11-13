@@ -86655,3 +86655,69 @@ Makefile lines met the two earlier units' and were merged keeping all three.
 where it said fuzzypickles' config key; the test's failure line naming its suite (sec 1093); two
 sabotage entries, `own-address-link-local-ranked-first` and `own-address-duplicates-kept`, both
 caught; the header in installcheck's consumer and the test binary in `.gitignore`.
+
+## 1095. The QR recogniser, taken from fuzzypickles, 2026-11-13
+
+**The last of sec 1070's four units** (sec 1089): `qr/decode.{c,h}`, the
+other half of camera pairing -- `qr.h` draws a card as a symbol, this reads
+one back out of a captured frame, so a Linux host with a webcam can be the
+side holding the camera. Recognition is quirc's, vendored here since sec 169;
+nothing outside `qr/decode.c` names quirc, so a different recogniser stays a
+change to one file. Prepared on fuzzypickles' branch `fzp-qr-decode`.
+
+**Built and run by `make qrcheck` only, not yet in the library.** quirc is
+compiled there with `-w` and needs `-lm`, and the library takes neither today,
+so the recogniser is checked where quirc already is: `qrcheck` now builds
+`decode_test` beside the round-trip check and runs both. Its header is
+therefore not installed, and the style census, which reads every header in
+the tree against what `make install` ships, takes it from a new list,
+`CHECK_HDRS`, for headers of units an optional check builds. `SPEC_HDRS` was
+the wrong home: its own comment says a header that declares anything does not
+belong there. The two sources are in style's list of files built only by their
+own target, beside the quirc check.
+
+**Open, and the next step for a consumer that wants it linked:** the
+recogniser as a library subsystem over the vendored quirc -- the vendored
+units compiled quietly after the core's, `-lm` on the link line, the header
+moving from `CHECK_HDRS` into `HDRS` and `tool/consumer_check.c`. Until then
+fuzzypickles builds it from this tree's sources as it built its own.
+
+**Taken with:** the header's prose pointed at this tree, and the suite's
+failure lines naming `decode_test.c` (sec 1093). Measured: `make qrcheck`
+passes, 204 of 204 round trips and the recogniser's suite.
+
+**From fuzzypickles' inbox, 2026-11-13:**
+
+- **The remade group's first line** (0338Z, 0423Z): at 21c24786 and at 4bb5ed8 its
+  `unread-marks-on-nodes` passed 3 of 3 each, after 2 of 3 at b54490a. Not seen fixed, only not
+  seen. Its clients list a group's lines by NAME (`list message @crew`) and count and mark them
+  by id, so a member whose `@crew` still names a left group shows exactly the symptom phase g of
+  `live_groups` caught once in nine (sec 1091): the count right, the lines missing. Phase g stays
+  open; fuzzypickles will send `list group` and `list message @<id>` from the member if it
+  recurs.
+- **Regression 1 twice more** (0338Z): `library-plays-what-is-arriving-on-nodes` read
+  `playable 0` for a whole run, the fetch `fzp file-save` starts never beginning, once at
+  858d0b4 and once at 21c24786 -- always after other scenarios, never alone (7 of 7). Its
+  aeef6f6 now prints the save's own reply when it happens. Still not reproduced here.
+- fuzzypickles is pinned at 21c24786, moving to 1dc7a23; its typed-client branch is regenerated
+  there.
+- **The remade crew's miss recurs at 1dc7a23, 3 of 7** (0503Z), and the reading is new: both
+  hosts hold the NEW crew by the same id and alice finds it by name and id alike, so naming is
+  not it. carol, the admin who deleted and remade it, holds one line in it; alice, added just
+  before that line, holds none through a restart and 240 s -- **the first line of a group made
+  again, to a member added just before, is not delivered.** Separately carol, who had left the
+  OLD crew, holds it again as `crew_2` (three of its old lines): here it is the remaking admin
+  who gets the left group back, renamed, where phase g saw a member's name keep it. And `list
+  message @ID` for an id the host does not hold answers the usage line rather than saying no
+  such group. Its sequence: alice group-delete; carol group-remove-member, group-delete,
+  group-create, group-add-member alice; carol writes a line.
+- netcfgd took ed93497 (0500Z, its 06ebae62, netcfgd project.md 10.830): its client writes
+  `rrpc` for every procedure and builds no CMD 18/19 bytes itself; suite passes, binary
+  unchanged at 2,600,016 bytes.
+
+**`live_chat` c2 asks one quiet window in three.** A run failed it once: the repeated read at
+the line already read was answered `ok unchanged`, and in the 3 s after it B1 heard
+`event message KEY` beside an absorb's `event message -`. That event has other sources -- a
+line refiled by a reconcile, a mark absorbed from B2 -- and the check counted any of them as
+the read's. Each attempt now waits for 2 s of silence first (at most 15 s), and the check fails
+only when all three publish, which a read that publishes always does.

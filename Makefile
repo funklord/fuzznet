@@ -1289,6 +1289,13 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
 # header goes here and graduates the same way.
 SPEC_HDRS :=
 
+# A HEADER OF A UNIT BUILT ONLY BY AN OPTIONAL CHECK, not installed because
+# what it declares is not in the library: `qr/decode.h`, the recogniser over
+# the vendored quirc, built and run by `qrcheck` since sec 1095. It declares
+# functions, so SPEC_HDRS is the wrong home; it moves into HDRS when the
+# recogniser joins the library.
+CHECK_HDRS := qr/decode.h
+
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
@@ -6279,9 +6286,12 @@ style: $(OBJS)
 	@# a default build reads: `tool/consumer_check.c` needs an installed
 	@# tree, and `qr/test/qr_quirc_check.c` needs a quirc checkout. Naming
 	@# them here rather than widening the sweep keeps the gate exact -- a
-	@# third one has to be added deliberately and says why.
+	@# third one has to be added deliberately and says why. The third and
+	@# fourth: `qr/decode.c` and its suite, the recogniser over quirc,
+	@# built by `qrcheck` for the same reason as the quirc check.
 	@known=" $(SRCS) $(PROG_SRCS) $(TEST_SRCS) $(GEN_SRCS) $(GEN_TEST_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
-	         $(FLOG_TSRC) tool/consumer_check.c qr/test/qr_quirc_check.c "; \
+	         $(FLOG_TSRC) tool/consumer_check.c qr/test/qr_quirc_check.c \
+	         qr/decode.c qr/test/decode_test.c "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' -not -path './.claude/*' \
@@ -6523,7 +6533,7 @@ style: $(OBJS)
 	@# binaries and nothing else: `chain/test/acts_stub.h`, the act-log stub
 	@# three suites ask a cut of since sec 509. Installing it would ship a
 	@# stub as API, so it is excluded rather than listed.
-	@known=" $(HDRS) $(GUI_HDRS) $(SPEC_HDRS) "; missing=; n=0; \
+	@known=" $(HDRS) $(GUI_HDRS) $(SPEC_HDRS) $(CHECK_HDRS) "; missing=; n=0; \
 	for h in `find . -name '*.h' -not -path './.git/*' -not -path './.claude/*' \
 	                 -not -path './wire/generated/*' -not -path './tool/*' \
 	                 -not -path '*/test/*' \
@@ -7280,7 +7290,12 @@ qrcheck:
 	      cli/qr_print.c "$$scratch"/quirc.o "$$scratch"/decode.o \
 	      "$$scratch"/identify.o "$$scratch"/version_db.o \
 	      -lm -o "$$scratch/qrcheck"; \
-	"$$scratch/qrcheck"
+	"$$scratch/qrcheck"; \
+	$(CC) $(CFLAGS) -DQUIRC_MAX_REGIONS=65534 -I. -I"$(QUIRC_DIR)/lib" qr/test/decode_test.c \
+	      qr/decode.c qr/qr.c "$$scratch"/quirc.o "$$scratch"/decode.o \
+	      "$$scratch"/identify.o "$$scratch"/version_db.o \
+	      -lm -o "$$scratch/decode_test"; \
+	"$$scratch/decode_test"
 
 #
 # QTTY IS VENDORED TOO, and for a reason narrower than the dependency rule:

@@ -338,12 +338,27 @@ def main(argv):
 			last = said("b1", "list message " + keys["a"]).split()[4].split(",")[2]
 			heard = subscriber(socks["b1"], "b1's events")
 			try:
-				expect(socks["b1"], "b1", "set message %s read %s" % (keys["a"], last),
-				       "ok unchanged")
-				told = [l for l in heard.lines_within(3.0)
-				        if l == "event message " + keys["a"]]
-				if told:
-					raise failed("c2: a read at the line already read was published: %r" % told)
+				# THE SAME EVENT HAS OTHER SOURCES, so one quiet window is asked
+				# for in three: a line refiled by a reconcile or a mark absorbed
+				# from B2 publishes `event message KEY` too, and a run once saw
+				# one land in the window beside an absorb's `event message -`.
+				# A read that publishes does so every time, so a fault fails all
+				# three; traffic that happens to arrive does not.
+				seen = []
+				for attempt in range(3):
+					quiet_by = time.monotonic() + 15.0
+					while heard.lines_within(2.0) and time.monotonic() < quiet_by:
+						pass
+					expect(socks["b1"], "b1", "set message %s read %s" % (keys["a"], last),
+					       "ok unchanged")
+					told = [l for l in heard.lines_within(3.0)
+					        if l == "event message " + keys["a"]]
+					if not told:
+						break
+					seen.append(told)
+				else:
+					raise failed("c2: a read at the line already read was published, "
+					             "three times of three: %r" % seen)
 				expect(socks["a1"], "a1", "add message %s out %s c2%%20line" % (keys["b"], "c2" * 16),
 				       "ok")
 				polled("b1", "get message %s unread" % keys["a"], lambda g: g.split()[1:2] == ["1"],
