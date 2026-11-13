@@ -87248,3 +87248,36 @@ message from a line; `call_vectors` 14 of 14. Eight sabotage entries, each caugh
 **Not yet:** a channel opened by another local user is refused (only the node's own user) -- that
 check has no test, since every test runs as one user; and the media path's other half for video,
 fuzzypickles' capture, codec and drawing, is that tree's.
+
+## 1114. What reaching a friend abroad needs from fuzznet: one server, relaying, 2026-11-13
+
+**The focused app's last open need** (fuzzypickles' project.md, 2026-11-13): "reaching each other
+from abroad, which needs a relay the holder runs". Read against what is built, it needs no new code:
+
+- **A session that no introduction can join is relayed** (secs 1045-1046), the candidates first the
+  contact's own hosts that are up, then this host's own estate's hosts it pulls from, tried in turn
+  (sec 1051) -- measured on hull with a symmetric gateway, where no hole can be punched: the call
+  rang and a frame went each way.
+- **So the friend's phone reaches the holder's phone** through the holder's server, one of the
+  holder's own hosts; and **the holder's phone reaches the friend's**, who has no other host, through
+  its own estate's -- the same server. Lines delivered to a host that does not answer go again
+  through the contact's other hosts that do (sec 622), and the friend's phone pulls from the
+  holder's hosts as it pulls from any contact's.
+- **What the holder sets up:** a host of his own estate (`--join` as a sibling) at a public address,
+  `relay/enabled` on (`set setting host relay/enabled on`), its quota as wanted (`relay/quota`,
+  `relay/window`). The phones need nothing; the server must be up for a call to reach a phone that
+  no hole reaches. A host relays only for members and standing contacts, one hop, and holds no frame.
+- **Not measured for this exact shape:** two phones, both behind NATs, one in another estate, with
+  the relay a third host of one of them. hull's journeys run a phone against a root behind a gateway;
+  a run with the relay a separate host would confirm it before the friend leaves.
+
+**fuzzypickles' fetch that never starts** (inbox 1358Z): `library-plays-what-is-arriving-on-nodes`
+has failed three times, each inside a full run directly after `tui-daemon-log-on-a-node` (an fzpd on
+UDP 31122), never alone (7 of 7): bob's `fzp file-save --from alice` asks the fetch, and every read
+answers `play 24000000 0 0 1 0` for 600 reads, nothing placed. **What the code says:**
+`fetch_files` begins a wanted file only when the want is fresh, and spends the freshness before
+gathering peers -- so a moment with no peer reachable for it, or a fetch that fails to begin, waits
+for the next round's end, 60 s on. That alone does not explain 600 reads with nothing unless the next
+round finds no peer either, so no change is made on it: bob's node already logs which (`files`, at
+debug: "asking N peer(s) ...", "not begun", "nothing placed"), and fuzzypickles is asked to keep and
+print those lines when it fails.
