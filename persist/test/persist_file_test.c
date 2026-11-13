@@ -743,8 +743,10 @@ int main(void)
 	 *
 	 * `local/test/socket_test.c` already wrote to /tmp, so this is the
 	 * tree's own convention rather than a new one. sec 372. */
-	snprintf(dir, sizeof(dir), "/tmp/fzn-persist-test-%ld", (long)getpid());
-	if (mkdir(dir, 0700) != 0) {
+	/* A NAME NO EARLIER RUN HOLDS, sec 1104: a killed run left its pid-named
+	 * directory behind, the pid came round again, and mkdir failed the suite. */
+	snprintf(dir, sizeof(dir), "/tmp/fzn-persist-test-XXXXXX");
+	if (!mkdtemp(dir)) {
 		fprintf(stderr, "  FAIL persist_file_test.c: could not make the scratch directory\n");
 		return 1;
 	}

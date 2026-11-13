@@ -808,13 +808,15 @@ int main(void)
 	size_t i;
 	uint32_t s = 99u;
 
-	snprintf(top, sizeof(top), "/tmp/fzn-piece-buckets-test-%ld", (long)getpid());
-	snprintf(dir_a, sizeof(dir_a), "%s/a", top);
-	snprintf(dir_b, sizeof(dir_b), "%s/b", top);
-	if (mkdir(top, 0700) != 0) {
+	/* A NAME NO EARLIER RUN HOLDS, sec 1104: a killed run left its pid-named
+	 * directory behind, the pid came round again, and mkdir failed the suite. */
+	snprintf(top, sizeof(top), "/tmp/fzn-piece-buckets-test-XXXXXX");
+	if (!mkdtemp(top)) {
 		fprintf(stderr, "piece_buckets_test: cannot make %s\n", top);
 		return 1;
 	}
+	snprintf(dir_a, sizeof(dir_a), "%s/a", top);
+	snprintf(dir_b, sizeof(dir_b), "%s/b", top);
 	memset(key_a, 0xaa, sizeof(key_a));
 	memset(key_b, 0xbb, sizeof(key_b));
 	for (i = 0; i < ITEM_LEN; i++) {

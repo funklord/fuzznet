@@ -256,13 +256,15 @@ int main(int argc, char **argv)
 	if (cases < FUZZ_MIN_CASES)
 		cases = FUZZ_MIN_CASES;
 	fzn_hash_monocypher_init(&HASH);
-	snprintf(top, sizeof(top), "/tmp/fzn-pieces-fuzz-%ld", (long)getpid());
-	snprintf(src, sizeof(src), "%s/src", top);
-	snprintf(dst, sizeof(dst), "%s/dst", top);
-	if (mkdir(top, 0700) != 0) {
+	/* A NAME NO EARLIER RUN HOLDS, sec 1104: a killed run left its pid-named
+	 * directory behind, the pid came round again, and mkdir failed the suite. */
+	snprintf(top, sizeof(top), "/tmp/fzn-pieces-fuzz-XXXXXX");
+	if (!mkdtemp(top)) {
 		fprintf(stderr, "pieces_fuzz: cannot make %s\n", top);
 		return 1;
 	}
+	snprintf(src, sizeof(src), "%s/src", top);
+	snprintf(dst, sizeof(dst), "%s/dst", top);
 
 	for (c = 0; c < cases; c++) {
 		uint8_t got_id[FZN_BUCKETS_ID_LEN];

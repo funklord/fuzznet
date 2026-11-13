@@ -7,6 +7,8 @@
  * under the key it was signed as and no other.
  */
 
+#define _POSIX_C_SOURCE 200809L /* mkdtemp */
+
 #include "../apply.h"
 #include "../holdings.h"
 #include "../roster.h"
@@ -2566,8 +2568,10 @@ int main(void)
 	char path[512];
 	size_t i;
 
-	snprintf(dir, sizeof(dir), "/tmp/fzn-apply-test-%ld", (long)getpid());
-	if (mkdir(dir, 0700) != 0) {
+	/* A NAME NO EARLIER RUN HOLDS, sec 1104: a killed run left its pid-named
+	 * directory behind, the pid came round again, and mkdir failed the suite. */
+	snprintf(dir, sizeof(dir), "/tmp/fzn-apply-test-XXXXXX");
+	if (!mkdtemp(dir)) {
 		fprintf(stderr, "apply_test: could not make %s\n", dir);
 		return 1;
 	}

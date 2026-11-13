@@ -87006,3 +87006,18 @@ objects view (sec 1102) does both now, by `fzn_rpc_object_add` and `_remove`; wi
 fuzzypickles hosts the view in its page's place. `refresh()` stays one `list object`, cheap
 enough for a host to call on every `object` event. `objects_view_test` has fourteen checks;
 sabotage `objects-view-nameless-add` and `-remove-refusal-wordless`, caught.
+
+## 1105. A test's scratch directory by mkdtemp, not by pid, 2026-11-13
+
+**`make test` failed for no fault in the code:** `store_file_test: could not make
+/tmp/fzn-store-test-27595`. A run killed on 2026-10-09 had left that directory behind, the pid
+came round again a month later, and `mkdir` refused. Three such directories were there, all from
+that one night.
+
+**Seven suites named a directory by pid and made it with `mkdir`**, so each failed the same way
+whenever a leftover met a reused pid: `store_file_test`, `persist_file_test`, `pieces_fuzz`,
+`node_journal_test` (two directories), the notes import case of `notes_test`, `apply_test` and
+`piece_buckets_test`. **Each takes its directory from `mkdtemp` now**, which cannot meet a
+leftover; each still removes it as before. The suites naming a *file* by pid (eighteen more) open
+it for writing, which a leftover does not stop, and are unchanged. Measured: each suite passes
+and leaves no `/tmp/fzn-*` entry behind; the three stale directories were removed by name.

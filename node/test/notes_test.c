@@ -1226,7 +1226,10 @@ static void test_import(void)
 	static char big[FZN_NODE_NOTES_IMPORT_FILE_MAX + 2u];
 
 	setup(0);
-	snprintf(dir, sizeof(dir), "/tmp/fzn-notes-import-%ld", (long)getpid());
+	/* A NAME NO EARLIER RUN HOLDS, sec 1104: a killed run left its pid-named
+	 * directory behind, the pid came round again, and mkdir failed the suite. */
+	snprintf(dir, sizeof(dir), "/tmp/fzn-notes-import-XXXXXX");
+	const int made = mkdtemp(dir) != NULL;
 	snprintf(f_milk, sizeof(f_milk), "%s/milk.json", dir);
 	snprintf(f_eggs, sizeof(f_eggs), "%s/eggs.json", dir);
 	snprintf(f_junk, sizeof(f_junk), "%s/junk.json", dir);
@@ -1235,7 +1238,7 @@ static void test_import(void)
 	snprintf(f_ics, sizeof(f_ics), "%s.ics", dir);
 	snprintf(f_txt, sizeof(f_txt), "%s.txt", dir);
 	snprintf(f_tea, sizeof(f_tea), "%s.tea.json", dir);
-	CHECK(mkdir(dir, 0700) == 0 && put_file(f_milk, milk, sizeof(milk) - 1u)
+	CHECK(made && put_file(f_milk, milk, sizeof(milk) - 1u)
 	              && put_file(f_eggs, eggs, sizeof(eggs) - 1u) && put_file(f_junk, "nope", 4u)
 	              && put_file(f_photo, "\xff\xd8", 2u) && put_file(f_ics, ics, sizeof(ics) - 1u)
 	              && put_file(f_txt, "x", 1u),

@@ -23,6 +23,7 @@
 
 #include "../store_file.h"
 
+#include <stdlib.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -817,8 +818,10 @@ int main(void)
 	 *
 	 * `local/test/socket_test.c` already wrote to /tmp, so this is the
 	 * tree's own convention rather than a new one. sec 372. */
-	snprintf(dir, sizeof(dir), "/tmp/fzn-store-test-%ld", (long)getpid());
-	if (mkdir(dir, 0700) != 0) {
+	/* A NAME NO EARLIER RUN HOLDS, sec 1104: a killed run left its pid-named
+	 * directory behind, the pid came round again, and mkdir failed the suite. */
+	snprintf(dir, sizeof(dir), "/tmp/fzn-store-test-XXXXXX");
+	if (!mkdtemp(dir)) {
 		fprintf(stderr, "store_file_test: could not make %s\n", dir);
 		return 1;
 	}

@@ -9,8 +9,11 @@
  * leaking.
  */
 
+#define _POSIX_C_SOURCE 200809L /* mkdtemp */
+
 #include "../journal.h"
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -842,9 +845,11 @@ int main(void)
 {
 	char path[512];
 
-	snprintf(dir_a, sizeof(dir_a), "/tmp/fzn-node-journal-test-%ld-a", (long)getpid());
-	snprintf(dir_b, sizeof(dir_b), "/tmp/fzn-node-journal-test-%ld-b", (long)getpid());
-	if (mkdir(dir_a, 0700) != 0 || mkdir(dir_b, 0700) != 0) {
+	/* A NAME NO EARLIER RUN HOLDS, sec 1104: a killed run left its pid-named
+	 * directory behind, the pid came round again, and mkdir failed the suite. */
+	snprintf(dir_a, sizeof(dir_a), "/tmp/fzn-node-journal-test-a-XXXXXX");
+	snprintf(dir_b, sizeof(dir_b), "/tmp/fzn-node-journal-test-b-XXXXXX");
+	if (!mkdtemp(dir_a) || !mkdtemp(dir_b)) {
 		fprintf(stderr, "node_journal_test: could not make the scratch directories\n");
 		return 1;
 	}
