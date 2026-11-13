@@ -85897,7 +85897,7 @@ is the register, rewritten in place as features land; "where" says where each li
 
 | Feature | In fuzznet | Still in a consumer, to move | Missing |
 |---|---|---|---|
-| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124) | fuzzypickles' Setup, Hosts pages | identity backup and reset, and host join by request, as views |
+| Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | a backup to a directory as a view; identity reset and host join by request left out on purpose (sec 1127) |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084); `conversation_view` for a contact (sec 1126) | conversation screens, read marks per device for groups | a group's conversation, attachments and delivery marks on the view |
@@ -87694,3 +87694,33 @@ its read position by id, a line sent to it; silence. 148 px, every input named. 
 `conversation-view-line-unescaped`, `conversation-view-read-at-own-line`
 `conversation-view-refused-line-lost` and
 `conversation-view-group-read-by-name` are each caught.
+
+## 1127. What the hosts decided apart, settled from a widget, 2026-11-13
+
+**The register's Setup-page gap, the part a user is asked to act on**
+(secs 1070, 1122). When two of a user's hosts change one thing while
+they cannot reach each other -- a contact's name, an estate setting --
+both decisions stand as sides of a fork, and the node lists the subjects
+that have more than one (sec 895). Until a person keeps one, the hosts
+disagree. fuzzypickles settles them from its Setup page by hand.
+
+`gui/forks_view` shows each subject in words (`fzn_rpc_fork_subject_label`:
+a contact's name as "the name of X"), its sides beneath with the value
+each host chose, the host's key and when, and "Keep this" on a chosen
+side. That makes the change again, which closes the fork on every host.
+A side's value is someone else's text, so it is shown in caret form (sec
+1126) and kept with exactly the bytes the node listed, never the words
+drawn for it. A subject's own row is not a side and is not kept.
+
+**Left out on purpose:** identity reset, which removes this host's keys,
+and host join by request, which one-code joining (secs 896, 1122-1123)
+replaced. A backup to a directory remains, a line and a button, and is
+small enough to wait for a page that wants it.
+
+**Tests:** `forks_view_test`, eight checks against a scripted node: two
+subjects of two sides grouped and dated, an escape in caret form, the
+chosen side kept as its value, one holding an escape kept byte for byte,
+nothing kept with no side or with a subject chosen, a refusal, silence.
+Sabotage `forks-view-keeps-the-shown-text`, `forks-view-keeps-a-subject`
+and `forks-view-value-unescaped` are each caught; the second survived
+until the test could choose a subject's own row.

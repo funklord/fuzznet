@@ -14566,6 +14566,27 @@ SABOTAGES = [
 		"a group's read position is kept by its name, which a rename moves -- sec 1126",
 	),
 	(
+		"forks-view-keeps-the-shown-text",
+		"gui/forks_view.cpp",
+		"\tQByteArray value = side->data(0, ROLE_VALUE).toByteArray();\n",
+		"\tQByteArray value = side->text(0).section(QStringLiteral(\" -- \"), 0, 0).toUtf8();\n",
+		"a side is kept as the words shown for it, not the value the host chose -- sec 1127",
+	),
+	(
+		"forks-view-keeps-a-subject",
+		"gui/forks_view.cpp",
+		"\tif (!side || !side->parent())\n\t\treturn false;\n\tQByteArray subject",
+		"\tif (!side)\n\t\treturn false;\n\tQByteArray subject",
+		"a subject's own row is kept as though it were a side -- sec 1127",
+	),
+	(
+		"forks-view-value-unescaped",
+		"gui/forks_view.cpp",
+		"\t\t                           .arg(QString::fromUtf8(shown),\n",
+		"\t\t                           .arg(QString::fromUtf8(s->value),\n",
+		"a side's escapes reach the terminal qtty draws on -- sec 1127",
+	),
+	(
 		"settings-view-filter-ignored",
 		"gui/settings_view.cpp",
 		"\t\t\tif (m_keep && !m_keep(m_keep_ctx, e->key))\n",
