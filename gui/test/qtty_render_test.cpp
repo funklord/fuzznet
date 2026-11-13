@@ -54,6 +54,7 @@
 #include "../contacts_view.h"
 #include "../devices_view.h"
 #include "../hosts_view.h"
+#include "../conversation_view.h"
 #include "../location_view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../entries_view.h"
@@ -380,6 +381,7 @@ static void test_every_widget_survives_a_terminal(void)
 	(void)devices_v.refresh();
 	fzn_hosts_view hosts_v(empty_node, nullptr);
 	(void)hosts_v.refresh();
+	fzn_conversation_view conversation_v(empty_node, nullptr);
 	fzn_location_view location_v(empty_node, nullptr);
 	(void)location_v.refresh();
 #ifdef FZN_LOG_FILE_ON
@@ -683,6 +685,8 @@ static void test_every_widget_survives_a_terminal(void)
 			/* WHERE A LOST DEVICE IS DEALT WITH, before anyone looks
 			 * for a Remove here (sec 1124). */
 			{ "hosts_view", &hosts_v, "Lost a device?" },
+			/* NOTHING OPEN IS SAID, not left a blank list (sec 1126). */
+			{ "conversation_view", &conversation_v, "No conversation is open." },
 			/* NOBODY SHARING IS SAID, sec 1109. */
 			{ "location_view", &location_v, "Nobody shares a position" },
 #ifdef FZN_LOG_FILE_ON

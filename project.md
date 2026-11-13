@@ -85900,7 +85900,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124) | fuzzypickles' Setup, Hosts pages | identity backup and reset, and host join by request, as views |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | a restore for a suspended contact (sec 1118) |
-| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084) | conversation screens, read marks per device for groups | a conversation view |
+| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084); `conversation_view` for a contact (sec 1126) | conversation screens, read marks per device for groups | a group's conversation, attachments and delivery marks on the view |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
@@ -87656,3 +87656,41 @@ address two reporters agree on; `link_view_test` shows 2.5% for a leg
 the node puts at 25 per mille and no figure for one never observed.
 Sabotage `rpc-leg-loss-dropped`, `rpc-leg-unmeasured-dropped` and
 `rpc-address-agree-dropped` are each caught.
+
+## 1126. A conversation with one contact, as a widget, 2026-11-13
+
+**The register's largest gap for the messenger** (sec 1070): the
+conversation screens are fuzzypickles' own. Their requirements were
+asked for and have not come, but every client needs the same core, and
+that core does not wait on them.
+
+`gui/conversation_view` opens a contact's conversation by name, or a
+group's as `@NAME`. It shows
+the lines oldest at the top, each with when (the time today, the date
+before, in the reader's own time) and who ("You" for this user's own),
+and has a line to write with Send (or Enter). The line written stays
+when the node refuses it, so nothing typed is lost. Showing the
+conversation sets the read position at the newest line that came in --
+past this user's own -- which the node keeps and syncs to the user's
+other devices (sec 528): read here is read everywhere. A line is someone
+else's text and is shown in caret form (`fzn_rpc_tty_escape`), because
+qtty draws the same widget on a terminal, where a raw escape would act.
+
+**A group** shows its lines in the order the node gives them (sec 728),
+each member named by this user's contact for them or by their key's
+first bytes where they are no contact, and sends to the group. Its read
+position is kept by the group's id, not its name, since a rename moves
+the name (sec 1084).
+
+**Not here yet:** attachments and stickers in a line, and delivery marks
+beside this user's own lines.
+
+**Tests:** `conversation_view_test`, ten checks against a scripted node:
+four lines oldest first with times and who, an escape in caret form, the
+read position at the newest incoming line past a newer own one, a line
+sent and cleared, a refused one kept with the node's words, an empty one
+not sent; a group's three lines with members named and one by key,
+its read position by id, a line sent to it; silence. 148 px, every input named. Sabotage
+`conversation-view-line-unescaped`, `conversation-view-read-at-own-line`
+`conversation-view-refused-line-lost` and
+`conversation-view-group-read-by-name` are each caught.
