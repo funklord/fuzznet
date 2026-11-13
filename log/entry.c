@@ -5,6 +5,7 @@
 #include "capture.h"
 
 #include "../wire/bytes.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -264,8 +265,7 @@ fzn_entry_err_t fzn_entry_name_text(const fzn_entry_name_t *name, char *out, siz
 	if (!name || !out || !len || !name_ok(name))
 		return FZN_ENTRY_ERR_MALFORMED;
 	for (i = 0; i < FZN_ENTRY_MACHINE_LEN; i++) {
-		machine[i * 2u] = HEX[name->machine[i] >> 4];
-		machine[(i * 2u) + 1u] = HEX[name->machine[i] & 0x0fu];
+		fzn_hex_byte(name->machine[i], machine + i * 2u);
 	}
 	machine[FZN_ENTRY_MACHINE_LEN * 2u] = '\0';
 	if (instance_text(name, inst, sizeof(inst)) < 0)

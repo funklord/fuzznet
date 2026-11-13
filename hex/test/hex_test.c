@@ -50,7 +50,20 @@ static void test_hex_decode_var(void) {
 	CHECK(fzn_hex_decode_var("", dec, sizeof(dec), &dec_len) != 0);    /* empty */
 }
 
+/* ONE BYTE, TWO DIGITS, AND NOTHING PAST THEM: a field with no room for a
+ * terminator keeps the byte after it. */
+static void test_hex_byte(void) {
+	char out[3] = { 'x', 'x', '!' };
+	fzn_hex_byte(0x00, out);
+	CHECK(out[0] == '0' && out[1] == '0' && out[2] == '!');
+	fzn_hex_byte(0xa9, out);
+	CHECK(out[0] == 'a' && out[1] == '9' && out[2] == '!');
+	fzn_hex_byte(0xff, out);
+	CHECK(out[0] == 'f' && out[1] == 'f' && out[2] == '!');
+}
+
 int main(void) {
+	test_hex_byte();
 	test_hex_roundtrip();
 	test_hex_decode_rejects_wrong_length();
 	test_hex_decode_rejects_invalid_char();

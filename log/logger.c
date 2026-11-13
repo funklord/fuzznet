@@ -4,6 +4,7 @@
 
 #include "logger.h"
 #include "../fault/fault.h"
+#include "../hex/hex.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -153,15 +154,13 @@ static int make_dirs(const char *dir)
 static int open_file(fzn_logger_t *l)
 {
 	char hex[(FZN_ENTRY_MACHINE_LEN * 2u) + 1u], head[160];
-	static const char HEX[] = "0123456789abcdef";
 	size_t i;
 	int fd, k;
 
 	fd = open(l->path, O_WRONLY | O_APPEND | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
 	if (fd >= 0) {
 		for (i = 0; i < FZN_ENTRY_MACHINE_LEN; i++) {
-			hex[i * 2u] = HEX[l->self.machine[i] >> 4];
-			hex[(i * 2u) + 1u] = HEX[l->self.machine[i] & 0x0fu];
+			fzn_hex_byte(l->self.machine[i], hex + i * 2u);
 		}
 		hex[FZN_ENTRY_MACHINE_LEN * 2u] = '\0';
 		k = snprintf(head, sizeof(head), "#fuzznet-log 1 machine=%s host=%s\n", hex, l->host);

@@ -4,6 +4,7 @@
 
 #include "pack.h"
 #include "entry.h"
+#include "../hex/hex.h"
 
 #include <dirent.h>
 #include <stddef.h>
@@ -52,8 +53,7 @@ static void to_hex(const uint8_t *in, size_t n, char *out)
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		out[i * 2u] = HEX[in[i] >> 4];
-		out[(i * 2u) + 1u] = HEX[in[i] & 0x0fu];
+		fzn_hex_byte(in[i], out + i * 2u);
 	}
 	out[n * 2u] = '\0';
 }

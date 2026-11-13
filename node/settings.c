@@ -8,6 +8,7 @@
 #include "../log/rules.h"
 #include "../wire/bytes.h"
 #include "../constant_time/constant_time.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -586,8 +587,7 @@ int fzn_node_settings_rule_key(const fzn_hash_ops_t *hash, const char *text, siz
 		return 0;
 	memcpy(key, "retention/", 10u);
 	for (i = 0; i < sizeof(h); i++) {
-		key[10u + (2u * i)] = (uint8_t)HEX[h[i] >> 4];
-		key[11u + (2u * i)] = (uint8_t)HEX[h[i] & 15u];
+		fzn_hex_byte(h[i], (char *)key + 10u + (2u * i));
 	}
 	return 1;
 }
@@ -1068,8 +1068,8 @@ static size_t held_key(fzn_scope_t scope, const uint8_t *about, const uint8_t *k
 	out[n++] = (uint8_t)('0' + (int)scope);
 	out[n++] = '/';
 	for (i = 0; i < FZN_SUBJECT_LEN; i++) {
-		out[n++] = (uint8_t)HEX[about[i] >> 4];
-		out[n++] = (uint8_t)HEX[about[i] & 15u];
+		fzn_hex_byte(about[i], (char *)out + n);
+		n += 2u;
 	}
 	out[n++] = '/';
 	memcpy(out + n, key, key_len);
@@ -1278,8 +1278,8 @@ static void list_one(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
 		return;
 	n = (size_t)k;
 	for (i = 0; i < FZN_SUBJECT_LEN; i++) {
-		item[n++] = HEX[s->about[i] >> 4];
-		item[n++] = HEX[s->about[i] & 15u];
+		fzn_hex_byte(s->about[i], item + n);
+		n += 2u;
 	}
 	item[n++] = ',';
 	memcpy(item + n, s->key, s->key_len);
@@ -1456,8 +1456,8 @@ static size_t list_holders(const fzn_node_settings_t *ns, const uint8_t *at, siz
 			held = version;
 		item[n++] = ' ';
 		for (j = 0; j < FZN_PUBKEY_LEN; j++) {
-			item[n++] = HEX[host[j] >> 4];
-			item[n++] = HEX[host[j] & 15u];
+			fzn_hex_byte(host[j], item + n);
+			n += 2u;
 		}
 		k = snprintf(item + n, sizeof(item) - n, ",%llu,%llu", (unsigned long long)held,
 		             (unsigned long long)heard);

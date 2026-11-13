@@ -21,6 +21,7 @@
 #include "received.h"
 #include "../net/udp.h"
 #include "../wire/generated/address_build.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -349,12 +350,10 @@ static int subject_peer(const fzn_request_t *request, const uint8_t **rest, size
 
 static void put_hex(char *out, const uint8_t *in, size_t len)
 {
-	static const char H[] = "0123456789abcdef";
 	size_t i;
 
 	for (i = 0; i < len; i++) {
-		out[i * 2u] = H[in[i] >> 4];
-		out[(i * 2u) + 1u] = H[in[i] & 0x0fu];
+		fzn_hex_byte(in[i], out + i * 2u);
 	}
 }
 
@@ -1385,7 +1384,6 @@ static uint64_t admin_now_ms(const fzn_node_admin_t *admin)
 static size_t contact_added(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN],
                             const uint8_t *name, size_t name_len, char *reply, size_t cap)
 {
-	static const char DIGITS[] = "0123456789abcdef";
 	uint8_t others[4][FZN_PUBKEY_LEN];
 	char detail[6u + 4u * (FZN_PUBKEY_LEN * 2u + 1u)];
 	size_t n = 0, i, j, at = 5u;
@@ -1398,8 +1396,8 @@ static size_t contact_added(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKE
 	for (i = 0; i < n && i < 4u; i++) {
 		detail[at++] = ' ';
 		for (j = 0; j < FZN_PUBKEY_LEN; j++) {
-			detail[at++] = DIGITS[others[i][j] >> 4];
-			detail[at++] = DIGITS[others[i][j] & 15u];
+			fzn_hex_byte(others[i][j], detail + at);
+			at += 2u;
 		}
 	}
 	detail[at] = '\0';
@@ -2140,7 +2138,6 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	 * root pairs this device by when it joins the estate (sec 638). */
 	if (request->parsed == FZN_VERB_GET && request->arg && request->arg_len == 6u
 	    && memcmp(request->arg, "prekey", 6u) == 0) {
-		static const char digits[] = "0123456789abcdef";
 		char text[FZN_PREKEY_LEN_TOTAL * 2u];
 		size_t i;
 
@@ -2148,8 +2145,7 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 			return answer_text(reply, reply_cap, FZN_REPLY_DENIED,
 			                   "this node's prekey is its own user's to read");
 		for (i = 0; i < FZN_PREKEY_LEN_TOTAL; i++) {
-			text[2u * i] = digits[admin->id->prekey_record[i] >> 4];
-			text[2u * i + 1u] = digits[admin->id->prekey_record[i] & 0x0fu];
+			fzn_hex_byte(admin->id->prekey_record[i], text + 2u * i);
 		}
 		return answer(reply, reply_cap, FZN_REPLY_OK, text, sizeof(text));
 	}

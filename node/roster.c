@@ -3,6 +3,7 @@
 #include "roster.h"
 
 #include "../contact/contact.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -425,7 +426,6 @@ fzn_node_roster_err_t fzn_node_roster_name_arrivals(const fzn_node_roster_t *nr,
                                                     void *member_ctx, uint64_t now_ms,
                                                     size_t *named)
 {
-	static const char HEX[] = "0123456789abcdef";
 	size_t i;
 
 	if (!nr || !store || !named)
@@ -453,8 +453,9 @@ fzn_node_roster_err_t fzn_node_roster_name_arrivals(const fzn_node_roster_t *nr,
 		for (digits = 8u; digits <= FZN_CONTACT_NAME_MAX - 2u; digits += 2u) {
 			name[0] = 'c';
 			name[1] = '_';
-			for (d = 0; d < digits; d++)
-				name[2u + d] = HEX[(subject[d / 2u] >> ((d % 2u) ? 0 : 4)) & 15u];
+			/* WHOLE BYTES: `digits` is even, from 8 up by two. */
+			for (d = 0; d < digits; d += 2u)
+				fzn_hex_byte(subject[d / 2u], name + 2u + d);
 			name[2u + digits] = '\0';
 			cerr = fzn_contact_named(store, name, 2u + digits, NULL, NULL, 0u, &others);
 			if (cerr != FZN_CONTACT_OK || !others)

@@ -4,6 +4,7 @@
 
 #include <string.h>
 
+#include "../hex/hex.h"
 #include "../node/types.h"
 #include "../wire/bytes.h"
 
@@ -42,7 +43,6 @@ const char *fzn_device_err_str(fzn_device_err_t err)
 
 void fzn_device_image_text(const fzn_device_image_t *image, char *out)
 {
-	static const char hex[] = "0123456789abcdef";
 	uint8_t bytes[FZN_DEVICE_IMAGE_LEN];
 	size_t i, at = 1u;
 
@@ -56,11 +56,9 @@ void fzn_device_image_text(const fzn_device_image_t *image, char *out)
 	memcpy(bytes + at, image->send_ckey, sizeof(image->send_ckey));
 	memcpy(out, FZN_DEVICE_IMAGE_PREFIX, FZN_DEVICE_IMAGE_PREFIX_LEN);
 	out += FZN_DEVICE_IMAGE_PREFIX_LEN;
-	for (i = 0; i < sizeof(bytes); i++) {
-		*out++ = hex[bytes[i] >> 4];
-		*out++ = hex[bytes[i] & 15u];
-	}
-	*out = '\0';
+	for (i = 0; i < sizeof(bytes); i++)
+		fzn_hex_byte(bytes[i], out + 2u * i);
+	out[2u * sizeof(bytes)] = '\0';
 }
 
 static int nibble(char c)

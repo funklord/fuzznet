@@ -3,6 +3,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "copy.h"
+#include "../hex/hex.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -11,7 +12,6 @@
 
 #define PATH_MAX_ 512u
 
-static const char HEX[] = "0123456789abcdef";
 
 static int program_ok(const char *p, size_t n)
 {
@@ -76,8 +76,7 @@ int fzn_log_copy_dir(const char *dir, const uint8_t host[FZN_LOG_PACK_HASH_LEN],
 	if (!dir || !host || !out)
 		return 0;
 	for (i = 0; i < FZN_LOG_PACK_HASH_LEN; i++) {
-		hex[2u * i] = HEX[host[i] >> 4];
-		hex[(2u * i) + 1u] = HEX[host[i] & 15u];
+		fzn_hex_byte(host[i], hex + 2u * i);
 	}
 	hex[sizeof(hex) - 1u] = '\0';
 	k = snprintf(out, cap, "%s/copy/%s", dir, hex);

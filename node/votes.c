@@ -3,11 +3,11 @@
 #include "votes.h"
 
 #include "../state/setting.h"
+#include "../hex/hex.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-static const char HEX[] = "0123456789abcdef";
 
 static size_t prefix_of(const uint8_t host[FZN_PUBKEY_LEN], uint8_t *out)
 {
@@ -15,8 +15,8 @@ static size_t prefix_of(const uint8_t host[FZN_PUBKEY_LEN], uint8_t *out)
 
 	memcpy(out, FZN_NODE_VOTE_PREFIX, n);
 	for (i = 0; i < FZN_NODE_VOTE_HOST_HEX / 2u; i++) {
-		out[n++] = (uint8_t)HEX[host[i] >> 4];
-		out[n++] = (uint8_t)HEX[host[i] & 15u];
+		fzn_hex_byte(host[i], (char *)out + n);
+		n += 2u;
 	}
 	out[n++] = '/';
 	return n;

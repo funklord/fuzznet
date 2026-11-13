@@ -6,6 +6,7 @@
 
 #include "../fault/fault.h"
 #include "../wire/bytes.h"
+#include "../hex/hex.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -79,8 +80,7 @@ static void to_hex(const uint8_t *bytes, size_t len, char *out)
 	size_t i;
 
 	for (i = 0; i < len; i++) {
-		out[i * 2u] = HEX[bytes[i] >> 4];
-		out[(i * 2u) + 1u] = HEX[bytes[i] & 15u];
+		fzn_hex_byte(bytes[i], out + i * 2u);
 	}
 	out[len * 2u] = '\0';
 }

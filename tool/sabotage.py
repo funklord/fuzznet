@@ -16292,6 +16292,13 @@ SABOTAGES = [
 		"a character no hex digit is decoded as one -- sec 1092",
 	),
 	(
+		"hex-byte-digits-swapped",
+		"hex/hex.h",
+		"\tout[0] = digits[byte >> 4];\n\tout[1] = digits[byte & 0x0Fu];\n",
+		"\tout[0] = digits[byte & 0x0Fu];\n\tout[1] = digits[byte >> 4];\n",
+		"a byte is written low digit first, in every escape and name the tree writes -- sec 1146",
+	),
+	(
 		"geo-bearing-left-negative",
 		"location/geo.c",
 		"\tdeg = fmod(deg + 360.0, 360.0);\n\tif (deg < 0.0) deg += 360.0;\n",

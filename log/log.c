@@ -17,6 +17,7 @@
 #endif
 
 #include "../constant_time/constant_time.h"
+#include "../hex/hex.h"
 
 #include <string.h>
 
@@ -312,7 +313,6 @@ const char *fzn_log_err_str(fzn_log_err_t err)
 
 fzn_log_err_t fzn_log_body_text(const uint8_t *body, size_t body_len, char *out, size_t cap)
 {
-	static const char DIGITS[] = "0123456789abcdef";
 	size_t i;
 	size_t at = 0;
 	size_t needed = 1u;
@@ -344,8 +344,8 @@ fzn_log_err_t fzn_log_body_text(const uint8_t *body, size_t body_len, char *out,
 		}
 		out[at++] = '\\';
 		out[at++] = 'x';
-		out[at++] = DIGITS[body[i] >> 4];
-		out[at++] = DIGITS[body[i] & 0x0fu];
+		fzn_hex_byte(body[i], out + at);
+		at += 2u;
 	}
 	out[at] = '\0';
 

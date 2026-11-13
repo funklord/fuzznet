@@ -3,12 +3,12 @@
 #include "responsible.h"
 
 #include "../local/escape.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static const char HEX[] = "0123456789abcdef";
 static const char LABEL[] = "fuzznet.responsible";
 
 struct scored {
@@ -169,8 +169,8 @@ size_t fzn_node_responsible_local(const fzn_node_responsible_t *nr, fzn_origin_t
 		}
 		items[used++] = ' ';
 		for (j = 0; j < 32u; j++) {
-			items[used++] = HEX[hosts[order[i]][j] >> 4];
-			items[used++] = HEX[hosts[order[i]][j] & 15u];
+			fzn_hex_byte(hosts[order[i]][j], items + used);
+			used += 2u;
 		}
 		shown++;
 	}

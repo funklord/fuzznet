@@ -1,6 +1,7 @@
 /* The local grammar's %XX escape, sec 668. */
 
 #include "escape.h"
+#include "../hex/hex.h"
 
 static int nibble(uint8_t c)
 {
@@ -15,7 +16,6 @@ static int nibble(uint8_t c)
 
 size_t fzn_escape(const uint8_t *in, size_t n, char *out, size_t cap, size_t *written)
 {
-	static const char HEX[] = "0123456789abcdef";
 	size_t i, w = 0;
 
 	for (i = 0; in && out && i < n; i++) {
@@ -25,8 +25,8 @@ size_t fzn_escape(const uint8_t *in, size_t n, char *out, size_t cap, size_t *wr
 			if (cap - w < 3u)
 				break;
 			out[w++] = '%';
-			out[w++] = HEX[c >> 4];
-			out[w++] = HEX[c & 15u];
+			fzn_hex_byte(c, out + w);
+			w += 2u;
 		} else {
 			if (cap - w < 1u)
 				break;

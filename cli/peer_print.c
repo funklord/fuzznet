@@ -1,5 +1,7 @@
 #include "peer_print.h"
 
+#include "../hex/hex.h"
+
 #include <string.h>
 
 #define DIGITS_MAX 21u
@@ -55,7 +57,6 @@ static void put_i64(struct sink *s, int64_t value)
  */
 static void put_verb(struct sink *s, const uint8_t *verb, size_t verb_len)
 {
-	static const char HEX[] = "0123456789abcdef";
 	size_t i;
 
 	if (!verb) {
@@ -78,8 +79,7 @@ static void put_verb(struct sink *s, const uint8_t *verb, size_t verb_len)
 
 		esc[0] = '\\';
 		esc[1] = 'x';
-		esc[2] = HEX[(c >> 4) & 0x0fu];
-		esc[3] = HEX[c & 0x0fu];
+		fzn_hex_byte(c, esc + 2);
 		put(s, esc, sizeof(esc));
 	}
 	put_str(s, "\"");

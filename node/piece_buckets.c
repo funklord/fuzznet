@@ -6,6 +6,7 @@
 
 #include "pieces.h"
 #include "../chunk/erasure.h"
+#include "../hex/hex.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -24,8 +25,7 @@ static void hex_of(const uint8_t *in, size_t n, char *out)
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		out[2u * i] = HEX[in[i] >> 4];
-		out[(2u * i) + 1u] = HEX[in[i] & 15u];
+		fzn_hex_byte(in[i], out + 2u * i);
 	}
 	out[2u * n] = '\0';
 }

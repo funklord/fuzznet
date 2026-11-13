@@ -85915,7 +85915,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099) | fuzzypickles' copy, until it pins past it | the local leg in binary under it (sec 1101) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
-| Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092) | | the tree's private hex tables moved onto it |
+| Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer on its one table (sec 1146) | | the private hex readers, whose case rules differ (sec 1146) |
 
 ## 1071. A call rings every host of the user, and the first to answer takes it, 2026-11-12
 
@@ -88232,3 +88232,42 @@ file's line keeps nothing; the sticker's pack kept by its whole
 reference and said. Sabotage `conversation-sticker-never-drawn`,
 `conversation-sticker-asked-again` and `conversation-keep-by-root` are
 each caught. The qtty render check sizes the view at 237 px.
+
+## 1146. Hex is written from one table, 2026-11-14
+
+**The register's last Encodings gap** (sec 1070, sec 1092: "the tree's
+private hex tables moved onto it"). Thirty-three modules each kept a
+`"0123456789abcdef"` and wrote digits from it by hand: escapers writing
+`%XX` or `\xXX` into a line, names and paths built from a key, rows a
+node answers with. `hex/hex.h` gains `fzn_hex_byte(byte, out[2])`, a
+byte's two digits and no NUL, and `fzn_hex_encode` is written over it,
+so every writer in the tree takes its digits from one table.
+
+**Inline, which is the point rather than a detail.** As an ordinary
+function in `hex/hex.c` it left about a hundred test binaries unlinked,
+since each names its objects by hand and none named `hex/hex.o` before.
+Inline in the header it adds a dependency on no object, and so changes
+no link line here or in a consumer that builds from `make manifest`.
+
+**The readers keep their tables, on purpose.** Eleven of these modules
+also READ hex with the same table, and they differ in case: a log name,
+an object row and a pack name are read back in lower case only, because
+a second spelling of a canonical name would be a second identity, while
+the records and messages readers take either case, as a `%XX` written by
+another escaper may be (sec 654). `fzn_hex_decode` takes either case, so
+moving those readers onto it would loosen the strict ones. That is a
+decision per reader and not a mechanical move, and it is left open
+rather than made in passing. Tests keep their own tables too: an
+independent table in a test is a second witness to the bytes, which is
+what a test is for. The daemon's five `strspn` checks against the digit
+string validate a name and stay, and so does
+`sticker/pack.c`'s upper-case `%XX` in a sticker reference, which is
+percent-encoding's alphabet (RFC 3986) rather than this one.
+
+**What must not change is every byte written**, and the change is held
+to that by the suites rather than by reading: 81 suites over the
+touched modules pass, every test binary builds under the tree's full
+warnings, and all 2285 sabotages still apply. Sabotage
+`hex-byte-digits-swapped`, which writes the low digit first, is caught
+by `hex_test`, `escape_test` and `persist_file_test` alike, so the
+converted writers are exercised through the helper and not around it.

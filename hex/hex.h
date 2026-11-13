@@ -15,6 +15,19 @@
  * static copies. */
 void fzn_hex_encode(const uint8_t *data, size_t data_len, char *out);
 
+/* ONE BYTE AS ITS TWO DIGITS at `out`, and no NUL: for an escaper writing
+ * `%XX` into a line, and a writer filling a field with no room for a
+ * terminator. The digits fzn_hex_encode writes, from the same table, so
+ * the tree keeps one (fuzznet sec 1146). INLINE, so a module that writes
+ * hex gains no object to link: some hundred test binaries name theirs by
+ * hand. */
+static inline void fzn_hex_byte(uint8_t byte, char out[2])
+{
+	static const char digits[] = "0123456789abcdef";
+	out[0] = digits[byte >> 4];
+	out[1] = digits[byte & 0x0Fu];
+}
+
 /* Fixed-length decode: hex string must decode to exactly out_len bytes. */
 int fzn_hex_decode(const char *hex, uint8_t *out, size_t out_len);
 

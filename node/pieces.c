@@ -12,6 +12,7 @@
 
 #include "../chunk/erasure.h"
 #include "../wire/bytes.h"
+#include "../hex/hex.h"
 
 const char *fzn_pieces_err_str(fzn_pieces_err_t err)
 {
@@ -44,7 +45,6 @@ const char *fzn_pieces_err_str(fzn_pieces_err_t err)
 #define LARGE_MAX (64u * 1024u * 1024u)
 #define PATH_MAX_ 640u
 
-static const char HEX[] = "0123456789abcdef";
 
 /* A piece's path: `dir/IDHEX.INDEX.piece`; 0 when it will not fit. */
 static int piece_path(char *out, size_t cap, const char *dir,
@@ -55,8 +55,7 @@ static int piece_path(char *out, size_t cap, const char *dir,
 	int k;
 
 	for (i = 0; i < FZN_BUCKETS_ID_LEN; i++) {
-		hex[2u * i] = HEX[id[i] >> 4];
-		hex[2u * i + 1u] = HEX[id[i] & 15u];
+		fzn_hex_byte(id[i], hex + 2u * i);
 	}
 	hex[2u * FZN_BUCKETS_ID_LEN] = '\0';
 	k = snprintf(out, cap, "%s/%s.%u.piece%s", dir, hex, index, tail);

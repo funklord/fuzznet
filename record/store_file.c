@@ -8,6 +8,7 @@
 #include "../fault/fault.h"
 
 #include "../wire/bytes.h"
+#include "../hex/hex.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -25,12 +26,10 @@
 
 static void hex(char *out, const uint8_t *bytes, size_t len)
 {
-	static const char DIGITS[] = "0123456789abcdef";
 	size_t i;
 
 	for (i = 0; i < len; i++) {
-		out[i * 2u] = DIGITS[bytes[i] >> 4];
-		out[i * 2u + 1u] = DIGITS[bytes[i] & 0x0fu];
+		fzn_hex_byte(bytes[i], out + i * 2u);
 	}
 	out[len * 2u] = '\0';
 }

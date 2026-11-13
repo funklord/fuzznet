@@ -4,6 +4,7 @@
 
 #include "../local/escape.h"
 #include "../sticker/pack.h"
+#include "../hex/hex.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -25,15 +26,13 @@
  * of its own size, so this bounds only what one file may ask for. */
 #define SPEC_MAX FZN_STICKER_PACK_MAX_LEN
 
-static const char HEX[] = "0123456789abcdef";
 
 static void hex_of(const uint8_t *b, size_t n, char *out)
 {
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		out[2u * i] = HEX[b[i] >> 4];
-		out[2u * i + 1u] = HEX[b[i] & 15u];
+		fzn_hex_byte(b[i], out + 2u * i);
 	}
 	out[2u * n] = '\0';
 }

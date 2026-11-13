@@ -26,6 +26,7 @@
 
 #include "persist_file.h"
 #include "../fault/fault.h"
+#include "../hex/hex.h"
 
 /* Diagnostics through flog, vendored and possibly absent. sec 209. */
 #ifdef FZN_FLOG_ON
@@ -67,7 +68,6 @@
 
 static int name_for(char *out, size_t cap, fzn_persist_slot_t slot, const uint8_t *subject)
 {
-	static const char HEX[] = "0123456789abcdef";
 	size_t at = 0;
 	unsigned i;
 
@@ -94,8 +94,8 @@ static int name_for(char *out, size_t cap, fzn_persist_slot_t slot, const uint8_
 		 * would share a file, which is the same class as a comparison
 		 * that reads a prefix -- and this tree has already had one. */
 		for (i = 0; i < 32u; i++) {
-			out[at++] = HEX[(subject[i] >> 4) & 0x0fu];
-			out[at++] = HEX[subject[i] & 0x0fu];
+			fzn_hex_byte(subject[i], out + at);
+			at += 2u;
 		}
 	} else {
 		out[at++] = 'h';

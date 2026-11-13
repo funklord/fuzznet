@@ -7,6 +7,7 @@
 #include "../state/setting.h"
 #include "../constant_time/constant_time.h"
 #include "../log/retain.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -682,8 +683,8 @@ static size_t list_records(const fzn_node_records_t *nr, const uint8_t *at, size
 					continue;
 				line[n++] = ' ';
 				for (k = 0; k < FZN_PUBKEY_LEN; k++) {
-					line[n++] = HEX[subject[k] >> 4];
-					line[n++] = HEX[subject[k] & 15u];
+					fzn_hex_byte(subject[k], line + n);
+					n += 2u;
 				}
 				line[n++] = ',';
 				memcpy(line + n, s.key, s.key_len);
@@ -819,8 +820,8 @@ static size_t get_record(const fzn_node_records_t *nr, const uint8_t *at, size_t
 	if (!fzn_node_records_place(nr, best, best_len, host, &(uint32_t){ 0 }, &s))
 		return say(reply, cap, FZN_REPLY_ERROR, "the record could not be read");
 	for (k = 0; k < FZN_PUBKEY_LEN; k++) {
-		detail[n++] = HEX[host[k] >> 4];
-		detail[n++] = HEX[host[k] & 15u];
+		fzn_hex_byte(host[k], detail + n);
+		n += 2u;
 	}
 	detail[n++] = ',';
 	memcpy(detail + n, s.key, s.key_len);

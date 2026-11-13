@@ -1,6 +1,7 @@
 #include "pack.h"
 
 #include "../wire/bytes.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1332,7 +1333,6 @@ static int text_valid(const unsigned char *t, size_t n)
 
 int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, size_t *len)
 {
-	static const char HEX[] = "0123456789abcdef";
 	char root[2u * FZN_STICKER_ROOT_LEN + 1u], key[2u * FZN_STICKER_KEY_LEN + 1u];
 	size_t i;
 	int n;
@@ -1345,10 +1345,8 @@ int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, 
 		    || ref->description[i] == '\0')
 			return 0;
 	for (i = 0; i < FZN_STICKER_ROOT_LEN; i++) {
-		root[2u * i] = HEX[ref->root[i] >> 4];
-		root[2u * i + 1u] = HEX[ref->root[i] & 15u];
-		key[2u * i] = HEX[ref->key[i] >> 4];
-		key[2u * i + 1u] = HEX[ref->key[i] & 15u];
+		fzn_hex_byte(ref->root[i], root + 2u * i);
+		fzn_hex_byte(ref->key[i], key + 2u * i);
 	}
 	root[2u * FZN_STICKER_ROOT_LEN] = key[2u * FZN_STICKER_KEY_LEN] = '\0';
 	if (ref->text_len && !text_valid((const unsigned char *)ref->text, ref->text_len))

@@ -11,6 +11,7 @@
 #include "../notes/share.h"
 #include "../notes/text.h"
 #include "../wire/bytes.h"
+#include "../hex/hex.h"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -117,8 +118,7 @@ static void hex_of(const uint8_t *b, size_t n, char *out)
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		out[i * 2u] = HEX[b[i] >> 4];
-		out[(i * 2u) + 1u] = HEX[b[i] & 15u];
+		fzn_hex_byte(b[i], out + i * 2u);
 	}
 }
 

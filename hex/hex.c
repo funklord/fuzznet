@@ -3,11 +3,8 @@
 #include <string.h>
 
 void fzn_hex_encode(const uint8_t *data, size_t data_len, char *out) {
-	static const char hex_digits[] = "0123456789abcdef";
-	for (size_t i = 0; i < data_len; i++) {
-		out[i * 2] = hex_digits[data[i] >> 4];
-		out[i * 2 + 1] = hex_digits[data[i] & 0x0F];
-	}
+	for (size_t i = 0; i < data_len; i++)
+		fzn_hex_byte(data[i], out + i * 2);
 	out[data_len * 2] = '\0';
 }
 

@@ -4,6 +4,7 @@
 
 #include "../local/escape.h"
 #include "../state/setting.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +13,6 @@
 #define REF_HOST_HEX 8u
 #define REF_TEXT_MAX (20u + 1u + REF_HOST_HEX)
 
-static const char HEX[] = "0123456789abcdef";
 
 /* ONE DECISION AS HELD: what it says, and whether another supersedes it. */
 struct held {
@@ -35,8 +35,8 @@ static size_t ref_text(uint64_t number, const uint8_t host[FZN_PUBKEY_LEN], char
 	size_t n = (size_t)sprintf(out, "%llu.", (unsigned long long)number), i;
 
 	for (i = 0; i < REF_HOST_HEX / 2u; i++) {
-		out[n++] = HEX[host[i] >> 4];
-		out[n++] = HEX[host[i] & 15u];
+		fzn_hex_byte(host[i], out + n);
+		n += 2u;
 	}
 	out[n] = '\0';
 	return n;
@@ -434,8 +434,8 @@ static void row(void *ctx, const fzn_node_decision_t *d)
 		line[n++] = ',';
 	}
 	for (i = 0; i < FZN_PUBKEY_LEN; i++) {
-		line[n++] = HEX[d->host[i] >> 4];
-		line[n++] = HEX[d->host[i] & 15u];
+		fzn_hex_byte(d->host[i], line + n);
+		n += 2u;
 	}
 	n += (size_t)sprintf(line + n, ",%llu,", (unsigned long long)d->at);
 	if (fzn_escape(d->grounds, d->grounds_len, line + n, sizeof(line) - n, &wrote)

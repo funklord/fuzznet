@@ -15,6 +15,7 @@
 #endif
 
 #include "../constant_time/constant_time.h"
+#include "../hex/hex.h"
 
 #include <string.h>
 
@@ -253,7 +254,6 @@ const char *fzn_trust_source_str(fzn_trust_source_t source)
 fzn_trust_err_t fzn_trust_fingerprint(const uint8_t key[FZN_PUBKEY_LEN], char *out,
                                        size_t cap)
 {
-	static const char DIGITS[] = "0123456789abcdef";
 	size_t i;
 	size_t at = 0;
 
@@ -271,8 +271,8 @@ fzn_trust_err_t fzn_trust_fingerprint(const uint8_t key[FZN_PUBKEY_LEN], char *o
 		 * bytes, so the separator falls on even indices past zero. */
 		if (i != 0 && (i % 2u) == 0u)
 			out[at++] = ' ';
-		out[at++] = DIGITS[key[i] >> 4];
-		out[at++] = DIGITS[key[i] & 0x0fu];
+		fzn_hex_byte(key[i], out + at);
+		at += 2u;
 	}
 	out[at] = '\0';
 

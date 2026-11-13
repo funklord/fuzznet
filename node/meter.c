@@ -3,6 +3,7 @@
 #include "types.h"
 #include "../log/cause.h"
 #include "../spool/message.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -100,7 +101,6 @@ fzn_meter_family_t fzn_meter_family_of(const uint8_t *payload, size_t len,
 	}
 }
 
-static const char HEX[] = "0123456789abcdef";
 
 /* A ROW'S NAME, `meter/FAMILY/DIR/PEER[/KEY]`: 0 when it will not fit. */
 static int row_name(fzn_meter_family_t family, const char *dir, const char *peer,
@@ -121,8 +121,7 @@ static int row_name(fzn_meter_family_t family, const char *dir, const char *peer
 	if (key_len) {
 		hex[0] = '/';
 		for (i = 0; i < key_len; i++) {
-			hex[1u + 2u * i] = HEX[key[i] >> 4];
-			hex[2u + 2u * i] = HEX[key[i] & 15u];
+			fzn_hex_byte(key[i], hex + 1u + 2u * i);
 		}
 		hex[1u + 2u * key_len] = '\0';
 	}

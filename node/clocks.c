@@ -1,5 +1,6 @@
 #include "clocks.h"
 #include "types.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -106,7 +107,6 @@ size_t fzn_node_clocks_local(fzn_node_clocks_t *c, fzn_origin_t origin,
                              const fzn_request_t *request, uint64_t now, char *reply,
                              size_t cap)
 {
-	static const char HEX[] = "0123456789abcdef";
 	const uint8_t *at = request ? request->arg : NULL, *w;
 	size_t left = request ? request->arg_len : 0u, n, from = 0, out, i, k;
 
@@ -130,8 +130,7 @@ size_t fzn_node_clocks_local(fzn_node_clocks_t *c, fzn_origin_t origin,
 		int m;
 
 		for (k = 0; k < FZN_PUBKEY_LEN; k++) {
-			row[2u * k] = HEX[c->rows[i].peer[k] >> 4];
-			row[2u * k + 1u] = HEX[c->rows[i].peer[k] & 15u];
+			fzn_hex_byte(c->rows[i].peer[k], row + 2u * k);
 		}
 		m = snprintf(row + 2u * FZN_PUBKEY_LEN, sizeof(row) - 2u * FZN_PUBKEY_LEN,
 		             ",%s,%llu,%llu", c->rows[i].ahead ? "ahead" : "behind",
@@ -324,7 +323,6 @@ size_t fzn_node_offsets_local(fzn_node_offsets_t *o, fzn_origin_t origin,
                               const fzn_request_t *request, uint64_t now, char *reply,
                               size_t cap)
 {
-	static const char HEX[] = "0123456789abcdef";
 	const uint8_t *at = request ? request->arg : NULL, *w;
 	size_t left = request ? request->arg_len : 0u, n, from = 0, out, i, k;
 
@@ -350,8 +348,7 @@ size_t fzn_node_offsets_local(fzn_node_offsets_t *o, fzn_origin_t origin,
 		int m;
 
 		for (k = 0; k < FZN_PUBKEY_LEN; k++) {
-			row[2u * k] = HEX[r->peer[k] >> 4];
-			row[2u * k + 1u] = HEX[r->peer[k] & 15u];
+			fzn_hex_byte(r->peer[k], row + 2u * k);
 		}
 		m = snprintf(row + 2u * FZN_PUBKEY_LEN, sizeof(row) - 2u * FZN_PUBKEY_LEN,
 		             ",%lld,%llu,%llu", (long long)r->offset_ms[b],

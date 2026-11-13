@@ -1,6 +1,7 @@
 /* See capture.h. */
 
 #include "capture.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -65,7 +66,6 @@ static int unsafe_code_point(uint32_t cp)
 
 static size_t escape_impl(const uint8_t *in, size_t len, char *out, size_t cap, int space)
 {
-	static const char HEX[] = "0123456789abcdef";
 	size_t i = 0, w = 0;
 
 	if (!out || cap == 0u)
@@ -94,8 +94,8 @@ static size_t escape_impl(const uint8_t *in, size_t len, char *out, size_t cap, 
 			for (k = 0; k < take; k++) {
 				out[w++] = '\\';
 				out[w++] = 'x';
-				out[w++] = HEX[in[i + k] >> 4];
-				out[w++] = HEX[in[i + k] & 0x0fu];
+				fzn_hex_byte(in[i + k], out + w);
+				w += 2u;
 			}
 		}
 		i += take;

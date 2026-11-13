@@ -1,6 +1,7 @@
 /* See objects.h. */
 
 #include "objects.h"
+#include "../hex/hex.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -235,8 +236,8 @@ fzn_node_object_err_t fzn_node_object_set(const fzn_node_objects_t *o, const uin
 	if (by) {
 		row[n++] = ' ';
 		for (i = 0; i < FZN_PUBKEY_LEN; i++) {
-			row[n++] = (uint8_t)HEX[by[i] >> 4];
-			row[n++] = (uint8_t)HEX[by[i] & 0x0fu];
+			fzn_hex_byte(by[i], (char *)row + n);
+			n += 2u;
 		}
 	}
 	/* HELD TO ITS WINDOW, sec 1034, where a rate gate is set. */
@@ -393,8 +394,7 @@ static size_t row_text(const fzn_node_object_t *x, char sep, int with_name, char
 
 	if (x->value_len) {
 		for (i = 0; i < FZN_PUBKEY_LEN; i++) {
-			by[2u * i] = HEX[x->by[i] >> 4];
-			by[2u * i + 1u] = HEX[x->by[i] & 0x0fu];
+			fzn_hex_byte(x->by[i], by + 2u * i);
 		}
 		by[2u * FZN_PUBKEY_LEN] = '\0';
 	} else {

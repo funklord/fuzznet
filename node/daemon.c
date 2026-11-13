@@ -148,6 +148,7 @@
 #include "../log/cause.h"
 #include "../log/view.h"
 #include "../log/rules.h"
+#include "../hex/hex.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../log/gather.h"
 #include "../log/logger.h"
@@ -9555,12 +9556,10 @@ static fzn_persist_err_t peers_load(const fzn_persist_ops_t *store, size_t *coun
 
 static void hex_of(const uint8_t *b, size_t n, char *out)
 {
-	static const char H[] = "0123456789abcdef";
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		out[2u * i] = H[b[i] >> 4];
-		out[2u * i + 1u] = H[b[i] & 15u];
+		fzn_hex_byte(b[i], out + 2u * i);
 	}
 	out[2u * n] = '\0';
 }
@@ -10325,8 +10324,8 @@ static void stage_row(void *ctx, const uint8_t *bytes, size_t len, const fzn_sta
 		return;
 	l->out[l->used++] = ' ';
 	for (k = 0; k < FZN_STAGE_TOKEN_LEN; k++) {
-		l->out[l->used++] = "0123456789abcdef"[st->token[k] >> 4];
-		l->out[l->used++] = "0123456789abcdef"[st->token[k] & 15u];
+		fzn_hex_byte(st->token[k], l->out + l->used);
+		l->used += 2u;
 	}
 	m = snprintf(l->out + l->used, l->cap - l->used, ",%llu,%.*s",
 	             (unsigned long long)st->deadline_ms, (int)revert.key_len,
@@ -10506,8 +10505,7 @@ static int seal_to(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *key, size_
 		return 0;
 	memcpy(text, FZN_NODE_SETTINGS_SEALED, FZN_NODE_SETTINGS_SEALED_LEN);
 	for (k = 0; k < box_len; k++) {
-		text[FZN_NODE_SETTINGS_SEALED_LEN + 2u * k] = "0123456789abcdef"[box[k] >> 4];
-		text[FZN_NODE_SETTINGS_SEALED_LEN + 2u * k + 1u] = "0123456789abcdef"[box[k] & 15u];
+		fzn_hex_byte(box[k], text + FZN_NODE_SETTINGS_SEALED_LEN + 2u * k);
 	}
 	fzn_wipe(box, sizeof(box));
 	err = fzn_node_settings_write(&node_settings, FZN_SCOPE_HOST, host, key, key_len, 1,
@@ -14869,13 +14867,11 @@ static size_t stream_take(const char *name, size_t name_len, const uint8_t *orig
 	 * tray, a map -- reads them as they come rather than polling. The
 	 * name in hex, since an event's NAME is hex (`node/events.h`). */
 	if (taken && name_len <= FZN_STREAM_NAME_MAX) {
-		static const char HEXDIGITS[] = "0123456789abcdef";
 		char named[2u * FZN_STREAM_NAME_MAX + 1u];
 		size_t i;
 
 		for (i = 0; i < name_len; i++) {
-			named[2u * i] = HEXDIGITS[(uint8_t)name[i] >> 4];
-			named[2u * i + 1u] = HEXDIGITS[(uint8_t)name[i] & 15u];
+			fzn_hex_byte((uint8_t)name[i], named + 2u * i);
 		}
 		named[2u * name_len] = '\0';
 		publish("stream", named);

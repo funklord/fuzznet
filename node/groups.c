@@ -7,6 +7,7 @@
 
 #include "../prekey/prekey.h"
 #include "../session/box.h"
+#include "../hex/hex.h"
 
 /* ---- names ---------------------------------------------------------------- */
 
@@ -773,12 +774,10 @@ static size_t contact_refusal(char *reply, size_t cap, fzn_contact_err_t err)
 
 static void hex_of(const uint8_t *in, size_t n, char *out)
 {
-	static const char digits[] = "0123456789abcdef";
 	size_t i;
 
 	for (i = 0; i < n; i++) {
-		out[2u * i] = digits[in[i] >> 4];
-		out[2u * i + 1u] = digits[in[i] & 15u];
+		fzn_hex_byte(in[i], out + 2u * i);
 	}
 }
 
