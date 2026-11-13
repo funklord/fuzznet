@@ -330,6 +330,14 @@ static void test_who_may_do_what(void)
 	CHECK(apply(&g, &a) == FZN_GROUP_LOG_ERR_NOT_NEXT, "an act at a stale place applied");
 	act(&a, FZN_GROUP_ACT_ADD, 0x11u, g.id, g.seq, nonce, u3);
 	CHECK(apply(&g, &a) == FZN_GROUP_LOG_ERR_NOT_NEXT, "an act after another head applied");
+	/* THE LAST ADMIN, ALONE NOW, MAY LEAVE, sec 1096: the group ends, and a
+	 * host holding an older copy learns it rather than giving it back. */
+	epoch = g.epoch;
+	CHECK(next(&g, FZN_GROUP_ACT_LEAVE, 0x11u, u1) == FZN_GROUP_LOG_OK && g.n_members == 0u
+	              && g.n_admins == 0u && g.epoch == epoch + 1u,
+	      "the last admin, alone, could not leave");
+	CHECK(next(&g, FZN_GROUP_ACT_ADD, 0x11u, u2) == FZN_GROUP_LOG_ERR_DENIED,
+	      "an admin who left still added someone");
 }
 
 static void test_the_admins_change_by_a_majority(void)

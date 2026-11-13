@@ -514,6 +514,14 @@ static void test_the_verbs(void)
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message carol 99999999999999999999999")
 	              && replied("malformed"),
 	      "a FROM past what a size holds is refused");
+	/* A GROUP NOT HELD HERE, sec 1096: said so, not the usage line. */
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message @nosuchcrew")
+	              && replied("error no such group here"),
+	      "a group not held was answered as a malformed line");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "list message @b993300ab993300ab993300ab993300ab993300ab993300ab993300ab993300a")
+	              && replied("error no such group here"),
+	      "a group's id not held was answered as a malformed line");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message carol unread") && replied("ok 1 0"),
 	      "one line in, nothing read: one unread");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol out " ID1 " settled")

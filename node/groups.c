@@ -369,6 +369,9 @@ fzn_contact_err_t fzn_node_groups_name_learned(const fzn_node_groups_t *g,
 {
 	static fzn_group_act_t a;
 	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	static fzn_group_t held;
+	static fzn_contact_device_t self;
+	uint8_t other[FZN_GROUP_ID_LEN];
 	char name[FZN_CONTACT_NAME_MAX + 1u];
 	size_t len = 0, i;
 
@@ -376,6 +379,13 @@ fzn_contact_err_t fzn_node_groups_name_learned(const fzn_node_groups_t *g,
 		return FZN_CONTACT_ERR_MALFORMED;
 	if (fzn_node_group_name(g->log.store, id, name, &len) == FZN_CONTACT_OK)
 		return FZN_CONTACT_OK;
+	/* ONLY A GROUP THIS USER IS IN, sec 1096: an act of one it left still
+	 * arrives, as the log is served on, and named again it took the name
+	 * back from the group made since -- `@family` naming the group left. */
+	if (!g->signer || !g->signer(g->signer_ctx, &self)
+	    || fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK
+	    || !fzn_group_is_member(&held, self.owner))
+		return FZN_CONTACT_ERR_ABSENT;
 	/* ITS MAKER'S NAME, where the CREATE act carries one and it is free. */
 	if (fzn_group_log_act(&g->log, id, 0u, bytes, sizeof(bytes), &len) == FZN_GROUP_LOG_OK
 	    && fzn_group_act_decode(bytes, len, &a) == FZN_GROUP_ACT_OK
@@ -392,6 +402,16 @@ fzn_contact_err_t fzn_node_groups_name_learned(const fzn_node_groups_t *g,
 
 			if (!n)
 				break;
+			/* A NAME HELD BY A GROUP LEFT is free, sec 1096: a leave lost to
+			 * a fork made this user a member again for a round, the group
+			 * was named, and the redone leave left the name behind on a
+			 * group nobody here lists. */
+			if (g->log.store->remove
+			    && fzn_node_group_find(g->log.store, want, n, other) == FZN_CONTACT_OK
+			    && memcmp(other, id, FZN_GROUP_ID_LEN) != 0
+			    && fzn_group_log_get(g->log.store, other, &held) == FZN_GROUP_LOG_OK
+			    && !fzn_group_is_member(&held, self.owner))
+				(void)g->log.store->remove(g->log.store->ctx, FZN_PERSIST_GROUP_LABEL, other);
 			if (fzn_node_group_rename(g->log.store, id, want, n) == FZN_CONTACT_OK)
 				return FZN_CONTACT_OK;
 		}
@@ -805,11 +825,15 @@ static size_t make_group(const fzn_node_groups_t *g, const uint8_t *name, size_t
 
 /* `remove group NAME`: left, if this user is still in it, and forgotten
  * here -- its shares first, as sec 478 has it, then its name. THE LOG
- * STAYS while others are in the group: the leave is an act of this host's
- * that the others learn by asking it, so it is served on, unnamed and out
- * of `list group`. A group nobody else is in goes whole. The last admin
- * of a group others are in may not leave, and so may not forget it
- * either: another admin is made first. */
+ * STAYS while another host may hold it: the leave is an act of this
+ * host's that the others learn by asking it, so it is served on, unnamed
+ * and out of `list group`. A group that never had another member -- its
+ * epoch still the first -- goes whole. ONE OTHERS WERE IN, though nobody
+ * else is now, is left like any other, sec 1096: a member who left keeps
+ * its copy to serve its own leave, and in that copy this user is still in
+ * the group, so a delete that wrote nothing was undone by the next round.
+ * The last admin of a group others are in may not leave, and so may not
+ * forget it either: another admin is made first. */
 static size_t forget_group(const fzn_node_groups_t *g, const uint8_t *id, char *reply,
                            size_t cap)
 {
@@ -826,8 +850,9 @@ static size_t forget_group(const fzn_node_groups_t *g, const uint8_t *id, char *
 		return log_refusal(reply, cap, err);
 	if (!g->signer(g->signer_ctx, &self))
 		return say(reply, cap, FZN_REPLY_ERROR, "this host cannot act for its user");
-	alone = held.n_members == 0u
-	        || (held.n_members == 1u && fzn_group_is_member(&held, self.owner));
+	alone = held.epoch <= 1u
+	        && (held.n_members == 0u
+	            || (held.n_members == 1u && fzn_group_is_member(&held, self.owner)));
 	if (!alone && fzn_group_is_member(&held, self.owner)) {
 		err = fzn_node_groups_act(g, FZN_GROUP_ACT_LEAVE, id, self.owner, 0u, 0u, NULL);
 		/* THE LAST ADMIN'S LEAVE, refused by the log's own judgement: said

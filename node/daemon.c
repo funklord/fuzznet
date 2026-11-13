@@ -13229,6 +13229,16 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
  * hex, until its user renames it (sec 837). */
 static void group_named(const uint8_t *id)
 {
+	size_t i;
+
+	/* NOT ONE THIS USER IS LEAVING, sec 1096: a leave a fork dropped makes
+	 * this user a member again until it is made again at the round's end,
+	 * and named in between the group took its name back from the group made
+	 * since, which went by `name_2` for good. */
+	for (i = 0; i < group_lost.n; i++)
+		if (group_lost.acts[i].kind == FZN_GROUP_ACT_LEAVE
+		    && memcmp(group_lost.acts[i].group, id, FZN_GROUP_ID_LEN) == 0)
+			return;
 	(void)fzn_node_groups_name_learned(&node_groups, id);
 }
 

@@ -876,6 +876,67 @@ static void test_the_last_admin_is_told_the_ways_out(void)
 	      "with another admin, the leave was still refused");
 }
 
+/* A GROUP OTHERS WERE IN, DELETED ALONE, sec 1096: fuzzypickles' remade crew.
+ * The admin removes the last other member and deletes; the delete is a
+ * signed leave, the log is kept to serve it, and an act of the group
+ * arriving later does not name it again here. */
+static void test_a_group_once_shared_is_left_alone(void)
+{
+	struct user *a = &users[0], *b = &users[1];
+	static fzn_group_t held;
+	uint8_t id[FZN_GROUP_ID_LEN], again[FZN_GROUP_ID_LEN];
+	char reply[1024], name[FZN_CONTACT_NAME_MAX + 1u];
+	size_t i, len = 0;
+	int read = 1;
+
+	user_up(a, 0x44u);
+	user_up(b, 0x55u);
+	CHECK(verb(a, "add group crew", reply, sizeof(reply)) && strncmp(reply, "ok ", 3) == 0,
+	      "fixture: crew made");
+	for (i = 0; i < FZN_GROUP_ID_LEN; i++) {
+		unsigned v = 0;
+
+		read &= sscanf(reply + 3u + 2u * i, "%2x", &v) == 1;
+		id[i] = (uint8_t)v;
+	}
+	CHECK(read
+	              && fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u,
+	                                     0u, NULL) == FZN_GROUP_LOG_OK
+	              && fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_REMOVE, id, b->device.owner,
+	                                     0u, 0u, NULL) == FZN_GROUP_LOG_OK,
+	      "fixture: B added and removed");
+	CHECK(verb(a, "remove group crew", reply, sizeof(reply)) && strcmp(reply, "ok\n") == 0,
+	      "the admin, alone in a group once shared, could not delete it");
+	CHECK(fzn_group_log_get(a->groups.log.store, id, &held) == FZN_GROUP_LOG_OK
+	              && held.n_members == 0u,
+	      "the delete wrote no leave, or did not keep the log to serve it");
+	CHECK(fzn_node_groups_name_learned(&a->groups, id) != FZN_CONTACT_OK
+	              && fzn_node_group_name(a->groups.log.store, id, name, &len) != FZN_CONTACT_OK,
+	      "a group left was named again by an act of it arriving");
+	CHECK(verb(a, "list group", reply, sizeof(reply)) && strncmp(reply, "ok 0 0", 6) == 0,
+	      "a group left is still listed");
+	/* A NAME LEFT BEHIND ON IT GIVES WAY: the group made again, as if
+	 * learned, takes its maker's name from the group left. */
+	CHECK(verb(a, "add group crew", reply, sizeof(reply)) && strncmp(reply, "ok ", 3) == 0,
+	      "fixture: crew made again");
+	for (i = 0; i < FZN_GROUP_ID_LEN; i++) {
+		unsigned v = 0;
+
+		read &= sscanf(reply + 3u + 2u * i, "%2x", &v) == 1;
+		again[i] = (uint8_t)v;
+	}
+	CHECK(read
+	              && a->groups.log.store->remove(a->groups.log.store->ctx,
+	                                             FZN_PERSIST_GROUP_LABEL, again)
+	              && fzn_node_group_rename(a->groups.log.store, id, "crew", 4u) == FZN_CONTACT_OK,
+	      "fixture: the name left on the group left, the new one unnamed");
+	CHECK(fzn_node_groups_name_learned(&a->groups, again) == FZN_CONTACT_OK
+	              && fzn_node_group_name(a->groups.log.store, again, name, &len) == FZN_CONTACT_OK
+	              && len == 4u && memcmp(name, "crew", 4u) == 0
+	              && fzn_node_group_name(a->groups.log.store, id, name, &len) != FZN_CONTACT_OK,
+	      "a name left on a group left did not give way to the group made again");
+}
+
 /* TWO GROUPS OF ONE NAME AT A MEMBER, sec 890: fuzzypickles' group-same-name.
  * The second goes by `crew_2`, each still found by its id. */
 static void test_two_groups_of_one_name(void)
@@ -1051,6 +1112,7 @@ int main(void)
 	test_a_members_host_is_its_members();
 	test_two_groups_of_one_name();
 	test_the_last_admin_is_told_the_ways_out();
+	test_a_group_once_shared_is_left_alone();
 	test_a_host_whose_prekey_rotated();
 	if (failures) {
 		fprintf(stderr, "node groups_test: %d of %d checks failed\n", failures, checks);

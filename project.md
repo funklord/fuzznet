@@ -86721,3 +86721,66 @@ the line already read was answered `ok unchanged`, and in the 3 s after it B1 he
 line refiled by a reconcile, a mark absorbed from B2 -- and the check counted any of them as
 the read's. Each attempt now waits for 2 s of silence first (at most 15 s), and the check fails
 only when all three publish, which a read that publishes always does.
+
+## 1096. A group left alone is left, and a left group is not named again, 2026-11-13
+
+**fuzzypickles' remade crew (sec 1095, its 0503Z), reproduced here.** `live_groups` phase h runs
+its sequence -- the member leaves, the admin removes it as well and deletes, makes the group again
+under the old name, adds the member back and writes -- and in its first run A, the admin, held the
+old `family` again with two members, the new one pushed to `family_3`. Two faults made it:
+
+- **A delete with nobody else left wrote nothing.** `remove group` dropped the whole log when its
+  user was the only member, because the last admin may not leave. But the member who left first
+  keeps its copy of the log to serve its own leave, and in that copy the admin is still in the
+  group -- so the next round gave the admin the group back. **The log now lets the last admin
+  leave when it is also the last member**: the group ends, with nobody stranded without an
+  admin, which is all the rule protected. A group whose epoch is still the first never had
+  another member and goes whole as before; one others were in is left by a signed leave and its
+  log kept to serve it, like any other group left.
+- **A left group was named again by its next act.** Every act taken from a peer named its group
+  here if it had no name, so a group left -- whose log is served on -- took its maker's name back
+  as soon as any act of it arrived, and the group made since went by `name_2`: `@family` naming
+  the group left, which is the phase g failure of sec 1091. **Only a group this user is in is
+  named now.**
+
+**The phase g failure has the same root.** In run 1 here B left, and A, not yet knowing it, left
+too (B an admin, so A was not the last): the log forked, A's leave won, B's was dropped, and the
+redo of B's leave was refused because B was now the last admin. B stood alone in the old group,
+named `family`. Under the new rule that redo goes through.
+
+**And the name had to come free twice more**, which five runs after the first fix showed (B held
+only `family_2`, 2 of 5): while B's dropped leave waits for the round's end to be made again, B
+is a member of the old group, and naming it then gave it `family` back. So **the daemon does not
+name a group while a leave of this host's for it waits to be made again**, and **a name held by
+a group this user is not in gives way** to one it is in, for a name left behind before a restart
+(the lost acts are read from disk only at the first round's end).
+
+**A rule change on the wire**: a host before this judges an alone admin's leave DENIED, so an
+old host keeps such a group's log one act short. Wire changes are free (sec 924), and every
+consumer is pinned.
+
+**Sabotage:** `group-alone-admin-stays`, `group-shared-deleted-whole`, `group-left-named-again`,
+`group-left-keeps-its-name` and `list-message-no-group-malformed`, each caught by the unit tests;
+`group-last-admin-stays` rewritten for the new line. The daemon's lost-leave check is reached only
+live.
+
+**Tests:** `group_log_test` -- the last admin alone leaves, and then may not add; `groups_test`
+-- an admin who removed the last other member deletes with a leave, the log kept, the group not
+named again by `name_learned` and not listed. `live_groups` phase h, as above, and it also checks
+that the admin does not get the old group back.
+
+**Measured:** `live_groups` six runs at this change: phases g and h passed in all four that
+reached them (g had failed 3 of 5 before it), and the older phase e failed the other two.
+
+**A lead on phase e, not a cause:** in both failures, and in none of the four passes, B and C each
+log `127.0.0.1 refused: this user does not advertise where it is reached` -- A refusing a contact's
+ROUTING_ASK (sec 699). A host asks for routing only on a reachability path the passing runs never
+took, so the failing runs diverge there, before the share is asked. Phase e now prints B's log
+beside C's when it fails.
+
+**Still open from fuzzypickles' report:** the remade group's first line not delivered to the
+member added just before (alice holds the group, by name and id, but not carol's line), not yet
+seen here because phase h stopped earlier.
+
+**And `list message @ID` for a group not held** answered the usage line, as though malformed;
+it says `error no such group here` now, notes' wording (`messages_test`).

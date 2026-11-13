@@ -278,8 +278,11 @@ static fzn_group_log_err_t judge(fzn_group_t *g, const fzn_group_act_t *a, const
 			return FZN_GROUP_LOG_ERR_MOOT;
 		if (fzn_group_is_admin(g, a->subject)) {
 			/* AN ADMIN is removed as an admin first, by a majority; and
-			 * the last one may not leave. */
-			if (a->kind == FZN_GROUP_ACT_REMOVE || g->n_admins == 1u)
+			 * the last one may not leave while others are in the group.
+			 * ALONE, it may, sec 1096: the group ends, and a host that
+			 * held it learns so -- a delete that wrote nothing let a
+			 * member's old copy give the group back. */
+			if (a->kind == FZN_GROUP_ACT_REMOVE || (g->n_admins == 1u && g->n_members > 1u))
 				return FZN_GROUP_LOG_ERR_DENIED;
 			drop_at(g->admins, &g->n_admins,
 			        find((const uint8_t (*)[FZN_PUBKEY_LEN])g->admins, g->n_admins,

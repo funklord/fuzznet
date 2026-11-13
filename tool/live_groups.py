@@ -382,8 +382,13 @@ def main(argv):
 			if not pulled or int(pulled.group(1)) == 0:
 				told = [l[-200:] for l in started["c"].log().splitlines()
 				        if any(w in l for w in ("group", "received", "refused", "node/peer"))]
-				raise failed("e: C pulled nothing B shares with the group%s"
-				             % "".join("\n  " + l for l in told[-12:]))
+				# AND B'S SIDE, which C's cannot show: whether B served the
+				# share, or refused C, in the rounds C asked it.
+				served = [l[-200:] for l in started["b"].log().splitlines()
+				          if any(w in l for w in ("share", "group", "refused", "node/peer"))]
+				raise failed("e: C pulled nothing B shares with the group%s\n B:%s"
+				             % ("".join("\n  " + l for l in told[-12:]),
+				                "".join("\n  " + l for l in served[-12:])))
 			print("livecheck: e: B shared a note with the group, and C pulled it from B")
 
 			# e2: A, C's contact and a member, shares with the group too; C's
@@ -601,6 +606,49 @@ def main(argv):
 				raise failed("g: at B @family is not the remade group: B holds %r"
 				             % (groups(socks["b"], "b"),))
 			print("livecheck: g: A remade family under its old name, and its first line reached B")
+
+			# h: FUZZYPICKLES' SEQUENCE EXACTLY (its 0503Z): the member leaves, the
+			# admin removes it as well and deletes, makes the group again under the
+			# name, adds the member back and writes. The member must file that first
+			# line, and the admin must not get the group it left back.
+			old_id = new_id
+			expect(socks["b"], "b", "remove group family", "ok")
+			expect(socks["a"], "a", "remove member family bob", "ok")
+			expect(socks["a"], "a", "remove group family", "ok")
+			made = ask(socks["a"], "add group family").split()
+			if made[:1] != ["ok"] or len(made) != 2:
+				raise failed("h: the remade add group family answered %r" % made)
+			new_id = made[1]
+			expect(socks["a"], "a", "add member family bob", "ok")
+			for rnd in range(ROUNDS):
+				if b_holds_new():
+					break
+				turn("a", "a-h%d" % rnd)
+				turn("b", "b-h%d" % rnd)
+			if not b_holds_new():
+				raise failed("h: B never learned the remade family %s: B holds %r"
+				             % (new_id[:16], groups(socks["b"], "b")))
+			expect(socks["a"], "a", "add message @family out %s first_in_h" % ("e2" * 16), "ok")
+			def b_has_h():
+				reply = ask(socks["b"], "list message @" + new_id)
+				return any(item.endswith(",first_in_h") for item in reply.split()[4:])
+			for rnd in range(ROUNDS):
+				if b_has_h():
+					break
+				turn("a", "a-h2%d" % rnd)
+				turn("b", "b-h2%d" % rnd)
+			if not b_has_h():
+				raise failed("h: B never filed A's first line in the remade family %s; B holds "
+				             "%r, epoch at B %r, at A %r; A's water %r"
+				             % (new_id[:16], groups(socks["b"], "b"),
+				                ask(socks["b"], "get epoch " + new_id),
+				                ask(socks["a"], "get epoch " + new_id),
+				                ask(socks["a"], "get group %s water" % new_id)))
+			if ask(socks["a"], "get group " + old_id).startswith("ok"):
+				raise failed("h: A holds the family it left again: A holds %r"
+				             % (groups(socks["a"], "a"),))
+			print("livecheck: h: the admin removed the member, remade family, and its first "
+			      "line reached B; A did not get the old family back")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

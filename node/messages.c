@@ -1193,6 +1193,7 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
 
 /* WHO: a contact's name, or a key in hex. */
 static int who_ambiguous;
+static int who_no_group; /* the same, for an `@GROUP` not held here */
 
 static int who(const fzn_node_messages_t *nm, const uint8_t *w, size_t w_len,
                uint8_t key[FZN_PUBKEY_LEN])
@@ -1201,12 +1202,15 @@ static int who(const fzn_node_messages_t *nm, const uint8_t *w, size_t w_len,
 	fzn_contact_err_t err;
 
 	who_ambiguous = 0;
+	who_no_group = 0;
 	if (parse_hex(w, w_len, key, FZN_PUBKEY_LEN))
 		return 1;
 	/* `@NAME` IS A GROUP, sec 629: its conversation is keyed by its id. */
-	if (w_len > 1u && w[0] == '@')
-		return fzn_node_group_find(nm->m.store, (const char *)w + 1, w_len - 1u, key)
-		       == FZN_CONTACT_OK;
+	if (w_len > 1u && w[0] == '@') {
+		err = fzn_node_group_find(nm->m.store, (const char *)w + 1, w_len - 1u, key);
+		who_no_group = err == FZN_CONTACT_ERR_ABSENT;
+		return err == FZN_CONTACT_OK;
+	}
 	err = fzn_contact_find(nm->m.store, (const char *)w, w_len, &c);
 	who_ambiguous = err == FZN_CONTACT_ERR_AMBIGUOUS;
 	if (err != FZN_CONTACT_OK)
@@ -1222,6 +1226,12 @@ static size_t who_refused(char *reply, size_t cap, const char *usage)
 	if (who_ambiguous) {
 		who_ambiguous = 0;
 		return say(reply, cap, FZN_REPLY_ERROR, fzn_contact_err_str(FZN_CONTACT_ERR_AMBIGUOUS));
+	}
+	/* NOR IS A GROUP NOT HELD HERE, sec 1096: said as the usage line, it
+	 * read to fuzzypickles as though `@ID` were malformed. */
+	if (who_no_group) {
+		who_no_group = 0;
+		return say(reply, cap, FZN_REPLY_ERROR, "no such group here");
 	}
 	return say(reply, cap, FZN_REPLY_MALFORMED, usage);
 }
