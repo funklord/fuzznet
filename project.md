@@ -86887,3 +86887,44 @@ The holder: "we may soon be able to test an embedded version using hal9001 on hu
 hull". The embedded profile (sec 922) has run here only as a host build (`make embedded`,
 `livecheck-embedded`). When either is usable on hull, run that profile's fuzznetd and its live
 scripts there; hal9001 is being fixed and modernised first (its `project.md`).
+
+## 1101. The local leg in binary: a plan for sec 1061 step 5, 2026-11-13
+
+The typed client is in (secs 1098-1099), and step 5 sits under it: a host's own clients speak the
+binary message set on the local socket, "unencrypted there ... staged with fuzzypickles, a text
+rendering left to the CLI" (sec 1061). **This is a plan, not a decision**; what it leaves open is
+named with whose it is.
+
+**Measured, 2026-11-13:** 13 local verbs (`local/vocabulary.h`) over about 54 subject words, about
+140 typed calls, and the events stream (`get events`). The socket is an `AF_UNIX` stream, one
+request per connection, a reply line back; events hold a connection and send lines.
+
+**Framing, which the aims decide** (the remote hop already does it): a request whose first byte is
+below 0x20 is a CMD, never a verb's first letter, so text and binary share the socket by that byte
+with no negotiation. A binary request is whole when the client shuts its write half, and its reply
+is the bytes the daemon writes before it closes -- no length field, since each connection carries
+one request. Events, held open, become frames with a two-byte length. Refusals are STATUS (19),
+as between hosts.
+
+**Categories -- the holder's choice, between two:**
+- **A. Each local operation a SUBCMD under its subject's CMD** -- `list message` under MESSAGES
+  (10), `add group` under GROUPS (13) -- in a range kept for the local leg (128 to 191), which the
+  remote hop refuses by permit. One vocabulary of categories on every leg, which is what sec 1061
+  asks for; the cost is registering about 200 SUBCMDs across the CMD files.
+- **B. One CMD for the local leg, its SUBCMD the verb, the subject a byte after.** Fewer numbers
+  and a smaller change, but a second vocabulary beside the remote one -- the split sec 1085 removed.
+- Recommended: **A**.
+
+**Fields:** each category's requests and replies as situ schemas, generated as the call and STATUS
+are (secs 1083, 1087), so the typed client's functions keep their signatures and lose their text
+parsing; `rpc_test` and `rpc_probe` (sec 1098) check each call as it moves.
+
+**Staging, with fuzzypickles:** (1) the framing, STATUS on the local leg and one small category as
+the pilot -- named objects (sec 948), five operations -- daemon and client both, text kept;
+(2) category by category, the typed client switching call by call, `rpc_probe` proving each
+against a running node; (3) text kept only as the CLI's rendering and for `fuzznetd --ask`. An
+admin's remote verbs (sec 1061 step 3e) ride on the same encodings and move with them.
+
+**Open:** A or B (the holder's); the pilot category and the pace (fuzzypickles', whose clients
+switch); whether netcfgd and raidcfgd's bridge, which speak the text grammar through
+`local/client.h`, move at the same time or keep text until their own pass (each project's).
