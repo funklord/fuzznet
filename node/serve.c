@@ -403,6 +403,12 @@ static void serve_session_frame(fzn_node_state_t *state, uint8_t *frame, size_t 
 int fzn_node_serve_say(fzn_node_state_t *state, const uint8_t sender[FZN_PUBKEY_LEN],
                        const uint8_t *payload, size_t len)
 {
+	return fzn_node_serve_say_marked(state, sender, payload, len, 0u);
+}
+
+int fzn_node_serve_say_marked(fzn_node_state_t *state, const uint8_t sender[FZN_PUBKEY_LEN],
+                              const uint8_t *payload, size_t len, uint8_t dscp)
+{
 	uint8_t frame[FZN_SESSION_FRAME_MAX];
 	fzn_node_session_t *s;
 	fzn_udp_addr_t to;
@@ -421,7 +427,7 @@ int fzn_node_serve_say(fzn_node_state_t *state, const uint8_t sender[FZN_PUBKEY_
 		return 0;
 	memcpy(to.storage, s->from, s->from_len);
 	to.len = s->from_len;
-	return fzn_udp_send(state->udp_fd, &to, frame, frame_len) == FZN_UDP_OK;
+	return fzn_udp_send_marked(state->udp_fd, &to, frame, frame_len, dscp) == FZN_UDP_OK;
 }
 
 static void serve_ready_datagram(fzn_node_state_t *state)

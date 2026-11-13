@@ -290,6 +290,10 @@ void fzn_node_serve_release(fzn_node_state_t *state);
  * from. 1 sent, or 0: it holds no session here, or the payload is too long. */
 int fzn_node_serve_say(fzn_node_state_t *state, const uint8_t sender[FZN_PUBKEY_LEN],
                        const uint8_t *payload, size_t len);
+/* THE SAME, the datagram marked DSCP `dscp` (net/udp.h): a call's media, so
+ * the queues it crosses serve it first (sec 1111). 0 is unmarked. */
+int fzn_node_serve_say_marked(fzn_node_state_t *state, const uint8_t sender[FZN_PUBKEY_LEN],
+                              const uint8_t *payload, size_t len, uint8_t dscp);
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms);
 

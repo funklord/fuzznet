@@ -113,6 +113,8 @@ fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
  * first (its decision 0321), and Linux maps it to Wi-Fi's voice class (RFC
  * 8325). 0 sends unmarked; past 63 is refused. */
 #define FZN_UDP_DSCP_EF 46u
+/* AF41, 34: interactive video by RFC 8325, a call's video (sec 1111). */
+#define FZN_UDP_DSCP_AF41 34u
 fzn_udp_err_t fzn_udp_send_marked(int fd, const fzn_udp_addr_t *to, const uint8_t *frame,
                                   size_t len, uint8_t dscp);
 

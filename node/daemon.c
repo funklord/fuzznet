@@ -17656,15 +17656,35 @@ static struct live_participant *participant_at(struct live_kept *k, const uint8_
 
 /* `bytes` SAID TO EVERY JOINED PARTICIPANT of `k` but the one at `except`: how many
  * took it. */
+/* A CALL'S MEDIA MARKED BY ITS STREAM, sec 1111 (netcfgd's decision 0321):
+ * voice EF, served first by netcfgd's queues and Wi-Fi's voice class; video
+ * AF41, interactive video by RFC 8325; anything else unmarked. */
+static uint8_t live_dscp(uint8_t stream)
+{
+	return stream == 1u ? (uint8_t)FZN_UDP_DSCP_EF : stream == 2u ? (uint8_t)FZN_UDP_DSCP_AF41 : 0u;
+}
+
+/* A FRAME SAID TO `host`, marked for its stream; as fzn_daemon_say otherwise. */
+static int say_frame(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes, size_t len,
+                     uint8_t stream)
+{
+	if (!serving_state)
+		return 0;
+	if (fzn_node_serve_say_marked(serving_state, host, bytes, len, live_dscp(stream)))
+		return 1;
+	(void)session_ask(host);
+	return 0;
+}
+
 static size_t say_participants(struct live_kept *k, const uint8_t *except, const uint8_t *bytes,
-                          size_t len)
+                          size_t len, uint8_t stream)
 {
 	size_t i, n = 0;
 
 	for (i = 0; k && i < k->n_participants; i++)
 		if (k->participants[i].joined
 		    && !(except && memcmp(k->participants[i].host, except, FZN_PUBKEY_LEN) == 0))
-			n += (size_t)(fzn_daemon_say(k->participants[i].host, bytes, len) != 0);
+			n += (size_t)(say_frame(k->participants[i].host, bytes, len, stream) != 0);
 	return n;
 }
 
@@ -18067,9 +18087,10 @@ static void live_from_sibling(const uint8_t sibling[FZN_PUBKEY_LEN], const fzn_l
 			for (m = 0; m < k->n_participants; m++)
 				if (k->participants[m].joined
 				    || (w->kind == FZN_LIVE_HANGUP && k->participants[m].ringing))
-					(void)fzn_daemon_say(k->participants[m].host, word, len);
+					(void)say_frame(k->participants[m].host, word, len,
+					                w->kind == FZN_LIVE_FRAME ? w->stream : 0u);
 		} else {
-			(void)fzn_daemon_say(c->host, word, len);
+			(void)say_frame(c->host, word, len, w->kind == FZN_LIVE_FRAME ? w->stream : 0u);
 		}
 		if (w->kind == FZN_LIVE_HANGUP)
 			live_end(c, "hung-up");
@@ -18265,9 +18286,9 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 					fzn_live_count(&m->path.rx[w.stream], w.seq, w.at_ms, wall_ms());
 				/* AND ON TO EVERY OTHER PARTICIPANT: this host is the hub; and
 				 * to the sibling the call is on, sec 1025. */
-				(void)say_participants(k, host, slot, len);
+				(void)say_participants(k, host, slot, len, w.stream);
 				if (k->has_sibling)
-					(void)fzn_daemon_say(k->sibling, slot, len);
+					(void)say_frame(k->sibling, slot, len, w.stream);
 			}
 			{
 				char name[2u * FZN_LIVE_CALL_LEN + 1u];
@@ -18819,11 +18840,11 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 
 			/* A PLACED CALL'S FRAME to every participant joined (sec 1022). */
 			if (k && k->n_participants)
-				return say_participants(k, NULL, word, n) ? (size_t)snprintf(reply, cap, "ok sent\n")
+				return say_participants(k, NULL, word, n, lw.stream) ? (size_t)snprintf(reply, cap, "ok sent\n")
 				                                     : (size_t)snprintf(reply, cap, "ok lost\n");
 		}
-		return fzn_daemon_say(c->host, word, n) ? (size_t)snprintf(reply, cap, "ok sent\n")
-		                                        : (size_t)snprintf(reply, cap, "ok lost\n");
+		return say_frame(c->host, word, n, lw.stream) ? (size_t)snprintf(reply, cap, "ok sent\n")
+		                                               : (size_t)snprintf(reply, cap, "ok lost\n");
 	}
 	/* `list frame ID [FROM]`: `ok TOTAL FROM STREAM,SEQ,AT,PIECE,PIECES,HEX ...`, those
 	 * still kept from FROM on, as many as fit. */

@@ -87155,3 +87155,22 @@ call code that sends it, through the caller to its send. That is the next step, 
 reading the mark at the far end. Video's class is the open question: EF for voice by netcfgd's
 contract, and RFC 8325 gives video AF41; whether video takes EF too is netcfgd's queue to say.
 (2) and (3) are fuzznet's later work, recorded here with their source.
+
+## 1111. A call's media marked: voice EF, video AF41, 2026-11-13
+
+**Sec 1110's next step, built.** A call's frame leaves through `fzn_node_serve_say_marked` now, the
+session's seal and send with a DSCP, by the frame's stream: **audio (stream 1) EF, 46; video (stream
+2) AF41, 34** (`FZN_UDP_DSCP_AF41`), RFC 8325's class for interactive video; anything else unmarked.
+All three places a frame is sent take it: a host's own client's frame to the far end or to every
+participant, the hub passing a participant's frame on, and a call carried on a sibling. Every other
+message stays unmarked. Video's class is netcfgd's to confirm against its queues (asked the same day);
+EF for both is a one-line change in `live_dscp`.
+
+**Measured, end to end in a real call:** `live_call` passes on it. And run with each daemon under
+`strace -e sendmsg` (a wrapper in place of the binary), phases c to e sent seven frames marked and
+the other 231 datagrams unmarked: the two audio frames with TOS `0xb8` (EF), the five video frames
+`0x88` (AF41). The traced run itself failed later on a 5-second check that tracing slows; untraced it
+passes. No test in the suite reads a daemon's mark, so a regression here would pass the gates: a
+count of media that ARRIVED still marked, read with `IP_RECVTOS` on the serving socket, would close
+that and tell a person whether a path strips DSCP -- which netcfgd would want to see too. Proposed,
+not built.
