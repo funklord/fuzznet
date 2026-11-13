@@ -28,6 +28,7 @@
 #include <stdint.h>
 
 struct fzn_gui_rpc;
+class QComboBox;
 class QLabel;
 class QPushButton;
 class QTableWidget;
@@ -45,6 +46,11 @@ public:
 	void select(int row);
 	bool fetch();
 	bool share(bool on);
+	/* THE PRECISION a grant gives (a fzn_rpc_location_precision_t): chosen
+	 * before sharing, and read back from what this host grants the contact
+	 * chosen, sec 1119. */
+	void set_precision(int precision);
+	int precision() const;
 
 	/* The clock, seconds since 1970; 0 reads the system's. */
 	void set_now(uint32_t utc_s);
@@ -64,6 +70,7 @@ private:
 	QPushButton *m_fetch;
 	QPushButton *m_share;
 	QPushButton *m_unshare;
+	QComboBox *m_precision;
 	QPushButton *m_refresh;
 	QLabel *m_status;
 };

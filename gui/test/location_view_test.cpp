@@ -48,6 +48,12 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                        "ok 3 0 aaaa000000000000,9,0,59.3300000,18.0600000,1700003590,-,-,5,5,-,0,- "
 		                        "c0c0000000000000,4,0,59.3400000,18.0600000,1700003540,-,-,10,10,-,0,bob "
 		                        "e0e0000000000000,2,0,59.3000000,18.1000000,1699996400,-,-,1000,1000,-,1,eve\n");
+	/* BOB IS GRANTED THIS HOST'S POSITION TO ABOUT 1 KM; EVE NOTHING. */
+	if (!strcmp(line, "list contact 0"))
+		return (size_t)snprintf(reply, cap, "ok 4 0 bob,%064d eve,%064d dan,%064d gone,%064d,suspended\n",
+		                        0, 0, 0, 0);
+	if (!strcmp(line, "list stream location granted 0"))
+		return (size_t)snprintf(reply, cap, "ok 1 0 bob,1\n");
 	snprintf(last, sizeof last, "%s", line);
 	return (size_t)snprintf(reply, cap, "ok\n");
 }
@@ -63,19 +69,37 @@ int main(int argc, char **argv)
 	CHECK(v.own().contains("every 30 s from platform") && v.own().contains("59.33000, 18.06000"),
 	      "this host's sampling or its own fix was not said");
 	QStringList rows = v.rows();
-	CHECK(rows.size() == 2, "not one row a contact");
+	/* DAN SHARES NOTHING BACK and still has a row to be granted from,
+	 * sec 1119; a suspended contact has none. */
+	CHECK(rows.size() == 3 && rows.value(2).startsWith("dan | not shared with you"),
+	      "not one row a contact, or dan, who shares nothing, had none");
 	CHECK(rows.value(0).startsWith("bob | 59.34000, 18.06000 | within 10 m | 1 min ago")
 	              && rows.value(0).contains("km") && rows.value(0).endsWith("N"),
 	      "bob's fix, its age, its distance or its direction north was not said");
 	CHECK(rows.value(1).contains("coarse") && rows.value(1).contains("2 h ago"),
 	      "a coarse fix was not said so, or its age was wrong");
 
+	/* WHAT IS GRANTED, read back (sec 1119): bob to about 1 km, eve none. */
+	v.select(1);
+	CHECK(v.status().contains("do not share") && v.status().contains("eve"),
+	      "eve was not said to be granted nothing");
 	v.select(0);
+	CHECK(v.precision() == 1 && v.status().contains("about 1 km"),
+	      "bob's grant to about 1 km was not read back");
 	CHECK(v.fetch() && !strcmp(last, "fetch stream location bob"), "bob was not asked where he is");
+	v.set_precision(0);
 	CHECK(v.share(true) && !strcmp(last, "grant stream location bob 0"),
-	      "this user's position was not granted to bob");
+	      "this user's position was not granted to bob exactly");
+	v.set_precision(2);
+	CHECK(v.share(true) && !strcmp(last, "grant stream location bob 2") && v.status().contains("10 km"),
+	      "the precision chosen was not the one granted");
 	CHECK(v.share(false) && !strcmp(last, "revoke stream location bob"),
 	      "this user's position was not taken back from bob");
+
+	v.select(2);
+	v.set_precision(1);
+	CHECK(v.share(true) && !strcmp(last, "grant stream location dan 1"),
+	      "dan, who shares nothing back, was not granted this host's position");
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");

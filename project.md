@@ -85903,7 +85903,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084) | conversation screens, read marks per device for groups | a conversation view |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`) | sticker UI | a sticker view |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view |
-| Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` (sec 1109) | Nearby UI, to move onto it | the precision a grant gives, on the view |
+| Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed) | Library playback UI, share target | a hostable transfer view; a library (catalogue) view |
 | Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
@@ -87412,3 +87412,35 @@ contact back by its key under its name, and refuses a retired one without
 asking. Sabotage `contacts-view-state-unsaid`,
 `contacts-view-retired-added-back`, `rpc-contact-state-unknown-as-active`
 and `rpc-contact-state-row-dropped` are each caught.
+
+## 1119. The precision a location grant gives, chosen and read back, 2026-11-13
+
+**The register's gap** (sec 1070): the location view granted a contact
+this host's position exactly, always. The client already sent a level
+(`fzn_rpc_location_share`'s `precision`) and already read each grant's
+level back (`fzn_rpc_peer_shares`, `share_precision`). The view used
+neither.
+
+`gui/location_view` now has a "Share yours:" chooser -- Exactly, To about
+1 km, To about 10 km, in the order of `fzn_rpc_location_precision_t` --
+and a grant is made at the level chosen. Choosing a contact reads back
+what this host grants them, sets the chooser to it and says so: "You
+share your position with bob, to about 1 km", or that nothing is shared.
+Where the contacts or the grants cannot be read, nothing is said rather
+than something wrong. That is the rule the client's own comment gives:
+a consent control that cannot be read back is the wrong shape.
+
+**Every ordinary contact has a row.** The rows were the contacts whose
+positions reach this host, so a contact who shares nothing back had no
+row, and could not be granted this host's position from the view. Such
+a contact is now listed as "not shared with you" and can be granted
+like any other. A contact in a state (sec 1118) is served nothing, so it
+gets no row.
+
+**Tests:** `location_view_test` reads back bob's grant to about 1 km and
+eve's none, grants exactly and then to about 10 km, lists dan, who
+shares nothing, and grants him; a suspended contact gets no row.
+Sabotage `location-view-precision-ignored`,
+`location-view-grant-not-read-back`,
+`location-view-sharing-nothing-rowless` and
+`location-view-suspended-contact-offered` are each caught.

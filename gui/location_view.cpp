@@ -7,6 +7,7 @@ extern "C" {
 #include "../location/geo.h"
 }
 
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -35,6 +36,10 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_fetch = new QPushButton(tr("Ask where they are"), this);
 	m_share = new QPushButton(tr("Share mine with them"), this);
 	m_unshare = new QPushButton(tr("Stop sharing mine"), this);
+	/* IN THE ORDER OF fzn_rpc_location_precision_t, so an index is a level. */
+	m_precision = new QComboBox(this);
+	m_precision->addItems({ tr("Exactly"), tr("To about 1 km"), tr("To about 10 km") });
+	m_precision->setAccessibleName(tr("How exactly they see your position"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
@@ -44,9 +49,13 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	row->addWidget(m_share);
 	row->addWidget(m_unshare);
 	row->addWidget(m_refresh);
+	auto *grant = new QHBoxLayout;
+	grant->addWidget(new QLabel(tr("Share yours:"), this));
+	grant->addWidget(m_precision, 1);
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_own);
 	col->addWidget(m_table, 1);
+	col->addLayout(grant);
 	col->addLayout(row);
 	col->addWidget(m_status);
 
@@ -152,7 +161,44 @@ bool fzn_location_view::refresh()
 		m_table->setItem((int)i, 2, new QTableWidgetItem(sure_words(f)));
 		m_table->setItem((int)i, 3, new QTableWidgetItem(age_words(now, f->utc_s)));
 		m_table->setItem((int)i, 4, new QTableWidgetItem(here));
+		m_table->item((int)i, 0)->setData(Qt::UserRole, -2);
 	}
+	/* WHAT THIS HOST GRANTS EACH, sec 1119: -1 nothing, else the level; left
+	 * unknown (-2) where the contacts or the grants could not be read, which
+	 * says nothing rather than something wrong. */
+	fzn_rpc_peer_list_resp_t peers;
+	memset(&peers, 0, sizeof peers);
+	if (fzn_rpc_peer_list(&m_rpc->c, &peers) == FZN_RPC_OK) {
+		fzn_rpc_peer_shares(&m_rpc->c, &peers);
+		for (int r = 0; r < m_table->rowCount(); r++) {
+			QByteArray name = m_table->item(r, 0)->text().toUtf8();
+			int level = -1;
+			for (size_t k = 0; k < peers.count; k++)
+				if (peers.entries[k].name_len == (size_t)name.size()
+				    && !memcmp(peers.entries[k].name, name.constData(), (size_t)name.size()))
+					level = peers.entries[k].share_location ? peers.entries[k].share_precision : -1;
+			m_table->item(r, 0)->setData(Qt::UserRole, level);
+		}
+		/* EVERY CONTACT A ROW, sec 1119: one whose position does not reach
+		 * this host can still be granted this host's, which needs a row to
+		 * choose. Only ordinary contacts: one in a state is served nothing. */
+		for (size_t k = 0; k < peers.count; k++) {
+			const fzn_rpc_peer_list_entry_t *p = &peers.entries[k];
+			QString name = QString::fromUtf8(p->name, (int)p->name_len);
+			if (p->state != FZN_RPC_CONTACT_ACTIVE
+			    || !m_table->findItems(name, Qt::MatchExactly).isEmpty())
+				continue;
+			int r = m_table->rowCount();
+			m_table->setRowCount(r + 1);
+			m_table->setItem(r, 0, new QTableWidgetItem(name));
+			m_table->setItem(r, 1, new QTableWidgetItem(tr("not shared with you")));
+			for (int k2 = 2; k2 < 5; k2++)
+				m_table->setItem(r, k2, new QTableWidgetItem(QString()));
+			m_table->item(r, 0)->setData(Qt::UserRole,
+			                             p->share_location ? (int)p->share_precision : -1);
+		}
+	}
+	free(peers.entries);
 	free(latest);
 	delete mine;
 	m_status->setText(count ? QString() : tr("Nobody shares a position with you yet."));
@@ -168,7 +214,27 @@ void fzn_location_view::select(int row)
 	m_fetch->setEnabled(chosen);
 	m_share->setEnabled(chosen);
 	m_unshare->setEnabled(chosen);
+	if (!chosen || !m_table->item(row, 0))
+		return;
+	/* WHAT IS GRANTED NOW, read back rather than assumed (sec 1119). */
+	int level = m_table->item(row, 0)->data(Qt::UserRole).toInt();
+	QString who = m_table->item(row, 0)->text();
+	if (level >= 0 && level < m_precision->count()) {
+		m_precision->setCurrentIndex(level);
+		m_status->setText(tr("You share your position with %1, %2.")
+		                          .arg(who, m_precision->itemText(level).toLower()));
+	} else if (level == -1) {
+		m_status->setText(tr("You do not share your position with %1.").arg(who));
+	}
 }
+
+void fzn_location_view::set_precision(int precision)
+{
+	if (precision >= 0 && precision < m_precision->count())
+		m_precision->setCurrentIndex(precision);
+}
+
+int fzn_location_view::precision() const { return m_precision->currentIndex(); }
 
 bool fzn_location_view::fetch()
 {
@@ -192,12 +258,18 @@ bool fzn_location_view::share(bool on)
 	QByteArray who = m_table->item(row, 0)->text().toUtf8();
 	int siblings = 0;
 	if (fzn_rpc_location_share(&m_rpc->c, who.constData(), (size_t)who.size(), on ? 1 : 0,
-	                           FZN_RPC_LOCATION_PRECISION_EXACT, &siblings)
+	                           (uint8_t)m_precision->currentIndex(), &siblings)
 	    != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
 		return false;
 	}
-	m_status->setText(on ? tr("%1 can see your position now.").arg(QString::fromUtf8(who))
+	if (on)
+		m_table->item(row, 0)->setData(Qt::UserRole, m_precision->currentIndex());
+	else
+		m_table->item(row, 0)->setData(Qt::UserRole, -1);
+	m_status->setText(on ? tr("%1 can see your position now, %2.")
+	                               .arg(QString::fromUtf8(who),
+	                                    m_precision->currentText().toLower())
 	                     : tr("%1 no longer sees your position.").arg(QString::fromUtf8(who)));
 	return true;
 }
