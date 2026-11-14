@@ -85900,8 +85900,8 @@ is the register, rewritten in place as features land; "where" says where each li
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
 | Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | |
-| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | Lottie sticker art on the views, waiting on thorvg (sec 1141); other art is drawn (sec 1145), files said, got and saved (secs 1129-1130) |
-| Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`), `sticker_picker_view` (sec 1141), a line drawn and its pack kept (sec 1145) | sticker UI | Lottie art (sec 1141) |
+| Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | |
+| Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`), `sticker_picker_view` (sec 1141), a line drawn and its pack kept (sec 1145), Lottie drawn through the vendored thorvg (sec 1151) | sticker UI | |
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | capture, codecs and playback, the host's over the call's media channel (secs 1113, 1142) |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
@@ -88435,3 +88435,48 @@ message or after a fixture already failed (`revocation_test` 4356,
 `transfer_test` 664, `verify_memo_test` 212, `admin_test` 1010,
 `provision_test` 637), a fixture's leak at exit, and
 `contact_devices_test` 1144, whose `i % 2` never equals `i` past 1.
+
+## 1151. thorvg vendored: Lottie stickers drawn on the views, 2026-11-14
+
+**The holder, 2026-11-14: "vendor thorvg".** Sec 1141 left Lottie art
+waiting on it, fuzzypickles having said that views draw a sticker's art
+and that thorvg comes into fuzznet with the stickers (its inbox 2226Z).
+
+**Vendored as a submodule, `thorvg/`, at v1.0.0 (6715f99)**, the version
+fuzzypickles pins, so the two trees draw a pack alike. **Only the
+software engine and the Lottie loader are built**: thorvg also carries
+GL, WebGPU, SVG, fonts and raster decoders of its own, and each one left
+out is code a hostile pack cannot reach. Its `config.h` is
+`gui/thorvg/config.h`, empty and first on the path, with the settings
+passed as defines, so meson's configure step is not run. Objects land in
+`$(BUILD_DIR)/thorvg-build`, never in the submodule, compiled quietly as
+quirc is (sec 169); `clean` removes that tree and `.gitignore` names it.
+The two censuses name what is new: the config header in
+`VENDOR_SHIM_HDRS`, for a header standing in for a vendored tree's
+generated one, and `gui/sticker_render` as a drawing helper the widget
+census does not count. The submodule is pinned at 6715f99 itself --
+`git submodule add` first recorded the commit it cloned, thorvg's
+default branch, and the gates' `git status` showed the checkout ahead
+of it.
+An empty `thorvg/` is an unfinished clone: the renderer still builds,
+raster stickers still draw, and `make test` says Lottie is not drawn and
+names the command, as an empty quirc or flog is said.
+
+**`gui/sticker_render`, taken from fuzzypickles' renderer with fuzznet's
+names**: `fzn_sticker_render_art` draws a rendition's bytes -- raster
+through Qt, sniffed from the bytes and never scaled up, Lottie through
+thorvg into a premultiplied ARGB buffer a plain widget blits, one frame,
+not a player -- and `fzn_sticker_with_text` sets a message sticker's
+words in its box. The pack editor's file inspection was left behind, as
+nothing here edits packs. The sticker picker and the conversation view
+both draw through it now, so a Lottie sticker is a picture in both; the
+conversation view's per-view cache (sec 1145) holds what the renderer
+drew.
+
+**Tests:** `sticker_picker_view_test` gains a Lottie sticker, a red
+square on one layer, drawn where thorvg is built in and named where it
+is not. Sabotage `sticker-render-lottie-as-raster`, which hands Lottie
+to Qt's readers, is caught; `sticker-picker-never-drawn` and
+`conversation-sticker-never-drawn` were aimed at the lines the renderer
+replaced and are moved onto it, and each is caught. The qtty render
+check builds thorvg's objects first and sizes the picker at 213 px.

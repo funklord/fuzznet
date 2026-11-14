@@ -1273,6 +1273,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/settings_view.cpp gui/contacts_view.cpp gui/location_view.cpp gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp \
             gui/forks_view.cpp gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp \
             gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
+            gui/sticker_render.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1305,10 +1306,15 @@ SPEC_HDRS :=
 # functions, so SPEC_HDRS is the wrong home; it moves into HDRS when the
 # recogniser joins the library.
 CHECK_HDRS := qr/decode.h
+# AND THE HEADER THAT STANDS IN FOR A VENDORED TREE'S GENERATED ONE, sec 1151:
+# thorvg's config.h, which its meson configure step would write and this build
+# does not run. It declares nothing, is read only by thorvg's own sources, and
+# is never installed.
+VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/group_view.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/group_view.h gui/sticker_render.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -2197,6 +2203,7 @@ endif
 # nothing to do with the change. Both gui variables expand to nothing when the
 # GUI is off, so this costs a build without it nothing.
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
+       $(THORVG_OBJS:.o=.d) \
        $(PROG_OBJS:.o=.d) $(BUILD_DIR)/tool/rpc_probe.d
 
 .PHONY: embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
@@ -3626,6 +3633,36 @@ $(BUILD_DIR)/gui/test/%.o: gui/test/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(QT_CFLAGS) -MMD -MP -c $< -o $@
 
+# A STICKER'S ART, sec 1151: PNG, APNG and WebP through Qt, Lottie through the
+# vendored thorvg -- the holder's word that stickers are fuzznet's and thorvg
+# comes with them (2026-11-14), at the version fuzzypickles pins. ONLY THE
+# SOFTWARE ENGINE AND THE LOTTIE LOADER are built: thorvg can also do GL,
+# WebGPU, SVG, fonts and raster decoders of its own, and each one left out is
+# code a hostile pack cannot reach. Its config.h is gui/thorvg's empty one,
+# first on the path, the settings passed as defines, so meson's configure step
+# is not run. Objects land under $(BUILD_DIR)/thorvg-build, never inside the
+# submodule, compiled quietly as quirc is: vendored code is held to no warning
+# set of ours. An empty thorvg/ is an unfinished clone, said by `test`, and
+# the renderer still builds: a Lottie sticker then says why it is not drawn.
+THORVG_DIR      := thorvg
+THORVG_ON       := $(if $(wildcard $(THORVG_DIR)/inc/thorvg.h),1)
+THORVG_SKIP     := $(if $(THORVG_ON),,the vendored $(THORVG_DIR)/ is empty, so Lottie stickers are not drawn. Run 'git submodule update --init $(THORVG_DIR)'.)
+THORVG_SRCS     := $(wildcard $(addprefix $(THORVG_DIR)/src/,common/*.cpp renderer/*.cpp \
+                     renderer/sw_engine/*.cpp loaders/raw/*.cpp loaders/lottie/*.cpp))
+THORVG_OBJS     := $(THORVG_SRCS:$(THORVG_DIR)/%.cpp=$(BUILD_DIR)/thorvg-build/%.o)
+THORVG_CPPFLAGS := -Igui/thorvg -I$(THORVG_DIR)/inc \
+                   $(addprefix -I$(THORVG_DIR)/src/,common renderer renderer/sw_engine \
+                     loaders/raw loaders/lottie) \
+                   -DTHORVG_SW_RASTER_SUPPORT -DTHORVG_LOTTIE_LOADER_SUPPORT -DTVG_STATIC \
+                   -DTHORVG_VERSION_STRING='"1.0.0"'
+$(THORVG_OBJS): $(BUILD_DIR)/thorvg-build/%.o: $(THORVG_DIR)/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS_BUILD) -std=c++17 -w $(THORVG_CPPFLAGS) -MMD -MP -c $< -o $@
+# THE ONES THAT DRAW, and the picker's test, which asks a Lottie sticker drawn.
+$(BUILD_DIR)/gui/sticker_render.o $(BUILD_DIR)/gui/test/sticker_picker_view_test.o: \
+	CXXFLAGS += $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc)
+STICKER_RENDER_OBJS := $(BUILD_DIR)/gui/sticker_render.o $(if $(THORVG_ON),$(THORVG_OBJS))
+
 # The anchor view classifies through cli/trust_print and words itself. sec 201.
 $(BUILD_DIR)/gui/test/trust_view_test: $(BUILD_DIR)/gui/test/trust_view_test.o \
                                      $(BUILD_DIR)/gui/trust_view.o \
@@ -3689,9 +3726,10 @@ $(BUILD_DIR)/gui/test/hosts_view_test: $(BUILD_DIR)/gui/test/hosts_view_test.o \
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/conversation_view_test: $(BUILD_DIR)/gui/test/conversation_view_test.o \
-                                           $(BUILD_DIR)/gui/conversation_view.o $(RPC_LINK_OBJS)
+                                           $(BUILD_DIR)/gui/conversation_view.o \
+                                           $(STICKER_RENDER_OBJS) $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -lpthread -o $@
 $(BUILD_DIR)/gui/test/forks_view_test: $(BUILD_DIR)/gui/test/forks_view_test.o \
                                     $(BUILD_DIR)/gui/forks_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
@@ -3709,9 +3747,10 @@ $(BUILD_DIR)/gui/test/conversations_view_test: $(BUILD_DIR)/gui/test/conversatio
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/sticker_picker_view_test: $(BUILD_DIR)/gui/test/sticker_picker_view_test.o \
-                                             $(BUILD_DIR)/gui/sticker_picker_view.o $(RPC_LINK_OBJS)
+                                             $(BUILD_DIR)/gui/sticker_picker_view.o \
+                                             $(STICKER_RENDER_OBJS) $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -lpthread -o $@
 $(BUILD_DIR)/gui/test/call_view_test: $(BUILD_DIR)/gui/test/call_view_test.o \
                                       $(BUILD_DIR)/gui/call_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
@@ -5724,6 +5763,9 @@ runtests: $(TEST_BINS)
 	@# is absent and one that was never asked for look identical in a green
 	@# run. The reason is carried, because "off" and "you have no POSIX" are
 	@# different problems with different fixes.
+	@if [ -n "$(THORVG_SKIP)" ] && [ -n "$(GUI_ON)" ]; then \
+		echo "test: $(THORVG_SKIP)"; \
+	fi
 	@if [ -n "$(PERSIST_FILE_SKIP)" ]; then \
 		echo "test: the file-backed persist backend was NOT built, so its tests"; \
 		echo "test: did not run -- $(PERSIST_FILE_SKIP)"; \
@@ -6679,7 +6721,7 @@ style: $(OBJS)
 	@# binaries and nothing else: `chain/test/acts_stub.h`, the act-log stub
 	@# three suites ask a cut of since sec 509. Installing it would ship a
 	@# stub as API, so it is excluded rather than listed.
-	@known=" $(HDRS) $(GUI_HDRS) $(SPEC_HDRS) $(CHECK_HDRS) "; missing=; n=0; \
+	@known=" $(HDRS) $(GUI_HDRS) $(SPEC_HDRS) $(CHECK_HDRS) $(VENDOR_SHIM_HDRS) "; missing=; n=0; \
 	for h in `find . -name '*.h' -not -path './.git/*' -not -path './.claude/*' \
 	                 -not -path './wire/generated/*' -not -path './tool/*' \
 	                 -not -path '*/test/*' \
@@ -6884,7 +6926,12 @@ style: $(OBJS)
 	@# `trust_view` and `log_view` in their own blocks, and `qr_view`
 	@# through a decoder rather than a string match -- so demanding a row
 	@# would be demanding the wrong shape of test for a quarter of them.
-	@have=`ls gui/*.cpp 2>/dev/null | sed -e 's|gui/||' -e 's|\.cpp$$||' | sort -u`; \
+	@# NOT A WIDGET, AND NAMED: gui/sticker_render draws a sticker's art for
+	@# the widgets that show one (sec 1151) and is put in front of a terminal
+	@# through them. Listed rather than inferred from a name, so a widget
+	@# named otherwise is still counted.
+	@have=`ls gui/*.cpp 2>/dev/null | sed -e 's|gui/||' -e 's|\.cpp$$||' \
+	       | grep -vxF -e sticker_render | sort -u`; \
 	walked=`grep -oE '#include "\.\./[a-z_]+\.h"' gui/test/qtty_render_test.cpp \
 	         | sed -e 's|.*/||' -e 's|\.h"||' | sort -u`; \
 	used=`grep -oE 'fzn_[a-z_]+_view' gui/test/qtty_render_test.cpp \
@@ -7610,7 +7657,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/catalog/catalog.o \
                     $(BUILD_DIR)/constant_time/constant_time.o $(QTTY_RPC_OBJS)
 
-qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/gather.o $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o))
+qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(THORVG_OBJS)) $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/gather.o $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o))
 	@if [ -z "$(QTTY_DIR)" ]; then \
 		echo "qtty: QTTY_DIR is empty, so the widgets were NOT rendered."; \
 		exit 1; \
@@ -7708,6 +7755,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(LOG_FILE_ON),$(
 	       gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp gui/forks_view.cpp \
 	       gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp \
 	       gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
+	       gui/sticker_render.cpp $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc $(THORVG_OBJS)) \
 	       gui/location_view.cpp \
 	       gui/provision_view.cpp \
 	       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON gui/entries_view.cpp $(BUILD_DIR)/log/gather.o \
@@ -8261,7 +8309,9 @@ clean:
 	@# shape: `fuzznetd-faults`' and `lean`'s (sec 856), each a directory
 	@# the build made under the checked BUILD_DIR. Neither was in a list
 	@# here, and the check below named their objects when either existed.
-	@for d in "$(BUILD_DIR)/faults" "$(BUILD_DIR)/lean" "$(BUILD_DIR)/embedded"; do \
+	@# thorvg's objects too (sec 1151), kept out of the submodule.
+	@for d in "$(BUILD_DIR)/faults" "$(BUILD_DIR)/lean" "$(BUILD_DIR)/embedded" \
+	          "$(BUILD_DIR)/thorvg-build"; do \
 		if [ -d "$$d" ]; then echo "removing $$d"; rm -rf "$$d"; fi; \
 	done
 	@# AND `arrangements`' trees, one an arrangement, each named from the

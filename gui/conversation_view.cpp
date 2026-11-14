@@ -2,6 +2,7 @@
 #include "conversation_view.h"
 
 #include "rpc_ask.h"
+#include "sticker_render.h"
 
 extern "C" {
 #include "../local/rpc_encoding.h"
@@ -514,13 +515,14 @@ void fzn_conversation_view::draw_stickers()
 		uint8_t *bytes = nullptr;
 		size_t len = 0;
 		uint8_t format = 0;
-		QImage image;
 		if (fzn_rpc_sticker_art(&m_rpc->c, sticker.constData(), 144, sticker.mid(145).toULongLong(),
 		                        FZN_STICKER_THUMB, ART_MAX, &bytes, &len, &format)
 		    == FZN_RPC_OK) {
 			QIcon icon;
-			if (format != FZN_STICKER_LOTTIE && image.loadFromData(bytes, (int)len))
-				icon = QIcon(QPixmap::fromImage(image));
+			/* LOTTIE TOO where thorvg is built in, sec 1151. */
+			const fzn_sticker_render_result r = fzn_sticker_render_art(bytes, len, format, QSize(64, 64));
+			if (!r.pixmap.isNull())
+				icon = QIcon(r.pixmap);
 			m_art->drawn.insert(sticker, icon);
 			if (!icon.isNull())
 				item->setIcon(icon);

@@ -10,3 +10,6 @@
 [submodule "flog"]
 	path = flog
 	url = https://github.com/funklord/flog.git
+[submodule "thorvg"]
+	path = thorvg
+	url = https://github.com/thorvg/thorvg.git

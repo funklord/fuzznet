@@ -14673,9 +14673,9 @@ SABOTAGES = [
 	(
 		"conversation-sticker-never-drawn",
 		"gui/conversation_view.cpp",
-		"\t\t\tif (format != FZN_STICKER_LOTTIE && image.loadFromData(bytes, (int)len))\n",
-		"\t\t\tif (0)\n",
-		"a sticker line is said in words though Qt reads its art -- sec 1145",
+		"\t\t\tif (!r.pixmap.isNull())\n\t\t\t\ticon = QIcon(r.pixmap);\n",
+		"\t\t\tif (0)\n\t\t\t\ticon = QIcon(r.pixmap);\n",
+		"a sticker line is said in words though its art can be drawn -- secs 1145, 1151",
 	),
 	(
 		"conversation-sticker-asked-again",
@@ -14701,9 +14701,16 @@ SABOTAGES = [
 	(
 		"sticker-picker-never-drawn",
 		"gui/sticker_picker_view.cpp",
-		"\t\t\t\t\tif (image.loadFromData(art, (int)art_len)) {\n",
-		"\t\t\t\t\tif (0 && image.loadFromData(art, (int)art_len)) {\n",
-		"a sticker the node renders is shown as words only -- sec 1141",
+		"\t\t\t\t\tif (!r.pixmap.isNull()) {\n",
+		"\t\t\t\t\tif (0 && !r.pixmap.isNull()) {\n",
+		"a sticker the node renders is shown as words only -- secs 1141, 1151",
+	),
+	(
+		"sticker-render-lottie-as-raster",
+		"gui/sticker_render.cpp",
+		"\tif (format == FZN_STICKER_LOTTIE) return render_lottie(art, art_len, target, progress);\n",
+		"\tif (0) return render_lottie(art, art_len, target, progress);\n",
+		"a Lottie sticker is handed to Qt's image readers and never drawn -- sec 1151",
 	),
 	(
 		"sticker-picker-refusal-unsaid",

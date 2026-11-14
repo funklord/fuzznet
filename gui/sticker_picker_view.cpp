@@ -2,6 +2,7 @@
 #include "sticker_picker_view.h"
 
 #include "rpc_ask.h"
+#include "sticker_render.h"
 
 extern "C" {
 #include "../hex/hex.h"
@@ -112,14 +113,15 @@ bool fzn_sticker_picker_view::refresh()
 				size_t art_len = 0;
 				uint8_t format = 0;
 				bool drawn = false;
-				/* DRAWN WHERE QT READS IT, named otherwise. */
+				/* DRAWN BY THE RENDERER, Lottie included where thorvg is
+				 * built in (sec 1151), named otherwise. */
 				if (fzn_rpc_sticker_art(&m_rpc->c, pack.constData(), 64, s->id, FZN_STICKER_THUMB,
 				                        ART_MAX, &art, &art_len, &format)
-				            == FZN_RPC_OK
-				    && format != FZN_STICKER_LOTTIE) {
-					QImage image;
-					if (image.loadFromData(art, (int)art_len)) {
-						item->setIcon(QIcon(QPixmap::fromImage(image)));
+				    == FZN_RPC_OK) {
+					const fzn_sticker_render_result r =
+					        fzn_sticker_render_art(art, art_len, format, QSize(64, 64));
+					if (!r.pixmap.isNull()) {
+						item->setIcon(QIcon(r.pixmap));
 						drawn = true;
 					}
 				}

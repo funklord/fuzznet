@@ -29,7 +29,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Vendored trees and the consumer-facing halves, which are not the library.
-SKIP = ("qtty", "quirc", "monocypher", "flog", "gui", "cli", "sim", "tool", ".git")
+SKIP = ("qtty", "quirc", "monocypher", "flog", "thorvg", "gui", "cli", "sim", "tool", ".git")
 
 # `X_LOG(ctx, "sub/sys", SEVERITY, ...)` -- the subsystem is always the second
 # argument, which is why the macros were made one shape.
