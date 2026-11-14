@@ -89084,6 +89084,15 @@ the whole request resent: selective repeat, on the reassembly slot that
 already knows which pieces it holds. That is a wire change (free, sec 924)
 on a path every file transfer uses, and is the next work here.
 
+**Half of it is built.** `fzn_reasm_plan_want` (`chunk/reassembly.h`)
+already names the chunks a part-held message lacks, as ranges, and nothing
+on the fetch path calls it. The other half is the server's: answering for
+chosen chunks needs the reply it sent, so a host would keep its recent
+replies, bounded and keyed by message, and the asks table would ask for
+the missing ranges where it now resends the whole request. The bound on
+what a host keeps, and the request rate a serving host takes (the files.h
+note on FZN_NODE_FILES_SPAN), are the costs to weigh.
+
 fuzzypickles' stall (sec 1163) -- a fetch asking once and never ending,
 under load -- is not explained by this: no measurement here has a fetch
 that never ends. It stays open beside it.
