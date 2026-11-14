@@ -1758,6 +1758,26 @@ static int newest_gather(fzn_node_messages_t *nm, size_t *rows_out, const char *
  * wrote an incoming one -- by this user's contact for them, else their key's
  * first eight bytes. The text points into a page read here, good until the
  * next row is read. 0 when the line did not read. */
+/* WHO WROTE A GROUP'S INCOMING LINE, as a listing names them: this user's
+ * contact for them, else their key's first eight bytes in hex, into `out`
+ * (FZN_CONTACT_NAME_MAX bytes at least); 0 bytes for any other line. */
+static size_t line_sender(fzn_node_messages_t *nm, const fzn_message_t *p, char *out)
+{
+	const fzn_group_lines_t lines = { nm->m.store, nm->m.hash };
+	uint8_t who[FZN_PUBKEY_LEN];
+	fzn_contact_t c;
+
+	if (p->direction != FZN_MESSAGE_IN
+	    || fzn_group_lines_sender(&lines, p->contact, p->id, who) != FZN_GROUP_LINES_OK)
+		return 0;
+	if (fzn_contact_get(nm->m.store, who, &c) == FZN_CONTACT_OK) {
+		memcpy(out, c.name, c.name_len);
+		return c.name_len;
+	}
+	hex_of(who, 8u, out);
+	return 16u;
+}
+
 static int newest_line_at(fzn_node_messages_t *nm, size_t r, fzn_node_newest_t *o)
 {
 	static fzn_message_t newest[1];
@@ -1784,22 +1804,7 @@ static int newest_line_at(fzn_node_messages_t *nm, size_t r, fzn_node_newest_t *
 	o->kind = kind[0] == 's' ? (kind[1] == 'h' ? FZN_NODE_NEWEST_SHELL : FZN_NODE_NEWEST_STICKER)
 	          : kind[0] == 'f' ? FZN_NODE_NEWEST_FILE
 	                           : FZN_NODE_NEWEST_TEXT;
-	{
-		const fzn_group_lines_t lines = { nm->m.store, nm->m.hash };
-		uint8_t who[FZN_PUBKEY_LEN];
-		fzn_contact_t c;
-
-		if (p->direction == FZN_MESSAGE_IN
-		    && fzn_group_lines_sender(&lines, p->contact, p->id, who) == FZN_GROUP_LINES_OK) {
-			if (fzn_contact_get(nm->m.store, who, &c) == FZN_CONTACT_OK) {
-				memcpy(sender, c.name, c.name_len);
-				o->sender_len = c.name_len;
-			} else {
-				hex_of(who, 8u, sender);
-				o->sender_len = 16u;
-			}
-		}
-	}
+	o->sender_len = line_sender(nm, p, sender);
 	return 1;
 }
 
@@ -1895,6 +1900,63 @@ int fzn_node_messages_unread_each(fzn_node_messages_t *nm,
 		if (fzn_messages_unread(&nm->m, contact, &count, &more) != FZN_MESSAGES_OK)
 			return 0;
 		each(ctx, contact, count, more);
+	}
+	return 1;
+}
+
+int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, size_t from, size_t max,
+                                 void (*each)(void *ctx, const fzn_node_line_t *line), void *ctx)
+{
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	static char sender[FZN_CONTACT_NAME_MAX + 2u * FZN_PUBKEY_LEN + 1u];
+	char group[FZN_CONTACT_NAME_MAX + 1u], name[FZN_CONTACT_NAME_MAX + 1u];
+	size_t given = 0, group_len = 0, i;
+	fzn_contact_t c;
+
+	/* NO SUCH CONVERSATION is said, as the text verb refuses a WHO it
+	 * cannot name: no lines would read the same as an empty one. */
+	if (key && fzn_contact_get(nm->m.store, key, &c) != FZN_CONTACT_OK
+	    && fzn_node_group_name(nm->m.store, key, group, &group_len) != FZN_CONTACT_OK)
+		return -1;
+	while (given < max) {
+		size_t want = max - given < FZN_MESSAGES_PAGE_MAX ? max - given : FZN_MESSAGES_PAGE_MAX;
+		size_t got = 0;
+		int more = 0;
+
+		if (fzn_messages_page(&nm->m, key, from, page, want, &got, &more) != FZN_MESSAGES_OK)
+			return 0;
+		for (i = 0; i < got; i++) {
+			const fzn_message_t *p = &page[i];
+			fzn_node_line_t l;
+
+			memset(&l, 0, sizeof(l));
+			l.key = p->contact;
+			l.id = p->id;
+			if (fzn_contact_get(nm->m.store, p->contact, &c) == FZN_CONTACT_OK) {
+				memcpy(name, c.name, c.name_len);
+				l.name_len = c.name_len;
+			} else if (fzn_node_group_name(nm->m.store, p->contact, group, &group_len)
+			           == FZN_CONTACT_OK) {
+				l.group = 1;
+				memcpy(name, group, group_len);
+				l.name_len = group_len;
+			}
+			l.name = name;
+			l.outgoing = p->direction == FZN_MESSAGE_OUT;
+			l.state = p->state <= FZN_MESSAGE_NOT_DELIVERED ? p->state : 0u;
+			l.readable = p->readable != 0;
+			l.stime_ms = p->stime;
+			l.written_ms = p->written_at;
+			l.sender = sender;
+			l.sender_len = line_sender(nm, p, sender);
+			l.text = p->text;
+			l.text_len = p->text_len;
+			each(ctx, &l);
+			given++;
+		}
+		from += got;
+		if (!more || !got)
+			break;
 	}
 	return 1;
 }

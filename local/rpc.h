@@ -788,6 +788,12 @@ int fzn_rpc_location_share(fzn_rpc_t *c, const char *peer, size_t peer_len, int 
 int fzn_rpc_message_read(fzn_rpc_t *c, const char *peer, size_t peer_len, const uint8_t id[16]);
 int fzn_rpc_message_unread(fzn_rpc_t *c, const char *peer, size_t peer_len, size_t *count,
                             int *more);
+/* A CONVERSATION'S LINES, newest first, into `out` up to `cap`; a group's
+ * lines are left out, read by their own call. PEER a contact's name, its
+ * root key in 64 hex, or empty for everyone's. Asked in binary where PEER
+ * is a key or empty (fuzznet sec 1159) -- the request carries a key, never
+ * a name -- and by `list message` otherwise, or where the node reads no
+ * binary. */
 int fzn_rpc_inbox_lines(fzn_rpc_t *c, const char *peer, size_t peer_len, fzn_rpc_inbox_entry_t *out,
                          size_t cap, size_t *count);
 /* EVERY CONVERSATION'S COUNT IN ONE REPLY, `list message unread [FROM]`

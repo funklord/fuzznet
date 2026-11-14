@@ -88807,3 +88807,49 @@ camera that fails after it opened stops the feed and tells the view
 through the feed's `stopped` callback, which shows the camera's words
 and puts the button back; that path has not run either, for the same
 reason.
+
+## 1159. A conversation's lines, in binary, 2026-11-14
+
+The local leg's messages category (sec 1155) gains its second step, the
+call a conversation view makes on every refresh: `list message [WHO]
+[FROM]`, as FZN_CMD_MESSAGES `lines` (132) answered by a `line_row` (133)
+each and then a STATUS ok, in `node/messages_local.situ`.
+
+- **The request carries a key, never a name** (the holder, 2026-10-08:
+  names are presentation): ONE 1 and a contact's root key or a group's
+  id, or ONE 0 for everyone's; FROM lines skipped from the newest; at most
+  MAX rows. A reader asks again from FROM plus what it was given, so no
+  page of the text verb's size is kept.
+- **A row is everything the text item says**: the conversation's key and
+  this user's name for it, whether it is a group's, the line's id,
+  direction, mark (0 none to 4 not delivered, `messages/line.h`'s), the
+  sender's and the writing device's times in ms, whether it is readable,
+  a group member who wrote an incoming one (as the newest row names them),
+  and the text raw, never escaped.
+- **A key that is neither a contact nor a group is refused** as a STATUS
+  error, as the text verb refuses a WHO it cannot name: no lines would
+  read the same as an empty conversation.
+- **`fzn_node_messages_lines_each`** walks the pages for the binary
+  handler; the sender's naming moved into `line_sender`, shared with the
+  newest listing.
+- **The client** asks in binary where WHO is a key in 64 hex or empty,
+  and by the verb for a contact's name -- the name is the verb's to
+  resolve -- or where the node reads no binary. `fzn_rpc_inbox_lines`
+  leaves a group's line out in both, as before; a row's times become the
+  clients' seconds. fuzzypickles' conversation list holds keys from
+  `fzn_rpc_newest_all`, so opening one asks in binary; `conversation_view`
+  still opens by name and stays on the verb.
+
+**Verified**: five vectors written by hand (a contact's line, a group
+member's, a shell, both requests), ten in all; `messages_test` 219 --
+carol's two lines by id, time and name, everyone's held to MAX, an
+unknown key refused; `rpc_test` -- rows into inbox entries, a group's
+left out, the request's bytes, a name asked by the verb; `live_rpc`
+phase d -- a line written to the probe's group, everyone's lines in
+binary the text listing's by id and in order, and the group's own by its
+key. Three sabotages, each caught: `rpc-lines-binary-group-as-inbox`,
+`messages-lines-unknown-key-empty`, `messages-lines-max-unheld`.
+
+**Next in the category**: sending a line (`add message`) in binary, which
+goes through the daemon's delivery rather than this file alone, then
+contacts.

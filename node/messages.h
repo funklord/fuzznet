@@ -497,5 +497,32 @@ int fzn_node_messages_unread_each(fzn_node_messages_t *nm,
                                   void (*each)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
                                                size_t count, int more),
                                   void *ctx);
+/* A CONVERSATION'S LINES, as `list message [WHO] [FROM]` says them, sec
+ * 1159: KEY's -- a contact's root key or a group's id -- or everyone's when
+ * KEY is NULL, newest first, FROM skipped, at most MAX handed to `each`.
+ * GROUP 1 for a group's line; NAME this user's for the conversation, the
+ * contact's or the group's, empty for neither; SENDER a group member who wrote an incoming
+ * one, as the newest listing names them; STATE the mark on this user's own
+ * line (messages/line.h), 0 for none; READABLE 0 a shell, TEXT then empty.
+ * Pointers good only during the call. 1 once handed, 0 when a page did not
+ * read, -1 when KEY is neither a contact nor a group. */
+typedef struct fzn_node_line {
+	const uint8_t *key;
+	const uint8_t *id;
+	int group;
+	int outgoing;
+	unsigned state;
+	int readable;
+	uint64_t stime_ms;
+	uint64_t written_ms;
+	const char *name;
+	size_t name_len;
+	const char *sender;
+	size_t sender_len;
+	const char *text;
+	size_t text_len;
+} fzn_node_line_t;
+int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, size_t from, size_t max,
+                                 void (*each)(void *ctx, const fzn_node_line_t *line), void *ctx);
 
 #endif /* FZN_NODE_MESSAGES_H */

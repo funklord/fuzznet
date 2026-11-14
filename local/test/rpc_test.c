@@ -747,8 +747,67 @@ static void test_conversations_in_binary(void)
 	      "a binary denial of the listing was not mapped, or its words were lost");
 }
 
+/* ONE LINE ROW framed onto answer `i`, sec 1159. */
+static void line_onto(struct bscript *s, size_t i, uint8_t first, uint8_t group, uint8_t outgoing, uint8_t state,
+                      const char *name, const char *sender, const char *text)
+{
+	uint8_t key[32], id[16], row[700], m[720];
+	uint32_t row_len = 0, n = 0;
+
+	memset(key, first, sizeof(key));
+	memset(id, first ^ 0xff, sizeof(id));
+	if (fzn_messages_local_line_row_build(row, sizeof(row), key, id, group, outgoing, state, 1u, 1700000000000ull,
+	                                      1700000005000ull, (const uint8_t *)name, (uint32_t)strlen(name),
+	                                      (const uint8_t *)sender, (uint32_t)strlen(sender), (const uint8_t *)text,
+	                                      (uint32_t)strlen(text), &row_len) != SITU_OK
+	    || fzn_messages_local_message_build_line_row(m, sizeof(m), (uint8_t)FZN_CMD_MESSAGES, row, row_len, &n)
+	               != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* A CONVERSATION'S LINES IN BINARY, sec 1159: asked by key as
+ * FZN_CMD_MESSAGES lines, a row each read into an inbox entry with its
+ * name, id, mark and times in seconds; a group's line left out as the text
+ * listing leaves it; a contact asked for by NAME asked by the verb, which
+ * names it, since the request carries a key. */
+static void test_lines_in_binary(void)
+{
+	static struct bscript lines;
+	static fzn_rpc_inbox_entry_t out[4];
+	static const char key_hex[] = "abababababababababababababababababababababababababababababababab";
+	size_t count = 0;
+
+	line_onto(&lines, 0, 0xab, 0, 1, 2, "alice", "", "see you at 8");
+	line_onto(&lines, 0, 0xcd, 1, 0, 0, "team", "carol", "in the group");
+	line_onto(&lines, 0, 0xab, 0, 0, 0, "alice", "", "on my way");
+	status_onto(&lines, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &lines);
+	CHECK(fzn_rpc_inbox_lines(&c, key_hex, 64, out, 4, &count) == FZN_RPC_OK && count == 2
+	              && out[0].sender_host_pubkey[0] == 0xab && out[0].commitment[0] == 0x54 && out[0].outgoing
+	              && out[0].state == FZN_RPC_LINE_SETTLED && out[0].stime == 1700000000u
+	              && out[0].rtime == 1700000005u && strcmp(out[0].sender_name, "alice") == 0
+	              && strcmp(out[0].text, "see you at 8") == 0 && !out[1].outgoing
+	              && strcmp(out[1].text, "on my way") == 0,
+	      "a conversation's lines were not read in binary, or a group's line was taken for one");
+	CHECK(lines.asked_len[0] == 41 && lines.asked[0][0] == 0x0a && lines.asked[0][1] == 0x84
+	              && lines.asked[0][2] == 1 && lines.asked[0][3] == 0xab && lines.asked[0][39] == 0
+	              && lines.asked[0][40] == 4,
+	      "the lines were not asked in the schema's bytes, by key, at most the cap");
+
+	{
+		struct script s = { { "ok 0 0 0" }, 0, 1, 0, { { 0 } } };
+
+		on(&c, &s);
+		CHECK(fzn_rpc_inbox_lines(&c, "alice", 5, out, 4, &count) == FZN_RPC_OK && count == 0
+		              && strcmp(s.asked[0], "list message alice 0") == 0,
+		      "a conversation named by a contact's name was not asked by the verb");
+	}
+}
+
 int main(void)
 {
+	test_lines_in_binary();
 	test_conversations_in_binary();
 	test_a_file_not_fetched_says_so();
 	test_an_empty_library_lists_nothing();

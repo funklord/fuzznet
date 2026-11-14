@@ -28,6 +28,8 @@ typedef enum fzn_messages_local_op {
 	FZN_MESSAGES_LOCAL_OP_UNREAD = 129,
 	FZN_MESSAGES_LOCAL_OP_NEWEST_ROW = 130,
 	FZN_MESSAGES_LOCAL_OP_UNREAD_ROW = 131,
+	FZN_MESSAGES_LOCAL_OP_LINES = 132,
+	FZN_MESSAGES_LOCAL_OP_LINE_ROW = 133,
 } fzn_messages_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -39,6 +41,8 @@ static inline int fzn_messages_local_op_is_known(fzn_messages_local_op_t value)
 	case FZN_MESSAGES_LOCAL_OP_UNREAD:
 	case FZN_MESSAGES_LOCAL_OP_NEWEST_ROW:
 	case FZN_MESSAGES_LOCAL_OP_UNREAD_ROW:
+	case FZN_MESSAGES_LOCAL_OP_LINES:
+	case FZN_MESSAGES_LOCAL_OP_LINE_ROW:
 		return 1;
 	default:
 		return 0;
@@ -480,6 +484,575 @@ situ_err_t fzn_messages_local_unread_row_validate(situ_view_t view);
 situ_err_t fzn_messages_local_unread_row_check(situ_view_t view, uint32_t *which);
 #define FZN_MESSAGES_LOCAL_UNREAD_ROW_MORE_CHECK 0u
 
+/* ---- struct lines_ask ---- */
+
+#define FZN_MESSAGES_LOCAL_LINES_ASK_SIZE_FIXED 39u
+#define FZN_MESSAGES_LOCAL_LINES_ASK_SIZE_MIN   39u
+#define FZN_MESSAGES_LOCAL_LINES_ASK_SIZE_MAX   39u
+
+/* INVALIDATION: nothing invalidates a lines_ask view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_messages_local_lines_ask_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MESSAGES_LOCAL_LINES_ASK_SIZE_FIXED, out);
+}
+
+#define FZN_MESSAGES_LOCAL_LINES_ASK_ONE_VALUE_MAX 1u
+
+/** lines_ask.one : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_messages_local_lines_ask_one_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_messages_local_lines_ask_one_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_messages_local_lines_ask_one_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+/** lines_ask.key : u8  at AbsoluteStatic(0x01)
+ * size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MESSAGES_LOCAL_LINES_ASK_KEY_COUNT 32u
+static inline uint8_t *fzn_messages_local_lines_ask_key_ptr(situ_view_t view)
+{
+	return situ_base(view) + 1u;
+}
+
+/** lines_ask.from : u32  at AbsoluteStatic(0x21)
+ * size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_messages_local_lines_ask_from_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 33u));
+}
+static inline void fzn_messages_local_lines_ask_from_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 33u, (uint32_t)value);
+}
+
+/** lines_ask.max : u16  at AbsoluteStatic(0x25)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_messages_local_lines_ask_max_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 37u));
+}
+static inline void fzn_messages_local_lines_ask_max_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 37u, (uint16_t)value);
+}
+
+/** How many bytes a whole `lines_ask` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_messages_local_lines_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MESSAGES_LOCAL_LINES_ASK_SIZE_FIXED;
+	return have >= FZN_MESSAGES_LOCAL_LINES_ASK_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_messages_local_lines_ask_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_messages_local_lines_ask_check(situ_view_t view, uint32_t *which);
+#define FZN_MESSAGES_LOCAL_LINES_ASK_ONE_CHECK 0u
+
+/* ---- struct line_row ---- */
+
+#define FZN_MESSAGES_LOCAL_LINE_ROW_SIZE_MIN   72u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_SIZE_MAX   712u
+
+/* INVALIDATION: a line_row view, and every view derived from
+ * it, is invalidated by writing `name_len`, `sender_len`, `text_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_messages_local_line_row_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_MESSAGES_LOCAL_LINE_ROW_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+static inline uint32_t fzn_messages_local_line_row_walked(situ_view_t view, uint32_t index);
+
+
+/** line_row.key : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MESSAGES_LOCAL_LINE_ROW_KEY_COUNT 32u
+static inline uint8_t *fzn_messages_local_line_row_key_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** line_row.id : u8  at AbsoluteStatic(0x20)
+ * size=Fixed(16) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MESSAGES_LOCAL_LINE_ROW_ID_COUNT 16u
+static inline uint8_t *fzn_messages_local_line_row_id_ptr(situ_view_t view)
+{
+	return situ_base(view) + 32u;
+}
+
+#define FZN_MESSAGES_LOCAL_LINE_ROW_GROUP_VALUE_MAX 1u
+
+/** line_row.group : u8  at AbsoluteStatic(0x30)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_messages_local_line_row_group_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[48u]);
+}
+static inline uint8_t *fzn_messages_local_line_row_group_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 48u);
+}
+static inline void fzn_messages_local_line_row_group_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[48u] = (uint8_t)value;
+}
+
+#define FZN_MESSAGES_LOCAL_LINE_ROW_OUTGOING_VALUE_MAX 1u
+
+/** line_row.outgoing : u8  at AbsoluteStatic(0x31)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_messages_local_line_row_outgoing_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[49u]);
+}
+static inline uint8_t *fzn_messages_local_line_row_outgoing_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 49u);
+}
+static inline void fzn_messages_local_line_row_outgoing_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[49u] = (uint8_t)value;
+}
+
+#define FZN_MESSAGES_LOCAL_LINE_ROW_STATE_VALUE_MAX 4u
+
+/** line_row.state : u8  at AbsoluteStatic(0x32)
+ * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_messages_local_line_row_state_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[50u]);
+}
+static inline uint8_t *fzn_messages_local_line_row_state_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 50u);
+}
+static inline void fzn_messages_local_line_row_state_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[50u] = (uint8_t)value;
+}
+
+#define FZN_MESSAGES_LOCAL_LINE_ROW_READABLE_VALUE_MAX 1u
+
+/** line_row.readable : u8  at AbsoluteStatic(0x33)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_messages_local_line_row_readable_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[51u]);
+}
+static inline uint8_t *fzn_messages_local_line_row_readable_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 51u);
+}
+static inline void fzn_messages_local_line_row_readable_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[51u] = (uint8_t)value;
+}
+
+/** line_row.stime_ms : u64  at AbsoluteStatic(0x34)
+ * size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_messages_local_line_row_stime_ms_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 52u));
+}
+static inline void fzn_messages_local_line_row_stime_ms_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 52u, (uint64_t)value);
+}
+
+/** line_row.written_ms : u64  at AbsoluteStatic(0x3C)
+ * size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_messages_local_line_row_written_ms_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 60u));
+}
+static inline void fzn_messages_local_line_row_written_ms_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 60u, (uint64_t)value);
+}
+
+#define FZN_MESSAGES_LOCAL_LINE_ROW_NAME_LEN_VALUE_MAX 64u
+
+/** line_row.name_len : u8  at AbsoluteStatic(0x44)
+ * size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_messages_local_line_row_name_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[68u]);
+}
+static inline uint8_t *fzn_messages_local_line_row_name_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 68u);
+}
+/* No plain setter: `name_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_messages_local_line_row_name_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** line_row.name : u8  at AbsoluteStatic(0x45)
+ * size=Bounded(0, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_messages_local_line_row_name_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[68u])),
+		situ_remaining_u32(view.limit, 69u));
+}
+static inline uint8_t *fzn_messages_local_line_row_name_ptr(situ_view_t view)
+{
+	return situ_base(view) + 69u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+#define FZN_MESSAGES_LOCAL_LINE_ROW_SENDER_LEN_VALUE_MAX 64u
+
+/** line_row.sender_len : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_messages_local_line_row_sender_len_offset(situ_view_t view)
+{
+	return fzn_messages_local_line_row_walked(view, 0u);
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_messages_local_line_row_sender_len_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_messages_local_line_row_sender_len_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view)))[0u])
+		: (uint8_t)0;
+}
+
+static inline uint8_t fzn_messages_local_line_row_sender_len_get_from(situ_view_t view, uint32_t at)
+{
+	return situ_in_bounds(view, at, 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + at))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_messages_local_line_row_sender_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view));
+}
+/* No plain setter: `sender_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_messages_local_line_row_sender_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** line_row.sender : u8  at Dynamic
+ * size=Bounded(0, 64) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_messages_local_line_row_sender_offset(situ_view_t view)
+{
+	uint32_t offset = 69u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[68u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+
+	return offset;
+}
+static inline uint32_t fzn_messages_local_line_row_sender_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_sender_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view)))[0u]) : (uint64_t)0))),
+		situ_remaining_u32(view.limit, fzn_messages_local_line_row_sender_offset(view)));
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_messages_local_line_row_sender_ptr(situ_view_t view)
+{
+	return situ_base(view) + fzn_messages_local_line_row_sender_offset(view);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+#define FZN_MESSAGES_LOCAL_LINE_ROW_TEXT_LEN_VALUE_MAX 512u
+
+/** line_row.text_len : u16  at Dynamic
+ * size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_messages_local_line_row_text_len_offset(situ_view_t view)
+{
+	return fzn_messages_local_line_row_walked(view, 1u);
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint16_t fzn_messages_local_line_row_text_len_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_messages_local_line_row_text_len_offset(view), 2u)
+		? (uint16_t)(situ_get_be16((situ_base(view) + fzn_messages_local_line_row_text_len_offset(view)) + 0u))
+		: (uint16_t)0;
+}
+
+static inline uint16_t fzn_messages_local_line_row_text_len_get_from(situ_view_t view, uint32_t at)
+{
+	return situ_in_bounds(view, at, 2u)
+		? (uint16_t)(situ_get_be16((situ_base(view) + at) + 0u))
+		: (uint16_t)0;
+}
+/* No plain setter: `text_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_messages_local_line_row_text_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** line_row.text : u8  at Dynamic
+ * size=Bounded(0, 512) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_messages_local_line_row_text_offset(situ_view_t view)
+{
+	uint32_t offset = 69u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[68u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_sender_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, (2u), view.limit);
+
+	return offset;
+}
+static inline uint32_t fzn_messages_local_line_row_text_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_line_row_text_len_offset(view)) + 0u)) : (uint64_t)0))),
+		situ_remaining_u32(view.limit, fzn_messages_local_line_row_text_offset(view)));
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_messages_local_line_row_text_ptr(situ_view_t view)
+{
+	return situ_base(view) + fzn_messages_local_line_row_text_offset(view);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+/** Where the fields `line_row`'s lengths read are, in one pass.
+ */
+static inline uint32_t fzn_messages_local_line_row_walked(situ_view_t view, uint32_t index)
+{
+	uint32_t marks[2];
+	uint32_t at = 0u;
+
+	marks[0] = view.limit;
+	marks[1] = view.limit;
+	at = situ_advance_u32(at, 69u, view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[68u]))), view.limit);
+	marks[0] = at;
+	at = situ_advance_u32(at, 1u, view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[0], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[0]))[0u]) : (uint64_t)0)))), view.limit);
+	marks[1] = at;
+	return marks[index];
+}
+
+
+/** How many bytes one `line_row` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_messages_local_line_row_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 72u)) {
+		return 72u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 72u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[68u])));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_sender_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view)))[0u]) : (uint64_t)0))));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_line_row_text_len_offset(view)) + 0u)) : (uint64_t)0))));
+	return extent;
+}
+
+/** How many bytes a whole `line_row` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_messages_local_line_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 72u;
+	uint32_t pos = 69u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* line_row.name: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 69u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[68u]));
+
+		at = situ_need_u32(at, len);
+		pos = situ_need_u32(pos, len);
+	}
+	pos = situ_need_u32(pos, 1u);
+
+	/* line_row.sender: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < pos) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_messages_local_line_row_sender_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view)))[0u]) : (uint64_t)0)));
+
+		at = situ_need_u32(at, len);
+		pos = situ_need_u32(pos, len);
+	}
+	pos = situ_need_u32(pos, 2u);
+
+	/* line_row.text: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < pos) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_messages_local_line_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_line_row_text_len_offset(view)) + 0u)) : (uint64_t)0)));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_messages_local_line_row_name_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[68u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+static inline void fzn_messages_local_line_row_sender_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	if (!(situ_in_bounds(view, fzn_messages_local_line_row_sender_len_offset(view), 1u))) {
+		return;
+	}
+	((situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view)))[0u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+static inline void fzn_messages_local_line_row_text_len_set(situ_msg_t *msg, situ_view_t view, uint16_t value)
+{
+	if (!(situ_in_bounds(view, fzn_messages_local_line_row_text_len_offset(view), 2u))) {
+		return;
+	}
+	situ_put_be16((situ_base(view) + fzn_messages_local_line_row_text_len_offset(view)) + 0u, (uint16_t)value);
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_messages_local_line_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_messages_local_line_row_check(situ_view_t view, uint32_t *which);
+#define FZN_MESSAGES_LOCAL_LINE_ROW_GROUP_CHECK 0u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_OUTGOING_CHECK 1u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_STATE_CHECK 2u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_READABLE_CHECK 3u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_NAME_LEN_CHECK 4u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_NAME_CHECK 5u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_SENDER_LEN_CHECK 6u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_SENDER_CHECK 7u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_TEXT_LEN_CHECK 8u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_TEXT_CHECK 9u
+
 /* ---- struct message ---- */
 
 #define FZN_MESSAGES_LOCAL_MESSAGE_SIZE_MIN   2u
@@ -543,7 +1116,7 @@ static inline fzn_messages_local_op_t fzn_messages_local_message_op_get(situ_vie
 /* message.body : variant  at AbsoluteStatic(0x02)
  * size=Bounded(0, 1133) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `newest`, `unread`, `newest_row`, `unread_row` is
+/** `body` is a variant: exactly one of `newest`, `unread`, `newest_row`, `unread_row`, `lines`, `line_row` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -633,6 +1206,69 @@ static inline situ_err_t fzn_messages_local_message_body_unread_row_view(situ_vi
 
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_UNREAD_ROW_MORE_VALUE_MAX 1u
 
+/** message.body.lines, present when the discriminant selects `op.lines`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_messages_local_message_body_lines_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_messages_local_message_op_get(view) != 132u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MESSAGES_LOCAL_LINES_ASK_SIZE_FIXED, out);
+}
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINES_ONE_VALUE_MAX 1u
+
+/* message.body.line_row, present when the discriminant selects `op.line_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `line_row` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_messages_local_message_body_line_row_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_messages_local_line_row_extent(whole);
+}
+static inline situ_err_t fzn_messages_local_message_body_line_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_messages_local_message_op_get(view) != 133u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_messages_local_line_row_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_GROUP_VALUE_MAX 1u
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_OUTGOING_VALUE_MAX 1u
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_STATE_VALUE_MAX 4u
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_READABLE_VALUE_MAX 1u
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_NAME_LEN_VALUE_MAX 64u
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_SENDER_LEN_VALUE_MAX 64u
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_TEXT_LEN_VALUE_MAX 512u
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -702,6 +1338,20 @@ static inline situ_err_t fzn_messages_local_message_required(const uint8_t *data
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_messages_local_message_op_get(view) : 0u) == 132u) {
+			e = fzn_messages_local_lines_ask_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_messages_local_message_op_get(view) : 0u) == 133u) {
+			e = fzn_messages_local_line_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -743,6 +1393,8 @@ situ_err_t fzn_messages_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_UNREAD_CHECK 4u
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_NEWEST_ROW_CHECK 5u
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_UNREAD_ROW_CHECK 6u
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINES_CHECK 7u
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_CHECK 8u
 
 #ifdef __cplusplus
 }

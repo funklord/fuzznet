@@ -16719,6 +16719,27 @@ SABOTAGES = [
 		"a camera's frames are scanned at full size -- sec 1158",
 	),
 	(
+		"rpc-lines-binary-group-as-inbox",
+		"local/rpc.c",
+		"\t\tif (fzn_messages_local_line_row_group_get(b) || *a->count == a->cap) return;\n",
+		"\t\tif (*a->count == a->cap) return;\n",
+		"a group's line read in binary is put in a contact's inbox -- sec 1159",
+	),
+	(
+		"messages-lines-unknown-key-empty",
+		"node/messages_binary.c",
+		"\t\tif (listed < 0)\n",
+		"\t\tif (0)\n",
+		"lines asked for a key that is no contact or group read as an empty conversation -- sec 1159",
+	),
+	(
+		"messages-lines-max-unheld",
+		"node/messages.c",
+		"\t\tsize_t want = max - given < FZN_MESSAGES_PAGE_MAX ? max - given : FZN_MESSAGES_PAGE_MAX;\n",
+		"\t\tsize_t want = FZN_MESSAGES_PAGE_MAX;\n",
+		"lines in binary are answered past the most asked for -- sec 1159",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

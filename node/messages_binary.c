@@ -63,6 +63,28 @@ static void unread_one(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], size_t coun
 	        && w->put(w->ctx, out, n);
 }
 
+static void line_one(void *ctx, const fzn_node_line_t *l)
+{
+	struct rows *w = ctx;
+	uint8_t row[FZN_NODE_MESSAGES_BINARY_MAX], out[FZN_NODE_MESSAGES_BINARY_MAX + 8u];
+	uint32_t row_len = 0, n = 0;
+
+	if (!w->ok)
+		return;
+	w->ok = l->name_len <= 64u && l->sender_len <= 64u && l->text_len <= 512u
+	        && fzn_messages_local_line_row_build(row, sizeof(row), l->key, l->id, (uint8_t)(l->group ? 1 : 0),
+	                                             (uint8_t)(l->outgoing ? 1 : 0), (uint8_t)l->state,
+	                                             (uint8_t)(l->readable ? 1 : 0), l->stime_ms, l->written_ms,
+	                                             (const uint8_t *)l->name, (uint32_t)l->name_len,
+	                                             (const uint8_t *)l->sender, (uint32_t)l->sender_len,
+	                                             (const uint8_t *)l->text, (uint32_t)l->text_len, &row_len)
+	                   == SITU_OK
+	        && fzn_messages_local_message_build_line_row(out, sizeof(out), (uint8_t)FZN_CMD_MESSAGES, row,
+	                                                     row_len, &n)
+	                   == SITU_OK
+	        && w->put(w->ctx, out, n);
+}
+
 int fzn_node_messages_binary(fzn_node_messages_t *nm, const uint8_t *msg, size_t len,
                              fzn_node_messages_put_t put, void *put_ctx)
 {
@@ -86,6 +108,23 @@ int fzn_node_messages_binary(fzn_node_messages_t *nm, const uint8_t *msg, size_t
 	case FZN_MESSAGES_LOCAL_OP_UNREAD:
 		listed = fzn_node_messages_unread_each(nm, unread_one, &w);
 		break;
+	case FZN_MESSAGES_LOCAL_OP_LINES: {
+		situ_view_t b;
+
+		if (fzn_messages_local_message_body_lines_view(v, &b) != SITU_OK)
+			return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a messages request");
+		listed = fzn_node_messages_lines_each(nm,
+		                                      fzn_messages_local_lines_ask_one_get(b)
+		                                              ? fzn_messages_local_lines_ask_key_ptr(b)
+		                                              : NULL,
+		                                      fzn_messages_local_lines_ask_from_get(b),
+		                                      fzn_messages_local_lines_ask_max_get(b), line_one, &w);
+		/* NO SUCH CONVERSATION, said as the text verb says a WHO it cannot
+		 * name. */
+		if (listed < 0)
+			return status(put, put_ctx, FZN_STATUS_ERROR, "no contact or group by that key");
+		break;
+	}
 	default:
 		return status(put, put_ctx, FZN_STATUS_MALFORMED, "no such messages request");
 	}

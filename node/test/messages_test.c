@@ -716,6 +716,43 @@ static void test_every_conversations_newest_line(void)
 	      "the unread counts in binary were not one a conversation, then an ok");
 	CHECK(bin_asked(&A, 0x99) && bin.n == 1u && bin.m[0][0] == 0x13 && bin.m[0][1] == 2,
 	      "no such listing was not malformed");
+
+	/* A CONVERSATION'S LINES IN BINARY, sec 1159: carol's two, newest first,
+	 * as `list message carol` has them -- id, direction, readable, time and
+	 * her name -- then an ok; everyone's held to MAX; a key that is no
+	 * contact or group refused, where no lines would read as an empty one. */
+	{
+		uint8_t req[41] = { 0x0a, 0x84, 1 };
+		const uint8_t *m;
+
+		memcpy(req + 3, X, 32);
+		req[40] = 20;
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, req, sizeof(req), bin_put, NULL) && bin.n == 3u
+		              && bin.m[2][0] == 0x13 && bin.m[2][1] == 0,
+		      "carol's lines in binary were not two rows and an ok");
+		m = bin.m[0];
+		CHECK(bin.len[0] > 76u && m[1] == 0x85 && memcmp(m + 2, X, 32) == 0 && m[34] == 0x01 && m[49] == 0x01
+		              && m[50] == 0 && m[51] == 1 && m[53] == 1 && m[60] == (30000u >> 8) && m[61] == (30000u & 0xffu)
+		              && m[70] == 5 && memcmp(m + 71, "carol", 5) == 0,
+		      "carol's newest line in binary was not the file sent, by its id, time and her name");
+		m = bin.m[1];
+		CHECK(m[34] == 0x02 && m[51] == 0 && m[53] == 1 && m[60] == (12345u >> 8) && m[61] == (12345u & 0xffu),
+		      "carol's older line in binary was not the one she sent");
+		req[2] = 0;
+		memset(req + 3, 0, 32);
+		req[40] = 2;
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, req, sizeof(req), bin_put, NULL) && bin.n == 3u
+		              && bin.m[2][0] == 0x13 && bin.m[2][1] == 0,
+		      "everyone's lines in binary were not held to the two asked");
+		req[2] = 1;
+		memset(req + 3, 0x77, 32);
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, req, sizeof(req), bin_put, NULL) && bin.n == 1u
+		              && bin.m[0][0] == 0x13 && bin.m[0][1] == 3,
+		      "a key that is no contact or group was listed as an empty conversation");
+	}
 }
 
 static void test_the_verbs_need_the_user(void)

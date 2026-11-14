@@ -9,6 +9,9 @@
        known to have a binary node to speak to, not only a text one
     c  every conversation's newest line and count asked in binary (sec 1155),
        in bytes written here: as many rows as the text verbs' totals, then ok
+    d  the lines asked in binary (sec 1159): a line written to the probe's
+       group, everyone's lines the text listing's by id and in order, then
+       ok, and the group's own asked by its key, marked a group's
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -134,6 +137,26 @@ def main(argv):
 					             " counts %d: %r" % (verb, len(got), total, got[:3]))
 			print("livecheck: c: newest and unread in binary, as many rows as the text verbs count"
 			      " (the probe's group among them)")
+
+			# d: the lines, in bytes, against the text listing's.
+			said = ask(sock, "add message @probe_crew out " + "d1" * 16 + " hello")
+			if not said.startswith("ok"):
+				raise failed("d: a line to the probe's group was not written: %r" % said)
+			text = ask(sock, "list message").split()
+			shown = int(text[2])
+			ids = [item.split(",")[2] for item in text[4:4 + shown]]
+			got = binary(sock, bytes([MESSAGES, 0x84, 0]) + bytes(32) + bytes(4) + (20).to_bytes(2, "big"))
+			rows = [m for m in got[:-1] if m[:2] == bytes([MESSAGES, 0x85])]
+			if shown < 1 or not got or got[-1][:2] != bytes([STATUS, 0]) or len(rows) != len(got) - 1 \
+			   or [m[34:50].hex() for m in rows] != ids:
+				raise failed("d: everyone's lines in binary were %r where the text listing has %r"
+				             % ([m[34:50].hex() for m in rows], ids))
+			mine = binary(sock, bytes([MESSAGES, 0x84, 1]) + rows[0][2:34] + bytes(4)
+			              + (20).to_bytes(2, "big"))
+			if len(mine) != 2 or mine[0][34:50].hex() != ids[0] or mine[0][50] != 1:
+				raise failed("d: the group's lines asked by its key answered %r" % mine)
+			print("livecheck: d: %d line(s) in binary, the text listing's by id and in order, and"
+			      " the group's own asked by its key" % shown)
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

@@ -100,6 +100,103 @@ static inline situ_err_t fzn_messages_local_newest_row_edit_decode(const situ_ms
 	return SITU_OK;
 }
 
+/* `line_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t group;
+	uint8_t outgoing;
+	uint8_t state;
+	uint8_t readable;
+	uint64_t stime_ms;
+	uint64_t written_ms;
+	uint8_t name_len;
+	const uint8_t *name;	/* into your backing */
+	uint32_t name_len;
+	uint8_t sender_len;
+	const uint8_t *sender;	/* into your backing */
+	uint32_t sender_len;
+	uint16_t text_len;
+	const uint8_t *text;	/* into your backing */
+	uint32_t text_len;
+} fzn_messages_local_line_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_messages_local_line_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_messages_local_line_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_messages_local_line_row_name_len(view);
+	*need += fzn_messages_local_line_row_sender_len(view);
+	*need += fzn_messages_local_line_row_text_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_messages_local_line_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_messages_local_line_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_messages_local_line_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_messages_local_line_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->group = fzn_messages_local_line_row_group_get(view);
+	out->outgoing = fzn_messages_local_line_row_outgoing_get(view);
+	out->state = fzn_messages_local_line_row_state_get(view);
+	out->readable = fzn_messages_local_line_row_readable_get(view);
+	out->stime_ms = fzn_messages_local_line_row_stime_ms_get(view);
+	out->written_ms = fzn_messages_local_line_row_written_ms_get(view);
+	out->name_len = fzn_messages_local_line_row_name_len_get(view);
+	out->name_len = fzn_messages_local_line_row_name_len(view);
+	out->name     = backing + at;
+	for (uint32_t i = 0u; i < out->name_len; i++) {
+		backing[at + i] = fzn_messages_local_line_row_name_ptr(view)[i];
+	}
+	at += out->name_len;
+	out->sender_len = fzn_messages_local_line_row_sender_len_get(view);
+	out->sender_len = fzn_messages_local_line_row_sender_len(view);
+	out->sender     = backing + at;
+	for (uint32_t i = 0u; i < out->sender_len; i++) {
+		backing[at + i] = fzn_messages_local_line_row_sender_ptr(view)[i];
+	}
+	at += out->sender_len;
+	out->text_len = fzn_messages_local_line_row_text_len_get(view);
+	out->text_len = fzn_messages_local_line_row_text_len(view);
+	out->text     = backing + at;
+	for (uint32_t i = 0u; i < out->text_len; i++) {
+		backing[at + i] = fzn_messages_local_line_row_text_ptr(view)[i];
+	}
+	at += out->text_len;
+	(void)at;
+	return SITU_OK;
+}
+
 #ifdef __cplusplus
 }
 #endif

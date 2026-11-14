@@ -6704,11 +6704,6 @@ int fzn_rpc_location_share(fzn_rpc_t *c, const char *peer, size_t peer_len, int 
 	return node_location_share(c, peer, peer_len, enable, precision, reaches_siblings);
 }
 
-int fzn_rpc_inbox_lines(fzn_rpc_t *c, const char *peer, size_t peer_len, fzn_rpc_inbox_entry_t *out,
-                         size_t cap, size_t *count) {
-	return node_inbox_lines(c, peer, peer_len, out, cap, count);
-}
-
 /* ---- the node's other programs (sec 284) ---- */
 
 int fzn_rpc_set_node_socket(fzn_rpc_t *c, const char *path) {
@@ -7136,6 +7131,7 @@ int fzn_rpc_object_list(fzn_rpc_t *c, fzn_rpc_object_list_resp_t *out) {
 struct conversations_answer {
 	fzn_rpc_newest_entry_t *newest;
 	fzn_rpc_unread_entry_t *unread;
+	fzn_rpc_inbox_entry_t *lines; /* a conversation's lines, sec 1159 */
 	size_t cap, *count, *total;
 	int bad, status_seen;
 	fzn_status_t code;
@@ -7181,6 +7177,27 @@ static void conversations_each(void *ctx, const uint8_t *msg, size_t len) {
 		memcpy(e->sender, fzn_messages_local_newest_row_sender_ptr(b), e->sender_len);
 		memcpy(e->text, fzn_messages_local_newest_row_text_ptr(b), e->text_len);
 		(*a->count)++;
+	} else if (a->lines && fzn_messages_local_message_op_get(v) == FZN_MESSAGES_LOCAL_OP_LINE_ROW
+	           && fzn_messages_local_message_body_line_row_view(v, &b) == SITU_OK) {
+		/* A GROUP'S LINE IS NOT AN INBOX LINE, as the text listing skips
+		 * it: a group's lines are read by their own call. */
+		if (fzn_messages_local_line_row_group_get(b) || *a->count == a->cap) return;
+		fzn_rpc_inbox_entry_t *e = &a->lines[*a->count];
+		memset(e, 0, sizeof *e);
+		memcpy(e->sender_host_pubkey, fzn_messages_local_line_row_key_ptr(b), 32);
+		memcpy(e->commitment, fzn_messages_local_line_row_id_ptr(b), 16);
+		e->sender_name_len = fzn_messages_local_line_row_name_len(b);
+		if (e->sender_name_len > FZN_RPC_PEER_NAME_MAX) e->sender_name_len = FZN_RPC_PEER_NAME_MAX;
+		memcpy(e->sender_name, fzn_messages_local_line_row_name_ptr(b), e->sender_name_len);
+		e->outgoing = fzn_messages_local_line_row_outgoing_get(b);
+		e->state = fzn_messages_local_line_row_state_get(b);
+		/* fuzznet's times are milliseconds and the clients' unix seconds. */
+		e->stime = fzn_messages_local_line_row_stime_ms_get(b) / 1000u;
+		e->rtime = fzn_messages_local_line_row_written_ms_get(b) / 1000u;
+		e->text_len = fzn_messages_local_line_row_text_len(b);
+		if (e->text_len > FZN_RPC_PEER_TEXT_MAX) e->text_len = FZN_RPC_PEER_TEXT_MAX;
+		memcpy(e->text, fzn_messages_local_line_row_text_ptr(b), e->text_len);
+		(*a->count)++;
 	} else if (a->unread && fzn_messages_local_message_op_get(v) == FZN_MESSAGES_LOCAL_OP_UNREAD_ROW
 	           && fzn_messages_local_message_body_unread_row_view(v, &b) == SITU_OK) {
 		if (*a->count == a->cap) return;
@@ -7195,11 +7212,14 @@ static void conversations_each(void *ctx, const uint8_t *msg, size_t len) {
 	}
 }
 
-/* The listing asked in binary; FZN_RPC_OK with *text 1 for the verb to be used. */
-static int conversations_ask(fzn_rpc_t *c, uint8_t op, struct conversations_answer *a, int *text) {
+/* The listing asked in binary; FZN_RPC_OK with *text 1 for the verb to be
+ * used. `lines` is a lines request already built, for op LINES. */
+static int conversations_ask(fzn_rpc_t *c, uint8_t op, struct conversations_answer *a, int *text,
+                             const uint8_t *lines, uint32_t lines_len) {
 	uint8_t req[8];
 	uint32_t n = 0;
-	const situ_err_t built = op == FZN_MESSAGES_LOCAL_OP_NEWEST
+	const situ_err_t built = op == FZN_MESSAGES_LOCAL_OP_LINES ? SITU_OK
+	                         : op == FZN_MESSAGES_LOCAL_OP_NEWEST
 	                                 ? fzn_messages_local_message_build_newest(req, sizeof req, (uint8_t)FZN_CMD_MESSAGES,
 	                                                                           NULL, 0, &n)
 	                                 : fzn_messages_local_message_build_unread(req, sizeof req, (uint8_t)FZN_CMD_MESSAGES,
@@ -7208,7 +7228,8 @@ static int conversations_ask(fzn_rpc_t *c, uint8_t op, struct conversations_answ
 		*text = 1;
 		return FZN_RPC_OK;
 	}
-	const int rc = fzn_rpc_binary(c, req, n, conversations_each, a, text);
+	const int rc = op == FZN_MESSAGES_LOCAL_OP_LINES ? fzn_rpc_binary(c, lines, lines_len, conversations_each, a, text)
+	                                                 : fzn_rpc_binary(c, req, n, conversations_each, a, text);
 	if (rc != FZN_RPC_OK || *text) return rc;
 	if (a->bad) return unreadable(c);
 	/* A LISTING ENDS WITH ITS STATUS: one that stopped before it is not whole. */
@@ -7232,7 +7253,7 @@ int fzn_rpc_newest_all(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap, si
 	a.cap = cap;
 	a.count = count;
 	a.total = total;
-	rc = conversations_ask(c, FZN_MESSAGES_LOCAL_OP_NEWEST, &a, &text);
+	rc = conversations_ask(c, FZN_MESSAGES_LOCAL_OP_NEWEST, &a, &text, NULL, 0);
 	if (!text) return rc;
 	*count = 0;
 	*total = 0;
@@ -7250,10 +7271,48 @@ int fzn_rpc_unread_all(fzn_rpc_t *c, fzn_rpc_unread_entry_t *out, size_t cap, si
 	a.cap = cap;
 	a.count = count;
 	a.total = total;
-	rc = conversations_ask(c, FZN_MESSAGES_LOCAL_OP_UNREAD, &a, &text);
+	rc = conversations_ask(c, FZN_MESSAGES_LOCAL_OP_UNREAD, &a, &text, NULL, 0);
 	if (!text) return rc;
 	*count = 0;
 	*total = 0;
 	return unread_all_text(c, out, cap, count, total);
+}
+
+int fzn_rpc_inbox_lines(fzn_rpc_t *c, const char *peer, size_t peer_len, fzn_rpc_inbox_entry_t *out,
+                         size_t cap, size_t *count) {
+	/* IN BINARY WHERE WHO IS A KEY, OR EVERYONE, sec 1159: the request
+	 * carries a key, never a name (the holder's: names are presentation),
+	 * so a contact asked for by name is asked by the verb, which names it. */
+	uint8_t key[32];
+	char hex[65];
+	if (peer_len == 64) {
+		memcpy(hex, peer, 64);
+		hex[64] = '\0';
+	}
+	if (!peer_len || (peer_len == 64 && fzn_hex_decode(hex, key, sizeof key) == 0)) {
+		static uint8_t inner[64], req[80];
+		uint32_t inner_len = 0, req_len = 0;
+		struct conversations_answer a;
+		size_t total = 0;
+		int text = 0, rc;
+		if (!peer_len) memset(key, 0, sizeof key);
+		*count = 0;
+		memset(&a, 0, sizeof a);
+		a.lines = out;
+		a.cap = cap;
+		a.count = count;
+		a.total = &total;
+		if (fzn_messages_local_lines_ask_build(inner, sizeof inner, (uint8_t)(peer_len ? 1 : 0), key, 0u,
+		                                       (uint16_t)(cap > 0xffffu ? 0xffffu : cap), &inner_len)
+		            == SITU_OK
+		    && fzn_messages_local_message_build_lines(req, sizeof req, (uint8_t)FZN_CMD_MESSAGES, inner, inner_len,
+		                                              &req_len)
+		               == SITU_OK) {
+			rc = conversations_ask(c, FZN_MESSAGES_LOCAL_OP_LINES, &a, &text, req, req_len);
+			if (!text) return rc;
+		}
+		*count = 0;
+	}
+	return node_inbox_lines(c, peer, peer_len, out, cap, count);
 }
 
