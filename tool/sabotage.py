@@ -16614,6 +16614,13 @@ SABOTAGES = [
 		"a change waits out a round, 60 s for a lamp; live_objects only, as a round is the loop's -- sec 948",
 	),
 	(
+		"object-miss-not-asked-again",
+		"node/daemon.c",
+		"\t\t\t\t\t\tchange_undelivered = 1;\n\t\t\t\t\t\tnews_round_due = 1;\n",
+		"\t\t\t\t\t\tchange_undelivered = 1;\n",
+		"a change's round that missed a live sibling waits out the timed round; live_object_missed only -- sec 1149",
+	),
+	(
 		"loop-held-answering-unsaid",
 		"node/daemon.c",
 		"\tif (s->held_ms >= limit)\n",

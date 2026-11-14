@@ -16,6 +16,10 @@
  *   FZN_FAULT_LOSS=P          drop P per cent of datagrams sent
  *   FZN_FAULT_DUP=P           send P per cent twice
  *   FZN_FAULT_REORDER=P       hold P per cent back until the next is sent
+ *   FZN_FAULT_MUTE_FILE=PATH  drop every datagram while PATH exists: a
+ *                             host cut off for exactly as long as a test
+ *                             says, where loss by chance cannot be timed
+ *                             (sec 1149)
  *   FZN_FAULT_CRASH=NAME[:N]  die by SIGKILL at the Nth reach (1st when
  *                             unset) of the point NAME -- as a power cut
  *                             does: no cleanup, no core

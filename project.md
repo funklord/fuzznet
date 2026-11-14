@@ -88342,3 +88342,42 @@ for situ. So the loops stay, and situ has the two asks with these
 readings (its inbox, 2026-11-14): `submit` told the exchange's id, and
 a total deadline beside the resend interval. When both land, the
 daemon's `recv_answering` moves first, since it is the one that runs.
+
+## 1149. A change's round that misses a live sibling asks again, 2026-11-14
+
+**fuzzypickles' 1736Z, recorded in sec 1137 and not chased then:** under
+load, an object set on one host of an estate read "no such object" on
+the other for 60 s, and passed when rerun alone. **The cause, read and
+then reproduced:** records move only in a round, and a change starts one
+(sec 948). If that round's journal pull to the sibling goes unanswered
+through every resend (sec 737), the change reaches nobody. The sibling
+is passed over (sec 587), `object_round_due` is already spent, and the
+next round that carries it is the timed one, up to a minute away.
+Sec 742's second ask inside the round covers a short burst; a cut
+longer than the round does not.
+
+**Changed:** a round a change started -- an object's or news's, not a
+timed one -- that leaves the journal pull of a peer that answered this
+round or the last unanswered asks again through news's follow-up
+(sec 1004: one a 3 s gap, at most six between timed rounds). While the
+change stays undelivered, each later follow-up that still misses a peer
+asks again too. Without that, a peer that has missed one round no
+longer counts as one that answered lately, so a single retry covered a
+burst and not a longer cut. The timed round ends it either way: a peer
+that went down costs that minute's follow-ups and no more, and a peer
+that was never live starts none.
+
+**A fault to test it with:** `FZN_FAULT_MUTE_FILE=PATH` drops every
+datagram while PATH exists, in the faults build only (`fault/fault.h`).
+Loss by chance cannot be timed against a round; a file can.
+
+**Measured, `tool/live_object_missed.py`** (in `livecheck-faults`): R
+and A paired; a set on R reaches A in 2.1 s; then R is cut off, sets
+`lamp on`, and stays cut off for 20 s. With this change A reads `on`
+0.8 s after R is heard again, twice; without it A still read `off` 20 s
+after, twice. **At a 7 s cut both builds passed**, A reading it 0.2 s
+after: sec 742's in-round retry already covers that. The first form of
+the test used 7 s and so could not tell them apart, and the first
+form of the fix -- re-arm only on a peer that answered lately -- passed
+at 7 s and failed at 20. Sabotage `object-miss-not-asked-again`
+(live_object_missed only) is caught.

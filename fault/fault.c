@@ -21,6 +21,7 @@ static struct {
 	unsigned long long budget, spent;
 	int full_said;
 	int no_ram;
+	char mute[512];
 } f;
 
 static unsigned percent(const char *name)
@@ -65,6 +66,9 @@ static void read_once(void)
 	}
 	v = getenv("FZN_FAULT_NO_RAM");
 	f.no_ram = v && *v;
+	v = getenv("FZN_FAULT_MUTE_FILE");
+	if (v && strlen(v) < sizeof(f.mute))
+		strcpy(f.mute, v);
 }
 
 /* xorshift64: a test's faults repeat under one seed. */
@@ -79,6 +83,8 @@ static unsigned roll(void)
 fzn_fault_datagram_t fzn_fault_datagram(void)
 {
 	read_once();
+	if (f.mute[0] && access(f.mute, F_OK) == 0)
+		return FZN_FAULT_DROP;
 	if (f.loss && roll() < f.loss)
 		return FZN_FAULT_DROP;
 	if (f.dup && roll() < f.dup)

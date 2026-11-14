@@ -2489,6 +2489,15 @@ static int silent_peer(const struct pull_target *pt)
 	       && silent[i].misses >= (silent[i].heard || silent[i].heard_before ? 2u : 1u);
 }
 
+/* Whether the peer answered this round or the last: a miss of its is loss,
+ * not a peer gone (sec 742). */
+static int answered_lately(const struct pull_target *pt)
+{
+	size_t i = silent_find(pt);
+
+	return i < n_silent && (silent[i].heard || silent[i].heard_before);
+}
+
 /* The row of the peer at `host` and `port`, made when it has none;
  * (size_t)-1 when none can be made. */
 static size_t silent_row(const char *host, long port)
@@ -3663,6 +3672,23 @@ static int object_round_due;
 #define FZND_NEWS_FOLLOWUPS_MAX 6u
 static int news_round_due;
 static unsigned news_followups;
+
+/* A ROUND A CHANGE STARTED, AND A LIVE PEER IT MISSED, sec 1149. Records
+ * move only in a round, so a change's round whose journal pull a peer
+ * that answered lately left unanswered -- a datagram lost through every
+ * resend, under load -- carried the change to nobody there, and the next
+ * timed round was up to a minute away: fuzzypickles' "no such object" on
+ * the sibling for 60 s (inbox 1736Z). Such a round asks again as news
+ * does, one a gap and a few a minute, and so does each after it that
+ * misses a peer while the change is undelivered -- a peer that has missed
+ * one round is no longer one that answered lately, so a single retry
+ * covered a burst of loss and not a host cut off for longer. The timed
+ * round ends it either way: a peer that is down costs that minute's
+ * follow-ups and no more, and one that was never live starts none. */
+static int round_by_change;
+static int round_missed_live;
+static int round_missed_any;
+static int change_undelivered;
 
 static void hex_of(const uint8_t *b, size_t n, char *out);
 
@@ -5745,6 +5771,11 @@ static void journal_settle(struct pull_target *pulls, size_t npulls, uint64_t no
 			*window = *window * 2u > FZN_NODE_JOURNAL_WINDOW ? FZN_NODE_JOURNAL_WINDOW
 			                                                : *window * 2u;
 		if (jt->pull_err == FZN_EXCHANGE_ERR_NO_ANSWER) {
+			/* A PEER THAT ANSWERED LATELY MISSED THIS ROUND'S CHANGE,
+			 * sec 1149: asked again soon if a change started it. */
+			round_missed_any = 1;
+			if (answered_lately(&pulls[jt->t]))
+				round_missed_live = 1;
 			/* PASSED OVER FOR THE REST OF THE ROUND, sec 587 -- or asked
 			 * again, having answered this round or the last, sec 742. */
 			say(FZN_ENTRY_WARNING, "journal", "%s did not answer; %s", host,
@@ -24515,8 +24546,13 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			        || (news_round_due && news_followups < FZND_NEWS_FOLLOWUPS_MAX
 			            && now >= round_now + FZND_NEWS_ROUND_GAP_S))) {
 				/* A TIMED ROUND gives the follow-ups their count back. */
-				if (now >= next_pull || next_pull > now + pull_every)
+				round_by_change = !(now >= next_pull || next_pull > now + pull_every);
+				round_missed_live = 0;
+				round_missed_any = 0;
+				if (!round_by_change) {
 					news_followups = 0;
+					change_undelivered = 0;
+				}
 				else if (news_round_due && !object_round_due)
 					news_followups++;
 				news_round_due = 0;
@@ -24770,6 +24806,18 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					 * round rather than the next. */
 					log_round();
 					next_pull = wall_clock() + pull_every;
+					/* A CHANGE'S ROUND THAT MISSED A LIVE PEER asks again
+					 * soon, sec 1149, within news's follow-ups. */
+					if (round_by_change && round_missed_any
+					    && (round_missed_live || change_undelivered)) {
+						say(FZN_ENTRY_DEBUG, "node/round",
+						    "a peer that answered lately missed this round's change; "
+						    "asking again soon");
+						change_undelivered = 1;
+						news_round_due = 1;
+					} else if (!round_missed_any) {
+						change_undelivered = 0;
+					}
 					/* THE ROUND'S END, said: a round answers between its
 					 * steps, so what it produced is read once this is
 					 * logged, not at a marker on the way (sec 637). */
