@@ -1,0 +1,52 @@
+// This user's contacts, asked in binary on the local leg: project.md sec
+// 1162, the category fuzzypickles named after messages (its inbox
+// 20261114T1030Z), in the holder's A (sec 1152).
+//
+// FZN_CMD_CONTACTS (11, wire/cmd.h), its operation the SUBCMD, in the range
+// 128 to 191 kept for the local socket; between hosts the category's SUBCMDs
+// are below it. A request is one message with no body; the answer is a row
+// per contact and then a STATUS ok, so an ended list is told from a cut
+// connection, or a STATUS refusing it -- each framed as the local leg
+// frames a message (sec 1113).
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	list    = 128, // every contact, as `list contact` lists them
+	row     = 129, // an answer: one contact
+	default = error,
+}
+
+// Where a contact stands on the roster (sec 489): ACTIVE served; the rest
+// named and served nothing -- removed on another member, retired, or held
+// by a writer since revoked.
+enum standing : u8 {
+	active    = 0,
+	suspended = 1,
+	retired   = 2,
+	absent    = 3,
+	default   = error,
+}
+
+struct nothing {
+}
+
+// KEY the contact's root key; NAME this user's for them.
+struct row {
+	u8       key[32];
+	standing standing;
+	u8       name_len [max = 32];
+	u8       name[name_len];
+}
+
+struct message {
+	u8   cmd [must_eq = 11];
+	op   op;
+
+	variant body switch (op) {
+		case op.list: nothing list;
+		case op.row:  row     row;
+		default: error;
+	}
+}

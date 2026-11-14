@@ -1497,28 +1497,17 @@ static size_t remove_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_
 	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
 }
 
-/* `list contact [FROM]`: `ok TOTAL FROM NAME,KEY ...`, a page at a time. */
-static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
-                            char *reply, size_t cap)
+/* EVERY CONTACT, read once per change of the store (sec 704's stamp), into
+ * *ALL and *COUNT: 1, or 0 when they did not read. */
+static int contacts_all(fzn_node_admin_t *admin, fzn_contact_t **all_out, size_t *count_out)
 {
 	static fzn_contact_t own[FZN_CONTACTS_MAX];
-	static char detail[FZN_REPLY_MAX];
 	fzn_contact_t *all = admin->contacts ? admin->contacts : own;
 	size_t room = admin->contacts ? admin->contacts_cap : FZN_CONTACTS_MAX;
-	size_t limit = fzn_reply_ok_room(cap);
-	size_t count = 0, from = 0, used, i, k;
+	size_t count = 0;
 	fzn_contact_err_t cerr;
-	const uint8_t *w;
-	size_t w_len;
 	uint64_t stamp;
-	int n;
 
-	if (next_word(&rest, &rest_len, &w, &w_len))
-		for (i = 0; i < w_len; i++) {
-			if (w[i] < '0' || w[i] > '9' || from > ((size_t)1 << 30))
-				return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not an index");
-			from = (from * 10u) + (size_t)(w[i] - '0');
-		}
 	stamp = admin->contacts_stamp ? admin->contacts_stamp(admin->contacts_room_ctx) : 0u;
 	if (admin->contacts_stamp && admin->contacts_stamp_held && stamp == admin->contacts_stamped) {
 		count = admin->contacts_stamped_n;
@@ -1532,11 +1521,66 @@ static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t
 			cerr = fzn_contact_list(admin->store, all, admin->contacts_cap, &count);
 		}
 		if (cerr != FZN_CONTACT_OK)
-			return answer_text(reply, cap, FZN_REPLY_ERROR, "the contacts did not read");
+			return 0;
 		admin->contacts_stamped = stamp;
 		admin->contacts_stamped_n = count;
 		admin->contacts_stamp_held = 1;
 	}
+	*all_out = all;
+	*count_out = count;
+	return 1;
+}
+
+/* WHERE A CONTACT STANDS on the roster (sec 489), FZN_NODE_CONTACT_*. */
+static unsigned contact_standing(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	fzn_roster_state_t st;
+
+	if (!admin->roster)
+		return FZN_NODE_CONTACT_ACTIVE;
+	st = fzn_node_roster_standing(admin->roster, key, admin->revocations, roster_k(admin));
+	return st == FZN_ROSTER_SUSPENDED ? FZN_NODE_CONTACT_SUSPENDED
+	       : st == FZN_ROSTER_RETIRED ? FZN_NODE_CONTACT_RETIRED
+	       : st == FZN_ROSTER_ABSENT  ? FZN_NODE_CONTACT_ABSENT
+	                                  : FZN_NODE_CONTACT_ACTIVE;
+}
+
+int fzn_node_admin_contacts_each(fzn_node_admin_t *admin,
+                                 void (*each)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                                              const char *name, size_t name_len, unsigned standing),
+                                 void *ctx)
+{
+	fzn_contact_t *all;
+	size_t count, i;
+
+	if (!contacts_all(admin, &all, &count))
+		return 0;
+	for (i = 0; i < count; i++)
+		each(ctx, all[i].key, all[i].name, all[i].name_len, contact_standing(admin, all[i].key));
+	return 1;
+}
+
+/* `list contact [FROM]`: `ok TOTAL FROM NAME,KEY ...`, a page at a time. */
+static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                            char *reply, size_t cap)
+{
+	static const char *const WORD[] = { "", ",suspended", ",retired", ",absent" };
+	static char detail[FZN_REPLY_MAX];
+	fzn_contact_t *all;
+	size_t limit = fzn_reply_ok_room(cap);
+	size_t count = 0, from = 0, used, i, k;
+	const uint8_t *w;
+	size_t w_len;
+	int n;
+
+	if (next_word(&rest, &rest_len, &w, &w_len))
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || from > ((size_t)1 << 30))
+				return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+			from = (from * 10u) + (size_t)(w[i] - '0');
+		}
+	if (!contacts_all(admin, &all, &count))
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "the contacts did not read");
 	if (from > count)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last contact");
 	n = snprintf(detail, sizeof(detail), "%zu %zu", count, from);
@@ -1558,13 +1602,7 @@ static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t
 		 * member, retired, or held by a writer since revoked -- named
 		 * here and served nothing. */
 		if (admin->roster) {
-			fzn_roster_state_t st = fzn_node_roster_standing(admin->roster, all[i].key,
-			                                                 admin->revocations,
-			                                                 roster_k(admin));
-			const char *word = st == FZN_ROSTER_SUSPENDED ? ",suspended"
-			                   : st == FZN_ROSTER_RETIRED ? ",retired"
-			                   : st == FZN_ROSTER_ABSENT  ? ",absent"
-			                                              : "";
+			const char *word = WORD[contact_standing(admin, all[i].key)];
 			size_t wl = strlen(word);
 
 			if (limit - used < wl) {

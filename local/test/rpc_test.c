@@ -17,6 +17,7 @@
 #include "../../wire/status.h"
 #include "../../wire/generated/objects_build.h"
 #include "../../wire/generated/messages_local_build.h"
+#include "../../wire/generated/contacts_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -836,8 +837,46 @@ static void test_a_line_is_sent_in_binary(void)
 	}
 }
 
+/* ONE CONTACT ROW framed onto answer `i`, sec 1162. */
+static void contact_onto(struct bscript *s, size_t i, uint8_t first, uint8_t standing, const char *name)
+{
+	uint8_t key[32], row[80], m[96];
+	uint32_t row_len = 0, n = 0;
+
+	memset(key, first, sizeof(key));
+	if (fzn_contacts_local_row_build(row, sizeof(row), key, (fzn_contacts_local_standing_t)standing,
+	                                 (const uint8_t *)name, (uint32_t)strlen(name), &row_len) != SITU_OK
+	    || fzn_contacts_local_message_build_row(m, sizeof(m), (uint8_t)FZN_CMD_CONTACTS, row, row_len, &n) != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* THIS USER'S CONTACTS IN BINARY, sec 1162: asked as FZN_CMD_CONTACTS list,
+ * a row each into the list with its standing, ended by a STATUS; a listing
+ * cut before it refused. */
+static void test_contacts_in_binary(void)
+{
+	static struct bscript two, cut;
+	static fzn_rpc_peer_list_resp_t out;
+
+	contact_onto(&two, 0, 0xaa, 0, "alice");
+	contact_onto(&two, 0, 0xbb, 2, "bob");
+	status_onto(&two, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &two);
+	CHECK(fzn_rpc_peer_list(&c, &out) == FZN_RPC_OK && out.count == 2 && out.entries[0].root_pubkey[0] == 0xaa
+	              && strcmp(out.entries[0].name, "alice") == 0 && out.entries[0].state == FZN_RPC_CONTACT_ACTIVE
+	              && strcmp(out.entries[1].name, "bob") == 0 && out.entries[1].state == FZN_RPC_CONTACT_RETIRED
+	              && two.asked_len[0] == 2 && two.asked[0][0] == 0x0b && two.asked[0][1] == 0x80,
+	      "the contacts were not read in binary, with their standings");
+	contact_onto(&cut, 0, 0xaa, 0, "alice");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_peer_list(&c, &out) != FZN_RPC_OK, "a contacts listing cut before its STATUS was read as whole");
+	fzn_rpc_peer_list_release(&out);
+}
+
 int main(void)
 {
+	test_contacts_in_binary();
 	test_a_line_is_sent_in_binary();
 	test_lines_in_binary();
 	test_conversations_in_binary();

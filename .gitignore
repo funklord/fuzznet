@@ -383,6 +383,7 @@ __pycache__/
 /wire/test/address_vectors
 /wire/test/objects_vectors
 /wire/test/messages_local_vectors
+/wire/test/contacts_local_vectors
 /wire/test/session_frame_test
 /wire/test/session_frame_fuzz
 /node/test/pressure_test

@@ -16754,6 +16754,20 @@ SABOTAGES = [
 		"a line sent in binary to a key nobody holds is written -- sec 1161",
 	),
 	(
+		"rpc-contacts-binary-cut-whole",
+		"local/rpc.c",
+		"\tif (a.bad || !a.status_seen) return unreadable(c);\n",
+		"\tif (a.bad) return unreadable(c);\n",
+		"a contacts listing cut before its STATUS is read as every contact -- sec 1162",
+	),
+	(
+		"contacts-binary-unended",
+		"node/contacts_binary.c",
+		"\treturn w.ok && status(put, put_ctx, FZN_STATUS_OK, NULL);\n}\n",
+		"\treturn w.ok;\n}\n",
+		"a contacts listing in binary ends with no STATUS, and a reader cannot tell it whole -- sec 1162",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

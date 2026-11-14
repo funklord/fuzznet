@@ -36,6 +36,7 @@
 #include "../wire/generated/objects_build.h"
 #include "../wire/generated/messages_local.h"
 #include "../wire/generated/messages_local_build.h"
+#include "../wire/generated/contacts_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -3782,8 +3783,83 @@ void fzn_rpc_peer_shares(fzn_rpc_t *c, fzn_rpc_peer_list_resp_t *out) {
 	node_peer_shares(c, out);
 }
 
+/* THIS USER'S CONTACTS IN BINARY, sec 1162: a row each -- key, standing,
+ * name -- then a STATUS. */
+struct contacts_answer {
+	fzn_rpc_t *c;
+	fzn_rpc_peer_list_resp_t *out;
+	int bad, status_seen, no_room;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void contacts_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct contacts_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (!fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_contacts_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_contacts_local_message_validate(v) != SITU_OK
+	    || fzn_contacts_local_message_op_get(v) != FZN_CONTACTS_LOCAL_OP_ROW
+	    || fzn_contacts_local_message_body_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	const size_t name_len = fzn_contacts_local_row_name_len(b);
+	if (!name_len || name_len > FZN_RPC_PEER_NAME_MAX) {
+		a->bad = 1;
+		return;
+	}
+	if (room_for(a->c, &a->out->entries, &a->out->room, a->out->count + 1, sizeof *a->out->entries) != FZN_RPC_OK) {
+		a->no_room = 1;
+		return;
+	}
+	fzn_rpc_peer_list_entry_t *p = &a->out->entries[a->out->count];
+	memset(p, 0, sizeof *p);
+	memcpy(p->root_pubkey, fzn_contacts_local_row_key_ptr(b), 32);
+	memcpy(p->name, fzn_contacts_local_row_name_ptr(b), name_len);
+	p->name[name_len] = '\0';
+	p->name_len = name_len;
+	/* The standings are the client's states, number for number. */
+	p->state = (uint8_t)fzn_contacts_local_row_standing_get(b);
+	a->out->count++;
+}
+
 int fzn_rpc_peer_list(fzn_rpc_t *c, fzn_rpc_peer_list_resp_t *out) {
-	return node_peer_list(c, out);
+	static const uint8_t ask_list[] = { FZN_CMD_CONTACTS, FZN_CONTACTS_LOCAL_OP_LIST };
+	struct contacts_answer a;
+	int text = 0;
+	memset(&a, 0, sizeof a);
+	a.c = c;
+	a.out = out;
+	out->count = 0;
+	const int rc = fzn_rpc_binary(c, ask_list, sizeof ask_list, contacts_each, &a, &text);
+	if (text) {
+		out->count = 0;
+		return node_peer_list(c, out);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.no_room) return c->error_code ? c->error_code : FZN_RPC_ERR_STORAGE_IO;
+	/* A LISTING ENDS WITH ITS STATUS: one that stopped before it is not whole. */
+	if (a.bad || !a.status_seen) return unreadable(c);
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED
+		               : a.code == FZN_STATUS_UNSUPPORTED ? FZN_RPC_ERR_UNKNOWN_MSG_TYPE
+		                                                   : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
 }
 
 int fzn_rpc_group_list(fzn_rpc_t *c, fzn_rpc_group_list_resp_t *out) {

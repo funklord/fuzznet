@@ -1,0 +1,7 @@
+# Golden vectors for node/contacts_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x0B is FZN_CMD_CONTACTS (11); the op is the SUBCMD, 128 (0x80) on.
+
+message list        0B 80
+message row_active  0B 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 05 61 6C 69 63 65
+message row_retired 0B 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 02 03 62 6F 62

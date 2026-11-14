@@ -14,6 +14,8 @@
        ok, and the group's own asked by its key, marked a group's
     e  a line sent in binary (sec 1161) to that group by its key, taken with
        a STATUS ok and then listed by the text verb by its id and text
+    f  this user's contacts in binary (sec 1162): a contact added, and as many
+       rows as `list contact` counts, the contact among them by name and key
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -42,6 +44,7 @@ live_trim.DEADLINE = time.monotonic() + 90.0
 
 OBJECTS = 0x15  # FZN_CMD_OBJECTS, wire/cmd.h
 MESSAGES = 0x0A  # FZN_CMD_MESSAGES
+CONTACTS = 0x0B  # FZN_CMD_CONTACTS
 STATUS = 0x13   # FZN_CMD_STATUS
 
 
@@ -167,6 +170,21 @@ def main(argv):
 			if got != [bytes([STATUS, 0, 0])] or "e1" * 16 not in listed or "howdy" not in listed:
 				raise failed("e: a line sent in binary answered %r and listed %r" % (got, listed[:200]))
 			print("livecheck: e: a line sent in binary to the group by its key, and listed by the verb")
+
+			# f: the contacts, in bytes, against the text listing's.
+			pal = "5a" * 32
+			said = ask(sock, "add contact probe_pal " + pal)
+			if not said.startswith("ok"):
+				raise failed("f: a contact was not added: %r" % said)
+			total = int(ask(sock, "list contact").split()[1])
+			got = binary(sock, bytes([CONTACTS, 0x80]))
+			rows = [m for m in got[:-1] if m[:2] == bytes([CONTACTS, 0x81])]
+			named = [(m[36:36 + m[35]].decode(), m[2:34].hex()) for m in rows]
+			if not got or got[-1][:2] != bytes([STATUS, 0]) or len(rows) != len(got) - 1 \
+			   or len(rows) != total or ("probe_pal", pal) not in named:
+				raise failed("f: contacts in binary were %r where the text verb counts %d" % (named, total))
+			print("livecheck: f: %d contact(s) in binary, as many as the text verb counts, probe_pal"
+			      " by name and key" % total)
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

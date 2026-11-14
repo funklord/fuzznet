@@ -88931,3 +88931,111 @@ sabotages, each caught: `rpc-send-binary-never`, `messages-send-anyone`.
 
 **Next**: contacts in binary, the category fuzzypickles named after
 messages (inbox 20261114T1030Z).
+
+## 1162. This user's contacts, in binary, 2026-11-14
+
+The category fuzzypickles named after messages (inbox 20261114T1030Z),
+on the local leg in the holder's A (sec 1152): `list contact` as
+FZN_CMD_CONTACTS (11) `list` (128), answered by a `row` (129) each and a
+STATUS ok, in `node/contacts_local.situ`. A row is the contact's root
+key, their standing on the roster (sec 489: active, suspended, retired,
+absent -- the client's states, number for number) and this user's name
+for them.
+
+- **`node/admin.c`** keeps the contacts, so the walk is there:
+  `fzn_node_admin_contacts_each` over the store read once per change
+  (sec 704's stamp), the reading and the standing split out of the text
+  listing (`contacts_all`, `contact_standing`) so both say the same.
+- **`node/contacts_binary.c`** builds the rows, apart from `admin.c` as
+  `messages_binary.c` is apart from `messages.c`, so the many tests that
+  link `admin.o` need no generated objects.
+- **The daemon** answers CMD 11 on the local socket for its own user
+  only, as the text verb does.
+- **The client's `fzn_rpc_peer_list`** asks in binary and falls back to
+  the verb where the node reads no binary; a listing cut before its
+  STATUS is refused.
+
+**Verified**: three hand-written vectors; `admin_test` 373 -- the row is
+the text listing's contact by key, standing and name, then ok, and
+another op malformed; `rpc_test` -- rows read with their standings, the
+request's bytes, a cut listing refused, clean under the sanitizers;
+`live_rpc` phase f -- a contact added, and as many rows as `list contact`
+counts, it among them by name and key. Two sabotages, each caught:
+`rpc-contacts-binary-cut-whole`, `contacts-binary-unended`.
+
+**Next in the category**: adding, renaming and removing a contact, which
+go through the roster and the contact requests, then the requests.
+
+## 1163. A fetch that asks once and waits: two reports, and situ's resend interval, 2026-11-14
+
+Three inbox messages, recorded here before they were deleted.
+
+**snurra, 20261114T1109Z -- under 20 % loss the fetch asks within a second
+and then waits 24 s.** Measured as this tree asked when it sent the sec
+1154 fix (snurra's inbox 20261114T1044Z): snurra's `make test-estate-loss`
+on this tree's faults build, `FZN_FAULT_LOSS=20`, B's log at level D. The play starts at 11:08:18; at 11:08:19 B logs `file
+d35d4054: asking 1 peer(s) of 1 pull(s), 0 share(s), ...`; nothing more
+about the file for 24 s; at 11:08:43 `768 leaf(s) of file d35d4054 from 1
+peer(s)`, asking again, and whole at 11:08:46. An earlier run had the same
+shape, 24.6 s. So the guess sent then -- a silent sibling passed over
+between rounds -- is wrong: A was asked at once. What waited is the fetch itself.
+snurra pins bbe14fc and begins a fetch only on FZN_RPC_ERR_NOT_FETCHED.
+
+**fuzzypickles, 20261114T1121Z -- the fetch that asks once and never ends.**
+`library-plays-what-is-arriving-on-nodes` failed again in a full run at
+9c2e55e (fuzzypickles 5691417), load about 11 on 24 cores, again directly
+after `tui-daemon-log-on-a-node`; one failure in 75 scenarios, alone it
+passes. Bob's every `files` line for the file:
+
+    10:41:08.540530Z D files file b424be46: asking 0 peer(s) of 0 pull(s), 0 share(s), 0 contact host(s), 0 group host(s)
+    10:41:09.121693Z D files file b424be46: asking 1 peer(s) of 0 pull(s), 0 share(s), 1 contact host(s), 0 group host(s)
+
+and then nothing for minutes: no `not begun`, no `nothing placed`, no
+leaves, no later `asking`. Every read answered `play 24000000 0 0 1 0`.
+
+**What the two share, read from `fetch_files` (node/daemon.c), not yet
+measured.** Both began a fetch over one lent link and then saw no end for
+far longer than a span's deadline, which is 3 s
+(`FZN_NODE_FILES_SPAN_DEADLINE_MS`). While `fetch_active` is set no other
+fetch begins, and the fetch ends only when `fzn_node_files_fetching_over`
+says every span was answered or expired -- so a span whose answer and
+expiry both never reach `fetch_answered` holds the fetch, and every fetch
+after it, for as long as that lasts: 24 s once, forever the other time.
+The places to look first, in order: (1) whether an ask sent on a lent
+caller (`fetch_link_up` over a pull, share or contact target) is dropped
+without its callback when that target's caller is torn down or rebuilt --
+a round reloads the contact targets, and fuzzypickles' fetch was lent a
+contact host found half a second after the first round; (2) whether the
+asks table calls back on expiry for an ask whose link closed; (3) whether
+`fzn_node_files_fetching_next` re-offers an expired span to a link the
+fetch still counts. Read since, not yet measured: the asks table calls back on expiry
+(`fzn_node_asks_expire`, `finish` with NULL) and on cancel, so a span is
+not lost there. And `asking` is logged only when a fetch BEGINS: a fetch
+that goes on asking and timing out logs nothing more, so "asked once" may
+be a fetch still running. Phase 0 asks each peer whether it holds the
+file and waits while any is unanswered (`asked[k] == 1`); phase 1 ends
+when the file is whole, no peer is alive, or after `leaves * 4 + 1000`
+steps -- a bound in calls of `fzn_node_files_fetching_next`, not in time.
+So the measurement to take first: at the stall, the fetch's phase,
+`asked[]`, `n_out` and `steps`, and whether `fzn_node_asks_expire` runs
+in the loop state the daemon is in between rounds (it does: `serve.c`
+expires the asks on every pass). The cheapest reproduction here is
+`tool/live_catalog.py --loss 20` against `fuzznetd-faults`, whose phase b
+fetches a file by its root on a sibling -- but measured twice at 20 %
+on the faults build, both passed in 135 and 138 s: its file is 20000
+bytes, one leaf, and the stall did not show. A reproduction wants a file
+of many leaves, as snurra's 938, fetched while the timing of its
+`asking` and arrival lines is read. The fix is fuzznet's; both consumers
+asked for it.
+**This is the next thing to do here** -- above the binary categories,
+since a library play that never begins is a broken app.
+
+**situ, 20261114T1138Z -- resend interval beside the total wait.** situ
+71e573cd (its 26.1039), approved by its holder: `relation ... [resend_ms =
+600, retries = 3, timeout_ms = 3000]` makes `timeout_ms` the whole
+exchange's wait, the slot resending every `resend_ms` while retries
+remain, which is the schedule `node/caller.c` and `node/daemon.c`
+hand-roll. All four drivers carry it, measured; refused without `retries`
+or at or past `timeout_ms`; the resend hook is still told the exchange id.
+That was what parked item 90 (moving the resend onto situ's driver, sec
+1148) waited on, so it is unblocked.

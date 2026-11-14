@@ -15,6 +15,7 @@
 #include "../../notes/share.h"
 #include "../groups.h"
 #include "../admin.h"
+#include "../contacts_binary.h"
 #include "../roots.h"
 #include "../journal.h"
 #include "../apply.h"
@@ -44,6 +45,22 @@
 #include <unistd.h>
 
 static int failures;
+/* THE ANSWERS A BINARY CONTACTS LISTING WROTE, in order (sec 1162). */
+static struct {
+	uint8_t m[4][FZN_NODE_CONTACTS_BINARY_MAX];
+	size_t len[4], n;
+} cbin;
+
+static int cbin_put(void *ctx, const uint8_t *msg, size_t len)
+{
+	(void)ctx;
+	if (cbin.n == 4u || len > sizeof(cbin.m[0]))
+		return 0;
+	memcpy(cbin.m[cbin.n], msg, len);
+	cbin.len[cbin.n++] = len;
+	return 1;
+}
+
 static int checks;
 
 static void check_at(int ok, int line, const char *what)
@@ -1847,6 +1864,22 @@ int main(void)
 		              && says(detail, detail_len, "1 0 alice,")
 		              && says(detail, detail_len, key_hex),
 		      "the contact was not listed by name and key");
+		/* THE SAME IN BINARY, sec 1162: one row -- key, standing, name --
+		 * then an ok; anything but `list` malformed. */
+		{
+			static const uint8_t list[] = { 0x0b, 0x80 }, other[] = { 0x0b, 0x99 };
+
+			memset(&cbin, 0, sizeof(cbin));
+			CHECK(fzn_node_contacts_binary(&admin, list, sizeof(list), cbin_put, NULL) && cbin.n == 2u
+			              && cbin.len[0] == 2u + 32u + 1u + 1u + 5u && cbin.m[0][0] == 0x0b && cbin.m[0][1] == 0x81
+			              && cbin.m[0][2] == 0x40 && cbin.m[0][33] == 0x5f && cbin.m[0][34] == 0 && cbin.m[0][35] == 5
+			              && memcmp(cbin.m[0] + 36, "alice", 5) == 0 && cbin.m[1][0] == 0x13 && cbin.m[1][1] == 0,
+			      "the contact in binary was not the text listing's, then an ok");
+			memset(&cbin, 0, sizeof(cbin));
+			CHECK(fzn_node_contacts_binary(&admin, other, sizeof(other), cbin_put, NULL) && cbin.n == 1u
+			              && cbin.m[0][0] == 0x13 && cbin.m[0][1] == 2,
+			      "no such contacts request was not malformed");
+		}
 		snprintf(line, sizeof(line), "add contact me %s", own_hex);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,

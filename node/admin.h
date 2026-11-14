@@ -436,4 +436,19 @@ int fzn_node_admin_contact_stands(const fzn_node_admin_t *admin,
 size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
                              const fzn_opened_t *req, uint8_t *reply, size_t reply_cap);
 
+/* EVERY CONTACT OF THIS USER, as `list contact` lists them, sec 1162: KEY
+ * their root key, NAME this user's for them, STANDING where they stand on
+ * the roster (sec 489). 1 once each was handed over, 0 when the contacts
+ * did not read. */
+enum {
+	FZN_NODE_CONTACT_ACTIVE = 0,
+	FZN_NODE_CONTACT_SUSPENDED = 1,
+	FZN_NODE_CONTACT_RETIRED = 2,
+	FZN_NODE_CONTACT_ABSENT = 3
+};
+int fzn_node_admin_contacts_each(fzn_node_admin_t *admin,
+                                 void (*each)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                                              const char *name, size_t name_len, unsigned standing),
+                                 void *ctx);
+
 #endif /* FZN_NODE_ADMIN_H */
