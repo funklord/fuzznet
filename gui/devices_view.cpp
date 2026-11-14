@@ -1,10 +1,13 @@
 /* Adding a device to this user's hosts, as a widget: gui/devices_view.h, sec 1122. */
 #include "devices_view.h"
 
+#include "camera_feed.h"
 #include "qr_view.h"
 #include "rpc_ask.h"
 
 #include <QByteArray>
+#include <QFileDialog>
+#include <QImage>
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -16,6 +19,13 @@
 #include <QVector>
 
 #include <string.h>
+
+#ifdef FZN_QR_DECODE_ON
+#include "../qr/decode.h"
+#endif
+extern "C" {
+#include "../node/invite.h"
+}
 
 /* The most devices listed as waiting at once: a code is good for ten
  * minutes, and each waiting device is one person's to answer. */
@@ -36,7 +46,8 @@ static QString failed_words(const fzn_gui_rpc *r)
 }
 
 fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
-    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_keys(new keys), m_join_looks(0)
+    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_keys(new keys), m_scanner(nullptr), m_scan_width(0),
+      m_scan_height(0), m_join_looks(0)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
@@ -59,6 +70,22 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_join_code->setAccessibleName(tr("A code from another of your hosts"));
 	m_join = new QPushButton(tr("Join"), this);
 	m_join->setAccessibleName(tr("Join with that code"));
+	m_scan_file = new QPushButton(tr("Scan a picture..."), this);
+	m_scan_file->setAccessibleName(tr("Join with the code in a picture"));
+	m_scan_file->setEnabled(can_scan());
+	m_scan_camera = new QPushButton(tr("Scan with the camera"), this);
+	m_scan_camera->setAccessibleName(tr("Join with a code the camera sees"));
+	m_scan_camera->setEnabled(can_scan() && fzn_camera_feed::built());
+	m_camera = new fzn_camera_feed(
+	        this,
+	        [this](const QImage &frame) {
+		        if (scan_frame(frame))
+			        stop_camera();
+	        },
+	        [this]() {
+		        m_scan_camera->setText(tr("Scan with the camera"));
+		        m_status->setText(m_camera->why());
+	        });
 	m_join_timer = new QTimer(this);
 	m_join_timer->setInterval(JOIN_LOOK_MS);
 	m_status = new QLabel(this);
@@ -96,7 +123,14 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	auto *join_row = new QHBoxLayout;
 	join_row->addWidget(m_join_code, 1);
 	join_row->addWidget(m_join);
+	/* A ROW OF ITS OWN: beside the code and Join, they made the view wider
+	 * than a phone. */
+	auto *scan_row = new QHBoxLayout;
+	scan_row->addWidget(m_scan_camera);
+	scan_row->addWidget(m_scan_file);
+	scan_row->addStretch(1);
 	col->addLayout(join_row);
+	col->addLayout(scan_row);
 	col->addWidget(m_status);
 
 	connect(m_invite, &QPushButton::clicked, [this]() { invite(); });
@@ -109,12 +143,28 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_join, &QPushButton::clicked, [this]() { join(m_join_code->text()); });
 	connect(m_join_timer, &QTimer::timeout, [this]() { poll_join(); });
+	connect(m_scan_camera, &QPushButton::clicked, [this]() {
+		if (camera_running())
+			stop_camera();
+		else
+			scan_camera();
+	});
+	connect(m_scan_file, &QPushButton::clicked, [this]() {
+		QString path = QFileDialog::getOpenFileName(this, tr("A picture of the code"), QString(),
+		                                            tr("Pictures (*.png *.jpg *.jpeg *.bmp *.webp)"));
+		if (!path.isEmpty())
+			scan_file(path);
+	});
 	m_qr->hide();
 	select_waiting(-1);
 }
 
 fzn_devices_view::~fzn_devices_view()
 {
+	delete m_camera;
+#ifdef FZN_QR_DECODE_ON
+	fzn_qr_scanner_free(m_scanner);
+#endif
 	delete m_keys;
 	delete m_rpc;
 }
@@ -247,6 +297,102 @@ int fzn_devices_view::poll_join()
 		m_status->setText(tr("The code's host did not answer. Make a new code there and try again."));
 	}
 	return 0;
+}
+
+bool fzn_devices_view::can_scan()
+{
+#ifdef FZN_QR_DECODE_ON
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool fzn_devices_view::scan_frame(const QImage &frame)
+{
+#ifdef FZN_QR_DECODE_ON
+	uint8_t text[FZN_INVITE_TEXT_MAX + 64u];
+	unsigned w = (unsigned)frame.width(), h = (unsigned)frame.height();
+	QImage gray;
+	QByteArray rows;
+	int n;
+
+	/* A JOIN UNDER WAY takes no second code: the frames that follow the one
+	 * read are the same code, again and again. */
+	if (m_join_looks || frame.isNull())
+		return false;
+	gray = frame.convertToFormat(QImage::Format_Grayscale8);
+	if (!m_scanner || m_scan_width != w || m_scan_height != h) {
+		fzn_qr_scanner_free(m_scanner);
+		m_scanner = fzn_qr_scanner_new(w, h);
+		m_scan_width = m_scanner ? w : 0;
+		m_scan_height = m_scanner ? h : 0;
+		if (!m_scanner)
+			return false;
+	}
+	/* ROWS END TO END, as the decoder reads them: a QImage pads each row to
+	 * four bytes. */
+	rows.resize((int)(w * h));
+	for (unsigned y = 0; y < h; y++)
+		memcpy(rows.data() + (size_t)y * w, gray.constScanLine((int)y), w);
+	n = fzn_qr_scan_frame(m_scanner, (const uint8_t *)rows.constData(), w, h, text, sizeof(text));
+	if (n <= 0)
+		return false;
+	if ((size_t)n < sizeof(FZN_INVITE_TEXT_PREFIX) - 1u
+	    || memcmp(text, FZN_INVITE_TEXT_PREFIX, sizeof(FZN_INVITE_TEXT_PREFIX) - 1u)) {
+		m_status->setText(tr("That code is not a join code. Scan the code shown under \"Make a code\" on your other host."));
+		return false;
+	}
+	m_join_code->setText(QString::fromLatin1((const char *)text, n));
+	return join(m_join_code->text());
+#else
+	(void)frame;
+	m_status->setText(tr("This build cannot read a code from a picture. Type the code instead."));
+	return false;
+#endif
+}
+
+bool fzn_devices_view::scan_camera()
+{
+	if (!can_scan()) {
+		m_status->setText(tr("This build cannot read a code from a picture. Type the code instead."));
+		return false;
+	}
+	if (!m_camera->start()) {
+		m_status->setText(m_camera->why());
+		return false;
+	}
+	m_scan_camera->setText(tr("Stop the camera"));
+	m_status->setText(tr("Point the camera at the code on your other host."));
+	return true;
+}
+
+void fzn_devices_view::stop_camera()
+{
+	m_camera->stop();
+	m_scan_camera->setText(tr("Scan with the camera"));
+}
+
+bool fzn_devices_view::camera_running() const { return m_camera->running(); }
+
+bool fzn_devices_view::scan_file(const QString &path)
+{
+	QImage picture(path);
+
+	if (picture.isNull()) {
+		m_status->setText(tr("That file is not a picture this program can read."));
+		return false;
+	}
+	if (m_join_looks)
+		return false;
+	/* CLEARED FIRST, so a scan that found nothing is told from one that
+	 * said why. */
+	m_status->clear();
+	if (scan_frame(picture))
+		return true;
+	if (m_status->text().isEmpty())
+		m_status->setText(tr("No code was found in that picture."));
+	return false;
 }
 
 QString fzn_devices_view::code() const { return m_code->text(); }

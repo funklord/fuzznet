@@ -15,6 +15,13 @@
  * serves under that user (`fzn_rpc_device_joined`), never waiting on the
  * node in between, and says when it has or when five minutes have passed.
  *
+ * A CODE MAY BE SCANNED rather than typed, sec 1158: a picture of the other
+ * host's QR -- a frame from a camera, or a file -- is read through
+ * qr/decode.h and joined with as though typed. Built only where the vendored
+ * quirc is (FZN_QR_DECODE_ON); without it the view says it cannot scan.
+ * The camera's frames come from gui/camera_feed (sec 1158), stopped once a
+ * code is read.
+ *
  * Through the typed client on the host's ask callback (`rpc_ask.h`), as the
  * contacts and location views are. NO Q_OBJECT AND THEREFORE NO moc.
  */
@@ -28,13 +35,16 @@
 #include <QWidget>
 
 class QCheckBox;
+class QImage;
 class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
 class QTimer;
 class fzn_qr_view;
+class fzn_camera_feed;
 struct fzn_gui_rpc;
+struct fzn_qr_scanner;
 
 class fzn_devices_view : public QWidget {
 public:
@@ -54,6 +64,21 @@ public:
 	 * a test can make it without a clock: 1 joined, 0 still asking. */
 	bool join(const QString &code);
 	int poll_join();
+	/* SCAN a frame for a code and join with it: whether a join code was
+	 * found and handed over. A frame with no code says nothing, as a camera
+	 * hands over many of those; one with another kind of code says so. */
+	bool scan_frame(const QImage &frame);
+	/* A picture from a file, scanned the same way; one with no code in it
+	 * says so, being one picture rather than a stream. */
+	bool scan_file(const QString &path);
+	/* Whether this build reads codes at all. */
+	static bool can_scan();
+	/* THE CAMERA started, each frame scanned until a code is joined with
+	 * or the person stops it: whether it started, the words why not in the
+	 * status line. */
+	bool scan_camera();
+	void stop_camera();
+	bool camera_running() const;
 
 	/* WHAT IS ON SCREEN: the code made, whether a QR of it is drawn, the
 	 * switch, each waiting device's key (16 hex), and the status line. */
@@ -79,6 +104,11 @@ private:
 	QPushButton *m_refresh;
 	QLineEdit *m_join_code;
 	QPushButton *m_join;
+	QPushButton *m_scan_file;
+	QPushButton *m_scan_camera;
+	fzn_camera_feed *m_camera;
+	struct fzn_qr_scanner *m_scanner; /* kept across frames of one size */
+	unsigned m_scan_width, m_scan_height;
 	QTimer *m_join_timer;
 	int m_join_looks; /* looks left before the node's five minutes are up */
 	QLabel *m_status;

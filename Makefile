@@ -1277,7 +1277,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/settings_view.cpp gui/contacts_view.cpp gui/location_view.cpp gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp \
             gui/forks_view.cpp gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp \
             gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
-            gui/sticker_render.cpp \
+            gui/sticker_render.cpp gui/camera_feed.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1318,7 +1318,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/group_view.h gui/sticker_render.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -2207,7 +2207,7 @@ endif
 # nothing to do with the change. Both gui variables expand to nothing when the
 # GUI is off, so this costs a build without it nothing.
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
-       $(THORVG_OBJS:.o=.d) \
+       $(THORVG_OBJS:.o=.d) $(QR_DECODE_OBJS:.o=.d) \
        $(PROG_OBJS:.o=.d) $(BUILD_DIR)/tool/rpc_probe.d
 
 .PHONY: embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
@@ -3669,6 +3669,35 @@ $(BUILD_DIR)/gui/sticker_render.o $(BUILD_DIR)/gui/test/sticker_picker_view_test
 	CXXFLAGS += $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc)
 STICKER_RENDER_OBJS := $(BUILD_DIR)/gui/sticker_render.o $(if $(THORVG_ON),$(THORVG_OBJS))
 
+# A CODE READ FROM A PICTURE, sec 1158: the devices view joins with a code it
+# scans, through qr/decode.c over the vendored quirc -- the recogniser
+# `qrcheck` has proved since sec 1095, now linked where a person uses it.
+# quirc's four units are compiled quietly into $(BUILD_DIR)/quirc-build, as
+# thorvg's are, with regions past 254 (sec 977). An empty quirc/ builds the
+# view without scanning, said by `test`, and the view says it cannot scan.
+QUIRC_VENDORED := quirc
+QUIRC_DIR      ?= $(QUIRC_VENDORED)
+QR_DECODE_ON   := $(if $(wildcard $(QUIRC_DIR)/lib/quirc.h),1)
+QR_DECODE_SKIP := $(if $(QR_DECODE_ON),,the vendored $(QUIRC_DIR)/ is empty, so the devices view cannot scan a code. Run 'git submodule update --init $(QUIRC_DIR)'.)
+QUIRC_OBJS     := $(if $(QR_DECODE_ON),$(addprefix $(BUILD_DIR)/quirc-build/,quirc.o decode.o identify.o version_db.o))
+$(QUIRC_OBJS): $(BUILD_DIR)/quirc-build/%.o: $(QUIRC_DIR)/lib/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -w -DQUIRC_MAX_REGIONS=65534 -I$(QUIRC_DIR)/lib -MMD -MP -c $< -o $@
+$(BUILD_DIR)/qr/decode.o: CFLAGS += -DQUIRC_MAX_REGIONS=65534 -I$(QUIRC_DIR)/lib
+$(BUILD_DIR)/gui/devices_view.o $(BUILD_DIR)/gui/test/devices_view_test.o: \
+	CXXFLAGS += $(if $(QR_DECODE_ON),-DFZN_QR_DECODE_ON)
+QR_DECODE_OBJS := $(if $(QR_DECODE_ON),$(BUILD_DIR)/qr/decode.o $(QUIRC_OBJS))
+
+# THE CAMERA, sec 1158: gui/camera_feed through Qt 6 Multimedia, where both
+# are; elsewhere the feed says this build has no camera and a picture from a
+# file is the way left. Its flags reach only its own object, so no other
+# widget compiles against Multimedia. Qt 5's camera API is another one
+# entirely, and Qt 6 is the one preferred (above).
+CAMERA_ON      := $(if $(filter Qt6Widgets,$(FZN_PROBE_QT)),$(shell pkg-config --exists Qt6Multimedia 2>/dev/null && echo 1))
+CAMERA_CFLAGS  := $(if $(CAMERA_ON),-DFZN_CAMERA_ON $(shell pkg-config --cflags Qt6Multimedia))
+CAMERA_LIBS    := $(if $(CAMERA_ON),$(shell pkg-config --libs Qt6Multimedia))
+$(BUILD_DIR)/gui/camera_feed.o: CXXFLAGS += $(CAMERA_CFLAGS)
+
 # The anchor view classifies through cli/trust_print and words itself. sec 201.
 $(BUILD_DIR)/gui/test/trust_view_test: $(BUILD_DIR)/gui/test/trust_view_test.o \
                                      $(BUILD_DIR)/gui/trust_view.o \
@@ -3724,9 +3753,10 @@ $(BUILD_DIR)/gui/test/contacts_view_test: $(BUILD_DIR)/gui/test/contacts_view_te
 # The devices view draws its code with the QR widget (sec 1122).
 $(BUILD_DIR)/gui/test/devices_view_test: $(BUILD_DIR)/gui/test/devices_view_test.o \
                                       $(BUILD_DIR)/gui/devices_view.o $(BUILD_DIR)/gui/qr_view.o \
-                                      $(BUILD_DIR)/qr/qr.o $(RPC_LINK_OBJS)
+                                      $(BUILD_DIR)/gui/camera_feed.o \
+                                      $(BUILD_DIR)/qr/qr.o $(QR_DECODE_OBJS) $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
+	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -lm -o $@
 $(BUILD_DIR)/gui/test/hosts_view_test: $(BUILD_DIR)/gui/test/hosts_view_test.o \
                                     $(BUILD_DIR)/gui/hosts_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
@@ -5793,6 +5823,9 @@ runtests: $(TEST_BINS)
 	@if [ -n "$(THORVG_SKIP)" ] && [ -n "$(GUI_ON)" ]; then \
 		echo "test: $(THORVG_SKIP)"; \
 	fi
+	@if [ -n "$(QR_DECODE_SKIP)" ] && [ -n "$(GUI_ON)" ]; then \
+		echo "test: $(QR_DECODE_SKIP)"; \
+	fi
 	@if [ -n "$(PERSIST_FILE_SKIP)" ]; then \
 		echo "test: the file-backed persist backend was NOT built, so its tests"; \
 		echo "test: did not run -- $(PERSIST_FILE_SKIP)"; \
@@ -6955,10 +6988,11 @@ style: $(OBJS)
 	@# would be demanding the wrong shape of test for a quarter of them.
 	@# NOT A WIDGET, AND NAMED: gui/sticker_render draws a sticker's art for
 	@# the widgets that show one (sec 1151) and is put in front of a terminal
-	@# through them. Listed rather than inferred from a name, so a widget
-	@# named otherwise is still counted.
+	@# through them, and gui/camera_feed hands a widget the camera's frames
+	@# (sec 1158) and draws nothing. Listed rather than inferred from a name,
+	@# so a widget named otherwise is still counted.
 	@have=`ls gui/*.cpp 2>/dev/null | sed -e 's|gui/||' -e 's|\.cpp$$||' \
-	       | grep -vxF -e sticker_render | sort -u`; \
+	       | grep -vxF -e sticker_render -e camera_feed | sort -u`; \
 	walked=`grep -oE '#include "\.\./[a-z_]+\.h"' gui/test/qtty_render_test.cpp \
 	         | sed -e 's|.*/||' -e 's|\.h"||' | sort -u`; \
 	used=`grep -oE 'fzn_[a-z_]+_view' gui/test/qtty_render_test.cpp \
@@ -7287,8 +7321,9 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
 # warnings about code fuzznet does not own and will not change, and they
 # buried the one line the target exists to print. Our own sources keep every
 # flag; only the vendored translation units are compiled with -w.
-QUIRC_VENDORED := quirc
-QUIRC_DIR      ?= $(QUIRC_VENDORED)
+# QUIRC_VENDORED and QUIRC_DIR are set with the GUI's scanner, above: a
+# prerequisite list is expanded as it is read, and the devices view's link
+# names quirc's objects long before this line.
 
 # THE DAEMON ITSELF, run: its message trim end to end, sec 534, the
 # journal's window cut end to end, sec 548, a member away past the window
@@ -7784,6 +7819,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(TH
 	       gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp \
 	       gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
 	       gui/sticker_render.cpp $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc $(THORVG_OBJS)) \
+	       gui/camera_feed.cpp \
 	       gui/location_view.cpp \
 	       gui/provision_view.cpp \
 	       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON gui/entries_view.cpp $(BUILD_DIR)/log/gather.o \
@@ -8350,9 +8386,10 @@ clean:
 	@# shape: `fuzznetd-faults`' and `lean`'s (sec 856), each a directory
 	@# the build made under the checked BUILD_DIR. Neither was in a list
 	@# here, and the check below named their objects when either existed.
-	@# thorvg's objects too (sec 1151), kept out of the submodule.
+	@# thorvg's objects too (sec 1151), kept out of the submodule, and
+	@# quirc's the devices view links (sec 1158).
 	@for d in "$(BUILD_DIR)/faults" "$(BUILD_DIR)/lean" "$(BUILD_DIR)/embedded" \
-	          "$(BUILD_DIR)/thorvg-build"; do \
+	          "$(BUILD_DIR)/thorvg-build" "$(BUILD_DIR)/quirc-build"; do \
 		if [ -d "$$d" ]; then echo "removing $$d"; rm -rf "$$d"; fi; \
 	done
 	@# AND `arrangements`' trees, one an arrangement, each named from the

@@ -88742,3 +88742,68 @@ chain applied; a bad one refused in the node's words; an empty one not
 asked. Sabotage `hosts-view-grant-chain-unshown` and
 `hosts-view-revoked-grant-standing` are each caught. The qtty render
 check sizes the view at 171 px.
+
+## 1158. A join code scanned, by camera or from a picture, 2026-11-14
+
+**fuzzypickles' devices page scans the invite code by camera** (inbox
+20261114T0134Z, sec 1153), where `devices_view` took it only typed. The
+devices view now reads it from a picture and joins with it as though it
+had been typed:
+
+- **`scan_frame(QImage)`** converts to 8-bit gray, copies the rows end to
+  end (a QImage pads each to four bytes), and reads it through
+  `qr/decode.h` -- the recogniser over the vendored quirc that `qrcheck`
+  has proved since sec 1095, now linked where a person uses it. A frame
+  with no code says nothing, being what most camera frames are; a code
+  that is not `FZI1:` is said to be another kind; once a join is under
+  way the frames after it, the same code again, take nothing.
+- **`scan_file(path)`**, behind *Scan a picture...*: a screenshot of the
+  other host's code, for a desktop with no camera. One picture with no code
+  in it says so.
+- **`scan_camera()`**, behind *Scan with the camera*, through a new
+  `gui/camera_feed`: the default camera's frames handed to the view until
+  a code is joined with or the person stops it.
+
+**The camera is Qt 6 Multimedia, not V4L2.** Camera capture is fuzznet's
+(sec 1069). fuzzypickles' `client/camera.c` is V4L2 and grayscale-only,
+and reaches Linux alone; the app this serves runs on Android first, where
+Qt Multimedia is the camera and also asks the person for it
+(`QCameraPermission`, answered before the camera opens). It is built
+only where Qt 6 Multimedia is (`CAMERA_ON`), its flags on its own object
+so no other widget compiles against Multimedia; Qt 5's camera API is a
+different one and is not carried. Elsewhere the button is disabled and
+the feed says the build has no camera. Started on this machine, which has
+no camera, it says "No camera was found on this device." and returns.
+
+**Frames are thinned and shrunk**: one each 125 ms, no wider than 960
+pixels -- a camera hands over thirty a second at its own size, and a code
+read from the eighth frame of a second is read as soon as a person can
+tell. The feed is not a widget, so the qtty widget census names it beside
+`sticker_render`.
+
+**Build.** quirc's four units compile quietly into
+`$(BUILD_DIR)/quirc-build` as thorvg's do, with regions past 254 (sec
+977); `QUIRC_VENDORED` and `QUIRC_DIR` moved up to that block, since a
+prerequisite list expands as it is read and the devices view's link names
+quirc's objects long before the old line. An empty `quirc/` builds the
+view without scanning, said by `test` as an empty `thorvg/` is.
+`qr/decode.c` stays out of the core sources: no library consumer links
+it.
+
+**Verified**: `devices_view_test` 27 checks with quirc (a code drawn by
+this tree's own encoder, scanned from a frame and from a PNG; a second
+code mid-join; another kind of code; a blank frame; a picture with none; a
+missing file; the camera feed's thinning and shrinking, driven without a
+camera since a test machine may have one), 16 without quirc. A second
+`make` writes nothing; a touched `qr/decode.c` relinks the test. Four
+sabotages, each caught: `devices-view-scan-mid-join`,
+`devices-view-scan-padded-rows`, `camera-feed-every-frame`,
+`camera-feed-full-size`.
+
+**Not yet**: the camera has not been run against a real one -- this
+machine has none. The emulator's virtual camera is the next place to
+look (`android-build`), and the phone only if that cannot show it. A
+camera that fails after it opened stops the feed and tells the view
+through the feed's `stopped` callback, which shows the camera's words
+and puts the button back; that path has not run either, for the same
+reason.
