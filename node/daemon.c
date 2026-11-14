@@ -17944,6 +17944,10 @@ static int local_messages(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 	if (!messages_on)
 		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this host keeps no conversations"), 0;
 	(void)fzn_node_messages_binary(&node_messages, msg, len, local_put, &fd);
+	/* A LINE SENT MAY BE A GROUP'S, marked for sealing as the text verb's
+	 * is (sec 1004): a seal with none of this host's to seal does nothing. */
+	if (fzn_node_messages_binary_sends(msg, len))
+		group_seal_due = 1;
 	return 0;
 }
 

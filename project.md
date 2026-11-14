@@ -88890,3 +88890,44 @@ vendored (sec 1151), and stopped three times:
 fuzzypickles pins the same thorvg and took `gui/sticker_render` from this
 tree (inbox 20261114T1030Z), so both thorvg findings are theirs too;
 they were told.
+
+## 1161. A line sent, in binary, 2026-11-14
+
+The messages category's third step on the local leg (secs 1155, 1159):
+`add message WHO out ID TEXT | attach ROOT NAME` as FZN_CMD_MESSAGES
+`send` (134), answered by a STATUS.
+
+- **A key, an id and the text whole.** The request carries a contact's
+  root key or a group's id, the caller's id for the line, and the text
+  raw up to 512 bytes -- or with ATTACH a file held here, by its root and
+  name, whose reference the node writes from the key and length it holds,
+  as the verb's `attach` does (sec 794). The node writes it at its own
+  time, as the verb does without `at`.
+- **What it buys beyond the bytes**: the text verb carries a long line in a
+  file staged for the node to read, since one escaped word does not hold
+  it. A node that shares no directory with its client cannot read that
+  file; an Android app beside its daemon is that case. Binary carries the
+  text in the request.
+- **Refusals**: a key that is neither a contact nor a group is an error in
+  the node's words, which the client reads as no peer, as the verb's
+  refusal of a WHO; a file not held here is an error; an attachment's name
+  past 64 bytes, or one the reference cannot carry, is malformed.
+- **A group's line is sealed as the verb's is**: the daemon marks a group
+  seal due after a binary send (`fzn_node_messages_binary_sends`), as
+  `messages_local_here` does after `add message @...`; a seal with none of
+  this host's lines to seal does nothing.
+- **The client** sends in binary where WHO is a key or a group's id in 64
+  hex -- `fzn_rpc_message_send`, `fzn_rpc_group_send` and
+  `fzn_rpc_message_attach` alike -- and by the verb for a name, or where
+  the node reads no binary.
+
+**Verified**: two hand-written vectors (a text, an attachment), twelve in
+all; `messages_test` 224 -- a line to carol by key listed by its id and
+text, a key nobody holds refused in words, a file not held refused, a name
+too long malformed; `rpc_test` -- the request's bytes, no peer mapped, a
+name sent by the verb; `live_rpc` phase e -- a line sent in binary to the
+probe's group by its key and listed by the verb on a running node. Two
+sabotages, each caught: `rpc-send-binary-never`, `messages-send-anyone`.
+
+**Next**: contacts in binary, the category fuzzypickles named after
+messages (inbox 20261114T1030Z).

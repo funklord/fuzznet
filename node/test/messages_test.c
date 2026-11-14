@@ -753,6 +753,46 @@ static void test_every_conversations_newest_line(void)
 		              && bin.m[0][0] == 0x13 && bin.m[0][1] == 3,
 		      "a key that is no contact or group was listed as an empty conversation");
 	}
+
+	/* A LINE SENT IN BINARY, sec 1161: written to carol as the verb writes
+	 * it, listed by its id; a key nobody holds refused in words; a file not
+	 * held here refused; an attachment's name too long malformed. */
+	{
+		uint8_t req[2 + 32 + 16 + 1 + 32 + 2 + 80] = { 0x0a, 0x86 };
+		const size_t head = 2u + 32u + 16u + 1u + 32u;
+
+		memcpy(req + 2, X, 32);
+		memset(req + 34, 0x09, 16);
+		req[head + 1] = 11;
+		memcpy(req + head + 2, "hello there", 11);
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, req, head + 2u + 11u, bin_put, NULL) && bin.n == 1u
+		              && bin.m[0][0] == 0x13 && bin.m[0][1] == 0,
+		      "a line sent in binary was not taken");
+		CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message carol")
+		              && strstr(reply, ",09090909090909090909090909090909,out,-,") && strstr(reply, "hello%20there"),
+		      "the line sent in binary was not carol's, by its id and text");
+		memset(req + 2, 0x77, 32);
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, req, head + 2u + 11u, bin_put, NULL) && bin.n == 1u
+		              && bin.m[0][1] == 3 && bin.len[0] > 4u && memcmp(bin.m[0] + 3, "no contact or group", 19) == 0,
+		      "a line to a key nobody holds was not refused in words");
+		memcpy(req + 2, X, 32);
+		req[50] = 1;
+		memset(req + 51, 0x5a, 32);
+		req[head + 1] = 9;
+		memcpy(req + head + 2, "photo.jpg", 9);
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, req, head + 2u + 9u, bin_put, NULL) && bin.n == 1u
+		              && bin.m[0][1] == 3,
+		      "an attachment of a file not held here was taken");
+		req[head + 1] = 70;
+		memset(req + head + 2, 'n', 70);
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, req, head + 2u + 70u, bin_put, NULL) && bin.n == 1u
+		              && bin.m[0][1] == 2,
+		      "an attachment's name past 64 bytes was not malformed");
+	}
 }
 
 static void test_the_verbs_need_the_user(void)

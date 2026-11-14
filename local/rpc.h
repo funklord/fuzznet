@@ -221,7 +221,10 @@ int fzn_rpc_peer_request_list(fzn_rpc_t *c, fzn_rpc_peer_request_list_resp_t *ou
 int fzn_rpc_card_show(fzn_rpc_t *c, const char *display_name, size_t display_name_len,
                        fzn_rpc_card_show_resp_t *out);
 /* An empty acknowledgement: FZN_RPC_OK means the daemon took it. `via` NULL or
- * empty sends directly. */
+ * empty sends directly. PEER a contact's name or its root key in 64 hex; a
+ * key's line goes in binary, the text whole (fuzznet sec 1161), and a name's
+ * by `add message`, as does any where the node reads no binary. The group
+ * and attachment calls do the same with a group's id. */
 int fzn_rpc_message_send(fzn_rpc_t *c, const char *peer, size_t peer_len, const char *text,
                           size_t text_len);
 /* An empty acknowledgement, as message_send. */

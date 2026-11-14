@@ -197,6 +197,71 @@ static inline situ_err_t fzn_messages_local_line_row_edit_decode(const situ_msg_
 	return SITU_OK;
 }
 
+/* `send`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t attach;
+	uint16_t text_len;
+	const uint8_t *text;	/* into your backing */
+	uint32_t text_len;
+} fzn_messages_local_send_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_messages_local_send_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_messages_local_send_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_messages_local_send_text_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_messages_local_send_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_messages_local_send_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_messages_local_send_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_messages_local_send_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->attach = fzn_messages_local_send_attach_get(view);
+	out->text_len = fzn_messages_local_send_text_len_get(view);
+	out->text_len = fzn_messages_local_send_text_len(view);
+	out->text     = backing + at;
+	for (uint32_t i = 0u; i < out->text_len; i++) {
+		backing[at + i] = fzn_messages_local_send_text_ptr(view)[i];
+	}
+	at += out->text_len;
+	(void)at;
+	return SITU_OK;
+}
+
 #ifdef __cplusplus
 }
 #endif

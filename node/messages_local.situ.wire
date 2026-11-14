@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  newest=128 unread=129 newest_row=130 unread_row=131 lines=132 line_row=133
+  newest=128 unread=129 newest_row=130 unread_row=131 lines=132 line_row=133 send=134
 
 enum kind : u8 unknown=error
   none=0 text=1 file=2 sticker=3 shell=4
@@ -57,6 +57,7 @@ struct message size=2..1135
   body case 131: unread_row unread_row
   body case 132: lines lines_ask
   body case 133: line_row line_row
+  body case 134: send send
   body case default: error
 
 struct newest_row size=45..1133
@@ -70,6 +71,14 @@ struct newest_row size=45..1133
   ~         0..1024   u8         text  sized-by=text_len
 
 struct nothing size=0
+
+struct send size=83..595
+  @0x0000   32        u8         key  big
+  @0x0020   16        u8         id  big
+  @0x0030   1         u8         attach  max=1
+  @0x0031   32        u8         root  big
+  @0x0051   2         u16        text_len  big max=512
+  @0x0053   0..512    u8         text  sized-by=text_len
 
 struct unread_row size=37
   @0x0000   32        u8         key  big

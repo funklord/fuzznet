@@ -16740,6 +16740,20 @@ SABOTAGES = [
 		"lines in binary are answered past the most asked for -- sec 1159",
 	),
 	(
+		"rpc-send-binary-never",
+		"local/rpc.c",
+		"\tif (who_len != 64 || text_len > 512u || (attach && !root)) return FZN_RPC_OK;\n",
+		"\tif (1) return FZN_RPC_OK;\n",
+		"a line to a key goes by the verb and a staged file, never whole in binary -- sec 1161",
+	),
+	(
+		"messages-send-anyone",
+		"node/messages.c",
+		"\tif (fzn_contact_get(nm->m.store, key, &c) != FZN_CONTACT_OK\n\t    && fzn_node_group_name(nm->m.store, key, group, &group_len) != FZN_CONTACT_OK) {\n\t\t*why = \"no contact or group by that key\";\n",
+		"\tif (0) {\n\t\t*why = \"no contact or group by that key\";\n",
+		"a line sent in binary to a key nobody holds is written -- sec 1161",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

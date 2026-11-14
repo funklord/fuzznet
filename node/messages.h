@@ -524,5 +524,13 @@ typedef struct fzn_node_line {
 } fzn_node_line_t;
 int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, size_t from, size_t max,
                                  void (*each)(void *ctx, const fzn_node_line_t *line), void *ctx);
+/* THIS USER'S LINE WRITTEN to KEY -- a contact's root key or a group's id
+ * -- as `add message KEY out ID TEXT` writes it, sec 1161, at this host's
+ * time: TEXT raw, or with ATTACH the name of the file held here whose root
+ * is ROOT, sent as an attachment. 1 written; 0 refused and -1 malformed,
+ * each with the words why in *WHY. */
+int fzn_node_messages_send(fzn_node_messages_t *nm, const uint8_t key[FZN_PUBKEY_LEN],
+                           const uint8_t id[FZN_MESSAGE_ID_LEN], int attach, const uint8_t *root,
+                           const char *text, size_t len, const char **why);
 
 #endif /* FZN_NODE_MESSAGES_H */

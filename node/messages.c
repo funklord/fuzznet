@@ -1961,6 +1961,56 @@ int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, si
 	return 1;
 }
 
+int fzn_node_messages_send(fzn_node_messages_t *nm, const uint8_t key[FZN_PUBKEY_LEN],
+                           const uint8_t id[FZN_MESSAGE_ID_LEN], int attach, const uint8_t *root,
+                           const char *text, size_t len, const char **why)
+{
+	static char line[FZN_MESSAGE_TEXT_MAX + 1u];
+	char group[FZN_CONTACT_NAME_MAX + 1u];
+	size_t group_len = 0;
+	fzn_contact_t c;
+	fzn_messages_err_t err;
+
+	*why = NULL;
+	if (fzn_contact_get(nm->m.store, key, &c) != FZN_CONTACT_OK
+	    && fzn_node_group_name(nm->m.store, key, group, &group_len) != FZN_CONTACT_OK) {
+		*why = "no contact or group by that key";
+		return 0;
+	}
+	/* A FILE HELD HERE, as `add message ... attach` sends it (sec 794): the
+	 * reference written here, from the key and length held. */
+	if (attach) {
+		fzn_attachment_t a;
+
+		memset(&a, 0, sizeof(a));
+		if (!root || len > FZN_ATTACHMENT_NAME_MAX) {
+			*why = "an attachment's name is 1 to 64 bytes";
+			return -1;
+		}
+		memcpy(a.root, root, sizeof(a.root));
+		memcpy(a.name, text, len);
+		a.name_len = len;
+		if (!nm->file_of || !nm->file_of(nm->file_of_ctx, a.root, a.key, &a.size)) {
+			*why = "no such file is held here";
+			return 0;
+		}
+		if (!fzn_attachment_format(&a, line, sizeof(line), &len)) {
+			*why = "a name an attachment does not carry: 1 to 64 bytes, no separator, "
+			       "control byte, leading dot or edge space";
+			return -1;
+		}
+		text = line;
+	}
+	err = fzn_messages_write(&nm->m, key, FZN_MESSAGE_OUT, id, nm->m.now(), text, len);
+	memset(line, 0, sizeof(line));
+	if (err != FZN_MESSAGES_OK) {
+		*why = fzn_messages_err_str(err);
+		return 0;
+	}
+	nm->fresh = 1;
+	return 1;
+}
+
 static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,
                    size_t cap)
 {

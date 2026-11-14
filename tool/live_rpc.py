@@ -12,6 +12,8 @@
     d  the lines asked in binary (sec 1159): a line written to the probe's
        group, everyone's lines the text listing's by id and in order, then
        ok, and the group's own asked by its key, marked a group's
+    e  a line sent in binary (sec 1161) to that group by its key, taken with
+       a STATUS ok and then listed by the text verb by its id and text
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -157,6 +159,14 @@ def main(argv):
 				raise failed("d: the group's lines asked by its key answered %r" % mine)
 			print("livecheck: d: %d line(s) in binary, the text listing's by id and in order, and"
 			      " the group's own asked by its key" % shown)
+
+			# e: a line sent in bytes, read back by the verb.
+			got = binary(sock, bytes([MESSAGES, 0x86]) + rows[0][2:34] + bytes([0xe1] * 16) + bytes(33)
+			             + (5).to_bytes(2, "big") + b"howdy")
+			listed = ask(sock, "list message")
+			if got != [bytes([STATUS, 0, 0])] or "e1" * 16 not in listed or "howdy" not in listed:
+				raise failed("e: a line sent in binary answered %r and listed %r" % (got, listed[:200]))
+			print("livecheck: e: a line sent in binary to the group by its key, and listed by the verb")
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

@@ -20,6 +20,7 @@ enum op : u8 {
 	unread_row  = 131, // an answer: one conversation's count
 	lines       = 132, // a conversation's lines, or everyone's, newest first (sec 1159)
 	line_row    = 133, // an answer: one line
+	send        = 134, // write this user's line to a contact or a group (sec 1161)
 	default     = error,
 }
 
@@ -92,6 +93,20 @@ struct line_row {
 	u8   text[text_len];
 }
 
+// KEY a contact's root key or a group's id; ID the caller's name for the
+// line, as every later mark of it says it. TEXT the line, raw; or with
+// ATTACH 1 a file held here sent as an attachment, ROOT its root and TEXT
+// its name -- the reference written by the node, from the key and length it
+// holds (sec 794). ROOT is zero for a text. The answer is a STATUS.
+struct send {
+	u8   key[32];
+	u8   id[16];
+	u8   attach [max = 1];
+	u8   root[32];
+	u16  text_len [max = 512];
+	u8   text[text_len];
+}
+
 struct message {
 	u8   cmd [must_eq = 10];
 	op   op;
@@ -103,6 +118,7 @@ struct message {
 		case op.unread_row: unread_row unread_row;
 		case op.lines:      lines_ask  lines;
 		case op.line_row:   line_row   line_row;
+		case op.send:       send       send;
 		default: error;
 	}
 }

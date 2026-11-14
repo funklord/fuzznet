@@ -3992,19 +3992,28 @@ int fzn_rpc_card_show(fzn_rpc_t *c, const char *display_name, size_t display_nam
 	return node_card_show(c, display_name, display_name_len, out);
 }
 
+static int send_in_binary(fzn_rpc_t *c, const char *who, size_t who_len, int attach, const uint8_t *root,
+                          const char *text, size_t text_len, int *by_verb);
+
 int fzn_rpc_message_send(fzn_rpc_t *c, const char *peer, size_t peer_len, const char *text,
                           size_t text_len) {
-	return node_message_add(c, "", peer, peer_len, text, text_len);
+	int by_verb = 1;
+	const int rc = send_in_binary(c, peer, peer_len, 0, NULL, text, text_len, &by_verb);
+	return by_verb ? node_message_add(c, "", peer, peer_len, text, text_len) : rc;
 }
 
 int fzn_rpc_message_attach(fzn_rpc_t *c, const char *to, size_t to_len, int is_group,
                             const uint8_t root[32], const char *name, size_t name_len) {
-	return node_message_attach(c, is_group ? "@" : "", to, to_len, root, name, name_len);
+	int by_verb = 1;
+	const int rc = send_in_binary(c, to, to_len, 1, root, name, name_len, &by_verb);
+	return by_verb ? node_message_attach(c, is_group ? "@" : "", to, to_len, root, name, name_len) : rc;
 }
 
 int fzn_rpc_group_send(fzn_rpc_t *c, const char *group, size_t group_len, const char *text,
                         size_t text_len) {
-	return node_message_add(c, "@", group, group_len, text, text_len);
+	int by_verb = 1;
+	const int rc = send_in_binary(c, group, group_len, 0, NULL, text, text_len, &by_verb);
+	return by_verb ? node_message_add(c, "@", group, group_len, text, text_len) : rc;
 }
 
 /* ---- step 3 (sec 281) ---- */
@@ -7218,7 +7227,8 @@ static int conversations_ask(fzn_rpc_t *c, uint8_t op, struct conversations_answ
                              const uint8_t *lines, uint32_t lines_len) {
 	uint8_t req[8];
 	uint32_t n = 0;
-	const situ_err_t built = op == FZN_MESSAGES_LOCAL_OP_LINES ? SITU_OK
+	const int given = op == FZN_MESSAGES_LOCAL_OP_LINES || op == FZN_MESSAGES_LOCAL_OP_SEND;
+	const situ_err_t built = given ? SITU_OK
 	                         : op == FZN_MESSAGES_LOCAL_OP_NEWEST
 	                                 ? fzn_messages_local_message_build_newest(req, sizeof req, (uint8_t)FZN_CMD_MESSAGES,
 	                                                                           NULL, 0, &n)
@@ -7228,8 +7238,8 @@ static int conversations_ask(fzn_rpc_t *c, uint8_t op, struct conversations_answ
 		*text = 1;
 		return FZN_RPC_OK;
 	}
-	const int rc = op == FZN_MESSAGES_LOCAL_OP_LINES ? fzn_rpc_binary(c, lines, lines_len, conversations_each, a, text)
-	                                                 : fzn_rpc_binary(c, req, n, conversations_each, a, text);
+	const int rc = given ? fzn_rpc_binary(c, lines, lines_len, conversations_each, a, text)
+	                     : fzn_rpc_binary(c, req, n, conversations_each, a, text);
 	if (rc != FZN_RPC_OK || *text) return rc;
 	if (a->bad) return unreadable(c);
 	/* A LISTING ENDS WITH ITS STATUS: one that stopped before it is not whole. */
@@ -7276,6 +7286,48 @@ int fzn_rpc_unread_all(fzn_rpc_t *c, fzn_rpc_unread_entry_t *out, size_t cap, si
 	*count = 0;
 	*total = 0;
 	return unread_all_text(c, out, cap, count, total);
+}
+
+/* A LINE SENT IN BINARY WHERE WHO IS A KEY, sec 1161: a contact's root key
+ * or a group's id in 64 hex, the text whole however long -- no file staged
+ * for the node to read, which a node that shares no directory with its
+ * client (an Android app's) cannot. *by_verb 1 when it is to go by the verb:
+ * a name, or a node that reads no binary. */
+static int send_in_binary(fzn_rpc_t *c, const char *who, size_t who_len, int attach, const uint8_t *root,
+                          const char *text, size_t text_len, int *by_verb) {
+	static const uint8_t no_root[32];
+	static uint8_t inner[640], req[660];
+	uint8_t key[32], id[16];
+	uint32_t inner_len = 0, req_len = 0;
+	char hex[65];
+	struct conversations_answer a;
+	size_t count = 0, total = 0;
+	int rc;
+	*by_verb = 1;
+	if (who_len != 64 || text_len > 512u || (attach && !root)) return FZN_RPC_OK;
+	memcpy(hex, who, 64);
+	hex[64] = '\0';
+	if (fzn_hex_decode(hex, key, sizeof key) != 0) return FZN_RPC_OK;
+	if (fzn_rpc_entropy(id, sizeof id) != 0) {
+		*by_verb = 0;
+		return node_unasked(c, FZN_RPC_ERR_ENTROPY, "no randomness for the line's id");
+	}
+	if (fzn_messages_local_send_build(inner, sizeof inner, key, id, (uint8_t)(attach ? 1 : 0),
+	                                  attach ? root : no_root, (const uint8_t *)text, (uint32_t)text_len,
+	                                  &inner_len) != SITU_OK
+	    || fzn_messages_local_message_build_send(req, sizeof req, (uint8_t)FZN_CMD_MESSAGES, inner, inner_len,
+	                                             &req_len) != SITU_OK)
+		return FZN_RPC_OK;
+	memset(&a, 0, sizeof a);
+	a.count = &count;
+	a.total = &total;
+	rc = conversations_ask(c, FZN_MESSAGES_LOCAL_OP_SEND, &a, by_verb, req, req_len);
+	if (*by_verb) return FZN_RPC_OK;
+	/* NOBODY BY THAT KEY is no peer, as the verb's refusal of a WHO is. */
+	if (rc != FZN_RPC_OK && a.status_seen && a.code == FZN_STATUS_ERROR
+	    && strncmp(a.why, "no contact or group", 19) == 0)
+		return fail(c, FZN_RPC_ERR_NO_PEER, a.why);
+	return rc;
 }
 
 int fzn_rpc_inbox_lines(fzn_rpc_t *c, const char *peer, size_t peer_len, fzn_rpc_inbox_entry_t *out,

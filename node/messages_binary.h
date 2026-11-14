@@ -25,6 +25,10 @@
  * when it was written. */
 typedef int (*fzn_node_messages_put_t)(void *ctx, const uint8_t *msg, size_t len);
 
+/* Whether MSG sends a line (sec 1161), which the daemon marks for a group's
+ * seal as it marks the text verb's. */
+int fzn_node_messages_binary_sends(const uint8_t *msg, size_t len);
+
 /* Answers MSG, a FZN_CMD_MESSAGES request, through `put`: 1 once answered,
  * every refusal included, and 0 when an answer could not be written. */
 int fzn_node_messages_binary(fzn_node_messages_t *nm, const uint8_t *msg, size_t len,

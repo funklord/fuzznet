@@ -85,6 +85,11 @@ static void line_one(void *ctx, const fzn_node_line_t *l)
 	        && w->put(w->ctx, out, n);
 }
 
+int fzn_node_messages_binary_sends(const uint8_t *msg, size_t len)
+{
+	return msg && len >= 2u && msg[0] == FZN_CMD_MESSAGES && msg[1] == FZN_MESSAGES_LOCAL_OP_SEND;
+}
+
 int fzn_node_messages_binary(fzn_node_messages_t *nm, const uint8_t *msg, size_t len,
                              fzn_node_messages_put_t put, void *put_ctx)
 {
@@ -108,6 +113,21 @@ int fzn_node_messages_binary(fzn_node_messages_t *nm, const uint8_t *msg, size_t
 	case FZN_MESSAGES_LOCAL_OP_UNREAD:
 		listed = fzn_node_messages_unread_each(nm, unread_one, &w);
 		break;
+	case FZN_MESSAGES_LOCAL_OP_SEND: {
+		situ_view_t b;
+		const char *why = NULL;
+		int sent;
+
+		if (fzn_messages_local_message_body_send_view(v, &b) != SITU_OK)
+			return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a messages request");
+		sent = fzn_node_messages_send(nm, fzn_messages_local_send_key_ptr(b), fzn_messages_local_send_id_ptr(b),
+		                              fzn_messages_local_send_attach_get(b), fzn_messages_local_send_root_ptr(b),
+		                              (const char *)fzn_messages_local_send_text_ptr(b),
+		                              fzn_messages_local_send_text_len(b), &why);
+		return status(put, put_ctx,
+		              sent > 0 ? FZN_STATUS_OK : sent < 0 ? FZN_STATUS_MALFORMED : FZN_STATUS_ERROR,
+		              sent > 0 ? NULL : why);
+	}
 	case FZN_MESSAGES_LOCAL_OP_LINES: {
 		situ_view_t b;
 

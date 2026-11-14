@@ -805,8 +805,40 @@ static void test_lines_in_binary(void)
 	}
 }
 
+/* A LINE SENT IN BINARY, sec 1161: to a key, asked as FZN_CMD_MESSAGES
+ * send with the key, a fresh id and the text whole; a key nobody holds is
+ * no peer; a contact named by NAME sent by the verb. */
+static void test_a_line_is_sent_in_binary(void)
+{
+	static struct bscript sent, nobody;
+	static const char key_hex[] = "abababababababababababababababababababababababababababababababab";
+
+	status_onto(&sent, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &sent);
+	CHECK(fzn_rpc_message_send(&c, key_hex, 64, "hello", 5) == FZN_RPC_OK && sent.asked_len[0] == 2u + 32u + 16u + 1u + 32u + 2u + 5u
+	              && sent.asked[0][0] == 0x0a && sent.asked[0][1] == 0x86 && sent.asked[0][2] == 0xab
+	              && sent.asked[0][50] == 0 && sent.asked[0][84] == 5 && memcmp(sent.asked[0] + 85, "hello", 5) == 0,
+	      "a line to a key was not sent in the schema's bytes");
+
+	status_onto(&nobody, 0, FZN_STATUS_ERROR, "no contact or group by that key");
+	bon(&c, &nobody);
+	CHECK(fzn_rpc_message_send(&c, key_hex, 64, "hello", 5) == FZN_RPC_ERR_NO_PEER
+	              && strcmp(c.error, "no contact or group by that key") == 0,
+	      "a line to a key nobody holds was not said to have no peer");
+
+	{
+		struct script s = { { "ok" }, 0, 1, 0, { { 0 } } };
+
+		on(&c, &s);
+		CHECK(fzn_rpc_message_send(&c, "alice", 5, "hi", 2) == FZN_RPC_OK
+		              && strncmp(s.asked[0], "add message alice out ", 22) == 0,
+		      "a line to a contact named by NAME was not sent by the verb");
+	}
+}
+
 int main(void)
 {
+	test_a_line_is_sent_in_binary();
 	test_lines_in_binary();
 	test_conversations_in_binary();
 	test_a_file_not_fetched_says_so();
