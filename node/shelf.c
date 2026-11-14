@@ -24,7 +24,6 @@ _Static_assert(FZN_NODE_SHELF_WANTS > 0u, "a shelf remembers no wants");
 #define ROOT_HEX (FZN_BLOB_HASH_LEN * 2u)
 #define REF_HEX (FZN_NOTE_BLOB_REF_LEN * 2u)
 
-static const char HEX[] = "0123456789abcdef";
 
 /* A TEXT IN RAM, sec 919: a spool's slots and bitmap, as the disk would have them. */
 typedef struct fzn_node_shelf_ram {
@@ -92,14 +91,14 @@ static int from_hex(const uint8_t *text, size_t text_len, uint8_t *out, size_t l
 	if (text_len != len * 2u)
 		return 0;
 	for (i = 0; i < text_len; i++) {
-		const char *at = memchr(HEX, text[i], 16u);
+		const int at = fzn_hex_digit_lower(text[i]);
 
-		if (!at)
+		if (at < 0)
 			return 0;
 		if (i % 2u == 0u)
-			out[i / 2u] = (uint8_t)((at - HEX) << 4);
+			out[i / 2u] = (uint8_t)(at << 4);
 		else
-			out[i / 2u] |= (uint8_t)(at - HEX);
+			out[i / 2u] |= (uint8_t)at;
 	}
 	return 1;
 }

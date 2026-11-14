@@ -30,7 +30,6 @@
  * whole, so the proof is read once for each (`spool/spool.h`). */
 #define PUT_SPAN 64u
 
-static const char HEX[] = "0123456789abcdef";
 
 const char *fzn_node_files_err_str(fzn_node_files_err_t err)
 {
@@ -99,14 +98,14 @@ static int from_hex(const uint8_t *text, size_t text_len, uint8_t *out, size_t l
 	if (text_len != len * 2u)
 		return 0;
 	for (i = 0; i < text_len; i++) {
-		const char *at = text[i] ? memchr(HEX, text[i], 16u) : NULL;
+		const int at = fzn_hex_digit_lower(text[i]);
 
-		if (!at)
+		if (at < 0)
 			return 0;
 		if (i % 2u == 0u)
-			out[i / 2u] = (uint8_t)((at - HEX) << 4);
+			out[i / 2u] = (uint8_t)(at << 4);
 		else
-			out[i / 2u] |= (uint8_t)(at - HEX);
+			out[i / 2u] |= (uint8_t)at;
 	}
 	return 1;
 }

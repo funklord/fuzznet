@@ -16299,6 +16299,20 @@ SABOTAGES = [
 		"a byte is written low digit first, in every escape and name the tree writes -- sec 1146",
 	),
 	(
+		"hex-digit-lower-takes-upper",
+		"hex/hex.h",
+		"\tif (c >= 'a' && c <= 'f')\n\t\treturn c - 'a' + 10;\n\treturn -1;\n",
+		"\tif (c >= 'a' && c <= 'f')\n\t\treturn c - 'a' + 10;\n\tif (c >= 'A' && c <= 'F')\n\t\treturn c - 'A' + 10;\n\treturn -1;\n",
+		"a canonical name's reader takes an upper-case spelling, a second name for one thing -- sec 1147",
+	),
+	(
+		"hex-digit-refuses-upper",
+		"hex/hex.h",
+		"\treturn c >= 'A' && c <= 'F' ? c - 'A' + 10 : fzn_hex_digit_lower(c);\n",
+		"\treturn fzn_hex_digit_lower(c);\n",
+		"a %XX escape another escaper wrote in upper case is refused -- sec 1147",
+	),
+	(
 		"geo-bearing-left-negative",
 		"location/geo.c",
 		"\tdeg = fmod(deg + 360.0, 360.0);\n\tif (deg < 0.0) deg += 360.0;\n",

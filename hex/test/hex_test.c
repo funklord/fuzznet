@@ -62,8 +62,23 @@ static void test_hex_byte(void) {
 	CHECK(out[0] == 'f' && out[1] == 'f' && out[2] == '!');
 }
 
+/* EACH DIGIT'S VALUE, and the two readers' one difference: case. NUL, a
+ * letter past f and a high byte are no digit to either. */
+static void test_hex_digit(void) {
+	CHECK(fzn_hex_digit_lower('0') == 0 && fzn_hex_digit_lower('9') == 9);
+	CHECK(fzn_hex_digit_lower('a') == 10 && fzn_hex_digit_lower('f') == 15);
+	CHECK(fzn_hex_digit_lower('A') == -1 && fzn_hex_digit_lower('F') == -1);
+	CHECK(fzn_hex_digit('A') == 10 && fzn_hex_digit('F') == 15 && fzn_hex_digit('c') == 12);
+	CHECK(fzn_hex_digit('0') == 0 && fzn_hex_digit('9') == 9);
+	CHECK(fzn_hex_digit('\0') == -1 && fzn_hex_digit_lower('\0') == -1);
+	CHECK(fzn_hex_digit('g') == -1 && fzn_hex_digit('G') == -1 && fzn_hex_digit('/') == -1);
+	CHECK(fzn_hex_digit(':') == -1 && fzn_hex_digit('@') == -1 && fzn_hex_digit('`') == -1);
+	CHECK(fzn_hex_digit((char)0xe1) == -1 && fzn_hex_digit_lower((char)0xe1) == -1);
+}
+
 int main(void) {
 	test_hex_byte();
+	test_hex_digit();
 	test_hex_roundtrip();
 	test_hex_decode_rejects_wrong_length();
 	test_hex_decode_rejects_invalid_char();

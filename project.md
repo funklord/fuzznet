@@ -85902,7 +85902,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | Lottie sticker art on the views, waiting on thorvg (sec 1141); other art is drawn (sec 1145), files said, got and saved (secs 1129-1130) |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`), `sticker_picker_view` (sec 1141), a line drawn and its pack kept (sec 1145) | sticker UI | Lottie art (sec 1141) |
-| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | video's media path (sec 1069); a call view's media, which is the host's (the view itself is sec 1142) |
+| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | capture, codecs and playback, the host's over the call's media channel (secs 1113, 1142) |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132) | Library playback UI, share target | a hostable transfer view |
@@ -85915,7 +85915,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099) | fuzzypickles' copy, until it pins past it | the local leg in binary under it (sec 1101) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
-| Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer on its one table (sec 1146) | | the private hex readers, whose case rules differ (sec 1146) |
+| Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
 
 ## 1071. A call rings every host of the user, and the first to answer takes it, 2026-11-12
 
@@ -88271,3 +88271,40 @@ warnings, and all 2285 sabotages still apply. Sabotage
 `hex-byte-digits-swapped`, which writes the low digit first, is caught
 by `hex_test`, `escape_test` and `persist_file_test` alike, so the
 converted writers are exercised through the helper and not around it.
+
+## 1147. Hex is read from one place, each reader keeping its case, 2026-11-14
+
+**What sec 1146 left:** eleven modules still kept a private digit table
+to READ hex with, and they differ in case. `hex/hex.h` gains two inline
+digit readers -- `fzn_hex_digit_lower`, lower case alone, and
+`fzn_hex_digit`, either case -- and each reader moves onto the one
+whose rule it already had, so no reader takes or refuses anything it
+did not before:
+
+- **lower case alone**, for a canonical name, where `A` beside `a`
+  would be a second spelling of one name and so a second identity: the
+  log's machine id and its `\xXX` escapes (`log/entry.c`), a pack's
+  name (`log/pack.c`), an object row (`node/objects.c`), a note's id and
+  reference (`node/notes.c`), a file's and a shelf's hex
+  (`node/files.c`, `node/shelf.c`), and the piece and log bucket
+  references (`node/piece_buckets.c`, `node/log_buckets.c`);
+- **either case**, for hex a client writes: a key or an id in a verb
+  (`node/records.c`, `node/messages.c`, `node/settings.c`).
+
+NUL, a letter past `f` and a byte above 0x7f are no digit to either,
+as they were to every table. With this no module in the tree keeps a
+digit table of its own; the daemon's five `strspn` checks and the
+events verb's `word_of` test a name against the digit SET and stay.
+
+**Tests:** `hex_test` holds each reader to its digits, its case and
+what it refuses. Sabotage `hex-digit-lower-takes-upper` is caught by
+`hex_test` and by `entry_test`, which reads a machine id only as it is
+written. `hex-digit-refuses-upper` was caught by `hex_test` alone: no
+suite gave a verb an id in upper case, though `node/messages.c` reads
+either case on purpose. `messages_test` gains that check, and catches
+it. The 72 node and log suites pass.
+
+**The register, corrected in passing:** its Calls row still named video's
+media path as missing, which sec 1113 built (a held binary channel,
+whole frames to 8160 bytes, `live_call` phase e3); it now says what the
+host keeps, capture, codecs and playback.

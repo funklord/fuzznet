@@ -24,7 +24,6 @@
 
 #define ID_HEX (FZN_TREE_ID_LEN * 2u)
 
-static const char HEX[] = "0123456789abcdef";
 
 /* The tree this node reads back: every claim at full size, so it is static
  * and shared by the verbs, which the node's one loop runs one at a time. */
@@ -101,14 +100,14 @@ static int parse_id(const uint8_t *w, size_t w_len, uint8_t out[FZN_TREE_ID_LEN]
 	if (w_len != ID_HEX)
 		return 0;
 	for (i = 0; i < w_len; i++) {
-		const char *h = memchr(HEX, w[i], 16u);
+		const int h = fzn_hex_digit_lower(w[i]);
 
-		if (!h)
+		if (h < 0)
 			return 0;
 		if (i % 2u == 0u)
-			out[i / 2u] = (uint8_t)((h - HEX) << 4);
+			out[i / 2u] = (uint8_t)(h << 4);
 		else
-			out[i / 2u] |= (uint8_t)(h - HEX);
+			out[i / 2u] |= (uint8_t)h;
 	}
 	return 1;
 }
@@ -421,14 +420,14 @@ static size_t add_attachment(fzn_node_notes_t *n, const uint8_t *at, size_t left
 	    || !word(&at, &left, &w, &w_len) || w_len != 2u * sizeof(ref) || !left)
 		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
 	for (i = 0; i < 2u * sizeof(ref); i++) {
-		const char *h = memchr(HEX, w[i], 16u);
+		const int h = fzn_hex_digit_lower(w[i]);
 
-		if (!h)
+		if (h < 0)
 			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
 		if (i % 2u == 0u)
-			ref[i / 2u] = (uint8_t)((h - HEX) << 4);
+			ref[i / 2u] = (uint8_t)(h << 4);
 		else
-			ref[i / 2u] |= (uint8_t)(h - HEX);
+			ref[i / 2u] |= (uint8_t)h;
 	}
 	memset(&note, 0, sizeof(note));
 	note.title = at;

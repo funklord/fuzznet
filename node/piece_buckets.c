@@ -18,7 +18,6 @@
 
 #define PATH_MAX_ 1024u
 
-static const char HEX[] = "0123456789abcdef";
 
 static void hex_of(const uint8_t *in, size_t n, char *out)
 {
@@ -299,7 +298,7 @@ static int ref_path(const fzn_piece_buckets_t *pb, const uint8_t *ref, size_t re
 	memcpy(r, ref, ref_len);
 	r[ref_len] = '\0';
 	for (i = 2; i < 66u; i++)
-		if (!r[i] || !strchr(HEX, r[i]))
+		if (fzn_hex_digit_lower(r[i]) < 0)
 			return 0;
 	for (i = 67; i < ref_len; i++) {
 		if (r[i] < '0' || r[i] > '9')

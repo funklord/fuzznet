@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char HEX[] = "0123456789abcdef";
 static const char LETTERS[] = "CEWNIVDT";
 
 const char *fzn_entry_err_str(fzn_entry_err_t err)
@@ -215,14 +214,14 @@ fzn_entry_err_t fzn_entry_machine_parse(const char *text, size_t len,
 	if (len != 32u)
 		return FZN_ENTRY_ERR_MALFORMED;
 	for (i = 0; i < 32u; i++) {
-		const char *h = strchr(HEX, text[i]);
+		const int h = fzn_hex_digit_lower(text[i]);
 
-		if (!text[i] || !h)
+		if (h < 0)
 			return FZN_ENTRY_ERR_MALFORMED;
 		if (i % 2u == 0u)
-			out[i / 2u] = (uint8_t)((h - HEX) << 4);
+			out[i / 2u] = (uint8_t)(h << 4);
 		else
-			out[i / 2u] = (uint8_t)(out[i / 2u] | (uint8_t)(h - HEX));
+			out[i / 2u] = (uint8_t)(out[i / 2u] | (uint8_t)h);
 	}
 	return FZN_ENTRY_OK;
 }
@@ -355,12 +354,12 @@ static int unescape(const char *t, size_t len, uint8_t *out, size_t cap, size_t 
 		uint8_t b;
 
 		if (t[i] == '\\') {
-			const char *hi, *lo;
+			int hi, lo;
 
-			if (len - i < 4u || t[i + 1u] != 'x' || !t[i + 2u] || !t[i + 3u]
-			    || !(hi = strchr(HEX, t[i + 2u])) || !(lo = strchr(HEX, t[i + 3u])))
+			if (len - i < 4u || t[i + 1u] != 'x' || (hi = fzn_hex_digit_lower(t[i + 2u])) < 0
+			    || (lo = fzn_hex_digit_lower(t[i + 3u])) < 0)
 				return 0;
-			b = (uint8_t)(((hi - HEX) << 4) | (lo - HEX));
+			b = (uint8_t)((hi << 4) | lo);
 			i += 4u;
 		} else {
 			if ((unsigned char)t[i] < 0x20u || t[i] == 0x7f)

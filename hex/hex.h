@@ -35,4 +35,25 @@ int fzn_hex_decode(const char *hex, uint8_t *out, size_t out_len);
  * hex string implies, up to out_cap. */
 int fzn_hex_decode_var(const char *hex, uint8_t *out, size_t out_cap, size_t *out_len);
 
+/* A DIGIT'S VALUE, 0 to 15, or -1 for anything that is no digit, NUL
+ * included. Two, because the tree's readers differ on purpose (fuzznet
+ * sec 1147): fzn_hex_digit takes either case, as a `%XX` written by
+ * another escaper may be (sec 654); fzn_hex_digit_lower takes lower case
+ * alone, for a canonical name, where `A` beside `a` would be a second
+ * spelling of one name and so a second identity. Inline, as fzn_hex_byte
+ * is, so a reader gains no object to link. */
+static inline int fzn_hex_digit_lower(int c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	return -1;
+}
+
+static inline int fzn_hex_digit(int c)
+{
+	return c >= 'A' && c <= 'F' ? c - 'A' + 10 : fzn_hex_digit_lower(c);
+}
+
 #endif /* FZN_HEX_HEX_H */

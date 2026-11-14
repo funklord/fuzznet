@@ -20,7 +20,6 @@
 #define PATH_MAX_ 512u
 /* Segments one pass packs at most; the rest wait for the next. */
 
-static const char HEX[] = "0123456789abcdef";
 
 /* One chunk read and one zstd buffer out, held for the process: a packer
  * runs one segment at a time. */
@@ -63,14 +62,14 @@ static int from_hex(const char *t, uint8_t *out, size_t n)
 	size_t i;
 
 	for (i = 0; i < n * 2u; i++) {
-		const char *h = t[i] ? strchr(HEX, t[i]) : NULL;
+		const int h = fzn_hex_digit_lower(t[i]);
 
-		if (!h)
+		if (h < 0)
 			return 0;
 		if (i % 2u == 0u)
-			out[i / 2u] = (uint8_t)((h - HEX) << 4);
+			out[i / 2u] = (uint8_t)(h << 4);
 		else
-			out[i / 2u] = (uint8_t)(out[i / 2u] | (uint8_t)(h - HEX));
+			out[i / 2u] = (uint8_t)(out[i / 2u] | (uint8_t)h);
 	}
 	return 1;
 }

@@ -20,7 +20,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char HEX[] = "0123456789abcdef";
 
 /* ---- replies and words -------------------------------------------------- */
 
@@ -81,9 +80,7 @@ static int nibble(uint8_t c)
 {
 	/* EITHER CASE, as a %XX escape is read anywhere (sec 654): a value
 	 * written by another escaper is not refused for its case. */
-	const char *h = memchr(HEX, c >= 'A' && c <= 'F' ? c + ('a' - 'A') : c, 16u);
-
-	return h ? (int)(h - HEX) : -1;
+	return fzn_hex_digit(c);
 }
 
 static int parse_hex(const uint8_t *w, size_t w_len, uint8_t *out, size_t n)

@@ -20,7 +20,6 @@
 
 #define PATH_MAX_ 1024u
 
-static const char HEX[] = "0123456789abcdef";
 
 static void hex_of(const uint8_t *in, size_t n, char *out)
 {
@@ -111,7 +110,7 @@ static int ref_path(const fzn_log_buckets_t *lb, const uint8_t *ref, size_t ref_
 		size_t i;
 
 		for (i = 2; i < 66u; i++)
-			if (!strchr(HEX, r[i]) || !r[i])
+			if (fzn_hex_digit_lower(r[i]) < 0)
 				return 0;
 		*name = (const char *)ref + 67;
 		*name_len = ref_len - 67u;

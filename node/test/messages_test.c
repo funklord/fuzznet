@@ -538,6 +538,11 @@ static void test_the_verbs(void)
 	      "read up to it, none unread, and the write marked fresh for the daemon to push");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message carol everything") && replied("malformed"),
 	      "a get that is not unread is refused");
+	/* AN ID IN UPPER CASE IS READ, sec 1147: a client's own hex is not
+	 * refused for its case; the line it names is simply not here. */
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol out ABCDEFABCDEFABCDEFABCDEFABCDEFAB settled")
+	              && !replied("malformed"),
+	      "an id written in upper case was refused for its case");
 	CHECK(verb(&A, FZN_ORIGIN_LOCAL, "list message") && replied("denied"),
 	      "another user is refused");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "add message dave out " ID1 " hi")

@@ -9,7 +9,6 @@
 /* A RATE GATE'S KEY for an object, so one gate may serve several kinds of value. */
 #define OBJECT_RATE_PREFIX "object/"
 
-static const char HEX[] = "0123456789abcdef";
 
 /* A LISTING'S PAGE: rows held while the second list is walked. */
 #define PAGE_ROWS 8u
@@ -100,9 +99,7 @@ static int row_of(const fzn_node_objects_t *o, const char *list, const uint8_t *
 
 static int hex_digit(uint8_t c)
 {
-	const char *h = c ? memchr(HEX, c, 16u) : NULL;
-
-	return h ? (int)(h - HEX) : -1;
+	return fzn_hex_digit_lower(c);
 }
 
 /* A VALUE'S RECORD INTO `out`: `VALUE`, or `VALUE HEX` when the host that signed

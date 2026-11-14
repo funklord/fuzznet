@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char HEX[] = "0123456789abcdef";
 
 int fzn_node_records_place(const fzn_node_records_t *nr, const uint8_t *item, size_t len,
                            uint8_t subject[FZN_PUBKEY_LEN], uint32_t *month,
@@ -503,11 +502,11 @@ static int hex_key(const uint8_t *w, size_t w_len, uint8_t out[FZN_PUBKEY_LEN])
 	if (w_len != 2u * FZN_PUBKEY_LEN)
 		return 0;
 	for (i = 0; i < 2u * FZN_PUBKEY_LEN; i++) {
-		const char *h = memchr(HEX, w[i] >= 'A' && w[i] <= 'F' ? w[i] + ('a' - 'A') : w[i], 16u);
+		const int h = fzn_hex_digit(w[i]);
 
-		if (!h || !w[i])
+		if (h < 0)
 			return 0;
-		out[i / 2u] = (uint8_t)((out[i / 2u] << 4) | (uint8_t)(h - HEX));
+		out[i / 2u] = (uint8_t)((out[i / 2u] << 4) | (uint8_t)h);
 	}
 	return 1;
 }
