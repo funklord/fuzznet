@@ -21108,6 +21108,8 @@ static fzn_node_files_fetching_t fetching;
 static struct fetch_link fetch_links[FZN_NODE_FILES_PEERS_MAX];
 static size_t fetch_n_links;
 static int fetch_active;
+/* WHEN THE FETCH LAST PLACED A LEAF, and last said it had not, sec 1166. */
+static uint64_t fetch_progress_ms, fetch_stall_said_ms, fetch_placed_then;
 static size_t fetch_cursor;
 static uint64_t fetch_length;
 
@@ -21276,6 +21278,7 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		}
 		fetch_length = wanted_lengths[fetch_cursor];
 		fetch_active = 1;
+		fetch_progress_ms = 0;
 	}
 	/* WHAT THE FETCH WOULD ASK, while the asks have room. */
 	while (fzn_node_asks_pending(&round_asks) < FZN_NODE_ASKS_MAX
@@ -21286,6 +21289,29 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		                           (unsigned)fzn_node_files_span_deadline_ms(), fetch_answered,
 		                           (void *)(uintptr_t)tag))
 			fzn_node_files_fetching_take(&fetching, tag, NULL, 0, wall_ms());
+	/* A FETCH PLACING NOTHING, said once a minute with where it stands, sec
+	 * 1166: a fetch logs when it begins and when it ends, and one that did
+	 * neither for minutes (fuzzypickles' inbox 20261114T1121Z) left nothing
+	 * to say which of its ways of ending had not come. */
+	{
+		const uint64_t w = wall_ms();
+
+		if (!fetch_progress_ms || fetching.placed != fetch_placed_then) {
+			fetch_placed_then = fetching.placed;
+			fetch_progress_ms = fetch_stall_said_ms = w;
+		} else if (w - fetch_stall_said_ms >= 60000u) {
+			const uint8_t *r = fetching.root;
+
+			fetch_stall_said_ms = w;
+			say(FZN_ENTRY_DEBUG, "files",
+			    "file %02x%02x%02x%02x: no leaf placed for %llu s -- phase %d, %zu span(s) out, "
+			    "%zu of %zu peer(s) live, %llu leaf(s) placed, %llu step(s), %zu ask(s) pending",
+			    r[0], r[1], r[2], r[3], (unsigned long long)((w - fetch_progress_ms) / 1000u),
+			    fetching.phase, fetching.n_out, fetching.live_peers, fetching.n_peers,
+			    (unsigned long long)fetching.placed, (unsigned long long)fetching.steps,
+			    fzn_node_asks_pending(&round_asks));
+		}
+	}
 	if (!fzn_node_files_fetching_over(&fetching))
 		return;
 	{

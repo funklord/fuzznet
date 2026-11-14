@@ -89127,3 +89127,22 @@ once when a resend is due. Two sabotages, each caught:
 What remains of the gap is whole spans resent for want of a piece; asking
 for a reply's missing pieces (sec 1164) is the step after, now from 25 s
 rather than 110.
+
+## 1166. A fetch that places nothing says where it stands, 2026-11-14
+
+fuzzypickles' fetch that asked once and never ended (sec 1163) is not
+explained by sec 1164's or 1165's measurements, and read from the code it
+can only be in phase 1: phase 0 ends cleanly whether a holds question is
+answered or times out, and phase 1 ends when the file is whole, when no
+peer is left alive, or after `leaves * 4 + 1000` calls of
+`fzn_node_files_fetching_next` -- for fuzzypickles' 24 MB file about 94000
+calls, which at a call or so a pass is most of a day. Meanwhile it logs
+nothing: a fetch says when it begins and when it ends.
+
+So `fetch_files` now says, once a minute while the fetch has placed no
+leaf, its phase, the spans out, the live peers, the leaves placed, its
+steps and the asks pending in the round's table -- the last because a
+fetch sends only while that shared table has room, and a table held full
+by other asks would stall it without a step. The next failure of
+`library-plays-what-is-arriving-on-nodes` then names which way of ending
+has not come. A diagnostic, not a fix; fuzzypickles is told what to send.
