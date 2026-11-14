@@ -89096,3 +89096,34 @@ note on FZN_NODE_FILES_SPAN), are the costs to weigh.
 fuzzypickles' stall (sec 1163) -- a fetch asking once and never ending,
 under load -- is not explained by this: no measurement here has a fetch
 that never ends. It stays open beside it.
+
+## 1165. The loop wakes for a resend: a lossy fetch four times faster, 2026-11-14
+
+Sec 1164's fetch, measured again with both daemons' logs kept. The serving
+host answered each want, and each resend of it from the kept reply (sec
+737) -- but the resends came about a second apart, not every
+`FZN_CALLER_RESEND_MS` (600 ms). `fzn_node_asks_expire`, which resends,
+runs only when `fzn_node_run_once`'s poll returns, and fuzznetd polls for
+up to 1000 ms. So a span's 3 s wait held one or two resends where three
+were meant; a 34-leaf span after two tries at 20 % loss arrives whole
+about one time in four, and every other one waited out the deadline and
+halved (sec 839).
+
+**`fzn_node_asks_due_in`** says how long until the table next has a resend
+or a deadline due -- 0 when one is due now, -1 when nothing is awaited --
+and **`fzn_node_run_once` polls no longer than that**. The table's own
+resend test is the one it reads, so the two cannot disagree.
+
+| 960044 bytes, siblings, faults build | before | after |
+|---|---|---|
+| no loss | 0.5 s | 0.5 s |
+| 20 % loss | 79.6, 123.1, 143.6 s | 24.5, 26.0, 31.5 s |
+
+`pair_test` holds it: the due time is the first resend, then 0 when it
+is due, -1 with nothing awaited, and a pass told to wait 5 s returns at
+once when a resend is due. Two sabotages, each caught:
+`serve-poll-past-asks-due`, `asks-due-in-without-resends`.
+
+What remains of the gap is whole spans resent for want of a piece; asking
+for a reply's missing pieces (sec 1164) is the step after, now from 25 s
+rather than 110.

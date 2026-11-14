@@ -1353,6 +1353,30 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			      "an ask's own resend was called past FZN_CALLER_RESENDS, or the ask outlived "
 			      "its deadline");
 		}
+
+		/* THE LOOP WAKES FOR A RESEND, sec 1165: the table says when its next
+		 * resend or deadline is due, and a pass told to wait 5 s waits no
+		 * longer than that -- a second's poll left one resend of three in a
+		 * span's wait. */
+		{
+			struct timespec t0, t1;
+			long waited_ms;
+
+			CHECK(fzn_node_asks_due_in(&asks) == -1, "an empty table had something due");
+			CHECK(fzn_node_asks_await_again(&asks, &caller, 4242425u, 3000u, on_answer, NULL,
+			                                count_again, NULL)
+			              && fzn_node_asks_due_in(&asks) == (long)FZN_CALLER_RESEND_MS,
+			      "an ask's first resend was not what the table had due");
+			ask_now += FZN_CALLER_RESEND_MS;
+			CHECK(fzn_node_asks_due_in(&asks) == 0, "a resend due now was not said due now");
+			clock_gettime(CLOCK_MONOTONIC, &t0);
+			(void)fzn_node_run_once(&client, 5000);
+			clock_gettime(CLOCK_MONOTONIC, &t1);
+			waited_ms = (long)(t1.tv_sec - t0.tv_sec) * 1000L + (t1.tv_nsec - t0.tv_nsec) / 1000000L;
+			CHECK(waited_ms < 1000L, "a pass told to wait 5 s waited past a resend due now");
+			ask_now += 5000u;
+			(void)fzn_node_asks_expire(&asks);
+		}
 		fzn_node_serve_release(&client);
 	}
 

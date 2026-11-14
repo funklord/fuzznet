@@ -107,5 +107,11 @@ size_t fzn_node_asks_cancel(fzn_node_asks_t *asks, const fzn_caller_t *caller);
 
 /* How many requests are awaited. */
 size_t fzn_node_asks_pending(const fzn_node_asks_t *asks);
+/* HOW LONG UNTIL `fzn_node_asks_expire` HAS WORK, sec 1165: milliseconds to
+ * the earliest resend due or deadline, 0 when one is due now, -1 when
+ * nothing is awaited. A loop polls no longer than this, or a resend due in
+ * 600 ms waits out the poll -- a second in fuzznetd, which left one resend
+ * in a 3 s span's wait where three were meant. */
+long fzn_node_asks_due_in(const fzn_node_asks_t *asks);
 
 #endif /* FZN_NODE_ASKS_H */

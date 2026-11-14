@@ -1,6 +1,7 @@
 /* Requests awaited by the loop: project.md sec 636, and the header. */
 #include "asks.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -204,6 +205,37 @@ size_t fzn_node_asks_cancel(fzn_node_asks_t *asks, const fzn_caller_t *caller)
 			failed++;
 		}
 	return failed;
+}
+
+long fzn_node_asks_due_in(const fzn_node_asks_t *asks)
+{
+	uint64_t now, due = 0;
+	int any = 0;
+	size_t i;
+
+	if (!asks || !asks->clock_ms)
+		return -1;
+	now = asks->clock_ms();
+	for (i = 0; i < FZN_NODE_ASKS_MAX; i++) {
+		const fzn_node_ask_t *e = &asks->entries[i];
+		uint64_t at;
+
+		if (!e->used)
+			continue;
+		at = e->deadline_ms;
+		/* A RESEND STILL TO COME, by `fzn_node_asks_expire`'s own test. */
+		if ((e->request || e->again) && e->resends < FZN_CALLER_RESENDS
+		    && e->resend_at_ms + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms && e->resend_at_ms < at)
+			at = e->resend_at_ms;
+		if (!any || at < due)
+			due = at;
+		any = 1;
+	}
+	if (!any)
+		return -1;
+	if (due <= now)
+		return 0;
+	return due - now > (uint64_t)LONG_MAX ? LONG_MAX : (long)(due - now);
 }
 
 size_t fzn_node_asks_pending(const fzn_node_asks_t *asks)

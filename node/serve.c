@@ -770,6 +770,14 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 	}
 	if (nfds == 0)
 		return 0;
+	/* NO LONGER THAN THE ASKS' NEXT RESEND OR DEADLINE, sec 1165: they are
+	 * served only when the poll returns. */
+	if (state->asks) {
+		long due = fzn_node_asks_due_in(state->asks);
+
+		if (due >= 0 && (timeout_ms < 0 || due < (long)timeout_ms))
+			timeout_ms = (int)due;
+	}
 
 	r = poll(fds, nfds, timeout_ms);
 	now_ms = monotonic_ms();

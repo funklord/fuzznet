@@ -16768,6 +16768,20 @@ SABOTAGES = [
 		"a contacts listing in binary ends with no STATUS, and a reader cannot tell it whole -- sec 1162",
 	),
 	(
+		"serve-poll-past-asks-due",
+		"node/serve.c",
+		"\t\t\ttimeout_ms = (int)due;\n",
+		"\t\t\t(void)due;\n",
+		"the loop polls its full second past a resend due, and a span's wait holds one resend of three -- sec 1165",
+	),
+	(
+		"asks-due-in-without-resends",
+		"node/asks.c",
+		"\t\t    && e->resend_at_ms + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms && e->resend_at_ms < at)\n",
+		"\t\t    && e->resend_at_ms + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms && 0)\n",
+		"the table says its deadline is next while a resend is due before it -- sec 1165",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",
