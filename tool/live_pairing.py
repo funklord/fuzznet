@@ -61,6 +61,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
+from live_rpc import binary  # noqa: E402
 
 # EVERY WAIT GROWS WITH THE LOSS, sec 767, as journey 4's scripts' do (sec
 # 756): a contact request's box and a round's asks are sent again each
@@ -177,7 +178,14 @@ def main(argv):
 			held = requests(socks["b"], "b")
 			if held != [(keys["a"], "-")]:
 				raise failed("a: B's requests are %r, not A's alone" % (held,))
-			print("livecheck: a: A asked B by B's card, and B holds A's request")
+			# AND IN BINARY, sec 1169: the one row, A's root, no name given,
+			# then an ok.
+			got = binary(socks["b"], bytes([0x0B, 0x85]))
+			if len(got) != 2 or got[0][:2] != bytes([0x0B, 0x86]) or got[0][2:34].hex() != keys["a"] \
+			   or got[0][42] != 0 or got[1][:2] != bytes([0x13, 0]):
+				raise failed("a: B's requests in binary were %r" % got)
+			print("livecheck: a: A asked B by B's card, and B holds A's request, in text and"
+			      " binary alike")
 
 			# b: B approves; the round pairs them; a line goes.
 			# A ROOT THAT ASKED NOTHING is an error, a word the reply

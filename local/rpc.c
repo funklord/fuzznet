@@ -3865,22 +3865,35 @@ static void contact_changed_each(void *ctx, const uint8_t *msg, size_t len) {
 		a->bad = 1;
 }
 
-static int contact_change(fzn_rpc_t *c, int remove, const uint8_t key[32], const char *name, size_t name_len,
+/* OP one of add, remove, grant, refuse (secs 1167, 1169): a key, and for
+ * add and grant a name. */
+static int contact_change(fzn_rpc_t *c, uint8_t op, const uint8_t key[32], const char *name, size_t name_len,
                           int *text) {
 	uint8_t inner[80], req[96];
 	uint32_t inner_len = 0, req_len = 0;
 	struct contact_changed a;
+	const int named = op == FZN_CONTACTS_LOCAL_OP_ADD || op == FZN_CONTACTS_LOCAL_OP_GRANT;
 	*text = 0;
 	const situ_err_t built =
-	    remove ? fzn_contacts_local_keyed_build(inner, sizeof inner, key, &inner_len)
-	           : fzn_contacts_local_add_build(inner, sizeof inner, key, (const uint8_t *)name, (uint32_t)name_len,
-	                                          &inner_len);
-	if (built != SITU_OK
-	    || (remove ? fzn_contacts_local_message_build_remove(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,
-	                                                         inner_len, &req_len)
-	               : fzn_contacts_local_message_build_add(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,
-	                                                      inner_len, &req_len))
-	           != SITU_OK) {
+	    named ? fzn_contacts_local_add_build(inner, sizeof inner, key, (const uint8_t *)name, (uint32_t)name_len,
+	                                         &inner_len)
+	          : fzn_contacts_local_keyed_build(inner, sizeof inner, key, &inner_len);
+	situ_err_t framed = SITU_ERR_VERSION;
+	if (built == SITU_OK) {
+		if (op == FZN_CONTACTS_LOCAL_OP_ADD)
+			framed = fzn_contacts_local_message_build_add(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,
+			                                              inner_len, &req_len);
+		else if (op == FZN_CONTACTS_LOCAL_OP_GRANT)
+			framed = fzn_contacts_local_message_build_grant(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,
+			                                                inner_len, &req_len);
+		else if (op == FZN_CONTACTS_LOCAL_OP_REMOVE)
+			framed = fzn_contacts_local_message_build_remove(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,
+			                                                 inner_len, &req_len);
+		else
+			framed = fzn_contacts_local_message_build_refuse(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,
+			                                                 inner_len, &req_len);
+	}
+	if (framed != SITU_OK) {
 		*text = 1;
 		return FZN_RPC_OK;
 	}
@@ -3897,7 +3910,7 @@ static int contact_change(fzn_rpc_t *c, int remove, const uint8_t key[32], const
 
 int fzn_rpc_contact_remove(fzn_rpc_t *c, const uint8_t key[32]) {
 	int text = 0;
-	const int changed = contact_change(c, 1, key, NULL, 0, &text);
+	const int changed = contact_change(c, FZN_CONTACTS_LOCAL_OP_REMOVE, key, NULL, 0, &text);
 	if (!text) return changed;
 	/* BY THE NAME THE NODE LISTS FOR IT, where the node reads no binary. */
 	static fzn_rpc_peer_list_resp_t all;
@@ -4136,8 +4149,71 @@ int fzn_rpc_sibling_list(fzn_rpc_t *c, fzn_rpc_sibling_list_resp_t *out) {
 	return node_siblings(c, out);
 }
 
+/* THE CONTACT REQUESTS IN BINARY, sec 1169: a row each, then a STATUS. */
+struct requests_answer {
+	fzn_rpc_peer_request_list_resp_t *out;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void requests_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct requests_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_contacts_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_contacts_local_message_validate(v) != SITU_OK
+	    || fzn_contacts_local_message_op_get(v) != FZN_CONTACTS_LOCAL_OP_REQUEST_ROW
+	    || fzn_contacts_local_message_body_request_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	/* HELD TO THE LIST'S ROOM, as the verb's listing is. */
+	if (a->out->count >= FZN_RPC_PEER_REQUEST_MAX) return;
+	fzn_rpc_pending_request_entry_t *r = &a->out->entries[a->out->count];
+	memset(r, 0, sizeof *r);
+	memcpy(r->requester_host_pubkey, fzn_contacts_local_request_row_key_ptr(b), 32);
+	r->received_at = fzn_contacts_local_request_row_received_ms_get(b);
+	r->proposed_display_name_len = fzn_contacts_local_request_row_name_len(b);
+	if (r->proposed_display_name_len > FZN_RPC_PEER_NAME_MAX) r->proposed_display_name_len = FZN_RPC_PEER_NAME_MAX;
+	memcpy(r->proposed_display_name, fzn_contacts_local_request_row_name_ptr(b), r->proposed_display_name_len);
+	r->address_len = fzn_contacts_local_request_row_where_len(b);
+	if (r->address_len > FZN_RPC_PEER_ADDRESS_MAX) r->address_len = FZN_RPC_PEER_ADDRESS_MAX;
+	memcpy(r->address, fzn_contacts_local_request_row_where_ptr(b), r->address_len);
+	a->out->count++;
+}
+
 int fzn_rpc_peer_request_list(fzn_rpc_t *c, fzn_rpc_peer_request_list_resp_t *out) {
-	return node_peer_request_list(c, out);
+	static const uint8_t ask[] = { FZN_CMD_CONTACTS, FZN_CONTACTS_LOCAL_OP_REQUESTS };
+	struct requests_answer a;
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, requests_each, &a, &text);
+	if (text) {
+		memset(out, 0, sizeof(*out));
+		return node_peer_request_list(c, out);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || a.status_seen == 0) return unreadable(c);
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
 }
 
 int fzn_rpc_card_show(fzn_rpc_t *c, const char *display_name, size_t display_name_len,
@@ -5173,7 +5249,10 @@ int fzn_rpc_peer_request_approve(fzn_rpc_t *c, const uint8_t requester_host_pubk
 	memset(out, 0, sizeof(*out));
 	const int free_rc = node_name_is_free(c, name, name_len, requester_host_pubkey);
 	if (free_rc != FZN_RPC_OK) return free_rc;
-	const int rc = node_request_answer(c, requester_host_pubkey, name, name_len);
+	/* IN BINARY, sec 1169, and by the verb where the node reads none. */
+	int text = 0;
+	int rc = contact_change(c, FZN_CONTACTS_LOCAL_OP_GRANT, requester_host_pubkey, name, name_len, &text);
+	if (text) rc = node_request_answer(c, requester_host_pubkey, name, name_len);
 	if (rc == FZN_RPC_OK) {
 		memcpy(out->host_pubkey, requester_host_pubkey, 32);
 	}
@@ -5181,17 +5260,19 @@ int fzn_rpc_peer_request_approve(fzn_rpc_t *c, const uint8_t requester_host_pubk
 }
 
 int fzn_rpc_peer_request_reject(fzn_rpc_t *c, const uint8_t requester_host_pubkey[32]) {
-	return node_request_answer(c, requester_host_pubkey, NULL, 0);
+	int text = 0;
+	const int rc = contact_change(c, FZN_CONTACTS_LOCAL_OP_REFUSE, requester_host_pubkey, NULL, 0, &text);
+	return text ? node_request_answer(c, requester_host_pubkey, NULL, 0) : rc;
 }
 
-static int contact_change(fzn_rpc_t *c, int remove, const uint8_t key[32], const char *name, size_t name_len,
+static int contact_change(fzn_rpc_t *c, uint8_t op, const uint8_t key[32], const char *name, size_t name_len,
                           int *text);
 
 int fzn_rpc_peer_rename(fzn_rpc_t *c, const uint8_t key[32], const char *name, size_t name_len) {
 	if (!node_name_ok(name, name_len))
 		return node_unasked(c, FZN_RPC_ERR_INVALID_PEER_NAME, fzn_rpc_err_str(FZN_RPC_ERR_INVALID_PEER_NAME));
 	int text = 0;
-	const int changed = contact_change(c, 0, key, name, name_len, &text);
+	const int changed = contact_change(c, FZN_CONTACTS_LOCAL_OP_ADD, key, name, name_len, &text);
 	if (!text) return changed;
 	char hex[65], arg[16 + 64 + FZN_RPC_PEER_NAME_MAX];
 	fzn_hex_encode(key, 32, hex);

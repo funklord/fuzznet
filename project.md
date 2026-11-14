@@ -89212,3 +89212,33 @@ each ask due at its own interval. Two sabotages, each caught:
 `asks-part-held-resent-slowly`, `caller-holds-part-never`. Asking for
 only the missing pieces (sec 1164) would now save bandwidth rather than
 time; it is no longer the next step for speed.
+
+## 1169. The contact requests, in binary, 2026-11-14
+
+The contacts category's last part on the local leg (secs 1162, 1167):
+FZN_CMD_CONTACTS `requests` (133), answered by a `request_row` (134) per
+request held -- the asker's root, when it arrived, the name their card
+gives and where it says their host is (sec 825) -- then a STATUS ok;
+`grant` (135), a root and a name, which lets the request in; `refuse`
+(136), by root, which turns it away and remembers it (sec 858). Sending a
+request by card stays the verb `add contact NAME CARD`.
+
+- **The daemon answers them**, beside the round that sends and keeps
+  requests: `local_contacts` hands these three to `local_requests` and the
+  rest to the node's contacts. The text verbs' work moved into
+  `requests_list`, `request_address`, `request_grant` and
+  `request_refuse`, which both forms call; the verbs' answers are
+  unchanged.
+- **The client**: `fzn_rpc_peer_request_list`, `_approve` and `_reject`
+  ask in binary and fall back to the verbs where the node reads none.
+  Approving still checks the name free first, through the contact
+  listing, itself in binary since sec 1162.
+
+**Verified**: five hand-written vectors, eleven in all; `rpc_test` -- a
+row read with name, time and where, a grant asked by key and name after
+the listing, a refusal's words kept; `live_rpc` phase h -- as many rows
+as `list request` counts, and a grant and a refusal for a key no request
+came from refused in the node's words; `live_pairing` phase a -- the
+request A sent by card listed at B in binary as in text, A's root with no
+name. Two sabotages, each caught: `rpc-request-grant-sent-as-add`,
+`rpc-requests-binary-where-dropped`.

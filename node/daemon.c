@@ -108,6 +108,8 @@
 #include "objects_binary.h"
 #include "messages_binary.h"
 #include "contacts_binary.h"
+#include "../wire/generated/contacts_local.h"
+#include "../wire/generated/contacts_local_build.h"
 #include "decisions.h"
 #include "responsible.h"
 #include "siblings.h"
@@ -9873,11 +9875,91 @@ static size_t request_contact(const uint8_t *name, size_t name_len, const uint8_
  *   remove request ROOT          reject
  *
  * `add contact NAME KEY` is admin's, as before; 0 for anything not these. */
+/* THE REQUESTS HELD, oldest first, into room grown as they are (sec 704):
+ * how many into *N, or 0 when they would not list. sec 1169 for the binary
+ * listing that shares it. */
+static fzn_contact_request_held_t *requests_held;
+static size_t requests_held_cap;
+
+static int requests_list(size_t *n)
+{
+	fzn_contact_request_err_t lerr = FZN_CONTACT_REQUEST_ERR_ROOM;
+	size_t tries;
+
+	*n = 0;
+	for (tries = 0; tries < 4u && lerr == FZN_CONTACT_REQUEST_ERR_ROOM; tries++) {
+		lerr = fzn_contact_request_list(node_apply.store, requests_held, requests_held_cap, n);
+		if (lerr == FZN_CONTACT_REQUEST_ERR_ROOM) {
+			size_t want = *n + (*n / 4u) + 16u;
+			fzn_contact_request_held_t *grown = calloc(want, sizeof(*grown));
+
+			if (!grown)
+				break;
+			free(requests_held);
+			requests_held = grown;
+			requests_held_cap = want;
+		}
+	}
+	return lerr == FZN_CONTACT_REQUEST_OK;
+}
+
+/* WHERE A REQUEST SAYS IT IS, sec 825: its card's host, or its first seed --
+ * signed by the asker, unlike a datagram's source -- an IPv6 address in
+ * brackets, into OUT as HOST:PORT; 0 bytes for none. */
+static size_t request_address(const fzn_contact_card_t *c, char *out, size_t cap)
+{
+	const char *addr = c->host.port ? c->host.address : c->n_seeds ? c->seeds[0].address : NULL;
+	size_t addr_len = c->host.port ? c->host.address_len : c->n_seeds ? c->seeds[0].address_len : 0u;
+	unsigned port = c->host.port ? c->host.port : c->n_seeds ? c->seeds[0].port : 0u;
+	int six = addr && memchr(addr, ':', addr_len) != NULL;
+	int k;
+
+	if (!addr_len || !port)
+		return 0;
+	k = snprintf(out, cap, "%s%.*s%s:%u", six ? "[" : "", (int)addr_len, addr, six ? "]" : "", port);
+	return k < 0 || (size_t)k >= cap ? 0 : (size_t)k;
+}
+
+/* REFUSED, and remembered: the asker's node sends the request again each
+ * round, and fuzzypickles saw it shown again 67 s later. sec 858. 0, or -1
+ * when no request is held from ROOT. */
+static int request_refuse(const uint8_t root[FZN_PUBKEY_LEN])
+{
+	return fzn_contact_request_refuse(node_apply.store, root) == FZN_CONTACT_REQUEST_OK ? 0 : -1;
+}
+
+/* LET IN: ROOT added as NAME, its host kept, the request dropped. 0; -1
+ * no request from ROOT; -2 a name that is no contact name; -3 no
+ * standing; -4 otherwise -- *WHY saying so. */
+static int request_grant(const uint8_t root[FZN_PUBKEY_LEN], const char *name, size_t name_len,
+                         const char **why)
+{
+	static fzn_contact_request_held_t one;
+
+	*why = NULL;
+	if (fzn_contact_request_get(node_apply.store, root, &one) != FZN_CONTACT_REQUEST_OK) {
+		*why = "no request from that root";
+		return -1;
+	}
+	switch (fzn_node_admin_contact_add(running_admin, root, name, name_len, why)) {
+	case 0:
+		break;
+	case -2:
+		return -2;
+	case -3:
+		return -3;
+	default:
+		return -4;
+	}
+	(void)keep_device(root, &one.request.card.host);
+	(void)fzn_contact_request_drop(node_apply.store, root);
+	contact_pair_due = 1;
+	return 0;
+}
+
 static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap)
 {
-	static fzn_contact_request_held_t *held;
-	static size_t held_cap;
 	const uint8_t *at = request->arg, *subject, *a1 = NULL, *a2 = NULL, *a3 = NULL, *a4 = NULL;
 	size_t left = request->arg_len, subject_len, n1 = 0, n2 = 0, n3 = 0, n4 = 0, n = 0, i, k;
 	uint8_t root[FZN_PUBKEY_LEN];
@@ -9909,8 +9991,7 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 		return request_contact(a1, n1, a2, n2, n3 ? a4 : NULL, n3 ? n4 : 0u, reply, cap);
 	}
 	if (request->parsed == FZN_VERB_LIST) {
-		size_t at_out, from = 0, tries;
-		fzn_contact_request_err_t lerr = FZN_CONTACT_REQUEST_ERR_ROOM;
+		size_t at_out, from = 0;
 
 		/* `list request [FROM]`: a page from the FROMth, oldest first. */
 		for (k = 0; k < n1; k++) {
@@ -9918,50 +9999,19 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 				return (size_t)snprintf(reply, cap, "malformed list request [FROM]\n");
 			from = (from * 10u) + (size_t)(a1[k] - '0');
 		}
-		/* IN ROOM GROWN AS THEY ARE, sec 704: told how many, given that and
-		 * a little more, and listed again. */
-		for (tries = 0; tries < 4u && lerr == FZN_CONTACT_REQUEST_ERR_ROOM; tries++) {
-			lerr = fzn_contact_request_list(node_apply.store, held, held_cap, &n);
-			if (lerr == FZN_CONTACT_REQUEST_ERR_ROOM) {
-				size_t want = n + (n / 4u) + 16u;
-				fzn_contact_request_held_t *grown = calloc(want, sizeof(*grown));
-
-				if (!grown)
-					break;
-				free(held);
-				held = grown;
-				held_cap = want;
-			}
-		}
-		if (lerr != FZN_CONTACT_REQUEST_OK)
+		if (!requests_list(&n))
 			return (size_t)snprintf(reply, cap, "error the requests would not list\n");
 		at_out = (size_t)snprintf(reply, cap, "ok %zu", n);
 		for (i = from; i < n && at_out < cap; i++) {
-			char hex[2u * FZN_PUBKEY_LEN + 1u];
-			const fzn_contact_card_t *c = &held[i].request.card;
-
-			/* WHERE IT SAYS IT IS, sec 825: its card's host, or its first
-			 * seed -- signed by the asker, unlike a datagram's source -- an
-			 * IPv6 address in brackets, `-` for none. */
-			const char *addr = c->host.port ? c->host.address
-			                   : c->n_seeds ? c->seeds[0].address : NULL;
-			size_t addr_len = c->host.port ? c->host.address_len
-			                  : c->n_seeds ? c->seeds[0].address_len : 0u;
-			unsigned port = c->host.port ? c->host.port : c->n_seeds ? c->seeds[0].port : 0u;
-			int six = addr && memchr(addr, ':', addr_len) != NULL;
+			char hex[2u * FZN_PUBKEY_LEN + 1u], where[128];
+			const fzn_contact_card_t *c = &requests_held[i].request.card;
+			size_t where_len = request_address(c, where, sizeof(where));
 
 			hex_of(c->host.owner, FZN_PUBKEY_LEN, hex);
-			if (addr_len && port)
-				k = (size_t)snprintf(reply + at_out, cap - at_out, " %s,%.*s,%llu,%s%.*s%s:%u",
-				                     hex, c->name_len ? (int)c->name_len : 1,
-				                     c->name_len ? c->name : "-",
-				                     (unsigned long long)held[i].received_at, six ? "[" : "",
-				                     (int)addr_len, addr, six ? "]" : "", port);
-			else
-				k = (size_t)snprintf(reply + at_out, cap - at_out, " %s,%.*s,%llu,-", hex,
-				                     c->name_len ? (int)c->name_len : 1,
-				                     c->name_len ? c->name : "-",
-				                     (unsigned long long)held[i].received_at);
+			k = (size_t)snprintf(reply + at_out, cap - at_out, " %s,%.*s,%llu,%.*s", hex,
+			                     c->name_len ? (int)c->name_len : 1, c->name_len ? c->name : "-",
+			                     (unsigned long long)requests_held[i].received_at,
+			                     where_len ? (int)where_len : 1, where_len ? where : "-");
 			if (at_out + k >= cap)
 				break;
 			at_out += k;
@@ -9972,23 +10022,19 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 		return (size_t)snprintf(reply, cap, request->parsed == FZN_VERB_GRANT
 		                                            ? "malformed grant request ROOT NAME\n"
 		                                            : "malformed remove request ROOT\n");
-	/* REFUSED, and remembered: the asker's node sends the request again
-	 * each round, and fuzzypickles saw it shown again 67 s later. sec 858. */
 	if (request->parsed == FZN_VERB_REMOVE)
-		return fzn_contact_request_refuse(node_apply.store, root) == FZN_CONTACT_REQUEST_OK
-		               ? (size_t)snprintf(reply, cap, "ok\n")
-		               : (size_t)snprintf(reply, cap, "error no request from that root\n");
+		return request_refuse(root) == 0 ? (size_t)snprintf(reply, cap, "ok\n")
+		                                 : (size_t)snprintf(reply, cap, "error no request from that root\n");
 	{
-		static fzn_contact_request_held_t one;
 		const char *why = NULL;
 
 		if (!a2)
 			return (size_t)snprintf(reply, cap, "malformed grant request ROOT NAME\n");
-		if (fzn_contact_request_get(node_apply.store, root, &one) != FZN_CONTACT_REQUEST_OK)
-			return (size_t)snprintf(reply, cap, "error no request from that root\n");
-		switch (fzn_node_admin_contact_add(running_admin, root, (const char *)a2, n2, &why)) {
+		switch (request_grant(root, (const char *)a2, n2, &why)) {
 		case 0:
-			break;
+			return (size_t)snprintf(reply, cap, "ok\n");
+		case -1:
+			return (size_t)snprintf(reply, cap, "error no request from that root\n");
 		case -2:
 			return (size_t)snprintf(reply, cap, "malformed %s\n", why ? why : "a contact name");
 		case -3:
@@ -9996,10 +10042,6 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 		default:
 			return (size_t)snprintf(reply, cap, "error %s\n", why ? why : "not added");
 		}
-		(void)keep_device(root, &one.request.card.host);
-		(void)fzn_contact_request_drop(node_apply.store, root);
-		contact_pair_due = 1;
-		return (size_t)snprintf(reply, cap, "ok\n");
 	}
 }
 
@@ -17952,6 +17994,71 @@ static int local_messages(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 	return 0;
 }
 
+/* THE CONTACT REQUESTS IN BINARY, sec 1169: listed as a row each then a
+ * STATUS ok, let in or turned away by the same functions as the verbs. */
+static int local_requests(int fd, const uint8_t *msg, size_t len)
+{
+	situ_msg_t m;
+	situ_view_t v, b;
+	const char *why = NULL;
+	size_t n, i;
+	int r;
+
+	if (!node_apply.store)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no contacts"), 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_contacts_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_contacts_local_message_validate(v) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a contacts request"), 0;
+	switch (fzn_contacts_local_message_op_get(v)) {
+	case FZN_CONTACTS_LOCAL_OP_REQUESTS:
+		if (!requests_list(&n))
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the requests would not list"), 0;
+		for (i = 0; i < n; i++) {
+			const fzn_contact_card_t *c = &requests_held[i].request.card;
+			uint8_t row[160], out[176];
+			uint32_t row_len = 0, k = 0;
+			char where[128];
+			size_t where_len = request_address(c, where, sizeof(where));
+
+			if (c->name_len > 32u || where_len > 64u
+			    || fzn_contacts_local_request_row_build(row, sizeof(row), c->host.owner,
+			                                            requests_held[i].received_at,
+			                                            (const uint8_t *)c->name, (uint32_t)c->name_len,
+			                                            (const uint8_t *)where, (uint32_t)where_len,
+			                                            &row_len)
+			               != SITU_OK
+			    || fzn_contacts_local_message_build_request_row(out, sizeof(out), (uint8_t)FZN_CMD_CONTACTS,
+			                                                    row, row_len, &k)
+			               != SITU_OK
+			    || !local_put(&fd, out, k))
+				return 0;
+		}
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	case FZN_CONTACTS_LOCAL_OP_REFUSE:
+		if (fzn_contacts_local_message_body_refuse_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a contacts request"), 0;
+		r = request_refuse(fzn_contacts_local_keyed_key_ptr(b));
+		return local_binary_status(fd, r == 0 ? FZN_STATUS_OK : FZN_STATUS_ERROR,
+		                           r == 0 ? NULL : "no request from that root"),
+		       0;
+	case FZN_CONTACTS_LOCAL_OP_GRANT:
+		if (fzn_contacts_local_message_body_grant_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a contacts request"), 0;
+		r = request_grant(fzn_contacts_local_add_key_ptr(b), (const char *)fzn_contacts_local_add_name_ptr(b),
+		                  fzn_contacts_local_add_name_len(b), &why);
+		return local_binary_status(fd,
+		                           r == 0    ? FZN_STATUS_OK
+		                           : r == -2 ? FZN_STATUS_MALFORMED
+		                           : r == -3 ? FZN_STATUS_DENIED
+		                                     : FZN_STATUS_ERROR,
+		                           r == 0 ? NULL : why ? why : "not added"),
+		       0;
+	default:
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a contacts request"), 0;
+	}
+}
+
 /* THIS USER'S CONTACTS IN BINARY, sec 1162: the node's own user's alone,
  * as the text verb answers them. */
 static int local_contacts(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
@@ -17960,6 +18067,13 @@ static int local_contacts(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 		return local_binary_status(fd, FZN_STATUS_DENIED, "contacts need this node's own user"), 0;
 	if (!running_admin)
 		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this host keeps no contacts"), 0;
+	/* THE REQUESTS, sec 1169: held by the daemon beside the round that
+	 * sends and answers them, so answered here; the rest by the node's
+	 * contacts. */
+	if (len >= 2u
+	    && (msg[1] == FZN_CONTACTS_LOCAL_OP_REQUESTS || msg[1] == FZN_CONTACTS_LOCAL_OP_GRANT
+	        || msg[1] == FZN_CONTACTS_LOCAL_OP_REFUSE))
+		return local_requests(fd, msg, len);
 	(void)fzn_node_contacts_binary(running_admin, msg, len, local_put, &fd);
 	return 0;
 }

@@ -914,8 +914,52 @@ static void test_contact_changes_in_binary(void)
 	}
 }
 
+/* THE CONTACT REQUESTS IN BINARY, sec 1169: listed with name, time and
+ * where, then let in and turned away by key, the requests' bytes checked. */
+static void test_requests_in_binary(void)
+{
+	static struct bscript listed, granted, refused;
+	static fzn_rpc_peer_request_list_resp_t out;
+	static fzn_rpc_peer_request_approve_resp_t let_in;
+	uint8_t key[32], row[120], m[136];
+	uint32_t row_len = 0, n = 0;
+
+	memset(key, 0xab, sizeof(key));
+	if (fzn_contacts_local_request_row_build(row, sizeof(row), key, 1700000000000ull, (const uint8_t *)"bob", 3,
+	                                         (const uint8_t *)"10.0.0.2:40001", 14, &row_len)
+	            == SITU_OK
+	    && fzn_contacts_local_message_build_request_row(m, sizeof(m), (uint8_t)FZN_CMD_CONTACTS, row, row_len, &n)
+	               == SITU_OK)
+		framed(&listed, 0, m, n);
+	status_onto(&listed, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &listed);
+	CHECK(fzn_rpc_peer_request_list(&c, &out) == FZN_RPC_OK && out.count == 1
+	              && out.entries[0].requester_host_pubkey[0] == 0xab
+	              && strcmp(out.entries[0].proposed_display_name, "bob") == 0
+	              && strcmp(out.entries[0].address, "10.0.0.2:40001") == 0
+	              && out.entries[0].received_at == 1700000000000ull && listed.asked_len[0] == 2
+	              && listed.asked[0][1] == 0x85,
+	      "the requests were not read in binary, with name, time and where");
+
+	/* LET IN: the name checked free first, by the contact listing -- itself
+	 * in binary now, answered empty -- and then granted. */
+	status_onto(&granted, 0, FZN_STATUS_OK, NULL);
+	status_onto(&granted, 1, FZN_STATUS_OK, NULL);
+	bon(&c, &granted);
+	CHECK(fzn_rpc_peer_request_approve(&c, key, "bob", 3, &let_in) == FZN_RPC_OK && granted.asked[0][1] == 0x80
+	              && granted.asked[1][1] == 0x87 && granted.asked[1][34] == 3
+	              && memcmp(granted.asked[1] + 35, "bob", 3) == 0 && let_in.host_pubkey[0] == 0xab,
+	      "a request was not let in in binary under its name");
+	status_onto(&refused, 0, FZN_STATUS_ERROR, "no request from that root");
+	bon(&c, &refused);
+	CHECK(fzn_rpc_peer_request_reject(&c, key) != FZN_RPC_OK && refused.asked[0][1] == 0x88
+	              && strcmp(c.error, "no request from that root") == 0,
+	      "a request turned away in binary was not asked by key, or the refusal's words lost");
+}
+
 int main(void)
 {
+	test_requests_in_binary();
 	test_contact_changes_in_binary();
 	test_contacts_in_binary();
 	test_a_line_is_sent_in_binary();

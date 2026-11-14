@@ -29,6 +29,10 @@ typedef enum fzn_contacts_local_op {
 	FZN_CONTACTS_LOCAL_OP_ADD = 130,
 	FZN_CONTACTS_LOCAL_OP_REMOVE = 131,
 	FZN_CONTACTS_LOCAL_OP_CLASH = 132,
+	FZN_CONTACTS_LOCAL_OP_REQUESTS = 133,
+	FZN_CONTACTS_LOCAL_OP_REQUEST_ROW = 134,
+	FZN_CONTACTS_LOCAL_OP_GRANT = 135,
+	FZN_CONTACTS_LOCAL_OP_REFUSE = 136,
 } fzn_contacts_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -41,6 +45,10 @@ static inline int fzn_contacts_local_op_is_known(fzn_contacts_local_op_t value)
 	case FZN_CONTACTS_LOCAL_OP_ADD:
 	case FZN_CONTACTS_LOCAL_OP_REMOVE:
 	case FZN_CONTACTS_LOCAL_OP_CLASH:
+	case FZN_CONTACTS_LOCAL_OP_REQUESTS:
+	case FZN_CONTACTS_LOCAL_OP_REQUEST_ROW:
+	case FZN_CONTACTS_LOCAL_OP_GRANT:
+	case FZN_CONTACTS_LOCAL_OP_REFUSE:
 		return 1;
 	default:
 		return 0;
@@ -482,10 +490,271 @@ static inline situ_err_t fzn_contacts_local_keyed_required(const uint8_t *data, 
  */
 situ_err_t fzn_contacts_local_keyed_validate(situ_view_t view);
 
+/* ---- struct request_row ---- */
+
+#define FZN_CONTACTS_LOCAL_REQUEST_ROW_SIZE_MIN   42u
+#define FZN_CONTACTS_LOCAL_REQUEST_ROW_SIZE_MAX   138u
+
+/* INVALIDATION: a request_row view, and every view derived from
+ * it, is invalidated by writing `name_len`, `where_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_contacts_local_request_row_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_CONTACTS_LOCAL_REQUEST_ROW_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** request_row.key : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_CONTACTS_LOCAL_REQUEST_ROW_KEY_COUNT 32u
+static inline uint8_t *fzn_contacts_local_request_row_key_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** request_row.received_ms : u64  at AbsoluteStatic(0x20)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_contacts_local_request_row_received_ms_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 32u));
+}
+static inline void fzn_contacts_local_request_row_received_ms_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 32u, (uint64_t)value);
+}
+
+#define FZN_CONTACTS_LOCAL_REQUEST_ROW_NAME_LEN_VALUE_MAX 32u
+
+/** request_row.name_len : u8  at AbsoluteStatic(0x28)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_contacts_local_request_row_name_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[40u]);
+}
+static inline uint8_t *fzn_contacts_local_request_row_name_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 40u);
+}
+/* No plain setter: `name_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_contacts_local_request_row_name_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** request_row.name : u8  at AbsoluteStatic(0x29)
+ * size=Bounded(0, 32) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_contacts_local_request_row_name_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[40u])),
+		situ_remaining_u32(view.limit, 41u));
+}
+static inline uint8_t *fzn_contacts_local_request_row_name_ptr(situ_view_t view)
+{
+	return situ_base(view) + 41u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+#define FZN_CONTACTS_LOCAL_REQUEST_ROW_WHERE_LEN_VALUE_MAX 64u
+
+/** request_row.where_len : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_contacts_local_request_row_where_len_offset(situ_view_t view)
+{
+	uint32_t offset = 41u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[40u]))), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_contacts_local_request_row_where_len_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_contacts_local_request_row_where_len_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_contacts_local_request_row_where_len_offset(view)))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_contacts_local_request_row_where_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_contacts_local_request_row_where_len_offset(view));
+}
+/* No plain setter: `where_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_contacts_local_request_row_where_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** request_row.where : u8  at Dynamic
+ * size=Bounded(0, 64) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_contacts_local_request_row_where_offset(situ_view_t view)
+{
+	uint32_t offset = 41u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[40u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+
+	return offset;
+}
+static inline uint32_t fzn_contacts_local_request_row_where_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contacts_local_request_row_where_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contacts_local_request_row_where_len_offset(view)))[0u]) : (uint64_t)0))),
+		situ_remaining_u32(view.limit, fzn_contacts_local_request_row_where_offset(view)));
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_contacts_local_request_row_where_ptr(situ_view_t view)
+{
+	return situ_base(view) + fzn_contacts_local_request_row_where_offset(view);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `request_row` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_contacts_local_request_row_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 42u)) {
+		return 42u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 42u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[40u])));
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_contacts_local_request_row_where_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contacts_local_request_row_where_len_offset(view)))[0u]) : (uint64_t)0))));
+	return extent;
+}
+
+/** How many bytes a whole `request_row` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_contacts_local_request_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 42u;
+	uint32_t pos = 41u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* request_row.name: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 41u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[40u]));
+
+		at = situ_need_u32(at, len);
+		pos = situ_need_u32(pos, len);
+	}
+	pos = situ_need_u32(pos, 1u);
+
+	/* request_row.where: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < pos) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_contacts_local_request_row_where_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_contacts_local_request_row_where_len_offset(view)))[0u]) : (uint64_t)0)));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_contacts_local_request_row_name_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[40u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+static inline void fzn_contacts_local_request_row_where_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	if (!(situ_in_bounds(view, fzn_contacts_local_request_row_where_len_offset(view), 1u))) {
+		return;
+	}
+	((situ_base(view) + fzn_contacts_local_request_row_where_len_offset(view)))[0u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_contacts_local_request_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_contacts_local_request_row_check(situ_view_t view, uint32_t *which);
+#define FZN_CONTACTS_LOCAL_REQUEST_ROW_NAME_LEN_CHECK 0u
+#define FZN_CONTACTS_LOCAL_REQUEST_ROW_NAME_CHECK 1u
+#define FZN_CONTACTS_LOCAL_REQUEST_ROW_WHERE_LEN_CHECK 2u
+#define FZN_CONTACTS_LOCAL_REQUEST_ROW_WHERE_CHECK 3u
+
 /* ---- struct message ---- */
 
 #define FZN_CONTACTS_LOCAL_MESSAGE_SIZE_MIN   2u
-#define FZN_CONTACTS_LOCAL_MESSAGE_SIZE_MAX   68u
+#define FZN_CONTACTS_LOCAL_MESSAGE_SIZE_MAX   140u
 
 /* INVALIDATION: a message view, and every view derived from
  * it, is invalidated by writing `op` -- those decide where the
@@ -543,9 +812,9 @@ static inline fzn_contacts_local_op_t fzn_contacts_local_message_op_get(situ_vie
  * which takes the message and bumps its generation. */
 
 /* message.body : variant  at AbsoluteStatic(0x02)
- * size=Bounded(0, 66) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ * size=Bounded(0, 138) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `list`, `row`, `add`, `remove`, `clash` is
+/** `body` is a variant: exactly one of `list`, `row`, `add`, `remove`, `clash`, `requests`, `request_row`, `grant`, `refuse` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -663,6 +932,106 @@ static inline situ_err_t fzn_contacts_local_message_body_clash_view(situ_view_t 
 	return situ_view_sub(view, 2u, FZN_CONTACTS_LOCAL_KEYED_SIZE_FIXED, out);
 }
 
+/** message.body.requests, present when the discriminant selects `op.requests`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_contacts_local_message_body_requests_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_contacts_local_message_op_get(view) != 133u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_CONTACTS_LOCAL_NOTHING_SIZE_FIXED, out);
+}
+
+/* message.body.request_row, present when the discriminant selects `op.request_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `request_row` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_contacts_local_message_body_request_row_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_contacts_local_request_row_extent(whole);
+}
+static inline situ_err_t fzn_contacts_local_message_body_request_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_contacts_local_message_op_get(view) != 134u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_contacts_local_request_row_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_CONTACTS_LOCAL_MESSAGE_BODY_REQUEST_ROW_NAME_LEN_VALUE_MAX 32u
+
+#define FZN_CONTACTS_LOCAL_MESSAGE_BODY_REQUEST_ROW_WHERE_LEN_VALUE_MAX 64u
+
+/* message.body.grant, present when the discriminant selects `op.grant`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `grant` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_contacts_local_message_body_grant_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_contacts_local_add_extent(whole);
+}
+static inline situ_err_t fzn_contacts_local_message_body_grant_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_contacts_local_message_op_get(view) != 135u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_contacts_local_add_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_CONTACTS_LOCAL_MESSAGE_BODY_GRANT_NAME_LEN_VALUE_MAX 32u
+
+/** message.body.refuse, present when the discriminant selects `op.refuse`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_contacts_local_message_body_refuse_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_contacts_local_message_op_get(view) != 136u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_CONTACTS_LOCAL_KEYED_SIZE_FIXED, out);
+}
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -739,6 +1108,34 @@ static inline situ_err_t fzn_contacts_local_message_required(const uint8_t *data
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 133u) {
+			e = fzn_contacts_local_nothing_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 134u) {
+			e = fzn_contacts_local_request_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 135u) {
+			e = fzn_contacts_local_add_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 136u) {
+			e = fzn_contacts_local_keyed_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -781,6 +1178,10 @@ situ_err_t fzn_contacts_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_CONTACTS_LOCAL_MESSAGE_BODY_ADD_CHECK 5u
 #define FZN_CONTACTS_LOCAL_MESSAGE_BODY_REMOVE_CHECK 6u
 #define FZN_CONTACTS_LOCAL_MESSAGE_BODY_CLASH_CHECK 7u
+#define FZN_CONTACTS_LOCAL_MESSAGE_BODY_REQUESTS_CHECK 8u
+#define FZN_CONTACTS_LOCAL_MESSAGE_BODY_REQUEST_ROW_CHECK 9u
+#define FZN_CONTACTS_LOCAL_MESSAGE_BODY_GRANT_CHECK 10u
+#define FZN_CONTACTS_LOCAL_MESSAGE_BODY_REFUSE_CHECK 11u
 
 #ifdef __cplusplus
 }

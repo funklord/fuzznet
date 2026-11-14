@@ -1,5 +1,5 @@
 // This user's contacts, listed (sec 1162), added, renamed and removed (sec
-// 1167), asked in binary on the local leg: the category fuzzypickles named
+// 1167), and the requests to become one (sec 1169), asked in binary on the local leg: the category fuzzypickles named
 // after messages (its inbox 20261114T1030Z), in the holder's A (sec 1152).
 //
 // FZN_CMD_CONTACTS (11, wire/cmd.h), its operation the SUBCMD, in the range
@@ -18,6 +18,10 @@ enum op : u8 {
 	add     = 130, // a contact added, or renamed (sec 1167)
 	remove  = 131, // a contact removed, by key
 	clash   = 132, // an answer to add: another contact of the same name
+	requests = 133, // the contact requests held, oldest first (sec 1169)
+	request_row = 134, // an answer: one request
+	grant   = 135, // a request let in, under a name
+	refuse  = 136, // a request turned away, and remembered
 	default = error,
 }
 
@@ -56,6 +60,18 @@ struct keyed {
 	u8   key[32];
 }
 
+// KEY the asker's root; NAME the name their card gives, empty for none;
+// RECEIVED when it arrived, ms; WHERE the host and port their card says,
+// as HOST:PORT or [V6]:PORT, empty for none (sec 825).
+struct request_row {
+	u8   key[32];
+	u64  received_ms;
+	u8   name_len [max = 32];
+	u8   name[name_len];
+	u8   where_len [max = 64];
+	u8   where[where_len];
+}
+
 struct message {
 	u8   cmd [must_eq = 11];
 	op   op;
@@ -66,6 +82,10 @@ struct message {
 		case op.add:    add     add;
 		case op.remove: keyed   remove;
 		case op.clash:  keyed   clash;
+		case op.requests: nothing requests;
+		case op.request_row: request_row request_row;
+		case op.grant:  add     grant;
+		case op.refuse: keyed   refuse;
 		default: error;
 	}
 }

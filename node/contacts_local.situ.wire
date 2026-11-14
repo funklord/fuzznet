@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  list=128 row=129 add=130 remove=131 clash=132
+  list=128 row=129 add=130 remove=131 clash=132 requests=133 request_row=134 grant=135 refuse=136
 
 enum standing : u8 unknown=error
   active=0 suspended=1 retired=2 absent=3
@@ -32,19 +32,31 @@ struct add size=33..65
 struct keyed size=32
   @0x0000   32        u8         key  big
 
-struct message size=2..68
+struct message size=2..140
   @0x0000   1         u8         cmd  must_eq=11
   @0x0001   1         op         op
-  @0x0002   0..66     variant    body
+  @0x0002   0..138    variant    body
   body switch: op
   body case 128: list nothing
   body case 129: row row
   body case 130: add add
   body case 131: remove keyed
   body case 132: clash keyed
+  body case 133: requests nothing
+  body case 134: request_row request_row
+  body case 135: grant add
+  body case 136: refuse keyed
   body case default: error
 
 struct nothing size=0
+
+struct request_row size=42..138
+  @0x0000   32        u8         key  big
+  @0x0020   8         u64        received_ms  big
+  @0x0028   1         u8         name_len  max=32
+  @0x0029   0..32     u8         name  sized-by=name_len
+  ~         1         u8         where_len  max=64
+  ~         0..64     u8         where  sized-by=where_len
 
 struct row size=34..66
   @0x0000   32        u8         key  big

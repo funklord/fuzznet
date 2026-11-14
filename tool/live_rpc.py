@@ -18,6 +18,9 @@
        rows as `list contact` counts, the contact among them by name and key
     g  a contact added, renamed and removed in binary (sec 1167), each
        answered ok and seen by `list contact`
+    h  the contact requests in binary (sec 1169): as many rows as `list
+       request` counts, then ok; a grant and a refusal of a key no request
+       came from each refused in the node's words
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -202,6 +205,22 @@ def main(argv):
 					             % (what, got, listed[:200]))
 			print("livecheck: g: a contact added, renamed and removed in binary, each seen by the"
 			      " text verb")
+
+			# h: the requests, in bytes.
+			total = int(ask(sock, "list request").split()[1])
+			got = binary(sock, bytes([CONTACTS, 0x85]))
+			rows = [m for m in got[:-1] if m[:2] == bytes([CONTACTS, 0x86])]
+			if not got or got[-1][:2] != bytes([STATUS, 0]) or len(rows) != total:
+				raise failed("h: the requests in binary were %r where the text verb counts %d"
+				             % (got, total))
+			nobody = bytes([0x7a] * 32)
+			for msg, what in ((bytes([CONTACTS, 0x87]) + nobody + bytes([3]) + b"zed", "let in"),
+			                  (bytes([CONTACTS, 0x88]) + nobody, "turned away")):
+				got = binary(sock, msg)
+				if len(got) != 1 or got[0][:2] != bytes([STATUS, 3]) or b"no request" not in got[0]:
+					raise failed("h: a key no request came from %s answered %r" % (what, got))
+			print("livecheck: h: %d request(s) in binary as the text verb counts, and a key with"
+			      " none refused both ways" % total)
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

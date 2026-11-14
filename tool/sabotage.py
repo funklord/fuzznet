@@ -16810,6 +16810,20 @@ SABOTAGES = [
 		"a reply part-held is never said so -- sec 1168",
 	),
 	(
+		"rpc-request-grant-sent-as-add",
+		"local/rpc.c",
+		"\t\t\tframed = fzn_contacts_local_message_build_grant(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,\n",
+		"\t\t\tframed = fzn_contacts_local_message_build_add(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,\n",
+		"letting a request in adds the key as a contact and leaves the request and its host unkept -- sec 1169",
+	),
+	(
+		"rpc-requests-binary-where-dropped",
+		"local/rpc.c",
+		"\tmemcpy(r->address, fzn_contacts_local_request_row_where_ptr(b), r->address_len);\n",
+		"\tr->address_len = 0;\n",
+		"a request's address, signed by the asker, is lost when read in binary -- sec 1169",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",
