@@ -628,6 +628,7 @@ static void test_run_once_relays_a_session(void)
 	fzn_hash_monocypher_init(&hash);
 	fzn_aead_monocypher_init(&aead);
 	fzn_random_system_init(&rng);
+	memset(&state, 0, sizeof(state));
 	memset(&mine, 0, sizeof(mine));
 	memset(&theirs, 0, sizeof(theirs));
 	memset(key, 0x61, sizeof(key));
@@ -685,6 +686,9 @@ static void test_run_once_relays_a_session(void)
 	p.revents = 0;
 	ok(poll(&p, 1, 300) == 0, "a session frame from a host no way names was forwarded");
 out:
+	/* THE STATE'S POLL TABLES, grown by run_once: given back, or sancheck's
+	 * leak check fails the suite (sec 1160). */
+	fzn_node_serve_release(&state);
 	fzn_node_sessions_release(&mine);
 	fzn_node_sessions_release(&theirs);
 	if (rfd >= 0)

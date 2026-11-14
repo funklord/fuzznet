@@ -11,6 +11,8 @@
  * sticker says why it is not drawn, and the caller shows its words. */
 #ifdef FZN_THORVG_ON
 #include <thorvg.h>
+
+#include <memory>
 #endif
 
 /*
@@ -53,8 +55,14 @@ static fzn_sticker_render_result render_lottie(const uint8_t *bytes, size_t len,
 	}
 
 	{
-		auto canvas = tvg::SwCanvas::gen();
-		auto animation = tvg::Animation::gen();
+		/* OWNED HERE, sec 1160: thorvg 1.0's gen() hands back a bare
+		 * pointer where earlier versions gave a unique_ptr, so `auto` kept
+		 * the old spelling and dropped the ownership -- a canvas, an
+		 * animation and the whole parsed Lottie leaked per sticker drawn.
+		 * The picture between them is counted, each holding it, so the
+		 * order they go in does not matter; both go before term(). */
+		std::unique_ptr<tvg::SwCanvas> canvas(tvg::SwCanvas::gen());
+		std::unique_ptr<tvg::Animation> animation(tvg::Animation::gen());
 		/*
 		 * ARGB8888 straight into a QImage's own buffer: ThorVG writes where
 		 * Qt will read, so a frame costs no copy of its own. ThorVG's

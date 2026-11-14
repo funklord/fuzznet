@@ -88853,3 +88853,40 @@ key. Three sabotages, each caught: `rpc-lines-binary-group-as-inbox`,
 **Next in the category**: sending a line (`add message`) in binary, which
 goes through the daemon's delivery rather than this file alone, then
 contacts.
+
+## 1160. What the sanitized run found: a test's leak, and two in thorvg's use, 2026-11-14
+
+`make sancheck` was run whole for the first time since thorvg was
+vendored (sec 1151), and stopped three times:
+
+- **`serve_test` leaked `run_once`'s poll tables.**
+  `test_run_once_relays_a_session` never called
+  `fzn_node_serve_release(&state)`, and a `goto out` before the state's
+  `memset` would have released an unset one. The state is zeroed first
+  now and released at `out`. A test's leak, not the daemon's: the daemon
+  releases its own.
+- **thorvg makes its `operator new` the whole program's.**
+  `tvgInitializer.cpp` defines the global `operator new` and `operator
+  delete` (malloc and free, for bindings that bring an allocator, upstream
+  b77f3ca0), and a static link makes them every C++ allocation's -- Qt's
+  included. They differ from the standard ones in two ways: `new` returns
+  null on failure where the language throws, and there is no sized
+  `delete`, so Qt's sized deletes reach the runtime's own. The sanitized
+  build reported that as malloc against operator delete inside `QLocale`,
+  before `conversation_view_test` ran a line of its own. The build now
+  localizes the two definitions in that one object
+  (`objcopy --localize-symbol`, `_Znwm`, `_Znwj` for a 32-bit ABI, and
+  `_ZdlPv`), so they bind nothing and thorvg allocates through the
+  standard ones like everything else. The submodule is not edited.
+- **`sticker_render` leaked a canvas, an animation and the whole parsed
+  Lottie per sticker drawn.** thorvg 1.0's `gen()` returns a bare pointer
+  where the versions before gave a `unique_ptr`, so `auto canvas =
+  tvg::SwCanvas::gen()` kept the old spelling and lost the ownership --
+  8052 bytes in 84 allocations over `sticker_picker_view_test`. Both are
+  held in a `unique_ptr` now; the picture between them is counted, each
+  holding it, so the order they go in does not matter, and both go
+  before `Initializer::term()`.
+
+fuzzypickles pins the same thorvg and took `gui/sticker_render` from this
+tree (inbox 20261114T1030Z), so both thorvg findings are theirs too;
+they were told.

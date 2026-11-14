@@ -3651,6 +3651,7 @@ $(BUILD_DIR)/gui/test/%.o: gui/test/%.cpp
 # set of ours. An empty thorvg/ is an unfinished clone, said by `test`, and
 # the renderer still builds: a Lottie sticker then says why it is not drawn.
 THORVG_DIR      := thorvg
+OBJCOPY         ?= objcopy
 THORVG_ON       := $(if $(wildcard $(THORVG_DIR)/inc/thorvg.h),1)
 THORVG_SKIP     := $(if $(THORVG_ON),,the vendored $(THORVG_DIR)/ is empty, so Lottie stickers are not drawn. Run 'git submodule update --init $(THORVG_DIR)'.)
 THORVG_SRCS     := $(wildcard $(addprefix $(THORVG_DIR)/src/,common/*.cpp renderer/*.cpp \
@@ -3661,9 +3662,21 @@ THORVG_CPPFLAGS := -Igui/thorvg -I$(THORVG_DIR)/inc \
                      loaders/raw loaders/lottie) \
                    -DTHORVG_SW_RASTER_SUPPORT -DTHORVG_LOTTIE_LOADER_SUPPORT -DTVG_STATIC \
                    -DTHORVG_VERSION_STRING='"1.0.0"'
+# THORVG'S operator new IS KEPT TO ITSELF, sec 1160. tvgInitializer.cpp
+# defines the global operator new and delete (malloc and free, for bindings
+# that bring an allocator), and a static link makes them the WHOLE program's:
+# Qt's every `new` went through it, returning null on failure where the
+# language throws, and freed by a sized delete it does not define -- which
+# the sanitized build reports as malloc against operator delete inside
+# QLocale before any test ran. Localized, the two definitions bind nothing,
+# and thorvg allocates through the standard ones like everybody else. Both
+# spellings of new: size_t is unsigned long here and unsigned int on a
+# 32-bit ABI.
+THORVG_LOCAL_NEW := --localize-symbol=_Znwm --localize-symbol=_Znwj --localize-symbol=_ZdlPv
 $(THORVG_OBJS): $(BUILD_DIR)/thorvg-build/%.o: $(THORVG_DIR)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS_BUILD) -std=c++17 -w $(THORVG_CPPFLAGS) -MMD -MP -c $< -o $@
+	$(if $(filter %/tvgInitializer.o,$@),$(OBJCOPY) $(THORVG_LOCAL_NEW) $@)
 # THE ONES THAT DRAW, and the picker's test, which asks a Lottie sticker drawn.
 $(BUILD_DIR)/gui/sticker_render.o $(BUILD_DIR)/gui/test/sticker_picker_view_test.o: \
 	CXXFLAGS += $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc)
