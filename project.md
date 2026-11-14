@@ -88708,3 +88708,37 @@ verified whole and with two broken pieces said; removed by its root and
 said. Sabotage `library-view-plays-a-file-elsewhere`,
 `library-view-unshare-shares` and `library-view-broken-unsaid` are each
 caught. The qtty render check sizes the view at 274 px.
+
+## 1157. Admin on the hosts view: made, applied, and whom it was granted, 2026-11-14
+
+**fuzzypickles' hosts page** (inbox 20261114T0128Z, sec 1153) grants
+admin to a host, applies a granted capability, keeps an audit of what
+was issued, and unlinks a host. `gui/hosts_view` now does the first
+three:
+- **Make admin**, on a chosen host: the node grants it (`grant admin
+  KEY`) and answers the chain, shown in a read-only field for the person
+  to carry to that host -- as text, which is what a host applies.
+- **Apply**, a chain given to THIS host: kept (`set admin CHAIN`, sec
+  658), after which this node starts again in place to act with it, and
+  the view says so. A chain that does not verify is refused in the
+  node's words.
+- **Whom this host has granted admin**, read with the hosts and named as
+  them, a grant to a key no longer among them by its key, a revoked one
+  said revoked.
+
+**Unlinking stays out**, as sec 1124 decided: a person who has lost a
+phone and finds Remove beside it takes it for the end of that phone's
+access, which is k votes to revoke on the governance view. fuzzypickles
+said it drops theirs if that stands, and it does. Revoke and un-revoke
+of a whole host are the governance view's.
+
+**Not yet:** a QR of the chain, which needs the camera side the devices
+view lacks too (sec 1153, fuzzypickles 0134Z).
+
+**Tests:** `hosts_view_test` gains five checks: nothing granted listed
+as none; the phone made an admin with its chain shown, and the grants
+named -- the phone, and a revoked grant to a key no longer a host; a
+chain applied; a bad one refused in the node's words; an empty one not
+asked. Sabotage `hosts-view-grant-chain-unshown` and
+`hosts-view-revoked-grant-standing` are each caught. The qtty render
+check sizes the view at 171 px.

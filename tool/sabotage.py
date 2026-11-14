@@ -16677,6 +16677,20 @@ SABOTAGES = [
 		"a verified file's broken pieces are said as every one whole -- sec 1156",
 	),
 	(
+		"hosts-view-grant-chain-unshown",
+		"gui/hosts_view.cpp",
+		"\trefresh();\n\tm_given->setText(QString::fromUtf8((const char *)out.chain_blob, (int)out.chain_blob_len));\n",
+		"\trefresh();\n",
+		"a host made an admin is not shown the chain to carry to it -- sec 1157",
+	),
+	(
+		"hosts-view-revoked-grant-standing",
+		"gui/hosts_view.cpp",
+		"\t\t\t\tm_granted_said << (e->revoked ? tr(\"%1 (revoked)\").arg(who) : who);\n",
+		"\t\t\t\tm_granted_said << who;\n",
+		"a revoked admin grant is listed as standing -- sec 1157",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

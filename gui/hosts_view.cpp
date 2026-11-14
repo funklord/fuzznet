@@ -12,6 +12,8 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
+#include <string.h>
+
 static QString failed_words(const fzn_gui_rpc *r)
 {
 	return QString::fromUtf8(fzn_gui_rpc_silent(r));
@@ -38,6 +40,17 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_backup_dir->setPlaceholderText(tr("An empty directory"));
 	m_backup_dir->setAccessibleName(tr("Where to back this host up"));
 	m_back_up = new QPushButton(tr("Back up this host"), this);
+	m_make_admin = new QPushButton(tr("Make admin"), this);
+	m_given = new QLineEdit(this);
+	m_given->setReadOnly(true);
+	m_given->setAccessibleName(tr("The chain to carry to that host"));
+	m_given->setPlaceholderText(tr("A grant's chain shows here"));
+	m_chain = new QLineEdit(this);
+	m_chain->setAccessibleName(tr("A chain given to this host"));
+	m_chain->setPlaceholderText(tr("h1 ... a chain given to this host"));
+	m_apply = new QPushButton(tr("Apply"), this);
+	m_granted = new QLabel(this);
+	m_granted->setWordWrap(true);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 	/* WHERE A LOST DEVICE IS DEALT WITH, said before anyone looks for it here. */
@@ -68,12 +81,23 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	backup->addWidget(m_backup_dir, 1);
 	backup->addWidget(m_back_up);
 	col->addLayout(backup);
+	auto *grant = new QHBoxLayout;
+	grant->addWidget(m_make_admin);
+	grant->addWidget(m_given, 1);
+	col->addLayout(grant);
+	auto *apply = new QHBoxLayout;
+	apply->addWidget(m_chain, 1);
+	apply->addWidget(m_apply);
+	col->addLayout(apply);
+	col->addWidget(m_granted);
 	col->addWidget(m_status);
 
 	connect(m_table, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select(r); });
 	connect(m_set, &QPushButton::clicked, [this]() { set_address(); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
+	connect(m_make_admin, &QPushButton::clicked, [this]() { make_admin(); });
+	connect(m_apply, &QPushButton::clicked, [this]() { apply_chain(); });
 	connect(m_back_up, &QPushButton::clicked, [this]() { back_up(m_backup_dir->text()); });
 	select(-1);
 }
@@ -103,6 +127,28 @@ bool fzn_hosts_view::refresh()
 		m_table->setItem((int)i, 3, new QTableWidgetItem(h->valid ? tr("yes") : tr("no")));
 	}
 	m_status->setText(hosts->count ? QString() : tr("This user has no other host yet."));
+	/* WHOM THIS HOST HAS GRANTED ADMIN, named as its hosts. */
+	{
+		auto *issued = new fzn_rpc_cap_granted_resp_t;
+		size_t g, k;
+
+		m_granted_said.clear();
+		if (fzn_rpc_cap_granted(&m_rpc->c, issued) == FZN_RPC_OK)
+			for (g = 0; g < issued->count; g++) {
+				const fzn_rpc_cap_granted_entry_t *e = &issued->entries[g];
+				QString who = QString::fromLatin1(QByteArray((const char *)e->grantee_pubkey, 8).toHex());
+
+				if (e->type != FZN_RPC_CAP_ADMIN)
+					continue;
+				for (k = 0; k < hosts->count; k++)
+					if (!memcmp(hosts->entries[k].host_pubkey, e->grantee_pubkey, 32))
+						who = QString::fromUtf8(hosts->entries[k].name, (int)hosts->entries[k].name_len);
+				m_granted_said << (e->revoked ? tr("%1 (revoked)").arg(who) : who);
+			}
+		delete issued;
+		m_granted->setText(m_granted_said.isEmpty() ? tr("This host has made no host an admin.")
+		                                            : tr("Admin granted to: %1.").arg(m_granted_said.join(QStringLiteral(", "))));
+	}
 	delete hosts;
 	select(-1);
 	return true;
@@ -118,6 +164,7 @@ void fzn_hosts_view::select(int row)
 		m_address->setText(at == tr("not known") ? QString() : at);
 	}
 	m_set->setEnabled(chosen);
+	m_make_admin->setEnabled(chosen);
 }
 
 void fzn_hosts_view::set_address_text(const QString &address) { m_address->setText(address); }
@@ -175,3 +222,62 @@ QStringList fzn_hosts_view::rows() const
 QString fzn_hosts_view::address_text() const { return m_address->text(); }
 
 QString fzn_hosts_view::status() const { return m_status->text(); }
+
+void fzn_hosts_view::set_chain_text(const QString &chain) { m_chain->setText(chain); }
+
+QString fzn_hosts_view::granted_chain() const { return m_given->text(); }
+
+QStringList fzn_hosts_view::granted() const { return m_granted_said; }
+
+/* THE CHOSEN HOST MADE AN ADMIN: the node grants it and answers the chain,
+ * which the person carries to that host and applies there. */
+bool fzn_hosts_view::make_admin()
+{
+	const int row = m_table->currentRow();
+	auto *hosts = new fzn_rpc_sibling_list_resp_t;
+	fzn_rpc_cap_grant_resp_t out;
+	const QString name = row >= 0 && row < m_table->rowCount() ? m_table->item(row, 0)->text() : QString();
+	size_t i;
+	const uint8_t *key = nullptr;
+
+	if (name.isEmpty() || fzn_rpc_sibling_list(&m_rpc->c, hosts) != FZN_RPC_OK) {
+		if (!name.isEmpty())
+			m_status->setText(failed_words(m_rpc));
+		delete hosts;
+		return false;
+	}
+	for (i = 0; i < hosts->count && !key; i++)
+		if (QString::fromUtf8(hosts->entries[i].name, (int)hosts->entries[i].name_len) == name)
+			key = hosts->entries[i].host_pubkey;
+	if (!key || fzn_rpc_cap_grant(&m_rpc->c, FZN_RPC_CAP_ADMIN, key, 0, &out) != FZN_RPC_OK) {
+		m_status->setText(key ? failed_words(m_rpc) : tr("%1 is no longer one of this user's hosts.").arg(name));
+		delete hosts;
+		return false;
+	}
+	delete hosts;
+	refresh();
+	m_given->setText(QString::fromUtf8((const char *)out.chain_blob, (int)out.chain_blob_len));
+	m_status->setText(tr("%1 is granted admin. Carry the chain above to it and apply it there.").arg(name));
+	return true;
+}
+
+/* A CHAIN GIVEN TO THIS HOST, kept: its node starts again in place to act
+ * with it. */
+bool fzn_hosts_view::apply_chain()
+{
+	const QByteArray chain = m_chain->text().trimmed().toUtf8();
+
+	if (chain.isEmpty()) {
+		m_status->setText(tr("Paste the chain another host gave this one."));
+		return false;
+	}
+	if (fzn_rpc_cap_install(&m_rpc->c, FZN_RPC_CAP_ADMIN, (const uint8_t *)chain.constData(), (size_t)chain.size())
+	    != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_chain->clear();
+	m_status->setText(tr("Applied: this host is an admin now, and its node has started again with it."));
+	return true;
+}
+

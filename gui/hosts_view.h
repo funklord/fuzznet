@@ -10,6 +10,12 @@
  * into an empty directory of this user's, with the warning that matters
  * said first -- whoever holds the copy can act as this host.
  *
+ * ADMIN, sec 1157 (fuzzypickles' hosts page, inbox 20261114T0128Z): a chosen
+ * host made an admin -- the node grants it and answers the chain, shown for
+ * the person to carry to that host -- and a chain given to THIS host
+ * applied, after which its node starts again in place to act with it
+ * (`set admin`, fuzznet sec 658); and whom this host has granted admin,
+ * named as its hosts, standing or revoked.
  * NOT HERE, ON PURPOSE: removing a host. A person who has lost a phone and
  * finds a Remove button beside it will take it for the end of that phone's
  * access, and it is not -- a lost device's grant ends by k votes to revoke
@@ -46,12 +52,19 @@ public:
 	void set_address_text(const QString &address);
 	bool set_address();
 	bool back_up(const QString &dir);
+	bool make_admin();
+	void set_chain_text(const QString &chain);
+	bool apply_chain();
 
 	/* WHAT IS ON SCREEN: each host as its cells joined by " | ", the
 	 * address line, and the status line. */
 	QStringList rows() const;
 	QString address_text() const;
 	QString status() const;
+	/* The chain a grant answered, to carry to its host; and whom this host
+	 * has granted admin, as said. */
+	QString granted_chain() const;
+	QStringList granted() const;
 
 private:
 	struct fzn_gui_rpc *m_rpc;
@@ -62,6 +75,12 @@ private:
 	QPushButton *m_refresh;
 	QLineEdit *m_backup_dir;
 	QPushButton *m_back_up;
+	QPushButton *m_make_admin;
+	QLineEdit *m_given;   /* the chain a grant answered, read-only */
+	QLineEdit *m_chain;   /* a chain given to this host */
+	QPushButton *m_apply;
+	QLabel *m_granted;
+	QStringList m_granted_said;
 	QLabel *m_status;
 };
 
