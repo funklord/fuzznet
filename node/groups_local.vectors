@@ -1,0 +1,7 @@
+# Golden vectors for node/groups_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x0D is FZN_CMD_GROUPS (13); the op is the SUBCMD, 128 (0x80) on.
+
+message list        0D 80
+message row_admin   0D 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 03 01 00 00 00 00 00 00 00 07 04 74 65 61 6D
+message row_member  0D 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 02 00 00 00 00 00 00 00 00 00 10 61 62 61 62 61 62 61 62 61 62 61 62 61 62 61 62

@@ -89242,3 +89242,30 @@ came from refused in the node's words; `live_pairing` phase a -- the
 request A sent by card listed at B in binary as in text, A's root with no
 name. Two sabotages, each caught: `rpc-request-grant-sent-as-add`,
 `rpc-requests-binary-where-dropped`.
+
+## 1170. This user's groups, in binary, 2026-11-14
+
+By fuzzypickles' measure (sec 1155) the next category: the conversation
+list asks for the groups on every refresh, beside every conversation's
+newest line and count. `list group` as FZN_CMD_GROUPS (13) `list` (128),
+answered by a `row` (129) per group this user is in -- its id, members,
+whether this user may change it (sec 927), how many of its lines are
+held, and this host's name for it -- then a STATUS ok, in
+`node/groups_local.situ`.
+
+- **`node/groups.c`**: the walk is `fzn_node_groups_each`, and the text
+  listing reads through the same two helpers (`groups_mine`, the groups
+  this user is in; `group_facts`, one group's row), so both say the same.
+  The sabotage `group-listed-with-id` moved with its line and is still
+  caught, by `admin_test`.
+- **`node/groups_binary.c`** builds the rows, apart, as the other
+  categories' are; the daemon answers CMD 13 for its own user only.
+- **The client's `fzn_rpc_group_list`** asks in binary and falls back to
+  the verb; `fzn_rpc_group_show` still pages the verb for one group's row.
+
+**Verified**: three hand-written vectors; `groups_test` 141 -- the one
+group this user is in by id, name and admin, the group left not listed,
+another op malformed; `rpc_test` -- a row read with id, members, admin
+and lines, a cut listing refused; `live_rpc` phase i -- as many rows as
+`list group` counts, the probe's group among them. Two sabotages, each
+caught: `groups-binary-unended`, `rpc-groups-binary-admin-dropped`.

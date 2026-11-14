@@ -208,4 +208,20 @@ fzn_group_log_err_t fzn_node_groups_tend(const fzn_node_groups_t *g,
 size_t fzn_node_groups_local(const fzn_node_groups_t *g, const fzn_request_t *request,
                              char *reply, size_t cap);
 
+/* EVERY GROUP THIS USER IS IN, as `list group` lists them, sec 1170: ID its
+ * id; NAME this host's for it, or its id's first eight bytes in hex;
+ * MEMBERS how many; ADMIN 1 when this user may change it (sec 927); LINES
+ * how many of its lines are held. ID is good only during the call. 1 once
+ * each was handed over, 0 when the groups did not read. */
+typedef struct fzn_node_group_row {
+	const uint8_t *id;
+	char name[FZN_CONTACT_NAME_MAX + 1u];
+	size_t name_len;
+	size_t members;
+	int admin;
+	uint64_t lines;
+} fzn_node_group_row_t;
+int fzn_node_groups_each(const fzn_node_groups_t *g, void (*each)(void *ctx, const fzn_node_group_row_t *row),
+                         void *ctx);
+
 #endif /* FZN_NODE_GROUPS_H */

@@ -887,20 +887,83 @@ static size_t forget_group(const fzn_node_groups_t *g, const uint8_t *id, char *
 	return say(reply, cap, FZN_REPLY_OK, NULL);
 }
 
+/* THE GROUPS THIS USER IS IN, their ids into *IDS (good until the next
+ * call), how many into *COUNT: one left is kept to serve its leave, and is
+ * no longer this user's to list. 0 when they did not read. sec 1170 for the
+ * binary listing that shares it. */
+static fzn_group_held_t mine_all;
+static fzn_group_t mine_held;
+static fzn_contact_device_t mine_self;
+static int mine_have_self;
+
+static int groups_mine(const fzn_node_groups_t *g, uint8_t (**ids_out)[FZN_GROUP_ID_LEN], size_t *count)
+{
+	uint8_t (*ids)[FZN_GROUP_ID_LEN];
+	size_t i, kept;
+
+	if (fzn_group_log_held(g->log.store, &mine_all) != FZN_GROUP_LOG_OK)
+		return 0;
+	ids = mine_all.ids;
+	mine_have_self = g->signer && g->signer(g->signer_ctx, &mine_self);
+	for (i = 0, kept = 0; i < mine_all.n; i++)
+		if (fzn_group_log_get(g->log.store, ids[i], &mine_held) == FZN_GROUP_LOG_OK
+		    && (!mine_have_self || fzn_group_is_member(&mine_held, mine_self.owner)))
+			memmove(ids[kept++], ids[i], FZN_GROUP_ID_LEN);
+	*ids_out = ids;
+	*count = kept;
+	return 1;
+}
+
+/* ONE GROUP AS A LISTING SAYS IT, into *OUT: its name here or its id's first
+ * eight bytes in hex, its members, whether this user may change it (sec
+ * 927), and how many of its lines are held. 0 when it did not read. */
+static int group_facts(const fzn_node_groups_t *g, const uint8_t id[FZN_GROUP_ID_LEN],
+                       fzn_node_group_row_t *out)
+{
+	fzn_group_line_head_t line_head;
+	size_t h;
+
+	memset(out, 0, sizeof(*out));
+	if (fzn_group_log_get(g->log.store, id, &mine_held) != FZN_GROUP_LOG_OK)
+		return 0;
+	out->id = id;
+	if (fzn_node_group_name(g->log.store, id, out->name, &out->name_len) != FZN_CONTACT_OK) {
+		hex_of(id, 8u, out->name);
+		out->name_len = 16u;
+	}
+	out->name[out->name_len] = '\0';
+	out->members = mine_held.n_members;
+	out->admin = mine_have_self && fzn_group_is_admin(&mine_held, mine_self.owner);
+	for (h = 0; g->lines && h < mine_held.n_hosts; h++)
+		if (fzn_group_lines_head(g->lines, id, mine_held.hosts[h].key, &line_head) == FZN_GROUP_LINES_OK)
+			out->lines += line_head.have;
+	return 1;
+}
+
+int fzn_node_groups_each(const fzn_node_groups_t *g, void (*each)(void *ctx, const fzn_node_group_row_t *row),
+                         void *ctx)
+{
+	uint8_t (*ids)[FZN_GROUP_ID_LEN];
+	fzn_node_group_row_t row;
+	size_t count, i;
+
+	if (!g || !each || !groups_mine(g, &ids, &count))
+		return 0;
+	for (i = 0; i < count; i++)
+		if (group_facts(g, ids[i], &row))
+			each(ctx, &row);
+	return 1;
+}
+
 /* `list group [FROM]`: `ok TOTAL FROM NAME,COUNT ...`, a page at a time, a
  * group this host has not named by its id's first 8 bytes in hex. */
 static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_t rest_len,
                           char *reply, size_t cap)
 {
-	static fzn_group_held_t all;
 	uint8_t (*ids)[FZN_GROUP_ID_LEN];
-	fzn_group_line_head_t line_head;
-	static fzn_group_t held;
-	static fzn_contact_device_t self;
 	static char detail[FZN_REPLY_MAX];
 	size_t limit = fzn_reply_ok_room(cap);
-	size_t count = 0, from = 0, used, i, kept;
-	int have_self;
+	size_t count = 0, from = 0, used, i;
 	const uint8_t *w;
 	size_t w_len;
 	int n;
@@ -911,18 +974,8 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	if (fzn_group_log_held(g->log.store, &all) != FZN_GROUP_LOG_OK)
+	if (!groups_mine(g, &ids, &count))
 		return say(reply, cap, FZN_REPLY_ERROR, "the groups did not read");
-	ids = all.ids;
-	count = all.n;
-	/* ONLY THE GROUPS THIS USER IS IN: one left is kept to serve its leave,
-	 * and is no longer this user's to list. */
-	have_self = g->signer && g->signer(g->signer_ctx, &self);
-	for (i = 0, kept = 0; i < count; i++)
-		if (fzn_group_log_get(g->log.store, ids[i], &held) == FZN_GROUP_LOG_OK
-		    && (!have_self || fzn_group_is_member(&held, self.owner)))
-			memmove(ids[kept++], ids[i], FZN_GROUP_ID_LEN);
-	count = kept;
 	if (from > count)
 		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last group");
 	n = snprintf(detail, sizeof(detail), "%zu %zu", count, from);
@@ -930,31 +983,19 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 		return 0;
 	used = (size_t)n;
 	for (i = from; i < count; i++) {
-		char name[FZN_CONTACT_NAME_MAX + 1u], item[FZN_CONTACT_NAME_MAX + 16u + 65u + 2u + 21u];
-		unsigned long lines;
-		size_t h;
+		char item[FZN_CONTACT_NAME_MAX + 16u + 65u + 2u + 21u];
 		char id_hex[FZN_GROUP_ID_LEN * 2u + 1u];
-		size_t name_len = 0;
+		fzn_node_group_row_t row;
 		int k;
 
-		if (fzn_group_log_get(g->log.store, ids[i], &held) != FZN_GROUP_LOG_OK)
+		if (!group_facts(g, ids[i], &row))
 			continue;
-		if (fzn_node_group_name(g->log.store, ids[i], name, &name_len) != FZN_CONTACT_OK) {
-			hex_of(ids[i], 8u, name);
-			name[16] = '\0';
-		}
 		/* ITS ID LAST, sec 647: what a client keys on, a name being this
 		 * host's alone. */
 		hex_of(ids[i], FZN_GROUP_ID_LEN, id_hex);
 		id_hex[FZN_GROUP_ID_LEN * 2u] = '\0';
-		/* WHETHER THIS USER MAY CHANGE IT, sec 927, so a client need not ask each. */
-		lines = 0;
-		for (h = 0; g->lines && h < held.n_hosts; h++)
-			if (fzn_group_lines_head(g->lines, ids[i], held.hosts[h].key, &line_head)
-			    == FZN_GROUP_LINES_OK)
-				lines += line_head.have;
-		k = snprintf(item, sizeof(item), " %s,%zu,%s,%d,%lu", name, held.n_members, id_hex,
-		             have_self && fzn_group_is_admin(&held, self.owner) ? 1 : 0, lines);
+		k = snprintf(item, sizeof(item), " %s,%zu,%s,%d,%lu", row.name, row.members, id_hex, row.admin ? 1 : 0,
+		             (unsigned long)row.lines);
 		if (k < 0 || limit - used < (size_t)k)
 			break;
 		memcpy(detail + used, item, (size_t)k);

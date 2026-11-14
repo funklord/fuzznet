@@ -1,0 +1,35 @@
+# situ capability map v1
+# schema: groups_local.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct message size=2..80 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 78) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.list                      offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.row                       offset=AbsoluteStatic(0x02) size=Bounded(46, 78) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.row.id                    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.row.members               offset=AbsoluteStatic(0x22) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.row.admin                 offset=AbsoluteStatic(0x26) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.row.lines                 offset=AbsoluteStatic(0x27) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.row.name_len              offset=AbsoluteStatic(0x2F) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.row.name                  offset=AbsoluteStatic(0x30) size=Bounded(0, 32) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct nothing size=0
+
+struct row size=46..78 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  row.id                                 offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  row.members                            offset=AbsoluteStatic(0x20) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  row.admin                              offset=AbsoluteStatic(0x24) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  row.lines                              offset=AbsoluteStatic(0x25) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  row.name_len                           offset=AbsoluteStatic(0x2D) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  row.name                               offset=AbsoluteStatic(0x2E) size=Bounded(0, 32) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting

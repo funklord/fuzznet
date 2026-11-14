@@ -18,6 +18,7 @@
 #include "../../wire/generated/objects_build.h"
 #include "../../wire/generated/messages_local_build.h"
 #include "../../wire/generated/contacts_local_build.h"
+#include "../../wire/generated/groups_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -957,8 +958,37 @@ static void test_requests_in_binary(void)
 	      "a request turned away in binary was not asked by key, or the refusal's words lost");
 }
 
+/* THIS USER'S GROUPS IN BINARY, sec 1170: a row read into the list with its
+ * id, members, admin and lines, the request's bytes, a cut listing refused. */
+static void test_groups_in_binary(void)
+{
+	static struct bscript two, cut;
+	static fzn_rpc_group_list_resp_t out;
+	uint8_t id[32], row[96], m[112];
+	uint32_t row_len = 0, n = 0;
+
+	memset(id, 0xcd, sizeof(id));
+	if (fzn_groups_local_row_build(row, sizeof(row), id, 3u, 1u, 7u, (const uint8_t *)"team", 4, &row_len)
+	            == SITU_OK
+	    && fzn_groups_local_message_build_row(m, sizeof(m), (uint8_t)FZN_CMD_GROUPS, row, row_len, &n) == SITU_OK) {
+		framed(&two, 0, m, n);
+		framed(&cut, 0, m, n);
+	}
+	status_onto(&two, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &two);
+	CHECK(fzn_rpc_group_list(&c, &out) == FZN_RPC_OK && out.count == 1 && strcmp(out.entries[0].name, "team") == 0
+	              && out.entries[0].chat_id[0] == 0xcd && out.entries[0].member_count == 3 && out.entries[0].is_admin
+	              && out.entries[0].lines == 7 && two.asked_len[0] == 2 && two.asked[0][0] == 0x0d
+	              && two.asked[0][1] == 0x80,
+	      "the groups were not read in binary, with id, members, admin and lines");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_group_list(&c, &out) != FZN_RPC_OK, "a groups listing cut before its STATUS was read as whole");
+	fzn_rpc_group_list_release(&out);
+}
+
 int main(void)
 {
+	test_groups_in_binary();
 	test_requests_in_binary();
 	test_contact_changes_in_binary();
 	test_contacts_in_binary();

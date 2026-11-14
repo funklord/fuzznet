@@ -8,6 +8,7 @@
  * key's first byte, as group_log_test's. */
 
 #include "../groups.h"
+#include "../groups_binary.h"
 #include "../group_line.h"
 #include "../group_lines.h"
 #include "../../session/aead_monocypher.h"
@@ -880,6 +881,22 @@ static void test_the_last_admin_is_told_the_ways_out(void)
  * The admin removes the last other member and deletes; the delete is a
  * signed leave, the log is kept to serve it, and an act of the group
  * arriving later does not name it again here. */
+/* THE ANSWERS A BINARY GROUPS LISTING WROTE, in order (sec 1170). */
+static struct {
+	uint8_t m[4][FZN_NODE_GROUPS_BINARY_MAX];
+	size_t len[4], n;
+} gbin;
+
+static int gbin_put(void *ctx, const uint8_t *msg, size_t len)
+{
+	(void)ctx;
+	if (gbin.n == 4u || len > sizeof(gbin.m[0]))
+		return 0;
+	memcpy(gbin.m[gbin.n], msg, len);
+	gbin.len[gbin.n++] = len;
+	return 1;
+}
+
 static void test_a_group_once_shared_is_left_alone(void)
 {
 	struct user *a = &users[0], *b = &users[1];
@@ -935,6 +952,24 @@ static void test_a_group_once_shared_is_left_alone(void)
 	              && len == 4u && memcmp(name, "crew", 4u) == 0
 	              && fzn_node_group_name(a->groups.log.store, id, name, &len) != FZN_CONTACT_OK,
 	      "a name left on a group left did not give way to the group made again");
+
+	/* THE SAME IN BINARY, sec 1170: the one group this user is in -- the
+	 * one made again, by its id, as crew, its maker an admin -- then an ok;
+	 * the group left not listed; anything but `list` malformed. */
+	{
+		static const uint8_t list[] = { 0x0d, 0x80 }, other[] = { 0x0d, 0x99 };
+
+		memset(&gbin, 0, sizeof(gbin));
+		CHECK(fzn_node_groups_binary(&a->groups, list, sizeof(list), gbin_put, NULL) && gbin.n == 2u
+		              && gbin.m[0][0] == 0x0d && gbin.m[0][1] == 0x81 && memcmp(gbin.m[0] + 2, again, 32) == 0
+		              && gbin.m[0][38] == 1 && gbin.m[0][47] == 4 && memcmp(gbin.m[0] + 48, "crew", 4) == 0
+		              && gbin.m[1][0] == 0x13 && gbin.m[1][1] == 0,
+		      "the groups in binary were not the one this user is in, then an ok");
+		memset(&gbin, 0, sizeof(gbin));
+		CHECK(fzn_node_groups_binary(&a->groups, other, sizeof(other), gbin_put, NULL) && gbin.n == 1u
+		              && gbin.m[0][0] == 0x13 && gbin.m[0][1] == 2,
+		      "no such groups request was not malformed");
+	}
 }
 
 /* TWO GROUPS OF ONE NAME AT A MEMBER, sec 890: fuzzypickles' group-same-name.

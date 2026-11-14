@@ -166,6 +166,7 @@
 #include <fuzznet/node/messages.h>
 #include <fuzznet/node/messages_binary.h>
 #include <fuzznet/node/contacts_binary.h>
+#include <fuzznet/node/groups_binary.h>
 #include <fuzznet/node/apply.h>
 #include <fuzznet/node/settings.h>
 #include <fuzznet/node/siblings.h>
@@ -421,6 +422,7 @@
 #include "node/messages.h"
 #include "node/messages_binary.h"
 #include "node/contacts_binary.h"
+#include "node/groups_binary.h"
 #include "node/apply.h"
 #include "node/settings.h"
 #include "node/siblings.h"

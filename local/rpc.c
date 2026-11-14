@@ -38,6 +38,7 @@
 #include "../wire/generated/messages_local_build.h"
 #include "../wire/generated/contacts_local.h"
 #include "../wire/generated/contacts_local_build.h"
+#include "../wire/generated/groups_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -782,8 +783,80 @@ static int node_group_members(fzn_rpc_t *c, const char *group, size_t group_len,
 }
 
 /* The listing, its rows saying `is_admin` themselves. */
+/* THIS USER'S GROUPS IN BINARY, sec 1170: a row each, then a STATUS. */
+struct groups_answer {
+	fzn_rpc_t *c;
+	fzn_rpc_group_list_resp_t *out;
+	int bad, status_seen, no_room;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void groups_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct groups_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_groups_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_groups_local_message_validate(v) != SITU_OK
+	    || fzn_groups_local_message_op_get(v) != FZN_GROUPS_LOCAL_OP_ROW
+	    || fzn_groups_local_message_body_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	const size_t name_len = fzn_groups_local_row_name_len(b);
+	if (!name_len || name_len > FZN_RPC_PEER_NAME_MAX) {
+		a->bad = 1;
+		return;
+	}
+	if (room_for(a->c, &a->out->entries, &a->out->room, a->out->count + 1, sizeof *a->out->entries) != FZN_RPC_OK) {
+		a->no_room = 1;
+		return;
+	}
+	fzn_rpc_group_list_entry_t *g = &a->out->entries[a->out->count++];
+	memset(g, 0, sizeof *g);
+	memcpy(g->name, fzn_groups_local_row_name_ptr(b), name_len);
+	g->name_len = name_len;
+	memcpy(g->chat_id, fzn_groups_local_row_id_ptr(b), 32);
+	g->is_admin = fzn_groups_local_row_admin_get(b);
+	g->member_count = fzn_groups_local_row_members_get(b);
+	g->lines = fzn_groups_local_row_lines_get(b);
+}
+
 static int node_group_list(fzn_rpc_t *c, fzn_rpc_group_list_resp_t *out) {
-	return node_group_rows(c, out);
+	static const uint8_t ask[] = { FZN_CMD_GROUPS, FZN_GROUPS_LOCAL_OP_LIST };
+	struct groups_answer a;
+	int text = 0;
+	memset(&a, 0, sizeof a);
+	a.c = c;
+	a.out = out;
+	out->count = 0;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, groups_each, &a, &text);
+	if (text) {
+		out->count = 0;
+		return node_group_rows(c, out);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.no_room) return c->error_code ? c->error_code : FZN_RPC_ERR_STORAGE_IO;
+	if (a.bad || !a.status_seen) return unreadable(c); /* a groups listing cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED
+		               : a.code == FZN_STATUS_UNSUPPORTED ? FZN_RPC_ERR_UNKNOWN_MSG_TYPE
+		                                                   : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
 }
 
 /* A group shown: its members, then its id from the listing, by name. */

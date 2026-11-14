@@ -15268,8 +15268,8 @@ SABOTAGES = [
 	(
 		"group-listed-with-id",
 		"node/groups.c",
-		"\" %s,%zu,%s,%d,%lu\", name, held.n_members, id_hex,",
-		"\" %s,%zu,%d,%lu\", name, held.n_members,",
+		"\" %s,%zu,%s,%d,%lu\", row.name, row.members, id_hex,",
+		"\" %s,%zu,%d,%lu\", row.name, row.members,",
 		"list group carries no id, so a client keys on a name -- sec 647",
 	),
 	(
@@ -16822,6 +16822,20 @@ SABOTAGES = [
 		"\tmemcpy(r->address, fzn_contacts_local_request_row_where_ptr(b), r->address_len);\n",
 		"\tr->address_len = 0;\n",
 		"a request's address, signed by the asker, is lost when read in binary -- sec 1169",
+	),
+	(
+		"groups-binary-unended",
+		"node/groups_binary.c",
+		"\treturn w.ok && status(put, put_ctx, FZN_STATUS_OK, NULL);\n}\n",
+		"\treturn w.ok;\n}\n",
+		"a groups listing in binary ends with no STATUS, and a reader cannot tell it whole -- sec 1170",
+	),
+	(
+		"rpc-groups-binary-admin-dropped",
+		"local/rpc.c",
+		"\tg->is_admin = fzn_groups_local_row_admin_get(b);\n",
+		"\tg->is_admin = 0;\n",
+		"a group this user may change is read in binary as one it may not -- sec 1170",
 	),
 	(
 		"objects-binary-reader-changes",

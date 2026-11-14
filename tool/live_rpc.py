@@ -21,6 +21,8 @@
     h  the contact requests in binary (sec 1169): as many rows as `list
        request` counts, then ok; a grant and a refusal of a key no request
        came from each refused in the node's words
+    i  this user's groups in binary (sec 1170): as many rows as `list group`
+       counts, the probe's group among them by name, then ok
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -50,6 +52,7 @@ live_trim.DEADLINE = time.monotonic() + 90.0
 OBJECTS = 0x15  # FZN_CMD_OBJECTS, wire/cmd.h
 MESSAGES = 0x0A  # FZN_CMD_MESSAGES
 CONTACTS = 0x0B  # FZN_CMD_CONTACTS
+GROUPS = 0x0D    # FZN_CMD_GROUPS
 STATUS = 0x13   # FZN_CMD_STATUS
 
 
@@ -221,6 +224,18 @@ def main(argv):
 					raise failed("h: a key no request came from %s answered %r" % (what, got))
 			print("livecheck: h: %d request(s) in binary as the text verb counts, and a key with"
 			      " none refused both ways" % total)
+
+			# i: the groups, in bytes.
+			total = int(ask(sock, "list group").split()[1])
+			got = binary(sock, bytes([GROUPS, 0x80]))
+			rows = [m for m in got[:-1] if m[:2] == bytes([GROUPS, 0x81])]
+			names = [m[48:48 + m[47]].decode() for m in rows]
+			if not got or got[-1][:2] != bytes([STATUS, 0]) or len(rows) != total or total < 1 \
+			   or "probe_crew" not in names:
+				raise failed("i: the groups in binary were %r where the text verb counts %d"
+				             % (names, total))
+			print("livecheck: i: %d group(s) in binary as the text verb counts, probe_crew among"
+			      " them" % total)
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1
