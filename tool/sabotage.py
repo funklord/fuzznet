@@ -16635,6 +16635,13 @@ SABOTAGES = [
 		"an empty library hands qsort a NULL array; sancheck only, UBSan's report -- sec 1153",
 	),
 	(
+		"library-play-not-fetched-as-storage",
+		"local/rpc.c",
+		"\tif (!st.known) return fail(c, FZN_RPC_ERR_NOT_FETCHED, fzn_rpc_err_str(FZN_RPC_ERR_NOT_FETCHED));\n",
+		"\tif (!st.known) return fail(c, FZN_RPC_ERR_STORAGE_IO, \"not in the library\");\n",
+		"a file none of which is here is said to be not in the library, with no word of fetching -- sec 1153",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

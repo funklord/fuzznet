@@ -94,6 +94,8 @@ const char *fzn_rpc_err_str(int err) {
 			return "this host's library already holds as many files as it will";
 		case FZN_RPC_ERR_LOCATION_OFF:
 			return "location is switched off on this host -- nothing was recorded";
+		case FZN_RPC_ERR_NOT_FETCHED:
+			return "none of this file is here yet -- fetch it, and it plays as it arrives";
 		case FZN_RPC_ERR_KEYS_OWED_FULL:
 			return "this host already owes as many file keys to group members who have not "
 			       "come online as it will hold -- nothing was pinned";

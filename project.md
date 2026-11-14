@@ -88604,3 +88604,21 @@ list. `rpc_test` lists an empty library; built sanitized (`make
 sancheck`'s switch) it reported `rpc.c:2828: null pointer passed as
 argument 1` before the guard and passes after. Sabotage
 `rpc-library-empty-qsort-null` restores the bare call (sancheck only).
+
+## 1154. A file none of which is here says to fetch it, 2026-11-14
+
+**snurra's 20261113T2338Z** (sec 1153): `fzn_rpc_library_play` on a file
+the catalogue lists but this host holds none of failed STORAGE_IO "not
+in the library" -- the opposite of what a client sees. Two answers were
+offered: its own words and code, or the play beginning the fetch itself.
+**The words and code.** The header names a one-byte read the status
+probe, and a listing makes one of every row: a probe that began a fetch
+would fetch every file a list shows. So the fetch stays the caller's
+act, and the refusal says what to do: **FZN_RPC_ERR_NOT_FETCHED** (-74),
+"none of this file is here yet -- fetch it, and it plays as it arrives".
+`library_show` of a root nobody catalogued still says "not in the
+library", which there is true.
+
+**Tests:** `rpc_test`, a file the node holds none of read to play, its
+code and words; `err_str_test` walks the new code. Sabotage
+`library-play-not-fetched-as-storage`, the old answer, is caught.

@@ -3008,7 +3008,9 @@ static int node_library_play(fzn_rpc_t *c, const uint8_t root[32], uint64_t offs
 	fzn_rpc_blob_status_resp_t st;
 	int rc = node_file_status(c, root, &st);
 	if (rc != FZN_RPC_OK) return rc;
-	if (!st.known) return fail(c, FZN_RPC_ERR_STORAGE_IO, "not in the library");
+	/* NONE OF IT HERE, sec 1153: said as what to do, not as "not in the
+	 * library" of a file the library lists. */
+	if (!st.known) return fail(c, FZN_RPC_ERR_NOT_FETCHED, fzn_rpc_err_str(FZN_RPC_ERR_NOT_FETCHED));
 	out->size = st.byte_len;
 	out->complete = st.complete;
 	out->playable = st.complete ? st.byte_len : 0;

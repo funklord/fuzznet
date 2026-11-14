@@ -256,6 +256,14 @@ typedef enum fzn_rpc_err {
 	 * rather than kept: switching location off has to mean nothing of the
 	 * user's position is recorded, whoever is supplying it. */
 	FZN_RPC_ERR_LOCATION_OFF = -73,
+	/* None of the file is on this host, and no fetch of it is under way: a
+	 * file another host holds, catalogued here, read before it was asked for
+	 * (fuzznet sec 1153, snurra's inbox 20261113T2338Z). Distinct from
+	 * FZN_RPC_ERR_STORAGE_IO, which said "not in the library" of a file the
+	 * library lists, so a player never learned the fix: begin the fetch
+	 * (`fzn_rpc_blob_fetch_at`), and it plays as it arrives. Not begun by the
+	 * read itself, which is the status probe a listing makes of every row. */
+	FZN_RPC_ERR_NOT_FETCHED = -74,
 } fzn_rpc_err_t;
 
 /* Short, stable, human-readable string for an fzn_rpc_err_t. Never NULL. */

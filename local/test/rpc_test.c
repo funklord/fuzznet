@@ -654,8 +654,25 @@ static void test_an_empty_library_lists_nothing(void)
 	fzn_rpc_library_list_release(&l);
 }
 
+/* A FILE NONE OF WHICH IS HERE, read to play (sec 1153): its own code and
+ * words saying to fetch it, where "not in the library" was said of a file
+ * the library lists. */
+static void test_a_file_not_fetched_says_so(void)
+{
+	struct script s = { { "error not all here" }, 0, 1, 0, { { 0 } } };
+	static fzn_rpc_library_play_resp_t out;
+	uint8_t root[32];
+
+	memset(root, 0x5a, sizeof(root));
+	on(&c, &s);
+	CHECK(fzn_rpc_library_play(&c, root, 0, 1, &out) == FZN_RPC_ERR_NOT_FETCHED && c.answered
+	              && strstr(c.error, "fetch it") != NULL,
+	      "a file none of which is here was not told apart, with what to do");
+}
+
 int main(void)
 {
+	test_a_file_not_fetched_says_so();
 	test_an_empty_library_lists_nothing();
 	test_objects_in_binary();
 	test_a_node_that_reads_no_binary_is_asked_in_text();
