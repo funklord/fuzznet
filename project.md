@@ -89039,3 +89039,51 @@ hand-roll. All four drivers carry it, measured; refused without `retries`
 or at or past `timeout_ms`; the resend hook is still told the exchange id.
 That was what parked item 90 (moving the resend onto situ's driver, sec
 1148) waited on, so it is unblocked.
+
+## 1164. The fetch under loss, measured: what it is not, 2026-11-14
+
+Sec 1163's two reports, taken up. **Reproduced here**: a 960044-byte file
+(snurra's size, 938 leaves) fetched by its root between two siblings,
+timed from `fetch file` to `get file ROOT check` answering intact, on the
+faults build, waiting on the running daemons rather than turning them --
+a variant of `tool/live_catalog.py` kept out of the tree:
+
+| condition | fetch time |
+|---|---|
+| no loss | 0.5 s |
+| 20 % loss | 79.6, 123.1, 143.6 s |
+| 20 % loss, `FZN_TUNE_FETCH_WINDOW=16` | 79.1, 123.6, 109.1 s |
+| 20 % loss, `FZN_TUNE_SPAN_DEADLINE_MS=1000` | not whole after 300 s, three runs |
+
+A 20000-byte file (one leaf) under the same loss passed
+`live_catalog.py --loss 20` twice; the slowness needs many leaves.
+
+**What it is not.**
+- *Not the window's ceiling.* The transfer's own window grows by one per
+  window of successes and halves per failure (`spool/transfer.c`), so at
+  the failure rate this loss gives it stays near one whatever the ceiling.
+  Sixteen changed nothing.
+- *Not a slow detection of a lost span.* A shorter span deadline made it
+  worse, not better: never whole. So a span's answer does arrive within
+  the 3 s deadline, but only through the resends inside it -- the asks
+  table resends the whole request every `FZN_CALLER_RESEND_MS` (600 ms),
+  three times, and the reply's pieces from those attempts are put together
+  in the one reassembly slot. Cut the deadline and fewer attempts combine.
+- *Not lost asks, nor a loop that stops expiring them* (sec 1163).
+- *Not a fetch lost across a restart*: a first reading said so, from a
+  script that killed the daemon after its first round; every round sets
+  `files.fresh` and resumes the fetch.
+
+**What it is, as far as measured.** A span of S leaves comes back as about
+S datagrams, all of which must arrive; at 20 % loss a span of 64 almost
+never does, the span halves per silence (sec 839) to two or three leaves,
+and each span then costs a request, up to three whole resends and often
+the 3 s deadline -- whole spans asked again for want of one piece. The
+fix this points at is a reply's MISSING PIECES asked for again rather than
+the whole request resent: selective repeat, on the reassembly slot that
+already knows which pieces it holds. That is a wire change (free, sec 924)
+on a path every file transfer uses, and is the next work here.
+
+fuzzypickles' stall (sec 1163) -- a fetch asking once and never ending,
+under load -- is not explained by this: no measurement here has a fetch
+that never ends. It stays open beside it.
