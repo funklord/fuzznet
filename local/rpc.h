@@ -471,6 +471,11 @@ int fzn_rpc_peer_request_reject(fzn_rpc_t *c, const uint8_t requester_host_pubke
  * sec 893). The name reaches every device of this user. */
 int fzn_rpc_peer_rename(fzn_rpc_t *c, const uint8_t key[32], const char *name, size_t name_len);
 int fzn_rpc_peer_remove(fzn_rpc_t *c, const char *name, size_t name_len);
+/* A CONTACT REMOVED BY ITS ROOT KEY, fuzznet sec 1167: in binary, and where
+ * the node reads none, by `remove contact` under the name the node lists
+ * for that key. FZN_RPC_ERR_NO_PEER when no contact holds it. Renaming
+ * (`fzn_rpc_peer_rename`) goes in binary the same way. */
+int fzn_rpc_contact_remove(fzn_rpc_t *c, const uint8_t key[32]);
 int fzn_rpc_sibling_set_address(fzn_rpc_t *c, const char *name, size_t name_len,
                                  const char *address, size_t address_len);
 int fzn_rpc_sibling_remove(fzn_rpc_t *c, const char *name, size_t name_len);

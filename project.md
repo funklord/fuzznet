@@ -89146,3 +89146,35 @@ fetch sends only while that shared table has room, and a table held full
 by other asks would stall it without a step. The next failure of
 `library-plays-what-is-arriving-on-nodes` then names which way of ending
 has not come. A diagnostic, not a fix; fuzzypickles is told what to send.
+
+## 1167. A contact added, renamed and removed, in binary, 2026-11-14
+
+The contacts category (sec 1162) gains its writes: FZN_CMD_CONTACTS
+`add` (130), a root key and this user's name for them -- a key already a
+contact is renamed, as `add contact NAME KEY` renames -- and `remove`
+(131), by key. Each is answered by a STATUS; an add first by a `clash`
+(132) for each other contact holding the same name, as the text verb
+says `clash KEY...` (sec 893: a shared name is allowed and refused at
+use).
+
+- **The node** does both through what the text verbs do:
+  `fzn_node_admin_contact_add`, and a new `fzn_node_admin_contact_remove`
+  split out of `remove contact NAME` -- the roster's removal first, which
+  suspends the contact on every member, then the name. The text verb now
+  finds the name and calls it; its answers are unchanged.
+- **Refusals**: a name that is no contact name is malformed; no standing
+  to write the roster is denied; anything else an error in the node's
+  words.
+- **The client**: `fzn_rpc_peer_rename` (key and name) asks in binary,
+  and a new `fzn_rpc_contact_remove` removes by key -- in binary, and where
+  the node reads none by `remove contact` under the name the node lists
+  for that key. A clash row is passed over: these calls never asked for
+  it, and a rename the name makes ambiguous has still happened.
+
+**Verified**: three hand-written vectors, six in all; `admin_test` 377 --
+an add listed by the text verb, a second key under alice's name answered
+with a clash naming alice's key, each removed by key and gone;
+`rpc_test` -- the requests' bytes, a clash row before the ok, a denial's
+words kept, a node reading no binary asked by name, clean sanitized;
+`live_rpc` phase g on a running node. Two sabotages, each caught:
+`contacts-binary-clash-unsaid`, `rpc-contact-change-clash-failed`.

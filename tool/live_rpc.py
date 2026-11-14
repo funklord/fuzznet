@@ -16,6 +16,8 @@
        a STATUS ok and then listed by the text verb by its id and text
     f  this user's contacts in binary (sec 1162): a contact added, and as many
        rows as `list contact` counts, the contact among them by name and key
+    g  a contact added, renamed and removed in binary (sec 1167), each
+       answered ok and seen by `list contact`
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -185,6 +187,21 @@ def main(argv):
 				raise failed("f: contacts in binary were %r where the text verb counts %d" % (named, total))
 			print("livecheck: f: %d contact(s) in binary, as many as the text verb counts, probe_pal"
 			      " by name and key" % total)
+
+			# g: a contact added, renamed and removed, in bytes.
+			two = bytes([0x6b] * 32)
+			for msg, want, what in (
+			        (bytes([CONTACTS, 0x82]) + two + bytes([9]) + b"probe_two", "probe_two,", "added"),
+			        (bytes([CONTACTS, 0x82]) + two + bytes([9]) + b"probe_new", "probe_new,", "renamed"),
+			        (bytes([CONTACTS, 0x83]) + two, None, "removed")):
+				got = binary(sock, msg)
+				listed = ask(sock, "list contact")
+				shown = want in listed if want else ("6b" * 32) not in listed
+				if not got or got[-1][:2] != bytes([STATUS, 0]) or not shown:
+					raise failed("g: a contact %s in binary answered %r and listed %r"
+					             % (what, got, listed[:200]))
+			print("livecheck: g: a contact added, renamed and removed in binary, each seen by the"
+			      " text verb")
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

@@ -1880,6 +1880,42 @@ int main(void)
 			              && cbin.m[0][0] == 0x13 && cbin.m[0][1] == 2,
 			      "no such contacts request was not malformed");
 		}
+		/* ADDED, A NAME SHARED, AND REMOVED IN BINARY, sec 1167: an add
+		 * answered ok and listed by the text verb; another key under
+		 * alice's name answered with a clash naming alice's key; each
+		 * removed by key and gone. */
+		{
+			uint8_t add[2 + 32 + 1 + 5] = { 0x0b, 0x82 }, rm[2 + 32] = { 0x0b, 0x83 };
+
+			memset(add + 2, 0x61, 32);
+			add[34] = 3;
+			memcpy(add + 35, "bob", 3);
+			memset(&cbin, 0, sizeof(cbin));
+			CHECK(fzn_node_contacts_binary(&admin, add, 2u + 32u + 1u + 3u, cbin_put, NULL) && cbin.n == 1u
+			              && cbin.m[0][0] == 0x13 && cbin.m[0][1] == 0
+			              && ask(&admin, &owner, "list contact", reply, sizeof(reply), &reply_len)
+			              && says(reply, reply_len, "bob,6161"),
+			      "a contact added in binary was not taken, or not listed");
+			memset(add + 2, 0x62, 32);
+			add[34] = 5;
+			memcpy(add + 35, "alice", 5);
+			memset(&cbin, 0, sizeof(cbin));
+			CHECK(fzn_node_contacts_binary(&admin, add, sizeof(add), cbin_put, NULL) && cbin.n == 2u
+			              && cbin.m[0][1] == 0x84 && cbin.m[0][2] == 0x40 && cbin.m[0][33] == 0x5f
+			              && cbin.m[1][0] == 0x13 && cbin.m[1][1] == 0,
+			      "a second key under alice's name was not answered with a clash naming alice");
+			memset(rm + 2, 0x62, 32);
+			memset(&cbin, 0, sizeof(cbin));
+			CHECK(fzn_node_contacts_binary(&admin, rm, sizeof(rm), cbin_put, NULL) && cbin.n == 1u
+			              && cbin.m[0][1] == 0,
+			      "a contact was not removed in binary by key");
+			memset(rm + 2, 0x61, 32);
+			memset(&cbin, 0, sizeof(cbin));
+			CHECK(fzn_node_contacts_binary(&admin, rm, sizeof(rm), cbin_put, NULL) && cbin.m[0][1] == 0
+			              && ask(&admin, &owner, "list contact", reply, sizeof(reply), &reply_len)
+			              && !says(reply, reply_len, "bob,") && says(reply, reply_len, "1 0 alice,"),
+			      "a contact removed in binary was still listed, or another went with it");
+		}
 		snprintf(line, sizeof(line), "add contact me %s", own_hex);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,

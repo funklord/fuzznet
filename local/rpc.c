@@ -37,6 +37,7 @@
 #include "../wire/generated/messages_local.h"
 #include "../wire/generated/messages_local_build.h"
 #include "../wire/generated/contacts_local.h"
+#include "../wire/generated/contacts_local_build.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -3837,6 +3838,82 @@ static void contacts_each(void *ctx, const uint8_t *msg, size_t len) {
 	a->out->count++;
 }
 
+/* A CONTACT ADDED OR RENAMED (REMOVE 0) OR REMOVED, sec 1167: its clash
+ * rows passed over -- the text verb's answer names them, this call's
+ * callers never asked -- and its STATUS read. *text 1 for the verb. */
+struct contact_changed {
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void contact_changed_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct contact_changed *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	if (len < 2 || msg[0] != FZN_CMD_CONTACTS || msg[1] != FZN_CONTACTS_LOCAL_OP_CLASH || a->status_seen)
+		a->bad = 1;
+}
+
+static int contact_change(fzn_rpc_t *c, int remove, const uint8_t key[32], const char *name, size_t name_len,
+                          int *text) {
+	uint8_t inner[80], req[96];
+	uint32_t inner_len = 0, req_len = 0;
+	struct contact_changed a;
+	*text = 0;
+	const situ_err_t built =
+	    remove ? fzn_contacts_local_keyed_build(inner, sizeof inner, key, &inner_len)
+	           : fzn_contacts_local_add_build(inner, sizeof inner, key, (const uint8_t *)name, (uint32_t)name_len,
+	                                          &inner_len);
+	if (built != SITU_OK
+	    || (remove ? fzn_contacts_local_message_build_remove(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,
+	                                                         inner_len, &req_len)
+	               : fzn_contacts_local_message_build_add(req, sizeof req, (uint8_t)FZN_CMD_CONTACTS, inner,
+	                                                      inner_len, &req_len))
+	           != SITU_OK) {
+		*text = 1;
+		return FZN_RPC_OK;
+	}
+	memset(&a, 0, sizeof a);
+	const int rc = fzn_rpc_binary(c, req, req_len, contact_changed_each, &a, text);
+	if (rc != FZN_RPC_OK || *text) return rc;
+	if (!a.status_seen || a.bad) return unreadable(c);
+	if (a.code == FZN_STATUS_OK) return FZN_RPC_OK;
+	return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED
+	               : a.code == FZN_STATUS_MALFORMED ? FZN_RPC_ERR_INVALID_PEER_NAME
+	                                                : FZN_RPC_ERR_NO_PEER,
+	            a.why[0] ? a.why : "the node refused it");
+}
+
+int fzn_rpc_contact_remove(fzn_rpc_t *c, const uint8_t key[32]) {
+	int text = 0;
+	const int changed = contact_change(c, 1, key, NULL, 0, &text);
+	if (!text) return changed;
+	/* BY THE NAME THE NODE LISTS FOR IT, where the node reads no binary. */
+	static fzn_rpc_peer_list_resp_t all;
+	int rc = node_peer_list(c, &all);
+	for (size_t i = 0; rc == FZN_RPC_OK && i < all.count; i++)
+		if (memcmp(all.entries[i].root_pubkey, key, 32) == 0) {
+			char name[FZN_RPC_PEER_NAME_MAX + 1];
+			const size_t name_len = all.entries[i].name_len;
+			memcpy(name, all.entries[i].name, name_len);
+			fzn_rpc_peer_list_release(&all);
+			return node_peer_remove(c, name, name_len);
+		}
+	fzn_rpc_peer_list_release(&all);
+	return rc != FZN_RPC_OK ? rc : fail(c, FZN_RPC_ERR_NO_PEER, "no such contact");
+}
+
 int fzn_rpc_peer_list(fzn_rpc_t *c, fzn_rpc_peer_list_resp_t *out) {
 	static const uint8_t ask_list[] = { FZN_CMD_CONTACTS, FZN_CONTACTS_LOCAL_OP_LIST };
 	struct contacts_answer a;
@@ -5107,9 +5184,15 @@ int fzn_rpc_peer_request_reject(fzn_rpc_t *c, const uint8_t requester_host_pubke
 	return node_request_answer(c, requester_host_pubkey, NULL, 0);
 }
 
+static int contact_change(fzn_rpc_t *c, int remove, const uint8_t key[32], const char *name, size_t name_len,
+                          int *text);
+
 int fzn_rpc_peer_rename(fzn_rpc_t *c, const uint8_t key[32], const char *name, size_t name_len) {
 	if (!node_name_ok(name, name_len))
 		return node_unasked(c, FZN_RPC_ERR_INVALID_PEER_NAME, fzn_rpc_err_str(FZN_RPC_ERR_INVALID_PEER_NAME));
+	int text = 0;
+	const int changed = contact_change(c, 0, key, name, name_len, &text);
+	if (!text) return changed;
 	char hex[65], arg[16 + 64 + FZN_RPC_PEER_NAME_MAX];
 	fzn_hex_encode(key, 32, hex);
 	const int arg_len = snprintf(arg, sizeof arg, "contact %.*s %s", (int)name_len, name, hex);

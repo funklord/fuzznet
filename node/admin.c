@@ -1353,13 +1353,6 @@ static fzn_node_roster_err_t roster_act(fzn_node_admin_t *admin, const uint8_t *
 
 /* THE CONTACT AS THE ROSTER SAYS, sec 489: this node's act on it, and the
  * words for a refusal. */
-static size_t roster_refusal(char *reply, size_t cap, fzn_node_roster_err_t err)
-{
-	return answer_text(reply, cap,
-	                   err == FZN_NODE_ROSTER_NO_STANDING ? FZN_REPLY_DENIED : FZN_REPLY_ERROR,
-	                   fzn_node_roster_err_str(err));
-}
-
 /* THE RUNNING PEER SET FROM THE STORE, room asked for when there are more
  * peers than `peers_cap`. sec 704. */
 static fzn_persist_err_t reload_peers(fzn_node_admin_t *admin, size_t *loaded)
@@ -1474,27 +1467,52 @@ static size_t remove_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_
 	fzn_contact_t c;
 	fzn_contact_err_t err;
 
+	const char *why = NULL;
+	int r;
+
 	if (!next_word(&rest, &rest_len, &name, &name_len))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "remove contact NAME");
 	err = fzn_contact_find(admin->store, (const char *)name, name_len, &c);
-	/* THE ROSTER FIRST, sec 489: a removal every member pulls, which
-	 * suspends the contact there as here. One already not active here --
-	 * removed on another member -- needs none, and its name goes. */
-	if (err == FZN_CONTACT_OK && admin->roster) {
-		fzn_node_roster_err_t rerr = roster_act(admin, c.key, 0);
-
-		if (rerr != FZN_NODE_ROSTER_OK && rerr != FZN_NODE_ROSTER_ABSENT)
-			return roster_refusal(reply, cap, rerr);
-	}
-	if (err == FZN_CONTACT_OK)
-		err = fzn_contact_remove(admin->store, c.key);
 	if (err != FZN_CONTACT_OK)
 		return answer_text(reply, cap,
 		                   err == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
 		                   fzn_contact_err_str(err));
+	r = fzn_node_admin_contact_remove(admin, c.key, &why);
+	return answer_text(reply, cap,
+	                   r == 0 ? FZN_REPLY_OK : r == -3 ? FZN_REPLY_DENIED : FZN_REPLY_ERROR,
+	                   r == 0 ? NULL : why);
+}
+
+int fzn_node_admin_contact_remove(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN],
+                                  const char **why)
+{
+	fzn_contact_err_t err;
+
+	if (why)
+		*why = NULL;
+	if (!admin || !key)
+		return -1;
+	/* THE ROSTER FIRST, sec 489: a removal every member pulls, which
+	 * suspends the contact there as here. One already not active here --
+	 * removed on another member -- needs none, and its name goes. */
+	if (admin->roster) {
+		fzn_node_roster_err_t rerr = roster_act(admin, key, 0);
+
+		if (rerr != FZN_NODE_ROSTER_OK && rerr != FZN_NODE_ROSTER_ABSENT) {
+			if (why)
+				*why = fzn_node_roster_err_str(rerr);
+			return rerr == FZN_NODE_ROSTER_NO_STANDING ? -3 : -1;
+		}
+	}
+	err = fzn_contact_remove(admin->store, key);
+	if (err != FZN_CONTACT_OK) {
+		if (why)
+			*why = fzn_contact_err_str(err);
+		return -1;
+	}
 	if (admin->contact_named)
-		admin->contact_named(admin->contact_named_ctx, c.key, NULL, 0);
-	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+		admin->contact_named(admin->contact_named_ctx, key, NULL, 0);
+	return 0;
 }
 
 /* EVERY CONTACT, read once per change of the store (sec 704's stamp), into

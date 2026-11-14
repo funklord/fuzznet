@@ -1,6 +1,6 @@
-// This user's contacts, asked in binary on the local leg: project.md sec
-// 1162, the category fuzzypickles named after messages (its inbox
-// 20261114T1030Z), in the holder's A (sec 1152).
+// This user's contacts, listed (sec 1162), added, renamed and removed (sec
+// 1167), asked in binary on the local leg: the category fuzzypickles named
+// after messages (its inbox 20261114T1030Z), in the holder's A (sec 1152).
 //
 // FZN_CMD_CONTACTS (11, wire/cmd.h), its operation the SUBCMD, in the range
 // 128 to 191 kept for the local socket; between hosts the category's SUBCMDs
@@ -15,6 +15,9 @@ endian big;
 enum op : u8 {
 	list    = 128, // every contact, as `list contact` lists them
 	row     = 129, // an answer: one contact
+	add     = 130, // a contact added, or renamed (sec 1167)
+	remove  = 131, // a contact removed, by key
+	clash   = 132, // an answer to add: another contact of the same name
 	default = error,
 }
 
@@ -40,13 +43,29 @@ struct row {
 	u8       name[name_len];
 }
 
+// KEY a root key and NAME this user's for them: a key already a contact is
+// renamed. Answered by a `clash` per other contact holding the name (sec
+// 893: a shared name is allowed, and refused at use), then a STATUS.
+struct add {
+	u8   key[32];
+	u8   name_len [max = 32];
+	u8   name[name_len];
+}
+
+struct keyed {
+	u8   key[32];
+}
+
 struct message {
 	u8   cmd [must_eq = 11];
 	op   op;
 
 	variant body switch (op) {
-		case op.list: nothing list;
-		case op.row:  row     row;
+		case op.list:   nothing list;
+		case op.row:    row     row;
+		case op.add:    add     add;
+		case op.remove: keyed   remove;
+		case op.clash:  keyed   clash;
 		default: error;
 	}
 }

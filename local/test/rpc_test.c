@@ -874,8 +874,49 @@ static void test_contacts_in_binary(void)
 	fzn_rpc_peer_list_release(&out);
 }
 
+/* A CONTACT RENAMED AND REMOVED IN BINARY, sec 1167: the requests' bytes,
+ * a clash row passed over before the ok, a denial mapped; and a node that
+ * reads no binary asked by name, the name found by the key. */
+static void test_contact_changes_in_binary(void)
+{
+	static struct bscript renamed, removed, denied;
+	uint8_t key[32], other[32];
+	uint8_t clash[2 + 32] = { 0x0b, 0x84 };
+
+	memset(key, 0xab, sizeof(key));
+	memset(other, 0xcd, sizeof(other));
+	memcpy(clash + 2, other, 32);
+	framed(&renamed, 0, clash, sizeof(clash));
+	status_onto(&renamed, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &renamed);
+	CHECK(fzn_rpc_peer_rename(&c, key, "alice", 5) == FZN_RPC_OK && renamed.asked_len[0] == 2u + 32u + 1u + 5u
+	              && renamed.asked[0][1] == 0x82 && renamed.asked[0][2] == 0xab && renamed.asked[0][34] == 5
+	              && memcmp(renamed.asked[0] + 35, "alice", 5) == 0,
+	      "a rename was not asked in binary, or its clash row taken for a failure");
+	status_onto(&removed, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &removed);
+	CHECK(fzn_rpc_contact_remove(&c, key) == FZN_RPC_OK && removed.asked_len[0] == 34u
+	              && removed.asked[0][1] == 0x83 && removed.asked[0][33] == 0xab,
+	      "a removal was not asked in binary by key");
+	status_onto(&denied, 0, FZN_STATUS_DENIED, "no standing to write the roster");
+	bon(&c, &denied);
+	CHECK(fzn_rpc_contact_remove(&c, key) == FZN_RPC_ERR_NOT_AUTHORIZED
+	              && strcmp(c.error, "no standing to write the roster") == 0,
+	      "a removal refused for want of standing was not mapped, or its words were lost");
+	{
+		static const char LISTED[] =
+		        "ok 1 0 alice,abababababababababababababababababababababababababababababababab";
+		struct script s = { { LISTED, "ok" }, 0, 2, 0, { { 0 } } };
+
+		on(&c, &s);
+		CHECK(fzn_rpc_contact_remove(&c, key) == FZN_RPC_OK && strcmp(s.asked[1], "remove contact alice") == 0,
+		      "a node reading no binary was not asked to remove the contact by its name");
+	}
+}
+
 int main(void)
 {
+	test_contact_changes_in_binary();
 	test_contacts_in_binary();
 	test_a_line_is_sent_in_binary();
 	test_lines_in_binary();

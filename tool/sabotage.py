@@ -16782,6 +16782,20 @@ SABOTAGES = [
 		"the table says its deadline is next while a resend is due before it -- sec 1165",
 	),
 	(
+		"contacts-binary-clash-unsaid",
+		"node/contacts_binary.c",
+		"\tfor (i = 0; i < n && i < 4u; i++) {\n",
+		"\tfor (i = 0; 0; i++) {\n",
+		"a contact added in binary under a name another holds is answered as if the name were its own -- sec 1167",
+	),
+	(
+		"rpc-contact-change-clash-failed",
+		"local/rpc.c",
+		"\tif (len < 2 || msg[0] != FZN_CMD_CONTACTS || msg[1] != FZN_CONTACTS_LOCAL_OP_CLASH || a->status_seen)\n",
+		"\tif (1)\n",
+		"a rename whose name another contact shares is read as a failure -- sec 1167",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

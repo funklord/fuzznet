@@ -400,6 +400,14 @@ int fzn_node_admin_contact_of(const fzn_node_admin_t *admin, const uint8_t sende
 int fzn_node_admin_contact_add(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN],
                                const char *name, size_t name_len, const char **why);
 
+/* REMOVE CONTACT `key`, sec 1167: what `remove contact NAME` does once the
+ * name is found -- a removal on the estate's roster, which suspends it on
+ * every member, and its name gone here. 0 removed; -3 when this node has
+ * no standing to write the roster; -1 otherwise, `*why` (may be NULL)
+ * saying why. */
+int fzn_node_admin_contact_remove(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN],
+                                  const char **why);
+
 /* WHETHER `key` WAS A CONTACT AND WAS REMOVED, sec 616: suspended or
  * retired on the estate's roster -- not merely a key no contact holds. A
  * node with no roster knows of no removal. */
