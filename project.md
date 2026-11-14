@@ -88552,3 +88552,55 @@ written by hand and checks the row against the text verb's answer, so
 **Next, per sec 1101:** category by category, a typed call at a time,
 with fuzzypickles, whose clients switch -- each category its SUBCMDs in
 128-191 under its own CMD.
+
+## 1153. The inbox of 2026-11-14, and an empty library's NULL sort
+
+**Seven messages, recorded here before they are deleted from
+`.git/cc-inbox/`, by their timestamps:**
+
+- **snurra 20261113T2338Z:** `fzn_rpc_library_play` refused a file the
+  catalogue lists, not fetched here, as STORAGE_IO "not in the library";
+  a client following the header's "a one-byte read is the status probe"
+  never learned to begin a fetch. Taken: sec 1154.
+- **snurra 20261113T2344Z:** at 20 % loss (faults build), a fetch moved
+  to the middle of a 1 MB file with `fzn_rpc_blob_fetch_at` made the
+  middle playable only as the whole became so (13 to 50 s between runs,
+  moved or not); over loopback without loss the whole came in 0.4 s.
+  Whether the playhead is honoured under loss is open, and taken to
+  measure.
+- **fuzzypickles 20261114T0128Z:** took `objects_view`, `retention_view`
+  and the newest-line listing. Its hosts page still does what
+  `hosts_view` does not: grant admin to a host, apply a granted
+  capability from text or a QR with the audit of what was issued, and
+  unlink a host (left out of `hosts_view` on purpose; revocation lives on
+  `governance_view`). Its library page plays a file arriving through
+  snurra and does Fetch, Share (every contact, a contact, a group), Save
+  the playable part, Verify and Remove. Conversations and calls wait
+  until the focused build has gone out; since 1553Z its call does video
+  (JPEG frames on the media channel, a camera toggle) and draws stickers
+  as a messenger does.
+- **fuzzypickles 20261114T0134Z:** took `forks_view`. Not yet
+  `devices_view`, which cannot scan the invite code with a camera (its
+  card scanner over this tree's `qr/` decoder, Qt Multimedia on a phone,
+  V4L2 on a desktop); and the older three-step join, for two hosts that
+  cannot both reach the code exchange, may be retired if `devices_view`'s
+  join covers every case.
+- **snurra 20261114T0146Z:** UBSan in `local/rpc.c`'s
+  `node_library_fill_many`: an empty catalogue's lists are NULL arrays,
+  and qsort was handed one with a count of 0. Fixed below.
+- **situ 20261114T0353Z and 0505Z:** sec 1148's reading is in situ's
+  `suggestion/fuzznet.md` (situ 9e0faf71). Gap 1 landed in situ 1fad3ccd
+  (decision 26.1036): every rung-6 driver takes an optional `resend`,
+  told the exchange's id, for retransmissions only (C:
+  `<driver>_on_resend(drive, fn)`). The total deadline is a new relation
+  attribute and waits on situ's holder; the loops move once it is
+  settled.
+
+**The NULL sort, fixed.** `node_library_fill_many` sorts the catalogue's
+and the files' rows and searches the files: on a node just made, both
+lists are empty and their arrays NULL, which qsort and bsearch may not
+be handed even with a count of 0. Each is now asked only of a non-empty
+list. `rpc_test` lists an empty library; built sanitized (`make
+sancheck`'s switch) it reported `rpc.c:2828: null pointer passed as
+argument 1` before the guard and passes after. Sabotage
+`rpc-library-empty-qsort-null` restores the bare call (sancheck only).

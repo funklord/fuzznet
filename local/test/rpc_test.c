@@ -641,8 +641,22 @@ static void test_a_node_that_reads_no_binary_is_asked_in_text(void)
 	      "a node reading no binary was not asked in text");
 }
 
+/* AN EMPTY LIBRARY LISTED, a node just made (snurra's inbox 20261114T0146Z):
+ * no row, and no NULL array handed to qsort or bsearch, which a sanitized
+ * build of this test (`make sancheck`) reports. */
+static void test_an_empty_library_lists_nothing(void)
+{
+	struct script s = { { "ok 0 0", "ok " ID_A " " ID_B, "ok 0 0", "ok 0 0" }, 0, 4, 0, { { 0 } } };
+	static fzn_rpc_library_list_all_t l;
+
+	on(&c, &s);
+	CHECK(fzn_rpc_library_list(&c, &l) == FZN_RPC_OK && l.count == 0, "an empty library did not list as empty");
+	fzn_rpc_library_list_release(&l);
+}
+
 int main(void)
 {
+	test_an_empty_library_lists_nothing();
 	test_objects_in_binary();
 	test_a_node_that_reads_no_binary_is_asked_in_text();
 	test_groups_are_read_across_pages();

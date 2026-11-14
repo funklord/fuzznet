@@ -2825,8 +2825,10 @@ static int node_library_fill_many(fzn_rpc_t *c, fzn_rpc_library_list_entry_t *e,
 	int rc = node_pages_bounded(c, "catalog", 7, take_issuer, &is, &total, 1u << 24);
 	if (rc == FZN_RPC_OK) rc = node_pages_bounded(c, "file", 4, take_file, &fs, &total, 1u << 24);
 	if (rc == FZN_RPC_OK) {
-		qsort(is.rows, is.count, sizeof *is.rows, cmp_root_issuer);
-		qsort(fs.rows, fs.count, sizeof *fs.rows, cmp_root_file);
+		/* AN EMPTY LIST IS A NULL ARRAY, which qsort and bsearch may not be
+		 * handed even with a count of 0 (snurra, inbox 20261114T0146Z). */
+		if (is.count) qsort(is.rows, is.count, sizeof *is.rows, cmp_root_issuer);
+		if (fs.count) qsort(fs.rows, fs.count, sizeof *fs.rows, cmp_root_file);
 		for (size_t i = 0; i < n; i++) {
 			root_issuer_t key;
 			memcpy(key.root, e[i].root, 32);
@@ -2848,7 +2850,8 @@ static int node_library_fill_many(fzn_rpc_t *c, fzn_rpc_library_list_entry_t *e,
 			e[i].holders = (uint16_t)(holders > 0xffff ? 0xffff : holders);
 			root_file_t fkey;
 			memcpy(fkey.root, e[i].root, 32);
-			const root_file_t *f = bsearch(&fkey, fs.rows, fs.count, sizeof *fs.rows, cmp_root_file);
+			const root_file_t *f =
+			        fs.count ? bsearch(&fkey, fs.rows, fs.count, sizeof *fs.rows, cmp_root_file) : NULL;
 			if (f) e[i].size = f->length;
 			if (f && !f->whole) e[i].arriving_permille = f->arriving;
 			/* As the one-file path: held here is the bytes whole here, not

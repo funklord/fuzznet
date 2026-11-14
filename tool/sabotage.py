@@ -16628,6 +16628,13 @@ SABOTAGES = [
 		"a change's round that missed a live sibling waits out the timed round; live_object_missed only -- sec 1149",
 	),
 	(
+		"rpc-library-empty-qsort-null",
+		"local/rpc.c",
+		"\t\tif (is.count) qsort(is.rows, is.count, sizeof *is.rows, cmp_root_issuer);\n",
+		"\t\tqsort(is.rows, is.count, sizeof *is.rows, cmp_root_issuer);\n",
+		"an empty library hands qsort a NULL array; sancheck only, UBSan's report -- sec 1153",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",
