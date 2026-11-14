@@ -43,6 +43,8 @@ import tempfile
 import threading
 import time
 
+from live_rpc import binary  # noqa: E402
+
 DEADLINE_S = 120.0
 
 GOOD = ('{"class":"TPV","mode":3,"time":"2026-10-21T12:00:05.000Z","lat":59.329323456,'
@@ -263,6 +265,14 @@ def main(argv):
 				raise failed("d: list location x was not refused")
 			print("livecheck: d: %d fixes held: the bare list said it does not fit, and %d "
 			      "pages listed the newest sixteen once each" % (last, pages))
+			# d2: THE SAME IN BINARY, sec 1171: the newest sixteen, each once and
+			# in order, then an ok.
+			got = binary(sock, bytes([0x0E, 0x80]))
+			bseqs = [int.from_bytes(m[34:42], "big") for m in got[:-1] if m[:2] == bytes([0x0E, 0x81])]
+			if not got or got[-1][:2] != bytes([0x13, 0]) or bseqs != list(range(last - 15, last + 1)):
+				raise failed("d2: the fixes in binary were %r, not the newest sixteen of %d"
+				             % (bseqs, last))
+			print("livecheck: d2: the newest sixteen in binary as well, in order")
 
 			# e: A SUPPLIED FIX UNDER THE SAMPLER'S RULES (sec 774).
 			def newest():

@@ -109,6 +109,8 @@
 #include "messages_binary.h"
 #include "contacts_binary.h"
 #include "groups_binary.h"
+#include "../wire/generated/streams_local.h"
+#include "../wire/generated/streams_local_build.h"
 #include "../wire/generated/contacts_local.h"
 #include "../wire/generated/contacts_local_build.h"
 #include "decisions.h"
@@ -15634,44 +15636,68 @@ static void location_tick(void)
 /* ONE ROW OF `list location`, ` HOST,SEQ,...`, for `origin`'s record
  * `seq` into `row`: its length, 0 for a record that is no fix -- and with
  * `row` NULL, 1 for one that is, so a listing can count before it writes. */
-static size_t location_row(const uint8_t *origin, uint64_t seq, char *row, size_t cap)
+/* ONE FIX HELD, `origin`'s record `seq`, read for a listing in either form
+ * (sec 1171): the fix, its record's place and time, and whose it is -- this
+ * user's contact for the host, sec 929, empty for none. 0 for a record that
+ * is no fix. */
+struct location_fact {
+	fzn_location_fix_t fix;
+	uint64_t seq, at_ms;
+	char whose[FZN_CONTACT_NAME_MAX + 1u];
+	size_t whose_len;
+};
+
+static int location_fact_of(const uint8_t *origin, uint64_t seq, struct location_fact *out)
 {
 	static fzn_stream_record_t r;
-	fzn_location_fix_t f;
-	char host[17], lat[FZN_LOCATION_DEGREES_TEXT_MAX], lon[FZN_LOCATION_DEGREES_TEXT_MAX];
-	char alt[8] = "-", bearing[8] = "-", ae[12] = "-", an[12] = "-", av[12] = "-";
 	uint8_t owner[FZN_PUBKEY_LEN];
 	fzn_contact_t who;
-	const char *whose = "-";
-	int n;
 
+	memset(out, 0, sizeof(*out));
 	if (fzn_streams_get(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN, origin,
 	                    seq, &r) != FZN_STREAMS_OK
-	    || !r.levels || !fzn_location_fix_decode(r.rendition[0], r.rendition_len[0], &f))
+	    || !r.levels || !fzn_location_fix_decode(r.rendition[0], r.rendition_len[0], &out->fix))
+		return 0;
+	out->seq = r.seq;
+	out->at_ms = r.at;
+	if (running_admin && fzn_node_admin_contact_of(running_admin, origin, owner)
+	    && fzn_contact_get(node_apply.store, owner, &who) == FZN_CONTACT_OK) {
+		memcpy(out->whose, who.name, who.name_len);
+		out->whose_len = who.name_len;
+	}
+	return 1;
+}
+
+static size_t location_row(const uint8_t *origin, uint64_t seq, char *row, size_t cap)
+{
+	static struct location_fact fact;
+	char host[17], lat[FZN_LOCATION_DEGREES_TEXT_MAX], lon[FZN_LOCATION_DEGREES_TEXT_MAX];
+	char alt[8] = "-", bearing[8] = "-", ae[12] = "-", an[12] = "-", av[12] = "-";
+	int n;
+
+	if (!location_fact_of(origin, seq, &fact))
 		return 0;
 	if (!row)
 		return 1;
 	hex_of(origin, 8u, host);
-	(void)fzn_location_degrees_text(f.lat_e7, lat);
-	(void)fzn_location_degrees_text(f.lon_e7, lon);
-	if (f.has_alt)
-		(void)snprintf(alt, sizeof(alt), "%d", (int)f.alt_m);
-	if (f.has_bearing)
+	(void)fzn_location_degrees_text(fact.fix.lat_e7, lat);
+	(void)fzn_location_degrees_text(fact.fix.lon_e7, lon);
+	if (fact.fix.has_alt)
+		(void)snprintf(alt, sizeof(alt), "%d", (int)fact.fix.alt_m);
+	if (fact.fix.has_bearing)
 		(void)snprintf(bearing, sizeof(bearing), "%u",
-		               (unsigned)fzn_location_bearing_decode(f.bearing));
-	if (f.acc_e != FZN_LOCATION_ACC_UNKNOWN)
-		(void)snprintf(ae, sizeof(ae), "%lu", (unsigned long)fzn_location_acc_decode(f.acc_e));
-	if (f.acc_n != FZN_LOCATION_ACC_UNKNOWN)
-		(void)snprintf(an, sizeof(an), "%lu", (unsigned long)fzn_location_acc_decode(f.acc_n));
-	if (f.has_alt && f.acc_v != FZN_LOCATION_ACC_UNKNOWN)
-		(void)snprintf(av, sizeof(av), "%lu", (unsigned long)fzn_location_acc_decode(f.acc_v));
+		               (unsigned)fzn_location_bearing_decode(fact.fix.bearing));
+	if (fact.fix.acc_e != FZN_LOCATION_ACC_UNKNOWN)
+		(void)snprintf(ae, sizeof(ae), "%lu", (unsigned long)fzn_location_acc_decode(fact.fix.acc_e));
+	if (fact.fix.acc_n != FZN_LOCATION_ACC_UNKNOWN)
+		(void)snprintf(an, sizeof(an), "%lu", (unsigned long)fzn_location_acc_decode(fact.fix.acc_n));
+	if (fact.fix.has_alt && fact.fix.acc_v != FZN_LOCATION_ACC_UNKNOWN)
+		(void)snprintf(av, sizeof(av), "%lu", (unsigned long)fzn_location_acc_decode(fact.fix.acc_v));
 	/* WHOSE IT IS, sec 929, so a client need not ask per contact; `-` for none. */
-	if (running_admin && fzn_node_admin_contact_of(running_admin, origin, owner)
-	    && fzn_contact_get(node_apply.store, owner, &who) == FZN_CONTACT_OK)
-		whose = who.name;
 	n = snprintf(row, cap, " %s,%llu,%llu,%s,%s,%lu,%s,%s,%s,%s,%s,%u,%s", host,
-	             (unsigned long long)r.seq, (unsigned long long)r.at, lat, lon,
-	             (unsigned long)f.utc_s, alt, bearing, ae, an, av, (unsigned)f.is_coarse, whose);
+	             (unsigned long long)fact.seq, (unsigned long long)fact.at_ms, lat, lon,
+	             (unsigned long)fact.fix.utc_s, alt, bearing, ae, an, av, (unsigned)fact.fix.is_coarse,
+	             fact.whose_len ? fact.whose : "-");
 	return n > 0 && (size_t)n < cap ? (size_t)n : 0u;
 }
 
@@ -18091,10 +18117,64 @@ static int local_groups(int fd, fzn_origin_t origin, const uint8_t *msg, size_t 
 	return 0;
 }
 
+/* THE POSITIONS HELD IN BINARY, sec 1171: a row per fix, the last sixteen
+ * of each host as `list location` lists them, then a STATUS ok; refused to
+ * whom the text verb refuses. */
+static int local_streams(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	static struct key_room heads_room;
+	static struct location_fact fact;
+	uint8_t (*heads)[FZN_PUBKEY_LEN] = NULL;
+	situ_msg_t m;
+	situ_view_t v;
+	size_t n = 0, i;
+	uint64_t last, s;
+
+	if (fzn_streams_refuse_local(origin))
+		return local_binary_status(fd, FZN_STATUS_DENIED, fzn_streams_refuse_local(origin)), 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_streams_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_streams_local_message_validate(v) != SITU_OK
+	    || fzn_streams_local_message_op_get(v) != FZN_STREAMS_LOCAL_OP_LOCATION)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a streams request"), 0;
+	if (stream_origins(&heads_room, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN, &heads, &n)
+	    != FZN_STREAMS_OK)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "the stream did not list"), 0;
+	for (i = 0; i < n; i++) {
+		last = fzn_streams_last(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN, heads[i]);
+		for (s = last > 16u ? last - 15u : 1u; last && s <= last; s++) {
+			const fzn_location_fix_t *f = &fact.fix;
+			uint8_t row[160], out[176];
+			uint32_t row_len = 0, k = 0;
+
+			if (!location_fact_of(heads[i], s, &fact))
+				continue;
+			/* AS FIELDS, the accuracies in metres and 0 for unknown, the
+			 * bearing in degrees: the decoding the text row does. */
+			if (fzn_streams_local_location_row_build(
+			            row, sizeof(row), heads[i], fact.seq, fact.at_ms, f->lat_e7, f->lon_e7, f->utc_s,
+			            f->has_alt ? f->alt_m : 0, f->has_bearing ? (uint16_t)fzn_location_bearing_decode(f->bearing) : 0u,
+			            f->acc_e != FZN_LOCATION_ACC_UNKNOWN ? (uint32_t)fzn_location_acc_decode(f->acc_e) : 0u,
+			            f->acc_n != FZN_LOCATION_ACC_UNKNOWN ? (uint32_t)fzn_location_acc_decode(f->acc_n) : 0u,
+			            f->has_alt && f->acc_v != FZN_LOCATION_ACC_UNKNOWN ? (uint32_t)fzn_location_acc_decode(f->acc_v)
+			                                                           : 0u,
+			            (uint8_t)(f->has_alt ? 1 : 0), (uint8_t)(f->has_bearing ? 1 : 0), (uint8_t)(f->is_coarse ? 1 : 0),
+			            (const uint8_t *)fact.whose, (uint32_t)fact.whose_len, &row_len)
+			            != SITU_OK
+			    || fzn_streams_local_message_build_location_row(out, sizeof(out), (uint8_t)FZN_CMD_STREAMS, row,
+			                                                    row_len, &k)
+			               != SITU_OK
+			    || !local_put(&fd, out, k))
+				return 0;
+		}
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 /* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary, by its CMD: named
  * objects asked (sec 1152), every conversation's newest line or count
- * (sec 1155), this user's contacts (sec 1162) and groups (sec 1170), or a
- * MEDIA_OPEN for a call this host holds, from its own user, which keeps it
+ * (sec 1155), this user's contacts (sec 1162), groups (sec 1170) and the
+ * positions held (sec 1171), or a MEDIA_OPEN for a call this host holds, from its own user, which keeps it
  * as the call's channel (sec 1113). */
 static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
                         const uint8_t *msg, size_t len)
@@ -18112,6 +18192,8 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 		return local_contacts(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_GROUPS)
 		return local_groups(fd, origin, msg, len);
+	if (len && msg[0] == FZN_CMD_STREAMS)
+		return local_streams(fd, origin, msg, len);
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "a call's media is its user's"), 0;
 	if (!fzn_live_read_local(msg, len, &w) || w.kind != FZN_LIVE_MEDIA_OPEN)

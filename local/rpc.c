@@ -39,6 +39,7 @@
 #include "../wire/generated/contacts_local.h"
 #include "../wire/generated/contacts_local_build.h"
 #include "../wire/generated/groups_local.h"
+#include "../wire/generated/streams_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -5828,8 +5829,105 @@ static int location_latest_cmp(const void *a, const void *b) {
 	return (x->fix.utc_s < y->fix.utc_s) - (x->fix.utc_s > y->fix.utc_s);
 }
 
+/* THE POSITIONS HELD IN BINARY, sec 1171: a row per fix, a contact's taken
+ * and this user's own hosts' passed over, as the verb's are. */
+struct latest_answer {
+	fzn_rpc_t *c;
+	fzn_rpc_location_latest_t **out;
+	size_t *room, *count;
+	int bad, status_seen, no_room;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void latest_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct latest_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_streams_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_streams_local_message_validate(v) != SITU_OK
+	    || fzn_streams_local_message_op_get(v) != FZN_STREAMS_LOCAL_OP_LOCATION_ROW
+	    || fzn_streams_local_message_body_location_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	const size_t name_len = fzn_streams_local_location_row_whose_len(b);
+	if (!name_len || name_len > FZN_RPC_PEER_NAME_MAX) return;
+	if (room_for(a->c, (void **)a->out, a->room, *a->count + 1, sizeof **a->out) != FZN_RPC_OK) {
+		a->no_room = 1;
+		return;
+	}
+	fzn_rpc_location_latest_t *l = &(*a->out)[(*a->count)++];
+	memset(l, 0, sizeof *l);
+	memcpy(l->name, fzn_streams_local_location_row_whose_ptr(b), name_len);
+	l->name[name_len] = '\0';
+	l->fix.seq = fzn_streams_local_location_row_seq_get(b);
+	l->fix.lat_e7 = fzn_streams_local_location_row_lat_e7_get(b);
+	l->fix.lon_e7 = fzn_streams_local_location_row_lon_e7_get(b);
+	l->fix.utc_s = fzn_streams_local_location_row_utc_s_get(b);
+	l->fix.has_alt = fzn_streams_local_location_row_has_alt_get(b);
+	l->fix.alt_m = l->fix.has_alt ? fzn_streams_local_location_row_alt_m_get(b) : 0;
+	l->fix.has_bearing = fzn_streams_local_location_row_has_bearing_get(b);
+	l->fix.bearing_deg = fzn_streams_local_location_row_bearing_get(b);
+	l->fix.acc_e_m = fzn_streams_local_location_row_acc_e_m_get(b);
+	l->fix.acc_n_m = fzn_streams_local_location_row_acc_n_m_get(b);
+	l->fix.acc_v_m = fzn_streams_local_location_row_acc_v_m_get(b);
+	l->fix.is_coarse = fzn_streams_local_location_row_coarse_get(b);
+}
+
+/* ONE ENTRY A CONTACT, newest first by name, as both forms leave them. */
+static void location_latest_keep_newest(fzn_rpc_location_latest_t *v, size_t *count) {
+	if (*count) qsort(v, *count, sizeof *v, location_latest_cmp);
+	size_t kept = 0;
+	for (size_t i = 0; i < *count; i++)
+		if (!kept || strcmp(v[kept - 1].name, v[i].name) != 0) v[kept++] = v[i];
+	*count = kept;
+}
+
+static int location_latest_text(fzn_rpc_t *c, fzn_rpc_location_latest_t **out, size_t *room,
+                                size_t *count);
+
 int fzn_rpc_location_latest(fzn_rpc_t *c, fzn_rpc_location_latest_t **out, size_t *room,
                              size_t *count) {
+	static const uint8_t ask[] = { FZN_CMD_STREAMS, FZN_STREAMS_LOCAL_OP_LOCATION };
+	struct latest_answer a;
+	int text = 0;
+	*count = 0;
+	memset(&a, 0, sizeof a);
+	a.c = c;
+	a.out = out;
+	a.room = room;
+	a.count = count;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, latest_each, &a, &text);
+	if (text) {
+		*count = 0;
+		return location_latest_text(c, out, room, count);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.no_room) return c->error_code ? c->error_code : FZN_RPC_ERR_STORAGE_IO;
+	if (a.bad || !a.status_seen) return unreadable(c); /* the positions cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	if (*out) location_latest_keep_newest(*out, count);
+	return FZN_RPC_OK;
+}
+
+static int location_latest_text(fzn_rpc_t *c, fzn_rpc_location_latest_t **out, size_t *room,
+                                size_t *count) {
 	*count = 0;
 	size_t from = 0;
 	/* Bounded by TOTAL, and by a page count no listing of sixteen fixes a
@@ -5869,11 +5967,7 @@ int fzn_rpc_location_latest(fzn_rpc_t *c, fzn_rpc_location_latest_t **out, size_
 		from = start + rows;
 		if (!rows || from >= total) break;
 	}
-	if (*count) qsort(*out, *count, sizeof **out, location_latest_cmp);
-	size_t kept = 0;
-	for (size_t i = 0; i < *count; i++)
-		if (!kept || strcmp((*out)[kept - 1].name, (*out)[i].name) != 0) (*out)[kept++] = (*out)[i];
-	*count = kept;
+	if (*out) location_latest_keep_newest(*out, count);
 	return FZN_RPC_OK;
 }
 

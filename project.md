@@ -89269,3 +89269,33 @@ another op malformed; `rpc_test` -- a row read with id, members, admin
 and lines, a cut listing refused; `live_rpc` phase i -- as many rows as
 `list group` counts, the probe's group among them. Two sabotages, each
 caught: `groups-binary-unended`, `rpc-groups-binary-admin-dropped`.
+
+## 1171. The positions held, in binary, 2026-11-14
+
+What a map refreshes: `list location` as FZN_CMD_STREAMS (14) `location`
+(128), answered by a `location_row` (129) per fix -- the last sixteen of
+each host, as the verb lists them -- then a STATUS ok, in
+`node/streams_local.situ`. Location is one of the streams, so its local
+operations are that category's.
+
+- **A fix crosses as fields**, the host's full root, the record's place
+  and time, and the fix: latitude and longitude in 1e-7 degrees, its time,
+  altitude and bearing each with whether it is known, the accuracies in
+  metres (0 unknown), coarse or not, and whose it is. That follows the
+  decision the typed client's entry records (`local/rpc_types.h`): a
+  client is not coupled to the stored 19-byte packing nor carries its
+  codec.
+- **The daemon** reads a fix once for either form: `location_fact_of`
+  holds the record-to-fix step and whose it is (sec 929), and the text row
+  is formatted from it as before. `local_streams` refuses whom the verb
+  refuses (`fzn_streams_refuse_local`).
+- **The client's `fzn_rpc_location_latest`** asks in binary, passes this
+  user's own hosts over as the verb's listing does, and keeps each
+  contact's newest -- one sort and de-duplication for both forms.
+
+**Verified**: three hand-written vectors; `rpc_test` -- a contact's newer
+fix of two kept with its fields as sent, an own host passed over;
+`live_location` phase d2 -- of twenty fixes held, the newest sixteen in
+binary, each once and in order, as the text pages list them. Two
+sabotages, each caught: `rpc-latest-binary-own-hosts-kept`,
+`rpc-latest-binary-accuracy-dropped`.

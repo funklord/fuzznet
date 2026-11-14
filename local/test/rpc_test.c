@@ -19,6 +19,7 @@
 #include "../../wire/generated/messages_local_build.h"
 #include "../../wire/generated/contacts_local_build.h"
 #include "../../wire/generated/groups_local_build.h"
+#include "../../wire/generated/streams_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -986,8 +987,48 @@ static void test_groups_in_binary(void)
 	fzn_rpc_group_list_release(&out);
 }
 
+/* ONE FIX framed onto answer `i`, sec 1171. */
+static void fix_onto(struct bscript *s, size_t i, uint64_t seq, uint32_t utc, const char *whose)
+{
+	uint8_t host[32], row[160], m[176];
+	uint32_t row_len = 0, n = 0;
+
+	memset(host, 0x5a, sizeof(host));
+	if (fzn_streams_local_location_row_build(row, sizeof(row), host, seq, 1700000000000ull, 593293234, 180685815, utc,
+	                                         31, 90u, 5u, 9u, 19u, 1u, 1u, 0u, (const uint8_t *)whose,
+	                                         (uint32_t)strlen(whose), &row_len)
+	            != SITU_OK
+	    || fzn_streams_local_message_build_location_row(m, sizeof(m), (uint8_t)FZN_CMD_STREAMS, row, row_len, &n)
+	               != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* THE POSITIONS HELD IN BINARY, sec 1171: a contact's newest fix kept of
+ * two, its fields as sent, this user's own host passed over. */
+static void test_positions_in_binary(void)
+{
+	static struct bscript held;
+	fzn_rpc_location_latest_t *out = NULL;
+	size_t room = 0, count = 0;
+
+	fix_onto(&held, 0, 7u, 1700000100u, "alice");
+	fix_onto(&held, 0, 8u, 1700000200u, "alice");
+	fix_onto(&held, 0, 9u, 1700000300u, "");
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_location_latest(&c, &out, &room, &count) == FZN_RPC_OK && count == 1
+	              && strcmp(out[0].name, "alice") == 0 && out[0].fix.seq == 8u && out[0].fix.utc_s == 1700000200u
+	              && out[0].fix.lat_e7 == 593293234 && out[0].fix.alt_m == 31 && out[0].fix.bearing_deg == 90
+	              && out[0].fix.acc_e_m == 5u && out[0].fix.acc_n_m == 9u && out[0].fix.acc_v_m == 19u
+	              && held.asked[0][0] == 0x0e && held.asked[0][1] == 0x80,
+	      "the positions were not read in binary, newest of a contact's kept, own hosts passed over");
+	free(out);
+}
+
 int main(void)
 {
+	test_positions_in_binary();
 	test_groups_in_binary();
 	test_requests_in_binary();
 	test_contact_changes_in_binary();

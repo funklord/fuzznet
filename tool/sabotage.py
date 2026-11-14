@@ -16838,6 +16838,20 @@ SABOTAGES = [
 		"a group this user may change is read in binary as one it may not -- sec 1170",
 	),
 	(
+		"rpc-latest-binary-own-hosts-kept",
+		"local/rpc.c",
+		"\tif (!name_len || name_len > FZN_RPC_PEER_NAME_MAX) return;\n",
+		"\tif (name_len > FZN_RPC_PEER_NAME_MAX) return;\n",
+		"this user's own hosts' fixes read in binary are listed as a nameless contact's -- sec 1171",
+	),
+	(
+		"rpc-latest-binary-accuracy-dropped",
+		"local/rpc.c",
+		"\tl->fix.acc_e_m = fzn_streams_local_location_row_acc_e_m_get(b);\n",
+		"\tl->fix.acc_e_m = 0;\n",
+		"a fix read in binary loses how far east-west it may be off -- sec 1171",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

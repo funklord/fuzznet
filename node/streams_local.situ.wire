@@ -1,0 +1,51 @@
+# situ wire signature v3
+# schema: streams_local.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum op : u8 unknown=error
+  location=128 location_row=129
+
+struct location_row size=80..112
+  @0x0000   32        u8         host  big
+  @0x0020   8         u64        seq  big
+  @0x0028   8         u64        at_ms  big
+  @0x0030   4         i32        lat_e7  big
+  @0x0034   4         i32        lon_e7  big
+  @0x0038   4         u32        utc_s  big
+  @0x003c   2         i16        alt_m  big
+  @0x003e   2         u16        bearing  big max=359
+  @0x0040   4         u32        acc_e_m  big
+  @0x0044   4         u32        acc_n_m  big
+  @0x0048   4         u32        acc_v_m  big
+  @0x004c   1         u8         has_alt  max=1
+  @0x004d   1         u8         has_bearing  max=1
+  @0x004e   1         u8         coarse  max=1
+  @0x004f   1         u8         whose_len  max=32
+  @0x0050   0..32     u8         whose  sized-by=whose_len
+
+struct message size=2..114
+  @0x0000   1         u8         cmd  must_eq=14
+  @0x0001   1         op         op
+  @0x0002   0..112    variant    body
+  body switch: op
+  body case 128: location nothing
+  body case 129: location_row location_row
+  body case default: error
+
+struct nothing size=0

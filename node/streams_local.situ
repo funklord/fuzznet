@@ -1,0 +1,61 @@
+// The positions this host holds, asked in binary on the local leg:
+// project.md sec 1171, what a map refreshes -- `list location` as a row per
+// fix held.
+//
+// FZN_CMD_STREAMS (14, wire/cmd.h): location is one of the streams, so its
+// local operations are this category's, in the range 128 to 191 kept for
+// the local socket; between hosts the category's SUBCMDs are below it. A
+// request is one message with no body; the answer is a row per fix and then
+// a STATUS ok, or a STATUS refusing it.
+//
+// A FIX CROSSES AS FIELDS, not as its stored 19-byte record, as the typed
+// client's entry says (local/rpc_types.h): a client is not to be coupled to
+// the on-disk packing nor to carry its codec.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	location     = 128, // the fixes held, the last sixteen of each host
+	location_row = 129, // an answer: one fix
+	default      = error,
+}
+
+struct nothing {
+}
+
+// HOST the root of the host that made it; SEQ its place in that host's
+// stream; AT when it was written, ms. The fix: LAT and LON in 1e-7 degrees,
+// UTC its time in seconds, ALT metres where HAS_ALT, BEARING degrees 0..359
+// where HAS_BEARING, the accuracies in metres (0 unknown), COARSE 1 when it
+// was rounded to a region. WHOSE this user's contact for the host, empty
+// for this user's own hosts and for none.
+struct location_row {
+	u8   host[32];
+	u64  seq;
+	u64  at_ms;
+	i32  lat_e7;
+	i32  lon_e7;
+	u32  utc_s;
+	i16  alt_m;
+	u16  bearing [max = 359];
+	u32  acc_e_m;
+	u32  acc_n_m;
+	u32  acc_v_m;
+	u8   has_alt [max = 1];
+	u8   has_bearing [max = 1];
+	u8   coarse [max = 1];
+	u8   whose_len [max = 32];
+	u8   whose[whose_len];
+}
+
+struct message {
+	u8   cmd [must_eq = 14];
+	op   op;
+
+	variant body switch (op) {
+		case op.location:     nothing      location;
+		case op.location_row: location_row location_row;
+		default: error;
+	}
+}
