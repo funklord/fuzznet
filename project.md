@@ -88381,3 +88381,57 @@ the test used 7 s and so could not tell them apart, and the first
 form of the fix -- re-arm only on a peer that answered lately -- passed
 at 7 s and failed at 20. Sabotage `object-miss-not-asked-again`
 (live_object_missed only) is caught.
+
+## 1150. `make analyze` over twelve days of code, 2026-11-14
+
+Bug-hunting over everything since sec 823 (2026-11-02): gcc 14's
+`-fanalyzer` at `-O0` over the library, fuzznetd and every test binary
+but the fuzz harnesses, then cppcheck `--check-level=exhaustive` over
+the library. Sec 823's findings are the baseline; each warning below
+was read at its site.
+
+**One defect, in a test.** `node/test/identity_test.c`'s signer stub
+copies its key to the caller's buffer, and one check hands it the
+stub's own key as that buffer (`stub_install(&stranger, seed,
+stranger.pubkey)`), so `memcpy` copied a buffer onto itself, which is
+undefined however harmless it looks. The stub now copies only to
+another buffer.
+
+**New and not defects, in the library:**
+- `local/rpc.c` 926 and 6322, a NULL `rest`: a successful
+  `fzn_rpc_node` always sets it, to the detail or to the reply's end.
+- `local/client_config.c` 24, `v` leaked: stored in the row on every
+  path that returns 1.
+- `node/relay.c` 158, a NULL session: `way_place` finds one unless the
+  table had fewer than two of its 32.
+- `node/opjournal.c` 315: a static buffer kept for the process, by
+  design (sec 959).
+- `notes/sync.c` 130 and `record/exchange.c` 263: a grown buffer kept
+  in the caller's own struct, as sec 823's `reconcile.c` one is.
+- cppcheck's `arg` read uninitialised, about forty sites in
+  `local/rpc.c`, all `node_ack(c, verb, arg, snprintf(arg, ...))`: `arg`
+  is passed as a pointer and written by `snprintf` before the call.
+- cppcheck's `bsearch` probes (`local/rpc.c` 2845, `node/messages.c`
+  1627), whose comparator reads only the key that is set;
+  `node/local.c` 225's `line`, a parameter; `messages/messages.c`
+  1999's `p[]`, read only after each line read succeeded; and
+  `chain/revocation.c` 1064's `admin_ok`, written for every admin
+  before it is read.
+- cppcheck, the rest: `prekey/prekey.c` 226, a NULL `peer` refused at
+  entry and checked again only inside the logging macro;
+  `spool/spool.c` 165 and `spool/scrub.c` 161, hash arrays filled for
+  every index before the root is taken; `cli/log_print.c` 195,
+  `window[0]` read only when rows came back; `node/daemon.c` 10049,
+  `memchr` over zero bytes on the first pass; `cli/sweep_print.c` 45,
+  `reasons` reached only in states a captured plan gives.
+- **The rest are sec 823's**, at shifted lines: `node/streams.c`
+  363-365, `node/roots.c` 1004, `node/revoke.c` 938 and 1366,
+  `node/reconcile.c` 1099 and 1392, `node/contact_devices.c` 1853,
+  `node/group_log.c` 136, `log/log.c`'s macro, `log/capture_run.c`'s
+  pipes, `messages/messages.c` 396, `node/stickers.c` 415.
+
+**In tests, and left:** uninitialised values read only into a failure
+message or after a fixture already failed (`revocation_test` 4356,
+`transfer_test` 664, `verify_memo_test` 212, `admin_test` 1010,
+`provision_test` 637), a fixture's leak at exit, and
+`contact_devices_test` 1144, whose `i % 2` never equals `i` past 1.

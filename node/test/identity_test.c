@@ -75,7 +75,10 @@ static int stub_install(void *ctx, const uint8_t seed[FZN_SIGN_SEED_LEN],
 	if (!s || !seed || !pubkey_out)
 		return 0;
 	derive_pub(seed, s->pubkey);
-	memcpy(pubkey_out, s->pubkey, FZN_PUBKEY_LEN);
+	/* NOT ONTO ITSELF: a caller may hand the stub's own key as the
+	 * output, and memcpy over one buffer is undefined (sec 1150). */
+	if (pubkey_out != s->pubkey)
+		memcpy(pubkey_out, s->pubkey, FZN_PUBKEY_LEN);
 	s->armed = 1;
 	return 1;
 }
