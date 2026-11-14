@@ -10922,8 +10922,8 @@ SABOTAGES = [
 	(
 		'node-asks-resend',
 		'node/asks.c',
-		'\t\tif (e->used && (e->request || e->again) && e->resends < FZN_CALLER_RESENDS\n',
-		'\t\tif (0 && e->used && (e->request || e->again) && e->resends < FZN_CALLER_RESENDS\n',
+		'\t\tif (e->used && (e->request || e->again) && e->resends < most\n',
+		'\t\tif (0 && e->used && (e->request || e->again) && e->resends < most\n',
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
@@ -16777,8 +16777,8 @@ SABOTAGES = [
 	(
 		"asks-due-in-without-resends",
 		"node/asks.c",
-		"\t\t    && e->resend_at_ms + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms && e->resend_at_ms < at)\n",
-		"\t\t    && e->resend_at_ms + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms && 0)\n",
+		"\t\t    && resend + FZN_CALLER_RESEND_PART_MS / 2u < e->deadline_ms && resend < at)\n",
+		"\t\t    && resend + FZN_CALLER_RESEND_PART_MS / 2u < e->deadline_ms && 0)\n",
 		"the table says its deadline is next while a resend is due before it -- sec 1165",
 	),
 	(
