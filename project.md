@@ -88308,3 +88308,37 @@ it. The 72 node and log suites pass.
 media path as missing, which sec 1113 built (a held binary channel,
 whole frames to 8160 bytes, `live_call` phase e3); it now says what the
 host keeps, capture, codecs and playback.
+
+## 1148. The resend onto situ's rung 6, read again: one gap binds, one is new, 2026-11-14
+
+**Item 90, taken up rather than waited on** (sec 1137: situ fixed the
+wrap and added `peek`, and will shape gaps 1 and 2 against this tree's
+caller once it adopts). Both resend loops were read against the driver
+generated from situ's DNS example at a08ec428:
+
+- **Both keep ONE exchange outstanding, blocking on it.**
+  `fzn_caller_ask` (node/caller.c), whose only caller is `pair_test`,
+  and the daemon's `recv_answering` (node/daemon.c), which every round's
+  ask goes through. So sec 1117's gap 2, expiry said as a count, does
+  not bind here: with one exchange, something expired is this one.
+- **Gap 1 binds.** A resend is the same message under a fresh nonce,
+  so `submit` has to reseal, and it is handed only the bytes. With one
+  exchange the caller could carry it in `ctx`, which is the workaround
+  the gap names rather than an answer to it.
+- **The relation is not in the way.** `wire/frame.situ`'s `reply_to`
+  matches on `head.msg` and `head.sender`, which a reseal keeps.
+- **New: the policy cannot be stated.** Here it is resend every 600 ms
+  with nothing heard, at most three times, and give up at 3 s
+  (`FZN_CALLER_RESEND_MS`, `FZN_CALLER_RESENDS`, sec 737). The driver
+  takes one per-attempt timeout and a retry count, so it gives up at
+  (retries + 1) x timeout: 2.4 s at 600 ms, or a resend at 750 ms to
+  reach 3 s. Two numbers, and a relation can state one.
+- **Answering other hosts while waiting** (sec 720) fits rung 6 as it
+  is: the caller owns the poll and calls `step`.
+
+**A one-exchange adoption now** would replace a forty-line loop with
+more glue than it removes, change when resends go, and settle nothing
+for situ. So the loops stay, and situ has the two asks with these
+readings (its inbox, 2026-11-14): `submit` told the exchange's id, and
+a total deadline beside the resend interval. When both land, the
+daemon's `recv_answering` moves first, since it is the one that runs.
