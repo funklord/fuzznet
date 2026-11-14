@@ -231,6 +231,10 @@ fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
  * waiting. */
 void fzn_caller_forget(fzn_caller_t *caller, uint32_t msg);
 
+/* WHETHER PART OF THE REPLY TO `msg` IS HELD, its other pieces still to
+ * come: 1 or 0. A reply of one piece is never part-held. sec 1168. */
+int fzn_caller_holds_part(const fzn_caller_t *caller, uint32_t msg);
+
 /* CARRY A CALLER'S NUMBERING ONTO ONE BUILT AGAIN, sec 737: `to`'s next
  * message number and the messages given up on, from `from`, a caller on
  * the same session. Built again from its pairing, a caller that lands on a
@@ -284,6 +288,13 @@ fzn_caller_err_t fzn_caller_recv_for(fzn_caller_t *caller, uint32_t msg, uint8_t
  * `fzn_caller_recv` does. */
 #define FZN_CALLER_RESEND_MS 600u
 #define FZN_CALLER_RESENDS 3u
+/* ONCE PART OF THE REPLY IS IN, sec 1168: the path works and the round
+ * trip is shorter than the time gone, so what is missing was lost, not
+ * slow -- resent sooner and more often, within the same wait. Measured on
+ * a 960 KB fetch at 20 per cent loss: 600 ms and three resends took 24.5
+ * to 31.5 s, 300 ms and eight 8.0 to 8.5 s. */
+#define FZN_CALLER_RESEND_PART_MS 300u
+#define FZN_CALLER_RESENDS_PART 8u
 
 fzn_caller_err_t fzn_caller_ask(fzn_caller_t *caller, const uint8_t *payload,
                                 size_t payload_len, uint64_t expires_at,

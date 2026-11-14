@@ -1377,6 +1377,44 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			ask_now += 5000u;
 			(void)fzn_node_asks_expire(&asks);
 		}
+
+		/* SOONER ONCE PART OF THE REPLY IS IN, sec 1168: a piece of two held
+		 * for a message makes its resend due FZN_CALLER_RESEND_PART_MS after
+		 * it was sent, where one with nothing back waits
+		 * FZN_CALLER_RESEND_MS -- loss, not delay, since the path answered. */
+		{
+			static fzn_partial_t part_slots[2];
+			static uint8_t part_bufs[2][4096];
+			static fzn_reasm_t part_table;
+			static fzn_caller_t pc;
+			static const uint8_t piece[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+			fzn_partial_t *done_slot = NULL;
+
+			memset(&pc, 0, sizeof(pc));
+			memset(pc.answerer, 0x3c, sizeof(pc.answerer));
+			pc.answerer_known = 1;
+			pc.reasm = &part_table;
+			CHECK(fzn_reasm_slot_init(&part_slots[0], part_bufs[0], sizeof(part_bufs[0])) == FZN_REASM_OK
+			              && fzn_reasm_slot_init(&part_slots[1], part_bufs[1], sizeof(part_bufs[1]))
+			                         == FZN_REASM_OK
+			              && fzn_reasm_init(&part_table, part_slots, 2, 2u, 60u) == FZN_REASM_OK
+			              && fzn_reasm_accept(&part_table, pc.answerer, 77u, 0, 2, piece, sizeof(piece),
+			                                  0u, 0u, &done_slot)
+			                         == FZN_REASM_OK,
+			      "fixture: one piece of two held for message 77");
+			CHECK(fzn_caller_holds_part(&pc, 77u) && !fzn_caller_holds_part(&pc, 78u),
+			      "a part-held reply was not told from one with nothing in");
+			CHECK(fzn_node_asks_await_again(&asks, &pc, 78u, 3000u, on_answer, NULL, count_again, NULL)
+			              && fzn_node_asks_due_in(&asks) == (long)FZN_CALLER_RESEND_MS,
+			      "an ask with nothing back was not due at FZN_CALLER_RESEND_MS");
+			ask_now += 5000u;
+			(void)fzn_node_asks_expire(&asks);
+			CHECK(fzn_node_asks_await_again(&asks, &pc, 77u, 3000u, on_answer, NULL, count_again, NULL)
+			              && fzn_node_asks_due_in(&asks) == (long)FZN_CALLER_RESEND_PART_MS,
+			      "an ask whose reply is part in was not due sooner");
+			ask_now += 5000u;
+			(void)fzn_node_asks_expire(&asks);
+		}
 		fzn_node_serve_release(&client);
 	}
 

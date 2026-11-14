@@ -16796,6 +16796,20 @@ SABOTAGES = [
 		"a rename whose name another contact shares is read as a failure -- sec 1167",
 	),
 	(
+		"asks-part-held-resent-slowly",
+		"node/asks.c",
+		"\tif (fzn_caller_holds_part(e->caller, e->msg)) {\n",
+		"\tif (0) {\n",
+		"a reply part in is resent as slowly as one with nothing back, and a lossy fetch takes three times as long -- sec 1168",
+	),
+	(
+		"caller-holds-part-never",
+		"node/caller.c",
+		"\t       && n > 0u;\n",
+		"\t       && 0;\n",
+		"a reply part-held is never said so -- sec 1168",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

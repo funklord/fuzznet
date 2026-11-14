@@ -35,6 +35,7 @@ int fzn_node_asks_await(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t ms
 	asks->entries[i].request = NULL;
 	asks->entries[i].request_len = 0;
 	asks->entries[i].resends = 0;
+	asks->entries[i].sent_at_ms = asks->clock_ms();
 	asks->entries[i].again = NULL;
 	asks->entries[i].again_ctx = NULL;
 	asks->entries[i].used = 1;
@@ -157,6 +158,18 @@ size_t fzn_node_asks_ready(fzn_node_asks_t *asks, int fd)
 	return answered;
 }
 
+/* WHEN AN ENTRY'S NEXT RESEND IS DUE, and how many it may have: sooner and
+ * more once part of its reply is in, sec 1168. */
+static uint64_t resend_due(const fzn_node_ask_t *e, unsigned *most)
+{
+	if (fzn_caller_holds_part(e->caller, e->msg)) {
+		*most = FZN_CALLER_RESENDS_PART;
+		return e->sent_at_ms + FZN_CALLER_RESEND_PART_MS;
+	}
+	*most = FZN_CALLER_RESENDS;
+	return e->resend_at_ms;
+}
+
 size_t fzn_node_asks_expire(fzn_node_asks_t *asks)
 {
 	size_t i, failed = 0;
@@ -169,15 +182,18 @@ size_t fzn_node_asks_expire(fzn_node_asks_t *asks)
 	 * fresh nonce, while there is time left for an answer to it. */
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++) {
 		fzn_node_ask_t *e = &asks->entries[i];
+		unsigned most = 0;
+		uint64_t due = e->used ? resend_due(e, &most) : 0;
 
-		if (e->used && (e->request || e->again) && e->resends < FZN_CALLER_RESENDS
-		    && now >= e->resend_at_ms && now + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms) {
+		if (e->used && (e->request || e->again) && e->resends < most
+		    && now >= due && now + FZN_CALLER_RESEND_PART_MS / 2u < e->deadline_ms) {
 			if (e->again)
 				e->again(e->again_ctx);
 			else
 				(void)fzn_caller_resend(e->caller, e->request, e->request_len,
 				                        e->expires_at, e->msg);
 			e->resends++;
+			e->sent_at_ms = now;
 			e->resend_at_ms = now + FZN_CALLER_RESEND_MS;
 		}
 	}
@@ -218,15 +234,17 @@ long fzn_node_asks_due_in(const fzn_node_asks_t *asks)
 	now = asks->clock_ms();
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++) {
 		const fzn_node_ask_t *e = &asks->entries[i];
-		uint64_t at;
+		unsigned most = 0;
+		uint64_t at, resend;
 
 		if (!e->used)
 			continue;
 		at = e->deadline_ms;
+		resend = resend_due(e, &most);
 		/* A RESEND STILL TO COME, by `fzn_node_asks_expire`'s own test. */
-		if ((e->request || e->again) && e->resends < FZN_CALLER_RESENDS
-		    && e->resend_at_ms + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms && e->resend_at_ms < at)
-			at = e->resend_at_ms;
+		if ((e->request || e->again) && e->resends < most
+		    && resend + FZN_CALLER_RESEND_PART_MS / 2u < e->deadline_ms && resend < at)
+			at = resend;
 		if (!any || at < due)
 			due = at;
 		any = 1;

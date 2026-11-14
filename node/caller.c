@@ -299,6 +299,17 @@ void fzn_caller_forget(fzn_caller_t *caller, uint32_t msg)
 		(void)fzn_reasm_forget(caller->reasm, caller->answerer, msg);
 }
 
+int fzn_caller_holds_part(const fzn_caller_t *caller, uint32_t msg)
+{
+	fzn_reasm_range_t missing[1];
+	size_t n = 0;
+
+	return caller && caller->reasm && caller->answerer_known
+	       && fzn_reasm_plan_want(caller->reasm, caller->answerer, msg, 1u, missing, 1u, &n)
+	                  == FZN_REASM_OK
+	       && n > 0u;
+}
+
 void fzn_caller_carry(fzn_caller_t *to, const fzn_caller_t *from)
 {
 	if (!to || !from || to == from)

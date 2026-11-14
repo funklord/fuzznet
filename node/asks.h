@@ -47,6 +47,9 @@ typedef struct fzn_node_ask {
 	size_t request_len;
 	uint64_t expires_at;
 	uint64_t resend_at_ms;
+	/* WHEN IT WAS LAST SENT, from which a resend falls due sooner once
+	 * part of its reply is in, sec 1168. */
+	uint64_t sent_at_ms;
 	unsigned resends;
 	/* RESENT BY ITS ASKER, sec 756, when set: called in place of the
 	 * caller's own resend, at the same times and as often -- a request

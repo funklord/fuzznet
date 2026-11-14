@@ -89178,3 +89178,37 @@ with a clash naming alice's key, each removed by key and gone;
 words kept, a node reading no binary asked by name, clean sanitized;
 `live_rpc` phase g on a running node. Two sabotages, each caught:
 `contacts-binary-clash-unsaid`, `rpc-contact-change-clash-failed`.
+
+## 1168. A reply part in is resent sooner: the lossy fetch in 8.5 s, 2026-11-14
+
+Sec 1165 left a 960 KB fetch at 20 % loss taking 24.5 to 31.5 s. Pieces
+from every try of a span combine in one reassembly slot (the server
+answers each resend from its kept reply), so what decides whether a span
+arrives whole is how many tries fit in its 3 s wait -- not how much is
+in flight (sec 1164). Measured in a copy with every ask resent every
+300 ms, up to 8 times: **8.0 to 8.5 s**.
+
+Done that way everywhere, a link slower than 300 ms would be sent every
+reply again before the first could arrive. So the rule is narrower, and
+has a reason: **a reply with some pieces already in is loss, not delay**
+-- the path answered and its round trip is shorter than the time gone.
+Such an ask is resent `FZN_CALLER_RESEND_PART_MS` (300 ms) after it was
+last sent, up to `FZN_CALLER_RESENDS_PART` (8) times; one with nothing
+back keeps `FZN_CALLER_RESEND_MS` (600 ms) and `FZN_CALLER_RESENDS` (3).
+`fzn_caller_holds_part` asks the caller's reassembly table, through
+`fzn_reasm_plan_want`, whether part of the reply is held;
+`fzn_node_asks_due_in` (sec 1165) uses the same rule, so the loop wakes
+for it.
+
+| 960044 bytes, 20 % loss | fetch time |
+|---|---|
+| sec 1165 | 24.5, 26.0, 31.5 s |
+| 300 ms / 8 for every ask (experiment) | 8.0, 8.5, 8.5 s |
+| this: 300 ms / 8 once part is in | 8.5, 8.5, 8.5 s |
+| no loss | 0.5 s |
+
+`pair_test` 425: a part-held reply told from one with nothing in, and
+each ask due at its own interval. Two sabotages, each caught:
+`asks-part-held-resent-slowly`, `caller-holds-part-never`. Asking for
+only the missing pieces (sec 1164) would now save bandwidth rather than
+time; it is no longer the next step for speed.
