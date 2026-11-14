@@ -15282,9 +15282,9 @@ SABOTAGES = [
 	(
 		"escape-either-case",
 		"node/messages.c",
-		"\tconst char *h = memchr(HEX, c >= 'A' && c <= 'F' ? c + ('a' - 'A') : c, 16u);\n",
-		"\tconst char *h = memchr(HEX, c, 16u);\n",
-		"an escape in upper case is refused as a bad one -- sec 654",
+		"\treturn fzn_hex_digit(c);\n",
+		"\treturn fzn_hex_digit_lower(c);\n",
+		"hex in upper case is refused as a bad one -- secs 654, 1147",
 	),
 	(
 		"scope-floor-honoured",
