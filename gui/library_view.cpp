@@ -8,6 +8,8 @@ extern "C" {
 }
 
 #include <QByteArray>
+#include <QFileDialog>
+#include <QMenu>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -15,6 +17,7 @@ extern "C" {
 #include <QTableWidget>
 #include <QVBoxLayout>
 
+#include <stdlib.h>
 #include <string.h>
 
 /* A ROW'S ITEM carries the file's root, to ask for it by. */
@@ -69,22 +72,86 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
 	m_table->setAccessibleName(tr("The library's files"));
 	m_fetch = new QPushButton(tr("Get the file"), this);
+	m_play_button = new QPushButton(tr("Play"), this);
+	m_share = new QPushButton(tr("Share..."), this);
+	m_save = new QPushButton(tr("Save..."), this);
+	m_verify = new QPushButton(tr("Verify"), this);
+	m_remove = new QPushButton(tr("Remove"), this);
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;
+	row->addWidget(m_play_button);
 	row->addWidget(m_fetch);
 	row->addWidget(m_refresh);
 	row->addStretch(1);
+	/* TWO ROWS MORE, two buttons each: four in one row made the view 360 px,
+	 * past a 320 px cover screen. */
+	auto *more = new QHBoxLayout;
+	more->addWidget(m_share);
+	more->addWidget(m_save);
+	more->addStretch(1);
+	auto *care = new QHBoxLayout;
+	care->addWidget(m_verify);
+	care->addWidget(m_remove);
+	care->addStretch(1);
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_table, 1);
 	col->addLayout(row);
+	col->addLayout(more);
+	col->addLayout(care);
 	col->addWidget(m_status);
 
 	connect(m_table, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select(r); });
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
+	connect(m_play_button, &QPushButton::clicked, [this]() { play(); });
+	connect(m_verify, &QPushButton::clicked, [this]() { verify(); });
+	connect(m_remove, &QPushButton::clicked, [this]() { remove(); });
+	connect(m_save, &QPushButton::clicked, [this]() {
+		const QString path = QFileDialog::getSaveFileName(this, tr("Save the file"), chosen_name());
+		if (!path.isEmpty())
+			save_to(path);
+	});
+	/* SHARE: every contact, each contact and group by name, and each share
+	 * there is to take back. */
+	connect(m_share, &QPushButton::clicked, [this]() {
+		fzn_rpc_peer_list_resp_t peers;
+		fzn_rpc_group_list_resp_t groups;
+		QMenu menu(this);
+		size_t i;
+
+		memset(&peers, 0, sizeof peers);
+		memset(&groups, 0, sizeof groups);
+		menu.addAction(tr("With every contact"))->setData(QString());
+		if (fzn_rpc_peer_list(&m_rpc->c, &peers) == FZN_RPC_OK)
+			for (i = 0; i < peers.count; i++)
+				if (peers.entries[i].state == FZN_RPC_CONTACT_ACTIVE)
+					menu.addAction(tr("With %1").arg(QString::fromUtf8(peers.entries[i].name)))
+					        ->setData(QString::fromUtf8(peers.entries[i].name));
+		if (fzn_rpc_group_list(&m_rpc->c, &groups) == FZN_RPC_OK)
+			for (i = 0; i < groups.count; i++) {
+				const QString g = QStringLiteral("@") + QString::fromUtf8(groups.entries[i].name,
+				                                                          (int)groups.entries[i].name_len);
+				menu.addAction(tr("With %1").arg(g))->setData(g);
+			}
+		free(peers.entries);
+		free(groups.entries);
+		if (!m_shares.isEmpty()) {
+			menu.addSeparator();
+			for (const QString &s : m_shares)
+				menu.addAction(tr("No longer with %1").arg(s))->setData(QStringLiteral("-") + s);
+		}
+		QAction *a = menu.exec(m_share->mapToGlobal(QPoint(0, m_share->height())));
+		if (!a)
+			return;
+		const QString to = a->data().toString();
+		if (to.startsWith(QLatin1Char('-')))
+			unshare(to.mid(1) == tr("every contact") ? QString() : to.mid(1));
+		else
+			share(to);
+	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	select(-1);
 }
@@ -141,6 +208,16 @@ void fzn_library_view::select(int row)
 	/* A FILE ALREADY HERE, or on its way, is not asked for again. */
 	m_fetch->setEnabled(chosen && !m_table->item(row, 0)->data(ROLE_HERE).toBool()
 	                    && !m_table->item(row, 0)->data(ROLE_ARRIVING).toBool());
+	/* WHAT A FILE HERE OFFERS: played while it arrives too; the rest want
+	 * its bytes on this host. */
+	const bool here = chosen && m_table->item(row, 0)->data(ROLE_HERE).toBool();
+	const bool arriving = chosen && m_table->item(row, 0)->data(ROLE_ARRIVING).toBool();
+	m_play_button->setEnabled((here || arriving) && m_play);
+	m_share->setEnabled(here);
+	m_save->setEnabled(here);
+	m_verify->setEnabled(here);
+	m_remove->setEnabled(here);
+	read_shares();
 }
 
 bool fzn_library_view::fetch()
@@ -172,3 +249,146 @@ QStringList fzn_library_view::rows() const
 }
 
 QString fzn_library_view::status() const { return m_status->text(); }
+
+void fzn_library_view::on_play(std::function<void(const QByteArray &, const QString &)> play)
+{
+	m_play = play;
+	select(m_table->currentRow());
+}
+
+QByteArray fzn_library_view::chosen_root() const
+{
+	const int row = m_table->currentRow();
+	return row >= 0 && row < m_table->rowCount() ? m_table->item(row, 0)->data(ROLE_ROOT).toByteArray()
+	                                             : QByteArray();
+}
+
+QString fzn_library_view::chosen_name() const
+{
+	const int row = m_table->currentRow();
+	return row >= 0 && row < m_table->rowCount() ? m_table->item(row, 0)->text() : QString();
+}
+
+static bool chosen_here(const QTableWidget *t)
+{
+	const int row = t->currentRow();
+	return row >= 0 && row < t->rowCount() && t->item(row, 0)->data(ROLE_HERE).toBool();
+}
+
+/* WHOM THE CHOSEN FILE IS SHARED WITH, read when it is chosen. */
+void fzn_library_view::read_shares()
+{
+	fzn_rpc_file_share_t *s = nullptr;
+	size_t room = 0, n = 0, i;
+	const QByteArray root = chosen_root();
+
+	m_shares.clear();
+	if (root.size() != 32 || !chosen_here(m_table)
+	    || fzn_rpc_file_shares(&m_rpc->c, (const uint8_t *)root.constData(), &s, &room, &n) != FZN_RPC_OK) {
+		free(s);
+		return;
+	}
+	for (i = 0; i < n; i++)
+		m_shares << (s[i].kind == FZN_RPC_FILE_SHARE_EVERYONE ? tr("every contact")
+		             : s[i].kind == FZN_RPC_FILE_SHARE_GROUP  ? QStringLiteral("@") + QString::fromUtf8(s[i].name)
+		                                                      : QString::fromUtf8(s[i].name));
+	free(s);
+	if (!m_shares.isEmpty())
+		m_status->setText(tr("Shared with %1.").arg(m_shares.join(QStringLiteral(", "))));
+}
+
+QStringList fzn_library_view::shares() const { return m_shares; }
+
+bool fzn_library_view::play()
+{
+	const int row = m_table->currentRow();
+	const QByteArray root = chosen_root();
+	if (root.size() != 32 || !m_play
+	    || !(m_table->item(row, 0)->data(ROLE_HERE).toBool() || m_table->item(row, 0)->data(ROLE_ARRIVING).toBool()))
+		return false;
+	m_play(root, chosen_name());
+	return true;
+}
+
+bool fzn_library_view::share(const QString &to)
+{
+	const QByteArray root = chosen_root(), who = to.toUtf8();
+	if (root.size() != 32 || !chosen_here(m_table))
+		return false;
+	if (fzn_rpc_file_share(&m_rpc->c, (const uint8_t *)root.constData(), to.isEmpty() ? nullptr : who.constData(), 1)
+	    != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	read_shares();
+	m_status->setText(to.isEmpty() ? tr("%1 is shared with every contact.").arg(chosen_name())
+	                               : tr("%1 is shared with %2.").arg(chosen_name(), to));
+	return true;
+}
+
+bool fzn_library_view::unshare(const QString &to)
+{
+	const QByteArray root = chosen_root(), who = to.toUtf8();
+	if (root.size() != 32 || !chosen_here(m_table))
+		return false;
+	if (fzn_rpc_file_share(&m_rpc->c, (const uint8_t *)root.constData(), to.isEmpty() ? nullptr : who.constData(), 0)
+	    != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	read_shares();
+	m_status->setText(to.isEmpty() ? tr("%1 is no longer shared with every contact.").arg(chosen_name())
+	                               : tr("%1 is no longer shared with %2.").arg(chosen_name(), to));
+	return true;
+}
+
+bool fzn_library_view::save_to(const QString &path)
+{
+	const QByteArray root = chosen_root(), where = path.toUtf8();
+	fzn_rpc_blob_export_resp_t out;
+	if (root.size() != 32 || path.isEmpty() || !chosen_here(m_table))
+		return false;
+	if (fzn_rpc_blob_export(&m_rpc->c, (const uint8_t *)root.constData(), nullptr, where.constData(),
+	                        (size_t)where.size(), &out)
+	    != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_status->setText(tr("Saved %1 to %2.").arg(size_words(out.byte_len), path));
+	return true;
+}
+
+bool fzn_library_view::verify()
+{
+	const QByteArray root = chosen_root();
+	fzn_rpc_blob_scrub_resp_t out;
+	if (root.size() != 32 || !chosen_here(m_table))
+		return false;
+	if (fzn_rpc_blob_scrub(&m_rpc->c, (const uint8_t *)root.constData(), 0, &out) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	/* A BROKEN PIECE IS DROPPED, to be fetched again: said so. */
+	m_status->setText(out.dropped ? tr("%1 pieces checked; %2 broken, dropped to be fetched again.")
+	                                        .arg(out.checked)
+	                                        .arg(out.dropped)
+	                              : tr("%1 pieces checked, every one whole.").arg(out.checked));
+	return true;
+}
+
+bool fzn_library_view::remove()
+{
+	const QByteArray root = chosen_root();
+	const QString name = chosen_name();
+	if (root.size() != 32 || !chosen_here(m_table))
+		return false;
+	if (fzn_rpc_file_remove(&m_rpc->c, (const uint8_t *)root.constData()) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	refresh();
+	/* OTHER DEVICES' COPIES STAY, so it can be fetched again from one. */
+	m_status->setText(tr("%1 is removed from this device.").arg(name));
+	return true;
+}
+

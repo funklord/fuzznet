@@ -16656,6 +16656,27 @@ SABOTAGES = [
 		"a binary listing of conversations cut before its STATUS is read as whole -- sec 1155",
 	),
 	(
+		"library-view-plays-a-file-elsewhere",
+		"gui/library_view.cpp",
+		"\t    || !(m_table->item(row, 0)->data(ROLE_HERE).toBool() || m_table->item(row, 0)->data(ROLE_ARRIVING).toBool()))\n",
+		"\t    || 0)\n",
+		"a file held only on another host is handed to the player, which has nothing to play -- sec 1156",
+	),
+	(
+		"library-view-unshare-shares",
+		"gui/library_view.cpp",
+		"\tif (fzn_rpc_file_share(&m_rpc->c, (const uint8_t *)root.constData(), to.isEmpty() ? nullptr : who.constData(), 0)\n",
+		"\tif (fzn_rpc_file_share(&m_rpc->c, (const uint8_t *)root.constData(), to.isEmpty() ? nullptr : who.constData(), 1)\n",
+		"taking a share back shares the file again -- sec 1156",
+	),
+	(
+		"library-view-broken-unsaid",
+		"gui/library_view.cpp",
+		"\tm_status->setText(out.dropped ? tr(\"%1 pieces checked; %2 broken, dropped to be fetched again.\")\n",
+		"\tm_status->setText(0 ? tr(\"%1 pieces checked; %2 broken, dropped to be fetched again.\")\n",
+		"a verified file's broken pieces are said as every one whole -- sec 1156",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

@@ -88673,3 +88673,38 @@ braced, is moved onto it and caught.
 
 **Next:** paging a conversation (`list message WHO`) and sending (`add
 message`), then contacts.
+
+## 1156. What a person does on a file, on the library view, 2026-11-14
+
+**fuzzypickles' library page** (inbox 20261114T0128Z, sec 1153) does
+more than `library_view` did, and its page goes when ours covers it.
+`gui/library_view` now offers, on a file held here:
+- **Play**, through the host's player (`on_play`, given the root and the
+  file's name), on a file here or still arriving. Playback is snurra's,
+  the library the holder names the others link; a hook keeps fuzznet's
+  view from linking a player, as a call's media is the host's (sec
+  1142).
+- **Share...**, with every contact, a contact or a group, the choices
+  read from the contact and group listings; the shares already made are
+  shown when a file is chosen and offered to take back
+  (`fzn_rpc_file_share`, `_shares`, secs 493, 1016).
+- **Save...**, the file exported where the person says
+  (`fzn_rpc_blob_export`), and **Verify**, every piece checked at rest,
+  a broken one said as dropped to be fetched again (`fzn_rpc_blob_scrub`).
+- **Remove**, this device's copy (`fzn_rpc_file_remove`), said so:
+  other devices' copies stay, and it can be fetched again from one.
+Each but Play needs the bytes here, and a file held only elsewhere
+offers none of them. The buttons sit in three rows: four in one row
+made the view 360 px, past the 320 px cover screen.
+
+**Not here:** fuzzypickles' "Save the playable part" of a file still
+arriving, as the node exports a file whole.
+
+**Tests:** `library_view_test` gains ten checks: a file held elsewhere
+not played, shared or removed; a file here handed to the player by its
+root and name; shared with every contact, a contact and a group, read
+back, one taken back and said; saved by its reference where asked;
+verified whole and with two broken pieces said; removed by its root and
+said. Sabotage `library-view-plays-a-file-elsewhere`,
+`library-view-unshare-shares` and `library-view-broken-unsaid` are each
+caught. The qtty render check sizes the view at 274 px.
