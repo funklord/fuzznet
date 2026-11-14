@@ -106,6 +106,7 @@
 #include "records.h"
 #include "objects.h"
 #include "objects_binary.h"
+#include "messages_binary.h"
 #include "decisions.h"
 #include "responsible.h"
 #include "siblings.h"
@@ -17900,7 +17901,7 @@ static int local_binary_send_wait(int fd, const uint8_t *msg, size_t len)
 	return 1;
 }
 
-static int objects_put(void *ctx, const uint8_t *msg, size_t len)
+static int local_put(void *ctx, const uint8_t *msg, size_t len)
 {
 	return local_binary_send_wait(*(const int *)ctx, msg, len);
 }
@@ -17930,12 +17931,25 @@ static int local_objects(int fd, fzn_origin_t origin, const fzn_peer_t *peer, co
 		    right == FZN_PERMIT_READ ? "reads" : "changes");
 		may_change = right == FZN_PERMIT_CHANGE;
 	}
-	(void)fzn_node_objects_binary(&node_objects, msg, len, may_change, objects_put, &fd);
+	(void)fzn_node_objects_binary(&node_objects, msg, len, may_change, local_put, &fd);
+	return 0;
+}
+
+/* EVERY CONVERSATION'S NEWEST LINE AND COUNT IN BINARY, sec 1155: the node's
+ * own user's alone, as the text verbs answer them. */
+static int local_messages(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "conversations need this node's own user"), 0;
+	if (!messages_on)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this host keeps no conversations"), 0;
+	(void)fzn_node_messages_binary(&node_messages, msg, len, local_put, &fd);
 	return 0;
 }
 
 /* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary, by its CMD: named
- * objects asked (sec 1152), or a MEDIA_OPEN for a call this host holds, from
+ * objects asked (sec 1152), every conversation's newest line or count
+ * (sec 1155), or a MEDIA_OPEN for a call this host holds, from
  * its own user, which keeps it as the call's channel (sec 1113). */
 static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
                         const uint8_t *msg, size_t len)
@@ -17947,6 +17961,8 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 	(void)ctx;
 	if (len && msg[0] == FZN_CMD_OBJECTS)
 		return local_objects(fd, origin, peer, msg, len);
+	if (len && msg[0] == FZN_CMD_MESSAGES)
+		return local_messages(fd, origin, msg, len);
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "a call's media is its user's"), 0;
 	if (!fzn_live_read_local(msg, len, &w) || w.kind != FZN_LIVE_MEDIA_OPEN)

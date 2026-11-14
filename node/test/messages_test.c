@@ -4,6 +4,7 @@
  * and XChaCha20-Poly1305. */
 
 #include "../messages.h"
+#include "../messages_binary.h"
 #include "../../chain/sign_monocypher.h"
 #include "../../contact/contact.h"
 #include "../../session/aead_monocypher.h"
@@ -11,6 +12,7 @@
 
 #include <monocypher-ed25519.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -613,6 +615,50 @@ static void test_the_verbs(void)
 /* EVERY CONVERSATION'S NEWEST LINE IN ONE REPLY, sec 1136: carol's newest a
  * file, said by its name; bob's a long line, cut to what a list shows; dave
  * with none yet, listed last. Newest first. */
+/* THE ANSWERS A BINARY LISTING WROTE, in order (sec 1155). */
+static struct {
+	uint8_t m[8][FZN_NODE_MESSAGES_BINARY_MAX];
+	size_t len[8], n;
+} bin;
+
+static int bin_put(void *ctx, const uint8_t *msg, size_t len)
+{
+	(void)ctx;
+	if (bin.n == 8u || len > sizeof(bin.m[0]))
+		return 0;
+	memcpy(bin.m[bin.n], msg, len);
+	bin.len[bin.n++] = len;
+	return 1;
+}
+
+static int bin_asked(device_t *d, uint8_t op)
+{
+	const uint8_t req[2] = { 0x0a, op };
+
+	memset(&bin, 0, sizeof(bin));
+	return fzn_node_messages_binary(&d->nm, req, sizeof(req), bin_put, NULL);
+}
+
+/* Answer `i` a newest row for KEY's first byte FIRST, of kind KIND, its time
+ * STIME and its text starting TEXT. */
+static int bin_newest(size_t i, uint8_t first, uint8_t kind, uint64_t stime, const char *text)
+{
+	const uint8_t *m = bin.m[i];
+	uint64_t when = 0;
+	size_t k, at, text_len;
+
+	if (i >= bin.n || bin.len[i] < 2u + 32u + 8u + 3u || m[0] != 0x0a || m[1] != 0x82 || m[2] != first)
+		return 0;
+	for (k = 0; k < 8u; k++)
+		when = (when << 8) | m[34u + k];
+	at = 2u + 32u + 8u + 1u;
+	if (when != stime || m[at] != kind)
+		return 0;
+	at += 1u + 1u + m[at + 1u];
+	text_len = ((size_t)m[at] << 8) | m[at + 1u];
+	return text_len >= strlen(text) && memcmp(m + at + 2u, text, strlen(text)) == 0;
+}
+
 static void test_every_conversations_newest_line(void)
 {
 	static const char REF[] = "fzn:file/"
@@ -658,6 +704,18 @@ static void test_every_conversations_newest_line(void)
 	      "a page from 2 did not start at the third");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message newest x") && replied("malformed"),
 	      "a FROM that is not a number was taken");
+
+	/* THE SAME, IN BINARY, sec 1155: a row each in the same order, the same
+	 * time, kind and text, and then an ok. */
+	CHECK(bin_asked(&A, 0x80) && bin.n == 4u && bin_newest(0, X[0], 2, 30000u, "photo.jpg")
+	              && bin_newest(1, 0x62, 1, 20000u, "aaaa") && bin_newest(2, 0x64, 0, 0u, "")
+	              && bin.len[3] == 3u && bin.m[3][0] == 0x13 && bin.m[3][1] == 0,
+	      "the newest lines in binary were not the text listing's, then an ok");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message unread") && bin_asked(&A, 0x81)
+	              && bin.n >= 1u && (size_t)atoi(reply + 3) == bin.n - 1u && bin.m[bin.n - 1u][0] == 0x13,
+	      "the unread counts in binary were not one a conversation, then an ok");
+	CHECK(bin_asked(&A, 0x99) && bin.n == 1u && bin.m[0][0] == 0x13 && bin.m[0][1] == 2,
+	      "no such listing was not malformed");
 }
 
 static void test_the_verbs_need_the_user(void)

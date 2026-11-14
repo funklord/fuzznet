@@ -464,4 +464,38 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
 size_t fzn_node_messages_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                char *reply, size_t reply_cap);
 
+/* EVERY CONVERSATION'S NEWEST LINE, as `list message newest` says it (sec
+ * 1136), walked whole for the binary listing (sec 1155). KIND none with
+ * STIME 0 for a conversation with no line yet; SENDER a group member who
+ * wrote an incoming line, by this user's contact name or their key's first
+ * eight bytes in hex, else empty; TEXT the most a list shows. SENDER and
+ * TEXT are good only during the call. */
+enum {
+	FZN_NODE_NEWEST_NONE = 0,
+	FZN_NODE_NEWEST_TEXT = 1,
+	FZN_NODE_NEWEST_FILE = 2,
+	FZN_NODE_NEWEST_STICKER = 3,
+	FZN_NODE_NEWEST_SHELL = 4
+};
+typedef struct fzn_node_newest {
+	const uint8_t *key;
+	uint64_t stime_ms;
+	int outgoing;
+	int kind;
+	const char *sender;
+	size_t sender_len;
+	const char *text;
+	size_t text_len;
+} fzn_node_newest_t;
+/* 1 once every conversation was handed to `each`, newest first; 0 when a
+ * list or a line did not read. */
+int fzn_node_messages_newest_each(fzn_node_messages_t *nm,
+                                  void (*each)(void *ctx, const fzn_node_newest_t *line), void *ctx);
+/* EVERY CONVERSATION'S UNREAD COUNT, as `list message unread` says it (sec
+ * 1084): MORE 1 when the count is a floor. 1, or 0 when one did not read. */
+int fzn_node_messages_unread_each(fzn_node_messages_t *nm,
+                                  void (*each)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                                               size_t count, int more),
+                                  void *ctx);
+
 #endif /* FZN_NODE_MESSAGES_H */

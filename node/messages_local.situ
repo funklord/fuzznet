@@ -1,0 +1,70 @@
+// Every conversation's newest line and unread count, asked in binary on the
+// local leg: project.md sec 1155, the second category of sec 1101's staging
+// in the holder's A (sec 1152), the first fuzzypickles named -- what a
+// conversation list asks on every refresh (its inbox 20261114T1030Z).
+//
+// FZN_CMD_MESSAGES (10, wire/cmd.h), its operation the SUBCMD, in the range
+// 128 to 191 kept for the local socket; between hosts the category's SUBCMDs
+// are node/messages.h's, all below it. A request is one message with no
+// body; the answer is a row per conversation and then a STATUS ok, so an
+// ended list is told from a cut connection, or a STATUS refusing it -- each
+// framed as the local leg frames a message (sec 1113).
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	newest      = 128, // every conversation's newest line, newest first (sec 1136)
+	unread      = 129, // every conversation's unread count (sec 1084)
+	newest_row  = 130, // an answer: one conversation's newest line
+	unread_row  = 131, // an answer: one conversation's count
+	default     = error,
+}
+
+// What a newest line is, as `list message newest` says it.
+enum kind : u8 {
+	none    = 0,   // no line yet
+	text    = 1,
+	file    = 2,
+	sticker = 3,
+	shell   = 4,   // its month's key is gone: nothing to show
+	default = error,
+}
+
+struct nothing {
+}
+
+// KEY a contact's root key or a group's id. STIME and OUTGOING 0 with kind
+// none. SENDER a group member who wrote an incoming line, by this user's
+// contact name or the first eight bytes of their key in hex, else empty;
+// TEXT the most a list shows of it.
+struct newest_row {
+	u8   key[32];
+	u64  stime_ms;
+	u8   outgoing [max = 1];
+	kind kind;
+	u8   sender_len [max = 64];
+	u8   sender[sender_len];
+	u16  text_len [max = 1024];
+	u8   text[text_len];
+}
+
+// MORE 1 when the count is a floor.
+struct unread_row {
+	u8   key[32];
+	u32  count;
+	u8   more [max = 1];
+}
+
+struct message {
+	u8   cmd [must_eq = 10];
+	op   op;
+
+	variant body switch (op) {
+		case op.newest:     nothing    newest;
+		case op.unread:     nothing    unread;
+		case op.newest_row: newest_row newest_row;
+		case op.unread_row: unread_row unread_row;
+		default: error;
+	}
+}

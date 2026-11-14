@@ -164,6 +164,7 @@
 #include <fuzznet/node/responsible.h>
 #include <fuzznet/messages/messages.h>
 #include <fuzznet/node/messages.h>
+#include <fuzznet/node/messages_binary.h>
 #include <fuzznet/node/apply.h>
 #include <fuzznet/node/settings.h>
 #include <fuzznet/node/siblings.h>
@@ -417,6 +418,7 @@
 #include "node/responsible.h"
 #include "messages/messages.h"
 #include "node/messages.h"
+#include "node/messages_binary.h"
 #include "node/apply.h"
 #include "node/settings.h"
 #include "node/siblings.h"

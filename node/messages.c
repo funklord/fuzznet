@@ -1692,101 +1692,154 @@ static const char *newest_kind(const fzn_message_t *p, const char **text, size_t
  * an `in` line, as `list message` names one, else `-`; KIND `text`, `file`,
  * `sticker` or `shell`; TEXT escaped, the most a list shows of it. Paged by
  * row from FROM. */
-static size_t list_newest(fzn_node_messages_t *nm, size_t from, char *reply, size_t cap)
+/* EVERY CONVERSATION, newest first: its key and its newest line's time, in
+ * newest_rows[0..*rows). What `list message newest` pages through and the
+ * binary listing streams (sec 1155) alike. 0, `*why` said, when a list did
+ * not read. */
+static int newest_gather(fzn_node_messages_t *nm, size_t *rows_out, const char **why)
 {
-	static char items[FZN_REPLY_MAX], detail[FZN_REPLY_MAX];
 	static fzn_message_t newest[1];
-	size_t limit = fzn_reply_ok_room(cap), n = 0, b, rows = 0, r, shown = 0, used = 0, got = 0;
-	int k, more = 0, full = 0;
+	size_t n = 0, b, rows = 0, got = 0;
+	int more = 0;
 	struct newest_walk walk;
 	fzn_group_held_t held = { NULL, 0, 0 };
 
-	if (!conversations_listed(nm, &n))
-		return say(reply, cap, FZN_REPLY_ERROR, "the conversations did not list");
-	/* EVERY CONVERSATION WITH A LINE, by its newest's time. */
+	*rows_out = 0;
+	if (!conversations_listed(nm, &n)) {
+		*why = "the conversations did not list";
+		return 0;
+	}
 	for (b = 0; b < n; b++) {
 		const uint8_t *key = buckets[b].subject;
 
 		if (b > 0 && memcmp(buckets[b - 1u].subject, key, FZN_PUBKEY_LEN) == 0)
 			continue;
 		got = 0;
-		if (fzn_messages_page(&nm->m, key, 0, newest, 1u, &got, &more) != FZN_MESSAGES_OK)
-			return say(reply, cap, FZN_REPLY_ERROR, "a conversation's newest line did not read");
-		if (!newest_add(key, got ? (newest[0].stime ? newest[0].stime : 1u) : 0u, &rows))
-			return say(reply, cap, FZN_REPLY_ERROR, "no room to list the conversations");
+		if (fzn_messages_page(&nm->m, key, 0, newest, 1u, &got, &more) != FZN_MESSAGES_OK) {
+			*why = "a conversation's newest line did not read";
+			return 0;
+		}
+		if (!newest_add(key, got ? (newest[0].stime ? newest[0].stime : 1u) : 0u, &rows)) {
+			*why = "no room to list the conversations";
+			return 0;
+		}
 	}
-	/* AND EVERY CONTACT AND GROUP WITH NONE YET, looked up among those with
-	 * lines, sorted by key for it. */
 	if (rows)
 		qsort(newest_rows, rows, sizeof(*newest_rows), newest_by_key);
 	walk.nm = nm;
 	walk.n = &rows;
 	walk.with_lines = rows;
 	walk.failed = 0;
-	if (fzn_contact_each(nm->m.store, newest_contact, &walk) != FZN_CONTACT_OK || walk.failed)
-		return say(reply, cap, FZN_REPLY_ERROR, "the contacts did not list");
+	if (fzn_contact_each(nm->m.store, newest_contact, &walk) != FZN_CONTACT_OK || walk.failed) {
+		*why = "the contacts did not list";
+		return 0;
+	}
 	if (fzn_group_log_held(nm->m.store, &held) != FZN_GROUP_LOG_OK) {
 		fzn_group_held_free(&held);
-		return say(reply, cap, FZN_REPLY_ERROR, "the groups did not list");
+		*why = "the groups did not list";
+		return 0;
 	}
 	for (b = 0; b < held.n; b++) {
 		if (!newest_has(held.ids[b], walk.with_lines) && !newest_add(held.ids[b], 0, &rows)) {
 			fzn_group_held_free(&held);
-			return say(reply, cap, FZN_REPLY_ERROR, "no room to list the conversations");
+			*why = "no room to list the conversations";
+			return 0;
 		}
 	}
 	fzn_group_held_free(&held);
 	if (rows)
 		qsort(newest_rows, rows, sizeof(*newest_rows), newest_order);
+	*rows_out = rows;
+	return 1;
+}
+
+/* ROW `r` OF newest_gather'S, as a listing says it: its newest line's time,
+ * direction, kind and the most of it a list shows, and a group member who
+ * wrote an incoming one -- by this user's contact for them, else their key's
+ * first eight bytes. The text points into a page read here, good until the
+ * next row is read. 0 when the line did not read. */
+static int newest_line_at(fzn_node_messages_t *nm, size_t r, fzn_node_newest_t *o)
+{
+	static fzn_message_t newest[1];
+	static char sender[FZN_CONTACT_NAME_MAX + 2u * FZN_PUBKEY_LEN + 1u];
+	size_t got = 0;
+	int more = 0;
+	const fzn_message_t *p;
+	const char *kind;
+
+	memset(o, 0, sizeof(*o));
+	o->key = newest_rows[r].key;
+	o->kind = FZN_NODE_NEWEST_NONE;
+	o->text = "";
+	o->sender = sender;
+	if (!newest_rows[r].stime)
+		return 1;
+	if (fzn_messages_page(&nm->m, newest_rows[r].key, 0, newest, 1u, &got, &more) != FZN_MESSAGES_OK
+	    || !got)
+		return 0;
+	p = &newest[0];
+	o->stime_ms = p->stime;
+	o->outgoing = p->direction == FZN_MESSAGE_OUT;
+	kind = newest_kind(p, &o->text, &o->text_len);
+	o->kind = kind[0] == 's' ? (kind[1] == 'h' ? FZN_NODE_NEWEST_SHELL : FZN_NODE_NEWEST_STICKER)
+	          : kind[0] == 'f' ? FZN_NODE_NEWEST_FILE
+	                           : FZN_NODE_NEWEST_TEXT;
+	{
+		const fzn_group_lines_t lines = { nm->m.store, nm->m.hash };
+		uint8_t who[FZN_PUBKEY_LEN];
+		fzn_contact_t c;
+
+		if (p->direction == FZN_MESSAGE_IN
+		    && fzn_group_lines_sender(&lines, p->contact, p->id, who) == FZN_GROUP_LINES_OK) {
+			if (fzn_contact_get(nm->m.store, who, &c) == FZN_CONTACT_OK) {
+				memcpy(sender, c.name, c.name_len);
+				o->sender_len = c.name_len;
+			} else {
+				hex_of(who, 8u, sender);
+				o->sender_len = 16u;
+			}
+		}
+	}
+	return 1;
+}
+
+static const char *const NEWEST_KIND_WORD[] = { "none", "text", "file", "sticker", "shell" };
+
+static size_t list_newest(fzn_node_messages_t *nm, size_t from, char *reply, size_t cap)
+{
+	static char items[FZN_REPLY_MAX], detail[FZN_REPLY_MAX];
+	size_t limit = fzn_reply_ok_room(cap), rows = 0, r, shown = 0, used = 0;
+	int k, full = 0;
+	const char *why = NULL;
+	fzn_node_newest_t l;
+
+	if (!newest_gather(nm, &rows, &why))
+		return say(reply, cap, FZN_REPLY_ERROR, why);
 	for (r = from; r < rows && !full; r++) {
 		char row[2u * FZN_PUBKEY_LEN + 3u * FZN_CONTACT_NAME_MAX + 3u * FZN_ATTACHMENT_NAME_MAX
 		         + 3u * NEWEST_TEXT_MAX + 96u];
-		size_t h = 0, wrote = 0, text_len = 0;
-		const char *kind = "none", *text = "";
-		const fzn_message_t *p = NULL;
+		size_t h = 0, wrote = 0;
 
-		hex_of(newest_rows[r].key, FZN_PUBKEY_LEN, row);
+		if (!newest_line_at(nm, r, &l))
+			return say(reply, cap, FZN_REPLY_ERROR, "a conversation's newest line did not read");
+		hex_of(l.key, FZN_PUBKEY_LEN, row);
 		h = 2u * FZN_PUBKEY_LEN;
-		if (newest_rows[r].stime) {
-			got = 0;
-			if (fzn_messages_page(&nm->m, newest_rows[r].key, 0, newest, 1u, &got, &more)
-			            != FZN_MESSAGES_OK
-			    || !got)
-				return say(reply, cap, FZN_REPLY_ERROR, "a conversation's newest line did not read");
-			p = &newest[0];
-			kind = newest_kind(p, &text, &text_len);
-		}
-		k = snprintf(row + h, sizeof(row) - h, ",%llu,%s,",
-		             (unsigned long long)(p ? p->stime : 0u),
-		             !p ? "-" : p->direction == FZN_MESSAGE_OUT ? "out" : "in");
+		k = snprintf(row + h, sizeof(row) - h, ",%llu,%s,", (unsigned long long)l.stime_ms,
+		             l.kind == FZN_NODE_NEWEST_NONE ? "-" : l.outgoing ? "out" : "in");
 		if (k < 0 || (size_t)k >= sizeof(row) - h)
 			return 0;
 		h += (size_t)k;
-		/* A GROUP MEMBER'S LINE NAMES ITS WRITER, as `list message` does. */
-		{
-			const fzn_group_lines_t lines = { nm->m.store, nm->m.hash };
-			uint8_t sender[FZN_PUBKEY_LEN];
-			fzn_contact_t c;
-
-			if (p && p->direction == FZN_MESSAGE_IN
-			    && fzn_group_lines_sender(&lines, p->contact, p->id, sender)
-			               == FZN_GROUP_LINES_OK) {
-				if (fzn_contact_get(nm->m.store, sender, &c) == FZN_CONTACT_OK) {
-					memcpy(row + h, c.name, c.name_len);
-					h += c.name_len;
-				} else {
-					hex_of(sender, 8u, row + h);
-					h += 16u;
-				}
-			} else {
-				row[h++] = '-';
-			}
+		if (l.sender_len) {
+			memcpy(row + h, l.sender, l.sender_len);
+			h += l.sender_len;
+		} else {
+			row[h++] = '-';
 		}
-		k = snprintf(row + h, sizeof(row) - h, ",%s,", kind);
+		k = snprintf(row + h, sizeof(row) - h, ",%s,", NEWEST_KIND_WORD[l.kind]);
 		if (k < 0 || (size_t)k >= sizeof(row) - h)
 			return 0;
 		h += (size_t)k;
-		if (escape((const uint8_t *)text, text_len, row + h, sizeof(row) - h, &wrote) < text_len)
+		if (escape((const uint8_t *)l.text, l.text_len, row + h, sizeof(row) - h, &wrote) < l.text_len)
 			return 0;
 		h += wrote;
 		/* A ROW GOES IN WHOLE, room left for the head `TOTAL FROM SHOWN`. */
@@ -1804,6 +1857,46 @@ static size_t list_newest(fzn_node_messages_t *nm, size_t from, char *reply, siz
 		return 0;
 	memcpy(detail + k, items, used);
 	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k + used);
+}
+
+int fzn_node_messages_newest_each(fzn_node_messages_t *nm,
+                                  void (*each)(void *ctx, const fzn_node_newest_t *line), void *ctx)
+{
+	size_t rows = 0, r;
+	const char *why = NULL;
+	fzn_node_newest_t l;
+
+	if (!nm || !each || !newest_gather(nm, &rows, &why))
+		return 0;
+	for (r = 0; r < rows; r++) {
+		if (!newest_line_at(nm, r, &l))
+			return 0;
+		each(ctx, &l);
+	}
+	return 1;
+}
+
+int fzn_node_messages_unread_each(fzn_node_messages_t *nm,
+                                  void (*each)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                                               size_t count, int more),
+                                  void *ctx)
+{
+	size_t n = 0, b;
+
+	if (!nm || !each || !conversations_listed(nm, &n))
+		return 0;
+	for (b = 0; b < n; b++) {
+		const uint8_t *contact = buckets[b].subject;
+		size_t count = 0;
+		int more = 0;
+
+		if (b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)
+			continue;
+		if (fzn_messages_unread(&nm->m, contact, &count, &more) != FZN_MESSAGES_OK)
+			return 0;
+		each(ctx, contact, count, more);
+	}
+	return 1;
 }
 
 static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,

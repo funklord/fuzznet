@@ -234,12 +234,14 @@ LEAN_SERVICES := FZN_STICKERS=0 FZN_CATALOG=0 FZN_NOTES=0 FZN_GROUPS=0
 # somebody else's emitter.
 GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/call.c wire/generated/status.c \
-             wire/generated/address.c wire/generated/objects.c wire/generated/situ.c
+             wire/generated/address.c wire/generated/objects.c \
+             wire/generated/messages_local.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
 GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
-                 wire/generated/address_vectors.c wire/generated/objects_vectors.c
+                 wire/generated/address_vectors.c wire/generated/objects_vectors.c \
+                 wire/generated/messages_local_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -254,7 +256,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
-             messages/line.c messages/attachment.c messages/messages.c node/messages.c \
+             messages/line.c messages/attachment.c messages/messages.c node/messages.c node/messages_binary.c \
              node/file_holds.c node/attachments.c node/records.c node/objects.c node/objects_binary.c node/decisions.c node/invite.c node/presets.c node/votes.c local/client_config.c node/responsible.c \
              contact/contact.c \
              log/rules.c \
@@ -359,7 +361,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
-             messages/line.h messages/attachment.h messages/messages.h node/messages.h \
+             messages/line.h messages/attachment.h messages/messages.h node/messages.h node/messages_binary.h \
              node/file_holds.h node/attachments.h node/records.h node/objects.h node/objects_binary.h node/decisions.h node/invite.h node/presets.h node/votes.h local/client_config.h node/responsible.h \
              contact/contact.h \
              log/rules.h \
@@ -686,6 +688,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/status_vectors \
              $(BUILD_DIR)/wire/test/address_vectors \
              $(BUILD_DIR)/wire/test/objects_vectors \
+             $(BUILD_DIR)/wire/test/messages_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
              $(BUILD_DIR)/node/test/rate_test \
              $(BUILD_DIR)/node/test/metric_test \
@@ -3575,7 +3578,8 @@ RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
             $(BUILD_DIR)/node/live.o $(BUILD_DIR)/wire/generated/call.o \
             $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/wire/status.o \
             $(BUILD_DIR)/wire/generated/status.o \
-            $(BUILD_DIR)/local/rpc_binary.o $(BUILD_DIR)/wire/generated/objects.o
+            $(BUILD_DIR)/local/rpc_binary.o $(BUILD_DIR)/wire/generated/objects.o \
+            $(BUILD_DIR)/wire/generated/messages_local.o
 $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                                   $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
@@ -4312,6 +4316,13 @@ $(BUILD_DIR)/wire/test/address_vectors: wire/generated/address_vectors.c \
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# EVERY CONVERSATION'S NEWEST LINE AND COUNT ON THE LOCAL LEG, sec 1155.
+$(BUILD_DIR)/wire/test/messages_local_vectors: wire/generated/messages_local_vectors.c \
+                                           wire/generated/messages_local.c wire/generated/situ.c \
+                                           $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # NAMED OBJECTS ON THE LOCAL LEG HELD TO THEIR GOLDEN VECTORS, sec 1152.
 $(BUILD_DIR)/wire/test/objects_vectors: wire/generated/objects_vectors.c \
                                            wire/generated/objects.c wire/generated/situ.c \
@@ -4796,6 +4807,9 @@ $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_te
 # between three devices, a hub among them.
 $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
+                                  $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/wire/generated/messages_local.o \
+                                  $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/wire/generated/status.o \
+                                  $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/messages/messages.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o \
@@ -5117,7 +5131,8 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/node/reconcile.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
-              $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o \
+              $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/messages_binary.o \
+              $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
               $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o $(BUILD_DIR)/node/objects_binary.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/node/presets.o $(BUILD_DIR)/node/votes.o $(BUILD_DIR)/node/responsible.o \
@@ -7185,7 +7200,8 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
               node/heard.situ node/routing.situ node/contact_devices.situ \
               node/contact_card.situ node/contact_request.situ node/group_act.situ \
-              node/group_line.situ location/fix.situ sticker/pack.situ node/objects.situ
+              node/group_line.situ location/fix.situ sticker/pack.situ node/objects.situ \
+              node/messages_local.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -7879,6 +7895,11 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/address.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_address \
 	         --out $(BUILD_DIR)/.gen.new node/address.situ node/address.vectors >/dev/null 2>&1
+	@# AND EVERY CONVERSATION'S NEWEST LINE AND COUNT ON THE LOCAL LEG, sec 1155.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_messages_local --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/messages_local.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_messages_local \
+	         --out $(BUILD_DIR)/.gen.new node/messages_local.situ node/messages_local.vectors >/dev/null 2>&1
 	@# AND NAMED OBJECTS ON THE LOCAL LEG, sec 1152.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_objects --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/objects.situ >/dev/null 2>&1
@@ -7889,7 +7910,9 @@ schema:
 	          status_vectors.c \
 	          address.c address.h address_edit.h address_build.h \
 	          address_vectors.c \
-	          objects.c objects.h objects_edit.h objects_build.h objects_vectors.c; do \
+	          objects.c objects.h objects_edit.h objects_build.h objects_vectors.c \
+	          messages_local.c messages_local.h messages_local_edit.h messages_local_build.h \
+	          messages_local_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \

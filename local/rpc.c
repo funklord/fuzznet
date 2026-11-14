@@ -34,6 +34,8 @@
 #include "../wire/status.h"
 #include "../wire/generated/objects.h"
 #include "../wire/generated/objects_build.h"
+#include "../wire/generated/messages_local.h"
+#include "../wire/generated/messages_local_build.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -1046,8 +1048,8 @@ int fzn_rpc_message_unread(fzn_rpc_t *c, const char *peer, size_t peer_len, size
 }
 
 static int node_unescape(const char *in, size_t n, char *out, size_t cap, size_t *len, int *cut);
-int fzn_rpc_newest_all(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap, size_t *count,
-                       size_t *total) {
+static int newest_all_text(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap, size_t *count,
+                           size_t *total) {
 	*count = 0;
 	*total = 0;
 	size_t from = 0;
@@ -1109,8 +1111,8 @@ int fzn_rpc_newest_all(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap, si
 	return unreadable(c);
 }
 
-int fzn_rpc_unread_all(fzn_rpc_t *c, fzn_rpc_unread_entry_t *out, size_t cap, size_t *count,
-                        size_t *total) {
+static int unread_all_text(fzn_rpc_t *c, fzn_rpc_unread_entry_t *out, size_t cap, size_t *count,
+                           size_t *total) {
 	*count = 0;
 	*total = 0;
 	size_t from = 0;
@@ -7123,5 +7125,135 @@ int fzn_rpc_object_list(fzn_rpc_t *c, fzn_rpc_object_list_resp_t *out) {
 	/* A LIST ENDS WITH ITS STATUS: one that stopped before it is not whole. */
 	if (rc == FZN_RPC_OK && !a.status_seen) return unreadable(c);
 	return rc;
+}
+
+/*
+ * EVERY CONVERSATION'S NEWEST LINE AND COUNT IN BINARY, fuzznet sec 1155:
+ * FZN_CMD_MESSAGES with `newest` or `unread`, a row each and a STATUS ok back
+ * -- what a conversation list asks on every refresh. The text verbs above are
+ * kept where the node or this client speaks text alone for it.
+ */
+struct conversations_answer {
+	fzn_rpc_newest_entry_t *newest;
+	fzn_rpc_unread_entry_t *unread;
+	size_t cap, *count, *total;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void conversations_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct conversations_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (!fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_messages_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_messages_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	(*a->total)++;
+	if (a->newest && fzn_messages_local_message_op_get(v) == FZN_MESSAGES_LOCAL_OP_NEWEST_ROW
+	    && fzn_messages_local_message_body_newest_row_view(v, &b) == SITU_OK) {
+		if (*a->count == a->cap) return;
+		fzn_rpc_newest_entry_t *e = &a->newest[*a->count];
+		memset(e, 0, sizeof *e);
+		memcpy(e->key, fzn_messages_local_newest_row_key_ptr(b), 32);
+		e->stime_ms = fzn_messages_local_newest_row_stime_ms_get(b);
+		e->outgoing = fzn_messages_local_newest_row_outgoing_get(b);
+		e->kind = (uint8_t)fzn_messages_local_newest_row_kind_get(b);
+		e->sender_len = fzn_messages_local_newest_row_sender_len(b);
+		e->text_len = fzn_messages_local_newest_row_text_len(b);
+		if (e->sender_len > FZN_RPC_PEER_NAME_MAX) e->sender_len = FZN_RPC_PEER_NAME_MAX;
+		if (e->text_len > FZN_RPC_NEWEST_TEXT_MAX) e->text_len = FZN_RPC_NEWEST_TEXT_MAX;
+		memcpy(e->sender, fzn_messages_local_newest_row_sender_ptr(b), e->sender_len);
+		memcpy(e->text, fzn_messages_local_newest_row_text_ptr(b), e->text_len);
+		(*a->count)++;
+	} else if (a->unread && fzn_messages_local_message_op_get(v) == FZN_MESSAGES_LOCAL_OP_UNREAD_ROW
+	           && fzn_messages_local_message_body_unread_row_view(v, &b) == SITU_OK) {
+		if (*a->count == a->cap) return;
+		fzn_rpc_unread_entry_t *e = &a->unread[*a->count];
+		memset(e, 0, sizeof *e);
+		memcpy(e->key, fzn_messages_local_unread_row_key_ptr(b), 32);
+		e->count = fzn_messages_local_unread_row_count_get(b);
+		e->more = fzn_messages_local_unread_row_more_get(b);
+		(*a->count)++;
+	} else {
+		a->bad = 1;
+	}
+}
+
+/* The listing asked in binary; FZN_RPC_OK with *text 1 for the verb to be used. */
+static int conversations_ask(fzn_rpc_t *c, uint8_t op, struct conversations_answer *a, int *text) {
+	uint8_t req[8];
+	uint32_t n = 0;
+	const situ_err_t built = op == FZN_MESSAGES_LOCAL_OP_NEWEST
+	                                 ? fzn_messages_local_message_build_newest(req, sizeof req, (uint8_t)FZN_CMD_MESSAGES,
+	                                                                           NULL, 0, &n)
+	                                 : fzn_messages_local_message_build_unread(req, sizeof req, (uint8_t)FZN_CMD_MESSAGES,
+	                                                                           NULL, 0, &n);
+	if (built != SITU_OK) {
+		*text = 1;
+		return FZN_RPC_OK;
+	}
+	const int rc = fzn_rpc_binary(c, req, n, conversations_each, a, text);
+	if (rc != FZN_RPC_OK || *text) return rc;
+	if (a->bad) return unreadable(c);
+	/* A LISTING ENDS WITH ITS STATUS: one that stopped before it is not whole. */
+	if (!a->status_seen) return unreadable(c);
+	if (a->code != FZN_STATUS_OK)
+		return fail(c, a->code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED
+		               : a->code == FZN_STATUS_UNSUPPORTED ? FZN_RPC_ERR_UNKNOWN_MSG_TYPE
+		                                                   : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_newest_all(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap, size_t *count,
+                       size_t *total) {
+	struct conversations_answer a;
+	int text = 0, rc;
+	*count = 0;
+	*total = 0;
+	memset(&a, 0, sizeof a);
+	a.newest = out;
+	a.cap = cap;
+	a.count = count;
+	a.total = total;
+	rc = conversations_ask(c, FZN_MESSAGES_LOCAL_OP_NEWEST, &a, &text);
+	if (!text) return rc;
+	*count = 0;
+	*total = 0;
+	return newest_all_text(c, out, cap, count, total);
+}
+
+int fzn_rpc_unread_all(fzn_rpc_t *c, fzn_rpc_unread_entry_t *out, size_t cap, size_t *count,
+                       size_t *total) {
+	struct conversations_answer a;
+	int text = 0, rc;
+	*count = 0;
+	*total = 0;
+	memset(&a, 0, sizeof a);
+	a.unread = out;
+	a.cap = cap;
+	a.count = count;
+	a.total = total;
+	rc = conversations_ask(c, FZN_MESSAGES_LOCAL_OP_UNREAD, &a, &text);
+	if (!text) return rc;
+	*count = 0;
+	*total = 0;
+	return unread_all_text(c, out, cap, count, total);
 }
 

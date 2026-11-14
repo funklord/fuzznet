@@ -88622,3 +88622,54 @@ library", which there is true.
 **Tests:** `rpc_test`, a file the node holds none of read to play, its
 code and words; `err_str_test` walks the new code. Sabotage
 `library-play-not-fetched-as-storage`, the old answer, is caught.
+
+## 1155. Every conversation's newest line and unread count, in binary, 2026-11-14
+
+**fuzzypickles chose the order (inbox 20261114T1030Z, recorded here
+before it is deleted): messages next, then contacts.** Measured from the
+focused app's chat: the conversation list asks `list message newest`
+and `list message unread` on every refresh, a phone on every event and
+on its 2 s poll while in front; the open conversation pages `list
+message`, and each send is `add message`. Calls gain least, their media
+being binary already (sec 1113). After messages, contacts (`list
+contact`, read by the list, the share choosers and the counts). They
+also take sec 1151's renderer: their copy goes, their editor keeping
+`inspect_art`.
+
+**This step is the list's two listings**, the requests made most often.
+- **`node/messages_local.situ`**, with hand-written vectors: under
+  FZN_CMD_MESSAGES (10), whose host SUBCMDs are all below 128, `newest`
+  128 and `unread` 129, answered by `newest_row` 130 (key, time,
+  outgoing, kind, sender, text) and `unread_row` 131 (key, count, more)
+  -- a row per conversation and then a STATUS ok, as objects' list ends.
+- **`node/messages.c` refactored, not changed in what it says**: the
+  gathering of every conversation, newest first, and one row's fields --
+  its line's time and direction, its kind, the most of it a list shows,
+  and a group member who wrote it -- came out of the text listing's
+  printing as `newest_gather` and `newest_line_at`. `list message newest`
+  prints from them as before, `messages_test`'s exact strings holding
+  it, and `fzn_node_messages_newest_each` and `_unread_each` walk the
+  same rows for the binary answer (`node/messages_binary.c`).
+- **The node** answers CMD 10 for its own user alone, as the text verbs
+  do; a host keeping no conversations says UNSUPPORTED. The daemon's
+  waiting sender is shared by both categories now (`local_put`).
+- **The typed client's `fzn_rpc_newest_all` and `fzn_rpc_unread_all`**
+  speak binary and fall back to text as the object calls do. All rows
+  arrive in one answer, so `*total` counts them and `cap` bounds what is
+  kept, as before.
+
+**Tests:** `wire/test/messages_local_vectors`, five golden messages.
+`messages_test` asks the same store in binary and gets the text
+listing's three rows in its order, kinds, times and text, then an ok;
+as many unread rows as the text listing counts; an unknown operation
+malformed. `rpc_test` reads newest rows within a cap while counting
+every row, unread rows, refuses a listing cut before its STATUS, and
+keeps a denial's words. `live_rpc` phase c asks a running node in bytes
+written by hand: as many rows as the text verbs' totals, the probe's
+group among them, then ok. Sabotage `messages-binary-listing-unended`
+and `rpc-conversations-cut-whole` are each caught;
+`messages-newest-without-the-silent`, aimed at a line the refactor
+braced, is moved onto it and caught.
+
+**Next:** paging a conversation (`list message WHO`) and sending (`add
+message`), then contacts.

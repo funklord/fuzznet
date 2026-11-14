@@ -1,0 +1,9 @@
+# Golden vectors for node/messages_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x0A is FZN_CMD_MESSAGES (10); the op is the SUBCMD, 128 (0x80) on.
+
+message newest      0A 80
+message unread      0A 81
+message newest_row  0A 82 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 01 8B CF E5 68 00 00 03 05 63 61 72 6F 6C 00 02 68 69
+message none_row    0A 82 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 00 00 00 00 00 00 00 00 00 00
+message unread_row  0A 83 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 02 01

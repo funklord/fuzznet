@@ -7,6 +7,8 @@
        than by the client: `get` answers the row the text verb reads, and
        `list` a row each then a STATUS ok -- so the probe's object calls are
        known to have a binary node to speak to, not only a text one
+    c  every conversation's newest line and count asked in binary (sec 1155),
+       in bytes written here: as many rows as the text verbs' totals, then ok
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -34,6 +36,7 @@ import live_trim  # noqa: E402
 live_trim.DEADLINE = time.monotonic() + 90.0
 
 OBJECTS = 0x15  # FZN_CMD_OBJECTS, wire/cmd.h
+MESSAGES = 0x0A  # FZN_CMD_MESSAGES
 STATUS = 0x13   # FZN_CMD_STATUS
 
 
@@ -119,6 +122,18 @@ def main(argv):
 				raise failed("b: a binary get of nothing answered %r" % got)
 			print("livecheck: b: in binary, probe_lamp read %s as the text verb does, and a"
 			      " list of %d ended with ok" % (text[1], len(names)))
+
+			# c: the conversation list's two listings, in bytes.
+			for op, verb, row_op in ((0x80, "newest", 0x82), (0x81, "unread", 0x83)):
+				total = int(ask(sock, "list message " + verb).split()[1])
+				got = binary(sock, bytes([MESSAGES, op]))
+				rows = [m for m in got[:-1] if m[:2] == bytes([MESSAGES, row_op])]
+				if not got or got[-1][:2] != bytes([STATUS, 0]) or len(rows) != len(got) - 1 \
+				   or len(rows) != total or (verb == "newest" and total < 1):
+					raise failed("c: %s in binary answered %d message(s) where the text verb"
+					             " counts %d: %r" % (verb, len(got), total, got[:3]))
+			print("livecheck: c: newest and unread in binary, as many rows as the text verbs count"
+			      " (the probe's group among them)")
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

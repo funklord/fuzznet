@@ -1,0 +1,53 @@
+# situ wire signature v3
+# schema: messages_local.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum op : u8 unknown=error
+  newest=128 unread=129 newest_row=130 unread_row=131
+
+enum kind : u8 unknown=error
+  none=0 text=1 file=2 sticker=3 shell=4
+
+struct message size=2..1135
+  @0x0000   1         u8         cmd  must_eq=10
+  @0x0001   1         op         op
+  @0x0002   0..1133   variant    body
+  body switch: op
+  body case 128: newest nothing
+  body case 129: unread nothing
+  body case 130: newest_row newest_row
+  body case 131: unread_row unread_row
+  body case default: error
+
+struct newest_row size=45..1133
+  @0x0000   32        u8         key  big
+  @0x0020   8         u64        stime_ms  big
+  @0x0028   1         u8         outgoing  max=1
+  @0x0029   1         kind       kind
+  @0x002a   1         u8         sender_len  max=64
+  @0x002b   0..64     u8         sender  sized-by=sender_len
+  ~         2         u16        text_len  big max=1024
+  ~         0..1024   u8         text  sized-by=text_len
+
+struct nothing size=0
+
+struct unread_row size=37
+  @0x0000   32        u8         key  big
+  @0x0020   4         u32        count  big
+  @0x0024   1         u8         more  max=1

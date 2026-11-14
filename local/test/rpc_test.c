@@ -16,6 +16,7 @@
 #include "../../wire/cmd.h"
 #include "../../wire/status.h"
 #include "../../wire/generated/objects_build.h"
+#include "../../wire/generated/messages_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -670,8 +671,85 @@ static void test_a_file_not_fetched_says_so(void)
 	      "a file none of which is here was not told apart, with what to do");
 }
 
+/* A CONVERSATION'S NEWEST ROW framed onto answer `i`, sec 1155. */
+static void newest_onto(struct bscript *s, size_t i, uint8_t first, uint8_t kind, const char *sender,
+                        const char *text)
+{
+	uint8_t key[32], row[300], m[320];
+	uint32_t row_len = 0, n = 0;
+
+	memset(key, first, sizeof(key));
+	if (fzn_messages_local_newest_row_build(row, sizeof(row), key, 1700000000000ull, 0u,
+	                                        (fzn_messages_local_kind_t)kind, (const uint8_t *)sender,
+	                                        (uint32_t)strlen(sender), (const uint8_t *)text,
+	                                        (uint32_t)strlen(text), &row_len) != SITU_OK
+	    || fzn_messages_local_message_build_newest_row(m, sizeof(m), (uint8_t)FZN_CMD_MESSAGES, row, row_len, &n)
+	               != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+static void unread_onto(struct bscript *s, size_t i, uint8_t first, uint32_t count)
+{
+	uint8_t key[32], row[64], m[80];
+	uint32_t row_len = 0, n = 0;
+
+	memset(key, first, sizeof(key));
+	if (fzn_messages_local_unread_row_build(row, sizeof(row), key, count, 0u, &row_len) != SITU_OK
+	    || fzn_messages_local_message_build_unread_row(m, sizeof(m), (uint8_t)FZN_CMD_MESSAGES, row, row_len, &n)
+	               != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* EVERY CONVERSATION'S NEWEST LINE AND COUNT IN BINARY, sec 1155: asked as
+ * FZN_CMD_MESSAGES newest or unread, a row each read in, the cap honoured
+ * while the total counts every row, a listing cut before its STATUS
+ * refused, and a denial's words kept. */
+static void test_conversations_in_binary(void)
+{
+	static struct bscript newest, unread, cut, denied;
+	static const uint8_t ask_newest[] = { 0x0a, 0x80 }, ask_unread[] = { 0x0a, 0x81 };
+	static fzn_rpc_newest_entry_t n[2];
+	static fzn_rpc_unread_entry_t u[4];
+	size_t count = 0, total = 0;
+
+	newest_onto(&newest, 0, 0xaa, 1, "carol", "see you at 8");
+	newest_onto(&newest, 0, 0xbb, 2, "", "photo.jpg");
+	newest_onto(&newest, 0, 0xcc, 0, "", "");
+	status_onto(&newest, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &newest);
+	CHECK(fzn_rpc_newest_all(&c, n, 2, &count, &total) == FZN_RPC_OK && count == 2 && total == 3
+	              && n[0].key[0] == 0xaa && n[0].kind == FZN_RPC_NEWEST_TEXT && n[0].stime_ms == 1700000000000ull
+	              && strcmp(n[0].sender, "carol") == 0 && strcmp(n[0].text, "see you at 8") == 0
+	              && n[1].kind == FZN_RPC_NEWEST_FILE && strcmp(n[1].text, "photo.jpg") == 0,
+	      "the newest lines were not read in binary, or the cap not honoured with every row counted");
+	CHECK(newest.asked_len[0] == 2 && memcmp(newest.asked[0], ask_newest, 2) == 0,
+	      "the newest lines were not asked in the schema's bytes");
+
+	unread_onto(&unread, 0, 0xaa, 2);
+	unread_onto(&unread, 0, 0xbb, 0);
+	status_onto(&unread, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &unread);
+	CHECK(fzn_rpc_unread_all(&c, u, 4, &count, &total) == FZN_RPC_OK && count == 2 && total == 2
+	              && u[0].key[0] == 0xaa && u[0].count == 2 && u[1].count == 0
+	              && memcmp(unread.asked[0], ask_unread, 2) == 0,
+	      "the unread counts were not read in binary");
+
+	unread_onto(&cut, 0, 0xaa, 2);
+	bon(&c, &cut);
+	CHECK(fzn_rpc_unread_all(&c, u, 4, &count, &total) != FZN_RPC_OK, "a listing cut before its STATUS was read as whole");
+
+	status_onto(&denied, 0, FZN_STATUS_DENIED, "conversations need this node's own user");
+	bon(&c, &denied);
+	CHECK(fzn_rpc_newest_all(&c, n, 2, &count, &total) == FZN_RPC_ERR_NOT_AUTHORIZED
+	              && strcmp(c.error, "conversations need this node's own user") == 0,
+	      "a binary denial of the listing was not mapped, or its words were lost");
+}
+
 int main(void)
 {
+	test_conversations_in_binary();
 	test_a_file_not_fetched_says_so();
 	test_an_empty_library_lists_nothing();
 	test_objects_in_binary();

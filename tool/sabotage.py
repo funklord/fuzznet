@@ -14624,8 +14624,8 @@ SABOTAGES = [
 	(
 		"messages-newest-without-the-silent",
 		"node/messages.c",
-		"\tif (fzn_contact_each(nm->m.store, newest_contact, &walk) != FZN_CONTACT_OK || walk.failed)\n",
-		"\tif (0)\n",
+		"\tif (fzn_contact_each(nm->m.store, newest_contact, &walk) != FZN_CONTACT_OK || walk.failed) {\n",
+		"\tif (0) {\n",
 		"a contact with no line yet is left out of the conversation list -- sec 1136",
 	),
 	(
@@ -16640,6 +16640,20 @@ SABOTAGES = [
 		"\tif (!st.known) return fail(c, FZN_RPC_ERR_NOT_FETCHED, fzn_rpc_err_str(FZN_RPC_ERR_NOT_FETCHED));\n",
 		"\tif (!st.known) return fail(c, FZN_RPC_ERR_STORAGE_IO, \"not in the library\");\n",
 		"a file none of which is here is said to be not in the library, with no word of fetching -- sec 1153",
+	),
+	(
+		"messages-binary-listing-unended",
+		"node/messages_binary.c",
+		"\treturn w.ok && status(put, put_ctx, FZN_STATUS_OK, NULL);\n",
+		"\treturn w.ok;\n",
+		"a binary listing of conversations ends with no STATUS, so a cut one reads as whole -- sec 1155",
+	),
+	(
+		"rpc-conversations-cut-whole",
+		"local/rpc.c",
+		"\tif (!a->status_seen) return unreadable(c);\n",
+		"",
+		"a binary listing of conversations cut before its STATUS is read as whole -- sec 1155",
 	),
 	(
 		"objects-binary-reader-changes",
