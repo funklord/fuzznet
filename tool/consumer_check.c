@@ -153,6 +153,7 @@
 #include <fuzznet/node/attachments.h>
 #include <fuzznet/node/records.h>
 #include <fuzznet/node/objects.h>
+#include <fuzznet/node/objects_binary.h>
 #include <fuzznet/node/decisions.h>
 #include <fuzznet/node/invite.h>
 #include <fuzznet/node/presets.h>
@@ -218,6 +219,7 @@
 #include <fuzznet/local/rpc_compat.h>
 #include <fuzznet/local/rpc_sticker_read.h>
 #include <fuzznet/local/rpc_media.h>
+#include <fuzznet/local/rpc_binary.h>
 #include <fuzznet/net/udp.h>
 #include <fuzznet/net/own_address.h>
 #include <fuzznet/net/bearer.h>
@@ -404,6 +406,7 @@
 #include "node/attachments.h"
 #include "node/records.h"
 #include "node/objects.h"
+#include "node/objects_binary.h"
 #include "node/decisions.h"
 #include "node/invite.h"
 #include "node/presets.h"
@@ -468,6 +471,7 @@
 #include "local/rpc_compat.h"
 #include "local/rpc_sticker_read.h"
 #include "local/rpc_media.h"
+#include "local/rpc_binary.h"
 #include "net/udp.h"
 #include "net/own_address.h"
 #include "net/bearer.h"

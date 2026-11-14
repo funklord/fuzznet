@@ -3,13 +3,19 @@
  * calls, driven through `fzn_rpc_t.answer` so no socket is opened. Each case
  * checks what the call asked and what it made of the answer -- the node's
  * grammar as the client reads it, paging, a refusal's code and words, `ok
- * held`, an answer that does not parse, and nothing answering at all.
+ * held`, an answer that does not parse, and nothing answering at all; and the
+ * named objects' calls in binary (sec 1152) through `binary_answer`, falling
+ * back to text where a node answers that it does not read them.
  */
 #include "../rpc.h"
 #include "../rpc_encoding.h"
 #include "../rpc_err.h"
 #include "../rpc_limits.h"
 #include "../rpc_media.h"
+#include "../rpc_binary.h"
+#include "../../wire/cmd.h"
+#include "../../wire/status.h"
+#include "../../wire/generated/objects_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -494,8 +500,151 @@ static void test_every_newest_line_is_read(void)
 	      "a conversation with no line yet was not read as none");
 }
 
+/* A SCRIPTED BINARY NODE: one answer of framed messages a request, in order,
+ * and the bytes it was asked. */
+struct bscript {
+	uint8_t replies[4][1024];
+	size_t lens[4], n, at;
+	uint8_t asked[4][128];
+	size_t asked_len[4];
+};
+
+static int bscripted(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply, size_t reply_cap,
+                     size_t *reply_len)
+{
+	struct bscript *s = ctx;
+
+	if (s->at >= s->n || s->lens[s->at] > reply_cap)
+		return FZN_RPC_ERR_SEND_FAILED;
+	if (len <= sizeof(s->asked[0])) {
+		memcpy(s->asked[s->at], msg, len);
+		s->asked_len[s->at] = len;
+	}
+	memcpy(reply, s->replies[s->at], s->lens[s->at]);
+	*reply_len = s->lens[s->at++];
+	return FZN_RPC_OK;
+}
+
+/* One message framed onto answer `i`, as the node frames it. */
+static void framed(struct bscript *s, size_t i, const uint8_t *msg, size_t len)
+{
+	s->replies[i][s->lens[i]] = (uint8_t)(len >> 8);
+	s->replies[i][s->lens[i] + 1u] = (uint8_t)len;
+	memcpy(s->replies[i] + s->lens[i] + 2u, msg, len);
+	s->lens[i] += 2u + len;
+	if (s->n < i + 1u)
+		s->n = i + 1u;
+}
+
+static void status_onto(struct bscript *s, size_t i, fzn_status_t code, const char *why)
+{
+	uint8_t m[FZN_STATUS_LEN_MAX];
+
+	framed(s, i, m, fzn_status_write(m, sizeof(m), code, why));
+}
+
+static void row_onto(struct bscript *s, size_t i, const char *name, const char *value)
+{
+	uint8_t row[256], m[300], by[32];
+	uint32_t row_len = 0, n = 0;
+
+	memset(by, 0x11, sizeof(by));
+	if (fzn_objects_row_build(row, sizeof(row), (const uint8_t *)name, (uint32_t)strlen(name),
+	                          (const uint8_t *)value, (uint32_t)strlen(value), 1700000000000ull, by,
+	                          (const uint8_t *)"on|off", 6u, &row_len) != SITU_OK
+	    || fzn_objects_message_build_row(m, sizeof(m), (uint8_t)FZN_CMD_OBJECTS, row, row_len, &n) != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+static void bon(fzn_rpc_t *client, struct bscript *s)
+{
+	fzn_rpc_init(client);
+	client->binary_answer = bscripted;
+	client->binary_ctx = s;
+}
+
+/* NAMED OBJECTS IN BINARY, sec 1152: asked in the schema's bytes, rows and a
+ * STATUS read back, a list known whole by its closing STATUS, and a node
+ * answering a binary request malformed asked again in text. */
+static void test_objects_in_binary(void)
+{
+	static struct bscript get, list, cut, set, denied, add;
+	static const uint8_t get_lamp[] = { 0x15, 0x82, 4, 'l', 'a', 'm', 'p' };
+	static const uint8_t set_lamp_on[] = { 0x15, 0x81, 4, 'l', 'a', 'm', 'p', 2, 'o', 'n' };
+	static const uint8_t add_lamp[] = { 0x15, 0x80, 4, 'l', 'a', 'm', 'p', 6, 'o', 'n', '|', 'o', 'f', 'f' };
+	static const uint8_t add_dial[] = { 0x15, 0x80, 4, 'd', 'i', 'a', 'l', 1, '*' };
+	static fzn_rpc_object_list_resp_t l;
+	fzn_rpc_object_t o;
+	int found = 0;
+
+	row_onto(&get, 0, "lamp", "on");
+	status_onto(&get, 1, FZN_STATUS_OK, NULL);
+	bon(&c, &get);
+	CHECK(fzn_rpc_object_get(&c, "lamp", &o, &found) == FZN_RPC_OK && found && strcmp(o.value, "on") == 0
+	              && o.at_ms == 1700000000000ull && strncmp(o.by, "1111", 4) == 0 && strlen(o.by) == 64
+	              && strcmp(o.allowed, "on|off") == 0,
+	      "an object's row was not read in binary");
+	CHECK(get.asked_len[0] == sizeof(get_lamp) && memcmp(get.asked[0], get_lamp, sizeof(get_lamp)) == 0,
+	      "a get was not asked in the schema's bytes");
+	CHECK(fzn_rpc_object_get(&c, "door", &o, &found) == FZN_RPC_OK && !found,
+	      "no row and an ok was not read as no such object");
+
+	row_onto(&list, 0, "lamp", "on");
+	row_onto(&list, 0, "fan", "off");
+	status_onto(&list, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &list);
+	CHECK(fzn_rpc_object_list(&c, &l) == FZN_RPC_OK && l.count == 2 && strcmp(l.entries[1].name, "fan") == 0,
+	      "a list of two rows and its ok was not read");
+	row_onto(&cut, 0, "lamp", "on");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_object_list(&c, &l) != FZN_RPC_OK, "a list with no closing STATUS was read as whole");
+
+	status_onto(&set, 0, FZN_STATUS_OK, "held");
+	bon(&c, &set);
+	CHECK(fzn_rpc_object_set(&c, "lamp", "on") == FZN_RPC_OK && c.held, "a held set in binary was not said held");
+	CHECK(set.asked_len[0] == sizeof(set_lamp_on)
+	              && memcmp(set.asked[0], set_lamp_on, sizeof(set_lamp_on)) == 0,
+	      "a set was not asked in the schema's bytes");
+
+	status_onto(&denied, 0, FZN_STATUS_DENIED, "only read is granted on objects");
+	bon(&c, &denied);
+	CHECK(fzn_rpc_object_remove(&c, "lamp") == FZN_RPC_ERR_NOT_AUTHORIZED
+	              && strcmp(c.error, "only read is granted on objects") == 0,
+	      "a binary denial was not mapped, or its words were lost");
+
+	status_onto(&add, 0, FZN_STATUS_OK, NULL);
+	status_onto(&add, 1, FZN_STATUS_OK, NULL);
+	bon(&c, &add);
+	CHECK(fzn_rpc_object_add(&c, "lamp", "on off") == FZN_RPC_OK && fzn_rpc_object_add(&c, "dial", "") == FZN_RPC_OK
+	              && memcmp(add.asked[0], add_lamp, sizeof(add_lamp)) == 0
+	              && memcmp(add.asked[1], add_dial, sizeof(add_dial)) == 0,
+	      "an add's words were not joined as the node keeps them, or none as *");
+	l.count = 0;
+}
+
+/* A NODE FROM BEFORE THE CATEGORY answers any binary request but a channel's
+ * with a STATUS malformed: the call is asked again in text. */
+static void test_a_node_that_reads_no_binary_is_asked_in_text(void)
+{
+	static struct bscript old;
+	struct script s = { { "ok on 1700000000000 " ID_A " on|off" }, 0, 1, 0, { { 0 } } };
+	fzn_rpc_object_t o;
+	int found = 0;
+
+	status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a channel's asking");
+	on(&c, &s);
+	c.binary_answer = bscripted;
+	c.binary_ctx = &old;
+	CHECK(fzn_rpc_object_get(&c, "lamp", &o, &found) == FZN_RPC_OK && found && strcmp(o.value, "on") == 0
+	              && strcmp(s.asked[0], "get object lamp") == 0,
+	      "a node reading no binary was not asked in text");
+}
+
 int main(void)
 {
+	test_objects_in_binary();
+	test_a_node_that_reads_no_binary_is_asked_in_text();
 	test_groups_are_read_across_pages();
 	test_a_group_row_that_does_not_parse_is_unreadable();
 	test_every_unread_count_is_read();

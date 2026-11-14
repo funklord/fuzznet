@@ -28,6 +28,12 @@
 #include "../messages/attachment.h"
 #include "../node/contact_card.h"
 #include "../sticker/pack.h"
+#include "rpc_binary.h"
+#include "../hex/hex.h"
+#include "../wire/cmd.h"
+#include "../wire/status.h"
+#include "../wire/generated/objects.h"
+#include "../wire/generated/objects_build.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -4789,7 +4795,7 @@ static const char *object_field(const char *p, const char *end, char *out, size_
 	return stop < end ? stop + 1 : NULL;
 }
 
-int fzn_rpc_object_add(fzn_rpc_t *c, const char *name, const char *values) {
+static int object_add_text(fzn_rpc_t *c, const char *name, const char *values) {
 	char arg[FZN_REQUEST_MAX];
 	const int n = snprintf(arg, sizeof arg, "object %s%s%s", name, values && *values ? " " : "",
 	                       values ? values : "");
@@ -4797,14 +4803,14 @@ int fzn_rpc_object_add(fzn_rpc_t *c, const char *name, const char *values) {
 	return node_ack(c, "add", arg, n);
 }
 
-int fzn_rpc_object_set(fzn_rpc_t *c, const char *name, const char *value) {
+static int object_set_text(fzn_rpc_t *c, const char *name, const char *value) {
 	char arg[FZN_REQUEST_MAX];
 	const int n = snprintf(arg, sizeof arg, "object %s %s", name, value);
 	if (n < 0 || (size_t)n >= sizeof arg) return encode_failed(c);
 	return node_ack(c, "set", arg, n);
 }
 
-int fzn_rpc_object_remove(fzn_rpc_t *c, const char *name) {
+static int object_remove_text(fzn_rpc_t *c, const char *name) {
 	char arg[FZN_REQUEST_MAX];
 	const int n = snprintf(arg, sizeof arg, "object %s", name);
 	if (n < 0 || (size_t)n >= sizeof arg) return encode_failed(c);
@@ -4812,7 +4818,7 @@ int fzn_rpc_object_remove(fzn_rpc_t *c, const char *name) {
 }
 
 /* `get object NAME`: `VALUE AT BY ALLOWED`, or `absent`. */
-int fzn_rpc_object_get(fzn_rpc_t *c, const char *name, fzn_rpc_object_t *out, int *found) {
+static int object_get_text(fzn_rpc_t *c, const char *name, fzn_rpc_object_t *out, int *found) {
 	char arg[FZN_REQUEST_MAX];
 	const char *rest = NULL;
 	size_t rest_len = 0;
@@ -4884,7 +4890,7 @@ const char *fzn_rpc_sync_load_advice(const fzn_rpc_sync_load_t *v) {
 	             "is shared with it";
 }
 
-int fzn_rpc_object_list(fzn_rpc_t *c, fzn_rpc_object_list_resp_t *out) {
+static int object_list_text(fzn_rpc_t *c, fzn_rpc_object_list_resp_t *out) {
 	out->count = 0;
 	size_t from = 0;
 	for (;;) {
@@ -6913,3 +6919,204 @@ void fzn_rpc_node_events_close(fzn_rpc_node_events_t *ev) {
 	ev->fd = -1;
 	ev->len = 0;
 }
+
+/*
+ * NAMED OBJECTS IN BINARY ON THE LOCAL LEG, fuzznet sec 1152 (sec 1101's A,
+ * its pilot): each call asks FZN_CMD_OBJECTS with its operation and reads
+ * the STATUS or rows back, the text verb above kept where the node or this
+ * client speaks text alone for it (local/rpc_binary.h).
+ */
+struct objects_answer {
+	fzn_rpc_t *c;
+	fzn_rpc_object_t *one;              /* get's, or NULL */
+	fzn_rpc_object_list_resp_t *list;   /* list's, or NULL */
+	int rows, bad, status_seen, room_failed;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static int object_row_into(fzn_rpc_object_t *o, situ_view_t b) {
+	static const uint8_t none[32];
+	memset(o, 0, sizeof *o);
+	if (fzn_objects_row_name_len(b) > FZN_RPC_OBJECT_NAME_MAX
+	    || fzn_objects_row_value_len(b) > FZN_RPC_OBJECT_VALUE_MAX
+	    || fzn_objects_row_allowed_len(b) >= sizeof o->allowed)
+		return 0;
+	memcpy(o->name, fzn_objects_row_name_ptr(b), fzn_objects_row_name_len(b));
+	memcpy(o->value, fzn_objects_row_value_ptr(b), fzn_objects_row_value_len(b));
+	memcpy(o->allowed, fzn_objects_row_allowed_ptr(b), fzn_objects_row_allowed_len(b));
+	o->at_ms = fzn_objects_row_at_ms_get(b);
+	/* BY EMPTY while none was set, as the text verbs say `-`. */
+	if (memcmp(fzn_objects_row_by_ptr(b), none, 32) != 0) fzn_hex_encode(fzn_objects_row_by_ptr(b), 32, o->by);
+	return 1;
+}
+
+static void objects_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct objects_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (!fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_objects_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_objects_message_validate(v) != SITU_OK || fzn_objects_message_op_get(v) != FZN_OBJECTS_OP_ROW
+	    || fzn_objects_message_body_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (a->list) {
+		if (room_for(a->c, &a->list->entries, &a->list->room, a->list->count + 1,
+		             sizeof *a->list->entries) != FZN_RPC_OK) {
+			a->room_failed = 1;
+			a->bad = 1;
+			return;
+		}
+		if (!object_row_into(&a->list->entries[a->list->count], b)) {
+			a->bad = 1;
+			return;
+		}
+		a->list->count++;
+	} else if (!a->one || a->rows || !object_row_into(a->one, b)) {
+		a->bad = 1;
+		return;
+	}
+	a->rows++;
+}
+
+/* The request asked; FZN_RPC_OK with *text 1 for the verb to be used. */
+static int objects_ask(fzn_rpc_t *c, const uint8_t *req, size_t len, struct objects_answer *a, int *text) {
+	a->c = c;
+	const int rc = fzn_rpc_binary(c, req, len, objects_each, a, text);
+	if (rc != FZN_RPC_OK || *text) return rc;
+	if (a->room_failed) return c->error_code;
+	if (a->bad) return unreadable(c);
+	if (!a->status_seen && !a->rows) return unreadable(c);
+	if (a->status_seen && a->code != FZN_STATUS_OK) {
+		const int code = a->code == FZN_STATUS_DENIED          ? FZN_RPC_ERR_NOT_AUTHORIZED
+		                 : a->code == FZN_STATUS_MALFORMED     ? FZN_RPC_ERR_MALFORMED
+		                 : a->code == FZN_STATUS_UNSUPPORTED   ? FZN_RPC_ERR_UNKNOWN_MSG_TYPE
+		                                                       : FZN_RPC_ERR_STORAGE_IO;
+		return fail(c, code, a->why[0] ? a->why : "the node refused it");
+	}
+	/* TAKEN AND HELD TO ITS WINDOW, sec 1034, as the text leg says it. */
+	c->held = a->status_seen && strcmp(a->why, "held") == 0;
+	return FZN_RPC_OK;
+}
+
+/* A NAME AS THE SCHEMA TAKES IT: 1 to 32 bytes; the node judges the rest. */
+static int object_name_ok(const char *name) {
+	return name && *name && strlen(name) <= FZN_RPC_OBJECT_NAME_MAX;
+}
+
+int fzn_rpc_object_add(fzn_rpc_t *c, const char *name, const char *values) {
+	uint8_t body[FZN_REQUEST_MAX], req[FZN_REQUEST_MAX], allowed[256];
+	uint32_t body_len = 0, n = 0;
+	size_t allowed_len = 0;
+	struct objects_answer a;
+	int text = 0, rc;
+	/* THE WORDS JOINED as the node keeps them, `on|off`; none is `*`. */
+	for (const char *p = values ? values : ""; *p;) {
+		while (*p == ' ') p++;
+		size_t w = strcspn(p, " ");
+		if (!w) break;
+		if (allowed_len + w + 1u > sizeof allowed) return encode_failed(c);
+		if (allowed_len) allowed[allowed_len++] = '|';
+		memcpy(allowed + allowed_len, p, w);
+		allowed_len += w;
+		p += w;
+	}
+	if (!allowed_len) allowed[allowed_len++] = '*';
+	if (!object_name_ok(name)
+	    || fzn_objects_add_build(body, sizeof body, (const uint8_t *)name, (uint32_t)strlen(name), allowed,
+	                             (uint32_t)allowed_len, &body_len) != SITU_OK
+	    || fzn_objects_message_build_add(req, sizeof req, (uint8_t)FZN_CMD_OBJECTS, body, body_len, &n)
+	               != SITU_OK)
+		return object_add_text(c, name, values);
+	memset(&a, 0, sizeof a);
+	rc = objects_ask(c, req, n, &a, &text);
+	return text ? object_add_text(c, name, values) : rc;
+}
+
+int fzn_rpc_object_set(fzn_rpc_t *c, const char *name, const char *value) {
+	uint8_t body[FZN_REQUEST_MAX], req[FZN_REQUEST_MAX];
+	uint32_t body_len = 0, n = 0;
+	struct objects_answer a;
+	int text = 0, rc;
+	if (!object_name_ok(name) || !value || !*value || strlen(value) > FZN_RPC_OBJECT_VALUE_MAX
+	    || fzn_objects_set_build(body, sizeof body, (const uint8_t *)name, (uint32_t)strlen(name),
+	                             (const uint8_t *)value, (uint32_t)strlen(value), &body_len) != SITU_OK
+	    || fzn_objects_message_build_set(req, sizeof req, (uint8_t)FZN_CMD_OBJECTS, body, body_len, &n)
+	               != SITU_OK)
+		return object_set_text(c, name, value);
+	memset(&a, 0, sizeof a);
+	rc = objects_ask(c, req, n, &a, &text);
+	return text ? object_set_text(c, name, value) : rc;
+}
+
+/* `remove` and `get` ask by a name alone. */
+static int object_named(uint8_t *req, size_t cap, int get, const char *name, uint32_t *n) {
+	uint8_t body[64];
+	uint32_t body_len = 0;
+	if (!object_name_ok(name)
+	    || fzn_objects_named_build(body, sizeof body, (const uint8_t *)name, (uint32_t)strlen(name), &body_len)
+	               != SITU_OK)
+		return 0;
+	return (get ? fzn_objects_message_build_get(req, (uint32_t)cap, (uint8_t)FZN_CMD_OBJECTS, body, body_len, n)
+	            : fzn_objects_message_build_remove(req, (uint32_t)cap, (uint8_t)FZN_CMD_OBJECTS, body,
+	                                               body_len, n)) == SITU_OK;
+}
+
+int fzn_rpc_object_remove(fzn_rpc_t *c, const char *name) {
+	uint8_t req[128];
+	uint32_t n = 0;
+	struct objects_answer a;
+	int text = 0, rc;
+	if (!object_named(req, sizeof req, 0, name, &n)) return object_remove_text(c, name);
+	memset(&a, 0, sizeof a);
+	rc = objects_ask(c, req, n, &a, &text);
+	return text ? object_remove_text(c, name) : rc;
+}
+
+int fzn_rpc_object_get(fzn_rpc_t *c, const char *name, fzn_rpc_object_t *out, int *found) {
+	uint8_t req[128];
+	uint32_t n = 0;
+	struct objects_answer a;
+	int text = 0, rc;
+	*found = 0;
+	if (!object_named(req, sizeof req, 1, name, &n)) return object_get_text(c, name, out, found);
+	memset(&a, 0, sizeof a);
+	a.one = out;
+	rc = objects_ask(c, req, n, &a, &text);
+	if (text) return object_get_text(c, name, out, found);
+	/* NO ROW, a STATUS ok: no such object, as the text verb's `absent`. */
+	if (rc == FZN_RPC_OK) *found = a.rows == 1;
+	return rc;
+}
+
+int fzn_rpc_object_list(fzn_rpc_t *c, fzn_rpc_object_list_resp_t *out) {
+	uint8_t req[8];
+	uint32_t n = 0;
+	struct objects_answer a;
+	int text = 0, rc;
+	out->count = 0;
+	if (fzn_objects_message_build_list(req, sizeof req, (uint8_t)FZN_CMD_OBJECTS, NULL, 0, &n) != SITU_OK)
+		return object_list_text(c, out);
+	memset(&a, 0, sizeof a);
+	a.list = out;
+	rc = objects_ask(c, req, n, &a, &text);
+	if (text) return object_list_text(c, out);
+	/* A LIST ENDS WITH ITS STATUS: one that stopped before it is not whole. */
+	if (rc == FZN_RPC_OK && !a.status_seen) return unreadable(c);
+	return rc;
+}
+

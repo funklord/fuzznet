@@ -33,5 +33,6 @@
 #define FZN_CMD_CALL 18u     /* a voice or video call: its kind the SUBCMD */
 #define FZN_CMD_STATUS 19u   /* ok, or why not: its code the SUBCMD */
 #define FZN_CMD_EXTENSION 20u /* the extension's, every SUBCMD its own */
+#define FZN_CMD_OBJECTS 21u   /* named objects, the local leg's alone (sec 1152) */
 
 #endif /* FZN_WIRE_CMD_H */

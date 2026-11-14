@@ -115,6 +115,11 @@ size_t fzn_node_object_of_key(const uint8_t *key, size_t key_len,
  *     remove object NAME
  *
  * VALUE and BY are `-` while none was set. */
+/* EVERY OBJECT, in the order `list object` gives them, each handed to `each`
+ * with its value: a page at a time, as that verb reads them. 0 when the lists
+ * could not be read; 1 otherwise, none included. */
+int fzn_node_objects_each(const fzn_node_objects_t *o,
+                          void (*each)(void *ctx, const fzn_node_object_t *x), void *ctx);
 size_t fzn_node_objects_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                               char *reply, size_t reply_cap);
 

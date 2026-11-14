@@ -105,6 +105,7 @@
 #include "settings.h"
 #include "records.h"
 #include "objects.h"
+#include "objects_binary.h"
 #include "decisions.h"
 #include "responsible.h"
 #include "siblings.h"
@@ -17866,15 +17867,86 @@ static void media_channel_close(size_t i)
 	media_channels[i] = media_channels[--n_media_channels];
 }
 
-/* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary: a MEDIA_OPEN for a call
- * this host holds, from its own user, keeps it as the call's channel. */
-static int local_binary(void *ctx, int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+/* AN ANSWER SENT WHOLE, waiting up to 2 s on a full socket: a list of
+ * objects can outrun a client's buffer, where a channel's frame cannot wait. */
+static int local_binary_send_wait(int fd, const uint8_t *msg, size_t len)
+{
+	uint8_t out[2u + FZN_LOCAL_BINARY_MAX];
+	size_t at = 0;
+	const uint64_t until = mono_ms() + 2000u;
+
+	if (len == 0u || len > FZN_LOCAL_BINARY_MAX)
+		return 0;
+	out[0] = (uint8_t)(len >> 8);
+	out[1] = (uint8_t)len;
+	memcpy(out + 2, msg, len);
+	while (at < 2u + len) {
+		ssize_t n = send(fd, out + at, 2u + len - at, MSG_DONTWAIT | MSG_NOSIGNAL);
+
+		if (n > 0) {
+			at += (size_t)n;
+			continue;
+		}
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) && mono_ms() < until) {
+			struct pollfd p = { fd, POLLOUT, 0 };
+
+			(void)poll(&p, 1u, 100);
+			continue;
+		}
+		return 0;
+	}
+	return 1;
+}
+
+static int objects_put(void *ctx, const uint8_t *msg, size_t len)
+{
+	return local_binary_send_wait(*(const int *)ctx, msg, len);
+}
+
+/* NAMED OBJECTS IN BINARY, sec 1152: the node's own user, or a caller
+ * `local/permit/object` lets read or change, judged as the text verbs are
+ * (sec 852). */
+static int local_objects(int fd, fzn_origin_t origin, const fzn_peer_t *peer, const uint8_t *msg,
+                         size_t len)
+{
+	static const char KEY[] = FZN_PERMIT_KEY_PREFIX "object";
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t value_len = 0;
+	int may_change = 1;
+
+	if (origin != FZN_ORIGIN_SAME_USER) {
+		const unsigned right = fzn_node_objects_binary_changes(msg, len) ? FZN_PERMIT_CHANGE
+		                                                                 : FZN_PERMIT_READ;
+
+		if (!routing_self || !peer
+		    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, routing_self,
+		                              (const uint8_t *)KEY, strlen(KEY), value, &value_len, &rank)
+		    || !fzn_node_permit_allows(value, value_len, peer, right))
+			return local_binary_status(fd, FZN_STATUS_DENIED, "objects need this node's own user"), 0;
+		say(FZN_ENTRY_INFO, "local/permit", "uid %lu %s object, as granted", (unsigned long)peer->uid,
+		    right == FZN_PERMIT_READ ? "reads" : "changes");
+		may_change = right == FZN_PERMIT_CHANGE;
+	}
+	(void)fzn_node_objects_binary(&node_objects, msg, len, may_change, objects_put, &fd);
+	return 0;
+}
+
+/* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary, by its CMD: named
+ * objects asked (sec 1152), or a MEDIA_OPEN for a call this host holds, from
+ * its own user, which keeps it as the call's channel (sec 1113). */
+static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
+                        const uint8_t *msg, size_t len)
 {
 	struct media_channel *ch;
 	fzn_live_word_t w;
 	int big = 1 << 20, flags;
 
 	(void)ctx;
+	if (len && msg[0] == FZN_CMD_OBJECTS)
+		return local_objects(fd, origin, peer, msg, len);
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "a call's media is its user's"), 0;
 	if (!fzn_live_read_local(msg, len, &w) || w.kind != FZN_LIVE_MEDIA_OPEN)

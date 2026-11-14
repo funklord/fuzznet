@@ -129,8 +129,8 @@ static void waiting_step(fzn_node_state_t *state, size_t i)
 		}
 		if (recv(w.fd, peek, total, MSG_DONTWAIT) != (ssize_t)total || !state->on_binary
 		    || !state->on_binary(state->on_binary_ctx, w.fd,
-		                         fzn_node_local_origin(&state->config, &w.peer), peek + 2u,
-		                         total - 2u))
+		                         fzn_node_local_origin(&state->config, &w.peer), &w.peer,
+		                         peek + 2u, total - 2u))
 			(void)close(w.fd);
 		return;
 	}

@@ -491,6 +491,29 @@ static size_t list_objects(const fzn_node_objects_t *o, const uint8_t *at, size_
 	}
 }
 
+int fzn_node_objects_each(const fzn_node_objects_t *o,
+                          void (*each)(void *ctx, const fzn_node_object_t *x), void *ctx)
+{
+	static struct page p;
+	size_t from = 0, i;
+
+	if (!o || !o->records || !each)
+		return 0;
+	do {
+		memset(&p, 0, sizeof(p));
+		p.from = from;
+		if (!fzn_node_records_list_each(o->records, (const uint8_t *)FZN_NODE_OBJECT_LIST,
+		                                strlen(FZN_NODE_OBJECT_LIST), page_row, &p)
+		    || !fzn_node_records_list_each(o->records, (const uint8_t *)FZN_NODE_OBJECT_VALUE_LIST,
+		                                   strlen(FZN_NODE_OBJECT_VALUE_LIST), page_value, &p))
+			return 0;
+		for (i = 0; i < p.n; i++)
+			each(ctx, &p.rows[i]);
+		from += p.n;
+	} while (p.more && p.n);
+	return 1;
+}
+
 size_t fzn_node_objects_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                               char *reply, size_t reply_cap)
 {

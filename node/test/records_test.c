@@ -7,6 +7,7 @@
 
 #include "../records.h"
 #include "../objects.h"
+#include "../objects_binary.h"
 #include "../../state/setting.h"
 #include "../../messages/line.h"
 #include "../../log/retain.h"
@@ -1236,6 +1237,97 @@ static void test_the_lists(void)
 	fzn_node_records_cache_free(&cache);
 }
 
+/* THE ANSWERS A BINARY REQUEST WROTE, in order. */
+struct answers {
+	uint8_t m[8][FZN_NODE_OBJECTS_BINARY_MAX];
+	size_t len[8], n;
+};
+
+static int collect(void *ctx, const uint8_t *msg, size_t len)
+{
+	struct answers *a = ctx;
+
+	if (a->n == 8u || len > sizeof(a->m[0]))
+		return 0;
+	memcpy(a->m[a->n], msg, len);
+	a->len[a->n++] = len;
+	return 1;
+}
+
+static struct answers got;
+
+static int asked(const fzn_node_objects_t *o, int may_change, const uint8_t *msg, size_t len)
+{
+	memset(&got, 0, sizeof(got));
+	return fzn_node_objects_binary(o, msg, len, may_change, collect, &got);
+}
+
+/* Answer `i` a STATUS of `code`. */
+static int status_is(size_t i, uint8_t code)
+{
+	return i < got.n && got.len[i] >= 3u && got.m[i][0] == 0x13 && got.m[i][1] == code;
+}
+
+/* Answer `i` a row whose value is `value`. */
+static int row_says(size_t i, const char *value)
+{
+	const uint8_t *m = got.m[i];
+	size_t at;
+
+	if (i >= got.n || got.len[i] < 4u || m[0] != 0x15 || m[1] != 0x85)
+		return 0;
+	at = 3u + m[2];
+	return at < got.len[i] && m[at] == strlen(value) && memcmp(m + at + 1u, value, m[at]) == 0;
+}
+
+/* NAMED OBJECTS ASKED IN BINARY, sec 1152, on the store the text verbs use:
+ * made, set, read back as a row, listed whole, refused, read-only where only
+ * reading is granted, removed -- and the text verb reading what binary set. */
+static void test_named_objects_in_binary(void)
+{
+	fzn_node_records_t nr = { &B, &SIGN, &me, now_ms, NULL, NULL, NULL, NULL, NULL };
+	fzn_node_objects_t o = { &nr, on_changed, NULL, NULL };
+	static const uint8_t add[] = { 0x15, 0x80, 3, 'f', 'a', 'n', 6, 'o', 'n', '|', 'o', 'f', 'f' };
+	static const uint8_t set_on[] = { 0x15, 0x81, 3, 'f', 'a', 'n', 2, 'o', 'n' };
+	static const uint8_t set_dim[] = { 0x15, 0x81, 3, 'f', 'a', 'n', 3, 'd', 'i', 'm' };
+	static const uint8_t get[] = { 0x15, 0x82, 3, 'f', 'a', 'n' };
+	static const uint8_t get_none[] = { 0x15, 0x82, 4, 'n', 'o', 'n', 'e' };
+	static const uint8_t list[] = { 0x15, 0x83 };
+	static const uint8_t remove[] = { 0x15, 0x84, 3, 'f', 'a', 'n' };
+	static const uint8_t no_op[] = { 0x15, 0x99 };
+
+	memset(&node, 0, sizeof(node));
+	memset(&me, 0, sizeof(me));
+	memset(me.pubkey, 0x44, sizeof(me.pubkey));
+	me.sign = &SIGN;
+	clock_ms = 1793500000000ull;
+	signing_as = 0x44;
+
+	CHECK(asked(&o, 1, get_none, sizeof(get_none)) && got.n == 1u && status_is(0, 0),
+	      "an object never made was not a bare ok in binary");
+	CHECK(asked(&o, 1, add, sizeof(add)) && got.n == 1u && status_is(0, 0)
+	              && asked(&o, 1, get, sizeof(get)) && got.n == 1u && row_says(0, ""),
+	      "an object made in binary was not read back as a row with no value");
+	CHECK(asked(&o, 1, set_on, sizeof(set_on)) && status_is(0, 0) && asked(&o, 1, get, sizeof(get))
+	              && row_says(0, "on"),
+	      "a value set in binary was not read back");
+	CHECK(object_said(&o, FZN_ORIGIN_SAME_USER, "get object fan") && replied("ok on "),
+	      "the text verb did not read what binary set");
+	CHECK(asked(&o, 1, set_dim, sizeof(set_dim)) && status_is(0, 1),
+	      "a value the object may not have was not denied");
+	CHECK(asked(&o, 1, list, sizeof(list)) && got.n == 2u && row_says(0, "on") && status_is(1, 0),
+	      "a list was not a row each and then an ok");
+	CHECK(asked(&o, 0, set_on, sizeof(set_on)) && status_is(0, 1) && asked(&o, 0, get, sizeof(get))
+	              && row_says(0, "on"),
+	      "a reader who may not change it set it, or could not read it");
+	CHECK(asked(&o, 1, no_op, sizeof(no_op)) && status_is(0, 2)
+	              && asked(&o, 1, list, 1u) && status_is(0, 2),
+	      "no such operation, or a message cut short, was not malformed");
+	CHECK(asked(&o, 1, remove, sizeof(remove)) && status_is(0, 0) && asked(&o, 1, get, sizeof(get))
+	              && got.n == 1u && status_is(0, 0),
+	      "an object removed in binary was still there");
+}
+
 static void test_named_objects(void)
 {
 	static fzn_node_records_cache_t cache;
@@ -1250,6 +1342,7 @@ int main(void)
 {
 	test_a_record_filed();
 	test_the_verbs();
+	test_named_objects_in_binary();
 	test_a_record_held_to_its_window();
 	test_the_trim();
 	test_the_rules();

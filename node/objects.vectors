@@ -1,0 +1,10 @@
+# Golden vectors for node/objects.situ, written by hand from the layout in its
+# header comment, so the description is held to a writer other than its compiler.
+# 0x15 is FZN_CMD_OBJECTS (21); the op is the SUBCMD, 128 (0x80) on.
+
+message add     15 80 04 6C 61 6D 70 06 6F 6E 7C 6F 66 66
+message set     15 81 04 6C 61 6D 70 02 6F 6E
+message get     15 82 04 6C 61 6D 70
+message list    15 83
+message remove  15 84 04 6C 61 6D 70
+message row     15 85 04 6C 61 6D 70 02 6F 6E 00 00 00 00 00 00 03 E8 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 06 6F 6E 7C 6F 66 66

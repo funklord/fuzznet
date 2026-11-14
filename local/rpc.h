@@ -35,6 +35,13 @@ extern "C" {
 typedef int (*fzn_rpc_answer_t)(void *ctx, const char *verb, const char *arg, size_t arg_len,
                                  uint8_t *reply, size_t reply_cap, size_t *reply_len);
 
+/* Answers a BINARY request in place of a socket (fuzznet sec 1152): `reply`
+ * takes every answer message, each framed as the node frames it (two bytes
+ * of length first). For a test's scripted node; FZN_RPC_OK, or a negative
+ * fzn_rpc_err_t if there is no answer. */
+typedef int (*fzn_rpc_binary_answer_t)(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply,
+                                        size_t reply_cap, size_t *reply_len);
+
 /* Room for fuzznetd's longest reply, which calls.c asserts. */
 #define FZN_RPC_REPLY_MAX 16384
 
@@ -68,6 +75,10 @@ typedef struct fzn_rpc_call {
 	/* Set, it answers every request and no socket is opened. */
 	fzn_rpc_answer_t answer;
 	void *answer_ctx;
+	/* Set, it answers every binary request (local/rpc_binary.h); with `answer`
+	 * set and this not, a call speaks text, as its scripted node does. */
+	fzn_rpc_binary_answer_t binary_answer;
+	void *binary_ctx;
 } fzn_rpc_t;
 
 void fzn_rpc_init(fzn_rpc_t *c);

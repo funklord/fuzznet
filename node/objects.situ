@@ -1,0 +1,74 @@
+// Named objects on the local leg, in binary: project.md sec 1152, the pilot of
+// sec 1101's staging. The holder's choice between sec 1101's A and B was left
+// to this tree (2026-11-14) and is A: each local operation a SUBCMD under its
+// subject's CMD, in the range kept for the local socket (128 to 191), which a
+// host refuses from another -- one vocabulary of categories on every leg.
+//
+// FZN_CMD_OBJECTS (21, wire/cmd.h), its operation the SUBCMD. Named objects
+// have no category between hosts: they ride the journal as records (sec 948),
+// and a device reaches them by RRPC. A request is one message; the answer is
+// a STATUS, or for `get` one `row`, for `list` a `row` per object and then a
+// STATUS ok, so an ended list is told from a cut connection -- each framed
+// as the local leg frames a message (sec 1113).
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	add    = 128, // made, with the words it may be: `on|off`, or `*` for any
+	set    = 129, // a value written
+	get    = 130, // one asked after, answered with a row
+	list   = 131, // every one, answered with a row each
+	remove = 132, // forgotten
+	row    = 133, // an object, as `get` and `list` answer
+	default = error,
+}
+
+struct nothing {
+}
+
+struct named {
+	u8   name_len [min = 1, max = 32];
+	u8   name[name_len];
+}
+
+struct add {
+	u8   name_len [min = 1, max = 32];
+	u8   name[name_len];
+	u8   allowed_len [min = 1, max = 255];
+	u8   allowed[allowed_len];
+}
+
+struct set {
+	u8   name_len [min = 1, max = 32];
+	u8   name[name_len];
+	u8   value_len [min = 1, max = 64];
+	u8   value[value_len];
+}
+
+// AT and BY 0 while none was set, VALUE then empty.
+struct row {
+	u8   name_len [min = 1, max = 32];
+	u8   name[name_len];
+	u8   value_len [max = 64];
+	u8   value[value_len];
+	u64  at_ms;
+	u8   by[32];
+	u8   allowed_len [min = 1, max = 255];
+	u8   allowed[allowed_len];
+}
+
+struct message {
+	u8   cmd [must_eq = 21];
+	op   op;
+
+	variant body switch (op) {
+		case op.add:    add     add;
+		case op.set:    set     set;
+		case op.get:    named   get;
+		case op.list:   nothing list;
+		case op.remove: named   remove;
+		case op.row:    row     row;
+		default: error;
+	}
+}

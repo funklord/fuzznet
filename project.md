@@ -88480,3 +88480,75 @@ to Qt's readers, is caught; `sticker-picker-never-drawn` and
 `conversation-sticker-never-drawn` were aimed at the lines the renderer
 replaced and are moved onto it, and each is caught. The qtty render
 check builds thorvg's objects first and sizes the picker at 213 px.
+
+## 1152. The local leg's categories are A, and named objects are its pilot, 2026-11-14
+
+**The holder, 2026-11-14: "do what you think is best for leg A/B."** Sec
+1101 put the choice: **A**, each local operation a SUBCMD under its
+subject's CMD, in the range 128-191 kept for the local socket; or **B**,
+one CMD for the local leg with the verb as its SUBCMD. **A, decided
+here.** It is the one vocabulary of categories on every leg that sec
+1061 asks for, where B is a second vocabulary beside the remote one --
+the split sec 1085 removed. Sec 1113 had already built the call's media
+channel in A's shape (`media_open` 128 and `media` 129 under CALL), so A
+needs no renumbering. Its cost, registering the SUBCMDs, is paid
+category by category as each moves.
+
+**The pilot is named objects** (sec 1101's choice of category): five
+operations, small and already behind a view (sec 1102).
+- **`node/objects.situ`**, with golden vectors written by hand:
+  FZN_CMD_OBJECTS (21, `wire/cmd.h`), its operation the SUBCMD -- `add`
+  128, `set` 129, `get` 130, `list` 131, `remove` 132, and `row` 133, an
+  answer. Named objects had no category between hosts, as they ride the
+  journal as records and a device reaches them by RRPC, so 21 is the
+  local leg's alone. Generated as STATUS and the call are, checked by
+  `make schema`, its vectors run as `wire/test/objects_vectors`.
+- **The answer** is a STATUS, as between hosts. `get` answers one `row`,
+  or a bare STATUS ok for no such object, as the text verb answers `ok
+  absent`. `list` answers a `row` per object and then a STATUS ok, so an
+  ended list is told from a cut connection.
+- **The node**, `node/objects_binary.c`, answers over the same store and
+  calls as the text verbs (`fzn_node_objects_each`, a new walk over the
+  same pages `list object` reads). The local binary hook now carries the
+  caller's credentials as well as its origin, and `local_binary`
+  dispatches by CMD: objects, or a call's media channel as before. The
+  node's own user may do anything. Any other caller is judged by
+  `local/permit/object` as the text verbs judge it (sec 852): read for
+  get and list, change for the rest; a reader's change is denied.
+- **The typed client**, `local/rpc_binary.c`: one request on its own
+  connection, each answer handed on until the node closes. The five
+  `fzn_rpc_object_*` calls keep their signatures and speak binary,
+  **falling back to their text verbs** where a node answers the request
+  STATUS malformed -- what a node from before the category says to any
+  binary request but a media channel's -- or where a client's `answer`
+  hook speaks text alone, as every view's scripted test does. A
+  `binary_answer` hook beside it lets a test script a binary node.
+- **Text stays**, as sec 1101's staging has it: the CLI's, `fuzznetd
+  --ask`'s, and the way in for clients not yet moved.
+
+**Not tested: another user's permit on the binary path.** No live
+script runs a second uid. The branch was read against `permit_judge`,
+which the text path uses and which it mirrors: the same key, the same
+`fzn_node_permit_allows`, the same rights.
+
+**Tests:** `wire/test/objects_vectors`, six golden messages.
+`records_test` gains nine checks on a real store: a bare ok for an
+object never made, made and read back as a row, set and read back, the
+text verb reading what binary set, a value refused, a list ended with
+ok, a reader refused a change but served a read, an unknown operation
+and a cut message malformed, a removal. `rpc_test` gains ten against a
+scripted binary node: the schema's bytes asked for get, set and add (the
+words joined as the node keeps them, none as `*`), a row read, no row
+read as absent, a list of two read whole and one with no closing STATUS
+refused, a held set, a denial's words, and a node answering malformed
+asked again in text. `live_rpc` phase b asks a running node in bytes
+written by hand and checks the row against the text verb's answer, so
+`rpc_probe`'s object calls are known to have a binary node to speak to.
+`live_call` e3 still passes through the changed hook. Sabotage
+`objects-binary-reader-changes`, `objects-binary-list-unended`,
+`rpc-objects-never-binary`, `rpc-objects-cut-list-whole` and
+`rpc-objects-malformed-not-text` are each caught.
+
+**Next, per sec 1101:** category by category, a typed call at a time,
+with fuzzypickles, whose clients switch -- each category its SUBCMDs in
+128-191 under its own CMD.
