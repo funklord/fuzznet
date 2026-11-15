@@ -34,5 +34,6 @@
 #define FZN_CMD_STATUS 19u   /* ok, or why not: its code the SUBCMD */
 #define FZN_CMD_EXTENSION 20u /* the extension's, every SUBCMD its own */
 #define FZN_CMD_OBJECTS 21u   /* named objects, the local leg's alone (sec 1152) */
+#define FZN_CMD_STICKERS 22u  /* sticker packs saved, the local leg's alone (sec 1172) */
 
 #endif /* FZN_WIRE_CMD_H */

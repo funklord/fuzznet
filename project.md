@@ -89299,3 +89299,28 @@ fix of two kept with its fields as sent, an own host passed over;
 binary, each once and in order, as the text pages list them. Two
 sabotages, each caught: `rpc-latest-binary-own-hosts-kept`,
 `rpc-latest-binary-accuracy-dropped`.
+
+## 1172. The sticker packs kept, in binary, 2026-11-15
+
+What the sticker picker lists each time it opens: `list sticker` as the
+new FZN_CMD_STICKERS (22) `packs` (128), answered by a `pack_row` (129)
+per pack -- its file's root and length, whether the file is whole here,
+whether it is saved for the estate or this host alone, and its name --
+then a STATUS ok, in `node/stickers_local.situ`.
+
+- **A CMD of the local leg's alone**, as named objects' 21 is (sec 1152):
+  no host asks another for its saved packs, and stickers had none.
+- **`node/stickers.c`**: `saved_pack` holds the test of which settings
+  are packs this user keeps, shared by the text listing and the new
+  `fzn_node_stickers_each`; the name goes out raw where the text row
+  carries the escaped form it is stored in.
+- **`node/stickers_binary.c`** builds the rows; the daemon answers CMD 22
+  for its own user only, as the verb does. `fzn_rpc_sticker_list` asks in
+  binary and falls back to the verb.
+
+**Verified**: three hand-written vectors; `files_test` 111 -- a row sent
+as a request refused as malformed; `rpc_test` -- a row read by root and
+raw name, a cut listing refused; `live_stickers` phase a2 -- the pack
+built and saved there listed in binary by root, held, the estate's, its
+name raw. Three sabotages, each caught: `stickers-binary-any-op`,
+`rpc-packs-binary-cut-whole`, `rpc-packs-binary-name-dropped`.

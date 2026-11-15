@@ -41,6 +41,8 @@ import sys
 import tempfile
 import time
 
+from live_rpc import binary  # noqa: E402
+
 DEADLINE_S = 120.0
 
 
@@ -140,6 +142,14 @@ def main(argv):
 				raise failed("a: list sticker answered %r" % listed)
 			print("livecheck: a: the pack was built from its spec, put, and saved to the "
 			      "estate")
+			# a2: THE SAME IN BINARY, sec 1172: the one pack, by root, held, the
+			# estate's, its name raw rather than escaped, then an ok.
+			got = binary(sock, bytes([0x16, 0x80]))
+			if len(got) != 2 or got[0][:2] != bytes([0x16, 0x81]) or got[0][2:34].hex() != root \
+			   or got[0][42] != 1 or got[0][43] != 1 \
+			   or got[0][45:45 + got[0][44]] != b"cats and their moods" or got[1][:2] != bytes([0x13, 0]):
+				raise failed("a2: the packs in binary were %r" % got)
+			print("livecheck: a2: the pack in binary as well, its name raw")
 
 			got = ask(sock, "list sticker " + root).split()
 			# EACH ROW GIVES ITS BOX'S LIMIT, sec 841 -- sticker 3's is 20 --

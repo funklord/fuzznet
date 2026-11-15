@@ -1,0 +1,7 @@
+# Golden vectors for node/stickers_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x16 is FZN_CMD_STICKERS (22); the op is the SUBCMD, 128 (0x80) on.
+
+message packs       16 80
+message pack_estate 16 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 00 00 01 00 00 01 01 04 63 61 74 73
+message pack_host   16 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 00 00 00 20 00 00 00 00

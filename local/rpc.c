@@ -40,6 +40,7 @@
 #include "../wire/generated/contacts_local_build.h"
 #include "../wire/generated/groups_local.h"
 #include "../wire/generated/streams_local.h"
+#include "../wire/generated/stickers_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -7105,10 +7106,74 @@ void fzn_rpc_clock_list_release(fzn_rpc_clock_list_t *l) {
 	l->count = 0;
 }
 
+/* THE PACKS KEPT IN BINARY, sec 1172: a row each, then a STATUS. */
+struct packs_answer {
+	struct packs_rows rows;
+	int bad, status_seen, no_room;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void packs_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct packs_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_stickers_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_stickers_local_message_validate(v) != SITU_OK
+	    || fzn_stickers_local_message_op_get(v) != FZN_STICKERS_LOCAL_OP_PACK_ROW
+	    || fzn_stickers_local_message_body_pack_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	fzn_rpc_sticker_list_entry_t *e = packs_append(a->rows.out, &a->rows.cap);
+	if (!e) {
+		a->no_room = 1;
+		return;
+	}
+	size_t name_len = fzn_stickers_local_pack_row_name_len(b);
+	if (name_len > sizeof e->name - 1) name_len = sizeof e->name - 1;
+	memcpy(e->root, fzn_stickers_local_pack_row_root_ptr(b), 32);
+	memcpy(e->name, fzn_stickers_local_pack_row_name_ptr(b), name_len);
+	e->name[name_len] = '\0';
+	e->name_len = name_len;
+	a->rows.out->count++;
+}
+
 int fzn_rpc_sticker_list(fzn_rpc_t *c, fzn_rpc_sticker_packs_t *out) {
+	static const uint8_t ask[] = { FZN_CMD_STICKERS, FZN_STICKERS_LOCAL_OP_PACKS };
+	struct packs_answer a;
+	int text = 0;
 	out->entries = NULL;
 	out->count = 0;
-	return node_sticker_list(c, out);
+	memset(&a, 0, sizeof a);
+	a.rows.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, packs_each, &a, &text);
+	if (text) {
+		fzn_rpc_sticker_packs_release(out);
+		out->entries = NULL;
+		out->count = 0;
+		return node_sticker_list(c, out);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.no_room) return fail(c, FZN_RPC_ERR_STORAGE_IO, "no room for the packs");
+	if (a.bad || !a.status_seen) return unreadable(c); /* the packs cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
 }
 
 int fzn_rpc_sticker_forget(fzn_rpc_t *c, const uint8_t root[32]) {

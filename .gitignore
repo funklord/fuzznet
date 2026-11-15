@@ -386,6 +386,7 @@ __pycache__/
 /wire/test/contacts_local_vectors
 /wire/test/groups_local_vectors
 /wire/test/streams_local_vectors
+/wire/test/stickers_local_vectors
 /wire/test/session_frame_test
 /wire/test/session_frame_fuzz
 /node/test/pressure_test

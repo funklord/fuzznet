@@ -15,6 +15,7 @@
 
 #include "../files.h"
 #include "../stickers.h"
+#include "../stickers_binary.h"
 #include "../../contact/contact.h"
 #include "group_fixture.h"
 
@@ -796,6 +797,21 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
 }
 
 #ifdef FZN_STICKERS_ON
+/* THE ANSWERS A BINARY PACKS REQUEST WROTE (sec 1172). */
+static struct {
+	uint8_t m[2][FZN_NODE_STICKERS_BINARY_MAX];
+	size_t n;
+} sbin;
+
+static int sbin_put(void *ctx, const uint8_t *msg, size_t len)
+{
+	(void)ctx;
+	if (sbin.n == 2u || len > sizeof(sbin.m[0]))
+		return 0;
+	memcpy(sbin.m[sbin.n++], msg, len);
+	return 1;
+}
+
 /* THE STICKER VERBS, ANOTHER USER'S, sec 689's authorization bar (sec
  * 845): every one refused, reads included, before anything is read. */
 static void test_the_sticker_verbs_are_this_users(fzn_node_files_t *files)
@@ -826,6 +842,16 @@ static void test_the_sticker_verbs_are_this_users(fzn_node_files_t *files)
 		n = fzn_node_stickers_local(&st, FZN_ORIGIN_LOCAL, &r, reply, sizeof(reply));
 		CHECK(n > 7u && memcmp(reply, "denied ", 7u) == 0,
 		      "another user was not refused a sticker verb");
+	}
+	/* IN BINARY, sec 1172: a row sent as a request is no request, and is
+	 * refused as malformed rather than answered as the listing. */
+	{
+		uint8_t row[2 + 32 + 8 + 3] = { 0x16, 0x81 };
+
+		memset(&sbin, 0, sizeof(sbin));
+		CHECK(fzn_node_stickers_binary(&st, row, sizeof(row), sbin_put, NULL) && sbin.n == 1u
+		              && sbin.m[0][0] == 0x13 && sbin.m[0][1] == 2,
+		      "a pack row sent as a request was answered as the listing");
 	}
 }
 #endif

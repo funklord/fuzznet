@@ -18171,10 +18171,26 @@ static int local_streams(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
+#ifdef FZND_STICKERS
+#include "stickers_binary.h"
+/* THE STICKER PACKS IN BINARY, sec 1172: the node's own user's alone, as
+ * the text verb answers them -- where the build keeps stickers (sec 856). */
+static int local_stickers(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "stickers are this node's own user's"), 0;
+	if (!node_stickers.files || !node_stickers.settings)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no stickers"), 0;
+	(void)fzn_node_stickers_binary(&node_stickers, msg, len, local_put, &fd);
+	return 0;
+}
+#endif
+
 /* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary, by its CMD: named
  * objects asked (sec 1152), every conversation's newest line or count
  * (sec 1155), this user's contacts (sec 1162), groups (sec 1170) and the
- * positions held (sec 1171), or a MEDIA_OPEN for a call this host holds, from its own user, which keeps it
+ * positions held (sec 1171), the sticker packs (sec 1172), or a MEDIA_OPEN
+ * for a call this host holds, from its own user, which keeps it
  * as the call's channel (sec 1113). */
 static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
                         const uint8_t *msg, size_t len)
@@ -18194,6 +18210,10 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 		return local_groups(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_STREAMS)
 		return local_streams(fd, origin, msg, len);
+#ifdef FZND_STICKERS
+	if (len && msg[0] == FZN_CMD_STICKERS)
+		return local_stickers(fd, origin, msg, len);
+#endif
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "a call's media is its user's"), 0;
 	if (!fzn_live_read_local(msg, len, &w) || w.kind != FZN_LIVE_MEDIA_OPEN)

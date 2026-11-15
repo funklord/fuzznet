@@ -1,0 +1,42 @@
+// The sticker packs this user keeps, asked in binary on the local leg:
+// project.md sec 1172, what the sticker picker lists each time it opens.
+//
+// FZN_CMD_STICKERS (22, wire/cmd.h), the local leg's alone as named
+// objects' 21 is (sec 1152): no host asks another for its saved packs. A
+// request is one message with no body; the answer is a row per pack and
+// then a STATUS ok, or a STATUS refusing it.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	packs    = 128, // every pack saved, as `list sticker` lists them
+	pack_row = 129, // an answer: one pack
+	default  = error,
+}
+
+struct nothing {
+}
+
+// ROOT and LENGTH the pack file's; HELD 1 when the file is whole here;
+// ESTATE 1 when the pack is saved for every host of this user, 0 for this
+// host alone; NAME the pack's, raw.
+struct pack_row {
+	u8   root[32];
+	u64  length;
+	u8   held [max = 1];
+	u8   estate [max = 1];
+	u8   name_len [max = 48];
+	u8   name[name_len];
+}
+
+struct message {
+	u8   cmd [must_eq = 22];
+	op   op;
+
+	variant body switch (op) {
+		case op.packs:    nothing  packs;
+		case op.pack_row: pack_row pack_row;
+		default: error;
+	}
+}

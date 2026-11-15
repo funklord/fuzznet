@@ -78,4 +78,20 @@ size_t fzn_node_stickers_local(void *ctx, fzn_origin_t origin, const fzn_request
 int fzn_node_stickers_saved(const fzn_node_stickers_t *st, const uint8_t root[FZN_BLOB_HASH_LEN],
                             fzn_node_file_ref_t *ref);
 
+/* EVERY PACK THIS USER KEEPS, as `list sticker` lists them, sec 1172: ROOT
+ * and LENGTH the pack file's, NAME raw, HELD whether the file is whole
+ * here, ESTATE whether it is saved for every host or this one alone. ROOT
+ * is good only during the call. 1 once each was handed over, 0 when the
+ * settings did not list. */
+typedef struct fzn_node_sticker_pack {
+	const uint8_t *root;
+	uint64_t length;
+	char name[64];
+	size_t name_len;
+	int held;
+	int estate;
+} fzn_node_sticker_pack_t;
+int fzn_node_stickers_each(const fzn_node_stickers_t *st,
+                           void (*each)(void *ctx, const fzn_node_sticker_pack_t *pack), void *ctx);
+
 #endif /* FZN_NODE_STICKERS_H */

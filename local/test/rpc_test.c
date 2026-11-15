@@ -20,6 +20,7 @@
 #include "../../wire/generated/contacts_local_build.h"
 #include "../../wire/generated/groups_local_build.h"
 #include "../../wire/generated/streams_local_build.h"
+#include "../../wire/generated/stickers_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -1026,8 +1027,39 @@ static void test_positions_in_binary(void)
 	free(out);
 }
 
+/* THE STICKER PACKS IN BINARY, sec 1172: a row read with its root and raw
+ * name, the request's bytes, a listing cut before its STATUS refused. */
+static void test_packs_in_binary(void)
+{
+	static struct bscript held, cut;
+	static fzn_rpc_sticker_packs_t out;
+	uint8_t root[32], row[112], m[128];
+	uint32_t row_len = 0, n = 0;
+
+	memset(root, 0x6c, sizeof(root));
+	if (fzn_stickers_local_pack_row_build(row, sizeof(row), root, 65536u, 1u, 1u, (const uint8_t *)"cats and moods", 14,
+	                                      &row_len)
+	            == SITU_OK
+	    && fzn_stickers_local_message_build_pack_row(m, sizeof(m), (uint8_t)FZN_CMD_STICKERS, row, row_len, &n)
+	               == SITU_OK) {
+		framed(&held, 0, m, n);
+		framed(&cut, 0, m, n);
+	}
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_sticker_list(&c, &out) == FZN_RPC_OK && out.count == 1 && out.entries[0].root[0] == 0x6c
+	              && strcmp(out.entries[0].name, "cats and moods") == 0 && held.asked[0][0] == 0x16
+	              && held.asked[0][1] == 0x80,
+	      "the packs were not read in binary, by root and raw name");
+	fzn_rpc_sticker_packs_release(&out);
+	bon(&c, &cut);
+	CHECK(fzn_rpc_sticker_list(&c, &out) != FZN_RPC_OK, "a packs listing cut before its STATUS was read as whole");
+	fzn_rpc_sticker_packs_release(&out);
+}
+
 int main(void)
 {
+	test_packs_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();
 	test_requests_in_binary();

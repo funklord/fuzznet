@@ -550,37 +550,88 @@ static size_t page(char (*rows)[ROW_MAX], size_t total, size_t from, char *reply
 	return at;
 }
 
+/* A SETTING THAT IS A PACK SAVED for this user's estate or this host: its
+ * reference and name (escaped, as stored), whether its file is whole here,
+ * and whether it is the estate's. 0 for any other setting. sec 1172 for
+ * the binary listing that shares it. */
+static int saved_pack(const fzn_node_stickers_t *st, const fzn_setting_t *s, fzn_node_file_ref_t *ref,
+                      char *name, size_t name_cap, int *held, int *estate)
+{
+	uint64_t held_len = 0;
+
+	if (!s->set || s->key_len != KEY_LEN || memcmp(s->key, KEY_PREFIX, KEY_PREFIX_LEN) != 0)
+		return 0;
+	if (s->scope == FZN_SCOPE_ESTATE
+	    && (!st->settings->estate || memcmp(s->about, st->settings->estate, FZN_PUBKEY_LEN) != 0))
+		return 0;
+	if (s->scope == FZN_SCOPE_HOST && (!st->host || memcmp(s->about, st->host, FZN_PUBKEY_LEN) != 0))
+		return 0;
+	if (s->scope != FZN_SCOPE_ESTATE && s->scope != FZN_SCOPE_HOST)
+		return 0;
+	if (!read_value(s->value, s->value_len, ref, name, name_cap))
+		return 0;
+	*held = fzn_node_files_held(st->files, ref->root, &held_len) == FZN_NODE_FILES_OK;
+	*estate = s->scope == FZN_SCOPE_ESTATE;
+	return 1;
+}
+
 static void list_one(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
 {
 	struct listing *l = ctx;
 	fzn_node_file_ref_t ref;
 	char name[FZN_SETTING_VALUE_MAX], root_hex[2u * FZN_BLOB_HASH_LEN + 1u];
-	uint64_t held_len = 0;
-	int held, k;
+	int held, estate, k;
 
 	if (l->count == l->cap)
 		return;
 	(void)rank;
-	if (!s->set || s->key_len != KEY_LEN || memcmp(s->key, KEY_PREFIX, KEY_PREFIX_LEN) != 0)
+	if (!saved_pack(l->st, s, &ref, name, sizeof(name), &held, &estate))
 		return;
-	if (s->scope == FZN_SCOPE_ESTATE
-	    && (!l->st->settings->estate
-	        || memcmp(s->about, l->st->settings->estate, FZN_PUBKEY_LEN) != 0))
-		return;
-	if (s->scope == FZN_SCOPE_HOST
-	    && (!l->st->host || memcmp(s->about, l->st->host, FZN_PUBKEY_LEN) != 0))
-		return;
-	if (s->scope != FZN_SCOPE_ESTATE && s->scope != FZN_SCOPE_HOST)
-		return;
-	if (!read_value(s->value, s->value_len, &ref, name, sizeof(name)))
-		return;
-	held = fzn_node_files_held(l->st->files, ref.root, &held_len) == FZN_NODE_FILES_OK;
 	hex_of(ref.root, FZN_BLOB_HASH_LEN, root_hex);
 	k = snprintf(l->rows[l->count], ROW_MAX, "%s,%llu,%s,%d,%s", root_hex,
-	             (unsigned long long)ref.length, name, held,
-	             s->scope == FZN_SCOPE_ESTATE ? "estate" : "host");
+	             (unsigned long long)ref.length, name, held, estate ? "estate" : "host");
 	if (k > 0 && (size_t)k < ROW_MAX)
 		l->count++;
+}
+
+struct packs_walk {
+	const fzn_node_stickers_t *st;
+	void (*each)(void *ctx, const fzn_node_sticker_pack_t *pack);
+	void *ctx;
+};
+
+static void pack_one(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
+{
+	struct packs_walk *w = ctx;
+	fzn_node_file_ref_t ref;
+	char name[FZN_SETTING_VALUE_MAX];
+	fzn_node_sticker_pack_t p;
+	size_t raw_len = 0;
+	int held, estate;
+
+	(void)rank;
+	if (!saved_pack(w->st, s, &ref, name, sizeof(name), &held, &estate))
+		return;
+	memset(&p, 0, sizeof(p));
+	/* RAW, the stored name being its escaped form. */
+	if (!fzn_unescape((const uint8_t *)name, strlen(name), (uint8_t *)p.name, sizeof(p.name) - 1u, &raw_len))
+		return;
+	p.name_len = raw_len;
+	p.root = ref.root;
+	p.length = ref.length;
+	p.held = held;
+	p.estate = estate;
+	w->each(w->ctx, &p);
+}
+
+int fzn_node_stickers_each(const fzn_node_stickers_t *st,
+                           void (*each)(void *ctx, const fzn_node_sticker_pack_t *pack), void *ctx)
+{
+	struct packs_walk w = { st, each, ctx };
+
+	if (!st || !st->settings || !each)
+		return 0;
+	return fzn_node_settings_each(st->settings, pack_one, &w) == FZN_NODE_SETTINGS_OK;
 }
 
 static size_t list_saved(const fzn_node_stickers_t *st, size_t from, char *reply, size_t cap)

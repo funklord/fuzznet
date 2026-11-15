@@ -16852,6 +16852,27 @@ SABOTAGES = [
 		"a fix read in binary loses how far east-west it may be off -- sec 1171",
 	),
 	(
+		"rpc-packs-binary-cut-whole",
+		"local/rpc.c",
+		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the packs cut short */\n",
+		"\tif (a.bad) return unreadable(c); /* the packs cut short */\n",
+		"a packs listing cut before its STATUS is read as every pack -- sec 1172",
+	),
+	(
+		"stickers-binary-any-op",
+		"node/stickers_binary.c",
+		"\t    || fzn_stickers_local_message_op_get(v) != FZN_STICKERS_LOCAL_OP_PACKS)\n",
+		"\t    || 0)\n",
+		"a pack row sent as a request is answered as the listing -- sec 1172",
+	),
+	(
+		"rpc-packs-binary-name-dropped",
+		"local/rpc.c",
+		"\tmemcpy(e->name, fzn_stickers_local_pack_row_name_ptr(b), name_len);\n",
+		"\tname_len = 0;\n",
+		"a pack read in binary loses its name -- sec 1172",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

@@ -237,6 +237,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/address.c wire/generated/objects.c \
              wire/generated/messages_local.c wire/generated/contacts_local.c \
              wire/generated/groups_local.c wire/generated/streams_local.c \
+             wire/generated/stickers_local.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -244,7 +245,8 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/address_vectors.c wire/generated/objects_vectors.c \
                  wire/generated/messages_local_vectors.c wire/generated/contacts_local_vectors.c \
-                 wire/generated/groups_local_vectors.c wire/generated/streams_local_vectors.c
+                 wire/generated/groups_local_vectors.c wire/generated/streams_local_vectors.c \
+                 wire/generated/stickers_local_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -695,6 +697,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/contacts_local_vectors \
              $(BUILD_DIR)/wire/test/groups_local_vectors \
              $(BUILD_DIR)/wire/test/streams_local_vectors \
+             $(BUILD_DIR)/wire/test/stickers_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
              $(BUILD_DIR)/node/test/rate_test \
              $(BUILD_DIR)/node/test/metric_test \
@@ -1628,9 +1631,9 @@ endif
 # node/shelf keeps a node's note texts in spool files, so it is built only
 # with them. sec 424.
 SPOOL_FILE_SRCS := spool/spool_file.c node/shelf.c node/files.c \
-                   $(if $(STICKERS_ON),node/stickers.c)
+                   $(if $(STICKERS_ON),node/stickers.c node/stickers_binary.c)
 SPOOL_FILE_HDRS := spool/spool_file.h node/shelf.h node/files.h \
-                   $(if $(STICKERS_ON),node/stickers.h)
+                   $(if $(STICKERS_ON),node/stickers.h node/stickers_binary.h)
 SPOOL_FILE_TSRC := spool/test/spool_file_test.c node/test/shelf_test.c node/test/files_test.c
 
 ifdef SPOOL_FILE_ON
@@ -2445,7 +2448,9 @@ $(BUILD_DIR)/notes/test/note_fuzz: $(BUILD_DIR)/notes/test/note_fuzz.o \
 # blob/levels. sec 490.
 $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/node/files.o \
-                                   $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o) \
+                                   $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/node/stickers_binary.o \
+                                     $(BUILD_DIR)/wire/generated/stickers_local.o $(BUILD_DIR)/wire/status.o \
+                                     $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o) \
                                    $(BUILD_DIR)/sticker/pack.o \
                                    $(BUILD_DIR)/local/escape.o \
                                    $(BUILD_DIR)/blob/levels.o \
@@ -3586,7 +3591,8 @@ RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
             $(BUILD_DIR)/wire/generated/status.o \
             $(BUILD_DIR)/local/rpc_binary.o $(BUILD_DIR)/wire/generated/objects.o \
             $(BUILD_DIR)/wire/generated/messages_local.o $(BUILD_DIR)/wire/generated/contacts_local.o \
-            $(BUILD_DIR)/wire/generated/groups_local.o $(BUILD_DIR)/wire/generated/streams_local.o
+            $(BUILD_DIR)/wire/generated/groups_local.o $(BUILD_DIR)/wire/generated/streams_local.o \
+            $(BUILD_DIR)/wire/generated/stickers_local.o
 $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                                   $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
@@ -4394,6 +4400,13 @@ $(BUILD_DIR)/wire/test/streams_local_vectors: wire/generated/streams_local_vecto
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# THE STICKER PACKS, ON THE LOCAL LEG, sec 1172.
+$(BUILD_DIR)/wire/test/stickers_local_vectors: wire/generated/stickers_local_vectors.c \
+                                           wire/generated/stickers_local.c wire/generated/situ.c \
+                                           $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # NAMED OBJECTS ON THE LOCAL LEG HELD TO THEIR GOLDEN VECTORS, sec 1152.
 $(BUILD_DIR)/wire/test/objects_vectors: wire/generated/objects_vectors.c \
                                            wire/generated/objects.c wire/generated/situ.c \
@@ -5165,7 +5178,7 @@ FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o $(B
 
 # The note-text shelf fuzznetd carries where spool files are built. sec 424.
 FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
-                       $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o) \
+                       $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/node/stickers_binary.o) \
                        $(BUILD_DIR)/sticker/pack.o \
                        $(BUILD_DIR)/blob/levels.o $(BUILD_DIR)/notes/text.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/spool/spool_file.o \
@@ -7281,7 +7294,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               node/contact_card.situ node/contact_request.situ node/group_act.situ \
               node/group_line.situ location/fix.situ sticker/pack.situ node/objects.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
-              node/streams_local.situ
+              node/streams_local.situ node/stickers_local.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -7997,6 +8010,11 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/streams_local.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_streams_local \
 	         --out $(BUILD_DIR)/.gen.new node/streams_local.situ node/streams_local.vectors >/dev/null 2>&1
+	@# AND THE STICKER PACKS, ON THE LOCAL LEG, sec 1172.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_stickers_local --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/stickers_local.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_stickers_local \
+	         --out $(BUILD_DIR)/.gen.new node/stickers_local.situ node/stickers_local.vectors >/dev/null 2>&1
 	@# AND NAMED OBJECTS ON THE LOCAL LEG, sec 1152.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_objects --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/objects.situ >/dev/null 2>&1
@@ -8012,7 +8030,9 @@ schema:
 	          messages_local_vectors.c contacts_local.c contacts_local.h contacts_local_edit.h \
 	          contacts_local_build.h contacts_local_vectors.c groups_local.c groups_local.h \
 	          groups_local_edit.h groups_local_build.h groups_local_vectors.c streams_local.c \
-	          streams_local.h streams_local_edit.h streams_local_build.h streams_local_vectors.c; do \
+	          streams_local.h streams_local_edit.h streams_local_build.h streams_local_vectors.c \
+	          stickers_local.c stickers_local.h stickers_local_edit.h stickers_local_build.h \
+	          stickers_local_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \
