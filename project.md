@@ -89324,3 +89324,43 @@ raw name, a cut listing refused; `live_stickers` phase a2 -- the pack
 built and saved there listed in binary by root, held, the estate's, its
 name raw. Three sabotages, each caught: `stickers-binary-any-op`,
 `rpc-packs-binary-cut-whole`, `rpc-packs-binary-name-dropped`.
+
+## 1173. The library in binary: built and live-checked, not landed (fold, 2026-11-15)
+
+Written at the week's stop (98 per cent), so the next session need not
+rediscover it. **Nothing of it is committed.** It is in a scratch copy of
+the tree at 73a3b76 --
+`/tmp/claude-1000/-home-funk-src-fuzznet/38caef29-f815-4979-be28-781bed0a4115/scratchpad/exp23`,
+with the Makefile plumbing as `p_files_mk.py` beside it -- which may not
+survive; if it is gone, this is the design to build again.
+
+**What it is**: `fzn_rpc_library_list` in binary, FZN_CMD_FILES (1)
+`library` (128) answered by a `library_row` (129) per file and a STATUS
+ok (`node/files_local.situ`). The node does the join the client now does
+over three text reads (`list catalog`, its claims' issuers, `list file`),
+on the client's own rules, each read from `local/rpc.c`:
+
+- only live claims count (`list catalog` lists no other);
+- each label -- name, kind, duration -- takes the first live value in the
+  catalogue's order (`node_catalog_take`);
+- holders are the distinct issuers by their first eight bytes, as the
+  client compares them with `get identity`'s HOST;
+- held here is the file whole here, not this host's claim, and a whole
+  file this host has not claimed counts it a holder
+  (`node_library_fill_many`);
+- size and arrival from `fzn_node_files_status`, arrival only while
+  wanted: `held * 1000 / total`, at least 1;
+- rows in the order a file first appears in the catalogue.
+
+`local_library` in `node/daemon.c`, under FZN_CATALOG_ON and
+FZN_SPOOL_FILE_ON, groups the live claims by root through indices into
+`node_catalog`; `unreadable` is never set on a listed entry, so the row
+leaves it out.
+
+**Checked in the copy**: three hand-written vectors; `rpc_test` -- every
+field of a row read, a cut listing refused, the text path's tests still
+passing; `live_catalog` phase b2 -- after B fetched and named the file,
+B's binary row says what the text listings say (size 20000, two holders,
+whole here, a name of the two). **Still to do**: sabotage entries (a
+client one on the row's fields, a node one on the held-here rule), the
+sabotage verify in the copy, landing, every gate, and the push.
