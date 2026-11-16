@@ -1,0 +1,7 @@
+# Golden vectors for node/members_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x09 is FZN_CMD_MEMBERS (9); the op is the SUBCMD, 128 (0x80) on.
+
+message siblings       09 80
+message sibling_named  09 81 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 01 01 00 00 00 00 00 00 00 2A 00 0D 31 30 2E 30 2E 30 2E 32 3A 37 30 30 30 05 70 68 6F 6E 65
+message sibling_silent 09 81 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 00 00 00 00 00 00 00 00 00 00 00 00 00

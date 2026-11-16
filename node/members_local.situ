@@ -1,0 +1,47 @@
+// This estate's other hosts, asked in binary on the local leg: project.md
+// sec 1176, what the hosts view, the library and the main window list --
+// `list sibling` as a row per host.
+//
+// FZN_CMD_MEMBERS (9, wire/cmd.h): siblings are the estate's members, so
+// their local operations are this category's, in the range 128 to 191 kept
+// for the local socket; between hosts the category's SUBCMDs are below it.
+// A request is one message with no body; the answer is a row per host and
+// then a STATUS ok, or a STATUS refusing it.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	siblings    = 128, // every other host of this estate this node knows
+	sibling_row = 129, // an answer: one host
+	default     = error,
+}
+
+struct nothing {
+}
+
+// KEY the host's. PAIRED 1 when either holds a pairing to the other.
+// HEARD 1 when it has answered, HEARD_S then the seconds since it last did.
+// WHERE where a round reaches it, HOST:PORT, empty for nowhere; NAME its own
+// `host/name`, raw, empty for none.
+struct sibling_row {
+	u8   key[32];
+	u8   paired [max = 1];
+	u8   heard [max = 1];
+	u64  heard_s;
+	u16  where_len [max = 259];
+	u8   where[where_len];
+	u8   name_len [max = 32];
+	u8   name[name_len];
+}
+
+struct message {
+	u8   cmd [must_eq = 9];
+	op   op;
+
+	variant body switch (op) {
+		case op.siblings:    nothing     siblings;
+		case op.sibling_row: sibling_row sibling_row;
+		default: error;
+	}
+}

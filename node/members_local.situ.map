@@ -1,0 +1,39 @@
+# situ capability map v1
+# schema: members_local.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct message size=2..338 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 336) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.siblings                  offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.sibling_row               offset=AbsoluteStatic(0x02) size=Bounded(45, 336) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  message.body.sibling_row.key           offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.sibling_row.paired        offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.sibling_row.heard         offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.sibling_row.heard_s       offset=AbsoluteStatic(0x24) size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic
+  message.body.sibling_row.where_len     offset=AbsoluteStatic(0x2C) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  message.body.sibling_row.where         offset=AbsoluteStatic(0x2E) size=Bounded(0, 259) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.sibling_row.name_len      offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  message.body.sibling_row.name          offset=Dynamic size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct nothing size=0
+
+struct sibling_row size=45..336 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  sibling_row.key                        offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  sibling_row.paired                     offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  sibling_row.heard                      offset=AbsoluteStatic(0x21) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  sibling_row.heard_s                    offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  sibling_row.where_len                  offset=AbsoluteStatic(0x2A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  sibling_row.where                      offset=AbsoluteStatic(0x2C) size=Bounded(0, 259) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  sibling_row.name_len                   offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  sibling_row.name                       offset=Dynamic size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable

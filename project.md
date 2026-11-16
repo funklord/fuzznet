@@ -89434,3 +89434,27 @@ binary; `gui/conversation_view` passes what its caller named it by.
 request's bytes, a contact's row refused, a name asked by the verb. Two
 sabotages: `rpc-group-lines-binary-contact-as-group` and
 `rpc-group-lines-binary-member-dropped`.
+
+## 1176. This estate's other hosts, in binary, 2026-11-16
+
+`fzn_rpc_sibling_list` -- the hosts view, the library and the main window
+in fuzzypickles, six call sites -- asks in binary: FZN_CMD_MEMBERS (9)
+`siblings` (128), answered by a `sibling_row` (129) per host and a STATUS
+ok (`node/members_local.situ`), `list sibling` its fallback.
+
+A row is what the text row says, unescaped: the key, PAIRED, HEARD with
+the seconds since, WHERE (`HOST:PORT`, empty for nowhere, up to 259
+bytes as a host name and a port may run) and the host's own `host/name`
+raw. **The daemon's text listing was split, not changed**: gathering the
+hosts (the estate stream's, then the members paired in, each once) is
+`siblings_gather`, and one host's facts `sibling_fact_of`; `list
+sibling` prints from them and `local_siblings` builds rows from them.
+The client reads a row as `node_siblings` reads the text one -- a host
+with no name named by its key's first sixteen hex, an address longer
+than the clients' 64 left empty, PAIRED as `valid` (sec 1124).
+
+**Tests:** three hand-written vectors; `rpc_test` -- a named host and an
+unnamed one, the request's bytes, a cut listing refused, a node reading
+no binary asked by the verb; `live_join` phase d3 -- A's row for B in
+binary as its text row gives it, the name raw, beside phases d and d2
+passing on the split text listing. Two sabotages.

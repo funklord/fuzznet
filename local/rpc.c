@@ -42,6 +42,7 @@
 #include "../wire/generated/streams_local.h"
 #include "../wire/generated/stickers_local.h"
 #include "../wire/generated/files_local.h"
+#include "../wire/generated/members_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -4223,8 +4224,78 @@ int fzn_rpc_config_get(fzn_rpc_t *c, const char *key, size_t key_len, fzn_rpc_co
 	return node_config_get(c, key, key_len, out);
 }
 
+/* THIS ESTATE'S OTHER HOSTS IN BINARY, sec 1176: a row a host, read as
+ * node_siblings reads the text row, then a STATUS. */
+struct siblings_answer {
+	fzn_rpc_sibling_list_resp_t *out;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void siblings_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct siblings_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_members_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_members_local_message_validate(v) != SITU_OK
+	    || fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_SIBLING_ROW
+	    || fzn_members_local_message_body_sibling_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	/* AS MANY AS A LISTING HOLDS, the rest read and passed over. */
+	if (a->out->count >= FZN_RPC_SIBLING_LIST_MAX) return;
+	fzn_rpc_sibling_entry_t *e = &a->out->entries[a->out->count++];
+	memset(e, 0, sizeof *e);
+	memcpy(e->host_pubkey, fzn_members_local_sibling_row_key_ptr(b), 32);
+	const size_t name_len = fzn_members_local_sibling_row_name_len(b);
+	if (name_len && name_len < sizeof e->name) {
+		memcpy(e->name, fzn_members_local_sibling_row_name_ptr(b), name_len);
+		e->name_len = name_len;
+	} else {
+		/* No name given: the key's first sixteen, as the text row is read. */
+		char hex[65];
+		fzn_hex_encode(e->host_pubkey, 32, hex);
+		memcpy(e->name, hex, 16);
+		e->name_len = 16;
+	}
+	const size_t where_len = fzn_members_local_sibling_row_where_len(b);
+	if (where_len && where_len < sizeof e->address) {
+		memcpy(e->address, fzn_members_local_sibling_row_where_ptr(b), where_len);
+		e->address_len = where_len;
+	}
+	e->valid = fzn_members_local_sibling_row_paired_get(b);
+}
+
 int fzn_rpc_sibling_list(fzn_rpc_t *c, fzn_rpc_sibling_list_resp_t *out) {
-	return node_siblings(c, out);
+	static const uint8_t ask[] = { FZN_CMD_MEMBERS, FZN_MEMBERS_LOCAL_OP_SIBLINGS };
+	struct siblings_answer a;
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, siblings_each, &a, &text);
+	if (text) return node_siblings(c, out);
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen) return unreadable(c); /* the siblings cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
 }
 
 /* THE CONTACT REQUESTS IN BINARY, sec 1169: a row each, then a STATUS. */

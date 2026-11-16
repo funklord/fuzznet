@@ -7275,10 +7275,94 @@ static size_t grant_local(fzn_origin_t origin, const fzn_request_t *request, cha
  * HEARD the seconds since it last answered, or `-` for never; NAME its own
  * `host/name`, escaped, or `-` (sec 848). This node's own user only: it
  * names where every host of the estate is. */
+/* EVERY HOST `list sibling` NAMES, this node's own among them: those whose
+ * prekey the estate's stream carried, then the members paired into this
+ * node, each once. 0 when the siblings would not read. */
+static int siblings_gather(uint8_t (**hosts_out)[FZN_PUBKEY_LEN], size_t *n_out)
+{
+	static struct key_room hosts_room;
+	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
+	size_t n = 0, i, k;
+
+	if (!node_apply.store || !routing_self
+	    || siblings_list(&hosts_room, &hosts, &n,
+	                     running_admin && running_admin->state
+	                             ? running_admin->state->peer_count
+	                             : 0u)
+	               != FZN_NODE_SIBLINGS_OK)
+		return 0;
+	/* AND THE MEMBERS PAIRED INTO THIS NODE, each once. */
+	if (running_admin && running_admin->state)
+		for (i = 0; i < running_admin->state->peer_count && n < hosts_room.cap; i++) {
+			const fzn_node_peer_t *pe = &running_admin->state->peers[i];
+
+			if (fzn_node_peer_contact(&running_admin->state->config, pe))
+				continue;
+			for (k = 0; k < n && memcmp(hosts[k], pe->sender, FZN_PUBKEY_LEN) != 0; k++)
+				;
+			if (k == n)
+				memcpy(hosts[n++], pe->sender, FZN_PUBKEY_LEN);
+		}
+	*hosts_out = hosts;
+	*n_out = n;
+	return 1;
+}
+
+/* WHAT `list sibling` SAYS OF ONE HOST, both forms' (sec 1176): where a
+ * round reaches it, empty for nowhere; whether either holds a pairing to
+ * the other; the seconds since it last answered, if ever; its own
+ * `host/name`, raw, empty for none. */
+struct sibling_fact {
+	char where[FZN_NODE_SETTINGS_HOST_MAX + 8u];
+	int paired, heard;
+	uint64_t heard_s;
+	uint8_t name[32];
+	size_t name_len;
+};
+
+static void sibling_fact_of(const uint8_t *host, uint64_t now, uint64_t now_us,
+                            struct sibling_fact *f)
+{
+	struct introduced *in = intro_of(host, 0);
+	fzn_node_pairing_t pairing;
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t value_len = 0, j;
+	uint16_t port = 0;
+	uint64_t when = 0;
+
+	memset(f, 0, sizeof(*f));
+	if (in && in->until > now && in->port)
+		(void)snprintf(f->where, sizeof(f->where), "%s:%u", in->host, (unsigned)in->port);
+	else if (fzn_node_settings_address(&node_settings, host, f->where, &port)) {
+		size_t w = strlen(f->where);
+
+		(void)snprintf(f->where + w, sizeof(f->where) - w, ":%u", (unsigned)port);
+	} else
+		f->where[0] = '\0';
+	f->paired = fzn_node_pairing_load(node_apply.store, host, &pairing) == FZN_PERSIST_OK;
+	fzn_wipe(&pairing, sizeof(pairing));
+	for (j = 0; !f->paired && running_admin && running_admin->state
+	            && j < running_admin->state->peer_count;
+	     j++)
+		f->paired = memcmp(running_admin->state->peers[j].sender, host, FZN_PUBKEY_LEN) == 0;
+	if (fzn_heard_when(node_apply.store, host, &when) == FZN_HEARD_OK) {
+		f->heard = 1;
+		f->heard_s = now_us > when ? (now_us - when) / 1000000u : 0u;
+	}
+	/* ITS NAME, sec 848: the host's own `host/name`. */
+	if (fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, host,
+	                          (const uint8_t *)FZN_NODE_SETTINGS_NAME_KEY,
+	                          sizeof(FZN_NODE_SETTINGS_NAME_KEY) - 1u, value, &value_len, &rank)
+	    && value_len && value_len <= sizeof(f->name)) {
+		memcpy(f->name, value, value_len);
+		f->name_len = value_len;
+	}
+}
+
 static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap)
 {
-	static struct key_room hosts_room;
 	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
 	const uint8_t *self = routing_self;
 	size_t n = 0, i, total = 0, from = 0, at, k;
@@ -7297,78 +7381,34 @@ static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, c
 			return (size_t)snprintf(reply, cap, "malformed list sibling [FROM]\n");
 		from = from * 10u + (size_t)(arg[k] - '0');
 	}
-	if (!node_apply.store || !self
-	    || siblings_list(&hosts_room, &hosts, &n,
-	                     running_admin && running_admin->state
-	                             ? running_admin->state->peer_count
-	                             : 0u)
-	               != FZN_NODE_SIBLINGS_OK)
+	if (!siblings_gather(&hosts, &n))
 		return (size_t)snprintf(reply, cap, "error the siblings would not read\n");
-	/* AND THE MEMBERS PAIRED INTO THIS NODE, each once. */
-	if (running_admin && running_admin->state)
-		for (i = 0; i < running_admin->state->peer_count && n < hosts_room.cap; i++) {
-			const fzn_node_peer_t *pe = &running_admin->state->peers[i];
-
-			if (fzn_node_peer_contact(&running_admin->state->config, pe))
-				continue;
-			for (k = 0; k < n && memcmp(hosts[k], pe->sender, FZN_PUBKEY_LEN) != 0; k++)
-				;
-			if (k == n)
-				memcpy(hosts[n++], pe->sender, FZN_PUBKEY_LEN);
-		}
 	for (i = 0; i < n; i++)
 		total += memcmp(hosts[i], self, FZN_PUBKEY_LEN) != 0;
 	at = (size_t)snprintf(reply, cap, "ok %zu %zu", total, from);
 	for (i = 0, k = 0; i < n && at < cap; i++) {
-		struct introduced *in;
-		fzn_node_pairing_t pairing;
-		char where[FZN_NODE_SETTINGS_HOST_MAX + 8u], heard[24], name[3u * 32u + 1u],
-		        entry[FZN_NODE_SETTINGS_HOST_MAX + 3u * 32u + 128u];
-		uint8_t value[FZN_SETTING_VALUE_MAX];
-		fzn_setting_rank_t rank;
-		size_t value_len = 0, name_len = 0;
-		uint16_t port = 0;
-		uint64_t when = 0;
-		int paired, len;
-		size_t j;
+		struct sibling_fact f;
+		char heard[24], name[3u * 32u + 1u], entry[FZN_NODE_SETTINGS_HOST_MAX + 3u * 32u + 128u];
+		size_t name_len = 0, j;
+		int len;
 
 		if (memcmp(hosts[i], self, FZN_PUBKEY_LEN) == 0 || k++ < from)
 			continue;
-		in = intro_of(hosts[i], 0);
-		if (in && in->until > now && in->port)
-			(void)snprintf(where, sizeof(where), "%s:%u", in->host, (unsigned)in->port);
-		else if (fzn_node_settings_address(&node_settings, hosts[i], where, &port)) {
-			size_t w = strlen(where);
-
-			(void)snprintf(where + w, sizeof(where) - w, ":%u", (unsigned)port);
-		} else
-			(void)snprintf(where, sizeof(where), "-");
-		paired = fzn_node_pairing_load(node_apply.store, hosts[i], &pairing) == FZN_PERSIST_OK;
-		fzn_wipe(&pairing, sizeof(pairing));
-		for (j = 0; !paired && running_admin && running_admin->state
-		            && j < running_admin->state->peer_count;
-		     j++)
-			paired = memcmp(running_admin->state->peers[j].sender, hosts[i], FZN_PUBKEY_LEN)
-			         == 0;
-		if (fzn_heard_when(node_apply.store, hosts[i], &when) == FZN_HEARD_OK)
-			(void)snprintf(heard, sizeof(heard), "%llu",
-			               (unsigned long long)(now_us > when ? (now_us - when) / 1000000u : 0u));
+		sibling_fact_of(hosts[i], now, now_us, &f);
+		if (f.heard)
+			(void)snprintf(heard, sizeof(heard), "%llu", (unsigned long long)f.heard_s);
 		else
 			(void)snprintf(heard, sizeof(heard), "-");
 		len = snprintf(entry, sizeof(entry), " ");
 		for (j = 0; j < FZN_PUBKEY_LEN; j++)
 			len += snprintf(entry + len, sizeof(entry) - (size_t)len, "%02x", hosts[i][j]);
-		/* ITS NAME, sec 848: the host's own `host/name`, escaped, or `-`. */
-		if (fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, hosts[i],
-		                          (const uint8_t *)FZN_NODE_SETTINGS_NAME_KEY,
-		                          sizeof(FZN_NODE_SETTINGS_NAME_KEY) - 1u, value, &value_len, &rank)
-		    && value_len && value_len <= 32u
-		    && fzn_escape(value, value_len, name, sizeof(name) - 1u, &name_len) == value_len)
+		/* ITS NAME, sec 848, escaped, or `-`. */
+		if (f.name_len && fzn_escape(f.name, f.name_len, name, sizeof(name) - 1u, &name_len) == f.name_len)
 			name[name_len] = '\0';
 		else
 			(void)snprintf(name, sizeof(name), "-");
-		len += snprintf(entry + len, sizeof(entry) - (size_t)len, ",%s,%s,%s,%s", where,
-		                paired ? "paired" : "unpaired", heard, name);
+		len += snprintf(entry + len, sizeof(entry) - (size_t)len, ",%s,%s,%s,%s",
+		                f.where[0] ? f.where : "-", f.paired ? "paired" : "unpaired", heard, name);
 		/* A PAGE IS WHAT FITS: the next one starts at the first left out. */
 		if (len <= 0 || at + (size_t)len + 2u > cap)
 			break;
@@ -18245,11 +18285,54 @@ static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 }
 #endif
 
+#include "../wire/generated/members_local.h"
+#include "../wire/generated/members_local_build.h"
+/* THIS ESTATE'S OTHER HOSTS IN BINARY, sec 1176: `list sibling`'s rows, a
+ * row a host and then a STATUS ok, for this node's own user alone. */
+static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
+	uint64_t now = wall_clock(), now_us = wall_ms() * 1000u;
+	situ_msg_t m;
+	situ_view_t v;
+	size_t n = 0, i;
+
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "where this estate's hosts are is its own user's"), 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_members_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_members_local_message_validate(v) != SITU_OK
+	    || fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_SIBLINGS)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a siblings request"), 0;
+	if (!siblings_gather(&hosts, &n))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "the siblings would not read"), 0;
+	for (i = 0; i < n; i++) {
+		struct sibling_fact f;
+		uint8_t row[400], out[420];
+		uint32_t row_len = 0, out_len = 0;
+
+		if (memcmp(hosts[i], routing_self, FZN_PUBKEY_LEN) == 0)
+			continue;
+		sibling_fact_of(hosts[i], now, now_us, &f);
+		if (fzn_members_local_sibling_row_build(row, sizeof(row), hosts[i], (uint8_t)(f.paired ? 1 : 0),
+		                                        (uint8_t)(f.heard ? 1 : 0), f.heard_s, (const uint8_t *)f.where,
+		                                        (uint32_t)strlen(f.where), f.name, (uint32_t)f.name_len,
+		                                        &row_len)
+		            != SITU_OK
+		    || fzn_members_local_message_build_sibling_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row,
+		                                                   row_len, &out_len)
+		               != SITU_OK
+		    || !local_put(&fd, out, out_len))
+			return 0;
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 /* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary, by its CMD: named
  * objects asked (sec 1152), every conversation's newest line or count
  * (sec 1155), this user's contacts (sec 1162), groups (sec 1170) and the
  * positions held (sec 1171), the sticker packs (sec 1172), the library
- * (sec 1174), or a MEDIA_OPEN
+ * (sec 1174), this estate's other hosts (sec 1176), or a MEDIA_OPEN
  * for a call this host holds, from its own user, which keeps it
  * as the call's channel (sec 1113). */
 static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
@@ -18274,6 +18357,8 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 	if (len && msg[0] == FZN_CMD_STICKERS)
 		return local_stickers(fd, origin, msg, len);
 #endif
+	if (len && msg[0] == FZN_CMD_MEMBERS)
+		return local_siblings(fd, origin, msg, len);
 #ifdef FZND_LIBRARY
 	if (len && msg[0] == FZN_CMD_FILES)
 		return local_library(fd, origin, msg, len);

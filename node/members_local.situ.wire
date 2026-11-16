@@ -1,0 +1,43 @@
+# situ wire signature v3
+# schema: members_local.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum op : u8 unknown=error
+  siblings=128 sibling_row=129
+
+struct message size=2..338
+  @0x0000   1         u8         cmd  must_eq=9
+  @0x0001   1         op         op
+  @0x0002   0..336    variant    body
+  body switch: op
+  body case 128: siblings nothing
+  body case 129: sibling_row sibling_row
+  body case default: error
+
+struct nothing size=0
+
+struct sibling_row size=45..336
+  @0x0000   32        u8         key  big
+  @0x0020   1         u8         paired  max=1
+  @0x0021   1         u8         heard  max=1
+  @0x0022   8         u64        heard_s  big
+  @0x002a   2         u16        where_len  big max=259
+  @0x002c   0..259    u8         where  sized-by=where_len
+  ~         1         u8         name_len  max=32
+  ~         0..32     u8         name  sized-by=name_len

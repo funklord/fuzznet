@@ -16894,6 +16894,20 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"rpc-siblings-binary-cut-whole",
+		"local/rpc.c",
+		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the siblings cut short */\n",
+		"\tif (a.bad) return unreadable(c); /* the siblings cut short */\n",
+		"a siblings listing cut before its STATUS is read as every host -- sec 1176",
+	),
+	(
+		"rpc-siblings-binary-unpaired-valid",
+		"local/rpc.c",
+		"\te->valid = fzn_members_local_sibling_row_paired_get(b);\n",
+		"\te->valid = 1;\n",
+		"an unpaired host read in binary is listed as valid -- sec 1176",
+	),
+	(
 		"rpc-group-lines-binary-contact-as-group",
 		"local/rpc.c",
 		"\t\tif (!fzn_messages_local_line_row_group_get(b)) {\n\t\t\ta->bad = 1;\n\t\t\treturn;\n\t\t}\n",

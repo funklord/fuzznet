@@ -19,6 +19,8 @@ client drives it -- no one-shot command, no daemon stopped by its client.
        join kept it, and reads a second setting A makes
     d  A's `list sibling` names B, paired
     d2 B sets its own `host/name`, and A's row for B ends in it (sec 848)
+    d3 the same in binary (sec 1176): A's row for B, paired, its name raw,
+       its address and its last answer as the text row gives them
     e  B's `list capability` holds member by one hop; A's `list grant` names
        the grant it made B, standing
     f  A grants B admin; B keeps the chain with `set admin PATH` and starts
@@ -49,6 +51,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+from live_rpc import binary  # noqa: E402
 import live_trim  # noqa: E402
 
 live_trim.DEADLINE = time.monotonic() + 300.0
@@ -206,6 +209,24 @@ def main(argv):
 					raise failed("d2: A's list sibling answered %r, not B named" % listed)
 				time.sleep(1.0)
 			print("livecheck: d2: B named itself, and A lists it by that name")
+
+			# d3: THE SAME IN BINARY, sec 1176: A's row for B as the text row
+			# says it -- paired, where, heard -- and the name raw, not escaped.
+			text = [e for e in ask(socks["a"], "list sibling").split()[3:]
+			        if e.startswith(key_b + ",")]
+			got = binary(socks["a"], bytes([0x09, 0x80]))
+			rows = [m for m in got[:-1] if m[:2] == bytes([0x09, 0x81]) and m[2:34].hex() == key_b]
+			if len(text) != 1 or len(rows) != 1 or got[-1][:2] != bytes([0x13, 0]):
+				raise failed("d3: A's siblings in binary were %r, in text %r" % (got, text))
+			_, where, paired, heard, _ = text[0].split(",")
+			r = rows[0]
+			wl = int.from_bytes(r[44:46], "big")
+			nl = r[46 + wl]
+			if r[34] != (1 if paired == "paired" else 0) or r[35] != (0 if heard == "-" else 1) \
+			   or r[46:46 + wl].decode() != ("" if where == "-" else where) \
+			   or r[47 + wl:47 + wl + nl] != b"my laptop":
+				raise failed("d3: A's row for B in binary was %r, in text %r" % (r, text[0]))
+			print("livecheck: d3: A's row for B in binary as in text, its name raw")
 
 			# e: B holds the member capability by A's grant, one hop; A lists
 			# the grant it made B, standing (sec 638).

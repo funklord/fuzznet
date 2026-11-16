@@ -22,6 +22,7 @@
 #include "../../wire/generated/streams_local_build.h"
 #include "../../wire/generated/stickers_local_build.h"
 #include "../../wire/generated/files_local_build.h"
+#include "../../wire/generated/members_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -1149,8 +1150,62 @@ static void test_library_in_binary(void)
 	fzn_rpc_library_list_release(&out);
 }
 
+/* ONE SIBLING framed onto answer `i`, sec 1176. */
+static void sibling_onto(struct bscript *s, size_t i, uint8_t first, uint8_t paired, const char *where,
+                         const char *name)
+{
+	uint8_t key[32], row[400], m[420];
+	uint32_t row_len = 0, n = 0;
+
+	memset(key, first, sizeof(key));
+	if (fzn_members_local_sibling_row_build(row, sizeof(row), key, paired, 1u, 42u, (const uint8_t *)where,
+	                                        (uint32_t)strlen(where), (const uint8_t *)name, (uint32_t)strlen(name),
+	                                        &row_len)
+	            != SITU_OK
+	    || fzn_members_local_message_build_sibling_row(m, sizeof(m), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &n)
+	               != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* THIS ESTATE'S OTHER HOSTS IN BINARY, sec 1176: a named host by its name,
+ * address and pairing; an unnamed one by its key's first sixteen, as the
+ * text row is read; the request's bytes; a listing cut before its STATUS
+ * refused; a node reading no binary asked by the verb. */
+static void test_siblings_in_binary(void)
+{
+	static struct bscript held, cut, old;
+	static fzn_rpc_sibling_list_resp_t out;
+
+	sibling_onto(&held, 0, 0x5a, 1u, "10.0.0.2:7000", "my laptop");
+	sibling_onto(&held, 0, 0x6b, 0u, "", "");
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_sibling_list(&c, &out) == FZN_RPC_OK && out.count == 2 && out.entries[0].host_pubkey[0] == 0x5a
+	              && strcmp(out.entries[0].name, "my laptop") == 0 && strcmp(out.entries[0].address, "10.0.0.2:7000") == 0
+	              && out.entries[0].valid && strcmp(out.entries[1].name, "6b6b6b6b6b6b6b6b") == 0
+	              && out.entries[1].address_len == 0 && !out.entries[1].valid && held.asked[0][0] == 0x09
+	              && held.asked[0][1] == 0x80,
+	      "the siblings were not read in binary, by name, address and pairing");
+	sibling_onto(&cut, 0, 0x5a, 1u, "", "");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_sibling_list(&c, &out) != FZN_RPC_OK, "a siblings listing cut before its STATUS was read as whole");
+	{
+		struct script s = { { "ok 0 0" }, 0, 1, 0, { { 0 } } };
+
+		status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a channel's asking");
+		on(&c, &s);
+		c.binary_answer = bscripted;
+		c.binary_ctx = &old;
+		CHECK(fzn_rpc_sibling_list(&c, &out) == FZN_RPC_OK && out.count == 0
+		              && strcmp(s.asked[0], "list sibling 0") == 0,
+		      "a node reading no siblings in binary was not asked by the verb");
+	}
+}
+
 int main(void)
 {
+	test_siblings_in_binary();
 	test_group_lines_in_binary();
 	test_library_in_binary();
 	test_packs_in_binary();
