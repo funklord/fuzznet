@@ -4702,10 +4702,6 @@ int fzn_rpc_transfer_list(fzn_rpc_t *c, fzn_rpc_transfer_list_resp_t *out) {
 	return FZN_RPC_OK;
 }
 
-int fzn_rpc_delivery_list(fzn_rpc_t *c, fzn_rpc_delivery_list_resp_t *out) {
-	return node_delivery_list(c, out);
-}
-
 int fzn_rpc_config_set(fzn_rpc_t *c, const char *key, size_t key_len, const char *value,
                         size_t value_len, const char *expected, size_t expected_len,
                         int *restart_required) {
@@ -7979,6 +7975,8 @@ struct conversations_answer {
 	fzn_rpc_unread_entry_t *unread;
 	fzn_rpc_inbox_entry_t *lines; /* a conversation's lines, sec 1159 */
 	fzn_rpc_group_line_t *group_lines; /* a group's, sec 1175 */
+	fzn_rpc_delivery_list_resp_t *deliveries; /* this user's unsettled lines, sec 1180 */
+	size_t rows;                              /* every row read, kept or not */
 	size_t cap, *count, *total;
 	int bad, status_seen;
 	fzn_status_t code;
@@ -8045,6 +8043,24 @@ static void conversations_each(void *ctx, const uint8_t *msg, size_t len) {
 		if (e->text_len > FZN_RPC_PEER_TEXT_MAX) e->text_len = FZN_RPC_PEER_TEXT_MAX;
 		memcpy(e->text, fzn_messages_local_line_row_text_ptr(b), e->text_len);
 		(*a->count)++;
+	} else if (a->deliveries && fzn_messages_local_message_op_get(v) == FZN_MESSAGES_LOCAL_OP_LINE_ROW
+	           && fzn_messages_local_message_body_line_row_view(v, &b) == SITU_OK) {
+		/* AS THE TEXT LISTING IS READ: this user's own lines to a contact,
+		 * not yet settled -- a group's left out, and every row counted, so
+		 * a full page is told from the last. */
+		a->rows++;
+		fzn_rpc_delivery_list_resp_t *out = a->deliveries;
+		const uint8_t state = fzn_messages_local_line_row_state_get(b);
+		if (fzn_messages_local_line_row_group_get(b) || !fzn_messages_local_line_row_outgoing_get(b)
+		    || state == FZN_RPC_LINE_SETTLED || out->count >= FZN_RPC_DELIVERY_LIST_MAX)
+			return;
+		fzn_rpc_delivery_entry_t *d = &out->entries[out->count++];
+		memcpy(d->commitment, fzn_messages_local_line_row_id_ptr(b), 16);
+		d->peer_name_len = fzn_messages_local_line_row_name_len(b);
+		if (d->peer_name_len > FZN_RPC_PEER_NAME_MAX) d->peer_name_len = FZN_RPC_PEER_NAME_MAX;
+		memcpy(d->peer_name, fzn_messages_local_line_row_name_ptr(b), d->peer_name_len);
+		d->delivered = state == FZN_RPC_LINE_DELIVERED;
+		d->first_sent = fzn_messages_local_line_row_stime_ms_get(b) / 1000u;
 	} else if (a->group_lines && fzn_messages_local_message_op_get(v) == FZN_MESSAGES_LOCAL_OP_LINE_ROW
 	           && fzn_messages_local_message_body_line_row_view(v, &b) == SITU_OK) {
 		/* ONLY A GROUP'S LINE, as the verb's `@GROUP` listing has no other:
@@ -8231,6 +8247,39 @@ int fzn_rpc_group_lines(fzn_rpc_t *c, const char *group, size_t group_len, fzn_r
 		*count = 0;
 	}
 	return group_lines_text(c, group, group_len, out, cap, count);
+}
+
+int fzn_rpc_delivery_list(fzn_rpc_t *c, fzn_rpc_delivery_list_resp_t *out) {
+	/* IN BINARY, sec 1180: everyone's lines through sec 1159's request, a
+	 * page of 65535 rows at a time where the verb took a reply's worth --
+	 * this user's own lines to a contact, not yet settled, kept. */
+	memset(out, 0, sizeof(*out));
+	for (uint32_t from = 0;; from += 0xffffu) {
+		static uint8_t inner[64], req[80];
+		static const uint8_t everyone[32];
+		uint32_t inner_len = 0, req_len = 0;
+		struct conversations_answer a;
+		size_t count = 0, total = 0;
+		int text = 0;
+		memset(&a, 0, sizeof a);
+		a.deliveries = out;
+		a.count = &count;
+		a.total = &total;
+		if (fzn_messages_local_lines_ask_build(inner, sizeof inner, 0u, everyone, from, 0xffffu, &inner_len)
+		            != SITU_OK
+		    || fzn_messages_local_message_build_lines(req, sizeof req, (uint8_t)FZN_CMD_MESSAGES, inner, inner_len,
+		                                              &req_len) != SITU_OK)
+			text = 1;
+		else {
+			const int rc = conversations_ask(c, FZN_MESSAGES_LOCAL_OP_LINES, &a, &text, req, req_len);
+			if (!text && rc != FZN_RPC_OK) return rc;
+		}
+		if (text) {
+			if (from) return unreadable(c); /* binary, then not: the node changed under us */
+			return node_delivery_list(c, out);
+		}
+		if (a.rows < 0xffffu || from > UINT32_MAX - 2u * 0xffffu) return FZN_RPC_OK;
+	}
 }
 
 int fzn_rpc_inbox_lines(fzn_rpc_t *c, const char *peer, size_t peer_len, fzn_rpc_inbox_entry_t *out,

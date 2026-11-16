@@ -16894,6 +16894,20 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"rpc-deliveries-binary-settled-kept",
+		"local/rpc.c",
+		"\t\t    || state == FZN_RPC_LINE_SETTLED || out->count >= FZN_RPC_DELIVERY_LIST_MAX)\n",
+		"\t\t    || out->count >= FZN_RPC_DELIVERY_LIST_MAX)\n",
+		"a line settled is listed as still being delivered -- sec 1180",
+	),
+	(
+		"rpc-deliveries-binary-group-kept",
+		"local/rpc.c",
+		"\t\tif (fzn_messages_local_line_row_group_get(b) || !fzn_messages_local_line_row_outgoing_get(b)\n",
+		"\t\tif (!fzn_messages_local_line_row_outgoing_get(b)\n",
+		"a group's line is listed among the deliveries to contacts -- sec 1180",
+	),
+	(
 		"rpc-roster-binary-cut-whole",
 		"local/rpc.c",
 		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the roster cut short */\n",

@@ -89549,3 +89549,23 @@ left lists nobody; an unknown id is refused; `rpc_test` -- a group asked
 by name found among the groups and its roster read by id, this user an
 admin, a cut roster refused; `live_groups` phase a3 -- B's binary roster
 read back into words is its text roster exactly. Two sabotages.
+
+## 1180. The deliveries, in binary, 2026-11-16
+
+`fzn_rpc_delivery_list` -- fuzzypickles' conversation list and view,
+which mark a line still on its way -- paged `list message FROM` through
+everyone's lines, a reply's worth a request, to keep this user's own
+lines to a contact not yet settled. Sec 1159's `lines` request already
+says each line's direction, mark and whether it is a group's, so the
+client asks it instead, ONE 0 for everyone's, 65535 rows a page and
+again from there while a page comes back full, and keeps what the text
+reading kept: outgoing, not a group's, not settled (mark 2), `delivered`
+for mark 1. A node reading no binary is asked by the verb; one that
+reads the first page in binary and then not is refused as unreadable
+rather than mixed. Client alone; the node is unchanged.
+
+**Tests:** `rpc_test` -- five rows, two kept (one delivered, one not
+yet), a settled one, an incoming one and a group's left out, the
+request's bytes; `live_rpc` phase a -- `rpc_probe`'s 28 calls on a
+running node, the deliveries among them, with the library, transfers
+and siblings of secs 1174, 1176 and 1177. Two sabotages.

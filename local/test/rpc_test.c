@@ -1319,8 +1319,34 @@ static void test_roster_in_binary(void)
 	free(out.members);
 }
 
+/* THE DELIVERIES IN BINARY, sec 1180: everyone's lines asked once, this
+ * user's own to a contact kept while not settled -- one delivered, one not
+ * yet -- and a settled one, an incoming one and a group's left out. */
+static void test_deliveries_in_binary(void)
+{
+	static struct bscript lines;
+	static fzn_rpc_delivery_list_resp_t out;
+
+	line_onto(&lines, 0, 0xab, 0, 1, 1, "alice", "", "delivered");
+	line_onto(&lines, 0, 0xab, 0, 1, 2, "alice", "", "settled");
+	line_onto(&lines, 0, 0xab, 0, 0, 0, "alice", "", "incoming");
+	line_onto(&lines, 0, 0xcd, 1, 1, 1, "team", "", "a group's");
+	line_onto(&lines, 0, 0xef, 0, 1, 0, "bob", "", "on its way");
+	status_onto(&lines, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &lines);
+	CHECK(fzn_rpc_delivery_list(&c, &out) == FZN_RPC_OK && out.count == 2 && out.entries[0].delivered
+	              && strcmp(out.entries[0].peer_name, "alice") == 0 && out.entries[0].commitment[0] == 0x54
+	              && out.entries[0].first_sent == 1700000000u && !out.entries[1].delivered
+	              && strcmp(out.entries[1].peer_name, "bob") == 0,
+	      "the deliveries were not this user's unsettled lines to a contact, read in binary");
+	CHECK(lines.asked_len[0] == 41 && lines.asked[0][0] == 0x0a && lines.asked[0][1] == 0x84
+	              && lines.asked[0][2] == 0 && lines.asked[0][39] == 0xff && lines.asked[0][40] == 0xff,
+	      "the deliveries were not asked as everyone's lines, a full page at a time");
+}
+
 int main(void)
 {
+	test_deliveries_in_binary();
 	test_roster_in_binary();
 	test_transfers_in_binary();
 	test_siblings_in_binary();
