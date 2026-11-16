@@ -16894,6 +16894,13 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"rpc-ask-socket-host-on-lines",
+		"gui/rpc_ask.h",
+		"\t    && fzn_rpc_set_node_socket(&r->c, (const char *)ask_ctx) == 0 && r->c.node_socket[0])\n\t\treturn;\n",
+		"\t    && fzn_rpc_set_node_socket(&r->c, (const char *)ask_ctx) == 0 && r->c.node_socket[0])\n\t\t;\n",
+		"a view on a host's socket asks through the line callback, every call text -- sec 1181",
+	),
+	(
 		"rpc-deliveries-binary-settled-kept",
 		"local/rpc.c",
 		"\t\t    || state == FZN_RPC_LINE_SETTLED || out->count >= FZN_RPC_DELIVERY_LIST_MAX)\n",

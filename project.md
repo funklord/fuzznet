@@ -89569,3 +89569,39 @@ yet), a settled one, an incoming one and a group's left out, the
 request's bytes; `live_rpc` phase a -- `rpc_probe`'s 28 calls on a
 running node, the deliveries among them, with the library, transfers
 and siblings of secs 1174, 1176 and 1177. Two sabotages.
+
+## 1181. The hosted views on the node's own socket, so in binary, 2026-11-16
+
+Every view reads the node through `gui/rpc_ask.h`, which put the typed
+client on the host's line callback, `fzn_notebook_view_ask_t`. A
+callback that carries lines cannot carry a binary request, so the client
+saw a node that reads no binary and every call a hosted view made went
+by the verbs -- secs 1152-1180 moved the calls and no view used them.
+The register (sec 1070) names it: "the local leg in binary under it".
+
+**A host that gives `fzn_notebook_view_socket_ask` gives the node's
+socket path as its context**, and every fuzzypickles page does. Such a
+client is now put on that socket itself (`fzn_rpc_set_node_socket`),
+where it asks in binary and falls back to the verbs as any client does;
+any other ask -- a test's scripted node, a host's own -- keeps the line
+callback. No view's or host's signature changes.
+
+**The socket ask is declared weak in `rpc_ask.h`**, which is the one
+choice here worth knowing about. A view's own test, and a host with an
+ask of its own, link no `notebook_view.o`, so a strong reference would
+have broken their links; moving the function into `local/rpc.c` would
+have left it undefined in fuzzypickles, whose GUI links its own client
+library and lists fuzznet's GUI sources one by one in `gui.pro`. Weak,
+an unlinked socket ask is null and the comparison never holds. GCC and
+Clang on ELF, which every build here is; a toolchain without weak
+symbols would need the function moved, and say so at link time.
+
+The client on the socket waits 10 s for a text reply where the socket
+ask waited 5 s, and names why a call failed (not running, no answer in
+time, broken off) where the callback said only that nothing answered.
+
+**Tests:** `gui/test/rpc_ask_test` -- a socket host's client is on the
+socket, not the callback; a pack listing asked of a listening socket
+arrives as the binary request and reads the binary answer, no line
+asked; a host's own ask and a socket ask with no path keep the
+callback. One sabotage, `rpc-ask-socket-host-on-lines`.

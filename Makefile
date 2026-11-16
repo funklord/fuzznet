@@ -1340,7 +1340,7 @@ GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/governance_view_test.cpp gui/test/objects_view_test.cpp \
             gui/test/settings_view_test.cpp gui/test/contacts_view_test.cpp gui/test/devices_view_test.cpp gui/test/hosts_view_test.cpp \
             gui/test/conversation_view_test.cpp gui/test/forks_view_test.cpp \
-            gui/test/library_view_test.cpp gui/test/reach_view_test.cpp \
+            gui/test/library_view_test.cpp gui/test/reach_view_test.cpp gui/test/rpc_ask_test.cpp \
             gui/test/conversations_view_test.cpp gui/test/sticker_picker_view_test.cpp \
             gui/test/call_view_test.cpp gui/test/group_view_test.cpp \
             gui/test/location_view_test.cpp \
@@ -1451,6 +1451,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/conversation_view_test \
               $(BUILD_DIR)/gui/test/forks_view_test \
               $(BUILD_DIR)/gui/test/library_view_test \
+              $(BUILD_DIR)/gui/test/rpc_ask_test \
               $(BUILD_DIR)/gui/test/reach_view_test \
               $(BUILD_DIR)/gui/test/conversations_view_test \
               $(BUILD_DIR)/gui/test/sticker_picker_view_test \
@@ -3815,6 +3816,10 @@ $(BUILD_DIR)/gui/test/library_view_test: $(BUILD_DIR)/gui/test/library_view_test
                                       $(BUILD_DIR)/gui/library_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
+# THE VIEWS' CLIENT ON A HOST'S SOCKET, sec 1181.
+$(BUILD_DIR)/gui/test/rpc_ask_test: $(BUILD_DIR)/gui/test/rpc_ask_test.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -lpthread -o $@
 $(BUILD_DIR)/gui/test/reach_view_test: $(BUILD_DIR)/gui/test/reach_view_test.o \
                                     $(BUILD_DIR)/gui/reach_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)

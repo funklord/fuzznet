@@ -56,12 +56,29 @@ static inline const char *fzn_gui_rpc_silent(const fzn_gui_rpc *r)
 	               : r->c.error;
 }
 
-/* Ready to call: the client initialised and asking through `ask`. */
+/* WEAK HERE, sec 1181: a program that links no `notebook_view.o` -- a
+ * view's own test, a host with an ask of its own -- has no socket ask, and
+ * the comparison below then never holds. */
+extern size_t fzn_notebook_view_socket_ask(void *ctx, const char *line, char *reply,
+                                           size_t reply_cap) __attribute__((weak));
+
+/* Ready to call: the client initialised and asking through `ask`.
+ *
+ * A HOST THAT GIVES THE SOCKET ASK, sec 1181, gives the node's socket path
+ * as its context -- fuzzypickles' every page does -- so the client is put on
+ * that socket itself rather than on the line callback: there it speaks the
+ * binary messages of secs 1152-1180 where the node reads them, and the
+ * verbs where it does not. Through the line callback every call was text,
+ * since a callback that carries lines cannot carry a binary request. Any
+ * other ask -- a test's scripted node, a host's own -- is used as before. */
 static inline void fzn_gui_rpc_init(fzn_gui_rpc *r, fzn_notebook_view_ask_t ask, void *ask_ctx)
 {
 	fzn_rpc_init(&r->c);
 	r->ask = ask;
 	r->ask_ctx = ask_ctx;
+	if (fzn_notebook_view_socket_ask && ask == fzn_notebook_view_socket_ask && ask_ctx
+	    && fzn_rpc_set_node_socket(&r->c, (const char *)ask_ctx) == 0 && r->c.node_socket[0])
+		return;
 	r->c.answer = fzn_gui_rpc_answer;
 	r->c.answer_ctx = r;
 }
