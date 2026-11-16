@@ -16894,6 +16894,13 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"traffic-view-open-folded",
+		"gui/traffic_view.cpp",
+		"\t\tparent->setExpanded(was_open.contains(it.key()));\n",
+		"\t\tparent->setExpanded(false);\n",
+		"the traffic view folds what a person opened at every refresh -- sec 1182",
+	),
+	(
 		"rpc-ask-socket-host-on-lines",
 		"gui/rpc_ask.h",
 		"\t    && fzn_rpc_set_node_socket(&r->c, (const char *)ask_ctx) == 0 && r->c.node_socket[0])\n\t\treturn;\n",

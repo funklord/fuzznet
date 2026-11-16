@@ -85930,14 +85930,14 @@ is the register, rewritten in place as features land; "where" says where each li
 | Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | capture, codecs and playback, the host's over the call's media channel (secs 1113, 1142) |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
-| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132) | Library playback UI, share target | a hostable transfer view |
+| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182) | Library playback UI, share target; fuzzypickles' Transfers tab, to move onto `traffic_view` | |
 | Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
 | Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103); presets and a setting's votes on `governance_view` (secs 1023, 1029) | Settings page, to move onto it | |
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099) | fuzzypickles' copy, until it pins past it | the local leg in binary under it (sec 1101) |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, legs, clocks, capabilities, forks, retention, one file's detail |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -89605,3 +89605,32 @@ socket, not the callback; a pack listing asked of a listening socket
 arrives as the binary request and reads the binary answer, no line
 asked; a host's own ask and a socket ask with no path keep the
 callback. One sabotage, `rpc-ask-socket-host-on-lines`.
+
+## 1182. What this node has moved, as a hosted view, 2026-11-16
+
+The register's "a hostable transfer view" (sec 1070): fuzzypickles drew
+its Transfers tab over `fzn_rpc_transfer_list` itself, and by the
+register's rule the view is fuzznet's. `gui/traffic_view` is it, hosted
+as the others are (`rpc_ask.h`), so on a host's socket it reads the
+transfers of sec 1177 in binary (sec 1181).
+
+- **Named `traffic`**, as the daemon names its meter, because
+  `transfer_view` is already the one blob being assembled (sec 179) -- a
+  different question.
+- **Ported from fuzzypickles' tab, its rules kept**: two trees, by family
+  and by host, each parent from the daemon's own sums (a family's with
+  its evicted rows' bytes in) and "3 of 40" where fewer rows arrived than
+  it holds; what was open stays open across a refresh, by key; the
+  summary says when the listing is partial.
+- **A file named from the library** (`fzn_rpc_library_list`, binary since
+  sec 1174), where fuzzypickles read every conversation's attachments
+  for names; a file nobody here named is its root, abbreviated.
+- **Its two trees are named for a screen reader** (sec 1120), which
+  `qtty_render_test` required before it would pass.
+
+**Tests:** `traffic_view_test` -- two families and two hosts from the
+daemon's sums, a file named from the library and a chat row by its
+peer, an open family kept open over a refresh, a silent node said so
+with the trees kept; `qtty_render_test` draws it, "nothing moving". One
+sabotage. fuzzypickles was told of sec 1181's change in its inbox,
+message 20261116T2044Z; moving its tab onto this view is theirs.
