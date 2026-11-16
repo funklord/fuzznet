@@ -23,6 +23,8 @@ client drives it -- no one-shot command, no daemon stopped by its client.
        its address and its last answer as the text row gives them
     e  B's `list capability` holds member by one hop; A's `list grant` names
        the grant it made B, standing
+    e2 the same in binary (sec 1188): B's member row held by one hop, never
+       lapsing; A's grant row for B, member, standing
     f  A grants B admin; B keeps the chain with `set admin PATH` and starts
        again in place, holding admin by one hop
     g  A's `list log` reads what A logged, newest first: at its default
@@ -247,6 +249,21 @@ def main(argv):
 			                     for e in g[3:]),
 			       "not B's member grant, standing")
 			print("livecheck: e: B holds the member capability by A's grant, and A lists it")
+
+			# e2: THE SAME IN BINARY, sec 1188: each row read back into the text
+			# row's fields, the capability's name raw at its head.
+			got = binary(socks["b"], bytes([0x09, 0x82]))
+			caps = [(m[3:3 + m[2]].decode(), m[3 + m[2]], m[4 + m[2]],
+			         int.from_bytes(m[5 + m[2]:13 + m[2]], "big"))
+			        for m in got[:-1] if m[:2] == bytes([0x09, 0x83])]
+			if not got or got[-1][:2] != bytes([0x13, 0]) or ("member", 1, 1, 0) not in caps:
+				raise failed("e2: B's capabilities in binary were %r" % (caps,))
+			got = binary(socks["a"], bytes([0x09, 0x84]))
+			grants = [(m[2:34].hex(), m[35:35 + m[34]].decode(), m[-1])
+			          for m in got[:-1] if m[:2] == bytes([0x09, 0x85])]
+			if not got or got[-1][:2] != bytes([0x13, 0]) or (key_b, "member", 1) not in grants:
+				raise failed("e2: A's grants in binary were %r" % (grants,))
+			print("livecheck: e2: B's member row and A's grant to B in binary, as in text")
 
 			# f: A grants B admin; B keeps the chain by a verb and starts again
 			# in place, holding admin by one hop (sec 658) -- what took

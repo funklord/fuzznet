@@ -19,7 +19,21 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  siblings=128 sibling_row=129
+  siblings=128 sibling_row=129 capabilities=130 capability_row=131 grants=132 grant_row=133
+
+struct capability_row size=11..27
+  @0x0000   1         u8         name_len  max=16
+  @0x0001   0..16     u8         name  sized-by=name_len
+  ~         1         u8         holds  max=1
+  ~         1         u8         hops
+  ~         8         u64        expires  big
+
+struct grant_row size=42..58
+  @0x0000   32        u8         grantee  big
+  @0x0020   1         u8         name_len  max=16
+  @0x0021   0..16     u8         name  sized-by=name_len
+  ~         8         u64        expires  big
+  ~         1         u8         stands  max=1
 
 struct message size=2..338
   @0x0000   1         u8         cmd  must_eq=9
@@ -28,6 +42,10 @@ struct message size=2..338
   body switch: op
   body case 128: siblings nothing
   body case 129: sibling_row sibling_row
+  body case 130: capabilities nothing
+  body case 131: capability_row capability_row
+  body case 132: grants nothing
+  body case 133: grant_row grant_row
   body case default: error
 
 struct nothing size=0

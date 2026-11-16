@@ -1484,8 +1484,54 @@ static void test_forks_in_binary(void)
 	CHECK(fzn_rpc_fork_list(&c, sides, 4, &count) != FZN_RPC_OK, "a forks listing cut before its STATUS was read as whole");
 }
 
+/* WHAT THIS NODE HOLDS AND HAS GRANTED, IN BINARY, sec 1188: member held
+ * by two hops, a name this client does not know passed over, a grant of
+ * admin revoked; the requests' bytes; a cut listing refused. */
+static void test_capabilities_in_binary(void)
+{
+	static struct bscript held, granted, cut;
+	static fzn_rpc_cap_list_resp_t caps;
+	static fzn_rpc_cap_granted_resp_t grants;
+	uint8_t row[80], m[96], grantee[32];
+	uint32_t row_len = 0, n = 0;
+
+	if (fzn_members_local_capability_row_build(row, sizeof(row), (const uint8_t *)"member", 6u, 1u, 2u, 1700000000u,
+	                                           &row_len) == SITU_OK
+	    && fzn_members_local_message_build_capability_row(m, sizeof(m), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &n)
+	               == SITU_OK) {
+		framed(&held, 0, m, n);
+		framed(&cut, 0, m, n);
+	}
+	if (fzn_members_local_capability_row_build(row, sizeof(row), (const uint8_t *)"teleport", 8u, 1u, 1u, 0u,
+	                                           &row_len) == SITU_OK
+	    && fzn_members_local_message_build_capability_row(m, sizeof(m), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &n)
+	               == SITU_OK)
+		framed(&held, 0, m, n);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_cap_list(&c, &caps) == FZN_RPC_OK && caps.count == 1 && caps.entries[0].valid
+	              && caps.entries[0].hop_count == 2 && caps.entries[0].expires_at == 1700000000u
+	              && held.asked[0][0] == 0x09 && held.asked[0][1] == 0x82,
+	      "the capabilities were not read in binary, an unknown name passed over");
+	memset(grantee, 0x5a, sizeof(grantee));
+	if (fzn_members_local_grant_row_build(row, sizeof(row), grantee, (const uint8_t *)"admin", 5u, 0u, 0u, &row_len)
+	            == SITU_OK
+	    && fzn_members_local_message_build_grant_row(m, sizeof(m), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &n)
+	               == SITU_OK)
+		framed(&granted, 0, m, n);
+	status_onto(&granted, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &granted);
+	CHECK(fzn_rpc_cap_granted(&c, &grants) == FZN_RPC_OK && grants.count == 1
+	              && grants.entries[0].grantee_pubkey[0] == 0x5a && grants.entries[0].revoked
+	              && grants.entries[0].expires_at == 0 && granted.asked[0][1] == 0x84,
+	      "the grants were not read in binary, a grant that no longer stands as revoked");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_cap_list(&c, &caps) != FZN_RPC_OK, "a capabilities listing cut before its STATUS was read as whole");
+}
+
 int main(void)
 {
+	test_capabilities_in_binary();
 	test_forks_in_binary();
 	test_clocks_in_binary();
 	test_legs_in_binary();

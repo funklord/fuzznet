@@ -26,6 +26,10 @@ extern "C" {
 typedef enum fzn_members_local_op {
 	FZN_MEMBERS_LOCAL_OP_SIBLINGS = 128,
 	FZN_MEMBERS_LOCAL_OP_SIBLING_ROW = 129,
+	FZN_MEMBERS_LOCAL_OP_CAPABILITIES = 130,
+	FZN_MEMBERS_LOCAL_OP_CAPABILITY_ROW = 131,
+	FZN_MEMBERS_LOCAL_OP_GRANTS = 132,
+	FZN_MEMBERS_LOCAL_OP_GRANT_ROW = 133,
 } fzn_members_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -35,6 +39,10 @@ static inline int fzn_members_local_op_is_known(fzn_members_local_op_t value)
 	switch (value) {
 	case FZN_MEMBERS_LOCAL_OP_SIBLINGS:
 	case FZN_MEMBERS_LOCAL_OP_SIBLING_ROW:
+	case FZN_MEMBERS_LOCAL_OP_CAPABILITIES:
+	case FZN_MEMBERS_LOCAL_OP_CAPABILITY_ROW:
+	case FZN_MEMBERS_LOCAL_OP_GRANTS:
+	case FZN_MEMBERS_LOCAL_OP_GRANT_ROW:
 		return 1;
 	default:
 		return 0;
@@ -374,6 +382,502 @@ situ_err_t fzn_members_local_sibling_row_check(situ_view_t view, uint32_t *which
 #define FZN_MEMBERS_LOCAL_SIBLING_ROW_NAME_LEN_CHECK 4u
 #define FZN_MEMBERS_LOCAL_SIBLING_ROW_NAME_CHECK 5u
 
+/* ---- struct capability_row ---- */
+
+#define FZN_MEMBERS_LOCAL_CAPABILITY_ROW_SIZE_MIN   11u
+#define FZN_MEMBERS_LOCAL_CAPABILITY_ROW_SIZE_MAX   27u
+
+/* INVALIDATION: a capability_row view, and every view derived from
+ * it, is invalidated by writing `name_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_members_local_capability_row_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_MEMBERS_LOCAL_CAPABILITY_ROW_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+#define FZN_MEMBERS_LOCAL_CAPABILITY_ROW_NAME_LEN_VALUE_MAX 16u
+
+/** capability_row.name_len : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_members_local_capability_row_name_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_members_local_capability_row_name_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+/* No plain setter: `name_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_members_local_capability_row_name_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** capability_row.name : u8  at AbsoluteStatic(0x01)
+ * size=Bounded(0, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_members_local_capability_row_name_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])),
+		situ_remaining_u32(view.limit, 1u));
+}
+static inline uint8_t *fzn_members_local_capability_row_name_ptr(situ_view_t view)
+{
+	return situ_base(view) + 1u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+#define FZN_MEMBERS_LOCAL_CAPABILITY_ROW_HOLDS_VALUE_MAX 1u
+
+/** capability_row.holds : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_members_local_capability_row_holds_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_members_local_capability_row_holds_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_members_local_capability_row_holds_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_members_local_capability_row_holds_offset(view)))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_members_local_capability_row_holds_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_members_local_capability_row_holds_offset(view));
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_members_local_capability_row_holds_set(situ_view_t view, uint8_t value)
+{
+	if (situ_in_bounds(view, fzn_members_local_capability_row_holds_offset(view), 1u)) {
+		((situ_base(view) + fzn_members_local_capability_row_holds_offset(view)))[0u] = (uint8_t)value;
+	}
+}
+
+/** capability_row.hops : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_members_local_capability_row_hops_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_members_local_capability_row_hops_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_members_local_capability_row_hops_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_members_local_capability_row_hops_offset(view)))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_members_local_capability_row_hops_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_members_local_capability_row_hops_offset(view));
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_members_local_capability_row_hops_set(situ_view_t view, uint8_t value)
+{
+	if (situ_in_bounds(view, fzn_members_local_capability_row_hops_offset(view), 1u)) {
+		((situ_base(view) + fzn_members_local_capability_row_hops_offset(view)))[0u] = (uint8_t)value;
+	}
+}
+
+/** capability_row.expires : u64  at Dynamic
+ * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_members_local_capability_row_expires_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (2u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint64_t fzn_members_local_capability_row_expires_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_members_local_capability_row_expires_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_members_local_capability_row_expires_offset(view)) + 0u))
+		: (uint64_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_members_local_capability_row_expires_set(situ_view_t view, uint64_t value)
+{
+	if (situ_in_bounds(view, fzn_members_local_capability_row_expires_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_members_local_capability_row_expires_offset(view)) + 0u, (uint64_t)value);
+	}
+}
+
+/** How many bytes one `capability_row` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_members_local_capability_row_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 11u)) {
+		return 11u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 11u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])));
+	return extent;
+}
+
+/** How many bytes a whole `capability_row` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_members_local_capability_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 11u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* capability_row.name: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 1u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[0u]));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_members_local_capability_row_name_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_members_local_capability_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_members_local_capability_row_check(situ_view_t view, uint32_t *which);
+#define FZN_MEMBERS_LOCAL_CAPABILITY_ROW_NAME_LEN_CHECK 0u
+#define FZN_MEMBERS_LOCAL_CAPABILITY_ROW_NAME_CHECK 1u
+#define FZN_MEMBERS_LOCAL_CAPABILITY_ROW_HOLDS_CHECK 2u
+#define FZN_MEMBERS_LOCAL_CAPABILITY_ROW_HOPS_CHECK 3u
+#define FZN_MEMBERS_LOCAL_CAPABILITY_ROW_EXPIRES_CHECK 4u
+
+/* ---- struct grant_row ---- */
+
+#define FZN_MEMBERS_LOCAL_GRANT_ROW_SIZE_MIN   42u
+#define FZN_MEMBERS_LOCAL_GRANT_ROW_SIZE_MAX   58u
+
+/* INVALIDATION: a grant_row view, and every view derived from
+ * it, is invalidated by writing `name_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_members_local_grant_row_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_MEMBERS_LOCAL_GRANT_ROW_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** grant_row.grantee : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MEMBERS_LOCAL_GRANT_ROW_GRANTEE_COUNT 32u
+static inline uint8_t *fzn_members_local_grant_row_grantee_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+#define FZN_MEMBERS_LOCAL_GRANT_ROW_NAME_LEN_VALUE_MAX 16u
+
+/** grant_row.name_len : u8  at AbsoluteStatic(0x20)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_members_local_grant_row_name_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[32u]);
+}
+static inline uint8_t *fzn_members_local_grant_row_name_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 32u);
+}
+/* No plain setter: `name_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_members_local_grant_row_name_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** grant_row.name : u8  at AbsoluteStatic(0x21)
+ * size=Bounded(0, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_members_local_grant_row_name_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[32u])),
+		situ_remaining_u32(view.limit, 33u));
+}
+static inline uint8_t *fzn_members_local_grant_row_name_ptr(situ_view_t view)
+{
+	return situ_base(view) + 33u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** grant_row.expires : u64  at Dynamic
+ * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_members_local_grant_row_expires_offset(situ_view_t view)
+{
+	uint32_t offset = 33u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[32u]))), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint64_t fzn_members_local_grant_row_expires_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_members_local_grant_row_expires_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_members_local_grant_row_expires_offset(view)) + 0u))
+		: (uint64_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_members_local_grant_row_expires_set(situ_view_t view, uint64_t value)
+{
+	if (situ_in_bounds(view, fzn_members_local_grant_row_expires_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_members_local_grant_row_expires_offset(view)) + 0u, (uint64_t)value);
+	}
+}
+
+#define FZN_MEMBERS_LOCAL_GRANT_ROW_STANDS_VALUE_MAX 1u
+
+/** grant_row.stands : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_members_local_grant_row_stands_offset(situ_view_t view)
+{
+	uint32_t offset = 33u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[32u]))), view.limit);
+	offset = situ_advance_u32(offset, (8u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_members_local_grant_row_stands_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_members_local_grant_row_stands_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_members_local_grant_row_stands_offset(view)))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_members_local_grant_row_stands_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_members_local_grant_row_stands_offset(view));
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_members_local_grant_row_stands_set(situ_view_t view, uint8_t value)
+{
+	if (situ_in_bounds(view, fzn_members_local_grant_row_stands_offset(view), 1u)) {
+		((situ_base(view) + fzn_members_local_grant_row_stands_offset(view)))[0u] = (uint8_t)value;
+	}
+}
+
+/** How many bytes one `grant_row` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_members_local_grant_row_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 42u)) {
+		return 42u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 42u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[32u])));
+	return extent;
+}
+
+/** How many bytes a whole `grant_row` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_members_local_grant_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 42u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* grant_row.name: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 33u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[32u]));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_members_local_grant_row_name_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[32u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_members_local_grant_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_members_local_grant_row_check(situ_view_t view, uint32_t *which);
+#define FZN_MEMBERS_LOCAL_GRANT_ROW_NAME_LEN_CHECK 0u
+#define FZN_MEMBERS_LOCAL_GRANT_ROW_NAME_CHECK 1u
+#define FZN_MEMBERS_LOCAL_GRANT_ROW_EXPIRES_CHECK 2u
+#define FZN_MEMBERS_LOCAL_GRANT_ROW_STANDS_CHECK 3u
+
 /* ---- struct message ---- */
 
 #define FZN_MEMBERS_LOCAL_MESSAGE_SIZE_MIN   2u
@@ -437,7 +941,7 @@ static inline fzn_members_local_op_t fzn_members_local_message_op_get(situ_view_
 /* message.body : variant  at AbsoluteStatic(0x02)
  * size=Bounded(0, 336) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `siblings`, `sibling_row` is
+/** `body` is a variant: exactly one of `siblings`, `sibling_row`, `capabilities`, `capability_row`, `grants`, `grant_row` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -497,6 +1001,108 @@ static inline situ_err_t fzn_members_local_message_body_sibling_row_view(situ_vi
 
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_SIBLING_ROW_NAME_LEN_VALUE_MAX 32u
 
+/** message.body.capabilities, present when the discriminant selects `op.capabilities`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_members_local_message_body_capabilities_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 130u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MEMBERS_LOCAL_NOTHING_SIZE_FIXED, out);
+}
+
+/* message.body.capability_row, present when the discriminant selects `op.capability_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `capability_row` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_members_local_message_body_capability_row_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_members_local_capability_row_extent(whole);
+}
+static inline situ_err_t fzn_members_local_message_body_capability_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 131u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_members_local_capability_row_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_CAPABILITY_ROW_NAME_LEN_VALUE_MAX 16u
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_CAPABILITY_ROW_HOLDS_VALUE_MAX 1u
+
+/** message.body.grants, present when the discriminant selects `op.grants`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_members_local_message_body_grants_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 132u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MEMBERS_LOCAL_NOTHING_SIZE_FIXED, out);
+}
+
+/* message.body.grant_row, present when the discriminant selects `op.grant_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `grant_row` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_members_local_message_body_grant_row_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_members_local_grant_row_extent(whole);
+}
+static inline situ_err_t fzn_members_local_message_body_grant_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 133u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_members_local_grant_row_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_GRANT_ROW_NAME_LEN_VALUE_MAX 16u
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_GRANT_ROW_STANDS_VALUE_MAX 1u
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -552,6 +1158,34 @@ static inline situ_err_t fzn_members_local_message_required(const uint8_t *data,
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 130u) {
+			e = fzn_members_local_nothing_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 131u) {
+			e = fzn_members_local_capability_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 132u) {
+			e = fzn_members_local_nothing_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 133u) {
+			e = fzn_members_local_grant_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -591,6 +1225,10 @@ situ_err_t fzn_members_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_CHECK 2u
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_SIBLINGS_CHECK 3u
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_SIBLING_ROW_CHECK 4u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_CAPABILITIES_CHECK 5u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_CAPABILITY_ROW_CHECK 6u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_GRANTS_CHECK 7u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_GRANT_ROW_CHECK 8u
 
 #ifdef __cplusplus
 }

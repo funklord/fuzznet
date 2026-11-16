@@ -7187,6 +7187,26 @@ static uint64_t chain_expires(uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], siz
 	               : 0u;
 }
 
+/* WHAT `list capability` SAYS OF KNOWN CAPABILITY `i`, both forms' (sec
+ * 1188): its name, whether this node holds it now, its chain's hops and
+ * when the last lapses; 0 for a capability this node does not know. */
+static int capability_fact(size_t i, const char **name, int *holds, size_t *hop_count,
+                           uint64_t *expires)
+{
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	const fzn_cap_id_t *c = known_capability(i, name);
+
+	*hop_count = 0;
+	*expires = 0;
+	if (!c || !routing_self)
+		return 0;
+	*holds = fzn_node_apply_holds(&node_apply, routing_self, c);
+	if (!*holds || !fzn_node_apply_chain(&node_apply, routing_self, c, hops, hop_count))
+		*hop_count = 0;
+	*expires = chain_expires(hops, *hop_count);
+	return 1;
+}
+
 /* `list capability`, sec 638: `ok N NAME,HOLDS,HOPS,EXPIRES ...` -- fzpd's
  * `cap-list`: for each capability this node knows -- member, and admin,
  * share and retention where it knows them -- whether it holds it now,
@@ -7197,7 +7217,6 @@ static uint64_t chain_expires(uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], siz
 static size_t capability_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                                size_t cap)
 {
-	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	const uint8_t *self = routing_self;
 	size_t i, n = 0, at;
 
@@ -7217,19 +7236,36 @@ static size_t capability_local(fzn_origin_t origin, const fzn_request_t *request
 	at = (size_t)snprintf(reply, cap, "ok %zu", n);
 	for (i = 0; i < KNOWN_CAPABILITIES && at < cap; i++) {
 		const char *name = NULL;
-		const fzn_cap_id_t *c = known_capability(i, &name);
 		size_t hop_count = 0;
+		uint64_t expires = 0;
 		int holds;
 
-		if (!c)
+		if (!capability_fact(i, &name, &holds, &hop_count, &expires))
 			continue;
-		holds = fzn_node_apply_holds(&node_apply, self, c);
-		if (!holds || !fzn_node_apply_chain(&node_apply, self, c, hops, &hop_count))
-			hop_count = 0;
 		at += (size_t)snprintf(reply + at, cap - at, " %s,%d,%zu,%llu", name, holds ? 1 : 0,
-		                       hop_count, (unsigned long long)chain_expires(hops, hop_count));
+		                       hop_count, (unsigned long long)expires);
 	}
 	return at + (size_t)snprintf(reply + at, cap > at ? cap - at : 0u, "\n");
+}
+
+/* WHAT `list grant` SAYS OF GRANT `g`, both forms' (sec 1188): the
+ * capability's name, or `other`; when it lapses, 0 for never; whether the
+ * grantee holds it now. */
+static void grant_fact(const fzn_node_grant_t *g, const char **name, uint64_t *expires, int *stands)
+{
+	fzn_chain_hop_t hop;
+	size_t c;
+
+	*name = "other";
+	for (c = 0; c < KNOWN_CAPABILITIES; c++) {
+		const char *cn = NULL;
+		const fzn_cap_id_t *known = known_capability(c, &cn);
+
+		if (known && memcmp(known, &g->capability, sizeof(*known)) == 0)
+			*name = cn;
+	}
+	*expires = fzn_hop_open(g->hop, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK ? fzn_hop_expires_at(hop) : 0u;
+	*stands = fzn_node_apply_holds(&node_apply, g->grantee, &g->capability) ? 1 : 0;
 }
 
 /* `list grant [FROM]`, sec 638: `ok TOTAL FROM GRANTEE,NAME,EXPIRES,STANDS
@@ -7260,30 +7296,21 @@ static size_t grant_local(fzn_origin_t origin, const fzn_request_t *request, cha
 	at = (size_t)snprintf(reply, cap, "ok %zu %zu", total, from);
 	for (i = 0; i < node_apply.grants_used; i++) {
 		const fzn_node_grant_t *g = &node_apply.grants[i];
-		const char *name = "other";
-		fzn_chain_hop_t hop;
+		const char *name;
+		uint64_t expires;
+		int stands;
 		char entry[160];
-		size_t c, j;
+		size_t j;
 		int len;
 
 		if (memcmp(g->grantor, self, FZN_PUBKEY_LEN) != 0 || seen++ < from)
 			continue;
-		for (c = 0; c < KNOWN_CAPABILITIES; c++) {
-			const char *cn = NULL;
-			const fzn_cap_id_t *known = known_capability(c, &cn);
-
-			if (known && memcmp(known, &g->capability, sizeof(*known)) == 0)
-				name = cn;
-		}
+		grant_fact(g, &name, &expires, &stands);
 		len = snprintf(entry, sizeof(entry), " ");
 		for (j = 0; j < FZN_PUBKEY_LEN; j++)
 			len += snprintf(entry + len, sizeof(entry) - (size_t)len, "%02x", g->grantee[j]);
 		len += snprintf(entry + len, sizeof(entry) - (size_t)len, ",%s,%llu,%d", name,
-		                (unsigned long long)(fzn_hop_open(g->hop, FZN_HOP_LEN, &hop)
-		                                                     == FZN_CHAIN_OK
-		                                             ? fzn_hop_expires_at(hop)
-		                                             : 0u),
-		                fzn_node_apply_holds(&node_apply, g->grantee, &g->capability) ? 1 : 0);
+		                (unsigned long long)expires, stands);
 		/* A PAGE IS WHAT FITS: the next one starts at the first left out. */
 		if (len <= 0 || at + (size_t)len + 2u > cap)
 			break;
@@ -18316,8 +18343,69 @@ static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 
 #include "../wire/generated/members_local.h"
 #include "../wire/generated/members_local_build.h"
+/* WHAT THIS NODE HOLDS IN BINARY, sec 1188: `list capability`'s rows, then
+ * a STATUS ok. */
+static int local_capabilities(int fd)
+{
+	size_t i;
+
+	if (!routing_self || !node_apply.store)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "this node holds no grants to read"), 0;
+	for (i = 0; i < KNOWN_CAPABILITIES; i++) {
+		const char *name = NULL;
+		size_t hop_count = 0;
+		uint64_t expires = 0;
+		uint8_t row[48], out[64];
+		uint32_t row_len = 0, out_len = 0;
+		int holds = 0;
+
+		if (!capability_fact(i, &name, &holds, &hop_count, &expires))
+			continue;
+		if (fzn_members_local_capability_row_build(row, sizeof(row), (const uint8_t *)name, (uint32_t)strlen(name),
+		                                           (uint8_t)(holds ? 1 : 0),
+		                                           (uint8_t)(hop_count > 255u ? 255u : hop_count), expires,
+		                                           &row_len) != SITU_OK
+		    || fzn_members_local_message_build_capability_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row,
+		                                                      row_len, &out_len) != SITU_OK
+		    || !local_put(&fd, out, out_len))
+			return 0;
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
+/* EVERY GRANT THIS NODE SIGNED IN BINARY, sec 1188: `list grant`'s rows, every
+ * page in one answer, then a STATUS ok. */
+static int local_grants(int fd)
+{
+	size_t i;
+
+	if (!routing_self)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "this node holds no grants to read"), 0;
+	for (i = 0; i < node_apply.grants_used; i++) {
+		const fzn_node_grant_t *g = &node_apply.grants[i];
+		const char *name;
+		uint64_t expires;
+		int stands;
+		uint8_t row[80], out[96];
+		uint32_t row_len = 0, out_len = 0;
+
+		if (memcmp(g->grantor, routing_self, FZN_PUBKEY_LEN) != 0)
+			continue;
+		grant_fact(g, &name, &expires, &stands);
+		if (fzn_members_local_grant_row_build(row, sizeof(row), g->grantee, (const uint8_t *)name,
+		                                      (uint32_t)strlen(name), expires, (uint8_t)stands, &row_len)
+		            != SITU_OK
+		    || fzn_members_local_message_build_grant_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row, row_len,
+		                                                 &out_len) != SITU_OK
+		    || !local_put(&fd, out, out_len))
+			return 0;
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 /* THIS ESTATE'S OTHER HOSTS IN BINARY, sec 1176: `list sibling`'s rows, a
- * row a host and then a STATUS ok, for this node's own user alone. */
+ * row a host and then a STATUS ok, for this node's own user alone -- and
+ * the category's other two lists, sec 1188. */
 static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
@@ -18330,9 +18418,14 @@ static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 		return local_binary_status(fd, FZN_STATUS_DENIED, "where this estate's hosts are is its own user's"), 0;
 	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
 	if (len > UINT32_MAX || fzn_members_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
-	    || fzn_members_local_message_validate(v) != SITU_OK
-	    || fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_SIBLINGS)
-		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a siblings request"), 0;
+	    || fzn_members_local_message_validate(v) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
+	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_CAPABILITIES)
+		return local_capabilities(fd);
+	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_GRANTS)
+		return local_grants(fd);
+	if (fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_SIBLINGS)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
 	if (!siblings_gather(&hosts, &n))
 		return local_binary_status(fd, FZN_STATUS_ERROR, "the siblings would not read"), 0;
 	for (i = 0; i < n; i++) {

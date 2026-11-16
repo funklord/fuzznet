@@ -5796,12 +5796,96 @@ int fzn_rpc_sibling_remove(fzn_rpc_t *c, const char *name, size_t name_len) {
 
 /* ---- step 6 (sec 281) ---- */
 
+/* WHAT THIS NODE HOLDS AND HAS GRANTED, IN BINARY, sec 1188: a row each,
+ * then a STATUS, read as the text rows are -- a capability by a name this
+ * client does not know passed over, as there. */
+struct caps_answer {
+	fzn_rpc_cap_list_resp_t *list;
+	fzn_rpc_cap_granted_resp_t *granted;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void caps_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct caps_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	fzn_rpc_capability_type_t type;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_members_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_members_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (a->list && fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_CAPABILITY_ROW
+	    && fzn_members_local_message_body_capability_row_view(v, &b) == SITU_OK) {
+		if (!node_cap_type((const char *)fzn_members_local_capability_row_name_ptr(b),
+		                   fzn_members_local_capability_row_name_len(b), &type)
+		    || a->list->count >= FZN_RPC_CAP_TYPE_COUNT)
+			return;
+		fzn_rpc_cap_list_entry_t *e = &a->list->entries[a->list->count++];
+		e->type = type;
+		e->valid = fzn_members_local_capability_row_holds_get(b) != 0;
+		e->hop_count = fzn_members_local_capability_row_hops_get(b);
+		e->expires_at = fzn_members_local_capability_row_expires_get(b);
+	} else if (a->granted && fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_GRANT_ROW
+	           && fzn_members_local_message_body_grant_row_view(v, &b) == SITU_OK) {
+		if (!node_cap_type((const char *)fzn_members_local_grant_row_name_ptr(b),
+		                   fzn_members_local_grant_row_name_len(b), &type)
+		    || a->granted->count >= FZN_RPC_GRANT_LIST_MAX)
+			return;
+		fzn_rpc_cap_granted_entry_t *e = &a->granted->entries[a->granted->count++];
+		e->type = type;
+		memcpy(e->grantee_pubkey, fzn_members_local_grant_row_grantee_ptr(b), 32);
+		e->expires_at = fzn_members_local_grant_row_expires_get(b);
+		e->revoked = fzn_members_local_grant_row_stands_get(b) == 0;
+	} else {
+		a->bad = 1;
+	}
+}
+
+static int caps_ask(fzn_rpc_t *c, uint8_t op, struct caps_answer *a, int *text) {
+	const uint8_t ask[] = { FZN_CMD_MEMBERS, op };
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, caps_each, a, text);
+	if (rc != FZN_RPC_OK || *text) return rc;
+	if (a->bad || !a->status_seen) return unreadable(c); /* the capabilities cut short */
+	if (a->code != FZN_STATUS_OK)
+		return fail(c, a->code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_cap_list(fzn_rpc_t *c, fzn_rpc_cap_list_resp_t *out) {
-	return node_cap_list(c, out);
+	struct caps_answer a;
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	memset(&a, 0, sizeof a);
+	a.list = out;
+	const int rc = caps_ask(c, FZN_MEMBERS_LOCAL_OP_CAPABILITIES, &a, &text);
+	return text ? node_cap_list(c, out) : rc;
 }
 
 int fzn_rpc_cap_granted(fzn_rpc_t *c, fzn_rpc_cap_granted_resp_t *out) {
-	return node_cap_granted(c, out);
+	struct caps_answer a;
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	memset(&a, 0, sizeof a);
+	a.granted = out;
+	const int rc = caps_ask(c, FZN_MEMBERS_LOCAL_OP_GRANTS, &a, &text);
+	return text ? node_cap_granted(c, out) : rc;
 }
 
 int fzn_rpc_cap_grant(fzn_rpc_t *c, fzn_rpc_capability_type_t type,

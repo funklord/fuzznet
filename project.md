@@ -85937,7 +85937,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, capabilities, retention, one file's detail (legs since sec 1183, clocks sec 1184, forks sec 1187) |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, retention, one file's detail (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -89724,3 +89724,26 @@ a whole row sent as a request malformed (sec 1186); `rpc_test` -- both
 sides read, a value with a space kept whole, a cut listing refused;
 `live_names` phase e2 -- each host's fork in binary as its text listing
 gives it. Two sabotages.
+
+## 1188. What this node holds and has granted, in binary, 2026-11-16
+
+`fzn_rpc_cap_list` and `fzn_rpc_cap_granted` -- fuzzypickles' Setup
+page and terminal client -- asked `list capability` and paged `list
+grant`. Both ask in binary under FZN_CMD_MEMBERS beside the siblings of
+sec 1176: `capabilities` (130) answered by a `capability_row` (131) per
+capability this node knows -- name, held, hops, when the last hop lapses
+-- and `grants` (132) by a `grant_row` (133) per grant it signed --
+grantee, name, when it lapses, whether it stands -- each then a STATUS
+ok, for this node's own user alone.
+
+**The daemon's text rows were split, not changed**: a capability's facts
+are `capability_fact` and a grant's `grant_fact`, and `list capability`
+and `list grant` print from them, so the two forms cannot come apart.
+The client reads a row as the text one: a capability by a name it does
+not know passed over, a grant that does not stand read as revoked.
+
+**Tests:** four more hand-written vectors in `members_local.vectors`;
+`rpc_test` -- member held by two hops, an unknown name passed over, a
+revoked admin grant, a cut listing refused; `live_join` phase e2 -- B's
+member row held by one hop, never lapsing, and A's grant to B standing,
+in binary as in text; `live_rpc`'s probe reads both. Two sabotages.

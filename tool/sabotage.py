@@ -16894,6 +16894,20 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"rpc-grants-binary-revoked-standing",
+		"local/rpc.c",
+		"\t\te->revoked = fzn_members_local_grant_row_stands_get(b) == 0;\n",
+		"\t\te->revoked = 0;\n",
+		"a grant that no longer stands is read in binary as standing -- sec 1188",
+	),
+	(
+		"rpc-capabilities-binary-cut-whole",
+		"local/rpc.c",
+		"\tif (a->bad || !a->status_seen) return unreadable(c); /* the capabilities cut short */\n",
+		"\tif (a->bad) return unreadable(c); /* the capabilities cut short */\n",
+		"a capabilities listing cut before its STATUS is read as whole -- sec 1188",
+	),
+	(
 		"decisions-binary-any-op",
 		"node/decisions_binary.c",
 		"\t    || fzn_settings_local_message_op_get(v) != FZN_SETTINGS_LOCAL_OP_FORKS)\n",
