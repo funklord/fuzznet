@@ -1886,33 +1886,62 @@ static int word_number(const uint8_t *w, size_t n, long long lo, long long hi, l
  * link that will not render. Room for the longest row: an address and nine
  * numbers. */
 #define LINK_ROW_MAX (1u + FZN_UDP_HOST_MAX + 6u + 8u * 21u + 1u)
-static size_t link_row(size_t i, uint64_t now, char *row, size_t cap)
+
+/* WHAT `list leg` SAYS OF ONE LINK, both forms' (sec 1183): 0 for a link
+ * that will not render. */
+struct link_fact {
+	char host[FZN_UDP_HOST_MAX];
+	uint16_t port;
+	int observed;
+	uint64_t latency, loss, observations, age, asked, answered, sent, received;
+};
+
+static int link_fact_of(size_t i, uint64_t now, struct link_fact *f)
 {
 	const struct link_meter *m = &link_meters[i];
 	const fzn_metric_t *l = fzn_metrics_get(&link_metrics, m->latency);
 	/* A LINK'S OBSERVATIONS ARE ITS LOSS'S: every answer and every silence
 	 * moves it, where only an answer moves the latency (sec 202). */
 	const fzn_metric_t *e = fzn_metrics_get(&link_metrics, m->loss);
-	char host[FZN_UDP_HOST_MAX], lat[24], loss[24], age[24];
-	uint16_t port = 0;
+
+	memset(f, 0, sizeof(*f));
+	if (!l || !e || fzn_udp_addr_text(&m->at, f->host, &f->port) != FZN_UDP_OK)
+		return 0;
+	f->observed = e->observations != 0;
+	if (f->observed) {
+		f->latency = l->estimate;
+		f->loss = e->estimate;
+		f->age = now > e->last_ms ? (now - e->last_ms) / 1000u : 0u;
+	}
+	f->observations = e->observations;
+	f->asked = m->asked;
+	f->answered = m->answered;
+	f->sent = m->sent;
+	f->received = m->received;
+	return 1;
+}
+
+static size_t link_row(size_t i, uint64_t now, char *row, size_t cap)
+{
+	struct link_fact f;
+	char lat[24], loss[24], age[24];
 	int k;
 
-	if (!l || !e || fzn_udp_addr_text(&m->at, host, &port) != FZN_UDP_OK)
+	if (!link_fact_of(i, now, &f))
 		return 0;
-	if (e->observations) {
-		(void)snprintf(lat, sizeof(lat), "%llu", (unsigned long long)l->estimate);
-		(void)snprintf(loss, sizeof(loss), "%llu", (unsigned long long)e->estimate);
-		(void)snprintf(age, sizeof(age), "%llu",
-		               (unsigned long long)(now > e->last_ms ? (now - e->last_ms) / 1000u : 0u));
+	if (f.observed) {
+		(void)snprintf(lat, sizeof(lat), "%llu", (unsigned long long)f.latency);
+		(void)snprintf(loss, sizeof(loss), "%llu", (unsigned long long)f.loss);
+		(void)snprintf(age, sizeof(age), "%llu", (unsigned long long)f.age);
 	} else {
 		(void)snprintf(lat, sizeof(lat), "-");
 		(void)snprintf(loss, sizeof(loss), "-");
 		(void)snprintf(age, sizeof(age), "-");
 	}
-	k = snprintf(row, cap, " %s:%u,%s,%s,%llu,%s,%llu,%llu,%llu,%llu", host, (unsigned)port, lat,
-	             loss, (unsigned long long)e->observations, age, (unsigned long long)m->asked,
-	             (unsigned long long)m->answered, (unsigned long long)m->sent,
-	             (unsigned long long)m->received);
+	k = snprintf(row, cap, " %s:%u,%s,%s,%llu,%s,%llu,%llu,%llu,%llu", f.host, (unsigned)f.port, lat,
+	             loss, (unsigned long long)f.observations, age, (unsigned long long)f.asked,
+	             (unsigned long long)f.answered, (unsigned long long)f.sent,
+	             (unsigned long long)f.received);
 	return k > 0 && (size_t)k < cap ? (size_t)k : 0u;
 }
 
@@ -18339,12 +18368,58 @@ static int local_transfers(int fd, fzn_origin_t origin, const uint8_t *msg, size
 	return 0;
 }
 
+#include "../wire/generated/reach_local.h"
+#include "../wire/generated/reach_local_build.h"
+/* THE LINKS IN BINARY, sec 1183: `list leg`'s summary and every row in one
+ * answer, then a STATUS ok, refused to whom the text verb refuses. */
+static int local_legs(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	uint64_t now = mono_ms();
+	uint8_t row[128], out[144];
+	uint32_t row_len = 0, out_len = 0;
+	situ_msg_t m;
+	situ_view_t v;
+	size_t i;
+
+	if (fzn_node_relay_refuse_local(origin))
+		return local_binary_status(fd, FZN_STATUS_DENIED, fzn_node_relay_refuse_local(origin)), 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_reach_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_reach_local_message_validate(v) != SITU_OK
+	    || fzn_reach_local_message_op_get(v) != FZN_REACH_LOCAL_OP_LEGS)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a links request"), 0;
+	if (fzn_reach_local_legs_summary_build(row, sizeof(row), (uint64_t)links_unmeasured, &row_len) != SITU_OK
+	    || fzn_reach_local_message_build_legs_summary(out, sizeof(out), (uint8_t)FZN_CMD_REACH, row, row_len,
+	                                                  &out_len) != SITU_OK
+	    || !local_put(&fd, out, out_len))
+		return 0;
+	for (i = 0; i < n_link_meters; i++) {
+		struct link_fact f;
+		char address[FZN_UDP_HOST_MAX + 8u];
+		int n;
+
+		if (!link_fact_of(i, now, &f))
+			continue;
+		n = snprintf(address, sizeof(address), "%s:%u", f.host, (unsigned)f.port);
+		if (n <= 0 || (size_t)n >= sizeof(address)
+		    || fzn_reach_local_leg_row_build(row, sizeof(row), (const uint8_t *)address, (uint32_t)n,
+		                                     (uint8_t)(f.observed ? 1 : 0), f.latency, f.loss, f.observations,
+		                                     f.age, f.asked, f.answered, f.sent, f.received, &row_len)
+		               != SITU_OK
+		    || fzn_reach_local_message_build_leg_row(out, sizeof(out), (uint8_t)FZN_CMD_REACH, row, row_len,
+		                                             &out_len) != SITU_OK
+		    || !local_put(&fd, out, out_len))
+			return 0;
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 /* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary, by its CMD: named
  * objects asked (sec 1152), every conversation's newest line or count
  * (sec 1155), this user's contacts (sec 1162), groups (sec 1170) and the
  * positions held (sec 1171), the sticker packs (sec 1172), the library
  * (sec 1174), this estate's other hosts (sec 1176), what it has moved
- * (sec 1177), or a MEDIA_OPEN
+ * (sec 1177), its links (sec 1183), or a MEDIA_OPEN
  * for a call this host holds, from its own user, which keeps it
  * as the call's channel (sec 1113). */
 static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
@@ -18369,6 +18444,8 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 	if (len && msg[0] == FZN_CMD_STICKERS)
 		return local_stickers(fd, origin, msg, len);
 #endif
+	if (len && msg[0] == FZN_CMD_REACH)
+		return local_legs(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_TRANSFER)
 		return local_transfers(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_MEMBERS)

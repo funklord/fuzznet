@@ -24,6 +24,7 @@
 #include "../../wire/generated/files_local_build.h"
 #include "../../wire/generated/members_local_build.h"
 #include "../../wire/generated/meter_local_build.h"
+#include "../../wire/generated/reach_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -1344,8 +1345,71 @@ static void test_deliveries_in_binary(void)
 	      "the deliveries were not asked as everyone's lines, a full page at a time");
 }
 
+/* ONE LINK framed onto answer `i`, sec 1183. */
+static void leg_onto(struct bscript *s, size_t i, const char *address, uint8_t measured, uint64_t latency,
+                     uint64_t loss, uint64_t seen, uint64_t age)
+{
+	uint8_t row[128], m[144];
+	uint32_t row_len = 0, n = 0;
+
+	if (fzn_reach_local_leg_row_build(row, sizeof(row), (const uint8_t *)address, (uint32_t)strlen(address),
+	                                  measured, latency, loss, seen, age, 10u, 9u, 900u, 800u, &row_len)
+	            != SITU_OK
+	    || fzn_reach_local_message_build_leg_row(m, sizeof(m), (uint8_t)FZN_CMD_REACH, row, row_len, &n) != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+static void legs_summary_onto(struct bscript *s, size_t i, uint64_t unmeasured)
+{
+	uint8_t row[16], m[24];
+	uint32_t row_len = 0, n = 0;
+
+	if (fzn_reach_local_legs_summary_build(row, sizeof(row), unmeasured, &row_len) != SITU_OK
+	    || fzn_reach_local_message_build_legs_summary(m, sizeof(m), (uint8_t)FZN_CMD_REACH, row, row_len, &n)
+	               != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* THE LINKS IN BINARY, sec 1183: the unmeasured count, a measured link and
+ * one nothing has been observed on, read as the text rows are; a row before
+ * the summary, and a listing cut before its STATUS, refused. */
+static void test_legs_in_binary(void)
+{
+	static struct bscript held, early, late, cut;
+	static fzn_rpc_link_list_resp_t out;
+
+	legs_summary_onto(&held, 0, 3u);
+	leg_onto(&held, 0, "192.0.2.7:4000", 1u, 42u, 25u, 1u, 3u);
+	leg_onto(&held, 0, "198.51.100.2:4000", 0u, 0u, 0u, 0u, 0u);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_link_list(&c, &out) == FZN_RPC_OK && out.count == 2 && out.unmeasured == 3
+	              && strcmp(out.entries[0].address, "192.0.2.7:4000") == 0 && out.entries[0].rtt_ms == 42
+	              && out.entries[0].loss_permille == 25 && out.entries[0].since_success_ms == 3000
+	              && out.entries[0].sent == 10 && out.entries[0].replied == 9 && out.entries[1].observations == 0
+	              && out.entries[1].since_success_ms == 0 && held.asked[0][0] == 0x0c && held.asked[0][1] == 0x80,
+	      "the links were not read in binary as the text rows are");
+	leg_onto(&early, 0, "192.0.2.7:4000", 1u, 42u, 25u, 1u, 3u);
+	status_onto(&early, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &early);
+	CHECK(fzn_rpc_link_list(&c, &out) != FZN_RPC_OK, "a link before the summary was taken");
+	/* AND ONE BEFORE A SUMMARY THAT COMES AFTER IT: a listing out of order. */
+	leg_onto(&late, 0, "192.0.2.7:4000", 1u, 42u, 25u, 1u, 3u);
+	legs_summary_onto(&late, 0, 0u);
+	status_onto(&late, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &late);
+	CHECK(fzn_rpc_link_list(&c, &out) != FZN_RPC_OK, "a link before a later summary was taken");
+	legs_summary_onto(&cut, 0, 0u);
+	leg_onto(&cut, 0, "192.0.2.7:4000", 1u, 42u, 25u, 1u, 3u);
+	bon(&c, &cut);
+	CHECK(fzn_rpc_link_list(&c, &out) != FZN_RPC_OK, "a links listing cut before its STATUS was read as whole");
+}
+
 int main(void)
 {
+	test_legs_in_binary();
 	test_deliveries_in_binary();
 	test_roster_in_binary();
 	test_transfers_in_binary();

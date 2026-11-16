@@ -44,6 +44,7 @@
 #include "../wire/generated/stickers_local.h"
 #include "../wire/generated/files_local.h"
 #include "../wire/generated/meter_local.h"
+#include "../wire/generated/reach_local.h"
 #include "../wire/generated/members_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
@@ -6162,8 +6163,87 @@ int fzn_rpc_log_show(fzn_rpc_t *c, fzn_rpc_log_show_resp_t *out) {
 	return node_log_show(c, out);
 }
 
+/* THE LINKS IN BINARY, sec 1183: a summary, a row a link, then a STATUS,
+ * every page in one answer -- read as node_link_list reads the text rows. */
+struct legs_answer {
+	fzn_rpc_link_list_resp_t *out;
+	int bad, status_seen, summary_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void legs_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct legs_answer *a = ctx;
+	fzn_rpc_link_list_resp_t *out = a->out;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_reach_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_reach_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (fzn_reach_local_message_op_get(v) == FZN_REACH_LOCAL_OP_LEGS_SUMMARY
+	    && fzn_reach_local_message_body_legs_summary_view(v, &b) == SITU_OK && !a->summary_seen) {
+		a->summary_seen = 1;
+		out->unmeasured = (size_t)fzn_reach_local_legs_summary_unmeasured_get(b);
+		return;
+	}
+	/* A ROW BEFORE THE SUMMARY, or a second summary, is no listing. */
+	if (!a->summary_seen || fzn_reach_local_message_op_get(v) != FZN_REACH_LOCAL_OP_LEG_ROW
+	    || fzn_reach_local_message_body_leg_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	const size_t addr_len = fzn_reach_local_leg_row_address_len(b);
+	if (!addr_len || addr_len > FZN_RPC_PEER_ADDRESS_MAX) {
+		a->bad = 1;
+		return;
+	}
+	if (out->count >= FZN_RPC_LINK_LIST_MAX) return;
+	const uint64_t seen = fzn_reach_local_leg_row_observations_get(b);
+	const uint64_t loss = fzn_reach_local_leg_row_loss_permille_get(b);
+	fzn_rpc_link_entry_t *l = &out->entries[out->count++];
+	memset(l, 0, sizeof *l);
+	memcpy(l->address, fzn_reach_local_leg_row_address_ptr(b), addr_len);
+	l->address_len = addr_len;
+	l->transport = FZN_RPC_TRANSPORT_UDP;
+	l->rtt_ms = (uint32_t)fzn_reach_local_leg_row_latency_ms_get(b);
+	l->sent = (uint32_t)fzn_reach_local_leg_row_asked_get(b);
+	l->replied = (uint32_t)fzn_reach_local_leg_row_answered_get(b);
+	l->since_success_ms = seen ? fzn_reach_local_leg_row_age_s_get(b) * 1000u : 0;
+	l->observations = seen;
+	l->loss_permille = seen && loss <= 1000u ? (uint16_t)loss : 0;
+}
+
 int fzn_rpc_link_list(fzn_rpc_t *c, fzn_rpc_link_list_resp_t *out) {
-	return node_link_list(c, out);
+	static const uint8_t ask[] = { FZN_CMD_REACH, FZN_REACH_LOCAL_OP_LEGS };
+	struct legs_answer a;
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, legs_each, &a, &text);
+	if (text) return node_link_list(c, out);
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen) return unreadable(c); /* the links cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	if (!a.summary_seen) return unreadable(c);
+	return FZN_RPC_OK;
 }
 
 int fzn_rpc_location_status(fzn_rpc_t *c, fzn_rpc_location_status_resp_t *out) {

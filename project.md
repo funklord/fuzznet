@@ -85937,7 +85937,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, legs, clocks, capabilities, forks, retention, one file's detail |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, clocks, capabilities, forks, retention, one file's detail (legs since sec 1183) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -89634,3 +89634,31 @@ peer, an open family kept open over a refresh, a silent node said so
 with the trees kept; `qtty_render_test` draws it, "nothing moving". One
 sabotage. fuzzypickles was told of sec 1181's change in its inbox,
 message 20261116T2044Z; moving its tab onto this view is theirs.
+
+## 1183. The links, in binary, 2026-11-16
+
+The first of the on-demand listings sec 1070's register still lists:
+`fzn_rpc_link_list` -- fuzznet's own `link_view` hosted, fuzzypickles'
+Connection tab and its terminal client -- paged `list leg FROM`, a page
+a request. It asks once: FZN_CMD_REACH (12) `legs` (128), answered by
+one `legs_summary` (129, the links met with no room and so unmeasured),
+a `leg_row` (130) per link and a STATUS ok (`node/reach_local.situ`),
+refused to whom `list leg` refuses (sec 763: every peer's address).
+
+**The daemon's text row was split, not changed**: a link's facts are
+`link_fact_of` -- its address, whether anything was observed on it, and
+its estimates and counters -- and `link_row` prints `list leg`'s row
+from them, as the metric log's lines are, so the two forms and the log
+cannot come to disagree. A row reads as the text one does: an
+unobserved link's latency, loss and age are nothing, not zero measured.
+A row before the summary, or a second summary, refuses the listing.
+
+The field is MEASURED in the schema, not OBSERVED, because a generated
+builder's parameter named `observed` shadowed the daemon's global of
+that name and `-Wshadow` said so.
+
+**Tests:** four hand-written vectors; `rpc_test` -- the summary, a
+measured link and an unobserved one read as the text rows are, a row
+before the summary and a cut listing refused; `live_pairing` phase e2
+-- A's links in binary by the text listing's addresses, B's measured;
+`live_rpc`'s probe reads them. Two sabotages.

@@ -1,0 +1,58 @@
+// The links this host has to its peers, asked in binary on the local leg:
+// project.md sec 1183, what a connection view lists -- `list leg` as a
+// summary and a row per link, every page in one answer.
+//
+// FZN_CMD_REACH (12, wire/cmd.h): a link is how a peer is reached, so its
+// local operations are this category's, in the range 128 to 191 kept for
+// the local socket; between hosts the category's SUBCMDs are below it. A
+// request is one message with no body; the answer is one legs_summary, a
+// leg_row per link, and then a STATUS ok, or a STATUS refusing it.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	legs         = 128, // every link, as `list leg` lists them
+	legs_summary = 129, // an answer: what the table could not hold
+	leg_row      = 130, // an answer: one link
+	default      = error,
+}
+
+struct nothing {
+}
+
+// UNMEASURED the links met when no room could be had, so not measured.
+struct legs_summary {
+	u64  unmeasured;
+}
+
+// ADDRESS the peer's, HOST:PORT. MEASURED 0 for a link nothing has been
+// observed on, LATENCY_MS, LOSS_PERMILLE and AGE_S then 0 and meaning
+// nothing (a prior is no measurement, sec 202). OBSERVATIONS how many
+// answers and silences moved its loss; AGE_S the seconds since the last;
+// ASKED and ANSWERED requests; SENT and RECEIVED bytes.
+struct leg_row {
+	u8   address_len [max = 52];
+	u8   address[address_len];
+	u8   measured [max = 1];
+	u64  latency_ms;
+	u64  loss_permille;
+	u64  observations;
+	u64  age_s;
+	u64  asked;
+	u64  answered;
+	u64  sent;
+	u64  received;
+}
+
+struct message {
+	u8   cmd [must_eq = 12];
+	op   op;
+
+	variant body switch (op) {
+		case op.legs:         nothing      legs;
+		case op.legs_summary: legs_summary legs_summary;
+		case op.leg_row:      leg_row      leg_row;
+		default: error;
+	}
+}

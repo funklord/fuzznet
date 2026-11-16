@@ -238,7 +238,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/messages_local.c wire/generated/contacts_local.c \
              wire/generated/groups_local.c wire/generated/streams_local.c \
              wire/generated/stickers_local.c wire/generated/files_local.c \
-             wire/generated/members_local.c wire/generated/meter_local.c \
+             wire/generated/members_local.c wire/generated/meter_local.c wire/generated/reach_local.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -248,7 +248,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/messages_local_vectors.c wire/generated/contacts_local_vectors.c \
                  wire/generated/groups_local_vectors.c wire/generated/streams_local_vectors.c \
                  wire/generated/stickers_local_vectors.c wire/generated/files_local_vectors.c \
-                 wire/generated/members_local_vectors.c wire/generated/meter_local_vectors.c
+                 wire/generated/members_local_vectors.c wire/generated/meter_local_vectors.c \
+                 wire/generated/reach_local_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -704,6 +705,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/files_local_vectors \
              $(BUILD_DIR)/wire/test/members_local_vectors \
              $(BUILD_DIR)/wire/test/meter_local_vectors \
+             $(BUILD_DIR)/wire/test/reach_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
              $(BUILD_DIR)/node/test/rate_test \
              $(BUILD_DIR)/node/test/metric_test \
@@ -3603,7 +3605,8 @@ RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
             $(BUILD_DIR)/wire/generated/messages_local.o $(BUILD_DIR)/wire/generated/contacts_local.o \
             $(BUILD_DIR)/wire/generated/groups_local.o $(BUILD_DIR)/wire/generated/streams_local.o \
             $(BUILD_DIR)/wire/generated/stickers_local.o $(BUILD_DIR)/wire/generated/files_local.o \
-            $(BUILD_DIR)/wire/generated/members_local.o $(BUILD_DIR)/wire/generated/meter_local.o
+            $(BUILD_DIR)/wire/generated/members_local.o $(BUILD_DIR)/wire/generated/meter_local.o \
+            $(BUILD_DIR)/wire/generated/reach_local.o
 $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                                   $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
@@ -4431,6 +4434,13 @@ $(BUILD_DIR)/wire/test/streams_local_vectors: wire/generated/streams_local_vecto
 # THE STICKER PACKS, ON THE LOCAL LEG, sec 1172.
 $(BUILD_DIR)/wire/test/stickers_local_vectors: wire/generated/stickers_local_vectors.c \
                                            wire/generated/stickers_local.c wire/generated/situ.c \
+                                           $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# THE LINKS, ON THE LOCAL LEG, sec 1183.
+$(BUILD_DIR)/wire/test/reach_local_vectors: wire/generated/reach_local_vectors.c \
+                                           wire/generated/reach_local.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
@@ -7360,7 +7370,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               node/group_line.situ location/fix.situ sticker/pack.situ node/objects.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
-              node/members_local.situ node/meter_local.situ
+              node/members_local.situ node/meter_local.situ node/reach_local.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -8081,6 +8091,11 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/stickers_local.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_stickers_local \
 	         --out $(BUILD_DIR)/.gen.new node/stickers_local.situ node/stickers_local.vectors >/dev/null 2>&1
+	@# AND THE LINKS, ON THE LOCAL LEG, sec 1183.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_reach_local --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/reach_local.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_reach_local \
+	         --out $(BUILD_DIR)/.gen.new node/reach_local.situ node/reach_local.vectors >/dev/null 2>&1
 	@# AND WHAT THIS NODE HAS MOVED, ON THE LOCAL LEG, sec 1177.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_meter_local --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/meter_local.situ >/dev/null 2>&1
@@ -8116,7 +8131,8 @@ schema:
 	          stickers_local_vectors.c files_local.c files_local.h files_local_edit.h \
 	          files_local_build.h files_local_vectors.c members_local.c members_local.h \
 	          members_local_edit.h members_local_build.h members_local_vectors.c meter_local.c \
-	          meter_local.h meter_local_edit.h meter_local_build.h meter_local_vectors.c; do \
+	          meter_local.h meter_local_edit.h meter_local_build.h meter_local_vectors.c reach_local.c \
+	          reach_local.h reach_local_edit.h reach_local_build.h reach_local_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \

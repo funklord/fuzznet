@@ -16894,6 +16894,20 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"rpc-legs-binary-row-before-summary",
+		"local/rpc.c",
+		"\tif (!a->summary_seen || fzn_reach_local_message_op_get(v) != FZN_REACH_LOCAL_OP_LEG_ROW\n",
+		"\tif (fzn_reach_local_message_op_get(v) != FZN_REACH_LOCAL_OP_LEG_ROW\n",
+		"a link read before the listing's summary is taken -- sec 1183",
+	),
+	(
+		"rpc-legs-binary-unobserved-aged",
+		"local/rpc.c",
+		"\tl->since_success_ms = seen ? fzn_reach_local_leg_row_age_s_get(b) * 1000u : 0;\n",
+		"\tl->since_success_ms = fzn_reach_local_leg_row_age_s_get(b) * 1000u + 1u;\n",
+		"a link nothing was observed on is read as last answering some time ago -- sec 1183",
+	),
+	(
 		"traffic-view-open-folded",
 		"gui/traffic_view.cpp",
 		"\t\tparent->setExpanded(was_open.contains(it.key()));\n",

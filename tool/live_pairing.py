@@ -16,6 +16,8 @@ A asks, B is asked, C asks and is turned away.
        127.0.0.1 (sec 621)
     e  A's `list leg` shows its link to B measured -- a latency, requests
        answered, bytes received (sec 631)
+    e2 the same in binary (sec 1183): a summary, then A's links by the text
+       listing's addresses, B's measured, then an ok
     f  A writes an app stream at three levels; B is given nothing until A
        grants it level 1, and then that level of each record (sec 632)
     g  A adds a fix, `add location`, and lists it exact; B, granted level
@@ -295,6 +297,19 @@ def main(argv):
 				raise failed("e: list leg x was not malformed")
 			print("livecheck: e: A measured its link to B: %s ms, %s of %s asked answered"
 			      % (to_b[0][1], to_b[0][6], to_b[0][5]))
+
+			# e2: THE LINKS IN BINARY, sec 1183: the summary first, then a row
+			# a link -- the text listing's addresses, since counters move
+			# between asks -- B's measured, and an ok to end it.
+			got = binary(socks["a"], bytes([0x0C, 0x80]))
+			rows = [m for m in got[1:-1] if m[:2] == bytes([0x0C, 0x82])]
+			addrs = [m[3:3 + m[2]].decode() for m in rows]
+			mine = [m for m in rows if m[3:3 + m[2]].decode() == "127.0.0.1:%s" % port["b"]]
+			if not got or got[0][:2] != bytes([0x0C, 0x81]) or got[-1][:2] != bytes([0x13, 0]) \
+			   or sorted(addrs) != sorted(hosts(links[3:])) or len(mine) != 1 \
+			   or mine[0][3 + mine[0][2]] != 1:
+				raise failed("e2: A's links in binary were %r; in text %r" % (got, links))
+			print("livecheck: e2: A's %d link(s) in binary as in text, B's measured" % len(rows))
 
 			# f: an app stream, sec 632. A writes two records at three levels;
 			# B, not granted, is given nothing; granted level 1, B holds A's

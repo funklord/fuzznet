@@ -1,0 +1,8 @@
+# Golden vectors for node/reach_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x0C is FZN_CMD_REACH (12); the op is the SUBCMD, 128 (0x80) on.
+
+message legs          0C 80
+message legs_summary  0C 81 00 00 00 00 00 00 00 03
+message leg_measured  0C 82 0E 31 39 32 2E 30 2E 32 2E 37 3A 34 30 30 30 01 00 00 00 00 00 00 00 2A 00 00 00 00 00 00 00 19 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 03 00 00 00 00 00 00 00 0A 00 00 00 00 00 00 00 09 00 00 00 00 00 00 03 84 00 00 00 00 00 00 03 20
+message leg_silent    0C 82 11 31 39 38 2E 35 31 2E 31 30 30 2E 32 3A 34 30 30 30 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 90 00 00 00 00 00 00 00 00
