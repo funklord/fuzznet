@@ -36,5 +36,6 @@
 #define FZN_CMD_OBJECTS 21u   /* named objects, the local leg's alone (sec 1152) */
 #define FZN_CMD_STICKERS 22u  /* sticker packs saved, the local leg's alone (sec 1172) */
 #define FZN_CMD_TRANSFER 23u  /* what this node has moved, the local leg's alone (sec 1177) */
+#define FZN_CMD_SETTINGS 24u  /* settings and their forks, the local leg's alone (sec 1187) */
 
 #endif /* FZN_WIRE_CMD_H */

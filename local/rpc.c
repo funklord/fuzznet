@@ -46,6 +46,7 @@
 #include "../wire/generated/meter_local.h"
 #include "../wire/generated/reach_local.h"
 #include "../wire/generated/time_local.h"
+#include "../wire/generated/settings_local.h"
 #include "../wire/generated/members_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
@@ -5253,10 +5254,83 @@ int fzn_rpc_group_delete(fzn_rpc_t *c, const char *group, size_t group_len) {
 	return node_group_name(c, "remove", group, group_len);
 }
 
+/* THE FORKS IN BINARY, sec 1187: a row a head, then a STATUS. A subject or
+ * a value too long for the clients' side is passed over, as the text
+ * reading passes it: a side cut short could be chosen and written back as
+ * what somebody decided. */
+struct forks_answer {
+	fzn_rpc_fork_side_t *sides;
+	size_t cap, *count;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void forks_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct forks_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_settings_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_settings_local_message_validate(v) != SITU_OK
+	    || fzn_settings_local_message_op_get(v) != FZN_SETTINGS_LOCAL_OP_FORK_ROW
+	    || fzn_settings_local_message_body_fork_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	const size_t subject_len = fzn_settings_local_fork_row_subject_len(b);
+	const size_t value_len = fzn_settings_local_fork_row_value_len(b);
+	if (*a->count >= a->cap || subject_len > FZN_RPC_FORK_SUBJECT_MAX || value_len > FZN_RPC_FORK_VALUE_MAX) return;
+	fzn_rpc_fork_side_t *side = &a->sides[*a->count];
+	memcpy(side->subject, fzn_settings_local_fork_row_subject_ptr(b), subject_len);
+	side->subject[subject_len] = '\0';
+	memcpy(side->host, fzn_settings_local_fork_row_host_ptr(b), 32);
+	side->at = fzn_settings_local_fork_row_at_get(b);
+	memcpy(side->value, fzn_settings_local_fork_row_value_ptr(b), value_len);
+	side->value[value_len] = '\0';
+	(*a->count)++;
+}
+
+static int fork_list_text(fzn_rpc_t *c, fzn_rpc_fork_side_t *sides, size_t cap, size_t *count);
+
+int fzn_rpc_fork_list(fzn_rpc_t *c, fzn_rpc_fork_side_t *sides, size_t cap, size_t *count) {
+	static const uint8_t ask[] = { FZN_CMD_SETTINGS, FZN_SETTINGS_LOCAL_OP_FORKS };
+	struct forks_answer a;
+	int text = 0;
+	*count = 0;
+	memset(&a, 0, sizeof a);
+	a.sides = sides;
+	a.cap = cap;
+	a.count = count;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, forks_each, &a, &text);
+	if (text) {
+		*count = 0;
+		return fork_list_text(c, sides, cap, count);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen) return unreadable(c); /* the forks cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
 /* `list fork`: FROM SHOWN MORE, then `SUBJECT,HOST,AT,GROUNDS,VALUE` a row. A
  * subject and a value here are whole or the row is passed over: a side cut
  * short could be chosen and written back as what somebody decided. */
-int fzn_rpc_fork_list(fzn_rpc_t *c, fzn_rpc_fork_side_t *sides, size_t cap, size_t *count) {
+static int fork_list_text(fzn_rpc_t *c, fzn_rpc_fork_side_t *sides, size_t cap, size_t *count) {
 	size_t from = 0;
 	*count = 0;
 	for (;;) {

@@ -85937,7 +85937,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, capabilities, forks, retention, one file's detail (legs since sec 1183, clocks sec 1184) |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, capabilities, retention, one file's detail (legs since sec 1183, clocks sec 1184, forks sec 1187) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -89695,3 +89695,32 @@ peers noted while fresh, so only the listing finds one stale.
 The same bare op stood in `library_binary_test` and `meter_test` (secs
 1174, 1177). Each now sends a whole row, and `library-binary-any-op` and
 `meter-binary-any-op` are caught where nothing covered those checks.
+
+## 1187. The forks, in binary, 2026-11-16
+
+`fzn_rpc_fork_list` -- fuzznet's own `forks_view` hosted, and
+fuzzypickles' terminal client -- paged `list fork FROM`, every value
+escaped. It asks once: FZN_CMD_SETTINGS (24) `forks` (128), answered by
+a `fork_row` (129) per head of each fork -- subject, host, when,
+grounds, value, the last two raw -- and a STATUS ok
+(`node/settings_local.situ`), for this node's own user alone.
+
+**A new CMD, local only, named for what will follow it.** Settings cross
+between hosts on the journal, never as requests, so there was no
+category to put a fork under. It is SETTINGS rather than FORKS because
+the other settings reads still on the verbs -- a setting's value, the
+schema -- are the same category and belong beside it (sec 1101's plan
+A: each operation under its subject's CMD).
+
+`node/decisions_binary.c` walks `fzn_node_decisions_forks`, which the
+text listing walks, so both show the same heads in the same order. The
+client passes over a side whose subject or value is longer than its
+struct holds, as the text reading does: a side cut short could be
+chosen and written back as what somebody decided.
+
+**Tests:** three hand-written vectors; `decisions_test` -- two sides
+apart, newest first, each with its subject and raw value, then ok, and
+a whole row sent as a request malformed (sec 1186); `rpc_test` -- both
+sides read, a value with a space kept whole, a cut listing refused;
+`live_names` phase e2 -- each host's fork in binary as its text listing
+gives it. Two sabotages.

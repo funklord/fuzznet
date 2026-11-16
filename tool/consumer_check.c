@@ -156,6 +156,7 @@
 #include <fuzznet/node/objects.h>
 #include <fuzznet/node/objects_binary.h>
 #include <fuzznet/node/decisions.h>
+#include <fuzznet/node/decisions_binary.h>
 #include <fuzznet/node/invite.h>
 #include <fuzznet/node/presets.h>
 #include <fuzznet/node/votes.h>

@@ -26,6 +26,7 @@
 #include "../../wire/generated/meter_local_build.h"
 #include "../../wire/generated/reach_local_build.h"
 #include "../../wire/generated/time_local_build.h"
+#include "../../wire/generated/settings_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -1444,8 +1445,48 @@ static void test_clocks_in_binary(void)
 	fzn_rpc_clock_list_release(&out);
 }
 
+/* ONE HEAD OF A FORK framed onto answer `i`, sec 1187. */
+static void fork_onto(struct bscript *s, size_t i, uint8_t host_byte, const char *subject, const char *value)
+{
+	uint8_t host[32], row[440], m[456];
+	uint32_t row_len = 0, n = 0;
+
+	memset(host, host_byte, sizeof(host));
+	if (fzn_settings_local_fork_row_build(row, sizeof(row), (const uint8_t *)subject, (uint32_t)strlen(subject), host,
+	                                      1700000000000ull, (const uint8_t *)"user", 4u, (const uint8_t *)value,
+	                                      (uint32_t)strlen(value), &row_len) != SITU_OK
+	    || fzn_settings_local_message_build_fork_row(m, sizeof(m), (uint8_t)FZN_CMD_SETTINGS, row, row_len, &n)
+	               != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* THE FORKS IN BINARY, sec 1187: both sides of a fork read with subject,
+ * host, when and the value raw -- a space in it kept, which the text
+ * escapes -- the request's bytes; a cut listing refused. */
+static void test_forks_in_binary(void)
+{
+	static struct bscript held, cut;
+	static fzn_rpc_fork_side_t sides[4];
+	size_t count = 0;
+
+	fork_onto(&held, 0, 0xaa, "host/name", "my laptop");
+	fork_onto(&held, 0, 0xbb, "host/name", "laptop");
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_fork_list(&c, sides, 4, &count) == FZN_RPC_OK && count == 2
+	              && strcmp(sides[0].subject, "host/name") == 0 && strcmp(sides[0].value, "my laptop") == 0
+	              && sides[0].host[0] == 0xaa && sides[0].at == 1700000000000ull
+	              && strcmp(sides[1].value, "laptop") == 0 && held.asked[0][0] == 0x18 && held.asked[0][1] == 0x80,
+	      "the forks were not read in binary, each side with its subject, host and raw value");
+	fork_onto(&cut, 0, 0xaa, "host/name", "my laptop");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_fork_list(&c, sides, 4, &count) != FZN_RPC_OK, "a forks listing cut before its STATUS was read as whole");
+}
+
 int main(void)
 {
+	test_forks_in_binary();
 	test_clocks_in_binary();
 	test_legs_in_binary();
 	test_deliveries_in_binary();

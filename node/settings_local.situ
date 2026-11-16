@@ -1,0 +1,45 @@
+// This user's settings asked in binary on the local leg, starting with the
+// forks: project.md sec 1187, what a forks view lists -- `list fork` as a
+// row per head of each fork, every page in one answer.
+//
+// FZN_CMD_SETTINGS (24, wire/cmd.h), the local leg's alone as the sticker
+// packs' 22 is: settings cross between hosts on the journal, not as
+// requests, so no host asks another for them. A request is one message with
+// no body; the answer is a row per head and then a STATUS ok, or a STATUS
+// refusing it.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	forks    = 128, // every head of every fork, as `list fork` lists them
+	fork_row = 129, // an answer: one head
+	default  = error,
+}
+
+struct nothing {
+}
+
+// SUBJECT what was decided; HOST who decided this side; AT its record's
+// version, ms; GROUNDS what it was decided from, raw; VALUE the side, raw.
+struct fork_row {
+	u8   subject_len [max = 56];
+	u8   subject[subject_len];
+	u8   host[32];
+	u64  at;
+	u8   grounds_len [max = 64];
+	u8   grounds[grounds_len];
+	u16  value_len [max = 256];
+	u8   value[value_len];
+}
+
+struct message {
+	u8   cmd [must_eq = 24];
+	op   op;
+
+	variant body switch (op) {
+		case op.forks:    nothing  forks;
+		case op.fork_row: fork_row fork_row;
+		default: error;
+	}
+}

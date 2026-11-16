@@ -45,6 +45,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+from live_rpc import binary  # noqa: E402
 import live_trim  # noqa: E402
 
 DEADLINE_S = 1500.0
@@ -201,6 +202,22 @@ def main(argv):
 			retried("b", "add contact david " + LOW, "ok")
 			forks_settle(["dave", "david"], "e")
 			print("livecheck: e: one contact named two ways apart is shown as a fork on both")
+
+			# e2: THE SAME IN BINARY, sec 1187: each host's fork rows, their
+			# values raw at the row's end, are the text listing's, then an ok.
+			for who in ("a", "b"):
+				got = binary(socks[who], bytes([0x18, 0x80]))
+				vals = []
+				for m in got[:-1]:
+					if m[:2] != bytes([0x18, 0x81]):
+						raise failed("e2: %s's forks in binary held %r" % (who.upper(), m))
+					at = 3 + m[2] + 32 + 8
+					at += 1 + m[at]
+					vals.append(m[at + 2:at + 2 + int.from_bytes(m[at:at + 2], "big")].decode())
+				if not got or got[-1][:2] != bytes([0x13, 0]) or sorted(vals) != fork_on(who):
+					raise failed("e2: %s's forks in binary were %r, in text %r"
+					             % (who.upper(), vals, fork_on(who)))
+			print("livecheck: e2: the fork in binary on both, as the text lists it")
 
 			# f: CHOSEN, on either host, by making the change again.
 			expect(socks["b"], "b", "add contact dave " + LOW, "ok")

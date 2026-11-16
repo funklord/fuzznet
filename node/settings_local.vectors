@@ -1,0 +1,7 @@
+# Golden vectors for node/settings_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x18 is FZN_CMD_SETTINGS (24); the op is the SUBCMD, 128 (0x80) on.
+
+message forks     18 80
+message fork_row  18 81 09 68 6F 73 74 2F 6E 61 6D 65 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 01 8B CF E5 68 00 04 75 73 65 72 00 07 6C 61 70 74 6F 70 31
+message fork_bare 18 81 09 68 6F 73 74 2F 6E 61 6D 65 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 00 00 00 00 05 00 00 00

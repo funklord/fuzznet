@@ -4,6 +4,8 @@
  */
 
 #include "../decisions.h"
+#include "../decisions_binary.h"
+#include "../../wire/status.h"
 #include "../../state/setting.h"
 #include "../../messages/line.h"
 #include "../../log/retain.h"
@@ -261,6 +263,20 @@ static void seen_row(void *ctx, const fzn_node_decision_t *d)
 		         (const char *)d->value);
 }
 
+/* THE ANSWER IN BINARY, sec 1187, as the client reads it. */
+static uint8_t bin[4][FZN_NODE_DECISIONS_BINARY_MAX];
+static size_t bin_len[4], n_bin;
+
+static int bin_put(void *ctx, const uint8_t *msg, size_t len)
+{
+	(void)ctx;
+	if (n_bin >= 4u || len > sizeof(bin[0]))
+		return 0;
+	memcpy(bin[n_bin], msg, len);
+	bin_len[n_bin++] = len;
+	return 1;
+}
+
 static void reset(void)
 {
 	memset(&node, 0, sizeof(node));
@@ -308,6 +324,35 @@ int main(void)
 	CHECK(fzn_node_decisions_forks(&nr, seen_row, &rows) == 1 && rows.n == 2
 	              && !strcmp(rows.value[0], "two") && !strcmp(rows.value[1], "one"),
 	      "both sides are shown, newest first");
+	/* THE SAME IN BINARY, sec 1187: a row a side, newest first, each with
+	 * its subject and its value raw, then an ok; a row sent as a request
+	 * malformed. */
+	{
+		static const uint8_t ask[] = { 0x18, 0x80 };
+		uint8_t wrong[FZN_NODE_DECISIONS_BINARY_MAX];
+		size_t wrong_len;
+		fzn_status_t code;
+		const uint8_t *why;
+		size_t why_len;
+
+		n_bin = 0;
+		CHECK(fzn_node_decisions_binary(&nr, ask, sizeof(ask), bin_put, NULL) && n_bin == 3u
+		              && bin[0][0] == 0x18 && bin[0][1] == 0x81 && bin[0][2] == SUBJECT_LEN
+		              && memcmp(bin[0] + 3, SUBJECT, SUBJECT_LEN) == 0 && bin_len[0] > 3u
+		              && memcmp(bin[0] + bin_len[0] - 3u, "two", 3) == 0
+		              && memcmp(bin[1] + bin_len[1] - 3u, "one", 3) == 0 && bin[2][0] == 0x13
+		              && bin[2][1] == 0,
+		      "the forks in binary were not both sides, newest first, then an ok");
+		/* A WHOLE ROW SENT AS A REQUEST, which parses: only its op says
+		 * it is no request. */
+		wrong_len = bin_len[0];
+		memcpy(wrong, bin[0], wrong_len);
+		n_bin = 0;
+		CHECK(fzn_node_decisions_binary(&nr, wrong, wrong_len, bin_put, NULL) && n_bin == 1u
+		              && fzn_status_read(bin[0], bin_len[0], &code, &why, &why_len)
+		              && code == FZN_STATUS_MALFORMED,
+		      "a row sent as a request was answered as the listing");
+	}
 	CHECK(decide(HOST_A, NULL, "three"), "and a decision that has seen both");
 	CHECK(heads() == 1 && forks() == 0, "closes it, naming every head");
 

@@ -16894,6 +16894,20 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"decisions-binary-any-op",
+		"node/decisions_binary.c",
+		"\t    || fzn_settings_local_message_op_get(v) != FZN_SETTINGS_LOCAL_OP_FORKS)\n",
+		"\t    || 0)\n",
+		"a fork row sent as a request is answered as the listing -- sec 1187",
+	),
+	(
+		"rpc-forks-binary-cut-whole",
+		"local/rpc.c",
+		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the forks cut short */\n",
+		"\tif (a.bad) return unreadable(c); /* the forks cut short */\n",
+		"a forks listing cut before its STATUS is read as every side -- sec 1187",
+	),
+	(
 		"library-binary-any-op",
 		"node/library_binary.c",
 		"\t    || fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_LIBRARY)\n",
