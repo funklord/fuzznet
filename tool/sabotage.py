@@ -16894,6 +16894,20 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"rpc-group-lines-binary-contact-as-group",
+		"local/rpc.c",
+		"\t\tif (!fzn_messages_local_line_row_group_get(b)) {\n\t\t\ta->bad = 1;\n\t\t\treturn;\n\t\t}\n",
+		"",
+		"a contact's line under a group's key is read as the group's -- sec 1175",
+	),
+	(
+		"rpc-group-lines-binary-member-dropped",
+		"local/rpc.c",
+		"\t\tmemcpy(e->sender_name, fzn_messages_local_line_row_sender_ptr(b), e->sender_name_len);\n",
+		"\t\te->sender_name_len = 0;\n",
+		"a group's line read in binary loses the member who wrote it -- sec 1175",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

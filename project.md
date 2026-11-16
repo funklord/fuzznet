@@ -89408,3 +89408,29 @@ The scratch copy the fold named could not be reached from this account
 denied"), so nothing of it
 was used; a fold that points into scratch points at something only its
 own account can read.
+
+## 1175. A group's lines, in binary, 2026-11-16
+
+`fzn_rpc_group_lines` asks in binary where the group is named by its id
+in 64 hex, through sec 1159's `lines` request with ONE 1 -- the node
+already took a group's id there (`live_rpc` phase d asks it so), and only
+the client still paged `list message @GROUP` a page a request. A group
+named by its name goes by the verb, which names it, as a contact's name
+does in `fzn_rpc_inbox_lines`; so does a node reading no binary.
+
+Each row is read as the text item is: the group's key first, the member
+who wrote an incoming line as its sender (none for this user's own), the
+line's time in ms kept as SEQ and in seconds as the line's. **A row that
+is not a group's refuses the listing**: a contact's key asked as a
+group's would otherwise read a conversation as a group's lines, where the
+verb's `@KEY` names no group.
+
+Who asks by id is the callers' to say, and was not measured here:
+fuzzypickles calls it from its conversation view, its connection and its
+unread tracker, and whichever of them passes a group's id is asked in
+binary; `gui/conversation_view` passes what its caller named it by.
+
+**Tests:** `rpc_test` -- two rows read with the member, SEQ and mark, the
+request's bytes, a contact's row refused, a name asked by the verb. Two
+sabotages: `rpc-group-lines-binary-contact-as-group` and
+`rpc-group-lines-binary-member-dropped`.

@@ -810,6 +810,46 @@ static void test_lines_in_binary(void)
 	}
 }
 
+/* A GROUP'S LINES IN BINARY, sec 1175: asked by the group's id as the
+ * lines request with ONE 1, each row a group line with the member who wrote
+ * it as its sender and its time in ms kept as SEQ; a contact's line under a
+ * group's key refuses the listing; a group by its name goes by the verb. */
+static void test_group_lines_in_binary(void)
+{
+	static struct bscript lines, wrong;
+	static fzn_rpc_group_line_t out[4];
+	static const char id_hex[] = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+	size_t count = 0;
+
+	line_onto(&lines, 0, 0xcd, 1, 0, 0, "team", "carol", "in the group");
+	line_onto(&lines, 0, 0xcd, 1, 1, 1, "team", "", "mine");
+	status_onto(&lines, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &lines);
+	CHECK(fzn_rpc_group_lines(&c, id_hex, 64, out, 4, &count) == FZN_RPC_OK && count == 2
+	              && out[0].line.sender_host_pubkey[0] == 0xcd && strcmp(out[0].line.sender_name, "carol") == 0
+	              && !out[0].line.outgoing && strcmp(out[0].line.text, "in the group") == 0
+	              && out[0].seq == 1700000000000ull && out[0].line.stime == 1700000000u
+	              && out[1].line.outgoing && out[1].line.sender_name_len == 0
+	              && out[1].line.state == FZN_RPC_LINE_DELIVERED,
+	      "a group's lines were not read in binary, the member as sender and the time as seq");
+	CHECK(lines.asked_len[0] == 41 && lines.asked[0][0] == 0x0a && lines.asked[0][1] == 0x84
+	              && lines.asked[0][2] == 1 && lines.asked[0][3] == 0xcd && lines.asked[0][40] == 4,
+	      "a group's lines were not asked by its id, at most the cap");
+	line_onto(&wrong, 0, 0xab, 0, 1, 2, "alice", "", "not a group's");
+	status_onto(&wrong, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &wrong);
+	CHECK(fzn_rpc_group_lines(&c, id_hex, 64, out, 4, &count) != FZN_RPC_OK,
+	      "a contact's line under a group's key was read as the group's");
+	{
+		struct script s = { { "ok 0 0 0" }, 0, 1, 0, { { 0 } } };
+
+		on(&c, &s);
+		CHECK(fzn_rpc_group_lines(&c, "team", 4, out, 4, &count) == FZN_RPC_OK && count == 0
+		              && strcmp(s.asked[0], "list message @team 0") == 0,
+		      "a group named by its name was not asked by the verb");
+	}
+}
+
 /* A LINE SENT IN BINARY, sec 1161: to a key, asked as FZN_CMD_MESSAGES
  * send with the key, a fresh id and the text whole; a key nobody holds is
  * no peer; a contact named by NAME sent by the verb. */
@@ -1111,6 +1151,7 @@ static void test_library_in_binary(void)
 
 int main(void)
 {
+	test_group_lines_in_binary();
 	test_library_in_binary();
 	test_packs_in_binary();
 	test_positions_in_binary();
