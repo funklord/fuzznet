@@ -89458,3 +89458,34 @@ unnamed one, the request's bytes, a cut listing refused, a node reading
 no binary asked by the verb; `live_join` phase d3 -- A's row for B in
 binary as its text row gives it, the name raw, beside phases d and d2
 passing on the split text listing. Two sabotages.
+
+## 1177. What this node has moved, in binary, 2026-11-16
+
+`fzn_rpc_transfer_list` -- fuzzypickles' transfers view, three call
+sites -- asked `get transfer` and then every page of `list transfer`, a
+page a request: some 128 requests for a full meter of sixteen families
+of 64 rows each, on every refresh. It asks once now: FZN_CMD_TRANSFER
+(23, the local leg's alone, as stickers' 22 is) `transfers` (128),
+answered by a `family_row` (129) per family that has moved anything, as
+`get transfer` lists them, a `transfer_row` (130) per row in `list
+transfer`'s order, and a STATUS ok (`node/meter_local.situ`).
+
+- **The meter's text listing was split, not changed.** A row's parts --
+  the peer, and the key its name ends in -- are `row_parts`, and its
+  first and last seconds `row_first` and `row_last`; `list transfer`
+  prints from them, and `fzn_meter_rows` walks every row as a
+  `fzn_meter_row_t`, the key decoded, for `node/meter_binary.c`.
+- **The client folds a row once, for both forms**: `transfer_take` adds
+  it to its host's totals and its family's rates and row count, and
+  keeps it while there is room, which the text row parser now calls too.
+  A family's totals arriving after a row refuse the listing, since the
+  rows' rates are added onto families already read.
+
+**Tests:** four hand-written vectors; `meter_test` asks the verbs' own
+meter in binary -- two families with evicted bytes in, 41 rows, every
+file's root its own, then ok, and a row sent as a request malformed;
+`rpc_test` folds a family and two rows into hosts and rates as the text
+rows are, refuses a cut listing and a family after its rows;
+`live_transfer` phase c2 asks a running node, `get transfer`'s families
+among the binary ones and a reconcile row with A's address among its
+rows. Three sabotages.

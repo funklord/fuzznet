@@ -1,0 +1,61 @@
+// What this node has sent and received, asked in binary on the local leg:
+// project.md sec 1177, what the transfers view refreshes -- `get transfer`
+// and every page of `list transfer` as one answer.
+//
+// FZN_CMD_TRANSFER (23, wire/cmd.h), the local leg's alone as the sticker
+// packs' 22 is (sec 1172): no host asks another what it metered. A request
+// is one message with no body; the answer is a family_row per family that
+// has moved anything, a transfer_row per row the meter holds, and then a
+// STATUS ok, or a STATUS refusing it.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	transfers    = 128, // the families' totals and every row
+	family_row   = 129, // an answer: one family's totals, as `get transfer`
+	transfer_row = 130, // an answer: one row, as `list transfer`
+	default      = error,
+}
+
+struct nothing {
+}
+
+// FAMILY the traffic's name (sec 685); UP and DOWN its bytes over every
+// row, the evicted ones included.
+struct family_row {
+	u8   family_len [max = 23];
+	u8   family[family_len];
+	u64  up;
+	u64  down;
+}
+
+// FAMILY as above; PEER who it was with; KEY the row's second question, a
+// file's root where HAS_KEY, zeros where not. The bytes each way, the rates
+// in bytes per second, and FIRST_S and LAST_S on the daemon's clock.
+struct transfer_row {
+	u8   family_len [max = 23];
+	u8   family[family_len];
+	u8   peer_len [max = 64];
+	u8   peer[peer_len];
+	u8   has_key [max = 1];
+	u8   key[32];
+	u64  up;
+	u64  down;
+	u64  rate_up;
+	u64  rate_down;
+	u64  first_s;
+	u64  last_s;
+}
+
+struct message {
+	u8   cmd [must_eq = 23];
+	op   op;
+
+	variant body switch (op) {
+		case op.transfers:    nothing      transfers;
+		case op.family_row:   family_row   family_row;
+		case op.transfer_row: transfer_row transfer_row;
+		default: error;
+	}
+}

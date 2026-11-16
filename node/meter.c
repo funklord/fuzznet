@@ -272,31 +272,50 @@ static int from_of(const uint8_t *w, size_t n, size_t *from)
 
 #define REPLY(...) ((size_t)snprintf(reply, cap, __VA_ARGS__))
 
+/* A ROW'S PARTS: the peer, and the KEY its name ends in where it has one --
+ * 64 hex after the last slash -- out of REST, `PEER[/KEY]`; `key_hex` the
+ * key as named, empty for none. */
+static void row_parts(const char *rest, char peer[FZN_METRIC_NAME_MAX + 1u], const char **key_hex)
+{
+	char *slash;
+
+	(void)snprintf(peer, FZN_METRIC_NAME_MAX + 1u, "%s", rest);
+	*key_hex = "";
+	slash = strrchr(peer, '/');
+	if (slash && strlen(slash + 1) == 2u * FZN_METER_KEY_MAX) {
+		*key_hex = rest + (slash + 1 - peer);
+		*slash = '\0';
+	}
+}
+
+static uint64_t row_first(const fzn_metric_t *u, const fzn_metric_t *d)
+{
+	return u && d ? (u->first_ms < d->first_ms ? u->first_ms : d->first_ms)
+	              : (u ? u->first_ms : d->first_ms);
+}
+
+static uint64_t row_last(const fzn_metric_t *u, const fzn_metric_t *d)
+{
+	return u && d ? (u->last_ms > d->last_ms ? u->last_ms : d->last_ms)
+	              : (u ? u->last_ms : d->last_ms);
+}
+
 /* A ROW of `family` as `list transfer` writes it, into `out`: the up row `u`
  * and the down row `d`, either of which may be gone. */
 static size_t row_text(fzn_meter_family_t family, const char *rest, const fzn_metric_t *u,
                        const fzn_metric_t *d, char *out, size_t cap)
 {
 	char peer[FZN_METRIC_NAME_MAX + 1u];
-	const char *key = "", *slash;
-	uint64_t first, last;
+	const char *key;
 	int n;
 
-	(void)snprintf(peer, sizeof(peer), "%s", rest);
-	slash = strrchr(peer, '/');
-	if (slash && strlen(slash + 1) == 2u * FZN_METER_KEY_MAX) {
-		key = slash + 1;
-		peer[slash - peer] = '\0';
-	}
-	first = u && d ? (u->first_ms < d->first_ms ? u->first_ms : d->first_ms)
-	               : (u ? u->first_ms : d->first_ms);
-	last = u && d ? (u->last_ms > d->last_ms ? u->last_ms : d->last_ms)
-	              : (u ? u->last_ms : d->last_ms);
+	row_parts(rest, peer, &key);
 	n = snprintf(out, cap, "%s,%s,%s,%llu,%llu,%llu,%llu,%llu,%llu",
 	             fzn_meter_family_name(family), peer, key,
 	             (unsigned long long)(u ? u->total : 0u), (unsigned long long)(d ? d->total : 0u),
 	             (unsigned long long)(u ? u->rate : 0u), (unsigned long long)(d ? d->rate : 0u),
-	             (unsigned long long)(first / 1000u), (unsigned long long)(last / 1000u));
+	             (unsigned long long)(row_first(u, d) / 1000u),
+	             (unsigned long long)(row_last(u, d) / 1000u));
 	return n < 0 || (size_t)n >= cap ? 0u : (size_t)n;
 }
 
@@ -325,6 +344,63 @@ static size_t rows_each(const fzn_meter_t *m, fzn_meter_family_t family,
 			break;
 	}
 	return seen;
+}
+
+/* A ROW'S KEY, its 64 hex digits into bytes; 0 for any that is not one. */
+static int key_of(const char *hex, uint8_t key[FZN_METER_KEY_MAX])
+{
+	size_t i;
+
+	for (i = 0; i < FZN_METER_KEY_MAX; i++) {
+		int hi = fzn_hex_digit(hex[2u * i]), lo = fzn_hex_digit(hex[2u * i + 1u]);
+
+		if (hi < 0 || lo < 0)
+			return 0;
+		key[i] = (uint8_t)(hi << 4 | lo);
+	}
+	return 1;
+}
+
+struct walk {
+	void (*each)(void *ctx, const fzn_meter_row_t *row);
+	void *ctx;
+};
+
+static int walk_one(void *ctx, fzn_meter_family_t family, const char *rest, const fzn_metric_t *u,
+                    const fzn_metric_t *d)
+{
+	struct walk *w = ctx;
+	char peer[FZN_METRIC_NAME_MAX + 1u];
+	const char *key;
+	fzn_meter_row_t r;
+
+	memset(&r, 0, sizeof(r));
+	row_parts(rest, peer, &key);
+	r.family = family;
+	r.peer_len = strlen(peer) < FZN_METER_PEER_MAX ? strlen(peer) : FZN_METER_PEER_MAX;
+	memcpy(r.peer, peer, r.peer_len);
+	r.has_key = *key && key_of(key, r.key);
+	if (!r.has_key)
+		memset(r.key, 0, sizeof(r.key));
+	r.up = u ? u->total : 0u;
+	r.down = d ? d->total : 0u;
+	r.rate_up = u ? u->rate : 0u;
+	r.rate_down = d ? d->rate : 0u;
+	r.first_s = row_first(u, d) / 1000u;
+	r.last_s = row_last(u, d) / 1000u;
+	w->each(w->ctx, &r);
+	return 1;
+}
+
+size_t fzn_meter_rows(const fzn_meter_t *m, void (*each)(void *ctx, const fzn_meter_row_t *row),
+                      void *ctx)
+{
+	struct walk w = { each, ctx };
+	size_t f, n = 0;
+
+	for (f = 0; m && f < FZN_METER_FAMILIES; f++)
+		n += rows_each(m, (fzn_meter_family_t)f, each ? walk_one : NULL, &w);
+	return n;
 }
 
 struct listing {

@@ -42,6 +42,7 @@
 #include "../wire/generated/streams_local.h"
 #include "../wire/generated/stickers_local.h"
 #include "../wire/generated/files_local.h"
+#include "../wire/generated/meter_local.h"
 #include "../wire/generated/members_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
@@ -116,6 +117,9 @@ static int node_status(fzn_rpc_t *c, fzn_rpc_status_resp_t *out); /* with the no
 static int node_word(const char **p, const char *end, const char **w, size_t *w_len);
 static int node_u64(const char *p, size_t len, uint64_t *out);
 static int node_transfer_list(fzn_rpc_t *c, fzn_rpc_transfer_list_resp_t *out); /* likewise */
+static int transfer_take(fzn_rpc_transfer_list_resp_t *out, const char *family, size_t family_len,
+                         const char *peer, size_t peer_len, const uint8_t *key, uint64_t up, uint64_t down,
+                         uint64_t rate_up, uint64_t rate_down, uint64_t first, uint64_t last);
 static int node_config_schema(fzn_rpc_t *c, const char *prefix, size_t prefix_len,
                               fzn_rpc_config_schema_resp_t *out);
 static int node_config_get(fzn_rpc_t *c, const char *key, size_t key_len, fzn_rpc_config_get_resp_t *out);
@@ -4497,8 +4501,88 @@ int fzn_rpc_library_add(fzn_rpc_t *c, const fzn_rpc_library_add_req_t *entry) {
 	return node_library_add(c, entry);
 }
 
+/* WHAT THIS NODE HAS MOVED, IN BINARY, sec 1177: every family's totals and
+ * every row in one answer, where the verbs took a page a reply -- some 128
+ * for a full meter -- then a STATUS. */
+struct transfers_answer {
+	fzn_rpc_transfer_list_resp_t *out;
+	size_t rows;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void transfers_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct transfers_answer *a = ctx;
+	fzn_rpc_transfer_list_resp_t *out = a->out;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_meter_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_meter_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (fzn_meter_local_message_op_get(v) == FZN_METER_LOCAL_OP_FAMILY_ROW
+	    && fzn_meter_local_message_body_family_row_view(v, &b) == SITU_OK) {
+		/* A FAMILY'S TOTALS, before its rows, as `get transfer` comes first. */
+		const size_t n = fzn_meter_local_family_row_family_len(b);
+		if (a->rows || !n || n >= sizeof out->subsystems[0].family
+		    || out->subsystem_count >= FZN_RPC_TRANSFER_SUBSYSTEM_MAX) {
+			a->bad = 1;
+			return;
+		}
+		fzn_rpc_transfer_subsystem_t *sub = &out->subsystems[out->subsystem_count++];
+		memcpy(sub->family, fzn_meter_local_family_row_family_ptr(b), n);
+		sub->bytes_up = fzn_meter_local_family_row_up_get(b);
+		sub->bytes_down = fzn_meter_local_family_row_down_get(b);
+	} else if (fzn_meter_local_message_op_get(v) == FZN_METER_LOCAL_OP_TRANSFER_ROW
+	           && fzn_meter_local_message_body_transfer_row_view(v, &b) == SITU_OK) {
+		if (!transfer_take(out, (const char *)fzn_meter_local_transfer_row_family_ptr(b),
+		                   fzn_meter_local_transfer_row_family_len(b),
+		                   (const char *)fzn_meter_local_transfer_row_peer_ptr(b),
+		                   fzn_meter_local_transfer_row_peer_len(b),
+		                   fzn_meter_local_transfer_row_has_key_get(b) ? fzn_meter_local_transfer_row_key_ptr(b) : NULL,
+		                   fzn_meter_local_transfer_row_up_get(b), fzn_meter_local_transfer_row_down_get(b),
+		                   fzn_meter_local_transfer_row_rate_up_get(b), fzn_meter_local_transfer_row_rate_down_get(b),
+		                   fzn_meter_local_transfer_row_first_s_get(b), fzn_meter_local_transfer_row_last_s_get(b))) {
+			a->bad = 1;
+			return;
+		}
+		a->rows++;
+	} else {
+		a->bad = 1;
+	}
+}
+
 int fzn_rpc_transfer_list(fzn_rpc_t *c, fzn_rpc_transfer_list_resp_t *out) {
-	return node_transfer_list(c, out);
+	static const uint8_t ask[] = { FZN_CMD_TRANSFER, FZN_METER_LOCAL_OP_TRANSFERS };
+	struct transfers_answer a;
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, transfers_each, &a, &text);
+	if (text) return node_transfer_list(c, out);
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen) return unreadable(c); /* the transfers cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	out->rows_total = a.rows > UINT16_MAX ? UINT16_MAX : (uint16_t)a.rows;
+	return FZN_RPC_OK;
 }
 
 int fzn_rpc_delivery_list(fzn_rpc_t *c, fzn_rpc_delivery_list_resp_t *out) {
@@ -6627,31 +6711,24 @@ static void node_add_bytes(uint64_t *to, uint64_t n) {
 	*to = *to > UINT64_MAX - n ? UINT64_MAX : *to + n;
 }
 
-static int node_transfer_row(void *ctx, const char *w, size_t w_len) {
-	struct node_transfer_rows *r = ctx;
-	fzn_rpc_transfer_list_resp_t *out = r->out;
-	const char *q = w, *row_end = w + w_len, *f[9];
-	size_t f_len[9];
-	uint64_t up = 0, down = 0, rate_up = 0, rate_down = 0, first = 0, last = 0;
-	for (int i = 0; i < 9; i++)
-		if (!node_field(&q, row_end, &f[i], &f_len[i])) return 0;
-	if (q <= row_end || !f_len[0] || f_len[0] >= sizeof out->entries[0].family ||
-	    f_len[1] > FZN_RPC_PEER_ADDRESS_MAX || !node_u64(f[3], f_len[3], &up) ||
-	    !node_u64(f[4], f_len[4], &down) || !node_u64(f[5], f_len[5], &rate_up) ||
-	    !node_u64(f[6], f_len[6], &rate_down) || !node_u64(f[7], f_len[7], &first) ||
-	    !node_u64(f[8], f_len[8], &last))
+/* ONE ROW INTO THE LISTING, both forms' (sec 1177): its host's totals, its
+ * family's rates and row count, and the row while there is room. `key`
+ * NULL for a row with none. 0 when it cannot be one. */
+static int transfer_take(fzn_rpc_transfer_list_resp_t *out, const char *family, size_t family_len,
+                         const char *peer, size_t peer_len, const uint8_t *key, uint64_t up, uint64_t down,
+                         uint64_t rate_up, uint64_t rate_down, uint64_t first, uint64_t last) {
+	if (!family_len || family_len >= sizeof out->entries[0].family || peer_len > FZN_RPC_PEER_ADDRESS_MAX)
 		return 0;
-	r->seen++;
 	/* Its host's totals, from every row. */
 	size_t h = 0;
-	while (h < out->host_count && !(out->hosts[h].peer_address_len == f_len[1] &&
-	                                memcmp(out->hosts[h].peer_address, f[1], f_len[1]) == 0))
+	while (h < out->host_count && !(out->hosts[h].peer_address_len == peer_len &&
+	                                memcmp(out->hosts[h].peer_address, peer, peer_len) == 0))
 		h++;
 	if (h == out->host_count) {
 		out->hosts_total++;
 		if (out->host_count < FZN_RPC_TRANSFER_HOST_MAX) {
-			memcpy(out->hosts[h].peer_address, f[1], f_len[1]);
-			out->hosts[h].peer_address_len = f_len[1];
+			memcpy(out->hosts[h].peer_address, peer, peer_len);
+			out->hosts[h].peer_address_len = peer_len;
 			out->host_count++;
 		}
 	}
@@ -6666,7 +6743,7 @@ static int node_transfer_row(void *ctx, const char *w, size_t w_len) {
 	/* Its family's rates and row count, which `get transfer` does not say. */
 	for (size_t s = 0; s < out->subsystem_count; s++) {
 		fzn_rpc_transfer_subsystem_t *sub = &out->subsystems[s];
-		if (strlen(sub->family) == f_len[0] && memcmp(sub->family, f[0], f_len[0]) == 0) {
+		if (strlen(sub->family) == family_len && memcmp(sub->family, family, family_len) == 0) {
 			node_add_bytes(&sub->rate_up, rate_up);
 			node_add_bytes(&sub->rate_down, rate_down);
 			sub->rows++;
@@ -6674,10 +6751,11 @@ static int node_transfer_row(void *ctx, const char *w, size_t w_len) {
 	}
 	if (out->count >= FZN_RPC_TRANSFER_LIST_MAX) return 1;
 	fzn_rpc_transfer_entry_t *e = &out->entries[out->count++];
-	memcpy(e->family, f[0], f_len[0]);
-	memcpy(e->peer_address, f[1], f_len[1]);
-	e->peer_address_len = f_len[1];
-	if (f_len[2] == 64 && node_key(f[2], 64, e->key)) {
+	memcpy(e->family, family, family_len);
+	memcpy(e->peer_address, peer, peer_len);
+	e->peer_address_len = peer_len;
+	if (key) {
+		memcpy(e->key, key, 32);
 		e->key_kind = FZN_RPC_METER_KEY_BLOB;
 		e->key_len = 32;
 	}
@@ -6690,6 +6768,25 @@ static int node_transfer_row(void *ctx, const char *w, size_t w_len) {
 	return 1;
 }
 
+static int node_transfer_row(void *ctx, const char *w, size_t w_len) {
+	struct node_transfer_rows *r = ctx;
+	const char *q = w, *row_end = w + w_len, *f[9];
+	size_t f_len[9];
+	uint64_t up = 0, down = 0, rate_up = 0, rate_down = 0, first = 0, last = 0;
+	uint8_t key[32];
+	for (int i = 0; i < 9; i++)
+		if (!node_field(&q, row_end, &f[i], &f_len[i])) return 0;
+	if (q <= row_end || !node_u64(f[3], f_len[3], &up) || !node_u64(f[4], f_len[4], &down) ||
+	    !node_u64(f[5], f_len[5], &rate_up) || !node_u64(f[6], f_len[6], &rate_down) ||
+	    !node_u64(f[7], f_len[7], &first) || !node_u64(f[8], f_len[8], &last))
+		return 0;
+	const int keyed = f_len[2] == 64 && node_key(f[2], 64, key);
+	if (!transfer_take(r->out, f[0], f_len[0], f[1], f_len[1], keyed ? key : NULL, up, down, rate_up,
+	                   rate_down, first, last))
+		return 0;
+	r->seen++;
+	return 1;
+}
 static int node_transfer_list(fzn_rpc_t *c, fzn_rpc_transfer_list_resp_t *out) {
 	memset(out, 0, sizeof(*out));
 	const char *rest = NULL;

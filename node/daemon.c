@@ -18328,11 +18328,23 @@ static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
+#include "meter_binary.h"
+/* WHAT THIS NODE HAS MOVED, IN BINARY, sec 1177: `get transfer` and every
+ * page of `list transfer` as one answer, for this node's own user alone. */
+static int local_transfers(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "traffic is this node's own user's"), 0;
+	(void)fzn_node_meter_binary(&traffic, msg, len, local_put, &fd);
+	return 0;
+}
+
 /* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary, by its CMD: named
  * objects asked (sec 1152), every conversation's newest line or count
  * (sec 1155), this user's contacts (sec 1162), groups (sec 1170) and the
  * positions held (sec 1171), the sticker packs (sec 1172), the library
- * (sec 1174), this estate's other hosts (sec 1176), or a MEDIA_OPEN
+ * (sec 1174), this estate's other hosts (sec 1176), what it has moved
+ * (sec 1177), or a MEDIA_OPEN
  * for a call this host holds, from its own user, which keeps it
  * as the call's channel (sec 1113). */
 static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
@@ -18357,6 +18369,8 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 	if (len && msg[0] == FZN_CMD_STICKERS)
 		return local_stickers(fd, origin, msg, len);
 #endif
+	if (len && msg[0] == FZN_CMD_TRANSFER)
+		return local_transfers(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_MEMBERS)
 		return local_siblings(fd, origin, msg, len);
 #ifdef FZND_LIBRARY

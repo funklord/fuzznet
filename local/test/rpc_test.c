@@ -23,6 +23,7 @@
 #include "../../wire/generated/stickers_local_build.h"
 #include "../../wire/generated/files_local_build.h"
 #include "../../wire/generated/members_local_build.h"
+#include "../../wire/generated/meter_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -1203,8 +1204,66 @@ static void test_siblings_in_binary(void)
 	}
 }
 
+/* ONE TRANSFER ROW framed onto answer `i`, sec 1177. */
+static void transfer_onto(struct bscript *s, size_t i, const char *family, const char *peer, int keyed,
+                          uint64_t up, uint64_t down)
+{
+	uint8_t key[32], row[192], m[200];
+	uint32_t row_len = 0, n = 0;
+
+	memset(key, keyed ? 0x3c : 0, sizeof(key));
+	if (fzn_meter_local_transfer_row_build(row, sizeof(row), (const uint8_t *)family, (uint32_t)strlen(family),
+	                                       (const uint8_t *)peer, (uint32_t)strlen(peer), (uint8_t)(keyed ? 1 : 0),
+	                                       key, up, down, 3u, 4u, 1700000000u, 1700000060u, &row_len)
+	            != SITU_OK
+	    || fzn_meter_local_message_build_transfer_row(m, sizeof(m), (uint8_t)FZN_CMD_TRANSFER, row, row_len, &n)
+	               != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* WHAT THE NODE HAS MOVED, IN BINARY, sec 1177: a family's totals, then two
+ * rows with one host and one file between them -- folded into the hosts
+ * and the family's rates as the text rows are -- the request's bytes; a
+ * listing cut before its STATUS refused; a family after a row refused. */
+static void test_transfers_in_binary(void)
+{
+	static struct bscript held, cut, late;
+	static fzn_rpc_transfer_list_resp_t out;
+	uint8_t row[64], m[80];
+	uint32_t row_len = 0, n = 0;
+
+	if (fzn_meter_local_family_row_build(row, sizeof(row), (const uint8_t *)"files", 5u, 4096u, 1048576u, &row_len)
+	            == SITU_OK
+	    && fzn_meter_local_message_build_family_row(m, sizeof(m), (uint8_t)FZN_CMD_TRANSFER, row, row_len, &n)
+	               == SITU_OK) {
+		framed(&held, 0, m, n);
+		framed(&cut, 0, m, n);
+	}
+	transfer_onto(&held, 0, "files", "10.0.0.2:7000", 1, 100u, 200u);
+	transfer_onto(&held, 0, "files", "10.0.0.2:7000", 0, 5u, 6u);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_transfer_list(&c, &out) == FZN_RPC_OK && out.subsystem_count == 1
+	              && strcmp(out.subsystems[0].family, "files") == 0 && out.subsystems[0].bytes_up == 4096u
+	              && out.subsystems[0].bytes_down == 1048576u && out.subsystems[0].rows == 2
+	              && out.subsystems[0].rate_up == 6u && out.count == 2 && out.entries[0].key_len == 32
+	              && out.entries[0].key[0] == 0x3c && out.entries[1].key_len == 0 && out.host_count == 1
+	              && out.hosts[0].bytes_up == 105u && out.hosts[0].rows == 2 && out.rows_total == 2
+	              && out.entries[0].last_seen == 1700000060u && held.asked[0][0] == 0x17 && held.asked[0][1] == 0x80,
+	      "the transfers were not read in binary, folded into hosts and families as the text rows are");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_transfer_list(&c, &out) != FZN_RPC_OK, "a transfers listing cut before its STATUS was read as whole");
+	transfer_onto(&late, 0, "files", "10.0.0.2:7000", 0, 1u, 1u);
+	if (n) framed(&late, 0, m, n);
+	status_onto(&late, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &late);
+	CHECK(fzn_rpc_transfer_list(&c, &out) != FZN_RPC_OK, "a family's totals after its rows were taken");
+}
+
 int main(void)
 {
+	test_transfers_in_binary();
 	test_siblings_in_binary();
 	test_group_lines_in_binary();
 	test_library_in_binary();

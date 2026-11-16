@@ -1,0 +1,58 @@
+# situ capability map v1
+# schema: meter_local.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct family_row size=17..40 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  family_row.family_len                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  family_row.family                      offset=AbsoluteStatic(0x01) size=Bounded(0, 23) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  family_row.up                          offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  family_row.down                        offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+
+struct message size=2..172 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 170) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.transfers                 offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.family_row                offset=AbsoluteStatic(0x02) size=Bounded(17, 40) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  message.body.family_row.family_len     offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.family_row.family         offset=AbsoluteStatic(0x03) size=Bounded(0, 23) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.family_row.up             offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.family_row.down           offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.transfer_row              offset=AbsoluteStatic(0x02) size=Bounded(83, 170) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  message.body.transfer_row.family_len   offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.transfer_row.family       offset=AbsoluteStatic(0x03) size=Bounded(0, 23) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.transfer_row.peer_len     offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  message.body.transfer_row.peer         offset=Dynamic size=Bounded(0, 64) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  message.body.transfer_row.has_key      offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  message.body.transfer_row.key          offset=Dynamic size=Fixed(32) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+  message.body.transfer_row.up           offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.transfer_row.down         offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.transfer_row.rate_up      offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.transfer_row.rate_down    offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.transfer_row.first_s      offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.transfer_row.last_s       offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+
+struct nothing size=0
+
+struct transfer_row size=83..170 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  transfer_row.family_len                offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  transfer_row.family                    offset=AbsoluteStatic(0x01) size=Bounded(0, 23) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  transfer_row.peer_len                  offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  transfer_row.peer                      offset=Dynamic size=Bounded(0, 64) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  transfer_row.has_key                   offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  transfer_row.key                       offset=Dynamic size=Fixed(32) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+  transfer_row.up                        offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  transfer_row.down                      offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  transfer_row.rate_up                   offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  transfer_row.rate_down                 offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  transfer_row.first_s                   offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  transfer_row.last_s                    offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable

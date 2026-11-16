@@ -16894,6 +16894,27 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"rpc-transfers-binary-cut-whole",
+		"local/rpc.c",
+		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the transfers cut short */\n",
+		"\tif (a.bad) return unreadable(c); /* the transfers cut short */\n",
+		"a transfers listing cut before its STATUS is read as every row -- sec 1177",
+	),
+	(
+		"meter-row-key-dropped",
+		"node/meter.c",
+		"\tr.has_key = *key && key_of(key, r.key);\n",
+		"\tr.has_key = 0;\n",
+		"a file's row in binary loses its root -- sec 1177",
+	),
+	(
+		"meter-binary-families-skipped",
+		"node/meter_binary.c",
+		"\t\tif (!up && !down)\n\t\t\tcontinue;\n",
+		"\t\tcontinue;\n",
+		"the families' totals are left out of the answer in binary -- sec 1177",
+	),
+	(
 		"rpc-siblings-binary-cut-whole",
 		"local/rpc.c",
 		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the siblings cut short */\n",

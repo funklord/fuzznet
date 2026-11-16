@@ -10,6 +10,9 @@ Two stores: A a root, B a device joined to it, pulling from A.
        address B asked from
     c  `list transfer FROM` at the total answers no rows, and a FROM that
        is not a number is refused
+    c2 the same in binary (sec 1177): B's families as `get transfer` names
+       them, then its rows, a reconcile row with A's address among them,
+       then an ok -- one answer where the verbs took a page a reply
     d  `get node` at A answers the port it serves on and when it started
        (sec 687); B, given no `--udp-port`, serves on none and answers `-`
 
@@ -34,6 +37,28 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import RECONCILE_RE, command, daemon  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+from live_rpc import binary  # noqa: E402
+
+
+def in_binary(sock, tag):
+	"""The transfers asked in binary at `sock`: ({family: (up, down)}, [(family,
+	peer)]), the families before the rows and an ok after them."""
+	got = binary(sock, bytes([0x17, 0x80]))
+	fams, rws = {}, []
+	if not got or got[-1][:2] != bytes([0x13, 0]):
+		raise failed("%s: the transfers in binary did not end ok: %r" % (tag, got[-3:]))
+	for m in got[:-1]:
+		if m[:2] == bytes([0x17, 0x81]) and not rws:
+			n = m[2]
+			fams[m[3:3 + n].decode()] = (int.from_bytes(m[3 + n:11 + n], "big"),
+			                             int.from_bytes(m[11 + n:19 + n], "big"))
+		elif m[:2] == bytes([0x17, 0x82]):
+			n = m[2]
+			pn = m[3 + n]
+			rws.append((m[3:3 + n].decode(), m[4 + n:4 + n + pn].decode()))
+		else:
+			raise failed("%s: an answer out of place in the transfers: %r" % (tag, m))
+	return fams, rws
 
 
 def families(sock, tag):
@@ -133,6 +158,17 @@ def main(argv):
 					if not reply.startswith("malformed"):
 						raise failed("c: list transfer x answered %r" % reply)
 					print("livecheck: c: past the rows answered none, and a bad FROM refused")
+
+					# c2: THE SAME IN BINARY, sec 1177: the families `get transfer`
+					# names (bytes move between the two asks, so names only), and a
+					# reconcile row with A's address among the rows.
+					text_fams = set(families(b_sock, "c2"))
+					fams, rws = in_binary(b_sock, "c2")
+					if not text_fams <= set(fams) or ("reconcile", peer) not in rws:
+						raise failed("c2: B's transfers in binary were %r and %r; in text %r"
+						             % (fams, rws[:4], text_fams))
+					print("livecheck: c2: B's transfers in binary: %d families, %d rows, one answer"
+					      % (len(fams), len(rws)))
 
 					# d: `get node`, sec 687: the port A was told to serve on, read
 					# back from its socket, and a start time within this run.

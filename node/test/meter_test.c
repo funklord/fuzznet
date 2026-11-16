@@ -2,6 +2,10 @@
  * envelope looked through, a file's root kept as the key, rows by peer and
  * key, a window's rate, and eviction that keeps a family's sums whole. */
 #include "../meter.h"
+#include "../meter_binary.h"
+#include "../../wire/cmd.h"
+#include "../../wire/status.h"
+#include "../../wire/generated/meter_local.h"
 #include "../types.h"
 #include "../members.h"
 #include "../messages.h"
@@ -278,6 +282,100 @@ static void test_the_verbs(void)
 	      "another subject was answered");
 }
 
+/* THE ANSWER IN BINARY, sec 1177, as the client reads it. */
+static uint8_t said[64][FZN_NODE_METER_BINARY_MAX];
+static size_t said_len[64], n_said;
+
+static int put(void *ctx, const uint8_t *msg, size_t len)
+{
+	(void)ctx;
+	if (n_said >= 64u || len > sizeof(said[0]))
+		return 0;
+	memcpy(said[n_said], msg, len);
+	said_len[n_said++] = len;
+	return 1;
+}
+
+static int op_of(size_t i, situ_view_t *b)
+{
+	situ_msg_t m;
+	situ_view_t v;
+
+	situ_msg_init(&m, said[i], (uint32_t)said_len[i]);
+	if (fzn_meter_local_message_view(&m, 0u, (uint32_t)said_len[i], &v) != SITU_OK
+	    || fzn_meter_local_message_validate(v) != SITU_OK)
+		return -1;
+	switch (fzn_meter_local_message_op_get(v)) {
+	case FZN_METER_LOCAL_OP_FAMILY_ROW:
+		return fzn_meter_local_message_body_family_row_view(v, b) == SITU_OK ? 1 : -1;
+	case FZN_METER_LOCAL_OP_TRANSFER_ROW:
+		return fzn_meter_local_message_body_transfer_row_view(v, b) == SITU_OK ? 2 : -1;
+	default:
+		return -1;
+	}
+}
+
+/* `get transfer`'s families then `list transfer`'s rows, in one answer: the
+ * same meter as the verbs' test, each family's totals evicted bytes in, a
+ * file's root decoded from its row's name, a chat row keyless, and a STATUS
+ * ok to end it; a row sent as a request refused as malformed. */
+static void test_in_binary(void)
+{
+	static fzn_meter_t m;
+	static const uint8_t ask_all[] = { FZN_CMD_TRANSFER, FZN_METER_LOCAL_OP_TRANSFERS };
+	static const uint8_t wrong[] = { FZN_CMD_TRANSFER, FZN_METER_LOCAL_OP_TRANSFER_ROW };
+	situ_view_t b;
+	fzn_status_t code;
+	const uint8_t *why;
+	size_t why_len, i, rows = 0, keyed = 0;
+	uint8_t root[32];
+
+	memset(&m, 0, sizeof(m));
+	for (i = 0; i < 40u; i++) {
+		char peer[24];
+
+		(void)snprintf(peer, sizeof(peer), "10.0.3.%zu:1", i);
+		memset(root, (int)i, sizeof(root));
+		fzn_meter_count(&m, FZN_METER_FILES, peer, root, 32u, 1u, 2u, 100u);
+	}
+	fzn_meter_count(&m, FZN_METER_NOTES, "10.0.0.9:1", NULL, 0u, 5u, 6u, 100u);
+	m.evicted_up[FZN_METER_NOTES] = 10u;
+	n_said = 0;
+	CHECK(fzn_node_meter_binary(&m, ask_all, sizeof(ask_all), put, NULL) && n_said == 2u + 41u + 1u,
+	      "the binary answer was not two families, 41 rows and a STATUS");
+	CHECK(n_said >= 2u && op_of(0, &b) == 1 && fzn_meter_local_family_row_family_len(b) == 5u
+	              && memcmp(fzn_meter_local_family_row_family_ptr(b), "notes", 5u) == 0
+	              && fzn_meter_local_family_row_up_get(b) == 15u && fzn_meter_local_family_row_down_get(b) == 6u
+	              && op_of(1, &b) == 1 && fzn_meter_local_family_row_up_get(b) == 40u
+	              && fzn_meter_local_family_row_down_get(b) == 80u,
+	      "the families in binary were not get transfer's, evicted bytes in");
+	for (i = 2u; i + 1u < n_said; i++) {
+		if (op_of(i, &b) != 2)
+			continue;
+		rows++;
+		if (fzn_meter_local_transfer_row_has_key_get(b)) {
+			const uint8_t *k = fzn_meter_local_transfer_row_key_ptr(b);
+			const uint8_t *peer = fzn_meter_local_transfer_row_peer_ptr(b);
+			size_t peer_len = fzn_meter_local_transfer_row_peer_len(b);
+			unsigned n = 0;
+
+			/* `10.0.3.N:1` holds root N repeated. */
+			if (peer_len > 7u && sscanf((const char *)peer + 7, "%u", &n) == 1 && k[0] == (uint8_t)n
+			    && k[31] == (uint8_t)n && fzn_meter_local_transfer_row_up_get(b) == 1u
+			    && fzn_meter_local_transfer_row_down_get(b) == 2u)
+				keyed++;
+		}
+	}
+	CHECK(rows == 41u && keyed == 40u, "the rows in binary were not the listing's, each file's root its own");
+	CHECK(n_said && fzn_status_read(said[n_said - 1u], said_len[n_said - 1u], &code, &why, &why_len)
+	              && code == FZN_STATUS_OK,
+	      "the binary answer did not end with a STATUS ok");
+	n_said = 0;
+	CHECK(fzn_node_meter_binary(&m, wrong, sizeof(wrong), put, NULL) && n_said == 1u
+	              && fzn_status_read(said[0], said_len[0], &code, &why, &why_len) && code == FZN_STATUS_MALFORMED,
+	      "a row sent as a request was answered as the listing");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -294,6 +392,7 @@ int main(void)
 	test_a_file_root_through_a_cause();
 	test_the_table();
 	test_the_verbs();
+	test_in_binary();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("meter_test: %d checks, %d failure(s)\n", checks, failures);

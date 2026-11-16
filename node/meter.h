@@ -95,6 +95,23 @@ void fzn_meter_count(fzn_meter_t *m, fzn_meter_family_t family, const char *peer
                      const uint8_t *key, size_t key_len, uint64_t up, uint64_t down,
                      uint64_t now);
 
+/* ONE ROW AS `list transfer` SAYS IT, both forms' (sec 1177): the family,
+ * the peer, the file's root where the row has one, the bytes and rates
+ * each way and the first and last seconds it moved anything. */
+typedef struct fzn_meter_row {
+	fzn_meter_family_t family;
+	char peer[FZN_METER_PEER_MAX + 1u];
+	size_t peer_len;
+	int has_key;
+	uint8_t key[FZN_METER_KEY_MAX];
+	uint64_t up, down, rate_up, rate_down, first_s, last_s;
+} fzn_meter_row_t;
+
+/* EVERY ROW, family by family, in `list transfer`'s order, to `each`; how
+ * many there are. `each` may be NULL to count them. */
+size_t fzn_meter_rows(const fzn_meter_t *m, void (*each)(void *ctx, const fzn_meter_row_t *row),
+                      void *ctx);
+
 /* THE VERBS, this node's own user's:
  *
  *   get transfer            each family that has moved anything: `ok

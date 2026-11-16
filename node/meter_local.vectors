@@ -1,0 +1,8 @@
+# Golden vectors for node/meter_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x17 is FZN_CMD_TRANSFER (23); the op is the SUBCMD, 128 (0x80) on.
+
+message transfers    17 80
+message family_files 17 81 05 66 69 6C 65 73 00 00 00 00 00 00 10 00 00 00 00 00 00 10 00 00
+message row_keyed    17 82 05 66 69 6C 65 73 0D 31 30 2E 30 2E 30 2E 32 3A 37 30 30 30 01 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 00 00 00 10 00 00 00 00 00 00 10 00 00 00 00 00 00 00 00 00 0A 00 00 00 00 00 00 07 D0 00 00 00 00 65 53 F1 00 00 00 00 00 65 53 F1 3C
+message row_chat     17 82 04 63 68 61 74 0D 31 30 2E 30 2E 30 2E 33 3A 37 30 30 30 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 0C 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 05 00 00 00 00 00 00 00 05
