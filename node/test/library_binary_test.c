@@ -263,7 +263,8 @@ static int put(void *ctx, const uint8_t *msg, size_t len)
 static void test_the_answer_on_the_wire(void)
 {
 	static const uint8_t ask[] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_LIBRARY };
-	static const uint8_t wrong[] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_LIBRARY_ROW };
+	uint8_t wrong[FZN_NODE_LIBRARY_BINARY_MAX];
+	size_t wrong_len = 0;
 	uint8_t song[32], copy[FZN_NODE_LIBRARY_BINARY_MAX];
 	char long_name[300];
 	situ_msg_t m;
@@ -297,8 +298,12 @@ static void test_the_answer_on_the_wire(void)
 	      "the row's fields were not the file's");
 	CHECK(fzn_status_read(said[1], said_len[1], &code, &why, &why_len) && code == FZN_STATUS_OK,
 	      "the listing did not end with a STATUS ok");
+	/* A WHOLE ROW SENT AS A REQUEST, which parses: only its op says it is
+	 * no request -- a bare op byte is refused before the op is looked at. */
+	wrong_len = said_len[0];
+	memcpy(wrong, said[0], wrong_len);
 	n_said = 0;
-	CHECK(fzn_node_library_binary(&cat, host_a, NULL, NULL, wrong, sizeof(wrong), put, NULL)
+	CHECK(fzn_node_library_binary(&cat, host_a, NULL, NULL, wrong, wrong_len, put, NULL)
 	              && n_said == 1u
 	              && fzn_status_read(said[0], said_len[0], &code, &why, &why_len)
 	              && code == FZN_STATUS_MALFORMED,

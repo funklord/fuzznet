@@ -89680,3 +89680,18 @@ malformed; `rpc_test` -- a peer ahead and one behind read with their
 seconds and when, a cut listing refused; `live_faults` phase l -- a
 member's clock 900 s behind and then an hour ahead, named in binary by
 its key and the way it is off, beside the text row. Two sabotages.
+
+## 1186. A wrong request must reach the check it is aimed at, 2026-11-16
+
+Two of sec 1184's sabotages survived, and the shape was worth a sweep:
+`clocks_test` sent `0F 81`, a bare op, as a request that is no request,
+and validation refused it for its missing body before the op was looked
+at -- so the op check it was meant to hold went untested, and a stale
+row, noted when its peer's first note already forgot it, was never in
+the table the listing pruned. Sent instead: a whole row from the answer
+before, which parses, so only the op says it is no request; and both
+peers noted while fresh, so only the listing finds one stale.
+
+The same bare op stood in `library_binary_test` and `meter_test` (secs
+1174, 1177). Each now sends a whole row, and `library-binary-any-op` and
+`meter-binary-any-op` are caught where nothing covered those checks.

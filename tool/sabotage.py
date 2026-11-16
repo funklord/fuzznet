@@ -16894,6 +16894,20 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"library-binary-any-op",
+		"node/library_binary.c",
+		"\t    || fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_LIBRARY)\n",
+		"\t    || 0)\n",
+		"a library row sent as a request is answered as the listing -- sec 1174",
+	),
+	(
+		"meter-binary-any-op",
+		"node/meter_binary.c",
+		"\t    || fzn_meter_local_message_op_get(v) != FZN_METER_LOCAL_OP_TRANSFERS)\n",
+		"\t    || 0)\n",
+		"a transfer row sent as a request is answered as the listing -- sec 1177",
+	),
+	(
 		"clocks-binary-stale-kept",
 		"node/clocks.c",
 		"\tforget_old(c, now);\n\treturn c->used;\n",

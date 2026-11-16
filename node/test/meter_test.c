@@ -323,7 +323,8 @@ static void test_in_binary(void)
 {
 	static fzn_meter_t m;
 	static const uint8_t ask_all[] = { FZN_CMD_TRANSFER, FZN_METER_LOCAL_OP_TRANSFERS };
-	static const uint8_t wrong[] = { FZN_CMD_TRANSFER, FZN_METER_LOCAL_OP_TRANSFER_ROW };
+	uint8_t wrong[FZN_NODE_METER_BINARY_MAX];
+	size_t wrong_len = 0;
 	situ_view_t b;
 	fzn_status_t code;
 	const uint8_t *why;
@@ -370,8 +371,12 @@ static void test_in_binary(void)
 	CHECK(n_said && fzn_status_read(said[n_said - 1u], said_len[n_said - 1u], &code, &why, &why_len)
 	              && code == FZN_STATUS_OK,
 	      "the binary answer did not end with a STATUS ok");
+	/* A WHOLE ROW SENT AS A REQUEST, which parses: only its op says it is
+	 * no request -- a bare op byte is refused before the op is looked at. */
+	wrong_len = said_len[2];
+	memcpy(wrong, said[2], wrong_len);
 	n_said = 0;
-	CHECK(fzn_node_meter_binary(&m, wrong, sizeof(wrong), put, NULL) && n_said == 1u
+	CHECK(fzn_node_meter_binary(&m, wrong, wrong_len, put, NULL) && n_said == 1u
 	              && fzn_status_read(said[0], said_len[0], &code, &why, &why_len) && code == FZN_STATUS_MALFORMED,
 	      "a row sent as a request was answered as the listing");
 }
