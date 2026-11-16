@@ -16873,6 +16873,27 @@ SABOTAGES = [
 		"a pack read in binary loses its name -- sec 1172",
 	),
 	(
+		"rpc-library-binary-cut-whole",
+		"local/rpc.c",
+		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the library cut short */\n",
+		"\tif (a.bad) return unreadable(c); /* the library cut short */\n",
+		"a library listing cut before its STATUS is read as every file -- sec 1174",
+	),
+	(
+		"library-binary-held-not-holder",
+		"node/library_binary.c",
+		"\t\tif (!claimed && r->holders < 0xffffu)\n\t\t\tr->holders++;\n",
+		"",
+		"a file whole here that this host never claimed does not count it a holder, as the text join does -- sec 1174",
+	),
+	(
+		"library-binary-dead-claim-opens-row",
+		"node/library_binary.c",
+		"\t\t\tearlier = cat->entries[j].live;\n",
+		"\t\t\tearlier = 1;\n",
+		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
+	),
+	(
 		"objects-binary-reader-changes",
 		"node/objects_binary.c",
 		"\tif (!may_change && fzn_node_objects_binary_changes(msg, len))\n",

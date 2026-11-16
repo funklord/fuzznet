@@ -10,6 +10,10 @@ with a grant it can pass on, pulling from A.
     b  B fetches the file by its root alone, exports it whole and equal to
        what A put, and names it too: both hosts list the two names, each by
        its own host, and two holders
+    b2 the library in binary says what the text listings say, at both
+       hosts (sec 1174): one row, the file's size, whole there, two holders,
+       and the name `list catalog` gives first -- B's own, at B, since a
+       host's catalogue is rebuilt at each start with its own stream first
     c  A takes its name back: B lists B's alone, and one holder
     c2 B removes its copy: its names go with it, at B at once and at A at
        its next round, and nobody is listed holding the file (sec 1009)
@@ -47,6 +51,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+from live_rpc import binary  # noqa: E402
 import live_trim  # noqa: E402
 
 live_trim.DEADLINE = time.monotonic() + 420.0
@@ -236,6 +241,30 @@ def main(argv):
 				raise failed("b: A's holders are %r" % holders("a", root))
 			print("livecheck: b: B fetched it by its root, opened it whole, and named it; both list "
 			      "both names, two holders")
+
+			# b2: THE LIBRARY IN BINARY, sec 1174, the join the client did over
+			# the text listings now the node's: at each host one row, the
+			# file's size, whole there, two holders, and the name its own
+			# `list catalog` gives first -- not a name fixed here, since the
+			# order is each host's: B rebuilds its own stream first.
+			names = {}
+			for who in ("a", "b"):
+				rows = ask(socks[who], "list catalog " + root).split()[3:]
+				first = [r.split(",")[2] for r in rows if r.split(",")[1] == "name"][:1]
+				got = binary(socks[who], bytes([0x01, 0x80]))
+				row = got[0] if got else b""
+				if not first or len(got) != 2 or row[:2] != bytes([0x01, 0x81]) \
+				   or row[2:34].hex() != root \
+				   or int.from_bytes(row[34:42], "big") != PAYLOAD_LEN \
+				   or int.from_bytes(row[50:52], "big") != 2 or row[52] != 1 \
+				   or row[53:55] != b"\0\0" or row[55] != 0 \
+				   or row[57:57 + row[56]] != first[0].encode() \
+				   or got[1][:2] != bytes([0x13, 0]):
+					raise failed("b2: %s's library in binary was %r, its text listing %r"
+					             % (who.upper(), got, rows))
+				names[who] = first[0]
+			print("livecheck: b2: the library in binary at both: one row, whole, two holders, "
+			      "the text listing's first name (%s at A, %s at B)" % (names["a"], names["b"]))
 
 			# c: A takes its name back.
 			expect(socks["a"], "a", "remove catalog %s name" % root, "ok")

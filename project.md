@@ -89350,42 +89350,61 @@ built and saved there listed in binary by root, held, the estate's, its
 name raw. Three sabotages, each caught: `stickers-binary-any-op`,
 `rpc-packs-binary-cut-whole`, `rpc-packs-binary-name-dropped`.
 
-## 1173. The library in binary: built and live-checked, not landed (fold, 2026-11-15)
+## 1173. The library in binary: the fold before it landed (2026-11-15)
 
-Written at the week's stop (98 per cent), so the next session need not
-rediscover it. **Nothing of it is committed.** It is in a scratch copy of
-the tree at 73a3b76 --
-`/tmp/claude-1000/-home-funk-src-fuzznet/38caef29-f815-4979-be28-781bed0a4115/scratchpad/exp23`,
-with the Makefile plumbing as `p_files_mk.py` beside it -- which may not
-survive; if it is gone, this is the design to build again.
+Written at the week's stop. The work it describes was built in a scratch
+copy under the other account, which this account could not read the next
+day, so it was built again from the design below and landed as
+**section 1174** -- read that; this section is kept only for the design as
+it was first worked out.
 
-**What it is**: `fzn_rpc_library_list` in binary, FZN_CMD_FILES (1)
-`library` (128) answered by a `library_row` (129) per file and a STATUS
-ok (`node/files_local.situ`). The node does the join the client now does
-over three text reads (`list catalog`, its claims' issuers, `list file`),
-on the client's own rules, each read from `local/rpc.c`:
+## 1174. The library in binary, landed (2026-11-16)
 
-- only live claims count (`list catalog` lists no other);
-- each label -- name, kind, duration -- takes the first live value in the
-  catalogue's order (`node_catalog_take`);
-- holders are the distinct issuers by their first eight bytes, as the
-  client compares them with `get identity`'s HOST;
+`fzn_rpc_library_list` asks in binary: FZN_CMD_FILES (1) `library` (128),
+answered by a `library_row` (129) per file and a STATUS ok
+(`node/files_local.situ`), the verb listings as the fallback for a node
+that reads no binary. The node does the join the client did over three
+text reads (`list catalog`, its claims' issuers, `list file`), in
+`node/library_binary.c`, on the client's rules, each read from
+`local/rpc.c`'s `node_catalog_take` and `node_library_fill_many`:
+
+- only live claims count, as `list catalog` lists no other;
+- name, kind and duration each take the first live value, in the
+  catalogue's order, that says anything;
+- holders are the distinct issuers of the file's live claims by their
+  first eight bytes, as the client compares them with `get identity`'s HOST;
 - held here is the file whole here, not this host's claim, and a whole
-  file this host has not claimed counts it a holder
-  (`node_library_fill_many`);
-- size and arrival from `fzn_node_files_status`, arrival only while
-  wanted: `held * 1000 / total`, at least 1;
-- rows in the order a file first appears in the catalogue.
+  file this host has not claimed counts it a holder;
+- size from the file's state here, arrival only while it is wanted:
+  `held * 1000 / total`, at least 1 -- `fuzznetd` reads the wanted roots
+  once a listing and asks `fzn_node_files_status` only of those, as
+  `list file` does;
+- rows in the order a file first appears among the live claims; a file
+  whose first claim was taken back is listed where its next live one is.
 
-`local_library` in `node/daemon.c`, under FZN_CATALOG_ON and
-FZN_SPOOL_FILE_ON, groups the live claims by root through indices into
-`node_catalog`; `unreadable` is never set on a listed entry, so the row
-leaves it out.
+**One rule differs, deliberately**: a duration that is not a number is
+passed over, where the text join refused the whole listing as unreadable.
+`add catalog` refuses such a value already, so only a host writing its
+stream by other means could put one there, and one bad label hiding a
+library is the worse of the two.
 
-**Checked in the copy**: three hand-written vectors; `rpc_test` -- every
-field of a row read, a cut listing refused, the text path's tests still
-passing; `live_catalog` phase b2 -- after B fetched and named the file,
-B's binary row says what the text listings say (size 20000, two holders,
-whole here, a name of the two). **Still to do**: sabotage entries (a
-client one on the row's fields, a node one on the held-here rule), the
-sabotage verify in the copy, landing, every gate, and the push.
+**The order is each host's own**, which the live check met: B's
+catalogue is rebuilt at each start with its own stream first, so B
+names the file by its own `tune` where A names it `song`. The text
+listing does the same, so the binary row follows it; `live_catalog` b2
+compares each host's row with that host's `list catalog` rather than
+with a name fixed in the script.
+
+The file's state reaches the walk through a callback, so the join is
+tested with no spool: `node/test/library_binary_test.c` (56 checks --
+first live values, holders by issuer and by the bytes, arrival, order,
+cut labels, the answer on the wire). Also three hand-written vectors,
+`rpc_test`'s row read field by field with a cut listing refused and the
+text fallback, `live_catalog` b2 on two running hosts, and three
+sabotages.
+
+The scratch copy the fold named could not be reached from this account
+(the other account's temporary directory, which answered "permission
+denied"), so nothing of it
+was used; a fold that points into scratch points at something only its
+own account can read.

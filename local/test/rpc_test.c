@@ -21,6 +21,7 @@
 #include "../../wire/generated/groups_local_build.h"
 #include "../../wire/generated/streams_local_build.h"
 #include "../../wire/generated/stickers_local_build.h"
+#include "../../wire/generated/files_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -1057,8 +1058,60 @@ static void test_packs_in_binary(void)
 	fzn_rpc_sticker_packs_release(&out);
 }
 
+/* THE LIBRARY IN BINARY, sec 1174: every field of a row read as sent, the
+ * request's bytes, a listing cut before its STATUS refused, and a node
+ * reading no binary asked the text join instead. */
+static void test_library_in_binary(void)
+{
+	static struct bscript held, cut, old;
+	static fzn_rpc_library_list_all_t out;
+	uint8_t root[32], row[400], m[416];
+	uint32_t row_len = 0, n = 0;
+
+	memset(root, 0x7e, sizeof(root));
+	if (fzn_files_local_library_row_build(row, sizeof(row), root, 20000u, 120000u, 2u, 1u, 0u,
+	                                      (const uint8_t *)"video", 5, (const uint8_t *)"a holiday", 9, &row_len)
+	            == SITU_OK
+	    && fzn_files_local_message_build_library_row(m, sizeof(m), (uint8_t)FZN_CMD_FILES, row, row_len, &n)
+	               == SITU_OK) {
+		framed(&held, 0, m, n);
+		framed(&cut, 0, m, n);
+	}
+	if (fzn_files_local_library_row_build(row, sizeof(row), root, 1u << 20, 0u, 1u, 0u, 500u, NULL, 0, NULL, 0,
+	                                      &row_len)
+	            == SITU_OK
+	    && fzn_files_local_message_build_library_row(m, sizeof(m), (uint8_t)FZN_CMD_FILES, row, row_len, &n)
+	               == SITU_OK)
+		framed(&held, 0, m, n);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_library_list(&c, &out) == FZN_RPC_OK && out.count == 2 && out.entries[0].root[0] == 0x7e
+	              && strcmp(out.entries[0].name, "a holiday") == 0 && out.entries[0].name_len == 9
+	              && strcmp(out.entries[0].kind, "video") == 0 && out.entries[0].size == 20000u
+	              && out.entries[0].duration_ms == 120000u && out.entries[0].holders == 2
+	              && out.entries[0].held_here && !out.entries[0].arriving_permille && out.entries[0].detail
+	              && !out.entries[1].held_here && out.entries[1].arriving_permille == 500
+	              && out.entries[1].name_len == 0 && held.asked[0][0] == 0x01 && held.asked[0][1] == 0x80,
+	      "the library was not read in binary, every field of a row as sent");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_library_list(&c, &out) != FZN_RPC_OK, "a library cut before its STATUS was read as whole");
+	{
+		struct script s = { { "ok 0 0", "ok " ID_A " " ID_B, "ok 0 0", "ok 0 0" }, 0, 4, 0, { { 0 } } };
+
+		status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a channel's asking");
+		on(&c, &s);
+		c.binary_answer = bscripted;
+		c.binary_ctx = &old;
+		CHECK(fzn_rpc_library_list(&c, &out) == FZN_RPC_OK && out.count == 0
+		              && strncmp(s.asked[0], "list catalog", 12) == 0,
+		      "a node reading no library in binary was not asked the text join");
+	}
+	fzn_rpc_library_list_release(&out);
+}
+
 int main(void)
 {
+	test_library_in_binary();
 	test_packs_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

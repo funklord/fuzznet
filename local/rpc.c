@@ -41,6 +41,7 @@
 #include "../wire/generated/groups_local.h"
 #include "../wire/generated/streams_local.h"
 #include "../wire/generated/stickers_local.h"
+#include "../wire/generated/files_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -4338,8 +4339,85 @@ int fzn_rpc_library_detail(fzn_rpc_t *c, fzn_rpc_library_list_all_t *list, size_
 	return node_library_fill(c, list->entries + from, count, 1);
 }
 
+/* THE LIBRARY IN BINARY, sec 1174: a row a file, the join done on the
+ * node, then a STATUS. */
+struct library_answer {
+	fzn_rpc_t *c;
+	fzn_rpc_library_list_all_t *out;
+	int bad, status_seen, no_room;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void library_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct library_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_files_local_message_validate(v) != SITU_OK
+	    || fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_LIBRARY_ROW
+	    || fzn_files_local_message_body_library_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	fzn_rpc_library_list_all_t *all = a->out;
+	if (room_for(a->c, &all->entries, &all->room, all->count + 1, sizeof *all->entries) != FZN_RPC_OK) {
+		a->no_room = 1;
+		return;
+	}
+	fzn_rpc_library_list_entry_t *e = &all->entries[all->count];
+	memset(e, 0, sizeof *e);
+	memcpy(e->root, fzn_files_local_library_row_root_ptr(b), 32);
+	size_t name_len = fzn_files_local_library_row_name_len(b);
+	size_t kind_len = fzn_files_local_library_row_kind_len(b);
+	if (name_len > sizeof e->name - 1) name_len = sizeof e->name - 1;
+	if (kind_len > sizeof e->kind - 1) kind_len = sizeof e->kind - 1;
+	memcpy(e->name, fzn_files_local_library_row_name_ptr(b), name_len);
+	e->name_len = name_len;
+	memcpy(e->kind, fzn_files_local_library_row_kind_ptr(b), kind_len);
+	e->kind_len = kind_len;
+	e->size = fzn_files_local_library_row_size_get(b);
+	e->duration_ms = fzn_files_local_library_row_duration_ms_get(b);
+	e->holders = fzn_files_local_library_row_holders_get(b);
+	e->held_here = fzn_files_local_library_row_held_here_get(b);
+	e->arriving_permille = fzn_files_local_library_row_arriving_get(b);
+	e->detail = 1;
+	all->count++;
+}
+
 int fzn_rpc_library_list(fzn_rpc_t *c, fzn_rpc_library_list_all_t *out) {
-	return node_library_list(c, out);
+	static const uint8_t ask[] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_LIBRARY };
+	struct library_answer a;
+	int text = 0;
+	memset(&a, 0, sizeof a);
+	a.c = c;
+	a.out = out;
+	out->count = 0;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, library_each, &a, &text);
+	if (text) {
+		out->count = 0;
+		return node_library_list(c, out);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.no_room) return fail(c, FZN_RPC_ERR_STORAGE_IO, "out of memory for that list");
+	if (a.bad || !a.status_seen) return unreadable(c); /* the library cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
 }
 
 int fzn_rpc_library_add(fzn_rpc_t *c, const fzn_rpc_library_add_req_t *entry) {

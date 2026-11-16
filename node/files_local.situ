@@ -1,0 +1,54 @@
+// The library, asked in binary on the local leg: project.md sec 1174, what
+// a media library lists each time it opens -- every file this user's hosts
+// describe, one row each, the join `fzn_rpc_library_list` did over three
+// text listings (`list catalog`, its claims' issuers, `list file`).
+//
+// FZN_CMD_FILES (1, wire/cmd.h): the library is files, so its local
+// operations are this category's, in the range 128 to 191 kept for the
+// local socket; between hosts the category's SUBCMDs are below it. A
+// request is one message with no body; the answer is a row per file and
+// then a STATUS ok, or a STATUS refusing it.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	library     = 128, // every file the catalogue names, as the library lists them
+	library_row = 129, // an answer: one file
+	default     = error,
+}
+
+struct nothing {
+}
+
+// ROOT the file's. SIZE its length in bytes where it is held or arriving
+// here, else 0 -- the catalogue carries none. DURATION_MS, KIND and NAME
+// the first live value of each in the catalogue's order, 0 or empty for
+// none; NAME raw, at most 255 bytes, KIND at most 64. HOLDERS this user's
+// hosts describing it, and this one when it holds it whole without having
+// said so; HELD_HERE 1 when the bytes are whole here; ARRIVING how much has
+// arrived, per mille, while it is being fetched -- 0 when it is not, and at
+// least 1 once it is.
+struct library_row {
+	u8   root[32];
+	u64  size;
+	u64  duration_ms;
+	u16  holders;
+	u8   held_here [max = 1];
+	u16  arriving [max = 1000];
+	u8   kind_len [max = 64];
+	u8   kind[kind_len];
+	u8   name_len;
+	u8   name[name_len];
+}
+
+struct message {
+	u8   cmd [must_eq = 1];
+	op   op;
+
+	variant body switch (op) {
+		case op.library:     nothing     library;
+		case op.library_row: library_row library_row;
+		default: error;
+	}
+}

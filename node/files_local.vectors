@@ -1,0 +1,7 @@
+# Golden vectors for node/files_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x01 is FZN_CMD_FILES (1); the op is the SUBCMD, 128 (0x80) on.
+
+message library        01 80
+message library_held   01 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 00 00 00 4E 20 00 00 00 00 00 01 D4 C0 00 02 01 00 00 05 76 69 64 65 6F 03 63 61 74
+message library_coming 01 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 00 00 10 00 00 00 00 00 00 00 00 00 00 00 01 00 01 F4 00 00

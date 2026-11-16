@@ -301,6 +301,7 @@ __pycache__/
 /node/test/groups_test
 /node/test/streams_test
 /node/test/node_catalog_test
+/node/test/library_binary_test
 /node/test/file_refs_test
 /node/test/state_dir_test
 /node/test/relay_test
@@ -387,6 +388,7 @@ __pycache__/
 /wire/test/groups_local_vectors
 /wire/test/streams_local_vectors
 /wire/test/stickers_local_vectors
+/wire/test/files_local_vectors
 /wire/test/session_frame_test
 /wire/test/session_frame_fuzz
 /node/test/pressure_test

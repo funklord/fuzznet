@@ -237,7 +237,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/address.c wire/generated/objects.c \
              wire/generated/messages_local.c wire/generated/contacts_local.c \
              wire/generated/groups_local.c wire/generated/streams_local.c \
-             wire/generated/stickers_local.c \
+             wire/generated/stickers_local.c wire/generated/files_local.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -246,7 +246,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/address_vectors.c wire/generated/objects_vectors.c \
                  wire/generated/messages_local_vectors.c wire/generated/contacts_local_vectors.c \
                  wire/generated/groups_local_vectors.c wire/generated/streams_local_vectors.c \
-                 wire/generated/stickers_local_vectors.c
+                 wire/generated/stickers_local_vectors.c wire/generated/files_local_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -260,7 +260,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/live.c node/reach.c node/rate.c node/metric.c node/guard.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
-             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
+             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/library_binary.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/attachment.c messages/messages.c node/messages.c node/messages_binary.c node/contacts_binary.c node/groups_binary.c \
              node/file_holds.c node/attachments.c node/records.c node/objects.c node/objects_binary.c node/decisions.c node/invite.c node/presets.c node/votes.c local/client_config.c node/responsible.c \
              contact/contact.c \
@@ -365,7 +365,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/live.h node/reach.h node/rate.h node/metric.h node/guard.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
-             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
+             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/library_binary.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/attachment.h messages/messages.h node/messages.h node/messages_binary.h node/contacts_binary.h node/groups_binary.h \
              node/file_holds.h node/attachments.h node/records.h node/objects.h node/objects_binary.h node/decisions.h node/invite.h node/presets.h node/votes.h local/client_config.h node/responsible.h \
              contact/contact.h \
@@ -519,7 +519,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/routing_test.c node/test/contact_devices_test.c \
              node/test/contact_card_test.c node/test/contact_request_test.c \
              node/test/group_log_test.c node/test/groups_test.c node/test/streams_test.c \
-             node/test/node_catalog_test.c node/test/file_refs_test.c \
+             node/test/node_catalog_test.c node/test/library_binary_test.c node/test/file_refs_test.c \
              node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
@@ -674,6 +674,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/groups_test \
              $(BUILD_DIR)/node/test/streams_test \
              $(BUILD_DIR)/node/test/node_catalog_test \
+             $(BUILD_DIR)/node/test/library_binary_test \
              $(BUILD_DIR)/node/test/file_refs_test \
              $(BUILD_DIR)/node/test/state_dir_test \
              $(BUILD_DIR)/node/test/relay_test \
@@ -698,6 +699,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/groups_local_vectors \
              $(BUILD_DIR)/wire/test/streams_local_vectors \
              $(BUILD_DIR)/wire/test/stickers_local_vectors \
+             $(BUILD_DIR)/wire/test/files_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
              $(BUILD_DIR)/node/test/rate_test \
              $(BUILD_DIR)/node/test/metric_test \
@@ -3592,7 +3594,7 @@ RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
             $(BUILD_DIR)/local/rpc_binary.o $(BUILD_DIR)/wire/generated/objects.o \
             $(BUILD_DIR)/wire/generated/messages_local.o $(BUILD_DIR)/wire/generated/contacts_local.o \
             $(BUILD_DIR)/wire/generated/groups_local.o $(BUILD_DIR)/wire/generated/streams_local.o \
-            $(BUILD_DIR)/wire/generated/stickers_local.o
+            $(BUILD_DIR)/wire/generated/stickers_local.o $(BUILD_DIR)/wire/generated/files_local.o
 $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                                   $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
@@ -4407,6 +4409,13 @@ $(BUILD_DIR)/wire/test/stickers_local_vectors: wire/generated/stickers_local_vec
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# THE LIBRARY, ON THE LOCAL LEG, sec 1174.
+$(BUILD_DIR)/wire/test/files_local_vectors: wire/generated/files_local_vectors.c \
+                                           wire/generated/files_local.c wire/generated/situ.c \
+                                           $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # NAMED OBJECTS ON THE LOCAL LEG HELD TO THEIR GOLDEN VECTORS, sec 1152.
 $(BUILD_DIR)/wire/test/objects_vectors: wire/generated/objects_vectors.c \
                                            wire/generated/objects.c wire/generated/situ.c \
@@ -4622,6 +4631,18 @@ $(BUILD_DIR)/node/test/streams_test: $(BUILD_DIR)/node/test/streams_test.o \
 $(BUILD_DIR)/node/test/node_catalog_test: $(BUILD_DIR)/node/test/node_catalog_test.o \
                                           $(BUILD_DIR)/node/catalog.o \
                                           $(BUILD_DIR)/catalog/catalog.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The library in binary, sec 1174.
+$(BUILD_DIR)/node/test/library_binary_test: $(BUILD_DIR)/node/test/library_binary_test.o \
+                                            $(BUILD_DIR)/node/library_binary.o \
+                                            $(BUILD_DIR)/node/catalog.o \
+                                            $(BUILD_DIR)/catalog/catalog.o \
+                                            $(BUILD_DIR)/wire/generated/files_local.o \
+                                            $(BUILD_DIR)/wire/status.o \
+                                            $(BUILD_DIR)/wire/generated/status.o \
+                                            $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5202,6 +5223,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
               $(BUILD_DIR)/node/streams.o $(if $(CATALOG_ON),$(BUILD_DIR)/node/catalog.o) \
+              $(if $(CATALOG_ON),$(BUILD_DIR)/node/library_binary.o) \
               $(BUILD_DIR)/node/stage.o \
               $(BUILD_DIR)/node/file_refs.o \
               $(if $(CATALOG_ON),$(BUILD_DIR)/catalog/catalog.o) \
@@ -7294,7 +7316,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               node/contact_card.situ node/contact_request.situ node/group_act.situ \
               node/group_line.situ location/fix.situ sticker/pack.situ node/objects.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
-              node/streams_local.situ node/stickers_local.situ
+              node/streams_local.situ node/stickers_local.situ node/files_local.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -8015,6 +8037,11 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/stickers_local.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_stickers_local \
 	         --out $(BUILD_DIR)/.gen.new node/stickers_local.situ node/stickers_local.vectors >/dev/null 2>&1
+	@# AND THE LIBRARY, ON THE LOCAL LEG, sec 1174.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_files_local --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/files_local.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_files_local \
+	         --out $(BUILD_DIR)/.gen.new node/files_local.situ node/files_local.vectors >/dev/null 2>&1
 	@# AND NAMED OBJECTS ON THE LOCAL LEG, sec 1152.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_objects --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/objects.situ >/dev/null 2>&1
@@ -8032,7 +8059,8 @@ schema:
 	          groups_local_edit.h groups_local_build.h groups_local_vectors.c streams_local.c \
 	          streams_local.h streams_local_edit.h streams_local_build.h streams_local_vectors.c \
 	          stickers_local.c stickers_local.h stickers_local_edit.h stickers_local_build.h \
-	          stickers_local_vectors.c; do \
+	          stickers_local_vectors.c files_local.c files_local.h files_local_edit.h \
+	          files_local_build.h files_local_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \

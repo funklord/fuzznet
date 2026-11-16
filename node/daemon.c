@@ -18186,10 +18186,70 @@ static int local_stickers(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 }
 #endif
 
+#if defined(FZN_CATALOG_ON) && defined(FZN_SPOOL_FILE_ON)
+#define FZND_LIBRARY 1
+#include "library_binary.h"
+/* A FILE'S STATE HERE for the library, as `list file` says it: whole, or
+ * being fetched and how far -- the wanted roots read once a listing. */
+struct library_files {
+	uint8_t wanted[FZN_NODE_FILES_WANTS_MAX][FZN_BLOB_HASH_LEN];
+	uint64_t lengths[FZN_NODE_FILES_WANTS_MAX];
+	size_t n;
+};
+
+static int library_file(void *ctx, const uint8_t root[32], uint64_t *length, int *whole,
+                        uint16_t *arriving)
+{
+	const struct library_files *lf = ctx;
+	fzn_node_file_status_t st;
+	size_t i;
+
+	*whole = 0;
+	*arriving = 0;
+	if (fzn_node_files_held(&files, root, length) == FZN_NODE_FILES_OK)
+		return *whole = 1;
+	for (i = 0; i < lf->n && memcmp(lf->wanted[i], root, FZN_BLOB_HASH_LEN) != 0; i++)
+		;
+	if (i == lf->n || fzn_node_files_status(&files, root, &st) != FZN_NODE_FILES_OK)
+		return 0;
+	*length = st.length;
+	if (st.total && st.held <= st.total) {
+		const uint64_t pm = st.held * 1000u / st.total;
+
+		*arriving = (uint16_t)(pm ? pm : 1u);
+	} else {
+		*arriving = 1u;
+	}
+	return 1;
+}
+
+/* THE LIBRARY IN BINARY, sec 1174: the node's own user's alone, as `list
+ * catalog` answers it -- where the build keeps a catalogue and files. */
+static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	static struct library_files lf;
+
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "the library is this node's own user's"), 0;
+	if (!journal_on || !contact_id)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no catalogue"), 0;
+	if (!files_on)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no files"), 0;
+	index_catalog();
+	lf.n = fzn_node_files_wanted(&files, lf.wanted, lf.lengths, FZN_NODE_FILES_WANTS_MAX);
+	if (lf.n > FZN_NODE_FILES_WANTS_MAX)
+		lf.n = FZN_NODE_FILES_WANTS_MAX;
+	(void)fzn_node_library_binary(&node_catalog, contact_id->pubkey, library_file, &lf, msg, len,
+	                              local_put, &fd);
+	return 0;
+}
+#endif
+
 /* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary, by its CMD: named
  * objects asked (sec 1152), every conversation's newest line or count
  * (sec 1155), this user's contacts (sec 1162), groups (sec 1170) and the
- * positions held (sec 1171), the sticker packs (sec 1172), or a MEDIA_OPEN
+ * positions held (sec 1171), the sticker packs (sec 1172), the library
+ * (sec 1174), or a MEDIA_OPEN
  * for a call this host holds, from its own user, which keeps it
  * as the call's channel (sec 1113). */
 static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
@@ -18213,6 +18273,10 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 #ifdef FZND_STICKERS
 	if (len && msg[0] == FZN_CMD_STICKERS)
 		return local_stickers(fd, origin, msg, len);
+#endif
+#ifdef FZND_LIBRARY
+	if (len && msg[0] == FZN_CMD_FILES)
+		return local_library(fd, origin, msg, len);
 #endif
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "a call's media is its user's"), 0;
