@@ -42218,8 +42218,33 @@ all, or excluded as its own build's, is this tree's call; fmake reads it
 as "a separate checkout; leaving its own 12 programs to it" and still
 compiles the sources the gui's symbols reach.
 
-Not measured: `fmake test` over the 172, and the crypto binding's two
-configurations, which `make check` takes per-job arguments for.
+**Measured since, with fmake at its section 261** (which fixed the
+`cpu_set_t` failures: they were fmake's, a `-Isched` it added for
+`sched/sched.c`'s own `"sched.h"` shadowing glibc's `<sched.h>` for
+every C++ file, not `_GNU_SOURCE`). With this `fmake.toml`
+
+    [project]
+    exclude = ["qtty/**", "quirc/tests/**", "gui/test/qtty_render_test.cpp"]
+    [target.node_provision_test]
+    root = "node/test/provision_test.c"
+    [target.sim_provision_test]
+    root = "sim/test/provision_test.c"
+
+`fmake test` builds and runs 171 tests and **170 pass**. The one that
+fails is `link_log_test`, which the Makefile builds only under
+`FLOG_ON` with `-DFZN_FLOG_ON` reaching `link/`; fmake builds it
+without the define and its assertions about logging fail. `test =
+false` under its section, or a project-wide define, is this tree's
+choice. `qtty_render_test` is excluded above because it wants the
+qtty checkout the first line excludes. The crypto binding's two
+configurations were not run.
+
+(The paragraph above was written into this file by fmake's session on
+2026-09-18 -- fmake's section 261 says it is here -- and sat uncommitted
+until 2026-11-16, staged around by every session since. It is
+superseded by section 665: the `fmake.toml` committed 2026-10-21 is a
+different one, measured here, and under it `fmake test` passed whole.)
+
 
 ## 309. The frame is clear of two situ codegen bugs raidcfgd found, 2026-09-17
 
