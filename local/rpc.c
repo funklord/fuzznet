@@ -45,6 +45,7 @@
 #include "../wire/generated/files_local.h"
 #include "../wire/generated/meter_local.h"
 #include "../wire/generated/reach_local.h"
+#include "../wire/generated/time_local.h"
 #include "../wire/generated/members_local.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
@@ -7461,9 +7462,84 @@ void fzn_rpc_sticker_packs_release(fzn_rpc_sticker_packs_t *p) {
 	p->count = 0;
 }
 
+/* THE CLOCKS IN BINARY, sec 1184: a row a peer, then a STATUS. */
+struct clocks_answer {
+	fzn_rpc_clock_list_t *out;
+	size_t cap;
+	int bad, status_seen, no_room;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void clocks_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct clocks_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_time_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_time_local_message_validate(v) != SITU_OK
+	    || fzn_time_local_message_op_get(v) != FZN_TIME_LOCAL_OP_CLOCK_ROW
+	    || fzn_time_local_message_body_clock_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (a->out->count == a->cap) {
+		const size_t grown = a->cap ? a->cap * 2 : 8;
+		fzn_rpc_clock_row_t *more = realloc(a->out->rows, grown * sizeof(*more));
+		if (!more) {
+			a->no_room = 1;
+			return;
+		}
+		a->out->rows = more;
+		a->cap = grown;
+	}
+	fzn_rpc_clock_row_t *row = &a->out->rows[a->out->count++];
+	memset(row, 0, sizeof *row);
+	memcpy(row->key, fzn_time_local_clock_row_key_ptr(b), 32);
+	row->ahead = fzn_time_local_clock_row_ahead_get(b);
+	row->seconds = fzn_time_local_clock_row_seconds_get(b);
+	row->at = fzn_time_local_clock_row_at_get(b);
+}
+
+static int clock_list_text(fzn_rpc_t *c, fzn_rpc_clock_list_t *out);
+
+int fzn_rpc_clock_list(fzn_rpc_t *c, fzn_rpc_clock_list_t *out) {
+	static const uint8_t ask[] = { FZN_CMD_TIME, FZN_TIME_LOCAL_OP_CLOCKS };
+	struct clocks_answer a;
+	int text = 0;
+	out->rows = NULL;
+	out->count = 0;
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, clocks_each, &a, &text);
+	if (text) {
+		fzn_rpc_clock_list_release(out);
+		return clock_list_text(c, out);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.no_room) return fail(c, FZN_RPC_ERR_BUFFER_TOO_SMALL, "no room for the clock list");
+	if (a.bad || !a.status_seen) return unreadable(c); /* the clocks cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
 /* `list clock [FROM]`: `ok TOTAL FROM KEY,DIR,SECONDS,AT ...`, read in pages
  * from FROM plus what came back until TOTAL, as `list contact` is. */
-int fzn_rpc_clock_list(fzn_rpc_t *c, fzn_rpc_clock_list_t *out) {
+static int clock_list_text(fzn_rpc_t *c, fzn_rpc_clock_list_t *out) {
 	out->rows = NULL;
 	out->count = 0;
 	size_t cap = 0;

@@ -16894,6 +16894,27 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"clocks-binary-stale-kept",
+		"node/clocks.c",
+		"\tforget_old(c, now);\n\treturn c->used;\n",
+		"\treturn c->used;\n",
+		"a peer past its keeping is listed in binary where the verb forgot it -- sec 1184",
+	),
+	(
+		"clocks-binary-any-op",
+		"node/clocks_binary.c",
+		"\t    || fzn_time_local_message_op_get(v) != FZN_TIME_LOCAL_OP_CLOCKS)\n",
+		"\t    || 0)\n",
+		"a clock row sent as a request is answered as the listing -- sec 1184",
+	),
+	(
+		"rpc-clocks-binary-cut-whole",
+		"local/rpc.c",
+		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the clocks cut short */\n",
+		"\tif (a.bad) return unreadable(c); /* the clocks cut short */\n",
+		"a clocks listing cut before its STATUS is read as every peer -- sec 1184",
+	),
+	(
 		"rpc-legs-binary-row-before-summary",
 		"local/rpc.c",
 		"\tif (!a->summary_seen || fzn_reach_local_message_op_get(v) != FZN_REACH_LOCAL_OP_LEG_ROW\n",

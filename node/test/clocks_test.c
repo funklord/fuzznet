@@ -2,6 +2,8 @@
  * and turned, forgotten after its keeping, grown on ROOM, and `list clock`
  * paging every row once, with the refusals. */
 #include "../clocks.h"
+#include "../clocks_binary.h"
+#include "../../wire/status.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -319,6 +321,57 @@ static void test_estate_time(void)
 	      "a malformed get clock was answered");
 }
 
+/* THE ANSWER IN BINARY, sec 1184, as the client reads it. */
+static uint8_t said[4][FZN_NODE_CLOCKS_BINARY_MAX];
+static size_t said_len[4], n_said;
+
+static int put(void *ctx, const uint8_t *msg, size_t len)
+{
+	(void)ctx;
+	if (n_said >= 4u || len > sizeof(said[0]))
+		return 0;
+	memcpy(said[n_said], msg, len);
+	said_len[n_said++] = len;
+	return 1;
+}
+
+/* `list clock` in one answer: a peer seen long ago forgotten first, as the
+ * verb forgets it; the one left a row -- key, ahead, seconds, when -- then
+ * an ok; a row sent as a request malformed. */
+static void test_in_binary(void)
+{
+	static fzn_node_clock_t rows[4];
+	static const uint8_t ask[] = { 0x0f, 0x80 };
+	uint8_t wrong[51];
+	fzn_node_clocks_t c;
+	uint8_t old[FZN_PUBKEY_LEN], now_peer[FZN_PUBKEY_LEN];
+	fzn_status_t code;
+	const uint8_t *why;
+	size_t why_len;
+
+	memset(old, 0x11, sizeof(old));
+	memset(now_peer, 0x22, sizeof(now_peer));
+	fzn_node_clocks_init(&c, rows, 4u);
+	/* NOTED WHILE BOTH ARE FRESH, so noting does not forget the old one:
+	 * only the listing, a moment later, finds it past its keeping. */
+	(void)fzn_node_clocks_note(&c, old, 0, 7u, 1000u);
+	(void)fzn_node_clocks_note(&c, now_peer, 1, 42u, 999u + FZN_NODE_CLOCKS_KEEP_S);
+	CHECK(c.used == 2u, "fixture: both peers held before the listing");
+	n_said = 0;
+	CHECK(fzn_node_clocks_binary(&c, 1001u + FZN_NODE_CLOCKS_KEEP_S, ask, sizeof(ask), put, NULL) && n_said == 2u
+	              && said[0][0] == 0x0f && said[0][1] == 0x81 && memcmp(said[0] + 2, now_peer, 32) == 0
+	              && said[0][34] == 1 && said[0][42] == 42 && said[1][0] == 0x13 && said[1][1] == 0,
+	      "the clocks in binary were not the one peer kept, then an ok");
+	/* A WHOLE ROW SENT AS A REQUEST, which parses: only its op says it is
+	 * no request. */
+	memcpy(wrong, said[0], sizeof(wrong));
+	n_said = 0;
+	CHECK(fzn_node_clocks_binary(&c, 1001u + FZN_NODE_CLOCKS_KEEP_S, wrong, sizeof(wrong), put, NULL)
+	              && n_said == 1u && fzn_status_read(said[0], said_len[0], &code, &why, &why_len)
+	              && code == FZN_STATUS_MALFORMED,
+	      "a row sent as a request was answered as the listing");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -336,6 +389,7 @@ int main(void)
 	test_the_probe();
 	test_the_offsets();
 	test_estate_time();
+	test_in_binary();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("clocks_test: %d checks, %d failure(s)\n", checks, failures);

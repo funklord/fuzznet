@@ -103,6 +103,14 @@ static int from_of(const uint8_t *w, size_t n, size_t *from)
 
 #define REPLY(...) ((size_t)snprintf(reply, cap, __VA_ARGS__))
 
+size_t fzn_node_clocks_current(fzn_node_clocks_t *c, uint64_t now)
+{
+	if (!c)
+		return 0;
+	forget_old(c, now);
+	return c->used;
+}
+
 size_t fzn_node_clocks_local(fzn_node_clocks_t *c, fzn_origin_t origin,
                              const fzn_request_t *request, uint64_t now, char *reply,
                              size_t cap)

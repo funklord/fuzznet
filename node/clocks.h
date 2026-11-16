@@ -76,6 +76,10 @@ fzn_node_clocks_err_t fzn_node_clocks_note(fzn_node_clocks_t *c,
                                            const uint8_t peer[FZN_PUBKEY_LEN], int ahead,
                                            uint64_t seconds, uint64_t now);
 
+/* THE ROWS NOW, sec 1184: those past their keeping forgotten at `now`,
+ * then how many remain, `c->rows[0]` on. */
+size_t fzn_node_clocks_current(fzn_node_clocks_t *c, uint64_t now);
+
 /* The answer to `request` if it is `list clock`, into `reply` (`cap`
  * bytes), its length; 0 for any other request. Rows past their keeping are
  * forgotten first, at `now`. */

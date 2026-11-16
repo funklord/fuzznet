@@ -25,6 +25,7 @@
 #include "../../wire/generated/members_local_build.h"
 #include "../../wire/generated/meter_local_build.h"
 #include "../../wire/generated/reach_local_build.h"
+#include "../../wire/generated/time_local_build.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -1407,8 +1408,45 @@ static void test_legs_in_binary(void)
 	CHECK(fzn_rpc_link_list(&c, &out) != FZN_RPC_OK, "a links listing cut before its STATUS was read as whole");
 }
 
+/* ONE CLOCK framed onto answer `i`, sec 1184. */
+static void clock_onto(struct bscript *s, size_t i, uint8_t first, uint8_t ahead, uint64_t seconds, uint64_t at)
+{
+	uint8_t key[32], row[64], m[80];
+	uint32_t row_len = 0, n = 0;
+
+	memset(key, first, sizeof(key));
+	if (fzn_time_local_clock_row_build(row, sizeof(row), key, ahead, seconds, at, &row_len) != SITU_OK
+	    || fzn_time_local_message_build_clock_row(m, sizeof(m), (uint8_t)FZN_CMD_TIME, row, row_len, &n) != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* THE CLOCKS IN BINARY, sec 1184: a peer ahead and one behind, each with
+ * its seconds and when, the request's bytes; a cut listing refused. */
+static void test_clocks_in_binary(void)
+{
+	static struct bscript held, cut;
+	fzn_rpc_clock_list_t out = { NULL, 0 };
+
+	clock_onto(&held, 0, 0x11, 1u, 42u, 1700000000u);
+	clock_onto(&held, 0, 0x22, 0u, 7u, 1700000060u);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_clock_list(&c, &out) == FZN_RPC_OK && out.count == 2 && out.rows[0].key[0] == 0x11
+	              && out.rows[0].ahead && out.rows[0].seconds == 42u && out.rows[0].at == 1700000000u
+	              && !out.rows[1].ahead && out.rows[1].seconds == 7u && held.asked[0][0] == 0x0f
+	              && held.asked[0][1] == 0x80,
+	      "the clocks were not read in binary, each peer's direction, seconds and when");
+	fzn_rpc_clock_list_release(&out);
+	clock_onto(&cut, 0, 0x11, 1u, 42u, 1700000000u);
+	bon(&c, &cut);
+	CHECK(fzn_rpc_clock_list(&c, &out) != FZN_RPC_OK, "a clocks listing cut before its STATUS was read as whole");
+	fzn_rpc_clock_list_release(&out);
+}
+
 int main(void)
 {
+	test_clocks_in_binary();
 	test_legs_in_binary();
 	test_deliveries_in_binary();
 	test_roster_in_binary();

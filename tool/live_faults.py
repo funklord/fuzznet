@@ -111,6 +111,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import RECONCILE_RE, ROUND_DONE_RE, command, daemon, free_slot  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+from live_rpc import binary  # noqa: E402
 import live_trim  # noqa: E402
 
 # ONE DEADLINE FOR THE WHOLE RUN, its own: phases o and p (sec 733) doubled
@@ -1017,6 +1018,16 @@ def main(argv):
 							           for r in rows[3:]):
 								raise failed("l: with the member's clock %s, list clock "
 								             "answered %r" % (skew, rows))
+							# AND THE SAME ROW IN BINARY, sec 1184: the member's
+							# key and the way its clock is off, then an ok.
+							got = binary(lr_sock, bytes([0x0F, 0x80]))
+							if not got or got[-1][:2] != bytes([0x13, 0]) \
+							   or not any(m[:2] == bytes([0x0F, 0x81])
+							              and m[2:34].hex() == l_prekey[4:68]
+							              and m[34] == (1 if way == "ahead" else 0)
+							              for m in got[:-1]):
+								raise failed("l: with the member's clock %s, the clocks in "
+								             "binary were %r" % (skew, got))
 							# AND TOLD AS IT HAPPENED: a new row, or a row turned,
 							# is a `clock` event naming the member.
 							heard = []

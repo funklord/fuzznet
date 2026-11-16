@@ -1,0 +1,31 @@
+# situ capability map v1
+# schema: time_local.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct clock_row size=49 repr=ValueConverted atomic=NonAtomic
+  clock_row.key                          offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  clock_row.ahead                        offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  clock_row.seconds                      offset=AbsoluteStatic(0x21) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  clock_row.at                           offset=AbsoluteStatic(0x29) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct message size=2..51 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 49) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.clocks                    offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.clock_row                 offset=AbsoluteStatic(0x02) size=Fixed(49) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.clock_row.key             offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.clock_row.ahead           offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.clock_row.seconds         offset=AbsoluteStatic(0x23) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.clock_row.at              offset=AbsoluteStatic(0x2B) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct nothing size=0

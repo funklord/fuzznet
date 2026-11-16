@@ -254,6 +254,7 @@
 #include <fuzznet/node/sync_load.h>
 #include <fuzznet/node/log_list.h>
 #include <fuzznet/node/clocks.h>
+#include <fuzznet/node/clocks_binary.h>
 #include <fuzznet/node/schema.h>
 #include <fuzznet/state/schema.h>
 #include <fuzznet/node/peer_persist.h>

@@ -18414,12 +18414,24 @@ static int local_legs(int fd, fzn_origin_t origin, const uint8_t *msg, size_t le
 	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
+#include "clocks_binary.h"
+/* THE CLOCKS IN BINARY, sec 1184: `list clock` in one answer, for this
+ * node's own user alone, as the verb is. */
+static int local_clocks(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "clocks are this node's own user's"), 0;
+	(void)fzn_node_clocks_binary(&node_clocks, wall_clock(), msg, len, local_put, &fd);
+	return 0;
+}
+
 /* THE FIRST MESSAGE ON A LOCAL CONNECTION, if binary, by its CMD: named
  * objects asked (sec 1152), every conversation's newest line or count
  * (sec 1155), this user's contacts (sec 1162), groups (sec 1170) and the
  * positions held (sec 1171), the sticker packs (sec 1172), the library
  * (sec 1174), this estate's other hosts (sec 1176), what it has moved
- * (sec 1177), its links (sec 1183), or a MEDIA_OPEN
+ * (sec 1177), its links (sec 1183), the clocks that disagree (sec 1184), or
+ * a MEDIA_OPEN
  * for a call this host holds, from its own user, which keeps it
  * as the call's channel (sec 1113). */
 static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
@@ -18446,6 +18458,8 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 #endif
 	if (len && msg[0] == FZN_CMD_REACH)
 		return local_legs(fd, origin, msg, len);
+	if (len && msg[0] == FZN_CMD_TIME)
+		return local_clocks(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_TRANSFER)
 		return local_transfers(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_MEMBERS)

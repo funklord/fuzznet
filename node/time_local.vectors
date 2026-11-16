@@ -1,0 +1,7 @@
+# Golden vectors for node/time_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x0F is FZN_CMD_TIME (15); the op is the SUBCMD, 128 (0x80) on.
+
+message clocks       0F 80
+message clock_ahead  0F 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 01 00 00 00 00 00 00 00 2A 00 00 00 00 65 53 F1 00
+message clock_behind 0F 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 00 00 00 00 00 07 00 00 00 00 65 53 F1 3C
