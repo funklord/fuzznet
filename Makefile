@@ -3713,9 +3713,17 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 QR_DECODE_ON   := $(if $(wildcard $(QUIRC_DIR)/lib/quirc.h),1)
 QR_DECODE_SKIP := $(if $(QR_DECODE_ON),,the vendored $(QUIRC_DIR)/ is empty, so the devices view cannot scan a code. Run 'git submodule update --init $(QUIRC_DIR)'.)
 QUIRC_OBJS     := $(if $(QR_DECODE_ON),$(addprefix $(BUILD_DIR)/quirc-build/,quirc.o decode.o identify.o version_db.o))
+#
+# UNDER `sancheck` quirc's units go without UBSan's nonnull check, and only
+# that one: `quirc_resize` copies the old image into the new with `memcpy(image,
+# q->image, min)`, and on the first resize the old image is NULL and MIN 0 --
+# a copy of nothing, undefined by the letter of C and harmless in every libc,
+# which stopped `devices_view_test` and the whole run behind it from 085ed20 on
+# (sec 1178). The submodule is not edited, as thorvg's was not (sec 1160).
+QUIRC_SAN_EXCEPT := $(if $(SANITIZE),-fno-sanitize=nonnull-attribute)
 $(QUIRC_OBJS): $(BUILD_DIR)/quirc-build/%.o: $(QUIRC_DIR)/lib/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(GEN_CFLAGS) -w -DQUIRC_MAX_REGIONS=65534 -I$(QUIRC_DIR)/lib -MMD -MP -c $< -o $@
+	$(CC) $(GEN_CFLAGS) $(QUIRC_SAN_EXCEPT) -w -DQUIRC_MAX_REGIONS=65534 -I$(QUIRC_DIR)/lib -MMD -MP -c $< -o $@
 $(BUILD_DIR)/qr/decode.o: CFLAGS += -DQUIRC_MAX_REGIONS=65534 -I$(QUIRC_DIR)/lib
 $(BUILD_DIR)/gui/devices_view.o $(BUILD_DIR)/gui/test/devices_view_test.o: \
 	CXXFLAGS += $(if $(QR_DECODE_ON),-DFZN_QR_DECODE_ON)

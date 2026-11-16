@@ -89489,3 +89489,31 @@ rows are, refuses a cut listing and a family after its rows;
 `live_transfer` phase c2 asks a running node, `get transfer`'s families
 among the binary ones and a reconcile row with A's address among its
 rows. Three sabotages.
+
+## 1178. `sancheck` stopped at vendored quirc, and ran nothing after it, 2026-11-16
+
+From 085ed20 (sec 1158, the devices view scanning a code) every `make
+sancheck` stopped at `devices_view_test`:
+
+    quirc/lib/quirc.c:84:8: runtime error: null pointer passed as argument 2, which is declared to never be null
+
+`quirc_resize` copies the old image into the new with `memcpy(image,
+q->image, min)`, and on the first resize the old image is NULL and MIN
+0 -- a copy of nothing, undefined by the letter of C, harmless in every
+libc. Sec 1160's sanitized run (56d20df) was the last whole one, 23
+minutes after the scan landed, so nothing had run under the sanitizers
+past `devices_view_test` since: the CLI's print tests, the store, the
+messages, the node's journal, apply and reconcile, pair, admin and the
+sim among them.
+
+**Fixed in the build, not the submodule**, as thorvg's operators were
+(sec 1160): quirc's four units compile under `SANITIZE` with
+`-fno-sanitize=nonnull-attribute`, that check alone and those units
+alone (`QUIRC_SAN_EXCEPT`). `devices_view_test` then passes its 27
+checks under ASan and UBSan, and the whole `make sancheck` runs to its
+end -- 329 programs, no sanitizer report, exit 0 -- for the first time
+since sec 1160, the library, group lines and siblings of secs 1174
+to 1176 among what it ran (the transfers of sec 1177 landed after it
+was built). Whether upstream quirc guards the copy is
+quirc's, and fuzzypickles vendors the same quirc; neither was asked.
+
