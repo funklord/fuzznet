@@ -42,6 +42,24 @@ static void row_one(void *ctx, const fzn_node_group_row_t *r)
 	        && w->put(w->ctx, out, n);
 }
 
+static void member_one(void *ctx, const fzn_node_group_member_t *mb)
+{
+	struct rows *w = ctx;
+	uint8_t row[FZN_NODE_GROUPS_BINARY_MAX], out[FZN_NODE_GROUPS_BINARY_MAX + 8u];
+	uint32_t row_len = 0, n = 0;
+
+	if (!w->ok)
+		return;
+	w->ok = mb->name_len <= 32u
+	        && fzn_groups_local_member_row_build(row, sizeof(row), mb->key, (uint8_t)(mb->admin ? 1 : 0),
+	                                             (const uint8_t *)mb->name, (uint32_t)mb->name_len, &row_len)
+	                   == SITU_OK
+	        && fzn_groups_local_message_build_member_row(out, sizeof(out), (uint8_t)FZN_CMD_GROUPS, row, row_len,
+	                                                     &n)
+	                   == SITU_OK
+	        && w->put(w->ctx, out, n);
+}
+
 int fzn_node_groups_binary(const fzn_node_groups_t *g, const uint8_t *msg, size_t len,
                            fzn_node_groups_put_t put, void *put_ctx)
 {
@@ -55,8 +73,20 @@ int fzn_node_groups_binary(const fzn_node_groups_t *g, const uint8_t *msg, size_
 		return status(put, put_ctx, FZN_STATUS_ERROR, "no groups here");
 	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
 	if (fzn_groups_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
-	    || fzn_groups_local_message_validate(v) != SITU_OK
-	    || fzn_groups_local_message_op_get(v) != FZN_GROUPS_LOCAL_OP_LIST)
+	    || fzn_groups_local_message_validate(v) != SITU_OK)
+		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a groups request");
+	/* ONE GROUP'S ROSTER, sec 1179: a row a member, then a STATUS ok; a
+	 * group this user is not in, refused as the text verb refuses it. */
+	if (fzn_groups_local_message_op_get(v) == FZN_GROUPS_LOCAL_OP_MEMBERS) {
+		situ_view_t b;
+
+		if (fzn_groups_local_message_body_members_view(v, &b) != SITU_OK)
+			return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a groups request");
+		if (!fzn_node_groups_members_each(g, fzn_groups_local_members_ask_id_ptr(b), member_one, &w))
+			return w.ok && status(put, put_ctx, FZN_STATUS_ERROR, "no group by that id");
+		return w.ok && status(put, put_ctx, FZN_STATUS_OK, NULL);
+	}
+	if (fzn_groups_local_message_op_get(v) != FZN_GROUPS_LOCAL_OP_LIST)
 		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a groups request");
 	/* A ROW EACH, then a STATUS ok: an ended list told from a cut one. */
 	if (!fzn_node_groups_each(g, row_one, &w))

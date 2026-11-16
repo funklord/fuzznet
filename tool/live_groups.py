@@ -9,6 +9,9 @@ not know each other.
        A at its next round -- named `family` there too, the name A gave it
        carried in its CREATE act (sec 837) -- its three members, A its
        admin
+    a3 B's roster in binary, by the group's id (sec 1179), is its text
+       roster word for word: each member's contact name, or its root key
+       where it is none, an admin marked
     b  A makes B an admin, a majority of one; B's next round says so
     b2 A proposes B no admin: `ok proposed 1 2`, a majority of two admins
        being two, and B stands (sec 1012)
@@ -66,6 +69,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+from live_rpc import binary  # noqa: E402
 import live_trim  # noqa: E402
 
 live_trim.DEADLINE = time.monotonic() + 480.0
@@ -222,6 +226,25 @@ def main(argv):
 			if got[:3] != ["ok", "3", "1"] or len(got) != 5:
 				raise failed("a1: get group member 1 answered %r" % got)
 			print("livecheck: a: A made the group, and B and C learned it from A, A its admin")
+
+			# a3: B'S ROSTER IN BINARY, sec 1179, by the id B's groups give: a
+			# row read back into the text word -- `*` for an admin, then the
+			# contact name, or the root key in hex for a member who is none --
+			# is the text roster's, and every row carries the key.
+			listed = binary(socks["b"], bytes([0x0D, 0x80]))
+			gid = [r[2:34] for r in listed[:-1]
+			       if r[:2] == bytes([0x0D, 0x81]) and r[48:48 + r[47]] == name.encode()]
+			if len(gid) != 1:
+				raise failed("a3: B's groups in binary were %r" % listed)
+			rows = binary(socks["b"], bytes([0x0D, 0x82]) + gid[0])
+			if not rows or rows[-1][:2] != bytes([0x13, 0]):
+				raise failed("a3: B's roster in binary did not end ok: %r" % rows)
+			words = sorted(("*" if r[34] else "") + (r[36:36 + r[35]].decode() if r[35] else r[2:34].hex())
+			               for r in rows[:-1] if r[:2] == bytes([0x0D, 0x83]))
+			if words != sorted(members(socks["b"], "b", name)):
+				raise failed("a3: B's roster in binary read %r; in text %r"
+				             % (words, members(socks["b"], "b", name)))
+			print("livecheck: a3: B's roster in binary is its text roster, each member by key")
 
 			# a2: each host named in the log, and the epoch's secret sealed to
 			# all three (sec 627).

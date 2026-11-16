@@ -9,6 +9,7 @@
 
 #include "../groups.h"
 #include "../groups_binary.h"
+#include "../../wire/status.h"
 #include "../group_line.h"
 #include "../group_lines.h"
 #include "../../session/aead_monocypher.h"
@@ -969,6 +970,33 @@ static void test_a_group_once_shared_is_left_alone(void)
 		CHECK(fzn_node_groups_binary(&a->groups, other, sizeof(other), gbin_put, NULL) && gbin.n == 1u
 		              && gbin.m[0][0] == 0x13 && gbin.m[0][1] == 2,
 		      "no such groups request was not malformed");
+
+		/* AND ONE GROUP'S ROSTER, sec 1179: the group made again holds its
+		 * maker alone, an admin, by root key and no contact name; the
+		 * group left holds nobody; an id no group has is refused. */
+		{
+			uint8_t ask[34], nobody[34];
+
+			ask[0] = nobody[0] = 0x0d;
+			ask[1] = nobody[1] = 0x82;
+			memcpy(ask + 2, again, 32);
+			memset(nobody + 2, 0xee, 32);
+			memset(&gbin, 0, sizeof(gbin));
+			CHECK(fzn_node_groups_binary(&a->groups, ask, sizeof(ask), gbin_put, NULL) && gbin.n == 2u
+			              && gbin.m[0][0] == 0x0d && gbin.m[0][1] == 0x83
+			              && memcmp(gbin.m[0] + 2, a->device.owner, 32) == 0 && gbin.m[0][34] == 1
+			              && gbin.m[0][35] == 0 && gbin.m[1][0] == 0x13 && gbin.m[1][1] == FZN_STATUS_OK,
+			      "a group's roster in binary was not its maker alone, an admin, then an ok");
+			memcpy(ask + 2, id, 32);
+			memset(&gbin, 0, sizeof(gbin));
+			CHECK(fzn_node_groups_binary(&a->groups, ask, sizeof(ask), gbin_put, NULL) && gbin.n == 1u
+			              && gbin.m[0][0] == 0x13 && gbin.m[0][1] == FZN_STATUS_OK,
+			      "a group left listed a member in binary");
+			memset(&gbin, 0, sizeof(gbin));
+			CHECK(fzn_node_groups_binary(&a->groups, nobody, sizeof(nobody), gbin_put, NULL) && gbin.n == 1u
+			              && gbin.m[0][0] == 0x13 && gbin.m[0][1] == FZN_STATUS_ERROR,
+			      "an id no group has was answered as an empty roster");
+		}
 	}
 }
 

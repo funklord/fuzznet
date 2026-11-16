@@ -1261,8 +1261,67 @@ static void test_transfers_in_binary(void)
 	CHECK(fzn_rpc_transfer_list(&c, &out) != FZN_RPC_OK, "a family's totals after its rows were taken");
 }
 
+/* ONE MEMBER framed onto answer `i`, sec 1179. */
+static void member_onto(struct bscript *s, size_t i, const uint8_t key[32], uint8_t admin, const char *name)
+{
+	uint8_t row[96], m[112];
+	uint32_t row_len = 0, n = 0;
+
+	if (fzn_groups_local_member_row_build(row, sizeof(row), key, admin, (const uint8_t *)name,
+	                                      (uint32_t)strlen(name), &row_len) != SITU_OK
+	    || fzn_groups_local_message_build_member_row(m, sizeof(m), (uint8_t)FZN_CMD_GROUPS, row, row_len, &n)
+	               != SITU_OK)
+		return;
+	framed(s, i, m, n);
+}
+
+/* A GROUP'S ROSTER IN BINARY, sec 1179: a group asked by its name is found
+ * among this user's groups and its roster asked by id; each member read
+ * with its root key, its name where it has one, and this user an admin; a
+ * roster cut before its STATUS refused. */
+static void test_roster_in_binary(void)
+{
+	static struct bscript held, cut;
+	static fzn_rpc_group_show_resp_t out;
+	uint8_t id[32], self[32], carol[32], row[96], m[112];
+	uint32_t row_len = 0, n = 0;
+	struct script s = { { "ok " ID_A " " ID_B, "ok " ID_A " " ID_B }, 0, 2, 0, { { 0 } } };
+
+	memset(id, 0xcd, sizeof(id));
+	memset(self, 0, sizeof(self));
+	self[0] = 0xbb;
+	self[31] = 0x02;
+	memset(carol, 0x5a, sizeof(carol));
+	if (fzn_groups_local_row_build(row, sizeof(row), id, 2u, 1u, 7u, (const uint8_t *)"team", 4, &row_len)
+	            == SITU_OK
+	    && fzn_groups_local_message_build_row(m, sizeof(m), (uint8_t)FZN_CMD_GROUPS, row, row_len, &n) == SITU_OK) {
+		framed(&held, 0, m, n);
+		framed(&cut, 0, m, n);
+	}
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	status_onto(&cut, 0, FZN_STATUS_OK, NULL);
+	member_onto(&held, 1, self, 1u, "");
+	member_onto(&held, 1, carol, 0u, "carol");
+	status_onto(&held, 1, FZN_STATUS_OK, NULL);
+	member_onto(&cut, 1, carol, 0u, "carol");
+	on(&c, &s);
+	c.binary_answer = bscripted;
+	c.binary_ctx = &held;
+	CHECK(fzn_rpc_group_show(&c, "team", 4, &out) == FZN_RPC_OK && out.member_count == 2 && out.is_admin
+	              && memcmp(out.members[0].root_pubkey, self, 32) == 0 && out.members[0].admin
+	              && out.members[1].root_pubkey[0] == 0x5a && strcmp(out.members[1].name, "carol") == 0
+	              && !out.members[1].admin && out.chat_id[0] == 0xcd && memcmp(out.self_root, self, 32) == 0
+	              && held.asked_len[1] == 34 && held.asked[1][0] == 0x0d && held.asked[1][1] == 0x82
+	              && held.asked[1][2] == 0xcd,
+	      "a group's roster was not read in binary by its id, each member by root key");
+	c.binary_ctx = &cut;
+	CHECK(fzn_rpc_group_show(&c, "team", 4, &out) != FZN_RPC_OK, "a roster cut before its STATUS was read as whole");
+	free(out.members);
+}
+
 int main(void)
 {
+	test_roster_in_binary();
 	test_transfers_in_binary();
 	test_siblings_in_binary();
 	test_group_lines_in_binary();

@@ -89517,3 +89517,35 @@ to 1176 among what it ran (the transfers of sec 1177 landed after it
 was built). Whether upstream quirc guards the copy is
 quirc's, and fuzzypickles vendors the same quirc; neither was asked.
 
+## 1179. A group's roster, in binary, 2026-11-16
+
+`fzn_rpc_group_show` -- fuzzypickles' group roster and conversation
+menu -- was a join of four text reads: `get identity`, every page of
+`get group NAME member`, `list group` for the id, and, for any member
+named rather than keyed, a whole contact listing to look the name's key
+up in. The node had each member's root key all along and the text
+listing dropped it for the name.
+
+It asks in binary now, by the group's id: FZN_CMD_GROUPS `members` (130),
+its body the id, answered by a `member_row` (131) per member -- root
+key, admin, this user's contact name for it or none -- and a STATUS ok;
+an id no group has is refused as an error (`node/groups_local.situ`).
+`fzn_node_groups_members_each` walks the roster as `get group NAME
+member` does. The client finds the id from 64 hex or by the group's name
+among `fzn_rpc_group_list`'s rows (binary since sec 1170), asks `get
+identity` for this user's root as before, and falls back to the text
+join for a group it cannot find or a node that reads no binary.
+
+**Better than the text join, and on purpose**: a member who is no
+contact arrives with its key, where the text join gave a member whose
+name the contacts did not hold an all-zero key. `situc wire --check`
+calls the two new ops breaking -- an old node refuses an op it does not
+know -- which is the fallback working: it answers malformed, and the
+client asks in text (sec 924: wire changes are free).
+
+**Tests:** three new vectors; `groups_test` -- the group made again
+lists its maker alone, an admin, by root key with no name; the group
+left lists nobody; an unknown id is refused; `rpc_test` -- a group asked
+by name found among the groups and its roster read by id, this user an
+admin, a cut roster refused; `live_groups` phase a3 -- B's binary roster
+read back into words is its text roster exactly. Two sabotages.

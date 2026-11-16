@@ -19,7 +19,16 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  list=128 row=129
+  list=128 row=129 members=130 member_row=131
+
+struct member_row size=34..66
+  @0x0000   32        u8         key  big
+  @0x0020   1         u8         admin  max=1
+  @0x0021   1         u8         name_len  max=32
+  @0x0022   0..32     u8         name  sized-by=name_len
+
+struct members_ask size=32
+  @0x0000   32        u8         id  big
 
 struct message size=2..80
   @0x0000   1         u8         cmd  must_eq=13
@@ -28,6 +37,8 @@ struct message size=2..80
   body switch: op
   body case 128: list nothing
   body case 129: row row
+  body case 130: members members_ask
+  body case 131: member_row member_row
   body case default: error
 
 struct nothing size=0

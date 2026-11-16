@@ -16894,6 +16894,20 @@ SABOTAGES = [
 		"a file whose first claim was taken back is listed in no order the text listing gives -- sec 1174",
 	),
 	(
+		"rpc-roster-binary-cut-whole",
+		"local/rpc.c",
+		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the roster cut short */\n",
+		"\tif (a.bad) return unreadable(c); /* the roster cut short */\n",
+		"a group's roster cut before its STATUS is read as every member -- sec 1179",
+	),
+	(
+		"groups-roster-admin-dropped",
+		"node/groups.c",
+		"\t\tm.admin = fzn_group_is_admin(&held, held.members[i]);\n",
+		"\t\tm.admin = 0;\n",
+		"a group's roster in binary marks no admin -- sec 1179",
+	),
+	(
 		"rpc-transfers-binary-cut-whole",
 		"local/rpc.c",
 		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the transfers cut short */\n",

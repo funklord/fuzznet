@@ -940,6 +940,34 @@ static int group_facts(const fzn_node_groups_t *g, const uint8_t id[FZN_GROUP_ID
 	return 1;
 }
 
+int fzn_node_groups_members_each(const fzn_node_groups_t *g, const uint8_t id[FZN_GROUP_ID_LEN],
+                                 void (*each)(void *ctx, const fzn_node_group_member_t *member),
+                                 void *ctx)
+{
+	static fzn_group_t held;
+	size_t i;
+
+	if (!g || !id || !each || fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+		return 0;
+	for (i = 0; i < held.n_members; i++) {
+		fzn_node_group_member_t m;
+		fzn_contact_t c;
+
+		memset(&m, 0, sizeof(m));
+		m.key = held.members[i];
+		m.admin = fzn_group_is_admin(&held, held.members[i]);
+		/* ITS NAME AS `get group NAME member` GIVES IT, where it is a
+		 * contact; the key itself always, which the text listing drops. */
+		if (fzn_contact_get(g->log.store, held.members[i], &c) == FZN_CONTACT_OK
+		    && c.name_len <= FZN_CONTACT_NAME_MAX) {
+			memcpy(m.name, c.name, c.name_len);
+			m.name_len = c.name_len;
+		}
+		each(ctx, &m);
+	}
+	return 1;
+}
+
 int fzn_node_groups_each(const fzn_node_groups_t *g, void (*each)(void *ctx, const fzn_node_group_row_t *row),
                          void *ctx)
 {

@@ -39,6 +39,7 @@
 #include "../wire/generated/contacts_local.h"
 #include "../wire/generated/contacts_local_build.h"
 #include "../wire/generated/groups_local.h"
+#include "../wire/generated/groups_local_build.h"
 #include "../wire/generated/streams_local.h"
 #include "../wire/generated/stickers_local.h"
 #include "../wire/generated/files_local.h"
@@ -4046,8 +4047,124 @@ int fzn_rpc_group_members(fzn_rpc_t *c, const char *group, size_t group_len,
 	return rc == FZN_RPC_OK ? node_group_members(c, group, group_len, self, out) : rc;
 }
 
+/* A GROUP'S ROSTER IN BINARY, sec 1179: a row a member, by its root key,
+ * then a STATUS. */
+struct roster_answer {
+	fzn_rpc_t *c;
+	fzn_rpc_group_show_resp_t *out;
+	const uint8_t *self;
+	int bad, status_seen, no_room;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void roster_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct roster_answer *a = ctx;
+	fzn_rpc_group_show_resp_t *out = a->out;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_groups_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_groups_local_message_validate(v) != SITU_OK
+	    || fzn_groups_local_message_op_get(v) != FZN_GROUPS_LOCAL_OP_MEMBER_ROW
+	    || fzn_groups_local_message_body_member_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (room_for(a->c, &out->members, &out->member_room, out->member_count + 1, sizeof *out->members)
+	    != FZN_RPC_OK) {
+		a->no_room = 1;
+		return;
+	}
+	fzn_rpc_group_member_entry_t *e = &out->members[out->member_count++];
+	memset(e, 0, sizeof *e);
+	memcpy(e->root_pubkey, fzn_groups_local_member_row_key_ptr(b), 32);
+	e->admin = fzn_groups_local_member_row_admin_get(b);
+	e->name_len = fzn_groups_local_member_row_name_len(b);
+	if (e->name_len > FZN_RPC_PEER_NAME_MAX) e->name_len = FZN_RPC_PEER_NAME_MAX;
+	memcpy(e->name, fzn_groups_local_member_row_name_ptr(b), e->name_len);
+	if (e->admin && memcmp(e->root_pubkey, a->self, 32) == 0) out->is_admin = 1;
+}
+
+/* The group's roster asked in binary by its id: FZN_RPC_OK with *text 1
+ * for the verbs to be used. */
+static int roster_in_binary(fzn_rpc_t *c, const uint8_t id[32], const uint8_t self[32],
+                            fzn_rpc_group_show_resp_t *out, int *text) {
+	uint8_t inner[40], req[48];
+	uint32_t inner_len = 0, req_len = 0;
+	struct roster_answer a;
+	*text = 1;
+	if (fzn_groups_local_members_ask_build(inner, sizeof inner, id, &inner_len) != SITU_OK
+	    || fzn_groups_local_message_build_members(req, sizeof req, (uint8_t)FZN_CMD_GROUPS, inner, inner_len,
+	                                              &req_len) != SITU_OK)
+		return FZN_RPC_OK;
+	memset(&a, 0, sizeof a);
+	a.c = c;
+	a.out = out;
+	a.self = self;
+	const int rc = fzn_rpc_binary(c, req, req_len, roster_each, &a, text);
+	if (rc != FZN_RPC_OK || *text) return rc;
+	if (a.no_room) return fail(c, FZN_RPC_ERR_STORAGE_IO, "no room for the roster");
+	if (a.bad || !a.status_seen) return unreadable(c); /* the roster cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED
+		               : a.code == FZN_STATUS_ERROR ? FZN_RPC_ERR_NO_PEER
+		                                            : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	memcpy(out->chat_id, id, 32);
+	memcpy(out->self_root, self, 32);
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_group_show(fzn_rpc_t *c, const char *group, size_t group_len,
                         fzn_rpc_group_show_resp_t *out) {
+	/* IN BINARY, sec 1179, by the group's id: given as 64 hex, or found by
+	 * its name among this user's groups. Each member then arrives with its
+	 * root key, where the text join read a name and looked its key up in the
+	 * contacts. A group by no name or id here, or a node reading no binary,
+	 * goes by the verbs. */
+	uint8_t id[32], self[32];
+	int found = 0, text = 1;
+	if (!group_len || group_len > 64) return node_group_show(c, group, group_len, out);
+	if (group_len == 64) {
+		char hex[65];
+		memcpy(hex, group, 64);
+		hex[64] = '\0';
+		found = fzn_hex_decode(hex, id, sizeof id) == 0;
+	}
+	if (!found) {
+		static fzn_rpc_group_list_resp_t all;
+		if (fzn_rpc_group_list(c, &all) != FZN_RPC_OK) return node_group_show(c, group, group_len, out);
+		for (size_t i = 0; i < all.count && !found; i++)
+			if (all.entries[i].name_len == group_len && memcmp(all.entries[i].name, group, group_len) == 0) {
+				memcpy(id, all.entries[i].chat_id, 32);
+				found = 1;
+			}
+	}
+	if (!found) return node_group_show(c, group, group_len, out);
+	int rc = node_identity_root(c, self);
+	if (rc != FZN_RPC_OK) return rc;
+	{
+		fzn_rpc_group_member_entry_t *members = out->members;
+		const size_t room = out->member_room;
+		memset(out, 0, sizeof(*out));
+		out->members = members;
+		out->member_room = room;
+	}
+	rc = roster_in_binary(c, id, self, out, &text);
+	if (!text) return rc;
 	return node_group_show(c, group, group_len, out);
 }
 

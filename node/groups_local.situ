@@ -13,9 +13,11 @@ target buffer;
 endian big;
 
 enum op : u8 {
-	list    = 128, // every group this user is in, as `list group` lists them
-	row     = 129, // an answer: one group
-	default = error,
+	list       = 128, // every group this user is in, as `list group` lists them
+	row        = 129, // an answer: one group
+	members    = 130, // one group's roster, by its id (sec 1179)
+	member_row = 131, // an answer: one member
+	default    = error,
 }
 
 struct nothing {
@@ -34,13 +36,30 @@ struct row {
 	u8   name[name_len];
 }
 
+// ID the group's.
+struct members_ask {
+	u8   id[32];
+}
+
+// KEY the member's root key; ADMIN 1 when the roster marks it an admin;
+// NAME this user's contact name for it, empty for a member who is no
+// contact here.
+struct member_row {
+	u8   key[32];
+	u8   admin [max = 1];
+	u8   name_len [max = 32];
+	u8   name[name_len];
+}
+
 struct message {
 	u8   cmd [must_eq = 13];
 	op   op;
 
 	variant body switch (op) {
-		case op.list: nothing list;
-		case op.row:  row     row;
+		case op.list:       nothing     list;
+		case op.row:        row         row;
+		case op.members:    members_ask members;
+		case op.member_row: member_row  member_row;
 		default: error;
 	}
 }

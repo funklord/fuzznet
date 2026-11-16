@@ -224,4 +224,19 @@ typedef struct fzn_node_group_row {
 int fzn_node_groups_each(const fzn_node_groups_t *g, void (*each)(void *ctx, const fzn_node_group_row_t *row),
                          void *ctx);
 
+/* ONE GROUP'S ROSTER, as `get group NAME member` lists it, sec 1179: each
+ * member's root KEY, whether the roster marks it an ADMIN, and NAME this
+ * user's contact name for it, empty for a member who is no contact here.
+ * KEY is good only during the call. 1 once each was handed over, 0 when the
+ * group did not read -- no group by that id among them. */
+typedef struct fzn_node_group_member {
+	const uint8_t *key;
+	int admin;
+	char name[FZN_CONTACT_NAME_MAX + 1u];
+	size_t name_len;
+} fzn_node_group_member_t;
+int fzn_node_groups_members_each(const fzn_node_groups_t *g, const uint8_t id[FZN_GROUP_ID_LEN],
+                                 void (*each)(void *ctx, const fzn_node_group_member_t *member),
+                                 void *ctx);
+
 #endif /* FZN_NODE_GROUPS_H */
