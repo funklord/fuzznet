@@ -96,6 +96,8 @@ fzn_node_object_err_t fzn_node_object_get(const fzn_node_objects_t *o, const uin
 /* THE HELD VALUES WHOSE WINDOW HAS PASSED at `now_ms`, written: how many, sec 1034.
  * The daemon calls it each pass. */
 size_t fzn_node_objects_due(const fzn_node_objects_t *o, uint64_t now_ms);
+/* EVERY HELD WRITE stored now, its window or not, sec 1229: before stopping. */
+size_t fzn_node_objects_flush(const fzn_node_objects_t *o, uint64_t now_ms);
 
 fzn_node_object_err_t fzn_node_object_remove(const fzn_node_objects_t *o, const uint8_t *name,
                                              size_t name_len);

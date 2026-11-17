@@ -91144,3 +91144,65 @@ behind with the growing queue named, two peers at two addresses said to
 disagree and one report not. Two sabotages, each caught
 (`reach-disagreement-unsaid`, `reach-growing-queue-unnamed`); sec 1131's
 `library-view-unknown-size-as-zero` repointed. `make qtty` passes.
+
+## 1229. A write held to its window is stored before the daemon stops, 2026-11-17
+
+fuzzypickles 2130Z: a setting written twice inside a second "can keep
+the earlier write" -- `location/enabled` read back `off` after `on`, and
+in another run left on after the person turned it off, every write
+answered rc=0.
+
+**Measured here, it was two things.** Writes past a cell's burst (sec
+1034's four, then one a window) are held, answered `ok held`, and the
+newest stored when the window passes: reproduced, a read straight after
+showed the value before, and after 2.5 s the newest stood every time --
+late, not lost. **But the held value lived only in the daemon's rate
+table, so a stop or a rejoin inside the window lost it for good** -- the
+second run's symptom, the safer write the one dropped.
+
+- **`fzn_rate_flush`** hands every held value of a kind to its writer at
+  once, window and burst aside; settings, objects and records each gain
+  a `_flush` beside their `_due`, and `flush_held` in fuzznetd calls all
+  three at the top of `stop_serving` and of `start_again` (a rejoin), so
+  every way out passes it. It says how many it stored.
+- **The client could already tell**: `fzn_rpc_t.held` is set for an `ok
+  held` answer (sec 1037); fuzzypickles' probe printed only the return
+  code. Said so in the reply.
+
+**Tests:** `live_objects` phase e2 -- an object's write and a setting's
+held, R stopped at once and started again, holding both. The sabotage
+`stop-drops-held-writes` (no flush in `stop_serving`) is caught by e2
+alone. The first placement, after the main loop, was never reached: the
+daemon stops from inside it, which e2 showed before anything was
+committed.
+
+## 1230. Inbound: fuzzypickles' focused app walked against LINE, 2026-11-17
+
+fuzzypickles 2000Z, the holder's walk of its focused app on two API 36
+emulators, what is fuzznet's, ranked by how often a person meets it:
+
+1. **A new friend granted this user's position by default** (the
+   holder's choice for fuzzypickles, used by close friends): a setting --
+   say `location/share-new`, a flag, off in fuzznet's presets -- that
+   grants a contact this user's position, at a second setting's
+   precision or exact, the first time it becomes an active contact, and
+   only then, so a friend later turned off is never granted again. Only
+   the node sees every way a contact becomes active. In the backlog.
+2. **location_view on a phone reads as a spreadsheet**: a list instead --
+   the contact, "1.1 km E, 2 min ago" under it, the rose for the one
+   chosen, the first contact chosen; the host's own line in a person's
+   words. In the backlog with sec 1224's location items.
+3. **A position seen late**: bo showed ana's fix "3 min ago" while ana
+   sampled every 30 s and shared with bo. Not measured; in the backlog.
+4. **Read marks**: a line goes sending, delivered, and stops, where LINE
+   says Read. The read position is synced among this user's own hosts
+   (sec 528); telling it to the sender is a decision for the holder,
+   raised.
+5. **A call** as a screen with the caller and large Answer and Decline,
+   its running time, a line left in the conversation afterwards ("Voice
+   call 0:42", "Missed call"), and its ending said as a person would.
+   Added to sec 1224's call bar item.
+6. **The conversation list** as one flat list on a phone, contacts and
+   groups together, a group marked by an icon, the unread count a badge,
+   the newest line's time on the right, no row left highlighted after it
+   is opened. Added to sec 1224's conversations_view item.

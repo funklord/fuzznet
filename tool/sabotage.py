@@ -17314,6 +17314,13 @@ SABOTAGES = [
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
+		"stop-drops-held-writes",
+		"node/daemon.c",
+		"static int stop_serving(int lfd, const char *sock_path, int ufd)\n{\n\tflush_held();\n",
+		"static int stop_serving(int lfd, const char *sock_path, int ufd)\n{\n",
+		"a write answered `ok held` is lost when the daemon stops inside its window; live_objects phase e2 only -- sec 1229",
+	),
+	(
 		"reach-disagreement-unsaid",
 		"gui/reach_view.cpp",
 		"\tif (seen.count > 1 && seen.agree < seen.count)\n",

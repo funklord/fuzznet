@@ -12289,10 +12289,13 @@ static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *reques
  * three closed -- the sockets, so the new start can bind them again -- and
  * this program executed with its own arguments. Returns only when it could
  * not be, having said so. */
+static void flush_held(void);
+
 static int start_again(int lfd, const char *sock_path)
 {
 	long fd, max = sysconf(_SC_OPEN_MAX);
 
+	flush_held();
 	fzn_socket_close(lfd, sock_path);
 	if (max < 0 || max > 65536)
 		max = 65536;
@@ -22525,8 +22528,26 @@ static void verify_memo_keep(uint64_t now)
 	(void)fzn_verify_memo_save(&verify_memo, verify_memo_path);
 }
 
+/* THE WRITES HELD TO THEIR WINDOW, stored before the table holding them goes,
+ * sec 1229: each was answered `ok held`, and a stop or a rejoin inside its
+ * window lost it -- fuzzypickles' location/enabled, turned off and left on. */
+static void flush_held(void)
+{
+	size_t flushed = 0;
+
+	if (node_settings.rate && node_settings.now_ms)
+		flushed += fzn_node_settings_flush(&node_settings, node_settings.now_ms());
+	if (node_objects.rate && node_records.now_ms)
+		flushed += fzn_node_objects_flush(&node_objects, node_records.now_ms());
+	if (node_records.rate && node_records.now_ms)
+		flushed += fzn_node_records_flush(&node_records, node_records.now_ms());
+	if (flushed)
+		say(FZN_ENTRY_INFO, "node", "%zu held write(s) stored before stopping", flushed);
+}
+
 static int stop_serving(int lfd, const char *sock_path, int ufd)
 {
+	flush_held();
 	say(FZN_ENTRY_NOTE, "node", "stopping, as asked");
 	if (verify_memo_path[0] && verify_memo.added != verify_memo.added_saved)
 		(void)fzn_verify_memo_save(&verify_memo, verify_memo_path);

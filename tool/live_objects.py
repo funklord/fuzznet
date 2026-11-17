@@ -8,6 +8,9 @@
     d  R's older values go at its next start's trim, each host's newest staying
     e  fifty sets at once on R: the first written, the rest held to the window,
        and the newest written once it passes, read on R and at A (sec 1034)
+    e2 a value held to its window -- an object's and a setting's -- and R
+       stopped at once: R, started again, holds each held value, not the one
+       before it (sec 1229)
 
 The default round is 60 s, so `FAST_S` says a change did not wait for one.
 
@@ -198,6 +201,27 @@ def main(argv):
 			       "not the flood's newest at A", 70.0)
 			print("livecheck: e: fifty sets at once, %d held, the newest written and at A"
 			      % answers.count("ok held"))
+
+			# e2: HELD, THEN STOPPED, sec 1229: the table holding a write is the
+			# daemon's, so a stop inside the window lost what had been answered
+			# `ok held` -- fuzzypickles' location/enabled, turned off and left
+			# on. The lamp's passes are spent by the flood; the setting's, by
+			# four writes.
+			held = said("r", "set object lamp off")
+			sets = [said("r", "set setting host location/enabled " + v)
+			        for v in ("on", "off", "on", "off", "on")]
+			if held != "ok held" or sets[-1] != "ok held":
+				raise failed("e2: the writes to hold were answered %r and %r" % (held, sets))
+			started["r"].stop()
+			up("r", "r3")
+			polled("r", "status", lambda g: g.startswith("ok "), "not answering", 30.0)
+			if not said("r", "get object lamp").startswith("ok off "):
+				raise failed("e2: R, stopped with off held, holds %r" % said("r", "get object lamp"))
+			if said("r", "get setting host location/enabled") != "ok root on":
+				raise failed("e2: R, stopped with location on held, holds %r"
+				             % said("r", "get setting host location/enabled"))
+			print("livecheck: e2: R, stopped with an object's and a setting's write held, "
+			      "holds both")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			for name in sorted(os.listdir(scratch)):

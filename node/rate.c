@@ -138,3 +138,28 @@ size_t fzn_rate_due(fzn_rate_t *r, uint64_t now_ms, const uint8_t *prefix, size_
 	}
 	return n;
 }
+
+size_t fzn_rate_flush(fzn_rate_t *r, uint64_t now_ms, const uint8_t *prefix, size_t prefix_len,
+                      void (*due)(void *ctx, const uint8_t *key, size_t key_len,
+                                  const uint8_t *value, size_t value_len, unsigned long held),
+                      void *ctx)
+{
+	size_t i, n = 0;
+
+	for (i = 0; r && r->rows && i < r->cap; i++) {
+		fzn_rate_slot_t *s = &r->rows[i];
+		unsigned long held;
+
+		if (!s->used || !s->pending
+		    || (prefix_len && (s->key_len < prefix_len || memcmp(s->key, prefix, prefix_len) != 0)))
+			continue;
+		held = s->held;
+		s->pending = 0;
+		s->passed_ms = now_ms ? now_ms : 1u;
+		s->held = 0;
+		if (due)
+			due(ctx, s->key, s->key_len, s->value, s->value_len, held);
+		n++;
+	}
+	return n;
+}

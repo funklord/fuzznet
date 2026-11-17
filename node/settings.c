@@ -1112,6 +1112,13 @@ size_t fzn_node_settings_due(const fzn_node_settings_t *ns, uint64_t now_ms)
 	                    write_due, (void *)ns);
 }
 
+size_t fzn_node_settings_flush(const fzn_node_settings_t *ns, uint64_t now_ms)
+{
+	if (!ns || !ns->rate)
+		return 0;
+	return fzn_rate_flush(ns->rate, now_ms, (const uint8_t *)HELD_PREFIX, sizeof(HELD_PREFIX) - 1u, write_due, (void *)ns);
+}
+
 static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t *at, size_t left,
                           char *reply, size_t cap)
 {

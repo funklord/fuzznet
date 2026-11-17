@@ -125,6 +125,8 @@ typedef struct fzn_node_settings {
 /* THE HELD WRITES WHOSE WINDOW HAS PASSED at `now_ms`, written: how many, sec 1034.
  * The daemon calls it each pass. */
 size_t fzn_node_settings_due(const fzn_node_settings_t *ns, uint64_t now_ms);
+/* EVERY HELD WRITE stored now, its window or not, sec 1229: before stopping. */
+size_t fzn_node_settings_flush(const fzn_node_settings_t *ns, uint64_t now_ms);
 
 /* A SEALED VALUE's opening, sec 874: `box:` and the box in lower-case hex. */
 #define FZN_NODE_SETTINGS_SEALED "box:"

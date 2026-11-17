@@ -286,6 +286,13 @@ size_t fzn_node_objects_due(const fzn_node_objects_t *o, uint64_t now_ms)
 	                    sizeof(OBJECT_RATE_PREFIX) - 1u, write_due, (void *)o);
 }
 
+size_t fzn_node_objects_flush(const fzn_node_objects_t *o, uint64_t now_ms)
+{
+	if (!o || !o->rate || !o->records)
+		return 0;
+	return fzn_rate_flush(o->rate, now_ms, (const uint8_t *)OBJECT_RATE_PREFIX, sizeof(OBJECT_RATE_PREFIX) - 1u, write_due, (void *)o);
+}
+
 fzn_node_object_err_t fzn_node_object_remove(const fzn_node_objects_t *o, const uint8_t *name,
                                              size_t name_len)
 {

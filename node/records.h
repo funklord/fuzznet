@@ -100,6 +100,8 @@ typedef struct fzn_node_records {
 
 /* THE HELD OBSERVATIONS WHOSE WINDOW HAS PASSED at `now_ms`, written: how many. */
 size_t fzn_node_records_due(const fzn_node_records_t *nr, uint64_t now_ms);
+/* EVERY HELD WRITE stored now, its window or not, sec 1229: before stopping. */
+size_t fzn_node_records_flush(const fzn_node_records_t *nr, uint64_t now_ms);
 
 /* A RECORD'S PLACE: its setter, the month of its version, and the setting
  * it opens as, when `item` (`len` bytes) is a record -- a host-scoped

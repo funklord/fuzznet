@@ -530,6 +530,13 @@ size_t fzn_node_records_due(const fzn_node_records_t *nr, uint64_t now_ms)
 	                    sizeof(RECORD_RATE_PREFIX) - 1u, record_due, (void *)nr);
 }
 
+size_t fzn_node_records_flush(const fzn_node_records_t *nr, uint64_t now_ms)
+{
+	if (!nr || !nr->rate || !nr->id)
+		return 0;
+	return fzn_rate_flush(nr->rate, now_ms, (const uint8_t *)RECORD_RATE_PREFIX, sizeof(RECORD_RATE_PREFIX) - 1u, record_due, (void *)nr);
+}
+
 static size_t add_record(const fzn_node_records_t *nr, const uint8_t *at, size_t left,
                          char *reply, size_t cap)
 {

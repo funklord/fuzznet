@@ -89,5 +89,13 @@ size_t fzn_rate_due(fzn_rate_t *r, uint64_t now_ms, const uint8_t *prefix, size_
                     void (*due)(void *ctx, const uint8_t *key, size_t key_len,
                                 const uint8_t *value, size_t value_len, unsigned long held),
                     void *ctx);
+/* EVERY HELD VALUE of names beginning `prefix` handed to `due` now, whatever
+ * its window or the burst, sec 1229: for a writer about to stop, whose table
+ * goes with it -- a value held there would otherwise be answered `ok held` and
+ * never stored. How many. */
+size_t fzn_rate_flush(fzn_rate_t *r, uint64_t now_ms, const uint8_t *prefix, size_t prefix_len,
+                      void (*due)(void *ctx, const uint8_t *key, size_t key_len,
+                                  const uint8_t *value, size_t value_len, unsigned long held),
+                      void *ctx);
 
 #endif /* FZN_NODE_RATE_H */
