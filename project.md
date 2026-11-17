@@ -91029,3 +91029,38 @@ and not opened; call -- a first look at a ringing call says nothing of
 `keep-place-top-level-only`, `keep-answer-drops-answer`,
 `devices-none-chosen-keeps-row`, `call-no-call-unmarked`); sec 1102's
 `objects-view-silence-as-empty` repointed. `make qtty` passes.
+
+## 1226. A stream grant to a retired contact, served through a group, 2026-11-17
+
+fuzzypickles' 1330Z (sec 1224) asked two questions of a grant K made to
+alice in the race with J's removal of her. Answered by reading the
+serving paths:
+
+- **Is every path that serves a stream gated on the contact standing?
+  No, one was not.** `streams_remote` judges an asker two ways: as a
+  contact, through `fzn_node_admin_contact_of`, which refuses one that
+  does not stand; or as a host of a group member, through
+  `member_host_owner`, which asks only the group's log. On the second,
+  `stream_level_of` took the owner's own grant as well as their groups',
+  without asking whether they still stand -- so alice, retired but still
+  in a group with this user, was served at the level granted to her as a
+  contact, finer than anything the group was given. **Fixed:** a
+  personal grant counts only while its contact stands; what the groups
+  grant is the groups' to give, unchanged.
+- **Should retiring a contact withdraw what this user grants it?** Yes,
+  by the aims: a contact can stand again (`fzn_node_roster_standing` is
+  ACTIVE when any incarnation is), and a position grant nobody re-made
+  would come back with a re-add. With the fix above the grant is inert
+  while she is retired, so what is left is the re-add, and it is not
+  done here: a grant is an estate setting keyed by a hash of the stream
+  and the grantee, so a node cannot list a contact's grants to withdraw
+  them, and the two ways forward -- withdraw the streams this node knows
+  by name when it applies a removal, or count a grant only when written
+  after the contact's newest incarnation -- each want their own piece of
+  work. In the backlog.
+
+**Tests:** `live_group_hosts` phase a3 -- B makes C's user a contact,
+grants it level 0 of its location, removes it, then grants the group
+level 1; B2 serves C level 1, the group's. The sabotage
+`stream-grant-to-retired-contact` (the gate removed) is caught by a3
+alone: C then holds level 0.

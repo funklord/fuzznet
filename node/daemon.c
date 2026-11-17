@@ -15026,7 +15026,13 @@ static void take_contact_names(void)
 }
 
 /* THE LEVEL `owner` MAY READ of stream `name`: its own grant, or the
- * finest of the groups' it is in. -1 for none. */
+ * finest of the groups' it is in. -1 for none.
+ *
+ * ITS OWN GRANT ONLY WHILE IT STANDS AS A CONTACT, sec 1226: a host of a
+ * group member asks through the group, and a member this user has retired
+ * as a contact was served at the grant made to them as one --
+ * fuzzypickles' removed-contact-stays-removed, a grant made in the
+ * removal's race. What the groups grant is the groups' to give. */
 static int stream_level_of(const char *name, size_t name_len, const uint8_t *owner)
 {
 	static fzn_group_held_t in;
@@ -15034,7 +15040,8 @@ static int stream_level_of(const char *name, size_t name_len, const uint8_t *own
 	int best = -1;
 	size_t i;
 
-	if (stream_granted(name, name_len, owner, &level))
+	if ((!running_admin || fzn_node_admin_contact_stands(running_admin, owner))
+	    && stream_granted(name, name_len, owner, &level))
 		best = (int)level;
 	/* EVERY GROUP IT IS IN, sec 773: past 256 held, the listing failed and
 	 * a stream granted to a group read as granted to nobody. */

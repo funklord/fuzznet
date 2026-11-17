@@ -17314,6 +17314,13 @@ SABOTAGES = [
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
+		"stream-grant-to-retired-contact",
+		"node/daemon.c",
+		"\tif ((!running_admin || fzn_node_admin_contact_stands(running_admin, owner))\n\t    && stream_granted(name, name_len, owner, &level))\n",
+		"\tif (stream_granted(name, name_len, owner, &level))\n",
+		"a member retired as a contact is served at the grant made to them as one; live_group_hosts phase a3 only -- sec 1226",
+	),
+	(
 		"keep-place-forgets-choice",
 		"gui/keep_place.h",
 		"\t\t\t\tm_view->setCurrentIndex(at);\n",

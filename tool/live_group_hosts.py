@@ -10,7 +10,8 @@ has them; B2 is a second device of B's user, joined to B's estate by verbs
        B2 from B, so B names itself in the group's log before B2 does --
        and C's share pass comes to ask all three member hosts, A's, B's and
        B2's
-    a3 B grants the group its user's location stream at level 1; B2, which
+    a3 B grants a contact since retired -- C's user -- level 0 (sec 1226),
+       and the group its user's location stream at level 1; B2, which
        writes it, serves C that level -- a stream grant being the user's
        (sec 660), carried to B2 as an estate setting. B2, with no authority
        over the estate's settings, grants its own stream alone: `ok host`
@@ -206,6 +207,15 @@ def main(argv):
 			b_name = groups(socks["b"], "b")[0][0]
 			expect(socks["b2"], "b2", "grant stream location @%s 2" % b2_name, "ok host")
 			expect(socks["b2"], "b2", "revoke stream location @%s" % b2_name, "ok host")
+			# AND A GRANT TO A CONTACT SINCE RETIRED, sec 1226: B makes C's user
+			# a contact, grants it level 0 -- finer than the group's 1 -- and
+			# removes it, as fuzzypickles' removed-contact-stays-removed does
+			# in the removal's race. C, served by B2 through the group, gets
+			# the group's level and not the retired contact's.
+			c_root = ask(socks["c"], "get identity").split()[2]
+			expect(socks["b"], "b", "add contact cara " + c_root, "ok")
+			expect(socks["b"], "b", "grant stream location cara 0", "ok")
+			expect(socks["b"], "b", "remove contact cara", "ok")
 			expect(socks["b"], "b", "grant stream location @%s 1" % b_name, "ok")
 			got = ask(socks["b2"], "add stream location aa01 bb01 cc01")
 			if not got.startswith("ok "):
