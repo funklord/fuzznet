@@ -21,6 +21,9 @@ with a grant it can pass on, pulling from A.
     c  A takes its name back: B lists B's alone, and one holder
     c2 B removes its copy: its names go with it, at B at once and at A at
        its next round, and nobody is listed holding the file (sec 1009)
+    d0 B's legs over budget (sec 1210): with `net/budget` one byte, B is
+       asked to fetch a file and does not, saying why in its log; with the
+       budget taken away the fetch below goes ahead
     d  A names a second file and B fetches it, naming nothing; B takes up
        A's name as it holds the file whole, so when A removes its copy the
        file keeps its name in the library, B's, and B holding it (sec 1014)
@@ -330,6 +333,15 @@ def main(argv):
 			clip_root = put[1][:64]
 			expect(socks["a"], "a", "add catalog %s name clip" % clip_root, "ok")
 			until(lambda: listed("b", clip_root) == [("clip", key_a[:16])], "d-name")
+			# d0: OVER BUDGET, sec 1210: B's leg to A has carried more than
+			# one byte this window, so no file is fetched over it, said.
+			expect(socks["b"], "b", "set setting host net/budget 1", "ok")
+			expect(socks["b"], "b", "fetch file " + clip_root, "ok")
+			until(lambda: "not fetching over" in started["b"].log(), "d0-said")
+			if ask(socks["b"], "get file %s check" % clip_root).strip() == "ok intact":
+				raise failed("d0: B fetched a file over a leg past its budget")
+			expect(socks["b"], "b", "remove setting host net/budget", "ok")
+			print("livecheck: d0: B, its legs over budget, fetched nothing and said why")
 			expect(socks["b"], "b", "fetch file " + clip_root, "ok")
 			until(lambda: ask(socks["b"], "get file %s check" % clip_root).strip() == "ok intact",
 			      "d-fetch")

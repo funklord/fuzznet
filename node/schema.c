@@ -178,6 +178,13 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "the groups this host is in, first first: a group's settings stand here where the "
 	  "host sets none of its own, and the first group listed that sets one wins (sec 868)",
 	  member_check, 0u },
+	{ "net/budget", FZN_SCHEMA_COUNT, HOST, 0u, 1125899906842624ull, "", "bytes", 0u,
+	  "how many bytes each leg may carry in a budget window before a file is no longer "
+	  "fetched over it; unset is no limit (sec 1210)",
+	  NULL, 0u },
+	{ "net/budget-window", FZN_SCHEMA_COUNT, HOST, 60u, 2592000u, "86400", "seconds", 0u,
+	  "how long a leg's budget lasts before it begins again, as `relay/window` is (sec 1210)",
+	  NULL, 0u },
 	{ "net/metric", FZN_SCHEMA_COUNT, HOST, 0u, 255u, "100", "",
 	  FZN_SCHEMA_ADVANCED | FZN_SCHEMA_ADVERTISED,
 	  "this host's place in the routing manifest, lower first (sec 611)", NULL, 0u },

@@ -1748,15 +1748,21 @@ static void test_deliveries_in_binary(void)
 	      "the deliveries were not asked as everyone's lines, a full page at a time");
 }
 
-/* ONE LINK framed onto answer `i`, sec 1183. */
+/* ONE LEG framed onto answer `i`, sec 1183; with sec 1210's figures, a
+ * measured one's: asked 1.5 s ago, answered 2.5 s ago, one ask out, in
+ * use, costing 43 ms, unlimited -- and an unmeasured one's: asked 2 s ago,
+ * four lost in a row, no peer at it, its budget spent. */
 static void leg_onto(struct bscript *s, size_t i, const char *address, uint8_t measured, uint64_t latency,
                      uint64_t loss, uint64_t seen, uint64_t age)
 {
-	uint8_t row[128], m[144];
+	uint8_t row[256], m[272];
 	uint32_t row_len = 0, n = 0;
 
 	if (fzn_reach_local_leg_row_build(row, sizeof(row), (const uint8_t *)address, (uint32_t)strlen(address),
-	                                  measured, latency, loss, seen, age, 10u, 9u, 900u, 800u, &row_len)
+	                                  measured, latency, loss, seen, age, 10u, 9u, 900u, 800u,
+	                                  measured ? 1500u : 2000u, measured ? 2500u : 0u, measured ? 0u : 4u,
+	                                  measured ? 1u : 0u, measured ? 1u : 0u, measured ? 43u : 0u,
+	                                  measured ? 0u : 1000000u, measured ? 1700u : 1000000u, 86400000u, &row_len)
 	            != SITU_OK
 	    || fzn_reach_local_message_build_leg_row(m, sizeof(m), (uint8_t)FZN_CMD_REACH, row, row_len, &n) != SITU_OK)
 		return;
@@ -1775,9 +1781,10 @@ static void legs_summary_onto(struct bscript *s, size_t i, uint64_t unmeasured)
 	framed(s, i, m, n);
 }
 
-/* THE LINKS IN BINARY, sec 1183: the unmeasured count, a measured link and
- * one nothing has been observed on, read as the text rows are; a row before
- * the summary, and a listing cut before its STATUS, refused. */
+/* THE LEGS IN BINARY, sec 1183: the unmeasured count, a measured leg and
+ * one nothing has been observed on, read as the text rows are, with sec
+ * 1210's figures -- the last ANSWER's age, not the last observation's; a
+ * row before the summary, and a listing cut before its STATUS, refused. */
 static void test_legs_in_binary(void)
 {
 	static struct bscript held, early, late, cut;
@@ -1790,10 +1797,17 @@ static void test_legs_in_binary(void)
 	bon(&c, &held);
 	CHECK(fzn_rpc_leg_list(&c, &out) == FZN_RPC_OK && out.count == 2 && out.unmeasured == 3
 	              && strcmp(out.entries[0].address, "192.0.2.7:4000") == 0 && out.entries[0].rtt_ms == 42
-	              && out.entries[0].loss_permille == 25 && out.entries[0].since_success_ms == 3000
+	              && out.entries[0].loss_permille == 25 && out.entries[0].since_success_ms == 2500
 	              && out.entries[0].sent == 10 && out.entries[0].replied == 9 && out.entries[1].observations == 0
 	              && out.entries[1].since_success_ms == 0 && held.asked[0][0] == 0x0c && held.asked[0][1] == 0x80,
-	      "the links were not read in binary as the text rows are");
+	      "the legs were not read in binary as the text rows are");
+	CHECK(out.entries[0].since_attempt_ms == 1500 && out.entries[0].consecutive_failures == 0
+	              && out.entries[0].outstanding && out.entries[0].in_use && out.entries[0].cost == 43
+	              && out.entries[0].budget_limit == 0 && out.entries[0].budget_spent == 1700
+	              && out.entries[0].budget_window_ms == 86400000u && out.entries[1].consecutive_failures == 4
+	              && !out.entries[1].outstanding && !out.entries[1].in_use && out.entries[1].cost == 0
+	              && out.entries[1].budget_limit == 1000000u && out.entries[1].budget_spent == 1000000u,
+	      "a leg's sec 1210 figures were not read as sent");
 	leg_onto(&early, 0, "192.0.2.7:4000", 1u, 42u, 25u, 1u, 3u);
 	status_onto(&early, 0, FZN_STATUS_OK, NULL);
 	bon(&c, &early);

@@ -1748,6 +1748,11 @@ static struct leg_meter {
 	fzn_udp_addr_t at;
 	char latency[FZN_METRIC_NAME_MAX + 1u], loss[FZN_METRIC_NAME_MAX + 1u];
 	uint64_t asked, answered, sent, received;
+	/* WHAT A CONNECTION PAGE SHOWS, sec 1210: when it was last asked and
+	 * last answered (monotonic, 0 never), silences since the last answer,
+	 * asks out and unanswered, and the bytes of this budget window. */
+	uint64_t asked_at, answered_at, window_from, window_bytes, said_window;
+	uint32_t lost_in_row, outstanding;
 } *leg_meters;
 static size_t n_leg_meters, leg_meters_cap;
 /* Legs met when no room could be had: not measured, and counted so `list leg`
@@ -1883,9 +1888,9 @@ static int next_word(const uint8_t **at, size_t *left, const uint8_t **w, size_t
 static int word_number(const uint8_t *w, size_t n, long long lo, long long hi, long long *out);
 
 /* ONE ROW OF `list leg`, ` HOST:PORT,LATENCY,...`: its length, 0 for a
- * leg that will not render. Room for the longest row: an address and nine
- * numbers. */
-#define LEG_ROW_MAX (1u + FZN_UDP_HOST_MAX + 6u + 8u * 21u + 1u)
+ * leg that will not render. Room for the longest row: an address and
+ * seventeen numbers. */
+#define LEG_ROW_MAX (1u + FZN_UDP_HOST_MAX + 6u + 17u * 21u + 1u)
 
 /* WHAT `list leg` SAYS OF ONE LEG, both forms' (sec 1183): 0 for a leg
  * that will not render. */
@@ -1894,13 +1899,25 @@ struct leg_fact {
 	uint16_t port;
 	int observed;
 	uint64_t latency, loss, observations, age, asked, answered, sent, received;
+	/* sec 1210: the ages in ms, 0 where never; COST the expected ms to an
+	 * answer, the latency over what is not lost, 0 where nothing is
+	 * observed; the budget in bytes, its LIMIT 0 for none. */
+	uint64_t since_asked, since_answer, cost, budget_limit, budget_spent, budget_window;
+	uint32_t lost_in_row, outstanding;
+	int in_use;
 };
+
+static uint64_t host_number(const char *key, uint64_t def);
+
+/* WHETHER A PEER IS REACHED AT LEG `leg` NOW: a round target's or a contact
+ * host's address is its address. Defined with the round's targets. */
+static int leg_in_use(const fzn_udp_addr_t *at);
 
 static int leg_fact_of(size_t i, uint64_t now, struct leg_fact *f)
 {
 	const struct leg_meter *m = &leg_meters[i];
 	const fzn_metric_t *l = fzn_metrics_get(&leg_metrics, m->latency);
-	/* A LINK'S OBSERVATIONS ARE ITS LOSS'S: every answer and every silence
+	/* A LEG'S OBSERVATIONS ARE ITS LOSS'S: every answer and every silence
 	 * moves it, where only an answer moves the latency (sec 202). */
 	const fzn_metric_t *e = fzn_metrics_get(&leg_metrics, m->loss);
 
@@ -1918,6 +1935,40 @@ static int leg_fact_of(size_t i, uint64_t now, struct leg_fact *f)
 	f->answered = m->answered;
 	f->sent = m->sent;
 	f->received = m->received;
+	f->since_asked = m->asked_at && now >= m->asked_at ? now - m->asked_at : 0u;
+	f->since_answer = m->answered_at && now >= m->answered_at ? now - m->answered_at : 0u;
+	f->lost_in_row = m->lost_in_row;
+	f->outstanding = m->outstanding;
+	f->in_use = leg_in_use(&m->at);
+	/* NEVER ANSWERED, NEVER CHEAP: a loss of 1000 per mille has no cost. */
+	f->cost = f->observed && f->loss < 1000u ? f->latency * 1000u / (1000u - f->loss) : 0u;
+	f->budget_limit = host_number("net/budget", 0u);
+	f->budget_window = host_number("net/budget-window", 86400u) * 1000u;
+	f->budget_spent = m->window_from && now - m->window_from < f->budget_window ? m->window_bytes : 0u;
+	return 1;
+}
+
+/* OVER ITS BUDGET, sec 1210: what has crossed leg `leg` this window has
+ * reached `net/budget`. A file is not fetched over it (sec 1210). */
+static int leg_over_budget(size_t leg)
+{
+	const uint64_t limit = host_number("net/budget", 0u), now = mono_ms();
+	const uint64_t window = host_number("net/budget-window", 86400u) * 1000u;
+	const struct leg_meter *m;
+
+	if (!limit || leg >= n_leg_meters)
+		return 0;
+	m = &leg_meters[leg];
+	return m->window_from && now - m->window_from < window && m->window_bytes >= limit;
+}
+
+/* WHETHER TO SAY leg `leg` IS OVER ITS BUDGET: once a window, as a fetch is
+ * tried every turn and the log would otherwise say it every turn. */
+static int leg_budget_say(size_t leg)
+{
+	if (leg >= n_leg_meters || leg_meters[leg].said_window == leg_meters[leg].window_from)
+		return 0;
+	leg_meters[leg].said_window = leg_meters[leg].window_from;
 	return 1;
 }
 
@@ -1938,10 +1989,27 @@ static size_t leg_row(size_t i, uint64_t now, char *row, size_t cap)
 		(void)snprintf(loss, sizeof(loss), "-");
 		(void)snprintf(age, sizeof(age), "-");
 	}
-	k = snprintf(row, cap, " %s:%u,%s,%s,%llu,%s,%llu,%llu,%llu,%llu", f.host, (unsigned)f.port, lat,
-	             loss, (unsigned long long)f.observations, age, (unsigned long long)f.asked,
-	             (unsigned long long)f.answered, (unsigned long long)f.sent,
-	             (unsigned long long)f.received);
+	/* AND SEC 1210'S, after them so a reader of the first nine reads on:
+	 * the two ages in ms and `-` for never, the losses in a row, the asks
+	 * out, in use 1 or 0, the cost and `-` for none, and the budget's
+	 * limit, spent and window. */
+	{
+		char asked_ago[24], answer_ago[24], cost[24];
+
+		(void)snprintf(asked_ago, sizeof(asked_ago), f.asked ? "%llu" : "-",
+		               (unsigned long long)f.since_asked);
+		(void)snprintf(answer_ago, sizeof(answer_ago), f.answered ? "%llu" : "-",
+		               (unsigned long long)f.since_answer);
+		(void)snprintf(cost, sizeof(cost), f.observed ? "%llu" : "-", (unsigned long long)f.cost);
+		k = snprintf(row, cap,
+		             " %s:%u,%s,%s,%llu,%s,%llu,%llu,%llu,%llu,%s,%s,%lu,%lu,%d,%s,%llu,%llu,%llu",
+		             f.host, (unsigned)f.port, lat, loss, (unsigned long long)f.observations, age,
+		             (unsigned long long)f.asked, (unsigned long long)f.answered,
+		             (unsigned long long)f.sent, (unsigned long long)f.received, asked_ago,
+		             answer_ago, (unsigned long)f.lost_in_row, (unsigned long)f.outstanding,
+		             f.in_use ? 1 : 0, cost, (unsigned long long)f.budget_limit,
+		             (unsigned long long)f.budget_spent, (unsigned long long)f.budget_window);
+	}
 	return k > 0 && (size_t)k < cap ? (size_t)k : 0u;
 }
 
@@ -2068,11 +2136,29 @@ static size_t leg_local(fzn_origin_t origin, const fzn_request_t *request, char 
 }
 
 /* A REQUEST SENT on leg `leg`, counted. */
+/* THE BUDGET'S WINDOW, sec 1210: `net/budget` bytes each `net/budget-window`,
+ * counted up and down; a window past its end begins again from now. */
+static void leg_spend(struct leg_meter *m, size_t bytes, uint64_t now)
+{
+	const uint64_t window = host_number("net/budget-window", 86400u) * 1000u;
+
+	if (!m->window_from || now - m->window_from >= window) {
+		m->window_from = now;
+		m->window_bytes = 0;
+	}
+	m->window_bytes += bytes;
+}
+
 static void leg_asked(size_t leg, size_t request_len)
 {
 	if (leg < n_leg_meters) {
+		const uint64_t now = mono_ms();
+
 		leg_meters[leg].asked++;
 		leg_meters[leg].sent += request_len;
+		leg_meters[leg].asked_at = now ? now : 1u;
+		leg_meters[leg].outstanding++;
+		leg_spend(&leg_meters[leg], request_len, now);
 	}
 }
 
@@ -2084,13 +2170,19 @@ static void leg_answered(size_t leg, uint64_t began, size_t reply_len, int lost)
 
 	if (leg >= n_leg_meters)
 		return;
+	if (leg_meters[leg].outstanding)
+		leg_meters[leg].outstanding--;
 	/* A LOSS MOVES THE LOSS ALONE: a silence has no round trip (sec 202). */
 	if (lost) {
+		leg_meters[leg].lost_in_row++;
 		(void)fzn_metrics_observe(&leg_metrics, leg_meters[leg].loss, 1000u, ended);
 		return;
 	}
 	leg_meters[leg].answered++;
 	leg_meters[leg].received += reply_len;
+	leg_meters[leg].lost_in_row = 0;
+	leg_meters[leg].answered_at = ended ? ended : 1u;
+	leg_spend(&leg_meters[leg], reply_len, ended);
 	(void)fzn_metrics_observe(&leg_metrics, leg_meters[leg].latency,
 	                          ended > began ? ended - began : 0u, ended);
 	(void)fzn_metrics_observe(&leg_metrics, leg_meters[leg].loss, 0u, ended);
@@ -17509,6 +17601,21 @@ static int session_relay_marked(const uint8_t host[FZN_PUBKEY_LEN], uint64_t now
 	return 0;
 }
 
+static int leg_in_use(const fzn_udp_addr_t *at)
+{
+	size_t i;
+
+	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls; i++)
+		if (loop_pulls[i].caller.node.len == at->len
+		    && memcmp(loop_pulls[i].caller.node.storage, at->storage, at->len) == 0)
+			return 1;
+	for (i = 0; i < ncontact_targets; i++)
+		if (contact_targets[i].pt.caller.node.len == at->len
+		    && memcmp(contact_targets[i].pt.caller.node.storage, at->storage, at->len) == 0)
+			return 1;
+	return 0;
+}
+
 /* THE ROUND'S TARGET for `host`: an estate peer's, or a contact host's. */
 static struct pull_target *target_of(const uint8_t host[FZN_PUBKEY_LEN])
 {
@@ -18497,7 +18604,7 @@ static int local_transfers(int fd, fzn_origin_t origin, const uint8_t *msg, size
 static int local_legs(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	uint64_t now = mono_ms();
-	uint8_t row[128], out[144];
+	uint8_t row[256], out[272];
 	uint32_t row_len = 0, out_len = 0;
 	situ_msg_t m;
 	situ_view_t v;
@@ -18509,7 +18616,7 @@ static int local_legs(int fd, fzn_origin_t origin, const uint8_t *msg, size_t le
 	if (len > UINT32_MAX || fzn_reach_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
 	    || fzn_reach_local_message_validate(v) != SITU_OK
 	    || fzn_reach_local_message_op_get(v) != FZN_REACH_LOCAL_OP_LEGS)
-		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a links request"), 0;
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a legs request"), 0;
 	if (fzn_reach_local_legs_summary_build(row, sizeof(row), (uint64_t)legs_unmeasured, &row_len) != SITU_OK
 	    || fzn_reach_local_message_build_legs_summary(out, sizeof(out), (uint8_t)FZN_CMD_REACH, row, row_len,
 	                                                  &out_len) != SITU_OK
@@ -18526,7 +18633,10 @@ static int local_legs(int fd, fzn_origin_t origin, const uint8_t *msg, size_t le
 		if (n <= 0 || (size_t)n >= sizeof(address)
 		    || fzn_reach_local_leg_row_build(row, sizeof(row), (const uint8_t *)address, (uint32_t)n,
 		                                     (uint8_t)(f.observed ? 1 : 0), f.latency, f.loss, f.observations,
-		                                     f.age, f.asked, f.answered, f.sent, f.received, &row_len)
+		                                     f.age, f.asked, f.answered, f.sent, f.received,
+		                                     f.asked ? f.since_asked : 0u, f.answered ? f.since_answer : 0u,
+		                                     f.lost_in_row, f.outstanding, (uint8_t)(f.in_use ? 1 : 0), f.cost,
+		                                     f.budget_limit, f.budget_spent, f.budget_window, &row_len)
 		               != SITU_OK
 		    || fzn_reach_local_message_build_leg_row(out, sizeof(out), (uint8_t)FZN_CMD_REACH, row, row_len,
 		                                             &out_len) != SITU_OK
@@ -21722,20 +21832,20 @@ _Static_assert(FZND_PULL_REPLY_MAX >= FZN_NODE_FILES_REPLY_MAX,
 /* THE FETCH AS STEPS, sec 694: one file at a time, its requests awaited by
  * the loop through the round's asks (`node/asks.h`) beside every other
  * event, so a file arriving no longer keeps the local socket waiting -- sec
- * 693 measured 22.7 s. Each peer of a fetch is a LINK: a copy of its pull
+ * 693 measured 22.7 s. Each peer of a fetch is a LEG: a copy of its pull
  * target's caller on a socket of the fetch's own, answering into the
  * fetch's reassembly table, so nothing the round asks of the same peer
- * meets a reply of the fetch's or the other way round. A fetch's links are
+ * meets a reply of the fetch's or the other way round. A fetch's legs are
  * opened when it begins and closed when it ends, what they still await
  * cancelled first. */
-struct fetch_link {
+struct fetch_leg {
 	fzn_caller_t caller;
 	int fd;
 };
 
 static fzn_node_files_fetching_t fetching;
-static struct fetch_link fetch_links[FZN_NODE_FILES_PEERS_MAX];
-static size_t fetch_n_links;
+static struct fetch_leg fetch_legs[FZN_NODE_FILES_PEERS_MAX];
+static size_t fetch_n_legs;
 static int fetch_active;
 /* WHEN THE FETCH LAST PLACED A LEAF, and last said it had not, sec 1166. */
 static uint64_t fetch_progress_ms, fetch_stall_said_ms, fetch_placed_then;
@@ -21751,18 +21861,18 @@ static void fetch_close_links(void)
 {
 	size_t i;
 
-	for (i = 0; i < fetch_n_links; i++) {
-		(void)fzn_node_asks_cancel(&round_asks, &fetch_links[i].caller);
-		if (fetch_links[i].fd >= 0)
-			fzn_udp_close(fetch_links[i].fd);
-		fzn_wipe(&fetch_links[i].caller, sizeof(fetch_links[i].caller));
-		fetch_links[i].fd = -1;
+	for (i = 0; i < fetch_n_legs; i++) {
+		(void)fzn_node_asks_cancel(&round_asks, &fetch_legs[i].caller);
+		if (fetch_legs[i].fd >= 0)
+			fzn_udp_close(fetch_legs[i].fd);
+		fzn_wipe(&fetch_legs[i].caller, sizeof(fetch_legs[i].caller));
+		fetch_legs[i].fd = -1;
 	}
-	fetch_n_links = 0;
+	fetch_n_legs = 0;
 }
 
 /* A LINK TO `pt`: its caller, on a socket of its own of `pt`'s family. */
-static int fetch_link_up(struct fetch_link *l, const struct pull_target *pt, fzn_reasm_t *table)
+static int fetch_leg_up(struct fetch_leg *l, const struct pull_target *pt, fzn_reasm_t *table)
 {
 	const struct sockaddr *sa = (const struct sockaddr *)pt->caller.node.storage;
 	int fd = -1;
@@ -21840,7 +21950,7 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		    != FZN_REASM_OK)
 			return;
 		for (i = 0; i < FZN_NODE_FILES_PEERS_MAX; i++)
-			fetch_links[i].fd = -1;
+			fetch_legs[i].fd = -1;
 		table_ready = 1;
 	}
 	if (!fetch_active) {
@@ -21879,8 +21989,22 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 			    && contact_targets[u - nshares_in].down)
 				continue;
 			(void)caller;
-			if (fetch_link_up(&fetch_links[n_peers], pt, &table))
-				fetch_n_links = ++n_peers;
+			/* NOT OVER A LEG PAST ITS BUDGET, sec 1210: a file is the bulk a
+			 * metered leg is budgeted against; messages and the journal
+			 * still cross it. */
+			{
+				const size_t leg = leg_of(&pt->caller.node);
+
+				if (leg_over_budget(leg)) {
+					if (leg_budget_say(leg))
+						say(FZN_ENTRY_INFO, "files",
+						    "not fetching over %s: its budget is spent until its window ends",
+						    pt->host ? pt->host : "a peer's leg");
+					continue;
+				}
+			}
+			if (fetch_leg_up(&fetch_legs[n_peers], pt, &table))
+				fetch_n_legs = ++n_peers;
 		}
 		/* WHO A FETCH ASKS, and a fetch that did not begin, said (sec 839):
 		 * a lossy run's file that never came said nothing of either. */
@@ -21913,8 +22037,8 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 	while (fzn_node_asks_pending(&round_asks) < FZN_NODE_ASKS_MAX
 	       && fzn_node_files_fetching_next(&fetching, wall_ms(), &k, &tag, request,
 	                                       sizeof(request), &len))
-		if (k >= fetch_n_links
-		    || !fzn_node_asks_send(&round_asks, &fetch_links[k].caller, request, len, now + 300u,
+		if (k >= fetch_n_legs
+		    || !fzn_node_asks_send(&round_asks, &fetch_legs[k].caller, request, len, now + 300u,
 		                           (unsigned)fzn_node_files_span_deadline_ms(), fetch_answered,
 		                           (void *)(uintptr_t)tag))
 			fzn_node_files_fetching_take(&fetching, tag, NULL, 0, wall_ms());
@@ -21968,7 +22092,7 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 			 * not come (sec 839): it ended silently before. */
 			say(FZN_ENTRY_DEBUG, "files",
 			    "file %02x%02x%02x%02x: nothing placed, %zu holder(s) of %zu peer(s), %s",
-			    r[0], r[1], r[2], r[3], holders, fetch_n_links, fzn_node_files_err_str(err));
+			    r[0], r[1], r[2], r[3], holders, fetch_n_legs, fzn_node_files_err_str(err));
 		if (err != FZN_NODE_FILES_OK && err != FZN_NODE_FILES_ERR_NOT_THERE
 		    && err != FZN_NODE_FILES_ERR_ABSENT)
 			say(FZN_ENTRY_WARNING, "files", "file %02x%02x%02x%02x: %s", r[0], r[1], r[2], r[3],

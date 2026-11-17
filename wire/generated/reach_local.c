@@ -157,6 +157,74 @@ situ_err_t fzn_reach_local_leg_row_check(situ_view_t view, uint32_t *which)
 		*which = FZN_REACH_LOCAL_LEG_ROW_RECEIVED_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
+	/* leg_row.since_asked_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_reach_local_leg_row_since_asked_ms_offset(view), 8u)) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_SINCE_ASKED_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* leg_row.since_answer_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_reach_local_leg_row_since_answer_ms_offset(view), 8u)) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_SINCE_ANSWER_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* leg_row.lost_in_row: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_reach_local_leg_row_lost_in_row_offset(view), 4u)) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_LOST_IN_ROW_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* leg_row.outstanding: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_reach_local_leg_row_outstanding_offset(view), 4u)) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_OUTSTANDING_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* leg_row.in_use: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_reach_local_leg_row_in_use_offset(view), 1u)) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_IN_USE_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* leg_row.in_use [max = 1] */
+	if (fzn_reach_local_leg_row_in_use_get(view) > 1) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_IN_USE_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* leg_row.cost_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_reach_local_leg_row_cost_ms_offset(view), 8u)) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_COST_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* leg_row.budget_limit: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_reach_local_leg_row_budget_limit_offset(view), 8u)) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_BUDGET_LIMIT_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* leg_row.budget_spent: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_reach_local_leg_row_budget_spent_offset(view), 8u)) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_BUDGET_SPENT_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* leg_row.budget_window_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_reach_local_leg_row_budget_window_ms_offset(view), 8u)) {
+		*which = FZN_REACH_LOCAL_LEG_ROW_BUDGET_WINDOW_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
 	return SITU_OK;
 }
 

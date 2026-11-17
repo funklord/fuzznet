@@ -1,5 +1,4 @@
 #include "link_view.h"
-#include "rpc_ask.h"
 
 #include <QFontDatabase>
 #include <QFormLayout>
@@ -62,17 +61,18 @@ fzn_link_view::fzn_link_view(QWidget *parent)
 {
 	QFormLayout *form = new QFormLayout(this);
 
-	/* THE PATHS SCROLL SIDEWAYS rather than set the view's width, sec 1120:
+	/* THE LINKS SCROLL SIDEWAYS rather than set the view's width, sec 1120:
 	 * their rows must not wrap, and as the view's own width they made it
-	 * 332 px, past a folding phone's 320 px cover screen. */
-	QScrollArea *paths = new QScrollArea(this);
-	paths->setWidget(rows_);
-	paths->setWidgetResizable(true);
-	paths->setFrameShape(QFrame::NoFrame);
-	paths->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-	paths->setAccessibleName(QStringLiteral("Paths"));
+	 * 332 px, past a folding phone's 320 px cover screen. Each row is a
+	 * link, sec 906's word, where it was labelled a path (sec 1210). */
+	QScrollArea *each = new QScrollArea(this);
+	each->setWidget(rows_);
+	each->setWidgetResizable(true);
+	each->setFrameShape(QFrame::NoFrame);
+	each->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+	each->setAccessibleName(QStringLiteral("Each link"));
 	form->addRow(QStringLiteral("Links"), summary_);
-	form->addRow(QStringLiteral("Paths"), paths);
+	form->addRow(QStringLiteral("Each link"), each);
 
 	summary_->setWordWrap(true);
 	/* THE ROWS MUST NOT WRAP. Their alignment is in the string, and a
@@ -81,76 +81,6 @@ fzn_link_view::fzn_link_view(QWidget *parent)
 	rows_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
 
 	show_links(nullptr);
-}
-
-fzn_link_view::fzn_link_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
-        : fzn_link_view(parent)
-{
-	rpc_ = new fzn_gui_rpc;
-	fzn_gui_rpc_init(rpc_, ask, ask_ctx);
-}
-
-fzn_link_view::~fzn_link_view() { delete rpc_; }
-
-/* A HOSTED ROW'S COLUMNS: where, how fast, how much of what was asked came
- * back, and how long since anything did. */
-#define COL_ADDRESS 24
-#define COL_ANSWERED 10
-#define COL_HEARD 11
-
-bool fzn_link_view::refresh()
-{
-	if (!rpc_)
-		return false;
-	auto *legs = new fzn_rpc_leg_list_resp_t;
-	if (fzn_rpc_leg_list(&rpc_->c, legs) != FZN_RPC_OK) {
-		summary_->setText(QString::fromUtf8(fzn_gui_rpc_silent(rpc_)));
-		rows_->setText(QString());
-		delete legs;
-		return rpc_->c.answered;
-	}
-	size_t answering = 0, i;
-	QString rows = column(QStringLiteral("address"), -COL_ADDRESS)
-	               + column(QStringLiteral("rtt"), COL_LATENCY)
-	               + column(QStringLiteral("loss"), COL_LOSS)
-	               + column(QStringLiteral("answered"), COL_ANSWERED)
-	               + column(QStringLiteral("heard"), COL_HEARD);
-	for (i = 0; i < legs->count; i++) {
-		const fzn_rpc_leg_entry_t *l = &legs->entries[i];
-		answering += l->replied > 0;
-		if (i >= FZN_LINK_VIEW_ROWS_MAX)
-			continue;
-		rows += QLatin1Char('\n')
-		        + column(QString::fromUtf8(l->address, (int)l->address_len), -COL_ADDRESS)
-		        + column(l->replied ? QString::number(l->rtt_ms) + QStringLiteral(" ms")
-		                            : QStringLiteral("-"),
-		                 COL_LATENCY)
-		        /* THE NODE'S ESTIMATE, where it has observed anything (sec
-		         * 1125); a dash where it has not, a loss nobody saw not being
-		         * a rate -- the model-fed rows' rule. */
-		        + column(l->observations ? QString::number(l->loss_permille / 10u) + QStringLiteral(".")
-		                                           + QString::number(l->loss_permille % 10u)
-		                                           + QStringLiteral("%")
-		                                 : QStringLiteral("-"),
-		                 COL_LOSS)
-		        + column(QStringLiteral("%1/%2").arg(l->replied).arg(l->sent), COL_ANSWERED)
-		        + column(l->replied ? QString::number(l->since_success_ms / 1000u)
-		                                      + QStringLiteral(" s ago")
-		                            : QStringLiteral("never"),
-		                 COL_HEARD);
-	}
-	/* THE SAME FOUR STATES as a table handed in, from what the node said:
-	 * no leg, or legs none of which has answered, or some that have. */
-	state_ = !legs->count ? NONE : answering ? MEASURED : UNMEASURED;
-	unmeasured_ = legs->count - answering;
-	rows_truncated_ = legs->count > FZN_LINK_VIEW_ROWS_MAX;
-	QString said = QStringLiteral("%1 leg(s), %2 answering").arg(legs->count).arg(answering);
-	if (rows_truncated_)
-		said += QStringLiteral(", %1 not drawn").arg(legs->count - FZN_LINK_VIEW_ROWS_MAX);
-	summary_->setText(legs->count ? said : QStringLiteral("no legs"));
-	rows_->setText(legs->count ? rows : QString());
-	delete legs;
-	return true;
 }
 
 void fzn_link_view::show_links(const fzn_link_table_t *table)

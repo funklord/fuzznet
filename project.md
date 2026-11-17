@@ -85936,7 +85936,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
-| Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
+| Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed), `leg_view` hosted over `list leg` with cost, budget and in use (secs 1121, 1210), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
 | The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190, the notes under a parent sec 1191, the notebook's listing sec 1194, its open note sec 1201, a checklist's items sec 1202, a file's state sec 1203); the notebook's writes, and the retention and governance views, still send their own text lines -- all to move to binary (sec 1208) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
@@ -90446,3 +90446,52 @@ from fuzzypickles and now says what the code does.
 
 **Verified:** every renamed name counted before and after; the build
 clean; `rpc_test` and `link_view_test`; the five gates.
+
+**And what a connection page needs of a leg, kept** (sec 1208: "everything
+we need, we implement"). fuzzypickles' Connection page drew from its own
+link layer what `list leg` lacked; fuzznetd now keeps it per leg:
+
+- **when it was last asked and last answered**, and how many silences in
+  a row since the last answer. *A fault found doing it*: both of the
+  client's readers filled "since the last reply" from the leg's age,
+  which is the last OBSERVATION's -- a silence among them -- so a leg
+  that had just timed out read as heard a moment ago. They take the last
+  answer's age now; a node from before this still gives only the age.
+- **its asks out and unanswered**, and **in use**: a peer -- a round's
+  target or a contact host -- is reached at its address now.
+- **its cost**: the expected time to an answer, the latency over what is
+  not lost -- one rule, the node's, where fuzzypickles kept its own.
+- **its budget**: `net/budget` bytes each `net/budget-window` seconds
+  (a day), shaped as `relay/quota` and `relay/window` are, up and down
+  counted; unset is no limit. **A file is not fetched over a leg past its
+  budget**, said once a window in the log; messages and the journal still
+  cross it, a budget being for the bulk a metered leg is paid for.
+
+`list leg`'s row takes nine fields more after its nine, so a reader of
+the first nine reads on, and the client reads either; the binary
+`leg_row` takes the same nine (wire changed, free on the local leg).
+
+**`leg_view`** is the hosted table, where `link_view`'s hosted form was:
+address, the link it goes over, latency, answers and losses in a row,
+cost and budget, and in a tooltip the last ask and answer, an ask out,
+not in use and a budget spent. Under 400 px the address and answers
+stay. `link_view` keeps only `link/`'s table, its rows labelled "Each
+link" where they said "Paths". fuzzypickles' "Links, and what they cost"
+can move onto it.
+
+**Tests:** four vectors; `rpc_test` -- the nine read as sent, the answer's
+age where the observation's was; `leg_view_test`, 11 -- each cell, the
+tooltips, a spent budget, the phone's width, an older node's nine, no
+legs, a silent node; `live_pairing` phase e -- the leg to B asked and
+answered lately, in use, a cost no less than its latency, a one-byte
+budget said spent, and e2 the same in binary; `live_catalog` phase d0 --
+B, its legs over budget, fetches nothing and says why, and fetches once
+the budget is gone. Nine sabotages, each caught: the seven new
+(`rpc-leg-heard-at-a-silence`, `rpc-leg-text-heard-at-a-silence`,
+`leg-view-narrow-keeps-all`, `leg-view-unlimited-as-spent`,
+`leg-view-silence-unsaid`, and the daemon's `daemon-leg-never-in-use`
+and `daemon-fetch-past-budget` by live run), and `link_view`'s two hosted
+ones moved with their lines (`leg-view-silence-keeps-rows`,
+`leg-view-unanswered-counted`); and `rpc-legs-binary-unobserved-aged`,
+superseded by the two answer-age entries. `qtty_render_test` renders
+the new view: "No legs yet".

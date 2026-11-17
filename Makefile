@@ -1375,14 +1375,14 @@ GUI_SRCS  += gui/config_view.cpp gui/log_view.cpp gui/sync_view.cpp \
              gui/journal_view.cpp gui/sweep_view.cpp gui/transfer_view.cpp \
              gui/capability_view.cpp gui/state_view.cpp \
              gui/revocation_view.cpp gui/authz_view.cpp \
-             gui/provision_view.cpp gui/link_view.cpp gui/peer_view.cpp \
+             gui/provision_view.cpp gui/link_view.cpp gui/leg_view.cpp gui/peer_view.cpp \
              gui/manifest_view.cpp gui/ledger_view.cpp \
              gui/sched_view.cpp gui/persist_view.cpp
 GUI_HDRS  += gui/config_view.h gui/log_view.h gui/sync_view.h \
              gui/journal_view.h gui/sweep_view.h gui/transfer_view.h \
              gui/capability_view.h gui/state_view.h \
              gui/revocation_view.h gui/authz_view.h \
-             gui/provision_view.h gui/link_view.h gui/peer_view.h \
+             gui/provision_view.h gui/link_view.h gui/leg_view.h gui/peer_view.h \
              gui/manifest_view.h gui/ledger_view.h \
              gui/sched_view.h gui/persist_view.h
 GUI_TSRC  += gui/test/config_view_test.cpp gui/test/log_view_test.cpp \
@@ -1390,7 +1390,7 @@ GUI_TSRC  += gui/test/config_view_test.cpp gui/test/log_view_test.cpp \
              gui/test/sweep_view_test.cpp gui/test/transfer_view_test.cpp \
              gui/test/capability_view_test.cpp gui/test/state_view_test.cpp \
              gui/test/revocation_view_test.cpp gui/test/authz_view_test.cpp \
-             gui/test/provision_view_test.cpp gui/test/link_view_test.cpp \
+             gui/test/provision_view_test.cpp gui/test/link_view_test.cpp gui/test/leg_view_test.cpp \
              gui/test/peer_view_test.cpp gui/test/manifest_view_test.cpp \
              gui/test/ledger_view_test.cpp \
              gui/test/sched_view_test.cpp \
@@ -1482,6 +1482,7 @@ TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
              $(BUILD_DIR)/gui/test/authz_view_test \
              $(BUILD_DIR)/gui/test/provision_view_test \
              $(BUILD_DIR)/gui/test/link_view_test \
+             $(BUILD_DIR)/gui/test/leg_view_test \
              $(BUILD_DIR)/gui/test/peer_view_test \
              $(BUILD_DIR)/gui/test/manifest_view_test \
              $(BUILD_DIR)/gui/test/ledger_view_test \
@@ -4020,6 +4021,12 @@ $(BUILD_DIR)/gui/test/link_view_test: $(BUILD_DIR)/gui/test/link_view_test.o \
                                      $(BUILD_DIR)/cli/link_print.o \
                                      $(LINK_OBJ) \
                                      $(BUILD_DIR)/sched/sched.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
+
+# This host's legs, hosted over the typed client, sec 1210.
+$(BUILD_DIR)/gui/test/leg_view_test: $(BUILD_DIR)/gui/test/leg_view_test.o \
+                                    $(BUILD_DIR)/gui/leg_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 
@@ -7981,7 +7988,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(TH
 	       gui/qr_view.cpp gui/authz_view.cpp gui/capability_view.cpp \
 	       gui/sweep_view.cpp gui/revocation_view.cpp gui/journal_view.cpp \
 	       gui/sync_view.cpp gui/transfer_view.cpp gui/state_view.cpp \
-	       gui/config_view.cpp gui/link_view.cpp gui/peer_view.cpp \
+	       gui/config_view.cpp gui/link_view.cpp gui/leg_view.cpp gui/peer_view.cpp \
 	       gui/manifest_view.cpp gui/ledger_view.cpp gui/sched_view.cpp \
 	       gui/persist_view.cpp gui/notebook_view.cpp gui/retention_view.cpp \
 	       gui/governance_view.cpp gui/objects_view.cpp gui/settings_view.cpp gui/contacts_view.cpp \

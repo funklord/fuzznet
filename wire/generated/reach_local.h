@@ -132,8 +132,8 @@ situ_err_t fzn_reach_local_legs_summary_validate(situ_view_t view);
 
 /* ---- struct leg_row ---- */
 
-#define FZN_REACH_LOCAL_LEG_ROW_SIZE_MIN   66u
-#define FZN_REACH_LOCAL_LEG_ROW_SIZE_MAX   118u
+#define FZN_REACH_LOCAL_LEG_ROW_SIZE_MIN   123u
+#define FZN_REACH_LOCAL_LEG_ROW_SIZE_MAX   175u
 
 /* INVALIDATION: a leg_row view, and every view derived from
  * it, is invalidated by writing `address_len` -- those decide where the
@@ -493,6 +493,304 @@ static inline void fzn_reach_local_leg_row_received_set(situ_view_t view, uint64
 	}
 }
 
+/** leg_row.since_asked_ms : u64  at Dynamic
+ * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_reach_local_leg_row_since_asked_ms_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (65u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint64_t fzn_reach_local_leg_row_since_asked_ms_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_reach_local_leg_row_since_asked_ms_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_reach_local_leg_row_since_asked_ms_offset(view)) + 0u))
+		: (uint64_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_reach_local_leg_row_since_asked_ms_set(situ_view_t view, uint64_t value)
+{
+	if (situ_in_bounds(view, fzn_reach_local_leg_row_since_asked_ms_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_reach_local_leg_row_since_asked_ms_offset(view)) + 0u, (uint64_t)value);
+	}
+}
+
+/** leg_row.since_answer_ms : u64  at Dynamic
+ * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_reach_local_leg_row_since_answer_ms_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (73u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint64_t fzn_reach_local_leg_row_since_answer_ms_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_reach_local_leg_row_since_answer_ms_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_reach_local_leg_row_since_answer_ms_offset(view)) + 0u))
+		: (uint64_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_reach_local_leg_row_since_answer_ms_set(situ_view_t view, uint64_t value)
+{
+	if (situ_in_bounds(view, fzn_reach_local_leg_row_since_answer_ms_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_reach_local_leg_row_since_answer_ms_offset(view)) + 0u, (uint64_t)value);
+	}
+}
+
+/** leg_row.lost_in_row : u32  at Dynamic
+ * size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_reach_local_leg_row_lost_in_row_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (81u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint32_t fzn_reach_local_leg_row_lost_in_row_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_reach_local_leg_row_lost_in_row_offset(view), 4u)
+		? (uint32_t)(situ_get_be32((situ_base(view) + fzn_reach_local_leg_row_lost_in_row_offset(view)) + 0u))
+		: (uint32_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_reach_local_leg_row_lost_in_row_set(situ_view_t view, uint32_t value)
+{
+	if (situ_in_bounds(view, fzn_reach_local_leg_row_lost_in_row_offset(view), 4u)) {
+		situ_put_be32((situ_base(view) + fzn_reach_local_leg_row_lost_in_row_offset(view)) + 0u, (uint32_t)value);
+	}
+}
+
+/** leg_row.outstanding : u32  at Dynamic
+ * size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_reach_local_leg_row_outstanding_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (85u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint32_t fzn_reach_local_leg_row_outstanding_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_reach_local_leg_row_outstanding_offset(view), 4u)
+		? (uint32_t)(situ_get_be32((situ_base(view) + fzn_reach_local_leg_row_outstanding_offset(view)) + 0u))
+		: (uint32_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_reach_local_leg_row_outstanding_set(situ_view_t view, uint32_t value)
+{
+	if (situ_in_bounds(view, fzn_reach_local_leg_row_outstanding_offset(view), 4u)) {
+		situ_put_be32((situ_base(view) + fzn_reach_local_leg_row_outstanding_offset(view)) + 0u, (uint32_t)value);
+	}
+}
+
+#define FZN_REACH_LOCAL_LEG_ROW_IN_USE_VALUE_MAX 1u
+
+/** leg_row.in_use : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_reach_local_leg_row_in_use_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (89u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_reach_local_leg_row_in_use_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_reach_local_leg_row_in_use_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_reach_local_leg_row_in_use_offset(view)))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_reach_local_leg_row_in_use_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_reach_local_leg_row_in_use_offset(view));
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_reach_local_leg_row_in_use_set(situ_view_t view, uint8_t value)
+{
+	if (situ_in_bounds(view, fzn_reach_local_leg_row_in_use_offset(view), 1u)) {
+		((situ_base(view) + fzn_reach_local_leg_row_in_use_offset(view)))[0u] = (uint8_t)value;
+	}
+}
+
+/** leg_row.cost_ms : u64  at Dynamic
+ * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_reach_local_leg_row_cost_ms_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (90u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint64_t fzn_reach_local_leg_row_cost_ms_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_reach_local_leg_row_cost_ms_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_reach_local_leg_row_cost_ms_offset(view)) + 0u))
+		: (uint64_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_reach_local_leg_row_cost_ms_set(situ_view_t view, uint64_t value)
+{
+	if (situ_in_bounds(view, fzn_reach_local_leg_row_cost_ms_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_reach_local_leg_row_cost_ms_offset(view)) + 0u, (uint64_t)value);
+	}
+}
+
+/** leg_row.budget_limit : u64  at Dynamic
+ * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_reach_local_leg_row_budget_limit_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (98u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint64_t fzn_reach_local_leg_row_budget_limit_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_reach_local_leg_row_budget_limit_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_reach_local_leg_row_budget_limit_offset(view)) + 0u))
+		: (uint64_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_reach_local_leg_row_budget_limit_set(situ_view_t view, uint64_t value)
+{
+	if (situ_in_bounds(view, fzn_reach_local_leg_row_budget_limit_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_reach_local_leg_row_budget_limit_offset(view)) + 0u, (uint64_t)value);
+	}
+}
+
+/** leg_row.budget_spent : u64  at Dynamic
+ * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_reach_local_leg_row_budget_spent_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (106u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint64_t fzn_reach_local_leg_row_budget_spent_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_reach_local_leg_row_budget_spent_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_reach_local_leg_row_budget_spent_offset(view)) + 0u))
+		: (uint64_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_reach_local_leg_row_budget_spent_set(situ_view_t view, uint64_t value)
+{
+	if (situ_in_bounds(view, fzn_reach_local_leg_row_budget_spent_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_reach_local_leg_row_budget_spent_offset(view)) + 0u, (uint64_t)value);
+	}
+}
+
+/** leg_row.budget_window_ms : u64  at Dynamic
+ * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_reach_local_leg_row_budget_window_ms_offset(situ_view_t view)
+{
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
+	offset = situ_advance_u32(offset, (114u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint64_t fzn_reach_local_leg_row_budget_window_ms_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_reach_local_leg_row_budget_window_ms_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_reach_local_leg_row_budget_window_ms_offset(view)) + 0u))
+		: (uint64_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_reach_local_leg_row_budget_window_ms_set(situ_view_t view, uint64_t value)
+{
+	if (situ_in_bounds(view, fzn_reach_local_leg_row_budget_window_ms_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_reach_local_leg_row_budget_window_ms_offset(view)) + 0u, (uint64_t)value);
+	}
+}
+
 /** How many bytes one `leg_row` occupies at this view's base.
  *
  * A run of these is walked rather than indexed, and the walk needs
@@ -501,11 +799,11 @@ static inline void fzn_reach_local_leg_row_received_set(situ_view_t view, uint64
  */
 static inline uint32_t fzn_reach_local_leg_row_extent(situ_view_t view)
 {
-	if (!situ_in_bounds(view, 0u, 66u)) {
-		return 66u;	/* the lengths below are not here to read */
+	if (!situ_in_bounds(view, 0u, 123u)) {
+		return 123u;	/* the lengths below are not here to read */
 	}
 
-	uint32_t extent = 66u;
+	uint32_t extent = 123u;
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])));
 	return extent;
 }
@@ -521,7 +819,7 @@ static inline uint32_t fzn_reach_local_leg_row_extent(situ_view_t view)
  */
 static inline situ_err_t fzn_reach_local_leg_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
 {
-	uint32_t at = 66u;
+	uint32_t at = 123u;
 	situ_view_t view;
 
 	/* A view over what has arrived, so every length expression below
@@ -583,11 +881,20 @@ situ_err_t fzn_reach_local_leg_row_check(situ_view_t view, uint32_t *which);
 #define FZN_REACH_LOCAL_LEG_ROW_ANSWERED_CHECK 8u
 #define FZN_REACH_LOCAL_LEG_ROW_SENT_CHECK 9u
 #define FZN_REACH_LOCAL_LEG_ROW_RECEIVED_CHECK 10u
+#define FZN_REACH_LOCAL_LEG_ROW_SINCE_ASKED_MS_CHECK 11u
+#define FZN_REACH_LOCAL_LEG_ROW_SINCE_ANSWER_MS_CHECK 12u
+#define FZN_REACH_LOCAL_LEG_ROW_LOST_IN_ROW_CHECK 13u
+#define FZN_REACH_LOCAL_LEG_ROW_OUTSTANDING_CHECK 14u
+#define FZN_REACH_LOCAL_LEG_ROW_IN_USE_CHECK 15u
+#define FZN_REACH_LOCAL_LEG_ROW_COST_MS_CHECK 16u
+#define FZN_REACH_LOCAL_LEG_ROW_BUDGET_LIMIT_CHECK 17u
+#define FZN_REACH_LOCAL_LEG_ROW_BUDGET_SPENT_CHECK 18u
+#define FZN_REACH_LOCAL_LEG_ROW_BUDGET_WINDOW_MS_CHECK 19u
 
 /* ---- struct message ---- */
 
 #define FZN_REACH_LOCAL_MESSAGE_SIZE_MIN   2u
-#define FZN_REACH_LOCAL_MESSAGE_SIZE_MAX   120u
+#define FZN_REACH_LOCAL_MESSAGE_SIZE_MAX   177u
 
 /* INVALIDATION: a message view, and every view derived from
  * it, is invalidated by writing `op` -- those decide where the
@@ -645,7 +952,7 @@ static inline fzn_reach_local_op_t fzn_reach_local_message_op_get(situ_view_t vi
  * which takes the message and bumps its generation. */
 
 /* message.body : variant  at AbsoluteStatic(0x02)
- * size=Bounded(0, 118) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ * size=Bounded(0, 175) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
 /** `body` is a variant: exactly one of `legs`, `legs_summary`, `leg_row` is
  * present, and which one is in the discriminant. The variant has no
@@ -717,6 +1024,8 @@ static inline situ_err_t fzn_reach_local_message_body_leg_row_view(situ_view_t v
 #define FZN_REACH_LOCAL_MESSAGE_BODY_LEG_ROW_ADDRESS_LEN_VALUE_MAX 52u
 
 #define FZN_REACH_LOCAL_MESSAGE_BODY_LEG_ROW_MEASURED_VALUE_MAX 1u
+
+#define FZN_REACH_LOCAL_MESSAGE_BODY_LEG_ROW_IN_USE_VALUE_MAX 1u
 
 /** How many bytes a whole `message` needs, given `have` of them.
  *

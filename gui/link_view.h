@@ -40,13 +40,10 @@ extern "C" {
 #include "../cli/link_print.h"
 }
 
-#include "notebook_view.h"
-
 #include <QString>
 #include <QWidget>
 
 class QLabel;
-struct fzn_gui_rpc;
 
 /* How many rows are drawn. A caller owns its own table and may size it as it
  * likes, and a widget that rendered ten thousand rows into one label would be
@@ -59,16 +56,9 @@ class fzn_link_view : public QWidget {
 public:
 	explicit fzn_link_view(QWidget *parent = nullptr);
 
-	/*
-	 * HOSTED, sec 1121: the same view over a node it asks itself, through
-	 * the host's ask callback (`rpc_ask.h`), as the contacts and location
-	 * views are. `refresh` asks `list leg` and draws a row a leg -- by its
-	 * address, which a model-fed table has no word for. Whether the node
-	 * answered; a silent one is said so.
-	 */
-	fzn_link_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent = nullptr);
-	~fzn_link_view() override;
-	bool refresh();
+	/* THE HOSTED FORM, sec 1121, moved to `leg_view` (sec 1210): what it
+	 * drew from `list leg` were legs, this widget's rows are `link/`'s. */
+	~fzn_link_view() override = default;
 
 	/*
 	 * What this widget says about the table it was given.
@@ -109,7 +99,6 @@ public:
 	bool rows_truncated() const;
 
 private:
-	struct fzn_gui_rpc *rpc_ = nullptr; /* the hosted form's, else none */
 	state state_;
 	size_t unmeasured_;
 	bool rows_truncated_;

@@ -2697,6 +2697,13 @@ static int node_leg_list(fzn_rpc_t *c, fzn_rpc_leg_list_resp_t *out) {
 			    !node_u64(f, f_len, &sent) || !node_field(&q, stop, &f, &f_len) ||
 			    !node_u64(f, f_len, &received))
 				return unreadable(c);
+			/* AND SEC 1210'S NINE, where the node says them: a node before it
+			 * stops at RECEIVED, and its legs read as before. */
+			uint64_t more[9] = { 0 };
+			int has_more = q < stop;
+			for (unsigned k = 0; has_more && k < 9; k++)
+				if (!node_field(&q, stop, &f, &f_len) || !node_u64_or_dash(f, f_len, &more[k]))
+					return unreadable(c);
 			if (out->count >= FZN_RPC_LEG_LIST_MAX) continue;
 			fzn_rpc_leg_entry_t *l = &out->entries[out->count++];
 			memcpy(l->address, addr, addr_len);
@@ -2705,9 +2712,23 @@ static int node_leg_list(fzn_rpc_t *c, fzn_rpc_leg_list_resp_t *out) {
 			l->rtt_ms = (uint32_t)latency;
 			l->sent = (uint32_t)asked;
 			l->replied = (uint32_t)answered;
-			l->since_success_ms = seen ? age * 1000u : 0;
+			/* THE LAST ANSWER'S AGE, not the last observation's: a silence
+			 * is an observation, and read so a leg that had just gone quiet
+			 * said it was heard a moment ago. A node before sec 1210 says
+			 * only the observation's, which is the best there is then. */
+			l->since_success_ms = has_more ? more[1] : seen ? age * 1000u : 0;
 			l->observations = seen;
 			l->loss_permille = seen && loss <= 1000u ? (uint16_t)loss : 0;
+			if (has_more) {
+				l->since_attempt_ms = more[0];
+				l->consecutive_failures = more[2] > UINT32_MAX ? UINT32_MAX : (uint32_t)more[2];
+				l->outstanding = more[3] ? 1u : 0u;
+				l->in_use = more[4] ? 1u : 0u;
+				l->cost = more[5] > UINT32_MAX ? UINT32_MAX : (uint32_t)more[5];
+				l->budget_limit = more[6];
+				l->budget_spent = more[7];
+				l->budget_window_ms = more[8];
+			}
 		}
 		out->unmeasured = unmeasured;
 		from += rows;
@@ -6906,9 +6927,20 @@ static void legs_each(void *ctx, const uint8_t *msg, size_t len) {
 	l->rtt_ms = (uint32_t)fzn_reach_local_leg_row_latency_ms_get(b);
 	l->sent = (uint32_t)fzn_reach_local_leg_row_asked_get(b);
 	l->replied = (uint32_t)fzn_reach_local_leg_row_answered_get(b);
-	l->since_success_ms = seen ? fzn_reach_local_leg_row_age_s_get(b) * 1000u : 0;
 	l->observations = seen;
 	l->loss_permille = seen && loss <= 1000u ? (uint16_t)loss : 0;
+	/* WHAT A CONNECTION PAGE SHOWS, sec 1210; the last ANSWER's age, where
+	 * the observation's -- a silence among them -- stood before. */
+	l->since_attempt_ms = fzn_reach_local_leg_row_since_asked_ms_get(b);
+	l->since_success_ms = fzn_reach_local_leg_row_since_answer_ms_get(b);
+	l->consecutive_failures = fzn_reach_local_leg_row_lost_in_row_get(b);
+	l->outstanding = fzn_reach_local_leg_row_outstanding_get(b) ? 1u : 0u;
+	l->in_use = fzn_reach_local_leg_row_in_use_get(b);
+	const uint64_t cost = fzn_reach_local_leg_row_cost_ms_get(b);
+	l->cost = cost > UINT32_MAX ? UINT32_MAX : (uint32_t)cost;
+	l->budget_limit = fzn_reach_local_leg_row_budget_limit_get(b);
+	l->budget_spent = fzn_reach_local_leg_row_budget_spent_get(b);
+	l->budget_window_ms = fzn_reach_local_leg_row_budget_window_ms_get(b);
 }
 
 int fzn_rpc_leg_list(fzn_rpc_t *c, fzn_rpc_leg_list_resp_t *out) {

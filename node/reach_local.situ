@@ -31,7 +31,15 @@ struct legs_summary {
 // observed on, LATENCY_MS, LOSS_PERMILLE and AGE_S then 0 and meaning
 // nothing (a prior is no measurement, sec 202). OBSERVATIONS how many
 // answers and silences moved its loss; AGE_S the seconds since the last;
-// ASKED and ANSWERED requests; SENT and RECEIVED bytes.
+// ASKED and ANSWERED requests; SENT and RECEIVED bytes. And what a
+// connection page shows (sec 1210): SINCE_ASKED_MS and SINCE_ANSWER_MS
+// how long ago it was last asked and last answered, 0 and meaning nothing
+// while ASKED or ANSWERED is 0; LOST_IN_ROW the silences since its last
+// answer; OUTSTANDING its asks out and unanswered; IN_USE 1 when a peer is
+// reached at this address now; COST_MS the expected time to an answer, the
+// latency over what is not lost, 0 while not MEASURED; BUDGET_LIMIT the
+// bytes a window may carry, 0 for no limit, BUDGET_SPENT this window's,
+// BUDGET_WINDOW_MS its length.
 struct leg_row {
 	u8   address_len [max = 52];
 	u8   address[address_len];
@@ -44,6 +52,15 @@ struct leg_row {
 	u64  answered;
 	u64  sent;
 	u64  received;
+	u64  since_asked_ms;
+	u64  since_answer_ms;
+	u32  lost_in_row;
+	u32  outstanding;
+	u8   in_use [max = 1];
+	u64  cost_ms;
+	u64  budget_limit;
+	u64  budget_spent;
+	u64  budget_window_ms;
 }
 
 struct message {

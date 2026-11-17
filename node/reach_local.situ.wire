@@ -21,7 +21,7 @@ target buffer
 enum op : u8 unknown=error
   legs=128 legs_summary=129 leg_row=130
 
-struct leg_row size=66..118
+struct leg_row size=123..175
   @0x0000   1         u8         address_len  max=52
   @0x0001   0..52     u8         address  sized-by=address_len
   ~         1         u8         measured  max=1
@@ -33,14 +33,23 @@ struct leg_row size=66..118
   ~         8         u64        answered  big
   ~         8         u64        sent  big
   ~         8         u64        received  big
+  ~         8         u64        since_asked_ms  big
+  ~         8         u64        since_answer_ms  big
+  ~         4         u32        lost_in_row  big
+  ~         4         u32        outstanding  big
+  ~         1         u8         in_use  max=1
+  ~         8         u64        cost_ms  big
+  ~         8         u64        budget_limit  big
+  ~         8         u64        budget_spent  big
+  ~         8         u64        budget_window_ms  big
 
 struct legs_summary size=8
   @0x0000   8         u64        unmeasured  big
 
-struct message size=2..120
+struct message size=2..177
   @0x0000   1         u8         cmd  must_eq=12
   @0x0001   1         op         op
-  @0x0002   0..118    variant    body
+  @0x0002   0..175    variant    body
   body switch: op
   body case 128: legs nothing
   body case 129: legs_summary legs_summary

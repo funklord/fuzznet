@@ -1544,7 +1544,7 @@ typedef struct fzn_rpc_leg_entry {
 	uint32_t sent;    /* probes attempted since the counters were reset */
 	uint32_t replied; /* of those, answered */
 	uint32_t consecutive_failures;
-	uint32_t cost; /* fzn_rpc_link_cost, as of this response */
+	uint32_t cost; /* ms expected to an answer: latency over what is not lost (sec 1210) */
 	uint8_t outstanding;   /* an attempt is out and unanswered */
 	uint8_t in_use;
 	uint64_t since_attempt_ms; /* meaningful where sent > 0 */

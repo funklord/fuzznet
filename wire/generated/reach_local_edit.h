@@ -41,6 +41,15 @@ typedef struct {
 	uint64_t answered;
 	uint64_t sent;
 	uint64_t received;
+	uint64_t since_asked_ms;
+	uint64_t since_answer_ms;
+	uint32_t lost_in_row;
+	uint32_t outstanding;
+	uint8_t in_use;
+	uint64_t cost_ms;
+	uint64_t budget_limit;
+	uint64_t budget_spent;
+	uint64_t budget_window_ms;
 } fzn_reach_local_leg_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -97,6 +106,15 @@ static inline situ_err_t fzn_reach_local_leg_row_edit_decode(const situ_msg_t *m
 	out->answered = fzn_reach_local_leg_row_answered_get(view);
 	out->sent = fzn_reach_local_leg_row_sent_get(view);
 	out->received = fzn_reach_local_leg_row_received_get(view);
+	out->since_asked_ms = fzn_reach_local_leg_row_since_asked_ms_get(view);
+	out->since_answer_ms = fzn_reach_local_leg_row_since_answer_ms_get(view);
+	out->lost_in_row = fzn_reach_local_leg_row_lost_in_row_get(view);
+	out->outstanding = fzn_reach_local_leg_row_outstanding_get(view);
+	out->in_use = fzn_reach_local_leg_row_in_use_get(view);
+	out->cost_ms = fzn_reach_local_leg_row_cost_ms_get(view);
+	out->budget_limit = fzn_reach_local_leg_row_budget_limit_get(view);
+	out->budget_spent = fzn_reach_local_leg_row_budget_spent_get(view);
+	out->budget_window_ms = fzn_reach_local_leg_row_budget_window_ms_get(view);
 	(void)at;
 	return SITU_OK;
 }

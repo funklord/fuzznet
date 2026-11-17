@@ -14,9 +14,9 @@ A asks, B is asked, C asks and is turned away.
        and still none after C's next round sends it again (sec 858)
     d  A asks where it is seen (`fetch address`); B, its one peer, says
        127.0.0.1 (sec 621)
-    e  A's `list leg` shows its link to B measured -- a latency, requests
+    e  A's `list leg` shows its leg to B measured -- a latency, requests
        answered, bytes received (sec 631)
-    e2 the same in binary (sec 1183): a summary, then A's links by the text
+    e2 the same in binary (sec 1183): a summary, then A's legs by the text
        listing's addresses, B's measured, then an ok
     f  A writes an app stream at three levels; B is given nothing until A
        grants it level 1, and then that level of each record (sec 632)
@@ -277,7 +277,7 @@ def main(argv):
 				raise failed("d: A's get address answered %r" % (seen,))
 			print("livecheck: d: B told A it sees A at 127.0.0.1")
 
-			# e: the link to B measured at A, sec 631.
+			# e: the leg to B measured at A, sec 631.
 			links = ask(socks["a"], "list leg").split()
 			to_b = [l.split(",") for l in links[3:] if l.startswith("127.0.0.1:%s," % port["b"])]
 			if len(links) < 3 or links[0] != "ok" or len(to_b) != 1 or to_b[0][1] == "-" \
@@ -295,12 +295,26 @@ def main(argv):
 				             % (page, later, links))
 			if not ask(socks["a"], "list leg x").startswith("malformed "):
 				raise failed("e: list leg x was not malformed")
-			print("livecheck: e: A measured its link to B: %s ms, %s of %s asked answered"
-			      % (to_b[0][1], to_b[0][6], to_b[0][5]))
+			# AND WHAT A CONNECTION PAGE SHOWS, sec 1210: asked and answered
+			# lately, B reached at it, a cost, no budget; then a budget of one
+			# byte, said spent.
+			f = to_b[0]
+			if len(f) != 18 or f[9] == "-" or f[10] == "-" or f[13] != "1" or f[14] == "-" \
+			   or int(f[14]) < int(f[1]) or f[15] != "0" or f[17] != "86400000":
+				raise failed("e: A's leg to B lacked sec 1210's figures: %r" % (f,))
+			expect(socks["a"], "a", "set setting host net/budget 1", "ok")
+			f = [l.split(",") for l in ask(socks["a"], "list leg").split()[3:]
+			     if l.startswith("127.0.0.1:%s," % port["b"])][0]
+			if f[15] != "1" or int(f[16]) < 1:
+				raise failed("e: a budget of one byte was not said spent: %r" % (f,))
+			expect(socks["a"], "a", "remove setting host net/budget", "ok")
+			print("livecheck: e: A measured its leg to B: %s ms, %s of %s asked answered, "
+			      "in use, costing %s ms, a budget said spent" % (to_b[0][1], to_b[0][6], to_b[0][5], to_b[0][14]))
 
-			# e2: THE LINKS IN BINARY, sec 1183: the summary first, then a row
-			# a link -- the text listing's addresses, since counters move
-			# between asks -- B's measured, and an ok to end it.
+			# e2: THE LEGS IN BINARY, sec 1183: the summary first, then a row
+			# a leg -- the text listing's addresses, since counters move
+			# between asks -- B's measured and in use, with no budget over a
+			# day's window (sec 1210), and an ok to end it.
 			got = binary(socks["a"], bytes([0x0C, 0x80]))
 			rows = [m for m in got[1:-1] if m[:2] == bytes([0x0C, 0x82])]
 			addrs = [m[3:3 + m[2]].decode() for m in rows]
@@ -308,8 +322,13 @@ def main(argv):
 			if not got or got[0][:2] != bytes([0x0C, 0x81]) or got[-1][:2] != bytes([0x13, 0]) \
 			   or sorted(addrs) != sorted(hosts(links[3:])) or len(mine) != 1 \
 			   or mine[0][3 + mine[0][2]] != 1:
-				raise failed("e2: A's links in binary were %r; in text %r" % (got, links))
-			print("livecheck: e2: A's %d link(s) in binary as in text, B's measured" % len(rows))
+				raise failed("e2: A's legs in binary were %r; in text %r" % (got, links))
+			at = 3 + mine[0][2] + 1 + 64
+			if len(mine[0]) != at + 57 or mine[0][at + 24] != 1 \
+			   or int.from_bytes(mine[0][at + 33:at + 41], "big") != 0 \
+			   or int.from_bytes(mine[0][at + 49:at + 57], "big") != 86400000:
+				raise failed("e2: A's leg to B in binary lacked sec 1210's figures: %r" % (mine[0],))
+			print("livecheck: e2: A's %d leg(s) in binary as in text, B's measured and in use" % len(rows))
 
 			# f: an app stream, sec 632. A writes two records at three levels;
 			# B, not granted, is given nothing; granted level 1, B holds A's

@@ -41,6 +41,7 @@
 #include "../provision_view.h"
 #include "../config_view.h"
 #include "../link_view.h"
+#include "../leg_view.h"
 #include "../peer_view.h"
 #include "../manifest_view.h"
 #include "../ledger_view.h"
@@ -333,6 +334,9 @@ static size_t empty_node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "ok 0 off 30 0 0 0 0\n");
 	if (!strcmp(line, "get identity"))
 		return (size_t)snprintf(reply, cap, "ok %064d %064d\n", 0, 0);
+	/* NO LEG YET, sec 1210. */
+	if (!strcmp(line, "list leg 0"))
+		return (size_t)snprintf(reply, cap, "ok 0 0 0\n");
 	/* NOTHING METERED YET, sec 1182. */
 	if (!strcmp(line, "get transfer"))
 		return (size_t)snprintf(reply, cap, "ok\n");
@@ -400,6 +404,8 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_traffic_view traffic_v(empty_node, nullptr);
 	(void)traffic_v.refresh();
 	fzn_reach_view reach_v(empty_node, nullptr);
+	fzn_leg_view leg_v(empty_node, nullptr);
+	(void)leg_v.refresh();
 	fzn_conversations_view conversations_v(empty_node, nullptr);
 	fzn_sticker_picker_view picker_v(empty_node, nullptr);
 	fzn_call_view call_v(empty_node, nullptr);
@@ -717,6 +723,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "traffic_view", &traffic_v, "nothing moving" },
 			/* NOTHING KNOWN YET IS SAID, not a blank line (sec 1134). */
 			{ "reach_view", &reach_v, "is not known yet" },
+			/* NO LEG YET IS SAID, not an empty table (sec 1210). */
+			{ "leg_view", &leg_v, "No legs yet" },
 			/* NONE YET IS SAID, not an empty tree (sec 1138). */
 			{ "conversations_view", &conversations_v, "No conversations yet." },
 			/* NO PACK YET IS SAID, not an empty strip of tabs (sec 1141). */

@@ -101,6 +101,15 @@ static inline situ_err_t fzn_reach_local_leg_row_build(
 		uint64_t answered,
 		uint64_t sent,
 		uint64_t received,
+		uint64_t since_asked_ms,
+		uint64_t since_answer_ms,
+		uint32_t lost_in_row,
+		uint32_t outstanding,
+		uint8_t in_use,
+		uint64_t cost_ms,
+		uint64_t budget_limit,
+		uint64_t budget_spent,
+		uint64_t budget_window_ms,
 		uint32_t *situ_wrote)
 {
 	situ_msg_t  situ_msg;
@@ -193,6 +202,68 @@ static inline situ_err_t fzn_reach_local_leg_row_build(
 	}
 	situ_put_be64(situ_out + situ_at,
 	              (uint64_t)received);
+	situ_at += 8u;
+
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be64(situ_out + situ_at,
+	              (uint64_t)since_asked_ms);
+	situ_at += 8u;
+
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be64(situ_out + situ_at,
+	              (uint64_t)since_answer_ms);
+	situ_at += 8u;
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)lost_in_row);
+	situ_at += 4u;
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)outstanding);
+	situ_at += 4u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)in_use;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be64(situ_out + situ_at,
+	              (uint64_t)cost_ms);
+	situ_at += 8u;
+
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be64(situ_out + situ_at,
+	              (uint64_t)budget_limit);
+	situ_at += 8u;
+
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be64(situ_out + situ_at,
+	              (uint64_t)budget_spent);
+	situ_at += 8u;
+
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be64(situ_out + situ_at,
+	              (uint64_t)budget_window_ms);
 	situ_at += 8u;
 
 	/* Constraints are the view's to state and this reuses them
