@@ -1304,7 +1304,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/traffic_view.cpp \
             gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
             gui/sticker_render.cpp gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
-            gui/call_audio.cpp \
+            gui/call_audio.cpp gui/call_video.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1344,7 +1344,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/call_audio.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/call_audio.h gui/call_video.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -1354,7 +1354,8 @@ GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/library_view_test.cpp gui/test/reach_view_test.cpp gui/test/rpc_ask_test.cpp \
             gui/test/traffic_view_test.cpp \
             gui/test/conversations_view_test.cpp gui/test/sticker_picker_view_test.cpp \
-            gui/test/call_view_test.cpp gui/test/call_audio_test.cpp gui/test/group_view_test.cpp \
+            gui/test/call_view_test.cpp gui/test/call_audio_test.cpp gui/test/call_video_test.cpp \
+            gui/test/group_view_test.cpp \
             gui/test/location_view_test.cpp \
             $(if $(LOG_FILE_ON),gui/test/entries_view_test.cpp)
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
@@ -1470,6 +1471,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/sticker_picker_view_test \
               $(BUILD_DIR)/gui/test/call_view_test \
               $(BUILD_DIR)/gui/test/call_audio_test \
+              $(BUILD_DIR)/gui/test/call_video_test \
               $(BUILD_DIR)/gui/test/group_view_test \
               $(BUILD_DIR)/gui/test/location_view_test \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/gui/test/entries_view_test)
@@ -3906,6 +3908,12 @@ $(BUILD_DIR)/gui/test/sticker_picker_view_test: $(BUILD_DIR)/gui/test/sticker_pi
 # in place of the devices (sec 1236).
 $(BUILD_DIR)/gui/test/call_audio_test: $(BUILD_DIR)/gui/test/call_audio_test.o \
                                     $(BUILD_DIR)/gui/call_audio.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
+# A call's picture on the held channel, over a socketpair standing in for
+# the node (sec 1237); the camera is camera_feed's.
+$(BUILD_DIR)/gui/test/call_video_test: $(BUILD_DIR)/gui/test/call_video_test.o \
+                                    $(BUILD_DIR)/gui/call_video.o $(BUILD_DIR)/gui/camera_feed.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/call_view_test: $(BUILD_DIR)/gui/test/call_view_test.o \
@@ -7228,11 +7236,12 @@ style: $(OBJS)
 	@# through them, and gui/camera_feed hands a widget the camera's frames
 	@# (sec 1158) and draws nothing; gui/heading_feed hands one the compass's
 	@# heading and draws nothing, and gui/compass_rose is drawn inside
-	@# location_view, which is (sec 1211); gui/call_audio carries a call's
-	@# sound and draws nothing (sec 1236). Listed rather than inferred from
+	@# location_view, which is (sec 1211); gui/call_audio and gui/call_video
+	@# carry a call's sound and picture and draw nothing (secs 1236, 1237).
+	@# Listed rather than inferred from
 	@# a name, so a widget named otherwise is still counted.
 	@have=`ls gui/*.cpp 2>/dev/null | sed -e 's|gui/||' -e 's|\.cpp$$||' \
-	       | grep -vxF -e sticker_render -e camera_feed -e heading_feed -e compass_rose -e call_audio | sort -u`; \
+	       | grep -vxF -e sticker_render -e camera_feed -e heading_feed -e compass_rose -e call_audio -e call_video | sort -u`; \
 	walked=`grep -oE '#include "\.\./[a-z_]+\.h"' gui/test/qtty_render_test.cpp \
 	         | sed -e 's|.*/||' -e 's|\.h"||' | sort -u`; \
 	used=`grep -oE 'fzn_[a-z_]+_view' gui/test/qtty_render_test.cpp \

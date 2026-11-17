@@ -91409,3 +91409,32 @@ on this machine) and is not exercised without a sound card. Three
 sabotages, each caught (`call-audio-mute-dropped`,
 `call-audio-plays-nothing`, `call-audio-quality-unsaid`). `make qtty`
 passes.
+
+## 1237. A call's media, step 4: its picture on the held channel, 2026-11-17
+
+`gui/call_video.{h,cpp}`, fuzzypickles' `call_video` on fuzznet's own
+pieces: the held media channel (sec 1113) opened by the node's socket
+path or attached to a connection the host made, video on stream 2, read
+as it arrives through a socket notifier; the camera `camera_feed`'s,
+already thinned to eight frames a second and shrunk. **JPEG a frame at a
+time**, at most 320x240 at the best quality that fits one whole frame:
+each frame stands alone, so one lost is a picture skipped rather than a
+smear until the next key frame -- the property a call over a relay most
+needs -- and QImage writes it on every target. The channel opens whether
+or not this end sends, so a call taken as sound only still shows the
+other end. `fzn_video_encode` and `fzn_video_decode` are public, for a
+host drawing pictures from elsewhere.
+
+What is left of a call's media: Opus where a build has FFmpeg, and a call
+bar or screen putting the two together (sec 1224, sec 1230 item 5).
+
+**Tests:** call_video_test, over a socketpair standing in for the node:
+the codec alone, 640x480 to one frame of 320x240 and back, one that
+cannot fit making none, a non-picture read as none; no picture sent
+without a channel; the channel asked for; a picture sent as one JPEG
+frame on stream 2; echoed back as the other end's, arriving itself; a
+frame on the sound's stream not shown; the channel's end said. Three
+sabotages, each caught (`call-video-any-stream`, `call-video-oversize`,
+`call-video-wrong-stream`); the branch for a closed channel is not
+sabotaged, since without it `poll` would spin rather than fail. `make
+qtty` passes.

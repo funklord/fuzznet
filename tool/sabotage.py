@@ -17314,6 +17314,27 @@ SABOTAGES = [
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
+		"call-video-any-stream",
+		"gui/call_video.cpp",
+		"\t\tif (f.stream != 2u)\n\t\t\tcontinue;\n",
+		"",
+		"a frame on the sound's stream is shown as a picture -- sec 1237",
+	),
+	(
+		"call-video-oversize",
+		"gui/call_video.cpp",
+		"\t\tif (small.save(&buf, \"JPG\", quality) && (size_t)out.size() <= max)\n",
+		"\t\tif (small.save(&buf, \"JPG\", quality))\n",
+		"a picture too large for one frame is made one anyway -- sec 1237",
+	),
+	(
+		"call-video-wrong-stream",
+		"gui/call_video.cpp",
+		"\tif (fzn_rpc_media_send(m_media, 2, m_sent, at,",
+		"\tif (fzn_rpc_media_send(m_media, 1, m_sent, at,",
+		"a picture goes on the sound's stream, and the other end never shows it -- sec 1237",
+	),
+	(
 		"call-audio-mute-dropped",
 		"gui/call_audio.cpp",
 		"void fzn_call_audio::set_muted(bool muted) { m_sound->muted = muted ? 1 : 0; }",
