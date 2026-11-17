@@ -85923,11 +85923,11 @@ is the register, rewritten in place as features land; "where" says where each li
 | Feature | In fuzznet | Still in a consumer, to move | Missing |
 |---|---|---|---|
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
-| Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094); a code scanned on `devices_view` through it (sec 1158) | | the recogniser on its own, outside `devices_view`, for a consumer that wants it without the view: none asks yet (2026-11-17) |
+| Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094); a code scanned on `devices_view` through it (sec 1158) | | the recogniser in the library proper, the toolkit complete (sec 1208) |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`), `sticker_picker_view` (sec 1141), a line drawn and its pack kept (sec 1145), Lottie drawn through the vendored thorvg (sec 1151) | sticker UI | |
-| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | capture, codecs and playback, the host's over the call's media channel (secs 1113, 1142) |
+| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | capture, codecs and playback, to come here (sec 1208) |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182) | Library playback UI, share target; fuzzypickles' Transfers tab, to move onto `traffic_view` | |
@@ -85937,7 +85937,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190, the notes under a parent sec 1191, the notebook's listing sec 1194, its open note sec 1201, a checklist's items sec 1202, a file's state sec 1203); the notebook's writes, and the retention and governance views, still send their own text lines, being user-paced |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190, the notes under a parent sec 1191, the notebook's listing sec 1194, its open note sec 1201, a checklist's items sec 1202, a file's state sec 1203); the notebook's writes, and the retention and governance views, still send their own text lines -- all to move to binary (sec 1208) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -90020,7 +90020,7 @@ show**: `list leg` carries address, latency, loss, observations, age,
 asked and answered, sent and received, and `node_link_list` leaves the
 clients' cost, metric and budget 0 because fuzznetd keeps none of them --
 they are fuzzypickles' own link layer's. A view can draw them only once
-the node keeps them, which is a node change and the holder's to want.
+the node keeps them -- which the holder wants, sec 1208.
 The node's recent activity is taken too: its log, newest first, each
 line's message without the "[time level subsystem] " preamble a narrow
 column would keep in its place, the number in a column of its own; a
@@ -90302,10 +90302,9 @@ logic they would replace (`node/asks.c`'s resend and due rules, held
 by sabotages of their own), on the path every round and every fetch takes,
 for no change anyone sees. What would make it a plain swap, if situ
 wants it: a wait and resends given per `send`, and an exchange ended by
-id for a consumer that matches replies itself. **Whether to adopt anyway,
-for the schedule stated in a schema rather than in C, is the holder's
-call** -- situ built 26.1039 and 26.1042 at this tree's asking, on that
-premise -- asked 2026-11-17; situ is told this reading.
+id for a consumer that matches replies itself. The holder's answer
+(sec 1208) was to ask what situ would need for the driver to be the
+cleaner road; that list is sec 1209, and situ has it.
 
 ## 1207. Finding a file in the library, 2026-11-17
 
@@ -90334,3 +90333,85 @@ kept across a refresh, every file back with no count said, and the
 view no wider than 320 px. Four sabotages, each caught:
 `library-view-find-case-sensitive`, `library-view-find-not-by-kind`,
 `library-view-hidden-file-chosen`, `library-view-kind-lost-on-refresh`.
+
+## 1208. The holder's decisions, 2026-11-17
+
+Answers to the walk of the aims at the end of sec 1207's run, in the
+holder's words where they decide something.
+
+- **A reply's missing pieces are asked for again, under control.** "A
+  reply status is read 95% of the time, and the rest very rarely, so we
+  should allow for controlled re-requests." So the whole-span resend
+  (sec 1164) gains a re-request naming the missing chunks, bounded so a
+  host cannot be made to send a large reply again and again. Supersedes
+  sec 1168's "no longer the next step".
+- **Identity reset: possible, but hard.** Supersedes sec 1127's "left
+  out on purpose" for the reset: a reset must be reachable from a view,
+  behind enough friction that it is never done by accident.
+- **Join by request is wanted.** The reverse of sec 896's one code: a
+  new device asks to join, and a host of the user lets it in from a list,
+  as a contact request is let in (sec 1169) -- for a pair where neither
+  side can read the other's screen. Supersedes sec 1127's "left out".
+- **Pairing is a toolkit, and it is to be complete for consumers.** So
+  the QR recogniser joins the library proper, not only `devices_view`
+  (sec 1158); sec 1206's register cell is superseded.
+- **Calls' media belong here**, since more than one consumer may need
+  them: capture, codecs and playback move from "the host's" (secs 1113,
+  1142) into fuzznet.
+- **No protocol part is to stay text.** "I'm not aware of protocol parts
+  that would benefit from remaining text." The writes, and the retention
+  and governance views, which secs 1194-1205 left as text for being
+  user-paced, move to binary too; the verbs stay as the fallback and for
+  the CLI.
+- **The connection page gets everything it needs, without asking
+  again.** Link cost, budget, over budget, last attempt, last reply,
+  outstanding and in use (sec 1196's dropped row): fuzznetd keeps them,
+  and `link_view` shows them.
+- **The compass rose can be built**: both phones tested so far have a
+  heading sensor.
+- **situ's driver: what would make it cleaner than our own C.** The
+  holder's question, and the crux of item 90 (sec 1206). Answered in
+  sec 1209.
+
+## 1209. What situ's driver needs to replace `node/asks.c`'s schedule, 2026-11-17
+
+Measured against what the asks table does today, not against what
+would be nice. With these, `node/asks.c` keeps only its map from an
+exchange's id to its callback, and the schedule -- when to resend, how
+often, when to give up, the part-held switch -- is the generated
+driver's, stated in `wire/frame.situ`.
+
+1. **Expiry by id.** `step` reports how many exchanges expired, not
+   which (sec 1117's gap 2). With one exchange outstanding that was
+   enough; the asks table holds up to 64, and each expired one's
+   callback must be told. Needed: the ids, through a callback or an
+   array the caller lends.
+2. **A wait and resends per send.** The relation states the defaults;
+   an exchange may need its own: a fetch's span deadline (tunable),
+   3 s for a round, and no resends at all for an ask this host only
+   awaits because another sent it (sec 622). Needed: `send` taking
+   optional overrides of `timeout_ms`, `retries` and the two intervals.
+   Several drives, one per policy, would do it today, at the cost of a
+   table of drives and a lookup on every reply.
+3. **The first send through the id-aware hook.** The caller seals each
+   send under a fresh nonce and its own message id; `send` submits the
+   bytes it is handed through `io.submit`, which is not told the id, so
+   the first send cannot be sealed the way the resends are (26.1036).
+   Needed: `send` going through the same hook as a resend when one is
+   set, or a `track` that records an exchange the caller has already
+   sent.
+4. **An exchange ended by id.** The caller matches a reply after opening
+   it (`fzn_caller_recv_for`), and cancels every ask through a socket
+   before closing it (`fzn_node_asks_cancel`). Needed: `_end(id)`,
+   besides `on_message`'s match by the relation -- or this tree moves
+   its matching onto the relation, which is possible (`reply_to` keys on
+   `head.msg` and `head.sender`, both in clear) but is a second change on
+   the hottest path, and would have to land with the first.
+5. **The margin, optionally.** `node/asks.c` sends no resend within half
+   the part interval of the end, since its answer could not arrive in
+   time. A third number for the relation; nothing measured says it
+   matters, so it is the one item that can wait.
+
+Of these, 1 and 3 are what make the driver usable here at all; 2 and 4
+are what keep it from needing glue that is as large as what it
+replaces. Asked of situ, its inbox, 2026-11-17.
