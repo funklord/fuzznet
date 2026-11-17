@@ -91438,3 +91438,46 @@ sabotages, each caught (`call-video-any-stream`, `call-video-oversize`,
 `call-video-wrong-stream`); the branch for a closed channel is not
 sabotaged, since without it `poll` would spin rather than fail. `make
 qtty` passes.
+
+## 1238. One line for the call that matters, carrying its media, 2026-11-17
+
+fuzzypickles' 1900Z item 6 and 2000Z item 5 (secs 1224, 1230): a call
+rings while a person is anywhere in the app, and a list with buttons is
+a page nobody goes to find. `gui/call_bar.{h,cpp}` is one line a host
+puts over every page, hidden while there is no call:
+
+- **The call that matters most**: one ringing here, then one up, then one
+  ringing out. Ringing here, "bob is calling you (video call)" with
+  Answer and Decline; up, "In a call with bob, 0:42" -- the time counted
+  from when this bar first saw it up -- with Mute, the camera for a video
+  call, and Hang up; ringing out, "Calling bob..." with Hang up.
+- **It carries the call**: once up, its sound through `call_audio` (sec
+  1236) and, given the node's socket, its picture through `call_video`
+  (sec 1237), both stopped when it ends -- the host no longer opens the
+  media, which was the last of fuzzypickles' 1900Z item 7.
+- **An ending said as a person would**, for FZN_CALL_BAR_ENDED_S (5 s),
+  then gone: "Call with bob ended, 0:42.", "Missed call from bob.", "bob
+  declined.", "bob is busy.", "bob did not answer."; anything else in
+  `fzn_rpc_ended_words`'s words.
+
+`call_view` stays, the list of every call for a page that wants one.
+Still to come from the walk's item 5: a full screen for a call ringing
+in, and a line left in the conversation afterwards ("Voice call 0:42",
+"Missed call"), which is the node's to write.
+
+**Tests:** call_bar_test, against a scripted node -- hidden with no call;
+ringing here with Answer and Decline; answered, the time from 0:00 to
+0:42, Mute and Hang up, its sound carried under the call's id; muted;
+hung up, said with how long it ran, gone after five seconds; missed and
+declined said as such; ringing out with Hang up; of a call up and one
+ringing here, the one ringing here. Five sabotages, each caught
+(`call-bar-prefers-up`, `call-bar-carries-nothing`,
+`call-bar-time-restarts`, `call-bar-missed-unsaid`,
+`call-bar-always-shown`). `make qtty` walks it, ringing: 276 checks.
+
+**The style gate's widget census had to learn its name**: it counted a
+widget as constructed in the render test by a `fzn_*_view` token, and
+`fzn_call_bar` is none. It now takes any `fzn_` token whole, so a widget
+counts only by its own class's name -- shown to still refuse the bar with
+its construction removed.
+

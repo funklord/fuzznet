@@ -63,6 +63,7 @@
 #include "../conversations_view.h"
 #include "../sticker_picker_view.h"
 #include "../call_view.h"
+#include "../call_bar.h"
 #include "../group_view.h"
 #include "../location_view.h"
 #ifdef FZN_LOG_FILE_ON
@@ -324,6 +325,17 @@ static int no_sync_op(void *ctx)
 	return 0;
 }
 
+/* A CALL RINGING HERE, for the bar, which says nothing without one (sec 1238). */
+static size_t ringing_node(void *ctx, const char *line, char *reply, size_t cap)
+{
+	(void)ctx;
+	if (!strcmp(line, "list call"))
+		return (size_t)snprintf(reply, cap, "ok 1 1111222233334444,ringing-in,1,%064d\n", 1);
+	if (!strcmp(line, "list contact 0"))
+		return (size_t)snprintf(reply, cap, "ok 1 0 bob,%064d\n", 1);
+	return (size_t)snprintf(reply, cap, "error no such thing\n");
+}
+
 /* A node with no notes: every listing empty, every read refused. */
 static size_t empty_node(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -409,6 +421,7 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_conversations_view conversations_v(empty_node, nullptr);
 	fzn_sticker_picker_view picker_v(empty_node, nullptr);
 	fzn_call_view call_v(empty_node, nullptr);
+	fzn_call_bar bar_v(ringing_node, nullptr);
 	fzn_group_view group_v(empty_node, nullptr);
 	fzn_location_view location_v(empty_node, nullptr);
 	(void)location_v.refresh();
@@ -731,6 +744,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "sticker_picker_view", &picker_v, "No sticker packs kept yet." },
 			/* NO CALL IS SAID, not an empty list (sec 1142). */
 			{ "call_view", &call_v, "No call." },
+			/* A CALL RINGING HERE IS SAID, with who (sec 1238). */
+			{ "call_bar", &bar_v, "bob is calling you" },
 			/* NO GROUP CHOSEN IS SAID (sec 1143). */
 			{ "group_view", &group_v, "No group chosen." },
 			/* NOBODY SHARING IS SAID, sec 1109. */

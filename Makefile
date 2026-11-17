@@ -1302,7 +1302,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/settings_view.cpp gui/contacts_view.cpp gui/location_view.cpp gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp \
             gui/forks_view.cpp gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp \
             gui/traffic_view.cpp \
-            gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
+            gui/sticker_picker_view.cpp gui/call_view.cpp gui/call_bar.cpp gui/group_view.cpp \
             gui/sticker_render.cpp gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
             gui/call_audio.cpp gui/call_video.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
@@ -1344,7 +1344,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/call_audio.h gui/call_video.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/call_audio.h gui/call_video.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -1355,6 +1355,7 @@ GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/traffic_view_test.cpp \
             gui/test/conversations_view_test.cpp gui/test/sticker_picker_view_test.cpp \
             gui/test/call_view_test.cpp gui/test/call_audio_test.cpp gui/test/call_video_test.cpp \
+            gui/test/call_bar_test.cpp \
             gui/test/group_view_test.cpp \
             gui/test/location_view_test.cpp \
             $(if $(LOG_FILE_ON),gui/test/entries_view_test.cpp)
@@ -1472,6 +1473,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/call_view_test \
               $(BUILD_DIR)/gui/test/call_audio_test \
               $(BUILD_DIR)/gui/test/call_video_test \
+              $(BUILD_DIR)/gui/test/call_bar_test \
               $(BUILD_DIR)/gui/test/group_view_test \
               $(BUILD_DIR)/gui/test/location_view_test \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/gui/test/entries_view_test)
@@ -3914,6 +3916,12 @@ $(BUILD_DIR)/gui/test/call_audio_test: $(BUILD_DIR)/gui/test/call_audio_test.o \
 # the node (sec 1237); the camera is camera_feed's.
 $(BUILD_DIR)/gui/test/call_video_test: $(BUILD_DIR)/gui/test/call_video_test.o \
                                     $(BUILD_DIR)/gui/call_video.o $(BUILD_DIR)/gui/camera_feed.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
+# One line for the call that matters, carrying its media (sec 1238).
+$(BUILD_DIR)/gui/test/call_bar_test: $(BUILD_DIR)/gui/test/call_bar_test.o $(BUILD_DIR)/gui/call_bar.o \
+                                  $(BUILD_DIR)/gui/call_audio.o $(BUILD_DIR)/gui/call_video.o \
+                                  $(BUILD_DIR)/gui/camera_feed.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/call_view_test: $(BUILD_DIR)/gui/test/call_view_test.o \
@@ -7240,11 +7248,15 @@ style: $(OBJS)
 	@# carry a call's sound and picture and draw nothing (secs 1236, 1237).
 	@# Listed rather than inferred from
 	@# a name, so a widget named otherwise is still counted.
+	@# USED BY ITS CLASS'S WHOLE NAME, fzn_ and the source's: a widget not
+	@# named *_view (call_bar, sec 1238) was never found by a pattern that
+	@# required the suffix. A token is matched whole, so fzn_call_bar_x
+	@# would not count as fzn_call_bar.
 	@have=`ls gui/*.cpp 2>/dev/null | sed -e 's|gui/||' -e 's|\.cpp$$||' \
 	       | grep -vxF -e sticker_render -e camera_feed -e heading_feed -e compass_rose -e call_audio -e call_video | sort -u`; \
 	walked=`grep -oE '#include "\.\./[a-z_]+\.h"' gui/test/qtty_render_test.cpp \
 	         | sed -e 's|.*/||' -e 's|\.h"||' | sort -u`; \
-	used=`grep -oE 'fzn_[a-z_]+_view' gui/test/qtty_render_test.cpp \
+	used=`grep -oE 'fzn_[a-z_]+' gui/test/qtty_render_test.cpp \
 	       | sed -e 's|^fzn_||' | sort -u`; \
 	n=`echo "$$have" | grep -c .`; \
 	if [ "$$n" -eq 0 ]; then \
@@ -8071,6 +8083,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(TH
 	       gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp gui/forks_view.cpp \
 	       gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp gui/traffic_view.cpp \
 	       gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
+	       gui/call_bar.cpp gui/call_audio.cpp gui/call_video.cpp \
 	       gui/sticker_render.cpp $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc $(THORVG_OBJS)) \
 	       gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
 	       gui/location_view.cpp \
