@@ -10,6 +10,7 @@
 #include "../location_view.h"
 
 #include <QApplication>
+#include <QTableWidget>
 
 #include <stdio.h>
 #include <string.h>
@@ -29,7 +30,7 @@ static int checks, failures;
 #define ROOT "bbbb000000000000000000000000000000000000000000000000000000000002"
 #define NOW 1700003600u
 
-static int silent;
+static int silent, no_self;
 static char last[160];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -43,6 +44,9 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "ok %s %s\n", ME, ROOT);
 	/* THIS HOST AT 59.33 N 18.06 E; BOB ABOUT 1.1 KM NORTH, A MINUTE OLD;
 	 * EVE COARSE, TWO HOURS OLD. */
+	if (!strcmp(line, "list location 0") && no_self)
+		return (size_t)snprintf(reply, cap,
+		                        "ok 1 0 c0c0000000000000,4,0,59.3400000,18.0600000,1700003540,-,-,10,10,-,0,bob\n");
 	if (!strcmp(line, "list location 0"))
 		return (size_t)snprintf(reply, cap,
 		                        "ok 3 0 aaaa000000000000,9,0,59.3300000,18.0600000,1700003590,-,-,5,5,-,0,- "
@@ -74,8 +78,18 @@ int main(int argc, char **argv)
 	CHECK(rows.size() == 3 && rows.value(2).startsWith("dan | not shared with you"),
 	      "not one row a contact, or dan, who shares nothing, had none");
 	CHECK(rows.value(0).startsWith("bob | 59.34000, 18.06000 | within 10 m | 1 min ago")
-	              && rows.value(0).contains("km") && rows.value(0).endsWith("N"),
-	      "bob's fix, its age, its distance or its direction north was not said");
+	              && rows.value(0).contains("km") && rows.value(0).endsWith(QString::fromUtf8("N 0\xc2\xb0")),
+	      "bob's fix, its age, its distance or its direction north, in degrees too, was not said");
+	/* THE BADGES, sec 1197: bob fresh, an arrow north and a distance; eve two
+	 * hours old, her age and stale; dan, who shares nothing, none. */
+	CHECK(v.badge_for("bob").startsWith(QString::fromUtf8("\xe2\x86\x91 ")) && v.badge_for("bob").contains("km")
+	              && !v.badge_is_stale("bob"),
+	      "bob's fresh badge was not an arrow north and a distance");
+	CHECK(v.badge_for("eve") == "2 h ago" && v.badge_is_stale("eve"), "eve's old fix was not her age, stale");
+	CHECK(v.badge_for("dan").isEmpty() && !v.badge_is_stale("dan"), "dan, who shares nothing, had a badge");
+	CHECK(v.map_url("bob").toString()
+	              == "https://www.openstreetmap.org/?mlat=59.3400000&mlon=18.0600000#map=15/59.3400000/18.0600000",
+	      "bob's place was not a map link");
 	CHECK(rows.value(1).contains("coarse") && rows.value(1).contains("2 h ago"),
 	      "a coarse fix was not said so, or its age was wrong");
 
@@ -87,6 +101,12 @@ int main(int argc, char **argv)
 	CHECK(v.precision() == 1 && v.status().contains("about 1 km"),
 	      "bob's grant to about 1 km was not read back");
 	CHECK(v.fetch() && !strcmp(last, "fetch stream location bob"), "bob was not asked where he is");
+	last[0] = '\0';
+	CHECK(!v.fetch() && !last[0] && v.status().startsWith("bob was asked 0 s ago"),
+	      "asking bob again at once was sent, or not said with when he was asked");
+	v.set_now(NOW + FZN_LOCATION_VIEW_ASK_GAP_S);
+	CHECK(v.fetch() && !strcmp(last, "fetch stream location bob"), "bob could not be asked again after the gap");
+	v.set_now(NOW);
 	v.set_precision(0);
 	CHECK(v.share(true) && !strcmp(last, "grant stream location bob 0"),
 	      "this user's position was not granted to bob exactly");
@@ -100,6 +120,27 @@ int main(int argc, char **argv)
 	v.set_precision(1);
 	CHECK(v.share(true) && !strcmp(last, "grant stream location dan 1"),
 	      "dan, who shares nothing back, was not granted this host's position");
+
+	{
+		QTableWidget *t = v.findChild<QTableWidget *>();
+
+		v.show();
+		v.resize(300, 600);
+		app.processEvents();
+		CHECK(t && t->isColumnHidden(1) && t->isColumnHidden(2) && !t->isColumnHidden(4),
+		      "a phone's width kept the place in degrees, or hid how far");
+		v.resize(800, 600);
+		app.processEvents();
+		CHECK(t && !t->isColumnHidden(1), "a desktop's width hid the place");
+		v.hide();
+	}
+	/* NO FIX OF ITS OWN, sec 1197: said why no distance shows, and bob's
+	 * badge his age, there being nothing to measure from. */
+	no_self = 1;
+	CHECK(v.refresh() && v.own().contains("turn Location on") && v.own().contains("Show on a map")
+	              && v.badge_for("bob") == "1 min ago",
+	      "a host with no fix of its own did not say why, or measured from nothing");
+	no_self = 0;
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");

@@ -8,19 +8,22 @@ extern "C" {
 }
 
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
-    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_now(0)
+    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_now(0), m_mine{ 0, 0, 0, 0 }, m_have_mine(false)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
@@ -41,6 +44,8 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_precision->addItems({ tr("Exactly"), tr("To about 1 km"), tr("To about 10 km") });
 	m_precision->setAccessibleName(tr("How exactly they see your position"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
+	m_map = new QPushButton(tr("Show on a map"), this);
+	m_map->setAccessibleName(tr("Show the chosen contact's position on a map"));
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
@@ -49,6 +54,7 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_table->setAccessibleName(tr("Positions shared with you"));
 	auto *row = new QHBoxLayout;
 	row->addWidget(m_fetch);
+	row->addWidget(m_map);
 	row->addWidget(m_refresh);
 	row->addStretch(1);
 	auto *grant = new QHBoxLayout;
@@ -69,6 +75,7 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	connect(m_table, &QTableWidget::currentCellChanged,
 	        [this](int r, int, int, int) { select(r); });
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
+	connect(m_map, &QPushButton::clicked, [this]() { show_on_map(); });
 	connect(m_share, &QPushButton::clicked, [this]() { share(true); });
 	connect(m_unshare, &QPushButton::clicked, [this]() { share(false); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
@@ -78,6 +85,8 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 fzn_location_view::~fzn_location_view() { delete m_rpc; }
 
 void fzn_location_view::set_now(uint32_t utc_s) { m_now = utc_s; }
+
+uint32_t fzn_location_view::now() const { return m_now ? m_now : (uint32_t)time(NULL); }
 
 static QString failed_words(const fzn_gui_rpc *r) { return QString::fromUtf8(fzn_gui_rpc_silent(r)); }
 
@@ -113,7 +122,7 @@ static QString sure_words(const fzn_rpc_location_show_entry_t *f)
 
 bool fzn_location_view::refresh()
 {
-	const uint32_t now = m_now ? m_now : (uint32_t)time(NULL);
+	const uint32_t now = this->now();
 	fzn_rpc_location_status_resp_t st;
 
 	if (fzn_rpc_location_status(&m_rpc->c, &st) != FZN_RPC_OK) {
@@ -136,6 +145,10 @@ bool fzn_location_view::refresh()
 	if (from)
 		own += QLatin1Char(' ') + tr("Its own position: %1, %2.").arg(where_words(from),
 		                                                              age_words(now, from->utc_s));
+	m_have_mine = from != nullptr;
+	if (from)
+		m_mine = { from->lat_e7, from->lon_e7, from->utc_s,
+		           from->acc_e_m > from->acc_n_m ? from->acc_e_m : from->acc_n_m };
 
 	fzn_rpc_location_latest_t *latest = nullptr;
 	size_t room = 0, count = 0;
@@ -145,7 +158,14 @@ bool fzn_location_view::refresh()
 		delete mine;
 		return m_rpc->c.answered;
 	}
+	/* NO FIX OF ITS OWN, sec 1197: why no distance shows, said where it is
+	 * missed -- and that a map needs none. */
+	if (!from && count)
+		own += QLatin1Char(' ')
+		       + tr("With no position of its own, this host cannot say how far anyone is -- turn "
+		            "Location on, or give it a source. Show on a map works without it.");
 	m_own->setText(own);
+	m_fixes.clear();
 	m_table->setRowCount((int)count);
 	for (size_t i = 0; i < count; i++) {
 		const fzn_rpc_location_show_entry_t *f = &latest[i].fix;
@@ -158,11 +178,15 @@ bool fzn_location_view::refresh()
 			/* A DIRECTION ONLY WHERE THE FIXES' ACCURACY LEAVES IT ONE. */
 			double sure = (double)(from->acc_e_m > from->acc_n_m ? from->acc_e_m : from->acc_n_m)
 			              + (double)(f->acc_e_m > f->acc_n_m ? f->acc_e_m : f->acc_n_m);
-			if (fzn_geo_bearing_is_meaningful(d, sure))
-				here += QLatin1Char(' ')
-				        + QString::fromUtf8(fzn_geo_compass_point(fzn_geo_bearing_deg(
-				                from->lat_e7, from->lon_e7, f->lat_e7, f->lon_e7)));
+			/* AND IN DEGREES, sec 1197, beside the compass word. */
+			if (fzn_geo_bearing_is_meaningful(d, sure)) {
+				const double b = fzn_geo_bearing_deg(from->lat_e7, from->lon_e7, f->lat_e7, f->lon_e7);
+				here += QLatin1Char(' ') + QString::fromUtf8(fzn_geo_compass_point(b))
+				        + QStringLiteral(" %1").arg(b, 0, 'f', 0) + QString::fromUtf8("\xc2\xb0");
+			}
 		}
+		m_fixes.insert(QString::fromUtf8(latest[i].name),
+		               { f->lat_e7, f->lon_e7, f->utc_s, f->acc_e_m > f->acc_n_m ? f->acc_e_m : f->acc_n_m });
 		m_table->setItem((int)i, 0, new QTableWidgetItem(QString::fromUtf8(latest[i].name)));
 		m_table->setItem((int)i, 1, new QTableWidgetItem(where_words(f)));
 		m_table->setItem((int)i, 2, new QTableWidgetItem(sure_words(f)));
@@ -219,6 +243,7 @@ void fzn_location_view::select(int row)
 	if (chosen && m_table->currentRow() != row)
 		m_table->setCurrentCell(row, 0);
 	m_fetch->setEnabled(chosen);
+	m_map->setEnabled(chosen && m_table->item(row, 0) && m_fixes.contains(m_table->item(row, 0)->text()));
 	m_share->setEnabled(chosen);
 	m_unshare->setEnabled(chosen);
 	if (!chosen || !m_table->item(row, 0))
@@ -248,12 +273,22 @@ bool fzn_location_view::fetch()
 	int row = m_table->currentRow();
 	if (row < 0 || !m_table->item(row, 0))
 		return false;
-	QByteArray who = m_table->item(row, 0)->text().toUtf8();
+	const QString name = m_table->item(row, 0)->text();
+	QByteArray who = name.toUtf8();
+	/* TOO SOON, sec 1197: said with when they were asked, rather than a
+	 * second question sent after the first is still on its way. */
+	const uint32_t at = now();
+	const uint32_t asked = m_asked.value(name, 0);
+	if (asked && at - asked < FZN_LOCATION_VIEW_ASK_GAP_S) {
+		m_status->setText(tr("%1 was asked %2 s ago; their answer comes in a round.").arg(name).arg(at - asked));
+		return false;
+	}
 	if (fzn_rpc_location_fetch(&m_rpc->c, who.constData(), (size_t)who.size()) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
 		return false;
 	}
-	m_status->setText(tr("Asked %1 where they are.").arg(QString::fromUtf8(who)));
+	m_asked.insert(name, at);
+	m_status->setText(tr("Asked %1 where they are.").arg(name));
 	return true;
 }
 
@@ -279,6 +314,86 @@ bool fzn_location_view::share(bool on)
 	                                    m_precision->currentText().toLower())
 	                     : tr("%1 no longer sees your position.").arg(QString::fromUtf8(who)));
 	return true;
+}
+
+/* THE ARROW FOR A BEARING, each owning the 45 degrees centred on it. */
+static QString arrow(double bearing_deg)
+{
+	static const char *const glyphs[8] = { "\xe2\x86\x91", "\xe2\x86\x97", "\xe2\x86\x92", "\xe2\x86\x98",
+		                               "\xe2\x86\x93", "\xe2\x86\x99", "\xe2\x86\x90", "\xe2\x86\x96" };
+	double a = fmod(bearing_deg, 360.0);
+	if (a < 0.0)
+		a += 360.0;
+	return QString::fromUtf8(glyphs[(int)((a + 22.5) / 45.0) % 8]);
+}
+
+bool fzn_location_view::badge_is_stale(const QString &name) const
+{
+	const auto it = m_fixes.constFind(name);
+	if (it == m_fixes.constEnd())
+		return false;
+	/* A FIX WITH NO TIME IS STALE: nothing says it is current. */
+	/* AHEAD OF THIS HOST'S CLOCK is fresh, not an age that wrapped. */
+	return !it->utc_s || (now() > it->utc_s && now() - it->utc_s > FZN_LOCATION_VIEW_FRESH_S);
+}
+
+QString fzn_location_view::badge_for(const QString &name) const
+{
+	const auto it = m_fixes.constFind(name);
+	if (it == m_fixes.constEnd())
+		return QString();
+	/* STALE, OR NOTHING TO MEASURE FROM: the age alone, no arrow -- a
+	 * direction is as old as the distance it came with. */
+	if (badge_is_stale(name) || !m_have_mine)
+		return age_words(now(), it->utc_s);
+	const double d = fzn_geo_distance_m(m_mine.lat_e7, m_mine.lon_e7, it->lat_e7, it->lon_e7);
+	const double sure = (double)m_mine.sure_m + (double)it->sure_m;
+	char text[32];
+	if (d <= sure && sure > 0.0)
+		return tr("here");
+	if (fzn_geo_format_distance(text, sizeof text, d) != 0)
+		return QString();
+	if (!fzn_geo_bearing_is_meaningful(d, sure))
+		return QString::fromUtf8(text);
+	return arrow(fzn_geo_bearing_deg(m_mine.lat_e7, m_mine.lon_e7, it->lat_e7, it->lon_e7)) + QLatin1Char(' ')
+	       + QString::fromUtf8(text);
+}
+
+QUrl fzn_location_view::map_url(const QString &name) const
+{
+	const auto it = m_fixes.constFind(name);
+	if (it == m_fixes.constEnd())
+		return QUrl();
+	const QString lat = QString::number(it->lat_e7 / 1e7, 'f', 7);
+	const QString lon = QString::number(it->lon_e7 / 1e7, 'f', 7);
+#ifdef Q_OS_ANDROID
+	/* geo:0,0?q=LAT,LON(LABEL) puts a pin there in any maps app. */
+	QUrl url(QStringLiteral("geo:0,0"));
+	url.setQuery(QStringLiteral("q=%1,%2(%3)").arg(lat, lon, name));
+	return url;
+#else
+	return QUrl(QStringLiteral("https://www.openstreetmap.org/?mlat=%1&mlon=%2#map=15/%1/%2").arg(lat, lon));
+#endif
+}
+
+bool fzn_location_view::show_on_map()
+{
+	const int row = m_table->currentRow();
+	const QUrl url = row >= 0 && m_table->item(row, 0) ? map_url(m_table->item(row, 0)->text()) : QUrl();
+	if (url.isEmpty() || !QDesktopServices::openUrl(url)) {
+		m_status->setText(url.isEmpty() ? tr("Their position has not reached this host.")
+		                                : tr("Nothing here opens a map."));
+		return false;
+	}
+	return true;
+}
+
+void fzn_location_view::resizeEvent(QResizeEvent *event)
+{
+	QWidget::resizeEvent(event);
+	const bool narrow = event->size().width() < 400;
+	m_table->setColumnHidden(1, narrow);
+	m_table->setColumnHidden(2, narrow);
 }
 
 QString fzn_location_view::own() const { return m_own->text(); }

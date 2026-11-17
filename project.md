@@ -90016,3 +90016,43 @@ picked advertised as `set setting host net/address HOST PORT`, a refusal
 and nothing picked each said, the activity's message without its
 preamble, and the reporter column hidden at 300 pixels and shown at 800.
 Five sabotages.
+
+## 1197. Where people are: a badge, a map, and the words it lacked, 2026-11-17
+
+The same list (fuzzypickles, inbox 20261117T0122Z) for its Nearby page
+against `location_view`. Taken here:
+
+- **A contact's badge for other widgets**, `badge_for(name)` and
+  `badge_is_stale(name)`: an arrow and the distance while the fix is
+  fresh -- five minutes, `FZN_LOCATION_VIEW_FRESH_S`, fuzzypickles'
+  figure -- "here" within the two fixes' accuracy, the age once it is
+  stale or this host has no fix of its own, empty for a contact whose
+  position does not reach this host. Stale is an age, never a distance:
+  a direction is as old as the distance it came with, so neither is shown
+  as current. A fix with no time is stale; one ahead of this host's clock
+  is not, rather than an age that wrapped. fuzzypickles' chat list,
+  roster and contacts draw it beside each name.
+- **Show on a map**: `map_url(name)` -- geo: on Android, OpenStreetMap
+  elsewhere -- and a button that opens it, which needs no fix of this
+  host's own.
+- **The bearing in degrees** beside the compass word.
+- **Asking again too soon**, within `FZN_LOCATION_VIEW_ASK_GAP_S` (5 s),
+  is said with when they were asked rather than sent a second time.
+- **No fix of its own**: said why no distance shows, to turn Location on
+  or give it a source, and that the map works without it.
+
+- **A phone's width**: under 400 pixels the place in degrees and how sure
+  it is are hidden; who, when and how far stay.
+
+**Not taken: the compass rose** turned by the device's compass, which
+needs a heading sensor and a device to test it on -- fuzzypickles keeps
+it until then. The rule it needs is fuzznet's already,
+`fzn_geo_screen_angle_deg`.
+
+**Tests:** `location_view_test`, 23 -- bob's fresh badge an arrow north
+and a distance, eve's two-hour-old one her age and stale, dan's none,
+bob's map link, the bearing ending in degrees, asking bob again at once
+refused with when and allowed after the gap, and a host with no fix of
+its own saying why and badging bob by his age, and two columns hidden at
+300 pixels and shown at 800. Five sabotages, and sec 1109's bearing one
+moved with its line.

@@ -14841,8 +14841,8 @@ SABOTAGES = [
 	(
 		"location-view-bearing-unearned",
 		"gui/location_view.cpp",
-		"\t\t\tif (fzn_geo_bearing_is_meaningful(d, sure))\n",
-		"\t\t\tif (fzn_geo_bearing_is_meaningful(d, sure) && 0)\n",
+		"\t\t\tif (fzn_geo_bearing_is_meaningful(d, sure)) {\n",
+		"\t\t\tif (fzn_geo_bearing_is_meaningful(d, sure) && 0) {\n",
 		"a contact's direction from here is not said -- sec 1109",
 	),
 	(
@@ -16899,6 +16899,41 @@ SABOTAGES = [
 		"\tif (!a->cap && !a->deliveries) {\n",
 		"\tif (0) {\n",
 		"unread_all or newest_all asked with no room fails in binary, where the verb gave the total -- sec 1193",
+	),
+	(
+		"location-view-never-narrow",
+		"gui/location_view.cpp",
+		"\tconst bool narrow = event->size().width() < 400;\n",
+		"\tconst bool narrow = false;\n",
+		"a phone's width keeps every column of the positions -- sec 1197",
+	),
+	(
+		"location-view-stale-shown-as-distance",
+		"gui/location_view.cpp",
+		"\tif (badge_is_stale(name) || !m_have_mine)\n",
+		"\tif (!m_have_mine)\n",
+		"a two-hour-old fix shows a distance as if current -- sec 1197",
+	),
+	(
+		"location-view-asks-again-at-once",
+		"gui/location_view.cpp",
+		"\tif (asked && at - asked < FZN_LOCATION_VIEW_ASK_GAP_S) {\n",
+		"\tif (0) {\n",
+		"asking a contact again at once sends a second question, unsaid -- sec 1197",
+	),
+	(
+		"location-view-no-self-fix-unsaid",
+		"gui/location_view.cpp",
+		"\tif (!from && count)\n\t\town += QLatin1Char(' ')\n",
+		"\tif (0)\n\t\town += QLatin1Char(' ')\n",
+		"a host with no fix of its own shows no distance and says nothing of why -- sec 1197",
+	),
+	(
+		"location-view-bearing-without-degrees",
+		"gui/location_view.cpp",
+		"\t\t\t\t        + QStringLiteral(\" %1\").arg(b, 0, 'f', 0) + QString::fromUtf8(\"\\xc2\\xb0\");\n",
+		"\t\t\t\t        ;\n",
+		"the bearing is said as a compass word alone, not in degrees -- sec 1197",
 	),
 	(
 		"reach-view-activity-keeps-preamble",

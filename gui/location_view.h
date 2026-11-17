@@ -14,6 +14,15 @@
  * back this user's own position to them. Through the typed client on the
  * host's ask callback (`rpc_ask.h`), as the other views are. The clock is the
  * host's to set, so a test fixes "now". NO Q_OBJECT AND THEREFORE NO moc.
+ *
+ * WHAT A HOST'S OTHER WIDGETS DRAW, sec 1197, from fuzzypickles' list of
+ * what its Nearby page did and this did not (inbox 20261117T0122Z): a
+ * contact's badge -- an arrow and a distance while the fix is fresh, its
+ * age once it is not, so a stale distance is never shown as current -- and
+ * whether it is stale, for a list to dim it. A contact's place as a map
+ * link, the bearing in degrees beside its compass word, asking again too
+ * soon said with when it was last asked, and a host with no fix of its own
+ * told why no distance shows and that the map works without one.
  */
 
 #ifndef FZN_GUI_LOCATION_VIEW_H
@@ -21,8 +30,10 @@
 
 #include "notebook_view.h"
 
+#include <QHash>
 #include <QString>
 #include <QStringList>
+#include <QUrl>
 #include <QWidget>
 
 #include <stdint.h>
@@ -31,7 +42,14 @@ struct fzn_gui_rpc;
 class QComboBox;
 class QLabel;
 class QPushButton;
+class QResizeEvent;
 class QTableWidget;
+
+/* A FIX THIS OLD IS SHOWN BY ITS AGE, not its distance: five minutes, as
+ * fuzzypickles' badge had it. */
+#define FZN_LOCATION_VIEW_FRESH_S 300u
+/* ASKING A CONTACT AGAIN within this is said, with when it was asked. */
+#define FZN_LOCATION_VIEW_ASK_GAP_S 5u
 
 class fzn_location_view : public QWidget {
 public:
@@ -55,15 +73,47 @@ public:
 	/* The clock, seconds since 1970; 0 reads the system's. */
 	void set_now(uint32_t utc_s);
 
+	/* A CONTACT'S BADGE, by name, for another widget beside the name: an
+	 * arrow and the distance while the fix is fresh (FZN_LOCATION_VIEW_FRESH_S),
+	 * "here" within its accuracy, the age once it is stale or this host has
+	 * no fix of its own; empty for a contact whose position does not reach
+	 * this host. As of the last refresh. */
+	QString badge_for(const QString &name) const;
+	/* Whether that badge is an age rather than a distance; never for an
+	 * empty one, which has nothing to dim. */
+	bool badge_is_stale(const QString &name) const;
+	/* Where a contact is, as a map opens it: geo: on Android, OpenStreetMap
+	 * elsewhere. Empty for no fix. */
+	QUrl map_url(const QString &name) const;
+	bool show_on_map();
+
 	/* WHAT IS ON SCREEN: this host's line, each row as its cells joined by
 	 * " | ", and the status line. */
 	QString own() const;
 	QStringList rows() const;
 	QString status() const;
 
+protected:
+	/* A PHONE'S WIDTH, sec 1197: under 400 pixels the place in degrees and
+	 * how sure it is are hidden; who, when and how far stay. */
+	void resizeEvent(QResizeEvent *event) override;
+
 private:
 	struct fzn_gui_rpc *m_rpc;
 	uint32_t m_now;
+	/* As of the last refresh: each contact's newest fix by name, and this
+	 * host's own, if it has one. */
+	struct fix {
+		int32_t lat_e7, lon_e7;
+		uint32_t utc_s, sure_m;
+	};
+	QHash<QString, fix> m_fixes;
+	fix m_mine;
+	bool m_have_mine;
+	/* When each contact was last asked, for "too soon" (FZN_LOCATION_VIEW_ASK_GAP_S). */
+	QHash<QString, uint32_t> m_asked;
+	uint32_t now() const;
+	QPushButton *m_map;
 
 	QLabel *m_own;
 	QTableWidget *m_table;
