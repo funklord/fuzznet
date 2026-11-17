@@ -1328,11 +1328,10 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
 SPEC_HDRS :=
 
 # A HEADER OF A UNIT BUILT ONLY BY AN OPTIONAL CHECK, not installed because
-# what it declares is not in the library: `qr/decode.h`, the recogniser over
-# the vendored quirc, built and run by `qrcheck` since sec 1095. It declares
-# functions, so SPEC_HDRS is the wrong home; it moves into HDRS when the
-# recogniser joins the library.
-CHECK_HDRS := qr/decode.h
+# what it declares is not in this build: `qr/decode.h`, the recogniser over
+# the vendored quirc, in HDRS since sec 1213 where quirc is and named here
+# only where it is not, so the header census still finds it.
+CHECK_HDRS = $(if $(QR_DECODE_ON),,qr/decode.h)
 # AND THE HEADER THAT STANDS IN FOR A VENDORED TREE'S GENERATED ONE, sec 1151:
 # thorvg's config.h, which its meson configure step would write and this build
 # does not run. It declares nothing, is read only by thorvg's own sources, and
@@ -3743,6 +3742,21 @@ $(BUILD_DIR)/qr/decode.o: CFLAGS += -DQUIRC_MAX_REGIONS=65534 -I$(QUIRC_DIR)/lib
 $(BUILD_DIR)/gui/devices_view.o $(BUILD_DIR)/gui/test/devices_view_test.o: \
 	CXXFLAGS += $(if $(QR_DECODE_ON),-DFZN_QR_DECODE_ON)
 QR_DECODE_OBJS := $(if $(QR_DECODE_ON),$(BUILD_DIR)/qr/decode.o $(QUIRC_OBJS))
+
+# THE RECOGNISER IN THE LIBRARY, sec 1213: pairing is a toolkit, to be
+# complete for consumers (the holder, sec 1208), so reading a code is the
+# library's as writing one is -- a backend, FZN_QR_DECODE_ON, beside quirc's
+# four units, which the manifest names as it names Monocypher's. Its suite
+# joins `make test` where quirc is; `qrcheck` keeps the encoder's round trip.
+SRCS      += $(if $(QR_DECODE_ON),qr/decode.c)
+HDRS      += $(if $(QR_DECODE_ON),qr/decode.h)
+TEST_BINS += $(if $(QR_DECODE_ON),$(BUILD_DIR)/qr/test/decode_test)
+QUIRC_UNITS := quirc decode identify version_db
+$(BUILD_DIR)/qr/test/decode_test.o: CFLAGS += -DQUIRC_MAX_REGIONS=65534 -I$(QUIRC_DIR)/lib
+$(BUILD_DIR)/qr/test/decode_test: $(BUILD_DIR)/qr/test/decode_test.o $(BUILD_DIR)/qr/decode.o \
+                                 $(BUILD_DIR)/qr/qr.o $(QUIRC_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -lm -o $@
 
 # THE CAMERA, sec 1158: gui/camera_feed through Qt 6 Multimedia, where both
 # are; elsewhere the feed says this build has no camera and a picture from a
@@ -8372,8 +8386,11 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(LOG_PACK_ON),-DFZN_LOG_PACK_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
-	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS) \
+	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c \
+	       $(filter-out qr/decode.c,$(SRCS)) $(GEN_SRCS) \
 	       $(if $(LOG_PACK_ON),$(ZSTD_LIBS)) -lm
+	@# qr/decode.c LEFT TO ITS OWN ARM below (sec 1213), which compiles it
+	@# against quirc as the manifest says to.
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@# AS A QT CONSUMER SEES THEM: Qt defines `slots`, `signals` and `emit`
 	@# as macros, so a header naming any of them breaks every Qt translation
@@ -8399,7 +8416,7 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(LOG_PACK_ON),-DFZN_LOG_PACK_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
-	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
+	       $(patsubst %,$(CURDIR)/%,$(filter-out qr/decode.c,$(SRCS))) \
 	       $(patsubst %,$(CURDIR)/%,$(GEN_SRCS)) $(MONO_CONSUMER) \
 	       $(if $(LOG_PACK_ON),$(ZSTD_LIBS)) -lm
 	@$(BUILD_DIR)/installcheck/consumer_source
@@ -8452,6 +8469,36 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		       -o consumer_bindings $(CURDIR)/tool/consumer_check.c $$srcs ) || exit 1; \
 		$(BUILD_DIR)/installcheck/consumer_bindings || exit 1; \
 		echo "installcheck: the bindings build from the manifest alone"; \
+	fi
+	@# THE RECOGNISER, sec 1213, from the manifest alone: its backend, quirc's
+	@# units compiled as a consumer would -- with their define and quietly,
+	@# quirc being somebody else's code -- and the link line the backend asks
+	@# for. Where quirc is not vendored the manifest names none, and there is
+	@# nothing to build.
+	@if [ -n "$(QR_DECODE_ON)" ]; then \
+		srcs=; incs=; defs=; libs=; quirc=; \
+		while read -r key val rest; do \
+			case "$$key" in \
+			source|generated) srcs="$$srcs $(CURDIR)/$$val" ;; \
+			include) incs="$$incs -I$(CURDIR)/$$val" ;; \
+			backend) [ "$$rest" = FZN_QR_DECODE_ON ] && srcs="$$srcs $(CURDIR)/$$val" ;; \
+			quirc-source) quirc="$$quirc $(abspath $(QUIRC_DIR))/$$val" ;; \
+			quirc-include) incs="$$incs -I$(abspath $(QUIRC_DIR))/$$val" ;; \
+			quirc-define) defs="$$defs -D$$val" ;; \
+			link) [ "$$val" = qr/decode.c ] && libs="$$libs $$rest" ;; \
+			esac; \
+		done < $(BUILD_DIR)/installcheck/manifest.txt; \
+		test -n "$$quirc" || { \
+			echo "installcheck: the manifest names no quirc sources"; exit 1; }; \
+		mkdir -p $(BUILD_DIR)/installcheck/quirc; \
+		for q in $$quirc; do \
+			$(CC) $(GEN_CFLAGS) -w $$defs $$incs -c $$q \
+			      -o $(BUILD_DIR)/installcheck/quirc/`basename $$q .c`.o || exit 1; \
+		done; \
+		( cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) -DFZN_CONSUMER_QR_DECODE $$defs $$incs \
+		       -o consumer_qr $(CURDIR)/tool/consumer_check.c $$srcs quirc/*.o $$libs ) || exit 1; \
+		$(BUILD_DIR)/installcheck/consumer_qr || exit 1; \
+		echo "installcheck: the QR recogniser builds from the manifest alone"; \
 	fi
 	@# THE HEADERS MUST PARSE AS C++, AND THE LIST IS DERIVED FROM HDRS
 	@# rather than written out, so it cannot fall behind the way a second
@@ -8570,6 +8617,15 @@ manifest:
 	@$(if $(PERSIST_FILE_ON),echo "backend persist/persist_file.c FZN_PERSIST_FILE_ON";)
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
 	@$(if $(CAPTURE_RUN_ON),echo "backend log/capture_run.c FZN_CAPTURE_RUN_ON";)
+	@# THE RECOGNISER, sec 1213: a backend over quirc, whose four units are
+	@# named relative to its checkout's root, as Monocypher's are, with the
+	@# define they are compiled with -- quirc's own region bound, raised past
+	@# 254 for a busy frame (sec 977). Without the vendored quirc, nothing.
+	@$(if $(QR_DECODE_ON),echo "backend qr/decode.c FZN_QR_DECODE_ON";)
+	@$(if $(QR_DECODE_ON),for u in $(QUIRC_UNITS); do echo "quirc-source lib/$$u.c"; done;)
+	@$(if $(QR_DECODE_ON),echo "quirc-include lib";)
+	@$(if $(QR_DECODE_ON),echo "quirc-define QUIRC_MAX_REGIONS=65534";)
+	@$(if $(QR_DECODE_ON),echo "link qr/decode.c -lm";)
 	@$(if $(LOG_FILE_ON),echo "backend log/logger.c FZN_LOG_FILE_ON";)
 	@$(if $(LOG_FILE_ON),echo "backend log/gather.c FZN_LOG_FILE_ON";)
 	@$(if $(LOG_PACK_ON),echo "backend log/pack.c FZN_LOG_PACK_ON";)

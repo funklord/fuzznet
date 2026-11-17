@@ -226,7 +226,7 @@ int main(void) {
 	test_no_symbol_is_not_an_error();
 
 	if (failures) {
-		fprintf(stderr, "scan_test: %d failure(s)\n", failures);
+		fprintf(stderr, "decode_test: %d failure(s)\n", failures);
 		return 1;
 	}
 	printf("decode_test: all passed\n");

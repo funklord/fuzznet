@@ -85923,7 +85923,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Feature | In fuzznet | Still in a consumer, to move | Missing |
 |---|---|---|---|
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
-| Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094); a code scanned on `devices_view` through it (sec 1158) | | the recogniser in the library proper, the toolkit complete (sec 1208) |
+| Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094); a code scanned on `devices_view` through it (sec 1158), and the recogniser a backend any consumer calls (sec 1213) | | |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`), `sticker_picker_view` (sec 1141), a line drawn and its pack kept (sec 1145), Lottie drawn through the vendored thorvg (sec 1151) | sticker UI | |
@@ -90544,3 +90544,35 @@ pointed at, the heading cleared north-up again. Five sabotages, each
 caught: `compass-needle-ignores-heading`,
 `compass-left-and-right-swapped`, `compass-north-up-unsaid`,
 `location-view-badge-ignores-heading`, `location-view-rose-points-at-stale`.
+
+## 1213. Reading a QR code is the library's, as writing one is, 2026-11-17
+
+The holder (sec 1208): pairing is a toolkit, to be complete for
+consumers. The recogniser (`qr/decode.c` over quirc, sec 1095) was built
+by `qrcheck` and linked into `devices_view` (sec 1158), and no consumer
+could call it without the view. Now, wherever quirc is vendored:
+
+- **it is a backend**, `FZN_QR_DECODE_ON`, its header installed, and
+  `make manifest` names it as it names the Monocypher binding's needs:
+  `backend qr/decode.c FZN_QR_DECODE_ON`, quirc's four units as
+  `quirc-source` with `quirc-include` and the define they are compiled
+  with (`quirc-define QUIRC_MAX_REGIONS=65534`, sec 977), and `link
+  qr/decode.c -lm`. The README says what the three new kinds mean.
+- **`installcheck` builds it from those lines alone** -- quirc's units
+  quietly, as this build does, the backend, the link line -- and
+  `consumer_check` reads an empty frame as no code and a scan with no
+  scanner as a usage error. The two arms that compile every source in `SRCS`
+  leave `qr/decode.c` to it, since they pass no quirc; the first gate
+  run caught that, and the scratch a failed `installcheck` leaves in the
+  tree failed `make style` behind it.
+- **`decode_test` is in `make test`**, where it ran under `qrcheck` only;
+  its failure line called itself `scan_test` and says `decode_test` now.
+
+Without quirc nothing changes: the header stays uninstalled (and is
+still found by the header census), and the manifest names none of it.
+
+**Tests:** `decode_test` in `make test`; `installcheck`'s new arm. Two
+sabotages, each caught: `qr-decode-mirror-unread`,
+`qr-decode-nothing-is-an-error`. The wrong-shape guard has none: quirc's
+own size check returns the same -1 behind it, so removing it changes
+nothing a test could see.

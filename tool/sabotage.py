@@ -17167,6 +17167,20 @@ SABOTAGES = [
 		"the needle points at the bearing from north however the phone is held -- sec 1211",
 	),
 	(
+		"qr-decode-mirror-unread",
+		"qr/decode.c",
+		"\t\t\tquirc_flip(&code);\n",
+		"",
+		"a code read off a front camera's mirrored picture is never found -- secs 1095, 1213",
+	),
+	(
+		"qr-decode-nothing-is-an-error",
+		"qr/decode.c",
+		"\t\tmemcpy(out, data.payload, (size_t)data.payload_len);\n\t\treturn data.payload_len;\n\t}\n\treturn 0;\n",
+		"\t\tmemcpy(out, data.payload, (size_t)data.payload_len);\n\t\treturn data.payload_len;\n\t}\n\treturn -1;\n",
+		"a frame with no code in it, the common case, reads as an error and the caller stops trying -- secs 1095, 1213",
+	),
+	(
 		"compass-left-and-right-swapped",
 		"gui/compass_rose.cpp",
 		"\treturn r > 0.0 ? tr(\"%1 is %2 degrees to your right.\")",

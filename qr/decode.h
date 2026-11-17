@@ -1,8 +1,9 @@
 /*
  * decode.h -- recognising a QR code in a captured frame. Taken from
- * fuzzypickles' recogniser, fuzznet sec 1095: built and run by `make qrcheck`
- * over the vendored quirc, and not yet in the library -- so this header is
- * not installed until it is.
+ * fuzzypickles' recogniser, fuzznet sec 1095, and in the library since sec
+ * 1213 wherever quirc is vendored: a backend, FZN_QR_DECODE_ON, with quirc's
+ * units named by `make manifest`. Without quirc this header is not
+ * installed.
  *
  * The other half of camera pairing. `qr.h` lets a host publish its contact
  * card as a symbol on a screen; this reads one back out of a camera frame, so

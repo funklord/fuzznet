@@ -182,7 +182,10 @@ instead.
 the things a consumer takes deliberately rather than by following a list. A
 binding needs the consumer's own Monocypher, and `monocypher-source` and
 `monocypher-include` say what of it, relative to that checkout's root; a
-backend and a subsystem each carry the define that switches them on. A
+backend and a subsystem each carry the define that switches them on.
+The QR recogniser's backend needs quirc, and `quirc-source`,
+`quirc-include` and `quirc-define` say what of it and how it is compiled,
+relative to that checkout's root, as the Monocypher lines do. A
 `link` line names a backend's source and what that backend needs on the
 consumer's link line -- `log/pack.c` needs libzstd. A `daemon` line is
 fuzznetd's node as a call, `fzn_daemon_main` in `node/daemon.h`, for a

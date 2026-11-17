@@ -335,6 +335,7 @@
 #include "catalog/source.h"
 #include "catalog/index.h"
 #include "qr/qr.h"
+#include "qr/decode.h"
 #if defined(FZN_CLI_ON)
 #include "cli/qr_print.h"
 #include "cli/log_print.h"
@@ -3764,6 +3765,25 @@ int main(void)
 		if (!run)
 			FAIL(572);
 	}
+#endif
+
+#ifdef FZN_CONSUMER_QR_DECODE
+	/* THE RECOGNISER, sec 1213, from the manifest's backend and quirc's
+	 * units alone: an empty frame holds no code, and a scan with no
+	 * scanner is a usage error. Enough to prove the header, the source
+	 * and quirc go together; qr/test/decode_test.c reads real codes. */
+	{
+		static uint8_t frame[64u * 64u];
+		uint8_t out[64];
+		fzn_qr_scanner_t *s = fzn_qr_scanner_new(64u, 64u);
+
+		if (!s || fzn_qr_scan_frame(s, frame, 64u, 64u, out, sizeof(out)) != 0
+		    || fzn_qr_scan_frame(NULL, frame, 64u, 64u, out, sizeof(out)) != -1)
+			FAIL(573);
+		fzn_qr_scanner_free(s);
+	}
+	printf("consumer_check: headers and sources agree, the QR recogniser included\n");
+	return 0;
 #endif
 
 #ifdef FZN_CONSUMER_MONOCYPHER
