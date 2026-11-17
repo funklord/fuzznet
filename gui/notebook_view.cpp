@@ -616,6 +616,22 @@ int fzn_notebook_view::note_set(const QString &id, int field, const QByteArray &
 	return 1;
 }
 
+int fzn_notebook_view::note_text(const QByteArray &text, QString *why)
+{
+	const QByteArray idb = QByteArray::fromHex(m_open.toLatin1());
+
+	if (idb.size() != 32
+	    || fzn_rpc_note_set_text(&m_rpc->c, reinterpret_cast<const uint8_t *>(idb.constData()), text.constData(),
+	                             (size_t)text.size())
+	               != FZN_RPC_OK) {
+		m_answered = m_rpc->c.answered;
+		*why = idb.size() != 32 ? QStringLiteral("no such note") : refused_words(m_rpc);
+		return 0;
+	}
+	m_answered = true;
+	return 1;
+}
+
 int fzn_notebook_view::note_item(int what, int index, const QString &text, QString *why)
 {
 	const QByteArray idb = QByteArray::fromHex(m_open.toLatin1());
@@ -1315,18 +1331,11 @@ bool fzn_notebook_view::restore_version()
 {
 	QString why, title = m_title->text().replace(QLatin1Char('\n'), QLatin1Char(' '));
 	QString which = m_versions.value(m_viewing);
-	QTemporaryFile file;
 
 	if (m_viewing < 0 || !m_version_text || shared() || m_open.isEmpty())
 		return false;
-	if (!file.open() || file.write(m_body->toPlainText().toUtf8()) < 0) {
-		say(QStringLiteral("The version could not be written out to restore."));
-		return false;
-	}
-	file.close();
-	if ((!title.isEmpty()
-	     && ask(QStringLiteral("set note %1 title %2").arg(m_open, title), &why) != 1)
-	    || ask(QStringLiteral("set note %1 file %2").arg(m_open, file.fileName()), &why) != 1) {
+	if ((!title.isEmpty() && note_set(m_open, FZN_RPC_NOTE_SET_TITLE, title.toUtf8(), &why) != 1)
+	    || note_text(m_body->toPlainText().toUtf8(), &why) != 1) {
 		fail(QStringLiteral("The version was not restored: %1").arg(why));
 		return false;
 	}
@@ -1596,7 +1605,6 @@ bool fzn_notebook_view::save()
 {
 	QString why;
 	QString title = m_title->text().replace(QLatin1Char('\n'), QLatin1Char(' '));
-	QTemporaryFile file;
 
 	if (shared() || m_open.isEmpty())
 		return false;
@@ -1622,16 +1630,10 @@ bool fzn_notebook_view::save()
 		}
 		m_labels_read = m_labels->text();
 	}
-	/* THE TEXT THROUGH A FILE: it may hold newlines and be far past one
-	 * request line. A folder has none to save. */
+	/* THE TEXT IN PIECES, sec 1219, through the typed client: it may hold
+	 * newlines and be far past one message. A folder has none to save. */
 	if (m_body->isEnabled() && !m_is_list) {
-		if (!file.open() || file.write(m_body->toPlainText().toUtf8()) < 0) {
-			fail(QStringLiteral("The text could not be written out to save."));
-			return false;
-		}
-		file.close();
-		if (ask(QStringLiteral("set note %1 file %2").arg(m_open, file.fileName()), &why)
-		    != 1) {
+		if (note_text(m_body->toPlainText().toUtf8(), &why) != 1) {
 			fail(QStringLiteral("The text was not saved: %1").arg(why));
 			return false;
 		}

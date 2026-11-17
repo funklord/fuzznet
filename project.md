@@ -90763,9 +90763,8 @@ STATUS.
   restore; an item added, ticked and removed. Its own word escaper is
   gone with the last verb that needed it.
 
-**Still text, and next in the subject**: a note's text, which can be
-256 KiB and so past one local message (a staged upload, the reverse of
-sec 1201's pieces); import; attachments; shares; emptying the trash.
+**Still text, and next in the subject**: import, attachments, shares
+and emptying the trash. A note's text moved in sec 1219.
 
 **Tests:** six vectors; `notes_test` -- an add answered with its id and
 there by the verb, a title and labels changed, a checklist's item added
@@ -90778,3 +90777,32 @@ sabotages, each caught (`notes-binary-write-always-ok`,
 `notes-binary-labels-one`, `rpc-note-add-id-unread`,
 `notebook-view-labels-run-together`), and four of the view's moved with
 their lines.
+
+## 1219. A note's text, saved in pieces, 2026-11-17
+
+A note's text can be 256 KiB and a local message stops under 8 KiB, so
+the notebook saved it by writing a file and asking `set note ID file
+PATH`, the daemon reading it back. FZN_CMD_NOTES `text` (141) carries a
+piece: the note, the whole length, its offset, at most 8000 bytes.
+
+- **The node stages the pieces in order** and, once the last is in,
+  saves the text through the verb's handler as `set note ID text`
+  would -- so a checklist is refused as the verb refuses it. Each piece
+  is answered ok, the last with the save's STATUS. A piece past a gap is
+  refused and the staging dropped, so a later piece cannot complete a
+  text that was never whole; a piece at offset 0 begins again. One text
+  is staged at a time, as one user writes one note.
+- **`fzn_rpc_note_set_text`** sends every piece, at least one for an
+  empty text, and goes through the staged file where the node reads no
+  binary. The notebook's save and its restore of an earlier version use
+  it; neither writes a temporary file any more.
+
+**Tests:** a vector; `notes_test` -- 20000 bytes in three pieces, each
+ok, and the note's text after; a piece past a gap refused, and one after
+it refused too; a checklist refused; `notebook_view_test` -- a long text
+saved over the binary answer, read back, no verb asked;
+`live_many_shared` phase c4 -- 20000 bytes in pieces through the daemon,
+read back whole in binary. Three sabotages, each caught
+(`notes-binary-text-gap-taken`, `notes-binary-text-staging-kept`,
+`rpc-note-text-pieces-too-big`), and sec 439's save sabotage moved with
+its line as `notebook-view-saves-the-text`.

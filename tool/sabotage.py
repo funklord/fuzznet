@@ -5780,10 +5780,10 @@ SABOTAGES = [
 		"the un-share warning is not on screen when somebody shares -- sec 439",
 	),
 	(
-		"notebook-view-saves-text-through-a-file",
+		"notebook-view-saves-the-text",
 		"gui/notebook_view.cpp",
-		"\tif (m_body->isEnabled() && !m_is_list) {\n\t\tif (!file.open()",
-		"\tif (0) {\n\t\tif (!file.open()",
+		"\tif (m_body->isEnabled() && !m_is_list) {\n\t\tif (note_text(",
+		"\tif (0) {\n\t\tif (note_text(",
 		"Save keeps the title and drops the text -- sec 439",
 	),
 	(
@@ -17242,6 +17242,27 @@ SABOTAGES = [
 		"\t\t\t\tif (!labels.isEmpty())\n\t\t\t\t\tlabels += '\\0';\n",
 		"",
 		"a note's labels are saved as one, run together -- sec 1218",
+	),
+	(
+		"notes-binary-text-gap-taken",
+		"node/notes.c",
+		"\t\t    || total != staged_total || offset != staged_have || piece_len > staged_total - staged_have) {\n",
+		"\t\t    || total != staged_total || piece_len > staged_total - staged_have) {\n",
+		"a note's text saved in pieces takes one past a gap, and the text is saved with a hole -- sec 1219",
+	),
+	(
+		"notes-binary-text-staging-kept",
+		"node/notes.c",
+		"\t\t\tstaging = 0;\n\t\t\treturn binary_status(put, put_ctx, FZN_STATUS_ERROR, \"a piece of text out of order\");\n",
+		"\t\t\treturn binary_status(put, put_ctx, FZN_STATUS_ERROR, \"a piece of text out of order\");\n",
+		"after a piece out of order the staging goes on, and a later piece completes a text it never had -- sec 1219",
+	),
+	(
+		"rpc-note-text-pieces-too-big",
+		"local/rpc.c",
+		"\t\tconst size_t piece = text_len - at < 8000u ? text_len - at : 8000u;\n",
+		"\t\tconst size_t piece = text_len - at < 9000u ? text_len - at : 9000u;\n",
+		"a note's text is cut into pieces past the local leg's message bound -- sec 1219",
 	),
 	(
 		"qr-decode-nothing-is-an-error",

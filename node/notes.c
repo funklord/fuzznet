@@ -2603,6 +2603,45 @@ static int binary_write(fzn_node_notes_t *n, situ_view_t v, fzn_node_notes_put_t
 			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the note's id would not write");
 		return put(put_ctx, out, out_len) && binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
 	}
+	/* A NOTE'S TEXT IN PIECES, sec 1219: staged in order, then saved as
+	 * `set note ID text` would -- a checklist refused as the verb refuses
+	 * it. One text staged at a time, as one user writes one note; a piece
+	 * at offset 0 begins again, and one out of order is refused, the
+	 * staging dropped. */
+	if (op == FZN_NOTES_LOCAL_OP_TEXT) {
+		static uint8_t staged_id[FZN_TREE_ID_LEN];
+		static uint8_t staged[2u * FZN_TREE_ID_LEN + 6u + FZN_NOTE_TEXT_MAX];
+		static size_t staged_have, staged_total;
+		static int staging;
+		const size_t head = 2u * FZN_TREE_ID_LEN + 6u;
+		uint32_t total, offset, piece_len;
+
+		if (fzn_notes_local_message_body_text_view(v, &b) != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not a piece of text");
+		total = fzn_notes_local_text_total_get(b);
+		offset = fzn_notes_local_text_offset_get(b);
+		piece_len = fzn_notes_local_text_piece_len(b);
+		if (offset == 0u) {
+			memcpy(staged_id, fzn_notes_local_text_id_ptr(b), FZN_TREE_ID_LEN);
+			staged_have = 0;
+			staged_total = total;
+			staging = 1;
+		}
+		if (!staging || memcmp(staged_id, fzn_notes_local_text_id_ptr(b), FZN_TREE_ID_LEN) != 0
+		    || total != staged_total || offset != staged_have || piece_len > staged_total - staged_have) {
+			staging = 0;
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "a piece of text out of order");
+		}
+		memcpy(staged + head + staged_have, fzn_notes_local_text_piece_ptr(b), piece_len);
+		staged_have += piece_len;
+		if (staged_have < staged_total)
+			return binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
+		staging = 0;
+		hex_of(staged_id, FZN_TREE_ID_LEN, (char *)staged);
+		memcpy(staged + 2u * FZN_TREE_ID_LEN, " text ", 6u);
+		r = set(n, staged, head + staged_total, reply, sizeof(reply));
+		return verb_status(put, put_ctx, reply, r);
+	}
 	if (op == FZN_NOTES_LOCAL_OP_CHANGE) {
 		unsigned field;
 		const uint8_t *value;
@@ -2723,7 +2762,8 @@ int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_
 	 * verb's -- and its answer said as a STATUS. */
 	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_ADD
 	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_CHANGE
-	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_ITEM)
+	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_ITEM
+	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_TEXT)
 		return binary_write(n, v, put, put_ctx);
 	/* THE STAMP, sec 1199: `get notes`' number, a row and then ok. */
 	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_STAMP) {

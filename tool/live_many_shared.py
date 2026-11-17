@@ -12,8 +12,9 @@ S shares a folder of 2200 notes with R, a contact, past what one index page hold
        the view loaded again a page, the least of a few listings
     c2 the folder in binary by the sharer's key, `list sharer`'s (sec 1191): every
        note, in the pages' order, then ok
-    c4 the notebook's writes in binary over the socket (sec 1218): a note
-       added and its id answered, its title changed, read back by the verb
+    c4 the notebook's writes in binary over the socket (secs 1218, 1219): a
+       note added and its id answered, its title changed, read back by the
+       verb, and 20000 bytes of text saved in pieces and read back whole
     c3 one note whole in binary over the socket (sec 1201): S's own, 20000 bytes,
        its fields and three pieces under the local leg's bound, in order, then ok;
        and one of the shared notes at R, by the sharer's key
@@ -223,7 +224,20 @@ def main(argv):
 			said = ask(socks["s"], "get note " + made)
 			if len(got) != 1 or got[0][:2] != bytes([0x13, 0]) or not said.endswith("renamed%20in%20binary"):
 				raise failed("c4: a title changed in binary answered %r, and the verb %r" % (got, said))
-			print("livecheck: c4: a note added and renamed in binary, read back by the verb")
+			# AND ITS TEXT IN PIECES, sec 1219, read back whole in binary.
+			text = bytes(ord("A") + i % 26 for i in range(20000))
+			for at in range(0, len(text), 8000):
+				piece = text[at:at + 8000]
+				got = binary(socks["s"], bytes([0x08, 0x8D]) + bytes.fromhex(made) + len(text).to_bytes(4, "big")
+				             + at.to_bytes(4, "big") + len(piece).to_bytes(2, "big") + piece)
+				if len(got) != 1 or got[0][:2] != bytes([0x13, 0]):
+					raise failed("c4: a piece of text at %d answered %r" % (at, got))
+			got = binary(socks["s"], bytes([0x08, 0x86]) + bytes(32) + bytes.fromhex(made))
+			body = b"".join(m[8:8 + int.from_bytes(m[6:8], "big")] for m in got if m[:2] == bytes([0x08, 0x88]))
+			if body != text:
+				raise failed("c4: the text saved in pieces read back as %d bytes" % len(body))
+			print("livecheck: c4: a note added, renamed and given 20000 bytes of text in binary, "
+			      "read back by the verb and whole")
 
 			# d: a collection reads the trees once, not once a text.
 			ticks = None

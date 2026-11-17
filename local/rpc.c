@@ -5441,6 +5441,32 @@ int fzn_rpc_note_item(fzn_rpc_t *c, const uint8_t id[32], int what, unsigned ind
 	return node_ack(c, "set", arg, n);
 }
 
+int fzn_rpc_note_set_text(fzn_rpc_t *c, const uint8_t id[32], const char *text, size_t text_len) {
+	static uint8_t row[32 + 4 + 4 + 2 + 8000], msg[sizeof row + 8];
+	uint32_t row_len = 0, msg_len = 0;
+	size_t at = 0;
+	int tx = 0;
+	if (!id || (!text && text_len)) return encode_failed(c);
+	if (text_len > FZN_RPC_NOTES_TEXT_MAX) return node_unasked(c, FZN_RPC_ERR_MALFORMED, "that note's text is too long");
+	/* EVERY PIECE, at least one: an empty text is one empty piece. */
+	do {
+		const size_t piece = text_len - at < 8000u ? text_len - at : 8000u;
+		if (fzn_notes_local_text_build(row, sizeof row, id, (uint32_t)text_len, (uint32_t)at,
+		                               (const uint8_t *)text + at, (uint32_t)piece, &row_len) != SITU_OK
+		    || fzn_notes_local_message_build_text(msg, sizeof msg, (uint8_t)FZN_CMD_NOTES, row, row_len, &msg_len)
+		               != SITU_OK)
+			return encode_failed(c);
+		const int rc = write_binary(c, msg, msg_len, 0, NULL, &tx);
+		if (tx && at == 0) break;
+		if (tx || rc != FZN_RPC_OK) return tx ? unreadable(c) : rc;
+		at += piece;
+	} while (at < text_len);
+	if (!tx) return FZN_RPC_OK;
+	char hex[65];
+	fzn_hex_encode(id, 32, hex);
+	return node_note_text(c, hex, text, text_len);
+}
+
 int fzn_rpc_notes_show(fzn_rpc_t *c, const uint8_t id[32], const uint8_t from[32],
                         int from_group, fzn_rpc_notes_show_resp_t *out) {
 	if (from_group && !from) return encode_failed(c);

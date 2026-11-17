@@ -314,6 +314,9 @@ int fzn_rpc_note_add(fzn_rpc_t *c, const uint8_t *parent, uint16_t type, const c
 int fzn_rpc_note_set(fzn_rpc_t *c, const uint8_t id[32], int field, const uint8_t *value, size_t value_len);
 int fzn_rpc_note_item(fzn_rpc_t *c, const uint8_t id[32], int what, unsigned index, const char *text,
                       size_t text_len);
+/* A NOTE'S TEXT, sec 1219: in pieces in binary, saved once the last is in;
+ * through a staged file and `set note ID file` where the node reads none. */
+int fzn_rpc_note_set_text(fzn_rpc_t *c, const uint8_t id[32], const char *text, size_t text_len);
 void fzn_rpc_note_open_release(fzn_rpc_note_open_t *out);
 /* WHETHER ANYTHING MOVED, sec 1199: a number that moves with every write the
  * notes could be in, 0 where the node keeps none -- so a view refreshed on a

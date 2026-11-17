@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  notes=128 note_row=129 stamp=130 stamp_row=131 shares=132 share_row=133 note=134 note_fields=135 note_text=136 add=137 added=138 change=139 item=140
+  notes=128 note_row=129 stamp=130 stamp_row=131 shares=132 share_row=133 note=134 note_fields=135 note_text=136 add=137 added=138 change=139 item=140 text=141
 
 enum field : u8 unknown=error
   title=1 labels=2 colour=3 parent=4 pin=5 unpin=6 trash=7 untrash=8 archive=9 unarchive=10
@@ -46,10 +46,10 @@ struct item size=37..7937
   @0x0023   2         u16        text_len  big max=7900
   @0x0025   0..7900   u8         text  sized-by=text_len
 
-struct message size=2..8008
+struct message size=2..8044
   @0x0000   1         u8         cmd  must_eq=8
   @0x0001   1         op         op
-  @0x0002   0..8006   variant    body
+  @0x0002   0..8042   variant    body
   body switch: op
   body case 128: notes notes
   body case 129: note_row note_row
@@ -64,6 +64,7 @@ struct message size=2..8008
   body case 138: added added
   body case 139: change change
   body case 140: item item
+  body case 141: text text
   body case default: error
 
 struct note_ask size=64
@@ -119,3 +120,10 @@ struct share_row size=35..99
 
 struct stamp_row size=8
   @0x0000   8         u64        stamp  big
+
+struct text size=42..8042
+  @0x0000   32        u8         id  big
+  @0x0020   4         u32        total  big max=262144
+  @0x0024   4         u32        offset  big
+  @0x0028   2         u16        piece_len  big max=8000
+  @0x002a   0..8000   u8         piece  sized-by=piece_len

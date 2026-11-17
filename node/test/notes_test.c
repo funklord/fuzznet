@@ -719,6 +719,53 @@ static void test_writes_in_binary(void)
 	      "another user's write was not denied");
 }
 
+/* A NOTE'S TEXT IN PIECES, sec 1219: 20000 bytes in three, each answered
+ * ok, saved once whole and read back by the verb; a piece out of order
+ * refused; a checklist's text refused as the verb refuses it. */
+static int text_piece(const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *text, uint32_t total, uint32_t at,
+                      uint32_t len)
+{
+	uint8_t row[FZN_NODE_NOTES_BINARY_MAX], msg[FZN_NODE_NOTES_BINARY_MAX];
+	uint32_t row_len = 0, msg_len = 0;
+
+	n_said = 0;
+	return fzn_notes_local_text_build(row, sizeof(row), id, total, at, text + at, len, &row_len) == SITU_OK
+	       && fzn_notes_local_message_build_text(msg, sizeof(msg), FZN_CMD_NOTES, row, row_len, &msg_len) == SITU_OK
+	       && fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, msg_len, bput, NULL) && n_said == 1u;
+}
+
+static void test_text_in_pieces(void)
+{
+	static uint8_t text[20000];
+	uint8_t id[FZN_TREE_ID_LEN];
+	char hex[65], line[160];
+	size_t i;
+
+	for (i = 0; i < sizeof(text); i++)
+		text[i] = (uint8_t)('a' + i % 26u);
+	setup(0);
+	CHECK(ask("add note top long") == FZN_REPLY_OK, "fixture: a note");
+	take_id(hex);
+	hex_id(hex, id);
+	CHECK(text_piece(id, text, 20000u, 0u, 8000u) && status_at(0, FZN_STATUS_OK)
+	              && text_piece(id, text, 20000u, 8000u, 8000u) && status_at(0, FZN_STATUS_OK)
+	              && text_piece(id, text, 20000u, 16000u, 4000u) && status_at(0, FZN_STATUS_OK),
+	      "a text in three pieces was not taken, each answered ok");
+	snprintf(line, sizeof(line), "get note %s text", hex);
+	CHECK(ask(line) == FZN_REPLY_OK && has("abcdefghijklmnopqrstuvwxyzab") && has("defghijklmnopqrstuvwxyz"),
+	      "the text saved in pieces was not the note's");
+	CHECK(text_piece(id, text, 20000u, 0u, 8000u) && text_piece(id, text, 20000u, 16000u, 4000u)
+	              && status_at(0, FZN_STATUS_ERROR),
+	      "a piece past a gap was taken");
+	CHECK(text_piece(id, text, 20000u, 8000u, 8000u) && status_at(0, FZN_STATUS_ERROR),
+	      "a piece after a refused one was taken, the staging kept");
+	CHECK(ask("add list top shopping") == FZN_REPLY_OK, "fixture: a checklist");
+	take_id(hex);
+	hex_id(hex, id);
+	CHECK(text_piece(id, text, 5u, 0u, 5u) && status_at(0, FZN_STATUS_ERROR),
+	      "a checklist's text was set in pieces");
+}
+
 /* ---- cases --------------------------------------------------------------- */
 
 static void test_add_list_get(void)
@@ -3124,6 +3171,7 @@ int main(void)
 	test_shared_reads();
 	test_list_in_binary();
 	test_writes_in_binary();
+	test_text_in_pieces();
 	test_note_in_binary();
 	test_the_join_floor_at_its_second();
 	test_import();

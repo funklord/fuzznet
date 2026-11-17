@@ -358,7 +358,7 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 		history_asked++;
 	if (!strncmp(line, "add note ", 9u) || !strncmp(line, "add folder ", 11u) || !strncmp(line, "add list ", 9u)
 	    || !strncmp(line, "add item ", 9u) || !strncmp(line, "remove item ", 12u)
-	    || (!strncmp(line, "set note ", 9u) && !strstr(line, " file ")))
+	    || !strncmp(line, "set note ", 9u))
 		writes_asked++;
 	if (!strncmp(line, "list note ", 10u))
 		list_asks++;
@@ -1355,6 +1355,17 @@ static void test_the_writes_go_in_binary(void)
 	CHECK(w.new_list(QStringLiteral("shopping")) && w.add_item(QStringLiteral("milk")) && w.toggle_item(0)
 	              && w.body_text() == QStringLiteral("[x] milk") && w.remove_item(0) && w.body_text().isEmpty(),
 	      "a checklist's item was not added, ticked and removed in binary");
+	/* A TEXT PAST ONE MESSAGE, saved in pieces, sec 1219. */
+	{
+		QString text;
+		int i;
+
+		for (i = 0; i < 600; i++)
+			text += QStringLiteral("line %1 of a long note\n").arg(i);
+		CHECK(w.open_note(note) && (w.findChild<QPlainTextEdit *>()->setPlainText(text), w.save())
+		              && w.open_note(note) && w.body_text() == text,
+		      "a long text was not saved in pieces and read back");
+	}
 	CHECK(writes_asked == 0, "a write was asked as a verb with the binary answer there");
 	w.answer_binary(nullptr, nullptr);
 }
