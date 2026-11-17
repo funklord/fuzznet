@@ -5931,10 +5931,10 @@ int fzn_rpc_group_remove_member(fzn_rpc_t *c, const char *group, size_t group_le
 int fzn_rpc_ring(fzn_rpc_t *c, const char *who, size_t who_len, uint8_t kinds,
                   char id[FZN_RPC_ID_HEX + 1]) {
 	id[0] = '\0';
-	if (!who_len || who_len > 16 * (FZN_RPC_PEER_NAME_MAX + 1) || memchr(who, ' ', who_len) ||
+	if (!who_len || who_len > FZN_RPC_RING_WHO_MAX * (FZN_RPC_PEER_NAME_MAX + 1) || memchr(who, ' ', who_len) ||
 	    !kinds || kinds > (FZN_RPC_AUDIO | FZN_RPC_VIDEO))
 		return encode_failed(c);
-	char arg[16 + 16 * (FZN_RPC_PEER_NAME_MAX + 1) + 8];
+	char arg[16 + FZN_RPC_RING_WHO_MAX * (FZN_RPC_PEER_NAME_MAX + 1) + 8];
 	const char *k = kinds == FZN_RPC_AUDIO ? "audio" : kinds == FZN_RPC_VIDEO ? "video" : "both";
 	const int arg_len = snprintf(arg, sizeof arg, "call %.*s %s", (int)who_len, who, k);
 	const char *rest = NULL;

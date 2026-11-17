@@ -438,6 +438,8 @@ typedef struct fzn_rpc_entry {
 /* The contact whose user is USER, by name, into NAME; 0 when none is. */
 int fzn_rpc_user_name(fzn_rpc_t *c, const uint8_t user[32], char *name, size_t cap);
 #define FZN_RPC_CALLS_MAX 64
+/* THE MOST RUNG AT ONCE: `who` holds at most this many names. */
+#define FZN_RPC_RING_WHO_MAX 16
 /* `who`: a contact's name, or several joined by commas. */
 int fzn_rpc_ring(fzn_rpc_t *c, const char *who, size_t who_len, uint8_t kinds,
                   char id[FZN_RPC_ID_HEX + 1]);

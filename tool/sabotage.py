@@ -14638,8 +14638,8 @@ SABOTAGES = [
 	(
 		"conversations-view-unread-unsaid",
 		"gui/conversations_view.cpp",
-		"\t\tif (count)\n\t\t\ttext += tr(\" (%1 unread)\").arg(count);\n",
-		"",
+		"count ? QString::number(count) : QString() }",
+		"QString() }",
 		"a conversation's unread lines are not said in the list -- sec 1138",
 	),
 	(
@@ -14666,8 +14666,8 @@ SABOTAGES = [
 	(
 		"conversations-menu-call-everyone-unnamed",
 		"gui/conversations_view.cpp",
-		"\t\t\tif (members.members[i].name_len)\n",
-		"\t\t\tif (1)\n",
+		"\t\tif (members.members[i].name_len)\n",
+		"\t\tif (1)\n",
 		"calling a group rings members it cannot name, this user among them -- sec 1144",
 	),
 	(
@@ -17312,6 +17312,34 @@ SABOTAGES = [
 		"\t\tr = fzn_node_messages_local(nm, FZN_ORIGIN_SAME_USER, &req, reply, sizeof(reply));\n",
 		"\t\tr = (size_t)snprintf(reply, sizeof(reply), \"ok\");\n",
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
+	),
+	(
+		"conversations-unread-plain",
+		"gui/conversations_view.cpp",
+		"\t\t\tbold.setBold(true);\n",
+		"\t\t\tbold.setBold(false);\n",
+		"a conversation's unread count reads as plain text, no mark -- sec 1232",
+	),
+	(
+		"conversations-call-nobody-offered",
+		"gui/conversations_view.cpp",
+		"\t\t\tif (who.isEmpty())\n\t\t\t\tm_refused.insert(",
+		"\t\t\tif (0)\n\t\t\t\tm_refused.insert(",
+		"calling a group with nobody else in it is offered, to be refused when chosen -- sec 1232",
+	),
+	(
+		"conversations-opened-left-highlighted",
+		"gui/conversations_view.cpp",
+		"\tm_open(to);\n\t/* NOTHING LEFT HIGHLIGHTED once it is open, sec 1232. */\n\tm_tree->clearSelection();\n\tm_tree->setCurrentItem(nullptr);\n",
+		"\tm_open(to);\n",
+		"a conversation opened stays highlighted in the list -- sec 1232",
+	),
+	(
+		"conversations-stale-badge-bright",
+		"gui/conversations_view.cpp",
+		"\t\t\tif (stale)\n\t\t\t\titem->setForeground(1,",
+		"\t\t\tif (0)\n\t\t\t\titem->setForeground(1,",
+		"a contact's stale badge reads as fresh -- sec 1232",
 	),
 	(
 		"contact-first-on-every-add",

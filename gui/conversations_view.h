@@ -28,6 +28,7 @@
 
 #include "notebook_view.h"
 
+#include <QHash>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
@@ -68,6 +69,14 @@ public:
 
 	/* The clock, seconds since 1970; 0 reads the system's. */
 	void set_now(uint32_t utc_s);
+	/* A CONTACT'S BADGE beside its name, sec 1232, from whatever the host
+	 * keeps -- a location view's `badge_for`, say: the text for a name,
+	 * empty for none, and `*stale` set where it should be dimmed. Read at
+	 * each refresh. */
+	void set_badge(std::function<QString(const QString &name, bool *stale)> badge);
+	/* WHY A ROW'S ACTION CANNOT BE TAKEN, where it is offered disabled --
+	 * empty where it can. As `actions` last offered it. */
+	QString refused(const QString &action) const;
 
 	/* WHAT IS ON SCREEN: each heading, then each conversation beneath it
 	 * indented, as shown; the status line. */
@@ -77,6 +86,12 @@ public:
 private:
 	QTreeWidgetItem *row_item(int group, int row) const;
 	int sharing(const QString &contact);
+	/* A GROUP'S MEMBERS THIS USER CAN NAME, this user not among them; 0
+	 * when the node could not say. */
+	bool callable(const QString &group, QStringList *who);
+	std::function<QString(const QString &, bool *)> m_badge;
+	/* Each action `actions` offered disabled, with why. */
+	QHash<QString, QString> m_refused;
 
 	struct fzn_gui_rpc *m_rpc;
 	std::function<void(const QString &)> m_open;

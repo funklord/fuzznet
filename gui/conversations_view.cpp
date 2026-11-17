@@ -8,10 +8,13 @@ extern "C" {
 #include "../local/rpc_encoding.h"
 }
 
+#include <QAction>
 #include <QByteArray>
 #include <QDateTime>
+#include <QFont>
 #include <QHBoxLayout>
 #include <QHash>
+#include <QHeaderView>
 #include <QLabel>
 #include <QMenu>
 #include <QPushButton>
@@ -87,7 +90,15 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 
 	m_tree = new QTreeWidget(this);
 	m_tree->setHeaderHidden(true);
-	m_tree->setColumnCount(1);
+	/* THE ROW AS A MESSENGER LAYS IT OUT, sec 1232: who and the newest
+	 * line; a badge the host hands in; when, on the right; and the unread
+	 * count as its own mark, where a narrow row cut it first inside the
+	 * text. */
+	m_tree->setColumnCount(4);
+	m_tree->header()->setStretchLastSection(false);
+	m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+	for (int c = 1; c < 4; c++)
+		m_tree->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
 	m_tree->setWordWrap(true);
 	m_tree->setAccessibleName(tr("Conversations"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
@@ -104,8 +115,12 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 
 	connect(m_tree, &QTreeWidget::itemActivated, [this](QTreeWidgetItem *item, int) {
 		const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
-		if (!to.isEmpty() && m_open)
+		if (!to.isEmpty() && m_open) {
 			m_open(to);
+			/* NOTHING LEFT HIGHLIGHTED once it is open, sec 1232. */
+			m_tree->clearSelection();
+			m_tree->setCurrentItem(nullptr);
+		}
 	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -116,8 +131,14 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 			return;
 		const int group = m_tree->indexOfTopLevelItem(head), row = head->indexOfChild(item);
 		QMenu menu(this);
-		for (const QString &a : actions(group, row))
-			menu.addAction(a);
+		for (const QString &a : actions(group, row)) {
+			QAction *offered = menu.addAction(a);
+			/* OFFERED DISABLED, SAYING WHY, rather than refused when chosen. */
+			if (!refused(a).isEmpty()) {
+				offered->setEnabled(false);
+				offered->setText(tr("%1 -- %2").arg(a, refused(a)));
+			}
+		}
 		QAction *chosen = menu.exec(m_tree->viewport()->mapToGlobal(at));
 		if (chosen)
 			act(group, row, chosen->text());
@@ -135,6 +156,13 @@ void fzn_conversations_view::on_action(std::function<void(const QString &, const
 }
 
 void fzn_conversations_view::set_now(uint32_t utc_s) { m_now = utc_s; }
+
+void fzn_conversations_view::set_badge(std::function<QString(const QString &, bool *)> badge)
+{
+	m_badge = badge;
+}
+
+QString fzn_conversations_view::refused(const QString &action) const { return m_refused.value(action); }
 
 bool fzn_conversations_view::refresh()
 {
@@ -187,15 +215,31 @@ bool fzn_conversations_view::refresh()
 		 * -- is shown and opened by its key. */
 		QString name = is_group ? group_name.value(key)
 		               : contact_name.value(key, QString::fromLatin1(key.toHex()));
-		QString text = QStringLiteral("%1 -- %2").arg(said(name.toUtf8().constData(),
-		                                                  (size_t)name.toUtf8().size()),
-		                                             line_words(e));
-		if (e->stime_ms)
-			text += QStringLiteral(" -- ") + when_words(now, e->stime_ms);
+		const QString text = QStringLiteral("%1 -- %2").arg(said(name.toUtf8().constData(),
+		                                                        (size_t)name.toUtf8().size()),
+		                                                   line_words(e));
 		const size_t count = counts.value(key, 0);
-		if (count)
-			text += tr(" (%1 unread)").arg(count);
-		auto *item = new QTreeWidgetItem(is_group ? group_head : contacts, { text });
+		auto *item = new QTreeWidgetItem(is_group ? group_head : contacts,
+		                                  { text, QString(), e->stime_ms ? when_words(now, e->stime_ms) : QString(),
+		                                    count ? QString::number(count) : QString() });
+		item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+		/* THE UNREAD COUNT AS A MARK, bold in the highlight's colour, and
+		 * said in words to a screen reader. */
+		if (count) {
+			QFont bold = item->font(3);
+			bold.setBold(true);
+			item->setFont(3, bold);
+			item->setForeground(3, palette().brush(QPalette::Highlight));
+			item->setData(3, Qt::AccessibleTextRole, tr("%n unread", nullptr, (int)count));
+		}
+		/* AND THE HOST'S BADGE for a contact, dimmed when stale. */
+		if (!is_group && m_badge && contact_name.contains(key)) {
+			bool stale = false;
+			const QString badge = m_badge(name, &stale);
+			item->setText(1, badge);
+			if (stale)
+				item->setForeground(1, palette().brush(QPalette::Disabled, QPalette::Text));
+		}
 		item->setData(0, ROLE_OPEN, is_group ? QStringLiteral("@") + name : name);
 		item->setData(0, ROLE_KIND, is_group                  ? ROW_GROUP
 		                            : contact_name.contains(key) ? ROW_CONTACT
@@ -223,6 +267,9 @@ bool fzn_conversations_view::open(int group, int row)
 		return false;
 	m_tree->setCurrentItem(item);
 	m_open(to);
+	/* NOTHING LEFT HIGHLIGHTED once it is open, sec 1232. */
+	m_tree->clearSelection();
+	m_tree->setCurrentItem(nullptr);
 	return true;
 }
 
@@ -232,8 +279,19 @@ QStringList fzn_conversations_view::shown() const
 	for (int i = 0; i < m_tree->topLevelItemCount(); i++) {
 		QTreeWidgetItem *h = m_tree->topLevelItem(i);
 		out << h->text(0);
-		for (int k = 0; k < h->childCount(); k++)
-			out << QStringLiteral("  ") + h->child(k)->text(0);
+		for (int k = 0; k < h->childCount(); k++) {
+			/* THE ROW AS READ ALOUD, its columns in order: who and the line,
+			 * the badge, when, and how many are unread. */
+			const QTreeWidgetItem *r = h->child(k);
+			QString line = QStringLiteral("  ") + r->text(0);
+			if (!r->text(1).isEmpty())
+				line += QStringLiteral(" [") + r->text(1) + QLatin1Char(']');
+			if (!r->text(2).isEmpty())
+				line += QStringLiteral(" -- ") + r->text(2);
+			if (!r->text(3).isEmpty())
+				line += tr(" (%1 unread)").arg(r->text(3));
+			out << line;
+		}
 	}
 	return out;
 }
@@ -266,12 +324,43 @@ int fzn_conversations_view::sharing(const QString &contact)
 	return on;
 }
 
+bool fzn_conversations_view::callable(const QString &group, QStringList *who)
+{
+	fzn_rpc_group_show_resp_t members;
+	QByteArray name = group.toUtf8();
+	memset(&members, 0, sizeof members);
+	who->clear();
+	if (fzn_rpc_group_members(&m_rpc->c, name.constData(), (size_t)name.size(), &members) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		free(members.members);
+		return false;
+	}
+	for (size_t i = 0; i < members.member_count; i++)
+		if (members.members[i].name_len)
+			*who << QString::fromUtf8(members.members[i].name, (int)members.members[i].name_len);
+	free(members.members);
+	return true;
+}
+
 QStringList fzn_conversations_view::actions(int group, int row)
 {
 	QTreeWidgetItem *item = row_item(group, row);
 	const int kind = item ? item->data(0, ROLE_KIND).toInt() : 0;
-	if (kind == ROW_GROUP)
+	m_refused.clear();
+	if (kind == ROW_GROUP) {
+		/* CALL EVERYONE OFFERED DISABLED, SAYING WHY, sec 1232: nobody to
+		 * call yet, or more than are rung at once -- not offered and then
+		 * refused. */
+		QStringList who;
+		if (callable(item->data(0, ROLE_OPEN).toString().mid(1), &who)) {
+			if (who.isEmpty())
+				m_refused.insert(tr("Call everyone"), tr("nobody else to call yet"));
+			else if (who.size() > FZN_RPC_RING_WHO_MAX)
+				m_refused.insert(tr("Call everyone"),
+				                 tr("too many to ring at once, %1 at most").arg(FZN_RPC_RING_WHO_MAX));
+		}
 		return { tr("Send a file..."), tr("Call everyone"), tr("Members and admins...") };
+	}
 	if (kind != ROW_CONTACT)
 		return {}; /* nobody to name: a contact since removed */
 	QStringList out({ tr("Send a file..."), tr("Call"), tr("Video call") });
@@ -321,21 +410,15 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 	}
 	if (kind == ROW_GROUP && action == tr("Call everyone")) {
 		/* EVERY MEMBER THIS USER CAN NAME, this user not among them. */
-		fzn_rpc_group_show_resp_t members;
-		QByteArray name = to.mid(1).toUtf8();
 		QStringList who;
-		memset(&members, 0, sizeof members);
-		if (fzn_rpc_group_members(&m_rpc->c, name.constData(), (size_t)name.size(), &members) != FZN_RPC_OK) {
-			m_status->setText(failed_words(m_rpc));
-			free(members.members);
+		if (!callable(to.mid(1), &who))
 			return false;
-		}
-		for (size_t i = 0; i < members.member_count; i++)
-			if (members.members[i].name_len)
-				who << QString::fromUtf8(members.members[i].name, (int)members.members[i].name_len);
-		free(members.members);
 		if (who.isEmpty()) {
 			m_status->setText(tr("Nobody else in %1 to call.").arg(to.mid(1)));
+			return false;
+		}
+		if (who.size() > FZN_RPC_RING_WHO_MAX) {
+			m_status->setText(tr("Too many in %1 to ring at once, %2 at most.").arg(to.mid(1)).arg(FZN_RPC_RING_WHO_MAX));
 			return false;
 		}
 		m_act(QStringLiteral("call"), who.join(QLatin1Char(',')));

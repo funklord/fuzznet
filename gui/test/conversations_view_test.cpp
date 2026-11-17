@@ -36,7 +36,7 @@ static int checks, failures;
 /* 2023-11-14 23:46:40 UTC. */
 #define NOW 1700005600u
 
-static int silent;
+static int silent, members_mode;
 static char asked[512];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -63,8 +63,18 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "ok 1 0 dan,0\n");
 	if (!strcmp(line, "get identity"))
 		return (size_t)snprintf(reply, cap, "ok " SELF " " SELF "\n");
-	if (!strcmp(line, "get group family member 0"))
+	if (!strcmp(line, "get group family member 0")) {
+		/* ONE MEMBER BUT THIS USER, or seventeen besides, sec 1232. */
+		if (members_mode == 1)
+			return (size_t)snprintf(reply, cap, "ok 1 0 *" SELF "\n");
+		if (members_mode == 2) {
+			size_t n = (size_t)snprintf(reply, cap, "ok 18 0 *" SELF);
+			for (int k = 0; k < 17; k++)
+				n += (size_t)snprintf(reply + n, cap - n, " m%d", k);
+			return n + (size_t)snprintf(reply + n, cap - n, "\n");
+		}
 		return (size_t)snprintf(reply, cap, "ok 3 0 *" SELF " bob dan\n");
+	}
 	if (!strcmp(line, "list group 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 family,3," FAMILY ",1\n");
 	return (size_t)snprintf(reply, cap, "error no such thing\n");
@@ -94,6 +104,11 @@ int main(int argc, char **argv)
 	{
 		auto *tree = v.findChild<QTreeWidget *>();
 
+		/* AND OPENING ONE LEAVES NOTHING HIGHLIGHTED, sec 1232; a row
+		 * chosen without opening it is the one a refresh keeps. */
+		CHECK(tree && !tree->currentItem() && tree->selectedItems().isEmpty(),
+		      "a conversation opened was left highlighted");
+		tree->setCurrentItem(tree->topLevelItem(1)->child(0));
 		opened.clear();
 		CHECK(v.refresh() && tree && tree->currentItem() && tree->currentItem()->text(0).startsWith("family")
 		              && tree->currentItem()->isSelected() && opened.isEmpty(),
@@ -126,6 +141,41 @@ int main(int argc, char **argv)
 	CHECK(v.act(1, 0, "Call everyone") && what == "call" && to == "bob,dan",
 	      "calling a group did not ring every member it can name, this user not among them");
 	CHECK(!v.act(1, 0, "Video call") && !v.act(0, 9, "Call"), "a choice not offered was carried out");
+
+	/* CALL EVERYONE OFFERED DISABLED, SAYING WHY, sec 1232. */
+	(void)v.actions(1, 0);
+	CHECK(v.refused("Call everyone").isEmpty(), "calling a group of two was refused");
+	members_mode = 1;
+	(void)v.actions(1, 0);
+	CHECK(v.refused("Call everyone") == "nobody else to call yet",
+	      "a group of this user alone offered a call without saying there is nobody");
+	members_mode = 2;
+	(void)v.actions(1, 0);
+	CHECK(v.refused("Call everyone").startsWith("too many to ring at once")
+	              && !v.act(1, 0, "Call everyone") && v.status().startsWith("Too many in family"),
+	      "a group past what is rung at once was offered a call, or rung");
+	members_mode = 0;
+
+	/* THE ROW AS A MESSENGER LAYS IT OUT, sec 1232: the unread count its own
+	 * bold mark; the host's badge beside a contact, dimmed when stale. */
+	v.set_badge([](const QString &name, bool *stale) {
+		if (name == "dan")
+			*stale = true;
+		return name == "bob" ? QStringLiteral("near") : name == "dan" ? QStringLiteral("2 h ago") : QString();
+	});
+	{
+		auto *tree = v.findChild<QTreeWidget *>();
+		QTreeWidgetItem *bob = tree && v.refresh() ? tree->topLevelItem(0)->child(0) : nullptr;
+		QTreeWidgetItem *dan = bob ? tree->topLevelItem(0)->child(1) : nullptr;
+
+		CHECK(bob && bob->text(3) == "2" && bob->font(3).bold() && bob->text(0).startsWith("bob -- ")
+		              && !bob->text(0).contains("unread"),
+		      "bob's two unread were not a mark of their own");
+		CHECK(bob && dan && bob->text(1) == "near" && dan->text(1) == "2 h ago"
+		              && dan->foreground(1) != bob->foreground(1)
+		              && v.shown().at(1) == "  bob -- see you at 8 [near] -- 23:50 (2 unread)",
+		      "the host's badge was not beside each contact, the stale one dimmed");
+	}
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");

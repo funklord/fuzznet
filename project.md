@@ -91238,3 +91238,39 @@ host of the estate, so only the node sees every case.
 the precision set; a contact made before not granted; one turned off,
 removed and added back not granted again. Two sabotages, each caught by
 f alone (`contact-first-on-every-add`, `contact-first-never-told`).
+
+## 1232. The conversation list laid out as a messenger's, 2026-11-17
+
+fuzzypickles' 1900Z items 1, 2, 4 and 5 and 2000Z item 6 (secs 1224,
+1230), what a person meets in the list:
+
+- **The row in columns**: who and the newest line, a badge the host hands
+  in, when -- on the right -- and the unread count as its own mark, bold
+  in the highlight's colour and said as "N unread" to a screen reader,
+  where it used to sit inside the row's text and a narrow row cut it
+  first. `shown()` reads a row back as before, the badge in brackets, so
+  what it says of a row is unchanged.
+- **`set_badge`**: a function from a contact's name to its badge and
+  whether it is stale -- a location view's `badge_for` and
+  `badge_is_stale`, for one -- read at each refresh, the stale one
+  dimmed.
+- **Nothing left highlighted once a conversation is opened**; a row
+  chosen without opening it is the one a refresh keeps (sec 1225).
+- **Call everyone offered disabled, saying why** -- nobody else to call
+  yet, or more than are rung at once -- in the menu's own text, with
+  `refused(action)` for a host or a test; chosen anyway, it says the same
+  and rings nobody. The limit is the client's, now named
+  `FZN_RPC_RING_WHO_MAX` (16) rather than a bare 16 in `fzn_rpc_ring`.
+
+Still to come for this view: a flat list on a phone, and a group's
+members managed from its row's menu.
+
+**Tests:** conversations_view -- nothing highlighted after opening;
+calling a group of two allowed, of this user alone and of eighteen
+refused with why; bob's two unread a bold mark of their own; the badge
+beside each contact, the stale one dimmed. Four sabotages, each caught
+(`conversations-unread-plain`, `conversations-call-nobody-offered`,
+`conversations-opened-left-highlighted`,
+`conversations-stale-badge-bright`); secs 1138 and 1144's
+`conversations-view-unread-unsaid` and
+`conversations-menu-call-everyone-unnamed` repointed. `make qtty` passes.
