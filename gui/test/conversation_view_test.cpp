@@ -12,6 +12,7 @@
 
 #include <QApplication>
 #include <QImage>
+#include <QRect>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -132,10 +133,29 @@ int main(int argc, char **argv)
 	v.set_now(NOW);
 	CHECK(v.open("bob")
 	              && v.lines() == QStringList({ "2023-11-13 18:26 bob: hello", "23:50 You: on my way (delivered)",
-	                                            "23:51 bob: see you^[[2J", "23:52 You: ok" }),
+	                                            "23:51 bob: see you^[[2J", "23:52 You: ok (sending)" }),
 	      "the lines were not shown oldest first, with who and when, the escape in caret form");
 	CHECK(!strcmp(last_set, "set message bob read " ID3),
 	      "the read position was not set at the newest line that came in, past this user's own");
+
+	/* BUBBLES ON A PHONE, sec 1241: bob's at the left, this user's at the
+	 * right, each within three quarters of the width; a desktop's width the
+	 * log again, its lines as they were. */
+	v.show();
+	v.resize(320, 600);
+	app.processEvents();
+	{
+		const QRect his = v.bubble_rect(0), mine = v.bubble_rect(1);
+
+		CHECK(v.bubbles() && his.isValid() && mine.isValid() && his.left() < 20 && mine.right() > 240
+		              && mine.width() <= 320 * 3 / 4 + 1 && his.right() < mine.right(),
+		      "on a phone the lines were not bubbles, bob's at the left and this user's at the right");
+	}
+	v.resize(800, 600);
+	app.processEvents();
+	CHECK(!v.bubbles() && !v.bubble_rect(1).isValid() && v.lines().value(3) == "23:52 You: ok (sending)",
+	      "a desktop's width did not show the log, its lines as they were");
+	v.hide();
 
 	v.set_text("hi there");
 	CHECK(v.send() && strstr(last_add, "message bob") && strstr(last_add, "hi") && v.text().isEmpty(),

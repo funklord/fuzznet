@@ -17314,6 +17314,27 @@ SABOTAGES = [
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
+		"conversation-never-bubbles",
+		"gui/conversation_view.cpp",
+		"\tm_bubbles->narrow = event->size().width() < 400;\n",
+		"\tm_bubbles->narrow = false;\n",
+		"a phone shows a conversation as a log, never as bubbles -- sec 1241",
+	),
+	(
+		"conversation-bubbles-swapped",
+		"gui/conversation_view.cpp",
+		"\t\tconst int x = index.data(ROLE_IN).toBool() ? option.rect.left() + PAD",
+		"\t\tconst int x = !index.data(ROLE_IN).toBool() ? option.rect.left() + PAD",
+		"this user's lines drawn at the left and everyone else's at the right -- sec 1241",
+	),
+	(
+		"conversation-sending-unsaid",
+		"gui/conversation_view.cpp",
+		"\tcase FZN_RPC_LINE_NONE:\n\t\treturn QObject::tr(\" (sending)\");\n",
+		"\tcase FZN_RPC_LINE_NONE:\n\t\tbreak;\n",
+		"a line on its way reads as nothing, and cannot be told from one stuck -- sec 1241",
+	),
+	(
 		"follow-by-the-wrong-key",
 		"node/daemon.c",
 		"\t\tif (!fzn_streams_last(&node_streams, \"location\", 8u, ct->pt.pairing.node))\n",

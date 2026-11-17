@@ -91492,7 +91492,11 @@ bytes kept, a resend being resealed from the entry. Only
 `wire/generated/frame_drive.h` moved in the regeneration -- the map and
 every other frame file are unchanged -- and the schema gate, which caught
 the driver stale against situ's new HEAD before anything here changed,
-passes again. pair_test unchanged, 443 checks.
+passes again. pair_test unchanged, 443 checks. situ's own reason it is
+more than a slot saved (its inbox 20261117T2200Z): the blank frame's key
+was all zeros, so an all-zero reply passed to the driver's `_on_message`
+would have matched and ended one of these exchanges. This table never
+calls it, so it was not exposed; a keyless exchange cannot be.
 
 ## 1240. A friend's position followed, not only fetched when asked, 2026-11-17
 
@@ -91528,3 +91532,31 @@ B, not following, holds nothing it did not ask for past the 30 s;
 following, it takes the fix without asking. Two sabotages, each caught by
 g3 alone (`follow-by-the-wrong-key`, `follow-when-off`). schema_test's
 count of `location/` keys moves to seven.
+
+## 1241. A conversation in bubbles on a phone, and a line on its way said so, 2026-11-17
+
+fuzzypickles' 1700Z items 1 and 2 (sec 1224), the first two of what a
+person reading a conversation would miss:
+
+- **A line on its way is said so**: this user's line nothing is known of
+  yet reads "(sending)", where it read as nothing -- so it could not be
+  told from one stuck. The rest were there since sec 1128: delivered,
+  with a relay, not delivered.
+- **Bubbles on a phone**: under 400 pixels an item delegate draws each
+  line as a bubble -- this user's at the right, everyone else's at the
+  left, a group member's with their name above, wrapped within three
+  quarters of the width, a sticker drawn inside it, the time and the
+  delivery word small beneath. A desktop keeps the log, one line a row,
+  and `lines()` reads the same either way. `bubbles()` and
+  `bubble_rect(row)` say what is drawn, for a test.
+
+Still to come from 1700Z: the sticker picker in the conversation, a file
+line acted on where it is, notices with one action each, and touch sizes
+with the send row above the keyboard.
+
+**Tests:** conversation_view -- "ok (sending)" for a line with no state
+yet; at 320 pixels bubbles, bob's at the left and this user's at the
+right within three quarters of the width; at 800 the log, its lines as
+they were. Three sabotages, each caught (`conversation-never-bubbles`,
+`conversation-bubbles-swapped`, `conversation-sending-unsaid`). `make
+qtty` passes.

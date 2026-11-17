@@ -40,6 +40,8 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QRect;
+class QResizeEvent;
 struct fzn_gui_rpc;
 
 class fzn_conversation_view : public QWidget {
@@ -79,11 +81,21 @@ public:
 	QStringList lines() const;
 	/* Whether line `row` is drawn as a picture. */
 	bool drawn(int row) const;
+	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
+	 * where line `row`'s bubble is, in the list's own coordinates --
+	 * this user's at the right, everyone else's at the left. */
+	bool bubbles() const;
+	QRect bubble_rect(int row) const;
 	QString text() const;
 	QString status() const;
 
+protected:
+	/* UNDER 400 PIXELS, bubbles; wider, the log (sec 1241). */
+	void resizeEvent(QResizeEvent *event) override;
+
 private:
 	void draw_stickers();
+	class bubble_delegate *m_bubbles;
 
 	struct fzn_gui_rpc *m_rpc;
 	struct art;

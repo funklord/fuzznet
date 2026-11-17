@@ -22,7 +22,10 @@ extern "C" {
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPainter>
 #include <QPushButton>
+#include <QResizeEvent>
+#include <QStyledItemDelegate>
 #include <QVBoxLayout>
 
 #include <stdlib.h>
@@ -35,6 +38,86 @@ extern "C" {
  * the line came in. */
 #define ROLE_STICKER (Qt::UserRole + 1)
 #define ROLE_IN (Qt::UserRole + 2)
+/* A LINE'S PARTS FOR A BUBBLE, sec 1241: what it says -- with who said it,
+ * for a group member's -- and when, with where this user's has got to. */
+#define ROLE_BODY (Qt::UserRole + 3)
+#define ROLE_META (Qt::UserRole + 4)
+
+/* A LINE AS A BUBBLE ON A PHONE, sec 1241, fuzzypickles' 1700Z item 2: this
+ * user's at the right, everyone else's at the left, each wrapped within
+ * three quarters of the width, a sticker drawn inside it, the time and the
+ * delivery word small beneath. A desktop keeps the log, one line a row: a
+ * QListWidget of caret-form lines read as a log on both. */
+class bubble_delegate : public QStyledItemDelegate {
+public:
+	explicit bubble_delegate(QObject *parent) : QStyledItemDelegate(parent) {}
+	bool narrow = false;
+	int width = 0;
+
+	QRect bubble(const QStyleOptionViewItem &option, const QModelIndex &index) const
+	{
+		const int across = width > 0 ? width : option.rect.width();
+		const int most = across * 3 / 4 - 2 * PAD;
+		const QFontMetrics fm(option.font);
+		const QFontMetrics fs(small(option.font));
+		const QString body = index.data(ROLE_BODY).toString(), meta = index.data(ROLE_META).toString();
+		const QRect text = fm.boundingRect(QRect(0, 0, most > 40 ? most : 40, 100000), Qt::TextWordWrap, body);
+		const bool icon = !index.data(Qt::DecorationRole).isNull();
+		int w = text.width() > fs.horizontalAdvance(meta) ? text.width() : fs.horizontalAdvance(meta);
+
+		if (icon && w < 64)
+			w = 64;
+		w += 2 * PAD;
+		const int h = (icon ? 64 + GAP : 0) + text.height() + GAP + fs.height() + 2 * PAD;
+		const int x = index.data(ROLE_IN).toBool() ? option.rect.left() + PAD : option.rect.left() + across - PAD - w;
+		return QRect(x, option.rect.top() + GAP / 2, w, h);
+	}
+
+	void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+	{
+		if (!narrow) {
+			QStyledItemDelegate::paint(p, option, index);
+			return;
+		}
+		const QRect b = bubble(option, index);
+		const bool in = index.data(ROLE_IN).toBool();
+		const QPalette &pal = option.palette;
+		QColor fill = in ? pal.color(QPalette::AlternateBase) : pal.color(QPalette::Highlight).lighter(170);
+
+		p->save();
+		p->setRenderHint(QPainter::Antialiasing, true);
+		p->setPen((option.state & QStyle::State_Selected) ? QPen(pal.color(QPalette::Highlight), 2) : Qt::NoPen);
+		p->setBrush(fill);
+		p->drawRoundedRect(b, 8, 8);
+		QRect at = b.adjusted(PAD, PAD, -PAD, -PAD);
+		const QIcon icon = qvariant_cast<QIcon>(index.data(Qt::DecorationRole));
+		if (!icon.isNull()) {
+			icon.paint(p, QRect(at.left(), at.top(), 64, 64), Qt::AlignLeft | Qt::AlignTop);
+			at.setTop(at.top() + 64 + GAP);
+		}
+		p->setPen(pal.color(QPalette::Text));
+		p->drawText(at, Qt::TextWordWrap | Qt::AlignLeft | Qt::AlignTop, index.data(ROLE_BODY).toString());
+		p->setFont(small(option.font));
+		p->setPen(pal.color(QPalette::Disabled, QPalette::Text));
+		p->drawText(at, Qt::AlignRight | Qt::AlignBottom, index.data(ROLE_META).toString());
+		p->restore();
+	}
+
+	QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
+	{
+		if (!narrow)
+			return QStyledItemDelegate::sizeHint(option, index);
+		return QSize(width > 0 ? width : option.rect.width(), bubble(option, index).height() + GAP);
+	}
+
+private:
+	static constexpr int PAD = 6, GAP = 4;
+	static QFont small(QFont f)
+	{
+		f.setPointSizeF(f.pointSizeF() > 0 ? f.pointSizeF() * 0.85 : 8.0);
+		return f;
+	}
+};
 /* The most bytes of a sticker's thumbnail read, as the picker reads. */
 #define ART_MAX (256u * 1024u)
 
@@ -88,7 +171,9 @@ static uint64_t file_size(const QByteArray &ref)
 #define LINES_MAX 200u
 
 /* WHERE THIS USER'S OWN LINE HAS GOT TO, said after it (sec 1128); nothing
- * for a line that came in, or one nothing is known of yet. */
+ * for a line that came in. ONE NOTHING IS KNOWN OF YET IS SENDING, sec 1241:
+ * said as nothing, a line on its way could not be told from one stuck
+ * (fuzzypickles' 1700Z item 1). */
 static QString state_words(const fzn_rpc_inbox_entry_t *l)
 {
 	if (!l->outgoing)
@@ -102,7 +187,7 @@ static QString state_words(const fzn_rpc_inbox_entry_t *l)
 	case FZN_RPC_LINE_NOT_DELIVERED:
 		return QObject::tr(" (not delivered)");
 	case FZN_RPC_LINE_NONE:
-		break;
+		return QObject::tr(" (sending)");
 	}
 	return QString();
 }
@@ -149,6 +234,10 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_lines->setWordWrap(true);
 	m_lines->setIconSize(QSize(64, 64));
 	m_lines->setAccessibleName(tr("The conversation's lines"));
+	m_bubbles = new bubble_delegate(m_lines);
+	m_lines->setItemDelegate(m_bubbles);
+	/* EACH ROW ITS OWN HEIGHT, a bubble's being its text's. */
+	m_lines->setUniformItemSizes(false);
 	m_text = new QLineEdit(this);
 	m_text->setPlaceholderText(tr("Write a line"));
 	m_text->setAccessibleName(tr("A line to send"));
@@ -263,6 +352,10 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
 		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
 		item->setData(ROLE_IN, !l->outgoing);
+		item->setData(ROLE_BODY, l->outgoing ? content_words(l->text, l->text_len)
+		                                     : QStringLiteral("%1\n%2").arg(QString::fromUtf8(who),
+		                                                                  content_words(l->text, l->text_len)));
+		item->setData(ROLE_META, when_words(now, l->stime) + state_words(l));
 		list->addItem(item);
 	}
 	for (i = 0; i < count && !newest_in; i++)
@@ -329,6 +422,8 @@ bool fzn_conversation_view::refresh()
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
 		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
 		item->setData(ROLE_IN, !l->outgoing);
+		item->setData(ROLE_BODY, content_words(l->text, l->text_len));
+		item->setData(ROLE_META, when_words(now, l->stime) + state_words(l));
 		m_lines->addItem(item);
 	}
 	for (i = 0; i < count && !newest_in; i++)
@@ -546,3 +641,24 @@ bool fzn_conversation_view::drawn(int row) const
 	return item && !item->icon().isNull();
 }
 
+void fzn_conversation_view::resizeEvent(QResizeEvent *event)
+{
+	QWidget::resizeEvent(event);
+	m_bubbles->narrow = event->size().width() < 400;
+	m_bubbles->width = m_lines->viewport()->width();
+	m_lines->doItemsLayout();
+}
+
+bool fzn_conversation_view::bubbles() const { return m_bubbles->narrow; }
+
+QRect fzn_conversation_view::bubble_rect(int row) const
+{
+	QListWidgetItem *item = m_lines->item(row);
+	if (!item || !m_bubbles->narrow)
+		return QRect();
+	QStyleOptionViewItem option;
+	option.initFrom(m_lines->viewport());
+	option.rect = m_lines->visualItemRect(item);
+	option.font = m_lines->font();
+	return m_bubbles->bubble(option, m_lines->model()->index(row, 0));
+}
