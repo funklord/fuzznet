@@ -19,7 +19,27 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  list=128 row=129 members=130 member_row=131
+  list=128 row=129 members=130 member_row=131 change=132 created=133 proposed=134 backfill=135 backfill_row=136
+
+enum what : u8 unknown=error
+  create=1 leave=2 member_add=3 member_remove=4 admin_add=5 admin_remove=6 backfill_on=7 backfill_off=8
+
+struct backfill_ask size=2..65
+  @0x0000   1         u8         group_len  min=1 max=64
+  @0x0001   1..64     u8         group  sized-by=group_len
+
+struct backfill_row size=1
+  @0x0000   1         u8         on  max=1
+
+struct change size=4..131
+  @0x0000   1         what       what
+  @0x0001   1         u8         group_len  min=1 max=64
+  @0x0002   1..64     u8         group  sized-by=group_len
+  ~         1         u8         who_len  max=64
+  ~         0..64     u8         who  sized-by=who_len
+
+struct created size=32
+  @0x0000   32        u8         id  big
 
 struct member_row size=34..66
   @0x0000   32        u8         key  big
@@ -30,18 +50,27 @@ struct member_row size=34..66
 struct members_ask size=32
   @0x0000   32        u8         id  big
 
-struct message size=2..80
+struct message size=2..133
   @0x0000   1         u8         cmd  must_eq=13
   @0x0001   1         op         op
-  @0x0002   0..78     variant    body
+  @0x0002   0..131    variant    body
   body switch: op
   body case 128: list nothing
   body case 129: row row
   body case 130: members members_ask
   body case 131: member_row member_row
+  body case 132: change change
+  body case 133: created created
+  body case 134: proposed proposed
+  body case 135: backfill backfill_ask
+  body case 136: backfill_row backfill_row
   body case default: error
 
 struct nothing size=0
+
+struct proposed size=4
+  @0x0000   2         u16        approvals  big
+  @0x0002   2         u16        needed  big
 
 struct row size=46..78
   @0x0000   32        u8         id  big

@@ -8,3 +8,9 @@ message row_member  0D 81 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 
 message members      0D 82 CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD CD
 message member_admin 0D 83 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 01 05 63 61 72 6F 6C
 message member_bare  0D 83 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 00 00
+message change_create  0D 84 01 04 63 72 65 77 00
+message change_member  0D 84 03 04 63 72 65 77 03 62 6F 62
+message created        0D 85 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB
+message proposed       0D 86 00 01 00 02
+message backfill       0D 87 04 63 72 65 77
+message backfill_row   0D 88 01

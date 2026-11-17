@@ -17286,6 +17286,20 @@ SABOTAGES = [
 		"a write made in binary tells no subscriber, and a second window stays as it was; live_events phase a2 only -- sec 1221",
 	),
 	(
+		"groups-binary-write-always-ok",
+		"node/groups_binary.c",
+		"\tif (len >= 2u && memcmp(reply, \"ok\", 2u) == 0 && (len == 2u || reply[2] == ' '))\n\t\treturn status(put, ctx, FZN_STATUS_OK, NULL);\n",
+		"\treturn status(put, ctx, FZN_STATUS_OK, NULL);\n",
+		"a group write the verb refused is answered ok in binary -- sec 1222",
+	),
+	(
+		"groups-binary-made-without-id",
+		"node/groups_binary.c",
+		"\tif (what == 1u && r >= 3u + 64u && memcmp(reply, \"ok \", 3u) == 0) {\n",
+		"\tif (0) {\n",
+		"a group made in binary is answered without its id -- sec 1222",
+	),
+	(
 		"qr-decode-nothing-is-an-error",
 		"qr/decode.c",
 		"\t\tmemcpy(out, data.payload, (size_t)data.payload_len);\n\t\treturn data.payload_len;\n\t}\n\treturn 0;\n",

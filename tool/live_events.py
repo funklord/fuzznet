@@ -8,6 +8,8 @@ One daemon over one store, and clients of its local socket:
        setting -` and `event note -`, in that order
     a2 a note added in binary over the socket raises `event note -` as the
        verb does, and a binary write refused raises nothing (sec 1221)
+    a3 a group made in binary is answered with its id and raises `event
+       group -` (sec 1222)
     b  one subscriber hangs up; the next change still reaches the other,
        and the daemon answers a request as before
     c  thousands of subscribers are each told, and thousands of connections
@@ -151,6 +153,20 @@ def main(argv):
 						raise failed("a2: %s read %r after the binary writes" % (sub.tag, got))
 				print("livecheck: a2: a note added in binary told both subscribers, and a "
 				      "refused one told nobody")
+
+				# a3: A GROUP MADE IN BINARY, sec 1222: its id, then ok, and the
+				# subscribers told.
+				got = binary(sock, bytes([0x0D, 0x84, 1, 4]) + b"band" + bytes([0]))
+				if len(got) != 2 or got[0][:2] != bytes([0x0D, 0x85]) or got[1][:2] != bytes([0x13, 0]):
+					raise failed("a3: a group made in binary answered %r" % got)
+				listed = ask(sock, "list group")
+				if got[0][2:34].hex() not in listed:
+					raise failed("a3: the group made, %s, was not in %r" % (got[0][2:34].hex(), listed))
+				for sub in subs:
+					line = sub.line()
+					if line != "event group -":
+						raise failed("a3: %s read %r after a group was made in binary" % (sub.tag, line))
+				print("livecheck: a3: a group made in binary answered its id and told both subscribers")
 
 				# b: one hangs up; the other is still told, and the daemon
 				# still answers.

@@ -17,6 +17,11 @@ enum op : u8 {
 	row        = 129, // an answer: one group
 	members    = 130, // one group's roster, by its id (sec 1179)
 	member_row = 131, // an answer: one member
+	change     = 132, // a group made, left, its members or admins changed (sec 1222)
+	created    = 133, // an answer: the group made's id
+	proposed   = 134, // an answer: an admin's change waiting on the others
+	backfill   = 135, // whether a later member gets what came before, asked
+	backfill_row = 136, // an answer: it, 0 or 1
 	default    = error,
 }
 
@@ -37,6 +42,51 @@ struct row {
 }
 
 // ID the group's.
+// WHAT IS CHANGED of the group named GROUP, as its verb says it: 1 made
+// (`add group`, answered `created`), 2 left (`remove group`), 3 and 4 the
+// contact named WHO added or removed as a member, 5 and 6 made or unmade
+// an admin (answered `proposed` while other admins must agree), 7 and 8 a
+// later member to get what came before or not (`set group GROUP backfill`).
+// Then a STATUS: ok, or the verb's refusal in its words.
+enum what : u8 {
+	create         = 1,
+	leave          = 2,
+	member_add     = 3,
+	member_remove  = 4,
+	admin_add      = 5,
+	admin_remove   = 6,
+	backfill_on    = 7,
+	backfill_off   = 8,
+	default        = error,
+}
+
+struct change {
+	what what;
+	u8   group_len [min = 1, max = 64];
+	u8   group[group_len];
+	u8   who_len [max = 64];
+	u8   who[who_len];
+}
+
+struct created {
+	u8   id[32];
+}
+
+// APPROVALS so far of the NEEDED, sec 1012.
+struct proposed {
+	u16  approvals;
+	u16  needed;
+}
+
+struct backfill_ask {
+	u8   group_len [min = 1, max = 64];
+	u8   group[group_len];
+}
+
+struct backfill_row {
+	u8   on [max = 1];
+}
+
 struct members_ask {
 	u8   id[32];
 }
@@ -60,6 +110,11 @@ struct message {
 		case op.row:        row         row;
 		case op.members:    members_ask members;
 		case op.member_row: member_row  member_row;
+		case op.change:     change       change;
+		case op.created:    created      created;
+		case op.proposed:   proposed     proposed;
+		case op.backfill:   backfill_ask backfill;
+		case op.backfill_row: backfill_row backfill_row;
 		default: error;
 	}
 }

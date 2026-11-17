@@ -113,6 +113,9 @@
 #include "../wire/generated/streams_local_build.h"
 #include "../wire/generated/contacts_local.h"
 #include "../wire/generated/contacts_local_build.h"
+#include "../wire/generated/notes_local.h"
+#include "../wire/generated/groups_local.h"
+#include "../wire/generated/messages_local.h"
 #include "decisions.h"
 #include "responsible.h"
 #include "siblings.h"
@@ -18323,6 +18326,11 @@ static int local_groups(int fd, fzn_origin_t origin, const uint8_t *msg, size_t 
 		return local_binary_status(fd, FZN_STATUS_DENIED, "groups need this node's own user"), 0;
 	if (!node_groups.log.store)
 		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this host keeps no groups"), 0;
+#ifndef FZN_GROUPS_ON
+	/* THE GROUP VERBS LEFT OUT, sec 856: their writes too (sec 1222). */
+	if (len >= 2u && (msg[1] == FZN_GROUPS_LOCAL_OP_CHANGE || msg[1] == FZN_GROUPS_LOCAL_OP_BACKFILL))
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node offers no group verbs"), 0;
+#endif
 	(void)fzn_node_groups_binary(&node_groups, msg, len, local_put, &fd);
 	return 0;
 }
@@ -18485,8 +18493,6 @@ static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 #endif
 
 #include "../wire/generated/members_local.h"
-#include "../wire/generated/notes_local.h"
-#include "../wire/generated/messages_local.h"
 #include "../wire/generated/members_local_build.h"
 /* WHAT THIS NODE HOLDS IN BINARY, sec 1188: `list capability`'s rows, then
  * a STATUS ok. */
@@ -18711,6 +18717,11 @@ static const char *binary_write_subject(const uint8_t *msg, size_t len)
 		return msg[1] == FZN_MESSAGES_LOCAL_OP_SEND ? "message" : NULL;
 	case FZN_CMD_OBJECTS:
 		return fzn_node_objects_binary_changes(msg, len) ? "object" : NULL;
+	case FZN_CMD_GROUPS:
+		/* AS ITS VERB'S SUBJECT: `group`, `member` or `admin` (sec 1222). */
+		if (msg[1] != FZN_GROUPS_LOCAL_OP_CHANGE || len < 3u)
+			return NULL;
+		return msg[2] == 3u || msg[2] == 4u ? "member" : msg[2] == 5u || msg[2] == 6u ? "admin" : "group";
 	default:
 		return NULL;
 	}

@@ -5792,11 +5792,100 @@ int fzn_rpc_note_attach(fzn_rpc_t *c, const uint8_t *parent, const uint8_t ref[7
 
 /* ---- step 5 (sec 281) ---- */
 
+/* THE GROUP WRITES IN BINARY, sec 1222: at most one row -- a group made's
+ * id, an admin change's approvals, a backfill's answer -- then a STATUS. */
+struct group_answer {
+	uint8_t id[32];
+	unsigned approvals, needed, on;
+	int rows, kind, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void group_answer_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct group_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->rows || a->status_seen || len > UINT32_MAX
+	    || fzn_groups_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_groups_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	a->kind = (int)fzn_groups_local_message_op_get(v);
+	if (a->kind == FZN_GROUPS_LOCAL_OP_CREATED && fzn_groups_local_message_body_created_view(v, &b) == SITU_OK)
+		memcpy(a->id, fzn_groups_local_created_id_ptr(b), 32);
+	else if (a->kind == FZN_GROUPS_LOCAL_OP_PROPOSED && fzn_groups_local_message_body_proposed_view(v, &b) == SITU_OK) {
+		a->approvals = fzn_groups_local_proposed_approvals_get(b);
+		a->needed = fzn_groups_local_proposed_needed_get(b);
+	} else if (a->kind == FZN_GROUPS_LOCAL_OP_BACKFILL_ROW
+	           && fzn_groups_local_message_body_backfill_row_view(v, &b) == SITU_OK)
+		a->on = fzn_groups_local_backfill_row_on_get(b);
+	else {
+		a->bad = 1;
+		return;
+	}
+	a->rows++;
+}
+
+/* A group write `what` (node/groups_local.situ) asked in binary: `*text` 1
+ * when the node reads none. */
+static int group_change_binary(fzn_rpc_t *c, unsigned what, const char *group, size_t group_len, const char *who,
+                               size_t who_len, struct group_answer *a, int *text) {
+	uint8_t row[1 + 1 + 64 + 1 + 64], msg[sizeof row + 8];
+	uint32_t row_len = 0, msg_len = 0;
+	memset(a, 0, sizeof *a);
+	if (group_len > 64 || who_len > 64) return encode_failed(c);
+	if (what) {
+		if (fzn_groups_local_change_build(row, sizeof row, (uint8_t)what, (const uint8_t *)group, (uint32_t)group_len,
+		                                  (const uint8_t *)who, (uint32_t)who_len, &row_len) != SITU_OK
+		    || fzn_groups_local_message_build_change(msg, sizeof msg, (uint8_t)FZN_CMD_GROUPS, row, row_len,
+		                                             &msg_len) != SITU_OK)
+			return encode_failed(c);
+	} else if (fzn_groups_local_backfill_ask_build(row, sizeof row, (const uint8_t *)group, (uint32_t)group_len,
+	                                               &row_len) != SITU_OK
+	           || fzn_groups_local_message_build_backfill(msg, sizeof msg, (uint8_t)FZN_CMD_GROUPS, row, row_len,
+	                                                      &msg_len) != SITU_OK) {
+		return encode_failed(c);
+	}
+	const int rc = fzn_rpc_binary(c, msg, msg_len, group_answer_each, a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a->bad || !a->status_seen) return unreadable(c); /* a group write's answer cut short */
+	if (a->code != FZN_STATUS_OK)
+		return fail(c, a->code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_group_create(fzn_rpc_t *c, const char *group, size_t group_len,
                           fzn_rpc_group_create_resp_t *out) {
 	memset(out, 0, sizeof(*out));
 	if (!node_name_ok(group, group_len))
 		return node_unasked(c, FZN_RPC_ERR_INVALID_GROUP_NAME, fzn_rpc_err_str(FZN_RPC_ERR_INVALID_GROUP_NAME));
+	{
+		struct group_answer a;
+		int text = 0;
+		const int brc = group_change_binary(c, 1, group, group_len, NULL, 0, &a, &text);
+		if (!text) {
+			if (brc != FZN_RPC_OK) return brc;
+			if (a.kind != FZN_GROUPS_LOCAL_OP_CREATED) return unreadable(c);
+			memcpy(out->chat_id, a.id, 32);
+			return FZN_RPC_OK;
+		}
+	}
 	char arg[8 + FZN_RPC_PEER_NAME_MAX + 1];
 	const int arg_len = snprintf(arg, sizeof arg, "group %.*s", (int)group_len, group);
 	const char *rest = NULL;
@@ -5814,12 +5903,20 @@ const char *fzn_rpc_group_nameless_label(const fzn_rpc_group_show_resp_t *v, siz
 
 int fzn_rpc_group_add_member(fzn_rpc_t *c, const char *group, size_t group_len,
                               const char *peer, size_t peer_len) {
-	return node_group_member(c, "add", group, group_len, peer, peer_len);
+	struct group_answer a;
+	int text = 0;
+	const int rc = peer_len && peer_len <= 64 ? group_change_binary(c, 3, group, group_len, peer, peer_len, &a, &text)
+	                                          : (text = 1, 0);
+	return text ? node_group_member(c, "add", group, group_len, peer, peer_len) : rc;
 }
 
 int fzn_rpc_group_remove_member(fzn_rpc_t *c, const char *group, size_t group_len,
                                  const char *peer, size_t peer_len) {
-	return node_group_member(c, "remove", group, group_len, peer, peer_len);
+	struct group_answer a;
+	int text = 0;
+	const int rc = peer_len && peer_len <= 64 ? group_change_binary(c, 4, group, group_len, peer, peer_len, &a, &text)
+	                                          : (text = 1, 0);
+	return text ? node_group_member(c, "remove", group, group_len, peer, peer_len) : rc;
 }
 
 int fzn_rpc_ring(fzn_rpc_t *c, const char *who, size_t who_len, uint8_t kinds,
@@ -6065,6 +6162,19 @@ int fzn_rpc_group_admin(fzn_rpc_t *c, const char *group, size_t group_len, const
 	*needed = 0;
 	if (!group_len || group_len > FZN_RPC_PEER_NAME_MAX || !peer_len || !node_who_fits(peer_len))
 		return encode_failed(c);
+	if (group_len <= 64 && peer_len <= 64) {
+		struct group_answer a;
+		int text = 0;
+		const int brc = group_change_binary(c, make ? 5 : 6, group, group_len, peer, peer_len, &a, &text);
+		if (!text) {
+			if (brc == FZN_RPC_OK && a.kind == FZN_GROUPS_LOCAL_OP_PROPOSED) {
+				if (!a.needed) return unreadable(c);
+				*approvals = a.approvals;
+				*needed = a.needed;
+			}
+			return brc;
+		}
+	}
 	char arg[8 + FZN_RPC_PEER_NAME_MAX + NODE_WHO_MAX + 2];
 	const int arg_len = snprintf(arg, sizeof arg, "admin %.*s %.*s", (int)group_len, group,
 	                             (int)peer_len, peer);
@@ -6082,7 +6192,11 @@ int fzn_rpc_group_admin(fzn_rpc_t *c, const char *group, size_t group_len, const
 }
 
 int fzn_rpc_group_delete(fzn_rpc_t *c, const char *group, size_t group_len) {
-	return node_group_name(c, "remove", group, group_len);
+	struct group_answer a;
+	int text = 0;
+	const int rc = group_len && group_len <= 64 ? group_change_binary(c, 2, group, group_len, NULL, 0, &a, &text)
+	                                            : (text = 1, 0);
+	return text ? node_group_name(c, "remove", group, group_len) : rc;
 }
 
 /* THE FORKS IN BINARY, sec 1187: a row a head, then a STATUS. A subject or
@@ -6503,6 +6617,12 @@ static int object_list_text(fzn_rpc_t *c, fzn_rpc_object_list_resp_t *out) {
 
 int fzn_rpc_group_earlier(fzn_rpc_t *c, const char *group, size_t group_len, int on) {
 	if (!group_len || group_len > FZN_RPC_PEER_NAME_MAX) return encode_failed(c);
+	if (group_len <= 64) {
+		struct group_answer a;
+		int text = 0;
+		const int brc = group_change_binary(c, on ? 7 : 8, group, group_len, NULL, 0, &a, &text);
+		if (!text) return brc;
+	}
 	char arg[8 + FZN_RPC_PEER_NAME_MAX + 16];
 	return node_ack(c, "set", arg,
 	                snprintf(arg, sizeof arg, "group %.*s backfill %d", (int)group_len, group, !!on));
@@ -6510,6 +6630,17 @@ int fzn_rpc_group_earlier(fzn_rpc_t *c, const char *group, size_t group_len, int
 
 int fzn_rpc_group_earlier_get(fzn_rpc_t *c, const char *group, size_t group_len, int *on) {
 	if (!group_len || group_len > FZN_RPC_PEER_NAME_MAX) return encode_failed(c);
+	if (group_len <= 64) {
+		struct group_answer a;
+		int text = 0;
+		const int brc = group_change_binary(c, 0, group, group_len, NULL, 0, &a, &text);
+		if (!text) {
+			if (brc != FZN_RPC_OK) return brc;
+			if (a.kind != FZN_GROUPS_LOCAL_OP_BACKFILL_ROW) return unreadable(c);
+			*on = a.on != 0;
+			return FZN_RPC_OK;
+		}
+	}
 	char arg[8 + FZN_RPC_PEER_NAME_MAX + 16];
 	const char *rest = NULL;
 	size_t rest_len = 0;

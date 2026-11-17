@@ -89,6 +89,145 @@ static inline situ_err_t fzn_groups_local_row_edit_decode(const situ_msg_t *msg,
 	return SITU_OK;
 }
 
+/* `change`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t what;
+	uint8_t group_len;
+	const uint8_t *group;	/* into your backing */
+	uint32_t group_len;
+	uint8_t who_len;
+	const uint8_t *who;	/* into your backing */
+	uint32_t who_len;
+} fzn_groups_local_change_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_groups_local_change_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_groups_local_change_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_groups_local_change_group_len(view);
+	*need += fzn_groups_local_change_who_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_groups_local_change_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_groups_local_change_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_groups_local_change_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_groups_local_change_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->what = fzn_groups_local_change_what_get(view);
+	out->group_len = fzn_groups_local_change_group_len_get(view);
+	out->group_len = fzn_groups_local_change_group_len(view);
+	out->group     = backing + at;
+	for (uint32_t i = 0u; i < out->group_len; i++) {
+		backing[at + i] = fzn_groups_local_change_group_ptr(view)[i];
+	}
+	at += out->group_len;
+	out->who_len = fzn_groups_local_change_who_len_get(view);
+	out->who_len = fzn_groups_local_change_who_len(view);
+	out->who     = backing + at;
+	for (uint32_t i = 0u; i < out->who_len; i++) {
+		backing[at + i] = fzn_groups_local_change_who_ptr(view)[i];
+	}
+	at += out->who_len;
+	(void)at;
+	return SITU_OK;
+}
+
+/* `backfill_ask`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t group_len;
+	const uint8_t *group;	/* into your backing */
+	uint32_t group_len;
+} fzn_groups_local_backfill_ask_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_groups_local_backfill_ask_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_groups_local_backfill_ask_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_groups_local_backfill_ask_group_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_groups_local_backfill_ask_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_groups_local_backfill_ask_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_groups_local_backfill_ask_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_groups_local_backfill_ask_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->group_len = fzn_groups_local_backfill_ask_group_len_get(view);
+	out->group_len = fzn_groups_local_backfill_ask_group_len(view);
+	out->group     = backing + at;
+	for (uint32_t i = 0u; i < out->group_len; i++) {
+		backing[at + i] = fzn_groups_local_backfill_ask_group_ptr(view)[i];
+	}
+	at += out->group_len;
+	(void)at;
+	return SITU_OK;
+}
+
 /* `member_row`, decoded into storage you own.
  *
  * Call `backing` for how many bytes the variable members need, then

@@ -73,6 +73,211 @@ situ_err_t fzn_groups_local_row_validate(situ_view_t view)
 	return fzn_groups_local_row_check(view, NULL);
 }
 
+situ_err_t fzn_groups_local_change_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_GROUPS_LOCAL_CHANGE_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* change.what: `what` rejects unknown values (section 8.7) */
+	if (!fzn_groups_local_what_is_known(fzn_groups_local_change_what_get(view))) {
+		*which = FZN_GROUPS_LOCAL_CHANGE_WHAT_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* change.group_len [min = 1] */
+	if (fzn_groups_local_change_group_len_get(view) < 1) {
+		*which = FZN_GROUPS_LOCAL_CHANGE_GROUP_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* change.group_len [max = 64] */
+	if (fzn_groups_local_change_group_len_get(view) > 64) {
+		*which = FZN_GROUPS_LOCAL_CHANGE_GROUP_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* change.group: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 2u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[1u])))) {
+		*which = FZN_GROUPS_LOCAL_CHANGE_GROUP_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* change.who_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_groups_local_change_who_len_offset(view), 1u)) {
+		*which = FZN_GROUPS_LOCAL_CHANGE_WHO_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* change.who_len [max = 64] */
+	if (fzn_groups_local_change_who_len_get(view) > 64) {
+		*which = FZN_GROUPS_LOCAL_CHANGE_WHO_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* change.who: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_groups_local_change_who_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_groups_local_change_who_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_groups_local_change_who_len_offset(view)))[0u]) : (uint64_t)0))))) {
+		*which = FZN_GROUPS_LOCAL_CHANGE_WHO_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_groups_local_change_validate(situ_view_t view)
+{
+	return fzn_groups_local_change_check(view, NULL);
+}
+
+situ_err_t fzn_groups_local_created_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_GROUPS_LOCAL_CREATED_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_groups_local_created_validate(situ_view_t view)
+{
+	return fzn_groups_local_created_check(view, NULL);
+}
+
+situ_err_t fzn_groups_local_proposed_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_GROUPS_LOCAL_PROPOSED_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_groups_local_proposed_validate(situ_view_t view)
+{
+	return fzn_groups_local_proposed_check(view, NULL);
+}
+
+situ_err_t fzn_groups_local_backfill_ask_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_GROUPS_LOCAL_BACKFILL_ASK_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* backfill_ask.group_len [min = 1] */
+	if (fzn_groups_local_backfill_ask_group_len_get(view) < 1) {
+		*which = FZN_GROUPS_LOCAL_BACKFILL_ASK_GROUP_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* backfill_ask.group_len [max = 64] */
+	if (fzn_groups_local_backfill_ask_group_len_get(view) > 64) {
+		*which = FZN_GROUPS_LOCAL_BACKFILL_ASK_GROUP_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* backfill_ask.group: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 1u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])))) {
+		*which = FZN_GROUPS_LOCAL_BACKFILL_ASK_GROUP_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_groups_local_backfill_ask_validate(situ_view_t view)
+{
+	return fzn_groups_local_backfill_ask_check(view, NULL);
+}
+
+situ_err_t fzn_groups_local_backfill_row_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_GROUPS_LOCAL_BACKFILL_ROW_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* backfill_row.on [max = 1] */
+	if (fzn_groups_local_backfill_row_on_get(view) > 1) {
+		*which = FZN_GROUPS_LOCAL_BACKFILL_ROW_ON_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_groups_local_backfill_row_validate(situ_view_t view)
+{
+	return fzn_groups_local_backfill_row_check(view, NULL);
+}
+
 situ_err_t fzn_groups_local_members_ask_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -179,12 +384,12 @@ situ_err_t fzn_groups_local_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 2u) < ((fzn_groups_local_message_op_get(view) == 128u ? 0u : (fzn_groups_local_message_op_get(view) == 129u ? (fzn_groups_local_message_body_row_extent(view)) : (fzn_groups_local_message_op_get(view) == 130u ? 32u : (fzn_groups_local_message_op_get(view) == 131u ? (fzn_groups_local_message_body_member_row_extent(view)) : 0u)))))) {
+	if (situ_remaining_u32(view.limit, 2u) < ((fzn_groups_local_message_op_get(view) == 128u ? 0u : (fzn_groups_local_message_op_get(view) == 129u ? (fzn_groups_local_message_body_row_extent(view)) : (fzn_groups_local_message_op_get(view) == 130u ? 32u : (fzn_groups_local_message_op_get(view) == 131u ? (fzn_groups_local_message_body_member_row_extent(view)) : (fzn_groups_local_message_op_get(view) == 132u ? (fzn_groups_local_message_body_change_extent(view)) : (fzn_groups_local_message_op_get(view) == 133u ? 32u : (fzn_groups_local_message_op_get(view) == 134u ? 4u : (fzn_groups_local_message_op_get(view) == 135u ? (fzn_groups_local_message_body_backfill_extent(view)) : (fzn_groups_local_message_op_get(view) == 136u ? 1u : 0u))))))))))) {
 		*which = FZN_GROUPS_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for op.list, op.row, op.members, op.member_row, and `default: error` for the rest. */
-	if (fzn_groups_local_message_op_get(view) != 128u && fzn_groups_local_message_op_get(view) != 129u && fzn_groups_local_message_op_get(view) != 130u && fzn_groups_local_message_op_get(view) != 131u) {
+	/* message.body: an arm for op.list, op.row, op.members, op.member_row, op.change, op.created, op.proposed, op.backfill, op.backfill_row, and `default: error` for the rest. */
+	if (fzn_groups_local_message_op_get(view) != 128u && fzn_groups_local_message_op_get(view) != 129u && fzn_groups_local_message_op_get(view) != 130u && fzn_groups_local_message_op_get(view) != 131u && fzn_groups_local_message_op_get(view) != 132u && fzn_groups_local_message_op_get(view) != 133u && fzn_groups_local_message_op_get(view) != 134u && fzn_groups_local_message_op_get(view) != 135u && fzn_groups_local_message_op_get(view) != 136u) {
 		*which = FZN_GROUPS_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -258,6 +463,101 @@ situ_err_t fzn_groups_local_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_GROUPS_LOCAL_MESSAGE_BODY_MEMBER_ROW_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.change: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_groups_local_message_body_change_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_groups_local_change_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_GROUPS_LOCAL_MESSAGE_BODY_CHANGE_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.created: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_groups_local_message_body_created_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_groups_local_created_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_GROUPS_LOCAL_MESSAGE_BODY_CREATED_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.proposed: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_groups_local_message_body_proposed_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_groups_local_proposed_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_GROUPS_LOCAL_MESSAGE_BODY_PROPOSED_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.backfill: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_groups_local_message_body_backfill_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_groups_local_backfill_ask_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_GROUPS_LOCAL_MESSAGE_BODY_BACKFILL_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.backfill_row: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_groups_local_message_body_backfill_row_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_groups_local_backfill_row_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_GROUPS_LOCAL_MESSAGE_BODY_BACKFILL_ROW_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {

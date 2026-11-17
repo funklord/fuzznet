@@ -997,6 +997,39 @@ static void test_a_group_once_shared_is_left_alone(void)
 			              && gbin.m[0][0] == 0x13 && gbin.m[0][1] == FZN_STATUS_ERROR,
 			      "an id no group has was answered as an empty roster");
 		}
+
+		/* AND THE WRITES, sec 1222: a group made in binary answered with
+		 * its id, there by the verb; a later member's backfill, on by
+		 * default, set off and read back in binary; a member who is no contact refused in the
+		 * verb's words, never as malformed. */
+		{
+			static const uint8_t make[] = { 0x0d, 0x84, 1, 4, 'b', 'a', 'n', 'd', 0 };
+			static const uint8_t off[] = { 0x0d, 0x84, 8, 4, 'b', 'a', 'n', 'd', 0 };
+			static const uint8_t ask[] = { 0x0d, 0x87, 4, 'b', 'a', 'n', 'd' };
+			static const uint8_t stranger[] = { 0x0d, 0x84, 3, 4, 'b', 'a', 'n', 'd', 3, 'z', 'e', 'd' };
+			uint8_t made[32];
+
+			memset(&gbin, 0, sizeof(gbin));
+			CHECK(fzn_node_groups_binary(&a->groups, make, sizeof(make), gbin_put, NULL) && gbin.n == 2u
+			              && gbin.m[0][0] == 0x0d && gbin.m[0][1] == 0x85 && gbin.m[1][0] == 0x13
+			              && gbin.m[1][1] == FZN_STATUS_OK,
+			      "a group made in binary was not its id, then an ok");
+			memcpy(made, gbin.m[0] + 2, 32);
+			CHECK(fzn_node_group_find(a->groups.log.store, "band", 4u, made + 0) == FZN_CONTACT_OK,
+			      "the group made in binary was not there by its name");
+			memset(&gbin, 0, sizeof(gbin));
+			CHECK(fzn_node_groups_binary(&a->groups, off, sizeof(off), gbin_put, NULL) && gbin.n == 1u
+			              && gbin.m[0][1] == FZN_STATUS_OK,
+			      "a backfill set in binary was refused");
+			memset(&gbin, 0, sizeof(gbin));
+			CHECK(fzn_node_groups_binary(&a->groups, ask, sizeof(ask), gbin_put, NULL) && gbin.n == 2u
+			              && gbin.m[0][1] == 0x88 && gbin.m[0][2] == 0 && gbin.m[1][1] == FZN_STATUS_OK,
+			      "the backfill set was not read back in binary as off");
+			memset(&gbin, 0, sizeof(gbin));
+			CHECK(fzn_node_groups_binary(&a->groups, stranger, sizeof(stranger), gbin_put, NULL) && gbin.n == 1u
+			              && gbin.m[0][0] == 0x13 && gbin.m[0][1] == FZN_STATUS_ERROR,
+			      "a member who is no contact was not refused as an error");
+		}
 	}
 }
 

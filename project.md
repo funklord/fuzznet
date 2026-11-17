@@ -90859,3 +90859,30 @@ so a line sent in binary is told once, as sec 876 asks of the verb.
 refused, raises nothing before the next setting's. Its sabotage,
 `daemon-binary-write-untold`, is caught by that phase alone (a
 subscriber hears nothing within 5 s).
+
+## 1222. The group writes, in binary, 2026-11-17
+
+Sec 1217's second subject. FZN_CMD_GROUPS gains `change` (132): a group
+made (answered `created` 133 with its id), left, a member added or
+removed, an admin made or unmade (answered `proposed` 134 -- approvals
+of the needed -- while other admins must agree, sec 1012), and a later
+member's backfill set on or off; and `backfill` (135, answered
+`backfill_row` 136), the backfill read.
+
+- **The node answers each through the group verbs' own handler**,
+  `fzn_node_groups_local`, with the request a line would give it, and
+  says its answer as rows and a STATUS -- never malformed, as sec 1218's.
+  A build leaving the group verbs out (FZN_GROUPS=0, sec 856) refuses
+  the writes as unsupported. Each write, answered ok, tells the
+  subscribers its verb's subject -- `group`, `member` or `admin` (sec
+  1221's table).
+- **The client's six calls** -- create, add and remove a member, admin,
+  delete, and the backfill set and read -- ask in binary first, the verb
+  behind them; `group_view` goes through them unchanged.
+
+**Tests:** six vectors; `groups_test` -- a group made answered with its
+id and there by its name, a backfill set off and read back off, a member
+who is no contact refused as an error; `live_events` phase a3 -- a group
+made in binary over the socket, its id, both subscribers told. Two
+sabotages, each caught (`groups-binary-write-always-ok`,
+`groups-binary-made-without-id`).

@@ -11,6 +11,23 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
+struct backfill_ask size=2..65 mutate=Shifting
+  backfill_ask.group_len                 offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  backfill_ask.group                     offset=AbsoluteStatic(0x01) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct backfill_row size=1
+  backfill_row.on                        offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+
+struct change size=4..131 mutate=Shifting address=Unstable
+  change.what                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  change.group_len                       offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  change.group                           offset=AbsoluteStatic(0x02) size=Bounded(1, 64) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  change.who_len                         offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  change.who                             offset=Dynamic size=Bounded(0, 64) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct created size=32 atomic=NonAtomic
+  created.id                             offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
 struct member_row size=34..66 mutate=Shifting atomic=NonAtomic
   member_row.key                         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   member_row.admin                       offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
@@ -20,10 +37,10 @@ struct member_row size=34..66 mutate=Shifting atomic=NonAtomic
 struct members_ask size=32 atomic=NonAtomic
   members_ask.id                         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
 
-struct message size=2..80 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+struct message size=2..133 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 78) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 131) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
   message.body.list                      offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.row                       offset=AbsoluteStatic(0x02) size=Bounded(46, 78) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
   message.body.row.id                    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
@@ -39,8 +56,28 @@ struct message size=2..80 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.body.member_row.admin          offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   message.body.member_row.name_len       offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   message.body.member_row.name           offset=AbsoluteStatic(0x24) size=Bounded(0, 32) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.change                    offset=AbsoluteStatic(0x02) size=Bounded(4, 131) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting address=Unstable
+  message.body.change.what               offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.change.group_len          offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.change.group              offset=AbsoluteStatic(0x04) size=Bounded(1, 64) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.change.who_len            offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  message.body.change.who                offset=Dynamic size=Bounded(0, 64) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  message.body.created                   offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.created.id                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.proposed                  offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.proposed.approvals        offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  message.body.proposed.needed           offset=AbsoluteStatic(0x04) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  message.body.backfill                  offset=AbsoluteStatic(0x02) size=Bounded(2, 65) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.backfill.group_len        offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.backfill.group            offset=AbsoluteStatic(0x03) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.backfill_row              offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.backfill_row.on           offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
 
 struct nothing size=0
+
+struct proposed size=4 repr=ValueConverted
+  proposed.approvals                     offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  proposed.needed                        offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
 
 struct row size=46..78 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   row.id                                 offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
