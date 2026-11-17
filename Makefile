@@ -1300,7 +1300,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/forks_view.cpp gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp \
             gui/traffic_view.cpp \
             gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
-            gui/sticker_render.cpp gui/camera_feed.cpp \
+            gui/sticker_render.cpp gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1341,7 +1341,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -3754,6 +3754,14 @@ CAMERA_CFLAGS  := $(if $(CAMERA_ON),-DFZN_CAMERA_ON $(shell pkg-config --cflags 
 CAMERA_LIBS    := $(if $(CAMERA_ON),$(shell pkg-config --libs Qt6Multimedia))
 $(BUILD_DIR)/gui/camera_feed.o: CXXFLAGS += $(CAMERA_CFLAGS)
 
+# THE HEADING, sec 1211: gui/heading_feed through Qt 6 Sensors' compass,
+# where both are; elsewhere it gives no readings and the compass rose is
+# north-up and says so. Its flags reach only its own object, as the camera's.
+SENSORS_ON     := $(if $(filter Qt6Widgets,$(FZN_PROBE_QT)),$(shell pkg-config --exists Qt6Sensors 2>/dev/null && echo 1))
+SENSORS_CFLAGS := $(if $(SENSORS_ON),-DFZN_SENSORS_ON $(shell pkg-config --cflags Qt6Sensors))
+SENSORS_LIBS   := $(if $(SENSORS_ON),$(shell pkg-config --libs Qt6Sensors))
+$(BUILD_DIR)/gui/heading_feed.o: CXXFLAGS += $(SENSORS_CFLAGS)
+
 # The anchor view classifies through cli/trust_print and words itself. sec 201.
 $(BUILD_DIR)/gui/test/trust_view_test: $(BUILD_DIR)/gui/test/trust_view_test.o \
                                      $(BUILD_DIR)/gui/trust_view.o \
@@ -3864,9 +3872,10 @@ $(BUILD_DIR)/gui/test/group_view_test: $(BUILD_DIR)/gui/test/group_view_test.o \
 # library comes with it (sec 1093).
 $(BUILD_DIR)/gui/test/location_view_test: $(BUILD_DIR)/gui/test/location_view_test.o \
                                        $(BUILD_DIR)/gui/location_view.o $(RPC_LINK_OBJS) \
+                                       $(BUILD_DIR)/gui/compass_rose.o $(BUILD_DIR)/gui/heading_feed.o \
                                        $(BUILD_DIR)/location/geo.o
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -lm -o $@
+	$(CXX) $(CXXFLAGS) $^ $(SENSORS_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -lm -o $@
 $(BUILD_DIR)/gui/test/objects_view_test: $(BUILD_DIR)/gui/test/objects_view_test.o \
                                       $(BUILD_DIR)/gui/objects_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
@@ -7163,10 +7172,12 @@ style: $(OBJS)
 	@# NOT A WIDGET, AND NAMED: gui/sticker_render draws a sticker's art for
 	@# the widgets that show one (sec 1151) and is put in front of a terminal
 	@# through them, and gui/camera_feed hands a widget the camera's frames
-	@# (sec 1158) and draws nothing. Listed rather than inferred from a name,
-	@# so a widget named otherwise is still counted.
+	@# (sec 1158) and draws nothing; gui/heading_feed hands one the compass's
+	@# heading and draws nothing, and gui/compass_rose is drawn inside
+	@# location_view, which is (sec 1211). Listed rather than inferred from
+	@# a name, so a widget named otherwise is still counted.
 	@have=`ls gui/*.cpp 2>/dev/null | sed -e 's|gui/||' -e 's|\.cpp$$||' \
-	       | grep -vxF -e sticker_render -e camera_feed | sort -u`; \
+	       | grep -vxF -e sticker_render -e camera_feed -e heading_feed -e compass_rose | sort -u`; \
 	walked=`grep -oE '#include "\.\./[a-z_]+\.h"' gui/test/qtty_render_test.cpp \
 	         | sed -e 's|.*/||' -e 's|\.h"||' | sort -u`; \
 	used=`grep -oE 'fzn_[a-z_]+_view' gui/test/qtty_render_test.cpp \
@@ -7997,7 +8008,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(TH
 	       gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp gui/traffic_view.cpp \
 	       gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
 	       gui/sticker_render.cpp $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc $(THORVG_OBJS)) \
-	       gui/camera_feed.cpp \
+	       gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
 	       gui/location_view.cpp \
 	       gui/provision_view.cpp \
 	       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON gui/entries_view.cpp $(BUILD_DIR)/log/gather.o \

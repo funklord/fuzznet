@@ -40,6 +40,8 @@
 
 struct fzn_gui_rpc;
 class QComboBox;
+class fzn_compass_rose;
+class fzn_heading_feed;
 class QLabel;
 class QPushButton;
 class QResizeEvent;
@@ -87,6 +89,15 @@ public:
 	QUrl map_url(const QString &name) const;
 	bool show_on_map();
 
+	/* WHICH WAY THE DEVICE FACES, sec 1211: degrees clockwise from north,
+	 * from its compass where the build has Qt Sensors and else from the
+	 * host. The compass rose turns with it and points at the contact
+	 * chosen, and the badges' arrows point as the device is held.
+	 * Cleared, both are north-up. */
+	void set_heading(double deg);
+	void clear_heading();
+	const fzn_compass_rose *rose() const { return m_rose; }
+
 	/* WHAT IS ON SCREEN: this host's line, each row as its cells joined by
 	 * " | ", and the status line. */
 	QString own() const;
@@ -114,6 +125,12 @@ private:
 	QHash<QString, uint32_t> m_asked;
 	uint32_t now() const;
 	QPushButton *m_map;
+	fzn_compass_rose *m_rose;
+	fzn_heading_feed *m_feed;
+	bool m_have_heading = false;
+	double m_heading = 0.0;
+	/* The bearing to `name` from this host's fix, where one means something. */
+	bool bearing_to(const QString &name, double *deg) const;
 
 	QLabel *m_own;
 	QTableWidget *m_table;

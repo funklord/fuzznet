@@ -17160,6 +17160,41 @@ SABOTAGES = [
 		"a file is fetched over a leg past its budget; live_catalog phase d0 only -- sec 1210",
 	),
 	(
+		"compass-needle-ignores-heading",
+		"gui/compass_rose.cpp",
+		"\treturn wrapped(m_bearing - (m_have_heading ? m_heading : 0.0));\n",
+		"\treturn wrapped(m_bearing);\n",
+		"the needle points at the bearing from north however the phone is held -- sec 1211",
+	),
+	(
+		"compass-left-and-right-swapped",
+		"gui/compass_rose.cpp",
+		"\treturn r > 0.0 ? tr(\"%1 is %2 degrees to your right.\")",
+		"\treturn r < 0.0 ? tr(\"%1 is %2 degrees to your right.\")",
+		"a contact on the left is said to be on the right -- sec 1211",
+	),
+	(
+		"compass-north-up-unsaid",
+		"gui/compass_rose.cpp",
+		"\tif (!m_have_heading)\n\t\treturn tr(\"%1 is at %2 degrees from north;",
+		"\tif (0)\n\t\treturn tr(\"%1 is at %2 degrees from north;",
+		"with no heading the rose says ahead or behind as though it knew which way the phone faced -- sec 1211",
+	),
+	(
+		"location-view-badge-ignores-heading",
+		"gui/location_view.cpp",
+		"\t             - (m_have_heading ? m_heading : 0.0))\n",
+		"\t             - 0.0)\n",
+		"a badge's arrow points from north, not as the phone is held -- sec 1211",
+	),
+	(
+		"location-view-rose-points-at-stale",
+		"gui/location_view.cpp",
+		"\tif (it == m_fixes.constEnd() || !m_have_mine || badge_is_stale(name))\n",
+		"\tif (it == m_fixes.constEnd() || !m_have_mine)\n",
+		"the rose points at where a contact was hours ago -- sec 1211",
+	),
+	(
 		"notebook-view-file-state-unknown-said",
 		"gui/notebook_view.cpp",
 		"\t\t\t\t               == FZN_RPC_OK\n\t\t\t\t    && st.known) {\n",
@@ -18398,6 +18433,10 @@ NO_GUARDS = {
 	"fault/fault.c": "compiled out of every build `make test` makes (FZN_TEST_FAULTS, sec "
 	                 "690), so no mutation here could be caught; its faults are shown "
 	                 "taken by `make livecheck-faults` instead",
+	"gui/heading_feed.cpp": "its one guard, the compass's calibration floor, is compiled only "
+	                        "with Qt Sensors (FZN_SENSORS_ON, sec 1211), which no build `make "
+	                        "test` makes has, so no mutation there could be caught; a phone's "
+	                        "build is where it is seen",
 }
 
 

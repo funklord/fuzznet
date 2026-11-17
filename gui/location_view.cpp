@@ -2,6 +2,8 @@
 #include "location_view.h"
 
 #include "rpc_ask.h"
+#include "compass_rose.h"
+#include "heading_feed.h"
 
 extern "C" {
 #include "../location/geo.h"
@@ -71,6 +73,14 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	auto *col = new QVBoxLayout(this);
 	col->addLayout(top);
 	col->addWidget(m_table, 1);
+	/* THE ROSE, sec 1211, pointing at the contact chosen. */
+	m_rose = new fzn_compass_rose(this);
+	col->addWidget(m_rose, 0, Qt::AlignHCenter);
+	m_feed = new fzn_heading_feed([this](double deg) { set_heading(deg); });
+	if (!m_feed->active()) {
+		delete m_feed;
+		m_feed = nullptr;
+	}
 	col->addLayout(row);
 	col->addLayout(grant);
 	col->addLayout(give);
@@ -86,7 +96,11 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	select(-1);
 }
 
-fzn_location_view::~fzn_location_view() { delete m_rpc; }
+fzn_location_view::~fzn_location_view()
+{
+	delete m_feed;
+	delete m_rpc;
+}
 
 void fzn_location_view::set_now(uint32_t utc_s) { m_now = utc_s; }
 
@@ -247,6 +261,16 @@ void fzn_location_view::select(int row)
 	if (chosen && m_table->currentRow() != row)
 		m_table->setCurrentCell(row, 0);
 	m_fetch->setEnabled(chosen);
+	/* THE ROSE POINTS AT THE ONE CHOSEN, where a bearing means something. */
+	{
+		double b = 0.0;
+		const QString who = chosen && m_table->item(row, 0) ? m_table->item(row, 0)->text() : QString();
+
+		if (!who.isEmpty() && bearing_to(who, &b))
+			m_rose->set_target(who, b);
+		else
+			m_rose->clear_target();
+	}
 	m_map->setEnabled(chosen && m_table->item(row, 0) && m_fixes.contains(m_table->item(row, 0)->text()));
 	m_share->setEnabled(chosen);
 	m_unshare->setEnabled(chosen);
@@ -359,8 +383,35 @@ QString fzn_location_view::badge_for(const QString &name) const
 		return QString();
 	if (!fzn_geo_bearing_is_meaningful(d, sure))
 		return QString::fromUtf8(text);
-	return arrow(fzn_geo_bearing_deg(m_mine.lat_e7, m_mine.lon_e7, it->lat_e7, it->lon_e7)) + QLatin1Char(' ')
-	       + QString::fromUtf8(text);
+	/* AS THE DEVICE IS HELD, where its heading is known (sec 1211). */
+	return arrow(fzn_geo_bearing_deg(m_mine.lat_e7, m_mine.lon_e7, it->lat_e7, it->lon_e7)
+	             - (m_have_heading ? m_heading : 0.0))
+	       + QLatin1Char(' ') + QString::fromUtf8(text);
+}
+
+bool fzn_location_view::bearing_to(const QString &name, double *deg) const
+{
+	const auto it = m_fixes.constFind(name);
+	if (it == m_fixes.constEnd() || !m_have_mine || badge_is_stale(name))
+		return false;
+	const double d = fzn_geo_distance_m(m_mine.lat_e7, m_mine.lon_e7, it->lat_e7, it->lon_e7);
+	if (!fzn_geo_bearing_is_meaningful(d, (double)m_mine.sure_m + (double)it->sure_m))
+		return false;
+	*deg = fzn_geo_bearing_deg(m_mine.lat_e7, m_mine.lon_e7, it->lat_e7, it->lon_e7);
+	return true;
+}
+
+void fzn_location_view::set_heading(double deg)
+{
+	m_heading = deg;
+	m_have_heading = true;
+	m_rose->set_heading(deg);
+}
+
+void fzn_location_view::clear_heading()
+{
+	m_have_heading = false;
+	m_rose->clear_heading();
 }
 
 QUrl fzn_location_view::map_url(const QString &name) const

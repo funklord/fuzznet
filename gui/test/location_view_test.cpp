@@ -8,6 +8,7 @@
  */
 
 #include "../location_view.h"
+#include "../compass_rose.h"
 
 #include <QApplication>
 #include <QTableWidget>
@@ -100,6 +101,31 @@ int main(int argc, char **argv)
 	v.select(0);
 	CHECK(v.precision() == 1 && v.status().contains("about 1 km"),
 	      "bob's grant to about 1 km was not read back");
+	/* THE ROSE, sec 1211: bob is due north. With no heading it is north-up
+	 * and says so; facing east he is to the left, and his badge's arrow
+	 * points left; facing south he is behind; facing 10 degrees, ahead.
+	 * His fix gone stale, there is nothing to point at. */
+	CHECK(v.rose()->needle_deg() == 0.0
+	              && v.rose()->said().startsWith("bob is at 0 degrees from north; this device's heading is not known"),
+	      "with no heading, the rose was not north-up and said so");
+	v.set_heading(90.0);
+	CHECK(v.rose()->needle_deg() == 270.0 && v.rose()->said() == "bob is 90 degrees to your left."
+	              && v.badge_for("bob").startsWith(QString::fromUtf8("\xe2\x86\x90 ")),
+	      "facing east, bob due north was not to the left, needle and badge");
+	v.set_heading(180.0);
+	CHECK(v.rose()->said() == "bob is behind you.", "facing south, bob due north was not behind");
+	v.set_heading(10.0);
+	CHECK(v.rose()->said() == "bob is straight ahead.", "within 15 degrees was not straight ahead");
+	v.set_now(NOW + FZN_LOCATION_VIEW_FRESH_S + 120u);
+	v.select(1);
+	v.select(0);
+	CHECK(v.rose()->needle_deg() < 0.0 && v.rose()->said() == "No one to point at.",
+	      "bob's fix, gone stale, was pointed at");
+	v.set_now(NOW);
+	v.clear_heading();
+	v.select(0);
+	CHECK(v.badge_for("bob").startsWith(QString::fromUtf8("\xe2\x86\x91 ")) && v.rose()->needle_deg() == 0.0,
+	      "with the heading cleared, the badge and the rose were not north-up again");
 	CHECK(v.fetch() && !strcmp(last, "fetch stream location bob"), "bob was not asked where he is");
 	last[0] = '\0';
 	CHECK(!v.fetch() && !last[0] && v.status().startsWith("bob was asked 0 s ago"),

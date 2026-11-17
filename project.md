@@ -90511,3 +90511,36 @@ five gates, so two faults rode past them:
 **Verified:** `make qtty`, 271 checks; `location_view_test`. Run `make
 qtty` after any change to a widget's rows or a view's links, since the
 gates do not.
+
+## 1211. A compass rose that points at a contact, 2026-11-17
+
+The Nearby page's last item (fuzzypickles' inbox 20261117T0122Z), held
+back in sec 1197 for want of a heading sensor; the holder: both phones
+tested have one (sec 1208).
+
+- **`compass_rose`** draws a rose whose needle is the contact's bearing
+  less the device's heading: N turns to where north is, and the needle
+  points where the contact is as the phone is held. With no heading it
+  is north-up and **says so** -- a needle that does not turn with the
+  phone must not look as though it did. What it says, for a reader who
+  cannot see it: "straight ahead" within 15 degrees, "behind you" past
+  165, else so many degrees to the left or right; with no heading, the
+  bearing from north and that the heading is not known.
+- **`heading_feed`** reads Qt Sensors' `QCompass` where the build has Qt
+  Sensors (`SENSORS_ON`, as the camera is where Multimedia is, sec 1158),
+  and drops a reading the sensor calls calibrated below one third. This
+  machine has no Qt Sensors, so the feed was compiled against Qt 6.12's
+  own and run on none; its guard is listed as unreachable by `make test`,
+  as `fault/fault.c`'s is. A host can feed a heading itself.
+- **`location_view`** shows the rose under its table, pointing at the
+  contact chosen where a bearing means something (`location/geo.h`) and
+  the fix is fresh, and **its badges' arrows turn with the heading too**,
+  so a list beside the rose agrees with it.
+
+**Tests:** `location_view_test`, six checks -- north-up and said so with
+no heading, facing east a contact due north is to the left (needle and
+badge), facing south behind, within 15 degrees ahead, a stale fix not
+pointed at, the heading cleared north-up again. Five sabotages, each
+caught: `compass-needle-ignores-heading`,
+`compass-left-and-right-swapped`, `compass-north-up-unsaid`,
+`location-view-badge-ignores-heading`, `location-view-rose-points-at-stale`.
