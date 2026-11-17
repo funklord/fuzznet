@@ -1,6 +1,7 @@
 /* A conversation with one contact, as a widget: gui/conversation_view.h, sec 1126. */
 #include "conversation_view.h"
 #include "size_words.h"
+#include "sticker_picker_view.h"
 
 #include "rpc_ask.h"
 #include "sticker_render.h"
@@ -253,6 +254,15 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	auto *write = new QHBoxLayout;
 	write->addWidget(m_text, 1);
 	write->addWidget(m_send);
+	/* A STICKER BY SEND, not a page of its own (fuzzypickles' 1700Z item 3,
+	 * sec 1243): the picker opens below the line being written. */
+	m_stickers = new QPushButton(tr("Sticker"), this);
+	m_stickers->setCheckable(true);
+	m_stickers->setAccessibleName(tr("Choose a sticker to send"));
+	write->addWidget(m_stickers);
+	m_picker = new fzn_sticker_picker_view(ask, ask_ctx, this);
+	m_picker->hide();
+	m_picker->on_pick([this](const QString &ref) { (void)send_sticker(ref); });
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_title);
 	col->addWidget(m_lines, 1);
@@ -272,12 +282,16 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	sending->addStretch(1);
 	col->addLayout(files);
 	col->addLayout(write);
+	col->addWidget(m_picker);
 	col->addLayout(sending);
 	col->addWidget(m_status);
 
 	connect(m_send, &QPushButton::clicked, [this]() { send(); });
+	connect(m_stickers, &QPushButton::toggled, [this](bool on) { show_stickers(on); });
 	connect(m_text, &QLineEdit::returnPressed, [this]() { send(); });
 	connect(m_lines, &QListWidget::currentRowChanged, [this](int r) { select_line(r); });
+	connect(m_lines, &QListWidget::itemActivated,
+	        [this](QListWidgetItem *item) { (void)open_line(m_lines->row(item)); });
 	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
 	connect(m_save, &QPushButton::clicked, [this]() { save_to(QString()); });
 	connect(m_older, &QPushButton::clicked, [this]() { show_older(); });
@@ -454,8 +468,37 @@ void fzn_conversation_view::set_text(const QString &text) { m_text->setText(text
 
 bool fzn_conversation_view::send()
 {
+	if (!send_line(m_text->text().toUtf8()))
+		return false;
+	m_text->clear();
+	refresh();
+	return true;
+}
+
+void fzn_conversation_view::show_stickers(bool on)
+{
+	if (on)
+		(void)m_picker->refresh();
+	m_picker->setVisible(on);
+	if (m_stickers->isChecked() != on)
+		m_stickers->setChecked(on);
+}
+
+bool fzn_conversation_view::stickers_shown() const { return !m_picker->isHidden(); }
+
+bool fzn_conversation_view::send_sticker(const QString &ref)
+{
+	if (!send_line(ref.toUtf8()))
+		return false;
+	show_stickers(false);
+	refresh();
+	return true;
+}
+
+/* ONE LINE SENT to the conversation open: 1, or the refusal said. */
+bool fzn_conversation_view::send_line(const QByteArray &text)
+{
 	QByteArray who = m_contact.toUtf8();
-	QByteArray text = m_text->text().toUtf8();
 
 	if (m_contact.isEmpty() || text.trimmed().isEmpty())
 		return false;
@@ -469,8 +512,6 @@ bool fzn_conversation_view::send()
 		m_status->setText(failed_words(m_rpc));
 		return false;
 	}
-	m_text->clear();
-	refresh();
 	return true;
 }
 
@@ -505,6 +546,25 @@ bool fzn_conversation_view::fetch()
 	m_status->setText(tr("Asked for the file, said to be %1. It arrives in the background.")
 	                          .arg(fzn_size_words(file_size(ref))));
 	return true;
+}
+
+bool fzn_conversation_view::open_line(int row, const QString &save_path)
+{
+	QListWidgetItem *item = row >= 0 ? m_lines->item(row) : nullptr;
+	const QByteArray ref = item ? item->data(ROLE_FILE).toByteArray() : QByteArray();
+	fzn_rpc_blob_status_resp_t st;
+
+	if (ref.isEmpty())
+		return false;
+	select_line(row);
+	/* HERE WHOLE, SAVED; otherwise asked for, and a second tap once it has
+	 * come saves it -- one action where there were a choice and two
+	 * buttons (fuzzypickles' 1700Z item 4). */
+	memset(&st, 0, sizeof st);
+	if (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)ref.constData(), &st) == FZN_RPC_OK && st.known
+	    && st.complete)
+		return save_to(save_path);
+	return fetch();
 }
 
 bool fzn_conversation_view::save_to(const QString &path)
@@ -646,6 +706,9 @@ void fzn_conversation_view::resizeEvent(QResizeEvent *event)
 	QWidget::resizeEvent(event);
 	m_bubbles->narrow = event->size().width() < 400;
 	m_bubbles->width = m_lines->viewport()->width();
+	/* ON A PHONE A FILE LINE IS TAPPED, so its two buttons go (sec 1242). */
+	m_fetch->setVisible(!m_bubbles->narrow);
+	m_save->setVisible(!m_bubbles->narrow);
 	m_lines->doItemsLayout();
 }
 

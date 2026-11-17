@@ -69,6 +69,16 @@ public:
 	 * conversation. `send_file` with no path asks which. */
 	bool show_older();
 	bool send_file(const QString &path);
+	/* A LINE OPENED WHERE IT IS, sec 1242 -- tapped, or activated: a file
+	 * fetched if it is not here whole, saved if it is (where `save_path`
+	 * says, or where the person chooses). Whether anything was done. */
+	bool open_line(int row, const QString &save_path = QString());
+	/* THE STICKER PICKER IN THE CONVERSATION, sec 1243: shown below the
+	 * line being written by the button beside Send, and a sticker chosen
+	 * there sent as a line -- the words being written kept. */
+	void show_stickers(bool on);
+	bool stickers_shown() const;
+	bool send_sticker(const QString &ref);
 	/* A STICKER THAT CAME IN, on the chosen line: its pack kept. */
 	bool keep_pack();
 
@@ -95,7 +105,10 @@ protected:
 
 private:
 	void draw_stickers();
+	bool send_line(const QByteArray &text);
 	class bubble_delegate *m_bubbles;
+	class fzn_sticker_picker_view *m_picker;
+	QPushButton *m_stickers;
 
 	struct fzn_gui_rpc *m_rpc;
 	struct art;

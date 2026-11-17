@@ -91560,3 +91560,33 @@ right within three quarters of the width; at 800 the log, its lines as
 they were. Three sabotages, each caught (`conversation-never-bubbles`,
 `conversation-bubbles-swapped`, `conversation-sending-unsaid`). `make
 qtty` passes.
+
+## 1242. A file line acted on where it is, 2026-11-18
+
+fuzzypickles' 1700Z item 4: a file in a conversation took choosing its
+line, then Get, then Save. **`open_line(row)`**, on the line activated --
+a tap on a phone: a file not here whole is asked for, and once whole the
+same tap saves it, where the person chooses. On a phone the two buttons
+go; a desktop keeps them. The size and the sender were already on the
+line ("a file: holiday.jpg, 2.4 MB", sec 1129).
+
+**Tests:** conversation_view -- opened partial, asked for by its whole
+reference; opened whole, saved where given; a sticker's line not opened
+as a file; on a phone the two buttons hidden. Two sabotages, each caught
+(`conversation-open-saves-partial`, `conversation-phone-file-buttons`).
+
+## 1243. The sticker picker in the conversation, 2026-11-18
+
+fuzzypickles' 1700Z item 3: the picker a button by Send, not a page of
+its own. A **Sticker** button beside Send opens `sticker_picker_view`
+below the line being written; a sticker chosen there goes as a line --
+its reference, as the picker hands it over (sec 1141) -- the words being
+written kept, and the picker closes. Sending shares one path,
+`send_line`, with `send`. conversation_view now links the picker, so its
+test's rule names it; the view stays at least 239 pixels in qtty.
+
+**Tests:** conversation_view -- the picker opened in the conversation; a
+sticker sent as a line to bob, the half-written line still there, the
+picker closed. Two sabotages, each caught
+(`conversation-sticker-sends-text`, `conversation-picker-stays-open`).
+`make qtty` passes.

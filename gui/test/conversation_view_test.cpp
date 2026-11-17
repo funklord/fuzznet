@@ -12,6 +12,7 @@
 
 #include <QApplication>
 #include <QImage>
+#include <QPushButton>
 #include <QRect>
 
 #include <stdio.h>
@@ -41,6 +42,7 @@ static int checks, failures;
 
 static int silent, refuse_send;
 static char last_set[200], last_add[200], last_file[600];
+static int file_partial;
 /* The file dan sent: its root is 64 hex digits of the number 3. */
 #define FILE_ROOT "0000000000000000000000000000000000000000000000000000000000000003"
 #define FILE_KEY "0000000000000000000000000000000000000000000000000000000000000004"
@@ -99,7 +101,8 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                        1, 2, 3, 4);
 	/* THE FILE, WHOLE HERE once asked for. */
 	if (!strcmp(line, "get file " FILE_ROOT))
-		return (size_t)snprintf(reply, cap, "ok 10 10 2500000 whole private 0\n");
+		return (size_t)snprintf(reply, cap, file_partial ? "ok 10 4 2500000 partial private 0\n"
+		                                                 : "ok 10 10 2500000 whole private 0\n");
 	if (!strncmp(line, "fetch file ", 11) || !strncmp(line, "get file ", 9)) {
 		snprintf(last_file, sizeof last_file, "%s", line);
 		return (size_t)snprintf(reply, cap, "ok\n");
@@ -150,6 +153,12 @@ int main(int argc, char **argv)
 		CHECK(v.bubbles() && his.isValid() && mine.isValid() && his.left() < 20 && mine.right() > 240
 		              && mine.width() <= 320 * 3 / 4 + 1 && his.right() < mine.right(),
 		      "on a phone the lines were not bubbles, bob's at the left and this user's at the right");
+		/* AND A FILE LINE IS TAPPED THERE, its two buttons gone (sec 1242). */
+		bool shown = false;
+		for (QPushButton *b : v.findChildren<QPushButton *>())
+			if (b->text() == "Get the file" || b->text() == "Save the file")
+				shown |= !b->isHidden();
+		CHECK(!shown, "on a phone the file's two buttons were still shown");
 	}
 	v.resize(800, 600);
 	app.processEvents();
@@ -170,6 +179,20 @@ int main(int argc, char **argv)
 	v.set_text("   ");
 	last_add[0] = '\0';
 	CHECK(!v.send() && !last_add[0], "an empty line was sent");
+
+	/* THE STICKER PICKER IN THE CONVERSATION, sec 1243: opened by the
+	 * button beside Send, a sticker chosen sent as a line -- what was being
+	 * written kept -- and the picker closed. */
+	v.show();
+	v.set_text("half a thought");
+	v.show_stickers(true);
+	CHECK(v.stickers_shown(), "the sticker picker did not open in the conversation");
+	last_add[0] = '\0';
+	CHECK(v.send_sticker("fzn:sticker/1111/2222/1000/7 waving") && strstr(last_add, "message bob")
+	              && strstr(last_add, "fzn:sticker/1111") && !v.stickers_shown() && v.text() == "half a thought",
+	      "a sticker chosen was not sent as a line, or the words being written were lost");
+	v.set_text("");
+	v.hide();
 
 	/* A FILE AND A STICKER said as what they are, sec 1129. */
 	fzn_conversation_view d(node, nullptr);
@@ -192,6 +215,18 @@ int main(int argc, char **argv)
 	              && !strcmp(last_file, "get file " FILE_ROOT FILE_KEY "00000000002625a0 /tmp/holiday.jpg")
 	              && d.status() == "Saved 2.4 MB to /tmp/holiday.jpg.",
 	      "the file was not saved where asked");
+
+	/* OPENED WHERE IT IS, sec 1242: not here whole, asked for; whole,
+	 * saved; a sticker's line, nothing. */
+	file_partial = 1;
+	last_file[0] = '\0';
+	CHECK(d.open_line(0, "/tmp/holiday.jpg") && !strncmp(last_file, "fetch file " FILE_ROOT, 11 + 64),
+	      "a file not here whole was not asked for when its line was opened");
+	file_partial = 0;
+	CHECK(d.open_line(0, "/tmp/holiday.jpg") && !strncmp(last_file, "get file " FILE_ROOT, 9 + 64)
+	              && strstr(last_file, " /tmp/holiday.jpg"),
+	      "a file here whole was not saved when its line was opened");
+	CHECK(!d.open_line(1, "/tmp/x"), "a sticker's line was opened as a file");
 
 	/* THE STICKER DRAWN, ASKED ONCE, AND ITS PACK KEPT, sec 1145. */
 	CHECK(d.drawn(1) && !d.drawn(0), "a sticker line was not drawn, or a file line was");

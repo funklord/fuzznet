@@ -3873,6 +3873,7 @@ $(BUILD_DIR)/gui/test/hosts_view_test: $(BUILD_DIR)/gui/test/hosts_view_test.o \
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/conversation_view_test: $(BUILD_DIR)/gui/test/conversation_view_test.o \
                                            $(BUILD_DIR)/gui/conversation_view.o \
+                                           $(BUILD_DIR)/gui/sticker_picker_view.o \
                                            $(STICKER_RENDER_OBJS) $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -lpthread -o $@
