@@ -90,6 +90,31 @@ int main(int argc, char **argv)
 	                                           "talk.webm | video/webm |  |  | on 1 host(s)" }),
 	      "the files were not listed with their kind, size, length and where they are");
 
+	/* FINDING A FILE, sec 1207: by a word of its name or kind, any case, and
+	 * by kind; kept across a refresh; a file hidden is not acted on. */
+	CHECK(v.kinds() == QStringList({ "audio/ogg", "video/webm" }), "the kinds offered were not the files' own");
+	v.set_find("SONG");
+	CHECK(v.rows().size() == 1 && v.rows()[0].startsWith("song.ogg") && v.status() == "1 of 3 files shown.",
+	      "a file was not found by a word of its name, in another case");
+	v.set_find("video");
+	CHECK(v.rows().size() == 1 && v.rows()[0].startsWith("talk.webm"), "a file was not found by its kind");
+	v.set_find("");
+	v.set_kind("video/webm");
+	CHECK(v.rows().size() == 1 && v.rows()[0].startsWith("talk.webm"), "one kind was not shown alone");
+	v.select(1);
+	last[0] = '\0';
+	CHECK(!v.play() && !v.remove() && !last[0], "a file hidden by the kind chosen was acted on");
+	v.set_find("song");
+	CHECK(v.rows().isEmpty() && v.status() == "No file matches.", "finding nothing was not said");
+	v.set_find("");
+	CHECK(v.refresh() && v.rows().size() == 1 && v.rows()[0].startsWith("talk.webm")
+	              && v.status() == "1 of 3 files shown.",
+	      "the kind chosen was lost on a refresh");
+	v.set_find("");
+	v.set_kind("");
+	CHECK(v.rows().size() == 3 && v.status().isEmpty(), "every file did not come back, the count unsaid");
+	CHECK(v.minimumSizeHint().width() <= 320, "the finding row made the view wider than a 320 px screen");
+
 	v.select(1);
 	last[0] = '\0';
 	CHECK(!v.fetch() && !last[0], "a file already here was asked for again");

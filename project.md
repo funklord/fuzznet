@@ -85931,7 +85931,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
 | Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182) | Library playback UI, share target; fuzzypickles' Transfers tab, to move onto `traffic_view` | |
-| Streams (app streams), catalogue, browse | protocol, `catalog/` | | a catalogue view |
+| Streams (app streams), catalogue, browse | protocol, `catalog/`; the library found in by name and kind (`library_view`, sec 1207) | | a catalogue view querying the node by facet, for a library too large to list (sec 1207) |
 | Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103); presets and a setting's votes on `governance_view` (secs 1023, 1029) | Settings page, to move onto it | |
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
@@ -90306,3 +90306,31 @@ id for a consumer that matches replies itself. **Whether to adopt anyway,
 for the schedule stated in a schema rather than in C, is the holder's
 call** -- situ built 26.1039 and 26.1042 at this tree's asking, on that
 premise -- asked 2026-11-17; situ is told this reading.
+
+## 1207. Finding a file in the library, 2026-11-17
+
+**The register's catalogue row** (sec 1070) has "browse" in it and the
+library view had none: every file the catalogue names, in one table,
+and no way to find one among hundreds. `library_view` gains a find line
+and a kind chooser above the table. A file shows when a word of its
+name or its kind holds what is typed, in any case, and it is of the
+kind chosen; the kinds offered are the ones the files have, in order.
+Both survive a refresh, a kind no file has any more going back to every
+kind. The status says "2 of 40 files shown." or "No file matches.", and
+a file hidden while chosen is let go, so nothing is played or removed
+unseen. The chooser is held to eight letters, so the row fits a 320 px
+screen.
+
+This is browsing the listing the view already reads, done in the view.
+Querying the catalogue on the node by facet (`catalog/facet.c`) would
+be the next step for a library too large to list, which none here is
+yet; the register's "a catalogue view" stays open for that, its shape
+unspecified.
+
+**Tests:** `library_view_test`, eight checks -- the kinds offered, a
+file found by a word of its name in another case and by its kind, one
+kind alone, a hidden file not acted on, nothing found said, the kind
+kept across a refresh, every file back with no count said, and the
+view no wider than 320 px. Four sabotages, each caught:
+`library-view-find-case-sensitive`, `library-view-find-not-by-kind`,
+`library-view-hidden-file-chosen`, `library-view-kind-lost-on-refresh`.

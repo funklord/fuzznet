@@ -31,7 +31,9 @@
 
 #include <functional>
 
+class QComboBox;
 class QLabel;
+class QLineEdit;
 class QPushButton;
 class QTableWidget;
 struct fzn_gui_rpc;
@@ -58,12 +60,21 @@ public:
 	bool verify();
 	bool remove();
 
+	/* FINDING A FILE, sec 1207: the files whose name or kind holds `text`,
+	 * any case, and of the kind chosen -- empty for every kind. Both kept
+	 * across a refresh; a kind no file has any more goes back to every
+	 * kind. */
+	void set_find(const QString &text);
+	void set_kind(const QString &kind);
+	/* The kinds offered, as the files say them, in order. */
+	QStringList kinds() const;
+
 	/* Whom the chosen file is shared with, as said: "every contact", a
 	 * contact's name, `@NAME`. */
 	QStringList shares() const;
 
-	/* WHAT IS ON SCREEN: each file as its cells joined by " | ", and the
-	 * status line. */
+	/* WHAT IS ON SCREEN: each file shown as its cells joined by " | ", and
+	 * the status line. */
 	QStringList rows() const;
 	QString status() const;
 
@@ -71,11 +82,15 @@ private:
 	QByteArray chosen_root() const;
 	QString chosen_name() const;
 	void read_shares();
+	void apply_filter();
 
 	struct fzn_gui_rpc *m_rpc;
 	std::function<void(const QByteArray &, const QString &)> m_play;
 	QStringList m_shares;
 
+	QLineEdit *m_find;
+	QComboBox *m_kind;
+	QString m_filter_said;
 	QTableWidget *m_table;
 	QPushButton *m_play_button;
 	QPushButton *m_share;

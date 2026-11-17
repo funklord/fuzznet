@@ -8,6 +8,8 @@ extern "C" {
 }
 
 #include <QByteArray>
+#include <QComboBox>
+#include <QLineEdit>
 #include <QFileDialog>
 #include <QMenu>
 #include <QHBoxLayout>
@@ -71,6 +73,17 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_table->setSelectionMode(QAbstractItemView::SingleSelection);
 	m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
 	m_table->setAccessibleName(tr("The library's files"));
+	/* FINDING A FILE, sec 1207: by a word of its name or kind, and by kind.
+	 * The chooser no wider than eight letters, so the row fits 320 px. */
+	m_find = new QLineEdit(this);
+	m_find->setPlaceholderText(tr("Find a file"));
+	m_find->setAccessibleName(tr("Find a file by its name or kind"));
+	m_find->setClearButtonEnabled(true);
+	m_kind = new QComboBox(this);
+	m_kind->setAccessibleName(tr("Show one kind of file"));
+	m_kind->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+	m_kind->setMinimumContentsLength(8);
+	m_kind->addItem(tr("Every kind"), QString());
 	m_fetch = new QPushButton(tr("Get the file"), this);
 	m_play_button = new QPushButton(tr("Play"), this);
 	m_share = new QPushButton(tr("Share..."), this);
@@ -96,7 +109,11 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	care->addWidget(m_verify);
 	care->addWidget(m_remove);
 	care->addStretch(1);
+	auto *find = new QHBoxLayout;
+	find->addWidget(m_find, 1);
+	find->addWidget(m_kind);
 	auto *col = new QVBoxLayout(this);
+	col->addLayout(find);
 	col->addWidget(m_table, 1);
 	col->addLayout(row);
 	col->addLayout(more);
@@ -153,6 +170,8 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 			share(to);
 	});
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
+	connect(m_find, &QLineEdit::textChanged, [this](const QString &) { apply_filter(); });
+	connect(m_kind, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int) { apply_filter(); });
 	select(-1);
 }
 
@@ -194,14 +213,87 @@ bool fzn_library_view::refresh()
 		m_table->item((int)i, 0)->setData(ROLE_ARRIVING, e->arriving_permille != 0);
 	}
 	m_status->setText(all.count ? QString() : tr("The library is empty."));
+	m_filter_said.clear();
 	fzn_rpc_library_list_release(&all);
+	/* THE KINDS THE FILES HAVE NOW, the one chosen kept while a file has it. */
+	{
+		const QString chosen = m_kind->currentData().toString();
+		QStringList found;
+
+		for (int r = 0; r < m_table->rowCount(); r++) {
+			const QString k = m_table->item(r, 1)->text();
+			if (!k.isEmpty() && !found.contains(k))
+				found << k;
+		}
+		found.sort();
+		m_kind->blockSignals(true);
+		m_kind->clear();
+		m_kind->addItem(tr("Every kind"), QString());
+		for (const QString &k : found)
+			m_kind->addItem(k, k);
+		m_kind->setCurrentIndex(qMax(0, m_kind->findData(chosen)));
+		m_kind->blockSignals(false);
+	}
 	select(-1);
+	apply_filter();
 	return true;
+}
+
+/* EACH FILE SHOWN OR HIDDEN by what is being found, and said: how many of
+ * how many, or that none matches. */
+void fzn_library_view::apply_filter()
+{
+	const QString text = m_find->text().trimmed();
+	const QString kind = m_kind->currentData().toString();
+	int shown = 0, r;
+
+	for (r = 0; r < m_table->rowCount(); r++) {
+		const QString name = m_table->item(r, 0)->text();
+		const QString k = m_table->item(r, 1)->text();
+		const bool show = (text.isEmpty() || name.contains(text, Qt::CaseInsensitive)
+		                   || k.contains(text, Qt::CaseInsensitive))
+		                  && (kind.isEmpty() || k == kind);
+
+		m_table->setRowHidden(r, !show);
+		shown += show ? 1 : 0;
+	}
+	/* A FILE CHOSEN AND NOW HIDDEN is not acted on unseen. */
+	r = m_table->currentRow();
+	if (r >= 0 && m_table->isRowHidden(r)) {
+		m_table->setCurrentCell(-1, -1);
+		select(-1);
+	}
+	if (text.isEmpty() && kind.isEmpty()) {
+		if (!m_filter_said.isEmpty() && m_status->text() == m_filter_said)
+			m_status->clear();
+		m_filter_said.clear();
+		return;
+	}
+	if (!m_table->rowCount())
+		return;
+	m_filter_said = shown ? tr("%1 of %2 files shown.").arg(shown).arg(m_table->rowCount())
+	                      : tr("No file matches.");
+	m_status->setText(m_filter_said);
+}
+
+void fzn_library_view::set_find(const QString &text) { m_find->setText(text); }
+
+void fzn_library_view::set_kind(const QString &kind)
+{
+	m_kind->setCurrentIndex(qMax(0, m_kind->findData(kind.isEmpty() ? QString() : kind)));
+}
+
+QStringList fzn_library_view::kinds() const
+{
+	QStringList out;
+	for (int i = 1; i < m_kind->count(); i++)
+		out << m_kind->itemText(i);
+	return out;
 }
 
 void fzn_library_view::select(int row)
 {
-	bool chosen = row >= 0 && row < m_table->rowCount();
+	bool chosen = row >= 0 && row < m_table->rowCount() && !m_table->isRowHidden(row);
 	if (chosen && m_table->currentRow() != row)
 		m_table->setCurrentCell(row, 0);
 	/* A FILE ALREADY HERE is not asked for again. */
@@ -241,6 +333,8 @@ QStringList fzn_library_view::rows() const
 	QStringList out;
 	for (int i = 0; i < m_table->rowCount(); i++) {
 		QStringList cells;
+		if (m_table->isRowHidden(i))
+			continue;
 		for (int k = 0; k < m_table->columnCount(); k++)
 			cells << m_table->item(i, k)->text();
 		out << cells.join(QStringLiteral(" | "));
