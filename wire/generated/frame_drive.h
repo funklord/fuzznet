@@ -153,25 +153,19 @@ static inline void situ_drive_reply_to_on_expire(situ_drive_reply_to_t *drive,
 	drive->expire = expire;
 }
 
-/* Remember `request` until it is answered, without sending it:
- * for a caller that sent it already, sealed under its own id, or one
- * that only awaits it because another host sent it (26.1055).
- * `policy` NULL takes the driver's numbers.
- *
- * THE BYTES ARE YOURS AND MUST NOT MOVE until the exchange ends: a
- * retransmission sends them again. Nothing is copied and nothing is
- * allocated. */
-static inline situ_err_t situ_drive_reply_to_track_with(situ_drive_reply_to_t *drive,
-                                           situ_view_t request,
-                                           const uint8_t *bytes,
-                                           uint32_t len, uint32_t id,
-                                           uint32_t now_ms,
-                                           const situ_drive_reply_to_policy_t *policy)
+/* `_track` for a caller that matches replies itself -- after opening
+ * them, where the relation's key is inside sealed bytes -- so no
+ * request is read and no key is held: the exchange is the caller's
+ * id alone, ended by `_end` or by expiring. `_track` asked for a
+ * request view all the same, and fuzznet handed it a blank frame
+ * per exchange to spend a key slot nothing would match (26.1064). */
+static inline situ_err_t situ_drive_reply_to_track_by_id_with(situ_drive_reply_to_t *drive,
+                                                 const uint8_t *bytes,
+                                                 uint32_t len,
+                                                 uint32_t id,
+                                                 uint32_t now_ms,
+                                                 const situ_drive_reply_to_policy_t *policy)
 {
-	const situ_err_t err = situ_conv_reply_to_record(&drive->pending, request, id);
-	if (err != SITU_OK) {
-		return err;
-	}
 	const uint32_t timeout_ms = policy != NULL ? policy->timeout_ms : drive->timeout_ms;
 	const uint32_t retries    = policy != NULL ? policy->retries : drive->retries;
 	const uint32_t resend_ms  = policy != NULL ? policy->resend_ms : drive->resend_ms;
@@ -199,9 +193,43 @@ static inline situ_err_t situ_drive_reply_to_track_with(situ_drive_reply_to_t *d
 			return SITU_OK;
 		}
 	}
-	/* Refused, so not pending either (26.1054). */
-	situ_conv_reply_to_forget(&drive->pending, id);
 	return SITU_ERR_BOUNDS;
+}
+
+static inline situ_err_t situ_drive_reply_to_track_by_id(situ_drive_reply_to_t *drive,
+                                            const uint8_t *bytes,
+                                            uint32_t len, uint32_t id,
+                                            uint32_t now_ms)
+{
+	return situ_drive_reply_to_track_by_id_with(drive, bytes, len, id, now_ms, NULL);
+}
+
+/* Remember `request` until it is answered, without sending it:
+ * for a caller that sent it already, sealed under its own id, or one
+ * that only awaits it because another host sent it (26.1055).
+ * `policy` NULL takes the driver's numbers.
+ *
+ * THE BYTES ARE YOURS AND MUST NOT MOVE until the exchange ends: a
+ * retransmission sends them again. Nothing is copied and nothing is
+ * allocated. */
+static inline situ_err_t situ_drive_reply_to_track_with(situ_drive_reply_to_t *drive,
+                                           situ_view_t request,
+                                           const uint8_t *bytes,
+                                           uint32_t len, uint32_t id,
+                                           uint32_t now_ms,
+                                           const situ_drive_reply_to_policy_t *policy)
+{
+	const situ_err_t err = situ_conv_reply_to_record(&drive->pending, request, id);
+	if (err != SITU_OK) {
+		return err;
+	}
+	const situ_err_t held = situ_drive_reply_to_track_by_id_with(drive, bytes, len, id,
+	                                                 now_ms, policy);
+	if (held != SITU_OK) {
+		/* Refused, so not pending either (26.1054). */
+		situ_conv_reply_to_forget(&drive->pending, id);
+	}
+	return held;
 }
 
 static inline situ_err_t situ_drive_reply_to_track(situ_drive_reply_to_t *drive,

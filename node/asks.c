@@ -45,10 +45,10 @@ static const situ_drive_reply_to_t *drive_seen(const fzn_node_asks_t *asks)
 	return &((const struct drive_state *)(const void *)asks->drive)->drive;
 }
 
-/* AN EXCHANGE'S ID IS ITS ENTRY'S PLACE, one up: the driver's table keys a
- * request by its frame's `msg`, which two callers may share, and this table
- * matches by caller and `msg` itself -- so the frame the driver records is
- * a blank one, and the id is what tells the exchanges apart. */
+/* AN EXCHANGE'S ID IS ITS ENTRY'S PLACE, one up: this table matches a reply
+ * by caller and `msg` itself, after opening it, so the driver tracks each
+ * exchange by that id alone (situ 26.1064, `_track_by_id`) -- no request
+ * read, no key held. */
 static uint32_t id_of(const fzn_node_asks_t *asks, const fzn_node_ask_t *e)
 {
 	return (uint32_t)(e - asks->entries) + 1u;
@@ -60,8 +60,6 @@ static fzn_node_ask_t *entry_by_id(fzn_node_asks_t *asks, uint32_t id)
 		return NULL;
 	return &asks->entries[id - 1u];
 }
-
-static uint8_t blank_frame[SITU_FZN_FRAME_SIZE_MIN];
 
 /* NOTHING IS SUBMITTED AS IT STANDS: every send goes through `resend`. */
 static situ_err_t submit_nothing(void *ctx, const uint8_t *data, uint32_t len)
@@ -164,8 +162,6 @@ static fzn_node_ask_t *track(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32
                              fzn_node_answered_fn done, void *ctx, int resends)
 {
 	situ_drive_reply_to_policy_t policy;
-	situ_msg_t frame;
-	situ_view_t view;
 	fzn_node_ask_t *e;
 	uint64_t now;
 	size_t i;
@@ -181,11 +177,10 @@ static fzn_node_ask_t *track(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32
 	policy.resend_ms = SITU_REPLY_TO_RESEND_MS;
 	policy.resend_part_ms = SITU_REPLY_TO_RESEND_PART_MS;
 	policy.retries_part = resends ? SITU_REPLY_TO_RETRIES_PART : 0u;
-	situ_msg_init(&frame, blank_frame, (uint32_t)sizeof(blank_frame));
-	if (situ_fzn_frame_view(&frame, 0u, (uint32_t)sizeof(blank_frame), &view) != SITU_OK
-	    || situ_drive_reply_to_track_with(drive_of(asks), view, blank_frame, (uint32_t)sizeof(blank_frame),
-	                                      id_of(asks, e), (uint32_t)now, &policy)
-	               != SITU_OK)
+	/* NO BYTES KEPT for it: a resend is resealed from the entry, never the
+	 * driver's copy. */
+	if (situ_drive_reply_to_track_by_id_with(drive_of(asks), NULL, 0u, id_of(asks, e), (uint32_t)now, &policy)
+	    != SITU_OK)
 		return NULL;
 	e->caller = caller;
 	e->msg = msg;

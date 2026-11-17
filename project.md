@@ -91481,3 +91481,16 @@ widget as constructed in the render test by a `fzn_*_view` token, and
 counts only by its own class's name -- shown to still refuse the bar with
 its construction removed.
 
+## 1239. The asks table tracks an exchange by its id alone, 2026-11-17
+
+situ's answer to sec 1227's note (its 7541a000, 26.1064): a driver's
+`_track_by_id`, which reads no request and holds no key -- for a caller
+that matches replies itself, after opening them. `node/asks.c` had handed
+`_track_with` a blank 144-byte frame per exchange, spending a key slot
+nothing would ever match; it now tracks by the entry's id alone, with no
+bytes kept, a resend being resealed from the entry. Only
+`wire/generated/frame_drive.h` moved in the regeneration -- the map and
+every other frame file are unchanged -- and the schema gate, which caught
+the driver stale against situ's new HEAD before anything here changed,
+passes again. pair_test unchanged, 443 checks.
+
