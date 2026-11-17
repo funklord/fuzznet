@@ -85923,7 +85923,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Feature | In fuzznet | Still in a consumer, to move | Missing |
 |---|---|---|---|
 | Identity, estate, roots, k, revocation, succession, governance | protocol, state, `governance_view`, `devices_view` (a device invited or joined by code, secs 1122-1123), `hosts_view` (sec 1124), `forks_view` (decided apart, sec 1127) | fuzzypickles' Setup, Hosts pages | identity reset and host join by request left out on purpose (sec 1127); backup on `hosts_view` (sec 1133) |
-| Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094) | | the QR decoder in the library |
+| Pairing, joining, invites, cards | protocol, `qr_view` encode, QR decode (`qr/decode.c`, by `qrcheck`, sec 1095), own addresses for a card (`net/own_address.c`, sec 1094); a code scanned on `devices_view` through it (sec 1158) | | the recogniser on its own, outside `devices_view`, for a consumer that wants it without the view: none asks yet (2026-11-17) |
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`), `sticker_picker_view` (sec 1141), a line drawn and its pack kept (sec 1145), Lottie drawn through the vendored thorvg (sec 1151) | sticker UI | |
@@ -85937,7 +85937,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190, the notes under a parent sec 1191, the notebook's listing sec 1194); the notebook's other asks, and the retention and governance views, still send their own text lines |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190, the notes under a parent sec 1191, the notebook's listing sec 1194, its open note sec 1201, a checklist's items sec 1202, a file's state sec 1203); the notebook's writes, and the retention and governance views, still send their own text lines, being user-paced |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -89078,8 +89078,8 @@ CONSTRAINT. Measured in all four drivers: sent 0, resent 600, part held
 `node/asks.c`'s margin**, no resend within `FZN_CALLER_RESEND_PART_MS /
 2` of the deadline, since no schema states it; it would be a third
 number for the relation, to ask for if adopting shows it matters. So
-both halves sec 1148 named, and sec 1168's, are in situ, and item 90's
-next step is the asks table on the driver.
+both halves sec 1148 named, and sec 1168's, are in situ; what that left
+in the way of item 90, and why the loops stay for now, is sec 1206.
 
 ## 1164. The fetch under loss, measured: what it is not, 2026-11-14
 
@@ -90268,3 +90268,41 @@ no history, the refresh after a save does, and another note opened, and
 the first opened again, each list their own. Two sabotages, each
 caught: `notebook-view-history-every-refresh`,
 `notebook-view-history-of-another-note`.
+
+## 1206. The resend onto situ's driver, read a third time, 2026-11-17
+
+**Item 90 after situ 07150f15** (recorded in sec 1163): the driver now states
+this tree's whole schedule but the margin, so the timing is no longer
+what is in the way. Read against both loops:
+
+- **The asks table gives each exchange its own wait and its own
+  resending; a driver has one of each.** 3 s for a round's asks and the
+  session asks, the span deadline for a fetch (`FZN_TUNE_SPAN_DEADLINE_MS`
+  moves it), `talk`'s caller's own; and an ask the table sent is resent,
+  one only awaited is not (its sender's, sec 622), one awaited with
+  `again` is resent through its asker (sec 756). On the driver that is a
+  drive per kind, four or more, each with its own slots and keys.
+- **The driver matches a reply by the relation; the caller already
+  has.** `fzn_caller_recv_for` opens the frame and matches the decrypted
+  message id, and the asks table hands a reply to its ask by that id. The
+  driver's `on_message` wants a view of the reply's frame against
+  `wire/frame.situ`'s `reply_to`, a second match of the same thing.
+- **The driver sends; the caller seals and sends in one call.**
+  `fzn_caller_send` picks the nonce and the message id; the driver's
+  `send` submits bytes it is given and would have to be handed bytes
+  already sent, its submit a no-op the first time.
+- **`recv_answering`** (node/daemon.c), sec 1148's first choice, is
+  still the forty-line one-exchange loop it was, and the driver would
+  carry its timing only, beside all three mismatches above.
+
+**So the loops stay for now.** None of the three blocks an adoption --
+several drives, a redundant match and a submit that does nothing the
+first time all work -- but together they are more glue than the schedule
+logic they would replace (`node/asks.c`'s resend and due rules, held
+by sabotages of their own), on the path every round and every fetch takes,
+for no change anyone sees. What would make it a plain swap, if situ
+wants it: a wait and resends given per `send`, and an exchange ended by
+id for a consumer that matches replies itself. **Whether to adopt anyway,
+for the schedule stated in a schema rather than in C, is the holder's
+call** -- situ built 26.1039 and 26.1042 at this tree's asking, on that
+premise -- asked 2026-11-17; situ is told this reading.
