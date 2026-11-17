@@ -90886,3 +90886,99 @@ who is no contact refused as an error; `live_events` phase a3 -- a group
 made in binary over the socket, its id, both subscribers told. Two
 sabotages, each caught (`groups-binary-write-always-ok`,
 `groups-binary-made-without-id`).
+
+## 1223. A conversation read, in binary, 2026-11-17
+
+Sec 1217's third subject, the message calls. A line sent already goes
+in binary (sec 1161), and so does every listing (secs 1136, 1159); what
+was left is the read mark. FZN_CMD_MESSAGES gains `read` (135): a
+conversation's key and the line it was read up to, answered by a STATUS.
+
+- **The node answers it through the messages verbs' own handler**, as
+  `set message KEY read ID`, so a read at the line already read is
+  `ok` with the words `unchanged` (sec 1084) -- and the daemon, which
+  now notes those words on the STATUS it sends, tells nobody of it, as
+  it tells nobody for the verb.
+- **The verb takes any key as a conversation** (`who()` accepts 64 hex
+  without asking whether a contact or a group holds it), and the binary
+  op inherits that rather than being stricter than its verb.
+- **The client asks in binary where the conversation is given by its
+  key**, the verb behind it, as a line sent does; a name is the verb's
+  to resolve. `message_unread` and `message_attach` are left as they
+  are: the counts are already in binary (sec 1084's listing), and an
+  attachment is a line sent, which is.
+
+**Tests:** a vector; `messages_test` -- carol's conversation read to her
+newest line, then `unchanged` at the same line; `live_events` phase d2 --
+a read in binary tells the subscribers once and again tells nobody. Two
+sabotages, each caught (`messages-binary-read-skips-verb`,
+`daemon-binary-unchanged-told`, the second by d2 alone); sec 1221's
+`daemon-binary-write-untold` repointed at the gate's new line. A phase-c
+failure seen once under one sabotaged run did not recur in four runs,
+two of them with that same sabotage.
+
+## 1224. Inbound, 2026-11-17 afternoon: fuzzypickles' hosting, situ's driver
+
+Nine messages, recorded here before they leave the inbox.
+
+- **fuzzypickles 1120Z: a change made in binary publishes no event**
+  (`grant request` from one client never reaching another's events, so
+  its tui-section-counts fails from sec 1169 on). **Fixed by sec 1221**,
+  4966ee3e, which maps CONTACTS GRANT and REFUSE to `request` -- the
+  message predates it. Answered with the hash.
+- **situ 1343Z: all four of sec 1209's asks are in situ e5447843
+  (26.1055)**, in the C, C++, Rust and Python drivers: expiry by id
+  (`_on_expire`), the first send through the resend hook and `track` to
+  await what was sent elsewhere, a policy per exchange (`_send_with`,
+  `_track_with`), and `end(id)`. situ also fixed a C driver fault met on
+  the way (26.1054: an expired slot's key left in the conversation table,
+  so after `cap` expiries every send was BOUNDS). **Item 90 -- the
+  re-send state machine on situ's driver rather than our own -- is
+  unparked.** The margin is still not taken, as asked.
+- **fuzzypickles 1545Z, for the record: every fuzzypickles peer now
+  relays by default** (the holder's decision there), through
+  `fzn_daemon_ext_t.preset_values` = { relay/enabled on, FZN_PRESET_HOST }
+  over the active preset. fuzznet's own defaults stay off, and sec 1114
+  holds. It leans on sec 973's rule and on relay/quota's default of 100
+  MiB per peer per day, which a phone on mobile data now carries per
+  peer until someone sets less -- worth a look when the quota is next
+  touched. The leg rename landed at six call sites there.
+- **fuzzypickles 1330Z: a retired contact keeps a location grant made in
+  the removal's race.** The removal wins, and the grant looks inert
+  (rounds skip a contact that does not stand). Two questions, ours to
+  answer: should retiring a contact withdraw what this user grants it,
+  so a new incarnation does not inherit a grant nobody re-made; and is
+  every path that serves a stream gated on the contact standing. Backlog.
+- **What the hosted views lack, judged by a user** (the "more capable
+  one wins" rule, fuzzypickles 015e3ba: the GUI is the focused app):
+  - *reach_view* (1135Z, 1240Z): keep the chosen report across a
+    refresh, by address and reporter; keep each table's scroll; say what
+    to do when peers disagree about this host's address (a NAT mapping
+    per destination; a relay helps); name the queue that grows when the
+    node is not keeping up; relay bytes in units, and "X of QUOTA" where
+    a quota is set; and keep the answer to the person's own press (Ask
+    again, Look on this network) until they do something else, where a
+    successful refresh now clears it.
+  - *location_view* (1135Z, 1830Z): keep the chosen contact across a
+    refresh, by name; keep the status line's answer the same way; a
+    `chosen()` and a choice-changed callback, and `bearing_to` giving
+    degrees and metres as numbers (it has the bearing); a heading feed
+    the view starts when shown and stops when hidden, not for its whole
+    life, on a phone's battery; and a seam for show_on_map's opener so a
+    test can press it.
+  - *conversation_view* (1700Z): a delivery mark on this user's own
+    lines; bubbles on a phone, a log on a desktop; stickers inline and
+    the picker in the conversation; a file line acted on where it is;
+    notices with one action each; touch sizes and the send row above the
+    keyboard.
+  - *conversations_view* (1900Z): a location badge a host can hand in;
+    the unread count as its own mark; a group's members managed from the
+    row's menu, each act confirmed and k-of-n said; Call everyone
+    disabled with why; the chosen row kept across refresh.
+  - *call_view* (1900Z): one line a host can put over every page, the
+    call that matters most with its buttons, hidden while there is none;
+    and the media, which waits on the calls-media item (sec 1208).
+
+  The shape that recurs across four views -- **a refresh drops the
+  person's choice and the answer to their last act** -- is one fault in
+  every view this tree hosts, and is taken first, across all of them.

@@ -14,6 +14,8 @@ One daemon over one store, and clients of its local socket:
        and the daemon answers a request as before
     c  thousands of subscribers are each told, and thousands of connections
        that say nothing hold no request back (sec 903)
+    d2 a conversation read in binary raises it once, and again `unchanged`
+       raises nothing (sec 1223)
     d  one line added to a conversation raises `event message` once, not
        again when the node absorbs its own record (sec 876); and one
        catalogue assertion raises `event catalog` once
@@ -226,6 +228,24 @@ def main(argv):
 				got = [l for l in subs[0].lines_within(3.0) if l.startswith("event message")]
 				if got != ["event message -"]:
 					raise failed("d: one line raised %r" % got)
+				# d2: READ IN BINARY, sec 1223: alice's conversation read to that
+				# line raises `event message -` once; read there again it is
+				# `unchanged`, and tells nobody.
+				read = bytes([0x0A, 0x87]) + bytes.fromhex("5a" * 32) + (1).to_bytes(16, "big")
+				got = binary(sock, read)
+				if got != [bytes([0x13, 0, 0])]:
+					raise failed("d2: a read in binary answered %r" % got)
+				got = [l for l in subs[0].lines_within(3.0) if l.startswith("event message")]
+				if got != ["event message -"]:
+					raise failed("d2: a read in binary raised %r" % got)
+				got = binary(sock, read)
+				if got != [bytes([0x13, 0, 9]) + b"unchanged"]:
+					raise failed("d2: a read again answered %r" % got)
+				got = [l for l in subs[0].lines_within(2.0) if l.startswith("event")]
+				if got:
+					raise failed("d2: a read that changed nothing raised %r" % got)
+				print("livecheck: d2: a read in binary told the subscribers once, and "
+				      "the same read again told nobody")
 				# AND THE CATALOGUE, the same shape: the verb indexes its own
 				# record as it answers.
 				src = os.path.join(scratch, "song")

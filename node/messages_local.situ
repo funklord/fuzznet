@@ -21,6 +21,7 @@ enum op : u8 {
 	lines       = 132, // a conversation's lines, or everyone's, newest first (sec 1159)
 	line_row    = 133, // an answer: one line
 	send        = 134, // write this user's line to a contact or a group (sec 1161)
+	read        = 135, // a conversation read up to a line (sec 1223)
 	default     = error,
 }
 
@@ -98,6 +99,14 @@ struct line_row {
 // ATTACH 1 a file held here sent as an attachment, ROOT its root and TEXT
 // its name -- the reference written by the node, from the key and length it
 // holds (sec 794). ROOT is zero for a text. The answer is a STATUS.
+// THE CONVERSATION KEY, a contact's or a group's, read up to line ID.
+// A STATUS answers it: ok, with the words `unchanged` when it was read
+// there already (sec 1084), which tells nobody.
+struct read {
+	u8   key[32];
+	u8   id[16];
+}
+
 struct send {
 	u8   key[32];
 	u8   id[16];
@@ -119,6 +128,7 @@ struct message {
 		case op.lines:      lines_ask  lines;
 		case op.line_row:   line_row   line_row;
 		case op.send:       send       send;
+		case op.read:       read       read;
 		default: error;
 	}
 }

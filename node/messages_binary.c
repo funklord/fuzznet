@@ -8,6 +8,9 @@
 #include "../wire/generated/messages_local.h"
 #include "../wire/generated/messages_local_build.h"
 #include "../wire/status.h"
+#include "messages.h"
+
+#include <stdio.h>
 
 static int status(fzn_node_messages_put_t put, void *ctx, fzn_status_t code, const char *why)
 {
@@ -113,6 +116,40 @@ int fzn_node_messages_binary(fzn_node_messages_t *nm, const uint8_t *msg, size_t
 	case FZN_MESSAGES_LOCAL_OP_UNREAD:
 		listed = fzn_node_messages_unread_each(nm, unread_one, &w);
 		break;
+	/* A CONVERSATION READ, sec 1223: as `set message KEY read ID`, through
+	 * the verbs' own handler, so the conversation is checked and a read at
+	 * the line already read is `unchanged`, as the verb says it. */
+	case FZN_MESSAGES_LOCAL_OP_READ: {
+		static char reply[256];
+		char arg[16 + 64 + 6 + 32 + 1];
+		situ_view_t b;
+		const uint8_t *k, *id;
+		fzn_request_t req;
+		size_t r, i;
+		int n;
+
+		if (fzn_messages_local_message_body_read_view(v, &b) != SITU_OK)
+			return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a messages request");
+		k = fzn_messages_local_read_key_ptr(b);
+		id = fzn_messages_local_read_id_ptr(b);
+		n = snprintf(arg, sizeof(arg), "message ");
+		for (i = 0; i < 32u; i++)
+			n += snprintf(arg + n, sizeof(arg) - (size_t)n, "%02x", k[i]);
+		n += snprintf(arg + n, sizeof(arg) - (size_t)n, " read ");
+		for (i = 0; i < 16u; i++)
+			n += snprintf(arg + n, sizeof(arg) - (size_t)n, "%02x", id[i]);
+		memset(&req, 0, sizeof(req));
+		req.parsed = FZN_VERB_SET;
+		req.arg = (const uint8_t *)arg;
+		req.arg_len = (size_t)n;
+		r = fzn_node_messages_local(nm, FZN_ORIGIN_SAME_USER, &req, reply, sizeof(reply));
+		while (r && (reply[r - 1u] == '\n' || reply[r - 1u] == '\r'))
+			reply[--r] = '\0';
+		if (r >= 2u && memcmp(reply, "ok", 2u) == 0)
+			return status(put, put_ctx, FZN_STATUS_OK, r > 3u ? reply + 3 : NULL);
+		return status(put, put_ctx, r > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,
+		              memchr(reply, ' ', r) ? (const char *)memchr(reply, ' ', r) + 1 : "the conversation was not read");
+	}
 	case FZN_MESSAGES_LOCAL_OP_SEND: {
 		situ_view_t b;
 		const char *why = NULL;

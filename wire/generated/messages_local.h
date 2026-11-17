@@ -31,6 +31,7 @@ typedef enum fzn_messages_local_op {
 	FZN_MESSAGES_LOCAL_OP_LINES = 132,
 	FZN_MESSAGES_LOCAL_OP_LINE_ROW = 133,
 	FZN_MESSAGES_LOCAL_OP_SEND = 134,
+	FZN_MESSAGES_LOCAL_OP_READ = 135,
 } fzn_messages_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -45,6 +46,7 @@ static inline int fzn_messages_local_op_is_known(fzn_messages_local_op_t value)
 	case FZN_MESSAGES_LOCAL_OP_LINES:
 	case FZN_MESSAGES_LOCAL_OP_LINE_ROW:
 	case FZN_MESSAGES_LOCAL_OP_SEND:
+	case FZN_MESSAGES_LOCAL_OP_READ:
 		return 1;
 	default:
 		return 0;
@@ -1055,6 +1057,61 @@ situ_err_t fzn_messages_local_line_row_check(situ_view_t view, uint32_t *which);
 #define FZN_MESSAGES_LOCAL_LINE_ROW_TEXT_LEN_CHECK 8u
 #define FZN_MESSAGES_LOCAL_LINE_ROW_TEXT_CHECK 9u
 
+/* ---- struct read ---- */
+
+#define FZN_MESSAGES_LOCAL_READ_SIZE_FIXED 48u
+#define FZN_MESSAGES_LOCAL_READ_SIZE_MIN   48u
+#define FZN_MESSAGES_LOCAL_READ_SIZE_MAX   48u
+
+/* INVALIDATION: nothing invalidates a read view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_messages_local_read_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MESSAGES_LOCAL_READ_SIZE_FIXED, out);
+}
+
+/** read.key : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MESSAGES_LOCAL_READ_KEY_COUNT 32u
+static inline uint8_t *fzn_messages_local_read_key_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** read.id : u8  at AbsoluteStatic(0x20)
+ * size=Fixed(16) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MESSAGES_LOCAL_READ_ID_COUNT 16u
+static inline uint8_t *fzn_messages_local_read_id_ptr(situ_view_t view)
+{
+	return situ_base(view) + 32u;
+}
+
+/** How many bytes a whole `read` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_messages_local_read_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MESSAGES_LOCAL_READ_SIZE_FIXED;
+	return have >= FZN_MESSAGES_LOCAL_READ_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_messages_local_read_validate(situ_view_t view);
+
 /* ---- struct send ---- */
 
 #define FZN_MESSAGES_LOCAL_SEND_SIZE_MIN   83u
@@ -1308,7 +1365,7 @@ static inline fzn_messages_local_op_t fzn_messages_local_message_op_get(situ_vie
 /* message.body : variant  at AbsoluteStatic(0x02)
  * size=Bounded(0, 1133) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `newest`, `unread`, `newest_row`, `unread_row`, `lines`, `line_row`, `send` is
+/** `body` is a variant: exactly one of `newest`, `unread`, `newest_row`, `unread_row`, `lines`, `line_row`, `send`, `read` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -1497,6 +1554,21 @@ static inline situ_err_t fzn_messages_local_message_body_send_view(situ_view_t v
 
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_SEND_TEXT_LEN_VALUE_MAX 512u
 
+/** message.body.read, present when the discriminant selects `op.read`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_messages_local_message_body_read_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_messages_local_message_op_get(view) != 135u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MESSAGES_LOCAL_READ_SIZE_FIXED, out);
+}
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -1587,6 +1659,13 @@ static inline situ_err_t fzn_messages_local_message_required(const uint8_t *data
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_messages_local_message_op_get(view) : 0u) == 135u) {
+			e = fzn_messages_local_read_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -1631,6 +1710,7 @@ situ_err_t fzn_messages_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINES_CHECK 7u
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_CHECK 8u
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_SEND_CHECK 9u
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_READ_CHECK 10u
 
 #ifdef __cplusplus
 }

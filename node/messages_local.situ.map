@@ -79,6 +79,9 @@ struct message size=2..1135 mutate=Shifting address=Unstable repr=ValueConverted
   message.body.send.root                 offset=AbsoluteStatic(0x33) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
   message.body.send.text_len             offset=AbsoluteStatic(0x53) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   message.body.send.text                 offset=AbsoluteStatic(0x55) size=Bounded(0, 512) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.read                      offset=AbsoluteStatic(0x02) size=Fixed(48) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.read.key                  offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.read.id                   offset=AbsoluteStatic(0x22) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
 
 struct newest_row size=45..1133 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   newest_row.key                         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
@@ -91,6 +94,10 @@ struct newest_row size=45..1133 mutate=Shifting address=Unstable repr=ValueConve
   newest_row.text                        offset=Dynamic size=Bounded(0, 1024) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
 
 struct nothing size=0
+
+struct read size=48 atomic=NonAtomic
+  read.key                               offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  read.id                                offset=AbsoluteStatic(0x20) size=Fixed(16) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
 
 struct send size=83..595 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   send.key                               offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

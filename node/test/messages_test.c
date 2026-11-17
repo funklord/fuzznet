@@ -754,6 +754,29 @@ static void test_every_conversations_newest_line(void)
 		      "a key that is no contact or group was listed as an empty conversation");
 	}
 
+	/* A CONVERSATION READ IN BINARY, sec 1223: carol's, to her newest line,
+	 * ok; again at the same line, ok with `unchanged`, which tells nobody. */
+	{
+		uint8_t req[50] = { 0x0a, 0x87 }, lines[41] = { 0x0a, 0x84, 1 };
+
+		memcpy(lines + 3, X, 32);
+		lines[40] = 1;
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, lines, sizeof(lines), bin_put, NULL) && bin.n == 2u
+		              && bin.m[0][1] == 0x85,
+		      "fixture: carol's newest line");
+		memcpy(req + 2, X, 32);
+		memcpy(req + 34, bin.m[0] + 34, 16);
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, req, sizeof(req), bin_put, NULL) && bin.n == 1u
+		              && bin.m[0][0] == 0x13 && bin.m[0][1] == 0 && bin.m[0][2] == 0,
+		      "carol's conversation read in binary was not a bare ok");
+		memset(&bin, 0, sizeof(bin));
+		CHECK(fzn_node_messages_binary(&A.nm, req, sizeof(req), bin_put, NULL) && bin.n == 1u
+		              && bin.m[0][1] == 0 && bin.m[0][2] == 9 && memcmp(bin.m[0] + 3, "unchanged", 9) == 0,
+		      "a read at the line already read was not ok, unchanged");
+	}
+
 	/* A LINE SENT IN BINARY, sec 1161: written to carol as the verb writes
 	 * it, listed by its id; a key nobody holds refused in words; a file not
 	 * held here refused; an attachment's name too long malformed. */

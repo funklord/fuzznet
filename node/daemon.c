@@ -18132,6 +18132,9 @@ static int local_binary_send(int fd, const uint8_t *msg, size_t len)
 /* THE LAST STATUS A BINARY ANSWER SENT, sec 1221: what `local_binary` reads
  * to tell a write that was made from one refused. -1 before any. */
 static int local_last_status = -1;
+/* AND WHETHER IT SAID `unchanged`, sec 1084's word for a change that changed
+ * nothing, which tells nobody (sec 1223). */
+static int local_last_unchanged;
 
 static int local_binary_status(int fd, fzn_status_t code, const char *why)
 {
@@ -18139,6 +18142,7 @@ static int local_binary_status(int fd, fzn_status_t code, const char *why)
 	size_t n = fzn_status_write(msg, sizeof(msg), code, why);
 
 	local_last_status = (int)code;
+	local_last_unchanged = why && strcmp(why, "unchanged") == 0;
 	return n && local_binary_send(fd, msg, n);
 }
 
@@ -18184,8 +18188,10 @@ static int local_binary_send_wait(int fd, const uint8_t *msg, size_t len)
 
 static int local_put(void *ctx, const uint8_t *msg, size_t len)
 {
-	if (len >= 2u && msg[0] == FZN_CMD_STATUS)
+	if (len >= 2u && msg[0] == FZN_CMD_STATUS) {
 		local_last_status = msg[1];
+		local_last_unchanged = len >= 12u && msg[2] == 9u && memcmp(msg + 3, "unchanged", 9u) == 0;
+	}
 	return local_binary_send_wait(*(const int *)ctx, msg, len);
 }
 
@@ -18714,7 +18720,7 @@ static const char *binary_write_subject(const uint8_t *msg, size_t len)
 		       : msg[1] == FZN_CONTACTS_LOCAL_OP_GRANT || msg[1] == FZN_CONTACTS_LOCAL_OP_REFUSE ? "request"
 		                                                                                         : NULL;
 	case FZN_CMD_MESSAGES:
-		return msg[1] == FZN_MESSAGES_LOCAL_OP_SEND ? "message" : NULL;
+		return msg[1] == FZN_MESSAGES_LOCAL_OP_SEND || msg[1] == FZN_MESSAGES_LOCAL_OP_READ ? "message" : NULL;
 	case FZN_CMD_OBJECTS:
 		return fzn_node_objects_binary_changes(msg, len) ? "object" : NULL;
 	case FZN_CMD_GROUPS:
@@ -18738,8 +18744,9 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 	int r;
 
 	local_last_status = -1;
+	local_last_unchanged = 0;
 	r = local_binary_answer(ctx, fd, origin, peer, msg, len);
-	if (subject && local_last_status == (int)FZN_STATUS_OK)
+	if (subject && local_last_status == (int)FZN_STATUS_OK && !local_last_unchanged)
 		publish(subject, NULL);
 	return r;
 }

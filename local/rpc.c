@@ -1109,7 +1109,16 @@ static int node_line(const char *e, size_t e_len, fzn_rpc_inbox_entry_t *out, ui
 	return kind;
 }
 
+static int read_in_binary(fzn_rpc_t *c, const char *peer, size_t peer_len, const uint8_t id[16], int *by_verb);
+
 int fzn_rpc_message_read(fzn_rpc_t *c, const char *peer, size_t peer_len, const uint8_t id[16]) {
+	/* IN BINARY WHERE THE CONVERSATION IS ITS KEY, sec 1223, as a line sent
+	 * is (sec 1161); a name is the verb's to resolve. */
+	{
+		int by_verb = 1;
+		const int brc = read_in_binary(c, peer, peer_len, id, &by_verb);
+		if (!by_verb) return brc;
+	}
 	if (!node_conversation_fits(peer, peer_len) || memchr(peer, ' ', peer_len)) return encode_failed(c);
 	char hex[33];
 	fzn_hex_encode(id, 16, hex);
@@ -9405,7 +9414,8 @@ static int conversations_ask(fzn_rpc_t *c, uint8_t op, struct conversations_answ
                              const uint8_t *lines, uint32_t lines_len) {
 	uint8_t req[8];
 	uint32_t n = 0;
-	const int given = op == FZN_MESSAGES_LOCAL_OP_LINES || op == FZN_MESSAGES_LOCAL_OP_SEND;
+	const int given = op == FZN_MESSAGES_LOCAL_OP_LINES || op == FZN_MESSAGES_LOCAL_OP_SEND
+	                  || op == FZN_MESSAGES_LOCAL_OP_READ;
 	a->row_op = op == FZN_MESSAGES_LOCAL_OP_NEWEST   ? FZN_MESSAGES_LOCAL_OP_NEWEST_ROW
 	            : op == FZN_MESSAGES_LOCAL_OP_UNREAD ? FZN_MESSAGES_LOCAL_OP_UNREAD_ROW
 	                                                 : FZN_MESSAGES_LOCAL_OP_LINE_ROW;
@@ -9431,6 +9441,29 @@ static int conversations_ask(fzn_rpc_t *c, uint8_t op, struct conversations_answ
 		                                                   : FZN_RPC_ERR_STORAGE_IO,
 		            a->why[0] ? a->why : "the node refused it");
 	return FZN_RPC_OK;
+}
+
+/* A CONVERSATION READ IN BINARY, sec 1223: `*by_verb` 1 where it is not
+ * given by its key, or the node reads no binary. */
+static int read_in_binary(fzn_rpc_t *c, const char *peer, size_t peer_len, const uint8_t id[16], int *by_verb) {
+	uint8_t key[32], row[48], msg[56];
+	uint32_t row_len = 0, msg_len = 0;
+	char hex[65];
+	struct conversations_answer a;
+	size_t count = 0, total = 0;
+	*by_verb = 1;
+	if (peer_len != 64 || !id) return FZN_RPC_OK;
+	memcpy(hex, peer, 64);
+	hex[64] = '\0';
+	if (fzn_hex_decode(hex, key, sizeof key) != 0
+	    || fzn_messages_local_read_build(row, sizeof row, key, id, &row_len) != SITU_OK
+	    || fzn_messages_local_message_build_read(msg, sizeof msg, (uint8_t)FZN_CMD_MESSAGES, row, row_len,
+	                                             &msg_len) != SITU_OK)
+		return FZN_RPC_OK;
+	memset(&a, 0, sizeof a);
+	a.count = &count;
+	a.total = &total;
+	return conversations_ask(c, FZN_MESSAGES_LOCAL_OP_READ, &a, by_verb, msg, msg_len);
 }
 
 int fzn_rpc_newest_all(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap, size_t *count,

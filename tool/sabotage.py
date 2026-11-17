@@ -17281,7 +17281,7 @@ SABOTAGES = [
 	(
 		"daemon-binary-write-untold",
 		"node/daemon.c",
-		"\tif (subject && local_last_status == (int)FZN_STATUS_OK)\n\t\tpublish(subject, NULL);\n",
+		"\tif (subject && local_last_status == (int)FZN_STATUS_OK && !local_last_unchanged)\n\t\tpublish(subject, NULL);\n",
 		"\t(void)subject;\n",
 		"a write made in binary tells no subscriber, and a second window stays as it was; live_events phase a2 only -- sec 1221",
 	),
@@ -17298,6 +17298,20 @@ SABOTAGES = [
 		"\tif (what == 1u && r >= 3u + 64u && memcmp(reply, \"ok \", 3u) == 0) {\n",
 		"\tif (0) {\n",
 		"a group made in binary is answered without its id -- sec 1222",
+	),
+	(
+		"daemon-binary-unchanged-told",
+		"node/daemon.c",
+		"\tif (subject && local_last_status == (int)FZN_STATUS_OK && !local_last_unchanged)",
+		"\tif (subject && local_last_status == (int)FZN_STATUS_OK)",
+		"a read in binary that changed nothing tells the subscribers anyway; live_events phase d2 only -- sec 1223",
+	),
+	(
+		"messages-binary-read-skips-verb",
+		"node/messages_binary.c",
+		"\t\tr = fzn_node_messages_local(nm, FZN_ORIGIN_SAME_USER, &req, reply, sizeof(reply));\n",
+		"\t\tr = (size_t)snprintf(reply, sizeof(reply), \"ok\");\n",
+		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
 		"qr-decode-nothing-is-an-error",
