@@ -16,6 +16,9 @@
  * applied, after which its node starts again in place to act with it
  * (`set admin`, fuzznet sec 658); and whom this host has granted admin,
  * named as its hosts, standing or revoked.
+ * AND RESETTING THIS HOST, sec 1215 (the holder, sec 1208: "possible but
+ * hard"): its keys and state wiped and its node stopped, behind a warning
+ * that it cannot be undone and the host's own name typed out in full.
  * NOT HERE, ON PURPOSE: removing a host. A person who has lost a phone and
  * finds a Remove button beside it will take it for the end of that phone's
  * access, and it is not -- a lost device's grant ends by k votes to revoke
@@ -52,6 +55,13 @@ public:
 	void set_address_text(const QString &address);
 	bool set_address();
 	bool back_up(const QString &dir);
+	/* RESETTING THIS HOST, sec 1215: possible, and hard to do by accident.
+	 * Its keys and everything it holds wiped, and its node stopped -- only
+	 * once what is typed is this host's name exactly, which `reset_phrase`
+	 * says (its key's first 16 hex where it has no name). Whether it was. */
+	void set_reset_text(const QString &typed);
+	QString reset_phrase() const;
+	bool reset_host();
 	bool make_admin();
 	void set_chain_text(const QString &chain);
 	bool apply_chain();
@@ -74,6 +84,13 @@ private:
 	QPushButton *m_set;
 	QPushButton *m_refresh;
 	QLineEdit *m_backup_dir;
+	QLineEdit *m_reset_typed;
+	QPushButton *m_reset;
+	QLabel *m_reset_note;
+	QString m_reset_phrase;
+	unsigned char m_user[32];
+	bool m_user_known = false;
+	void read_self();
 	QPushButton *m_back_up;
 	QPushButton *m_make_admin;
 	QLineEdit *m_given;   /* the chain a grant answered, read-only */

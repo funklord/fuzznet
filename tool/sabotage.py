@@ -17202,6 +17202,20 @@ SABOTAGES = [
 		"a reply part in is resent whole for want of one piece, as before sec 1214",
 	),
 	(
+		"hosts-view-reset-always-offered",
+		"gui/hosts_view.cpp",
+		"\t\tm_reset->setEnabled(!m_reset_phrase.isEmpty() && t == m_reset_phrase);\n",
+		"\t\tm_reset->setEnabled(true);\n",
+		"the button that wipes this host is live before its name is typed -- sec 1215",
+	),
+	(
+		"hosts-view-reset-unchecked",
+		"gui/hosts_view.cpp",
+		"\tif (!m_user_known || m_reset_typed->text() != m_reset_phrase) {\n",
+		"\tif (!m_user_known) {\n",
+		"a host is wiped on part of its name, or on none -- sec 1215",
+	),
+	(
 		"qr-decode-nothing-is-an-error",
 		"qr/decode.c",
 		"\t\tmemcpy(out, data.payload, (size_t)data.payload_len);\n\t\treturn data.payload_len;\n\t}\n\treturn 0;\n",

@@ -90622,3 +90622,47 @@ resend is whole. Five sabotages, each caught:
 `asks-want-without-fallback`, `asks-never-want`, and sec 756's
 `node-asks-its-own-resend` moved with its line. Live: `live_catalog
 --loss 20` whole, on the faults build.
+
+**Measured**, sec 1164's fetch (960044 bytes between two siblings at 20 %
+loss, faults build, the running daemons polled until the file checks
+intact; a variant of `tool/live_catalog.py` kept out of the tree), three
+runs each, alternated, on one machine:
+
+| | fetch time |
+|---|---|
+| before (64d5e31) | 10.0, 9.8, 8.5 s |
+| with the want | 7.5, 8.8, 11.0 s |
+
+**No change in time that three runs can show**, which is what sec 1168
+predicted: the resend schedule already set the pace. What changes is
+what crosses: in a fourth run the serving host answered **35 wants with
+208 pieces**, each want standing where a whole span -- request and
+every piece -- went again. A byte count of both is not taken: the
+traffic meter counts a reply once, as its handler answered it.
+
+## 1215. Resetting a host: possible, and hard to do by accident, 2026-11-17
+
+The holder (sec 1208): identity reset "should be possible but hard";
+sec 1127 had left it out of the views. The node has done it since sec
+620 (`remove identity KEY`, this host's own key: every file of its state
+wiped and the node stopped), and the typed client checks the user's key
+first (`fzn_rpc_identity_reset`). Now `hosts_view` offers it, under the
+backup:
+
+- **the warning first**: it wipes this host's keys and everything it
+  holds, and stops it; it cannot be undone; back it up first;
+- **the host's name typed in full**, exactly, case and all -- its key's
+  first sixteen hex where it has no name -- before the button is live,
+  and checked again when it is pressed;
+- **said after**: how many files were wiped, and that the node stopped.
+
+Nothing is offered while the node does not say who it is. A slip of a
+finger reaches nothing: the button is off until the whole name is
+there. Following how older software guards its most destructive act --
+a repository host's "type the name to delete it" -- rather than an
+"are you sure" a person clicks through.
+
+**Tests:** `hosts_view_test`, four checks -- off with nothing typed, its
+phrase the host's name; refused on part of the name and on the name in
+another case; done and said with the name in full. Two sabotages, each
+caught: `hosts-view-reset-always-offered`, `hosts-view-reset-unchecked`.

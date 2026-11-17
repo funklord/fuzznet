@@ -10,6 +10,7 @@
 #include "../hosts_view.h"
 
 #include <QApplication>
+#include <QPushButton>
 
 #include <stdio.h>
 #include <string.h>
@@ -28,7 +29,9 @@ static int checks, failures;
 #define PHONE "0a0a000000000000000000000000000000000000000000000000000000000001"
 #define DESK "0b0b000000000000000000000000000000000000000000000000000000000002"
 
-static int silent;
+#define ROOT "0c0c000000000000000000000000000000000000000000000000000000000003"
+
+static int silent, resets;
 static char last[200];
 static int granted;
 
@@ -52,6 +55,21 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "list sibling 0"))
 		return (size_t)snprintf(reply, cap, "ok 2 0 %s,192.0.2.4:4000,paired,9,phone %s,-,unpaired,-,desk\n",
 		                        PHONE, DESK);
+	/* WHO THIS HOST IS, for its reset (sec 1215): desk, of the user ROOT. */
+	if (!strcmp(line, "get identity"))
+		return (size_t)snprintf(reply, cap, "ok %s %s\n", DESK, ROOT);
+	if (!strcmp(line, "get setting host host/name"))
+		return (size_t)snprintf(reply, cap, "ok host desk\n");
+	if (!strcmp(line, "list capability"))
+		return (size_t)snprintf(reply, cap, "ok 0 0\n");
+	if (!strcmp(line, "get message owed"))
+		return (size_t)snprintf(reply, cap, "ok 0 0 0\n");
+	if (!strcmp(line, "get node"))
+		return (size_t)snprintf(reply, cap, "ok udp 4000 started 1\n");
+	if (!strcmp(line, "remove identity " DESK)) {
+		resets++;
+		return (size_t)snprintf(reply, cap, "ok 12\n");
+	}
 	snprintf(last, sizeof last, "%s", line);
 	/* A BACKUP: three files, or a directory that is not empty refused. */
 	if (!strcmp(line, "put backup /tmp/fzn-hosts-backup-test"))
@@ -110,6 +128,27 @@ int main(int argc, char **argv)
 	CHECK(!v.apply_chain() && v.status() == "that chain does not verify", "a bad chain was not refused in the node's words");
 	v.set_chain_text("");
 	CHECK(!v.apply_chain(), "an empty chain was applied");
+
+	/* RESET, sec 1215: not until the host's name is typed in full; then
+	 * its keys wiped and its node stopped, said. */
+	{
+		QPushButton *reset = nullptr;
+
+		for (QPushButton *b : v.findChildren<QPushButton *>())
+			if (b->text() == "Reset this host")
+				reset = b;
+		CHECK(v.refresh() && v.reset_phrase() == "desk" && reset && !reset->isEnabled(),
+		      "the reset was offered before anything was typed, or its phrase was not the host's name");
+		v.set_reset_text("des");
+		CHECK(!reset->isEnabled() && !v.reset_host() && !resets && v.status().contains("Type this host's name"),
+		      "a reset went ahead on part of the host's name");
+		v.set_reset_text("Desk");
+		CHECK(!reset->isEnabled() && !v.reset_host() && !resets, "a reset went ahead on the name in another case");
+		v.set_reset_text("desk");
+		CHECK(reset->isEnabled() && v.reset_host() && resets == 1
+		              && v.status() == "This host was reset: 12 file(s) wiped, and its node has stopped.",
+		      "the reset, its name typed in full, was not done and said");
+	}
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");

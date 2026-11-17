@@ -40,6 +40,14 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_backup_dir->setPlaceholderText(tr("An empty directory"));
 	m_backup_dir->setAccessibleName(tr("Where to back this host up"));
 	m_back_up = new QPushButton(tr("Back up this host"), this);
+	/* RESET, sec 1215: the button stays off until this host's name is
+	 * typed in full, so no slip of a finger reaches it. */
+	m_reset_note = new QLabel(this);
+	m_reset_note->setWordWrap(true);
+	m_reset_typed = new QLineEdit(this);
+	m_reset_typed->setAccessibleName(tr("This host's name, typed to reset it"));
+	m_reset = new QPushButton(tr("Reset this host"), this);
+	m_reset->setEnabled(false);
 	m_make_admin = new QPushButton(tr("Make admin"), this);
 	m_given = new QLineEdit(this);
 	m_given->setReadOnly(true);
@@ -81,6 +89,11 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	backup->addWidget(m_backup_dir, 1);
 	backup->addWidget(m_back_up);
 	col->addLayout(backup);
+	col->addWidget(m_reset_note);
+	auto *reset = new QHBoxLayout;
+	reset->addWidget(m_reset_typed, 1);
+	reset->addWidget(m_reset);
+	col->addLayout(reset);
 	auto *grant = new QHBoxLayout;
 	grant->addWidget(m_make_admin);
 	grant->addWidget(m_given, 1);
@@ -99,7 +112,55 @@ fzn_hosts_view::fzn_hosts_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	connect(m_make_admin, &QPushButton::clicked, [this]() { make_admin(); });
 	connect(m_apply, &QPushButton::clicked, [this]() { apply_chain(); });
 	connect(m_back_up, &QPushButton::clicked, [this]() { back_up(m_backup_dir->text()); });
+	connect(m_reset_typed, &QLineEdit::textChanged, [this](const QString &t) {
+		m_reset->setEnabled(!m_reset_phrase.isEmpty() && t == m_reset_phrase);
+	});
+	connect(m_reset, &QPushButton::clicked, [this]() { reset_host(); });
 	select(-1);
+}
+
+/* WHO THIS HOST IS, for its reset: the user's key, and the phrase to type
+ * -- the host's own name, or its key's first 16 hex where it has none. */
+void fzn_hosts_view::read_self()
+{
+	fzn_rpc_status_resp_t self;
+
+	m_user_known = false;
+	m_reset_phrase.clear();
+	if (fzn_rpc_status(&m_rpc->c, &self) == FZN_RPC_OK && self.host_name_len) {
+		memcpy(m_user, self.user_pubkey, sizeof(m_user));
+		m_user_known = true;
+		m_reset_phrase = QString::fromUtf8(self.host_name, (int)self.host_name_len);
+	}
+	m_reset_note->setText(
+	        m_user_known
+	                ? tr("Resetting wipes this host's keys and everything it holds, and stops it. It cannot "
+	                     "be undone: back it up first. To reset it, type its name, %1, here.")
+	                          .arg(m_reset_phrase)
+	                : tr("Resetting this host is not offered while the node does not say who it is."));
+	m_reset->setEnabled(m_user_known && m_reset_typed->text() == m_reset_phrase);
+}
+
+void fzn_hosts_view::set_reset_text(const QString &typed) { m_reset_typed->setText(typed); }
+
+QString fzn_hosts_view::reset_phrase() const { return m_reset_phrase; }
+
+bool fzn_hosts_view::reset_host()
+{
+	fzn_rpc_identity_reset_resp_t out;
+
+	if (!m_user_known || m_reset_typed->text() != m_reset_phrase) {
+		m_status->setText(m_user_known ? tr("Type this host's name, %1, to reset it.").arg(m_reset_phrase)
+		                               : tr("The node did not say who this host is."));
+		return false;
+	}
+	if (fzn_rpc_identity_reset(&m_rpc->c, m_user, &out) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_reset_typed->clear();
+	m_status->setText(tr("This host was reset: %1 file(s) wiped, and its node has stopped.").arg(out.files));
+	return true;
 }
 
 fzn_hosts_view::~fzn_hosts_view() { delete m_rpc; }
@@ -150,6 +211,7 @@ bool fzn_hosts_view::refresh()
 		                                            : tr("Admin granted to: %1.").arg(m_granted_said.join(QStringLiteral(", "))));
 	}
 	delete hosts;
+	read_self();
 	select(-1);
 	return true;
 }
