@@ -92,6 +92,7 @@
 /gui/test/reach_view_test
 /gui/test/conversations_view_test
 /gui/test/sticker_picker_view_test
+/gui/test/call_audio_test
 /gui/test/call_view_test
 /gui/test/group_view_test
 /gui/test/location_view_test

@@ -17314,6 +17314,27 @@ SABOTAGES = [
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
+		"call-audio-mute-dropped",
+		"gui/call_audio.cpp",
+		"void fzn_call_audio::set_muted(bool muted) { m_sound->muted = muted ? 1 : 0; }",
+		"void fzn_call_audio::set_muted(bool muted) { (void)muted; }",
+		"the mute button does nothing to what is sent -- sec 1236",
+	),
+	(
+		"call-audio-plays-nothing",
+		"gui/call_audio.cpp",
+		"\t\tm_test_sink(played, FZN_ULAW_FRAME_SAMPLES);\n",
+		"\t\t(void)played;\n",
+		"what arrived is never played -- sec 1236",
+	),
+	(
+		"call-audio-quality-unsaid",
+		"gui/call_audio.cpp",
+		"\tif (++m_ticks % 50u == 0u && fzn_call_sound_quality(",
+		"\tif (0 && ++m_ticks % 50u == 0u && fzn_call_sound_quality(",
+		"how this end is heard is never said -- sec 1236",
+	),
+	(
 		"call-sound-mute-ignored",
 		"local/call_sound.c",
 		"\t\ts->pending[s->pending_n++] = s->muted ? 0 : pcm[i];\n",

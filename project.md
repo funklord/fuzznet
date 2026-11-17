@@ -91380,3 +91380,32 @@ muted, silence sent; 10 lost of 100 and a 480 ms round trip from the
 report. Four sabotages, each caught (`call-sound-mute-ignored`,
 `call-sound-renumbers-lost`, `call-sound-reads-once`,
 `call-sound-trip-counts-held`).
+
+## 1236. A call's media, step 3: its sound on this device's microphone and speaker, 2026-11-17
+
+`gui/call_audio.{h,cpp}`, fuzzypickles' `call_audio` less what sec 1235
+took into the library: QAudioSource and QAudioSink around
+`local/call_sound.h`, a turn every 20 ms. 8 kHz mono; a device that will
+not run at 8 kHz is run at its own rate where that is a whole multiple,
+averaged down and repeated up, its channels folded to one. A microphone
+refused (a phone's permission, Qt 6.5's QMicrophonePermission) opens
+only the speaker, so the other end is still heard; `trouble` says why
+there is no sound -- no microphone, no speaker, or a build without Qt
+Multimedia. It shares the camera's switch (`FZN_CAMERA_ON`, "this build
+has Qt 6 Multimedia"), on its own object alone, and draws nothing, so
+qtty's census lists it beside camera_feed as no widget.
+
+Not yet here: Opus (fuzzypickles' stream 1, through FFmpeg, which fuzznet
+does not vendor), the picture (`call_video`), and a call bar using them
+(sec 1224). A call with fuzzypickles' window sounds both ways meanwhile:
+mu-law on stream 0 is what every build reads.
+
+**Tests:** call_audio_test, two ends on one scripted node through the
+test seam: a call id of the wrong shape refused; alice's tone a frame a
+tick, played at bob from the third, close to what she said; muted,
+silence sent and heard; the other end's report said once a second;
+stopped, not carried. The device half compiles here (Qt 6 Multimedia is
+on this machine) and is not exercised without a sound card. Three
+sabotages, each caught (`call-audio-mute-dropped`,
+`call-audio-plays-nothing`, `call-audio-quality-unsaid`). `make qtty`
+passes.
