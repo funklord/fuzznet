@@ -396,6 +396,7 @@ __pycache__/
 /wire/test/reach_local_vectors
 /wire/test/time_local_vectors
 /wire/test/settings_local_vectors
+/wire/test/notes_local_vectors
 /wire/test/session_frame_test
 /wire/test/session_frame_fuzz
 /node/test/pressure_test

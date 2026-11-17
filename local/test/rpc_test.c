@@ -25,6 +25,7 @@
 #include "../../wire/generated/members_local_build.h"
 #include "../../wire/generated/meter_local_build.h"
 #include "../../wire/generated/reach_local_build.h"
+#include "../../wire/generated/notes_local_build.h"
 #include "../../wire/generated/time_local_build.h"
 #include "../../wire/generated/settings_local_build.h"
 
@@ -1207,6 +1208,66 @@ static void test_library_show_in_binary(void)
 	}
 }
 
+/* THE NOTES UNDER A PARENT IN BINARY, sec 1191: the request's sharer and
+ * parent, every field read, a title kept to the client's bound at a
+ * character, the pending bit dropped as the text path drops it, a listing
+ * cut before its STATUS refused, and an old node asked the verbs. */
+static void test_notes_in_binary(void)
+{
+	static struct bscript held, cut, old;
+	static fzn_rpc_notes_list_resp_t out;
+	uint8_t id[32], parent[32], sharer[32], row[1400], m[1416];
+	char title[200];
+	uint32_t row_len = 0, n = 0;
+
+	memset(id, 0x5a, sizeof(id));
+	memset(parent, 0x3c, sizeof(parent));
+	memset(sharer, 0xc4, sizeof(sharer));
+	memset(title, 'x', sizeof(title));
+	memcpy(title + 98, "\xc3\xa9", 2); /* an e-acute across the bound of 100 */
+	if (fzn_notes_local_note_row_build(row, sizeof(row), id, 2u, 0x81u, 1u, 0u, (const uint8_t *)"milk", 4,
+	                                   (const uint8_t *)"a\0b", 3, &row_len)
+	            == SITU_OK
+	    && fzn_notes_local_message_build_note_row(m, sizeof(m), (uint8_t)FZN_CMD_NOTES, row, row_len, &n)
+	               == SITU_OK) {
+		framed(&held, 0, m, n);
+		framed(&cut, 0, m, n);
+	}
+	if (fzn_notes_local_note_row_build(row, sizeof(row), parent, 1u, 0u, 0u, 1u, (const uint8_t *)title, 200,
+	                                   NULL, 0, &row_len)
+	            == SITU_OK
+	    && fzn_notes_local_message_build_note_row(m, sizeof(m), (uint8_t)FZN_CMD_NOTES, row, row_len, &n)
+	               == SITU_OK)
+		framed(&held, 0, m, n);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_notes_list(&c, parent, sharer, 0, &out) == FZN_RPC_OK && out.count == 2
+	              && out.entries[0].id[0] == 0x5a && out.entries[0].parent[0] == 0x3c
+	              && strcmp(out.entries[0].title, "milk") == 0 && out.entries[0].content_type == 2
+	              && out.entries[0].flags == 0x01 && out.entries[0].reachable && !out.entries[0].contested
+	              && out.entries[0].labels_len == 3 && memcmp(out.entries[0].labels, "a\0b", 3) == 0
+	              && out.entries[1].order == 1 && out.entries[1].contested && !out.entries[1].reachable
+	              && out.entries[1].title_len == 98 && held.asked_len[0] == 66u && held.asked[0][0] == 0x08
+	              && held.asked[0][1] == 0x80 && held.asked[0][2] == 0xc4 && held.asked[0][34] == 0x3c,
+	      "the notes were not read in binary, every field, a title kept at a character");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_notes_list(&c, parent, NULL, 0, &out) != FZN_RPC_OK
+	              && cut.asked[0][2] == 0 && cut.asked[0][33] == 0,
+	      "a notes listing cut before its STATUS was read as whole, or this user's own not asked as zero");
+	{
+		struct script s = { { "ok 0 0" }, 0, 1, 0, { { 0 } } };
+
+		status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a channel's asking");
+		on(&c, &s);
+		c.binary_answer = bscripted;
+		c.binary_ctx = &old;
+		CHECK(fzn_rpc_notes_list(&c, parent, NULL, 0, &out) == FZN_RPC_OK && out.count == 0
+		              && strncmp(s.asked[0], "list note", 9) == 0,
+		      "a node reading no notes in binary was not asked the verbs");
+	}
+	fzn_rpc_notes_list_release(&out);
+}
+
 /* ONE SIBLING framed onto answer `i`, sec 1176. */
 static void sibling_onto(struct bscript *s, size_t i, uint8_t first, uint8_t paired, const char *where,
                          const char *name)
@@ -1595,6 +1656,7 @@ int main(void)
 	test_group_lines_in_binary();
 	test_library_in_binary();
 	test_library_show_in_binary();
+	test_notes_in_binary();
 	test_packs_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

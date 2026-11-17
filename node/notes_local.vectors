@@ -1,0 +1,7 @@
+# Golden vectors for node/notes_local.situ, written by hand from the layout
+# in its header comment, so the description is held to a writer other than its
+# compiler. 0x08 is FZN_CMD_NOTES (8); the op is the SUBCMD, 128 (0x80) on.
+
+message notes_own      08 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB
+message note_pending   08 81 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 01 80 01 00 00 00 00
+message note_labelled  08 81 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 02 00 01 01 02 48 69 00 03 61 00 62

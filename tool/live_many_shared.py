@@ -10,6 +10,8 @@ S shares a folder of 2200 notes with R, a contact, past what one index page hold
        round, this was over two hours
     c  each page of the tree read back, each note once, in CPU ticks that are not
        the view loaded again a page, the least of a few listings
+    c2 the folder in binary by the sharer's key, `list sharer`'s (sec 1191): every
+       note, in the pages' order, then ok
     d  a collection of the shelf in CPU ticks that are not every tree read a text
 
 Against a daemon whose reply slot is not in whole pieces, a holds nothing.
@@ -29,6 +31,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_many_contacts import cpu_ticks  # noqa: E402
 from live_rejoin import command, daemon  # noqa: E402
+from live_rpc import binary  # noqa: E402
 from live_shares import PREKEY_HOST  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
@@ -153,6 +156,21 @@ def main(argv):
 			if ticks > LISTING_TICKS:
 				raise failed("c: a listing of %d took %d CPU ticks" % (NOTES, ticks))
 			print("livecheck: c: every page of %d read back in %d CPU ticks" % (NOTES, ticks))
+
+			# c2: THE SAME FOLDER IN BINARY, sec 1191, by the sharer's key as
+			# `list sharer` gives it: each note in the pages' order, then ok.
+			sharers = [w.split(",") for w in retried(socks["r"], "list sharer").split()[3:]]
+			keys = [w[0] for w in sharers if len(w) >= 3 and w[2] == "sam"]
+			if len(keys) != 1:
+				raise failed("c2: list sharer named sam %d times: %r" % (len(keys), sharers))
+			got = binary(socks["r"], bytes([0x08, 0x80]) + bytes.fromhex(keys[0])
+			             + bytes.fromhex(folder))
+			rows = [m[2:34].hex() for m in got[:-1] if m[:2] == bytes([0x08, 0x81])]
+			if len(rows) != len(got) - 1 or got[-1][:2] != bytes([0x13, 0]) or rows != seen:
+				raise failed("c2: %d rows in binary, %d answers, ending %r; the pages listed %d"
+				             % (len(rows), len(got), got[-1][:8] if got else b"", len(seen)))
+			print("livecheck: c2: the folder in binary by the sharer's key: all %d, in order"
+			      % len(rows))
 
 			# d: a collection reads the trees once, not once a text.
 			ticks = None

@@ -1,0 +1,54 @@
+// The notes under one parent, asked in binary on the local leg: project.md
+// sec 1191, what a notebook lists each time it opens a folder -- this
+// user's own tree, or the one a contact shared with this node (sec 437).
+//
+// FZN_CMD_NOTES (8, wire/cmd.h): notes are this category's, so its local
+// operations are in the range 128 to 191 kept for the local socket;
+// between hosts its sync takes the SUBCMDs below. A request is one
+// message; the answer is a row per note, in the tree's order, and then a
+// STATUS ok, or a STATUS refusing it.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	notes    = 128, // the notes under a parent, as `list note` lists them
+	note_row = 129, // an answer: one note
+	default  = error,
+}
+
+// SHARER zero for this user's own notes, else the key of the contact whose
+// shared tree is read, as `list shared KEY` names it. PARENT zero for the
+// top, else the folder's id.
+struct notes {
+	u8   sharer[32];
+	u8   parent[32];
+}
+
+// ID the note's. CONTENT_TYPE its kind. FLAGS its meta's, with 0x80 set
+// when its text has not arrived here, so it lists by its meta alone.
+// REACHABLE 1 when the tree's root reaches it; CONTESTED 1 when two claims
+// put it under two parents. TITLE and LABELS raw, empty while the text has
+// not arrived; LABELS NUL-separated.
+struct note_row {
+	u8   id[32];
+	u16  content_type;
+	u8   flags;
+	u8   reachable [max = 1];
+	u8   contested [max = 1];
+	u8   title_len;
+	u8   title[title_len];
+	u16  labels_len [max = 1024];
+	u8   labels[labels_len];
+}
+
+struct message {
+	u8   cmd [must_eq = 8];
+	op   op;
+
+	variant body switch (op) {
+		case op.notes:    notes    notes;
+		case op.note_row: note_row note_row;
+		default: error;
+	}
+}

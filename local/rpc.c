@@ -43,6 +43,7 @@
 #include "../wire/generated/streams_local.h"
 #include "../wire/generated/stickers_local.h"
 #include "../wire/generated/files_local.h"
+#include "../wire/generated/notes_local.h"
 #include "../wire/generated/meter_local.h"
 #include "../wire/generated/reach_local.h"
 #include "../wire/generated/time_local.h"
@@ -4781,10 +4782,111 @@ int fzn_rpc_blob_scrub(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN], 
 
 /* ---- step 4 (sec 281) ---- */
 
+/* RAW BYTES KEPT TO `cap`, at a UTF-8 boundary, `*cut` set when shortened:
+ * what node_unescape does to an escaped field, for a binary one. */
+static size_t node_keep(const uint8_t *in, size_t n, char *out, size_t cap, int *cut) {
+	size_t w = n;
+	*cut = 0;
+	if (w > cap) {
+		*cut = 1;
+		w = cap;
+		while (w && (in[w - 1] & 0xc0u) == 0x80u) w--;
+		if (w && (in[w - 1] & 0x80u)) w--;
+	}
+	memcpy(out, in, w);
+	return w;
+}
+
+/* THE NOTES UNDER A PARENT IN BINARY, sec 1191: a row a note, then a
+ * STATUS, where the verbs took a page a reply. */
+struct notes_answer {
+	fzn_rpc_t *c;
+	fzn_rpc_notes_list_resp_t *out;
+	const uint8_t *parent;
+	int bad, status_seen, no_room;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void notes_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct notes_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	int cut = 0;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_notes_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_notes_local_message_validate(v) != SITU_OK
+	    || fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_NOTE_ROW
+	    || fzn_notes_local_message_body_note_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	fzn_rpc_notes_list_resp_t *out = a->out;
+	if (room_for(a->c, &out->entries, &out->room, out->count + 1, sizeof *out->entries) != FZN_RPC_OK) {
+		a->no_room = 1;
+		return;
+	}
+	fzn_rpc_notes_list_entry_t *n = &out->entries[out->count];
+	memset(n, 0, sizeof *n);
+	memcpy(n->id, fzn_notes_local_note_row_id_ptr(b), 32);
+	memcpy(n->parent, a->parent, 32);
+	n->title_len = node_keep(fzn_notes_local_note_row_title_ptr(b), fzn_notes_local_note_row_title_len(b),
+	                         n->title, FZN_RPC_NOTES_TITLE_MAX, &cut);
+	n->labels_len = node_keep(fzn_notes_local_note_row_labels_ptr(b), fzn_notes_local_note_row_labels_len(b),
+	                          n->labels, sizeof n->labels, &n->labels_cut);
+	n->order = out->count;
+	n->content_type = fzn_notes_local_note_row_content_type_get(b);
+	/* 0x80 is fuzznet's "content not here yet", which the clients' flags
+	 * have no bit for, as on the text path. */
+	n->flags = (uint8_t)(fzn_notes_local_note_row_flags_get(b) & 0x7fu);
+	n->reachable = fzn_notes_local_note_row_reachable_get(b) != 0;
+	n->contested = fzn_notes_local_note_row_contested_get(b) != 0;
+	out->count++;
+}
+
+static int notes_list_binary(fzn_rpc_t *c, const uint8_t sharer[32], const uint8_t parent[32],
+                             fzn_rpc_notes_list_resp_t *out, int *text) {
+	uint8_t ask[2 + 64] = { FZN_CMD_NOTES, FZN_NOTES_LOCAL_OP_NOTES };
+	struct notes_answer a;
+	if (sharer) memcpy(ask + 2, sharer, 32);
+	else memset(ask + 2, 0, 32);
+	memcpy(ask + 34, parent, 32);
+	memset(&a, 0, sizeof a);
+	a.c = c;
+	a.out = out;
+	a.parent = parent;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, notes_each, &a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a.no_room) return fail(c, FZN_RPC_ERR_STORAGE_IO, "out of memory for that list");
+	if (a.bad || !a.status_seen) return unreadable(c); /* the notes cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_notes_list(fzn_rpc_t *c, const uint8_t parent[32], const uint8_t from[32],
                         int from_group, fzn_rpc_notes_list_resp_t *out) {
 	if (from_group && !from) return encode_failed(c);
 	if (from_group) return node_group_notes_list(c, from, parent, out);
+	int text = 0;
+	out->count = 0;
+	out->truncated = 0;
+	const int rc = notes_list_binary(c, from, parent, out, &text);
+	if (!text) return rc;
+	out->count = 0;
 	char tree[80] = "note";
 	if (from && !node_is_zero(from, 32)) node_shared_tree(from, tree);
 	return node_notes_list(c, tree, parent, out);

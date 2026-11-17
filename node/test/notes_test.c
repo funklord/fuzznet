@@ -18,6 +18,9 @@
 #include "../../notes/text.h"
 #include "../../notes/test/blob_stub.h"
 #include "../../notes/test/chain_stub.h"
+#include "../../wire/cmd.h"
+#include "../../wire/generated/notes_local.h"
+#include "../../wire/status.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -294,6 +297,142 @@ static void setup(size_t peers)
 	              == FZN_NOTES_OK,
 	      "the node's notes open");
 	hooks();
+}
+
+/* ---- in binary, sec 1191 ------------------------------------------------ */
+
+static uint8_t said[8][FZN_NODE_NOTES_BINARY_MAX];
+static size_t said_len[8], n_said;
+
+static int bput(void *ctx, const uint8_t *msg, size_t len)
+{
+	(void)ctx;
+	if (n_said >= 8u || len > sizeof(said[0]))
+		return 0;
+	memcpy(said[n_said], msg, len);
+	said_len[n_said++] = len;
+	return 1;
+}
+
+/* The notes under `parent` in binary, as `origin`, from `sharer`'s tree or
+ * this user's own: the messages said, in `said`. */
+static int list_binary_as(fzn_origin_t origin, const uint8_t *sharer, const uint8_t parent[FZN_TREE_ID_LEN])
+{
+	uint8_t ask_msg[66];
+
+	ask_msg[0] = FZN_CMD_NOTES;
+	ask_msg[1] = FZN_NOTES_LOCAL_OP_NOTES;
+	if (sharer)
+		memcpy(ask_msg + 2, sharer, 32u);
+	else
+		memset(ask_msg + 2, 0, 32u);
+	memcpy(ask_msg + 34, parent, 32u);
+	n_said = 0;
+	return fzn_node_notes_binary(&notes, origin, ask_msg, sizeof(ask_msg), bput, NULL);
+}
+
+/* Message `i` read as a note row into `b`; its copy in `copy`. */
+static int row_at(size_t i, uint8_t *copy, situ_view_t *b)
+{
+	situ_msg_t m;
+	situ_view_t v;
+
+	if (i >= n_said)
+		return 0;
+	memcpy(copy, said[i], said_len[i]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[i]);
+	return fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[i], &v) == SITU_OK
+	       && fzn_notes_local_message_validate(v) == SITU_OK
+	       && fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_NOTE_ROW
+	       && fzn_notes_local_message_body_note_row_view(v, b) == SITU_OK;
+}
+
+static int status_at(size_t i, fzn_status_t want)
+{
+	fzn_status_t code;
+	const uint8_t *why;
+	size_t why_len;
+
+	return i < n_said && fzn_status_read(said[i], said_len[i], &code, &why, &why_len) && code == want;
+}
+
+static int title_is(situ_view_t b, const char *want)
+{
+	return fzn_notes_local_note_row_title_len(b) == strlen(want)
+	       && memcmp(fzn_notes_local_note_row_title_ptr(b), want, strlen(want)) == 0;
+}
+
+static void hex_id(const char *hex, uint8_t out[FZN_TREE_ID_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < FZN_TREE_ID_LEN; i++) {
+		unsigned v = 0;
+
+		(void)sscanf(hex + (2u * i), "%2x", &v);
+		out[i] = (uint8_t)v;
+	}
+}
+
+/* THE NOTES UNDER A PARENT IN BINARY, sec 1191: `list note`'s rows, in its
+ * order, each field as the text says it, the title and labels raw, then a
+ * STATUS ok; another user denied, a request that is none refused. */
+static void test_list_in_binary(void)
+{
+	static const uint8_t top[FZN_TREE_ID_LEN];
+	uint8_t copy[FZN_NODE_NOTES_BINARY_MAX], shop_id[FZN_TREE_ID_LEN], milk_id[FZN_TREE_ID_LEN];
+	char milk[65], shop[65], line[256];
+	situ_view_t b;
+
+	setup(0);
+	CHECK(ask("add note top milk") == FZN_REPLY_OK, "fixture: a note");
+	take_id(milk);
+	CHECK(ask("add folder top Shop") == FZN_REPLY_OK, "fixture: a folder");
+	take_id(shop);
+	snprintf(line, sizeof(line), "add note %s eggs and, 100%% fresh", shop);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: a note in the folder");
+	snprintf(line, sizeof(line), "set note %s labels shopping to%%20do", milk);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: labels");
+	hex_id(milk, milk_id);
+	hex_id(shop, shop_id);
+	CHECK(list_binary_as(FZN_ORIGIN_SAME_USER, NULL, top) && n_said == 3u && status_at(2, FZN_STATUS_OK),
+	      "the top was not two rows and a STATUS ok");
+	CHECK(row_at(0, copy, &b) && memcmp(fzn_notes_local_note_row_id_ptr(b), milk_id, 32u) == 0
+	              && fzn_notes_local_note_row_content_type_get(b) == 1u
+	              && fzn_notes_local_note_row_flags_get(b) == 0u
+	              && fzn_notes_local_note_row_reachable_get(b) == 1u
+	              && fzn_notes_local_note_row_contested_get(b) == 0u && title_is(b, "milk")
+	              && fzn_notes_local_note_row_labels_len(b) == 14u
+	              && memcmp(fzn_notes_local_note_row_labels_ptr(b), "shopping\0to do", 14u) == 0,
+	      "the first row was not the note, every field as `list note` gives it, its labels raw");
+	CHECK(row_at(1, copy, &b) && memcmp(fzn_notes_local_note_row_id_ptr(b), shop_id, 32u) == 0
+	              && title_is(b, "Shop"),
+	      "the second row was not the folder, in the order added");
+	CHECK(list_binary_as(FZN_ORIGIN_SAME_USER, NULL, shop_id) && n_said == 2u && row_at(0, copy, &b)
+	              && title_is(b, "eggs and, 100% fresh") && status_at(1, FZN_STATUS_OK),
+	      "the folder's child was not listed, its title raw");
+	CHECK(list_binary_as(FZN_ORIGIN_LOCAL, NULL, top) && n_said == 1u && status_at(0, FZN_STATUS_DENIED),
+	      "another user was not denied");
+	{
+		uint8_t wrong[2] = { FZN_CMD_NOTES, FZN_NOTES_LOCAL_OP_NOTE_ROW };
+
+		/* A WHOLE ROW SENT AS A REQUEST, which parses: only its op says
+		 * it is none (sec 1186). */
+		CHECK(list_binary_as(FZN_ORIGIN_SAME_USER, NULL, top) && n_said == 3u, "fixture: a row to send");
+		memcpy(copy, said[0], said_len[0]);
+		{
+			size_t row_len = said_len[0];
+
+			n_said = 0;
+			CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, copy, row_len, bput, NULL)
+			              && n_said == 1u && status_at(0, FZN_STATUS_MALFORMED),
+			      "a row sent as a request was answered as the listing");
+		}
+		n_said = 0;
+		CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, wrong, sizeof(wrong), bput, NULL)
+		              && n_said == 1u && status_at(0, FZN_STATUS_MALFORMED),
+		      "a bare op was answered");
+	}
 }
 
 /* ---- cases --------------------------------------------------------------- */
@@ -1097,6 +1236,21 @@ static void test_shared_reads(void)
 	CHECK(!has(f), "and not this node's own F");
 	snprintf(line, sizeof(line), "list shared carol %s", g);
 	CHECK(ask(line) == FZN_REPLY_OK && has(h) && has(",grandchild"), "G's child is listed");
+	/* AND IN BINARY, sec 1191, by carol's key: G alone at her top. */
+	{
+		static const uint8_t top[FZN_TREE_ID_LEN];
+		uint8_t copy[FZN_NODE_NOTES_BINARY_MAX];
+		situ_view_t b;
+
+		CHECK(list_binary_as(FZN_ORIGIN_SAME_USER, carol, top) && n_said == 2u && row_at(0, copy, &b)
+		              && memcmp(fzn_notes_local_note_row_id_ptr(b), gid, 32u) == 0 && title_is(b, "child")
+		              && status_at(1, FZN_STATUS_OK),
+		      "carol's tree in binary was not G alone");
+		CHECK(list_binary_as(FZN_ORIGIN_SAME_USER, carol, gid) && n_said == 2u && row_at(0, copy, &b)
+		              && memcmp(fzn_notes_local_note_row_id_ptr(b), hid, 32u) == 0
+		              && title_is(b, "grandchild"),
+		      "G's child in carol's tree was not listed in binary");
+	}
 	/* A VIEW KEPT OF HER TREE, sec 942: a note pulled in is seen on the next page. */
 	{
 		char late[65];
@@ -2643,6 +2797,7 @@ int main(void)
 	test_group_share();
 	test_share_scope_in_order();
 	test_shared_reads();
+	test_list_in_binary();
 	test_the_join_floor_at_its_second();
 	test_import();
 	test_checklist();

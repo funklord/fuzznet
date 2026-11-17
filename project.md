@@ -85937,7 +85937,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190) |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190, the notes under a parent sec 1191); the notebook, retention and governance views still send their own text lines |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -89810,3 +89810,49 @@ bytes, every field read, another file's row refused, a refusal's words
 kept, the text path asked of an old daemon; `live_catalog` phase b3 --
 at both hosts the one file's answer is the listing's, byte for byte,
 and a root nobody names is refused. Two sabotages.
+
+## 1191. The notes under a parent, in binary, 2026-11-17
+
+`fzn_rpc_notes_list` -- fuzzypickles' notes page and terminal client --
+paged `list note PARENT FROM`, or `list shared KEY PARENT FROM` for a
+tree a contact shared, a reply a page. It asks once now, under
+FZN_CMD_NOTES (8), whose SUBCMDs below 128 are the hosts' notes sync:
+`notes` (128), carrying the sharer's key -- zero for this user's own --
+and the parent -- zero for the top -- is answered by a `note_row` (129)
+per note in the tree's order, then a STATUS ok, for this node's own user
+alone. A row is the text row's fields: id, content type, flags with
+0x80 for a text not here yet, reachable, contested, and the title and
+labels raw where the text escaped them.
+
+**The text listing was split, not changed**: `gather` collects the notes
+under a parent, kept between pages as before (sec 940) and those pending
+purge left out, and `facts_of` says one note's row -- title and labels
+from the cache or the text, its flags, where it stands -- and `list
+note` pages from the two as the binary answer sends them whole. A
+sharer's tree opens through `open_shared`, which `list shared` and the
+binary listing both use.
+
+**A refusal is never MALFORMED once the request parsed**, since a client
+takes a first MALFORMED for a node that reads no binary and asks again in
+text; a parent this host does not hold is an ERROR.
+
+**The client keeps what the text path kept**: a title to its 100 bytes at
+a character, labels to what a listing shows with the cut said, the 0x80
+bit dropped. A group's notebook (`from_group`) still asks its own verb.
+
+**Still in text: the hosted notebook view**, which sends `list note` and
+`list shared` itself through its line callback rather than through the
+typed client, as the retention and governance views do. Moving it needs
+the client's entry to carry the pending bit and a title past 100 bytes,
+and the view to name a shared tree by key; the next step, not this one.
+
+**Tests:** three hand-written vectors; `notes_test` -- the top's two
+rows in order with every field, labels raw, a folder's child with its
+title raw, a sharer's top and a child in her tree by her key, another
+user denied, a row sent as a request and a bare op refused; `rpc_test`
+-- the request's sharer and parent, every field, a title cut at a
+character, the pending bit dropped, a cut listing refused, the verbs
+asked of an old node; `live_many_shared` phase c2 -- 2200 shared notes
+in binary by the sharer's key, in the pages' order. Three sabotages; a
+fourth, on the op check, survived because the generated body view refuses
+any other op itself, so it was dropped as testing nothing.

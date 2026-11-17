@@ -1,0 +1,45 @@
+# situ capability map v1
+# schema: notes_local.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct message size=42..1321 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(40, 1319) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.notes                     offset=AbsoluteStatic(0x02) size=Fixed(64) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.notes.sharer              offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.notes.parent              offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.note_row                  offset=AbsoluteStatic(0x02) size=Bounded(40, 1319) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  message.body.note_row.id               offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.note_row.content_type     offset=AbsoluteStatic(0x22) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  message.body.note_row.flags            offset=AbsoluteStatic(0x24) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  message.body.note_row.reachable        offset=AbsoluteStatic(0x25) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.note_row.contested        offset=AbsoluteStatic(0x26) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.note_row.title_len        offset=AbsoluteStatic(0x27) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.note_row.title            offset=AbsoluteStatic(0x28) size=Bounded(0, 255) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.note_row.labels_len       offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.note_row.labels           offset=Dynamic size=Bounded(0, 1024) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct note_row size=40..1319 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  note_row.id                            offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  note_row.content_type                  offset=AbsoluteStatic(0x20) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  note_row.flags                         offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  note_row.reachable                     offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  note_row.contested                     offset=AbsoluteStatic(0x24) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  note_row.title_len                     offset=AbsoluteStatic(0x25) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  note_row.title                         offset=AbsoluteStatic(0x26) size=Bounded(0, 255) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  note_row.labels_len                    offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  note_row.labels                        offset=Dynamic size=Bounded(0, 1024) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct notes size=64 atomic=NonAtomic
+  notes.sharer                           offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  notes.parent                           offset=AbsoluteStatic(0x20) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

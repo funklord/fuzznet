@@ -18574,6 +18574,15 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 	if (len && msg[0] == FZN_CMD_FILES)
 		return local_library(fd, origin, msg, len);
 #endif
+#ifdef FZN_NOTES_ON
+	/* THE NOTES UNDER A PARENT, sec 1191. */
+	if (len && msg[0] == FZN_CMD_NOTES) {
+		if (!notes_on)
+			return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no notes"), 0;
+		(void)fzn_node_notes_binary(&node_notes, origin, msg, len, local_put, &fd);
+		return 0;
+	}
+#endif
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "a call's media is its user's"), 0;
 	if (!fzn_live_read_local(msg, len, &w) || w.kind != FZN_LIVE_MEDIA_OPEN)

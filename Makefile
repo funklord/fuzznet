@@ -240,7 +240,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/stickers_local.c wire/generated/files_local.c \
              wire/generated/members_local.c wire/generated/meter_local.c wire/generated/reach_local.c \
              wire/generated/time_local.c wire/generated/settings_local.c \
-             wire/generated/situ.c
+             wire/generated/notes_local.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
@@ -251,7 +251,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/stickers_local_vectors.c wire/generated/files_local_vectors.c \
                  wire/generated/members_local_vectors.c wire/generated/meter_local_vectors.c \
                  wire/generated/reach_local_vectors.c wire/generated/time_local_vectors.c \
-                 wire/generated/settings_local_vectors.c
+                 wire/generated/settings_local_vectors.c wire/generated/notes_local_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -710,6 +710,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/reach_local_vectors \
              $(BUILD_DIR)/wire/test/time_local_vectors \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
+             $(BUILD_DIR)/wire/test/notes_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
              $(BUILD_DIR)/node/test/rate_test \
              $(BUILD_DIR)/node/test/metric_test \
@@ -2591,6 +2592,7 @@ $(BUILD_DIR)/notes/test/notes_sync_fuzz: $(BUILD_DIR)/notes/test/notes_sync_fuzz
 # node/notes: the note verbs a node answers on its local socket. sec 431.
 $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o \
+                                   $(BUILD_DIR)/wire/generated/notes_local.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                    $(FUZZNETD_JOURNAL_OBJS) \
                                    $(BUILD_DIR)/notes/store.o \
                                    $(BUILD_DIR)/notes/view.o \
@@ -3611,7 +3613,7 @@ RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
             $(BUILD_DIR)/wire/generated/stickers_local.o $(BUILD_DIR)/wire/generated/files_local.o \
             $(BUILD_DIR)/wire/generated/members_local.o $(BUILD_DIR)/wire/generated/meter_local.o \
             $(BUILD_DIR)/wire/generated/reach_local.o $(BUILD_DIR)/wire/generated/time_local.o \
-            $(BUILD_DIR)/wire/generated/settings_local.o
+            $(BUILD_DIR)/wire/generated/settings_local.o $(BUILD_DIR)/wire/generated/notes_local.o
 $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                                   $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
@@ -3909,6 +3911,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/local/line.o \
                                      $(BUILD_DIR)/local/peer_linux.o \
                                      $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o \
+                                     $(BUILD_DIR)/wire/generated/notes_local.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/notes/store.o \
                                      $(BUILD_DIR)/notes/view.o \
                                      $(BUILD_DIR)/notes/author.o \
@@ -4439,6 +4442,13 @@ $(BUILD_DIR)/wire/test/streams_local_vectors: wire/generated/streams_local_vecto
 # THE STICKER PACKS, ON THE LOCAL LEG, sec 1172.
 $(BUILD_DIR)/wire/test/stickers_local_vectors: wire/generated/stickers_local_vectors.c \
                                            wire/generated/stickers_local.c wire/generated/situ.c \
+                                           $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# THE NOTES UNDER A PARENT, ON THE LOCAL LEG, sec 1191.
+$(BUILD_DIR)/wire/test/notes_local_vectors: wire/generated/notes_local_vectors.c \
+                                           wire/generated/notes_local.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
@@ -7395,7 +7405,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
               node/members_local.situ node/meter_local.situ node/reach_local.situ \
-              node/time_local.situ node/settings_local.situ
+              node/time_local.situ node/settings_local.situ node/notes_local.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -8146,6 +8156,11 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/files_local.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_files_local \
 	         --out $(BUILD_DIR)/.gen.new node/files_local.situ node/files_local.vectors >/dev/null 2>&1
+	@# AND THE NOTES UNDER A PARENT, ON THE LOCAL LEG, sec 1191.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_notes_local --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/notes_local.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_notes_local \
+	         --out $(BUILD_DIR)/.gen.new node/notes_local.situ node/notes_local.vectors >/dev/null 2>&1
 	@# AND NAMED OBJECTS ON THE LOCAL LEG, sec 1152.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_objects --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/objects.situ >/dev/null 2>&1
@@ -8169,7 +8184,8 @@ schema:
 	          meter_local.h meter_local_edit.h meter_local_build.h meter_local_vectors.c reach_local.c \
 	          reach_local.h reach_local_edit.h reach_local_build.h reach_local_vectors.c time_local.c \
 	          time_local.h time_local_build.h time_local_vectors.c settings_local.c settings_local.h \
-	          settings_local_edit.h settings_local_build.h settings_local_vectors.c; do \
+	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
+	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \
 			echo "schema: wire/generated/$$f is stale"; \
 			rm -rf $(BUILD_DIR)/.gen.new $(BUILD_DIR)/.situ-head; exit 1; }; \

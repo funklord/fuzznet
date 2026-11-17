@@ -11,6 +11,10 @@
 #include "../notes/share.h"
 #include "../notes/text.h"
 #include "../wire/bytes.h"
+#include "../wire/cmd.h"
+#include "../wire/generated/notes_local.h"
+#include "../wire/generated/notes_local_build.h"
+#include "../wire/status.h"
 #include "../hex/hex.h"
 
 #include <dirent.h>
@@ -642,32 +646,24 @@ static struct {
 	const fzn_tree_node_t *out[FZN_NOTES_MAX];
 } listed;
 
-/* `store` is this node's notes, or a sharer's tree when `shared` is set
+/* THE NOTES UNDER `parent` in `store`, into `listed.out`, `*count_out` of
+ * them, in the tree's order and those pending purge left out: what `list
+ * note` pages through and the binary listing sends whole (sec 1191).
+ * `store` is this node's notes, or a sharer's tree when `shared` is set
  * (sec 437): then the top is the shared subtrees' roots. */
-static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, int shared, const uint8_t *at, size_t left,
-                   char *reply, size_t cap)
+static fzn_notes_err_t gather(const fzn_notes_store_t *store, int shared,
+                              const uint8_t parent[FZN_TREE_ID_LEN], size_t *count_out)
 {
 	static uint8_t purges[FZN_NOTES_PURGE_MAX][FZN_TREE_ID_LEN];
-	static char detail[FZN_REPLY_MAX];
 	const fzn_tree_node_t **out = listed.out;
-	size_t limit = fzn_reply_ok_room(cap);
-	uint8_t parent[FZN_TREE_ID_LEN];
-	const uint8_t *w;
-	size_t w_len, count = 0, from = 0, used, i, j, n_purges = 0;
-	int cut = 0, k, purges_read;
+	size_t count = 0, i, j, n_purges = 0;
+	int cut = 0, purges_read;
 	fzn_notes_err_t err;
 
-	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, parent))
-		return say(reply, cap, FZN_REPLY_MALFORMED, "list note PARENT [FROM]");
-	if (word(&at, &left, &w, &w_len))
-		for (i = 0; i < w_len; i++) {
-			if (w[i] < '0' || w[i] > '9' || from > FZN_NOTES_MAX)
-				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
-			from = (from * 10u) + (size_t)(w[i] - '0');
-		}
+	*count_out = 0;
 	err = fzn_notes_view_load(store, view);
 	if (err != FZN_NOTES_OK)
-		return refuse(reply, cap, err);
+		return err;
 	purges_read = fzn_notes_purge_list(store, purges, FZN_NOTES_PURGE_MAX, &n_purges)
 	              == FZN_NOTES_OK;
 	if (purges_read && listed.generation == view->generation && listed.shared == shared
@@ -684,7 +680,7 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 			              : fzn_notes_children(view, parent, out, FZN_NOTES_MAX, &count,
 			                                   &cut);
 		if (err != FZN_NOTES_OK)
-			return refuse(reply, cap, err);
+			return err;
 		/* A NOTE PENDING PURGE IS LEFT OUT: one a user emptied must not come
 		 * back into view because a node that holds it has not answered yet.
 		 * sec 434. */
@@ -701,6 +697,88 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 			listed.count = count;
 		}
 	}
+	*count_out = count;
+	return FZN_NOTES_OK;
+}
+
+/* WHAT A NOTE'S ROW SAYS, text or binary: its title and labels (pointing
+ * into the cache, or into the payload until the next note is read), its
+ * flags, and where it stands in the view. */
+struct row_facts {
+	const uint8_t *title, *labels;
+	size_t title_len, labels_len;
+	uint8_t flags;
+	int reachable, contested;
+};
+
+static void facts_of(const fzn_node_notes_t *n, const fzn_notes_store_t *store,
+                     const fzn_tree_node_t *node, struct row_facts *f)
+{
+	static fzn_note_t note;
+	fzn_note_meta_t meta;
+	const struct title *cached;
+
+	f->title = f->labels = (const uint8_t *)"";
+	f->title_len = f->labels_len = 0;
+	f->flags = 0;
+	f->reachable = fzn_notes_reachable(view, (size_t)(node - view->nodes));
+	f->contested = is_disputed(node->id);
+	/* THE TITLE IS IN THE BLOB, so a note whose blob is not here lists by
+	 * its meta, marked pending (sec 514). A blob opened once is listed
+	 * from the cache after (sec 522). */
+	if (fzn_note_meta_open(node->content_type, node->content, node->content_len, &meta)
+	    != FZN_NOTE_OK)
+		return;
+	cached = title_at(meta.content.root);
+	if (cached) {
+		f->title = cached->title;
+		f->title_len = cached->title_len;
+		f->labels = cached->labels;
+		f->labels_len = cached->labels_len;
+		f->flags = meta.flags;
+		return;
+	}
+	switch (read_note(n, store, node, &meta, &note)) {
+	case FZN_NOTES_OK:
+		fzn_node_notes_title_opens++;
+		title_keep(meta.content.root, &note);
+		f->title = note.title;
+		f->title_len = note.title_len;
+		f->labels = note.labels;
+		f->labels_len = note.labels_len;
+		f->flags = meta.flags;
+		break;
+	case FZN_NOTES_ERR_PENDING:
+		f->flags = (uint8_t)(meta.flags | FZN_NODE_NOTES_LIST_PENDING);
+		break;
+	default:
+		break;
+	}
+}
+
+static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, int shared, const uint8_t *at, size_t left,
+                   char *reply, size_t cap)
+{
+	static char detail[FZN_REPLY_MAX];
+	const fzn_tree_node_t **out = listed.out;
+	size_t limit = fzn_reply_ok_room(cap);
+	uint8_t parent[FZN_TREE_ID_LEN];
+	const uint8_t *w;
+	size_t w_len, count = 0, from = 0, used, i;
+	int k;
+	fzn_notes_err_t err;
+
+	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, parent))
+		return say(reply, cap, FZN_REPLY_MALFORMED, "list note PARENT [FROM]");
+	if (word(&at, &left, &w, &w_len))
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || from > FZN_NOTES_MAX)
+				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+			from = (from * 10u) + (size_t)(w[i] - '0');
+		}
+	err = gather(store, shared, parent, &count);
+	if (err != FZN_NOTES_OK)
+		return refuse(reply, cap, err);
 	if (from > count)
 		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last note");
 	/* The head, TOTAL FROM, then as many items as fit. */
@@ -710,51 +788,23 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 	used = (size_t)k;
 	for (i = from; i < count; i++) {
 		const fzn_tree_node_t *node = out[i];
-		size_t idx = (size_t)(node - view->nodes), wrote = 0, took;
+		size_t wrote = 0, took, lwrote = 0;
 		char item[ID_HEX + 32u];
-		int is_contested = is_disputed(node->id), m;
-		fzn_note_t note;
-		fzn_note_meta_t meta;
-		const uint8_t *title = (const uint8_t *)"", *labels = title;
-		size_t title_len = 0, labels_len = 0, lwrote = 0;
-		const struct title *cached = NULL;
-		uint8_t flags = 0;
+		struct row_facts f;
+		const uint8_t *title, *labels;
+		size_t title_len, labels_len;
+		uint8_t flags;
+		int m;
 
-		/* THE TITLE IS IN THE BLOB, so a note whose blob is not here
-		 * lists by its meta, marked pending (sec 514). A blob opened
-		 * once is listed from the cache after (sec 522). */
-		if (fzn_note_meta_open(node->content_type, node->content, node->content_len, &meta)
-		    == FZN_NOTE_OK) {
-			cached = title_at(meta.content.root);
-			if (cached) {
-				title = cached->title;
-				title_len = cached->title_len;
-				labels = cached->labels;
-				labels_len = cached->labels_len;
-				flags = meta.flags;
-			} else {
-				switch (read_note(n, store, node, &meta, &note)) {
-				case FZN_NOTES_OK:
-					fzn_node_notes_title_opens++;
-					title_keep(meta.content.root, &note);
-					title = note.title;
-					title_len = note.title_len;
-					labels = note.labels;
-					labels_len = note.labels_len;
-					flags = meta.flags;
-					break;
-				case FZN_NOTES_ERR_PENDING:
-					flags = (uint8_t)(meta.flags | FZN_NODE_NOTES_LIST_PENDING);
-					break;
-				default:
-					break;
-				}
-			}
-		}
+		facts_of(n, store, node, &f);
+		title = f.title;
+		title_len = f.title_len;
+		labels = f.labels;
+		labels_len = f.labels_len;
+		flags = f.flags;
 		hex_of(node->id, FZN_TREE_ID_LEN, item);
 		m = snprintf(item + ID_HEX, sizeof(item) - ID_HEX, ",%u,%u,%d,%d,",
-		             (unsigned)node->content_type, (unsigned)flags,
-		             fzn_notes_reachable(view, idx), is_contested);
+		             (unsigned)node->content_type, (unsigned)flags, f.reachable, f.contested);
 		if (m < 0 || (size_t)m >= sizeof(item) - ID_HEX)
 			return 0;
 		/* An item goes in whole or not at all: a page ends where the
@@ -2414,11 +2464,26 @@ static size_t list_sharers(fzn_node_notes_t *n, const uint8_t *at, size_t left, 
  * 437. Nothing writes there but pulling. NAME may be the sharer's key, as
  * `list sharer` prints it -- the only name a group member who is no
  * contact here has (sec 640). */
+static fzn_notes_received_t shared_seam;
+static fzn_persist_ops_t shared_ops;
+
+/* THE TREE `key` SHARED with this node, opened into `store`. */
+static int open_shared(fzn_node_notes_t *n, const uint8_t key[FZN_PUBKEY_LEN], fzn_notes_store_t *store)
+{
+	if (fzn_notes_received_ops(&shared_seam, n->store.ops, n->store.hash, key, &shared_ops)
+	            != FZN_NOTES_OK
+	    || fzn_notes_store_init(store, &shared_ops, n->store.hash) != FZN_NOTES_OK)
+		return 0;
+	/* A VIEW KEPT, as this host's own is, sec 942: `ops` is this call's, and at one
+	 * address each call, so the stamp is what tells two sharers apart. */
+	store->stamp = fzn_notes_received_stamp;
+	store->stamp_ctx = &shared_seam;
+	return 1;
+}
+
 static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, size_t left,
                           char *reply, size_t cap)
 {
-	static fzn_notes_received_t seam;
-	static fzn_persist_ops_t ops;
 	fzn_notes_store_t store;
 	fzn_contact_t contact;
 	fzn_contact_err_t cerr;
@@ -2436,15 +2501,86 @@ static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, s
 		return say(reply, cap,
 		           cerr == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
 		           fzn_contact_err_str(cerr));
-	if (fzn_notes_received_ops(&seam, n->store.ops, n->store.hash, contact.key, &ops)
-	            != FZN_NOTES_OK
-	    || fzn_notes_store_init(&store, &ops, n->store.hash) != FZN_NOTES_OK)
+	if (!open_shared(n, contact.key, &store))
 		return say(reply, cap, FZN_REPLY_ERROR, "the shared notes would not open");
-	/* A VIEW KEPT, as this host's own is, sec 942: `ops` is this call's, and at one
-	 * address each call, so the stamp is what tells two sharers apart. */
-	store.stamp = fzn_notes_received_stamp;
-	store.stamp_ctx = &seam;
 	return listing ? list(n, &store, 1, at, left, reply, cap) : get(n, &store, at, left, reply, cap);
+}
+
+static int binary_status(fzn_node_notes_put_t put, void *ctx, fzn_status_t code, const char *why)
+{
+	uint8_t out[FZN_STATUS_LEN_MAX];
+	size_t len = fzn_status_write(out, sizeof(out), code, why);
+
+	return len && put(ctx, out, len);
+}
+
+static fzn_status_t status_of(fzn_notes_err_t err)
+{
+	/* NEVER MALFORMED, which a client takes for a node reading no binary
+	 * and asks again in text: a folder not here is this host's answer. */
+	return err == FZN_NOTES_ERR_DENIED ? FZN_STATUS_DENIED : FZN_STATUS_ERROR;
+}
+
+int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_t *msg, size_t len,
+                          fzn_node_notes_put_t put, void *put_ctx)
+{
+	static uint8_t row[FZN_NODE_NOTES_BINARY_MAX], out[FZN_NODE_NOTES_BINARY_MAX + 8u];
+	static const uint8_t zero[FZN_PUBKEY_LEN];
+	fzn_notes_store_t shared_store;
+	const fzn_notes_store_t *store;
+	uint8_t parent[FZN_TREE_ID_LEN], sharer[FZN_PUBKEY_LEN];
+	situ_msg_t m;
+	situ_view_t v, b;
+	size_t count = 0, i;
+	int shared;
+	fzn_notes_err_t err;
+
+	if (!put)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return binary_status(put, put_ctx, FZN_STATUS_DENIED, "notes need this node's own user");
+	if (!n || !msg || len > UINT32_MAX)
+		return binary_status(put, put_ctx, FZN_STATUS_UNSUPPORTED, "this node keeps no notes");
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (fzn_notes_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_notes_local_message_validate(v) != SITU_OK
+	    || fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_NOTES
+	    || fzn_notes_local_message_body_notes_view(v, &b) != SITU_OK)
+		return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not a notes request");
+	memcpy(sharer, fzn_notes_local_notes_sharer_ptr(b), FZN_PUBKEY_LEN);
+	memcpy(parent, fzn_notes_local_notes_parent_ptr(b), FZN_TREE_ID_LEN);
+	/* THIS USER'S OWN, or the tree a contact shared, by its key (sec 437). */
+	shared = memcmp(sharer, zero, FZN_PUBKEY_LEN) != 0;
+	store = &n->store;
+	if (shared) {
+		if (!open_shared(n, sharer, &shared_store))
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the shared notes would not open");
+		store = &shared_store;
+	}
+	err = gather(store, shared, parent, &count);
+	if (err != FZN_NOTES_OK)
+		return binary_status(put, put_ctx, status_of(err), fzn_notes_err_str(err));
+	/* A ROW EACH, then a STATUS ok: an ended list told from a cut one. */
+	for (i = 0; i < count; i++) {
+		const fzn_tree_node_t *node = listed.out[i];
+		struct row_facts f;
+		uint32_t row_len = 0, out_len = 0;
+
+		facts_of(n, store, node, &f);
+		if (f.title_len > FZN_NOTE_TITLE_MAX || f.labels_len > FZN_NOTE_LABELS_MAX
+		    || fzn_notes_local_note_row_build(row, sizeof(row), node->id, node->content_type, f.flags,
+		                                      (uint8_t)(f.reachable ? 1 : 0), (uint8_t)(f.contested ? 1 : 0),
+		                                      f.title, (uint32_t)f.title_len, f.labels,
+		                                      (uint32_t)f.labels_len, &row_len)
+		               != SITU_OK
+		    || fzn_notes_local_message_build_note_row(out, sizeof(out), (uint8_t)FZN_CMD_NOTES, row, row_len,
+		                                              &out_len)
+		               != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "a note would not list");
+		if (!put(put_ctx, out, out_len))
+			return 0;
+	}
+	return binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
 }
 
 static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,

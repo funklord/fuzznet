@@ -5201,8 +5201,8 @@ SABOTAGES = [
 	(
 		"node-notes-list-marks-pending",
 		"node/notes.c",
-		"\t\t\tflags = (uint8_t)(meta.flags | FZN_NODE_NOTES_LIST_PENDING);\n",
-		"\t\t\tflags = meta.flags;\n",
+		"\t\tf->flags = (uint8_t)(meta.flags | FZN_NODE_NOTES_LIST_PENDING);\n",
+		"\t\tf->flags = meta.flags;\n",
 		"a note whose content is not here lists as an untitled note, not a pending one -- sec 514",
 	),
 	(
@@ -9963,8 +9963,8 @@ SABOTAGES = [
 	(
 		"node-notes-title-cache-hits",
 		"node/notes.c",
-		"\t\t\tcached = title_at(meta.content.root);",
-		"\t\t\tcached = NULL;",
+		"\tcached = title_at(meta.content.root);",
+		"\tcached = NULL;",
 		"every listing opens every note's blob, which sec 511 promised clients it would not -- sec 522",
 	),
 	(
@@ -16878,6 +16878,27 @@ SABOTAGES = [
 		"\tif (a.bad || !a.status_seen) return unreadable(c); /* the library cut short */\n",
 		"\tif (a.bad) return unreadable(c); /* the library cut short */\n",
 		"a library listing cut before its STATUS is read as every file -- sec 1174",
+	),
+	(
+		"notes-binary-shared-reads-own",
+		"node/notes.c",
+		"\t\tstore = &shared_store;\n",
+		"",
+		"a sharer's tree asked in binary is answered from this user's own notes -- sec 1191",
+	),
+	(
+		"rpc-notes-binary-keeps-pending-bit",
+		"local/rpc.c",
+		"n->flags = (uint8_t)(fzn_notes_local_note_row_flags_get(b) & 0x7fu);",
+		"n->flags = fzn_notes_local_note_row_flags_get(b);",
+		"the node's not-here-yet bit reaches a client whose flags have no such bit -- sec 1191",
+	),
+	(
+		"rpc-notes-binary-title-overrun",
+		"local/rpc.c",
+		"n->title, FZN_RPC_NOTES_TITLE_MAX, &cut);",
+		"n->title, FZN_RPC_NOTES_TITLE_MAX + 50u, &cut);",
+		"a title longer than the client keeps is not cut to it -- sec 1191",
 	),
 	(
 		"library-one-retracted-listed",
