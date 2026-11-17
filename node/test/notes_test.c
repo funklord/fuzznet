@@ -766,6 +766,71 @@ static void test_text_in_pieces(void)
 	      "a checklist's text was set in pieces");
 }
 
+/* SHARES, THE TRASH AND ATTACHMENTS IN BINARY, sec 1220: a share to nobody
+ * this node knows refused in the verb's words; the trash emptied answered
+ * as a row of what was queued; an attachment made and answered with its
+ * id, there by the verb as an attachment. */
+static void test_share_trash_attach_in_binary(void)
+{
+	static const uint8_t top[FZN_TREE_ID_LEN];
+	uint8_t row[FZN_NODE_NOTES_BINARY_MAX], msg[FZN_NODE_NOTES_BINARY_MAX], id[FZN_TREE_ID_LEN],
+	        ref[72], copy[FZN_NODE_NOTES_BINARY_MAX];
+	uint32_t row_len = 0, msg_len = 0;
+	char hex[65], line[160];
+	situ_msg_t m;
+	situ_view_t v, b;
+	size_t i;
+
+	setup(0);
+	CHECK(ask("add note top bin") == FZN_REPLY_OK, "fixture: a note");
+	take_id(hex);
+	hex_id(hex, id);
+	CHECK(fzn_notes_local_share_build(row, sizeof(row), id, 1u, 2u, (const uint8_t *)"nobody", 6u, &row_len)
+	              == SITU_OK
+	              && fzn_notes_local_message_build_share(msg, sizeof(msg), FZN_CMD_NOTES, row, row_len, &msg_len)
+	                         == SITU_OK,
+	      "fixture: a share");
+	n_said = 0;
+	CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, msg_len, bput, NULL) && n_said == 1u
+	              && status_at(0, FZN_STATUS_ERROR),
+	      "a share to nobody this node knows was not refused");
+	snprintf(line, sizeof(line), "set note %s trash", hex);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: trashed");
+	msg[0] = FZN_CMD_NOTES;
+	msg[1] = FZN_NOTES_LOCAL_OP_TRASH_EMPTY;
+	n_said = 0;
+	CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, 2u, bput, NULL) && n_said == 2u
+	              && status_at(1, FZN_STATUS_OK),
+	      "the trash emptied was not a row and a STATUS ok");
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_notes_local_message_body_trash_emptied_view(v, &b) == SITU_OK
+	              && fzn_notes_local_trash_emptied_queued_get(b) == 1u,
+	      "the trash's row did not say the one note queued");
+	for (i = 0; i < sizeof(ref); i++)
+		ref[i] = (uint8_t)(i + 1u);
+	CHECK(fzn_notes_local_attach_build(row, sizeof(row), top, ref, (const uint8_t *)"film.mkv", 8u, &row_len)
+	              == SITU_OK
+	              && fzn_notes_local_message_build_attach(msg, sizeof(msg), FZN_CMD_NOTES, row, row_len, &msg_len)
+	                         == SITU_OK,
+	      "fixture: an attachment");
+	n_said = 0;
+	CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, msg_len, bput, NULL) && n_said == 2u
+	              && status_at(1, FZN_STATUS_OK),
+	      "an attachment was not answered with its id and ok");
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_notes_local_message_body_added_view(v, &b) == SITU_OK,
+	      "the attachment's row was not its id");
+	memcpy(id, fzn_notes_local_added_id_ptr(b), FZN_TREE_ID_LEN);
+	for (i = 0; i < FZN_TREE_ID_LEN; i++)
+		snprintf(hex + 2u * i, 3, "%02x", id[i]);
+	snprintf(line, sizeof(line), "get note %s ref", hex);
+	CHECK(ask(line) == FZN_REPLY_OK && has("0102030405"), "the attachment was not there with its reference");
+}
+
 /* ---- cases --------------------------------------------------------------- */
 
 static void test_add_list_get(void)
@@ -3172,6 +3237,7 @@ int main(void)
 	test_list_in_binary();
 	test_writes_in_binary();
 	test_text_in_pieces();
+	test_share_trash_attach_in_binary();
 	test_note_in_binary();
 	test_the_join_floor_at_its_second();
 	test_import();

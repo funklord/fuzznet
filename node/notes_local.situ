@@ -26,6 +26,10 @@ enum op : u8 {
 	change   = 139, // one field of a note changed, as `set note ID FIELD` (sec 1218)
 	item     = 140, // a checklist's item added, ticked or removed (sec 1218)
 	text     = 141, // a piece of a note's new text (sec 1219)
+	share    = 142, // a note shared, or no longer, as `add|remove share` (sec 1220)
+	trash_empty = 143, // the trash emptied, as `remove note trash` (sec 1220)
+	trash_emptied = 144, // an answer: what was queued, and what waits
+	attach   = 145, // a file attached in a folder, as `add attachment` (sec 1220)
 	default  = error,
 }
 
@@ -138,6 +142,35 @@ struct text {
 	u8   piece[piece_len];
 }
 
+// SUBTREE shared with NAME -- a contact's name, or a group's as `@NAME` --
+// or, ADD 0, no longer. CATCH_UP for a group: 0 or 1 whether a member who
+// joins later gets what is below as it stands, 2 unsaid (sec 655). A
+// STATUS answers it.
+struct share {
+	u8   subtree[32];
+	u8   add [max = 1];
+	u8   catch_up [max = 2];
+	u8   name_len [min = 1, max = 64];
+	u8   name[name_len];
+}
+
+// QUEUED the notes whose purge began; PENDING those waiting on other hosts
+// holding them. Then a STATUS ok.
+struct trash_emptied {
+	u64  queued;
+	u64  pending;
+}
+
+// A FILE ATTACHED under PARENT, zero for the top: REF its reference as
+// `put file` answers it (72 bytes), TITLE raw. Answered `added`, then a
+// STATUS ok.
+struct attach {
+	u8   parent[32];
+	u8   ref[72];
+	u8   title_len;
+	u8   title[title_len];
+}
+
 // A PIECE of the note's text: OFFSET where it starts, in order and without
 // a gap, so the pieces end where LENGTH says. At most 8000 bytes, so a
 // message stays under the local leg's 0x1fff (FZN_LOCAL_BINARY_MAX).
@@ -203,6 +236,10 @@ struct message {
 		case op.change:   change   change;
 		case op.item:     item     item;
 		case op.text:     text     text;
+		case op.share:    share    share;
+		case op.trash_empty: nothing trash_empty;
+		case op.trash_emptied: trash_emptied trash_emptied;
+		case op.attach:   attach   attach;
 		default: error;
 	}
 }

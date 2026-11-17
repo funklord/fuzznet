@@ -5685,8 +5685,109 @@ int fzn_rpc_notes_shares_outgoing(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out
 	return node_shares_out(c, out);
 }
 
+/* THE TRASH EMPTIED IN BINARY, sec 1220: a row, QUEUED and PENDING, then
+ * a STATUS. */
+struct trash_answer {
+	uint64_t queued, pending;
+	int rows, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void trash_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct trash_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->rows || a->status_seen || len > UINT32_MAX
+	    || fzn_notes_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_notes_local_message_validate(v) != SITU_OK
+	    || fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_TRASH_EMPTIED
+	    || fzn_notes_local_message_body_trash_emptied_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	a->queued = fzn_notes_local_trash_emptied_queued_get(b);
+	a->pending = fzn_notes_local_trash_emptied_pending_get(b);
+	a->rows++;
+}
+
 int fzn_rpc_notes_empty_trash(fzn_rpc_t *c, fzn_rpc_notes_empty_trash_resp_t *out) {
-	return node_notes_empty_trash(c, out);
+	static const uint8_t ask[] = { FZN_CMD_NOTES, FZN_NOTES_LOCAL_OP_TRASH_EMPTY };
+	struct trash_answer a;
+	int text = 0;
+	memset(out, 0, sizeof *out);
+	memset(&a, 0, sizeof a);
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, trash_each, &a, &text);
+	if (text) return node_notes_empty_trash(c, out);
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen) return unreadable(c); /* the trash's answer cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	if (a.rows != 1) return unreadable(c); /* one row of figures, not none or two */
+	out->queued = (size_t)a.queued;
+	out->pending = (size_t)a.pending;
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_note_share(fzn_rpc_t *c, const uint8_t subtree[32], const char *name, size_t name_len, int add,
+                       int catch_up) {
+	uint8_t row[32 + 3 + 64], msg[sizeof row + 8];
+	uint32_t row_len = 0, msg_len = 0;
+	int text = 0;
+	if (!subtree || !name || !name_len || name_len > 64 || catch_up < -1 || catch_up > 1) return encode_failed(c);
+	if (fzn_notes_local_share_build(row, sizeof row, subtree, (uint8_t)(add ? 1 : 0),
+	                                (uint8_t)(catch_up < 0 ? 2 : catch_up), (const uint8_t *)name,
+	                                (uint32_t)name_len, &row_len) != SITU_OK
+	    || fzn_notes_local_message_build_share(msg, sizeof msg, (uint8_t)FZN_CMD_NOTES, row, row_len, &msg_len)
+	               != SITU_OK)
+		return encode_failed(c);
+	const int rc = write_binary(c, msg, msg_len, 0, NULL, &text);
+	if (!text) return rc;
+	char hex[65], arg[16 + 65 + 64 + 16];
+	fzn_hex_encode(subtree, 32, hex);
+	int n = snprintf(arg, sizeof arg, "share %s %.*s", hex, (int)name_len, name);
+	if (add && catch_up >= 0 && n > 0)
+		n += snprintf(arg + n, sizeof arg - (size_t)n, " backfill %d", catch_up);
+	return node_ack(c, add ? "add" : "remove", arg, n);
+}
+
+int fzn_rpc_note_attach(fzn_rpc_t *c, const uint8_t *parent, const uint8_t ref[72], const char *title,
+                        size_t title_len, uint8_t id[32]) {
+	static const uint8_t top[32];
+	uint8_t row[32 + 72 + 1 + 255], msg[sizeof row + 8];
+	uint32_t row_len = 0, msg_len = 0;
+	int text = 0;
+	if (!ref || !id || !title || !title_len || title_len > 255) return encode_failed(c);
+	if (fzn_notes_local_attach_build(row, sizeof row, parent ? parent : top, ref, (const uint8_t *)title,
+	                                 (uint32_t)title_len, &row_len) != SITU_OK
+	    || fzn_notes_local_message_build_attach(msg, sizeof msg, (uint8_t)FZN_CMD_NOTES, row, row_len, &msg_len)
+	               != SITU_OK)
+		return encode_failed(c);
+	const int rc = write_binary(c, msg, msg_len, 1, id, &text);
+	if (!text) return rc;
+	char phex[65], rhex[145], arg[16 + 65 + 145 + 256];
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	fzn_hex_encode(parent ? parent : top, 32, phex);
+	fzn_hex_encode(ref, 72, rhex);
+	const int n = snprintf(arg, sizeof arg, "attachment %s %s %.*s", phex, rhex, (int)title_len, title);
+	const int trc = fzn_rpc_node(c, "add", arg, (size_t)n, &rest, &rest_len);
+	if (trc != FZN_RPC_OK) return trc;
+	return rest_len == 64 && node_key(rest, 64, id) ? FZN_RPC_OK : unreadable(c);
 }
 
 /* ---- step 5 (sec 281) ---- */

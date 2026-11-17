@@ -632,6 +632,23 @@ int fzn_notebook_view::note_text(const QByteArray &text, QString *why)
 	return 1;
 }
 
+int fzn_notebook_view::note_share(const QString &to, int add, int catch_up, QString *why)
+{
+	const QByteArray idb = QByteArray::fromHex(m_open.toLatin1());
+	const QByteArray name = to.toUtf8();
+
+	if (idb.size() != 32
+	    || fzn_rpc_note_share(&m_rpc->c, reinterpret_cast<const uint8_t *>(idb.constData()), name.constData(),
+	                          (size_t)name.size(), add, catch_up)
+	               != FZN_RPC_OK) {
+		m_answered = m_rpc->c.answered;
+		*why = idb.size() != 32 ? QStringLiteral("no such note") : refused_words(m_rpc);
+		return 0;
+	}
+	m_answered = true;
+	return 1;
+}
+
 int fzn_notebook_view::note_item(int what, int index, const QString &text, QString *why)
 {
 	const QByteArray idb = QByteArray::fromHex(m_open.toLatin1());
@@ -1700,22 +1717,24 @@ void fzn_notebook_view::ask_new_folder()
 
 bool fzn_notebook_view::empty_trash()
 {
-	QString detail;
-	QStringList f;
+	fzn_rpc_notes_empty_trash_resp_t out;
 
 	if (shared())
 		return false;
-	if (ask(QStringLiteral("remove note trash"), &detail) != 1) {
-		fail(QStringLiteral("The trash was not emptied: %1").arg(detail));
+	/* THROUGH THE TYPED CLIENT, sec 1220. */
+	if (fzn_rpc_notes_empty_trash(&m_rpc->c, &out) != FZN_RPC_OK) {
+		m_answered = m_rpc->c.answered;
+		fail(QStringLiteral("The trash was not emptied: %1").arg(refused_words(m_rpc)));
 		return false;
 	}
-	/* `QUEUED PENDING`: what waits is waiting on other nodes, and says so. */
-	f = detail.split(QLatin1Char(' '));
-	if (f.value(1).toInt() > 0)
+	m_answered = true;
+	/* QUEUED and PENDING: what waits is waiting on other nodes, and says so. */
+	if (out.pending > 0)
 		say(QStringLiteral("Emptying %1 note(s); %2 wait for the other nodes holding them.")
-		            .arg(f.value(0), f.value(1)));
+		            .arg(out.queued)
+		            .arg(out.pending));
 	else
-		say(QStringLiteral("Emptied %1 note(s).").arg(f.value(0)));
+		say(QStringLiteral("Emptied %1 note(s).").arg(out.queued));
 	m_open.clear();
 	refresh_list();
 	refresh_note();
@@ -1811,12 +1830,24 @@ bool fzn_notebook_view::attach_file(const QString &path)
 		fail(QStringLiteral("The file was not taken: %1").arg(put));
 		return false;
 	}
-	if (ask(QStringLiteral("add attachment %1 %2 %3")
-	                .arg(parent_id(), w.value(0), QFileInfo(path).fileName()),
-	        &made)
-	    != 1) {
-		fail(QStringLiteral("The file was not attached: %1").arg(made));
-		return false;
+	/* THE ATTACHMENT THROUGH THE TYPED CLIENT, sec 1220. */
+	{
+		const QByteArray ref = QByteArray::fromHex(w.value(0).toLatin1());
+		const QByteArray parent = QByteArray::fromHex(parent_id().toLatin1());
+		const QByteArray title = QFileInfo(path).fileName().toUtf8();
+		uint8_t id[32];
+
+		if (ref.size() != 72
+		    || fzn_rpc_note_attach(&m_rpc->c,
+		                           parent.size() == 32 ? reinterpret_cast<const uint8_t *>(parent.constData())
+		                                               : nullptr,
+		                           reinterpret_cast<const uint8_t *>(ref.constData()), title.constData(),
+		                           (size_t)title.size(), id)
+		               != FZN_RPC_OK) {
+			fail(QStringLiteral("The file was not attached: %1").arg(refused_words(m_rpc)));
+			return false;
+		}
+		made = QString::fromLatin1(QByteArray(reinterpret_cast<const char *>(id), 32).toHex());
 	}
 	refresh_list();
 	say(QStringLiteral("Attached %1.").arg(QFileInfo(path).fileName()));
@@ -1854,13 +1885,12 @@ bool fzn_notebook_view::save_attachment(const QString &path)
 bool fzn_notebook_view::share_with(const QString &contact, int backfill)
 {
 	QString why;
-	QString line = QStringLiteral("add share %1 %2").arg(m_open, contact);
 
 	if (shared() || m_open.isEmpty() || contact.isEmpty())
 		return false;
-	if (contact.startsWith(QLatin1Char('@')) && backfill >= 0)
-		line += QStringLiteral(" backfill %1").arg(backfill ? 1 : 0);
-	if (ask(line, &why) != 1) {
+	if (note_share(contact, 1, contact.startsWith(QLatin1Char('@')) && backfill >= 0 ? (backfill ? 1 : 0) : -1,
+	               &why)
+	    != 1) {
 		fail(QStringLiteral("Not shared: %1").arg(why));
 		return false;
 	}
@@ -1875,7 +1905,7 @@ bool fzn_notebook_view::unshare_with(const QString &contact)
 
 	if (shared() || m_open.isEmpty() || contact.isEmpty())
 		return false;
-	if (ask(QStringLiteral("remove share %1 %2").arg(m_open, contact), &why) != 1) {
+	if (note_share(contact, 0, -1, &why) != 1) {
 		fail(QStringLiteral("Not unshared: %1").arg(why));
 		return false;
 	}

@@ -90763,8 +90763,8 @@ STATUS.
   restore; an item added, ticked and removed. Its own word escaper is
   gone with the last verb that needed it.
 
-**Still text, and next in the subject**: import, attachments, shares
-and emptying the trash. A note's text moved in sec 1219.
+A note's text moved in sec 1219; shares, the trash and attachments in
+sec 1220; import alone is left (sec 1220 says why).
 
 **Tests:** six vectors; `notes_test` -- an add answered with its id and
 there by the verb, a title and labels changed, a checklist's item added
@@ -90806,3 +90806,30 @@ read back whole in binary. Three sabotages, each caught
 (`notes-binary-text-gap-taken`, `notes-binary-text-staging-kept`,
 `rpc-note-text-pieces-too-big`), and sec 439's save sabotage moved with
 its line as `notebook-view-saves-the-text`.
+
+## 1220. Shares, the trash and attachments, in binary, 2026-11-17
+
+The rest of the notebook's writes but one. FZN_CMD_NOTES gains `share`
+(142: a subtree shared with a contact's name or `@` a group's, or no
+longer, and for a group whether a later member catches up),
+`trash_empty` (143, answered `trash_emptied` 144 -- what was queued and
+what waits on other hosts -- then ok) and `attach` (145: a file's
+72-byte reference made an attachment under a folder, answered `added`
+with its id). Each through its verb's handler, as sec 1218's are; the
+client's `fzn_rpc_note_share` and `fzn_rpc_note_attach` are new and
+`fzn_rpc_notes_empty_trash` asks in binary first; the notebook's share,
+unshare, empty trash and attach go through them.
+
+**Left in text: import**, `add import PARENT [FROM] PATH`, where the node
+reads a directory of files by path. A path is all the request carries,
+so binary would change its envelope and nothing else; it moves with the
+rest of sec 1217's single calls. And the attachment's `put file`, which
+is the files subject's.
+
+**Tests:** four vectors; `notes_test` -- a share to nobody known refused
+in the verb's words, the trash's row saying the one note queued, an
+attachment answered with its id and there with its reference;
+`notebook_view_test` -- the trash emptied over the binary answer, no verb
+asked. Two sabotages, each caught (`notes-binary-trash-figures-swapped`,
+`notes-binary-attach-id-unsent`), and sec 986's backfill one moved with
+its line.

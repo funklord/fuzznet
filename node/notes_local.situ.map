@@ -20,6 +20,12 @@ struct add size=35..290 mutate=Shifting repr=ValueConverted atomic=NonAtomic
 struct added size=32 atomic=NonAtomic
   added.id                               offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
 
+struct attach size=105..360 mutate=Shifting atomic=NonAtomic
+  attach.parent                          offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  attach.ref                             offset=AbsoluteStatic(0x20) size=Fixed(72) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  attach.title_len                       offset=AbsoluteStatic(0x68) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  attach.title                           offset=AbsoluteStatic(0x69) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
 struct change size=35..1059 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   change.id                              offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   change.field                           offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
@@ -108,6 +114,21 @@ struct message size=2..8044 mutate=Shifting address=Unstable repr=ValueConverted
   message.body.text.offset               offset=AbsoluteStatic(0x26) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
   message.body.text.piece_len            offset=AbsoluteStatic(0x2A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
   message.body.text.piece                offset=AbsoluteStatic(0x2C) size=Bounded(0, 8000) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.share                     offset=AbsoluteStatic(0x02) size=Bounded(36, 99) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.share.subtree             offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.share.add                 offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.share.catch_up            offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.share.name_len            offset=AbsoluteStatic(0x24) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  message.body.share.name                offset=AbsoluteStatic(0x25) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.trash_empty               offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.trash_emptied             offset=AbsoluteStatic(0x02) size=Fixed(16) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.trash_emptied.queued      offset=AbsoluteStatic(0x02) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.trash_emptied.pending     offset=AbsoluteStatic(0x0A) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.attach                    offset=AbsoluteStatic(0x02) size=Bounded(105, 360) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.attach.parent             offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.attach.ref                offset=AbsoluteStatic(0x22) size=Fixed(72) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.attach.title_len          offset=AbsoluteStatic(0x6A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.attach.title              offset=AbsoluteStatic(0x6B) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
 struct note_ask size=64 atomic=NonAtomic
   note_ask.sharer                        offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
@@ -153,6 +174,13 @@ struct notes size=64 atomic=NonAtomic
 
 struct nothing size=0
 
+struct share size=36..99 mutate=Shifting atomic=NonAtomic
+  share.subtree                          offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  share.add                              offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  share.catch_up                         offset=AbsoluteStatic(0x21) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  share.name_len                         offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  share.name                             offset=AbsoluteStatic(0x23) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
 struct share_row size=35..99 mutate=Shifting atomic=NonAtomic
   share_row.subtree                      offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   share_row.to                           offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
@@ -169,3 +197,7 @@ struct text size=42..8042 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   text.offset                            offset=AbsoluteStatic(0x24) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
   text.piece_len                         offset=AbsoluteStatic(0x28) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   text.piece                             offset=AbsoluteStatic(0x2A) size=Bounded(0, 8000) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct trash_emptied size=16 repr=ValueConverted
+  trash_emptied.queued                   offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  trash_emptied.pending                  offset=AbsoluteStatic(0x08) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord

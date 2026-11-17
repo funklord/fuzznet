@@ -38,6 +38,10 @@ typedef enum fzn_notes_local_op {
 	FZN_NOTES_LOCAL_OP_CHANGE = 139,
 	FZN_NOTES_LOCAL_OP_ITEM = 140,
 	FZN_NOTES_LOCAL_OP_TEXT = 141,
+	FZN_NOTES_LOCAL_OP_SHARE = 142,
+	FZN_NOTES_LOCAL_OP_TRASH_EMPTY = 143,
+	FZN_NOTES_LOCAL_OP_TRASH_EMPTIED = 144,
+	FZN_NOTES_LOCAL_OP_ATTACH = 145,
 } fzn_notes_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -59,6 +63,10 @@ static inline int fzn_notes_local_op_is_known(fzn_notes_local_op_t value)
 	case FZN_NOTES_LOCAL_OP_CHANGE:
 	case FZN_NOTES_LOCAL_OP_ITEM:
 	case FZN_NOTES_LOCAL_OP_TEXT:
+	case FZN_NOTES_LOCAL_OP_SHARE:
+	case FZN_NOTES_LOCAL_OP_TRASH_EMPTY:
+	case FZN_NOTES_LOCAL_OP_TRASH_EMPTIED:
+	case FZN_NOTES_LOCAL_OP_ATTACH:
 		return 1;
 	default:
 		return 0;
@@ -1482,6 +1490,426 @@ situ_err_t fzn_notes_local_text_check(situ_view_t view, uint32_t *which);
 #define FZN_NOTES_LOCAL_TEXT_PIECE_LEN_CHECK 1u
 #define FZN_NOTES_LOCAL_TEXT_PIECE_CHECK 2u
 
+/* ---- struct share ---- */
+
+#define FZN_NOTES_LOCAL_SHARE_SIZE_MIN   36u
+#define FZN_NOTES_LOCAL_SHARE_SIZE_MAX   99u
+
+/* INVALIDATION: a share view, and every view derived from
+ * it, is invalidated by writing `name_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_notes_local_share_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_NOTES_LOCAL_SHARE_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** share.subtree : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_NOTES_LOCAL_SHARE_SUBTREE_COUNT 32u
+static inline uint8_t *fzn_notes_local_share_subtree_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+#define FZN_NOTES_LOCAL_SHARE_ADD_VALUE_MAX 1u
+
+/** share.add : u8  at AbsoluteStatic(0x20)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_notes_local_share_add_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[32u]);
+}
+static inline uint8_t *fzn_notes_local_share_add_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 32u);
+}
+static inline void fzn_notes_local_share_add_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[32u] = (uint8_t)value;
+}
+
+#define FZN_NOTES_LOCAL_SHARE_CATCH_UP_VALUE_MAX 2u
+
+/** share.catch_up : u8  at AbsoluteStatic(0x21)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_notes_local_share_catch_up_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[33u]);
+}
+static inline uint8_t *fzn_notes_local_share_catch_up_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 33u);
+}
+static inline void fzn_notes_local_share_catch_up_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[33u] = (uint8_t)value;
+}
+
+#define FZN_NOTES_LOCAL_SHARE_NAME_LEN_VALUE_MIN 1u
+#define FZN_NOTES_LOCAL_SHARE_NAME_LEN_VALUE_MAX 64u
+
+/** share.name_len : u8  at AbsoluteStatic(0x22)
+ * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_notes_local_share_name_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[34u]);
+}
+static inline uint8_t *fzn_notes_local_share_name_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 34u);
+}
+/* No plain setter: `name_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_notes_local_share_name_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** share.name : u8  at AbsoluteStatic(0x23)
+ * size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_notes_local_share_name_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[34u])),
+		situ_remaining_u32(view.limit, 35u));
+}
+static inline uint8_t *fzn_notes_local_share_name_ptr(situ_view_t view)
+{
+	return situ_base(view) + 35u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `share` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_notes_local_share_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 35u)) {
+		return 35u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 35u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[34u])));
+	return extent;
+}
+
+/** How many bytes a whole `share` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_notes_local_share_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 35u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* share.name: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 35u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[34u]));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_notes_local_share_name_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[34u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_notes_local_share_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_notes_local_share_check(situ_view_t view, uint32_t *which);
+#define FZN_NOTES_LOCAL_SHARE_ADD_CHECK 0u
+#define FZN_NOTES_LOCAL_SHARE_CATCH_UP_CHECK 1u
+#define FZN_NOTES_LOCAL_SHARE_NAME_LEN_CHECK 2u
+#define FZN_NOTES_LOCAL_SHARE_NAME_CHECK 3u
+
+/* ---- struct trash_emptied ---- */
+
+#define FZN_NOTES_LOCAL_TRASH_EMPTIED_SIZE_FIXED 16u
+#define FZN_NOTES_LOCAL_TRASH_EMPTIED_SIZE_MIN   16u
+#define FZN_NOTES_LOCAL_TRASH_EMPTIED_SIZE_MAX   16u
+
+/* INVALIDATION: nothing invalidates a trash_emptied view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_notes_local_trash_emptied_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_NOTES_LOCAL_TRASH_EMPTIED_SIZE_FIXED, out);
+}
+
+/** trash_emptied.queued : u64  at AbsoluteStatic(0x00)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_notes_local_trash_emptied_queued_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 0u));
+}
+static inline void fzn_notes_local_trash_emptied_queued_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 0u, (uint64_t)value);
+}
+
+/** trash_emptied.pending : u64  at AbsoluteStatic(0x08)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_notes_local_trash_emptied_pending_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 8u));
+}
+static inline void fzn_notes_local_trash_emptied_pending_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 8u, (uint64_t)value);
+}
+
+/** How many bytes a whole `trash_emptied` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_notes_local_trash_emptied_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_NOTES_LOCAL_TRASH_EMPTIED_SIZE_FIXED;
+	return have >= FZN_NOTES_LOCAL_TRASH_EMPTIED_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_notes_local_trash_emptied_validate(situ_view_t view);
+
+/* ---- struct attach ---- */
+
+#define FZN_NOTES_LOCAL_ATTACH_SIZE_MIN   105u
+#define FZN_NOTES_LOCAL_ATTACH_SIZE_MAX   360u
+
+/* INVALIDATION: a attach view, and every view derived from
+ * it, is invalidated by writing `title_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_notes_local_attach_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_NOTES_LOCAL_ATTACH_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** attach.parent : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_NOTES_LOCAL_ATTACH_PARENT_COUNT 32u
+static inline uint8_t *fzn_notes_local_attach_parent_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** attach.ref : u8  at AbsoluteStatic(0x20)
+ * size=Fixed(72) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_NOTES_LOCAL_ATTACH_REF_COUNT 72u
+static inline uint8_t *fzn_notes_local_attach_ref_ptr(situ_view_t view)
+{
+	return situ_base(view) + 32u;
+}
+
+/** attach.title_len : u8  at AbsoluteStatic(0x68)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_notes_local_attach_title_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[104u]);
+}
+static inline uint8_t *fzn_notes_local_attach_title_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 104u);
+}
+/* No plain setter: `title_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_notes_local_attach_title_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** attach.title : u8  at AbsoluteStatic(0x69)
+ * size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_notes_local_attach_title_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[104u])),
+		situ_remaining_u32(view.limit, 105u));
+}
+static inline uint8_t *fzn_notes_local_attach_title_ptr(situ_view_t view)
+{
+	return situ_base(view) + 105u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `attach` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_notes_local_attach_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 105u)) {
+		return 105u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 105u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[104u])));
+	return extent;
+}
+
+/** How many bytes a whole `attach` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_notes_local_attach_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 105u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* attach.title: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 105u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[104u]));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_notes_local_attach_title_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[104u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_notes_local_attach_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_notes_local_attach_check(situ_view_t view, uint32_t *which);
+#define FZN_NOTES_LOCAL_ATTACH_TITLE_CHECK 0u
+
 /* ---- struct note_text ---- */
 
 #define FZN_NOTES_LOCAL_NOTE_TEXT_SIZE_MIN   6u
@@ -2255,7 +2683,7 @@ static inline fzn_notes_local_op_t fzn_notes_local_message_op_get(situ_view_t vi
 /* message.body : variant  at AbsoluteStatic(0x02)
  * size=Bounded(0, 8042) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `notes`, `note_row`, `stamp`, `stamp_row`, `shares`, `share_row`, `note`, `note_fields`, `note_text`, `add`, `added`, `change`, `item`, `text` is
+/** `body` is a variant: exactly one of `notes`, `note_row`, `stamp`, `stamp_row`, `shares`, `share_row`, `note`, `note_fields`, `note_text`, `add`, `added`, `change`, `item`, `text`, `share`, `trash_empty`, `trash_emptied`, `attach` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -2644,6 +3072,107 @@ static inline situ_err_t fzn_notes_local_message_body_text_view(situ_view_t view
 
 #define FZN_NOTES_LOCAL_MESSAGE_BODY_TEXT_PIECE_LEN_VALUE_MAX 8000u
 
+/* message.body.share, present when the discriminant selects `op.share`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `share` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_notes_local_message_body_share_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_notes_local_share_extent(whole);
+}
+static inline situ_err_t fzn_notes_local_message_body_share_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_notes_local_message_op_get(view) != 142u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_notes_local_share_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_SHARE_ADD_VALUE_MAX 1u
+
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_SHARE_CATCH_UP_VALUE_MAX 2u
+
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_SHARE_NAME_LEN_VALUE_MIN 1u
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_SHARE_NAME_LEN_VALUE_MAX 64u
+
+/** message.body.trash_empty, present when the discriminant selects `op.trash_empty`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_notes_local_message_body_trash_empty_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_notes_local_message_op_get(view) != 143u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_NOTES_LOCAL_NOTHING_SIZE_FIXED, out);
+}
+
+/** message.body.trash_emptied, present when the discriminant selects `op.trash_emptied`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_notes_local_message_body_trash_emptied_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_notes_local_message_op_get(view) != 144u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_NOTES_LOCAL_TRASH_EMPTIED_SIZE_FIXED, out);
+}
+
+/* message.body.attach, present when the discriminant selects `op.attach`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `attach` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_notes_local_message_body_attach_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_notes_local_attach_extent(whole);
+}
+static inline situ_err_t fzn_notes_local_message_body_attach_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_notes_local_message_op_get(view) != 145u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_notes_local_attach_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -2783,6 +3312,34 @@ static inline situ_err_t fzn_notes_local_message_required(const uint8_t *data, u
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_notes_local_message_op_get(view) : 0u) == 142u) {
+			e = fzn_notes_local_share_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_notes_local_message_op_get(view) : 0u) == 143u) {
+			e = fzn_notes_local_nothing_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_notes_local_message_op_get(view) : 0u) == 144u) {
+			e = fzn_notes_local_trash_emptied_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_notes_local_message_op_get(view) : 0u) == 145u) {
+			e = fzn_notes_local_attach_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -2834,6 +3391,10 @@ situ_err_t fzn_notes_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_NOTES_LOCAL_MESSAGE_BODY_CHANGE_CHECK 14u
 #define FZN_NOTES_LOCAL_MESSAGE_BODY_ITEM_CHECK 15u
 #define FZN_NOTES_LOCAL_MESSAGE_BODY_TEXT_CHECK 16u
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_SHARE_CHECK 17u
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_TRASH_EMPTY_CHECK 18u
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_TRASH_EMPTIED_CHECK 19u
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_ATTACH_CHECK 20u
 
 #ifdef __cplusplus
 }

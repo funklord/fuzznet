@@ -2564,6 +2564,10 @@ static size_t add(fzn_node_notes_t *n, uint16_t type, const uint8_t *at, size_t 
 static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply, size_t cap);
 static size_t change_item(fzn_node_notes_t *n, int add, const uint8_t *at, size_t left, char *reply,
                           size_t cap);
+static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size_t left, char *reply,
+                           size_t cap);
+static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap);
+static size_t add_attachment(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply, size_t cap);
 
 static int binary_write(fzn_node_notes_t *n, situ_view_t v, fzn_node_notes_put_t put, void *put_ctx)
 {
@@ -2601,6 +2605,61 @@ static int binary_write(fzn_node_notes_t *n, situ_view_t v, fzn_node_notes_put_t
 		                                           &out_len)
 		               != SITU_OK)
 			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the note's id would not write");
+		return put(put_ctx, out, out_len) && binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
+	}
+	/* A SHARE, sec 1220: `add|remove share SUBTREE NAME [backfill 0|1]`. */
+	if (op == FZN_NOTES_LOCAL_OP_SHARE) {
+		if (fzn_notes_local_message_body_share_view(v, &b) != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not a share");
+		hex_of(fzn_notes_local_share_subtree_ptr(b), FZN_TREE_ID_LEN, (char *)arg);
+		used = 2u * FZN_TREE_ID_LEN;
+		arg[used++] = ' ';
+		memcpy(arg + used, fzn_notes_local_share_name_ptr(b), fzn_notes_local_share_name_len(b));
+		used += fzn_notes_local_share_name_len(b);
+		if (fzn_notes_local_share_add_get(b) && fzn_notes_local_share_catch_up_get(b) < 2u)
+			used += (size_t)snprintf((char *)arg + used, sizeof(arg) - used, " backfill %u",
+			                         (unsigned)fzn_notes_local_share_catch_up_get(b));
+		r = change_share(n, fzn_notes_local_share_add_get(b) != 0u, arg, used, reply, sizeof(reply));
+		return verb_status(put, put_ctx, reply, r);
+	}
+	/* THE TRASH EMPTIED, sec 1220: `ok QUEUED PENDING` as a row, then ok. */
+	if (op == FZN_NOTES_LOCAL_OP_TRASH_EMPTY) {
+		unsigned long long queued = 0, pending = 0;
+
+		r = empty_trash(n, reply, sizeof(reply));
+		if (r < 3u || memcmp(reply, "ok ", 3u) != 0 || sscanf(reply + 3, "%llu %llu", &queued, &pending) != 2)
+			return verb_status(put, put_ctx, reply, r);
+		if (fzn_notes_local_trash_emptied_build(row, sizeof(row), (uint64_t)queued, (uint64_t)pending, &row_len)
+		            != SITU_OK
+		    || fzn_notes_local_message_build_trash_emptied(out, sizeof(out), (uint8_t)FZN_CMD_NOTES, row,
+		                                                   row_len, &out_len)
+		               != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the trash's answer would not write");
+		return put(put_ctx, out, out_len) && binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
+	}
+	/* AN ATTACHMENT, sec 1220: `add attachment PARENT REF TITLE`, `ok ID`. */
+	if (op == FZN_NOTES_LOCAL_OP_ATTACH) {
+		uint8_t id[FZN_TREE_ID_LEN];
+
+		if (fzn_notes_local_message_body_attach_view(v, &b) != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not an attachment");
+		hex_of(fzn_notes_local_attach_parent_ptr(b), FZN_TREE_ID_LEN, (char *)arg);
+		used = 2u * FZN_TREE_ID_LEN;
+		arg[used++] = ' ';
+		hex_of(fzn_notes_local_attach_ref_ptr(b), 72u, (char *)arg + used);
+		used += 144u;
+		arg[used++] = ' ';
+		memcpy(arg + used, fzn_notes_local_attach_title_ptr(b), fzn_notes_local_attach_title_len(b));
+		used += fzn_notes_local_attach_title_len(b);
+		r = add_attachment(n, arg, used, reply, sizeof(reply));
+		if (r < 3u + 2u * FZN_TREE_ID_LEN || memcmp(reply, "ok ", 3u) != 0)
+			return verb_status(put, put_ctx, reply, r);
+		if (!parse_id((const uint8_t *)reply + 3, 2u * FZN_TREE_ID_LEN, id)
+		    || fzn_notes_local_added_build(row, sizeof(row), id, &row_len) != SITU_OK
+		    || fzn_notes_local_message_build_added(out, sizeof(out), (uint8_t)FZN_CMD_NOTES, row, row_len,
+		                                           &out_len)
+		               != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the attachment's id would not write");
 		return put(put_ctx, out, out_len) && binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
 	}
 	/* A NOTE'S TEXT IN PIECES, sec 1219: staged in order, then saved as
@@ -2763,7 +2822,10 @@ int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_
 	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_ADD
 	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_CHANGE
 	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_ITEM
-	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_TEXT)
+	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_TEXT
+	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_SHARE
+	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_TRASH_EMPTY
+	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_ATTACH)
 		return binary_write(n, v, put, put_ctx);
 	/* THE STAMP, sec 1199: `get notes`' number, a row and then ok. */
 	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_STAMP) {

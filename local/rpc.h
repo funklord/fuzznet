@@ -317,6 +317,14 @@ int fzn_rpc_note_item(fzn_rpc_t *c, const uint8_t id[32], int what, unsigned ind
 /* A NOTE'S TEXT, sec 1219: in pieces in binary, saved once the last is in;
  * through a staged file and `set note ID file` where the node reads none. */
 int fzn_rpc_note_set_text(fzn_rpc_t *c, const uint8_t id[32], const char *text, size_t text_len);
+/* A NOTE SHARED, sec 1220: with `name`, a contact's or `@` and a group's,
+ * or with `add` 0 no longer; `catch_up` 0 or 1 for a group, -1 unsaid.
+ * An attachment made under `parent` (NULL the top) from `ref`, the 72
+ * bytes `put file` answered, its id into `id`. Binary first, as above. */
+int fzn_rpc_note_share(fzn_rpc_t *c, const uint8_t subtree[32], const char *name, size_t name_len, int add,
+                       int catch_up);
+int fzn_rpc_note_attach(fzn_rpc_t *c, const uint8_t *parent, const uint8_t ref[72], const char *title,
+                        size_t title_len, uint8_t id[32]);
 void fzn_rpc_note_open_release(fzn_rpc_note_open_t *out);
 /* WHETHER ANYTHING MOVED, sec 1199: a number that moves with every write the
  * notes could be in, 0 where the node keeps none -- so a view refreshed on a

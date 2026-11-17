@@ -197,6 +197,7 @@ private:
 	int note_set(const QString &id, int field, const QByteArray &value, QString *why);
 	int note_item(int what, int index, const QString &text, QString *why);
 	int note_text(const QByteArray &text, QString *why);
+	int note_share(const QString &to, int add, int catch_up, QString *why);
 	void say(const QString &line);
 	void fail(const QString &line);
 	void refresh_trees();

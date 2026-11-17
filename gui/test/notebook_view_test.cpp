@@ -358,7 +358,9 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 		history_asked++;
 	if (!strncmp(line, "add note ", 9u) || !strncmp(line, "add folder ", 11u) || !strncmp(line, "add list ", 9u)
 	    || !strncmp(line, "add item ", 9u) || !strncmp(line, "remove item ", 12u)
-	    || !strncmp(line, "set note ", 9u))
+	    || !strncmp(line, "set note ", 9u) || !strcmp(line, "remove note trash")
+	    || !strncmp(line, "add share ", 10u) || !strncmp(line, "remove share ", 13u)
+	    || !strncmp(line, "add attachment ", 15u))
 		writes_asked++;
 	if (!strncmp(line, "list note ", 10u))
 		list_asks++;
@@ -1366,6 +1368,10 @@ static void test_the_writes_go_in_binary(void)
 		              && w.open_note(note) && w.body_text() == text,
 		      "a long text was not saved in pieces and read back");
 	}
+	CHECK(w.open_note(note) && w.trash(), "fixture: a note trashed");
+	w.show_trash(true);
+	CHECK(w.empty_trash(), "the trash was not emptied in binary");
+	w.show_trash(false);
 	CHECK(writes_asked == 0, "a write was asked as a verb with the binary answer there");
 	w.answer_binary(nullptr, nullptr);
 }

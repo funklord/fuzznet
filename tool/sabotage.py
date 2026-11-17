@@ -15909,8 +15909,8 @@ SABOTAGES = [
 	(
 		"notebook-view-backfill-choice-ignored",
 		"gui/notebook_view.cpp",
-		"\tif (contact.startsWith(QLatin1Char('@')) && backfill >= 0)\n",
-		"\tif (contact.startsWith(QLatin1Char('@')) && backfill > 1)\n",
+		"contact.startsWith(QLatin1Char('@')) && backfill >= 0 ? (backfill ? 1 : 0) : -1",
+		"contact.startsWith(QLatin1Char('@')) && backfill > 1 ? (backfill ? 1 : 0) : -1",
 		"what a later group member gets, chosen when sharing, is not sent -- sec 986",
 	),
 	(
@@ -17263,6 +17263,20 @@ SABOTAGES = [
 		"\t\tconst size_t piece = text_len - at < 8000u ? text_len - at : 8000u;\n",
 		"\t\tconst size_t piece = text_len - at < 9000u ? text_len - at : 9000u;\n",
 		"a note's text is cut into pieces past the local leg's message bound -- sec 1219",
+	),
+	(
+		"notes-binary-trash-figures-swapped",
+		"node/notes.c",
+		"\t\tif (fzn_notes_local_trash_emptied_build(row, sizeof(row), (uint64_t)queued, (uint64_t)pending, &row_len)\n",
+		"\t\tif (fzn_notes_local_trash_emptied_build(row, sizeof(row), (uint64_t)pending, (uint64_t)queued, &row_len)\n",
+		"emptying the trash says waiting what was queued, and queued what waits -- sec 1220",
+	),
+	(
+		"notes-binary-attach-id-unsent",
+		"node/notes.c",
+		"\t\tr = add_attachment(n, arg, used, reply, sizeof(reply));\n\t\tif (r < 3u + 2u * FZN_TREE_ID_LEN || memcmp(reply, \"ok \", 3u) != 0)\n",
+		"\t\tr = add_attachment(n, arg, used, reply, sizeof(reply));\n\t\tif (1)\n",
+		"an attachment made in binary is answered without its id -- sec 1220",
 	),
 	(
 		"qr-decode-nothing-is-an-error",

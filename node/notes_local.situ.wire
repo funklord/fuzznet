@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  notes=128 note_row=129 stamp=130 stamp_row=131 shares=132 share_row=133 note=134 note_fields=135 note_text=136 add=137 added=138 change=139 item=140 text=141
+  notes=128 note_row=129 stamp=130 stamp_row=131 shares=132 share_row=133 note=134 note_fields=135 note_text=136 add=137 added=138 change=139 item=140 text=141 share=142 trash_empty=143 trash_emptied=144 attach=145
 
 enum field : u8 unknown=error
   title=1 labels=2 colour=3 parent=4 pin=5 unpin=6 trash=7 untrash=8 archive=9 unarchive=10
@@ -32,6 +32,12 @@ struct add size=35..290
 
 struct added size=32
   @0x0000   32        u8         id  big
+
+struct attach size=105..360
+  @0x0000   32        u8         parent  big
+  @0x0020   72        u8         ref  big
+  @0x0068   1         u8         title_len
+  @0x0069   0..255    u8         title  sized-by=title_len
 
 struct change size=35..1059
   @0x0000   32        u8         id  big
@@ -65,6 +71,10 @@ struct message size=2..8044
   body case 139: change change
   body case 140: item item
   body case 141: text text
+  body case 142: share share
+  body case 143: trash_empty nothing
+  body case 144: trash_emptied trash_emptied
+  body case 145: attach attach
   body case default: error
 
 struct note_ask size=64
@@ -111,6 +121,13 @@ struct notes size=64
 
 struct nothing size=0
 
+struct share size=36..99
+  @0x0000   32        u8         subtree  big
+  @0x0020   1         u8         add  max=1
+  @0x0021   1         u8         catch_up  max=2
+  @0x0022   1         u8         name_len  min=1 max=64
+  @0x0023   1..64     u8         name  sized-by=name_len
+
 struct share_row size=35..99
   @0x0000   32        u8         subtree  big
   @0x0020   1         u8         to  max=2
@@ -127,3 +144,7 @@ struct text size=42..8042
   @0x0024   4         u32        offset  big
   @0x0028   2         u16        piece_len  big max=8000
   @0x002a   0..8000   u8         piece  sized-by=piece_len
+
+struct trash_emptied size=16
+  @0x0000   8         u64        queued  big
+  @0x0008   8         u64        pending  big
