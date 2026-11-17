@@ -16971,6 +16971,20 @@ SABOTAGES = [
 		"a phone's width keeps every column -- sec 1196",
 	),
 	(
+		"notebook-view-shares-to-suspended",
+		"gui/notebook_view.cpp",
+		"\t\t\t\tif (peers.entries[k].state == FZN_RPC_CONTACT_ACTIVE)\n",
+		"\t\t\t\tif (1)\n",
+		"a contact the roster marks suspended is offered to share notes with -- sec 1198",
+	),
+	(
+		"notebook-view-no-groups-to-share-with",
+		"gui/notebook_view.cpp",
+		"\t\tif (fzn_rpc_group_list(&m_rpc->c, &groups) == FZN_RPC_OK)\n",
+		"\t\tif (0)\n",
+		"no group is offered to share notes with -- sec 1198",
+	),
+	(
 		"notebook-view-shared-as-own",
 		"gui/notebook_view.cpp",
 		"shared() ? sharer : nullptr",

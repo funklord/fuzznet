@@ -28,6 +28,7 @@ extern "C" {
 #include <QTemporaryFile>
 #include <QVBoxLayout>
 
+#include <stdlib.h>
 #include <string.h>
 
 /* A reply line, the grammar's bound and room for its newline. */
@@ -1194,23 +1195,33 @@ void fzn_notebook_view::refresh_shares()
 	if (shared())
 		return;
 	m_share_to->clear();
-	/* `ok TOTAL FROM NAME,KEY[,STATE] ...`: a contact the roster marks
-	 * suspended, retired or absent is served nothing, so it is not offered.
-	 * sec 489. */
-	if (ask(QStringLiteral("list contact"), &detail) == 1) {
-		QStringList words = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+	/* THROUGH THE TYPED CLIENT, sec 1198: in binary on a host's socket, and
+	 * every contact and group -- `list contact` and `list group` asked
+	 * with no FROM gave the first page alone, so past it a contact could
+	 * not be chosen to share with. A contact the roster marks suspended,
+	 * retired or absent is served nothing, so it is not offered (sec 489). */
+	{
+		fzn_rpc_peer_list_resp_t peers;
 
-		for (i = 2; i < words.size(); i++)
-			if (words[i].section(QLatin1Char(','), 2, 2).isEmpty())
-				m_share_to->addItem(words[i].section(QLatin1Char(','), 0, 0));
+		memset(&peers, 0, sizeof peers);
+		if (fzn_rpc_peer_list(&m_rpc->c, &peers) == FZN_RPC_OK)
+			for (size_t k = 0; k < peers.count; k++)
+				if (peers.entries[k].state == FZN_RPC_CONTACT_ACTIVE)
+					m_share_to->addItem(
+					        QString::fromUtf8(peers.entries[k].name, (int)peers.entries[k].name_len));
+		fzn_rpc_peer_list_release(&peers);
 	}
-	/* `ok TOTAL FROM NAME,COUNT ...`: a group is shared with as `@NAME`,
-	 * which reaches whoever is in it when they ask. sec 471. */
-	if (ask(QStringLiteral("list group"), &detail) == 1) {
-		QStringList words = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+	/* A group is shared with as `@NAME`, which reaches whoever is in it
+	 * when they ask. sec 471. */
+	{
+		fzn_rpc_group_list_resp_t groups;
 
-		for (i = 2; i < words.size(); i++)
-			m_share_to->addItem(QLatin1Char('@') + words[i].section(QLatin1Char(','), 0, 0));
+		memset(&groups, 0, sizeof groups);
+		if (fzn_rpc_group_list(&m_rpc->c, &groups) == FZN_RPC_OK)
+			for (size_t k = 0; k < groups.count; k++)
+				m_share_to->addItem(QLatin1Char('@')
+				                    + QString::fromUtf8(groups.entries[k].name, (int)groups.entries[k].name_len));
+		fzn_rpc_group_list_release(&groups);
 	}
 	i = m_share_to->findText(keep);
 	if (i >= 0)

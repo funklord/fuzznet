@@ -90056,3 +90056,23 @@ refused with when and allowed after the gap, and a host with no fix of
 its own saying why and badging bob by his age, and two columns hidden at
 300 pixels and shown at 800. Five sabotages, and sec 1109's bearing one
 moved with its line.
+
+## 1198. Who the notebook can share with, through the typed client, 2026-11-17
+
+Every refresh -- every two seconds on a host -- the notebook view asked
+`list contact` and `list group` itself to fill the chooser of who a note
+can be shared with. In text, as every line it sends itself is; and with
+no FROM, so each answered its first page alone, and a contact or group
+past it could not be chosen at all. It asks `fzn_rpc_peer_list` and
+`fzn_rpc_group_list` on its typed client now (sec 1194): in binary on a
+host's socket (secs 1162, 1170), every page on any other ask. A contact
+the roster marks suspended, retired or absent is still not offered (sec
+489), read from the entry's state where it was the row's third word.
+
+**Still asked in text each refresh**: `get notes`, the stamp that says
+whether anything moved, the open note's fields, and `list share`, where
+it goes. Each needs a node operation under FZN_CMD_NOTES first.
+
+**Tests:** `notebook_view_test`, 1052, its node now answering the
+client's paged form and full keys and ids as the node writes them. Two
+sabotages: a suspended contact offered, no group offered.

@@ -236,6 +236,13 @@ static uint64_t stamp_of_test(void *ctx)
 	return test_stamp;
 }
 
+/* 32 bytes as 64 hex, as the node writes a key. */
+static void hex64(const uint8_t *b, char out[65])
+{
+	for (size_t k = 0; k < 32u; k++)
+		snprintf(out + 2u * k, 3, "%02x", b[k]);
+}
+
 /* `list contact`, as admin answers it, from the contacts in the store -- a
  * contact named `gone` marked suspended, as the roster would mark one
  * removed on another member (sec 489). */
@@ -250,7 +257,10 @@ static size_t list_contacts(char *reply, size_t cap)
 	n = snprintf(reply, cap, "ok %zu 0", count);
 	used = n > 0 ? (size_t)n : 0u;
 	for (i = 0; i < count && used < cap; i++) {
-		n = snprintf(reply + used, cap - used, " %s,00%s", all[i].name,
+		char key[65];
+
+		hex64(all[i].key, key);
+		n = snprintf(reply + used, cap - used, " %s,%s%s", all[i].name, key,
 		             strcmp(all[i].name, "gone") ? "" : ",suspended");
 		used += n > 0 ? (size_t)n : 0u;
 	}
@@ -276,7 +286,10 @@ static size_t list_groups(char *reply, size_t cap)
 		if (fzn_group_log_get(&OPS, ids[i], &held) != FZN_GROUP_LOG_OK
 		    || fzn_node_group_name(&OPS, ids[i], name, &name_len) != FZN_CONTACT_OK)
 			continue;
-		n = snprintf(reply + used, cap - used, " %s,%zu", name, held.n_members);
+		char id[65];
+
+		hex64(ids[i], id);
+		n = snprintf(reply + used, cap - used, " %s,%zu,%s,0", name, held.n_members, id);
 		used += n > 0 ? (size_t)n : 0u;
 	}
 	if (used + 1u < cap)
@@ -303,9 +316,11 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "%s\n", canned_reply);
 	if (!strcmp(line, "list received"))
 		return (size_t)snprintf(reply, cap, "%s\n", received ? received : "ok 0");
-	if (!strcmp(line, "list contact"))
+	/* BARE OR FROM THE FIRST PAGE: the view's own asks gave no FROM, the
+	 * typed client's give 0 (sec 1198); every row fits one page here. */
+	if (!strcmp(line, "list contact") || !strcmp(line, "list contact 0"))
 		return list_contacts(reply, cap);
-	if (!strcmp(line, "list group"))
+	if (!strcmp(line, "list group") || !strcmp(line, "list group 0"))
 		return list_groups(reply, cap);
 	memset(&request, 0, sizeof(request));
 	if (!fzn_vocabulary_split((const uint8_t *)line, strlen(line), &request))
