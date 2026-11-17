@@ -50,13 +50,17 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_status->setWordWrap(true);
 
 	/* THREE SHORT ROWS, sec 1120: the four buttons on one made the view 474
-	 * px, past a folding phone's 320 px cover screen. */
+	 * px, past a folding phone's 320 px cover screen. Refresh beside this
+	 * host's own line, since sec 1197's map button made the first row 324
+	 * px (sec 1212). */
 	m_table->setAccessibleName(tr("Positions shared with you"));
 	auto *row = new QHBoxLayout;
 	row->addWidget(m_fetch);
 	row->addWidget(m_map);
-	row->addWidget(m_refresh);
 	row->addStretch(1);
+	auto *top = new QHBoxLayout;
+	top->addWidget(m_own, 1);
+	top->addWidget(m_refresh, 0, Qt::AlignTop);
 	auto *grant = new QHBoxLayout;
 	grant->addWidget(new QLabel(tr("Share yours:"), this));
 	grant->addWidget(m_precision, 1);
@@ -65,7 +69,7 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	give->addWidget(m_unshare);
 	give->addStretch(1);
 	auto *col = new QVBoxLayout(this);
-	col->addWidget(m_own);
+	col->addLayout(top);
 	col->addWidget(m_table, 1);
 	col->addLayout(row);
 	col->addLayout(grant);

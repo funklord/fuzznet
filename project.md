@@ -90495,3 +90495,19 @@ ones moved with their lines (`leg-view-silence-keeps-rows`,
 `leg-view-unanswered-counted`); and `rpc-legs-binary-unobserved-aged`,
 superseded by the two answer-age entries. `qtty_render_test` renders
 the new view: "No legs yet".
+
+## 1212. Two faults `make qtty` found, 2026-11-17
+
+`make qtty` renders every widget in a terminal and is not one of the
+five gates, so two faults rode past them:
+
+- **It no longer linked**, from sec 1202: the notebook reads a
+  checklist's items with `fzn_note_item_next`, and the render's object
+  list lacked `notes/note.o`.
+- **`location_view` was 324 px**, past a 320 px cover screen, from sec
+  1197: the map button joined the row of "Ask where they are" and
+  Refresh. Refresh sits beside this host's own line now.
+
+**Verified:** `make qtty`, 271 checks; `location_view_test`. Run `make
+qtty` after any change to a widget's rows or a view's links, since the
+gates do not.

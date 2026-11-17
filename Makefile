@@ -7895,6 +7895,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(FLOG_OBJS) \
                     $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/retention.o \
                     $(BUILD_DIR)/catalog/catalog.o \
+                    $(BUILD_DIR)/notes/note.o \
                     $(BUILD_DIR)/constant_time/constant_time.o $(QTTY_RPC_OBJS)
 
 qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(THORVG_OBJS)) $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/gather.o $(BUILD_DIR)/log/ring.o $(BUILD_DIR)/log/view.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o))
