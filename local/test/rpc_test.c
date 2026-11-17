@@ -1232,6 +1232,71 @@ static void test_library_show_in_binary(void)
 	}
 }
 
+/* ONE FILE'S STATE IN BINARY, sec 1203: the request names the root, a
+ * part-held row read as sent, ok alone read as not here, a second row and
+ * a reply cut before its STATUS refused, a refusal said, and a node reading
+ * no binary asked the verb. */
+static void test_file_status_in_binary(void)
+{
+	static struct bscript part, whole, absent, two, cut, refused, old;
+	static fzn_rpc_blob_status_resp_t out;
+	uint8_t root[32], row[64], m[80];
+	uint32_t row_len = 0, n = 0;
+
+	memset(root, 0x6d, sizeof(root));
+	if (fzn_files_local_file_row_build(row, sizeof(row), 2u, 3u, 40000u, 1u, 0u, 1u, 1u, &row_len) == SITU_OK
+	    && fzn_files_local_message_build_file_row(m, sizeof(m), (uint8_t)FZN_CMD_FILES, row, row_len, &n)
+	               == SITU_OK) {
+		framed(&part, 0, m, n);
+		framed(&two, 0, m, n);
+		framed(&two, 0, m, n);
+		framed(&cut, 0, m, n);
+	}
+	if (fzn_files_local_file_row_build(row, sizeof(row), 3u, 3u, 40000u, 2u, 1u, 0u, 0u, &row_len) == SITU_OK
+	    && fzn_files_local_message_build_file_row(m, sizeof(m), (uint8_t)FZN_CMD_FILES, row, row_len, &n)
+	               == SITU_OK)
+		framed(&whole, 0, m, n);
+	status_onto(&part, 0, FZN_STATUS_OK, NULL);
+	status_onto(&whole, 0, FZN_STATUS_OK, NULL);
+	status_onto(&two, 0, FZN_STATUS_OK, NULL);
+	status_onto(&absent, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &part);
+	CHECK(fzn_rpc_blob_status(&c, root, &out) == FZN_RPC_OK && out.known && !out.complete
+	              && out.leaves_held == 2u && out.leaf_count == 3u && out.byte_len == 40000u
+	              && out.tier == FZN_RPC_BLOB_TIER_PRIVATE && part.asked_len[0] == 34u
+	              && part.asked[0][0] == 0x01 && part.asked[0][1] == 0x83 && part.asked[0][2] == 0x6d
+	              && part.asked[0][33] == 0x6d,
+	      "a file part here was not read in binary, by its root, every field as sent");
+	bon(&c, &whole);
+	CHECK(fzn_rpc_blob_status(&c, root, &out) == FZN_RPC_OK && out.known && out.complete
+	              && out.leaves_held == 3u && out.tier == FZN_RPC_BLOB_TIER_PUBLIC,
+	      "a file whole here, served to every contact, was not read so");
+	bon(&c, &absent);
+	CHECK(fzn_rpc_blob_status(&c, root, &out) == FZN_RPC_OK && !out.known,
+	      "a file the node neither holds nor fetches was not read as unknown");
+	bon(&c, &two);
+	CHECK(fzn_rpc_blob_status(&c, root, &out) != FZN_RPC_OK && !out.known,
+	      "two rows for one file were read as an answer");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_blob_status(&c, root, &out) != FZN_RPC_OK && !out.known,
+	      "a state cut before its STATUS was read as whole");
+	status_onto(&refused, 0, FZN_STATUS_ERROR, "the file's state would not read");
+	bon(&c, &refused);
+	CHECK(fzn_rpc_blob_status(&c, root, &out) == FZN_RPC_ERR_STORAGE_IO && strstr(c.error, "would not read"),
+	      "a refusal was not said");
+	{
+		struct script s = { { "ok 1 3 40000 partial private 0" }, 0, 1, 0, { { 0 } } };
+
+		status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a channel's asking");
+		on(&c, &s);
+		c.binary_answer = bscripted;
+		c.binary_ctx = &old;
+		CHECK(fzn_rpc_blob_status(&c, root, &out) == FZN_RPC_OK && out.known && out.leaves_held == 1u
+		              && strncmp(s.asked[0], "get file 6d6d", 13) == 0,
+		      "a node reading no file state in binary was not asked the verb");
+	}
+}
+
 /* THE NOTES UNDER A PARENT IN BINARY, sec 1191: the request's sharer and
  * parent, every field read, a title past the write bound listed whole
  * (sec 1194), the pending bit said as `pending`, a listing
@@ -1878,6 +1943,7 @@ int main(void)
 	test_group_lines_in_binary();
 	test_library_in_binary();
 	test_library_show_in_binary();
+	test_file_status_in_binary();
 	test_notes_in_binary();
 	test_group_notebook_in_binary();
 	test_notes_stamp_in_binary();

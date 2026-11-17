@@ -90189,3 +90189,62 @@ phase c3 -- through the daemon's own writer, a 20000-byte note as its
 fields and three pieces under the bound, and a shared note at R by its
 sharer's key. Four sabotages, and three of the view's and the node's
 moved with their lines.
+
+## 1202. A checklist's items come with the open note, 2026-11-17
+
+The notebook's open checklist was read by `get note ID items FROM`, a page
+a request, on every refresh. **A checklist's text is its items** (sec
+442: `flags | text_len | text`, packed), so sec 1201's `note` answer
+already carries them in its `note_text` pieces. The view now walks them
+from the text it was given, with `fzn_note_item_next`, the node's own
+reader -- no new operation and no request. Items that do not parse to
+the end are not shown as the whole list; the verbs are asked instead,
+as they are on a node reading no binary.
+
+**Tests:** `notebook_view_test` -- a checklist opened over the view's
+binary answer shows its items and ticks with no `items` page asked, and
+a tick then lands on the item shown. Two sabotages, each caught:
+`notebook-view-items-asked-again`, `notebook-view-binary-ticks-unkept`.
+
+## 1203. One file's state, in binary, 2026-11-17
+
+`get file ROOT` -- leaves held of the total, the length, whole, part
+here or asked for, served to every contact or not, shared with how many,
+busy -- was the open attachment's last text request each refresh, and is
+what `fzn_rpc_blob_status` asks for every caller. FZN_CMD_FILES `file`
+(131) names a root and is answered by a `file_row` (132) and a STATUS
+ok, or by **a STATUS ok alone when this host neither holds the file nor
+is fetching it**: not here is an answer, which the verb's `error not all
+here` was standing in for, and which the client reads as `known` 0 as it
+read that.
+
+- **Catalogued or not.** sec 1190's `library_file` answers only for a
+  root a live claim names, and a note's attachment need not be named;
+  this asks the file store. The daemon answers it ahead of the
+  catalogue's checks, needing files alone, in a build with a catalogue
+  and files (`FZND_LIBRARY`); a build without answers it as no such
+  thing, and the client asks the verb.
+- **The answer lives beside the library's** in `node/library_binary.c`,
+  which holds `files_local.situ`'s code; the state comes through a
+  callback (`fzn_node_file_here_get_t`), so the module does not take
+  the spool with it.
+- **The client** asks in binary first and refuses a second row, a reply
+  cut before its STATUS, and a refusal, each read as nothing known.
+- **The notebook** says an attachment's state through
+  `fzn_rpc_blob_status` rather than parsing the verb's words.
+
+With this and sec 1202, a notebook refresh with a note open asks nothing
+in text but the note's history (`list history`, this user's own notes
+only).
+
+**Tests:** three vectors; `library_binary_test` -- a row every field as
+read and ok, a file not here ok alone, a state that would not read
+refused, another op refused; `rpc_test` -- the request's bytes, part
+here and whole read as sent, ok alone read as unknown, two rows and a
+cut reply refused, a refusal said, an old node asked the verb;
+`notebook_view_test` -- part here, whole, and a file never heard of
+said; `live_catalog` phase b4 -- at both hosts, the binary row field for
+field what `get file ROOT` says, and a root nobody holds ok alone. Five
+sabotages, each caught: `notebook-view-file-state-unknown-said`,
+`library-file-state-absent-refused`, `rpc-file-state-partial-whole`,
+`rpc-file-state-second-row-taken`, `rpc-file-state-text-only`.

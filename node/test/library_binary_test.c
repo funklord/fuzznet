@@ -380,6 +380,77 @@ static void test_one_file_by_its_root(void)
 	fzn_node_catalog_free(&cat);
 }
 
+/* ONE FILE'S STATE, sec 1203: catalogued or not, a row as the state reads
+ * and ok; a file not here ok alone; a state that would not read refused;
+ * another op refused as no file's asking. */
+static int state_found;
+
+static int state_of(void *ctx, const uint8_t root[32], fzn_node_file_here_t *out)
+{
+	(void)ctx;
+	if (root[0] != 0x6d)
+		return 0;
+	if (state_found < 0)
+		return -1;
+	out->held = 2u;
+	out->total = 3u;
+	out->length = 40000u;
+	out->state = 1u;
+	out->to_everyone = 1u;
+	out->shares = 4u;
+	out->busy = 1u;
+	return 1;
+}
+
+static void test_one_files_state(void)
+{
+	uint8_t ask[34], copy[FZN_NODE_LIBRARY_BINARY_MAX];
+	situ_msg_t m;
+	situ_view_t v, b;
+	fzn_status_t code;
+	const uint8_t *why;
+	size_t why_len;
+
+	ask[0] = FZN_CMD_FILES;
+	ask[1] = FZN_FILES_LOCAL_OP_FILE;
+	memset(ask + 2, 0x6d, 32u);
+	state_found = 1;
+	n_said = 0;
+	CHECK(fzn_node_file_binary(state_of, NULL, ask, sizeof(ask), put, NULL) && n_said == 2u
+	              && fzn_status_read(said[1], said_len[1], &code, &why, &why_len) && code == FZN_STATUS_OK,
+	      "a file's state was not a row and a STATUS ok");
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_files_local_message_validate(v) == SITU_OK
+	              && fzn_files_local_message_op_get(v) == FZN_FILES_LOCAL_OP_FILE_ROW
+	              && fzn_files_local_message_body_file_row_view(v, &b) == SITU_OK
+	              && fzn_files_local_file_row_held_get(b) == 2u && fzn_files_local_file_row_total_get(b) == 3u
+	              && fzn_files_local_file_row_length_get(b) == 40000u
+	              && fzn_files_local_file_row_state_get(b) == 1u
+	              && fzn_files_local_file_row_to_everyone_get(b) == 1u
+	              && fzn_files_local_file_row_shares_get(b) == 4u && fzn_files_local_file_row_busy_get(b) == 1u,
+	      "the row was not the file's state, every field as read");
+	memset(ask + 2, 0x11, 32u);
+	n_said = 0;
+	CHECK(fzn_node_file_binary(state_of, NULL, ask, sizeof(ask), put, NULL) && n_said == 1u
+	              && fzn_status_read(said[0], said_len[0], &code, &why, &why_len) && code == FZN_STATUS_OK,
+	      "a file not here was not a STATUS ok alone");
+	memset(ask + 2, 0x6d, 32u);
+	state_found = -1;
+	n_said = 0;
+	CHECK(fzn_node_file_binary(state_of, NULL, ask, sizeof(ask), put, NULL) && n_said == 1u
+	              && fzn_status_read(said[0], said_len[0], &code, &why, &why_len) && code == FZN_STATUS_ERROR,
+	      "a state that would not read was not refused");
+	ask[1] = FZN_FILES_LOCAL_OP_LIBRARY_FILE;
+	state_found = 1;
+	n_said = 0;
+	CHECK(fzn_node_file_binary(state_of, NULL, ask, sizeof(ask), put, NULL) && n_said == 1u
+	              && fzn_status_read(said[0], said_len[0], &code, &why, &why_len)
+	              && code == FZN_STATUS_MALFORMED,
+	      "another op was answered as a file's state");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -396,6 +467,7 @@ int main(void)
 	memset(host_b, 0xbb, sizeof(host_b));
 	memset(host_c, 0xcc, sizeof(host_c));
 	test_the_suite_can_tell_pass_from_fail();
+	test_one_files_state();
 	test_labels_take_the_first_live_value();
 	test_holders_are_issuers_and_the_bytes();
 	test_arrival_while_fetched();

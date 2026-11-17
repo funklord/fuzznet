@@ -341,7 +341,7 @@ static int node_binary(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply
 	return FZN_RPC_OK;
 }
 
-static int get_note_asked;
+static int get_note_asked, items_asked;
 
 static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -352,6 +352,8 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 	asked++;
 	if (!strncmp(line, "get note ", 9u))
 		get_note_asked++;
+	if (!strncmp(line, "get ", 4u) && strstr(line, " items"))
+		items_asked++;
 	if (!strncmp(line, "list note ", 10u))
 		list_asks++;
 	if (quiet)
@@ -749,6 +751,18 @@ static void test_a_checklist_is_lines_ticked_one_at_a_time(void)
 	      "the body shows them as lines, unticked, the comma and spaces intact");
 	CHECK(w.toggle_item(1) && w.body_text() == QStringLiteral("[ ] milk, two pints\n[x] eggs"),
 	      "the second is ticked");
+	/* IN BINARY, sec 1202: the items come with the note's text, so no
+	 * `items` page is asked, and a tick still lands on the item shown. */
+	w.answer_binary(node_binary, nullptr);
+	items_asked = 0;
+	get_note_asked = 0;
+	CHECK(w.open_note(w.open_id()) && w.body_text() == QStringLiteral("[ ] milk, two pints\n[x] eggs")
+	              && !items_asked && !get_note_asked,
+	      "a checklist read in binary was not its items, or its items were asked again");
+	CHECK(w.toggle_item(0) && w.body_text() == QStringLiteral("[x] milk, two pints\n[x] eggs")
+	              && w.toggle_item(0) && !items_asked,
+	      "a tick over the binary read did not land on the item shown");
+	w.answer_binary(nullptr, nullptr);
 	CHECK(w.toggle_item(1) && w.body_text().endsWith(QStringLiteral("[ ] eggs")),
 	      "and unticked");
 	CHECK(!w.toggle_item(2) && !w.toggle_item(-1), "an item that is not there is not toggled");
@@ -1116,6 +1130,24 @@ static void test_a_file_is_attached_fetched_and_saved(void)
 	      "a file put was not attached in the folder by its name");
 	CHECK(w.status().contains(QStringLiteral("not here")),
 	      "an attachment whose file is not here did not say so");
+	/* WHERE IT STANDS, through the typed client, sec 1203: by the verb
+	 * here, as this suite's node reads no files in binary. */
+	{
+		static char state_line[100];
+
+		snprintf(state_line, sizeof(state_line), "get file %.64s", REF);
+		canned_line = state_line;
+		canned_reply = "ok 2 3 40000 partial private 0";
+		CHECK(w.open_note(w.open_id())
+		              && w.status() == QStringLiteral("A file of 40000 bytes, 2 of 3 parts here."),
+		      "a file part here was not said as so many parts of its whole");
+		canned_reply = "ok 3 3 40000 whole private 0";
+		CHECK(w.open_note(w.open_id()) && w.status() == QStringLiteral("A file of 40000 bytes, here."),
+		      "a file whole here was not said to be");
+		canned_reply = "error not all here";
+		CHECK(w.open_note(w.open_id()) && w.status().contains(QStringLiteral("not here")),
+		      "a file the node has never heard of was not said to be not here");
+	}
 	snprintf(fetch_line, sizeof(fetch_line), "fetch file %s", REF);
 	canned_line = fetch_line;
 	canned_reply = "ok";

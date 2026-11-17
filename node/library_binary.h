@@ -84,4 +84,26 @@ int fzn_node_library_binary(const fzn_node_catalog_t *cat, const uint8_t *host,
                             fzn_node_library_file_t file, void *file_ctx, const uint8_t *msg,
                             size_t len, fzn_node_library_put_t put, void *put_ctx);
 
+/* WHERE ONE FILE STANDS HERE, sec 1203, as `get file ROOT` says it:
+ * catalogued or not, so a note's attachment is asked after too. */
+typedef struct fzn_node_file_here {
+	uint64_t held;   /* leaves here */
+	uint64_t total;  /* leaves in all */
+	uint64_t length; /* bytes */
+	uint8_t state;   /* 0 asked for and nothing in, 1 part here, 2 whole */
+	uint8_t to_everyone;
+	uint32_t shares;
+	uint8_t busy;
+} fzn_node_file_here_t;
+
+/* `root` here: 1 with `out` filled, 0 when this host neither holds it nor
+ * is fetching it, -1 when it could not say. */
+typedef int (*fzn_node_file_here_get_t)(void *ctx, const uint8_t root[32], fzn_node_file_here_t *out);
+
+/* Answers MSG, a FZN_CMD_FILES `file` request, through `put`: a `file_row`
+ * and a STATUS ok, a STATUS ok alone for a file not here, or a STATUS
+ * refusing it. 1 once answered, 0 when an answer could not be written. */
+int fzn_node_file_binary(fzn_node_file_here_get_t get, void *get_ctx, const uint8_t *msg, size_t len,
+                         fzn_node_library_put_t put, void *put_ctx);
+
 #endif /* FZN_NODE_LIBRARY_BINARY_H */

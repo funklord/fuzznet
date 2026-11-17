@@ -19,7 +19,19 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  library=128 library_row=129 library_file=130
+  library=128 library_row=129 library_file=130 file=131 file_row=132
+
+struct file size=32
+  @0x0000   32        u8         root  big
+
+struct file_row size=31
+  @0x0000   8         u64        held  big
+  @0x0008   8         u64        total  big
+  @0x0010   8         u64        length  big
+  @0x0018   1         u8         state  max=2
+  @0x0019   1         u8         to_everyone  max=1
+  @0x001a   4         u32        shares  big
+  @0x001e   1         u8         busy  max=1
 
 struct library_file size=32
   @0x0000   32        u8         root  big
@@ -44,6 +56,8 @@ struct message size=2..376
   body case 128: library nothing
   body case 129: library_row library_row
   body case 130: library_file library_file
+  body case 131: file file
+  body case 132: file_row file_row
   body case default: error
 
 struct nothing size=0

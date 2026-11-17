@@ -27,6 +27,8 @@ typedef enum fzn_files_local_op {
 	FZN_FILES_LOCAL_OP_LIBRARY = 128,
 	FZN_FILES_LOCAL_OP_LIBRARY_ROW = 129,
 	FZN_FILES_LOCAL_OP_LIBRARY_FILE = 130,
+	FZN_FILES_LOCAL_OP_FILE = 131,
+	FZN_FILES_LOCAL_OP_FILE_ROW = 132,
 } fzn_files_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -37,6 +39,8 @@ static inline int fzn_files_local_op_is_known(fzn_files_local_op_t value)
 	case FZN_FILES_LOCAL_OP_LIBRARY:
 	case FZN_FILES_LOCAL_OP_LIBRARY_ROW:
 	case FZN_FILES_LOCAL_OP_LIBRARY_FILE:
+	case FZN_FILES_LOCAL_OP_FILE:
+	case FZN_FILES_LOCAL_OP_FILE_ROW:
 		return 1;
 	default:
 		return 0;
@@ -126,6 +130,203 @@ static inline situ_err_t fzn_files_local_library_file_required(const uint8_t *da
  * SITU_CHECKED, and available explicitly in any build.
  */
 situ_err_t fzn_files_local_library_file_validate(situ_view_t view);
+
+/* ---- struct file ---- */
+
+#define FZN_FILES_LOCAL_FILE_SIZE_FIXED 32u
+#define FZN_FILES_LOCAL_FILE_SIZE_MIN   32u
+#define FZN_FILES_LOCAL_FILE_SIZE_MAX   32u
+
+/* INVALIDATION: nothing invalidates a file view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_files_local_file_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_FILES_LOCAL_FILE_SIZE_FIXED, out);
+}
+
+/** file.root : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_FILES_LOCAL_FILE_ROOT_COUNT 32u
+static inline uint8_t *fzn_files_local_file_root_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** How many bytes a whole `file` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_files_local_file_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_FILES_LOCAL_FILE_SIZE_FIXED;
+	return have >= FZN_FILES_LOCAL_FILE_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_files_local_file_validate(situ_view_t view);
+
+/* ---- struct file_row ---- */
+
+#define FZN_FILES_LOCAL_FILE_ROW_SIZE_FIXED 31u
+#define FZN_FILES_LOCAL_FILE_ROW_SIZE_MIN   31u
+#define FZN_FILES_LOCAL_FILE_ROW_SIZE_MAX   31u
+
+/* INVALIDATION: nothing invalidates a file_row view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_files_local_file_row_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_FILES_LOCAL_FILE_ROW_SIZE_FIXED, out);
+}
+
+/** file_row.held : u64  at AbsoluteStatic(0x00)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_files_local_file_row_held_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 0u));
+}
+static inline void fzn_files_local_file_row_held_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 0u, (uint64_t)value);
+}
+
+/** file_row.total : u64  at AbsoluteStatic(0x08)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_files_local_file_row_total_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 8u));
+}
+static inline void fzn_files_local_file_row_total_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 8u, (uint64_t)value);
+}
+
+/** file_row.length : u64  at AbsoluteStatic(0x10)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_files_local_file_row_length_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 16u));
+}
+static inline void fzn_files_local_file_row_length_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 16u, (uint64_t)value);
+}
+
+#define FZN_FILES_LOCAL_FILE_ROW_STATE_VALUE_MAX 2u
+
+/** file_row.state : u8  at AbsoluteStatic(0x18)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_files_local_file_row_state_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[24u]);
+}
+static inline uint8_t *fzn_files_local_file_row_state_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 24u);
+}
+static inline void fzn_files_local_file_row_state_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[24u] = (uint8_t)value;
+}
+
+#define FZN_FILES_LOCAL_FILE_ROW_TO_EVERYONE_VALUE_MAX 1u
+
+/** file_row.to_everyone : u8  at AbsoluteStatic(0x19)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_files_local_file_row_to_everyone_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[25u]);
+}
+static inline uint8_t *fzn_files_local_file_row_to_everyone_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 25u);
+}
+static inline void fzn_files_local_file_row_to_everyone_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[25u] = (uint8_t)value;
+}
+
+/** file_row.shares : u32  at AbsoluteStatic(0x1A)
+ * size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_files_local_file_row_shares_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 26u));
+}
+static inline void fzn_files_local_file_row_shares_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 26u, (uint32_t)value);
+}
+
+#define FZN_FILES_LOCAL_FILE_ROW_BUSY_VALUE_MAX 1u
+
+/** file_row.busy : u8  at AbsoluteStatic(0x1E)
+ * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_files_local_file_row_busy_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[30u]);
+}
+static inline uint8_t *fzn_files_local_file_row_busy_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 30u);
+}
+static inline void fzn_files_local_file_row_busy_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[30u] = (uint8_t)value;
+}
+
+/** How many bytes a whole `file_row` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_files_local_file_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_FILES_LOCAL_FILE_ROW_SIZE_FIXED;
+	return have >= FZN_FILES_LOCAL_FILE_ROW_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_files_local_file_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_files_local_file_row_check(situ_view_t view, uint32_t *which);
+#define FZN_FILES_LOCAL_FILE_ROW_STATE_CHECK 0u
+#define FZN_FILES_LOCAL_FILE_ROW_TO_EVERYONE_CHECK 1u
+#define FZN_FILES_LOCAL_FILE_ROW_BUSY_CHECK 2u
 
 /* ---- struct library_row ---- */
 
@@ -507,7 +708,7 @@ static inline fzn_files_local_op_t fzn_files_local_message_op_get(situ_view_t vi
 /* message.body : variant  at AbsoluteStatic(0x02)
  * size=Bounded(0, 374) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `library`, `library_row`, `library_file` is
+/** `body` is a variant: exactly one of `library`, `library_row`, `library_file`, `file`, `file_row` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -580,6 +781,42 @@ static inline situ_err_t fzn_files_local_message_body_library_file_view(situ_vie
 	return situ_view_sub(view, 2u, FZN_FILES_LOCAL_LIBRARY_FILE_SIZE_FIXED, out);
 }
 
+/** message.body.file, present when the discriminant selects `op.file`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_files_local_message_body_file_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_files_local_message_op_get(view) != 131u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_FILES_LOCAL_FILE_SIZE_FIXED, out);
+}
+
+/** message.body.file_row, present when the discriminant selects `op.file_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_files_local_message_body_file_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_files_local_message_op_get(view) != 132u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_FILES_LOCAL_FILE_ROW_SIZE_FIXED, out);
+}
+
+#define FZN_FILES_LOCAL_MESSAGE_BODY_FILE_ROW_STATE_VALUE_MAX 2u
+
+#define FZN_FILES_LOCAL_MESSAGE_BODY_FILE_ROW_TO_EVERYONE_VALUE_MAX 1u
+
+#define FZN_FILES_LOCAL_MESSAGE_BODY_FILE_ROW_BUSY_VALUE_MAX 1u
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -642,6 +879,20 @@ static inline situ_err_t fzn_files_local_message_required(const uint8_t *data, u
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_files_local_message_op_get(view) : 0u) == 131u) {
+			e = fzn_files_local_file_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_files_local_message_op_get(view) : 0u) == 132u) {
+			e = fzn_files_local_file_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -682,6 +933,8 @@ situ_err_t fzn_files_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_FILES_LOCAL_MESSAGE_BODY_LIBRARY_CHECK 3u
 #define FZN_FILES_LOCAL_MESSAGE_BODY_LIBRARY_ROW_CHECK 4u
 #define FZN_FILES_LOCAL_MESSAGE_BODY_LIBRARY_FILE_CHECK 5u
+#define FZN_FILES_LOCAL_MESSAGE_BODY_FILE_CHECK 6u
+#define FZN_FILES_LOCAL_MESSAGE_BODY_FILE_ROW_CHECK 7u
 
 #ifdef __cplusplus
 }

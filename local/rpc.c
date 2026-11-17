@@ -1420,7 +1420,13 @@ static int node_ref(const char *p, size_t len, uint8_t root[32], uint8_t key[32]
  * public|private SHARES [busy]`, HELD and TOTAL in leaves. A root this node
  * has never heard of is fuzznet's `error not all here`, which is the clients'
  * `known` 0 rather than a failure. */
+static int file_status_binary(fzn_rpc_t *c, const uint8_t root[32], fzn_rpc_blob_status_resp_t *out,
+                              int *text);
 static int node_file_status(fzn_rpc_t *c, const uint8_t root[32], fzn_rpc_blob_status_resp_t *out) {
+	/* IN BINARY FIRST, sec 1203, the verb where the node reads none. */
+	int text = 0;
+	const int brc = file_status_binary(c, root, out, &text);
+	if (!text) return brc;
 	memset(out, 0, sizeof(*out));
 	char hex[65], arg[8 + 64 + 1];
 	fzn_hex_encode(root, 32, hex);
@@ -4782,6 +4788,73 @@ static int library_show_binary(fzn_rpc_t *c, const uint8_t root[32], fzn_rpc_lib
 	}
 	fzn_rpc_library_list_release(&one);
 	return rc;
+}
+
+/* ONE FILE'S STATE IN BINARY, sec 1203: a file_row and a STATUS ok, or a
+ * STATUS ok alone for a file this node neither holds nor fetches --
+ * `known` 0, as the verb's `not all here` is. */
+struct file_state_answer {
+	fzn_rpc_blob_status_resp_t *out;
+	int rows, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void file_state_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct file_state_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || a->rows || len > UINT32_MAX
+	    || fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_files_local_message_validate(v) != SITU_OK
+	    || fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_FILE_ROW
+	    || fzn_files_local_message_body_file_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	a->rows++;
+	a->out->known = 1;
+	a->out->leaves_held = fzn_files_local_file_row_held_get(b);
+	a->out->leaf_count = fzn_files_local_file_row_total_get(b);
+	a->out->byte_len = fzn_files_local_file_row_length_get(b);
+	a->out->complete = fzn_files_local_file_row_state_get(b) == 2u;
+	a->out->tier = fzn_files_local_file_row_to_everyone_get(b) ? FZN_RPC_BLOB_TIER_PUBLIC
+	                                                           : FZN_RPC_BLOB_TIER_PRIVATE;
+}
+
+static int file_status_binary(fzn_rpc_t *c, const uint8_t root[32], fzn_rpc_blob_status_resp_t *out,
+                              int *text) {
+	uint8_t ask[2 + 32] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_FILE };
+	struct file_state_answer a;
+	memset(out, 0, sizeof *out);
+	memset(&a, 0, sizeof a);
+	memcpy(ask + 2, root, 32);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, file_state_each, &a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen) {
+		memset(out, 0, sizeof *out);
+		return unreadable(c);
+	}
+	if (a.code != FZN_STATUS_OK) {
+		memset(out, 0, sizeof *out);
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	}
+	return FZN_RPC_OK;
 }
 
 int fzn_rpc_library_add(fzn_rpc_t *c, const fzn_rpc_library_add_req_t *entry) {

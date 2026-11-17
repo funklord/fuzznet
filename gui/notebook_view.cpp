@@ -891,7 +891,10 @@ void fzn_notebook_view::refresh_note()
 			int type = 0;
 			unsigned flags = 0;
 			bool pending = false, reachable = true, contested = false, body_known = false;
+			bool items_known = false;
 			QString title, labels, ref, body, body_why;
+			QStringList items;
+			QList<bool> ticks;
 		} r;
 		bool read = false;
 		/* ONE REQUEST, sec 1201: the fields, meta, an attachment's reference
@@ -923,6 +926,29 @@ void fzn_notebook_view::refresh_note()
 			    && r.type != FZN_NOTE_TYPE_LIST) {
 				r.body = as_shown(QString::fromUtf8(opened.text ? opened.text : "", (int)opened.text_len));
 				r.body_known = true;
+			}
+			/* A CHECKLIST'S TEXT IS ITS ITEMS (sec 442), so they came with
+			 * it, sec 1202: read here rather than asked again a page at a
+			 * time. Items that do not parse to the end are not shown as
+			 * the whole list; the verbs are asked instead. */
+			if (!r.pending && r.type == FZN_NOTE_TYPE_LIST) {
+				fzn_note_t list;
+				fzn_note_item_t item;
+				size_t cursor = 0;
+				fzn_note_err_t e;
+
+				memset(&list, 0, sizeof(list));
+				list.text = reinterpret_cast<const uint8_t *>(opened.text);
+				list.text_len = opened.text ? opened.text_len : 0u;
+				while ((e = fzn_note_item_next(&list, &cursor, &item)) == FZN_NOTE_OK) {
+					const bool ticked = (item.flags & FZN_NOTE_ITEM_FLAG_CHECKED) != 0u;
+
+					r.ticks << ticked;
+					r.items << (ticked ? QStringLiteral("[x] ") : QStringLiteral("[ ] "))
+					                   + QString::fromUtf8(reinterpret_cast<const char *>(item.text),
+					                                       (int)item.text_len);
+				}
+				r.items_known = e == FZN_NOTE_ERR_SHORT;
 			}
 		} else if (rc == FZN_RPC_ERR_UNKNOWN_MSG_TYPE && ask(get, &detail) == 1) {
 			/* `TYPE FLAGS CREATED EDITED PARENT blob|pending LEN REACHABLE
@@ -997,23 +1023,29 @@ void fzn_notebook_view::refresh_note()
 				                          "moved, pinned or trashed, not edited."));
 			} else if (type == FZN_NOTE_TYPE_ATTACHMENT) {
 				/* A FILE, sec 1001: its reference, and where the file
-				 * stands here -- `ok HELD TOTAL LENGTH whole|partial|...`. */
-				QString st;
+				 * stands here, through the typed client -- in binary on
+				 * a host's socket, sec 1203. */
+				fzn_rpc_blob_status_resp_t st;
+				const QByteArray root = QByteArray::fromHex(r.ref.left(64).toLatin1());
 
 				m_ref = r.ref;
-				if (!m_ref.isEmpty()
-				    && ask(QStringLiteral("get file %1").arg(m_ref.left(64)), &st) == 1) {
-					QStringList w = st.split(QLatin1Char(' '));
-
-					set_status(w.value(3) == QStringLiteral("whole")
-					                   ? QStringLiteral("A file of %1 bytes, here.").arg(w.value(2))
-					                   : QStringLiteral("A file of %1 bytes, %2 of %3 parts here.")
-					                             .arg(w.value(2), w.value(0), w.value(1)));
+				if (root.size() == 32
+				    && fzn_rpc_blob_status(&m_rpc->c, reinterpret_cast<const uint8_t *>(root.constData()), &st)
+				               == FZN_RPC_OK
+				    && st.known) {
+					set_status(st.complete ? QStringLiteral("A file of %1 bytes, here.").arg(st.byte_len)
+					                       : QStringLiteral("A file of %1 bytes, %2 of %3 parts here.")
+					                                 .arg(st.byte_len)
+					                                 .arg(st.leaves_held)
+					                                 .arg(st.leaf_count));
 				} else if (!m_ref.isEmpty()) {
 					set_status(QStringLiteral("A file, not here: fetch it to open it."));
 				}
 			} else if (m_is_list) {
-				m_body->setPlainText(items_of(get, &m_ticks).join(QLatin1Char('\n')));
+				if (r.items_known)
+					m_ticks = r.ticks;
+				m_body->setPlainText((r.items_known ? r.items : items_of(get, &m_ticks))
+				                             .join(QLatin1Char('\n')));
 				m_body_read = m_body->toPlainText();
 			} else if (type != FZN_NOTE_TYPE_FOLDER) {
 				if (r.body_known) {

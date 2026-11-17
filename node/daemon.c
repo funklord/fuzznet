@@ -18285,6 +18285,7 @@ static int local_stickers(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 #if defined(FZN_CATALOG_ON) && defined(FZN_SPOOL_FILE_ON)
 #define FZND_LIBRARY 1
 #include "library_binary.h"
+#include "../wire/generated/files_local.h"
 /* A FILE'S STATE HERE for the library, as `list file` says it: whole, or
  * being fetched and how far -- the wanted roots read once a listing. */
 struct library_files {
@@ -18319,6 +18320,27 @@ static int library_file(void *ctx, const uint8_t root[32], uint64_t *length, int
 	return 1;
 }
 
+/* WHERE ONE FILE STANDS HERE, sec 1203, as `get file ROOT` says it. */
+static int file_here(void *ctx, const uint8_t root[32], fzn_node_file_here_t *out)
+{
+	fzn_node_file_status_t st;
+	const fzn_node_files_err_t err = fzn_node_files_status(&files, root, &st);
+
+	(void)ctx;
+	if (err == FZN_NODE_FILES_ERR_ABSENT)
+		return 0;
+	if (err != FZN_NODE_FILES_OK)
+		return -1;
+	out->held = st.held;
+	out->total = st.total;
+	out->length = st.length;
+	out->state = (uint8_t)(st.whole ? 2u : st.held ? 1u : 0u);
+	out->to_everyone = (uint8_t)(st.public_ ? 1u : 0u);
+	out->shares = st.shares > UINT32_MAX ? UINT32_MAX : (uint32_t)st.shares;
+	out->busy = (uint8_t)(st.busy ? 1u : 0u);
+	return 1;
+}
+
 /* THE LIBRARY IN BINARY, sec 1174: the node's own user's alone, as `list
  * catalog` answers it -- where the build keeps a catalogue and files. */
 static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
@@ -18327,6 +18349,13 @@ static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "the library is this node's own user's"), 0;
+	/* ONE FILE'S STATE, sec 1203: files alone, a catalogue or not. */
+	if (len >= 2u && msg[1] == FZN_FILES_LOCAL_OP_FILE) {
+		if (!files_on)
+			return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no files"), 0;
+		(void)fzn_node_file_binary(file_here, NULL, msg, len, local_put, &fd);
+		return 0;
+	}
 	if (!journal_on || !contact_id)
 		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no catalogue"), 0;
 	if (!files_on)

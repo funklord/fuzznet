@@ -16,6 +16,8 @@ with a grant it can pass on, pulling from A.
        host's catalogue is rebuilt at each start with its own stream first
     b3 one file asked by its root in binary is the listing's row, byte for
        byte, and a root nobody names is refused (sec 1190)
+    b4 one file's state in binary is what `get file ROOT` says, field for
+       field, and a root nobody holds is a STATUS ok alone (sec 1203)
     c  A takes its name back: B lists B's alone, and one holder
     c2 B removes its copy: its names go with it, at B at once and at A at
        its next round, and nobody is listed holding the file (sec 1009)
@@ -274,10 +276,32 @@ def main(argv):
 				none = binary(socks[who], bytes([0x01, 0x82]) + bytes(32))
 				if len(none) != 1 or none[0][:2] != bytes([0x13, 3]):
 					raise failed("b3: %s answered a root nobody names %r" % (who.upper(), none))
+				# b4: ONE FILE'S STATE, sec 1203: `get file ROOT`'s words,
+				# field for field, then ok; a root nobody holds, ok alone.
+				said = ask(socks[who], "get file " + root).split()
+				state = binary(socks[who], bytes([0x01, 0x83]) + bytes.fromhex(root))
+				row = state[0] if state else b""
+				words = {0: "fetching", 1: "partial", 2: "whole"}
+				if len(said) < 7 or len(state) != 2 or len(row) != 33 \
+				   or row[:2] != bytes([0x01, 0x84]) \
+				   or [int.from_bytes(row[i:i + 8], "big") for i in (2, 10, 18)] \
+				      != [int(w) for w in said[1:4]] \
+				   or words.get(row[26]) != said[4] or row[26] != 2 \
+				   or ("public" if row[27] else "private") != said[5] \
+				   or int.from_bytes(row[28:32], "big") != int(said[6]) \
+				   or row[32] != (1 if "busy" in said[7:] else 0) \
+				   or state[1][:2] != bytes([0x13, 0]):
+					raise failed("b4: %s's file state in binary was %r, `get file` %r"
+					             % (who.upper(), state, said))
+				nowhere = binary(socks[who], bytes([0x01, 0x83]) + bytes(32))
+				if len(nowhere) != 1 or nowhere[0][:2] != bytes([0x13, 0]):
+					raise failed("b4: %s answered a root nobody holds %r" % (who.upper(), nowhere))
 			print("livecheck: b2: the library in binary at both: one row, whole, two holders, "
 			      "the text listing's first name (%s at A, %s at B)" % (names["a"], names["b"]))
 			print("livecheck: b3: one file by its root at both: the listing's row, and a root "
 			      "nobody names refused")
+			print("livecheck: b4: one file's state in binary at both: `get file`'s fields, whole, "
+			      "and a root nobody holds ok alone")
 
 			# c: A takes its name back.
 			expect(socks["a"], "a", "remove catalog %s name" % root, "ok")

@@ -16,6 +16,8 @@ enum op : u8 {
 	library     = 128, // every file the catalogue names, as the library lists them
 	library_row = 129, // an answer: one file
 	library_file = 130, // one file's row, by its root (sec 1190)
+	file        = 131, // where one file stands here, as `get file ROOT` (sec 1203)
+	file_row    = 132, // an answer: the file
 	default     = error,
 }
 
@@ -26,6 +28,27 @@ struct nothing {
 // STATUS ok; a STATUS error naming nothing when no live claim names it.
 struct library_file {
 	u8   root[32];
+}
+
+// ROOT the file asked after, catalogued or not: a file_row, then a STATUS
+// ok; a STATUS ok alone when this host neither holds it nor is fetching it.
+struct file {
+	u8   root[32];
+}
+
+// WHERE THE FILE STANDS HERE, as `get file ROOT` says it. HELD the leaves
+// here of TOTAL, LENGTH its bytes. STATE 0 asked for and nothing in, 1 part
+// here, 2 whole. TO_EVERYONE 1 when every contact may fetch it; SHARES the
+// contacts and groups it is shared with besides; BUSY 1 while a transfer
+// runs on it.
+struct file_row {
+	u64  held;
+	u64  total;
+	u64  length;
+	u8   state [max = 2];
+	u8   to_everyone [max = 1];
+	u32  shares;
+	u8   busy [max = 1];
 }
 
 // ROOT the file's. SIZE its length in bytes where it is held or arriving
@@ -57,6 +80,8 @@ struct message {
 		case op.library:     nothing     library;
 		case op.library_row: library_row library_row;
 		case op.library_file: library_file library_file;
+		case op.file:        file        file;
+		case op.file_row:    file_row    file_row;
 		default: error;
 	}
 }

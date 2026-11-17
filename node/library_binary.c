@@ -246,3 +246,39 @@ int fzn_node_library_binary(const fzn_node_catalog_t *cat, const uint8_t *host,
 		return w.ok && status(put, put_ctx, FZN_STATUS_ERROR, "the library did not list");
 	return w.ok && status(put, put_ctx, FZN_STATUS_OK, NULL);
 }
+
+int fzn_node_file_binary(fzn_node_file_here_get_t get, void *get_ctx, const uint8_t *msg, size_t len,
+                         fzn_node_library_put_t put, void *put_ctx)
+{
+	situ_msg_t m;
+	situ_view_t v, body;
+	fzn_node_file_here_t here;
+	uint8_t row[64], out[64 + 8];
+	uint32_t row_len = 0, n = 0;
+	int found;
+
+	if (!put)
+		return 0;
+	if (!get || !msg || len > UINT32_MAX)
+		return status(put, put_ctx, FZN_STATUS_ERROR, "no files here");
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_files_local_message_validate(v) != SITU_OK
+	    || fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_FILE
+	    || fzn_files_local_message_body_file_view(v, &body) != SITU_OK)
+		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a file's asking");
+	memset(&here, 0, sizeof(here));
+	found = get(get_ctx, fzn_files_local_file_root_ptr(body), &here);
+	if (found < 0)
+		return status(put, put_ctx, FZN_STATUS_ERROR, "the file's state would not read");
+	/* NOT HERE IS AN ANSWER, not a failure: no row, then ok. */
+	if (!found)
+		return status(put, put_ctx, FZN_STATUS_OK, NULL);
+	if (fzn_files_local_file_row_build(row, sizeof(row), here.held, here.total, here.length, here.state,
+	                                   here.to_everyone, here.shares, here.busy, &row_len)
+	            != SITU_OK
+	    || fzn_files_local_message_build_file_row(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len, &n)
+	               != SITU_OK)
+		return status(put, put_ctx, FZN_STATUS_ERROR, "the file's state would not write");
+	return put(put_ctx, out, n) && status(put, put_ctx, FZN_STATUS_OK, NULL);
+}
