@@ -16887,6 +16887,13 @@ SABOTAGES = [
 		"a sharer's tree asked in binary is answered from this user's own notes -- sec 1191",
 	),
 	(
+		"rpc-conversations-no-room-is-bad",
+		"local/rpc.c",
+		"\tif (!a->cap && !a->deliveries) {\n",
+		"\tif (0) {\n",
+		"unread_all or newest_all asked with no room fails in binary, where the verb gave the total -- sec 1193",
+	),
+	(
 		"rpc-shared-notes-text-only",
 		"local/rpc.c",
 		"\tconst int rc = notes_list_binary(c, key, parent, out, &text);\n\tif (!text) return rc;\n",

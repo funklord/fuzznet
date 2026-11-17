@@ -89882,3 +89882,23 @@ every helper an `if (text)` falls back to: each should have one.
 lists the sharers, asks each sharer's tree by key in binary and passes
 over one that holds nothing; `live_rpc` passes against a running node.
 Two sabotages.
+
+## 1193. Asked with no room, the total, in binary too, 2026-11-17
+
+From fuzzypickles' inbox (20261117T0037Z), with a reproduction:
+`fzn_rpc_unread_all(c, NULL, 0, &n, &total)` against a node holding one
+conversation answered -1, "the daemon's answer did not parse", where over
+the verb it answered OK and the total. fuzzypickles' unread tracker and
+fzptui ask that way first, room 0 and then room for the total, so in
+binary their unread counts and group badges read nothing.
+
+`conversations_each` chose a row's branch by whether the caller gave an
+array of that kind, so a row arriving with none fell to the final branch,
+which marks the answer malformed. The answer now records which row its
+request is answered with (`row_op`, set by `conversations_ask`), and with
+no room a row of that kind is counted and passed over; another kind is
+still refused. `newest_all` failed the same way and is fixed with it.
+
+**Tests:** `rpc_test` -- unread and newest asked with no room answer OK
+and the total; an unread row answering a newest request with no room is
+refused. Seen failing with the fix reverted. One sabotage.

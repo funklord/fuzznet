@@ -8463,6 +8463,7 @@ struct conversations_answer {
 	fzn_rpc_delivery_list_resp_t *deliveries; /* this user's unsettled lines, sec 1180 */
 	size_t rows;                              /* every row read, kept or not */
 	size_t cap, *count, *total;
+	unsigned row_op; /* the row the request is answered with, set by conversations_ask */
 	int bad, status_seen;
 	fzn_status_t code;
 	char why[FZN_STATUS_WHY_MAX + 1];
@@ -8491,6 +8492,14 @@ static void conversations_each(void *ctx, const uint8_t *msg, size_t len) {
 		return;
 	}
 	(*a->total)++;
+	/* NO ROOM IS NOT A BAD ANSWER (fuzzypickles, inbox 20261117T0037Z): a
+	 * caller asking with room 0 learns the total, as over the verb, and a
+	 * row of the kind asked is counted and passed over. Which kind is the
+	 * request's, not whether the caller gave an array to put it in. */
+	if (!a->cap && !a->deliveries) {
+		if ((unsigned)fzn_messages_local_message_op_get(v) != a->row_op) a->bad = 1;
+		return;
+	}
 	if (a->newest && fzn_messages_local_message_op_get(v) == FZN_MESSAGES_LOCAL_OP_NEWEST_ROW
 	    && fzn_messages_local_message_body_newest_row_view(v, &b) == SITU_OK) {
 		if (*a->count == a->cap) return;
@@ -8595,6 +8604,9 @@ static int conversations_ask(fzn_rpc_t *c, uint8_t op, struct conversations_answ
 	uint8_t req[8];
 	uint32_t n = 0;
 	const int given = op == FZN_MESSAGES_LOCAL_OP_LINES || op == FZN_MESSAGES_LOCAL_OP_SEND;
+	a->row_op = op == FZN_MESSAGES_LOCAL_OP_NEWEST   ? FZN_MESSAGES_LOCAL_OP_NEWEST_ROW
+	            : op == FZN_MESSAGES_LOCAL_OP_UNREAD ? FZN_MESSAGES_LOCAL_OP_UNREAD_ROW
+	                                                 : FZN_MESSAGES_LOCAL_OP_LINE_ROW;
 	const situ_err_t built = given ? SITU_OK
 	                         : op == FZN_MESSAGES_LOCAL_OP_NEWEST
 	                                 ? fzn_messages_local_message_build_newest(req, sizeof req, (uint8_t)FZN_CMD_MESSAGES,

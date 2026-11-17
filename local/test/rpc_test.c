@@ -747,6 +747,21 @@ static void test_conversations_in_binary(void)
 	              && memcmp(unread.asked[0], ask_unread, 2) == 0,
 	      "the unread counts were not read in binary");
 
+	/* NO ROOM, THE TOTAL STILL (fuzzypickles, inbox 20261117T0037Z): room 0
+	 * asked first, then room for the total, as over the verb. */
+	unread.at = 0;
+	bon(&c, &unread);
+	CHECK(fzn_rpc_unread_all(&c, NULL, 0, &count, &total) == FZN_RPC_OK && count == 0 && total == 2,
+	      "the unread counts asked with no room were not the total");
+	newest.at = 0;
+	bon(&c, &newest);
+	CHECK(fzn_rpc_newest_all(&c, NULL, 0, &count, &total) == FZN_RPC_OK && count == 0 && total == 3,
+	      "the newest lines asked with no room were not the total");
+	unread.at = 0;
+	bon(&c, &unread);
+	CHECK(fzn_rpc_newest_all(&c, NULL, 0, &count, &total) != FZN_RPC_OK,
+	      "an unread row answering the newest lines, with no room, was taken");
+
 	unread_onto(&cut, 0, 0xaa, 2);
 	bon(&c, &cut);
 	CHECK(fzn_rpc_unread_all(&c, u, 4, &count, &total) != FZN_RPC_OK, "a listing cut before its STATUS was read as whole");
