@@ -258,7 +258,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              local/rpc.c local/rpc_err.c local/rpc_describe.c \
              local/rpc_encoding.c local/rpc_sticker_read.c local/rpc_media.c local/rpc_binary.c \
-             hex/hex.c net/own_address.c \
+             hex/hex.c net/own_address.c media/ulaw.c media/jitter.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/meter_binary.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c node/clocks_binary.c \
              net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
@@ -360,7 +360,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o 
                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
-             local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h \
+             local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h media/ulaw.h media/jitter.h \
              local/rpc.h local/rpc_types.h local/rpc_err.h local/rpc_capability.h \
              local/rpc_limits.h local/rpc_encoding.h \
              local/rpc_compat.h local/rpc_sticker_read.h local/rpc_media.h local/rpc_binary.h \
@@ -453,7 +453,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
-             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c \
+             qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c media/test/media_test.c \
              local/test/rpc_test.c \
              blob/test/blob_test.c blob/test/levels_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
@@ -594,6 +594,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/store_test \
              $(BUILD_DIR)/qr/test/qr_test \
              $(BUILD_DIR)/hex/test/hex_test \
+             $(BUILD_DIR)/media/test/media_test \
              $(BUILD_DIR)/local/test/rpc_test \
              $(BUILD_DIR)/location/test/geo_test \
              $(BUILD_DIR)/net/test/own_address_test \
@@ -3644,6 +3645,12 @@ $(RPC_PROBE): $(BUILD_DIR)/tool/rpc_probe.o $(RPC_OBJS) \
 	$(CC) $(CFLAGS) $^ $(LDFLAGS_GC) -o $@
 
 # Hex, the public codec, from fuzzypickles' common/encoding: calls nothing.
+# A call's codec and jitter buffer, sec 1234: integer arithmetic, alone.
+$(BUILD_DIR)/media/test/media_test: $(BUILD_DIR)/media/test/media_test.o $(BUILD_DIR)/media/ulaw.o \
+                                    $(BUILD_DIR)/media/jitter.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/hex/test/hex_test: $(BUILD_DIR)/hex/test/hex_test.o $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

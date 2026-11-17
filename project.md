@@ -91313,3 +91313,42 @@ given; one column on a phone, five on a desktop. Four sabotages, each
 caught (`location-chosen-told-every-time`, `location-nobody-chosen-first`,
 `location-map-opener-ignored`, `location-phone-five-columns`); sec 1211's
 `location-view-rose-points-at-stale` repointed. `make qtty` passes.
+
+## 1234. A call's media into fuzznet, step 1: the codec and the jitter buffer, 2026-11-17
+
+The holder's of the morning (sec 1208): calls "might be needed by multiple
+consumers, they belong here". What fuzzypickles holds, read at its
+13264ac:
+
+| fuzzypickles | what it is | needs |
+|---|---|---|
+| `call_media` | the jitter buffer and 20 ms framing, G.711 mu-law; device-free, tested | nothing |
+| `call_opus` | Opus, 48 kHz mono, 24 kbit/s, about 60 bytes a packet | FFmpeg, through snurra |
+| `call_audio` | microphone and speaker each 20 ms through `add frame`/`list frame`, rates converted, mute, the other end's loss and round trip | Qt Multimedia, its own connection |
+| `call_video` | JPEG a frame at a time, 320x240, 8 a second, on the media channel (`local/rpc_media.h`, already fuzznet's), the camera | Qt Multimedia, its own connection |
+
+**The order, from what each needs**: the device-free core first, into the
+library, since every front end carrying a call needs the same buffer --
+then the devices into `gui/`, gated on Qt Multimedia as `camera_feed`
+is, through the typed client in place of fuzzypickles' connection -- and
+Opus only where a build has FFmpeg, fuzznet vendoring no snurra.
+
+**Step 1, here**: `media/ulaw.{c,h}` and `media/jitter.{c,h}`, in the core
+-- integer arithmetic, no library. The buffer keeps fuzzypickles' rules:
+playing starts at three frames held, a frame late is a frame lost, past
+ten held it skips to the newest three. Two things differ: it is a fixed
+ring of sixteen slots, nothing allocated, and **sequence numbers are
+compared serially**, so a call past 2^32 frames keeps its order where an
+ordered map put frame 0 before 2^32 - 1; a frame far ahead of what plays
+moves play to it. Its slots are a field named `entries`, since Qt defines
+`slots` as a macro -- installcheck's Qt arm refused the first spelling,
+as it had `node/asks.h`'s.
+
+**Tests:** media_test -- mu-law's G.711 values (silence 0xFF, the loudest
+0x80 and 0x00), every sample back within its segment's step, a frame each
+way; the buffer held until three, put back in order, a gap played and
+counted lost, a late frame refused, eleven held caught up to the newest
+three with the skipped counted, a frame far ahead played next, order
+across 2^32, a frame too long refused. Five sabotages, each caught
+(`jitter-late-taken`, `jitter-never-catches-up`, `jitter-plays-too-soon`,
+`jitter-order-not-serial`, `ulaw-without-bias`).
