@@ -40,6 +40,7 @@
 /qr/test/qr_test
 /qr/test/decode_test
 /hex/test/hex_test
+/local/test/call_sound_test
 /local/test/rpc_test
 /tool/rpc_probe
 /location/test/geo_test

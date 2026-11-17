@@ -91352,3 +91352,31 @@ three with the skipped counted, a frame far ahead played next, order
 across 2^32, a frame too long refused. Five sabotages, each caught
 (`jitter-late-taken`, `jitter-never-catches-up`, `jitter-plays-too-soon`,
 `jitter-order-not-serial`, `ulaw-without-bias`).
+
+## 1235. A call's media, step 2: its sound through the node, for any front end, 2026-11-17
+
+What fuzzypickles' `call_audio` did each 20 ms, without its devices, in
+the client library as `local/call_sound.{c,h}`: samples captured become
+mu-law frames sent with `add frame`, what arrived is read with `list
+frame` into the jitter buffer (sec 1234), a frame is played -- silence
+for one that did not come -- and the other end's report of this end's
+sound (`get call ID quality`) gives its loss and the round trip on this
+end's own clock (sec 1026). Stream 0, mu-law, what every build reads, so
+a call with fuzzypickles' window sounds both ways. Nothing here reads a
+clock or touches a device: a Qt window drives it from QAudioSource and
+QAudioSink (the next step), and a terminal or a phone's own audio API can
+drive it the same way.
+
+Kept as fuzzypickles had it: a frame the node answers `ok lost` keeps its
+number, so the other end counts a gap rather than having it renumbered
+over; a few reads at most a tick, so a tick is not held past its 20 ms;
+muted sends silence, so the reports go on.
+
+**Tests:** call_sound_test, through a scripted node -- alice's four frames
+from two uneven captures, numbered and timed from the call's start, read
+by bob across two replies and played back within mu-law's step; a frame
+the node lost not renumbered over, and played as silence counted lost;
+muted, silence sent; 10 lost of 100 and a 480 ms round trip from the
+report. Four sabotages, each caught (`call-sound-mute-ignored`,
+`call-sound-renumbers-lost`, `call-sound-reads-once`,
+`call-sound-trip-counts-held`).

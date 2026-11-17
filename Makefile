@@ -256,7 +256,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c local/escape.c \
-             local/rpc.c local/rpc_err.c local/rpc_describe.c \
+             local/rpc.c local/rpc_err.c local/rpc_describe.c local/call_sound.c \
              local/rpc_encoding.c local/rpc_sticker_read.c local/rpc_media.c local/rpc_binary.c \
              hex/hex.c net/own_address.c media/ulaw.c media/jitter.c \
              node/peer_persist.c \
@@ -363,7 +363,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/client.h local/escape.h hex/hex.h location/geo.h net/own_address.h media/ulaw.h media/jitter.h \
              local/rpc.h local/rpc_types.h local/rpc_err.h local/rpc_capability.h \
              local/rpc_limits.h local/rpc_encoding.h \
-             local/rpc_compat.h local/rpc_sticker_read.h local/rpc_media.h local/rpc_binary.h \
+             local/rpc_compat.h local/rpc_sticker_read.h local/rpc_media.h local/rpc_binary.h local/call_sound.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/meter_binary.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h node/clocks_binary.h \
              net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
@@ -454,7 +454,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
              qr/test/qr_test.c hex/test/hex_test.c location/test/geo_test.c net/test/own_address_test.c media/test/media_test.c \
-             local/test/rpc_test.c \
+             local/test/rpc_test.c local/test/call_sound_test.c \
              blob/test/blob_test.c blob/test/levels_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
@@ -596,6 +596,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/hex/test/hex_test \
              $(BUILD_DIR)/media/test/media_test \
              $(BUILD_DIR)/local/test/rpc_test \
+             $(BUILD_DIR)/local/test/call_sound_test \
              $(BUILD_DIR)/location/test/geo_test \
              $(BUILD_DIR)/net/test/own_address_test \
              $(BUILD_DIR)/blob/test/blob_test \
@@ -3603,6 +3604,7 @@ $(BUILD_DIR)/qr/test/qr_test: $(BUILD_DIR)/qr/test/qr_test.o $(BUILD_DIR)/qr/qr.
 # and what they call -- the local socket's client and reply words, the
 # attachment and sticker formats its structs carry, and location's fix.
 RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
+            $(BUILD_DIR)/local/call_sound.o $(BUILD_DIR)/media/ulaw.o $(BUILD_DIR)/media/jitter.o \
             $(BUILD_DIR)/local/rpc_describe.o \
             $(BUILD_DIR)/local/rpc_encoding.o \
             $(BUILD_DIR)/local/rpc_sticker_read.o $(BUILD_DIR)/local/rpc_media.o \
@@ -3616,6 +3618,19 @@ RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
             $(BUILD_DIR)/wire/generated/members_local.o $(BUILD_DIR)/wire/generated/meter_local.o \
             $(BUILD_DIR)/wire/generated/reach_local.o $(BUILD_DIR)/wire/generated/time_local.o \
             $(BUILD_DIR)/wire/generated/settings_local.o $(BUILD_DIR)/wire/generated/notes_local.o
+# A call's sound through a scripted node, sec 1235: the client and the codec.
+$(BUILD_DIR)/local/test/call_sound_test: $(BUILD_DIR)/local/test/call_sound_test.o $(RPC_OBJS) \
+                                  $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
+                                  $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
+                                  $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
+                                  $(BUILD_DIR)/local/peer_linux.o \
+                                  $(BUILD_DIR)/constant_time/constant_time.o \
+                                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
+                                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o \
+                                  $(BUILD_DIR)/hex/hex.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS_GC) -o $@
+
 $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                                   $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \

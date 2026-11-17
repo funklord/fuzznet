@@ -225,6 +225,7 @@
 #include <fuzznet/local/rpc_compat.h>
 #include <fuzznet/local/rpc_sticker_read.h>
 #include <fuzznet/local/rpc_media.h>
+#include <fuzznet/local/call_sound.h>
 #include <fuzznet/local/rpc_binary.h>
 #include <fuzznet/net/udp.h>
 #include <fuzznet/net/own_address.h>
@@ -487,6 +488,7 @@
 #include "local/rpc_compat.h"
 #include "local/rpc_sticker_read.h"
 #include "local/rpc_media.h"
+#include "local/call_sound.h"
 #include "local/rpc_binary.h"
 #include "net/udp.h"
 #include "net/own_address.h"
