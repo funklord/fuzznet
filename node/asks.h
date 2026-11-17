@@ -40,17 +40,12 @@ typedef struct fzn_node_ask {
 	void *ctx;
 	int used;
 	/* RESENT WITHIN THE WAIT, sec 737: a copy of what `fzn_node_asks_send`
-	 * sent, sent again by `fzn_node_asks_expire` each FZN_CALLER_RESEND_MS
-	 * the ask stays unanswered, FZN_CALLER_RESENDS times at most. NULL for
-	 * an ask only awaited here, whose request is its sender's to resend. */
+	 * sent, sent again when situ's driver says it is due (sec 1227). NULL
+	 * for an ask only awaited here, whose request is its sender's to
+	 * resend. */
 	uint8_t *request;
 	size_t request_len;
 	uint64_t expires_at;
-	uint64_t resend_at_ms;
-	/* WHEN IT WAS LAST SENT, from which a resend falls due sooner once
-	 * part of its reply is in, sec 1168. */
-	uint64_t sent_at_ms;
-	unsigned resends;
 	/* RESENT BY ITS ASKER, sec 756, when set: called in place of the
 	 * caller's own resend, at the same times and as often -- a request
 	 * carried by a relay is sent again through the relay, which only its
@@ -66,6 +61,13 @@ typedef struct fzn_node_ask {
 	size_t missing_at_want;
 } fzn_node_ask_t;
 
+/* THE RESEND SCHEDULE'S STATE, sec 1227: situ's generated driver for
+ * `wire/frame.situ`'s `reply_to`, one exchange per entry. Kept opaque here,
+ * sized by `node/asks.c`, which checks it fits: this header reaches
+ * consumers -- a Qt one among them -- that install fuzznet's headers and not
+ * situ's generated ones. */
+#define FZN_NODE_ASKS_DRIVE_WORDS (16u + FZN_NODE_ASKS_MAX * 10u)
+
 typedef struct fzn_node_asks {
 	/* ENTRIES, not `slots`: Qt defines `slots` as a macro, and this header
 	 * reaches a Qt consumer through `node/admin.h` (raidcfgd's bridge, inbox
@@ -76,6 +78,10 @@ typedef struct fzn_node_asks {
 	size_t reply_cap;
 	/* Milliseconds, for deadlines. */
 	uint64_t (*clock_ms)(void);
+	/* The time `fzn_node_asks_expire` is stepping the driver at, for the
+	 * resend it calls back into. */
+	uint64_t stepping_ms;
+	uint64_t drive[FZN_NODE_ASKS_DRIVE_WORDS];
 } fzn_node_asks_t;
 
 void fzn_node_asks_init(fzn_node_asks_t *asks, uint8_t *reply, size_t reply_cap,

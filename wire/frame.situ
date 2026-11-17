@@ -462,7 +462,16 @@ relation same_message(first: fzn_frame, later: fzn_frame) {
 // the identifier matches -- and it is here because a dissector and a fuzz
 // harness both want it: one to say "response to frame N", the other to
 // generate a reply that gets past the first check rather than by luck.
-relation reply_to(request: fzn_frame, reply: fzn_frame) {
+//
+// AND ITS RESEND SCHEDULE, sec 1227: what node/asks.c kept in C until
+// situ's driver could take an exchange by id (situ 26.1055). A request is
+// resent each 600 ms with no piece of its reply, three times at most; once
+// a piece is in, the path works and what is missing was lost, so 300 ms and
+// eight in all (sec 1168, measured on a 960 KB fetch at 20 per cent loss:
+// 24.5-31.5 s at the first, 8.0-8.5 s at the second). The 3000 ms is the
+// default wait; every exchange the asks table holds names its own.
+relation reply_to(request: fzn_frame, reply: fzn_frame)
+		[timeout_ms = 3000, retries = 3, resend_ms = 600, resend_part_ms = 300, retries_part = 8] {
 	must reply.head.msg    == request.head.msg;
 	must reply.head.sender != request.head.sender;
 }

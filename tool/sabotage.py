@@ -10922,8 +10922,8 @@ SABOTAGES = [
 	(
 		'node-asks-resend',
 		'node/asks.c',
-		'\t\tif (e->used && (e->request || e->again) && e->resends < most\n',
-		'\t\tif (0 && e->used && (e->request || e->again) && e->resends < most\n',
+		'\tpolicy.retries = resends ? SITU_REPLY_TO_RETRIES : 0u;\n',
+		'\tpolicy.retries = 0u;\n',
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
@@ -12001,8 +12001,8 @@ SABOTAGES = [
 	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
-		'\t\t\tif (e->again) {\n\t\t\t\te->again(e->again_ctx);',
-		'\t\t\tif (0) {\n\t\t\t\te->again(e->again_ctx);',
+		'\tif (e->again)\n\t\te->again(e->again_ctx);',
+		'\tif (0)\n\t\te->again(e->again_ctx);',
 		'a relayed request is never sent again, and one lost hop of four costs its whole wait '
 		'-- sec 756',
 	),
@@ -15128,8 +15128,8 @@ SABOTAGES = [
 	(
 		"asks-fail-at-the-deadline",
 		"node/asks.c",
-		"\t\tif (asks->entries[i].used && asks->entries[i].deadline_ms <= now) {\n",
-		"\t\tif (asks->entries[i].used) {\n",
+		"\tpolicy.timeout_ms = timeout_ms;\n",
+		"\tpolicy.timeout_ms = 0u;\n",
 		"a request is failed the moment the loop looks, and no answer is ever awaited -- sec 636",
 	),
 	(
@@ -16770,8 +16770,8 @@ SABOTAGES = [
 	(
 		"asks-due-in-without-resends",
 		"node/asks.c",
-		"\t\t    && resend + FZN_CALLER_RESEND_PART_MS / 2u < e->deadline_ms && resend < at)\n",
-		"\t\t    && resend + FZN_CALLER_RESEND_PART_MS / 2u < e->deadline_ms && 0)\n",
+		": d->slots[i].deadline_ms - now;\n",
+		": d->slots[i].end_ms - now;\n",
 		"the table says its deadline is next while a resend is due before it -- sec 1165",
 	),
 	(
@@ -16791,8 +16791,8 @@ SABOTAGES = [
 	(
 		"asks-part-held-resent-slowly",
 		"node/asks.c",
-		"\tif (fzn_caller_holds_part(e->caller, e->msg)) {\n",
-		"\tif (0) {\n",
+		"\tif (fzn_caller_holds_part(e->caller, e->msg))\n\t\t(void)situ_drive_reply_to_part_held",
+		"\tif (0)\n\t\t(void)situ_drive_reply_to_part_held",
 		"a reply part in is resent as slowly as one with nothing back, and a lossy fetch takes three times as long -- sec 1168",
 	),
 	(
@@ -17197,8 +17197,8 @@ SABOTAGES = [
 	(
 		"asks-never-want",
 		"node/asks.c",
-		"\t\t\t} else if (!want_instead(e)) {\n",
-		"\t\t\t} else if (1) {\n",
+		"\telse if (e->request && !want_instead(e))\n",
+		"\telse if (e->request && 1)\n",
 		"a reply part in is resent whole for want of one piece, as before sec 1214",
 	),
 	(
@@ -17312,6 +17312,20 @@ SABOTAGES = [
 		"\t\tr = fzn_node_messages_local(nm, FZN_ORIGIN_SAME_USER, &req, reply, sizeof(reply));\n",
 		"\t\tr = (size_t)snprintf(reply, sizeof(reply), \"ok\");\n",
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
+	),
+	(
+		"asks-resend-at-the-end",
+		"node/asks.c",
+		"\tif (asks->stepping_ms + FZN_CALLER_RESEND_PART_MS / 2u >= e->deadline_ms)\n\t\treturn SITU_OK;\n",
+		"",
+		"a resend goes out too close to the end for its answer to come back -- sec 1227",
+	),
+	(
+		"asks-answer-not-ended",
+		"node/asks.c",
+		"\t(void)situ_drive_reply_to_end(drive_of(asks), id_of(asks, e));\n",
+		"",
+		"an exchange answered or cancelled stays in the driver's schedule, resent and woken for -- sec 1227",
 	),
 	(
 		"stream-grant-to-retired-contact",

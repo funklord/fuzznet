@@ -1389,6 +1389,34 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			      "its deadline");
 		}
 
+		/* NO RESEND TOO CLOSE TO THE END, sec 1227: one due within half a
+		 * part interval of the wait's end could not be answered in time, and
+		 * is not sent -- situ's schedule states no such margin (its 26.1042),
+		 * so the table keeps it. A wait 100 ms past the first slice gets no
+		 * resend; one a whole part interval past it gets one. */
+		{
+			agains = 0;
+			failures_seen = 0;
+			CHECK(fzn_node_asks_await_again(&asks, &caller, 4242425u, FZN_CALLER_RESEND_MS + 100u, on_answer,
+			                                NULL, count_again, NULL),
+			      "fixture: an ask whose first slice ends just before its wait does");
+			ask_now += FZN_CALLER_RESEND_MS;
+			(void)fzn_node_asks_expire(&asks);
+			CHECK(agains == 0u, "a resend went out 100 ms before the wait's end");
+			ask_now += 200u;
+			(void)fzn_node_asks_expire(&asks);
+			CHECK(failures_seen == 1 && fzn_node_asks_pending(&asks) == 0u, "fixture: that ask failed at its end");
+			CHECK(fzn_node_asks_await_again(&asks, &caller, 4242426u,
+			                                FZN_CALLER_RESEND_MS + FZN_CALLER_RESEND_PART_MS, on_answer, NULL,
+			                                count_again, NULL),
+			      "fixture: an ask whose first slice ends a part interval before its wait does");
+			ask_now += FZN_CALLER_RESEND_MS;
+			(void)fzn_node_asks_expire(&asks);
+			CHECK(agains == 1u, "a resend with time left for its answer was not sent");
+			ask_now += FZN_CALLER_RESEND_PART_MS;
+			(void)fzn_node_asks_expire(&asks);
+		}
+
 		/* THE LOOP WAKES FOR A RESEND, sec 1165: the table says when its next
 		 * resend or deadline is due, and a pass told to wait 5 s waits no
 		 * longer than that -- a second's poll left one resend of three in a

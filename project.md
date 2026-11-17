@@ -91064,3 +91064,61 @@ grants it level 0 of its location, removes it, then grants the group
 level 1; B2 serves C level 1, the group's. The sabotage
 `stream-grant-to-retired-contact` (the gate removed) is caught by a3
 alone: C then holds level 0.
+
+## 1227. The re-sends on situ's driver, 2026-11-17
+
+Item 90, unparked by situ e5447843 (sec 1224). The holder's question of
+the morning was what situ would need for its approach to be cleaner than
+our own C; sec 1209 named four things, situ supplied all four, and the
+asks table now runs on situ's generated driver.
+
+- **The schedule is stated in the schema.** `wire/frame.situ`'s
+  `reply_to` carries `[timeout_ms = 3000, retries = 3, resend_ms = 600,
+  resend_part_ms = 300, retries_part = 8]`, sec 737's and sec 1168's
+  numbers; `situc build --layer drive` writes `frame_converse.h` and
+  `frame_drive.h`, and the schema gate generates both and compares them,
+  shown to refuse a stale `frame_drive.h`. Every committed frame file is
+  unchanged by the attributes; the map says `reach=drive`. `asks.c`
+  asserts at compile time that the schema's numbers are caller.h's,
+  which `fzn_caller_ask` -- the blocking path, not the table -- still
+  reads.
+- **What stays in `node/asks.c` is what only it knows.** Each exchange is
+  tracked by id (its entry's place, one up), with a policy of its own --
+  its wait, and no resends for one only awaited (situ's `_track_with`).
+  A reply is matched here after it is opened and the driver told `end`;
+  the first send is the caller's, sealed under the message id it
+  returns, so the driver tracks rather than sends; a resend comes back
+  through the driver's `on_resend` hook and is resealed, or is the
+  asker's own (`again`, sec 756), or a want for the missing pieces (sec
+  1214); expiry comes through `on_expire` by id. Part of a reply in is
+  told to the driver (`_part_held`) when a piece arrives and when an
+  exchange is recorded with one held already -- a relayed request's.
+- **The margin is kept here**, since situ states none (its 26.1042): no
+  resend within half a part interval of the end. A new pair_test case
+  holds it, which nothing did before -- the sabotage removing it survived
+  the old suite.
+- **The driver's frame table keys a request by its `msg`**, which two of
+  our callers may share; we never ask it to match, so each exchange
+  records a blank frame, and the id is what tells exchanges apart. The
+  driver's state lives in opaque words in `fzn_node_asks_t`, sized and
+  checked in `asks.c`, so `asks.h` -- which reaches Qt consumers through
+  `admin.h` -- installs without situ's generated headers.
+
+**Measured**, the 960044-byte fetch at 20 % loss on the faults build (sec
+1168's scenario), alternating:
+
+| schedule | fetch time | wants answered |
+|---|---|---|
+| asks.c's own (73e53144) | 12.3, 8.8, 7.8 s | 34, 31, 28 |
+| situ's driver | 9.3, 7.8, 8.3 s | 28, 25, 26 |
+
+The same within the runs' spread, as intended: the schedule moved, it did
+not change. **Tests:** pair_test, 443 checks, with the margin case new.
+Every asks.c sabotage repointed to its site in the new code and caught
+there -- `node-asks-resend` (no retries), `node-asks-its-own-resend`,
+`asks-fail-at-the-deadline` (a wait of 0), `asks-due-in-without-resends`
+(the end read for the next deadline), `asks-part-held-resent-slowly`
+(now one site, `tell_part`), `asks-never-want`,
+`asks-want-without-fallback` -- and two new: `asks-resend-at-the-end`,
+`asks-answer-not-ended`.
+

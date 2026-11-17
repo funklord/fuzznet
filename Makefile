@@ -8108,6 +8108,11 @@ schema:
 	@rm -rf $(BUILD_DIR)/.gen.new && mkdir -p $(BUILD_DIR)/.gen.new
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --layer relate \
 	         --out $(BUILD_DIR)/.gen.new wire/frame.situ >/dev/null 2>&1
+	@# THE RESEND SCHEDULE'S DRIVER, sec 1227: `reply_to`'s, which
+	@# node/asks.c steps -- generated on its own, its layer reaching past the
+	@# relate layer's files, which it writes again identically.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --layer drive \
+	         --out $(BUILD_DIR)/.gen.new wire/frame.situ >/dev/null 2>&1
 	@# AND THE TAMPER HARNESS, on exactly the same argument. It is
 	@# `wire/test/tamper_test.c`'s statement of which bytes the tag reaches,
 	@# and a harness that could drift from the schema is worth less than the
@@ -8211,7 +8216,7 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/objects.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_objects \
 	         --out $(BUILD_DIR)/.gen.new node/objects.situ node/objects.vectors >/dev/null 2>&1
-	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h call.c call.h \
+	@for f in frame.c frame.h frame_relate.c frame_relate.h frame_tamper.h frame_converse.h frame_drive.h call.c call.h \
 	          call_vectors.c call_edit.h call_build.h status.c status.h status_edit.h status_build.h \
 	          status_vectors.c \
 	          address.c address.h address_edit.h address_build.h \
