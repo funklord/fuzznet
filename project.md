@@ -90069,9 +90069,8 @@ host's socket (secs 1162, 1170), every page on any other ask. A contact
 the roster marks suspended, retired or absent is still not offered (sec
 489), read from the entry's state where it was the row's third word.
 
-**Still asked in text each refresh**: the open note's fields and `list
-share`, where it goes; the stamp went into binary with sec 1199. Each
-needs a node operation under FZN_CMD_NOTES first.
+**Still asked in text each refresh**: the open note's fields; the stamp
+went into binary with sec 1199 and where the note goes with sec 1200.
 
 **Tests:** `notebook_view_test`, 1052, its node now answering the
 client's paged form and full keys and ids as the node writes them. Two
@@ -90099,3 +90098,32 @@ number `get notes` gives, moved by a write; `rpc_test` -- the request's
 two bytes, the number read, a stamp cut before its STATUS and two stamps
 each refused, an old node asked `get notes`; `notebook_view_test`, 1052,
 reading folders only when it moved, over the verbs. Two sabotages.
+
+## 1200. Where this user's notes go, in binary, 2026-11-17
+
+With a note open, the notebook asked `list share` every refresh to say
+who it is shared with -- in text, and with no FROM, so its first page
+alone. The first of three steps to the open note in binary (the fields,
+then the text, are the others): `shares` (132) under FZN_CMD_NOTES,
+answered by a `share_row` (133) per share and a STATUS ok -- the
+subtree, whether it goes to a contact (by name), a group (by name, and
+whether a later member catches up, sec 655), or a key no contact or
+group here names (its 64 hex).
+
+**`fzn_rpc_notes_shares_outgoing`**, new, asks this user's own shares
+alone; `fzn_rpc_notes_shares` reads them through it and then the trees
+shared with this user, a request a sharer, which a view on a timer does
+not want. The notebook view's "Shared with" line reads it.
+
+**`list share` was split, not changed**, into `share_fact`, which both
+forms print from -- and that found a fault in the text form: a share to a
+key no contact or group names wrote 66 bytes for its 64 hex, the
+terminator and one byte past it into the reply. Now 64, and its test
+compares the row whole where it matched a prefix.
+
+**Tests:** two vectors; `notes_test` -- a contact's share, a key's (its
+64 hex, nothing past), a group's not catching up, each in binary, and the
+key's text row whole; `rpc_test` -- a contact's and a group's row, the
+request's two bytes, a cut listing refused, `list share 0` asked of an
+old node; `notebook_view_test`, 1052. Three sabotages, and sec 626's
+group-share one moved with its line.

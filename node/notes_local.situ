@@ -16,6 +16,8 @@ enum op : u8 {
 	note_row = 129, // an answer: one note
 	stamp    = 130, // whether anything moved, as `get notes` says (sec 1199)
 	stamp_row = 131, // an answer: the stamp
+	shares   = 132, // where this user's notes go, as `list share` (sec 1200)
+	share_row = 133, // an answer: one share
 	default  = error,
 }
 
@@ -27,6 +29,18 @@ struct nothing {
 // folder only when it moved.
 struct stamp_row {
 	u64  stamp;
+}
+
+// SUBTREE the note or folder shared. TO 0 a contact, by NAME; 1 a group,
+// by NAME without its `@`, CATCH_UP 1 when a member who joins later gets
+// what is under it as it stands (sec 655); 2 a key no contact or group
+// here names, NAME its 64 hex. CATCH_UP is 0 but for a group.
+struct share_row {
+	u8   subtree[32];
+	u8   to [max = 2];
+	u8   catch_up [max = 1];
+	u8   name_len [max = 64];
+	u8   name[name_len];
 }
 
 // SHARER zero for this user's own notes, else the key of the contact whose
@@ -63,6 +77,8 @@ struct message {
 		case op.note_row: note_row note_row;
 		case op.stamp:    nothing  stamp;
 		case op.stamp_row: stamp_row stamp_row;
+		case op.shares:   nothing  shares;
+		case op.share_row: share_row share_row;
 		default: error;
 	}
 }

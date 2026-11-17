@@ -1963,6 +1963,42 @@ static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size
 /* `list share [FROM]`: `ok TOTAL FROM SUBTREE,NAME ...` -- a group's
  * `SUBTREE,@GROUP,BACKFILL` -- a page at a time; a
  * share whose contact was since forgotten names the contact's key. */
+/* WHERE ONE SHARE GOES, text or binary (sec 1200): a contact by its name
+ * (`to` 0), a group by its name and whether a later member catches up
+ * (`to` 1, sec 626 and 655), else the key as 64 hex (`to` 2). `name` holds
+ * at least 64 bytes. */
+static void share_fact(const fzn_node_notes_t *n, const fzn_notes_share_t *one, int *to, int *catch_up,
+                       char *name, size_t *name_len)
+{
+	fzn_contact_t contact;
+	char group[FZN_CONTACT_NAME_MAX + 1u];
+	size_t group_len = 0;
+
+	*catch_up = 0;
+	if (fzn_contact_get(n->store.ops, one->contact, &contact) == FZN_CONTACT_OK) {
+		memcpy(name, contact.name, contact.name_len);
+		*name_len = contact.name_len;
+		*to = 0;
+	} else if (fzn_node_group_name(n->store.ops, one->contact, group, &group_len) == FZN_CONTACT_OK) {
+		static fzn_group_t held;
+
+		/* A GROUP'S ROW, sec 626, as this host names it -- and, sec 655,
+		 * whether it catches up a later member as it stands: its own
+		 * flag, or the group's backfill where it has none. */
+		*catch_up = one->catch_up == FZN_NOTES_SHARE_CATCH_UP_YES;
+		if (one->catch_up == FZN_NOTES_SHARE_CATCH_UP_GROUP)
+			*catch_up = fzn_group_log_get(n->store.ops, one->contact, &held) != FZN_GROUP_LOG_OK
+			            || held.backfill;
+		memcpy(name, group, group_len);
+		*name_len = group_len;
+		*to = 1;
+	} else {
+		hex_of(one->contact, FZN_PUBKEY_LEN, name);
+		*name_len = 2u * FZN_PUBKEY_LEN;
+		*to = 2;
+	}
+}
+
 static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
                           size_t cap)
 {
@@ -1992,33 +2028,18 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 		return 0;
 	used = (size_t)m;
 	for (i = from; i < count; i++) {
-		fzn_contact_t contact;
-		char who[FZN_PUBKEY_LEN * 2u + 2u], group[FZN_CONTACT_NAME_MAX + 1u];
-		size_t who_len, group_len = 0;
+		char who[FZN_PUBKEY_LEN * 2u + 4u], name[FZN_PUBKEY_LEN * 2u + 1u];
+		size_t who_len = 0, name_len = 0;
+		int to = 0, catch_up = 0;
 
-		if (fzn_contact_get(n->store.ops, all[i].contact, &contact) == FZN_CONTACT_OK) {
-			memcpy(who, contact.name, contact.name_len);
-			who_len = contact.name_len;
-		} else if (fzn_node_group_name(n->store.ops, all[i].contact, group, &group_len)
-		           == FZN_CONTACT_OK) {
-			static fzn_group_t held;
-			int catch_up = all[i].catch_up == FZN_NOTES_SHARE_CATCH_UP_YES;
-
-			/* A GROUP'S ROW, sec 626, as this host names it -- and, sec 655,
-			 * whether it catches up a later member as it stands: its own
-			 * flag, or the group's backfill where it has none. */
-			if (all[i].catch_up == FZN_NOTES_SHARE_CATCH_UP_GROUP)
-				catch_up = fzn_group_log_get(n->store.ops, all[i].contact, &held)
-				                   != FZN_GROUP_LOG_OK
-				           || held.backfill;
-			who[0] = '@';
-			memcpy(who + 1, group, group_len);
-			who_len = 1u + group_len;
+		share_fact(n, &all[i], &to, &catch_up, name, &name_len);
+		if (to == 1)
+			who[who_len++] = '@';
+		memcpy(who + who_len, name, name_len);
+		who_len += name_len;
+		if (to == 1) {
 			who[who_len++] = ',';
 			who[who_len++] = catch_up ? '1' : '0';
-		} else {
-			hex_of(all[i].contact, FZN_PUBKEY_LEN, who);
-			who_len = sizeof(who);
 		}
 		if (limit - used < 1u + ID_HEX + 1u + who_len)
 			break;
@@ -2556,6 +2577,34 @@ int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_
 		               != SITU_OK)
 			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the stamp would not write");
 		return put(put_ctx, out, out_len) && binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
+	}
+	/* WHERE THIS USER'S NOTES GO, sec 1200: `list share`'s rows. */
+	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_SHARES) {
+		static fzn_notes_share_t *all;
+		static size_t room;
+		size_t n_shares = 0;
+
+		err = fzn_notes_share_all(&n->store, &all, &room, &n_shares);
+		if (err != FZN_NOTES_OK)
+			return binary_status(put, put_ctx, status_of(err), fzn_notes_err_str(err));
+		for (i = 0; i < n_shares; i++) {
+			char name[FZN_PUBKEY_LEN * 2u + 1u];
+			size_t name_len = 0;
+			int to = 0, catch_up = 0;
+			uint32_t row_len = 0, out_len = 0;
+
+			share_fact(n, &all[i], &to, &catch_up, name, &name_len);
+			if (fzn_notes_local_share_row_build(row, sizeof(row), all[i].subtree, (uint8_t)to, (uint8_t)catch_up,
+			                                    (const uint8_t *)name, (uint32_t)name_len, &row_len)
+			            != SITU_OK
+			    || fzn_notes_local_message_build_share_row(out, sizeof(out), (uint8_t)FZN_CMD_NOTES, row,
+			                                               row_len, &out_len)
+			               != SITU_OK)
+				return binary_status(put, put_ctx, FZN_STATUS_ERROR, "a share would not list");
+			if (!put(put_ctx, out, out_len))
+				return 0;
+		}
+		return binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
 	}
 	if (fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_NOTES
 	    || fzn_notes_local_message_body_notes_view(v, &b) != SITU_OK)

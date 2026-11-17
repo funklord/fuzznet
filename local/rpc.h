@@ -345,6 +345,10 @@ int fzn_rpc_notes_share(fzn_rpc_t *c, const uint8_t subtree[32], const char *pee
 int fzn_rpc_notes_unshare(fzn_rpc_t *c, const uint8_t subtree[32], const char *peer,
                            size_t peer_len, int to_group);
 int fzn_rpc_notes_shares(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out);
+/* THIS USER'S OWN SHARES ALONE, sec 1200 -- where each of its notes goes,
+ * without the trees shared with it, which `fzn_rpc_notes_shares` reads as
+ * well at a request a sharer. What a view refreshed on a timer asks. */
+int fzn_rpc_notes_shares_outgoing(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out);
 int fzn_rpc_notes_empty_trash(fzn_rpc_t *c, fzn_rpc_notes_empty_trash_resp_t *out);
 
 /* ---- step 5 (sec 281): groups, pairing, siblings ---- */

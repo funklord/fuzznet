@@ -2073,8 +2073,80 @@ static int node_notes_share(fzn_rpc_t *c, int add, const uint8_t subtree[32], co
  * issuer. A group's member is listed by `list sharer` and read through the
  * group's notebook, which is not on fuzznetd yet (sec 284), so its rows are
  * left out. */
-static int node_notes_shares(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out) {
+/* WHERE THIS USER'S NOTES GO IN BINARY, sec 1200: a row a share, then a
+ * STATUS -- `list share` in one request. */
+struct shares_answer {
+	fzn_rpc_notes_shares_resp_t *out;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void shares_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct shares_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_notes_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_notes_local_message_validate(v) != SITU_OK
+	    || fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_SHARE_ROW
+	    || fzn_notes_local_message_body_share_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	fzn_rpc_notes_shares_resp_t *out = a->out;
+	if (out->count >= FZN_RPC_NOTES_SHARES_LIST_MAX) {
+		out->truncated = 1;
+		return;
+	}
+	fzn_rpc_notes_shares_entry_t *r = &out->entries[out->count++];
+	memset(r, 0, sizeof *r);
+	memcpy(r->subtree, fzn_notes_local_share_row_subtree_ptr(b), 32);
+	size_t name_len = fzn_notes_local_share_row_name_len(b);
+	if (name_len > FZN_RPC_PEER_NAME_MAX) name_len = FZN_RPC_PEER_NAME_MAX;
+	memcpy(r->peer, fzn_notes_local_share_row_name_ptr(b), name_len);
+	r->peer_len = name_len;
+	r->to_group = fzn_notes_local_share_row_to_get(b) == 1;
+	r->backfill = (uint8_t)(r->to_group && fzn_notes_local_share_row_catch_up_get(b));
+}
+
+static int node_shares_out_text(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out);
+
+/* THIS USER'S OUTGOING SHARES, in binary where the node reads it, else by
+ * `list share` page by page. */
+static int node_shares_out(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out) {
+	static const uint8_t ask[] = { FZN_CMD_NOTES, FZN_NOTES_LOCAL_OP_SHARES };
+	struct shares_answer a;
+	int text = 0;
 	memset(out, 0, sizeof(*out));
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, shares_each, &a, &text);
+	if (text) {
+		memset(out, 0, sizeof(*out));
+		return node_shares_out_text(c, out);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen) return unreadable(c); /* the shares cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
+static int node_shares_out_text(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out) {
 	size_t from = 0;
 	for (unsigned page = 0; page <= FZN_RPC_NOTES_SHARES_LIST_MAX; page++) {
 		char arg[32];
@@ -2123,6 +2195,13 @@ static int node_notes_shares(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out) {
 		from += listed;
 		if (!listed || from >= total) break;
 	}
+	return FZN_RPC_OK;
+}
+
+static int node_notes_shares(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out) {
+	const int outgoing = node_shares_out(c, out);
+	if (outgoing != FZN_RPC_OK) return outgoing;
+	size_t from = 0;
 	/* THE SHARERS first, kept apart: each `list shared` reuses the reply. */
 	uint8_t sharers[FZN_RPC_NOTES_SHARES_LIST_MAX][32];
 	char names[FZN_RPC_NOTES_SHARES_LIST_MAX][FZN_RPC_PEER_NAME_MAX + 1];
@@ -5208,6 +5287,10 @@ int fzn_rpc_notes_unshare(fzn_rpc_t *c, const uint8_t subtree[32], const char *p
 
 int fzn_rpc_notes_shares(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out) {
 	return node_notes_shares(c, out);
+}
+
+int fzn_rpc_notes_shares_outgoing(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out) {
+	return node_shares_out(c, out);
 }
 
 int fzn_rpc_notes_empty_trash(fzn_rpc_t *c, fzn_rpc_notes_empty_trash_resp_t *out) {

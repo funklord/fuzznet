@@ -1372,6 +1372,50 @@ static void test_notes_stamp_in_binary(void)
 	}
 }
 
+/* THIS USER'S SHARES IN BINARY, sec 1200: a contact's row by name, a
+ * group's with its catching up, the request's two bytes, a listing cut
+ * before its STATUS refused, and an old node asked `list share`. */
+static void test_shares_in_binary(void)
+{
+	static struct bscript held, cut, old;
+	static fzn_rpc_notes_shares_resp_t out;
+	uint8_t sub[32], row[128], m[144];
+	uint32_t row_len = 0, n = 0;
+
+	memset(sub, 0x3c, sizeof(sub));
+	if (fzn_notes_local_share_row_build(row, sizeof(row), sub, 0u, 0u, (const uint8_t *)"carol", 5, &row_len)
+	            == SITU_OK
+	    && fzn_notes_local_message_build_share_row(m, sizeof(m), (uint8_t)FZN_CMD_NOTES, row, row_len, &n) == SITU_OK) {
+		framed(&held, 0, m, n);
+		framed(&cut, 0, m, n);
+	}
+	if (fzn_notes_local_share_row_build(row, sizeof(row), sub, 1u, 1u, (const uint8_t *)"family", 6, &row_len)
+	            == SITU_OK
+	    && fzn_notes_local_message_build_share_row(m, sizeof(m), (uint8_t)FZN_CMD_NOTES, row, row_len, &n) == SITU_OK)
+		framed(&held, 0, m, n);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_notes_shares_outgoing(&c, &out) == FZN_RPC_OK && out.count == 2 && out.entries[0].subtree[0] == 0x3c
+	              && strcmp(out.entries[0].peer, "carol") == 0 && !out.entries[0].to_group
+	              && strcmp(out.entries[1].peer, "family") == 0 && out.entries[1].to_group
+	              && out.entries[1].backfill && held.asked_len[0] == 2u && held.asked[0][1] == 0x84,
+	      "this user's shares were not read in binary, a group's with its catching up");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_notes_shares_outgoing(&c, &out) != FZN_RPC_OK, "a shares listing cut before its STATUS was read as whole");
+	{
+		struct script s = { { "ok 1 0 3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c,@family,0" },
+			            0, 1, 0, { { 0 } } };
+
+		status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a channel's asking");
+		on(&c, &s);
+		c.binary_answer = bscripted;
+		c.binary_ctx = &old;
+		CHECK(fzn_rpc_notes_shares_outgoing(&c, &out) == FZN_RPC_OK && out.count == 1 && out.entries[0].to_group
+		              && !out.entries[0].backfill && !strcmp(s.asked[0], "list share 0"),
+		      "an old node was not asked `list share`");
+	}
+}
+
 /* ONE SIBLING framed onto answer `i`, sec 1176. */
 static void sibling_onto(struct bscript *s, size_t i, uint8_t first, uint8_t paired, const char *where,
                          const char *name)
@@ -1763,6 +1807,7 @@ int main(void)
 	test_notes_in_binary();
 	test_group_notebook_in_binary();
 	test_notes_stamp_in_binary();
+	test_shares_in_binary();
 	test_packs_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

@@ -8906,8 +8906,8 @@ SABOTAGES = [
 	(
 		"group-share-listed-by-name",
 		"node/notes.c",
-		"\t\t} else if (fzn_node_group_name(n->store.ops, all[i].contact, group, &group_len)\n",
-		"\t\t} else if (0 && fzn_node_group_name(n->store.ops, all[i].contact, group, &group_len)\n",
+		"\t} else if (fzn_node_group_name(n->store.ops, one->contact, group, &group_len) == FZN_CONTACT_OK) {\n",
+		"\t} else if (0 && fzn_node_group_name(n->store.ops, one->contact, group, &group_len) == FZN_CONTACT_OK) {\n",
 		"a group's share lists as a bare key, and a person cannot tell it from a forgotten contact -- secs 471, 626",
 	),
 	(
@@ -16969,6 +16969,27 @@ SABOTAGES = [
 		"\tnarrow(event->size().width() < NARROW_PX);\n",
 		"\tnarrow(false);\n",
 		"a phone's width keeps every column -- sec 1196",
+	),
+	(
+		"notes-share-key-overrun",
+		"node/notes.c",
+		"\t\t*name_len = 2u * FZN_PUBKEY_LEN;\n",
+		"\t\t*name_len = 2u * FZN_PUBKEY_LEN + 2u;\n",
+		"a share to a key no contact names lists two bytes past the key -- sec 1200",
+	),
+	(
+		"notes-share-group-as-contact",
+		"node/notes.c",
+		"\t\t*to = 1;\n",
+		"\t\t*to = 0;\n",
+		"a share to a group is listed as one to a contact of that name, losing its @ and its catching up -- sec 1200",
+	),
+	(
+		"rpc-shares-binary-group-lost",
+		"local/rpc.c",
+		"\tr->to_group = fzn_notes_local_share_row_to_get(b) == 1;\n",
+		"\tr->to_group = 0;\n",
+		"a group's share read in binary is taken for a contact's -- sec 1200",
 	),
 	(
 		"notes-binary-stamp-still",

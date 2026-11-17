@@ -380,6 +380,35 @@ static uint64_t stamp_at(size_t i)
 	return fzn_notes_local_stamp_row_stamp_get(b);
 }
 
+/* THE SHARES IN BINARY, sec 1200: the one row's `to`, `catch_up` and name,
+ * 1 when there was exactly one row and a STATUS ok. */
+static int one_share(unsigned *to, unsigned *catch_up, char *name, size_t cap)
+{
+	static const uint8_t ask_shares[2] = { FZN_CMD_NOTES, FZN_NOTES_LOCAL_OP_SHARES };
+	uint8_t copy[FZN_NODE_NOTES_BINARY_MAX];
+	situ_msg_t m;
+	situ_view_t v, b;
+	size_t len;
+
+	n_said = 0;
+	if (!fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, ask_shares, sizeof(ask_shares), bput, NULL)
+	    || n_said != 2u || !status_at(1, FZN_STATUS_OK))
+		return 0;
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	if (fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) != SITU_OK
+	    || fzn_notes_local_message_body_share_row_view(v, &b) != SITU_OK)
+		return 0;
+	*to = fzn_notes_local_share_row_to_get(b);
+	*catch_up = fzn_notes_local_share_row_catch_up_get(b);
+	len = fzn_notes_local_share_row_name_len(b);
+	if (len >= cap)
+		return 0;
+	memcpy(name, fzn_notes_local_share_row_name_ptr(b), len);
+	name[len] = '\0';
+	return 1;
+}
+
 static void hex_id(const char *hex, uint8_t out[FZN_TREE_ID_LEN])
 {
 	size_t i;
@@ -980,6 +1009,29 @@ static void test_share(void)
 	snprintf(want, sizeof(want), "1 0 %s,carol", f);
 	CHECK(ask("list share") == FZN_REPLY_OK && !strcmp(detail_of(), want),
 	      "list share names the subtree and the contact");
+	/* AND IN BINARY, sec 1200: the subtree, to a contact, by name, then ok. */
+	{
+		static const uint8_t ask_shares[2] = { FZN_CMD_NOTES, FZN_NOTES_LOCAL_OP_SHARES };
+		uint8_t copy[FZN_NODE_NOTES_BINARY_MAX], fid[FZN_TREE_ID_LEN];
+		situ_msg_t m;
+		situ_view_t v, b;
+
+		hex_id(f, fid);
+		n_said = 0;
+		CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, ask_shares, sizeof(ask_shares), bput, NULL)
+		              && n_said == 2u && status_at(1, FZN_STATUS_OK),
+		      "the shares were not a row and a STATUS ok");
+		memcpy(copy, said[0], said_len[0]);
+		situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+		CHECK(fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+		              && fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_SHARE_ROW
+		              && fzn_notes_local_message_body_share_row_view(v, &b) == SITU_OK
+		              && memcmp(fzn_notes_local_share_row_subtree_ptr(b), fid, 32u) == 0
+		              && fzn_notes_local_share_row_to_get(b) == 0u
+		              && fzn_notes_local_share_row_name_len(b) == 5u
+		              && memcmp(fzn_notes_local_share_row_name_ptr(b), "carol", 5u) == 0,
+		      "the share in binary was not the folder, to carol by name");
+	}
 	CHECK(indexed(carol, 1) == 2, "carol is offered the folder and the note in it");
 	CHECK(indexed(PEER, 1) == 0, "a contact shared nothing is offered nothing");
 	/* A MEMBER IS OFFERED NOTHING HERE, sec 519: its notes come in the
@@ -1083,8 +1135,19 @@ static void test_share(void)
 	}
 
 	CHECK(fzn_contact_remove(&OPS, carol) == FZN_CONTACT_OK, "fixture: carol forgotten");
-	CHECK(ask("list share") == FZN_REPLY_OK && has(",c4c4c4c4"),
-	      "a share whose contact was forgotten names the key");
+	/* THE KEY WHOLE AND NOTHING PAST IT, sec 1200: the row carried two
+	 * bytes after the 64 hex, its terminator and one more. */
+	snprintf(want, sizeof(want), "1 0 %s,c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4", f);
+	CHECK(ask("list share") == FZN_REPLY_OK && !strcmp(detail_of(), want),
+	      "a share whose contact was forgotten did not name the key, and nothing more");
+	{
+		unsigned to = 9, up = 9;
+		char who[80];
+
+		CHECK(one_share(&to, &up, who, sizeof(who)) && to == 2u && up == 0u
+		              && !strcmp(who, "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4"),
+		      "a share to a key no contact names was not its 64 hex in binary");
+	}
 	CHECK(fzn_contact_add(&OPS, carol, "carol", 5u, 1u) == FZN_CONTACT_OK,
 	      "fixture: carol again");
 	snprintf(line, sizeof(line), "remove share %s carol", f);
@@ -1128,6 +1191,13 @@ static void test_group_share(void)
 	CHECK(ask(line) == FZN_REPLY_OK && ask("list share") == FZN_REPLY_OK
 	              && !strcmp(detail_of(), want),
 	      "a share said again with backfill 0 does not catch up");
+	{
+		unsigned to = 9, up = 9;
+		char who[80];
+
+		CHECK(one_share(&to, &up, who, sizeof(who)) && to == 1u && up == 0u && !strcmp(who, "family"),
+		      "a group's share in binary was not the group, by name, not catching up");
+	}
 	/* CAROL'S JOINING IS NOT IN THE LOG -- the fixture files members with
 	 * no acts -- so a share that does not catch up serves her nothing
 	 * (sec 804): taken as there from the start, she was handed it all. */

@@ -1233,21 +1233,25 @@ void fzn_notebook_view::refresh_shares()
 		m_share_to->setCurrentIndex(i);
 	if (m_open.isEmpty())
 		return;
-	/* `ok TOTAL FROM SUBTREE,NAME ...`: where the open note goes -- and
-	 * for a group SUBTREE,@GROUP,BACKFILL, what a later member gets as it
-	 * stands (sec 986). */
-	if (ask(QStringLiteral("list share"), &detail) == 1) {
-		QStringList words = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+	/* WHERE THE OPEN NOTE GOES, through the typed client (sec 1200): in
+	 * binary on a host's socket, every share where `list share` asked
+	 * gave its first page alone -- and for a group, what a later member
+	 * gets as it stands (sec 986). */
+	{
+		static fzn_rpc_notes_shares_resp_t shares;
+		const QByteArray open = QByteArray::fromHex(m_open.toLatin1());
 
-		for (i = 2; i < words.size(); i++)
-			if (words[i].section(QLatin1Char(','), 0, 0) == m_open) {
-				QString to = words[i].section(QLatin1Char(','), 1, 1);
-				QString later = words[i].section(QLatin1Char(','), 2, 2);
+		if (open.size() == 32 && fzn_rpc_notes_shares_outgoing(&m_rpc->c, &shares) == FZN_RPC_OK)
+			for (size_t k = 0; k < shares.count; k++) {
+				const fzn_rpc_notes_shares_entry_t *e = &shares.entries[k];
 
-				if (to.startsWith(QLatin1Char('@')) && !later.isEmpty())
-					to += later == QStringLiteral("1")
-					              ? QStringLiteral(" (later members get earlier notes)")
-					              : QStringLiteral(" (later members get new notes only)");
+				if (memcmp(e->subtree, open.constData(), 32) != 0)
+					continue;
+				QString to = QString::fromUtf8(e->peer, (int)e->peer_len);
+				if (e->to_group)
+					to = QLatin1Char('@') + to
+					     + (e->backfill ? QStringLiteral(" (later members get earlier notes)")
+					                    : QStringLiteral(" (later members get new notes only)"));
 				with << to;
 			}
 	}
