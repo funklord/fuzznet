@@ -1,5 +1,6 @@
 /* The files the catalogue names, as a widget: gui/library_view.h, sec 1131. */
 #include "library_view.h"
+#include "size_words.h"
 #include "keep_place.h"
 
 #include "rpc_ask.h"
@@ -31,18 +32,6 @@ extern "C" {
 static QString failed_words(const fzn_gui_rpc *r)
 {
 	return QString::fromUtf8(fzn_gui_rpc_silent(r));
-}
-
-/* A SIZE as a person reads it. */
-static QString size_words(uint64_t bytes)
-{
-	if (bytes < 1024u)
-		return QObject::tr("%1 bytes").arg(bytes);
-	if (bytes < 1024u * 1024u)
-		return QObject::tr("%1 KB").arg((double)bytes / 1024.0, 0, 'f', 1);
-	if (bytes < 1024u * 1024u * 1024u)
-		return QObject::tr("%1 MB").arg((double)bytes / (1024.0 * 1024.0), 0, 'f', 1);
-	return QObject::tr("%1 GB").arg((double)bytes / (1024.0 * 1024.0 * 1024.0), 0, 'f', 1);
 }
 
 /* A LENGTH, for a file that plays: minutes and seconds; nothing otherwise. */
@@ -211,7 +200,7 @@ bool fzn_library_view::refresh()
 		m_table->setItem((int)i, 1, new QTableWidgetItem(words(e->kind, e->kind_len)));
 		/* A SIZE ONLY WHERE ONE IS KNOWN: the catalogue names none, and a
 		 * file not held here has no bytes here to measure. */
-		m_table->setItem((int)i, 2, new QTableWidgetItem(e->size ? size_words(e->size) : QString()));
+		m_table->setItem((int)i, 2, new QTableWidgetItem(e->size ? fzn_size_words(e->size) : QString()));
 		m_table->setItem((int)i, 3, new QTableWidgetItem(length_words(e->duration_ms)));
 		m_table->setItem((int)i, 4, new QTableWidgetItem(where));
 		m_table->item((int)i, 0)->setData(ROLE_ROOT, QByteArray((const char *)e->root, 32));
@@ -459,7 +448,7 @@ bool fzn_library_view::save_to(const QString &path)
 		m_status->setText(failed_words(m_rpc));
 		return false;
 	}
-	m_status->setText(tr("Saved %1 to %2.").arg(size_words(out.byte_len), path));
+	m_status->setText(tr("Saved %1 to %2.").arg(fzn_size_words(out.byte_len), path));
 	return true;
 }
 

@@ -91122,3 +91122,25 @@ there -- `node-asks-resend` (no retries), `node-asks-its-own-resend`,
 `asks-want-without-fallback` -- and two new: `asks-resend-at-the-end`,
 `asks-answer-not-ended`.
 
+## 1228. reach_view says what to do, in units; one size formatter, 2026-11-17
+
+The rest of fuzzypickles' 1135Z (sec 1224), after sec 1225's place-keeping:
+
+- **Peers disagreeing about this host's address** is said with what it
+  usually means and what helps -- a NAT mapping each destination
+  differently; a relay where a direct path will not do -- in
+  fuzzypickles' words; the agree count alone did not say it.
+- **Not keeping up names the queue that grows**: "Growing: files 8 (mean
+  2).", from the sync load's queues whose trend is `growing`, since
+  which one grows decides which rule to write.
+- **The relay's bytes in units**, and each peer's "X of QUOTA" where a
+  quota is set.
+- **One size formatter**, `gui/size_words.h`, header-only and installed:
+  conversation, library and leg views each kept their own copy, one of
+  them writing "B" where the others wrote "bytes".
+
+**Tests:** reach_view -- the relay in units against its quota, falling
+behind with the growing queue named, two peers at two addresses said to
+disagree and one report not. Two sabotages, each caught
+(`reach-disagreement-unsaid`, `reach-growing-queue-unnamed`); sec 1131's
+`library-view-unknown-size-as-zero` repointed. `make qtty` passes.

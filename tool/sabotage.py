@@ -14568,8 +14568,8 @@ SABOTAGES = [
 	(
 		"library-view-unknown-size-as-zero",
 		"gui/library_view.cpp",
-		"\t\tm_table->setItem((int)i, 2, new QTableWidgetItem(e->size ? size_words(e->size) : QString()));\n",
-		"\t\tm_table->setItem((int)i, 2, new QTableWidgetItem(size_words(e->size)));\n",
+		"\t\tm_table->setItem((int)i, 2, new QTableWidgetItem(e->size ? fzn_size_words(e->size) : QString()));\n",
+		"\t\tm_table->setItem((int)i, 2, new QTableWidgetItem(fzn_size_words(e->size)));\n",
 		"a file with no size known here reads as empty -- sec 1131",
 	),
 	(
@@ -17312,6 +17312,20 @@ SABOTAGES = [
 		"\t\tr = fzn_node_messages_local(nm, FZN_ORIGIN_SAME_USER, &req, reply, sizeof(reply));\n",
 		"\t\tr = (size_t)snprintf(reply, sizeof(reply), \"ok\");\n",
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
+	),
+	(
+		"reach-disagreement-unsaid",
+		"gui/reach_view.cpp",
+		"\tif (seen.count > 1 && seen.agree < seen.count)\n",
+		"\tif (0)\n",
+		"peers seeing this host at different addresses are counted and not said to disagree -- sec 1228",
+	),
+	(
+		"reach-growing-queue-unnamed",
+		"gui/reach_view.cpp",
+		"\t\t\tif (!strcmp(load.queues[q].trend, \"growing\"))\n",
+		"\t\t\tif (0)\n",
+		"not keeping up does not name the queue that grows -- sec 1228",
 	),
 	(
 		"asks-resend-at-the-end",

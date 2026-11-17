@@ -1,6 +1,7 @@
 /* How this host is reached, as a widget: gui/reach_view.h, sec 1134. */
 #include "reach_view.h"
 #include "keep_place.h"
+#include "size_words.h"
 
 #include "rpc_ask.h"
 
@@ -17,6 +18,8 @@ extern "C" {
 #include <QResizeEvent>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+
+#include <string.h>
 
 /* Narrower than this, the columns a phone can do without are hidden. */
 #define NARROW_PX 400
@@ -169,6 +172,13 @@ bool fzn_reach_view::refresh()
 	else
 		m_outside->setText(tr("One host sees this one at %1; nothing confirms it yet.")
 		                           .arg(said(seen.entries[0].address, seen.entries[0].address_len)));
+	/* AND WHAT IT MEANS WHEN THEY DISAGREE, sec 1228, fuzzypickles' words:
+	 * the count alone said they did and not what to do about it. */
+	if (seen.count > 1 && seen.agree < seen.count)
+		m_outside->setText(m_outside->text() + QLatin1Char(' ')
+		                   + tr("Peers disagree about this host's address, which usually means a NAT that "
+		                        "maps each destination differently. A relay helps where a direct path "
+		                        "will not."));
 	/* THE PERSON'S PLACE IN EACH TABLE, kept across the refill (sec 1225):
 	 * the report chosen, by address and reporter, so Advertise stays
 	 * pressable; and where each table was scrolled to. */
@@ -197,8 +207,7 @@ bool fzn_reach_view::refresh()
 	/* THE RELAY: off, or on with its quota -- 0 is no limit, not none. */
 	m_relay->setText(!relay->enabled ? tr("This host does not relay for others.")
 	                 : tr("This host relays for others: %1 per %2 s each; %3 using it now.")
-	                           .arg(relay->quota_bytes ? tr("%1 bytes").arg(relay->quota_bytes)
-	                                                   : tr("no limit"))
+	                           .arg(relay->quota_bytes ? fzn_size_words(relay->quota_bytes) : tr("no limit"))
 	                           .arg(relay->window_s)
 	                           .arg(relay->count));
 	/* AND FOR WHOM, sec 1196: each peer's bytes this window and the times
@@ -206,7 +215,12 @@ bool fzn_reach_view::refresh()
 	m_relayed->clear();
 	for (i = 0; i < relay->count; i++)
 		new QTreeWidgetItem(m_relayed, { said(relay->entries[i].peer, relay->entries[i].peer_len),
-		                                 tr("%1 bytes").arg(relay->entries[i].bytes_used),
+		                                 /* IN UNITS, and against the quota where one is set
+		                                  * (sec 1228). */
+		                                 relay->quota_bytes
+		                                         ? tr("%1 of %2").arg(fzn_size_words(relay->entries[i].bytes_used),
+		                                                              fzn_size_words(relay->quota_bytes))
+		                                         : fzn_size_words(relay->entries[i].bytes_used),
 		                                 QString::number(relay->entries[i].refused) });
 	m_relayed->setVisible(relay->count > 0);
 	/* KEEPING UP, sec 1135: the share of each round sync takes, and
@@ -215,9 +229,21 @@ bool fzn_reach_view::refresh()
 	fzn_rpc_sync_load_t load;
 	if (fzn_rpc_sync_load(&m_rpc->c, &load) == FZN_RPC_OK) {
 		const char *advice = fzn_rpc_sync_load_advice(&load);
+		/* WHICH QUEUE GROWS, sec 1228: which one decides which rule to
+		 * write, and the verdict alone did not say. */
+		QStringList growing;
+		for (size_t q = 0; q < load.count && q < FZN_RPC_SYNC_QUEUES_MAX; q++)
+			if (!strcmp(load.queues[q].trend, "growing"))
+				growing << tr("%1 %2 (mean %3)")
+				                   .arg(QString::fromUtf8(load.queues[q].name))
+				                   .arg(load.queues[q].now)
+				                   .arg(load.queues[q].mean);
 		m_load->setText(advice ? tr("Not keeping up (%1% of each round): %2.")
-		                                 .arg(load.load_pct)
-		                                 .arg(QString::fromUtf8(advice))
+		                                         .arg(load.load_pct)
+		                                         .arg(QString::fromUtf8(advice))
+		                                 + (growing.isEmpty() ? QString()
+		                                                      : QLatin1Char(' ')
+		                                                                + tr("Growing: %1.").arg(growing.join(QStringLiteral(", "))))
 		                       : tr("Keeping up: syncing takes %1% of each round.").arg(load.load_pct));
 	} else {
 		m_load->clear();

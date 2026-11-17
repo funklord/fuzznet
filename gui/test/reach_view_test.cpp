@@ -41,7 +41,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (silent)
 		return 0;
 	if (!strcmp(line, "get address"))
-		return alone ? (size_t)snprintf(reply, cap, "ok 1 1 0123456789abcdef,203.0.113.5,4000,1700000000\n")
+		return alone == 2 ? (size_t)snprintf(reply, cap,
+		                                     "ok 2 1 0123456789abcdef,203.0.113.5,4000,1700000000 "
+		                                     "fedcba9876543210,198.51.100.7,4100,1700000100\n")
+		       : alone ? (size_t)snprintf(reply, cap, "ok 1 1 0123456789abcdef,203.0.113.5,4000,1700000000\n")
 		             : (size_t)snprintf(reply, cap,
 		                                "ok 2 2 0123456789abcdef,203.0.113.5,4000,1700000000 "
 		                                "fedcba9876543210,203.0.113.5,4000,1700000100\n");
@@ -82,8 +85,8 @@ int main(int argc, char **argv)
 	              == QStringList({ "203.0.113.5:4000 -- 0123456789abcdef -- 2023-11-14 22:13",
 	                               "203.0.113.5:4000 -- fedcba9876543210 -- 2023-11-14 22:15" }),
 	      "each report was not a row with who said it and when");
-	CHECK(v.relayed() == QStringList({ "abcdef0123456789 -- 4096 bytes -- 0" }),
-	      "the relay was not said per peer, used and refused");
+	CHECK(v.relayed() == QStringList({ "abcdef0123456789 -- 4.0 KB of 1.0 MB -- 0" }),
+	      "the relay was not said per peer, used against the quota, and refused");
 	CHECK(v.activity().size() == 1 && v.activity().value(0).endsWith(" -- a peer was turned away"),
 	      "the node's recent activity was not listed, its message without the preamble");
 	CHECK(v.advertise(1) && !strcmp(last_set, "set setting host net/address 203.0.113.5 4000")
@@ -105,20 +108,26 @@ int main(int argc, char **argv)
 		CHECK(seen && !seen->isColumnHidden(1), "a desktop's width hid who reported each address");
 		v.hide();
 	}
-	CHECK(v.relay() == "This host relays for others: 1048576 bytes per 3600 s each; 1 using it now.",
+	CHECK(v.relay() == "This host relays for others: 1.0 MB per 3600 s each; 1 using it now.",
 	      "the relay's quota and users were not said");
 	CHECK(v.keeping_up() == "Keeping up: syncing takes 34% of each round.",
 	      "keeping up was not said with its share of a round");
 	behind = 1;
-	CHECK(v.refresh() && v.keeping_up().startsWith("Not keeping up (112% of each round): more is waiting"),
-	      "falling behind was not said with fuzznet's advice");
+	CHECK(v.refresh() && v.keeping_up().startsWith("Not keeping up (112% of each round): more is waiting")
+	              && v.keeping_up().endsWith(" Growing: peers 40 (mean 30)."),
+	      "falling behind was not said with fuzznet's advice and the queue that grows");
 	behind = 0;
 	CHECK(v.ask_outside() && v.status().contains("Asked 3 host(s)"), "asking again outside was not said");
 	CHECK(v.look_here() && v.status().contains("Asked on this network"), "looking here was not said");
 
 	alone = 1;
-	CHECK(v.refresh() && v.outside().contains("nothing confirms it"),
-	      "a single report was said as agreed");
+	CHECK(v.refresh() && v.outside().contains("nothing confirms it") && !v.outside().contains("disagree"),
+	      "a single report was said as agreed, or as a disagreement");
+	/* PEERS DISAGREEING, sec 1228: said, with what helps. */
+	alone = 2;
+	CHECK(v.refresh() && v.outside().contains("Peers disagree") && v.outside().contains("relay helps"),
+	      "two peers seeing this host at two addresses were not said to disagree");
+	alone = 1;
 
 	/* A REFRESH KEEPS THE PERSON'S PLACE, sec 1225: the answer to Look on
 	 * this network stays through a refresh; the report chosen stays chosen,

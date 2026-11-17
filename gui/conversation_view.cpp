@@ -1,5 +1,6 @@
 /* A conversation with one contact, as a widget: gui/conversation_view.h, sec 1126. */
 #include "conversation_view.h"
+#include "size_words.h"
 
 #include "rpc_ask.h"
 #include "sticker_render.h"
@@ -106,18 +107,6 @@ static QString state_words(const fzn_rpc_inbox_entry_t *l)
 	return QString();
 }
 
-/* A SIZE as a person reads it: the sender's claim, said whole. */
-static QString size_words(uint64_t bytes)
-{
-	if (bytes < 1024u)
-		return QObject::tr("%1 bytes").arg(bytes);
-	if (bytes < 1024u * 1024u)
-		return QObject::tr("%1 KB").arg((double)bytes / 1024.0, 0, 'f', 1);
-	if (bytes < 1024u * 1024u * 1024u)
-		return QObject::tr("%1 MB").arg((double)bytes / (1024.0 * 1024.0), 0, 'f', 1);
-	return QObject::tr("%1 GB").arg((double)bytes / (1024.0 * 1024.0 * 1024.0), 0, 'f', 1);
-}
-
 /* WHAT A LINE SAYS, sec 1129: a file or a sticker said as one, by the
  * library's own readers (`fzn_attachment_parse`, `fzn_sticker_ref_parse`),
  * rather than as the reference it rides in; anything else as its text. All
@@ -130,7 +119,7 @@ static QString content_words(const char *text, size_t len)
 
 	if (fzn_attachment_parse(text, len, &file)) {
 		fzn_rpc_tty_escape(file.name, file.name_len, shown, sizeof shown);
-		return QObject::tr("a file: %1, %2").arg(QString::fromUtf8(shown), size_words(file.size));
+		return QObject::tr("a file: %1, %2").arg(QString::fromUtf8(shown), fzn_size_words(file.size));
 	}
 	if (fzn_sticker_ref_parse(text, len, &sticker)) {
 		const char *said = sticker.text_len ? sticker.text : sticker.description;
@@ -419,7 +408,7 @@ bool fzn_conversation_view::fetch()
 	/* THE SIZE IS THE SENDER'S CLAIM, said as one; the fetch checks the
 	 * file's own tree, so a lie fails there (sec 794). */
 	m_status->setText(tr("Asked for the file, said to be %1. It arrives in the background.")
-	                          .arg(size_words(file_size(ref))));
+	                          .arg(fzn_size_words(file_size(ref))));
 	return true;
 }
 
@@ -445,7 +434,7 @@ bool fzn_conversation_view::save_to(const QString &path)
 		m_status->setText(failed_words(m_rpc));
 		return false;
 	}
-	m_status->setText(tr("Saved %1 to %2.").arg(size_words(out.byte_len), where));
+	m_status->setText(tr("Saved %1 to %2.").arg(fzn_size_words(out.byte_len), where));
 	return true;
 }
 
@@ -478,7 +467,7 @@ bool fzn_conversation_view::send_file(const QString &path)
 		return false;
 	}
 	refresh();
-	m_status->setText(tr("Sent %1, %2.").arg(QString::fromUtf8(name), size_words(stored.byte_len)));
+	m_status->setText(tr("Sent %1, %2.").arg(QString::fromUtf8(name), fzn_size_words(stored.byte_len)));
 	return true;
 }
 

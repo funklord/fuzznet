@@ -1,5 +1,6 @@
 /* This host's legs, as a widget: leg_view.h, sec 1210. */
 #include "leg_view.h"
+#include "size_words.h"
 #include "rpc_ask.h"
 
 #include <QHeaderView>
@@ -22,17 +23,6 @@ static QString ago(uint64_t ms)
 	if (s < 7200u)
 		return QObject::tr("%1 min").arg(s / 60u);
 	return QObject::tr("%1 h").arg(s / 3600u);
-}
-
-static QString bytes_words(uint64_t n)
-{
-	if (n < 1024u)
-		return QObject::tr("%1 B").arg(n);
-	if (n < 1024u * 1024u)
-		return QObject::tr("%1 KB").arg((double)n / 1024.0, 0, 'f', 1);
-	if (n < 1024u * 1024u * 1024u)
-		return QObject::tr("%1 MB").arg((double)n / (1024.0 * 1024.0), 0, 'f', 1);
-	return QObject::tr("%1 GB").arg((double)n / (1024.0 * 1024.0 * 1024.0), 0, 'f', 1);
 }
 
 fzn_leg_view::fzn_leg_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
@@ -81,7 +71,7 @@ bool fzn_leg_view::refresh()
 		/* UNLIMITED is every leg's state until `net/budget` is set, so it is
 		 * said, rather than drawn as a budget of nothing fully spent. */
 		const QString budget = l->budget_limit
-		                               ? tr("%1 of %2").arg(bytes_words(l->budget_spent), bytes_words(l->budget_limit))
+		                               ? tr("%1 of %2").arg(fzn_size_words(l->budget_spent), fzn_size_words(l->budget_limit))
 		                               : tr("unlimited");
 		const QString cells[COLS] = {
 			QString::fromUtf8(l->address, (int)l->address_len),
