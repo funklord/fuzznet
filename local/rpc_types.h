@@ -1528,10 +1528,11 @@ typedef struct fzn_rpc_transfer_list_resp {
  */
 const char *fzn_rpc_transport_name(uint8_t transport, char *out, size_t cap);
 
-/* One link: one transport over one address. A peer advertising two
- * addresses, or one address reachable two ways, is several rows -- which is
- * the table's own model rather than a flattening done here. */
-typedef struct fzn_rpc_link_entry {
+/* One leg: this host to one address (sec 906's word), over the link
+ * `transport` names. A peer advertising two addresses, or one address
+ * reachable two ways, is several rows -- which is the table's own model
+ * rather than a flattening done here. */
+typedef struct fzn_rpc_leg_entry {
 	char address[FZN_RPC_PEER_ADDRESS_MAX + 1];
 	size_t address_len;
 	uint8_t transport; /* exactly one FZN_RPC_TRANSPORT_* bit */
@@ -1559,21 +1560,18 @@ typedef struct fzn_rpc_link_entry {
 	 * `-`, nothing observed, so loss_permille means nothing there. */
 	uint16_t loss_permille;
 	uint64_t observations;
-} fzn_rpc_link_entry_t;
+} fzn_rpc_leg_entry_t;
 
-/* The table's own bound (FZN_RPC_LINK_MAX in link_internal.h), restated here
- * because this header is the contract and link_internal.h is not shipped to
- * a client. control_codec.c asserts the two agree, so raising one without
- * the other is a build error rather than a response that silently drops
- * links. */
-#define FZN_RPC_LINK_LIST_MAX 1024
+/* The most legs one listing holds. A node with more is read to this many,
+ * and `count` says so by equalling it. */
+#define FZN_RPC_LEG_LIST_MAX 1024
 
-typedef struct fzn_rpc_link_list_resp {
-	fzn_rpc_link_entry_t entries[FZN_RPC_LINK_LIST_MAX];
+typedef struct fzn_rpc_leg_list_resp {
+	fzn_rpc_leg_entry_t entries[FZN_RPC_LEG_LIST_MAX];
 	size_t count;
 	/* The legs the node counts as unmeasured, by its own rule (sec 1125). */
 	size_t unmeasured;
-} fzn_rpc_link_list_resp_t;
+} fzn_rpc_leg_list_resp_t;
 
 #define FZN_RPC_ADDR_OBSERVE_LIST_MAX 8
 

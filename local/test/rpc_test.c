@@ -476,11 +476,11 @@ static void test_dropped_figures_are_carried(void)
 	static const char *const address_reply =
 	        "ok 2 2 0123456789abcdef,192.0.2.9,4000,7 fedcba9876543210,192.0.2.9,4000,8";
 	struct script s = { { legs_reply, address_reply }, 0, 2, 0, { { 0 } } };
-	static fzn_rpc_link_list_resp_t legs;
+	static fzn_rpc_leg_list_resp_t legs;
 	fzn_rpc_addr_observe_resp_t seen;
 
 	on(&c, &s);
-	CHECK(fzn_rpc_link_list(&c, &legs) == FZN_RPC_OK && legs.count == 1 && legs.unmeasured == 1
+	CHECK(fzn_rpc_leg_list(&c, &legs) == FZN_RPC_OK && legs.count == 1 && legs.unmeasured == 1
 	              && legs.entries[0].observations == 0,
 	      "the node's unmeasured count, or a leg's want of observations, was lost");
 	CHECK(fzn_rpc_addr_observe(&c, 0, &seen) == FZN_RPC_OK && seen.count == 2 && seen.agree == 2,
@@ -1781,14 +1781,14 @@ static void legs_summary_onto(struct bscript *s, size_t i, uint64_t unmeasured)
 static void test_legs_in_binary(void)
 {
 	static struct bscript held, early, late, cut;
-	static fzn_rpc_link_list_resp_t out;
+	static fzn_rpc_leg_list_resp_t out;
 
 	legs_summary_onto(&held, 0, 3u);
 	leg_onto(&held, 0, "192.0.2.7:4000", 1u, 42u, 25u, 1u, 3u);
 	leg_onto(&held, 0, "198.51.100.2:4000", 0u, 0u, 0u, 0u, 0u);
 	status_onto(&held, 0, FZN_STATUS_OK, NULL);
 	bon(&c, &held);
-	CHECK(fzn_rpc_link_list(&c, &out) == FZN_RPC_OK && out.count == 2 && out.unmeasured == 3
+	CHECK(fzn_rpc_leg_list(&c, &out) == FZN_RPC_OK && out.count == 2 && out.unmeasured == 3
 	              && strcmp(out.entries[0].address, "192.0.2.7:4000") == 0 && out.entries[0].rtt_ms == 42
 	              && out.entries[0].loss_permille == 25 && out.entries[0].since_success_ms == 3000
 	              && out.entries[0].sent == 10 && out.entries[0].replied == 9 && out.entries[1].observations == 0
@@ -1797,17 +1797,17 @@ static void test_legs_in_binary(void)
 	leg_onto(&early, 0, "192.0.2.7:4000", 1u, 42u, 25u, 1u, 3u);
 	status_onto(&early, 0, FZN_STATUS_OK, NULL);
 	bon(&c, &early);
-	CHECK(fzn_rpc_link_list(&c, &out) != FZN_RPC_OK, "a link before the summary was taken");
+	CHECK(fzn_rpc_leg_list(&c, &out) != FZN_RPC_OK, "a leg before the summary was taken");
 	/* AND ONE BEFORE A SUMMARY THAT COMES AFTER IT: a listing out of order. */
 	leg_onto(&late, 0, "192.0.2.7:4000", 1u, 42u, 25u, 1u, 3u);
 	legs_summary_onto(&late, 0, 0u);
 	status_onto(&late, 0, FZN_STATUS_OK, NULL);
 	bon(&c, &late);
-	CHECK(fzn_rpc_link_list(&c, &out) != FZN_RPC_OK, "a link before a later summary was taken");
+	CHECK(fzn_rpc_leg_list(&c, &out) != FZN_RPC_OK, "a leg before a later summary was taken");
 	legs_summary_onto(&cut, 0, 0u);
 	leg_onto(&cut, 0, "192.0.2.7:4000", 1u, 42u, 25u, 1u, 3u);
 	bon(&c, &cut);
-	CHECK(fzn_rpc_link_list(&c, &out) != FZN_RPC_OK, "a links listing cut before its STATUS was read as whole");
+	CHECK(fzn_rpc_leg_list(&c, &out) != FZN_RPC_OK, "a legs listing cut before its STATUS was read as whole");
 }
 
 /* ONE CLOCK framed onto answer `i`, sec 1184. */

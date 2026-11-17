@@ -47,7 +47,7 @@ int main(int argc, char **argv)
 	static fzn_rpc_cap_granted_resp_t granted;
 	static fzn_rpc_prekey_show_resp_t prekey;
 	static fzn_rpc_log_show_resp_t log;
-	static fzn_rpc_link_list_resp_t legs;
+	static fzn_rpc_leg_list_resp_t legs;
 	static fzn_rpc_location_status_resp_t location;
 	static fzn_rpc_clock_list_t clocks;
 	static fzn_rpc_clock_estate_t clock;
@@ -86,7 +86,7 @@ int main(int argc, char **argv)
 	ASK(fzn_rpc_cap_granted, &granted);
 	ASK(fzn_rpc_prekey_show, &prekey);
 	ASK(fzn_rpc_log_show, &log);
-	ASK(fzn_rpc_link_list, &legs);
+	ASK(fzn_rpc_leg_list, &legs);
 	ASK(fzn_rpc_location_status, &location);
 	ASK(fzn_rpc_clock_list, &clocks);
 	ASK(fzn_rpc_clock_get, &clock);

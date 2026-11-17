@@ -2650,17 +2650,17 @@ static int node_u64_or_dash(const char *p, size_t len, uint64_t *out) {
 /* `list leg FROM` (`list link` until fuzznet f326bd0, its sec 1075, the
  * holder's rename): `ok TOTAL UNMEASURED FROM HOST:PORT,LATENCY,LOSS,
  * OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED ...`, latency in ms and age
- * in seconds, `-` for a link nothing has been observed on. Mapped where
- * the clients' link has the same thing -- address, round trip, asked and
+ * in seconds, `-` for a leg nothing has been observed on. Mapped where
+ * the clients' leg has the same thing -- address, round trip, asked and
  * answered, time since the last observation -- and the clients' cost, metric and
  * budget, which fuzznetd does not keep, left 0, which for the budget is
  * the clients' "unlimited".
  *
  * PAGED since fuzznet sec 777 (this tree's 20261030T0231Z): the bare verb
- * stopped adding rows at the 1024-byte reply, about fifteen links of a
- * table of 64, and this refused the short listing, so a busy node's Links
- * view read as unreadable. Bounded by TOTAL and by a page count. */
-static int node_link_list(fzn_rpc_t *c, fzn_rpc_link_list_resp_t *out) {
+ * stopped adding rows at the 1024-byte reply, about fifteen legs of a
+ * table of 64, and this refused the short listing, so a busy node's legs
+ * read as unreadable. Bounded by TOTAL and by a page count. */
+static int node_leg_list(fzn_rpc_t *c, fzn_rpc_leg_list_resp_t *out) {
 	memset(out, 0, sizeof(*out));
 	size_t from = 0, count = 0;
 	for (unsigned page = 0; page < 64; page++) {
@@ -2697,8 +2697,8 @@ static int node_link_list(fzn_rpc_t *c, fzn_rpc_link_list_resp_t *out) {
 			    !node_u64(f, f_len, &sent) || !node_field(&q, stop, &f, &f_len) ||
 			    !node_u64(f, f_len, &received))
 				return unreadable(c);
-			if (out->count >= FZN_RPC_LINK_LIST_MAX) continue;
-			fzn_rpc_link_entry_t *l = &out->entries[out->count++];
+			if (out->count >= FZN_RPC_LEG_LIST_MAX) continue;
+			fzn_rpc_leg_entry_t *l = &out->entries[out->count++];
 			memcpy(l->address, addr, addr_len);
 			l->address_len = addr_len;
 			l->transport = FZN_RPC_TRANSPORT_UDP;
@@ -2713,7 +2713,7 @@ static int node_link_list(fzn_rpc_t *c, fzn_rpc_link_list_resp_t *out) {
 		from += rows;
 		if (!rows || from >= count) break;
 	}
-	return out->count == count || out->count == FZN_RPC_LINK_LIST_MAX ? FZN_RPC_OK : unreadable(c);
+	return out->count == count || out->count == FZN_RPC_LEG_LIST_MAX ? FZN_RPC_OK : unreadable(c);
 }
 
 /* `get address`: `ok COUNT AGREE REPORTER,HOST,PORT,AT ...`, the reporter
@@ -6846,10 +6846,10 @@ int fzn_rpc_log_show(fzn_rpc_t *c, fzn_rpc_log_show_resp_t *out) {
 	return node_log_show(c, out);
 }
 
-/* THE LINKS IN BINARY, sec 1183: a summary, a row a link, then a STATUS,
- * every page in one answer -- read as node_link_list reads the text rows. */
+/* THE LEGS IN BINARY, sec 1183: a summary, a row a leg, then a STATUS,
+ * every page in one answer -- read as node_leg_list reads the text rows. */
 struct legs_answer {
-	fzn_rpc_link_list_resp_t *out;
+	fzn_rpc_leg_list_resp_t *out;
 	int bad, status_seen, summary_seen;
 	fzn_status_t code;
 	char why[FZN_STATUS_WHY_MAX + 1];
@@ -6857,7 +6857,7 @@ struct legs_answer {
 
 static void legs_each(void *ctx, const uint8_t *msg, size_t len) {
 	struct legs_answer *a = ctx;
-	fzn_rpc_link_list_resp_t *out = a->out;
+	fzn_rpc_leg_list_resp_t *out = a->out;
 	const uint8_t *why = NULL;
 	size_t why_len = 0;
 	situ_msg_t m;
@@ -6895,10 +6895,10 @@ static void legs_each(void *ctx, const uint8_t *msg, size_t len) {
 		a->bad = 1;
 		return;
 	}
-	if (out->count >= FZN_RPC_LINK_LIST_MAX) return;
+	if (out->count >= FZN_RPC_LEG_LIST_MAX) return;
 	const uint64_t seen = fzn_reach_local_leg_row_observations_get(b);
 	const uint64_t loss = fzn_reach_local_leg_row_loss_permille_get(b);
-	fzn_rpc_link_entry_t *l = &out->entries[out->count++];
+	fzn_rpc_leg_entry_t *l = &out->entries[out->count++];
 	memset(l, 0, sizeof *l);
 	memcpy(l->address, fzn_reach_local_leg_row_address_ptr(b), addr_len);
 	l->address_len = addr_len;
@@ -6911,7 +6911,7 @@ static void legs_each(void *ctx, const uint8_t *msg, size_t len) {
 	l->loss_permille = seen && loss <= 1000u ? (uint16_t)loss : 0;
 }
 
-int fzn_rpc_link_list(fzn_rpc_t *c, fzn_rpc_link_list_resp_t *out) {
+int fzn_rpc_leg_list(fzn_rpc_t *c, fzn_rpc_leg_list_resp_t *out) {
 	static const uint8_t ask[] = { FZN_CMD_REACH, FZN_REACH_LOCAL_OP_LEGS };
 	struct legs_answer a;
 	int text = 0;
@@ -6919,9 +6919,9 @@ int fzn_rpc_link_list(fzn_rpc_t *c, fzn_rpc_link_list_resp_t *out) {
 	memset(&a, 0, sizeof a);
 	a.out = out;
 	const int rc = fzn_rpc_binary(c, ask, sizeof ask, legs_each, &a, &text);
-	if (text) return node_link_list(c, out);
+	if (text) return node_leg_list(c, out);
 	if (rc != FZN_RPC_OK) return rc;
-	if (a.bad || !a.status_seen) return unreadable(c); /* the links cut short */
+	if (a.bad || !a.status_seen) return unreadable(c); /* the legs cut short */
 	if (a.code != FZN_STATUS_OK)
 		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
 		            a.why[0] ? a.why : "the node refused it");

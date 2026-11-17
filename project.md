@@ -90415,3 +90415,34 @@ driver's, stated in `wire/frame.situ`.
 Of these, 1 and 3 are what make the driver usable here at all; 2 and 4
 are what keep it from needing glue that is as large as what it
 replaces. Asked of situ, its inbox, 2026-11-17.
+
+## 1210. Legs called legs, and what a connection page needs of them, 2026-11-17
+
+**The old code renamed, the holder's word.** Sec 1075 renamed the verb
+to `list leg` by sec 906's words -- a path the whole trip, a leg this
+host to one address, a link the medium under it -- and left the code
+saying "link" for sec 1061's pass. The holder: "We need to rename the
+old code as well." So everything that means a leg now says so:
+
+| was | is |
+|---|---|
+| `fzn_rpc_link_list` | `fzn_rpc_leg_list` |
+| `fzn_rpc_link_list_resp_t` | `fzn_rpc_leg_list_resp_t` |
+| `fzn_rpc_link_entry_t` | `fzn_rpc_leg_entry_t` |
+| `FZN_RPC_LINK_LIST_MAX` | `FZN_RPC_LEG_LIST_MAX` |
+| the daemon's `link_meter`, `link_of`, `link_asked`, `link_answered`, `link_fact`, `link_row`, `link_local`, `links_unmeasured`, `metric_log_links`, `FZND_LINK_*` and the index `li` | `leg_*`, `legs_unmeasured`, `metric_log_legs`, `FZND_LEG_*`, `leg` |
+
+-- and the comments, `node/reach_local.situ`'s words (its wire and map
+unchanged), the hosted view's "2 leg(s), 1 answering" and "no legs".
+**No alias is kept**: two names for one thing is what the rename
+removes. fuzzypickles calls the client's four names in its GUI, TUI,
+CLI and a fuzz test, and is told the mapping. **What stays "link"**:
+`link/` (sec 202), the medium-level estimator `sched/` reads, and
+`link_view`, which draws its table -- both are links.
+
+A bound comment in `local/rpc_types.h` named `link_internal.h` and
+`control_codec.c`, neither of which exists here; it came with the code
+from fuzzypickles and now says what the code does.
+
+**Verified:** every renamed name counted before and after; the build
+clean; `rpc_test` and `link_view_test`; the five gates.

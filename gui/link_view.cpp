@@ -102,8 +102,8 @@ bool fzn_link_view::refresh()
 {
 	if (!rpc_)
 		return false;
-	auto *legs = new fzn_rpc_link_list_resp_t;
-	if (fzn_rpc_link_list(&rpc_->c, legs) != FZN_RPC_OK) {
+	auto *legs = new fzn_rpc_leg_list_resp_t;
+	if (fzn_rpc_leg_list(&rpc_->c, legs) != FZN_RPC_OK) {
 		summary_->setText(QString::fromUtf8(fzn_gui_rpc_silent(rpc_)));
 		rows_->setText(QString());
 		delete legs;
@@ -116,7 +116,7 @@ bool fzn_link_view::refresh()
 	               + column(QStringLiteral("answered"), COL_ANSWERED)
 	               + column(QStringLiteral("heard"), COL_HEARD);
 	for (i = 0; i < legs->count; i++) {
-		const fzn_rpc_link_entry_t *l = &legs->entries[i];
+		const fzn_rpc_leg_entry_t *l = &legs->entries[i];
 		answering += l->replied > 0;
 		if (i >= FZN_LINK_VIEW_ROWS_MAX)
 			continue;
@@ -144,10 +144,10 @@ bool fzn_link_view::refresh()
 	state_ = !legs->count ? NONE : answering ? MEASURED : UNMEASURED;
 	unmeasured_ = legs->count - answering;
 	rows_truncated_ = legs->count > FZN_LINK_VIEW_ROWS_MAX;
-	QString said = QStringLiteral("%1 link(s), %2 answering").arg(legs->count).arg(answering);
+	QString said = QStringLiteral("%1 leg(s), %2 answering").arg(legs->count).arg(answering);
 	if (rows_truncated_)
 		said += QStringLiteral(", %1 not drawn").arg(legs->count - FZN_LINK_VIEW_ROWS_MAX);
-	summary_->setText(legs->count ? said : QStringLiteral("no links"));
+	summary_->setText(legs->count ? said : QStringLiteral("no legs"));
 	rows_->setText(legs->count ? rows : QString());
 	delete legs;
 	return true;

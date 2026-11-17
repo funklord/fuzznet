@@ -219,7 +219,7 @@ int main(int argc, char **argv)
 		rows = hosted.rows_text().split(QLatin1Char('\n'));
 		CHECK(hosted.shown_state() == fzn_link_view::MEASURED && hosted.unmeasured() == 1u,
 		      "one answering leg of two was not MEASURED with one unmeasured");
-		CHECK(hosted.summary_text() == "2 link(s), 1 answering", "the hosted summary was wrong");
+		CHECK(hosted.summary_text() == "2 leg(s), 1 answering", "the hosted summary was wrong");
 		CHECK(rows.size() == 3 && rows.value(1).startsWith("192.0.2.7:4000")
 		              && rows.value(1).contains("42 ms") && rows.value(1).contains("2.5%")
 		              && rows.value(1).contains("9/10")
@@ -231,7 +231,7 @@ int main(int argc, char **argv)
 		      "the silent leg was not said to have never answered");
 		legs_unanswered = 1;
 		CHECK(hosted.refresh() && hosted.shown_state() == fzn_link_view::UNMEASURED
-		              && hosted.summary_text() == "1 link(s), 0 answering",
+		              && hosted.summary_text() == "1 leg(s), 0 answering",
 		      "a leg that never answered read as measured");
 		legs_silent = 1;
 		CHECK(!hosted.refresh() && hosted.summary_text() == "The node did not answer."

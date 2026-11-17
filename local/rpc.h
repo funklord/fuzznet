@@ -592,7 +592,7 @@ int fzn_rpc_prekey_show(fzn_rpc_t *c, fzn_rpc_prekey_show_resp_t *out);
 /* ---- step 8 (sec 281): the rest ---- */
 
 int fzn_rpc_log_show(fzn_rpc_t *c, fzn_rpc_log_show_resp_t *out);
-int fzn_rpc_link_list(fzn_rpc_t *c, fzn_rpc_link_list_resp_t *out);
+int fzn_rpc_leg_list(fzn_rpc_t *c, fzn_rpc_leg_list_resp_t *out);
 int fzn_rpc_location_status(fzn_rpc_t *c, fzn_rpc_location_status_resp_t *out);
 /* Every contact whose position this host holds, with the newest fix, from one
  * walk of the listing, sorted by name. Asked a contact at a time, each ask

@@ -449,7 +449,7 @@ static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *reques
                                 size_t cap);
 static size_t address_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
-static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+static size_t leg_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap);
 /* WHO IS RESPONSIBLE FOR A KEY, sec 820, over the estate's hosts. */
 static fzn_node_responsible_t node_responsible;
@@ -613,7 +613,7 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	if (!n)
 		n = address_local(origin, request, reply, reply_cap);
 	if (!n)
-		n = link_local(origin, request, reply, reply_cap);
+		n = leg_local(origin, request, reply, reply_cap);
 	if (!n && node_responsible.host_at)
 		n = fzn_node_responsible_local(&node_responsible, origin, request, reply, reply_cap);
 	if (!n)
@@ -1722,37 +1722,37 @@ static int silent_peer(const struct pull_target *pt);
 static void silent_mark(const struct pull_target *pt);
 static void silent_heard(const struct pull_target *pt);
 
-/* ---- links and traffic, sec 631 ------------------------------------------------
+/* ---- legs and traffic, sec 631 -------------------------------------------------
  *
- * WHAT EACH LINK IS DOING, measured where this daemon asks its peers: a link
- * is one address, as fuzzypickles' link has it, its latency and loss the
- * `link/` table's estimate -- a pessimistic prior that every answer and every
+ * WHAT EACH LEG IS DOING, measured where this daemon asks its peers: a leg
+ * is this host to one address (sec 906's word, sec 1075), its latency and
+ * loss an estimate -- a pessimistic prior that every answer and every
  * silence moves -- and beside it what crossed it: requests asked and
  * answered, bytes sent and received. In memory only, as fuzzypickles kept
- * theirs: a restart begins again. Read with `list leg` (sec 1075; `list link` before). */
+ * theirs: a restart begins again. Read with `list leg`. */
 
-/* NO LINK: one met when no room could be had for it. */
-#define FZND_LINK_NONE SIZE_MAX
-/* THE PRIOR, pessimistic as `link.h` asks: a link nothing has answered on
+/* NO LEG: one met when no room could be had for it. */
+#define FZND_LEG_NONE SIZE_MAX
+/* THE PRIOR, pessimistic as `link.h` asks: a leg nothing has answered on
  * is not made to look instant. */
-#define FZND_LINK_PRIOR_MS 1000u
-#define FZND_LINK_PRIOR_LOSS 250u
+#define FZND_LEG_PRIOR_MS 1000u
+#define FZND_LEG_PRIOR_LOSS 250u
 
-/* A LINK'S ESTIMATES ON THE METRIC LAYER, sec 1056: `link/HOST:PORT/latency` and
- * `.../loss`, where sec 631 kept a `link/` table of 64 of its own. Its counts
- * beside them; both grown as links are met, so none goes unmeasured for want
- * of room (sec 704). */
-static fzn_metrics_t link_metrics;
-static fzn_metric_t *link_metric_rows;
-static struct link_meter {
+/* A LEG'S ESTIMATES ON THE METRIC LAYER, sec 1056: `leg/HOST:PORT/latency` and
+ * `.../loss`, where sec 631 kept a table of 64 of its own. Its counts beside
+ * them; both grown as legs are met, so none goes unmeasured for want of
+ * room (sec 704). */
+static fzn_metrics_t leg_metrics;
+static fzn_metric_t *leg_metric_rows;
+static struct leg_meter {
 	fzn_udp_addr_t at;
 	char latency[FZN_METRIC_NAME_MAX + 1u], loss[FZN_METRIC_NAME_MAX + 1u];
 	uint64_t asked, answered, sent, received;
-} *link_meters;
-static size_t n_link_meters, link_meters_cap;
-/* Links met when no room could be had: not measured, and counted so `list leg`
+} *leg_meters;
+static size_t n_leg_meters, leg_meters_cap;
+/* Legs met when no room could be had: not measured, and counted so `list leg`
  * says so rather than reading as everything. */
-static uint64_t links_unmeasured;
+static uint64_t legs_unmeasured;
 
 static uint64_t mono_ms(void)
 {
@@ -1820,89 +1820,89 @@ static void loop_after_answering(const fzn_node_state_t *s)
 	loop_free_ms = mono_ms();
 }
 
-/* ROOM FOR ONE MORE LINK: its counts and its two metrics, grown together. */
-static int link_room(void)
+/* ROOM FOR ONE MORE LEG: its counts and its two metrics, grown together. */
+static int leg_room(void)
 {
 	size_t cap;
-	struct link_meter *more;
+	struct leg_meter *more;
 	fzn_metric_t *rows;
 
-	if (!link_metrics.rows)
-		fzn_metrics_init(&link_metrics);
-	if (n_link_meters < link_meters_cap && link_metrics.n + 2u <= link_metrics.cap)
+	if (!leg_metrics.rows)
+		fzn_metrics_init(&leg_metrics);
+	if (n_leg_meters < leg_meters_cap && leg_metrics.n + 2u <= leg_metrics.cap)
 		return 1;
-	cap = link_meters_cap ? 2u * link_meters_cap : 16u;
-	more = realloc(link_meters, cap * sizeof(*more));
+	cap = leg_meters_cap ? 2u * leg_meters_cap : 16u;
+	more = realloc(leg_meters, cap * sizeof(*more));
 	if (!more)
 		return 0;
-	link_meters = more;
-	link_meters_cap = cap;
-	if (link_metrics.n + 2u > link_metrics.cap) {
+	leg_meters = more;
+	leg_meters_cap = cap;
+	if (leg_metrics.n + 2u > leg_metrics.cap) {
 		rows = calloc(2u * cap, sizeof(*rows));
-		if (!rows || !fzn_metrics_use(&link_metrics, rows, 2u * cap)) {
+		if (!rows || !fzn_metrics_use(&leg_metrics, rows, 2u * cap)) {
 			free(rows);
 			return 0;
 		}
-		free(link_metric_rows);
-		link_metric_rows = rows;
+		free(leg_metric_rows);
+		leg_metric_rows = rows;
 	}
 	return 1;
 }
 
-/* THE LINK TO `at`, its metrics opened at the prior when first met; its index,
- * or FZND_LINK_NONE when no room could be had. */
-static size_t link_of(const fzn_udp_addr_t *at)
+/* THE LEG TO `at`, its metrics opened at the prior when first met; its index,
+ * or FZND_LEG_NONE when no room could be had. */
+static size_t leg_of(const fzn_udp_addr_t *at)
 {
-	struct link_meter *m;
+	struct leg_meter *m;
 	char host[FZN_UDP_HOST_MAX];
 	uint16_t port = 0;
 	size_t i;
 
-	for (i = 0; i < n_link_meters; i++)
-		if (link_meters[i].at.len == at->len
-		    && memcmp(link_meters[i].at.storage, at->storage, at->len) == 0)
+	for (i = 0; i < n_leg_meters; i++)
+		if (leg_meters[i].at.len == at->len
+		    && memcmp(leg_meters[i].at.storage, at->storage, at->len) == 0)
 			return i;
-	if (!link_room() || fzn_udp_addr_text(at, host, &port) != FZN_UDP_OK) {
-		links_unmeasured++;
-		return FZND_LINK_NONE;
+	if (!leg_room() || fzn_udp_addr_text(at, host, &port) != FZN_UDP_OK) {
+		legs_unmeasured++;
+		return FZND_LEG_NONE;
 	}
-	m = &link_meters[n_link_meters];
+	m = &leg_meters[n_leg_meters];
 	memset(m, 0, sizeof(*m));
 	m->at = *at;
 	(void)snprintf(m->latency, sizeof(m->latency), "leg/%s:%u/latency", host, (unsigned)port);
 	(void)snprintf(m->loss, sizeof(m->loss), "leg/%s:%u/loss", host, (unsigned)port);
-	if (!fzn_metrics_open(&link_metrics, m->latency, FZND_LINK_PRIOR_MS)
-	    || !fzn_metrics_open(&link_metrics, m->loss, FZND_LINK_PRIOR_LOSS)) {
-		links_unmeasured++;
-		return FZND_LINK_NONE;
+	if (!fzn_metrics_open(&leg_metrics, m->latency, FZND_LEG_PRIOR_MS)
+	    || !fzn_metrics_open(&leg_metrics, m->loss, FZND_LEG_PRIOR_LOSS)) {
+		legs_unmeasured++;
+		return FZND_LEG_NONE;
 	}
-	return n_link_meters++;
+	return n_leg_meters++;
 }
 
 static int next_word(const uint8_t **at, size_t *left, const uint8_t **w, size_t *w_len);
 static int word_number(const uint8_t *w, size_t n, long long lo, long long hi, long long *out);
 
 /* ONE ROW OF `list leg`, ` HOST:PORT,LATENCY,...`: its length, 0 for a
- * link that will not render. Room for the longest row: an address and nine
+ * leg that will not render. Room for the longest row: an address and nine
  * numbers. */
-#define LINK_ROW_MAX (1u + FZN_UDP_HOST_MAX + 6u + 8u * 21u + 1u)
+#define LEG_ROW_MAX (1u + FZN_UDP_HOST_MAX + 6u + 8u * 21u + 1u)
 
-/* WHAT `list leg` SAYS OF ONE LINK, both forms' (sec 1183): 0 for a link
+/* WHAT `list leg` SAYS OF ONE LEG, both forms' (sec 1183): 0 for a leg
  * that will not render. */
-struct link_fact {
+struct leg_fact {
 	char host[FZN_UDP_HOST_MAX];
 	uint16_t port;
 	int observed;
 	uint64_t latency, loss, observations, age, asked, answered, sent, received;
 };
 
-static int link_fact_of(size_t i, uint64_t now, struct link_fact *f)
+static int leg_fact_of(size_t i, uint64_t now, struct leg_fact *f)
 {
-	const struct link_meter *m = &link_meters[i];
-	const fzn_metric_t *l = fzn_metrics_get(&link_metrics, m->latency);
+	const struct leg_meter *m = &leg_meters[i];
+	const fzn_metric_t *l = fzn_metrics_get(&leg_metrics, m->latency);
 	/* A LINK'S OBSERVATIONS ARE ITS LOSS'S: every answer and every silence
 	 * moves it, where only an answer moves the latency (sec 202). */
-	const fzn_metric_t *e = fzn_metrics_get(&link_metrics, m->loss);
+	const fzn_metric_t *e = fzn_metrics_get(&leg_metrics, m->loss);
 
 	memset(f, 0, sizeof(*f));
 	if (!l || !e || fzn_udp_addr_text(&m->at, f->host, &f->port) != FZN_UDP_OK)
@@ -1921,13 +1921,13 @@ static int link_fact_of(size_t i, uint64_t now, struct link_fact *f)
 	return 1;
 }
 
-static size_t link_row(size_t i, uint64_t now, char *row, size_t cap)
+static size_t leg_row(size_t i, uint64_t now, char *row, size_t cap)
 {
-	struct link_fact f;
+	struct leg_fact f;
 	char lat[24], loss[24], age[24];
 	int k;
 
-	if (!link_fact_of(i, now, &f))
+	if (!leg_fact_of(i, now, &f))
 		return 0;
 	if (f.observed) {
 		(void)snprintf(lat, sizeof(lat), "%llu", (unsigned long long)f.latency);
@@ -1948,19 +1948,19 @@ static size_t link_row(size_t i, uint64_t now, char *row, size_t cap)
 static uint64_t host_number(const char *key, uint64_t def);
 
 /* METRICS LOGGED BY CONFIGURATION, sec 1053, sec 1034's step: `metric/log/leg`,
- * a host's setting of seconds, has each link with an observation logged at info
+ * a host's setting of seconds, has each leg with an observation logged at info
  * under `metric/leg` every so many seconds -- its address, latency, loss,
  * observations, asked and answered -- so a peer's latency has a history, and
  * the log's retention, packing and gathering apply to it unchanged. Unset, the
  * default, nothing is logged; the schema holds it to 10 s at the least, so a
  * misconfigured one cannot flood the log that would report it. */
-static void metric_log_links(uint64_t now)
+static void metric_log_legs(uint64_t now)
 {
 	static uint64_t next;
-	/* MONOTONIC, as a link's observations are stamped: the wall clock read
+	/* MONOTONIC, as a leg's observations are stamped: the wall clock read
 	 * against them made every logged AGE wrong (sec 1056). */
 	uint64_t every = host_number("metric/log/leg", 0u), now_ms = mono_ms();
-	char row[LINK_ROW_MAX];
+	char row[LEG_ROW_MAX];
 	size_t i;
 
 	if (!every) {
@@ -1972,10 +1972,10 @@ static void metric_log_links(uint64_t now)
 	if (next && now < next)
 		return;
 	next = now + every;
-	for (i = 0; i < n_link_meters; i++) {
-		const fzn_metric_t *e = fzn_metrics_get(&link_metrics, link_meters[i].loss);
+	for (i = 0; i < n_leg_meters; i++) {
+		const fzn_metric_t *e = fzn_metrics_get(&leg_metrics, leg_meters[i].loss);
 
-		if (e && e->observations && link_row(i, now_ms, row, sizeof(row)))
+		if (e && e->observations && leg_row(i, now_ms, row, sizeof(row)))
 			say(FZN_ENTRY_INFO, "metric/leg", "%s", row + 1);
 	}
 }
@@ -1983,7 +1983,7 @@ static void metric_log_links(uint64_t now)
 /* AND THE METER'S FAMILIES, sec 1054: `metric/log/meter` has each family that
  * carried anything said under `metric/meter` -- its name, bytes up and down
  * since its rows appeared, the last window's rates, and how many peers its rows
- * hold -- every so many seconds, as `metric/log/leg` has the links. */
+ * hold -- every so many seconds, as `metric/log/leg` has the legs. */
 static void metric_log_meter(uint64_t now)
 {
 	static uint64_t next;
@@ -2012,9 +2012,9 @@ static void metric_log_meter(uint64_t now)
 	}
 }
 
-/* `list leg [FROM]`, sec 631 and 1075 (`list link` until then): `ok COUNT UNMEASURED` and per link
+/* `list leg [FROM]`, sec 631 and 1075 (`list link` until then): `ok COUNT UNMEASURED` and per leg
  * `HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED` --
- * latency in ms and loss per mille as estimated, `-` for both on a link
+ * latency in ms and loss per mille as estimated, `-` for both on a leg
  * nothing has been observed on (sec 202: a prior is no measurement), age the
  * seconds since the last observation.
  *
@@ -2024,14 +2024,14 @@ static void metric_log_meter(uint64_t now)
  * fifteen of the table's 64 -- and fuzzypickles' client, rightly refusing a
  * listing short of its count, read every node past that as unreadable. The
  * bare form now answers in full or says it does not fit. */
-static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+static size_t leg_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap)
 {
 	const uint8_t *at = request->arg, *w, *fw;
 	size_t left = request->arg_len, w_len, fw_len, out, i, total = 0, index = 0, rlen;
 	uint64_t now = mono_ms();
 	long long from = -1;
-	char row[LINK_ROW_MAX];
+	char row[LEG_ROW_MAX];
 
 	if (request->parsed != FZN_VERB_LIST || !at || !next_word(&at, &left, &w, &w_len)
 	    || w_len != 3u || memcmp(w, "leg", 3u) != 0)
@@ -2042,14 +2042,14 @@ static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char
 	/* THIS NODE'S OWN USER'S, sec 763: every peer's address. */
 	if (fzn_node_relay_refuse_local(origin))
 		return (size_t)snprintf(reply, cap, "denied %s\n", fzn_node_relay_refuse_local(origin));
-	for (i = 0; i < n_link_meters; i++)
-		total += link_row(i, now, row, sizeof(row)) > 0u;
+	for (i = 0; i < n_leg_meters; i++)
+		total += leg_row(i, now, row, sizeof(row)) > 0u;
 	out = from >= 0 ? (size_t)snprintf(reply, cap, "ok %zu %llu %lld", total,
-	                                   (unsigned long long)links_unmeasured, from)
+	                                   (unsigned long long)legs_unmeasured, from)
 	                : (size_t)snprintf(reply, cap, "ok %zu %llu", total,
-	                                   (unsigned long long)links_unmeasured);
-	for (i = 0; i < n_link_meters; i++) {
-		if (!(rlen = link_row(i, now, row, sizeof(row))))
+	                                   (unsigned long long)legs_unmeasured);
+	for (i = 0; i < n_leg_meters; i++) {
+		if (!(rlen = leg_row(i, now, row, sizeof(row))))
 			continue;
 		if (from >= 0 && index++ < (size_t)from)
 			continue;
@@ -2067,33 +2067,33 @@ static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char
 	return out + (size_t)snprintf(reply + out, cap - out, "\n");
 }
 
-/* A REQUEST SENT on link `li`, counted. */
-static void link_asked(size_t li, size_t request_len)
+/* A REQUEST SENT on leg `leg`, counted. */
+static void leg_asked(size_t leg, size_t request_len)
 {
-	if (li < n_link_meters) {
-		link_meters[li].asked++;
-		link_meters[li].sent += request_len;
+	if (leg < n_leg_meters) {
+		leg_meters[leg].asked++;
+		leg_meters[leg].sent += request_len;
 	}
 }
 
 /* ITS ANSWER, `reply_len` bytes `began` ms after it was sent; or with `lost`
  * none. */
-static void link_answered(size_t li, uint64_t began, size_t reply_len, int lost)
+static void leg_answered(size_t leg, uint64_t began, size_t reply_len, int lost)
 {
 	uint64_t ended = mono_ms();
 
-	if (li >= n_link_meters)
+	if (leg >= n_leg_meters)
 		return;
 	/* A LOSS MOVES THE LOSS ALONE: a silence has no round trip (sec 202). */
 	if (lost) {
-		(void)fzn_metrics_observe(&link_metrics, link_meters[li].loss, 1000u, ended);
+		(void)fzn_metrics_observe(&leg_metrics, leg_meters[leg].loss, 1000u, ended);
 		return;
 	}
-	link_meters[li].answered++;
-	link_meters[li].received += reply_len;
-	(void)fzn_metrics_observe(&link_metrics, link_meters[li].latency,
+	leg_meters[leg].answered++;
+	leg_meters[leg].received += reply_len;
+	(void)fzn_metrics_observe(&leg_metrics, leg_meters[leg].latency,
 	                          ended > began ? ended - began : 0u, ended);
-	(void)fzn_metrics_observe(&link_metrics, link_meters[li].loss, 0u, ended);
+	(void)fzn_metrics_observe(&leg_metrics, leg_meters[leg].loss, 0u, ended);
 }
 
 /* A REFUSAL IN WORDS, sec 455: every binary message here opens with a small
@@ -2360,24 +2360,24 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 {
 	struct peer_asking *asking = (struct peer_asking *)ctx;
 	uint32_t msg = 0;
-	size_t li = link_of(&asking->caller->node);
+	size_t leg = leg_of(&asking->caller->node);
 	uint64_t began = mono_ms();
 
 	if (asking->pt && silent_peer(asking->pt))
 		return 0;
 	/* ITS ENVELOPE, if any, is the caller's `wrap`, sec 465. */
-	link_asked(li, request_len);
+	leg_asked(leg, request_len);
 	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
 	            != FZN_CALLER_OK
 	    || recv_answering(asking->caller, msg, request, request_len, asking->now + 300u, reply,
 	                      reply_cap, reply_len)
 	               != FZN_CALLER_OK) {
-		link_answered(li, began, 0, 1);
+		leg_answered(leg, began, 0, 1);
 		if (asking->pt)
 			silent_mark(asking->pt);
 		return 0;
 	}
-	link_answered(li, began, *reply_len, 0);
+	leg_answered(leg, began, *reply_len, 0);
 	if (asking->pt)
 		silent_heard(asking->pt);
 	said_refusal(asking->host, reply, *reply_len);
@@ -2711,7 +2711,7 @@ static void round_talk_over(void *ctx)
 struct meter {
 	const struct pull_target *pt;
 	int silences; /* a round target, passed over once silent; a contact's host is not */
-	size_t li;
+	size_t leg;
 	const char *host;
 	uint64_t began;
 };
@@ -2722,7 +2722,7 @@ struct meter {
  * every later step would otherwise wait out its silence again. */
 static void meter_answer(struct meter *m, const uint8_t *reply, size_t reply_len)
 {
-	link_answered(m->li, m->began, reply_len, !reply);
+	leg_answered(m->leg, m->began, reply_len, !reply);
 	if (reply) {
 		if (m->pt && m->silences)
 			silent_heard(m->pt);
@@ -2733,7 +2733,7 @@ static void meter_answer(struct meter *m, const uint8_t *reply, size_t reply_len
 
 static void meter_asked(struct meter *m, size_t request_len)
 {
-	link_asked(m->li, request_len);
+	leg_asked(m->leg, request_len);
 	m->began = mono_ms();
 }
 
@@ -2759,7 +2759,7 @@ static int talk_start_over(fzn_node_talk_t *talk, struct meter *m, const struct 
 {
 	m->pt = pt;
 	m->silences = silences;
-	m->li = link_of(&pt->caller.node);
+	m->leg = leg_of(&pt->caller.node);
 	m->host = pt->host;
 	meter_asked(m, len);
 	if (fzn_node_talk_start(talk, &round_asks, (fzn_caller_t *)&pt->caller, now + 300u, 3000u,
@@ -2767,7 +2767,7 @@ static int talk_start_over(fzn_node_talk_t *talk, struct meter *m, const struct 
 		round_pending++;
 		return 1;
 	}
-	link_answered(m->li, m->began, 0, 1);
+	leg_answered(m->leg, m->began, 0, 1);
 	if (m->silences)
 		silent_mark(pt);
 	return 0;
@@ -18492,7 +18492,7 @@ static int local_transfers(int fd, fzn_origin_t origin, const uint8_t *msg, size
 
 #include "../wire/generated/reach_local.h"
 #include "../wire/generated/reach_local_build.h"
-/* THE LINKS IN BINARY, sec 1183: `list leg`'s summary and every row in one
+/* THE LEGS IN BINARY, sec 1183: `list leg`'s summary and every row in one
  * answer, then a STATUS ok, refused to whom the text verb refuses. */
 static int local_legs(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
@@ -18510,17 +18510,17 @@ static int local_legs(int fd, fzn_origin_t origin, const uint8_t *msg, size_t le
 	    || fzn_reach_local_message_validate(v) != SITU_OK
 	    || fzn_reach_local_message_op_get(v) != FZN_REACH_LOCAL_OP_LEGS)
 		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a links request"), 0;
-	if (fzn_reach_local_legs_summary_build(row, sizeof(row), (uint64_t)links_unmeasured, &row_len) != SITU_OK
+	if (fzn_reach_local_legs_summary_build(row, sizeof(row), (uint64_t)legs_unmeasured, &row_len) != SITU_OK
 	    || fzn_reach_local_message_build_legs_summary(out, sizeof(out), (uint8_t)FZN_CMD_REACH, row, row_len,
 	                                                  &out_len) != SITU_OK
 	    || !local_put(&fd, out, out_len))
 		return 0;
-	for (i = 0; i < n_link_meters; i++) {
-		struct link_fact f;
+	for (i = 0; i < n_leg_meters; i++) {
+		struct leg_fact f;
 		char address[FZN_UDP_HOST_MAX + 8u];
 		int n;
 
-		if (!link_fact_of(i, now, &f))
+		if (!leg_fact_of(i, now, &f))
 			continue;
 		n = snprintf(address, sizeof(address), "%s:%u", f.host, (unsigned)f.port);
 		if (n <= 0 || (size_t)n >= sizeof(address)
@@ -21409,7 +21409,7 @@ static void deliver_host(struct deliver_talk *dt)
 		}
 		dt->m.pt = dt->hosts[dt->at].pt;
 		dt->m.silences = 0;
-		dt->m.li = link_of(&dt->hosts[dt->at].pt->caller.node);
+		dt->m.leg = leg_of(&dt->hosts[dt->at].pt->caller.node);
 		dt->m.host = dt->hosts[dt->at].name;
 	}
 	dt->err = fzn_node_messages_deliver_begin(&dt->d, &node_messages, dt->contact, dt->settle,
@@ -25616,7 +25616,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				 * at the next round. sec 433. */
 				/* HELLO to the peers it pulls from, sec 622. */
 				say_hello(pulls, npulls, state.udp_fd, now);
-				metric_log_links(now);
+				metric_log_legs(now);
 				metric_log_meter(now);
 				/* A STREAM FETCH ASKED, at once, sec 632; WHERE THIS HOST IS
 				 * SEEN, asked now, sec 621: each a plan of its own, every host
