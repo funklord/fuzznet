@@ -569,6 +569,25 @@ static uint64_t fixed_clock(void)
 	return 3000u;
 }
 
+/* A REPLY IN PIECES, sec 1214: 2000 bytes, two pieces, which the test's
+ * one 2048-byte reassembly slot holds; a byte each of its offset. */
+#define BIG_REPLY 2000u
+
+static size_t answer_big(void *ctx, fzn_node_remote_result_t result, const fzn_opened_t *req,
+                         uint8_t *reply, size_t reply_cap)
+{
+	size_t i;
+
+	(void)ctx;
+	(void)req;
+	if (result != FZN_NODE_REMOTE_GRANTED || reply_cap < BIG_REPLY)
+		return 0;
+	handler_runs++;
+	for (i = 0; i < BIG_REPLY; i++)
+		reply[i] = (uint8_t)(i * 7u);
+	return BIG_REPLY;
+}
+
 /* A HANDLER THAT RELOADS THE RUNNING PEER SET while it answers, as pairing
  * a device from inside a request does: the slot the request's peer was
  * found in now holds another peer's session. sec 614. */
@@ -640,6 +659,22 @@ static void on_answer(void *ctx, const uint8_t *reply, size_t len)
 		answers++;
 	else if (!reply)
 		failures_seen++;
+}
+
+/* A REPLY IN PIECES ANSWERED WHOLE, sec 1214: counted when it is the big one. */
+static unsigned big_answers;
+
+static void on_big_answer(void *ctx, const uint8_t *reply, size_t len)
+{
+	size_t i;
+
+	(void)ctx;
+	if (!reply || len != BIG_REPLY)
+		return;
+	for (i = 0; i < len; i++)
+		if (reply[i] != (uint8_t)(i * 7u))
+			return;
+	big_answers++;
 }
 
 /* An ask's own resend, sec 756: counted. */
@@ -1676,6 +1711,115 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			(void)fzn_caller_recv(&caller, m, reply, sizeof(reply), &reply_len, 2000u);
 			CHECK(handler_runs == ran + 1, "control: a node keeping no replies ran a resend once");
 			caller.next_msg = again;
+			fzn_node_replies_free(&replies);
+		}
+
+		/* A REPLY'S MISSING PIECES, ASKED AGAIN, sec 1214: of a reply in two
+		 * pieces the first is lost; the caller, holding the second, asks for
+		 * the first by name, and the node sends it alone, from its kept
+		 * reply, without running its handler again -- and the reply arrives
+		 * whole. */
+		{
+			static fzn_node_reply_kept_t kept[8];
+			static fzn_node_replies_t replies;
+			static uint8_t big[BIG_REPLY], got[BIG_REPLY];
+			size_t whole_len = 0, missing = 0;
+			uint8_t lost[FZN_UDP_DATAGRAM_MAX];
+			size_t (*was)(void *, fzn_node_remote_result_t, const fzn_opened_t *, uint8_t *, size_t) =
+			        state.on_remote;
+			uint8_t *was_reply = state.reply;
+			size_t was_cap = state.reply_cap;
+			int ok = 1;
+
+			CHECK(fzn_node_replies_init(&replies, kept, 8u, 1u << 16, FZN_NODE_REPLIES_TTL_S, &hash_ops),
+			      "fixture: the replies kept");
+			state.replies = &replies;
+			state.on_remote = answer_big;
+			state.reply = big;
+			state.reply_cap = sizeof(big);
+			state.wants_answered = state.pieces_sent_again = 0;
+			handler_runs = 0;
+			CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &m) == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1,
+			      "fixture: a request answered in pieces");
+			/* ONE LOST: read off the socket and dropped, as the network would. */
+			ok = recv(caller.fd, lost, sizeof(lost), 0) > 0;
+			CHECK(ok && fzn_caller_recv_for(&caller, m, got, sizeof(got), &whole_len, 300u)
+			                    == FZN_CALLER_ERR_TIMEOUT
+			              && fzn_caller_holds_part(&caller, m) && fzn_caller_missing(&caller, m) == 1u,
+			      "fixture: one piece of two held, one missing");
+			CHECK(fzn_caller_want(&caller, m, 3500u, &missing) == FZN_CALLER_OK && missing == 1u
+			              && fzn_node_run_once(&state, 1000) == 1,
+			      "the missing piece was not asked for");
+			CHECK(fzn_caller_recv_for(&caller, m, got, sizeof(got), &whole_len, 2000u) == FZN_CALLER_OK
+			              && whole_len == BIG_REPLY && memcmp(got, big, BIG_REPLY) == 0,
+			      "the reply was not whole once its missing piece came");
+			CHECK(state.wants_answered == 1u && state.pieces_sent_again == 1u && handler_runs == 1,
+			      "the node sent more than the piece asked, or ran its handler again");
+			/* NOTHING HELD, NOTHING TO ASK. */
+			CHECK(fzn_caller_want(&caller, m, 3500u, &missing) == FZN_CALLER_ERR_MALFORMED,
+			      "a whole reply was asked after");
+			/* AND A REPLY THIS NODE DOES NOT KEEP, asked after, sends nothing. */
+			state.replies = NULL;
+			state.pieces_sent_again = 0;
+			CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &m) == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1,
+			      "fixture: a reply in pieces, none kept");
+			ok = recv(caller.fd, lost, sizeof(lost), 0) > 0;
+			(void)fzn_caller_recv_for(&caller, m, got, sizeof(got), &whole_len, 300u);
+			CHECK(ok && fzn_caller_want(&caller, m, 3500u, &missing) == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1 && state.pieces_sent_again == 0u,
+			      "a node keeping no replies sent pieces again");
+			fzn_caller_forget(&caller, m);
+
+			/* AND THE ASK TABLE CHOOSES IT, sec 1214: part in, its resend is a
+			 * want for the piece missing; from a node keeping no reply the
+			 * want brings nothing, so the resend after it is whole. */
+			{
+				static fzn_node_asks_t asks;
+				static uint8_t asks_reply[BIG_REPLY];
+				size_t ran;
+
+				fzn_node_asks_init(&asks, asks_reply, sizeof(asks_reply), ask_clock);
+				ask_now = 1000u;
+				state.replies = &replies;
+				state.wants_answered = state.pieces_sent_again = 0;
+				big_answers = 0;
+				CHECK(fzn_node_asks_send(&asks, &caller, PING, sizeof(PING), 3500u, 3000u, on_big_answer,
+				                         NULL)
+				              && fzn_node_run_once(&state, 1000) == 1
+				              && recv(caller.fd, lost, sizeof(lost), 0) > 0,
+				      "fixture: an ask answered in two pieces, the first lost");
+				(void)fzn_node_asks_ready(&asks, caller.fd);
+				ask_now += FZN_CALLER_RESEND_PART_MS;
+				(void)fzn_node_asks_expire(&asks);
+				CHECK(fzn_node_run_once(&state, 1000) == 1 && fzn_node_asks_ready(&asks, caller.fd) == 1
+				              && big_answers == 1u && state.wants_answered == 1u
+				              && state.pieces_sent_again == 1u,
+				      "an ask part in was not completed by a want for its missing piece");
+				state.replies = NULL;
+				state.wants_answered = 0;
+				ran = (size_t)handler_runs;
+				CHECK(fzn_node_asks_send(&asks, &caller, PING, sizeof(PING), 3500u, 3000u, on_big_answer,
+				                         NULL)
+				              && fzn_node_run_once(&state, 1000) == 1
+				              && recv(caller.fd, lost, sizeof(lost), 0) > 0,
+				      "fixture: an ask to a node keeping no reply, its first piece lost");
+				(void)fzn_node_asks_ready(&asks, caller.fd);
+				ask_now += FZN_CALLER_RESEND_PART_MS;
+				(void)fzn_node_asks_expire(&asks);
+				(void)fzn_node_run_once(&state, 300);
+				ask_now += FZN_CALLER_RESEND_PART_MS;
+				(void)fzn_node_asks_expire(&asks);
+				CHECK(fzn_node_run_once(&state, 1000) == 1 && fzn_node_asks_ready(&asks, caller.fd) >= 1
+				              && big_answers == 2u && state.wants_answered == 0u
+				              && (size_t)handler_runs == ran + 2u,
+				      "a want that brought nothing was not followed by a whole resend");
+				state.replies = &replies;
+			}
+			state.on_remote = was;
+			state.reply = was_reply;
+			state.reply_cap = was_cap;
 			fzn_node_replies_free(&replies);
 		}
 

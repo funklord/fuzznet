@@ -53,6 +53,20 @@ int main(void)
 	              && fzn_node_replies_init(&r, kept, 4u, 64u, 6u, &TOY),
 	      "a bound of no bytes was taken, or a sound one refused");
 
+	/* ITS PIECES WANTED AGAIN, sec 1214: found by sender and message
+	 * whatever the request's bytes, FZN_NODE_REPLIES_WANTS_MAX times and
+	 * then no more; another sender's never. */
+	fzn_node_replies_keep(&r, a, 9u, 0u, B("big"), 100u, B("piece"));
+	for (i = 0; i < (int)FZN_NODE_REPLIES_WANTS_MAX; i++)
+		CHECK(fzn_node_replies_find_wanted(&r, a, 9u, 101u, &len) != NULL && len == 5u,
+		      "a kept reply was not found by its sender and message for its pieces");
+	CHECK(fzn_node_replies_find_wanted(&r, a, 9u, 101u, &len) == NULL,
+	      "a kept reply's pieces were sent again past FZN_NODE_REPLIES_WANTS_MAX");
+	CHECK(fzn_node_replies_find_wanted(&r, b, 9u, 101u, &len) == NULL,
+	      "another sender's kept reply was found for its pieces");
+	fzn_node_replies_free(&r);
+	CHECK(fzn_node_replies_init(&r, kept, 4u, 64u, 6u, &TOY), "fixture: the table again");
+
 	/* FOUND BY ALL THREE, and by nothing less. */
 	fzn_node_replies_keep(&r, a, 7u, 0u, B("ping"), 100u, B("pong"));
 	got = fzn_node_replies_find(&r, a, 7u, B("ping"), 101u, &len);

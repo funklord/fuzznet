@@ -38,6 +38,8 @@ int fzn_node_asks_await(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t ms
 	asks->entries[i].sent_at_ms = asks->clock_ms();
 	asks->entries[i].again = NULL;
 	asks->entries[i].again_ctx = NULL;
+	asks->entries[i].wanted = 0;
+	asks->entries[i].missing_at_want = 0;
 	asks->entries[i].used = 1;
 	return 1;
 }
@@ -170,6 +172,29 @@ static uint64_t resend_due(const fzn_node_ask_t *e, unsigned *most)
 	return e->resend_at_ms;
 }
 
+/* THE MISSING PIECES ASKED FOR IN PLACE OF A WHOLE RESEND, sec 1214, once
+ * part of the reply is in: 1 when a want went. Not after a want that
+ * brought nothing, which the whole resend follows. */
+static int want_instead(fzn_node_ask_t *e)
+{
+	size_t missing, asked = 0;
+
+	if (!fzn_caller_holds_part(e->caller, e->msg))
+		return 0;
+	missing = fzn_caller_missing(e->caller, e->msg);
+	if (e->wanted && missing >= e->missing_at_want) {
+		e->wanted = 0;
+		return 0;
+	}
+	if (fzn_caller_want(e->caller, e->msg, e->expires_at, &asked) != FZN_CALLER_OK) {
+		e->wanted = 0;
+		return 0;
+	}
+	e->wanted = 1;
+	e->missing_at_want = asked;
+	return 1;
+}
+
 size_t fzn_node_asks_expire(fzn_node_asks_t *asks)
 {
 	size_t i, failed = 0;
@@ -187,11 +212,12 @@ size_t fzn_node_asks_expire(fzn_node_asks_t *asks)
 
 		if (e->used && (e->request || e->again) && e->resends < most
 		    && now >= due && now + FZN_CALLER_RESEND_PART_MS / 2u < e->deadline_ms) {
-			if (e->again)
+			if (e->again) {
 				e->again(e->again_ctx);
-			else
+			} else if (!want_instead(e)) {
 				(void)fzn_caller_resend(e->caller, e->request, e->request_len,
 				                        e->expires_at, e->msg);
+			}
 			e->resends++;
 			e->sent_at_ms = now;
 			e->resend_at_ms = now + FZN_CALLER_RESEND_MS;

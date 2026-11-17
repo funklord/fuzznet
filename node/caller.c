@@ -4,6 +4,10 @@
 
 #include "caller.h"
 
+#include "../wire/cmd.h"
+#include "../wire/generated/want.h"
+#include "../wire/generated/want_build.h"
+
 #include <errno.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -107,6 +111,9 @@ static uint64_t in_our_terms(const fzn_caller_t *caller, uint64_t expires_at)
 
 static fzn_caller_err_t send_as(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
                                 uint64_t expires_at, uint32_t msg);
+static fzn_caller_err_t send_sealed(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
+                                    uint64_t expires_at, uint32_t msg, int wrap);
+static void settle(fzn_caller_t *caller, uint32_t msg);
 static int forgotten(fzn_caller_t *caller, uint32_t msg, int drop);
 
 fzn_caller_err_t fzn_caller_resend(fzn_caller_t *caller, const uint8_t *payload,
@@ -148,6 +155,74 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 static fzn_caller_err_t send_as(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
                                 uint64_t expires_at, uint32_t msg)
 {
+	return send_sealed(caller, payload, payload_len, expires_at, msg, 1);
+}
+
+size_t fzn_caller_missing(const fzn_caller_t *caller, uint32_t msg)
+{
+	fzn_reasm_range_t runs[FZN_CALLER_WANT_RUNS];
+	size_t n = 0, i, missing = 0;
+
+	if (!caller || !caller->reasm || !caller->answerer_known
+	    || fzn_reasm_plan_want(caller->reasm, caller->answerer, msg, UINT16_MAX, runs,
+	                           FZN_CALLER_WANT_RUNS, &n)
+	               != FZN_REASM_OK)
+		return 0;
+	for (i = 0; i < n && i < FZN_CALLER_WANT_RUNS; i++)
+		missing += runs[i].count;
+	return missing;
+}
+
+fzn_caller_err_t fzn_caller_want(fzn_caller_t *caller, uint32_t msg, uint64_t expires_at,
+                                 size_t *missing)
+{
+	fzn_reasm_range_t runs[FZN_CALLER_WANT_RUNS];
+	uint8_t ranges[FZN_CALLER_WANT_RUNS * 4u], pieces[4u + 1u + sizeof(ranges)], out[2u + sizeof(pieces)];
+	uint32_t ranges_len = 0, pieces_len = 0, out_len = 0, w = 0;
+	size_t n = 0, i;
+	uint32_t asked;
+	fzn_caller_err_t err;
+
+	if (!caller || !missing)
+		return FZN_CALLER_ERR_MALFORMED;
+	*missing = 0;
+	/* THE RUNS MISSING, from this caller's own table: nothing held, nothing
+	 * to ask after. A run is at most a reply's whole, so no bound per run. */
+	if (!caller->reasm || !caller->answerer_known
+	    || fzn_reasm_plan_want(caller->reasm, caller->answerer, msg, UINT16_MAX, runs,
+	                           FZN_CALLER_WANT_RUNS, &n)
+	               != FZN_REASM_OK
+	    || n == 0u)
+		return FZN_CALLER_ERR_MALFORMED;
+	if (n > FZN_CALLER_WANT_RUNS)
+		n = FZN_CALLER_WANT_RUNS;
+	for (i = 0; i < n; i++) {
+		if (fzn_want_range_build(ranges + ranges_len, (uint32_t)(sizeof(ranges) - ranges_len), runs[i].first,
+		                         runs[i].count, &w)
+		    != SITU_OK)
+			return FZN_CALLER_ERR_MALFORMED;
+		ranges_len += w;
+		*missing += runs[i].count;
+	}
+	if (fzn_want_pieces_build(pieces, sizeof(pieces), msg, ranges, ranges_len, &pieces_len) != SITU_OK
+	    || fzn_want_message_build_pieces(out, sizeof(out), (uint8_t)FZN_CMD_WANT, pieces, pieces_len,
+	                                     &out_len)
+	               != SITU_OK)
+		return FZN_CALLER_ERR_MALFORMED;
+	start_numbering(caller);
+	asked = caller->next_msg++;
+	/* BARE: the far end reads its first byte as the command, and a cause
+	 * envelope would hide it. */
+	err = send_sealed(caller, out, out_len, expires_at, asked, 0);
+	/* NOTHING ANSWERS IT but the pieces, under the reply's number; a host
+	 * that reads no want may answer the asking, and that is dropped. */
+	settle(caller, asked);
+	return err;
+}
+
+static fzn_caller_err_t send_sealed(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
+                                    uint64_t expires_at, uint32_t msg, int wrap)
+{
 	uint8_t frame[FZN_UDP_DATAGRAM_MAX];
 	size_t frame_len = 0;
 	fzn_send_t what;
@@ -161,8 +236,8 @@ static fzn_caller_err_t send_as(fzn_caller_t *caller, const uint8_t *payload, si
 		return FZN_CALLER_ERR_MALFORMED;
 	/* THE WRAP, sec 465: what goes is what it writes, when it writes
 	 * anything. One buffer for the process, a caller being used from one
-	 * thread. */
-	if (caller->wrap && payload_len) {
+	 * thread. Not round a want (sec 1214), whose command must show. */
+	if (wrap && caller->wrap && payload_len) {
 		static uint8_t wrapped[1u << 17];
 		size_t n = caller->wrap(caller->wrap_ctx, payload, payload_len, wrapped,
 		                        sizeof(wrapped));

@@ -1,0 +1,6 @@
+# Golden vectors for node/want.situ, written by hand from the layout in its
+# header comment, so the description is held to a writer other than its
+# compiler. 0x19 is FZN_CMD_WANT (25); op 1, pieces.
+
+message one_run    19 01 12 34 56 78 01 00 03 00 02
+message two_runs   19 01 00 00 00 07 02 00 00 00 01 00 05 00 0A

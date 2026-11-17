@@ -12001,8 +12001,8 @@ SABOTAGES = [
 	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
-		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',
-		'\t\t\tif (0)\n\t\t\t\te->again(e->again_ctx);',
+		'\t\t\tif (e->again) {\n\t\t\t\te->again(e->again_ctx);',
+		'\t\t\tif (0) {\n\t\t\t\te->again(e->again_ctx);',
 		'a relayed request is never sent again, and one lost hop of four costs its whole wait '
 		'-- sec 756',
 	),
@@ -17172,6 +17172,34 @@ SABOTAGES = [
 		"\t\t\tquirc_flip(&code);\n",
 		"",
 		"a code read off a front camera's mirrored picture is never found -- secs 1095, 1213",
+	),
+	(
+		"serve-want-sends-every-piece",
+		"node/serve.c",
+		"\t\tfor (i = first; i < first + count && i < plan.chunks && sent < plan.chunks; i++) {\n",
+		"\t\tfor (i = 0; i < plan.chunks && sent < plan.chunks; i++) {\n",
+		"a want for one missing piece has the whole reply sent again -- sec 1214",
+	),
+	(
+		"replies-wanted-unbounded",
+		"node/replies.c",
+		"\t\tif (k->wants >= FZN_NODE_REPLIES_WANTS_MAX)\n\t\t\treturn NULL;\n",
+		"",
+		"a peer can have one kept reply's pieces sent again without end -- sec 1214",
+	),
+	(
+		"asks-want-without-fallback",
+		"node/asks.c",
+		"\tif (e->wanted && missing >= e->missing_at_want) {\n",
+		"\tif (0) {\n",
+		"a peer that reads no want is asked for pieces for ever, and never resent whole -- sec 1214",
+	),
+	(
+		"asks-never-want",
+		"node/asks.c",
+		"\t\t\t} else if (!want_instead(e)) {\n",
+		"\t\t\t} else if (1) {\n",
+		"a reply part in is resent whole for want of one piece, as before sec 1214",
 	),
 	(
 		"qr-decode-nothing-is-an-error",

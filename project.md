@@ -90576,3 +90576,49 @@ sabotages, each caught: `qr-decode-mirror-unread`,
 `qr-decode-nothing-is-an-error`. The wrong-shape guard has none: quirc's
 own size check returns the same -1 behind it, so removing it changes
 nothing a test could see.
+
+## 1214. A reply's missing pieces, asked for by name, 2026-11-17
+
+The holder (sec 1208): "a reply status is read 95% of the time, and the
+rest very rarely, so we should allow for controlled re-requests." A reply
+in pieces of which most arrived was resent whole, request and every
+piece, for want of one (sec 1164) -- at 20 % loss about 2.8 times the
+pieces a span needs where asking for the missing ones costs 1.25 (sec
+1207's estimate). Now, once part of a reply is in:
+
+- **The asker names what is missing.** `fzn_caller_want` plans the runs
+  of missing pieces from the caller's own reassembly table
+  (`fzn_reasm_plan_want`, built for this in sec 1164 and never called)
+  and sends a **want**: FZN_CMD_WANT (25), `node/want.situ`, the request's
+  number and up to 16 runs. Bare, never inside a cause envelope, since
+  the far end reads its first byte; under a number of its own, which is
+  forgotten at once, since nothing answers it but the pieces.
+- **The host that kept the reply sends those pieces alone** (sec 737's
+  kept replies), sealed under the reply's own number so they join the
+  pieces held, and runs no handler. **Controlled three ways**: never a
+  piece past the reply's, never more pieces than the reply has in one
+  asking, and one kept reply at most `FZN_NODE_REPLIES_WANTS_MAX` (8)
+  times -- the asker's own bound on resends once part is in -- and only
+  to where its request came from (sec 900). A want for a reply no longer
+  kept sends nothing.
+- **The ask table chooses it** (`node/asks.c`): its resend once part is
+  in is a want, not the whole request. **A want that brought nothing is
+  followed by a whole resend**, then a want again -- so a host from
+  before this, which reads no want, costs every other resend at worst,
+  and a want lost in the network costs one whole resend, not the ask.
+
+`recv_answering`, the daemon's one-exchange blocking loop, still resends
+whole; the fetch, the rounds and the deliveries go through the ask table.
+
+**Tests:** two vectors; `replies_test` -- found by sender and message
+whatever the request's bytes, eight times and not a ninth, never another
+sender's; `pair_test` -- of a reply in two pieces the first lost, the
+want names one piece, the node sends that one alone without running its
+handler, and the reply is whole; a whole reply is not asked after; a
+node keeping no reply sends nothing; and through the ask table, a want
+completes a reply part in, and after a want that brought nothing the
+resend is whole. Five sabotages, each caught:
+`serve-want-sends-every-piece`, `replies-wanted-unbounded`,
+`asks-want-without-fallback`, `asks-never-want`, and sec 756's
+`node-asks-its-own-resend` moved with its line. Live: `live_catalog
+--loss 20` whole, on the faults build.

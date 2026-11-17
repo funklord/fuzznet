@@ -244,6 +244,9 @@ typedef struct fzn_node_state {
 	 * resent -- the same sender, message and bytes -- is answered with the
 	 * kept reply and its handler is not run again. NULL keeps none. */
 	fzn_node_replies_t *replies;
+	/* A KEPT REPLY'S PIECES ASKED AGAIN, sec 1214: the askings answered,
+	 * and the pieces they sent again. */
+	uint64_t wants_answered, pieces_sent_again;
 	/* A REPLY SENT, sec 737: to `req`'s sender, `len` bytes in `pieces`
 	 * of the `planned` (fewer when a piece would not seal or send), kept
 	 * when it was a kept reply answering a resend, to `to`. Said so a

@@ -1,0 +1,36 @@
+# situ capability map v1
+# schema: want.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct message size=11..71 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(9, 69) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.pieces                    offset=AbsoluteStatic(0x02) size=Bounded(9, 69) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.pieces.msg                offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.pieces.n                  offset=AbsoluteStatic(0x06) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.pieces.ranges             offset=AbsoluteStatic(0x07) size=Bounded(4, 64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.pieces.ranges[]           offset=FrameStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.pieces.ranges[].first     offset=FrameStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  message.body.pieces.ranges[].count     offset=FrameStatic(0x04) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+
+struct pieces size=9..69 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  pieces.msg                             offset=AbsoluteStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  pieces.n                               offset=AbsoluteStatic(0x04) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  pieces.ranges                          offset=AbsoluteStatic(0x05) size=Bounded(4, 64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  pieces.ranges[]                        offset=FrameStatic(0x00) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  pieces.ranges[].first                  offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  pieces.ranges[].count                  offset=FrameStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+
+struct range size=4 repr=ValueConverted
+  range.first                            offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  range.count                            offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord

@@ -115,6 +115,28 @@ const uint8_t *fzn_node_replies_find_piece(fzn_node_replies_t *r, const uint8_t 
 	return NULL;
 }
 
+const uint8_t *fzn_node_replies_find_wanted(fzn_node_replies_t *r, const uint8_t sender[32],
+                                            uint32_t msg, uint64_t now, size_t *len)
+{
+	size_t i;
+
+	if (!r || !r->kept || !sender || !len)
+		return NULL;
+	expire(r, now);
+	for (i = r->n; i > 0u; i--) {
+		fzn_node_reply_kept_t *k = &r->kept[i - 1u];
+
+		if (k->msg != msg || memcmp(k->sender, sender, sizeof(k->sender)) != 0)
+			continue;
+		if (k->wants >= FZN_NODE_REPLIES_WANTS_MAX)
+			return NULL;
+		k->wants++;
+		*len = k->len;
+		return k->bytes;
+	}
+	return NULL;
+}
+
 void fzn_node_replies_keep(fzn_node_replies_t *r, const uint8_t sender[32], uint32_t msg,
                            uint64_t expires_at, const uint8_t *request, size_t request_len,
                            uint64_t now, const uint8_t *reply, size_t reply_len)
@@ -144,6 +166,7 @@ void fzn_node_replies_keep(fzn_node_replies_t *r, const uint8_t sender[32], uint
 	k->len = reply_len;
 	k->bytes = copy;
 	k->where_len = 0;
+	k->wants = 0;
 	r->bytes += reply_len;
 	r->n++;
 }

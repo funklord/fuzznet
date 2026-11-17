@@ -239,7 +239,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/groups_local.c wire/generated/streams_local.c \
              wire/generated/stickers_local.c wire/generated/files_local.c \
              wire/generated/members_local.c wire/generated/meter_local.c wire/generated/reach_local.c \
-             wire/generated/time_local.c wire/generated/settings_local.c \
+             wire/generated/time_local.c wire/generated/settings_local.c wire/generated/want.c \
              wire/generated/notes_local.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -250,7 +250,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/groups_local_vectors.c wire/generated/streams_local_vectors.c \
                  wire/generated/stickers_local_vectors.c wire/generated/files_local_vectors.c \
                  wire/generated/members_local_vectors.c wire/generated/meter_local_vectors.c \
-                 wire/generated/reach_local_vectors.c wire/generated/time_local_vectors.c \
+                 wire/generated/reach_local_vectors.c wire/generated/time_local_vectors.c wire/generated/want_vectors.c \
                  wire/generated/settings_local_vectors.c wire/generated/notes_local_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
@@ -334,7 +334,7 @@ PROG_OBJS := $(PROG_SRCS:%.c=$(BUILD_DIR)/%.o)
 # two transports, the seal and chain stack, and the nonce source the
 # seal reaches for. No Monocypher: the crypto ops are passed in, so a
 # node with no provisioned peers links none.
-NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
+NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
                    $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/node.o \
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
@@ -709,6 +709,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/meter_local_vectors \
              $(BUILD_DIR)/wire/test/reach_local_vectors \
              $(BUILD_DIR)/wire/test/time_local_vectors \
+             $(BUILD_DIR)/wire/test/want_vectors \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
@@ -4497,6 +4498,12 @@ $(BUILD_DIR)/wire/test/time_local_vectors: wire/generated/time_local_vectors.c \
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+$(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
+                                           wire/generated/want.c wire/generated/situ.c \
+                                           $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # THE LINKS, ON THE LOCAL LEG, sec 1183.
 $(BUILD_DIR)/wire/test/reach_local_vectors: wire/generated/reach_local_vectors.c \
                                            wire/generated/reach_local.c wire/generated/situ.c \
@@ -4911,7 +4918,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
-              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
               $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
               $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
@@ -4965,7 +4972,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
-              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
@@ -5081,7 +5088,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
-                   $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
+                   $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
                    $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
                    $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
@@ -5460,7 +5467,7 @@ $(BUILD_DIR)/node/test/provision_test.o: node/test/provision_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
-              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o \
               $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/local.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/socket.o \
@@ -7437,7 +7444,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
               node/members_local.situ node/meter_local.situ node/reach_local.situ \
-              node/time_local.situ node/settings_local.situ node/notes_local.situ
+              node/time_local.situ node/settings_local.situ node/notes_local.situ node/want.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -8169,6 +8176,11 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/time_local.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_time_local \
 	         --out $(BUILD_DIR)/.gen.new node/time_local.situ node/time_local.vectors >/dev/null 2>&1
+	@# AND A KEPT REPLY'S PIECES WANTED AGAIN, between hosts, sec 1214.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_want --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/want.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_want \
+	         --out $(BUILD_DIR)/.gen.new node/want.situ node/want.vectors >/dev/null 2>&1
 	@# AND THE LINKS, ON THE LOCAL LEG, sec 1183.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_reach_local --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/reach_local.situ >/dev/null 2>&1
@@ -8216,7 +8228,8 @@ schema:
 	          members_local_edit.h members_local_build.h members_local_vectors.c meter_local.c \
 	          meter_local.h meter_local_edit.h meter_local_build.h meter_local_vectors.c reach_local.c \
 	          reach_local.h reach_local_edit.h reach_local_build.h reach_local_vectors.c time_local.c \
-	          time_local.h time_local_build.h time_local_vectors.c settings_local.c settings_local.h \
+	          time_local.h time_local_build.h time_local_vectors.c want.c want.h want_build.h want_vectors.c \
+	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \
 		cmp -s $(BUILD_DIR)/.gen.new/$$f wire/generated/$$f || { \

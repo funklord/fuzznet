@@ -235,6 +235,22 @@ void fzn_caller_forget(fzn_caller_t *caller, uint32_t msg);
  * come: 1 or 0. A reply of one piece is never part-held. sec 1168. */
 int fzn_caller_holds_part(const fzn_caller_t *caller, uint32_t msg);
 
+/* ASK FOR THE MISSING PIECES OF THE REPLY TO `msg`, sec 1214, where part
+ * of it is held: a want (`node/want.situ`) naming at most
+ * FZN_CALLER_WANT_RUNS runs of them, sent bare under a number of its own
+ * and that number forgotten at once, since nothing answers it but the
+ * pieces themselves. FZN_CALLER_OK with `*missing` the pieces asked;
+ * MALFORMED when nothing of the reply is held to ask after. A host that
+ * keeps no such reply, or reads no want, sends nothing: the caller resends
+ * whole when the pieces do not come. */
+#define FZN_CALLER_WANT_RUNS 16u
+
+/* HOW MANY PIECES OF THE REPLY TO `msg` ARE STILL MISSING where part of it
+ * is held, sec 1214; 0 when nothing of it is. */
+size_t fzn_caller_missing(const fzn_caller_t *caller, uint32_t msg);
+fzn_caller_err_t fzn_caller_want(fzn_caller_t *caller, uint32_t msg, uint64_t expires_at,
+                                 size_t *missing);
+
 /* CARRY A CALLER'S NUMBERING ONTO ONE BUILT AGAIN, sec 737: `to`'s next
  * message number and the messages given up on, from `from`, a caller on
  * the same session. Built again from its pairing, a caller that lands on a

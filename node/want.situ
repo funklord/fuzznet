@@ -1,0 +1,42 @@
+// A reply's missing pieces, asked for again: project.md sec 1214, the
+// holder's "controlled re-requests" (sec 1208). A reply in pieces of which
+// most arrived was resent whole for want of one (sec 1164); this names the
+// pieces missing, and the host that kept the reply (sec 737) sends those
+// alone, under the reply's own message number, so they join the pieces
+// already held. It is a request with no reply of its own.
+//
+// FZN_CMD_WANT (25, wire/cmd.h). What the schema cannot say and the server
+// checks: each range lies within the kept reply's pieces, and a kept reply
+// is answered so at most FZN_NODE_REPLIES_WANTS_MAX times (node/replies.h),
+// only to where its request came from (sec 900).
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	pieces  = 1, // these pieces of reply MSG, again
+	default = error,
+}
+
+// FIRST the first piece of a run missing, COUNT how many from it.
+struct range {
+	u16  first;
+	u16  count [min = 1];
+}
+
+// MSG the request whose reply is wanted, as the asker numbered it.
+struct pieces {
+	u32   msg;
+	u8    n [min = 1, max = 16];
+	range ranges[n];
+}
+
+struct message {
+	u8   cmd [must_eq = 25];
+	op   op;
+
+	variant body switch (op) {
+		case op.pieces: pieces pieces;
+		default: error;
+	}
+}

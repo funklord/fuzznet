@@ -25710,6 +25710,19 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					 * logged, not at a marker on the way (sec 637). */
 					say(FZN_ENTRY_DEBUG, "node/round", "a round's end, %llu ms",
 					    (unsigned long long)(mono_ms() - round_began_ms));
+					/* PIECES ASKED AGAIN, sec 1214: said when any were, so a
+					 * lossy run shows the wants answered. */
+					{
+						static uint64_t said_wants;
+
+						if (state.wants_answered != said_wants) {
+							said_wants = state.wants_answered;
+							say(FZN_ENTRY_DEBUG, "node/round",
+							    "%llu want(s) answered, %llu piece(s) sent again",
+							    (unsigned long long)state.wants_answered,
+							    (unsigned long long)state.pieces_sent_again);
+						}
+					}
 					sync_load_round(mono_ms() - round_began_ms, pull_every, wall_clock());
 					break;
 				}

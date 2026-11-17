@@ -21,6 +21,8 @@
 #include "../wire/bytes.h"
 #include "../wire/seal.h"
 #include "../session/box.h" /* FZN_BOX_MARK, and nothing to link */
+#include "../wire/cmd.h"
+#include "../wire/generated/want.h"
 
 const fzn_node_peer_t *fzn_node_find_peer(const fzn_node_peer_t *peers,
                                           size_t count,
@@ -265,6 +267,67 @@ static void send_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 		                  from);
 }
 
+/* A KEPT REPLY'S MISSING PIECES, ASKED AGAIN, sec 1214: `opened` names a
+ * reply this node sent its sender and the runs of pieces missing; those
+ * alone go again, sealed under the reply's own number so they join the
+ * pieces already held. Nothing answers the asking itself. Bounded three
+ * ways: never a piece past the reply's, never more pieces than the reply
+ * has in one asking, and a kept reply at most FZN_NODE_REPLIES_WANTS_MAX
+ * times; and only to where its request came from (sec 900). 1 when
+ * `opened` was such an asking, whether or not anything was sent. */
+static int serve_want(fzn_node_state_t *state, const fzn_node_peer_t *peer,
+                      const fzn_udp_addr_t *from, const fzn_opened_t *opened, uint64_t now)
+{
+	uint8_t copy[2u + 4u + 1u + 16u * 4u], reply_frame[FZN_UDP_DATAGRAM_MAX];
+	situ_msg_t m;
+	situ_view_t v, b, r;
+	const uint8_t *kept;
+	size_t kept_len = 0, reply_frame_len, sent = 0;
+	fzn_split_t plan;
+	uint32_t msg, n, k;
+
+	if (!opened->payload || opened->payload_len < 2u || opened->payload[0] != FZN_CMD_WANT)
+		return 0;
+	if (opened->payload_len > sizeof(copy) || !state->replies || !state->rng)
+		return 1;
+	memcpy(copy, opened->payload, opened->payload_len);
+	situ_msg_init(&m, copy, (uint32_t)opened->payload_len);
+	if (fzn_want_message_view(&m, 0u, (uint32_t)opened->payload_len, &v) != SITU_OK
+	    || fzn_want_message_validate(v) != SITU_OK || fzn_want_message_op_get(v) != FZN_WANT_OP_PIECES
+	    || fzn_want_message_body_pieces_view(v, &b) != SITU_OK)
+		return 1;
+	msg = fzn_want_pieces_msg_get(b);
+	kept = fzn_node_replies_find_wanted(state->replies, opened->sender, msg, now, &kept_len);
+	if (!kept || !fzn_node_replies_answers(state->replies, kept, from->storage, from->len)
+	    || fzn_split_plan(kept_len, FZN_SPLIT_MAX_PAYLOAD, &plan) != FZN_SPLIT_OK)
+		return 1;
+	n = fzn_want_pieces_n_get(b);
+	for (k = 0; k < n && sent < plan.chunks; k++) {
+		uint32_t first, count, i;
+
+		if (fzn_want_pieces_ranges_at(b, k, &r) != SITU_OK)
+			break;
+		first = fzn_want_range_first_get(r);
+		count = fzn_want_range_count_get(r);
+		for (i = first; i < first + count && i < plan.chunks && sent < plan.chunks; i++) {
+			size_t off = 0, len = 0;
+
+			if (fzn_split_at(&plan, (uint16_t)i, &off, &len) != FZN_SPLIT_OK
+			    || fzn_node_seal_reply_chunk(peer, state->node_pubkey, kept + off, len, msg,
+			                                 (uint16_t)i, plan.chunks, 0u, state->hash, state->rng,
+			                                 state->aead, reply_frame, sizeof(reply_frame),
+			                                 &reply_frame_len)
+			               != 0)
+				return 1;
+			(void)fzn_udp_send(state->udp_fd, from, reply_frame, reply_frame_len);
+			sent++;
+		}
+	}
+	state->wants_answered++;
+	state->pieces_sent_again += sent;
+	return 1;
+}
+
 static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
                         const fzn_udp_addr_t *from,
                         fzn_node_remote_result_t result,
@@ -280,6 +343,8 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	const uint8_t *kept;
 
 	if (!state->on_remote || !reply || reply_cap == 0)
+		return;
+	if (serve_want(state, peer, from, opened, now))
 		return;
 	/* A REQUEST RESENT, sec 737: answered as it was the first time, its
 	 * handler not run again. */

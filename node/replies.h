@@ -51,6 +51,7 @@ typedef struct fzn_node_reply_kept {
 	uint8_t *bytes;
 	uint8_t where[FZN_NODE_REPLIES_WHERE_MAX];
 	size_t where_len; /* 0: nowhere said, and answered anywhere */
+	unsigned wants;   /* its pieces asked again so far, sec 1214 */
 } fzn_node_reply_kept_t;
 
 typedef struct fzn_node_replies {
@@ -88,6 +89,18 @@ const uint8_t *fzn_node_replies_find(fzn_node_replies_t *r, const uint8_t sender
 const uint8_t *fzn_node_replies_find_piece(fzn_node_replies_t *r, const uint8_t sender[32],
                                            uint32_t msg, uint64_t expires_at, uint64_t now,
                                            size_t *len);
+
+/* HOW OFTEN A KEPT REPLY'S PIECES ARE SENT AGAIN, sec 1214: the asker's
+ * own bound on resends once part is in (FZN_CALLER_RESENDS_PART, 8), so
+ * a peer cannot have one reply sent a ninth time and a tenth. */
+#define FZN_NODE_REPLIES_WANTS_MAX 8u
+
+/* THE REPLY KEPT for (`sender`, `msg`), whatever its request's bytes, for
+ * its pieces asked again (sec 1214): `*len` of it, and counted against
+ * FZN_NODE_REPLIES_WANTS_MAX; NULL when none is kept, it has expired, or
+ * it has been asked so often already. */
+const uint8_t *fzn_node_replies_find_wanted(fzn_node_replies_t *r, const uint8_t sender[32],
+                                            uint32_t msg, uint64_t now, size_t *len);
 
 /* KEEP `reply` for this request, which expires at `expires_at`, at `now`.
  * Quietly not, when it is larger than the whole bound or memory is short. */

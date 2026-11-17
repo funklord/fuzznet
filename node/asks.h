@@ -57,6 +57,13 @@ typedef struct fzn_node_ask {
 	 * asker can do. */
 	void (*again)(void *ctx);
 	void *again_ctx;
+	/* ITS MISSING PIECES ASKED FOR, sec 1214, in place of a whole resend
+	 * once part of its reply is in: `wanted` set by the last resend being
+	 * a want, and how many pieces were missing then. A want that brought
+	 * none -- a host reading no want, or every piece lost -- is followed by
+	 * a whole resend, and then a want again. */
+	int wanted;
+	size_t missing_at_want;
 } fzn_node_ask_t;
 
 typedef struct fzn_node_asks {

@@ -37,6 +37,7 @@
  *  18  CALL: `node/live.h`, the call's kind 1..10 (`node/call.situ`)
  *  19  STATUS: `wire/status.h`, the code 0..6 (`wire/status.situ`)
  *  20  EXTENSION: every SUBCMD the extension's
+ *  25  WANT: `node/want.situ`, a kept reply's pieces again (sec 1214)
  */
 #ifndef FZN_NODE_TYPES_H
 #define FZN_NODE_TYPES_H

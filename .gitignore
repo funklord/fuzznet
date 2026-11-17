@@ -403,3 +403,4 @@ __pycache__/
 /wire/test/session_frame_fuzz
 /node/test/pressure_test
 /record/test/held_test
+/wire/test/want_vectors
