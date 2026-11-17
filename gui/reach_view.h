@@ -9,6 +9,17 @@
  * this host keeps up with what it syncs (sec 1135): the share of each round
  * its sync takes, and fuzznet's own advice when it does not keep up.
  *
+ * EVERY REPORT, NOT THE FIRST, sec 1196: fuzzypickles listed what it lacked
+ * here before its page could go (inbox 20261117T0122Z). Each host's report
+ * of where it sees this one -- the address, who said it, when -- is a row,
+ * and the one selected can be advertised: written as this host's
+ * `net/address`, what a card and a peer asking for this host's records
+ * carry. Each host found on this network says when it was seen; the relay
+ * says, per peer, what it used and how often it was turned away. And the
+ * node's own recent activity, newest first, each line's message where a
+ * narrow column keeps it. Under 400 pixels the columns a phone can do
+ * without are hidden.
+ *
  * Through the typed client on the host's ask callback (`rpc_ask.h`).
  * NO Q_OBJECT AND THEREFORE NO moc.
  */
@@ -22,8 +33,9 @@
 #include <QWidget>
 
 class QLabel;
-class QListWidget;
 class QPushButton;
+class QResizeEvent;
+class QTreeWidget;
 struct fzn_gui_rpc;
 
 class fzn_reach_view : public QWidget {
@@ -37,23 +49,40 @@ public:
 	/* WHAT A PERSON DOES, public because a headless test cannot click. */
 	bool ask_outside();
 	bool look_here();
+	/* The report in row `row` of `seen_by()` advertised as this host's
+	 * address; whether the node took it. */
+	bool advertise(int row);
 
-	/* WHAT IS ON SCREEN: the outside line, the hosts found here, the relay
-	 * line, the status line. */
+	/* WHAT IS ON SCREEN: the outside line, each report as "ADDRESS -- WHO
+	 * -- WHEN", the hosts found here as "ADDRESS -- KEY -- WHEN", the
+	 * relay line and each peer as "PEER -- USED -- REFUSED", the status
+	 * line. */
 	QString outside() const;
+	QStringList seen_by() const;
 	QStringList found() const;
 	QString relay() const;
+	QStringList relayed() const;
+	QStringList activity() const;
 	QString keeping_up() const;
 	QString status() const;
 
+protected:
+	void resizeEvent(QResizeEvent *event) override;
+
 private:
+	void narrow(bool yes);
+
 	struct fzn_gui_rpc *m_rpc;
 
 	QLabel *m_outside;
+	QTreeWidget *m_seen_by;
 	QPushButton *m_ask_outside;
-	QListWidget *m_found;
+	QPushButton *m_advertise;
+	QTreeWidget *m_found;
 	QPushButton *m_look_here;
 	QLabel *m_relay;
+	QTreeWidget *m_relayed;
+	QTreeWidget *m_activity;
 	QLabel *m_load;
 	QPushButton *m_refresh;
 	QLabel *m_status;

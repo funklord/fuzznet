@@ -89969,3 +89969,50 @@ From fuzzypickles' inbox (20261117T0133Z), both found by its run-all at
 **Tests:** `rpc_test` -- a refused request's code, and a listed file
 unheld against a root nobody catalogued, each seen failing with its fix
 reverted. Two sabotages, and sec 1153's moved with its line.
+
+## 1196. How this host is reached: every report, advertised, and per peer, 2026-11-17
+
+fuzzypickles compared its Connection page with `link_view` and
+`reach_view` (inbox 20261117T0122Z), by the holder's rule that the more
+capable one wins, and listed what its page does that a person uses and
+these do not. `reach_view` now does four of them:
+
+- **where others see this host, per reporter**: a row for each report --
+  the address, the host that reported it, when -- where it showed the
+  first address and a count. The agreement line stays above it;
+- **advertise the one picked**: written as this host's `net/address`,
+  HOST PORT, through `fzn_rpc_config_set` -- the setting a card and a
+  peer asking for this host's records carry (sec 579), as fuzzypickles'
+  page wrote it. The port is after the last colon, so an IPv6 host keeps
+  its own; a refusal is said with the node's words;
+- **the hosts on this network with when each was seen**, beside its
+  address and key;
+- **the relay per peer**: what each used this window and how often it
+  was refused, under the quota line, and no table while nobody uses it.
+
+**A phone's width**: under 400 pixels the reporter, the seen time and the
+refusals are hidden, what each row is staying. fuzzypickles' page hid
+columns under the same width.
+
+**What the client already carried**: every one of these was in
+`fzn_rpc_addr_observe`, `fzn_rpc_lan_discover` and `fzn_rpc_relay_status`
+already; the view drew the first row and a count.
+
+Of the rest of that list, the Nearby page's is sec 1197. **The links'
+cost, budget, last attempt, outstanding and in-use are not fuzznetd's to
+show**: `list leg` carries address, latency, loss, observations, age,
+asked and answered, sent and received, and `node_link_list` leaves the
+clients' cost, metric and budget 0 because fuzznetd keeps none of them --
+they are fuzzypickles' own link layer's. A view can draw them only once
+the node keeps them, which is a node change and the holder's to want.
+The node's recent activity is taken too: its log, newest first, each
+line's message without the "[time level subsystem] " preamble a narrow
+column would keep in its place, the number in a column of its own; a
+node keeping no log hides the table rather than failing the view.
+
+**Tests:** `reach_view_test`, 18 -- each report and each host found with
+its time (the test's clock set to UTC), the relay per peer, the address
+picked advertised as `set setting host net/address HOST PORT`, a refusal
+and nothing picked each said, the activity's message without its
+preamble, and the reporter column hidden at 300 pixels and shown at 800.
+Five sabotages.
