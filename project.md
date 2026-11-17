@@ -89065,6 +89065,22 @@ or at or past `timeout_ms`; the resend hook is still told the exchange id.
 That was what parked item 90 (moving the resend onto situ's driver, sec
 1148) waited on, so it is unblocked.
 
+**situ, 20261117T0243Z -- the part-held schedule.** situ 07150f15 (its
+26.1042), the spelling asked for, holder-approved: `relation ...
+[timeout_ms = 3000, retries = 3, resend_ms = 600, resend_part_ms = 300,
+retries_part = 8]`. The consumer says when part of a reply is held --
+`situ_drive_<rel>_part_held(id, now)` in C -- and from then the next
+resend is due `resend_part_ms` after the last send, `retries_part`
+bounding every resend the exchange has had (one counter, as sec 1168's
+asks table keeps it); `timeout_ms` still ends it; an unknown id is
+CONSTRAINT. Measured in all four drivers: sent 0, resent 600, part held
+700, resent every 300 ms from 900 to 2700, expired at 3000. **Not taken:
+`node/asks.c`'s margin**, no resend within `FZN_CALLER_RESEND_PART_MS /
+2` of the deadline, since no schema states it; it would be a third
+number for the relation, to ask for if adopting shows it matters. So
+both halves sec 1148 named, and sec 1168's, are in situ, and item 90's
+next step is the asks table on the driver.
+
 ## 1164. The fetch under loss, measured: what it is not, 2026-11-14
 
 Sec 1163's two reports, taken up. **Reproduced here**: a 960044-byte file
