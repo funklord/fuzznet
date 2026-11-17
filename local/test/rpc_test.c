@@ -1233,8 +1233,8 @@ static void test_library_show_in_binary(void)
 }
 
 /* THE NOTES UNDER A PARENT IN BINARY, sec 1191: the request's sharer and
- * parent, every field read, a title kept to the client's bound at a
- * character, the pending bit dropped as the text path drops it, a listing
+ * parent, every field read, a title past the write bound listed whole
+ * (sec 1194), the pending bit said as `pending`, a listing
  * cut before its STATUS refused, and an old node asked the verbs. */
 static void test_notes_in_binary(void)
 {
@@ -1248,7 +1248,7 @@ static void test_notes_in_binary(void)
 	memset(parent, 0x3c, sizeof(parent));
 	memset(sharer, 0xc4, sizeof(sharer));
 	memset(title, 'x', sizeof(title));
-	memcpy(title + 98, "\xc3\xa9", 2); /* an e-acute across the bound of 100 */
+	memcpy(title + 98, "\xc3\xa9", 2); /* an e-acute past the write bound of 100, listed */
 	if (fzn_notes_local_note_row_build(row, sizeof(row), id, 2u, 0x81u, 1u, 0u, (const uint8_t *)"milk", 4,
 	                                   (const uint8_t *)"a\0b", 3, &row_len)
 	            == SITU_OK
@@ -1268,12 +1268,13 @@ static void test_notes_in_binary(void)
 	CHECK(fzn_rpc_notes_list(&c, parent, sharer, 0, &out) == FZN_RPC_OK && out.count == 2
 	              && out.entries[0].id[0] == 0x5a && out.entries[0].parent[0] == 0x3c
 	              && strcmp(out.entries[0].title, "milk") == 0 && out.entries[0].content_type == 2
-	              && out.entries[0].flags == 0x01 && out.entries[0].reachable && !out.entries[0].contested
+	              && out.entries[0].flags == 0x01 && out.entries[0].pending && !out.entries[1].pending
+	              && out.entries[0].reachable && !out.entries[0].contested
 	              && out.entries[0].labels_len == 3 && memcmp(out.entries[0].labels, "a\0b", 3) == 0
 	              && out.entries[1].order == 1 && out.entries[1].contested && !out.entries[1].reachable
-	              && out.entries[1].title_len == 98 && held.asked_len[0] == 66u && held.asked[0][0] == 0x08
+	              && out.entries[1].title_len == 200 && held.asked_len[0] == 66u && held.asked[0][0] == 0x08
 	              && held.asked[0][1] == 0x80 && held.asked[0][2] == 0xc4 && held.asked[0][34] == 0x3c,
-	      "the notes were not read in binary, every field, a title kept at a character");
+	      "the notes were not read in binary, every field, a long title whole, pending said");
 	bon(&c, &cut);
 	CHECK(fzn_rpc_notes_list(&c, parent, NULL, 0, &out) != FZN_RPC_OK
 	              && cut.asked[0][2] == 0 && cut.asked[0][33] == 0,

@@ -5761,8 +5761,8 @@ SABOTAGES = [
 	(
 		"notebook-view-trash-is-its-own-view",
 		"gui/notebook_view.cpp",
-		"\t\t\tif (trashed != m_trash || (!m_trash",
-		"\t\t\tif (0 || (!m_trash",
+		"\t\tif (trashed != m_trash || (!m_trash",
+		"\t\tif (0 || (!m_trash",
 		"trashed notes sit among the live ones and the trash shows everything -- sec 439",
 	),
 	(
@@ -6013,15 +6013,15 @@ SABOTAGES = [
 	(
 		"notebook-view-pinned-first",
 		"gui/notebook_view.cpp",
-		"\t\t\tif (pinned)\n\t\t\t\tm_list->insertItem(pinned_at++, item);",
-		"\t\t\tif (0)\n\t\t\t\tm_list->insertItem(pinned_at++, item);",
+		"\t\tif (pinned)\n\t\t\tm_list->insertItem(pinned_at++, item);",
+		"\t\tif (0)\n\t\t\tm_list->insertItem(pinned_at++, item);",
 		"a pinned note is listed where it falls, among the rest -- sec 444",
 	),
 	(
 		"notebook-view-archive-is-its-own-view",
 		"gui/notebook_view.cpp",
-		"\t\t\tif (trashed != m_trash || (!m_trash && archived != m_archived))",
-		"\t\t\tif (trashed != m_trash)",
+		"\t\tif (trashed != m_trash || (!m_trash && archived != m_archived))",
+		"\t\tif (trashed != m_trash)",
 		"archived notes sit among the live ones, and the archive shows everything -- sec 444",
 	),
 	(
@@ -9984,8 +9984,8 @@ SABOTAGES = [
 	(
 		"gui-pending-says-so",
 		"gui/notebook_view.cpp",
-		"\t\t\tbool pending = (flags & FZN_NODE_NOTES_LIST_PENDING) != 0u;",
-		"\t\t\tbool pending = false;",
+		"QString shown = e->pending ",
+		"QString shown = false ",
 		"a note whose content has not arrived is a row with nothing in it -- sec 522",
 	),
 	(
@@ -15895,8 +15895,8 @@ SABOTAGES = [
 	(
 		"notebook-view-labels-not-in-row",
 		"gui/notebook_view.cpp",
-		"\t\t\tif (!pending && !labels.isEmpty())\n\t\t\t\tshown += ",
-		"\t\t\tif (pending && !labels.isEmpty())\n\t\t\t\tshown += ",
+		"\t\tif (!e->pending && !labels.isEmpty())\n\t\t\tshown += ",
+		"\t\tif (e->pending && !labels.isEmpty())\n\t\t\tshown += ",
 		"a note's labels are shown only on hover, not in its row -- sec 983",
 	),
 	(
@@ -15916,8 +15916,8 @@ SABOTAGES = [
 	(
 		"notebook-view-contested-unsaid",
 		"gui/notebook_view.cpp",
-		"\t\t\tif (f.value(4) == QStringLiteral(\"1\"))\n",
-		"\t\t\tif (f.value(4) == QStringLiteral(\"2\"))\n",
+		"\t\tif (e->contested)\n",
+		"\t\tif (0)\n",
 		"a note moved apart into two folders lists as any other -- sec 987",
 	),
 	(
@@ -16388,13 +16388,6 @@ SABOTAGES = [
 		"#define FZN_VERIFY_MEMO_WAYS 4u\n",
 		"#define FZN_VERIFY_MEMO_WAYS 1u\n",
 		"one way a set: the memo grows for every pair that meets, far past its load -- sec 1007",
-	),
-	(
-		"notebook-view-list-capped",
-		"gui/notebook_view.cpp",
-		"\t * at least, so the total bounds the pages. */\n\tfor (guard = 0; guard <= total + 1u; guard++) {\n",
-		"\t * at least, so the total bounds the pages. */\n\tfor (guard = 0; guard < 64u; guard++) {\n",
-		"a folder is listed 64 pages deep, 704 notes, and the rest not shown -- sec 1006",
 	),
 	(
 		"notebook-view-lists-every-refresh",
@@ -16908,6 +16901,20 @@ SABOTAGES = [
 		"unread_all or newest_all asked with no room fails in binary, where the verb gave the total -- sec 1193",
 	),
 	(
+		"notebook-view-shared-as-own",
+		"gui/notebook_view.cpp",
+		"shared() ? sharer : nullptr",
+		"nullptr",
+		"a shared tree chosen in the notebook lists this user's own notes -- sec 1194",
+	),
+	(
+		"notebook-view-sharer-keys-unkept",
+		"gui/notebook_view.cpp",
+		"\t\t\t\tm_sharer_keys.insert(kind == QStringLiteral(\"contact\") ? name : key, key);\n",
+		"",
+		"a contact's shared tree, chosen by name, has no key to be asked by and lists nothing -- sec 1194",
+	),
+	(
 		"rpc-shared-notes-text-only",
 		"local/rpc.c",
 		"\tconst int rc = notes_list_binary(c, key, parent, out, &text);\n\tif (!text) return rc;\n",
@@ -16929,11 +16936,18 @@ SABOTAGES = [
 		"the node's not-here-yet bit reaches a client whose flags have no such bit -- sec 1191",
 	),
 	(
-		"rpc-notes-binary-title-overrun",
+		"rpc-notes-binary-title-write-bound",
 		"local/rpc.c",
+		"n->title, FZN_RPC_NOTES_LIST_TITLE_MAX, &cut);",
 		"n->title, FZN_RPC_NOTES_TITLE_MAX, &cut);",
-		"n->title, FZN_RPC_NOTES_TITLE_MAX + 50u, &cut);",
-		"a title longer than the client keeps is not cut to it -- sec 1191",
+		"a listed title is cut at the write bound of 100, where a note's title may be 255 -- sec 1194",
+	),
+	(
+		"rpc-notes-binary-pending-unsaid",
+		"local/rpc.c",
+		"\tn->pending = (fzn_notes_local_note_row_flags_get(b) & 0x80u) != 0;\n",
+		"",
+		"a note whose text is not here lists as an untitled one, its pending bit dropped -- sec 1194",
 	),
 	(
 		"library-one-retracted-listed",

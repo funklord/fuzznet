@@ -1632,11 +1632,6 @@ static void node_parent(const uint8_t parent[32], char out[65]) {
 		fzn_hex_encode(parent, 32, out);
 }
 
-/* `list note PARENT [FROM]`, or `list shared KEY PARENT [FROM]` in a tree
- * shared with this node (`tree` the words before PARENT): `ok TOTAL FROM
- * ID,TYPE,FLAGS,REACHABLE,CONTESTED,TITLE,LABELS ...`, paged. FLAGS' 0x80
- * is fuzznet's "content not here yet", which the clients' flags have no bit
- * for, so it is dropped. */
 static int notes_list_binary(fzn_rpc_t *c, const uint8_t sharer[32], const uint8_t parent[32],
                              fzn_rpc_notes_list_resp_t *out, int *text);
 static void node_shared_tree(const uint8_t key[32], char out[80]);
@@ -1660,6 +1655,11 @@ static int node_shared_notes(fzn_rpc_t *c, const uint8_t key[32], const uint8_t 
 	return node_notes_list(c, tree, parent, out);
 }
 
+/* `list note PARENT [FROM]`, or `list shared KEY PARENT [FROM]` in a tree
+ * shared with this node (`tree` the words before PARENT): `ok TOTAL FROM
+ * ID,TYPE,FLAGS,REACHABLE,CONTESTED,TITLE,LABELS ...`, paged. FLAGS' 0x80
+ * is fuzznet's "content not here yet", which the clients' flags have no bit
+ * for: it is `pending` instead (sec 1194). */
 static int node_notes_list(fzn_rpc_t *c, const char *tree, const uint8_t parent[32],
                            fzn_rpc_notes_list_resp_t *out) {
 	out->count = 0;
@@ -1699,7 +1699,7 @@ static int node_notes_list(fzn_rpc_t *c, const char *tree, const uint8_t parent[
 			fzn_rpc_notes_list_entry_t *n = &out->entries[out->count];
 			memset(n, 0, sizeof *n);
 			int cut = 0;
-			if (!node_unescape(f, f_len, n->title, FZN_RPC_NOTES_TITLE_MAX, &n->title_len, &cut))
+			if (!node_unescape(f, f_len, n->title, FZN_RPC_NOTES_LIST_TITLE_MAX, &n->title_len, &cut))
 				return unreadable(c);
 			/* LABELS, NUL-separated and escaped (fuzznet sec 869); kept
 			 * for a listing, the cut said rather than a label halved. */
@@ -1711,6 +1711,7 @@ static int node_notes_list(fzn_rpc_t *c, const char *tree, const uint8_t parent[
 			n->order = out->count;
 			n->content_type = (uint16_t)type;
 			n->flags = (uint8_t)(flags & 0x7fu);
+			n->pending = (flags & 0x80u) != 0;
 			n->reachable = reachable != 0;
 			n->contested = contested != 0;
 			out->count++;
@@ -4880,14 +4881,15 @@ static void notes_each(void *ctx, const uint8_t *msg, size_t len) {
 	memcpy(n->id, fzn_notes_local_note_row_id_ptr(b), 32);
 	memcpy(n->parent, a->parent, 32);
 	n->title_len = node_keep(fzn_notes_local_note_row_title_ptr(b), fzn_notes_local_note_row_title_len(b),
-	                         n->title, FZN_RPC_NOTES_TITLE_MAX, &cut);
+	                         n->title, FZN_RPC_NOTES_LIST_TITLE_MAX, &cut);
 	n->labels_len = node_keep(fzn_notes_local_note_row_labels_ptr(b), fzn_notes_local_note_row_labels_len(b),
 	                          n->labels, sizeof n->labels, &n->labels_cut);
 	n->order = out->count;
 	n->content_type = fzn_notes_local_note_row_content_type_get(b);
 	/* 0x80 is fuzznet's "content not here yet", which the clients' flags
-	 * have no bit for, as on the text path. */
+	 * have no bit for: `pending`, as on the text path. */
 	n->flags = (uint8_t)(fzn_notes_local_note_row_flags_get(b) & 0x7fu);
+	n->pending = (fzn_notes_local_note_row_flags_get(b) & 0x80u) != 0;
 	n->reachable = fzn_notes_local_note_row_reachable_get(b) != 0;
 	n->contested = fzn_notes_local_note_row_contested_get(b) != 0;
 	out->count++;

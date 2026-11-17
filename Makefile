@@ -3938,7 +3938,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/session/agree.o \
                                      $(BUILD_DIR)/prekey/prekey.o \
                                      $(BUILD_DIR)/ratchet/ratchet.o \
-                                     $(BUILD_DIR)/constant_time/constant_time.o
+                                     $(BUILD_DIR)/constant_time/constant_time.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
 

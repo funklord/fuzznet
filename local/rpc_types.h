@@ -996,6 +996,12 @@ typedef struct fzn_rpc_sticker_list_entry {
  * a note can hold INLINE, not what a note can be.
  */
 #define FZN_RPC_NOTES_TITLE_MAX 100
+/* WHAT A LISTING KEEPS OF A TITLE, sec 1194: fuzznet's FZN_NOTE_TITLE_MAX,
+ * the most a note's title can be, so a note titled past the 100 a client
+ * writes inline -- an imported one, or one written by another client --
+ * lists whole. The holder's choice, 2026-11-17: a bound of its own for the
+ * listing, the write bound above unchanged. */
+#define FZN_RPC_NOTES_LIST_TITLE_MAX 255
 /* What a listing keeps of a note's labels; a node holds up to 1024 bytes
  * (fuzznet's FZN_NOTE_LABELS_MAX), read whole by fzn_rpc_note_meta. */
 #define FZN_RPC_NOTES_LABELS_SHOWN 128
@@ -1290,7 +1296,7 @@ typedef struct fzn_rpc_notes_shares_resp {
 typedef struct fzn_rpc_notes_list_entry {
 	uint8_t id[32];
 	uint8_t parent[32];
-	char title[FZN_RPC_NOTES_TITLE_MAX + 1];
+	char title[FZN_RPC_NOTES_LIST_TITLE_MAX + 1];
 	size_t title_len;
 	uint64_t order;
 	uint16_t content_type;
@@ -1303,6 +1309,10 @@ typedef struct fzn_rpc_notes_list_entry {
 	char labels[FZN_RPC_NOTES_LABELS_SHOWN];
 	size_t labels_len;
 	int labels_cut;
+	/* NOT HERE YET (fuzznet sec 514): the note's text, or its key, has not
+	 * arrived, so it has no title or labels to list -- 1, where `flags`
+	 * keeps only the client's bits. sec 1194. */
+	int pending;
 } fzn_rpc_notes_list_entry_t;
 
 /* Matches FZN_RPC_NOTES_MAX; control_codec.c static-asserts they agree. */

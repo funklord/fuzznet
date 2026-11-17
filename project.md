@@ -85937,7 +85937,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190, the notes under a parent sec 1191); the notebook, retention and governance views still send their own text lines |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190, the notes under a parent sec 1191, the notebook's listing sec 1194); the notebook's other asks, and the retention and governance views, still send their own text lines |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -89902,6 +89902,47 @@ still refused. `newest_all` failed the same way and is fixed with it.
 **Tests:** `rpc_test` -- unread and newest asked with no room answer OK
 and the total; an unread row answering a newest request with no room is
 refused. Seen failing with the fix reverted. One sabotage.
+
+## 1194. The notebook's listing through the typed client, 2026-11-17
+
+The hosted notebook view sent `list note PARENT FROM` and `list shared
+NAME PARENT FROM` itself through its line callback, a page a request, so
+the binary listing of sec 1191 never reached it -- not even on a host's
+socket, where every other view had asked in binary since sec 1181. It
+now reads its folder through `fzn_rpc_notes_list` on a typed client of
+its own (`gui/rpc_ask.h`): one request on a host's socket, the verbs'
+pages on any other ask, as before.
+
+**Two things the client's entry lacked, and the holder's choice
+(2026-11-17) settled the first**: a listing title bound of its own,
+`FZN_RPC_NOTES_LIST_TITLE_MAX`, 255 -- fuzznet's `FZN_NOTE_TITLE_MAX`,
+the most a title can be -- with the write bound, `FZN_RPC_NOTES_TITLE_MAX`,
+left at 100. The view showed titles past 100 bytes whole and would have
+cut them. And `pending`, the node's 0x80 "not here yet", which `flags`
+drops since the clients' flags have no such bit; the view says such a
+note is not here yet rather than showing an empty title.
+
+**A shared tree is asked by key**, as the typed client takes it: the
+view keeps the key `list sharer` gives beside each choice, a contact's
+by its name and a group member's being the key already. A tree with no
+key known is not held here and lists nothing, as `list shared NAME` of
+it answered.
+
+**What changed in what it shows**: labels are those a listing keeps,
+`FZN_RPC_NOTES_LABELS_SHOWN` bytes, with "..." where more were cut;
+before, the view showed all of them. The open note's own labels are
+read whole as before.
+
+**Still in text**: the view's other asks -- the stamp that says whether
+anything moved, the trees, a note's fields and items, every write --
+and the retention and governance views, which send their own lines.
+
+**Tests:** `notebook_view_test`, all 1052 checks, now through the typed
+client over its line callback; `rpc_test` -- a 200-byte title listed
+whole and `pending` said. The socket path from a view is `rpc_ask_test`'s
+(sec 1181). Three sabotages added; six of the view's moved with its code
+and one, the view's own page cap, went with the paging it guarded, which
+the client does now.
 
 ## 1195. Two answers that changed meaning, put back, 2026-11-17
 

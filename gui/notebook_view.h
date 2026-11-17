@@ -46,6 +46,7 @@
 #define FZN_GUI_NOTEBOOK_VIEW_H
 
 #include <QByteArray>
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -55,6 +56,7 @@
 #include <functional>
 
 class QCheckBox;
+struct fzn_gui_rpc;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -73,6 +75,7 @@ size_t fzn_notebook_view_socket_ask(void *ctx, const char *line, char *reply, si
 class fzn_notebook_view : public QWidget {
 public:
 	fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent = nullptr);
+	~fzn_notebook_view() override;
 
 	/* One line for the host's log: what was done, or why it was not. */
 	void set_log(std::function<void(const QString &)> log) { m_log = std::move(log); }
@@ -200,6 +203,13 @@ private:
 
 	fzn_notebook_view_ask_t m_ask;
 	void *m_ask_ctx;
+	/* THE TYPED CLIENT, sec 1194, which the listing is read through: on a
+	 * host's socket it asks in binary (sec 1181), on a line callback by the
+	 * verbs as before. */
+	fzn_gui_rpc *m_rpc;
+	/* Each shared tree's sharer key by the name the chooser holds, from
+	 * `list sharer`: the typed client asks a tree by key. */
+	QHash<QString, QString> m_sharer_keys;
 	std::function<void(const QString &)> m_log;
 	std::function<void(const QString &)> m_notice;
 

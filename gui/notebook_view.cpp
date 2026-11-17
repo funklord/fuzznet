@@ -2,6 +2,8 @@
 
 #include "notebook_view.h"
 
+#include "rpc_ask.h"
+
 extern "C" {
 #include "../local/client.h"
 #include "../local/vocabulary.h"
@@ -227,8 +229,9 @@ static QString version_label(const QString &item, bool day)
 }
 
 fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
-        : QWidget(parent), m_ask(ask), m_ask_ctx(ask_ctx)
+        : QWidget(parent), m_ask(ask), m_ask_ctx(ask_ctx), m_rpc(new fzn_gui_rpc)
 {
+	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 	auto *outer = new QVBoxLayout(this);
 	auto *top = new QHBoxLayout();
 	auto *edit_row = new flow_row();
@@ -529,6 +532,11 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	refresh();
 }
 
+fzn_notebook_view::~fzn_notebook_view()
+{
+	delete m_rpc;
+}
+
 /* ---- asking -------------------------------------------------------------- */
 
 int fzn_notebook_view::ask(const QString &line, QString *detail)
@@ -620,6 +628,7 @@ void fzn_notebook_view::refresh_trees()
 
 	m_updating = true;
 	m_trees->clear();
+	m_sharer_keys.clear();
 	m_trees->addItem(QStringLiteral("My notes"), QString());
 	/* `ok COUNT NAME,HOST,PORT ...`: a contact whose share this node took. */
 	if (ask(QStringLiteral("list received"), &detail) == 1) {
@@ -656,6 +665,9 @@ void fzn_notebook_view::refresh_trees()
 				QString name = unescape(words[i].section(QLatin1Char(','), 2));
 
 				from++;
+				/* THE KEY BEHIND EACH CHOICE, sec 1194: a contact's tree is
+				 * chosen by name and asked by this key. */
+				m_sharer_keys.insert(kind == QStringLiteral("contact") ? name : key, key);
 				if (kind == QStringLiteral("contact")) {
 					if (m_trees->findData(name) < 0)
 						m_trees->addItem(QStringLiteral("Shared by %1").arg(name), name);
@@ -683,91 +695,92 @@ void fzn_notebook_view::refresh_list()
 {
 	QScrollBar *bar = m_list->verticalScrollBar();
 	int keep = bar ? bar->value() : 0;
-	QString base = shared() ? QStringLiteral("list shared %1 %2").arg(m_tree, parent_id())
-	                        : QStringLiteral("list note %1").arg(parent_id());
-	size_t from = 0, total = 0, guard;
-	int got, pinned_at = 0;
+	static fzn_rpc_notes_list_resp_t notes;
+	uint8_t parent[32] = { 0 }, sharer[32] = { 0 };
+	int pinned_at = 0;
+	size_t i;
+	bool readable = true;
 
 	m_updating = true;
 	m_list->clear();
-	/* EVERY PAGE, until the total is reached or a page brings nothing: a
-	 * reply holds as many items as fit, and the next is asked from there.
-	 * NO CAP OF ITS OWN, sec 1006: 64 pages stopped a folder at 704 notes,
-	 * unsaid, and an imported Keep lands in one. Each page brings one row
-	 * at least, so the total bounds the pages. */
-	for (guard = 0; guard <= total + 1u; guard++) {
-		QString detail;
-		QStringList words;
-		int i, before = m_list->count();
+	/* THROUGH THE TYPED CLIENT, sec 1194: one request where the node reads
+	 * binary, every page of the verbs where it does not -- no cap of its
+	 * own either way (sec 1006). A shared tree is asked by its sharer's
+	 * key: a group member's is the key itself, a contact's the one `list
+	 * sharer` gave for the name, and a tree no key is known for is not
+	 * held here, so it lists nothing. */
+	if (!m_path.isEmpty())
+		readable = QByteArray::fromHex(m_path.last().toLatin1()).size() == 32;
+	if (readable && !m_path.isEmpty())
+		memcpy(parent, QByteArray::fromHex(m_path.last().toLatin1()).constData(), 32);
+	if (readable && shared()) {
+		QByteArray key = QByteArray::fromHex(m_sharer_keys.value(m_tree, m_tree).toLatin1());
 
-		got = ask(QStringLiteral("%1 %2").arg(base).arg(from), &detail);
-		if (got != 1)
-			break;
-		words = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-		if (words.size() < 2)
-			break;
-		total = words[0].toULongLong();
-		for (i = 2; i < words.size(); i++) {
-			QStringList f = words[i].split(QLatin1Char(','));
-			unsigned flags;
-			int type;
-			bool trashed, archived, pinned;
+		readable = key.size() == 32;
+		if (readable)
+			memcpy(sharer, key.constData(), 32);
+	}
+	notes.count = 0;
+	if (readable) {
+		const int rc = fzn_rpc_notes_list(&m_rpc->c, parent, shared() ? sharer : nullptr, 0, &notes);
 
-			from++;
-			if (f.size() < 6)
-				continue;
-			type = f[1].toInt();
-			flags = f[2].toUInt();
-			trashed = (flags & FZN_NOTE_FLAG_TRASHED) != 0u;
-			archived = (flags & FZN_NOTE_FLAG_ARCHIVED) != 0u;
-			pinned = (flags & FZN_NOTE_FLAG_PINNED) != 0u;
-			/* THE TRASH, THE ARCHIVE, or everything but: one list, three
-			 * views. A trashed note is in the trash whether or not it was
-			 * archived first. */
-			if (trashed != m_trash || (!m_trash && archived != m_archived))
-				continue;
-			QString title = unescape(f[5]);
-			/* NOT HERE YET, sec 514: the note's blob, or its wrap key, has
-			 * not arrived, so it has no title to show -- said, rather than
-			 * shown as a row with nothing in it. */
-			bool pending = (flags & FZN_NODE_NOTES_LIST_PENDING) != 0u;
-			QString shown = pending                         ? QStringLiteral("(not here yet)")
-			                : type == FZN_NOTE_TYPE_FOLDER ? title + QStringLiteral("/")
-			                                                : title;
-			/* THE LABELS IN THE ROW, sec 983, after the title -- a seventh
-			 * field since sec 522 -- and on hover as before. */
-			QString labels = f.size() >= 7 && !f[6].isEmpty()
-			                         ? unescape(f[6]).split(QLatin1Char('\0')).join(
-			                                   QStringLiteral(", "))
-			                         : QString();
-			if (!pending && !labels.isEmpty())
-				shown += QStringLiteral("  [%1]").arg(labels);
-			/* WHERE IT STANDS, sec 987: a note moved apart on two devices
-			 * is under two folders at once, and one whose folder this
-			 * host does not hold is shown at the top -- each said, where
-			 * before it looked like any other row. A shared tree's top is
-			 * every root the sharer sent, none reachable, so not there. */
-			if (f.value(4) == QStringLiteral("1"))
-				shown += QStringLiteral(" (in two folders)");
-			else if (f.value(3) == QStringLiteral("0") && !shared() && m_path.isEmpty())
-				shown += QStringLiteral(" (its folder is not here)");
-			auto *item = new QListWidgetItem(pinned ? QStringLiteral("* ") + shown : shown);
+		m_answered = rc == FZN_RPC_OK || m_rpc->c.answered;
+		if (rc != FZN_RPC_OK)
+			notes.count = 0;
+	}
+	for (i = 0; i < notes.count; i++) {
+		const fzn_rpc_notes_list_entry_t *e = &notes.entries[i];
+		const int type = e->content_type;
+		const bool trashed = (e->flags & FZN_NOTE_FLAG_TRASHED) != 0u;
+		const bool archived = (e->flags & FZN_NOTE_FLAG_ARCHIVED) != 0u;
+		const bool pinned = (e->flags & FZN_NOTE_FLAG_PINNED) != 0u;
 
-			item->setData(ROLE_ID, f[0]);
-			item->setData(ROLE_TYPE, type);
-			item->setData(ROLE_TITLE, title);
-			if (!labels.isEmpty())
-				item->setToolTip(labels);
-			/* PINNED FIRST, in the order they came; the rest after. */
-			if (pinned)
-				m_list->insertItem(pinned_at++, item);
-			else
-				m_list->addItem(item);
-			if (item->data(ROLE_ID).toString() == m_open)
-				m_list->setCurrentItem(item);
-		}
-		if (from >= total || (words.size() == 2 && m_list->count() == before))
-			break;
+		/* THE TRASH, THE ARCHIVE, or everything but: one list, three
+		 * views. A trashed note is in the trash whether or not it was
+		 * archived first. */
+		if (trashed != m_trash || (!m_trash && archived != m_archived))
+			continue;
+		QString title = QString::fromUtf8(e->title, (int)e->title_len);
+		/* NOT HERE YET, sec 514: the note's blob, or its wrap key, has
+		 * not arrived, so it has no title to show -- said, rather than
+		 * shown as a row with nothing in it. */
+		QString shown = e->pending                     ? QStringLiteral("(not here yet)")
+		                : type == FZN_NOTE_TYPE_FOLDER ? title + QStringLiteral("/")
+		                                                : title;
+		/* THE LABELS IN THE ROW, sec 983, after the title, and on hover;
+		 * a listing keeps FZN_RPC_NOTES_LABELS_SHOWN of them, and more
+		 * past it is said. */
+		QString labels = QString::fromUtf8(e->labels, (int)e->labels_len)
+		                         .split(QLatin1Char('\0'), Qt::SkipEmptyParts)
+		                         .join(QStringLiteral(", "));
+		if (e->labels_cut && !labels.isEmpty())
+			labels += QStringLiteral("...");
+		if (!e->pending && !labels.isEmpty())
+			shown += QStringLiteral("  [%1]").arg(labels);
+		/* WHERE IT STANDS, sec 987: a note moved apart on two devices
+		 * is under two folders at once, and one whose folder this
+		 * host does not hold is shown at the top -- each said, where
+		 * before it looked like any other row. A shared tree's top is
+		 * every root the sharer sent, none reachable, so not there. */
+		if (e->contested)
+			shown += QStringLiteral(" (in two folders)");
+		else if (!e->reachable && !shared() && m_path.isEmpty())
+			shown += QStringLiteral(" (its folder is not here)");
+		auto *item = new QListWidgetItem(pinned ? QStringLiteral("* ") + shown : shown);
+
+		item->setData(ROLE_ID,
+		              QString::fromLatin1(QByteArray(reinterpret_cast<const char *>(e->id), 32).toHex()));
+		item->setData(ROLE_TYPE, type);
+		item->setData(ROLE_TITLE, title);
+		if (!labels.isEmpty())
+			item->setToolTip(labels);
+		/* PINNED FIRST, in the order they came; the rest after. */
+		if (pinned)
+			m_list->insertItem(pinned_at++, item);
+		else
+			m_list->addItem(item);
+		if (item->data(ROLE_ID).toString() == m_open)
+			m_list->setCurrentItem(item);
 	}
 	/* THE READER'S PLACE, put back after the selection above scrolled to
 	 * the open note. */
