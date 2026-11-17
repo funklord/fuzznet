@@ -25,6 +25,8 @@ A asks, B is asked, C asks and is turned away.
        never A's exact position (sec 676)
     g2 granted level 0, B lists A's next fix exact; level 2, on the 0.1
        degree grid; revoked, B is given no fix after (sec 766)
+    g3 B, not following, takes no fix it did not ask for; following
+       (`location/follow`, sec 1240), it takes A's next without asking
     h  A puts a sticker pack and sends B a line carrying a sticker's
        reference; B's node wants the pack and fetches it from A, which
        granted it to B as the line went out, and B comes to list its
@@ -444,6 +446,27 @@ def main(argv):
 				raise failed("g2: revoked, B still holds A's record 6: %r" % rows)
 			print("livecheck: g2: B listed A's fixes exact at level 0, on the 0.1 degree grid at "
 			      "level 2, and was given none once revoked")
+
+			# g3: POSITIONS FOLLOWED, sec 1240: granted again, and B following
+			# with `location/follow`, A's next fix reaches B with B never
+			# asking -- where before it waited for a `fetch stream`.
+			expect(socks["a"], "a", "grant stream location bob 0", "ok")
+			got = ask(socks["a"], "add location 59.3293230 18.0685810 acc 5 5 at 1792600007")
+			if got != "ok 7":
+				raise failed("g3: add location answered %r, not record 7" % got)
+			# NOT FOLLOWING, the default: past the follow's 30 s, nothing taken
+			# that B did not ask for.
+			time.sleep(35.0)
+			if b_fix("7"):
+				raise failed("g3: not following, B took A's record 7 unasked")
+			expect(socks["b"], "b", "set setting host location/follow on", "ok")
+			deadline = time.monotonic() + within(80.0)
+			while time.monotonic() < deadline and not b_fix("7"):
+				time.sleep(1.0)
+			if not b_fix("7"):
+				raise failed("g3: following, B never came to hold A's record 7")
+			print("livecheck: g3: not following, B took nothing unasked; following, it took A's next "
+			      "fix without asking for it")
 
 			# h: a sticker, sec 682. A's pack, its reference sent as a line's
 			# text (escaped, as every text is), and B fetching the pack it

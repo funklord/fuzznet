@@ -17314,6 +17314,20 @@ SABOTAGES = [
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
+		"follow-by-the-wrong-key",
+		"node/daemon.c",
+		"\t\tif (!fzn_streams_last(&node_streams, \"location\", 8u, ct->pt.pairing.node))\n",
+		"\t\tif (!fzn_streams_last(&node_streams, \"location\", 8u, ct->pt.node))\n",
+		"a followed contact is looked for under the wrong key and never fetched; live_pairing phase g3 only -- sec 1240",
+	),
+	(
+		"follow-when-off",
+		"node/daemon.c",
+		"\t    || here_flag(\"location/follow\") != 1)\n",
+		"\t    || 0)\n",
+		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
+	),
+	(
 		"call-bar-prefers-up",
 		"gui/call_bar.cpp",
 		"\t\t\treturn state == FZN_RPC_RINGING_IN ? 3 : state == FZN_RPC_UP ? 2 : 1;\n",

@@ -91494,3 +91494,37 @@ every other frame file are unchanged -- and the schema gate, which caught
 the driver stale against situ's new HEAD before anything here changed,
 passes again. pair_test unchanged, 443 checks.
 
+## 1240. A friend's position followed, not only fetched when asked, 2026-11-17
+
+fuzzypickles' walk (sec 1230 item 3): bo saw ana's fix "3 min ago" while
+she took one every 30 s. **Read, the cause**: a contact's stream is
+fetched only on the user's `fetch stream`, so a position is as old as the
+last time anybody asked; nothing pulls it and nothing pushes it.
+
+- **`location/follow`**, a flag, off in fuzznet's presets and safe off,
+  an estate setting a host may hold (so fzpd can set it as a product
+  value): with it on, every FZND_FOLLOW_EVERY_S (30 s, the default
+  sampling interval) the node queues a `fetch stream location CONTACT`
+  for each contact whose position it already holds -- one who shares
+  theirs with this user and was fetched once -- as the user's own ask
+  would be queued, within the eight fetches a turn holds, taking the
+  contacts in turn where more share than fit. The first fetch of a
+  contact stays the user's.
+- **Queued before the turn decides whether to run a streams plan**, which
+  it does only with a fetch queued: the first build queued it inside that
+  plan, so it never ran -- phase g3 failed until the queueing moved.
+- **Keyed by the paired host's key**, as `stream_take` keeps a fetched
+  record (`pt.pairing.node`), not the target's own `pt.node`: the second
+  build looked under the other and found nothing held.
+
+So a friend's position seen by a following host is at most about a
+sampling interval plus 30 s old. **A push** -- the sharer's host sending
+a kept fix to each granted contact as it is taken -- would make it a few
+seconds, at the cost of a new node-to-node message older nodes do not
+read; that is the step after, if following proves too slow in use.
+
+**Tests:** `live_pairing` phase g3 -- A grants B again and takes a fix;
+B, not following, holds nothing it did not ask for past the 30 s;
+following, it takes the fix without asking. Two sabotages, each caught by
+g3 alone (`follow-by-the-wrong-key`, `follow-when-off`). schema_test's
+count of `location/` keys moves to seven.

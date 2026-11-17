@@ -221,6 +221,10 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  NULL, 0u },
 	{ "location/share-new-precision", FZN_SCHEMA_COUNT, ESTATE | HOST, 0u, 3u, "0", "level", 0u,
 	  "the precision location/share-new grants: 0 exact to 3 the coarsest (sec 1231)", NULL, 0u },
+	{ "location/follow", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
+	  "fetch the position of each contact whose position this host holds every 30 s, not only "
+	  "when asked (sec 1240)",
+	  NULL, 0u },
 	{ "log/level", FZN_SCHEMA_TEXT, HOST, 1u, 8u, "", "", 0u,
 	  "the least severe level this host's log file keeps, critical to trace; unset, "
 	  "`--log-level`'s, info by default (sec 735)",

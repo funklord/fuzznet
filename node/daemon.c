@@ -15370,6 +15370,47 @@ static void address_settle(void)
 	    n_observed);
 }
 
+/* POSITIONS FOLLOWED, sec 1240, fuzzypickles' walk: a friend's fix was
+ * seen three minutes old while they took one every 30 s, a contact's stream
+ * being fetched only when the user asked. With `location/follow` on, each
+ * contact whose position this host already holds -- one who shares it, and
+ * was fetched once -- is fetched again every FZND_FOLLOW_EVERY_S, as a
+ * `fetch stream location CONTACT` would, within the fetches a turn holds,
+ * the contacts taken in turn where more share than fit. */
+#define FZND_FOLLOW_EVERY_S 30u
+static void follow_positions(uint64_t now)
+{
+	static uint64_t last;
+	static size_t from;
+	size_t i, k;
+
+	if (!ncontact_targets || !node_streams.store || (last && now < last + FZND_FOLLOW_EVERY_S)
+	    || here_flag("location/follow") != 1)
+		return;
+	last = now;
+	for (i = 0; i < ncontact_targets && n_stream_fetches < FZND_STREAM_FETCHES_MAX; i++) {
+		const struct contact_target *ct = &contact_targets[(from + i) % ncontact_targets];
+		int queued = 0;
+
+		if (!fzn_streams_last(&node_streams, "location", 8u, ct->pt.pairing.node))
+			continue;
+		/* KEPT UNDER ITS PAIRED HOST'S KEY, as `stream_take` keeps it. ONCE
+		 * A CONTACT, whichever of its hosts holds the record. */
+		for (k = 0; k < n_stream_fetches; k++)
+			queued |= !stream_fetches[k].group && stream_fetches[k].name_len == 8u
+			          && !memcmp(stream_fetches[k].name, "location", 8u)
+			          && !memcmp(stream_fetches[k].who, ct->contact, FZN_PUBKEY_LEN);
+		if (queued)
+			continue;
+		memcpy(stream_fetches[n_stream_fetches].name, "location", 9u);
+		stream_fetches[n_stream_fetches].name_len = 8u;
+		memcpy(stream_fetches[n_stream_fetches].who, ct->contact, FZN_PUBKEY_LEN);
+		stream_fetches[n_stream_fetches].group = 0;
+		n_stream_fetches++;
+	}
+	from = (from + i) % ncontact_targets;
+}
+
 /* THE FETCHES ASKED, carried out: a contact's hosts, a group's members'
  * hosts, or this user's own -- each asked once. */
 static void streams_start(struct pull_target *pulls, size_t npulls, uint64_t now)
@@ -25916,7 +25957,11 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				/* A STREAM FETCH ASKED, at once, sec 632; WHERE THIS HOST IS
 				 * SEEN, asked now, sec 621: each a plan of its own, every host
 				 * at once and the loop answering meanwhile (sec 636). One
-				 * waits for the other's end, its flag kept. */
+				 * waits for the other's end, its flag kept. POSITIONS FOLLOWED
+				 * are queued as fetches first, so following starts the plan as
+				 * an ask does (sec 1240). */
+				if (!round_step)
+					follow_positions(now);
 				if (n_stream_fetches && !round_step) {
 					plan = streams_plan;
 					plan_at = 0;
