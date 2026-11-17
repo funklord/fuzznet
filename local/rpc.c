@@ -3128,8 +3128,19 @@ static int node_library_play(fzn_rpc_t *c, const uint8_t root[32], uint64_t offs
 	int rc = node_file_status(c, root, &st);
 	if (rc != FZN_RPC_OK) return rc;
 	/* NONE OF IT HERE, sec 1153: said as what to do, not as "not in the
-	 * library" of a file the library lists. */
-	if (!st.known) return fail(c, FZN_RPC_ERR_NOT_FETCHED, fzn_rpc_err_str(FZN_RPC_ERR_NOT_FETCHED));
+	 * library" of a file the library lists -- and only of one it lists
+	 * (sec 1195, fuzzypickles' inbox 20261117T0133Z): a root nobody has
+	 * catalogued is still not in the library, and nobody can fetch it. */
+	if (!st.known) {
+		fzn_rpc_library_show_resp_t *shown = malloc(sizeof(*shown));
+		if (!shown) return fail(c, FZN_RPC_ERR_STORAGE_IO, "out of memory reading the library");
+		rc = fzn_rpc_library_show(c, root, shown);
+		free(shown);
+		if (rc == FZN_RPC_OK) return fail(c, FZN_RPC_ERR_NOT_FETCHED, fzn_rpc_err_str(FZN_RPC_ERR_NOT_FETCHED));
+		/* No answer is said as no answer; any refusal of the file is that
+		 * it is not in the library. */
+		return c->answered ? fail(c, FZN_RPC_ERR_STORAGE_IO, "not in the library") : rc;
+	}
 	out->size = st.byte_len;
 	out->complete = st.complete;
 	out->playable = st.complete ? st.byte_len : 0;
@@ -4013,8 +4024,14 @@ static int contact_change(fzn_rpc_t *c, uint8_t op, const uint8_t key[32], const
 	if (rc != FZN_RPC_OK || *text) return rc;
 	if (!a.status_seen || a.bad) return unreadable(c);
 	if (a.code == FZN_STATUS_OK) return FZN_RPC_OK;
+	/* A REQUEST NOT THERE IS ITS OWN KIND, as node_request_answer narrows
+	 * the verb's (fuzzypickles, inbox 20261117T0133Z): a caller tells "no
+	 * such request" -- answered elsewhere already -- from "no such contact". */
+	const int no_request = (op == FZN_CONTACTS_LOCAL_OP_GRANT || op == FZN_CONTACTS_LOCAL_OP_REFUSE)
+	                       && strncmp(a.why, "no request", 10) == 0;
 	return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED
 	               : a.code == FZN_STATUS_MALFORMED ? FZN_RPC_ERR_INVALID_PEER_NAME
+	               : no_request                     ? FZN_RPC_ERR_NO_PEER_REQUEST
 	                                                : FZN_RPC_ERR_NO_PEER,
 	            a.why[0] ? a.why : "the node refused it");
 }

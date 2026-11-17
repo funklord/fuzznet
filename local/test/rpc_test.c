@@ -671,7 +671,11 @@ static void test_an_empty_library_lists_nothing(void)
  * the library lists. */
 static void test_a_file_not_fetched_says_so(void)
 {
-	struct script s = { { "error not all here" }, 0, 1, 0, { { 0 } } };
+	static const char listed[] = "ok 1 0 5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+	                             ",name,song,aa00000000000000";
+	struct script s = { { "error not all here", listed, "ok " ID_A " " ID_B, "ok 1 aa00000000000000", "error not all here" },
+	                    0, 5, 0, { { 0 } } };
+	struct script nobody = { { "error not all here", "ok 0 0" }, 0, 2, 0, { { 0 } } };
 	static fzn_rpc_library_play_resp_t out;
 	uint8_t root[32];
 
@@ -679,7 +683,12 @@ static void test_a_file_not_fetched_says_so(void)
 	on(&c, &s);
 	CHECK(fzn_rpc_library_play(&c, root, 0, 1, &out) == FZN_RPC_ERR_NOT_FETCHED && c.answered
 	              && strstr(c.error, "fetch it") != NULL,
-	      "a file none of which is here was not told apart, with what to do");
+	      "a file the library lists, none of which is here, was not told apart, with what to do");
+	/* A ROOT NOBODY CATALOGUED, sec 1195: not in the library, not to fetch. */
+	on(&c, &nobody);
+	CHECK(fzn_rpc_library_play(&c, root, 0, 1, &out) == FZN_RPC_ERR_STORAGE_IO
+	              && strcmp(c.error, "not in the library") == 0 && strncmp(nobody.asked[1], "list catalog", 12) == 0,
+	      "a root no library lists was told to be fetched");
 }
 
 /* A CONVERSATION'S NEWEST ROW framed onto answer `i`, sec 1155. */
@@ -1017,9 +1026,9 @@ static void test_requests_in_binary(void)
 	      "a request was not let in in binary under its name");
 	status_onto(&refused, 0, FZN_STATUS_ERROR, "no request from that root");
 	bon(&c, &refused);
-	CHECK(fzn_rpc_peer_request_reject(&c, key) != FZN_RPC_OK && refused.asked[0][1] == 0x88
+	CHECK(fzn_rpc_peer_request_reject(&c, key) == FZN_RPC_ERR_NO_PEER_REQUEST && refused.asked[0][1] == 0x88
 	              && strcmp(c.error, "no request from that root") == 0,
-	      "a request turned away in binary was not asked by key, or the refusal's words lost");
+	      "a request turned away in binary was not asked by key, or the refusal's code or words lost");
 }
 
 /* THIS USER'S GROUPS IN BINARY, sec 1170: a row read into the list with its

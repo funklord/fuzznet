@@ -89902,3 +89902,29 @@ still refused. `newest_all` failed the same way and is fixed with it.
 **Tests:** `rpc_test` -- unread and newest asked with no room answer OK
 and the total; an unread row answering a newest request with no room is
 refused. Seen failing with the fix reverted. One sabotage.
+
+## 1195. Two answers that changed meaning, put back, 2026-11-17
+
+From fuzzypickles' inbox (20261117T0133Z), both found by its run-all at
+2ab340af and both asserted there with the earlier meaning:
+
+- **A request not there, granted or turned away, read as no such
+  contact.** Sec 1169 moved both onto `contact_change`, whose refusal
+  mapped every status but denied and malformed to `FZN_RPC_ERR_NO_PEER`,
+  where the verb's path narrowed "no request ..." to
+  `FZN_RPC_ERR_NO_PEER_REQUEST`. A caller could no longer tell a request
+  answered elsewhere from a contact that is not there. The binary refusal
+  is narrowed the same way now, by the node's words, for grant and refuse
+  alone.
+- **A root nobody catalogued was told to be fetched.** Sec 1153 gave a
+  file the library lists, none of which is here, `FZN_RPC_ERR_NOT_FETCHED`
+  and words saying to fetch it -- but asked only whether the file was
+  here, so 32 zero bytes got the same words. `fzn_rpc_library_play` now
+  asks the library when none of the file is here (`fzn_rpc_library_show`,
+  one request since sec 1190): listed, it is to be fetched; refused, it is
+  "not in the library", as before sec 1153. It costs a listing's probe of
+  an unheld row one more request.
+
+**Tests:** `rpc_test` -- a refused request's code, and a listed file
+unheld against a root nobody catalogued, each seen failing with its fix
+reverted. Two sabotages, and sec 1153's moved with its line.

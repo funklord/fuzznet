@@ -16637,8 +16637,8 @@ SABOTAGES = [
 	(
 		"library-play-not-fetched-as-storage",
 		"local/rpc.c",
-		"\tif (!st.known) return fail(c, FZN_RPC_ERR_NOT_FETCHED, fzn_rpc_err_str(FZN_RPC_ERR_NOT_FETCHED));\n",
-		"\tif (!st.known) return fail(c, FZN_RPC_ERR_STORAGE_IO, \"not in the library\");\n",
+		"\t\tif (rc == FZN_RPC_OK) return fail(c, FZN_RPC_ERR_NOT_FETCHED, fzn_rpc_err_str(FZN_RPC_ERR_NOT_FETCHED));\n",
+		"\t\tif (rc == FZN_RPC_OK) return fail(c, FZN_RPC_ERR_STORAGE_IO, \"not in the library\");\n",
 		"a file none of which is here is said to be not in the library, with no word of fetching -- sec 1153",
 	),
 	(
@@ -16885,6 +16885,20 @@ SABOTAGES = [
 		"\t\tstore = &shared_store;\n",
 		"",
 		"a sharer's tree asked in binary is answered from this user's own notes -- sec 1191",
+	),
+	(
+		"rpc-request-gone-is-no-contact",
+		"local/rpc.c",
+		"\t               : no_request                     ? FZN_RPC_ERR_NO_PEER_REQUEST\n",
+		"",
+		"a request not there, refused in binary, reads as no such contact -- sec 1195",
+	),
+	(
+		"rpc-play-anything-unheld-is-to-fetch",
+		"local/rpc.c",
+		"\t\treturn c->answered ? fail(c, FZN_RPC_ERR_STORAGE_IO, \"not in the library\") : rc;\n",
+		"\t\treturn fail(c, FZN_RPC_ERR_NOT_FETCHED, fzn_rpc_err_str(FZN_RPC_ERR_NOT_FETCHED));\n",
+		"a root no library lists is told to be fetched -- sec 1195",
 	),
 	(
 		"rpc-conversations-no-room-is-bad",
