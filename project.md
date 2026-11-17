@@ -91206,3 +91206,35 @@ emulators, what is fuzznet's, ranked by how often a person meets it:
    groups together, a group marked by an icon, the unread count a badge,
    the newest line's time on the right, no row left highlighted after it
    is opened. Added to sec 1224's conversations_view item.
+
+## 1231. A new contact granted this user's position, once, 2026-11-17
+
+fuzzypickles' 2000Z item 1 (sec 1230): the holder's choice for its users,
+very close friends for now, is location shared with each friend by
+default. fzpd can set a product value, but not the grant: a contact
+becomes one when either side's request is approved, from any client or
+host of the estate, so only the node sees every case.
+
+- **`location/share-new`**, a flag, off in fuzznet's presets and safe off
+  (SAFE_LOWER), and **`location/share-new-precision`**, 0 exact to 3, 0
+  by default -- each an estate setting a host may hold too, so fzpd can
+  set them as product values.
+- **Given once, at the moment a contact is made, by the host that made
+  it.** The admin's `contact_first` hook is told from `roster_act` when
+  this host writes the roster add of a key the roster held no
+  incarnation of; every way a contact is made -- a card added, a request
+  granted, `add contact` -- comes through it. A record learned from a
+  peer never tells it, so two hosts never both grant; a contact removed
+  and added back has an incarnation held and is not told again, so one
+  the user turned off is never granted again.
+- **Not over a choice already standing**, and not to contacts made
+  before the setting was on: it is not a default read at serving time,
+  which would have granted every existing friend nobody had chosen to
+  share with the day the flag went on -- the wrong answer for a
+  position, by the config rule's own test (a default's change must not
+  change what a person chose, or here, did not choose).
+
+**Tests:** `live_location` phase f -- none while off; exact once on; at
+the precision set; a contact made before not granted; one turned off,
+removed and added back not granted again. Two sabotages, each caught by
+f alone (`contact-first-on-every-add`, `contact-first-never-told`).

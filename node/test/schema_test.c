@@ -245,11 +245,11 @@ static void test_the_verbs(void)
 	CHECK(seen == total && pages >= 2u && theme,
 	      "the pages did not give every declaration once, the extension's among them");
 	CHECK(ask(&s, FZN_VERB_LIST, "schema location/", reply, cap) > 0
-	              && strncmp(reply, "ok 4 0 location/enabled,flag,host,0,0,off,-,safe-lower,", 55)
+	              && strncmp(reply, "ok 6 0 location/enabled,flag,host,0,0,off,-,safe-lower,", 55)
 	                         == 0,
 	      "a prefix did not narrow the listing");
 	CHECK(ask(&s, FZN_VERB_LIST, "schema location/ 3", reply, cap) > 0
-	              && strncmp(reply, "ok 4 3 location/accuracy,count,host,0,61440,100,metres,-,",
+	              && strncmp(reply, "ok 6 3 location/accuracy,count,host,0,61440,100,metres,-,",
 	                         57) == 0,
 	      "a prefix and a FROM together were not read");
 	/* WHAT PEERS SEE AND WHICH WAY IS SAFER, in a row's flags, sec 984. */

@@ -309,6 +309,12 @@ typedef struct fzn_node_admin {
 	void (*contact_named)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const char *name,
 	                      size_t name_len);
 	void *contact_named_ctx;
+	/* A CONTACT THIS ROSTER NEVER HELD, ADDED BY THIS HOST, sec 1231: told
+	 * once the add is written, so a default given to a new contact is given
+	 * once, by the host that made it one -- never on a record learned from
+	 * a peer, and never on a contact added back after it was removed. */
+	void (*contact_first)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN]);
+	void *contact_first_ctx;
 } fzn_node_admin_t;
 
 /* A GROUP'S SHARES FORGOTTEN, notes and files, as `fzn_node_groups_t.forget`

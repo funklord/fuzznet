@@ -1339,6 +1339,10 @@ static size_t roster_k(const fzn_node_admin_t *admin)
  * when a table was found full. sec 704. */
 static fzn_node_roster_err_t roster_act(fzn_node_admin_t *admin, const uint8_t *key, int add)
 {
+	/* NEVER HELD BEFORE, sec 1231: no incarnation of it in the roster. */
+	const int first = add && admin->contact_first
+	                  && fzn_node_roster_standing(admin->roster, key, admin->revocations, roster_k(admin))
+	                             == FZN_ROSTER_ABSENT;
 	fzn_node_roster_err_t err =
 	        fzn_node_roster_write(admin->roster, admin->store, admin->id, admin->authority,
 	                              admin->rng, key, add, admin->revocations, roster_k(admin));
@@ -1348,6 +1352,8 @@ static fzn_node_roster_err_t roster_act(fzn_node_admin_t *admin, const uint8_t *
 		err = fzn_node_roster_write(admin->roster, admin->store, admin->id, admin->authority,
 		                            admin->rng, key, add, admin->revocations,
 		                            roster_k(admin));
+	if (first && err == FZN_NODE_ROSTER_OK)
+		admin->contact_first(admin->contact_first_ctx, key);
 	return err;
 }
 

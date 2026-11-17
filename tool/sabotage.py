@@ -17314,6 +17314,20 @@ SABOTAGES = [
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
+		"contact-first-on-every-add",
+		"node/admin.c",
+		"\t                             == FZN_ROSTER_ABSENT;\n",
+		"\t                             >= FZN_ROSTER_ABSENT;\n",
+		"a contact added back after removal is granted this user's position again; live_location phase f only -- sec 1231",
+	),
+	(
+		"contact-first-never-told",
+		"node/admin.c",
+		"\tif (first && err == FZN_NODE_ROSTER_OK)\n\t\tadmin->contact_first(admin->contact_first_ctx, key);\n",
+		"",
+		"a new contact is never granted this user's position by location/share-new; live_location phase f only -- sec 1231",
+	),
+	(
 		"stop-drops-held-writes",
 		"node/daemon.c",
 		"static int stop_serving(int lfd, const char *sock_path, int ufd)\n{\n\tflush_held();\n",

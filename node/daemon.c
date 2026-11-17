@@ -14877,6 +14877,60 @@ static void setting_decided(void *ctx, const uint8_t *key, size_t key_len, const
 		    (const char *)key);
 }
 
+/* A SETTING IN FORCE HERE, the estate's or this host's, as a flag: 1 on, 0
+ * off, -1 unset. */
+static int here_flag(const char *key)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX], about[FZN_SUBJECT_LEN];
+	fzn_setting_rank_t rank;
+	fzn_scope_t scope;
+	size_t len = 0;
+
+	if (fzn_node_settings_here(&node_settings, (const uint8_t *)key, strlen(key), value, &len, &rank, &scope,
+	                           about)
+	    != 1)
+		return -1;
+	return fzn_schema_flag(value, len);
+}
+
+/* A NEW CONTACT GRANTED THIS USER'S POSITION, sec 1231, fuzzypickles'
+ * 2000Z: with `location/share-new` on, at `location/share-new-precision`,
+ * the first time it becomes a contact -- told by the admin once this host
+ * has written that add, so once, and never for a contact added back.
+ * Written as `grant stream location` writes it, an estate setting, and not
+ * over a choice already standing for it. */
+static void contact_first(void *ctx, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	uint8_t cell[STREAM_GRANT_KEY_LEN], value, about[FZN_SUBJECT_LEN], held[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	fzn_scope_t scope;
+	size_t len = 0;
+	unsigned level = 0;
+	char hex[17];
+
+	(void)ctx;
+	if (here_flag("location/share-new") != 1 || !node_settings.store || !node_settings.estate
+	    || !stream_grant_key("location", 8u, key, cell) || stream_granted("location", 8u, key, &level))
+		return;
+	value = '0';
+	if (fzn_node_settings_here(&node_settings, (const uint8_t *)"location/share-new-precision", 28u, held,
+	                           &len, &rank, &scope, about)
+	            == 1
+	    && len == 1u && held[0] >= '0' && held[0] < (uint8_t)('0' + FZN_STREAM_LEVELS_MAX))
+		value = held[0];
+	hex_of(key, 8u, hex);
+	if (fzn_node_settings_write(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, cell, sizeof(cell), 1,
+	                            &value, 1u)
+	    == FZN_NODE_SETTINGS_OK) {
+		journal_pushed = 1;
+		say(FZN_ENTRY_INFO, "location", "a new contact, %s, granted this user's position at level %c", hex,
+		    value);
+	} else {
+		say(FZN_ENTRY_WARNING, "location", "a new contact, %s, could not be granted this user's position",
+		    hex);
+	}
+}
+
 static void contact_named(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const char *name,
                           size_t name_len)
 {
@@ -25107,6 +25161,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			state.relay_charge = relayed_frame_charged;
 			/* A CONTACT'S NAME, the user's, sec 699. */
 			admin.contact_named = contact_named;
+			/* A NEW CONTACT'S DEFAULT GRANT, sec 1231. */
+			admin.contact_first = contact_first;
 			/* A LAN PROBE, sec 624. */
 			state.on_probe = lan_probe_heard;
 			/* A PEER'S CLOCK OUT OF THE WINDOW, sec 714. */

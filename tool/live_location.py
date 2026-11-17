@@ -23,6 +23,10 @@ a poor one in turn.
        774): refused while location is off, dropped past the accuracy gate
        or of unknown accuracy, and said so -- never `ok` -- and a fix kept
        makes `get location`'s SOURCE `platform`
+    f  a new contact granted this user's position (sec 1231): none while
+       `location/share-new` is off; with it on, exact by default and at
+       `location/share-new-precision` when set; a contact turned off,
+       removed and added back is not granted again
 
 Against a daemon that does not sample, phase b's link never reads
 watching; against one with no accuracy gate, nothing is dropped.
@@ -302,6 +306,34 @@ def main(argv):
 				raise failed("e: a fix kept answered %r, and get location said %r" % (kept, got))
 			print("livecheck: e: a supplied fix refused while off, dropped past the gate and "
 			      "said so, and once kept its source read platform")
+
+			# f: A NEW CONTACT GRANTED THIS USER'S POSITION, sec 1231,
+			# fuzzypickles' 2000Z: once, by the host that made it a contact.
+			def added(name, key):
+				got = ask(sock, "add contact %s %s" % (name, key))
+				if not got.startswith("ok"):
+					raise failed("f: add contact %s answered %r" % (name, got))
+				return ask(sock, "get stream location " + name)
+			if added("cora", "c1" * 32) != "ok none":
+				raise failed("f: a new contact was granted with location/share-new off")
+			if ask(sock, "set setting estate location/share-new on") != "ok":
+				raise failed("f: location/share-new was refused")
+			if added("dana", "d1" * 32) != "ok 0":
+				raise failed("f: a new contact was not granted exactly: %r"
+				             % ask(sock, "get stream location dana"))
+			if ask(sock, "set setting estate location/share-new-precision 2") != "ok":
+				raise failed("f: location/share-new-precision was refused")
+			if added("edda", "e1" * 32) != "ok 2":
+				raise failed("f: a new contact was not granted at the precision set")
+			if ask(sock, "get stream location cora") != "ok none":
+				raise failed("f: a contact made before the setting was granted by it")
+			if ask(sock, "revoke stream location dana") != "ok" \
+			   or ask(sock, "remove contact dana") != "ok":
+				raise failed("f: dana could not be turned off and removed")
+			if added("dana", "d1" * 32) != "ok none":
+				raise failed("f: a contact added back was granted again")
+			print("livecheck: f: a new contact granted this user's position, at the precision "
+			      "set, once; none while off, and none for one added back")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
