@@ -90666,3 +90666,77 @@ a repository host's "type the name to delete it" -- rather than an
 phrase the host's name; refused on part of the name and on the name in
 another case; done and said with the name in full. Two sabotages, each
 caught: `hosts-view-reset-always-offered`, `hosts-view-reset-unchecked`.
+
+## 1216. Join by request: the design, and the one question it waits on, 2026-11-17
+
+The holder (sec 1208): join by request "sounds like something we will end
+up needing". What it is: a device joins a user's hosts **without reading
+a code** -- the case one-code joining (sec 896) does not cover, a pair
+where neither side can read the other's screen.
+
+**Most of it exists.** A confirmed invite (sec 896) already makes the
+joining device wait, named to the host's user, until `grant invite KEY`;
+`devices_view` lists the waiting and lets one in (secs 1122-1123). What a
+codeless join lacks is only **how the device learns the invite**. The
+design that serves the aims is a *discoverable* window, as Bluetooth's:
+
+- the host's user switches on "let a device join from this network" for
+  a few minutes (`add offer [LIFE]`); the host makes a confirmed,
+  delegable invite and, while the window is open, answers a stranger's
+  **join probe** with that invite and its name -- nothing else, and no
+  answer larger than the probe (sec 624's rule against amplification);
+- the device lists the hosts that answered, by name and key fingerprint,
+  and asks to join one with its invite -- the existing path;
+- the host's user lets it in by name, comparing the fingerprint each side
+  shows. A stranger on the network can see the offer and ask too, and is
+  shown to the user as a second waiting device, never let in by itself.
+
+**The question, the holder's: how a device finds a host it knows nothing
+of.** fuzznet has no well-known port -- a node serves where `--udp-port`
+says -- so a probe has nowhere to go. Three roads, each with its cost:
+
+1. **a fixed fuzznet discovery port**, which an offering host listens on
+   (or broadcasts to) while its window is open: simplest, no dependency,
+   but a number every consumer and every network sees, and a host
+   announcing itself on whatever network it is on;
+2. **mDNS / DNS-SD**, the platforms' own discovery: standard and what
+   printers and phones already use, at the cost of a dependency (Avahi,
+   Android's NSD) and a service name to register;
+3. **the device's user types the host's address and port** from the
+   host's screen: no discovery at all, and a short code by another name.
+
+Best guess: 1, a fixed port open only during the window. Nothing is
+built until it is chosen, since the port or the service name is public
+the moment it ships.
+
+## 1217. Every client call in binary: the inventory, and the order, 2026-11-17
+
+The holder (sec 1208): "I'm not aware of protocol parts that would
+benefit from remaining text." Secs 1152-1206 moved what a view asks on
+every refresh; the writes and the user-paced reads were left in text.
+**Counted 2026-11-17** by reading `local/rpc.c`, each public call followed
+through its helpers to whether it reaches `fzn_rpc_binary`: of 153
+public calls, **107 still ask only in text**. By subject, most first:
+
+| subject | calls | | subject | calls |
+|---|---|---|---|---|
+| group | 12 | | config | 5 |
+| notes, note | 12 | | host, identity | 8 |
+| sticker | 9 | | location | 5 |
+| device (joining) | 7 | | peer (requests, removal) | 5 |
+| blob, file, library | 13 | | cap (grants) | 4 |
+| message | 3 | | retention | 3 |
+
+and some twenty with one call each (a clock, a log, a relay's status,
+the call verbs). The count is a detector's -- a helper reached by a name
+the walk does not follow would read as text -- so each subject is
+re-read when it is taken up.
+
+**The order**: what a person does most, first -- the notebook's writes
+(add, edit, move, trash, share), then groups, messages and stickers,
+then files and the library, then devices, hosts and grants, then the
+rest. Each subject as the reads were: a situ schema of its operations
+beside its reads', the node's answer, the client binary first with the
+verb behind it, its tests and its sabotages. **The verbs stay**: the CLI
+and a person at the socket speak them, and a node from before answers
+nothing else.
