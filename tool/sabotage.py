@@ -16887,6 +16887,20 @@ SABOTAGES = [
 		"a sharer's tree asked in binary is answered from this user's own notes -- sec 1191",
 	),
 	(
+		"rpc-shared-notes-text-only",
+		"local/rpc.c",
+		"\tconst int rc = notes_list_binary(c, key, parent, out, &text);\n\tif (!text) return rc;\n",
+		"\t(void)notes_list_binary;\n\ttext = 1;\n",
+		"a shared tree is read by the verbs although the node reads it in binary -- sec 1192",
+	),
+	(
+		"rpc-group-sharers-groups-in-text",
+		"local/rpc.c",
+		"\tint rc = node_group_list(c, &rows);\n",
+		"\tint rc = node_group_rows(c, &rows);\n",
+		"a group's notebook finds its group by the text listing although the node reads it in binary -- sec 1192",
+	),
+	(
 		"rpc-notes-binary-keeps-pending-bit",
 		"local/rpc.c",
 		"n->flags = (uint8_t)(fzn_notes_local_note_row_flags_get(b) & 0x7fu);",

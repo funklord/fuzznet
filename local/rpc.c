@@ -694,7 +694,8 @@ static int member_peers_read(fzn_rpc_t *c) {
 	/* Nothing to search until this is whole: a listing cut short leaves its
 	 * rows, which the sorted pointers do not describe, and may have moved them. */
 	member_sorted_count = 0;
-	const int rc = node_peer_list(c, &member_peers);
+	/* IN BINARY where the node reads it, sec 1192. */
+	const int rc = fzn_rpc_peer_list(c, &member_peers);
 	if (rc != FZN_RPC_OK) return rc;
 	const int grown = room_for(c, &member_sorted, &member_sorted_room, member_peers.count + 1,
 	                           sizeof *member_sorted);
@@ -881,7 +882,9 @@ static int node_group_show(fzn_rpc_t *c, const char *group, size_t group_len,
 	if (rc != FZN_RPC_OK) return rc;
 	memcpy(out->self_root, self, 32);
 	static fzn_rpc_group_list_resp_t rows;
-	rc = node_group_rows(c, &rows);
+	/* IN BINARY where the node reads it, sec 1192: the text listing is the
+	 * fallback, not a path of its own. */
+	rc = node_group_list(c, &rows);
 	for (size_t i = 0; rc == FZN_RPC_OK && i < rows.count; i++)
 		if (rows.entries[i].name_len == group_len &&
 		    memcmp(rows.entries[i].name, group, group_len) == 0)
@@ -1634,6 +1637,29 @@ static void node_parent(const uint8_t parent[32], char out[65]) {
  * ID,TYPE,FLAGS,REACHABLE,CONTESTED,TITLE,LABELS ...`, paged. FLAGS' 0x80
  * is fuzznet's "content not here yet", which the clients' flags have no bit
  * for, so it is dropped. */
+static int notes_list_binary(fzn_rpc_t *c, const uint8_t sharer[32], const uint8_t parent[32],
+                             fzn_rpc_notes_list_resp_t *out, int *text);
+static void node_shared_tree(const uint8_t key[32], char out[80]);
+
+static int node_notes_list(fzn_rpc_t *c, const char *tree, const uint8_t parent[32],
+                           fzn_rpc_notes_list_resp_t *out);
+
+/* ONE SHARER'S TREE under `parent`, in binary where the node reads it (sec
+ * 1192), else by `list shared KEY`: what every reader of a shared tree in
+ * this file asks, so none of them keeps a text path of its own. */
+static int node_shared_notes(fzn_rpc_t *c, const uint8_t key[32], const uint8_t parent[32],
+                             fzn_rpc_notes_list_resp_t *out) {
+	int text = 0;
+	out->count = 0;
+	out->truncated = 0;
+	const int rc = notes_list_binary(c, key, parent, out, &text);
+	if (!text) return rc;
+	char tree[80];
+	node_shared_tree(key, tree);
+	out->count = 0;
+	return node_notes_list(c, tree, parent, out);
+}
+
 static int node_notes_list(fzn_rpc_t *c, const char *tree, const uint8_t parent[32],
                            fzn_rpc_notes_list_resp_t *out) {
 	out->count = 0;
@@ -2141,9 +2167,7 @@ static int node_notes_shares(fzn_rpc_t *c, fzn_rpc_notes_shares_resp_t *out) {
 	static const uint8_t top[32];
 	int rc = FZN_RPC_OK;
 	for (size_t i = 0; rc == FZN_RPC_OK && i < n_sharers; i++) {
-		char tree[80];
-		node_shared_tree(sharers[i], tree);
-		rc = node_notes_list(c, tree, top, roots);
+		rc = node_shared_notes(c, sharers[i], top, roots);
 		for (size_t k = 0; rc == FZN_RPC_OK && k < roots->count; k++) {
 			if (out->count >= FZN_RPC_NOTES_SHARES_LIST_MAX) {
 				out->truncated = 1;
@@ -3146,7 +3170,7 @@ static int node_group_sharers(fzn_rpc_t *c, const uint8_t chat_id[32],
                               uint8_t keys[NODE_GROUP_SHARERS_MAX][32], size_t *n) {
 	*n = 0;
 	static fzn_rpc_group_list_resp_t rows;
-	int rc = node_group_rows(c, &rows);
+	int rc = node_group_list(c, &rows);
 	char want[2 + FZN_RPC_PEER_NAME_MAX + 1] = "";
 	for (size_t i = 0; rc == FZN_RPC_OK && i < rows.count; i++)
 		if (memcmp(rows.entries[i].chat_id, chat_id, 32) == 0)
@@ -3218,9 +3242,7 @@ static int node_group_notes_list(fzn_rpc_t *c, const uint8_t chat_id[32], const 
 	int any = 0, last = FZN_RPC_OK;
 	char why[sizeof(c->error)] = "";
 	for (size_t i = 0; i < n; i++) {
-		char tree[80];
-		node_shared_tree(keys[i], tree);
-		last = node_notes_list(c, tree, parent, one);
+		last = node_shared_notes(c, keys[i], parent, one);
 		if (last != FZN_RPC_OK) {
 			snprintf(why, sizeof why, "%s", c->error);
 			continue;
@@ -3255,9 +3277,7 @@ int fzn_rpc_group_notebook_held(fzn_rpc_t *c, const char *group, size_t group_le
 	static fzn_rpc_notes_list_resp_t one;
 	const uint8_t top[32] = {0};
 	for (size_t i = 0; i < n && !*held; i++) {
-		char tree[80];
-		node_shared_tree(keys[i], tree);
-		if (node_notes_list(c, tree, top, &one) == FZN_RPC_OK && one.count) *held = 1;
+		if (node_shared_notes(c, keys[i], top, &one) == FZN_RPC_OK && one.count) *held = 1;
 	}
 	c->error[0] = '\0';
 	c->error_code = 0;
@@ -3375,7 +3395,7 @@ static int node_sibling_named(fzn_rpc_t *c, const char *name, size_t name_len, c
 	if (!name_len || name_len > 64) return node_unasked(c, FZN_RPC_ERR_NO_PEER, "no such sibling");
 	fzn_rpc_sibling_list_resp_t *all = malloc(sizeof(*all));
 	if (!all) return fail(c, FZN_RPC_ERR_STORAGE_IO, "out of memory reading the siblings");
-	int rc = node_siblings(c, all);
+	int rc = fzn_rpc_sibling_list(c, all); /* in binary where read, sec 1192 */
 	size_t found = 0, which = 0;
 	for (size_t i = 0; rc == FZN_RPC_OK && i < all->count; i++) {
 		char key_hex[65];
@@ -7180,7 +7200,7 @@ static int node_config_status(fzn_rpc_t *c, const char *key, size_t key_len, con
 	 * stay the name otherwise. */
 	if (out->count) {
 		fzn_rpc_sibling_list_resp_t *sibs = malloc(sizeof(*sibs));
-		if (sibs && node_siblings(c, sibs) == FZN_RPC_OK)
+		if (sibs && fzn_rpc_sibling_list(c, sibs) == FZN_RPC_OK)
 			for (size_t row = 0; row < out->count; row++)
 				for (size_t i = 0; i < sibs->count; i++) {
 					char hex[65];

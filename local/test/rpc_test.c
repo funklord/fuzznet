@@ -1268,6 +1268,45 @@ static void test_notes_in_binary(void)
 	fzn_rpc_notes_list_release(&out);
 }
 
+/* A GROUP'S NOTEBOOK IN BINARY, sec 1192: the group found by its id, its
+ * sharers listed, each sharer's tree asked by key in binary, the rows of
+ * every tree that answered together and one that holds nothing passed over. */
+static void test_group_notebook_in_binary(void)
+{
+	static struct bscript b;
+	static fzn_rpc_notes_list_resp_t out;
+	uint8_t chat[32], top[32], id[32], row[160], m[176];
+	uint32_t row_len = 0, n = 0;
+	struct script s = { { "ok 2 0 " ID_A ",contact,ann " ID_B ",group,bob" }, 0, 1, 0, { { 0 } } };
+
+	memset(chat, 0xcd, sizeof(chat));
+	memset(top, 0, sizeof(top));
+	if (fzn_groups_local_row_build(row, sizeof(row), chat, 3u, 1u, 7u, (const uint8_t *)"team", 4, &row_len)
+	            == SITU_OK
+	    && fzn_groups_local_message_build_row(m, sizeof(m), (uint8_t)FZN_CMD_GROUPS, row, row_len, &n) == SITU_OK)
+		framed(&b, 0, m, n);
+	status_onto(&b, 0, FZN_STATUS_OK, NULL);
+	memset(id, 0x5a, sizeof(id));
+	if (fzn_notes_local_note_row_build(row, sizeof(row), id, 1u, 0u, 0u, 0u, (const uint8_t *)"ann's", 5, NULL, 0,
+	                                   &row_len)
+	            == SITU_OK
+	    && fzn_notes_local_message_build_note_row(m, sizeof(m), (uint8_t)FZN_CMD_NOTES, row, row_len, &n)
+	               == SITU_OK)
+		framed(&b, 1, m, n);
+	status_onto(&b, 1, FZN_STATUS_OK, NULL);
+	status_onto(&b, 2, FZN_STATUS_ERROR, "no such note");
+	on(&c, &s);
+	c.binary_answer = bscripted;
+	c.binary_ctx = &b;
+	CHECK(fzn_rpc_notes_list(&c, top, chat, 1, &out) == FZN_RPC_OK && out.count == 1
+	              && strcmp(out.entries[0].title, "ann's") == 0 && strncmp(s.asked[0], "list sharer @team", 17) == 0
+	              && b.asked_len[1] == 66u && b.asked[1][0] == 0x08 && b.asked[1][1] == 0x80
+	              && b.asked[1][2] == 0xaa && b.asked[1][33] == 0x01 && b.asked_len[2] == 66u
+	              && b.asked[2][2] == 0xbb,
+	      "a group's notebook was not each sharer's tree asked in binary, by key");
+	fzn_rpc_notes_list_release(&out);
+}
+
 /* ONE SIBLING framed onto answer `i`, sec 1176. */
 static void sibling_onto(struct bscript *s, size_t i, uint8_t first, uint8_t paired, const char *where,
                          const char *name)
@@ -1657,6 +1696,7 @@ int main(void)
 	test_library_in_binary();
 	test_library_show_in_binary();
 	test_notes_in_binary();
+	test_group_notebook_in_binary();
 	test_packs_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

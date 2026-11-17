@@ -89856,3 +89856,29 @@ asked of an old node; `live_many_shared` phase c2 -- 2200 shared notes
 in binary by the sharer's key, in the pages' order. Three sabotages; a
 fourth, on the op check, survived because the generated body view refuses
 any other op itself, so it was dropped as testing nothing.
+
+## 1192. The readers that skipped the binary path, 2026-11-17
+
+Each binary listing keeps its text form as the fallback for a node that
+reads none. Six readers inside `local/rpc.c` called that fallback
+directly, so they spoke text to a node that answers in binary:
+
+- a group's notebook, `fzn_rpc_notes_list` with `from_group`: the group
+  found by `list group`, then each sharer's tree by `list shared KEY`;
+- `fzn_rpc_notes_shares`' roots and `fzn_rpc_group_notebook_held`, each
+  sharer's tree by `list shared KEY`;
+- a group shown, its id found by `list group`;
+- the contact lookup a member listing names its members by, `list contact`;
+- a sibling found by name, and the holders of a file named by device,
+  `list sibling`.
+
+They now go through the binary entry points -- `node_group_list`,
+`fzn_rpc_peer_list`, `fzn_rpc_sibling_list` -- and a shared tree through
+`node_shared_notes`, which asks the request of sec 1191 by the sharer's
+key and falls back to `list shared KEY`. Found by counting the callers of
+every helper an `if (text)` falls back to: each should have one.
+
+**Tests:** `rpc_test` -- a group's notebook asks the groups in binary,
+lists the sharers, asks each sharer's tree by key in binary and passes
+over one that holds nothing; `live_rpc` passes against a running node.
+Two sabotages.
