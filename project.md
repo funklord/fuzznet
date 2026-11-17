@@ -90248,3 +90248,23 @@ field what `get file ROOT` says, and a root nobody holds ok alone. Five
 sabotages, each caught: `notebook-view-file-state-unknown-said`,
 `library-file-state-absent-refused`, `rpc-file-state-partial-whole`,
 `rpc-file-state-second-row-taken`, `rpc-file-state-text-only`.
+
+## 1205. A note's history only when the notes moved, 2026-11-17
+
+The last text request of a notebook refresh, `list history ID FROM`, is
+also its dearest: the node opens every version of the note to answer it
+(`history_list`, node/notes.c), and a host refreshes every two seconds.
+A version is a write, and a write moves the notes' stamp (sec 1199), so
+the view now asks the stamp first -- in binary on a host's socket -- and
+lists the history only when it moved or another note is open. Asked
+there rather than taken from the last refresh, since an edit made
+through the view (a save, a restore) reaches the history without one. A
+node keeping no stamp gets the history every time, as before. Rather
+than moving the listing to binary: it would still open every version on
+every refresh.
+
+**Tests:** `notebook_view_test` -- two refreshes with nothing written ask
+no history, the refresh after a save does, and another note opened, and
+the first opened again, each list their own. Two sabotages, each
+caught: `notebook-view-history-every-refresh`,
+`notebook-view-history-of-another-note`.

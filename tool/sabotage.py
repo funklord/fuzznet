@@ -17076,6 +17076,20 @@ SABOTAGES = [
 		"a checklist read in binary shows its items and cannot tick one -- sec 1202",
 	),
 	(
+		"notebook-view-history-every-refresh",
+		"gui/notebook_view.cpp",
+		"\tif (stamp && stamp == m_history_stamp && of == m_history_of)\n\t\treturn;\n",
+		"",
+		"the notebook lists a note's history on every refresh, the node opening every version each time -- sec 1205",
+	),
+	(
+		"notebook-view-history-of-another-note",
+		"gui/notebook_view.cpp",
+		"\tif (stamp && stamp == m_history_stamp && of == m_history_of)\n",
+		"\tif (stamp && stamp == m_history_stamp)\n",
+		"a note opened shows the history of the one open before it -- sec 1205",
+	),
+	(
 		"notebook-view-file-state-unknown-said",
 		"gui/notebook_view.cpp",
 		"\t\t\t\t               == FZN_RPC_OK\n\t\t\t\t    && st.known) {\n",

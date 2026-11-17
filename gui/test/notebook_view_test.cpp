@@ -341,7 +341,7 @@ static int node_binary(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply
 	return FZN_RPC_OK;
 }
 
-static int get_note_asked, items_asked;
+static int get_note_asked, items_asked, history_asked;
 
 static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -354,6 +354,8 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 		get_note_asked++;
 	if (!strncmp(line, "get ", 4u) && strstr(line, " items"))
 		items_asked++;
+	if (!strncmp(line, "list history ", 13u))
+		history_asked++;
 	if (!strncmp(line, "list note ", 10u))
 		list_asks++;
 	if (quiet)
@@ -1274,6 +1276,49 @@ static void test_a_notes_history_is_read_and_restored(void)
 
 /* A CHECKLIST'S EARLIER ITEMS, sec 604: shown as they were, ticks and all,
  * and not restored. */
+/* THE HISTORY ONLY WHEN SOMETHING MOVED, sec 1205: a refresh with nothing
+ * written lists no versions, one after a save does, and so does another
+ * note opened. The
+ * stamp is moved here where a node's journal would move it, at a write. */
+static void test_history_is_listed_when_the_notes_move(void)
+{
+	QString bread, cake;
+	int before;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	notes.store.stamp = stamp_of_test;
+	notes.store.stamp_ctx = nullptr;
+	test_stamp = 1;
+	CHECK(w.new_note(QStringLiteral("Cake")), "fixture: a note");
+	cake = w.open_id();
+	CHECK(w.new_note(QStringLiteral("Bread")), "fixture: a second");
+	bread = w.open_id();
+	w.findChild<QPlainTextEdit *>()->setPlainText(QStringLiteral("rye\n"));
+	test_stamp++;
+	CHECK(w.save(), "fixture: a text saved");
+	w.refresh();
+	before = w.history().size();
+	history_asked = 0;
+	w.refresh();
+	w.refresh();
+	CHECK(!history_asked && w.history().size() == before,
+	      "the history was listed again with nothing written");
+	w.findChild<QPlainTextEdit *>()->setPlainText(QStringLiteral("spelt\n"));
+	test_stamp++;
+	CHECK(w.save(), "fixture: a second text saved");
+	w.refresh();
+	CHECK(history_asked, "the refresh after a save did not list the history again");
+	history_asked = 0;
+	CHECK(w.open_note(cake) && history_asked && w.history().isEmpty(),
+	      "another note opened showed the last one's history");
+	history_asked = 0;
+	CHECK(w.open_note(bread) && history_asked && w.history().size() >= before,
+	      "the first note opened again did not list its own");
+	notes.store.stamp = nullptr;
+}
+
 static void test_a_checklists_history_shows_its_items(void)
 {
 	QStringList seen;
@@ -1374,6 +1419,7 @@ int main(int argc, char **argv)
 	test_a_shared_tree_reads_and_cannot_be_written();
 	test_an_export_is_imported_into_the_open_folder();
 	test_a_checklist_is_lines_ticked_one_at_a_time();
+	test_history_is_listed_when_the_notes_move();
 	test_a_note_is_cut_and_moved();
 	test_pinned_first_and_the_archive_apart();
 	test_a_refresh_keeps_the_readers_place();

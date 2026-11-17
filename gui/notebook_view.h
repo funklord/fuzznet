@@ -274,6 +274,9 @@ private:
 	/* WHAT THE LISTS WERE LAST READ AT, sec 1006: `get notes`' stamp and the
 	 * place, so a timed refresh reads them again only when one moved. */
 	quint64 m_shown_stamp = 0;
+	/* THE HISTORY LISTED, sec 1205: the stamp and the note it was for. */
+	uint64_t m_history_stamp = 0;
+	QString m_history_of;
 	QString m_shown_key;
 	QPlainTextEdit *m_body;
 	QPushButton *m_new_note;

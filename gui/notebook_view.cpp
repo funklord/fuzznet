@@ -1126,6 +1126,21 @@ void fzn_notebook_view::refresh_history()
 	QStringList versions, items;
 	size_t from = 0, total = 0, guard;
 	int keep = m_viewing, i;
+	/* ONLY WHEN SOMETHING MOVED, sec 1205: the node opens every version
+	 * of the note to list them, and a host refreshes every two seconds. A
+	 * version is a write, which moves the notes' stamp; asked here rather
+	 * than taken from the last refresh, since an edit made through this
+	 * view reaches this without one. No stamp, and it is listed each
+	 * time, as before. */
+	uint64_t stamp = 0;
+	const QString of = m_tree + QLatin1Char('/') + m_open;
+
+	if (fzn_rpc_notes_stamp(&m_rpc->c, &stamp) != FZN_RPC_OK)
+		stamp = 0;
+	if (stamp && stamp == m_history_stamp && of == m_history_of)
+		return;
+	m_history_stamp = stamp;
+	m_history_of = of;
 
 	/* THIS USER'S OWN NOTES: the node keeps no history of a contact's. */
 	if (!m_open.isEmpty() && !shared())
