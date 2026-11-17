@@ -68,13 +68,18 @@ int fzn_node_library_each(const fzn_node_catalog_t *cat, const uint8_t *host,
                           fzn_node_library_file_t file, void *file_ctx,
                           fzn_node_library_each_t each, void *each_ctx);
 
+/* ONE FILE's row, as `fzn_node_library_each` gives it: 1 with `row`
+ * filled, 0 when no live claim names `root`, -1 when memory ran out. */
+int fzn_node_library_one(const fzn_node_catalog_t *cat, const uint8_t root[32], const uint8_t *host,
+                         fzn_node_library_file_t file, void *file_ctx, fzn_node_library_row_t *row);
+
 /* Each answer message, whole, for the caller to frame and write; nonzero
  * when it was written. */
 typedef int (*fzn_node_library_put_t)(void *ctx, const uint8_t *msg, size_t len);
 
-/* Answers MSG, a FZN_CMD_FILES `library` request, through `put`: 1 once
- * answered, every refusal included, and 0 when an answer could not be
- * written. */
+/* Answers MSG, a FZN_CMD_FILES `library` or `library_file` request,
+ * through `put`: 1 once answered, every refusal included, and 0 when an
+ * answer could not be written. */
 int fzn_node_library_binary(const fzn_node_catalog_t *cat, const uint8_t *host,
                             fzn_node_library_file_t file, void *file_ctx, const uint8_t *msg,
                             size_t len, fzn_node_library_put_t put, void *put_ctx);

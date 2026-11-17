@@ -4528,9 +4528,15 @@ int fzn_rpc_library_play(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN]
 	return node_library_play(c, root, offset, want, out);
 }
 
+static int library_show_binary(fzn_rpc_t *c, const uint8_t root[32], fzn_rpc_library_show_resp_t *out,
+                               int *text);
+
 int fzn_rpc_library_show(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN],
                           fzn_rpc_library_show_resp_t *out) {
-	return node_library_show(c, root, out);
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	const int rc = library_show_binary(c, root, out, &text);
+	return text ? node_library_show(c, root, out) : rc;
 }
 
 int fzn_rpc_library_detail(fzn_rpc_t *c, fzn_rpc_library_list_all_t *list, size_t from, size_t count) {
@@ -4618,6 +4624,46 @@ int fzn_rpc_library_list(fzn_rpc_t *c, fzn_rpc_library_list_all_t *out) {
 		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
 		            a.why[0] ? a.why : "the node refused it");
 	return FZN_RPC_OK;
+}
+
+/* ONE FILE'S ROW IN BINARY, sec 1190: the listing's row for `root`, then
+ * a STATUS, where the text path asked four times -- `list catalog ROOT`,
+ * `get identity`, `get catalog ROOT` and the file's status. */
+static int library_show_binary(fzn_rpc_t *c, const uint8_t root[32], fzn_rpc_library_show_resp_t *out,
+                               int *text) {
+	uint8_t ask[2 + 32] = { FZN_CMD_FILES, FZN_FILES_LOCAL_OP_LIBRARY_FILE };
+	fzn_rpc_library_list_all_t one = { NULL, 0, 0 };
+	struct library_answer a;
+	memcpy(ask + 2, root, 32);
+	memset(&a, 0, sizeof a);
+	a.c = c;
+	a.out = &one;
+	int rc = fzn_rpc_binary(c, ask, sizeof ask, library_each, &a, text);
+	if (*text || rc != FZN_RPC_OK) {
+		fzn_rpc_library_list_release(&one);
+		return rc;
+	}
+	if (a.no_room) rc = fail(c, FZN_RPC_ERR_STORAGE_IO, "out of memory for that file");
+	else if (a.bad || !a.status_seen) rc = unreadable(c);
+	else if (a.code != FZN_STATUS_OK)
+		rc = fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		          a.why[0] ? a.why : "the node refused it");
+	/* ONE ROW, and the file asked after: another is no answer to it. */
+	else if (one.count != 1 || memcmp(one.entries[0].root, root, 32) != 0) rc = unreadable(c);
+	else {
+		const fzn_rpc_library_list_entry_t *e = &one.entries[0];
+		memcpy(out->root, e->root, 32);
+		memcpy(out->name, e->name, e->name_len);
+		out->name_len = e->name_len;
+		memcpy(out->kind, e->kind, e->kind_len);
+		out->kind_len = e->kind_len;
+		out->size = e->size;
+		out->duration_ms = e->duration_ms;
+		out->holders = e->holders;
+		out->held_here = e->held_here;
+	}
+	fzn_rpc_library_list_release(&one);
+	return rc;
 }
 
 int fzn_rpc_library_add(fzn_rpc_t *c, const fzn_rpc_library_add_req_t *entry) {

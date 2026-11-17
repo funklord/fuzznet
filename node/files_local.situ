@@ -15,10 +15,17 @@ endian big;
 enum op : u8 {
 	library     = 128, // every file the catalogue names, as the library lists them
 	library_row = 129, // an answer: one file
+	library_file = 130, // one file's row, by its root (sec 1190)
 	default     = error,
 }
 
 struct nothing {
+}
+
+// ROOT the file asked after: its row, as the listing gives it, then a
+// STATUS ok; a STATUS error naming nothing when no live claim names it.
+struct library_file {
+	u8   root[32];
 }
 
 // ROOT the file's. SIZE its length in bytes where it is held or arriving
@@ -49,6 +56,7 @@ struct message {
 	variant body switch (op) {
 		case op.library:     nothing     library;
 		case op.library_row: library_row library_row;
+		case op.library_file: library_file library_file;
 		default: error;
 	}
 }

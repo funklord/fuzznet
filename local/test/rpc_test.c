@@ -1154,6 +1154,59 @@ static void test_library_in_binary(void)
 	fzn_rpc_library_list_release(&out);
 }
 
+/* ONE FILE'S ROW IN BINARY, sec 1190: the request names the root, the row
+ * read as sent, a row for another file refused, a refusal said, and a node
+ * reading no binary asked the text path. */
+static void test_library_show_in_binary(void)
+{
+	static struct bscript held, wrong, absent, old;
+	static fzn_rpc_library_show_resp_t out;
+	uint8_t root[32], other[32], row[400], m[416];
+	uint32_t row_len = 0, n = 0;
+
+	memset(root, 0x7e, sizeof(root));
+	memset(other, 0x7f, sizeof(other));
+	if (fzn_files_local_library_row_build(row, sizeof(row), root, 20000u, 120000u, 2u, 1u, 0u,
+	                                      (const uint8_t *)"video", 5, (const uint8_t *)"a holiday", 9, &row_len)
+	            == SITU_OK
+	    && fzn_files_local_message_build_library_row(m, sizeof(m), (uint8_t)FZN_CMD_FILES, row, row_len, &n)
+	               == SITU_OK)
+		framed(&held, 0, m, n);
+	if (fzn_files_local_library_row_build(row, sizeof(row), other, 1u, 0u, 1u, 1u, 0u, NULL, 0, NULL, 0,
+	                                      &row_len)
+	            == SITU_OK
+	    && fzn_files_local_message_build_library_row(m, sizeof(m), (uint8_t)FZN_CMD_FILES, row, row_len, &n)
+	               == SITU_OK)
+		framed(&wrong, 0, m, n);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	status_onto(&wrong, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_library_show(&c, root, &out) == FZN_RPC_OK && out.root[0] == 0x7e
+	              && strcmp(out.name, "a holiday") == 0 && out.name_len == 9 && strcmp(out.kind, "video") == 0
+	              && out.size == 20000u && out.duration_ms == 120000u && out.holders == 2 && out.held_here
+	              && held.asked_len[0] == 34u && held.asked[0][0] == 0x01 && held.asked[0][1] == 0x82
+	              && held.asked[0][2] == 0x7e && held.asked[0][33] == 0x7e,
+	      "one file was not read in binary, by its root, every field as sent");
+	bon(&c, &wrong);
+	CHECK(fzn_rpc_library_show(&c, root, &out) != FZN_RPC_OK, "another file's row was read as the one asked");
+	status_onto(&absent, 0, FZN_STATUS_ERROR, "that file is not in the library");
+	bon(&c, &absent);
+	CHECK(fzn_rpc_library_show(&c, root, &out) == FZN_RPC_ERR_STORAGE_IO
+	              && strstr(c.error, "not in the library"),
+	      "a file the node does not list was not said so");
+	{
+		struct script s = { { "ok 0 0" }, 0, 1, 0, { { 0 } } };
+
+		status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a channel's asking");
+		on(&c, &s);
+		c.binary_answer = bscripted;
+		c.binary_ctx = &old;
+		CHECK(fzn_rpc_library_show(&c, root, &out) != FZN_RPC_OK
+		              && strncmp(s.asked[0], "list catalog", 12) == 0,
+		      "a node reading no library in binary was not asked the text path");
+	}
+}
+
 /* ONE SIBLING framed onto answer `i`, sec 1176. */
 static void sibling_onto(struct bscript *s, size_t i, uint8_t first, uint8_t paired, const char *where,
                          const char *name)
@@ -1541,6 +1594,7 @@ int main(void)
 	test_siblings_in_binary();
 	test_group_lines_in_binary();
 	test_library_in_binary();
+	test_library_show_in_binary();
 	test_packs_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

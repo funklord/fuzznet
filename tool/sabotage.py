@@ -16880,6 +16880,20 @@ SABOTAGES = [
 		"a library listing cut before its STATUS is read as every file -- sec 1174",
 	),
 	(
+		"library-one-retracted-listed",
+		"node/library_binary.c",
+		"\t\tlive = set[k].live != 0;\n",
+		"\t\tlive = 1;\n",
+		"a file every claim of which was retracted is given a row the listing does not give -- sec 1190",
+	),
+	(
+		"rpc-library-show-any-root",
+		"local/rpc.c",
+		"one.count != 1 || memcmp(one.entries[0].root, root, 32) != 0",
+		"one.count != 1",
+		"another file's row is read as the one asked after -- sec 1190",
+	),
+	(
 		"library-binary-any-claim-holds",
 		"node/library_binary.c",
 		"if (a->issuer_len < 8u || a->capability != FZN_CATALOG_CAP_HOLDER)",
@@ -16931,8 +16945,8 @@ SABOTAGES = [
 	(
 		"library-binary-any-op",
 		"node/library_binary.c",
-		"\t    || fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_LIBRARY)\n",
-		"\t    || 0)\n",
+		"\tif (op != FZN_FILES_LOCAL_OP_LIBRARY)\n",
+		"\tif (0)\n",
 		"a library row sent as a request is answered as the listing -- sec 1174",
 	),
 	(

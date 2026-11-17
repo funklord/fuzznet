@@ -85937,7 +85937,7 @@ is the register, rewritten in place as features land; "where" says where each li
 | Named objects (buttons, lamps) | protocol, store, rate gate, `objects_view` (sec 1102) | | |
 | Registered remote procedures (RRPC) for extensions | protocol, `FZN_CMD_RRPC`, the `rrpc` verb (sec 1088) | | |
 | Reachability: NAT, relays, LAN, legs | protocol, metrics, `link_view` (model-fed, or hosted over `list leg`, sec 1121), `reach_view` (outside address, LAN, relay, keeping up, secs 1134-1135) | Connection page | |
-| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, retention, one file's detail (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188) |
+| The typed client: every node command as a function and struct | `local/rpc*`, `fzn_rpc_` (secs 1098-1099); the per-refresh listings in binary (secs 1152-1180), and the hosted views on the node's socket so in binary (sec 1181) | fuzzypickles' copy, until it pins past it | the on-demand listings in binary: notes, retention (legs since sec 1183, clocks sec 1184, forks sec 1187, capabilities and grants sec 1188, one file's detail sec 1190) |
 | Terminal graphics | `qtty/` vendored | terminal client's drawing | |
 | CLI | `cli/` | fuzzypickles' `fzp` CLI over its client | |
 | Encodings (hex, base64) | `hex/hex.c`, the public codec (sec 1092); every writer and reader on it (secs 1146, 1147) | | |
@@ -89778,3 +89778,35 @@ request MALFORMED and is the only one that path serves.
 **Tests:** `library_binary_test` -- a NONE claim by a third host does
 not make it a holder, and its own claim of that kind does not hide the
 bytes here; one sabotage.
+
+## 1190. One file's detail, in binary, 2026-11-17
+
+`fzn_rpc_library_show` -- the detail pane of fuzzypickles' library and
+`fzp library-show` -- asked four times in text: `list catalog ROOT` for
+its labels, `get identity`, `get catalog ROOT` for its holders, and the
+file's status for its size. It asks once now, under FZN_CMD_FILES beside
+the listing of sec 1174: `library_file` (130), carrying the root, is
+answered by the same `library_row` (129) the listing sends for that file
+and a STATUS ok -- or a STATUS error, "that file is not in the library",
+when no live claim names it, as the text path said it.
+
+**The listing's row, not a second derivation**: `fzn_node_library_one`
+takes the file's claims and calls the same `row_of`, so the pane and
+the list it was opened from cannot disagree -- which they could until
+sec 1189, when the two counted holders by different rules. A file every
+claim of which was retracted has no row here either, as it has none in
+the listing.
+
+**The client checks the row is the file it asked after**: one row, its
+root; anything else is unreadable rather than shown under the wrong
+name. `holder_keys` stay empty, as on the text path. A daemon from
+before this answers the request MALFORMED and is asked the four text
+requests.
+
+**Tests:** one hand-written vector; `library_binary_test` -- a file's
+row by its root with three holders and its size here, a retracted file
+and an unnamed root refused with no row; `rpc_test` -- the request's 34
+bytes, every field read, another file's row refused, a refusal's words
+kept, the text path asked of an old daemon; `live_catalog` phase b3 --
+at both hosts the one file's answer is the listing's, byte for byte,
+and a root nobody names is refused. Two sabotages.

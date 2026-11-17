@@ -14,6 +14,8 @@ with a grant it can pass on, pulling from A.
        hosts (sec 1174): one row, the file's size, whole there, two holders,
        and the name `list catalog` gives first -- B's own, at B, since a
        host's catalogue is rebuilt at each start with its own stream first
+    b3 one file asked by its root in binary is the listing's row, byte for
+       byte, and a root nobody names is refused (sec 1190)
     c  A takes its name back: B lists B's alone, and one holder
     c2 B removes its copy: its names go with it, at B at once and at A at
        its next round, and nobody is listed holding the file (sec 1009)
@@ -263,8 +265,19 @@ def main(argv):
 					raise failed("b2: %s's library in binary was %r, its text listing %r"
 					             % (who.upper(), got, rows))
 				names[who] = first[0]
+				# b3: ONE FILE BY ITS ROOT, sec 1190: the listing's row, byte
+				# for byte, then ok; a root nobody names refused, with no row.
+				one = binary(socks[who], bytes([0x01, 0x82]) + bytes.fromhex(root))
+				if one != got:
+					raise failed("b3: %s's one file in binary was %r, its listing %r"
+					             % (who.upper(), one, got))
+				none = binary(socks[who], bytes([0x01, 0x82]) + bytes(32))
+				if len(none) != 1 or none[0][:2] != bytes([0x13, 3]):
+					raise failed("b3: %s answered a root nobody names %r" % (who.upper(), none))
 			print("livecheck: b2: the library in binary at both: one row, whole, two holders, "
 			      "the text listing's first name (%s at A, %s at B)" % (names["a"], names["b"]))
+			print("livecheck: b3: one file by its root at both: the listing's row, and a root "
+			      "nobody names refused")
 
 			# c: A takes its name back.
 			expect(socks["a"], "a", "remove catalog %s name" % root, "ok")

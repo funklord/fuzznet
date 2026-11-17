@@ -26,6 +26,7 @@ extern "C" {
 typedef enum fzn_files_local_op {
 	FZN_FILES_LOCAL_OP_LIBRARY = 128,
 	FZN_FILES_LOCAL_OP_LIBRARY_ROW = 129,
+	FZN_FILES_LOCAL_OP_LIBRARY_FILE = 130,
 } fzn_files_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -35,6 +36,7 @@ static inline int fzn_files_local_op_is_known(fzn_files_local_op_t value)
 	switch (value) {
 	case FZN_FILES_LOCAL_OP_LIBRARY:
 	case FZN_FILES_LOCAL_OP_LIBRARY_ROW:
+	case FZN_FILES_LOCAL_OP_LIBRARY_FILE:
 		return 1;
 	default:
 		return 0;
@@ -78,6 +80,52 @@ static inline situ_err_t fzn_files_local_nothing_required(const uint8_t *data, u
  * SITU_CHECKED, and available explicitly in any build.
  */
 situ_err_t fzn_files_local_nothing_validate(situ_view_t view);
+
+/* ---- struct library_file ---- */
+
+#define FZN_FILES_LOCAL_LIBRARY_FILE_SIZE_FIXED 32u
+#define FZN_FILES_LOCAL_LIBRARY_FILE_SIZE_MIN   32u
+#define FZN_FILES_LOCAL_LIBRARY_FILE_SIZE_MAX   32u
+
+/* INVALIDATION: nothing invalidates a library_file view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_files_local_library_file_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_FILES_LOCAL_LIBRARY_FILE_SIZE_FIXED, out);
+}
+
+/** library_file.root : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_FILES_LOCAL_LIBRARY_FILE_ROOT_COUNT 32u
+static inline uint8_t *fzn_files_local_library_file_root_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** How many bytes a whole `library_file` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_files_local_library_file_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_FILES_LOCAL_LIBRARY_FILE_SIZE_FIXED;
+	return have >= FZN_FILES_LOCAL_LIBRARY_FILE_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_files_local_library_file_validate(situ_view_t view);
 
 /* ---- struct library_row ---- */
 
@@ -459,7 +507,7 @@ static inline fzn_files_local_op_t fzn_files_local_message_op_get(situ_view_t vi
 /* message.body : variant  at AbsoluteStatic(0x02)
  * size=Bounded(0, 374) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `library`, `library_row` is
+/** `body` is a variant: exactly one of `library`, `library_row`, `library_file` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -517,6 +565,21 @@ static inline situ_err_t fzn_files_local_message_body_library_row_view(situ_view
 
 #define FZN_FILES_LOCAL_MESSAGE_BODY_LIBRARY_ROW_KIND_LEN_VALUE_MAX 64u
 
+/** message.body.library_file, present when the discriminant selects `op.library_file`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_files_local_message_body_library_file_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_files_local_message_op_get(view) != 130u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_FILES_LOCAL_LIBRARY_FILE_SIZE_FIXED, out);
+}
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -572,6 +635,13 @@ static inline situ_err_t fzn_files_local_message_required(const uint8_t *data, u
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_files_local_message_op_get(view) : 0u) == 130u) {
+			e = fzn_files_local_library_file_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -611,6 +681,7 @@ situ_err_t fzn_files_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_FILES_LOCAL_MESSAGE_BODY_CHECK 2u
 #define FZN_FILES_LOCAL_MESSAGE_BODY_LIBRARY_CHECK 3u
 #define FZN_FILES_LOCAL_MESSAGE_BODY_LIBRARY_ROW_CHECK 4u
+#define FZN_FILES_LOCAL_MESSAGE_BODY_LIBRARY_FILE_CHECK 5u
 
 #ifdef __cplusplus
 }

@@ -178,12 +178,37 @@ static void test_message_library_coming(void **state)
 	situ_check_bytes(buf, vector_message_library_coming, sizeof(buf));
 }
 
+/* message / library_file */
+static const uint8_t vector_message_library_file[34u] = {
+	0x01, 0x82, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB,
+};
+
+static void test_message_library_file(void **state)
+{
+	uint8_t     buf[34u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_library_file, sizeof(buf));
+	situ_msg_init(&msg, buf, 34u);
+	situ_check_eq(fzn_files_local_message_view(&msg, 0, 34u, &view), SITU_OK);
+	situ_check_eq(fzn_files_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_files_local_message_cmd_set(view, fzn_files_local_message_cmd_get(view));
+	fzn_files_local_message_op_set(&msg, view, fzn_files_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_library_file, sizeof(buf));
+}
+
 int main(void)
 {
 	const struct situ_check_case tests[] = {
 		situ_check_case(test_message_library),
 		situ_check_case(test_message_library_held),
 		situ_check_case(test_message_library_coming),
+		situ_check_case(test_message_library_file),
 	};
 
 	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");

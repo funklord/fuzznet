@@ -173,6 +173,52 @@ static void row_one(void *ctx, const fzn_node_library_row_t *r)
 	        && w->put(w->ctx, out, n);
 }
 
+int fzn_node_library_one(const fzn_node_catalog_t *cat, const uint8_t root[32], const uint8_t *host,
+                         fzn_node_library_file_t file, void *file_ctx, fzn_node_library_row_t *row)
+{
+	fzn_catalog_assertion_t *set;
+	size_t n, k;
+	int live = 0;
+
+	if (!cat || !root || !host || !row)
+		return -1;
+	n = fzn_node_catalog_count_of(cat, root);
+	if (!n)
+		return 0;
+	set = malloc(n * sizeof(*set));
+	if (!set)
+		return -1;
+	n = fzn_node_catalog_assertions(cat, root, set, n);
+	for (k = 0; k < n && !live; k++)
+		live = set[k].live != 0;
+	/* RETRACTED THROUGHOUT is not in the library, as the listing gives no
+	 * row for it. */
+	if (live)
+		row_of(set, n, root, host, file, file_ctx, row);
+	free(set);
+	return live;
+}
+
+/* ONE FILE'S ROW, sec 1190: as the listing gives it, then ok. */
+static int answer_one(const fzn_node_catalog_t *cat, const uint8_t *host, fzn_node_library_file_t file,
+                      void *file_ctx, situ_view_t v, struct rows *w)
+{
+	situ_view_t body;
+	fzn_node_library_row_t row;
+	int found;
+
+	if (fzn_files_local_message_body_library_file_view(v, &body) != SITU_OK)
+		return status(w->put, w->ctx, FZN_STATUS_MALFORMED, "not a library request");
+	found = fzn_node_library_one(cat, fzn_files_local_library_file_root_ptr(body), host, file, file_ctx,
+	                             &row);
+	if (found < 0)
+		return status(w->put, w->ctx, FZN_STATUS_ERROR, "the library did not list");
+	if (!found)
+		return status(w->put, w->ctx, FZN_STATUS_ERROR, "that file is not in the library");
+	row_one(w, &row);
+	return w->ok && status(w->put, w->ctx, FZN_STATUS_OK, NULL);
+}
+
 int fzn_node_library_binary(const fzn_node_catalog_t *cat, const uint8_t *host,
                             fzn_node_library_file_t file, void *file_ctx, const uint8_t *msg,
                             size_t len, fzn_node_library_put_t put, void *put_ctx)
@@ -180,6 +226,7 @@ int fzn_node_library_binary(const fzn_node_catalog_t *cat, const uint8_t *host,
 	situ_msg_t m;
 	situ_view_t v;
 	struct rows w = { put, put_ctx, 1 };
+	unsigned op;
 
 	if (!put)
 		return 0;
@@ -187,8 +234,12 @@ int fzn_node_library_binary(const fzn_node_catalog_t *cat, const uint8_t *host,
 		return status(put, put_ctx, FZN_STATUS_ERROR, "no library here");
 	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
 	if (fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
-	    || fzn_files_local_message_validate(v) != SITU_OK
-	    || fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_LIBRARY)
+	    || fzn_files_local_message_validate(v) != SITU_OK)
+		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a library request");
+	op = (unsigned)fzn_files_local_message_op_get(v);
+	if (op == FZN_FILES_LOCAL_OP_LIBRARY_FILE)
+		return answer_one(cat, host, file, file_ctx, v, &w);
+	if (op != FZN_FILES_LOCAL_OP_LIBRARY)
 		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a library request");
 	/* A ROW EACH, then a STATUS ok: an ended list told from a cut one. */
 	if (!fzn_node_library_each(cat, host, file, file_ctx, row_one, &w))

@@ -318,6 +318,68 @@ static void test_the_answer_on_the_wire(void)
 	fzn_node_catalog_free(&cat);
 }
 
+/* ONE FILE BY ITS ROOT, sec 1190: its row and ok, as the listing gives it;
+ * a root no claim names, and one whose every claim was retracted, refused
+ * with no row. */
+static void test_one_file_by_its_root(void)
+{
+	uint8_t song[32], film[32], gone[32], ask[34], copy[FZN_NODE_LIBRARY_BINARY_MAX];
+	situ_msg_t m;
+	situ_view_t v, b;
+	fzn_status_t code;
+	const uint8_t *why;
+	size_t why_len;
+	struct here h;
+
+	memset(song, 0x50, sizeof(song));
+	memset(film, 0x60, sizeof(film));
+	memset(gone, 0x70, sizeof(gone));
+	fzn_node_catalog_init(&cat);
+	say(host_b, film, "name", "f");
+	say(host_b, song, "name", "s");
+	say(host_c, song, "kind", "audio");
+	say(host_b, gone, "name", "g");
+	retract(host_b, gone, "name");
+	memset(&h, 0, sizeof(h));
+	memcpy(h.root[0], song, 32u);
+	h.length[0] = 7u;
+	h.whole[0] = 1;
+	h.n = 1u;
+	ask[0] = FZN_CMD_FILES;
+	ask[1] = FZN_FILES_LOCAL_OP_LIBRARY_FILE;
+	memcpy(ask + 2, song, 32u);
+	n_said = 0;
+	CHECK(fzn_node_library_binary(&cat, host_a, file_here, &h, ask, sizeof(ask), put, NULL) && n_said == 2u,
+	      "one file was not a row and a STATUS");
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_files_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_files_local_message_op_get(v) == FZN_FILES_LOCAL_OP_LIBRARY_ROW
+	              && fzn_files_local_message_body_library_row_view(v, &b) == SITU_OK
+	              && memcmp(fzn_files_local_library_row_root_ptr(b), song, 32u) == 0
+	              && fzn_files_local_library_row_name_len(b) == 1u
+	              && fzn_files_local_library_row_kind_len(b) == 5u
+	              && fzn_files_local_library_row_holders_get(b) == 3u
+	              && fzn_files_local_library_row_held_here_get(b) == 1u
+	              && fzn_files_local_library_row_size_get(b) == 7u,
+	      "the file asked was not its own row, as the listing gives it");
+	CHECK(fzn_status_read(said[1], said_len[1], &code, &why, &why_len) && code == FZN_STATUS_OK,
+	      "one file did not end with a STATUS ok");
+	memcpy(ask + 2, gone, 32u);
+	n_said = 0;
+	CHECK(fzn_node_library_binary(&cat, host_a, file_here, &h, ask, sizeof(ask), put, NULL) && n_said == 1u
+	              && fzn_status_read(said[0], said_len[0], &code, &why, &why_len)
+	              && code == FZN_STATUS_ERROR,
+	      "a file every claim of which was retracted was given a row");
+	memset(ask + 2, 0x11, 32u);
+	n_said = 0;
+	CHECK(fzn_node_library_binary(&cat, host_a, file_here, &h, ask, sizeof(ask), put, NULL) && n_said == 1u
+	              && fzn_status_read(said[0], said_len[0], &code, &why, &why_len)
+	              && code == FZN_STATUS_ERROR,
+	      "a file no claim names was given a row");
+	fzn_node_catalog_free(&cat);
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -340,6 +402,7 @@ int main(void)
 	test_rows_in_the_order_first_live();
 	test_long_labels_are_cut();
 	test_the_answer_on_the_wire();
+	test_one_file_by_its_root();
 	if (failures) {
 		fprintf(stderr, "node library_binary_test: %d of %d checks failed\n", failures, checks);
 		return 1;
