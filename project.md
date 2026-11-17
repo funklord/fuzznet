@@ -89371,8 +89371,9 @@ text reads (`list catalog`, its claims' issuers, `list file`), in
 - only live claims count, as `list catalog` lists no other;
 - name, kind and duration each take the first live value, in the
   catalogue's order, that says anything;
-- holders are the distinct issuers of the file's live claims by their
-  first eight bytes, as the client compares them with `get identity`'s HOST;
+- holders are the distinct issuers of the file's live HOLDER claims by
+  their first eight bytes, as the client compares them with `get
+  identity`'s HOST -- every issuer until sec 1189;
 - held here is the file whole here, not this host's claim, and a whole
   file this host has not claimed counts it a holder;
 - size from the file's state here, arrival only while it is wanted:
@@ -89747,3 +89748,33 @@ not know passed over, a grant that does not stand read as revoked.
 revoked admin grant, a cut listing refused; `live_join` phase e2 -- B's
 member row held by one hop, never lapsing, and A's grant to B standing,
 in binary as in text; `live_rpc`'s probe reads both. Two sabotages.
+
+## 1189. A holder is who claims the bytes, in the listing too, 2026-11-17
+
+The library counted a file's holders two ways. One file's detail
+(`fzn_rpc_library_show`) asks `get catalog ROOT`, which answers by
+`fzn_catalog_holders` -- C8: a holder is the issuer of a live claim made
+under capability HOLDER, and nothing else. The listing (sec 1174, and
+the text join before it) counted every distinct issuer of any live
+claim. A claim under NONE or GRANTED -- a record another host took and
+filed, a label granted to somebody -- names the file without saying its
+bytes are anywhere, and the listing called its issuer a holder: the
+row could read "2 holders" with one, and the detail pane disagree with
+the list it was opened from.
+
+**Not an open design question but one settled at C8** and obeyed
+already by `get catalog`, the purge consensus (catalog/purge.h) and
+filing (C9). So the listing follows it: `row_of` in
+`node/library_binary.c` counts, and finds this host's own claim, among
+HOLDER claims alone; names, kinds and durations still come from any
+live claim. Every claim `add catalog` makes is HOLDER, so a library
+built on one estate reads as before.
+
+**The text fallback cannot follow**: `list catalog` rows do not carry a
+capability, so against a daemon from before sec 1174 the client still
+counts every issuer. Left, since such a daemon answers the binary
+request MALFORMED and is the only one that path serves.
+
+**Tests:** `library_binary_test` -- a NONE claim by a third host does
+not make it a holder, and its own claim of that kind does not hide the
+bytes here; one sabotage.

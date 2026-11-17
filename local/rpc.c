@@ -2906,6 +2906,9 @@ static int take_file(void *ctx, const char *w, size_t w_len) {
 	return 1;
 }
 
+/* EVERY ISSUER, where the binary listing counts HOLDER claims alone (sec
+ * 1189): `list catalog` gives no capability, and this path serves only a
+ * daemon from before sec 1174. */
 static int node_library_fill_many(fzn_rpc_t *c, fzn_rpc_library_list_entry_t *e, size_t n,
                                   const char me[16]) {
 	struct issuers_ctx is = {c, NULL, 0, 0};

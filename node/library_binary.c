@@ -68,12 +68,15 @@ static void row_of(const fzn_catalog_assertion_t *set, size_t n, const uint8_t r
 			if (decimal(a->value, a->value_len, &ms))
 				r->duration_ms = ms;
 		}
-		/* A HOLDER IS AN ISSUER, by its first eight bytes, counted once. */
-		if (a->issuer_len < 8u)
+		/* A HOLDER IS THE ISSUER OF A HOLDER CLAIM (C8, sec 1189), by its
+		 * first eight bytes, counted once: `fzn_catalog_holders`' rule,
+		 * which `get catalog` answers by. A claim made under another
+		 * capability names the file without saying where its bytes are. */
+		if (a->issuer_len < 8u || a->capability != FZN_CATALOG_CAP_HOLDER)
 			continue;
 		for (j = 0; j < k && !seen; j++)
-			seen = set[j].live && set[j].issuer_len >= 8u
-			       && memcmp(set[j].issuer, a->issuer, 8u) == 0;
+			seen = set[j].live && set[j].capability == FZN_CATALOG_CAP_HOLDER
+			       && set[j].issuer_len >= 8u && memcmp(set[j].issuer, a->issuer, 8u) == 0;
 		if (!seen)
 			holders++;
 		if (memcmp(a->issuer, host, 8u) == 0)

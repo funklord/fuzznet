@@ -25,8 +25,8 @@ struct nothing {
 // here, else 0 -- the catalogue carries none. DURATION_MS, KIND and NAME
 // the first live value of each in the catalogue's order, 0 or empty for
 // none; NAME raw, at most 255 bytes, KIND at most 64. HOLDERS this user's
-// hosts describing it, and this one when it holds it whole without having
-// said so; HELD_HERE 1 when the bytes are whole here; ARRIVING how much has
+// hosts that claim it as its holder (C8, sec 1189), and this one when it
+// holds it whole without having said so; HELD_HERE 1 when the bytes are whole here; ARRIVING how much has
 // arrived, per mille, while it is being fetched -- 0 when it is not, and at
 // least 1 once it is.
 struct library_row {

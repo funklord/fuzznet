@@ -28,6 +28,8 @@ static fzn_node_catalog_t cat;
 static uint8_t host_a[32], host_b[32], host_c[32];
 static uint64_t seq = 1;
 
+static fzn_catalog_capability_t capability = FZN_CATALOG_CAP_HOLDER;
+
 static void claim(const uint8_t *issuer, const uint8_t *root, const char *name, const char *value,
                   size_t value_len)
 {
@@ -43,7 +45,7 @@ static void claim(const uint8_t *issuer, const uint8_t *root, const char *name, 
 	a.attr_class = FZN_CATALOG_LABEL;
 	a.scope = FZN_CATALOG_ESTATE;
 	a.merge = FZN_CATALOG_DISTINCT;
-	a.capability = FZN_CATALOG_CAP_HOLDER;
+	a.capability = capability;
 	CHECK(fzn_catalog_attribute_encode(&a, body, sizeof(body), &len) == FZN_CATALOG_OK
 	              && fzn_node_catalog_take(&cat, issuer, root, seq++, FZN_CATALOG_ATTRIBUTE_KIND, body,
 	                                       len)
@@ -154,6 +156,11 @@ static void test_holders_are_issuers_and_the_bytes(void)
 	say(twin, song, "kind", "audio");
 	say(host_b, song, "duration", "5");
 	say(host_b, film, "name", "f");
+	/* A CLAIM UNDER ANOTHER CAPABILITY names the file and holds nothing
+	 * (C8, sec 1189): host_c is no holder of the song for it. */
+	capability = FZN_CATALOG_CAP_NONE;
+	say(host_c, song, "kind", "audio");
+	capability = FZN_CATALOG_CAP_HOLDER;
 	memset(&h, 0, sizeof(h));
 	memcpy(h.root[0], song, 32u);
 	h.length[0] = 20000u;

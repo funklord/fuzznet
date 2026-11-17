@@ -16880,6 +16880,13 @@ SABOTAGES = [
 		"a library listing cut before its STATUS is read as every file -- sec 1174",
 	),
 	(
+		"library-binary-any-claim-holds",
+		"node/library_binary.c",
+		"if (a->issuer_len < 8u || a->capability != FZN_CATALOG_CAP_HOLDER)",
+		"if (a->issuer_len < 8u)",
+		"a claim under another capability counts its issuer a holder, against C8 and `get catalog` -- sec 1189",
+	),
+	(
 		"library-binary-held-not-holder",
 		"node/library_binary.c",
 		"\t\tif (!claimed && r->holders < 0xffffu)\n\t\t\tr->holders++;\n",
