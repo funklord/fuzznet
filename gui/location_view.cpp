@@ -12,6 +12,7 @@ extern "C" {
 
 #include <QComboBox>
 #include <QDesktopServices>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -25,6 +26,9 @@ extern "C" {
 #include <string.h>
 #include <time.h>
 
+/* THE PHONE'S COLUMN, after the five a desktop shows (sec 1233). */
+#define COL_PHONE 5
+
 fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
     : QWidget(parent), m_rpc(new fzn_gui_rpc), m_now(0), m_mine{ 0, 0, 0, 0 }, m_have_mine(false)
 {
@@ -33,8 +37,16 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_own = new QLabel(this);
 	m_own->setWordWrap(true);
 	m_table = new QTableWidget(0, 5, this);
+	/* AND A SIXTH, FOR A PHONE, sec 1233: who, with how far and how long ago
+	 * under it -- shown alone at a phone's width, where five columns cut
+	 * every one of them. */
+	m_table->setColumnCount(COL_PHONE + 1);
 	m_table->setHorizontalHeaderLabels(
-	        { tr("Contact"), tr("Where"), tr("How sure"), tr("When"), tr("From here") });
+	        { tr("Contact"), tr("Where"), tr("How sure"), tr("When"), tr("From here"), tr("Contact") });
+	m_table->setColumnHidden(COL_PHONE, true);
+	m_table->setWordWrap(true);
+	/* NO ROW NUMBERS: they were the first thing on a phone, and say nothing. */
+	m_table->verticalHeader()->hide();
 	m_table->horizontalHeader()->setStretchLastSection(true);
 	m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
 	m_table->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -81,6 +93,13 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	if (!m_feed->active()) {
 		delete m_feed;
 		m_feed = nullptr;
+	} else {
+		/* READ ONLY WHILE ON SCREEN AND THE APPLICATION ACTIVE, sec 1233:
+		 * fuzzypickles' 1830Z, a view built with the window for its badges
+		 * read the compass for its whole life. */
+		m_feed->stop();
+		connect(qGuiApp, &QGuiApplication::applicationStateChanged, this,
+		        [this](Qt::ApplicationState) { feed_track(); });
 	}
 	col->addLayout(row);
 	col->addLayout(grant);
@@ -153,13 +172,14 @@ bool fzn_location_view::refresh()
 		fzn_keep_answer::said(m_status);
 		return m_rpc->c.answered;
 	}
-	QString own = !st.configured ? tr("This host does not share its own position.")
-	              : st.sampling  ? tr("This host samples its position every %1 s from %2.")
+	/* IN A PERSON'S WORDS, sec 1233: theirs, not the host's. */
+	QString own = !st.configured ? tr("Your position is not being taken.")
+	              : st.sampling  ? tr("Your position is taken every %1 s from %2.")
 	                                      .arg(st.interval_s)
 	                                      .arg(QString::fromUtf8(st.source, (int)st.source_len))
 	              : st.stopped_reason == FZN_RPC_LOCATION_STOPPED_UNREACHABLE
-	                      ? tr("This host cannot reach its position source.")
-	                      : tr("This host's position source has stopped.");
+	                      ? tr("Your position cannot be taken: its source cannot be reached.")
+	                      : tr("Your position is not being taken: its source has stopped.");
 
 	/* THIS HOST'S OWN NEWEST FIX, which every distance is measured from. */
 	auto *mine = new fzn_rpc_location_show_resp_t;
@@ -167,8 +187,7 @@ bool fzn_location_view::refresh()
 	if (fzn_rpc_location_show(&m_rpc->c, "", 0, mine) == FZN_RPC_OK && mine->count)
 		from = &mine->entries[0];
 	if (from)
-		own += QLatin1Char(' ') + tr("Its own position: %1, %2.").arg(where_words(from),
-		                                                              age_words(now, from->utc_s));
+		own += QLatin1Char(' ') + tr("You are at %1, %2.").arg(where_words(from), age_words(now, from->utc_s));
 	m_have_mine = from != nullptr;
 	if (from)
 		m_mine = { from->lat_e7, from->lon_e7, from->utc_s,
@@ -187,8 +206,8 @@ bool fzn_location_view::refresh()
 	 * missed -- and that a map needs none. */
 	if (!from && count)
 		own += QLatin1Char(' ')
-		       + tr("With no position of its own, this host cannot say how far anyone is -- turn "
-		            "Location on, or give it a source. Show on a map works without it.");
+		       + tr("With no position of yours, how far anyone is cannot be said -- turn "
+		            "Location on, or give this device a source. Show on a map works without it.");
 	m_own->setText(own);
 	m_fixes.clear();
 	/* THE ONE CHOSEN, kept by name across the refill (sec 1225): the rose
@@ -197,12 +216,12 @@ bool fzn_location_view::refresh()
 	m_table->setRowCount((int)count);
 	for (size_t i = 0; i < count; i++) {
 		const fzn_rpc_location_show_entry_t *f = &latest[i].fix;
-		QString here = tr("--");
+		QString here = tr("--"), near;
 		if (from) {
 			double d = fzn_geo_distance_m(from->lat_e7, from->lon_e7, f->lat_e7, f->lon_e7);
 			char text[32];
 			fzn_geo_format_distance(text, sizeof text, d);
-			here = QString::fromUtf8(text);
+			here = near = QString::fromUtf8(text);
 			/* A DIRECTION ONLY WHERE THE FIXES' ACCURACY LEAVES IT ONE. */
 			double sure = (double)(from->acc_e_m > from->acc_n_m ? from->acc_e_m : from->acc_n_m)
 			              + (double)(f->acc_e_m > f->acc_n_m ? f->acc_e_m : f->acc_n_m);
@@ -211,6 +230,7 @@ bool fzn_location_view::refresh()
 				const double b = fzn_geo_bearing_deg(from->lat_e7, from->lon_e7, f->lat_e7, f->lon_e7);
 				here += QLatin1Char(' ') + QString::fromUtf8(fzn_geo_compass_point(b))
 				        + QStringLiteral(" %1").arg(b, 0, 'f', 0) + QString::fromUtf8("\xc2\xb0");
+				near += QLatin1Char(' ') + QString::fromUtf8(fzn_geo_compass_point(b));
 			}
 		}
 		m_fixes.insert(QString::fromUtf8(latest[i].name),
@@ -220,6 +240,10 @@ bool fzn_location_view::refresh()
 		m_table->setItem((int)i, 2, new QTableWidgetItem(sure_words(f)));
 		m_table->setItem((int)i, 3, new QTableWidgetItem(age_words(now, f->utc_s)));
 		m_table->setItem((int)i, 4, new QTableWidgetItem(here));
+		m_table->setItem((int)i, COL_PHONE,
+		                 new QTableWidgetItem(QString::fromUtf8(latest[i].name) + QLatin1Char('\n')
+		                                      + (near.isEmpty() ? age_words(now, f->utc_s)
+		                                                        : tr("%1, %2").arg(near, age_words(now, f->utc_s)))));
 		m_table->item((int)i, 0)->setData(Qt::UserRole, -2);
 	}
 	/* WHAT THIS HOST GRANTS EACH, sec 1119: -1 nothing, else the level; left
@@ -253,6 +277,7 @@ bool fzn_location_view::refresh()
 			m_table->setItem(r, 1, new QTableWidgetItem(tr("not shared with you")));
 			for (int k2 = 2; k2 < 5; k2++)
 				m_table->setItem(r, k2, new QTableWidgetItem(QString()));
+			m_table->setItem(r, COL_PHONE, new QTableWidgetItem(name + QLatin1Char('\n') + tr("not shared with you")));
 			m_table->item(r, 0)->setData(Qt::UserRole,
 			                             p->share_location ? (int)p->share_precision : -1);
 		}
@@ -260,7 +285,13 @@ bool fzn_location_view::refresh()
 	free(peers.entries);
 	free(latest);
 	delete mine;
-	const int chosen = place.restore();
+	int chosen = place.restore();
+	/* THE FIRST CONTACT CHOSEN when nobody is, sec 1233: Ask was greyed
+	 * until a person guessed to tap a row. */
+	if (chosen < 0 && m_table->rowCount() > 0) {
+		chosen = 0;
+		m_table->setCurrentCell(0, 0);
+	}
 	m_status->setText(count ? QString() : tr("Nobody shares a position with you yet."));
 	fzn_keep_answer::said(m_status);
 	select(chosen);
@@ -289,6 +320,15 @@ void fzn_location_view::select(int row)
 			m_rose->clear_target();
 	}
 	m_map->setEnabled(chosen && m_table->item(row, 0) && m_fixes.contains(m_table->item(row, 0)->text()));
+	/* TOLD WHEN THE CHOICE CHANGES, not on every refresh (sec 1233). */
+	{
+		const QString now_chosen = chosen && m_table->item(row, 0) ? m_table->item(row, 0)->text() : QString();
+		if (now_chosen != m_chosen_told) {
+			m_chosen_told = now_chosen;
+			if (m_on_chosen)
+				m_on_chosen(now_chosen);
+		}
+	}
 	m_share->setEnabled(chosen);
 	m_unshare->setEnabled(chosen);
 	if (!chosen || !m_table->item(row, 0))
@@ -407,16 +447,52 @@ QString fzn_location_view::badge_for(const QString &name) const
 	       + QLatin1Char(' ') + QString::fromUtf8(text);
 }
 
-bool fzn_location_view::bearing_to(const QString &name, double *deg) const
+bool fzn_location_view::bearing_to(const QString &name, double *deg, double *metres) const
 {
 	const auto it = m_fixes.constFind(name);
-	if (it == m_fixes.constEnd() || !m_have_mine || badge_is_stale(name))
+	if (!deg || it == m_fixes.constEnd() || !m_have_mine || badge_is_stale(name))
 		return false;
 	const double d = fzn_geo_distance_m(m_mine.lat_e7, m_mine.lon_e7, it->lat_e7, it->lon_e7);
 	if (!fzn_geo_bearing_is_meaningful(d, (double)m_mine.sure_m + (double)it->sure_m))
 		return false;
 	*deg = fzn_geo_bearing_deg(m_mine.lat_e7, m_mine.lon_e7, it->lat_e7, it->lon_e7);
+	if (metres)
+		*metres = d;
 	return true;
+}
+
+QString fzn_location_view::chosen() const
+{
+	const int row = m_table->currentRow();
+	return row >= 0 && m_table->item(row, 0) ? m_table->item(row, 0)->text() : QString();
+}
+
+void fzn_location_view::on_chosen(std::function<void(const QString &)> told) { m_on_chosen = told; }
+
+void fzn_location_view::set_map_opener(std::function<bool(const QUrl &)> open) { m_open_map = open; }
+
+bool fzn_location_view::heading_running() const { return m_feed && m_feed->running(); }
+
+void fzn_location_view::feed_track()
+{
+	if (!m_feed)
+		return;
+	if (isVisible() && QGuiApplication::applicationState() == Qt::ApplicationActive)
+		m_feed->start();
+	else
+		m_feed->stop();
+}
+
+void fzn_location_view::showEvent(QShowEvent *event)
+{
+	QWidget::showEvent(event);
+	feed_track();
+}
+
+void fzn_location_view::hideEvent(QHideEvent *event)
+{
+	QWidget::hideEvent(event);
+	feed_track();
 }
 
 void fzn_location_view::set_heading(double deg)
@@ -453,7 +529,7 @@ bool fzn_location_view::show_on_map()
 {
 	const int row = m_table->currentRow();
 	const QUrl url = row >= 0 && m_table->item(row, 0) ? map_url(m_table->item(row, 0)->text()) : QUrl();
-	if (url.isEmpty() || !QDesktopServices::openUrl(url)) {
+	if (url.isEmpty() || !(m_open_map ? m_open_map(url) : QDesktopServices::openUrl(url))) {
 		m_status->setText(url.isEmpty() ? tr("Their position has not reached this host.")
 		                                : tr("Nothing here opens a map."));
 		return false;
@@ -465,8 +541,13 @@ void fzn_location_view::resizeEvent(QResizeEvent *event)
 {
 	QWidget::resizeEvent(event);
 	const bool narrow = event->size().width() < 400;
-	m_table->setColumnHidden(1, narrow);
-	m_table->setColumnHidden(2, narrow);
+	/* A PHONE'S WIDTH, sec 1233: the one column with who, how far and how
+	 * long ago, and no header over it; a desktop's, the five. */
+	for (int c = 0; c < COL_PHONE; c++)
+		m_table->setColumnHidden(c, narrow);
+	m_table->setColumnHidden(COL_PHONE, !narrow);
+	m_table->horizontalHeader()->setVisible(!narrow);
+	m_table->resizeRowsToContents();
 }
 
 QString fzn_location_view::own() const { return m_own->text(); }
@@ -476,7 +557,7 @@ QStringList fzn_location_view::rows() const
 	QStringList out;
 	for (int i = 0; i < m_table->rowCount(); i++) {
 		QStringList cells;
-		for (int k = 0; k < m_table->columnCount(); k++)
+		for (int k = 0; k < COL_PHONE; k++)
 			cells << m_table->item(i, k)->text();
 		out << cells.join(QStringLiteral(" | "));
 	}

@@ -11,6 +11,7 @@
 #include "../compass_rose.h"
 
 #include <QApplication>
+#include <QHeaderView>
 #include <QTableWidget>
 
 #include <stdio.h>
@@ -70,9 +71,16 @@ int main(int argc, char **argv)
 	fzn_location_view v(node, nullptr);
 
 	v.set_now(NOW);
+	QStringList told;
+	v.on_chosen([&told](const QString &name) { told << name; });
 	CHECK(v.refresh(), "the positions were not read");
-	CHECK(v.own().contains("every 30 s from platform") && v.own().contains("59.33000, 18.06000"),
-	      "this host's sampling or its own fix was not said");
+	CHECK(v.own().contains("every 30 s from platform") && v.own().contains("59.33000, 18.06000")
+	              && v.own().startsWith("Your position is taken") && !v.own().contains("host"),
+	      "this user's sampling or their own fix was not said, in their words");
+	/* THE FIRST CONTACT CHOSEN, AND TOLD ONCE, sec 1233. */
+	CHECK(v.chosen() == "bob" && told == QStringList({ "bob" }),
+	      "the first contact was not chosen when nobody was, or the host was not told");
+	CHECK(v.refresh() && told == QStringList({ "bob" }), "a refresh keeping bob told the host again");
 	QStringList rows = v.rows();
 	/* DAN SHARES NOTHING BACK and still has a row to be granted from,
 	 * sec 1119; a suspended contact has none. */
@@ -157,6 +165,24 @@ int main(int argc, char **argv)
 	CHECK(v.share(false) && !strcmp(last, "revoke stream location bob"),
 	      "this user's position was not taken back from bob");
 
+	/* THE BEARING AND HOW FAR AS NUMBERS, and the map through the opener
+	 * given, sec 1233. */
+	{
+		double deg = -1.0, metres = -1.0;
+		QUrl opened;
+
+		v.select(0);
+		CHECK(v.bearing_to("bob", &deg, &metres) && deg >= 0.0 && deg < 360.0 && metres > 0.0,
+		      "bob's bearing and distance were not given as numbers");
+		v.set_map_opener([&opened](const QUrl &url) {
+			opened = url;
+			return true;
+		});
+		CHECK(v.show_on_map() && opened == v.map_url("bob") && !opened.isEmpty(),
+		      "Show on a map did not go through the opener given");
+		CHECK(told.last() == "bob", "fixture: bob chosen");
+	}
+
 	v.select(2);
 	v.set_precision(1);
 	CHECK(v.share(true) && !strcmp(last, "grant stream location dan 1"),
@@ -168,11 +194,17 @@ int main(int argc, char **argv)
 		v.show();
 		v.resize(300, 600);
 		app.processEvents();
-		CHECK(t && t->isColumnHidden(1) && t->isColumnHidden(2) && !t->isColumnHidden(4),
-		      "a phone's width kept the place in degrees, or hid how far");
+		/* ONE COLUMN ON A PHONE, sec 1233: who, with how far and how long
+		 * ago under it; no row numbers, no header. */
+		CHECK(t && t->isColumnHidden(0) && t->isColumnHidden(1) && t->isColumnHidden(4) && !t->isColumnHidden(5)
+		              && t->item(0, 5)->text().startsWith("bob\n") && t->item(0, 5)->text().contains(" ago")
+		              && !t->verticalHeader()->isVisible() && !t->horizontalHeader()->isVisible(),
+		      "a phone's width did not show one column of who, how far and how long ago");
 		v.resize(800, 600);
 		app.processEvents();
-		CHECK(t && !t->isColumnHidden(1), "a desktop's width hid the place");
+		CHECK(t && !t->isColumnHidden(0) && !t->isColumnHidden(1) && t->isColumnHidden(5)
+		              && t->horizontalHeader()->isVisible(),
+		      "a desktop's width did not show the five columns");
 		v.hide();
 	}
 	/* NO FIX OF ITS OWN, sec 1197: said why no distance shows, and bob's

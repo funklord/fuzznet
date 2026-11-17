@@ -36,15 +36,19 @@
 #include <QUrl>
 #include <QWidget>
 
+#include <functional>
+
 #include <stdint.h>
 
 struct fzn_gui_rpc;
 class QComboBox;
 class fzn_compass_rose;
 class fzn_heading_feed;
+class QHideEvent;
 class QLabel;
 class QPushButton;
 class QResizeEvent;
+class QShowEvent;
 class QTableWidget;
 
 /* A FIX THIS OLD IS SHOWN BY ITS AGE, not its distance: five minutes, as
@@ -88,6 +92,23 @@ public:
 	 * elsewhere. Empty for no fix. */
 	QUrl map_url(const QString &name) const;
 	bool show_on_map();
+	/* WHAT OPENS A MAP, sec 1233: QDesktopServices by default; a host or a
+	 * test may give its own, which says whether it opened one. */
+	void set_map_opener(std::function<bool(const QUrl &)> open);
+
+	/* THE CONTACT CHOSEN, by name, or empty, sec 1233 -- and told when it
+	 * changes, not on every refresh, for a host driving something beside
+	 * the view (fuzzypickles' rose, 1135Z). */
+	QString chosen() const;
+	void on_chosen(std::function<void(const QString &name)> told);
+	/* THE BEARING TO `name` from this host's fix, degrees from north, and
+	 * the distance in metres when `metres` is given: 1 where a bearing
+	 * means something -- both fresh, and farther apart than they are
+	 * unsure -- else 0. */
+	bool bearing_to(const QString &name, double *deg, double *metres = nullptr) const;
+	/* Whether the compass is being read now: while shown, with the
+	 * application active, and only where there is one. */
+	bool heading_running() const;
 
 	/* WHICH WAY THE DEVICE FACES, sec 1211: degrees clockwise from north,
 	 * from its compass where the build has Qt Sensors and else from the
@@ -108,6 +129,9 @@ protected:
 	/* A PHONE'S WIDTH, sec 1197: under 400 pixels the place in degrees and
 	 * how sure it is are hidden; who, when and how far stay. */
 	void resizeEvent(QResizeEvent *event) override;
+	/* THE COMPASS READ ONLY WHILE ON SCREEN, sec 1233. */
+	void showEvent(QShowEvent *event) override;
+	void hideEvent(QHideEvent *event) override;
 
 private:
 	struct fzn_gui_rpc *m_rpc;
@@ -129,8 +153,10 @@ private:
 	fzn_heading_feed *m_feed;
 	bool m_have_heading = false;
 	double m_heading = 0.0;
-	/* The bearing to `name` from this host's fix, where one means something. */
-	bool bearing_to(const QString &name, double *deg) const;
+	void feed_track();
+	std::function<bool(const QUrl &)> m_open_map;
+	std::function<void(const QString &)> m_on_chosen;
+	QString m_chosen_told;
 
 	QLabel *m_own;
 	QTableWidget *m_table;

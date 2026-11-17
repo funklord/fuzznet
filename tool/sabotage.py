@@ -17314,6 +17314,34 @@ SABOTAGES = [
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
+		"location-chosen-told-every-time",
+		"gui/location_view.cpp",
+		"\t\tif (now_chosen != m_chosen_told) {\n",
+		"\t\tif (1) {\n",
+		"the host is told the chosen contact on every refresh, not when it changes -- sec 1233",
+	),
+	(
+		"location-nobody-chosen-first",
+		"gui/location_view.cpp",
+		"\tif (chosen < 0 && m_table->rowCount() > 0) {\n",
+		"\tif (0) {\n",
+		"no contact is chosen until a person guesses to tap one, and Ask stays greyed -- sec 1233",
+	),
+	(
+		"location-map-opener-ignored",
+		"gui/location_view.cpp",
+		"(m_open_map ? m_open_map(url) : QDesktopServices::openUrl(url))",
+		"QDesktopServices::openUrl(url)",
+		"Show on a map ignores the opener a host or a test gave -- sec 1233",
+	),
+	(
+		"location-phone-five-columns",
+		"gui/location_view.cpp",
+		"\tm_table->setColumnHidden(COL_PHONE, !narrow);\n",
+		"\tm_table->setColumnHidden(COL_PHONE, true);\n",
+		"a phone's width shows no column of who, how far and how long ago -- sec 1233",
+	),
+	(
 		"conversations-unread-plain",
 		"gui/conversations_view.cpp",
 		"\t\t\tbold.setBold(true);\n",
@@ -17463,8 +17491,8 @@ SABOTAGES = [
 	(
 		"location-view-rose-points-at-stale",
 		"gui/location_view.cpp",
-		"\tif (it == m_fixes.constEnd() || !m_have_mine || badge_is_stale(name))\n",
-		"\tif (it == m_fixes.constEnd() || !m_have_mine)\n",
+		"\tif (!deg || it == m_fixes.constEnd() || !m_have_mine || badge_is_stale(name))\n",
+		"\tif (!deg || it == m_fixes.constEnd() || !m_have_mine)\n",
 		"the rose points at where a contact was hours ago -- sec 1211",
 	),
 	(

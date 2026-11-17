@@ -91274,3 +91274,42 @@ beside each contact, the stale one dimmed. Four sabotages, each caught
 `conversations-stale-badge-bright`); secs 1138 and 1144's
 `conversations-view-unread-unsaid` and
 `conversations-menu-call-everyone-unnamed` repointed. `make qtty` passes.
+
+## 1233. location_view on a phone, and what a host drives beside it, 2026-11-17
+
+fuzzypickles' 2000Z item 2 (the walk: on a phone it "reads as a
+spreadsheet") and its 1135Z and 1830Z asks (sec 1224):
+
+- **A list on a phone**: no row numbers anywhere; at a phone's width one
+  column, who with "1.1 km E, 2 min ago" under it -- or "not shared with
+  you" -- and no header, where five columns cut every one of them; a
+  desktop's width keeps the five. The phone's column is a sixth, so the
+  name stays in the first for every lookup and for the place kept across
+  a refresh (sec 1225).
+- **The first contact chosen** when nobody is, so Ask is not greyed until
+  a person guesses to tap a row.
+- **This user's own line in their words**: "Your position is taken every
+  30 s from platform.", "You are at ...", not "This host samples its
+  position".
+- **For a host driving something beside the view** -- fuzzypickles'
+  rose: `chosen()`, `on_chosen` told when the choice changes and not on
+  every refresh, and `bearing_to` public, degrees and, given somewhere to
+  put it, metres.
+- **The compass read only while the view is on screen and the
+  application active** (fuzzypickles' 1830Z item 3: a view built with the
+  window for its badges read it tens of times a second for its whole
+  life): `fzn_heading_feed` gains `start`, `stop` and `running`, and the
+  view stops it at once, starts it on show and stops it on hide or when
+  the application leaves the foreground. Not testable here -- the test
+  build has no Qt Sensors, and the feed is then inert -- so it is said
+  rather than shown.
+- **`set_map_opener`**, so a test can press Show on a map without a
+  browser (1830Z's last ask); QDesktopServices by default.
+
+**Tests:** location_view -- the first contact chosen and the host told
+once, not again on a refresh keeping it; the own line in the person's
+words; bob's bearing and distance as numbers; the map through the opener
+given; one column on a phone, five on a desktop. Four sabotages, each
+caught (`location-chosen-told-every-time`, `location-nobody-chosen-first`,
+`location-map-opener-ignored`, `location-phone-five-columns`); sec 1211's
+`location-view-rose-points-at-stale` repointed. `make qtty` passes.

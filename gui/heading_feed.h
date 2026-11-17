@@ -24,6 +24,13 @@ public:
 
 	/* Whether a compass is giving readings. */
 	bool active() const;
+	/* READ ONLY WHILE WANTED, sec 1233: a compass read tens of times a
+	 * second costs a phone's battery whether anybody looks or not, so a
+	 * host stops it while its view is hidden and starts it again on show.
+	 * Neither does anything without a compass. */
+	void start();
+	void stop();
+	bool running() const;
 
 private:
 	QObject *m_compass;
