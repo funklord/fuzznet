@@ -19,12 +19,12 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  notes=128 note_row=129 stamp=130 stamp_row=131 shares=132 share_row=133
+  notes=128 note_row=129 stamp=130 stamp_row=131 shares=132 share_row=133 note=134 note_fields=135 note_text=136
 
-struct message size=2..1321
+struct message size=2..8008
   @0x0000   1         u8         cmd  must_eq=8
   @0x0001   1         op         op
-  @0x0002   0..1319   variant    body
+  @0x0002   0..8006   variant    body
   body switch: op
   body case 128: notes notes
   body case 129: note_row note_row
@@ -32,7 +32,32 @@ struct message size=2..1321
   body case 131: stamp_row stamp_row
   body case 132: shares nothing
   body case 133: share_row share_row
+  body case 134: note note_ask
+  body case 135: note_fields note_fields
+  body case 136: note_text note_text
   body case default: error
+
+struct note_ask size=64
+  @0x0000   32        u8         sharer  big
+  @0x0020   32        u8         id  big
+
+struct note_fields size=66..1473
+  @0x0000   2         u16        content_type  big
+  @0x0002   1         u8         flags
+  @0x0003   8         u64        created_ms  big
+  @0x000b   8         u64        edited_ms  big
+  @0x0013   32        u8         parent  big
+  @0x0033   1         u8         pending  max=1
+  @0x0034   4         u32        length  big
+  @0x0038   1         u8         reachable  max=1
+  @0x0039   1         u8         contested  max=1
+  @0x003a   4         u32        colour  big
+  @0x003e   1         u8         title_len
+  @0x003f   0..255    u8         title  sized-by=title_len
+  ~         2         u16        labels_len  big max=1024
+  ~         0..1024   u8         labels  sized-by=labels_len
+  ~         1         u8         ref_len  max=128
+  ~         0..128    u8         ref  sized-by=ref_len
 
 struct note_row size=40..1319
   @0x0000   32        u8         id  big
@@ -44,6 +69,11 @@ struct note_row size=40..1319
   @0x0026   0..255    u8         title  sized-by=title_len
   ~         2         u16        labels_len  big max=1024
   ~         0..1024   u8         labels  sized-by=labels_len
+
+struct note_text size=6..8006
+  @0x0000   4         u32        offset  big
+  @0x0004   2         u16        piece_len  big max=8000
+  @0x0006   0..8000   u8         piece  sized-by=piece_len
 
 struct notes size=64
   @0x0000   32        u8         sharer  big

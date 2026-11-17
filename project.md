@@ -90069,8 +90069,9 @@ host's socket (secs 1162, 1170), every page on any other ask. A contact
 the roster marks suspended, retired or absent is still not offered (sec
 489), read from the entry's state where it was the row's third word.
 
-**Still asked in text each refresh**: the open note's fields; the stamp
-went into binary with sec 1199 and where the note goes with sec 1200.
+**Asked in binary each refresh now**: the stamp (sec 1199), where the
+note goes (sec 1200) and the open note itself (sec 1201). A checklist's
+items and an attachment's file state are still asked by their verbs.
 
 **Tests:** `notebook_view_test`, 1052, its node now answering the
 client's paged form and full keys and ids as the node writes them. Two
@@ -90127,3 +90128,48 @@ key's text row whole; `rpc_test` -- a contact's and a group's row, the
 request's two bytes, a cut listing refused, `list share 0` asked of an
 old node; `notebook_view_test`, 1052. Three sabotages, and sec 626's
 group-share one moved with its line.
+
+## 1201. The open note in one request, 2026-11-17
+
+With a note open, every refresh -- two seconds on a host -- asked `get
+note ID` for its fields, `... meta` for its colour and labels, `... ref`
+for an attachment's file, and `... file PATH` for its text: the daemon
+wrote the text to a temporary file the view then read back. Steps two
+and three of sec 1200's three, in one operation: `note` (134) carries
+the sharer's key, zero for this user's own, and the note's id, and is
+answered by a `note_fields` row (135) -- the fields, whether it is here,
+its length, where it stands, its colour, title and labels raw, and an
+attachment's reference -- then its text in `note_text` pieces (136),
+each at the offset the last ended, then a STATUS ok.
+
+**Pieces of 8000 bytes, because a local message is under 0x1fff.**
+`FZN_LOCAL_BINARY_MAX` holds a message's length below 0x2000 so its first
+byte can never be a verb's first letter (sec 1113), and the daemon writes
+nothing longer. The first cut sent 32 KiB pieces and passed its own test,
+whose writer took anything; the test's writer now refuses what the
+daemon would, and a 70000-byte note is nine pieces.
+
+**`fzn_rpc_note_open`** reads it, the text allocated and kept between
+calls (`fzn_rpc_note_open_release`). It refuses a piece that does not
+start where the last ended and a text short of its length: a note shown
+with a hole in it, or cut, would read as the whole of it. A node reading
+no binary answers `FZN_RPC_ERR_UNKNOWN_MSG_TYPE`, and the notebook view
+then asks the verbs as before -- the one call here without a fallback of
+its own, because its only caller kept the old path and composing four
+verbs into it again would be that path twice.
+
+**The view reads one record either way**, from the binary answer or the
+verbs, and shows it as it did. `answer_binary` lets a host -- or a test
+-- answer its typed client in binary itself.
+
+**Tests:** three vectors; `notes_test` -- a 70000-byte note as its fields
+and nine pieces in order, its labels raw, an attachment's reference in
+its row with no text, another user denied, a note nobody holds refused;
+`rpc_test` -- every field, the text from three pieces, an overlapping
+piece and a short text refused, an old node said to read none;
+`notebook_view_test`, 1053 -- a note opened over the view's binary
+answer, the same text and title, no `get note` asked; `live_many_shared`
+phase c3 -- through the daemon's own writer, a 20000-byte note as its
+fields and three pieces under the bound, and a shared note at R by its
+sharer's key. Four sabotages, and three of the view's and the node's
+moved with their lines.

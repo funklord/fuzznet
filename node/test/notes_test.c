@@ -301,13 +301,15 @@ static void setup(size_t peers)
 
 /* ---- in binary, sec 1191 ------------------------------------------------ */
 
-static uint8_t said[8][FZN_NODE_NOTES_BINARY_MAX];
-static size_t said_len[8], n_said;
+/* AS THE DAEMON WRITES THEM: a message past FZN_LOCAL_BINARY_MAX is
+ * refused, as local_put refuses it, so a test sees what a socket would. */
+static uint8_t said[16][FZN_LOCAL_BINARY_MAX];
+static size_t said_len[16], n_said;
 
 static int bput(void *ctx, const uint8_t *msg, size_t len)
 {
 	(void)ctx;
-	if (n_said >= 8u || len > sizeof(said[0]))
+	if (n_said >= 16u || len > sizeof(said[0]))
 		return 0;
 	memcpy(said[n_said], msg, len);
 	said_len[n_said++] = len;
@@ -509,6 +511,109 @@ static void test_list_in_binary(void)
 		      "a write did not move the stamp asked in binary");
 		notes.store.stamp = NULL;
 	}
+}
+
+/* ONE NOTE IN BINARY, sec 1201: as `as` asks for `id` in `sharer`'s tree or
+ * this user's own; the messages in `said`. */
+static int note_binary_as(fzn_origin_t as, const uint8_t *sharer, const uint8_t id[FZN_TREE_ID_LEN])
+{
+	uint8_t ask_msg[66];
+
+	ask_msg[0] = FZN_CMD_NOTES;
+	ask_msg[1] = FZN_NOTES_LOCAL_OP_NOTE;
+	if (sharer)
+		memcpy(ask_msg + 2, sharer, 32u);
+	else
+		memset(ask_msg + 2, 0, 32u);
+	memcpy(ask_msg + 34, id, 32u);
+	n_said = 0;
+	return fzn_node_notes_binary(&notes, as, ask_msg, sizeof(ask_msg), bput, NULL);
+}
+
+/* ONE NOTE WHOLE IN BINARY, sec 1201: its fields as `get note ID` says them,
+ * its text in pieces in order, an attachment's reference in its row and no
+ * text, another user denied, and a note nobody holds refused. */
+static void test_note_in_binary(void)
+{
+	static uint8_t big[70000], back[70000];
+	static const char REF[] = "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff"
+	                          "0102030405060708090a0b0c0d0e0f100102030405060708090a0b0c0d0e0f10"
+	                          "0000000000012345";
+	char note[65], att[65], line[512], path[64];
+	uint8_t id[FZN_TREE_ID_LEN], copy[FZN_NODE_NOTES_BINARY_MAX];
+	situ_msg_t m;
+	situ_view_t v, b;
+	size_t i, got = 0;
+	int in_order = 1;
+	FILE *f;
+
+	setup(0);
+	for (i = 0; i < sizeof(big); i++)
+		big[i] = (uint8_t)('a' + (i % 26u));
+	snprintf(path, sizeof(path), "/tmp/fzn-notes-test-%ld.bin", (long)getpid());
+	f = fopen(path, "wb");
+	CHECK(f && fwrite(big, 1u, sizeof(big), f) == sizeof(big), "fixture: a 70000-byte file");
+	if (f)
+		(void)fclose(f);
+	CHECK(ask("add note top long") == FZN_REPLY_OK, "fixture: a note");
+	take_id(note);
+	snprintf(line, sizeof(line), "set note %s file %s", note, path);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: its text");
+	(void)unlink(path);
+	snprintf(line, sizeof(line), "set note %s labels a%%00b", note);
+	(void)ask(line);
+	snprintf(line, sizeof(line), "set note %s labels to%%20do", note);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: a label");
+	hex_id(note, id);
+	CHECK(note_binary_as(FZN_ORIGIN_SAME_USER, NULL, id) && n_said == 11u && status_at(10, FZN_STATUS_OK),
+	      "a 70000-byte note was not a fields row, nine pieces under the local leg's bound and a STATUS ok");
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_notes_local_message_body_note_fields_view(v, &b) == SITU_OK
+	              && fzn_notes_local_note_fields_content_type_get(b) == FZN_NOTE_TYPE_NOTE
+	              && fzn_notes_local_note_fields_length_get(b) == sizeof(big)
+	              && !fzn_notes_local_note_fields_pending_get(b) && fzn_notes_local_note_fields_reachable_get(b)
+	              && fzn_notes_local_note_fields_title_len(b) == 4u
+	              && !memcmp(fzn_notes_local_note_fields_title_ptr(b), "long", 4u)
+	              && fzn_notes_local_note_fields_labels_len(b) == 5u
+	              && !memcmp(fzn_notes_local_note_fields_labels_ptr(b), "to do", 5u)
+	              && fzn_notes_local_note_fields_ref_len(b) == 0u,
+	      "the note's fields were not `get note`'s, with its labels and no reference");
+	for (i = 1; i < 10u; i++) {
+		memcpy(copy, said[i], said_len[i]);
+		situ_msg_init(&m, copy, (uint32_t)said_len[i]);
+		if (fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[i], &v) != SITU_OK
+		    || fzn_notes_local_message_body_note_text_view(v, &b) != SITU_OK
+		    || fzn_notes_local_note_text_offset_get(b) != got) {
+			in_order = 0;
+			break;
+		}
+		memcpy(back + got, fzn_notes_local_note_text_piece_ptr(b), fzn_notes_local_note_text_piece_len(b));
+		got += fzn_notes_local_note_text_piece_len(b);
+	}
+	CHECK(in_order && got == sizeof(big) && !memcmp(back, big, sizeof(big)),
+	      "the text's pieces were not the text, in order and whole");
+	/* AN ATTACHMENT: its reference in the row, no text after it. */
+	snprintf(line, sizeof(line), "add attachment top %s film.mkv", REF);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: an attachment");
+	take_id(att);
+	hex_id(att, id);
+	CHECK(note_binary_as(FZN_ORIGIN_SAME_USER, NULL, id) && n_said == 2u && status_at(1, FZN_STATUS_OK),
+	      "an attachment was not a fields row and a STATUS ok");
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_notes_local_message_body_note_fields_view(v, &b) == SITU_OK
+	              && fzn_notes_local_note_fields_ref_len(b) == FZN_NOTE_BLOB_REF_LEN
+	              && fzn_notes_local_note_fields_ref_ptr(b)[0] == 0x11
+	              && fzn_notes_local_note_fields_ref_ptr(b)[FZN_NOTE_BLOB_REF_LEN - 1u] == 0x45,
+	      "an attachment's reference was not in its row");
+	CHECK(note_binary_as(FZN_ORIGIN_LOCAL, NULL, id) && n_said == 1u && status_at(0, FZN_STATUS_DENIED),
+	      "another user was not denied a note");
+	memset(id, 0x77, sizeof(id));
+	CHECK(note_binary_as(FZN_ORIGIN_SAME_USER, NULL, id) && n_said == 1u && status_at(0, FZN_STATUS_ERROR),
+	      "a note nobody holds was answered");
 }
 
 /* ---- cases --------------------------------------------------------------- */
@@ -2915,6 +3020,7 @@ int main(void)
 	test_share_scope_in_order();
 	test_shared_reads();
 	test_list_in_binary();
+	test_note_in_binary();
 	test_the_join_floor_at_its_second();
 	test_import();
 	test_checklist();

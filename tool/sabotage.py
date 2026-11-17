@@ -9991,7 +9991,7 @@ SABOTAGES = [
 	(
 		"gui-pending-read-only",
 		"gui/notebook_view.cpp",
-		"\t\t\tpending = f.value(5) == QStringLiteral(\"pending\");",
+		"\t\t\tpending = r.pending;",
 		"\t\t\tpending = false;",
 		"a pending note opens as an empty note to type into, and the save is refused -- sec 522",
 	),
@@ -15923,8 +15923,8 @@ SABOTAGES = [
 	(
 		"notebook-view-elsewhere-unsaid",
 		"gui/notebook_view.cpp",
-		"\t\t\telse if (f.value(7) == QStringLiteral(\"0\") && !shared())\n",
-		"\t\t\telse if (f.value(7) == QStringLiteral(\"2\") && !shared())\n",
+		"\t\t\telse if (!r.reachable && !shared())\n",
+		"\t\t\telse if (0 && !shared())\n",
 		"an opened note whose folder is not here does not say so -- sec 987",
 	),
 	(
@@ -16875,8 +16875,8 @@ SABOTAGES = [
 	(
 		"notes-binary-shared-reads-own",
 		"node/notes.c",
-		"\t\tstore = &shared_store;\n",
-		"",
+		"\t\tstore = &shared_store;\n\t}\n\terr = gather(",
+		"\t}\n\terr = gather(",
 		"a sharer's tree asked in binary is answered from this user's own notes -- sec 1191",
 	),
 	(
@@ -16969,6 +16969,34 @@ SABOTAGES = [
 		"\tnarrow(event->size().width() < NARROW_PX);\n",
 		"\tnarrow(false);\n",
 		"a phone's width keeps every column -- sec 1196",
+	),
+	(
+		"notes-note-piece-past-local-bound",
+		"node/notes.c",
+		"#define FZN_NODE_NOTES_PIECE 8000u\n",
+		"#define FZN_NODE_NOTES_PIECE 32768u\n",
+		"a note's text is sent in pieces past the local leg's 0x1fff, which the daemon does not write -- sec 1201",
+	),
+	(
+		"rpc-note-piece-gap-taken",
+		"local/rpc.c",
+		"\t\tif (at != o->text_len || at + piece > o->length) {\n",
+		"\t\tif (at + piece > o->length) {\n",
+		"a note's text piece after a gap is taken, the text shown with a hole in it -- sec 1201",
+	),
+	(
+		"rpc-note-text-short-taken",
+		"local/rpc.c",
+		"\tif (!a.fields_seen || (!out->pending && !out->ref_len && out->text_len != out->length)) return unreadable(c);\n",
+		"\tif (!a.fields_seen) return unreadable(c);\n",
+		"a note whose text stopped short of its length is shown as the whole of it -- sec 1201",
+	),
+	(
+		"notebook-view-open-note-in-text",
+		"gui/notebook_view.cpp",
+		"\t\tif (idb.size() == 32 && (!shared() || key.size() == 32))\n",
+		"\t\tif (0)\n",
+		"the open note is asked by three or four verbs each refresh although the node reads it in binary -- sec 1201",
 	),
 	(
 		"notes-share-key-overrun",

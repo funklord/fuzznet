@@ -538,6 +538,14 @@ fzn_notebook_view::~fzn_notebook_view()
 	delete m_rpc;
 }
 
+void fzn_notebook_view::answer_binary(int (*answer)(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply,
+                                                    size_t reply_cap, size_t *reply_len),
+                                      void *ctx)
+{
+	m_rpc->c.binary_answer = answer;
+	m_rpc->c.binary_ctx = ctx;
+}
+
 /* ---- asking -------------------------------------------------------------- */
 
 int fzn_notebook_view::ask(const QString &line, QString *detail)
@@ -878,41 +886,110 @@ void fzn_notebook_view::refresh_note()
 	if (have) {
 		QString get = shared() ? QStringLiteral("get shared %1 %2").arg(m_tree, m_open)
 		                       : QStringLiteral("get note %1").arg(m_open);
-		/* `TYPE FLAGS CREATED EDITED PARENT blob|pending LEN REACHABLE
-		 * CONTESTED TITLE`, the two flags since sec 828. */
-		if (ask(get, &detail) == 1) {
+		/* THE NOTE AS READ, by one binary request or by the verbs. */
+		struct {
+			int type = 0;
+			unsigned flags = 0;
+			bool pending = false, reachable = true, contested = false, body_known = false;
+			QString title, labels, ref, body, body_why;
+		} r;
+		bool read = false;
+		/* ONE REQUEST, sec 1201: the fields, meta, an attachment's reference
+		 * and the text, where they were three or four asks and a file
+		 * written and read back every refresh. A node reading no binary is
+		 * asked the verbs as before. */
+		static fzn_rpc_note_open_t opened;
+		const QByteArray idb = QByteArray::fromHex(m_open.toLatin1());
+		const QByteArray key = QByteArray::fromHex(m_sharer_keys.value(m_tree, m_tree).toLatin1());
+		int rc = FZN_RPC_ERR_UNKNOWN_MSG_TYPE;
+
+		if (idb.size() == 32 && (!shared() || key.size() == 32))
+			rc = fzn_rpc_note_open(&m_rpc->c,
+			                       shared() ? reinterpret_cast<const uint8_t *>(key.constData()) : nullptr,
+			                       reinterpret_cast<const uint8_t *>(idb.constData()), &opened);
+		if (rc == FZN_RPC_OK) {
+			read = true;
+			m_answered = true;
+			r.type = opened.content_type;
+			r.flags = opened.flags;
+			r.pending = opened.pending;
+			r.reachable = opened.reachable;
+			r.contested = opened.contested;
+			r.title = QString::fromUtf8(opened.title, (int)opened.title_len);
+			r.labels = QString::fromUtf8(opened.labels, (int)opened.labels_len);
+			r.ref = QString::fromLatin1(
+			        QByteArray(reinterpret_cast<const char *>(opened.ref), (int)opened.ref_len).toHex());
+			if (!r.pending && r.type != FZN_NOTE_TYPE_FOLDER && r.type != FZN_NOTE_TYPE_ATTACHMENT
+			    && r.type != FZN_NOTE_TYPE_LIST) {
+				r.body = as_shown(QString::fromUtf8(opened.text ? opened.text : "", (int)opened.text_len));
+				r.body_known = true;
+			}
+		} else if (rc == FZN_RPC_ERR_UNKNOWN_MSG_TYPE && ask(get, &detail) == 1) {
+			/* `TYPE FLAGS CREATED EDITED PARENT blob|pending LEN REACHABLE
+			 * CONTESTED TITLE`, the two flags since sec 828. */
 			QStringList f = detail.split(QLatin1Char(' '));
-			int type = f.value(0).toInt();
 
-			m_flags = f.value(1).toUInt();
+			read = true;
+			r.type = f.value(0).toInt();
+			r.flags = f.value(1).toUInt();
+			r.title = unescape(f.mid(9).join(QLatin1Char(' ')));
+			r.pending = f.value(5) == QStringLiteral("pending");
+			r.reachable = f.value(7) != QStringLiteral("0");
+			r.contested = f.value(8) == QStringLiteral("1");
+			/* THE LABELS, sec 983: `ok COLOUR LABELS`, a NUL between two. */
+			if (!r.pending && r.type != FZN_NOTE_TYPE_FOLDER) {
+				QString meta;
 
-			m_title_read = unescape(f.mid(9).join(QLatin1Char(' ')));
+				if (ask(QStringLiteral("%1 meta").arg(get), &meta) == 1)
+					r.labels = unescape(meta.section(QLatin1Char(' '), 1));
+			}
+			if (!r.pending && r.type == FZN_NOTE_TYPE_ATTACHMENT) {
+				QString ref;
+
+				if (ask(QStringLiteral("%1 ref").arg(get), &ref) == 1)
+					r.ref = ref.trimmed();
+			} else if (!r.pending && r.type != FZN_NOTE_TYPE_FOLDER && r.type != FZN_NOTE_TYPE_LIST) {
+				QTemporaryFile file;
+
+				if (file.open()) {
+					QString path = file.fileName(), why;
+
+					file.close();
+					if (ask(QStringLiteral("%1 file %2").arg(get, path), &why) == 1) {
+						QFile in(path);
+
+						if (in.open(QIODevice::ReadOnly))
+							r.body = as_shown(QString::fromUtf8(in.readAll()));
+						r.body_known = true;
+					} else {
+						r.body_why = why;
+					}
+				}
+			}
+		}
+		if (read) {
+			const int type = r.type;
+
+			m_flags = r.flags;
+			m_title_read = r.title;
 			if (!keep_title)
 				m_title->setText(m_title_read);
 			m_is_list = type == FZN_NOTE_TYPE_LIST;
 			/* NOT HERE YET, sec 514: there is no content to show, and an
 			 * edit of it the node would refuse. It can still be moved,
 			 * pinned or trashed. */
-			pending = f.value(5) == QStringLiteral("pending");
-			/* THE LABELS, sec 983: `ok COLOUR LABELS`, a NUL between two. */
+			pending = r.pending;
 			if (!pending && type != FZN_NOTE_TYPE_FOLDER) {
-				QString meta;
-
-				if (ask(QStringLiteral("%1 meta").arg(get), &meta) == 1) {
-					QString raw = unescape(meta.section(QLatin1Char(' '), 1));
-
-					m_labels_read = raw.isEmpty() ? QString()
-					                              : raw.split(QLatin1Char('\0')).join(
-					                                        QStringLiteral(", "));
-					if (!keep_labels)
-						m_labels->setText(m_labels_read);
-				}
+				m_labels_read = r.labels.isEmpty() ? QString()
+				                                   : r.labels.split(QLatin1Char('\0')).join(QStringLiteral(", "));
+				if (!keep_labels)
+					m_labels->setText(m_labels_read);
 			}
-			/* `... REACHABLE CONTESTED TITLE`, sec 828, said, sec 987. */
-			if (f.value(8) == QStringLiteral("1"))
+			/* WHERE IT STANDS, sec 828, said, sec 987. */
+			if (r.contested)
 				set_status(QStringLiteral("This note was moved to two folders on two devices, "
 				                          "and is shown in both."));
-			else if (f.value(7) == QStringLiteral("0") && !shared())
+			else if (!r.reachable && !shared())
 				set_status(QStringLiteral("This note's folder is not here yet, so it is shown "
 				                          "at the top."));
 			if (pending) {
@@ -921,10 +998,9 @@ void fzn_notebook_view::refresh_note()
 			} else if (type == FZN_NOTE_TYPE_ATTACHMENT) {
 				/* A FILE, sec 1001: its reference, and where the file
 				 * stands here -- `ok HELD TOTAL LENGTH whole|partial|...`. */
-				QString ref, st;
+				QString st;
 
-				if (ask(QStringLiteral("%1 ref").arg(get), &ref) == 1)
-					m_ref = ref.trimmed();
+				m_ref = r.ref;
 				if (!m_ref.isEmpty()
 				    && ask(QStringLiteral("get file %1").arg(m_ref.left(64)), &st) == 1) {
 					QStringList w = st.split(QLatin1Char(' '));
@@ -940,22 +1016,12 @@ void fzn_notebook_view::refresh_note()
 				m_body->setPlainText(items_of(get, &m_ticks).join(QLatin1Char('\n')));
 				m_body_read = m_body->toPlainText();
 			} else if (type != FZN_NOTE_TYPE_FOLDER) {
-				QTemporaryFile file;
-
-				if (file.open()) {
-					QString path = file.fileName(), why;
-
-					file.close();
-					if (ask(QStringLiteral("%1 file %2").arg(get, path), &why) == 1) {
-						QFile in(path);
-
-						if (in.open(QIODevice::ReadOnly))
-							m_body_read = as_shown(QString::fromUtf8(in.readAll()));
-						if (!keep_body)
-							m_body->setPlainText(m_body_read);
-					} else {
-						set_status(QStringLiteral("The text is not here yet: %1").arg(why));
-					}
+				if (r.body_known) {
+					m_body_read = r.body;
+					if (!keep_body)
+						m_body->setPlainText(m_body_read);
+				} else if (!r.body_why.isEmpty()) {
+					set_status(QStringLiteral("The text is not here yet: %1").arg(r.body_why));
 				}
 			}
 			m_body->setEnabled(type != FZN_NOTE_TYPE_FOLDER && type != FZN_NOTE_TYPE_ATTACHMENT);

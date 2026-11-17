@@ -1416,6 +1416,80 @@ static void test_shares_in_binary(void)
 	}
 }
 
+/* A NOTE'S FIELDS ROW framed onto answer `i`, sec 1201, its text `length`. */
+static void fields_onto(struct bscript *s, size_t i, uint32_t length, const uint8_t *ref, uint32_t ref_len)
+{
+	uint8_t parent[32], row[400], m[416];
+	uint32_t row_len = 0, n = 0;
+
+	memset(parent, 0xcd, sizeof(parent));
+	if (fzn_notes_local_note_fields_build(row, sizeof(row), 1u, 0x01u, 1000u, 2000u, parent, 0u, length, 1u, 0u,
+	                                      0xFF8000C0u, (const uint8_t *)"milk", 4, (const uint8_t *)"a\0b", 3, ref,
+	                                      ref_len, &row_len)
+	            == SITU_OK
+	    && fzn_notes_local_message_build_note_fields(m, sizeof(m), (uint8_t)FZN_CMD_NOTES, row, row_len, &n)
+	               == SITU_OK)
+		framed(s, i, m, n);
+}
+
+static void piece_onto(struct bscript *s, size_t i, uint32_t at, const char *text)
+{
+	uint8_t row[64], m[80];
+	uint32_t row_len = 0, n = 0;
+
+	if (fzn_notes_local_note_text_build(row, sizeof(row), at, (const uint8_t *)text, (uint32_t)strlen(text),
+	                                    &row_len)
+	            == SITU_OK
+	    && fzn_notes_local_message_build_note_text(m, sizeof(m), (uint8_t)FZN_CMD_NOTES, row, row_len, &n)
+	               == SITU_OK)
+		framed(s, i, m, n);
+}
+
+/* ONE NOTE WHOLE IN BINARY, sec 1201: fields, meta and text in pieces read,
+ * the request's sharer and id, a piece out of order and a text short of its
+ * length each refused, and an old node said to read none. */
+static void test_note_open_in_binary(void)
+{
+	static struct bscript held, gap, shorter, old;
+	static fzn_rpc_note_open_t out;
+	uint8_t id[32], sharer[32];
+
+	memset(id, 0x5a, sizeof(id));
+	memset(sharer, 0xc4, sizeof(sharer));
+	fields_onto(&held, 0, 11u, NULL, 0);
+	piece_onto(&held, 0, 0, "two pi");
+	piece_onto(&held, 0, 6, "nts");
+	piece_onto(&held, 0, 9, ", ");
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_note_open(&c, sharer, id, &out) == FZN_RPC_OK && out.content_type == 1 && out.flags == 0x01
+	              && out.created_ms == 1000u && out.edited_ms == 2000u && out.parent[0] == 0xcd && !out.pending
+	              && out.length == 11u && out.reachable && !out.contested && out.colour == 0xFF8000C0u
+	              && !strcmp(out.title, "milk") && out.labels_len == 3 && !memcmp(out.labels, "a\0b", 3)
+	              && out.ref_len == 0 && out.text_len == 11u && !strcmp(out.text, "two pints, ")
+	              && held.asked_len[0] == 66u && held.asked[0][1] == 0x86 && held.asked[0][2] == 0xc4
+	              && held.asked[0][34] == 0x5a,
+	      "a note was not read whole in binary, its text from its pieces");
+	fields_onto(&gap, 0, 11u, NULL, 0);
+	/* OVERLAPPING THE LAST, its bytes still adding up to the length: only
+	 * the order says it is no text. */
+	piece_onto(&gap, 0, 0, "two pi");
+	piece_onto(&gap, 0, 5, "nts, ");
+	status_onto(&gap, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &gap);
+	CHECK(fzn_rpc_note_open(&c, NULL, id, &out) != FZN_RPC_OK, "a piece not starting where the last ended was taken");
+	fields_onto(&shorter, 0, 11u, NULL, 0);
+	piece_onto(&shorter, 0, 0, "two pi");
+	status_onto(&shorter, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &shorter);
+	CHECK(fzn_rpc_note_open(&c, NULL, id, &out) != FZN_RPC_OK, "a text short of its length was taken");
+	status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a channel's asking");
+	bon(&c, &old);
+	CHECK(fzn_rpc_note_open(&c, NULL, id, &out) == FZN_RPC_ERR_UNKNOWN_MSG_TYPE,
+	      "a node reading no note in binary was not said so");
+	fzn_rpc_note_open_release(&out);
+}
+
 /* ONE SIBLING framed onto answer `i`, sec 1176. */
 static void sibling_onto(struct bscript *s, size_t i, uint8_t first, uint8_t paired, const char *where,
                          const char *name)
@@ -1808,6 +1882,7 @@ int main(void)
 	test_group_notebook_in_binary();
 	test_notes_stamp_in_binary();
 	test_shares_in_binary();
+	test_note_open_in_binary();
 	test_packs_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

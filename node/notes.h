@@ -361,9 +361,12 @@ int fzn_node_notes_push_texts_step(fzn_node_notes_texting_t *x, const uint8_t *r
  * request answered, through `put`, by a row per note -- `list note`'s, or
  * `list shared KEY`'s for a sharer's key -- then a STATUS ok, or a STATUS
  * refusing it. A `stamp` request, sec 1199, by `get notes`' number, a row
- * and ok. 1 once answered, every refusal included; 0 when an answer could
+ * and ok; `shares`, sec 1200, by `list share`'s rows; `note`, sec 1201, by
+ * the note's fields and its text in pieces. 1 once answered, every refusal included; 0 when an answer could
  * not be written. */
-#define FZN_NODE_NOTES_BINARY_MAX 1400u
+/* The most bytes one answer message takes: the local leg's own bound,
+ * which a note's text, up to 256 KiB, is sent in pieces under (sec 1201). */
+#define FZN_NODE_NOTES_BINARY_MAX FZN_LOCAL_BINARY_MAX
 typedef int (*fzn_node_notes_put_t)(void *ctx, const uint8_t *msg, size_t len);
 int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_t *msg, size_t len,
                           fzn_node_notes_put_t put, void *put_ctx);

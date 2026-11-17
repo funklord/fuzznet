@@ -53,6 +53,7 @@
 #include <QWidget>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 
 class QCheckBox;
@@ -95,6 +96,12 @@ public:
 	bool descend(const QString &id, const QString &title);
 	bool ascend();
 	bool open_note(const QString &id);
+	/* A HOST THAT ANSWERS BINARY ITSELF, sec 1201 -- an in-process node, or
+	 * a test of one -- gives the view's typed client that answer, as the
+	 * typed client's `binary_answer` takes it; null takes it back. */
+	void answer_binary(int (*answer)(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply,
+	                                 size_t reply_cap, size_t *reply_len),
+	                   void *ctx);
 	bool new_note(const QString &title);
 	bool new_folder(const QString &title);
 	/* CHECKLISTS, sec 442: a list's items are lines `[ ] text` and

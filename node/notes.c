@@ -2542,6 +2542,11 @@ static fzn_status_t status_of(fzn_notes_err_t err)
 	return err == FZN_NOTES_ERR_DENIED ? FZN_STATUS_DENIED : FZN_STATUS_ERROR;
 }
 
+/* A NOTE'S TEXT A PIECE AT A TIME: 8000 bytes and a piece's head stay
+ * under the local leg's 0x1fff a message (FZN_LOCAL_BINARY_MAX), past which
+ * the daemon writes nothing and a 32 KiB piece was lost. */
+#define FZN_NODE_NOTES_PIECE 8000u
+
 int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_t *msg, size_t len,
                           fzn_node_notes_put_t put, void *put_ctx)
 {
@@ -2577,6 +2582,81 @@ int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_
 		               != SITU_OK)
 			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the stamp would not write");
 		return put(put_ctx, out, out_len) && binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
+	}
+	/* ONE NOTE WHOLE, sec 1201: `get note ID`'s fields, its meta and an
+	 * attachment's reference in one row, then its text in pieces, then ok
+	 * -- what a notebook with a note open asked three or four times. */
+	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_NOTE) {
+		uint8_t id[FZN_TREE_ID_LEN];
+		const fzn_tree_node_t *node;
+		fzn_note_t note;
+		fzn_note_meta_t meta;
+		size_t idx = 0, at;
+		int pending, reachable = 0, contested = 0;
+		uint32_t row_len = 0, out_len = 0;
+
+		if (fzn_notes_local_message_body_note_view(v, &b) != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not a notes request");
+		memcpy(sharer, fzn_notes_local_note_ask_sharer_ptr(b), FZN_PUBKEY_LEN);
+		memcpy(id, fzn_notes_local_note_ask_id_ptr(b), FZN_TREE_ID_LEN);
+		store = &n->store;
+		if (memcmp(sharer, zero, FZN_PUBKEY_LEN) != 0) {
+			if (!open_shared(n, sharer, &shared_store))
+				return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the shared notes would not open");
+			store = &shared_store;
+		}
+		if (fzn_tree_is_root(id))
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the top is no note");
+		err = fzn_notes_view_load(store, view);
+		if (err != FZN_NOTES_OK)
+			return binary_status(put, put_ctx, status_of(err), fzn_notes_err_str(err));
+		node = find(n, id, &idx);
+		if (!node)
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, fzn_notes_err_str(FZN_NOTES_ERR_ABSENT));
+		err = read_note(n, store, node, &meta, &note);
+		if (err != FZN_NOTES_OK && err != FZN_NOTES_ERR_PENDING)
+			return binary_status(put, put_ctx, status_of(err), fzn_notes_err_str(err));
+		pending = err == FZN_NOTES_ERR_PENDING;
+		if (pending)
+			memset(&note, 0, sizeof(note));
+		note_standing(store, id, &reachable, &contested);
+		{
+			const int is_ref = !pending && node->content_type == FZN_NOTE_TYPE_ATTACHMENT
+			                   && note.text_len == FZN_NOTE_BLOB_REF_LEN;
+			const uint64_t length = pending ? meta.content.length : note.text_len;
+
+			if (note.title_len > FZN_NOTE_TITLE_MAX || note.labels_len > FZN_NOTE_LABELS_MAX
+			    || length > UINT32_MAX
+			    || fzn_notes_local_note_fields_build(
+			               row, sizeof(row), node->content_type, meta.flags, meta.created_at_ms,
+			               meta.edited_at_ms, node->parent, (uint8_t)(pending ? 1 : 0), (uint32_t)length,
+			               (uint8_t)(reachable ? 1 : 0), (uint8_t)(contested ? 1 : 0), meta.colour, note.title,
+			               (uint32_t)note.title_len, note.labels, (uint32_t)note.labels_len,
+			               is_ref ? note.text : NULL, is_ref ? (uint32_t)FZN_NOTE_BLOB_REF_LEN : 0u, &row_len)
+			               != SITU_OK
+			    || fzn_notes_local_message_build_note_fields(out, sizeof(out), (uint8_t)FZN_CMD_NOTES, row,
+			                                                 row_len, &out_len)
+			               != SITU_OK)
+				return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the note would not write");
+			if (!put(put_ctx, out, out_len))
+				return 0;
+			/* THE TEXT IN PIECES, an attachment's reference being its row's. */
+			for (at = 0; !pending && !is_ref && at < note.text_len; at += FZN_NODE_NOTES_PIECE) {
+				const size_t piece = note.text_len - at < FZN_NODE_NOTES_PIECE ? note.text_len - at
+				                                                               : FZN_NODE_NOTES_PIECE;
+
+				if (fzn_notes_local_note_text_build(row, sizeof(row), (uint32_t)at, note.text + at,
+				                                    (uint32_t)piece, &row_len)
+				            != SITU_OK
+				    || fzn_notes_local_message_build_note_text(out, sizeof(out), (uint8_t)FZN_CMD_NOTES, row,
+				                                               row_len, &out_len)
+				               != SITU_OK)
+					return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the note's text would not write");
+				if (!put(put_ctx, out, out_len))
+					return 0;
+			}
+		}
+		return binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
 	}
 	/* WHERE THIS USER'S NOTES GO, sec 1200: `list share`'s rows. */
 	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_SHARES) {

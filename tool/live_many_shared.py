@@ -12,6 +12,9 @@ S shares a folder of 2200 notes with R, a contact, past what one index page hold
        the view loaded again a page, the least of a few listings
     c2 the folder in binary by the sharer's key, `list sharer`'s (sec 1191): every
        note, in the pages' order, then ok
+    c3 one note whole in binary over the socket (sec 1201): S's own, 20000 bytes,
+       its fields and three pieces under the local leg's bound, in order, then ok;
+       and one of the shared notes at R, by the sharer's key
     d  a collection of the shelf in CPU ticks that are not every tree read a text
 
 Against a daemon whose reply slot is not in whole pieces, a holds nothing.
@@ -171,6 +174,38 @@ def main(argv):
 				             % (len(rows), len(got), got[-1][:8] if got else b"", len(seen)))
 			print("livecheck: c2: the folder in binary by the sharer's key: all %d, in order"
 			      % len(rows))
+
+			# c3: ONE NOTE WHOLE, sec 1201, through the daemon's own writer,
+			# which refuses a message past 0x1fff.
+			text = bytes(ord("a") + i % 26 for i in range(20000))
+			text_path = os.path.join(scratch, "long.txt")
+			with open(text_path, "wb") as f:
+				f.write(text)
+			own = ask(socks["s"], "add note top long").split()[1]
+			reply = ask(socks["s"], "set note %s file %s" % (own, text_path))
+			if not reply.startswith("ok"):
+				raise failed("c3: set note file answered %r" % reply)
+			got = binary(socks["s"], bytes([0x08, 0x86]) + bytes(32) + bytes.fromhex(own))
+			pieces = [m for m in got if m[:2] == bytes([0x08, 0x88])]
+			body, at, ok = b"", 0, True
+			for m in pieces:
+				off = int.from_bytes(m[2:6], "big")
+				n = int.from_bytes(m[6:8], "big")
+				ok = ok and off == at and len(m) == 8 + n and len(m) + 2 <= 0x1fff + 2
+				body += m[8:8 + n]
+				at += n
+			if not got or got[0][:2] != bytes([0x08, 0x87]) or len(pieces) != 3 or not ok \
+			   or body != text or got[-1][:2] != bytes([0x13, 0]):
+				raise failed("c3: S's own note in binary was %d answers, %d pieces, %d bytes, "
+				             "ending %r" % (len(got), len(pieces), len(body),
+				                             got[-1][:8] if got else b""))
+			shared_one = binary(socks["r"], bytes([0x08, 0x86]) + bytes.fromhex(keys[0])
+			                    + bytes.fromhex(seen[0]))
+			if not shared_one or shared_one[0][:2] != bytes([0x08, 0x87]) \
+			   or shared_one[-1][:2] != bytes([0x13, 0]):
+				raise failed("c3: a shared note at R in binary answered %r" % shared_one[:2])
+			print("livecheck: c3: one note whole in binary: 20000 bytes in 3 pieces, and a shared "
+			      "one by its sharer's key")
 
 			# d: a collection reads the trees once, not once a text.
 			ticks = None

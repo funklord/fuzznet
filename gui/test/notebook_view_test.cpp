@@ -21,6 +21,9 @@ extern "C" {
 #include "../../notes/test/blob_stub.h"
 #include "../../notes/test/chain_stub.h"
 #include "../../local/vocabulary.h"
+#include "../../local/rpc_err.h"
+#include "../../wire/cmd.h"
+#include "../../wire/status.h"
 }
 
 #include "../notebook_view.h"
@@ -297,6 +300,49 @@ static size_t list_groups(char *reply, size_t cap)
 	return used;
 }
 
+/* THE NODE IN BINARY, sec 1201, as the daemon answers on its socket: a
+ * notes message by fzn_node_notes_binary, its answers framed; any other
+ * refused MALFORMED, which the client takes as a node reading no binary for
+ * it and asks the verbs. */
+struct framing {
+	uint8_t *reply;
+	size_t cap, used;
+};
+
+static int frame_one(void *ctx, const uint8_t *msg, size_t len)
+{
+	struct framing *f = (struct framing *)ctx;
+
+	if (f->used + 2u + len > f->cap)
+		return 0;
+	f->reply[f->used] = (uint8_t)(len >> 8);
+	f->reply[f->used + 1u] = (uint8_t)len;
+	memcpy(f->reply + f->used + 2u, msg, len);
+	f->used += 2u + len;
+	return 1;
+}
+
+static int binary_asked;
+
+static int node_binary(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply, size_t cap, size_t *reply_len)
+{
+	struct framing f = { reply, cap, 0 };
+
+	(void)ctx;
+	binary_asked++;
+	if (len && msg[0] == FZN_CMD_NOTES)
+		(void)fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, len, frame_one, &f);
+	else {
+		uint8_t s[FZN_STATUS_LEN_MAX];
+
+		(void)frame_one(&f, s, fzn_status_write(s, sizeof(s), FZN_STATUS_MALFORMED, "not here"));
+	}
+	*reply_len = f.used;
+	return FZN_RPC_OK;
+}
+
+static int get_note_asked;
+
 static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 {
 	fzn_request_t request;
@@ -304,6 +350,8 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 
 	(void)ctx;
 	asked++;
+	if (!strncmp(line, "get note ", 9u))
+		get_note_asked++;
 	if (!strncmp(line, "list note ", 10u))
 		list_asks++;
 	if (quiet)
@@ -399,6 +447,16 @@ static void test_notes_are_made_saved_and_read_back(void)
 		CHECK(w.save(), "a text of several lines, past one request line, is saved");
 		w.findChild<QPlainTextEdit *>()->clear();
 		CHECK(w.open_note(note) && w.body_text() == text, "and reads back whole");
+		/* AND IN ONE BINARY REQUEST, sec 1201: no `get note` asked, the
+		 * same title and text on screen. */
+		w.answer_binary(node_binary, nullptr);
+		w.findChild<QPlainTextEdit *>()->clear();
+		get_note_asked = 0;
+		binary_asked = 0;
+		CHECK(w.open_note(note) && w.body_text() == text && w.title_text() == QStringLiteral("Bread")
+		              && !get_note_asked && binary_asked > 0,
+		      "the open note was not read in binary, or `get note` was still asked");
+		w.answer_binary(nullptr, nullptr);
 	}
 	CHECK(w.ascend() && w.location() == QStringLiteral("/"), "back up to the top");
 	CHECK(!w.ascend(), "and no further");

@@ -1066,6 +1066,35 @@ typedef struct fzn_rpc_notes_add_resp {
 	(FZN_RPC_NOTES_EDIT_TITLE | FZN_RPC_NOTES_EDIT_TEXT | FZN_RPC_NOTES_EDIT_TRASH | \
 	 FZN_RPC_NOTES_EDIT_UNTRASH)
 
+/* ONE NOTE WHOLE, sec 1201: what a notebook with a note open shows -- its
+ * fields, its meta, an attachment's reference and its text -- read in one
+ * request. `text` is allocated and NUL-terminated; release with
+ * fzn_rpc_note_open_release. */
+#define FZN_RPC_NOTE_REF_MAX 128
+typedef struct fzn_rpc_note_open {
+	uint16_t content_type;
+	uint8_t flags; /* the node's own, FZN_NOTE_FLAG_* */
+	uint64_t created_ms;
+	uint64_t edited_ms;
+	uint8_t parent[32];
+	/* NOT HERE YET: `length` is then the sealed payload's, and there is no
+	 * title, labels or text to show. */
+	int pending;
+	uint64_t length;
+	int reachable;
+	int contested;
+	uint32_t colour; /* RRGGBBAA, 0 unset */
+	char title[FZN_RPC_NOTES_LIST_TITLE_MAX + 1];
+	size_t title_len;
+	char labels[FZN_RPC_NOTES_LABELS_MAX + 1]; /* NUL between two */
+	size_t labels_len;
+	uint8_t ref[FZN_RPC_NOTE_REF_MAX]; /* an attachment's file reference, else empty */
+	size_t ref_len;
+	char *text;
+	size_t text_len;
+	size_t text_room;
+} fzn_rpc_note_open_t;
+
 typedef struct fzn_rpc_notes_show_resp {
 	uint8_t id[32];
 	uint8_t parent[32];

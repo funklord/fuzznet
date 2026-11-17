@@ -277,6 +277,13 @@ int fzn_rpc_notes_list(fzn_rpc_t *c, const uint8_t parent[32], const uint8_t fro
                         int from_group, fzn_rpc_notes_list_resp_t *out);
 int fzn_rpc_notes_show(fzn_rpc_t *c, const uint8_t id[32], const uint8_t from[32],
                         int from_group, fzn_rpc_notes_show_resp_t *out);
+/* ONE NOTE WHOLE IN BINARY, sec 1201: `id` in this user's notes for a NULL
+ * or zero `sharer`, else in the tree that key shared. A node that reads no
+ * binary answers FZN_RPC_ERR_UNKNOWN_MSG_TYPE, and the caller asks the
+ * verbs -- `get note ID` and its fields -- as before. `out->text` is kept
+ * across calls; release it with fzn_rpc_note_open_release. */
+int fzn_rpc_note_open(fzn_rpc_t *c, const uint8_t *sharer, const uint8_t id[32], fzn_rpc_note_open_t *out);
+void fzn_rpc_note_open_release(fzn_rpc_note_open_t *out);
 /* WHETHER ANYTHING MOVED, sec 1199: a number that moves with every write the
  * notes could be in, 0 where the node keeps none -- so a view refreshed on a
  * timer reads a folder only when it changed. In binary where the node reads

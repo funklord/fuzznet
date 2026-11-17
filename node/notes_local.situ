@@ -18,6 +18,9 @@ enum op : u8 {
 	stamp_row = 131, // an answer: the stamp
 	shares   = 132, // where this user's notes go, as `list share` (sec 1200)
 	share_row = 133, // an answer: one share
+	note     = 134, // one note, whole, as `get note ID` and its fields say (sec 1201)
+	note_fields = 135, // an answer: the note's fields, meta and reference
+	note_text = 136, // an answer: a piece of the note's text
 	default  = error,
 }
 
@@ -29,6 +32,49 @@ struct nothing {
 // folder only when it moved.
 struct stamp_row {
 	u64  stamp;
+}
+
+// SHARER and ID: the note asked, in this user's own notes for a zero
+// SHARER, else in the tree that key shared with this node.
+struct note_ask {
+	u8   sharer[32];
+	u8   id[32];
+}
+
+// THE NOTE, as `get note ID` says it, its meta and an attachment's
+// reference, in one row. CONTENT_TYPE, FLAGS, CREATED_MS and EDITED_MS its
+// own; PARENT the folder it is in. PENDING 1 when its text has not arrived
+// here, and LENGTH then the sealed payload's, else the text's -- whose
+// pieces follow as note_text rows. REACHABLE and CONTESTED where it stands
+// (sec 828). COLOUR RRGGBBAA, 0 unset. TITLE and LABELS raw, LABELS
+// NUL-separated, both empty while pending. REF an attachment's file
+// reference, empty for any other note.
+struct note_fields {
+	u16  content_type;
+	u8   flags;
+	u64  created_ms;
+	u64  edited_ms;
+	u8   parent[32];
+	u8   pending [max = 1];
+	u32  length;
+	u8   reachable [max = 1];
+	u8   contested [max = 1];
+	u32  colour;
+	u8   title_len;
+	u8   title[title_len];
+	u16  labels_len [max = 1024];
+	u8   labels[labels_len];
+	u8   ref_len [max = 128];
+	u8   ref[ref_len];
+}
+
+// A PIECE of the note's text: OFFSET where it starts, in order and without
+// a gap, so the pieces end where LENGTH says. At most 8000 bytes, so a
+// message stays under the local leg's 0x1fff (FZN_LOCAL_BINARY_MAX).
+struct note_text {
+	u32  offset;
+	u16  piece_len [max = 8000];
+	u8   piece[piece_len];
 }
 
 // SUBTREE the note or folder shared. TO 0 a contact, by NAME; 1 a group,
@@ -79,6 +125,9 @@ struct message {
 		case op.stamp_row: stamp_row stamp_row;
 		case op.shares:   nothing  shares;
 		case op.share_row: share_row share_row;
+		case op.note:     note_ask note;
+		case op.note_fields: note_fields note_fields;
+		case op.note_text: note_text note_text;
 		default: error;
 	}
 }

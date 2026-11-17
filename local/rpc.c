@@ -5010,6 +5010,119 @@ int fzn_rpc_notes_list(fzn_rpc_t *c, const uint8_t parent[32], const uint8_t fro
 	return node_notes_list(c, tree, parent, out);
 }
 
+/* ONE NOTE IN BINARY, sec 1201: its fields row, its text in pieces each
+ * starting where the last ended, then a STATUS. */
+struct note_answer {
+	fzn_rpc_t *c;
+	fzn_rpc_note_open_t *out;
+	int bad, fields_seen, status_seen, no_room;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void note_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct note_answer *a = ctx;
+	fzn_rpc_note_open_t *o = a->out;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad || a->no_room) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_notes_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_notes_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_NOTE_FIELDS && !a->fields_seen
+	    && fzn_notes_local_message_body_note_fields_view(v, &b) == SITU_OK) {
+		a->fields_seen = 1;
+		o->content_type = fzn_notes_local_note_fields_content_type_get(b);
+		o->flags = fzn_notes_local_note_fields_flags_get(b);
+		o->created_ms = fzn_notes_local_note_fields_created_ms_get(b);
+		o->edited_ms = fzn_notes_local_note_fields_edited_ms_get(b);
+		memcpy(o->parent, fzn_notes_local_note_fields_parent_ptr(b), 32);
+		o->pending = fzn_notes_local_note_fields_pending_get(b) != 0;
+		o->length = fzn_notes_local_note_fields_length_get(b);
+		o->reachable = fzn_notes_local_note_fields_reachable_get(b) != 0;
+		o->contested = fzn_notes_local_note_fields_contested_get(b) != 0;
+		o->colour = fzn_notes_local_note_fields_colour_get(b);
+		o->title_len = fzn_notes_local_note_fields_title_len(b);
+		memcpy(o->title, fzn_notes_local_note_fields_title_ptr(b), o->title_len);
+		o->title[o->title_len] = '\0';
+		o->labels_len = fzn_notes_local_note_fields_labels_len(b);
+		memcpy(o->labels, fzn_notes_local_note_fields_labels_ptr(b), o->labels_len);
+		o->labels[o->labels_len] = '\0';
+		o->ref_len = fzn_notes_local_note_fields_ref_len(b);
+		memcpy(o->ref, fzn_notes_local_note_fields_ref_ptr(b), o->ref_len);
+		return;
+	}
+	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_NOTE_TEXT && a->fields_seen && !o->pending
+	    && fzn_notes_local_message_body_note_text_view(v, &b) == SITU_OK) {
+		const size_t at = fzn_notes_local_note_text_offset_get(b);
+		const size_t piece = fzn_notes_local_note_text_piece_len(b);
+		/* IN ORDER AND WITHOUT A GAP, and never past the length said. */
+		if (at != o->text_len || at + piece > o->length) {
+			a->bad = 1;
+			return;
+		}
+		if (room_for(a->c, (void *)&o->text, &o->text_room, o->text_len + piece + 1, 1) != FZN_RPC_OK) {
+			a->no_room = 1;
+			return;
+		}
+		memcpy(o->text + o->text_len, fzn_notes_local_note_text_piece_ptr(b), piece);
+		o->text_len += piece;
+		o->text[o->text_len] = '\0';
+		return;
+	}
+	a->bad = 1;
+}
+
+int fzn_rpc_note_open(fzn_rpc_t *c, const uint8_t *sharer, const uint8_t id[32], fzn_rpc_note_open_t *out) {
+	uint8_t ask[2 + 64] = { FZN_CMD_NOTES, FZN_NOTES_LOCAL_OP_NOTE };
+	struct note_answer a;
+	int text = 0;
+	char *keep = out->text;
+	const size_t keep_room = out->text_room;
+	memset(out, 0, sizeof(*out));
+	out->text = keep;
+	out->text_room = keep_room;
+	if (out->text && out->text_room) out->text[0] = '\0';
+	if (sharer) memcpy(ask + 2, sharer, 32);
+	else memset(ask + 2, 0, 32);
+	memcpy(ask + 34, id, 32);
+	memset(&a, 0, sizeof a);
+	a.c = c;
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, note_each, &a, &text);
+	if (text) return node_unasked(c, FZN_RPC_ERR_UNKNOWN_MSG_TYPE, "this node reads no note in binary");
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.no_room) return fail(c, FZN_RPC_ERR_STORAGE_IO, "out of memory for that note");
+	if (a.bad || !a.status_seen) return unreadable(c); /* a note cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	/* THE FIELDS, AND ALL THE TEXT THEY PROMISED, or no note. */
+	if (!a.fields_seen || (!out->pending && !out->ref_len && out->text_len != out->length)) return unreadable(c);
+	return FZN_RPC_OK;
+}
+
+void fzn_rpc_note_open_release(fzn_rpc_note_open_t *out) {
+	if (!out) return;
+	free(out->text);
+	out->text = NULL;
+	out->text_len = out->text_room = 0;
+}
+
 /* THE STAMP IN BINARY, sec 1199: one row, then a STATUS. */
 struct stamp_answer {
 	uint64_t stamp;

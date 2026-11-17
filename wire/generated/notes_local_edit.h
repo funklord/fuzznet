@@ -20,6 +20,174 @@
 extern "C" {
 #endif
 
+/* `note_fields`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint16_t content_type;
+	uint8_t flags;
+	uint64_t created_ms;
+	uint64_t edited_ms;
+	uint8_t pending;
+	uint32_t length;
+	uint8_t reachable;
+	uint8_t contested;
+	uint32_t colour;
+	uint8_t title_len;
+	const uint8_t *title;	/* into your backing */
+	uint32_t title_len;
+	uint16_t labels_len;
+	const uint8_t *labels;	/* into your backing */
+	uint32_t labels_len;
+	uint8_t ref_len;
+	const uint8_t *ref;	/* into your backing */
+	uint32_t ref_len;
+} fzn_notes_local_note_fields_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_notes_local_note_fields_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_notes_local_note_fields_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_notes_local_note_fields_title_len(view);
+	*need += fzn_notes_local_note_fields_labels_len(view);
+	*need += fzn_notes_local_note_fields_ref_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_notes_local_note_fields_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_notes_local_note_fields_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_notes_local_note_fields_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_notes_local_note_fields_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->content_type = fzn_notes_local_note_fields_content_type_get(view);
+	out->flags = fzn_notes_local_note_fields_flags_get(view);
+	out->created_ms = fzn_notes_local_note_fields_created_ms_get(view);
+	out->edited_ms = fzn_notes_local_note_fields_edited_ms_get(view);
+	out->pending = fzn_notes_local_note_fields_pending_get(view);
+	out->length = fzn_notes_local_note_fields_length_get(view);
+	out->reachable = fzn_notes_local_note_fields_reachable_get(view);
+	out->contested = fzn_notes_local_note_fields_contested_get(view);
+	out->colour = fzn_notes_local_note_fields_colour_get(view);
+	out->title_len = fzn_notes_local_note_fields_title_len_get(view);
+	out->title_len = fzn_notes_local_note_fields_title_len(view);
+	out->title     = backing + at;
+	for (uint32_t i = 0u; i < out->title_len; i++) {
+		backing[at + i] = fzn_notes_local_note_fields_title_ptr(view)[i];
+	}
+	at += out->title_len;
+	out->labels_len = fzn_notes_local_note_fields_labels_len_get(view);
+	out->labels_len = fzn_notes_local_note_fields_labels_len(view);
+	out->labels     = backing + at;
+	for (uint32_t i = 0u; i < out->labels_len; i++) {
+		backing[at + i] = fzn_notes_local_note_fields_labels_ptr(view)[i];
+	}
+	at += out->labels_len;
+	out->ref_len = fzn_notes_local_note_fields_ref_len_get(view);
+	out->ref_len = fzn_notes_local_note_fields_ref_len(view);
+	out->ref     = backing + at;
+	for (uint32_t i = 0u; i < out->ref_len; i++) {
+		backing[at + i] = fzn_notes_local_note_fields_ref_ptr(view)[i];
+	}
+	at += out->ref_len;
+	(void)at;
+	return SITU_OK;
+}
+
+/* `note_text`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint32_t offset;
+	uint16_t piece_len;
+	const uint8_t *piece;	/* into your backing */
+	uint32_t piece_len;
+} fzn_notes_local_note_text_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_notes_local_note_text_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_notes_local_note_text_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_notes_local_note_text_piece_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_notes_local_note_text_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_notes_local_note_text_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_notes_local_note_text_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_notes_local_note_text_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->offset = fzn_notes_local_note_text_offset_get(view);
+	out->piece_len = fzn_notes_local_note_text_piece_len_get(view);
+	out->piece_len = fzn_notes_local_note_text_piece_len(view);
+	out->piece     = backing + at;
+	for (uint32_t i = 0u; i < out->piece_len; i++) {
+		backing[at + i] = fzn_notes_local_note_text_piece_ptr(view)[i];
+	}
+	at += out->piece_len;
+	(void)at;
+	return SITU_OK;
+}
+
 /* `share_row`, decoded into storage you own.
  *
  * Call `backing` for how many bytes the variable members need, then
