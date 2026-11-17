@@ -12,6 +12,8 @@ S shares a folder of 2200 notes with R, a contact, past what one index page hold
        the view loaded again a page, the least of a few listings
     c2 the folder in binary by the sharer's key, `list sharer`'s (sec 1191): every
        note, in the pages' order, then ok
+    c4 the notebook's writes in binary over the socket (sec 1218): a note
+       added and its id answered, its title changed, read back by the verb
     c3 one note whole in binary over the socket (sec 1201): S's own, 20000 bytes,
        its fields and three pieces under the local leg's bound, in order, then ok;
        and one of the shared notes at R, by the sharer's key
@@ -206,6 +208,22 @@ def main(argv):
 				raise failed("c3: a shared note at R in binary answered %r" % shared_one[:2])
 			print("livecheck: c3: one note whole in binary: 20000 bytes in 3 pieces, and a shared "
 			      "one by its sharer's key")
+
+			# c4: THE WRITES, sec 1218: add then change, each answered as the
+			# verb would, read back by the verb.
+			title = b"made in binary"
+			got = binary(socks["s"], bytes([0x08, 0x89]) + bytes(32) + (1).to_bytes(2, "big")
+			             + bytes([len(title)]) + title)
+			if len(got) != 2 or got[0][:2] != bytes([0x08, 0x8A]) or got[1][:2] != bytes([0x13, 0]):
+				raise failed("c4: an add in binary answered %r" % got)
+			made = got[0][2:34].hex()
+			renamed = b"renamed in binary"
+			got = binary(socks["s"], bytes([0x08, 0x8B]) + bytes.fromhex(made) + bytes([1])
+			             + len(renamed).to_bytes(2, "big") + renamed)
+			said = ask(socks["s"], "get note " + made)
+			if len(got) != 1 or got[0][:2] != bytes([0x13, 0]) or not said.endswith("renamed%20in%20binary"):
+				raise failed("c4: a title changed in binary answered %r, and the verb %r" % (got, said))
+			print("livecheck: c4: a note added and renamed in binary, read back by the verb")
 
 			# d: a collection reads the trees once, not once a text.
 			ticks = None

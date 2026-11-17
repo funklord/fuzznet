@@ -341,7 +341,7 @@ static int node_binary(void *ctx, const uint8_t *msg, size_t len, uint8_t *reply
 	return FZN_RPC_OK;
 }
 
-static int get_note_asked, items_asked, history_asked;
+static int get_note_asked, items_asked, history_asked, writes_asked;
 
 static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 {
@@ -356,6 +356,10 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 		items_asked++;
 	if (!strncmp(line, "list history ", 13u))
 		history_asked++;
+	if (!strncmp(line, "add note ", 9u) || !strncmp(line, "add folder ", 11u) || !strncmp(line, "add list ", 9u)
+	    || !strncmp(line, "add item ", 9u) || !strncmp(line, "remove item ", 12u)
+	    || (!strncmp(line, "set note ", 9u) && !strstr(line, " file ")))
+		writes_asked++;
 	if (!strncmp(line, "list note ", 10u))
 		list_asks++;
 	if (quiet)
@@ -1319,6 +1323,42 @@ static void test_history_is_listed_when_the_notes_move(void)
 	notes.store.stamp = nullptr;
 }
 
+/* THE WRITES IN BINARY, sec 1218: over the view's binary answer a folder,
+ * a note in it, its title, labels, pin, a move to the top, trash and
+ * restore, and a checklist's item added, ticked and removed -- each done,
+ * and not one asked as a verb. */
+static void test_the_writes_go_in_binary(void)
+{
+	QString folder, note;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	w.answer_binary(node_binary, nullptr);
+	writes_asked = 0;
+	CHECK(w.new_folder(QStringLiteral("Recipes")) && w.listed_texts().contains(QStringLiteral("Recipes/")),
+	      "a folder was not made in binary");
+	folder = w.listed_ids().value(0);
+	CHECK(w.descend(folder, QStringLiteral("Recipes")) && w.new_note(QStringLiteral("Bread")),
+	      "a note was not made in the folder in binary");
+	note = w.open_id();
+	w.findChild<QLineEdit *>(QStringLiteral("note_title"))->setText(QStringLiteral("Rye bread"));
+	w.set_labels_text(QStringLiteral("baking, to do"));
+	CHECK(w.save() && w.open_note(note) && w.title_text() == QStringLiteral("Rye bread")
+	              && w.labels_text() == QStringLiteral("baking, to do"),
+	      "a title and labels were not saved in binary");
+	CHECK(w.pin(true) && w.cut() && w.ascend() && w.move_here()
+	              && w.listed_ids().contains(note),
+	      "a note was not pinned and moved to the top in binary");
+	CHECK(w.open_note(note) && w.trash() && w.open_note(note) && w.restore(),
+	      "a note was not trashed and restored in binary");
+	CHECK(w.new_list(QStringLiteral("shopping")) && w.add_item(QStringLiteral("milk")) && w.toggle_item(0)
+	              && w.body_text() == QStringLiteral("[x] milk") && w.remove_item(0) && w.body_text().isEmpty(),
+	      "a checklist's item was not added, ticked and removed in binary");
+	CHECK(writes_asked == 0, "a write was asked as a verb with the binary answer there");
+	w.answer_binary(nullptr, nullptr);
+}
+
 static void test_a_checklists_history_shows_its_items(void)
 {
 	QStringList seen;
@@ -1420,6 +1460,7 @@ int main(int argc, char **argv)
 	test_an_export_is_imported_into_the_open_folder();
 	test_a_checklist_is_lines_ticked_one_at_a_time();
 	test_history_is_listed_when_the_notes_move();
+	test_the_writes_go_in_binary();
 	test_a_note_is_cut_and_moved();
 	test_pinned_first_and_the_archive_apart();
 	test_a_refresh_keeps_the_readers_place();

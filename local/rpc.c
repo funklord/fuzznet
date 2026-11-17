@@ -44,6 +44,7 @@
 #include "../wire/generated/stickers_local.h"
 #include "../wire/generated/files_local.h"
 #include "../wire/generated/notes_local.h"
+#include "../wire/generated/notes_local_build.h"
 #include "../wire/generated/meter_local.h"
 #include "../wire/generated/reach_local.h"
 #include "../wire/generated/time_local.h"
@@ -5280,6 +5281,164 @@ int fzn_rpc_notes_stamp(fzn_rpc_t *c, uint64_t *stamp) {
 	if (a.rows != 1) return unreadable(c);
 	*stamp = a.stamp;
 	return FZN_RPC_OK;
+}
+
+/* THE NOTEBOOK'S WRITES IN BINARY, sec 1218: at most an `added` row, then a
+ * STATUS. */
+struct write_answer {
+	uint8_t id[32];
+	int rows, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void write_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct write_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->rows || a->status_seen || len > UINT32_MAX
+	    || fzn_notes_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_notes_local_message_validate(v) != SITU_OK
+	    || fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_ADDED
+	    || fzn_notes_local_message_body_added_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	memcpy(a->id, fzn_notes_local_added_id_ptr(b), 32);
+	a->rows++;
+}
+
+/* A write asked in binary: FZN_RPC_OK and `*text` 0 when answered, `*text`
+ * 1 when the node reads none. `rows` the added rows wanted, 0 or 1. */
+static int write_binary(fzn_rpc_t *c, const uint8_t *ask, size_t ask_len, int rows, uint8_t *id, int *text) {
+	struct write_answer a;
+	memset(&a, 0, sizeof a);
+	const int rc = fzn_rpc_binary(c, ask, ask_len, write_each, &a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen) return unreadable(c); /* a write's answer cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	if (a.rows != rows) return unreadable(c);
+	if (id && rows) memcpy(id, a.id, 32);
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_note_add(fzn_rpc_t *c, const uint8_t *parent, uint16_t type, const char *title, size_t title_len,
+                     uint8_t id[32]) {
+	static const uint8_t top[32];
+	uint8_t row[2 + 32 + 2 + 1 + 255], msg[sizeof row + 8];
+	uint32_t row_len = 0, msg_len = 0;
+	int text = 0;
+	if (!id || (!title && title_len) || title_len > 255 || type < 1 || type > 3) return encode_failed(c);
+	if (fzn_notes_local_add_build(row, sizeof row, parent ? parent : top, type, (const uint8_t *)title,
+	                              (uint32_t)title_len, &row_len) != SITU_OK
+	    || fzn_notes_local_message_build_add(msg, sizeof msg, (uint8_t)FZN_CMD_NOTES, row, row_len, &msg_len)
+	               != SITU_OK)
+		return encode_failed(c);
+	const int rc = write_binary(c, msg, msg_len, 1, id, &text);
+	if (!text) return rc;
+	/* THE VERB: `add note|list|folder PARENT TITLE`, `ok ID`. */
+	char hex[65], arg[16 + 65 + 256];
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	fzn_hex_encode(parent ? parent : top, 32, hex);
+	const int n = snprintf(arg, sizeof arg, "%s %s %.*s", type == 3 ? "folder" : type == 2 ? "list" : "note", hex,
+	                       (int)title_len, title ? title : "");
+	if (n < 0 || (size_t)n >= sizeof arg) return encode_failed(c);
+	const int trc = fzn_rpc_node(c, "add", arg, (size_t)n, &rest, &rest_len);
+	if (trc != FZN_RPC_OK) return trc;
+	return rest_len == 64 && node_key(rest, 64, id) ? FZN_RPC_OK : unreadable(c);
+}
+
+int fzn_rpc_note_set(fzn_rpc_t *c, const uint8_t id[32], int field, const uint8_t *value, size_t value_len) {
+	static const char *const word[] = { "", "title", "labels", "colour", "parent", "pin", "unpin",
+		                            "trash", "untrash", "archive", "unarchive" };
+	uint8_t row[32 + 1 + 2 + 1024], msg[sizeof row + 8];
+	uint32_t row_len = 0, msg_len = 0;
+	int text = 0;
+	if (!id || field < 1 || field > 10 || value_len > 1024 || (!value && value_len)) return encode_failed(c);
+	if (fzn_notes_local_change_build(row, sizeof row, id, (uint8_t)field, value, (uint32_t)value_len, &row_len)
+	            != SITU_OK
+	    || fzn_notes_local_message_build_change(msg, sizeof msg, (uint8_t)FZN_CMD_NOTES, row, row_len, &msg_len)
+	               != SITU_OK)
+		return encode_failed(c);
+	const int rc = write_binary(c, msg, msg_len, 0, NULL, &text);
+	if (!text) return rc;
+	/* THE VERB, `set note ID FIELD [VALUE]`, the value as the verb takes it. */
+	static char arg[64 + 16 + 3 * 1024 + 8];
+	char hex[65];
+	size_t used;
+	fzn_hex_encode(id, 32, hex);
+	used = (size_t)snprintf(arg, sizeof arg, "note %s %s", hex, word[field]);
+	if (field == FZN_RPC_NOTE_SET_TITLE) {
+		if (!node_title_ok((const char *)value, value_len)) return node_title_refused(c);
+		used += (size_t)snprintf(arg + used, sizeof arg - used, " %.*s", (int)value_len, (const char *)value);
+	} else if (field == FZN_RPC_NOTE_SET_LABELS) {
+		size_t at = 0;
+		while (at < value_len) {
+			const uint8_t *end = memchr(value + at, 0, value_len - at);
+			const size_t one = end ? (size_t)(end - (value + at)) : value_len - at;
+			if (used + 1 >= sizeof arg) return encode_failed(c);
+			arg[used++] = ' ';
+			const size_t w = node_escape((const char *)value + at, one, arg + used, sizeof arg - used);
+			if (!w && one) return encode_failed(c);
+			used += w;
+			at += one + 1;
+		}
+	} else if (field == FZN_RPC_NOTE_SET_COLOUR || field == FZN_RPC_NOTE_SET_PARENT) {
+		char vhex[65];
+		if (value_len != (field == FZN_RPC_NOTE_SET_COLOUR ? 4u : 32u)) return encode_failed(c);
+		fzn_hex_encode(value, value_len, vhex);
+		used += (size_t)snprintf(arg + used, sizeof arg - used, " %s", vhex);
+	} else if (value_len) {
+		return encode_failed(c);
+	}
+	return node_ack(c, "set", arg, (int)used);
+}
+
+int fzn_rpc_note_item(fzn_rpc_t *c, const uint8_t id[32], int what, unsigned index, const char *text,
+                      size_t text_len) {
+	uint8_t row[32 + 1 + 2 + 2 + 7900], msg[sizeof row + 8];
+	uint32_t row_len = 0, msg_len = 0;
+	int tx = 0;
+	if (!id || what < 1 || what > 4 || index > 0xffffu || text_len > 7900 || (!text && text_len)
+	    || (what == FZN_RPC_NOTE_ITEM_ADD) != (text_len > 0))
+		return encode_failed(c);
+	if (fzn_notes_local_item_build(row, sizeof row, id, (uint8_t)what, (uint16_t)index, (const uint8_t *)text,
+	                               (uint32_t)text_len, &row_len) != SITU_OK
+	    || fzn_notes_local_message_build_item(msg, sizeof msg, (uint8_t)FZN_CMD_NOTES, row, row_len, &msg_len)
+	               != SITU_OK)
+		return encode_failed(c);
+	const int rc = write_binary(c, msg, msg_len, 0, NULL, &tx);
+	if (!tx) return rc;
+	static char arg[64 + 32 + 7900];
+	char hex[65];
+	int n;
+	fzn_hex_encode(id, 32, hex);
+	if (what == FZN_RPC_NOTE_ITEM_ADD) {
+		n = snprintf(arg, sizeof arg, "item %s %.*s", hex, (int)text_len, text);
+		return node_ack(c, "add", arg, n);
+	}
+	if (what == FZN_RPC_NOTE_ITEM_REMOVE) {
+		n = snprintf(arg, sizeof arg, "item %s %u", hex, index);
+		return node_ack(c, "remove", arg, n);
+	}
+	n = snprintf(arg, sizeof arg, "note %s item %u %s", hex, index, what == FZN_RPC_NOTE_ITEM_TICK ? "check" : "uncheck");
+	return node_ack(c, "set", arg, n);
 }
 
 int fzn_rpc_notes_show(fzn_rpc_t *c, const uint8_t id[32], const uint8_t from[32],

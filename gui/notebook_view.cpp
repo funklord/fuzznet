@@ -62,28 +62,6 @@ size_t fzn_notebook_view_socket_ask(void *ctx, const char *line, char *reply, si
 	return len;
 }
 
-/* A WORD for a request line, as `node/notes.c` reads one: a byte below
- * 0x21, `%`, `,` and 0x7f as `%XX`. */
-static QString escape_word(const QString &text)
-{
-	static const char hex[] = "0123456789ABCDEF";
-	QByteArray in = text.toUtf8(), out;
-	int i;
-
-	for (i = 0; i < in.size(); i++) {
-		unsigned char c = (unsigned char)in[i];
-
-		if (c < 0x21u || c == '%' || c == ',' || c == 0x7fu) {
-			out.append('%');
-			out.append(hex[c >> 4]);
-			out.append(hex[c & 15u]);
-		} else {
-			out.append((char)c);
-		}
-	}
-	return QString::fromUtf8(out);
-}
-
 /* `%XX` back to the byte, as `node/notes.c` escapes a title. */
 static QString unescape(const QString &text)
 {
@@ -595,6 +573,64 @@ void fzn_notebook_view::set_status(const QString &text)
 {
 	m_status->setText(text);
 	m_status->setVisible(!text.isEmpty());
+}
+
+/* THE NODE'S WORDS FOR A REFUSAL, or that it did not answer. */
+static QString refused_words(const fzn_gui_rpc *r)
+{
+	return r->c.error[0] ? QString::fromUtf8(r->c.error) : QString::fromUtf8(fzn_gui_rpc_silent(r));
+}
+
+int fzn_notebook_view::note_add(uint16_t type, const QString &title, QString *id_or_why)
+{
+	const QByteArray t = title.toUtf8();
+	const QByteArray parent = QByteArray::fromHex(parent_id().toLatin1());
+	uint8_t id[32];
+
+	if (fzn_rpc_note_add(&m_rpc->c, parent.size() == 32 ? reinterpret_cast<const uint8_t *>(parent.constData())
+	                                                     : nullptr,
+	                     type, t.constData(), (size_t)t.size(), id)
+	    != FZN_RPC_OK) {
+		m_answered = m_rpc->c.answered;
+		*id_or_why = refused_words(m_rpc);
+		return 0;
+	}
+	m_answered = true;
+	*id_or_why = QString::fromLatin1(QByteArray(reinterpret_cast<const char *>(id), 32).toHex());
+	return 1;
+}
+
+int fzn_notebook_view::note_set(const QString &id, int field, const QByteArray &value, QString *why)
+{
+	const QByteArray idb = QByteArray::fromHex(id.toLatin1());
+
+	if (idb.size() != 32
+	    || fzn_rpc_note_set(&m_rpc->c, reinterpret_cast<const uint8_t *>(idb.constData()), field,
+	                        reinterpret_cast<const uint8_t *>(value.constData()), (size_t)value.size())
+	               != FZN_RPC_OK) {
+		m_answered = m_rpc->c.answered;
+		*why = idb.size() != 32 ? QStringLiteral("no such note") : refused_words(m_rpc);
+		return 0;
+	}
+	m_answered = true;
+	return 1;
+}
+
+int fzn_notebook_view::note_item(int what, int index, const QString &text, QString *why)
+{
+	const QByteArray idb = QByteArray::fromHex(m_open.toLatin1());
+	const QByteArray t = text.toUtf8();
+
+	if (idb.size() != 32
+	    || fzn_rpc_note_item(&m_rpc->c, reinterpret_cast<const uint8_t *>(idb.constData()), what,
+	                         (unsigned)index, t.constData(), (size_t)t.size())
+	               != FZN_RPC_OK) {
+		m_answered = m_rpc->c.answered;
+		*why = idb.size() != 32 ? QStringLiteral("no such note") : refused_words(m_rpc);
+		return 0;
+	}
+	m_answered = true;
+	return 1;
 }
 
 QString fzn_notebook_view::parent_id() const
@@ -1428,7 +1464,7 @@ bool fzn_notebook_view::new_note(const QString &title)
 
 	if (shared() || one_line.isEmpty())
 		return false;
-	if (ask(QStringLiteral("add note %1 %2").arg(parent_id(), one_line), &id) != 1) {
+	if (note_add(FZN_NOTE_TYPE_NOTE, one_line, &id) != 1) {
 		fail(QStringLiteral("The note was not made: %1").arg(id));
 		return false;
 	}
@@ -1448,7 +1484,7 @@ bool fzn_notebook_view::new_folder(const QString &title)
 
 	if (shared() || one_line.isEmpty())
 		return false;
-	if (ask(QStringLiteral("add folder %1 %2").arg(parent_id(), one_line), &id) != 1) {
+	if (note_add(FZN_NOTE_TYPE_FOLDER, one_line, &id) != 1) {
 		fail(QStringLiteral("The folder was not made: %1").arg(id));
 		return false;
 	}
@@ -1464,7 +1500,7 @@ bool fzn_notebook_view::new_list(const QString &title)
 
 	if (shared() || one_line.isEmpty())
 		return false;
-	if (ask(QStringLiteral("add list %1 %2").arg(parent_id(), one_line), &id) != 1) {
+	if (note_add(FZN_NOTE_TYPE_LIST, one_line, &id) != 1) {
 		fail(QStringLiteral("The list was not made: %1").arg(id));
 		return false;
 	}
@@ -1484,7 +1520,7 @@ bool fzn_notebook_view::add_item(const QString &text)
 
 	if (shared() || !m_is_list || one_line.isEmpty())
 		return false;
-	if (ask(QStringLiteral("add item %1 %2").arg(m_open, one_line), &why) != 1) {
+	if (note_item(FZN_RPC_NOTE_ITEM_ADD, 0, one_line, &why) != 1) {
 		fail(QStringLiteral("The item was not added: %1").arg(why));
 		return false;
 	}
@@ -1498,11 +1534,7 @@ bool fzn_notebook_view::toggle_item(int index)
 
 	if (shared() || !m_is_list || index < 0 || index >= m_ticks.size())
 		return false;
-	if (ask(QStringLiteral("set note %1 item %2 %3")
-	                .arg(m_open)
-	                .arg(index)
-	                .arg(m_ticks[index] ? QStringLiteral("uncheck") : QStringLiteral("check")),
-	        &why)
+	if (note_item(m_ticks[index] ? FZN_RPC_NOTE_ITEM_UNTICK : FZN_RPC_NOTE_ITEM_TICK, index, QString(), &why)
 	    != 1) {
 		fail(QStringLiteral("The item was not changed: %1").arg(why));
 		return false;
@@ -1517,7 +1549,7 @@ bool fzn_notebook_view::remove_item(int index)
 
 	if (shared() || !m_is_list || index < 0 || index >= m_ticks.size())
 		return false;
-	if (ask(QStringLiteral("remove item %1 %2").arg(m_open).arg(index), &why) != 1) {
+	if (note_item(FZN_RPC_NOTE_ITEM_REMOVE, index, QString(), &why) != 1) {
 		fail(QStringLiteral("The item was not removed: %1").arg(why));
 		return false;
 	}
@@ -1543,7 +1575,10 @@ bool fzn_notebook_view::move_here()
 
 	if (shared() || m_cut.isEmpty() || m_trash)
 		return false;
-	if (ask(QStringLiteral("set note %1 parent %2").arg(m_cut, parent_id()), &why) != 1) {
+	if (note_set(m_cut, FZN_RPC_NOTE_SET_PARENT,
+	             parent_id() == QStringLiteral("top") ? QByteArray(32, 0) : QByteArray::fromHex(parent_id().toLatin1()),
+	             &why)
+	    != 1) {
 		fail(QStringLiteral("Not moved: %1").arg(why));
 		return false;
 	}
@@ -1566,23 +1601,22 @@ bool fzn_notebook_view::save()
 	if (shared() || m_open.isEmpty())
 		return false;
 	if (!title.isEmpty()
-	    && ask(QStringLiteral("set note %1 title %2").arg(m_open, title), &why) != 1) {
+	    && note_set(m_open, FZN_RPC_NOTE_SET_TITLE, title.toUtf8(), &why) != 1) {
 		fail(QStringLiteral("The title was not saved: %1").arg(why));
 		return false;
 	}
 	/* THE LABELS, sec 983, only when changed: each trimmed, empty ones
 	 * dropped, one escaped word apiece; none clears them. */
 	if (!m_labels->isReadOnly() && m_labels->text() != m_labels_read) {
-		QStringList words;
+		QByteArray labels;
 
 		for (const QString &one : m_labels->text().split(QLatin1Char(',')))
-			if (!one.trimmed().isEmpty())
-				words << escape_word(one.trimmed());
-		if (ask(QStringLiteral("set note %1 labels%2")
-		                .arg(m_open, words.isEmpty() ? QString()
-		                                             : QStringLiteral(" ") + words.join(QLatin1Char(' '))),
-		        &why)
-		    != 1) {
+			if (!one.trimmed().isEmpty()) {
+				if (!labels.isEmpty())
+					labels += '\0';
+				labels += one.trimmed().toUtf8();
+			}
+		if (note_set(m_open, FZN_RPC_NOTE_SET_LABELS, labels, &why) != 1) {
 			fail(QStringLiteral("The labels were not saved: %1").arg(why));
 			return false;
 		}
@@ -1617,7 +1651,7 @@ bool fzn_notebook_view::trash()
 
 	if (shared() || m_open.isEmpty())
 		return false;
-	if (ask(QStringLiteral("set note %1 trash").arg(m_open), &why) != 1) {
+	if (note_set(m_open, FZN_RPC_NOTE_SET_TRASH, QByteArray(), &why) != 1) {
 		fail(QStringLiteral("Not moved to the trash: %1").arg(why));
 		return false;
 	}
@@ -1635,7 +1669,7 @@ bool fzn_notebook_view::restore()
 
 	if (shared() || m_open.isEmpty())
 		return false;
-	if (ask(QStringLiteral("set note %1 untrash").arg(m_open), &why) != 1) {
+	if (note_set(m_open, FZN_RPC_NOTE_SET_UNTRASH, QByteArray(), &why) != 1) {
 		fail(QStringLiteral("Not restored: %1").arg(why));
 		return false;
 	}
@@ -1856,10 +1890,7 @@ bool fzn_notebook_view::pin(bool on)
 
 	if (shared() || m_open.isEmpty())
 		return false;
-	if (ask(QStringLiteral("set note %1 %2").arg(m_open, on ? QStringLiteral("pin")
-	                                                         : QStringLiteral("unpin")),
-	        &why)
-	    != 1) {
+	if (note_set(m_open, on ? FZN_RPC_NOTE_SET_PIN : FZN_RPC_NOTE_SET_UNPIN, QByteArray(), &why) != 1) {
 		fail(QStringLiteral("Not changed: %1").arg(why));
 		return false;
 	}
@@ -1874,10 +1905,7 @@ bool fzn_notebook_view::archive(bool on)
 
 	if (shared() || m_open.isEmpty())
 		return false;
-	if (ask(QStringLiteral("set note %1 %2").arg(m_open, on ? QStringLiteral("archive")
-	                                                         : QStringLiteral("unarchive")),
-	        &why)
-	    != 1) {
+	if (note_set(m_open, on ? FZN_RPC_NOTE_SET_ARCHIVE : FZN_RPC_NOTE_SET_UNARCHIVE, QByteArray(), &why) != 1) {
 		fail(QStringLiteral("Not changed: %1").arg(why));
 		return false;
 	}

@@ -11,6 +11,28 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
+struct add size=35..290 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  add.parent                             offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  add.content_type                       offset=AbsoluteStatic(0x20) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  add.title_len                          offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  add.title                              offset=AbsoluteStatic(0x23) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct added size=32 atomic=NonAtomic
+  added.id                               offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct change size=35..1059 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  change.id                              offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  change.field                           offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  change.value_len                       offset=AbsoluteStatic(0x21) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  change.value                           offset=AbsoluteStatic(0x23) size=Bounded(0, 1024) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct item size=37..7937 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  item.id                                offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  item.what                              offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  item.index                             offset=AbsoluteStatic(0x21) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  item.text_len                          offset=AbsoluteStatic(0x23) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  item.text                              offset=AbsoluteStatic(0x25) size=Bounded(0, 7900) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
 struct message size=2..8008 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
@@ -62,6 +84,24 @@ struct message size=2..8008 mutate=Shifting address=Unstable repr=ValueConverted
   message.body.note_text.offset          offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
   message.body.note_text.piece_len       offset=AbsoluteStatic(0x06) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
   message.body.note_text.piece           offset=AbsoluteStatic(0x08) size=Bounded(0, 8000) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.add                       offset=AbsoluteStatic(0x02) size=Bounded(35, 290) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.add.parent                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.add.content_type          offset=AbsoluteStatic(0x22) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  message.body.add.title_len             offset=AbsoluteStatic(0x24) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  message.body.add.title                 offset=AbsoluteStatic(0x25) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.added                     offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.added.id                  offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.change                    offset=AbsoluteStatic(0x02) size=Bounded(35, 1059) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.change.id                 offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.change.field              offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.change.value_len          offset=AbsoluteStatic(0x23) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.change.value              offset=AbsoluteStatic(0x25) size=Bounded(0, 1024) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.item                      offset=AbsoluteStatic(0x02) size=Bounded(37, 7937) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.item.id                   offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.item.what                 offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.item.index                offset=AbsoluteStatic(0x23) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.item.text_len             offset=AbsoluteStatic(0x25) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.item.text                 offset=AbsoluteStatic(0x27) size=Bounded(0, 7900) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
 struct note_ask size=64 atomic=NonAtomic
   note_ask.sharer                        offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

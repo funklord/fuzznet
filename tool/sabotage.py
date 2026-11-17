@@ -5768,8 +5768,8 @@ SABOTAGES = [
 	(
 		"notebook-view-shared-tree-not-written",
 		"gui/notebook_view.cpp",
-		"\tif (shared() || one_line.isEmpty())\n\t\treturn false;\n\tif (ask(QStringLiteral(\"add note %1 %2\")",
-		"\tif (one_line.isEmpty())\n\t\treturn false;\n\tif (ask(QStringLiteral(\"add note %1 %2\")",
+		"\tif (shared() || one_line.isEmpty())\n\t\treturn false;\n\tif (note_add(FZN_NOTE_TYPE_NOTE,",
+		"\tif (one_line.isEmpty())\n\t\treturn false;\n\tif (note_add(FZN_NOTE_TYPE_NOTE,",
 		"a new note made while reading a contact's tree lands in this user's own -- sec 439",
 	),
 	(
@@ -5957,8 +5957,8 @@ SABOTAGES = [
 	(
 		"notebook-view-toggle-reads-the-tick",
 		"gui/notebook_view.cpp",
-		"m_ticks[index] ? QStringLiteral(\"uncheck\") : QStringLiteral(\"check\")",
-		"QStringLiteral(\"check\")",
+		"m_ticks[index] ? FZN_RPC_NOTE_ITEM_UNTICK : FZN_RPC_NOTE_ITEM_TICK",
+		"FZN_RPC_NOTE_ITEM_TICK",
 		"a ticked item cannot be unticked from the view -- sec 442",
 	),
 	(
@@ -6727,15 +6727,15 @@ SABOTAGES = [
 	(
 		"notebook-view-moves-into-the-open-folder",
 		"gui/notebook_view.cpp",
-		"QStringLiteral(\"set note %1 parent %2\").arg(m_cut, parent_id())",
-		"QStringLiteral(\"set note %1 parent %2\").arg(m_cut, QStringLiteral(\"top\"))",
+		"parent_id() == QStringLiteral(\"top\") ? QByteArray(32, 0) : QByteArray::fromHex(parent_id().toLatin1())",
+		"QByteArray(32, 0)",
 		"Move here puts the note somewhere other than the folder the reader is looking at -- sec 453",
 	),
 	(
 		"notebook-view-removes-the-item-asked-for",
 		"gui/notebook_view.cpp",
-		"QStringLiteral(\"remove item %1 %2\").arg(m_open).arg(index)",
-		"QStringLiteral(\"remove item %1 %2\").arg(m_open).arg(index + 1)",
+		"note_item(FZN_RPC_NOTE_ITEM_REMOVE, index,",
+		"note_item(FZN_RPC_NOTE_ITEM_REMOVE, index + 1,",
 		"Remove item removes the item after the one at the cursor -- sec 453",
 	),
 	(
@@ -17214,6 +17214,34 @@ SABOTAGES = [
 		"\tif (!m_user_known || m_reset_typed->text() != m_reset_phrase) {\n",
 		"\tif (!m_user_known) {\n",
 		"a host is wiped on part of its name, or on none -- sec 1215",
+	),
+	(
+		"notes-binary-write-always-ok",
+		"node/notes.c",
+		"\tif (len >= 2u && memcmp(reply, \"ok\", 2u) == 0 && (len == 2u || reply[2] == ' '))\n",
+		"\tif (1)\n",
+		"a write the verb refused is answered ok in binary -- sec 1218",
+	),
+	(
+		"notes-binary-labels-one",
+		"node/notes.c",
+		"\t\t\t\tconst uint8_t *end = memchr(value + at, 0, value_len - at);\n",
+		"\t\t\t\tconst uint8_t *end = NULL;\n",
+		"labels sent in binary are taken as one label holding their separators -- sec 1218",
+	),
+	(
+		"rpc-note-add-id-unread",
+		"local/rpc.c",
+		"\tif (id && rows) memcpy(id, a.id, 32);\n",
+		"",
+		"a note added in binary is answered with an id the caller never reads -- sec 1218",
+	),
+	(
+		"notebook-view-labels-run-together",
+		"gui/notebook_view.cpp",
+		"\t\t\t\tif (!labels.isEmpty())\n\t\t\t\t\tlabels += '\\0';\n",
+		"",
+		"a note's labels are saved as one, run together -- sec 1218",
 	),
 	(
 		"qr-decode-nothing-is-an-error",

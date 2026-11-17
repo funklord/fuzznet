@@ -20,6 +20,7 @@
 #include "../../notes/test/chain_stub.h"
 #include "../../wire/cmd.h"
 #include "../../wire/generated/notes_local.h"
+#include "../../wire/generated/notes_local_build.h"
 #include "../../wire/status.h"
 
 #include <stdio.h>
@@ -614,6 +615,108 @@ static void test_note_in_binary(void)
 	memset(id, 0x77, sizeof(id));
 	CHECK(note_binary_as(FZN_ORIGIN_SAME_USER, NULL, id) && n_said == 1u && status_at(0, FZN_STATUS_ERROR),
 	      "a note nobody holds was answered");
+}
+
+/* THE WRITES IN BINARY, sec 1218: a note added and its id answered, its
+ * title, labels and folder changed, a checklist's item added and ticked --
+ * each as the verb would, read back by the verbs -- and a change to a note
+ * nobody holds refused as an error, never as malformed. */
+static void test_writes_in_binary(void)
+{
+	static const uint8_t top[FZN_TREE_ID_LEN];
+	uint8_t msg[FZN_NODE_NOTES_BINARY_MAX], row[FZN_NODE_NOTES_BINARY_MAX], id[FZN_TREE_ID_LEN],
+	        list[FZN_TREE_ID_LEN], nobody[FZN_TREE_ID_LEN], copy[FZN_NODE_NOTES_BINARY_MAX];
+	uint32_t row_len = 0, msg_len = 0;
+	char hex[65], line[256];
+	situ_msg_t m;
+	situ_view_t v, b;
+	size_t i;
+
+	setup(0);
+	/* ADDED: a row with its id, then ok. */
+	CHECK(fzn_notes_local_add_build(row, sizeof(row), top, FZN_NOTE_TYPE_NOTE, (const uint8_t *)"milk", 4u, &row_len)
+	              == SITU_OK
+	              && fzn_notes_local_message_build_add(msg, sizeof(msg), FZN_CMD_NOTES, row, row_len, &msg_len)
+	                         == SITU_OK,
+	      "fixture: an add");
+	n_said = 0;
+	CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, msg_len, bput, NULL) && n_said == 2u
+	              && status_at(1, FZN_STATUS_OK),
+	      "an add was not a row and a STATUS ok");
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_ADDED
+	              && fzn_notes_local_message_body_added_view(v, &b) == SITU_OK,
+	      "the add's row was not its id");
+	memcpy(id, fzn_notes_local_added_id_ptr(b), FZN_TREE_ID_LEN);
+	for (i = 0; i < FZN_TREE_ID_LEN; i++)
+		snprintf(hex + 2u * i, 3, "%02x", id[i]);
+	snprintf(line, sizeof(line), "get note %s", hex);
+	CHECK(ask(line) == FZN_REPLY_OK && has(" milk"), "the note added was not there by its id");
+	/* A TITLE, LABELS, then read back by the verbs. */
+	CHECK(fzn_notes_local_change_build(row, sizeof(row), id, 1u, (const uint8_t *)"oat milk", 8u, &row_len) == SITU_OK
+	              && fzn_notes_local_message_build_change(msg, sizeof(msg), FZN_CMD_NOTES, row, row_len, &msg_len)
+	                         == SITU_OK,
+	      "fixture: a title");
+	n_said = 0;
+	CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, msg_len, bput, NULL) && n_said == 1u
+	              && status_at(0, FZN_STATUS_OK) && ask(line) == FZN_REPLY_OK && has("oat%20milk"),
+	      "a title changed in binary was not the note's");
+	CHECK(fzn_notes_local_change_build(row, sizeof(row), id, 2u, (const uint8_t *)"to do\0dairy", 11u, &row_len)
+	              == SITU_OK
+	              && fzn_notes_local_message_build_change(msg, sizeof(msg), FZN_CMD_NOTES, row, row_len, &msg_len)
+	                         == SITU_OK,
+	      "fixture: labels");
+	n_said = 0;
+	snprintf(line, sizeof(line), "get note %s meta", hex);
+	CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, msg_len, bput, NULL) && status_at(0, FZN_STATUS_OK)
+	              && ask(line) == FZN_REPLY_OK && has("to%20do") && has("dairy"),
+	      "labels changed in binary, one with a space, were not the note's");
+	/* A CHECKLIST'S ITEM, added then ticked. */
+	CHECK(fzn_notes_local_add_build(row, sizeof(row), top, FZN_NOTE_TYPE_LIST, (const uint8_t *)"shop", 4u, &row_len)
+	              == SITU_OK
+	              && fzn_notes_local_message_build_add(msg, sizeof(msg), FZN_CMD_NOTES, row, row_len, &msg_len)
+	                         == SITU_OK,
+	      "fixture: a checklist");
+	n_said = 0;
+	(void)fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, msg_len, bput, NULL);
+	memcpy(copy, said[0], said_len[0]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+	CHECK(fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+	              && fzn_notes_local_message_body_added_view(v, &b) == SITU_OK,
+	      "fixture: the checklist's id");
+	memcpy(list, fzn_notes_local_added_id_ptr(b), FZN_TREE_ID_LEN);
+	for (i = 0; i < 2u; i++) {
+		CHECK(fzn_notes_local_item_build(row, sizeof(row), list, i ? 2u : 1u, 0u, (const uint8_t *)"eggs",
+		                                 i ? 0u : 4u, &row_len)
+		              == SITU_OK
+		              && fzn_notes_local_message_build_item(msg, sizeof(msg), FZN_CMD_NOTES, row, row_len,
+		                                                    &msg_len)
+		                         == SITU_OK,
+		      "fixture: an item");
+		n_said = 0;
+		CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, msg_len, bput, NULL)
+		              && status_at(0, FZN_STATUS_OK),
+		      "an item added or ticked in binary was refused");
+	}
+	for (i = 0; i < FZN_TREE_ID_LEN; i++)
+		snprintf(hex + 2u * i, 3, "%02x", list[i]);
+	snprintf(line, sizeof(line), "get note %s items", hex);
+	CHECK(ask(line) == FZN_REPLY_OK && has("1,eggs"), "the item was not added and ticked");
+	/* A NOTE NOBODY HOLDS: an error, never malformed. */
+	memset(nobody, 0x5e, sizeof(nobody));
+	CHECK(fzn_notes_local_change_build(row, sizeof(row), nobody, 7u, NULL, 0u, &row_len) == SITU_OK
+	              && fzn_notes_local_message_build_change(msg, sizeof(msg), FZN_CMD_NOTES, row, row_len, &msg_len)
+	                         == SITU_OK,
+	      "fixture: a change to nobody's note");
+	n_said = 0;
+	CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, msg, msg_len, bput, NULL) && n_said == 1u
+	              && status_at(0, FZN_STATUS_ERROR),
+	      "a change to a note nobody holds was not an error");
+	n_said = 0;
+	CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_LOCAL, msg, msg_len, bput, NULL) && status_at(0, FZN_STATUS_DENIED),
+	      "another user's write was not denied");
 }
 
 /* ---- cases --------------------------------------------------------------- */
@@ -3020,6 +3123,7 @@ int main(void)
 	test_share_scope_in_order();
 	test_shared_reads();
 	test_list_in_binary();
+	test_writes_in_binary();
 	test_note_in_binary();
 	test_the_join_floor_at_its_second();
 	test_import();

@@ -19,7 +19,32 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  notes=128 note_row=129 stamp=130 stamp_row=131 shares=132 share_row=133 note=134 note_fields=135 note_text=136
+  notes=128 note_row=129 stamp=130 stamp_row=131 shares=132 share_row=133 note=134 note_fields=135 note_text=136 add=137 added=138 change=139 item=140
+
+enum field : u8 unknown=error
+  title=1 labels=2 colour=3 parent=4 pin=5 unpin=6 trash=7 untrash=8 archive=9 unarchive=10
+
+struct add size=35..290
+  @0x0000   32        u8         parent  big
+  @0x0020   2         u16        content_type  big min=1 max=3
+  @0x0022   1         u8         title_len
+  @0x0023   0..255    u8         title  sized-by=title_len
+
+struct added size=32
+  @0x0000   32        u8         id  big
+
+struct change size=35..1059
+  @0x0000   32        u8         id  big
+  @0x0020   1         field      field
+  @0x0021   2         u16        value_len  big max=1024
+  @0x0023   0..1024   u8         value  sized-by=value_len
+
+struct item size=37..7937
+  @0x0000   32        u8         id  big
+  @0x0020   1         u8         what  min=1 max=4
+  @0x0021   2         u16        index  big
+  @0x0023   2         u16        text_len  big max=7900
+  @0x0025   0..7900   u8         text  sized-by=text_len
 
 struct message size=2..8008
   @0x0000   1         u8         cmd  must_eq=8
@@ -35,6 +60,10 @@ struct message size=2..8008
   body case 134: note note_ask
   body case 135: note_fields note_fields
   body case 136: note_text note_text
+  body case 137: add add
+  body case 138: added added
+  body case 139: change change
+  body case 140: item item
   body case default: error
 
 struct note_ask size=64

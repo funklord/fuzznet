@@ -21,6 +21,10 @@ enum op : u8 {
 	note     = 134, // one note, whole, as `get note ID` and its fields say (sec 1201)
 	note_fields = 135, // an answer: the note's fields, meta and reference
 	note_text = 136, // an answer: a piece of the note's text
+	add      = 137, // a note, folder or checklist made, as `add note` (sec 1218)
+	added    = 138, // an answer: its id
+	change   = 139, // one field of a note changed, as `set note ID FIELD` (sec 1218)
+	item     = 140, // a checklist's item added, ticked or removed (sec 1218)
 	default  = error,
 }
 
@@ -66,6 +70,58 @@ struct note_fields {
 	u8   labels[labels_len];
 	u8   ref_len [max = 128];
 	u8   ref[ref_len];
+}
+
+// A NOTE MADE under PARENT, zero for the top: CONTENT_TYPE the note's
+// type, 1 a note, 2 a checklist, 3 a folder, as `add note|list|folder`
+// make them; TITLE raw.
+// Answered `added`, the new id, then a STATUS ok -- or a STATUS refusing
+// it, in the verb's words.
+struct add {
+	u8   parent[32];
+	u16  content_type [min = 1, max = 3];
+	u8   title_len;
+	u8   title[title_len];
+}
+
+struct added {
+	u8   id[32];
+}
+
+// ONE FIELD of note ID: 1 its title, VALUE raw; 2 its labels, VALUE
+// NUL-separated, empty for none; 3 its colour, VALUE four bytes RRGGBBAA;
+// 4 its folder, VALUE the parent's 32-byte id, zero for the top; 5..10
+// pin, unpin, trash, untrash, archive, unarchive, VALUE empty. A STATUS
+// answers it.
+enum field : u8 {
+	title     = 1,
+	labels    = 2,
+	colour    = 3,
+	parent    = 4,
+	pin       = 5,
+	unpin     = 6,
+	trash     = 7,
+	untrash   = 8,
+	archive   = 9,
+	unarchive = 10,
+	default   = error,
+}
+
+struct change {
+	u8    id[32];
+	field field;
+	u16   value_len [max = 1024];
+	u8    value[value_len];
+}
+
+// A CHECKLIST'S ITEM: WHAT 1 adds TEXT at its end, 2 ticks item INDEX, 3
+// unticks it, 4 removes it. A STATUS answers it.
+struct item {
+	u8   id[32];
+	u8   what [min = 1, max = 4];
+	u16  index;
+	u16  text_len [max = 7900];
+	u8   text[text_len];
 }
 
 // A PIECE of the note's text: OFFSET where it starts, in order and without
@@ -128,6 +184,10 @@ struct message {
 		case op.note:     note_ask note;
 		case op.note_fields: note_fields note_fields;
 		case op.note_text: note_text note_text;
+		case op.add:      add      add;
+		case op.added:    added    added;
+		case op.change:   change   change;
+		case op.item:     item     item;
 		default: error;
 	}
 }

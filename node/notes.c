@@ -2535,6 +2535,153 @@ static int binary_status(fzn_node_notes_put_t put, void *ctx, fzn_status_t code,
 	return len && put(ctx, out, len);
 }
 
+/* A VERB'S ANSWER AS A STATUS, sec 1218: `ok ...` ok; `denied WHY`
+ * denied; anything else an error with its words -- never malformed, which a
+ * client takes for a node reading no binary and asks again in text. */
+static int verb_status(fzn_node_notes_put_t put, void *ctx, const char *reply, size_t len)
+{
+	char why[FZN_STATUS_WHY_MAX + 1u];
+	const char *sp;
+	size_t n;
+
+	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
+		len--;
+	if (len >= 2u && memcmp(reply, "ok", 2u) == 0 && (len == 2u || reply[2] == ' '))
+		return binary_status(put, ctx, FZN_STATUS_OK, NULL);
+	sp = memchr(reply, ' ', len);
+	n = sp ? len - (size_t)(sp + 1 - reply) : 0u;
+	if (n > FZN_STATUS_WHY_MAX)
+		n = FZN_STATUS_WHY_MAX;
+	memcpy(why, sp ? sp + 1 : "", n);
+	why[n] = '\0';
+	return binary_status(put, ctx,
+	                     len >= 6u && memcmp(reply, "denied", 6u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,
+	                     n ? why : "the note would not change");
+}
+
+static size_t add(fzn_node_notes_t *n, uint16_t type, const uint8_t *at, size_t left, char *reply,
+                  size_t cap);
+static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply, size_t cap);
+static size_t change_item(fzn_node_notes_t *n, int add, const uint8_t *at, size_t left, char *reply,
+                          size_t cap);
+
+static int binary_write(fzn_node_notes_t *n, situ_view_t v, fzn_node_notes_put_t put, void *put_ctx)
+{
+	static const char *const FIELD[] = { "", "title", "labels", "colour", "parent", "pin", "unpin",
+		                             "trash", "untrash", "archive", "unarchive" };
+	static uint8_t arg[2u * FZN_TREE_ID_LEN + 32u + 3u * FZN_NOTE_LABELS_MAX + 8000u];
+	static char reply[FZN_REPLY_MAX];
+	static uint8_t row[64], out[72];
+	situ_view_t b;
+	size_t used = 0, r = 0, written = 0;
+	uint32_t row_len = 0, out_len = 0;
+	unsigned op = (unsigned)fzn_notes_local_message_op_get(v);
+
+	if (op == FZN_NOTES_LOCAL_OP_ADD) {
+		uint8_t id[FZN_TREE_ID_LEN];
+		const char *sp;
+		uint16_t type;
+
+		if (fzn_notes_local_message_body_add_view(v, &b) != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not a note to add");
+		type = fzn_notes_local_add_content_type_get(b);
+		hex_of(fzn_notes_local_add_parent_ptr(b), FZN_TREE_ID_LEN, (char *)arg);
+		used = 2u * FZN_TREE_ID_LEN;
+		arg[used++] = ' ';
+		memcpy(arg + used, fzn_notes_local_add_title_ptr(b), fzn_notes_local_add_title_len(b));
+		used += fzn_notes_local_add_title_len(b);
+		r = add(n, type, arg, used, reply, sizeof(reply));
+		/* `ok ID`: the id as a row, then ok. */
+		if (r < 3u + 2u * FZN_TREE_ID_LEN || memcmp(reply, "ok ", 3u) != 0)
+			return verb_status(put, put_ctx, reply, r);
+		sp = reply + 3;
+		if (!parse_id((const uint8_t *)sp, 2u * FZN_TREE_ID_LEN, id)
+		    || fzn_notes_local_added_build(row, sizeof(row), id, &row_len) != SITU_OK
+		    || fzn_notes_local_message_build_added(out, sizeof(out), (uint8_t)FZN_CMD_NOTES, row, row_len,
+		                                           &out_len)
+		               != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the note's id would not write");
+		return put(put_ctx, out, out_len) && binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
+	}
+	if (op == FZN_NOTES_LOCAL_OP_CHANGE) {
+		unsigned field;
+		const uint8_t *value;
+		size_t value_len;
+
+		if (fzn_notes_local_message_body_change_view(v, &b) != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not a change");
+		field = (unsigned)fzn_notes_local_change_field_get(b);
+		value = fzn_notes_local_change_value_ptr(b);
+		value_len = fzn_notes_local_change_value_len(b);
+		if (field == 0u || field >= sizeof(FIELD) / sizeof(FIELD[0]))
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "no such field");
+		hex_of(fzn_notes_local_change_id_ptr(b), FZN_TREE_ID_LEN, (char *)arg);
+		used = 2u * FZN_TREE_ID_LEN;
+		used += (size_t)snprintf((char *)arg + used, sizeof(arg) - used, " %s", FIELD[field]);
+		if (field == 1u) { /* the title, raw, the rest of the line */
+			arg[used++] = ' ';
+			memcpy(arg + used, value, value_len);
+			used += value_len;
+		} else if (field == 2u) { /* each label one escaped word */
+			size_t at = 0;
+
+			while (at < value_len) {
+				const uint8_t *end = memchr(value + at, 0, value_len - at);
+				size_t one = end ? (size_t)(end - (value + at)) : value_len - at;
+
+				arg[used++] = ' ';
+				if (escape(value + at, one, (char *)arg + used, sizeof(arg) - used, &written) < one)
+					return binary_status(put, put_ctx, FZN_STATUS_ERROR, "labels past their bound");
+				used += written;
+				at += one + 1u;
+			}
+		} else if (field == 3u) { /* RRGGBBAA */
+			if (value_len != 4u)
+				return binary_status(put, put_ctx, FZN_STATUS_ERROR, "a colour is four bytes");
+			arg[used++] = ' ';
+			hex_of(value, 4u, (char *)arg + used);
+			used += 8u;
+		} else if (field == 4u) { /* the folder, by id */
+			if (value_len != FZN_TREE_ID_LEN)
+				return binary_status(put, put_ctx, FZN_STATUS_ERROR, "a folder is a 32-byte id");
+			arg[used++] = ' ';
+			hex_of(value, FZN_TREE_ID_LEN, (char *)arg + used);
+			used += 2u * FZN_TREE_ID_LEN;
+		} else if (value_len) {
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "that field takes no value");
+		}
+		r = set(n, arg, used, reply, sizeof(reply));
+		return verb_status(put, put_ctx, reply, r);
+	}
+	/* AN ITEM: `add item ID TEXT`, `set note ID item INDEX check|uncheck`,
+	 * `remove item ID INDEX`. */
+	if (fzn_notes_local_message_body_item_view(v, &b) != SITU_OK)
+		return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not an item");
+	hex_of(fzn_notes_local_item_id_ptr(b), FZN_TREE_ID_LEN, (char *)arg);
+	used = 2u * FZN_TREE_ID_LEN;
+	switch (fzn_notes_local_item_what_get(b)) {
+	case 1u:
+		arg[used++] = ' ';
+		memcpy(arg + used, fzn_notes_local_item_text_ptr(b), fzn_notes_local_item_text_len(b));
+		used += fzn_notes_local_item_text_len(b);
+		r = change_item(n, 1, arg, used, reply, sizeof(reply));
+		break;
+	case 2u:
+	case 3u:
+		used += (size_t)snprintf((char *)arg + used, sizeof(arg) - used, " item %u %s",
+		                         (unsigned)fzn_notes_local_item_index_get(b),
+		                         fzn_notes_local_item_what_get(b) == 2u ? "check" : "uncheck");
+		r = set(n, arg, used, reply, sizeof(reply));
+		break;
+	default:
+		used += (size_t)snprintf((char *)arg + used, sizeof(arg) - used, " %u",
+		                         (unsigned)fzn_notes_local_item_index_get(b));
+		r = change_item(n, 0, arg, used, reply, sizeof(reply));
+		break;
+	}
+	return verb_status(put, put_ctx, reply, r);
+}
+
 static fzn_status_t status_of(fzn_notes_err_t err)
 {
 	/* NEVER MALFORMED, which a client takes for a node reading no binary
@@ -2571,6 +2718,13 @@ int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_
 	if (fzn_notes_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
 	    || fzn_notes_local_message_validate(v) != SITU_OK)
 		return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not a notes request");
+	/* THE WRITES, sec 1218: each as its verb does it -- the same argument
+	 * built and handed to the verb's own handler, so every check is the
+	 * verb's -- and its answer said as a STATUS. */
+	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_ADD
+	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_CHANGE
+	    || fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_ITEM)
+		return binary_write(n, v, put, put_ctx);
 	/* THE STAMP, sec 1199: `get notes`' number, a row and then ok. */
 	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_STAMP) {
 		uint32_t row_len = 0, out_len = 0;

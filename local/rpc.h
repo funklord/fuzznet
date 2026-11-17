@@ -283,6 +283,37 @@ int fzn_rpc_notes_show(fzn_rpc_t *c, const uint8_t id[32], const uint8_t from[32
  * verbs -- `get note ID` and its fields -- as before. `out->text` is kept
  * across calls; release it with fzn_rpc_note_open_release. */
 int fzn_rpc_note_open(fzn_rpc_t *c, const uint8_t *sharer, const uint8_t id[32], fzn_rpc_note_open_t *out);
+
+/* THE NOTEBOOK'S WRITES, sec 1218: in binary on a host's socket, the verb
+ * where the node reads none -- `add note|list|folder`, `set note ID FIELD`,
+ * `add item`, `set note ID item`, `remove item`. A refusal is said in the
+ * node's words in `c->error`.
+ *
+ * `add`: a note of `type` (FZN_NOTE_TYPE_NOTE, _LIST or _FOLDER) under
+ * `parent`, NULL for the top; its id into `id`.
+ * `set`: one FZN_RPC_NOTE_SET_* field -- a title raw, labels NUL-separated,
+ * a colour's four bytes RRGGBBAA, a folder's 32-byte id (zeros the top);
+ * the flags take no value.
+ * `item`: FZN_RPC_NOTE_ITEM_ADD `text` at the end, _TICK and _UNTICK and
+ * _REMOVE item `index`. */
+enum {
+	FZN_RPC_NOTE_SET_TITLE = 1,
+	FZN_RPC_NOTE_SET_LABELS = 2,
+	FZN_RPC_NOTE_SET_COLOUR = 3,
+	FZN_RPC_NOTE_SET_PARENT = 4,
+	FZN_RPC_NOTE_SET_PIN = 5,
+	FZN_RPC_NOTE_SET_UNPIN = 6,
+	FZN_RPC_NOTE_SET_TRASH = 7,
+	FZN_RPC_NOTE_SET_UNTRASH = 8,
+	FZN_RPC_NOTE_SET_ARCHIVE = 9,
+	FZN_RPC_NOTE_SET_UNARCHIVE = 10
+};
+enum { FZN_RPC_NOTE_ITEM_ADD = 1, FZN_RPC_NOTE_ITEM_TICK = 2, FZN_RPC_NOTE_ITEM_UNTICK = 3, FZN_RPC_NOTE_ITEM_REMOVE = 4 };
+int fzn_rpc_note_add(fzn_rpc_t *c, const uint8_t *parent, uint16_t type, const char *title, size_t title_len,
+                     uint8_t id[32]);
+int fzn_rpc_note_set(fzn_rpc_t *c, const uint8_t id[32], int field, const uint8_t *value, size_t value_len);
+int fzn_rpc_note_item(fzn_rpc_t *c, const uint8_t id[32], int what, unsigned index, const char *text,
+                      size_t text_len);
 void fzn_rpc_note_open_release(fzn_rpc_note_open_t *out);
 /* WHETHER ANYTHING MOVED, sec 1199: a number that moves with every write the
  * notes could be in, 0 where the node keeps none -- so a view refreshed on a

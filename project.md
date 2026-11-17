@@ -90740,3 +90740,41 @@ beside its reads', the node's answer, the client binary first with the
 verb behind it, its tests and its sabotages. **The verbs stay**: the CLI
 and a person at the socket speak them, and a node from before answers
 nothing else.
+
+## 1218. The notebook's writes, in binary, 2026-11-17
+
+Sec 1217's first subject. FZN_CMD_NOTES gains `add` (137, answered
+`added` 138 with the new id), `change` (139: a title, labels, a colour, a
+folder, pin, trash, archive and their undoing) and `item` (140: a
+checklist's item added, ticked, unticked or removed), each answered by a
+STATUS.
+
+- **The node answers each through the verb's own handler**: the binary
+  handler builds the argument the verb would get and calls it, so every
+  check stays the verb's, and says the verb's answer as a STATUS -- ok,
+  denied, or an error in the verb's words, **never malformed**, which a
+  client takes for a node reading no binary and would ask again in text.
+  Labels travel NUL-separated and are escaped into the verb's words on
+  the node.
+- **The client**: `fzn_rpc_note_add`, `fzn_rpc_note_set` and
+  `fzn_rpc_note_item`, binary first, the verb where the node reads none.
+- **The notebook view writes through them**: making a note, folder or
+  checklist; a title and labels saved; a move, pin, archive, trash and
+  restore; an item added, ticked and removed. Its own word escaper is
+  gone with the last verb that needed it.
+
+**Still text, and next in the subject**: a note's text, which can be
+256 KiB and so past one local message (a staged upload, the reverse of
+sec 1201's pieces); import; attachments; shares; emptying the trash.
+
+**Tests:** six vectors; `notes_test` -- an add answered with its id and
+there by the verb, a title and labels changed, a checklist's item added
+and ticked, a change to a note nobody holds an error and not malformed,
+another user denied; `rpc_test` -- the add's bytes and its id read, two
+ids refused, a trash as field 7, a refusal in the node's words, an old
+node asked the verb; `notebook_view_test` -- every write above over the
+binary answer, no verb asked; `live_many_shared` phase c4. Four new
+sabotages, each caught (`notes-binary-write-always-ok`,
+`notes-binary-labels-one`, `rpc-note-add-id-unread`,
+`notebook-view-labels-run-together`), and four of the view's moved with
+their lines.

@@ -191,6 +191,11 @@ private:
 	/* One request; the reply's detail past the status word into `detail`,
 	 * and its status: 1 ok, 0 refused (detail says why), -1 no answer. */
 	int ask(const QString &line, QString *detail);
+	/* THE WRITES THROUGH THE TYPED CLIENT, sec 1218: in binary on a host's
+	 * socket. 1 done; 0 refused, the node's words in `*why`. */
+	int note_add(uint16_t type, const QString &title, QString *id_or_why);
+	int note_set(const QString &id, int field, const QByteArray &value, QString *why);
+	int note_item(int what, int index, const QString &text, QString *why);
 	void say(const QString &line);
 	void fail(const QString &line);
 	void refresh_trees();

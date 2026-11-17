@@ -1297,6 +1297,54 @@ static void test_file_status_in_binary(void)
 	}
 }
 
+/* THE NOTEBOOK'S WRITES IN BINARY, sec 1218: an add's id read from its
+ * row, a change's request bytes, a refusal in the node's words, a second
+ * row refused, and a node reading no binary asked the verb. */
+static void test_note_writes_in_binary(void)
+{
+	static struct bscript added, ok, refused, two, old;
+	uint8_t id[32], got[32], row[64], m[80];
+	uint32_t row_len = 0, n = 0;
+
+	memset(id, 0x4d, sizeof(id));
+	if (fzn_notes_local_added_build(row, sizeof(row), id, &row_len) == SITU_OK
+	    && fzn_notes_local_message_build_added(m, sizeof(m), (uint8_t)FZN_CMD_NOTES, row, row_len, &n) == SITU_OK) {
+		framed(&added, 0, m, n);
+		framed(&two, 0, m, n);
+		framed(&two, 0, m, n);
+	}
+	status_onto(&added, 0, FZN_STATUS_OK, NULL);
+	status_onto(&two, 0, FZN_STATUS_OK, NULL);
+	status_onto(&ok, 0, FZN_STATUS_OK, NULL);
+	status_onto(&refused, 0, FZN_STATUS_ERROR, "no such note");
+	bon(&c, &added);
+	CHECK(fzn_rpc_note_add(&c, NULL, 2u, "shop", 4u, got) == FZN_RPC_OK && got[0] == 0x4d && got[31] == 0x4d
+	              && added.asked[0][0] == 0x08 && added.asked[0][1] == 0x89 && added.asked[0][2] == 0
+	              && added.asked[0][35] == 2 && added.asked[0][36] == 4,
+	      "an add was not asked in binary, its id read from its row");
+	bon(&c, &two);
+	CHECK(fzn_rpc_note_add(&c, NULL, 1u, "x", 1u, got) != FZN_RPC_OK, "two ids for one add were read as an answer");
+	bon(&c, &ok);
+	CHECK(fzn_rpc_note_set(&c, id, FZN_RPC_NOTE_SET_TRASH, NULL, 0) == FZN_RPC_OK && ok.asked[0][1] == 0x8b
+	              && ok.asked[0][34] == 7,
+	      "a trash was not asked in binary as field 7");
+	bon(&c, &refused);
+	CHECK(fzn_rpc_note_item(&c, id, FZN_RPC_NOTE_ITEM_TICK, 3u, NULL, 0) == FZN_RPC_ERR_STORAGE_IO
+	              && strstr(c.error, "no such note"),
+	      "a refused item was not said in the node's words");
+	{
+		struct script s = { { "ok" }, 0, 1, 0, { { 0 } } };
+
+		status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a notes request");
+		on(&c, &s);
+		c.binary_answer = bscripted;
+		c.binary_ctx = &old;
+		CHECK(fzn_rpc_note_set(&c, id, FZN_RPC_NOTE_SET_PIN, NULL, 0) == FZN_RPC_OK
+		              && strncmp(s.asked[0], "set note 4d4d", 13) == 0 && strstr(s.asked[0], " pin"),
+		      "a node reading no binary was not asked the verb");
+	}
+}
+
 /* THE NOTES UNDER A PARENT IN BINARY, sec 1191: the request's sharer and
  * parent, every field read, a title past the write bound listed whole
  * (sec 1194), the pending bit said as `pending`, a listing
@@ -1958,6 +2006,7 @@ int main(void)
 	test_library_in_binary();
 	test_library_show_in_binary();
 	test_file_status_in_binary();
+	test_note_writes_in_binary();
 	test_notes_in_binary();
 	test_group_notebook_in_binary();
 	test_notes_stamp_in_binary();
