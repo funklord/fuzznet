@@ -1,5 +1,6 @@
 /* Adding a device to this user's hosts, as a widget: gui/devices_view.h, sec 1122. */
 #include "devices_view.h"
+#include "keep_place.h"
 
 #include "camera_feed.h"
 #include "qr_view.h"
@@ -181,17 +182,23 @@ bool fzn_devices_view::refresh()
 	int on = 0;
 	uint8_t keys[WAITING_MAX][32];
 	size_t count = 0, i;
+	fzn_keep_answer answer(m_status);
 
 	if (fzn_rpc_device_confirm_get(&m_rpc->c, &on) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		return m_rpc->c.answered;
 	}
 	m_confirm->setChecked(on != 0);
 	m_confirm_note->setText(confirm_words(on != 0));
 	if (fzn_rpc_device_waiting(&m_rpc->c, keys, WAITING_MAX, &count) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		return m_rpc->c.answered;
 	}
+	/* THE PERSON'S PLACE AND THEIR LAST ANSWER, kept across the refill
+	 * (sec 1225). */
+	fzn_keep_place place(m_waiting);
 	m_waiting->clear();
 	m_keys->waiting.clear();
 	for (i = 0; i < count; i++) {
@@ -199,7 +206,8 @@ bool fzn_devices_view::refresh()
 		m_keys->waiting.append(QByteArray((const char *)keys[i], 32));
 	}
 	m_status->setText(count ? QString() : tr("No device is waiting to join."));
-	select_waiting(-1);
+	select_waiting(place.restore());
+	answer.restore();
 	return true;
 }
 
@@ -239,6 +247,10 @@ void fzn_devices_view::select_waiting(int row)
 	bool chosen = row >= 0 && row < m_keys->waiting.size();
 	if (chosen && m_waiting->currentRow() != row)
 		m_waiting->setCurrentRow(row);
+	/* NOTHING CHOSEN CLEARS THE ROW TOO: an act reads the current row, and a
+	 * refresh no longer clears it (sec 1225). */
+	if (!chosen && m_waiting->currentRow() >= 0)
+		m_waiting->setCurrentRow(-1);
 	m_let_in->setEnabled(chosen);
 	m_turn_away->setEnabled(chosen);
 }

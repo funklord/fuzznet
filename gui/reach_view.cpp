@@ -1,5 +1,6 @@
 /* How this host is reached, as a widget: gui/reach_view.h, sec 1134. */
 #include "reach_view.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 
@@ -84,6 +85,7 @@ fzn_reach_view::fzn_reach_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_ask_outside = new QPushButton(tr("Ask again"), this);
 	m_ask_outside->setAccessibleName(tr("Ask other hosts again where they see this one"));
 	m_advertise = new QPushButton(tr("Advertise the selected address"), this);
+	m_advertise->setObjectName(QStringLiteral("reach_advertise"));
 	m_advertise->setAccessibleName(tr("Advertise the selected address as this host's"));
 	m_advertise->setEnabled(false);
 	m_found = table(this, { tr("Address"), tr("Host"), tr("Seen") }, tr("Hosts that answered on this network"));
@@ -143,11 +145,13 @@ bool fzn_reach_view::refresh()
 	auto *relay = new fzn_rpc_relay_status_resp_t;
 	size_t i;
 	bool ok = false;
+	fzn_keep_answer answer(m_status);
 
 	if (fzn_rpc_addr_observe(&m_rpc->c, 0, &seen) != FZN_RPC_OK
 	    || fzn_rpc_lan_discover(&m_rpc->c, 0, lan) != FZN_RPC_OK
 	    || fzn_rpc_relay_status(&m_rpc->c, relay) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		ok = m_rpc->c.answered;
 		delete lan;
 		delete relay;
@@ -165,6 +169,11 @@ bool fzn_reach_view::refresh()
 	else
 		m_outside->setText(tr("One host sees this one at %1; nothing confirms it yet.")
 		                           .arg(said(seen.entries[0].address, seen.entries[0].address_len)));
+	/* THE PERSON'S PLACE IN EACH TABLE, kept across the refill (sec 1225):
+	 * the report chosen, by address and reporter, so Advertise stays
+	 * pressable; and where each table was scrolled to. */
+	fzn_keep_place seen_place(m_seen_by, 0, Qt::UserRole + 1), found_place(m_found), relayed_place(m_relayed),
+	        activity_place(m_activity);
 	/* EVERY REPORT, sec 1196, each a row a person can pick to advertise. */
 	m_seen_by->clear();
 	for (i = 0; i < seen.count; i++) {
@@ -173,7 +182,11 @@ bool fzn_reach_view::refresh()
 		                                             said(e.reporter, e.reporter_len), when(e.observed_at) });
 
 		row->setData(0, Qt::UserRole, QString::fromUtf8(e.address, (int)e.address_len));
+		row->setData(0, Qt::UserRole + 1,
+		             QString::fromUtf8(e.address, (int)e.address_len) + QLatin1Char('\n')
+		                     + QString::fromUtf8(e.reporter, (int)e.reporter_len));
 	}
+	seen_place.restore();
 	m_advertise->setEnabled(!m_seen_by->selectedItems().isEmpty());
 	m_found->clear();
 	for (i = 0; i < lan->count; i++)
@@ -228,7 +241,14 @@ bool fzn_reach_view::refresh()
 	}
 	m_activity->setVisible(m_activity->topLevelItemCount() > 0);
 	delete log;
+	found_place.restore();
+	relayed_place.restore();
+	activity_place.restore();
+	/* THE ANSWER TO THE PERSON'S LAST ACT STAYS, sec 1225 -- "Asked 3
+	 * hosts", "Advertising ..." -- until they do something else; only a
+	 * refresh's own failure, now past, is cleared. */
 	m_status->setText(QString());
+	answer.restore();
 	delete lan;
 	delete relay;
 	return true;

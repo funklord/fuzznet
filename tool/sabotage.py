@@ -14267,8 +14267,8 @@ SABOTAGES = [
 	(
 		"objects-view-silence-as-empty",
 		"gui/objects_view.cpp",
-		"\t\treturn m_rpc->c.answered;\n\t}\n\tm_table->setRowCount",
-		"\t\treturn true;\n\t}\n\tm_table->setRowCount",
+		"\t\tfzn_keep_answer::said(m_status);\n\t\treturn m_rpc->c.answered;\n\t}\n\t/* THE PERSON'S PLACE",
+		"\t\tfzn_keep_answer::said(m_status);\n\t\treturn true;\n\t}\n\t/* THE PERSON'S PLACE",
 		"a node that did not answer reads as one with nothing to list -- sec 1102",
 	),
 	(
@@ -17312,6 +17312,41 @@ SABOTAGES = [
 		"\t\tr = fzn_node_messages_local(nm, FZN_ORIGIN_SAME_USER, &req, reply, sizeof(reply));\n",
 		"\t\tr = (size_t)snprintf(reply, sizeof(reply), \"ok\");\n",
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
+	),
+	(
+		"keep-place-forgets-choice",
+		"gui/keep_place.h",
+		"\t\t\t\tm_view->setCurrentIndex(at);\n",
+		"\t\t\t\t(void)at;\n",
+		"a refresh drops the row the person chose, in every view -- sec 1225",
+	),
+	(
+		"keep-place-top-level-only",
+		"gui/keep_place.h",
+		"\t\t\tconst QModelIndex below = find(model->index(r, 0, parent));\n",
+		"\t\t\tconst QModelIndex below;\n",
+		"a row under a heading -- a conversation under Groups -- is not found again -- sec 1225",
+	),
+	(
+		"keep-answer-drops-answer",
+		"gui/keep_place.h",
+		"\t\tif (m_status && m_answered)\n\t\t\tm_status->setText(m_before);\n",
+		"",
+		"a refresh wipes the answer to the person's last act -- sec 1225",
+	),
+	(
+		"devices-none-chosen-keeps-row",
+		"gui/devices_view.cpp",
+		"\tif (!chosen && m_waiting->currentRow() >= 0)\n\t\tm_waiting->setCurrentRow(-1);\n",
+		"",
+		"choosing no device leaves the row an answer acts on -- sec 1225",
+	),
+	(
+		"call-no-call-unmarked",
+		"gui/call_view.cpp",
+		"\tm_status->setText(tr(\"No call.\"));\n\tfzn_keep_answer::said(m_status);",
+		"\tm_status->setText(tr(\"No call.\"));\n\t(void)0;",
+		"a call ringing is shown under \"No call.\" -- sec 1225",
 	),
 	(
 		"qr-decode-nothing-is-an-error",

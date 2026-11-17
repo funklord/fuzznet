@@ -1,5 +1,6 @@
 /* Positions shared with this user, as a widget: gui/location_view.h, sec 1109. */
 #include "location_view.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 #include "compass_rose.h"
@@ -142,9 +143,14 @@ bool fzn_location_view::refresh()
 {
 	const uint32_t now = this->now();
 	fzn_rpc_location_status_resp_t st;
+	/* THE ANSWER TO THE PERSON'S LAST ACT -- "Asked alice where they
+	 * are.", "was asked N s ago" -- stays across the refill, sec 1225;
+	 * what the view said itself is said again. */
+	fzn_keep_answer answer(m_status);
 
 	if (fzn_rpc_location_status(&m_rpc->c, &st) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		return m_rpc->c.answered;
 	}
 	QString own = !st.configured ? tr("This host does not share its own position.")
@@ -172,6 +178,7 @@ bool fzn_location_view::refresh()
 	size_t room = 0, count = 0;
 	if (fzn_rpc_location_latest(&m_rpc->c, &latest, &room, &count) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		free(latest);
 		delete mine;
 		return m_rpc->c.answered;
@@ -184,6 +191,9 @@ bool fzn_location_view::refresh()
 		            "Location on, or give it a source. Show on a map works without it.");
 	m_own->setText(own);
 	m_fixes.clear();
+	/* THE ONE CHOSEN, kept by name across the refill (sec 1225): the rose
+	 * keeps its target, and Ask and Show on a map stay pressable. */
+	fzn_keep_place place(m_table);
 	m_table->setRowCount((int)count);
 	for (size_t i = 0; i < count; i++) {
 		const fzn_rpc_location_show_entry_t *f = &latest[i].fix;
@@ -250,8 +260,11 @@ bool fzn_location_view::refresh()
 	free(peers.entries);
 	free(latest);
 	delete mine;
+	const int chosen = place.restore();
 	m_status->setText(count ? QString() : tr("Nobody shares a position with you yet."));
-	select(-1);
+	fzn_keep_answer::said(m_status);
+	select(chosen);
+	answer.restore();
 	return true;
 }
 
@@ -260,6 +273,10 @@ void fzn_location_view::select(int row)
 	bool chosen = row >= 0 && row < m_table->rowCount();
 	if (chosen && m_table->currentRow() != row)
 		m_table->setCurrentCell(row, 0);
+	/* NOTHING CHOSEN CLEARS THE ROW TOO: an act reads the current row, and a
+	 * refresh no longer clears it (sec 1225). */
+	if (!chosen && m_table->currentRow() >= 0)
+		m_table->setCurrentCell(-1, -1);
 	m_fetch->setEnabled(chosen);
 	/* THE ROSE POINTS AT THE ONE CHOSEN, where a bearing means something. */
 	{
@@ -286,6 +303,7 @@ void fzn_location_view::select(int row)
 	} else if (level == -1) {
 		m_status->setText(tr("You do not share your position with %1.").arg(who));
 	}
+	fzn_keep_answer::said(m_status);
 }
 
 void fzn_location_view::set_precision(int precision)

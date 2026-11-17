@@ -90982,3 +90982,50 @@ Nine messages, recorded here before they leave the inbox.
   The shape that recurs across four views -- **a refresh drops the
   person's choice and the answer to their last act** -- is one fault in
   every view this tree hosts, and is taken first, across all of them.
+
+## 1225. A refresh keeps the person's place and their last answer, 2026-11-17
+
+The shape sec 1224 found in four of fuzzypickles' reports, taken in every
+view at once. A host refreshes a view on its own clock -- fuzzypickles
+every two seconds while a page shows -- and each view refreshed by
+clearing its tables and filling them again and blanking its status line.
+So every two seconds the row the person had chosen went (and with it
+whatever it enabled: Advertise, Ask, Show on a map, the rose's target),
+the list jumped back to its top, and the answer to what they had just
+pressed -- "Asked 3 hosts", "alice is let in." -- vanished.
+
+- **`gui/keep_place.h`**, header-only so no link rule changes here or in
+  a consumer, installed with the views: `fzn_keep_place`, made before the
+  refill, notes the chosen row's key -- a column's text or a value under a
+  role, at any depth, so a conversation under its heading is found -- and
+  the scroll; `restore()` chooses that key's row again wherever it now is.
+  `fzn_keep_answer` tells the view's own words in the status (marked with
+  `said()`: a refresh's failure, "No contacts yet.", a choice's grant)
+  from an act's answer, and a refresh that works puts the answer back; a
+  failed one shows its failure, which the next success replaces.
+- **Applied in reach, location, conversations, hosts, library, devices,
+  objects, contacts (both tables, whichever was chosen), call and group**,
+  each keyed on what identifies its row: a report's address and reporter,
+  a contact's name, what a conversation opens, a host's key, a file's
+  root, an object's name, a call's id, a member's name.
+- **A fault the refill had hidden, found by the devices suite**: choosing
+  nothing (`select(-1)`) disabled the buttons and left the table's current
+  row, which the acts read -- the refill used to clear it. Now choosing
+  nothing clears the row too, in every view with that shape.
+- **Constructors' words are the view's own**: call_view's "No call." and
+  group_view's "No group chosen." are marked, or the first refresh took
+  them for an answer and showed a ringing call under "No call.".
+
+The other ten views' refreshes (settings, notebook, governance, retention
+and the rest) are not hosted on a clock by any consumer yet, and are left
+until one is.
+
+**Tests:** reach -- the answer to Look on this network kept, the report
+chosen kept with Advertise pressable, a failed refresh's words cleared by
+the next; location -- bob kept with the rose at him and "Asked bob" kept,
+eve kept with her grant said; conversations -- family kept under Groups
+and not opened; call -- a first look at a ringing call says nothing of
+"No call.". Five sabotages, each caught (`keep-place-forgets-choice`,
+`keep-place-top-level-only`, `keep-answer-drops-answer`,
+`devices-none-chosen-keeps-row`, `call-no-call-unmarked`); sec 1102's
+`objects-view-silence-as-empty` repointed. `make qtty` passes.

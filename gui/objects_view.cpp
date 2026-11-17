@@ -1,5 +1,6 @@
 /* The named objects as a widget: gui/objects_view.h, sec 1102. */
 #include "objects_view.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 
@@ -77,14 +78,19 @@ fzn_objects_view::~fzn_objects_view() { delete m_rpc; }
 bool fzn_objects_view::refresh()
 {
 	fzn_rpc_object_list_resp_t list;
+	fzn_keep_answer answer(m_status);
 
 	memset(&list, 0, sizeof list);
 	int rc = fzn_rpc_object_list(&m_rpc->c, &list);
 	if (rc != FZN_RPC_OK) {
 		free(list.entries);
 		m_status->setText(QString::fromUtf8(fzn_gui_rpc_silent(m_rpc)));
+		fzn_keep_answer::said(m_status);
 		return m_rpc->c.answered;
 	}
+	/* THE PERSON'S PLACE AND THEIR LAST ANSWER, kept across the refill
+	 * (sec 1225). */
+	fzn_keep_place place(m_table);
 	m_table->setRowCount((int)list.count);
 	m_allowed.clear();
 	for (size_t i = 0; i < list.count; i++) {
@@ -101,7 +107,8 @@ bool fzn_objects_view::refresh()
 	}
 	free(list.entries);
 	m_status->setText(list.count ? QString() : tr("No objects."));
-	select(m_table->currentRow());
+	select(place.restore());
+	answer.restore();
 	return true;
 }
 
@@ -109,6 +116,10 @@ void fzn_objects_view::select(int row)
 {
 	m_value->clear();
 	bool chosen = row >= 0 && row < m_allowed.size();
+	/* NOTHING CHOSEN CLEARS THE ROW TOO: an act reads the current row, and a
+	 * refresh no longer clears it (sec 1225). */
+	if (!chosen && m_table->currentRow() >= 0)
+		m_table->setCurrentCell(-1, -1);
 	if (chosen) {
 		/* `on|off` NAMES THE WORDS; `*` or nothing takes any, typed. */
 		const QString &allowed = m_allowed.at(row);

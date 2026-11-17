@@ -1,5 +1,6 @@
 /* Calls, as a widget: gui/call_view.h, sec 1142. */
 #include "call_view.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 
@@ -62,6 +63,7 @@ fzn_call_view::fzn_call_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget
 	connect(m_decline, &QPushButton::clicked, [this]() { decline(); });
 	connect(m_hang_up, &QPushButton::clicked, [this]() { hang_up(); });
 	m_status->setText(tr("No call."));
+	fzn_keep_answer::said(m_status); /* the view's own words, not an answer (sec 1225) */
 	select(-1);
 }
 
@@ -77,11 +79,16 @@ bool fzn_call_view::refresh()
 	size_t n = 0, i;
 	int k;
 	seen now;
+	fzn_keep_answer answer(m_status);
 
 	if (fzn_rpc_calls(&m_rpc->c, live, FZN_RPC_CALLS_MAX, &n) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		return false;
 	}
+	/* THE PERSON'S PLACE AND THEIR LAST ANSWER, kept across the refill
+	 * (sec 1225). */
+	fzn_keep_place place(m_list, 0, ROLE_ID);
 	m_list->clear();
 	for (i = 0; i < n; i++) {
 		const fzn_rpc_entry_t *e = &live[i];
@@ -117,7 +124,14 @@ bool fzn_call_view::refresh()
 	}
 	*m_seen = now;
 	m_status->setText(!ended.isEmpty() ? ended : n ? QString() : tr("No call."));
-	select(n ? 0 : -1);
+	/* The call chosen, else the first; a call that ended is said over
+	 * any older answer. */
+	const int chosen = place.restore();
+	select(chosen >= 0 ? chosen : n ? 0 : -1);
+	if (ended.isEmpty())
+		answer.restore();
+	else
+		fzn_keep_answer::said(m_status);
 	return true;
 }
 
@@ -140,6 +154,10 @@ void fzn_call_view::select(int row)
 	QListWidgetItem *item = row >= 0 ? m_list->item(row) : nullptr;
 	if (item && m_list->currentRow() != row)
 		m_list->setCurrentRow(row);
+	/* NOTHING CHOSEN CLEARS THE ROW TOO: an act reads the current row, and a
+	 * refresh no longer clears it (sec 1225). */
+	if (!item && m_list->currentRow() >= 0)
+		m_list->setCurrentRow(-1);
 	const int state = item ? item->data(ROLE_STATE).toInt() : 0;
 	/* WHAT EACH STATE ALLOWS: a call ringing here is answered or declined;
 	 * one ringing out or up is hung up. */

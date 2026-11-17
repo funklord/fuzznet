@@ -132,6 +132,21 @@ int main(int argc, char **argv)
 	      "asking bob again at once was sent, or not said with when he was asked");
 	v.set_now(NOW + FZN_LOCATION_VIEW_ASK_GAP_S);
 	CHECK(v.fetch() && !strcmp(last, "fetch stream location bob"), "bob could not be asked again after the gap");
+	/* A REFRESH KEEPS THE PERSON'S PLACE, sec 1225: bob still chosen, by
+	 * name, the rose still at him, and the answer to asking him still said;
+	 * then a choice's own words are the view's to say again. */
+	{
+		QTableWidget *t = v.findChild<QTableWidget *>();
+
+		CHECK(v.refresh() && t && t->currentRow() >= 0 && t->item(t->currentRow(), 0)
+		              && t->item(t->currentRow(), 0)->text() == "bob" && v.rose()->said().contains("bob")
+		              && v.status() == "Asked bob where they are.",
+		      "a refresh dropped bob, the rose's target, or the answer to asking him");
+		v.select(1);
+		CHECK(v.refresh() && t->item(t->currentRow(), 0)->text() == "eve" && v.status().contains("do not share"),
+		      "a refresh after choosing eve did not keep her, with her grant said");
+		v.select(0);
+	}
 	v.set_now(NOW);
 	v.set_precision(0);
 	CHECK(v.share(true) && !strcmp(last, "grant stream location bob 0"),

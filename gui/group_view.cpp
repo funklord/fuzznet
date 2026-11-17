@@ -1,5 +1,6 @@
 /* One group's members, as a widget: gui/group_view.h, sec 1143. */
 #include "group_view.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 
@@ -69,6 +70,7 @@ fzn_group_view::fzn_group_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	connect(m_leave, &QPushButton::clicked, [this]() { leave(); });
 	connect(m_members, &QListWidget::currentRowChanged, [this](int) { enable(); });
 	m_status->setText(tr("No group chosen."));
+	fzn_keep_answer::said(m_status); /* the view's own words, not an answer (sec 1225) */
 	enable();
 }
 
@@ -87,6 +89,7 @@ bool fzn_group_view::refresh()
 	QByteArray group = m_group.toUtf8();
 	int earlier = 0;
 	size_t i;
+	fzn_keep_answer answer(m_status);
 
 	memset(&show, 0, sizeof show);
 	memset(&peers, 0, sizeof peers);
@@ -97,12 +100,17 @@ bool fzn_group_view::refresh()
 	    || fzn_rpc_group_earlier_get(&m_rpc->c, group.constData(), (size_t)group.size(), &earlier)
 	               != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		free(show.members);
 		free(peers.entries);
 		m_admin = false;
 		enable();
 		return false;
 	}
+	/* THE PERSON'S PLACE AND THEIR LAST ANSWER, kept across the refill
+	 * (sec 1225). */
+	fzn_keep_place member_place(m_members, 0, ROLE_NAME);
+	const QString contact_chosen = m_contacts->currentText();
 	m_members->clear();
 	QSet<QString> in;
 	for (i = 0; i < show.member_count; i++) {
@@ -131,7 +139,11 @@ bool fzn_group_view::refresh()
 	m_status->setText(m_admin ? QString() : tr("Only the group's admins change who is in it."));
 	free(show.members);
 	free(peers.entries);
+	member_place.restore();
+	if (m_contacts->findText(contact_chosen) >= 0)
+		m_contacts->setCurrentIndex(m_contacts->findText(contact_chosen));
 	enable();
+	answer.restore();
 	return true;
 }
 

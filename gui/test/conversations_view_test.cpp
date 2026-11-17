@@ -11,6 +11,7 @@
 #include "../conversations_view.h"
 
 #include <QApplication>
+#include <QTreeWidget>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,6 +90,15 @@ int main(int argc, char **argv)
 	CHECK(v.open(0, 0) && opened == "bob", "a contact's conversation was not opened by its name");
 	CHECK(v.open(1, 0) && opened == "@family", "a group's conversation was not opened as @NAME");
 	CHECK(!v.open(1, 5), "a row that is not there was opened");
+	/* A REFRESH KEEPS THE ROW CHOSEN, sec 1225: family's, under Groups. */
+	{
+		auto *tree = v.findChild<QTreeWidget *>();
+
+		opened.clear();
+		CHECK(v.refresh() && tree && tree->currentItem() && tree->currentItem()->text(0).startsWith("family")
+		              && tree->currentItem()->isSelected() && opened.isEmpty(),
+		      "a refresh dropped the conversation chosen, or opened it");
+	}
 
 	/* EACH ROW'S MENU. */
 	QString what, to;

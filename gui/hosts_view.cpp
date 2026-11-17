@@ -1,5 +1,6 @@
 /* This user's other hosts, as a widget: gui/hosts_view.h, sec 1124. */
 #include "hosts_view.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 
@@ -169,12 +170,17 @@ bool fzn_hosts_view::refresh()
 {
 	auto *hosts = new fzn_rpc_sibling_list_resp_t;
 	size_t i;
+	fzn_keep_answer answer(m_status);
 
 	if (fzn_rpc_sibling_list(&m_rpc->c, hosts) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		delete hosts;
 		return m_rpc->c.answered;
 	}
+	/* THE PERSON'S PLACE AND THEIR LAST ANSWER, kept across the refill
+	 * (sec 1225). */
+	fzn_keep_place place(m_table, 1);
 	m_table->setRowCount((int)hosts->count);
 	for (i = 0; i < hosts->count; i++) {
 		const fzn_rpc_sibling_entry_t *h = &hosts->entries[i];
@@ -212,7 +218,8 @@ bool fzn_hosts_view::refresh()
 	}
 	delete hosts;
 	read_self();
-	select(-1);
+	select(place.restore());
+	answer.restore();
 	return true;
 }
 
@@ -221,6 +228,10 @@ void fzn_hosts_view::select(int row)
 	bool chosen = row >= 0 && row < m_table->rowCount();
 	if (chosen && m_table->currentRow() != row)
 		m_table->setCurrentCell(row, 0);
+	/* NOTHING CHOSEN CLEARS THE ROW TOO: an act reads the current row, and a
+	 * refresh no longer clears it (sec 1225). */
+	if (!chosen && m_table->currentRow() >= 0)
+		m_table->setCurrentCell(-1, -1);
 	if (chosen) {
 		QString at = m_table->item(row, 2)->text();
 		m_address->setText(at == tr("not known") ? QString() : at);

@@ -82,6 +82,14 @@ int main(int argc, char **argv)
 	snprintf(live, sizeof live, "1 " IN ",ringing-in,3," BOB);
 	CHECK(v.refresh() && v.calls() == QStringList({ "bob is calling (audio and video)" }),
 	      "a call ringing in was not said with who and what kind");
+	/* A VIEW WHOSE FIRST LOOK FINDS A CALL does not keep saying there is
+	 * none: "No call." is the view's own words, not an answer (sec 1225). */
+	{
+		fzn_call_view fresh(node, nullptr);
+
+		CHECK(fresh.refresh() && fresh.status().isEmpty() && v.status().isEmpty(),
+		      "a call ringing was shown under \"No call.\"");
+	}
 	CHECK(!v.hang_up() && strncmp(said, "set ", 4), "a call ringing in was hung up rather than declined");
 	CHECK(v.answer() && v.calls() == QStringList({ "In a call with bob" }), "answering did not bring the call up");
 	CHECK(!v.answer() && !v.decline(), "a call already up was answered or declined again");

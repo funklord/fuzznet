@@ -1,5 +1,6 @@
 /* Every conversation, as a list: gui/conversations_view.h, sec 1138. */
 #include "conversations_view.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 
@@ -171,6 +172,10 @@ bool fzn_conversations_view::refresh()
 	for (i = 0; i < n_unread; i++)
 		counts.insert(QByteArray((const char *)unread[i].key, 32), unread[i].count);
 
+	/* THE ROW CHOSEN, by what it opens, and the scroll, kept across the
+	 * refill (sec 1225): a host refreshing on its clock does not move the
+	 * person off the conversation they were about to open. */
+	fzn_keep_place place(m_tree, 0, ROLE_OPEN);
 	m_tree->clear();
 	auto *contacts = new QTreeWidgetItem(m_tree, { tr("Contacts") });
 	auto *group_head = new QTreeWidgetItem(m_tree, { tr("Groups") });
@@ -198,6 +203,7 @@ bool fzn_conversations_view::refresh()
 	}
 	contacts->setExpanded(true);
 	group_head->setExpanded(true);
+	place.restore();
 	m_status->setText(!n ? tr("No conversations yet.")
 	                  : total > n ? tr("%1 of %2 conversations shown.").arg(n).arg(total)
 	                              : QString());

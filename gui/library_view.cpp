@@ -1,5 +1,6 @@
 /* The files the catalogue names, as a widget: gui/library_view.h, sec 1131. */
 #include "library_view.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 
@@ -181,13 +182,18 @@ bool fzn_library_view::refresh()
 {
 	fzn_rpc_library_list_all_t all;
 	size_t i;
+	fzn_keep_answer answer(m_status);
 
 	memset(&all, 0, sizeof all);
 	if (fzn_rpc_library_list(&m_rpc->c, &all) != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		fzn_rpc_library_list_release(&all);
 		return m_rpc->c.answered;
 	}
+	/* THE PERSON'S PLACE AND THEIR LAST ANSWER, kept across the refill
+	 * (sec 1225). */
+	fzn_keep_place place(m_table, 0, ROLE_ROOT);
 	m_table->setRowCount((int)all.count);
 	for (i = 0; i < all.count; i++) {
 		const fzn_rpc_library_list_entry_t *e = &all.entries[i];
@@ -234,8 +240,9 @@ bool fzn_library_view::refresh()
 		m_kind->setCurrentIndex(qMax(0, m_kind->findData(chosen)));
 		m_kind->blockSignals(false);
 	}
-	select(-1);
+	select(place.restore());
 	apply_filter();
+	answer.restore();
 	return true;
 }
 
@@ -296,6 +303,10 @@ void fzn_library_view::select(int row)
 	bool chosen = row >= 0 && row < m_table->rowCount() && !m_table->isRowHidden(row);
 	if (chosen && m_table->currentRow() != row)
 		m_table->setCurrentCell(row, 0);
+	/* NOTHING CHOSEN CLEARS THE ROW TOO: an act reads the current row, and a
+	 * refresh no longer clears it (sec 1225). */
+	if (!chosen && m_table->currentRow() >= 0)
+		m_table->setCurrentCell(-1, -1);
 	/* A FILE ALREADY HERE is not asked for again. */
 	/* A FILE ALREADY HERE, or on its way, is not asked for again. */
 	m_fetch->setEnabled(chosen && !m_table->item(row, 0)->data(ROLE_HERE).toBool()

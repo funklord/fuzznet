@@ -1,5 +1,6 @@
 /* Contacts and pairing requests as a widget: gui/contacts_view.h, sec 1107. */
 #include "contacts_view.h"
+#include "keep_place.h"
 
 #include "rpc_ask.h"
 
@@ -124,6 +125,7 @@ bool fzn_contacts_view::refresh()
 {
 	fzn_rpc_peer_list_resp_t list;
 	auto *pending = new fzn_rpc_peer_request_list_resp_t;
+	fzn_keep_answer answer(m_status);
 
 	memset(&list, 0, sizeof list);
 	if (fzn_rpc_peer_list(&m_rpc->c, &list) != FZN_RPC_OK
@@ -131,8 +133,12 @@ bool fzn_contacts_view::refresh()
 		free(list.entries);
 		delete pending;
 		m_status->setText(failed_words(m_rpc));
+		fzn_keep_answer::said(m_status);
 		return m_rpc->c.answered;
 	}
+	/* THE PERSON'S PLACE AND THEIR LAST ANSWER, kept across the refill
+	 * (sec 1225). */
+	fzn_keep_place contact_place(m_contacts, 1), request_place(m_requests, 1);
 	m_contacts->setRowCount((int)list.count);
 	m_keys->contact.clear();
 	m_keys->state.clear();
@@ -161,13 +167,25 @@ bool fzn_contacts_view::refresh()
 	free(list.entries);
 	m_status->setText(list.count || pending->count ? QString() : tr("No contacts yet."));
 	delete pending;
-	select_contact(-1);
+	/* One table's row is chosen at a time; whichever was, is again. */
+	const int contact = contact_place.restore(), request = request_place.restore();
+	if (request >= 0)
+		select_request(request);
+	else
+		select_contact(contact);
+	answer.restore();
 	return true;
 }
 
 void fzn_contacts_view::select_contact(int row)
 {
 	bool chosen = row >= 0 && row < m_keys->contact.size();
+	/* NOTHING CHOSEN CLEARS THE ROW TOO: an act reads the current row, and a
+	 * refresh no longer clears it (sec 1225). */
+	if (!chosen && m_contacts->currentRow() >= 0) {
+		m_contacts->clearSelection();
+		m_contacts->setCurrentCell(-1, -1);
+	}
 	if (chosen) {
 		m_requests->clearSelection();
 		m_requests->setCurrentCell(-1, -1);
@@ -190,6 +208,10 @@ void fzn_contacts_view::select_contact(int row)
 void fzn_contacts_view::select_request(int row)
 {
 	bool chosen = row >= 0 && row < m_keys->request.size();
+	if (!chosen && m_requests->currentRow() >= 0) {
+		m_requests->clearSelection();
+		m_requests->setCurrentCell(-1, -1);
+	}
 	if (chosen) {
 		m_contacts->clearSelection();
 		m_contacts->setCurrentCell(-1, -1);

@@ -13,6 +13,7 @@
 #include "../reach_view.h"
 
 #include <QApplication>
+#include <QPushButton>
 #include <QTreeWidget>
 
 #include <stdio.h>
@@ -119,8 +120,28 @@ int main(int argc, char **argv)
 	CHECK(v.refresh() && v.outside().contains("nothing confirms it"),
 	      "a single report was said as agreed");
 
+	/* A REFRESH KEEPS THE PERSON'S PLACE, sec 1225: the answer to Look on
+	 * this network stays through a refresh; the report chosen stays chosen,
+	 * found by address and reporter, and Advertise stays pressable. */
+	CHECK(v.refresh() && v.status().contains("Asked on this network"),
+	      "a refresh wiped the answer to the person's own press");
+	alone = 0;
+	{
+		auto *seen = v.findChild<QTreeWidget *>(QStringLiteral("reach_seen_by"));
+		auto *advertise = v.findChild<QPushButton *>(QStringLiteral("reach_advertise"));
+
+		CHECK(v.refresh() && seen->topLevelItemCount() == 2, "fixture: two reports");
+		seen->setCurrentItem(seen->topLevelItem(1));
+		CHECK(v.refresh() && seen->currentItem() == seen->topLevelItem(1) && seen->currentItem()->isSelected()
+		              && seen->currentItem()->text(1).contains("fedcba98") && advertise && advertise->isEnabled(),
+		      "a refresh dropped the report chosen, and Advertise with it");
+	}
+
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");
+	/* AND A FAILED REFRESH'S WORDS GO WHEN ONE SUCCEEDS. */
+	silent = 0;
+	CHECK(v.refresh() && v.status().isEmpty(), "a refresh that worked left the last one's failure said");
 
 	CHECK(0, "deliberate");
 	failures--;
