@@ -14,7 +14,19 @@ endian big;
 enum op : u8 {
 	notes    = 128, // the notes under a parent, as `list note` lists them
 	note_row = 129, // an answer: one note
+	stamp    = 130, // whether anything moved, as `get notes` says (sec 1199)
+	stamp_row = 131, // an answer: the stamp
 	default  = error,
+}
+
+struct nothing {
+}
+
+// STAMP a number that moves with every write the notes could be in, 0
+// where none is kept (sec 1006): a view refreshed on a timer reads a
+// folder only when it moved.
+struct stamp_row {
+	u64  stamp;
 }
 
 // SHARER zero for this user's own notes, else the key of the contact whose
@@ -49,6 +61,8 @@ struct message {
 	variant body switch (op) {
 		case op.notes:    notes    notes;
 		case op.note_row: note_row note_row;
+		case op.stamp:    nothing  stamp;
+		case op.stamp_row: stamp_row stamp_row;
 		default: error;
 	}
 }

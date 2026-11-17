@@ -8,6 +8,55 @@
 
 #include "notes_local.h"
 
+situ_err_t fzn_notes_local_nothing_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_notes_local_nothing_validate(situ_view_t view)
+{
+	return fzn_notes_local_nothing_check(view, NULL);
+}
+
+situ_err_t fzn_notes_local_stamp_row_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_NOTES_LOCAL_STAMP_ROW_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	(void)view;
+	return SITU_OK;
+}
+
+situ_err_t fzn_notes_local_stamp_row_validate(situ_view_t view)
+{
+	return fzn_notes_local_stamp_row_check(view, NULL);
+}
+
 situ_err_t fzn_notes_local_notes_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -133,12 +182,12 @@ situ_err_t fzn_notes_local_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 2u) < ((fzn_notes_local_message_op_get(view) == 128u ? 64u : (fzn_notes_local_message_op_get(view) == 129u ? (fzn_notes_local_message_body_note_row_extent(view)) : 0u)))) {
+	if (situ_remaining_u32(view.limit, 2u) < ((fzn_notes_local_message_op_get(view) == 128u ? 64u : (fzn_notes_local_message_op_get(view) == 129u ? (fzn_notes_local_message_body_note_row_extent(view)) : (fzn_notes_local_message_op_get(view) == 130u ? 0u : (fzn_notes_local_message_op_get(view) == 131u ? 8u : 0u)))))) {
 		*which = FZN_NOTES_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for op.notes, op.note_row, and `default: error` for the rest. */
-	if (fzn_notes_local_message_op_get(view) != 128u && fzn_notes_local_message_op_get(view) != 129u) {
+	/* message.body: an arm for op.notes, op.note_row, op.stamp, op.stamp_row, and `default: error` for the rest. */
+	if (fzn_notes_local_message_op_get(view) != 128u && fzn_notes_local_message_op_get(view) != 129u && fzn_notes_local_message_op_get(view) != 130u && fzn_notes_local_message_op_get(view) != 131u) {
 		*which = FZN_NOTES_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -174,6 +223,44 @@ situ_err_t fzn_notes_local_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_NOTES_LOCAL_MESSAGE_BODY_NOTE_ROW_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.stamp: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_notes_local_message_body_stamp_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_notes_local_nothing_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_NOTES_LOCAL_MESSAGE_BODY_STAMP_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.stamp_row: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_notes_local_message_body_stamp_row_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_notes_local_stamp_row_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_NOTES_LOCAL_MESSAGE_BODY_STAMP_ROW_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {

@@ -598,8 +598,7 @@ QString fzn_notebook_view::parent_id() const
 
 void fzn_notebook_view::refresh()
 {
-	QString detail;
-	quint64 stamp = 0;
+	uint64_t stamp = 0;
 	QString key = QStringLiteral("%1\n%2\n%3%4")
 	                      .arg(m_tree, m_path.join(QLatin1Char(',')))
 	                      .arg(m_trash ? 1 : 0)
@@ -610,8 +609,14 @@ void fzn_notebook_view::refresh()
 	 * Asked before reading, so a write while it reads moves it again; a
 	 * node without the verb, or keeping no stamp, answers nothing to go by
 	 * and the lists are read every time, as before. */
-	if (ask(QStringLiteral("get notes"), &detail) == 1)
-		stamp = detail.trimmed().toULongLong();
+	/* THROUGH THE TYPED CLIENT, sec 1199: in binary on a host's socket. */
+	{
+		const int rc = fzn_rpc_notes_stamp(&m_rpc->c, &stamp);
+
+		m_answered = rc == FZN_RPC_OK || m_rpc->c.answered;
+		if (rc != FZN_RPC_OK)
+			stamp = 0;
+	}
 	if (!stamp || stamp != m_shown_stamp || key != m_shown_key) {
 		refresh_trees();
 		refresh_list();

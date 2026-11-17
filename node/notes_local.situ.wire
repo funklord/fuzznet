@@ -19,15 +19,17 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  notes=128 note_row=129
+  notes=128 note_row=129 stamp=130 stamp_row=131
 
-struct message size=42..1321
+struct message size=2..1321
   @0x0000   1         u8         cmd  must_eq=8
   @0x0001   1         op         op
-  @0x0002   40..1319  variant    body
+  @0x0002   0..1319   variant    body
   body switch: op
   body case 128: notes notes
   body case 129: note_row note_row
+  body case 130: stamp nothing
+  body case 131: stamp_row stamp_row
   body case default: error
 
 struct note_row size=40..1319
@@ -44,3 +46,8 @@ struct note_row size=40..1319
 struct notes size=64
   @0x0000   32        u8         sharer  big
   @0x0020   32        u8         parent  big
+
+struct nothing size=0
+
+struct stamp_row size=8
+  @0x0000   8         u64        stamp  big

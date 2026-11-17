@@ -4931,6 +4931,71 @@ int fzn_rpc_notes_list(fzn_rpc_t *c, const uint8_t parent[32], const uint8_t fro
 	return node_notes_list(c, tree, parent, out);
 }
 
+/* THE STAMP IN BINARY, sec 1199: one row, then a STATUS. */
+struct stamp_answer {
+	uint64_t stamp;
+	int bad, rows, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void stamp_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct stamp_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX
+	    || fzn_notes_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_notes_local_message_validate(v) != SITU_OK
+	    || fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_STAMP_ROW
+	    || fzn_notes_local_message_body_stamp_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	a->stamp = fzn_notes_local_stamp_row_stamp_get(b);
+	a->rows++;
+}
+
+int fzn_rpc_notes_stamp(fzn_rpc_t *c, uint64_t *stamp) {
+	static const uint8_t ask[] = { FZN_CMD_NOTES, FZN_NOTES_LOCAL_OP_STAMP };
+	struct stamp_answer a;
+	int text = 0;
+	*stamp = 0;
+	memset(&a, 0, sizeof a);
+	int rc = fzn_rpc_binary(c, ask, sizeof ask, stamp_each, &a, &text);
+	if (text) {
+		/* `get notes`: the number alone. */
+		const char *rest = NULL;
+		size_t rest_len = 0, at = 0, n = 0;
+		rc = fzn_rpc_node(c, "get", "notes", 5, &rest, &rest_len);
+		if (rc != FZN_RPC_OK) return rc;
+		if (!node_number(rest, rest_len, &at, &n) || at < rest_len) return unreadable(c);
+		*stamp = n;
+		return FZN_RPC_OK;
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen) return unreadable(c); /* a stamp cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	/* ONE STAMP: none, or two, is no answer to which number it is. */
+	if (a.rows != 1) return unreadable(c);
+	*stamp = a.stamp;
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_notes_show(fzn_rpc_t *c, const uint8_t id[32], const uint8_t from[32],
                         int from_group, fzn_rpc_notes_show_resp_t *out) {
 	if (from_group && !from) return encode_failed(c);

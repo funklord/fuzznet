@@ -2543,8 +2543,21 @@ int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_
 		return binary_status(put, put_ctx, FZN_STATUS_UNSUPPORTED, "this node keeps no notes");
 	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
 	if (fzn_notes_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
-	    || fzn_notes_local_message_validate(v) != SITU_OK
-	    || fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_NOTES
+	    || fzn_notes_local_message_validate(v) != SITU_OK)
+		return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not a notes request");
+	/* THE STAMP, sec 1199: `get notes`' number, a row and then ok. */
+	if (fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_STAMP) {
+		uint32_t row_len = 0, out_len = 0;
+		const uint64_t stamp = n->store.stamp ? n->store.stamp(n->store.stamp_ctx) : 0u;
+
+		if (fzn_notes_local_stamp_row_build(row, sizeof(row), stamp, &row_len) != SITU_OK
+		    || fzn_notes_local_message_build_stamp_row(out, sizeof(out), (uint8_t)FZN_CMD_NOTES, row, row_len,
+		                                               &out_len)
+		               != SITU_OK)
+			return binary_status(put, put_ctx, FZN_STATUS_ERROR, "the stamp would not write");
+		return put(put_ctx, out, out_len) && binary_status(put, put_ctx, FZN_STATUS_OK, NULL);
+	}
+	if (fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_NOTES
 	    || fzn_notes_local_message_body_notes_view(v, &b) != SITU_OK)
 		return binary_status(put, put_ctx, FZN_STATUS_MALFORMED, "not a notes request");
 	memcpy(sharer, fzn_notes_local_notes_sharer_ptr(b), FZN_PUBKEY_LEN);

@@ -362,6 +362,24 @@ static int title_is(situ_view_t b, const char *want)
 	       && memcmp(fzn_notes_local_note_row_title_ptr(b), want, strlen(want)) == 0;
 }
 
+/* Message `i`'s stamp, or 0 where it is no stamp row. */
+static uint64_t stamp_at(size_t i)
+{
+	uint8_t copy[FZN_NODE_NOTES_BINARY_MAX];
+	situ_msg_t m;
+	situ_view_t v, b;
+
+	if (i >= n_said)
+		return 0;
+	memcpy(copy, said[i], said_len[i]);
+	situ_msg_init(&m, copy, (uint32_t)said_len[i]);
+	if (fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[i], &v) != SITU_OK
+	    || fzn_notes_local_message_op_get(v) != FZN_NOTES_LOCAL_OP_STAMP_ROW
+	    || fzn_notes_local_message_body_stamp_row_view(v, &b) != SITU_OK)
+		return 0;
+	return fzn_notes_local_stamp_row_stamp_get(b);
+}
+
 static void hex_id(const char *hex, uint8_t out[FZN_TREE_ID_LEN])
 {
 	size_t i;
@@ -432,6 +450,35 @@ static void test_list_in_binary(void)
 		CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, wrong, sizeof(wrong), bput, NULL)
 		              && n_said == 1u && status_at(0, FZN_STATUS_MALFORMED),
 		      "a bare op was answered");
+	}
+	/* THE STAMP IN BINARY, sec 1199: `get notes`' number as a row, then ok;
+	 * a write moves it. */
+	{
+		static const uint8_t ask_stamp[2] = { FZN_CMD_NOTES, FZN_NOTES_LOCAL_OP_STAMP };
+		situ_msg_t m;
+		situ_view_t v, sb;
+		uint64_t first = 0;
+
+		notes.store.stamp = written_stamp;
+		CHECK(ask("get notes") == FZN_REPLY_OK, "fixture: the stamp in text");
+		n_said = 0;
+		CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, ask_stamp, sizeof(ask_stamp), bput, NULL)
+		              && n_said == 2u && status_at(1, FZN_STATUS_OK),
+		      "the stamp was not a row and a STATUS ok");
+		memcpy(copy, said[0], said_len[0]);
+		situ_msg_init(&m, copy, (uint32_t)said_len[0]);
+		CHECK(fzn_notes_local_message_view(&m, 0u, (uint32_t)said_len[0], &v) == SITU_OK
+		              && fzn_notes_local_message_op_get(v) == FZN_NOTES_LOCAL_OP_STAMP_ROW
+		              && fzn_notes_local_message_body_stamp_row_view(v, &sb) == SITU_OK
+		              && (first = fzn_notes_local_stamp_row_stamp_get(sb)) != 0u
+		              && first == strtoull(detail_of(), NULL, 10),
+		      "the stamp in binary was not `get notes`' number");
+		CHECK(ask("add note top later") == FZN_REPLY_OK, "fixture: a write");
+		n_said = 0;
+		CHECK(fzn_node_notes_binary(&notes, FZN_ORIGIN_SAME_USER, ask_stamp, sizeof(ask_stamp), bput, NULL)
+		              && n_said == 2u && stamp_at(0) != first,
+		      "a write did not move the stamp asked in binary");
+		notes.store.stamp = NULL;
 	}
 }
 

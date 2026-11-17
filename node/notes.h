@@ -360,8 +360,9 @@ int fzn_node_notes_push_texts_step(fzn_node_notes_texting_t *x, const uint8_t *r
 /* THE NOTES UNDER ONE PARENT IN BINARY, sec 1191: a FZN_CMD_NOTES `notes`
  * request answered, through `put`, by a row per note -- `list note`'s, or
  * `list shared KEY`'s for a sharer's key -- then a STATUS ok, or a STATUS
- * refusing it. 1 once answered, every refusal included; 0 when an answer
- * could not be written. */
+ * refusing it. A `stamp` request, sec 1199, by `get notes`' number, a row
+ * and ok. 1 once answered, every refusal included; 0 when an answer could
+ * not be written. */
 #define FZN_NODE_NOTES_BINARY_MAX 1400u
 typedef int (*fzn_node_notes_put_t)(void *ctx, const uint8_t *msg, size_t len);
 int fzn_node_notes_binary(fzn_node_notes_t *n, fzn_origin_t origin, const uint8_t *msg, size_t len,

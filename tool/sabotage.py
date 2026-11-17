@@ -16971,6 +16971,20 @@ SABOTAGES = [
 		"a phone's width keeps every column -- sec 1196",
 	),
 	(
+		"notes-binary-stamp-still",
+		"node/notes.c",
+		"\t\tconst uint64_t stamp = n->store.stamp ? n->store.stamp(n->store.stamp_ctx) : 0u;\n",
+		"\t\tconst uint64_t stamp = 0u;\n",
+		"the notes' stamp asked in binary never moves, so a view reads a folder every refresh -- sec 1199",
+	),
+	(
+		"rpc-notes-stamp-two-taken",
+		"local/rpc.c",
+		"\tif (a.rows != 1) return unreadable(c);\n",
+		"\tif (0) return unreadable(c);\n",
+		"an answer carrying two stamps is taken, the last one winning -- sec 1199",
+	),
+	(
 		"notebook-view-shares-to-suspended",
 		"gui/notebook_view.cpp",
 		"\t\t\t\tif (peers.entries[k].state == FZN_RPC_CONTACT_ACTIVE)\n",

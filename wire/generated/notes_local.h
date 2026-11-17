@@ -26,6 +26,8 @@ extern "C" {
 typedef enum fzn_notes_local_op {
 	FZN_NOTES_LOCAL_OP_NOTES = 128,
 	FZN_NOTES_LOCAL_OP_NOTE_ROW = 129,
+	FZN_NOTES_LOCAL_OP_STAMP = 130,
+	FZN_NOTES_LOCAL_OP_STAMP_ROW = 131,
 } fzn_notes_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -35,11 +37,100 @@ static inline int fzn_notes_local_op_is_known(fzn_notes_local_op_t value)
 	switch (value) {
 	case FZN_NOTES_LOCAL_OP_NOTES:
 	case FZN_NOTES_LOCAL_OP_NOTE_ROW:
+	case FZN_NOTES_LOCAL_OP_STAMP:
+	case FZN_NOTES_LOCAL_OP_STAMP_ROW:
 		return 1;
 	default:
 		return 0;
 	}
 }
+
+/* ---- struct nothing ---- */
+
+#define FZN_NOTES_LOCAL_NOTHING_SIZE_FIXED 0u
+#define FZN_NOTES_LOCAL_NOTHING_SIZE_MIN   0u
+#define FZN_NOTES_LOCAL_NOTHING_SIZE_MAX   0u
+
+/* INVALIDATION: nothing invalidates a nothing view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_notes_local_nothing_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_NOTES_LOCAL_NOTHING_SIZE_FIXED, out);
+}
+
+/** How many bytes a whole `nothing` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_notes_local_nothing_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_NOTES_LOCAL_NOTHING_SIZE_FIXED;
+	(void)have;
+	return SITU_OK;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_notes_local_nothing_validate(situ_view_t view);
+
+/* ---- struct stamp_row ---- */
+
+#define FZN_NOTES_LOCAL_STAMP_ROW_SIZE_FIXED 8u
+#define FZN_NOTES_LOCAL_STAMP_ROW_SIZE_MIN   8u
+#define FZN_NOTES_LOCAL_STAMP_ROW_SIZE_MAX   8u
+
+/* INVALIDATION: nothing invalidates a stamp_row view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_notes_local_stamp_row_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_NOTES_LOCAL_STAMP_ROW_SIZE_FIXED, out);
+}
+
+/** stamp_row.stamp : u64  at AbsoluteStatic(0x00)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_notes_local_stamp_row_stamp_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 0u));
+}
+static inline void fzn_notes_local_stamp_row_stamp_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 0u, (uint64_t)value);
+}
+
+/** How many bytes a whole `stamp_row` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_notes_local_stamp_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_NOTES_LOCAL_STAMP_ROW_SIZE_FIXED;
+	return have >= FZN_NOTES_LOCAL_STAMP_ROW_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_notes_local_stamp_row_validate(situ_view_t view);
 
 /* ---- struct notes ---- */
 
@@ -402,7 +493,7 @@ situ_err_t fzn_notes_local_note_row_check(situ_view_t view, uint32_t *which);
 
 /* ---- struct message ---- */
 
-#define FZN_NOTES_LOCAL_MESSAGE_SIZE_MIN   42u
+#define FZN_NOTES_LOCAL_MESSAGE_SIZE_MIN   2u
 #define FZN_NOTES_LOCAL_MESSAGE_SIZE_MAX   1321u
 
 /* INVALIDATION: a message view, and every view derived from
@@ -461,9 +552,9 @@ static inline fzn_notes_local_op_t fzn_notes_local_message_op_get(situ_view_t vi
  * which takes the message and bumps its generation. */
 
 /* message.body : variant  at AbsoluteStatic(0x02)
- * size=Bounded(40, 1319) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ * size=Bounded(0, 1319) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `notes`, `note_row` is
+/** `body` is a variant: exactly one of `notes`, `note_row`, `stamp`, `stamp_row` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -521,6 +612,36 @@ static inline situ_err_t fzn_notes_local_message_body_note_row_view(situ_view_t 
 
 #define FZN_NOTES_LOCAL_MESSAGE_BODY_NOTE_ROW_LABELS_LEN_VALUE_MAX 1024u
 
+/** message.body.stamp, present when the discriminant selects `op.stamp`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_notes_local_message_body_stamp_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_notes_local_message_op_get(view) != 130u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_NOTES_LOCAL_NOTHING_SIZE_FIXED, out);
+}
+
+/** message.body.stamp_row, present when the discriminant selects `op.stamp_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_notes_local_message_body_stamp_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_notes_local_message_op_get(view) != 131u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_NOTES_LOCAL_STAMP_ROW_SIZE_FIXED, out);
+}
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -576,6 +697,20 @@ static inline situ_err_t fzn_notes_local_message_required(const uint8_t *data, u
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_notes_local_message_op_get(view) : 0u) == 130u) {
+			e = fzn_notes_local_nothing_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_notes_local_message_op_get(view) : 0u) == 131u) {
+			e = fzn_notes_local_stamp_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -615,6 +750,8 @@ situ_err_t fzn_notes_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_NOTES_LOCAL_MESSAGE_BODY_CHECK 2u
 #define FZN_NOTES_LOCAL_MESSAGE_BODY_NOTES_CHECK 3u
 #define FZN_NOTES_LOCAL_MESSAGE_BODY_NOTE_ROW_CHECK 4u
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_STAMP_CHECK 5u
+#define FZN_NOTES_LOCAL_MESSAGE_BODY_STAMP_ROW_CHECK 6u
 
 #ifdef __cplusplus
 }

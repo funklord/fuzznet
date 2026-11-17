@@ -11,10 +11,10 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct message size=42..1321 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+struct message size=2..1321 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(40, 1319) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 1319) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
   message.body.notes                     offset=AbsoluteStatic(0x02) size=Fixed(64) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.notes.sharer              offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.notes.parent              offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
@@ -28,6 +28,9 @@ struct message size=42..1321 mutate=Shifting address=Unstable repr=ValueConverte
   message.body.note_row.title            offset=AbsoluteStatic(0x28) size=Bounded(0, 255) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   message.body.note_row.labels_len       offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   message.body.note_row.labels           offset=Dynamic size=Bounded(0, 1024) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  message.body.stamp                     offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.stamp_row                 offset=AbsoluteStatic(0x02) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.stamp_row.stamp           offset=AbsoluteStatic(0x02) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
 
 struct note_row size=40..1319 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   note_row.id                            offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
@@ -43,3 +46,8 @@ struct note_row size=40..1319 mutate=Shifting address=Unstable repr=ValueConvert
 struct notes size=64 atomic=NonAtomic
   notes.sharer                           offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   notes.parent                           offset=AbsoluteStatic(0x20) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct nothing size=0
+
+struct stamp_row size=8 repr=ValueConverted
+  stamp_row.stamp                        offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord

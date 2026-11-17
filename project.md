@@ -90069,10 +90069,33 @@ host's socket (secs 1162, 1170), every page on any other ask. A contact
 the roster marks suspended, retired or absent is still not offered (sec
 489), read from the entry's state where it was the row's third word.
 
-**Still asked in text each refresh**: `get notes`, the stamp that says
-whether anything moved, the open note's fields, and `list share`, where
-it goes. Each needs a node operation under FZN_CMD_NOTES first.
+**Still asked in text each refresh**: the open note's fields and `list
+share`, where it goes; the stamp went into binary with sec 1199. Each
+needs a node operation under FZN_CMD_NOTES first.
 
 **Tests:** `notebook_view_test`, 1052, its node now answering the
 client's paged form and full keys and ids as the node writes them. Two
 sabotages: a suspended contact offered, no group offered.
+
+## 1199. Whether the notes moved, in binary, 2026-11-17
+
+A notebook on a host's timer asks every two seconds whether anything
+moved, `get notes`, and reads its folder only when the number did (sec
+1006). It is the one request every refresh makes, so it goes into binary
+under FZN_CMD_NOTES beside the listing of sec 1191: `stamp` (130), with
+no body, answered by a `stamp_row` (131) holding the number and a STATUS
+ok -- the same number, from the same `store.stamp`, 0 where the node
+keeps none. `fzn_rpc_notes_stamp` asks it, falling back to `get notes`
+for a node that reads no binary, and the notebook view reads it through
+its typed client.
+
+**One stamp is the answer**: none, or two, is refused rather than the
+last taken, by one check at the end. A check per row as well, refusing a
+second as it came, was the same guard twice -- each one's sabotage
+survived the other -- and went.
+
+**Tests:** two vectors; `notes_test` -- the stamp a row and ok, the
+number `get notes` gives, moved by a write; `rpc_test` -- the request's
+two bytes, the number read, a stamp cut before its STATUS and two stamps
+each refused, an old node asked `get notes`; `notebook_view_test`, 1052,
+reading folders only when it moved, over the verbs. Two sabotages.

@@ -1332,6 +1332,46 @@ static void test_group_notebook_in_binary(void)
 	fzn_rpc_notes_list_release(&out);
 }
 
+/* THE NOTES' STAMP IN BINARY, sec 1199: the request's two bytes, the
+ * number read, a stamp cut before its STATUS or sent twice refused, and an
+ * old node asked `get notes`. */
+static void test_notes_stamp_in_binary(void)
+{
+	static struct bscript held, cut, twice, old;
+	uint8_t row[16], m[32];
+	uint32_t row_len = 0, n = 0;
+	uint64_t stamp = 0;
+
+	if (fzn_notes_local_stamp_row_build(row, sizeof(row), 300u, &row_len) == SITU_OK
+	    && fzn_notes_local_message_build_stamp_row(m, sizeof(m), (uint8_t)FZN_CMD_NOTES, row, row_len, &n)
+	               == SITU_OK) {
+		framed(&held, 0, m, n);
+		framed(&cut, 0, m, n);
+		framed(&twice, 0, m, n);
+		framed(&twice, 0, m, n);
+	}
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	status_onto(&twice, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_notes_stamp(&c, &stamp) == FZN_RPC_OK && stamp == 300u && held.asked_len[0] == 2u
+	              && held.asked[0][0] == 0x08 && held.asked[0][1] == 0x82,
+	      "the notes' stamp was not read in binary");
+	bon(&c, &cut);
+	CHECK(fzn_rpc_notes_stamp(&c, &stamp) != FZN_RPC_OK, "a stamp cut before its STATUS was read as whole");
+	bon(&c, &twice);
+	CHECK(fzn_rpc_notes_stamp(&c, &stamp) != FZN_RPC_OK, "two stamps in one answer were taken");
+	{
+		struct script s = { { "ok 42" }, 0, 1, 0, { { 0 } } };
+
+		status_onto(&old, 0, FZN_STATUS_MALFORMED, "not a channel's asking");
+		on(&c, &s);
+		c.binary_answer = bscripted;
+		c.binary_ctx = &old;
+		CHECK(fzn_rpc_notes_stamp(&c, &stamp) == FZN_RPC_OK && stamp == 42u && !strcmp(s.asked[0], "get notes"),
+		      "an old node was not asked the stamp in text");
+	}
+}
+
 /* ONE SIBLING framed onto answer `i`, sec 1176. */
 static void sibling_onto(struct bscript *s, size_t i, uint8_t first, uint8_t paired, const char *where,
                          const char *name)
@@ -1722,6 +1762,7 @@ int main(void)
 	test_library_show_in_binary();
 	test_notes_in_binary();
 	test_group_notebook_in_binary();
+	test_notes_stamp_in_binary();
 	test_packs_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

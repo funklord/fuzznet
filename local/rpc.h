@@ -277,6 +277,11 @@ int fzn_rpc_notes_list(fzn_rpc_t *c, const uint8_t parent[32], const uint8_t fro
                         int from_group, fzn_rpc_notes_list_resp_t *out);
 int fzn_rpc_notes_show(fzn_rpc_t *c, const uint8_t id[32], const uint8_t from[32],
                         int from_group, fzn_rpc_notes_show_resp_t *out);
+/* WHETHER ANYTHING MOVED, sec 1199: a number that moves with every write the
+ * notes could be in, 0 where the node keeps none -- so a view refreshed on a
+ * timer reads a folder only when it changed. In binary where the node reads
+ * it, by `get notes` where it does not. */
+int fzn_rpc_notes_stamp(fzn_rpc_t *c, uint64_t *stamp);
 /* Whether the group called `group` has a notebook with anything at its top,
  * asked by name: by chat id each ask reads the group listing, so a walk of
  * every group was groups squared. A group nobody shares in is not held. */
