@@ -90833,3 +90833,29 @@ attachment answered with its id and there with its reference;
 asked. Two sabotages, each caught (`notes-binary-trash-figures-swapped`,
 `notes-binary-attach-id-unsent`), and sec 986's backfill one moved with
 its line.
+
+## 1221. A binary write tells the subscribers, as its verb does, 2026-11-17
+
+**A fault found moving the notebook's writes.** Since sec 825 every
+change verb the node answers ok publishes its subject to the local
+subscribers (sec 609), so a second window showing the same thing reads
+it again. That is done in the daemon's text path, `publish_change`, and
+**no binary write went through it**: a contact added or removed or a
+request let in (secs 1167, 1169), a line sent (sec 1161), an object
+changed (sec 1152), and now the notebook's writes (secs 1218-1220) all
+told nobody. A client moved to binary made the other windows stale.
+
+**Now** `local_binary` wraps the binary answer: the last STATUS it sent
+is noted where every answer goes (`local_put`, `local_binary_status`),
+and a write answered ok publishes the subject its verb would -- `note`,
+`contact`, `request`, `message`, `object` -- by `binary_write_subject`,
+the one table of which operations change something. A refused write
+publishes nothing. Checked against double telling: the other places
+that publish `message` are lines filed from peers, not this user's own,
+so a line sent in binary is told once, as sec 876 asks of the verb.
+
+**Tests:** `live_events` phase a2 -- a note added in binary raises
+`event note -` at both subscribers, and a change to a note nobody holds,
+refused, raises nothing before the next setting's. Its sabotage,
+`daemon-binary-write-untold`, is caught by that phase alone (a
+subscriber hears nothing within 5 s).

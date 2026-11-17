@@ -18126,11 +18126,16 @@ static int local_binary_send(int fd, const uint8_t *msg, size_t len)
 	return n == (ssize_t)(2u + len);
 }
 
+/* THE LAST STATUS A BINARY ANSWER SENT, sec 1221: what `local_binary` reads
+ * to tell a write that was made from one refused. -1 before any. */
+static int local_last_status = -1;
+
 static int local_binary_status(int fd, fzn_status_t code, const char *why)
 {
 	uint8_t msg[FZN_STATUS_LEN_MAX + 8u];
 	size_t n = fzn_status_write(msg, sizeof(msg), code, why);
 
+	local_last_status = (int)code;
 	return n && local_binary_send(fd, msg, n);
 }
 
@@ -18176,6 +18181,8 @@ static int local_binary_send_wait(int fd, const uint8_t *msg, size_t len)
 
 static int local_put(void *ctx, const uint8_t *msg, size_t len)
 {
+	if (len >= 2u && msg[0] == FZN_CMD_STATUS)
+		local_last_status = msg[1];
 	return local_binary_send_wait(*(const int *)ctx, msg, len);
 }
 
@@ -18478,6 +18485,8 @@ static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 #endif
 
 #include "../wire/generated/members_local.h"
+#include "../wire/generated/notes_local.h"
+#include "../wire/generated/messages_local.h"
 #include "../wire/generated/members_local_build.h"
 /* WHAT THIS NODE HOLDS IN BINARY, sec 1188: `list capability`'s rows, then
  * a STATUS ok. */
@@ -18677,8 +18686,55 @@ static int local_settings(int fd, fzn_origin_t origin, const uint8_t *msg, size_
  * forks (sec 1187), or a MEDIA_OPEN
  * for a call this host holds, from its own user, which keeps it
  * as the call's channel (sec 1113). */
+static int local_binary_answer(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
+                               const uint8_t *msg, size_t len);
+
+/* WHAT A BINARY WRITE CHANGED, sec 1221: the subject its verb publishes
+ * (sec 609), or NULL for a read. */
+static const char *binary_write_subject(const uint8_t *msg, size_t len)
+{
+	if (len < 2u)
+		return NULL;
+	switch (msg[0]) {
+	case FZN_CMD_NOTES:
+		return msg[1] == FZN_NOTES_LOCAL_OP_ADD || msg[1] == FZN_NOTES_LOCAL_OP_CHANGE
+		                       || msg[1] == FZN_NOTES_LOCAL_OP_ITEM || msg[1] == FZN_NOTES_LOCAL_OP_TEXT
+		                       || msg[1] == FZN_NOTES_LOCAL_OP_SHARE || msg[1] == FZN_NOTES_LOCAL_OP_TRASH_EMPTY
+		                       || msg[1] == FZN_NOTES_LOCAL_OP_ATTACH
+		               ? "note"
+		               : NULL;
+	case FZN_CMD_CONTACTS:
+		return msg[1] == FZN_CONTACTS_LOCAL_OP_ADD || msg[1] == FZN_CONTACTS_LOCAL_OP_REMOVE ? "contact"
+		       : msg[1] == FZN_CONTACTS_LOCAL_OP_GRANT || msg[1] == FZN_CONTACTS_LOCAL_OP_REFUSE ? "request"
+		                                                                                         : NULL;
+	case FZN_CMD_MESSAGES:
+		return msg[1] == FZN_MESSAGES_LOCAL_OP_SEND ? "message" : NULL;
+	case FZN_CMD_OBJECTS:
+		return fzn_node_objects_binary_changes(msg, len) ? "object" : NULL;
+	default:
+		return NULL;
+	}
+}
+
+/* A LOCAL CHANGE PUBLISHED FOR A BINARY WRITE TOO, sec 1221: since sec 825
+ * every change verb a node answers ok tells the subscribers, and the binary
+ * writes -- a contact, a request, a line, an object, a note -- told nobody,
+ * so a second window showing the same thing stayed as it was. */
 static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
                         const uint8_t *msg, size_t len)
+{
+	const char *subject = binary_write_subject(msg, len);
+	int r;
+
+	local_last_status = -1;
+	r = local_binary_answer(ctx, fd, origin, peer, msg, len);
+	if (subject && local_last_status == (int)FZN_STATUS_OK)
+		publish(subject, NULL);
+	return r;
+}
+
+static int local_binary_answer(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
+                               const uint8_t *msg, size_t len)
 {
 	struct media_channel *ch;
 	fzn_live_word_t w;

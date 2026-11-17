@@ -17279,6 +17279,13 @@ SABOTAGES = [
 		"an attachment made in binary is answered without its id -- sec 1220",
 	),
 	(
+		"daemon-binary-write-untold",
+		"node/daemon.c",
+		"\tif (subject && local_last_status == (int)FZN_STATUS_OK)\n\t\tpublish(subject, NULL);\n",
+		"\t(void)subject;\n",
+		"a write made in binary tells no subscriber, and a second window stays as it was; live_events phase a2 only -- sec 1221",
+	),
+	(
 		"qr-decode-nothing-is-an-error",
 		"qr/decode.c",
 		"\t\tmemcpy(out, data.payload, (size_t)data.payload_len);\n\t\treturn data.payload_len;\n\t}\n\treturn 0;\n",

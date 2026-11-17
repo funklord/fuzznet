@@ -6,6 +6,8 @@ One daemon over one store, and clients of its local socket:
     a  two clients ask `get events` and are answered `ok events`; a third
        sets a setting and adds a note, and each subscriber reads `event
        setting -` and `event note -`, in that order
+    a2 a note added in binary over the socket raises `event note -` as the
+       verb does, and a binary write refused raises nothing (sec 1221)
     b  one subscriber hangs up; the next change still reaches the other,
        and the daemon answers a request as before
     c  thousands of subscribers are each told, and thousands of connections
@@ -36,6 +38,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import command, daemon, expect  # noqa: E402
 from live_trim import ask, failed, left  # noqa: E402
+from live_rpc import binary  # noqa: E402
 
 MANY = 3000
 
@@ -129,6 +132,25 @@ def main(argv):
 						raise failed("a: %s read %r" % (sub.tag, got))
 				print("livecheck: a: two subscribers each read the setting's and the note's "
 				      "events, in order")
+
+				# a2: A BINARY WRITE TELLS THEM TOO, sec 1221: a note added in
+				# binary, then a change to a note nobody holds, refused -- one
+				# event, then the setting's that follows, nothing between.
+				title = b"binary-note"
+				got = binary(sock, bytes([0x08, 0x89]) + bytes(32) + (1).to_bytes(2, "big")
+				             + bytes([len(title)]) + title)
+				if not got or got[-1][:2] != bytes([0x13, 0]):
+					raise failed("a2: a note added in binary answered %r" % got)
+				got = binary(sock, bytes([0x08, 0x8B]) + bytes([0x5e]) * 32 + bytes([7, 0, 0]))
+				if not got or got[-1][:2] == bytes([0x13, 0]):
+					raise failed("a2: a change to nobody's note was answered %r" % got)
+				expect(sock, "a2", "set setting host x/seen 3", "ok")
+				for sub in subs:
+					got = [sub.line(), sub.line()]
+					if got != ["event note -", "event setting -"]:
+						raise failed("a2: %s read %r after the binary writes" % (sub.tag, got))
+				print("livecheck: a2: a note added in binary told both subscribers, and a "
+				      "refused one told nobody")
 
 				# b: one hangs up; the other is still told, and the daemon
 				# still answers.
