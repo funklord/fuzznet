@@ -92722,3 +92722,58 @@ only by the one-shot modes (`--prekey`, `--new-root`, `--pair`,
 `--accept` ...). A serving daemon still refuses a store that is not
 there at its claim, before that code, as the claim's comment means it
 to: a mistyped directory is refused rather than started empty.
+
+## 1276. Schema-driven storage: what it would cost, measured, 2026-11-18
+
+The holder's question of sec 1268: whether most storage subsystems here
+would be better schema-driven than purpose-built, with "the performance
+cost of this" evaluated; the schema language is the holder's to settle
+with situ. This is the evaluation, not a change.
+
+**Measured on ml350g6-01** (load 9 to 18, `-Os`, 20 million records a
+way, three runs), the call record of sec 1255 (`messages/line.situ`'s
+`fzn_message_call`, 24 bytes) encoded and decoded two ways:
+
+| | per record |
+|---|---|
+| hand-written `fzn_message_call_write` / `_read` | 7.2-7.8 ns / 7.6 ns |
+| situ be9faffb's generated build (validated) / view + validate + every field | 14.2-15.7 ns / 13.0-13.9 ns |
+| the file store's load of a 24-byte row | 5.5 us |
+| the file store's save of one (written, synced, renamed) | 452-456 us |
+
+**The schema's codec costs about 7 ns a record more, and the store under
+it costs 5,500 ns to read the row and 450,000 to write it.** So the
+encoding is a tenth of a per cent of a read and nothing measurable of a
+write. On cost, schema-driven record bodies are free.
+
+**What would decide it is not the codec but the derived rows.** The
+storage subsystems here are, nearly all, records on a journal stream
+(already situ contracts, sec 523's shape) plus index rows derived from
+them -- and the index rows are where the purpose-built work lives: the
+read position (newest wins by time), the readers of a group (sec 1273: a
+bounded set, keyed by a prefix, newest kept), the call history (sec
+1255: newest twenty, one per call, an answered one winning), the unread
+counts, the newest line per conversation. A generic store without those
+would scan the journal for each, which at a conversation's thousands of
+records is the 5.5 us load times thousands. So a schema language that
+drives storage needs to declare, beside the record's layout:
+
+- **the row's key** -- derived from named fields, as `index_row` hashes
+  a word and a contact today;
+- **the aggregate a row keeps** -- newest by a field, a bounded set of
+  the newest N, one per key with a rule for which wins, a count;
+- **what a reindex clears and rebuilds**, which every subsystem here
+  hand-writes once per record kind, and which drifted once already (each
+  new kind needs its line in the reindex, and a missing one is silent);
+- **the record's version and what reads an older one**, as sticker packs
+  carry by hand (sec 1272).
+
+E-mail's "distributed filtered set of folders" is the same shape: messages
+as records, a folder as a derived row set by a filter. Which of these a
+future situ declares is the holder's question with situ.
+
+**Found on the way:** situ refuses `messages/line.situ` for C today --
+the enum `fzn_message_call_outcome` and the field path
+`fzn_message_call.outcome` flatten to the same name -- so the measurement
+used a scratch copy with the enum renamed. The contract checks fine; only
+generating C from it fails. Told to situ (its inbox), as theirs to judge.
