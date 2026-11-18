@@ -13,6 +13,7 @@
 #include <QApplication>
 #include <QTreeWidget>
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -241,8 +242,12 @@ int main(int argc, char **argv)
 		      "on a phone the conversations were not one list, newest first, the group marked");
 		auto *tree = v.findChild<QTreeWidget *>();
 		CHECK(tree && tree->topLevelItemCount() == 3 && !tree->topLevelItem(1)->icon(0).isNull()
-		              && tree->topLevelItem(0)->icon(0).isNull(),
-		      "flat, the group was not marked by its icon, or a contact was");
+		              && tree->topLevelItem(1)->data(0, Qt::AccessibleDescriptionRole).toString() == "a group"
+		              && tree->topLevelItem(0)->data(0, Qt::AccessibleDescriptionRole).toString().isEmpty(),
+		      "flat, the group was not marked as one, or a contact was");
+		/* A CONTACT'S PICTURE, its initial (sec 1264). */
+		CHECK(!tree->topLevelItem(0)->icon(0).isNull() && !tree->topLevelItem(2)->icon(0).isNull(),
+		      "flat, a contact had no picture");
 		opened.clear();
 		CHECK(v.open(1, 0) && opened == "@family" && v.open(0, 0) && opened == "bob",
 		      "flat, a group or a contact was not opened by its place among its kind");
@@ -258,6 +263,24 @@ int main(int argc, char **argv)
 	CHECK(v.flat() && v.status() == "The node did not answer.", "a change of width wiped what the refresh said");
 	silent = 0;
 	v.hide();
+
+	/* THE INITIAL'S COLOUR, sec 1264: one name one colour, in any case;
+	 * two names apart; white on it 4.5:1 or better for every name tried. */
+	{
+		int legible = 0;
+
+		for (int i = 0; i < 300; i++) {
+			const QColor c = fzn_conversations_view::initial_colour(QStringLiteral("name%1").arg(i));
+			auto lin = [](double v) { return v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); };
+			const double l = 0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF()) + 0.0722 * lin(c.blueF());
+
+			legible += 1.05 / (l + 0.05) >= 4.5;
+		}
+		CHECK(fzn_conversations_view::initial_colour("bob") == fzn_conversations_view::initial_colour("Bob")
+		              && fzn_conversations_view::initial_colour("bob") != fzn_conversations_view::initial_colour("dan")
+		              && legible == 300,
+		      "an initial's colour was not the name's alone, or white on it was not 4.5:1");
+	}
 
 	CHECK(0, "deliberate");
 	failures--;

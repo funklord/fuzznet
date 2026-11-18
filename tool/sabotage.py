@@ -17433,6 +17433,20 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"initial-undarkened",
+		"gui/conversations_view.cpp",
+		"\twhile (1.05 / (luminance(c) + 0.05) < 4.5 && c.lightness() > 20)\n",
+		"\twhile (0)\n",
+		"a name's initial is white on a colour too light to read it on -- sec 1264",
+	),
+	(
+		"initial-unshown",
+		"gui/conversations_view.cpp",
+		"\t\t\titem->setIcon(0, initial_icon(r.name));\n",
+		"\t\t\t(void)r;\n",
+		"a contact on a phone's list has no picture -- sec 1264",
+	),
+	(
 		"conversation-empty-unsaid",
 		"gui/conversation_view.cpp",
 		"\trefresh_quiet(m_notice, count ? QString() : tr(\"No messages with %1 yet. Say hello!\").arg(m_contact));\n",

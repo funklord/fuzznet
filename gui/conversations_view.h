@@ -29,6 +29,7 @@
 #include "notebook_view.h"
 
 #include <QHash>
+#include <QColor>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -82,6 +83,13 @@ public:
 	/* WHY A ROW'S ACTION CANNOT BE TAKEN, where it is offered disabled --
 	 * empty where it can. As `actions` last offered it. */
 	QString refused(const QString &action) const;
+
+	/* A CONTACT'S PICTURE WHERE THERE IS NONE, sec 1264, fuzzypickles' walk
+	 * against LINE: the name's initial in a circle of a colour the name
+	 * picks, the same everywhere for one name, dark enough that its white
+	 * initial clears 4.5:1 (WCAG). The circle is the initial's own ground,
+	 * so it needs nothing of the desktop's. Shown on a phone's flat list. */
+	static QColor initial_colour(const QString &name);
 	/* ONE LIST ON A PHONE, sec 1245: whether the rows are shown flat --
 	 * contacts and groups together, newest first, a group marked -- not
 	 * under two headings. `open` and `act` count a kind's rows either way. */

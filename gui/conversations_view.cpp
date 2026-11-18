@@ -10,6 +10,7 @@ extern "C" {
 
 #include <QAction>
 #include <QByteArray>
+#include <QColor>
 #include <QDateTime>
 #include <QFont>
 #include <QHBoxLayout>
@@ -24,6 +25,8 @@ extern "C" {
 #include <QResizeEvent>
 #include <QSet>
 #include <QTreeWidget>
+
+#include <cmath>
 #include <QVBoxLayout>
 
 #include <stdlib.h>
@@ -202,6 +205,49 @@ QString fzn_conversations_view::refused(const QString &action) const { return m_
 
 /* A GROUP'S MARK in the one list a phone shows, sec 1245: two heads, in
  * the text's own colour. */
+/* WCAG's relative luminance, of one sRGB colour. */
+static double luminance(const QColor &c)
+{
+	auto lin = [](double v) { return v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+
+	return 0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF()) + 0.0722 * lin(c.blueF());
+}
+
+QColor fzn_conversations_view::initial_colour(const QString &name)
+{
+	/* A HUE FROM THE NAME by FNV-1a, stable across runs where qHash is
+	 * seeded per process; then darkened until white on it clears 4.5:1. */
+	uint32_t h = 2166136261u;
+	for (const QChar ch : name.toCaseFolded())
+		h = (h ^ ch.unicode()) * 16777619u;
+	QColor c = QColor::fromHsl((int)(h % 360u), 150, 100);
+	while (1.05 / (luminance(c) + 0.05) < 4.5 && c.lightness() > 20)
+		c = QColor::fromHsl(c.hslHue(), c.hslSaturation(), c.lightness() - 8);
+	return c;
+}
+
+static QIcon initial_icon(const QString &name)
+{
+	const int px = 32;
+	QPixmap pm(px, px);
+	QPainter p;
+	QFont f;
+
+	pm.fill(Qt::transparent);
+	p.begin(&pm);
+	p.setRenderHint(QPainter::Antialiasing);
+	p.setPen(Qt::NoPen);
+	p.setBrush(fzn_conversations_view::initial_colour(name));
+	p.drawEllipse(0, 0, px, px);
+	f.setBold(true);
+	f.setPixelSize(px / 2);
+	p.setFont(f);
+	p.setPen(Qt::white);
+	p.drawText(QRect(0, 0, px, px), Qt::AlignCenter, name.left(1).toUpper());
+	p.end();
+	return QIcon(pm);
+}
+
 static QIcon group_icon(const QPalette &pal)
 {
 	QPixmap pm(16, 16);
@@ -242,6 +288,9 @@ void fzn_conversations_view::lay_out()
 		if (m_flat && is_group) {
 			item->setIcon(0, group_icon(palette()));
 			item->setData(0, Qt::AccessibleDescriptionRole, tr("a group"));
+		} else if (m_flat) {
+			/* A PICTURE FOR A CONTACT, its initial (sec 1264). */
+			item->setIcon(0, initial_icon(r.name));
 		}
 		/* THE UNREAD COUNT AS A MARK, bold in the highlight's colour, and
 		 * said in words to a screen reader. */

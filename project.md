@@ -92276,3 +92276,28 @@ words (sec 1253), gone with the first line.
 
 **Tests:** conversation_view_test -- eve, with nothing, said so by name;
 a quiet group by its name. Sabotage `conversation-empty-unsaid`, caught.
+
+## 1264. A contact's picture on a phone's list: its initial, 2026-11-18
+
+fuzzypickles' walk against LINE (its sec 284, item 2): the chat list had
+"no picture" where LINE has one. A contact here carries no photo, so the
+messengers' own fallback: the name's initial, white, in a circle of a
+colour the name picks -- FNV-1a of the name folded to one case, so the
+same name the same colour on every device and run (qHash is seeded per
+process). On the phone's flat list (sec 1245); a group keeps its icon.
+
+**Its own ground, so no desktop question**: the circle is the initial's
+ground and the program's, so the qt-desktop-integration rule's "legible
+on both" for a ground a program does not own does not arise; the colour
+is darkened from 39% lightness until white on it clears 4.5:1 by WCAG's
+luminance, which is the check that holds the letter legible, not the
+hue chosen.
+
+The rest of item 2 was here already (sec 1232): the time on the right,
+the unread count a bold mark in the highlight's colour.
+
+**Tests:** conversations_view_test -- flat, each contact a picture and
+the group marked as one by its description, no longer by being the only
+icon; one name one colour in any case, two names apart, and white on the
+colour 4.5:1 or better for 300 names. Two sabotages, each caught
+(`initial-undarkened`, `initial-unshown`).
