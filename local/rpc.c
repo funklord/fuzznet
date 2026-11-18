@@ -135,8 +135,79 @@ static int node_config_set(fzn_rpc_t *c, const char *key, size_t key_len, const 
 static int node_config_status(fzn_rpc_t *c, const char *key, size_t key_len, const char *instance,
                               size_t instance_len, fzn_rpc_config_status_resp_t *out);
 
+/* THIS HOST IN ONE ROW, sec 1266: read as node_status reads the five verbs. */
+struct self_answer {
+	fzn_rpc_status_resp_t *out;
+	int rows, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void self_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct self_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->rows || a->status_seen || len > UINT32_MAX
+	    || fzn_members_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_members_local_message_validate(v) != SITU_OK
+	    || fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_SELF_ROW
+	    || fzn_members_local_message_body_self_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	fzn_rpc_status_resp_t *out = a->out;
+	const size_t n = fzn_members_local_self_row_name_len(b);
+	a->rows++;
+	memcpy(out->host_pubkey, fzn_members_local_self_row_host_ptr(b), 32);
+	memcpy(out->user_pubkey, fzn_members_local_self_row_user_ptr(b), 32);
+	out->has_host = 1;
+	out->is_root = memcmp(out->host_pubkey, out->user_pubkey, 32) == 0;
+	/* ITS NAME, or its key's first sixteen hex, as node_status says it. */
+	if (n && n < sizeof out->host_name) {
+		memcpy(out->host_name, fzn_members_local_self_row_name_ptr(b), n);
+		out->host_name[n] = '\0';
+		out->host_name_len = n;
+	} else {
+		char hex[65];
+		fzn_hex_encode(out->host_pubkey, 32, hex);
+		memcpy(out->host_name, hex, 16);
+		out->host_name[16] = '\0';
+		out->host_name_len = 16;
+	}
+	out->cross_signed = fzn_members_local_self_row_member_get(b);
+	out->outbox_held = fzn_members_local_self_row_held_get(b) + fzn_members_local_self_row_delivered_get(b);
+	out->outbox_delivered = fzn_members_local_self_row_delivered_get(b);
+	out->peer_port = fzn_members_local_self_row_port_get(b);
+}
+
 int fzn_rpc_status(fzn_rpc_t *c, fzn_rpc_status_resp_t *out) {
-	return node_status(c, out);
+	static const uint8_t req[] = { FZN_CMD_MEMBERS, FZN_MEMBERS_LOCAL_OP_SELF };
+	struct self_answer a;
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, req, sizeof req, self_each, &a, &text);
+	if (text) return node_status(c, out);
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen || !a.rows) return unreadable(c); /* the host cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
 }
 
 /* ---- fuzznetd's replies, read (sec 284) ---- */

@@ -17433,6 +17433,20 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"self-held-without-delivered",
+		"local/rpc.c",
+		"\tout->outbox_held = fzn_members_local_self_row_held_get(b) + fzn_members_local_self_row_delivered_get(b);\n",
+		"\tout->outbox_held = fzn_members_local_self_row_held_get(b);\n",
+		"the lines owed are counted without those delivered and unsettled -- sec 1266",
+	),
+	(
+		"self-node-name-escaped",
+		"node/daemon.c",
+		"\t\t\tif (*p == '%' && hexval((uint8_t)p[1]) >= 0 && hexval((uint8_t)p[2]) >= 0) {\n\t\t\t\tname[name_len++] = (uint8_t)(hexval((uint8_t)p[1]) * 16 + hexval((uint8_t)p[2]));\n",
+		"\t\t\tif (0) {\n\t\t\t\tname[name_len++] = (uint8_t)(hexval((uint8_t)p[1]) * 16 + hexval((uint8_t)p[2]));\n",
+		"this host's name comes in binary still escaped, %20 for its spaces; live_location phase u -- sec 1266",
+	),
+	(
 		"gov-binary-k-unread",
 		"local/rpc.c",
 		"\t\tif (a->roots) a->roots->k = fzn_members_local_quorum_row_k_get(b);\n",

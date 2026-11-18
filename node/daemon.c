@@ -19013,6 +19013,59 @@ static size_t gov_word(const char **p, const char **w)
 
 static int gov_put(int fd, uint8_t *out, uint32_t n) { return local_put(&fd, out, n); }
 
+/* THIS HOST IN ONE ROW, sec 1266: what `fzn_rpc_status` asked of five verbs
+ * -- `get identity`, `get setting host host/name`, `list capability`, `get
+ * message owed`, `get node` -- asked of them here, so the hosts view's
+ * refresh is one request. The owed lines' walk is the same either way. */
+static int local_self(int fd, fzn_origin_t origin)
+{
+	static char reply[FZN_REPLY_MAX + 64u];
+	uint8_t host[FZN_PUBKEY_LEN], user[FZN_PUBKEY_LEN], name[64], row[200], out[220];
+	unsigned long held = 0, delivered = 0, more = 0, port = 0;
+	uint32_t row_len = 0, k = 0;
+	size_t r, name_len = 0, i;
+	const char *p;
+	int member = 0;
+
+	r = gov_ask(origin, FZN_VERB_GET, "identity", reply, sizeof(reply));
+	if (!gov_ok(reply, r))
+		return gov_refused(fd, reply, r);
+	if (r != 3u + 2u * 64u + 1u || !gov_key(reply + 3, 64u, host) || !gov_key(reply + 3 + 65, 64u, user))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "this host's identity did not read"), 0;
+	/* ITS NAME, `ok SCOPE VALUE` escaped, or absent: unescaped, cut at the
+	 * row's 64 bytes rather than refused. */
+	r = gov_ask(origin, FZN_VERB_GET, "setting host host/name", reply, sizeof(reply));
+	if (gov_ok(reply, r) && (p = strchr(reply + 3, ' ')) != NULL)
+		for (p++; *p && name_len < sizeof(name); p++) {
+			if (*p == '%' && hexval((uint8_t)p[1]) >= 0 && hexval((uint8_t)p[2]) >= 0) {
+				name[name_len++] = (uint8_t)(hexval((uint8_t)p[1]) * 16 + hexval((uint8_t)p[2]));
+				p += 2;
+			} else {
+				name[name_len++] = (uint8_t)*p;
+			}
+		}
+	r = gov_ask(origin, FZN_VERB_LIST, "capability", reply, sizeof(reply));
+	for (i = 0; gov_ok(reply, r) && i + 9u <= r; i++)
+		if (reply[i] == ' ' && !memcmp(reply + i + 1, "member,1", 8))
+			member = 1;
+	r = gov_ask(origin, FZN_VERB_GET, "message owed", reply, sizeof(reply));
+	if (gov_ok(reply, r))
+		(void)sscanf(reply + 2, "%lu %lu %lu", &held, &delivered, &more);
+	r = gov_ask(origin, FZN_VERB_GET, "node", reply, sizeof(reply));
+	if (gov_ok(reply, r) && (p = strstr(reply, " udp ")) != NULL && p[5] != '-')
+		port = strtoul(p + 5, NULL, 10);
+	if (port > 65535u
+	    || fzn_members_local_self_row_build(row, sizeof(row), host, user, name, (uint32_t)name_len, (uint8_t)member,
+	                                        held, delivered, (uint16_t)port, &row_len)
+	               != SITU_OK
+	    || fzn_members_local_message_build_self_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &k)
+	               != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "this host would not write"), 0;
+	if (!gov_put(fd, out, k))
+		return 0;
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 static int local_governance(int fd, fzn_origin_t origin, unsigned op)
 {
 	static char reply[FZN_REPLY_MAX + 64u], more[FZN_REPLY_MAX + 64u];
@@ -19207,6 +19260,9 @@ static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_STAGED
 	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_PRESETS)
 		return local_governance(fd, origin, fzn_members_local_message_op_get(v));
+	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_SELF)
+		return running_admin ? local_self(fd, origin)
+		                     : (local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no estate"), 0);
 	if (fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_SIBLINGS)
 		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
 	if (!siblings_gather(&hosts, &n))

@@ -109,6 +109,16 @@ struct message size=2..550 mutate=Shifting address=Unstable repr=ValueConverted 
   message.body.preset_row.in_force       offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   message.body.preset_row.name_len       offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   message.body.preset_row.name           offset=AbsoluteStatic(0x04) size=Bounded(1, 63) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.self                      offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.self_row                  offset=AbsoluteStatic(0x02) size=Bounded(84, 148) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  message.body.self_row.host             offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.self_row.user             offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.self_row.name_len         offset=AbsoluteStatic(0x42) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.self_row.name             offset=AbsoluteStatic(0x43) size=Bounded(0, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.self_row.member           offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  message.body.self_row.held             offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.self_row.delivered        offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  message.body.self_row.port             offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
 
 struct nothing size=0
 
@@ -129,6 +139,16 @@ struct rekey_row size=65..88 mutate=Shifting atomic=NonAtomic
 struct root_row size=33 atomic=NonAtomic
   root_row.key                           offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   root_row.acting                        offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+
+struct self_row size=84..148 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  self_row.host                          offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  self_row.user                          offset=AbsoluteStatic(0x20) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  self_row.name_len                      offset=AbsoluteStatic(0x40) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  self_row.name                          offset=AbsoluteStatic(0x41) size=Bounded(0, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  self_row.member                        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  self_row.held                          offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  self_row.delivered                     offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  self_row.port                          offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
 
 struct sibling_row size=45..336 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   sibling_row.key                        offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

@@ -35,6 +35,8 @@ a poor one in turn.
     t  the governance in binary (sec 1265): k and the roots, the votes, the
        staged changes and the re-keys, and the profile in force, as the
        words list them
+    u  this host in one row (sec 1266): its keys, its name, the member
+       capability, its owed lines and its port, as the five verbs say them
     s  a start in place (sec 1259): an admin chain this root grants itself
        starts it again; the request sent at once is answered by the new
        image, never refused nor answered by the old; a TERM sent at once
@@ -426,6 +428,30 @@ def main(argv):
 				raise failed("t: the profile in force in binary %r, in words %r" % (got, current))
 			print("livecheck: t: the governance in binary as in words: k, %d root(s), the votes, staged "
 			      "changes and re-keys, and %s in force" % (len(roots), current))
+
+			# u: THIS HOST IN ONE ROW, sec 1266, as the five verbs say it: its
+			# keys, its name, the member capability, its owed lines, its port.
+			if not ask(sock, "set setting host host/name kitchen%20shelf").startswith("ok"):
+				raise failed("u: host/name was refused")
+			got = binary(sock, bytes([0x09, 0x96]))
+			if len(got) != 2 or got[0][:2] != bytes([0x09, 0x97]) or got[1][:2] != bytes([0x13, 0]):
+				raise failed("u: this host in binary answered %r" % got)
+			r = got[0][2:]
+			ident = ask(sock, "get identity").split()
+			nl = r[64]
+			name = r[65:65 + nl].decode()
+			member, held, delivered, port = r[65 + nl], int.from_bytes(r[66 + nl:74 + nl], "big"), \
+				int.from_bytes(r[74 + nl:82 + nl], "big"), int.from_bytes(r[82 + nl:84 + nl], "big")
+			node = ask(sock, "get node").split()
+			owed = ask(sock, "get message owed").split()
+			caps = ask(sock, "list capability")
+			if r[0:32].hex() != ident[1] or r[32:64].hex() != ident[2] or name != "kitchen shelf" \
+			   or member != (1 if " member,1" in caps else 0) or [held, delivered] != [int(owed[1]), int(owed[2])] \
+			   or str(port) != node[node.index("udp") + 1].replace("-", "0"):
+				raise failed("u: this host in binary %r against identity %r, node %r, owed %r, caps %r"
+				             % (r, ident, node, owed, caps))
+			print("livecheck: u: this host in one row as five verbs say it: its keys, its name, member %d, "
+			      "%d owed, port %d" % (member, held, port))
 
 			# s: A START IN PLACE, sec 1259: this node, its estate's root, keeps
 			# an admin chain it grants itself, which starts it again in place.

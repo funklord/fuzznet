@@ -92333,3 +92333,31 @@ sabotages, each caught (`gov-binary-k-unread`,
 `gov-binary-in-force-unsaid`, `gov-node-acting-dropped`); a fourth, the
 node's in-force mark among the choices, survived for want of a build
 offering choices here, and was dropped rather than kept unguarded.
+
+## 1266. This host in one row, 2026-11-18
+
+The last of sec 1217's subjects: `fzn_rpc_status`, which the hosts view
+asks each refresh, was five text requests -- `get identity`, `get
+setting host host/name`, `list capability`, `get message owed`, `get
+node`. The members category gains `self` (150), answered by one
+`self_row` (151): this host's and its user's keys, its name unescaped,
+whether it holds the member capability, its owed lines held and
+delivered, and the port it serves peers on (0 for none). The node asks
+the same five verbs through the local dispatch (`gov_ask`, sec 1265); the
+client reads the row as it read the words, the five behind it.
+
+What it saves is four round trips a refresh, not work: `get message
+owed` walks every conversation's owed lines either way, as sec 1261
+noted, and stays what a busier node would want made cheaper.
+
+With this, the typed client asks every polled subject in binary; the
+text verbs remain behind each, for a node that reads none, and for the
+writes that take a path on this host (`put sticker SPEC`, a file's
+export) -- a path being a local word, not a protocol part.
+
+**Tests:** two vectors; rpc_test -- a named host whose user is another,
+member, five owed and two delivered, its port; an unnamed root named by
+its key's first sixteen hex. `live_location` phase u: with `host/name`
+set to "kitchen shelf", the row as the five verbs say it. Two
+sabotages, each caught (`self-held-without-delivered`,
+`self-node-name-escaped`).

@@ -34,6 +34,8 @@ enum op : u8 {
 	staged_row     = 147, // an answer: one
 	presets        = 148, // the profiles, as `get preset` and `list preset choices`
 	preset_row     = 149, // an answer: one profile
+	self           = 150, // this host as the hosts view shows it, in one (sec 1266)
+	self_row       = 151, // an answer: this host
 	default        = error,
 }
 
@@ -146,6 +148,21 @@ struct preset_row {
 	u8   name[name_len];
 }
 
+// HOST and USER this host's keys; NAME its `host/name`, raw, empty for
+// none; MEMBER 1 where it holds the member capability; HELD and DELIVERED
+// the lines this device wrote not yet settled, and of those delivered;
+// PORT where it serves peers, 0 for nowhere.
+struct self_row {
+	u8   host[32];
+	u8   user[32];
+	u8   name_len [max = 64];
+	u8   name[name_len];
+	u8   member [max = 1];
+	u64  held;
+	u64  delivered;
+	u16  port;
+}
+
 struct message {
 	u8   cmd [must_eq = 9];
 	op   op;
@@ -173,6 +190,8 @@ struct message {
 		case op.staged_row:     staged_row     staged_row;
 		case op.presets:        nothing        presets;
 		case op.preset_row:     preset_row     preset_row;
+		case op.self:           nothing        self;
+		case op.self_row:       self_row       self_row;
 		default: error;
 	}
 }

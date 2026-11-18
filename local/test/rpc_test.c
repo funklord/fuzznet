@@ -1136,6 +1136,39 @@ static void test_show_in_binary(void)
 	      "this host's fixes were not read in binary, newest first, another host's left out");
 }
 
+/* THIS HOST IN ONE ROW, sec 1266: read as the five verbs were -- named,
+ * not root where its user's key is another, the member capability, its
+ * owed lines held and delivered, its port; and unnamed, its key's first
+ * sixteen hex. */
+static void test_self_in_binary(void)
+{
+	static struct bscript named, unnamed;
+	static fzn_rpc_status_resp_t out;
+	uint8_t host[32], user[32], row[200], m[220];
+	uint32_t row_len = 0, n = 0;
+
+	memset(host, 0xab, sizeof(host));
+	memset(user, 0xcd, sizeof(user));
+	if (fzn_members_local_self_row_build(row, sizeof(row), host, user, (const uint8_t *)"kitchen", 7u, 1u, 3u, 2u, 45524u,
+	                                     &row_len)
+	            == SITU_OK
+	    && fzn_members_local_message_build_self_row(m, sizeof(m), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &n) == SITU_OK)
+		framed(&named, 0, m, n);
+	status_onto(&named, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &named);
+	CHECK(fzn_rpc_status(&c, &out) == FZN_RPC_OK && out.has_host && !out.is_root && !strcmp(out.host_name, "kitchen")
+	              && out.cross_signed && out.outbox_held == 5u && out.outbox_delivered == 2u && out.peer_port == 45524u
+	              && out.user_pubkey[0] == 0xcd && named.asked[0][0] == 0x09 && named.asked[0][1] == 0x96,
+	      "this host was not read from one row as the five verbs were");
+	if (fzn_members_local_self_row_build(row, sizeof(row), host, host, NULL, 0u, 0u, 0u, 0u, 0u, &row_len) == SITU_OK
+	    && fzn_members_local_message_build_self_row(m, sizeof(m), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &n) == SITU_OK)
+		framed(&unnamed, 0, m, n);
+	status_onto(&unnamed, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &unnamed);
+	CHECK(fzn_rpc_status(&c, &out) == FZN_RPC_OK && out.is_root && !strcmp(out.host_name, "abababababababab"),
+	      "an unnamed root was not named by its key's first sixteen hex");
+}
+
 /* THE GOVERNANCE IN BINARY, sec 1265: k from its row, roots with the one
  * acted as, a vote withdrawn, a staged change's three words, a re-key's
  * state, and the profile in force among the choices. */
@@ -2440,6 +2473,7 @@ int main(void)
 	test_rules_in_binary();
 	test_governance_typed();
 	test_governance_in_binary();
+	test_self_in_binary();
 	test_stickers_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();
