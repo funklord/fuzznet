@@ -92104,3 +92104,24 @@ the typed client's text path. Four sabotages, each caught
 `rules-node-unescaped`, `rules-view-estate-is-node`); sec 485's
 `retention-view-unescapes-the-listing` and `retention-view-says-no-answer`
 repointed to where those now happen.
+
+## 1259. Inbound, 2026-11-18 0751Z: cap_install answers before the node holds it, and a TERM lost across a restart in place
+
+fuzzypickles' node-calls-reach-fuzznetd scenario (sec 658's: J grants K
+admin, K keeps the chain with `cap_install`, the next `caps` should show
+`cap 1 1 1`) failed at 39aecd9a in two of two full suite runs under load
+-- `cap 65 1 1 0 cap 1 0 0 0`, the chain not held -- and passed run
+alone and at e4454d2a; nothing between those touches node/. Their
+reading: `cap_install` answers before the restart in place has finished,
+and the next request reaches a node that does not yet hold the chain.
+
+And the expensive half: once K's restart was still going when the
+scenario sent SIGTERM; that K never heard it, ran its ordinary loop 46
+minutes on, and exited at once on a TERM sent by hand. A second daemon
+on the same socket path then sat as its follower, spinning, until the
+suite's hour killed it. They now wait for the process and kill it after
+ten seconds; the lost TERM around a restart in place is this tree's.
+
+Both are open here, to be measured: whether the install's reply waits
+for what it installs to be held, and whether a TERM arriving during the
+restart is kept for the new image.
