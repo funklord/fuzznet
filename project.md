@@ -92361,3 +92361,26 @@ its key's first sixteen hex. `live_location` phase u: with `host/name`
 set to "kitchen shelf", the row as the five verbs say it. Two
 sabotages, each caught (`self-held-without-delivered`,
 `self-node-name-escaped`).
+
+## 1267. The holder's direction: a map, with annotations and schema-based data, later, 2026-11-18
+
+The holder, 2026-11-18: "We also want a map feature with annotations and
+the ability to add schema-based data to it, like restaurants and venues
+etc. This is required for location anyway. But we do this later once
+things start looking more or less complete in the core."
+
+So: **a map is fuzznet's**, not a consumer's, and it carries more than
+positions -- annotations a person adds, and records of a declared shape
+(a restaurant, a venue) placed on it. **Not started, by the holder's
+word**: it waits until the core looks more or less complete. Nothing is
+built toward it in passing.
+
+Where it will meet what exists, for whoever starts it: `location_view`
+opens a contact's place in the platform's map (`map_url`, sec 1233) and
+draws no map of its own; positions travel as stream records with grants
+and precision (secs 1171, 1231); records of a declared shape are what
+the situ contracts and the settings schema already describe (secs 304,
+1103); and the catalogue's facets (sec 1207, `catalog/`) are the nearest
+thing to querying places by kind. Which of these the annotations and the
+places ride on -- their sharing, who may add one, how they travel -- is
+the design to make then.
