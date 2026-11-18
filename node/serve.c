@@ -175,7 +175,7 @@ static void serve_ready_local(fzn_node_state_t *state)
 
 	if (flags >= 0 && !(flags & O_NONBLOCK))
 		(void)fcntl(state->listen_fd, F_SETFL, flags | O_NONBLOCK);
-	while (fzn_socket_accept(state->listen_fd, &cfd, &peer) == FZN_SOCKET_OK) {
+	while (!state->hold_accepts && fzn_socket_accept(state->listen_fd, &cfd, &peer) == FZN_SOCKET_OK) {
 		if (state->n_waiting == state->waiting_cap) {
 			size_t cap = state->waiting_cap ? state->waiting_cap * 2u : 16u;
 			struct fzn_node_waiting *more = realloc(state->waiting, cap * sizeof(*more));
@@ -775,7 +775,7 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 			(void)close(state->waiting[s - 1u].fd);
 			waiting_drop(state, s - 1u);
 		}
-	if (state->listen_fd >= 0) {
+	if (state->listen_fd >= 0 && !state->hold_accepts) {
 		fds[nfds].fd = state->listen_fd;
 		fds[nfds].events = POLLIN;
 		fds[nfds].revents = 0;
@@ -947,7 +947,7 @@ int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms
 			fds[nfds].revents = 0;
 			ui = (int)nfds++;
 		}
-		if (local && state && state->listen_fd >= 0) {
+		if (local && state && state->listen_fd >= 0 && !state->hold_accepts) {
 			fds[nfds].fd = state->listen_fd;
 			fds[nfds].events = POLLIN;
 			fds[nfds].revents = 0;

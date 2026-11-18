@@ -32,6 +32,10 @@ a poor one in turn.
        estate's listed as `list retention` says them, one added and
        removed, an estate rule added, and a rule that is none refused as an
        error in words, never as malformed
+    s  a start in place (sec 1259): an admin chain this root grants itself
+       starts it again; the request sent at once is answered by the new
+       image, never refused nor answered by the old; a TERM sent at once
+       stops it
 
 Against a daemon that does not sample, phase b's link never reads
 watching; against one with no accuracy gate, nothing is dropped.
@@ -392,6 +396,62 @@ def main(argv):
 				raise failed("r: a rule that is none was answered %r, not refused in words" % got)
 			print("livecheck: r: this node's rules and the estate's in binary, as the words list "
 			      "them; one added and removed; a rule that is none refused in words")
+
+			# s: A START IN PLACE, sec 1259: this node, its estate's root, keeps
+			# an admin chain it grants itself, which starts it again in place.
+			# The request sent at once waits for the new image -- `get node`'s
+			# STARTED later than before -- where it was refused, or answered by
+			# the image leaving; and a TERM sent at once stops it, where one
+			# caught then was lost with the image.
+			def started():
+				w = ask(sock, "get node").split()
+				return int(w[w.index("started") + 1])
+			granted = ask(sock, "grant admin " + ask(sock, "get identity").split()[1]).split()
+			if len(granted) < 2 or granted[0] != "ok":
+				raise failed("s: grant admin answered %r" % granted)
+			chain = os.path.join(scratch, "chain")
+			with open(chain, "w") as f:
+				f.write(" ".join(granted[1:]) + "\n")
+			for _ in range(3):
+				before = started()
+				time.sleep(1.1)
+				# THE SOCKET'S PATH WATCHED THROUGH IT: kept by the image
+				# leaving for the one it starts, it is never gone -- where
+				# the race above is timing's, this is not.
+				gone = []
+				watching = [True]
+
+				def watch():
+					while watching[0]:
+						if not os.path.exists(sock):
+							gone.append(1)
+						time.sleep(0.0005)
+				watcher = threading.Thread(target=watch)
+				watcher.start()
+				try:
+					if not ask(sock, "set admin " + chain).startswith("ok"):
+						raise failed("s: set admin was refused")
+					try:
+						now = started()
+					except OSError as e:
+						raise failed("s: the request right after set admin was refused: %s" % e)
+				finally:
+					watching[0] = False
+					watcher.join()
+				if gone:
+					raise failed("s: the socket's path was gone as the node started again in place")
+				if now <= before:
+					raise failed("s: the request right after set admin was answered by the image "
+					             "leaving, started %d, not after %d" % (now, before))
+			if not ask(sock, "set admin " + chain).startswith("ok"):
+				raise failed("s: set admin was refused")
+			os.killpg(proc.pid, signal.SIGTERM)
+			try:
+				proc.wait(timeout=15)
+			except subprocess.TimeoutExpired:
+				raise failed("s: TERMed as it started again in place, it still ran 15 s on")
+			print("livecheck: s: started again in place, the next request waited for the new image, "
+			      "and a TERM sent at once stopped it")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

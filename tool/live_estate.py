@@ -38,6 +38,9 @@ successor) and E (a device paired by the second root).
        stopped for good; A2 pairs E, and E joins and reads what A2 sets as
        root; A2 names E in zone1, and its copy of the value R sealed in c2
        reaches E with R gone (sec 880)
+    g  a TERM as a node starts again in place (sec 1259): N told its chain
+       again and TERMed at once stops within 15 s; and every `set admin`'s
+       next request, sent at once, is answered by the node holding the chain
 
 `--skew S` runs A1's clock S seconds ahead and D's S behind, by faketime.
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed per run;
@@ -289,6 +292,13 @@ def main(argv):
 				f.write(" ".join(granted[1:]) + "\n")
 			pid = started[who].proc.pid
 			expect(socks[who], who, "set admin " + path, "ok %d" % (len(granted) - 1))
+			# THE NEXT REQUEST AT ONCE, sec 1259: it waits in the listener for
+			# the image the chain starts, which holds it -- never answered by
+			# the image leaving, nor refused for a socket gone.
+			first = said(who, "list capability")
+			if not any(e.startswith("admin,1,1,") for e in first.split()[2:]):
+				raise failed("%s: the request right after set admin was answered %r, not by the "
+				             "node holding the chain" % (who, first))
 			back_in_place(who, pid, "set admin")
 			polled(who, "list capability",
 			       lambda g: any(e.startswith("admin,1,1,") for e in g.split()[2:]),
@@ -669,6 +679,22 @@ def main(argv):
 			       "not the value R sealed, by A2's copy", within=max(settle, 180.0))
 			print("livecheck: f: E, named in zone1 with its sealer gone, read the value from "
 			      "A2's copy")
+			# g: A TERM AS A NODE STARTS AGAIN IN PLACE, sec 1259: N told its
+			# chain again and TERMed at once stops, where a TERM caught then
+			# was lost with the image and the node served on.
+			if started["n"].proc.poll() is None:
+				path = os.path.join(scratch, "admin-n")
+				with open(path) as f:
+					hops = len(f.read().split())
+				expect(socks["n"], "n", "set admin " + path, "ok %d" % hops)
+				os.kill(started["n"].proc.pid, signal.SIGTERM)
+				try:
+					started["n"].proc.wait(timeout=15)
+				except subprocess.TimeoutExpired:
+					raise failed("g: N, TERMed as it started again in place, still ran 15 s on")
+				print("livecheck: g: N, TERMed as it started again in place, stopped")
+			else:
+				raise failed("g: N was not running to be TERMed")
 			# A PASS'S LOGS TOO, when asked: what a debug line says of traffic
 			# that went wrong and recovered is in runs that pass.
 			if args.keep and args.keep_passed:

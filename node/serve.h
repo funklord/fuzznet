@@ -73,6 +73,11 @@ struct fzn_node_waiting;
 typedef struct fzn_node_state {
 	fzn_node_config_t config;
 	int listen_fd;	/* the AF_UNIX listener, or -1 */
+	/* NO MORE ACCEPTED while set, sec 1259: a node about to start again in
+	 * place leaves what arrives in the listener's backlog for the image it
+	 * starts, which keeps the listener, rather than answering it from the
+	 * state it is leaving. Zero for every other node. */
+	int hold_accepts;
 	int udp_fd;	/* the UDP socket, or -1 */
 	/* DATAGRAMS RECEIVED BY THEIR MARK, sec 1112: EF, AF41, any other DSCP,
 	 * none -- whether the path kept what senders set. Counted when the socket

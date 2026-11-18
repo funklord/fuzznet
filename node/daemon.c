@@ -178,6 +178,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/un.h>
 #include <stdarg.h>
 #include <poll.h>
 #include <stdio.h>
@@ -2330,6 +2331,7 @@ static int reach_ready(void)
 	return reach_table.cap != 0u;
 }
 static fzn_node_state_t *serving_state;
+static void restart_due(void);
 
 static int same_way(const fzn_udp_addr_t *a, const fzn_udp_addr_t *b)
 {
@@ -12088,7 +12090,7 @@ static size_t join_card(const uint8_t *card, size_t card_len, const uint8_t *w_h
 	                            fzn_trust_root(joining.trust), (const uint8_t *)where, (size_t)k))
 		return (size_t)snprintf(reply, cap, "error joined, and where the root is reached "
 		                                    "was not kept: start with --root-at\n");
-	rejoin_due = 1;
+	restart_due();
 	say(FZN_ENTRY_NOTE, "node/identity", "joined the estate rooted at %02x%02x%02x%02x, "
 	                                     "reached at %s; starting again",
 	    fzn_trust_root(joining.trust)[0], fzn_trust_root(joining.trust)[1],
@@ -12286,7 +12288,7 @@ static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *reques
 	if (rerr != FZN_NODE_REVOKE_OK)
 		return (size_t)snprintf(reply, cap, "error %s\n", fzn_node_revoke_err_str(rerr));
 	say(FZN_ENTRY_INFO, "node/admin", "an admin chain of %zu hop(s) kept; starting again", n);
-	rejoin_due = 1;
+	restart_due();
 	return (size_t)snprintf(reply, cap, "ok %zu\n", n);
 }
 
@@ -12296,16 +12298,52 @@ static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *reques
  * not be, having said so. */
 static void flush_held(void);
 
+/* THE LISTENER CARRIED ACROSS A START IN PLACE, sec 1259: its descriptor named
+ * in the environment for the image that follows. */
+#define FZND_LISTEN_FD "FZND_LISTEN_FD"
+
+/* A START IN PLACE DUE: nothing more accepted from here, so a request sent
+ * after the answer that made it due waits in the listener's backlog for the
+ * new image (sec 1259). fuzzypickles' `cap_install` then `caps` reached this
+ * image again, from the state it was leaving, under load. */
+static void restart_due(void)
+{
+	rejoin_due = 1;
+	if (serving_state)
+		serving_state->hold_accepts = 1;
+}
+
+/* Returns -2 where a TERM came first: the caller stops instead. */
 static int start_again(int lfd, const char *sock_path)
 {
 	long fd, max = sysconf(_SC_OPEN_MAX);
+	sigset_t term, was;
+	char word[24];
+	int keep;
 
+	/* A TERM FROM HERE ON STAYS PENDING, for the new image to take once its
+	 * handler is in (`term_unblock`): a handler's flag set here would be lost
+	 * with this image, and a TERM sent while a node started again in place
+	 * went unheard for 46 minutes (sec 1259). One taken already stops it. */
+	(void)sigemptyset(&term);
+	(void)sigaddset(&term, SIGTERM);
+	(void)sigprocmask(SIG_BLOCK, &term, &was);
+	if (stop_due) {
+		(void)sigprocmask(SIG_SETMASK, &was, NULL);
+		return -2;
+	}
 	flush_held();
-	fzn_socket_close(lfd, sock_path);
+	/* THE LISTENER KEPT, its path still bound: what arrives while this
+	 * starts again waits for the new image rather than finding nothing. */
+	keep = lfd >= 0 && fcntl(lfd, F_SETFD, 0) == 0 && snprintf(word, sizeof(word), "%d", lfd) > 0
+	       && setenv(FZND_LISTEN_FD, word, 1) == 0;
+	if (!keep)
+		fzn_socket_close(lfd, sock_path);
 	if (max < 0 || max > 65536)
 		max = 65536;
 	for (fd = 3; fd < max; fd++)
-		(void)close((int)fd);
+		if (!keep || fd != lfd)
+			(void)close((int)fd);
 	{
 		/* THE DAEMON'S OWN ARGV where it gave one, sec 835. */
 		char *const *argv = daemon_ext && daemon_ext->restart_argv ? daemon_ext->restart_argv
@@ -12316,8 +12354,60 @@ static int start_again(int lfd, const char *sock_path)
 			execvp(argv[0], argv);
 		}
 	}
+	if (keep) {
+		(void)unsetenv(FZND_LISTEN_FD);
+		fzn_socket_close(lfd, sock_path);
+	}
+	(void)sigprocmask(SIG_SETMASK, &was, NULL);
 	fprintf(stderr, "fuzznetd: joined, and could not start again: start it once more\n");
 	return 1;
+}
+
+/* THE LISTENER A START IN PLACE KEPT, sec 1259: the descriptor the image
+ * before named, where it is a listening socket bound to this very path; -1
+ * otherwise, and the name taken either way. */
+static int listener_kept(const char *sock_path)
+{
+	const char *w = getenv(FZND_LISTEN_FD);
+	struct sockaddr_un a;
+	socklen_t al = sizeof(a), ll;
+	int fd = -1, listening = 0;
+	char *end = NULL;
+	size_t pl;
+	long v;
+
+	if (!w)
+		return -1;
+	v = strtol(w, &end, 10);
+	(void)unsetenv(FZND_LISTEN_FD);
+	if (!sock_path || !end || *end || v < 3 || v > 65535)
+		return -1;
+	fd = (int)v;
+	ll = sizeof(listening);
+	memset(&a, 0, sizeof(a));
+	/* BOUND AS `PATH.tmp.PID` AND RENAMED (local/socket.c), so its own name
+	 * is the path or that name of it. */
+	pl = strlen(sock_path);
+	if (getsockname(fd, (struct sockaddr *)&a, &al) != 0 || a.sun_family != AF_UNIX || pl >= sizeof(a.sun_path)
+	    || strncmp(a.sun_path, sock_path, pl) != 0
+	    || (a.sun_path[pl] != '\0' && strncmp(a.sun_path + pl, ".tmp.", 5u) != 0)
+	    || getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &listening, &ll) != 0 || !listening) {
+		(void)close(fd);
+		return -1;
+	}
+	(void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+	return fd;
+}
+
+/* TERM TAKEN AGAIN once its handler is in: a start in place blocked it across
+ * exec, and one that arrived meanwhile is delivered now (sec 1259). */
+static void term_unblock(void)
+{
+	sigset_t term;
+
+	(void)sigemptyset(&term);
+	(void)sigaddset(&term, SIGTERM);
+	(void)sigprocmask(SIG_UNBLOCK, &term, NULL);
 }
 
 /* `put backup DIR` and `remove identity KEY`, this node's own user only:
@@ -23709,7 +23799,9 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 	 * in. fuzznetd alone, with nothing to pass through, has nothing to
 	 * follow for. */
 	if (sock_path) {
-		fzn_socket_err_t serr = fzn_socket_listen(sock_path, 0777u, SOMAXCONN, &lfd);
+		fzn_socket_err_t serr = (lfd = listener_kept(sock_path)) >= 0
+		                                ? FZN_SOCKET_OK
+		                                : fzn_socket_listen(sock_path, 0777u, SOMAXCONN, &lfd);
 
 		if (serr != FZN_SOCKET_OK) {
 			char face[1100];
@@ -23817,7 +23909,11 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 		if (fzn_claim_take(claim) == FZN_CLAIM_OK) {
 			fprintf(stderr, "fuzznetd: the face is gone; starting again as the face\n");
 			offers_withdraw();
-			return start_again(lfd, mine);
+			{
+				const int again = start_again(lfd, mine);
+
+				return again == -2 ? 0 : again;
+			}
 		}
 	}
 }
@@ -25205,7 +25301,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * in-process peer-credential check, which the kernel fills and no
 	 * client can forge. A deployment may tighten ownership and mode on
 	 * top of that. */
-	if (sock_path && fzn_socket_listen(sock_path, 0777u, SOMAXCONN, &lfd) != FZN_SOCKET_OK) {
+	/* THE LISTENER THE IMAGE BEFORE KEPT, where this is a start in place
+	 * (sec 1259); bound afresh otherwise. */
+	if (sock_path && (lfd = listener_kept(sock_path)) < 0
+	    && fzn_socket_listen(sock_path, 0777u, SOMAXCONN, &lfd) != FZN_SOCKET_OK) {
 		say(FZN_ENTRY_ERROR, "node", "could not listen on %s", sock_path);
 		return 1;
 	}
@@ -25972,6 +26071,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		}
 	}
 	stop_on_terminate();
+	term_unblock();
 	if (npulls || notes_on || state.reassembly) {
 		uint64_t next_pull = 0, last_fresh_round = 0, round_now = 0, round_began_ms = 0;
 		/* THE ROUND'S PERIOD, FZND_PULL_EVERY, or sec 692's bench's in a test
@@ -26619,9 +26719,14 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					fzn_udp_close(ufd);
 				return 0;
 			}
-			/* A JOIN, its answer out: started again, joined. sec 638. */
-			if (rejoin_due)
-				return start_again(lfd, sock_path);
+			/* A JOIN, its answer out: started again, joined. sec 638. A
+			 * TERM first stops it instead (sec 1259). */
+			if (rejoin_due) {
+				const int r = start_again(lfd, sock_path);
+
+				if (r != -2)
+					return r;
+			}
 			if (stop_due)
 				return stop_serving(lfd, sock_path, ufd);
 		}
@@ -26647,8 +26752,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		(void)fzn_node_run_once(&state, logs_verifying() ? 0 : 1000);
 		loop_after_answering(&state);
 	}
-	if (rejoin_due)
-		return start_again(lfd, sock_path);
+	if (rejoin_due) {
+		const int r = start_again(lfd, sock_path);
+
+		if (r != -2)
+			return r;
+	}
 	if (stop_due && !identity_reset)
 		return stop_serving(lfd, sock_path, ufd);
 	if (identity_reset) {

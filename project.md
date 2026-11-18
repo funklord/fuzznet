@@ -92122,6 +92122,53 @@ on the same socket path then sat as its follower, spinning, until the
 suite's hour killed it. They now wait for the process and kill it after
 ten seconds; the lost TERM around a restart in place is this tree's.
 
-Both are open here, to be measured: whether the install's reply waits
-for what it installs to be held, and whether a TERM arriving during the
-restart is kept for the new image.
+**Measured here, and both were real.** A probe on one node -- its own
+estate's root, keeping an admin chain it grants itself, which starts it
+again in place -- against fuzznetd at 85d24f2b: the request sent at once
+after `set admin` was refused in 8 of 8 rounds, and a TERM sent at once
+left the node running 15 s on. The code says why:
+
+- **The race**: the install answered, set `rejoin_due`, and the node went
+  on serving its pass -- `serve_ready_local` accepts until the backlog is
+  empty -- before the loop looked at the flag; then `start_again` closed
+  and unlinked the socket, and the new image bound it afresh. A request
+  sent at once was answered by the image leaving, from the state it was
+  leaving (fuzzypickles' `cap 1 0 0 0`, under load), or found no socket,
+  or was reset with the backlog.
+- **The lost TERM**: the handler sets `stop_due`; the loop looked at
+  `rejoin_due` first and executed, and `execv` drops the flag with the
+  image -- whether the TERM came before the exec or during `start_again`.
+
+**Fixed:**
+
+- **Accepting stops when a start in place is due** (`restart_due`, the
+  node state's `hold_accepts`, honoured by `serve_ready_local` and both
+  polls), so what arrives waits in the listener's backlog.
+- **The listener crosses the exec**: `start_again` leaves it open and its
+  path bound, naming the descriptor in FZND_LISTEN_FD, and the new image
+  takes it (`listener_kept`) where it is a listening socket bound to the
+  same path -- its name is `PATH.tmp.PID`, as `local/socket.c` binds and
+  renames, which a first version refused, closing the backlog with it.
+  So the request waits and the new image answers it: 8 of 8.
+- **TERM is blocked from the top of `start_again`**: one already caught
+  stops the start instead (`-2`, and the callers stop serving); one that
+  arrives later stays pending across the exec, and the new image takes it
+  once its handler is in (`term_unblock`). Stopped, 8 of 8.
+
+**Tests:** `live_location` phase s, on the same root: three starts in
+place, each next request answered by the new image (`get node`'s STARTED
+later), the socket's path watched every half millisecond and never gone,
+and a TERM sent at once after a fourth stopping it within 15 s -- against
+85d24f2b it fails on the TERM. Three sabotages, each caught
+(`restart-term-not-kept`, `restart-term-left-blocked`,
+`restart-listener-not-kept`). Holding accepts is guarded by timing alone
+-- the request must land within the old image's pass, which the probe
+does at debug logging and phase s does not -- so it carries no sabotage
+entry; a fourth tried as `restart-accepts-not-held` survived and was
+dropped.
+
+`live_estate` asks the same of every `set admin` (the next request
+answered by the node holding the chain) and gains phase g (a TERM at once
+after one); it fails today in phase a -- `get clock` at D answering
+`ok 0 1 unsure`, one device where three are meant -- at 85d24f2b as with
+this change, a regression since sec 1079's pass, open.

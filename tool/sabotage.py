@@ -17433,6 +17433,27 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"restart-term-not-kept",
+		"node/daemon.c",
+		"\t(void)sigprocmask(SIG_BLOCK, &term, &was);\n\tif (stop_due) {\n",
+		"\tif (0) {\n",
+		"a TERM sent as the node starts again in place is lost with the image, and it serves on; live_location phase s -- sec 1259",
+	),
+	(
+		"restart-term-left-blocked",
+		"node/daemon.c",
+		"\tstop_on_terminate();\n\tterm_unblock();\n",
+		"\tstop_on_terminate();\n",
+		"a TERM kept pending across a start in place is never taken by the new image; live_location phase s -- sec 1259",
+	),
+	(
+		"restart-listener-not-kept",
+		"node/daemon.c",
+		"\tkeep = lfd >= 0 && fcntl(lfd, F_SETFD, 0) == 0 && snprintf(word, sizeof(word), \"%d\", lfd) > 0\n",
+		"\tkeep = 0 && fcntl(lfd, F_SETFD, 0) == 0 && snprintf(word, sizeof(word), \"%d\", lfd) > 0\n",
+		"the socket's path is gone while the node starts again in place, and a request then finds none; live_location phase s -- sec 1259",
+	),
+	(
 		"rules-client-scope-dropped",
 		"local/rpc.c",
 		"\t\treq[2] = (uint8_t)(estate ? 1 : 0);\n\t\treq[3] = (uint8_t)(rule_len >> 8);\n",
