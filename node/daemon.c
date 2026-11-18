@@ -24872,6 +24872,23 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	}
 #endif
 	if (store_dir) {
+		/* THE DIRECTORY MADE, OR REFUSED, beerssh's of 2026-11-18: a store
+		 * that goes on when its disk will not (sec 917) took a new identity
+		 * into memory where the directory was missing, said "created", and
+		 * kept nothing -- so a later --accept made a second. One level, 0700,
+		 * as the secrets in it are; a missing parent is refused. */
+		struct stat dir_st;
+
+		if (stat(store_dir, &dir_st) != 0) {
+			if (errno != ENOENT || mkdir(store_dir, 0700) != 0) {
+				fprintf(stderr, "fuzznetd: %s does not exist and could not be made: %s\n", store_dir,
+				        strerror(errno));
+				return 1;
+			}
+		} else if (!S_ISDIR(dir_st.st_mode)) {
+			fprintf(stderr, "fuzznetd: %s is not a directory\n", store_dir);
+			return 1;
+		}
 		route.core = fzn_persist_file_init(&core_file, store_dir);
 		route.store = (bulk_dir == store_dir) ? route.core
 		                                      : fzn_persist_file_init(&bulk_file, bulk_dir);

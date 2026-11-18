@@ -69,11 +69,14 @@
  *                             consumers': never a build that ships, so a
  *                             test node and a person's never share one.
  *   FZN_PRODUCT_FUZZYPICKLES  fuzzypickles.
- *   FZN_PRODUCT_NETCFGD       netcfgd, and the fuzznetd a phone pairs with it. */
+ *   FZN_PRODUCT_NETCFGD       netcfgd, and the fuzznetd a phone pairs with it.
+ *   FZN_PRODUCT_BEERSSH       beerssh: beersshd and the client's device
+ *                             side, one product (asked 2026-11-18, sec 1270). */
 #define FZN_SERVICE_NODE 1u
 #define FZN_PRODUCT_TEST 1u
 #define FZN_PRODUCT_FUZZYPICKLES 2u
 #define FZN_PRODUCT_NETCFGD 3u
+#define FZN_PRODUCT_BEERSSH 4u
 
 /* The longest consumer-supplied name. Bounded so the derivation's input
  * buffer is a fixed size and the function allocates nothing, which is this

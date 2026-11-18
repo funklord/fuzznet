@@ -172,8 +172,12 @@ def main(argv):
 		run.scratch = scratch
 		dirs = {k: os.path.join(scratch, k) for k in ("r", "d", "o", "p")}
 		sock = os.path.join(sock_dir, "r")
-		for d in dirs.values():
-			os.mkdir(d)
+		# P IS NOT MADE HERE: its --prekey makes it, and its --accept then
+		# finds the same identity -- beerssh's of 2026-11-18, where a missing
+		# directory took a key into memory only and the accept made a second.
+		for k, d in dirs.items():
+			if k != "p":
+				os.mkdir(d)
 		r = None
 		try:
 			# THE MANUAL KEY EXCHANGE: two pieces of text, carried by hand.
