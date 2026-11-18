@@ -92173,28 +92173,27 @@ after one); it fails today in phase a -- `get clock` at D answering
 `ok 0 1 unsure`, one device where three are meant -- at 85d24f2b as with
 this change, a regression since sec 1079's pass, open.
 
-## 1260. live_estate: the clocks need two rounds; estate settings late in phase b, open, 2026-11-18
+## 1260. live_estate runs on the faults build, and now says so when it does not, 2026-11-18
 
-Found verifying sec 1259, whose `live_estate` checks never ran: the test
-fails in phase a, today at 85d24f2b, at 046debc9, and at cdb1c009 --
-sec 1079's last recorded pass -- built in a scratch worktree and run with
-the same script. So no commit since introduced it.
+Found verifying sec 1259. **Run against the plain `fuzznetd`, `live_estate`
+failed** -- phase a (D counting one device's clock where three), and past
+it phase b (an estate setting still absent at a member after `settle`) --
+at every commit tried, cdb1c009 included. That read as a regression, was
+bisected, and was "fixed" by giving phase a three rounds (597d6e5e).
+**It was none of those.** The test waits in ROUND_S, 2 s, rounds, set by
+`FZN_TUNE_PULL_EVERY`, which only `make fuzznetd-faults` honours (`fault/fault.h`:
+FZN_TUNE is the default elsewhere); `make livecheck-faults` runs it on
+that build. A plain build keeps 60 s rounds, and every `settle` falls
+short. On `faults/fuzznetd` every phase passed, a through g, phase a in
+6 s.
 
-- **Phase a, the clocks**: D answered `get clock` with one device where
-  three were meant. A device learns the two that joined from its next
-  round's manifest, pairs them, and measures them a round after: up to
-  two of its 60 s rounds, where the poll gave `settle`, one. Given three
-  (`within=3.0 * settle`), phase a passed in two runs of two, at 123 s
-  each time -- a check that passed only when the rounds fell well.
-- **Phase b, open**: past phase a, two runs failed at two different
-  estate settings, each still `absent` at its member after `settle` --
-  R's `b/root` at A1 in one, A1's `b/race` at R in the other -- with the
-  pushes logged as made. Not explained; the obvious reading, timing like
-  phase a's, is not measured. The second run's kept logs do not settle
-  it: every daemon's ends at 08:40:41, as phase a passed, a minute before
-  the poll gave up -- the lines after were buffered and went with the
-  KILL -- so they cannot say whether the setting arrived late or never.
-  A write just after a round needs the next one (60 s) and its
-  application, which one `settle` does not cover; whether estate writes
-  were once pushed at once and are not now is the question to measure
-  next. Until then `live_estate` passes phase a and not b.
+- **597d6e5e's three rounds are reverted**: they fixed nothing but the
+  wrong build.
+- **The test now refuses a build that does not honour the tune**, after
+  R's first round, by the line a daemon writes when a tune is set ("PULL_EVERY
+  tuned to"), naming the build to use -- so the next run on the wrong
+  build says why in one line rather than failing in phase a or b.
+
+The lesson is the one this tree's guidelines name: the instrument was
+the suspect. A test that has a build of its own says so in its Makefile
+target, and the way it was run did not use it.

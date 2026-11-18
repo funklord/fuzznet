@@ -378,6 +378,14 @@ def main(argv):
 			command(run, ["--fuzznet-dir=" + dirs["r"], "--new-root"], None)
 			up("r")
 			started["r"].wait_for(ROUND_DONE_RE, "R's first round")
+			# A FAULTS BUILD OR NOTHING, sec 1260: every wait here is of
+			# ROUND_S rounds, which FZN_TUNE_PULL_EVERY sets only in
+			# `make fuzznetd-faults`; a plain build keeps its 60 s rounds and
+			# fails phase a and b by timing, which read once as a regression.
+			if "PULL_EVERY tuned to" not in started["r"].stderr():
+				raise failed("this fuzznetd does not honour FZN_TUNE_PULL_EVERY: not a faults "
+				             "build, so its rounds are 60 s where this test waits for %s s ones "
+				             "-- run it as `make livecheck-faults` does" % ROUND_S)
 			expect(socks["r"], "r", "set setting host net/address 127.0.0.1 " + port["r"], "ok")
 			# A ROOT'S RECORD FIRST: k is a root's to set once it has one.
 			expect(socks["r"], "r", "set setting estate x/start 1", "ok")
@@ -405,18 +413,12 @@ def main(argv):
 				        "r": (0, "right")}
 				settling = time.monotonic()
 				for who, (at, state) in want.items():
-					# THREE ROUNDS, sec 1260: a device learns the two that
-					# joined from its next round's manifest, pairs them, and
-					# measures them in a round after -- up to two of its 60 s
-					# rounds, where `settle` gave one and a run passed only
-					# when the rounds fell well.
 					try:
 						polled(who, "get clock",
 						       lambda g, at=at, state=state: len(g.split()) == 4
 						       and g.split()[3] == state and g.split()[2] == "3"
 						       and abs(int(g.split()[1]) - at) <= 5000,
-						       "not %s at about %d ms against three devices" % (state, at),
-						       within=3.0 * settle)
+						       "not %s at about %d ms against three devices" % (state, at))
 					except failed as e:
 						raise failed("a: %s; its list offset %r" % (e, said(who, "list offset")))
 				# AND TOLD AS IT CHANGED: unsure to right or wrong is a clock
