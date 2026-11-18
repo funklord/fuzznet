@@ -227,6 +227,21 @@ fzn_messages_err_t fzn_messages_read_up_to(const fzn_messages_t *m,
                                            const uint8_t contact[FZN_PUBKEY_LEN],
                                            const uint8_t id[FZN_MESSAGE_ID_LEN]);
 
+/* A CALL THAT ENDED, sec 1255: written as a record, which the user's other
+ * devices take in as they take lines, and kept in `contact`'s call
+ * history -- the newest FZN_MESSAGES_CALLS_MAX, one a call: where two hosts
+ * of this user each wrote one for the same call, an answered one wins, and
+ * otherwise the first held. Never a line: not counted unread, never sent
+ * to the contact. */
+#define FZN_MESSAGES_CALLS_MAX 20u
+fzn_messages_err_t fzn_messages_call(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                                     const fzn_message_call_t *call);
+
+/* `contact`'s call history, newest first by when each was rung: `*count`
+ * of them, at most `cap`. */
+fzn_messages_err_t fzn_messages_calls(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                                      fzn_message_call_t *out, size_t cap, size_t *count);
+
 /* The read position: nonzero, and the line's id, when there is one. */
 int fzn_messages_read_position(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                                uint8_t id[FZN_MESSAGE_ID_LEN]);

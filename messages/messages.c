@@ -1593,6 +1593,93 @@ static int set_read(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LE
 	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, bytes, sizeof(bytes));
 }
 
+/* ---- a conversation's calls, sec 1255 ------------------------------- */
+
+/* THE HISTORY ROW: the bodies of up to FZN_MESSAGES_CALLS_MAX calls, newest
+ * first by when each was rung. Derived from the records, so a reindex
+ * clears it and the absorb that follows writes it again. */
+static size_t calls_load(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                         fzn_message_call_t out[FZN_MESSAGES_CALLS_MAX])
+{
+	uint8_t row[FZN_PUBKEY_LEN], held[FZN_MESSAGES_CALLS_MAX * FZN_MESSAGE_CALL_LEN];
+	size_t len = 0, n = 0, at;
+
+	if (!index_row(m, "calls", contact, 0u, row)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, held, sizeof(held), &len))
+		return 0;
+	for (at = 0; at + FZN_MESSAGE_CALL_LEN <= len && n < FZN_MESSAGES_CALLS_MAX; at += FZN_MESSAGE_CALL_LEN)
+		if (fzn_message_call_read(held + at, FZN_MESSAGE_CALL_LEN, &out[n]))
+			n++;
+	return n;
+}
+
+/* ONE CALL KEPT: in its place by when it was rung, the oldest let go past
+ * the most; for a call already held, an answered one wins over any other
+ * and otherwise the first stays -- each host of this user that rang for a
+ * call may write one. */
+static int keep_call(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], const fzn_message_call_t *c)
+{
+	fzn_message_call_t held[FZN_MESSAGES_CALLS_MAX + 1u];
+	uint8_t row[FZN_PUBKEY_LEN], bytes[FZN_MESSAGES_CALLS_MAX * FZN_MESSAGE_CALL_LEN];
+	size_t n = calls_load(m, contact, held), i, at;
+
+	for (i = 0; i < n; i++)
+		if (memcmp(held[i].id, c->id, FZN_MESSAGE_CALL_ID_LEN) == 0) {
+			if (c->outcome != FZN_MESSAGE_CALL_ANSWERED || held[i].outcome == FZN_MESSAGE_CALL_ANSWERED)
+				return 1;
+			memmove(&held[i], &held[i + 1u], (n - i - 1u) * sizeof(held[0]));
+			n--;
+			break;
+		}
+	/* AHEAD OF ONE RUNG THE SAME SECOND: the later written is the newer. */
+	for (at = 0; at < n && held[at].started > c->started; at++)
+		;
+	if (at >= FZN_MESSAGES_CALLS_MAX)
+		return 1;
+	memmove(&held[at + 1u], &held[at], (n - at) * sizeof(held[0]));
+	held[at] = *c;
+	if (++n > FZN_MESSAGES_CALLS_MAX)
+		n = FZN_MESSAGES_CALLS_MAX;
+	for (i = 0; i < n; i++)
+		if (!fzn_message_call_write(&held[i], bytes + i * FZN_MESSAGE_CALL_LEN))
+			return 0;
+	return index_row(m, "calls", contact, 0u, row)
+	       && m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, bytes, n * FZN_MESSAGE_CALL_LEN);
+}
+
+fzn_messages_err_t fzn_messages_call(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                                     const fzn_message_call_t *call)
+{
+	uint8_t body[FZN_MESSAGE_CALL_LEN];
+	uint64_t before;
+
+	if (!ready(m) || !contact || !call || !fzn_message_call_write(call, body))
+		return FZN_MESSAGES_ERR_MALFORMED;
+	before = own_head(m);
+	/* THE RECORD FIRST, as a mark's: the row is derived from it. */
+	if (fzn_node_journal_append_on(m->journal, m->issuer, FZN_MESSAGE_STREAM, m->sign, FZN_MESSAGE_CALL_KIND,
+	                               contact, body, sizeof(body), m->now(), NULL)
+	    != FZN_NODE_JOURNAL_OK)
+		return FZN_MESSAGES_ERR_JOURNAL;
+	if (!keep_call(m, contact, call) || (took_own(m, before) && !set_cursor(m, m->issuer, own_head(m))))
+		return FZN_MESSAGES_ERR_BACKEND;
+	return FZN_MESSAGES_OK;
+}
+
+fzn_messages_err_t fzn_messages_calls(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                                      fzn_message_call_t *out, size_t cap, size_t *count)
+{
+	fzn_message_call_t held[FZN_MESSAGES_CALLS_MAX];
+	size_t n;
+
+	if (!ready(m) || !contact || !count || (cap && !out))
+		return FZN_MESSAGES_ERR_MALFORMED;
+	n = calls_load(m, contact, held);
+	*count = n < cap ? n : cap;
+	memcpy(out, held, *count * sizeof(held[0]));
+	return FZN_MESSAGES_OK;
+}
+
 int fzn_messages_read_position(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                                uint8_t id[FZN_MESSAGE_ID_LEN])
 {
@@ -1694,6 +1781,13 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 	} else if (fresh && fzn_record_kind(rec) == FZN_MESSAGE_READ_KIND
 	           && fzn_message_position_read(fzn_record_body(rec), fzn_record_body_len(rec), id)) {
 		if (!set_read(m, contact, id, fzn_record_issued_at(rec)))
+			return FZN_MESSAGES_ERR_BACKEND;
+	} else if (fresh && fzn_record_kind(rec) == FZN_MESSAGE_CALL_KIND) {
+		/* ANOTHER DEVICE'S CALL, sec 1255: into the history as its own are. */
+		fzn_message_call_t call;
+
+		if (fzn_message_call_read(fzn_record_body(rec), fzn_record_body_len(rec), &call)
+		    && !keep_call(m, contact, &call))
 			return FZN_MESSAGES_ERR_BACKEND;
 	}
 	if (fresh)
@@ -2446,6 +2540,10 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 					return FZN_MESSAGES_ERR_BACKEND;
 			} else if (fzn_record_kind(rec) == FZN_MESSAGE_READ_KIND) {
 				if (!index_row(m, "read", contact, 0u, row)
+				    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row))
+					return FZN_MESSAGES_ERR_BACKEND;
+			} else if (fzn_record_kind(rec) == FZN_MESSAGE_CALL_KIND) {
+				if (!index_row(m, "calls", contact, 0u, row)
 				    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row))
 					return FZN_MESSAGES_ERR_BACKEND;
 			}

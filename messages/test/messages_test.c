@@ -1064,6 +1064,83 @@ static void test_read_state_travels(void)
 	      "B's read, absorbed after A's newer one, does not replace it");
 }
 
+/* A CALL'S HISTORY, sec 1255: kept newest first by when it was rung, not
+ * a line -- nothing unread for it, the conversation's lines untouched;
+ * carried to the user's other device; one per call, an answered one
+ * winning over the same call missed elsewhere; the oldest let go past the
+ * most; and rebuilt by a reindex. A body out of its ranges refused. */
+static void test_call_history_travels(void)
+{
+	fzn_message_call_t c, got[FZN_MESSAGES_CALLS_MAX + 2u];
+	uint8_t body[FZN_MESSAGE_CALL_LEN];
+	size_t n = 0, unread = 99u, marks = 0, i;
+	int beyond = 1;
+
+	setup();
+	memset(&c, 0, sizeof(c));
+	c.direction = FZN_MESSAGE_IN;
+	c.kinds = 1u;
+	c.outcome = FZN_MESSAGE_CALL_MISSED;
+	memset(c.id, 0xa1, sizeof(c.id));
+	c.started = 1000u;
+	CHECK(fzn_messages_call(&A.m, X, &c) == FZN_MESSAGES_OK, "a missed call was not kept");
+	c.direction = FZN_MESSAGE_OUT;
+	c.kinds = 3u;
+	c.outcome = FZN_MESSAGE_CALL_ANSWERED;
+	memset(c.id, 0xb2, sizeof(c.id));
+	c.started = 2000u;
+	c.seconds = 252u;
+	CHECK(fzn_messages_call(&A.m, X, &c) == FZN_MESSAGES_OK
+	              && fzn_messages_calls(&A.m, X, got, 4u, &n) == FZN_MESSAGES_OK && n == 2u
+	              && got[0].started == 2000u && got[0].seconds == 252u && got[0].kinds == 3u
+	              && got[0].direction == FZN_MESSAGE_OUT && got[1].outcome == FZN_MESSAGE_CALL_MISSED,
+	      "the calls were not kept newest first, each as written");
+	CHECK(fzn_messages_unread(&A.m, X, &unread, &beyond) == FZN_MESSAGES_OK && unread == 0u
+	              && list(&A, X, 0u, 5u) && count == 0u,
+	      "a call was counted unread, or listed as a line");
+	/* ON B: carried; and B's answer to the call A missed wins. */
+	sync_b();
+	CHECK(fzn_messages_calls(&B.m, X, got, 4u, &n) == FZN_MESSAGES_OK && n == 2u && got[1].id[0] == 0xa1,
+	      "the calls were not carried to the user's other device");
+	c.direction = FZN_MESSAGE_IN;
+	c.kinds = 1u;
+	memset(c.id, 0xa1, sizeof(c.id));
+	c.started = 1000u;
+	c.seconds = 61u;
+	CHECK(fzn_messages_call(&B.m, X, &c) == FZN_MESSAGES_OK, "fixture: B answered the call A missed");
+	sync_a();
+	CHECK(fzn_messages_calls(&A.m, X, got, 4u, &n) == FZN_MESSAGES_OK && n == 2u
+	              && got[1].outcome == FZN_MESSAGE_CALL_ANSWERED && got[1].seconds == 61u,
+	      "the same call answered on B did not replace it missed on A, once");
+	c.outcome = FZN_MESSAGE_CALL_ELSEWHERE;
+	c.seconds = 0u;
+	CHECK(fzn_messages_call(&A.m, X, &c) == FZN_MESSAGES_OK
+	              && fzn_messages_calls(&A.m, X, got, 4u, &n) == FZN_MESSAGES_OK && n == 2u
+	              && got[1].outcome == FZN_MESSAGE_CALL_ANSWERED,
+	      "an answered call was replaced by the same call said otherwise");
+	/* THE MOST: the oldest let go. */
+	c.outcome = FZN_MESSAGE_CALL_NO_ANSWER;
+	for (i = 0; i < FZN_MESSAGES_CALLS_MAX; i++) {
+		memset(c.id, (int)(0x10u + i), sizeof(c.id));
+		c.started = 3000u + i;
+		(void)fzn_messages_call(&A.m, X, &c);
+	}
+	CHECK(fzn_messages_calls(&A.m, X, got, FZN_MESSAGES_CALLS_MAX + 2u, &n) == FZN_MESSAGES_OK
+	              && n == FZN_MESSAGES_CALLS_MAX && got[0].started == 3000u + FZN_MESSAGES_CALLS_MAX - 1u
+	              && got[n - 1u].started == 3000u,
+	      "past the most, the oldest calls were not the ones let go");
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK
+	              && fzn_messages_calls(&A.m, X, got, FZN_MESSAGES_CALLS_MAX + 2u, &n) == FZN_MESSAGES_OK
+	              && n == FZN_MESSAGES_CALLS_MAX && got[0].started == 3000u + FZN_MESSAGES_CALLS_MAX - 1u,
+	      "a reindex did not rebuild the call history from the records");
+	c.kinds = 0u;
+	CHECK(!fzn_message_call_write(&c, body), "a call with no kind was written");
+	c.kinds = 1u;
+	(void)fzn_message_call_write(&c, body);
+	body[FZN_MESSAGE_CALL_OFF_OUTCOME] = 9u;
+	CHECK(!fzn_message_call_read(body, sizeof(body), &c), "a call of no outcome was read");
+}
+
 /* THE ORDER A REBUILD GIVES is the order the lines were written, whichever
  * device wrote them; and taking a stream in again from the beginning adds
  * nothing. */
@@ -2046,6 +2123,7 @@ int main(void)
 	test_one_conversation_reads_only_its_own();
 	test_import_keeps_a_line_once();
 	test_read_state_travels();
+	test_call_history_travels();
 	test_reindex_orders_by_writing();
 	test_the_same_line_far_apart();
 	test_lines_from_before_marks();

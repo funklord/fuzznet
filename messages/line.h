@@ -41,6 +41,8 @@
 #define FZN_MESSAGE_MARK_KIND 0x137u
 /* A conversation read up to a line, sec 528. */
 #define FZN_MESSAGE_READ_KIND 0x237u
+/* A call that ended, the user's call history, sec 1255. */
+#define FZN_MESSAGE_CALL_KIND 0x337u
 
 #define FZN_MESSAGE_VERSION 1u
 #define FZN_MESSAGE_ID_LEN 16u
@@ -78,6 +80,22 @@
 
 #define FZN_MESSAGE_READ_OFF_VERSION 0u
 #define FZN_MESSAGE_READ_OFF_ID 1u
+#define FZN_MESSAGE_CALL_OFF_VERSION 0u
+#define FZN_MESSAGE_CALL_OFF_DIRECTION 1u
+#define FZN_MESSAGE_CALL_OFF_KINDS 2u
+#define FZN_MESSAGE_CALL_OFF_OUTCOME 3u
+#define FZN_MESSAGE_CALL_OFF_ID 4u
+#define FZN_MESSAGE_CALL_OFF_STARTED 12u
+#define FZN_MESSAGE_CALL_OFF_SECONDS 20u
+#define FZN_MESSAGE_CALL_LEN 24u
+#define FZN_MESSAGE_CALL_ID_LEN 8u
+#define FZN_MESSAGE_CALL_ANSWERED 1u
+#define FZN_MESSAGE_CALL_MISSED 2u
+#define FZN_MESSAGE_CALL_DECLINED 3u
+#define FZN_MESSAGE_CALL_BUSY 4u
+#define FZN_MESSAGE_CALL_NO_ANSWER 5u
+#define FZN_MESSAGE_CALL_ELSEWHERE 6u
+#define FZN_MESSAGE_CALL_FAILED 7u
 #define FZN_MESSAGE_READ_LEN 17u
 
 /* A conversation's key for one epoch. */
@@ -103,6 +121,19 @@ typedef struct fzn_message_mark {
 	uint8_t state;
 	uint8_t id[FZN_MESSAGE_ID_LEN];
 } fzn_message_mark_t;
+
+/* A CALL THAT ENDED, sec 1255: `direction` FZN_MESSAGE_OUT where this user
+ * rang; `kinds` audio 1, video 2; `outcome` a FZN_MESSAGE_CALL_ word;
+ * `started` when it was rung, seconds since 1970; `seconds` how long it
+ * was up, 0 where it never was. */
+typedef struct fzn_message_call {
+	uint8_t direction;
+	uint8_t kinds;
+	uint8_t outcome;
+	uint8_t id[FZN_MESSAGE_CALL_ID_LEN];
+	uint64_t started;
+	uint32_t seconds;
+} fzn_message_call_t;
 
 /* How many parts a text of `len` bytes takes: 1 or 2, 0 past the most. */
 size_t fzn_message_parts_for(size_t len);
@@ -145,5 +176,10 @@ int fzn_message_mark_read(const uint8_t *body, size_t len, fzn_message_mark_t *o
 int fzn_message_position_write(const uint8_t id[FZN_MESSAGE_ID_LEN],
                                uint8_t out[FZN_MESSAGE_READ_LEN]);
 int fzn_message_position_read(const uint8_t *body, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN]);
+
+/* A call's body, `messages/line.situ`'s fzn_message_call: 1, or 0 for one
+ * out of its ranges. */
+int fzn_message_call_write(const fzn_message_call_t *c, uint8_t out[FZN_MESSAGE_CALL_LEN]);
+int fzn_message_call_read(const uint8_t *body, size_t len, fzn_message_call_t *out);
 
 #endif /* FZN_MESSAGES_LINE_H */

@@ -199,6 +199,41 @@ int fzn_message_position_read(const uint8_t *body, size_t len, uint8_t id[FZN_ME
 	return 1;
 }
 
+static int call_ok(uint8_t direction, uint8_t kinds, uint8_t outcome)
+{
+	return direction_ok(direction) && kinds >= 1u && kinds <= 3u && outcome >= FZN_MESSAGE_CALL_ANSWERED
+	       && outcome <= FZN_MESSAGE_CALL_FAILED;
+}
+
+int fzn_message_call_write(const fzn_message_call_t *c, uint8_t out[FZN_MESSAGE_CALL_LEN])
+{
+	if (!c || !out || !call_ok(c->direction, c->kinds, c->outcome))
+		return 0;
+	out[FZN_MESSAGE_CALL_OFF_VERSION] = FZN_MESSAGE_VERSION;
+	out[FZN_MESSAGE_CALL_OFF_DIRECTION] = c->direction;
+	out[FZN_MESSAGE_CALL_OFF_KINDS] = c->kinds;
+	out[FZN_MESSAGE_CALL_OFF_OUTCOME] = c->outcome;
+	memcpy(out + FZN_MESSAGE_CALL_OFF_ID, c->id, FZN_MESSAGE_CALL_ID_LEN);
+	fzn_put_be64(out + FZN_MESSAGE_CALL_OFF_STARTED, c->started);
+	fzn_put_be32(out + FZN_MESSAGE_CALL_OFF_SECONDS, c->seconds);
+	return 1;
+}
+
+int fzn_message_call_read(const uint8_t *body, size_t len, fzn_message_call_t *out)
+{
+	if (!body || !out || len != FZN_MESSAGE_CALL_LEN || body[FZN_MESSAGE_CALL_OFF_VERSION] != FZN_MESSAGE_VERSION
+	    || !call_ok(body[FZN_MESSAGE_CALL_OFF_DIRECTION], body[FZN_MESSAGE_CALL_OFF_KINDS],
+	                body[FZN_MESSAGE_CALL_OFF_OUTCOME]))
+		return 0;
+	out->direction = body[FZN_MESSAGE_CALL_OFF_DIRECTION];
+	out->kinds = body[FZN_MESSAGE_CALL_OFF_KINDS];
+	out->outcome = body[FZN_MESSAGE_CALL_OFF_OUTCOME];
+	memcpy(out->id, body + FZN_MESSAGE_CALL_OFF_ID, FZN_MESSAGE_CALL_ID_LEN);
+	out->started = fzn_get_be64(body + FZN_MESSAGE_CALL_OFF_STARTED);
+	out->seconds = fzn_get_be32(body + FZN_MESSAGE_CALL_OFF_SECONDS);
+	return 1;
+}
+
 int fzn_message_mark_read(const uint8_t *body, size_t len, fzn_message_mark_t *out)
 {
 	if (!body || !out || len != FZN_MESSAGE_MARK_LEN

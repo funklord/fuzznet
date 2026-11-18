@@ -51,6 +51,29 @@ struct fzn_message_mark {
 	u8                     id[16];                  //  3 the line's id
 }
 
+enum fzn_message_call_outcome : u8 {
+	answered  = 1,	// it was up, SECONDS long
+	missed    = 2,	// rang here and nobody answered anywhere
+	declined  = 3,	// refused, by either end
+	busy      = 4,	// the callee's guard refused the ring
+	no_answer = 5,	// rang out and the callee did not answer
+	elsewhere = 6,	// another of this user's hosts took or refused it
+	failed    = 7,	// ended any other way: unreachable, dropped
+}
+
+// A CALL THAT ENDED, kind 0x337, sec 1255: the user's call history, which
+// travels between their devices as lines do and is never a line -- not
+// counted unread, never delivered. Written by the host that carried it.
+struct fzn_message_call {
+	u8                        version [must_eq = 1];    //  0
+	fzn_message_direction     direction;                //  1 out: this user rang
+	u8                        kinds [min = 1, max = 3]; //  2 audio 1, video 2
+	fzn_message_call_outcome  outcome;                  //  3
+	u8                        id[8];                    //  4 the call's id
+	u64                       started;                  // 12 rung, seconds since 1970
+	u32                       seconds;                  // 20 how long it was up
+}
+
 // A LINE AS THE STORE KEEPS IT, secs 536 and 539: persist slot 37, one row
 // per line a conversation's index names, under a hash of the writing device
 // and the last part's sequence. The journal carries lines between devices

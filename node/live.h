@@ -227,6 +227,11 @@ typedef struct fzn_live_call {
 	uint8_t host[FZN_PUBKEY_LEN];
 	uint8_t kinds;
 	uint64_t since_s, heard_s;
+	/* WHEN IT WENT UP, seconds, 0 while it has not: how long it ran, for the
+	 * call history (sec 1255). */
+	uint64_t up_s;
+	/* RUNG FROM HERE, or for a sibling here: the history's direction. */
+	uint8_t rang_out;
 	/* HOW LONG IT RINGS here, seconds, sec 1073; 0 for FZN_LIVE_RING_S. */
 	uint32_t ring_s;
 	/* RINGING CHECKED, sec 1062: when the other end was last heard ringing, ms --

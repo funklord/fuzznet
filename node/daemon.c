@@ -19553,11 +19553,51 @@ static void calls_ended_prune(uint64_t now_ms)
 	n_calls_ended = k;
 }
 
+/* THE CALL KEPT IN ITS CONVERSATION'S HISTORY, sec 1255: one with one other
+ * user -- a group's hub keeps none -- its outcome said from how it ended,
+ * and how long it was up. Where this node keeps no messages the store
+ * refuses it, and nothing is kept. */
+static void call_history(const fzn_live_call_t *c, const char *why)
+{
+	const struct live_kept *k = kept_of(c->call, 0);
+	char user[2u * FZN_PUBKEY_LEN + 1u];
+	uint8_t who[FZN_PUBKEY_LEN];
+	fzn_message_call_t h;
+	const uint64_t now = wall_clock();
+
+	if (k && k->n_participants > 1u)
+		return;
+	call_user_of(c, user);
+	if (strlen(user) != 2u * FZN_PUBKEY_LEN || !unhex_n((const uint8_t *)user, strlen(user), who, sizeof(who)))
+		return;
+	memset(&h, 0, sizeof(h));
+	h.direction = c->rang_out ? FZN_MESSAGE_OUT : FZN_MESSAGE_IN;
+	h.kinds = c->kinds ? c->kinds : 1u;
+	memcpy(h.id, c->call, FZN_MESSAGE_CALL_ID_LEN);
+	h.started = c->since_s;
+	if (c->up_s) {
+		h.outcome = FZN_MESSAGE_CALL_ANSWERED;
+		h.seconds = now > c->up_s ? (uint32_t)(now - c->up_s) : 0u;
+	} else if (!strcmp(why, "answered-elsewhere") || !strcmp(why, "declined-elsewhere")) {
+		h.outcome = FZN_MESSAGE_CALL_ELSEWHERE;
+	} else if (!strcmp(why, "declined")) {
+		h.outcome = FZN_MESSAGE_CALL_DECLINED;
+	} else if (!strcmp(why, "busy")) {
+		h.outcome = FZN_MESSAGE_CALL_BUSY;
+	} else if (c->rang_out) {
+		h.outcome = !strcmp(why, "unreachable") ? FZN_MESSAGE_CALL_FAILED : FZN_MESSAGE_CALL_NO_ANSWER;
+	} else {
+		h.outcome = FZN_MESSAGE_CALL_MISSED;
+	}
+	(void)fzn_messages_call(&node_messages.m, who, &h);
+}
+
 static void call_ended_note(const fzn_live_call_t *c, const char *why)
 {
 	struct call_ended *e;
 	uint64_t now_ms = wall_ms();
 
+	call_history(c, why);
 	calls_ended_prune(now_ms);
 	if (!heap_room((void **)&calls_ended, &calls_ended_cap, n_calls_ended + 1u,
 	               sizeof(*calls_ended)))
@@ -19699,6 +19739,7 @@ static void live_from_sibling(const uint8_t sibling[FZN_PUBKEY_LEN], const fzn_l
 		memcpy(k->sibling, sibling, FZN_PUBKEY_LEN);
 		k->has_sibling = 1;
 		c->state = FZN_LIVE_RINGING_OUT;
+		c->rang_out = 1;
 		memcpy(c->host, host, FZN_PUBKEY_LEN);
 		c->kinds = w->kinds;
 		c->ring_s = FZN_LIVE_RING_MAX_S; /* the receiver's to end, sec 1073 */
@@ -19722,6 +19763,7 @@ static void live_from_sibling(const uint8_t sibling[FZN_PUBKEY_LEN], const fzn_l
 		memcpy(k->sibling, sibling, FZN_PUBKEY_LEN);
 		k->has_sibling = 1;
 		c->state = FZN_LIVE_UP;
+		c->up_s = wall_clock(); /* the call history's SECONDS, sec 1255 */
 		c->heard_s = wall_clock();
 		if ((n = live_bare(FZN_LIVE_ANSWERED_ELSEWHERE, w->call, word)) != 0u)
 			say_siblings(sibling, word, n);
@@ -19883,6 +19925,7 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 			}
 			if (c->state == FZN_LIVE_RINGING_OUT) {
 				c->state = FZN_LIVE_UP;
+				c->up_s = wall_clock(); /* the call history's SECONDS, sec 1255 */
 				live_told(w.call, "answered");
 				if (k->has_sibling)
 					(void)fzn_daemon_say(k->sibling, bytes, len);
@@ -19985,6 +20028,7 @@ static void live_heard(const uint8_t host[FZN_PUBKEY_LEN], const uint8_t *bytes,
 	case FZN_LIVE_ANSWER:
 		if (c->state == FZN_LIVE_RINGING_OUT) {
 			c->state = FZN_LIVE_UP;
+			c->up_s = wall_clock(); /* the call history's SECONDS, sec 1255 */
 			live_told(w.call, "answered");
 		}
 		break;
@@ -20221,6 +20265,36 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 	 * callee the caller's user, at the caller the first user rung; `-` when this
 	 * host cannot say. A fourth field, so a client reading three reads three.
 	 * A call ended is not listed: `get call ID` says why (sec 1082). */
+	/* `list call history NAME`: that contact's calls, newest first by when
+	 * each was rung, `ok N ID,DIRECTION,KINDS,OUTCOME,STARTED,SECONDS ...`
+	 * -- DIRECTION `out` or `in`, OUTCOME a word (sec 1255). Kept on every
+	 * device of this user, as lines are; never a line. */
+	if (request->parsed == FZN_VERB_LIST && subject_len == 4u && left) {
+		static const char *const OUTCOMES[] = { "",         "answered",  "missed", "declined",
+			                                "busy",     "no-answer", "elsewhere", "failed" };
+		fzn_message_call_t got[FZN_MESSAGES_CALLS_MAX];
+		fzn_contact_t who;
+		size_t count = 0;
+
+		if (!next_word(&at, &left, &w, &w_len) || w_len != 7u || memcmp(w, "history", 7u) != 0
+		    || !next_word(&at, &left, &w, &w_len) || left)
+			return (size_t)snprintf(reply, cap, "malformed list call [history NAME]\n");
+		if (fzn_contact_find(node_apply.store, (const char *)w, w_len, &who) != FZN_CONTACT_OK)
+			return (size_t)snprintf(reply, cap, "error no such contact\n");
+		if (fzn_messages_calls(&node_messages.m, who.key, got, FZN_MESSAGES_CALLS_MAX, &count) != FZN_MESSAGES_OK)
+			return (size_t)snprintf(reply, cap, "error this node keeps no messages\n");
+		n = (size_t)snprintf(reply, cap, "ok %zu", count);
+		for (i = 0; i < count && n + 80u < cap; i++) {
+			char id[2u * FZN_MESSAGE_CALL_ID_LEN + 1u];
+
+			hex_of(got[i].id, FZN_MESSAGE_CALL_ID_LEN, id);
+			n += (size_t)snprintf(reply + n, cap - n, " %s,%s,%u,%s,%llu,%lu", id,
+			                      got[i].direction == FZN_MESSAGE_OUT ? "out" : "in", (unsigned)got[i].kinds,
+			                      OUTCOMES[got[i].outcome], (unsigned long long)got[i].started,
+			                      (unsigned long)got[i].seconds);
+		}
+		return n + (size_t)snprintf(reply + n, cap - n, "\n");
+	}
 	if (request->parsed == FZN_VERB_LIST && subject_len == 4u) {
 		n = (size_t)snprintf(reply, cap, "ok %zu", node_calls.n);
 		for (i = 0; i < node_calls.cap && n + 120u < cap; i++) {
@@ -20319,6 +20393,7 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 			}
 		}
 		c->state = FZN_LIVE_RINGING_OUT;
+		c->rang_out = 1;
 		c->ring_s = FZN_LIVE_RING_MAX_S; /* the receiver's to end, sec 1073 */
 		memcpy(c->host, k->participants[0].host, FZN_PUBKEY_LEN);
 		c->kinds = kinds;
@@ -20385,6 +20460,7 @@ static size_t calls_local(fzn_origin_t origin, const fzn_request_t *request, cha
 		}
 		if (lw.kind == FZN_LIVE_ANSWER) {
 			c->state = FZN_LIVE_UP;
+			c->up_s = wall_clock(); /* the call history's SECONDS, sec 1255 */
 			c->heard_s = wall_clock();
 			live_told(call, "answered");
 		} else {

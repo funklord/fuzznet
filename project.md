@@ -91939,3 +91939,51 @@ Six sabotages, each caught (`sound-coded-stream-unread`,
 `sound-coded-sent-on-ulaw`, `sound-ulaw-not-at-codec-rate`,
 `sound-quality-of-ulaw`, `opus-decode-unscaled`, `audio-opus-at-any-rate`);
 sec 1236's `call-audio-plays-nothing` repointed.
+
+## 1255. A conversation's call history, kept on every device of the user, 2026-11-18
+
+The holder's calls item: "a call history the conversation shows by time
+-- a stored list of ended calls, kept on the user's other devices, merged
+into the lines; not a message line, which would count unread and be
+delivered". Decided from the aims and the store already here: **a record
+in the messages journal**, as a read position is (sec 528) -- the one
+journal a user's devices already exchange -- and never a line.
+
+**Step 1, here: the node keeps it.**
+
+- **The record**, kind 0x337 on FZN_MESSAGE_STREAM, its subject the
+  contact: `messages/line.situ`'s `fzn_message_call`, 24 bytes --
+  direction (out where this user rang), kinds, an outcome (answered,
+  missed, declined, busy, no-answer, elsewhere, failed), the call's id,
+  when it was rung, and how long it was up.
+- **The history row** per contact (`fzn_messages_call`, `_calls`): the
+  newest FZN_MESSAGES_CALLS_MAX (20) by when each was rung, a call
+  written later ahead of one rung the same second; one per call id,
+  where each host of this user that rang may write one -- an answered one
+  wins, else the first stays. Derived: absorbing another device's record
+  writes it, a reindex clears and rebuilds it. Not a line, so nothing
+  unread and nothing sent to the contact.
+- **The node writes it as a call ends** (`call_history`, from
+  `call_ended_note`, the one place every ending passes): one-to-one
+  calls only, a group's hub keeping none; the contact the other end's
+  user; the outcome from how it ended -- up, answered with its seconds
+  (the live call now keeps `up_s`); otherwise elsewhere, declined, busy;
+  rung out and unanswered no-answer (failed where unreachable); rung
+  here and unanswered, missed. Who rang is `rang_out`, set where a call
+  starts ringing out here, for this user or a sibling.
+- **`list call history NAME`**: `ok N ID,DIRECTION,KINDS,OUTCOME,STARTED,SECONDS ...`,
+  newest first.
+
+**Step 2, next:** the typed client and its binary form, and the
+conversation merging the history into its lines by time -- "Missed call
+from bob", "Call with bob, 4:12".
+
+**Tests:** messages_test -- kept newest first as written; not unread,
+not a line; carried to the other device; answered on B wins over missed
+on A, and stays over a later "elsewhere"; past twenty the oldest let go;
+rebuilt by a reindex; bodies out of range refused. `live_call` phase k2:
+each end holds f's call answered and k's unanswered, out and no-answer
+at A, in and missed at B, newest first. Five sabotages, each caught
+(`history-not-carried`, `history-answered-loses`,
+`history-equal-second-behind`, `history-direction-swapped`,
+`history-missed-as-no-answer`, the last three by live_call alone).

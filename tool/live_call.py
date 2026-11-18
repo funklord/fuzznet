@@ -16,6 +16,9 @@ contact's. Each host's own client is a caller on its socket.
        and reports it, and A reads it (`get call ID quality`, sec 1021)
     e2 a frame stamped with A's client's clock comes back in B's report, its AT and
        how long B held it, and the client reads the round trip (sec 1026)
+    k2 each end's call history (`list call history NAME`, sec 1255) holds f's
+       call answered and k's unanswered -- out and no-answer at A, in and
+       missed at B -- newest first
     f  A hangs up, in binary; B holds the call no more, and B's subscriber was
        told so; why it ended said in binary as in words, and a call nobody
        holds refused in words
@@ -430,6 +433,24 @@ def main(argv):
 				if got != "ok ended no-answer":
 					raise failed("k: %s's get call answered %r, not why it ended" % (who.upper(), got))
 			print("livecheck: k: B rang 5 s; both ended the call no-answer, A after %.1f s" % took)
+
+			# k2: THE CALL HISTORY, sec 1255: each end keeps both calls in the
+			# conversation's history, newest first -- k's unanswered, f's
+			# answered -- from its own side.
+			def history(who, name):
+				got = ask(socks[who], "list call history %s" % name).split()
+				if len(got) < 2 or got[0] != "ok":
+					raise failed("k2: %s's call history answered %r" % (who.upper(), got))
+				return [r.split(",") for r in got[2:]]
+			for who, name, mine, theirs in (("a", "bea", "out", "no-answer"), ("b", "ada", "in", "missed")):
+				h = history(who, name)
+				byid = {r[0]: r for r in h}
+				if not h or h[0][0] != rung[1] or h[0][1] != mine or h[0][3] != theirs \
+				   or call not in byid or byid[call][1] != mine or byid[call][3] != "answered" \
+				   or int(byid[call][5]) > 600 or [int(r[4]) for r in h] != sorted((int(r[4]) for r in h), reverse=True):
+					raise failed("k2: %s's history of %s is %r" % (who.upper(), name, h))
+			print("livecheck: k2: each end's history holds f's call answered and k's %s, "
+			      "newest first, each from its own side" % "unanswered")
 
 			# l: RINGS GUARDED, sec 1074.
 			expect(socks["b"], "b", "set setting host call/ring-burst 2", "ok")
