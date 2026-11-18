@@ -11,6 +11,8 @@
 #include <QCoreApplication>
 #include <QVector>
 
+#include <math.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -124,6 +126,65 @@ int main(int argc, char **argv)
 
 	alice.stop();
 	CHECK(!alice.running(), "a call stopped was still carried");
+
+#ifdef FZN_OPUS_ON
+	/* OPUS WHERE THE BUILD HAS FFmpeg, sec 1254: asked by the test's rate,
+	 * 48 kHz; carried on stream 1 in packets far smaller than mu-law's;
+	 * played a 20 ms frame a tick, and what carol hears is dave's tone --
+	 * its level, and 440 Hz by its zero crossings -- once the codec has
+	 * settled. */
+	{
+		fzn_call_audio carol(node, nullptr), dave(node, nullptr);
+		QVector<int16_t> got;
+		size_t biggest = 0;
+		double said_sq = 0, got_sq = 0;
+		int crossings = 0, said_n = 0, t;
+
+		memset(&node_frames, 0, sizeof(node_frames));
+		dave.set_test_io(
+		        [&said_sq, &said_n](int16_t *pcm, size_t cap) {
+			        size_t i;
+			        for (i = 0; i < 960u && i < cap; i++, said_n++) {
+				        pcm[i] = (int16_t)(8000.0 * sin(2.0 * M_PI * 440.0 * said_n / 48000.0));
+				        said_sq += (double)pcm[i] * pcm[i];
+			        }
+			        return i;
+		        },
+		        [](const int16_t *, size_t) {}, 48000);
+		carol.set_test_io([](int16_t *, size_t) { return (size_t)0; },
+		                  [&got](const int16_t *pcm, size_t n) {
+			                  for (size_t i = 0; i < n; i++)
+				                  got.append(pcm[i]);
+		                  },
+		                  48000);
+		CHECK(dave.start(CALL) && carol.start(CALL) && dave.codec() == "Opus" && carol.codec() == "Opus",
+		      "a build with FFmpeg did not carry Opus when the devices took 48 kHz");
+		for (t = 0; t < 40; t++) {
+			dave.tick(3000 + 20u * (unsigned)t);
+			carol.tick(3000 + 20u * (unsigned)t);
+		}
+		for (size_t r = 0; r < node_frames.n && r < 256u; r++) {
+			const char *hex = strrchr(node_frames.rows[r], ',');
+			biggest = hex && strlen(hex + 1) / 2u > biggest ? strlen(hex + 1) / 2u : biggest;
+		}
+		CHECK(node_frames.n >= 30u && node_frames.rows[5][0] == '1' && biggest > 0u && biggest < 160u,
+		      "Opus did not go on stream 1, a packet each turn, smaller than mu-law's frame");
+		/* THE LAST HALF SECOND, past the codec's start. */
+		CHECK(got.size() >= 960 * 30 && got.size() % 960 == 0, "carol did not play a 20 ms frame of 960 a tick");
+		for (int i = got.size() - 24000; i > 0 && i < got.size(); i++) {
+			got_sq += (double)got[i] * got[i];
+			crossings += (got[i - 1] < 0) != (got[i] < 0);
+		}
+		{
+			const double said_rms = sqrt(said_sq / (said_n ? said_n : 1)), got_rms = sqrt(got_sq / 24000.0);
+
+			CHECK(got_rms > 0.6 * said_rms && got_rms < 1.4 * said_rms && crossings > 400 && crossings < 480,
+			      "what carol heard was not dave's 440 Hz tone at its level");
+		}
+		carol.stop();
+		dave.stop();
+	}
+#endif
 
 	CHECK(0, "deliberate");
 	failures--;

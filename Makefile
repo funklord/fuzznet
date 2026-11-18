@@ -1304,7 +1304,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/traffic_view.cpp \
             gui/sticker_picker_view.cpp gui/call_view.cpp gui/call_bar.cpp gui/group_view.cpp \
             gui/sticker_render.cpp gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
-            gui/call_audio.cpp gui/call_video.cpp \
+            gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
@@ -1344,7 +1344,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/notice_line.h gui/call_audio.h gui/call_video.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/notice_line.h gui/call_audio.h gui/call_opus.h gui/call_video.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -3799,6 +3799,14 @@ $(BUILD_DIR)/gui/camera_feed.o: CXXFLAGS += $(CAMERA_CFLAGS)
 # AND A CALL'S SOUND, sec 1236: the microphone and the speaker are Qt 6
 # Multimedia too, so the same switch, on its own object alone.
 $(BUILD_DIR)/gui/call_audio.o: CXXFLAGS += $(CAMERA_CFLAGS)
+# AND OPUS, sec 1254: through FFmpeg where pkg-config finds libavcodec and
+# libavutil -- the desktop's, or the one a consumer already links (Qt's
+# Android kit's, through snurra) -- on its own object alone; elsewhere it
+# opens nothing and a call carries mu-law.
+OPUS_ON     := $(shell pkg-config --exists libavcodec libavutil 2>/dev/null && echo 1)
+OPUS_CFLAGS := $(if $(OPUS_ON),-DFZN_OPUS_ON $(shell pkg-config --cflags libavcodec libavutil))
+OPUS_LIBS   := $(if $(OPUS_ON),$(shell pkg-config --libs libavcodec libavutil))
+$(BUILD_DIR)/gui/call_opus.o: CXXFLAGS += $(OPUS_CFLAGS)
 
 # THE HEADING, sec 1211: gui/heading_feed through Qt 6 Sensors' compass,
 # where both are; elsewhere it gives no readings and the compass rose is
@@ -3910,9 +3918,10 @@ $(BUILD_DIR)/gui/test/sticker_picker_view_test: $(BUILD_DIR)/gui/test/sticker_pi
 # A call's sound between two ends on a scripted node, through the test seam
 # in place of the devices (sec 1236).
 $(BUILD_DIR)/gui/test/call_audio_test: $(BUILD_DIR)/gui/test/call_audio_test.o \
-                                    $(BUILD_DIR)/gui/call_audio.o $(RPC_LINK_OBJS)
+                                    $(BUILD_DIR)/gui/call_audio.o $(BUILD_DIR)/gui/call_opus.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
+	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(OPUS_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
+$(BUILD_DIR)/gui/test/call_audio_test.o: CXXFLAGS += $(OPUS_CFLAGS)
 # A call's picture on the held channel, over a socketpair standing in for
 # the node (sec 1237); the camera is camera_feed's.
 $(BUILD_DIR)/gui/test/call_video_test: $(BUILD_DIR)/gui/test/call_video_test.o \
@@ -3921,10 +3930,11 @@ $(BUILD_DIR)/gui/test/call_video_test: $(BUILD_DIR)/gui/test/call_video_test.o \
 	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
 # One line for the call that matters, carrying its media (sec 1238).
 $(BUILD_DIR)/gui/test/call_bar_test: $(BUILD_DIR)/gui/test/call_bar_test.o $(BUILD_DIR)/gui/call_bar.o \
-                                  $(BUILD_DIR)/gui/call_audio.o $(BUILD_DIR)/gui/call_video.o \
+                                  $(BUILD_DIR)/gui/call_audio.o $(BUILD_DIR)/gui/call_opus.o \
+                                  $(BUILD_DIR)/gui/call_video.o \
                                   $(BUILD_DIR)/gui/camera_feed.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
+	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(OPUS_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/call_view_test: $(BUILD_DIR)/gui/test/call_view_test.o \
                                       $(BUILD_DIR)/gui/call_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
@@ -7246,7 +7256,8 @@ style: $(OBJS)
 	@# (sec 1158) and draws nothing; gui/heading_feed hands one the compass's
 	@# heading and draws nothing, and gui/compass_rose is drawn inside
 	@# location_view, which is (sec 1211); gui/call_audio and gui/call_video
-	@# carry a call's sound and picture and draw nothing (secs 1236, 1237).
+	@# carry a call's sound and picture and draw nothing (secs 1236, 1237),
+	@# and gui/call_opus is the sound's codec (sec 1254).
 	@# Listed rather than inferred from
 	@# a name, so a widget named otherwise is still counted.
 	@# USED BY ITS CLASS'S WHOLE NAME, fzn_ and the source's: a widget not
@@ -7254,7 +7265,7 @@ style: $(OBJS)
 	@# required the suffix. A token is matched whole, so fzn_call_bar_x
 	@# would not count as fzn_call_bar.
 	@have=`ls gui/*.cpp 2>/dev/null | sed -e 's|gui/||' -e 's|\.cpp$$||' \
-	       | grep -vxF -e sticker_render -e camera_feed -e heading_feed -e compass_rose -e call_audio -e call_video | sort -u`; \
+	       | grep -vxF -e sticker_render -e camera_feed -e heading_feed -e compass_rose -e call_audio -e call_opus -e call_video | sort -u`; \
 	walked=`grep -oE '#include "\.\./[a-z_]+\.h"' gui/test/qtty_render_test.cpp \
 	         | sed -e 's|.*/||' -e 's|\.h"||' | sort -u`; \
 	used=`grep -oE 'fzn_[a-z_]+' gui/test/qtty_render_test.cpp \
@@ -8084,7 +8095,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(TH
 	       gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp gui/forks_view.cpp \
 	       gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp gui/traffic_view.cpp \
 	       gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
-	       gui/call_bar.cpp gui/call_audio.cpp gui/call_video.cpp \
+	       gui/call_bar.cpp gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp \
 	       gui/sticker_render.cpp $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc $(THORVG_OBJS)) \
 	       gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
 	       gui/location_view.cpp \

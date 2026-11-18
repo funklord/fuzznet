@@ -91894,3 +91894,48 @@ the line chosen; a file here whole offers Save; no more than the one
 offer's button stands. qtty renders the view. Five sabotages, each
 caught; sec 1242's `conversation-phone-file-buttons` removed, the
 buttons it hid being gone.
+
+## 1254. A call's sound as Opus where the build has FFmpeg, 2026-11-18
+
+The last of sec 1234's table: fuzzypickles' `call_opus` (its 9a50512),
+which made a call sound better than a telephone -- Opus, 48 kHz mono,
+24 kbit/s, a packet each 20 ms of 60 to 90 bytes, smaller than mu-law's
+160 -- "only where a build has FFmpeg, fuzznet vendoring no snurra".
+
+- **`local/call_sound` takes a codec** (`fzn_call_codec_t`: a context, a
+  rate that is a multiple of 8000, a frame of 20 ms at it, encode and
+  decode) and stays free of FFmpeg. Given one, this end sends stream 1 at
+  the codec's rate, a packet capped at one `add frame` (FZN_RPC_FRAME_MAX);
+  reads stream 1 into a second jitter buffer; plays stream 1 while it
+  arrives, the codec concealing a frame that did not come, and stream 0
+  otherwise, each mu-law sample repeated up to the codec's rate; and reads
+  the other end's report of stream 1. `fzn_call_sound_rate` and `_frame`
+  tell the devices what to run at.
+- **`gui/call_opus`**, fuzzypickles' codec over libavcodec: libopus where
+  the build has it, FFmpeg's own otherwise (experimental, Qt's Android
+  kit's), held to 20 ms frames and 20 ms of delay; a packet past one
+  `add frame` dropped. Built where pkg-config finds libavcodec and
+  libavutil (`OPUS_ON`, its flags on its own object); elsewhere it opens
+  nothing and the call is mu-law, so a host compiles and links the file
+  either way.
+- **`gui/call_audio`** opens a fresh Opus each call and carries it where
+  both devices take a multiple of 48 kHz, mu-law otherwise, as
+  fuzzypickles' did; `codec()` says which. The test seam takes a rate.
+
+**Who hears whom**, fuzzypickles' trade: an end with Opus sends only
+stream 1. Two such ends hear each other at 48 kHz; an end with no codec
+sends mu-law, which an end with one plays; an end reading stream 0 alone
+-- a build from before -- hears nothing from one sending Opus.
+
+**Tests:** call_sound_test with a test codec (16 kHz, a byte for two
+samples, a marker for concealment): a codec of the wrong rate or frame
+refused; frames on stream 1; read into the codec's buffer; played
+through it, a lost one concealed; mu-law at the codec's rate, each sample
+repeated; the report read for stream 1. call_audio_test, where FFmpeg is:
+both ends Opus at 48 kHz, every packet under 160 bytes on stream 1, a
+960-sample frame played a tick, and what is heard is the 440 Hz tone at
+its level (RMS within 40%, 400 to 480 zero crossings a half second).
+Six sabotages, each caught (`sound-coded-stream-unread`,
+`sound-coded-sent-on-ulaw`, `sound-ulaw-not-at-codec-rate`,
+`sound-quality-of-ulaw`, `opus-decode-unscaled`, `audio-opus-at-any-rate`);
+sec 1236's `call-audio-plays-nothing` repointed.

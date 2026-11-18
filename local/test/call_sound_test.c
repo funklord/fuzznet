@@ -79,6 +79,34 @@ static int node(void *ctx, const char *verb, const char *arg, size_t arg_len, ui
 	return FZN_RPC_OK;
 }
 
+/* A CODEC FOR THE TEST, sec 1254: 16 kHz, a byte for two samples -- the
+ * first's high byte, so a frame is 160 bytes and fits one `add frame` --
+ * and 1234 for every sample of a frame that did not come, so concealment
+ * shows. */
+static int lossy_encode(void *ctx, const int16_t *pcm, size_t n, uint8_t *packet, size_t cap)
+{
+	size_t i;
+
+	(void)ctx;
+	if (n / 2u > cap)
+		return -1;
+	for (i = 0; i < n / 2u; i++)
+		packet[i] = (uint8_t)((uint16_t)pcm[2u * i] >> 8);
+	return (int)(n / 2u);
+}
+
+static int lossy_decode(void *ctx, const uint8_t *packet, size_t len, int16_t *pcm, size_t cap)
+{
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < cap; i++)
+		pcm[i] = packet ? (int16_t)(uint16_t)((i / 2u < len ? packet[i / 2u] : 0) << 8) : (int16_t)1234;
+	return (int)cap;
+}
+
+static const fzn_call_codec_t LOSSY = { NULL, 16000u, 320u, lossy_encode, lossy_decode };
+
 int main(void)
 {
 	static fzn_call_sound_t alice, bob;
@@ -146,6 +174,61 @@ int main(void)
 	CHECK(fzn_call_sound_quality(&alice, &c, 5000 + 1500) == 1 && alice.have_quality && alice.loss_pct == 10u
 	              && alice.trip_ms == 480,
 	      "the other end's report was not read as 10% lost and a 480 ms round trip");
+
+	/* A CODEC, sec 1254: refused where its rate or frame does not fit;
+	 * sent on stream 1 at its rate; played through it, a frame that did not
+	 * come the codec's to conceal; mu-law that arrives played at its rate,
+	 * each sample repeated; and this end's report read for stream 1. */
+	{
+		static const fzn_call_codec_t ODD = { NULL, 44100u, 882u, lossy_encode, lossy_decode };
+		static const fzn_call_codec_t SHORT = { NULL, 16000u, 160u, lossy_encode, lossy_decode };
+		static int16_t tone[320 * 5], out[FZN_CALL_SOUND_FRAME_MAX];
+		uint8_t mu[FZN_ULAW_FRAME_SAMPLES];
+		int taken = 0, ok = 1;
+
+		memset(&node_frames, 0, sizeof(node_frames));
+		fzn_call_sound_start(&alice, CALL, 5000);
+		fzn_call_sound_start(&bob, CALL, 5000);
+		CHECK(fzn_call_sound_codec(&alice, &ODD) == -1 && fzn_call_sound_codec(&alice, &SHORT) == -1
+		              && fzn_call_sound_rate(&alice) == 8000u,
+		      "a codec whose rate or frame does not fit was taken");
+		CHECK(fzn_call_sound_codec(&alice, &LOSSY) == 0 && fzn_call_sound_codec(&bob, &LOSSY) == 0
+		              && fzn_call_sound_rate(&bob) == 16000u && fzn_call_sound_frame(&bob) == 320u,
+		      "a codec was not taken, its rate and frame the devices'");
+		for (i = 0; i < sizeof(tone) / sizeof(tone[0]); i++)
+			tone[i] = (int16_t)((int)(i % 64) * 512 - 16384);
+		CHECK(fzn_call_sound_send(&alice, &c, tone, 320 * 4, 5020) == 4 && node_frames.n == 4u
+		              && !strncmp(node_frames.rows[0], "1,0,20,0,1,", 11),
+		      "the codec's frames did not go out on stream 1");
+		CHECK(fzn_call_sound_receive(&bob, &c) == 4 && fzn_jitter_held(&bob.coded) == 4u
+		              && fzn_jitter_held(&bob.jitter) == 0u,
+		      "stream 1 was not read into the codec's buffer");
+		for (k = 0; k < 4 && ok; k++) {
+			ok = fzn_call_sound_play(&bob, out) == 1;
+			for (i = 0; i < 320u && ok; i++)
+				ok = (out[i] & ~0xff) == (tone[(size_t)k * 320u + (i & ~1u)] & ~0xff);
+		}
+		CHECK(ok, "the codec's frames were not played through it, in order");
+		node_frames.lose_at = node_frames.adds + 1;
+		(void)fzn_call_sound_send(&alice, &c, tone, 320 * 2, 5120);
+		(void)fzn_call_sound_receive(&bob, &c);
+		CHECK(fzn_call_sound_play(&bob, out) == 1 && out[0] == 1234 && out[319] == 1234,
+		      "a coded frame that did not come was not the codec's to conceal");
+		CHECK(fzn_call_sound_play(&bob, out) == 1 && (out[1] & ~0xff) == (tone[0] & ~0xff),
+		      "the coded frame after a lost one did not play");
+		/* MU-LAW FROM AN END WITH NO CODEC, at bob's rate. */
+		memset(&bob.coded, 0, sizeof(bob.coded));
+		fzn_jitter_init(&bob.coded);
+		fzn_ulaw_encode_frame(said, FZN_ULAW_FRAME_SAMPLES, mu);
+		for (k = 0; k < 3; k++)
+			(void)fzn_rpc_frame_add(&c, CALL, 0, (uint32_t)k, 0, mu, sizeof(mu), &taken);
+		(void)fzn_call_sound_receive(&bob, &c);
+		CHECK(fzn_call_sound_play(&bob, out) == 1 && out[0] == out[1] && out[2] == out[3]
+		              && abs(out[2] - said[1]) <= 1024 && abs(out[318] - said[159]) <= 1024,
+		      "mu-law at an end with a codec was not played at its rate, each sample repeated");
+		CHECK(fzn_call_sound_quality(&alice, &c, 6000) == 0 && !alice.have_quality,
+		      "the report of stream 0 was read as how this end's codec is heard");
+	}
 
 	CHECK(0, "deliberate");
 	failures--;

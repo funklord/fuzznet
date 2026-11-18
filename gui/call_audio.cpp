@@ -1,5 +1,6 @@
 /* A call's sound on this device: call_audio.h, fuzznet sec 1236. */
 #include "call_audio.h"
+#include "call_opus.h"
 #include "rpc_ask.h"
 
 extern "C" {
@@ -34,6 +35,7 @@ fzn_call_audio::fzn_call_audio(fzn_notebook_view_ask_t ask, void *ask_ctx)
 fzn_call_audio::~fzn_call_audio()
 {
 	stop();
+	fzn_call_opus_close(m_opus);
 	delete m_sound;
 	delete m_rpc;
 }
@@ -52,7 +54,14 @@ bool fzn_call_audio::start(const QString &id)
 	m_trouble.clear();
 	m_quality.clear();
 	m_ticks = 0;
-	if (!m_test_source && !m_test_sink)
+	/* OPUS WHERE THE BUILD HAS IT, opened fresh for this call; the devices
+	 * may still send it back to mu-law. A test asks for it by its rate. */
+	fzn_call_opus_close(m_opus);
+	m_opus = fzn_call_opus_open(nullptr);
+	const bool test = m_test_source || m_test_sink;
+	if (m_opus && (!test || m_test_rate == (int)FZN_CALL_OPUS_RATE))
+		(void)fzn_call_sound_codec(m_sound, fzn_call_opus_codec(m_opus));
+	if (!test)
 		open_devices();
 	m_timer = new QTimer;
 	m_timer->setInterval(20);
@@ -76,28 +85,34 @@ bool fzn_call_audio::muted() const { return m_sound->muted != 0; }
 
 uint32_t fzn_call_audio::frames_sent() const { return m_sound->seq; }
 
-void fzn_call_audio::set_test_io(source_fn source, sink_fn sink)
+void fzn_call_audio::set_test_io(source_fn source, sink_fn sink, int rate)
 {
 	m_test_source = source;
 	m_test_sink = sink;
+	m_test_rate = rate;
+}
+
+QString fzn_call_audio::codec() const
+{
+	return m_sound->codec ? QStringLiteral("Opus") : QStringLiteral("mu-law");
 }
 
 #ifdef FZN_CAMERA_ON
-/* THE FORMAT A DEVICE TAKES, 16-bit at 8 kHz or a whole multiple of it: the
- * multiple, or 0 where it takes neither. */
-static int factor_for(const QAudioDevice &dev, QAudioFormat *f)
+/* THE FORMAT A DEVICE TAKES, 16-bit at `rate` or a whole multiple of it:
+ * the multiple, or 0 where it takes neither. */
+static int factor_for(const QAudioDevice &dev, QAudioFormat *f, int rate)
 {
 	f->setSampleFormat(QAudioFormat::Int16);
 	f->setChannelCount(1);
-	f->setSampleRate((int)FZN_ULAW_RATE);
+	f->setSampleRate(rate);
 	if (dev.isFormatSupported(*f))
 		return 1;
 	QAudioFormat pref = dev.preferredFormat();
 	pref.setSampleFormat(QAudioFormat::Int16);
-	if (pref.sampleRate() % (int)FZN_ULAW_RATE || !dev.isFormatSupported(pref))
+	if (pref.sampleRate() % rate || !dev.isFormatSupported(pref))
 		return 0;
 	*f = pref;
-	return pref.sampleRate() / (int)FZN_ULAW_RATE;
+	return pref.sampleRate() / rate;
 }
 #endif
 
@@ -114,8 +129,17 @@ void fzn_call_audio::open_devices()
 	const QAudioDevice out = QMediaDevices::defaultAudioOutput();
 	QAudioFormat fin, fout;
 
-	m_in_factor = in.isNull() ? 0 : factor_for(in, &fin);
-	m_out_factor = out.isNull() ? 0 : factor_for(out, &fout);
+	int rate = (int)fzn_call_sound_rate(m_sound);
+	m_in_factor = in.isNull() ? 0 : factor_for(in, &fin, rate);
+	m_out_factor = out.isNull() ? 0 : factor_for(out, &fout, rate);
+	/* OPUS ONLY WHERE BOTH DEVICES TAKE ITS RATE, as fuzzypickles' call:
+	 * mu-law at 8 kHz otherwise. */
+	if (rate != (int)FZN_ULAW_RATE && ((!in.isNull() && !m_in_factor) || !m_out_factor)) {
+		(void)fzn_call_sound_codec(m_sound, nullptr);
+		rate = (int)FZN_ULAW_RATE;
+		m_in_factor = in.isNull() ? 0 : factor_for(in, &fin, rate);
+		m_out_factor = out.isNull() ? 0 : factor_for(out, &fout, rate);
+	}
 	if (!m_in_factor && may_record) {
 		m_trouble = QObject::tr("No microphone this call can use.");
 	} else if (m_in_factor) {
@@ -153,14 +177,15 @@ void fzn_call_audio::close_devices()
 
 void fzn_call_audio::tick(uint64_t now_ms)
 {
-	int16_t played[FZN_ULAW_FRAME_SAMPLES];
+	int16_t played[FZN_CALL_SOUND_FRAME_MAX];
 	QVector<int16_t> captured;
+	const size_t frame = fzn_call_sound_frame(m_sound);
 
 	if (!running())
 		return;
-	/* OUT: what was captured, at 8 kHz mono. */
+	/* OUT: what was captured, at the call's rate, mono. */
 	if (m_test_source) {
-		int16_t buf[FZN_ULAW_FRAME_SAMPLES * 2];
+		int16_t buf[FZN_CALL_SOUND_FRAME_MAX * 2];
 		const size_t n = m_test_source(buf, sizeof(buf) / sizeof(buf[0]));
 		for (size_t i = 0; i < n; i++)
 			captured.append(buf[i]);
@@ -190,13 +215,13 @@ void fzn_call_audio::tick(uint64_t now_ms)
 	if (!fzn_call_sound_play(m_sound, played))
 		return;
 	if (m_test_sink) {
-		m_test_sink(played, FZN_ULAW_FRAME_SAMPLES);
+		m_test_sink(played, frame);
 	} else if (m_out && m_out_factor > 0) {
 		/* REPEATED UP to the device's rate and channels. */
 		const int repeat = m_out_factor * m_out_channels;
 		QVector<int16_t> wide;
-		wide.reserve((int)FZN_ULAW_FRAME_SAMPLES * repeat);
-		for (size_t i = 0; i < FZN_ULAW_FRAME_SAMPLES; i++)
+		wide.reserve((int)frame * repeat);
+		for (size_t i = 0; i < frame; i++)
 			for (int k = 0; k < repeat; k++)
 				wide.append(played[i]);
 		m_out->write(reinterpret_cast<const char *>(wide.constData()), (qint64)wide.size() * 2);
