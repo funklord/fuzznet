@@ -405,12 +405,18 @@ def main(argv):
 				        "r": (0, "right")}
 				settling = time.monotonic()
 				for who, (at, state) in want.items():
+					# THREE ROUNDS, sec 1260: a device learns the two that
+					# joined from its next round's manifest, pairs them, and
+					# measures them in a round after -- up to two of its 60 s
+					# rounds, where `settle` gave one and a run passed only
+					# when the rounds fell well.
 					try:
 						polled(who, "get clock",
 						       lambda g, at=at, state=state: len(g.split()) == 4
 						       and g.split()[3] == state and g.split()[2] == "3"
 						       and abs(int(g.split()[1]) - at) <= 5000,
-						       "not %s at about %d ms against three devices" % (state, at))
+						       "not %s at about %d ms against three devices" % (state, at),
+						       within=3.0 * settle)
 					except failed as e:
 						raise failed("a: %s; its list offset %r" % (e, said(who, "list offset")))
 				# AND TOLD AS IT CHANGED: unsure to right or wrong is a clock

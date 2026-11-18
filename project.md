@@ -92172,3 +92172,24 @@ answered by the node holding the chain) and gains phase g (a TERM at once
 after one); it fails today in phase a -- `get clock` at D answering
 `ok 0 1 unsure`, one device where three are meant -- at 85d24f2b as with
 this change, a regression since sec 1079's pass, open.
+
+## 1260. live_estate: the clocks need two rounds; estate settings late in phase b, open, 2026-11-18
+
+Found verifying sec 1259, whose `live_estate` checks never ran: the test
+fails in phase a, today at 85d24f2b, at 046debc9, and at cdb1c009 --
+sec 1079's last recorded pass -- built in a scratch worktree and run with
+the same script. So no commit since introduced it.
+
+- **Phase a, the clocks**: D answered `get clock` with one device where
+  three were meant. A device learns the two that joined from its next
+  round's manifest, pairs them, and measures them a round after: up to
+  two of its 60 s rounds, where the poll gave `settle`, one. Given three
+  (`within=3.0 * settle`), phase a passed in two runs of two, at 123 s
+  each time -- a check that passed only when the rounds fell well.
+- **Phase b, open**: past phase a, two runs failed at two different
+  estate settings, each still `absent` at its member after `settle` --
+  R's `b/root` at A1 in one, A1's `b/race` at R in the other -- with the
+  pushes logged as made. Not explained; the obvious reading, timing like
+  phase a's, is not measured, and the kept logs of the second run (A1's
+  rounds at 60 s apart, the setting nowhere in them) are where to look
+  next. Until then `live_estate` passes phase a and not b.
