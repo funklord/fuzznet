@@ -183,11 +183,19 @@ static uint64_t file_size(const QByteArray &ref)
  * for a line that came in. ONE NOTHING IS KNOWN OF YET IS SENDING, sec 1241:
  * said as nothing, a line on its way could not be told from one stuck
  * (fuzzypickles' 1700Z item 1). */
-static QString state_words(const fzn_rpc_inbox_entry_t *l)
+static QString state_words(const fzn_rpc_inbox_entry_t *l, unsigned read_by = 0)
 {
-	if (!l->outgoing)
+	return fzn_conversation_view::state_said(l->outgoing != 0, l->state, read_by);
+}
+
+QString fzn_conversation_view::state_said(bool outgoing, unsigned state, unsigned read_by)
+{
+	if (!outgoing)
 		return QString();
-	switch ((fzn_rpc_line_state_t)l->state) {
+	/* A GROUP'S LINE, HOW MANY READ IT, sec 1273, as LINE's "Read 3". */
+	if (read_by)
+		return QObject::tr(" (read by %n)", nullptr, (int)read_by);
+	switch ((fzn_rpc_line_state_t)state) {
 	case FZN_RPC_LINE_DELIVERED:
 	case FZN_RPC_LINE_SETTLED:
 		return QObject::tr(" (delivered)");
@@ -391,14 +399,14 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 		                      .arg(when_words(now, l->stime),
 		                           l->outgoing ? QObject::tr("You") : QString::fromUtf8(who),
 		                           content_words(l->text, l->text_len))
-		                       + state_words(l));
+		                       + state_words(l, lines[i].read_by));
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
 		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
 		item->setData(ROLE_IN, !l->outgoing);
 		item->setData(ROLE_BODY, l->outgoing ? content_words(l->text, l->text_len)
 		                                     : QStringLiteral("%1\n%2").arg(QString::fromUtf8(who),
 		                                                                  content_words(l->text, l->text_len)));
-		item->setData(ROLE_META, when_words(now, l->stime) + state_words(l));
+		item->setData(ROLE_META, when_words(now, l->stime) + state_words(l, lines[i].read_by));
 		list->addItem(item);
 	}
 	for (i = 0; i < count && !newest_in; i++)

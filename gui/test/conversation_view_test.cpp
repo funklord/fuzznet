@@ -9,6 +9,7 @@
  */
 
 #include "../conversation_view.h"
+#include "../../local/rpc_types.h"
 #include "../notice_line.h"
 
 #include <QApplication>
@@ -365,6 +366,13 @@ int main(int argc, char **argv)
 		      "an empty group was not said as one, by its name");
 		CHECK(e.open("fay") && e.lines().value(0) == "23:50 You: on my way (read)",
 		      "a line the contact said they read was not shown read");
+		/* A GROUP'S LINE READ BY THREE, sec 1273; one by one; one that
+		 * came in says nothing. */
+		CHECK(fzn_conversation_view::state_said(true, FZN_RPC_LINE_READ, 3) == " (read by 3)"
+		              && fzn_conversation_view::state_said(true, FZN_RPC_LINE_READ, 1) == " (read by 1)"
+		              && fzn_conversation_view::state_said(true, FZN_RPC_LINE_READ, 0) == " (read)"
+		              && fzn_conversation_view::state_said(false, FZN_RPC_LINE_READ, 3).isEmpty(),
+		      "a group line's readers were not said, or said for a line that came in");
 	}
 
 	CHECK(0, "deliberate");

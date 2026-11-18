@@ -17433,6 +17433,13 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"read-by-unsaid",
+		"gui/conversation_view.cpp",
+		"\tif (read_by)\n\t\treturn QObject::tr(\" (read by %n)\", nullptr, (int)read_by);\n",
+		"",
+		"a group line's readers are not said, only that it was read; conversation_view_test -- sec 1273",
+	),
+	(
 		"pair-into-served-store",
 		"node/daemon.c",
 		"\t\t    && fzn_claim_take(&pair_claim) == FZN_CLAIM_ERR_HELD) {\n",

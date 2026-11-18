@@ -92695,6 +92695,12 @@ The choice standing is marked `*`. Three ways as working-practice's
 follow takes the user's next change of the default, and one pinned keeps
 its word. The menu reads both settings as it opens.
 
+**And the conversation says how many**: a group line this user sent
+reads " (read by 3)", from the binary listing's `read_by`; the text
+listing carries only `read`, so a client on text says " (read)".
+(`fzn_conversation_view::state_said`, public so its words are tested
+without a binary node; sabotage `read-by-unsaid` is caught.)
+
 **Tests:** conversations_view_test -- bob's row offers the three,
 following marked; "Don't tell them" sets bob's key's setting off, is
 marked and said; "As everywhere" clears it. Sabotages

@@ -93,6 +93,10 @@ public:
 	/* The clock, seconds since 1970, for the times shown; 0 reads the
 	 * system's. */
 	void set_now(uint32_t utc_s);
+	/* WHAT A LINE'S STATE IS SAID AS, after it: " (delivered)", " (read)",
+	 * a group's " (read by 3)" (sec 1273) -- nothing for one that came in.
+	 * `state` an fzn_rpc_line_state_t. */
+	static QString state_said(bool outgoing, unsigned state, unsigned read_by);
 
 	/* WHAT IS ON SCREEN: each line as shown, oldest first; the line being
 	 * written; the status line. */
