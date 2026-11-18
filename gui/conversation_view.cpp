@@ -11,6 +11,7 @@
 extern "C" {
 #include "../local/rpc_encoding.h"
 #include "../messages/attachment.h"
+#include "../messages/reply.h"
 #include "../hex/hex.h"
 #include "../sticker/pack.h"
 }
@@ -20,6 +21,9 @@ extern "C" {
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHash>
+#include <QMenu>
+#include <QMap>
+#include <QVector>
 #include <QIcon>
 #include <QImage>
 #include <QPixmap>
@@ -51,6 +55,8 @@ extern "C" {
  * (sec 1255); and whether the row is a call rather than a line. */
 #define ROLE_AT (Qt::UserRole + 5)
 #define ROLE_CALL (Qt::UserRole + 6)
+/* THE LINE'S ID, what a reply or a reaction names it by (sec 1282). */
+#define ROLE_ID (Qt::UserRole + 7)
 
 /* A LINE AS A BUBBLE ON A PHONE, sec 1241, fuzzypickles' 1700Z item 2: this
  * user's at the right, everyone else's at the left, each wrapped within
@@ -236,6 +242,88 @@ static QString content_words(const char *text, size_t len)
 	return QString::fromUtf8(shown);
 }
 
+/* LINES ABOUT OTHER LINES, sec 1282: each line's words by its id, for a
+ * reply to quote, and each reaction folded under the line it names, each
+ * sender's newest standing and none taking theirs back. Gathered over the
+ * lines shown, oldest first: a reply to a line older than the page says
+ * so rather than quoting it. */
+struct about_lines {
+	QHash<QByteArray, QString> words;
+	QHash<QByteArray, QHash<QByteArray, QByteArray>> reactions;
+};
+
+static QByteArray id_of(const fzn_rpc_inbox_entry_t *l)
+{
+	return QByteArray((const char *)l->commitment, (int)sizeof l->commitment);
+}
+
+static bool reaction_of(const fzn_rpc_inbox_entry_t *l, QByteArray *to, QByteArray *reaction)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t at = 0, n = 0;
+
+	if (!fzn_message_reaction_parse(l->text, l->text_len, id, &at, &n))
+		return false;
+	*to = QByteArray((const char *)id, (int)sizeof id);
+	*reaction = QByteArray(l->text + at, (int)n);
+	return true;
+}
+
+static void gather(const QVector<const fzn_rpc_inbox_entry_t *> &oldest_first, about_lines *a)
+{
+	for (const fzn_rpc_inbox_entry_t *l : oldest_first) {
+		QByteArray to, reaction;
+
+		if (reaction_of(l, &to, &reaction)) {
+			/* WHO REACTED: this user, or the sender by key and name -- a
+			 * group's members share the group's host key. */
+			const QByteArray who = l->outgoing ? QByteArray("\001")
+			                                   : QByteArray((const char *)l->sender_host_pubkey, 32)
+			                                             + QByteArray(l->sender_name, (int)l->sender_name_len);
+			if (reaction.isEmpty())
+				a->reactions[to].remove(who);
+			else
+				a->reactions[to][who] = reaction;
+			continue;
+		}
+		a->words.insert(id_of(l), content_words(l->text, l->text_len));
+	}
+}
+
+/* A LINE'S WORDS, a reply's with the start of the line it answers, and the
+ * reactions to it after, each with how many gave it. */
+static QString shown_words(const fzn_rpc_inbox_entry_t *l, const about_lines &a)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t at = 0;
+	QString said;
+
+	if (fzn_message_reply_parse(l->text, l->text_len, id, &at)) {
+		const QString to = a.words.value(QByteArray((const char *)id, (int)sizeof id));
+		const QString body = content_words(l->text + at, l->text_len - at);
+		said = to.isEmpty() ? QObject::tr("(in reply to a line not shown) %1").arg(body)
+		                    : QObject::tr("(in reply to \"%1\") %2")
+		                              .arg(to.size() > 40 ? to.left(39) + QChar(0x2026) : to, body);
+	} else {
+		said = content_words(l->text, l->text_len);
+	}
+	const auto r = a.reactions.find(id_of(l));
+	if (r != a.reactions.end() && !r->isEmpty()) {
+		QMap<QByteArray, int> counts;
+		QStringList parts;
+		char shown[4u * FZN_MESSAGE_REACTION_MAX + 1u];
+
+		for (const QByteArray &one : *r)
+			counts[one]++;
+		for (auto c = counts.constBegin(); c != counts.constEnd(); ++c) {
+			fzn_rpc_tty_escape(c.key().constData(), (size_t)c.key().size(), shown, sizeof shown);
+			parts << QStringLiteral("%1 %2").arg(QString::fromUtf8(shown)).arg(c.value());
+		}
+		said += QStringLiteral(" [%1]").arg(parts.join(QStringLiteral(", ")));
+	}
+	return said;
+}
+
 static QString failed_words(const fzn_gui_rpc *r)
 {
 	return QString::fromUtf8(fzn_gui_rpc_silent(r));
@@ -264,6 +352,21 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_older = new QPushButton(tr("Older lines"), this);
 	m_send_file = new QPushButton(tr("Send a file"), this);
 	m_send_file->setAccessibleName(tr("Send a file"));
+	/* A REACTION TO THE CHOSEN LINE, sec 1282: a few, as LINE and Signal
+	 * offer, from a menu -- the notice holds one action, a reply. */
+	m_react = new QPushButton(tr("React"), this);
+	m_react->setAccessibleName(tr("React to the chosen line"));
+	{
+		auto *menu = new QMenu(m_react);
+		for (const QString &r : reactions()) {
+			menu->addAction(r, [this, r]() {
+				QListWidgetItem *item = m_lines->currentItem();
+				(void)react(item ? item->data(ROLE_ID).toByteArray() : QByteArray(), r);
+			});
+		}
+		m_react->setMenu(menu);
+	}
+	m_react->setEnabled(false);
 	/* ONE NOTICE, ITS ONE ACTION (sec 1253): what an act came to, or the
 	 * one thing the chosen line offers -- where three buttons stood, most
 	 * of them disabled, beside a status line. */
@@ -306,6 +409,10 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	auto *older = new QHBoxLayout;
 	older->addWidget(m_older);
 	older->addStretch(1);
+	/* REACT BESIDE THE LINES, not the line being written: it acts on the
+	 * chosen line, and the row it would join holds a phone's 320 px only
+	 * as it is (qtty_render_test). */
+	older->addWidget(m_react);
 	/* ABOVE THE LINES, where the older ones go. */
 	col->insertLayout(1, older);
 	/* THE LINE BEING WRITTEN LAST, sec 1253: on a phone the window ends at
@@ -342,6 +449,7 @@ void fzn_conversation_view::set_now(uint32_t utc_s) { m_now = utc_s; }
 bool fzn_conversation_view::open(const QString &contact)
 {
 	m_contact = contact;
+	reply_to(QByteArray());
 	m_title->setText(tr("With %1").arg(contact));
 	m_send->setEnabled(!contact.isEmpty());
 	m_send_file->setEnabled(!contact.isEmpty());
@@ -390,22 +498,31 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 		return false;
 	}
 	list->clear();
+	QVector<const fzn_rpc_inbox_entry_t *> oldest_first;
+	about_lines about;
+	for (i = count; i-- > 0;)
+		oldest_first << &lines[i].line;
+	gather(oldest_first, &about);
 	for (i = count; i-- > 0;) {
 		const fzn_rpc_inbox_entry_t *l = &lines[i].line;
 		char who[4u * FZN_RPC_PEER_NAME_MAX + 1u];
+		QByteArray to, reaction;
 
+		/* A REACTION IS SHOWN ON ITS LINE, never as one (sec 1282). */
+		if (reaction_of(l, &to, &reaction))
+			continue;
 		fzn_rpc_tty_escape(l->sender_name, l->sender_name_len, who, sizeof who);
+		const QString said = shown_words(l, about);
 		auto *item = new QListWidgetItem(QStringLiteral("%1 %2: %3")
 		                      .arg(when_words(now, l->stime),
-		                           l->outgoing ? QObject::tr("You") : QString::fromUtf8(who),
-		                           content_words(l->text, l->text_len))
+		                           l->outgoing ? QObject::tr("You") : QString::fromUtf8(who), said)
 		                       + state_words(l, lines[i].read_by));
+		item->setData(ROLE_ID, id_of(l));
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
 		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
 		item->setData(ROLE_IN, !l->outgoing);
-		item->setData(ROLE_BODY, l->outgoing ? content_words(l->text, l->text_len)
-		                                     : QStringLiteral("%1\n%2").arg(QString::fromUtf8(who),
-		                                                                  content_words(l->text, l->text_len)));
+		item->setData(ROLE_BODY, l->outgoing ? said
+		                                     : QStringLiteral("%1\n%2").arg(QString::fromUtf8(who), said));
 		item->setData(ROLE_META, when_words(now, l->stime) + state_words(l, lines[i].read_by));
 		list->addItem(item);
 	}
@@ -553,19 +670,28 @@ bool fzn_conversation_view::refresh_lines()
 		return m_rpc->c.answered;
 	}
 	m_lines->clear();
+	QVector<const fzn_rpc_inbox_entry_t *> oldest_first;
+	about_lines about;
+	for (i = count; i-- > 0;)
+		oldest_first << &lines[i];
+	gather(oldest_first, &about);
 	/* NEWEST FIRST from the node; shown oldest at the top. */
 	for (i = count; i-- > 0;) {
 		const fzn_rpc_inbox_entry_t *l = &lines[i];
+		QByteArray to, reaction;
 
+		/* A REACTION IS SHOWN ON ITS LINE, never as one (sec 1282). */
+		if (reaction_of(l, &to, &reaction))
+			continue;
+		const QString said = shown_words(l, about);
 		auto *item = new QListWidgetItem(QStringLiteral("%1 %2: %3")
-		                         .arg(when_words(now, l->stime),
-		                              l->outgoing ? tr("You") : m_contact,
-		                              content_words(l->text, l->text_len))
+		                         .arg(when_words(now, l->stime), l->outgoing ? tr("You") : m_contact, said)
 		                 + state_words(l));
+		item->setData(ROLE_ID, id_of(l));
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
 		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
 		item->setData(ROLE_IN, !l->outgoing);
-		item->setData(ROLE_BODY, content_words(l->text, l->text_len));
+		item->setData(ROLE_BODY, said);
 		item->setData(ROLE_META, when_words(now, l->stime) + state_words(l));
 		item->setData(ROLE_AT, (qulonglong)l->stime);
 		m_lines->addItem(item);
@@ -599,8 +725,22 @@ void fzn_conversation_view::set_text(const QString &text) { m_text->setText(text
 
 bool fzn_conversation_view::send()
 {
-	if (!send_line(m_text->text().toUtf8()))
+	QByteArray text = m_text->text().toUtf8();
+
+	/* IN REPLY, sec 1282: the words after the line they answer's id. */
+	if (m_reply_to.size() == (int)FZN_MESSAGE_ID_LEN && !text.trimmed().isEmpty()) {
+		char wrapped[FZN_MESSAGE_TEXT_MAX + 1u];
+		const size_t n = fzn_message_reply_write((const uint8_t *)m_reply_to.constData(), text.constData(),
+		                                 (size_t)text.size(), wrapped, sizeof wrapped);
+		if (!n) {
+			m_notice->say(tr("That is too long to send as a reply."));
+			return false;
+		}
+		text = QByteArray(wrapped, (int)n);
+	}
+	if (!send_line(text))
 		return false;
+	reply_to(QByteArray());
 	m_text->clear();
 	refresh();
 	return true;
@@ -735,6 +875,47 @@ bool fzn_conversation_view::send_line(const QByteArray &text)
 	return true;
 }
 
+void fzn_conversation_view::reply_to(const QByteArray &id)
+{
+	QString quoted;
+
+	m_reply_to = id.size() == (int)FZN_MESSAGE_ID_LEN ? id : QByteArray();
+	for (int i = 0; !m_reply_to.isEmpty() && i < m_lines->count() && quoted.isEmpty(); i++)
+		if (m_lines->item(i)->data(ROLE_ID).toByteArray() == m_reply_to)
+			quoted = m_lines->item(i)->data(ROLE_BODY).toString();
+	if (quoted.size() > 40)
+		quoted = quoted.left(39) + QChar(0x2026);
+	m_text->setPlaceholderText(m_reply_to.isEmpty() ? tr("Write a line")
+	                                                : tr("Your reply to \"%1\"").arg(quoted));
+	if (!m_reply_to.isEmpty())
+		m_text->setFocus();
+}
+
+QByteArray fzn_conversation_view::replying() const { return m_reply_to; }
+
+QStringList fzn_conversation_view::reactions()
+{
+	return { QString::fromUtf8("\xf0\x9f\x91\x8d"), QString::fromUtf8("\xe2\x9d\xa4\xef\xb8\x8f"),
+	         QString::fromUtf8("\xf0\x9f\x98\x82"), QString::fromUtf8("\xf0\x9f\x98\xae"),
+	         QString::fromUtf8("\xf0\x9f\x98\xa2"), QString::fromUtf8("\xf0\x9f\x99\x8f") };
+}
+
+bool fzn_conversation_view::react(const QByteArray &id, const QString &reaction)
+{
+	const QByteArray r = reaction.toUtf8();
+	char text[FZN_MESSAGE_TEXT_MAX + 1u];
+	size_t n;
+
+	if (id.size() != (int)FZN_MESSAGE_ID_LEN
+	    || !(n = fzn_message_reaction_write((const uint8_t *)id.constData(), r.constData(), (size_t)r.size(),
+	                                        text, sizeof text)))
+		return false;
+	if (!send_line(QByteArray(text, (int)n)))
+		return false;
+	refresh();
+	return true;
+}
+
 void fzn_conversation_view::select_line(int row)
 {
 	QListWidgetItem *item = row >= 0 ? m_lines->item(row) : nullptr;
@@ -746,6 +927,7 @@ void fzn_conversation_view::select_line(int row)
 	if (m_refreshing || key == m_chosen)
 		return;
 	m_chosen = key;
+	m_react->setEnabled(item && item->data(ROLE_ID).toByteArray().size() == (int)FZN_MESSAGE_ID_LEN);
 	offer_for(item);
 }
 
@@ -774,6 +956,13 @@ void fzn_conversation_view::offer_for(QListWidgetItem *item)
 	if (sticker.size() > 145 && item->data(ROLE_IN).toBool()) {
 		m_notice->offer(tr("A sticker from a pack you can keep."), tr("Keep this sticker pack"),
 		                [this]() { (void)keep_pack(); });
+		return;
+	}
+	/* ANY OTHER LINE CAN BE ANSWERED, sec 1282; a past call cannot. */
+	const QByteArray id = item ? item->data(ROLE_ID).toByteArray() : QByteArray();
+	if (id.size() == (int)FZN_MESSAGE_ID_LEN) {
+		m_notice->offer(tr("Answer this line with the next one you send."), tr("Reply"),
+		                [this, id]() { reply_to(id); });
 		return;
 	}
 	if (m_notice->offering())

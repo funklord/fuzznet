@@ -89,6 +89,16 @@ public:
 	void suggest_now();
 	QStringList suggested() const;
 	bool send_suggested(int i);
+	/* A REPLY, sec 1282: the line with id `id` (16 bytes) answered by the
+	 * next line sent, as "Reply" on a chosen line does; an empty id, or a
+	 * line sent, ends it. `replying` says to which line, empty for none. */
+	void reply_to(const QByteArray &id);
+	QByteArray replying() const;
+	/* A REACTION, sec 1282: `reaction` on the line with id `id`, sent as
+	 * a line the other end folds under it; an empty one takes this user's
+	 * back. What "React" on a chosen line sends, one of `reactions()`. */
+	bool react(const QByteArray &id, const QString &reaction);
+	static QStringList reactions();
 
 	/* The clock, seconds since 1970, for the times shown; 0 reads the
 	 * system's. */
@@ -128,6 +138,8 @@ private:
 	void offer_for(class QListWidgetItem *item);
 	/* THE LINE CHOSEN, by its text, kept across a refresh (sec 1253). */
 	QString m_chosen;
+	/* THE LINE THE NEXT ONE SENT ANSWERS, by its id, sec 1282. */
+	QByteArray m_reply_to;
 	bool m_refreshing = false;
 	class bubble_delegate *m_bubbles;
 	class fzn_sticker_picker_view *m_picker;
@@ -147,6 +159,7 @@ private:
 	QPushButton *m_send;
 	QPushButton *m_older;
 	QPushButton *m_send_file;
+	QPushButton *m_react;
 	size_t m_max; /* the most lines shown, a page more for each "older" */
 	class fzn_notice_line *m_notice;
 };

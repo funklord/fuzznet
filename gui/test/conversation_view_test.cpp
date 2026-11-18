@@ -114,6 +114,13 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "list message fay 0"))
 		return (size_t)snprintf(reply, cap, "ok 0 1 0 " BOB ",fay," ID1 ",out,read,1700005800000,1700005800000,1,"
 		                                    "on%%20my%%20way\n");
+	/* GIL ASKED, THIS USER REPLIED, AND GIL LIKED THE REPLY (sec 1282). */
+	if (!strcmp(line, "list message gil 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 0 3 0 " BOB ",gil," ID3 ",in,-,1700005900000,1700005900000,1,"
+		                        "fzn:react/" ID2 "%%20\xf0\x9f\x91\x8d " BOB ",gil," ID2 ",out,delivered,"
+		                        "1700005800000,1700005800000,1,fzn:reply/" ID1 "%%20the%%20usual%%20place " BOB
+		                        ",gil," ID1 ",in,read,1700005700000,1700005700000,1,where%%20shall%%20we%%20eat\n");
 	/* EVE AND A QUIET GROUP: nothing said yet (sec 1263). */
 	if (!strcmp(line, "list message eve 0") || !strcmp(line, "list message @quiet 0"))
 		return (size_t)snprintf(reply, cap, "ok 0 0 0\n");
@@ -366,6 +373,34 @@ int main(int argc, char **argv)
 		      "an empty group was not said as one, by its name");
 		CHECK(e.open("fay") && e.lines().value(0) == "23:50 You: on my way (read)",
 		      "a line the contact said they read was not shown read");
+		/* A REPLY AND A REACTION, sec 1282: the reply quotes the line it
+		 * answers, the reaction is folded under the line it names and is
+		 * no line of its own; a line chosen offers a reply, and the next
+		 * line sent answers it. */
+		CHECK(e.open("gil") && e.lines().size() == 2 && e.lines().value(0).endsWith("gil: where shall we eat")
+		              && e.lines().value(1).endsWith("You: (in reply to \"where shall we eat\") the usual place "
+		                                             "[\xf0\x9f\x91\x8d 1] (delivered)"),
+		      "a reply did not quote its line, or a reaction was not folded under the line it names");
+		e.select_line(0);
+		CHECK(e.offered() == "Reply", "a line chosen did not offer a reply");
+		e.reply_to(QByteArray::fromHex(ID1));
+		e.set_text("ok then");
+		last_add[0] = '\0';
+		CHECK(e.send() && strstr(last_add, "message gil") && strstr(last_add, "fzn:reply/" ID1)
+		              && strstr(last_add, "ok") && e.replying().isEmpty(),
+		      "the line sent in reply did not name the line it answers, or the reply did not end");
+		e.set_text("plain");
+		last_add[0] = '\0';
+		CHECK(e.send() && !strstr(last_add, "fzn:reply/"), "a line after the reply was sent as one too");
+		last_add[0] = '\0';
+		CHECK(e.react(QByteArray::fromHex(ID1), fzn_conversation_view::reactions().value(0))
+		              && strstr(last_add, "message gil") && strstr(last_add, "fzn:react/" ID1 "%20\xf0\x9f\x91\x8d"),
+		      "a reaction was not sent naming its line");
+		last_add[0] = '\0';
+		CHECK(e.react(QByteArray::fromHex(ID1), QString()) && strstr(last_add, "fzn:react/" ID1)
+		              && !strstr(last_add, "fzn:react/" ID1 "%20"),
+		      "a reaction taken back was not sent as the bare reference");
+		CHECK(!e.react(QByteArray("short"), QStringLiteral("x")), "a reaction to no line was sent");
 		/* A GROUP'S LINE READ BY THREE, sec 1273; one by one; one that
 		 * came in says nothing. */
 		CHECK(fzn_conversation_view::state_said(true, FZN_RPC_LINE_READ, 3) == " (read by 3)"

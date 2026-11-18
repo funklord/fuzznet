@@ -266,7 +266,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/library_binary.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
-             messages/line.c messages/attachment.c messages/messages.c node/messages.c node/messages_binary.c node/contacts_binary.c node/groups_binary.c \
+             messages/line.c messages/attachment.c messages/reply.c messages/messages.c node/messages.c node/messages_binary.c node/contacts_binary.c node/groups_binary.c \
              node/file_holds.c node/attachments.c node/records.c node/objects.c node/objects_binary.c node/decisions.c node/decisions_binary.c node/invite.c node/presets.c node/votes.c local/client_config.c node/responsible.c \
              contact/contact.c \
              log/rules.c \
@@ -371,7 +371,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/library_binary.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
-             messages/line.h messages/attachment.h messages/messages.h node/messages.h node/messages_binary.h node/contacts_binary.h node/groups_binary.h \
+             messages/line.h messages/attachment.h messages/reply.h messages/messages.h node/messages.h node/messages_binary.h node/contacts_binary.h node/groups_binary.h \
              node/file_holds.h node/attachments.h node/records.h node/objects.h node/objects_binary.h node/decisions.h node/decisions_binary.h node/invite.h node/presets.h node/votes.h local/client_config.h node/responsible.h \
              contact/contact.h \
              log/rules.h \
@@ -515,7 +515,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/types_test.c node/test/meter_test.c node/test/sync_load_test.c node/test/schema_test.c location/test/location_test.c \
              node/test/log_list_test.c node/test/clocks_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
-             sticker/test/sticker_test.c messages/test/attachment_test.c \
+             sticker/test/sticker_test.c messages/test/attachment_test.c messages/test/reply_test.c \
              sticker/test/sticker_fuzz.c node/test/records_test.c node/test/decisions_test.c node/test/invite_test.c node/test/presets_test.c node/test/votes_test.c local/test/client_config_test.c node/test/responsible_test.c \
              node/test/group_fuzz.c \
              node/test/attachments_test.c \
@@ -668,6 +668,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/client_config_test \
              $(BUILD_DIR)/node/test/responsible_test \
              $(BUILD_DIR)/messages/test/attachment_test \
+             $(BUILD_DIR)/messages/test/reply_test \
              $(BUILD_DIR)/node/test/attachments_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/node/test/identity_test \
@@ -3877,7 +3878,7 @@ $(BUILD_DIR)/gui/test/entries_view_test: $(BUILD_DIR)/gui/test/entries_view_test
 # The named objects on a widget, sec 1102, and the node's settings, sec 1103,
 # each against a scripted node: the widgets call the typed client, so the
 # client's objects come with them.
-RPC_LINK_OBJS := $(RPC_OBJS) $(BUILD_DIR)/messages/attachment.o \
+RPC_LINK_OBJS := $(RPC_OBJS) $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/messages/reply.o \
                  $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
                  $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/escape.o \
                  $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer.o \
@@ -5680,6 +5681,12 @@ $(BUILD_DIR)/messages/test/attachment_fuzz: $(BUILD_DIR)/messages/test/attachmen
 # A file sent in a conversation, its reference fuzznet's, sec 794.
 $(BUILD_DIR)/messages/test/attachment_test: $(BUILD_DIR)/messages/test/attachment_test.o \
                                             $(BUILD_DIR)/messages/attachment.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A line about another line, a reply and a reaction, sec 1282.
+$(BUILD_DIR)/messages/test/reply_test: $(BUILD_DIR)/messages/test/reply_test.o \
+                                       $(BUILD_DIR)/messages/reply.o $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -7996,7 +8003,7 @@ QTTY_JOBS ?= 4
 # THE TYPED CLIENT for the views that ask through it (objects_view, sec 1102):
 # its objects and what they reach that the list below does not already hold.
 QTTY_RPC_OBJS := $(RPC_OBJS) $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/contact_card.o \
-                 $(BUILD_DIR)/messages/attachment.o \
+                 $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/messages/reply.o \
                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/hex/hex.o \
                  $(BUILD_DIR)/location/geo.o
 QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \

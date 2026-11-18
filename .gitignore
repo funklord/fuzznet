@@ -369,6 +369,7 @@ __pycache__/
 /sticker/test/sticker_test
 /sticker/test/sticker_fuzz
 /messages/test/attachment_test
+/messages/test/reply_test
 /node/test/attachments_test
 /live-repeat/
 /faults/

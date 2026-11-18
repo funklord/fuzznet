@@ -150,6 +150,7 @@
 #include <fuzznet/node/opjournal.h>
 #include <fuzznet/messages/line.h>
 #include <fuzznet/messages/attachment.h>
+#include <fuzznet/messages/reply.h>
 #include <fuzznet/node/file_holds.h>
 #include <fuzznet/node/attachments.h>
 #include <fuzznet/node/records.h>
@@ -415,6 +416,7 @@
 #include "node/opjournal.h"
 #include "messages/line.h"
 #include "messages/attachment.h"
+#include "messages/reply.h"
 #include "node/file_holds.h"
 #include "node/attachments.h"
 #include "node/records.h"
