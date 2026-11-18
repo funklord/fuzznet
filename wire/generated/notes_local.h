@@ -3210,10 +3210,6 @@ static inline situ_err_t fzn_notes_local_message_required(const uint8_t *data, u
 		uint32_t   part = 0u;
 		situ_err_t e = SITU_OK;
 
-		if (have < 2u) {
-			*need = at;
-			return SITU_ERR_TRUNCATED;
-		}
 		if ((have >= 2u ? fzn_notes_local_message_op_get(view) : 0u) == 128u) {
 			e = fzn_notes_local_notes_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);

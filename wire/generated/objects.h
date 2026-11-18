@@ -1454,10 +1454,6 @@ static inline situ_err_t fzn_objects_message_required(const uint8_t *data, uint3
 		uint32_t   part = 0u;
 		situ_err_t e = SITU_OK;
 
-		if (have < 2u) {
-			*need = at;
-			return SITU_ERR_TRUNCATED;
-		}
 		if ((have >= 2u ? fzn_objects_message_op_get(view) : 0u) == 128u) {
 			e = fzn_objects_add_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);

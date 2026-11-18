@@ -909,10 +909,6 @@ static inline situ_err_t fzn_streams_local_message_required(const uint8_t *data,
 		uint32_t   part = 0u;
 		situ_err_t e = SITU_OK;
 
-		if (have < 2u) {
-			*need = at;
-			return SITU_ERR_TRUNCATED;
-		}
 		if ((have >= 2u ? fzn_streams_local_message_op_get(view) : 0u) == 128u) {
 			e = fzn_streams_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
