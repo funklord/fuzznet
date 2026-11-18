@@ -533,10 +533,20 @@ def main(argv):
 			spec = os.path.join(packdir, "cats.spec")
 			with open(spec, "w") as f:
 				f.write("name cats\nsticker 1 static\ndescription a cat waving\n"
+				        "keyword see you\nkeyword see you later\n"
 				        "inline png 128 128 art/wave.png\n")
 			got = ask(socks["a"], "put sticker " + spec).split()
 			if len(got) != 2 or got[0] != "ok":
 				raise failed("h: put sticker answered %r" % got)
+			# THE SEARCH WHILE TYPING, sec 1272: the kept pack's sticker for a
+			# phrase half typed, and nothing for a line with none of it.
+			found = ask(socks["a"], "list sticker match ok see y").split()
+			if len(found) != 4 or found[1] != "1" or not found[3].startswith(got[1][:64] + ",1,"):
+				raise failed("h: the kept sticker was not found for its phrase half typed: %r" % found)
+			if ask(socks["a"], "list sticker match the weather").split()[:2] != ["ok", "0"]:
+				raise failed("h: a line with none of a sticker's words found it")
+			print("livecheck: h0: the kept pack's sticker found for its phrase half typed, %s"
+			      % found[3].split(",")[2])
 			ref = ask(socks["a"], "get sticker %s 1" % got[1])
 			if not ref.startswith("ok fzn:sticker/"):
 				raise failed("h: get sticker answered %r" % ref)

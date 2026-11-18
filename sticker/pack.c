@@ -121,6 +121,22 @@ static int text_ok(const char *s, size_t n)
 
 /* ---- a pack ------------------------------------------------------------ */
 
+/* THE VERSION A PACK IS WRITTEN AT, sec 1272: 3 where every sticker's
+ * phrases fit version 3's caps, so a reader built before 4 reads it. */
+static unsigned version_for(const fzn_sticker_manifest_t *m)
+{
+	size_t i, k;
+
+	for (i = 0; i < m->count; i++) {
+		if (m->entries[i].keyword_count > FZN_STICKER_KEYWORDS_MAX_3)
+			return FZN_STICKER_VERSION;
+		for (k = 0; k < m->entries[i].keyword_count; k++)
+			if (m->entries[i].keyword_lens[k] > FZN_STICKER_KEYWORD_MAX_3)
+				return FZN_STICKER_VERSION;
+	}
+	return FZN_STICKER_VERSION_3;
+}
+
 static void write_pack(writer_t *w, const fzn_sticker_manifest_t *m,
                        const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
                        const uint32_t sound_len[], const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
@@ -129,7 +145,7 @@ static void write_pack(writer_t *w, const fzn_sticker_manifest_t *m,
 	uint32_t at = 0;
 	size_t i, k, r;
 
-	put8(w, FZN_STICKER_VERSION);
+	put8(w, version_for(m));
 	put64(w, m->id);
 	put64(w, m->line_package);
 	put8(w, (unsigned)m->name_len);
@@ -348,11 +364,13 @@ static int read_entry(reader_t *rd, unsigned v, fzn_sticker_entry_t *e)
 	if (!text_ok(e->description, e->description_len))
 		return 0;
 	e->keyword_count = get8(rd);
-	if (e->keyword_count > FZN_STICKER_KEYWORDS_MAX)
+	/* EACH VERSION'S CAPS, sec 1272: a 3 holding a 4's phrases is no 3. */
+	if (e->keyword_count > (v >= FZN_STICKER_VERSION ? FZN_STICKER_KEYWORDS_MAX : FZN_STICKER_KEYWORDS_MAX_3))
 		return 0;
 	for (k = 0; k < e->keyword_count; k++) {
 		e->keyword_lens[k] = get8(rd);
-		if (e->keyword_lens[k] == 0u || e->keyword_lens[k] > FZN_STICKER_KEYWORD_MAX
+		if (e->keyword_lens[k] == 0u
+		    || e->keyword_lens[k] > (v >= FZN_STICKER_VERSION ? FZN_STICKER_KEYWORD_MAX : FZN_STICKER_KEYWORD_MAX_3)
 		    || !(b = take(rd, e->keyword_lens[k])))
 			return 0;
 		memcpy(e->keywords[k], b, e->keyword_lens[k]);
@@ -366,7 +384,7 @@ static int read_entry(reader_t *rd, unsigned v, fzn_sticker_entry_t *e)
 	e->text_h = (uint16_t)get16(rd);
 	/* THE BOX'S PAINT, version 3's, sec 859; a turn past a full circle is
 	 * no turn anybody drew. */
-	if (v >= FZN_STICKER_VERSION) {
+	if (v >= FZN_STICKER_VERSION_3) {
 		e->text_fill = get32(rd);
 		e->text_ink = get32(rd);
 		e->text_turn = (uint16_t)get16(rd);
@@ -436,10 +454,11 @@ static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *ou
 	rd.left = len;
 	rd.bad = 0;
 	v = get8(&rd);
-	if (v != FZN_STICKER_VERSION && v != FZN_STICKER_VERSION_2 && v != FZN_STICKER_VERSION_1)
+	if (v != FZN_STICKER_VERSION && v != FZN_STICKER_VERSION_3 && v != FZN_STICKER_VERSION_2
+	    && v != FZN_STICKER_VERSION_1)
 		return 0;
 	/* THE PACK'S OWN ID, version 3's and nonzero, sec 859. */
-	if (v >= FZN_STICKER_VERSION) {
+	if (v >= FZN_STICKER_VERSION_3) {
 		pack_id = get64(&rd);
 		if (!pack_id)
 			return 0;
@@ -1539,4 +1558,185 @@ int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 	out->description[desc_len] = '\0';
 	out->description_len = desc_len;
 	return 1;
+}
+
+/* ---- the search while typing, sec 1272 --------------------------------- */
+
+#define MATCH_WORDS 64u
+#define MATCH_BYTES 1024u
+
+typedef struct {
+	char buf[MATCH_BYTES];
+	size_t at[MATCH_WORDS], len[MATCH_WORDS], n;
+	int open_end; /* the text ends inside a word: its last may be half typed */
+} words_t;
+
+/* THE WORDS OF `s`: ASCII letters and digits folded to lower case, and any
+ * byte of a character past ASCII, run together; an apostrophe (' or U+2019)
+ * dropped; anything else a gap. As many as fit, from the end, since what
+ * was typed last is what a sticker answers. */
+static void words_of(const char *s, size_t n, words_t *w)
+{
+	size_t i, used = 0, start = 0;
+	int in = 0;
+
+	w->n = 0;
+	w->open_end = 0;
+	if (n > MATCH_BYTES)
+		s += n - MATCH_BYTES, n = MATCH_BYTES;
+	for (i = 0; i <= n; i++) {
+		const unsigned char c = i < n ? (unsigned char)s[i] : ' ';
+
+		if (c == '\'') {
+			continue;
+		}
+		if (c == 0xe2u && i + 2u < n && (unsigned char)s[i + 1u] == 0x80u && (unsigned char)s[i + 2u] == 0x99u) {
+			i += 2u;
+			continue;
+		}
+		if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || c >= 0x80u) {
+			if (!in) {
+				in = 1;
+				start = used;
+			}
+			if (used < MATCH_BYTES)
+				w->buf[used++] = (char)((c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c);
+			if (i + 1u == n)
+				w->open_end = 1;
+			continue;
+		}
+		if (in) {
+			in = 0;
+			if (w->n == MATCH_WORDS) {
+				memmove(w->at, w->at + 1, (MATCH_WORDS - 1u) * sizeof(w->at[0]));
+				memmove(w->len, w->len + 1, (MATCH_WORDS - 1u) * sizeof(w->len[0]));
+				w->n--;
+			}
+			w->at[w->n] = start;
+			w->len[w->n++] = used - start;
+		}
+	}
+}
+
+/* A WORD'S PLAIN FORM's length: a closing -ing, -ed, -es or -s let go
+ * where enough of the word is left to still be one. */
+static size_t stem_len(const char *w, size_t n)
+{
+	if (n > 5u && !memcmp(w + n - 3u, "ing", 3u))
+		return n - 3u;
+	if (n > 4u && !memcmp(w + n - 2u, "ed", 2u))
+		return n - 2u;
+	if (n > 4u && !memcmp(w + n - 2u, "es", 2u))
+		return n - 2u;
+	if (n > 3u && w[n - 1u] == 's' && w[n - 2u] != 's')
+		return n - 1u;
+	return n;
+}
+
+static int same_word(const char *a, size_t an, const char *b, size_t bn)
+{
+	size_t as, bs;
+
+	if (an == bn && !memcmp(a, b, an))
+		return 1;
+	as = stem_len(a, an);
+	bs = stem_len(b, bn);
+	return as == bs && !memcmp(a, b, as);
+}
+
+#define W(ws, i) ((ws)->buf + (ws)->at[i]), ((ws)->len[i])
+
+/* ONE PHRASE AGAINST THE WORDS TYPED: 100 a word where it stands whole
+ * among them, 50 more where it ends the line; else 60 a word for the line
+ * ending in its start, the last word perhaps half written. */
+static unsigned phrase_fit(const words_t *t, const words_t *p)
+{
+	size_t i, k, m = p->n, n = t->n;
+	unsigned best = 0;
+
+	if (!m || !n)
+		return 0;
+	for (i = 0; i + m <= n; i++) {
+		for (k = 0; k < m && same_word(t->buf + t->at[i + k], t->len[i + k], W(p, k)); k++)
+			;
+		if (k == m) {
+			unsigned s = 100u * (unsigned)m + (i + m == n ? 50u : 0u);
+			if (s > best)
+				best = s;
+		}
+	}
+	if (best)
+		return best;
+	/* BEING TYPED: the last k words typed are the phrase's first k, the
+	 * k-th perhaps begun only -- at least two letters of a lone word. */
+	for (k = (m < n ? m : n); k >= 1u; k--) {
+		const size_t last = n - 1u;
+		const size_t tl = t->len[last];
+		size_t j;
+
+		for (j = 0; j + 1u < k && same_word(t->buf + t->at[n - k + j], t->len[n - k + j], W(p, j)); j++)
+			;
+		if (j + 1u != k)
+			continue;
+		if (k == m && same_word(t->buf + t->at[last], tl, W(p, k - 1u)))
+			continue; /* whole, which the pass above would have found */
+		if (tl <= p->len[k - 1u] && !memcmp(t->buf + t->at[last], p->buf + p->at[k - 1u], tl)
+		    && (tl >= 2u || k >= 2u) && (t->open_end || tl == p->len[k - 1u]))
+			return 60u * (unsigned)k;
+	}
+	return 0;
+}
+
+/* WORDS TOO COMMON TO SAY WHAT A STICKER IS for, in a description. */
+static int common_word(const char *w, size_t n)
+{
+	static const char *const COMMON[] = { "a",  "an", "the", "and", "or", "of", "to", "in",
+		                              "on", "at", "is", "it",  "its", "with", "for", "very" };
+	size_t i;
+
+	for (i = 0; i < sizeof(COMMON) / sizeof(COMMON[0]); i++)
+		if (strlen(COMMON[i]) == n && !memcmp(COMMON[i], w, n))
+			return 1;
+	return 0;
+}
+
+unsigned fzn_sticker_match(const char *typed, size_t typed_len, const char *const *phrases,
+                           const size_t *phrase_lens, size_t phrase_count, const char *description,
+                           size_t description_len)
+{
+	static words_t t, p;
+	unsigned best = 0, s, hits = 0;
+	size_t i, j;
+
+	if (!typed || (phrase_count && (!phrases || !phrase_lens)))
+		return 0;
+	words_of(typed, typed_len, &t);
+	if (!t.n)
+		return 0;
+	for (i = 0; i < phrase_count; i++) {
+		words_of(phrases[i], phrase_lens[i], &p);
+		p.open_end = 0;
+		if ((s = phrase_fit(&t, &p)) > best)
+			best = s;
+	}
+	/* THE DESCRIPTION, for less: whole as a phrase at half, or each of its
+	 * telling words typed whole at 15. */
+	if (description && description_len) {
+		words_of(description, description_len, &p);
+		p.open_end = 0;
+		if ((s = phrase_fit(&t, &p) / 2u) > best)
+			best = s;
+		for (i = 0; i < p.n; i++) {
+			if (common_word(W(&p, i)))
+				continue;
+			for (j = 0; j < t.n; j++)
+				if (same_word(t.buf + t.at[j], t.len[j], W(&p, i))) {
+					hits++;
+					break;
+				}
+		}
+		if (15u * hits > best)
+			best = 15u * hits;
+	}
+	return best;
 }

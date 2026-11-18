@@ -17433,6 +17433,27 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"pack-always-4",
+		"sticker/pack.c",
+		"\treturn FZN_STICKER_VERSION_3;\n}\n",
+		"\treturn FZN_STICKER_VERSION;\n}\n",
+		"every pack is written as a 4, which a reader built before it refuses; sticker_test -- sec 1272",
+	),
+	(
+		"match-half-typed-unseen",
+		"sticker/pack.c",
+		"\t\t    && (tl >= 2u || k >= 2u) && (t->open_end || tl == p->len[k - 1u]))\n",
+		"\t\t    && 0)\n",
+		"a phrase being typed is not offered until it is whole; sticker_test, live_pairing h0 -- sec 1272",
+	),
+	(
+		"match-apostrophe-kept",
+		"sticker/pack.c",
+		"\t\tif (c == '\\'') {\n\t\t\tcontinue;\n\t\t}\n",
+		"",
+		"\"you're\" is two words, so a phrase typed with one does not fit; sticker_test -- sec 1272",
+	),
+	(
 		"phone-width-400",
 		"gui/phone_layout.h",
 		"#define FZN_PHONE_LAYOUT_WIDTH_PX 600\n",

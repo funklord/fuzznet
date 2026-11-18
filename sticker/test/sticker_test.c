@@ -173,7 +173,7 @@ static void test_a_spec_built_and_opened(void)
 	              && need > 0u,
 	      "the pack's length was not answered");
 	CHECK(build(&m) && pack_len == need, "the pack did not build at the length it said");
-	CHECK(pack[0] == FZN_STICKER_VERSION, "the version is not first");
+	CHECK(pack[0] == FZN_STICKER_VERSION_3, "a pack within version 3's caps was not written as one");
 	CHECK(fzn_sticker_pack_open(pack, pack_len, &back, &data, &data_len), "the pack did not open");
 	CHECK(back.count == 3u && back.entries[2].id == 7u
 	              && back.entries[1].audio_len == 8u && data_len == 5u + 6u + 5u + 8u + 5u,
@@ -195,8 +195,8 @@ static void test_what_opening_refuses(void)
 
 	CHECK(build(&m), "fixture: the pack");
 	memcpy(copy, pack, pack_len);
-	copy[0] = 4u;
-	CHECK(!fzn_sticker_pack_open(copy, pack_len, &back, &data, &data_len), "version 4 opened");
+	copy[0] = 5u;
+	CHECK(!fzn_sticker_pack_open(copy, pack_len, &back, &data, &data_len), "version 5 opened");
 	CHECK(!fzn_sticker_pack_open(pack, pack_len - 1u, &back, &data, &data_len)
 	              && !fzn_sticker_pack_open(pack, pack_len + 1u, &back, &data, &data_len),
 	      "a pack cut short, or with a byte after it, opened");
@@ -903,6 +903,76 @@ static void test_version_2_read(void)
 	(void)head;
 }
 
+/* VERSION 4, sec 1272: a sticker of forty phrases, one of sixty bytes, is
+ * written as a 4 and reads back whole; the same bytes called a 3 are
+ * refused, a 3 holding to its caps; a spec takes 128 and no more. */
+static void test_phrases_as_complete_as_written(void)
+{
+	static char spec[16384];
+	static fzn_sticker_entry_t room[1], read_room[1];
+	fzn_sticker_manifest_t pm = { "", 0, 0, room, 1u, 0, 0 }, got = { "", 0, 0, read_room, 1u, 0, 0 };
+	static const char LONG[] = "I will be there in five minutes, save me a seat";
+	char err[96];
+	size_t n = 0, k;
+
+	n += (size_t)snprintf(spec + n, sizeof(spec) - n, "sticker 3 static\nmain png 8 8 art/a.png\n");
+	for (k = 0; k < 39u; k++)
+		n += (size_t)snprintf(spec + n, sizeof(spec) - n, "keyword phrase number %zu\n", k);
+	n += (size_t)snprintf(spec + n, sizeof(spec) - n, "keyword %s and one more\n", LONG);
+	CHECK(fzn_sticker_spec_parse(spec, n, &pm, err, sizeof(err)) && room[0].keyword_count == 40u, err);
+	pm.id = 42u;
+	CHECK(build(&pm) && pack[0] == FZN_STICKER_VERSION, "a sticker of forty phrases was not written as a 4");
+	CHECK(fzn_sticker_pack_open(pack, pack_len, &got, &(const uint8_t *){ NULL }, &(size_t){ 0 })
+	              && got.entries[0].keyword_count == 40u && got.entries[0].keyword_lens[39] == strlen(LONG) + 13u
+	              && !memcmp(got.entries[0].keywords[39], LONG, strlen(LONG)),
+	      "a version 4 pack's phrases did not read back whole");
+	pack[0] = FZN_STICKER_VERSION_3;
+	CHECK(!fzn_sticker_pack_open(pack, pack_len, &got, &(const uint8_t *){ NULL }, &(size_t){ 0 }),
+	      "a version 3 pack holding a 4's phrases was read");
+	n = 0;
+	n += (size_t)snprintf(spec + n, sizeof(spec) - n, "sticker 3 static\nmain png 8 8 art/a.png\n");
+	for (k = 0; k < 129u; k++)
+		n += (size_t)snprintf(spec + n, sizeof(spec) - n, "keyword w%zu\n", k);
+	CHECK(!fzn_sticker_spec_parse(spec, n, &pm, err, sizeof(err)) && strstr(err, "too many keywords"),
+	      "a spec of 129 phrases on one sticker was taken");
+}
+
+/* THE SEARCH WHILE TYPING, sec 1272: a phrase typed whole anywhere, best
+ * at the end; one being typed, half a word in; a plain ending and an
+ * apostrophe let go; the description for less; nothing for nothing. */
+static unsigned fit(const char *typed, const char *const *ph, size_t n, const char *desc)
+{
+	size_t lens[8], i;
+
+	for (i = 0; i < n; i++)
+		lens[i] = strlen(ph[i]);
+	return fzn_sticker_match(typed, strlen(typed), ph, lens, n, desc, desc ? strlen(desc) : 0u);
+}
+
+static void test_the_search_while_typing(void)
+{
+	static const char *const BYE[] = { "see you", "see you later", "bye" };
+	static const char *const OMW[] = { "on my way", "omw", "coming" };
+	static const char *const THX[] = { "thank you", "thanks so much" };
+	static const char *const ONE[] = { "you're welcome" };
+
+	CHECK(fit("ok see you", BYE, 3, NULL) == 250u, "a phrase typed whole at the end did not fit best");
+	CHECK(fit("see you at eight", BYE, 3, NULL) == 200u, "a phrase typed whole mid-line did not fit");
+	CHECK(fit("ok see y", BYE, 3, NULL) == 120u, "a phrase half typed did not fit");
+	CHECK(fit("see you la", BYE + 1, 1, NULL) == 180u, "the longer phrase being typed was not offered");
+	CHECK(fit("I'm On My Way!", OMW, 3, NULL) == 350u, "case and marks were not let go");
+	CHECK(fit("thank", THX, 2, NULL) == 60u, "a phrase's first word typed whole was not its start");
+	CHECK(fit("thanks", THX, 2, NULL) >= 60u, "a plain ending was not let go");
+	CHECK(fit("youre welcome", ONE, 1, NULL) == 250u && fit("you\xe2\x80\x99re welcome", ONE, 1, NULL) == 250u,
+	      "an apostrophe was not let go");
+	CHECK(fit("s", BYE, 3, NULL) == 0u, "one letter alone was offered a sticker");
+	CHECK(fit("the weather", BYE, 3, NULL) == 0u, "a line with nothing of it fit");
+	CHECK(fit("a cat waving", NULL, 0, "a ginger cat waving hello") >= 30u,
+	      "the description's telling words did not count");
+	CHECK(fit("the and of ", NULL, 0, "the cat and the hat") == 0u, "common words alone fit a description");
+	CHECK(fit("", BYE, 3, NULL) == 0u, "nothing typed fit");
+}
+
 static void test_kinds_and_picks(void)
 {
 	fzn_sticker_entry_t e;
@@ -955,6 +1025,8 @@ int main(void)
 	test_more_than_64();
 	test_version_1_read();
 	test_version_2_read();
+	test_phrases_as_complete_as_written();
+	test_the_search_while_typing();
 	test_kinds_and_picks();
 	test_the_suite_can_tell_pass_from_fail();
 

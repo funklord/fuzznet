@@ -70,7 +70,14 @@
 /* VERSION 3, sec 859: the pack's own id from its art (sec 702's fifth
  * decision), and a text box's fill, ink and turn (its sixth). Versions 1
  * and 2 are still read, and written by nothing. */
-#define FZN_STICKER_VERSION 3u
+/* VERSION 4, sec 1272: a sticker's phrases as complete as a person writes
+ * them -- the holder's of 2026-11-18, for the search while typing (sec
+ * 1268) -- up to FZN_STICKER_KEYWORDS_MAX of FZN_STICKER_KEYWORD_MAX bytes
+ * each, where version 3 held 32 of 24. The layout is version 3's; a pack
+ * that fits version 3's caps is still written as 3, so a reader built
+ * before this reads it, and only a pack that needs the room is a 4. */
+#define FZN_STICKER_VERSION 4u
+#define FZN_STICKER_VERSION_3 3u
 #define FZN_STICKER_VERSION_2 2u
 #define FZN_STICKER_VERSION_1 1u
 /* The furthest a text box turns, clockwise, in degrees. */
@@ -80,8 +87,11 @@
 /* Version 1's cap, which it is still read under. */
 #define FZN_STICKER_PER_PACK_MAX_1 64u
 #define FZN_STICKER_DESC_MAX 96u
-#define FZN_STICKER_KEYWORDS_MAX 32u
-#define FZN_STICKER_KEYWORD_MAX 24u
+#define FZN_STICKER_KEYWORDS_MAX 128u
+#define FZN_STICKER_KEYWORD_MAX 64u
+/* Version 3's caps and before, which it is still read and written under. */
+#define FZN_STICKER_KEYWORDS_MAX_3 32u
+#define FZN_STICKER_KEYWORD_MAX_3 24u
 #define FZN_STICKER_RENDITIONS_MAX 6u
 #define FZN_STICKER_PATH_MAX 96u
 /* The longest pack this builds or opens, 64 MiB of art and manifest:
@@ -330,5 +340,22 @@ int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, 
  * anything not a whole, well-formed reference -- the text is then the
  * ordinary message it is. Every message a client shows passes here. */
 int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out);
+
+/* ---- the search while typing, sec 1272 --------------------------------- */
+
+/* HOW WELL A STICKER FITS THE LINE BEING TYPED, the holder's of 2026-11-18:
+ * stronger than LINE's, which offers a sticker only for a keyword typed
+ * whole. `typed` is the line as it stands; `phrases` the sticker's
+ * keywords, each a word or a phrase; `description` its description, which
+ * counts for less. 0 is no fit; higher is better, comparable across
+ * stickers. Words are compared with ASCII case folded, an apostrophe
+ * dropped ("you're" is "youre"), any other mark a space, and a plain
+ * ending ("thanks", "waving", "waved") taken as its word. A phrase fits
+ * wherever it stands whole among the words typed -- best at the end, as
+ * just typed -- and while it is being typed: the line's last words the
+ * start of it, the last perhaps half written ("see y" for "see you"). */
+unsigned fzn_sticker_match(const char *typed, size_t typed_len, const char *const *phrases,
+                           const size_t *phrase_lens, size_t phrase_count, const char *description,
+                           size_t description_len);
 
 #endif /* FZN_STICKER_PACK_H */

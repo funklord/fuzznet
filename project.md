@@ -92554,3 +92554,55 @@ one too; unpinned, 800 is a desktop again; the line has no coordinates
 and its tooltip has them. Sabotages `phone-width-400`,
 `phone-pin-ignored`, `own-coordinates-said`, each caught; the three
 views' never-narrow sabotages repointed at the new lines and caught.
+
+## 1272. A sticker's phrases as complete as written, and the search while typing: step 1, 2026-11-18
+
+Sec 1268's "a stronger context search (shown when typing text) than even
+Line ... the context words/phrases in each sticker should be expanded to
+be as complete as possible". Two halves: room for the phrases, and the
+search over them. The view that shows it while typing is step 2.
+
+**Room: pack version 4.** Version 3 held 32 keywords of at most 24 bytes
+a sticker -- an arbitrary cap of the kind sec 702 removed elsewhere, and
+too small for "I'll be there in five minutes". Version 4 is version 3's
+layout with 128 phrases of up to 64 bytes. **A pack that fits version 3's
+caps is still written as 3**, so a reader built before this -- a friend
+on an older fuzzypickles -- reads every pack it could read before; only a
+pack that needs the room is a 4, and an older reader refuses it by its
+version rather than misreading it. A spec's `keyword` line already took
+the rest of the line, so a phrase needs nothing new there. The entry's
+phrases are inline arrays, now 8 KB a sticker: every reader holds entries
+on the heap for one pack while it reads, so the cost is transient.
+
+**The search: `fzn_sticker_match`**, in the sticker library, a score of
+how well a sticker fits the line as it stands. LINE offers a sticker
+when a keyword is typed whole; this goes further:
+- a phrase fits **wherever it stands whole** among the words typed ("see
+  you at eight"), best where it ends the line (100 a word, 50 more);
+- and **while it is being typed** -- the line's last words the phrase's
+  first, the last perhaps half written ("ok see y" for "see you"), 60 a
+  word, never for one letter alone;
+- words are compared with ASCII case folded, an apostrophe dropped
+  ("you're" and "you’re" both "youre"), any other mark a gap, and a
+  plain ending let go ("thanks", "waving", "waved");
+- the description counts for less: whole at half, or 15 for each telling
+  word typed, common words ("the", "and") not counting.
+
+**And the node: `list sticker match TEXT`**, the best 20 of every kept
+pack held whole here, `ok COUNT 0 ROOT,ID,SCORE,DESCRIPTION ...`, and
+`fzn_node_stickers_match` beneath it. **Each pack's words are read once
+and held by its root** -- a pack never changes under one -- since reading
+every kept pack's file at every key pressed would export megabytes of art
+to read a few hundred phrases; a pack no longer kept is let go at the
+next search.
+
+**Not yet:** the typed client call and the binary op (step 2, with the
+view), and the original test set coordinated with fuzzypickles, whose
+phrases are the first real test of "as complete as possible".
+
+**Tests:** sticker_test -- a pack within version 3's caps written as 3;
+forty phrases, one of sixty bytes, written as 4 and read back whole; the
+same bytes called a 3 refused; 129 phrases refused; thirteen cases of the
+search. `live_pairing` h0: the kept pack's sticker found for "ok see y"
+at 120, and nothing for "the weather". Sabotages `pack-always-4`,
+`match-half-typed-unseen`, `match-apostrophe-kept`, each caught.

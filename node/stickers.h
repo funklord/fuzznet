@@ -94,6 +94,22 @@ typedef struct fzn_node_sticker_pack {
 int fzn_node_stickers_each(const fzn_node_stickers_t *st,
                            void (*each)(void *ctx, const fzn_node_sticker_pack_t *pack), void *ctx);
 
+/* THE STICKERS THAT FIT THE LINE BEING TYPED, sec 1272: of every kept
+ * pack held whole here, scored by fzn_sticker_match, the best first and
+ * at most 20, each handed over -- its pack's root, its id, its score and
+ * its description, good for the call. Each pack's words are read once and
+ * held by its root, so a search at every key costs no file read; a pack
+ * no longer kept is let go. 1, or 0 when the packs would not list. */
+typedef struct fzn_node_sticker_match {
+	const uint8_t *root;
+	uint64_t id;
+	unsigned score;
+	const char *description;
+	size_t description_len;
+} fzn_node_sticker_match_t;
+int fzn_node_stickers_match(const fzn_node_stickers_t *st, const char *typed, size_t typed_len,
+                            void (*each)(void *ctx, const fzn_node_sticker_match_t *hit), void *ctx);
+
 /* ONE SAVED PACK'S STICKERS, as `list sticker PACK` lists them, sec 1248:
  * each entry handed over with its main rendition's size, the entry good
  * only during the call. 1 once each was, 0 for no such pack saved, -1 for

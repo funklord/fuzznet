@@ -698,6 +698,220 @@ static size_t list_pack(const fzn_node_stickers_t *st, const fzn_node_file_ref_t
 	return out;
 }
 
+/* ---- the search while typing, sec 1272 --------------------------------- */
+
+/* EACH KEPT PACK'S WORDS, held here by the pack's root: a pack does not
+ * change under one, and reading every pack's file at every key a person
+ * presses would export megabytes of art to read a few hundred phrases. A
+ * pack no longer kept is let go at the next search. */
+typedef struct said_sticker {
+	uint64_t id;
+	char *words;          /* the description, then each phrase, end to end */
+	size_t desc_len;
+	size_t count;         /* phrases */
+	const char **phrases; /* into `words` */
+	size_t *lens;
+} said_sticker_t;
+
+typedef struct said_pack {
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	said_sticker_t *stickers;
+	size_t count;
+	int kept;
+} said_pack_t;
+
+static said_pack_t *said;
+static size_t said_n, said_cap;
+
+static void said_free(said_pack_t *p)
+{
+	size_t i;
+
+	for (i = 0; i < p->count; i++) {
+		free(p->stickers[i].words);
+		free(p->stickers[i].phrases);
+		free(p->stickers[i].lens);
+	}
+	free(p->stickers);
+	memset(p, 0, sizeof(*p));
+}
+
+/* A PACK'S WORDS, read once from its file. 0 where it would not read. */
+static int said_read(const fzn_node_stickers_t *st, const uint8_t root[FZN_BLOB_HASH_LEN], said_pack_t *out)
+{
+	fzn_node_file_ref_t ref;
+	fzn_sticker_manifest_t m;
+	const uint8_t *data;
+	size_t data_len, i, k;
+	uint8_t *bytes;
+
+	memset(out, 0, sizeof(*out));
+	memcpy(out->root, root, FZN_BLOB_HASH_LEN);
+	if (!fzn_node_stickers_saved(st, root, &ref) || !(bytes = pack_of(st, &ref, &m, &data, &data_len)))
+		return 0;
+	if (m.count && !(out->stickers = calloc(m.count, sizeof(*out->stickers)))) {
+		pack_done(&m, bytes);
+		return 0;
+	}
+	out->count = m.count;
+	for (i = 0; i < m.count; i++) {
+		const fzn_sticker_entry_t *e = &m.entries[i];
+		said_sticker_t *w = &out->stickers[i];
+		size_t total = e->description_len, at;
+
+		for (k = 0; k < e->keyword_count; k++)
+			total += e->keyword_lens[k];
+		w->id = e->id;
+		w->words = malloc(total ? total : 1u);
+		w->phrases = calloc(e->keyword_count ? e->keyword_count : 1u, sizeof(*w->phrases));
+		w->lens = calloc(e->keyword_count ? e->keyword_count : 1u, sizeof(*w->lens));
+		if (!w->words || !w->phrases || !w->lens) {
+			pack_done(&m, bytes);
+			said_free(out);
+			return 0;
+		}
+		memcpy(w->words, e->description, e->description_len);
+		w->desc_len = e->description_len;
+		at = e->description_len;
+		for (k = 0; k < e->keyword_count; k++) {
+			memcpy(w->words + at, e->keywords[k], e->keyword_lens[k]);
+			w->phrases[k] = w->words + at;
+			w->lens[k] = e->keyword_lens[k];
+			at += e->keyword_lens[k];
+		}
+		w->count = e->keyword_count;
+	}
+	pack_done(&m, bytes);
+	return 1;
+}
+
+struct said_walk {
+	const fzn_node_stickers_t *st;
+	int failed;
+};
+
+/* EACH KEPT PACK HELD WHOLE HERE, its words read where they are not yet. */
+static void said_one(void *ctx, const fzn_node_sticker_pack_t *pack)
+{
+	struct said_walk *w = ctx;
+	size_t i;
+
+	if (!pack->held)
+		return;
+	for (i = 0; i < said_n; i++)
+		if (!memcmp(said[i].root, pack->root, FZN_BLOB_HASH_LEN)) {
+			said[i].kept = 1;
+			return;
+		}
+	if (said_n == said_cap) {
+		size_t room = said_cap ? 2u * said_cap : 8u;
+		said_pack_t *grown = realloc(said, room * sizeof(*grown));
+
+		if (!grown) {
+			w->failed = 1;
+			return;
+		}
+		said = grown;
+		said_cap = room;
+	}
+	/* A PACK THAT WILL NOT READ is passed over, not the search refused. */
+	if (said_read(w->st, pack->root, &said[said_n])) {
+		said[said_n].kept = 1;
+		said_n++;
+	}
+}
+
+#define MATCH_SHOWN 20u
+
+typedef struct match_hit {
+	unsigned score;
+	size_t pack, sticker;
+} match_hit_t;
+
+int fzn_node_stickers_match(const fzn_node_stickers_t *st, const char *typed, size_t typed_len,
+                            void (*each)(void *ctx, const fzn_node_sticker_match_t *hit), void *ctx)
+{
+	struct said_walk w = { st, 0 };
+	match_hit_t hits[MATCH_SHOWN];
+	size_t n = 0, i, j, k;
+
+	if (!st || !st->settings || !st->files || !typed || !each)
+		return 0;
+	for (i = 0; i < said_n; i++)
+		said[i].kept = 0;
+	if (!fzn_node_stickers_each(st, said_one, &w) || w.failed)
+		return 0;
+	/* WHAT IS NO LONGER KEPT, let go. */
+	for (i = 0, j = 0; i < said_n; i++) {
+		if (said[i].kept)
+			said[j++] = said[i];
+		else
+			said_free(&said[i]);
+	}
+	said_n = j;
+	for (i = 0; i < said_n; i++)
+		for (j = 0; j < said[i].count; j++) {
+			const said_sticker_t *s = &said[i].stickers[j];
+			const unsigned score = fzn_sticker_match(typed, typed_len, s->phrases, s->lens, s->count,
+			                                         s->words, s->desc_len);
+
+			if (!score || (n == MATCH_SHOWN && score <= hits[n - 1u].score))
+				continue;
+			/* IN ORDER, the best first, the first held kept on a tie. */
+			k = n < MATCH_SHOWN ? n++ : n - 1u;
+			for (; k > 0 && hits[k - 1u].score < score; k--)
+				hits[k] = hits[k - 1u];
+			hits[k].score = score;
+			hits[k].pack = i;
+			hits[k].sticker = j;
+		}
+	for (i = 0; i < n; i++) {
+		const said_sticker_t *s = &said[hits[i].pack].stickers[hits[i].sticker];
+		fzn_node_sticker_match_t hit;
+
+		hit.root = said[hits[i].pack].root;
+		hit.id = s->id;
+		hit.score = hits[i].score;
+		hit.description = s->words;
+		hit.description_len = s->desc_len;
+		each(ctx, &hit);
+	}
+	return 1;
+}
+
+struct match_rows {
+	char (*rows)[ROW_MAX];
+	size_t n;
+};
+
+static void match_row(void *ctx, const fzn_node_sticker_match_t *hit)
+{
+	struct match_rows *r = ctx;
+	char desc[3u * FZN_STICKER_DESC_MAX + 1u];
+	size_t d = 0, at = 2u * FZN_BLOB_HASH_LEN, i;
+
+	(void)fzn_escape((const uint8_t *)hit->description, hit->description_len, desc, sizeof(desc) - 1u, &d);
+	desc[d] = '\0';
+	for (i = 0; i < FZN_BLOB_HASH_LEN; i++)
+		fzn_hex_byte(hit->root[i], r->rows[r->n] + 2u * i);
+	(void)snprintf(r->rows[r->n] + at, ROW_MAX - at, ",%llu,%u,%s", (unsigned long long)hit->id, hit->score, desc);
+	r->n++;
+}
+
+/* `list sticker match TEXT`, sec 1272: the stickers of every kept pack
+ * held here that fit the line being typed, the best first, at most 20:
+ * `ok COUNT 0 ROOT,ID,SCORE,DESCRIPTION ...`, TEXT the rest of the line. */
+static size_t list_match(const fzn_node_stickers_t *st, const uint8_t *text, size_t text_len, char *reply,
+                         size_t cap)
+{
+	static char rows[MATCH_SHOWN][ROW_MAX];
+	struct match_rows r = { rows, 0 };
+
+	if (!fzn_node_stickers_match(st, (const char *)text, text_len, match_row, &r))
+		return REPLY("error the kept packs would not list\n");
+	return page(rows, r.n, 0, reply, cap);
+}
+
 /* A WORD AS A PAGE'S START, at most ten digits: 1, or 0. */
 static int from_of(const uint8_t *w, size_t n, size_t *from)
 {
@@ -926,6 +1140,8 @@ size_t fzn_node_stickers_local(void *ctx, fzn_origin_t origin, const fzn_request
 
 		if (!next_word(&at, &left, &w, &n))
 			return list_saved(st, 0, reply, cap);
+		if (n == 5u && !memcmp(w, "match", 5u))
+			return left ? list_match(st, at, left, reply, cap) : REPLY("malformed list sticker match TEXT\n");
 		if (n <= 10u)
 			return !left && from_of(w, n, &from) ? list_saved(st, from, reply, cap)
 			                                     : REPLY("malformed list sticker [PACK] [FROM]\n");
