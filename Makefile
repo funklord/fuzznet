@@ -1997,6 +1997,14 @@ TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
               $(MONO_NREM) $(MONO_NPROV) $(MONO_NPAIR) $(MONO_NADM) \
               $(BUILD_DIR)/device/test/device_test
 CPPFLAGS   += -I$(MONOCYPHER_DIR)/src -I$(MONOCYPHER_DIR)/src/optional
+# AN OLD STICKER PACK BUILT AGAIN AS THE CURRENT ONE, sec 1278: a program of
+# its own, `make sticker-convert`, so that it goes -- this, its rules below
+# and its two files -- without touching the library, once nobody holds a
+# pack from before version 5. It hashes a pack id with the binding, so it
+# is built only where the binding is.
+STICKER_CONVERT := $(BUILD_DIR)/tool/sticker_convert
+TEST_SRCS  += tool/sticker_convert_test.c
+TEST_BINS  += $(BUILD_DIR)/tool/sticker_convert_test
 
 # Vendored, so it is compiled with its own terms rather than ours.
 # code-style.md exempts vendored sources from our rules, and -Wconversion
@@ -2246,9 +2254,9 @@ endif
 # GUI is off, so this costs a build without it nothing.
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(THORVG_OBJS:.o=.d) $(QR_DECODE_OBJS:.o=.d) \
-       $(PROG_OBJS:.o=.d) $(BUILD_DIR)/tool/rpc_probe.d
+       $(PROG_OBJS:.o=.d) $(BUILD_DIR)/tool/rpc_probe.d $(BUILD_DIR)/tool/sticker_convert.d
 
-.PHONY: embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: sticker-convert embedded livecheck-embedded livecheck-san check runtests all test fuzz guided guided-one installcheck coverage sancheck arrangements schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults lean livecheck-lean livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -3655,6 +3663,21 @@ $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS)
 # AND AGAINST A RUNNING NODE: the same client linked into a probe that
 # `livecheck` runs at a fresh host's fuzznetd (tool/live_rpc.py), so the
 # grammar the client reads is the one the daemon speaks.
+$(BUILD_DIR)/tool/sticker_convert: $(BUILD_DIR)/tool/sticker_convert.o $(BUILD_DIR)/sticker/pack.o \
+                                    $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS_GC) -o $@
+
+# ITS TEST RUNS THE PROGRAM, found beside the test binary.
+$(BUILD_DIR)/tool/sticker_convert_test: $(BUILD_DIR)/tool/sticker_convert_test.o \
+                                         $(BUILD_DIR)/sticker/pack.o \
+                                         $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
+                                         | $(BUILD_DIR)/tool/sticker_convert
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(filter %.o,$^) -o $@
+
+sticker-convert: $(STICKER_CONVERT)
+
 RPC_PROBE := $(BUILD_DIR)/tool/rpc_probe
 $(RPC_PROBE): $(BUILD_DIR)/tool/rpc_probe.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
@@ -6806,10 +6829,12 @@ style: $(OBJS)
 	@# fourth: `qr/decode.c` and its suite, the recogniser over quirc,
 	@# built by `qrcheck` for the same reason as the quirc check. The fifth:
 	@# `tool/rpc_probe.c`, the typed client at a running node, built by
-	@# `livecheck`, which starts the node it needs (sec 1098).
+	@# `livecheck`, which starts the node it needs (sec 1098). The sixth:
+	@# `tool/sticker_convert.c`, built by `sticker-convert` and by its test,
+	@# kept apart so it can be retired (sec 1278).
 	@known=" $(SRCS) $(PROG_SRCS) $(TEST_SRCS) $(GEN_SRCS) $(GEN_TEST_SRCS) $(MONO_SRCS) $(MONO_TSRC) \
 	         $(FLOG_TSRC) tool/consumer_check.c qr/test/qr_quirc_check.c \
-	         qr/decode.c qr/test/decode_test.c tool/rpc_probe.c "; \
+	         qr/decode.c qr/test/decode_test.c tool/rpc_probe.c tool/sticker_convert.c "; \
 	unlisted=; n=0; \
 	for c in `find . -name '*.c' -not -path './build/*' -not -path './san/*' \
 	                 -not -path './*-coverage/*' -not -path './.claude/*' \

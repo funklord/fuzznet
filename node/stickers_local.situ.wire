@@ -21,7 +21,7 @@ target buffer
 enum op : u8 unknown=error
   packs=128 pack_row=129 items=130 item_row=131 keep=132 kept=133 forget=134
 
-struct item_row size=36..132
+struct item_row size=36..291
   @0x0000   8         u64        id  big
   @0x0008   1         u8         type
   @0x0009   2         u16        flags  big
@@ -35,8 +35,8 @@ struct item_row size=36..132
   @0x001d   2         u16        text_turn  big max=359
   @0x001f   2         u16        main_w  big
   @0x0021   2         u16        main_h  big
-  @0x0023   1         u8         desc_len  max=96
-  @0x0024   0..96     u8         desc  sized-by=desc_len
+  @0x0023   1         u8         desc_len
+  @0x0024   0..255    u8         desc  sized-by=desc_len
 
 struct keep_ask size=72
   @0x0000   32        u8         root  big
@@ -47,10 +47,10 @@ struct kept_row size=33
   @0x0000   32        u8         root  big
   @0x0020   1         u8         estate  max=1
 
-struct message size=2..134
+struct message size=2..300
   @0x0000   1         u8         cmd  must_eq=22
   @0x0001   1         op         op
-  @0x0002   0..132    variant    body
+  @0x0002   0..298    variant    body
   body switch: op
   body case 128: packs nothing
   body case 129: pack_row pack_row
@@ -66,10 +66,10 @@ struct nothing size=0
 struct pack_ask size=32
   @0x0000   32        u8         root  big
 
-struct pack_row size=43..91
+struct pack_row size=43..298
   @0x0000   32        u8         root  big
   @0x0020   8         u64        length  big
   @0x0028   1         u8         held  max=1
   @0x0029   1         u8         estate  max=1
-  @0x002a   1         u8         name_len  max=48
-  @0x002b   0..48     u8         name  sized-by=name_len
+  @0x002a   1         u8         name_len
+  @0x002b   0..255    u8         name  sized-by=name_len

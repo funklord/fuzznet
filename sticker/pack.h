@@ -17,8 +17,7 @@
  * as fuzzypickles built them (their e35540f and 140d719): an id is 64 bits
  * from the sticker's art, nonzero and unique in its pack; there is no cap
  * of 64 stickers, the manifest pointing at the caller's room for them; and
- * the description and the name are optional. Version 2 is that layout;
- * version 1, with 16-bit ids and at most 64 stickers, is still read.
+ * the description and the name are optional.
  *
  * A SPEC is the pack as text, written by a person beside the art and kept
  * in version control -- its grammar fuzzypickles', unchanged:
@@ -66,32 +65,21 @@
 
 #include "../session/commitment.h"
 
-/* WRITTEN; and the one before it, read. */
-/* VERSION 3, sec 859: the pack's own id from its art (sec 702's fifth
- * decision), and a text box's fill, ink and turn (its sixth). Versions 1
- * and 2 are still read, and written by nothing. */
-/* VERSION 4, sec 1272: a sticker's phrases as complete as a person writes
- * them -- the holder's of 2026-11-18, for the search while typing (sec
- * 1268) -- up to FZN_STICKER_KEYWORDS_MAX of FZN_STICKER_KEYWORD_MAX bytes
- * each, where version 3 held 32 of 24. The layout is version 3's; a pack
- * that fits version 3's caps is still written as 3, so a reader built
- * before this reads it, and only a pack that needs the room is a 4. */
-#define FZN_STICKER_VERSION 4u
-#define FZN_STICKER_VERSION_3 3u
-#define FZN_STICKER_VERSION_2 2u
-#define FZN_STICKER_VERSION_1 1u
+/* ONE VERSION, sec 1278, the holder's of 2026-11-18: every text in a
+ * sticker as long as its length byte can say, 255 bytes, and as many
+ * phrases as its count byte can, 255 -- no cap narrower than the field
+ * that carries it. The layout is version 4's (sec 1272) with those caps
+ * gone, and it is the only one read: a pack of version 1 to 4 is refused
+ * here and converted by `tool/sticker_convert.c`, a program of its own so
+ * that it goes, once nobody holds an old pack, without touching this. */
+#define FZN_STICKER_VERSION 5u
 /* The furthest a text box turns, clockwise, in degrees. */
 #define FZN_STICKER_TURN_MAX 359u
 
-#define FZN_STICKER_NAME_MAX 48u
-/* Version 1's cap, which it is still read under. */
-#define FZN_STICKER_PER_PACK_MAX_1 64u
-#define FZN_STICKER_DESC_MAX 96u
-#define FZN_STICKER_KEYWORDS_MAX 128u
-#define FZN_STICKER_KEYWORD_MAX 64u
-/* Version 3's caps and before, which it is still read and written under. */
-#define FZN_STICKER_KEYWORDS_MAX_3 32u
-#define FZN_STICKER_KEYWORD_MAX_3 24u
+#define FZN_STICKER_NAME_MAX 255u
+#define FZN_STICKER_DESC_MAX 255u
+#define FZN_STICKER_KEYWORDS_MAX 255u
+#define FZN_STICKER_KEYWORD_MAX 255u
 #define FZN_STICKER_RENDITIONS_MAX 6u
 #define FZN_STICKER_PATH_MAX 96u
 /* The longest pack this builds or opens, 64 MiB of art and manifest:
@@ -243,16 +231,16 @@ int fzn_sticker_pack_id(const fzn_sticker_manifest_t *m,
 
 /* OPEN `len` bytes of a pack into `out`, its `entries` and `cap` the
  * caller's room, every rule fuzzypickles' decoder kept: a known version, a
- * name of at most 48 bytes, at least one sticker, ids nonzero and distinct;
- * each sticker a known type, no flag unknown, a description of at most 96
- * bytes and keywords of 1 to 24, none holding a control character; one to
+ * name of at most 255 bytes, at least one sticker, ids nonzero and
+ * distinct; each sticker a known type, no flag unknown, a description of at
+ * most 255 bytes and up to 255 phrases of 1 to 255, none holding a control
+ * character; one to
  * six renditions of a known role and format, sized, each inside the data
  * area; a sound flag only beside a sound; a message or name sticker with a
  * text limit and a box; no big emoji. And nothing after the data area.
  * `*data`, `*data_len` the data area, which offsets index. 1, or 0 -- and
- * FZN_STICKER_TOO_SMALL when the stickers alone did not fit. Version 1 is
- * read too, its rules as they were: a description of 1 to 96 bytes, each
- * distinct, and at most 64 stickers. */
+ * FZN_STICKER_TOO_SMALL when the stickers alone did not fit. Version 5
+ * only. */
 int fzn_sticker_pack_open(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *out,
                           const uint8_t **data, size_t *data_len);
 

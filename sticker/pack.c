@@ -121,22 +121,6 @@ static int text_ok(const char *s, size_t n)
 
 /* ---- a pack ------------------------------------------------------------ */
 
-/* THE VERSION A PACK IS WRITTEN AT, sec 1272: 3 where every sticker's
- * phrases fit version 3's caps, so a reader built before 4 reads it. */
-static unsigned version_for(const fzn_sticker_manifest_t *m)
-{
-	size_t i, k;
-
-	for (i = 0; i < m->count; i++) {
-		if (m->entries[i].keyword_count > FZN_STICKER_KEYWORDS_MAX_3)
-			return FZN_STICKER_VERSION;
-		for (k = 0; k < m->entries[i].keyword_count; k++)
-			if (m->entries[i].keyword_lens[k] > FZN_STICKER_KEYWORD_MAX_3)
-				return FZN_STICKER_VERSION;
-	}
-	return FZN_STICKER_VERSION_3;
-}
-
 static void write_pack(writer_t *w, const fzn_sticker_manifest_t *m,
                        const uint32_t art_len[][FZN_STICKER_RENDITIONS_MAX],
                        const uint32_t sound_len[], const uint8_t *const art[][FZN_STICKER_RENDITIONS_MAX],
@@ -145,7 +129,7 @@ static void write_pack(writer_t *w, const fzn_sticker_manifest_t *m,
 	uint32_t at = 0;
 	size_t i, k, r;
 
-	put8(w, version_for(m));
+	put8(w, FZN_STICKER_VERSION);
 	put64(w, m->id);
 	put64(w, m->line_package);
 	put8(w, (unsigned)m->name_len);
@@ -285,7 +269,19 @@ int fzn_sticker_pack_build(const fzn_sticker_manifest_t *m,
 			if (m->entries[i].id == m->entries[j].id)
 				return 0;
 	}
+	/* EVERY LENGTH ONE ITS BYTE CAN SAY, or the byte written would say
+	 * another: the caps are the fields', and nothing narrower. */
+	if (m->name_len > FZN_STICKER_NAME_MAX)
+		return 0;
 	for (i = 0; i < m->count; i++) {
+		const fzn_sticker_entry_t *e = &m->entries[i];
+
+		if (e->description_len > FZN_STICKER_DESC_MAX
+		    || e->keyword_count > FZN_STICKER_KEYWORDS_MAX)
+			return 0;
+		for (r = 0; r < e->keyword_count; r++)
+			if (e->keyword_lens[r] > FZN_STICKER_KEYWORD_MAX)
+				return 0;
 		if (m->entries[i].rendition_count > FZN_STICKER_RENDITIONS_MAX)
 			return 0;
 		for (r = 0; r < m->entries[i].rendition_count; r++) {
@@ -338,39 +334,31 @@ static int type_ok(unsigned v)
 	return v >= FZN_STICKER_STATIC && v <= FZN_STICKER_EMOJI;
 }
 
-/* ONE STICKER read into `e`, version `v`'s layout: 1, or 0. */
-static int read_entry(reader_t *rd, unsigned v, fzn_sticker_entry_t *e)
+/* ONE STICKER read into `e`: 1, or 0. */
+static int read_entry(reader_t *rd, fzn_sticker_entry_t *e)
 {
 	const uint8_t *b;
 	size_t k, r;
 
 	memset(e, 0, sizeof(*e));
-	if (v == FZN_STICKER_VERSION_1) {
-		e->id = get16(rd);
-	} else {
-		e->id = get64(rd);
-		e->line_id = get64(rd);
-	}
+	e->id = get64(rd);
+	e->line_id = get64(rd);
 	e->type = (uint8_t)get8(rd);
 	e->flags = (uint16_t)get16(rd);
 	e->description_len = get8(rd);
 	/* A DESCRIPTION OPTIONAL SINCE VERSION 2, sec 702; an id nonzero. */
 	if (rd->bad || !e->id || !type_ok(e->type) || (e->flags & ~FZN_STICKER_FLAGS_KNOWN)
-	    || (v == FZN_STICKER_VERSION_1 && e->description_len == 0u)
-	    || e->description_len > FZN_STICKER_DESC_MAX || !(b = take(rd, e->description_len)))
+	    || !(b = take(rd, e->description_len)))
 		return 0;
 	if (e->description_len)
 		memcpy(e->description, b, e->description_len);
 	if (!text_ok(e->description, e->description_len))
 		return 0;
 	e->keyword_count = get8(rd);
-	/* EACH VERSION'S CAPS, sec 1272: a 3 holding a 4's phrases is no 3. */
-	if (e->keyword_count > (v >= FZN_STICKER_VERSION ? FZN_STICKER_KEYWORDS_MAX : FZN_STICKER_KEYWORDS_MAX_3))
-		return 0;
+	/* NO CAP BUT THE BYTES', sec 1278: 255 phrases of 1 to 255. */
 	for (k = 0; k < e->keyword_count; k++) {
 		e->keyword_lens[k] = get8(rd);
 		if (e->keyword_lens[k] == 0u
-		    || e->keyword_lens[k] > (v >= FZN_STICKER_VERSION ? FZN_STICKER_KEYWORD_MAX : FZN_STICKER_KEYWORD_MAX_3)
 		    || !(b = take(rd, e->keyword_lens[k])))
 			return 0;
 		memcpy(e->keywords[k], b, e->keyword_lens[k]);
@@ -382,15 +370,13 @@ static int read_entry(reader_t *rd, unsigned v, fzn_sticker_entry_t *e)
 	e->text_y = (uint16_t)get16(rd);
 	e->text_w = (uint16_t)get16(rd);
 	e->text_h = (uint16_t)get16(rd);
-	/* THE BOX'S PAINT, version 3's, sec 859; a turn past a full circle is
-	 * no turn anybody drew. */
-	if (v >= FZN_STICKER_VERSION_3) {
-		e->text_fill = get32(rd);
-		e->text_ink = get32(rd);
-		e->text_turn = (uint16_t)get16(rd);
-		if (e->text_turn > FZN_STICKER_TURN_MAX)
-			return 0;
-	}
+	/* THE BOX'S PAINT, sec 859; a turn past a full circle is no turn
+	 * anybody drew. */
+	e->text_fill = get32(rd);
+	e->text_ink = get32(rd);
+	e->text_turn = (uint16_t)get16(rd);
+	if (e->text_turn > FZN_STICKER_TURN_MAX)
+		return 0;
 	e->audio_offset = get32(rd);
 	e->audio_len = get32(rd);
 	e->rendition_count = get8(rd);
@@ -436,7 +422,8 @@ static int inside(const fzn_sticker_entry_t *e, uint32_t dl)
 
 /* THE PACK OPENED, into `out`'s room -- or, `out` NULL, only checked, each
  * sticker read into one entry here and let go, which is how a build checks
- * what it wrote with no room of its own (fuzzypickles' 140d719 does so). */
+ * what it wrote with no room of its own (fuzzypickles' 140d719 does so).
+ * Version 5 only: an older pack is `tool/sticker_convert.c`'s (sec 1278). */
 static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *out,
                      const uint8_t **data, size_t *data_len)
 {
@@ -454,19 +441,15 @@ static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *ou
 	rd.left = len;
 	rd.bad = 0;
 	v = get8(&rd);
-	if (v != FZN_STICKER_VERSION && v != FZN_STICKER_VERSION_3 && v != FZN_STICKER_VERSION_2
-	    && v != FZN_STICKER_VERSION_1)
+	if (v != FZN_STICKER_VERSION)
 		return 0;
-	/* THE PACK'S OWN ID, version 3's and nonzero, sec 859. */
-	if (v >= FZN_STICKER_VERSION_3) {
-		pack_id = get64(&rd);
-		if (!pack_id)
-			return 0;
-	}
-	if (v >= FZN_STICKER_VERSION_2)
-		line_package = get64(&rd);
+	/* THE PACK'S OWN ID, nonzero, sec 859. */
+	pack_id = get64(&rd);
+	if (!pack_id)
+		return 0;
+	line_package = get64(&rd);
 	name_len = get8(&rd);
-	if (name_len > FZN_STICKER_NAME_MAX || !(b = take(&rd, name_len))
+	if (!(b = take(&rd, name_len))
 	    || !text_ok((const char *)b, name_len))
 		return 0;
 	if (out) {
@@ -477,8 +460,8 @@ static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *ou
 			memcpy(out->name, b, name_len);
 		out->name[name_len] = '\0';
 	}
-	count = v >= FZN_STICKER_VERSION_2 ? get32(&rd) : get8(&rd);
-	if (rd.bad || count == 0u || (v == FZN_STICKER_VERSION_1 && count > FZN_STICKER_PER_PACK_MAX_1))
+	count = get32(&rd);
+	if (rd.bad || count == 0u)
 		return 0;
 	/* NO ROOM FOR THEM is said, never a truncated pack: the count needed. */
 	if (out) {
@@ -488,7 +471,7 @@ static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *ou
 	}
 	first = rd;
 	for (i = 0; i < count; i++)
-		if (!read_entry(&rd, v, out ? &out->entries[i] : &one))
+		if (!read_entry(&rd, out ? &out->entries[i] : &one))
 			return 0;
 	dl = get32(&rd);
 	if (rd.bad || !(b = take(&rd, dl)) || rd.left)
@@ -500,22 +483,15 @@ static int open_pack(const uint8_t *pack, size_t len, fzn_sticker_manifest_t *ou
 	} else {
 		/* READ AGAIN, now the data's length is known. */
 		for (i = 0; i < count; i++)
-			if (!read_entry(&first, v, &one) || !inside(&one, dl))
+			if (!read_entry(&first, &one) || !inside(&one, dl))
 				return 0;
 	}
 	/* A REFERENCE NAMES A STICKER BY ID: distinct, or a reference is
-	 * ambiguous. Descriptions may repeat since version 2, being optional;
-	 * version 1's were distinct, and a pack of it still holds to that. */
+	 * ambiguous. Descriptions may repeat, being optional. */
 	if (out)
 		for (i = 0; i < count; i++)
 			for (j = i + 1u; j < count; j++)
-				if (out->entries[i].id == out->entries[j].id
-				    || (v == FZN_STICKER_VERSION_1
-				        && out->entries[i].description_len
-				                   == out->entries[j].description_len
-				        && memcmp(out->entries[i].description, out->entries[j].description,
-				                  out->entries[i].description_len)
-				                   == 0))
+				if (out->entries[i].id == out->entries[j].id)
 					return 0;
 	if (data)
 		*data = b;

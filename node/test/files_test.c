@@ -16,6 +16,8 @@
 #include "../files.h"
 #include "../stickers.h"
 #include "../stickers_binary.h"
+#include "../../sticker/pack.h"
+#include "../../hex/hex.h"
 #include "../../contact/contact.h"
 #include "group_fixture.h"
 
@@ -765,24 +767,66 @@ static void test_the_wants_hold_at_their_bound(void)
 	CHECK(entries(dir_w) == 0u && rmdir(dir_w) == 0, "the wants' store did not empty");
 }
 
-/* THE SETTINGS THE STICKER VERBS WOULD READ, never reached here: every
- * caller below is refused first. Stubs, so this test need not link the
- * settings and the journal behind them. */
+/* THE SETTINGS THE STICKER VERBS READ, held in memory: a few cells, so
+ * this test need not link the settings and the journal behind them, and
+ * the conversion of a kept pack (sec 1278) has cells to find and change. */
+static struct cell {
+	fzn_scope_t scope;
+	uint8_t about[FZN_SUBJECT_LEN];
+	uint8_t key[FZN_SETTING_KEY_MAX];
+	size_t key_len;
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	size_t value_len;
+	int set;
+} cells[8];
+
+static struct cell *cell_of(fzn_scope_t scope, const uint8_t *about, const uint8_t *key, size_t key_len)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(cells) / sizeof(cells[0]); i++)
+		if (cells[i].key_len == key_len && cells[i].scope == scope
+		    && !memcmp(cells[i].about, about, FZN_SUBJECT_LEN) && !memcmp(cells[i].key, key, key_len))
+			return &cells[i];
+	return NULL;
+}
+
 int fzn_node_settings_get(const fzn_node_settings_t *ns, fzn_scope_t scope,
                           const uint8_t about[FZN_SUBJECT_LEN], const uint8_t *key,
                           size_t key_len, uint8_t *value, size_t *value_len,
                           fzn_setting_rank_t *rank)
 {
-	(void)ns, (void)scope, (void)about, (void)key, (void)key_len, (void)value;
-	(void)value_len, (void)rank;
-	return 0;
+	const struct cell *c = cell_of(scope, about, key, key_len);
+
+	(void)ns, (void)rank;
+	if (!c || !c->set)
+		return 0;
+	memcpy(value, c->value, c->value_len);
+	*value_len = c->value_len;
+	return 1;
 }
 
 fzn_node_settings_err_t fzn_node_settings_each(const fzn_node_settings_t *ns,
                                                fzn_node_settings_each_fn each, void *ctx)
 {
-	(void)ns, (void)each, (void)ctx;
-	return FZN_NODE_SETTINGS_REFUSED;
+	fzn_setting_t one;
+	size_t i;
+
+	(void)ns;
+	for (i = 0; i < sizeof(cells) / sizeof(cells[0]); i++) {
+		if (!cells[i].set)
+			continue;
+		memset(&one, 0, sizeof(one));
+		one.scope = cells[i].scope;
+		one.about = cells[i].about;
+		one.key = cells[i].key;
+		one.key_len = cells[i].key_len;
+		one.set = 1;
+		one.value = cells[i].value;
+		one.value_len = cells[i].value_len;
+		each(ctx, &one, FZN_SETTING_RANK_ROOT);
+	}
+	return FZN_NODE_SETTINGS_OK;
 }
 
 fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
@@ -791,9 +835,24 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
                                                 const uint8_t *key, size_t key_len, int set,
                                                 const uint8_t *value, size_t value_len)
 {
-	(void)ns, (void)scope, (void)about, (void)key, (void)key_len, (void)set, (void)value;
-	(void)value_len;
-	return FZN_NODE_SETTINGS_REFUSED;
+	struct cell *c = cell_of(scope, about, key, key_len);
+	size_t i;
+
+	(void)ns;
+	if (!c)
+		for (i = 0; i < sizeof(cells) / sizeof(cells[0]) && !c; i++)
+			if (!cells[i].set && !cells[i].key_len)
+				c = &cells[i];
+	if (!c || key_len > sizeof(c->key) || value_len > sizeof(c->value))
+		return FZN_NODE_SETTINGS_REFUSED;
+	c->scope = scope;
+	memcpy(c->about, about, FZN_SUBJECT_LEN);
+	memcpy(c->key, key, key_len);
+	c->key_len = key_len;
+	c->set = set;
+	memcpy(c->value, value, set ? value_len : 0u);
+	c->value_len = set ? value_len : 0u;
+	return FZN_NODE_SETTINGS_OK;
 }
 
 #ifdef FZN_STICKERS_ON
@@ -853,6 +912,200 @@ static void test_the_sticker_verbs_are_this_users(fzn_node_files_t *files)
 		              && sbin.m[0][0] == 0x13 && sbin.m[0][1] == 2,
 		      "a pack row sent as a request was answered as the listing");
 	}
+}
+
+/* A PACK UNDER ITS OWN KEY, sec 1278: one file put twice under one key is
+ * one blob, answered without being written again; another file under its
+ * own key is another. */
+static void test_a_key_from_the_content(fzn_node_files_t *files)
+{
+	fzn_node_file_ref_t a, b, c;
+	uint8_t key[FZN_BLOB_KEY_LEN];
+	memset(key, 0x5c, sizeof(key));
+	CHECK(make_source(src_path, 3000u) && fzn_node_files_put_keyed(files, src_path, key, &a) == FZN_NODE_FILES_OK,
+	      "a file under the caller's key was not put");
+	CHECK(fzn_node_files_put_keyed(files, src_path, key, &b) == FZN_NODE_FILES_OK
+	              && !memcmp(a.root, b.root, sizeof(a.root)) && !memcmp(b.key, key, sizeof(key)),
+	      "one file put twice under one key was two blobs");
+	key[0] ^= 1u;
+	CHECK(fzn_node_files_put_keyed(files, src_path, key, &c) == FZN_NODE_FILES_OK
+	              && memcmp(a.root, c.root, sizeof(a.root)) != 0,
+	      "one file under two keys was one blob");
+	CHECK(fzn_node_files_put_keyed(files, src_path, NULL, &c) == FZN_NODE_FILES_ERR_MALFORMED,
+	      "a keyed put took no key");
+	(void)fzn_node_files_remove(files, a.root);
+	(void)fzn_node_files_remove(files, c.root);
+}
+
+/* A PACK FILE KEPT BY ITS BYTES, sec 1278: put by path twice, one root;
+ * one of version 4 refused, the converter named; a name past its cell
+ * kept cut at a character. */
+static void test_a_pack_file_is_kept_by_its_bytes(fzn_node_files_t *files)
+{
+	static const char SPEC[] = "name an old pack\nsticker 3 static\nkeyword hello there\n"
+	                           "main png 8 8 art/a.png\n";
+	static fzn_sticker_entry_t room[1];
+	static uint8_t estate[FZN_PUBKEY_LEN], host[FZN_PUBKEY_LEN];
+	static fzn_node_settings_t ns;
+	fzn_sticker_manifest_t m = { "", 0, 0, room, 1u, 0, 0 };
+	const uint8_t *art[1][FZN_STICKER_RENDITIONS_MAX] = { { (const uint8_t *)"PNGBYTES" } };
+	const uint32_t art_len[1][FZN_STICKER_RENDITIONS_MAX] = { { 8u } };
+	const uint8_t *sound[1] = { NULL };
+	const uint32_t sound_len[1] = { 0u };
+	uint8_t pack[512], raw[FZN_NODE_FILE_REF_LEN];
+	char err[96], ref_hex[2u * FZN_NODE_FILE_REF_LEN + 1u], line[300], reply[600];
+	fzn_node_file_ref_t old;
+	fzn_node_stickers_t st;
+	fzn_request_t r;
+	size_t len = 0, i;
+	FILE *f;
+
+	memset(cells, 0, sizeof(cells));
+	memset(estate, 0xe5, sizeof(estate));
+	memset(host, 0x40, sizeof(host));
+	ns.estate = estate;
+	memset(&st, 0, sizeof(st));
+	st.files = files;
+	st.settings = &ns;
+	st.host = host;
+	st.hash = &HASH;
+	CHECK(fzn_sticker_spec_parse(SPEC, sizeof(SPEC) - 1u, &m, err, sizeof(err)), err);
+	m.id = 77u;
+	CHECK(fzn_sticker_pack_build(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+	                             (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+	                             (const uint8_t *const *)sound, sound_len, pack, sizeof(pack), &len)
+	              && pack[0] == FZN_STICKER_VERSION,
+	      "fixture: a pack");
+	/* A PACK FILE PUT BY PATH, twice with a forget between: one root, its
+	 * key its bytes'. */
+	f = fopen(src_path, "wb");
+	CHECK(f && fwrite(pack, 1u, len, f) == len && fclose(f) == 0, "fixture: the pack's file");
+	(void)snprintf(line, sizeof(line), "sticker %s", src_path);
+	memset(&r, 0, sizeof(r));
+	r.parsed = FZN_VERB_PUT;
+	r.arg = (const uint8_t *)line;
+	r.arg_len = strlen(line);
+	CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &r, reply, sizeof(reply)) > 67u
+	              && !strncmp(reply, "ok ", 3u),
+	      "a pack file put by path was not kept");
+	{
+		char first[65], forget[80];
+		fzn_request_t rr;
+
+		memcpy(first, reply + 3u, 64u);
+		first[64] = '\0';
+		(void)snprintf(forget, sizeof(forget), "sticker %s", first);
+		memset(&rr, 0, sizeof(rr));
+		rr.parsed = FZN_VERB_REMOVE;
+		rr.arg = (const uint8_t *)forget;
+		rr.arg_len = strlen(forget);
+		CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &rr, err, sizeof(err))
+		              && !strncmp(err, "ok", 2u),
+		      "fixture: the pack forgotten");
+		CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &r, reply, sizeof(reply)) > 67u
+		              && !strncmp(reply + 3u, first, 64u),
+		      "one pack file put twice was two blobs");
+	}
+	/* AN OLD PACK IS THE CONVERTER'S, sec 1278: by path or by reference,
+	 * refused, the program named. */
+	pack[0] = 4u;
+	f = fopen(src_path, "wb");
+	CHECK(f && fwrite(pack, 1u, len, f) == len && fclose(f) == 0
+	              && fzn_node_files_put(files, src_path, &old) == FZN_NODE_FILES_OK,
+	      "fixture: a version 4 pack's file");
+	CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &r, err, sizeof(err))
+	              && !strncmp(err, "malformed", 9u) && strstr(err, "sticker_convert"),
+	      "a version 4 pack file was not refused with the converter named");
+	fzn_node_file_ref_write(&old, raw);
+	for (i = 0; i < sizeof(raw); i++)
+		fzn_hex_byte(raw[i], ref_hex + 2u * i);
+	ref_hex[2u * sizeof(raw)] = '\0';
+	{
+		char add[200];
+		fzn_request_t ra;
+
+		(void)snprintf(add, sizeof(add), "sticker %s", ref_hex);
+		memset(&ra, 0, sizeof(ra));
+		ra.parsed = FZN_VERB_ADD;
+		ra.arg = (const uint8_t *)add;
+		ra.arg_len = strlen(add);
+		CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &ra, err, sizeof(err))
+		              && !strncmp(err, "error", 5u),
+		      "a version 4 pack was kept by reference");
+	}
+	memset(&r, 0, sizeof(r));
+	r.parsed = FZN_VERB_LIST;
+	r.arg = (const uint8_t *)"sticker";
+	r.arg_len = 7u;
+	CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &r, reply, sizeof(reply))
+	              && !strncmp(reply, "ok 1 0 ", 7u) && strstr(reply, ",an%20old%20pack,1,estate"),
+	      "the one pack kept was not listed");
+	/* A NAME PAST WHAT A CELL HOLDS is kept, cut, never refused. */
+	{
+		char path_line[300];
+		uint8_t named[1024];
+		size_t named_len = 0;
+		fzn_node_file_ref_t gone;
+
+		/* AN ODD BYTE, THEN TWO-BYTE CHARACTERS: where the cell is full
+		 * falls inside one, and the cut goes back to its start. */
+		m.name[0] = 'x';
+		for (i = 1u; i + 2u <= FZN_STICKER_NAME_MAX; i += 2u)
+			memcpy(m.name + i, "\xc3\xa9", 2u);
+		m.name_len = i;
+		CHECK(fzn_sticker_pack_build(&m, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
+		                             (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
+		                             (const uint8_t *const *)sound, sound_len, named, sizeof(named),
+		                             &named_len),
+		      "fixture: a pack of the longest name");
+		f = fopen(src_path, "wb");
+		CHECK(f && fwrite(named, 1u, named_len, f) == named_len && fclose(f) == 0, "fixture: its file");
+		(void)snprintf(path_line, sizeof(path_line), "sticker %s", src_path);
+		memset(&r, 0, sizeof(r));
+		r.parsed = FZN_VERB_PUT;
+		r.arg = (const uint8_t *)path_line;
+		r.arg_len = strlen(path_line);
+		CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &r, line, sizeof(line)) > 67u
+		              && !strncmp(line, "ok ", 3u),
+		      "a pack of a 255-byte name was not kept");
+		{
+			char listed[1024], root64[65];
+			const char *row, *end;
+
+			memcpy(root64, line + 3u, 64u);
+			root64[64] = '\0';
+
+			memset(&r, 0, sizeof(r));
+			r.parsed = FZN_VERB_LIST;
+			r.arg = (const uint8_t *)"sticker";
+			r.arg_len = 7u;
+			CHECK(fzn_node_stickers_local(&st, FZN_ORIGIN_SAME_USER, &r, listed, sizeof(listed))
+			              && (row = strstr(listed, root64)) != NULL
+			              && (row = strchr(row + 65, ',')) != NULL && (end = strchr(row + 1, ',')) != NULL
+			              && end - row > 60 && ((unsigned char)end[-1] & 0xC0u) == 0x80u,
+			      "a long name was not kept cut at a character's start");
+		}
+		for (i = 0; i < FZN_BLOB_HASH_LEN && !strncmp(line, "ok ", 3u); i++) {
+			int hi = line[3u + 2u * i] <= '9' ? line[3u + 2u * i] - '0' : line[3u + 2u * i] - 'a' + 10;
+			int lo = line[4u + 2u * i] <= '9' ? line[4u + 2u * i] - '0' : line[4u + 2u * i] - 'a' + 10;
+
+			gone.root[i] = (uint8_t)(hi << 4 | lo);
+		}
+		(void)fzn_node_files_remove(files, gone.root);
+	}
+	{
+		uint8_t now[FZN_BLOB_HASH_LEN];
+		int hi, lo;
+
+		for (i = 0; i < sizeof(now) && !strncmp(reply, "ok 1 0 ", 7u); i++) {
+			hi = reply[7u + 2u * i] <= '9' ? reply[7u + 2u * i] - '0' : reply[7u + 2u * i] - 'a' + 10;
+			lo = reply[8u + 2u * i] <= '9' ? reply[8u + 2u * i] - '0' : reply[8u + 2u * i] - 'a' + 10;
+			now[i] = (uint8_t)(hi << 4 | lo);
+		}
+		(void)fzn_node_files_remove(files, now);
+	}
+	(void)fzn_node_files_remove(files, old.root);
+	memset(cells, 0, sizeof(cells));
 }
 #endif
 
@@ -1556,6 +1809,8 @@ int main(void)
 		test_a_lossy_peer_is_asked_less(&F, &stepped);
 #ifdef FZN_STICKERS_ON
 		test_the_sticker_verbs_are_this_users(&F);
+		test_a_key_from_the_content(&F);
+		test_a_pack_file_is_kept_by_its_bytes(&F);
 #endif
 		test_the_wants_hold_at_their_bound();
 		(void)fzn_node_files_remove(&F, stepped.root);

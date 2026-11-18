@@ -977,7 +977,7 @@ typedef struct fzn_rpc_sticker_list_entry {
 	 * carrying it here discloses nothing new.
 	 */
 	uint8_t key[32];
-	char name[48 + 1];
+	char name[255 + 1]; /* a pack name, FZN_STICKER_NAME_MAX (sec 1278) */
 	size_t name_len;
 	uint64_t saved_at;
 } fzn_rpc_sticker_list_entry_t;

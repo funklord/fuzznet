@@ -92,7 +92,7 @@ situ_err_t fzn_stickers_local_nothing_validate(situ_view_t view);
 /* ---- struct pack_row ---- */
 
 #define FZN_STICKERS_LOCAL_PACK_ROW_SIZE_MIN   43u
-#define FZN_STICKERS_LOCAL_PACK_ROW_SIZE_MAX   91u
+#define FZN_STICKERS_LOCAL_PACK_ROW_SIZE_MAX   298u
 
 /* INVALIDATION: a pack_row view, and every view derived from
  * it, is invalidated by writing `name_len` -- those decide where the
@@ -175,8 +175,6 @@ static inline void fzn_stickers_local_pack_row_estate_set(situ_view_t view, uint
 	(situ_base(view))[41u] = (uint8_t)value;
 }
 
-#define FZN_STICKERS_LOCAL_PACK_ROW_NAME_LEN_VALUE_MAX 48u
-
 /** pack_row.name_len : u8  at AbsoluteStatic(0x2A)
  * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
@@ -194,7 +192,7 @@ static inline uint8_t *fzn_stickers_local_pack_row_name_len_ptr(situ_view_t view
  * which takes the message and bumps its generation. */
 
 /** pack_row.name : u8  at AbsoluteStatic(0x2B)
- * size=Bounded(0, 48) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ * size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
  */
 static inline uint32_t fzn_stickers_local_pack_row_name_len(situ_view_t view)
 {
@@ -293,8 +291,7 @@ situ_err_t fzn_stickers_local_pack_row_validate(situ_view_t view);
 situ_err_t fzn_stickers_local_pack_row_check(situ_view_t view, uint32_t *which);
 #define FZN_STICKERS_LOCAL_PACK_ROW_HELD_CHECK 0u
 #define FZN_STICKERS_LOCAL_PACK_ROW_ESTATE_CHECK 1u
-#define FZN_STICKERS_LOCAL_PACK_ROW_NAME_LEN_CHECK 2u
-#define FZN_STICKERS_LOCAL_PACK_ROW_NAME_CHECK 3u
+#define FZN_STICKERS_LOCAL_PACK_ROW_NAME_CHECK 2u
 
 /* ---- struct pack_ask ---- */
 
@@ -345,7 +342,7 @@ situ_err_t fzn_stickers_local_pack_ask_validate(situ_view_t view);
 /* ---- struct item_row ---- */
 
 #define FZN_STICKERS_LOCAL_ITEM_ROW_SIZE_MIN   36u
-#define FZN_STICKERS_LOCAL_ITEM_ROW_SIZE_MAX   132u
+#define FZN_STICKERS_LOCAL_ITEM_ROW_SIZE_MAX   291u
 
 /* INVALIDATION: a item_row view, and every view derived from
  * it, is invalidated by writing `desc_len` -- those decide where the
@@ -533,8 +530,6 @@ static inline void fzn_stickers_local_item_row_main_h_set(situ_view_t view, uint
 	situ_put_be16(situ_base(view) + 33u, (uint16_t)value);
 }
 
-#define FZN_STICKERS_LOCAL_ITEM_ROW_DESC_LEN_VALUE_MAX 96u
-
 /** item_row.desc_len : u8  at AbsoluteStatic(0x23)
  * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
@@ -552,7 +547,7 @@ static inline uint8_t *fzn_stickers_local_item_row_desc_len_ptr(situ_view_t view
  * which takes the message and bumps its generation. */
 
 /** item_row.desc : u8  at AbsoluteStatic(0x24)
- * size=Bounded(0, 96) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ * size=Bounded(0, 255) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
  */
 static inline uint32_t fzn_stickers_local_item_row_desc_len(situ_view_t view)
 {
@@ -650,8 +645,7 @@ situ_err_t fzn_stickers_local_item_row_validate(situ_view_t view);
  */
 situ_err_t fzn_stickers_local_item_row_check(situ_view_t view, uint32_t *which);
 #define FZN_STICKERS_LOCAL_ITEM_ROW_TEXT_TURN_CHECK 0u
-#define FZN_STICKERS_LOCAL_ITEM_ROW_DESC_LEN_CHECK 1u
-#define FZN_STICKERS_LOCAL_ITEM_ROW_DESC_CHECK 2u
+#define FZN_STICKERS_LOCAL_ITEM_ROW_DESC_CHECK 1u
 
 /* ---- struct keep_ask ---- */
 
@@ -797,7 +791,7 @@ situ_err_t fzn_stickers_local_kept_row_check(situ_view_t view, uint32_t *which);
 /* ---- struct message ---- */
 
 #define FZN_STICKERS_LOCAL_MESSAGE_SIZE_MIN   2u
-#define FZN_STICKERS_LOCAL_MESSAGE_SIZE_MAX   134u
+#define FZN_STICKERS_LOCAL_MESSAGE_SIZE_MAX   300u
 
 /* INVALIDATION: a message view, and every view derived from
  * it, is invalidated by writing `op` -- those decide where the
@@ -855,7 +849,7 @@ static inline fzn_stickers_local_op_t fzn_stickers_local_message_op_get(situ_vie
  * which takes the message and bumps its generation. */
 
 /* message.body : variant  at AbsoluteStatic(0x02)
- * size=Bounded(0, 132) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ * size=Bounded(0, 298) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
 /** `body` is a variant: exactly one of `packs`, `pack_row`, `items`, `item_row`, `keep`, `kept`, `forget` is
  * present, and which one is in the discriminant. The variant has no
@@ -913,8 +907,6 @@ static inline situ_err_t fzn_stickers_local_message_body_pack_row_view(situ_view
 
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_PACK_ROW_ESTATE_VALUE_MAX 1u
 
-#define FZN_STICKERS_LOCAL_MESSAGE_BODY_PACK_ROW_NAME_LEN_VALUE_MAX 48u
-
 /** message.body.items, present when the discriminant selects `op.items`.
  *
  * Reading another arm's bytes as this one's stays inside the view
@@ -963,8 +955,6 @@ static inline situ_err_t fzn_stickers_local_message_body_item_row_view(situ_view
 }
 
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_ITEM_ROW_TEXT_TURN_VALUE_MAX 359u
-
-#define FZN_STICKERS_LOCAL_MESSAGE_BODY_ITEM_ROW_DESC_LEN_VALUE_MAX 96u
 
 /** message.body.keep, present when the discriminant selects `op.keep`.
  *

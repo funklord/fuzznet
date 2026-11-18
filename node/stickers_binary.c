@@ -35,7 +35,7 @@ static void row_one(void *ctx, const fzn_node_sticker_pack_t *p)
 
 	if (!w->ok)
 		return;
-	w->ok = p->name_len <= 48u
+	w->ok = p->name_len <= FZN_STICKER_NAME_MAX
 	        && fzn_stickers_local_pack_row_build(row, sizeof(row), p->root, p->length, (uint8_t)(p->held ? 1 : 0),
 	                                             (uint8_t)(p->estate ? 1 : 0), (const uint8_t *)p->name,
 	                                             (uint32_t)p->name_len, &row_len)
@@ -54,7 +54,7 @@ static void item_one(void *ctx, const struct fzn_sticker_entry *e, unsigned main
 
 	if (!w->ok)
 		return;
-	w->ok = e->description_len <= 96u
+	w->ok = e->description_len <= FZN_STICKER_DESC_MAX
 	        && fzn_stickers_local_item_row_build(row, sizeof(row), e->id, e->type, e->flags, e->text_limit, e->text_x,
 	                                             e->text_y, e->text_w, e->text_h, e->text_fill, e->text_ink,
 	                                             e->text_turn, (uint16_t)main_w, (uint16_t)main_h,

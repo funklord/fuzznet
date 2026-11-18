@@ -32,8 +32,6 @@ static int checks, failures;
 
 #define PACK "5757000000000000000000000000000000000000000000000000000000000001"
 #define REF "fzn:sticker/" PACK "/0000000000000000000000000000000000000000000000000000000000000002/4096/7"
-#define FILE_REF PACK "0000000000000000000000000000000000000000000000000000000000000002" \
-	"0000000000001000"
 
 static int silent;
 
@@ -81,13 +79,12 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "error no art\n");
 	if (!strcmp(line, "get sticker " PACK " 7"))
 		return (size_t)snprintf(reply, cap, "ok " REF "\n");
-	/* KEEPING: the good pack put and kept, the other refused at put. */
-	if (!strcmp(line, "put file /tmp/fzn-good.fzs"))
-		return (size_t)snprintf(reply, cap, "ok " FILE_REF " private\n");
-	if (!strcmp(line, "put file /tmp/fzn-bad.fzs"))
-		return (size_t)snprintf(reply, cap, "error not a sticker pack\n");
-	if (!strcmp(line, "add sticker " FILE_REF))
+	/* KEEPING: a pack file put as a pack and kept, the other refused
+	 * (`put sticker PATH`, sec 1278). */
+	if (!strcmp(line, "put sticker /tmp/fzn-good.fzs"))
 		return (size_t)snprintf(reply, cap, "ok " PACK "\n");
+	if (!strcmp(line, "put sticker /tmp/fzn-bad.fzs"))
+		return (size_t)snprintf(reply, cap, "error not a sticker pack\n");
 	return (size_t)snprintf(reply, cap, "error no such thing\n");
 }
 

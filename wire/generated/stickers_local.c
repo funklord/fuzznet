@@ -58,11 +58,6 @@ situ_err_t fzn_stickers_local_pack_row_check(situ_view_t view, uint32_t *which)
 		*which = FZN_STICKERS_LOCAL_PACK_ROW_ESTATE_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
-	/* pack_row.name_len [max = 48] */
-	if (fzn_stickers_local_pack_row_name_len_get(view) > 48) {
-		*which = FZN_STICKERS_LOCAL_PACK_ROW_NAME_LEN_CHECK;
-		return SITU_ERR_CONSTRAINT;
-	}
 	/* pack_row.name: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
@@ -130,11 +125,6 @@ situ_err_t fzn_stickers_local_item_row_check(situ_view_t view, uint32_t *which)
 	/* item_row.text_turn [max = 359] */
 	if (fzn_stickers_local_item_row_text_turn_get(view) > 359) {
 		*which = FZN_STICKERS_LOCAL_ITEM_ROW_TEXT_TURN_CHECK;
-		return SITU_ERR_CONSTRAINT;
-	}
-	/* item_row.desc_len [max = 96] */
-	if (fzn_stickers_local_item_row_desc_len_get(view) > 96) {
-		*which = FZN_STICKERS_LOCAL_ITEM_ROW_DESC_LEN_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
 	/* item_row.desc: the length the message declares has to fit

@@ -268,22 +268,29 @@ static size_t save_pack(const fzn_node_stickers_t *st, const fzn_node_file_ref_t
 	char root_hex[2u * FZN_BLOB_HASH_LEN + 1u], ref_hex[REF_HEX + 1u];
 	char name[3u * FZN_STICKER_NAME_MAX + 1u];
 	uint8_t key[KEY_LEN], raw[FZN_NODE_FILE_REF_LEN], value[FZN_SETTING_VALUE_MAX];
-	size_t name_len = 0, value_len;
+	size_t name_len = 0, value_len, taken;
 	fzn_node_settings_err_t serr;
 
 	fzn_node_file_ref_write(ref, raw);
 	hex_of(raw, sizeof(raw), ref_hex);
-	(void)fzn_escape((const uint8_t *)pack_name, pack_name_len, name, sizeof(name) - 1u,
-	                 &name_len);
+	/* THE NAME AS FAR AS THE CELL HOLDS IT, sec 1278: a setting's value is
+	 * FZN_SETTING_VALUE_MAX bytes, the reference 144 of them, and a pack's
+	 * name may be 255 -- so the cell keeps what fits, cut at a character's
+	 * start, for the listing. The pack keeps the whole name; refusing to
+	 * keep a pack for its name's length was a cap the pack does not have. */
+	taken = fzn_escape((const uint8_t *)pack_name, pack_name_len, name,
+	                   sizeof(value) - 1u - REF_HEX - 1u, &name_len);
+	if (taken < pack_name_len) {
+		while (taken && ((unsigned char)pack_name[taken] & 0xC0u) == 0x80u)
+			taken--;
+		(void)fzn_escape((const uint8_t *)pack_name, taken, name, sizeof(name) - 1u, &name_len);
+	}
 	name[name_len] = '\0';
 	value_len = (size_t)snprintf((char *)value, sizeof(value), "%s %s", ref_hex, name);
 	cell_key(ref->root, key);
 	hex_of(ref->root, FZN_BLOB_HASH_LEN, root_hex);
-	/* A NAME THAT ESCAPES PAST A SETTING'S VALUE is refused, never cut: a
-	 * name of 48 bytes escapes to as many as 144. */
 	if (value_len >= sizeof(value))
-		return REPLY("error the pack %s is here, and its name is too long to save escaped\n",
-		             root_hex);
+		return REPLY("error the pack %s is here, and would not save\n", root_hex);
 	serr = st->settings->estate
 	       ? fzn_node_settings_write(st->settings, FZN_SCOPE_ESTATE, st->settings->estate, key,
 	                                 sizeof(key), 1, value, value_len)
@@ -319,6 +326,75 @@ static size_t add_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 	return save_pack(st, &ref, m.name, m.name_len, reply, cap);
 }
 
+/* THE PACK'S KEY FROM ITS BYTES, sec 1278, the holder's of 2026-11-18:
+ * BLAKE2b-256 over a word of this purpose and the pack's own BLAKE2b-256,
+ * so the same pack put on any node is the same blob, its root the same,
+ * and a friend already holding it fetches nothing. 1, or 0. */
+#define PACK_KEY_WORD "fuzznet sticker pack key"
+
+static int pack_key(const fzn_node_stickers_t *st, const uint8_t *pack, size_t len,
+                    uint8_t key[FZN_BLOB_KEY_LEN])
+{
+	uint8_t in[sizeof(PACK_KEY_WORD) - 1u + 32u];
+
+	if (!st->hash || !st->hash->hash
+	    || st->hash->hash(st->hash->ctx, in + sizeof(PACK_KEY_WORD) - 1u, 32u, pack, len) != 1)
+		return 0;
+	memcpy(in, PACK_KEY_WORD, sizeof(PACK_KEY_WORD) - 1u);
+	return st->hash->hash(st->hash->ctx, key, FZN_BLOB_KEY_LEN, in, sizeof(in)) == 1;
+}
+
+/* A BUILT PACK PUT under its own key, from a working name in the files'
+ * directory: 1 with `ref`, or 0. */
+static int put_pack(const fzn_node_stickers_t *st, const uint8_t *pack, size_t len,
+                    fzn_node_file_ref_t *ref)
+{
+	char scratch[FZN_NODE_FILES_DIR_MAX + 48u];
+	uint8_t key[FZN_BLOB_KEY_LEN];
+	int ok;
+
+	if (!pack_key(st, pack, len, key))
+		return 0;
+	scratch_path(st, scratch, sizeof(scratch));
+	if (!spill(scratch, pack, len))
+		return 0;
+	ok = fzn_node_files_put_keyed(st->files, scratch, key, ref) == FZN_NODE_FILES_OK;
+	(void)unlink(scratch);
+	return ok;
+}
+
+/* `put sticker PATH` WHERE PATH IS A BUILT PACK, sec 1278: put under its
+ * own key and kept. A pack of version 1 to 4 is refused, with the program
+ * that converts one named. */
+static size_t put_pack_file(const fzn_node_stickers_t *st, const uint8_t *bytes, size_t len,
+                            char *reply, size_t cap)
+{
+	fzn_sticker_manifest_t m;
+	fzn_node_file_ref_t ref;
+	const uint8_t *data;
+	size_t data_len;
+
+	memset(&m, 0, sizeof(m));
+	/* OPENED WHOLE, every sticker read: asked its count with no room,
+	 * then read into room for it. */
+	if (!fzn_sticker_pack_open(bytes, len, &m, &data, &data_len) && FZN_STICKER_TOO_SMALL(&m)
+	    && (m.entries = calloc(m.count, sizeof(m.entries[0])))) {
+		m.cap = m.count;
+		if (!fzn_sticker_pack_open(bytes, len, &m, &data, &data_len))
+			m.name_len = 0, m.count = 0;
+		free(m.entries);
+		m.entries = NULL;
+	}
+	if (!m.count)
+		return bytes[0] < FZN_STICKER_VERSION
+		       ? REPLY("malformed that pack is of version %u; sticker_convert makes it %u\n",
+		               (unsigned)bytes[0], FZN_STICKER_VERSION)
+		       : REPLY("malformed that file is neither a spec nor a pack\n");
+	if (!put_pack(st, bytes, len, &ref))
+		return REPLY("error the pack would not be put\n");
+	return save_pack(st, &ref, m.name, m.name_len, reply, cap);
+}
+
 /* WHAT `put sticker` HOLDS while it builds, each row one sticker's, freed
  * together. */
 struct building {
@@ -351,7 +427,6 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 {
 	struct building b;
 	char spec_path[1024], dir[1024], file[1024 + FZN_STICKER_PATH_MAX + 2u], err[160];
-	char scratch[FZN_NODE_FILES_DIR_MAX + 48u];
 	size_t spec_len = 0, pack_len = 0, largest = 0, i, r, k;
 	uint64_t total = 0;
 	uint8_t *spec, *pack = NULL;
@@ -365,6 +440,14 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 	spec_path[n] = '\0';
 	if (!(spec = slurp(spec_path, SPEC_MAX, &spec_len)))
 		return REPLY("error the spec would not read\n");
+	/* A BUILT PACK, sec 1278: its first byte its version, 1 to 5 -- a
+	 * control character no spec, which is text, begins with. */
+	if (spec_len && spec[0] >= 1u && spec[0] <= FZN_STICKER_VERSION) {
+		size_t said = put_pack_file(st, spec, spec_len, reply, cap);
+
+		free(spec);
+		return said;
+	}
 	memset(&b, 0, sizeof(b));
 	/* ROOM FOR AS MANY STICKERS AS IT NAMES, sec 702: counted with none,
 	 * then read into room for them. */
@@ -489,20 +572,13 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 		building_done(&b);
 		return REPLY("malformed the pack would not build\n");
 	}
-	/* PUT AS ANY FILE IS, from a working name in the files' directory. */
-	scratch_path(st, scratch, sizeof(scratch));
-	if (!spill(scratch, pack, pack_len)) {
+	/* PUT UNDER ITS OWN KEY, sec 1278. */
+	if (!put_pack(st, pack, pack_len, &ref)) {
 		free(pack);
-		building_done(&b);
-		return REPLY("error the pack would not write\n");
-	}
-	free(pack);
-	if (fzn_node_files_put(st->files, scratch, &ref) != FZN_NODE_FILES_OK) {
-		(void)unlink(scratch);
 		building_done(&b);
 		return REPLY("error the pack would not be put\n");
 	}
-	(void)unlink(scratch);
+	free(pack);
 	{
 		char name[FZN_STICKER_NAME_MAX + 1u];
 		size_t name_len = b.m.name_len;
@@ -516,10 +592,10 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 /* THE MOST PACKS A COLLECTION LISTS: a setting each, and fzpd's registry
  * held 64. */
 #define SAVED_MAX 256u
-/* A ROW: a description of 96 bytes escapes to as many as 288. */
-/* A ROW AT ITS LONGEST: an id of 20 digits, a description of 96 bytes all
- * escaped (288), and the box's fourteen numbers (sec 864) -- under 400. */
-#define ROW_MAX 448u
+/* A ROW AT ITS LONGEST: an id of 20 digits, a description of 255 bytes all
+ * escaped (765, sec 1278), and the box's fourteen numbers (sec 864) --
+ * under 900, so one row always fits a page of FZN_REPLY_MAX. */
+#define ROW_MAX 912u
 
 struct listing {
 	const fzn_node_stickers_t *st;

@@ -92519,9 +92519,9 @@ question sec 16 leaves to the holder**: "a policy rather than a
 mechanism". For a pack the content is published, so the confirmation-of-
 a-file attack sec 16 names reveals nothing secret; what a shared key does
 reveal is that two users hold the same pack, to anyone who sees both
-roots -- a relay, a host. Asked of the holder rather than built, with
-the guess that published content (packs, the built-in set) may be
-convergent and nothing a user writes is.
+roots -- a relay, a host. **Decided by the holder the same day and built
+in sec 1278**: a pack's key is its bytes', so the same pack is one blob
+everywhere.
 
 ## 1271. A phone is below 600, and a host may say so; the own position in words, 2026-11-18
 
@@ -92818,3 +92818,120 @@ thorvg at 256 pixels with paint in the frame, and moving between its
 start and its middle (`FZN_TEST_SET_PNG=DIR` saves the drawings to look
 at). `live_pairing` h0 -- the set built, kept, and found first for "ok be
 there in five", "thanks so much", "good nig" and "congrats!!".
+
+## 1278. A sticker's texts as long as their bytes say, one pack version, a pack's key from its bytes, 2026-11-18
+
+The holder, on sec 1272's caps: "why are we limiting the text in the
+stickers? At least make it a whole 8bit 255 in that case. And apart from
+the stickers on disk, no one is really using this format yet, so once the
+format is fixed and stable again, convert them all and eliminate the old
+format. We said that the sticker ID is the binary data. We can deal with
+versioning and signing the metadata some other way ... don't just
+over-engineer make assumptions on things that can't even be used yet."
+
+**Every text in a pack is as long as its length byte says**: a name, a
+description and each phrase up to 255 bytes, up to 255 phrases a sticker
+(`FZN_STICKER_NAME_MAX`, `_DESC_MAX`, `_KEYWORDS_MAX`, `_KEYWORD_MAX`, all
+255). The build refuses a length past its byte rather than writing a byte
+that says another. sec 1272's "a pack within 3's caps is written as 3" is
+gone with the caps.
+
+**One version, 5.** `fzn_sticker_pack_open` reads 5 and nothing else, 5
+rather than a reset to 1 so an old pack is refused rather than misread.
+**A pack of version 1 to 4 is converted by a program of its own**,
+`tool/sticker_convert.c` (`sticker_convert OLD NEW`, `make
+sticker-convert`): the holder's suggestion, "a separate tiny sticker
+converter tool ... so we can easier retire it", over a first version
+that put an old reader in `sticker/pack.c` and a conversion pass in the
+node at start. That left the library and the node reading two formats,
+and retiring it would have touched both; now **neither knows an old
+version exists, and retiring the converter is deleting
+`tool/sticker_convert.c`, `tool/sticker_convert_test.c` and their
+Makefile lines** -- once nobody holds an old pack. The cost: a node no
+longer converts the packs it keeps by itself; a store holding old ones
+(test devices only) exports each, converts it and puts it back. The
+converter reads each old version under its own caps, builds through
+`fzn_sticker_pack_build`, so every current rule is held, and takes a
+pack id from the art where 1 and 2 had none. `put sticker PATH` takes a
+built pack as well as a spec, its first byte (1 to 5, a control
+character) telling them apart, and refuses an old one naming the
+converter; `fzn_rpc_sticker_file_keep` now uses it in place of a plain
+file put, so a pack kept from a file is under its own key too.
+
+**A pack's key is its bytes'** ("the sticker ID is the binary data"):
+BLAKE2b-256 over `fuzznet sticker pack key` and the pack's BLAKE2b-256,
+put through the new `fzn_node_files_put_keyed`. The same pack put on any
+node is one root, a friend holding it fetches nothing (sec 1270's 1.5 MB
+in 45 s), and a put meeting a blob already held answers it without
+writing over it -- a transfer of it may be running. The AEAD holds
+because the key is a function of the content; anyone with the pack can
+confirm a node holds it, which for a published pack says only that two
+users keep the same one. Versioning or signing a pack's words is left for
+when it is wanted, as the holder said.
+
+**What else moved with the caps**: the node's listing row (`ROW_MAX` 912,
+one row still fits a page of FZN_REPLY_MAX); the binary listing contract
+(`node/stickers_local.situ`, its `[max = 48]` and `[max = 96]` dropped,
+FZN_NODE_STICKERS_BINARY_MAX 304); the client's names and descriptions
+(`local/rpc.h`, `rpc_types.h`). **A kept pack's cell holds its name cut**,
+at a character's start: a setting's value is 256 bytes, the reference 144
+of them, so about 110 escaped bytes of name -- the listing shows that,
+the pack keeps the whole; a long name refused the keep before. **A
+reference's description** may run to 255 and is shortened to fit a
+message, as sec 980 already did.
+
+**Not moved**: a message sticker's words, FZN_STICKER_TEXT_MAX 84, are a
+reference's, inside a message of 512 bytes (`messages/line.h`), escaped
+up to three bytes each; widening them is the message's limit, not the
+pack's.
+
+**For fuzzypickles**: `fzn_sticker_entry_t` keeps its fields, so their
+editor compiles, but holds 255 phrases of 256 bytes, about 65 KB an entry
+where it was 9 KB -- one on a thread's stack is fine on a main thread
+and worth knowing on a small one. Their kept packs of an old version are
+exported, put through `sticker_convert` and put back.
+
+**Tests:** sticker_test -- one version written; 6, and 1 to 4, refused;
+a name, a description and 255 phrases of 255 bytes round trip; 256
+phrases or a phrase of 256 refused by the spec, a length of 256 by the
+build. sticker_convert_test, run in `make test` until retired -- a pack
+of 4 and of 3 comes back byte for byte as the 5 it was made from, one of
+2 too with its id from its art, a hand-written 1 as a pack the reader
+opens; a 4 of 129 phrases refused, a 5 left alone, a file that is no
+pack refused. files_test -- one file under one key is one blob, under
+two keys two; a pack file put by path twice, forgotten between, is one
+root; a version 4 file refused naming the converter, and by reference
+refused; a 255-byte name of two-byte characters kept, cut at a
+character's start. live_stickers g -- the cats' pack put twice is one
+root, its key what hashlib says, its exported file put again the same
+root, a version 4 copy refused. Sabotages `pack-old-opens`,
+`pack-phrase-cap-narrow`, `pack-name-cut-mid-character`,
+`pack-key-random`, `keyed-put-ignores-key`, `convert-v2-no-pack-id`,
+`convert-old-caps-ignored`, each caught by hand; `pack-always-4` retired
+with the version it wrote, `sticker-distinct-ids` repointed.
+
+**Gates**: style, test, installcheck and lean pass; `make schema` against
+situ c9ab9cf3 fails on `spool/message.situ`, untouched here, calling its
+four `must_eq` bounds by enum arm and by that arm's value two different
+bounds -- situ's adf938c8, the same bytes satisfying both; passed at
+2bf76309. Told to situ (inbox 20261118T2010Z) rather than the contract
+regenerated to quiet it. This change's own contracts, `sticker/pack.situ`
+and `node/stickers_local.situ`, are current against that situ.
+
+## 1279. situ describes the settings registry now, 2026-11-18
+
+situ (inbox 20261118T1716Z, situ e68795aa, its decision 0070): the holder
+asked situ to fit fuzznet's schema language, `state/schema.h` and
+`node/schema.c`, with compiled readers and a walker, since a GUI editor
+may write a schema at runtime. A `registry` declaration gives cells by
+key (a key ending `/` a family), each a message of a struct with `min`,
+`max`, `min_size`, `max_size`, `safe`, a typed `default`, `unit`,
+`window` and a summary; fuzznet's own axes as `policy` declarations
+(scope, display), checked and emitted as bits. The five types are situ
+structs; C, C++, Rust and Python get the table and `find`, `check`,
+`value`, `safer`, C's row close to `fzn_schema_entry_t`; both walkers
+read rows from a packed image or written at runtime. Not yet: a character
+class for ADDRESS's host, and `situc map` for a registry. Its 33 cases
+are situ's test_a_registry_is_generated_in_c.py. **A note,
+not a request: adopting it is fuzznet's**, and waits until the registry
+is next worked on -- sec 1276's evaluation is where it would start.

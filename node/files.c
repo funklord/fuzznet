@@ -316,8 +316,8 @@ static int seal_at(const fzn_node_files_t *files, int fd, uint64_t length, const
 	return ok;
 }
 
-fzn_node_files_err_t fzn_node_files_put(fzn_node_files_t *files, const char *path,
-                                        fzn_node_file_ref_t *ref)
+static fzn_node_files_err_t put_under(fzn_node_files_t *files, const char *path,
+                                      const uint8_t *given, fzn_node_file_ref_t *ref)
 {
 	static uint8_t sealed[PUT_SPAN][FZN_BLOB_SEALED_MAX];
 	const uint8_t *spans[PUT_SPAN];
@@ -366,8 +366,11 @@ fzn_node_files_err_t fzn_node_files_put(fzn_node_files_t *files, const char *pat
 	(void)remove(work_bits);
 	(void)remove(work_tree);
 	file.fd = -1;
-	/* A FRESH KEY: one key over two files breaks the AEAD (`blob.h`). */
-	if (!files->rng->fill(files->rng->ctx, key, sizeof(key))) {
+	/* A FRESH KEY: one key over two files breaks the AEAD (`blob.h`) --
+	 * or the caller's, one only this file's content gives (sec 1278). */
+	if (given)
+		memcpy(key, given, sizeof(key));
+	else if (!files->rng->fill(files->rng->ctx, key, sizeof(key))) {
 		(void)close(fd);
 		return FZN_NODE_FILES_ERR_CRYPTO;
 	}
@@ -396,6 +399,22 @@ fzn_node_files_err_t fzn_node_files_put(fzn_node_files_t *files, const char *pat
 	}
 	if (fzn_blob_tree_root(files->hash, &tree, root) != FZN_BLOB_OK)
 		goto out;
+	/* THE SAME CONTENT UNDER THE SAME KEY IS THE SAME BLOB, sec 1278: one
+	 * already held is answered, never written over -- a transfer of it may
+	 * be running. Only a caller's key can meet one. */
+	if (given) {
+		uint64_t held_len = 0;
+
+		if (fzn_node_files_held(files, root, &held_len) == FZN_NODE_FILES_OK
+		    && held_len == length) {
+			memcpy(ref->root, root, sizeof(root));
+			memcpy(ref->key, key, sizeof(key));
+			ref->length = length;
+			err = FZN_NODE_FILES_OK;
+			(void)remove(work_tree);
+			goto out;
+		}
+	}
 
 	/* EVERY LEAF PLACED AS A STRANGER'S WOULD BE, a span at a time under
 	 * the proof the tree on disk gives: through the spool's verification
@@ -461,6 +480,21 @@ out:
 		(void)remove(work_tree);
 	}
 	return err;
+}
+
+fzn_node_files_err_t fzn_node_files_put(fzn_node_files_t *files, const char *path,
+                                        fzn_node_file_ref_t *ref)
+{
+	return put_under(files, path, NULL, ref);
+}
+
+fzn_node_files_err_t fzn_node_files_put_keyed(fzn_node_files_t *files, const char *path,
+                                              const uint8_t key[FZN_BLOB_KEY_LEN],
+                                              fzn_node_file_ref_t *ref)
+{
+	if (!key)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	return put_under(files, path, key, ref);
 }
 
 /* ---- reading, exporting, deleting -------------------------------------- */

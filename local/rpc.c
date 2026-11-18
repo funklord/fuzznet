@@ -9596,16 +9596,11 @@ int fzn_rpc_sticker_file_write(fzn_rpc_t *c, const uint8_t root[32], const char 
 
 int fzn_rpc_sticker_file_keep(fzn_rpc_t *c, const char *path, size_t path_len, uint8_t root[32],
                                int *host_only) {
-	static fzn_rpc_blob_add_resp_t held;
-	/* Put as the node puts a pack it builds, any file's way: the root is then
-	 * this node's and the id, from the art, is what stays the same. */
-	int rc = node_file_put(c, path, path_len, FZN_RPC_BLOB_TIER_PRIVATE, &held);
-	if (rc != FZN_RPC_OK) return rc;
-	char ref[145 + 1], *p = ref;
-	fzn_hex_encode(held.root, 32, p);
-	fzn_hex_encode(held.key, 32, p + 64);
-	snprintf(p + 128, 17, "%016llx", (unsigned long long)held.byte_len);
-	return fzn_rpc_sticker_keep(c, ref, 144, root, host_only);
+	/* `put sticker PATH`, which takes a built pack as well as a spec (fuzznet
+	 * sec 1278): put under a key from its own bytes, so the same pack kept on
+	 * two nodes is one blob, and a pack of an older version built again as
+	 * the current one. It was put as any file is, under a fresh key. */
+	return node_sticker_put(c, path, path_len, root, host_only);
 }
 
 int fzn_rpc_sticker_reference(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id,

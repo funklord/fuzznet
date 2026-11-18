@@ -43,6 +43,8 @@
 /local/test/call_sound_test
 /local/test/rpc_test
 /tool/rpc_probe
+/tool/sticker_convert
+/tool/sticker_convert_test
 /location/test/geo_test
 /media/test/media_test
 /net/test/own_address_test

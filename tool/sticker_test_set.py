@@ -289,13 +289,15 @@ STICKERS = [
 
 def check_phrases():
 	for slug, desc, _, phrases in STICKERS:
-		if len(phrases) > 128 or len(set(phrases)) != len(phrases):
-			sys.exit("%s: more than 128 phrases, or one twice" % slug)
+		# WHAT A LENGTH BYTE SAYS, sec 1278: 255 phrases of 255 bytes, and a
+		# description of 255.
+		if len(phrases) > 255 or len(set(phrases)) != len(phrases):
+			sys.exit("%s: more than 255 phrases, or one twice" % slug)
 		for p in phrases:
-			if not p or len(p.encode()) > 64 or "\n" in p:
-				sys.exit("%s: phrase %r is empty, past 64 bytes or broken" % (slug, p))
-		if len(desc.encode()) > 96:
-			sys.exit("%s: description past 96 bytes" % slug)
+			if not p or len(p.encode()) > 255 or "\n" in p:
+				sys.exit("%s: phrase %r is empty, past 255 bytes or broken" % (slug, p))
+		if len(desc.encode()) > 255:
+			sys.exit("%s: description past 255 bytes" % slug)
 
 
 def main():

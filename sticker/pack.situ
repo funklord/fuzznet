@@ -6,24 +6,17 @@
 // the ones fuzzypickles' decoder kept (`core/src/sticker.c`, read at their
 // 51e789e).
 //
-// VERSION 2, sec 702: ids of 64 bits from the art, LINE's ids, no cap of
-// 64 stickers, and a description and a name that may be empty. Version 1
-// -- `u16 id`, `u8 count [max = 64]`, `description_len [min = 1]`, no
-// LINE fields -- is still read by `sticker/pack.c` and written by nothing.
-//
-// VERSION 3, sec 859: the pack's own id from its art, and a text box's
-// fill, ink and turn. Version 2 -- this layout without `id` and without
-// the three after `text_h` -- is still read, and written by nothing.
-//
-// VERSION 4, sec 1272: this layout, a sticker's phrases up to 128 of 64
-// bytes. A pack within version 3's -- 32 phrases of at most 24 bytes -- is
-// written as 3, which `sticker/pack.c` holds to those caps.
+// ONE VERSION, 5, sec 1278: the holder's of 2026-11-18. Every text as long
+// as its length byte says and as many phrases as its count byte says, no
+// cap narrower than the field. Versions 1 to 4 -- this layout's ancestors,
+// with caps of 48, 96, 32 or 128 phrases of 24 or 64 -- are read by
+// `tool/sticker_convert.c` alone, which converts one into this.
 
 target buffer;
 endian big;
 
 struct fzn_sticker_keyword {
-	u8 len [min = 1, max = 64];
+	u8 len [min = 1];
 	u8 text[len];
 }
 
@@ -41,9 +34,9 @@ struct fzn_sticker_entry {
 	u64 line_id;                     // LINE's sticker id; 0: none
 	u8  type [min = 1, max = 7];     // static, animated, popup, effect, message, name, emoji
 	u16 flags [max = 7];             // sound 1, big 2, animated 4
-	u8  description_len [max = 96];
+	u8  description_len;
 	u8  description[description_len];
-	u8  keyword_count [max = 128];
+	u8  keyword_count;
 	fzn_sticker_keyword keywords[keyword_count];
 	u16 text_limit;                  // 0: the sticker takes no text
 	u16 text_x;
@@ -60,10 +53,10 @@ struct fzn_sticker_entry {
 }
 
 struct fzn_sticker_pack {
-	u8  version [min = 3, max = 4];
+	u8  version [must_eq = 5];
 	u64 id [min = 1];                // the pack's own, from its art
 	u64 line_package;                // LINE's package id; 0: none
-	u8  name_len [max = 48];
+	u8  name_len;
 	u8  name[name_len];
 	u32 count [min = 1];
 	fzn_sticker_entry entries[count];

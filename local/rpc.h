@@ -861,7 +861,7 @@ typedef struct fzn_rpc_node_sticker_item {
 	uint32_t text_fill, text_ink; /* 0xRRGGBBAA, 0 for none */
 	uint16_t text_turn;           /* 0..359, clockwise */
 	uint16_t main_w, main_h;
-	char description[129];
+	char description[FZN_STICKER_DESC_MAX + 1u];
 	size_t description_len;
 } fzn_rpc_node_sticker_item_t;
 typedef struct fzn_rpc_node_sticker_items_resp {
@@ -883,7 +883,7 @@ typedef struct {
 	uint8_t root[32];
 	uint64_t id;
 	unsigned score;
-	char description[129];
+	char description[FZN_STICKER_DESC_MAX + 1u];
 	size_t description_len;
 } fzn_rpc_sticker_match_entry_t;
 typedef struct {

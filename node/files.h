@@ -174,6 +174,19 @@ void fzn_node_files_release(fzn_node_files_t *files);
 fzn_node_files_err_t fzn_node_files_put(fzn_node_files_t *files, const char *path,
                                         fzn_node_file_ref_t *ref);
 
+/* THE SAME, SEALED UNDER `key`, sec 1278: a key derived from the file's own
+ * bytes, so the same content put on any node has the same root and a peer
+ * already holding it moves nothing -- the convergent key sec 16 left to
+ * the holder, who decided it for sticker packs on 2026-11-18 ("the
+ * sticker ID is the binary data"). Safe for the AEAD only as long as the
+ * key is a function of the content: two different files under one key
+ * repeat (key, index) pairs (`blob/blob.h`). Anyone holding the content
+ * can derive the key and confirm a node holds it, which for a published
+ * pack reveals only that two users keep the same pack. */
+fzn_node_files_err_t fzn_node_files_put_keyed(fzn_node_files_t *files, const char *path,
+                                              const uint8_t key[FZN_BLOB_KEY_LEN],
+                                              fzn_node_file_ref_t *ref);
+
 /* Whether the whole of `root` is here, and its length. */
 fzn_node_files_err_t fzn_node_files_held(const fzn_node_files_t *files,
                                          const uint8_t root[FZN_BLOB_HASH_LEN],

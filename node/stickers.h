@@ -86,7 +86,7 @@ int fzn_node_stickers_saved(const fzn_node_stickers_t *st, const uint8_t root[FZ
 typedef struct fzn_node_sticker_pack {
 	const uint8_t *root;
 	uint64_t length;
-	char name[64];
+	char name[256];	/* FZN_STICKER_NAME_MAX and its NUL */
 	size_t name_len;
 	int held;
 	int estate;

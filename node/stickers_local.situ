@@ -31,7 +31,7 @@ struct pack_row {
 	u64  length;
 	u8   held [max = 1];
 	u8   estate [max = 1];
-	u8   name_len [max = 48];
+	u8   name_len;
 	u8   name[name_len];
 }
 
@@ -59,7 +59,7 @@ struct item_row {
 	u16  text_turn [max = 359];
 	u16  main_w;
 	u16  main_h;
-	u8   desc_len [max = 96];
+	u8   desc_len;
 	u8   desc[desc_len];
 }
 

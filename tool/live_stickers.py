@@ -23,6 +23,11 @@ One store, one daemon, a spec and its art in scratch.
        renditions and then its sound, as fuzzypickles derives it (sec 702),
        checked against Python's hashlib; one with no description has a
        reference ending at its id, and a pack with no name is saved
+    g  a pack's key is its bytes' (sec 1278): put again it is the same blob,
+       its key BLAKE2b-256 over "fuzznet sticker pack key" and the pack's
+       BLAKE2b-256, as hashlib says; the pack exported and put again by
+       `put sticker FILE` is the same root; the same bytes called version 4
+       are refused, `tool/sticker_convert.c` named
 
 Against a daemon with no sticker verbs, phase a is `unsupported`.
 
@@ -305,6 +310,40 @@ def main(argv):
 			print("livecheck: f: a sticker given no id took its art's BLAKE2b, as hashlib "
 			      "says, with no description its reference ends at the id, and a pack's "
 			      "own id is the BLAKE2b of its stickers' digests summed")
+			# g: THE KEY FROM THE BYTES, sec 1278. The cats were put in a and
+			# again in f, forgotten between: one blob, one root.
+			if again[1] != root:
+				raise failed("g: the same spec put twice gave roots %s and %s" % (root, again[1]))
+			first = ask(sock, "list sticker " + root).split()[3].split(",")[0]
+			said = ask(sock, "get sticker %s %s" % (root, first)).split()
+			parts = said[1][len("fzn:sticker/"):].split("/") if len(said) > 1 else []
+			if len(parts) < 4 or parts[0] != root:
+				raise failed("g: the cats' reference was %r" % said)
+			exported = os.path.join(scratch, "cats.pack")
+			ref = parts[0] + parts[1] + "%016x" % int(parts[2])
+			wrote = ask(sock, "get file %s %s" % (ref, exported))
+			if not wrote.startswith("ok"):
+				raise failed("g: the pack would not export: %r" % wrote)
+			with open(exported, "rb") as f:
+				packed = f.read()
+			want_key = hashlib.blake2b(b"fuzznet sticker pack key"
+			                           + hashlib.blake2b(packed, digest_size=32).digest(),
+			                           digest_size=32).hexdigest()
+			if packed[0] != 5 or parts[1] != want_key:
+				raise failed("g: version %d, key %s where the bytes give %s"
+				             % (packed[0], parts[1], want_key))
+			ask(sock, "remove sticker " + root)
+			kept = ask(sock, "put sticker " + exported).split()
+			if kept[:2] != ["ok", root]:
+				raise failed("g: the pack's file put answered %r, not ok %s" % (kept, root))
+			old = os.path.join(scratch, "cats-4.pack")
+			with open(old, "wb") as f:
+				f.write(bytes([4]) + packed[1:])
+			refused = ask(sock, "put sticker " + old)
+			if not refused.startswith("malformed") or "sticker_convert" not in refused:
+				raise failed("g: a version 4 pack file put answered %r" % refused)
+			print("livecheck: g: a pack put twice, from its spec or its file, is one blob "
+			      "under the key its bytes give, and a version 4 file is the converter's")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

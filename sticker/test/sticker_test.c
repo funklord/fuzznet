@@ -63,7 +63,7 @@ static fzn_sticker_manifest_t copy_of(const fzn_sticker_manifest_t *from)
 	to.cap = ROOM;
 	return to;
 }
-static uint8_t pack[4096];
+static uint8_t pack[96u * 1024u];
 static size_t pack_len;
 
 /* EACH FILE A SPEC NAMES as a few bytes saying which it is. */
@@ -173,7 +173,7 @@ static void test_a_spec_built_and_opened(void)
 	              && need > 0u,
 	      "the pack's length was not answered");
 	CHECK(build(&m) && pack_len == need, "the pack did not build at the length it said");
-	CHECK(pack[0] == FZN_STICKER_VERSION_3, "a pack within version 3's caps was not written as one");
+	CHECK(pack[0] == FZN_STICKER_VERSION, "a pack was not written as version 5");
 	CHECK(fzn_sticker_pack_open(pack, pack_len, &back, &data, &data_len), "the pack did not open");
 	CHECK(back.count == 3u && back.entries[2].id == 7u
 	              && back.entries[1].audio_len == 8u && data_len == 5u + 6u + 5u + 8u + 5u,
@@ -195,8 +195,13 @@ static void test_what_opening_refuses(void)
 
 	CHECK(build(&m), "fixture: the pack");
 	memcpy(copy, pack, pack_len);
-	copy[0] = 5u;
-	CHECK(!fzn_sticker_pack_open(copy, pack_len, &back, &data, &data_len), "version 5 opened");
+	/* ONE VERSION, sec 1278: 6 is none yet, and 1 to 4 are
+	 * `tool/sticker_convert.c`'s to read. */
+	copy[0] = 6u;
+	CHECK(!fzn_sticker_pack_open(copy, pack_len, &back, &data, &data_len), "version 6 opened");
+	for (copy[0] = 1u; copy[0] <= 4u; copy[0]++)
+		CHECK(!fzn_sticker_pack_open(copy, pack_len, &back, &data, &data_len),
+		      "a pack of a version before 5 opened as one");
 	CHECK(!fzn_sticker_pack_open(pack, pack_len - 1u, &back, &data, &data_len)
 	              && !fzn_sticker_pack_open(pack, pack_len + 1u, &back, &data, &data_len),
 	      "a pack cut short, or with a byte after it, opened");
@@ -397,7 +402,7 @@ static void test_references(void)
 	      "a reference did not read back");
 	/* THE MOST WORDS AND THE LONGEST DESCRIPTION, sec 980: 84 bytes of
 	 * three-byte characters, escaped to 252, and 96 of description came to
-	 * 533 and were refused. Written now, within what a message carries, the
+	 * 533 and were refused (254 now, sec 1278). Written now, within what a message carries, the
 	 * words whole and the description shortened at a character's start. */
 	{
 		fzn_sticker_ref_t full = ref, again;
@@ -409,7 +414,7 @@ static void test_references(void)
 		full.text_len = FZN_STICKER_TEXT_MAX;
 		for (k = 0; k + 2u <= FZN_STICKER_DESC_MAX; k += 2u)
 			memcpy(full.description + k, "\xc3\xa9", 2u);
-		full.description_len = FZN_STICKER_DESC_MAX;
+		full.description_len = k;
 		CHECK(fzn_sticker_ref_format(&full, big, sizeof(big), &big_len)
 		              && big_len <= FZN_STICKER_REF_SENT_MAX
 		              && fzn_sticker_ref_parse(big, big_len, &again)
@@ -768,11 +773,11 @@ static void test_the_pack_id_and_the_paint(void)
 	                             (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
 	                             (const uint8_t *const *)sound, sound_len, pack, sizeof(pack),
 	                             &pack_len)
-	              && pack[0] == 3u
+	              && pack[0] == FZN_STICKER_VERSION
 	              && fzn_sticker_pack_open(pack, pack_len, &back, &(const uint8_t *){ NULL },
 	                                       &(size_t){ 0 })
 	              && back.id == first,
-	      "a version 3 pack did not carry its own id");
+	      "a pack did not carry its own id");
 	d.id = 0;
 	CHECK(!fzn_sticker_pack_build(&d, (const uint8_t *const(*)[FZN_STICKER_RENDITIONS_MAX])art,
 	                              (const uint32_t(*)[FZN_STICKER_RENDITIONS_MAX])art_len,
@@ -851,90 +856,50 @@ static void test_more_than_64(void)
 	CHECK(fzn_sticker_spec_parse(SPEC, sizeof(SPEC) - 1u, &m, err, sizeof(err)), err);
 }
 
-/* VERSION 1, still read: 16-bit ids, a count of one byte, LINE's ids
- * absent. One sticker, written by hand. */
-static void test_version_1_read(void)
-{
-	static const uint8_t V1[] = {
-		1u, 1u, 'p', 1u,
-		0x01u, 0x02u, FZN_STICKER_STATIC, 0u, 0u, 1u, 'd', 0u,
-		0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-		0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-		1u, FZN_STICKER_MAIN, FZN_STICKER_PNG, 0u, 1u, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 2u,
-		0u, 0u, 0u, 2u, 'x', 'y',
-	};
-	const uint8_t *data;
-	size_t data_len;
-
-	CHECK(fzn_sticker_pack_open(V1, sizeof(V1), &back, &data, &data_len) && back.count == 1u
-	              && back.entries[0].id == 0x0102u && back.line_package == 0u
-	              && back.name_len == 1u && data_len == 2u,
-	      "a version 1 pack was not read");
-}
-
-/* VERSION 2 STILL READ, sec 859: a version 3 pack with its id and its
- * box's paint cut out is a version 2 pack, and reads with id 0 and no
- * paint. One nameless sticker with no words, so where each lies is plain:
- * version, id, LINE's package, name length, count; then the sticker's id,
- * LINE's id, type, flags, description length, keyword count and box, and
- * the paint after it. */
-static void test_version_2_read(void)
-{
-	static const char ONE[] = "sticker 3 static\nmain png 8 8 art/a.png\n";
-	static fzn_sticker_entry_t one_room[1], read_room[1];
-	fzn_sticker_manifest_t one = { "", 0, 0, one_room, 1u, 0, 0 },
-	                       got = { "", 0, 0, read_room, 1u, 0, 0 };
-	uint8_t v2[4096];
-	const size_t head = 1u + 8u + 8u + 1u + 4u, paint = head + 8u + 8u + 1u + 2u + 1u + 1u + 10u;
-	char err[96];
-	size_t n;
-
-	CHECK(fzn_sticker_spec_parse(ONE, sizeof(ONE) - 1u, &one, err, sizeof(err)), err);
-	one.id = 42u;
-	CHECK(build(&one) && pack[0] == 3u && pack[paint] == 0u, "fixture: a one-sticker pack");
-	v2[0] = 2u;
-	memcpy(v2 + 1, pack + 9, paint - 9u);
-	memcpy(v2 + paint - 8u, pack + paint + 10u, pack_len - paint - 10u);
-	n = pack_len - 8u - 10u;
-	CHECK(fzn_sticker_pack_open(v2, n, &got, &(const uint8_t *){ NULL }, &(size_t){ 0 })
-	              && got.id == 0u && got.count == 1u && got.entries[0].id == 3u
-	              && got.entries[0].text_fill == 0u && got.entries[0].text_turn == 0u,
-	      "a version 2 pack did not read, or read with an id or paint of its own");
-	(void)head;
-}
-
-/* VERSION 4, sec 1272: a sticker of forty phrases, one of sixty bytes, is
- * written as a 4 and reads back whole; the same bytes called a 3 are
- * refused, a 3 holding to its caps; a spec takes 128 and no more. */
+/* EVERY TEXT AS LONG AS ITS BYTE SAYS, sec 1278: a name and a description
+ * of 255 bytes, and 255 phrases of 255, written as 5 and read back whole;
+ * a 256th phrase, or a phrase of 256 bytes, refused by the spec. */
 static void test_phrases_as_complete_as_written(void)
 {
-	static char spec[16384];
+	static char spec[96u * 1024u], word[FZN_STICKER_KEYWORD_MAX + 2u];
 	static fzn_sticker_entry_t room[1], read_room[1];
 	fzn_sticker_manifest_t pm = { "", 0, 0, room, 1u, 0, 0 }, got = { "", 0, 0, read_room, 1u, 0, 0 };
-	static const char LONG[] = "I will be there in five minutes, save me a seat";
 	char err[96];
 	size_t n = 0, k;
 
-	n += (size_t)snprintf(spec + n, sizeof(spec) - n, "sticker 3 static\nmain png 8 8 art/a.png\n");
-	for (k = 0; k < 39u; k++)
-		n += (size_t)snprintf(spec + n, sizeof(spec) - n, "keyword phrase number %zu\n", k);
-	n += (size_t)snprintf(spec + n, sizeof(spec) - n, "keyword %s and one more\n", LONG);
-	CHECK(fzn_sticker_spec_parse(spec, n, &pm, err, sizeof(err)) && room[0].keyword_count == 40u, err);
+	memset(word, 'w', FZN_STICKER_KEYWORD_MAX);
+	word[FZN_STICKER_KEYWORD_MAX] = '\0';
+	n += (size_t)snprintf(spec + n, sizeof(spec) - n, "name %s\nsticker 3 static\n", word);
+	n += (size_t)snprintf(spec + n, sizeof(spec) - n, "description %s\nmain png 8 8 art/a.png\n", word);
+	for (k = 0; k < FZN_STICKER_KEYWORDS_MAX; k++) {
+		word[0] = (char)('a' + k % 26u);
+		word[1] = (char)('a' + k / 26u);
+		n += (size_t)snprintf(spec + n, sizeof(spec) - n, "keyword %s\n", word);
+	}
+	CHECK(fzn_sticker_spec_parse(spec, n, &pm, err, sizeof(err))
+	              && room[0].keyword_count == FZN_STICKER_KEYWORDS_MAX && pm.name_len == 255u
+	              && room[0].description_len == 255u,
+	      err);
 	pm.id = 42u;
-	CHECK(build(&pm) && pack[0] == FZN_STICKER_VERSION, "a sticker of forty phrases was not written as a 4");
+	CHECK(build(&pm) && pack[0] == FZN_STICKER_VERSION,
+	      "a sticker of 255 phrases of 255 bytes did not build");
 	CHECK(fzn_sticker_pack_open(pack, pack_len, &got, &(const uint8_t *){ NULL }, &(size_t){ 0 })
-	              && got.entries[0].keyword_count == 40u && got.entries[0].keyword_lens[39] == strlen(LONG) + 13u
-	              && !memcmp(got.entries[0].keywords[39], LONG, strlen(LONG)),
-	      "a version 4 pack's phrases did not read back whole");
-	pack[0] = FZN_STICKER_VERSION_3;
-	CHECK(!fzn_sticker_pack_open(pack, pack_len, &got, &(const uint8_t *){ NULL }, &(size_t){ 0 }),
-	      "a version 3 pack holding a 4's phrases was read");
-	n = 0;
-	n += (size_t)snprintf(spec + n, sizeof(spec) - n, "sticker 3 static\nmain png 8 8 art/a.png\n");
-	for (k = 0; k < 129u; k++)
-		n += (size_t)snprintf(spec + n, sizeof(spec) - n, "keyword w%zu\n", k);
+	              && got.name_len == 255u && got.entries[0].description_len == 255u
+	              && got.entries[0].keyword_count == 255u && got.entries[0].keyword_lens[254] == 255u
+	              && !memcmp(got.entries[0].keywords[254], word, 255u),
+	      "the longest name, description and phrases did not read back whole");
+	/* A LENGTH PAST ITS BYTE is refused by the build, never cut by it. */
+	room[0].keyword_lens[3] = 256u;
+	CHECK(!build(&pm), "a phrase of 256 bytes built");
+	room[0].keyword_lens[3] = 255u;
+	room[0].description_len = 256u;
+	CHECK(!build(&pm), "a description of 256 bytes built");
+	room[0].description_len = 255u;
+	n += (size_t)snprintf(spec + n, sizeof(spec) - n, "keyword one too many\n");
 	CHECK(!fzn_sticker_spec_parse(spec, n, &pm, err, sizeof(err)) && strstr(err, "too many keywords"),
-	      "a spec of 129 phrases on one sticker was taken");
+	      "a spec of 256 phrases on one sticker was taken");
+	n = (size_t)snprintf(spec, sizeof(spec), "sticker 3 static\nmain png 8 8 art/a.png\nkeyword %sw\n", word);
+	CHECK(!fzn_sticker_spec_parse(spec, n, &pm, err, sizeof(err)), "a phrase of 256 bytes was taken");
 }
 
 /* THE SEARCH WHILE TYPING, sec 1272: a phrase typed whole anywhere, best
@@ -1023,8 +988,6 @@ int main(void)
 	test_ids_from_the_art();
 	test_the_pack_id_and_the_paint();
 	test_more_than_64();
-	test_version_1_read();
-	test_version_2_read();
 	test_phrases_as_complete_as_written();
 	test_the_search_while_typing();
 	test_kinds_and_picks();
