@@ -18,6 +18,8 @@ endian big;
 enum op : u8 {
 	location     = 128, // the fixes held, the last sixteen of each host
 	location_row = 129, // an answer: one fix
+	status       = 130, // this host's sampling, as `get location` says it (sec 1249)
+	status_row   = 131, // an answer: the sampling
 	default      = error,
 }
 
@@ -49,6 +51,26 @@ struct location_row {
 	u8   whose[whose_len];
 }
 
+// THIS HOST'S SAMPLING: ON whether location/enabled; LINK the gpsd link,
+// 0 off, 1 down, 2 connecting, 3 watching; EVERY and ACCURACY the
+// settings; SAMPLED, DROPPED and LAST the counts and the newest fix's
+// seconds; SOURCE 0 none, 1 gpsd, 2 platform (a fix supplied within three
+// intervals or two minutes); SUPPLIED the last supplied fix's seconds;
+// GPSD where gpsd is, HOST:PORT, empty where none is aimed.
+struct status_row {
+	u8   on [max = 1];
+	u8   link [max = 3];
+	u32  every;
+	u32  accuracy;
+	u64  sampled;
+	u64  dropped;
+	u64  last;
+	u8   source [max = 2];
+	u64  supplied;
+	u8   gpsd_len;
+	u8   gpsd[gpsd_len];
+}
+
 struct message {
 	u8   cmd [must_eq = 14];
 	op   op;
@@ -56,6 +78,8 @@ struct message {
 	variant body switch (op) {
 		case op.location:     nothing      location;
 		case op.location_row: location_row location_row;
+		case op.status:       nothing      status;
+		case op.status_row:   status_row   status_row;
 		default: error;
 	}
 }

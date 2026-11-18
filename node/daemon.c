@@ -16057,6 +16057,35 @@ static size_t location_row(const uint8_t *origin, uint64_t seq, char *row, size_
 	return n > 0 && (size_t)n < cap ? (size_t)n : 0u;
 }
 
+/* THIS HOST'S SAMPLING AS IT STANDS, what `get location` says (sec 774) and
+ * its binary status row (sec 1249) both read: LINK 0 off, 1 down, 2
+ * connecting, 3 watching; SOURCE 0 none, 1 gpsd, 2 platform -- a fix
+ * supplied within three intervals or two minutes, fzpd's rule. */
+struct location_now {
+	int on, link, source;
+	uint64_t every, accuracy, sampled, dropped, last, supplied;
+};
+static void location_now(struct location_now *ln)
+{
+	const uint64_t now = wall_clock();
+	uint64_t recent;
+	int watching;
+
+	ln->on = host_flag("location/enabled") == 1;
+	ln->link = !ln->on || !location_aimed ? 0 : 1 + (int)fzn_gpsd_link(&location_gpsd);
+	ln->every = host_number("location/every", 30u);
+	ln->accuracy = host_number("location/accuracy", 100u);
+	ln->sampled = location_sampled;
+	ln->dropped = location_dropped;
+	ln->last = location_last;
+	ln->supplied = location_supplied;
+	recent = 3u * ln->every > 120u ? 3u * ln->every : 120u;
+	watching = ln->on && location_aimed && fzn_gpsd_link(&location_gpsd) == FZN_GPSD_WATCHING;
+	ln->source = watching ? 1
+	             : ln->on && location_supplied && now >= location_supplied && now - location_supplied <= recent ? 2
+	                                                                                                           : 0;
+}
+
 static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap)
 {
@@ -16087,26 +16116,17 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 	 * and `none` otherwise; SUPPLIED the seconds of the last, 0 for none.
 	 * DROPPED counts both sources' fixes past the gate. */
 	if (request->parsed == FZN_VERB_GET) {
-		static const char *const LINKS[] = { "down", "connecting", "watching" };
-		int on = host_flag("location/enabled") == 1;
-		int watching = on && location_aimed && fzn_gpsd_link(&location_gpsd) == FZN_GPSD_WATCHING;
-		uint64_t every = host_number("location/every", 30u), now = wall_clock();
-		uint64_t recent = 3u * every > 120u ? 3u * every : 120u;
-		int supplying = on && location_supplied && now >= location_supplied
-		                && now - location_supplied <= recent;
+		static const char *const LINKS[] = { "off", "down", "connecting", "watching" };
+		static const char *const SOURCES[] = { "none", "gpsd", "platform" };
+		struct location_now ln;
 
 		if (left)
 			return (size_t)snprintf(reply, cap, "malformed get location\n");
-		return (size_t)snprintf(reply, cap, "ok %d %s %llu %llu %llu %llu %llu %s %llu\n", on,
-		                        !on || !location_aimed ? "off"
-		                                               : LINKS[fzn_gpsd_link(&location_gpsd)],
-		                        (unsigned long long)every,
-		                        (unsigned long long)host_number("location/accuracy", 100u),
-		                        (unsigned long long)location_sampled,
-		                        (unsigned long long)location_dropped,
-		                        (unsigned long long)location_last,
-		                        watching ? "gpsd" : supplying ? "platform" : "none",
-		                        (unsigned long long)location_supplied);
+		location_now(&ln);
+		return (size_t)snprintf(reply, cap, "ok %d %s %llu %llu %llu %llu %llu %s %llu\n", ln.on, LINKS[ln.link],
+		                        (unsigned long long)ln.every, (unsigned long long)ln.accuracy,
+		                        (unsigned long long)ln.sampled, (unsigned long long)ln.dropped,
+		                        (unsigned long long)ln.last, SOURCES[ln.source], (unsigned long long)ln.supplied);
 	}
 	if (request->parsed == FZN_VERB_ADD) {
 		fzn_location_fix_t fix;
@@ -18523,8 +18543,37 @@ static int local_streams(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 		return local_binary_status(fd, FZN_STATUS_DENIED, fzn_streams_refuse_local(origin)), 0;
 	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
 	if (len > UINT32_MAX || fzn_streams_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
-	    || fzn_streams_local_message_validate(v) != SITU_OK
-	    || fzn_streams_local_message_op_get(v) != FZN_STREAMS_LOCAL_OP_LOCATION)
+	    || fzn_streams_local_message_validate(v) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a streams request"), 0;
+	/* THIS HOST'S SAMPLING, sec 1249: one row, then ok -- with where gpsd
+	 * is, which a client asked of the setting in a second request. */
+	if (fzn_streams_local_message_op_get(v) == FZN_STREAMS_LOCAL_OP_STATUS) {
+		struct location_now ln;
+		char gpsd[254] = "";
+		uint8_t row[320], out[336];
+		uint32_t row_len = 0, k = 0;
+		char *sp;
+
+		location_now(&ln);
+		if (ln.on && location_aimed) {
+			if (!host_text("location/gpsd", gpsd, sizeof(gpsd)))
+				snprintf(gpsd, sizeof(gpsd), "localhost 2947");
+			if ((sp = strrchr(gpsd, ' ')) != NULL)
+				*sp = ':';
+		}
+		if (fzn_streams_local_status_row_build(row, sizeof(row), (uint8_t)ln.on, (uint8_t)ln.link, (uint32_t)ln.every,
+		                                       (uint32_t)ln.accuracy, ln.sampled, ln.dropped, ln.last,
+		                                       (uint8_t)ln.source, ln.supplied, (const uint8_t *)gpsd,
+		                                       (uint32_t)strlen(gpsd), &row_len)
+		            != SITU_OK
+		    || fzn_streams_local_message_build_status_row(out, sizeof(out), (uint8_t)FZN_CMD_STREAMS, row, row_len, &k)
+		               != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the sampling would not write"), 0;
+		if (!local_put(&fd, out, k))
+			return 0;
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	}
+	if (fzn_streams_local_message_op_get(v) != FZN_STREAMS_LOCAL_OP_LOCATION)
 		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a streams request"), 0;
 	if (stream_origins(&heads_room, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN, &heads, &n)
 	    != FZN_STREAMS_OK)

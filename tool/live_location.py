@@ -132,6 +132,22 @@ def status(sock):
 	# TEN WORDS since sec 774: SOURCE and SUPPLIED appended to the eight.
 	if len(reply) != 10 or reply[0] != "ok":
 		raise failed("get location answered %r" % reply)
+	# AND THE SAME IN BINARY, sec 1249, every time it is read: the status
+	# row's fields are the text's words, and GPSD where it is aimed.
+	got = binary(sock, bytes([0x0E, 0x82]))
+	links = ["off", "down", "connecting", "watching"]
+	sources = ["none", "gpsd", "platform"]
+	r = got[0] if got else b""
+	if len(got) != 2 or r[:2] != bytes([0x0E, 0x83]) or got[1][:2] != bytes([0x13, 0]):
+		raise failed("the sampling in binary answered %r" % got)
+	fields = [str(r[2]), links[r[3]], str(int.from_bytes(r[4:8], "big")), str(int.from_bytes(r[8:12], "big")),
+	          str(int.from_bytes(r[12:20], "big")), str(int.from_bytes(r[20:28], "big")),
+	          str(int.from_bytes(r[28:36], "big")), sources[r[36]], str(int.from_bytes(r[37:45], "big"))]
+	# THE COUNTS MAY MOVE between the two reads while sampling; the rest may not.
+	if fields[0:4] != reply[1:5] or fields[7] != reply[8] or fields[8] != reply[9]:
+		raise failed("the sampling in binary said %r where get location said %r" % (fields, reply))
+	if fields[1] in ("connecting", "watching") and (not r[45] or b":" not in r[46:46 + r[45]]):
+		raise failed("the sampling in binary named no gpsd while aimed: %r" % r[45:])
 	return reply
 
 

@@ -7387,8 +7387,80 @@ int fzn_rpc_leg_list(fzn_rpc_t *c, fzn_rpc_leg_list_resp_t *out) {
 	return FZN_RPC_OK;
 }
 
+/* THIS HOST'S SAMPLING IN BINARY, sec 1249: one row, then a STATUS. */
+struct location_status_answer {
+	fzn_rpc_location_status_resp_t *out;
+	int rows, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void location_status_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct location_status_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->rows || a->status_seen || len > UINT32_MAX
+	    || fzn_streams_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_streams_local_message_validate(v) != SITU_OK
+	    || fzn_streams_local_message_op_get(v) != FZN_STREAMS_LOCAL_OP_STATUS_ROW
+	    || fzn_streams_local_message_body_status_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	fzn_rpc_location_status_resp_t *out = a->out;
+	const unsigned on = fzn_streams_local_status_row_on_get(b), link = fzn_streams_local_status_row_link_get(b);
+	const unsigned source = fzn_streams_local_status_row_source_get(b);
+	const size_t gl = fzn_streams_local_status_row_gpsd_len(b);
+	a->rows++;
+	/* READ AS THE TEXT IS (node_location_status): a fix supplied is
+	 * sampling from `platform`; else sampling is gpsd watching, and a link
+	 * down or still connecting is why it stopped. */
+	out->configured = (uint8_t)on;
+	out->interval_s = fzn_streams_local_status_row_every_get(b);
+	if (on && source == 2) {
+		out->sampling = 1;
+		memcpy(out->source, "platform", 9);
+		out->source_len = 8;
+		return;
+	}
+	out->sampling = (uint8_t)(link == 3);
+	if (on && link == 1) out->stopped_reason = FZN_RPC_LOCATION_STOPPED_SOURCE;
+	if (on && link == 2) out->stopped_reason = FZN_RPC_LOCATION_STOPPED_UNREACHABLE;
+	if ((link == 2 || link == 3) && gl && gl < sizeof out->source) {
+		memcpy(out->source, fzn_streams_local_status_row_gpsd_ptr(b), gl);
+		out->source[gl] = '\0';
+		out->source_len = gl;
+	}
+}
+
 int fzn_rpc_location_status(fzn_rpc_t *c, fzn_rpc_location_status_resp_t *out) {
-	return node_location_status(c, out);
+	static const uint8_t ask[] = { FZN_CMD_STREAMS, FZN_STREAMS_LOCAL_OP_STATUS };
+	struct location_status_answer a;
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, location_status_each, &a, &text);
+	if (text) return node_location_status(c, out);
+	if (rc != FZN_RPC_OK) return rc;
+	if (a.bad || !a.status_seen || !a.rows) return unreadable(c); /* the sampling cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return FZN_RPC_OK;
 }
 
 static int location_latest_cmp(const void *a, const void *b) {

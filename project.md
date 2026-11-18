@@ -91743,3 +91743,30 @@ whole reference, answered with its root; a pack nobody keeps refused as
 an error. Three sabotages, each caught (`stickers-client-turn-dropped`,
 `stickers-client-kept-for-whom`, `stickers-node-refusal-malformed`, the
 last by hb alone); sec 1172's `stickers-binary-any-op` repointed.
+
+## 1249. This host's sampling in binary, 2026-11-18
+
+Sec 1217's next subject, the location status a client polls. FZN_CMD_STREAMS
+gains `status` (130), answered by one `status_row` (131) then a STATUS:
+every word of `get location` (sec 774) as a field -- on, the gpsd link
+(0 off, 1 down, 2 connecting, 3 watching), every, accuracy, sampled,
+dropped, last, the source (0 none, 1 gpsd, 2 platform) and supplied --
+and where gpsd is, HOST:PORT, while aimed at it. That last is what the
+text client asked of `get setting host location/gpsd` in a second
+request; the binary answer carries it, so one round trip says it all.
+
+- **One computation, two answers.** `location_now` in the daemon reads
+  the settings and the link once; `get location` and the status row both
+  say what it found, so the two cannot come apart.
+- **The client reads the row as it read the words** (`node_location_status`):
+  a fix supplied recently is sampling from `platform`; otherwise sampling
+  is gpsd watching, and a link down or still connecting is the reason it
+  stopped. Text behind, for a node reading no binary.
+
+**Tests:** two vectors; rpc_test reads watching, connecting and supplied
+rows as the text is read; `live_location`'s `status()` asks both forms at
+every read through phases a to f and holds the binary fields to the
+text's words (the counts excepted, which may move between the reads),
+and a gpsd named while connecting or watching. Three sabotages, each
+caught (`location-status-client-connecting-unsaid`,
+`location-status-node-source-off`, `location-status-binary-gpsd-unnamed`).

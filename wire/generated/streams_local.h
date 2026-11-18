@@ -26,6 +26,8 @@ extern "C" {
 typedef enum fzn_streams_local_op {
 	FZN_STREAMS_LOCAL_OP_LOCATION = 128,
 	FZN_STREAMS_LOCAL_OP_LOCATION_ROW = 129,
+	FZN_STREAMS_LOCAL_OP_STATUS = 130,
+	FZN_STREAMS_LOCAL_OP_STATUS_ROW = 131,
 } fzn_streams_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -35,6 +37,8 @@ static inline int fzn_streams_local_op_is_known(fzn_streams_local_op_t value)
 	switch (value) {
 	case FZN_STREAMS_LOCAL_OP_LOCATION:
 	case FZN_STREAMS_LOCAL_OP_LOCATION_ROW:
+	case FZN_STREAMS_LOCAL_OP_STATUS:
+	case FZN_STREAMS_LOCAL_OP_STATUS_ROW:
 		return 1;
 	default:
 		return 0;
@@ -416,10 +420,284 @@ situ_err_t fzn_streams_local_location_row_check(situ_view_t view, uint32_t *whic
 #define FZN_STREAMS_LOCAL_LOCATION_ROW_WHOSE_LEN_CHECK 4u
 #define FZN_STREAMS_LOCAL_LOCATION_ROW_WHOSE_CHECK 5u
 
+/* ---- struct status_row ---- */
+
+#define FZN_STREAMS_LOCAL_STATUS_ROW_SIZE_MIN   44u
+#define FZN_STREAMS_LOCAL_STATUS_ROW_SIZE_MAX   299u
+
+/* INVALIDATION: a status_row view, and every view derived from
+ * it, is invalidated by writing `gpsd_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_streams_local_status_row_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_STREAMS_LOCAL_STATUS_ROW_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+#define FZN_STREAMS_LOCAL_STATUS_ROW_ON_VALUE_MAX 1u
+
+/** status_row.on : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_streams_local_status_row_on_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_streams_local_status_row_on_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_streams_local_status_row_on_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+#define FZN_STREAMS_LOCAL_STATUS_ROW_LINK_VALUE_MAX 3u
+
+/** status_row.link : u8  at AbsoluteStatic(0x01)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_streams_local_status_row_link_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[1u]);
+}
+static inline uint8_t *fzn_streams_local_status_row_link_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 1u);
+}
+static inline void fzn_streams_local_status_row_link_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[1u] = (uint8_t)value;
+}
+
+/** status_row.every : u32  at AbsoluteStatic(0x02)
+ * size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_streams_local_status_row_every_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 2u));
+}
+static inline void fzn_streams_local_status_row_every_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 2u, (uint32_t)value);
+}
+
+/** status_row.accuracy : u32  at AbsoluteStatic(0x06)
+ * size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_streams_local_status_row_accuracy_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 6u));
+}
+static inline void fzn_streams_local_status_row_accuracy_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 6u, (uint32_t)value);
+}
+
+/** status_row.sampled : u64  at AbsoluteStatic(0x0A)
+ * size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_streams_local_status_row_sampled_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 10u));
+}
+static inline void fzn_streams_local_status_row_sampled_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 10u, (uint64_t)value);
+}
+
+/** status_row.dropped : u64  at AbsoluteStatic(0x12)
+ * size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_streams_local_status_row_dropped_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 18u));
+}
+static inline void fzn_streams_local_status_row_dropped_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 18u, (uint64_t)value);
+}
+
+/** status_row.last : u64  at AbsoluteStatic(0x1A)
+ * size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_streams_local_status_row_last_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 26u));
+}
+static inline void fzn_streams_local_status_row_last_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 26u, (uint64_t)value);
+}
+
+#define FZN_STREAMS_LOCAL_STATUS_ROW_SOURCE_VALUE_MAX 2u
+
+/** status_row.source : u8  at AbsoluteStatic(0x22)
+ * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_streams_local_status_row_source_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[34u]);
+}
+static inline uint8_t *fzn_streams_local_status_row_source_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 34u);
+}
+static inline void fzn_streams_local_status_row_source_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[34u] = (uint8_t)value;
+}
+
+/** status_row.supplied : u64  at AbsoluteStatic(0x23)
+ * size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_streams_local_status_row_supplied_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 35u));
+}
+static inline void fzn_streams_local_status_row_supplied_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 35u, (uint64_t)value);
+}
+
+/** status_row.gpsd_len : u8  at AbsoluteStatic(0x2B)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_streams_local_status_row_gpsd_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[43u]);
+}
+static inline uint8_t *fzn_streams_local_status_row_gpsd_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 43u);
+}
+/* No plain setter: `gpsd_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_streams_local_status_row_gpsd_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** status_row.gpsd : u8  at AbsoluteStatic(0x2C)
+ * size=Bounded(0, 255) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_streams_local_status_row_gpsd_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[43u])),
+		situ_remaining_u32(view.limit, 44u));
+}
+static inline uint8_t *fzn_streams_local_status_row_gpsd_ptr(situ_view_t view)
+{
+	return situ_base(view) + 44u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `status_row` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_streams_local_status_row_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 44u)) {
+		return 44u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 44u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[43u])));
+	return extent;
+}
+
+/** How many bytes a whole `status_row` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_streams_local_status_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 44u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* status_row.gpsd: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 44u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[43u]));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_streams_local_status_row_gpsd_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[43u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_streams_local_status_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_streams_local_status_row_check(situ_view_t view, uint32_t *which);
+#define FZN_STREAMS_LOCAL_STATUS_ROW_ON_CHECK 0u
+#define FZN_STREAMS_LOCAL_STATUS_ROW_LINK_CHECK 1u
+#define FZN_STREAMS_LOCAL_STATUS_ROW_SOURCE_CHECK 2u
+#define FZN_STREAMS_LOCAL_STATUS_ROW_GPSD_CHECK 3u
+
 /* ---- struct message ---- */
 
 #define FZN_STREAMS_LOCAL_MESSAGE_SIZE_MIN   2u
-#define FZN_STREAMS_LOCAL_MESSAGE_SIZE_MAX   114u
+#define FZN_STREAMS_LOCAL_MESSAGE_SIZE_MAX   301u
 
 /* INVALIDATION: a message view, and every view derived from
  * it, is invalidated by writing `op` -- those decide where the
@@ -477,9 +755,9 @@ static inline fzn_streams_local_op_t fzn_streams_local_message_op_get(situ_view_
  * which takes the message and bumps its generation. */
 
 /* message.body : variant  at AbsoluteStatic(0x02)
- * size=Bounded(0, 112) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ * size=Bounded(0, 299) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `location`, `location_row` is
+/** `body` is a variant: exactly one of `location`, `location_row`, `status`, `status_row` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -541,6 +819,59 @@ static inline situ_err_t fzn_streams_local_message_body_location_row_view(situ_v
 
 #define FZN_STREAMS_LOCAL_MESSAGE_BODY_LOCATION_ROW_WHOSE_LEN_VALUE_MAX 32u
 
+/** message.body.status, present when the discriminant selects `op.status`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_streams_local_message_body_status_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_streams_local_message_op_get(view) != 130u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_STREAMS_LOCAL_NOTHING_SIZE_FIXED, out);
+}
+
+/* message.body.status_row, present when the discriminant selects `op.status_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `status_row` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_streams_local_message_body_status_row_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_streams_local_status_row_extent(whole);
+}
+static inline situ_err_t fzn_streams_local_message_body_status_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_streams_local_message_op_get(view) != 131u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_streams_local_status_row_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_STREAMS_LOCAL_MESSAGE_BODY_STATUS_ROW_ON_VALUE_MAX 1u
+
+#define FZN_STREAMS_LOCAL_MESSAGE_BODY_STATUS_ROW_LINK_VALUE_MAX 3u
+
+#define FZN_STREAMS_LOCAL_MESSAGE_BODY_STATUS_ROW_SOURCE_VALUE_MAX 2u
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -596,6 +927,20 @@ static inline situ_err_t fzn_streams_local_message_required(const uint8_t *data,
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_streams_local_message_op_get(view) : 0u) == 130u) {
+			e = fzn_streams_local_nothing_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_streams_local_message_op_get(view) : 0u) == 131u) {
+			e = fzn_streams_local_status_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -635,6 +980,8 @@ situ_err_t fzn_streams_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_STREAMS_LOCAL_MESSAGE_BODY_CHECK 2u
 #define FZN_STREAMS_LOCAL_MESSAGE_BODY_LOCATION_CHECK 3u
 #define FZN_STREAMS_LOCAL_MESSAGE_BODY_LOCATION_ROW_CHECK 4u
+#define FZN_STREAMS_LOCAL_MESSAGE_BODY_STATUS_CHECK 5u
+#define FZN_STREAMS_LOCAL_MESSAGE_BODY_STATUS_ROW_CHECK 6u
 
 #ifdef __cplusplus
 }

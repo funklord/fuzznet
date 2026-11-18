@@ -17440,6 +17440,27 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"location-status-client-connecting-unsaid",
+		"local/rpc.c",
+		"\tif (on && link == 2) out->stopped_reason = FZN_RPC_LOCATION_STOPPED_UNREACHABLE;\n",
+		"",
+		"gpsd still connecting is read in binary as no reason to have stopped -- sec 1249",
+	),
+	(
+		"location-status-node-source-off",
+		"node/daemon.c",
+		"\tln->link = !ln->on || !location_aimed ? 0 : 1 + (int)fzn_gpsd_link(&location_gpsd);\n",
+		"\tln->link = 0;\n",
+		"the gpsd link is said off whatever it is, in text and binary alike; live_location only -- sec 1249",
+	),
+	(
+		"location-status-binary-gpsd-unnamed",
+		"node/daemon.c",
+		"\t\t\tif ((sp = strrchr(gpsd, ' ')) != NULL)\n\t\t\t\t*sp = ':';\n",
+		"\t\t\tgpsd[0] = '\\0';\n",
+		"the binary status names no gpsd while aimed at one; live_location only -- sec 1249",
+	),
+	(
 		"stickers-client-turn-dropped",
 		"local/rpc.c",
 		"\te->text_turn = fzn_stickers_local_item_row_text_turn_get(b);\n",

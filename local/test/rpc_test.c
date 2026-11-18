@@ -1098,6 +1098,48 @@ static void test_positions_in_binary(void)
 	free(out);
 }
 
+/* THIS HOST'S SAMPLING IN BINARY, sec 1249: read as the text is -- gpsd
+ * watching, sampling from where it is; connecting, not sampling and why;
+ * a fix supplied, sampling from `platform`. */
+static void test_location_status_in_binary(void)
+{
+	static struct bscript watching, connecting, supplied;
+	static const struct {
+		struct bscript *s;
+		uint8_t link, source;
+		const char *gpsd;
+	} CASES[] = { { &watching, 3u, 1u, "127.0.0.1:2947" },
+		      { &connecting, 2u, 0u, "127.0.0.1:2947" },
+		      { &supplied, 0u, 2u, "" } };
+	fzn_rpc_location_status_resp_t out;
+	uint8_t row[320], m[336];
+	uint32_t row_len = 0, n = 0;
+	size_t i;
+
+	for (i = 0; i < 3u; i++) {
+		if (fzn_streams_local_status_row_build(row, sizeof(row), 1u, CASES[i].link, 30u, 100u, 5u, 1u, 1700000000u,
+		                                       CASES[i].source, 1700000000u, (const uint8_t *)CASES[i].gpsd,
+		                                       (uint32_t)strlen(CASES[i].gpsd), &row_len)
+		            == SITU_OK
+		    && fzn_streams_local_message_build_status_row(m, sizeof(m), (uint8_t)FZN_CMD_STREAMS, row, row_len, &n)
+		               == SITU_OK)
+			framed(CASES[i].s, 0, m, n);
+		status_onto(CASES[i].s, 0, FZN_STATUS_OK, NULL);
+	}
+	bon(&c, &watching);
+	CHECK(fzn_rpc_location_status(&c, &out) == FZN_RPC_OK && out.configured && out.sampling && out.interval_s == 30u
+	              && strcmp(out.source, "127.0.0.1:2947") == 0 && watching.asked[0][0] == 0x0e
+	              && watching.asked[0][1] == 0x82,
+	      "gpsd watching was not read in binary as sampling from where it is");
+	bon(&c, &connecting);
+	CHECK(fzn_rpc_location_status(&c, &out) == FZN_RPC_OK && !out.sampling
+	              && out.stopped_reason == FZN_RPC_LOCATION_STOPPED_UNREACHABLE,
+	      "gpsd connecting was not read in binary as not sampling, unreachable");
+	bon(&c, &supplied);
+	CHECK(fzn_rpc_location_status(&c, &out) == FZN_RPC_OK && out.sampling && strcmp(out.source, "platform") == 0,
+	      "a fix supplied was not read in binary as sampling from platform");
+}
+
 /* THE STICKER PACKS IN BINARY, sec 1172: a row read with its root and raw
  * name, the request's bytes, a listing cut before its STATUS refused. */
 static void test_packs_in_binary(void)
@@ -2067,6 +2109,7 @@ int main(void)
 	test_shares_in_binary();
 	test_note_open_in_binary();
 	test_packs_in_binary();
+	test_location_status_in_binary();
 	test_stickers_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

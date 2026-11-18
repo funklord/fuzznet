@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  location=128 location_row=129
+  location=128 location_row=129 status=130 status_row=131
 
 struct location_row size=80..112
   @0x0000   32        u8         host  big
@@ -39,13 +39,28 @@ struct location_row size=80..112
   @0x004f   1         u8         whose_len  max=32
   @0x0050   0..32     u8         whose  sized-by=whose_len
 
-struct message size=2..114
+struct message size=2..301
   @0x0000   1         u8         cmd  must_eq=14
   @0x0001   1         op         op
-  @0x0002   0..112    variant    body
+  @0x0002   0..299    variant    body
   body switch: op
   body case 128: location nothing
   body case 129: location_row location_row
+  body case 130: status nothing
+  body case 131: status_row status_row
   body case default: error
 
 struct nothing size=0
+
+struct status_row size=44..299
+  @0x0000   1         u8         on  max=1
+  @0x0001   1         u8         link  max=3
+  @0x0002   4         u32        every  big
+  @0x0006   4         u32        accuracy  big
+  @0x000a   8         u64        sampled  big
+  @0x0012   8         u64        dropped  big
+  @0x001a   8         u64        last  big
+  @0x0022   1         u8         source  max=2
+  @0x0023   8         u64        supplied  big
+  @0x002b   1         u8         gpsd_len
+  @0x002c   0..255    u8         gpsd  sized-by=gpsd_len

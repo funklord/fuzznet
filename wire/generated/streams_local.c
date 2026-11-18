@@ -88,6 +88,56 @@ situ_err_t fzn_streams_local_location_row_validate(situ_view_t view)
 	return fzn_streams_local_location_row_check(view, NULL);
 }
 
+situ_err_t fzn_streams_local_status_row_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_STREAMS_LOCAL_STATUS_ROW_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* status_row.on [max = 1] */
+	if (fzn_streams_local_status_row_on_get(view) > 1) {
+		*which = FZN_STREAMS_LOCAL_STATUS_ROW_ON_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* status_row.link [max = 3] */
+	if (fzn_streams_local_status_row_link_get(view) > 3) {
+		*which = FZN_STREAMS_LOCAL_STATUS_ROW_LINK_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* status_row.source [max = 2] */
+	if (fzn_streams_local_status_row_source_get(view) > 2) {
+		*which = FZN_STREAMS_LOCAL_STATUS_ROW_SOURCE_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* status_row.gpsd: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 44u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[43u])))) {
+		*which = FZN_STREAMS_LOCAL_STATUS_ROW_GPSD_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_streams_local_status_row_validate(situ_view_t view)
+{
+	return fzn_streams_local_status_row_check(view, NULL);
+}
+
 situ_err_t fzn_streams_local_message_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -120,12 +170,12 @@ situ_err_t fzn_streams_local_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 2u) < ((fzn_streams_local_message_op_get(view) == 128u ? 0u : (fzn_streams_local_message_op_get(view) == 129u ? (fzn_streams_local_message_body_location_row_extent(view)) : 0u)))) {
+	if (situ_remaining_u32(view.limit, 2u) < ((fzn_streams_local_message_op_get(view) == 128u ? 0u : (fzn_streams_local_message_op_get(view) == 129u ? (fzn_streams_local_message_body_location_row_extent(view)) : (fzn_streams_local_message_op_get(view) == 130u ? 0u : (fzn_streams_local_message_op_get(view) == 131u ? (fzn_streams_local_message_body_status_row_extent(view)) : 0u)))))) {
 		*which = FZN_STREAMS_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for op.location, op.location_row, and `default: error` for the rest. */
-	if (fzn_streams_local_message_op_get(view) != 128u && fzn_streams_local_message_op_get(view) != 129u) {
+	/* message.body: an arm for op.location, op.location_row, op.status, op.status_row, and `default: error` for the rest. */
+	if (fzn_streams_local_message_op_get(view) != 128u && fzn_streams_local_message_op_get(view) != 129u && fzn_streams_local_message_op_get(view) != 130u && fzn_streams_local_message_op_get(view) != 131u) {
 		*which = FZN_STREAMS_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -161,6 +211,44 @@ situ_err_t fzn_streams_local_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_STREAMS_LOCAL_MESSAGE_BODY_LOCATION_ROW_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.status: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_streams_local_message_body_status_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_streams_local_nothing_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_STREAMS_LOCAL_MESSAGE_BODY_STATUS_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.status_row: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_streams_local_message_body_status_row_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_streams_local_status_row_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_STREAMS_LOCAL_MESSAGE_BODY_STATUS_ROW_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {
