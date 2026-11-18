@@ -92935,3 +92935,26 @@ class for ADDRESS's host, and `situc map` for a registry. Its 33 cases
 are situ's test_a_registry_is_generated_in_c.py. **A note,
 not a request: adopting it is fuzznet's**, and waits until the registry
 is next worked on -- sec 1276's evaluation is where it would start.
+
+## 1280. snurra: a seek at 20 % loss plays in 10 s; what a consumer of local/ links, 2026-11-18
+
+snurra (inbox 20261118T1948Z, answering this tree's 20261114T1539Z), its
+2806630 pinning fuzznet at f1a6bbd, which holds 8767ce7: `make
+test-estate-loss`, four runs, the same 960044-byte WAV sought to its middle
+on B, played the middle after 9.6, 10.2, 10.9 and 11.7 s, the file whole and
+every frame its own -- against 13 to 51 s before, with the 24 s silence in
+B's log. **The fix holds downstream.**
+
+Two things a consumer of `local/` meets, recorded rather than fixed:
+- **`local/rpc.c` and `local/rpc_binary.c` link `wire/status.c` and the
+  generated `situ.c`, `status.c` and `files_local.c`** now; a consumer
+  compiling `local/*.c`, hex and constant_time alone fails at the link
+  short of `fzn_status_read`, `situ_msg_init` and
+  `fzn_files_local_message_validate`. The installed library carries them;
+  a consumer compiling sources has to name them.
+- **`wire/status.c` and `wire/generated/status.c` share a basename**, so a
+  build placing every object in one directory -- qmake does -- keeps only
+  one; snurra wraps the first in a file of its own name. A rename on
+  either side would end it, and the generated one's name is situ's
+  prefix's, so the question is which side moves; open, raised by the
+  first consumer to meet it.
