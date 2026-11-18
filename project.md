@@ -92233,3 +92233,34 @@ client. Three sabotages, each caught (`gov-roots-acting-unread`,
 `gov-votes-withdrawn-unread`, `gov-staged-key-cut`); sec 1029's
 `governance-view-counts-superseded-votes` and sec 1023's
 `governance-view-says-no-answer` repointed to where those now happen.
+
+## 1262. The call bar: the other end's picture, its time each second, a missed call told, 2026-11-18
+
+fuzzypickles keeps its own call bar, and says why in its sec 285: fuzznet's
+`gui/call_bar` "lacks this bar's ring and missed-call signals, which the
+phone's notifications hang from, and its picture area", and its time
+moved only on the window's two-second refresh. Those were the whole of
+the difference, so the bar gains them:
+
+- **The other end's picture**, above the line, while a video call is up
+  and a picture has come (`call_video`'s `on_picture`), at most 320x240;
+  gone with the call. `picture_shown()` says whether one shows.
+- **Its time each second**: a timer while a call is up says the line
+  again (`tick`), asking the node nothing; the host's refresh still
+  reads the calls.
+- **What a phone's notice hangs from**: `who()` and `is_video()` for the
+  call shown, read as `on_ringing` fires; and `on_missed(who, video)`,
+  told once as a call that rang here ends missed.
+
+The accessor is `is_video`, not `video`: the bar already had `video()`,
+the call's `fzn_call_video`, and a `bool video() const` beside it was an
+overload the bar's own members never chose -- the first build said
+"(call)" of a video call, which the test caught.
+
+**Tests:** call_bar_test, 22 checks -- who and video while ringing; the
+time from 0:00 to 0:07 by a tick, the node not asked; a missed call
+told once, with who; and a second bar on a socketpair for the node: no
+picture before one came, the other end's shown once it did, gone with
+the call. Four sabotages, each caught (`bar-missed-untold`,
+`bar-tick-silent`, `bar-picture-unshown`, `bar-picture-outlives-call`);
+sec 1238's `call-bar-missed-unsaid` repointed.

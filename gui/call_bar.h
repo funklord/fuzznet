@@ -83,6 +83,24 @@ public:
 	bool screen() const { return m_screen_on; }
 	void on_ringing(std::function<void(bool ringing)> told) { m_ringing_told = told; }
 
+	/* WHAT A PHONE'S NOTIFICATIONS HANG FROM, sec 1262, fuzzypickles' sec
+	 * 285: who the call shown is with and whether it carries video, for a
+	 * notice as `on_ringing` starts; and a call that rang here and went
+	 * unanswered everywhere, told once as it ends, with who and whether
+	 * it was video. */
+	QString who() const { return m_who; }
+	bool is_video() const { return (m_kinds & 2) != 0; }
+	void on_missed(std::function<void(const QString &who, bool video)> told) { m_missed_told = told; }
+
+	/* THE TIME UP, said each second, not each refresh (sec 1262): the bar
+	 * ticks itself while a call is up; `tick` is that tick, public for a
+	 * test. */
+	void tick();
+
+	/* THE OTHER END'S PICTURE, sec 1262: shown in the bar while a video
+	 * call is up and a picture has come. Whether one shows. */
+	bool picture_shown() const;
+
 private:
 	uint32_t now() const;
 	bool respond(const char *what, int state);
@@ -99,8 +117,14 @@ private:
 		QString who;
 		int state;
 		uint32_t up_at;
+		int kinds;
 	};
 	QHash<QString, seen> m_seen;
+	int m_kinds = 0;
+	std::function<void(const QString &, bool)> m_missed_told;
+	class QTimer *m_ticker;
+	QLabel *m_picture;
+	void say_shown();
 	QString m_ended;
 	uint32_t m_ended_at = 0;
 	QLabel *m_said;

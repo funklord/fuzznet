@@ -8,7 +8,9 @@
 #include <QBoxLayout>
 #include <QFontMetrics>
 #include <QLabel>
+#include <QPixmap>
 #include <QPushButton>
+#include <QTimer>
 
 #include <time.h>
 
@@ -36,7 +38,16 @@ fzn_call_bar::fzn_call_bar(fzn_notebook_view_ask_t ask, void *ask_ctx, const QSt
 	m_camera = new QPushButton(tr("Camera"), this);
 	m_camera->setCheckable(true);
 	m_hang_up = new QPushButton(tr("Hang up"), this);
-	m_row = new QBoxLayout(QBoxLayout::LeftToRight, this);
+	/* THE OTHER END'S PICTURE above the line, while a video call is up and
+	 * one has come (sec 1262). */
+	m_picture = new QLabel(this);
+	m_picture->setAlignment(Qt::AlignCenter);
+	m_picture->setAccessibleName(tr("The other end's picture"));
+	m_picture->hide();
+	auto *col = new QBoxLayout(QBoxLayout::TopToBottom, this);
+	col->addWidget(m_picture);
+	m_row = new QBoxLayout(QBoxLayout::LeftToRight);
+	col->addLayout(m_row);
 	m_row->addWidget(m_said, 1);
 	for (QPushButton *b : { m_answer, m_decline, m_mute, m_camera, m_hang_up })
 		m_row->addWidget(b);
@@ -45,6 +56,16 @@ fzn_call_bar::fzn_call_bar(fzn_notebook_view_ask_t ask, void *ask_ctx, const QSt
 	connect(m_hang_up, &QPushButton::clicked, [this]() { hang_up(); });
 	connect(m_mute, &QPushButton::toggled, [this](bool on) { set_muted(on); });
 	connect(m_camera, &QPushButton::toggled, [this](bool on) { set_camera(on); });
+	if (m_video) {
+		m_video->on_picture([this](const QImage &image) {
+			m_picture->setPixmap(QPixmap::fromImage(image).scaled(320, 240, Qt::KeepAspectRatio));
+			m_picture->setVisible(m_state == FZN_RPC_UP && is_video());
+		});
+	}
+	/* EACH SECOND WHILE UP, the time said again, nothing asked. */
+	m_ticker = new QTimer(this);
+	m_ticker->setInterval(1000);
+	QObject::connect(m_ticker, &QTimer::timeout, [this]() { tick(); });
 	refresh();
 }
 
@@ -95,7 +116,7 @@ bool fzn_call_bar::refresh()
 		                               ? (before != was.constEnd() && before->state == FZN_RPC_UP ? before->up_at : t)
 		                               : 0u;
 
-		m_seen.insert(id, { who, e->state, up_at });
+		m_seen.insert(id, { who, e->state, up_at, e->kinds });
 		auto rank = [](int state) {
 			return state == FZN_RPC_RINGING_IN ? 3 : state == FZN_RPC_UP ? 2 : 1;
 		};
@@ -114,8 +135,12 @@ bool fzn_call_bar::refresh()
 		const QString why = QString::fromUtf8(reason);
 		if (it->state == FZN_RPC_UP)
 			m_ended = tr("Call with %1 ended, %2.").arg(it->who, elapsed_words(t - it->up_at));
-		else if (it->state == FZN_RPC_RINGING_IN && fzn_rpc_missed(reason))
+		else if (it->state == FZN_RPC_RINGING_IN && fzn_rpc_missed(reason)) {
 			m_ended = tr("Missed call from %1.").arg(it->who);
+			/* TOLD ONCE, for the host's notice (sec 1262). */
+			if (m_missed_told)
+				m_missed_told(it->who, (it->kinds & 2) != 0);
+		}
 		else if (it->state == FZN_RPC_RINGING_OUT && why == QLatin1String("declined"))
 			m_ended = tr("%1 declined.").arg(it->who);
 		else if (it->state == FZN_RPC_RINGING_OUT && why == QLatin1String("busy"))
@@ -129,13 +154,19 @@ bool fzn_call_bar::refresh()
 	m_id = chosen ? QString::fromLatin1(chosen->id) : QString();
 	m_state = chosen ? chosen->state : 0;
 	m_who = chosen ? m_seen.value(m_id).who : QString();
+	m_kinds = chosen ? chosen->kinds : 0;
 	carry(m_id, m_state == FZN_RPC_UP);
+	if (m_state == FZN_RPC_UP)
+		m_ticker->start();
+	else
+		m_ticker->stop();
+	/* THE PICTURE GOES with the video call it came on. */
+	if (m_state != FZN_RPC_UP || !is_video()) {
+		m_picture->clear();
+		m_picture->hide();
+	}
 	if (chosen) {
-		const QString kinds = (chosen->kinds & FZN_RPC_VIDEO) ? tr("video call") : tr("call");
-		m_said->setText(m_state == FZN_RPC_RINGING_IN ? tr("%1 is calling you (%2)").arg(m_who, kinds)
-		                : m_state == FZN_RPC_UP
-		                        ? tr("In a call with %1, %2").arg(m_who, elapsed_words(t - m_seen.value(m_id).up_at))
-		                        : tr("Calling %1...").arg(m_who));
+		say_shown();
 		m_ended.clear();
 	} else if (!m_ended.isEmpty() && t - m_ended_at < FZN_CALL_BAR_ENDED_S) {
 		m_said->setText(m_ended);
@@ -162,6 +193,25 @@ bool fzn_call_bar::refresh()
 	setVisible(!m_said->text().isEmpty());
 	return true;
 }
+
+/* THE LINE FOR THE CALL SHOWN, at the time now. */
+void fzn_call_bar::say_shown()
+{
+	const QString kinds = is_video() ? tr("video call") : tr("call");
+
+	m_said->setText(m_state == FZN_RPC_RINGING_IN ? tr("%1 is calling you (%2)").arg(m_who, kinds)
+	                : m_state == FZN_RPC_UP
+	                        ? tr("In a call with %1, %2").arg(m_who, elapsed_words(now() - m_seen.value(m_id).up_at))
+	                        : tr("Calling %1...").arg(m_who));
+}
+
+void fzn_call_bar::tick()
+{
+	if (m_state == FZN_RPC_UP && !m_id.isEmpty())
+		say_shown();
+}
+
+bool fzn_call_bar::picture_shown() const { return !m_picture->isHidden() && m_picture->pixmap().cacheKey() != 0; }
 
 void fzn_call_bar::set_screen(bool allowed)
 {

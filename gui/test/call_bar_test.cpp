@@ -8,13 +8,18 @@
  */
 #include "../call_bar.h"
 #include "../call_audio.h"
+#include "../call_video.h"
 
 #include <QApplication>
+#include <QColor>
+#include <QImage>
 #include <QList>
 #include <QPushButton>
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 static int checks, failures;
 
@@ -33,12 +38,13 @@ static int checks, failures;
 #define NOW 1700000000u
 
 static char live[512] = "0";
+static int listed; /* `list call` asked */
 static char ended_in[32] = "", ended_out[32] = "";
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
 	(void)ctx;
-	if (!strcmp(line, "list call"))
+	if (!strcmp(line, "list call") && ++listed)
 		return (size_t)snprintf(reply, cap, "ok %s\n", live);
 	if (!strcmp(line, "list contact 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 bob," BOB "\n");
@@ -78,11 +84,21 @@ int main(int argc, char **argv)
 	CHECK(bar.refresh() && !bar.isHidden() && bar.said() == "bob is calling you (video call)"
 	              && bar.buttons() == QStringList({ "Answer", "Decline" }),
 	      "a call ringing here was not said with Answer and Decline");
+	CHECK(bar.who() == "bob" && bar.is_video(), "the call ringing was not said to be with bob, on video");
 
 	/* ANSWERED: how long, Mute and Hang up, and its sound carried. */
 	CHECK(bar.answer() && bar.said() == "In a call with bob, 0:00" && bar.buttons() == QStringList({ "Mute", "Hang up" })
 	              && bar.audio()->running() && bar.audio()->id() == IN,
 	      "an answered call was not shown up with Mute and Hang up, its sound carried");
+	/* EACH SECOND, NOTHING ASKED (sec 1262): the bar ticks itself. */
+	{
+		const int asked = listed;
+
+		bar.set_now(NOW + 7u);
+		bar.tick();
+		CHECK(bar.said() == "In a call with bob, 0:07" && listed == asked,
+		      "a call up did not say its time each second without asking the node");
+	}
 	bar.set_now(NOW + 42u);
 	CHECK(bar.refresh() && bar.said() == "In a call with bob, 0:42", "a call up did not say how long it has run");
 	bar.set_muted(true);
@@ -94,13 +110,17 @@ int main(int argc, char **argv)
 	bar.set_now(NOW + 42u + FZN_CALL_BAR_ENDED_S);
 	CHECK(bar.refresh() && bar.isHidden(), "the ending was still said past its few seconds");
 
-	/* MISSED, AND DECLINED, as a person says them. */
+	/* MISSED, AND DECLINED, as a person says them -- a missed one told the
+	 * host once, for its notice (sec 1262). */
+	QStringList missed;
+	bar.on_missed([&missed](const QString &who, bool video) { missed << who + (video ? " video" : " sound"); });
 	snprintf(live, sizeof live, "1 " IN ",ringing-in,1," BOB);
 	ended_in[0] = '\0';
 	bar.refresh();
 	snprintf(live, sizeof live, "0");
 	snprintf(ended_in, sizeof ended_in, "no-answer");
 	CHECK(bar.refresh() && bar.said() == "Missed call from bob.", "a call missed was not said as missed");
+	CHECK(bar.refresh() && missed == QStringList({ "bob sound" }), "a missed call was not told the host once, with who");
 	snprintf(live, sizeof live, "1 " OUT ",ringing-out,1," BOB);
 	CHECK(bar.refresh() && bar.said() == "Calling bob..." && bar.buttons() == QStringList({ "Hang up" }),
 	      "a call ringing out was not said with Hang up");
@@ -134,6 +154,53 @@ int main(int argc, char **argv)
 		CHECK(bar.refresh() && told.size() == 1, "the host was told again while the same call rang");
 		CHECK(bar.answer() && !bar.screen() && answer->minimumHeight() == 0 && told == QList<bool>({ true, false }),
 		      "answered, the bar stayed a screen, or the host was not told it stopped ringing");
+	}
+
+	/* THE OTHER END'S PICTURE IN THE BAR, sec 1262: a video call up, its
+	 * channel over a socketpair standing in for the node; a picture come,
+	 * shown; the call gone, gone. */
+	{
+		static const uint8_t ok_status[] = { 0, 3, 19, 0, 0 };
+		static uint8_t wire[2 + 8192 + 64];
+		fzn_call_bar seen_bar(node, nullptr, QStringLiteral("/nonexistent"));
+		QImage red(320, 240, QImage::Format_RGB32);
+		int sv[2];
+		size_t n = 0, got = 0, len;
+
+		red.fill(QColor(220, 20, 20));
+		seen_bar.audio()->set_test_io([](int16_t *, size_t) { return (size_t)0; }, [](const int16_t *, size_t) {});
+		seen_bar.set_now(NOW);
+		CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0
+		              && write(sv[1], ok_status, sizeof(ok_status)) == (ssize_t)sizeof(ok_status)
+		              && seen_bar.video()->attach(sv[0], IN),
+		      "fixture: the picture's channel attached");
+		/* THE CHANNEL'S ASKING, read and set aside. */
+		if (read(sv[1], wire, 2) == 2 && (len = (size_t)wire[0] << 8 | wire[1]) + 2u <= sizeof(wire))
+			while (got < len && read(sv[1], wire + 2, len) > 0)
+				got = len;
+		snprintf(live, sizeof live, "1 " IN ",up,3," BOB);
+		ended_in[0] = '\0';
+		seen_bar.refresh();
+		CHECK(!seen_bar.picture_shown(), "a picture was shown before one came");
+		/* ONE SENT, ECHOED BACK AS THE OTHER END'S. */
+		if (seen_bar.video()->send_picture(red) && read(sv[1], wire, 2) == 2) {
+			len = (size_t)wire[0] << 8 | wire[1];
+			got = 0;
+			while (got < len) {
+				const ssize_t r = read(sv[1], wire + 2 + got, len - got);
+				if (r <= 0)
+					break;
+				got += (size_t)r;
+			}
+			n = got == len && write(sv[1], wire, len + 2u) == (ssize_t)(len + 2u) ? len : 0u;
+		}
+		seen_bar.video()->poll();
+		CHECK(n && seen_bar.picture_shown(), "the other end's picture was not shown in the bar");
+		snprintf(live, sizeof live, "0");
+		snprintf(ended_in, sizeof ended_in, "hung-up");
+		seen_bar.refresh();
+		CHECK(!seen_bar.picture_shown(), "the picture stayed once the call was gone");
+		close(sv[1]);
 	}
 
 	CHECK(0, "deliberate");

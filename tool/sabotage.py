@@ -17433,6 +17433,34 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"bar-missed-untold",
+		"gui/call_bar.cpp",
+		"\t\t\tif (m_missed_told)\n\t\t\t\tm_missed_told(it->who, (it->kinds & 2) != 0);\n",
+		"",
+		"a call missed here is never told the host, and the phone says nothing of it -- sec 1262",
+	),
+	(
+		"bar-tick-silent",
+		"gui/call_bar.cpp",
+		"\tif (m_state == FZN_RPC_UP && !m_id.isEmpty())\n\t\tsay_shown();\n",
+		"\t(void)0;\n",
+		"a call's time moves only when the host refreshes, every two seconds -- sec 1262",
+	),
+	(
+		"bar-picture-unshown",
+		"gui/call_bar.cpp",
+		"\t\t\tm_picture->setVisible(m_state == FZN_RPC_UP && is_video());\n",
+		"\t\t\tm_picture->setVisible(false);\n",
+		"the other end's picture never shows in the bar -- sec 1262",
+	),
+	(
+		"bar-picture-outlives-call",
+		"gui/call_bar.cpp",
+		"\tif (m_state != FZN_RPC_UP || !is_video()) {\n\t\tm_picture->clear();\n\t\tm_picture->hide();\n\t}\n",
+		"",
+		"the last picture stays in the bar once the call is gone -- sec 1262",
+	),
+	(
 		"gov-roots-acting-unread",
 		"local/rpc.c",
 		"\t\tout->root[out->count++].acting = w_len > 64 && gov_field(w, w_len, 1, 0, &f, &f_len) && f_len == 6\n",
@@ -17813,9 +17841,9 @@ SABOTAGES = [
 	(
 		"call-bar-missed-unsaid",
 		"gui/call_bar.cpp",
-		"\t\telse if (it->state == FZN_RPC_RINGING_IN && fzn_rpc_missed(reason))\n",
-		"\t\telse if (0)\n",
-		"a call missed is not said as missed -- sec 1238",
+		"\t\telse if (it->state == FZN_RPC_RINGING_IN && fzn_rpc_missed(reason)) {\n",
+		"\t\telse if (0) {\n",
+		"a call missed is not said as missed -- secs 1238, 1262",
 	),
 	(
 		"call-bar-always-shown",
