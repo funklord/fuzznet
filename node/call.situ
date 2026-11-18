@@ -26,6 +26,12 @@ enum kind : u8 {
 	// range sec 1101 keeps for the local socket; a host refuses them from another.
 	media_open  = 128, // a client's channel for the call's media, held open
 	media       = 129, // a whole frame, either way on that channel
+	// THIS USER'S CALLS ASKED AND ANSWERED, sec 1251: the call bar's polling.
+	calls       = 130, // every live call, as `list call`; CALL zero
+	call_row    = 131, // an answer: one call, CALL its id
+	ended       = 132, // why CALL ended, as `get call ID`
+	ended_row   = 133, // an answer: the reason, where it has ended
+	respond     = 134, // CALL answered, declined or hung up
 	default     = error,
 }
 
@@ -69,6 +75,26 @@ struct participant {
 	u8   whom[32];
 }
 
+// STATE 1 ringing here, 2 ringing out, 3 up; KINDS audio 1, video 2; USER
+// the other end's user (sec 1040), HAS_USER 0 where this host cannot say.
+struct call_row {
+	u8  state [min = 1, max = 3];
+	u8  kinds [min = 1, max = 3];
+	u8  has_user [max = 1];
+	u8  user[32];
+}
+
+// WHY, `declined`, `busy`, `no-answer` and the rest (sec 1082).
+struct ended_row {
+	u8  why_len [min = 1, max = 23];
+	u8  why[why_len];
+}
+
+// WHAT 2 answer, 3 decline, 4 hang up: the kinds that say them between hosts.
+struct respond {
+	u8  what [min = 2, max = 4];
+}
+
 struct message {
 	u8         cmd    [must_eq = 18];
 	kind       kind;
@@ -89,6 +115,11 @@ struct message {
 		case kind.declined_elsewhere: nothing    declined_elsewhere;
 		case kind.media_open:  nothing           media_open;
 		case kind.media:       whole             media;
+		case kind.calls:       nothing           calls;
+		case kind.call_row:    call_row          call_row;
+		case kind.ended:       nothing           ended;
+		case kind.ended_row:   ended_row         ended_row;
+		case kind.respond:     respond           respond;
 		default: error;
 	}
 }

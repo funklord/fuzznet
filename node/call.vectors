@@ -16,3 +16,8 @@ message report      12 06 8B 70 D7 EF 5F 91 C9 5D 02 00 00 00 04 00 00 00 01 00 
 message participant 12 07 8B 70 D7 EF 5F 91 C9 5D 00 02 A0 A1 A2 A3 A4 A5 A6 A7 A8 A9 AA AB AC AD AE AF B0 B1 B2 B3 B4 B5 B6 B7 B8 B9 BA BB BC BD BE BF
 message media_open  12 80 8B 70 D7 EF 5F 91 C9 5D
 message media       12 81 8B 70 D7 EF 5F 91 C9 5D 02 00 01 00 00 00 07 00 00 01 F4 C0 FF EE
+message calls      12 82 00 00 00 00 00 00 00 00
+message call_row   12 83 A1 A2 A3 A4 A5 A6 A7 A8 01 03 01 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A 5A
+message ended      12 84 A1 A2 A3 A4 A5 A6 A7 A8
+message ended_row  12 85 A1 A2 A3 A4 A5 A6 A7 A8 04 62 75 73 79
+message respond    12 86 A1 A2 A3 A4 A5 A6 A7 A8 02

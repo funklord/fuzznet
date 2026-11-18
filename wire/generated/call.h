@@ -38,6 +38,11 @@ typedef enum fzn_call_kind {
 	FZN_CALL_KIND_DECLINED_ELSEWHERE = 12,
 	FZN_CALL_KIND_MEDIA_OPEN = 128,
 	FZN_CALL_KIND_MEDIA = 129,
+	FZN_CALL_KIND_CALLS = 130,
+	FZN_CALL_KIND_CALL_ROW = 131,
+	FZN_CALL_KIND_ENDED = 132,
+	FZN_CALL_KIND_ENDED_ROW = 133,
+	FZN_CALL_KIND_RESPOND = 134,
 } fzn_call_kind_t;
 
 /** Whether a value names a member of kind (section 8.7).
@@ -59,6 +64,11 @@ static inline int fzn_call_kind_is_known(fzn_call_kind_t value)
 	case FZN_CALL_KIND_DECLINED_ELSEWHERE:
 	case FZN_CALL_KIND_MEDIA_OPEN:
 	case FZN_CALL_KIND_MEDIA:
+	case FZN_CALL_KIND_CALLS:
+	case FZN_CALL_KIND_CALL_ROW:
+	case FZN_CALL_KIND_ENDED:
+	case FZN_CALL_KIND_ENDED_ROW:
+	case FZN_CALL_KIND_RESPOND:
 		return 1;
 	default:
 		return 0;
@@ -637,6 +647,335 @@ situ_err_t fzn_call_participant_validate(situ_view_t view);
 situ_err_t fzn_call_participant_check(situ_view_t view, uint32_t *which);
 #define FZN_CALL_PARTICIPANT_INDEX_CHECK 0u
 
+/* ---- struct call_row ---- */
+
+#define FZN_CALL_CALL_ROW_SIZE_FIXED 35u
+#define FZN_CALL_CALL_ROW_SIZE_MIN   35u
+#define FZN_CALL_CALL_ROW_SIZE_MAX   35u
+
+/* INVALIDATION: nothing invalidates a call_row view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_call_call_row_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_CALL_CALL_ROW_SIZE_FIXED, out);
+}
+
+#define FZN_CALL_CALL_ROW_STATE_VALUE_MIN 1u
+#define FZN_CALL_CALL_ROW_STATE_VALUE_MAX 3u
+
+/** call_row.state : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_call_call_row_state_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_call_call_row_state_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_call_call_row_state_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+#define FZN_CALL_CALL_ROW_KINDS_VALUE_MIN 1u
+#define FZN_CALL_CALL_ROW_KINDS_VALUE_MAX 3u
+
+/** call_row.kinds : u8  at AbsoluteStatic(0x01)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_call_call_row_kinds_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[1u]);
+}
+static inline uint8_t *fzn_call_call_row_kinds_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 1u);
+}
+static inline void fzn_call_call_row_kinds_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[1u] = (uint8_t)value;
+}
+
+#define FZN_CALL_CALL_ROW_HAS_USER_VALUE_MAX 1u
+
+/** call_row.has_user : u8  at AbsoluteStatic(0x02)
+ * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_call_call_row_has_user_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[2u]);
+}
+static inline uint8_t *fzn_call_call_row_has_user_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 2u);
+}
+static inline void fzn_call_call_row_has_user_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[2u] = (uint8_t)value;
+}
+
+/** call_row.user : u8  at AbsoluteStatic(0x03)
+ * size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_CALL_CALL_ROW_USER_COUNT 32u
+static inline uint8_t *fzn_call_call_row_user_ptr(situ_view_t view)
+{
+	return situ_base(view) + 3u;
+}
+
+/** How many bytes a whole `call_row` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_call_call_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_CALL_CALL_ROW_SIZE_FIXED;
+	return have >= FZN_CALL_CALL_ROW_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_call_call_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_call_call_row_check(situ_view_t view, uint32_t *which);
+#define FZN_CALL_CALL_ROW_STATE_CHECK 0u
+#define FZN_CALL_CALL_ROW_KINDS_CHECK 1u
+#define FZN_CALL_CALL_ROW_HAS_USER_CHECK 2u
+
+/* ---- struct ended_row ---- */
+
+#define FZN_CALL_ENDED_ROW_SIZE_MIN   2u
+#define FZN_CALL_ENDED_ROW_SIZE_MAX   24u
+
+/* INVALIDATION: a ended_row view, and every view derived from
+ * it, is invalidated by writing `why_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_call_ended_row_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_CALL_ENDED_ROW_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+#define FZN_CALL_ENDED_ROW_WHY_LEN_VALUE_MIN 1u
+#define FZN_CALL_ENDED_ROW_WHY_LEN_VALUE_MAX 23u
+
+/** ended_row.why_len : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_call_ended_row_why_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_call_ended_row_why_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+/* No plain setter: `why_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_call_ended_row_why_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** ended_row.why : u8  at AbsoluteStatic(0x01)
+ * size=Bounded(1, 23) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_call_ended_row_why_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])),
+		situ_remaining_u32(view.limit, 1u));
+}
+static inline uint8_t *fzn_call_ended_row_why_ptr(situ_view_t view)
+{
+	return situ_base(view) + 1u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `ended_row` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_call_ended_row_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 1u)) {
+		return 1u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 1u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])));
+	return extent;
+}
+
+/** How many bytes a whole `ended_row` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_call_ended_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 1u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* ended_row.why: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 1u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[0u]));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_call_ended_row_why_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_call_ended_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_call_ended_row_check(situ_view_t view, uint32_t *which);
+#define FZN_CALL_ENDED_ROW_WHY_LEN_CHECK 0u
+#define FZN_CALL_ENDED_ROW_WHY_CHECK 1u
+
+/* ---- struct respond ---- */
+
+#define FZN_CALL_RESPOND_SIZE_FIXED 1u
+#define FZN_CALL_RESPOND_SIZE_MIN   1u
+#define FZN_CALL_RESPOND_SIZE_MAX   1u
+
+/* INVALIDATION: nothing invalidates a respond view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_call_respond_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_CALL_RESPOND_SIZE_FIXED, out);
+}
+
+#define FZN_CALL_RESPOND_WHAT_VALUE_MIN 2u
+#define FZN_CALL_RESPOND_WHAT_VALUE_MAX 4u
+
+/** respond.what : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_call_respond_what_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_call_respond_what_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_call_respond_what_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+/** How many bytes a whole `respond` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_call_respond_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_CALL_RESPOND_SIZE_FIXED;
+	return have >= FZN_CALL_RESPOND_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_call_respond_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_call_respond_check(situ_view_t view, uint32_t *which);
+#define FZN_CALL_RESPOND_WHAT_CHECK 0u
+
 /* ---- struct message ---- */
 
 #define FZN_CALL_MESSAGE_SIZE_MIN   10u
@@ -967,6 +1306,112 @@ static inline situ_err_t fzn_call_message_body_media_view(situ_view_t view, situ
 	return situ_view_sub(view, 10u, size, out);
 }
 
+/** message.body.calls, present when the discriminant selects `kind.calls`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_call_message_body_calls_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_call_message_kind_get(view) != 130u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+}
+
+/** message.body.call_row, present when the discriminant selects `kind.call_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_call_message_body_call_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_call_message_kind_get(view) != 131u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 10u, FZN_CALL_CALL_ROW_SIZE_FIXED, out);
+}
+
+#define FZN_CALL_MESSAGE_BODY_CALL_ROW_STATE_VALUE_MIN 1u
+#define FZN_CALL_MESSAGE_BODY_CALL_ROW_STATE_VALUE_MAX 3u
+
+#define FZN_CALL_MESSAGE_BODY_CALL_ROW_KINDS_VALUE_MIN 1u
+#define FZN_CALL_MESSAGE_BODY_CALL_ROW_KINDS_VALUE_MAX 3u
+
+#define FZN_CALL_MESSAGE_BODY_CALL_ROW_HAS_USER_VALUE_MAX 1u
+
+/** message.body.ended, present when the discriminant selects `kind.ended`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_call_message_body_ended_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_call_message_kind_get(view) != 132u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 10u, FZN_CALL_NOTHING_SIZE_FIXED, out);
+}
+
+/* message.body.ended_row, present when the discriminant selects `kind.ended_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `ended_row` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_call_message_body_ended_row_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 10u, situ_remaining_u32(view.limit, 10u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_call_ended_row_extent(whole);
+}
+static inline situ_err_t fzn_call_message_body_ended_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_call_message_kind_get(view) != 133u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 10u, situ_remaining_u32(view.limit, 10u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_call_ended_row_extent(whole);
+	return situ_view_sub(view, 10u, size, out);
+}
+
+#define FZN_CALL_MESSAGE_BODY_ENDED_ROW_WHY_LEN_VALUE_MIN 1u
+#define FZN_CALL_MESSAGE_BODY_ENDED_ROW_WHY_LEN_VALUE_MAX 23u
+
+/** message.body.respond, present when the discriminant selects `kind.respond`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_call_message_body_respond_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_call_message_kind_get(view) != 134u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 10u, FZN_CALL_RESPOND_SIZE_FIXED, out);
+}
+
+#define FZN_CALL_MESSAGE_BODY_RESPOND_WHAT_VALUE_MIN 2u
+#define FZN_CALL_MESSAGE_BODY_RESPOND_WHAT_VALUE_MAX 4u
+
 /* No `message_required`: one of its members has no length this can compute.
  * Framing such a message is the layer below's job -- situ can say what
  * the bytes mean and not when they have all arrived. */
@@ -1013,6 +1458,11 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which);
 #define FZN_CALL_MESSAGE_BODY_DECLINED_ELSEWHERE_CHECK 14u
 #define FZN_CALL_MESSAGE_BODY_MEDIA_OPEN_CHECK 15u
 #define FZN_CALL_MESSAGE_BODY_MEDIA_CHECK 16u
+#define FZN_CALL_MESSAGE_BODY_CALLS_CHECK 17u
+#define FZN_CALL_MESSAGE_BODY_CALL_ROW_CHECK 18u
+#define FZN_CALL_MESSAGE_BODY_ENDED_CHECK 19u
+#define FZN_CALL_MESSAGE_BODY_ENDED_ROW_CHECK 20u
+#define FZN_CALL_MESSAGE_BODY_RESPOND_CHECK 21u
 
 #ifdef __cplusplus
 }

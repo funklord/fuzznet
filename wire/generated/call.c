@@ -190,6 +190,142 @@ situ_err_t fzn_call_participant_validate(situ_view_t view)
 	return fzn_call_participant_check(view, NULL);
 }
 
+situ_err_t fzn_call_call_row_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_CALL_CALL_ROW_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* call_row.state [min = 1] */
+	if (fzn_call_call_row_state_get(view) < 1) {
+		*which = FZN_CALL_CALL_ROW_STATE_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* call_row.state [max = 3] */
+	if (fzn_call_call_row_state_get(view) > 3) {
+		*which = FZN_CALL_CALL_ROW_STATE_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* call_row.kinds [min = 1] */
+	if (fzn_call_call_row_kinds_get(view) < 1) {
+		*which = FZN_CALL_CALL_ROW_KINDS_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* call_row.kinds [max = 3] */
+	if (fzn_call_call_row_kinds_get(view) > 3) {
+		*which = FZN_CALL_CALL_ROW_KINDS_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* call_row.has_user [max = 1] */
+	if (fzn_call_call_row_has_user_get(view) > 1) {
+		*which = FZN_CALL_CALL_ROW_HAS_USER_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_call_call_row_validate(situ_view_t view)
+{
+	return fzn_call_call_row_check(view, NULL);
+}
+
+situ_err_t fzn_call_ended_row_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_CALL_ENDED_ROW_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ended_row.why_len [min = 1] */
+	if (fzn_call_ended_row_why_len_get(view) < 1) {
+		*which = FZN_CALL_ENDED_ROW_WHY_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ended_row.why_len [max = 23] */
+	if (fzn_call_ended_row_why_len_get(view) > 23) {
+		*which = FZN_CALL_ENDED_ROW_WHY_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ended_row.why: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 1u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])))) {
+		*which = FZN_CALL_ENDED_ROW_WHY_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_call_ended_row_validate(situ_view_t view)
+{
+	return fzn_call_ended_row_check(view, NULL);
+}
+
+situ_err_t fzn_call_respond_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_CALL_RESPOND_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* respond.what [min = 2] */
+	if (fzn_call_respond_what_get(view) < 2) {
+		*which = FZN_CALL_RESPOND_WHAT_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* respond.what [max = 4] */
+	if (fzn_call_respond_what_get(view) > 4) {
+		*which = FZN_CALL_RESPOND_WHAT_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_call_respond_validate(situ_view_t view)
+{
+	return fzn_call_respond_check(view, NULL);
+}
+
 situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -222,12 +358,12 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 10u) < ((fzn_call_message_kind_get(view) == 1u ? 33u : (fzn_call_message_kind_get(view) == 2u ? 0u : (fzn_call_message_kind_get(view) == 3u ? 0u : (fzn_call_message_kind_get(view) == 4u ? 0u : (fzn_call_message_kind_get(view) == 5u ? (fzn_call_message_body_frame_extent(view)) : (fzn_call_message_kind_get(view) == 6u ? 19u : (fzn_call_message_kind_get(view) == 7u ? 34u : (fzn_call_message_kind_get(view) == 8u ? 0u : (fzn_call_message_kind_get(view) == 9u ? 0u : (fzn_call_message_kind_get(view) == 10u ? 0u : (fzn_call_message_kind_get(view) == 11u ? 0u : (fzn_call_message_kind_get(view) == 12u ? 0u : (fzn_call_message_kind_get(view) == 128u ? 0u : (fzn_call_message_kind_get(view) == 129u ? (fzn_call_message_body_media_extent(view)) : 0u)))))))))))))))) {
+	if (situ_remaining_u32(view.limit, 10u) < ((fzn_call_message_kind_get(view) == 1u ? 33u : (fzn_call_message_kind_get(view) == 2u ? 0u : (fzn_call_message_kind_get(view) == 3u ? 0u : (fzn_call_message_kind_get(view) == 4u ? 0u : (fzn_call_message_kind_get(view) == 5u ? (fzn_call_message_body_frame_extent(view)) : (fzn_call_message_kind_get(view) == 6u ? 19u : (fzn_call_message_kind_get(view) == 7u ? 34u : (fzn_call_message_kind_get(view) == 8u ? 0u : (fzn_call_message_kind_get(view) == 9u ? 0u : (fzn_call_message_kind_get(view) == 10u ? 0u : (fzn_call_message_kind_get(view) == 11u ? 0u : (fzn_call_message_kind_get(view) == 12u ? 0u : (fzn_call_message_kind_get(view) == 128u ? 0u : (fzn_call_message_kind_get(view) == 129u ? (fzn_call_message_body_media_extent(view)) : (fzn_call_message_kind_get(view) == 130u ? 0u : (fzn_call_message_kind_get(view) == 131u ? 35u : (fzn_call_message_kind_get(view) == 132u ? 0u : (fzn_call_message_kind_get(view) == 133u ? (fzn_call_message_body_ended_row_extent(view)) : (fzn_call_message_kind_get(view) == 134u ? 1u : 0u))))))))))))))))))))) {
 		*which = FZN_CALL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for kind.ring, kind.answer, kind.decline, kind.hangup, kind.frame, kind.report, kind.participant, kind.ringing, kind.no_answer, kind.busy, kind.answered_elsewhere, kind.declined_elsewhere, kind.media_open, kind.media, and `default: error` for the rest. */
-	if (fzn_call_message_kind_get(view) != 1u && fzn_call_message_kind_get(view) != 2u && fzn_call_message_kind_get(view) != 3u && fzn_call_message_kind_get(view) != 4u && fzn_call_message_kind_get(view) != 5u && fzn_call_message_kind_get(view) != 6u && fzn_call_message_kind_get(view) != 7u && fzn_call_message_kind_get(view) != 8u && fzn_call_message_kind_get(view) != 9u && fzn_call_message_kind_get(view) != 10u && fzn_call_message_kind_get(view) != 11u && fzn_call_message_kind_get(view) != 12u && fzn_call_message_kind_get(view) != 128u && fzn_call_message_kind_get(view) != 129u) {
+	/* message.body: an arm for kind.ring, kind.answer, kind.decline, kind.hangup, kind.frame, kind.report, kind.participant, kind.ringing, kind.no_answer, kind.busy, kind.answered_elsewhere, kind.declined_elsewhere, kind.media_open, kind.media, kind.calls, kind.call_row, kind.ended, kind.ended_row, kind.respond, and `default: error` for the rest. */
+	if (fzn_call_message_kind_get(view) != 1u && fzn_call_message_kind_get(view) != 2u && fzn_call_message_kind_get(view) != 3u && fzn_call_message_kind_get(view) != 4u && fzn_call_message_kind_get(view) != 5u && fzn_call_message_kind_get(view) != 6u && fzn_call_message_kind_get(view) != 7u && fzn_call_message_kind_get(view) != 8u && fzn_call_message_kind_get(view) != 9u && fzn_call_message_kind_get(view) != 10u && fzn_call_message_kind_get(view) != 11u && fzn_call_message_kind_get(view) != 12u && fzn_call_message_kind_get(view) != 128u && fzn_call_message_kind_get(view) != 129u && fzn_call_message_kind_get(view) != 130u && fzn_call_message_kind_get(view) != 131u && fzn_call_message_kind_get(view) != 132u && fzn_call_message_kind_get(view) != 133u && fzn_call_message_kind_get(view) != 134u) {
 		*which = FZN_CALL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -491,6 +627,101 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_CALL_MESSAGE_BODY_MEDIA_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.calls: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_call_message_body_calls_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_call_nothing_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_CALL_MESSAGE_BODY_CALLS_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.call_row: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_call_message_body_call_row_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_call_call_row_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_CALL_MESSAGE_BODY_CALL_ROW_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.ended: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_call_message_body_ended_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_call_nothing_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_CALL_MESSAGE_BODY_ENDED_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.ended_row: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_call_message_body_ended_row_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_call_ended_row_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_CALL_MESSAGE_BODY_ENDED_ROW_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.respond: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_call_message_body_respond_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_call_respond_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_CALL_MESSAGE_BODY_RESPOND_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {

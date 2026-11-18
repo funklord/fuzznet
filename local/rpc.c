@@ -50,6 +50,7 @@
 #include "../wire/generated/time_local.h"
 #include "../wire/generated/settings_local.h"
 #include "../wire/generated/members_local.h"
+#include "../wire/generated/call.h"
 
 /* A reply from fuzznetd is read into the response buffer, so it must hold
  * the longest one fuzznet allows. */
@@ -6050,10 +6051,111 @@ int fzn_rpc_ring(fzn_rpc_t *c, const char *who, size_t who_len, uint8_t kinds,
 	return FZN_RPC_OK;
 }
 
+/* THIS USER'S CALLS IN BINARY, sec 1251: a row per call, or the reason one
+ * ended, then a STATUS. */
+struct calls_answer {
+	fzn_rpc_entry_t *out;
+	size_t cap, *count;
+	char *reason;
+	size_t reason_cap;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void calls_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct calls_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_call_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_call_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (a->out && fzn_call_message_kind_get(v) == FZN_CALL_KIND_CALL_ROW
+	    && fzn_call_message_body_call_row_view(v, &b) == SITU_OK) {
+		fzn_rpc_entry_t e;
+		const unsigned state = fzn_call_call_row_state_get(b);
+		memset(&e, 0, sizeof e);
+		fzn_hex_encode(fzn_call_message_call_ptr(v), 8, e.id);
+		e.state = state == 1 ? FZN_RPC_RINGING_IN : state == 2 ? FZN_RPC_RINGING_OUT : FZN_RPC_UP;
+		e.kinds = fzn_call_call_row_kinds_get(b);
+		e.has_user = fzn_call_call_row_has_user_get(b);
+		if (e.has_user) memcpy(e.user, fzn_call_call_row_user_ptr(b), 32);
+		if (*a->count < a->cap) a->out[(*a->count)++] = e;
+		return;
+	}
+	if (a->reason && !a->reason[0] && fzn_call_message_kind_get(v) == FZN_CALL_KIND_ENDED_ROW
+	    && fzn_call_message_body_ended_row_view(v, &b) == SITU_OK) {
+		const size_t n = fzn_call_ended_row_why_len(b);
+		const uint8_t *w = fzn_call_ended_row_why_ptr(b);
+		if (n >= a->reason_cap) {
+			a->bad = 1;
+			return;
+		}
+		for (size_t i = 0; i < n; i++)
+			if (!((w[i] >= 'a' && w[i] <= 'z') || w[i] == '-')) {
+				a->bad = 1;
+				return;
+			}
+		memcpy(a->reason, w, n);
+		a->reason[n] = '\0';
+		return;
+	}
+	a->bad = 1;
+}
+
+static int calls_binary(fzn_rpc_t *c, const uint8_t *req, size_t req_len, struct calls_answer *a, int *text) {
+	const int rc = fzn_rpc_binary(c, req, req_len, calls_each, a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a->bad || !a->status_seen) return unreadable(c); /* the answer cut short */
+	if (a->code != FZN_STATUS_OK)
+		return fail(c,
+		            a->code == FZN_STATUS_DENIED        ? FZN_RPC_ERR_NOT_AUTHORIZED
+		            : a->code == FZN_STATUS_UNSUPPORTED ? FZN_RPC_ERR_UNKNOWN_MSG_TYPE
+		                                                : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
+/* A CALL'S ID as the request's header: 16 hex, else nothing asked. */
+static int call_id_bytes(const char *id, uint8_t out[8]) {
+	char hex[FZN_RPC_ID_HEX + 1];
+	if (!id || strlen(id) != FZN_RPC_ID_HEX) return 0;
+	memcpy(hex, id, sizeof hex);
+	return fzn_hex_decode(hex, out, 8) == 0;
+}
+
 int fzn_rpc_respond(fzn_rpc_t *c, const char *id, const char *what) {
 	if (!id || strlen(id) != FZN_RPC_ID_HEX ||
 	    (strcmp(what, "answer") != 0 && strcmp(what, "decline") != 0 && strcmp(what, "hangup") != 0))
 		return encode_failed(c);
+	{
+		uint8_t req[2 + 8 + 1];
+		struct calls_answer a;
+		int text = 0;
+		req[0] = FZN_CMD_CALL;
+		req[1] = FZN_CALL_KIND_RESPOND;
+		req[10] = strcmp(what, "answer") == 0 ? 2 : strcmp(what, "decline") == 0 ? 3 : 4;
+		if (call_id_bytes(id, req + 2)) {
+			memset(&a, 0, sizeof a);
+			const int brc = calls_binary(c, req, sizeof req, &a, &text);
+			if (!text) return brc;
+		}
+	}
 	char arg[8 + FZN_RPC_ID_HEX + 16];
 	return node_ack(c, "set", arg, snprintf(arg, sizeof arg, "call %s %s", id, what));
 }
@@ -6061,6 +6163,23 @@ int fzn_rpc_respond(fzn_rpc_t *c, const char *id, const char *what) {
 int fzn_rpc_ended(fzn_rpc_t *c, const char *id, char *reason, size_t cap) {
 	if (cap) reason[0] = '\0';
 	if (!id || strlen(id) != FZN_RPC_ID_HEX || cap < 2) return encode_failed(c);
+	{
+		uint8_t req[2 + 8];
+		struct calls_answer a;
+		int text = 0;
+		req[0] = FZN_CMD_CALL;
+		req[1] = FZN_CALL_KIND_ENDED;
+		if (call_id_bytes(id, req + 2)) {
+			memset(&a, 0, sizeof a);
+			a.reason = reason;
+			a.reason_cap = cap;
+			const int brc = calls_binary(c, req, sizeof req, &a, &text);
+			if (!text) {
+				if (brc != FZN_RPC_OK) reason[0] = '\0';
+				return brc;
+			}
+		}
+	}
 	char arg[8 + FZN_RPC_ID_HEX];
 	const int arg_len = snprintf(arg, sizeof arg, "call %s", id);
 	const char *rest = NULL;
@@ -6107,6 +6226,18 @@ const char *fzn_rpc_ended_words(const char *reason) {
 /* `list call`: `ok N ID,STATE,KINDS ...`, every live call. */
 int fzn_rpc_calls(fzn_rpc_t *c, fzn_rpc_entry_t *out, size_t cap, size_t *count) {
 	*count = 0;
+	{
+		static const uint8_t req[] = { FZN_CMD_CALL, FZN_CALL_KIND_CALLS, 0, 0, 0, 0, 0, 0, 0, 0 };
+		struct calls_answer a;
+		int text = 0;
+		memset(&a, 0, sizeof a);
+		a.out = out;
+		a.cap = cap;
+		a.count = count;
+		const int brc = calls_binary(c, req, sizeof req, &a, &text);
+		if (!text) return brc;
+		*count = 0;
+	}
 	const char *rest = NULL;
 	size_t rest_len = 0, at = 0, n = 0;
 	const int rc = fzn_rpc_node(c, "list", "call", 4, &rest, &rest_len);

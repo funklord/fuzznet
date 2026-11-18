@@ -7,14 +7,18 @@ contact's. Each host's own client is a caller on its socket.
 
     a  A rings B (`add call bea audio`, `ok ID`), and B lists the call ringing in,
        and a client subscribed to B's events was told so (`event call ID`)
-    b  B answers; A lists the call up
+    a2 the same in binary (sec 1251): B's calls a row each, this one ringing
+       here, audio, its caller said
+    b  B answers, in binary; A lists the call up, in words and in binary
     c  A sends a frame; B reads it back, the same bytes, stream, number and time
     d  B sends one back; A reads it
     e  A sends video frames 1, 2, 4 and 5: B measures four received and one lost,
        and reports it, and A reads it (`get call ID quality`, sec 1021)
     e2 a frame stamped with A's client's clock comes back in B's report, its AT and
        how long B held it, and the client reads the round trip (sec 1026)
-    f  A hangs up; B holds the call no more, and B's subscriber was told so
+    f  A hangs up, in binary; B holds the call no more, and B's subscriber was
+       told so; why it ended said in binary as in words, and a call nobody
+       holds refused in words
     g  B rings A at once, then A B, three times each way: each rung end holds the
        call ringing in, and names the other end's user as the fourth field of
        `list call` (sec 1040), as the ringing end names the user it rang; the
@@ -57,6 +61,7 @@ from live_rejoin import command, daemon, expect, free_slot  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 from live_events import subscriber  # noqa: E402
+from live_rpc import binary  # noqa: E402
 
 live_trim.DEADLINE = time.monotonic() + 600.0
 
@@ -199,11 +204,24 @@ def main(argv):
 			if "event call %s" % call not in heard_b.lines_within(3.0):
 				raise failed("a: B's subscriber never heard `event call %s`" % call)
 			print("livecheck: a: and B's subscriber heard `event call ID`")
+			# a2: THE SAME IN BINARY, sec 1251: B's calls a row each, this one
+			# ringing here, audio, its caller's user said.
+			got = binary(socks["b"], bytes([0x12, 0x82]) + bytes(8))
+			held = [r for r in got if r[:2] == bytes([0x12, 0x83]) and r[2:10].hex() == call]
+			if len(held) != 1 or held[0][10:13] != bytes([1, 1, 1]) or got[-1][:2] != bytes([0x13, 0]):
+				raise failed("a2: B's calls in binary answered %r" % got)
+			print("livecheck: a2: B's calls in binary: this one ringing here, audio, its caller said")
 
 			# b: B ANSWERS.
-			expect(socks["b"], "b", "set call %s answer" % call, "ok")
+			# IN BINARY, sec 1251: answered by its id.
+			got = binary(socks["b"], bytes([0x12, 0x86]) + bytes.fromhex(call) + bytes([2]))
+			if got != [bytes([0x13, 0, 0])]:
+				raise failed("b: B's answer in binary answered %r" % got)
 			until("b: A never held the call up", lambda: calls(socks["a"]).get(call) == "up")
-			print("livecheck: b: B answered, and A holds the call up")
+			got = binary(socks["a"], bytes([0x12, 0x82]) + bytes(8))
+			if not any(r[:2] == bytes([0x12, 0x83]) and r[2:10].hex() == call and r[10] == 3 for r in got):
+				raise failed("b: A's calls in binary did not hold the call up: %r" % got)
+			print("livecheck: b: B answered in binary, and A holds the call up, said so in binary too")
 
 			# c: A SENDS A FRAME, d: B ONE BACK.
 			# FROM, sec 1024: the caller 0, the callee its one participant, 1.
@@ -286,8 +304,20 @@ def main(argv):
 			# f: A HANGS UP. What B's subscriber heard before -- B's own answer among
 			# it -- read and set aside first, so only the end can pass.
 			heard_b.lines_within(1.0)
-			expect(socks["a"], "a", "set call %s hangup" % call, "ok")
+			got = binary(socks["a"], bytes([0x12, 0x86]) + bytes.fromhex(call) + bytes([4]))
+			if got != [bytes([0x13, 0, 0])]:
+				raise failed("f: A's hang-up in binary answered %r" % got)
 			until("f: B still held the call", lambda: call not in calls(socks["b"]))
+			# WHY IT ENDED, in binary as in words; and a call nobody holds
+			# refused in words, never as malformed.
+			said = ask(socks["b"], "get call %s" % call)
+			got = binary(socks["b"], bytes([0x12, 0x84]) + bytes.fromhex(call))
+			if not said.startswith("ok ended ") or len(got) != 2 or got[0][:2] != bytes([0x12, 0x85]) \
+			   or got[0][11:11 + got[0][10]].decode() != said[9:] or got[1][:2] != bytes([0x13, 0]):
+				raise failed("f: why B's call ended, in binary %r against %r" % (got, said))
+			got = binary(socks["b"], bytes([0x12, 0x86]) + bytes(8) + bytes([2]))
+			if len(got) != 1 or got[0][:2] != bytes([0x13, 3]) or len(got[0]) < 4:
+				raise failed("f: answering a call nobody holds, in binary, answered %r" % got)
 			if "event call %s" % call not in heard_b.lines_within(3.0):
 				raise failed("f: B's subscriber never heard the call end")
 			heard_b.close()

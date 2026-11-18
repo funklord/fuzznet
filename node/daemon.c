@@ -116,6 +116,8 @@
 #include "../wire/generated/notes_local.h"
 #include "../wire/generated/groups_local.h"
 #include "../wire/generated/stickers_local.h"
+#include "../wire/generated/call.h"
+#include "../wire/generated/call_build.h"
 #include "../wire/generated/messages_local.h"
 #include "decisions.h"
 #include "responsible.h"
@@ -19027,6 +19029,8 @@ static const char *binary_write_subject(const uint8_t *msg, size_t len)
 		return msg[1] == FZN_MESSAGES_LOCAL_OP_SEND || msg[1] == FZN_MESSAGES_LOCAL_OP_READ ? "message" : NULL;
 	case FZN_CMD_OBJECTS:
 		return fzn_node_objects_binary_changes(msg, len) ? "object" : NULL;
+	case FZN_CMD_CALL:
+		return msg[1] == FZN_CALL_KIND_RESPOND ? "call" : NULL;
 	case FZN_CMD_MEMBERS:
 		return msg[1] == FZN_MEMBERS_LOCAL_OP_INVITE || msg[1] == FZN_MEMBERS_LOCAL_OP_ANSWER ? "invite" : NULL;
 	case FZN_CMD_STICKERS:
@@ -19057,6 +19061,100 @@ static int local_binary(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t
 	if (subject && local_last_status == (int)FZN_STATUS_OK && !local_last_unchanged)
 		publish(subject, NULL);
 	return r;
+}
+
+static void call_user_of(const fzn_live_call_t *r, char user[2u * FZN_PUBKEY_LEN + 1u]);
+
+/* THIS USER'S CALLS IN BINARY, sec 1251: every live call a row, as `list
+ * call` lists them; why one ended, as `get call ID` says; and one answered,
+ * declined or hung up through `set call ID WHAT`, so every check is that
+ * verb's and a refusal is said in its words, never as malformed. */
+static int local_calls(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	static const char *const WHAT[] = { "", "", "answer", "decline", "hangup" };
+	static char reply[512];
+	char arg[64], id[2u * FZN_LIVE_CALL_LEN + 1u];
+	uint8_t row[64], out[96];
+	uint32_t row_len = 0, k = 0;
+	fzn_request_t req;
+	situ_msg_t m;
+	situ_view_t v, b;
+	unsigned kind;
+	size_t i, r;
+
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "calls are this user's"), 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_call_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_call_message_validate(v) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a calls request"), 0;
+	kind = fzn_call_message_kind_get(v);
+	if (kind != FZN_CALL_KIND_CALLS && kind != FZN_CALL_KIND_ENDED && kind != FZN_CALL_KIND_RESPOND)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a calls request"), 0;
+	if (!contact_id || !serving_state)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node makes no calls"), 0;
+	if (kind == FZN_CALL_KIND_CALLS) {
+		for (i = 0; i < node_calls.cap; i++) {
+			const fzn_live_call_t *c = &node_calls.rows[i];
+			char user[2u * FZN_PUBKEY_LEN + 1u];
+			uint8_t who[FZN_PUBKEY_LEN];
+			int has = 0;
+			size_t j;
+
+			if (!c->used)
+				continue;
+			call_user_of(c, user);
+			memset(who, 0, sizeof(who));
+			if (strlen(user) == 2u * FZN_PUBKEY_LEN) {
+				has = 1;
+				for (j = 0; j < FZN_PUBKEY_LEN; j++)
+					who[j] = (uint8_t)(hexval((uint8_t)user[2u * j]) * 16 + hexval((uint8_t)user[2u * j + 1u]));
+			}
+			if (fzn_call_call_row_build(row, sizeof(row),
+			                            c->state == FZN_LIVE_RINGING_IN ? 1u : c->state == FZN_LIVE_UP ? 3u : 2u,
+			                            c->kinds, (uint8_t)has, who, &row_len)
+			            != SITU_OK
+			    || fzn_call_message_build_call_row(out, sizeof(out), (uint8_t)FZN_CMD_CALL, c->call, row, row_len, &k)
+			               != SITU_OK
+			    || !local_put(&fd, out, k))
+				return 0;
+		}
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	}
+	hex_of(fzn_call_message_call_ptr(v), FZN_LIVE_CALL_LEN, id);
+	memset(&req, 0, sizeof(req));
+	if (kind == FZN_CALL_KIND_RESPOND) {
+		if (fzn_call_message_body_respond_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a calls request"), 0;
+		req.parsed = FZN_VERB_SET;
+		r = (size_t)snprintf(arg, sizeof(arg), "call %s %s", id, WHAT[fzn_call_respond_what_get(b)]);
+	} else {
+		req.parsed = FZN_VERB_GET;
+		r = (size_t)snprintf(arg, sizeof(arg), "call %s", id);
+	}
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = r;
+	r = calls_local(origin, &req, reply, sizeof(reply));
+	while (r && (reply[r - 1u] == '\n' || reply[r - 1u] == '\r'))
+		reply[--r] = '\0';
+	if (r < 2u || memcmp(reply, "ok", 2u) != 0 || (r > 2u && reply[2] != ' '))
+		return local_binary_status(fd,
+		                           r > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,
+		                           memchr(reply, ' ', r) ? (const char *)memchr(reply, ' ', r) + 1
+		                                                 : "the call would not change"),
+		       0;
+	/* ENDED: `ok ended REASON`, its reason as a row; live, ok alone. */
+	if (kind == FZN_CALL_KIND_ENDED && r > 9u && memcmp(reply, "ok ended ", 9u) == 0) {
+		if (fzn_call_ended_row_build(row, sizeof(row), (const uint8_t *)reply + 9, (uint32_t)(r - 9u), &row_len)
+		            != SITU_OK
+		    || fzn_call_message_build_ended_row(out, sizeof(out), (uint8_t)FZN_CMD_CALL, fzn_call_message_call_ptr(v),
+		                                        row, row_len, &k)
+		               != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the reason would not write"), 0;
+		if (!local_put(&fd, out, k))
+			return 0;
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
 static int local_binary_answer(void *ctx, int fd, fzn_origin_t origin, const fzn_peer_t *peer,
@@ -19104,6 +19202,8 @@ static int local_binary_answer(void *ctx, int fd, fzn_origin_t origin, const fzn
 		return 0;
 	}
 #endif
+	if (len >= 2u && msg[0] == FZN_CMD_CALL && msg[1] >= FZN_CALL_KIND_CALLS)
+		return local_calls(fd, origin, msg, len);
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "a call's media is its user's"), 0;
 	if (!fzn_live_read_local(msg, len, &w) || w.kind != FZN_LIVE_MEDIA_OPEN)

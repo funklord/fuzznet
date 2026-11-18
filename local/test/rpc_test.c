@@ -23,6 +23,7 @@
 #include "../../wire/generated/stickers_local_build.h"
 #include "../../wire/generated/files_local_build.h"
 #include "../../wire/generated/members_local_build.h"
+#include "../../wire/generated/call_build.h"
 #include "../../wire/generated/meter_local_build.h"
 #include "../../wire/generated/reach_local_build.h"
 #include "../../wire/generated/notes_local_build.h"
@@ -1098,6 +1099,56 @@ static void test_positions_in_binary(void)
 	free(out);
 }
 
+/* THIS USER'S CALLS IN BINARY, sec 1251: rows read with their id, state,
+ * kinds and user, one past the room given left out; a reason read; a live
+ * call no reason; answered by its id; a refusal in the node's words. */
+static void test_calls_in_binary(void)
+{
+	static struct bscript list, ended, live, answered, refused;
+	static const uint8_t id[8] = { 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8 };
+	uint8_t row[64], m[96], user[32];
+	uint32_t row_len = 0, n = 0;
+	fzn_rpc_entry_t out[1];
+	size_t count = 0, i;
+	char why[24];
+
+	memset(user, 0x5a, sizeof(user));
+	for (i = 0; i < 2u; i++)
+		if (fzn_call_call_row_build(row, sizeof(row), i ? 3u : 1u, 3u, 1u, user, &row_len) == SITU_OK
+		    && fzn_call_message_build_call_row(m, sizeof(m), (uint8_t)FZN_CMD_CALL, id, row, row_len, &n) == SITU_OK)
+			framed(&list, 0, m, n);
+	status_onto(&list, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &list);
+	CHECK(fzn_rpc_calls(&c, out, 1u, &count) == FZN_RPC_OK && count == 1u && strcmp(out[0].id, "a1a2a3a4a5a6a7a8") == 0
+	              && out[0].state == FZN_RPC_RINGING_IN && out[0].kinds == 3u && out[0].has_user
+	              && out[0].user[0] == 0x5a && list.asked[0][0] == 0x12 && list.asked[0][1] == 0x82,
+	      "the calls were not read in binary, by id, state, kinds and user, one past the room left out");
+
+	if (fzn_call_ended_row_build(row, sizeof(row), (const uint8_t *)"busy", 4u, &row_len) == SITU_OK
+	    && fzn_call_message_build_ended_row(m, sizeof(m), (uint8_t)FZN_CMD_CALL, id, row, row_len, &n) == SITU_OK)
+		framed(&ended, 0, m, n);
+	status_onto(&ended, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &ended);
+	CHECK(fzn_rpc_ended(&c, "a1a2a3a4a5a6a7a8", why, sizeof(why)) == FZN_RPC_OK && strcmp(why, "busy") == 0
+	              && ended.asked[0][1] == 0x84 && ended.asked[0][2] == 0xa1,
+	      "why a call ended was not read in binary, asked by its id");
+	status_onto(&live, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &live);
+	CHECK(fzn_rpc_ended(&c, "a1a2a3a4a5a6a7a8", why, sizeof(why)) == FZN_RPC_OK && why[0] == '\0',
+	      "a live call was read in binary as ended");
+
+	status_onto(&answered, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &answered);
+	CHECK(fzn_rpc_respond(&c, "a1a2a3a4a5a6a7a8", "decline") == FZN_RPC_OK && answered.asked[0][1] == 0x86
+	              && answered.asked[0][9] == 0xa8 && answered.asked[0][10] == 3,
+	      "a call was not declined in binary by its id");
+	status_onto(&refused, 0, FZN_STATUS_ERROR, "no such call");
+	bon(&c, &refused);
+	CHECK(fzn_rpc_respond(&c, "a1a2a3a4a5a6a7a8", "hangup") != FZN_RPC_OK && strstr(c.error, "no such call")
+	              && refused.asked[0][10] == 4,
+	      "hanging up a call nobody holds was not refused in the node's words");
+}
+
 /* A DEVICE INVITED, WAITING AND ANSWERED IN BINARY, sec 1250: the code read
  * as sent, asked delegable; two devices waiting where room was for one,
  * the first kept; let in by key; a refusal in the node's words. */
@@ -2160,6 +2211,7 @@ int main(void)
 	test_packs_in_binary();
 	test_location_status_in_binary();
 	test_invites_in_binary();
+	test_calls_in_binary();
 	test_stickers_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

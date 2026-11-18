@@ -162,6 +162,69 @@ static inline situ_err_t fzn_call_whole_edit_decode(const situ_msg_t *msg,
 	return SITU_OK;
 }
 
+/* `ended_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t why_len;
+	const uint8_t *why;	/* into your backing */
+	uint32_t why_len;
+} fzn_call_ended_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_call_ended_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_call_ended_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_call_ended_row_why_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_call_ended_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_call_ended_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_call_ended_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_call_ended_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->why_len = fzn_call_ended_row_why_len_get(view);
+	out->why_len = fzn_call_ended_row_why_len(view);
+	out->why     = backing + at;
+	for (uint32_t i = 0u; i < out->why_len; i++) {
+		backing[at + i] = fzn_call_ended_row_why_ptr(view)[i];
+	}
+	at += out->why_len;
+	(void)at;
+	return SITU_OK;
+}
+
 #ifdef __cplusplus
 }
 #endif

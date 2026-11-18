@@ -11,6 +11,16 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
+struct call_row size=35 atomic=NonAtomic
+  call_row.state                         offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  call_row.kinds                         offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  call_row.has_user                      offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  call_row.user                          offset=AbsoluteStatic(0x03) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+
+struct ended_row size=2..24 mutate=Shifting
+  ended_row.why_len                      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  ended_row.why                          offset=AbsoluteStatic(0x01) size=Bounded(1, 23) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
 struct frame size=15.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
   frame.stream                           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   frame.from                             offset=AbsoluteStatic(0x01) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
@@ -61,6 +71,18 @@ struct message size=10.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.body.media.seq                 offset=AbsoluteStatic(0x0D) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   message.body.media.at_ms               offset=AbsoluteStatic(0x11) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   message.body.media.media               offset=AbsoluteStatic(0x15) size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.calls                     offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.call_row                  offset=AbsoluteStatic(0x0A) size=Fixed(35) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.call_row.state            offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.call_row.kinds            offset=AbsoluteStatic(0x0B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.call_row.has_user         offset=AbsoluteStatic(0x0C) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  message.body.call_row.user             offset=AbsoluteStatic(0x0D) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  message.body.ended                     offset=AbsoluteStatic(0x0A) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.ended_row                 offset=AbsoluteStatic(0x0A) size=Bounded(2, 24) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.ended_row.why_len         offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.ended_row.why             offset=AbsoluteStatic(0x0B) size=Bounded(1, 23) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.respond                   offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.respond.what              offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
 
 struct nothing size=0
 
@@ -75,6 +97,9 @@ struct report size=19 repr=ValueConverted atomic=NonAtomic
   report.jitter_ms                       offset=AbsoluteStatic(0x09) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   report.last_at_ms                      offset=AbsoluteStatic(0x0B) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   report.held_ms                         offset=AbsoluteStatic(0x0F) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct respond size=1
+  respond.what                           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
 
 struct ring size=33 atomic=NonAtomic
   ring.kinds                             offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord

@@ -91802,3 +91802,38 @@ nobody waits by refused in words, F let in and joined, nobody waiting
 after. Four sabotages, each caught (`invites-client-overruns-room`,
 `invites-client-always-let-in`, `invites-node-answer-ignores-word`,
 `invites-node-waiting-unlisted`, the last two by live_invite alone).
+
+## 1251. This user's calls listed, why one ended, and answered, in binary, 2026-11-18
+
+Sec 1217's next subject, and the one polled hardest: the call bar asks
+`list call` on every tick, and `get call ID` for each call that has left
+the list. The call schema (`node/call.situ`, FZN_CMD_CALL) carries the
+local leg's kinds from 128 since sec 1113, and gains `calls` (130), a
+`call_row` (131) per live call -- the header's CALL its id; its state,
+kinds, and the other end's user where this host can say (sec 1040) --
+`ended` (132), answered by an `ended_row` (133) with the reason where the
+call has ended and by ok alone where it is live; and `respond` (134), a
+call answered, declined or hung up by the kind numbers that say those
+between hosts.
+
+- **A peer cannot send them**: the remote reader in `node/live.c` takes
+  the kinds it names and refuses the rest, the local range included.
+- **Ended and respond go through the verb's own handler** (`calls_local`,
+  `get call ID` and `set call ID WHAT`), so the reason and every refusal
+  are its own; respond tells the subscribers `call`, as the verb does.
+- **The client asks in binary first** (`fzn_rpc_calls`, `_ended`,
+  `_respond`), the verb behind; the call bar is unchanged above it.
+
+Ringing (`add call NAMES KINDS`) stays text for now: a person's act, not
+polled, naming contacts by the names this user gave them.
+
+**Tests:** five vectors; rpc_test -- rows read by id, state, kinds and
+user, one past the room left out; a reason read; a live call none;
+declined by its id; a refusal in the node's words. `live_call` phase a2
+reads B's calls in binary, the call ringing here, audio, its caller said;
+b answers in binary and reads A's call up in binary; f hangs up in
+binary, reads why it ended in binary against `get call ID`'s words, and
+answering a call nobody holds is refused as an error. Four sabotages,
+each caught (`calls-client-state-swapped`, `calls-client-respond-word`,
+`calls-node-state-swapped`, `calls-node-ended-unsaid`, the last two by
+live_call alone).

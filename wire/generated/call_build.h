@@ -424,6 +424,196 @@ static inline situ_err_t fzn_call_participant_build(
 	return SITU_OK;
 }
 
+/** Build a call_row into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete call_row
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_call_call_row_build(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t state,
+		uint8_t kinds,
+		uint8_t has_user,
+		const uint8_t *user,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)state;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)kinds;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)has_user;
+	situ_at += 1u;
+
+	if (user == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (situ_cap - situ_at < 32u) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(situ_out + situ_at, user, 32u);
+	situ_at += 32u;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_call_call_row_view(&situ_msg, 0, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_call_call_row_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a ended_row into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete ended_row
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_call_ended_row_build(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		const uint8_t *why_,
+		uint32_t why__len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	/* why_len: the length of `why_`, which the schema states. */
+	if (why__len > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)why__len;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < why__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (why__len != 0u) {
+		if (why_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		memcpy(situ_out + situ_at, why_, why__len);
+	}
+	situ_at += why__len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_call_ended_row_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_call_ended_row_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a respond into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete respond
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_call_respond_build(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t what,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)what;
+	situ_at += 1u;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_call_respond_view(&situ_msg, 0, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_call_respond_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
 /** Build a message into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -1873,6 +2063,531 @@ static inline situ_err_t fzn_call_message_build_media(
 		memcpy(situ_out + situ_at, media, media_len);
 	}
 	situ_at += media_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_call_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_call_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `calls` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_call_message_build_calls(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *call,
+		const uint8_t *calls,
+		uint32_t calls_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* kind: 130, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)130u;
+	situ_at += 1u;
+
+	if (call == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(situ_out + situ_at, call, 8u);
+	situ_at += 8u;
+
+	/* body.calls: one whole `nothing`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (calls_len != 0u && calls == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_call_nothing_required(calls, calls_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != calls_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < calls_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (calls_len != 0u) {
+		if (calls == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		memcpy(situ_out + situ_at, calls, calls_len);
+	}
+	situ_at += calls_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_call_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_call_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `call_row` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_call_message_build_call_row(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *call,
+		const uint8_t *call_row,
+		uint32_t call_row_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* kind: 131, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)131u;
+	situ_at += 1u;
+
+	if (call == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(situ_out + situ_at, call, 8u);
+	situ_at += 8u;
+
+	/* body.call_row: one whole `call_row`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (call_row_len != 0u && call_row == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_call_call_row_required(call_row, call_row_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != call_row_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < call_row_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (call_row_len != 0u) {
+		if (call_row == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		memcpy(situ_out + situ_at, call_row, call_row_len);
+	}
+	situ_at += call_row_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_call_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_call_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `ended` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_call_message_build_ended(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *call,
+		const uint8_t *ended,
+		uint32_t ended_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* kind: 132, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)132u;
+	situ_at += 1u;
+
+	if (call == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(situ_out + situ_at, call, 8u);
+	situ_at += 8u;
+
+	/* body.ended: one whole `nothing`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (ended_len != 0u && ended == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_call_nothing_required(ended, ended_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != ended_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < ended_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (ended_len != 0u) {
+		if (ended == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		memcpy(situ_out + situ_at, ended, ended_len);
+	}
+	situ_at += ended_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_call_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_call_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `ended_row` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_call_message_build_ended_row(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *call,
+		const uint8_t *ended_row,
+		uint32_t ended_row_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* kind: 133, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)133u;
+	situ_at += 1u;
+
+	if (call == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(situ_out + situ_at, call, 8u);
+	situ_at += 8u;
+
+	/* body.ended_row: one whole `ended_row`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (ended_row_len != 0u && ended_row == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_call_ended_row_required(ended_row, ended_row_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != ended_row_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < ended_row_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (ended_row_len != 0u) {
+		if (ended_row == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		memcpy(situ_out + situ_at, ended_row, ended_row_len);
+	}
+	situ_at += ended_row_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_call_message_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_call_message_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
+/** Build a message into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ *  This one writes the `respond` arm. Which arm is
+ *  said by which builder you call, so the discriminant is
+ *  this function's to write and cannot disagree with the
+ *  body.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete message
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_call_message_build_respond(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t cmd,
+		const uint8_t *call,
+		const uint8_t *respond,
+		uint32_t respond_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)cmd;
+	situ_at += 1u;
+
+	/* kind: 134, which is this arm's case. The
+	 * arm is chosen by which builder was called, so the
+	 * discriminant cannot disagree with the body. */
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)134u;
+	situ_at += 1u;
+
+	if (call == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (situ_cap - situ_at < 8u) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(situ_out + situ_at, call, 8u);
+	situ_at += 8u;
+
+	/* body.respond: one whole `respond`, which the
+	 * caller built. Its extent is its own to state, so the
+	 * writer ASKS rather than trusting the length it was
+	 * given: three bytes too many shift every member after
+	 * it, and whether `_validate` then refuses depends on
+	 * what those three bytes happen to say. */
+	if (respond_len != 0u && respond == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	{
+		uint32_t situ_need = 0u;
+
+		if (fzn_call_respond_required(respond, respond_len,
+		                           &situ_need) != SITU_OK
+		    || situ_need != respond_len) {
+			return SITU_ERR_CONSTRAINT;
+		}
+	}
+	if (situ_cap - situ_at < respond_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (respond_len != 0u) {
+		if (respond == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		memcpy(situ_out + situ_at, respond, respond_len);
+	}
+	situ_at += respond_len;
 
 	/* Constraints are the view's to state and this reuses them
 	 * rather than restating them: two checks of one schema is how
