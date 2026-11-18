@@ -458,6 +458,12 @@ static inline uint8_t *situ_fzn_frame_tag_ptr(situ_view_t view)
  */
 static inline situ_err_t situ_fzn_frame_tag_covered(situ_view_t view, uint32_t *offset, uint32_t *len)
 {
+	/* fzn_frame.sealed: the extent its codec gives the interior has to fit
+	 * the frame. The accessor clamps; this is where a region that
+	 * does not fit is called malformed (26.776). */
+	if (situ_remaining_u32(view.limit, 96u) < (situ_nonneg_u32((int64_t)32 + (int64_t)((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 94u))))))) {
+		return SITU_ERR_BOUNDS;
+	}
 	uint32_t start = 5u;
 	uint32_t end   = situ_fzn_frame_tag_offset(view);
 
