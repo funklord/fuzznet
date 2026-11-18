@@ -9483,6 +9483,56 @@ static int sticker_binary(fzn_rpc_t *c, const uint8_t *req, size_t req_len, stru
 	return FZN_RPC_OK;
 }
 
+int fzn_rpc_sticker_match(fzn_rpc_t *c, const char *typed, size_t typed_len, fzn_rpc_sticker_match_resp_t *out) {
+	char arg[14 + 1024];
+	const char *rest = NULL, *p, *end, *w;
+	size_t rest_len = 0, at = 0, count = 0, from = 0, w_len, n = 14, i;
+	if (!c || !out || (typed_len && !typed)) return c ? encode_failed(c) : FZN_RPC_ERR_MALFORMED;
+	memset(out, 0, sizeof(*out));
+	/* THE LINE'S LAST 1024 BYTES, what a sticker answers; nothing typed
+	 * is nothing found, without asking. */
+	if (typed_len > 1024) typed += typed_len - 1024, typed_len = 1024;
+	memcpy(arg, "sticker match ", 14);
+	for (i = 0; i < typed_len; i++) {
+		const unsigned char ch = (unsigned char)typed[i];
+		if (ch > ' ' && ch != 0x7f) break;
+	}
+	if (i == typed_len) return FZN_RPC_OK;
+	for (i = 0; i < typed_len; i++) {
+		const unsigned char ch = (unsigned char)typed[i];
+		arg[n++] = (ch < ' ' || ch == 0x7f) ? ' ' : (char)ch;
+	}
+	const int rc = fzn_rpc_node(c, "list", arg, n, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	if (!node_number(rest, rest_len, &at, &count) || !node_number(rest, rest_len, &at, &from) || from
+	    || count > FZN_RPC_STICKER_MATCH_MAX)
+		return unreadable(c);
+	p = rest + at;
+	end = rest + rest_len;
+	while (node_word(&p, end, &w, &w_len)) {
+		const char *q = w, *row_end = w + w_len, *f[4];
+		size_t f_len[4];
+		uint64_t score = 0;
+		int cut = 0;
+		fzn_rpc_sticker_match_entry_t *e;
+		if (out->count == count) return unreadable(c);
+		e = &out->entries[out->count];
+		for (int k = 0; k < 3; k++)
+			if (!node_field(&q, row_end, &f[k], &f_len[k])) return unreadable(c);
+		/* THE DESCRIPTION is the rest, escaped. */
+		f[3] = q <= row_end ? q : row_end;
+		f_len[3] = (size_t)(row_end - f[3]);
+		if (f_len[0] != 64 || !node_key(f[0], 64, e->root) || !node_u64(f[1], f_len[1], &e->id)
+		    || !node_u64(f[2], f_len[2], &score) || score > 0xffffffffu
+		    || !node_unescape(f[3], f_len[3], e->description, sizeof e->description - 1, &e->description_len, &cut))
+			return unreadable(c);
+		e->description[e->description_len] = '\0';
+		e->score = (unsigned)score;
+		out->count++;
+	}
+	return out->count == count ? FZN_RPC_OK : unreadable(c);
+}
+
 int fzn_rpc_sticker_items(fzn_rpc_t *c, const char *pack, size_t pack_len,
                            fzn_rpc_node_sticker_items_resp_t *out) {
 	/* BY ITS ROOT, the first 64 of a root or a whole reference. */

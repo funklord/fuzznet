@@ -11,6 +11,7 @@
 extern "C" {
 #include "../local/rpc_encoding.h"
 #include "../messages/attachment.h"
+#include "../hex/hex.h"
 #include "../sticker/pack.h"
 }
 
@@ -29,6 +30,7 @@ extern "C" {
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QStyledItemDelegate>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <stdlib.h>
@@ -272,6 +274,24 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_picker = new fzn_sticker_picker_view(ask, ask_ctx, this);
 	m_picker->hide();
 	m_picker->on_pick([this](const QString &ref) { (void)send_sticker(ref); });
+	/* STICKERS FOR WHAT IS TYPED, sec 1272: one row, above the line. */
+	m_suggest = new QListWidget(this);
+	m_suggest->setViewMode(QListView::IconMode);
+	m_suggest->setFlow(QListView::LeftToRight);
+	m_suggest->setWrapping(false);
+	m_suggest->setIconSize(QSize(56, 56));
+	/* ONE ROW TALL: the icon and a line of words, from the font, so a
+	 * character cell sizes it as well as a screen does (qtty sec 7). */
+	m_suggest->setMaximumHeight(56 + 2 * m_suggest->fontMetrics().height());
+	m_suggest->setAccessibleName(tr("Stickers for what you are writing"));
+	m_suggest->hide();
+	m_suggest_soon = new QTimer(this);
+	m_suggest_soon->setSingleShot(true);
+	m_suggest_soon->setInterval(250);
+	connect(m_suggest_soon, &QTimer::timeout, [this]() { suggest_now(); });
+	connect(m_text, &QLineEdit::textEdited, [this](const QString &) { m_suggest_soon->start(); });
+	connect(m_suggest, &QListWidget::itemActivated,
+	        [this](QListWidgetItem *item) { (void)send_suggested(m_suggest->row(item)); });
 	auto *col = new QVBoxLayout(this);
 	col->addWidget(m_title);
 	col->addWidget(m_lines, 1);
@@ -285,6 +305,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	 * the picker above the line, never under it. */
 	col->addWidget(m_notice);
 	col->addWidget(m_picker);
+	col->addWidget(m_suggest);
 	col->addLayout(write);
 
 	connect(m_send, &QPushButton::clicked, [this]() { send(); });
@@ -587,6 +608,95 @@ void fzn_conversation_view::show_stickers(bool on)
 }
 
 bool fzn_conversation_view::stickers_shown() const { return !m_picker->isHidden(); }
+
+#define ROLE_SUGGEST_PACK (Qt::UserRole + 40)
+#define ROLE_SUGGEST_ID (Qt::UserRole + 41)
+#define SUGGEST_SHOWN 8
+
+void fzn_conversation_view::suggest_now()
+{
+	/* EACH STICKER DRAWN ONCE, by its pack and id, for the view's life:
+	 * the row is asked again at every pause in the typing. */
+	static QHash<QString, QPixmap> drawn_once;
+	auto *found = new fzn_rpc_sticker_match_resp_t;
+	const QByteArray typed = m_text->text().toUtf8();
+
+	m_suggest->clear();
+	if (m_contact.isEmpty() || typed.trimmed().isEmpty()
+	    || fzn_rpc_sticker_match(&m_rpc->c, typed.constData(), (size_t)typed.size(), found) != FZN_RPC_OK) {
+		m_suggest->hide();
+		delete found;
+		return;
+	}
+	for (size_t i = 0; i < found->count && i < SUGGEST_SHOWN; i++) {
+		const fzn_rpc_sticker_match_entry_t *e = &found->entries[i];
+		char hex[65];
+		fzn_hex_encode(e->root, 32, hex);
+		const QByteArray pack(hex, 64);
+		const QString key = QString::fromLatin1(pack) + QLatin1Char('/') + QString::number(e->id);
+		const QString words = QString::fromUtf8(e->description, (int)e->description_len);
+		auto *item = new QListWidgetItem(m_suggest);
+
+		if (!drawn_once.contains(key)) {
+			uint8_t *art = nullptr;
+			size_t art_len = 0;
+			uint8_t format = 0;
+			QPixmap pic;
+			if (fzn_rpc_sticker_art(&m_rpc->c, pack.constData(), 64, e->id, FZN_STICKER_THUMB, ART_MAX, &art,
+			                        &art_len, &format)
+			    == FZN_RPC_OK)
+				pic = fzn_sticker_render_art(art, art_len, format, QSize(56, 56)).pixmap;
+			free(art);
+			drawn_once.insert(key, pic);
+		}
+		const QPixmap pic = drawn_once.value(key);
+		if (!pic.isNull())
+			item->setIcon(QIcon(pic));
+		else
+			item->setText(words.isEmpty() ? tr("a sticker") : words);
+		item->setToolTip(words);
+		item->setData(Qt::AccessibleTextRole, words.isEmpty() ? tr("a sticker") : words);
+		item->setData(ROLE_SUGGEST_PACK, pack);
+		item->setData(ROLE_SUGGEST_ID, (qulonglong)e->id);
+	}
+	m_suggest->setVisible(m_suggest->count() > 0);
+	delete found;
+}
+
+QStringList fzn_conversation_view::suggested() const
+{
+	QStringList out;
+	for (int i = 0; i < m_suggest->count(); i++)
+		out << m_suggest->item(i)->data(Qt::AccessibleTextRole).toString();
+	return out;
+}
+
+/* ONE CHOSEN SENT, IN PLACE OF THE WORDS, as LINE does: the line cleared
+ * once the sticker went, and kept if it did not. */
+bool fzn_conversation_view::send_suggested(int i)
+{
+	QListWidgetItem *item = i >= 0 ? m_suggest->item(i) : nullptr;
+	char ref[FZN_STICKER_REF_SENT_MAX + 1];
+	size_t ref_len = 0;
+
+	if (!item)
+		return false;
+	const QByteArray pack = item->data(ROLE_SUGGEST_PACK).toByteArray();
+	if (fzn_rpc_sticker_reference(&m_rpc->c, pack.constData(), (size_t)pack.size(),
+	                              (uint64_t)item->data(ROLE_SUGGEST_ID).toULongLong(), ref, sizeof ref, &ref_len)
+	    != FZN_RPC_OK) {
+		m_notice->say(failed_words(m_rpc));
+		return false;
+	}
+	/* A REFUSED SEND SAYS SO ITSELF, and the words stay. */
+	if (!send_line(QByteArray(ref, (int)ref_len)))
+		return false;
+	m_text->clear();
+	m_suggest->clear();
+	m_suggest->hide();
+	refresh();
+	return true;
+}
 
 bool fzn_conversation_view::send_sticker(const QString &ref)
 {

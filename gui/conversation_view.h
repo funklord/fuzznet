@@ -81,6 +81,14 @@ public:
 	bool send_sticker(const QString &ref);
 	/* A STICKER THAT CAME IN, on the chosen line: its pack kept. */
 	bool keep_pack();
+	/* STICKERS FOR THE LINE BEING TYPED, sec 1272: a row above it of the
+	 * kept stickers that fit what is typed so far, asked a quarter second
+	 * after the typing stops, hidden when none fits. One chosen is sent in
+	 * place of the words, as LINE does. `suggest_now` asks at once;
+	 * `suggested` is each one's description, best first. */
+	void suggest_now();
+	QStringList suggested() const;
+	bool send_suggested(int i);
 
 	/* The clock, seconds since 1970, for the times shown; 0 reads the
 	 * system's. */
@@ -120,6 +128,8 @@ private:
 	class bubble_delegate *m_bubbles;
 	class fzn_sticker_picker_view *m_picker;
 	QPushButton *m_stickers;
+	class QListWidget *m_suggest;
+	class QTimer *m_suggest_soon;
 
 	struct fzn_gui_rpc *m_rpc;
 	struct art;

@@ -92596,13 +92596,32 @@ every kept pack's file at every key pressed would export megabytes of art
 to read a few hundred phrases; a pack no longer kept is let go at the
 next search.
 
-**Not yet:** the typed client call and the binary op (step 2, with the
-view), and the original test set coordinated with fuzzypickles, whose
-phrases are the first real test of "as complete as possible".
+**Step 2, the same day: the client and the conversation.**
+`fzn_rpc_sticker_match` asks `list sticker match TEXT` -- the line's last
+1024 bytes, a line break or other control sent as a space, a line of only
+space asking nothing -- and reads up to 20 rows. **conversation_view**
+shows a row of the fitting stickers right above the line being written:
+- asked a quarter second after the typing stops, so a fast typist asks once;
+- each sticker drawn once and kept for the view's life;
+- hidden when nothing fits;
+- one chosen is sent in place of the words, which are cleared, as LINE
+  does; a refused send says why and keeps them.
+
+The binary op waits for a measurement saying the text verb is too slow
+at the rate the row asks.
+
+**Not yet:** the original test set coordinated with fuzzypickles
+(proposed to them 20261118T1503Z), whose phrases are the first real test
+of "as complete as possible".
 
 **Tests:** sticker_test -- a pack within version 3's caps written as 3;
 forty phrases, one of sixty bytes, written as 4 and read back whole; the
 same bytes called a 3 refused; 129 phrases refused; thirteen cases of the
 search. `live_pairing` h0: the kept pack's sticker found for "ok see y"
-at 120, and nothing for "the weather". Sabotages `pack-always-4`,
-`match-half-typed-unseen`, `match-apostrophe-kept`, each caught.
+at 120, and nothing for "the weather". rpc_test -- the line break sent as a
+space, the rows read, a blank line asking nothing. conversation_view_test
+-- "see you" offers the kept sticker, sent in place of the words; "the
+weather" offers none. Sabotages `pack-always-4`,
+`match-half-typed-unseen`, `match-apostrophe-kept`,
+`match-line-break-sent`, `suggest-never-shown`, `suggest-words-kept`,
+each caught.

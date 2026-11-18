@@ -488,6 +488,29 @@ static void test_dropped_figures_are_carried(void)
 	      "how many reporters agree was lost");
 }
 
+/* THE STICKERS FOR A LINE BEING TYPED, sec 1272: asked with its line
+ * break as a space, rows read with their descriptions unescaped, and a
+ * line of nothing but space asks nothing. */
+static void test_stickers_for_a_line_typed(void)
+{
+	static const char *const reply = "ok 2 0 " ID_A ",1,250,a%20cat%20waving " ID_B ",7,60,";
+	struct script s = { { reply }, 0, 1, 0, { { 0 } } };
+	struct script none = { { "ok 0 0" }, 0, 1, 0, { { 0 } } };
+	static fzn_rpc_sticker_match_resp_t out;
+
+	on(&c, &s);
+	CHECK(fzn_rpc_sticker_match(&c, "ok see\ny", 8, &out) == FZN_RPC_OK && out.count == 2
+	              && !strcmp(s.asked[0], "list sticker match ok see y"),
+	      "the stickers for a line were not asked with its break as a space");
+	CHECK(out.entries[0].root[0] == 0xaa && out.entries[0].id == 1u && out.entries[0].score == 250u
+	              && !strcmp(out.entries[0].description, "a cat waving") && out.entries[1].id == 7u
+	              && out.entries[1].score == 60u && !out.entries[1].description_len,
+	      "a found sticker's root, id, score or description was misread");
+	on(&c, &none);
+	CHECK(fzn_rpc_sticker_match(&c, "  \t", 3, &out) == FZN_RPC_OK && out.count == 0 && !none.at,
+	      "a line of only space asked the node");
+}
+
 /* EVERY CONVERSATION'S NEWEST LINE, sec 1136: a file sent, a group member's
  * text with an escape, and a contact with nothing yet, read whole. */
 static void test_every_newest_line_is_read(void)
@@ -2526,6 +2549,7 @@ int main(void)
 	test_a_join_is_asked_and_then_seen();
 	test_dropped_figures_are_carried();
 	test_every_newest_line_is_read();
+	test_stickers_for_a_line_typed();
 	test_the_suite_can_tell_pass_from_fail();
 	if (failures) {
 		fprintf(stderr, "local rpc_test: %d check(s) failed\n", failures);

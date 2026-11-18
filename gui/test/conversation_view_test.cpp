@@ -71,6 +71,25 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 			return (size_t)snprintf(reply, cap, "error could not write\n");
 		return (size_t)snprintf(reply, cap, "ok 4 1 1\n");
 	}
+	/* A KEPT STICKER FOR "see you", sec 1272; nothing for anything else. */
+	if (!strcmp(line, "list sticker match see you"))
+		return (size_t)snprintf(reply, cap, "ok 1 0 %064d,7,250,waving\n", 1);
+	if (!strncmp(line, "list sticker match ", 19))
+		return (size_t)snprintf(reply, cap, "ok 0 0\n");
+	{
+		char ask_ref[96], ask_draw[96];
+		snprintf(ask_ref, sizeof ask_ref, "get sticker %064d 7", 1);
+		snprintf(ask_draw, sizeof ask_draw, "get sticker %064d 7 thumb ", 1);
+		if (!strcmp(line, ask_ref))
+			return (size_t)snprintf(reply, cap, "ok fzn:sticker/%064d/%064d/1000/7 waving\n", 1, 2);
+		if (!strncmp(line, ask_draw, strlen(ask_draw))) {
+			QImage one(1, 1, QImage::Format_ARGB32);
+			one.fill(Qt::blue);
+			return one.save(QString::fromUtf8(line + strlen(ask_draw)), "PNG")
+			               ? (size_t)snprintf(reply, cap, "ok 4 1 1\n")
+			               : (size_t)snprintf(reply, cap, "error could not write\n");
+		}
+	}
 	if (!strcmp(line, "add sticker " DAN_PACK)) {
 		snprintf(last_keep, sizeof last_keep, "%s", line);
 		return (size_t)snprintf(reply, cap, "ok %064d\n", 5);
@@ -213,6 +232,20 @@ int main(int argc, char **argv)
 	CHECK(v.send_sticker("fzn:sticker/1111/2222/1000/7 waving") && strstr(last_add, "message bob")
 	              && strstr(last_add, "fzn:sticker/1111") && !v.stickers_shown() && v.text() == "half a thought",
 	      "a sticker chosen was not sent as a line, or the words being written were lost");
+	v.set_text("");
+	/* STICKERS FOR WHAT IS TYPED, sec 1272: "see you" offers the kept
+	 * waving sticker, drawn; chosen, it is sent in place of the words;
+	 * a line nothing fits shows no row. */
+	v.set_text("see you");
+	v.suggest_now();
+	CHECK(v.suggested() == QStringList({ "waving" }), "the kept sticker was not offered for what was typed");
+	last_add[0] = '\0';
+	CHECK(v.send_suggested(0) && strstr(last_add, "fzn:sticker/0000") && v.text().isEmpty()
+	              && v.suggested().isEmpty(),
+	      "the sticker offered was not sent in place of the words");
+	v.set_text("the weather");
+	v.suggest_now();
+	CHECK(v.suggested().isEmpty() && !v.send_suggested(0), "a line nothing fits offered a sticker");
 	v.set_text("");
 	v.hide();
 

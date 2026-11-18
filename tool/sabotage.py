@@ -17433,6 +17433,27 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"match-line-break-sent",
+		"local/rpc.c",
+		"\t\targ[n++] = (ch < ' ' || ch == 0x7f) ? ' ' : (char)ch;\n",
+		"\t\targ[n++] = (char)ch;\n",
+		"a line break typed goes to the node raw and ends the request there; rpc_test -- sec 1272",
+	),
+	(
+		"suggest-never-shown",
+		"gui/conversation_view.cpp",
+		"\tfor (size_t i = 0; i < found->count && i < SUGGEST_SHOWN; i++) {\n",
+		"\tfor (size_t i = 0; i < 0u; i++) {\n",
+		"no sticker is offered for what is typed; conversation_view_test -- sec 1272",
+	),
+	(
+		"suggest-words-kept",
+		"gui/conversation_view.cpp",
+		"\tm_text->clear();\n\tm_suggest->clear();\n",
+		"\tm_suggest->clear();\n",
+		"a sticker sent for the words leaves the words to be sent again; conversation_view_test -- sec 1272",
+	),
+	(
 		"pack-always-4",
 		"sticker/pack.c",
 		"\treturn FZN_STICKER_VERSION_3;\n}\n",

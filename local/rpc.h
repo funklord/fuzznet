@@ -868,6 +868,26 @@ typedef struct fzn_rpc_node_sticker_items_resp {
 /* The stickers a pack holds, `list sticker PACK`. */
 int fzn_rpc_sticker_items(fzn_rpc_t *c, const char *pack, size_t pack_len,
                            fzn_rpc_node_sticker_items_resp_t *out);
+/* THE STICKERS THAT FIT THE LINE BEING TYPED, `list sticker match TEXT`
+ * (fuzznet sec 1272): of every pack kept and held on the node, the best
+ * first, at most FZN_RPC_STICKER_MATCH_MAX -- each its pack's root, its
+ * id, its score (higher fits better) and its description. `typed` is the
+ * line as it stands; a line break or other control in it is sent as a
+ * space. None fitting is OK with a count of 0. */
+#define FZN_RPC_STICKER_MATCH_MAX 20
+typedef struct {
+	uint8_t root[32];
+	uint64_t id;
+	unsigned score;
+	char description[129];
+	size_t description_len;
+} fzn_rpc_sticker_match_entry_t;
+typedef struct {
+	fzn_rpc_sticker_match_entry_t entries[FZN_RPC_STICKER_MATCH_MAX];
+	size_t count;
+} fzn_rpc_sticker_match_resp_t;
+int fzn_rpc_sticker_match(fzn_rpc_t *c, const char *typed, size_t typed_len, fzn_rpc_sticker_match_resp_t *out);
+
 /* The text a message carries for one, `get sticker PACK ID`: an `fzn:`
  * reference, into `text` (NUL-ended) of `cap` bytes. */
 int fzn_rpc_sticker_reference(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id,
