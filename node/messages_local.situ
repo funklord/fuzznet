@@ -32,6 +32,7 @@ enum kind : u8 {
 	file    = 2,
 	sticker = 3,
 	shell   = 4,   // its month's key is gone: nothing to show
+	call    = 5,   // a call, newer than any line (sec 1270)
 	default = error,
 }
 
@@ -41,7 +42,10 @@ struct nothing {
 // KEY a contact's root key or a group's id. STIME and OUTGOING 0 with kind
 // none. SENDER a group member who wrote an incoming line, by this user's
 // contact name or the first eight bytes of their key in hex, else empty;
-// TEXT the most a list shows of it.
+// TEXT the most a list shows of it. With kind call, STIME when it was rung
+// and OUTGOING where this user rang; CALL_OUTCOME line.situ's word (1
+// answered to 7 failed), CALL_KINDS audio 1, video 2, CALL_SECONDS how
+// long it was up -- all 0 for any other kind (sec 1270).
 struct newest_row {
 	u8   key[32];
 	u64  stime_ms;
@@ -51,6 +55,9 @@ struct newest_row {
 	u8   sender[sender_len];
 	u16  text_len [max = 1024];
 	u8   text[text_len];
+	u8   call_outcome [max = 7];
+	u8   call_kinds [max = 3];
+	u32  call_seconds;
 }
 
 // MORE 1 when the count is a floor.

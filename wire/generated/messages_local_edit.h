@@ -38,6 +38,9 @@ typedef struct {
 	uint16_t text_len;
 	const uint8_t *text;	/* into your backing */
 	uint32_t text_len;
+	uint8_t call_outcome;
+	uint8_t call_kinds;
+	uint32_t call_seconds;
 } fzn_messages_local_newest_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -96,6 +99,9 @@ static inline situ_err_t fzn_messages_local_newest_row_edit_decode(const situ_ms
 		backing[at + i] = fzn_messages_local_newest_row_text_ptr(view)[i];
 	}
 	at += out->text_len;
+	out->call_outcome = fzn_messages_local_newest_row_call_outcome_get(view);
+	out->call_kinds = fzn_messages_local_newest_row_call_kinds_get(view);
+	out->call_seconds = fzn_messages_local_newest_row_call_seconds_get(view);
 	(void)at;
 	return SITU_OK;
 }

@@ -40,7 +40,8 @@ static void newest_one(void *ctx, const fzn_node_newest_t *l)
 	                                               (fzn_messages_local_kind_t)l->kind,
 	                                               (const uint8_t *)l->sender, (uint32_t)l->sender_len,
 	                                               (const uint8_t *)l->text, (uint32_t)l->text_len,
-	                                               &row_len)
+	                                               (uint8_t)l->call_outcome, (uint8_t)l->call_kinds,
+	                                               l->call_seconds, &row_len)
 	                   == SITU_OK
 	        && fzn_messages_local_message_build_newest_row(out, sizeof(out), (uint8_t)FZN_CMD_MESSAGES, row,
 	                                                       row_len, &n)

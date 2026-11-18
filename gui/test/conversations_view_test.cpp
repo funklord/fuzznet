@@ -37,7 +37,7 @@ static int checks, failures;
 /* 2023-11-14 23:46:40 UTC. */
 #define NOW 1700005600u
 
-static int silent, members_mode;
+static int silent, members_mode, called;
 static char asked[512];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -46,6 +46,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (silent)
 		return 0;
 	/* BOB'S LINE AT 23:50, CAROL'S FILE IN THE FAMILY AT 23:48, DAN NOTHING. */
+	/* DAN'S MISSED CALL AT 23:30, his newest (sec 1270). */
+	if (!strcmp(line, "list message newest") && called)
+		return (size_t)snprintf(reply, cap,
+		                        "ok 3 0 3 " BOB ",1700005800000,in,-,text,see%%20you%%20at%%208 " FAMILY
+		                        ",1700005700000,in,carol,file,photo.jpg " DAN ",1700004600000,in,-,call,2:1:0\n");
 	if (!strcmp(line, "list message newest"))
 		return (size_t)snprintf(reply, cap,
 		                        "ok 3 0 3 " BOB ",1700005800000,in,-,text,see%%20you%%20at%%208 " FAMILY
@@ -109,6 +114,11 @@ int main(int argc, char **argv)
 	                                          "  dan -- nothing said yet", "Groups",
 	                                          "  family -- carol: a file: photo.jpg -- 23:48" }),
 	      "the conversations were not shown under their headings, newest first, with their lines");
+	called = 1;
+	CHECK(v.refresh() && v.shown().value(2) == "  dan -- Missed call -- 23:30",
+	      "a missed call, a conversation's newest, was not shown as one, by when it rang");
+	called = 0;
+	CHECK(v.refresh(), "the list did not come back without the call");
 	CHECK(v.open(0, 0) && opened == "bob", "a contact's conversation was not opened by its name");
 	CHECK(v.open(1, 0) && opened == "@family", "a group's conversation was not opened as @NAME");
 	CHECK(!v.open(1, 5), "a row that is not there was opened");

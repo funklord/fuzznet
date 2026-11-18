@@ -89,6 +89,37 @@ situ_err_t fzn_messages_local_newest_row_check(situ_view_t view, uint32_t *which
 		*which = FZN_MESSAGES_LOCAL_NEWEST_ROW_TEXT_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
+	/* newest_row.call_outcome: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_messages_local_newest_row_call_outcome_offset(view), 1u)) {
+		*which = FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_OUTCOME_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* newest_row.call_outcome [max = 7] */
+	if (fzn_messages_local_newest_row_call_outcome_get(view) > 7) {
+		*which = FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_OUTCOME_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* newest_row.call_kinds: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_messages_local_newest_row_call_kinds_offset(view), 1u)) {
+		*which = FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_KINDS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* newest_row.call_kinds [max = 3] */
+	if (fzn_messages_local_newest_row_call_kinds_get(view) > 3) {
+		*which = FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_KINDS_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* newest_row.call_seconds: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_messages_local_newest_row_call_seconds_offset(view), 4u)) {
+		*which = FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_SECONDS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
 	return SITU_OK;
 }
 

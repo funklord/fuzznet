@@ -1267,12 +1267,29 @@ static int newest_all_text(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap
 			         : f_len == 4 && !memcmp(f, "file", 4)    ? FZN_RPC_NEWEST_FILE
 			         : f_len == 7 && !memcmp(f, "sticker", 7) ? FZN_RPC_NEWEST_STICKER
 			         : f_len == 5 && !memcmp(f, "shell", 5)   ? FZN_RPC_NEWEST_SHELL
+			         : f_len == 4 && !memcmp(f, "call", 4)    ? FZN_RPC_NEWEST_CALL
 			                                                  : FZN_RPC_NEWEST_NONE;
 			/* THE TEXT is the rest, escaped; empty for none. */
 			const char *t = q <= stop ? q : stop;
 			int cut = 0;
-			if (!node_unescape(t, (size_t)(stop - t), e.text, FZN_RPC_NEWEST_TEXT_MAX, &e.text_len,
-			                   &cut))
+			if (e.kind == FZN_RPC_NEWEST_CALL) {
+				/* A CALL'S WORDS, OUTCOME:KINDS:SECONDS (sec 1270). */
+				unsigned outcome = 0, kinds = 0;
+				unsigned long seconds = 0;
+				char words[40];
+				size_t said = (size_t)(stop - t);
+
+				if (said >= sizeof(words)) return unreadable(c);
+				memcpy(words, t, said);
+				words[said] = '\0';
+				if (sscanf(words, "%u:%u:%lu", &outcome, &kinds, &seconds) != 3 || outcome > 255u
+				    || kinds > 255u || seconds > 0xffffffffUL)
+					return unreadable(c);
+				e.call_outcome = (uint8_t)outcome;
+				e.call_kinds = (uint8_t)kinds;
+				e.call_seconds = (uint32_t)seconds;
+			} else if (!node_unescape(t, (size_t)(stop - t), e.text, FZN_RPC_NEWEST_TEXT_MAX, &e.text_len,
+			                          &cut))
 				return unreadable(c);
 			e.text[e.text_len] = '\0';
 			listed++;
@@ -10459,6 +10476,9 @@ static void conversations_each(void *ctx, const uint8_t *msg, size_t len) {
 		if (e->text_len > FZN_RPC_NEWEST_TEXT_MAX) e->text_len = FZN_RPC_NEWEST_TEXT_MAX;
 		memcpy(e->sender, fzn_messages_local_newest_row_sender_ptr(b), e->sender_len);
 		memcpy(e->text, fzn_messages_local_newest_row_text_ptr(b), e->text_len);
+		e->call_outcome = fzn_messages_local_newest_row_call_outcome_get(b);
+		e->call_kinds = fzn_messages_local_newest_row_call_kinds_get(b);
+		e->call_seconds = fzn_messages_local_newest_row_call_seconds_get(b);
 		(*a->count)++;
 	} else if (a->lines && fzn_messages_local_message_op_get(v) == FZN_MESSAGES_LOCAL_OP_LINE_ROW
 	           && fzn_messages_local_message_body_line_row_view(v, &b) == SITU_OK) {

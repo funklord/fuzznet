@@ -82,6 +82,32 @@ static QString line_words(const fzn_rpc_newest_entry_t *e)
 		break;
 	case FZN_RPC_NEWEST_NONE:
 		return QObject::tr("nothing said yet");
+	case FZN_RPC_NEWEST_CALL: {
+		/* A CALL NEWER THAN ANY LINE, sec 1270, as a list says one. */
+		const bool video = (e->call_kinds & 2u) != 0;
+		const uint32_t sec = e->call_seconds;
+
+		switch (e->call_outcome) {
+		case FZN_RPC_CALL_ANSWERED:
+			return (video ? QObject::tr("Video call, %1") : QObject::tr("Voice call, %1"))
+			        .arg(sec >= 3600u ? QStringLiteral("%1:%2:%3")
+			                                    .arg(sec / 3600u)
+			                                    .arg(sec / 60u % 60u, 2, 10, QLatin1Char('0'))
+			                                    .arg(sec % 60u, 2, 10, QLatin1Char('0'))
+			                          : QStringLiteral("%1:%2").arg(sec / 60u).arg(sec % 60u, 2, 10, QLatin1Char('0')));
+		case FZN_RPC_CALL_MISSED:
+			return video ? QObject::tr("Missed video call") : QObject::tr("Missed call");
+		case FZN_RPC_CALL_DECLINED:
+			return QObject::tr("Declined call");
+		case FZN_RPC_CALL_BUSY:
+		case FZN_RPC_CALL_NO_ANSWER:
+			return QObject::tr("Call, no answer");
+		case FZN_RPC_CALL_ELSEWHERE:
+			return QObject::tr("Call taken on another device");
+		default:
+			return QObject::tr("Call did not connect");
+		}
+	}
 	}
 	if (e->outgoing)
 		return QObject::tr("you: %1").arg(what);

@@ -61,6 +61,7 @@ typedef enum fzn_messages_local_kind {
 	FZN_MESSAGES_LOCAL_KIND_FILE = 2,
 	FZN_MESSAGES_LOCAL_KIND_STICKER = 3,
 	FZN_MESSAGES_LOCAL_KIND_SHELL = 4,
+	FZN_MESSAGES_LOCAL_KIND_CALL = 5,
 } fzn_messages_local_kind_t;
 
 /** Whether a value names a member of kind (section 8.7).
@@ -73,6 +74,7 @@ static inline int fzn_messages_local_kind_is_known(fzn_messages_local_kind_t val
 	case FZN_MESSAGES_LOCAL_KIND_FILE:
 	case FZN_MESSAGES_LOCAL_KIND_STICKER:
 	case FZN_MESSAGES_LOCAL_KIND_SHELL:
+	case FZN_MESSAGES_LOCAL_KIND_CALL:
 		return 1;
 	default:
 		return 0;
@@ -119,8 +121,8 @@ situ_err_t fzn_messages_local_nothing_validate(situ_view_t view);
 
 /* ---- struct newest_row ---- */
 
-#define FZN_MESSAGES_LOCAL_NEWEST_ROW_SIZE_MIN   45u
-#define FZN_MESSAGES_LOCAL_NEWEST_ROW_SIZE_MAX   1133u
+#define FZN_MESSAGES_LOCAL_NEWEST_ROW_SIZE_MIN   51u
+#define FZN_MESSAGES_LOCAL_NEWEST_ROW_SIZE_MAX   1139u
 
 /* INVALIDATION: a newest_row view, and every view derived from
  * it, is invalidated by writing `sender_len`, `text_len` -- those decide where the
@@ -292,6 +294,128 @@ static inline uint8_t *fzn_messages_local_newest_row_text_ptr(situ_view_t view)
  *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
  */
 
+#define FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_OUTCOME_VALUE_MAX 7u
+
+/** newest_row.call_outcome : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_messages_local_newest_row_call_outcome_offset(situ_view_t view)
+{
+	uint32_t offset = 43u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[42u]))), view.limit);
+	offset = situ_advance_u32(offset, (2u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_newest_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_newest_row_text_len_offset(view)) + 0u)) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, (0u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_messages_local_newest_row_call_outcome_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_messages_local_newest_row_call_outcome_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_messages_local_newest_row_call_outcome_offset(view)))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_messages_local_newest_row_call_outcome_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_messages_local_newest_row_call_outcome_offset(view));
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_messages_local_newest_row_call_outcome_set(situ_view_t view, uint8_t value)
+{
+	if (situ_in_bounds(view, fzn_messages_local_newest_row_call_outcome_offset(view), 1u)) {
+		((situ_base(view) + fzn_messages_local_newest_row_call_outcome_offset(view)))[0u] = (uint8_t)value;
+	}
+}
+
+#define FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_KINDS_VALUE_MAX 3u
+
+/** newest_row.call_kinds : u8  at Dynamic
+ * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_messages_local_newest_row_call_kinds_offset(situ_view_t view)
+{
+	uint32_t offset = 43u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[42u]))), view.limit);
+	offset = situ_advance_u32(offset, (2u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_newest_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_newest_row_text_len_offset(view)) + 0u)) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint8_t fzn_messages_local_newest_row_call_kinds_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_messages_local_newest_row_call_kinds_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_messages_local_newest_row_call_kinds_offset(view)))[0u])
+		: (uint8_t)0;
+}
+/** The returned pointer is invalidated by any write that changes
+ * the length of what precedes this field; see the INVALIDATION
+ * note on this struct's view accessor.
+ */
+static inline uint8_t *fzn_messages_local_newest_row_call_kinds_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + fzn_messages_local_newest_row_call_kinds_offset(view));
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_messages_local_newest_row_call_kinds_set(situ_view_t view, uint8_t value)
+{
+	if (situ_in_bounds(view, fzn_messages_local_newest_row_call_kinds_offset(view), 1u)) {
+		((situ_base(view) + fzn_messages_local_newest_row_call_kinds_offset(view)))[0u] = (uint8_t)value;
+	}
+}
+
+/** newest_row.call_seconds : u32  at Dynamic
+ * size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_messages_local_newest_row_call_seconds_offset(situ_view_t view)
+{
+	uint32_t offset = 43u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[42u]))), view.limit);
+	offset = situ_advance_u32(offset, (2u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_newest_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_newest_row_text_len_offset(view)) + 0u)) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, (2u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint32_t fzn_messages_local_newest_row_call_seconds_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_messages_local_newest_row_call_seconds_offset(view), 4u)
+		? (uint32_t)(situ_get_be32((situ_base(view) + fzn_messages_local_newest_row_call_seconds_offset(view)) + 0u))
+		: (uint32_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_messages_local_newest_row_call_seconds_set(situ_view_t view, uint32_t value)
+{
+	if (situ_in_bounds(view, fzn_messages_local_newest_row_call_seconds_offset(view), 4u)) {
+		situ_put_be32((situ_base(view) + fzn_messages_local_newest_row_call_seconds_offset(view)) + 0u, (uint32_t)value);
+	}
+}
+
 /** How many bytes one `newest_row` occupies at this view's base.
  *
  * A run of these is walked rather than indexed, and the walk needs
@@ -300,11 +424,11 @@ static inline uint8_t *fzn_messages_local_newest_row_text_ptr(situ_view_t view)
  */
 static inline uint32_t fzn_messages_local_newest_row_extent(situ_view_t view)
 {
-	if (!situ_in_bounds(view, 0u, 45u)) {
-		return 45u;	/* the lengths below are not here to read */
+	if (!situ_in_bounds(view, 0u, 51u)) {
+		return 51u;	/* the lengths below are not here to read */
 	}
 
-	uint32_t extent = 45u;
+	uint32_t extent = 51u;
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[42u])));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_newest_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_newest_row_text_len_offset(view)) + 0u)) : (uint64_t)0))));
 	return extent;
@@ -321,7 +445,7 @@ static inline uint32_t fzn_messages_local_newest_row_extent(situ_view_t view)
  */
 static inline situ_err_t fzn_messages_local_newest_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
 {
-	uint32_t at = 45u;
+	uint32_t at = 51u;
 	uint32_t pos = 43u;
 	situ_view_t view;
 
@@ -401,6 +525,9 @@ situ_err_t fzn_messages_local_newest_row_check(situ_view_t view, uint32_t *which
 #define FZN_MESSAGES_LOCAL_NEWEST_ROW_SENDER_CHECK 3u
 #define FZN_MESSAGES_LOCAL_NEWEST_ROW_TEXT_LEN_CHECK 4u
 #define FZN_MESSAGES_LOCAL_NEWEST_ROW_TEXT_CHECK 5u
+#define FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_OUTCOME_CHECK 6u
+#define FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_KINDS_CHECK 7u
+#define FZN_MESSAGES_LOCAL_NEWEST_ROW_CALL_SECONDS_CHECK 8u
 
 /* ---- struct unread_row ---- */
 
@@ -1305,7 +1432,7 @@ situ_err_t fzn_messages_local_send_check(situ_view_t view, uint32_t *which);
 /* ---- struct message ---- */
 
 #define FZN_MESSAGES_LOCAL_MESSAGE_SIZE_MIN   2u
-#define FZN_MESSAGES_LOCAL_MESSAGE_SIZE_MAX   1135u
+#define FZN_MESSAGES_LOCAL_MESSAGE_SIZE_MAX   1141u
 
 /* INVALIDATION: a message view, and every view derived from
  * it, is invalidated by writing `op` -- those decide where the
@@ -1363,7 +1490,7 @@ static inline fzn_messages_local_op_t fzn_messages_local_message_op_get(situ_vie
  * which takes the message and bumps its generation. */
 
 /* message.body : variant  at AbsoluteStatic(0x02)
- * size=Bounded(0, 1133) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ * size=Bounded(0, 1139) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
 /** `body` is a variant: exactly one of `newest`, `unread`, `newest_row`, `unread_row`, `lines`, `line_row`, `send`, `read` is
  * present, and which one is in the discriminant. The variant has no
@@ -1437,6 +1564,10 @@ static inline situ_err_t fzn_messages_local_message_body_newest_row_view(situ_vi
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_NEWEST_ROW_SENDER_LEN_VALUE_MAX 64u
 
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_NEWEST_ROW_TEXT_LEN_VALUE_MAX 1024u
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_NEWEST_ROW_CALL_OUTCOME_VALUE_MAX 7u
+
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_NEWEST_ROW_CALL_KINDS_VALUE_MAX 3u
 
 /** message.body.unread_row, present when the discriminant selects `op.unread_row`.
  *

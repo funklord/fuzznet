@@ -1656,6 +1656,10 @@ static size_t list_unread(fzn_node_messages_t *nm, size_t from, char *reply, siz
 typedef struct newest_row {
 	uint8_t key[FZN_PUBKEY_LEN];
 	uint64_t stime; /* 0 for a conversation with no line yet */
+	/* ITS NEWEST CALL, where that is newer than its newest line, sec 1270:
+	 * the row ordered by when it was rung, and listed as the call. */
+	int is_call;
+	fzn_message_call_t call;
 } newest_row_t;
 
 static newest_row_t *newest_rows;
@@ -1674,6 +1678,7 @@ static int newest_add(const uint8_t key[FZN_PUBKEY_LEN], uint64_t stime, size_t 
 	}
 	memcpy(newest_rows[*n].key, key, FZN_PUBKEY_LEN);
 	newest_rows[*n].stime = stime;
+	newest_rows[*n].is_call = 0;
 	(*n)++;
 	return 1;
 }
@@ -1768,7 +1773,8 @@ static const char *newest_kind(const fzn_message_t *p, const char **text, size_t
  * conversation list is one request a refresh, where it was a request a
  * conversation. DIRECTION `out` or `in`; SENDER a group's member who wrote
  * an `in` line, as `list message` names one, else `-`; KIND `text`, `file`,
- * `sticker` or `shell`; TEXT escaped, the most a list shows of it. Paged by
+ * `sticker`, `shell`, or `call` (sec 1270) -- a call newer than any line,
+ * STIME when it was rung, its TEXT `OUTCOME:KINDS:SECONDS` as line.h's; TEXT escaped, the most a list shows of it. Paged by
  * row from FROM. */
 /* EVERY CONVERSATION, newest first: its key and its newest line's time, in
  * newest_rows[0..*rows). What `list message newest` pages through and the
@@ -1825,6 +1831,20 @@ static int newest_gather(fzn_node_messages_t *nm, size_t *rows_out, const char *
 		}
 	}
 	fzn_group_held_free(&held);
+	/* A CALL NEWER THAN THE NEWEST LINE, sec 1270, fuzzypickles': the
+	 * conversation is listed by the call and moves up with it, as a list
+	 * shows "Missed call". One index row a conversation, read here. */
+	for (b = 0; b < rows; b++) {
+		fzn_message_call_t call;
+		size_t calls = 0;
+
+		if (fzn_messages_calls(&nm->m, newest_rows[b].key, &call, 1u, &calls) == FZN_MESSAGES_OK && calls
+		    && call.started && call.started * 1000u > newest_rows[b].stime) {
+			newest_rows[b].stime = call.started * 1000u;
+			newest_rows[b].is_call = 1;
+			newest_rows[b].call = call;
+		}
+	}
 	if (rows)
 		qsort(newest_rows, rows, sizeof(*newest_rows), newest_order);
 	*rows_out = rows;
@@ -1872,6 +1892,17 @@ static int newest_line_at(fzn_node_messages_t *nm, size_t r, fzn_node_newest_t *
 	o->sender = sender;
 	if (!newest_rows[r].stime)
 		return 1;
+	if (newest_rows[r].is_call) {
+		const fzn_message_call_t *c = &newest_rows[r].call;
+
+		o->stime_ms = newest_rows[r].stime;
+		o->outgoing = c->direction == FZN_MESSAGE_OUT;
+		o->kind = FZN_NODE_NEWEST_CALL;
+		o->call_outcome = c->outcome;
+		o->call_kinds = c->kinds;
+		o->call_seconds = c->seconds;
+		return 1;
+	}
 	if (fzn_messages_page(&nm->m, newest_rows[r].key, 0, newest, 1u, &got, &more) != FZN_MESSAGES_OK
 	    || !got)
 		return 0;
@@ -1886,7 +1917,7 @@ static int newest_line_at(fzn_node_messages_t *nm, size_t r, fzn_node_newest_t *
 	return 1;
 }
 
-static const char *const NEWEST_KIND_WORD[] = { "none", "text", "file", "sticker", "shell" };
+static const char *const NEWEST_KIND_WORD[] = { "none", "text", "file", "sticker", "shell", "call" };
 
 static size_t list_newest(fzn_node_messages_t *nm, size_t from, char *reply, size_t cap)
 {
@@ -1922,9 +1953,18 @@ static size_t list_newest(fzn_node_messages_t *nm, size_t from, char *reply, siz
 		if (k < 0 || (size_t)k >= sizeof(row) - h)
 			return 0;
 		h += (size_t)k;
-		if (escape((const uint8_t *)l.text, l.text_len, row + h, sizeof(row) - h, &wrote) < l.text_len)
-			return 0;
-		h += wrote;
+		/* A CALL'S TEXT IS ITS WORDS, sec 1270: OUTCOME:KINDS:SECONDS. */
+		if (l.kind == FZN_NODE_NEWEST_CALL) {
+			k = snprintf(row + h, sizeof(row) - h, "%u:%u:%lu", l.call_outcome, l.call_kinds,
+			             (unsigned long)l.call_seconds);
+			if (k < 0 || (size_t)k >= sizeof(row) - h)
+				return 0;
+			h += (size_t)k;
+		} else {
+			if (escape((const uint8_t *)l.text, l.text_len, row + h, sizeof(row) - h, &wrote) < l.text_len)
+				return 0;
+			h += wrote;
+		}
 		/* A ROW GOES IN WHOLE, room left for the head `TOTAL FROM SHOWN`. */
 		if (LIST_HEAD_MAX + 24u + used + 1u + h > limit || used + 1u + h > sizeof(items)) {
 			full = 1;

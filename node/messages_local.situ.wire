@@ -22,7 +22,7 @@ enum op : u8 unknown=error
   newest=128 unread=129 newest_row=130 unread_row=131 lines=132 line_row=133 send=134 read=135
 
 enum kind : u8 unknown=error
-  none=0 text=1 file=2 sticker=3 shell=4
+  none=0 text=1 file=2 sticker=3 shell=4 call=5
 
 struct line_row size=72..712
   @0x0000   32        u8         key  big
@@ -46,10 +46,10 @@ struct lines_ask size=39
   @0x0021   4         u32        from  big
   @0x0025   2         u16        max  big
 
-struct message size=2..1135
+struct message size=2..1141
   @0x0000   1         u8         cmd  must_eq=10
   @0x0001   1         op         op
-  @0x0002   0..1133   variant    body
+  @0x0002   0..1139   variant    body
   body switch: op
   body case 128: newest nothing
   body case 129: unread nothing
@@ -61,7 +61,7 @@ struct message size=2..1135
   body case 135: read read
   body case default: error
 
-struct newest_row size=45..1133
+struct newest_row size=51..1139
   @0x0000   32        u8         key  big
   @0x0020   8         u64        stime_ms  big
   @0x0028   1         u8         outgoing  max=1
@@ -70,6 +70,9 @@ struct newest_row size=45..1133
   @0x002b   0..64     u8         sender  sized-by=sender_len
   ~         2         u16        text_len  big max=1024
   ~         0..1024   u8         text  sized-by=text_len
+  ~         1         u8         call_outcome  max=7
+  ~         1         u8         call_kinds  max=3
+  ~         4         u32        call_seconds  big
 
 struct nothing size=0
 

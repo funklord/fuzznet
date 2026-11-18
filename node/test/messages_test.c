@@ -717,6 +717,42 @@ static void test_every_conversations_newest_line(void)
 	CHECK(bin_asked(&A, 0x99) && bin.n == 1u && bin.m[0][0] == 0x13 && bin.m[0][1] == 2,
 	      "no such listing was not malformed");
 
+	/* A CALL NEWER THAN ANY LINE, sec 1270: dave's missed voice call, rung
+	 * at 40 s, lists him first, as the call, in text and binary; carol's
+	 * call older than her file leaves her listed by the file. */
+	{
+		fzn_message_call_t call;
+		const uint8_t *m;
+		size_t at;
+
+		memset(&call, 0, sizeof(call));
+		call.direction = FZN_MESSAGE_IN;
+		call.kinds = 1u;
+		call.outcome = FZN_MESSAGE_CALL_MISSED;
+		memset(call.id, 0x31, sizeof(call.id));
+		call.started = 40u;
+		CHECK(fzn_messages_call(&A.nm.m, dave, &call) == FZN_MESSAGES_OK, "fixture: dave's missed call");
+		call.direction = FZN_MESSAGE_OUT;
+		call.outcome = FZN_MESSAGE_CALL_ANSWERED;
+		call.seconds = 42u;
+		memset(call.id, 0x32, sizeof(call.id));
+		call.started = 1u;
+		CHECK(fzn_messages_call(&A.nm.m, X, &call) == FZN_MESSAGES_OK, "fixture: carol's older call");
+		CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message newest") && replied("ok 3 0 3 6464646464")
+		              && strstr(reply, ",40000,in,-,call,2:1:0 "),
+		      "a missed call newer than any line did not list its conversation first, as the call");
+		CHECK(strstr(reply, ",30000,out,-,file,photo.jpg"), "a call older than the newest line displaced it");
+		CHECK(bin_asked(&A, 0x80) && bin.n == 4u && bin_newest(0, 0x64, 5, 40000u, ""),
+		      "the call in binary was not the newest row, of kind call");
+		m = bin.m[0];
+		at = 2u + 32u + 8u + 1u + 1u;
+		at += 1u + m[at];
+		at += 2u + (((size_t)m[at] << 8) | m[at + 1u]);
+		CHECK(bin.len[0] == at + 6u && m[at] == FZN_MESSAGE_CALL_MISSED && m[at + 1u] == 1u
+		              && m[at + 2u] == 0 && m[at + 5u] == 0,
+		      "the call's outcome, kinds and seconds were not in its binary row");
+	}
+
 	/* A CONVERSATION'S LINES IN BINARY, sec 1159: carol's two, newest first,
 	 * as `list message carol` has them -- id, direction, readable, time and
 	 * her name -- then an ok; everyone's held to MAX; a key that is no

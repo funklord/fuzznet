@@ -488,7 +488,8 @@ enum {
 	FZN_NODE_NEWEST_TEXT = 1,
 	FZN_NODE_NEWEST_FILE = 2,
 	FZN_NODE_NEWEST_STICKER = 3,
-	FZN_NODE_NEWEST_SHELL = 4
+	FZN_NODE_NEWEST_SHELL = 4,
+	FZN_NODE_NEWEST_CALL = 5 /* a call newer than any line, sec 1270 */
 };
 typedef struct fzn_node_newest {
 	const uint8_t *key;
@@ -499,6 +500,9 @@ typedef struct fzn_node_newest {
 	size_t sender_len;
 	const char *text;
 	size_t text_len;
+	/* WITH KIND CALL: line.h's outcome, kinds and seconds up; 0 otherwise. */
+	unsigned call_outcome, call_kinds;
+	uint32_t call_seconds;
 } fzn_node_newest_t;
 /* 1 once every conversation was handed to `each`, newest first; 0 when a
  * list or a line did not read. */

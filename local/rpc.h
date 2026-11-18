@@ -997,7 +997,8 @@ typedef enum {
 	FZN_RPC_NEWEST_TEXT = 1,
 	FZN_RPC_NEWEST_FILE = 2,
 	FZN_RPC_NEWEST_STICKER = 3,
-	FZN_RPC_NEWEST_SHELL = 4  /* its month's key is gone: nothing to show */
+	FZN_RPC_NEWEST_SHELL = 4, /* its month's key is gone: nothing to show */
+	FZN_RPC_NEWEST_CALL = 5   /* a call newer than any line (fuzznet sec 1270) */
 } fzn_rpc_newest_kind_t;
 typedef struct {
 	uint8_t key[32];
@@ -1008,6 +1009,12 @@ typedef struct {
 	size_t sender_len;
 	char text[FZN_RPC_NEWEST_TEXT_MAX + 1];
 	size_t text_len;
+	/* WITH KIND CALL, fuzznet sec 1270: `stime_ms` when it was rung and
+	 * `outgoing` where this user rang; the outcome a FZN_RPC_CALL_ word (ANSWERED, MISSED, ...)
+	 * as fzn_rpc_call_history's, the kinds audio 1 and video 2, the seconds
+	 * it was up. `text` empty. 0 for any other kind. */
+	uint8_t call_outcome, call_kinds;
+	uint32_t call_seconds;
 } fzn_rpc_newest_entry_t;
 int fzn_rpc_newest_all(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap, size_t *count,
                        size_t *total);

@@ -92465,3 +92465,60 @@ version waited on `wait_for`, which finds a round's end anywhere in the
 log and returned at once, and two sabotages survived it. Four sabotages,
 each caught (`read-word-unread`, `read-told-by-default`,
 `read-own-choice-ignored`, `read-seen-never-listed`).
+
+## 1270. Three messages: beerssh's number and its missing directory; a call in the list; a sticker pack's key, 2026-11-18
+
+**beerssh asked a product number** (inbox 20261118T1222Z): it vendors
+fuzznet and `beersshd --fuzznet` runs `fzn_daemon_main` with its
+extension, as sec 925 proposed. Sec 813 has fuzznet assign the pair, so
+`chain/service.h` gains `FZN_PRODUCT_BEERSSH` 4, under
+`FZN_SERVICE_NODE` -- beersshd and the client's device side one product,
+as they think; a session service gets its own number when one is asked.
+
+**And a `--fuzznet-dir` that did not exist kept nothing.** `--prekey`
+printed "identity ... created in DIR", but the store that goes on when
+its disk will not (sec 917) had taken the identity into memory only, so a
+later `--accept` there made a second and failed "the card ... was made for
+another device". Reproduced here, then fixed: fuzznetd makes the
+directory, one level and 0700 as its secrets are, and refuses with the
+reason where it cannot -- a missing parent, or a path that is not a
+directory. `live_device` no longer makes its device P's directory first,
+so P's `--prekey` then `--accept` is beerssh's sequence; sabotage
+`store-dir-not-made` fails it.
+
+**A call as a conversation's newest item** (fuzzypickles, inbox
+20261118T1350Z): the chat list's second line comes from `list message
+newest`, which knew lines only, so after a missed call a row's preview
+was empty or older and the row did not move up -- where LINE shows
+"Missed call" and orders by it. Asking each contact's history from the
+list would be the per-conversation walk this tree has measured before, so
+it is in the listing: `newest_gather` reads each conversation's newest
+call (one index row, sec 1255) and, where it was rung after the newest
+line, the row is ordered by the ring time and listed as kind `call` -- in
+text `KEY,STIME,in|out,-,call,OUTCOME:KINDS:SECONDS`, in binary kind 5
+with `call_outcome`, `call_kinds` and `call_seconds` appended to
+`newest_row` (0 for every other kind). The client's
+`fzn_rpc_newest_entry_t` carries them; the GUI's list says "Missed call",
+"Voice call, 0:42", "Missed video call". A client vendored before this
+reads a call row as unreadable in binary, kind `error` being the
+contract's default: fuzzypickles takes both halves together.
+
+**Tests:** messages_test -- a missed call newer than every line lists its
+conversation first, in text and binary with its three fields, and a call
+older than the newest line leaves the line. rpc_test -- the text row and
+a binary one. conversations_view_test -- "Missed call", by when it rang.
+Sabotages `newest-call-ignored`, `newest-call-word-dropped`,
+`newest-call-missed-unsaid`, each caught.
+
+**A sticker pack built from one spec gets a random key on every host**
+(fuzzypickles, inbox 20261118T1236Z): measured there, the same spec put
+on two nodes gave two roots, so a friend holding the pack still moves all
+1.5 MB of it when one is sent -- 45 s on two emulators. The random key is
+`fzn_node_files_put`'s for every file, and **a convergent key is the
+question sec 16 leaves to the holder**: "a policy rather than a
+mechanism". For a pack the content is published, so the confirmation-of-
+a-file attack sec 16 names reveals nothing secret; what a shared key does
+reveal is that two users hold the same pack, to anyone who sees both
+roots -- a relay, a host. Asked of the holder rather than built, with
+the guess that published content (packs, the built-in set) may be
+convergent and nothing a user writes is.

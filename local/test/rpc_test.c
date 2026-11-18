@@ -493,16 +493,21 @@ static void test_dropped_figures_are_carried(void)
 static void test_every_newest_line_is_read(void)
 {
 	static const char *const reply =
-	        "ok 3 0 3 " ID_A ",30000,out,-,file,photo.jpg " ID_B
+	        "ok 4 0 4 " ID_B ",40000,in,-,call,2:1:0 " ID_A ",30000,out,-,file,photo.jpg " ID_B
 	        ",20000,in,carol,text,see%20you%20at%208 " ID_A ",0,-,-,none,";
 	struct script s = { { reply }, 0, 1, 0, { { 0 } } };
-	static fzn_rpc_newest_entry_t out[4];
+	static fzn_rpc_newest_entry_t all[5], *out = all + 1;
 	size_t count = 0, total = 0;
 
 	on(&c, &s);
-	CHECK(fzn_rpc_newest_all(&c, out, 4, &count, &total) == FZN_RPC_OK && count == 3 && total == 3
+	CHECK(fzn_rpc_newest_all(&c, all, 5, &count, &total) == FZN_RPC_OK && count == 4 && total == 4
 	              && !strcmp(s.asked[0], "list message newest"),
 	      "the newest lines were not read in one listing");
+	/* A MISSED VOICE CALL newer than any line, sec 1270. */
+	CHECK(all[0].kind == FZN_RPC_NEWEST_CALL && !all[0].outgoing && all[0].stime_ms == 40000
+	              && all[0].call_outcome == FZN_RPC_CALL_MISSED && all[0].call_kinds == 1
+	              && all[0].call_seconds == 0 && !all[0].text_len,
+	      "a call as a conversation's newest was not read with its outcome and kinds");
 	CHECK(out[0].kind == FZN_RPC_NEWEST_FILE && out[0].outgoing && out[0].stime_ms == 30000
 	              && !strcmp(out[0].text, "photo.jpg") && !out[0].sender_len,
 	      "a file sent was not read as one, by its name");
@@ -703,7 +708,8 @@ static void newest_onto(struct bscript *s, size_t i, uint8_t first, uint8_t kind
 	if (fzn_messages_local_newest_row_build(row, sizeof(row), key, 1700000000000ull, 0u,
 	                                        (fzn_messages_local_kind_t)kind, (const uint8_t *)sender,
 	                                        (uint32_t)strlen(sender), (const uint8_t *)text,
-	                                        (uint32_t)strlen(text), &row_len) != SITU_OK
+	                                        (uint32_t)strlen(text), kind == 5u ? 1u : 0u, kind == 5u ? 2u : 0u,
+	                                        kind == 5u ? 42u : 0u, &row_len) != SITU_OK
 	    || fzn_messages_local_message_build_newest_row(m, sizeof(m), (uint8_t)FZN_CMD_MESSAGES, row, row_len, &n)
 	               != SITU_OK)
 		return;
@@ -740,6 +746,20 @@ static void test_conversations_in_binary(void)
 	newest_onto(&newest, 0, 0xcc, 0, "", "");
 	status_onto(&newest, 0, FZN_STATUS_OK, NULL);
 	bon(&c, &newest);
+	/* AN ANSWERED VIDEO CALL OF 42 SECONDS, sec 1270, read with its words. */
+	{
+		static struct bscript called;
+		static fzn_rpc_newest_entry_t one[1];
+
+		newest_onto(&called, 0, 0xdd, 5, "", "");
+		status_onto(&called, 0, FZN_STATUS_OK, NULL);
+		bon(&c, &called);
+		CHECK(fzn_rpc_newest_all(&c, one, 1, &count, &total) == FZN_RPC_OK && count == 1
+		              && one[0].kind == FZN_RPC_NEWEST_CALL && one[0].call_outcome == FZN_RPC_CALL_ANSWERED
+		              && one[0].call_kinds == 2 && one[0].call_seconds == 42,
+		      "a call as the newest row was not read in binary with its outcome, kinds and seconds");
+		bon(&c, &newest);
+	}
 	CHECK(fzn_rpc_newest_all(&c, n, 2, &count, &total) == FZN_RPC_OK && count == 2 && total == 3
 	              && n[0].key[0] == 0xaa && n[0].kind == FZN_RPC_NEWEST_TEXT && n[0].stime_ms == 1700000000000ull
 	              && strcmp(n[0].sender, "carol") == 0 && strcmp(n[0].text, "see you at 8") == 0

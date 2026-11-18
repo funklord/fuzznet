@@ -47,6 +47,9 @@ static inline situ_err_t fzn_messages_local_newest_row_build(
 		uint32_t sender__len,
 		const uint8_t *text_,
 		uint32_t text__len,
+		uint8_t call_outcome,
+		uint8_t call_kinds,
+		uint32_t call_seconds,
 		uint32_t *situ_wrote)
 {
 	situ_msg_t  situ_msg;
@@ -128,6 +131,25 @@ static inline situ_err_t fzn_messages_local_newest_row_build(
 		memcpy(situ_out + situ_at, text_, text__len);
 	}
 	situ_at += text__len;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)call_outcome;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)call_kinds;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 4u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be32(situ_out + situ_at,
+	              (uint32_t)call_seconds);
+	situ_at += 4u;
 
 	/* Constraints are the view's to state and this reuses them
 	 * rather than restating them: two checks of one schema is how
