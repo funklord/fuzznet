@@ -93048,3 +93048,35 @@ back is the bare reference, and one to no line is refused. Sabotages
 `reply-without-its-space`, `reply-upper-hex`, `reaction-with-a-space`,
 `reaction-shown-as-line`, `reply-sent-plain`, `reply-never-ends`,
 `reaction-never-sent`, each caught by hand.
+
+## 1283. situ's answers, and a qmake that found the sibling checkout, 2026-11-18
+
+**situ** (inbox 20261118T2059Z and 2120Z, its 8cb67e08, f1f1b107 and
+8ad4f774, records 26.1093 to 26.1095):
+- The refusal of an enum and a member path sharing a stem was wrong, not
+  late: `chain/revocation`, `messages/line`, `roster/roster` and
+  `state/setting` compile cleanly; situ now refuses only a name its header
+  would define twice, and `map`/`wire` ask what `build` asks.
+- A bound naming an arm of the member's own enum bare is read as that arm,
+  and the compatibility check compares it by value -- the five contracts
+  regenerated in 0c9f199c (sec 1278's gates).
+- **`node/reconcile.situ` holds two bounds situ refuses to build on
+  purpose**: `u64 from [min = 1]` and `u64 base [min = 1]`, a comparison of
+  an unsigned 64-bit value, which situ widens to signed. The contract is
+  checked, never generated, so nothing builds it today; the day it is
+  generated, those bounds change (`from` and `base` checked nonzero by the
+  codec instead). Open, and the schema's to change -- not situ's.
+- Its storage measurements went into situ's decision 0070, for when the
+  holder takes up schema-driven storage (sec 1276).
+
+**snurra** (inbox 20261118T2135Z): its 1e65e8c pins fuzznet at 814d033,
+lists `wire/status_message.c` and drops the wrapper. Its player build had
+stopped when this tree renamed the file, before its pin moved: qmake,
+writing paths relative to its build directory, resolved headers for its
+dependency lists against the project's own directory, so `-I../fuzznet`
+found this working tree rather than the vendored copy -- the compile
+itself used the vendored copy. Fixed on snurra's side
+(`QMAKE_PROJECT_DEPTH = 0`, absolute paths). **For any consumer building
+fuzznet's sources through qmake with a sibling checkout one level up**:
+its dependency lists can read this tree's headers, so a change here can
+stop a build that pins an older fuzznet.
