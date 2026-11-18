@@ -91685,3 +91685,25 @@ this user no admin, the member changes refused saying why. Three
 sabotages, each caught (`conversations-delete-unconfirmed`,
 `conversations-k-of-n-unsaid`, `conversations-members-to-anyone`). `make
 qtty` passes.
+
+## 1247. A call ringing here as a screen, 2026-11-18
+
+fuzzypickles' walk (sec 1230 item 5): an incoming call as a screen with
+the caller and large Answer and Decline -- a thin bar is easy to miss.
+The bar becomes one rather than a second widget: a host that allows it
+(`set_screen(true)`) gets, while a call rings here, the bar stacked, the
+caller in a face 1.8 times the size, Answer and Decline four lines tall
+-- and is told through `on_ringing` as ringing starts and stops, once
+each, to raise the bar over the page and let it go. Answered, declined or
+gone, it is a bar again. One widget keeps one set of state and buttons,
+where a screen beside the bar would have needed both kept in step.
+
+Still to come from item 5: the line a call leaves in the conversation
+("Voice call 0:42", "Missed call"), which is the node's to write and
+touches how a line counts unread and is delivered -- its own piece.
+
+**Tests:** call_bar_test -- allowed, ringing here, a screen with Answer
+tall and the host told once, not again at the next refresh; answered, a
+bar again with Answer as it was, the host told ringing stopped. Two
+sabotages, each caught (`call-bar-never-a-screen`,
+`call-bar-ringing-told-always`). `make qtty` passes.

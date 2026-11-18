@@ -10,6 +10,8 @@
 #include "../call_audio.h"
 
 #include <QApplication>
+#include <QList>
+#include <QPushButton>
 
 #include <stdio.h>
 #include <string.h>
@@ -110,6 +112,29 @@ int main(int argc, char **argv)
 	snprintf(live, sizeof live, "2 " OUT ",up,1," BOB " " IN ",ringing-in,1," BOB);
 	CHECK(bar.refresh() && bar.shown_id() == IN && bar.buttons() == QStringList({ "Answer", "Decline" }),
 	      "of a call up and one ringing here, the one ringing here was not shown");
+
+	/* A CALL RINGING HERE AS A SCREEN, sec 1247: allowed, the bar grows
+	 * while it rings -- Answer tall -- and the host is told once as it
+	 * starts; answered, a bar again, the host told it stopped. */
+	{
+		QList<bool> told;
+		bar.on_ringing([&told](bool ringing) { told << ringing; });
+		bar.set_screen(true);
+		snprintf(live, sizeof live, "0");
+		bar.refresh();
+		told.clear();
+		snprintf(live, sizeof live, "1 " IN ",ringing-in,1," BOB);
+		ended_in[0] = '\0';
+		QPushButton *answer = nullptr;
+		for (QPushButton *b : bar.findChildren<QPushButton *>())
+			if (b->text() == "Answer")
+				answer = b;
+		CHECK(bar.refresh() && bar.screen() && answer && answer->minimumHeight() >= 40 && told == QList<bool>({ true }),
+		      "a call ringing here was not a screen with Answer large, or the host not told");
+		CHECK(bar.refresh() && told.size() == 1, "the host was told again while the same call rang");
+		CHECK(bar.answer() && !bar.screen() && answer->minimumHeight() == 0 && told == QList<bool>({ true, false }),
+		      "answered, the bar stayed a screen, or the host was not told it stopped ringing");
+	}
 
 	CHECK(0, "deliberate");
 	failures--;

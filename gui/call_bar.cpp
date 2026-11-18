@@ -5,7 +5,8 @@
 #include "rpc_ask.h"
 
 #include <QByteArray>
-#include <QHBoxLayout>
+#include <QBoxLayout>
+#include <QFontMetrics>
 #include <QLabel>
 #include <QPushButton>
 
@@ -35,10 +36,10 @@ fzn_call_bar::fzn_call_bar(fzn_notebook_view_ask_t ask, void *ask_ctx, const QSt
 	m_camera = new QPushButton(tr("Camera"), this);
 	m_camera->setCheckable(true);
 	m_hang_up = new QPushButton(tr("Hang up"), this);
-	auto *row = new QHBoxLayout(this);
-	row->addWidget(m_said, 1);
+	m_row = new QBoxLayout(QBoxLayout::LeftToRight, this);
+	m_row->addWidget(m_said, 1);
 	for (QPushButton *b : { m_answer, m_decline, m_mute, m_camera, m_hang_up })
-		row->addWidget(b);
+		m_row->addWidget(b);
 	connect(m_answer, &QPushButton::clicked, [this]() { answer(); });
 	connect(m_decline, &QPushButton::clicked, [this]() { decline(); });
 	connect(m_hang_up, &QPushButton::clicked, [this]() { hang_up(); });
@@ -148,9 +149,43 @@ bool fzn_call_bar::refresh()
 	m_mute->setVisible(m_state == FZN_RPC_UP);
 	m_camera->setVisible(m_state == FZN_RPC_UP && m_video && chosen && (chosen->kinds & FZN_RPC_VIDEO));
 	m_hang_up->setVisible(m_state == FZN_RPC_UP || m_state == FZN_RPC_RINGING_OUT);
+	/* RINGING HERE: the host told as it starts and stops, and the bar a
+	 * screen while it rings, where allowed (sec 1247). */
+	const bool ringing = m_state == FZN_RPC_RINGING_IN;
+	as_screen(ringing && m_screen_allowed);
+	if (ringing != m_ringing) {
+		m_ringing = ringing;
+		if (m_ringing_told)
+			m_ringing_told(ringing);
+	}
 	/* HIDDEN WHILE THERE IS NOTHING TO SAY. */
 	setVisible(!m_said->text().isEmpty());
 	return true;
+}
+
+void fzn_call_bar::set_screen(bool allowed)
+{
+	m_screen_allowed = allowed;
+	as_screen(allowed && m_state == FZN_RPC_RINGING_IN);
+}
+
+/* THE BAR AS A SCREEN: stacked, the caller in a large face, Answer and
+ * Decline tall enough to be found without looking for them. */
+void fzn_call_bar::as_screen(bool on)
+{
+	if (on == m_screen_on)
+		return;
+	m_screen_on = on;
+	m_row->setDirection(on ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight);
+	QFont big = font();
+	if (on)
+		big.setPointSizeF(big.pointSizeF() > 0 ? big.pointSizeF() * 1.8 : 18.0);
+	m_said->setFont(big);
+	m_said->setAlignment(on ? Qt::AlignCenter : Qt::AlignLeft | Qt::AlignVCenter);
+	for (QPushButton *b : { m_answer, m_decline }) {
+		b->setFont(big);
+		b->setMinimumHeight(on ? 4 * QFontMetrics(big).height() : 0);
+	}
 }
 
 bool fzn_call_bar::respond(const char *what, int state)

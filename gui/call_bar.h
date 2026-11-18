@@ -29,6 +29,8 @@
 #include <QStringList>
 #include <QWidget>
 
+#include <functional>
+
 #include <stdint.h>
 
 class QLabel;
@@ -72,6 +74,15 @@ public:
 	/* The clock, seconds since 1970; 0 reads the system's. */
 	void set_now(uint32_t utc_s) { m_now = utc_s; }
 
+	/* A CALL RINGING HERE AS A SCREEN, sec 1247, fuzzypickles' walk: a thin
+	 * bar is easy to miss. Allowed, the bar grows while a call rings here
+	 * -- the caller large, Answer and Decline large beneath -- and the host
+	 * is told as ringing starts and stops, to raise the bar over the page
+	 * and let it go. */
+	void set_screen(bool allowed);
+	bool screen() const { return m_screen_on; }
+	void on_ringing(std::function<void(bool ringing)> told) { m_ringing_told = told; }
+
 private:
 	uint32_t now() const;
 	bool respond(const char *what, int state);
@@ -94,6 +105,10 @@ private:
 	uint32_t m_ended_at = 0;
 	QLabel *m_said;
 	QPushButton *m_answer, *m_decline, *m_mute, *m_camera, *m_hang_up;
+	class QBoxLayout *m_row;
+	bool m_screen_allowed = false, m_screen_on = false, m_ringing = false;
+	std::function<void(bool)> m_ringing_told;
+	void as_screen(bool on);
 };
 
 #endif /* FZN_GUI_CALL_BAR_H */

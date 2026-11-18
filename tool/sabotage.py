@@ -17440,6 +17440,20 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"call-bar-never-a-screen",
+		"gui/call_bar.cpp",
+		"\tas_screen(ringing && m_screen_allowed);\n",
+		"\tas_screen(false);\n",
+		"a call ringing here stays a thin bar where a screen was allowed -- sec 1247",
+	),
+	(
+		"call-bar-ringing-told-always",
+		"gui/call_bar.cpp",
+		"\tif (ringing != m_ringing) {\n",
+		"\tif (1) {\n",
+		"the host is told a call rings at every refresh, not as it starts -- sec 1247",
+	),
+	(
 		"call-bar-prefers-up",
 		"gui/call_bar.cpp",
 		"\t\t\treturn state == FZN_RPC_RINGING_IN ? 3 : state == FZN_RPC_UP ? 2 : 1;\n",
