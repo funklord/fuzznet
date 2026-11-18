@@ -112,6 +112,7 @@ private:
 	void draw_stickers();
 	bool send_line(const QByteArray &text);
 	bool refresh_lines();
+	void merge_calls(bool full, uint32_t now);
 	void offer_for(class QListWidgetItem *item);
 	/* THE LINE CHOSEN, by its text, kept across a refresh (sec 1253). */
 	QString m_chosen;

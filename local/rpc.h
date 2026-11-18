@@ -453,6 +453,30 @@ int fzn_rpc_calls(fzn_rpc_t *c, fzn_rpc_entry_t *out, size_t cap, size_t *count)
  * still live. An error, the node's words, when it knows no such call. */
 #define FZN_RPC_REASON_MAX 24
 int fzn_rpc_ended(fzn_rpc_t *c, const char *id, char *reason, size_t cap);
+
+/* A CONTACT'S PAST CALLS, by the name this user gave them (fuzznet sec
+ * 1255): newest first by when each was rung, kept on every device of the
+ * user, never a line. OUT 1 where this user rang; OUTCOME an
+ * FZN_RPC_CALL_ word; STARTED seconds since 1970; SECONDS how long it was
+ * up. `*count` of them, at most `cap`. */
+#define FZN_RPC_CALL_HISTORY_MAX 20
+#define FZN_RPC_CALL_ANSWERED 1
+#define FZN_RPC_CALL_MISSED 2
+#define FZN_RPC_CALL_DECLINED 3
+#define FZN_RPC_CALL_BUSY 4
+#define FZN_RPC_CALL_NO_ANSWER 5
+#define FZN_RPC_CALL_ELSEWHERE 6
+#define FZN_RPC_CALL_FAILED 7
+typedef struct fzn_rpc_call_past {
+	char id[FZN_RPC_ID_HEX + 1];
+	uint8_t out;
+	uint8_t kinds;
+	uint8_t outcome;
+	uint64_t started;
+	uint32_t seconds;
+} fzn_rpc_call_past_t;
+int fzn_rpc_call_history(fzn_rpc_t *c, const char *who, size_t who_len, fzn_rpc_call_past_t *out, size_t cap,
+                         size_t *count);
 /* REASON as a person reads it; the word itself for one this client does not
  * know, so a reason fuzznet adds later is still said. */
 const char *fzn_rpc_ended_words(const char *reason);

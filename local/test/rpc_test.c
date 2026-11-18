@@ -1136,6 +1136,38 @@ static void test_show_in_binary(void)
 	      "this host's fixes were not read in binary, newest first, another host's left out");
 }
 
+/* A CONTACT'S PAST CALLS IN BINARY, sec 1255: asked by the name, each row
+ * read with its id, direction, kinds, outcome, start and length, one past
+ * the room left out; a refusal in the node's words. */
+static void test_call_history_in_binary(void)
+{
+	static struct bscript held, refused;
+	static const uint8_t ids[2][8] = { { 0xb1, 0, 0, 0, 0, 0, 0, 0xb8 }, { 0xa1, 0, 0, 0, 0, 0, 0, 0xa8 } };
+	fzn_rpc_call_past_t out[1];
+	uint8_t row[32], m[64];
+	uint32_t row_len = 0, n = 0;
+	size_t count = 0, i;
+
+	for (i = 0; i < 2u; i++)
+		if (fzn_call_past_row_build(row, sizeof(row), i ? 2u : 1u, i ? 1u : 3u, i ? 2u : 1u, i ? 1700005850u : 1700005990u,
+		                            i ? 0u : 252u, &row_len)
+		            == SITU_OK
+		    && fzn_call_message_build_past_row(m, sizeof(m), (uint8_t)FZN_CMD_CALL, ids[i], row, row_len, &n) == SITU_OK)
+			framed(&held, 0, m, n);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_call_history(&c, "bob", 3, out, 1u, &count) == FZN_RPC_OK && count == 1u
+	              && strcmp(out[0].id, "b1000000000000b8") == 0 && out[0].out && out[0].kinds == 3u
+	              && out[0].outcome == FZN_RPC_CALL_ANSWERED && out[0].started == 1700005990u && out[0].seconds == 252u
+	              && held.asked[0][0] == 0x12 && held.asked[0][1] == 0x87 && held.asked[0][10] == 3u
+	              && memcmp(held.asked[0] + 11, "bob", 3) == 0,
+	      "a contact's past calls were not read in binary, asked by the name, one past the room left out");
+	status_onto(&refused, 0, FZN_STATUS_ERROR, "no such contact");
+	bon(&c, &refused);
+	CHECK(fzn_rpc_call_history(&c, "nobody", 6, out, 1u, &count) != FZN_RPC_OK && strstr(c.error, "no such contact"),
+	      "a contact nobody has was not refused in the node's words");
+}
+
 /* THIS USER'S CALLS IN BINARY, sec 1251: rows read with their id, state,
  * kinds and user, one past the room given left out; a reason read; a live
  * call no reason; answered by its id; a refusal in the node's words. */
@@ -2250,6 +2282,7 @@ int main(void)
 	test_invites_in_binary();
 	test_show_in_binary();
 	test_calls_in_binary();
+	test_call_history_in_binary();
 	test_stickers_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

@@ -30,6 +30,10 @@ struct frame size=15.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
   frame.pieces                           offset=AbsoluteStatic(0x0D) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   frame.media                            offset=AbsoluteStatic(0x0F) size=Unbounded align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
+struct history size=2..33 mutate=Shifting
+  history.name_len                       offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  history.name                           offset=AbsoluteStatic(0x01) size=Bounded(1, 32) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
 struct message size=10.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   message.kind                           offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
@@ -83,12 +87,28 @@ struct message size=10.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.body.ended_row.why             offset=AbsoluteStatic(0x0B) size=Bounded(1, 23) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   message.body.respond                   offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.respond.what              offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.history                   offset=AbsoluteStatic(0x0A) size=Bounded(2, 33) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.history.name_len          offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.history.name              offset=AbsoluteStatic(0x0B) size=Bounded(1, 32) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.past_row                  offset=AbsoluteStatic(0x0A) size=Fixed(15) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.past_row.direction        offset=AbsoluteStatic(0x0A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.past_row.kinds            offset=AbsoluteStatic(0x0B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.past_row.outcome          offset=AbsoluteStatic(0x0C) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  message.body.past_row.started          offset=AbsoluteStatic(0x0D) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.past_row.seconds          offset=AbsoluteStatic(0x15) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
 
 struct nothing size=0
 
 struct participant size=34 repr=ValueConverted atomic=NonAtomic
   participant.index                      offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   participant.whom                       offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+
+struct past_row size=15 repr=ValueConverted atomic=NonAtomic
+  past_row.direction                     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  past_row.kinds                         offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  past_row.outcome                       offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  past_row.started                       offset=AbsoluteStatic(0x03) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  past_row.seconds                       offset=AbsoluteStatic(0x0B) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
 
 struct report size=19 repr=ValueConverted atomic=NonAtomic
   report.stream                          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord

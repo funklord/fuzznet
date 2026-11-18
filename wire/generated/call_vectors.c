@@ -562,6 +562,54 @@ static void test_message_respond(void **state)
 	situ_check_bytes(buf, vector_message_respond, sizeof(buf));
 }
 
+/* message / history */
+static const uint8_t vector_message_history[14u] = {
+	0x12, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x62, 0x6F, 0x62,
+};
+
+static void test_message_history(void **state)
+{
+	uint8_t     buf[14u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_history, sizeof(buf));
+	situ_msg_init(&msg, buf, 14u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 14u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_history, sizeof(buf));
+}
+
+/* message / past_row */
+static const uint8_t vector_message_past_row[25u] = {
+	0x12, 0x88, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0x01, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x6A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC,
+};
+
+static void test_message_past_row(void **state)
+{
+	uint8_t     buf[25u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_past_row, sizeof(buf));
+	situ_msg_init(&msg, buf, 25u);
+	situ_check_eq(fzn_call_message_view(&msg, 0, 25u, &view), SITU_OK);
+	situ_check_eq(fzn_call_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_call_message_cmd_set(view, fzn_call_message_cmd_get(view));
+	fzn_call_message_kind_set(&msg, view, fzn_call_message_kind_get(view));
+	situ_check_bytes(buf, vector_message_past_row, sizeof(buf));
+}
+
 int main(void)
 {
 	const struct situ_check_case tests[] = {
@@ -584,6 +632,8 @@ int main(void)
 		situ_check_case(test_message_ended),
 		situ_check_case(test_message_ended_row),
 		situ_check_case(test_message_respond),
+		situ_check_case(test_message_history),
+		situ_check_case(test_message_past_row),
 	};
 
 	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");

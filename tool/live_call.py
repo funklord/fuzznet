@@ -18,7 +18,7 @@ contact's. Each host's own client is a caller on its socket.
        how long B held it, and the client reads the round trip (sec 1026)
     k2 each end's call history (`list call history NAME`, sec 1255) holds f's
        call answered and k's unanswered -- out and no-answer at A, in and
-       missed at B -- newest first
+       missed at B -- newest first, in words and in binary alike
     f  A hangs up, in binary; B holds the call no more, and B's subscriber was
        told so; why it ended said in binary as in words, and a call nobody
        holds refused in words
@@ -449,6 +449,14 @@ def main(argv):
 				   or call not in byid or byid[call][1] != mine or byid[call][3] != "answered" \
 				   or int(byid[call][5]) > 600 or [int(r[4]) for r in h] != sorted((int(r[4]) for r in h), reverse=True):
 					raise failed("k2: %s's history of %s is %r" % (who.upper(), name, h))
+				# AND THE SAME IN BINARY: a past_row each, as the words say.
+				got = binary(socks[who], bytes([0x12, 0x87]) + bytes(8) + bytes([len(name)]) + name.encode())
+				words = {"answered": 1, "missed": 2, "declined": 3, "busy": 4, "no-answer": 5, "elsewhere": 6, "failed": 7}
+				listed = [[r[2:10].hex(), "out" if r[10] == 1 else "in", str(r[11]),
+				         next(k for k, v in words.items() if v == r[12]), str(int.from_bytes(r[13:21], "big")),
+				         str(int.from_bytes(r[21:25], "big"))] for r in got[:-1]]
+				if listed != h or got[-1][:2] != bytes([0x13, 0]):
+					raise failed("k2: %s's history in binary %r against %r" % (who.upper(), listed, h))
 			print("livecheck: k2: each end's history holds f's call answered and k's %s, "
 			      "newest first, each from its own side" % "unanswered")
 

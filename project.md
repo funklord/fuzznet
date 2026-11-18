@@ -91974,16 +91974,35 @@ journal a user's devices already exchange -- and never a line.
 - **`list call history NAME`**: `ok N ID,DIRECTION,KINDS,OUTCOME,STARTED,SECONDS ...`,
   newest first.
 
-**Step 2, next:** the typed client and its binary form, and the
-conversation merging the history into its lines by time -- "Missed call
-from bob", "Call with bob, 4:12".
+**Step 2, the same day: the client and the conversation.**
+
+- **In binary**: the call schema's local kinds gain `history` (135), by
+  the contact's name as this user gave it -- one round trip, where a key
+  would cost a contacts listing first -- answered by a `past_row` (136)
+  per call, the header's CALL its id; asked whether or not this node
+  makes calls, since another device of the user may have.
+- **`fzn_rpc_call_history`**, binary first, `list call history NAME`
+  behind.
+- **The conversation merges them** (`merge_calls`): each call placed among
+  the lines by when it was rung, after any line at the same second;
+  older than the oldest line shown only where the page holds every line.
+  In this user's words from their side -- "Missed call from bob", "You
+  called bob, 4:12 (video)", "bob declined your call", "bob called you,
+  taken on another device" -- and never a line: not marked read, offering
+  nothing when chosen. Groups keep none, as step 1 writes none.
 
 **Tests:** messages_test -- kept newest first as written; not unread,
 not a line; carried to the other device; answered on B wins over missed
 on A, and stays over a later "elsewhere"; past twenty the oldest let go;
 rebuilt by a reindex; bodies out of range refused. `live_call` phase k2:
 each end holds f's call answered and k's unanswered, out and no-answer
-at A, in and missed at B, newest first. Five sabotages, each caught
+at A, in and missed at B, newest first -- in binary row for row as in
+words. rpc_test: rows read by name, one past the room left out, a
+refusal in the node's words. conversation_view_test: bob's two calls
+among his four lines at their times, in words; a call chosen offers
+nothing. Four more sabotages, each caught (`history-client-direction-flipped`,
+`history-view-calls-at-end`, `history-view-missed-unsaid`,
+`history-node-binary-rows-unwritten`). Five sabotages, each caught
 (`history-not-carried`, `history-answered-loses`,
 `history-equal-second-behind`, `history-direction-swapped`,
 `history-missed-as-no-answer`, the last three by live_call alone).

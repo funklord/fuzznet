@@ -19089,8 +19089,36 @@ static int local_calls(int fd, fzn_origin_t origin, const uint8_t *msg, size_t l
 	    || fzn_call_message_validate(v) != SITU_OK)
 		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a calls request"), 0;
 	kind = fzn_call_message_kind_get(v);
-	if (kind != FZN_CALL_KIND_CALLS && kind != FZN_CALL_KIND_ENDED && kind != FZN_CALL_KIND_RESPOND)
+	if (kind != FZN_CALL_KIND_CALLS && kind != FZN_CALL_KIND_ENDED && kind != FZN_CALL_KIND_RESPOND
+	    && kind != FZN_CALL_KIND_HISTORY)
 		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a calls request"), 0;
+	/* A CONTACT'S PAST CALLS, sec 1255: a row each, newest first, as `list
+	 * call history NAME` lists them; kept whether or not this node makes
+	 * calls, since another device of the user may have. */
+	if (kind == FZN_CALL_KIND_HISTORY) {
+		fzn_message_call_t got[FZN_MESSAGES_CALLS_MAX];
+		fzn_contact_t who;
+		size_t count = 0;
+
+		if (fzn_call_message_body_history_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a calls request"), 0;
+		if (fzn_contact_find(node_apply.store, (const char *)fzn_call_history_name_ptr(b),
+		                     fzn_call_history_name_len(b), &who)
+		    != FZN_CONTACT_OK)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "no such contact"), 0;
+		if (fzn_messages_calls(&node_messages.m, who.key, got, FZN_MESSAGES_CALLS_MAX, &count) != FZN_MESSAGES_OK)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "this node keeps no messages"), 0;
+		for (i = 0; i < count; i++)
+			if (fzn_call_past_row_build(row, sizeof(row), got[i].direction, got[i].kinds, got[i].outcome,
+			                            got[i].started, got[i].seconds, &row_len)
+			            != SITU_OK
+			    || fzn_call_message_build_past_row(out, sizeof(out), (uint8_t)FZN_CMD_CALL, got[i].id, row, row_len,
+			                                       &k)
+			               != SITU_OK
+			    || !local_put(&fd, out, k))
+				return 0;
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	}
 	if (!contact_id || !serving_state)
 		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node makes no calls"), 0;
 	if (kind == FZN_CALL_KIND_CALLS) {

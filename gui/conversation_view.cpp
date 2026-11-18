@@ -44,6 +44,10 @@ extern "C" {
  * for a group member's -- and when, with where this user's has got to. */
 #define ROLE_BODY (Qt::UserRole + 3)
 #define ROLE_META (Qt::UserRole + 4)
+/* WHEN IT HAPPENED, seconds since 1970, to place a call among the lines by
+ * (sec 1255); and whether the row is a call rather than a line. */
+#define ROLE_AT (Qt::UserRole + 5)
+#define ROLE_CALL (Qt::UserRole + 6)
 
 /* A LINE AS A BUBBLE ON A PHONE, sec 1241, fuzzypickles' 1700Z item 2: this
  * user's at the right, everyone else's at the left, each wrapped within
@@ -419,6 +423,74 @@ bool fzn_conversation_view::refresh()
 	return r;
 }
 
+/* A PAST CALL IN A PERSON'S WORDS, from this user's side (sec 1255). */
+static QString call_words(const fzn_rpc_call_past_t &p, const QString &who)
+{
+	const QString video = (p.kinds & 2u) ? QObject::tr(" (video)") : QString();
+
+	switch (p.outcome) {
+	case FZN_RPC_CALL_ANSWERED: {
+		const QString lasted = p.seconds >= 3600u ? QStringLiteral("%1:%2:%3")
+		                                                    .arg(p.seconds / 3600u)
+		                                                    .arg(p.seconds / 60u % 60u, 2, 10, QLatin1Char('0'))
+		                                                    .arg(p.seconds % 60u, 2, 10, QLatin1Char('0'))
+		                                          : QStringLiteral("%1:%2")
+		                                                    .arg(p.seconds / 60u)
+		                                                    .arg(p.seconds % 60u, 2, 10, QLatin1Char('0'));
+		return (p.out ? QObject::tr("You called %1, %2").arg(who, lasted)
+		              : QObject::tr("%1 called you, %2").arg(who, lasted))
+		       + video;
+	}
+	case FZN_RPC_CALL_MISSED:
+		return QObject::tr("Missed call from %1").arg(who) + video;
+	case FZN_RPC_CALL_DECLINED:
+		return (p.out ? QObject::tr("%1 declined your call").arg(who) : QObject::tr("You declined %1's call").arg(who))
+		       + video;
+	case FZN_RPC_CALL_BUSY:
+		return QObject::tr("You called %1, busy").arg(who) + video;
+	case FZN_RPC_CALL_NO_ANSWER:
+		return QObject::tr("You called %1, no answer").arg(who) + video;
+	case FZN_RPC_CALL_ELSEWHERE:
+		return QObject::tr("%1 called you, taken on another device").arg(who) + video;
+	default:
+		return (p.out ? QObject::tr("You called %1, it did not connect").arg(who)
+		              : QObject::tr("%1's call did not connect").arg(who))
+		       + video;
+	}
+}
+
+/* THE CALLS AMONG THE LINES, sec 1255: each placed by when it was rung,
+ * after the lines before it; past the oldest line shown only where the
+ * page holds every line. Never a line: not read, not marked, not
+ * offered anything. A node that keeps no history adds none. */
+void fzn_conversation_view::merge_calls(bool full, uint32_t now)
+{
+	fzn_rpc_call_past_t past[FZN_RPC_CALL_HISTORY_MAX];
+	const QByteArray who = m_contact.toUtf8();
+	size_t n = 0, i;
+
+	if (fzn_rpc_call_history(&m_rpc->c, who.constData(), (size_t)who.size(), past, FZN_RPC_CALL_HISTORY_MAX, &n)
+	    != FZN_RPC_OK)
+		return;
+	const qulonglong oldest = full && m_lines->count() ? m_lines->item(0)->data(ROLE_AT).toULongLong() : 0u;
+	for (i = 0; i < n; i++) {
+		int at = m_lines->count();
+
+		if (past[i].started < oldest)
+			continue;
+		while (at > 0 && m_lines->item(at - 1)->data(ROLE_AT).toULongLong() > past[i].started)
+			at--;
+		const QString said = call_words(past[i], m_contact);
+		auto *item = new QListWidgetItem(QStringLiteral("%1 %2").arg(when_words(now, past[i].started), said));
+		item->setData(ROLE_AT, (qulonglong)past[i].started);
+		item->setData(ROLE_CALL, true);
+		item->setData(ROLE_IN, !past[i].out);
+		item->setData(ROLE_BODY, said);
+		item->setData(ROLE_META, when_words(now, past[i].started));
+		m_lines->insertItem(at, item);
+	}
+}
+
 bool fzn_conversation_view::refresh_lines()
 {
 	if (m_contact.isEmpty())
@@ -461,8 +533,10 @@ bool fzn_conversation_view::refresh_lines()
 		item->setData(ROLE_IN, !l->outgoing);
 		item->setData(ROLE_BODY, content_words(l->text, l->text_len));
 		item->setData(ROLE_META, when_words(now, l->stime) + state_words(l));
+		item->setData(ROLE_AT, (qulonglong)l->stime);
 		m_lines->addItem(item);
 	}
+	merge_calls(count >= m_max, now);
 	for (i = 0; i < count && !newest_in; i++)
 		if (!lines[i].outgoing)
 			newest_in = &lines[i];

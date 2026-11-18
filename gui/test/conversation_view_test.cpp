@@ -85,6 +85,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                        "see%%20you%%1b[2J " BOB ",bob," ID2 ",out,delivered,1700005800000,"
 		                        "1700005800000,1,on%%20my%%20way " BOB ",bob," ID1 ",in,read,"
 		                        "1699900000000,1699900000000,1,hello\n");
+	/* BOB'S CALLS, newest first (sec 1255): this user's video call to him
+	 * at 23:53, 4:12 long, and one from him at 23:50 nobody answered. */
+	if (!strcmp(line, "list call history bob"))
+		return (size_t)snprintf(reply, cap, "ok 2 b1b2b3b4b5b6b7b8,out,3,answered,1700005990,252 "
+		                                    "a1a2a3a4a5a6a7a8,in,1,missed,1700005850,0\n");
 	/* THE GROUP: carol's line, then this user's, then a member with no
 	 * contact here, named by the first bytes of their key. */
 	if (!strcmp(line, "list message @family 0"))
@@ -137,8 +142,13 @@ int main(int argc, char **argv)
 	v.set_now(NOW);
 	CHECK(v.open("bob")
 	              && v.lines() == QStringList({ "2023-11-13 18:26 bob: hello", "23:50 You: on my way (delivered)",
-	                                            "23:51 bob: see you^[[2J", "23:52 You: ok (sending)" }),
-	      "the lines were not shown oldest first, with who and when, the escape in caret form");
+	                                            "23:50 Missed call from bob", "23:51 bob: see you^[[2J",
+	                                            "23:52 You: ok (sending)", "23:53 You called bob, 4:12 (video)" }),
+	      "the lines were not shown oldest first, with who and when, the escape in caret form, and the calls "
+	      "among them by when each was rung (sec 1255)");
+	v.select_line(2);
+	CHECK(v.offered().isEmpty(), "a call among the lines offered something, as a line might");
+	v.select_line(-1);
 	CHECK(!strcmp(last_set, "set message bob read " ID3),
 	      "the read position was not set at the newest line that came in, past this user's own");
 
@@ -167,7 +177,7 @@ int main(int argc, char **argv)
 	}
 	v.resize(800, 600);
 	app.processEvents();
-	CHECK(!v.bubbles() && !v.bubble_rect(1).isValid() && v.lines().value(3) == "23:52 You: ok (sending)",
+	CHECK(!v.bubbles() && !v.bubble_rect(1).isValid() && v.lines().value(4) == "23:52 You: ok (sending)",
 	      "a desktop's width did not show the log, its lines as they were");
 	v.hide();
 

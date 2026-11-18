@@ -32,6 +32,8 @@ enum kind : u8 {
 	ended       = 132, // why CALL ended, as `get call ID`
 	ended_row   = 133, // an answer: the reason, where it has ended
 	respond     = 134, // CALL answered, declined or hung up
+	history     = 135, // a contact's past calls, by name, sec 1255; CALL zero
+	past_row    = 136, // an answer: one past call, CALL its id
 	default     = error,
 }
 
@@ -90,6 +92,24 @@ struct ended_row {
 	u8  why[why_len];
 }
 
+// WHOSE: the contact's name, as this user named them.
+struct history {
+	u8  name_len [min = 1, max = 32];
+	u8  name[name_len];
+}
+
+// A PAST CALL, messages/line.situ's fzn_message_call: DIRECTION 1 out, 2
+// in; OUTCOME 1 answered, 2 missed, 3 declined, 4 busy, 5 no-answer, 6
+// elsewhere, 7 failed; STARTED when it was rung, seconds since 1970;
+// SECONDS how long it was up.
+struct past_row {
+	u8  direction [min = 1, max = 2];
+	u8  kinds [min = 1, max = 3];
+	u8  outcome [min = 1, max = 7];
+	u64 started;
+	u32 seconds;
+}
+
 // WHAT 2 answer, 3 decline, 4 hang up: the kinds that say them between hosts.
 struct respond {
 	u8  what [min = 2, max = 4];
@@ -120,6 +140,8 @@ struct message {
 		case kind.ended:       nothing           ended;
 		case kind.ended_row:   ended_row         ended_row;
 		case kind.respond:     respond           respond;
+		case kind.history:     history           history;
+		case kind.past_row:    past_row          past_row;
 		default: error;
 	}
 }

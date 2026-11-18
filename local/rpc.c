@@ -6055,6 +6055,7 @@ int fzn_rpc_ring(fzn_rpc_t *c, const char *who, size_t who_len, uint8_t kinds,
  * ended, then a STATUS. */
 struct calls_answer {
 	fzn_rpc_entry_t *out;
+	fzn_rpc_call_past_t *past;
 	size_t cap, *count;
 	char *reason;
 	size_t reason_cap;
@@ -6096,6 +6097,19 @@ static void calls_each(void *ctx, const uint8_t *msg, size_t len) {
 		e.has_user = fzn_call_call_row_has_user_get(b);
 		if (e.has_user) memcpy(e.user, fzn_call_call_row_user_ptr(b), 32);
 		if (*a->count < a->cap) a->out[(*a->count)++] = e;
+		return;
+	}
+	if (a->past && fzn_call_message_kind_get(v) == FZN_CALL_KIND_PAST_ROW
+	    && fzn_call_message_body_past_row_view(v, &b) == SITU_OK) {
+		fzn_rpc_call_past_t p;
+		memset(&p, 0, sizeof p);
+		fzn_hex_encode(fzn_call_message_call_ptr(v), 8, p.id);
+		p.out = fzn_call_past_row_direction_get(b) == 1;
+		p.kinds = fzn_call_past_row_kinds_get(b);
+		p.outcome = fzn_call_past_row_outcome_get(b);
+		p.started = fzn_call_past_row_started_get(b);
+		p.seconds = fzn_call_past_row_seconds_get(b);
+		if (*a->count < a->cap) a->past[(*a->count)++] = p;
 		return;
 	}
 	if (a->reason && !a->reason[0] && fzn_call_message_kind_get(v) == FZN_CALL_KIND_ENDED_ROW
@@ -6224,6 +6238,71 @@ const char *fzn_rpc_ended_words(const char *reason) {
 }
 
 /* `list call`: `ok N ID,STATE,KINDS ...`, every live call. */
+/* `list call history NAME`'s words: the outcome word to its number. */
+static uint8_t call_outcome_of(const char *w, size_t n) {
+	static const char *const WORDS[] = { "answered", "missed", "declined", "busy", "no-answer", "elsewhere", "failed" };
+	for (size_t i = 0; i < sizeof WORDS / sizeof WORDS[0]; i++)
+		if (strlen(WORDS[i]) == n && memcmp(WORDS[i], w, n) == 0) return (uint8_t)(i + 1);
+	return 0;
+}
+
+int fzn_rpc_call_history(fzn_rpc_t *c, const char *who, size_t who_len, fzn_rpc_call_past_t *out, size_t cap,
+                         size_t *count) {
+	*count = 0;
+	if (!who || !who_len || who_len > FZN_RPC_PEER_NAME_MAX || memchr(who, ' ', who_len) || (cap && !out))
+		return node_unasked(c, FZN_RPC_ERR_MALFORMED, "a contact is asked by its name");
+	/* IN BINARY FIRST, sec 1255: by the name, a row a call. */
+	{
+		uint8_t req[2 + 8 + 1 + FZN_RPC_PEER_NAME_MAX];
+		struct calls_answer a;
+		int text = 0;
+		memset(req, 0, sizeof req);
+		req[0] = FZN_CMD_CALL;
+		req[1] = FZN_CALL_KIND_HISTORY;
+		req[10] = (uint8_t)who_len;
+		memcpy(req + 11, who, who_len);
+		memset(&a, 0, sizeof a);
+		a.past = out;
+		a.cap = cap;
+		a.count = count;
+		const int brc = calls_binary(c, req, 11 + who_len, &a, &text);
+		if (!text) return brc;
+		*count = 0;
+	}
+	/* `ok N ID,DIRECTION,KINDS,OUTCOME,STARTED,SECONDS ...`. */
+	char arg[16 + FZN_RPC_PEER_NAME_MAX];
+	const char *rest = NULL;
+	size_t rest_len = 0, at = 0, n = 0;
+	const int rc = fzn_rpc_node(c, "list", arg, (size_t)snprintf(arg, sizeof arg, "call history %.*s", (int)who_len, who),
+	                            &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	if (!node_number(rest, rest_len, &at, &n)) return unreadable(c);
+	const char *p = rest + at, *end = rest + rest_len, *w;
+	size_t w_len;
+	while (node_word(&p, end, &w, &w_len)) {
+		const char *q = w, *stop = w + w_len, *f;
+		size_t f_len;
+		uint64_t kinds = 0, started = 0, seconds = 0;
+		fzn_rpc_call_past_t e;
+		memset(&e, 0, sizeof e);
+		if (!node_field(&q, stop, &f, &f_len) || f_len != FZN_RPC_ID_HEX) return unreadable(c);
+		memcpy(e.id, f, FZN_RPC_ID_HEX);
+		if (!node_field(&q, stop, &f, &f_len) || !((f_len == 3 && !memcmp(f, "out", 3)) || (f_len == 2 && !memcmp(f, "in", 2))))
+			return unreadable(c);
+		e.out = f_len == 3;
+		if (!node_field(&q, stop, &f, &f_len) || !node_u64(f, f_len, &kinds) || !kinds || kinds > 3) return unreadable(c);
+		e.kinds = (uint8_t)kinds;
+		if (!node_field(&q, stop, &f, &f_len) || !(e.outcome = call_outcome_of(f, f_len))) return unreadable(c);
+		if (!node_field(&q, stop, &f, &f_len) || !node_u64(f, f_len, &started) || !node_field(&q, stop, &f, &f_len)
+		    || !node_u64(f, f_len, &seconds) || seconds > UINT32_MAX)
+			return unreadable(c);
+		e.started = started;
+		e.seconds = (uint32_t)seconds;
+		if (*count < cap) out[(*count)++] = e;
+	}
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_calls(fzn_rpc_t *c, fzn_rpc_entry_t *out, size_t cap, size_t *count) {
 	*count = 0;
 	{

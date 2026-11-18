@@ -21,3 +21,5 @@ message call_row   12 83 A1 A2 A3 A4 A5 A6 A7 A8 01 03 01 5A 5A 5A 5A 5A 5A 5A 5
 message ended      12 84 A1 A2 A3 A4 A5 A6 A7 A8
 message ended_row  12 85 A1 A2 A3 A4 A5 A6 A7 A8 04 62 75 73 79
 message respond    12 86 A1 A2 A3 A4 A5 A6 A7 A8 02
+message history    12 87 00 00 00 00 00 00 00 00 03 62 6F 62
+message past_row   12 88 A1 A2 A3 A4 A5 A6 A7 A8 01 03 01 00 00 00 00 6A 00 00 00 00 00 00 FC
