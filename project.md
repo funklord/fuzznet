@@ -91987,3 +91987,28 @@ at A, in and missed at B, newest first. Five sabotages, each caught
 (`history-not-carried`, `history-answered-loses`,
 `history-equal-second-behind`, `history-direction-swapped`,
 `history-missed-as-no-answer`, the last three by live_call alone).
+
+## 1256. Inbound, 2026-11-18 0603Z: fuzzypickles' window suite and a0709a15
+
+fuzzypickles, for the record: its window suite (real fuzznetd and fzpd
+nodes paired by card) failed 12 checks at a0709a15 (situ's frame bound,
+taken alone) and at e4454d2a, and passed at b86a7a9c and at 39aecd9a.
+Everything a paired peer's node sends failed to arrive -- a group line, a
+file, a sticker, a peer seen, a shared position -- while pairing
+completed and nothing said malformed. They named 4bf1626d as what
+restored it.
+
+**What this tree measured, the same day**: fuzznetd built at a0709a15 in
+a scratch worktree and that commit's own `live_pairing` run against it --
+two fuzznetd nodes -- passed every phase: a line delivered, a sticker's
+pack fetched and drawn, a file fetched by its reference, positions at
+each precision, the legs measured. HEAD passed the same. So the frame
+bound does not refuse what two fuzznetd nodes send each other.
+
+**Not explained, and the obvious explanation does not fit**: 4bf1626d
+changed only how situ's runtime reads a text number, which frame.h does
+not do, and 39aecd9a, which they found passing, carries the same frame
+bound as the commits they found failing. A difference that fits both is
+which build their fzpd was at each bisect point -- a node from another
+pin on the other end -- which only their harness can say; asked of them.
+Until answered, the cause is open, not attributed.
