@@ -31,6 +31,7 @@
 #include <QHash>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 #include <QWidget>
 
 #include <functional>
@@ -38,6 +39,7 @@
 
 class QLabel;
 class QPushButton;
+class QResizeEvent;
 class QTreeWidget;
 class QTreeWidgetItem;
 struct fzn_gui_rpc;
@@ -77,13 +79,30 @@ public:
 	/* WHY A ROW'S ACTION CANNOT BE TAKEN, where it is offered disabled --
 	 * empty where it can. As `actions` last offered it. */
 	QString refused(const QString &action) const;
+	/* ONE LIST ON A PHONE, sec 1245: whether the rows are shown flat --
+	 * contacts and groups together, newest first, a group marked -- not
+	 * under two headings. `open` and `act` count a kind's rows either way. */
+	bool flat() const;
 
 	/* WHAT IS ON SCREEN: each heading, then each conversation beneath it
 	 * indented, as shown; the status line. */
 	QStringList shown() const;
 	QString status() const;
 
+protected:
+	/* UNDER 400 PIXELS, one list; wider, two headings (sec 1245). */
+	void resizeEvent(QResizeEvent *event) override;
+
 private:
+	void lay_out();
+	/* A ROW AS READ, kept to lay out again at another width. */
+	struct row {
+		QString name, text, when, open;
+		size_t unread;
+		int kind;
+	};
+	QVector<row> m_rows;
+	bool m_flat = false;
 	QTreeWidgetItem *row_item(int group, int row) const;
 	int sharing(const QString &contact);
 	/* A GROUP'S MEMBERS THIS USER CAN NAME, this user not among them; 0

@@ -180,6 +180,41 @@ int main(int argc, char **argv)
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");
 
+	/* ONE LIST ON A PHONE, sec 1245: no headings, newest first, contacts
+	 * and groups together, the group marked; a group and a contact still
+	 * opened by their place among their kind; a desktop's two headings
+	 * back at its width. */
+	silent = 0;
+	v.show();
+	v.resize(320, 600);
+	app.processEvents();
+	{
+		const QStringList rows = v.shown();
+
+		CHECK(v.flat() && rows.size() == 3 && rows.value(0).startsWith("  bob -- ")
+		              && rows.value(1).startsWith("  family -- ") && rows.value(1).contains("(group)")
+		              && rows.value(2).startsWith("  dan -- ") && !rows.contains("Contacts"),
+		      "on a phone the conversations were not one list, newest first, the group marked");
+		auto *tree = v.findChild<QTreeWidget *>();
+		CHECK(tree && tree->topLevelItemCount() == 3 && !tree->topLevelItem(1)->icon(0).isNull()
+		              && tree->topLevelItem(0)->icon(0).isNull(),
+		      "flat, the group was not marked by its icon, or a contact was");
+		opened.clear();
+		CHECK(v.open(1, 0) && opened == "@family" && v.open(0, 0) && opened == "bob",
+		      "flat, a group or a contact was not opened by its place among its kind");
+	}
+	v.resize(800, 600);
+	app.processEvents();
+	CHECK(!v.flat() && v.shown().value(0) == "Contacts", "a desktop's width did not bring the headings back");
+	/* AND WHAT THE REFRESH SAID STAYS through a change of width. */
+	silent = 1;
+	CHECK(!v.refresh(), "fixture: a silent node");
+	v.resize(320, 600);
+	app.processEvents();
+	CHECK(v.flat() && v.status() == "The node did not answer.", "a change of width wiped what the refresh said");
+	silent = 0;
+	v.hide();
+
 	CHECK(0, "deliberate");
 	failures--;
 	if (failures) {

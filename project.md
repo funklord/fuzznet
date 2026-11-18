@@ -91624,3 +91624,35 @@ her. Two sabotages, each caught (`gone-own-removal-untold` by f,
 `gone-grants-never-swept` by a4); the first build of the sweep ran every
 loop pass and so caught the own-removal sabotage itself -- paced to 30 s,
 each is caught by its own test.
+
+## 1245. The conversation list as one list on a phone, 2026-11-18
+
+fuzzypickles' 2000Z item 6: on a phone, one list -- contacts and groups
+together, newest first, a group marked -- where this view showed two
+headings. Under 400 pixels it now does, a group carrying a small drawn
+mark (two heads, in the text's colour) and said "a group" to a screen
+reader; a desktop keeps its two headings.
+
+- **Read once, laid out at either width**: refresh keeps the rows it read
+  and `lay_out` builds the tree from them, so a change of width lays the
+  list out again without asking the node.
+- **`open(group, row)` and `act` count a kind's rows either way** --
+  contacts 0, groups 1, in display order -- through `row_item`, which
+  `open` had bypassed by reading the headings itself; the context menu
+  finds a row's place the same way (`place_of`).
+- **The status is the refresh's, not the layout's.** The first build set
+  it in `lay_out`, and qtty -- laying the widget out at a narrow width
+  before any refresh -- found "No conversations yet." gone: a failure's
+  words would have gone the same way. A test holds it now.
+
+Still to come for this view: a group's members managed from its row's
+menu (sec 1232).
+
+**Tests:** conversations_view -- at 320 pixels one list, bob, family
+marked a group by its icon and in words, dan, no heading; a group and a
+contact opened by their place among their kind; at 800 the headings back;
+a silent refresh's words kept through a change of width. Four sabotages,
+each caught (`conversations-never-flat`,
+`conversations-flat-group-unmarked`, `conversations-flat-wrong-kind`,
+`conversations-layout-wipes-status`); sec 1138's two entries repointed to
+the rows as read. `make qtty` passes.

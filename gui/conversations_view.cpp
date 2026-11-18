@@ -15,9 +15,13 @@ extern "C" {
 #include <QHBoxLayout>
 #include <QHash>
 #include <QHeaderView>
+#include <QIcon>
 #include <QLabel>
 #include <QMenu>
+#include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -82,6 +86,27 @@ static QString line_words(const fzn_rpc_newest_entry_t *e)
 	return what;
 }
 
+/* WHICH ROW AN ITEM IS, as `open` and `act` count them, in either layout. */
+static bool place_of(const QTreeWidget *tree, QTreeWidgetItem *item, bool flat, int *group, int *row)
+{
+	if (!item)
+		return false;
+	if (!flat) {
+		QTreeWidgetItem *head = item->parent();
+		if (!head)
+			return false;
+		*group = tree->indexOfTopLevelItem(head);
+		*row = head->indexOfChild(item);
+		return true;
+	}
+	const bool is_group = item->data(0, ROLE_KIND).toInt() == ROW_GROUP;
+	*group = is_group ? 1 : 0;
+	*row = 0;
+	for (int i = 0; i < tree->indexOfTopLevelItem(item); i++)
+		*row += (tree->topLevelItem(i)->data(0, ROLE_KIND).toInt() == ROW_GROUP) == is_group;
+	return true;
+}
+
 fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
                                                QWidget *parent)
     : QWidget(parent), m_rpc(new fzn_gui_rpc), m_now(0)
@@ -125,11 +150,9 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(m_tree, &QTreeWidget::customContextMenuRequested, [this](const QPoint &at) {
-		QTreeWidgetItem *item = m_tree->itemAt(at);
-		QTreeWidgetItem *head = item ? item->parent() : nullptr;
-		if (!head)
+		int group = 0, row = 0;
+		if (!place_of(m_tree, m_tree->itemAt(at), m_flat, &group, &row))
 			return;
-		const int group = m_tree->indexOfTopLevelItem(head), row = head->indexOfChild(item);
 		QMenu menu(this);
 		for (const QString &a : actions(group, row)) {
 			QAction *offered = menu.addAction(a);
@@ -163,6 +186,88 @@ void fzn_conversations_view::set_badge(std::function<QString(const QString &, bo
 }
 
 QString fzn_conversations_view::refused(const QString &action) const { return m_refused.value(action); }
+
+/* A GROUP'S MARK in the one list a phone shows, sec 1245: two heads, in
+ * the text's own colour. */
+static QIcon group_icon(const QPalette &pal)
+{
+	QPixmap pm(16, 16);
+	pm.fill(Qt::transparent);
+	QPainter p(&pm);
+	p.setRenderHint(QPainter::Antialiasing, true);
+	p.setPen(Qt::NoPen);
+	p.setBrush(pal.color(QPalette::Text));
+	p.drawEllipse(QRectF(1, 2, 6, 6));
+	p.drawEllipse(QRectF(9, 2, 6, 6));
+	p.drawRoundedRect(QRectF(0, 9, 8, 6), 2, 2);
+	p.drawRoundedRect(QRectF(8, 9, 8, 6), 2, 2);
+	return QIcon(pm);
+}
+
+void fzn_conversations_view::lay_out()
+{
+	/* THE ROW CHOSEN, by what it opens, and the scroll, kept across the
+	 * refill (sec 1225): a host refreshing on its clock does not move the
+	 * person off the conversation they were about to open. */
+	fzn_keep_place place(m_tree, 0, ROLE_OPEN);
+	m_tree->clear();
+	QTreeWidgetItem *contacts = nullptr, *group_head = nullptr;
+	if (!m_flat) {
+		contacts = new QTreeWidgetItem(m_tree, { tr("Contacts") });
+		group_head = new QTreeWidgetItem(m_tree, { tr("Groups") });
+	}
+	for (const row &r : m_rows) {
+		const bool is_group = r.kind == ROW_GROUP;
+		/* ONE LIST ON A PHONE, NEWEST FIRST, contacts and groups together,
+		 * a group marked (fuzzypickles' 2000Z item 6). */
+		QTreeWidgetItem *item = m_flat ? new QTreeWidgetItem(m_tree, { r.text, QString(), r.when,
+		                                                                 r.unread ? QString::number(r.unread) : QString() })
+		                               : new QTreeWidgetItem(is_group ? group_head : contacts,
+		                                                     { r.text, QString(), r.when,
+		                                                       r.unread ? QString::number(r.unread) : QString() });
+		item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
+		if (m_flat && is_group) {
+			item->setIcon(0, group_icon(palette()));
+			item->setData(0, Qt::AccessibleDescriptionRole, tr("a group"));
+		}
+		/* THE UNREAD COUNT AS A MARK, bold in the highlight's colour, and
+		 * said in words to a screen reader. */
+		if (r.unread) {
+			QFont bold = item->font(3);
+			bold.setBold(true);
+			item->setFont(3, bold);
+			item->setForeground(3, palette().brush(QPalette::Highlight));
+			item->setData(3, Qt::AccessibleTextRole, tr("%n unread", nullptr, (int)r.unread));
+		}
+		/* AND THE HOST'S BADGE for a contact, dimmed when stale. */
+		if (r.kind == ROW_CONTACT && m_badge) {
+			bool stale = false;
+			const QString badge = m_badge(r.name, &stale);
+			item->setText(1, badge);
+			if (stale)
+				item->setForeground(1, palette().brush(QPalette::Disabled, QPalette::Text));
+		}
+		item->setData(0, ROLE_OPEN, r.open);
+		item->setData(0, ROLE_KIND, r.kind);
+	}
+	if (contacts) {
+		contacts->setExpanded(true);
+		group_head->setExpanded(true);
+	}
+	place.restore();
+}
+
+void fzn_conversations_view::resizeEvent(QResizeEvent *event)
+{
+	QWidget::resizeEvent(event);
+	const bool flat = event->size().width() < 400;
+	if (flat != m_flat) {
+		m_flat = flat;
+		lay_out();
+	}
+}
+
+bool fzn_conversations_view::flat() const { return m_flat; }
 
 bool fzn_conversations_view::refresh()
 {
@@ -200,13 +305,9 @@ bool fzn_conversations_view::refresh()
 	for (i = 0; i < n_unread; i++)
 		counts.insert(QByteArray((const char *)unread[i].key, 32), unread[i].count);
 
-	/* THE ROW CHOSEN, by what it opens, and the scroll, kept across the
-	 * refill (sec 1225): a host refreshing on its clock does not move the
-	 * person off the conversation they were about to open. */
-	fzn_keep_place place(m_tree, 0, ROLE_OPEN);
-	m_tree->clear();
-	auto *contacts = new QTreeWidgetItem(m_tree, { tr("Contacts") });
-	auto *group_head = new QTreeWidgetItem(m_tree, { tr("Groups") });
+	/* THE ROWS AS READ, laid out for the width they are shown at (sec
+	 * 1245): under headings on a desktop, one list on a phone. */
+	m_rows.clear();
 	for (i = 0; i < n; i++) {
 		const fzn_rpc_newest_entry_t *e = &newest[i];
 		QByteArray key((const char *)e->key, 32);
@@ -215,39 +316,19 @@ bool fzn_conversations_view::refresh()
 		 * -- is shown and opened by its key. */
 		QString name = is_group ? group_name.value(key)
 		               : contact_name.value(key, QString::fromLatin1(key.toHex()));
-		const QString text = QStringLiteral("%1 -- %2").arg(said(name.toUtf8().constData(),
-		                                                        (size_t)name.toUtf8().size()),
-		                                                   line_words(e));
-		const size_t count = counts.value(key, 0);
-		auto *item = new QTreeWidgetItem(is_group ? group_head : contacts,
-		                                  { text, QString(), e->stime_ms ? when_words(now, e->stime_ms) : QString(),
-		                                    count ? QString::number(count) : QString() });
-		item->setTextAlignment(2, Qt::AlignRight | Qt::AlignVCenter);
-		/* THE UNREAD COUNT AS A MARK, bold in the highlight's colour, and
-		 * said in words to a screen reader. */
-		if (count) {
-			QFont bold = item->font(3);
-			bold.setBold(true);
-			item->setFont(3, bold);
-			item->setForeground(3, palette().brush(QPalette::Highlight));
-			item->setData(3, Qt::AccessibleTextRole, tr("%n unread", nullptr, (int)count));
-		}
-		/* AND THE HOST'S BADGE for a contact, dimmed when stale. */
-		if (!is_group && m_badge && contact_name.contains(key)) {
-			bool stale = false;
-			const QString badge = m_badge(name, &stale);
-			item->setText(1, badge);
-			if (stale)
-				item->setForeground(1, palette().brush(QPalette::Disabled, QPalette::Text));
-		}
-		item->setData(0, ROLE_OPEN, is_group ? QStringLiteral("@") + name : name);
-		item->setData(0, ROLE_KIND, is_group                  ? ROW_GROUP
-		                            : contact_name.contains(key) ? ROW_CONTACT
-		                                                         : ROW_UNNAMED);
+		row r;
+		r.name = name;
+		r.text = QStringLiteral("%1 -- %2").arg(said(name.toUtf8().constData(), (size_t)name.toUtf8().size()),
+		                                        line_words(e));
+		r.when = e->stime_ms ? when_words(now, e->stime_ms) : QString();
+		r.unread = counts.value(key, 0);
+		r.open = is_group ? QStringLiteral("@") + name : name;
+		r.kind = is_group ? ROW_GROUP : contact_name.contains(key) ? ROW_CONTACT : ROW_UNNAMED;
+		m_rows.append(r);
 	}
-	contacts->setExpanded(true);
-	group_head->setExpanded(true);
-	place.restore();
+	lay_out();
+	/* THE STATUS IS THE REFRESH'S, not the layout's: laid out again at
+	 * another width, the list keeps whatever was last said of it. */
 	m_status->setText(!n ? tr("No conversations yet.")
 	                  : total > n ? tr("%1 of %2 conversations shown.").arg(n).arg(total)
 	                              : QString());
@@ -260,8 +341,7 @@ bool fzn_conversations_view::refresh()
 
 bool fzn_conversations_view::open(int group, int row)
 {
-	QTreeWidgetItem *head = m_tree->topLevelItem(group);
-	QTreeWidgetItem *item = head ? head->child(row) : nullptr;
+	QTreeWidgetItem *item = row_item(group, row);
 	const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
 	if (to.isEmpty() || !m_open)
 		return false;
@@ -275,23 +355,30 @@ bool fzn_conversations_view::open(int group, int row)
 
 QStringList fzn_conversations_view::shown() const
 {
+	/* THE ROW AS READ ALOUD, its columns in order: who and the line, the
+	 * badge, when, and how many are unread -- and, flat, a group said so. */
+	auto said_row = [this](const QTreeWidgetItem *r) {
+		QString line = QStringLiteral("  ") + r->text(0);
+		if (m_flat && r->data(0, ROLE_KIND).toInt() == ROW_GROUP)
+			line += tr(" (group)");
+		if (!r->text(1).isEmpty())
+			line += QStringLiteral(" [") + r->text(1) + QLatin1Char(']');
+		if (!r->text(2).isEmpty())
+			line += QStringLiteral(" -- ") + r->text(2);
+		if (!r->text(3).isEmpty())
+			line += tr(" (%1 unread)").arg(r->text(3));
+		return line;
+	};
 	QStringList out;
 	for (int i = 0; i < m_tree->topLevelItemCount(); i++) {
 		QTreeWidgetItem *h = m_tree->topLevelItem(i);
-		out << h->text(0);
-		for (int k = 0; k < h->childCount(); k++) {
-			/* THE ROW AS READ ALOUD, its columns in order: who and the line,
-			 * the badge, when, and how many are unread. */
-			const QTreeWidgetItem *r = h->child(k);
-			QString line = QStringLiteral("  ") + r->text(0);
-			if (!r->text(1).isEmpty())
-				line += QStringLiteral(" [") + r->text(1) + QLatin1Char(']');
-			if (!r->text(2).isEmpty())
-				line += QStringLiteral(" -- ") + r->text(2);
-			if (!r->text(3).isEmpty())
-				line += tr(" (%1 unread)").arg(r->text(3));
-			out << line;
+		if (m_flat) {
+			out << said_row(h);
+			continue;
 		}
+		out << h->text(0);
+		for (int k = 0; k < h->childCount(); k++)
+			out << said_row(h->child(k));
 	}
 	return out;
 }
@@ -300,8 +387,19 @@ QString fzn_conversations_view::status() const { return m_status->text(); }
 
 QTreeWidgetItem *fzn_conversations_view::row_item(int group, int row) const
 {
+	if (row < 0)
+		return nullptr;
+	/* FLAT, the `row`th of its kind as shown: contacts (0) or groups (1). */
+	if (m_flat) {
+		for (int i = 0, k = 0; i < m_tree->topLevelItemCount(); i++) {
+			QTreeWidgetItem *item = m_tree->topLevelItem(i);
+			if ((item->data(0, ROLE_KIND).toInt() == ROW_GROUP) == (group == 1) && k++ == row)
+				return item;
+		}
+		return nullptr;
+	}
 	QTreeWidgetItem *head = m_tree->topLevelItem(group);
-	return head && row >= 0 ? head->child(row) : nullptr;
+	return head ? head->child(row) : nullptr;
 }
 
 /* WHETHER THIS USER'S LOCATION IS SHARED WITH A CONTACT: asked when its
