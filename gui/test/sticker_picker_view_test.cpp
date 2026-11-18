@@ -9,8 +9,11 @@
  */
 
 #include "../sticker_picker_view.h"
+#include "../sticker_render.h"
 
 #include <QApplication>
+#include <QDir>
+#include <QFile>
 #include <QImage>
 
 #include <stdio.h>
@@ -88,12 +91,49 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	return (size_t)snprintf(reply, cap, "error no such thing\n");
 }
 
+/* THE ORIGINAL TEST SET DRAWS, fuzznet sec 1277: each of its twelve
+ * Lottie files, read from the tree, drawn by thorvg at 256 pixels at its
+ * start and its middle -- some paint inside the frame, and the two not the
+ * same, so the art moves. FZN_TEST_SET_PNG names a directory to save each
+ * drawing in, for a person to look at. */
+static void test_the_test_set_draws(void)
+{
+	const QDir art(QStringLiteral("sticker/fixture/test-set/art"));
+	const QStringList files = art.entryList({ QStringLiteral("*.json") }, QDir::Files, QDir::Name);
+	const QByteArray save = qgetenv("FZN_TEST_SET_PNG");
+	int drawn = 0, moving = 0;
+
+	for (const QString &name : files) {
+		QFile f(art.filePath(name));
+		if (!f.open(QIODevice::ReadOnly))
+			continue;
+		const QByteArray json = f.readAll();
+		QImage at[2];
+		for (int k = 0; k < 2; k++)
+			at[k] = fzn_sticker_render_art((const uint8_t *)json.constData(), (size_t)json.size(), 1, QSize(256, 256),
+			                               k ? 0.5f : 0.0f)
+			                .pixmap.toImage();
+		bool painted = false;
+		for (int y = 0; !at[0].isNull() && y < at[0].height() && !painted; y += 4)
+			for (int x = 0; x < at[0].width() && !painted; x += 4)
+				painted = qAlpha(at[0].pixel(x, y)) > 0;
+		drawn += painted;
+		moving += !at[0].isNull() && at[0] != at[1];
+		if (!save.isEmpty() && !at[0].isNull())
+			at[0].save(QString::fromLocal8Bit(save) + QLatin1Char('/') + name + QStringLiteral(".png"), "PNG");
+	}
+	CHECK(files.size() == 12 && drawn == 12, "the test set's twelve stickers did not all draw");
+	CHECK(moving == 12, "a sticker of the test set did not move");
+}
+
 int main(int argc, char **argv)
 {
 	qputenv("QT_QPA_PLATFORM", "offscreen");
 	QApplication app(argc, argv);
 	fzn_sticker_picker_view v(node, nullptr);
 	QString picked;
+
+	test_the_test_set_draws();
 
 	v.on_pick([&picked](const QString &ref) { picked = ref; });
 #ifdef FZN_THORVG_ON

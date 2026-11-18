@@ -92777,3 +92777,38 @@ the enum `fzn_message_call_outcome` and the field path
 `fzn_message_call.outcome` flatten to the same name -- so the measurement
 used a scratch copy with the enum renamed. The contract checks fine; only
 generating C from it fails. Told to situ (its inbox), as theirs to judge.
+
+## 1277. The original test sticker set, 2026-11-18
+
+Sec 1268's "ship an original sticker set, coordinate this with
+fuzzypickles. This is just for testing but later we want to ensure we
+don't include or market low quality stickers". Proposed to fuzzypickles
+(their inbox, 20261118T1503Z) with fuzznet drawing it unless they would
+rather; unanswered while they work on the Fold, so drawn here, and theirs
+to take or replace.
+
+- **Pip**, a round teal creature of this tree's own, in twelve moods:
+  hello, OK, thanks, sorry, on my way, see you, good night, laughing,
+  love, waiting, congratulations, thinking. Each is a Lottie animation of
+  plain shapes -- no image, no font, nothing taken from anywhere -- 512 by
+  512, two seconds, a few KB; 88 KB in all.
+- **Written, not drawn by hand**: `tool/sticker_test_set.py` writes
+  `sticker/fixture/test-set/` -- the spec and `art/NN-name.json` -- so the
+  art is reproducible and every phrase reviewable in one file. Run it
+  again after changing it; it touches nothing else.
+- **Named as a fixture**: the pack is "fuzznet test set (not for
+  release)", and the spec says why. Not a set to ship; the quality bar
+  for one that ships is the holder's.
+- **350 phrases**, 24 to 34 a sticker, written out as completely as one
+  writer could: greetings in their forms ("hey there", "long time no
+  see"), the short forms people type ("omw", "ttyl", "tysm", "idk"), the
+  phrases a sticker answers ("be there in five", "sorry for the late
+  reply", "see you tomorrow"), and a few Swedish ones beside the English
+  ("förlåt", "god natt", "grattis"). Five stickers carry more than version
+  3's 32, so the pack is a version 4 (sec 1272).
+
+**Tests:** sticker_picker_view_test -- every one of the twelve drawn by
+thorvg at 256 pixels with paint in the frame, and moving between its
+start and its middle (`FZN_TEST_SET_PNG=DIR` saves the drawings to look
+at). `live_pairing` h0 -- the set built, kept, and found first for "ok be
+there in five", "thanks so much", "good nig" and "congrats!!".

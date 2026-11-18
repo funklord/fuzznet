@@ -547,6 +547,19 @@ def main(argv):
 				raise failed("h: a line with none of a sticker's words found it")
 			print("livecheck: h0: the kept pack's sticker found for its phrase half typed, %s"
 			      % found[3].split(",")[2])
+			# THE ORIGINAL TEST SET, sec 1277: built (a version 4 pack, its
+			# phrases past version 3's room), kept, and found by its phrases.
+			test_set = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+			                        "sticker", "fixture", "test-set", "test-set.spec")
+			put = ask(socks["a"], "put sticker " + test_set).split()
+			if len(put) != 2 or put[0] != "ok":
+				raise failed("h0: the test set did not build: %r" % put)
+			for typed, meant in (("ok be there in five", "running"), ("thanks so much", "thanks"),
+			                     ("good nig", "asleep"), ("congrats!!", "confetti")):
+				rows = ask(socks["a"], "list sticker match " + typed).split()[3:]
+				if not rows or not rows[0].startswith(put[1][:64] + ",") or meant not in rows[0]:
+					raise failed("h0: %r did not find the test set's sticker for it first: %r" % (typed, rows[:2]))
+			print("livecheck: h0: the original test set built, kept, and found first by four lines typed")
 			ref = ask(socks["a"], "get sticker %s 1" % got[1])
 			if not ref.startswith("ok fzn:sticker/"):
 				raise failed("h: get sticker answered %r" % ref)
