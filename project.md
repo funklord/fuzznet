@@ -91855,3 +91855,42 @@ for a node reading no binary.
 them its own: those two kept, newest first, the accuracy read, the
 newest seq said, the other host's left out. Sabotage
 `show-client-every-host`, caught.
+
+## 1253. The conversation's notice, one action each; touch sizes; the line above the keyboard, 2026-11-18
+
+fuzzypickles' 1700Z item for the conversation (sec 1224): "notices with
+one action each; touch sizes and the send row above the keyboard". Its
+notice bar (its sec 209) is the model: one line saying what happened or
+offering the one thing to do, with a Dismiss.
+
+- **`gui/notice_line.h`**, header-only and installed, as `keep_place.h`
+  is: `say(text)` for what an act came to, `offer(text, action, act)` for
+  the one thing a line offers, `act()` to take it as the button does.
+  The view had three buttons -- Get the file, Save the file, Keep this
+  sticker pack -- most of them disabled at any moment, and a status line
+  beside them; now the chosen line offers what fits it: a file not here
+  whole "Get the file", one here "Save the file", a sticker that came in
+  "Keep this sticker pack". An act said replaces the offer, so it cannot
+  be taken twice.
+- **A refresh no longer drops the person's act or choice**, which was
+  sec 1224's fault in this view too: it cleared the list and set the
+  status line on every poll, so "Saved ... to ..." lived two seconds and
+  the line chosen was lost. A refresh now says only what it owns -- a
+  failure, "Nothing said yet." -- over a notice it put there itself or
+  over none (`from_refresh`), and chooses the same line again by its
+  text. Not `fzn_keep_place`: that puts the scroll back, and this list
+  follows its newest line.
+- **The line being written is last**: on a phone the window ends at the
+  keyboard, so the notice and the sticker picker sit above it, and Send
+  a file joins Sticker and Send in that row ("File" on a phone).
+- **A finger's target**: under 400 pixels every button and the line
+  being written are at least 48 logical pixels tall
+  (`FZN_NOTICE_LINE_TOUCH_PX`, Android's 48 dp).
+
+**Tests:** conversation_view_test -- on a phone Send is 48 tall and at
+the bottom; a file's line offers Get, taken once, its answer kept across
+a refresh; a sticker's line offers its pack, kept across a refresh with
+the line chosen; a file here whole offers Save; no more than the one
+offer's button stands. qtty renders the view. Five sabotages, each
+caught; sec 1242's `conversation-phone-file-buttons` removed, the
+buttons it hid being gone.

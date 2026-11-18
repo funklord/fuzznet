@@ -98,6 +98,11 @@ public:
 	QRect bubble_rect(int row) const;
 	QString text() const;
 	QString status() const;
+	/* THE NOTICE'S ONE ACTION, sec 1253: its words, empty for none, and
+	 * taking it as the button does. A line chosen offers what fits it --
+	 * a file got or saved, a sticker's pack kept. */
+	QString offered() const;
+	bool take_offer();
 
 protected:
 	/* UNDER 400 PIXELS, bubbles; wider, the log (sec 1241). */
@@ -106,6 +111,11 @@ protected:
 private:
 	void draw_stickers();
 	bool send_line(const QByteArray &text);
+	bool refresh_lines();
+	void offer_for(class QListWidgetItem *item);
+	/* THE LINE CHOSEN, by its text, kept across a refresh (sec 1253). */
+	QString m_chosen;
+	bool m_refreshing = false;
 	class bubble_delegate *m_bubbles;
 	class fzn_sticker_picker_view *m_picker;
 	QPushButton *m_stickers;
@@ -120,13 +130,10 @@ private:
 	QListWidget *m_lines;
 	QLineEdit *m_text;
 	QPushButton *m_send;
-	QPushButton *m_fetch;
-	QPushButton *m_save;
 	QPushButton *m_older;
 	QPushButton *m_send_file;
-	QPushButton *m_keep;
 	size_t m_max; /* the most lines shown, a page more for each "older" */
-	QLabel *m_status;
+	class fzn_notice_line *m_notice;
 };
 
 #endif /* FZN_GUI_CONVERSATION_VIEW_H */

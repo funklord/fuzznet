@@ -1,5 +1,6 @@
 /* A conversation with one contact, as a widget: gui/conversation_view.h, sec 1126. */
 #include "conversation_view.h"
+#include "notice_line.h"
 #include "size_words.h"
 #include "sticker_picker_view.h"
 
@@ -243,23 +244,24 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_text->setPlaceholderText(tr("Write a line"));
 	m_text->setAccessibleName(tr("A line to send"));
 	m_send = new QPushButton(tr("Send"), this);
-	m_fetch = new QPushButton(tr("Get the file"), this);
-	m_save = new QPushButton(tr("Save the file"), this);
 	m_older = new QPushButton(tr("Older lines"), this);
 	m_send_file = new QPushButton(tr("Send a file"), this);
-	m_keep = new QPushButton(tr("Keep this sticker pack"), this);
-	m_status = new QLabel(this);
-	m_status->setWordWrap(true);
+	m_send_file->setAccessibleName(tr("Send a file"));
+	/* ONE NOTICE, ITS ONE ACTION (sec 1253): what an act came to, or the
+	 * one thing the chosen line offers -- where three buttons stood, most
+	 * of them disabled, beside a status line. */
+	m_notice = new fzn_notice_line(this);
 
 	auto *write = new QHBoxLayout;
 	write->addWidget(m_text, 1);
-	write->addWidget(m_send);
 	/* A STICKER BY SEND, not a page of its own (fuzzypickles' 1700Z item 3,
 	 * sec 1243): the picker opens below the line being written. */
 	m_stickers = new QPushButton(tr("Sticker"), this);
 	m_stickers->setCheckable(true);
 	m_stickers->setAccessibleName(tr("Choose a sticker to send"));
 	write->addWidget(m_stickers);
+	write->addWidget(m_send_file);
+	write->addWidget(m_send);
 	m_picker = new fzn_sticker_picker_view(ask, ask_ctx, this);
 	m_picker->hide();
 	m_picker->on_pick([this](const QString &ref) { (void)send_sticker(ref); });
@@ -271,20 +273,12 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	older->addStretch(1);
 	/* ABOVE THE LINES, where the older ones go. */
 	col->insertLayout(1, older);
-	auto *files = new QHBoxLayout;
-	files->addWidget(m_fetch);
-	files->addWidget(m_save);
-	files->addStretch(1);
-	auto *sending = new QHBoxLayout;
-	sending->addWidget(m_send_file);
-	/* NOT BESIDE THE FILE'S TWO: three there pass a 320 px cover screen. */
-	sending->addWidget(m_keep);
-	sending->addStretch(1);
-	col->addLayout(files);
-	col->addLayout(write);
+	/* THE LINE BEING WRITTEN LAST, sec 1253: on a phone the window ends at
+	 * the keyboard, so what is last sits right above it -- the notice and
+	 * the picker above the line, never under it. */
+	col->addWidget(m_notice);
 	col->addWidget(m_picker);
-	col->addLayout(sending);
-	col->addWidget(m_status);
+	col->addLayout(write);
 
 	connect(m_send, &QPushButton::clicked, [this]() { send(); });
 	connect(m_stickers, &QPushButton::toggled, [this](bool on) { show_stickers(on); });
@@ -292,11 +286,8 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	connect(m_lines, &QListWidget::currentRowChanged, [this](int r) { select_line(r); });
 	connect(m_lines, &QListWidget::itemActivated,
 	        [this](QListWidgetItem *item) { (void)open_line(m_lines->row(item)); });
-	connect(m_fetch, &QPushButton::clicked, [this]() { fetch(); });
-	connect(m_save, &QPushButton::clicked, [this]() { save_to(QString()); });
 	connect(m_older, &QPushButton::clicked, [this]() { show_older(); });
 	connect(m_send_file, &QPushButton::clicked, [this]() { send_file(QString()); });
-	connect(m_keep, &QPushButton::clicked, [this]() { keep_pack(); });
 	select_line(-1);
 	m_title->setText(tr("No conversation is open."));
 	m_send->setEnabled(false);
@@ -332,9 +323,19 @@ static QString when_words(uint32_t now, uint64_t then)
 	                                 : at.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
 }
 
+/* WHAT A REFRESH SAYS WHEN ALL WENT WELL -- nothing, or that nothing has
+ * been said -- put over a notice only where the last refresh put it, or
+ * where there is none: the answer to the person's last act, or what the
+ * chosen line offers, outlives the next poll (sec 1253, sec 1224's fault). */
+static void refresh_quiet(fzn_notice_line *notice, const QString &text)
+{
+	if (notice->text().isEmpty() || notice->from_refresh())
+		notice->say(text, true);
+}
+
 /* A GROUP'S LINES, newest first as a contact's are, each with who wrote it;
  * the read position at the newest that came in, kept by the group's id. */
-static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *list, QLabel *status,
+static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *list, fzn_notice_line *status,
                         uint32_t now, size_t max, bool *answered)
 {
 	QByteArray name = group.mid(1).toUtf8();
@@ -347,7 +348,7 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 		return false;
 	if (fzn_rpc_group_lines(&rpc->c, name.constData(), (size_t)name.size(), lines, max, &count)
 	    != FZN_RPC_OK) {
-		status->setText(failed_words(rpc));
+		status->say(failed_words(rpc), true);
 		*answered = rpc->c.answered;
 		free(lines);
 		return false;
@@ -375,7 +376,7 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 	for (i = 0; i < count && !newest_in; i++)
 		if (!lines[i].line.outgoing)
 			newest_in = &lines[i].line;
-	status->setText(count ? QString() : QObject::tr("Nothing said yet."));
+	refresh_quiet(status, count ? QString() : QObject::tr("Nothing said yet."));
 	if (newest_in) {
 		static fzn_rpc_group_list_resp_t groups;
 		QByteArray by_id;
@@ -388,7 +389,7 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 		    || fzn_rpc_message_read(&rpc->c, by_id.constData(), (size_t)by_id.size(),
 		                            newest_in->commitment)
 		               != FZN_RPC_OK)
-			status->setText(QObject::tr("Shown, but not marked read: %1").arg(failed_words(rpc)));
+			status->say(QObject::tr("Shown, but not marked read: %1").arg(failed_words(rpc)), true);
 	}
 	free(lines);
 	if (count)
@@ -396,14 +397,36 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 	return true;
 }
 
+/* THE LINES AGAIN, the line chosen kept by its text -- not its scroll,
+ * which follows the newest line -- and with it what the notice offers
+ * (sec 1253). A line no longer there takes its offer with it. */
 bool fzn_conversation_view::refresh()
+{
+	m_refreshing = true;
+	const bool r = refresh_lines();
+	m_refreshing = false;
+	int at = -1;
+	for (int i = 0; !m_chosen.isEmpty() && i < m_lines->count() && at < 0; i++)
+		if (m_lines->item(i)->text() == m_chosen)
+			at = i;
+	if (at >= 0) {
+		m_lines->setCurrentRow(at);
+	} else if (!m_chosen.isEmpty()) {
+		m_chosen.clear();
+		if (m_notice->offering())
+			m_notice->clear();
+	}
+	return r;
+}
+
+bool fzn_conversation_view::refresh_lines()
 {
 	if (m_contact.isEmpty())
 		return false;
 	if (m_contact.startsWith(QLatin1Char('@'))) {
 		bool answered = true;
 		const uint32_t at = m_now ? m_now : (uint32_t)time(NULL);
-		if (!group_lines(m_rpc, m_contact, m_lines, m_status, at, m_max, &answered))
+		if (!group_lines(m_rpc, m_contact, m_lines, m_notice, at, m_max, &answered))
 			return answered;
 		m_older->setEnabled((size_t)m_lines->count() >= m_max);
 		draw_stickers();
@@ -419,7 +442,7 @@ bool fzn_conversation_view::refresh()
 		return false;
 	if (fzn_rpc_inbox_lines(&m_rpc->c, who.constData(), (size_t)who.size(), lines, m_max, &count)
 	    != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		m_notice->say(failed_words(m_rpc), true);
 		free(lines);
 		return m_rpc->c.answered;
 	}
@@ -449,12 +472,12 @@ bool fzn_conversation_view::refresh()
 	if (newest_in
 	    && fzn_rpc_message_read(&m_rpc->c, who.constData(), (size_t)who.size(), newest_in->commitment)
 	               != FZN_RPC_OK) {
-		m_status->setText(tr("Shown, but not marked read: %1").arg(failed_words(m_rpc)));
+		m_notice->say(tr("Shown, but not marked read: %1").arg(failed_words(m_rpc)), true);
 		free(lines);
 		draw_stickers();
 		return true;
 	}
-	m_status->setText(count ? QString() : tr("Nothing said yet."));
+	refresh_quiet(m_notice, count ? QString() : tr("Nothing said yet."));
 	/* A FULL PAGE MAY HAVE MORE BEHIND IT. */
 	m_older->setEnabled(count >= m_max);
 	free(lines);
@@ -509,7 +532,7 @@ bool fzn_conversation_view::send_line(const QByteArray &text)
 	                                  (size_t)text.size()))
 	    != FZN_RPC_OK) {
 		/* THE LINE KEPT, so nothing typed is lost to a refusal. */
-		m_status->setText(failed_words(m_rpc));
+		m_notice->say(failed_words(m_rpc));
 		return false;
 	}
 	return true;
@@ -520,11 +543,44 @@ void fzn_conversation_view::select_line(int row)
 	QListWidgetItem *item = row >= 0 ? m_lines->item(row) : nullptr;
 	if (item && m_lines->currentRow() != row)
 		m_lines->setCurrentRow(row);
-	const bool file = item && !item->data(ROLE_FILE).toByteArray().isEmpty();
-	m_fetch->setEnabled(file);
-	m_save->setEnabled(file);
-	m_keep->setEnabled(item && item->data(ROLE_IN).toBool()
-	                   && !item->data(ROLE_STICKER).toByteArray().isEmpty());
+	/* A REFRESH PUTS THE CHOICE BACK ITSELF, and the same line chosen again
+	 * offers nothing new: its notice stands, an act's answer included. */
+	const QString key = item ? item->text() : QString();
+	if (m_refreshing || key == m_chosen)
+		return;
+	m_chosen = key;
+	offer_for(item);
+}
+
+/* WHAT THE CHOSEN LINE OFFERS, sec 1253: a file, saved if it is here whole
+ * and got if not; a sticker that came in, its pack kept. Any other line
+ * takes back an offer standing, and leaves a said answer be. */
+void fzn_conversation_view::offer_for(QListWidgetItem *item)
+{
+	const QByteArray ref = item ? item->data(ROLE_FILE).toByteArray() : QByteArray();
+	const QByteArray sticker = item ? item->data(ROLE_STICKER).toByteArray() : QByteArray();
+
+	if (!ref.isEmpty()) {
+		fzn_rpc_blob_status_resp_t st;
+		const QString name = QString::fromUtf8(ref.mid(72));
+
+		memset(&st, 0, sizeof st);
+		if (fzn_rpc_blob_status(&m_rpc->c, (const uint8_t *)ref.constData(), &st) == FZN_RPC_OK && st.known
+		    && st.complete)
+			m_notice->offer(tr("%1, %2, is here.").arg(name, fzn_size_words(file_size(ref))), tr("Save the file"),
+			                [this]() { (void)save_to(QString()); });
+		else
+			m_notice->offer(tr("%1, said to be %2.").arg(name, fzn_size_words(file_size(ref))), tr("Get the file"),
+			                [this]() { (void)fetch(); });
+		return;
+	}
+	if (sticker.size() > 145 && item->data(ROLE_IN).toBool()) {
+		m_notice->offer(tr("A sticker from a pack you can keep."), tr("Keep this sticker pack"),
+		                [this]() { (void)keep_pack(); });
+		return;
+	}
+	if (m_notice->offering())
+		m_notice->clear();
 }
 
 bool fzn_conversation_view::fetch()
@@ -538,13 +594,13 @@ bool fzn_conversation_view::fetch()
 	if (fzn_rpc_blob_fetch_ref(&m_rpc->c, (const uint8_t *)ref.constData(),
 	                           (const uint8_t *)ref.constData() + 32, file_size(ref), &out)
 	    != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		m_notice->say(failed_words(m_rpc));
 		return false;
 	}
 	/* THE SIZE IS THE SENDER'S CLAIM, said as one; the fetch checks the
 	 * file's own tree, so a lie fails there (sec 794). */
-	m_status->setText(tr("Asked for the file, said to be %1. It arrives in the background.")
-	                          .arg(fzn_size_words(file_size(ref))));
+	m_notice->say(tr("Asked for the file, said to be %1. It arrives in the background.")
+	                      .arg(fzn_size_words(file_size(ref))));
 	return true;
 }
 
@@ -586,10 +642,10 @@ bool fzn_conversation_view::save_to(const QString &path)
 	                        (const uint8_t *)ref.constData() + 32, at.constData(), (size_t)at.size(),
 	                        &out)
 	    != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		m_notice->say(failed_words(m_rpc));
 		return false;
 	}
-	m_status->setText(tr("Saved %1 to %2.").arg(fzn_size_words(out.byte_len), where));
+	m_notice->say(tr("Saved %1 to %2.").arg(fzn_size_words(out.byte_len), where));
 	return true;
 }
 
@@ -618,11 +674,11 @@ bool fzn_conversation_view::send_file(const QString &path)
 	    || fzn_rpc_message_attach(&m_rpc->c, to.constData(), (size_t)to.size(), group ? 1 : 0,
 	                              stored.root, name.constData(), (size_t)name.size())
 	               != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		m_notice->say(failed_words(m_rpc));
 		return false;
 	}
 	refresh();
-	m_status->setText(tr("Sent %1, %2.").arg(QString::fromUtf8(name), fzn_size_words(stored.byte_len)));
+	m_notice->say(tr("Sent %1, %2.").arg(QString::fromUtf8(name), fzn_size_words(stored.byte_len)));
 	return true;
 }
 
@@ -636,7 +692,11 @@ QStringList fzn_conversation_view::lines() const
 
 QString fzn_conversation_view::text() const { return m_text->text(); }
 
-QString fzn_conversation_view::status() const { return m_status->text(); }
+QString fzn_conversation_view::status() const { return m_notice->text(); }
+
+QString fzn_conversation_view::offered() const { return m_notice->action(); }
+
+bool fzn_conversation_view::take_offer() { return m_notice->act(); }
 
 /* EACH STICKER LINE DRAWN, as the picker draws one: the thumbnail the
  * node renders, where Qt reads it. What the node drew is kept for the
@@ -685,13 +745,12 @@ bool fzn_conversation_view::keep_pack()
 	if (sticker.size() <= 145 || !item->data(ROLE_IN).toBool())
 		return false;
 	if (fzn_rpc_sticker_keep(&m_rpc->c, sticker.constData(), 144, root, &host_only) != FZN_RPC_OK) {
-		m_status->setText(failed_words(m_rpc));
+		m_notice->say(failed_words(m_rpc));
 		return false;
 	}
 	/* KEPT FOR THIS HOST ALONE where it may not set the estate's settings,
 	 * as put answers. */
-	m_status->setText(host_only ? tr("Kept the pack, on this device only.")
-	                            : tr("Kept the pack with your stickers."));
+	m_notice->say(host_only ? tr("Kept the pack, on this device only.") : tr("Kept the pack with your stickers."));
 	return true;
 }
 
@@ -706,9 +765,13 @@ void fzn_conversation_view::resizeEvent(QResizeEvent *event)
 	QWidget::resizeEvent(event);
 	m_bubbles->narrow = event->size().width() < 400;
 	m_bubbles->width = m_lines->viewport()->width();
-	/* ON A PHONE A FILE LINE IS TAPPED, so its two buttons go (sec 1242). */
-	m_fetch->setVisible(!m_bubbles->narrow);
-	m_save->setVisible(!m_bubbles->narrow);
+	/* A FINGER'S TARGETS ON A PHONE, sec 1253: every button and the line
+	 * being written at least FZN_NOTICE_LINE_TOUCH_PX tall. */
+	for (QWidget *w : { (QWidget *)m_send, (QWidget *)m_send_file, (QWidget *)m_stickers, (QWidget *)m_older,
+	                    (QWidget *)m_text })
+		w->setMinimumHeight(m_bubbles->narrow ? FZN_NOTICE_LINE_TOUCH_PX : 0);
+	m_notice->set_touch(m_bubbles->narrow);
+	m_send_file->setText(m_bubbles->narrow ? tr("File") : tr("Send a file"));
 	m_lines->doItemsLayout();
 }
 

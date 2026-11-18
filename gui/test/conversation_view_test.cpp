@@ -9,6 +9,7 @@
  */
 
 #include "../conversation_view.h"
+#include "../notice_line.h"
 
 #include <QApplication>
 #include <QImage>
@@ -153,12 +154,16 @@ int main(int argc, char **argv)
 		CHECK(v.bubbles() && his.isValid() && mine.isValid() && his.left() < 20 && mine.right() > 240
 		              && mine.width() <= 320 * 3 / 4 + 1 && his.right() < mine.right(),
 		      "on a phone the lines were not bubbles, bob's at the left and this user's at the right");
-		/* AND A FILE LINE IS TAPPED THERE, its two buttons gone (sec 1242). */
-		bool shown = false;
+		/* A FINGER'S TARGETS, AND THE LINE BEING WRITTEN LAST, sec 1253:
+		 * Send at least 48 tall, at the bottom, where the keyboard's top
+		 * edge will be. */
+		QPushButton *send = nullptr;
 		for (QPushButton *b : v.findChildren<QPushButton *>())
-			if (b->text() == "Get the file" || b->text() == "Save the file")
-				shown |= !b->isHidden();
-		CHECK(!shown, "on a phone the file's two buttons were still shown");
+			if (b->text() == "Send")
+				send = b;
+		CHECK(send && send->minimumHeight() == FZN_NOTICE_LINE_TOUCH_PX
+		              && send->geometry().bottom() >= v.height() - FZN_NOTICE_LINE_TOUCH_PX - 16,
+		      "on a phone Send was not a finger's height, or not at the bottom above the keyboard");
 	}
 	v.resize(800, 600);
 	app.processEvents();
@@ -237,6 +242,39 @@ int main(int argc, char **argv)
 	CHECK(d.keep_pack() && !strcmp(last_keep, "add sticker " DAN_PACK)
 	              && d.status() == "Kept the pack with your stickers.",
 	      "a sticker that came in did not keep its pack by its whole reference");
+
+	/* ONE NOTICE, ITS ONE ACTION, sec 1253: the file's line offers what fits
+	 * it -- got while not here whole, saved once it is -- and the sticker's
+	 * its pack kept; taking the offer does it; a refresh keeps the line
+	 * chosen, its offer, and the answer to the person's act; and no more
+	 * than one button stands for any of it. */
+	file_partial = 1;
+	d.select_line(-1);
+	d.select_line(0);
+	CHECK(d.offered() == "Get the file" && d.status().contains("holiday.jpg") && d.status().contains("2.4 MB"),
+	      "a file's line not here whole did not offer to get it, named and sized");
+	last_file[0] = '\0';
+	CHECK(d.take_offer() && !strncmp(last_file, "fetch file " FILE_ROOT, 11 + 64)
+	              && d.status().startsWith("Asked for the file") && d.offered().isEmpty(),
+	      "taking the offer did not get the file, or the offer stood after it");
+	last_file[0] = '\0';
+	CHECK(!d.take_offer() && !last_file[0], "the offer could be taken again once its act was done");
+	CHECK(d.refresh() && d.status().startsWith("Asked for the file"),
+	      "a refresh dropped the answer to the person's act");
+	file_partial = 0;
+	d.select_line(1);
+	CHECK(d.offered() == "Keep this sticker pack", "a sticker that came in did not offer its pack");
+	CHECK(d.refresh() && d.offered() == "Keep this sticker pack" && d.status() != "Nothing said yet.",
+	      "a refresh dropped the line chosen, and with it its offer");
+	d.select_line(0);
+	CHECK(d.offered() == "Save the file", "a file's line here whole did not offer to save it");
+	{
+		int standing = 0;
+		for (QPushButton *b : d.findChildren<QPushButton *>())
+			if (b->text() == "Get the file" || b->text() == "Save the file" || b->text() == "Keep this sticker pack")
+				standing += !b->isHidden() || b->isVisibleTo(&d);
+		CHECK(standing <= 1, "more than the one offer's button stood for the chosen line");
+	}
 
 	/* OLDER LINES AND A FILE SENT, sec 1140: four lines are not a full page,
 	 * so there is nothing older to show; a file put private and attached. */
