@@ -92062,3 +92062,45 @@ told nothing. qtty renders it ("Nothing has been shared."). Four
 sabotages, each caught (`share-groups-unlisted`,
 `share-file-sent-as-words`, `share-host-told-on-refusal`,
 `share-filter-ignored`).
+
+## 1258. The retention rules in binary, and their view on the typed client, 2026-11-18
+
+The register's last text in the hosted views (sec 1070's typed-client
+row): the retention view sent its own lines -- `list retention`, `add
+estate-retention RULE` -- through the ask callback, so on the node's
+socket it never spoke binary. Now:
+
+- **The settings schema's local ops gain the rules**: `rules` (130) by
+  scope -- this host's, or the estate's -- answered by a `rule_row` (131)
+  each, in its words; `rule_add` (132) and `rule_remove` (133), a scope
+  and the rule. The node answers through the admin's own verbs
+  (`fzn_node_admin_handle`, as `list`, `add` and `remove retention` or
+  `estate-retention`), so every check -- a rule that is none, held
+  already, a node standing as neither a root nor an admin -- is its own,
+  and a refusal is an error in its words, never malformed. The listing's
+  escaped words are unescaped into the rows. A change tells the
+  subscribers `retention` or `estate-retention`, as the verbs do.
+- **The client**: `fzn_rpc_rules(estate)` and `fzn_rpc_rule_change(estate,
+  add, rule)`, binary first and the verbs behind; the older
+  `fzn_rpc_retention_add` and `_remove` go through them with this host's
+  scope.
+- **`gui/retention_view` asks through the typed client**, its words
+  unchanged: "No rules.", "%1 rule(s).", the node's refusal, "The node
+  did not answer." -- now from the client, which tells silence from a
+  refusal.
+
+The governance view's dozen verbs follow the same way; `fzn_rpc_status`'s
+five round trips last, since what it costs is `get message owed`'s walk
+over every conversation, which binary would not change.
+
+**Tests:** three vectors; rpc_test -- the estate's rules read by scope,
+each in its words; an estate rule added, its bytes as sent; a refusal in
+the node's words; the older call asking with this host's scope.
+`live_location` phase r: both scopes listed as `list retention` says
+them, a rule added and removed in binary, an estate rule added, a rule
+that is none refused as an error. retention_view_test, unchanged, over
+the typed client's text path. Four sabotages, each caught
+(`rules-client-scope-dropped`, `rules-node-estate-ignored`,
+`rules-node-unescaped`, `rules-view-estate-is-node`); sec 485's
+`retention-view-unescapes-the-listing` and `retention-view-says-no-answer`
+repointed to where those now happen.

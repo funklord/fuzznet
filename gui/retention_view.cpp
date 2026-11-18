@@ -1,10 +1,7 @@
 /* See retention_view.h. */
 
 #include "retention_view.h"
-
-extern "C" {
-#include "../local/vocabulary.h"
-}
+#include "rpc_ask.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -15,36 +12,11 @@ extern "C" {
 
 #include <cstring>
 
-/* A reply line at its longest. */
-static const size_t REPLY_CAP = FZN_REPLY_MAX + 2u;
-
-/* `%XX` back to the byte, as `node/admin.c` escapes a rule into one word. */
-static QString unescape(const QString &word)
-{
-	QByteArray in = word.toUtf8(), out;
-	int i;
-
-	for (i = 0; i < in.size(); i++) {
-		bool ok = false;
-
-		if (in[i] == '%' && i + 2 < in.size()) {
-			int v = in.mid(i + 1, 2).toInt(&ok, 16);
-
-			if (ok) {
-				out.append((char)v);
-				i += 2;
-				continue;
-			}
-		}
-		out.append(in[i]);
-	}
-	return QString::fromUtf8(out);
-}
-
 fzn_retention_view::fzn_retention_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
                                        QWidget *parent)
-        : QWidget(parent), m_ask(ask), m_ask_ctx(ask_ctx)
+        : QWidget(parent), m_rpc(new fzn_gui_rpc)
 {
+	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 	auto *outer = new QVBoxLayout(this);
 	/* ONE ABOVE THE OTHER, sec 1120: side by side they made the view 360 px,
 	 * past a folding phone's 320 px cover screen. */
@@ -111,67 +83,31 @@ fzn_retention_view::fzn_retention_view(fzn_notebook_view_ask_t ask, void *ask_ct
 	refresh();
 }
 
-/* 1 ok, 0 refused with `detail` the node's words, -1 no answer. */
-int fzn_retention_view::ask(const QString &line, QString *detail)
-{
-	char reply[REPLY_CAP];
-	const uint8_t *d = nullptr;
-	size_t len, d_len = 0;
-	QByteArray bytes = line.toUtf8();
-	fzn_reply_t kind;
+fzn_retention_view::~fzn_retention_view() { delete m_rpc; }
 
-	if (detail)
-		detail->clear();
-	if (!m_ask || bytes.size() >= (int)FZN_REQUEST_MAX || bytes.contains('\n'))
-		return 0;
-	len = m_ask(m_ask_ctx, bytes.constData(), reply, sizeof(reply));
-	if (len == 0u || len >= sizeof(reply))
-		return -1;
-	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
-		len--;
-	kind = fzn_reply_of((const uint8_t *)reply, len, &d, &d_len);
-	if (detail && d)
-		*detail = QString::fromUtf8((const char *)d, (int)d_len);
-	return kind == FZN_REPLY_OK ? 1 : 0;
-}
-
-/* One set, `ok COUNT RULE ...`, into its list. */
+/* One set into its list, through the typed client (sec 1258). */
 bool fzn_retention_view::fill(bool estate)
 {
 	QListWidget *list = estate ? m_estate : m_node;
 	QLabel *status = estate ? m_estate_status : m_status;
-	QString detail;
-	int r = ask(estate ? QStringLiteral("list estate-retention") : QStringLiteral("list retention"),
-	            &detail);
-	QStringList words;
-	int i;
+	auto *rules = new fzn_rpc_rules_t;
+	size_t i;
 
 	list->clear();
-	if (r < 0) {
-		status->setText(QStringLiteral("The node did not answer."));
-		return false;
-	}
-	if (r == 0) {
-		status->setText(detail.isEmpty() ? QStringLiteral("The node refused the listing.")
-		                                 : detail);
-		return true;
-	}
-	words = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-	/* AS MANY AS THE COUNT SAYS, and no more: a word past them is not a
-	 * rule, whatever else the reply carries. */
-	{
-		bool ok = false;
-		int count = words.isEmpty() ? 0 : words[0].toInt(&ok);
+	if (fzn_rpc_rules(&m_rpc->c, estate ? 1 : 0, rules) != FZN_RPC_OK) {
+		const QString why = QString::fromUtf8(fzn_gui_rpc_silent(m_rpc));
+		const bool silent = !m_rpc->c.answered;
 
-		if (!ok || count < 0 || count > words.size() - 1) {
-			status->setText(QStringLiteral("The node's listing did not read."));
-			return true;
-		}
-		for (i = 1; i <= count; i++)
-			list->addItem(unescape(words[i]));
+		delete rules;
+		status->setText(why.isEmpty() ? QStringLiteral("The node refused the listing.") : why);
+		return !silent;
 	}
-	status->setText(list->count() ? QStringLiteral("%1 rule(s).").arg(list->count())
-	                              : QStringLiteral("No rules."));
+	for (i = 0; i < rules->count; i++)
+		list->addItem(QString::fromUtf8(rules->rule[i]));
+	status->setText(rules->overflow ? QStringLiteral("%1 rule(s), and more than this lists.").arg(list->count())
+	                : list->count() ? QStringLiteral("%1 rule(s).").arg(list->count())
+	                                : QStringLiteral("No rules."));
+	delete rules;
 	return true;
 }
 
@@ -192,25 +128,19 @@ void fzn_retention_view::select(bool estate, int row)
 	(estate ? m_estate : m_node)->setCurrentRow(row);
 }
 
-bool fzn_retention_view::add(bool estate)
+/* A RULE ADDED OR REMOVED, the node's refusal in its words. */
+bool fzn_retention_view::change(bool estate, bool add, const QString &rule)
 {
 	QLabel *status = estate ? m_estate_status : m_status;
-	QString rule = m_rule->text().trimmed(), detail;
-	int r;
+	const QByteArray bytes = rule.toUtf8();
 
-	if (rule.isEmpty()) {
-		status->setText(QStringLiteral("Type a rule first."));
-		return false;
-	}
-	r = ask((estate ? QStringLiteral("add estate-retention ") : QStringLiteral("add retention "))
-	                + rule,
-	        &detail);
-	if (r < 0) {
-		status->setText(QStringLiteral("The node did not answer."));
-		return false;
-	}
-	if (r == 0) {
-		status->setText(detail.isEmpty() ? QStringLiteral("The node refused the rule.") : detail);
+	if (fzn_rpc_rule_change(&m_rpc->c, estate ? 1 : 0, add ? 1 : 0, bytes.constData(), (size_t)bytes.size())
+	    != FZN_RPC_OK) {
+		const QString why = QString::fromUtf8(fzn_gui_rpc_silent(m_rpc));
+
+		status->setText(why.isEmpty() ? (add ? QStringLiteral("The node refused the rule.")
+		                                     : QStringLiteral("The node refused."))
+		                              : why);
 		return false;
 	}
 	m_rule->clear();
@@ -218,36 +148,31 @@ bool fzn_retention_view::add(bool estate)
 	return true;
 }
 
+bool fzn_retention_view::add(bool estate)
+{
+	const QString rule = m_rule->text().trimmed();
+
+	if (rule.isEmpty()) {
+		(estate ? m_estate_status : m_status)->setText(QStringLiteral("Type a rule first."));
+		return false;
+	}
+	return change(estate, true, rule);
+}
+
 bool fzn_retention_view::remove(bool estate)
 {
 	QListWidget *list = estate ? m_estate : m_node;
-	QLabel *status = estate ? m_estate_status : m_status;
-	QString rule = m_rule->text().trimmed(), detail;
-	int r;
+	QString rule = m_rule->text().trimmed();
 
 	/* THE ROW SELECTED, when nothing is typed: a listed rule is removed by
 	 * the spelling the node listed it in. */
 	if (rule.isEmpty() && list->currentItem())
 		rule = list->currentItem()->text();
 	if (rule.isEmpty()) {
-		status->setText(QStringLiteral("Type or select a rule first."));
+		(estate ? m_estate_status : m_status)->setText(QStringLiteral("Type or select a rule first."));
 		return false;
 	}
-	r = ask((estate ? QStringLiteral("remove estate-retention ")
-	                : QStringLiteral("remove retention "))
-	                + rule,
-	        &detail);
-	if (r < 0) {
-		status->setText(QStringLiteral("The node did not answer."));
-		return false;
-	}
-	if (r == 0) {
-		status->setText(detail.isEmpty() ? QStringLiteral("The node refused.") : detail);
-		return false;
-	}
-	m_rule->clear();
-	fill(estate);
-	return true;
+	return change(estate, false, rule);
 }
 
 QStringList fzn_retention_view::node_rules() const

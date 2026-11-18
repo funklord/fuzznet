@@ -28,6 +28,10 @@ a poor one in turn.
        `location/share-new-precision` when set; a contact turned off,
        removed and added back is not granted again; and a grant nobody took
        back goes with the contact's removal (sec 1244)
+    r  the retention rules in binary (sec 1258): this node's and the
+       estate's listed as `list retention` says them, one added and
+       removed, an estate rule added, and a rule that is none refused as an
+       error in words, never as malformed
 
 Against a daemon that does not sample, phase b's link never reads
 watching; against one with no accuracy gate, nothing is dropped.
@@ -358,6 +362,36 @@ def main(argv):
 				raise failed("f: a contact added back held the grant made before its removal")
 			print("livecheck: f: a new contact granted this user's position, at the precision "
 			      "set, once; none while off, and none for one added back")
+
+			# r: THE RETENTION RULES IN BINARY, sec 1258 -- this node's and
+			# the estate's, as the words list them; one added and removed;
+			# a rule that is none refused in words, not as malformed.
+			def rules(estate):
+				got = binary(sock, bytes([0x18, 0x82, estate]))
+				if not got or got[-1][:2] != bytes([0x13, 0]):
+					raise failed("r: the rules in binary answered %r" % got)
+				return [r[4:4 + int.from_bytes(r[2:4], "big")].decode() for r in got[:-1]]
+			def change(op, estate, rule):
+				b = rule.encode()
+				return binary(sock, bytes([0x18, op, estate]) + len(b).to_bytes(2, "big") + b)
+			rule = "prune * age 30d"
+			before = rules(0)
+			if change(0x84, 0, rule) != [bytes([0x13, 0, 0])]:
+				raise failed("r: adding a rule in binary was refused")
+			after = rules(0)
+			words = ask(sock, "list retention").split()
+			if len(after) != len(before) + 1 or words[1] != str(len(after)) \
+			   or not any(r.startswith("prune") and "30d" in r for r in after):
+				raise failed("r: the rule added in binary listed %r, in words %r" % (after, words))
+			if change(0x85, 0, [r for r in after if "30d" in r][0]) != [bytes([0x13, 0, 0])] or rules(0) != before:
+				raise failed("r: the rule did not go when removed in binary")
+			if change(0x84, 1, rule) != [bytes([0x13, 0, 0])] or not any("30d" in r for r in rules(1)):
+				raise failed("r: an estate rule added in binary was not the estate's")
+			got = change(0x84, 0, "keep nothing whatever")
+			if len(got) != 1 or got[0][:2] != bytes([0x13, 3]) or len(got[0]) < 6:
+				raise failed("r: a rule that is none was answered %r, not refused in words" % got)
+			print("livecheck: r: this node's rules and the estate's in binary, as the words list "
+			      "them; one added and removed; a rule that is none refused in words")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

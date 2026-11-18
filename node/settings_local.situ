@@ -14,6 +14,10 @@ endian big;
 enum op : u8 {
 	forks    = 128, // every head of every fork, as `list fork` lists them
 	fork_row = 129, // an answer: one head
+	rules       = 130, // the retention rules, this host's or the estate's (sec 1258)
+	rule_row    = 131, // an answer: one rule, in its words
+	rule_add    = 132, // a rule added, as `add retention` or `add estate-retention`
+	rule_remove = 133, // a rule removed, as `remove retention` or `remove estate-retention`
 	default  = error,
 }
 
@@ -33,6 +37,23 @@ struct fork_row {
 	u8   value[value_len];
 }
 
+// ESTATE 1 for the estate's rules, 0 for this host's.
+struct rules_ask {
+	u8   estate [max = 1];
+}
+
+// RULE in its words, `prune|keep PROGRAM ... age|size|count N` (log/retain.h).
+struct rule_row {
+	u16  rule_len [min = 1, max = 256];
+	u8   rule[rule_len];
+}
+
+struct rule_change {
+	u8   estate [max = 1];
+	u16  rule_len [min = 1, max = 256];
+	u8   rule[rule_len];
+}
+
 struct message {
 	u8   cmd [must_eq = 24];
 	op   op;
@@ -40,6 +61,10 @@ struct message {
 	variant body switch (op) {
 		case op.forks:    nothing  forks;
 		case op.fork_row: fork_row fork_row;
+		case op.rules:       rules_ask   rules;
+		case op.rule_row:    rule_row    rule_row;
+		case op.rule_add:    rule_change rule_add;
+		case op.rule_remove: rule_change rule_remove;
 		default: error;
 	}
 }

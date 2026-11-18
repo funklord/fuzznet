@@ -19,8 +19,10 @@
  * and "the node did not answer" are different words.
  *
  * THE WAY TO ASK is the notebook's callback, so a host hands in
- * `fzn_notebook_view_socket_ask` and a test a node of its own. NO Q_OBJECT
- * AND THEREFORE NO moc: buttons connect to lambdas.
+ * `fzn_notebook_view_socket_ask` and a test a node of its own -- through
+ * the typed client since sec 1258, so on the node's socket the rules go in
+ * binary, and as the verbs where it reads none. NO Q_OBJECT AND THEREFORE
+ * NO moc: buttons connect to lambdas.
  */
 
 #ifndef FZN_GUI_RETENTION_VIEW_H
@@ -40,6 +42,7 @@ class QPushButton;
 class fzn_retention_view : public QWidget {
 public:
 	fzn_retention_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent = nullptr);
+	~fzn_retention_view() override;
 
 	/* Ask for both sets and show them. Whether the node answered. */
 	bool refresh();
@@ -59,11 +62,10 @@ public:
 	QString estate_status() const;
 
 private:
-	int ask(const QString &line, QString *detail);
 	bool fill(bool estate);
+	bool change(bool estate, bool add, const QString &rule);
 
-	fzn_notebook_view_ask_t m_ask;
-	void *m_ask_ctx;
+	struct fzn_gui_rpc *m_rpc;
 
 	QLineEdit *m_rule;
 	QListWidget *m_node;

@@ -6974,19 +6974,122 @@ int fzn_rpc_group_earlier_get(fzn_rpc_t *c, const char *group, size_t group_len,
 	return FZN_RPC_OK;
 }
 
-static int node_retention(fzn_rpc_t *c, const char *verb, const char *rule, size_t rule_len) {
-	char arg[FZN_REQUEST_MAX];
-	if (!rule_len || rule_len > sizeof arg - 16u || memchr(rule, '\n', rule_len))
-		return encode_failed(c);
-	return node_ack(c, verb, arg, snprintf(arg, sizeof arg, "retention %.*s", (int)rule_len, rule));
+/* THE RULES IN BINARY, sec 1258: a row each in its words, then a STATUS. */
+struct rules_answer {
+	fzn_rpc_rules_t *out;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void rules_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct rules_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (!a->out || a->status_seen || len > UINT32_MAX
+	    || fzn_settings_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_settings_local_message_validate(v) != SITU_OK
+	    || fzn_settings_local_message_op_get(v) != FZN_SETTINGS_LOCAL_OP_RULE_ROW
+	    || fzn_settings_local_message_body_rule_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (a->out->count >= FZN_RPC_RULES_MAX) {
+		a->out->overflow = 1;
+		return;
+	}
+	const size_t n = fzn_settings_local_rule_row_rule_len(b);
+	memcpy(a->out->rule[a->out->count], fzn_settings_local_rule_row_rule_ptr(b), n);
+	a->out->rule[a->out->count++][n] = '\0';
+}
+
+static int rules_binary(fzn_rpc_t *c, const uint8_t *req, size_t req_len, struct rules_answer *a, int *text) {
+	const int rc = fzn_rpc_binary(c, req, req_len, rules_each, a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a->bad || !a->status_seen) return unreadable(c); /* the rules cut short */
+	if (a->code != FZN_STATUS_OK)
+		return fail(c,
+		            a->code == FZN_STATUS_DENIED        ? FZN_RPC_ERR_NOT_AUTHORIZED
+		            : a->code == FZN_STATUS_MALFORMED   ? FZN_RPC_ERR_MALFORMED
+		                                                : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_rules(fzn_rpc_t *c, int estate, fzn_rpc_rules_t *out) {
+	memset(out, 0, sizeof(*out));
+	{
+		const uint8_t req[] = { FZN_CMD_SETTINGS, FZN_SETTINGS_LOCAL_OP_RULES, (uint8_t)(estate ? 1 : 0) };
+		struct rules_answer a;
+		int text = 0;
+		memset(&a, 0, sizeof a);
+		a.out = out;
+		const int brc = rules_binary(c, req, sizeof req, &a, &text);
+		if (!text) return brc;
+		memset(out, 0, sizeof(*out));
+	}
+	/* `ok N RULE ...`, each rule one %XX-escaped word. */
+	const char *rest = NULL, *subject = estate ? "estate-retention" : "retention";
+	size_t rest_len = 0, at = 0, count = 0;
+	const int rc = fzn_rpc_node(c, "list", subject, strlen(subject), &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	if (!node_number(rest, rest_len, &at, &count)) return unreadable(c);
+	const char *p = rest + at, *end = rest + rest_len, *w;
+	size_t w_len;
+	for (size_t i = 0; i < count && node_word(&p, end, &w, &w_len); i++) {
+		size_t got = 0;
+		int cut = 0;
+		if (out->count >= FZN_RPC_RULES_MAX) {
+			out->overflow = 1;
+			break;
+		}
+		if (!node_unescape(w, w_len, out->rule[out->count], FZN_RPC_RULE_MAX, &got, &cut) || cut) return unreadable(c);
+		out->rule[out->count++][got] = '\0';
+	}
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_rule_change(fzn_rpc_t *c, int estate, int add, const char *rule, size_t rule_len) {
+	if (!rule || !rule_len || rule_len > FZN_RPC_RULE_MAX || memchr(rule, '\n', rule_len))
+		return encode_failed(c); /* as before sec 1258: a rule is one line */
+	{
+		uint8_t req[2 + 1 + 2 + FZN_RPC_RULE_MAX];
+		struct rules_answer a;
+		int text = 0;
+		req[0] = FZN_CMD_SETTINGS;
+		req[1] = add ? FZN_SETTINGS_LOCAL_OP_RULE_ADD : FZN_SETTINGS_LOCAL_OP_RULE_REMOVE;
+		req[2] = (uint8_t)(estate ? 1 : 0);
+		req[3] = (uint8_t)(rule_len >> 8);
+		req[4] = (uint8_t)rule_len;
+		memcpy(req + 5, rule, rule_len);
+		memset(&a, 0, sizeof a);
+		const int brc = rules_binary(c, req, 5 + rule_len, &a, &text);
+		if (!text) return brc;
+	}
+	char arg[24 + FZN_RPC_RULE_MAX];
+	return node_ack(c, add ? "add" : "remove", arg,
+	                snprintf(arg, sizeof arg, "%s %.*s", estate ? "estate-retention" : "retention", (int)rule_len, rule));
 }
 
 int fzn_rpc_retention_add(fzn_rpc_t *c, const char *rule, size_t rule_len) {
-	return node_retention(c, "add", rule, rule_len);
+	return fzn_rpc_rule_change(c, 0, 1, rule, rule_len);
 }
 
 int fzn_rpc_retention_remove(fzn_rpc_t *c, const char *rule, size_t rule_len) {
-	return node_retention(c, "remove", rule, rule_len);
+	return fzn_rpc_rule_change(c, 0, 0, rule, rule_len);
 }
 
 /* `list retention`: a count, then each rule as one %XX-escaped word. */

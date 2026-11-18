@@ -118,6 +118,8 @@
 #include "../wire/generated/stickers_local.h"
 #include "../wire/generated/call.h"
 #include "../wire/generated/call_build.h"
+#include "../wire/generated/settings_local.h"
+#include "../wire/generated/settings_local_build.h"
 #include "../wire/generated/messages_local.h"
 #include "decisions.h"
 #include "responsible.h"
@@ -18987,10 +18989,97 @@ static int local_clocks(int fd, fzn_origin_t origin, const uint8_t *msg, size_t 
 #include "decisions_binary.h"
 /* THE FORKS IN BINARY, sec 1187: `list fork` in one answer, for this
  * node's own user alone, as the verb is. */
+/* THE RETENTION RULES IN BINARY, sec 1258: this host's or the estate's, a
+ * row each in its words, or one added or removed -- through the admin's
+ * own `list`, `add` and `remove retention` or `estate-retention`, so every
+ * check is its own and a refusal is said in its words, never as
+ * malformed. */
+static int local_rules(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	static char reply[FZN_REPLY_MAX + 64u];
+	char arg[32u + FZN_RETAIN_TEXT_MAX];
+	fzn_request_t req;
+	situ_msg_t m;
+	situ_view_t v, b;
+	unsigned op, estate;
+	size_t r, n;
+
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_settings_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_settings_local_message_validate(v) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a settings request"), 0;
+	if (!running_admin)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no rules"), 0;
+	op = fzn_settings_local_message_op_get(v);
+	memset(&req, 0, sizeof(req));
+	if (op == FZN_SETTINGS_LOCAL_OP_RULES) {
+		if (fzn_settings_local_message_body_rules_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a settings request"), 0;
+		estate = fzn_settings_local_rules_ask_estate_get(b);
+		n = (size_t)snprintf(arg, sizeof(arg), "%s", estate ? "estate-retention" : "retention");
+		req.parsed = FZN_VERB_LIST;
+	} else {
+		const situ_err_t got = op == FZN_SETTINGS_LOCAL_OP_RULE_ADD ? fzn_settings_local_message_body_rule_add_view(v, &b)
+		                                                           : fzn_settings_local_message_body_rule_remove_view(v, &b);
+
+		if (got != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a settings request"), 0;
+		estate = fzn_settings_local_rule_change_estate_get(b);
+		n = (size_t)snprintf(arg, sizeof(arg), "%s %.*s", estate ? "estate-retention" : "retention",
+		                     (int)fzn_settings_local_rule_change_rule_len(b),
+		                     (const char *)fzn_settings_local_rule_change_rule_ptr(b));
+		req.parsed = op == FZN_SETTINGS_LOCAL_OP_RULE_ADD ? FZN_VERB_ADD : FZN_VERB_REMOVE;
+	}
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	r = fzn_node_admin_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, origin, NULL, &req, reply, sizeof(reply));
+	while (r && (reply[r - 1u] == '\n' || reply[r - 1u] == '\r'))
+		reply[--r] = '\0';
+	if (r < 2u || memcmp(reply, "ok", 2u) != 0 || (r > 2u && reply[2] != ' '))
+		return local_binary_status(fd,
+		                           r > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,
+		                           memchr(reply, ' ', r) ? (const char *)memchr(reply, ' ', r) + 1
+		                                                 : "the rules would not change"),
+		       0;
+	/* LISTED: `ok N RULE ...`, each rule's word escaped -- a row each, in
+	 * its words. */
+	if (op == FZN_SETTINGS_LOCAL_OP_RULES) {
+		const char *p = r > 3u ? strchr(reply + 3, ' ') : NULL;
+
+		while (p && p[1]) {
+			const char *w = p + 1, *end = strchr(w, ' ');
+			uint8_t rule[FZN_RETAIN_TEXT_MAX], row[8u + FZN_RETAIN_TEXT_MAX], out[24u + FZN_RETAIN_TEXT_MAX];
+			size_t k = 0;
+			uint32_t row_len = 0, o = 0;
+
+			if (!end)
+				end = w + strlen(w);
+			for (; w < end && k < sizeof(rule); w++) {
+				if (*w == '%' && w + 2 < end + 0 && hexval((uint8_t)w[1]) >= 0 && hexval((uint8_t)w[2]) >= 0) {
+					rule[k++] = (uint8_t)(hexval((uint8_t)w[1]) * 16 + hexval((uint8_t)w[2]));
+					w += 2;
+				} else {
+					rule[k++] = (uint8_t)*w;
+				}
+			}
+			if (k && (fzn_settings_local_rule_row_build(row, sizeof(row), rule, (uint32_t)k, &row_len) != SITU_OK
+			          || fzn_settings_local_message_build_rule_row(out, sizeof(out), (uint8_t)FZN_CMD_SETTINGS, row,
+			                                                       row_len, &o)
+			                     != SITU_OK
+			          || !local_put(&fd, out, o)))
+				return 0;
+			p = *end ? end : NULL;
+		}
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 static int local_settings(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "decisions are this node's own user's"), 0;
+	if (len >= 2u && msg[1] >= FZN_SETTINGS_LOCAL_OP_RULES && msg[1] <= FZN_SETTINGS_LOCAL_OP_RULE_REMOVE)
+		return local_rules(fd, origin, msg, len);
 	(void)fzn_node_decisions_binary(&node_records, msg, len, local_put, &fd);
 	return 0;
 }
@@ -19031,6 +19120,11 @@ static const char *binary_write_subject(const uint8_t *msg, size_t len)
 		return fzn_node_objects_binary_changes(msg, len) ? "object" : NULL;
 	case FZN_CMD_CALL:
 		return msg[1] == FZN_CALL_KIND_RESPOND ? "call" : NULL;
+	case FZN_CMD_SETTINGS:
+		/* A RULE ADDED OR REMOVED, as its verb's subject (sec 1258). */
+		if ((msg[1] != FZN_SETTINGS_LOCAL_OP_RULE_ADD && msg[1] != FZN_SETTINGS_LOCAL_OP_RULE_REMOVE) || len < 3u)
+			return NULL;
+		return msg[2] ? "estate-retention" : "retention";
 	case FZN_CMD_MEMBERS:
 		return msg[1] == FZN_MEMBERS_LOCAL_OP_INVITE || msg[1] == FZN_MEMBERS_LOCAL_OP_ANSWER ? "invite" : NULL;
 	case FZN_CMD_STICKERS:

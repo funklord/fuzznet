@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  forks=128 fork_row=129
+  forks=128 fork_row=129 rules=130 rule_row=131 rule_add=132 rule_remove=133
 
 struct fork_row size=44..420
   @0x0000   1         u8         subject_len  max=56
@@ -38,6 +38,22 @@ struct message size=2..422
   body switch: op
   body case 128: forks nothing
   body case 129: fork_row fork_row
+  body case 130: rules rules_ask
+  body case 131: rule_row rule_row
+  body case 132: rule_add rule_change
+  body case 133: rule_remove rule_change
   body case default: error
 
 struct nothing size=0
+
+struct rule_change size=4..259
+  @0x0000   1         u8         estate  max=1
+  @0x0001   2         u16        rule_len  big min=1 max=256
+  @0x0003   1..256    u8         rule  sized-by=rule_len
+
+struct rule_row size=3..258
+  @0x0000   2         u16        rule_len  big min=1 max=256
+  @0x0002   1..256    u8         rule  sized-by=rule_len
+
+struct rules_ask size=1
+  @0x0000   1         u8         estate  max=1

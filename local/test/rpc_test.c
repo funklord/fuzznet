@@ -1136,6 +1136,48 @@ static void test_show_in_binary(void)
 	      "this host's fixes were not read in binary, newest first, another host's left out");
 }
 
+/* THE RETENTION RULES IN BINARY, sec 1258: the estate's asked by its scope,
+ * each row read in its words; one added for the estate, the request's
+ * bytes as sent; a refusal in the node's words; and the old call for this
+ * host's rules the same request with scope 0. */
+static void test_rules_in_binary(void)
+{
+	static struct bscript held, added, refused, old;
+	static fzn_rpc_rules_t out;
+	static const char *const RULES[] = { "prune * age 30d", "keep messages count 500" };
+	uint8_t row[300], m[320];
+	uint32_t row_len = 0, n = 0;
+	size_t i;
+
+	for (i = 0; i < 2u; i++)
+		if (fzn_settings_local_rule_row_build(row, sizeof(row), (const uint8_t *)RULES[i], (uint32_t)strlen(RULES[i]),
+		                                      &row_len)
+		            == SITU_OK
+		    && fzn_settings_local_message_build_rule_row(m, sizeof(m), (uint8_t)FZN_CMD_SETTINGS, row, row_len, &n)
+		               == SITU_OK)
+			framed(&held, 0, m, n);
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &held);
+	CHECK(fzn_rpc_rules(&c, 1, &out) == FZN_RPC_OK && out.count == 2u && strcmp(out.rule[1], RULES[1]) == 0
+	              && !out.overflow && held.asked[0][0] == 0x18 && held.asked[0][1] == 0x82 && held.asked[0][2] == 1,
+	      "the estate's rules were not read in binary, each in its words, asked by its scope");
+	status_onto(&added, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &added);
+	CHECK(fzn_rpc_rule_change(&c, 1, 1, RULES[0], strlen(RULES[0])) == FZN_RPC_OK && added.asked[0][1] == 0x84
+	              && added.asked[0][2] == 1 && added.asked[0][4] == 15u && memcmp(added.asked[0] + 5, "prune", 5) == 0,
+	      "an estate rule was not added in binary, its words as sent");
+	status_onto(&refused, 0, FZN_STATUS_ERROR, "this node stands as neither a root nor an admin");
+	bon(&c, &refused);
+	CHECK(fzn_rpc_rule_change(&c, 1, 0, RULES[0], strlen(RULES[0])) != FZN_RPC_OK
+	              && strstr(c.error, "neither a root nor an admin") && refused.asked[0][1] == 0x85,
+	      "a rule the node would not remove was not refused in its words");
+	status_onto(&old, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &old);
+	CHECK(fzn_rpc_retention_add(&c, RULES[0], strlen(RULES[0])) == FZN_RPC_OK && old.asked[0][1] == 0x84
+	              && old.asked[0][2] == 0,
+	      "the old call for this host's rules did not ask in binary with its scope");
+}
+
 /* A CONTACT'S PAST CALLS IN BINARY, sec 1255: asked by the name, each row
  * read with its id, direction, kinds, outcome, start and length, one past
  * the room left out; a refusal in the node's words. */
@@ -2283,6 +2325,7 @@ int main(void)
 	test_show_in_binary();
 	test_calls_in_binary();
 	test_call_history_in_binary();
+	test_rules_in_binary();
 	test_stickers_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

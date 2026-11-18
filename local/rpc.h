@@ -529,6 +529,18 @@ int fzn_rpc_group_earlier_get(fzn_rpc_t *c, const char *group, size_t group_len,
 int fzn_rpc_retention_add(fzn_rpc_t *c, const char *rule, size_t rule_len);
 int fzn_rpc_retention_remove(fzn_rpc_t *c, const char *rule, size_t rule_len);
 int fzn_rpc_retention_list(fzn_rpc_t *c, char *text, size_t cap, size_t *text_len);
+/* THE RULES BY SCOPE (fuzznet sec 1258): this host's, or with `estate` the
+ * estate's, each in its words, and one added or removed. In binary, the
+ * text verbs behind. `overflow` says there were more than RULES_MAX. */
+#define FZN_RPC_RULES_MAX 64
+#define FZN_RPC_RULE_MAX 256
+typedef struct fzn_rpc_rules {
+	char rule[FZN_RPC_RULES_MAX][FZN_RPC_RULE_MAX + 1];
+	size_t count;
+	int overflow;
+} fzn_rpc_rules_t;
+int fzn_rpc_rules(fzn_rpc_t *c, int estate, fzn_rpc_rules_t *out);
+int fzn_rpc_rule_change(fzn_rpc_t *c, int estate, int add, const char *rule, size_t rule_len);
 /*
  * A fuzznet contact card, `FZC1:` and base32 (fuzznet sec 617), read for
  * what it says rather than added: its shape checked, and the name it offers

@@ -3967,20 +3967,19 @@ $(BUILD_DIR)/gui/test/objects_view_test: $(BUILD_DIR)/gui/test/objects_view_test
 # The notes widget, against the real note verbs in the same process: its
 # ask callback reaches node/notes.c, and local/client is the host's. sec 439.
 # The retention rules on a widget, against a node of the test's own. sec 485.
+# Through the typed client since sec 1258, so its objects too.
 $(BUILD_DIR)/gui/test/retention_view_test: $(BUILD_DIR)/gui/test/retention_view_test.o \
                                       $(BUILD_DIR)/gui/retention_view.o \
                                       $(BUILD_DIR)/log/rules.o \
                                       $(BUILD_DIR)/log/retain.o \
-                                      $(BUILD_DIR)/local/vocabulary.o \
-                                      $(BUILD_DIR)/local/peer.o \
                                       $(BUILD_DIR)/persist/persist.o \
                                       $(BUILD_DIR)/trust/trust.o \
                                       $(BUILD_DIR)/session/agree.o \
                                       $(BUILD_DIR)/prekey/prekey.o \
                                       $(BUILD_DIR)/ratchet/ratchet.o \
-                                      $(BUILD_DIR)/constant_time/constant_time.o
+                                      $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 
 # The estate's governance on a widget, against a node of the test's own that
 # answers each verb in the node's shape. sec 1023.

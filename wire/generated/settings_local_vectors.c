@@ -178,12 +178,112 @@ static void test_message_fork_bare(void **state)
 	situ_check_bytes(buf, vector_message_fork_bare, sizeof(buf));
 }
 
+/* message / rules */
+static const uint8_t vector_message_rules[3u] = {
+	0x18, 0x82, 0x01,
+};
+
+static void test_message_rules(void **state)
+{
+	uint8_t     buf[3u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_rules, sizeof(buf));
+	situ_msg_init(&msg, buf, 3u);
+	situ_check_eq(fzn_settings_local_message_view(&msg, 0, 3u, &view), SITU_OK);
+	situ_check_eq(fzn_settings_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_settings_local_message_cmd_set(view, fzn_settings_local_message_cmd_get(view));
+	fzn_settings_local_message_op_set(&msg, view, fzn_settings_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_rules, sizeof(buf));
+}
+
+/* message / rule_row */
+static const uint8_t vector_message_rule_row[19u] = {
+	0x18, 0x83, 0x00, 0x0F, 0x70, 0x72, 0x75, 0x6E, 0x65, 0x20, 0x2A, 0x20, 0x61, 0x67, 0x65, 0x20, 0x33, 0x30, 0x64,
+};
+
+static void test_message_rule_row(void **state)
+{
+	uint8_t     buf[19u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_rule_row, sizeof(buf));
+	situ_msg_init(&msg, buf, 19u);
+	situ_check_eq(fzn_settings_local_message_view(&msg, 0, 19u, &view), SITU_OK);
+	situ_check_eq(fzn_settings_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_settings_local_message_cmd_set(view, fzn_settings_local_message_cmd_get(view));
+	fzn_settings_local_message_op_set(&msg, view, fzn_settings_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_rule_row, sizeof(buf));
+}
+
+/* message / rule_add */
+static const uint8_t vector_message_rule_add[20u] = {
+	0x18, 0x84, 0x00, 0x00, 0x0F, 0x70, 0x72, 0x75, 0x6E, 0x65, 0x20, 0x2A, 0x20, 0x61, 0x67, 0x65, 0x20, 0x33, 0x30, 0x64,
+};
+
+static void test_message_rule_add(void **state)
+{
+	uint8_t     buf[20u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_rule_add, sizeof(buf));
+	situ_msg_init(&msg, buf, 20u);
+	situ_check_eq(fzn_settings_local_message_view(&msg, 0, 20u, &view), SITU_OK);
+	situ_check_eq(fzn_settings_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_settings_local_message_cmd_set(view, fzn_settings_local_message_cmd_get(view));
+	fzn_settings_local_message_op_set(&msg, view, fzn_settings_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_rule_add, sizeof(buf));
+}
+
+/* message / rule_remove */
+static const uint8_t vector_message_rule_remove[20u] = {
+	0x18, 0x85, 0x01, 0x00, 0x0F, 0x70, 0x72, 0x75, 0x6E, 0x65, 0x20, 0x2A, 0x20, 0x61, 0x67, 0x65, 0x20, 0x33, 0x30, 0x64,
+};
+
+static void test_message_rule_remove(void **state)
+{
+	uint8_t     buf[20u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_rule_remove, sizeof(buf));
+	situ_msg_init(&msg, buf, 20u);
+	situ_check_eq(fzn_settings_local_message_view(&msg, 0, 20u, &view), SITU_OK);
+	situ_check_eq(fzn_settings_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_settings_local_message_cmd_set(view, fzn_settings_local_message_cmd_get(view));
+	fzn_settings_local_message_op_set(&msg, view, fzn_settings_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_rule_remove, sizeof(buf));
+}
+
 int main(void)
 {
 	const struct situ_check_case tests[] = {
 		situ_check_case(test_message_forks),
 		situ_check_case(test_message_fork_row),
 		situ_check_case(test_message_fork_bare),
+		situ_check_case(test_message_rules),
+		situ_check_case(test_message_rule_row),
+		situ_check_case(test_message_rule_add),
+		situ_check_case(test_message_rule_remove),
 	};
 
 	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");
