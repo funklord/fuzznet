@@ -90,6 +90,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "list call history bob"))
 		return (size_t)snprintf(reply, cap, "ok 2 b1b2b3b4b5b6b7b8,out,3,answered,1700005990,252 "
 		                                    "a1a2a3a4a5a6a7a8,in,1,missed,1700005850,0\n");
+	/* FAY READ THIS USER'S LINE (sec 1269). */
+	if (!strcmp(line, "list message fay 0"))
+		return (size_t)snprintf(reply, cap, "ok 0 1 0 " BOB ",fay," ID1 ",out,read,1700005800000,1700005800000,1,"
+		                                    "on%%20my%%20way\n");
 	/* EVE AND A QUIET GROUP: nothing said yet (sec 1263). */
 	if (!strcmp(line, "list message eve 0") || !strcmp(line, "list message @quiet 0"))
 		return (size_t)snprintf(reply, cap, "ok 0 0 0\n");
@@ -326,6 +330,8 @@ int main(int argc, char **argv)
 		      "an empty conversation was not said as one, with whom");
 		CHECK(e.open("@quiet") && e.status() == "No messages in quiet yet.",
 		      "an empty group was not said as one, by its name");
+		CHECK(e.open("fay") && e.lines().value(0) == "23:50 You: on my way (read)",
+		      "a line the contact said they read was not shown read");
 	}
 
 	CHECK(0, "deliberate");

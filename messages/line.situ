@@ -51,6 +51,16 @@ struct fzn_message_mark {
 	u8                     id[16];                  //  3 the line's id
 }
 
+// THE CONTACT READ UP TO A LINE, kind 0x437, sec 1269: told by the
+// contact's node where its user lets it say so; every line this user sent
+// at or before STIME reads as read. The newest such record, wherever
+// written, is the conversation's.
+struct fzn_message_seen {
+	u8                     version [must_eq = 1];   //  0
+	u8                     id[16];                  //  1 the line read up to
+	u64                    stime;                   // 17 that line's sender's time, ms
+}
+
 enum fzn_message_call_outcome : u8 {
 	answered  = 1,	// it was up, SECONDS long
 	missed    = 2,	// rang here and nobody answered anywhere

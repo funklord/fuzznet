@@ -192,6 +192,8 @@ static QString state_words(const fzn_rpc_inbox_entry_t *l)
 		return QObject::tr(" (with a relay)");
 	case FZN_RPC_LINE_NOT_DELIVERED:
 		return QObject::tr(" (not delivered)");
+	case FZN_RPC_LINE_READ:
+		return QObject::tr(" (read)");
 	case FZN_RPC_LINE_NONE:
 		return QObject::tr(" (sending)");
 	}

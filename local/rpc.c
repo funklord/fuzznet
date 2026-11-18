@@ -1162,6 +1162,7 @@ static int node_line(const char *e, size_t e_len, fzn_rpc_inbox_entry_t *out, ui
 	             : f_len == 7 && !memcmp(f, "settled", 7)       ? FZN_RPC_LINE_SETTLED
 	             : f_len == 11 && !memcmp(f, "handed-over", 11) ? FZN_RPC_LINE_HANDED_OVER
 	             : f_len == 13 && !memcmp(f, "not-delivered", 13) ? FZN_RPC_LINE_NOT_DELIVERED
+	             : f_len == 4 && !memcmp(f, "read", 4)             ? FZN_RPC_LINE_READ
 	                                                            : FZN_RPC_LINE_NONE;
 	if (!node_field(&p, end, &f, &f_len) || !node_u64(f, f_len, &out->stime) ||
 	    !node_field(&p, end, &f, &f_len) || !node_u64(f, f_len, &out->rtime) ||

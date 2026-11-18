@@ -82,7 +82,7 @@ struct line_row {
 	u8   id[16];
 	u8   group [max = 1];
 	u8   outgoing [max = 1];
-	u8   state [max = 4];
+	u8   state [max = 5];                // 5 read, as told (sec 1269)
 	u8   readable [max = 1];
 	u64  stime_ms;
 	u64  written_ms;

@@ -76,6 +76,12 @@
 /* SETTLEMENT BETWEEN MEMBERS, sec 615, `messages/deliver.situ`: HOLDS asks
  * a member whether it holds a line's item; HOLDING answers LACKS, HOLDS
  * or DECLINES -- it keeps none of that conversation's lines. */
+/* A READ MARK, sec 1269: this user read the contact's lines up to ID,
+ * whose sender's time is STIME; the answer TAKEN 1 kept, 0 not. */
+#define FZN_NODE_MESSAGES_READ 35u
+#define FZN_NODE_MESSAGES_READ_TAKEN 36u
+#define FZN_NODE_MESSAGES_READ_LEN (2u + FZN_MESSAGE_ID_LEN + 8u)
+#define FZN_NODE_MESSAGES_READ_TAKEN_LEN (2u + FZN_MESSAGE_ID_LEN + 1u)
 #define FZN_NODE_MESSAGES_HOLDS 33u
 #define FZN_NODE_MESSAGES_HOLDING 34u
 #define FZN_NODE_MESSAGES_HOLDS_LEN (2u + FZN_PUBKEY_LEN + FZN_BUCKETS_ID_LEN)
@@ -161,6 +167,10 @@ typedef struct fzn_node_messages {
 	int (*takes_over)(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
 	                  const uint8_t id[FZN_MESSAGE_ID_LEN]);
 	void *takes_over_ctx;
+	/* WHETHER THIS USER TELLS `contact` OF ITS READING, sec 1269: the
+	 * host's, from its settings; NULL tells nobody. */
+	int (*tells_read)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN]);
+	void *tells_read_ctx;
 	/* THE MONTHS HELD BACK at the last conversations pass, sec 792, the
 	 * caller's table: `get message held-back` reads them, so a client can
 	 * say how much older history the rules kept off this device and offer
@@ -374,6 +384,9 @@ typedef struct fzn_node_messages_delivering {
 	uint8_t id[FZN_MESSAGE_ID_LEN]; /* the line offered, and its state then */
 	uint8_t state;
 	fzn_node_messages_delivery_t tally;
+	/* THE READ MARK, once the lines are offered (sec 1269): sent, and
+	 * awaiting its answer. */
+	int telling, told;
 } fzn_node_messages_delivering_t;
 
 fzn_messages_err_t fzn_node_messages_deliver_begin(fzn_node_messages_delivering_t *d,

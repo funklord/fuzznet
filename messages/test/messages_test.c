@@ -1064,6 +1064,33 @@ static void test_read_state_travels(void)
 	      "B's read, absorbed after A's newer one, does not replace it");
 }
 
+/* THE CONTACT'S READING, sec 1269: kept by the line's time, an older
+ * telling moving nothing back; carried to the user's other device; rebuilt
+ * by a reindex; and what this device told, its own row. */
+static void test_the_contacts_reading(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN], got[FZN_MESSAGE_ID_LEN];
+	uint64_t at = 0;
+	size_t marks = 0;
+
+	setup();
+	CHECK(!fzn_messages_seen_at(&A.m, X, &at), "a contact had read something before saying so");
+	id_of(id, 3u);
+	CHECK(fzn_messages_seen(&A.m, X, id, 3000u) == FZN_MESSAGES_OK && fzn_messages_seen_at(&A.m, X, &at) && at == 3000u,
+	      "the contact's reading was not kept");
+	id_of(id, 2u);
+	CHECK(fzn_messages_seen(&A.m, X, id, 2000u) == FZN_MESSAGES_OK && fzn_messages_seen_at(&A.m, X, &at) && at == 3000u,
+	      "an older telling moved the contact's reading back");
+	sync_b();
+	CHECK(fzn_messages_seen_at(&B.m, X, &at) && at == 3000u, "the contact's reading was not carried to the other device");
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK && fzn_messages_seen_at(&A.m, X, &at) && at == 3000u,
+	      "a reindex did not rebuild the contact's reading");
+	id_of(id, 7u);
+	CHECK(!fzn_messages_told_at(&A.m, X, got) && fzn_messages_told(&A.m, X, id) && fzn_messages_told_at(&A.m, X, got)
+	              && got[0] == 7u,
+	      "what this device told was not kept");
+}
+
 /* A CALL'S HISTORY, sec 1255: kept newest first by when it was rung, not
  * a line -- nothing unread for it, the conversation's lines untouched;
  * carried to the user's other device; one per call, an answered one
@@ -2124,6 +2151,7 @@ int main(void)
 	test_import_keeps_a_line_once();
 	test_read_state_travels();
 	test_call_history_travels();
+	test_the_contacts_reading();
 	test_reindex_orders_by_writing();
 	test_the_same_line_far_apart();
 	test_lines_from_before_marks();

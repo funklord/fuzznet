@@ -7,6 +7,9 @@ A asks, B is asked, C asks and is turned away.
     a  B shows its card (`get card bob`); A adds B by it (`add contact bob
        FZC1:...`), which sends B a request in a sealed box; B lists one
        request, from A's root, with A's card's name
+    b2 read marks (sec 1269): off by default, B's reading tells A nothing;
+       on, A's line lists `read`, a fresh read within seconds; one
+       conversation's own choice, off, holds over the default
     b  B approves it (`grant request ROOT alice`); B's round pairs A's host
        and offers B's, which is A's answer; A writes a line to B and it is
        delivered, and B files it under A's root
@@ -91,7 +94,7 @@ def a_round_more(base):
 
 
 # AND A ROUND MORE for phase c's resend, sec 858.
-live_trim.DEADLINE = time.monotonic() + 440.0 + 40.0 * LOSS
+live_trim.DEADLINE = time.monotonic() + 800.0 + 40.0 * LOSS
 
 KEPT_RE = re.compile(r"a contact request from ([0-9a-f]{16}), waiting")
 REFUSED_AGAIN_RE = re.compile(r"a refused request from ([0-9a-f]{16}), sent again")
@@ -106,6 +109,8 @@ ROUND_END_RE = ROUND_DONE_RE
 LINE = "51" * 16
 LINE2 = "52" * 16
 LINE3 = "53" * 16
+LINE4 = "54" * 16
+LINE5 = "55" * 16
 PREKEY_HOST = slice(4, 68)
 
 
@@ -230,6 +235,53 @@ def main(argv):
 				raise failed("b: B holds %r under A's root" % reply)
 			print("livecheck: b: approved, the two paired by the round, and A's line "
 			      "delivered to B under A's root")
+
+			# b2: READ MARKS, sec 1269: off by default -- B reads A's line and A
+			# is told nothing; turned on, A's line reads `read`; and a
+			# conversation's own choice, off, holds whatever the default says.
+			def state_at_a(line):
+				for row in ask(socks["a"], "list message bob").split()[4:]:
+					f = row.split(",")
+					if len(f) > 4 and f[2] == line:
+						return f[4]
+				return None
+			def waited(test, what, limit):
+				until = time.monotonic() + limit
+				while not test():
+					if time.monotonic() > until:
+						raise failed("b2: %s; A lists %r" % (what, ask(socks["a"], "list message bob")))
+					time.sleep(1.0)
+			expect(socks["b"], "b", "set message alice read " + LINE, "ok")
+			# A ROUND OF B'S AND MORE, BY THE CLOCK: `wait_for` finds the first
+			# round's end in the whole log, so it waited for nothing.
+			time.sleep(70.0)
+			if state_at_a(LINE) == "read":
+				raise failed("b2: B read A's line with read marks off, and A was told")
+			expect(socks["b"], "b", "set setting host message/read-marks on", "ok")
+			waited(lambda: state_at_a(LINE) == "read", "A's line never read `read` once B told", within(130.0))
+			# A NEW LINE READ IS TOLD SOON, not at the next timed round.
+			expect(socks["a"], "a", "add message bob out %s second" % LINE4, "ok")
+			waited(lambda: LINE4 in ask(socks["b"], "list message " + keys["a"]),
+			       "A's second line never reached B", within(130.0))
+			expect(socks["b"], "b", "set message alice read " + LINE4, "ok")
+			began = time.monotonic()
+			waited(lambda: state_at_a(LINE4) == "read", "A's second line never read `read`", within(70.0))
+			soon = time.monotonic() - began
+			if soon > 20.0:
+				raise failed("b2: a read was told %.0f s after, at a timed round, not soon" % soon)
+			# AND ONE CONVERSATION'S OWN CHOICE, off, over the default's on.
+			expect(socks["b"], "b", "set setting host message/read/%s off" % keys["a"][:48], "ok")
+			expect(socks["a"], "a", "add message bob out %s third" % LINE5, "ok")
+			waited(lambda: LINE5 in ask(socks["b"], "list message " + keys["a"]),
+			       "A's third line never reached B", within(130.0))
+			expect(socks["b"], "b", "set message alice read " + LINE5, "ok")
+			# A ROUND OF B'S AND MORE, BY THE CLOCK: `wait_for` finds the first
+			# round's end in the whole log, so it waited for nothing.
+			time.sleep(70.0)
+			if state_at_a(LINE5) == "read":
+				raise failed("b2: a conversation turned off was still told read")
+			print("livecheck: b2: read marks off by default, told once on (%.0f s after a read), "
+			      "and held off for one conversation over the default" % soon)
 
 			# c: C asks; B turns it away.
 			got = ask(socks["c"], "add contact bob " + card)

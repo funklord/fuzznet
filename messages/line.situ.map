@@ -42,6 +42,11 @@ struct fzn_message_read size=17 atomic=NonAtomic
   fzn_message_read.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_message_read.id                    offset=AbsoluteStatic(0x01) size=Fixed(16) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
 
+struct fzn_message_seen size=25 repr=ValueConverted atomic=NonAtomic
+  fzn_message_seen.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_seen.id                    offset=AbsoluteStatic(0x01) size=Fixed(16) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_seen.stime                 offset=AbsoluteStatic(0x11) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
 struct fzn_message_stored size=115..1655 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   fzn_message_stored.version             offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_message_stored.contact             offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic

@@ -92413,3 +92413,55 @@ to be evaluated, and the schema language situ or a future extension of
 it -- which the holder is taking up with situ. Nothing is built toward
 e-mail; the evaluation of schema-driven storage is this tree's to make
 and to report, the language situ's and the holder's.
+
+**And an image and photo manager** (the holder, the same day: "we will
+also want a image/photo manager, catalog?"). Recorded as a direction
+beside the map (sec 1267), its time not said and so not started: it
+meets the library (`library_view`, secs 1131, 1156, 1207), the
+catalogue's attributes and facets (`catalog/`), and the schema-driven
+storage question above -- a photo's place, time and people being exactly
+the kind of declared record the map's places are.
+
+## 1269. Read marks, one to one: off by default, chosen for all and per conversation, 2026-11-18
+
+Sec 1268's first answer, built for contacts; groups are the next step.
+
+- **Told**: once this user has read a contact's lines, and only where
+  this user tells that contact (`tells_read`), the node sends that
+  contact's node a READ (35) -- the line read up to and its sender's time
+  -- after the lines it offers in a delivery pass, every round, once per
+  line read up to (`fzn_messages_told`, this device's own row); answered
+  READ_TAKEN (36). The contact hears in seconds -- 2 s, measured live --
+  because a read is a change, which starts a round as any change does
+  (sec 1149); a hook written to ask one was measured needless, its
+  sabotage surviving at 2 s, and removed.
+- **Kept by the sender**: a record (kind 0x437, `messages/line.situ`'s
+  `fzn_message_seen`) on the sender's message stream, which its other
+  devices take in, and the conversation's seen position, the newest by
+  the line's time -- an older or repeated telling moves nothing back.
+  The time is the reader's word for the sender's own line, trusted: a
+  reader can lie only about having read.
+- **Shown**: a line this user sent, at or before the seen position, lists
+  as `read` -- worked out as it is listed, never stored, so nothing marks
+  each line -- in text and binary (`line_row.state` 5), and the client's
+  FZN_RPC_LINE_READ; the conversation says "(read)".
+- **Chosen**: `message/read-marks`, a flag, off -- the holder's default --
+  for every conversation with no choice of its own; and
+  `message/read/HEX`, HEX the contact's key's first 24 bytes (a key is at
+  most 64 characters), on or off over it. Each read three ways, unset
+  being the choice to follow (working-practice's *a config file records
+  choices, not values*): a conversation pinned off stays off when the
+  default is turned on, as the live test shows.
+
+**Tests:** messages_test -- the seen position kept by the line's time, an
+older telling moving nothing, carried to the other device, rebuilt by a
+reindex, and the told row. conversation_view_test -- a line the node
+lists `read` shown "(read)". `live_pairing` phase b2: B reads A's line
+with marks off and A is told nothing over two rounds; turned on, A's
+line lists `read`; a fresh line read is told within seconds; one
+conversation pinned off over the default's on is not told -- each "not
+told" waited out by the clock, 70 s, a round and more: the first
+version waited on `wait_for`, which finds a round's end anywhere in the
+log and returned at once, and two sabotages survived it. Four sabotages,
+each caught (`read-word-unread`, `read-told-by-default`,
+`read-own-choice-ignored`, `read-seen-never-listed`).

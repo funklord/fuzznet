@@ -215,6 +215,14 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "the least time between fixes kept (sec 678)", NULL, 0u },
 	{ "location/accuracy", FZN_SCHEMA_COUNT, HOST, 0u, 61440u, "100", "metres", 0u,
 	  "a fix less certain than this is dropped; 0 keeps every fix (sec 678)", NULL, 0u },
+	{ "message/read-marks", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
+	  "tell a contact this user has read their lines, in every conversation with no choice of "
+	  "its own; off, as the holder chose (sec 1269)",
+	  NULL, 0u },
+	{ "message/read/", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "", "", FZN_SCHEMA_SAFE_LOWER,
+	  "the same for one conversation, named by its key's first 24 bytes in hex: on or off "
+	  "whatever message/read-marks says; unset, it follows (sec 1269)",
+	  NULL, 0u },
 	{ "location/share-new", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
 	  "grant a contact this user's position the first time it becomes one, once -- a contact "
 	  "later turned off is never granted again (sec 1231)",

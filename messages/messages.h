@@ -227,6 +227,24 @@ fzn_messages_err_t fzn_messages_read_up_to(const fzn_messages_t *m,
                                            const uint8_t contact[FZN_PUBKEY_LEN],
                                            const uint8_t id[FZN_MESSAGE_ID_LEN]);
 
+/* THE CONTACT READ UP TO A LINE, sec 1269: told by the contact's node,
+ * written as a record the user's other devices take in, and kept as the
+ * conversation's seen position -- the newest by the line's time wins, so a
+ * late or repeated telling moves nothing back. A line this user sent at or
+ * before it reads as read. 1 kept or held already, as a status. */
+fzn_messages_err_t fzn_messages_seen(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                                     const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t stime);
+/* The seen position: 1 with the line's time, 0 where the contact has said none. */
+int fzn_messages_seen_at(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint64_t *stime);
+
+/* WHAT THIS USER TOLD THE CONTACT OF ITS OWN READING, sec 1269: the line
+ * last told, for the node not to tell it twice. A row of this device's,
+ * not a record: each device tells for itself. */
+int fzn_messages_told_at(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                         uint8_t id[FZN_MESSAGE_ID_LEN]);
+int fzn_messages_told(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                      const uint8_t id[FZN_MESSAGE_ID_LEN]);
+
 /* A CALL THAT ENDED, sec 1255: written as a record, which the user's other
  * devices take in as they take lines, and kept in `contact`'s call
  * history -- the newest FZN_MESSAGES_CALLS_MAX, one a call: where two hosts

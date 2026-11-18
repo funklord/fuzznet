@@ -914,6 +914,43 @@ static fzn_messages_err_t deliver_end(fzn_node_messages_delivering_t *d, int *do
 	return err;
 }
 
+/* THE READ MARK DUE, sec 1269: where this user tells the contact of its
+ * reading, and has read further than this device last told -- its request,
+ * the line's id and its sender's time, found newest first. */
+static int read_due(fzn_node_messages_delivering_t *d, uint8_t *request, size_t *request_len)
+{
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	fzn_node_messages_t *nm = d->nm;
+	uint8_t id[FZN_MESSAGE_ID_LEN], told[FZN_MESSAGE_ID_LEN];
+	size_t off = 0, count, i;
+	int more = 1;
+
+	if (!nm->tells_read || !nm->tells_read(nm->tells_read_ctx, d->contact)
+	    || !fzn_messages_read_position(&nm->m, d->contact, id)
+	    || (fzn_messages_told_at(&nm->m, d->contact, told) && !memcmp(told, id, FZN_MESSAGE_ID_LEN)))
+		return 0;
+	/* FOUND WITHIN TEN PAGES: the line read up to is the newest in, as a rule. */
+	for (; more && off < 10u * FZN_MESSAGES_PAGE_MAX; off += count) {
+		count = 0;
+		if (fzn_messages_page(&nm->m, d->contact, off, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+		            != FZN_MESSAGES_OK
+		    || !count)
+			return 0;
+		for (i = 0; i < count; i++)
+			if (page[i].direction == FZN_MESSAGE_IN && !memcmp(page[i].id, id, FZN_MESSAGE_ID_LEN)) {
+				request[0] = FZN_CMD_MESSAGES;
+				request[1] = FZN_NODE_MESSAGES_READ;
+				memcpy(request + 2, id, FZN_MESSAGE_ID_LEN);
+				fzn_put_be64(request + 2 + FZN_MESSAGE_ID_LEN, page[i].stime);
+				memcpy(d->id, id, FZN_MESSAGE_ID_LEN);
+				d->telling = 1;
+				*request_len = FZN_NODE_MESSAGES_READ_LEN;
+				return 1;
+			}
+	}
+	return 0;
+}
+
 /* THE NEXT LINE TO OFFER, from the index place `d->at` on, its offer
  * written; or the end. One line is read at a time, by place, and the place
  * moves past it: a line marked since is passed by its place, not counted
@@ -934,8 +971,10 @@ static fzn_messages_err_t deliver_next(fzn_node_messages_delivering_t *d, uint8_
 		err = fzn_messages_owed(&nm->m, d->contact, &d->at, &line, 1u, &count, &more);
 		if (err != FZN_MESSAGES_OK)
 			return deliver_end(d, done, err);
+		/* THE LINES OFFERED: the read mark, once, where one is due. */
 		if (!count)
-			return deliver_end(d, done, FZN_MESSAGES_OK);
+			return !d->told && read_due(d, request, request_len) ? FZN_MESSAGES_OK
+			                                                     : deliver_end(d, done, FZN_MESSAGES_OK);
 		/* STILL BEING SENT, or delivered and due for settlement. */
 		if (line.direction != FZN_MESSAGE_OUT
 		    || (line.state != 0u && !(d->settle && line.state == FZN_MESSAGE_DELIVERED))
@@ -983,6 +1022,16 @@ fzn_messages_err_t fzn_node_messages_deliver_step(fzn_node_messages_delivering_t
 	    || !done)
 		return FZN_MESSAGES_ERR_MALFORMED;
 	*done = 0;
+	/* THE READ MARK'S ANSWER: taken, it is not told again. */
+	if (d->telling) {
+		d->telling = 0;
+		d->told = 1;
+		if (reply && reply_len == FZN_NODE_MESSAGES_READ_TAKEN_LEN && reply[0] == FZN_CMD_MESSAGES
+		    && reply[1] == FZN_NODE_MESSAGES_READ_TAKEN && !memcmp(reply + 2, d->id, FZN_MESSAGE_ID_LEN)
+		    && reply[2 + FZN_MESSAGE_ID_LEN] == 1u)
+			(void)fzn_messages_told(&d->nm->m, d->contact, d->id);
+		return deliver_end(d, done, FZN_MESSAGES_OK);
+	}
 	got = offer_outcome(reply, reply_len, d->id);
 	if (got < 0) {
 		d->tally.unanswered++;
@@ -1043,9 +1092,25 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 	size_t text_len;
 	int written = 0;
 
-	if (!nm || !contact || !request || !reply || request_len < 2u
-	    || request[0] != FZN_CMD_MESSAGES || request[1] != FZN_NODE_MESSAGES_DELIVER
+	if (!nm || !contact || !request || !reply || request_len < 2u || request[0] != FZN_CMD_MESSAGES
 	    || reply_cap < FZN_NODE_MESSAGES_DELIVERED_LEN)
+		return 0;
+	/* THE CONTACT READ THIS USER'S LINES, sec 1269: kept where the
+	 * conversation is kept here, as a line is. */
+	if (request[1] == FZN_NODE_MESSAGES_READ && request_len == FZN_NODE_MESSAGES_READ_LEN) {
+		const int took = keeps && fzn_messages_seen(&nm->m, contact, request + 2,
+		                                            fzn_get_be64(request + 2 + FZN_MESSAGE_ID_LEN))
+		                                  == FZN_MESSAGES_OK;
+
+		if (took)
+			nm->fresh = 1;
+		reply[0] = FZN_CMD_MESSAGES;
+		reply[1] = FZN_NODE_MESSAGES_READ_TAKEN;
+		memcpy(reply + 2, request + 2, FZN_MESSAGE_ID_LEN);
+		reply[2 + FZN_MESSAGE_ID_LEN] = (uint8_t)took;
+		return FZN_NODE_MESSAGES_READ_TAKEN_LEN;
+	}
+	if (request[1] != FZN_NODE_MESSAGES_DELIVER)
 		return 0;
 	if (request_len < FZN_NODE_MESSAGES_DELIVER_HEAD_LEN)
 		return 0;
@@ -1250,7 +1315,20 @@ static int direction_of(const uint8_t *w, size_t w_len, uint8_t *d)
 }
 
 static const char *const STATES[] = { "-", "delivered", "settled", "handed-over",
-	                              "not-delivered" };
+	                              "not-delivered", "read" };
+
+/* A LINE'S STATE AS LISTED, sec 1269: a line this user sent, at or before
+ * the contact's seen position, is read -- worked out here, never stored,
+ * so it follows the newest telling and nothing marks each line. 5 read. */
+#define LISTED_READ 5u
+static uint8_t listed_state(const fzn_node_messages_t *nm, const fzn_message_t *p)
+{
+	uint64_t seen = 0;
+
+	if (p->direction == FZN_MESSAGE_OUT && fzn_messages_seen_at(&nm->m, p->contact, &seen) && p->stime <= seen)
+		return LISTED_READ;
+	return p->state <= FZN_MESSAGE_NOT_DELIVERED ? p->state : 0u;
+}
 
 static int state_of(const uint8_t *w, size_t w_len, uint8_t *s)
 {
@@ -1943,7 +2021,7 @@ int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, si
 			}
 			l.name = name;
 			l.outgoing = p->direction == FZN_MESSAGE_OUT;
-			l.state = p->state <= FZN_MESSAGE_NOT_DELIVERED ? p->state : 0u;
+			l.state = listed_state(nm, p);
 			l.readable = p->readable != 0;
 			l.stime_ms = p->stime;
 			l.written_ms = p->written_at;
@@ -2117,7 +2195,7 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 		h += 2u * FZN_MESSAGE_ID_LEN;
 		k = snprintf(head + h, sizeof(head) - h, ",%s,%s,%llu,%llu,%d,",
 		             p->direction == FZN_MESSAGE_OUT ? "out" : "in",
-		             p->state <= FZN_MESSAGE_NOT_DELIVERED ? STATES[p->state] : "-",
+		             STATES[listed_state(nm, p)],
 		             (unsigned long long)p->stime, (unsigned long long)p->written_at,
 		             p->readable);
 		if (k < 0 || (size_t)k >= sizeof(head) - h)

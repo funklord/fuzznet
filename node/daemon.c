@@ -4897,6 +4897,43 @@ static int estate_flag(const char *key)
 	       && fzn_schema_flag(value, len) == 1;
 }
 
+/* A CHOICE OF THIS USER'S, three ways, sec 1269: 1 on, 0 off, -1 left
+ * unchosen -- the estate's word, else this host's own. Unchosen is a choice
+ * too: the conversation follows the user-wide one. */
+static int choice_of(const char *key)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+
+	if (node_apply.root
+	    && fzn_node_settings_get(&node_settings, FZN_SCOPE_ESTATE, node_apply.root, (const uint8_t *)key,
+	                             strlen(key), value, &len, &rank))
+		return fzn_schema_flag(value, len) == 1 ? 1 : 0;
+	if (fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, routing_self, (const uint8_t *)key, strlen(key),
+	                          value, &len, &rank))
+		return fzn_schema_flag(value, len) == 1 ? 1 : 0;
+	return -1;
+}
+
+/* WHETHER THIS USER TELLS `contact` IT READ THEIR LINES, sec 1269: the
+ * conversation's own choice, `message/read/HEX`, where it has one; else
+ * `message/read-marks`; off unless chosen, as the holder decided. */
+static int tells_read(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	char key[16u + 48u + 1u];
+	size_t i, n;
+	int v;
+
+	(void)ctx;
+	n = (size_t)snprintf(key, sizeof(key), "message/read/");
+	for (i = 0; i < 24u; i++)
+		n += (size_t)snprintf(key + n, sizeof(key) - n, "%02x", contact[i]);
+	if ((v = choice_of(key)) >= 0)
+		return v;
+	return choice_of("message/read-marks") == 1;
+}
+
 /* THE ESTATE'S MANIFEST AS ITS SETTINGS SAY, fuzzypickles' "deterministic
  * projection": every host cell `net/address` an entry, at its `net/metric`
  * -- 0 to 255, 100 unset -- over UDP; `routing/public` its public_relay.
@@ -25904,6 +25941,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					node_messages.keeps = keeps_here;
 					node_messages.m.keeps = keeps_here;
 					node_messages.takes_over = takes_over_line;
+					node_messages.tells_read = tells_read;
 #if defined(FZN_SPOOL_FILE_ON)
 					node_messages.m.on_text = text_seen;
 					node_messages.file_of = file_of_here;
