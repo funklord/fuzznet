@@ -92301,3 +92301,35 @@ the group marked as one by its description, no longer by being the only
 icon; one name one colour in any case, two names apart, and white on the
 colour 4.5:1 or better for 300 names. Two sabotages, each caught
 (`initial-undarkened`, `initial-unshown`).
+
+## 1265. The governance view's listings in binary, 2026-11-18
+
+Step 2 of sec 1261, the calls that step made being the surface: the
+members category's local ops gain `roots` (139), answered by a
+`quorum_row` (141) with k and a `root_row` (140) each -- the key, and
+whether this host acts as it; `votes` (142), k again and a `vote_row`
+(143) each -- against whom, by whom, withdrawn or not; `successions`
+(144), a `rekey_row` (145) each; `staged` (146), a `staged_row` (147)
+each -- its token, its deadline as the node words it, and the key taking
+the rest; and `presets` (148), a `preset_row` (149) for each profile
+offered, the one in force marked, or that one alone where none is.
+
+**The node answers from the verbs' own answers** through `local_handle`,
+the local dispatch every text verb goes through (`gov_ask`), so each
+check, and each refusal's words, is the verb's; the succession listing
+paged as its words are, sixteen pages at most. The client asks each in
+binary first (`fzn_rpc_roots` and the rest), its text behind.
+
+The votes on a host's setting stay text: they are a records listing
+(`list record under vote/`), the record verbs' subject rather than the
+estate's.
+
+**Tests:** eleven vectors; rpc_test -- k from its row, the root acted
+as, a vote withdrawn with its voter, a staged key with commas whole, a
+re-key's state, the profile in force among two. `live_location` phase t:
+on its root, k and the roots, the votes, staged changes and re-keys, and
+the profile in force, each in binary as the words list them. Three
+sabotages, each caught (`gov-binary-k-unread`,
+`gov-binary-in-force-unsaid`, `gov-node-acting-dropped`); a fourth, the
+node's in-force mark among the choices, survived for want of a build
+offering choices here, and was dropped rather than kept unguarded.

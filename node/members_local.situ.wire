@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  siblings=128 sibling_row=129 capabilities=130 capability_row=131 grants=132 grant_row=133 invite=134 invite_row=135 waiting=136 waiting_row=137 answer=138
+  siblings=128 sibling_row=129 capabilities=130 capability_row=131 grants=132 grant_row=133 invite=134 invite_row=135 waiting=136 waiting_row=137 answer=138 roots=139 root_row=140 quorum_row=141 votes=142 vote_row=143 successions=144 rekey_row=145 staged=146 staged_row=147 presets=148 preset_row=149
 
 struct answer_ask size=33
   @0x0000   32        u8         key  big
@@ -48,10 +48,10 @@ struct invite_row size=1..211
   @0x0000   1         u8         code_len  max=210
   @0x0001   0..210    u8         code  sized-by=code_len
 
-struct message size=2..338
+struct message size=2..550
   @0x0000   1         u8         cmd  must_eq=9
   @0x0001   1         op         op
-  @0x0002   0..336    variant    body
+  @0x0002   0..548    variant    body
   body switch: op
   body case 128: siblings nothing
   body case 129: sibling_row sibling_row
@@ -64,9 +64,38 @@ struct message size=2..338
   body case 136: waiting nothing
   body case 137: waiting_row waiting_row
   body case 138: answer answer_ask
+  body case 139: roots nothing
+  body case 140: root_row root_row
+  body case 141: quorum_row quorum_row
+  body case 142: votes nothing
+  body case 143: vote_row vote_row
+  body case 144: successions nothing
+  body case 145: rekey_row rekey_row
+  body case 146: staged nothing
+  body case 147: staged_row staged_row
+  body case 148: presets nothing
+  body case 149: preset_row preset_row
   body case default: error
 
 struct nothing size=0
+
+struct preset_row size=3..65
+  @0x0000   1         u8         in_force  max=1
+  @0x0001   1         u8         name_len  min=1 max=63
+  @0x0002   1..63     u8         name  sized-by=name_len
+
+struct quorum_row size=1
+  @0x0000   1         u8         k
+
+struct rekey_row size=65..88
+  @0x0000   32        u8         old_key  big
+  @0x0020   32        u8         new_key  big
+  @0x0040   1         u8         state_len  max=23
+  @0x0041   0..23     u8         state  sized-by=state_len
+
+struct root_row size=33
+  @0x0000   32        u8         key  big
+  @0x0020   1         u8         acting  max=1
 
 struct sibling_row size=45..336
   @0x0000   32        u8         key  big
@@ -77,6 +106,19 @@ struct sibling_row size=45..336
   @0x002c   0..259    u8         where  sized-by=where_len
   ~         1         u8         name_len  max=32
   ~         0..32     u8         name  sized-by=name_len
+
+struct staged_row size=5..548
+  @0x0000   2         u16        token_len  big max=256
+  @0x0002   0..256    u8         token  sized-by=token_len
+  ~         1         u8         deadline_len  max=31
+  ~         0..31     u8         deadline  sized-by=deadline_len
+  ~         2         u16        key_len  big max=256
+  ~         0..256    u8         key  sized-by=key_len
+
+struct vote_row size=65
+  @0x0000   32        u8         against  big
+  @0x0020   32        u8         voter  big
+  @0x0040   1         u8         withdrawn  max=1
 
 struct waiting_row size=32
   @0x0000   32        u8         key  big

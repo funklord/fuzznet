@@ -17433,6 +17433,27 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"gov-binary-k-unread",
+		"local/rpc.c",
+		"\t\tif (a->roots) a->roots->k = fzn_members_local_quorum_row_k_get(b);\n",
+		"\t\tif (a->roots) a->roots->k = 0;\n",
+		"k is read as 0 from the roots in binary -- sec 1265",
+	),
+	(
+		"gov-binary-in-force-unsaid",
+		"local/rpc.c",
+		"\t\tif (fzn_members_local_preset_row_in_force_get(b)) snprintf(a->presets->current, sizeof a->presets->current, \"%s\", name);\n",
+		"",
+		"the profile in force is not said when the profiles come in binary -- sec 1265",
+	),
+	(
+		"gov-node-acting-dropped",
+		"node/daemon.c",
+		"\t\t\t\t    || fzn_members_local_root_row_build(row, sizeof(row), a, (uint8_t)(c1 && !memcmp(c1 + 1, \"acting\", 6)), &row_len)\n",
+		"\t\t\t\t    || fzn_members_local_root_row_build(row, sizeof(row), a, 0u, &row_len)\n",
+		"the node never says in binary which root this host acts as; live_location phase t -- sec 1265",
+	),
+	(
 		"initial-undarkened",
 		"gui/conversations_view.cpp",
 		"\twhile (1.05 / (luminance(c) + 0.05) < 4.5 && c.lightness() > 20)\n",

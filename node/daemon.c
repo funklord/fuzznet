@@ -18954,6 +18954,228 @@ static int local_invites(int fd, fzn_origin_t origin, situ_view_t v)
 	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
+/* THE ESTATE'S GOVERNANCE IN BINARY, sec 1265: the roots, the votes, the
+ * re-keys, the staged changes and the profiles, each from its own verb's
+ * answer through the local dispatch -- so every check is that verb's, and
+ * a refusal is said in its words -- as rows. */
+static size_t gov_ask(fzn_origin_t origin, fzn_verb_t verb, const char *arg, char *reply, size_t cap)
+{
+	fzn_request_t req;
+	size_t r;
+
+	memset(&req, 0, sizeof(req));
+	req.parsed = verb;
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = strlen(arg);
+	r = local_handle(running_admin, FZN_AUTHZ_GRANTED_UNGUARDED, origin, NULL, &req, reply, cap);
+	while (r && (reply[r - 1u] == '\n' || reply[r - 1u] == '\r'))
+		reply[--r] = '\0';
+	return r;
+}
+
+/* AN ANSWER NOT `ok`, said as a STATUS in its words. */
+static int gov_refused(int fd, const char *reply, size_t r)
+{
+	return local_binary_status(fd, r > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,
+	                           memchr(reply, ' ', r) ? (const char *)memchr(reply, ' ', r) + 1 : "the node refused it"),
+	       0;
+}
+
+static int gov_ok(const char *reply, size_t r) { return r >= 2u && !memcmp(reply, "ok", 2u) && (r == 2u || reply[2] == ' '); }
+
+/* A KEY'S 64 HEX into its bytes: 0 where it is not one. */
+static int gov_key(const char *w, size_t n, uint8_t out[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	if (n != 2u * FZN_PUBKEY_LEN)
+		return 0;
+	for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+		const int hi = hexval((uint8_t)w[2u * i]), lo = hexval((uint8_t)w[2u * i + 1u]);
+
+		if (hi < 0 || lo < 0)
+			return 0;
+		out[i] = (uint8_t)(hi * 16 + lo);
+	}
+	return 1;
+}
+
+/* THE NEXT WORD of `*p`, its length; 0 at the end. */
+static size_t gov_word(const char **p, const char **w)
+{
+	while (**p == ' ')
+		(*p)++;
+	*w = *p;
+	while (**p && **p != ' ')
+		(*p)++;
+	return (size_t)(*p - *w);
+}
+
+static int gov_put(int fd, uint8_t *out, uint32_t n) { return local_put(&fd, out, n); }
+
+static int local_governance(int fd, fzn_origin_t origin, unsigned op)
+{
+	static char reply[FZN_REPLY_MAX + 64u], more[FZN_REPLY_MAX + 64u];
+	uint8_t row[640], out[680], a[FZN_PUBKEY_LEN], b[FZN_PUBKEY_LEN];
+	uint32_t row_len = 0, k = 0;
+	const char *p, *w, *c1, *c2;
+	size_t r, n, i;
+
+	if (!running_admin)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no estate"), 0;
+	if (op == FZN_MEMBERS_LOCAL_OP_ROOTS || op == FZN_MEMBERS_LOCAL_OP_VOTES) {
+		const int roots = op == FZN_MEMBERS_LOCAL_OP_ROOTS;
+		unsigned long quorum, count;
+
+		r = gov_ask(origin, FZN_VERB_LIST, roots ? "root" : "vote", reply, sizeof(reply));
+		if (!gov_ok(reply, r))
+			return gov_refused(fd, reply, r);
+		/* `ok K N ITEM ...`: K first, as its own row. */
+		if (sscanf(reply + 2, "%lu %lu", &quorum, &count) != 2 || quorum > 255u)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the listing did not read"), 0;
+		if (fzn_members_local_quorum_row_build(row, sizeof(row), (uint8_t)quorum, &row_len) != SITU_OK
+		    || fzn_members_local_message_build_quorum_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &k)
+		               != SITU_OK
+		    || !gov_put(fd, out, k))
+			return 0;
+		p = reply + 2;
+		(void)gov_word(&p, &w);
+		(void)gov_word(&p, &w);
+		for (i = 0; i < count && (n = gov_word(&p, &w)) != 0; i++) {
+			c1 = memchr(w, ',', n);
+			if (roots) {
+				if (!gov_key(w, c1 ? (size_t)(c1 - w) : n, a)
+				    || fzn_members_local_root_row_build(row, sizeof(row), a, (uint8_t)(c1 && !memcmp(c1 + 1, "acting", 6)), &row_len)
+				               != SITU_OK
+				    || fzn_members_local_message_build_root_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row,
+				                                                row_len, &k)
+				               != SITU_OK)
+					return local_binary_status(fd, FZN_STATUS_ERROR, "a root did not read"), 0;
+			} else {
+				c2 = c1 ? memchr(c1 + 1, ',', (size_t)(w + n - c1 - 1)) : NULL;
+				if (!c2 || !gov_key(w, (size_t)(c1 - w), a) || !gov_key(c1 + 1, (size_t)(c2 - c1 - 1), b)
+				    || fzn_members_local_vote_row_build(row, sizeof(row), a, b,
+				                                        (uint8_t)(w + n - c2 - 1 == 9 && !memcmp(c2 + 1, "withdrawn", 9)),
+				                                        &row_len)
+				               != SITU_OK
+				    || fzn_members_local_message_build_vote_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row,
+				                                                row_len, &k)
+				               != SITU_OK)
+					return local_binary_status(fd, FZN_STATUS_ERROR, "a vote did not read"), 0;
+			}
+			if (!gov_put(fd, out, k))
+				return 0;
+		}
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	}
+	if (op == FZN_MEMBERS_LOCAL_OP_SUCCESSIONS) {
+		unsigned long from = 0, total, start, page;
+
+		/* PAGED, `ok TOTAL FROM OLD>NEW,STATE ...`, at most 16 pages. */
+		for (page = 0; page < 16u; page++) {
+			char arg[32];
+			size_t added = 0;
+
+			(void)snprintf(arg, sizeof(arg), "succession %lu", from);
+			r = gov_ask(origin, FZN_VERB_LIST, arg, reply, sizeof(reply));
+			if (!gov_ok(reply, r))
+				return gov_refused(fd, reply, r);
+			if (sscanf(reply + 2, "%lu %lu", &total, &start) != 2)
+				return local_binary_status(fd, FZN_STATUS_ERROR, "the listing did not read"), 0;
+			p = reply + 2;
+			(void)gov_word(&p, &w);
+			(void)gov_word(&p, &w);
+			while ((n = gov_word(&p, &w)) != 0) {
+				const char *gt = memchr(w, '>', n);
+
+				c1 = memchr(w, ',', n);
+				if (!gt || !c1 || gt > c1 || !gov_key(w, (size_t)(gt - w), a) || !gov_key(gt + 1, (size_t)(c1 - gt - 1), b)
+				    || fzn_members_local_rekey_row_build(row, sizeof(row), a, b, (const uint8_t *)c1 + 1,
+				                                         (uint32_t)(w + n - c1 - 1), &row_len)
+				               != SITU_OK
+				    || fzn_members_local_message_build_rekey_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row,
+				                                                 row_len, &k)
+				               != SITU_OK)
+					return local_binary_status(fd, FZN_STATUS_ERROR, "a re-key did not read"), 0;
+				if (!gov_put(fd, out, k))
+					return 0;
+				added++;
+			}
+			from += added;
+			if (!added || from >= total)
+				break;
+		}
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	}
+	if (op == FZN_MEMBERS_LOCAL_OP_STAGED) {
+		unsigned long count;
+
+		r = gov_ask(origin, FZN_VERB_LIST, "staged", reply, sizeof(reply));
+		if (!gov_ok(reply, r))
+			return gov_refused(fd, reply, r);
+		/* `ok N TOKEN,DEADLINE,KEY ...`, the key taking the rest. */
+		if (sscanf(reply + 2, "%lu", &count) != 1)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the listing did not read"), 0;
+		p = reply + 2;
+		(void)gov_word(&p, &w);
+		for (i = 0; i < count && (n = gov_word(&p, &w)) != 0; i++) {
+			c1 = memchr(w, ',', n);
+			c2 = c1 ? memchr(c1 + 1, ',', (size_t)(w + n - c1 - 1)) : NULL;
+			if (!c2
+			    || fzn_members_local_staged_row_build(row, sizeof(row), (const uint8_t *)w, (uint32_t)(c1 - w),
+			                                          (const uint8_t *)c1 + 1, (uint32_t)(c2 - c1 - 1),
+			                                          (const uint8_t *)c2 + 1, (uint32_t)(w + n - c2 - 1), &row_len)
+			               != SITU_OK
+			    || fzn_members_local_message_build_staged_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row, row_len,
+			                                                  &k)
+			               != SITU_OK)
+				return local_binary_status(fd, FZN_STATUS_ERROR, "a staged change did not read"), 0;
+			if (!gov_put(fd, out, k))
+				return 0;
+		}
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	}
+	/* THE PROFILES: the one in force, and each choice -- the one in force
+	 * alone where the node offers none. */
+	r = gov_ask(origin, FZN_VERB_GET, "preset", reply, sizeof(reply));
+	if (!gov_ok(reply, r) || r < 4u)
+		return gov_refused(fd, reply, r);
+	{
+		const char *current = reply + 3;
+		unsigned long count = 0;
+		int said_current = 0;
+		size_t m = gov_ask(origin, FZN_VERB_LIST, "preset choices", more, sizeof(more));
+
+		if (gov_ok(more, m) && sscanf(more + 2, "%lu", &count) == 1) {
+			p = more + 2;
+			(void)gov_word(&p, &w);
+			for (i = 0; i < count && (n = gov_word(&p, &w)) != 0; i++) {
+				const int in_force = n == strlen(current) && !memcmp(w, current, n);
+
+				said_current |= in_force;
+				if (fzn_members_local_preset_row_build(row, sizeof(row), (uint8_t)in_force, (const uint8_t *)w,
+				                                       (uint32_t)n, &row_len)
+				            != SITU_OK
+				    || fzn_members_local_message_build_preset_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row,
+				                                                  row_len, &k)
+				               != SITU_OK
+				    || !gov_put(fd, out, k))
+					return 0;
+			}
+		}
+		if (!said_current
+		    && (fzn_members_local_preset_row_build(row, sizeof(row), 1u, (const uint8_t *)current,
+		                                           (uint32_t)strlen(current), &row_len)
+		                != SITU_OK
+		        || fzn_members_local_message_build_preset_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row,
+		                                                      row_len, &k)
+		                   != SITU_OK
+		        || !gov_put(fd, out, k)))
+			return 0;
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 /* THIS ESTATE'S OTHER HOSTS IN BINARY, sec 1176: `list sibling`'s rows, a
  * row a host and then a STATUS ok, for this node's own user alone -- and
  * the category's other two lists, sec 1188. */
@@ -18979,6 +19201,12 @@ static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_WAITING
 	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_ANSWER)
 		return local_invites(fd, origin, v);
+	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_ROOTS
+	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_VOTES
+	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_SUCCESSIONS
+	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_STAGED
+	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_PRESETS)
+		return local_governance(fd, origin, fzn_members_local_message_op_get(v));
 	if (fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_SIBLINGS)
 		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
 	if (!siblings_gather(&hosts, &n))

@@ -299,6 +299,219 @@ static inline situ_err_t fzn_members_local_invite_row_edit_decode(const situ_msg
 	return SITU_OK;
 }
 
+/* `rekey_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t state_len;
+	const uint8_t *state;	/* into your backing */
+	uint32_t state_len;
+} fzn_members_local_rekey_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_members_local_rekey_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_members_local_rekey_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_members_local_rekey_row_state_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_members_local_rekey_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_members_local_rekey_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_members_local_rekey_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_members_local_rekey_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->state_len = fzn_members_local_rekey_row_state_len_get(view);
+	out->state_len = fzn_members_local_rekey_row_state_len(view);
+	out->state     = backing + at;
+	for (uint32_t i = 0u; i < out->state_len; i++) {
+		backing[at + i] = fzn_members_local_rekey_row_state_ptr(view)[i];
+	}
+	at += out->state_len;
+	(void)at;
+	return SITU_OK;
+}
+
+/* `staged_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint16_t token_len;
+	const uint8_t *token;	/* into your backing */
+	uint32_t token_len;
+	uint8_t deadline_len;
+	const uint8_t *deadline;	/* into your backing */
+	uint32_t deadline_len;
+	uint16_t key_len;
+	const uint8_t *key;	/* into your backing */
+	uint32_t key_len;
+} fzn_members_local_staged_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_members_local_staged_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_members_local_staged_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_members_local_staged_row_token_len(view);
+	*need += fzn_members_local_staged_row_deadline_len(view);
+	*need += fzn_members_local_staged_row_key_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_members_local_staged_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_members_local_staged_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_members_local_staged_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_members_local_staged_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->token_len = fzn_members_local_staged_row_token_len_get(view);
+	out->token_len = fzn_members_local_staged_row_token_len(view);
+	out->token     = backing + at;
+	for (uint32_t i = 0u; i < out->token_len; i++) {
+		backing[at + i] = fzn_members_local_staged_row_token_ptr(view)[i];
+	}
+	at += out->token_len;
+	out->deadline_len = fzn_members_local_staged_row_deadline_len_get(view);
+	out->deadline_len = fzn_members_local_staged_row_deadline_len(view);
+	out->deadline     = backing + at;
+	for (uint32_t i = 0u; i < out->deadline_len; i++) {
+		backing[at + i] = fzn_members_local_staged_row_deadline_ptr(view)[i];
+	}
+	at += out->deadline_len;
+	out->key_len = fzn_members_local_staged_row_key_len_get(view);
+	out->key_len = fzn_members_local_staged_row_key_len(view);
+	out->key     = backing + at;
+	for (uint32_t i = 0u; i < out->key_len; i++) {
+		backing[at + i] = fzn_members_local_staged_row_key_ptr(view)[i];
+	}
+	at += out->key_len;
+	(void)at;
+	return SITU_OK;
+}
+
+/* `preset_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t in_force;
+	uint8_t name_len;
+	const uint8_t *name;	/* into your backing */
+	uint32_t name_len;
+} fzn_members_local_preset_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_members_local_preset_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_members_local_preset_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_members_local_preset_row_name_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_members_local_preset_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_members_local_preset_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_members_local_preset_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_members_local_preset_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->in_force = fzn_members_local_preset_row_in_force_get(view);
+	out->name_len = fzn_members_local_preset_row_name_len_get(view);
+	out->name_len = fzn_members_local_preset_row_name_len(view);
+	out->name     = backing + at;
+	for (uint32_t i = 0u; i < out->name_len; i++) {
+		backing[at + i] = fzn_members_local_preset_row_name_ptr(view)[i];
+	}
+	at += out->name_len;
+	(void)at;
+	return SITU_OK;
+}
+
 #ifdef __cplusplus
 }
 #endif

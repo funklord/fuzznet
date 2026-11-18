@@ -32,6 +32,9 @@ a poor one in turn.
        estate's listed as `list retention` says them, one added and
        removed, an estate rule added, and a rule that is none refused as an
        error in words, never as malformed
+    t  the governance in binary (sec 1265): k and the roots, the votes, the
+       staged changes and the re-keys, and the profile in force, as the
+       words list them
     s  a start in place (sec 1259): an admin chain this root grants itself
        starts it again; the request sent at once is answered by the new
        image, never refused nor answered by the old; a TERM sent at once
@@ -396,6 +399,33 @@ def main(argv):
 				raise failed("r: a rule that is none was answered %r, not refused in words" % got)
 			print("livecheck: r: this node's rules and the estate's in binary, as the words list "
 			      "them; one added and removed; a rule that is none refused in words")
+
+			# t: THE GOVERNANCE IN BINARY, sec 1265, as the words say it: this
+			# root's k and roots, its votes, staged changes and re-keys, and
+			# the profile in force among those offered.
+			def rows(op):
+				got = binary(sock, bytes([0x09, op]))
+				if not got or got[-1][:2] != bytes([0x13, 0]):
+					raise failed("t: op %d in binary answered %r" % (op, got))
+				return got[:-1]
+			words = ask(sock, "list root").split()
+			got = rows(0x8B)
+			roots = [(r[2:34].hex(), r[34]) for r in got[1:]]
+			if got[0][:2] != bytes([0x09, 0x8D]) or str(got[0][2]) != words[1] \
+			   or [k for k, _ in roots] != [w.split(",")[0] for w in words[3:]] \
+			   or [a for _, a in roots] != [1 if w.endswith(",acting") else 0 for w in words[3:]]:
+				raise failed("t: the roots in binary %r against %r" % (got, words))
+			for op, verb, skip in ((0x8E, "list vote", 3), (0x92, "list staged", 2), (0x90, "list succession 0", 3)):
+				got = rows(op)
+				listed = ask(sock, verb).split()[skip:]
+				if len([r for r in got if r[1] != 0x8D]) != len(listed):
+					raise failed("t: %s in binary %r against %r" % (verb, got, listed))
+			current = ask(sock, "get preset").split()[1]
+			got = rows(0x94)
+			if not any(r[2] == 1 and r[4:4 + r[3]].decode() == current for r in got):
+				raise failed("t: the profile in force in binary %r, in words %r" % (got, current))
+			print("livecheck: t: the governance in binary as in words: k, %d root(s), the votes, staged "
+			      "changes and re-keys, and %s in force" % (len(roots), current))
 
 			# s: A START IN PLACE, sec 1259: this node, its estate's root, keeps
 			# an admin chain it grants itself, which starts it again in place.

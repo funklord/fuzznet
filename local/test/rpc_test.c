@@ -1136,6 +1136,68 @@ static void test_show_in_binary(void)
 	      "this host's fixes were not read in binary, newest first, another host's left out");
 }
 
+/* THE GOVERNANCE IN BINARY, sec 1265: k from its row, roots with the one
+ * acted as, a vote withdrawn, a staged change's three words, a re-key's
+ * state, and the profile in force among the choices. */
+static void test_governance_in_binary(void)
+{
+	static struct bscript roots, votes, staged, rekeys, presets;
+	static fzn_rpc_roots_t r;
+	static fzn_rpc_votes_t v;
+	static fzn_rpc_staged_t g;
+	static fzn_rpc_successions_t s;
+	static fzn_rpc_presets_t p;
+	uint8_t a[32], b[32], row[600], m[640];
+	uint32_t row_len = 0, n = 0;
+
+	memset(a, 0x5a, sizeof(a));
+	memset(b, 0x6b, sizeof(b));
+#define ONTO(script, build, msg_build, ...)                                                              \
+	do {                                                                                             \
+		if (build(row, sizeof(row), __VA_ARGS__, &row_len) == SITU_OK                            \
+		    && msg_build(m, sizeof(m), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &n) == SITU_OK)  \
+			framed(&script, 0, m, n);                                                        \
+	} while (0)
+	ONTO(roots, fzn_members_local_quorum_row_build, fzn_members_local_message_build_quorum_row, 2u);
+	ONTO(roots, fzn_members_local_root_row_build, fzn_members_local_message_build_root_row, a, 1u);
+	ONTO(roots, fzn_members_local_root_row_build, fzn_members_local_message_build_root_row, b, 0u);
+	status_onto(&roots, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &roots);
+	CHECK(fzn_rpc_roots(&c, &r) == FZN_RPC_OK && r.k == 2u && r.count == 2u && r.root[0].acting && !r.root[1].acting
+	              && r.root[1].key[0] == '6' && roots.asked[0][0] == 0x09 && roots.asked[0][1] == 0x8b,
+	      "the roots were not read in binary, k and the one acted as");
+	ONTO(votes, fzn_members_local_quorum_row_build, fzn_members_local_message_build_quorum_row, 2u);
+	ONTO(votes, fzn_members_local_vote_row_build, fzn_members_local_message_build_vote_row, a, b, 1u);
+	status_onto(&votes, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &votes);
+	CHECK(fzn_rpc_votes(&c, &v) == FZN_RPC_OK && v.k == 2u && v.count == 1u && v.vote[0].withdrawn
+	              && v.vote[0].voter[0] == '6',
+	      "a vote was not read in binary, withdrawn, with its voter");
+	ONTO(staged, fzn_members_local_staged_row_build, fzn_members_local_message_build_staged_row,
+	     (const uint8_t *)"tok1", 4u, (const uint8_t *)"1700000000", 10u, (const uint8_t *)"a,b,c", 5u);
+	status_onto(&staged, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &staged);
+	CHECK(fzn_rpc_staged(&c, &g) == FZN_RPC_OK && g.count == 1u && !strcmp(g.change[0].token, "tok1")
+	              && !strcmp(g.change[0].key, "a,b,c"),
+	      "a staged change was not read in binary, its key whole");
+	ONTO(rekeys, fzn_members_local_rekey_row_build, fzn_members_local_message_build_rekey_row, a, b,
+	     (const uint8_t *)"confirmed", 9u);
+	status_onto(&rekeys, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &rekeys);
+	CHECK(fzn_rpc_successions(&c, &s) == FZN_RPC_OK && s.count == 1u && !strcmp(s.rekey[0].state, "confirmed")
+	              && s.rekey[0].new_key[0] == '6',
+	      "a re-key was not read in binary");
+	ONTO(presets, fzn_members_local_preset_row_build, fzn_members_local_message_build_preset_row, 0u,
+	     (const uint8_t *)"standard", 8u);
+	ONTO(presets, fzn_members_local_preset_row_build, fzn_members_local_message_build_preset_row, 1u,
+	     (const uint8_t *)"lean", 4u);
+	status_onto(&presets, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &presets);
+	CHECK(fzn_rpc_presets(&c, &p) == FZN_RPC_OK && !strcmp(p.current, "lean") && p.count == 2u,
+	      "the profiles were not read in binary, the one in force said");
+#undef ONTO
+}
+
 /* THE ESTATE'S GOVERNANCE, TYPED, sec 1261: each listing read as the node
  * words it -- roots with the one acted as, votes with who cast them and
  * whether withdrawn, a re-key's two keys, a staged change, a vote on a
@@ -2377,6 +2439,7 @@ int main(void)
 	test_call_history_in_binary();
 	test_rules_in_binary();
 	test_governance_typed();
+	test_governance_in_binary();
 	test_stickers_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

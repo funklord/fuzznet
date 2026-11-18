@@ -23,6 +23,17 @@ enum op : u8 {
 	waiting        = 136, // the devices waiting to be let in, as `list invite`
 	waiting_row    = 137, // an answer: one device
 	answer         = 138, // a waiting device let in or turned away
+	roots          = 139, // the estate's roots, as `list root` (sec 1265)
+	root_row       = 140, // an answer: one root
+	quorum_row     = 141, // an answer, first: k, the votes or roots a change needs
+	votes          = 142, // the votes this host holds, as `list vote`
+	vote_row       = 143, // an answer: one vote
+	successions    = 144, // the re-keys, as `list succession`
+	rekey_row      = 145, // an answer: one re-key
+	staged         = 146, // the changes staged to revert, as `list staged`
+	staged_row     = 147, // an answer: one
+	presets        = 148, // the profiles, as `get preset` and `list preset choices`
+	preset_row     = 149, // an answer: one profile
 	default        = error,
 }
 
@@ -92,6 +103,49 @@ struct answer_ask {
 	u8   let_in [max = 1];
 }
 
+// KEY a root's; ACTING 1 where this host acts as it.
+struct root_row {
+	u8   key[32];
+	u8   acting [max = 1];
+}
+
+struct quorum_row {
+	u8   k;
+}
+
+// AGAINST the key voted against; VOTER who cast it; WITHDRAWN 1 once taken back.
+struct vote_row {
+	u8   against[32];
+	u8   voter[32];
+	u8   withdrawn [max = 1];
+}
+
+// OLD the device re-keyed, NEW its key now; STATE as the node words it.
+struct rekey_row {
+	u8   old_key[32];
+	u8   new_key[32];
+	u8   state_len [max = 23];
+	u8   state[state_len];
+}
+
+// TOKEN what confirms it; DEADLINE when it reverts, as the node says it;
+// KEY what it changed.
+struct staged_row {
+	u16  token_len [max = 256];
+	u8   token[token_len];
+	u8   deadline_len [max = 31];
+	u8   deadline[deadline_len];
+	u16  key_len [max = 256];
+	u8   key[key_len];
+}
+
+// NAME a profile; IN_FORCE 1 for the one in force.
+struct preset_row {
+	u8   in_force [max = 1];
+	u8   name_len [min = 1, max = 63];
+	u8   name[name_len];
+}
+
 struct message {
 	u8   cmd [must_eq = 9];
 	op   op;
@@ -108,6 +162,17 @@ struct message {
 		case op.waiting:        nothing        waiting;
 		case op.waiting_row:    waiting_row    waiting_row;
 		case op.answer:         answer_ask     answer;
+		case op.roots:          nothing        roots;
+		case op.root_row:       root_row       root_row;
+		case op.quorum_row:     quorum_row     quorum_row;
+		case op.votes:          nothing        votes;
+		case op.vote_row:       vote_row       vote_row;
+		case op.successions:    nothing        successions;
+		case op.rekey_row:      rekey_row      rekey_row;
+		case op.staged:         nothing        staged;
+		case op.staged_row:     staged_row     staged_row;
+		case op.presets:        nothing        presets;
+		case op.preset_row:     preset_row     preset_row;
 		default: error;
 	}
 }

@@ -7118,7 +7118,7 @@ static int gov_k_n(fzn_rpc_t *c, const char *rest, size_t rest_len, unsigned *k,
 	return FZN_RPC_OK;
 }
 
-int fzn_rpc_roots(fzn_rpc_t *c, fzn_rpc_roots_t *out) {
+static int gov_roots_text(fzn_rpc_t *c, fzn_rpc_roots_t *out) {
 	const char *rest = NULL, *p, *w, *f;
 	size_t rest_len = 0, n = 0, w_len, f_len;
 	memset(out, 0, sizeof(*out));
@@ -7138,7 +7138,7 @@ int fzn_rpc_roots(fzn_rpc_t *c, fzn_rpc_roots_t *out) {
 	return FZN_RPC_OK;
 }
 
-int fzn_rpc_votes(fzn_rpc_t *c, fzn_rpc_votes_t *out) {
+static int gov_votes_text(fzn_rpc_t *c, fzn_rpc_votes_t *out) {
 	const char *rest = NULL, *p, *w, *f;
 	size_t rest_len = 0, n = 0, w_len, f_len;
 	memset(out, 0, sizeof(*out));
@@ -7199,7 +7199,7 @@ int fzn_rpc_setting_votes(fzn_rpc_t *c, fzn_rpc_setting_votes_t *out) {
 }
 
 /* PAGED, `list succession FROM`: `ok TOTAL FROM OLD>NEW,STATE ...`. */
-int fzn_rpc_successions(fzn_rpc_t *c, fzn_rpc_successions_t *out) {
+static int gov_successions_text(fzn_rpc_t *c, fzn_rpc_successions_t *out) {
 	size_t from = 0;
 	memset(out, 0, sizeof(*out));
 	for (unsigned page = 0; page < 16; page++) {
@@ -7234,7 +7234,7 @@ int fzn_rpc_successions(fzn_rpc_t *c, fzn_rpc_successions_t *out) {
 }
 
 /* `list staged`: `ok N TOKEN,DEADLINE,KEY ...`. */
-int fzn_rpc_staged(fzn_rpc_t *c, fzn_rpc_staged_t *out) {
+static int gov_staged_text(fzn_rpc_t *c, fzn_rpc_staged_t *out) {
 	const char *rest = NULL, *p, *w, *f;
 	size_t rest_len = 0, at = 0, n = 0, w_len, f_len;
 	memset(out, 0, sizeof(*out));
@@ -7261,7 +7261,7 @@ int fzn_rpc_staged(fzn_rpc_t *c, fzn_rpc_staged_t *out) {
 
 /* `get preset`, then `list preset choices` (`ok N NAME ...`); a node
  * offering none answers the first alone. */
-int fzn_rpc_presets(fzn_rpc_t *c, fzn_rpc_presets_t *out) {
+static int gov_presets_text(fzn_rpc_t *c, fzn_rpc_presets_t *out) {
 	const char *rest = NULL, *p, *w;
 	size_t rest_len = 0, at = 0, n = 0, w_len;
 	memset(out, 0, sizeof(*out));
@@ -7280,6 +7280,138 @@ int fzn_rpc_presets(fzn_rpc_t *c, fzn_rpc_presets_t *out) {
 		if (gov_copy(out->choice[out->count], sizeof out->choice[0], w, w_len)) out->count++;
 	return FZN_RPC_OK;
 }
+
+/* THE GOVERNANCE IN BINARY, sec 1265: rows of the members category, then a
+ * STATUS; each call asks it first and its verbs where the node reads none. */
+struct gov_answer {
+	fzn_rpc_roots_t *roots;
+	fzn_rpc_votes_t *votes;
+	fzn_rpc_successions_t *rekeys;
+	fzn_rpc_staged_t *staged;
+	fzn_rpc_presets_t *presets;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void gov_bytes(char *dst, size_t cap, const uint8_t *src, size_t n) {
+	if (n >= cap) n = cap - 1;
+	memcpy(dst, src, n);
+	dst[n] = '\0';
+}
+
+static void gov_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct gov_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_members_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_members_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	const unsigned op = fzn_members_local_message_op_get(v);
+	if (op == FZN_MEMBERS_LOCAL_OP_QUORUM_ROW && fzn_members_local_message_body_quorum_row_view(v, &b) == SITU_OK
+	    && (a->roots || a->votes)) {
+		if (a->roots) a->roots->k = fzn_members_local_quorum_row_k_get(b);
+		if (a->votes) a->votes->k = fzn_members_local_quorum_row_k_get(b);
+	} else if (op == FZN_MEMBERS_LOCAL_OP_ROOT_ROW && a->roots
+	           && fzn_members_local_message_body_root_row_view(v, &b) == SITU_OK) {
+		if (a->roots->count >= FZN_RPC_GOVERNANCE_MAX) {
+			a->roots->more = 1;
+			return;
+		}
+		fzn_hex_encode(fzn_members_local_root_row_key_ptr(b), 32, a->roots->root[a->roots->count].key);
+		a->roots->root[a->roots->count++].acting = fzn_members_local_root_row_acting_get(b);
+	} else if (op == FZN_MEMBERS_LOCAL_OP_VOTE_ROW && a->votes
+	           && fzn_members_local_message_body_vote_row_view(v, &b) == SITU_OK) {
+		if (a->votes->count >= FZN_RPC_GOVERNANCE_MAX) {
+			a->votes->more = 1;
+			return;
+		}
+		fzn_hex_encode(fzn_members_local_vote_row_against_ptr(b), 32, a->votes->vote[a->votes->count].against);
+		fzn_hex_encode(fzn_members_local_vote_row_voter_ptr(b), 32, a->votes->vote[a->votes->count].voter);
+		a->votes->vote[a->votes->count++].withdrawn = fzn_members_local_vote_row_withdrawn_get(b);
+	} else if (op == FZN_MEMBERS_LOCAL_OP_REKEY_ROW && a->rekeys
+	           && fzn_members_local_message_body_rekey_row_view(v, &b) == SITU_OK) {
+		if (a->rekeys->count >= FZN_RPC_GOVERNANCE_MAX) {
+			a->rekeys->more = 1;
+			return;
+		}
+		fzn_hex_encode(fzn_members_local_rekey_row_old_key_ptr(b), 32, a->rekeys->rekey[a->rekeys->count].old_key);
+		fzn_hex_encode(fzn_members_local_rekey_row_new_key_ptr(b), 32, a->rekeys->rekey[a->rekeys->count].new_key);
+		gov_bytes(a->rekeys->rekey[a->rekeys->count++].state, sizeof a->rekeys->rekey[0].state,
+		          fzn_members_local_rekey_row_state_ptr(b), fzn_members_local_rekey_row_state_len(b));
+	} else if (op == FZN_MEMBERS_LOCAL_OP_STAGED_ROW && a->staged
+	           && fzn_members_local_message_body_staged_row_view(v, &b) == SITU_OK) {
+		if (a->staged->count >= FZN_RPC_GOVERNANCE_MAX) {
+			a->staged->more = 1;
+			return;
+		}
+		gov_bytes(a->staged->change[a->staged->count].token, sizeof a->staged->change[0].token,
+		          fzn_members_local_staged_row_token_ptr(b), fzn_members_local_staged_row_token_len(b));
+		gov_bytes(a->staged->change[a->staged->count].deadline, sizeof a->staged->change[0].deadline,
+		          fzn_members_local_staged_row_deadline_ptr(b), fzn_members_local_staged_row_deadline_len(b));
+		gov_bytes(a->staged->change[a->staged->count++].key, sizeof a->staged->change[0].key,
+		          fzn_members_local_staged_row_key_ptr(b), fzn_members_local_staged_row_key_len(b));
+	} else if (op == FZN_MEMBERS_LOCAL_OP_PRESET_ROW && a->presets
+	           && fzn_members_local_message_body_preset_row_view(v, &b) == SITU_OK) {
+		char name[64];
+		gov_bytes(name, sizeof name, fzn_members_local_preset_row_name_ptr(b), fzn_members_local_preset_row_name_len(b));
+		if (fzn_members_local_preset_row_in_force_get(b)) snprintf(a->presets->current, sizeof a->presets->current, "%s", name);
+		if (a->presets->count < FZN_RPC_PRESETS_MAX)
+			snprintf(a->presets->choice[a->presets->count++], sizeof a->presets->choice[0], "%s", name);
+	} else {
+		a->bad = 1;
+	}
+}
+
+static int gov_binary(fzn_rpc_t *c, uint8_t op, struct gov_answer *a, int *text) {
+	const uint8_t req[] = { FZN_CMD_MEMBERS, op };
+	const int rc = fzn_rpc_binary(c, req, sizeof req, gov_each, a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a->bad || !a->status_seen) return unreadable(c); /* the listing cut short */
+	if (a->code != FZN_STATUS_OK)
+		return fail(c, a->code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
+#define GOV_FIRST(field, opname, out, textfn)                                         \
+	do {                                                                          \
+		struct gov_answer a;                                                  \
+		int text = 0;                                                         \
+		memset(out, 0, sizeof(*out));                                         \
+		memset(&a, 0, sizeof a);                                              \
+		a.field = out;                                                        \
+		const int brc = gov_binary(c, FZN_MEMBERS_LOCAL_OP_##opname, &a, &text); \
+		if (!text) return brc;                                                \
+		return textfn(c, out);                                                \
+	} while (0)
+
+int fzn_rpc_roots(fzn_rpc_t *c, fzn_rpc_roots_t *out) { GOV_FIRST(roots, ROOTS, out, gov_roots_text); }
+
+int fzn_rpc_votes(fzn_rpc_t *c, fzn_rpc_votes_t *out) { GOV_FIRST(votes, VOTES, out, gov_votes_text); }
+
+int fzn_rpc_successions(fzn_rpc_t *c, fzn_rpc_successions_t *out) {
+	GOV_FIRST(rekeys, SUCCESSIONS, out, gov_successions_text);
+}
+
+int fzn_rpc_staged(fzn_rpc_t *c, fzn_rpc_staged_t *out) { GOV_FIRST(staged, STAGED, out, gov_staged_text); }
+
+int fzn_rpc_presets(fzn_rpc_t *c, fzn_rpc_presets_t *out) { GOV_FIRST(presets, PRESETS, out, gov_presets_text); }
 
 /* AN ACT: `VERB SUBJECT WORDS`, one line, the node's answer its own. */
 static int gov_act(fzn_rpc_t *c, const char *verb, const char *subject, const char *words, size_t len) {
