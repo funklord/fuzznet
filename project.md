@@ -92384,3 +92384,32 @@ the situ contracts and the settings schema already describe (secs 304,
 thing to querying places by kind. Which of these the annotations and the
 places ride on -- their sharing, who may add one, how they travel -- is
 the design to make then.
+
+## 1268. The holder's answers of 2026-11-18: read marks, a sticker set, e-mail and schema-driven storage
+
+**Read marks: yes** -- "off by default, configurable for groups and
+individually". So a contact is told this user read their line only where
+this user turned it on: one choice for every conversation, and an
+override per contact and per group, each `Default (off)` / on / off in
+the sense of working-practice's *a config file records choices, not
+values*: a conversation left at Default follows the user-wide choice,
+and a pinned one keeps its word when the default moves.
+
+**An original sticker set, for testing** -- coordinated with
+fuzzypickles. "Later we want to ensure we don't include or market low
+quality stickers, as that defeats the point": so this set is a fixture
+for the path, marked as such, not a product; what ships to people is a
+quality bar the holder will set. And **a context search stronger than
+LINE's**, shown while a line is typed: each sticker's words and phrases
+"expanded to be as complete as possible", so typing "see you" or "on my
+way" offers the stickers meant for it.
+
+**E-mail, in the future**: "a distributed filtered set of folders, using
+our existing data primitives or extending them". The holder's
+observation: its storage looks much like what is here already, "maybe
+this is why most of our storage subsystems might benefit from being
+schema-driven, and not purpose-built", with the performance cost of that
+to be evaluated, and the schema language situ or a future extension of
+it -- which the holder is taking up with situ. Nothing is built toward
+e-mail; the evaluation of schema-driven storage is this tree's to make
+and to report, the language situ's and the holder's.
