@@ -297,7 +297,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chunk/reassembly.c \
              chunk/split.c chunk/erasure.c \
              tree/tree.c \
-             wire/seal.c wire/session_frame.c wire/relay.c wire/status.c \
+             wire/seal.c wire/session_frame.c wire/relay.c wire/status_message.c \
              session/random.c session/random_linux.c session/agree.c \
              session/session.c session/box.c \
              version/version.c \
@@ -351,7 +351,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o 
                    $(BUILD_DIR)/ratchet/ratchet.o $(BUILD_DIR)/session/agree.o \
                    $(BUILD_DIR)/net/udp.o $(BUILD_DIR)/version/version.o \
                    $(BUILD_DIR)/frame/freshness.o \
-                   $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/chain/authz.o \
+                   $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/chain/authz.o \
                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                    $(BUILD_DIR)/chain/manifest.o \
                    $(BUILD_DIR)/session/commitment.o \
@@ -2486,7 +2486,7 @@ $(BUILD_DIR)/notes/test/note_fuzz: $(BUILD_DIR)/notes/test/note_fuzz.o \
 $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/node/files.o \
                                    $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/node/stickers_binary.o \
-                                     $(BUILD_DIR)/wire/generated/stickers_local.o $(BUILD_DIR)/wire/status.o \
+                                     $(BUILD_DIR)/wire/generated/stickers_local.o $(BUILD_DIR)/wire/status_message.o \
                                      $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o) \
                                    $(BUILD_DIR)/sticker/pack.o \
                                    $(BUILD_DIR)/local/escape.o \
@@ -2612,7 +2612,7 @@ $(BUILD_DIR)/notes/test/notes_sync_fuzz: $(BUILD_DIR)/notes/test/notes_sync_fuzz
 # node/notes: the note verbs a node answers on its local socket. sec 431.
 $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o \
-                                   $(BUILD_DIR)/wire/generated/notes_local.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
+                                   $(BUILD_DIR)/wire/generated/notes_local.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                    $(FUZZNETD_JOURNAL_OBJS) \
                                    $(BUILD_DIR)/notes/store.o \
                                    $(BUILD_DIR)/notes/view.o \
@@ -3626,7 +3626,7 @@ RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
             $(BUILD_DIR)/local/rpc_encoding.o \
             $(BUILD_DIR)/local/rpc_sticker_read.o $(BUILD_DIR)/local/rpc_media.o \
             $(BUILD_DIR)/node/live.o $(BUILD_DIR)/wire/generated/call.o \
-            $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/wire/status.o \
+            $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/wire/status_message.o \
             $(BUILD_DIR)/wire/generated/status.o \
             $(BUILD_DIR)/local/rpc_binary.o $(BUILD_DIR)/wire/generated/objects.o \
             $(BUILD_DIR)/wire/generated/messages_local.o $(BUILD_DIR)/wire/generated/contacts_local.o \
@@ -4025,7 +4025,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/local/line.o \
                                      $(BUILD_DIR)/local/peer_linux.o \
                                      $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o \
-                                     $(BUILD_DIR)/wire/generated/notes_local.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
+                                     $(BUILD_DIR)/wire/generated/notes_local.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/notes/store.o \
                                      $(BUILD_DIR)/notes/view.o \
                                      $(BUILD_DIR)/notes/author.o \
@@ -4513,7 +4513,7 @@ $(BUILD_DIR)/wire/test/call_vectors: wire/generated/call_vectors.c wire/generate
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
-$(BUILD_DIR)/wire/test/status_test: $(BUILD_DIR)/wire/test/status_test.o $(BUILD_DIR)/wire/status.o \
+$(BUILD_DIR)/wire/test/status_test: $(BUILD_DIR)/wire/test/status_test.o $(BUILD_DIR)/wire/status_message.o \
                                     $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -4793,7 +4793,7 @@ $(BUILD_DIR)/node/test/group_log_test: $(BUILD_DIR)/node/test/group_log_test.o \
 $(BUILD_DIR)/node/test/groups_test: $(BUILD_DIR)/node/test/groups_test.o \
                                     $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                     $(BUILD_DIR)/node/groups_binary.o $(BUILD_DIR)/wire/generated/groups_local.o \
-                                    $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/wire/generated/status.o \
+                                    $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                     $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                     $(BUILD_DIR)/node/group_act.o \
                                     $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
@@ -4845,7 +4845,7 @@ $(BUILD_DIR)/node/test/library_binary_test: $(BUILD_DIR)/node/test/library_binar
                                             $(BUILD_DIR)/node/catalog.o \
                                             $(BUILD_DIR)/catalog/catalog.o \
                                             $(BUILD_DIR)/wire/generated/files_local.o \
-                                            $(BUILD_DIR)/wire/status.o \
+                                            $(BUILD_DIR)/wire/status_message.o \
                                             $(BUILD_DIR)/wire/generated/status.o \
                                             $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
@@ -4987,7 +4987,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
-              $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status.o \
+              $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
@@ -5039,7 +5039,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(FUZZNETD_JOURNAL_OBJS) \
-              $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/local/client.o \
+              $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/local/client.o \
               $(BUILD_DIR)/node/contacts_binary.o $(BUILD_DIR)/wire/generated/contacts_local.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
@@ -5121,7 +5121,7 @@ $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_te
 $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
                                   $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/wire/generated/messages_local.o \
-                                  $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/wire/generated/status.o \
+                                  $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                   $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/messages/messages.o \
                                   $(BUILD_DIR)/log/retain.o \
@@ -5155,7 +5155,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
-                   $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status.o \
+                   $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o \
                    $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
                    $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
                    $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
@@ -5295,7 +5295,7 @@ $(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
 $(BUILD_DIR)/node/test/records_test: $(BUILD_DIR)/node/test/records_test.o \
                                      $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o \
                                      $(BUILD_DIR)/node/objects_binary.o \
-                                     $(BUILD_DIR)/wire/generated/objects.o $(BUILD_DIR)/wire/status.o \
+                                     $(BUILD_DIR)/wire/generated/objects.o $(BUILD_DIR)/wire/status_message.o \
                                      $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/node/rate.o \
                                      $(BUILD_DIR)/node/buckets.o \
@@ -5328,7 +5328,7 @@ $(BUILD_DIR)/node/test/invite_test: $(BUILD_DIR)/node/test/invite_test.o $(BUILD
 # What was decided while hosts were apart, sec 895.
 $(BUILD_DIR)/node/test/decisions_test: $(BUILD_DIR)/node/test/decisions_test.o \
                                      $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/decisions_binary.o \
-                                     $(BUILD_DIR)/wire/generated/settings_local.o $(BUILD_DIR)/wire/status.o \
+                                     $(BUILD_DIR)/wire/generated/settings_local.o $(BUILD_DIR)/wire/status_message.o \
                                      $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o \
                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
@@ -5424,7 +5424,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
-              $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/node/revoke.o \
+              $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/node/revoke.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
               $(BUILD_DIR)/contact/contact.o \
@@ -5687,7 +5687,7 @@ $(BUILD_DIR)/messages/test/attachment_test: $(BUILD_DIR)/messages/test/attachmen
 $(BUILD_DIR)/node/test/meter_test: $(BUILD_DIR)/node/test/meter_test.o \
                                    $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/node/metric.o \
                                    $(BUILD_DIR)/node/meter_binary.o $(BUILD_DIR)/wire/generated/meter_local.o \
-                                   $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/wire/generated/status.o \
+                                   $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                    $(BUILD_DIR)/wire/generated/situ.o \
                                    $(BUILD_DIR)/log/cause.o \
                                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o
@@ -5711,7 +5711,7 @@ $(BUILD_DIR)/node/test/log_list_test: $(BUILD_DIR)/node/test/log_list_test.o \
 # Peers whose clocks disagree, `list clock`, sec 717.
 $(BUILD_DIR)/node/test/clocks_test: $(BUILD_DIR)/node/test/clocks_test.o $(BUILD_DIR)/node/clocks.o \
                                     $(BUILD_DIR)/node/clocks_binary.o $(BUILD_DIR)/wire/generated/time_local.o \
-                                    $(BUILD_DIR)/wire/status.o $(BUILD_DIR)/wire/generated/status.o \
+                                    $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                     $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@

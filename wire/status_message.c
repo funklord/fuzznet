@@ -1,5 +1,11 @@
 /* A status between hosts: project.md sec 1076, and the header. The bytes are
- * node/status.situ's, read and built by what situc generates from it. */
+ * wire/status.situ's, read and built by what situc generates from it.
+ *
+ * NAMED status_message.c, not status.c, sec 1281: situc generates
+ * wire/generated/status.c from the schema, and a build putting every
+ * object in one directory -- qmake's -- kept only one of the two (snurra,
+ * inbox 20261118T1948Z). The header keeps its name, which consumers
+ * include. */
 #include "status.h"
 
 #include <string.h>

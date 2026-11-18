@@ -16244,7 +16244,7 @@ SABOTAGES = [
 	),
 	(
 		"status-reads-a-byte-after",
-		"wire/status.c",
+		"wire/status_message.c",
 		"\t    || FZN_STATUS_HEAD_LEN + fzn_status_message_why_len(v) != len\n",
 		"\t    || FZN_STATUS_HEAD_LEN + fzn_status_message_why_len(v) > len\n",
 		"a status with bytes after its reason is read as one -- sec 1076",

@@ -10,7 +10,7 @@
  * its CODE the SUBCMD, sec 1085 and 1087 (`2 | 65 | CODE | ...` before).
  *
  * DESCRIBED BY wire/status.situ, whose generated reader and builder these
- * call; the codes here are the schema's, held equal to it where status.c is
+ * call; the codes here are the schema's, held equal to it where status_message.c is
  * compiled. CODE is what the asker decides on. WHY is for a person reading a
  * log and is never parsed: a host with no reason to give sends none.
  */

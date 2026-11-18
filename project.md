@@ -92954,7 +92954,38 @@ Two things a consumer of `local/` meets, recorded rather than fixed:
   a consumer compiling sources has to name them.
 - **`wire/status.c` and `wire/generated/status.c` share a basename**, so a
   build placing every object in one directory -- qmake does -- keeps only
-  one; snurra wraps the first in a file of its own name. A rename on
-  either side would end it, and the generated one's name is situ's
-  prefix's, so the question is which side moves; open, raised by the
-  first consumer to meet it.
+  one; snurra wraps the first in a file of its own name. **Ended in sec
+  1281**: ours is `wire/status_message.c` now.
+
+## 1281. wire/status.c is wire/status_message.c, and the other basenames that meet, 2026-11-18
+
+The holder, on sec 1280's second note: "rename our wire/status.c, not the
+generated one". **`wire/status_message.c`** -- the status between hosts is
+a message of `wire/status.situ`, its size `FZN_STATUS_MESSAGE_SIZE_MAX`.
+The header keeps `wire/status.h`, which consumers include; a header does
+not collide in an object directory. Every Makefile list and the sabotage
+table follow. snurra's `app/fuzznet_wire_status.c` includes the old path,
+so its next pin bump drops the wrapper and names the new file (told,
+inbox).
+
+**The same shape, measured over the library's whole source list** (`SRCS`,
+`GEN_SRCS`, `MONO_SRCS`): one more pair is ours against a generated file,
+`node/objects.c` and `wire/generated/objects.c`; nineteen are two of ours
+in different directories -- `catalog/copy.c` and `log/copy.c`,
+`log/pack.c` and `sticker/pack.c`, `local/line.c` and `messages/line.c`,
+`node/roster.c` and `roster/roster.c`, `catalog/purge.c` and
+`notes/purge.c`, `node/provision.c` and `provision/provision.c`,
+`log/view.c` and `notes/view.c`, `node/schema.c` and `state/schema.c`,
+`notes/sync.c` and `record/sync.c`, `chain/succession.c` and
+`node/succession.c`, `node/received.c` and `notes/received.c`,
+`node/journal.c` and `record/journal.c`, `catalog/catalog.c` and
+`node/catalog.c`, `node/relay.c` and `wire/relay.c`, `notes/store.c` and
+`record/store.c`, `messages/messages.c` and `node/messages.c`. fuzznet's
+own Makefile keeps each object beside its source, so none of this bites
+here or in a consumer linking the built library; it bites a consumer
+compiling fuzznet's sources into one object directory, as snurra does
+for `local/` and what it links. **Left as they are**: renaming twenty
+files for a build arrangement nobody uses beyond `local/` is churn, and
+the consumer that meets one has the remedy snurra used. Renamed when a
+consumer needs one.
+
