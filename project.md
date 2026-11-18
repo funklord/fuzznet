@@ -92190,6 +92190,11 @@ the same script. So no commit since introduced it.
   estate settings, each still `absent` at its member after `settle` --
   R's `b/root` at A1 in one, A1's `b/race` at R in the other -- with the
   pushes logged as made. Not explained; the obvious reading, timing like
-  phase a's, is not measured, and the kept logs of the second run (A1's
-  rounds at 60 s apart, the setting nowhere in them) are where to look
+  phase a's, is not measured. The second run's kept logs do not settle
+  it: every daemon's ends at 08:40:41, as phase a passed, a minute before
+  the poll gave up -- the lines after were buffered and went with the
+  KILL -- so they cannot say whether the setting arrived late or never.
+  A write just after a round needs the next one (60 s) and its
+  application, which one `settle` does not cover; whether estate writes
+  were once pushed at once and are not now is the question to measure
   next. Until then `live_estate` passes phase a and not b.
