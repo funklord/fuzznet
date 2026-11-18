@@ -380,7 +380,9 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 	for (i = 0; i < count && !newest_in; i++)
 		if (!lines[i].line.outgoing)
 			newest_in = &lines[i].line;
-	refresh_quiet(status, count ? QString() : QObject::tr("Nothing said yet."));
+	/* EMPTY, SAID KINDLY, as fuzzypickles' does (its sec 286): a blank
+	 * page read as one still loading. */
+	refresh_quiet(status, count ? QString() : QObject::tr("No messages in %1 yet.").arg(group.mid(1)));
 	if (newest_in) {
 		static fzn_rpc_group_list_resp_t groups;
 		QByteArray by_id;
@@ -551,7 +553,7 @@ bool fzn_conversation_view::refresh_lines()
 		draw_stickers();
 		return true;
 	}
-	refresh_quiet(m_notice, count ? QString() : tr("Nothing said yet."));
+	refresh_quiet(m_notice, count ? QString() : tr("No messages with %1 yet. Say hello!").arg(m_contact));
 	/* A FULL PAGE MAY HAVE MORE BEHIND IT. */
 	m_older->setEnabled(count >= m_max);
 	free(lines);

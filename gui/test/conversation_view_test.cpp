@@ -90,6 +90,9 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "list call history bob"))
 		return (size_t)snprintf(reply, cap, "ok 2 b1b2b3b4b5b6b7b8,out,3,answered,1700005990,252 "
 		                                    "a1a2a3a4a5a6a7a8,in,1,missed,1700005850,0\n");
+	/* EVE AND A QUIET GROUP: nothing said yet (sec 1263). */
+	if (!strcmp(line, "list message eve 0") || !strcmp(line, "list message @quiet 0"))
+		return (size_t)snprintf(reply, cap, "ok 0 0 0\n");
 	/* THE GROUP: carol's line, then this user's, then a member with no
 	 * contact here, named by the first bytes of their key. */
 	if (!strcmp(line, "list message @family 0"))
@@ -274,7 +277,7 @@ int main(int argc, char **argv)
 	file_partial = 0;
 	d.select_line(1);
 	CHECK(d.offered() == "Keep this sticker pack", "a sticker that came in did not offer its pack");
-	CHECK(d.refresh() && d.offered() == "Keep this sticker pack" && d.status() != "Nothing said yet.",
+	CHECK(d.refresh() && d.offered() == "Keep this sticker pack" && !d.status().startsWith("No messages"),
 	      "a refresh dropped the line chosen, and with it its offer");
 	d.select_line(0);
 	CHECK(d.offered() == "Save the file", "a file's line here whole did not offer to save it");
@@ -311,6 +314,19 @@ int main(int argc, char **argv)
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");
+
+	/* NOTHING SAID YET, said kindly, sec 1263 (fuzzypickles' sec 286): a
+	 * blank page read as one still loading. */
+	{
+		fzn_conversation_view e(node, nullptr);
+
+		silent = 0;
+		e.set_now(NOW);
+		CHECK(e.open("eve") && e.lines().isEmpty() && e.status() == "No messages with eve yet. Say hello!",
+		      "an empty conversation was not said as one, with whom");
+		CHECK(e.open("@quiet") && e.status() == "No messages in quiet yet.",
+		      "an empty group was not said as one, by its name");
+	}
 
 	CHECK(0, "deliberate");
 	failures--;

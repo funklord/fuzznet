@@ -17433,6 +17433,13 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"conversation-empty-unsaid",
+		"gui/conversation_view.cpp",
+		"\trefresh_quiet(m_notice, count ? QString() : tr(\"No messages with %1 yet. Say hello!\").arg(m_contact));\n",
+		"\trefresh_quiet(m_notice, QString());\n",
+		"an empty conversation shows a blank page, read as one still loading -- sec 1263",
+	),
+	(
 		"bar-missed-untold",
 		"gui/call_bar.cpp",
 		"\t\t\tif (m_missed_told)\n\t\t\t\tm_missed_told(it->who, (it->kinds & 2) != 0);\n",

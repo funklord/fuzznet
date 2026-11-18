@@ -92264,3 +92264,15 @@ picture before one came, the other end's shown once it did, gone with
 the call. Four sabotages, each caught (`bar-missed-untold`,
 `bar-tick-silent`, `bar-picture-unshown`, `bar-picture-outlives-call`);
 sec 1238's `call-bar-missed-unsaid` repointed.
+
+## 1263. An empty conversation said kindly, 2026-11-18
+
+fuzzypickles' sec 286, from its walk against LINE: "an empty
+conversation now says so in its middle, quietly ... a blank page read as
+one still loading". The conversation view said "Nothing said yet." in
+its notice; now, as theirs, "No messages with bob yet. Say hello!" for a
+contact and "No messages in friends yet." for a group -- a refresh's
+words (sec 1253), gone with the first line.
+
+**Tests:** conversation_view_test -- eve, with nothing, said so by name;
+a quiet group by its name. Sabotage `conversation-empty-unsaid`, caught.
