@@ -541,6 +541,78 @@ typedef struct fzn_rpc_rules {
 } fzn_rpc_rules_t;
 int fzn_rpc_rules(fzn_rpc_t *c, int estate, fzn_rpc_rules_t *out);
 int fzn_rpc_rule_change(fzn_rpc_t *c, int estate, int add, const char *rule, size_t rule_len);
+
+/* THE ESTATE'S GOVERNANCE (fuzznet secs 1023, 1261): its roots and k, the
+ * votes this host holds against a key and for a host's setting, the
+ * re-keys, the changes staged to revert, and the profile in force -- each
+ * as the node lists it, and each act on them. Keys as their 64 hex; a
+ * listing past FZN_RPC_GOVERNANCE_MAX rows says so in `more`. */
+#define FZN_RPC_GOVERNANCE_MAX 64
+#define FZN_RPC_GOVERNANCE_WORD 256
+typedef struct fzn_rpc_roots {
+	unsigned k;
+	size_t count;
+	int more;
+	struct {
+		char key[65];
+		int acting; /* this host acts as it */
+	} root[FZN_RPC_GOVERNANCE_MAX];
+} fzn_rpc_roots_t;
+typedef struct fzn_rpc_votes {
+	unsigned k;
+	size_t count;
+	int more;
+	struct {
+		char against[65], voter[65];
+		int withdrawn;
+	} vote[FZN_RPC_GOVERNANCE_MAX];
+} fzn_rpc_votes_t;
+/* A VOTE ON A HOST'S SETTING, sec 909: the record `vote/HOST/KEY` = VALUE,
+ * by VOTER, at VERSION. */
+typedef struct fzn_rpc_setting_votes {
+	size_t count;
+	int more;
+	struct {
+		char voter[65], cell[FZN_RPC_GOVERNANCE_WORD + 1], value[FZN_RPC_GOVERNANCE_WORD + 1];
+		uint64_t version;
+	} vote[FZN_RPC_GOVERNANCE_MAX];
+} fzn_rpc_setting_votes_t;
+typedef struct fzn_rpc_successions {
+	size_t count;
+	int more;
+	struct {
+		char old_key[65], new_key[65], state[24];
+	} rekey[FZN_RPC_GOVERNANCE_MAX];
+} fzn_rpc_successions_t;
+typedef struct fzn_rpc_staged {
+	size_t count;
+	int more;
+	struct {
+		char token[FZN_RPC_GOVERNANCE_WORD + 1], deadline[32], key[FZN_RPC_GOVERNANCE_WORD + 1];
+	} change[FZN_RPC_GOVERNANCE_MAX];
+} fzn_rpc_staged_t;
+#define FZN_RPC_PRESETS_MAX 16
+typedef struct fzn_rpc_presets {
+	char current[64];
+	size_t count;
+	char choice[FZN_RPC_PRESETS_MAX][64];
+} fzn_rpc_presets_t;
+int fzn_rpc_roots(fzn_rpc_t *c, fzn_rpc_roots_t *out);
+int fzn_rpc_votes(fzn_rpc_t *c, fzn_rpc_votes_t *out);
+int fzn_rpc_setting_votes(fzn_rpc_t *c, fzn_rpc_setting_votes_t *out);
+int fzn_rpc_successions(fzn_rpc_t *c, fzn_rpc_successions_t *out);
+int fzn_rpc_staged(fzn_rpc_t *c, fzn_rpc_staged_t *out);
+int fzn_rpc_presets(fzn_rpc_t *c, fzn_rpc_presets_t *out);
+/* The acts: a root added or removed, k set, a vote against a key, a vote
+ * for a host's setting as `HOST SETTING VALUE`, a re-key confirmed, a
+ * staged change confirmed, a profile chosen. */
+int fzn_rpc_root_change(fzn_rpc_t *c, int add, const char *key, size_t key_len);
+int fzn_rpc_quorum_set(fzn_rpc_t *c, unsigned k);
+int fzn_rpc_vote_against(fzn_rpc_t *c, const char *key, size_t key_len);
+int fzn_rpc_vote_setting(fzn_rpc_t *c, const char *line, size_t line_len);
+int fzn_rpc_succession_confirm(fzn_rpc_t *c, const char *key, size_t key_len);
+int fzn_rpc_staged_confirm(fzn_rpc_t *c, const char *token, size_t token_len);
+int fzn_rpc_preset_choose(fzn_rpc_t *c, const char *name, size_t name_len);
 /*
  * A fuzznet contact card, `FZC1:` and base32 (fuzznet sec 617), read for
  * what it says rather than added: its shape checked, and the name it offers

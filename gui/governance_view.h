@@ -59,6 +59,7 @@ class QWidget;
 class fzn_governance_view : public QWidget {
 public:
 	fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent = nullptr);
+	~fzn_governance_view() override;
 
 	/* Read every part. Whether the node answered all of them. */
 	bool refresh();
@@ -101,7 +102,7 @@ public:
 	QString preset_status() const;
 
 private:
-	int ask(const QString &line, QString *detail);
+	bool said_failed(QLabel *status) const;
 	bool fill_roots();
 	bool fill_votes();
 	bool fill_setting_votes();
@@ -109,10 +110,10 @@ private:
 	bool fill_staged();
 	bool fill_preset();
 	QString key_for(QListWidget *list) const;
-	bool act(const QString &line, QLabel *status, const QString &done);
+	bool acted(int rc, QLabel *status, const QString &done);
 
-	fzn_notebook_view_ask_t m_ask;
-	void *m_ask_ctx;
+	/* THROUGH THE TYPED CLIENT since sec 1261. */
+	struct fzn_gui_rpc *m_rpc;
 	int m_k_held;
 
 	QLineEdit *m_key;

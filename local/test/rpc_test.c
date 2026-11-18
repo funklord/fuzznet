@@ -1136,6 +1136,56 @@ static void test_show_in_binary(void)
 	      "this host's fixes were not read in binary, newest first, another host's left out");
 }
 
+/* THE ESTATE'S GOVERNANCE, TYPED, sec 1261: each listing read as the node
+ * words it -- roots with the one acted as, votes with who cast them and
+ * whether withdrawn, a re-key's two keys, a staged change, a vote on a
+ * host's setting, the profiles -- and an act's line as the node reads it. */
+static void test_governance_typed(void)
+{
+	static struct script roots = { { "ok 2 2 " ID_A ",acting " ID_B }, 0, 1, 0, { { 0 } } };
+	static struct script votes = { { "ok 2 2 " ID_B "," ID_A ",standing " ID_B "," ID_A ",withdrawn" }, 0, 1, 0,
+		                       { { 0 } } };
+	static struct script rekeys = { { "ok 1 0 " ID_A ">" ID_B ",confirmed" }, 0, 1, 0, { { 0 } } };
+	static struct script staged = { { "ok 1 tok1,1700000000,setting,with,commas" }, 0, 1, 0, { { 0 } } };
+	static struct script svotes = { { "ok 0 1 0 " ID_A ",vote/abcd/net/x,5,on%20air" }, 0, 1, 0, { { 0 } } };
+	static struct script presets = { { "ok standard", "ok 2 standard lean" }, 0, 2, 0, { { 0 } } };
+	static struct script quorum = { { "ok 3" }, 0, 1, 0, { { 0 } } };
+	static fzn_rpc_roots_t r;
+	static fzn_rpc_votes_t v;
+	static fzn_rpc_successions_t s;
+	static fzn_rpc_staged_t g;
+	static fzn_rpc_setting_votes_t sv;
+	static fzn_rpc_presets_t p;
+
+	on(&c, &roots);
+	CHECK(fzn_rpc_roots(&c, &r) == FZN_RPC_OK && r.k == 2u && r.count == 2u && r.root[0].acting && !r.root[1].acting
+	              && strcmp(r.root[1].key, ID_B) == 0 && !strcmp(roots.asked[0], "list root"),
+	      "the roots were not read with k and the one this host acts as");
+	on(&c, &votes);
+	CHECK(fzn_rpc_votes(&c, &v) == FZN_RPC_OK && v.count == 2u && !v.vote[0].withdrawn && v.vote[1].withdrawn
+	              && strcmp(v.vote[0].voter, ID_A) == 0,
+	      "the votes were not read with their voters, a withdrawn one said so");
+	on(&c, &rekeys);
+	CHECK(fzn_rpc_successions(&c, &s) == FZN_RPC_OK && s.count == 1u && strcmp(s.rekey[0].new_key, ID_B) == 0
+	              && strcmp(s.rekey[0].state, "confirmed") == 0,
+	      "a re-key was not read as its two keys and its state");
+	on(&c, &staged);
+	CHECK(fzn_rpc_staged(&c, &g) == FZN_RPC_OK && g.count == 1u && strcmp(g.change[0].token, "tok1") == 0
+	              && strcmp(g.change[0].key, "setting,with,commas") == 0,
+	      "a staged change was not read, its key taking the rest");
+	on(&c, &svotes);
+	CHECK(fzn_rpc_setting_votes(&c, &sv) == FZN_RPC_OK && sv.count == 1u && sv.vote[0].version == 5u
+	              && strcmp(sv.vote[0].cell, "vote/abcd/net/x") == 0 && !strcmp(svotes.asked[0], "list record under vote/ 0"),
+	      "a vote on a host's setting was not read, paged from 0");
+	on(&c, &presets);
+	CHECK(fzn_rpc_presets(&c, &p) == FZN_RPC_OK && strcmp(p.current, "standard") == 0 && p.count == 2u
+	              && strcmp(p.choice[1], "lean") == 0,
+	      "the profile in force and the choices were not read");
+	on(&c, &quorum);
+	CHECK(fzn_rpc_quorum_set(&c, 3u) == FZN_RPC_OK && !strcmp(quorum.asked[0], "set quorum 3"),
+	      "k was not set by the node's own line");
+}
+
 /* THE RETENTION RULES IN BINARY, sec 1258: the estate's asked by its scope,
  * each row read in its words; one added for the estate, the request's
  * bytes as sent; a refusal in the node's words; and the old call for this
@@ -2326,6 +2376,7 @@ int main(void)
 	test_calls_in_binary();
 	test_call_history_in_binary();
 	test_rules_in_binary();
+	test_governance_typed();
 	test_stickers_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

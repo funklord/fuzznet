@@ -7084,6 +7084,239 @@ int fzn_rpc_rule_change(fzn_rpc_t *c, int estate, int add, const char *rule, siz
 	                snprintf(arg, sizeof arg, "%s %.*s", estate ? "estate-retention" : "retention", (int)rule_len, rule));
 }
 
+/* ---- the estate's governance, typed (sec 1261) ---------------------- */
+
+/* A FIELD of `len` bytes into `dst`, terminated: 0 where it does not fit. */
+static int gov_copy(char *dst, size_t cap, const char *f, size_t len) {
+	if (len >= cap) return 0;
+	memcpy(dst, f, len);
+	dst[len] = '\0';
+	return 1;
+}
+
+/* THE N-TH COMMA-SEPARATED FIELD of a word, the last one taking the rest. */
+static int gov_field(const char *w, size_t w_len, unsigned nth, int rest, const char **f, size_t *f_len) {
+	const char *p = w, *end = w + w_len;
+	for (unsigned i = 0; i < nth; i++) {
+		const char *comma = memchr(p, ',', (size_t)(end - p));
+		if (!comma) return 0;
+		p = comma + 1;
+	}
+	const char *stop = rest ? end : memchr(p, ',', (size_t)(end - p));
+	*f = p;
+	*f_len = (size_t)((stop ? stop : end) - p);
+	return 1;
+}
+
+/* `ok K N ...`: K and N, the rest of the words after them. */
+static int gov_k_n(fzn_rpc_t *c, const char *rest, size_t rest_len, unsigned *k, size_t *n, const char **p) {
+	size_t at = 0, kk = 0;
+	if (!node_number(rest, rest_len, &at, &kk) || !node_number(rest, rest_len, &at, n) || kk > 255)
+		return unreadable(c);
+	*k = (unsigned)kk;
+	*p = rest + at;
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_roots(fzn_rpc_t *c, fzn_rpc_roots_t *out) {
+	const char *rest = NULL, *p, *w, *f;
+	size_t rest_len = 0, n = 0, w_len, f_len;
+	memset(out, 0, sizeof(*out));
+	int rc = fzn_rpc_node(c, "list", "root", 4, &rest, &rest_len);
+	if (rc != FZN_RPC_OK || (rc = gov_k_n(c, rest, rest_len, &out->k, &n, &p)) != FZN_RPC_OK) return rc;
+	/* `KEY[,acting]`, as many as N says. */
+	for (size_t i = 0; i < n && node_word(&p, rest + rest_len, &w, &w_len); i++) {
+		if (out->count >= FZN_RPC_GOVERNANCE_MAX) {
+			out->more = 1;
+			break;
+		}
+		if (!gov_field(w, w_len, 0, 0, &f, &f_len) || f_len != 64 || !gov_copy(out->root[out->count].key, 65, f, f_len))
+			return unreadable(c);
+		out->root[out->count++].acting = w_len > 64 && gov_field(w, w_len, 1, 0, &f, &f_len) && f_len == 6
+		                                 && memcmp(f, "acting", 6) == 0;
+	}
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_votes(fzn_rpc_t *c, fzn_rpc_votes_t *out) {
+	const char *rest = NULL, *p, *w, *f;
+	size_t rest_len = 0, n = 0, w_len, f_len;
+	memset(out, 0, sizeof(*out));
+	int rc = fzn_rpc_node(c, "list", "vote", 4, &rest, &rest_len);
+	if (rc != FZN_RPC_OK || (rc = gov_k_n(c, rest, rest_len, &out->k, &n, &p)) != FZN_RPC_OK) return rc;
+	/* `KEY,ISSUER,standing|withdrawn`. */
+	for (size_t i = 0; i < n && node_word(&p, rest + rest_len, &w, &w_len); i++) {
+		if (out->count >= FZN_RPC_GOVERNANCE_MAX) {
+			out->more = 1;
+			break;
+		}
+		if (!gov_field(w, w_len, 0, 0, &f, &f_len) || !gov_copy(out->vote[out->count].against, 65, f, f_len)
+		    || !gov_field(w, w_len, 1, 0, &f, &f_len) || !gov_copy(out->vote[out->count].voter, 65, f, f_len)
+		    || !gov_field(w, w_len, 2, 1, &f, &f_len))
+			return unreadable(c);
+		out->vote[out->count++].withdrawn = f_len == 9 && memcmp(f, "withdrawn", 9) == 0;
+	}
+	return FZN_RPC_OK;
+}
+
+/* PAGED, `list record under vote/ FROM`: `ok FROM SHOWN MORE HOST,KEY,VERSION,VALUE ...`,
+ * at most 16 pages, so a node answering pages that never end cannot hold
+ * the caller. */
+int fzn_rpc_setting_votes(fzn_rpc_t *c, fzn_rpc_setting_votes_t *out) {
+	size_t from = 0;
+	memset(out, 0, sizeof(*out));
+	for (unsigned page = 0; page < 16; page++) {
+		const char *rest = NULL, *p, *w, *f;
+		size_t rest_len = 0, at = 0, start = 0, shown = 0, more = 0, w_len, f_len, i;
+		char arg[48];
+		int rc = fzn_rpc_node(c, "list", arg, (size_t)snprintf(arg, sizeof arg, "record under vote/ %zu", from), &rest,
+		                      &rest_len);
+		if (rc != FZN_RPC_OK) return rc;
+		if (!node_number(rest, rest_len, &at, &start) || !node_number(rest, rest_len, &at, &shown)
+		    || !node_number(rest, rest_len, &at, &more) || start != from)
+			return unreadable(c);
+		p = rest + at;
+		for (i = 0; i < shown && node_word(&p, rest + rest_len, &w, &w_len); i++) {
+			uint64_t version = 0;
+			if (out->count >= FZN_RPC_GOVERNANCE_MAX) {
+				out->more = 1;
+				return FZN_RPC_OK;
+			}
+			if (!gov_field(w, w_len, 0, 0, &f, &f_len) || !gov_copy(out->vote[out->count].voter, 65, f, f_len)
+			    || !gov_field(w, w_len, 1, 0, &f, &f_len)
+			    || !gov_copy(out->vote[out->count].cell, sizeof out->vote[0].cell, f, f_len)
+			    || !gov_field(w, w_len, 2, 0, &f, &f_len) || !node_u64(f, f_len, &version)
+			    || !gov_field(w, w_len, 3, 1, &f, &f_len)
+			    || !gov_copy(out->vote[out->count].value, sizeof out->vote[0].value, f, f_len))
+				return unreadable(c);
+			out->vote[out->count++].version = version;
+		}
+		from += shown;
+		if (more != 1 || !shown) return FZN_RPC_OK;
+	}
+	out->more = 1;
+	return FZN_RPC_OK;
+}
+
+/* PAGED, `list succession FROM`: `ok TOTAL FROM OLD>NEW,STATE ...`. */
+int fzn_rpc_successions(fzn_rpc_t *c, fzn_rpc_successions_t *out) {
+	size_t from = 0;
+	memset(out, 0, sizeof(*out));
+	for (unsigned page = 0; page < 16; page++) {
+		const char *rest = NULL, *p, *w, *f;
+		size_t rest_len = 0, at = 0, total = 0, start = 0, w_len, f_len, added = 0;
+		char arg[32];
+		int rc = fzn_rpc_node(c, "list", arg, (size_t)snprintf(arg, sizeof arg, "succession %zu", from), &rest,
+		                      &rest_len);
+		if (rc != FZN_RPC_OK) return rc;
+		if (!node_number(rest, rest_len, &at, &total) || !node_number(rest, rest_len, &at, &start)) return unreadable(c);
+		p = rest + at;
+		while (node_word(&p, rest + rest_len, &w, &w_len)) {
+			const char *gt;
+			if (out->count >= FZN_RPC_GOVERNANCE_MAX) {
+				out->more = 1;
+				return FZN_RPC_OK;
+			}
+			if (!gov_field(w, w_len, 0, 0, &f, &f_len) || !(gt = memchr(f, '>', f_len))
+			    || !gov_copy(out->rekey[out->count].old_key, 65, f, (size_t)(gt - f))
+			    || !gov_copy(out->rekey[out->count].new_key, 65, gt + 1, f_len - (size_t)(gt - f) - 1)
+			    || !gov_field(w, w_len, 1, 1, &f, &f_len)
+			    || !gov_copy(out->rekey[out->count].state, sizeof out->rekey[0].state, f, f_len))
+				return unreadable(c);
+			out->count++;
+			added++;
+		}
+		from += added;
+		if (!added || from >= total) return FZN_RPC_OK;
+	}
+	out->more = 1;
+	return FZN_RPC_OK;
+}
+
+/* `list staged`: `ok N TOKEN,DEADLINE,KEY ...`. */
+int fzn_rpc_staged(fzn_rpc_t *c, fzn_rpc_staged_t *out) {
+	const char *rest = NULL, *p, *w, *f;
+	size_t rest_len = 0, at = 0, n = 0, w_len, f_len;
+	memset(out, 0, sizeof(*out));
+	int rc = fzn_rpc_node(c, "list", "staged", 6, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	if (!node_number(rest, rest_len, &at, &n)) return unreadable(c);
+	p = rest + at;
+	for (size_t i = 0; i < n && node_word(&p, rest + rest_len, &w, &w_len); i++) {
+		if (out->count >= FZN_RPC_GOVERNANCE_MAX) {
+			out->more = 1;
+			break;
+		}
+		if (!gov_field(w, w_len, 0, 0, &f, &f_len)
+		    || !gov_copy(out->change[out->count].token, sizeof out->change[0].token, f, f_len)
+		    || !gov_field(w, w_len, 1, 0, &f, &f_len)
+		    || !gov_copy(out->change[out->count].deadline, sizeof out->change[0].deadline, f, f_len)
+		    || !gov_field(w, w_len, 2, 1, &f, &f_len)
+		    || !gov_copy(out->change[out->count].key, sizeof out->change[0].key, f, f_len))
+			return unreadable(c);
+		out->count++;
+	}
+	return FZN_RPC_OK;
+}
+
+/* `get preset`, then `list preset choices` (`ok N NAME ...`); a node
+ * offering none answers the first alone. */
+int fzn_rpc_presets(fzn_rpc_t *c, fzn_rpc_presets_t *out) {
+	const char *rest = NULL, *p, *w;
+	size_t rest_len = 0, at = 0, n = 0, w_len;
+	memset(out, 0, sizeof(*out));
+	int rc = fzn_rpc_node(c, "get", "preset", 6, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	while (rest_len && (rest[rest_len - 1] == ' ')) rest_len--;
+	if (!gov_copy(out->current, sizeof out->current, rest, rest_len)) return unreadable(c);
+	if (fzn_rpc_node(c, "list", "preset choices", 14, &rest, &rest_len) != FZN_RPC_OK
+	    || !node_number(rest, rest_len, &at, &n)) {
+		c->error[0] = '\0';
+		c->error_code = 0;
+		return FZN_RPC_OK;
+	}
+	p = rest + at;
+	for (size_t i = 0; i < n && out->count < FZN_RPC_PRESETS_MAX && node_word(&p, rest + rest_len, &w, &w_len); i++)
+		if (gov_copy(out->choice[out->count], sizeof out->choice[0], w, w_len)) out->count++;
+	return FZN_RPC_OK;
+}
+
+/* AN ACT: `VERB SUBJECT WORDS`, one line, the node's answer its own. */
+static int gov_act(fzn_rpc_t *c, const char *verb, const char *subject, const char *words, size_t len) {
+	char arg[FZN_REQUEST_MAX];
+	if (!words || !len || len > FZN_REQUEST_MAX - 32u || memchr(words, '\n', len)) return encode_failed(c);
+	return node_ack(c, verb, arg, snprintf(arg, sizeof arg, "%s %.*s", subject, (int)len, words));
+}
+
+int fzn_rpc_root_change(fzn_rpc_t *c, int add, const char *key, size_t key_len) {
+	return gov_act(c, add ? "add" : "remove", "root", key, key_len);
+}
+
+int fzn_rpc_quorum_set(fzn_rpc_t *c, unsigned k) {
+	char word[16];
+	return gov_act(c, "set", "quorum", word, (size_t)snprintf(word, sizeof word, "%u", k));
+}
+
+int fzn_rpc_vote_against(fzn_rpc_t *c, const char *key, size_t key_len) {
+	return gov_act(c, "revoke", "peer", key, key_len);
+}
+
+int fzn_rpc_vote_setting(fzn_rpc_t *c, const char *line, size_t line_len) {
+	return gov_act(c, "add", "vote setting", line, line_len);
+}
+
+int fzn_rpc_succession_confirm(fzn_rpc_t *c, const char *key, size_t key_len) {
+	return gov_act(c, "add", "succession", key, key_len);
+}
+
+int fzn_rpc_staged_confirm(fzn_rpc_t *c, const char *token, size_t token_len) {
+	return gov_act(c, "add", "confirm", token, token_len);
+}
+
+int fzn_rpc_preset_choose(fzn_rpc_t *c, const char *name, size_t name_len) {
+	return gov_act(c, "set", "preset", name, name_len);
+}
+
 int fzn_rpc_retention_add(fzn_rpc_t *c, const char *rule, size_t rule_len) {
 	return fzn_rpc_rule_change(c, 0, 1, rule, rule_len);
 }

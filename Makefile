@@ -3983,18 +3983,17 @@ $(BUILD_DIR)/gui/test/retention_view_test: $(BUILD_DIR)/gui/test/retention_view_
 
 # The estate's governance on a widget, against a node of the test's own that
 # answers each verb in the node's shape. sec 1023.
+# Through the typed client since sec 1261, so its objects too.
 $(BUILD_DIR)/gui/test/governance_view_test: $(BUILD_DIR)/gui/test/governance_view_test.o \
                                        $(BUILD_DIR)/gui/governance_view.o \
-                                       $(BUILD_DIR)/local/vocabulary.o \
-                                       $(BUILD_DIR)/local/peer.o \
                                        $(BUILD_DIR)/persist/persist.o \
                                        $(BUILD_DIR)/trust/trust.o \
                                        $(BUILD_DIR)/session/agree.o \
                                        $(BUILD_DIR)/prekey/prekey.o \
                                        $(BUILD_DIR)/ratchet/ratchet.o \
-                                       $(BUILD_DIR)/constant_time/constant_time.o
+                                       $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 
 $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_test.o \
                                      $(BUILD_DIR)/gui/notebook_view.o \

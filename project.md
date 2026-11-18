@@ -92197,3 +92197,39 @@ short. On `faults/fuzznetd` every phase passed, a through g, phase a in
 The lesson is the one this tree's guidelines name: the instrument was
 the suspect. A test that has a build of its own says so in its Makefile
 target, and the way it was run did not use it.
+
+## 1261. The governance view on the typed client, 2026-11-18
+
+The last hosted view sending its own lines (sec 1258's note): the
+governance view built `list root`, `revoke peer KEY`, `set quorum K` and
+nine more as strings and read each reply's words itself, so the typed
+client had none of them, and on the node's socket the view could never
+ask in binary. Now:
+
+- **The typed client has them** (`local/rpc.h`): `fzn_rpc_roots` (k, each
+  root and whether this host acts as it), `_votes` (each vote, against
+  whom, by whom, standing or withdrawn), `_setting_votes` (paged, the
+  `vote/HOST/KEY` records), `_successions` (paged, each re-key's two keys
+  and state), `_staged` (token, deadline, and the key taking the rest of
+  the word), `_presets` (the profile in force and the choices, none where
+  the node offers none); and the acts -- `_root_change`, `_quorum_set`,
+  `_vote_against`, `_vote_setting`, `_succession_confirm`,
+  `_staged_confirm`, `_preset_choose`. Each listing bounded at
+  FZN_RPC_GOVERNANCE_MAX and saying `more` past it; the paged ones at
+  sixteen pages, so a node paging for ever cannot hold the caller.
+- **`gui/governance_view` asks through them**, its words unchanged; a
+  failure is said by the client's words for it, "the node did not
+  answer" where nothing could be asked.
+
+The listings stay text in this step: the calls are the surface a binary
+form goes behind, as the other subjects' did, and the next step for this
+one.
+
+**Tests:** rpc_test reads each listing as the node words it -- the root
+acted as, a withdrawn vote, a re-key's keys, a staged key with commas, a
+setting's vote paged from 0, the profiles -- and `set quorum 3` as the
+node's line. governance_view_test's 23 checks, unchanged, over the
+client. Three sabotages, each caught (`gov-roots-acting-unread`,
+`gov-votes-withdrawn-unread`, `gov-staged-key-cut`); sec 1029's
+`governance-view-counts-superseded-votes` and sec 1023's
+`governance-view-says-no-answer` repointed to where those now happen.

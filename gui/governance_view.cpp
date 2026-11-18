@@ -1,10 +1,7 @@
 /* See governance_view.h. */
 
 #include "governance_view.h"
-
-extern "C" {
-#include "../local/vocabulary.h"
-}
+#include "rpc_ask.h"
 
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -15,13 +12,6 @@ extern "C" {
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QVBoxLayout>
-
-/* A reply line at its longest. */
-static const size_t REPLY_CAP = FZN_REPLY_MAX + 2u;
-
-/* Pages of `list succession` read before giving up on a node that keeps
- * answering more: a page that adds nothing ends it sooner. */
-static const int SUCCESSION_PAGES = 64;
 
 static QString short_key(const QString &key)
 {
@@ -74,8 +64,9 @@ static QLabel *status_label(QWidget *owner)
 
 fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
                                          QWidget *parent)
-        : QWidget(parent), m_ask(ask), m_ask_ctx(ask_ctx), m_k_held(0)
+        : QWidget(parent), m_rpc(new fzn_gui_rpc), m_k_held(0)
 {
+	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 	auto *outer = new QVBoxLayout(this);
 	QVBoxLayout *col;
 	QHBoxLayout *row;
@@ -205,104 +196,63 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 	refresh();
 }
 
-/* 1 ok, 0 refused with `detail` the node's words, -1 no answer. */
-int fzn_governance_view::ask(const QString &line, QString *detail)
+fzn_governance_view::~fzn_governance_view() { delete m_rpc; }
+
+/* A CALL THAT FAILED, said in `status`: the node's words, or that it did not
+ * answer. Whether it answered. */
+bool fzn_governance_view::said_failed(QLabel *status) const
 {
-	char reply[REPLY_CAP];
-	const uint8_t *d = nullptr;
-	size_t len, d_len = 0;
-	QByteArray bytes = line.toUtf8();
-	fzn_reply_t kind;
+	const QString why = QString::fromUtf8(fzn_gui_rpc_silent(m_rpc));
 
-	if (detail)
-		detail->clear();
-	if (!m_ask || bytes.size() >= (int)FZN_REQUEST_MAX || bytes.contains('\n'))
-		return 0;
-	len = m_ask(m_ask_ctx, bytes.constData(), reply, sizeof(reply));
-	if (len == 0u || len >= sizeof(reply))
-		return -1;
-	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
-		len--;
-	kind = fzn_reply_of((const uint8_t *)reply, len, &d, &d_len);
-	if (detail && d)
-		*detail = QString::fromUtf8((const char *)d, (int)d_len);
-	return kind == FZN_REPLY_OK ? 1 : 0;
-}
-
-/* `r` from ask() said in `status`: false when there is nothing to list. */
-static bool said(int r, const QString &detail, QLabel *status)
-{
-	if (r < 0) {
-		status->setText(QStringLiteral("The node did not answer."));
-		return false;
-	}
-	if (r == 0) {
-		status->setText(detail.isEmpty() ? QStringLiteral("The node refused.") : detail);
-		return false;
-	}
-	return true;
-}
-
-/* `ok K N ITEM ...`: K and N read, and the items, as many as N says and
- * no more. False when it does not read. */
-static bool counted(const QString &detail, int *k, QStringList *items)
-{
-	QStringList w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-	bool ok_k = false, ok_n = false;
-	int n;
-
-	if (w.size() < 2)
-		return false;
-	*k = w[0].toInt(&ok_k);
-	n = w[1].toInt(&ok_n);
-	if (!ok_k || !ok_n || n < 0)
-		return false;
-	*items = w.mid(2, n);
-	return true;
+	status->setText(why.isEmpty() ? QStringLiteral("The node refused.") : why);
+	return m_rpc->c.answered != 0;
 }
 
 bool fzn_governance_view::fill_roots()
 {
-	QString detail;
-	QStringList items;
-	int r = ask(QStringLiteral("list root"), &detail), k = 0;
+	auto *got = new fzn_rpc_roots_t;
+	size_t i;
 
 	m_roots->clear();
-	if (!said(r, detail, m_roots_status))
-		return r >= 0;
-	if (!counted(detail, &k, &items)) {
-		m_roots_status->setText(QStringLiteral("The node's listing did not read."));
-		return true;
+	if (fzn_rpc_roots(&m_rpc->c, got) != FZN_RPC_OK) {
+		delete got;
+		return said_failed(m_roots_status);
 	}
-	for (const QString &item : items) {
-		QString key = item.section(QLatin1Char(','), 0, 0);
-		bool acting = item.section(QLatin1Char(','), 1, 1) == QLatin1String("acting");
+	for (i = 0; i < got->count; i++) {
+		const QString key = QString::fromLatin1(got->root[i].key);
 
-		add_row(m_roots, acting ? short_key(key) + QStringLiteral("  (this host acts as it)")
-		                        : short_key(key),
+		add_row(m_roots, got->root[i].acting ? short_key(key) + QStringLiteral("  (this host acts as it)")
+		                                     : short_key(key),
 		        key);
 	}
 	titled(m_tabs, 0, "Roots", m_roots->count());
-	m_k_held = k;
-	m_k->setValue(k);
-	m_roots_status->setText(QStringLiteral("%1 root(s); k is %2.").arg(m_roots->count()).arg(k));
+	m_k_held = (int)got->k;
+	m_k->setValue((int)got->k);
+	m_roots_status->setText(QStringLiteral("%1 root(s); k is %2.").arg(m_roots->count()).arg(got->k));
+	delete got;
 	return true;
 }
 
 bool fzn_governance_view::fill_votes()
 {
-	QString detail;
+	auto *got = new fzn_rpc_votes_t;
 	QStringList items;
 	QStringList against;
-	int r = ask(QStringLiteral("list vote"), &detail), k = 0;
+	int k;
+	size_t i;
 
 	m_votes->clear();
-	if (!said(r, detail, m_votes_status))
-		return r >= 0;
-	if (!counted(detail, &k, &items)) {
-		m_votes_status->setText(QStringLiteral("The node's listing did not read."));
-		return true;
+	if (fzn_rpc_votes(&m_rpc->c, got) != FZN_RPC_OK) {
+		delete got;
+		return said_failed(m_votes_status);
 	}
+	/* AS THE VIEW READ THE WORDS: `KEY,ISSUER,STATE` each. */
+	k = (int)got->k;
+	for (i = 0; i < got->count; i++)
+		items << QStringLiteral("%1,%2,%3")
+		                 .arg(QString::fromLatin1(got->vote[i].against), QString::fromLatin1(got->vote[i].voter),
+		                      got->vote[i].withdrawn ? QStringLiteral("withdrawn") : QStringLiteral("standing"));
+	delete got;
 	/* ONE ROW PER KEY VOTED AGAINST, saying how near k it is: the standing
 	 * votes counted, a withdrawn one named but not counted. */
 	for (const QString &item : items) {
@@ -349,41 +299,34 @@ bool fzn_governance_view::fill_setting_votes()
 	};
 	QList<vote> newest;
 	QStringList order;
-	QString detail;
-	int page, from = 0, i;
+	int i;
 
 	m_setting_votes->clear();
-	for (page = 0; page < SUCCESSION_PAGES; page++) {
-		QStringList w;
-		int r = ask(QStringLiteral("list record under vote/ %1").arg(from), &detail);
-		bool ok_shown = false;
-		int shown;
+	{
+		auto *got = new fzn_rpc_setting_votes_t;
 
-		if (r <= 0)
-			return r == 0;
-		w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-		shown = w.size() >= 3 ? w[1].toInt(&ok_shown) : -1;
-		if (!ok_shown || shown != w.size() - 3)
-			return true;
-		for (i = 3; i < w.size(); i++) {
-			vote v;
-			int j;
+		if (fzn_rpc_setting_votes(&m_rpc->c, got) != FZN_RPC_OK) {
+			const bool answered = m_rpc->c.answered != 0;
 
-			v.voter = w[i].section(QLatin1Char(','), 0, 0);
-			v.cell = w[i].section(QLatin1Char(','), 1, 1);
-			v.version = w[i].section(QLatin1Char(','), 2, 2).toULongLong();
-			v.value = w[i].section(QLatin1Char(','), 3);
-			for (j = 0; j < newest.size(); j++)
-				if (newest[j].voter == v.voter && newest[j].cell == v.cell)
-					break;
-			if (j == newest.size())
-				newest << v;
-			else if (v.version >= newest[j].version)
-				newest[j] = v;
+			delete got;
+			return answered;
 		}
-		from += shown;
-		if (w[2] != QLatin1String("1") || shown == 0)
-			break;
+		for (size_t g = 0; g < got->count; g++) {
+			vote v;
+
+			v.voter = QString::fromUtf8(got->vote[g].voter);
+			v.cell = QString::fromUtf8(got->vote[g].cell);
+			v.version = (qulonglong)got->vote[g].version;
+			v.value = QString::fromUtf8(got->vote[g].value);
+			for (i = 0; i < newest.size(); i++)
+				if (newest[i].voter == v.voter && newest[i].cell == v.cell)
+					break;
+			if (i == newest.size())
+				newest << v;
+			else if (v.version >= newest[i].version)
+				newest[i] = v;
+		}
+		delete got;
 	}
 	for (const vote &v : newest) {
 		QString key = v.cell + QLatin1Char(' ') + v.value;
@@ -413,39 +356,24 @@ bool fzn_governance_view::fill_setting_votes()
 
 bool fzn_governance_view::fill_successions()
 {
-	int page, from = 0, total = 0;
-	QString detail;
+	auto *got = new fzn_rpc_successions_t;
+	size_t i;
 
 	m_successions->clear();
-	/* `ok TOTAL FROM OLD>NEW,STATE ...`, paged. */
-	for (page = 0; page < SUCCESSION_PAGES; page++) {
-		QStringList w;
-		bool ok_total = false;
-		int r = ask(QStringLiteral("list succession %1").arg(from), &detail), i, added = 0;
-
-		if (!said(r, detail, m_successions_status))
-			return r >= 0;
-		w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-		if (w.size() < 2 || (total = w[0].toInt(&ok_total), !ok_total)) {
-			m_successions_status->setText(QStringLiteral("The node's listing did not read."));
-			return true;
-		}
-		for (i = 2; i < w.size(); i++) {
-			QString pair = w[i].section(QLatin1Char(','), 0, 0);
-			QString state = w[i].section(QLatin1Char(','), 1, 1);
-			QString old_key = pair.section(QLatin1Char('>'), 0, 0);
-			QString new_key = pair.section(QLatin1Char('>'), 1, 1);
-
-			add_row(m_successions,
-			        QStringLiteral("%1 -> %2  %3")
-			                .arg(short_key(old_key), short_key(new_key), state),
-			        old_key);
-			added++;
-		}
-		from += added;
-		if (added == 0 || from >= total)
-			break;
+	if (fzn_rpc_successions(&m_rpc->c, got) != FZN_RPC_OK) {
+		delete got;
+		return said_failed(m_successions_status);
 	}
+	for (i = 0; i < got->count; i++) {
+		const QString old_key = QString::fromLatin1(got->rekey[i].old_key);
+
+		add_row(m_successions,
+		        QStringLiteral("%1 -> %2  %3")
+		                .arg(short_key(old_key), short_key(QString::fromLatin1(got->rekey[i].new_key)),
+		                     QString::fromLatin1(got->rekey[i].state)),
+		        old_key);
+	}
+	delete got;
 	titled(m_tabs, 2, "Re-keys", m_successions->count());
 	m_successions_status->setText(m_successions->count()
 	                                      ? QStringLiteral("%1 re-key(s).").arg(m_successions->count())
@@ -455,28 +383,20 @@ bool fzn_governance_view::fill_successions()
 
 bool fzn_governance_view::fill_staged()
 {
-	QString detail;
-	QStringList w;
-	bool ok = false;
-	int r = ask(QStringLiteral("list staged"), &detail), n, i;
+	auto *got = new fzn_rpc_staged_t;
+	size_t i;
 
 	m_staged->clear();
-	if (!said(r, detail, m_staged_status))
-		return r >= 0;
-	/* `ok N TOKEN,DEADLINE,KEY ...`. */
-	w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-	n = w.isEmpty() ? -1 : w[0].toInt(&ok);
-	if (!ok || n < 0 || n > w.size() - 1) {
-		m_staged_status->setText(QStringLiteral("The node's listing did not read."));
-		return true;
+	if (fzn_rpc_staged(&m_rpc->c, got) != FZN_RPC_OK) {
+		delete got;
+		return said_failed(m_staged_status);
 	}
-	for (i = 1; i <= n; i++) {
-		QString token = w[i].section(QLatin1Char(','), 0, 0);
-		QString deadline = w[i].section(QLatin1Char(','), 1, 1);
-		QString key = w[i].section(QLatin1Char(','), 2);
-
-		add_row(m_staged, QStringLiteral("%1  reverts at %2").arg(key, deadline), token);
-	}
+	for (i = 0; i < got->count; i++)
+		add_row(m_staged,
+		        QStringLiteral("%1  reverts at %2")
+		                .arg(QString::fromUtf8(got->change[i].key), QString::fromUtf8(got->change[i].deadline)),
+		        QString::fromUtf8(got->change[i].token));
+	delete got;
 	titled(m_tabs, 3, "Staged", m_staged->count());
 	m_staged_status->setText(m_staged->count() ? QStringLiteral("%1 change(s) waiting.")
 	                                                     .arg(m_staged->count())
@@ -486,23 +406,16 @@ bool fzn_governance_view::fill_staged()
 
 bool fzn_governance_view::fill_preset()
 {
-	QString detail, current;
+	fzn_rpc_presets_t got;
+	QString current;
 	QStringList items;
-	int r = ask(QStringLiteral("get preset"), &detail);
 
 	m_presets->clear();
-	if (!said(r, detail, m_preset_status))
-		return r >= 0;
-	current = detail.trimmed();
-	r = ask(QStringLiteral("list preset choices"), &detail);
-	if (r > 0) {
-		QStringList w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-		bool ok = false;
-		int n = w.isEmpty() ? -1 : w[0].toInt(&ok);
-
-		if (ok && n >= 0 && n <= w.size() - 1)
-			items = w.mid(1, n);
-	}
+	if (fzn_rpc_presets(&m_rpc->c, &got) != FZN_RPC_OK)
+		return said_failed(m_preset_status);
+	current = QString::fromUtf8(got.current);
+	for (size_t i = 0; i < got.count; i++)
+		items << QString::fromUtf8(got.choice[i]);
 	m_presets->addItems(items);
 	if (items.contains(current))
 		m_presets->setCurrentText(current);
@@ -542,14 +455,14 @@ QString fzn_governance_view::key_for(QListWidget *list) const
 	return key;
 }
 
-/* Ask `line`; on ok say `done` and read every part again. */
-bool fzn_governance_view::act(const QString &line, QLabel *status, const QString &done)
+/* AN ACT'S ANSWER: on ok `done` said and every part read again; else the
+ * node's words, or that it did not answer. */
+bool fzn_governance_view::acted(int rc, QLabel *status, const QString &done)
 {
-	QString detail;
-	int r = ask(line, &detail);
-
-	if (!said(r, detail, status))
+	if (rc != FZN_RPC_OK) {
+		(void)said_failed(status);
 		return false;
+	}
 	m_key->clear();
 	refresh();
 	status->setText(done);
@@ -564,7 +477,8 @@ bool fzn_governance_view::add_root()
 		m_roots_status->setText(QStringLiteral("Type the new root's key first."));
 		return false;
 	}
-	return act(QStringLiteral("add root ") + key, m_roots_status,
+	const QByteArray k = key.toUtf8();
+	return acted(fzn_rpc_root_change(&m_rpc->c, 1, k.constData(), (size_t)k.size()), m_roots_status,
 	           QStringLiteral("%1 is a root.").arg(short_key(key)));
 }
 
@@ -576,13 +490,14 @@ bool fzn_governance_view::remove_root()
 		m_roots_status->setText(QStringLiteral("Type or select a root first."));
 		return false;
 	}
-	return act(QStringLiteral("remove root ") + key, m_roots_status,
+	const QByteArray k = key.toUtf8();
+	return acted(fzn_rpc_root_change(&m_rpc->c, 0, k.constData(), (size_t)k.size()), m_roots_status,
 	           QStringLiteral("%1 is a root no more.").arg(short_key(key)));
 }
 
 bool fzn_governance_view::set_k(int k)
 {
-	return act(QStringLiteral("set quorum %1").arg(k), m_roots_status,
+	return acted(fzn_rpc_quorum_set(&m_rpc->c, k < 0 ? 0u : (unsigned)k), m_roots_status,
 	           QStringLiteral("k is %1.").arg(k));
 }
 
@@ -608,7 +523,8 @@ bool fzn_governance_view::vote()
 	m_vote_bar->hide();
 	if (key.isEmpty())
 		return false;
-	return act(QStringLiteral("revoke peer ") + key, m_votes_status,
+	const QByteArray k = key.toUtf8();
+	return acted(fzn_rpc_vote_against(&m_rpc->c, k.constData(), (size_t)k.size()), m_votes_status,
 	           QStringLiteral("This host voted against %1.").arg(short_key(key)));
 }
 
@@ -628,7 +544,8 @@ bool fzn_governance_view::vote_setting()
 		m_votes_status->setText(QStringLiteral("Select a value voted for first."));
 		return false;
 	}
-	return act(QStringLiteral("add vote setting ") + line, m_votes_status,
+	const QByteArray l = line.toUtf8();
+	return acted(fzn_rpc_vote_setting(&m_rpc->c, l.constData(), (size_t)l.size()), m_votes_status,
 	           QStringLiteral("This host voted for it too."));
 }
 
@@ -640,7 +557,8 @@ bool fzn_governance_view::confirm_succession()
 		m_successions_status->setText(QStringLiteral("Select a re-key first."));
 		return false;
 	}
-	return act(QStringLiteral("add succession ") + key, m_successions_status,
+	const QByteArray k = key.toUtf8();
+	return acted(fzn_rpc_succession_confirm(&m_rpc->c, k.constData(), (size_t)k.size()), m_successions_status,
 	           QStringLiteral("This host confirmed %1's re-key.").arg(short_key(key)));
 }
 
@@ -653,7 +571,8 @@ bool fzn_governance_view::confirm_staged()
 		m_staged_status->setText(QStringLiteral("Select a change first."));
 		return false;
 	}
-	return act(QStringLiteral("add confirm ") + token, m_staged_status,
+	const QByteArray t = token.toUtf8();
+	return acted(fzn_rpc_staged_confirm(&m_rpc->c, t.constData(), (size_t)t.size()), m_staged_status,
 	           QStringLiteral("Confirmed; it will not revert."));
 }
 
@@ -663,7 +582,8 @@ bool fzn_governance_view::choose_preset(const QString &name)
 		m_preset_status->setText(QStringLiteral("Choose a profile first."));
 		return false;
 	}
-	return act(QStringLiteral("set preset ") + name, m_preset_status,
+	const QByteArray n = name.toUtf8();
+	return acted(fzn_rpc_preset_choose(&m_rpc->c, n.constData(), (size_t)n.size()), m_preset_status,
 	           QStringLiteral("Profile %1 chosen.").arg(name));
 }
 
