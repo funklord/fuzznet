@@ -22,6 +22,7 @@ extern "C" {
 #include <QPixmap>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QSet>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -154,8 +155,20 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 		if (!place_of(m_tree, m_tree->itemAt(at), m_flat, &group, &row))
 			return;
 		QMenu menu(this);
+		QHash<QString, QMenu *> under;
 		for (const QString &a : actions(group, row)) {
-			QAction *offered = menu.addAction(a);
+			/* "WHAT: WHO" UNDER A SUBMENU OF WHAT (sec 1246), and the act
+			 * named in full however it was reached. */
+			const int colon = a.indexOf(QStringLiteral(": "));
+			QMenu *in = &menu;
+			if (colon > 0) {
+				const QString what = a.left(colon);
+				if (!under.contains(what))
+					under.insert(what, menu.addMenu(what));
+				in = under.value(what);
+			}
+			QAction *offered = in->addAction(colon > 0 ? a.mid(colon + 2) : a);
+			offered->setData(a);
 			/* OFFERED DISABLED, SAYING WHY, rather than refused when chosen. */
 			if (!refused(a).isEmpty()) {
 				offered->setEnabled(false);
@@ -164,7 +177,7 @@ fzn_conversations_view::fzn_conversations_view(fzn_notebook_view_ask_t ask, void
 		}
 		QAction *chosen = menu.exec(m_tree->viewport()->mapToGlobal(at));
 		if (chosen)
-			act(group, row, chosen->text());
+			act(group, row, chosen->data().toString());
 	});
 	m_status->setText(tr("No conversations yet."));
 }
@@ -457,7 +470,9 @@ QStringList fzn_conversations_view::actions(int group, int row)
 				m_refused.insert(tr("Call everyone"),
 				                 tr("too many to ring at once, %1 at most").arg(FZN_RPC_RING_WHO_MAX));
 		}
-		return { tr("Send a file..."), tr("Call everyone"), tr("Members and admins...") };
+		QStringList out({ tr("Send a file..."), tr("Call everyone"), tr("Members and admins...") });
+		members_menu(item->data(0, ROLE_OPEN).toString().mid(1), &out);
+		return out;
 	}
 	if (kind != ROW_CONTACT)
 		return {}; /* nobody to name: a contact since removed */
@@ -470,6 +485,118 @@ QStringList fzn_conversations_view::actions(int group, int row)
 	return out;
 }
 
+/* A GROUP'S MEMBERS FROM ITS ROW'S MENU, sec 1246, fuzzypickles' 1900Z item
+ * 3: each act its own entry, "WHAT: WHO", which the menu shows as a
+ * submenu of WHAT -- a contact added, a member made an admin or stopped
+ * being one, a member removed -- and this device's copy deleted. Offered to
+ * an admin; to anybody else offered disabled, saying why. */
+void fzn_conversations_view::members_menu(const QString &group, QStringList *out)
+{
+	fzn_rpc_group_show_resp_t show;
+	fzn_rpc_peer_list_resp_t peers;
+	QByteArray name = group.toUtf8();
+	QSet<QString> in;
+
+	memset(&show, 0, sizeof show);
+	memset(&peers, 0, sizeof peers);
+	if (fzn_rpc_group_show(&m_rpc->c, name.constData(), (size_t)name.size(), &show) != FZN_RPC_OK) {
+		free(show.members);
+		*out << tr("Delete this device's copy");
+		return;
+	}
+	if (!show.is_admin) {
+		const QString why = tr("only the group's admins change who is in it");
+		*out << tr("Add a member") << tr("Remove a member");
+		m_refused.insert(tr("Add a member"), why);
+		m_refused.insert(tr("Remove a member"), why);
+	} else {
+		for (size_t i = 0; i < show.member_count; i++) {
+			const fzn_rpc_group_member_entry_t *m = &show.members[i];
+			const QString who = QString::fromUtf8(m->name, (int)m->name_len);
+			/* A NAMELESS MEMBER is this user or no contact: nothing to
+			 * name it by in a menu. */
+			if (who.isEmpty() || !memcmp(m->root_pubkey, show.self_root, 32))
+				continue;
+			in.insert(who);
+			*out << (m->admin ? tr("Stop being an admin: %1").arg(who) : tr("Make an admin: %1").arg(who))
+			     << tr("Remove: %1").arg(who);
+		}
+		/* ONLY A CONTACT WHO STANDS JOINS, as group_view offers (sec 1118). */
+		if (fzn_rpc_peer_list(&m_rpc->c, &peers) == FZN_RPC_OK)
+			for (size_t i = 0; i < peers.count; i++) {
+				const QString who = QString::fromUtf8(peers.entries[i].name, (int)peers.entries[i].name_len);
+				if (peers.entries[i].state == FZN_RPC_CONTACT_ACTIVE && !in.contains(who))
+					*out << tr("Add a member: %1").arg(who);
+			}
+	}
+	*out << tr("Delete this device's copy");
+	free(show.members);
+	free(peers.entries);
+}
+
+/* ONE MEMBER ACT from the menu, sec 1246, said as done -- or, for an admin's
+ * change other admins must agree to, how many more must ask. */
+bool fzn_conversations_view::member_act(const QString &group, const QString &action)
+{
+	const QByteArray name = group.toUtf8();
+	const int colon = action.indexOf(QStringLiteral(": "));
+	const QString what = colon > 0 ? action.left(colon) : action, who = colon > 0 ? action.mid(colon + 2) : QString();
+	const QByteArray peer = who.toUtf8();
+	size_t approvals = 0, needed = 0;
+	int rc;
+
+	if (what == tr("Delete this device's copy")) {
+		/* CONFIRMED BY CHOOSING IT AGAIN, not by a dialog over the list:
+		 * the first choice says what it does, the second within
+		 * FZN_CONVERSATIONS_CONFIRM_S does it. */
+		const qint64 now = QDateTime::currentSecsSinceEpoch();
+		if (m_armed != group || now > m_armed_at + FZN_CONVERSATIONS_CONFIRM_S) {
+			m_armed = group;
+			m_armed_at = now;
+			m_status->setText(tr("Choose \"Delete this device's copy\" again to delete %1 here; the other members keep it.")
+			                          .arg(group));
+			return true;
+		}
+		m_armed.clear();
+		if (fzn_rpc_group_delete(&m_rpc->c, name.constData(), (size_t)name.size()) != FZN_RPC_OK) {
+			m_status->setText(failed_words(m_rpc));
+			return false;
+		}
+		/* THE LIST WITHOUT IT, and then said: a refresh says its own. */
+		refresh();
+		m_status->setText(tr("Deleted %1 from this device.").arg(group));
+		return true;
+	}
+	if (who.isEmpty())
+		return false;
+	if (what == tr("Add a member"))
+		rc = fzn_rpc_group_add_member(&m_rpc->c, name.constData(), (size_t)name.size(), peer.constData(),
+		                              (size_t)peer.size());
+	else if (what == tr("Remove"))
+		rc = fzn_rpc_group_remove_member(&m_rpc->c, name.constData(), (size_t)name.size(), peer.constData(),
+		                                 (size_t)peer.size());
+	else if (what == tr("Make an admin") || what == tr("Stop being an admin"))
+		rc = fzn_rpc_group_admin(&m_rpc->c, name.constData(), (size_t)name.size(), peer.constData(),
+		                         (size_t)peer.size(), what == tr("Make an admin") ? 1 : 0, &approvals, &needed);
+	else
+		return false;
+	if (rc != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	/* THE K OF N SAID, sec 1012: a change waiting on other admins is not done. */
+	if (needed > approvals)
+		m_status->setText(tr("Asked. It takes effect when %n more admin(s) ask.", nullptr, (int)(needed - approvals)));
+	else if (what == tr("Add a member"))
+		m_status->setText(tr("%1 is in %2 now.").arg(who, group));
+	else if (what == tr("Remove"))
+		m_status->setText(tr("%1 is no longer in %2.").arg(who, group));
+	else
+		m_status->setText(what == tr("Make an admin") ? tr("%1 is an admin of %2 now.").arg(who, group)
+		                                              : tr("%1 is no longer an admin of %2.").arg(who, group));
+	return true;
+}
+
 bool fzn_conversations_view::act(int group, int row, const QString &action)
 {
 	QTreeWidgetItem *item = row_item(group, row);
@@ -477,6 +604,17 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 	const QString to = item ? item->data(0, ROLE_OPEN).toString() : QString();
 	if (kind != ROW_CONTACT && kind != ROW_GROUP)
 		return false;
+	/* REFUSED TO ONE WHO IS NOT AN ADMIN, saying why, as offered. */
+	if (kind == ROW_GROUP && (action == tr("Add a member") || action == tr("Remove a member"))) {
+		if (!m_refused.value(action).isEmpty())
+			m_status->setText(m_refused.value(action));
+		return false;
+	}
+	if (kind == ROW_GROUP
+	    && (action.startsWith(tr("Add a member: ")) || action.startsWith(tr("Remove: "))
+	        || action.startsWith(tr("Make an admin: ")) || action.startsWith(tr("Stop being an admin: "))
+	        || action == tr("Delete this device's copy")))
+		return member_act(to.mid(1), action);
 	if (kind == ROW_CONTACT && (action == tr("Share my location") || action == tr("Stop sharing my location"))) {
 		/* SHARED AS THE LOCATION VIEW'S DEFAULT HAS IT, exactly; a coarser
 		 * share is chosen there (sec 1119). */

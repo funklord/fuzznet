@@ -67,6 +67,9 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		/* ONE MEMBER BUT THIS USER, or seventeen besides, sec 1232. */
 		if (members_mode == 1)
 			return (size_t)snprintf(reply, cap, "ok 1 0 *" SELF "\n");
+		/* THIS USER NO ADMIN, bob one (sec 1246). */
+		if (members_mode == 3)
+			return (size_t)snprintf(reply, cap, "ok 3 0 " SELF " *bob dan\n");
 		if (members_mode == 2) {
 			size_t n = (size_t)snprintf(reply, cap, "ok 18 0 *" SELF);
 			for (int k = 0; k < 17; k++)
@@ -74,6 +77,14 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 			return n + (size_t)snprintf(reply + n, cap - n, "\n");
 		}
 		return (size_t)snprintf(reply, cap, "ok 3 0 *" SELF " bob dan\n");
+	}
+	/* A GROUP'S MEMBERS CHANGED FROM THE MENU, sec 1246: bob's admin
+	 * waiting on one more admin, dan removed, the group deleted here. */
+	if (!strcmp(line, "add admin family bob") || !strcmp(line, "remove member family dan")
+	    || !strcmp(line, "remove group family")) {
+		strncat(asked, line, sizeof asked - strlen(asked) - 2);
+		strcat(asked, "\n");
+		return (size_t)snprintf(reply, cap, !strcmp(line, "add admin family bob") ? "ok proposed 1 2\n" : "ok\n");
 	}
 	if (!strcmp(line, "list group 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 family,3," FAMILY ",1\n");
@@ -132,7 +143,7 @@ int main(int argc, char **argv)
 	CHECK(v.act(0, 1, "Stop sharing my location") && strstr(asked, "revoke stream location dan\n")
 	              && v.status() == "dan no longer sees your position.",
 	      "no longer sharing was not done and said");
-	CHECK(v.actions(1, 0) == QStringList({ "Send a file...", "Call everyone", "Members and admins..." }),
+	CHECK(v.actions(1, 0).mid(0, 3) == QStringList({ "Send a file...", "Call everyone", "Members and admins..." }),
 	      "a group's menu was not offered");
 	CHECK(v.act(1, 0, "Send a file...") && what == "file" && to == "@family",
 	      "a file to a group was not handed over as @NAME");
@@ -141,6 +152,39 @@ int main(int argc, char **argv)
 	CHECK(v.act(1, 0, "Call everyone") && what == "call" && to == "bob,dan",
 	      "calling a group did not ring every member it can name, this user not among them");
 	CHECK(!v.act(1, 0, "Video call") && !v.act(0, 9, "Call"), "a choice not offered was carried out");
+
+	/* A GROUP'S MEMBERS FROM ITS ROW'S MENU, sec 1246: an admin offered each
+	 * member made an admin or removed, and this device's copy deleted; the
+	 * change waiting on other admins said so; the deletion asked once and
+	 * done the second time; and one who is not an admin refused, saying
+	 * why. */
+	{
+		const QStringList offered = v.actions(1, 0);
+
+		CHECK(offered.contains("Make an admin: bob") && offered.contains("Remove: dan")
+		              && offered.contains("Delete this device's copy") && !offered.contains("Remove: you"),
+		      "an admin was not offered each member to make an admin or remove");
+		asked[0] = '\0';
+		CHECK(v.act(1, 0, "Make an admin: bob") && strstr(asked, "add admin family bob")
+		              && v.status() == "Asked. It takes effect when 1 more admin(s) ask.",
+		      "making an admin, waiting on another admin, was not said so");
+		CHECK(v.act(1, 0, "Remove: dan") && strstr(asked, "remove member family dan")
+		              && v.status() == "dan is no longer in family.",
+		      "a member removed was not removed, said");
+		CHECK(v.act(1, 0, "Delete this device's copy") && !strstr(asked, "remove group family")
+		              && v.status().startsWith("Choose \"Delete this device's copy\" again"),
+		      "deleting this device's copy was done at once, not asked");
+		CHECK(v.act(1, 0, "Delete this device's copy") && strstr(asked, "remove group family")
+		              && v.status() == "Deleted family from this device.",
+		      "deleting this device's copy, chosen again, was not done");
+		v.refresh();
+		members_mode = 3;
+		const QStringList barred = v.actions(1, 0);
+		CHECK(barred.contains("Add a member") && v.refused("Add a member") == "only the group's admins change who is in it"
+		              && !v.act(1, 0, "Add a member") && v.status() == "only the group's admins change who is in it",
+		      "one who is not an admin was offered the members' changes, or not told why");
+		members_mode = 0;
+	}
 
 	/* CALL EVERYONE OFFERED DISABLED, SAYING WHY, sec 1232. */
 	(void)v.actions(1, 0);

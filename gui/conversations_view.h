@@ -44,6 +44,9 @@ class QTreeWidget;
 class QTreeWidgetItem;
 struct fzn_gui_rpc;
 
+/* How long a deletion asked for once waits to be chosen again. */
+#define FZN_CONVERSATIONS_CONFIRM_S 10
+
 class fzn_conversations_view : public QWidget {
 public:
 	fzn_conversations_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent = nullptr);
@@ -95,6 +98,12 @@ protected:
 
 private:
 	void lay_out();
+	void members_menu(const QString &group, QStringList *out);
+	bool member_act(const QString &group, const QString &action);
+	/* A deletion asked for once, by group, and when: chosen again in time,
+	 * it is done (sec 1246). */
+	QString m_armed;
+	qint64 m_armed_at = 0;
 	/* A ROW AS READ, kept to lay out again at another width. */
 	struct row {
 		QString name, text, when, open;

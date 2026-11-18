@@ -91656,3 +91656,32 @@ each caught (`conversations-never-flat`,
 `conversations-flat-group-unmarked`, `conversations-flat-wrong-kind`,
 `conversations-layout-wipes-status`); sec 1138's two entries repointed to
 the rows as read. `make qtty` passes.
+
+## 1246. A group's members managed from its row's menu, 2026-11-18
+
+fuzzypickles' 1900Z item 3 (sec 1224): a group's members managed where
+the group is listed, not handed to the host as `members`. A group's row's
+menu now offers, to an admin, each member to make an admin or stop being
+one and to remove, each contact who stands and is not in it to add (as
+group_view offers, sec 1118), and deleting this device's copy -- "WHAT:
+WHO" entries the menu shows as a submenu of WHAT, each act named in full
+however it was reached.
+
+- **The k of n said** (sec 1012): a change waiting on other admins reads
+  "Asked. It takes effect when 1 more admin(s) ask.", not as done.
+- **Confirmed, not modal**: deleting this device's copy says what it does
+  at the first choice, and does it at a second within
+  FZN_CONVERSATIONS_CONFIRM_S (10 s) -- no dialog over the list.
+- **To one who is not an admin**, Add and Remove a member are offered
+  disabled with why, "only the group's admins change who is in it", and
+  chosen anyway say the same.
+- **Not here**: fuzzypickles' "no verified identity" for a contact added
+  only from a prekey -- the client has no such mark on a contact to say.
+
+**Tests:** conversations_view -- bob and dan offered to make admins or
+remove, this user not; bob's admin asked and waiting on one more; dan
+removed; the deletion asked, then done, the list refreshed and then said;
+this user no admin, the member changes refused saying why. Three
+sabotages, each caught (`conversations-delete-unconfirmed`,
+`conversations-k-of-n-unsaid`, `conversations-members-to-anyone`). `make
+qtty` passes.

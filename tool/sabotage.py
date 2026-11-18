@@ -17314,6 +17314,27 @@ SABOTAGES = [
 		"a conversation read in binary is answered ok and reads nothing -- sec 1223",
 	),
 	(
+		"conversations-delete-unconfirmed",
+		"gui/conversations_view.cpp",
+		"\t\tif (m_armed != group || now > m_armed_at + FZN_CONVERSATIONS_CONFIRM_S) {\n",
+		"\t\tif (0) {\n",
+		"a group's copy is deleted from this device at the first choice, unasked -- sec 1246",
+	),
+	(
+		"conversations-k-of-n-unsaid",
+		"gui/conversations_view.cpp",
+		"\tif (needed > approvals)\n",
+		"\tif (0)\n",
+		"an admin change waiting on other admins is said done -- sec 1246",
+	),
+	(
+		"conversations-members-to-anyone",
+		"gui/conversations_view.cpp",
+		"\tif (!show.is_admin) {\n",
+		"\tif (0) {\n",
+		"one who is not a group's admin is offered its members' changes, to be refused -- sec 1246",
+	),
+	(
 		"conversations-layout-wipes-status",
 		"gui/conversations_view.cpp",
 		"\tplace.restore();\n}\n\nvoid fzn_conversations_view::resizeEvent",
