@@ -1128,6 +1128,60 @@ static void test_packs_in_binary(void)
 	fzn_rpc_sticker_packs_release(&out);
 }
 
+/* A PACK'S STICKERS, A PACK KEPT AND LET GO, IN BINARY, sec 1248: a row's
+ * every field read as sent, asked by the root; kept answered with its root
+ * and for whom; let go by its root; a refusal said in the node's words. */
+static void test_stickers_in_binary(void)
+{
+	static struct bscript items, kept, gone, refused;
+	static fzn_rpc_node_sticker_items_resp_t out;
+	uint8_t root[32], row[160], m[176];
+	uint32_t row_len = 0, n = 0;
+	char ref[145];
+	uint8_t got_root[32];
+	int host_only = 1;
+
+	memset(root, 0x6c, sizeof(root));
+	if (fzn_stickers_local_item_row_build(row, sizeof(row), 7u, 1u, 2u, 16u, 8u, 8u, 112u, 48u, 0xffffffffu, 0xffu, 90u,
+	                                      128u, 128u, (const uint8_t *)"waving", 6, &row_len)
+	            == SITU_OK
+	    && fzn_stickers_local_message_build_item_row(m, sizeof(m), (uint8_t)FZN_CMD_STICKERS, row, row_len, &n)
+	               == SITU_OK)
+		framed(&items, 0, m, n);
+	status_onto(&items, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &items);
+	CHECK(fzn_rpc_sticker_items(&c, "6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c", 64, &out)
+	              == FZN_RPC_OK
+	              && out.count == 1 && out.entries[0].id == 7u && out.entries[0].flags == 2u
+	              && out.entries[0].text_limit == 16u && out.entries[0].text_w == 112u
+	              && out.entries[0].text_fill == 0xffffffffu && out.entries[0].text_turn == 90u
+	              && out.entries[0].main_h == 128u && strcmp(out.entries[0].description, "waving") == 0
+	              && items.asked[0][0] == 0x16 && items.asked[0][1] == 0x82 && items.asked[0][2] == 0x6c,
+	      "a pack's stickers were not read in binary, every field as sent, asked by its root");
+
+	if (fzn_stickers_local_kept_row_build(row, sizeof(row), root, 0u, &row_len) == SITU_OK
+	    && fzn_stickers_local_message_build_kept(m, sizeof(m), (uint8_t)FZN_CMD_STICKERS, row, row_len, &n) == SITU_OK)
+		framed(&kept, 0, m, n);
+	status_onto(&kept, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &kept);
+	memset(ref, '6', 144);
+	memcpy(ref, "6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c", 64);
+	ref[144] = '\0';
+	CHECK(fzn_rpc_sticker_keep(&c, ref, 144, got_root, &host_only) == FZN_RPC_OK && got_root[0] == 0x6c
+	              && host_only == 1 && kept.asked[0][1] == 0x84 && kept.asked[0][2] == 0x6c,
+	      "a pack kept in binary was not answered with its root, kept for this host alone");
+
+	status_onto(&gone, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &gone);
+	CHECK(fzn_rpc_sticker_forget(&c, root) == FZN_RPC_OK && gone.asked[0][1] == 0x86 && gone.asked[0][2] == 0x6c,
+	      "a pack was not let go in binary, by its root");
+
+	status_onto(&refused, 0, FZN_STATUS_ERROR, "no such pack is saved");
+	bon(&c, &refused);
+	CHECK(fzn_rpc_sticker_forget(&c, root) != FZN_RPC_OK && strstr(c.error, "no such pack is saved"),
+	      "a pack nobody keeps was not refused in the node's words");
+}
+
 /* THE LIBRARY IN BINARY, sec 1174: every field of a row read as sent, the
  * request's bytes, a listing cut before its STATUS refused, and a node
  * reading no binary asked the text join instead. */
@@ -2013,6 +2067,7 @@ int main(void)
 	test_shares_in_binary();
 	test_note_open_in_binary();
 	test_packs_in_binary();
+	test_stickers_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();
 	test_requests_in_binary();

@@ -16854,8 +16854,8 @@ SABOTAGES = [
 	(
 		"stickers-binary-any-op",
 		"node/stickers_binary.c",
-		"\t    || fzn_stickers_local_message_op_get(v) != FZN_STICKERS_LOCAL_OP_PACKS)\n",
-		"\t    || 0)\n",
+		"\tif (fzn_stickers_local_message_op_get(v) != FZN_STICKERS_LOCAL_OP_PACKS)\n\t\treturn status(put, put_ctx, FZN_STATUS_MALFORMED, \"not a stickers request\");\n",
+		"\tif (0)\n\t\treturn status(put, put_ctx, FZN_STATUS_MALFORMED, \"not a stickers request\");\n",
 		"a pack row sent as a request is answered as the listing -- sec 1172",
 	),
 	(
@@ -17438,6 +17438,27 @@ SABOTAGES = [
 		"\t    || here_flag(\"location/follow\") != 1)\n",
 		"\t    || 0)\n",
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
+	),
+	(
+		"stickers-client-turn-dropped",
+		"local/rpc.c",
+		"\te->text_turn = fzn_stickers_local_item_row_text_turn_get(b);\n",
+		"\te->text_turn = 0;\n",
+		"a sticker's box is read unturned from its binary row -- sec 1248",
+	),
+	(
+		"stickers-client-kept-for-whom",
+		"local/rpc.c",
+		"\t\t\t\tif (host_only) *host_only = !a.estate;\n",
+		"\t\t\t\tif (host_only) *host_only = a.estate;\n",
+		"a pack kept for this host alone is read as kept for the estate -- sec 1248",
+	),
+	(
+		"stickers-node-refusal-malformed",
+		"node/stickers_binary.c",
+		"\t\t              r > 7u && memcmp(reply, \"denied \", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,\n",
+		"\t\t              FZN_STATUS_MALFORMED,\n",
+		"a pack the verb refuses is answered malformed, and a client takes the node for one reading no binary; live_pairing phase hb only -- sec 1248",
 	),
 	(
 		"call-bar-never-a-screen",

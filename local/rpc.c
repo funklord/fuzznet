@@ -8383,8 +8383,106 @@ static int node_sticker_put(fzn_rpc_t *c, const char *spec_path, size_t spec_pat
 	return FZN_RPC_OK;
 }
 
+/* A PACK'S STICKERS, A PACK KEPT OR LET GO, IN BINARY, sec 1248: item rows,
+ * or the kept row, then a STATUS. */
+struct sticker_answer {
+	fzn_rpc_node_sticker_items_resp_t *items;
+	uint8_t root[32];
+	int estate, kept, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void sticker_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct sticker_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_stickers_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_stickers_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_KEPT
+	    && fzn_stickers_local_message_body_kept_view(v, &b) == SITU_OK) {
+		memcpy(a->root, fzn_stickers_local_kept_row_root_ptr(b), 32);
+		a->estate = fzn_stickers_local_kept_row_estate_get(b);
+		a->kept = 1;
+		return;
+	}
+	if (!a->items || fzn_stickers_local_message_op_get(v) != FZN_STICKERS_LOCAL_OP_ITEM_ROW
+	    || fzn_stickers_local_message_body_item_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (a->items->count >= FZN_RPC_NODE_STICKER_ITEMS_MAX) {
+		a->items->overflow = 1;
+		return;
+	}
+	fzn_rpc_node_sticker_item_t *e = &a->items->entries[a->items->count++];
+	const size_t d = fzn_stickers_local_item_row_desc_len(b);
+	e->id = fzn_stickers_local_item_row_id_get(b);
+	e->type = fzn_stickers_local_item_row_type_get(b);
+	e->flags = fzn_stickers_local_item_row_flags_get(b);
+	e->text_limit = fzn_stickers_local_item_row_text_limit_get(b);
+	e->text_x = fzn_stickers_local_item_row_text_x_get(b);
+	e->text_y = fzn_stickers_local_item_row_text_y_get(b);
+	e->text_w = fzn_stickers_local_item_row_text_w_get(b);
+	e->text_h = fzn_stickers_local_item_row_text_h_get(b);
+	e->text_fill = fzn_stickers_local_item_row_text_fill_get(b);
+	e->text_ink = fzn_stickers_local_item_row_text_ink_get(b);
+	e->text_turn = fzn_stickers_local_item_row_text_turn_get(b);
+	e->main_w = fzn_stickers_local_item_row_main_w_get(b);
+	e->main_h = fzn_stickers_local_item_row_main_h_get(b);
+	memcpy(e->description, fzn_stickers_local_item_row_desc_ptr(b), d < sizeof e->description ? d : sizeof e->description - 1);
+	e->description[d < sizeof e->description ? d : sizeof e->description - 1] = '\0';
+	e->description_len = d < sizeof e->description ? d : sizeof e->description - 1;
+}
+
+/* One sticker request in binary: `*text` 1 for a node that reads none. */
+static int sticker_binary(fzn_rpc_t *c, const uint8_t *req, size_t req_len, struct sticker_answer *a, int *text) {
+	const int rc = fzn_rpc_binary(c, req, req_len, sticker_each, a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a->bad || !a->status_seen) return unreadable(c); /* the answer cut short */
+	if (a->code != FZN_STATUS_OK)
+		return fail(c, a->code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_sticker_items(fzn_rpc_t *c, const char *pack, size_t pack_len,
                            fzn_rpc_node_sticker_items_resp_t *out) {
+	/* BY ITS ROOT, the first 64 of a root or a whole reference. */
+	if ((pack_len == 64 || pack_len == 144) && node_pack_ok(pack, pack_len)) {
+		uint8_t req[2 + 32];
+		struct sticker_answer a;
+		int text = 0;
+		req[0] = FZN_CMD_STICKERS;
+		req[1] = FZN_STICKERS_LOCAL_OP_ITEMS;
+		if (node_key(pack, 64, req + 2)) {
+			memset(out, 0, sizeof(*out));
+			memset(&a, 0, sizeof a);
+			a.items = out;
+			const int rc = sticker_binary(c, req, sizeof req, &a, &text);
+			if (!text) {
+				if (rc == FZN_RPC_OK && out->overflow)
+					return fail(c, FZN_RPC_ERR_BUFFER_TOO_SMALL, "that pack holds more stickers than this client lists");
+				return rc;
+			}
+		}
+	}
 	return node_sticker_items(c, pack, pack_len, out);
 }
 
@@ -8462,6 +8560,28 @@ int fzn_rpc_sticker_keep(fzn_rpc_t *c, const char *ref, size_t ref_len, uint8_t 
 	if (host_only) *host_only = 0;
 	if (ref_len != 144 || !node_pack_ok(ref, ref_len))
 		return node_unasked(c, FZN_RPC_ERR_MALFORMED, "a pack is kept by its whole reference, as hex");
+	/* IN BINARY FIRST, sec 1248: root, key and length. */
+	{
+		uint8_t req[2 + 72];
+		struct sticker_answer a;
+		int text = 0;
+		req[0] = FZN_CMD_STICKERS;
+		req[1] = FZN_STICKERS_LOCAL_OP_KEEP;
+		char hex[145];
+		memcpy(hex, ref, 144);
+		hex[144] = '\0';
+		if (fzn_hex_decode(hex, req + 2, 72) == 0) {
+			memset(&a, 0, sizeof a);
+			const int brc = sticker_binary(c, req, sizeof req, &a, &text);
+			if (!text) {
+				if (brc != FZN_RPC_OK) return brc;
+				if (!a.kept) return unreadable(c);
+				memcpy(root, a.root, 32);
+				if (host_only) *host_only = !a.estate;
+				return FZN_RPC_OK;
+			}
+		}
+	}
 	char arg[8 + 144 + 1];
 	const char *rest = NULL;
 	size_t rest_len = 0;
@@ -8834,7 +8954,16 @@ int fzn_rpc_sticker_list(fzn_rpc_t *c, fzn_rpc_sticker_packs_t *out) {
 }
 
 int fzn_rpc_sticker_forget(fzn_rpc_t *c, const uint8_t root[32]) {
-	return node_sticker_forget(c, root);
+	/* IN BINARY FIRST, sec 1248. */
+	uint8_t req[2 + 32];
+	struct sticker_answer a;
+	int text = 0;
+	req[0] = FZN_CMD_STICKERS;
+	req[1] = FZN_STICKERS_LOCAL_OP_FORGET;
+	memcpy(req + 2, root, 32);
+	memset(&a, 0, sizeof a);
+	const int rc = sticker_binary(c, req, sizeof req, &a, &text);
+	return text ? node_sticker_forget(c, root) : rc;
 }
 
 int fzn_rpc_location_share(fzn_rpc_t *c, const char *peer, size_t peer_len, int enable,

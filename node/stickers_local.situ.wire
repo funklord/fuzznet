@@ -19,18 +19,52 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  packs=128 pack_row=129
+  packs=128 pack_row=129 items=130 item_row=131 keep=132 kept=133 forget=134
 
-struct message size=2..93
+struct item_row size=36..132
+  @0x0000   8         u64        id  big
+  @0x0008   1         u8         type
+  @0x0009   2         u16        flags  big
+  @0x000b   2         u16        text_limit  big
+  @0x000d   2         u16        text_x  big
+  @0x000f   2         u16        text_y  big
+  @0x0011   2         u16        text_w  big
+  @0x0013   2         u16        text_h  big
+  @0x0015   4         u32        text_fill  big
+  @0x0019   4         u32        text_ink  big
+  @0x001d   2         u16        text_turn  big max=359
+  @0x001f   2         u16        main_w  big
+  @0x0021   2         u16        main_h  big
+  @0x0023   1         u8         desc_len  max=96
+  @0x0024   0..96     u8         desc  sized-by=desc_len
+
+struct keep_ask size=72
+  @0x0000   32        u8         root  big
+  @0x0020   32        u8         key  big
+  @0x0040   8         u64        length  big
+
+struct kept_row size=33
+  @0x0000   32        u8         root  big
+  @0x0020   1         u8         estate  max=1
+
+struct message size=2..134
   @0x0000   1         u8         cmd  must_eq=22
   @0x0001   1         op         op
-  @0x0002   0..91     variant    body
+  @0x0002   0..132    variant    body
   body switch: op
   body case 128: packs nothing
   body case 129: pack_row pack_row
+  body case 130: items pack_ask
+  body case 131: item_row item_row
+  body case 132: keep keep_ask
+  body case 133: kept kept_row
+  body case 134: forget pack_ask
   body case default: error
 
 struct nothing size=0
+
+struct pack_ask size=32
+  @0x0000   32        u8         root  big
 
 struct pack_row size=43..91
   @0x0000   32        u8         root  big

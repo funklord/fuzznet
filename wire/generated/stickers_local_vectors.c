@@ -178,12 +178,137 @@ static void test_message_pack_host(void **state)
 	situ_check_bytes(buf, vector_message_pack_host, sizeof(buf));
 }
 
+/* message / items */
+static const uint8_t vector_message_items[34u] = {
+	0x16, 0x82, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB,
+};
+
+static void test_message_items(void **state)
+{
+	uint8_t     buf[34u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_items, sizeof(buf));
+	situ_msg_init(&msg, buf, 34u);
+	situ_check_eq(fzn_stickers_local_message_view(&msg, 0, 34u, &view), SITU_OK);
+	situ_check_eq(fzn_stickers_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_stickers_local_message_cmd_set(view, fzn_stickers_local_message_cmd_get(view));
+	fzn_stickers_local_message_op_set(&msg, view, fzn_stickers_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_items, sizeof(buf));
+}
+
+/* message / item_row */
+static const uint8_t vector_message_item_row[44u] = {
+	0x16, 0x83, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x01, 0x00, 0x02, 0x00, 0x10, 0x00, 0x08, 0x00, 0x08, 0x00, 0x70, 0x00, 0x30, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x80, 0x00, 0x80, 0x06, 0x77, 0x61, 0x76, 0x69, 0x6E, 0x67,
+};
+
+static void test_message_item_row(void **state)
+{
+	uint8_t     buf[44u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_item_row, sizeof(buf));
+	situ_msg_init(&msg, buf, 44u);
+	situ_check_eq(fzn_stickers_local_message_view(&msg, 0, 44u, &view), SITU_OK);
+	situ_check_eq(fzn_stickers_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_stickers_local_message_cmd_set(view, fzn_stickers_local_message_cmd_get(view));
+	fzn_stickers_local_message_op_set(&msg, view, fzn_stickers_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_item_row, sizeof(buf));
+}
+
+/* message / keep */
+static const uint8_t vector_message_keep[74u] = {
+	0x16, 0x84, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0xCD, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00,
+};
+
+static void test_message_keep(void **state)
+{
+	uint8_t     buf[74u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_keep, sizeof(buf));
+	situ_msg_init(&msg, buf, 74u);
+	situ_check_eq(fzn_stickers_local_message_view(&msg, 0, 74u, &view), SITU_OK);
+	situ_check_eq(fzn_stickers_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_stickers_local_message_cmd_set(view, fzn_stickers_local_message_cmd_get(view));
+	fzn_stickers_local_message_op_set(&msg, view, fzn_stickers_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_keep, sizeof(buf));
+}
+
+/* message / kept */
+static const uint8_t vector_message_kept[35u] = {
+	0x16, 0x85, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0x01,
+};
+
+static void test_message_kept(void **state)
+{
+	uint8_t     buf[35u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_kept, sizeof(buf));
+	situ_msg_init(&msg, buf, 35u);
+	situ_check_eq(fzn_stickers_local_message_view(&msg, 0, 35u, &view), SITU_OK);
+	situ_check_eq(fzn_stickers_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_stickers_local_message_cmd_set(view, fzn_stickers_local_message_cmd_get(view));
+	fzn_stickers_local_message_op_set(&msg, view, fzn_stickers_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_kept, sizeof(buf));
+}
+
+/* message / forget */
+static const uint8_t vector_message_forget[34u] = {
+	0x16, 0x86, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB,
+};
+
+static void test_message_forget(void **state)
+{
+	uint8_t     buf[34u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_forget, sizeof(buf));
+	situ_msg_init(&msg, buf, 34u);
+	situ_check_eq(fzn_stickers_local_message_view(&msg, 0, 34u, &view), SITU_OK);
+	situ_check_eq(fzn_stickers_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_stickers_local_message_cmd_set(view, fzn_stickers_local_message_cmd_get(view));
+	fzn_stickers_local_message_op_set(&msg, view, fzn_stickers_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_forget, sizeof(buf));
+}
+
 int main(void)
 {
 	const struct situ_check_case tests[] = {
 		situ_check_case(test_message_packs),
 		situ_check_case(test_message_pack_estate),
 		situ_check_case(test_message_pack_host),
+		situ_check_case(test_message_items),
+		situ_check_case(test_message_item_row),
+		situ_check_case(test_message_keep),
+		situ_check_case(test_message_kept),
+		situ_check_case(test_message_forget),
 	};
 
 	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");

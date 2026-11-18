@@ -94,4 +94,14 @@ typedef struct fzn_node_sticker_pack {
 int fzn_node_stickers_each(const fzn_node_stickers_t *st,
                            void (*each)(void *ctx, const fzn_node_sticker_pack_t *pack), void *ctx);
 
+/* ONE SAVED PACK'S STICKERS, as `list sticker PACK` lists them, sec 1248:
+ * each entry handed over with its main rendition's size, the entry good
+ * only during the call. 1 once each was, 0 for no such pack saved, -1 for
+ * one not here whole or no pack. */
+struct fzn_sticker_entry;
+int fzn_node_stickers_items(const fzn_node_stickers_t *st, const uint8_t root[FZN_BLOB_HASH_LEN],
+                            void (*each)(void *ctx, const struct fzn_sticker_entry *e, unsigned main_w,
+                                         unsigned main_h),
+                            void *ctx);
+
 #endif /* FZN_NODE_STICKERS_H */

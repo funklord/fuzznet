@@ -89,6 +89,95 @@ static inline situ_err_t fzn_stickers_local_pack_row_edit_decode(const situ_msg_
 	return SITU_OK;
 }
 
+/* `item_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint64_t id;
+	uint8_t type;
+	uint16_t flags;
+	uint16_t text_limit;
+	uint16_t text_x;
+	uint16_t text_y;
+	uint16_t text_w;
+	uint16_t text_h;
+	uint32_t text_fill;
+	uint32_t text_ink;
+	uint16_t text_turn;
+	uint16_t main_w;
+	uint16_t main_h;
+	uint8_t desc_len;
+	const uint8_t *desc;	/* into your backing */
+	uint32_t desc_len;
+} fzn_stickers_local_item_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_stickers_local_item_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_stickers_local_item_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_stickers_local_item_row_desc_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_stickers_local_item_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_stickers_local_item_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_stickers_local_item_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_stickers_local_item_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->id = fzn_stickers_local_item_row_id_get(view);
+	out->type = fzn_stickers_local_item_row_type_get(view);
+	out->flags = fzn_stickers_local_item_row_flags_get(view);
+	out->text_limit = fzn_stickers_local_item_row_text_limit_get(view);
+	out->text_x = fzn_stickers_local_item_row_text_x_get(view);
+	out->text_y = fzn_stickers_local_item_row_text_y_get(view);
+	out->text_w = fzn_stickers_local_item_row_text_w_get(view);
+	out->text_h = fzn_stickers_local_item_row_text_h_get(view);
+	out->text_fill = fzn_stickers_local_item_row_text_fill_get(view);
+	out->text_ink = fzn_stickers_local_item_row_text_ink_get(view);
+	out->text_turn = fzn_stickers_local_item_row_text_turn_get(view);
+	out->main_w = fzn_stickers_local_item_row_main_w_get(view);
+	out->main_h = fzn_stickers_local_item_row_main_h_get(view);
+	out->desc_len = fzn_stickers_local_item_row_desc_len_get(view);
+	out->desc_len = fzn_stickers_local_item_row_desc_len(view);
+	out->desc     = backing + at;
+	for (uint32_t i = 0u; i < out->desc_len; i++) {
+		backing[at + i] = fzn_stickers_local_item_row_desc_ptr(view)[i];
+	}
+	at += out->desc_len;
+	(void)at;
+	return SITU_OK;
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -26,6 +26,11 @@ extern "C" {
 typedef enum fzn_stickers_local_op {
 	FZN_STICKERS_LOCAL_OP_PACKS = 128,
 	FZN_STICKERS_LOCAL_OP_PACK_ROW = 129,
+	FZN_STICKERS_LOCAL_OP_ITEMS = 130,
+	FZN_STICKERS_LOCAL_OP_ITEM_ROW = 131,
+	FZN_STICKERS_LOCAL_OP_KEEP = 132,
+	FZN_STICKERS_LOCAL_OP_KEPT = 133,
+	FZN_STICKERS_LOCAL_OP_FORGET = 134,
 } fzn_stickers_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -35,6 +40,11 @@ static inline int fzn_stickers_local_op_is_known(fzn_stickers_local_op_t value)
 	switch (value) {
 	case FZN_STICKERS_LOCAL_OP_PACKS:
 	case FZN_STICKERS_LOCAL_OP_PACK_ROW:
+	case FZN_STICKERS_LOCAL_OP_ITEMS:
+	case FZN_STICKERS_LOCAL_OP_ITEM_ROW:
+	case FZN_STICKERS_LOCAL_OP_KEEP:
+	case FZN_STICKERS_LOCAL_OP_KEPT:
+	case FZN_STICKERS_LOCAL_OP_FORGET:
 		return 1;
 	default:
 		return 0;
@@ -286,10 +296,508 @@ situ_err_t fzn_stickers_local_pack_row_check(situ_view_t view, uint32_t *which);
 #define FZN_STICKERS_LOCAL_PACK_ROW_NAME_LEN_CHECK 2u
 #define FZN_STICKERS_LOCAL_PACK_ROW_NAME_CHECK 3u
 
+/* ---- struct pack_ask ---- */
+
+#define FZN_STICKERS_LOCAL_PACK_ASK_SIZE_FIXED 32u
+#define FZN_STICKERS_LOCAL_PACK_ASK_SIZE_MIN   32u
+#define FZN_STICKERS_LOCAL_PACK_ASK_SIZE_MAX   32u
+
+/* INVALIDATION: nothing invalidates a pack_ask view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_stickers_local_pack_ask_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_STICKERS_LOCAL_PACK_ASK_SIZE_FIXED, out);
+}
+
+/** pack_ask.root : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_STICKERS_LOCAL_PACK_ASK_ROOT_COUNT 32u
+static inline uint8_t *fzn_stickers_local_pack_ask_root_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** How many bytes a whole `pack_ask` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_stickers_local_pack_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_STICKERS_LOCAL_PACK_ASK_SIZE_FIXED;
+	return have >= FZN_STICKERS_LOCAL_PACK_ASK_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_stickers_local_pack_ask_validate(situ_view_t view);
+
+/* ---- struct item_row ---- */
+
+#define FZN_STICKERS_LOCAL_ITEM_ROW_SIZE_MIN   36u
+#define FZN_STICKERS_LOCAL_ITEM_ROW_SIZE_MAX   132u
+
+/* INVALIDATION: a item_row view, and every view derived from
+ * it, is invalidated by writing `desc_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_stickers_local_item_row_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_STICKERS_LOCAL_ITEM_ROW_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+/** item_row.id : u64  at AbsoluteStatic(0x00)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_stickers_local_item_row_id_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 0u));
+}
+static inline void fzn_stickers_local_item_row_id_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 0u, (uint64_t)value);
+}
+
+/** item_row.type : u8  at AbsoluteStatic(0x08)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_stickers_local_item_row_type_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[8u]);
+}
+static inline uint8_t *fzn_stickers_local_item_row_type_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 8u);
+}
+static inline void fzn_stickers_local_item_row_type_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[8u] = (uint8_t)value;
+}
+
+/** item_row.flags : u16  at AbsoluteStatic(0x09)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_item_row_flags_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 9u));
+}
+static inline void fzn_stickers_local_item_row_flags_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 9u, (uint16_t)value);
+}
+
+/** item_row.text_limit : u16  at AbsoluteStatic(0x0B)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_item_row_text_limit_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 11u));
+}
+static inline void fzn_stickers_local_item_row_text_limit_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 11u, (uint16_t)value);
+}
+
+/** item_row.text_x : u16  at AbsoluteStatic(0x0D)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_item_row_text_x_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 13u));
+}
+static inline void fzn_stickers_local_item_row_text_x_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 13u, (uint16_t)value);
+}
+
+/** item_row.text_y : u16  at AbsoluteStatic(0x0F)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_item_row_text_y_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 15u));
+}
+static inline void fzn_stickers_local_item_row_text_y_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 15u, (uint16_t)value);
+}
+
+/** item_row.text_w : u16  at AbsoluteStatic(0x11)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_item_row_text_w_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 17u));
+}
+static inline void fzn_stickers_local_item_row_text_w_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 17u, (uint16_t)value);
+}
+
+/** item_row.text_h : u16  at AbsoluteStatic(0x13)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_item_row_text_h_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 19u));
+}
+static inline void fzn_stickers_local_item_row_text_h_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 19u, (uint16_t)value);
+}
+
+/** item_row.text_fill : u32  at AbsoluteStatic(0x15)
+ * size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_stickers_local_item_row_text_fill_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 21u));
+}
+static inline void fzn_stickers_local_item_row_text_fill_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 21u, (uint32_t)value);
+}
+
+/** item_row.text_ink : u32  at AbsoluteStatic(0x19)
+ * size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_stickers_local_item_row_text_ink_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 25u));
+}
+static inline void fzn_stickers_local_item_row_text_ink_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 25u, (uint32_t)value);
+}
+
+#define FZN_STICKERS_LOCAL_ITEM_ROW_TEXT_TURN_VALUE_MAX 359u
+
+/** item_row.text_turn : u16  at AbsoluteStatic(0x1D)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_item_row_text_turn_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 29u));
+}
+static inline void fzn_stickers_local_item_row_text_turn_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 29u, (uint16_t)value);
+}
+
+/** item_row.main_w : u16  at AbsoluteStatic(0x1F)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_item_row_main_w_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 31u));
+}
+static inline void fzn_stickers_local_item_row_main_w_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 31u, (uint16_t)value);
+}
+
+/** item_row.main_h : u16  at AbsoluteStatic(0x21)
+ * size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_item_row_main_h_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 33u));
+}
+static inline void fzn_stickers_local_item_row_main_h_set(situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 33u, (uint16_t)value);
+}
+
+#define FZN_STICKERS_LOCAL_ITEM_ROW_DESC_LEN_VALUE_MAX 96u
+
+/** item_row.desc_len : u8  at AbsoluteStatic(0x23)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_stickers_local_item_row_desc_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[35u]);
+}
+static inline uint8_t *fzn_stickers_local_item_row_desc_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 35u);
+}
+/* No plain setter: `desc_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_stickers_local_item_row_desc_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** item_row.desc : u8  at AbsoluteStatic(0x24)
+ * size=Bounded(0, 96) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_stickers_local_item_row_desc_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[35u])),
+		situ_remaining_u32(view.limit, 36u));
+}
+static inline uint8_t *fzn_stickers_local_item_row_desc_ptr(situ_view_t view)
+{
+	return situ_base(view) + 36u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `item_row` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_stickers_local_item_row_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 36u)) {
+		return 36u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 36u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[35u])));
+	return extent;
+}
+
+/** How many bytes a whole `item_row` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_stickers_local_item_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 36u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* item_row.desc: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 36u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[35u]));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_stickers_local_item_row_desc_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[35u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_stickers_local_item_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_stickers_local_item_row_check(situ_view_t view, uint32_t *which);
+#define FZN_STICKERS_LOCAL_ITEM_ROW_TEXT_TURN_CHECK 0u
+#define FZN_STICKERS_LOCAL_ITEM_ROW_DESC_LEN_CHECK 1u
+#define FZN_STICKERS_LOCAL_ITEM_ROW_DESC_CHECK 2u
+
+/* ---- struct keep_ask ---- */
+
+#define FZN_STICKERS_LOCAL_KEEP_ASK_SIZE_FIXED 72u
+#define FZN_STICKERS_LOCAL_KEEP_ASK_SIZE_MIN   72u
+#define FZN_STICKERS_LOCAL_KEEP_ASK_SIZE_MAX   72u
+
+/* INVALIDATION: nothing invalidates a keep_ask view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_stickers_local_keep_ask_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_STICKERS_LOCAL_KEEP_ASK_SIZE_FIXED, out);
+}
+
+/** keep_ask.root : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_STICKERS_LOCAL_KEEP_ASK_ROOT_COUNT 32u
+static inline uint8_t *fzn_stickers_local_keep_ask_root_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** keep_ask.key : u8  at AbsoluteStatic(0x20)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_STICKERS_LOCAL_KEEP_ASK_KEY_COUNT 32u
+static inline uint8_t *fzn_stickers_local_keep_ask_key_ptr(situ_view_t view)
+{
+	return situ_base(view) + 32u;
+}
+
+/** keep_ask.length : u64  at AbsoluteStatic(0x40)
+ * size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint64_t fzn_stickers_local_keep_ask_length_get(situ_view_t view)
+{
+	return (uint64_t)(situ_get_be64(situ_base(view) + 64u));
+}
+static inline void fzn_stickers_local_keep_ask_length_set(situ_view_t view, uint64_t value)
+{
+	situ_put_be64(situ_base(view) + 64u, (uint64_t)value);
+}
+
+/** How many bytes a whole `keep_ask` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_stickers_local_keep_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_STICKERS_LOCAL_KEEP_ASK_SIZE_FIXED;
+	return have >= FZN_STICKERS_LOCAL_KEEP_ASK_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_stickers_local_keep_ask_validate(situ_view_t view);
+
+/* ---- struct kept_row ---- */
+
+#define FZN_STICKERS_LOCAL_KEPT_ROW_SIZE_FIXED 33u
+#define FZN_STICKERS_LOCAL_KEPT_ROW_SIZE_MIN   33u
+#define FZN_STICKERS_LOCAL_KEPT_ROW_SIZE_MAX   33u
+
+/* INVALIDATION: nothing invalidates a kept_row view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_stickers_local_kept_row_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_STICKERS_LOCAL_KEPT_ROW_SIZE_FIXED, out);
+}
+
+/** kept_row.root : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_STICKERS_LOCAL_KEPT_ROW_ROOT_COUNT 32u
+static inline uint8_t *fzn_stickers_local_kept_row_root_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+#define FZN_STICKERS_LOCAL_KEPT_ROW_ESTATE_VALUE_MAX 1u
+
+/** kept_row.estate : u8  at AbsoluteStatic(0x20)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_stickers_local_kept_row_estate_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[32u]);
+}
+static inline uint8_t *fzn_stickers_local_kept_row_estate_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 32u);
+}
+static inline void fzn_stickers_local_kept_row_estate_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[32u] = (uint8_t)value;
+}
+
+/** How many bytes a whole `kept_row` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_stickers_local_kept_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_STICKERS_LOCAL_KEPT_ROW_SIZE_FIXED;
+	return have >= FZN_STICKERS_LOCAL_KEPT_ROW_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_stickers_local_kept_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_stickers_local_kept_row_check(situ_view_t view, uint32_t *which);
+#define FZN_STICKERS_LOCAL_KEPT_ROW_ESTATE_CHECK 0u
+
 /* ---- struct message ---- */
 
 #define FZN_STICKERS_LOCAL_MESSAGE_SIZE_MIN   2u
-#define FZN_STICKERS_LOCAL_MESSAGE_SIZE_MAX   93u
+#define FZN_STICKERS_LOCAL_MESSAGE_SIZE_MAX   134u
 
 /* INVALIDATION: a message view, and every view derived from
  * it, is invalidated by writing `op` -- those decide where the
@@ -347,9 +855,9 @@ static inline fzn_stickers_local_op_t fzn_stickers_local_message_op_get(situ_vie
  * which takes the message and bumps its generation. */
 
 /* message.body : variant  at AbsoluteStatic(0x02)
- * size=Bounded(0, 91) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ * size=Bounded(0, 132) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `packs`, `pack_row` is
+/** `body` is a variant: exactly one of `packs`, `pack_row`, `items`, `item_row`, `keep`, `kept`, `forget` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -407,6 +915,104 @@ static inline situ_err_t fzn_stickers_local_message_body_pack_row_view(situ_view
 
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_PACK_ROW_NAME_LEN_VALUE_MAX 48u
 
+/** message.body.items, present when the discriminant selects `op.items`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_stickers_local_message_body_items_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_stickers_local_message_op_get(view) != 130u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_STICKERS_LOCAL_PACK_ASK_SIZE_FIXED, out);
+}
+
+/* message.body.item_row, present when the discriminant selects `op.item_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `item_row` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_stickers_local_message_body_item_row_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_stickers_local_item_row_extent(whole);
+}
+static inline situ_err_t fzn_stickers_local_message_body_item_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_stickers_local_message_op_get(view) != 131u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_stickers_local_item_row_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_ITEM_ROW_TEXT_TURN_VALUE_MAX 359u
+
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_ITEM_ROW_DESC_LEN_VALUE_MAX 96u
+
+/** message.body.keep, present when the discriminant selects `op.keep`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_stickers_local_message_body_keep_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_stickers_local_message_op_get(view) != 132u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_STICKERS_LOCAL_KEEP_ASK_SIZE_FIXED, out);
+}
+
+/** message.body.kept, present when the discriminant selects `op.kept`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_stickers_local_message_body_kept_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_stickers_local_message_op_get(view) != 133u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_STICKERS_LOCAL_KEPT_ROW_SIZE_FIXED, out);
+}
+
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_KEPT_ESTATE_VALUE_MAX 1u
+
+/** message.body.forget, present when the discriminant selects `op.forget`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_stickers_local_message_body_forget_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_stickers_local_message_op_get(view) != 134u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_STICKERS_LOCAL_PACK_ASK_SIZE_FIXED, out);
+}
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -462,6 +1068,41 @@ static inline situ_err_t fzn_stickers_local_message_required(const uint8_t *data
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_stickers_local_message_op_get(view) : 0u) == 130u) {
+			e = fzn_stickers_local_pack_ask_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_stickers_local_message_op_get(view) : 0u) == 131u) {
+			e = fzn_stickers_local_item_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_stickers_local_message_op_get(view) : 0u) == 132u) {
+			e = fzn_stickers_local_keep_ask_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_stickers_local_message_op_get(view) : 0u) == 133u) {
+			e = fzn_stickers_local_kept_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_stickers_local_message_op_get(view) : 0u) == 134u) {
+			e = fzn_stickers_local_pack_ask_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -501,6 +1142,11 @@ situ_err_t fzn_stickers_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_CHECK 2u
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_PACKS_CHECK 3u
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_PACK_ROW_CHECK 4u
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_ITEMS_CHECK 5u
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_ITEM_ROW_CHECK 6u
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_KEEP_CHECK 7u
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_KEPT_CHECK 8u
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_FORGET_CHECK 9u
 
 #ifdef __cplusplus
 }

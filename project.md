@@ -91707,3 +91707,39 @@ tall and the host told once, not again at the next refresh; answered, a
 bar again with Answer as it was, the host told ringing stopped. Two
 sabotages, each caught (`call-bar-never-a-screen`,
 `call-bar-ringing-told-always`). `make qtty` passes.
+
+## 1248. A pack's stickers, a pack kept and let go, in binary, 2026-11-18
+
+Sec 1217's next subject, the sticker calls. The pack list was binary
+since sec 1172; the rest spoke text. Moved here, the three a client
+makes most: FZN_CMD_STICKERS gains `items` (130), a pack's stickers by
+its root, answered by an `item_row` (131) each -- every field of `list
+sticker PACK`'s row, the box the sender's words go in included -- then a
+STATUS; `keep` (132), a pack by its whole reference, answered by `kept`
+(133), its root and whether for the estate or this host alone; and
+`forget` (134), a pack by its root.
+
+- **Items from the store**, through `fzn_node_stickers_items`, the same
+  pack reading `list sticker PACK` does; **keep and forget through the
+  verbs' own handler**, as `add sticker REF` and `remove sticker ROOT`, so
+  every check is theirs, and a refusal is said in their words -- never
+  malformed, which a client takes for a node reading no binary (sec 1218).
+- **Each tells the subscribers `sticker`**, as the verbs do (sec 1221's
+  table).
+- **The client asks in binary first**, `fzn_rpc_sticker_items` by a
+  root or whole reference's first 64 hex, `_keep` and `_forget`, the verb
+  behind each.
+
+Left in text for now: `put sticker SPEC` and the reads that write a file
+here (`get sticker ... inline PATH`), both taking a path on this host,
+and a sticker's reference words.
+
+**Tests:** five vectors; rpc_test -- a row's every field read as sent,
+asked by its root; kept answered with its root for this host alone; let
+go by its root; a refusal in the node's words. `live_pairing` phase hb,
+over the socket at B after phase h kept A's pack: its stickers listed,
+"a cat waving", then ok; let go, and B lists none; kept again by its
+whole reference, answered with its root; a pack nobody keeps refused as
+an error. Three sabotages, each caught (`stickers-client-turn-dropped`,
+`stickers-client-kept-for-whom`, `stickers-node-refusal-malformed`, the
+last by hb alone); sec 1172's `stickers-binary-any-op` repointed.

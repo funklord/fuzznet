@@ -115,6 +115,7 @@
 #include "../wire/generated/contacts_local_build.h"
 #include "../wire/generated/notes_local.h"
 #include "../wire/generated/groups_local.h"
+#include "../wire/generated/stickers_local.h"
 #include "../wire/generated/messages_local.h"
 #include "decisions.h"
 #include "responsible.h"
@@ -18887,6 +18888,8 @@ static const char *binary_write_subject(const uint8_t *msg, size_t len)
 		return msg[1] == FZN_MESSAGES_LOCAL_OP_SEND || msg[1] == FZN_MESSAGES_LOCAL_OP_READ ? "message" : NULL;
 	case FZN_CMD_OBJECTS:
 		return fzn_node_objects_binary_changes(msg, len) ? "object" : NULL;
+	case FZN_CMD_STICKERS:
+		return msg[1] == FZN_STICKERS_LOCAL_OP_KEEP || msg[1] == FZN_STICKERS_LOCAL_OP_FORGET ? "sticker" : NULL;
 	case FZN_CMD_GROUPS:
 		/* AS ITS VERB'S SUBJECT: `group`, `member` or `admin` (sec 1222). */
 		if (msg[1] != FZN_GROUPS_LOCAL_OP_CHANGE || len < 3u)

@@ -12,6 +12,11 @@ endian big;
 enum op : u8 {
 	packs    = 128, // every pack saved, as `list sticker` lists them
 	pack_row = 129, // an answer: one pack
+	items    = 130, // one pack's stickers, as `list sticker PACK` lists them (sec 1248)
+	item_row = 131, // an answer: one sticker
+	keep     = 132, // a pack kept by its reference, as `add sticker REF` keeps it
+	kept     = 133, // an answer: the pack kept, by its root
+	forget   = 134, // a pack let go by its root, as `remove sticker ROOT`
 	default  = error,
 }
 
@@ -30,6 +35,48 @@ struct pack_row {
 	u8   name[name_len];
 }
 
+// A PACK BY ITS ROOT, for its stickers or to let it go.
+struct pack_ask {
+	u8   root[32];
+}
+
+// ONE STICKER, as `list sticker PACK`'s row says it: its id, type and
+// flags; the box the sender's words go in -- its limit in characters, 0
+// for none, its place and size in the main rendition's pixels, its fill
+// and ink as 0xRRGGBBAA, 0 the client's choice, its turn 0 to 359 -- and
+// the main rendition's size the box is measured against; its description.
+struct item_row {
+	u64  id;
+	u8   type;
+	u16  flags;
+	u16  text_limit;
+	u16  text_x;
+	u16  text_y;
+	u16  text_w;
+	u16  text_h;
+	u32  text_fill;
+	u32  text_ink;
+	u16  text_turn [max = 359];
+	u16  main_w;
+	u16  main_h;
+	u8   desc_len [max = 96];
+	u8   desc[desc_len];
+}
+
+// A PACK'S WHOLE REFERENCE, as a line carries it: root, key and length.
+struct keep_ask {
+	u8   root[32];
+	u8   key[32];
+	u64  length;
+}
+
+// THE PACK KEPT, by its root; ESTATE 1 when kept for the estate, 0 for
+// this host alone (`ok ROOT host`).
+struct kept_row {
+	u8   root[32];
+	u8   estate [max = 1];
+}
+
 struct message {
 	u8   cmd [must_eq = 22];
 	op   op;
@@ -37,6 +84,11 @@ struct message {
 	variant body switch (op) {
 		case op.packs:    nothing  packs;
 		case op.pack_row: pack_row pack_row;
+		case op.items:    pack_ask items;
+		case op.item_row: item_row item_row;
+		case op.keep:     keep_ask keep;
+		case op.kept:     kept_row kept;
+		case op.forget:   pack_ask forget;
 		default: error;
 	}
 }

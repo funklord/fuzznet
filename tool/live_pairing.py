@@ -32,6 +32,8 @@ A asks, B is asked, C asks and is turned away.
        granted it to B as the line went out, and B comes to list its
        stickers (sec 682); fetched is not saved, until B keeps it with `add
        sticker REF` (sec 683)
+    hb the same in binary (sec 1248): the pack's stickers listed, let go,
+       kept again by its reference, an unknown root refused in words
     h2 A puts a file and sends it to B as an attachment (`add message bob
        out ID attach ROOT NAME`), the line's text fuzznet's reference; B
        holds nothing until it asks, then fetches by the whole reference
@@ -522,6 +524,28 @@ def main(argv):
 				raise failed("h: B's collection is %r after keeping the pack" % listed)
 			print("livecheck: h: a line carrying a sticker made B fetch A's pack, granted as "
 			      "it went out, and draw it; fetched was not saved until B kept it")
+
+			# hb: THE SAME IN BINARY, sec 1248: the pack's stickers a row each,
+			# then ok; let go and kept again by its whole reference, kept
+			# answered with its root; a root nobody keeps refused in words.
+			root = bytes.fromhex(fields[1])
+			got = binary(socks["b"], bytes([0x16, 0x82]) + root)
+			if len(got) != 2 or got[0][:2] != bytes([0x16, 0x83]) or int.from_bytes(got[0][2:10], "big") != 1 \
+			   or got[0][38:38 + got[0][37]] != b"a cat waving" or got[1][:2] != bytes([0x13, 0]):
+				raise failed("hb: the pack's stickers in binary answered %r" % got)
+			got = binary(socks["b"], bytes([0x16, 0x86]) + root)
+			if got != [bytes([0x13, 0, 0])] or ask(socks["b"], "list sticker") != "ok 0 0":
+				raise failed("hb: letting the pack go in binary answered %r, and B lists %r"
+				             % (got, ask(socks["b"], "list sticker")))
+			got = binary(socks["b"], bytes([0x16, 0x84]) + bytes.fromhex(whole))
+			if len(got) != 2 or got[0][:2] != bytes([0x16, 0x85]) or got[0][2:34] != root \
+			   or got[1][:2] != bytes([0x13, 0]) or not ask(socks["b"], "list sticker").startswith("ok 1 0 "):
+				raise failed("hb: keeping the pack in binary answered %r" % got)
+			got = binary(socks["b"], bytes([0x16, 0x86]) + bytes(32))
+			if len(got) != 1 or got[0][:2] != bytes([0x13, 3]):
+				raise failed("hb: letting go a pack nobody keeps answered %r" % got)
+			print("livecheck: hb: in binary, the pack's stickers listed, let go, kept again by "
+			      "its reference, and a pack nobody keeps refused in words")
 
 			# h2: a file sent as an attachment, sec 794. Its reference is
 			# fuzznet's, written from the file A holds; B is not made to fetch

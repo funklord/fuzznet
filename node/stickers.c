@@ -951,3 +951,27 @@ size_t fzn_node_stickers_local(void *ctx, fzn_origin_t origin, const fzn_request
 		return REPLY("error no such pack\n");
 	return get_sticker(st, &ref, &at, &left, reply, cap);
 }
+
+int fzn_node_stickers_items(const fzn_node_stickers_t *st, const uint8_t root[FZN_BLOB_HASH_LEN],
+                            void (*each)(void *ctx, const struct fzn_sticker_entry *e, unsigned main_w,
+                                         unsigned main_h),
+                            void *ctx)
+{
+	fzn_node_file_ref_t ref;
+	fzn_sticker_manifest_t m;
+	const uint8_t *data;
+	size_t data_len, i;
+	uint8_t *bytes;
+
+	if (!st || !root || !each || !st->files || !st->settings || !fzn_node_stickers_saved(st, root, &ref))
+		return 0;
+	if (!(bytes = pack_of(st, &ref, &m, &data, &data_len)))
+		return -1;
+	for (i = 0; i < m.count; i++) {
+		const fzn_sticker_rendition_t *mr = fzn_sticker_pick(&m.entries[i], FZN_STICKER_MAIN);
+
+		each(ctx, &m.entries[i], mr ? (unsigned)mr->width : 0u, mr ? (unsigned)mr->height : 0u);
+	}
+	pack_done(&m, bytes);
+	return 1;
+}
