@@ -293,12 +293,20 @@ def main(argv):
 			# dr: READ MARKS IN A GROUP, sec 1273: B reads A's line with marks off
 			# and A is told nothing; on, B's mark goes among the group's lines
 			# and A's line lists `read`; B's conversation shows no mark.
-			def a_state(line_id):
+			# BY ITS TEXT, or by the id A lists it under: A's own group lines are
+			# listed under the id the members file them by (sec 1285), not the
+			# id A wrote.
+			def a_state(text):
 				for item in ask(socks["a"], "list message @family").split()[4:]:
 					f = item.split(",")
-					if len(f) > 4 and f[2] == line_id:
+					if len(f) > 4 and (item.endswith("," + text) or f[2] == text):
 						return f[4]
 				return None
+			def a_id(text):
+				for item in ask(socks["a"], "list message @family").split()[4:]:
+					if item.endswith("," + text):
+						return item.split(",")[2]
+				raise failed("A holds no line %r" % text)
 			def b_id(text):
 				for item in ask(socks["b"], "list message @" + names["b"]).split()[4:]:
 					if item.endswith("," + text):
@@ -308,7 +316,7 @@ def main(argv):
 			for rnd in range(2):
 				for who in ("b", "a"):
 					turn(who, "%s-dr%d" % (who, rnd))
-			if a_state("a1" * 16) == "read":
+			if a_state("from_a") == "read":
 				raise failed("dr: B read A's group line with read marks off, and A was told")
 			expect(socks["b"], "b", "set setting host message/read-marks on", "ok")
 			expect(socks["a"], "a", "add message @family out %s second_from_a" % ("a2" * 16), "ok")
@@ -321,11 +329,11 @@ def main(argv):
 						turn(who, "%s-dra%d" % (who, rnd))
 			expect(socks["b"], "b", "set message @%s read %s" % (names["b"], b_id("second_from_a")), "ok")
 			for rnd in range(ROUNDS + 2):
-				if a_state("a2" * 16) == "read":
+				if a_state("second_from_a") == "read":
 					break
 				for who in ("b", "a"):
 					turn(who, "%s-drb%d" % (who, rnd))
-			if a_state("a2" * 16) != "read":
+			if a_state("second_from_a") != "read":
 				raise failed("dr: B's read mark never made A's line read: A lists %r"
 				             % ask(socks["a"], "list message @family")[:400])
 			if "fzn:read" in ask(socks["b"], "list message @" + names["b"]) + ask(socks["a"], "list message @family"):
@@ -353,9 +361,13 @@ def main(argv):
 					for who in ("a", "b"):
 						turn(who, "%s-dua%d" % (who, rnd))
 			filed = b_id("oops_from_a")
-			expect(socks["a"], "a", "remove message @family " + "a3" * 16, "ok")
-			if a_state("a3" * 16) != "unsent":
-				raise failed("du: A's group line taken back lists as %r at A" % a_state("a3" * 16))
+			shared = a_id("oops_from_a")
+			if shared != filed or shared == "a3" * 16:
+				raise failed("du: A lists its line as %s and B files it as %s, where one id was wanted"
+				             % (shared, filed))
+			expect(socks["a"], "a", "remove message @family " + shared, "ok")
+			if a_state(shared) != "unsent":
+				raise failed("du: A's group line taken back lists as %r at A" % a_state(shared))
 			for rnd in range(ROUNDS + 2):
 				if b_state(filed) == "unsent":
 					break

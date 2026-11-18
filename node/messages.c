@@ -2093,6 +2093,46 @@ int fzn_node_messages_unread_each(fzn_node_messages_t *nm,
 	return 1;
 }
 
+/* A GROUP LINE'S SHARED ID, sec 1285: every other member files this user's
+ * line under the hash of the host that wrote it and its id
+ * (`fzn_group_lines_filed_id`), so the listing gives this user's own lines
+ * that id too, and a reply, a reaction or an unsend names one id every
+ * member holds. A line that came in is filed under it already; one to one,
+ * the id is the line's own. */
+static const uint8_t *shared_id(const fzn_node_messages_t *nm, const fzn_message_t *p, int group,
+                                uint8_t out[FZN_MESSAGE_ID_LEN])
+{
+	if (group && p->direction == FZN_MESSAGE_OUT && fzn_group_lines_filed_id(nm->m.hash, p->device, p->id, out))
+		return out;
+	return p->id;
+}
+
+/* THIS USER'S OWN LINE IN `group` BY ITS SHARED ID, sec 1285: 1 with its own
+ * id, walked from the newest -- a line taken back is under an hour old. */
+static int own_by_shared(fzn_node_messages_t *nm, const uint8_t group[FZN_PUBKEY_LEN],
+                         const uint8_t shared[FZN_MESSAGE_ID_LEN], uint8_t own[FZN_MESSAGE_ID_LEN])
+{
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	uint8_t h[FZN_MESSAGE_ID_LEN];
+	size_t from = 0, got = 0, i;
+	int more = 1;
+
+	while (more && from < FZN_MESSAGES_WALK_MAX) {
+		if (fzn_messages_page(&nm->m, group, from, page, FZN_MESSAGES_PAGE_MAX, &got, &more) != FZN_MESSAGES_OK)
+			return 0;
+		for (i = 0; i < got; i++)
+			if (page[i].direction == FZN_MESSAGE_OUT && fzn_group_lines_filed_id(nm->m.hash, page[i].device, page[i].id, h)
+			    && memcmp(h, shared, FZN_MESSAGE_ID_LEN) == 0) {
+				memcpy(own, page[i].id, FZN_MESSAGE_ID_LEN);
+				return 1;
+			}
+		if (!got)
+			break;
+		from += got;
+	}
+	return 0;
+}
+
 int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, size_t from, size_t max,
                                  void (*each)(void *ctx, const fzn_node_line_t *line), void *ctx)
 {
@@ -2116,6 +2156,7 @@ int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, si
 			return 0;
 		for (i = 0; i < got; i++) {
 			const fzn_message_t *p = &page[i];
+			uint8_t shared[FZN_MESSAGE_ID_LEN];
 			fzn_node_line_t l;
 
 			memset(&l, 0, sizeof(l));
@@ -2127,6 +2168,7 @@ int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, si
 			} else if (fzn_node_group_name(nm->m.store, p->contact, group, &group_len)
 			           == FZN_CONTACT_OK) {
 				l.group = 1;
+				l.id = shared_id(nm, p, 1, shared);
 				memcpy(name, group, group_len);
 				l.name_len = group_len;
 			}
@@ -2269,6 +2311,8 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 		char head[2u * FZN_PUBKEY_LEN + 3u * FZN_CONTACT_NAME_MAX + 2u * FZN_MESSAGE_ID_LEN + 96u];
 		char group[FZN_CONTACT_NAME_MAX + 1u];
 		size_t h = 0, wrote = 0, group_len = 0;
+		uint8_t shared[FZN_MESSAGE_ID_LEN];
+		int is_group = 0;
 		fzn_contact_t c;
 
 		hex_of(p->contact, FZN_PUBKEY_LEN, head);
@@ -2285,6 +2329,7 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 			const fzn_group_lines_t lines = { nm->m.store, nm->m.hash };
 			uint8_t sender[FZN_PUBKEY_LEN];
 
+			is_group = 1;
 			head[h++] = '@';
 			memcpy(head + h, group, group_len);
 			h += group_len;
@@ -2304,7 +2349,7 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 			head[h++] = '-';
 		}
 		head[h++] = ',';
-		hex_of(p->id, FZN_MESSAGE_ID_LEN, head + h);
+		hex_of(shared_id(nm, p, is_group, shared), FZN_MESSAGE_ID_LEN, head + h);
 		h += 2u * FZN_MESSAGE_ID_LEN;
 		k = snprintf(head + h, sizeof(head) - h, ",%s,%s,%llu,%llu,%d,",
 		             p->direction == FZN_MESSAGE_OUT ? "out" : "in",
@@ -2359,7 +2404,10 @@ static size_t take_back(fzn_node_messages_t *nm, const uint8_t *at, size_t left,
 		return who_refused(reply, cap, USAGE);
 	if (!nm->unsends || !nm->unsends(nm->unsends_ctx))
 		return say(reply, cap, FZN_REPLY_DENIED, "unsend is off here (message/unsend)");
-	if (!fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_OUT, id, &stime))
+	/* A GROUP'S LINE BY ITS SHARED ID, as listed, or by its own (sec 1285). */
+	if (!fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_OUT, id, &stime)
+	    && !(own_by_shared(nm, contact, id, id)
+	         && fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_OUT, id, &stime)))
 		return say(reply, cap, FZN_REPLY_ERROR, "no line of this user's has that id");
 	if (fzn_messages_state(&nm->m, contact, FZN_MESSAGE_OUT, id) == FZN_MESSAGE_UNSENT)
 		return say(reply, cap, FZN_REPLY_OK, NULL);

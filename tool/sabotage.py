@@ -17636,6 +17636,20 @@ SABOTAGES = [
 		"a line taken back shown as an empty line; conversation_view_test -- sec 1284",
 	),
 	(
+		"group-own-line-own-id",
+		"node/messages.c",
+		"\tif (group && p->direction == FZN_MESSAGE_OUT && fzn_group_lines_filed_id(nm->m.hash, p->device, p->id, out))\n",
+		"\tif (0 && group && p->direction == FZN_MESSAGE_OUT && fzn_group_lines_filed_id(nm->m.hash, p->device, p->id, out))\n",
+		"this user's group line listed under an id the other members do not hold; node messages_test -- sec 1285",
+	),
+	(
+		"group-shared-id-not-mapped",
+		"node/messages.c",
+		"\t    && !(own_by_shared(nm, contact, id, id)\n",
+		"\t    && !(0\n",
+		"a group line not taken back by the id it is listed under; node messages_test -- sec 1285",
+	),
+	(
 		"pack-old-opens",
 		"sticker/pack.c",
 		"\tif (v != FZN_STICKER_VERSION)\n\t\treturn 0;\n\t/* THE PACK'S OWN ID",

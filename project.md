@@ -93001,9 +93001,9 @@ and listed with it; in a group, a line is filed under its id
 another "across a group's filed ids" -- has that answer: the id the
 sender chose travels with the line and is the same on every device that
 holds it. The client sees it as an entry's `commitment`. **Wrong for a
-group, sec 1284**: there every other member files a line under the hash
-of its writing host and its id, while its author's devices keep the id
-itself, so the ids agree one to one only.
+group until sec 1285**: there every other member files a line under the
+hash of its writing host and its id, while its author's devices kept the
+id itself; sec 1285 lists the author's own lines under the members' id.
 
 **They ride the text, as a sticker and a file do** (`messages/reply.h`):
 
@@ -93135,9 +93135,9 @@ member's line is filed on every other member's node under the hash of its
 sealing host and its id, while its author's devices keep it under the id
 itself. So a reply or a reaction to one's own group line names an id the
 others do not file it by, and theirs to it one this user does not hold --
-sec 1282's "the same on every device" is true one to one only. Unsend is
-resolved by the node, which knows the host; replies and reactions are
-resolved by the client, which does not, and are next.
+sec 1282's "the same on every device" is true one to one only. **Settled
+in sec 1285**: a group's listing gives this user's own lines the id the
+members file them by.
 
 **The view**: a line taken back says "This line was taken back."; this
 user's own line under an hour old offers "Unsend" where unsend is on, in
@@ -93162,3 +93162,38 @@ line-once` survives, at HEAD before this change too** -- the everyone
 listing's `seen_before` is reached only by an entry indexed twice, which a
 crash part way through a shift leaves and no test makes, storage already
 keeping a line two devices wrote once. Recorded, not chased.
+
+## 1285. One id for a group's line on every member's listing, 2026-11-19
+
+Sec 1284's finding: a member's line is filed on every other member's node
+under `fzn_group_lines_filed_id` -- the hash of the host that wrote it and
+its id -- while its author's devices listed it under the id itself, so a
+reply, a reaction or an unsend to one's own group line named an id the
+others do not hold, and theirs to it one the author does not.
+
+**The listing gives this user's own group lines the members' id**: a
+host seals only the lines it wrote (`seal_wanted` compares the line's
+device with itself), so the id every other member files a line under is
+the hash of the line's writing device -- which the store keeps for every
+row -- and its id. `list message` and `fzn_node_messages_lines_each` (the
+binary listing) say that id for an OUT line of a group; a line that came
+in is filed under it already, and one to one nothing changes. **A verb
+given an id takes either**: `remove message @GROUP ID` finds the line by
+its own id or, failing that, walks the group's lines for the one whose
+shared id it is (`own_by_shared`). The view's replies, reactions and
+unsends name the listed id, so all three now resolve alike on every
+member's device.
+
+**For a client**: the id a group listing gives this user's own line is no
+longer the id the client wrote it under. Nothing in fuzznet's view used
+the written id afterwards; a client that does should match by the listed
+id (fuzzypickles told, inbox 20261118T2322Z). `set message @GROUP out ID
+STATE`, which no client calls for a group, still takes the written id.
+
+**Tests:** node messages_test -- a group's own line listed under its
+members' id and not its own, and taken back by that id. live_groups du --
+A's listed id for its own line is B's filed id, and the unsend by it lets
+the line go at both; dr finds A's lines by their text. Sabotages
+`group-own-line-own-id`, `group-shared-id-not-mapped`, each caught by
+hand.
+

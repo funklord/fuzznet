@@ -6,6 +6,8 @@
 #include "../messages.h"
 #include "../../messages/reply.h"
 #include "../messages_binary.h"
+#include "../group_lines.h"
+#include "../groups.h"
 #include "../../chain/sign_monocypher.h"
 #include "../../contact/contact.h"
 #include "../../session/aead_monocypher.h"
@@ -1863,6 +1865,32 @@ static void test_a_line_taken_back_across(void)
 	snprintf(line, sizeof(line), "add message %s out 84848484848484848484848484848484 fzn:unsend/83838383838383838383838383838383", to);
 	CHECK(verb(&S, FZN_ORIGIN_SAME_USER, line) && replied("malformed "),
 	      "an unsend written as a line's text was taken");
+	/* IN A GROUP, sec 1285: this user's line listed under the id the other
+	 * members file it by, the hash of its writing host and its id, and
+	 * taken back by that id. */
+	{
+		uint8_t group[FZN_PUBKEY_LEN], shared[FZN_MESSAGE_ID_LEN];
+		char shared_hex[2u * FZN_MESSAGE_ID_LEN + 1u], own_hex[2u * FZN_MESSAGE_ID_LEN + 1u];
+
+		memset(group, 0x9c, sizeof(group));
+		memset(id, 0x91, sizeof(id));
+		CHECK(fzn_node_group_rename(&S.store_ops, group, "crew", 4u) == FZN_CONTACT_OK
+		              && fzn_messages_write(&S.nm.m, group, FZN_MESSAGE_OUT, id, clock_ms, "to%20the%20crew", 15u)
+		                         == FZN_MESSAGES_OK
+		              && fzn_group_lines_filed_id(&HASH, S.pub, id, shared),
+		      "fixture: a line to a group, and the id the members file it by");
+		for (i = 0; i < FZN_MESSAGE_ID_LEN; i++) {
+			(void)snprintf(shared_hex + 2u * i, 3u, "%02x", shared[i]);
+			(void)snprintf(own_hex + 2u * i, 3u, "%02x", id[i]);
+		}
+		CHECK(verb(&S, FZN_ORIGIN_SAME_USER, "list message @crew") && strstr(reply, shared_hex)
+		              && !strstr(reply, own_hex),
+		      "this user's group line was not listed under the id the members file it by");
+		snprintf(line, sizeof(line), "remove message @crew %s", shared_hex);
+		CHECK(verb(&S, FZN_ORIGIN_SAME_USER, line) && replied("ok")
+		              && state_of_line(&S, group, 0x91, FZN_MESSAGE_OUT, &found) == FZN_MESSAGE_UNSENT,
+		      "this user's group line was not taken back by its shared id");
+	}
 }
 
 static int delivery_cut_at(long k, int absorb, int *cut)
