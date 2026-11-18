@@ -150,6 +150,10 @@ int fzn_rpc_group_water(fzn_rpc_t *c, const char *group, size_t group_len,
 typedef struct fzn_rpc_group_line {
 	fzn_rpc_inbox_entry_t line;
 	uint64_t seq;
+	/* THE MEMBERS WHO READ this user's line, where they tell of their
+	 * reading (fuzznet sec 1273); 0 over the text listing, which says only
+	 * `read`. */
+	unsigned read_by;
 } fzn_rpc_group_line_t;
 int fzn_rpc_group_lines(fzn_rpc_t *c, const char *group, size_t group_len, fzn_rpc_group_line_t *out,
                          size_t cap, size_t *count);

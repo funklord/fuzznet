@@ -81,7 +81,8 @@ static void line_one(void *ctx, const fzn_node_line_t *l)
 	                                             (uint8_t)(l->readable ? 1 : 0), l->stime_ms, l->written_ms,
 	                                             (const uint8_t *)l->name, (uint32_t)l->name_len,
 	                                             (const uint8_t *)l->sender, (uint32_t)l->sender_len,
-	                                             (const uint8_t *)l->text, (uint32_t)l->text_len, &row_len)
+	                                             (const uint8_t *)l->text, (uint32_t)l->text_len,
+	                                             (uint16_t)(l->read_by > 0xffffu ? 0xffffu : l->read_by), &row_len)
 	                   == SITU_OK
 	        && fzn_messages_local_message_build_line_row(out, sizeof(out), (uint8_t)FZN_CMD_MESSAGES, row,
 	                                                     row_len, &n)

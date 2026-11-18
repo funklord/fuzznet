@@ -1648,6 +1648,88 @@ fzn_messages_err_t fzn_messages_seen(const fzn_messages_t *m, const uint8_t cont
 	return FZN_MESSAGES_OK;
 }
 
+/* ---- a group's members' reading, sec 1273 -------------------------- */
+
+#define READER_LEN (8u + 8u)
+
+/* THE GROUP'S ROW OF READERS: each member's key's first 8 bytes and the
+ * time read up to; a later time replaces an earlier, and when the row is
+ * full the oldest time gives way. Derived from the records. */
+static int keep_member_seen(const fzn_messages_t *m, const uint8_t group[FZN_PUBKEY_LEN],
+                            const uint8_t member[FZN_PUBKEY_LEN], uint64_t stime)
+{
+	uint8_t row[FZN_PUBKEY_LEN], held[FZN_MESSAGES_READERS_MAX * READER_LEN];
+	size_t len = 0, n, i, at = SIZE_MAX, oldest = 0;
+
+	if (!index_row(m, "gseen", group, 0u, row))
+		return 0;
+	if (!m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, held, sizeof(held), &len)
+	    || len % READER_LEN)
+		len = 0;
+	n = len / READER_LEN;
+	for (i = 0; i < n; i++) {
+		if (!memcmp(held + i * READER_LEN, member, 8u))
+			at = i;
+		if (fzn_get_be64(held + i * READER_LEN + 8u) < fzn_get_be64(held + oldest * READER_LEN + 8u))
+			oldest = i;
+	}
+	if (at != SIZE_MAX) {
+		if (fzn_get_be64(held + at * READER_LEN + 8u) >= stime)
+			return 1;
+	} else if (n < FZN_MESSAGES_READERS_MAX) {
+		at = n++;
+	} else {
+		if (fzn_get_be64(held + oldest * READER_LEN + 8u) >= stime)
+			return 1;
+		at = oldest;
+	}
+	memcpy(held + at * READER_LEN, member, 8u);
+	fzn_put_be64(held + at * READER_LEN + 8u, stime);
+	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, held, n * READER_LEN);
+}
+
+size_t fzn_messages_read_by(const fzn_messages_t *m, const uint8_t group[FZN_PUBKEY_LEN], uint64_t stime)
+{
+	uint8_t row[FZN_PUBKEY_LEN], held[FZN_MESSAGES_READERS_MAX * READER_LEN];
+	size_t len = 0, i, count = 0;
+
+	if (!ready(m) || !group || !index_row(m, "gseen", group, 0u, row)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, held, sizeof(held), &len)
+	    || len % READER_LEN)
+		return 0;
+	for (i = 0; i < len / READER_LEN; i++)
+		count += fzn_get_be64(held + i * READER_LEN + 8u) >= stime;
+	return count;
+}
+
+fzn_messages_err_t fzn_messages_member_seen(const fzn_messages_t *m, const uint8_t group[FZN_PUBKEY_LEN],
+                                            const uint8_t member[FZN_PUBKEY_LEN], uint64_t stime)
+{
+	uint8_t body[FZN_MESSAGE_MEMBER_SEEN_LEN], row[FZN_PUBKEY_LEN],
+	        held[FZN_MESSAGES_READERS_MAX * READER_LEN];
+	size_t len = 0, i;
+	uint64_t before;
+
+	if (!ready(m) || !group || !member || !fzn_message_member_seen_write(member, stime, body))
+		return FZN_MESSAGES_ERR_MALFORMED;
+	/* HELD ALREADY: no record for what moves nothing. */
+	if (index_row(m, "gseen", group, 0u, row)
+	    && m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, held, sizeof(held), &len)
+	    && !(len % READER_LEN))
+		for (i = 0; i < len / READER_LEN; i++)
+			if (!memcmp(held + i * READER_LEN, member, 8u) && fzn_get_be64(held + i * READER_LEN + 8u) >= stime)
+				return FZN_MESSAGES_OK;
+	before = own_head(m);
+	if (fzn_node_journal_append_on(m->journal, m->issuer, FZN_MESSAGE_STREAM, m->sign,
+	                               FZN_MESSAGE_MEMBER_SEEN_KIND, group, body, sizeof(body), m->now(), NULL)
+	    != FZN_NODE_JOURNAL_OK)
+		return FZN_MESSAGES_ERR_JOURNAL;
+	if (!keep_member_seen(m, group, member, stime)
+	    || (took_own(m, before) && !set_cursor(m, m->issuer, own_head(m))))
+		return FZN_MESSAGES_ERR_BACKEND;
+	return FZN_MESSAGES_OK;
+}
+
 int fzn_messages_told_at(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                          uint8_t id[FZN_MESSAGE_ID_LEN])
 {
@@ -1863,6 +1945,14 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 
 		if (fzn_message_seen_read(fzn_record_body(rec), fzn_record_body_len(rec), id, &stime)
 		    && !keep_seen(m, contact, id, stime))
+			return FZN_MESSAGES_ERR_BACKEND;
+	} else if (fresh && fzn_record_kind(rec) == FZN_MESSAGE_MEMBER_SEEN_KIND) {
+		/* A MEMBER'S READING, told another device of this user's (sec 1273). */
+		uint8_t member[FZN_PUBKEY_LEN];
+		uint64_t stime = 0;
+
+		if (fzn_message_member_seen_read(fzn_record_body(rec), fzn_record_body_len(rec), member, &stime)
+		    && !keep_member_seen(m, contact, member, stime))
 			return FZN_MESSAGES_ERR_BACKEND;
 	} else if (fresh && fzn_record_kind(rec) == FZN_MESSAGE_CALL_KIND) {
 		/* ANOTHER DEVICE'S CALL, sec 1255: into the history as its own are. */
@@ -2626,6 +2716,10 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 					return FZN_MESSAGES_ERR_BACKEND;
 			} else if (fzn_record_kind(rec) == FZN_MESSAGE_SEEN_KIND) {
 				if (!index_row(m, "seen", contact, 0u, row)
+				    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row))
+					return FZN_MESSAGES_ERR_BACKEND;
+			} else if (fzn_record_kind(rec) == FZN_MESSAGE_MEMBER_SEEN_KIND) {
+				if (!index_row(m, "gseen", contact, 0u, row)
 				    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row))
 					return FZN_MESSAGES_ERR_BACKEND;
 			} else if (fzn_record_kind(rec) == FZN_MESSAGE_CALL_KIND) {

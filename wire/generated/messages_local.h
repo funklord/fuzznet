@@ -715,8 +715,8 @@ situ_err_t fzn_messages_local_lines_ask_check(situ_view_t view, uint32_t *which)
 
 /* ---- struct line_row ---- */
 
-#define FZN_MESSAGES_LOCAL_LINE_ROW_SIZE_MIN   72u
-#define FZN_MESSAGES_LOCAL_LINE_ROW_SIZE_MAX   712u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_SIZE_MIN   74u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_SIZE_MAX   714u
 
 /* INVALIDATION: a line_row view, and every view derived from
  * it, is invalidated by writing `name_len`, `sender_len`, `text_len` -- those decide where the
@@ -1028,6 +1028,42 @@ static inline uint8_t *fzn_messages_local_line_row_text_ptr(situ_view_t view)
  *              writing a different length moves every member after this one
  *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
  */
+
+/** line_row.read_by : u16  at Dynamic
+ * size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_messages_local_line_row_read_by_offset(situ_view_t view)
+{
+	uint32_t offset = 69u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[68u]))), view.limit);
+	offset = situ_advance_u32(offset, (1u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_sender_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, (2u), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_line_row_text_len_offset(view)) + 0u)) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, (0u), view.limit);
+
+	return offset;
+}
+/** Zero where the member does not fit the view: its offset is a sum of
+ * lengths the message chose, so the frame is not known to hold it, and
+ * `validate` reports such a message as malformed (26.27).
+ */
+static inline uint16_t fzn_messages_local_line_row_read_by_get(situ_view_t view)
+{
+	return situ_in_bounds(view, fzn_messages_local_line_row_read_by_offset(view), 2u)
+		? (uint16_t)(situ_get_be16((situ_base(view) + fzn_messages_local_line_row_read_by_offset(view)) + 0u))
+		: (uint16_t)0;
+}
+/** Does nothing where the member does not fit the view: its offset is a
+ * sum of lengths the message chose, and writing past the frame is
+ * somebody else's data. `validate` reports such a message (26.27).
+ */
+static inline void fzn_messages_local_line_row_read_by_set(situ_view_t view, uint16_t value)
+{
+	if (situ_in_bounds(view, fzn_messages_local_line_row_read_by_offset(view), 2u)) {
+		situ_put_be16((situ_base(view) + fzn_messages_local_line_row_read_by_offset(view)) + 0u, (uint16_t)value);
+	}
+}
 /** Where the fields `line_row`'s lengths read are, in one pass.
  */
 static inline uint32_t fzn_messages_local_line_row_walked(situ_view_t view, uint32_t index)
@@ -1055,11 +1091,11 @@ static inline uint32_t fzn_messages_local_line_row_walked(situ_view_t view, uint
  */
 static inline uint32_t fzn_messages_local_line_row_extent(situ_view_t view)
 {
-	if (!situ_in_bounds(view, 0u, 72u)) {
-		return 72u;	/* the lengths below are not here to read */
+	if (!situ_in_bounds(view, 0u, 74u)) {
+		return 74u;	/* the lengths below are not here to read */
 	}
 
-	uint32_t extent = 72u;
+	uint32_t extent = 74u;
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[68u])));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_sender_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_messages_local_line_row_sender_len_offset(view)))[0u]) : (uint64_t)0))));
 	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_messages_local_line_row_text_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_messages_local_line_row_text_len_offset(view)) + 0u)) : (uint64_t)0))));
@@ -1077,7 +1113,7 @@ static inline uint32_t fzn_messages_local_line_row_extent(situ_view_t view)
  */
 static inline situ_err_t fzn_messages_local_line_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
 {
-	uint32_t at = 72u;
+	uint32_t at = 74u;
 	uint32_t pos = 69u;
 	situ_view_t view;
 
@@ -1183,6 +1219,7 @@ situ_err_t fzn_messages_local_line_row_check(situ_view_t view, uint32_t *which);
 #define FZN_MESSAGES_LOCAL_LINE_ROW_SENDER_CHECK 7u
 #define FZN_MESSAGES_LOCAL_LINE_ROW_TEXT_LEN_CHECK 8u
 #define FZN_MESSAGES_LOCAL_LINE_ROW_TEXT_CHECK 9u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_READ_BY_CHECK 10u
 
 /* ---- struct read ---- */
 

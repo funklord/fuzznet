@@ -838,7 +838,8 @@ static void line_onto(struct bscript *s, size_t i, uint8_t first, uint8_t group,
 	if (fzn_messages_local_line_row_build(row, sizeof(row), key, id, group, outgoing, state, 1u, 1700000000000ull,
 	                                      1700000005000ull, (const uint8_t *)name, (uint32_t)strlen(name),
 	                                      (const uint8_t *)sender, (uint32_t)strlen(sender), (const uint8_t *)text,
-	                                      (uint32_t)strlen(text), &row_len) != SITU_OK
+	                                      (uint32_t)strlen(text), (uint16_t)(group && outgoing && state == 5u ? 3u : 0u),
+	                                      &row_len) != SITU_OK
 	    || fzn_messages_local_message_build_line_row(m, sizeof(m), (uint8_t)FZN_CMD_MESSAGES, row, row_len, &n)
 	               != SITU_OK)
 		return;
@@ -897,9 +898,13 @@ static void test_group_lines_in_binary(void)
 
 	line_onto(&lines, 0, 0xcd, 1, 0, 0, "team", "carol", "in the group");
 	line_onto(&lines, 0, 0xcd, 1, 1, 1, "team", "", "mine");
+	line_onto(&lines, 0, 0xcd, 1, 1, 5, "team", "", "read by three");
 	status_onto(&lines, 0, FZN_STATUS_OK, NULL);
 	bon(&c, &lines);
-	CHECK(fzn_rpc_group_lines(&c, id_hex, 64, out, 4, &count) == FZN_RPC_OK && count == 2
+	CHECK(fzn_rpc_group_lines(&c, id_hex, 64, out, 4, &count) == FZN_RPC_OK && count == 3
+	              && out[2].line.state == FZN_RPC_LINE_READ && out[2].read_by == 3u && out[1].read_by == 0u,
+	      "a group line's readers were not read in binary (sec 1273)");
+	CHECK(count == 3
 	              && out[0].line.sender_host_pubkey[0] == 0xcd && strcmp(out[0].line.sender_name, "carol") == 0
 	              && !out[0].line.outgoing && strcmp(out[0].line.text, "in the group") == 0
 	              && out[0].seq == 1700000000000ull && out[0].line.stime == 1700000000u

@@ -287,6 +287,49 @@ def main(argv):
 				                "".join("\n  " + l for l in told[-14:])))
 			print("livecheck: d: A's line reached B and C, and C's reached B through A")
 
+			# dr: READ MARKS IN A GROUP, sec 1273: B reads A's line with marks off
+			# and A is told nothing; on, B's mark goes among the group's lines
+			# and A's line lists `read`; B's conversation shows no mark.
+			def a_state(line_id):
+				for item in ask(socks["a"], "list message @family").split()[4:]:
+					f = item.split(",")
+					if len(f) > 4 and f[2] == line_id:
+						return f[4]
+				return None
+			def b_id(text):
+				for item in ask(socks["b"], "list message @" + names["b"]).split()[4:]:
+					if item.endswith("," + text):
+						return item.split(",")[2]
+				raise failed("dr: B holds no line %r" % text)
+			expect(socks["b"], "b", "set message @%s read %s" % (names["b"], b_id("from_a")), "ok")
+			for rnd in range(2):
+				for who in ("b", "a"):
+					turn(who, "%s-dr%d" % (who, rnd))
+			if a_state("a1" * 16) == "read":
+				raise failed("dr: B read A's group line with read marks off, and A was told")
+			expect(socks["b"], "b", "set setting host message/read-marks on", "ok")
+			expect(socks["a"], "a", "add message @family out %s second_from_a" % ("a2" * 16), "ok")
+			for rnd in range(ROUNDS + 2):
+				try:
+					b_id("second_from_a")
+					break
+				except failed:
+					for who in ("a", "b"):
+						turn(who, "%s-dra%d" % (who, rnd))
+			expect(socks["b"], "b", "set message @%s read %s" % (names["b"], b_id("second_from_a")), "ok")
+			for rnd in range(ROUNDS + 2):
+				if a_state("a2" * 16) == "read":
+					break
+				for who in ("b", "a"):
+					turn(who, "%s-drb%d" % (who, rnd))
+			if a_state("a2" * 16) != "read":
+				raise failed("dr: B's read mark never made A's line read: A lists %r"
+				             % ask(socks["a"], "list message @family")[:400])
+			if "fzn:read" in ask(socks["b"], "list message @" + names["b"]) + ask(socks["a"], "list message @family"):
+				raise failed("dr: a read mark was listed as a line")
+			print("livecheck: dr: read marks off, A was told nothing; on, B's mark made A's group line read, "
+			      "and no mark was listed as a line")
+
 			# d0: A MEMBER'S HIGH WATER, sec 911: what each host's sync said it
 			# holds of A's lines. Asked of A only, so a round of B and C says it.
 			def water():

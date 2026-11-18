@@ -10591,6 +10591,7 @@ static void conversations_each(void *ctx, const uint8_t *msg, size_t len) {
 		e->outgoing = fzn_messages_local_line_row_outgoing_get(b);
 		e->state = fzn_messages_local_line_row_state_get(b);
 		g->seq = fzn_messages_local_line_row_stime_ms_get(b);
+		g->read_by = fzn_messages_local_line_row_read_by_get(b);
 		e->stime = g->seq / 1000u;
 		e->rtime = fzn_messages_local_line_row_written_ms_get(b) / 1000u;
 		e->text_len = fzn_messages_local_line_row_text_len(b);

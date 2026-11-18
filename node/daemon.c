@@ -14077,6 +14077,31 @@ static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *o
 			sealed++;
 		}
 	}
+	/* THIS USER'S READING, TOLD, sec 1273: where it tells this group, one
+	 * read mark sealed among its lines, under the group's own epoch, and
+	 * never written to this user's conversation. Told once a line. */
+	{
+		uint8_t read_id[FZN_MESSAGE_ID_LEN];
+		uint64_t read_stime = 0;
+
+		if (fzn_node_messages_read_due(&node_messages, g->id, read_id, &read_stime)
+		    && fzn_group_lines_head(&group_lines, g->id, self, &head) == FZN_GROUP_LINES_OK
+		    && contact_rng_ops->fill(contact_rng_ops->ctx, line.id, FZN_GROUP_LINE_ID_LEN)) {
+			memcpy(line.group, g->id, FZN_GROUP_ID_LEN);
+			line.epoch = g->epoch;
+			memcpy(line.sender, own->owner, FZN_PUBKEY_LEN);
+			memcpy(line.host, self, FZN_PUBKEY_LEN);
+			line.stime = wall_ms();
+			line.text_len = fzn_node_messages_read_mark_write(read_stime, (char *)line.text, sizeof(line.text));
+			if (line.text_len
+			    && fzn_group_line_seal(&line, secret, contact_hash_ops, contact_aead_ops, contact_rng_ops, bytes,
+			                           sizeof(bytes), &len)
+			               == FZN_GROUP_LINE_OK
+			    && fzn_group_lines_put(&group_lines, head.have + 1u, bytes, len) == FZN_GROUP_LINES_OK
+			    && fzn_group_lines_filed(&group_lines, g->id, self, head.have + 1u) == FZN_GROUP_LINES_OK)
+				(void)fzn_messages_told(&node_messages.m, g->id, read_id);
+		}
+	}
 	fzn_wipe(secret, sizeof(secret));
 	fzn_wipe(earlier, sizeof(earlier));
 	return sealed;
@@ -14217,8 +14242,18 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 				fzn_group_line_err_t admitted = fzn_group_line_admit(g, &line);
 				fzn_messages_err_t imported = FZN_MESSAGES_OK;
 				int own_line = memcmp(line.sender, own->owner, FZN_PUBKEY_LEN) == 0, tried = 0;
+				uint64_t read_to = 0;
 
-				if (admitted == FZN_GROUP_LINE_OK && !own_line
+				/* A MEMBER'S READ MARK, sec 1273: their reading, kept; never a
+				 * line. One of this user's own devices' is passed over: this
+				 * user's reading is its read position, not a member's. */
+				if (admitted == FZN_GROUP_LINE_OK
+				    && fzn_node_messages_read_mark_parse((const char *)line.text, line.text_len, &read_to)) {
+					if (!own_line
+					    && fzn_messages_member_seen(&node_messages.m, g->id, line.sender, read_to)
+					               == FZN_MESSAGES_OK)
+						node_messages.fresh = 1;
+				} else if (admitted == FZN_GROUP_LINE_OK && !own_line
 				    && fzn_group_lines_filed_id(contact_hash_ops, line.host, line.id, filed_id)
 				    && fzn_group_lines_sender_keep(&group_lines, g->id, filed_id, line.sender)
 				               == FZN_GROUP_LINES_OK

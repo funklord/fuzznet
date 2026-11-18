@@ -523,6 +523,22 @@ int fzn_node_messages_unread_each(fzn_node_messages_t *nm,
  * line (messages/line.h), 0 for none; READABLE 0 a shell, TEXT then empty.
  * Pointers good only during the call. 1 once handed, 0 when a page did not
  * read, -1 when KEY is neither a contact nor a group. */
+/* A READ MARK AMONG A GROUP'S LINES, sec 1273: a sealed group line whose
+ * text is `fzn:read/STIME`, STIME the decimal time in ms of the line its
+ * member read up to. A node takes one as that member's reading, never as a
+ * line; this user's own goes out at the group's sealing pass and is never
+ * written to its own conversation. `_parse` 1 with the time for exactly
+ * that text; `_write` the text's length, 0 where `cap` is too small. */
+#define FZN_NODE_READ_MARK_PREFIX "fzn:read/"
+int fzn_node_messages_read_mark_parse(const char *text, size_t len, uint64_t *stime);
+size_t fzn_node_messages_read_mark_write(uint64_t stime, char *out, size_t cap);
+/* WHETHER THIS USER'S READING OF `contact` -- a contact or a group -- is due
+ * to be told, sec 1269 and 1273: it tells that conversation, has read
+ * further than this device last told, and the line read up to is found:
+ * 1 with its id and its sender's time. */
+int fzn_node_messages_read_due(fzn_node_messages_t *nm, const uint8_t contact[FZN_PUBKEY_LEN],
+                               uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t *stime);
+
 typedef struct fzn_node_line {
 	const uint8_t *key;
 	const uint8_t *id;
@@ -538,6 +554,8 @@ typedef struct fzn_node_line {
 	size_t sender_len;
 	const char *text;
 	size_t text_len;
+	/* A GROUP'S MEMBERS WHO READ this user's line, sec 1273; 0 otherwise. */
+	unsigned read_by;
 } fzn_node_line_t;
 int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, size_t from, size_t max,
                                  void (*each)(void *ctx, const fzn_node_line_t *line), void *ctx);

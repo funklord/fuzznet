@@ -61,6 +61,15 @@ struct fzn_message_seen {
 	u64                    stime;                   // 17 that line's sender's time, ms
 }
 
+// A GROUP'S MEMBER READ UP TO A TIME, kind 0x537, sec 1273: told by the
+// member's own read mark among the group's lines, and kept on this user's
+// stream so the user's other devices hold it too.
+struct fzn_message_member_seen {
+	u8                     version [must_eq = 1];   //  0
+	u8                     member[32];              //  1 the member, a root
+	u64                    stime;                   // 33 the time read up to, ms
+}
+
 enum fzn_message_call_outcome : u8 {
 	answered  = 1,	// it was up, SECONDS long
 	missed    = 2,	// rang here and nobody answered anywhere

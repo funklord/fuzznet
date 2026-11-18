@@ -914,41 +914,77 @@ static fzn_messages_err_t deliver_end(fzn_node_messages_delivering_t *d, int *do
 	return err;
 }
 
+int fzn_node_messages_read_mark_parse(const char *text, size_t len, uint64_t *stime)
+{
+	const size_t pre = sizeof(FZN_NODE_READ_MARK_PREFIX) - 1u;
+	uint64_t v = 0;
+	size_t i;
+
+	if (!text || !stime || len <= pre || len > pre + 20u || memcmp(text, FZN_NODE_READ_MARK_PREFIX, pre))
+		return 0;
+	for (i = pre; i < len; i++) {
+		if (text[i] < '0' || text[i] > '9' || v > (UINT64_MAX - 9u) / 10u)
+			return 0;
+		v = v * 10u + (uint64_t)(text[i] - '0');
+	}
+	*stime = v;
+	return 1;
+}
+
+size_t fzn_node_messages_read_mark_write(uint64_t stime, char *out, size_t cap)
+{
+	const int n = out ? snprintf(out, cap, FZN_NODE_READ_MARK_PREFIX "%llu", (unsigned long long)stime) : -1;
+
+	return n > 0 && (size_t)n < cap ? (size_t)n : 0u;
+}
+
 /* THE READ MARK DUE, sec 1269: where this user tells the contact of its
- * reading, and has read further than this device last told -- its request,
- * the line's id and its sender's time, found newest first. */
-static int read_due(fzn_node_messages_delivering_t *d, uint8_t *request, size_t *request_len)
+ * reading, and has read further than this device last told -- the line's
+ * id and its sender's time, found newest first. */
+int fzn_node_messages_read_due(fzn_node_messages_t *nm, const uint8_t contact[FZN_PUBKEY_LEN],
+                               uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t *stime)
 {
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
-	fzn_node_messages_t *nm = d->nm;
-	uint8_t id[FZN_MESSAGE_ID_LEN], told[FZN_MESSAGE_ID_LEN];
+	uint8_t told[FZN_MESSAGE_ID_LEN];
 	size_t off = 0, count, i;
 	int more = 1;
 
-	if (!nm->tells_read || !nm->tells_read(nm->tells_read_ctx, d->contact)
-	    || !fzn_messages_read_position(&nm->m, d->contact, id)
-	    || (fzn_messages_told_at(&nm->m, d->contact, told) && !memcmp(told, id, FZN_MESSAGE_ID_LEN)))
+	if (!nm || !contact || !id || !stime || !nm->tells_read || !nm->tells_read(nm->tells_read_ctx, contact)
+	    || !fzn_messages_read_position(&nm->m, contact, id)
+	    || (fzn_messages_told_at(&nm->m, contact, told) && !memcmp(told, id, FZN_MESSAGE_ID_LEN)))
 		return 0;
 	/* FOUND WITHIN TEN PAGES: the line read up to is the newest in, as a rule. */
 	for (; more && off < 10u * FZN_MESSAGES_PAGE_MAX; off += count) {
 		count = 0;
-		if (fzn_messages_page(&nm->m, d->contact, off, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+		if (fzn_messages_page(&nm->m, contact, off, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
 		            != FZN_MESSAGES_OK
 		    || !count)
 			return 0;
 		for (i = 0; i < count; i++)
 			if (page[i].direction == FZN_MESSAGE_IN && !memcmp(page[i].id, id, FZN_MESSAGE_ID_LEN)) {
-				request[0] = FZN_CMD_MESSAGES;
-				request[1] = FZN_NODE_MESSAGES_READ;
-				memcpy(request + 2, id, FZN_MESSAGE_ID_LEN);
-				fzn_put_be64(request + 2 + FZN_MESSAGE_ID_LEN, page[i].stime);
-				memcpy(d->id, id, FZN_MESSAGE_ID_LEN);
-				d->telling = 1;
-				*request_len = FZN_NODE_MESSAGES_READ_LEN;
+				*stime = page[i].stime;
 				return 1;
 			}
 	}
 	return 0;
+}
+
+/* ITS REQUEST, to a contact, sent once the lines are offered. */
+static int read_due(fzn_node_messages_delivering_t *d, uint8_t *request, size_t *request_len)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	uint64_t stime = 0;
+
+	if (!fzn_node_messages_read_due(d->nm, d->contact, id, &stime))
+		return 0;
+	request[0] = FZN_CMD_MESSAGES;
+	request[1] = FZN_NODE_MESSAGES_READ;
+	memcpy(request + 2, id, FZN_MESSAGE_ID_LEN);
+	fzn_put_be64(request + 2 + FZN_MESSAGE_ID_LEN, stime);
+	memcpy(d->id, id, FZN_MESSAGE_ID_LEN);
+	d->telling = 1;
+	*request_len = FZN_NODE_MESSAGES_READ_LEN;
+	return 1;
 }
 
 /* THE NEXT LINE TO OFFER, from the index place `d->at` on, its offer
@@ -1326,6 +1362,9 @@ static uint8_t listed_state(const fzn_node_messages_t *nm, const fzn_message_t *
 	uint64_t seen = 0;
 
 	if (p->direction == FZN_MESSAGE_OUT && fzn_messages_seen_at(&nm->m, p->contact, &seen) && p->stime <= seen)
+		return LISTED_READ;
+	/* A GROUP'S LINE, read by any member (sec 1273). */
+	if (p->direction == FZN_MESSAGE_OUT && fzn_messages_read_by(&nm->m, p->contact, p->stime))
 		return LISTED_READ;
 	return p->state <= FZN_MESSAGE_NOT_DELIVERED ? p->state : 0u;
 }
@@ -2062,6 +2101,8 @@ int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, si
 			l.name = name;
 			l.outgoing = p->direction == FZN_MESSAGE_OUT;
 			l.state = listed_state(nm, p);
+			l.read_by = p->direction == FZN_MESSAGE_OUT ? (unsigned)fzn_messages_read_by(&nm->m, p->contact, p->stime)
+			                                           : 0u;
 			l.readable = p->readable != 0;
 			l.stime_ms = p->stime;
 			l.written_ms = p->written_at;

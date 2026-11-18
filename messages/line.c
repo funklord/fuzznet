@@ -219,6 +219,26 @@ int fzn_message_seen_read(const uint8_t *body, size_t len, uint8_t id[FZN_MESSAG
 	return 1;
 }
 
+int fzn_message_member_seen_write(const uint8_t member[32], uint64_t stime, uint8_t out[FZN_MESSAGE_MEMBER_SEEN_LEN])
+{
+	if (!member || !out)
+		return 0;
+	out[FZN_MESSAGE_MEMBER_SEEN_OFF_VERSION] = FZN_MESSAGE_VERSION;
+	memcpy(out + FZN_MESSAGE_MEMBER_SEEN_OFF_MEMBER, member, 32u);
+	fzn_put_be64(out + FZN_MESSAGE_MEMBER_SEEN_OFF_STIME, stime);
+	return 1;
+}
+
+int fzn_message_member_seen_read(const uint8_t *body, size_t len, uint8_t member[32], uint64_t *stime)
+{
+	if (!body || !member || !stime || len != FZN_MESSAGE_MEMBER_SEEN_LEN
+	    || body[FZN_MESSAGE_MEMBER_SEEN_OFF_VERSION] != FZN_MESSAGE_VERSION)
+		return 0;
+	memcpy(member, body + FZN_MESSAGE_MEMBER_SEEN_OFF_MEMBER, 32u);
+	*stime = fzn_get_be64(body + FZN_MESSAGE_MEMBER_SEEN_OFF_STIME);
+	return 1;
+}
+
 static int call_ok(uint8_t direction, uint8_t kinds, uint8_t outcome)
 {
 	return direction_ok(direction) && kinds >= 1u && kinds <= 3u && outcome >= FZN_MESSAGE_CALL_ANSWERED

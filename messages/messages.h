@@ -237,6 +237,17 @@ fzn_messages_err_t fzn_messages_seen(const fzn_messages_t *m, const uint8_t cont
 /* The seen position: 1 with the line's time, 0 where the contact has said none. */
 int fzn_messages_seen_at(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint64_t *stime);
 
+/* A GROUP'S MEMBER READ UP TO `stime`, sec 1273: told by the member's
+ * read mark among the group's lines, written as a record the user's other
+ * devices take in, and kept in the group's row of who read how far -- the
+ * newest FZN_MESSAGES_READERS_MAX members by their key's first 8 bytes, a
+ * member's later time replacing an earlier, the oldest dropped when full.
+ * `fzn_messages_read_by` counts the members at or past `stime`. */
+#define FZN_MESSAGES_READERS_MAX 32u
+fzn_messages_err_t fzn_messages_member_seen(const fzn_messages_t *m, const uint8_t group[FZN_PUBKEY_LEN],
+                                            const uint8_t member[FZN_PUBKEY_LEN], uint64_t stime);
+size_t fzn_messages_read_by(const fzn_messages_t *m, const uint8_t group[FZN_PUBKEY_LEN], uint64_t stime);
+
 /* WHAT THIS USER TOLD THE CONTACT OF ITS OWN READING, sec 1269: the line
  * last told, for the node not to tell it twice. A row of this device's,
  * not a record: each device tells for itself. */

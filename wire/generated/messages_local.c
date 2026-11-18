@@ -284,6 +284,13 @@ situ_err_t fzn_messages_local_line_row_check(situ_view_t view, uint32_t *which)
 		*which = FZN_MESSAGES_LOCAL_LINE_ROW_TEXT_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
+	/* line_row.read_by: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_messages_local_line_row_read_by_offset(view), 2u)) {
+		*which = FZN_MESSAGES_LOCAL_LINE_ROW_READ_BY_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
 	return SITU_OK;
 }
 

@@ -130,6 +130,7 @@ typedef struct {
 	uint16_t text_len;
 	const uint8_t *text;	/* into your backing */
 	uint32_t text_len;
+	uint16_t read_by;
 } fzn_messages_local_line_row_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -199,6 +200,7 @@ static inline situ_err_t fzn_messages_local_line_row_edit_decode(const situ_msg_
 		backing[at + i] = fzn_messages_local_line_row_text_ptr(view)[i];
 	}
 	at += out->text_len;
+	out->read_by = fzn_messages_local_line_row_read_by_get(view);
 	(void)at;
 	return SITU_OK;
 }

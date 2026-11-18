@@ -24,7 +24,7 @@ enum op : u8 unknown=error
 enum kind : u8 unknown=error
   none=0 text=1 file=2 sticker=3 shell=4 call=5
 
-struct line_row size=72..712
+struct line_row size=74..714
   @0x0000   32        u8         key  big
   @0x0020   16        u8         id  big
   @0x0030   1         u8         group  max=1
@@ -39,6 +39,7 @@ struct line_row size=72..712
   ~         0..64     u8         sender  sized-by=sender_len
   ~         2         u16        text_len  big max=512
   ~         0..512    u8         text  sized-by=text_len
+  ~         2         u16        read_by  big
 
 struct lines_ask size=39
   @0x0000   1         u8         one  max=1

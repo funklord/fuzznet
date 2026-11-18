@@ -341,6 +341,7 @@ static inline situ_err_t fzn_messages_local_line_row_build(
 		uint32_t sender__len,
 		const uint8_t *text_,
 		uint32_t text__len,
+		uint16_t read_by,
 		uint32_t *situ_wrote)
 {
 	situ_msg_t  situ_msg;
@@ -471,6 +472,13 @@ static inline situ_err_t fzn_messages_local_line_row_build(
 		memcpy(situ_out + situ_at, text_, text__len);
 	}
 	situ_at += text__len;
+
+	if (situ_cap - situ_at < 2u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be16(situ_out + situ_at,
+	              (uint16_t)read_by);
+	situ_at += 2u;
 
 	/* Constraints are the view's to state and this reuses them
 	 * rather than restating them: two checks of one schema is how

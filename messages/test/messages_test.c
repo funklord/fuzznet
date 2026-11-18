@@ -1091,6 +1091,49 @@ static void test_the_contacts_reading(void)
 	      "what this device told was not kept");
 }
 
+/* A GROUP'S MEMBERS' READING, sec 1273: each member's newest time kept,
+ * an older telling moving nothing; counted at or past a line's time;
+ * carried to the other device; rebuilt by a reindex; and past
+ * FZN_MESSAGES_READERS_MAX members the oldest time gives way. */
+static void test_the_members_reading(void)
+{
+	uint8_t group[FZN_PUBKEY_LEN], member[FZN_PUBKEY_LEN];
+	size_t marks = 0, i;
+	int all = 1;
+
+	setup();
+	memset(group, 0x47, sizeof(group));
+	memset(member, 0x61, sizeof(member));
+	CHECK(fzn_messages_read_by(&A.m, group, 1u) == 0u, "a group was read before anybody said so");
+	CHECK(fzn_messages_member_seen(&A.m, group, member, 3000u) == FZN_MESSAGES_OK
+	              && fzn_messages_member_seen(&A.m, group, member, 2000u) == FZN_MESSAGES_OK
+	              && fzn_messages_read_by(&A.m, group, 3000u) == 1u,
+	      "a member's reading was not kept, or an older telling moved it back");
+	member[0] = 0x62;
+	CHECK(fzn_messages_member_seen(&A.m, group, member, 1500u) == FZN_MESSAGES_OK
+	              && fzn_messages_read_by(&A.m, group, 1000u) == 2u && fzn_messages_read_by(&A.m, group, 2000u) == 1u
+	              && fzn_messages_read_by(&A.m, group, 3001u) == 0u,
+	      "the members at or past a line's time were not counted");
+	/* B, NOT YET KNOWING A's 3000, tells 2000 for the same member: taken
+	 * in by A, it moves nothing back. */
+	member[0] = 0x61;
+	CHECK(fzn_messages_member_seen(&B.m, group, member, 2500u) == FZN_MESSAGES_OK, "fixture: B's older telling");
+	sync_a();
+	sync_b();
+	CHECK(fzn_messages_read_by(&A.m, group, 3000u) == 1u && fzn_messages_read_by(&B.m, group, 3000u) == 1u,
+	      "another device's older telling moved a member's reading back");
+	CHECK(fzn_messages_read_by(&B.m, group, 1000u) == 2u, "the members' reading was not carried to the other device");
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK && fzn_messages_read_by(&A.m, group, 1000u) == 2u,
+	      "a reindex did not rebuild the members' reading");
+	for (i = 0; i < FZN_MESSAGES_READERS_MAX; i++) {
+		member[0] = (uint8_t)(0x80u + i);
+		all = all && fzn_messages_member_seen(&A.m, group, member, 5000u + i) == FZN_MESSAGES_OK;
+	}
+	CHECK(all && fzn_messages_read_by(&A.m, group, 0u) == FZN_MESSAGES_READERS_MAX
+	              && fzn_messages_read_by(&A.m, group, 5000u) == FZN_MESSAGES_READERS_MAX,
+	      "past the most members kept, the oldest times did not give way");
+}
+
 /* A CALL'S HISTORY, sec 1255: kept newest first by when it was rung, not
  * a line -- nothing unread for it, the conversation's lines untouched;
  * carried to the user's other device; one per call, an answered one
@@ -2152,6 +2195,7 @@ int main(void)
 	test_read_state_travels();
 	test_call_history_travels();
 	test_the_contacts_reading();
+	test_the_members_reading();
 	test_reindex_orders_by_writing();
 	test_the_same_line_far_apart();
 	test_lines_from_before_marks();

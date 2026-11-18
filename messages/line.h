@@ -45,6 +45,8 @@
 #define FZN_MESSAGE_SEEN_KIND 0x437u
 /* A call that ended, the user's call history, sec 1255. */
 #define FZN_MESSAGE_CALL_KIND 0x337u
+/* A group's member read up to a time, sec 1273. */
+#define FZN_MESSAGE_MEMBER_SEEN_KIND 0x537u
 
 #define FZN_MESSAGE_VERSION 1u
 #define FZN_MESSAGE_ID_LEN 16u
@@ -86,6 +88,10 @@
 #define FZN_MESSAGE_SEEN_OFF_ID 1u
 #define FZN_MESSAGE_SEEN_OFF_STIME 17u
 #define FZN_MESSAGE_SEEN_LEN 25u
+#define FZN_MESSAGE_MEMBER_SEEN_OFF_VERSION 0u
+#define FZN_MESSAGE_MEMBER_SEEN_OFF_MEMBER 1u
+#define FZN_MESSAGE_MEMBER_SEEN_OFF_STIME 33u
+#define FZN_MESSAGE_MEMBER_SEEN_LEN 41u
 #define FZN_MESSAGE_CALL_OFF_VERSION 0u
 #define FZN_MESSAGE_CALL_OFF_DIRECTION 1u
 #define FZN_MESSAGE_CALL_OFF_KINDS 2u
@@ -187,6 +193,10 @@ int fzn_message_position_read(const uint8_t *body, size_t len, uint8_t id[FZN_ME
  * fzn_message_seen: the line's id and its sender's time, ms. */
 int fzn_message_seen_write(const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t stime, uint8_t out[FZN_MESSAGE_SEEN_LEN]);
 int fzn_message_seen_read(const uint8_t *body, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t *stime);
+/* A group member's read position's body, `messages/line.situ`'s
+ * fzn_message_member_seen: the member's root and the time read up to, ms. */
+int fzn_message_member_seen_write(const uint8_t member[32], uint64_t stime, uint8_t out[FZN_MESSAGE_MEMBER_SEEN_LEN]);
+int fzn_message_member_seen_read(const uint8_t *body, size_t len, uint8_t member[32], uint64_t *stime);
 
 /* A call's body, `messages/line.situ`'s fzn_message_call: 1, or 0 for one
  * out of its ranges. */

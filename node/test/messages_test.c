@@ -659,6 +659,26 @@ static int bin_newest(size_t i, uint8_t first, uint8_t kind, uint64_t stime, con
 	return text_len >= strlen(text) && memcmp(m + at + 2u, text, strlen(text)) == 0;
 }
 
+/* A READ MARK'S TEXT, sec 1273: written and read back; anything but
+ * exactly the prefix and up to twenty digits is a line, not a mark. */
+static void test_a_read_marks_text(void)
+{
+	char text[40];
+	uint64_t at = 0;
+	size_t n = fzn_node_messages_read_mark_write(1700000000123ull, text, sizeof(text));
+
+	CHECK(n == 22u && !memcmp(text, "fzn:read/1700000000123", n)
+	              && fzn_node_messages_read_mark_parse(text, n, &at) && at == 1700000000123ull,
+	      "a read mark's text did not read back as its time");
+	CHECK(!fzn_node_messages_read_mark_parse("fzn:read/", 9u, &at)
+	              && !fzn_node_messages_read_mark_parse("fzn:read/12a", 12u, &at)
+	              && !fzn_node_messages_read_mark_parse("fzn:read/ 12", 12u, &at)
+	              && !fzn_node_messages_read_mark_parse("see fzn:read/12", 15u, &at)
+	              && !fzn_node_messages_read_mark_parse("fzn:read/123456789012345678901", 30u, &at),
+	      "a line that is not exactly a read mark was taken for one");
+	CHECK(!fzn_node_messages_read_mark_write(1u, text, 10u), "a read mark was written past its room");
+}
+
 static void test_every_conversations_newest_line(void)
 {
 	static const char REF[] = "fzn:file/"
@@ -2281,6 +2301,7 @@ int main(void)
 	memset(X, 0x58, sizeof(X));
 	test_the_suite_can_tell_pass_from_fail();
 	test_the_verbs();
+	test_a_read_marks_text();
 	test_every_conversations_newest_line();
 	test_the_verbs_need_the_user();
 	test_keys_travel();

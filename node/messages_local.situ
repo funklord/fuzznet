@@ -99,6 +99,7 @@ struct line_row {
 	u8   sender[sender_len];
 	u16  text_len [max = 512];
 	u8   text[text_len];
+	u16  read_by;                        // a group's members who read this user's line (sec 1273)
 }
 
 // KEY a contact's root key or a group's id; ID the caller's name for the
