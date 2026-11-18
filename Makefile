@@ -5107,7 +5107,7 @@ $(BUILD_DIR)/node/test/opjournal_test: $(BUILD_DIR)/node/test/opjournal_test.o \
 # Conversations in the journal, sec 526, under real Ed25519, BLAKE2b and
 # XChaCha20-Poly1305: a stand-in AEAD would agree with whatever sealed it.
 $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_test.o \
-                                  $(BUILD_DIR)/messages/messages.o \
+                                  $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o \
                                   $(BUILD_DIR)/session/random.o \
@@ -5124,7 +5124,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/wire/generated/messages_local.o \
                                   $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                   $(BUILD_DIR)/wire/generated/situ.o \
-                                  $(BUILD_DIR)/messages/messages.o \
+                                  $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o \
                                   $(BUILD_DIR)/contact/contact.o \
@@ -5218,7 +5218,7 @@ $(BUILD_DIR)/messages/test/line_fuzz: $(BUILD_DIR)/messages/test/line_fuzz.o \
 # 689's 1:1 chat journey.
 $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
                                   $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
-                                  $(BUILD_DIR)/messages/messages.o \
+                                  $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o \
                                   $(BUILD_DIR)/contact/contact.o \
@@ -5244,7 +5244,7 @@ $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
 # A contact's delivery through a lying contact, sec 689's 1:1 chat journey.
 $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
                                   $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
-                                  $(BUILD_DIR)/messages/messages.o \
+                                  $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o \
                                   $(BUILD_DIR)/contact/contact.o \
@@ -5450,7 +5450,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
-              $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o \
+              $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
               $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o $(BUILD_DIR)/node/objects_binary.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/decisions_binary.o $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/node/presets.o $(BUILD_DIR)/node/votes.o $(BUILD_DIR)/node/responsible.o \
@@ -5839,7 +5839,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/succession.o \
                                       $(BUILD_DIR)/chain/succession.o \
                                       $(FUZZNETD_JOURNAL_OBJS) \
-                                      $(BUILD_DIR)/messages/messages.o \
+                                      $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                       $(BUILD_DIR)/messages/line.o \
                                       $(BUILD_DIR)/session/random.o \
                                       $(BUILD_DIR)/node/provision.o \

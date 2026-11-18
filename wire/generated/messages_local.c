@@ -224,8 +224,8 @@ situ_err_t fzn_messages_local_line_row_check(situ_view_t view, uint32_t *which)
 		*which = FZN_MESSAGES_LOCAL_LINE_ROW_OUTGOING_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
-	/* line_row.state [max = 5] */
-	if (fzn_messages_local_line_row_state_get(view) > 5) {
+	/* line_row.state [max = 6] */
+	if (fzn_messages_local_line_row_state_get(view) > 6) {
 		*which = FZN_MESSAGES_LOCAL_LINE_ROW_STATE_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}

@@ -171,6 +171,12 @@ typedef struct fzn_node_messages {
 	 * host's, from its settings; NULL tells nobody. */
 	int (*tells_read)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN]);
 	void *tells_read_ctx;
+	/* WHETHER THIS USER HAS UNSEND ON, sec 1284: the holder's, off unless
+	 * chosen. On, this user may take back a line of its own within an hour
+	 * (`remove message`), and its node honours a contact's taking back of
+	 * theirs; off, neither. NULL is off. */
+	int (*unsends)(void *ctx);
+	void *unsends_ctx;
 	/* THE MONTHS HELD BACK at the last conversations pass, sec 792, the
 	 * caller's table: `get message held-back` reads them, so a client can
 	 * say how much older history the rules kept off this device and offer

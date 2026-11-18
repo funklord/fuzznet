@@ -98,6 +98,9 @@ public:
 	 * a line the other end folds under it; an empty one takes this user's
 	 * back. What "React" on a chosen line sends, one of `reactions()`. */
 	bool react(const QByteArray &id, const QString &reaction);
+	/* THIS USER'S LINE `id` TAKEN BACK, sec 1284, as "Unsend" on a chosen
+	 * line of its own does: the node holds the hour and the setting. */
+	bool unsend(const QByteArray &id);
 	static QStringList reactions();
 
 	/* The clock, seconds since 1970, for the times shown; 0 reads the

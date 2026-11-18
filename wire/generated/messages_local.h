@@ -798,7 +798,7 @@ static inline void fzn_messages_local_line_row_outgoing_set(situ_view_t view, ui
 	(situ_base(view))[49u] = (uint8_t)value;
 }
 
-#define FZN_MESSAGES_LOCAL_LINE_ROW_STATE_VALUE_MAX 5u
+#define FZN_MESSAGES_LOCAL_LINE_ROW_STATE_VALUE_MAX 6u
 
 /** line_row.state : u8  at AbsoluteStatic(0x32)
  * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
@@ -1676,7 +1676,7 @@ static inline situ_err_t fzn_messages_local_message_body_line_row_view(situ_view
 
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_OUTGOING_VALUE_MAX 1u
 
-#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_STATE_VALUE_MAX 5u
+#define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_STATE_VALUE_MAX 6u
 
 #define FZN_MESSAGES_LOCAL_MESSAGE_BODY_LINE_ROW_READABLE_VALUE_MAX 1u
 

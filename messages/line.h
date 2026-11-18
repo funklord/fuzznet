@@ -60,6 +60,9 @@
 #define FZN_MESSAGE_SETTLED 2u
 #define FZN_MESSAGE_HANDED_OVER 3u
 #define FZN_MESSAGE_NOT_DELIVERED 4u
+/* ITS SENDER TOOK IT BACK, sec 1284: the line's text let go here, its head
+ * kept, and no later mark moves it. */
+#define FZN_MESSAGE_UNSENT 5u
 
 /* `messages/line.situ`. */
 #define FZN_MESSAGE_LINE_OFF_VERSION 0u

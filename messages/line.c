@@ -171,7 +171,7 @@ int fzn_message_line_open(const fzn_aead_ops_t *aead, const uint8_t key[FZN_CONV
 int fzn_message_mark_write(const fzn_message_mark_t *m, uint8_t out[FZN_MESSAGE_MARK_LEN])
 {
 	if (!m || !out || !direction_ok(m->direction) || m->state < FZN_MESSAGE_DELIVERED
-	    || m->state > FZN_MESSAGE_NOT_DELIVERED)
+	    || m->state > FZN_MESSAGE_UNSENT)
 		return 0;
 	out[FZN_MESSAGE_MARK_OFF_VERSION] = FZN_MESSAGE_VERSION;
 	out[FZN_MESSAGE_MARK_OFF_DIRECTION] = m->direction;
@@ -280,7 +280,7 @@ int fzn_message_mark_read(const uint8_t *body, size_t len, fzn_message_mark_t *o
 	    || body[FZN_MESSAGE_MARK_OFF_VERSION] != FZN_MESSAGE_VERSION
 	    || !direction_ok(body[FZN_MESSAGE_MARK_OFF_DIRECTION])
 	    || body[FZN_MESSAGE_MARK_OFF_STATE] < FZN_MESSAGE_DELIVERED
-	    || body[FZN_MESSAGE_MARK_OFF_STATE] > FZN_MESSAGE_NOT_DELIVERED)
+	    || body[FZN_MESSAGE_MARK_OFF_STATE] > FZN_MESSAGE_UNSENT)
 		return 0;
 	out->direction = body[FZN_MESSAGE_MARK_OFF_DIRECTION];
 	out->state = body[FZN_MESSAGE_MARK_OFF_STATE];

@@ -57,6 +57,8 @@ extern "C" {
 #define ROLE_CALL (Qt::UserRole + 6)
 /* THE LINE'S ID, what a reply or a reaction names it by (sec 1282). */
 #define ROLE_ID (Qt::UserRole + 7)
+/* TAKEN BACK BY ITS SENDER, sec 1284. */
+#define ROLE_UNSENT (Qt::UserRole + 8)
 
 /* A LINE AS A BUBBLE ON A PHONE, sec 1241, fuzzypickles' 1700Z item 2: this
  * user's at the right, everyone else's at the left, each wrapped within
@@ -196,7 +198,7 @@ static QString state_words(const fzn_rpc_inbox_entry_t *l, unsigned read_by = 0)
 
 QString fzn_conversation_view::state_said(bool outgoing, unsigned state, unsigned read_by)
 {
-	if (!outgoing)
+	if (!outgoing || state == FZN_RPC_LINE_UNSENT)
 		return QString();
 	/* A GROUP'S LINE, HOW MANY READ IT, sec 1273, as LINE's "Read 3". */
 	if (read_by)
@@ -213,6 +215,8 @@ QString fzn_conversation_view::state_said(bool outgoing, unsigned state, unsigne
 		return QObject::tr(" (read)");
 	case FZN_RPC_LINE_NONE:
 		return QObject::tr(" (sending)");
+	case FZN_RPC_LINE_UNSENT:
+		break;
 	}
 	return QString();
 }
@@ -286,7 +290,8 @@ static void gather(const QVector<const fzn_rpc_inbox_entry_t *> &oldest_first, a
 				a->reactions[to][who] = reaction;
 			continue;
 		}
-		a->words.insert(id_of(l), content_words(l->text, l->text_len));
+		a->words.insert(id_of(l), l->state == FZN_RPC_LINE_UNSENT ? QObject::tr("This line was taken back.")
+		                                                          : content_words(l->text, l->text_len));
 	}
 }
 
@@ -298,7 +303,10 @@ static QString shown_words(const fzn_rpc_inbox_entry_t *l, const about_lines &a)
 	size_t at = 0;
 	QString said;
 
-	if (fzn_message_reply_parse(l->text, l->text_len, id, &at)) {
+	/* TAKEN BACK BY ITS SENDER, sec 1284: its text gone, said so. */
+	if (l->state == FZN_RPC_LINE_UNSENT)
+		said = QObject::tr("This line was taken back.");
+	else if (fzn_message_reply_parse(l->text, l->text_len, id, &at)) {
 		const QString to = a.words.value(QByteArray((const char *)id, (int)sizeof id));
 		const QString body = content_words(l->text + at, l->text_len - at);
 		said = to.isEmpty() ? QObject::tr("(in reply to a line not shown) %1").arg(body)
@@ -518,6 +526,8 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 		                           l->outgoing ? QObject::tr("You") : QString::fromUtf8(who), said)
 		                       + state_words(l, lines[i].read_by));
 		item->setData(ROLE_ID, id_of(l));
+		item->setData(ROLE_AT, (qulonglong)l->stime);
+		item->setData(ROLE_UNSENT, l->state == FZN_RPC_LINE_UNSENT);
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
 		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
 		item->setData(ROLE_IN, !l->outgoing);
@@ -694,6 +704,7 @@ bool fzn_conversation_view::refresh_lines()
 		item->setData(ROLE_BODY, said);
 		item->setData(ROLE_META, when_words(now, l->stime) + state_words(l));
 		item->setData(ROLE_AT, (qulonglong)l->stime);
+		item->setData(ROLE_UNSENT, l->state == FZN_RPC_LINE_UNSENT);
 		m_lines->addItem(item);
 	}
 	merge_calls(count >= m_max, now);
@@ -893,6 +904,22 @@ void fzn_conversation_view::reply_to(const QByteArray &id)
 
 QByteArray fzn_conversation_view::replying() const { return m_reply_to; }
 
+bool fzn_conversation_view::unsend(const QByteArray &id)
+{
+	QByteArray who = m_contact.toUtf8();
+
+	if (id.size() != (int)FZN_MESSAGE_ID_LEN || m_contact.isEmpty())
+		return false;
+	if (fzn_rpc_message_unsend(&m_rpc->c, who.constData(), (size_t)who.size(), (const uint8_t *)id.constData())
+	    != FZN_RPC_OK) {
+		m_notice->say(failed_words(m_rpc));
+		return false;
+	}
+	m_notice->say(tr("Taken back."));
+	refresh();
+	return true;
+}
+
 QStringList fzn_conversation_view::reactions()
 {
 	return { QString::fromUtf8("\xf0\x9f\x91\x8d"), QString::fromUtf8("\xe2\x9d\xa4\xef\xb8\x8f"),
@@ -960,7 +987,23 @@ void fzn_conversation_view::offer_for(QListWidgetItem *item)
 	}
 	/* ANY OTHER LINE CAN BE ANSWERED, sec 1282; a past call cannot. */
 	const QByteArray id = item ? item->data(ROLE_ID).toByteArray() : QByteArray();
-	if (id.size() == (int)FZN_MESSAGE_ID_LEN) {
+	/* THIS USER'S OWN LINE, under an hour old, taken back instead, sec
+	 * 1284 -- offered only where this user has unsend on. */
+	if (id.size() == (int)FZN_MESSAGE_ID_LEN && !item->data(ROLE_IN).toBool()
+	    && !item->data(ROLE_UNSENT).toBool()) {
+		const qulonglong now = m_now ? m_now : (qulonglong)time(NULL), sent = item->data(ROLE_AT).toULongLong();
+		fzn_rpc_config_get_resp_t on;
+
+		memset(&on, 0, sizeof on);
+		if (sent && now >= sent && now - sent < FZN_MESSAGE_UNSEND_WINDOW_MS / 1000u
+		    && fzn_rpc_config_get(&m_rpc->c, "message.unsend", 14, &on) == FZN_RPC_OK && on.value_len == 2
+		    && !memcmp(on.value, "on", 2)) {
+			m_notice->offer(tr("Take this line back, here and from them, within an hour of sending it."),
+			                tr("Unsend"), [this, id]() { (void)unsend(id); });
+			return;
+		}
+	}
+	if (id.size() == (int)FZN_MESSAGE_ID_LEN && !item->data(ROLE_UNSENT).toBool()) {
 		m_notice->offer(tr("Answer this line with the next one you send."), tr("Reply"),
 		                [this, id]() { reply_to(id); });
 		return;

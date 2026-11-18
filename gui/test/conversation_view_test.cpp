@@ -121,6 +121,20 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                        "fzn:react/" ID2 "%%20\xf0\x9f\x91\x8d " BOB ",gil," ID2 ",out,delivered,"
 		                        "1700005800000,1700005800000,1,fzn:reply/" ID1 "%%20the%%20usual%%20place " BOB
 		                        ",gil," ID1 ",in,read,1700005700000,1700005700000,1,where%%20shall%%20we%%20eat\n");
+	/* HAL TOOK A LINE BACK, AND THIS USER SENT ONE 100 s AGO (sec 1284),
+	 * with unsend on here. */
+	if (!strcmp(line, "list message hal 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 0 2 0 " BOB ",hal," ID2 ",out,delivered,1700005500000,1700005500000,1,soon "
+		                        BOB ",hal," ID1 ",in,unsent,1700005400000,1700005400000,0,\n");
+	if (!strcmp(line, "get schema message/unsend"))
+		return (size_t)snprintf(reply, cap, "ok message/unsend,flag,estate+host,0,0,off,,safe-lower,x\n");
+	if (!strcmp(line, "get setting here message/unsend"))
+		return (size_t)snprintf(reply, cap, "ok host 0 on\n");
+	if (!strncmp(line, "remove message hal ", 19)) {
+		snprintf(last_add, sizeof last_add, "%s", line);
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 	/* EVE AND A QUIET GROUP: nothing said yet (sec 1263). */
 	if (!strcmp(line, "list message eve 0") || !strcmp(line, "list message @quiet 0"))
 		return (size_t)snprintf(reply, cap, "ok 0 0 0\n");
@@ -401,6 +415,18 @@ int main(int argc, char **argv)
 		              && !strstr(last_add, "fzn:react/" ID1 "%20"),
 		      "a reaction taken back was not sent as the bare reference");
 		CHECK(!e.react(QByteArray("short"), QStringLiteral("x")), "a reaction to no line was sent");
+		/* TAKEN BACK, sec 1284: hal's line said so, with nothing after; this
+		 * user's own line, under an hour old and unsend on, offers Unsend. */
+		CHECK(e.open("hal") && e.lines().value(0) == "23:43 hal: This line was taken back."
+		              && e.lines().value(1) == "23:45 You: soon (delivered)",
+		      "a line taken back was not said so, or this user's was not shown");
+		e.select_line(1);
+		CHECK(e.offered() == "Unsend", "this user's line under an hour old did not offer Unsend");
+		e.select_line(0);
+		CHECK(e.offered() != "Unsend" && e.offered() != "Reply", "a line taken back offered something");
+		last_add[0] = '\0';
+		CHECK(e.unsend(QByteArray::fromHex(ID2)) && !strcmp(last_add, "remove message hal " ID2),
+		      "Unsend did not ask the node to take the line back");
 		/* A GROUP'S LINE READ BY THREE, sec 1273; one by one; one that
 		 * came in says nothing. */
 		CHECK(fzn_conversation_view::state_said(true, FZN_RPC_LINE_READ, 3) == " (read by 3)"

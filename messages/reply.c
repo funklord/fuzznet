@@ -1,4 +1,4 @@
-/* A line about another line: a reply and a reaction, sec 1282. */
+/* A line about another line: a reply and a reaction, sec 1282, and an unsend, sec 1284. */
 #include "reply.h"
 
 #include <string.h>
@@ -124,6 +124,28 @@ int fzn_message_reaction_parse(const char *text, size_t len, uint8_t id[FZN_MESS
 	} else {
 		return 0;
 	}
+	memcpy(id, got, sizeof(got));
+	return 1;
+}
+
+size_t fzn_message_unsend_write(const uint8_t id[FZN_MESSAGE_ID_LEN], char *out, size_t cap)
+{
+	size_t at;
+
+	if (!id || !out || cap <= FZN_MESSAGE_UNSEND_LEN)
+		return 0;
+	at = put_head(FZN_MESSAGE_UNSEND_SCHEME, sizeof(FZN_MESSAGE_UNSEND_SCHEME) - 1u, id, out);
+	out[at] = '\0';
+	return at;
+}
+
+int fzn_message_unsend_parse(const char *text, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN])
+{
+	uint8_t got[FZN_MESSAGE_ID_LEN];
+
+	if (!id || len != FZN_MESSAGE_UNSEND_LEN
+	    || !head(text, len, FZN_MESSAGE_UNSEND_SCHEME, sizeof(FZN_MESSAGE_UNSEND_SCHEME) - 1u, got))
+		return 0;
 	memcpy(id, got, sizeof(got));
 	return 1;
 }

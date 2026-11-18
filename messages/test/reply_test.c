@@ -111,11 +111,29 @@ static void test_a_reaction(void)
 	CHECK(!is_reply("fzn:react/" ID " ok"), "a reaction was read as a reply");
 }
 
+/* AN UNSEND, sec 1284: written and read back exactly, nothing after it. */
+static void test_an_unsend(void)
+{
+	char out[FZN_MESSAGE_TEXT_MAX + 1u];
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t n = fzn_message_unsend_write(THE_ID, out, sizeof(out));
+
+	CHECK(n == FZN_MESSAGE_UNSEND_LEN && !strcmp(out, "fzn:unsend/" ID)
+	              && fzn_message_unsend_parse(out, n, id) && !memcmp(id, THE_ID, sizeof(id)),
+	      "an unsend was not written as fzn:unsend/ID and read back");
+	CHECK(!fzn_message_unsend_write(THE_ID, out, FZN_MESSAGE_UNSEND_LEN), "an unsend was written past its room");
+	CHECK(!fzn_message_unsend_parse("fzn:unsend/" ID " ", n + 1u, id), "an unsend with more after it was read");
+	CHECK(!fzn_message_unsend_parse("fzn:react/" ID, n - 1u, id), "a reaction was read as an unsend");
+	CHECK(!fzn_message_unsend_parse("fzn:unsend/00112233445566778899AABBCCDDEEFF", n, id),
+	      "an unsend in upper case was read");
+}
+
 int main(void)
 {
 	test_a_reply();
 	test_what_a_reply_is_not();
 	test_a_reaction();
+	test_an_unsend();
 	/* THE SUITE CAN FAIL: a check that cannot fail proves nothing. */
 	{
 		const int before = failures;

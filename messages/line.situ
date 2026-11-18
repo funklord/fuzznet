@@ -35,6 +35,7 @@ enum fzn_message_state : u8 {
 	settled       = 2,	// the contact's user realm has it
 	handed_over   = 3,	// given to another of the user's devices to send
 	not_delivered = 4,	// no device of the user's could send it (sec 521)
+	unsent        = 5,	// its sender took it back, its text let go (sec 1284)
 }
 
 // A conversation read up to a line, kind 0x237, sec 528: the newest such

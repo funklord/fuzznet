@@ -19,6 +19,9 @@ not know each other.
        to all three, which each come to hold it (sec 627)
     d  A writes a line to the group and B and C file it as A's; C writes one
        and B, which is not C's contact, files it through A, as C's (sec 629)
+    dr B's read mark among the group's lines makes A's line `read` (sec 1273)
+    du A's line taken back is let go at A and at B, found under B's filed
+       id, and the unsend is listed at neither (sec 1284)
     d1 A's next line, filed by a running B, raises `event message` naming the
        group at B's subscriber (sec 891)
     d0 `get group family water` at A: B and C each said they hold all of A's
@@ -329,6 +332,41 @@ def main(argv):
 				raise failed("dr: a read mark was listed as a line")
 			print("livecheck: dr: read marks off, A was told nothing; on, B's mark made A's group line read, "
 			      "and no mark was listed as a line")
+
+			# du: A LINE TAKEN BACK IN A GROUP, sec 1284: with unsend on, A's
+			# line let go at A, and at B -- found by the id B filed it under,
+			# the hash of A's host and A's id -- once the unsend reaches it.
+			def b_state(filed):
+				for item in ask(socks["b"], "list message @" + names["b"]).split()[4:]:
+					f = item.split(",")
+					if len(f) > 4 and f[2] == filed:
+						return f[4]
+				return None
+			expect(socks["a"], "a", "set setting host message/unsend on", "ok")
+			expect(socks["b"], "b", "set setting host message/unsend on", "ok")
+			expect(socks["a"], "a", "add message @family out %s oops_from_a" % ("a3" * 16), "ok")
+			for rnd in range(ROUNDS + 2):
+				try:
+					b_id("oops_from_a")
+					break
+				except failed:
+					for who in ("a", "b"):
+						turn(who, "%s-dua%d" % (who, rnd))
+			filed = b_id("oops_from_a")
+			expect(socks["a"], "a", "remove message @family " + "a3" * 16, "ok")
+			if a_state("a3" * 16) != "unsent":
+				raise failed("du: A's group line taken back lists as %r at A" % a_state("a3" * 16))
+			for rnd in range(ROUNDS + 2):
+				if b_state(filed) == "unsent":
+					break
+				for who in ("a", "b"):
+					turn(who, "%s-dub%d" % (who, rnd))
+			if b_state(filed) != "unsent" or "oops_from_a" in ask(socks["b"], "list message @" + names["b"]):
+				raise failed("du: B kept A's group line taken back: B lists %r"
+				             % ask(socks["b"], "list message @" + names["b"])[:400])
+			if "fzn:unsend" in ask(socks["b"], "list message @" + names["b"]) + ask(socks["a"], "list message @family"):
+				raise failed("du: an unsend was listed as a line")
+			print("livecheck: du: A's group line taken back, let go at A and at B, the unsend listed at neither")
 
 			# d0: A MEMBER'S HIGH WATER, sec 911: what each host's sync said it
 			# holds of A's lines. Asked of A only, so a round of B and C says it.

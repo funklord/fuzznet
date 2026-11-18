@@ -6,6 +6,7 @@
 
 #include "../contact/contact.h"
 #include "../messages/attachment.h"
+#include "../messages/reply.h"
 #ifdef FZN_STICKERS_ON
 #include "../sticker/pack.h"
 #endif
@@ -1166,6 +1167,23 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 			return 0;
 		if (written)
 			nm->fresh = 1;
+		/* AN UNSEND FROM THE CONTACT, sec 1284: their own line, sent
+		 * within the hour before it by their clock, let go here -- where
+		 * this user has unsend on. Filed as a line either way, so it
+		 * settles as one; never listed. */
+		{
+			uint8_t target[FZN_MESSAGE_ID_LEN];
+			uint64_t target_stime = 0, stime = fzn_get_be64(request + 2 + FZN_MESSAGE_ID_LEN);
+
+			if (written
+			    && fzn_message_unsend_parse((const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN,
+			                                text_len, target)
+			    && nm->unsends && nm->unsends(nm->unsends_ctx)
+			    && fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_IN, target, &target_stime)
+			    && stime >= target_stime && stime - target_stime <= FZN_MESSAGE_UNSEND_WINDOW_MS
+			    && fzn_messages_unsend(&nm->m, contact, FZN_MESSAGE_IN, target) == FZN_MESSAGES_OK)
+				nm->fresh = 1;
+		}
 	}
 	reply[0] = FZN_CMD_MESSAGES;
 	reply[1] = FZN_NODE_MESSAGES_DELIVERED;
@@ -1351,16 +1369,20 @@ static int direction_of(const uint8_t *w, size_t w_len, uint8_t *d)
 }
 
 static const char *const STATES[] = { "-", "delivered", "settled", "handed-over",
-	                              "not-delivered", "read" };
+	                              "not-delivered", "read", "unsent" };
 
 /* A LINE'S STATE AS LISTED, sec 1269: a line this user sent, at or before
  * the contact's seen position, is read -- worked out here, never stored,
  * so it follows the newest telling and nothing marks each line. 5 read. */
 #define LISTED_READ 5u
+/* TAKEN BACK BY ITS SENDER, sec 1284: 6 as listed, the store's UNSENT. */
+#define LISTED_UNSENT 6u
 static uint8_t listed_state(const fzn_node_messages_t *nm, const fzn_message_t *p)
 {
 	uint64_t seen = 0;
 
+	if (p->state == FZN_MESSAGE_UNSENT)
+		return LISTED_UNSENT;
 	if (p->direction == FZN_MESSAGE_OUT && fzn_messages_seen_at(&nm->m, p->contact, &seen) && p->stime <= seen)
 		return LISTED_READ;
 	/* A GROUP'S LINE, read by any member (sec 1273). */
@@ -1469,6 +1491,16 @@ static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 		return say(reply, cap, FZN_REPLY_MALFORMED, "a text's spaces are written %20");
 	} else if (!unescape(at, left, text, FZN_MESSAGE_TEXT_MAX, &len)) {
 		return say(reply, cap, FZN_REPLY_MALFORMED, "a text past 512 bytes, or a bad escape");
+	}
+	/* AN UNSEND IS `remove message`'s to write, sec 1284, held to its hour
+	 * and its setting; never a line a client writes as text. */
+	{
+		uint8_t named[FZN_MESSAGE_ID_LEN];
+
+		if (fzn_message_unsend_parse(text, len, named)) {
+			memset(text, 0, sizeof(text));
+			return say(reply, cap, FZN_REPLY_MALFORMED, "a line is taken back by remove message WHO ID");
+		}
 	}
 	err = fzn_messages_write(&nm->m, contact, direction, id, stime, text, len);
 	memset(text, 0, sizeof(text));
@@ -2307,6 +2339,46 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k + used);
 }
 
+/* `remove message WHO ID`, sec 1284: this user's own line taken back --
+ * within an hour of when it was sent and with unsend on -- its text let go
+ * here and on the user's other devices, and an unsend sent after it so the
+ * other end lets it go too, where its user has unsend on. */
+static size_t take_back(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,
+                        size_t cap)
+{
+	static const char USAGE[] = "remove message WHO ID";
+	uint8_t contact[FZN_PUBKEY_LEN], id[FZN_MESSAGE_ID_LEN], unsend_id[FZN_MESSAGE_ID_LEN];
+	char text[FZN_MESSAGE_UNSEND_LEN + 1u];
+	const uint8_t *w;
+	size_t w_len, n;
+	uint64_t now = nm->m.now(), stime = 0;
+	fzn_messages_err_t err;
+
+	if (!word(&at, &left, &w, &w_len) || !who(nm, w, w_len, contact) || !word(&at, &left, &w, &w_len)
+	    || !parse_hex(w, w_len, id, FZN_MESSAGE_ID_LEN) || left)
+		return who_refused(reply, cap, USAGE);
+	if (!nm->unsends || !nm->unsends(nm->unsends_ctx))
+		return say(reply, cap, FZN_REPLY_DENIED, "unsend is off here (message/unsend)");
+	if (!fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_OUT, id, &stime))
+		return say(reply, cap, FZN_REPLY_ERROR, "no line of this user's has that id");
+	if (fzn_messages_state(&nm->m, contact, FZN_MESSAGE_OUT, id) == FZN_MESSAGE_UNSENT)
+		return say(reply, cap, FZN_REPLY_OK, NULL);
+	if (now < stime || now - stime > FZN_MESSAGE_UNSEND_WINDOW_MS)
+		return say(reply, cap, FZN_REPLY_DENIED, "a line is taken back within an hour of being sent");
+	if (!nm->m.rng || !nm->m.rng->fill(nm->m.rng->ctx, unsend_id, sizeof(unsend_id))
+	    || !(n = fzn_message_unsend_write(id, text, sizeof(text))))
+		return say(reply, cap, FZN_REPLY_ERROR, "the unsend would not be written");
+	/* THE LINE LET GO HERE FIRST, then the unsend sent after it: a crash
+	 * between leaves a line taken back here and kept there, which a second
+	 * `remove message` sends again. */
+	if ((err = fzn_messages_unsend(&nm->m, contact, FZN_MESSAGE_OUT, id)) != FZN_MESSAGES_OK
+	    || (err = fzn_messages_write(&nm->m, contact, FZN_MESSAGE_OUT, unsend_id, now, text, n))
+	               != FZN_MESSAGES_OK)
+		return refuse(reply, cap, err);
+	nm->fresh = 1;
+	return say(reply, cap, FZN_REPLY_OK, NULL);
+}
+
 size_t fzn_node_messages_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                char *reply, size_t reply_cap)
 {
@@ -2321,7 +2393,8 @@ size_t fzn_node_messages_local(void *ctx, fzn_origin_t origin, const fzn_request
 	if (!word(&at, &left, &subject, &subject_len) || !is_word(subject, subject_len, "message"))
 		return 0;
 	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_SET
-	    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
+	    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET
+	    && request->parsed != FZN_VERB_REMOVE)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return say(reply, reply_cap, FZN_REPLY_DENIED, "messages need this node's own user");
@@ -2331,5 +2404,7 @@ size_t fzn_node_messages_local(void *ctx, fzn_origin_t origin, const fzn_request
 		return set(nm, at, left, reply, reply_cap);
 	if (request->parsed == FZN_VERB_GET)
 		return get(nm, at, left, reply, reply_cap);
+	if (request->parsed == FZN_VERB_REMOVE)
+		return take_back(nm, at, left, reply, reply_cap);
 	return list(nm, at, left, reply, reply_cap);
 }

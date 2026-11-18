@@ -93000,7 +93000,10 @@ and listed with it; in a group, a line is filed under its id
 (`node/group_line.situ`). The question sec 1277 left -- how a line names
 another "across a group's filed ids" -- has that answer: the id the
 sender chose travels with the line and is the same on every device that
-holds it. The client sees it as an entry's `commitment`.
+holds it. The client sees it as an entry's `commitment`. **Wrong for a
+group, sec 1284**: there every other member files a line under the hash
+of its writing host and its id, while its author's devices keep the id
+itself, so the ids agree one to one only.
 
 **They ride the text, as a sticker and a file do** (`messages/reply.h`):
 
@@ -93080,3 +93083,82 @@ itself used the vendored copy. Fixed on snurra's side
 fuzznet's sources through qmake with a sibling checkout one level up**:
 its dependency lists can read this tree's headers, so a change here can
 stop a build that pins an older fuzznet.
+
+## 1284. Unsend: a line of one's own taken back within an hour, 2026-11-18
+
+The holder, on sec 1282's question: "yes to unsend, sender's own line within
+1 hour (default off, but configurable)".
+
+**`message/unsend`**, a flag for the estate or the host, off unless chosen.
+It is **reciprocal**: on, this user may take back a line of its own and its
+node honours a contact's or a member's taking back of theirs; off, neither
+-- as WhatsApp's read receipts work, the older answer to a two-sided
+setting, so nobody can take a line back from somebody who could not take
+theirs back from them. Assumed rather than asked: an off that still let
+others delete here would make the default a choice made for the receiver.
+
+**What taking back does**, `remove message WHO ID`:
+- **Here**: the line is marked UNSENT -- a new state, 5 in the store
+  (`messages/line.situ`), as a mark record, so the user's other devices
+  take it in and do the same -- and its text is let go from its row, as a
+  trimmed month's is (`let_go_one`): the head stays, the line lists as a
+  shell, state `unsent` (6 in the listing, whose 5 is `read`). UNSENT is
+  sticky: a delivery marked by another device afterwards moves nothing
+  back. A device whose mark arrives before the line keeps the line a shell.
+- **There**: an unsend, the text `fzn:unsend/ID`, is sent as a line after
+  it (`messages/reply.h`). The receiving node files it as a line, so it
+  settles as one, and lists and counts it never (`hidden`, told from the
+  index by its fixed length); where its own user has unsend on, it lets the
+  named line go the same way: one to one, the contact's line by its id; in
+  a group, the member's line under the id it was filed by, the hash of the
+  sealing host and the id (`fzn_group_lines_filed_id`), its kept sender
+  checked against the unsend's.
+- **The hour** is the sender's times both: the line's and the unsend's,
+  `FZN_MESSAGE_UNSEND_WINDOW_MS`; refused past it, and refused with unsend
+  off. `add message` refuses an unsend written as text, so nothing passes
+  around either.
+
+**What it does not do**: the line's sealed record stays in the journal for
+the journal's window, under its month's key, as every record does; a
+journal holding it longer than that is a retention rule's to trim, not
+this. A receiver with unsend off keeps the line. A client paging by offset
+may meet as many lines again as were hidden above the offset, since the
+clean index counts places; the view lists from 0 and does not.
+
+**Rejected**: a binary unsend between hosts, as one to one read marks are
+(sec 1269), with a sealed line built at the group's sealing pass -- more
+machinery for the same effect, where a line already travels, settles and
+syncs to the user's own devices.
+
+**Found on the way, and open**: **in a group, sec 1282's ids differ.** A
+member's line is filed on every other member's node under the hash of its
+sealing host and its id, while its author's devices keep it under the id
+itself. So a reply or a reaction to one's own group line names an id the
+others do not file it by, and theirs to it one this user does not hold --
+sec 1282's "the same on every device" is true one to one only. Unsend is
+resolved by the node, which knows the host; replies and reactions are
+resolved by the client, which does not, and are next.
+
+**The view**: a line taken back says "This line was taken back."; this
+user's own line under an hour old offers "Unsend" where unsend is on, in
+place of Reply. `fzn_rpc_message_unsend` is the client's call.
+
+**Tests:** messages_test -- a line taken back is a shell marked unsent, its
+neighbour untouched, kept unsent past a later delivery, carried to the
+other device and not opened by its key, a shell where its mark came first,
+rebuilt by a reindex; an unsend that came in is neither listed nor
+counted unread. node messages_test -- refused with unsend off; on, let go
+here and, once delivered, at the contact; kept by a contact with it off;
+refused past the hour; and an unsend written as text refused. reply_test --
+the unsend's one spelling. conversation_view_test -- hal's line taken back
+said so, this user's offering Unsend, and Unsend asking the node.
+live_pairing b3, live_groups du -- one to one and in a group, end to end.
+Sabotages `unsent-not-sticky`, `unsent-text-kept`, `unsent-mark-before-line`,
+`unsent-not-absorbed`, `unsend-listed`, `unsend-past-the-hour`,
+`unsend-while-off`, `unsend-honoured-while-off`, `unsend-as-text`,
+`unsent-said-as-text`, each caught by hand; four older entries the change
+moved repointed and caught again, but for one: **`messages-page-shows-a-
+line-once` survives, at HEAD before this change too** -- the everyone
+listing's `seen_before` is reached only by an entry indexed twice, which a
+crash part way through a shift leaves and no test makes, storage already
+keeping a line two devices wrote once. Recorded, not chased.

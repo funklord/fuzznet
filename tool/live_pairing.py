@@ -13,6 +13,8 @@ A asks, B is asked, C asks and is turned away.
     b  B approves it (`grant request ROOT alice`); B's round pairs A's host
        and offers B's, which is A's answer; A writes a line to B and it is
        delivered, and B files it under A's root
+    b3 unsend (sec 1284): with it on at both ends, A's line taken back is
+       let go at A and at B, and the unsend is listed at neither
     c  C asks too; B rejects it (`remove request ROOT`) and lists none --
        and still none after C's next round sends it again (sec 858)
     d  A asks where it is seen (`fetch address`); B, its one peer, says
@@ -111,6 +113,7 @@ LINE2 = "52" * 16
 LINE3 = "53" * 16
 LINE4 = "54" * 16
 LINE5 = "55" * 16
+LINE6 = "56" * 16
 PREKEY_HOST = slice(4, 68)
 
 
@@ -282,6 +285,31 @@ def main(argv):
 				raise failed("b2: a conversation turned off was still told read")
 			print("livecheck: b2: read marks off by default, told once on (%.0f s after a read), "
 			      "and held off for one conversation over the default" % soon)
+
+			# b3: A LINE TAKEN BACK, sec 1284: with unsend on at both ends, A's
+			# line let go at A, and at B once the unsend reaches it -- the
+			# unsend itself listed at neither.
+			def state_of(sock, who, line):
+				for row in ask(sock, "list message " + who).split()[4:]:
+					f = row.split(",")
+					if len(f) > 4 and f[2] == line:
+						return f[4]
+				return None
+			def no_unsend(sock, who):
+				return "fzn:unsend/" not in ask(sock, "list message " + who)
+			expect(socks["a"], "a", "set setting host message/unsend on", "ok")
+			expect(socks["b"], "b", "set setting host message/unsend on", "ok")
+			expect(socks["a"], "a", "add message bob out %s oops" % LINE6, "ok")
+			waited(lambda: LINE6 in ask(socks["b"], "list message " + keys["a"]),
+			       "A's line to take back never reached B", within(130.0))
+			expect(socks["a"], "a", "remove message bob " + LINE6, "ok")
+			if state_of(socks["a"], "bob", LINE6) != "unsent":
+				raise failed("b3: A's line taken back lists as %r at A" % state_of(socks["a"], "bob", LINE6))
+			waited(lambda: state_of(socks["b"], keys["a"], LINE6) == "unsent",
+			       "B never let A's line go", within(130.0))
+			if not no_unsend(socks["a"], "bob") or not no_unsend(socks["b"], keys["a"]):
+				raise failed("b3: an unsend was listed as a line")
+			print("livecheck: b3: a line taken back, let go at both ends, the unsend listed at neither")
 
 			# c: C asks; B turns it away.
 			got = ask(socks["c"], "add contact bob " + card)

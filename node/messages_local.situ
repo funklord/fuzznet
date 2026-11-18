@@ -81,7 +81,8 @@ struct lines_ask {
 // for it -- the contact's name or the group's, empty for neither. SENDER as
 // newest_row's, for a group member's incoming line. STATE the node's mark on
 // this user's own line (messages/line.h): 0 none yet, 1 delivered, 2
-// settled, 3 handed over, 4 not delivered. READABLE 0 a shell, its month's
+// settled, 3 handed over, 4 not delivered, 6 taken back by its sender
+// (sec 1284). READABLE 0 a shell, its month's
 // key gone, TEXT then empty. The times are the sender's and the writing
 // device's, in ms.
 struct line_row {
@@ -89,7 +90,7 @@ struct line_row {
 	u8   id[16];
 	u8   group [max = 1];
 	u8   outgoing [max = 1];
-	u8   state [max = 5];                // 5 read, as told (sec 1269)
+	u8   state [max = 6];                // 5 read, as told (sec 1269); 6 unsent (sec 1284)
 	u8   readable [max = 1];
 	u64  stime_ms;
 	u64  written_ms;

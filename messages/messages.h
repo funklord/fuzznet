@@ -206,6 +206,20 @@ fzn_messages_err_t fzn_messages_import(const fzn_messages_t *m,
                                        const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t stime,
                                        const char *text, size_t len, int *written);
 
+/* A LINE TAKEN BACK BY ITS SENDER, sec 1284: marked UNSENT, as a record the
+ * user's other devices take in and do the same with, and its text let go
+ * here -- the row keeps its head and lists as a shell; no later mark moves
+ * it. Its sealed record stays in the journal for the journal's window, as
+ * every record does, under its month's key. OK as well for a line held
+ * already unsent, and for one not kept here, whose mark waits for it. */
+fzn_messages_err_t fzn_messages_unsend(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                                       uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN]);
+
+/* THE SENDER'S TIME of the line (`contact`, `direction`, `id`), as kept: 1
+ * with `*stime`, 0 for a line not kept here. */
+int fzn_messages_line_stime(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                            uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t *stime);
+
 /* Whether `contact`'s conversation holds (`direction`, `id`), as absorbed. */
 int fzn_messages_held(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                       uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN]);

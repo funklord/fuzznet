@@ -223,6 +223,11 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "the same for one conversation, named by its key's first 24 bytes in hex: on or off "
 	  "whatever message/read-marks says; unset, it follows (sec 1269)",
 	  NULL, 0u },
+	{ "message/unsend", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
+	  "let this user take back a line of its own within an hour of sending it, and let a "
+	  "contact take back theirs here, its text let go on this user's devices; off, as the "
+	  "holder chose (sec 1284)",
+	  NULL, 0u },
 	{ "location/share-new", FZN_SCHEMA_FLAG, ESTATE | HOST, 0u, 0u, "off", "", FZN_SCHEMA_SAFE_LOWER,
 	  "grant a contact this user's position the first time it becomes one, once -- a contact "
 	  "later turned off is never granted again (sec 1231)",

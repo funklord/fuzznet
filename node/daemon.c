@@ -74,6 +74,7 @@
 #include "../location/gpsd.h"
 #include "../sticker/pack.h"
 #include "../messages/attachment.h"
+#include "../messages/reply.h"
 #include "../messages/line.h"
 #ifdef FZN_CLAIM_FILE_ON
 #include "../claim/claim_file.h"
@@ -4932,6 +4933,14 @@ static int tells_read(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
 	if ((v = choice_of(key)) >= 0)
 		return v;
 	return choice_of("message/read-marks") == 1;
+}
+
+/* WHETHER THIS USER HAS UNSEND ON, sec 1284: `message/unsend`, off unless
+ * chosen, as the holder decided. */
+static int unsends_here(void *ctx)
+{
+	(void)ctx;
+	return choice_of("message/unsend") == 1;
 }
 
 /* THE ESTATE'S MANIFEST AS ITS SETTINGS SAY, fuzzypickles' "deterministic
@@ -14281,6 +14290,27 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 					say(FZN_ENTRY_WARNING, "node/groups",
 					    "a line of group %02x%02x%02x%02x not filed: %s", g->id[0], g->id[1],
 					    g->id[2], g->id[3], fzn_messages_err_str(imported));
+				/* A MEMBER'S UNSEND, sec 1284: their own line, filed here under
+				 * the host that sealed both, sent within the hour before it,
+				 * let go -- where this user has unsend on. The unsend is
+				 * filed as a line all the same, and never listed. */
+				if (tried && imported == FZN_MESSAGES_OK && written && unsends_here(NULL)) {
+					uint8_t target[FZN_MESSAGE_ID_LEN], filed_target[FZN_GROUP_LINE_ID_LEN],
+					        by[FZN_PUBKEY_LEN];
+					uint64_t target_stime = 0;
+
+					if (fzn_message_unsend_parse((const char *)line.text, line.text_len, target)
+					    && fzn_group_lines_filed_id(contact_hash_ops, line.host, target, filed_target)
+					    && fzn_group_lines_sender(&group_lines, g->id, filed_target, by) == FZN_GROUP_LINES_OK
+					    && memcmp(by, line.sender, FZN_PUBKEY_LEN) == 0
+					    && fzn_messages_line_stime(&node_messages.m, g->id, FZN_MESSAGE_IN, filed_target,
+					                               &target_stime)
+					    && line.stime >= target_stime
+					    && line.stime - target_stime <= FZN_MESSAGE_UNSEND_WINDOW_MS
+					    && fzn_messages_unsend(&node_messages.m, g->id, FZN_MESSAGE_IN, filed_target)
+					               == FZN_MESSAGES_OK)
+						node_messages.fresh = 1;
+				}
 				/* TAKEN AND NOTHING WRITTEN: a line by that id is held already.
 				 * Said at debug, as it is the ordinary end of a line learned twice. */
 				if (tried && imported == FZN_MESSAGES_OK && !written)
@@ -26018,6 +26048,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					node_messages.m.keeps = keeps_here;
 					node_messages.takes_over = takes_over_line;
 					node_messages.tells_read = tells_read;
+					node_messages.unsends = unsends_here;
 #if defined(FZN_SPOOL_FILE_ON)
 					node_messages.m.on_text = text_seen;
 					node_messages.file_of = file_of_here;

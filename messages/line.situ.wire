@@ -22,7 +22,7 @@ enum fzn_message_direction : u8 unknown=error
   out=1 in=2
 
 enum fzn_message_state : u8 unknown=error
-  delivered=1 settled=2 handed_over=3 not_delivered=4
+  delivered=1 settled=2 handed_over=3 not_delivered=4 unsent=5
 
 enum fzn_message_call_outcome : u8 unknown=error
   answered=1 missed=2 declined=3 busy=4 no_answer=5 elsewhere=6 failed=7

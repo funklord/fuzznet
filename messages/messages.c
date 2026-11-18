@@ -1,6 +1,7 @@
 /* See messages.h. */
 
 #include "messages.h"
+#include "reply.h"
 
 #include "../wire/bytes.h"
 
@@ -60,6 +61,8 @@ static uint64_t read_at(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 static int open_waiting(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                         uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN]);
 static int let_go(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch);
+static int let_go_one(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                      uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN]);
 static int item_keep(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                      uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
                      uint8_t parts);
@@ -133,7 +136,8 @@ static int owed_floor_reset(const fzn_messages_t *m, const uint8_t contact[FZN_P
  * (sec 613). */
 static int state_final(uint8_t state)
 {
-	return state == FZN_MESSAGE_SETTLED || state == FZN_MESSAGE_NOT_DELIVERED;
+	return state == FZN_MESSAGE_SETTLED || state == FZN_MESSAGE_NOT_DELIVERED
+	       || state == FZN_MESSAGE_UNSENT;
 }
 
 /* SET A LINE'S STATE when this mark is at least as new as the one held. */
@@ -148,6 +152,10 @@ static int set_state(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 		return 0;
 	if (m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_STATE, row, held, sizeof(held), &len)
 	    && len == STATE_LEN && fzn_get_be64(held + 1u) > at)
+		return 1;
+	/* UNSENT STAYS, sec 1284: a delivery marked by another device after the
+	 * line was taken back must not bring it back. */
+	if (len == STATE_LEN && held[0] == FZN_MESSAGE_UNSENT)
 		return 1;
 	/* A LINE OWED AGAIN after it was done -- a give-up raced by a delivery
 	 * marked later -- may sit below the floor, which goes back to the
@@ -596,6 +604,20 @@ fzn_messages_err_t fzn_messages_mark(const fzn_messages_t *m,
 	    || (took_own(m, before) && !set_cursor(m, m->issuer, own_head(m))))
 		return FZN_MESSAGES_ERR_BACKEND;
 	return FZN_MESSAGES_OK;
+}
+
+fzn_messages_err_t fzn_messages_unsend(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                                       uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN])
+{
+	fzn_messages_err_t err;
+
+	if (!ready(m) || !contact || !id || !direction_ok(direction))
+		return FZN_MESSAGES_ERR_MALFORMED;
+	if (fzn_messages_state(m, contact, direction, id) == FZN_MESSAGE_UNSENT)
+		return FZN_MESSAGES_OK;
+	if ((err = fzn_messages_mark(m, contact, direction, id, FZN_MESSAGE_UNSENT)) != FZN_MESSAGES_OK)
+		return err;
+	return let_go_one(m, contact, direction, id) ? FZN_MESSAGES_OK : FZN_MESSAGES_ERR_BACKEND;
 }
 
 fzn_messages_err_t fzn_messages_forget_epoch(const fzn_messages_t *m,
@@ -1461,6 +1483,69 @@ static int let_go(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN]
 	return 1;
 }
 
+int fzn_messages_line_stime(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                            uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t *stime)
+{
+	static uint8_t buf[STORED_MAX];
+	stored_t s;
+	entry_t e;
+	uint64_t i;
+
+	if (!ready(m) || !contact || !id || !stime)
+		return 0;
+	for (i = count_of(m, contact); i > 0u; i--) {
+		if (!index_entry(m, contact, i - 1u, &e))
+			return 0;
+		if (e.direction != direction || memcmp(e.id, id, FZN_MESSAGE_ID_LEN) != 0)
+			continue;
+		if (!stored_load(m, e.device, e.seq, buf, &s))
+			return 0;
+		*stime = s.stime;
+		return 1;
+	}
+	return 0;
+}
+
+/* AN UNSEND, which is never listed or counted as a line, sec 1284: told
+ * from the index by its length -- every one is FZN_MESSAGE_UNSEND_LEN
+ * bytes -- and only then read to be sure. */
+static int hidden(const fzn_messages_t *m, const entry_t *e)
+{
+	static uint8_t buf[STORED_MAX];
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	stored_t s;
+
+	return e->size == FZN_MESSAGE_UNSEND_LEN && stored_load(m, e->device, e->seq, buf, &s) && s.opened
+	       && fzn_message_unsend_parse((const char *)s.text, s.text_len, id);
+}
+
+/* ONE LINE'S TEXT LET GO, sec 1284, as a trimmed month's is: its row a head
+ * alone, listed as a shell. A line not kept here is nothing to let go. */
+static int let_go_one(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                      uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN])
+{
+	static uint8_t buf[STORED_MAX];
+	uint8_t row[FZN_PUBKEY_LEN];
+	stored_t s;
+	entry_t e;
+	uint64_t i;
+
+	for (i = count_of(m, contact); i > 0u; i--) {
+		if (!index_entry(m, contact, i - 1u, &e))
+			return 0;
+		if (e.direction != direction || memcmp(e.id, id, FZN_MESSAGE_ID_LEN) != 0)
+			continue;
+		if (!stored_load(m, e.device, e.seq, buf, &s) || (!s.opened && s.held == 0u))
+			return 1;
+		s.opened = 0u;
+		s.text_len = 0;
+		s.held = 0u;
+		return line_row(m, e.device, e.seq, row)
+		       && m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_LINE, row) && stored_save(m, &s);
+	}
+	return 1;
+}
+
 /* KEEP A LINE: its row, then its index entry, once -- a line another device
  * wrote first is already kept, under that device's place. `held` of its
  * parts are given in `body`, all of them or none; a trimmed month's line
@@ -1489,6 +1574,10 @@ static int keep_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 	s.text = NULL;
 	s.text_len = 0;
 	s.held = (uint8_t)(held == last->parts && !is_gone(m, contact, last->epoch) ? held : 0u);
+	/* TAKEN BACK BEFORE IT WAS KEPT, sec 1284: its mark came first, from
+	 * another device's stream, so its head alone is kept. */
+	if (fzn_messages_state(m, contact, last->direction, last->id) == FZN_MESSAGE_UNSENT)
+		s.held = 0u;
 	for (i = 0; i < s.held; i++) {
 		s.body[i] = body[i];
 		s.body_len[i] = body_len[i];
@@ -1933,7 +2022,8 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 	           && fzn_message_mark_read(fzn_record_body(rec), fzn_record_body_len(rec), &mark)) {
 		(*marks)++;
 		if (!set_state(m, contact, mark.direction, mark.id, mark.state,
-		               fzn_record_issued_at(rec)))
+		               fzn_record_issued_at(rec))
+		    || (mark.state == FZN_MESSAGE_UNSENT && !let_go_one(m, contact, mark.direction, mark.id)))
 			return FZN_MESSAGES_ERR_BACKEND;
 	} else if (fresh && fzn_record_kind(rec) == FZN_MESSAGE_READ_KIND
 	           && fzn_message_position_read(fzn_record_body(rec), fzn_record_body_len(rec), id)) {
@@ -2418,7 +2508,7 @@ fzn_messages_err_t fzn_messages_unread(const fzn_messages_t *m,
 			return FZN_MESSAGES_OK;
 		}
 		see(&n_seen, e.direction, contact, e.id);
-		if (e.direction == FZN_MESSAGE_IN)
+		if (e.direction == FZN_MESSAGE_IN && !hidden(m, &e))
 			(*count)++;
 	}
 	return FZN_MESSAGES_OK;
@@ -2457,7 +2547,8 @@ static int page_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 
 	/* THE INDEX DECIDES what is skipped or seen before; a row is read only
 	 * for a line the page shows. */
-	if (!index_entry(m, contact, i, &e) || seen_before(*n_seen, e.direction, contact, e.id))
+	if (!index_entry(m, contact, i, &e) || seen_before(*n_seen, e.direction, contact, e.id)
+	    || hidden(m, &e))
 		return 0;
 	if (*count == cap)
 		return -1;
@@ -2496,7 +2587,8 @@ static void page_places(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	entry_t e;
 
 	for (; i > 0u; i--) {
-		if (!index_entry(m, contact, i - 1u, &e) || entry_repeats(m, contact, i - 1u, &e))
+		if (!index_entry(m, contact, i - 1u, &e) || entry_repeats(m, contact, i - 1u, &e)
+		    || hidden(m, &e))
 			continue;
 		if (*count == cap) {
 			*more = 1;

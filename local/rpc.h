@@ -986,6 +986,12 @@ int fzn_rpc_location_share(fzn_rpc_t *c, const char *peer, size_t peer_len, int 
  * line in when there is none, `*more` 1 when the count is a floor. A group
  * is `@` and its 64-hex id, which no rename moves (fuzznet secs 647, 1084). */
 int fzn_rpc_message_read(fzn_rpc_t *c, const char *peer, size_t peer_len, const uint8_t id[16]);
+/* THIS USER'S LINE `id` TAKEN BACK (fuzznet sec 1284): within an hour of
+ * when it was sent, where this user has unsend on (`message/unsend`), its
+ * text let go on this user's devices and on the contact's or the group's
+ * where they have it on. NOT_AUTHORIZED when unsend is off or the hour has
+ * passed. */
+int fzn_rpc_message_unsend(fzn_rpc_t *c, const char *peer, size_t peer_len, const uint8_t id[16]);
 int fzn_rpc_message_unread(fzn_rpc_t *c, const char *peer, size_t peer_len, size_t *count,
                             int *more);
 /* A CONVERSATION'S LINES, newest first, into `out` up to `cap`; a group's

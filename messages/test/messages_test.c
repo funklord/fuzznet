@@ -4,6 +4,7 @@
  * purpose. Real Ed25519, BLAKE2b and XChaCha20-Poly1305 throughout. */
 
 #include "../messages.h"
+#include "../reply.h"
 #include "../../chain/sign_monocypher.h"
 #include "../../session/aead_monocypher.h"
 #include "../../session/hash_monocypher.h"
@@ -508,7 +509,7 @@ static void test_the_codec(void)
 	CHECK(fzn_message_mark_write(&mk, mb) && fzn_message_mark_read(mb, sizeof(mb), &back)
 	              && memcmp(&back, &mk, sizeof(mk)) == 0,
 	      "a mark reads back as written");
-	mb[FZN_MESSAGE_MARK_OFF_STATE] = 5u;
+	mb[FZN_MESSAGE_MARK_OFF_STATE] = 6u;
 	CHECK(!fzn_message_mark_read(mb, sizeof(mb), &back), "an unknown state is refused");
 }
 
@@ -1927,6 +1928,74 @@ static void test_a_month_forgotten_leaves_shells(void)
 	      "forgetting x's September leaves its line listed as a shell, and nothing else");
 }
 
+/* A LINE TAKEN BACK, sec 1284: its text let go, listed as a shell marked
+ * unsent and its neighbour untouched; a delivery marked after it moves
+ * nothing back; carried to the user's other device, which lets its own
+ * copy go; kept a shell on a device whose mark came before the line; and
+ * rebuilt so by a reindex. */
+static void test_a_line_taken_back(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t marks = 0;
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 1u, "oops") && write_line(&A, X, FZN_MESSAGE_OUT, 2u, "fine"),
+	      "fixture: two lines");
+	id_of(id, 1u);
+	CHECK(fzn_messages_unsend(&A.m, X, FZN_MESSAGE_OUT, id) == FZN_MESSAGES_OK && list(&A, X, 0u, 4u)
+	              && count == 2u && is_line(0, 2u, FZN_MESSAGE_OUT, "fine") && page[1].id[0] == 1u
+	              && !page[1].readable && page[1].text_len == 0u && page[1].state == FZN_MESSAGE_UNSENT,
+	      "a line taken back was not listed as a shell, unsent, beside its neighbour");
+	CHECK(mark(&A, X, FZN_MESSAGE_OUT, 1u, FZN_MESSAGE_DELIVERED)
+	              && fzn_messages_state(&A.m, X, FZN_MESSAGE_OUT, id) == FZN_MESSAGE_UNSENT,
+	      "a delivery marked after the line was taken back brought it back");
+	sync_b();
+	/* AND A's KEY GIVEN B, which opens what waited for it: the neighbour,
+	 * never the line taken back. */
+	{
+		uint8_t key[FZN_CONVERSATION_KEY_LEN];
+		const uint32_t epoch = fzn_message_epoch_of(clock_ms);
+
+		CHECK(fzn_messages_key_get(&A.m, X, epoch, A.pub, key)
+		              && fzn_messages_key_take(&B.m, X, epoch, A.pub, key) == FZN_MESSAGES_OK,
+		      "fixture: A's key carried to B");
+	}
+	CHECK(list(&B, X, 0u, 4u) && count == 2u && page[1].id[0] == 1u && !page[1].readable
+	              && page[1].state == FZN_MESSAGE_UNSENT && is_line(0, 2u, FZN_MESSAGE_OUT, "fine"),
+	      "the user's other device kept the text of a line taken back, or its key opened it");
+	/* B TAKES BACK A LINE IT HAS NOT YET HEARD OF: the mark waits, and
+	 * the line, when it comes, is kept a shell. */
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 3u, "late"), "fixture: a third line, on A alone");
+	id_of(id, 3u);
+	CHECK(fzn_messages_unsend(&B.m, X, FZN_MESSAGE_OUT, id) == FZN_MESSAGES_OK, "fixture: B takes it back first");
+	sync_b();
+	CHECK(list(&B, X, 0u, 4u) && count == 3u && page[0].id[0] == 3u && !page[0].readable
+	              && page[0].text_len == 0u,
+	      "a line whose taking back came before it was kept with its text");
+	sync_a();
+	CHECK(list(&A, X, 0u, 4u) && count == 3u && page[0].id[0] == 3u && !page[0].readable,
+	      "the device that wrote the line kept its text after another device took it back");
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK && list(&A, X, 0u, 4u) && count == 3u
+	              && !page[0].readable && !page[2].readable && page[2].state == FZN_MESSAGE_UNSENT
+	              && is_line(1, 2u, FZN_MESSAGE_OUT, "fine"),
+	      "a reindex brought back a line taken back");
+	/* THE UNSEND ITSELF, a line that came in, is never listed or unread. */
+	{
+		char text[FZN_MESSAGE_TEXT_MAX + 1u];
+		size_t n, unread = 0;
+		int more = 0;
+
+		id_of(id, 3u);
+		n = fzn_message_unsend_write(id, text, sizeof(text));
+		id_of(id, 9u);
+		CHECK(n && fzn_messages_write(&A.m, X, FZN_MESSAGE_IN, id, clock_ms, text, n) == FZN_MESSAGES_OK
+		              && list(&A, X, 0u, 4u) && count == 3u && page[0].id[0] == 3u
+		              && fzn_messages_unread(&A.m, X, &unread, &more) == FZN_MESSAGES_OK && unread == 0u,
+		      "an unsend that came in was listed as a line, or counted unread");
+		CHECK(list(&A, NULL, 0u, 4u) && count == 3u, "an unsend was listed among everyone's lines");
+	}
+}
+
 /* sec 796: a conversation's lines told again, oldest first, in steps. */
 static uint8_t told[8];
 static uint32_t told_epoch[8];
@@ -2218,6 +2287,7 @@ int main(void)
 	test_a_trim_reaches_every_device_key();
 	test_reindex_rebuilds_from_nothing();
 	test_a_month_forgotten_leaves_shells();
+	test_a_line_taken_back();
 	test_forty_one_devices();
 	test_what_is_owed();
 	test_owed_past_the_deepest_page();

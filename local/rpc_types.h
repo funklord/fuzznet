@@ -386,7 +386,8 @@ typedef enum fzn_rpc_line_state {
 	FZN_RPC_LINE_SETTLED = 2,       /* and has said so, the exchange closed */
 	FZN_RPC_LINE_HANDED_OVER = 3,   /* a relay holds it for the far end */
 	FZN_RPC_LINE_NOT_DELIVERED = 4, /* given up on */
-	FZN_RPC_LINE_READ = 5           /* the contact told this user it read it (fuzznet sec 1269) */
+	FZN_RPC_LINE_READ = 5,          /* the contact told this user it read it (fuzznet sec 1269) */
+	FZN_RPC_LINE_UNSENT = 6         /* its sender took it back, its text let go (fuzznet sec 1284) */
 } fzn_rpc_line_state_t;
 
 

@@ -4,6 +4,7 @@
  * and XChaCha20-Poly1305. */
 
 #include "../messages.h"
+#include "../../messages/reply.h"
 #include "../messages_binary.h"
 #include "../../chain/sign_monocypher.h"
 #include "../../contact/contact.h"
@@ -1789,6 +1790,81 @@ static void test_a_line_is_delivered_to_a_contact(void)
  * cut left them. The sender heard no answer, so it offers the line again --
  * `absorb` 1 after the host has absorbed its journal, 0 before -- and the
  * line is answered held, filed once, and listed once, whole. */
+static int unsend_on(void *ctx)
+{
+	return ctx != NULL;
+}
+
+/* A LINE TAKEN BACK, sec 1284: refused while unsend is off; on, the line
+ * let go here, the unsend never listed, and once delivered the contact's
+ * copy let go too, where the contact has unsend on and not where it is
+ * off; an hour on, refused; and an unsend written as text refused. */
+static void test_a_line_taken_back_across(void)
+{
+	contact_link_t l = { 1, 0, 0 };
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	char line[256], to[2u * FZN_PUBKEY_LEN + 1u];
+	size_t count = 0, found = 0, i;
+	int more = 0;
+
+	setup();
+	device_up(&S, 0x66);
+	device_up(&C, 0x77);
+	host_up(&S, &S);
+	host_up(&C, &C);
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		(void)snprintf(to + 2u * i, 3u, "%02x", C.pub[i]);
+	memset(id, 0x81, sizeof(id));
+	CHECK(fzn_messages_write(&S.nm.m, C.pub, FZN_MESSAGE_OUT, id, clock_ms, "oops", 4u) == FZN_MESSAGES_OK
+	              && deliver(&l),
+	      "fixture: a line sent and delivered");
+	snprintf(line, sizeof(line), "remove message %s 81818181818181818181818181818181", to);
+	CHECK(verb(&S, FZN_ORIGIN_SAME_USER, line) && replied("denied ")
+	              && state_of_line(&S, C.pub, 0x81, FZN_MESSAGE_OUT, &found) != FZN_MESSAGE_UNSENT,
+	      "a line was taken back with unsend off");
+	S.nm.unsends = unsend_on;
+	S.nm.unsends_ctx = &S;
+	C.nm.unsends = unsend_on;
+	C.nm.unsends_ctx = &C;
+	CHECK(verb(&S, FZN_ORIGIN_SAME_USER, line) && replied("ok")
+	              && state_of_line(&S, C.pub, 0x81, FZN_MESSAGE_OUT, &found) == FZN_MESSAGE_UNSENT
+	              && fzn_messages_page(&S.nm.m, C.pub, 0u, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+	                         == FZN_MESSAGES_OK
+	              && count == 1u && !page[0].readable && page[0].text_len == 0u,
+	      "this user's line taken back was not let go here, or its unsend was listed");
+	CHECK(deliver(&l)
+	              && fzn_messages_page(&C.nm.m, S.pub, 0u, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+	                         == FZN_MESSAGES_OK
+	              && count == 1u && page[0].id[0] == 0x81 && !page[0].readable
+	              && page[0].state == FZN_MESSAGE_UNSENT,
+	      "the contact's copy of a line taken back was kept, or the unsend listed there");
+	/* THE CONTACT WITH UNSEND OFF keeps what it was sent. */
+	C.nm.unsends = NULL;
+	memset(id, 0x82, sizeof(id));
+	CHECK(fzn_messages_write(&S.nm.m, C.pub, FZN_MESSAGE_OUT, id, clock_ms, "kept", 4u) == FZN_MESSAGES_OK
+	              && deliver(&l),
+	      "fixture: a second line delivered");
+	snprintf(line, sizeof(line), "remove message %s 82828282828282828282828282828282", to);
+	CHECK(verb(&S, FZN_ORIGIN_SAME_USER, line) && replied("ok") && deliver(&l)
+	              && fzn_messages_page(&C.nm.m, S.pub, 0u, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+	                         == FZN_MESSAGES_OK
+	              && count == 2u && page[0].id[0] == 0x82 && page[0].readable && page[0].text_len == 4u,
+	      "a contact with unsend off let a line go");
+	/* AN HOUR ON, a line is this user's to keep. */
+	memset(id, 0x83, sizeof(id));
+	CHECK(fzn_messages_write(&S.nm.m, C.pub, FZN_MESSAGE_OUT, id, clock_ms - FZN_MESSAGE_UNSEND_WINDOW_MS - 5000u,
+	                         "old", 3u) == FZN_MESSAGES_OK,
+	      "fixture: a line over an hour old");
+	snprintf(line, sizeof(line), "remove message %s 83838383838383838383838383838383", to);
+	CHECK(verb(&S, FZN_ORIGIN_SAME_USER, line) && replied("denied ")
+	              && state_of_line(&S, C.pub, 0x83, FZN_MESSAGE_OUT, &found) != FZN_MESSAGE_UNSENT,
+	      "a line over an hour old was taken back");
+	snprintf(line, sizeof(line), "add message %s out 84848484848484848484848484848484 fzn:unsend/83838383838383838383838383838383", to);
+	CHECK(verb(&S, FZN_ORIGIN_SAME_USER, line) && replied("malformed "),
+	      "an unsend written as a line's text was taken");
+}
+
 static int delivery_cut_at(long k, int absorb, int *cut)
 {
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
@@ -2316,6 +2392,7 @@ int main(void)
 	test_backfill_from_the_journal();
 	test_a_pushed_line_owes_its_key();
 	test_a_line_is_delivered_to_a_contact();
+	test_a_line_taken_back_across();
 	test_a_delivery_cut_at_every_save();
 	test_a_host_that_keeps_none_refuses();
 	test_another_devices_line_is_its_own_to_send();

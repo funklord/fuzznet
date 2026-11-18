@@ -1163,6 +1163,7 @@ static int node_line(const char *e, size_t e_len, fzn_rpc_inbox_entry_t *out, ui
 	             : f_len == 11 && !memcmp(f, "handed-over", 11) ? FZN_RPC_LINE_HANDED_OVER
 	             : f_len == 13 && !memcmp(f, "not-delivered", 13) ? FZN_RPC_LINE_NOT_DELIVERED
 	             : f_len == 4 && !memcmp(f, "read", 4)             ? FZN_RPC_LINE_READ
+	             : f_len == 6 && !memcmp(f, "unsent", 6)           ? FZN_RPC_LINE_UNSENT
 	                                                            : FZN_RPC_LINE_NONE;
 	if (!node_field(&p, end, &f, &f_len) || !node_u64(f, f_len, &out->stime) ||
 	    !node_field(&p, end, &f, &f_len) || !node_u64(f, f_len, &out->rtime) ||
@@ -1200,6 +1201,20 @@ int fzn_rpc_message_read(fzn_rpc_t *c, const char *peer, size_t peer_len, const 
 	const char *rest = NULL;
 	size_t rest_len = 0;
 	const int rc = fzn_rpc_node(c, "set", arg, (size_t)arg_len, &rest, &rest_len);
+	return rc == FZN_RPC_OK ? FZN_RPC_OK : node_explain_who(c, rc, "", peer, peer_len);
+}
+
+int fzn_rpc_message_unsend(fzn_rpc_t *c, const char *peer, size_t peer_len, const uint8_t id[16]) {
+	/* `remove message WHO ID` (fuzznet sec 1284): the node holds the hour and
+	 * the setting, and says which refused it. */
+	if (!node_conversation_fits(peer, peer_len) || memchr(peer, ' ', peer_len)) return encode_failed(c);
+	char hex[33];
+	fzn_hex_encode(id, 16, hex);
+	char arg[16 + NODE_WHO_MAX + 40];
+	const int arg_len = snprintf(arg, sizeof arg, "message %.*s %s", (int)peer_len, peer, hex);
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	const int rc = fzn_rpc_node(c, "remove", arg, (size_t)arg_len, &rest, &rest_len);
 	return rc == FZN_RPC_OK ? FZN_RPC_OK : node_explain_who(c, rc, "", peer, peer_len);
 }
 

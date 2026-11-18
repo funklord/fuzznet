@@ -10159,8 +10159,8 @@ SABOTAGES = [
 	(
 		"messages-page-shows-a-line-once",
 		"messages/messages.c",
-		"\tif (!index_entry(m, contact, i, &e) || seen_before(*n_seen, e.direction, contact, e.id))",
-		"\tif (!index_entry(m, contact, i, &e) || 0)",
+		"\tif (!index_entry(m, contact, i, &e) || seen_before(*n_seen, e.direction, contact, e.id)\n\t    || hidden(m, &e))",
+		"\tif (!index_entry(m, contact, i, &e) || 0\n\t    || hidden(m, &e))",
 		"a line two devices both wrote is listed twice -- sec 526",
 	),
 	(
@@ -10299,8 +10299,8 @@ SABOTAGES = [
 	(
 		"messages-trim-lets-parts-go",
 		"messages/messages.c",
-		"\t\ts.opened = 0u;\n\t\ts.text_len = 0;\n\t\ts.held = 0u;",
-		"\t\ts.text_len = s.text_len;\n\t\ts.held = 0u;",
+		"\t\t\tcontinue;\n\t\ts.opened = 0u;\n\t\ts.text_len = 0;\n\t\ts.held = 0u;",
+		"\t\t\tcontinue;\n\t\ts.text_len = s.text_len;\n\t\ts.held = 0u;",
 		"a trimmed month's text stays in the store, in the clear -- secs 536, 539",
 	),
 	(
@@ -10796,8 +10796,8 @@ SABOTAGES = [
 	(
 		'node-messages-delivery-text-where-it-is',
 		'node/messages.c',
-		'(const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN,',
-		'(const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN - 1,',
+		'\t\t                        (const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN,',
+		'\t\t                        (const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN - 1,',
 		"a delivered line is filed with a byte of its header for text; delivery_fuzz's property 1 -- sec 731",
 	),
 	(
@@ -10838,7 +10838,7 @@ SABOTAGES = [
 	(
 		'messages-mark-state-known',
 		'messages/line.c',
-		'\t    || body[FZN_MESSAGE_MARK_OFF_STATE] > FZN_MESSAGE_NOT_DELIVERED)',
+		'\t    || body[FZN_MESSAGE_MARK_OFF_STATE] > FZN_MESSAGE_UNSENT)',
 		'\t    || 0)',
 		"a mark of a state no version writes reads as a line's state; line_fuzz's property 4 -- sec 731",
 	),
@@ -17564,6 +17564,76 @@ SABOTAGES = [
 		"\tif (!send_line(QByteArray(text, (int)n)))\n\t\treturn false;\n\trefresh();\n\treturn true;\n",
 		"\trefresh();\n\treturn true;\n",
 		"a reaction said sent that never reached the node; conversation_view_test -- sec 1282",
+	),
+	(
+		"unsent-not-sticky",
+		"messages/messages.c",
+		"\tif (len == STATE_LEN && held[0] == FZN_MESSAGE_UNSENT)\n\t\treturn 1;\n",
+		"",
+		"a delivery marked after a line was taken back brings it back; messages_test -- sec 1284",
+	),
+	(
+		"unsent-text-kept",
+		"messages/messages.c",
+		"\t\ts.opened = 0u;\n\t\ts.text_len = 0;\n\t\ts.held = 0u;\n\t\treturn line_row(m, e.device, e.seq, row)",
+		"\t\treturn line_row(m, e.device, e.seq, row)",
+		"a line taken back keeps its text in its row; messages_test -- sec 1284",
+	),
+	(
+		"unsent-mark-before-line",
+		"messages/messages.c",
+		"\tif (fzn_messages_state(m, contact, last->direction, last->id) == FZN_MESSAGE_UNSENT)\n\t\ts.held = 0u;\n",
+		"",
+		"a line kept after its taking back keeps its text; messages_test -- sec 1284",
+	),
+	(
+		"unsent-not-absorbed",
+		"messages/messages.c",
+		"\t\t    || (mark.state == FZN_MESSAGE_UNSENT && !let_go_one(m, contact, mark.direction, mark.id)))\n",
+		"\t\t    || 0)\n",
+		"the user's other device keeps a line taken back; messages_test -- sec 1284",
+	),
+	(
+		"unsend-listed",
+		"messages/messages.c",
+		"\treturn e->size == FZN_MESSAGE_UNSEND_LEN && stored_load(m, e->device, e->seq, buf, &s) && s.opened\n",
+		"\treturn 0 && stored_load(m, e->device, e->seq, buf, &s) && s.opened\n",
+		"an unsend listed and counted as a line; messages_test -- sec 1284",
+	),
+	(
+		"unsend-past-the-hour",
+		"node/messages.c",
+		"\tif (now < stime || now - stime > FZN_MESSAGE_UNSEND_WINDOW_MS)\n",
+		"\tif (now < stime)\n",
+		"a line taken back long after it was sent; node messages_test -- sec 1284",
+	),
+	(
+		"unsend-while-off",
+		"node/messages.c",
+		"\tif (!nm->unsends || !nm->unsends(nm->unsends_ctx))\n\t\treturn say(reply, cap, FZN_REPLY_DENIED, \"unsend is off here (message/unsend)\");\n",
+		"",
+		"a line taken back with unsend off; node messages_test -- sec 1284",
+	),
+	(
+		"unsend-honoured-while-off",
+		"node/messages.c",
+		"\t\t\t    && nm->unsends && nm->unsends(nm->unsends_ctx)\n",
+		"",
+		"a contact's unsend honoured by a user with unsend off; node messages_test -- sec 1284",
+	),
+	(
+		"unsend-as-text",
+		"node/messages.c",
+		"\t\tif (fzn_message_unsend_parse(text, len, named)) {\n",
+		"\t\tif (0 && fzn_message_unsend_parse(text, len, named)) {\n",
+		"an unsend written as a line's text, past the hour and the setting; node messages_test -- sec 1284",
+	),
+	(
+		"unsent-said-as-text",
+		"gui/conversation_view.cpp",
+		"\tif (l->state == FZN_RPC_LINE_UNSENT)\n\t\tsaid = QObject::tr(\"This line was taken back.\");\n\telse if (",
+		"\tif (",
+		"a line taken back shown as an empty line; conversation_view_test -- sec 1284",
 	),
 	(
 		"pack-old-opens",
