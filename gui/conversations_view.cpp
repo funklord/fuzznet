@@ -1,5 +1,6 @@
 /* Every conversation, as a list: gui/conversations_view.h, sec 1138. */
 #include "conversations_view.h"
+#include "phone_layout.h"
 #include "keep_place.h"
 
 #include "rpc_ask.h"
@@ -348,7 +349,7 @@ void fzn_conversations_view::lay_out()
 void fzn_conversations_view::resizeEvent(QResizeEvent *event)
 {
 	QWidget::resizeEvent(event);
-	const bool flat = event->size().width() < 400;
+	const bool flat = fzn_phone_layout(event->size().width());
 	if (flat != m_flat) {
 		m_flat = flat;
 		lay_out();

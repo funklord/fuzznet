@@ -1,5 +1,6 @@
 /* A conversation with one contact, as a widget: gui/conversation_view.h, sec 1126. */
 #include "conversation_view.h"
+#include "phone_layout.h"
 #include "notice_line.h"
 #include "size_words.h"
 #include "sticker_picker_view.h"
@@ -841,7 +842,7 @@ bool fzn_conversation_view::drawn(int row) const
 void fzn_conversation_view::resizeEvent(QResizeEvent *event)
 {
 	QWidget::resizeEvent(event);
-	m_bubbles->narrow = event->size().width() < 400;
+	m_bubbles->narrow = fzn_phone_layout(event->size().width());
 	m_bubbles->width = m_lines->viewport()->width();
 	/* A FINGER'S TARGETS ON A PHONE, sec 1253: every button and the line
 	 * being written at least FZN_NOTICE_LINE_TOUCH_PX tall. */

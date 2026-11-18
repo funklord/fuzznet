@@ -1,5 +1,6 @@
 /* Positions shared with this user, as a widget: gui/location_view.h, sec 1109. */
 #include "location_view.h"
+#include "phone_layout.h"
 #include "keep_place.h"
 
 #include "rpc_ask.h"
@@ -186,8 +187,17 @@ bool fzn_location_view::refresh()
 	const fzn_rpc_location_show_entry_t *from = nullptr;
 	if (fzn_rpc_location_show(&m_rpc->c, "", 0, mine) == FZN_RPC_OK && mine->count)
 		from = &mine->entries[0];
-	if (from)
-		own += QLatin1Char(' ') + tr("You are at %1, %2.").arg(where_words(from), age_words(now, from->utc_s));
+	/* WHEN, AND HOW SURE, sec 1271: the coordinates are not a person's
+	 * words, so they are the line's tooltip; a place's name waits for the
+	 * map (sec 1267). */
+	QString at;
+	if (from) {
+		const uint32_t m = from->acc_e_m > from->acc_n_m ? from->acc_e_m : from->acc_n_m;
+		own += QLatin1Char(' ')
+		       + (m ? tr("Your newest position was taken %1, within %2 m.").arg(age_words(now, from->utc_s)).arg(m)
+		            : tr("Your newest position was taken %1.").arg(age_words(now, from->utc_s)));
+		at = where_words(from);
+	}
 	m_have_mine = from != nullptr;
 	if (from)
 		m_mine = { from->lat_e7, from->lon_e7, from->utc_s,
@@ -209,6 +219,7 @@ bool fzn_location_view::refresh()
 		       + tr("With no position of yours, how far anyone is cannot be said -- turn "
 		            "Location on, or give this device a source. Show on a map works without it.");
 	m_own->setText(own);
+	m_own->setToolTip(at);
 	m_fixes.clear();
 	/* THE ONE CHOSEN, kept by name across the refill (sec 1225): the rose
 	 * keeps its target, and Ask and Show on a map stay pressable. */
@@ -540,7 +551,7 @@ bool fzn_location_view::show_on_map()
 void fzn_location_view::resizeEvent(QResizeEvent *event)
 {
 	QWidget::resizeEvent(event);
-	const bool narrow = event->size().width() < 400;
+	const bool narrow = fzn_phone_layout(event->size().width());
 	/* A PHONE'S WIDTH, sec 1233: the one column with who, how far and how
 	 * long ago, and no header over it; a desktop's, the five. */
 	for (int c = 0; c < COL_PHONE; c++)

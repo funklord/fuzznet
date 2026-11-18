@@ -16903,7 +16903,7 @@ SABOTAGES = [
 	(
 		"location-view-never-narrow",
 		"gui/location_view.cpp",
-		"\tconst bool narrow = event->size().width() < 400;\n",
+		"\tconst bool narrow = fzn_phone_layout(event->size().width());\n",
 		"\tconst bool narrow = false;\n",
 		"a phone's width keeps every column of the positions -- sec 1197",
 	),
@@ -17344,7 +17344,7 @@ SABOTAGES = [
 	(
 		"conversations-never-flat",
 		"gui/conversations_view.cpp",
-		"\tconst bool flat = event->size().width() < 400;\n",
+		"\tconst bool flat = fzn_phone_layout(event->size().width());\n",
 		"\tconst bool flat = false;\n",
 		"a phone shows the conversations under two headings, never one list -- sec 1245",
 	),
@@ -17386,7 +17386,7 @@ SABOTAGES = [
 	(
 		"conversation-never-bubbles",
 		"gui/conversation_view.cpp",
-		"\tm_bubbles->narrow = event->size().width() < 400;\n",
+		"\tm_bubbles->narrow = fzn_phone_layout(event->size().width());\n",
 		"\tm_bubbles->narrow = false;\n",
 		"a phone shows a conversation as a log, never as bubbles -- sec 1241",
 	),
@@ -17431,6 +17431,27 @@ SABOTAGES = [
 		"\t    || here_flag(\"location/follow\") != 1)\n",
 		"\t    || 0)\n",
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
+	),
+	(
+		"phone-width-400",
+		"gui/phone_layout.h",
+		"#define FZN_PHONE_LAYOUT_WIDTH_PX 600\n",
+		"#define FZN_PHONE_LAYOUT_WIDTH_PX 400\n",
+		"a Pixel's 411 dp is laid out as a desktop's five columns; location_view_test -- sec 1271",
+	),
+	(
+		"phone-pin-ignored",
+		"gui/phone_layout.h",
+		"\treturn pinned >= 0 ? pinned == 1 : width < FZN_PHONE_LAYOUT_WIDTH_PX;\n",
+		"\treturn width < FZN_PHONE_LAYOUT_WIDTH_PX;\n",
+		"a host's pinned phone layout is ignored for the width; location_view_test -- sec 1271",
+	),
+	(
+		"own-coordinates-said",
+		"gui/location_view.cpp",
+		"\tm_own->setToolTip(at);\n",
+		"\tm_own->setText(own + at);\n",
+		"the own line says coordinates rather than a person's words; location_view_test -- sec 1271",
 	),
 	(
 		"newest-call-ignored",

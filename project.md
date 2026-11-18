@@ -92522,3 +92522,35 @@ reveal is that two users hold the same pack, to anyone who sees both
 roots -- a relay, a host. Asked of the holder rather than built, with
 the guess that published content (packs, the built-in set) may be
 convergent and nothing a user writes is.
+
+## 1271. A phone is below 600, and a host may say so; the own position in words, 2026-11-18
+
+fuzzypickles (inbox 20261118T1445Z): on a Pixel-wide emulator, 411 dp,
+the Nearby page still showed five columns, "not share..." cut and three
+empty, because location_view switched to its phone column below 400 px.
+**The same 400 was in three views** -- location_view's column,
+conversations_view's flat list (sec 1245), conversation_view's bubbles
+(sec 1241) -- so a phone layout reached only the smallest phones and the
+Fold's cover screen.
+
+They offered two answers, a host-set flag or a threshold nearer 600, and
+both are taken, as one rule in one place: `gui/phone_layout.h`,
+header-only and installed. **Below 600 logical pixels is a phone**, the
+line Android has drawn since 3.2's `sw600dp` qualifier (2011) and still
+draws as the compact window class -- the older software's answer, per
+working-practice. **A host that knows its layout pins it**,
+`fzn_phone_layout_pin(1)` or `(0)` for every view, `-1` to follow the
+width again; unpinned is the default and the choice not to choose. A
+view reads it at its next resize, so a host pins before showing.
+
+**And the own line said coordinates**: "You are at 39.23725, -123.15003,
+16 s ago." sec 1233's "in a person's words" now reaches it: "Your newest
+position was taken 16 s ago, within 12 m.", the coordinates the line's
+tooltip. A place's name needs a reverse geocoder and waits for the map
+(sec 1267).
+
+**Tests:** location_view_test -- 411 px is a phone; pinned, 801 px is
+one too; unpinned, 800 is a desktop again; the line has no coordinates
+and its tooltip has them. Sabotages `phone-width-400`,
+`phone-pin-ignored`, `own-coordinates-said`, each caught; the three
+views' never-narrow sabotages repointed at the new lines and caught.

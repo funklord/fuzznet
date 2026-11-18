@@ -7,6 +7,9 @@
  * node that does not answer.
  */
 
+#include "../phone_layout.h"
+
+#include <QLabel>
 #include "../location_view.h"
 #include "../compass_rose.h"
 
@@ -74,9 +77,17 @@ int main(int argc, char **argv)
 	QStringList told;
 	v.on_chosen([&told](const QString &name) { told << name; });
 	CHECK(v.refresh(), "the positions were not read");
-	CHECK(v.own().contains("every 30 s from platform") && v.own().contains("59.33000, 18.06000")
+	CHECK(v.own().contains("every 30 s from platform") && v.own().contains("Your newest position was taken ")
+	              && v.own().contains(" ago") && !v.own().contains("59.33000")
 	              && v.own().startsWith("Your position is taken") && !v.own().contains("host"),
 	      "this user's sampling or their own fix was not said, in their words");
+	{
+		/* THE COORDINATES THE TOOLTIP, sec 1271, not the line. */
+		bool tipped = false;
+		for (QLabel *l : v.findChildren<QLabel *>())
+			tipped = tipped || (l->text() == v.own() && l->toolTip() == "59.33000, 18.06000");
+		CHECK(tipped, "this user's coordinates were not the own line's tooltip");
+	}
 	/* THE FIRST CONTACT CHOSEN, AND TOLD ONCE, sec 1233. */
 	CHECK(v.chosen() == "bob" && told == QStringList({ "bob" }),
 	      "the first contact was not chosen when nobody was, or the host was not told");
@@ -200,11 +211,24 @@ int main(int argc, char **argv)
 		              && t->item(0, 5)->text().startsWith("bob\n") && t->item(0, 5)->text().contains(" ago")
 		              && !t->verticalHeader()->isVisible() && !t->horizontalHeader()->isVisible(),
 		      "a phone's width did not show one column of who, how far and how long ago");
+		/* A PIXEL'S 411 dp IS A PHONE, sec 1271: below 600. */
+		v.resize(411, 600);
+		app.processEvents();
+		CHECK(t && t->isColumnHidden(0) && !t->isColumnHidden(5), "a Pixel's width was not a phone's");
 		v.resize(800, 600);
 		app.processEvents();
 		CHECK(t && !t->isColumnHidden(0) && !t->isColumnHidden(1) && t->isColumnHidden(5)
 		              && t->horizontalHeader()->isVisible(),
 		      "a desktop's width did not show the five columns");
+		/* AND A HOST THAT KNOWS IT IS A PHONE SAYS SO, at any width. */
+		fzn_phone_layout_pin(1);
+		v.resize(801, 600);
+		app.processEvents();
+		CHECK(t && t->isColumnHidden(0) && !t->isColumnHidden(5), "a host's pinned phone layout was not taken");
+		fzn_phone_layout_pin(-1);
+		v.resize(800, 600);
+		app.processEvents();
+		CHECK(t && !t->isColumnHidden(0), "unpinned, the width did not decide again");
 		v.hide();
 	}
 	/* NO FIX OF ITS OWN, sec 1197: said why no distance shows, and bob's
