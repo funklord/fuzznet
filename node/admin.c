@@ -1354,6 +1354,8 @@ static fzn_node_roster_err_t roster_act(fzn_node_admin_t *admin, const uint8_t *
 		                            roster_k(admin));
 	if (first && err == FZN_NODE_ROSTER_OK)
 		admin->contact_first(admin->contact_first_ctx, key);
+	if (!add && err == FZN_NODE_ROSTER_OK && admin->contact_gone)
+		admin->contact_gone(admin->contact_gone_ctx, key);
 	return err;
 }
 

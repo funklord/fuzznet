@@ -14931,6 +14931,65 @@ static void contact_first(void *ctx, const uint8_t key[FZN_PUBKEY_LEN])
 	}
 }
 
+/* WHAT THIS USER GRANTED A CONTACT, TAKEN BACK AS IT STOPS BEING ONE, sec
+ * 1244, fuzzypickles' 1330Z: a grant outlived a removal, inert while the
+ * contact was retired (sec 1226) but standing again for it if it were
+ * added back -- a position shared with somebody nobody chose again. Told
+ * for a removal this host writes, and swept for one it learns, so a grant
+ * made in the removal's race goes once the removal reaches its host.
+ * The position's grant alone: a node cannot list the streams granted by
+ * hash, and the position is the one that matters. */
+static void contact_gone(void *ctx, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	uint8_t cell[STREAM_GRANT_KEY_LEN];
+	unsigned level = 0;
+	char hex[17];
+
+	int taken = 0;
+
+	(void)ctx;
+	if (!stream_granted("location", 8u, key, &level))
+		return;
+	/* THIS HOST'S OWN SLOT, a member's grant that could not set the
+	 * estate's (sec 660), and the estate's where this host may. */
+	taken |= fzn_streams_granted(&node_streams, "location", 8u, key, &level) == FZN_STREAMS_OK
+	         && fzn_streams_grant(&node_streams, "location", 8u, key, -1) == FZN_STREAMS_OK;
+	if (node_settings.store && node_settings.estate && stream_grant_key("location", 8u, key, cell)
+	    && fzn_node_settings_write(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, cell, sizeof(cell), 0,
+	                               NULL, 0u)
+	               == FZN_NODE_SETTINGS_OK) {
+		journal_pushed = 1;
+		taken = 1;
+	}
+	hex_of(key, 8u, hex);
+	if (taken)
+		say(FZN_ENTRY_INFO, "location", "%s is no longer a contact: its position grant taken back", hex);
+}
+
+/* AND SWEPT EVERY FZND_GONE_EVERY_S, sec 1244: every subject the roster
+ * holds that no longer stands, whose position grant is taken back if one
+ * stands. A member takes the estate's roster records through its store
+ * and loads them at start, so no hook on learning a record sees every
+ * removal arrive -- the first build's did not, and a member kept its grant
+ * (live_group_hosts a4). A removal this host writes is told at once
+ * besides, so a contact added straight back cannot catch the grant before
+ * a sweep. */
+#define FZND_GONE_EVERY_S 30u
+static void grants_of_the_gone(uint64_t now)
+{
+	static uint8_t subjects[256][FZN_PUBKEY_LEN];
+	static uint64_t last;
+	size_t n, i;
+
+	if (!running_admin || !node_streams.store || (last && now < last + FZND_GONE_EVERY_S))
+		return;
+	last = now;
+	n = fzn_node_roster_subjects(&node_roster, subjects, sizeof(subjects) / sizeof(subjects[0]));
+	for (i = 0; i < n; i++)
+		if (!fzn_node_admin_contact_stands(running_admin, subjects[i]))
+			contact_gone(NULL, subjects[i]);
+}
+
 static void contact_named(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const char *name,
                           size_t name_len)
 {
@@ -25202,8 +25261,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			state.relay_charge = relayed_frame_charged;
 			/* A CONTACT'S NAME, the user's, sec 699. */
 			admin.contact_named = contact_named;
-			/* A NEW CONTACT'S DEFAULT GRANT, sec 1231. */
+			/* A NEW CONTACT'S DEFAULT GRANT, sec 1231, and what was
+			 * granted one that goes, taken back, sec 1244. */
 			admin.contact_first = contact_first;
+			admin.contact_gone = contact_gone;
 			/* A LAN PROBE, sec 624. */
 			state.on_probe = lan_probe_heard;
 			/* A PEER'S CLOCK OUT OF THE WINDOW, sec 714. */
@@ -25953,6 +26014,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				/* HELLO to the peers it pulls from, sec 622. */
 				say_hello(pulls, npulls, state.udp_fd, now);
 				metric_log_legs(now);
+				grants_of_the_gone(now);
 				metric_log_meter(now);
 				/* A STREAM FETCH ASKED, at once, sec 632; WHERE THIS HOST IS
 				 * SEEN, asked now, sec 621: each a plan of its own, every host

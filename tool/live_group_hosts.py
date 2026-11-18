@@ -26,6 +26,8 @@ has them; B2 is a second device of B's user, joined to B's estate by verbs
     e2 A's next line reaches B2, and C's whole store never holds its text;
        B2's does, so the search finds what is there (sec 884)
     e3 a note B2 shares with the group after that reaches A and not C
+    a4 last: B makes dora a contact and B2 grants her its position; B
+       removes her, and B2, learning it, takes the grant back (sec 1244)
 
 Against a daemon that syncs a group's log only with contacts' hosts and
 the estate's, phase c never takes B2's act: nobody else is up to carry it;
@@ -388,6 +390,46 @@ def main(argv):
 			if pulled(socks["c"], later):
 				raise failed("e3: C, removed, pulled a note shared after its removal")
 			print("livecheck: e3: a note shared after the removal reached A and not C")
+
+			# a4, LAST: A REMOVAL LEARNED TAKES BACK WHAT WAS GRANTED, sec 1244: B
+			# makes dora a contact; B2 learns her and grants her its position
+			# on its own slot; B removes her; B2, learning the removal, takes
+			# its grant back rather than keeping it for a dora added again. Last,
+			# since its restarts of B and B2 upset C's later reach of B2.
+			dora = "d2" * 32
+			dora_at_b2 = "c_" + dora[:8]
+			turn("b", "b-a4")  # stopped since b
+			expect(socks["b"], "b", "add contact dora " + dora, "ok")
+			got = ""
+			for rnd in range(ROUNDS):
+				for who in ("b", "b2"):
+					turn(who, "%s-d%d" % (who, rnd))
+				# BY THE USER'S NAME FOR HER, carried to the estate's hosts
+				# (sec 699), or the name a contact arrives with.
+				for name in ("dora", dora_at_b2):
+					got = ask(socks["b2"], "grant stream location %s 1" % name)
+					if got in ("ok", "ok host"):
+						break
+				if got in ("ok", "ok host"):
+					break
+			else:
+				raise failed("a4: B2 never learned dora to grant her: %r" % got)
+			expect(socks["b"], "b", "remove contact dora", "ok")
+			# B2'S LOG KEPT BEFORE EACH RESTART: it may learn the removal from
+			# B while B takes its turn, and a turn starts B2 afresh.
+			said = ""
+			for rnd in range(ROUNDS):
+				for who in ("b", "b2"):
+					if who == "b2":
+						said += started["b2"].log()
+					turn(who, "%s-e%d" % (who, rnd))
+				said += started["b2"].log()
+				if "its position grant taken back" in said:
+					break
+			else:
+				raise failed("a4: B2 learned dora's removal and kept its grant")
+			print("livecheck: a4: B2, learning a contact removed, took back what it granted")
+
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

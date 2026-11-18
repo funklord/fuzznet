@@ -91590,3 +91590,37 @@ sticker sent as a line to bob, the half-written line still there, the
 picker closed. Two sabotages, each caught
 (`conversation-sticker-sends-text`, `conversation-picker-stays-open`).
 `make qtty` passes.
+
+## 1244. A position grant goes with the contact, 2026-11-18
+
+Sec 1226's second half: a grant made to a contact outlived its removal --
+inert while it was retired, but standing again if it were added back, a
+position shared with somebody nobody chose again. fuzzypickles' 1330Z
+race was the sharp case: K granted in the moment J removed.
+
+- **A removal this host writes is told at once**: the admin's
+  `contact_gone`, from `roster_act`, and the daemon takes the position's
+  grant back -- the estate's setting where this host may write it, its
+  own slot where it granted alone (sec 660).
+- **Every removal however learned is swept**, every 30 s between rounds:
+  each subject the roster holds that no longer stands has its position
+  grant taken back. **A hook on learning a record was the first build,
+  and it saw nothing**: a member takes the estate's roster records
+  through its store and loads them at start, so the removal never passed
+  the pull it hooked (live_group_hosts a4 kept failing until the sweep).
+  The hook was taken out, not kept beside the sweep, since nothing could
+  tell it apart.
+- **The position's grant alone**: a grant is keyed by a hash of the
+  stream and the grantee, so a node cannot list a contact's grants by
+  stream; the position is the one that matters, and the rest would want
+  the streams store to name its streams.
+
+**Tests:** `live_location` phase f -- edda, granted by `location/share-new`,
+removed with no revoke and added back at once, holds none; `live_group_hosts`
+phase a4, run last since its restarts of B and B2 upset C's later reach of
+B2 (phase c failed with it placed after a3, and passed with it gone) --
+B2, granting dora on its own slot, takes it back once it learns B removed
+her. Two sabotages, each caught (`gone-own-removal-untold` by f,
+`gone-grants-never-swept` by a4); the first build of the sweep ran every
+loop pass and so caught the own-removal sabotage itself -- paced to 30 s,
+each is caught by its own test.

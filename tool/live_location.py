@@ -26,7 +26,8 @@ a poor one in turn.
     f  a new contact granted this user's position (sec 1231): none while
        `location/share-new` is off; with it on, exact by default and at
        `location/share-new-precision` when set; a contact turned off,
-       removed and added back is not granted again
+       removed and added back is not granted again; and a grant nobody took
+       back goes with the contact's removal (sec 1244)
 
 Against a daemon that does not sample, phase b's link never reads
 watching; against one with no accuracy gate, nothing is dropped.
@@ -332,6 +333,13 @@ def main(argv):
 				raise failed("f: dana could not be turned off and removed")
 			if added("dana", "d1" * 32) != "ok none":
 				raise failed("f: a contact added back was granted again")
+			# AND A GRANT NOBODY TOOK BACK goes with the contact, sec 1244:
+			# edda, granted by the setting, removed with no revoke, and added
+			# back holds none -- where it held the grant made before.
+			if ask(sock, "remove contact edda") != "ok":
+				raise failed("f: edda could not be removed")
+			if added("edda", "e1" * 32) != "ok none":
+				raise failed("f: a contact added back held the grant made before its removal")
 			print("livecheck: f: a new contact granted this user's position, at the precision "
 			      "set, once; none while off, and none for one added back")
 		except failed as e:

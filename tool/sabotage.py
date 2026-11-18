@@ -17363,6 +17363,20 @@ SABOTAGES = [
 		"a line on its way reads as nothing, and cannot be told from one stuck -- sec 1241",
 	),
 	(
+		"gone-grants-never-swept",
+		"node/daemon.c",
+		"\t\t\t\tmetric_log_legs(now);\n\t\t\t\tgrants_of_the_gone(now);\n",
+		"\t\t\t\tmetric_log_legs(now);\n",
+		"a member keeps what it granted a contact the estate removed; live_group_hosts phase a4 only -- sec 1244",
+	),
+	(
+		"gone-own-removal-untold",
+		"node/admin.c",
+		"\tif (!add && err == FZN_NODE_ROSTER_OK && admin->contact_gone)\n",
+		"\tif (0 && !add && err == FZN_NODE_ROSTER_OK && admin->contact_gone)\n",
+		"a contact removed here and added back holds the grant made before; live_location phase f only -- sec 1244",
+	),
+	(
 		"follow-by-the-wrong-key",
 		"node/daemon.c",
 		"\t\tif (!fzn_streams_last(&node_streams, \"location\", 8u, ct->pt.pairing.node))\n",

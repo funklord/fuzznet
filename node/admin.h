@@ -315,6 +315,10 @@ typedef struct fzn_node_admin {
 	 * a peer, and never on a contact added back after it was removed. */
 	void (*contact_first)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN]);
 	void *contact_first_ctx;
+	/* AND ONE THIS HOST REMOVES, sec 1244: told once the removal is
+	 * written, so what this user granted it can go. */
+	void (*contact_gone)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN]);
+	void *contact_gone_ctx;
 } fzn_node_admin_t;
 
 /* A GROUP'S SHARES FORGOTTEN, notes and files, as `fzn_node_groups_t.forget`
