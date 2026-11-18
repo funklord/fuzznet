@@ -7236,6 +7236,77 @@ static int node_location_row(const char *w, size_t w_len, const char **host,
  * `answered` stays 0: the clients' says when a peer last answered a fetch, and
  * fuzznetd keeps no such thing.
  */
+/* ONE FIX KEPT, newest first by the fix's own time, to the newest when full;
+ * the newest seq said either way. */
+static void show_keep(fzn_rpc_location_show_resp_t *out, const fzn_rpc_location_show_entry_t *e) {
+	if (e->seq > out->high_water_seq) out->high_water_seq = e->seq;
+	size_t at_i = out->count;
+	while (at_i > 0 && out->entries[at_i - 1].utc_s < e->utc_s) at_i--;
+	if (at_i >= FZN_RPC_LOCATION_SHOW_RESP_MAX) return;
+	const size_t keep = out->count < FZN_RPC_LOCATION_SHOW_RESP_MAX ? out->count : out->count - 1;
+	memmove(&out->entries[at_i + 1], &out->entries[at_i], (keep - at_i) * sizeof *e);
+	out->entries[at_i] = *e;
+	if (out->count < FZN_RPC_LOCATION_SHOW_RESP_MAX) out->count++;
+}
+
+/* THE FIXES IN BINARY, sec 1252: sec 1171's rows, every host's, kept where
+ * the host is one `origin` names -- one request for the pages of text. */
+struct show_answer {
+	fzn_rpc_location_show_resp_t *out;
+	char (*hosts)[17];
+	size_t n_hosts;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void show_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct show_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	char host[17];
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_streams_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_streams_local_message_validate(v) != SITU_OK
+	    || fzn_streams_local_message_op_get(v) != FZN_STREAMS_LOCAL_OP_LOCATION_ROW
+	    || fzn_streams_local_message_body_location_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	/* LABELLED AS THE TEXT LABELS A HOST, the first eight bytes in hex. */
+	fzn_hex_encode(fzn_streams_local_location_row_host_ptr(b), 8, host);
+	int wanted = 0;
+	for (size_t h = 0; h < a->n_hosts && !wanted; h++) wanted = memcmp(host, a->hosts[h], 16) == 0;
+	if (!wanted) return;
+	fzn_rpc_location_show_entry_t e;
+	memset(&e, 0, sizeof e);
+	e.seq = fzn_streams_local_location_row_seq_get(b);
+	e.lat_e7 = fzn_streams_local_location_row_lat_e7_get(b);
+	e.lon_e7 = fzn_streams_local_location_row_lon_e7_get(b);
+	e.utc_s = fzn_streams_local_location_row_utc_s_get(b);
+	e.has_alt = fzn_streams_local_location_row_has_alt_get(b);
+	e.alt_m = e.has_alt ? fzn_streams_local_location_row_alt_m_get(b) : 0;
+	e.has_bearing = fzn_streams_local_location_row_has_bearing_get(b);
+	e.bearing_deg = fzn_streams_local_location_row_bearing_get(b);
+	e.acc_e_m = fzn_streams_local_location_row_acc_e_m_get(b);
+	e.acc_n_m = fzn_streams_local_location_row_acc_n_m_get(b);
+	e.acc_v_m = fzn_streams_local_location_row_acc_v_m_get(b);
+	e.is_coarse = fzn_streams_local_location_row_coarse_get(b);
+	show_keep(a->out, &e);
+}
+
 static int node_location_show(fzn_rpc_t *c, const char *origin, size_t origin_len,
                               fzn_rpc_location_show_resp_t *out) {
 	memset(out, 0, sizeof(*out));
@@ -7243,6 +7314,25 @@ static int node_location_show(fzn_rpc_t *c, const char *origin, size_t origin_le
 	size_t n_hosts = 0;
 	int rc = node_location_hosts(c, origin, origin_len, hosts, 16, &n_hosts);
 	if (rc != FZN_RPC_OK) return rc;
+	{
+		static const uint8_t ask[] = { FZN_CMD_STREAMS, FZN_STREAMS_LOCAL_OP_LOCATION };
+		struct show_answer a;
+		int text = 0;
+		memset(&a, 0, sizeof a);
+		a.out = out;
+		a.hosts = hosts;
+		a.n_hosts = n_hosts;
+		rc = fzn_rpc_binary(c, ask, sizeof ask, show_each, &a, &text);
+		if (!text) {
+			if (rc != FZN_RPC_OK) return rc;
+			if (a.bad || !a.status_seen) return unreadable(c); /* the fixes cut short */
+			if (a.code != FZN_STATUS_OK)
+				return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+				            a.why[0] ? a.why : "the node refused it");
+			return FZN_RPC_OK;
+		}
+		memset(out, 0, sizeof(*out));
+	}
 	/*
 	 * PAGED, `list location FROM` -> `ok TOTAL FROM ROW ...`, as the device
 	 * listing above is. The bare verb lists the newest sixteen fixes of
@@ -7274,16 +7364,7 @@ static int node_location_show(fzn_rpc_t *c, const char *origin, size_t origin_le
 			if (node_location_row(w, w_len, &host, &e) != 0) return unreadable(c);
 			int wanted = 0;
 			for (size_t h = 0; h < n_hosts && !wanted; h++) wanted = memcmp(host, hosts[h], 16) == 0;
-			if (!wanted) continue;
-			if (e.seq > out->high_water_seq) out->high_water_seq = e.seq;
-			/* Newest first by the fix's own time, kept to the newest when full. */
-			size_t at_i = out->count;
-			while (at_i > 0 && out->entries[at_i - 1].utc_s < e.utc_s) at_i--;
-			if (at_i >= FZN_RPC_LOCATION_SHOW_RESP_MAX) continue;
-			const size_t keep = out->count < FZN_RPC_LOCATION_SHOW_RESP_MAX ? out->count : out->count - 1;
-			memmove(&out->entries[at_i + 1], &out->entries[at_i], (keep - at_i) * sizeof e);
-			out->entries[at_i] = e;
-			if (out->count < FZN_RPC_LOCATION_SHOW_RESP_MAX) out->count++;
+			if (wanted) show_keep(out, &e);
 		}
 		from = start + rows;
 		if (!rows || from >= total) return FZN_RPC_OK;

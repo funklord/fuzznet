@@ -91837,3 +91837,21 @@ answering a call nobody holds is refused as an error. Four sabotages,
 each caught (`calls-client-state-swapped`, `calls-client-respond-word`,
 `calls-node-state-swapped`, `calls-node-ended-unsaid`, the last two by
 live_call alone).
+
+## 1252. A host's fixes read in binary, 2026-11-18
+
+The location view asks `fzn_rpc_location_show` on every refresh for this
+host's own newest fix, which every distance is measured from, and it
+paged `list location FROM` in text to find it. Sec 1171's binary list
+already carries every host's last sixteen fixes, each with its whole host
+key, so the client now takes them in one request and keeps those whose
+host `origin` names -- labelled as the text labels a host, the first
+eight bytes in hex -- newest first, as before (`show_keep`, shared by
+both forms). Naming the hosts stays as it was: `get identity` for this
+host, `list device` for a contact. The node is unchanged; text behind,
+for a node reading no binary.
+
+**Tests:** rpc_test -- this host named in text, three binary rows, two of
+them its own: those two kept, newest first, the accuracy read, the
+newest seq said, the other host's left out. Sabotage
+`show-client-every-host`, caught.

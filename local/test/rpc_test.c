@@ -1099,6 +1099,43 @@ static void test_positions_in_binary(void)
 	free(out);
 }
 
+/* THIS HOST'S FIXES IN BINARY, sec 1252: its host named in text, its
+ * fixes read from the binary rows, newest first; another host's left out. */
+static void test_show_in_binary(void)
+{
+	static struct bscript held;
+	static struct script s = { { "ok abababababababababababababababababababababababababababababababab "
+		                     "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a" },
+		                   0, 1, 0, { { 0 } } };
+	static fzn_rpc_location_show_resp_t out;
+	static const struct {
+		uint8_t host;
+		uint64_t seq;
+		uint32_t utc;
+	} FIXES[] = { { 0xab, 4u, 100u }, { 0xcd, 9u, 300u }, { 0xab, 5u, 200u } };
+	uint8_t host[32], row[160], m[176];
+	uint32_t row_len = 0, n = 0;
+	size_t i;
+
+	for (i = 0; i < 3u; i++) {
+		memset(host, FIXES[i].host, sizeof(host));
+		if (fzn_streams_local_location_row_build(row, sizeof(row), host, FIXES[i].seq, 0u, 590000000, 180000000,
+		                                         FIXES[i].utc, 0, 0u, 12u, 12u, 0u, 0u, 0u, 0u, NULL, 0u, &row_len)
+		            == SITU_OK
+		    && fzn_streams_local_message_build_location_row(m, sizeof(m), (uint8_t)FZN_CMD_STREAMS, row, row_len, &n)
+		               == SITU_OK)
+			framed(&held, 0, m, n);
+	}
+	status_onto(&held, 0, FZN_STATUS_OK, NULL);
+	on(&c, &s);
+	c.binary_answer = bscripted;
+	c.binary_ctx = &held;
+	CHECK(fzn_rpc_location_show(&c, "", 0, &out) == FZN_RPC_OK && out.count == 2u && out.entries[0].utc_s == 200u
+	              && out.entries[1].utc_s == 100u && out.entries[0].acc_e_m == 12u && out.high_water_seq == 5u
+	              && held.asked[0][0] == 0x0e && held.asked[0][1] == 0x80,
+	      "this host's fixes were not read in binary, newest first, another host's left out");
+}
+
 /* THIS USER'S CALLS IN BINARY, sec 1251: rows read with their id, state,
  * kinds and user, one past the room given left out; a reason read; a live
  * call no reason; answered by its id; a refusal in the node's words. */
@@ -2211,6 +2248,7 @@ int main(void)
 	test_packs_in_binary();
 	test_location_status_in_binary();
 	test_invites_in_binary();
+	test_show_in_binary();
 	test_calls_in_binary();
 	test_stickers_in_binary();
 	test_positions_in_binary();

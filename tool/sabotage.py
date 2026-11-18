@@ -17440,6 +17440,13 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"show-client-every-host",
+		"local/rpc.c",
+		"\tfor (size_t h = 0; h < a->n_hosts && !wanted; h++) wanted = memcmp(host, a->hosts[h], 16) == 0;\n",
+		"\twanted = 1;\n",
+		"this host's fixes read in binary take another host's in, and a sibling's position is said as this one's -- sec 1252",
+	),
+	(
 		"calls-client-state-swapped",
 		"local/rpc.c",
 		"\t\te.state = state == 1 ? FZN_RPC_RINGING_IN : state == 2 ? FZN_RPC_RINGING_OUT : FZN_RPC_UP;\n",
