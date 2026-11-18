@@ -18774,6 +18774,92 @@ static int local_grants(int fd)
 	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
+/* A DEVICE INVITED, WAITING AND ANSWERED, IN BINARY, sec 1250: through
+ * the verbs' own handler, `add invite`, `list invite`, and `grant` or
+ * `remove invite KEY`, so every check is theirs; a refusal said in their
+ * words, never as malformed (sec 1218). */
+static int local_invites(int fd, fzn_origin_t origin, situ_view_t v)
+{
+	static char reply[4096];
+	char arg[64 + 2u * FZN_PUBKEY_LEN];
+	const unsigned op = fzn_members_local_message_op_get(v);
+	fzn_request_t req;
+	situ_view_t b;
+	size_t r, n = 0, i;
+
+	memset(&req, 0, sizeof(req));
+	if (op == FZN_MEMBERS_LOCAL_OP_INVITE) {
+		unsigned confirm;
+		uint32_t life;
+
+		if (fzn_members_local_message_body_invite_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
+		confirm = fzn_members_local_invite_ask_confirm_get(b);
+		life = fzn_members_local_invite_ask_life_get(b);
+		n = (size_t)snprintf(arg, sizeof(arg), "invite%s%s", fzn_members_local_invite_ask_delegable_get(b) ? " delegable" : "",
+		                     confirm == 1u ? " confirm" : confirm == 2u ? " open" : "");
+		if (life)
+			n += (size_t)snprintf(arg + n, sizeof(arg) - n, " %lu", (unsigned long)life);
+		req.parsed = FZN_VERB_ADD;
+	} else if (op == FZN_MEMBERS_LOCAL_OP_WAITING) {
+		n = (size_t)snprintf(arg, sizeof(arg), "invite");
+		req.parsed = FZN_VERB_LIST;
+	} else {
+		const uint8_t *key;
+
+		if (fzn_members_local_message_body_answer_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
+		key = fzn_members_local_answer_ask_key_ptr(b);
+		n = (size_t)snprintf(arg, sizeof(arg), "invite ");
+		for (i = 0; i < FZN_PUBKEY_LEN; i++)
+			n += (size_t)snprintf(arg + n, sizeof(arg) - n, "%02x", key[i]);
+		req.parsed = fzn_members_local_answer_ask_let_in_get(b) ? FZN_VERB_GRANT : FZN_VERB_REMOVE;
+	}
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	r = invite_local(origin, &req, reply, sizeof(reply));
+	while (r && (reply[r - 1u] == '\n' || reply[r - 1u] == '\r'))
+		reply[--r] = '\0';
+	if (r < 2u || memcmp(reply, "ok", 2u) != 0 || (r > 2u && reply[2] != ' '))
+		return local_binary_status(fd,
+		                           r > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,
+		                           memchr(reply, ' ', r) ? (const char *)memchr(reply, ' ', r) + 1
+		                                                 : "the invite would not change"),
+		       0;
+	/* THE CODE, or a row per device waiting: `ok N KEY...`. */
+	if (op == FZN_MEMBERS_LOCAL_OP_INVITE) {
+		uint8_t row[256], out[272];
+		uint32_t row_len = 0, k = 0;
+
+		if (r < 4u
+		    || fzn_members_local_invite_row_build(row, sizeof(row), (const uint8_t *)reply + 3, (uint32_t)(r - 3u),
+		                                          &row_len)
+		               != SITU_OK
+		    || fzn_members_local_message_build_invite_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &k)
+		               != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the invite would not write"), 0;
+		if (!local_put(&fd, out, k))
+			return 0;
+	} else if (op == FZN_MEMBERS_LOCAL_OP_WAITING) {
+		const char *p = strchr(reply + 3, ' ');
+
+		while (p && strlen(p + 1) >= 2u * FZN_PUBKEY_LEN) {
+			uint8_t key[FZN_PUBKEY_LEN], out[2u + FZN_PUBKEY_LEN + 8u];
+			uint32_t k = 0;
+
+			for (i = 0; i < FZN_PUBKEY_LEN; i++)
+				key[i] = (uint8_t)(hexval((uint8_t)p[1 + 2u * i]) * 16 + hexval((uint8_t)p[2 + 2u * i]));
+			if (fzn_members_local_message_build_waiting_row(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, key,
+			                                                FZN_PUBKEY_LEN, &k)
+			            != SITU_OK
+			    || !local_put(&fd, out, k))
+				return 0;
+			p = strchr(p + 1, ' ');
+		}
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 /* THIS ESTATE'S OTHER HOSTS IN BINARY, sec 1176: `list sibling`'s rows, a
  * row a host and then a STATUS ok, for this node's own user alone -- and
  * the category's other two lists, sec 1188. */
@@ -18795,6 +18881,10 @@ static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 		return local_capabilities(fd);
 	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_GRANTS)
 		return local_grants(fd);
+	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_INVITE
+	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_WAITING
+	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_ANSWER)
+		return local_invites(fd, origin, v);
 	if (fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_SIBLINGS)
 		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
 	if (!siblings_gather(&hosts, &n))
@@ -18937,6 +19027,8 @@ static const char *binary_write_subject(const uint8_t *msg, size_t len)
 		return msg[1] == FZN_MESSAGES_LOCAL_OP_SEND || msg[1] == FZN_MESSAGES_LOCAL_OP_READ ? "message" : NULL;
 	case FZN_CMD_OBJECTS:
 		return fzn_node_objects_binary_changes(msg, len) ? "object" : NULL;
+	case FZN_CMD_MEMBERS:
+		return msg[1] == FZN_MEMBERS_LOCAL_OP_INVITE || msg[1] == FZN_MEMBERS_LOCAL_OP_ANSWER ? "invite" : NULL;
 	case FZN_CMD_STICKERS:
 		return msg[1] == FZN_STICKERS_LOCAL_OP_KEEP || msg[1] == FZN_STICKERS_LOCAL_OP_FORGET ? "sticker" : NULL;
 	case FZN_CMD_GROUPS:

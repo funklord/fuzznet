@@ -11,6 +11,10 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
+struct answer_ask size=33 atomic=NonAtomic
+  answer_ask.key                         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  answer_ask.let_in                      offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+
 struct capability_row size=11..27 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   capability_row.name_len                offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   capability_row.name                    offset=AbsoluteStatic(0x01) size=Bounded(0, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
@@ -24,6 +28,15 @@ struct grant_row size=42..58 mutate=Shifting address=Unstable repr=ValueConverte
   grant_row.name                         offset=AbsoluteStatic(0x21) size=Bounded(0, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   grant_row.expires                      offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   grant_row.stands                       offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+
+struct invite_ask size=6 repr=ValueConverted atomic=NonAtomic
+  invite_ask.delegable                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  invite_ask.confirm                     offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  invite_ask.life                        offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+
+struct invite_row size=1..211 mutate=Shifting
+  invite_row.code_len                    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  invite_row.code                        offset=AbsoluteStatic(0x01) size=Bounded(0, 210) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
 struct message size=2..338 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
@@ -53,6 +66,19 @@ struct message size=2..338 mutate=Shifting address=Unstable repr=ValueConverted 
   message.body.grant_row.name            offset=AbsoluteStatic(0x23) size=Bounded(0, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   message.body.grant_row.expires         offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   message.body.grant_row.stands          offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  message.body.invite                    offset=AbsoluteStatic(0x02) size=Fixed(6) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.invite.delegable          offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.invite.confirm            offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.invite.life               offset=AbsoluteStatic(0x04) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  message.body.invite_row                offset=AbsoluteStatic(0x02) size=Bounded(1, 211) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.invite_row.code_len       offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.invite_row.code           offset=AbsoluteStatic(0x03) size=Bounded(0, 210) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.waiting                   offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.waiting_row               offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.waiting_row.key           offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.answer                    offset=AbsoluteStatic(0x02) size=Fixed(33) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.answer.key                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.answer.let_in             offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
 
 struct nothing size=0
 
@@ -65,3 +91,6 @@ struct sibling_row size=45..336 mutate=Shifting address=Unstable repr=ValueConve
   sibling_row.where                      offset=AbsoluteStatic(0x2C) size=Bounded(0, 259) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   sibling_row.name_len                   offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
   sibling_row.name                       offset=Dynamic size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct waiting_row size=32 atomic=NonAtomic
+  waiting_row.key                        offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

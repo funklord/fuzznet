@@ -21,7 +21,9 @@ hold nothing but what they read, and nothing is carried back by a person.
        `list invite` and `event invite`, and is not paired; a second device
        cannot ask past it; `remove invite KEY` turns one away; `grant invite
        KEY` lets F in. And `invite/confirm` makes that the host's default,
-       which `open` overrides
+       which `open` overrides -- that second round in binary (sec 1250):
+       the code, F waiting as a row, an unknown key refused in words, F
+       let in
 
 Against a daemon that takes a used code again, phase c pairs E; against one
 that believes any card, phase f joins G.
@@ -47,6 +49,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
+from live_rpc import binary  # noqa: E402
 
 live_trim.DEADLINE = time.monotonic() + 400.0
 
@@ -230,15 +233,30 @@ def main(argv):
 			expect(socks["r"], "r", "remove invite " + key_f, "ok")
 			stays_out("f", key_f, "h")
 			expect(socks["r"], "r", "set setting host invite/confirm 1", "ok")
-			second = code()
+			# THE SECOND ROUND IN BINARY, sec 1250: the code, F waiting as a
+			# row, a key nobody waits by refused in words, and F let in.
+			got = binary(socks["r"], bytes([0x09, 0x86, 1, 0, 0, 0, 0, 0]))
+			if len(got) != 2 or got[0][:2] != bytes([0x09, 0x87]) or got[1][:2] != bytes([0x13, 0]) \
+			   or not got[0][3:3 + got[0][2]].startswith(b"FZI1:"):
+				raise failed("h: an invite in binary answered %r" % got)
+			second = got[0][3:3 + got[0][2]].decode()
 			expect(socks["f"], "f", "add join " + second, "ok asking")
 			waiting(key_f)
-			expect(socks["r"], "r", "grant invite " + "00" * 32,
-			       "error no device waits by that key")
+			got = binary(socks["r"], bytes([0x09, 0x88]))
+			if len(got) != 2 or got[0] != bytes([0x09, 0x89]) + bytes.fromhex(key_f) \
+			   or got[1][:2] != bytes([0x13, 0]):
+				raise failed("h: the devices waiting in binary answered %r" % got)
+			got = binary(socks["r"], bytes([0x09, 0x8A]) + bytes(32) + bytes([1]))
+			if len(got) != 1 or got[0][:2] != bytes([0x13, 3]) or b"no device waits by that key" not in got[0]:
+				raise failed("h: letting in a key nobody waits by, in binary, answered %r" % got)
 			stays_out("f", key_f, "h")
-			expect(socks["r"], "r", "grant invite " + key_f, "ok")
+			got = binary(socks["r"], bytes([0x09, 0x8A]) + bytes.fromhex(key_f) + bytes([1]))
+			if got != [bytes([0x13, 0, 0])]:
+				raise failed("h: letting F in, in binary, answered %r" % got)
 			joined("f", key_f, "h")
 			expect(socks["r"], "r", "list invite", "ok 0")
+			if binary(socks["r"], bytes([0x09, 0x88])) != [bytes([0x13, 0, 0])]:
+				raise failed("h: a device still waits in binary once F is in")
 			print("livecheck: h: a confirmed code held F until R's user said, and turned it away "
 			      "when told; invite/confirm made that the default")
 		except failed as e:

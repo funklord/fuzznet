@@ -19,7 +19,11 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  siblings=128 sibling_row=129 capabilities=130 capability_row=131 grants=132 grant_row=133
+  siblings=128 sibling_row=129 capabilities=130 capability_row=131 grants=132 grant_row=133 invite=134 invite_row=135 waiting=136 waiting_row=137 answer=138
+
+struct answer_ask size=33
+  @0x0000   32        u8         key  big
+  @0x0020   1         u8         let_in  max=1
 
 struct capability_row size=11..27
   @0x0000   1         u8         name_len  max=16
@@ -35,6 +39,15 @@ struct grant_row size=42..58
   ~         8         u64        expires  big
   ~         1         u8         stands  max=1
 
+struct invite_ask size=6
+  @0x0000   1         u8         delegable  max=1
+  @0x0001   1         u8         confirm  max=2
+  @0x0002   4         u32        life  big max=86400
+
+struct invite_row size=1..211
+  @0x0000   1         u8         code_len  max=210
+  @0x0001   0..210    u8         code  sized-by=code_len
+
 struct message size=2..338
   @0x0000   1         u8         cmd  must_eq=9
   @0x0001   1         op         op
@@ -46,6 +59,11 @@ struct message size=2..338
   body case 131: capability_row capability_row
   body case 132: grants nothing
   body case 133: grant_row grant_row
+  body case 134: invite invite_ask
+  body case 135: invite_row invite_row
+  body case 136: waiting nothing
+  body case 137: waiting_row waiting_row
+  body case 138: answer answer_ask
   body case default: error
 
 struct nothing size=0
@@ -59,3 +77,6 @@ struct sibling_row size=45..336
   @0x002c   0..259    u8         where  sized-by=where_len
   ~         1         u8         name_len  max=32
   ~         0..32     u8         name  sized-by=name_len
+
+struct waiting_row size=32
+  @0x0000   32        u8         key  big

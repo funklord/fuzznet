@@ -30,6 +30,11 @@ typedef enum fzn_members_local_op {
 	FZN_MEMBERS_LOCAL_OP_CAPABILITY_ROW = 131,
 	FZN_MEMBERS_LOCAL_OP_GRANTS = 132,
 	FZN_MEMBERS_LOCAL_OP_GRANT_ROW = 133,
+	FZN_MEMBERS_LOCAL_OP_INVITE = 134,
+	FZN_MEMBERS_LOCAL_OP_INVITE_ROW = 135,
+	FZN_MEMBERS_LOCAL_OP_WAITING = 136,
+	FZN_MEMBERS_LOCAL_OP_WAITING_ROW = 137,
+	FZN_MEMBERS_LOCAL_OP_ANSWER = 138,
 } fzn_members_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -43,6 +48,11 @@ static inline int fzn_members_local_op_is_known(fzn_members_local_op_t value)
 	case FZN_MEMBERS_LOCAL_OP_CAPABILITY_ROW:
 	case FZN_MEMBERS_LOCAL_OP_GRANTS:
 	case FZN_MEMBERS_LOCAL_OP_GRANT_ROW:
+	case FZN_MEMBERS_LOCAL_OP_INVITE:
+	case FZN_MEMBERS_LOCAL_OP_INVITE_ROW:
+	case FZN_MEMBERS_LOCAL_OP_WAITING:
+	case FZN_MEMBERS_LOCAL_OP_WAITING_ROW:
+	case FZN_MEMBERS_LOCAL_OP_ANSWER:
 		return 1;
 	default:
 		return 0;
@@ -878,6 +888,373 @@ situ_err_t fzn_members_local_grant_row_check(situ_view_t view, uint32_t *which);
 #define FZN_MEMBERS_LOCAL_GRANT_ROW_EXPIRES_CHECK 2u
 #define FZN_MEMBERS_LOCAL_GRANT_ROW_STANDS_CHECK 3u
 
+/* ---- struct invite_ask ---- */
+
+#define FZN_MEMBERS_LOCAL_INVITE_ASK_SIZE_FIXED 6u
+#define FZN_MEMBERS_LOCAL_INVITE_ASK_SIZE_MIN   6u
+#define FZN_MEMBERS_LOCAL_INVITE_ASK_SIZE_MAX   6u
+
+/* INVALIDATION: nothing invalidates a invite_ask view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_members_local_invite_ask_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MEMBERS_LOCAL_INVITE_ASK_SIZE_FIXED, out);
+}
+
+#define FZN_MEMBERS_LOCAL_INVITE_ASK_DELEGABLE_VALUE_MAX 1u
+
+/** invite_ask.delegable : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_members_local_invite_ask_delegable_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_members_local_invite_ask_delegable_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_members_local_invite_ask_delegable_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+#define FZN_MEMBERS_LOCAL_INVITE_ASK_CONFIRM_VALUE_MAX 2u
+
+/** invite_ask.confirm : u8  at AbsoluteStatic(0x01)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_members_local_invite_ask_confirm_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[1u]);
+}
+static inline uint8_t *fzn_members_local_invite_ask_confirm_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 1u);
+}
+static inline void fzn_members_local_invite_ask_confirm_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[1u] = (uint8_t)value;
+}
+
+#define FZN_MEMBERS_LOCAL_INVITE_ASK_LIFE_VALUE_MAX 86400u
+
+/** invite_ask.life : u32  at AbsoluteStatic(0x02)
+ * size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
+ */
+static inline uint32_t fzn_members_local_invite_ask_life_get(situ_view_t view)
+{
+	return (uint32_t)(situ_get_be32(situ_base(view) + 2u));
+}
+static inline void fzn_members_local_invite_ask_life_set(situ_view_t view, uint32_t value)
+{
+	situ_put_be32(situ_base(view) + 2u, (uint32_t)value);
+}
+
+/** How many bytes a whole `invite_ask` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_members_local_invite_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MEMBERS_LOCAL_INVITE_ASK_SIZE_FIXED;
+	return have >= FZN_MEMBERS_LOCAL_INVITE_ASK_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_members_local_invite_ask_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_members_local_invite_ask_check(situ_view_t view, uint32_t *which);
+#define FZN_MEMBERS_LOCAL_INVITE_ASK_DELEGABLE_CHECK 0u
+#define FZN_MEMBERS_LOCAL_INVITE_ASK_CONFIRM_CHECK 1u
+#define FZN_MEMBERS_LOCAL_INVITE_ASK_LIFE_CHECK 2u
+
+/* ---- struct invite_row ---- */
+
+#define FZN_MEMBERS_LOCAL_INVITE_ROW_SIZE_MIN   1u
+#define FZN_MEMBERS_LOCAL_INVITE_ROW_SIZE_MAX   211u
+
+/* INVALIDATION: a invite_row view, and every view derived from
+ * it, is invalidated by writing `code_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_members_local_invite_row_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_MEMBERS_LOCAL_INVITE_ROW_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+#define FZN_MEMBERS_LOCAL_INVITE_ROW_CODE_LEN_VALUE_MAX 210u
+
+/** invite_row.code_len : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_members_local_invite_row_code_len_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_members_local_invite_row_code_len_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+/* No plain setter: `code_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_members_local_invite_row_code_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** invite_row.code : u8  at AbsoluteStatic(0x01)
+ * size=Bounded(0, 210) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_members_local_invite_row_code_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])),
+		situ_remaining_u32(view.limit, 1u));
+}
+static inline uint8_t *fzn_members_local_invite_row_code_ptr(situ_view_t view)
+{
+	return situ_base(view) + 1u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `invite_row` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_members_local_invite_row_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 1u)) {
+		return 1u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 1u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])));
+	return extent;
+}
+
+/** How many bytes a whole `invite_row` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_members_local_invite_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 1u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* invite_row.code: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 1u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[0u]));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_members_local_invite_row_code_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_members_local_invite_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_members_local_invite_row_check(situ_view_t view, uint32_t *which);
+#define FZN_MEMBERS_LOCAL_INVITE_ROW_CODE_LEN_CHECK 0u
+#define FZN_MEMBERS_LOCAL_INVITE_ROW_CODE_CHECK 1u
+
+/* ---- struct waiting_row ---- */
+
+#define FZN_MEMBERS_LOCAL_WAITING_ROW_SIZE_FIXED 32u
+#define FZN_MEMBERS_LOCAL_WAITING_ROW_SIZE_MIN   32u
+#define FZN_MEMBERS_LOCAL_WAITING_ROW_SIZE_MAX   32u
+
+/* INVALIDATION: nothing invalidates a waiting_row view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_members_local_waiting_row_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MEMBERS_LOCAL_WAITING_ROW_SIZE_FIXED, out);
+}
+
+/** waiting_row.key : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MEMBERS_LOCAL_WAITING_ROW_KEY_COUNT 32u
+static inline uint8_t *fzn_members_local_waiting_row_key_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** How many bytes a whole `waiting_row` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_members_local_waiting_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MEMBERS_LOCAL_WAITING_ROW_SIZE_FIXED;
+	return have >= FZN_MEMBERS_LOCAL_WAITING_ROW_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_members_local_waiting_row_validate(situ_view_t view);
+
+/* ---- struct answer_ask ---- */
+
+#define FZN_MEMBERS_LOCAL_ANSWER_ASK_SIZE_FIXED 33u
+#define FZN_MEMBERS_LOCAL_ANSWER_ASK_SIZE_MIN   33u
+#define FZN_MEMBERS_LOCAL_ANSWER_ASK_SIZE_MAX   33u
+
+/* INVALIDATION: nothing invalidates a answer_ask view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_members_local_answer_ask_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MEMBERS_LOCAL_ANSWER_ASK_SIZE_FIXED, out);
+}
+
+/** answer_ask.key : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MEMBERS_LOCAL_ANSWER_ASK_KEY_COUNT 32u
+static inline uint8_t *fzn_members_local_answer_ask_key_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+#define FZN_MEMBERS_LOCAL_ANSWER_ASK_LET_IN_VALUE_MAX 1u
+
+/** answer_ask.let_in : u8  at AbsoluteStatic(0x20)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_members_local_answer_ask_let_in_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[32u]);
+}
+static inline uint8_t *fzn_members_local_answer_ask_let_in_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 32u);
+}
+static inline void fzn_members_local_answer_ask_let_in_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[32u] = (uint8_t)value;
+}
+
+/** How many bytes a whole `answer_ask` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_members_local_answer_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MEMBERS_LOCAL_ANSWER_ASK_SIZE_FIXED;
+	return have >= FZN_MEMBERS_LOCAL_ANSWER_ASK_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_members_local_answer_ask_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_members_local_answer_ask_check(situ_view_t view, uint32_t *which);
+#define FZN_MEMBERS_LOCAL_ANSWER_ASK_LET_IN_CHECK 0u
+
 /* ---- struct message ---- */
 
 #define FZN_MEMBERS_LOCAL_MESSAGE_SIZE_MIN   2u
@@ -941,7 +1318,7 @@ static inline fzn_members_local_op_t fzn_members_local_message_op_get(situ_view_
 /* message.body : variant  at AbsoluteStatic(0x02)
  * size=Bounded(0, 336) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `siblings`, `sibling_row`, `capabilities`, `capability_row`, `grants`, `grant_row` is
+/** `body` is a variant: exactly one of `siblings`, `sibling_row`, `capabilities`, `capability_row`, `grants`, `grant_row`, `invite`, `invite_row`, `waiting`, `waiting_row`, `answer` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -1103,6 +1480,108 @@ static inline situ_err_t fzn_members_local_message_body_grant_row_view(situ_view
 
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_GRANT_ROW_STANDS_VALUE_MAX 1u
 
+/** message.body.invite, present when the discriminant selects `op.invite`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_members_local_message_body_invite_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 134u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MEMBERS_LOCAL_INVITE_ASK_SIZE_FIXED, out);
+}
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_INVITE_DELEGABLE_VALUE_MAX 1u
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_INVITE_CONFIRM_VALUE_MAX 2u
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_INVITE_LIFE_VALUE_MAX 86400u
+
+/* message.body.invite_row, present when the discriminant selects `op.invite_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `invite_row` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_members_local_message_body_invite_row_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_members_local_invite_row_extent(whole);
+}
+static inline situ_err_t fzn_members_local_message_body_invite_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 135u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_members_local_invite_row_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_INVITE_ROW_CODE_LEN_VALUE_MAX 210u
+
+/** message.body.waiting, present when the discriminant selects `op.waiting`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_members_local_message_body_waiting_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 136u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MEMBERS_LOCAL_NOTHING_SIZE_FIXED, out);
+}
+
+/** message.body.waiting_row, present when the discriminant selects `op.waiting_row`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_members_local_message_body_waiting_row_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 137u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MEMBERS_LOCAL_WAITING_ROW_SIZE_FIXED, out);
+}
+
+/** message.body.answer, present when the discriminant selects `op.answer`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_members_local_message_body_answer_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 138u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MEMBERS_LOCAL_ANSWER_ASK_SIZE_FIXED, out);
+}
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_ANSWER_LET_IN_VALUE_MAX 1u
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -1186,6 +1665,41 @@ static inline situ_err_t fzn_members_local_message_required(const uint8_t *data,
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 134u) {
+			e = fzn_members_local_invite_ask_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 135u) {
+			e = fzn_members_local_invite_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 136u) {
+			e = fzn_members_local_nothing_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 137u) {
+			e = fzn_members_local_waiting_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 138u) {
+			e = fzn_members_local_answer_ask_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -1229,6 +1743,11 @@ situ_err_t fzn_members_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_CAPABILITY_ROW_CHECK 6u
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_GRANTS_CHECK 7u
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_GRANT_ROW_CHECK 8u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_INVITE_CHECK 9u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_INVITE_ROW_CHECK 10u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_WAITING_CHECK 11u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_WAITING_ROW_CHECK 12u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_ANSWER_CHECK 13u
 
 #ifdef __cplusplus
 }

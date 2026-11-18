@@ -2474,7 +2474,82 @@ static int node_join_install(fzn_rpc_t *c, const uint8_t *approval, size_t appro
 /* `add invite delegable`: `ok FZI1:...`, a code a device joins by, shown for
  * ten minutes (fuzznet sec 896). It says where this node is, so a node with
  * no net/address is refused, in fuzznet's words. */
+/* A DEVICE INVITED, WAITING AND ANSWERED IN BINARY, sec 1250: the code, or a
+ * row per device waiting, then a STATUS. */
+struct invite_answer {
+	char *code;
+	size_t cap, code_len;
+	uint8_t (*keys)[32];
+	size_t keys_cap, *count;
+	int bad, status_seen;
+	fzn_status_t code_status;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void invite_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct invite_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code_status, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_members_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_members_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (a->code && !a->code_len && fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_INVITE_ROW
+	    && fzn_members_local_message_body_invite_row_view(v, &b) == SITU_OK) {
+		const size_t n = fzn_members_local_invite_row_code_len(b);
+		if (n + 1 > a->cap || n < 5 || memcmp(fzn_members_local_invite_row_code_ptr(b), "FZI1:", 5) != 0) {
+			a->bad = 1;
+			return;
+		}
+		memcpy(a->code, fzn_members_local_invite_row_code_ptr(b), n);
+		a->code[n] = '\0';
+		a->code_len = n;
+		return;
+	}
+	if (a->keys && fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_WAITING_ROW
+	    && fzn_members_local_message_body_waiting_row_view(v, &b) == SITU_OK) {
+		if (*a->count < a->keys_cap) memcpy(a->keys[(*a->count)++], fzn_members_local_waiting_row_key_ptr(b), 32);
+		return;
+	}
+	a->bad = 1;
+}
+
+static int invite_binary(fzn_rpc_t *c, const uint8_t *req, size_t req_len, struct invite_answer *a, int *text) {
+	const int rc = fzn_rpc_binary(c, req, req_len, invite_each, a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a->bad || !a->status_seen) return unreadable(c); /* the answer cut short */
+	if (a->code_status != FZN_STATUS_OK)
+		return fail(c, a->code_status == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_device_invite(fzn_rpc_t *c, char *code, size_t cap) {
+	/* IN BINARY FIRST: delegable, as invite/confirm says, ten minutes. */
+	{
+		static const uint8_t req[] = { FZN_CMD_MEMBERS, FZN_MEMBERS_LOCAL_OP_INVITE, 1, 0, 0, 0, 0, 0 };
+		struct invite_answer a;
+		int text = 0;
+		memset(&a, 0, sizeof a);
+		a.code = code;
+		a.cap = cap;
+		const int brc = invite_binary(c, req, sizeof req, &a, &text);
+		if (!text) return brc != FZN_RPC_OK ? brc : a.code_len ? FZN_RPC_OK : unreadable(c);
+	}
 	const char *rest = NULL;
 	size_t rest_len = 0;
 	static const char ask[] = "invite delegable";
@@ -2509,6 +2584,19 @@ int fzn_rpc_device_waiting(fzn_rpc_t *c, uint8_t (*keys)[32], size_t cap, size_t
 	const char *rest = NULL;
 	size_t rest_len = 0, at = 0, n = 0;
 	*count = 0;
+	/* IN BINARY FIRST, a row per device waiting. */
+	{
+		static const uint8_t req[] = { FZN_CMD_MEMBERS, FZN_MEMBERS_LOCAL_OP_WAITING };
+		struct invite_answer a;
+		int text = 0;
+		memset(&a, 0, sizeof a);
+		a.keys = keys;
+		a.keys_cap = cap;
+		a.count = count;
+		const int brc = invite_binary(c, req, sizeof req, &a, &text);
+		if (!text) return brc;
+		*count = 0;
+	}
 	const int rc = fzn_rpc_node(c, "list", "invite", 6, &rest, &rest_len);
 	if (rc != FZN_RPC_OK) return rc;
 	if (!node_number(rest, rest_len, &at, &n)) return unreadable(c);
@@ -2518,6 +2606,19 @@ int fzn_rpc_device_waiting(fzn_rpc_t *c, uint8_t (*keys)[32], size_t cap, size_t
 }
 
 int fzn_rpc_device_answer(fzn_rpc_t *c, const uint8_t key[32], int let_in) {
+	/* IN BINARY FIRST. */
+	{
+		uint8_t req[2 + 32 + 1];
+		struct invite_answer a;
+		int text = 0;
+		req[0] = FZN_CMD_MEMBERS;
+		req[1] = FZN_MEMBERS_LOCAL_OP_ANSWER;
+		memcpy(req + 2, key, 32);
+		req[34] = let_in ? 1 : 0;
+		memset(&a, 0, sizeof a);
+		const int brc = invite_binary(c, req, sizeof req, &a, &text);
+		if (!text) return brc;
+	}
 	char hex[65], arg[8 + 64 + 1];
 	fzn_hex_encode(key, 32, hex);
 	return node_ack(c, let_in ? "grant" : "remove", arg,

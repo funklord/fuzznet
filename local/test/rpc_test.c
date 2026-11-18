@@ -1098,6 +1098,55 @@ static void test_positions_in_binary(void)
 	free(out);
 }
 
+/* A DEVICE INVITED, WAITING AND ANSWERED IN BINARY, sec 1250: the code read
+ * as sent, asked delegable; two devices waiting where room was for one,
+ * the first kept; let in by key; a refusal in the node's words. */
+static void test_invites_in_binary(void)
+{
+	static struct bscript code, wait, in, refused;
+	static const char said[] = "FZI1:ABCDEFG";
+	uint8_t row[64], m[80], keys[1][32], key[32];
+	uint32_t row_len = 0, n = 0;
+	char got[64];
+	size_t count = 0, i;
+
+	if (fzn_members_local_invite_row_build(row, sizeof(row), (const uint8_t *)said, sizeof(said) - 1u, &row_len)
+	            == SITU_OK
+	    && fzn_members_local_message_build_invite_row(m, sizeof(m), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &n)
+	               == SITU_OK)
+		framed(&code, 0, m, n);
+	status_onto(&code, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &code);
+	CHECK(fzn_rpc_device_invite(&c, got, sizeof(got)) == FZN_RPC_OK && strcmp(got, said) == 0
+	              && code.asked[0][0] == 0x09 && code.asked[0][1] == 0x86 && code.asked[0][2] == 1,
+	      "an invite was not read in binary as sent, asked delegable");
+
+	for (i = 0; i < 2u; i++) {
+		memset(key, i ? 0x22 : 0x11, sizeof(key));
+		if (fzn_members_local_message_build_waiting_row(m, sizeof(m), (uint8_t)FZN_CMD_MEMBERS, key, 32u, &n)
+		    == SITU_OK)
+			framed(&wait, 0, m, n);
+	}
+	status_onto(&wait, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &wait);
+	CHECK(fzn_rpc_device_waiting(&c, keys, 1u, &count) == FZN_RPC_OK && count == 1u && keys[0][0] == 0x11
+	              && wait.asked[0][1] == 0x88,
+	      "the devices waiting were not read in binary, the first kept where room was for one");
+
+	status_onto(&in, 0, FZN_STATUS_OK, NULL);
+	bon(&c, &in);
+	memset(key, 0x33, sizeof(key));
+	CHECK(fzn_rpc_device_answer(&c, key, 1) == FZN_RPC_OK && in.asked[0][1] == 0x8a && in.asked[0][2] == 0x33
+	              && in.asked[0][34] == 1,
+	      "a waiting device was not let in by its key in binary");
+
+	status_onto(&refused, 0, FZN_STATUS_ERROR, "no device waits by that key");
+	bon(&c, &refused);
+	CHECK(fzn_rpc_device_answer(&c, key, 0) != FZN_RPC_OK && strstr(c.error, "no device waits by that key")
+	              && refused.asked[0][34] == 0,
+	      "turning away a key nobody waits by was not refused in the node's words");
+}
+
 /* THIS HOST'S SAMPLING IN BINARY, sec 1249: read as the text is -- gpsd
  * watching, sampling from where it is; connecting, not sampling and why;
  * a fix supplied, sampling from `platform`. */
@@ -2110,6 +2159,7 @@ int main(void)
 	test_note_open_in_binary();
 	test_packs_in_binary();
 	test_location_status_in_binary();
+	test_invites_in_binary();
 	test_stickers_in_binary();
 	test_positions_in_binary();
 	test_groups_in_binary();

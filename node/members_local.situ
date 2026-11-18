@@ -18,6 +18,11 @@ enum op : u8 {
 	capability_row = 131, // an answer: one capability
 	grants         = 132, // every grant this node signed, as `list grant`
 	grant_row      = 133, // an answer: one grant
+	invite         = 134, // a code a device joins by, as `add invite` (sec 1250)
+	invite_row     = 135, // an answer: the code
+	waiting        = 136, // the devices waiting to be let in, as `list invite`
+	waiting_row    = 137, // an answer: one device
+	answer         = 138, // a waiting device let in or turned away
 	default        = error,
 }
 
@@ -61,6 +66,32 @@ struct grant_row {
 	u8   stands [max = 1];
 }
 
+// AN INVITE: DELEGABLE 1 for a device of this estate, 0 for a contact;
+// CONFIRM 0 as `invite/confirm` says, 1 a device waits to be let in, 2 it
+// is let in at once; LIFE its seconds, 0 for the ten minutes.
+struct invite_ask {
+	u8   delegable [max = 1];
+	u8   confirm [max = 2];
+	u32  life [max = 86400];
+}
+
+// CODE `FZI1:...`, what the joining device is given.
+struct invite_row {
+	u8   code_len [max = 210];
+	u8   code[code_len];
+}
+
+// KEY a device's, waiting on an invite that asks to be confirmed.
+struct waiting_row {
+	u8   key[32];
+}
+
+// KEY the waiting device's; LET_IN 1 to let it in, 0 to turn it away.
+struct answer_ask {
+	u8   key[32];
+	u8   let_in [max = 1];
+}
+
 struct message {
 	u8   cmd [must_eq = 9];
 	op   op;
@@ -72,6 +103,11 @@ struct message {
 		case op.capability_row: capability_row capability_row;
 		case op.grants:         nothing        grants;
 		case op.grant_row:      grant_row      grant_row;
+		case op.invite:         invite_ask     invite;
+		case op.invite_row:     invite_row     invite_row;
+		case op.waiting:        nothing        waiting;
+		case op.waiting_row:    waiting_row    waiting_row;
+		case op.answer:         answer_ask     answer;
 		default: error;
 	}
 }

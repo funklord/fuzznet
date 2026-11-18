@@ -236,6 +236,69 @@ static inline situ_err_t fzn_members_local_grant_row_edit_decode(const situ_msg_
 	return SITU_OK;
 }
 
+/* `invite_row`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t code_len;
+	const uint8_t *code;	/* into your backing */
+	uint32_t code_len;
+} fzn_members_local_invite_row_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_members_local_invite_row_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_members_local_invite_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_members_local_invite_row_code_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_members_local_invite_row_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_members_local_invite_row_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_members_local_invite_row_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_members_local_invite_row_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->code_len = fzn_members_local_invite_row_code_len_get(view);
+	out->code_len = fzn_members_local_invite_row_code_len(view);
+	out->code     = backing + at;
+	for (uint32_t i = 0u; i < out->code_len; i++) {
+		backing[at + i] = fzn_members_local_invite_row_code_ptr(view)[i];
+	}
+	at += out->code_len;
+	(void)at;
+	return SITU_OK;
+}
+
 #ifdef __cplusplus
 }
 #endif

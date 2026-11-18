@@ -91770,3 +91770,35 @@ text's words (the counts excepted, which may move between the reads),
 and a gpsd named while connecting or watching. Three sabotages, each
 caught (`location-status-client-connecting-unsaid`,
 `location-status-node-source-off`, `location-status-binary-gpsd-unnamed`).
+
+## 1250. A device invited, waiting and answered, in binary, 2026-11-18
+
+Sec 1217's next subject, a host letting its own devices in. Members
+(FZN_CMD_MEMBERS, the estate's category) gains `invite` (134) --
+delegable or not, confirm as `invite/confirm` says or forced either way,
+and a life, 0 for the ten minutes -- answered by an `invite_row` (135)
+carrying the `FZI1:` code; `waiting` (136), a `waiting_row` (137) per
+device whose code asks to be confirmed; and `answer` (138), a waiting
+device's key and whether to let it in or turn it away.
+
+- **Through the verbs' own handler** (`invite_local`), as `add invite`,
+  `list invite`, and `grant` or `remove invite KEY`, so every check is
+  theirs -- this user's alone, no net/address, the one use -- and a
+  refusal is said in their words, never as malformed.
+- **Invite and answer tell the subscribers `invite`**, as the verbs do.
+- **The client asks in binary first** (`fzn_rpc_device_invite`,
+  `_waiting`, `_answer`), the verb behind; the devices view is unchanged
+  above it.
+
+Joining stays text for now: `add join CODE` restarts the node as a
+device of the estate, and its client already reads the restart from
+`get identity`.
+
+**Tests:** five vectors; rpc_test -- the code read as sent, asked
+delegable; two devices waiting where room was for one, the first kept;
+let in by key; a refusal in the node's words. `live_invite` phase h's
+second round is binary: the code, F waiting as a row by its key, a key
+nobody waits by refused in words, F let in and joined, nobody waiting
+after. Four sabotages, each caught (`invites-client-overruns-room`,
+`invites-client-always-let-in`, `invites-node-answer-ignores-word`,
+`invites-node-waiting-unlisted`, the last two by live_invite alone).
