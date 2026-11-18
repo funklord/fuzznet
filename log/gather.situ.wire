@@ -27,7 +27,7 @@ struct fzn_gather_line size=3..65537
 
 struct fzn_gather_lines size=21..4294967316
   @0x0000   1         u8         version  must_eq=4
-  @0x0001   1         fzn_gather_type type  must_eq=lines
+  @0x0001   1         fzn_gather_type type  must_eq=2
   @0x0002   1         u8         done  max=1
   @0x0003   8         u64        cursor_key  big
   @0x000b   8         u64        cursor_off  big
@@ -36,7 +36,7 @@ struct fzn_gather_lines size=21..4294967316
 
 struct fzn_gather_query size=37..164
   @0x0000   1         u8         version  must_eq=4
-  @0x0001   1         fzn_gather_type type  must_eq=query
+  @0x0001   1         fzn_gather_type type  must_eq=1
   @0x0002   8         u64        since_us  big
   @0x000a   8         u64        until_us  big
   @0x0012   8         u64        cursor_key  big
@@ -52,13 +52,13 @@ struct fzn_gather_record size=57..4674
 
 struct fzn_gather_ring size=5..306310595
   @0x0000   1         u8         version  must_eq=4
-  @0x0001   1         fzn_gather_type type  must_eq=ring
+  @0x0001   1         fzn_gather_type type  must_eq=4
   @0x0002   1         u8         done  max=1
   @0x0003   2         u16        count  big
   @0x0005   0..306310590 fzn_gather_record records  sized-by=count
 
 struct fzn_gather_ring_query size=11
   @0x0000   1         u8         version  must_eq=4
-  @0x0001   1         fzn_gather_type type  must_eq=ring_query
+  @0x0001   1         fzn_gather_type type  must_eq=3
   @0x0002   1         u8         started  max=1
   @0x0003   8         u64        after  big

@@ -23,7 +23,7 @@ enum fzn_msg_type : u8 unknown=error
 
 struct fzn_msg_data size=23..
   @0x0000   1         u8         version  must_eq=1
-  @0x0001   1         fzn_msg_type type  must_eq=data
+  @0x0001   1         fzn_msg_type type  must_eq=4
   @0x0002   4         u32        transfer  big
   @0x0006   8         u64        first  big
   @0x000e   8         u64        count  big max=64
@@ -34,7 +34,7 @@ struct fzn_msg_data size=23..
 
 struct fzn_msg_have size=60..4156
   @0x0000   1         u8         version  must_eq=1
-  @0x0001   1         fzn_msg_type type  must_eq=have
+  @0x0001   1         fzn_msg_type type  must_eq=2
   @0x0002   32        u8         root  big
   @0x0022   8         u64        leaf_count  big max=4194304
   @0x002a   16        u8         cookie  big
@@ -43,7 +43,7 @@ struct fzn_msg_have size=60..4156
 
 struct fzn_msg_have_query size=34
   @0x0000   1         u8         version  must_eq=1
-  @0x0001   1         fzn_msg_type type  must_eq=have_query
+  @0x0001   1         fzn_msg_type type  must_eq=1
   @0x0002   32        u8         root  big
 
 struct fzn_msg_proof_node size=32
@@ -55,7 +55,7 @@ struct fzn_msg_range size=16
 
 struct fzn_msg_want size=70
   @0x0000   1         u8         version  must_eq=1
-  @0x0001   1         fzn_msg_type type  must_eq=want
+  @0x0001   1         fzn_msg_type type  must_eq=3
   @0x0002   4         u32        transfer  big
   @0x0006   16        u8         cookie  big
   @0x0016   32        u8         root  big
