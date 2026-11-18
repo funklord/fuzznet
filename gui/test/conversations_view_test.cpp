@@ -31,6 +31,7 @@ static int checks, failures;
 	} while (0)
 
 #define BOB "b0b0000000000000000000000000000000000000000000000000000000000001"
+#define BOB_24 "b0b000000000000000000000000000000000000000000000"
 #define DAN "da40000000000000000000000000000000000000000000000000000000000003"
 #define FAMILY "f0f0000000000000000000000000000000000000000000000000000000000009"
 #define SELF "5e1f000000000000000000000000000000000000000000000000000000000000"
@@ -38,6 +39,7 @@ static int checks, failures;
 #define NOW 1700005600u
 
 static int silent, members_mode, called;
+static char read_choice[8]; /* bob's own read-marks choice, "" none (sec 1274) */
 static char asked[512];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -46,6 +48,25 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (silent)
 		return 0;
 	/* BOB'S LINE AT 23:50, CAROL'S FILE IN THE FAMILY AT 23:48, DAN NOTHING. */
+	/* READ MARKS, sec 1274: the choice everywhere off, and bob's own as
+	 * the menu set it -- "" when it follows. */
+	if (!strcmp(line, "get schema message/read-marks"))
+		return (size_t)snprintf(reply, cap, "ok message/read-marks,flag,estate+host,0,0,off,,safe-lower,x\n");
+	if (!strncmp(line, "get schema message/read/", 24))
+		return (size_t)snprintf(reply, cap, "ok message/read/,flag,estate+host,0,0,,,safe-lower,x\n");
+	if (!strcmp(line, "get setting here message/read-marks"))
+		return (size_t)snprintf(reply, cap, "ok absent\n");
+	if (!strncmp(line, "get setting here message/read/" BOB_24, 30 + 48))
+		return read_choice[0] ? (size_t)snprintf(reply, cap, "ok host 0 %s\n", read_choice)
+		                      : (size_t)snprintf(reply, cap, "ok absent\n");
+	if (!strncmp(line, "set setting host message/read/" BOB_24 " ", 30 + 48 + 1)) {
+		snprintf(read_choice, sizeof read_choice, "%s", line + 30 + 48 + 1);
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	if (!strcmp(line, "remove setting host message/read/" BOB_24)) {
+		read_choice[0] = '\0';
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 	/* DAN'S MISSED CALL AT 23:30, his newest (sec 1270). */
 	if (!strcmp(line, "list message newest") && called)
 		return (size_t)snprintf(reply, cap,
@@ -120,6 +141,18 @@ int main(int argc, char **argv)
 	called = 0;
 	CHECK(v.refresh(), "the list did not come back without the call");
 	CHECK(v.open(0, 0) && opened == "bob", "a contact's conversation was not opened by its name");
+	/* READ MARKS FOR ONE CONVERSATION, sec 1274: three ways, the one
+	 * standing marked; chosen, set or cleared for bob's key alone. */
+	CHECK(v.actions(0, 0).contains("Read marks: As everywhere (off) *")
+	              && v.actions(0, 0).contains("Read marks: Tell them when I read"),
+	      "bob's row did not offer read marks three ways, following marked");
+	CHECK(v.act(0, 0, "Read marks: Don't tell them") && !strcmp(read_choice, "off")
+	              && v.actions(0, 0).contains("Read marks: Don't tell them *")
+	              && v.status() == "bob is not told when you read.",
+	      "bob's own choice was not set, marked and said");
+	CHECK(v.act(0, 0, "Read marks: As everywhere (off) *") && !read_choice[0]
+	              && v.actions(0, 0).contains("Read marks: As everywhere (off) *"),
+	      "bob's choice was not cleared to follow the choice everywhere");
 	CHECK(v.open(1, 0) && opened == "@family", "a group's conversation was not opened as @NAME");
 	CHECK(!v.open(1, 5), "a row that is not there was opened");
 	/* A REFRESH KEEPS THE ROW CHOSEN, sec 1225: family's, under Groups. */
@@ -143,9 +176,9 @@ int main(int argc, char **argv)
 		what = w;
 		to = t;
 	});
-	CHECK(v.actions(0, 0) == QStringList({ "Send a file...", "Call", "Video call", "Share my location" }),
+	CHECK(v.actions(0, 0).mid(0, 4) == QStringList({ "Send a file...", "Call", "Video call", "Share my location" }),
 	      "a contact's menu did not offer its calls and sharing");
-	CHECK(v.actions(0, 1).last() == "Stop sharing my location",
+	CHECK(v.actions(0, 1).value(3) == "Stop sharing my location",
 	      "a contact who sees this user's location was not offered to stop");
 	CHECK(v.act(0, 0, "Video call") && what == "video" && to == "bob", "a video call was not handed over");
 	CHECK(v.act(0, 0, "Share my location") && !strcmp(asked, "grant stream location bob 0\n")

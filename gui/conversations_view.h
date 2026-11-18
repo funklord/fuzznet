@@ -115,9 +115,14 @@ private:
 	/* A ROW AS READ, kept to lay out again at another width. */
 	struct row {
 		QString name, text, when, open;
+		QByteArray key; /* the contact's key or the group's id, sec 1274 */
 		size_t unread;
 		int kind;
 	};
+	/* READ MARKS FOR ONE CONVERSATION, sec 1274: "Read marks: ..." entries,
+	 * the one standing marked; and choosing one. */
+	void read_marks_menu(const QByteArray &key, QStringList *out);
+	bool read_marks_act(const QByteArray &key, const QString &name, const QString &action);
 	QVector<row> m_rows;
 	bool m_flat = false;
 	QTreeWidgetItem *row_item(int group, int row) const;

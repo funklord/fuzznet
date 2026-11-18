@@ -92625,3 +92625,77 @@ weather" offers none. Sabotages `pack-always-4`,
 `match-half-typed-unseen`, `match-apostrophe-kept`,
 `match-line-break-sent`, `suggest-never-shown`, `suggest-words-kept`,
 each caught.
+
+## 1273. Read marks in groups, 2026-11-18
+
+Sec 1269's next step, the holder's "configurable for groups and
+individually". The same two settings choose: `message/read-marks` for
+every conversation, `message/read/HEX` for one -- HEX a group's id's
+first 24 bytes as readily as a contact's key's -- off unless chosen.
+
+**Told as the group's lines are carried.** A group's lines reach its
+members through its hosts, sealed under its epoch (sec 628), not node to
+node as a contact's do, so a read mark goes the same way: at the group's
+sealing pass, where this user tells the group and has read further than
+this device last told, one more sealed group line whose text is
+`fzn:read/STIME`, the time of the line read up to. It is never written
+to this user's own conversation, so it is neither listed nor counted
+here, and it is told once a line (`fzn_messages_told`, as sec 1269).
+Rejected: a group act (signed, kept for good in the group's log, and an
+admin's to order -- wrong for something a member says of itself many
+times a day), and a request to each member's node (a group of 200 would
+cost 200 requests a read, and members need not be contacts).
+
+**Taken as a member's reading, never as a line.** A node filing a group
+line whose text is exactly that form keeps it as its sender's reading:
+a record (kind 0x537, `fzn_message_member_seen`) on this user's stream,
+which its other devices take in, and the group's row of readers -- up to
+32 members, each by their key's first 8 bytes and the time read up to,
+a later time replacing an earlier, the oldest giving way when full. One
+of this user's own devices' marks is passed over: this user's reading
+is its read position.
+
+**Shown.** A group line this user sent lists `read` once any member has
+read past it; in binary `line_row` carries `read_by`, how many, and the
+client's `fzn_rpc_group_line_t` its `read_by` -- "read by 3", as LINE's
+"Read 3". Past 32 readers the count is the 32 newest.
+
+**The cost, recorded:** a node built before this files a member's mark
+as a line reading `fzn:read/1700000000000`. Read marks are off by
+default, so only a group where somebody turned them on meets it, and
+fuzzypickles takes fuzznet whole; it is told.
+
+**Tests:** messages_test -- each member's newest kept, an older telling
+moving nothing, counted at or past a time, carried to the other device,
+rebuilt by a reindex, the oldest giving way past 32. node messages_test
+-- the mark's text written and read back, and five near misses not taken
+for one. rpc_test -- a group line read by three in binary. `live_groups`
+dr: B reads A's group line with marks off and A is told nothing over two
+rounds each; on, B's mark makes A's next line `read`, and no mark is
+listed as a line on either side. Sabotages `group-mark-filed-as-line`,
+`group-mark-never-sealed`, `group-read-never-listed`,
+`read-mark-any-digits`, `member-seen-older-wins` -- the last survived
+the first run, the public call refusing an older time before the row's
+own check is reached, and is caught since by a test where the user's
+other device, not yet knowing the newer time, records an older one.
+
+## 1274. Read marks chosen per conversation, from its row's menu, 2026-11-18
+
+Sec 1268's "configurable for groups and individually", for a person
+rather than a settings key. Each contact's and group's row in
+conversations_view offers "Read marks" three ways:
+
+- **As everywhere (off)** -- following `message/read-marks`, the words
+  saying what that is now; the setting for the conversation cleared;
+- **Tell them when I read**, or **Don't tell them** -- `message/read/HEX`
+  set on or off for this host.
+
+The choice standing is marked `*`. Three ways as working-practice's
+*a config file records choices, not values* asks: a conversation left to
+follow takes the user's next change of the default, and one pinned keeps
+its word. The menu reads both settings as it opens.
+
+**Tests:** conversations_view_test -- bob's row offers the three,
+following marked; "Don't tell them" sets bob's key's setting off, is
+marked and said; "As everywhere" clears it. Sabotages
+`read-menu-wrong-key`, `read-menu-choice-unmarked`, each caught.

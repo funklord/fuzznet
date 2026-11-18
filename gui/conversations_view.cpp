@@ -40,6 +40,7 @@ extern "C" {
 /* A ROW'S ITEM carries what to open it by, and what kind of row it is. */
 #define ROLE_OPEN (Qt::UserRole)
 #define ROLE_KIND (Qt::UserRole + 1)
+#define ROLE_KEY (Qt::UserRole + 2)
 enum { ROW_CONTACT = 1, ROW_GROUP = 2, ROW_UNNAMED = 3 };
 
 static QString failed_words(const fzn_gui_rpc *r)
@@ -338,6 +339,7 @@ void fzn_conversations_view::lay_out()
 		}
 		item->setData(0, ROLE_OPEN, r.open);
 		item->setData(0, ROLE_KIND, r.kind);
+		item->setData(0, ROLE_KEY, r.key);
 	}
 	if (contacts) {
 		contacts->setExpanded(true);
@@ -412,6 +414,7 @@ bool fzn_conversations_view::refresh()
 		r.when = e->stime_ms ? when_words(now, e->stime_ms) : QString();
 		r.unread = counts.value(key, 0);
 		r.open = is_group ? QStringLiteral("@") + name : name;
+		r.key = key;
 		r.kind = is_group ? ROW_GROUP : contact_name.contains(key) ? ROW_CONTACT : ROW_UNNAMED;
 		m_rows.append(r);
 	}
@@ -548,6 +551,7 @@ QStringList fzn_conversations_view::actions(int group, int row)
 		}
 		QStringList out({ tr("Send a file..."), tr("Call everyone"), tr("Members and admins...") });
 		members_menu(item->data(0, ROLE_OPEN).toString().mid(1), &out);
+		read_marks_menu(item->data(0, ROLE_KEY).toByteArray(), &out);
 		return out;
 	}
 	if (kind != ROW_CONTACT)
@@ -558,6 +562,7 @@ QStringList fzn_conversations_view::actions(int group, int row)
 		out << tr("Share my location");
 	else if (on == 1)
 		out << tr("Stop sharing my location");
+	read_marks_menu(item->data(0, ROLE_KEY).toByteArray(), &out);
 	return out;
 }
 
@@ -673,6 +678,65 @@ bool fzn_conversations_view::member_act(const QString &group, const QString &act
 	return true;
 }
 
+/* THE SETTING FOR ONE CONVERSATION, sec 1269: `message.read.HEX`, HEX its
+ * key's first 24 bytes, as the client names the node's `message/read/HEX`. */
+static QByteArray read_key(const QByteArray &key)
+{
+	return QByteArray("message.read.") + key.left(24).toHex();
+}
+
+/* THREE WAYS, as working-practice's settings rule asks: follow the choice
+ * for every conversation -- saying what that is now -- or tell, or not. */
+void fzn_conversations_view::read_marks_menu(const QByteArray &key, QStringList *out)
+{
+	fzn_rpc_config_get_resp_t own, all;
+	const QByteArray k = read_key(key);
+	bool everywhere = false;
+	int chosen = -1; /* -1 follows */
+
+	if (key.size() != 32)
+		return;
+	memset(&own, 0, sizeof own);
+	memset(&all, 0, sizeof all);
+	if (fzn_rpc_config_get(&m_rpc->c, "message.read-marks", 18, &all) == FZN_RPC_OK)
+		everywhere = all.value_len == 2 && !memcmp(all.value, "on", 2);
+	if (fzn_rpc_config_get(&m_rpc->c, k.constData(), (size_t)k.size(), &own) == FZN_RPC_OK && own.set_at)
+		chosen = own.value_len == 2 && !memcmp(own.value, "on", 2) ? 1 : 0;
+	const QString mark = QStringLiteral(" *");
+	*out << tr("Read marks: As everywhere (%1)").arg(everywhere ? tr("on") : tr("off")) + (chosen < 0 ? mark : QString())
+	     << tr("Read marks: Tell them when I read") + (chosen == 1 ? mark : QString())
+	     << tr("Read marks: Don't tell them") + (chosen == 0 ? mark : QString());
+}
+
+bool fzn_conversations_view::read_marks_act(const QByteArray &key, const QString &name, const QString &action)
+{
+	const QByteArray k = read_key(key);
+	QString what = action;
+	int rc;
+
+	if (key.size() != 32)
+		return false;
+	if (what.endsWith(QStringLiteral(" *")))
+		what.chop(2);
+	if (what.startsWith(tr("Read marks: As everywhere")))
+		rc = fzn_rpc_config_clear(&m_rpc->c, k.constData(), (size_t)k.size());
+	else if (what == tr("Read marks: Tell them when I read") || what == tr("Read marks: Don't tell them"))
+		rc = fzn_rpc_config_set(&m_rpc->c, k.constData(), (size_t)k.size(),
+		                        what == tr("Read marks: Don't tell them") ? "off" : "on",
+		                        what == tr("Read marks: Don't tell them") ? 3u : 2u, nullptr, 0, nullptr);
+	else
+		return false;
+	if (rc != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_status->setText(what.startsWith(tr("Read marks: As everywhere"))
+	                          ? tr("%1 follows your choice for every conversation.").arg(name)
+	                  : what == tr("Read marks: Don't tell them") ? tr("%1 is not told when you read.").arg(name)
+	                                                             : tr("%1 is told when you read.").arg(name));
+	return true;
+}
+
 bool fzn_conversations_view::act(int group, int row, const QString &action)
 {
 	QTreeWidgetItem *item = row_item(group, row);
@@ -691,6 +755,8 @@ bool fzn_conversations_view::act(int group, int row, const QString &action)
 	        || action.startsWith(tr("Make an admin: ")) || action.startsWith(tr("Stop being an admin: "))
 	        || action == tr("Delete this device's copy")))
 		return member_act(to.mid(1), action);
+	if (action.startsWith(tr("Read marks: ")))
+		return read_marks_act(item->data(0, ROLE_KEY).toByteArray(), to, action);
 	if (kind == ROW_CONTACT && (action == tr("Share my location") || action == tr("Stop sharing my location"))) {
 		/* SHARED AS THE LOCATION VIEW'S DEFAULT HAS IT, exactly; a coarser
 		 * share is chosen there (sec 1119). */
