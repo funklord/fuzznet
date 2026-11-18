@@ -1303,6 +1303,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/forks_view.cpp gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp \
             gui/traffic_view.cpp \
             gui/sticker_picker_view.cpp gui/call_view.cpp gui/call_bar.cpp gui/group_view.cpp \
+            gui/share_view.cpp \
             gui/sticker_render.cpp gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
             gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp \
             $(if $(LOG_FILE_ON),gui/entries_view.cpp)
@@ -1344,7 +1345,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/notice_line.h gui/call_audio.h gui/call_opus.h gui/call_video.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/notice_line.h gui/call_audio.h gui/call_opus.h gui/call_video.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -1355,6 +1356,7 @@ GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/traffic_view_test.cpp \
             gui/test/conversations_view_test.cpp gui/test/sticker_picker_view_test.cpp \
             gui/test/call_view_test.cpp gui/test/call_audio_test.cpp gui/test/call_video_test.cpp \
+            gui/test/share_view_test.cpp \
             gui/test/call_bar_test.cpp \
             gui/test/group_view_test.cpp \
             gui/test/location_view_test.cpp \
@@ -1471,6 +1473,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/conversations_view_test \
               $(BUILD_DIR)/gui/test/sticker_picker_view_test \
               $(BUILD_DIR)/gui/test/call_view_test \
+              $(BUILD_DIR)/gui/test/share_view_test \
               $(BUILD_DIR)/gui/test/call_audio_test \
               $(BUILD_DIR)/gui/test/call_video_test \
               $(BUILD_DIR)/gui/test/call_bar_test \
@@ -3935,6 +3938,11 @@ $(BUILD_DIR)/gui/test/call_bar_test: $(BUILD_DIR)/gui/test/call_bar_test.o $(BUI
                                   $(BUILD_DIR)/gui/camera_feed.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(CAMERA_LIBS) $(OPUS_LIBS) $(QT_LIBS) $(LDFLAGS_GC) -o $@
+# What another program shares, sent to a conversation (sec 1257).
+$(BUILD_DIR)/gui/test/share_view_test: $(BUILD_DIR)/gui/test/share_view_test.o \
+                                    $(BUILD_DIR)/gui/share_view.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/call_view_test: $(BUILD_DIR)/gui/test/call_view_test.o \
                                       $(BUILD_DIR)/gui/call_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
@@ -8094,7 +8102,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(TH
 	       gui/governance_view.cpp gui/objects_view.cpp gui/settings_view.cpp gui/contacts_view.cpp \
 	       gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp gui/forks_view.cpp \
 	       gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp gui/traffic_view.cpp \
-	       gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp \
+	       gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp gui/share_view.cpp \
 	       gui/call_bar.cpp gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp \
 	       gui/sticker_render.cpp $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc $(THORVG_OBJS)) \
 	       gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \

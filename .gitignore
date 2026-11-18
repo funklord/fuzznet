@@ -96,6 +96,7 @@
 /gui/test/call_bar_test
 /gui/test/call_video_test
 /gui/test/call_view_test
+/gui/test/share_view_test
 /gui/test/group_view_test
 /gui/test/location_view_test
 /gui/test/authz_view_test

@@ -85927,10 +85927,10 @@ is the register, rewritten in place as features land; "where" says where each li
 | Contacts, requests, suspension, names | protocol, state, `contacts_view` (sec 1107) with each contact's state (sec 1118) | contact screens, to move onto it | |
 | Chat, 1:1 and groups: lines, attachments, read state, history | protocol, state; a group's read position, every conversation's unread in one reply, a read at the held position silent (sec 1084), every conversation's newest line in one reply (sec 1136); `conversation_view` for a contact or group, with delivery marks (secs 1126, 1128); `group_view`, a group's members and admins (sec 1143); each conversation's menu (sec 1144) | conversation screens, read marks per device for groups | |
 | Stickers | packs (situ schema), fetch, spec reader (`local/rpc_sticker_read.c`), `sticker_picker_view` (sec 1141), a line drawn and its pack kept (sec 1145), Lottie drawn through the vendored thorvg (sec 1151) | sticker UI | |
-| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074) | call bar, call sound, camera capture, media codecs' use | capture, codecs and playback, to come here (sec 1208) |
+| Calls: voice, video, group, on a sibling's session, through a relay | protocol (secs 1017-1062), ringing checked, every host of a user rung (sec 1071), ring time set by the receiver (sec 1073), rings guarded against hammering (sec 1074); the media -- jitter, mu-law, `call_sound`, `call_audio`, `call_video` (secs 1234-1237), Opus where FFmpeg is (sec 1254); `call_bar` over every page, a screen while it rings (secs 1238, 1247); each conversation's call history (sec 1255) | fuzzypickles' own call screens, to move onto these | |
 | Location, Nearby | fixes, grants, levels, distance, bearing and a fix's age (`location/geo.c`, sec 1093), `location_view` with a grant's precision for every contact (secs 1109, 1119) | Nearby UI, to move onto it | |
 | Notes | protocol, store, sharing, `notebook_view` | | |
-| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182) | Library playback UI, share target; fuzzypickles' Transfers tab, to move onto `traffic_view` | |
+| Files, library, playback while arriving, share target | fetch, holds, attachments, `transfer_view` (model-fed), `library_view` with a file's progress (secs 1131-1132), `traffic_view` hosted, by family and by host (sec 1182), Play through the host's player (sec 1156); `share_view`, what another program shares sent to a conversation (sec 1257) | the platform's share intent, handing `share_view` its file or text; fuzzypickles' Transfers tab, to move onto `traffic_view` | |
 | Streams (app streams), catalogue, browse | protocol, `catalog/`; the library found in by name and kind (`library_view`, sec 1207) | | a catalogue view querying the node by facet, for a library too large to list (sec 1207) |
 | Settings, schema, presets, votes | protocol, schema, rate gate, `settings_view` (sec 1103); presets and a setting's votes on `governance_view` (secs 1023, 1029) | Settings page, to move onto it | |
 | Logs, retention, metrics | logging, retention, `retention_view` (named and 320 px, sec 1120), `log_view`, `metric/log/*` | | |
@@ -92031,3 +92031,34 @@ bound as the commits they found failing. A difference that fits both is
 which build their fzpd was at each bisect point -- a node from another
 pin on the other end -- which only their harness can say; asked of them.
 Until answered, the cause is open, not attributed.
+
+## 1257. What another program shares, sent to a conversation, 2026-11-18
+
+The register's share target (sec 1070), which the holder put with the
+conversation screens: "all belong in fuzznet, because as soon as any
+fuzznet consumer wants chat or calls, these all become requirements in
+fuzznet". The platform's half -- Android's SEND intent, a desktop's
+"open with", a drop -- stays the host's, as a call's devices are; what a
+person sees and does is `gui/share_view`.
+
+- **A host hands it what was shared**: `set_file(path)` or
+  `set_text(text)`. A file is said by its name and size, a text shown
+  where it can be changed; a path that is no file is refused in words.
+- **Where to**: this user's contacts and groups (`@NAME`), as the node
+  lists them, narrowed by a filter that ignores case -- a long list is
+  not searched by eye.
+- **Sent as the conversation sends**: a file stored here, private, and
+  attached as a line, which grants it to the conversation; words as a
+  line, to a contact or a group. The answer in a notice line (sec 1253),
+  and a refusal keeps the words. `on_sent` tells the host where it went,
+  to open that conversation; a refused share tells it nothing.
+
+**Tests:** share_view_test -- contacts and groups listed; the filter
+narrows, in any case, and empty lists all again; a path that is no file
+refused; a real file named and sized, nothing sent with no conversation
+chosen, then stored and sent to bob as a line, the host told; words sent
+to the group, the host told; a refusal said, the words kept, the host
+told nothing. qtty renders it ("Nothing has been shared."). Four
+sabotages, each caught (`share-groups-unlisted`,
+`share-file-sent-as-words`, `share-host-told-on-refusal`,
+`share-filter-ignored`).

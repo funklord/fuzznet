@@ -63,6 +63,7 @@
 #include "../conversations_view.h"
 #include "../sticker_picker_view.h"
 #include "../call_view.h"
+#include "../share_view.h"
 #include "../call_bar.h"
 #include "../group_view.h"
 #include "../location_view.h"
@@ -421,6 +422,7 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_conversations_view conversations_v(empty_node, nullptr);
 	fzn_sticker_picker_view picker_v(empty_node, nullptr);
 	fzn_call_view call_v(empty_node, nullptr);
+	fzn_share_view share_v(empty_node, nullptr);
 	fzn_call_bar bar_v(ringing_node, nullptr);
 	fzn_group_view group_v(empty_node, nullptr);
 	fzn_location_view location_v(empty_node, nullptr);
@@ -744,6 +746,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "sticker_picker_view", &picker_v, "No sticker packs kept yet." },
 			/* NO CALL IS SAID, not an empty list (sec 1142). */
 			{ "call_view", &call_v, "No call." },
+			/* NOTHING SHARED IS SAID, sec 1257. */
+			{ "share_view", &share_v, "Nothing has been shared." },
 			/* A CALL RINGING HERE IS SAID, with who (sec 1238). */
 			{ "call_bar", &bar_v, "bob is calling you" },
 			/* NO GROUP CHOSEN IS SAID (sec 1143). */
