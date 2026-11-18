@@ -170,7 +170,7 @@ def main(argv):
 	with tempfile.TemporaryDirectory(prefix="fzn-live.") as scratch, \
 	     tempfile.TemporaryDirectory(prefix="fzs.", dir="/tmp") as sock_dir:
 		run.scratch = scratch
-		dirs = {k: os.path.join(scratch, k) for k in ("r", "d", "o", "p")}
+		dirs = {k: os.path.join(scratch, k) for k in ("r", "d", "o", "p", "q")}
 		sock = os.path.join(sock_dir, "r")
 		# P IS NOT MADE HERE: its --prekey makes it, and its --accept then
 		# finds the same identity -- beerssh's of 2026-11-18, where a missing
@@ -198,6 +198,18 @@ def main(argv):
 			image_p = command(run, ["--fuzznet-dir=" + dirs["p"], "--device-image=" + other], None)
 
 			r = daemon(run, "r0", dirs["r"], sock, extra=["--udp-port=" + port])
+
+			# --PAIR INTO A STORE R SERVES, refused and pointed at the invite
+			# (beerssh 2026-11-18): R would not see it until it started again.
+			pq = command(run, ["--fuzznet-dir=" + dirs["q"], "--prekey"], None)
+			try:
+				command(run, ["--fuzznet-dir=" + dirs["r"], "--pair=" + pq], None)
+			except failed as e:
+				if "add invite" not in str(e):
+					raise failed("--pair into a served store was refused without naming the invite: %s" % e)
+			else:
+				raise failed("--pair into a store a running fuzznetd serves was taken")
+			print("livecheck: --pair into a served store refused, pointing at the invite")
 
 			# a: the longest-range unit.
 			code, said, up, down = on_the_air(run, image, 51, 0.0, "events", "0", port)

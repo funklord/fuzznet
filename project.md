@@ -92699,3 +92699,26 @@ its word. The menu reads both settings as it opens.
 following marked; "Don't tell them" sets bob's key's setting off, is
 marked and said; "As everywhere" clears it. Sabotages
 `read-menu-wrong-key`, `read-menu-choice-unmarked`, each caught.
+
+## 1275. --pair into a store a running host serves, refused, 2026-11-18
+
+beerssh (inbox 20261118T1503Z): a device paired with `--pair` into the
+store of a host that was already serving could not open a session with
+it until the host was restarted. `pair_device`'s own comment had it: a
+running daemon loads its peers at start, and pairing into a live one
+"needs a local verb". **That verb is the device invite** (sec 1250):
+`add invite` on the running host, `add join CODE` on the device. And
+`--pair` beside a serving daemon was worse than slow: both processes
+wrote the store's journal.
+
+So `--pair` takes the store's claim first. Held by a serving daemon, it
+is refused, naming the invite; otherwise `--pair` holds the claim while
+it writes, so no daemon starts on the store under it. `live_device` pairs
+a device into R's store while R serves and expects the refusal; sabotage
+`pair-into-served-store` fails it.
+
+**And a correction to sec 1270:** the missing `--fuzznet-dir` is made
+only by the one-shot modes (`--prekey`, `--new-root`, `--pair`,
+`--accept` ...). A serving daemon still refuses a store that is not
+there at its claim, before that code, as the claim's comment means it
+to: a mistyped directory is refused rather than started empty.

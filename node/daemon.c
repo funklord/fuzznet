@@ -24869,6 +24869,30 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * the claim on its core directory before booting anything -- a follower
 	 * writes nothing -- and one that cannot take it follows the face. */
 #ifdef FZN_CLAIM_FILE_ON
+	/* --PAIR INTO A STORE A RUNNING DAEMON SERVES, beerssh's of 2026-11-18,
+	 * refused: that daemon loads its peers at start, so the device it was
+	 * paired for could not reach it until it started again, and both
+	 * processes would write the store's journal. A running host lets a
+	 * device in by its invite (sec 1250). Otherwise --pair holds the claim
+	 * while it writes, so no daemon starts on the store under it. */
+	if (pair_hex && store_dir) {
+		static fzn_claim_file_t pair_claim_file;
+		static fzn_claim_ops_t pair_claim_ops;
+		static fzn_claim_t pair_claim;
+		char pair_claim_path[1100];
+
+		(void)snprintf(pair_claim_path, sizeof(pair_claim_path), "%s/claim", store_dir);
+		if (fzn_claim_file_open(&pair_claim_file, pair_claim_path, &pair_claim_ops) == FZN_CLAIM_OK
+		    && fzn_claim_init(&pair_claim, &pair_claim_ops) == FZN_CLAIM_OK
+		    && fzn_claim_take(&pair_claim) == FZN_CLAIM_ERR_HELD) {
+			fprintf(stderr,
+			        "fuzznetd: %s is served by a running fuzznetd, which would not see this pairing "
+			        "until it started again: let the device in through the running host instead -- "
+			        "`add invite` there, and `add join CODE` on the device\n",
+			        store_dir);
+			return 1;
+		}
+	}
 	if (serving && store_dir) {
 		static fzn_claim_file_t claim_file;
 		static fzn_claim_ops_t claim_ops;

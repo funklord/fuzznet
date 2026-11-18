@@ -17433,6 +17433,13 @@ SABOTAGES = [
 		"positions are fetched unasked with location/follow off; live_pairing phase g3 only -- sec 1240",
 	),
 	(
+		"pair-into-served-store",
+		"node/daemon.c",
+		"\t\t    && fzn_claim_take(&pair_claim) == FZN_CLAIM_ERR_HELD) {\n",
+		"\t\t    && 0) {\n",
+		"--pair writes into a store a running daemon serves, which never sees the device; live_device -- beerssh 2026-11-18",
+	),
+	(
 		"read-menu-wrong-key",
 		"gui/conversations_view.cpp",
 		"\treturn QByteArray(\"message.read.\") + key.left(24).toHex();\n",
