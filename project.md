@@ -29,6 +29,41 @@ reason habit was not enough.
 
 ---
 
+## 0. Resuming work here: the latest fold, 2026-11-19
+
+The newest work is at the end of this file. **Read secs 1287 to 1289
+first**: one search over every store, distributed (steps 1 to 3 built,
+`abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
+listener port spans (`150e3106`).
+
+**Open, in order:**
+
+- **Search step 4**: groups' and contacts' stores asked of the hosts
+  that share them, each answer authorized at its source by `asker`; notes
+  and the catalogue as stores; `get search` in binary and in the views.
+- **Sticker gaps**, from the 2026-11-19 audit, best first. (a) A message
+  or name sticker's words: the picker should ask for them, since the
+  listing gives `text_limit` and `fzn_rpc_sticker_reference_words`
+  exists. The log should draw them, by reading the box from
+  `fzn_rpc_sticker_items` once per pack and calling
+  `fzn_sticker_with_text`. (g) The log should draw the main rendition at
+  about 128 px, not the 64 px thumbnail. Both were drafted and not
+  applied. Then: (b) animation beyond frame 0; (c) a sticker's sound,
+  which the node does not export; (d) pop-up and effect stickers shown;
+  (e) a search box and a recent tab in the picker (the stickers store
+  exists); (f) letting a kept pack go from the picker; (h) the matcher's
+  context: Unicode case folding and the reply target's words; (i) a
+  binary `list sticker match`.
+- **The holder's question, parked**: a sticker store, meaning packs not
+  kept and searchable. Is it wanted, and from whom: a relay, friends'
+  kept packs, or a published catalogue? It blocks searching packs
+  nobody here has kept. Best guess: friends' kept packs, asked as a
+  search store (step 4's shape).
+- **Assumptions the holder may move**: discovery port 6290 and the
+  spans 930-939 and 6280-6289 (sec 1289); `--udp-port=span` is opt-in.
+
+---
+
 ## 1. What this is, in one paragraph
 
 A C library that carries **authenticated, framed, chunked messages between a
