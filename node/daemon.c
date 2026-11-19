@@ -14290,9 +14290,10 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 					say(FZN_ENTRY_WARNING, "node/groups",
 					    "a line of group %02x%02x%02x%02x not filed: %s", g->id[0], g->id[1],
 					    g->id[2], g->id[3], fzn_messages_err_str(imported));
-				/* A MEMBER'S UNSEND, sec 1284: their own line, filed here under
-				 * the host that sealed both, sent within the hour before it,
-				 * let go -- where this user has unsend on. The unsend is
+				/* A MEMBER'S UNSEND, sec 1284: their own line, named by the id
+				 * every member files it under (sec 1285) -- so from any of
+				 * their hosts -- sent within the hour before it, its sender
+				 * theirs, let go where this user has unsend on. The unsend is
 				 * filed as a line all the same, and never listed. */
 				if (tried && imported == FZN_MESSAGES_OK && written && unsends_here(NULL)) {
 					uint8_t target[FZN_MESSAGE_ID_LEN], filed_target[FZN_GROUP_LINE_ID_LEN],
@@ -14300,7 +14301,7 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 					uint64_t target_stime = 0;
 
 					if (fzn_message_unsend_parse((const char *)line.text, line.text_len, target)
-					    && fzn_group_lines_filed_id(contact_hash_ops, line.host, target, filed_target)
+					    && memcpy(filed_target, target, sizeof(filed_target))
 					    && fzn_group_lines_sender(&group_lines, g->id, filed_target, by) == FZN_GROUP_LINES_OK
 					    && memcmp(by, line.sender, FZN_PUBKEY_LEN) == 0
 					    && fzn_messages_line_stime(&node_messages.m, g->id, FZN_MESSAGE_IN, filed_target,

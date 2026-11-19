@@ -93211,3 +93211,14 @@ it, `unsent` (6, `node/messages_local.situ`'s `kind`), and the list says
 "a line taken back". node messages_test and conversations_view_test,
 sabotage `newest-unsent-said-shell` caught.
 
+**And a group's unsend from any of the user's hosts**: sec 1284's unsend
+named the author's own id, and a member found the line by hashing it with
+the host that sealed the unsend -- so one sent from another of the user's
+hosts than the one that wrote the line named nothing there. Since every
+member files the line under the shared id, the unsend now names that id
+(`find_own` gives both), and a member looks it up directly, its sender
+still checked. Caught only end to end: live_groups du with the unsend
+naming the own id fails, B keeping the line (run by hand, 2026-11-19), so
+it has no entry in the sabotage table, which runs `make test`;
+`group-shared-id-not-mapped` repointed at `find_own` and caught.
+

@@ -2111,10 +2111,12 @@ static const uint8_t *shared_id(const fzn_node_messages_t *nm, const fzn_message
 	return p->id;
 }
 
-/* THIS USER'S OWN LINE IN `group` BY ITS SHARED ID, sec 1285: 1 with its own
- * id, walked from the newest -- a line taken back is under an hour old. */
-static int own_by_shared(fzn_node_messages_t *nm, const uint8_t group[FZN_PUBKEY_LEN],
-                         const uint8_t shared[FZN_MESSAGE_ID_LEN], uint8_t own[FZN_MESSAGE_ID_LEN])
+/* THIS USER'S OWN LINE IN `group`, named by its own id or its shared one,
+ * sec 1285: 1 with both, walked from the newest -- a line taken back is
+ * under an hour old. */
+static int find_own(fzn_node_messages_t *nm, const uint8_t group[FZN_PUBKEY_LEN],
+                    const uint8_t given[FZN_MESSAGE_ID_LEN], uint8_t own[FZN_MESSAGE_ID_LEN],
+                    uint8_t shared[FZN_MESSAGE_ID_LEN])
 {
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
 	uint8_t h[FZN_MESSAGE_ID_LEN];
@@ -2126,8 +2128,10 @@ static int own_by_shared(fzn_node_messages_t *nm, const uint8_t group[FZN_PUBKEY
 			return 0;
 		for (i = 0; i < got; i++)
 			if (page[i].direction == FZN_MESSAGE_OUT && fzn_group_lines_filed_id(nm->m.hash, page[i].device, page[i].id, h)
-			    && memcmp(h, shared, FZN_MESSAGE_ID_LEN) == 0) {
+			    && (memcmp(h, given, FZN_MESSAGE_ID_LEN) == 0
+			        || memcmp(page[i].id, given, FZN_MESSAGE_ID_LEN) == 0)) {
 				memcpy(own, page[i].id, FZN_MESSAGE_ID_LEN);
+				memcpy(shared, h, FZN_MESSAGE_ID_LEN);
 				return 1;
 			}
 		if (!got)
@@ -2397,7 +2401,9 @@ static size_t take_back(fzn_node_messages_t *nm, const uint8_t *at, size_t left,
 {
 	static const char USAGE[] = "remove message WHO ID";
 	uint8_t contact[FZN_PUBKEY_LEN], id[FZN_MESSAGE_ID_LEN], unsend_id[FZN_MESSAGE_ID_LEN];
-	char text[FZN_MESSAGE_UNSEND_LEN + 1u];
+	uint8_t named[FZN_MESSAGE_ID_LEN];
+	char text[FZN_MESSAGE_UNSEND_LEN + 1u], group_name[FZN_CONTACT_NAME_MAX + 1u];
+	size_t group_name_len = 0;
 	const uint8_t *w;
 	size_t w_len, n;
 	uint64_t now = nm->m.now(), stime = 0;
@@ -2408,17 +2414,23 @@ static size_t take_back(fzn_node_messages_t *nm, const uint8_t *at, size_t left,
 		return who_refused(reply, cap, USAGE);
 	if (!nm->unsends || !nm->unsends(nm->unsends_ctx))
 		return say(reply, cap, FZN_REPLY_DENIED, "unsend is off here (message/unsend)");
-	/* A GROUP'S LINE BY ITS SHARED ID, as listed, or by its own (sec 1285). */
-	if (!fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_OUT, id, &stime)
-	    && !(own_by_shared(nm, contact, id, id)
-	         && fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_OUT, id, &stime)))
+	/* A GROUP'S LINE BY ITS SHARED ID, as listed, or by its own (sec 1285);
+	 * its unsend names the SHARED one, which every member files the line
+	 * under, so it is honoured whichever of this user's hosts sends it. */
+	memcpy(named, id, FZN_MESSAGE_ID_LEN);
+	if (fzn_node_group_name(nm->m.store, contact, group_name, &group_name_len) == FZN_CONTACT_OK) {
+		if (!find_own(nm, contact, id, id, named)
+		    || !fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_OUT, id, &stime))
+			return say(reply, cap, FZN_REPLY_ERROR, "no line of this user's has that id");
+	} else if (!fzn_messages_line_stime(&nm->m, contact, FZN_MESSAGE_OUT, id, &stime)) {
 		return say(reply, cap, FZN_REPLY_ERROR, "no line of this user's has that id");
+	}
 	if (fzn_messages_state(&nm->m, contact, FZN_MESSAGE_OUT, id) == FZN_MESSAGE_UNSENT)
 		return say(reply, cap, FZN_REPLY_OK, NULL);
 	if (now < stime || now - stime > FZN_MESSAGE_UNSEND_WINDOW_MS)
 		return say(reply, cap, FZN_REPLY_DENIED, "a line is taken back within an hour of being sent");
 	if (!nm->m.rng || !nm->m.rng->fill(nm->m.rng->ctx, unsend_id, sizeof(unsend_id))
-	    || !(n = fzn_message_unsend_write(id, text, sizeof(text))))
+	    || !(n = fzn_message_unsend_write(named, text, sizeof(text))))
 		return say(reply, cap, FZN_REPLY_ERROR, "the unsend would not be written");
 	/* THE LINE LET GO HERE FIRST, then the unsend sent after it: a crash
 	 * between leaves a line taken back here and kept there, which a second

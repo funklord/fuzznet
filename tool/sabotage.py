@@ -17645,8 +17645,8 @@ SABOTAGES = [
 	(
 		"group-shared-id-not-mapped",
 		"node/messages.c",
-		"\t    && !(own_by_shared(nm, contact, id, id)\n",
-		"\t    && !(0\n",
+		"\t\t\t    && (memcmp(h, given, FZN_MESSAGE_ID_LEN) == 0\n",
+		"\t\t\t    && (0\n",
 		"a group line not taken back by the id it is listed under; node messages_test -- sec 1285",
 	),
 	(
