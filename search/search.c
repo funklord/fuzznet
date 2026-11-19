@@ -114,6 +114,25 @@ int fzn_search_run(const fzn_search_store_t *stores, size_t n_stores, const fzn_
 	return ok;
 }
 
+int fzn_search_merge(const fzn_search_query_t *q, const fzn_search_hit_t *hits, size_t n, int more_held,
+                     fzn_search_hit_t *out, size_t *count, int *more)
+{
+	static struct gather g;
+	size_t i;
+
+	if (!q || !out || !count || !more || q->k == 0u || q->k > FZN_SEARCH_K_MAX || (n && !hits))
+		return 0;
+	memset(&g, 0, sizeof(g));
+	g.q = q;
+	for (i = 0; i < n; i++)
+		if (asked(q, hits[i].store))
+			(void)take(&g, &hits[i]);
+	*count = g.n > q->k ? q->k : g.n;
+	*more = more_held || g.more || g.n > q->k;
+	memcpy(out, g.keep, *count * sizeof(out[0]));
+	return 1;
+}
+
 /* A CHARACTER'S START: no UTF-8 continuation byte. */
 static int starts(const char *s, size_t i)
 {

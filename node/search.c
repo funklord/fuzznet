@@ -14,6 +14,9 @@
 #include <stdio.h>
 #include <string.h>
 
+/* THE MOST A PAGE OF ROWS TAKES, every hit at its longest. */
+#define FZND_SEARCH_ROWS_MAX (FZN_SEARCH_K_MAX * (FZN_SEARCH_STORE_NAME_MAX + 2u * FZN_SEARCH_KEY_MAX + 48u + 3u * FZN_SEARCH_SNIPPET_MAX))
+
 /* ---- lines ---------------------------------------------------------------- */
 
 /* WHAT OF A LINE IS SEARCHED: its words -- a reply's own, not the line it
@@ -122,7 +125,9 @@ static int contact_one(void *ctx, const fzn_contact_t *c)
 	memcpy(h.key, c->key, FZN_PUBKEY_LEN);
 	h.key_len = FZN_PUBKEY_LEN;
 	h.score = s;
-	h.time_ms = c->added_at_ms;
+	/* NO TIME: when a contact was added differs host by host, and an
+	 * item's place in the one order must not (sec 1287), or a host's copy
+	 * comes back on the next page. */
 	fzn_search_snippet(w->q, c->name, c->name_len, &h);
 	return w->emit(w->emit_ctx, &h);
 }
@@ -231,42 +236,30 @@ static int cursor_of(const uint8_t *w, size_t n, fzn_search_hit_t *h)
 	return number(f[3], len[3], &h->time_ms);
 }
 
-size_t fzn_node_search_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request, char *reply,
-                             size_t cap)
+/* THE ROWS AND THEIR SPACE: what a search line takes, `[in STORE]... [after
+ * CURSOR] WORDS`, read into `a` with K; 1, or 0 for a line of the wrong
+ * shape. */
+static int parse(const uint8_t *at, size_t left, size_t k, fzn_search_ask_t *a)
 {
-	static const char USAGE[] = "malformed list search [in STORE] [after STORE,KEY,SCORE,TIME] WORDS\n";
-	static fzn_search_hit_t hits[FZN_SEARCH_K_MAX], after;
-	static fzn_search_query_t q;
-	fzn_search_store_t stores[FZN_NODE_SEARCH_STORES];
-	const char *names[FZN_NODE_SEARCH_STORES];
-	char store_names[FZN_NODE_SEARCH_STORES][FZN_SEARCH_STORE_NAME_MAX + 1u];
-	const uint8_t *at, *w;
-	size_t left, n, n_stores, n_names = 0, count = 0, i, used, k;
-	int more = 0, has_after = 0, cut = 0;
+	const uint8_t *w;
+	size_t n, n_names = 0;
+	int has_after = 0;
 
-	if (!ctx || !request || !reply || request->parsed != FZN_VERB_LIST || !request->arg)
-		return 0;
-	at = request->arg;
-	left = request->arg_len;
-	if (!word(&at, &left, &w, &n) || !is(w, n, "search"))
-		return 0;
-	if (origin != FZN_ORIGIN_SAME_USER)
-		return (size_t)snprintf(reply, cap, "denied a search is this node's own user's\n");
+	memset(a, 0, sizeof(*a));
 	for (;;) {
 		const uint8_t *save = at;
 		size_t save_left = left;
 
 		if (!word(&at, &left, &w, &n))
-			return (size_t)snprintf(reply, cap, USAGE);
-		if (is(w, n, "in") && n_names < FZN_NODE_SEARCH_STORES && word(&at, &left, &w, &n)
+			return 0;
+		if (is(w, n, "in") && n_names < FZN_SEARCH_ASK_STORES_MAX && word(&at, &left, &w, &n)
 		    && n <= FZN_SEARCH_STORE_NAME_MAX) {
-			memcpy(store_names[n_names], w, n);
-			store_names[n_names][n] = '\0';
-			names[n_names] = store_names[n_names];
+			memcpy(a->names[n_names], w, n);
+			a->stores[n_names] = a->names[n_names];
 			n_names++;
 			continue;
 		}
-		if (is(w, n, "after") && !has_after && word(&at, &left, &w, &n) && cursor_of(w, n, &after)) {
+		if (is(w, n, "after") && !has_after && word(&at, &left, &w, &n) && cursor_of(w, n, &a->after)) {
 			has_after = 1;
 			continue;
 		}
@@ -276,17 +269,27 @@ size_t fzn_node_search_local(void *ctx, fzn_origin_t origin, const fzn_request_t
 	}
 	while (left && *at == ' ')
 		at++, left--;
-	if (!fzn_search_query_init(&q, (const char *)at, left, 20u))
-		return (size_t)snprintf(reply, cap, USAGE);
-	q.stores = n_names ? names : NULL;
-	q.n_stores = n_names;
-	q.after = has_after ? &after : NULL;
-	n_stores = fzn_node_search_stores(ctx, stores);
-	if (!fzn_search_run(stores, n_stores, &q, NULL, hits, &count, &more) && !count)
-		return (size_t)snprintf(reply, cap, "error a store would not read\n");
-	/* AS MANY ROWS AS THE REPLY HOLDS, the rest said as more. */
-	used = (size_t)snprintf(reply, cap, "ok %zu %d", count, more);
-	for (i = 0; i < count && !cut; i++) {
+	if (left > FZN_SEARCH_TEXT_MAX)
+		return 0;
+	memcpy(a->words, at, left);
+	a->words_len = left;
+	if (!fzn_search_query_init(&a->query, a->words, a->words_len, k))
+		return 0;
+	a->query.stores = n_names ? a->stores : NULL;
+	a->query.n_stores = n_names;
+	a->query.after = has_after ? &a->after : NULL;
+	return 1;
+}
+
+/* `ok COUNT MORE` and EXTRA, then as many rows as the reply holds: fewer
+ * shown, the count says how many and more follows them. */
+static size_t rows(const fzn_search_hit_t *hits, size_t count, int more, const char *extra, char *reply,
+                   size_t cap)
+{
+	static char body[FZND_SEARCH_ROWS_MAX];
+	size_t used = 0, i, k, shown = count, head;
+
+	for (i = 0; i < count; i++) {
 		char row[FZN_SEARCH_STORE_NAME_MAX + 2u * FZN_SEARCH_KEY_MAX + 48u + 3u * FZN_SEARCH_SNIPPET_MAX];
 		size_t r = (size_t)snprintf(row, sizeof(row), " %s,", hits[i].store), e = 0;
 
@@ -297,24 +300,122 @@ size_t fzn_node_search_local(void *ctx, fzn_origin_t origin, const fzn_request_t
 		                      (unsigned long long)hits[i].time_ms);
 		(void)fzn_escape((const uint8_t *)hits[i].snippet, hits[i].snippet_len, row + r, sizeof(row) - r - 1u, &e);
 		r += e;
-		if (used + r + 2u > cap) {
-			cut = 1;
+		/* ROOM KEPT for the head, at most 64 bytes, and the line's end. */
+		if (used + r + 66u > cap || used + r > sizeof(body)) {
+			shown = i;
+			more = 1;
 			break;
 		}
-		memcpy(reply + used, row, r);
+		memcpy(body + used, row, r);
 		used += r;
 	}
-	if (cut) {
-		/* FEWER SHOWN: the count says how many, and more follows them. */
-		char head[32];
-		size_t h_len = (size_t)snprintf(head, sizeof(head), "ok %zu %d", count, more);
-		size_t now_len = (size_t)snprintf(head, sizeof(head), "ok %zu 1", i);
-
-		memmove(reply + now_len, reply + h_len, used - h_len);
-		memcpy(reply, head, now_len);
-		used = used - h_len + now_len;
-	}
+	head = (size_t)snprintf(reply, cap, "ok %zu %d%s", shown, more, extra);
+	if (head + used + 2u > cap)
+		return (size_t)snprintf(reply, cap, "error the reply would not hold a row\n");
+	memcpy(reply + head, body, used);
+	used += head;
 	reply[used++] = '\n';
 	reply[used] = '\0';
 	return used;
+}
+
+/* THE SEARCH OF THIS USER'S HOSTS IN HAND, sec 1287 step 3: one at a time,
+ * a later `fetch search` replacing it; its own hits and every answer's,
+ * merged when asked. */
+static struct {
+	unsigned generation;
+	int live;
+	fzn_search_ask_t ask;
+	fzn_search_hit_t hits[(1u + FZN_NODE_SEARCH_HOSTS_MAX) * FZN_SEARCH_K_MAX];
+	size_t n, asked, answered, late;
+	int more_held;
+} held;
+
+void fzn_node_search_answered(fzn_node_search_t *s, unsigned generation, const uint8_t *answer, size_t len)
+{
+	static fzn_search_hit_t got[FZN_SEARCH_K_MAX];
+	size_t n = 0;
+	int more = 0;
+
+	(void)s;
+	if (!held.live || generation != held.generation)
+		return;
+	if (!answer || !fzn_search_answer_read(answer, len, got, FZN_SEARCH_K_MAX, &n, &more)) {
+		held.late++;
+		return;
+	}
+	held.answered++;
+	held.more_held |= more;
+	if (n > sizeof(held.hits) / sizeof(held.hits[0]) - held.n)
+		n = sizeof(held.hits) / sizeof(held.hits[0]) - held.n;
+	memcpy(held.hits + held.n, got, n * sizeof(got[0]));
+	held.n += n;
+}
+
+size_t fzn_node_search_remote(fzn_node_search_t *s, const uint8_t *asker, const uint8_t *request, size_t len,
+                              uint8_t *reply, size_t cap)
+{
+	fzn_search_store_t stores[FZN_NODE_SEARCH_STORES];
+	const size_t n = s ? fzn_node_search_stores(s, stores) : 0u;
+
+	return n ? fzn_search_answer_ask(stores, n, request, len, asker, reply, cap) : 0u;
+}
+
+size_t fzn_node_search_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                             size_t cap)
+{
+	static const char USAGE[] = "malformed %s search [in STORE] [after STORE,KEY,SCORE,TIME] WORDS\n";
+	static fzn_search_hit_t hits[FZN_SEARCH_K_MAX];
+	static fzn_search_ask_t a;
+	fzn_node_search_t *s = ctx;
+	fzn_search_store_t stores[FZN_NODE_SEARCH_STORES];
+	const uint8_t *at, *w;
+	size_t left, n, n_stores, count = 0;
+	int more = 0;
+
+	if (!s || !request || !reply || !request->arg
+	    || (request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_FETCH
+	        && request->parsed != FZN_VERB_GET))
+		return 0;
+	at = request->arg;
+	left = request->arg_len;
+	if (!word(&at, &left, &w, &n) || !is(w, n, "search"))
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied a search is this node's own user's\n");
+	n_stores = fzn_node_search_stores(s, stores);
+	/* THE SEARCH OF THIS USER'S HOSTS, merged: as far as they answered. */
+	if (request->parsed == FZN_VERB_GET) {
+		char extra[64];
+
+		if (!held.live)
+			return (size_t)snprintf(reply, cap, "error no search asked\n");
+		(void)fzn_search_merge(&held.ask.query, held.hits, held.n, held.more_held, hits, &count, &more);
+		(void)snprintf(extra, sizeof(extra), " %zu %zu %zu", held.asked, held.answered, held.late);
+		return rows(hits, count, more, extra, reply, cap);
+	}
+	if (request->parsed == FZN_VERB_FETCH) {
+		static uint8_t ask[FZN_SEARCH_TEXT_MAX + 512u];
+		size_t ask_len;
+
+		held.live = 0;
+		held.generation++;
+		if (!parse(at, left, 20u, &held.ask)) {
+			return (size_t)snprintf(reply, cap, USAGE, "fetch");
+		}
+		if (!fzn_search_run(stores, n_stores, &held.ask.query, NULL, held.hits, &held.n, &held.more_held)
+		    && !held.n)
+			return (size_t)snprintf(reply, cap, "error a store would not read\n");
+		held.asked = held.answered = held.late = 0;
+		held.live = 1;
+		ask_len = fzn_search_ask_write(held.ask.words, held.ask.words_len, &held.ask.query, ask, sizeof(ask));
+		if (ask_len && s->ask_hosts)
+			held.asked = s->ask_hosts(s->ask_hosts_ctx, ask, ask_len, held.generation);
+		return (size_t)snprintf(reply, cap, "ok %zu\n", held.asked);
+	}
+	if (!parse(at, left, 20u, &a))
+		return (size_t)snprintf(reply, cap, USAGE, "list");
+	if (!fzn_search_run(stores, n_stores, &a.query, NULL, hits, &count, &more) && !count)
+		return (size_t)snprintf(reply, cap, "error a store would not read\n");
+	return rows(hits, count, more, "", reply, cap);
 }

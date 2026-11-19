@@ -168,6 +168,10 @@ const char *fzn_node_relay_refuse_notify(const fzn_node_relay_asker_t *asker,
 /* A TIME ASK, sec 719: a member's or a standing contact's. A removed
  * contact still reaches the hook (sec 701), and was answered. */
 const char *fzn_node_relay_refuse_time(const fzn_node_relay_asker_t *asker);
+/* A SEARCH ASKED, sec 1287 step 2: another of this estate's hosts, whose
+ * user's every store this host's are. A contact's host searches nothing
+ * here until a store answers for what it shares (step 4). */
+const char *fzn_node_relay_refuse_search(const fzn_node_relay_asker_t *asker);
 
 /* THE REACHABILITY VERBS, sec 762 -- `fetch lan`, `get lan`, `get` and
  * `fetch address`, `get routing` -- asked over the local socket: the node's

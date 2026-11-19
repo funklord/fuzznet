@@ -1,0 +1,75 @@
+// One search asked of another of this user's own hosts, and its answer:
+// project.md sec 1287, step 2. The asker's words, the stores asked, a
+// time window, K and a keyset cursor; the answer this host's best K after
+// the cursor, in the one order (`search/search.h`), with MORE where it
+// holds more. The receiver runs its stores as its own user, and answers
+// only another host of that user (sec 1287's first rule).
+//
+// FZN_CMD_SEARCH (26, wire/cmd.h). What the schema cannot say and the
+// receiver checks: the stores' names are known ones; a cursor's store is
+// set exactly when HAS_AFTER is.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	ask     = 1, // a search
+	answer  = 2, // its hits
+	default = error,
+}
+
+// A STORE'S NAME, as `search/search.h` bounds it.
+struct store {
+	u8   len [min = 1, max = 16];
+	u8   name[len];
+}
+
+// WORDS as typed. STORES those asked, none for every one. SINCE and UNTIL
+// milliseconds, 0 for open. K the most hits. AFTER the last hit of the page
+// before: its score, time, store and key, when HAS_AFTER.
+struct ask {
+	u8    words_len [min = 1];
+	u8    words[words_len];
+	u8    store_count [max = 8];
+	store stores[store_count];
+	u64   since_ms;
+	u64   until_ms;
+	u8    k [min = 1, max = 50];
+	u8    has_after [max = 1];
+	u32   after_score;
+	u64   after_time_ms;
+	u8    after_store_len [max = 16];
+	u8    after_store[after_store_len];
+	u8    after_key_len [max = 48];
+	u8    after_key[after_key_len];
+}
+
+// ONE HIT: its store, its KEY there (the id every host knows it by), its
+// score and time, and a snippet of at most 120 bytes.
+struct hit {
+	store store;
+	u8    key_len [min = 1, max = 48];
+	u8    key[key_len];
+	u32   score;
+	u64   time_ms;
+	u8    snippet_len [max = 120];
+	u8    snippet[snippet_len];
+}
+
+// MORE 1 where this host holds hits past these.
+struct answer {
+	u8   more [max = 1];
+	u8   count [max = 50];
+	hit  hits[count];
+}
+
+struct message {
+	u8   cmd [must_eq = 26];
+	op   op;
+
+	variant body switch (op) {
+		case op.ask:    ask    ask;
+		case op.answer: answer answer;
+		default: error;
+	}
+}

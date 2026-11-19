@@ -1,12 +1,14 @@
 /*
- * THIS NODE'S STORES FOR THE ONE SEARCH, sec 1287 step 1: a conversation's
- * lines, the kept stickers and the contacts, each a `search/search.h` store,
- * and `list search` over them -- this host's own, for its own user. Asking
- * another host, and merging, are the next steps; a store here already
- * scores an item from the item and the query alone, and keys it by the id
- * every host knows it by, so its answers merge.
+ * THIS NODE'S STORES FOR THE ONE SEARCH, sec 1287: a conversation's lines,
+ * the kept stickers and the contacts, each a `search/search.h` store; `list
+ * search` over them, this host's own; and the search of every host of this
+ * user (steps 2 and 3) -- a store here scores an item from the item and the
+ * query alone, and keys it by the id every host knows it by, so the hosts'
+ * answers merge.
  *
  *     list search [in STORE] [after CURSOR] WORDS
+ *     fetch search [in STORE] [after CURSOR] WORDS     ok ASKED
+ *     get search                                       ok COUNT MORE ASKED ANSWERED LATE ROWS
  *
  * WORDS the rest of the line, as `list sticker match` takes them. STORE
  * `lines`, `stickers` or `contacts`, repeatable; none asks all. CURSOR the
@@ -16,6 +18,13 @@
  *
  * KEY in hex, SNIPPET escaped; as many rows as a reply holds, MORE 1 when
  * there are more past them, which the last row's cursor asks for.
+ *
+ * `fetch search` searches this host's stores at once and asks each other
+ * host of this user that a round reaches, at most FZN_NODE_SEARCH_HOSTS_MAX,
+ * ASKED how many; `get search` says the page merged from this host's hits
+ * and every answer come, with ASKED, ANSWERED and LATE (no answer by the
+ * deadline): the page is everything only once ANSWERED is ASKED. One search
+ * is held at a time; the next page is `fetch search after CURSOR` again.
  *
  * KEYS: a line, its conversation's key and the id it is known by on every
  * host (`fzn_node_messages_shared_id`); a sticker, its pack's root and its
@@ -28,6 +37,7 @@
 #include <stdint.h>
 
 #include "../search/search.h"
+#include "../search/remote.h"
 #include "../local/vocabulary.h"
 #include "../chain/authz.h"
 #include "../persist/persist.h"
@@ -40,7 +50,26 @@ typedef struct fzn_node_search {
 	/* ONE MORE STORE, a subsystem's own -- the kept stickers', from
 	 * `fzn_node_stickers_search` -- so this module links none of them. */
 	fzn_search_store_t extra;
+	/* THIS USER'S OTHER HOSTS ASKED `ask`, the daemon's: how many it sent
+	 * to, each answer handed to `fzn_node_search_answered` with
+	 * `generation`, or NULL by the deadline. NULL asks nobody. */
+	size_t (*ask_hosts)(void *ctx, const uint8_t *ask, size_t len, unsigned generation);
+	void *ask_hosts_ctx;
 } fzn_node_search_t;
+
+/* The most other hosts one search asks. */
+#define FZN_NODE_SEARCH_HOSTS_MAX 8u
+
+/* AN ANSWER TO THE SEARCH OF `generation`, or NULL for one that did not
+ * come: taken into the search held, or let go when a later one replaced
+ * it. */
+void fzn_node_search_answered(fzn_node_search_t *s, unsigned generation, const uint8_t *answer, size_t len);
+
+/* ANOTHER HOST'S ASK answered from this node's stores, run for `asker`:
+ * the answer's length in `reply`, or 0. Who may ask is the caller's
+ * (`fzn_node_relay_refuse_search`). */
+size_t fzn_node_search_remote(fzn_node_search_t *s, const uint8_t *asker, const uint8_t *request, size_t len,
+                              uint8_t *reply, size_t cap);
 
 #define FZN_NODE_SEARCH_STORES 3u
 

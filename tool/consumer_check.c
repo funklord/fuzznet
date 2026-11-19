@@ -155,6 +155,7 @@
 #include <fuzznet/search/search.h>
 #include <fuzznet/node/search.h>
 #include <fuzznet/node/offer.h>
+#include <fuzznet/search/remote.h>
 #include <fuzznet/net/ports.h>
 #include <fuzznet/node/file_holds.h>
 #include <fuzznet/node/attachments.h>
@@ -426,6 +427,7 @@
 #include "search/search.h"
 #include "node/search.h"
 #include "node/offer.h"
+#include "search/remote.h"
 #include "net/ports.h"
 #include "node/file_holds.h"
 #include "node/attachments.h"

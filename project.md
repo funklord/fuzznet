@@ -93371,8 +93371,76 @@ finds the cats' waving sticker. Sabotages `search-cursor-not-strict`,
 `search-reaction-searched`, each caught; `match-apostrophe-kept`
 repointed at `search/words.c` and caught.
 
-**Next, step 2**: the query and the answer as a situ schema, and a host
-answering another of its own user's hosts.
+**Steps 2 and 3 followed the same day**, below.
+
+### Steps 2 and 3, built 2026-11-19: this user's hosts asked, and merged
+
+**The wire: `search/search_wire.situ`, FZN_CMD_SEARCH (26).** An ASK
+carries the words as typed (at most 255 bytes), the stores asked (at most
+8), the window, K (1 to 50) and the cursor; an ANSWER carries MORE and at
+most 50 hits, each its store, key, score, time and snippet -- the
+longest about 10 KB, chunked as any reply. Golden vectors by hand in
+`search/search_wire.vectors`. `search/remote.{h,c}` writes and reads both
+and holds **the host's whole part in one call**, `fzn_search_answer_ask`:
+an ask read, the stores run, the best K after the cursor written back --
+so a test holds it without a daemon. `fzn_search_merge` is the asker's
+merge, the engine's own over hits gathered elsewhere, with MORE carried
+from any host that said it holds more.
+
+**Who may ask: another host of this estate alone**
+(`fzn_node_relay_refuse_search`, beside the other askers' judgments, sec
+762), whose user's every store this host's are, so the stores run with no
+filtering yet; a contact's host is refused until a store answers for what
+it shares (step 4). At most 8 asks answered a second, each a walk of the
+stores.
+
+**The asker: `fetch search [in STORE] [after CURSOR] WORDS`** searches
+this host's stores at once and sends the ask to each host of the estate a
+round reaches (at most 8), from a socket of its own as a session's ask
+(sec 1031), each with 3 seconds to answer; `ok ASKED`. **`get search`**
+says the page merged from this host's hits and every answer come, `ok
+COUNT MORE ASKED ANSWERED LATE ROWS`: **partial is said, never presented
+as everything** -- the page is whole only once ANSWERED is ASKED; LATE
+counts what did not come, or came unreadable or refused. One search is
+held at a time and the next replaces it; an earlier search's ask still
+awaited keeps its place until it ends (an ask is not withdrawn), and what
+it brings is let go by its generation. The next page is `fetch search
+after CURSOR` again: each host answers its best K after it, and the merge
+of those is the page (search_test's claim).
+
+**Which hosts a search reaches: the round's.** A device that joined a
+host by its code holds that host's address and asks it at once. The host
+reaches the device where the device said hello, once a round has taken
+it in (sec 1036's one rule) -- so right after a join the host's search
+asks fewer of its hosts than it will a round later, and the live test
+searches from the device. Each search logs how many it asked and why
+the others were not: outside the estate, silent, or with no address.
+
+**A contact's hit has no time now**: when a contact was added differs
+host by host, and an item's place in the one order must not, or a second
+host's copy comes back on the next page. A sticker had none already.
+
+**Tests:** search_wire_vectors (4 vectors); remote_test -- an ask and an
+answer read back whole, the longest answer within its bound, an answer
+past the room or an ask cut short refused, a store name with a tab never
+written, and a host's paged answers equal to the search run where the
+stores are; search_test -- the merge an asker uses gives the page one
+search over everything gives, MORE included; relay_test -- a member
+asks, a contact's host and a stranger do not; messages_test -- `fetch
+search` asks, `get search` gives this host's hits at once, a host
+holding the same lines adds none, an answer to an earlier search is let
+go, a line only another host holds leads the page, a host never
+answering is late, a new search keeps nothing of the last; live_invite
+phase j -- H's search asked of R, of its estate, and R's contact on H's
+page with R's answer. Sabotages `search-ask-half-cursor`,
+`search-merge-more-lost` (both first SURVIVED, and found two cases no
+test fed in: cursor bytes under a HAS_AFTER of 0, and a page only a
+host's MORE says is not the last), `search-stale-answer-taken`,
+`search-contact-host-answered`, each caught.
+
+**Next, step 4**: groups' and contacts' stores asked of the hosts that
+share them, each answer authorized at its source by `asker`; notes and
+the catalogue as stores. And `get search` in binary and in the views.
 
 ## 1288. Join by request: the discovery, step J1, 2026-11-19
 

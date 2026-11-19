@@ -27,6 +27,8 @@ hold nothing but what they read, and nothing is carried back by a person.
     i  JOIN BY REQUEST (sec 1288): R opens an offer; H, knowing nothing of R,
        probes the network, lists R by name and key, joins by the code heard,
        waits, and is let in; R ends the offer
+    j  THE SEARCH OF THIS USER'S HOSTS (sec 1287): H's search is asked of
+       R, and R's contact is on H's page with R's answer
 
 Against a daemon that takes a used code again, phase c pairs E; against one
 that believes any card, phase f joins G.
@@ -299,6 +301,31 @@ def main(argv):
 			expect(socks["r"], "r", "get offer", "ok closed")
 			print("livecheck: i: H found R on the network by its offer, joined by the code it "
 			      "heard, waited for R's user, and was let in")
+
+			# j: THE SEARCH OF THIS USER'S HOSTS, sec 1287 steps 2 and 3. H,
+			# now of R's estate, searches: it asks the estate's hosts its round
+			# reaches -- R, whose code it joined by; a host learns no address of
+			# a device that joined it, so not the other way -- and R's answer
+			# puts R's contact on H's page. Asked again until a round has R.
+			expect(socks["r"], "r", "add contact zelda " + "5a" * 32, "ok")
+			until = time.monotonic() + SETTLE_S
+			while True:
+				got = ask(socks["h"], "fetch search in contacts zelda").split()
+				if got[0] != "ok":
+					raise failed("j: fetch search answered %r" % got)
+				time.sleep(3.5)
+				page = ask(socks["h"], "get search").split()
+				if page[0] != "ok":
+					raise failed("j: get search answered %r" % page)
+				if int(page[3]) >= 1 and int(page[4]) >= 1 and any(r.startswith("contacts,") and r.endswith(",zelda")
+				                                                   for r in page[6:]):
+					break
+				if time.monotonic() > until:
+					raise failed("j: H's search never heard from R: %r; H: %s"
+					             % (page, " | ".join(l for l in started["h"].log().splitlines()
+					                                 if "search" in l)[-600:]))
+			print("livecheck: j: H's search was asked of R, of its estate, and R's contact was on "
+			      "H's page: %s asked, %s answered" % (page[3], page[4]))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -250,6 +250,11 @@ const char *fzn_node_relay_refuse_introduce(const fzn_node_relay_asker_t *asker)
 	return asker && asker->member ? NULL : "introductions only within this estate";
 }
 
+const char *fzn_node_relay_refuse_search(const fzn_node_relay_asker_t *asker)
+{
+	return asker && asker->member ? NULL : "a search only within this estate";
+}
+
 const char *fzn_node_relay_refuse_notify(const fzn_node_relay_asker_t *asker,
                                          const fzn_node_relay_asker_t *about)
 {

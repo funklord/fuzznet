@@ -1900,6 +1900,22 @@ static void test_a_line_taken_back_across(void)
  * contacts -- a reply found by its own words and not the line it names, a
  * reaction not at all, a contact by name, one store asked alone, a page
  * after a cursor, and another user refused. */
+/* THE DAEMON'S PART, faked: the ask kept, two hosts asked. */
+static uint8_t hosts_ask[1024];
+static size_t hosts_ask_len;
+static unsigned hosts_generation;
+
+static size_t fake_ask_hosts(void *ctx, const uint8_t *ask, size_t len, unsigned generation)
+{
+	(void)ctx;
+	if (len > sizeof(hosts_ask))
+		return 0;
+	memcpy(hosts_ask, ask, len);
+	hosts_ask_len = len;
+	hosts_generation = generation;
+	return 2u;
+}
+
 static void test_the_search_here(void)
 {
 	static fzn_node_search_t s;
@@ -1960,6 +1976,45 @@ static void test_the_search_here(void)
 	CHECK(fzn_vocabulary_split((const uint8_t *)"list search dinner", 18u, &r)
 	              && fzn_node_search_local(&s, FZN_ORIGIN_LOCAL, &r, reply, sizeof(reply)) && replied("denied"),
 	      "another user searched this user's stores");
+
+	/* THIS USER'S OTHER HOSTS, sec 1287 steps 2 and 3: this host's hits at
+	 * once; a host holding the same lines adds none; an answer to an
+	 * earlier search is let go; a host's own line joins the page in its
+	 * place; a host that never answers is said late. */
+	{
+		static uint8_t answer[FZN_SEARCH_ANSWER_MAX];
+		fzn_search_hit_t far;
+		size_t len;
+
+		s.ask_hosts = fake_ask_hosts;
+		CHECK(SEARCH("get search") && replied("error no search asked"), "a search never asked was answered");
+		CHECK(SEARCH("fetch search dinner") && replied("ok 2") && hosts_ask_len && hosts_ask[0] == 26u,
+		      "the search was not asked of this user's hosts");
+		CHECK(SEARCH("get search") && replied("ok 2 0 2 0 0 lines,"), "this host's own hits were not there at once");
+		len = fzn_node_search_remote(&s, NULL, hosts_ask, hosts_ask_len, answer, sizeof(answer));
+		CHECK(len, "a host holding the same stores did not answer the ask");
+		fzn_node_search_answered(&s, hosts_generation, answer, len);
+		CHECK(SEARCH("get search") && replied("ok 2 0 2 1 0 lines,"), "lines two hosts hold were counted twice");
+		memset(&far, 0, sizeof(far));
+		strcpy(far.store, "lines");
+		memset(far.key, 0xee, 40u);
+		far.key_len = 40u;
+		far.score = 900u;
+		far.time_ms = 5u;
+		memcpy(far.snippet, "dinner far away", 15u);
+		far.snippet_len = 15u;
+		len = fzn_search_answer_write(&far, 1u, 0, answer, sizeof(answer));
+		fzn_node_search_answered(&s, hosts_generation + 1u, answer, len);
+		CHECK(SEARCH("get search") && replied("ok 2 0 2 1 0 "), "an answer to another search was taken");
+		fzn_node_search_answered(&s, hosts_generation, answer, len);
+		CHECK(SEARCH("get search") && replied("ok 3 0 2 2 0 lines,eeee") && strstr(reply, ",dinner%20far%20away"),
+		      "a line only another host holds did not lead the page by its score");
+		fzn_node_search_answered(&s, hosts_generation, NULL, 0u);
+		CHECK(SEARCH("get search") && replied("ok 3 0 2 2 1 "), "a host that never answered was not said late");
+		CHECK(SEARCH("fetch search in nowhere dinner") && replied("ok 2") && SEARCH("get search") && replied("ok 0 0 2 0 0"),
+		      "a new search kept the last one's hits");
+		s.ask_hosts = NULL;
+	}
 #undef SEARCH
 }
 

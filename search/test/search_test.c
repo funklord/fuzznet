@@ -189,6 +189,26 @@ static void test_pages_merge_as_one(void)
 		}
 		CHECK(fzn_search_run(answers, 3, &q, NULL, merged, &mcount, &mmore), "the merge of the hosts' answers");
 		same = same && mcount == count;
+		/* AND BY THE MERGE AN ASKER USES, sec 1287 step 3: the hits as they
+		 * came, and whether any host said it holds more. */
+		{
+			static fzn_search_hit_t gathered[3u * FZN_SEARCH_K_MAX], by_merge[FZN_SEARCH_K_MAX];
+			size_t g = 0, bcount = 0, j;
+			int held = 0, bmore = 0;
+
+			for (h = 0; h < 3u; h++) {
+				size_t n = 0;
+				int m = 0;
+
+				(void)fzn_search_run(&from[h], 1, &q, NULL, gathered + g, &n, &m);
+				g += n;
+				held |= m;
+			}
+			same = same && fzn_search_merge(&q, gathered, g, held, by_merge, &bcount, &bmore) && bcount == count
+			       && bmore == more;
+			for (j = 0; j < count && j < bcount; j++)
+				same = same && by_merge[j].key[0] == page[j].key[0] && by_merge[j].score == page[j].score;
+		}
 		for (i = 0; i < count && i < mcount; i++)
 			same = same && merged[i].key[0] == page[i].key[0] && merged[i].score == page[i].score;
 		for (i = 0; i < count; i++) {

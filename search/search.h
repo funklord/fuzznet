@@ -94,6 +94,14 @@ int fzn_search_before(const fzn_search_hit_t *a, const fzn_search_hit_t *b);
 int fzn_search_run(const fzn_search_store_t *stores, size_t n_stores, const fzn_search_query_t *q,
                    const uint8_t *asker, fzn_search_hit_t *out, size_t *count, int *more);
 
+/* HITS GATHERED ELSEWHERE, merged as `fzn_search_run` merges its stores'
+ * -- the stores asked, the window, the cursor, one hit per item, the one
+ * order, K -- into `out`: the page several hosts' answers make. MORE_HELD
+ * where any of them said it holds more past what it sent, which a merge of
+ * what was sent cannot see. 1, or 0 for a query that cannot run. */
+int fzn_search_merge(const fzn_search_query_t *q, const fzn_search_hit_t *hits, size_t n, int more_held,
+                     fzn_search_hit_t *out, size_t *count, int *more);
+
 /* A SNIPPET OF `text`: the window of at most FZN_SEARCH_SNIPPET_MAX bytes
  * around the first word of `q` it holds, cut at a character's start at each
  * end; the whole text where it fits. Into `hit`. */

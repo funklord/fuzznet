@@ -240,7 +240,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/stickers_local.c wire/generated/files_local.c \
              wire/generated/members_local.c wire/generated/meter_local.c wire/generated/reach_local.c \
              wire/generated/time_local.c wire/generated/settings_local.c wire/generated/want.c \
-             wire/generated/notes_local.c wire/generated/situ.c
+             wire/generated/notes_local.c wire/generated/search_wire.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
@@ -251,7 +251,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/stickers_local_vectors.c wire/generated/files_local_vectors.c \
                  wire/generated/members_local_vectors.c wire/generated/meter_local_vectors.c \
                  wire/generated/reach_local_vectors.c wire/generated/time_local_vectors.c wire/generated/want_vectors.c \
-                 wire/generated/settings_local_vectors.c wire/generated/notes_local_vectors.c
+                 wire/generated/settings_local_vectors.c wire/generated/notes_local_vectors.c \
+                 wire/generated/search_wire_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -287,7 +288,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              catalog/shard.c catalog/materialise.c catalog/source.c \
              catalog/index.c \
              location/location.c location/tpv.c location/gpsd.c \
-             sticker/pack.c search/words.c search/search.c \
+             sticker/pack.c search/words.c search/search.c search/remote.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -392,7 +393,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              catalog/shard.h catalog/materialise.h catalog/source.h \
              catalog/index.h \
              location/location.h location/tpv.h location/gpsd.h \
-             sticker/pack.h search/words.h search/search.h \
+             sticker/pack.h search/words.h search/search.h search/remote.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -515,7 +516,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/types_test.c node/test/meter_test.c node/test/sync_load_test.c node/test/schema_test.c location/test/location_test.c \
              node/test/log_list_test.c node/test/clocks_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
-             sticker/test/sticker_test.c messages/test/attachment_test.c messages/test/reply_test.c search/test/search_test.c \
+             sticker/test/sticker_test.c messages/test/attachment_test.c messages/test/reply_test.c search/test/search_test.c search/test/remote_test.c \
              sticker/test/sticker_fuzz.c node/test/records_test.c node/test/decisions_test.c node/test/invite_test.c node/test/offer_test.c net/test/ports_test.c node/test/presets_test.c node/test/votes_test.c local/test/client_config_test.c node/test/responsible_test.c \
              node/test/group_fuzz.c \
              node/test/attachments_test.c \
@@ -672,6 +673,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/messages/test/attachment_test \
              $(BUILD_DIR)/messages/test/reply_test \
              $(BUILD_DIR)/search/test/search_test \
+             $(BUILD_DIR)/search/test/remote_test \
              $(BUILD_DIR)/node/test/attachments_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/node/test/identity_test \
@@ -716,6 +718,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/reach_local_vectors \
              $(BUILD_DIR)/wire/test/time_local_vectors \
              $(BUILD_DIR)/wire/test/want_vectors \
+             $(BUILD_DIR)/wire/test/search_wire_vectors \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
@@ -4597,6 +4600,12 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+$(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
+                                           wire/generated/search_wire.c wire/generated/situ.c \
+                                           $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # THE LINKS, ON THE LOCAL LEG, sec 1183.
 $(BUILD_DIR)/wire/test/reach_local_vectors: wire/generated/reach_local_vectors.c \
                                            wire/generated/reach_local.c wire/generated/situ.c \
@@ -5128,7 +5137,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                   $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
-                                  $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o \
+                                  $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/wire/generated/search_wire.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                                   $(BUILD_DIR)/contact/contact.o \
@@ -5465,7 +5474,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
-              $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/node/offer.o \
+              $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/node/offer.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
               $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o $(BUILD_DIR)/node/objects_binary.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/decisions_binary.o $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/node/presets.o $(BUILD_DIR)/node/votes.o $(BUILD_DIR)/node/responsible.o \
@@ -5702,6 +5711,13 @@ $(BUILD_DIR)/messages/test/attachment_test: $(BUILD_DIR)/messages/test/attachmen
 # One search over every store, sec 1287: the engine and the words.
 $(BUILD_DIR)/search/test/search_test: $(BUILD_DIR)/search/test/search_test.o \
                                       $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# One search asked of another host, and its answer, sec 1287 step 2.
+$(BUILD_DIR)/search/test/remote_test: $(BUILD_DIR)/search/test/remote_test.o $(BUILD_DIR)/search/remote.o \
+                                      $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o \
+                                      $(BUILD_DIR)/wire/generated/search_wire.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -7570,7 +7586,8 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
               node/members_local.situ node/meter_local.situ node/reach_local.situ \
-              node/time_local.situ node/settings_local.situ node/notes_local.situ node/want.situ
+              node/time_local.situ node/settings_local.situ node/notes_local.situ node/want.situ \
+              search/search_wire.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -8313,6 +8330,11 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/want.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_want \
 	         --out $(BUILD_DIR)/.gen.new node/want.situ node/want.vectors >/dev/null 2>&1
+	@# AND ONE SEARCH ASKED OF ANOTHER HOST, sec 1287 step 2.
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_search_wire --layer edit \
+	         --out $(BUILD_DIR)/.gen.new search/search_wire.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_search_wire \
+	         --out $(BUILD_DIR)/.gen.new search/search_wire.situ search/search_wire.vectors >/dev/null 2>&1
 	@# AND THE LINKS, ON THE LOCAL LEG, sec 1183.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_reach_local --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/reach_local.situ >/dev/null 2>&1
@@ -8361,6 +8383,7 @@ schema:
 	          meter_local.h meter_local_edit.h meter_local_build.h meter_local_vectors.c reach_local.c \
 	          reach_local.h reach_local_edit.h reach_local_build.h reach_local_vectors.c time_local.c \
 	          time_local.h time_local_build.h time_local_vectors.c want.c want.h want_build.h want_vectors.c \
+	          search_wire.c search_wire.h search_wire_edit.h search_wire_build.h search_wire_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

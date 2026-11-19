@@ -371,6 +371,7 @@ __pycache__/
 /messages/test/attachment_test
 /messages/test/reply_test
 /search/test/search_test
+/search/test/remote_test
 /node/test/offer_test
 /net/test/ports_test
 /node/test/attachments_test
@@ -416,3 +417,4 @@ __pycache__/
 /node/test/pressure_test
 /record/test/held_test
 /wire/test/want_vectors
+/wire/test/search_wire_vectors

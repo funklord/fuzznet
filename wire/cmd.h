@@ -38,5 +38,6 @@
 #define FZN_CMD_TRANSFER 23u  /* what this node has moved, the local leg's alone (sec 1177) */
 #define FZN_CMD_SETTINGS 24u  /* settings and their forks, the local leg's alone (sec 1187) */
 #define FZN_CMD_WANT 25u      /* a kept reply's missing pieces, asked again (sec 1214) */
+#define FZN_CMD_SEARCH 26u    /* one search asked of another host (sec 1287) */
 
 #endif /* FZN_WIRE_CMD_H */
