@@ -1,6 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "stickers.h"
+#include "../search/search.h"
+#include "../wire/bytes.h"
 
 #include "../local/escape.h"
 #include "../sticker/pack.h"
@@ -1266,4 +1268,46 @@ int fzn_node_stickers_items(const fzn_node_stickers_t *st, const uint8_t root[FZ
 	}
 	pack_done(&m, bytes);
 	return 1;
+}
+
+/* ---- the one search, sec 1287 ---------------------------------------- */
+
+struct sticker_walk {
+	fzn_search_emit_t emit;
+	void *emit_ctx;
+	const fzn_search_query_t *q;
+};
+
+static void sticker_one(void *ctx, const fzn_node_sticker_match_t *m)
+{
+	struct sticker_walk *w = ctx;
+	fzn_search_hit_t h;
+
+	memset(&h, 0, sizeof(h));
+	memcpy(h.store, "stickers", 9u);
+	memcpy(h.key, m->root, 32u);
+	fzn_put_be64(h.key + 32u, m->id);
+	h.key_len = 40u;
+	h.score = m->score;
+	fzn_search_snippet(w->q, m->description, m->description_len, &h);
+	(void)w->emit(w->emit_ctx, &h);
+}
+
+/* THE KEPT PACKS' STICKERS, by the matcher a line being typed is matched
+ * by (sec 1272): its phrases and description. The words asked, rejoined. */
+int fzn_node_stickers_search(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
+                             void *emit_ctx)
+{
+	char typed[FZN_SEARCH_WORDS_BYTES + FZN_SEARCH_WORDS_MAX];
+	struct sticker_walk w = { emit, emit_ctx, q };
+	size_t n = 0, i;
+
+	(void)asker;
+	for (i = 0; i < q->words.n && n + q->words.len[i] + 1u < sizeof(typed); i++) {
+		if (n)
+			typed[n++] = ' ';
+		memcpy(typed + n, q->words.buf + q->words.at[i], q->words.len[i]);
+		n += q->words.len[i];
+	}
+	return fzn_node_stickers_match(ctx, typed, n, sticker_one, &w);
 }

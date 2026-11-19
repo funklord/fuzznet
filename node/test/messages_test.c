@@ -6,6 +6,7 @@
 #include "../messages.h"
 #include "../../messages/reply.h"
 #include "../messages_binary.h"
+#include "../search.h"
 #include "../group_lines.h"
 #include "../groups.h"
 #include "../../chain/sign_monocypher.h"
@@ -1895,6 +1896,73 @@ static void test_a_line_taken_back_across(void)
 	}
 }
 
+/* THE ONE SEARCH HERE, sec 1287: `list search` over the lines and the
+ * contacts -- a reply found by its own words and not the line it names, a
+ * reaction not at all, a contact by name, one store asked alone, a page
+ * after a cursor, and another user refused. */
+static void test_the_search_here(void)
+{
+	static fzn_node_search_t s;
+	fzn_request_t r;
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	char text[FZN_MESSAGE_TEXT_MAX + 1u], cursor[256], *row, *end;
+	size_t n;
+
+	setup();
+	device_up(&A, 0x11);
+	CHECK(fzn_contact_add(&A.store_ops, X, "carol", 5u, 1u) == FZN_CONTACT_OK, "fixture: carol");
+	memset(id, 0xd1, sizeof(id));
+	CHECK(fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_IN, id, 1000u, "Dinner at eight?", 16u) == FZN_MESSAGES_OK,
+	      "fixture: a line in");
+	n = fzn_message_reply_write(id, "dinner sounds good", 18u, text, sizeof(text));
+	memset(id, 0xd2, sizeof(id));
+	CHECK(n && fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_OUT, id, 2000u, text, n) == FZN_MESSAGES_OK,
+	      "fixture: a reply to it");
+	memset(id, 0xd1, sizeof(id));
+	n = fzn_message_reaction_write(id, "dinner", 6u, text, sizeof(text));
+	memset(id, 0xd3, sizeof(id));
+	CHECK(n && fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_IN, id, 3000u, text, n) == FZN_MESSAGES_OK,
+	      "fixture: a reaction of the word itself");
+	s.messages = &A.nm;
+	s.contacts = &A.store_ops;
+	memset(&r, 0, sizeof(r));
+#define SEARCH(line)                                                                                         \
+	(memset(reply, 0, sizeof(reply)), fzn_vocabulary_split((const uint8_t *)(line), strlen(line), &r)        \
+	         ? fzn_node_search_local(&s, FZN_ORIGIN_SAME_USER, &r, reply, sizeof(reply))                     \
+	         : 0u)
+	CHECK(SEARCH("list search dinner") && replied("ok 2 0 lines,") && strstr(reply, ",dinner%20sounds%20good")
+	              && strstr(reply, ",Dinner%20at%20eight?") && !strstr(reply, "fzn:"),
+	      "a line and a reply were not found by their own words, or a reaction was");
+	CHECK(SEARCH("list search in contacts carol") && replied("ok 1 0 contacts,") && strstr(reply, ",carol"),
+	      "a contact was not found by name in that store alone");
+	CHECK(SEARCH("list search in contacts dinner") && replied("ok 0 0"), "a store not asked was searched");
+	/* THE NEXT PAGE, after the first row. */
+	CHECK(SEARCH("list search dinner") && (row = strchr(reply, ' ')) && (row = strchr(row + 1, ' '))
+	              && (row = strchr(row + 1, ' ')) && (end = strchr(row + 1, ' ')),
+	      "fixture: a first row");
+	{
+		/* STORE,KEY,SCORE,TIME of the first row: its first four fields. */
+		char *f = row + 1;
+		int commas = 0;
+		size_t k = 0;
+
+		while (f < end && commas < 4) {
+			if (*f == ',')
+				commas++;
+			if (commas < 4)
+				cursor[k++] = *f;
+			f++;
+		}
+		cursor[k] = '\0';
+	}
+	snprintf(text, sizeof(text), "list search after %s dinner", cursor);
+	CHECK(SEARCH(text) && replied("ok 1 0 lines,"), "the page after the first row was not the second alone");
+	CHECK(fzn_vocabulary_split((const uint8_t *)"list search dinner", 18u, &r)
+	              && fzn_node_search_local(&s, FZN_ORIGIN_LOCAL, &r, reply, sizeof(reply)) && replied("denied"),
+	      "another user searched this user's stores");
+#undef SEARCH
+}
+
 static int delivery_cut_at(long k, int absorb, int *cut)
 {
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
@@ -2423,6 +2491,7 @@ int main(void)
 	test_a_pushed_line_owes_its_key();
 	test_a_line_is_delivered_to_a_contact();
 	test_a_line_taken_back_across();
+	test_the_search_here();
 	test_a_delivery_cut_at_every_save();
 	test_a_host_that_keeps_none_refuses();
 	test_another_devices_line_is_its_own_to_send();

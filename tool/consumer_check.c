@@ -151,6 +151,9 @@
 #include <fuzznet/messages/line.h>
 #include <fuzznet/messages/attachment.h>
 #include <fuzznet/messages/reply.h>
+#include <fuzznet/search/words.h>
+#include <fuzznet/search/search.h>
+#include <fuzznet/node/search.h>
 #include <fuzznet/node/file_holds.h>
 #include <fuzznet/node/attachments.h>
 #include <fuzznet/node/records.h>
@@ -417,6 +420,9 @@
 #include "messages/line.h"
 #include "messages/attachment.h"
 #include "messages/reply.h"
+#include "search/words.h"
+#include "search/search.h"
+#include "node/search.h"
 #include "node/file_holds.h"
 #include "node/attachments.h"
 #include "node/records.h"

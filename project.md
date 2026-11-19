@@ -93309,7 +93309,7 @@ next store must not grow a fifth search.
    one with one host, this one, so there is one merge, one cursor, one
    order to test.
 
-### The steps
+### The steps of the one search
 
 1. **`search/`**: the query, the hit, the normaliser lifted from
    `sticker/`, the store interface, the engine's merge and keyset cursor;
@@ -93332,3 +93332,43 @@ replicated to every host** for remote search -- it would copy every
 store's words to every peer, past what each grant allows; the catalogue's
 shard index (sec 341) is that, deliberately, for a catalogue alone.
 **Rejected: offset paging** -- meaningless across hosts.
+
+### Step 1, built 2026-11-19
+
+`search/words.{h,c}`: the sticker matcher's normalisation, lifted, public,
+and the sticker matcher reads it from there now, its tests unchanged; and
+`fzn_search_score`, the one scale: 100 a word found, the last perhaps only
+begun (60: two letters of it, or one after other words), 50 more for the
+words standing together in order; 0 where a telling word is absent.
+`search/search.{h,c}`: the query, the hit, the store interface, the one
+order, one hit per item (its best copy), the window, the stores asked, a
+keyset cursor and the snippet. **A store must score an item from the item
+and the query alone**, so every host gives it one score and time -- a
+score that varied by host would repeat items across pages; said in the
+header, and what the merge test holds hosts to.
+
+`node/search.{h,c}`: the lines store (every conversation's lines, newest
+first, as far as the store's walk goes -- its budget; a reply by its own
+words, a file by its name, a sticker by its words or description, a
+reaction never; keyed by the conversation and the id every host knows
+the line by, sec 1285) and the contacts store (by name); the kept
+stickers' store is `fzn_node_stickers_search`, the sticker module's own,
+registered by the daemon, so `node/search` links no subsystem it does not
+search. `list search [in STORE] [after STORE,KEY,SCORE,TIME] WORDS`,
+answered with as many rows as a reply holds and MORE where there are more.
+
+**Tests:** search_test -- the words and the scale; one order, one hit per
+item, the window, the stores asked, K; random items over three "hosts",
+one item held at two, paged by cursor, **each page merged from the hosts'
+own best-K-after-cursor answers equal to the page one search over all of
+it gives**, every item once; snippets cut at a character. node
+messages_test -- a reply found by its own words, a reaction not, a
+contact by name, one store alone, the page after a cursor, another user
+refused. live_stickers a3 -- the daemon's `list search in stickers wave`
+finds the cats' waving sticker. Sabotages `search-cursor-not-strict`,
+`search-item-twice`, `search-word-missing-found`,
+`search-reaction-searched`, each caught; `match-apostrophe-kept`
+repointed at `search/words.c` and caught.
+
+**Next, step 2**: the query and the answer as a situ schema, and a host
+answering another of its own user's hosts.

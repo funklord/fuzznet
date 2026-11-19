@@ -1,0 +1,251 @@
+/* search_test -- one search over every store, sec 1287: the words and their
+ * score, the engine's one order, one hit per item, the window, the stores
+ * asked, a keyset cursor that pages with no gap and no repeat, and the claim
+ * the distributed design rests on: hosts each answering their best K after a
+ * cursor, merged, give exactly the page one search over everything gives. */
+#include "../search.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static int failures, checks;
+
+static void check_at(int ok, int line, const char *what)
+{
+	checks++;
+	if (!ok) {
+		failures++;
+		printf("  FAIL search_test.c:%d: %s\n", line, what);
+	}
+}
+
+#define CHECK(cond, what) check_at((cond) ? 1 : 0, __LINE__, (what))
+
+/* ---- the words ------------------------------------------------------------ */
+
+static unsigned score(const char *query, const char *text)
+{
+	fzn_search_words_t q;
+
+	fzn_search_words_of(query, strlen(query), &q);
+	q.open_end = 0;
+	return fzn_search_score(&q, text, strlen(text));
+}
+
+static void test_the_words(void)
+{
+	fzn_search_words_t q;
+
+	CHECK(score("thanks", "Thank you so much") == 100u, "a plain ending was not let go, or case not folded");
+	CHECK(score("you're welcome", "youre WELCOME here") == 250u,
+	      "an apostrophe was kept, or two words together not scored as such");
+	CHECK(score("welcome you're", "youre welcome") == 200u, "words out of order were scored as standing together");
+	CHECK(score("dinner tonight", "dinner at eight") == 0u, "a text lacking a telling word was found");
+	CHECK(score("the dinner", "dinner at eight") == 100u, "a common word was required beside a telling one");
+	CHECK(score("the", "the end") == 100u && score("the", "an end") == 0u,
+	      "a query of common words alone was not held to them");
+	fzn_search_words_of("see y", 5u, &q);
+	CHECK(q.open_end && fzn_search_score(&q, "see you there", 13u) == 160u + 50u,
+	      "a last word being typed was not taken as begun");
+	CHECK(score("förlåt", "Förlåt mig") == 100u, "a word holding letters past ASCII was not found");
+}
+
+/* ---- stores of fixed hits --------------------------------------------------- */
+
+typedef struct {
+	const char *name;
+	fzn_search_hit_t hits[64];
+	size_t n;
+} fixed_t;
+
+static int run_fixed(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
+                     void *emit_ctx)
+{
+	const fixed_t *f = ctx;
+	size_t i;
+
+	(void)q;
+	(void)asker;
+	for (i = 0; i < f->n; i++)
+		if (!emit(emit_ctx, &f->hits[i]))
+			break;
+	return 1;
+}
+
+static void hit(fixed_t *f, uint8_t key, unsigned score_of, uint64_t at)
+{
+	fzn_search_hit_t *h = &f->hits[f->n++];
+
+	memset(h, 0, sizeof(*h));
+	snprintf(h->store, sizeof(h->store), "%s", f->name);
+	h->key[0] = key;
+	h->key_len = 1u;
+	h->score = score_of;
+	h->time_ms = at;
+}
+
+static uint32_t rnd = 12345u;
+static uint32_t next(void)
+{
+	rnd ^= rnd << 13;
+	rnd ^= rnd >> 17;
+	rnd ^= rnd << 5;
+	return rnd;
+}
+
+static void test_one_order_one_hit_each(void)
+{
+	static fixed_t a, b;
+	fzn_search_store_t stores[2] = { { "lines", run_fixed, &a }, { "names", run_fixed, &b } };
+	fzn_search_query_t q;
+	fzn_search_hit_t out[FZN_SEARCH_K_MAX];
+	const char *only[] = { "names" };
+	size_t count = 0, i;
+	int more = 0, ordered = 1;
+
+	a.name = "lines";
+	b.name = "names";
+	a.n = b.n = 0;
+	hit(&a, 1, 100, 5);
+	hit(&a, 2, 200, 1);
+	hit(&a, 1, 250, 3); /* item 1 again, better */
+	hit(&a, 3, 100, 9);
+	hit(&b, 1, 100, 5); /* another store's item 1 is another item */
+	CHECK(fzn_search_query_init(&q, "x", 1u, 10u), "fixture: a query");
+	CHECK(fzn_search_run(stores, 2, &q, NULL, out, &count, &more) && count == 4u && !more,
+	      "every item was not found once");
+	for (i = 1; i < count; i++)
+		ordered = ordered && fzn_search_before(&out[i - 1u], &out[i]);
+	CHECK(ordered && out[0].key[0] == 1 && out[0].score == 250u && !strcmp(out[0].store, "lines"),
+	      "the hits were not in the one order, an item's best copy first");
+	CHECK(out[2].score == 100u && out[2].time_ms == 9u && out[3].time_ms == 5u
+	              && strcmp(out[3].store, "names") == 0,
+	      "equal scores were not ordered by time, then store");
+	q.k = 2u;
+	CHECK(fzn_search_run(stores, 2, &q, NULL, out, &count, &more) && count == 2u && more,
+	      "a page of two did not say more");
+	q.k = 10u;
+	q.stores = only;
+	q.n_stores = 1u;
+	CHECK(fzn_search_run(stores, 2, &q, NULL, out, &count, &more) && count == 1u && !strcmp(out[0].store, "names"),
+	      "a store not asked was searched");
+	q.stores = NULL;
+	q.n_stores = 0;
+	q.from_ms = 4u;
+	q.to_ms = 6u;
+	CHECK(fzn_search_run(stores, 2, &q, NULL, out, &count, &more) && count == 2u && out[0].time_ms == 5u,
+	      "the window let in a hit outside it");
+	CHECK(!fzn_search_query_init(&q, "  ,", 3u, 10u) && !fzn_search_query_init(&q, "x", 1u, 0u)
+	              && !fzn_search_query_init(&q, "x", 1u, FZN_SEARCH_K_MAX + 1u),
+	      "a query of no word, or of a K out of range, was taken");
+}
+
+/* PAGING BY CURSOR, and THE DISTRIBUTED CLAIM: random items over three
+ * "hosts" -- with copies of one item at two of them -- paged by a cursor;
+ * each page from the merge of the hosts' own best-K-after-cursor answers is
+ * exactly the page one search over all of it gives, and the pages together
+ * hold every item once. */
+static void test_pages_merge_as_one(void)
+{
+	static fixed_t host[3], all, answer[3];
+	fzn_search_store_t whole = { "lines", run_fixed, &all }, from[3], answers[3];
+	fzn_search_hit_t page[FZN_SEARCH_K_MAX], merged[FZN_SEARCH_K_MAX], last;
+	fzn_search_query_t q;
+	unsigned char seen[64];
+	size_t i, h, count = 0, mcount = 0, pages = 0, total = 0;
+	int more = 1, mmore = 0, same = 1, once = 1;
+
+	memset(seen, 0, sizeof(seen));
+	all.name = "lines";
+	all.n = 0;
+	for (h = 0; h < 3u; h++) {
+		host[h].name = answer[h].name = "lines";
+		host[h].n = 0;
+		from[h] = (fzn_search_store_t){ "lines", run_fixed, &host[h] };
+		answers[h] = (fzn_search_store_t){ "lines", run_fixed, &answer[h] };
+	}
+	for (i = 0; i < 40u; i++) {
+		const unsigned s = 50u + (unsigned)(next() % 4u) * 50u;
+		const uint64_t t = next() % 10u;
+
+		h = i % 3u;
+		hit(&host[h], (uint8_t)i, s, t);
+		hit(&all, (uint8_t)i, s, t);
+		/* THE SAME ITEM HELD AT A SECOND HOST: scored alike there, as a
+		 * store must score it, from the item and the query alone. */
+		if (i % 7u == 0u)
+			hit(&host[(h + 1u) % 3u], (uint8_t)i, s, t);
+	}
+	CHECK(fzn_search_query_init(&q, "x", 1u, 6u), "fixture: a query of six a page");
+	while (more && pages < 20u) {
+		CHECK(fzn_search_run(&whole, 1, &q, NULL, page, &count, &more), "one search over everything");
+		/* EACH HOST'S OWN ANSWER, then the asker's merge of the three. */
+		for (h = 0; h < 3u; h++) {
+			size_t n = 0;
+			int m = 0;
+
+			(void)fzn_search_run(&from[h], 1, &q, NULL, answer[h].hits, &n, &m);
+			answer[h].n = n;
+		}
+		CHECK(fzn_search_run(answers, 3, &q, NULL, merged, &mcount, &mmore), "the merge of the hosts' answers");
+		same = same && mcount == count;
+		for (i = 0; i < count && i < mcount; i++)
+			same = same && merged[i].key[0] == page[i].key[0] && merged[i].score == page[i].score;
+		for (i = 0; i < count; i++) {
+			once = once && !seen[page[i].key[0]];
+			seen[page[i].key[0]] = 1;
+		}
+		total += count;
+		if (count) {
+			last = page[count - 1u];
+			q.after = &last;
+		}
+		pages++;
+	}
+	CHECK(same, "a page merged from the hosts' answers was not the page one search over everything gives");
+	CHECK(once && total == 40u && !more, "paging by cursor repeated or missed an item");
+}
+
+static void test_the_snippet(void)
+{
+	fzn_search_query_t q;
+	fzn_search_hit_t h;
+	char text[400];
+	size_t i;
+
+	CHECK(fzn_search_query_init(&q, "needle", 6u, 5u), "fixture: a query");
+	fzn_search_snippet(&q, "short", 5u, &h);
+	CHECK(h.snippet_len == 5u && !strcmp(h.snippet, "short"), "a short text was not given whole");
+	for (i = 0; i + 2u <= 300u; i += 2u)
+		memcpy(text + i, "\xc3\xa9", 2u);
+	memcpy(text + 200, " NEEDLE ", 8u);
+	fzn_search_snippet(&q, text, 300u, &h);
+	CHECK(h.snippet_len <= FZN_SEARCH_SNIPPET_MAX && strstr(h.snippet, "NEEDLE")
+	              && ((unsigned char)h.snippet[0] & 0xC0u) != 0x80u
+	              && ((unsigned char)h.snippet[h.snippet_len - 1u] & 0xC0u) != 0xC0u,
+	      "a long text's snippet did not hold the word, or cut a character");
+}
+
+int main(void)
+{
+	test_the_words();
+	test_one_order_one_hit_each();
+	test_pages_merge_as_one();
+	test_the_snippet();
+	{
+		const int before = failures;
+
+		CHECK(0, "deliberate");
+		if (failures != before + 1) {
+			printf("search_test: the suite cannot fail\n");
+			return 1;
+		}
+		failures = before;
+	}
+	if (failures) {
+		printf("search_test: %d of %d checks failed\n", failures, checks);
+		return 1;
+	}
+	printf("search_test: all %d checks passed\n", checks - 1);
+	return 0;
+}

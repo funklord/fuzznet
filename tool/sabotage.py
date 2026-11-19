@@ -17664,6 +17664,34 @@ SABOTAGES = [
 		"a line taken back, a conversation's newest, said as one that cannot be read; node messages_test -- sec 1284",
 	),
 	(
+		"search-cursor-not-strict",
+		"search/search.c",
+		"\t    || (q->to_ms && h->time_ms > q->to_ms) || (q->after && !fzn_search_before(q->after, h)))\n",
+		"\t    || (q->to_ms && h->time_ms > q->to_ms))\n",
+		"a page after a cursor repeats the page before it; search_test -- sec 1287",
+	),
+	(
+		"search-item-twice",
+		"search/search.c",
+		"\t\tif (!same_item(&g->keep[i], h))\n\t\t\tcontinue;\n",
+		"\t\tif (1)\n\t\t\tcontinue;\n",
+		"one item found at two hosts listed twice; search_test -- sec 1287",
+	),
+	(
+		"search-word-missing-found",
+		"search/words.c",
+		"\t\t\tif (!got)\n\t\t\t\treturn 0;\n",
+		"",
+		"a text lacking a word asked for is found; search_test -- sec 1287",
+	),
+	(
+		"search-reaction-searched",
+		"node/search.c",
+		"\tif (!p->readable || !p->text_len\n\t    || fzn_message_reaction_parse(p->text, p->text_len, id, &at, &n))\n",
+		"\tif (!p->readable || !p->text_len)\n",
+		"a reaction searched as a line of words; node messages_test -- sec 1287",
+	),
+	(
 		"pack-old-opens",
 		"sticker/pack.c",
 		"\tif (v != FZN_STICKER_VERSION)\n\t\treturn 0;\n\t/* THE PACK'S OWN ID",
@@ -17721,7 +17749,7 @@ SABOTAGES = [
 	),
 	(
 		"match-apostrophe-kept",
-		"sticker/pack.c",
+		"search/words.c",
 		"\t\tif (c == '\\'') {\n\t\t\tcontinue;\n\t\t}\n",
 		"",
 		"\"you're\" is two words, so a phrase typed with one does not fit; sticker_test -- sec 1272",

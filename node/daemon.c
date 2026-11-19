@@ -139,6 +139,7 @@
 #include "attachments.h"
 #include "file_holds.h"
 #include "stickers.h"
+#include "search.h"
 #include "stage.h"
 #include "clocks.h"
 #include "log_list.h"
@@ -477,6 +478,8 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 /* THE USER'S STICKERS, sec 681: packs as files, saved as settings. */
 static fzn_node_stickers_t node_stickers;
 #endif
+/* THE ONE SEARCH'S STORES HERE, sec 1287: filled as each comes up. */
+static fzn_node_search_t node_search;
 /* WHAT CROSSES THE REMOTE HOP, sec 685: fzpd's transfer list. */
 static fzn_meter_t traffic;
 /* THE SETTINGS DECLARED, sec 686: fuzznet's, and the extension's. */
@@ -638,6 +641,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	if (!n && node_stickers.files)
 		n = fzn_node_stickers_local(&node_stickers, origin, request, reply, reply_cap);
 #endif
+	if (!n && node_search.messages)
+		n = fzn_node_search_local(&node_search, origin, request, reply, reply_cap);
 	if (!n)
 		n = fzn_meter_local(&traffic, origin, request, reply, reply_cap);
 	if (!n)
@@ -26045,6 +26050,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				                           &hash_ops, estate_ms)
 				    == FZN_MESSAGES_OK) {
 					messages_on = 1;
+					node_search.messages = &node_messages;
+					node_search.contacts = node_messages.m.store;
 					node_messages.keeps = keeps_here;
 					node_messages.m.keeps = keeps_here;
 					node_messages.takes_over = takes_over_line;
@@ -26324,6 +26331,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					node_stickers.settings = &node_settings;
 					node_stickers.host = identity.pubkey;
 					node_stickers.hash = &hash_ops;
+					node_search.extra = (fzn_search_store_t){ "stickers", fzn_node_stickers_search, &node_stickers };
 #endif
 				} else {
 					say(FZN_ENTRY_WARNING, "files", "no store for files under %s",

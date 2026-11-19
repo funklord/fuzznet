@@ -266,7 +266,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/library_binary.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
-             messages/line.c messages/attachment.c messages/reply.c messages/messages.c node/messages.c node/messages_binary.c node/contacts_binary.c node/groups_binary.c \
+             messages/line.c messages/attachment.c messages/reply.c messages/messages.c node/messages.c node/search.c node/messages_binary.c node/contacts_binary.c node/groups_binary.c \
              node/file_holds.c node/attachments.c node/records.c node/objects.c node/objects_binary.c node/decisions.c node/decisions_binary.c node/invite.c node/presets.c node/votes.c local/client_config.c node/responsible.c \
              contact/contact.c \
              log/rules.c \
@@ -287,7 +287,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              catalog/shard.c catalog/materialise.c catalog/source.c \
              catalog/index.c \
              location/location.c location/tpv.c location/gpsd.c \
-             sticker/pack.c \
+             sticker/pack.c search/words.c search/search.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -371,7 +371,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/library_binary.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
-             messages/line.h messages/attachment.h messages/reply.h messages/messages.h node/messages.h node/messages_binary.h node/contacts_binary.h node/groups_binary.h \
+             messages/line.h messages/attachment.h messages/reply.h messages/messages.h node/messages.h node/search.h node/messages_binary.h node/contacts_binary.h node/groups_binary.h \
              node/file_holds.h node/attachments.h node/records.h node/objects.h node/objects_binary.h node/decisions.h node/decisions_binary.h node/invite.h node/presets.h node/votes.h local/client_config.h node/responsible.h \
              contact/contact.h \
              log/rules.h \
@@ -392,7 +392,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              catalog/shard.h catalog/materialise.h catalog/source.h \
              catalog/index.h \
              location/location.h location/tpv.h location/gpsd.h \
-             sticker/pack.h \
+             sticker/pack.h search/words.h search/search.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -515,7 +515,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/types_test.c node/test/meter_test.c node/test/sync_load_test.c node/test/schema_test.c location/test/location_test.c \
              node/test/log_list_test.c node/test/clocks_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
-             sticker/test/sticker_test.c messages/test/attachment_test.c messages/test/reply_test.c \
+             sticker/test/sticker_test.c messages/test/attachment_test.c messages/test/reply_test.c search/test/search_test.c \
              sticker/test/sticker_fuzz.c node/test/records_test.c node/test/decisions_test.c node/test/invite_test.c node/test/presets_test.c node/test/votes_test.c local/test/client_config_test.c node/test/responsible_test.c \
              node/test/group_fuzz.c \
              node/test/attachments_test.c \
@@ -669,6 +669,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/responsible_test \
              $(BUILD_DIR)/messages/test/attachment_test \
              $(BUILD_DIR)/messages/test/reply_test \
+             $(BUILD_DIR)/search/test/search_test \
              $(BUILD_DIR)/node/test/attachments_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/node/test/identity_test \
@@ -2486,10 +2487,10 @@ $(BUILD_DIR)/notes/test/note_fuzz: $(BUILD_DIR)/notes/test/note_fuzz.o \
 # blob/levels. sec 490.
 $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/node/files.o \
-                                   $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/node/stickers_binary.o \
+                                   $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/node/stickers_binary.o \
                                      $(BUILD_DIR)/wire/generated/stickers_local.o $(BUILD_DIR)/wire/status_message.o \
                                      $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o) \
-                                   $(BUILD_DIR)/sticker/pack.o \
+                                   $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                                    $(BUILD_DIR)/local/escape.o \
                                    $(BUILD_DIR)/blob/levels.o \
                                    $(BUILD_DIR)/spool/spool_file.o \
@@ -3644,7 +3645,7 @@ $(BUILD_DIR)/local/test/call_sound_test: $(BUILD_DIR)/local/test/call_sound_test
                                   $(BUILD_DIR)/local/peer_linux.o \
                                   $(BUILD_DIR)/constant_time/constant_time.o \
                                   $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
-                                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o \
+                                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o \
                                   $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ $(LDFLAGS_GC) -o $@
@@ -3656,7 +3657,7 @@ $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS)
                                   $(BUILD_DIR)/local/peer_linux.o \
                                   $(BUILD_DIR)/constant_time/constant_time.o \
                                   $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
-                                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o \
+                                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o \
                                   $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ $(LDFLAGS_GC) -o $@
@@ -3664,14 +3665,14 @@ $(BUILD_DIR)/local/test/rpc_test: $(BUILD_DIR)/local/test/rpc_test.o $(RPC_OBJS)
 # AND AGAINST A RUNNING NODE: the same client linked into a probe that
 # `livecheck` runs at a fresh host's fuzznetd (tool/live_rpc.py), so the
 # grammar the client reads is the one the daemon speaks.
-$(BUILD_DIR)/tool/sticker_convert: $(BUILD_DIR)/tool/sticker_convert.o $(BUILD_DIR)/sticker/pack.o \
+$(BUILD_DIR)/tool/sticker_convert: $(BUILD_DIR)/tool/sticker_convert.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                                     $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ $(LDFLAGS_GC) -o $@
 
 # ITS TEST RUNS THE PROGRAM, found beside the test binary.
 $(BUILD_DIR)/tool/sticker_convert_test: $(BUILD_DIR)/tool/sticker_convert_test.o \
-                                         $(BUILD_DIR)/sticker/pack.o \
+                                         $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                                          $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o \
                                          | $(BUILD_DIR)/tool/sticker_convert
 	@mkdir -p $(dir $@)
@@ -3687,7 +3688,7 @@ $(RPC_PROBE): $(BUILD_DIR)/tool/rpc_probe.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/peer_linux.o \
                                   $(BUILD_DIR)/constant_time/constant_time.o \
                                   $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
-                                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o \
+                                  $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o \
                                   $(BUILD_DIR)/hex/hex.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ $(LDFLAGS_GC) -o $@
@@ -3885,7 +3886,7 @@ RPC_LINK_OBJS := $(RPC_OBJS) $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/mes
                  $(BUILD_DIR)/local/peer_linux.o \
                  $(BUILD_DIR)/constant_time/constant_time.o \
                  $(BUILD_DIR)/node/contact_card.o $(BUILD_DIR)/provision/provision.o \
-                 $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o \
+                 $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o \
                  $(BUILD_DIR)/hex/hex.o
 $(BUILD_DIR)/gui/test/settings_view_test: $(BUILD_DIR)/gui/test/settings_view_test.o \
                                        $(BUILD_DIR)/gui/settings_view.o $(RPC_LINK_OBJS)
@@ -5125,8 +5126,9 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                   $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
+                                  $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o \
                                   $(BUILD_DIR)/log/retain.o \
-                                  $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o \
+                                  $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
@@ -5220,7 +5222,7 @@ $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
                                   $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
-                                  $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o \
+                                  $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
@@ -5246,7 +5248,7 @@ $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
                                   $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/log/retain.o \
-                                  $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o \
+                                  $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
@@ -5407,8 +5409,8 @@ FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o $(B
 
 # The note-text shelf fuzznetd carries where spool files are built. sec 424.
 FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
-                       $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/node/stickers_binary.o) \
-                       $(BUILD_DIR)/sticker/pack.o \
+                       $(if $(STICKERS_ON),$(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/node/stickers_binary.o) \
+                       $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                        $(BUILD_DIR)/blob/levels.o $(BUILD_DIR)/notes/text.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/spool/spool_file.o \
                        $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/message.o \
@@ -5450,7 +5452,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
-              $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
+              $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
               $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o $(BUILD_DIR)/node/objects_binary.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/decisions_binary.o $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/node/presets.o $(BUILD_DIR)/node/votes.o $(BUILD_DIR)/node/responsible.o \
@@ -5649,13 +5651,13 @@ $(BUILD_DIR)/location/test/gpsd_test: $(BUILD_DIR)/location/test/gpsd_test.o \
 
 # A sticker pack and a reference as a contact sends them, sec 809.
 $(BUILD_DIR)/sticker/test/sticker_fuzz: $(BUILD_DIR)/sticker/test/sticker_fuzz.o \
-                                        $(BUILD_DIR)/sticker/pack.o
+                                        $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # A sticker pack, its spec and a reference, sec 680.
 $(BUILD_DIR)/sticker/test/sticker_test: $(BUILD_DIR)/sticker/test/sticker_test.o \
-                                        $(BUILD_DIR)/sticker/pack.o
+                                        $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5681,6 +5683,12 @@ $(BUILD_DIR)/messages/test/attachment_fuzz: $(BUILD_DIR)/messages/test/attachmen
 # A file sent in a conversation, its reference fuzznet's, sec 794.
 $(BUILD_DIR)/messages/test/attachment_test: $(BUILD_DIR)/messages/test/attachment_test.o \
                                             $(BUILD_DIR)/messages/attachment.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# One search over every store, sec 1287: the engine and the words.
+$(BUILD_DIR)/search/test/search_test: $(BUILD_DIR)/search/test/search_test.o \
+                                      $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -8004,7 +8012,7 @@ QTTY_JOBS ?= 4
 # its objects and what they reach that the list below does not already hold.
 QTTY_RPC_OBJS := $(RPC_OBJS) $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/contact_card.o \
                  $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/messages/reply.o \
-                 $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/hex/hex.o \
+                 $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o $(BUILD_DIR)/location/location.o $(BUILD_DIR)/hex/hex.o \
                  $(BUILD_DIR)/location/geo.o
 QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/cli/manifest_print.o \

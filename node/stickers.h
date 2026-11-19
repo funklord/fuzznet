@@ -60,6 +60,7 @@
 #include "../local/vocabulary.h"
 #include "../chain/authz.h"
 #include "../session/commitment.h"
+#include "../search/search.h"
 
 typedef struct fzn_node_stickers {
 	fzn_node_files_t *files;
@@ -119,5 +120,11 @@ int fzn_node_stickers_items(const fzn_node_stickers_t *st, const uint8_t root[FZ
                             void (*each)(void *ctx, const struct fzn_sticker_entry *e, unsigned main_w,
                                          unsigned main_h),
                             void *ctx);
+
+/* THE KEPT STICKERS AS A STORE OF THE ONE SEARCH, sec 1287: `ctx` the
+ * stickers, each hit a sticker keyed by its pack's root and its id (big
+ * endian), scored by `fzn_node_stickers_match`. */
+int fzn_node_stickers_search(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
+                             void *emit_ctx);
 
 #endif /* FZN_NODE_STICKERS_H */

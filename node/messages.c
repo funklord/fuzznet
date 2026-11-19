@@ -2103,8 +2103,8 @@ int fzn_node_messages_unread_each(fzn_node_messages_t *nm,
  * that id too, and a reply, a reaction or an unsend names one id every
  * member holds. A line that came in is filed under it already; one to one,
  * the id is the line's own. */
-static const uint8_t *shared_id(const fzn_node_messages_t *nm, const fzn_message_t *p, int group,
-                                uint8_t out[FZN_MESSAGE_ID_LEN])
+const uint8_t *fzn_node_messages_shared_id(const fzn_node_messages_t *nm, const fzn_message_t *p, int group,
+                                          uint8_t out[FZN_MESSAGE_ID_LEN])
 {
 	if (group && p->direction == FZN_MESSAGE_OUT && fzn_group_lines_filed_id(nm->m.hash, p->device, p->id, out))
 		return out;
@@ -2176,7 +2176,7 @@ int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, si
 			} else if (fzn_node_group_name(nm->m.store, p->contact, group, &group_len)
 			           == FZN_CONTACT_OK) {
 				l.group = 1;
-				l.id = shared_id(nm, p, 1, shared);
+				l.id = fzn_node_messages_shared_id(nm, p, 1, shared);
 				memcpy(name, group, group_len);
 				l.name_len = group_len;
 			}
@@ -2357,7 +2357,7 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 			head[h++] = '-';
 		}
 		head[h++] = ',';
-		hex_of(shared_id(nm, p, is_group, shared), FZN_MESSAGE_ID_LEN, head + h);
+		hex_of(fzn_node_messages_shared_id(nm, p, is_group, shared), FZN_MESSAGE_ID_LEN, head + h);
 		h += 2u * FZN_MESSAGE_ID_LEN;
 		k = snprintf(head + h, sizeof(head) - h, ",%s,%s,%llu,%llu,%d,",
 		             p->direction == FZN_MESSAGE_OUT ? "out" : "in",

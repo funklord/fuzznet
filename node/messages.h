@@ -564,6 +564,11 @@ typedef struct fzn_node_line {
 	/* A GROUP'S MEMBERS WHO READ this user's line, sec 1273; 0 otherwise. */
 	unsigned read_by;
 } fzn_node_line_t;
+/* THE ID A LINE IS KNOWN BY ON EVERY HOST, sec 1285: a group's line this
+ * user wrote, the hash of its writing device and its id; any other, its id.
+ * `group` 1 for a group's conversation. Into `out` where computed. */
+const uint8_t *fzn_node_messages_shared_id(const fzn_node_messages_t *nm, const fzn_message_t *p, int group,
+                                          uint8_t out[FZN_MESSAGE_ID_LEN]);
 int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, size_t from, size_t max,
                                  void (*each)(void *ctx, const fzn_node_line_t *line), void *ctx);
 /* THIS USER'S LINE WRITTEN to KEY -- a contact's root key or a group's id

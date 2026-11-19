@@ -6,6 +6,7 @@ One store, one daemon, a spec and its art in scratch.
     a  `put sticker SPEC` builds the pack from the spec and the files
        beside it, puts it, and saves it: `list sticker` names it, held, in
        the estate's settings
+    a3 `list search in stickers wave` finds the waving cat (sec 1287)
     b  `list sticker ROOT` lists its stickers; `get sticker ROOT ID` answers
        the reference a message carries, `fzn:sticker/...`, and `get sticker
        ROOT ID text WORDS` one carrying a message sticker's words, refused
@@ -147,6 +148,12 @@ def main(argv):
 				raise failed("a: list sticker answered %r" % listed)
 			print("livecheck: a: the pack was built from its spec, put, and saved to the "
 			      "estate")
+			# a3: THE ONE SEARCH, sec 1287: the kept pack's waving cat found by
+			# its phrase among the stickers, its key the pack's root and its id.
+			found = ask(sock, "list search in stickers wave").split()
+			if found[:3] != ["ok", "1", "0"] or not found[3].startswith("stickers," + root + "0000000000000001,"):
+				raise failed("a3: list search in stickers wave answered %r" % found)
+			print("livecheck: a3: the one search found the kept pack's sticker by its phrase")
 			# a2: THE SAME IN BINARY, sec 1172: the one pack, by root, held, the
 			# estate's, its name raw rather than escaped, then an ok.
 			got = binary(sock, bytes([0x16, 0x80]))
