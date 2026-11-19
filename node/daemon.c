@@ -150,6 +150,7 @@
 #endif
 #include "../local/socket.h"
 #include "../net/udp.h"
+#include "../net/ports.h"
 #include "../link/link.h"
 #include "../persist/persist_file.h"
 #include "../chain/service.h"
@@ -25754,7 +25755,26 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		face_write(face_dir, sock_path);
 
 	if (udp_port >= 0) {
-		if (fzn_udp_bind(family, NULL, (uint16_t)udp_port, &ufd) !=
+		/* FUZZNET'S SPAN, sec 1289: its first free port, the root span's
+		 * below 1024 only for a daemon allowed to bind there. */
+		if (cli.udp_span) {
+			const int root = geteuid() == 0;
+			unsigned k;
+			int bound = 0;
+
+			for (k = 0; k < FZN_PORTS_SPAN && !bound; k++)
+				if (fzn_udp_bind(family, NULL, fzn_ports_nth(root, k), &ufd) == FZN_UDP_OK) {
+					udp_port = fzn_ports_nth(root, k);
+					bound = 1;
+				}
+			if (!bound) {
+				say(FZN_ENTRY_ERROR, "node", "every port of the %s span, %u to %u, is taken",
+				    root ? "root" : "user", fzn_ports_nth(root, 0), fzn_ports_nth(root, FZN_PORTS_SPAN - 1u));
+				fzn_socket_close(lfd, sock_path);
+				return 1;
+			}
+			say(FZN_ENTRY_INFO, "node", "serving on udp port %ld, the %s span's", udp_port, root ? "root" : "user");
+		} else if (fzn_udp_bind(family, NULL, (uint16_t)udp_port, &ufd) !=
 		    FZN_UDP_OK) {
 			say(FZN_ENTRY_ERROR, "node", "could not bind udp port %ld",
 			        udp_port);

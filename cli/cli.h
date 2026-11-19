@@ -104,6 +104,9 @@ typedef struct fzn_cli {
 	const char *socket;     /* --socket=PATH: the node's own local socket */
 	int has_udp_port;       /* --udp-port=PORT, 0 to 65535 (0: any free) */
 	uint16_t udp_port;
+	/* --udp-port=span, sec 1289: the first free port of the span the
+	 * daemon's privilege allows (`net/ports.h`); `udp_port` then 0. */
+	int udp_span;
 	int udp6;               /* --udp6: the remote hop over IPv6 */
 	int has_node;           /* --node=KEY: a node's key, 64 hex digits */
 	uint8_t node[FZN_PUBKEY_LEN];

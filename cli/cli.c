@@ -96,6 +96,7 @@ void fzn_cli_init(fzn_cli_t *cli)
 	cli->socket = NULL;
 	cli->has_udp_port = 0;
 	cli->udp_port = 0;
+	cli->udp_span = 0;
 	cli->udp6 = 0;
 	cli->has_node = 0;
 	memset(cli->node, 0, sizeof(cli->node));
@@ -195,10 +196,17 @@ fzn_cli_err_t fzn_cli_arg(fzn_cli_t *cli, const char *arg, int *claimed)
 	}
 	if (option(arg, "--udp-port", &value)) {
 		*claimed = 1;
-		if (!parse_u32(value, &number) || number > 65535u)
-			return FZN_CLI_ERR_VALUE;
 		if (cli->has_udp_port)
 			return FZN_CLI_ERR_DUPLICATE;
+		/* A SPAN OF FUZZNET'S OWN, sec 1289, forwardable and scanned for. */
+		if (strcmp(value, "span") == 0) {
+			cli->udp_port = 0;
+			cli->udp_span = 1;
+			cli->has_udp_port = 1;
+			return FZN_CLI_OK;
+		}
+		if (!parse_u32(value, &number) || number > 65535u)
+			return FZN_CLI_ERR_VALUE;
 		cli->udp_port = (uint16_t)number;
 		cli->has_udp_port = 1;
 		return FZN_CLI_OK;
@@ -263,6 +271,8 @@ const char *fzn_cli_usage(void)
 	       "node options:\n"
 	       "  --socket=PATH            this node's own local socket\n"
 	       "  --udp-port=PORT          serve the remote hop on PORT, 0 to 65535\n"
+	       "  --udp-port=span          on the first free port of fuzznet's span:\n"
+	       "                           930-939 as root, 6280-6289 otherwise\n"
 	       "  --udp6                   the remote hop over IPv6\n"
 	       "  --node=KEY               a node's key, 64 hex digits\n"
 	       "  --prekey                 print this node's prekey record\n"

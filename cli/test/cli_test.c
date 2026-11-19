@@ -334,6 +334,14 @@ static void test_the_node_options_are_read(void)
 	CHECK(offer(&cli, "--udp-port=0", &claimed) == FZN_CLI_OK && cli.has_udp_port
 	              && cli.udp_port == 0u,
 	      "--udp-port=0, any free port, was not read");
+	{
+		fzn_cli_t span;
+
+		fzn_cli_init(&span);
+		CHECK(offer(&span, "--udp-port=span", &claimed) == FZN_CLI_OK && span.has_udp_port && span.udp_span
+		              && span.udp_port == 0u && offer(&span, "--udp-port=6280", &claimed) == FZN_CLI_ERR_DUPLICATE,
+		      "--udp-port=span, fuzznet's span (sec 1289), was not read, or a second port was taken");
+	}
 	CHECK(offer(&cli, "--udp6", &claimed) == FZN_CLI_OK && claimed == 1 && cli.udp6,
 	      "--udp6 was not read");
 	CHECK(offer(&cli, node, &claimed) == FZN_CLI_OK && cli.has_node && cli.node[0] == 0x01u
