@@ -93204,3 +93204,10 @@ hand; conversations_view_test -- a reaction, a reply and a reaction taken
 back as the chat list's newest, sabotage `reaction-raw-in-the-list`
 caught.
 
+**And a line taken back, a conversation's newest**, was said by the chat
+list as "a line that can no longer be read" -- a shell is what a lost
+month's key leaves, which this is not. The newest listing has a kind for
+it, `unsent` (6, `node/messages_local.situ`'s `kind`), and the list says
+"a line taken back". node messages_test and conversations_view_test,
+sabotage `newest-unsent-said-shell` caught.
+

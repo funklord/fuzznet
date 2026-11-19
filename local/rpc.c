@@ -1283,6 +1283,7 @@ static int newest_all_text(fzn_rpc_t *c, fzn_rpc_newest_entry_t *out, size_t cap
 			         : f_len == 7 && !memcmp(f, "sticker", 7) ? FZN_RPC_NEWEST_STICKER
 			         : f_len == 5 && !memcmp(f, "shell", 5)   ? FZN_RPC_NEWEST_SHELL
 			         : f_len == 4 && !memcmp(f, "call", 4)    ? FZN_RPC_NEWEST_CALL
+			         : f_len == 6 && !memcmp(f, "unsent", 6)  ? FZN_RPC_NEWEST_UNSENT
 			                                                  : FZN_RPC_NEWEST_NONE;
 			/* THE TEXT is the rest, escaped; empty for none. */
 			const char *t = q <= stop ? q : stop;

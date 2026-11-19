@@ -62,6 +62,7 @@ typedef enum fzn_messages_local_kind {
 	FZN_MESSAGES_LOCAL_KIND_STICKER = 3,
 	FZN_MESSAGES_LOCAL_KIND_SHELL = 4,
 	FZN_MESSAGES_LOCAL_KIND_CALL = 5,
+	FZN_MESSAGES_LOCAL_KIND_UNSENT = 6,
 } fzn_messages_local_kind_t;
 
 /** Whether a value names a member of kind (section 8.7).
@@ -75,6 +76,7 @@ static inline int fzn_messages_local_kind_is_known(fzn_messages_local_kind_t val
 	case FZN_MESSAGES_LOCAL_KIND_STICKER:
 	case FZN_MESSAGES_LOCAL_KIND_SHELL:
 	case FZN_MESSAGES_LOCAL_KIND_CALL:
+	case FZN_MESSAGES_LOCAL_KIND_UNSENT:
 		return 1;
 	default:
 		return 0;

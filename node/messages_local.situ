@@ -33,6 +33,7 @@ enum kind : u8 {
 	sticker = 3,
 	shell   = 4,   // its month's key is gone: nothing to show
 	call    = 5,   // a call, newer than any line (sec 1270)
+	unsent  = 6,   // taken back by its sender (sec 1284)
 	default = error,
 }
 

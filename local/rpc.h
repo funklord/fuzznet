@@ -1028,7 +1028,8 @@ typedef enum {
 	FZN_RPC_NEWEST_FILE = 2,
 	FZN_RPC_NEWEST_STICKER = 3,
 	FZN_RPC_NEWEST_SHELL = 4, /* its month's key is gone: nothing to show */
-	FZN_RPC_NEWEST_CALL = 5   /* a call newer than any line (fuzznet sec 1270) */
+	FZN_RPC_NEWEST_CALL = 5,  /* a call newer than any line (fuzznet sec 1270) */
+	FZN_RPC_NEWEST_UNSENT = 6 /* taken back by its sender (fuzznet sec 1284) */
 } fzn_rpc_newest_kind_t;
 typedef struct {
 	uint8_t key[32];

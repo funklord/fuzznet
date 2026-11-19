@@ -22,7 +22,7 @@ enum op : u8 unknown=error
   newest=128 unread=129 newest_row=130 unread_row=131 lines=132 line_row=133 send=134 read=135
 
 enum kind : u8 unknown=error
-  none=0 text=1 file=2 sticker=3 shell=4 call=5
+  none=0 text=1 file=2 sticker=3 shell=4 call=5 unsent=6
 
 struct line_row size=74..714
   @0x0000   32        u8         key  big

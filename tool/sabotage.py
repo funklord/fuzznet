@@ -17657,6 +17657,13 @@ SABOTAGES = [
 		"a reaction shown in the chat list as its reference; conversations_view_test -- sec 1282",
 	),
 	(
+		"newest-unsent-said-shell",
+		"node/messages.c",
+		"\tif (p->state == FZN_MESSAGE_UNSENT)\n\t\treturn \"unsent\";\n",
+		"",
+		"a line taken back, a conversation's newest, said as one that cannot be read; node messages_test -- sec 1284",
+	),
+	(
 		"pack-old-opens",
 		"sticker/pack.c",
 		"\tif (v != FZN_STICKER_VERSION)\n\t\treturn 0;\n\t/* THE PACK'S OWN ID",

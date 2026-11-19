@@ -1815,6 +1815,9 @@ static const char *newest_kind(const fzn_message_t *p, const char **text, size_t
 
 	*text = p->text;
 	*len = 0;
+	/* TAKEN BACK, sec 1284: a shell too, and said as what it is. */
+	if (p->state == FZN_MESSAGE_UNSENT)
+		return "unsent";
 	if (!p->readable)
 		return "shell";
 	if (fzn_attachment_parse(p->text, p->text_len, &file)) {
@@ -1983,12 +1986,13 @@ static int newest_line_at(fzn_node_messages_t *nm, size_t r, fzn_node_newest_t *
 	kind = newest_kind(p, &o->text, &o->text_len);
 	o->kind = kind[0] == 's' ? (kind[1] == 'h' ? FZN_NODE_NEWEST_SHELL : FZN_NODE_NEWEST_STICKER)
 	          : kind[0] == 'f' ? FZN_NODE_NEWEST_FILE
+	          : kind[0] == 'u' ? FZN_NODE_NEWEST_UNSENT
 	                           : FZN_NODE_NEWEST_TEXT;
 	o->sender_len = line_sender(nm, p, sender);
 	return 1;
 }
 
-static const char *const NEWEST_KIND_WORD[] = { "none", "text", "file", "sticker", "shell", "call" };
+static const char *const NEWEST_KIND_WORD[] = { "none", "text", "file", "sticker", "shell", "call", "unsent" };
 
 static size_t list_newest(fzn_node_messages_t *nm, size_t from, char *reply, size_t cap)
 {

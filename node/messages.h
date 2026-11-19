@@ -495,7 +495,8 @@ enum {
 	FZN_NODE_NEWEST_FILE = 2,
 	FZN_NODE_NEWEST_STICKER = 3,
 	FZN_NODE_NEWEST_SHELL = 4,
-	FZN_NODE_NEWEST_CALL = 5 /* a call newer than any line, sec 1270 */
+	FZN_NODE_NEWEST_CALL = 5, /* a call newer than any line, sec 1270 */
+	FZN_NODE_NEWEST_UNSENT = 6 /* taken back by its sender, sec 1284 */
 };
 typedef struct fzn_node_newest {
 	const uint8_t *key;

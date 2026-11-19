@@ -80,6 +80,9 @@ static QString line_words(const fzn_rpc_newest_entry_t *e)
 	case FZN_RPC_NEWEST_SHELL:
 		what = QObject::tr("a line that can no longer be read");
 		break;
+	case FZN_RPC_NEWEST_UNSENT:
+		what = QObject::tr("a line taken back");
+		break;
 	case FZN_RPC_NEWEST_TEXT: {
 		/* A REPLY BY ITS OWN WORDS, A REACTION AS ONE, sec 1282: never the
 		 * reference either rides in. */

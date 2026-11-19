@@ -1835,6 +1835,8 @@ static void test_a_line_taken_back_across(void)
 	                         == FZN_MESSAGES_OK
 	              && count == 1u && !page[0].readable && page[0].text_len == 0u,
 	      "this user's line taken back was not let go here, or its unsend was listed");
+	CHECK(verb(&S, FZN_ORIGIN_SAME_USER, "list message newest") && strstr(reply, ",unsent,"),
+	      "the newest line, taken back, was not listed as unsent among every conversation's newest");
 	CHECK(deliver(&l)
 	              && fzn_messages_page(&C.nm.m, S.pub, 0u, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
 	                         == FZN_MESSAGES_OK
@@ -1869,7 +1871,7 @@ static void test_a_line_taken_back_across(void)
 	 * members file it by, the hash of its writing host and its id, and
 	 * taken back by that id. */
 	{
-		uint8_t group[FZN_PUBKEY_LEN], shared[FZN_MESSAGE_ID_LEN];
+		uint8_t group[FZN_PUBKEY_LEN], members_id[FZN_MESSAGE_ID_LEN];
 		char shared_hex[2u * FZN_MESSAGE_ID_LEN + 1u], own_hex[2u * FZN_MESSAGE_ID_LEN + 1u];
 
 		memset(group, 0x9c, sizeof(group));
@@ -1877,10 +1879,10 @@ static void test_a_line_taken_back_across(void)
 		CHECK(fzn_node_group_rename(&S.store_ops, group, "crew", 4u) == FZN_CONTACT_OK
 		              && fzn_messages_write(&S.nm.m, group, FZN_MESSAGE_OUT, id, clock_ms, "to%20the%20crew", 15u)
 		                         == FZN_MESSAGES_OK
-		              && fzn_group_lines_filed_id(&HASH, S.pub, id, shared),
+		              && fzn_group_lines_filed_id(&HASH, S.pub, id, members_id),
 		      "fixture: a line to a group, and the id the members file it by");
 		for (i = 0; i < FZN_MESSAGE_ID_LEN; i++) {
-			(void)snprintf(shared_hex + 2u * i, 3u, "%02x", shared[i]);
+			(void)snprintf(shared_hex + 2u * i, 3u, "%02x", members_id[i]);
 			(void)snprintf(own_hex + 2u * i, 3u, "%02x", id[i]);
 		}
 		CHECK(verb(&S, FZN_ORIGIN_SAME_USER, "list message @crew") && strstr(reply, shared_hex)

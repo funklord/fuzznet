@@ -71,9 +71,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	/* BOB'S NEWEST A REACTION, OR A REPLY (sec 1282). */
 	if (!strcmp(line, "list message newest") && about_line)
 		return (size_t)snprintf(reply, cap,
-		                        "ok 3 0 3 " BOB ",1700005800000,in,-,text,%s " FAMILY
+		                        "ok 3 0 3 " BOB ",1700005800000,in,-,%s,%s " FAMILY
 		                        ",1700005700000,in,carol,file,photo.jpg " DAN ",0,-,-,none,\n",
-		                        about_line == 1 ? "fzn:react/00112233445566778899aabbccddeeff%20\xf0\x9f\x91\x8d"
+		                        about_line == 4 ? "unsent" : "text",
+		                        about_line == 4 ? ""
+		                        : about_line == 1 ? "fzn:react/00112233445566778899aabbccddeeff%20\xf0\x9f\x91\x8d"
 		                        : about_line == 2 ? "fzn:reply/00112233445566778899aabbccddeeff%20on%20my%20way"
 		                                          : "fzn:react/00112233445566778899aabbccddeeff");
 	/* DAN'S MISSED CALL AT 23:30, his newest (sec 1270). */
@@ -158,6 +160,9 @@ int main(int argc, char **argv)
 	about_line = 3;
 	CHECK(v.refresh() && v.shown().value(1) == "  bob -- took back a reaction -- 23:50 (2 unread)",
 	      "a reaction taken back was shown as its reference");
+	about_line = 4;
+	CHECK(v.refresh() && v.shown().value(1) == "  bob -- a line taken back -- 23:50 (2 unread)",
+	      "a line taken back, a conversation's newest, was not said so (sec 1284)");
 	about_line = 0;
 	CHECK(v.open(0, 0) && opened == "bob", "a contact's conversation was not opened by its name");
 	/* READ MARKS FOR ONE CONVERSATION, sec 1274: three ways, the one
