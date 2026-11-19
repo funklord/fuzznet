@@ -90707,7 +90707,8 @@ says -- so a probe has nowhere to go. Three roads, each with its cost:
 
 Best guess: 1, a fixed port open only during the window. Nothing is
 built until it is chosen, since the port or the service name is public
-the moment it ships.
+the moment it ships. **Taken in sec 1288**, on the holder's "we implement
+the join by request" (2026-11-19): road 1, the port 6290 (sec 1289).
 
 ## 1217. Every client call in binary: the inventory, and the order, 2026-11-17
 
@@ -93372,3 +93373,89 @@ repointed at `search/words.c` and caught.
 
 **Next, step 2**: the query and the answer as a situ schema, and a host
 answering another of its own user's hosts.
+
+## 1288. Join by request: the discovery, step J1, 2026-11-19
+
+**The holder: "we implement the join by request."** Sec 1216's design,
+with its one open question taken on its best guess -- **road 1, a fixed
+discovery port open only while an offer is** -- since the holder asked
+for it built and roads 2 (mDNS, a dependency and a service name) and 3
+(an address typed, a code by another name) were each worse for the case
+it exists for, a pair where neither side can read the other's screen.
+**The port is 6290** (sec 1289), beside the user span; public once
+shipped, so it is said here first. An assumption the holder may move
+before a release; nothing outside fuzznet depends on it yet.
+
+**J1, built: `node/offer.{h,c}`, the two datagrams.** A PROBE, 0xFD, a
+version, an 8-byte nonce and zero padding to 512 bytes -- the padding
+checked, so nothing hides in it; an ANSWER, 0xFE, the version, the
+probe's nonce echoed, a name of 1 to 64 bytes with no control byte, and
+a code that reads as an invite (sec 896) -- never longer than the probe
+(287 bytes at the longest), sec 624's rule against amplification; one
+read only as the answer to the device's own probe, exactly its length.
+
+**The steps after:** J2, the daemon -- `add offer [SECONDS]` (300 unless
+said, at most 900) makes a confirmed invite and opens the port among the
+daemon's own descriptors (sec 831) for the window, answering probes;
+`fetch offer` broadcasts a probe from the serving socket and `list
+offer` says what answered, name, key fingerprint and code; the join is
+then `add join CODE` as for a code read off a screen, held until the
+host's user lets it in. J3, the views: a host's "let a device join from
+this network", a device's list of hosts. J4, a live test.
+
+**Tests:** offer_test -- a probe and an answer each read back, a probe
+with a byte in its padding refused, an answer to another probe or cut
+short refused, the longest name and code within the probe, a code that
+is no invite and a name past its bound or with a line break never
+written.
+
+## 1289. The ports a host listens on: two spans of ten, 2026-11-19
+
+**The holder: "For direct NAT traversal we want a specific set of
+listener ports that can be port forwarded, and both low (root) ports and
+high (user) ports. Maybe a span of 10 ports each, so we can forward to
+several different machines (different estates) on a network. The
+structure of this is important as we may need to scan for them
+externally. So, not too many, and not too few ... And we don't wanna
+port clash with anything that is normally used either."**
+
+    root  930 - 939     a daemon run as root, below 1024
+    user  6280 - 6289   a daemon run as a user
+    6290                join by request's discovery (sec 1288)
+
+**Measured, 2026-11-19, not remembered**: IANA's service registry, its
+CSV of every assignment, fetched and walked for runs of ten or more
+unassigned ports -- below 1024 those are 288-299, 334-343, 717-728,
+781-799, 811-827, 834-846, 863-872, 874-885, 889-899, 916-952 and
+954-988; and Wikipedia's list of ports in use, official and unofficial,
+checked for every candidate. **930-939** sits in the middle of the
+largest low run, 916-952, with nothing listed anywhere in it (903,
+VMware's, and 953, BIND's rndc, are the neighbours outside it).
+**6280-6289** sits in the middle of the free run 6270-6299, with free
+ports either side and nothing listed; the other candidates had a
+neighbour in use -- 4630's vendor suite, 5517 and 5520, 5931 and 5938
+(remote desktops), 6170, 7144-7145 (Peercast), League of Legends over
+5000-5500. Decades, so the set reads and scans plainly: **twenty probes
+reach every port a host could serve at one address** -- a user span
+first, where most hosts are -- and ten machines or estates behind one
+router each forward one port of a span.
+
+**Not a law**: `--udp-port=PORT` still serves anywhere.
+**`--udp-port=span`** takes the first free port of the span the
+daemon's privilege allows -- the root span as root, the user span
+otherwise -- and says which it took; every one taken is an error naming
+the span. Not the default: a host run with no `--udp-port` serves no
+socket on purpose (a phone, sec 1235), and making the span the default
+is the holder's to say. `net/ports.{h,c}` holds the spans and the scan
+order, which a peer probing an address from outside will use.
+
+**Not yet**: the scan itself -- a peer trying an address's twenty ports
+-- waits for the NAT work that wants it; and the spans are UDP, the one
+transport a host serves.
+
+**Tests:** ports_test -- each span its ten ports, the root span below
+1024 and the user span above, a scan's order, which ports are a span's.
+cli_test -- `--udp-port=span` read, and a second port refused beside it.
+A daemon started with it served on 6280, "the user span's" (by hand,
+2026-11-19).
+

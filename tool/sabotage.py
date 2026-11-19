@@ -17692,6 +17692,27 @@ SABOTAGES = [
 		"a reaction searched as a line of words; node messages_test -- sec 1287",
 	),
 	(
+		"offer-padding-unchecked",
+		"node/offer.c",
+		"\t\tif (in[i])\n\t\t\treturn 0;\n",
+		"",
+		"a probe carrying something in its padding read as one; offer_test -- sec 1288",
+	),
+	(
+		"offer-other-probe-answer",
+		"node/offer.c",
+		"\t    || in[1] != FZN_OFFER_VERSION || memcmp(in + 2, nonce, FZN_OFFER_NONCE_LEN) != 0)\n",
+		"\t    || in[1] != FZN_OFFER_VERSION)\n",
+		"an answer to another device's probe taken; offer_test -- sec 1288",
+	),
+	(
+		"ports-span-too-wide",
+		"net/ports.c",
+		"\treturn (port >= FZN_PORTS_ROOT_FIRST && port < FZN_PORTS_ROOT_FIRST + FZN_PORTS_SPAN)\n",
+		"\treturn (port >= FZN_PORTS_ROOT_FIRST && port <= FZN_PORTS_ROOT_FIRST + FZN_PORTS_SPAN)\n",
+		"940, outside the root span, taken for one of its ports; ports_test -- sec 1289",
+	),
+	(
 		"pack-old-opens",
 		"sticker/pack.c",
 		"\tif (v != FZN_STICKER_VERSION)\n\t\treturn 0;\n\t/* THE PACK'S OWN ID",

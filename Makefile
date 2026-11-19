@@ -261,13 +261,13 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              hex/hex.c net/own_address.c media/ulaw.c media/jitter.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/meter_binary.c node/sync_load.c node/schema.c node/permit.c node/stage.c node/log_list.c node/clocks.c node/clocks_binary.c \
-             net/udp.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
+             net/udp.c net/ports.c net/bearer.c device/device.c persist/delta.c persist/cache.c node/verify_memo.c node/pressure.c record/store_held.c fault/fault.c \
              node/node.c node/local.c node/remote.c node/serve.c node/sessions.c node/live.c node/reach.c node/rate.c node/metric.c node/guard.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/library_binary.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/attachment.c messages/reply.c messages/messages.c node/messages.c node/search.c node/messages_binary.c node/contacts_binary.c node/groups_binary.c \
-             node/file_holds.c node/attachments.c node/records.c node/objects.c node/objects_binary.c node/decisions.c node/decisions_binary.c node/invite.c node/presets.c node/votes.c local/client_config.c node/responsible.c \
+             node/file_holds.c node/attachments.c node/records.c node/objects.c node/objects_binary.c node/decisions.c node/decisions_binary.c node/invite.c node/offer.c node/presets.c node/votes.c local/client_config.c node/responsible.c \
              contact/contact.c \
              log/rules.c \
              node/received.c node/members.c \
@@ -349,7 +349,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o 
                    $(BUILD_DIR)/persist/persist_file.o \
                    $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/prekey/prekey.o \
                    $(BUILD_DIR)/ratchet/ratchet.o $(BUILD_DIR)/session/agree.o \
-                   $(BUILD_DIR)/net/udp.o $(BUILD_DIR)/version/version.o \
+                   $(BUILD_DIR)/net/udp.o $(BUILD_DIR)/net/ports.o $(BUILD_DIR)/version/version.o \
                    $(BUILD_DIR)/frame/freshness.o \
                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/chain/authz.o \
                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
@@ -366,13 +366,13 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/rpc_compat.h local/rpc_sticker_read.h local/rpc_media.h local/rpc_binary.h local/call_sound.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/meter_binary.h node/sync_load.h node/schema.h node/stage.h node/permit.h node/log_list.h node/clocks.h node/clocks_binary.h \
-             net/udp.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
+             net/udp.h net/ports.h net/bearer.h device/device.h persist/delta.h persist/cache.h node/verify_memo.h node/pressure.h record/store_held.h fault/fault.h \
              node/node.h node/local.h node/remote.h node/serve.h node/sessions.h node/live.h node/reach.h node/rate.h node/metric.h node/guard.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/library_binary.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/attachment.h messages/reply.h messages/messages.h node/messages.h node/search.h node/messages_binary.h node/contacts_binary.h node/groups_binary.h \
-             node/file_holds.h node/attachments.h node/records.h node/objects.h node/objects_binary.h node/decisions.h node/decisions_binary.h node/invite.h node/presets.h node/votes.h local/client_config.h node/responsible.h \
+             node/file_holds.h node/attachments.h node/records.h node/objects.h node/objects_binary.h node/decisions.h node/decisions_binary.h node/invite.h node/offer.h node/presets.h node/votes.h local/client_config.h node/responsible.h \
              contact/contact.h \
              log/rules.h \
              node/received.h node/members.h \
@@ -516,7 +516,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/log_list_test.c node/test/clocks_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
              sticker/test/sticker_test.c messages/test/attachment_test.c messages/test/reply_test.c search/test/search_test.c \
-             sticker/test/sticker_fuzz.c node/test/records_test.c node/test/decisions_test.c node/test/invite_test.c node/test/presets_test.c node/test/votes_test.c local/test/client_config_test.c node/test/responsible_test.c \
+             sticker/test/sticker_fuzz.c node/test/records_test.c node/test/decisions_test.c node/test/invite_test.c node/test/offer_test.c net/test/ports_test.c node/test/presets_test.c node/test/votes_test.c local/test/client_config_test.c node/test/responsible_test.c \
              node/test/group_fuzz.c \
              node/test/attachments_test.c \
              node/test/peer_persist_test.c \
@@ -663,6 +663,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/records_test \
              $(BUILD_DIR)/node/test/decisions_test \
              $(BUILD_DIR)/node/test/invite_test \
+             $(BUILD_DIR)/node/test/offer_test \
+             $(BUILD_DIR)/net/test/ports_test \
              $(BUILD_DIR)/node/test/presets_test \
              $(BUILD_DIR)/node/test/votes_test \
              $(BUILD_DIR)/local/test/client_config_test \
@@ -5325,6 +5327,17 @@ $(BUILD_DIR)/local/test/client_config_test: $(BUILD_DIR)/local/test/client_confi
 # An invite: its text, its boxes' contents and a host's table, sec 896.
 $(BUILD_DIR)/node/test/invite_test: $(BUILD_DIR)/node/test/invite_test.o $(BUILD_DIR)/node/invite.o \
                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A host found by a device that knows nothing of it, sec 1288.
+$(BUILD_DIR)/node/test/offer_test: $(BUILD_DIR)/node/test/offer_test.o $(BUILD_DIR)/node/offer.o \
+                                   $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The ports a host listens on, sec 1289.
+$(BUILD_DIR)/net/test/ports_test: $(BUILD_DIR)/net/test/ports_test.o $(BUILD_DIR)/net/ports.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
