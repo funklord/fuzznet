@@ -93222,3 +93222,113 @@ naming the own id fails, B keeping the line (run by hand, 2026-11-19), so
 it has no entry in the sabotage table, which runs `make test`;
 `group-shared-id-not-mapped` repointed at `find_own` and caught.
 
+
+## 1286. API 28 stays; situ's character classes, 2026-11-19
+
+**The holder: "we stick with api 28 until a need arises (which may never
+happen)."** Android's minimum stays 28, where bionic's `getrandom()`
+begins; nothing changes in fuzznet, and the raw-syscall path to 26 recorded
+in the terminal on 2026-11-18 is not built. Settles the question carried
+since then.
+
+**situ** (inbox 20261119T0207Z, its b129070d..4977d7ba): a run of `u8` may
+declare the bytes it holds, `[chars = "A-Za-z0-9.:-"]`, enforced by every
+backend and walker and compared as a set by the wire check (a narrower
+class a tightening); and a `when` may read a `let` of its struct. Nothing
+committed here changes. Both serve the settings registry (sec 1279) when
+it is adopted -- ADDRESS's host class, a rule over DURATION's seconds.
+
+## 1287. One search over every store, and it is distributed: the design, 2026-11-19
+
+**The holder: "We want a generic search interface for all data stores so
+it doesn't need to be reimplemented each time, and there will be many, at
+least one for each subsystem. Remember it is almost always a distributed
+search, it is therefore much more complex than a local one."**
+
+**What exists, each its own:** the library view filters its listing in
+the view (sec 1207); stickers rank phrases against a typed line
+(`fzn_sticker_match`, sec 1272); `facet` evaluates set expressions over a
+catalogue's dimensions (secs 101, 342-344); the catalogue's signed shard
+index lets a host find a key without revealing more than a shard (sec
+341). Nothing searches messages, notes, contacts or groups, and nothing
+asks another host. Sec 1035's rule -- one concept, one model -- says the
+next store must not grow a fifth search.
+
+### The model
+
+- **A QUERY** is: WORDS, matched after one normalisation -- the sticker
+  matcher's, lifted out of `sticker/` (case folded, an apostrophe dropped,
+  any other mark a space, a plain ending taken as its word), so "Thanks"
+  finds "thank" in every store alike; an optional FILTER, a `facet`
+  expression over the store's own dimensions (a conversation, a sender, a
+  kind, a pack, a folder) -- facet is mechanism with opaque dimension
+  names, so it serves every store without learning what they classify,
+  and no second filter language is written; a TIME window; the STORES
+  asked (all, by default); K, the most hits wanted; a CURSOR; a DEADLINE.
+- **A HIT** is: the store's name; the item's KEY in that store, bytes the
+  store defines and the one id it is known by **on every host** (a group
+  line's shared id, sec 1285; a blob's root; a note's id) -- so the same
+  item found at three hosts is one hit; a SCORE, higher better, the
+  store's but on one scale (words matched, weighted as the sticker
+  matcher's 0-100 a word); a TIME; a SNIPPET of at most 120 bytes the
+  store chooses; and the HOSTS that answered with it.
+- **A STORE** is a provider: a name, its dimensions, and one call --
+  given a query, the asker and a budget, emit its hits in its own best
+  order. Each subsystem registers one; the engine knows none of them.
+- **ONE TOTAL ORDER** over hits -- score descending, then time
+  descending, then store, then key -- so a merge is deterministic and a
+  CURSOR is the last hit's (score, time, store, key): "after this". A
+  keyset cursor, not an offset, because an offset across many hosts is
+  meaningless: each host answers "your best K after this point", and the
+  merge of those is exactly the next page, with no gap and no repeat
+  whatever each host holds.
+
+### Why distributed is the hard part, and the answers
+
+1. **Who may see what is decided where the data is.** A query carries the
+   asker; each answering host runs each store with that asker and emits
+   only what its own grants let that asker read -- a contact's notes the
+   asker was shared, a group's lines for a member. Never filtered by the
+   asker after the fact: what is not theirs never leaves.
+2. **Whom to ask is decided per store**, from what is already shared: this
+   user's own hosts for everything this user holds (they hold different
+   months and keys, sec 527); a group's member hosts for a group's stores;
+   a contact's hosts for what that contact shares. **Never a stranger,
+   never a relay** -- words reveal interest, and a relay forwards sealed
+   frames it cannot read. A query may be local only.
+3. **Bounded at both ends**: K per host, a snippet's 120 bytes, the
+   answer chunked as any reply, the host's own work bounded by a budget of
+   items scanned; a host that stops early says `more`. Nothing a query
+   asks can make a host send more than K hits.
+4. **Partial is normal**: a host that does not answer by the deadline is
+   named in the result as unasked or late, and the hits stand without it
+   -- marked incomplete, never presented as everything.
+5. **Duplicates are one hit**: by (store, key), the best score kept, its
+   hosts listed -- which is why the key must be the id every host shares.
+6. **The engine is the same locally**: a local search is the distributed
+   one with one host, this one, so there is one merge, one cursor, one
+   order to test.
+
+### The steps
+
+1. **`search/`**: the query, the hit, the normaliser lifted from
+   `sticker/`, the store interface, the engine's merge and keyset cursor;
+   stores for messages (a line's text, by conversation), stickers (kept
+   packs' phrases and descriptions, `fzn_sticker_match`'s scoring) and
+   contacts (names); `list search WORDS` on the node, local. The sticker
+   suggestion row keeps its own call, which becomes this store's.
+2. **The wire**: a situ schema for the query and the answer; a host
+   answers another of **its own user's** hosts, the store run as that
+   user.
+3. **Fan-out and merge** across this user's hosts, deadline and partial
+   results said.
+4. **Beyond the user**: groups' and contacts' stores, asked of the hosts
+   that share them, each answer authorized at its source; notes and the
+   catalogue (facet filters) as their stores.
+
+**Rejected: a search per subsystem**, the state today -- each with its own
+words, order and paging, and none distributed. **Rejected: an index
+replicated to every host** for remote search -- it would copy every
+store's words to every peer, past what each grant allows; the catalogue's
+shard index (sec 341) is that, deliberately, for a catalogue alone.
+**Rejected: offset paging** -- meaningless across hosts.
