@@ -19,6 +19,7 @@
 #include <string.h>
 #include <time.h>
 
+static int about_line; /* bob's newest: 1 a reaction, 2 a reply, 3 one taken back */
 static int checks, failures;
 
 #define CHECK(cond, what)                                                                            \
@@ -67,6 +68,14 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		read_choice[0] = '\0';
 		return (size_t)snprintf(reply, cap, "ok\n");
 	}
+	/* BOB'S NEWEST A REACTION, OR A REPLY (sec 1282). */
+	if (!strcmp(line, "list message newest") && about_line)
+		return (size_t)snprintf(reply, cap,
+		                        "ok 3 0 3 " BOB ",1700005800000,in,-,text,%s " FAMILY
+		                        ",1700005700000,in,carol,file,photo.jpg " DAN ",0,-,-,none,\n",
+		                        about_line == 1 ? "fzn:react/00112233445566778899aabbccddeeff%20\xf0\x9f\x91\x8d"
+		                        : about_line == 2 ? "fzn:reply/00112233445566778899aabbccddeeff%20on%20my%20way"
+		                                          : "fzn:react/00112233445566778899aabbccddeeff");
 	/* DAN'S MISSED CALL AT 23:30, his newest (sec 1270). */
 	if (!strcmp(line, "list message newest") && called)
 		return (size_t)snprintf(reply, cap,
@@ -140,6 +149,16 @@ int main(int argc, char **argv)
 	      "a missed call, a conversation's newest, was not shown as one, by when it rang");
 	called = 0;
 	CHECK(v.refresh(), "the list did not come back without the call");
+	about_line = 1;
+	CHECK(v.refresh() && v.shown().value(1) == "  bob -- reacted \xf0\x9f\x91\x8d -- 23:50 (2 unread)",
+	      "a reaction, a conversation's newest, was shown as its reference");
+	about_line = 2;
+	CHECK(v.refresh() && v.shown().value(1) == "  bob -- on my way -- 23:50 (2 unread)",
+	      "a reply, a conversation's newest, was not shown by its own words");
+	about_line = 3;
+	CHECK(v.refresh() && v.shown().value(1) == "  bob -- took back a reaction -- 23:50 (2 unread)",
+	      "a reaction taken back was shown as its reference");
+	about_line = 0;
 	CHECK(v.open(0, 0) && opened == "bob", "a contact's conversation was not opened by its name");
 	/* READ MARKS FOR ONE CONVERSATION, sec 1274: three ways, the one
 	 * standing marked; chosen, set or cleared for bob's key alone. */

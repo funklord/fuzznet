@@ -93190,10 +93190,17 @@ the written id afterwards; a client that does should match by the listed
 id (fuzzypickles told, inbox 20261118T2322Z). `set message @GROUP out ID
 STATE`, which no client calls for a group, still takes the written id.
 
+**And the chat list** (`gui/conversations_view.cpp`), whose newest line
+showed a reply or a reaction as the reference it rides in: a reply by its
+own words, a reaction as "reacted 👍", one taken back as "took back a
+reaction" -- sec 1282's gap, seen on this walk.
+
 **Tests:** node messages_test -- a group's own line listed under its
 members' id and not its own, and taken back by that id. live_groups du --
 A's listed id for its own line is B's filed id, and the unsend by it lets
 the line go at both; dr finds A's lines by their text. Sabotages
 `group-own-line-own-id`, `group-shared-id-not-mapped`, each caught by
-hand.
+hand; conversations_view_test -- a reaction, a reply and a reaction taken
+back as the chat list's newest, sabotage `reaction-raw-in-the-list`
+caught.
 

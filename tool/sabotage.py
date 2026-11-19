@@ -17650,6 +17650,13 @@ SABOTAGES = [
 		"a group line not taken back by the id it is listed under; node messages_test -- sec 1285",
 	),
 	(
+		"reaction-raw-in-the-list",
+		"gui/conversations_view.cpp",
+		"\t\telse if (fzn_message_reaction_parse(e->text, e->text_len, id, &at, &n))\n",
+		"\t\telse if (0)\n",
+		"a reaction shown in the chat list as its reference; conversations_view_test -- sec 1282",
+	),
+	(
 		"pack-old-opens",
 		"sticker/pack.c",
 		"\tif (v != FZN_STICKER_VERSION)\n\t\treturn 0;\n\t/* THE PACK'S OWN ID",

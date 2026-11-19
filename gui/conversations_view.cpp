@@ -6,6 +6,7 @@
 #include "rpc_ask.h"
 
 extern "C" {
+#include "../messages/reply.h"
 #include "../local/rpc_encoding.h"
 }
 
@@ -79,9 +80,20 @@ static QString line_words(const fzn_rpc_newest_entry_t *e)
 	case FZN_RPC_NEWEST_SHELL:
 		what = QObject::tr("a line that can no longer be read");
 		break;
-	case FZN_RPC_NEWEST_TEXT:
-		what = said(e->text, e->text_len);
+	case FZN_RPC_NEWEST_TEXT: {
+		/* A REPLY BY ITS OWN WORDS, A REACTION AS ONE, sec 1282: never the
+		 * reference either rides in. */
+		uint8_t id[FZN_MESSAGE_ID_LEN];
+		size_t at = 0, n = 0;
+
+		if (fzn_message_reply_parse(e->text, e->text_len, id, &at))
+			what = said(e->text + at, e->text_len - at);
+		else if (fzn_message_reaction_parse(e->text, e->text_len, id, &at, &n))
+			what = n ? QObject::tr("reacted %1").arg(said(e->text + at, n)) : QObject::tr("took back a reaction");
+		else
+			what = said(e->text, e->text_len);
 		break;
+	}
 	case FZN_RPC_NEWEST_NONE:
 		return QObject::tr("nothing said yet");
 	case FZN_RPC_NEWEST_CALL: {
