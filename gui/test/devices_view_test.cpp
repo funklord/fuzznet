@@ -36,7 +36,7 @@ static int checks, failures;
 #define DEV1 "d1d1000000000000000000000000000000000000000000000000000000000001"
 #define DEV2 "d2d2000000000000000000000000000000000000000000000000000000000002"
 
-static int silent, confirm_on = 1, refuse_set, joined_after;
+static int silent, confirm_on = 1, refuse_set, joined_after, hosts_found;
 static char last[200];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -51,6 +51,14 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	/* THIS HOST SERVES AS ITSELF, until the join has been looked at twice. */
 	if (!strcmp(line, "get identity"))
 		return (size_t)snprintf(reply, cap, "ok %s %s\n", DEV1, joined_after-- > 0 ? DEV1 : DEV2);
+	/* JOIN BY REQUEST, sec 1288. */
+	if (!strcmp(line, "add offer 300"))
+		return (size_t)snprintf(reply, cap, "ok 6290 300\n");
+	if (!strcmp(line, "fetch offer"))
+		return (size_t)snprintf(reply, cap, "ok 255.255.255.255 6290\n");
+	if (!strcmp(line, "list offer"))
+		return hosts_found ? (size_t)snprintf(reply, cap, "ok 1 the%%20root,aa00000000000001,FZI1:FOUNDCODE\n")
+		                   : (size_t)snprintf(reply, cap, "ok 0\n");
 	if (!strcmp(line, "list invite"))
 		return (size_t)snprintf(reply, cap, "ok 2 %s %s\n", DEV1, DEV2);
 	snprintf(last, sizeof last, "%s", line);
@@ -129,6 +137,21 @@ int main(int argc, char **argv)
 	last[0] = '\0';
 	CHECK(!v.join("ABCD") && !last[0] && v.status().contains("not a join code"),
 	      "a code of the wrong shape was handed over");
+
+	/* JOIN BY REQUEST, sec 1288: an offer opened for five minutes; a look
+	 * that finds nothing says how to make a host findable; one that finds
+	 * R lists it by name and key, and joins by the code it gave. */
+	CHECK(v.offer() && v.status().contains("five minutes"), "an offer was not opened, or not said so");
+	CHECK(v.look() && v.show_found() == 0 && v.found().isEmpty() && v.status().contains("look again"),
+	      "a look that found nothing was not said so");
+	hosts_found = 1;
+	joined_after = 2;
+	CHECK(v.look() && v.show_found() == 1 && v.found() == QStringList{ "the root -- key aa00000000000001" },
+	      "the host found was not listed by its name and key");
+	CHECK(v.join_found(0) && !strcmp(last, "add join FZI1:FOUNDCODE"), "the host found was not joined by its code");
+	CHECK(v.poll_join() == 0 && v.poll_join() == 1, "the join of a host found was not seen");
+	last[0] = '\0';
+	CHECK(!v.join_found(1) && !last[0], "a row nobody found was joined");
 
 	/* SCANNED, sec 1158: the code read from a picture and joined with; the
 	 * frames after it, the same code again, take nothing while the join is

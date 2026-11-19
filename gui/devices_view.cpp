@@ -34,6 +34,12 @@ extern "C" {
 
 /* A LOOK A SECOND for the five minutes the node goes on asking. */
 #define JOIN_LOOK_MS 1000
+/* HOW LONG A LOOK WAITS for hosts to answer before listing them, sec 1288:
+ * an answer on one network comes back in milliseconds. */
+#define FOUND_WAIT_MS 1500
+/* An offer's window, fuzznet's default. */
+#define OFFER_S 300u
+#define FOUND_MAX 16
 #define JOIN_LOOKS 300
 
 struct fzn_devices_view::keys {
@@ -87,6 +93,16 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 		        m_scan_camera->setText(tr("Scan with the camera"));
 		        m_status->setText(m_camera->why());
 	        });
+	m_offer = new QPushButton(tr("Let a device on this network find this host"), this);
+	m_look = new QPushButton(tr("Look for my hosts on this network"), this);
+	m_found = new QListWidget(this);
+	m_found->setAccessibleName(tr("Hosts found on this network"));
+	m_found->hide();
+	m_join_found = new QPushButton(tr("Ask to join the host chosen"), this);
+	m_join_found->hide();
+	m_look_timer = new QTimer(this);
+	m_look_timer->setSingleShot(true);
+	m_look_timer->setInterval(FOUND_WAIT_MS);
 	m_join_timer = new QTimer(this);
 	m_join_timer->setInterval(JOIN_LOOK_MS);
 	m_status = new QLabel(this);
@@ -111,6 +127,9 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	col->addWidget(intro);
 	col->addWidget(expiry);
 	col->addLayout(make);
+	/* NO CODE CARRIED, sec 1288: on one network, the device finds this
+	 * host itself. A row of its own, a phone's width. */
+	col->addWidget(m_offer);
 	col->addWidget(m_code);
 	col->addWidget(m_qr);
 	col->addWidget(m_confirm);
@@ -132,6 +151,9 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	scan_row->addStretch(1);
 	col->addLayout(join_row);
 	col->addLayout(scan_row);
+	col->addWidget(m_look);
+	col->addWidget(m_found);
+	col->addWidget(m_join_found);
 	col->addWidget(m_status);
 
 	connect(m_invite, &QPushButton::clicked, [this]() { invite(); });
@@ -144,6 +166,10 @@ fzn_devices_view::fzn_devices_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_join, &QPushButton::clicked, [this]() { join(m_join_code->text()); });
 	connect(m_join_timer, &QTimer::timeout, [this]() { poll_join(); });
+	connect(m_offer, &QPushButton::clicked, [this]() { offer(); });
+	connect(m_look, &QPushButton::clicked, [this]() { look(); });
+	connect(m_look_timer, &QTimer::timeout, [this]() { show_found(); });
+	connect(m_join_found, &QPushButton::clicked, [this]() { join_found(m_found->currentRow()); });
 	connect(m_scan_camera, &QPushButton::clicked, [this]() {
 		if (camera_running())
 			stop_camera();
@@ -225,6 +251,78 @@ bool fzn_devices_view::invite()
 	m_qr->show();
 	m_status->setText(tr("Give this code to the new device within ten minutes."));
 	return true;
+}
+
+bool fzn_devices_view::offer()
+{
+	if (fzn_rpc_device_offer(&m_rpc->c, OFFER_S) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_status->setText(tr("For five minutes, a device on this network that looks for hosts finds this "
+	                     "one. It waits under \"Waiting to join\" until you let it in: compare the key "
+	                     "it shows with the one listed here."));
+	refresh();
+	return true;
+}
+
+bool fzn_devices_view::look()
+{
+	m_found->clear();
+	m_found_codes.clear();
+	m_found->hide();
+	m_join_found->hide();
+	if (fzn_rpc_device_look(&m_rpc->c) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_status->setText(tr("Looking for hosts on this network..."));
+	m_look_timer->start();
+	return true;
+}
+
+int fzn_devices_view::show_found()
+{
+	fzn_rpc_offer_t hosts[FOUND_MAX];
+	size_t n = 0;
+
+	if (fzn_rpc_device_found(&m_rpc->c, hosts, FOUND_MAX, &n) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return 0;
+	}
+	m_found->clear();
+	m_found_codes.clear();
+	for (size_t i = 0; i < n; i++) {
+		/* THE NAME AND THE KEY, so a person compares the key with what the
+		 * host shows before asking it -- a name anyone can claim. */
+		m_found->addItem(tr("%1 -- key %2").arg(QString::fromUtf8(hosts[i].name),
+		                                        QString::fromLatin1(hosts[i].fingerprint)));
+		m_found_codes << QString::fromLatin1(hosts[i].code);
+	}
+	m_found->setVisible(n > 0);
+	m_join_found->setVisible(n > 0);
+	if (n)
+		m_found->setCurrentRow(0);
+	m_status->setText(n ? tr("Choose your host, check its key, and ask to join.")
+	                    : tr("No host on this network is letting devices find it. On the host, choose "
+	                         "\"Let a device on this network find this host\", then look again."));
+	return (int)n;
+}
+
+bool fzn_devices_view::join_found(int row)
+{
+	if (row < 0 || row >= m_found_codes.size())
+		return false;
+	return join(m_found_codes[row]);
+}
+
+QStringList fzn_devices_view::found() const
+{
+	QStringList rows;
+
+	for (int i = 0; i < m_found->count(); i++)
+		rows << m_found->item(i)->text();
+	return rows;
 }
 
 bool fzn_devices_view::set_confirm(bool on)

@@ -82,6 +82,17 @@ public:
 
 	/* WHAT IS ON SCREEN: the code made, whether a QR of it is drawn, the
 	 * switch, each waiting device's key (16 hex), and the status line. */
+	/* JOIN BY REQUEST, sec 1288. On this host, `offer` lets a device on
+	 * the same network find it for five minutes, and one that asks waits
+	 * below. On a new device, `look` asks the network, and `show_found`,
+	 * a moment later (a timer, or a test), lists what answered: how many.
+	 * `join_found` joins the host in that row by the code it gave. */
+	bool offer();
+	bool look();
+	int show_found();
+	bool join_found(int row);
+	QStringList found() const;
+
 	QString code() const;
 	bool code_drawn() const;
 	bool confirm() const;
@@ -106,6 +117,12 @@ private:
 	QPushButton *m_join;
 	QPushButton *m_scan_file;
 	QPushButton *m_scan_camera;
+	QPushButton *m_offer;
+	QPushButton *m_look;
+	QListWidget *m_found;
+	QStringList m_found_codes;
+	QPushButton *m_join_found;
+	QTimer *m_look_timer;
 	fzn_camera_feed *m_camera;
 	struct fzn_qr_scanner *m_scanner; /* kept across frames of one size */
 	unsigned m_scan_width, m_scan_height;

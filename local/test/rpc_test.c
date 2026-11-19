@@ -440,6 +440,34 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	failures = before;
 }
 
+/* JOIN BY REQUEST, sec 1288: an offer opened for its seconds and closed,
+ * a look asked, and what answered read -- the name unescaped, the
+ * fingerprint and the code kept; a row of the wrong shape refused. */
+static void test_an_offer_is_made_and_found(void)
+{
+	struct script s = { { 0 }, 0, 5, 0, { { 0 } } };
+	fzn_rpc_offer_t found[4];
+	size_t n = 0;
+
+	s.replies[0] = "ok 6290 300";
+	s.replies[1] = "ok";
+	s.replies[2] = "ok 255.255.255.255 6290";
+	s.replies[3] = "ok 2 the%20root,aa00000000000001,FZI1:AB k%2cx,bb00000000000002,FZI1:CD";
+	s.replies[4] = "ok 1 x,short,FZI1:AB";
+	on(&c, &s);
+	CHECK(fzn_rpc_device_offer(&c, 300) == FZN_RPC_OK && !strcmp(s.asked[0], "add offer 300")
+	              && fzn_rpc_device_offer_end(&c) == FZN_RPC_OK && !strcmp(s.asked[1], "remove offer"),
+	      "an offer was not opened for its seconds and closed");
+	CHECK(fzn_rpc_device_offer(&c, 901) == FZN_RPC_ERR_MALFORMED && s.at == 2,
+	      "an offer past fifteen minutes was asked");
+	CHECK(fzn_rpc_device_look(&c) == FZN_RPC_OK && !strcmp(s.asked[2], "fetch offer"), "a look was not asked");
+	CHECK(fzn_rpc_device_found(&c, found, 4, &n) == FZN_RPC_OK && n == 2 && !strcmp(found[0].name, "the root")
+	              && !strcmp(found[0].fingerprint, "aa00000000000001") && !strcmp(found[0].code, "FZI1:AB")
+	              && !strcmp(found[1].name, "k,x") && !strcmp(found[1].code, "FZI1:CD"),
+	      "the hosts found were not read by name, fingerprint and code");
+	CHECK(fzn_rpc_device_found(&c, found, 4, &n) != FZN_RPC_OK, "a row with a short fingerprint was read");
+}
+
 /* A DEVICE JOINING IN TWO STEPS, sec 1122: `begin` reads who the host is and
  * hands the code over; `joined` is 0 while the node serves as before, 0 again
  * while it is starting again and does not answer, and 1 once it serves under
@@ -2552,6 +2580,7 @@ int main(void)
 	test_a_setting_is_cleared_where_it_was_set();
 	test_a_media_channel_carries_whole_frames();
 	test_a_join_is_asked_and_then_seen();
+	test_an_offer_is_made_and_found();
 	test_dropped_figures_are_carried();
 	test_every_newest_line_is_read();
 	test_stickers_for_a_line_typed();

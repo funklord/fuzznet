@@ -2667,6 +2667,61 @@ int fzn_rpc_device_invite(fzn_rpc_t *c, char *code, size_t cap) {
 	return FZN_RPC_OK;
 }
 
+int fzn_rpc_device_offer(fzn_rpc_t *c, unsigned seconds) {
+	char ask[32];
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	if (!seconds || seconds > 900u) return FZN_RPC_ERR_MALFORMED;
+	const int n = snprintf(ask, sizeof ask, "offer %u", seconds);
+	return fzn_rpc_node(c, "add", ask, (size_t)n, &rest, &rest_len);
+}
+
+int fzn_rpc_device_offer_end(fzn_rpc_t *c) {
+	static const char ask[] = "offer";
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	return fzn_rpc_node(c, "remove", ask, sizeof ask - 1, &rest, &rest_len);
+}
+
+int fzn_rpc_device_look(fzn_rpc_t *c) {
+	static const char ask[] = "offer";
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	return fzn_rpc_node(c, "fetch", ask, sizeof ask - 1, &rest, &rest_len);
+}
+
+/* `COUNT NAME,FINGERPRINT,CODE ...`, the name escaped (sec 668). */
+int fzn_rpc_device_found(fzn_rpc_t *c, fzn_rpc_offer_t *out, size_t cap, size_t *count) {
+	static const char ask[] = "offer";
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	*count = 0;
+	const int rc = fzn_rpc_node(c, "list", ask, sizeof ask - 1, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	const char *at = rest, *end = rest + rest_len;
+	while (at < end && *at != ' ') at++; /* the count */
+	while (at < end && *count < cap) {
+		while (at < end && *at == ' ') at++;
+		if (at == end) break;
+		const char *row = at;
+		while (at < end && *at != ' ') at++;
+		const char *c1 = memchr(row, ',', (size_t)(at - row));
+		const char *c2 = c1 ? memchr(c1 + 1, ',', (size_t)(at - c1 - 1)) : NULL;
+		if (!c2 || c2 - c1 - 1 != 16 || (size_t)(at - c2 - 1) > FZN_RPC_OFFER_CODE_MAX) return unreadable(c);
+		fzn_rpc_offer_t *o = &out[*count];
+		size_t len = 0;
+		if (!fzn_unescape((const uint8_t *)row, (size_t)(c1 - row), (uint8_t *)o->name, FZN_RPC_OFFER_NAME_MAX, &len))
+			return unreadable(c);
+		o->name[len] = '\0';
+		memcpy(o->fingerprint, c1 + 1, 16);
+		o->fingerprint[16] = '\0';
+		memcpy(o->code, c2 + 1, (size_t)(at - c2 - 1));
+		o->code[at - c2 - 1] = '\0';
+		(*count)++;
+	}
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_device_confirm_get(fzn_rpc_t *c, int *on) {
 	static const char ask[] = "setting host invite/confirm";
 	const char *rest = NULL;

@@ -690,6 +690,24 @@ int fzn_rpc_host_unrevoke(fzn_rpc_t *c, const uint8_t host_pubkey[32]);
  * *joined 1 then, and 0 while the node is still asking, which it goes on doing
  * for five minutes. */
 int fzn_rpc_device_invite(fzn_rpc_t *c, char *code, size_t cap);
+/* JOIN BY REQUEST (fuzznet sec 1288). On a host, `offer` opens a window of
+ * `seconds` (1 to 900) in which a device on the same network that looks
+ * finds this host, and `offer_end` closes it; a device that joins so waits
+ * for this user, as with invite/confirm. On a device, `look` asks the
+ * network, and `found` lists what answered, a second or so later: each
+ * host's name, its key's first 8 bytes in 16 hex digits -- to compare
+ * with what the host shows -- and the code to hand to `join`. */
+#define FZN_RPC_OFFER_NAME_MAX 64
+#define FZN_RPC_OFFER_CODE_MAX 300
+typedef struct fzn_rpc_offer {
+	char name[FZN_RPC_OFFER_NAME_MAX + 1];
+	char fingerprint[17];
+	char code[FZN_RPC_OFFER_CODE_MAX + 1];
+} fzn_rpc_offer_t;
+int fzn_rpc_device_offer(fzn_rpc_t *c, unsigned seconds);
+int fzn_rpc_device_offer_end(fzn_rpc_t *c);
+int fzn_rpc_device_look(fzn_rpc_t *c);
+int fzn_rpc_device_found(fzn_rpc_t *c, fzn_rpc_offer_t *out, size_t cap, size_t *count);
 /* Whether this host's user is asked before a device joins by a code, the host
  * setting invite/confirm (fuzznet sec 896): off lets in whoever holds the code.
  * With it on a device waits, named by the event `invite`: `waiting` lists them,

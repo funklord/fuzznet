@@ -93415,8 +93415,22 @@ with R's key's first 16 hex digits and a code, joins by it, waits, is
 not paired with nobody's word, is let in and reads R's setting; R ends
 the offer and `get offer` says `closed`. **Its port is fixed**, so two
 runs of it on one machine at once collide: the second offer is refused,
-"the discovery port 6290 is taken". **Left: J3, the views** -- a host's
-"let a device join from this network", a device's list of hosts.
+"the discovery port 6290 is taken".
+
+**J3, built: the client and the Devices view.** `local/rpc`:
+`fzn_rpc_device_offer` (1 to 900 seconds), `offer_end`, `look` and
+`found`, the last reading each host's unescaped name, fingerprint and
+code. The view: on a host, "Let a device on this network find this
+host" opens five minutes and says the device will wait under "Waiting
+to join" for its key to be compared; on a new device, "Look for my
+hosts on this network" probes and, 1.5 seconds later, lists each host
+as `NAME -- key FINGERPRINT` -- **the key beside the name, because a
+name is anybody's to claim** -- and "Ask to join the host chosen" joins
+by its code, watched as a typed code is. Nothing found says how to make
+a host findable. Tests: rpc_test (an offer made and ended, one past 900
+refused unasked, a look, two hosts read, a short fingerprint refused);
+devices_view_test (an offer, an empty look, a host listed and joined, a
+row nobody found refused).
 
 **Tests:** offer_test -- a probe and an answer each read back, a probe
 with a byte in its padding refused, an answer to another probe or cut
