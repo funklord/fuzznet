@@ -1454,42 +1454,42 @@ static inline situ_err_t fzn_objects_message_required(const uint8_t *data, uint3
 		uint32_t   part = 0u;
 		situ_err_t e = SITU_OK;
 
-		if ((have >= 2u ? fzn_objects_message_op_get(view) : 0u) == 128u) {
+		if (fzn_objects_message_op_get(view) == 128u) {
 			e = fzn_objects_add_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_objects_message_op_get(view) : 0u) == 129u) {
+		} else if (fzn_objects_message_op_get(view) == 129u) {
 			e = fzn_objects_set_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_objects_message_op_get(view) : 0u) == 130u) {
+		} else if (fzn_objects_message_op_get(view) == 130u) {
 			e = fzn_objects_named_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_objects_message_op_get(view) : 0u) == 131u) {
+		} else if (fzn_objects_message_op_get(view) == 131u) {
 			e = fzn_objects_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_objects_message_op_get(view) : 0u) == 132u) {
+		} else if (fzn_objects_message_op_get(view) == 132u) {
 			e = fzn_objects_named_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_objects_message_op_get(view) : 0u) == 133u) {
+		} else if (fzn_objects_message_op_get(view) == 133u) {
 			e = fzn_objects_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {

@@ -1069,63 +1069,63 @@ static inline situ_err_t fzn_contacts_local_message_required(const uint8_t *data
 		uint32_t   part = 0u;
 		situ_err_t e = SITU_OK;
 
-		if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 128u) {
+		if (fzn_contacts_local_message_op_get(view) == 128u) {
 			e = fzn_contacts_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 129u) {
+		} else if (fzn_contacts_local_message_op_get(view) == 129u) {
 			e = fzn_contacts_local_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 130u) {
+		} else if (fzn_contacts_local_message_op_get(view) == 130u) {
 			e = fzn_contacts_local_add_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 131u) {
+		} else if (fzn_contacts_local_message_op_get(view) == 131u) {
 			e = fzn_contacts_local_keyed_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 132u) {
+		} else if (fzn_contacts_local_message_op_get(view) == 132u) {
 			e = fzn_contacts_local_keyed_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 133u) {
+		} else if (fzn_contacts_local_message_op_get(view) == 133u) {
 			e = fzn_contacts_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 134u) {
+		} else if (fzn_contacts_local_message_op_get(view) == 134u) {
 			e = fzn_contacts_local_request_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 135u) {
+		} else if (fzn_contacts_local_message_op_get(view) == 135u) {
 			e = fzn_contacts_local_add_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_contacts_local_message_op_get(view) : 0u) == 136u) {
+		} else if (fzn_contacts_local_message_op_get(view) == 136u) {
 			e = fzn_contacts_local_keyed_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {

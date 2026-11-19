@@ -1010,21 +1010,21 @@ static inline situ_err_t fzn_meter_local_message_required(const uint8_t *data, u
 		uint32_t   part = 0u;
 		situ_err_t e = SITU_OK;
 
-		if ((have >= 2u ? fzn_meter_local_message_op_get(view) : 0u) == 128u) {
+		if (fzn_meter_local_message_op_get(view) == 128u) {
 			e = fzn_meter_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_meter_local_message_op_get(view) : 0u) == 129u) {
+		} else if (fzn_meter_local_message_op_get(view) == 129u) {
 			e = fzn_meter_local_family_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_meter_local_message_op_get(view) : 0u) == 130u) {
+		} else if (fzn_meter_local_message_op_get(view) == 130u) {
 			e = fzn_meter_local_transfer_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {

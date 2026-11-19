@@ -3129,168 +3129,168 @@ static inline situ_err_t fzn_members_local_message_required(const uint8_t *data,
 		uint32_t   part = 0u;
 		situ_err_t e = SITU_OK;
 
-		if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 128u) {
+		if (fzn_members_local_message_op_get(view) == 128u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 129u) {
+		} else if (fzn_members_local_message_op_get(view) == 129u) {
 			e = fzn_members_local_sibling_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 130u) {
+		} else if (fzn_members_local_message_op_get(view) == 130u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 131u) {
+		} else if (fzn_members_local_message_op_get(view) == 131u) {
 			e = fzn_members_local_capability_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 132u) {
+		} else if (fzn_members_local_message_op_get(view) == 132u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 133u) {
+		} else if (fzn_members_local_message_op_get(view) == 133u) {
 			e = fzn_members_local_grant_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 134u) {
+		} else if (fzn_members_local_message_op_get(view) == 134u) {
 			e = fzn_members_local_invite_ask_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 135u) {
+		} else if (fzn_members_local_message_op_get(view) == 135u) {
 			e = fzn_members_local_invite_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 136u) {
+		} else if (fzn_members_local_message_op_get(view) == 136u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 137u) {
+		} else if (fzn_members_local_message_op_get(view) == 137u) {
 			e = fzn_members_local_waiting_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 138u) {
+		} else if (fzn_members_local_message_op_get(view) == 138u) {
 			e = fzn_members_local_answer_ask_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 139u) {
+		} else if (fzn_members_local_message_op_get(view) == 139u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 140u) {
+		} else if (fzn_members_local_message_op_get(view) == 140u) {
 			e = fzn_members_local_root_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 141u) {
+		} else if (fzn_members_local_message_op_get(view) == 141u) {
 			e = fzn_members_local_quorum_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 142u) {
+		} else if (fzn_members_local_message_op_get(view) == 142u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 143u) {
+		} else if (fzn_members_local_message_op_get(view) == 143u) {
 			e = fzn_members_local_vote_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 144u) {
+		} else if (fzn_members_local_message_op_get(view) == 144u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 145u) {
+		} else if (fzn_members_local_message_op_get(view) == 145u) {
 			e = fzn_members_local_rekey_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 146u) {
+		} else if (fzn_members_local_message_op_get(view) == 146u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 147u) {
+		} else if (fzn_members_local_message_op_get(view) == 147u) {
 			e = fzn_members_local_staged_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 148u) {
+		} else if (fzn_members_local_message_op_get(view) == 148u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 149u) {
+		} else if (fzn_members_local_message_op_get(view) == 149u) {
 			e = fzn_members_local_preset_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 150u) {
+		} else if (fzn_members_local_message_op_get(view) == 150u) {
 			e = fzn_members_local_nothing_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
-		} else if ((have >= 2u ? fzn_members_local_message_op_get(view) : 0u) == 151u) {
+		} else if (fzn_members_local_message_op_get(view) == 151u) {
 			e = fzn_members_local_self_row_required(data + pos,
 			                situ_remaining_u32(have, pos), &part);
 			if (e != SITU_OK) {
