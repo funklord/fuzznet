@@ -3,6 +3,7 @@
 #define _POSIX_C_SOURCE 200809L /* clock_gettime */
 
 #include "serve.h"
+#include "offer.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -556,6 +557,12 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	if (flen && frame[0] == FZN_NODE_PROBE_MARK) {
 		if (state->on_probe)
 			state->on_probe(state->on_probe_ctx, frame, flen, &from);
+		return;
+	}
+	/* AN ANSWER TO A JOIN PROBE, sec 1288, the same way. */
+	if (flen && frame[0] == FZN_OFFER_ANSWER_MARK) {
+		if (state->on_offer_answer)
+			state->on_offer_answer(state->on_offer_answer_ctx, frame, flen, &from);
 		return;
 	}
 	now = state->clock ? state->clock() : 0u;

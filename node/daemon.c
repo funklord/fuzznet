@@ -140,6 +140,7 @@
 #include "file_holds.h"
 #include "stickers.h"
 #include "search.h"
+#include "offer.h"
 #include "stage.h"
 #include "clocks.h"
 #include "log_list.h"
@@ -455,6 +456,8 @@ static size_t preset_local(fzn_origin_t origin, const fzn_request_t *request, ch
                            size_t cap);
 static size_t invite_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
+/* JOIN BY REQUEST'S OFFER, sec 1288. */
+static size_t offer_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap);
 static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap);
 static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -644,6 +647,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 #endif
 	if (!n && node_search.messages)
 		n = fzn_node_search_local(&node_search, origin, request, reply, reply_cap);
+	if (!n)
+		n = offer_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = fzn_meter_local(&traffic, origin, request, reply, reply_cap);
 	if (!n)
@@ -10537,11 +10542,224 @@ size_t fzn_daemon_local(const char *line, char *reply, size_t cap)
 static size_t media_channel_fds(int *fds, size_t cap);
 static int media_channel_ready(int fd);
 
+/* ---- join by request, sec 1288 ------------------------------------------ */
+
+/* THE HOST'S OFFER: the discovery socket while it is open, -1 otherwise,
+ * the invite's code it answers with, and how many answers this minute. */
+static struct {
+	int fd;
+	uint64_t until_s;
+	char code[FZN_INVITE_TEXT_MAX + 1u];
+	size_t code_len;
+	unsigned answered;
+	uint64_t minute_s;
+} offer = { -1, 0, "", 0, 0, 0 };
+
+/* THE DEVICE'S PROBE AND WHAT ANSWERED IT, at most 16 hosts. */
+#define OFFERS_HEARD_MAX 16u
+static struct {
+	uint8_t nonce[FZN_OFFER_NONCE_LEN];
+	int asked;
+	fzn_offer_t heard[OFFERS_HEARD_MAX];
+	size_t n;
+} offered;
+
+static void offer_close(void)
+{
+	if (offer.fd >= 0)
+		(void)close(offer.fd);
+	offer.fd = -1;
+	fzn_wipe(offer.code, sizeof(offer.code));
+	offer.code_len = 0;
+}
+
+/* THIS HOST'S NAME as an offer says it: its `host/name`, or a plain one. */
+static size_t offer_name(char *out, size_t cap)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+
+	if (contact_id && fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, contact_id->pubkey,
+	                                        (const uint8_t *)"host/name", 9u, value, &len, &rank)
+	    && len && len <= FZN_OFFER_NAME_MAX && len < cap) {
+		memcpy(out, value, len);
+		return len;
+	}
+	return (size_t)snprintf(out, cap, "a fuzznet host");
+}
+
+/* A PROBE ON THE DISCOVERY PORT: answered with this host's name and its
+ * offer's code, at most 32 a minute, nothing for anything else. */
+static void offer_heard(void)
+{
+	uint8_t buf[FZN_OFFER_PROBE_LEN + 1u], answer[FZN_OFFER_PROBE_LEN];
+	fzn_udp_addr_t from;
+	fzn_offer_t o;
+	size_t len = 0, n;
+	const uint64_t now = wall_clock();
+
+	if (fzn_udp_recv(offer.fd, buf, sizeof(buf), &len, &from) != FZN_UDP_OK
+	    || !fzn_offer_probe_read(buf, len, o.nonce) || now >= offer.until_s)
+		return;
+	if (now / 60u != offer.minute_s) {
+		offer.minute_s = now / 60u;
+		offer.answered = 0;
+	}
+	if (offer.answered >= 32u)
+		return;
+	o.name_len = offer_name(o.name, sizeof(o.name));
+	memcpy(o.code, offer.code, offer.code_len);
+	o.code_len = offer.code_len;
+	if ((n = fzn_offer_answer(&o, answer, sizeof(answer))) != 0u
+	    && fzn_udp_send(offer.fd, &from, answer, n) == FZN_UDP_OK)
+		offer.answered++;
+}
+
+/* A HOST'S ANSWER on the serving socket, to this device's own probe: kept,
+ * once per host by its code. */
+static void offer_answer_heard(void *ctx, const uint8_t *a, size_t len, const fzn_udp_addr_t *from)
+{
+	fzn_offer_t o;
+	size_t i;
+
+	(void)ctx;
+	(void)from;
+	if (!offered.asked || !fzn_offer_answer_read(a, len, offered.nonce, &o))
+		return;
+	for (i = 0; i < offered.n; i++)
+		if (offered.heard[i].code_len == o.code_len && !memcmp(offered.heard[i].code, o.code, o.code_len))
+			return;
+	if (offered.n < OFFERS_HEARD_MAX)
+		offered.heard[offered.n++] = o;
+}
+
+static size_t offer_local(fzn_origin_t origin, const fzn_request_t *request, char *reply, size_t cap)
+{
+	const uint8_t *at = request->arg, *w;
+	size_t left = request->arg_len, w_len, i;
+	const uint64_t now = wall_clock();
+
+	if (!at || !next_word(&at, &left, &w, &w_len) || w_len != 5u || memcmp(w, "offer", 5u) != 0)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied an offer is this node's own user's\n");
+	if (offer.fd >= 0 && now >= offer.until_s)
+		offer_close();
+	/* THE HOST: open a window, end it, or say whether one is open. */
+	if (request->parsed == FZN_VERB_ADD) {
+		char inner[64], answer[FZN_INVITE_TEXT_MAX + 32u];
+		fzn_request_t req;
+		uint64_t life = FZN_OFFER_LIFE_S;
+		size_t n, got;
+		int fd = -1;
+
+		if (next_word(&at, &left, &w, &w_len)) {
+			for (life = 0, i = 0; i < w_len && life <= FZN_OFFER_LIFE_MAX_S; i++) {
+				if (w[i] < '0' || w[i] > '9')
+					return (size_t)snprintf(reply, cap, "malformed add offer [SECONDS]\n");
+				life = life * 10u + (uint64_t)(w[i] - '0');
+			}
+			if (!life || life > FZN_OFFER_LIFE_MAX_S || left)
+				return (size_t)snprintf(reply, cap, "malformed SECONDS is 1 to %u\n",
+				                        (unsigned)FZN_OFFER_LIFE_MAX_S);
+		}
+		/* A CONFIRMED, DELEGABLE INVITE, by `add invite`'s own handler: the
+		 * device joins the estate, held until this user lets it in. */
+		n = (size_t)snprintf(inner, sizeof(inner), "invite delegable confirm %llu", (unsigned long long)life);
+		memset(&req, 0, sizeof(req));
+		req.parsed = FZN_VERB_ADD;
+		req.arg = (const uint8_t *)inner;
+		req.arg_len = n;
+		got = invite_local(origin, &req, answer, sizeof(answer));
+		if (got < 4u || memcmp(answer, "ok ", 3u) != 0)
+			return (size_t)snprintf(reply, cap, "%.*s", (int)got, answer);
+		while (got && (answer[got - 1u] == '\n' || answer[got - 1u] == '\r'))
+			got--;
+		if (offer.fd < 0 && fzn_udp_bind(AF_INET, NULL, FZN_OFFER_PORT, &fd) != FZN_UDP_OK)
+			return (size_t)snprintf(reply, cap, "error the discovery port %u is taken\n", (unsigned)FZN_OFFER_PORT);
+		if (fd >= 0)
+			offer.fd = fd;
+		memcpy(offer.code, answer + 3, got - 3u);
+		offer.code_len = got - 3u;
+		offer.until_s = now + life;
+		return (size_t)snprintf(reply, cap, "ok %u %llu\n", (unsigned)FZN_OFFER_PORT, (unsigned long long)life);
+	}
+	if (request->parsed == FZN_VERB_REMOVE) {
+		offer_close();
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	if (request->parsed == FZN_VERB_GET)
+		return offer.fd >= 0 ? (size_t)snprintf(reply, cap, "ok open %llu\n", (unsigned long long)(offer.until_s - now))
+		                     : (size_t)snprintf(reply, cap, "ok closed\n");
+	/* THE DEVICE: a probe broadcast, and what answered it. */
+	if (request->parsed == FZN_VERB_FETCH) {
+		uint8_t probe[FZN_OFFER_PROBE_LEN], value[FZN_SETTING_VALUE_MAX];
+		char address[FZN_UDP_HOST_MAX] = "255.255.255.255";
+		fzn_setting_rank_t rank;
+		fzn_udp_addr_t to;
+		size_t len = 0;
+
+		if (!serving_state || serving_state->udp_fd < 0)
+			return (size_t)snprintf(reply, cap, "error this host serves no udp socket to probe from\n");
+		if (contact_id
+		    && fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, contact_id->pubkey,
+		                             (const uint8_t *)"net/discovery", 13u, value, &len, &rank)
+		    && len > 0u && len < sizeof(address)) {
+			memcpy(address, value, len);
+			address[len] = '\0';
+		}
+		if (strcmp(address, "off") == 0)
+			return (size_t)snprintf(reply, cap, "error LAN discovery is off (net/discovery)\n");
+		if (!contact_rng_ops || !contact_rng_ops->fill(contact_rng_ops->ctx, offered.nonce, sizeof(offered.nonce)))
+			return (size_t)snprintf(reply, cap, "error no randomness\n");
+		offered.asked = 1;
+		offered.n = 0;
+		fzn_offer_probe(offered.nonce, probe);
+		if (fzn_udp_resolve(AF_INET, address, FZN_OFFER_PORT, &to) != FZN_UDP_OK
+		    || fzn_udp_broadcast(serving_state->udp_fd) != FZN_UDP_OK
+		    || fzn_udp_send(serving_state->udp_fd, &to, probe, sizeof(probe)) != FZN_UDP_OK)
+			return (size_t)snprintf(reply, cap, "error the probe would not go to %s\n", address);
+		return (size_t)snprintf(reply, cap, "ok %s %u\n", address, (unsigned)FZN_OFFER_PORT);
+	}
+	if (request->parsed == FZN_VERB_LIST) {
+		size_t used = (size_t)snprintf(reply, cap, "ok %zu", offered.n);
+
+		for (i = 0; i < offered.n; i++) {
+			fzn_invite_t inv;
+			char name[3u * FZN_OFFER_NAME_MAX + 1u], fp[17];
+			size_t e = 0, k, r;
+
+			if (!fzn_invite_parse(offered.heard[i].code, offered.heard[i].code_len, &inv))
+				continue;
+			(void)fzn_escape((const uint8_t *)offered.heard[i].name, offered.heard[i].name_len, name,
+			                 sizeof(name) - 1u, &e);
+			name[e] = '\0';
+			for (k = 0; k < 8u; k++)
+				fzn_hex_byte(inv.host[k], fp + 2u * k);
+			fp[16] = '\0';
+			r = (size_t)snprintf(reply + used, cap - used, " %s,%s,%.*s", name, fp,
+			                     (int)offered.heard[i].code_len, offered.heard[i].code);
+			if (r >= cap - used)
+				break;
+			used += r;
+			fzn_wipe(&inv, sizeof(inv));
+		}
+		return used + (size_t)snprintf(reply + used, cap - used, "\n");
+	}
+	return 0;
+}
+
 static size_t ext_fds(void *ctx, int *fds, size_t cap)
 {
 	size_t n = media_channel_fds(fds, cap);
 
 	(void)ctx;
+	/* THE OFFER'S DISCOVERY SOCKET while its window is open, sec 1288. */
+	if (offer.fd >= 0 && wall_clock() >= offer.until_s)
+		offer_close();
+	if (offer.fd >= 0 && n < cap)
+		fds[n++] = offer.fd;
 	return n + (daemon_ext && daemon_ext->fds && daemon_ext->ready
 	                    ? daemon_ext->fds(daemon_ext->ctx, fds + n, cap - n)
 	                    : 0u);
@@ -10550,6 +10768,10 @@ static size_t ext_fds(void *ctx, int *fds, size_t cap)
 static void ext_ready(void *ctx, int fd)
 {
 	(void)ctx;
+	if (offer.fd >= 0 && fd == offer.fd) {
+		offer_heard();
+		return;
+	}
 	if (media_channel_ready(fd))
 		return;
 	if (daemon_ext && daemon_ext->ready)
@@ -26265,6 +26487,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			admin.contact_gone = contact_gone;
 			/* A LAN PROBE, sec 624. */
 			state.on_probe = lan_probe_heard;
+			state.on_offer_answer = offer_answer_heard;
 			/* A PEER'S CLOCK OUT OF THE WINDOW, sec 714. */
 			state.on_stale = clock_out;
 			/* EACH REPLY SENT, at debug, sec 737. */

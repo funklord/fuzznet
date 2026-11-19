@@ -24,6 +24,9 @@ hold nothing but what they read, and nothing is carried back by a person.
        which `open` overrides -- that second round in binary (sec 1250):
        the code, F waiting as a row, an unknown key refused in words, F
        let in
+    i  JOIN BY REQUEST (sec 1288): R opens an offer; H, knowing nothing of R,
+       probes the network, lists R by name and key, joins by the code heard,
+       waits, and is let in; R ends the offer
 
 Against a daemon that takes a used code again, phase c pairs E; against one
 that believes any card, phase f joins G.
@@ -78,7 +81,7 @@ def main(argv):
 	run.fuzznetd = os.path.abspath(argv[1])
 	run.started = []
 	base = 26000 + (os.getpid() % 300) * 6
-	port = {k: str(base + i) for i, k in enumerate(("r", "d", "e", "f", "g"))}
+	port = {k: str(base + i) for i, k in enumerate(("r", "d", "e", "f", "g", "h"))}
 	with tempfile.TemporaryDirectory(prefix="fzn-live.") as scratch, \
 	     tempfile.TemporaryDirectory(prefix="fzs.", dir="/tmp") as sock_dir:
 		run.scratch = scratch
@@ -259,6 +262,43 @@ def main(argv):
 				raise failed("h: a device still waits in binary once F is in")
 			print("livecheck: h: a confirmed code held F until R's user said, and turned it away "
 			      "when told; invite/confirm made that the default")
+
+			# i: JOIN BY REQUEST, sec 1288. R's user opens an offer; H, which
+			# knows nothing of R, probes the network (loopback here), lists R by
+			# its name and key, joins by the code it heard, waits for R's user,
+			# and is let in. The offer then ends.
+			key_h = key_of("h")
+			expect(socks["r"], "r", "set setting host host/name the%20root", "ok")
+			got = ask(socks["r"], "add offer 60")
+			if got != "ok 6290 60":
+				raise failed("i: add offer answered %r" % got)
+			if not ask(socks["r"], "get offer").startswith("ok open "):
+				raise failed("i: get offer said %r while open" % ask(socks["r"], "get offer"))
+			expect(socks["h"], "h", "set setting host net/discovery 127.0.0.1", "ok")
+			got = ask(socks["h"], "fetch offer")
+			if got != "ok 127.0.0.1 6290":
+				raise failed("i: fetch offer answered %r" % got)
+			until = time.monotonic() + 15.0
+			while True:
+				listed = ask(socks["h"], "list offer").split()
+				if listed[:2] == ["ok", "1"]:
+					break
+				if time.monotonic() > until:
+					raise failed("i: H heard no offer: %r" % listed)
+				time.sleep(0.3)
+			name, fingerprint, heard = listed[2].split(",", 2)
+			if name != "the%20root" or fingerprint != key_of("r")[:16] or not heard.startswith("FZI1:"):
+				raise failed("i: H listed %r, not R by its name and key with a code" % listed[2])
+			expect(socks["h"], "h", "add join " + heard, "ok asking")
+			waiting(key_h)
+			if paired(key_h):
+				raise failed("i: R paired H, found on the network, with nobody's word")
+			expect(socks["r"], "r", "grant invite " + key_h, "ok")
+			joined("h", key_h, "i")
+			expect(socks["r"], "r", "remove offer", "ok")
+			expect(socks["r"], "r", "get offer", "ok closed")
+			print("livecheck: i: H found R on the network by its offer, joined by the code it "
+			      "heard, waited for R's user, and was let in")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

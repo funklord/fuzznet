@@ -93394,14 +93394,29 @@ a code that reads as an invite (sec 896) -- never longer than the probe
 (287 bytes at the longest), sec 624's rule against amplification; one
 read only as the answer to the device's own probe, exactly its length.
 
-**The steps after:** J2, the daemon -- `add offer [SECONDS]` (300 unless
-said, at most 900) makes a confirmed invite and opens the port among the
-daemon's own descriptors (sec 831) for the window, answering probes;
-`fetch offer` broadcasts a probe from the serving socket and `list
-offer` says what answered, name, key fingerprint and code; the join is
-then `add join CODE` as for a code read off a screen, held until the
-host's user lets it in. J3, the views: a host's "let a device join from
-this network", a device's list of hosts. J4, a live test.
+**J2, built, the daemon.** On the host: `add offer [SECONDS]` (300
+unless said, at most 900) makes a confirmed, delegable invite through
+`add invite`'s own handler and opens the discovery port among the
+daemon's own descriptors (sec 831) for the window, answering each probe
+with `host/name` and the code, at most 32 a minute; `get offer` says
+`open SECONDS` or `closed`, `remove offer` ends it, and its socket
+closes when its time is up. On the device: `fetch offer` broadcasts a
+probe from the serving socket to `net/discovery` (255.255.255.255 unset,
+`off` refusing) at the discovery port; answers come back to the serving
+socket marked 0xFE, handed over before any frame check as a LAN probe is
+(`on_offer_answer`); `list offer` says each host once, `NAME,FINGERPRINT,
+CODE` -- the name escaped, the fingerprint the host key's first 8 bytes
+in hex. The join is then `add join CODE`, held until the host's user
+lets it in (`grant invite KEY`).
+
+**J4, built: `tool/live_invite.py` phase i** -- R's user offers; H,
+which knows nothing of R, probes over loopback, lists R as `the%20root`
+with R's key's first 16 hex digits and a code, joins by it, waits, is
+not paired with nobody's word, is let in and reads R's setting; R ends
+the offer and `get offer` says `closed`. **Its port is fixed**, so two
+runs of it on one machine at once collide: the second offer is refused,
+"the discovery port 6290 is taken". **Left: J3, the views** -- a host's
+"let a device join from this network", a device's list of hosts.
 
 **Tests:** offer_test -- a probe and an answer each read back, a probe
 with a byte in its padding refused, an answer to another probe or cut

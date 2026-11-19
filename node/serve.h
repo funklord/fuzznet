@@ -140,6 +140,11 @@ typedef struct fzn_node_state {
 	 * -- a probe is answered there or not at all. NULL drops every probe. */
 	void (*on_probe)(void *ctx, const uint8_t *probe, size_t len, const fzn_udp_addr_t *from);
 	void *on_probe_ctx;
+	/* A HOST'S ANSWER TO THIS DEVICE'S JOIN PROBE, sec 1288: a datagram
+	 * marked 0xFE (`node/offer.h`), handed over before any frame check, as
+	 * a LAN probe is. NULL drops it. */
+	void (*on_offer_answer)(void *ctx, const uint8_t *answer, size_t len, const fzn_udp_addr_t *from);
+	void *on_offer_answer_ctx;
 	/* A PEER'S CLOCK OFF BY MORE THAN THE WINDOW ALLOWS, sec 714: a frame
 	 * that opened under `sender`'s session -- its own, so this cannot be a
 	 * stranger's -- refused for its expiry, `expires_at` against `now`:
