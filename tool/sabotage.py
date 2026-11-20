@@ -17755,6 +17755,20 @@ SABOTAGES = [
 		"a message sticker chosen sent without asking for its words; sticker_picker_view_test -- sec 1296",
 	),
 	(
+		"words-mark-past-ascii-a-letter",
+		"search/words.c",
+		"\t\t\tif (cp && is_gap(cp)) {\n",
+		"\t\t\tif (0 && cp && is_gap(cp)) {\n",
+		"a typographic quote or dash taken as a letter of the word beside it; search_test -- sec 1297",
+	),
+	(
+		"words-capital-past-ascii-kept",
+		"search/words.c",
+		"\t\t\t\tconst unsigned to = cp ? fold(cp) : 0u;\n",
+		"\t\t\t\tconst unsigned to = cp;\n",
+		"a capital past ASCII not folded, so \"ÅSA\" misses \"åsa\"; search_test -- sec 1297",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",

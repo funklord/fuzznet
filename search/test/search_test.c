@@ -48,6 +48,20 @@ static void test_the_words(void)
 	CHECK(q.open_end && fzn_search_score(&q, "see you there", 13u) == 160u + 50u,
 	      "a last word being typed was not taken as begun");
 	CHECK(score("förlåt", "Förlåt mig") == 100u, "a word holding letters past ASCII was not found");
+	/* PAST ASCII, sec 1297: capitals folded by Unicode's simple folding,
+	 * and punctuation and spaces a gap as ASCII marks are. */
+	CHECK(score("åsa", "ÅSA kommer") == 100u && score("ÄLG", "en älg") == 100u,
+	      "a Latin-1 capital was not folded");
+	CHECK(score("łódź", "ŁÓDŹ") == 100u, "a Latin Extended-A capital was not folded");
+	CHECK(score("οδος", "ΟΔΟΣ") == 100u, "a Greek capital, or a final sigma, was not folded");
+	CHECK(score("москва", "МОСКВА") == 100u && score("ёлка", "ЁЛКА") == 100u,
+	      "a Cyrillic capital was not folded");
+	CHECK(score("quoted", "it was \xe2\x80\x9cquoted\xe2\x80\x9d") == 100u,
+	      "a word in typographic quotes was not found");
+	CHECK(score("world", "hello\xe2\x80\x94world") == 100u && score("dinner", "\xc2\xa1" "dinner!") == 100u,
+	      "a dash or an inverted mark past ASCII was taken as a letter");
+	CHECK(score("don't", "don\xe2\x80\x99t") == 100u, "a typographic apostrophe was not dropped from inside a word");
+	CHECK(score("\xc2\xb5m", "5 \xc2\xb5m") == 100u, "the micro sign, a letter, was taken as a gap");
 }
 
 /* ---- stores of fixed hits --------------------------------------------------- */

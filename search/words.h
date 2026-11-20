@@ -4,12 +4,13 @@
  * Lifted from the sticker matcher (sec 1272), which reads them here now.
  *
  * A WORD is a run of ASCII letters and digits, folded to lower case, and of
- * any byte of a character past ASCII; an apostrophe (' or U+2019) is
- * dropped from inside it; anything else is a gap. Two words are the SAME
+ * characters past ASCII, those of Latin-1, Latin Extended-A, Greek and
+ * Cyrillic folded by Unicode's simple case folding (sec 1297); an
+ * apostrophe (' or U+2019) is dropped from inside it; anything else is a
+ * gap, punctuation and spaces past ASCII included. Two words are the SAME
  * where they are equal, or where their plain forms are -- a closing -ing,
  * -ed, -es or -s let go where enough of the word is left to still be one.
- * Past ASCII nothing is folded or stemmed: a script's own rules are not
- * guessed at.
+ * Past ASCII nothing is stemmed: a script's own rules are not guessed at.
  */
 #ifndef FZN_SEARCH_WORDS_H
 #define FZN_SEARCH_WORDS_H

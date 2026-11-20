@@ -4,6 +4,95 @@
 
 #include <string.h>
 
+/* ONE CHARACTER past ASCII at `s`, `n` bytes left: its code point and its
+ * length, or a length of 1 and code point 0 for a byte that starts none. */
+static unsigned decode(const unsigned char *s, size_t n, size_t *len)
+{
+	unsigned cp;
+	size_t k, want;
+
+	*len = 1u;
+	if (s[0] >= 0xc2u && s[0] <= 0xdfu)
+		want = 2u, cp = s[0] & 0x1fu;
+	else if (s[0] >= 0xe0u && s[0] <= 0xefu)
+		want = 3u, cp = s[0] & 0x0fu;
+	else if (s[0] >= 0xf0u && s[0] <= 0xf4u)
+		want = 4u, cp = s[0] & 0x07u;
+	else
+		return 0;
+	if (n < want)
+		return 0;
+	for (k = 1; k < want; k++) {
+		if ((s[k] & 0xc0u) != 0x80u)
+			return 0;
+		cp = cp << 6 | (s[k] & 0x3fu);
+	}
+	*len = want;
+	return cp;
+}
+
+/* PUNCTUATION AND SPACES PAST ASCII, sec 1297: a gap between words, as an
+ * ASCII mark is -- a typographic quote, a dash or a no-break space was a
+ * letter, so "quoted" in curly quotes was never found by `quoted`. The
+ * Latin-1 marks (not the ordinal letters or the micro sign), the general
+ * punctuation block and the CJK one. */
+static int is_gap(unsigned cp)
+{
+	return (cp >= 0xa0u && cp <= 0xbfu && cp != 0xaau && cp != 0xb5u && cp != 0xbau) || cp == 0xd7u
+	       || cp == 0xf7u || (cp >= 0x2000u && cp <= 0x206fu) || (cp >= 0x3000u && cp <= 0x303fu)
+	       || cp == 0xfeffu;
+}
+
+/* A CAPITAL'S SMALL LETTER, sec 1297: Unicode's simple case folding where
+ * it keeps a character's length -- Latin-1, Latin Extended-A, Greek and
+ * Cyrillic -- so a Swedish name in capitals finds it written small, as
+ * "ASA" finds "asa". A fold is the Unicode Character Database's, not a
+ * guess at a script's rules; the dotted capital I, which folds to two
+ * characters, is left as it is. */
+static unsigned fold(unsigned cp)
+{
+	if (cp >= 0xc0u && cp <= 0xdeu && cp != 0xd7u)
+		return cp + 0x20u;
+	if ((cp >= 0x100u && cp <= 0x12fu) || (cp >= 0x132u && cp <= 0x137u) || (cp >= 0x14au && cp <= 0x177u))
+		return cp | 1u;
+	if ((cp >= 0x139u && cp <= 0x148u) || (cp >= 0x179u && cp <= 0x17eu))
+		return cp & 1u ? cp + 1u : cp;
+	if (cp == 0x178u)
+		return 0xffu;
+	if ((cp >= 0x391u && cp <= 0x3a1u) || (cp >= 0x3a3u && cp <= 0x3abu))
+		return cp + 0x20u;
+	if (cp == 0x3c2u) /* final sigma, which Unicode folds to sigma */
+		return 0x3c3u;
+	if (cp == 0x386u)
+		return 0x3acu;
+	if (cp >= 0x388u && cp <= 0x38au)
+		return cp + 0x25u;
+	if (cp == 0x38cu)
+		return 0x3ccu;
+	if (cp == 0x38eu || cp == 0x38fu)
+		return cp + 0x3fu;
+	if (cp >= 0x410u && cp <= 0x42fu)
+		return cp + 0x20u;
+	if (cp >= 0x400u && cp <= 0x40fu)
+		return cp + 0x50u;
+	return cp;
+}
+
+/* `cp` written as UTF-8 at `out`, its length -- 2 or 3 bytes, all a fold
+ * above makes. */
+static size_t encode(unsigned cp, char *out)
+{
+	if (cp < 0x800u) {
+		out[0] = (char)(0xc0u | cp >> 6);
+		out[1] = (char)(0x80u | (cp & 0x3fu));
+		return 2u;
+	}
+	out[0] = (char)(0xe0u | cp >> 12);
+	out[1] = (char)(0x80u | (cp >> 6 & 0x3fu));
+	out[2] = (char)(0x80u | (cp & 0x3fu));
+	return 3u;
+}
+
 void fzn_search_words_of(const char *s, size_t n, fzn_search_words_t *w)
 {
 	size_t i, used = 0, start = 0;
@@ -14,7 +103,7 @@ void fzn_search_words_of(const char *s, size_t n, fzn_search_words_t *w)
 	if (n > FZN_SEARCH_WORDS_BYTES)
 		s += n - FZN_SEARCH_WORDS_BYTES, n = FZN_SEARCH_WORDS_BYTES;
 	for (i = 0; i <= n; i++) {
-		const unsigned char c = i < n ? (unsigned char)s[i] : ' ';
+		unsigned char c = i < n ? (unsigned char)s[i] : ' ';
 
 		if (c == '\'') {
 			continue;
@@ -23,7 +112,36 @@ void fzn_search_words_of(const char *s, size_t n, fzn_search_words_t *w)
 			i += 2u;
 			continue;
 		}
-		if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || c >= 0x80u) {
+		/* PAST ASCII, a character at a time: a gap where it is a mark,
+		 * folded where it is a capital, and as it is otherwise -- a byte
+		 * starting no character included, as before. */
+		if (c >= 0x80u) {
+			size_t len = 1u;
+			const unsigned cp = decode((const unsigned char *)s + i, n - i, &len);
+
+			if (cp && is_gap(cp)) {
+				i += len - 1u;
+				c = ' ';
+			} else {
+				char folded[4];
+				const unsigned to = cp ? fold(cp) : 0u;
+				const size_t out = to != cp && to ? encode(to, folded) : len;
+
+				if (!in) {
+					in = 1;
+					start = used;
+				}
+				if (used + out <= FZN_SEARCH_WORDS_BYTES) {
+					memcpy(w->buf + used, to != cp && to ? folded : s + i, out);
+					used += out;
+				}
+				i += len - 1u;
+				if (i + 1u == n)
+					w->open_end = 1;
+				continue;
+			}
+		}
+		if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z')) {
 			if (!in) {
 				in = 1;
 				start = used;

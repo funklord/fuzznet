@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1296
+The newest work is at the end of this file. **Read secs 1287 to 1297
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -48,7 +48,7 @@ listener port spans (`150e3106`).
   which the node does not export; (d) pop-up and effect stickers shown;
   (e) a search box and a recent tab in the picker (the stickers store
   exists); (f) letting a kept pack go from the picker; (h) the matcher's
-  context: Unicode case folding and the reply target's words; (i) a
+  context: the reply target's words (case folding: sec 1297); (i) a
   binary `list sticker match`.
 - **The holder's question, parked**: a sticker store, meaning packs not
   kept and searchable. Is it wanted, and from whom: a relay, friends'
@@ -93820,3 +93820,40 @@ called off, nothing chosen; empty, sent as drawn. Sabotage
 sticker twice with other words, so `conversation-sticker-boxes-read-again`
 has something to catch: a refresh alone never asks again, the drawing
 being cached, and that entry survived its first run.
+
+## 1297. Words past ASCII: punctuation a gap, capitals folded, 2026-11-20
+
+The audit's (h), half of it, and a defect found reading the code for it.
+
+**The defect:** `search/words.c` took every byte past ASCII as a letter,
+so a typographic quote, a dash, an inverted mark or a no-break space
+joined the word beside it. `"quoted"` in curly quotes was the word
+`"quoted"` with its quotes, and `quoted` never found it; `hello--world`
+with an em dash was one word. Every store reads words here, so every
+search had it -- lines and notes most, where such marks are typed by
+phones without being asked.
+
+**Built:** a character past ASCII is decoded and, where it is
+punctuation or a space -- Latin-1's marks (not its ordinal letters or the
+micro sign), the general punctuation block, the CJK punctuation block,
+the BOM -- is a gap, as an ASCII mark is. The typographic apostrophe is
+still dropped from inside a word. **Capitals are folded** by Unicode's
+simple case folding where it keeps a character's length: Latin-1, Latin
+Extended-A, Greek (a final sigma folds to sigma, as Unicode has it) and
+Cyrillic. The header said nothing past ASCII was folded so as not to
+guess at a script's rules; a fold taken from the Unicode Character
+Database is not a guess, and the one it would need two characters for,
+the dotted capital I, is left alone. Nothing past ASCII is stemmed.
+
+**What it costs a mixed estate:** a host on the old build scores such a
+word otherwise, so for one search its copy of an item can stand apart
+from a new host's (sec 1287's "a score that varied by host"). It passes
+when the hosts are on one build.
+
+**Still open of (h):** the reply target's words as the matcher's context.
+
+**Tests:** search_test -- Swedish, Polish, Greek and Cyrillic capitals
+found small; a word in curly quotes, after an em dash and after an
+inverted exclamation mark; the typographic apostrophe; the micro sign
+still a letter. Sabotages `words-mark-past-ascii-a-letter`,
+`words-capital-past-ascii-kept`.
