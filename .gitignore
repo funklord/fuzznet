@@ -425,4 +425,5 @@ __pycache__/
 /wire/test/group_act_record_vectors
 /wire/test/group_line_wire_vectors
 /wire/test/verify_memo_record_vectors
+/wire/test/contact_card_record_vectors
 /node/test/settings_registry_test

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1333
+The newest work is at the end of this file. **Read secs 1287 to 1334
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -94964,3 +94964,21 @@ the signature is checked.
 
 **Tests:** verify_memo_record_vectors (1); verify_memo_test (30) over the
 generated code. Sabotage `memo-file-any-length`.
+
+## 1334. A contact card on situ's generated code, its host held, 2026-11-20
+
+The fifth of the 40 layouts: `node/contact_card.situ` is
+`node/contact_card_record.situ` (a signed record), and says more than it
+did -- its host **held** as the contact device entry it is (`[holds =
+fzn_contact_device]`, importing `node/contact_devices.situ`), and a seed's
+address in `net/address`'s letters (`[chars = "a-zA-Z0-9.:-"]`).
+`node/contact_card.c` builds a card -- each seed by the generated seed
+builder, the card round them -- signs every byte before the signature,
+and reads one through the generated `required`, view and `validate`,
+exactly its length; a contact name and somewhere to ask stay the codec's
+checks. Its golden vector is a real card captured from
+contact_card_test's fixture.
+
+**Tests:** contact_card_record_vectors (1, a real card); contact_card_test
+(27), contact_request_test (69), pair_test (443) and card_fuzz (3000 cases)
+over the generated codec. Sabotage `card-any-length`.

@@ -1,6 +1,9 @@
 /* A contact card: project.md sec 617, and the header. */
 #include "contact_card.h"
 
+#include "../wire/generated/contact_card_record.h"
+#include "../wire/generated/contact_card_record_build.h"
+
 #include <string.h>
 
 #include "../contact/contact.h"
@@ -56,54 +59,52 @@ static int fields_ok(const fzn_contact_card_t *card)
 	return card->host.port != 0u || card->n_seeds > 0u;
 }
 
-/* Everything the signature covers, into `out`; its length. 0 when it will
- * not fit or the host entry will not encode. */
-static size_t body(const fzn_contact_card_t *card, uint8_t *out, size_t cap)
+/* THE CARD, built by the code situ generates from
+ * `node/contact_card_record.situ` (sec 1334) with `sig` as its signature:
+ * its whole length, or 0 when it will not fit or the host entry will not
+ * encode. The signature covers every byte before it. */
+static size_t build(const fzn_contact_card_t *card, const uint8_t sig[FZN_SIG_LEN], uint8_t *out, size_t cap)
 {
-	size_t at = 4u, host_len = 0, i;
+	static uint8_t host[FZN_CONTACT_DEVICE_MAX];
+	uint8_t seeds[FZN_CONTACT_CARD_SEEDS_MAX * (1u + FZN_CONTACT_DEVICE_ADDRESS_MAX + 4u)];
+	size_t host_len = 0, i;
+	uint32_t at = 0, wrote = 0;
 
-	if (cap < 4u
-	    || fzn_contact_device_encode(&card->host, out + 4, cap - 4u, &host_len)
-	               != FZN_CONTACT_DEVICE_OK)
+	if (cap > UINT32_MAX
+	    || fzn_contact_device_encode(&card->host, host, sizeof(host), &host_len) != FZN_CONTACT_DEVICE_OK
+	    || host_len > 0xffffu)
 		return 0;
-	out[0] = FZN_CONTACT_CARD_VERSION;
-	out[1] = (uint8_t)FZN_OBJECT_CONTACT_CARD;
-	fzn_put_be16(out + 2, (uint16_t)host_len);
-	at += host_len;
-	if (at + 1u > cap)
-		return 0;
-	out[at++] = (uint8_t)card->n_seeds;
 	for (i = 0; i < card->n_seeds; i++) {
-		const fzn_contact_card_seed_t *s = &card->seeds[i];
+		const fzn_contact_card_seed_t *sd = &card->seeds[i];
+		uint32_t one = 0;
 
-		if (at + 1u + s->address_len + 4u > cap)
+		if (fzn_contact_card_record_fzn_contact_card_seed_build(seeds + at, (uint32_t)(sizeof(seeds) - at),
+		                                                        (const uint8_t *)sd->address,
+		                                                        (uint32_t)sd->address_len, sd->port,
+		                                                        sd->transport, sd->metric, &one)
+		    != SITU_OK)
 			return 0;
-		out[at++] = (uint8_t)s->address_len;
-		memcpy(out + at, s->address, s->address_len);
-		at += s->address_len;
-		fzn_put_be16(out + at, s->port);
-		out[at + 2u] = s->transport;
-		out[at + 3u] = s->metric;
-		at += 4u;
+		at += one;
 	}
-	if (at + 1u + card->name_len + 8u > cap)
+	if (fzn_contact_card_record_fzn_contact_card_build(out, (uint32_t)cap, FZN_CONTACT_CARD_VERSION,
+	                                                   (uint8_t)FZN_OBJECT_CONTACT_CARD, host, (uint32_t)host_len,
+	                                                   seeds, at, (const uint8_t *)card->name,
+	                                                   (uint32_t)card->name_len, card->expires_at, sig, &wrote)
+	    != SITU_OK)
 		return 0;
-	out[at++] = (uint8_t)card->name_len;
-	memcpy(out + at, card->name, card->name_len);
-	at += card->name_len;
-	fzn_put_be64(out + at, card->expires_at);
-	return at + 8u;
+	return wrote;
 }
 
 fzn_contact_card_err_t fzn_contact_card_sign(fzn_contact_card_t *card, const fzn_sign_ops_t *sign)
 {
 	static uint8_t bytes[FZN_CONTACT_CARD_MAX];
+	static const uint8_t unsigned_yet[FZN_SIG_LEN];
 	size_t n;
 
 	if (!card || !sign || !sign->sign || !fields_ok(card))
 		return FZN_CONTACT_CARD_ERR_MALFORMED;
-	n = body(card, bytes, sizeof(bytes));
-	if (!n || !sign->sign(sign->ctx, card->sig, bytes, n))
+	n = build(card, unsigned_yet, bytes, sizeof(bytes));
+	if (!n || !sign->sign(sign->ctx, card->sig, bytes, n - FZN_SIG_LEN))
 		return FZN_CONTACT_CARD_ERR_MALFORMED;
 	return FZN_CONTACT_CARD_OK;
 }
@@ -115,63 +116,62 @@ fzn_contact_card_err_t fzn_contact_card_encode(const fzn_contact_card_t *card, u
 
 	if (!card || !out || !len || !fields_ok(card))
 		return FZN_CONTACT_CARD_ERR_MALFORMED;
-	n = body(card, out, cap);
-	if (!n || n + FZN_SIG_LEN > cap)
+	n = build(card, card->sig, out, cap);
+	if (!n)
 		return FZN_CONTACT_CARD_ERR_MALFORMED;
-	memcpy(out + n, card->sig, FZN_SIG_LEN);
-	*len = n + FZN_SIG_LEN;
+	*len = n;
 	return FZN_CONTACT_CARD_OK;
 }
 
 fzn_contact_card_err_t fzn_contact_card_decode(const uint8_t *bytes, size_t len,
                                                fzn_contact_card_t *out)
 {
-	size_t at, host_len, i;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
+	size_t i;
 
 	if (!bytes || !out)
 		return FZN_CONTACT_CARD_ERR_MALFORMED;
 	memset(out, 0, sizeof(*out));
-	if (len < 4u || bytes[0] != FZN_CONTACT_CARD_VERSION
-	    || bytes[1] != (uint8_t)FZN_OBJECT_CONTACT_CARD)
+	/* READ AS THE SCHEMA SAYS, EXACTLY ITS LENGTH (sec 1334): its version,
+	 * tag, host entry, seeds' addresses and bounds the generated validate's;
+	 * then its fields in range -- one card, one encoding. */
+	if (len > UINT32_MAX
+	    || fzn_contact_card_record_fzn_contact_card_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len)
 		return FZN_CONTACT_CARD_ERR_SHAPE;
-	host_len = fzn_get_be16(bytes + 2);
-	if (len < 4u + host_len + 1u
-	    || fzn_contact_device_decode(bytes + 4, host_len, &out->host) != FZN_CONTACT_DEVICE_OK)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_contact_card_record_fzn_contact_card_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_contact_card_record_fzn_contact_card_validate(v) != SITU_OK
+	    || fzn_contact_device_decode(fzn_contact_card_record_fzn_contact_card_host_ptr(v),
+	                                 fzn_contact_card_record_fzn_contact_card_host_len_get(v), &out->host)
+	               != FZN_CONTACT_DEVICE_OK)
 		return FZN_CONTACT_CARD_ERR_SHAPE;
-	at = 4u + host_len;
-	out->n_seeds = bytes[at++];
+	out->n_seeds = fzn_contact_card_record_fzn_contact_card_seed_count_get(v);
 	if (out->n_seeds > FZN_CONTACT_CARD_SEEDS_MAX)
 		return FZN_CONTACT_CARD_ERR_SHAPE;
 	for (i = 0; i < out->n_seeds; i++) {
-		fzn_contact_card_seed_t *s = &out->seeds[i];
+		fzn_contact_card_seed_t *sd = &out->seeds[i];
+		situ_view_t one;
 
-		if (len < at + 1u)
+		if (fzn_contact_card_record_fzn_contact_card_seeds_at(v, (uint32_t)i, &one) != SITU_OK)
 			return FZN_CONTACT_CARD_ERR_SHAPE;
-		s->address_len = bytes[at++];
-		if (s->address_len > FZN_CONTACT_DEVICE_ADDRESS_MAX || len < at + s->address_len + 4u)
+		sd->address_len = fzn_contact_card_record_fzn_contact_card_seed_address_len_get(one);
+		if (sd->address_len > FZN_CONTACT_DEVICE_ADDRESS_MAX)
 			return FZN_CONTACT_CARD_ERR_SHAPE;
-		memcpy(s->address, bytes + at, s->address_len);
-		s->address[s->address_len] = '\0';
-		at += s->address_len;
-		s->port = fzn_get_be16(bytes + at);
-		s->transport = bytes[at + 2u];
-		s->metric = bytes[at + 3u];
-		at += 4u;
+		memcpy(sd->address, fzn_contact_card_record_fzn_contact_card_seed_address_ptr(one), sd->address_len);
+		sd->address[sd->address_len] = '\0';
+		sd->port = fzn_contact_card_record_fzn_contact_card_seed_port_get(one);
+		sd->transport = fzn_contact_card_record_fzn_contact_card_seed_transport_get(one);
+		sd->metric = fzn_contact_card_record_fzn_contact_card_seed_metric_get(one);
 	}
-	if (len < at + 1u)
-		return FZN_CONTACT_CARD_ERR_SHAPE;
-	out->name_len = bytes[at++];
-	if (out->name_len > FZN_CONTACT_CARD_NAME_MAX || len < at + out->name_len + 8u)
-		return FZN_CONTACT_CARD_ERR_SHAPE;
-	memcpy(out->name, bytes + at, out->name_len);
+	out->name_len = fzn_contact_card_record_fzn_contact_card_name_len_get(v);
+	memcpy(out->name, fzn_contact_card_record_fzn_contact_card_name_ptr(v), out->name_len);
 	out->name[out->name_len] = '\0';
-	at += out->name_len;
-	out->expires_at = fzn_get_be64(bytes + at);
-	at += 8u;
-	/* EXACTLY ITS LENGTH, and its fields in range: one card, one encoding. */
-	if (len != at + FZN_SIG_LEN || !fields_ok(out))
+	out->expires_at = fzn_contact_card_record_fzn_contact_card_expires_at_get(v);
+	memcpy(out->sig, fzn_contact_card_record_fzn_contact_card_sig_ptr(v), FZN_SIG_LEN);
+	if (!fields_ok(out))
 		return FZN_CONTACT_CARD_ERR_SHAPE;
-	memcpy(out->sig, bytes + at, FZN_SIG_LEN);
 	return FZN_CONTACT_CARD_OK;
 }
 
@@ -186,9 +186,9 @@ fzn_contact_card_err_t fzn_contact_card_verify(const fzn_contact_card_t *card,
 		return FZN_CONTACT_CARD_ERR_MALFORMED;
 	if (fzn_contact_device_verify(&card->host, sign, member, now) != FZN_CONTACT_DEVICE_OK)
 		return FZN_CONTACT_CARD_ERR_REFUSED;
-	n = body(card, bytes, sizeof(bytes));
+	n = build(card, card->sig, bytes, sizeof(bytes));
 	if (!n
-	    || !sign->verify(sign->ctx, fzn_contact_device_key(&card->host), bytes, n, card->sig))
+	    || !sign->verify(sign->ctx, fzn_contact_device_key(&card->host), bytes, n - FZN_SIG_LEN, card->sig))
 		return FZN_CONTACT_CARD_ERR_REFUSED;
 	if (now != 0u && card->expires_at != 0u && card->expires_at < now)
 		return FZN_CONTACT_CARD_ERR_EXPIRED;

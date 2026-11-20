@@ -13411,7 +13411,7 @@ SABOTAGES = [
 	(
 		"contact-card-signed-by-its-host",
 		"node/contact_card.c",
-		"\tif (!n\n\t    || !sign->verify(sign->ctx, fzn_contact_device_key(&card->host), bytes, n, card->sig))\n\t\treturn FZN_CONTACT_CARD_ERR_REFUSED;\n",
+		"\tif (!n\n\t    || !sign->verify(sign->ctx, fzn_contact_device_key(&card->host), bytes, n - FZN_SIG_LEN, card->sig))\n\t\treturn FZN_CONTACT_CARD_ERR_REFUSED;\n",
 		"\tif (!n)\n\t\treturn FZN_CONTACT_CARD_ERR_REFUSED;\n",
 		"a card altered after signing, or signed by anybody, is taken as the host's -- sec 617",
 	),
@@ -13428,13 +13428,6 @@ SABOTAGES = [
 		"\tif (now != 0u && card->expires_at != 0u && card->expires_at < now)\n\t\treturn FZN_CONTACT_CARD_ERR_EXPIRED;\n",
 		"",
 		"a card past its expiry is taken -- sec 617",
-	),
-	(
-		"contact-card-exact-length",
-		"node/contact_card.c",
-		"\tif (len != at + FZN_SIG_LEN || !fields_ok(out))\n",
-		"\tif (len < at + FZN_SIG_LEN || !fields_ok(out))\n",
-		"a card with trailing bytes decodes, two encodings of one card -- sec 617",
 	),
 	(
 		"contact-card-text-one-string",
@@ -17809,6 +17802,13 @@ SABOTAGES = [
 		"\tm_art->sound_at.insert(sticker, path);\n",
 		"",
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
+	),
+	(
+		"card-any-length",
+		"node/contact_card.c",
+		"(bytes, (uint32_t)len, &need) != SITU_OK || need != len)\n\t\treturn FZN_CONTACT_CARD_ERR_SHAPE;",
+		"(bytes, (uint32_t)len, &need) != SITU_OK)\n\t\treturn FZN_CONTACT_CARD_ERR_SHAPE;",
+		"a card with bytes after it read: one card, two encodings -- secs 617, 1334",
 	),
 	(
 		"memo-file-any-length",

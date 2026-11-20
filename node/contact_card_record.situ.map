@@ -1,0 +1,174 @@
+# situ capability map v1
+# schema: contact_card_record.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_contact_act_listed size=4..1027 mutate=Shifting repr=ValueConverted
+  fzn_contact_act_listed.len             offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_act_listed.spine           offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_act_listed.bytes           offset=AbsoluteStatic(0x03) size=Bounded(1, 1024) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_contact_card size=78..66677 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_contact_card.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_card.tag                   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_card.host_len              offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_card.host                  offset=AbsoluteStatic(0x04) size=Bounded(0, 65535) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_contact_card.seed_count            offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card.seeds                 offset=Dynamic size=Bounded(0, 1032) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_contact_card.seeds[]               offset=FrameStatic(0x00) size=Bounded(6, 258) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_contact_card.seeds[].address_len   offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord address=FrameStable
+  fzn_contact_card.seeds[].address       offset=FrameStatic(0x01) size=Bounded(1, 253) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable
+  fzn_contact_card.seeds[].port          offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_contact_card.seeds[].transport     offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card.seeds[].metric        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card.name_len              offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card.name                  offset=Dynamic size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  fzn_contact_card.expires_at            offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_contact_card.sig                   offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+
+struct fzn_contact_card_seed size=6..258 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_contact_card_seed.address_len      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_card_seed.address          offset=AbsoluteStatic(0x01) size=Bounded(1, 253) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_contact_card_seed.port             offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_contact_card_seed.transport        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card_seed.metric           offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+
+struct fzn_contact_device size=175..1860 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_contact_device.version             offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_device.owner               offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_contact_device.record              offset=AbsoluteStatic(0x21) size=Fixed(138) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_contact_device.address_len         offset=AbsoluteStatic(0xAB) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_device.address             offset=AbsoluteStatic(0xAC) size=Bounded(0, 253) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_contact_device.port                offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_contact_device.hop_count           offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_device.hops                offset=Dynamic size=Bounded(0, 1432) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct fzn_contact_devices_act_entries size=8..261893 access=Sequential mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_act_entries.version offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_act_entries.type   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_act_entries.from   offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_act_entries.count  offset=AbsoluteStatic(0x06) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_act_entries.more   offset=AbsoluteStatic(0x07) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_act_entries.entries offset=AbsoluteStatic(0x08) size=Bounded(0, 261885) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_contact_devices_act_entries.entries[] offset=FrameStatic(0x00) size=Bounded(4, 1027) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_contact_devices_act_entries.entries[].len offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_devices_act_entries.entries[].spine offset=FrameStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_act_entries.entries[].bytes offset=FrameStatic(0x03) size=Bounded(1, 1024) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_contact_devices_acts size=38 repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_acts.version       offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_acts.type          offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_acts.key           offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_contact_devices_acts.from          offset=AbsoluteStatic(0x22) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_contact_devices_estate size=6 repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_estate.version     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_estate.type        offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_estate.from        offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_contact_devices_items size=9..428409 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_items.version      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_items.type         offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_items.from         offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_items.count        offset=AbsoluteStatic(0x06) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_items.more         offset=AbsoluteStatic(0x07) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_items.k            offset=AbsoluteStatic(0x08) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_items.items        offset=AbsoluteStatic(0x09) size=Bounded(0, 428400) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_contact_devices_items.items[]      offset=FrameStatic(0x00) size=Bounded(7, 1680) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_contact_devices_items.items[].len  offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_devices_items.items[].item offset=FrameStatic(0x02) size=Bounded(5, 1678) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  fzn_contact_devices_items.items[].item.kind offset=FrameStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_items.items[].item.record_len offset=FrameStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_items.items[].item.record offset=FrameStatic(0x05) size=Bounded(1, 242) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_contact_devices_items.items[].item.hop_count offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_devices_items.items[].item.hops offset=Dynamic size=Bounded(0, 1432) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct fzn_contact_devices_kept_estate size=6 repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_kept_estate.version offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_kept_estate.type   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_kept_estate.from   offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_contact_devices_kept_rows size=8..436568 access=Sequential mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_kept_rows.version  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_kept_rows.type     offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_kept_rows.from     offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_kept_rows.count    offset=AbsoluteStatic(0x06) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_kept_rows.more     offset=AbsoluteStatic(0x07) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_kept_rows.rows     offset=AbsoluteStatic(0x08) size=Bounded(0, 436560) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_contact_devices_kept_rows.rows[]   offset=FrameStatic(0x00) size=Bounded(36, 1712) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_contact_devices_kept_rows.rows[].len offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_devices_kept_rows.rows[].owner offset=FrameStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_contact_devices_kept_rows.rows[].rest offset=FrameStatic(0x22) size=Bounded(2, 1678) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_contact_devices_list size=5..16711940 access=Sequential mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_list.version       offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_list.type          offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_list.from          offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_list.count         offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_list.more          offset=AbsoluteStatic(0x04) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_list.entries       offset=AbsoluteStatic(0x05) size=Bounded(0, 16711935) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_contact_devices_list.entries[]     offset=FrameStatic(0x00) size=Bounded(2, 65537) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_contact_devices_list.entries[].len offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_devices_list.entries[].entry offset=FrameStatic(0x02) size=Bounded(0, 65535) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_contact_devices_listed size=2..65537 mutate=Shifting repr=ValueConverted
+  fzn_contact_devices_listed.len         offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_devices_listed.entry       offset=AbsoluteStatic(0x02) size=Bounded(0, 65535) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_contact_devices_offer size=2..1862 mutate=Shifting
+  fzn_contact_devices_offer.version      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_offer.type         offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_offer.entry        offset=AbsoluteStatic(0x02) size=Bounded(0, 1860) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_contact_devices_query size=4
+  fzn_contact_devices_query.version      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_query.type         offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_query.from         offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_query.whose        offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+
+struct fzn_contact_devices_records size=8..61718 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_records.version    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_records.type       offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_records.from       offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_records.count      offset=AbsoluteStatic(0x06) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_records.more       offset=AbsoluteStatic(0x07) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_records.records    offset=AbsoluteStatic(0x08) size=Bounded(0, 61710) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_contact_devices_revoked size=6 repr=ValueConverted atomic=NonAtomic
+  fzn_contact_devices_revoked.version    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_revoked.type       offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_revoked.from       offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_contact_devices_taken size=3
+  fzn_contact_devices_taken.version      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_taken.type         offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_devices_taken.taken        offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+
+struct fzn_contact_estate_item size=5..1678 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_contact_estate_item.kind           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_estate_item.record_len     offset=AbsoluteStatic(0x01) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_contact_estate_item.record         offset=AbsoluteStatic(0x03) size=Bounded(1, 242) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_contact_estate_item.hop_count      offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_estate_item.hops           offset=Dynamic size=Bounded(0, 1432) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct fzn_contact_estate_listed size=7..1680 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_contact_estate_listed.len          offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_estate_listed.item         offset=AbsoluteStatic(0x02) size=Bounded(5, 1678) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable
+  fzn_contact_estate_listed.item.kind    offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_estate_listed.item.record_len offset=AbsoluteStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_contact_estate_listed.item.record  offset=AbsoluteStatic(0x05) size=Bounded(1, 242) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_contact_estate_listed.item.hop_count offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_estate_listed.item.hops    offset=Dynamic size=Bounded(0, 1432) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct fzn_contact_estate_row size=36..1712 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_contact_estate_row.len             offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_estate_row.owner           offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_contact_estate_row.rest            offset=AbsoluteStatic(0x22) size=Bounded(2, 1678) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
