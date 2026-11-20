@@ -151,6 +151,7 @@ private:
 	class QTimer *m_suggest_soon;
 
 	struct fzn_gui_rpc *m_rpc;
+	int sticker_box(const QByteArray &pack, qulonglong id, struct fzn_sticker_entry *out);
 	struct art;
 	art *m_art; /* each sticker drawn, for the view's life */
 	QString m_contact;

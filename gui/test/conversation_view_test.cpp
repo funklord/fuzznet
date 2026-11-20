@@ -54,12 +54,13 @@ static int file_partial;
 	"0000000000000000000000000000000000000000000000000000000000000001"                               \
 	"0000000000000000000000000000000000000000000000000000000000000002"                               \
 	"00000000000003e8"
-static int art_asked;
+static int art_asked, boxes_asked;
 static char last_keep[200];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 {
-	static const char DRAW[] = "get sticker " DAN_PACK " 7 thumb ";
+	/* THE MAIN RENDITION, which the log draws at 128 px (sec 1295). */
+	static const char DRAW[] = "get sticker " DAN_PACK " 7 main ";
 	(void)ctx;
 	if (silent)
 		return 0;
@@ -72,6 +73,18 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 			return (size_t)snprintf(reply, cap, "error could not write\n");
 		return (size_t)snprintf(reply, cap, "ok 4 1 1\n");
 	}
+	/* THE PACK'S STICKERS AND THEIR BOXES, read once for a sticker sent
+	 * with words (sec 1295): sticker 7, a message sticker with a box. */
+	if (!strncmp(line, "list sticker " DAN_PACK, 13 + 144)) {
+		boxes_asked++;
+		return (size_t)snprintf(reply, cap, "ok 1 0 7,4,0,waving,20,8,8,48,16,0,0,0,128,128\n");
+	}
+	/* GUS SENT DAN'S STICKER WITH WORDS: "hi there" in its box. */
+	if (!strcmp(line, "list message gus 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 0 1 0 " BOB ",gus," ID1 ",in,-,1700005800000,1700005800000,1,"
+		                        "fzn:sticker/%064d/%064d/1000/7:hi%%2520there%%20waving\n",
+		                        1, 2);
 	/* A KEPT STICKER FOR "see you", sec 1272; nothing for anything else. */
 	if (!strcmp(line, "list sticker match see you"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 %064d,7,250,waving\n", 1);
@@ -308,6 +321,14 @@ int main(int argc, char **argv)
 	/* THE STICKER DRAWN, ASKED ONCE, AND ITS PACK KEPT, sec 1145. */
 	CHECK(d.drawn(1) && !d.drawn(0), "a sticker line was not drawn, or a file line was");
 	CHECK(d.refresh() && d.drawn(1) && art_asked == 1, "a sticker drawn once was asked for again");
+	/* A STICKER WITH WORDS, sec 1295: drawn, its pack's boxes read once. */
+	{
+		fzn_conversation_view e(node, nullptr);
+
+		e.open(QStringLiteral("gus"));
+		CHECK(e.drawn(0) && boxes_asked == 1, "a sticker sent with words was not drawn with its box");
+		CHECK(e.refresh() && e.drawn(0) && boxes_asked == 1, "a pack's boxes were read again");
+	}
 	d.select_line(0);
 	CHECK(!d.keep_pack() && !last_keep[0], "a file's line kept a pack");
 	d.select_line(1);

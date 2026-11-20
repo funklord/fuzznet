@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1294
+The newest work is at the end of this file. **Read secs 1287 to 1295
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -42,14 +42,11 @@ listener port spans (`150e3106`).
   answered what it reads (sec 1291); `fetch search with CONTACT` asks
   that contact's hosts alone (sec 1292); in binary, the client and a
   view (sec 1293). Left: `with @GROUP`; the catalogue as a store.
-- **Sticker gaps**, from the 2026-11-19 audit, best first. (a) A message
-  or name sticker's words: the picker should ask for them, since the
-  listing gives `text_limit` and `fzn_rpc_sticker_reference_words`
-  exists. The log should draw them, by reading the box from
-  `fzn_rpc_sticker_items` once per pack and calling
-  `fzn_sticker_with_text`. (g) The log should draw the main rendition at
-  about 128 px, not the 64 px thumbnail. Both were drafted and not
-  applied. Then: (b) animation beyond frame 0; (c) a sticker's sound,
+- **Sticker gaps**, from the 2026-11-19 audit, best first. The log now
+  draws the main rendition at 128 px and a sticker's words (sec 1295).
+  (a) The picker should still ask for the words when a message or name
+  sticker is chosen: the listing gives `text_limit` and
+  `fzn_rpc_sticker_reference_words` exists. Then: (b) animation beyond frame 0; (c) a sticker's sound,
   which the node does not export; (d) pop-up and effect stickers shown;
   (e) a search box and a recent tab in the picker (the stickers store
   exists); (f) letting a kept pack go from the picker; (h) the matcher's
@@ -93778,3 +93775,32 @@ id alone -- unique, but it loses which conversation to open.
 
 **Tests:** messages_test -- carol's conversation keyed by both ends;
 live_chat b2 -- the four lines once each, across A's and B's hosts.
+
+## 1295. A sticker in the log: its main rendition, and the sender's words, 2026-11-20
+
+Two of the 2026-11-19 sticker audit's gaps (sec 0's (a) and (g)), both in
+`gui/conversation_view`:
+
+- **(g) The main rendition, at 128 px** (`STICKER_PX`), in the bubble and
+  as the log's icon; the thumbnail only where a pack carries no main one.
+  A sticker is the message, and at 64 px a thumbnail read as an icon
+  beside a line.
+- **(a) A message or name sticker's words, drawn as sent.** The line's
+  reference carries the sender's words; the view reads its pack's
+  stickers once (`fzn_rpc_sticker_items`), takes this one's box, paint
+  and main size, and draws the words into it with `fzn_sticker_with_text`
+  -- the overlay the picker's preview already used. A sticker sent with
+  other words is another drawing, cached by sticker and words. Where the
+  pack will not list, the art is drawn without them, as before.
+
+**Still open from that list:** the picker asking for the words when a
+message or name sticker is chosen; (b) animation past frame 0; (c) a
+sticker's sound; (d) pop-up and effect stickers; (e) a search box and a
+recent tab in the picker; (f) letting a kept pack go from the picker; (h)
+the matcher's Unicode case folding and the reply target's words; (i) a
+binary `list sticker match`.
+
+**Tests:** conversation_view_test -- the main rendition asked for and
+drawn once; a sticker sent with words drawn, its pack's boxes read once
+across a refresh. Sabotages `conversation-sticker-never-drawn` and
+`-asked-again` repointed; `conversation-sticker-boxes-read-again` new.

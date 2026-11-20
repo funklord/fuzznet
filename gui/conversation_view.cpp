@@ -59,6 +59,12 @@ extern "C" {
 #define ROLE_ID (Qt::UserRole + 7)
 /* TAKEN BACK BY ITS SENDER, sec 1284. */
 #define ROLE_UNSENT (Qt::UserRole + 8)
+/* A STICKER'S WORDS, the sender's, for a message or name sticker (sec 1295). */
+#define ROLE_STICKER_TEXT (Qt::UserRole + 9)
+
+/* A STICKER IN THE LOG, sec 1295: its main rendition at this many pixels
+ * across, where the 64 px thumbnail read as an icon beside a line. */
+#define STICKER_PX 128
 
 /* A LINE AS A BUBBLE ON A PHONE, sec 1241, fuzzypickles' 1700Z item 2: this
  * user's at the right, everyone else's at the left, each wrapped within
@@ -82,10 +88,10 @@ public:
 		const bool icon = !index.data(Qt::DecorationRole).isNull();
 		int w = text.width() > fs.horizontalAdvance(meta) ? text.width() : fs.horizontalAdvance(meta);
 
-		if (icon && w < 64)
-			w = 64;
+		if (icon && w < STICKER_PX)
+			w = STICKER_PX;
 		w += 2 * PAD;
-		const int h = (icon ? 64 + GAP : 0) + text.height() + GAP + fs.height() + 2 * PAD;
+		const int h = (icon ? STICKER_PX + GAP : 0) + text.height() + GAP + fs.height() + 2 * PAD;
 		const int x = index.data(ROLE_IN).toBool() ? option.rect.left() + PAD : option.rect.left() + across - PAD - w;
 		return QRect(x, option.rect.top() + GAP / 2, w, h);
 	}
@@ -109,8 +115,8 @@ public:
 		QRect at = b.adjusted(PAD, PAD, -PAD, -PAD);
 		const QIcon icon = qvariant_cast<QIcon>(index.data(Qt::DecorationRole));
 		if (!icon.isNull()) {
-			icon.paint(p, QRect(at.left(), at.top(), 64, 64), Qt::AlignLeft | Qt::AlignTop);
-			at.setTop(at.top() + 64 + GAP);
+			icon.paint(p, QRect(at.left(), at.top(), STICKER_PX, STICKER_PX), Qt::AlignLeft | Qt::AlignTop);
+			at.setTop(at.top() + STICKER_PX + GAP);
 		}
 		p->setPen(pal.color(QPalette::Text));
 		p->drawText(at, Qt::TextWordWrap | Qt::AlignLeft | Qt::AlignTop, index.data(ROLE_BODY).toString());
@@ -140,7 +146,20 @@ private:
 
 struct fzn_conversation_view::art {
 	QHash<QByteArray, QIcon> drawn;
+	/* EACH PACK'S STICKERS, read once a pack for their boxes (sec 1295):
+	 * by the pack's word, each sticker by its id. */
+	QHash<QByteArray, QHash<qulonglong, fzn_rpc_node_sticker_item_t>> boxes;
 };
+
+/* A sticker line's words, the sender's: empty for any other line. */
+static QString sticker_text_of(const char *text, size_t len)
+{
+	static fzn_sticker_ref_t ref;
+
+	if (!fzn_sticker_ref_parse(text, len, &ref) || !ref.length || !ref.text_len)
+		return QString();
+	return QString::fromUtf8(ref.text, (int)ref.text_len);
+}
 
 /* A sticker line's pack and id, "PACK ID"; empty for any other line, and
  * for a fuzzypickles reference, which names no pack a node can read. */
@@ -347,7 +366,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_title->setWordWrap(true);
 	m_lines = new QListWidget(this);
 	m_lines->setWordWrap(true);
-	m_lines->setIconSize(QSize(64, 64));
+	m_lines->setIconSize(QSize(STICKER_PX, STICKER_PX));
 	m_lines->setAccessibleName(tr("The conversation's lines"));
 	m_bubbles = new bubble_delegate(m_lines);
 	m_lines->setItemDelegate(m_bubbles);
@@ -530,6 +549,7 @@ static bool group_lines(fzn_gui_rpc *rpc, const QString &group, QListWidget *lis
 		item->setData(ROLE_UNSENT, l->state == FZN_RPC_LINE_UNSENT);
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
 		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
+		item->setData(ROLE_STICKER_TEXT, sticker_text_of(l->text, l->text_len));
 		item->setData(ROLE_IN, !l->outgoing);
 		item->setData(ROLE_BODY, l->outgoing ? said
 		                                     : QStringLiteral("%1\n%2").arg(QString::fromUtf8(who), said));
@@ -700,6 +720,7 @@ bool fzn_conversation_view::refresh_lines()
 		item->setData(ROLE_ID, id_of(l));
 		item->setData(ROLE_FILE, file_of(l->text, l->text_len));
 		item->setData(ROLE_STICKER, sticker_of(l->text, l->text_len));
+		item->setData(ROLE_STICKER_TEXT, sticker_text_of(l->text, l->text_len));
 		item->setData(ROLE_IN, !l->outgoing);
 		item->setData(ROLE_BODY, said);
 		item->setData(ROLE_META, when_words(now, l->stime) + state_words(l));
@@ -1132,14 +1153,58 @@ bool fzn_conversation_view::take_offer() { return m_notice->act(); }
  * view's life -- a null icon for Lottie or art Qt cannot read, said in
  * words -- and one the node could not draw is asked again at the next
  * refresh, since its pack may still be arriving. */
+/* A STICKER'S BOX, sec 1295: its pack's stickers read once, and this one
+ * as the overlay reads an entry -- the box, its paint and the main
+ * rendition's size it is measured in. 0 where the pack will not list or
+ * holds no such sticker. */
+int fzn_conversation_view::sticker_box(const QByteArray &pack, qulonglong id, fzn_sticker_entry_t *out)
+{
+	auto held = m_art->boxes.constFind(pack);
+
+	if (held == m_art->boxes.constEnd()) {
+		auto *items = new fzn_rpc_node_sticker_items_resp_t;
+		QHash<qulonglong, fzn_rpc_node_sticker_item_t> by_id;
+
+		memset(items, 0, sizeof *items);
+		if (fzn_rpc_sticker_items(&m_rpc->c, pack.constData(), (size_t)pack.size(), items) == FZN_RPC_OK)
+			for (size_t i = 0; i < items->count; i++)
+				by_id.insert((qulonglong)items->entries[i].id, items->entries[i]);
+		delete items;
+		held = m_art->boxes.insert(pack, by_id);
+	}
+	auto one = held.value().constFind(id);
+	if (one == held.value().constEnd())
+		return 0;
+	memset(out, 0, sizeof *out);
+	out->id = one->id;
+	out->type = one->type;
+	out->text_limit = one->text_limit;
+	out->text_x = one->text_x;
+	out->text_y = one->text_y;
+	out->text_w = one->text_w;
+	out->text_h = one->text_h;
+	out->text_fill = one->text_fill;
+	out->text_ink = one->text_ink;
+	out->text_turn = one->text_turn;
+	out->renditions[0].role = FZN_STICKER_MAIN;
+	out->renditions[0].width = one->main_w;
+	out->renditions[0].height = one->main_h;
+	out->rendition_count = one->main_w && one->main_h ? 1u : 0u;
+	return 1;
+}
+
 void fzn_conversation_view::draw_stickers()
 {
 	for (int i = 0; i < m_lines->count(); i++) {
 		QListWidgetItem *item = m_lines->item(i);
 		const QByteArray sticker = item->data(ROLE_STICKER).toByteArray();
+		const QString words = item->data(ROLE_STICKER_TEXT).toString();
 		if (sticker.size() <= 145)
 			continue;
-		auto held = m_art->drawn.constFind(sticker);
+		/* ONE DRAWING A STICKER AND ITS WORDS: the same sticker sent with
+		 * other words is another drawing. */
+		const QByteArray key = sticker + '\n' + words.toUtf8();
+		auto held = m_art->drawn.constFind(key);
 		if (held != m_art->drawn.constEnd()) {
 			if (!held.value().isNull())
 				item->setIcon(held.value());
@@ -1148,15 +1213,36 @@ void fzn_conversation_view::draw_stickers()
 		uint8_t *bytes = nullptr;
 		size_t len = 0;
 		uint8_t format = 0;
-		if (fzn_rpc_sticker_art(&m_rpc->c, sticker.constData(), 144, sticker.mid(145).toULongLong(),
-		                        FZN_STICKER_THUMB, ART_MAX, &bytes, &len, &format)
-		    == FZN_RPC_OK) {
+		const qulonglong id = sticker.mid(145).toULongLong();
+		/* THE MAIN RENDITION, at STICKER_PX (sec 1295); the thumbnail where
+		 * the pack carries no main one. */
+		int got = fzn_rpc_sticker_art(&m_rpc->c, sticker.constData(), 144, id, FZN_STICKER_MAIN, ART_MAX, &bytes,
+		                              &len, &format)
+		          == FZN_RPC_OK;
+		if (!got) {
+			free(bytes);
+			bytes = nullptr;
+			got = fzn_rpc_sticker_art(&m_rpc->c, sticker.constData(), 144, id, FZN_STICKER_THUMB, ART_MAX, &bytes,
+			                          &len, &format)
+			      == FZN_RPC_OK;
+		}
+		if (got) {
 			QIcon icon;
 			/* LOTTIE TOO where thorvg is built in, sec 1151. */
-			const fzn_sticker_render_result r = fzn_sticker_render_art(bytes, len, format, QSize(64, 64));
-			if (!r.pixmap.isNull())
-				icon = QIcon(r.pixmap);
-			m_art->drawn.insert(sticker, icon);
+			const fzn_sticker_render_result r =
+			        fzn_sticker_render_art(bytes, len, format, QSize(STICKER_PX, STICKER_PX));
+			if (!r.pixmap.isNull()) {
+				QPixmap shown = r.pixmap;
+				fzn_sticker_entry_t *box = new fzn_sticker_entry_t;
+
+				/* A MESSAGE OR NAME STICKER CARRIES THE SENDER'S WORDS, drawn
+				 * into its box as sent (sec 1295). */
+				if (!words.isEmpty() && sticker_box(sticker.left(144), id, box))
+					shown = fzn_sticker_with_text(shown, box, words);
+				delete box;
+				icon = QIcon(shown);
+			}
+			m_art->drawn.insert(key, icon);
 			if (!icon.isNull())
 				item->setIcon(icon);
 		}

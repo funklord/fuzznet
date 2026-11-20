@@ -14673,14 +14673,14 @@ SABOTAGES = [
 	(
 		"conversation-sticker-never-drawn",
 		"gui/conversation_view.cpp",
-		"\t\t\tif (!r.pixmap.isNull())\n\t\t\t\ticon = QIcon(r.pixmap);\n",
-		"\t\t\tif (0)\n\t\t\t\ticon = QIcon(r.pixmap);\n",
+		"\t\t\tif (!r.pixmap.isNull()) {\n\t\t\t\tQPixmap shown = r.pixmap;\n",
+		"\t\t\tif (0) {\n\t\t\t\tQPixmap shown = r.pixmap;\n",
 		"a sticker line is said in words though its art can be drawn -- secs 1145, 1151",
 	),
 	(
 		"conversation-sticker-asked-again",
 		"gui/conversation_view.cpp",
-		"\t\t\tm_art->drawn.insert(sticker, icon);\n",
+		"\t\t\tm_art->drawn.insert(key, icon);\n",
 		"",
 		"a sticker drawn once is drawn again by the node at every refresh -- sec 1145",
 	),
@@ -17739,6 +17739,13 @@ SABOTAGES = [
 		"\treturn m_asked && m_page->answered + m_page->late >= m_page->asked;\n",
 		"\treturn m_asked;\n",
 		"a page said whole while a host asked has not answered; search_view_test -- sec 1293",
+	),
+	(
+		"conversation-sticker-boxes-read-again",
+		"gui/conversation_view.cpp",
+		"\t\theld = m_art->boxes.insert(pack, by_id);\n",
+		"\t\theld = m_art->boxes.insert(QByteArray(), by_id);\n",
+		"a pack's boxes read again for every sticker sent with words; conversation_view_test -- sec 1295",
 	),
 	(
 		"offer-padding-unchecked",
