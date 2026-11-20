@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1291
+The newest work is at the end of this file. **Read secs 1287 to 1293
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -39,9 +39,9 @@ listener port spans (`150e3106`).
 **Open, in order:**
 
 - **Search step 4**: notes are a store (sec 1290); a contact's host is
-  answered what it reads (sec 1291). Left: the asking half, a search
-  *with* a contact or a group asking their hosts alone; the catalogue as
-  a store; `get search` in binary and in the views.
+  answered what it reads (sec 1291); `fetch search with CONTACT` asks
+  that contact's hosts alone (sec 1292); in binary, the client and a
+  view (sec 1293). Left: `with @GROUP`; the catalogue as a store.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. (a) A message
   or name sticker's words: the picker should ask for them, since the
   listing gives `text_limit` and `fzn_rpc_sticker_reference_words`
@@ -93678,3 +93678,83 @@ and a contact's host may search, neither of them refused. Sabotages
 `search-contact-host-answered`, whose rule this reverses. **Not covered
 by a test:** a group member's floor (the log fixtures are the groups
 suite's); the asking half's live test will cover it.
+
+## 1292. Search step 4, third part: a search with a contact, 2026-11-20
+
+**Built: the asking half of sec 1291.** `list search with CONTACT ...`
+and `fetch search with CONTACT ...`, CONTACT a name or key as `list
+contact` gives it, search **what this user and that contact share**:
+
+- this host's stores run **as the contact** -- sec 1291's filter, the
+  same one a contact's own ask meets: their conversation, the groups
+  both are in from the contact's joining on, the notes this user shared
+  with it; none of this user's contacts or kept stickers;
+- `fetch` asks **that contact's hosts alone**, as the round keeps them
+  (`contact_targets`), each running its stores as this user -- so the
+  notes the contact shared with this user are found there by their text,
+  where this host may hold only the record;
+- **the words go to that contact and nobody else.** A search without
+  `with` asks this user's own hosts as before, and never a contact.
+
+**Why "as the contact" is the filter, rather than a conversation
+filter:** it is one mechanism for both directions, already tested where
+the data is, and it answers the question the user is asking -- "what do
+bob and I have" -- across every store at once. A search with a contact
+does not ask this user's other hosts: they hold the same conversation,
+and the contact's hosts hold what was shared with this user. Rejected:
+sending every search to every contact (sec 1291: it tells all of them
+what this user looks for).
+
+**A name that is no contact here is malformed**, not searched without
+the scope: a typo must not widen a search the user meant to narrow.
+
+**Open:** `with @GROUP`, asking a group's members' hosts. A member who
+is no contact of this user is not reached by the round, and is refused
+by sec 1291's gate, which knows contacts alone; and the local half needs
+a filter by conversation the store interface does not carry yet. The
+catalogue as a store, and `get search` in binary and the views, remain.
+
+**Tests:** messages_test -- `fetch search with carol` asks carol's hosts
+with her key, finds her conversation's lines and not the crew's line or
+carol as a contact; without `with`, no contact asked; `with nobody`
+malformed. live_chat b2 -- A1's search with bob asks B's hosts, every
+one answers, the four lines come back one hit each, and the heron is
+the note B shared with A and not B's private note saying the same.
+
+## 1293. The one search in binary, in the client, and as a view, 2026-11-20
+
+**Built: the last step of sec 1287's plan, for the local leg.**
+
+- **The wire: `node/search_local.situ`**, FZN_CMD_SEARCH (26) ops 128 on
+  -- 1 and 2 stay one host asking another. LIST and FETCH carry a local
+  ask: HAS_WITH and a contact's root key (sec 1292), then **the remote
+  ask byte for byte**, so the daemon reads both legs with the one reader
+  (`fzn_search_ask_read`) and no second parser of the same fields
+  exists. Answered: a PAGE (count, more, asked, answered, late), a HIT
+  each, a STATUS; FETCH with FETCHED. Golden vectors by hand in
+  `node/search_local.vectors`.
+- **`node/search_binary.c`**, dispatched by fuzznetd for its own user.
+  The text verbs and the binary leg now share
+  `fzn_node_search_list`/`_fetch`/`_held` (`node/search.h`), the ask's
+  bytes being the one form both go through. A WITH key that is no
+  contact here is refused, never run as that key.
+- **The client: `fzn_rpc_search_fetch`, `_get`, `_list`** (`local/rpc.h`).
+  FETCH and LIST speak the text verbs -- a fetch's answer is a count, and
+  a with names the contact as the user knows it -- and GET reads the page
+  in binary, falling back to `get search` where a node speaks text alone.
+- **The view: `gui/search_view`** -- words, whom with ("Mine" or one
+  contact, who alone is then told the words), the hits with where and
+  when, the page read again every 250 ms while hosts answer (at most 16
+  times, past a remote asker's 3 s), and **said partial until every host
+  asked has answered or been given up on**. More asks the page after the
+  last hit; Open hands the hit's store and key to the host application.
+  No application in this tree assembles views: fuzzypickles embeds it.
+
+**Tests:** search_local_vectors (6); messages_test -- a binary LIST with
+carol is a page, two hits and ok, a key that is no contact refused, a GET
+of the fetched search; search_view_test (9) -- partial then whole as two
+hosts answer, the next page after the last hit, a search with a contact
+by name, a silent node said. Sabotages `search-binary-with-anyone`,
+`search-view-whole-unanswered`. **Not covered:** the client's binary GET
+against a live daemon (the view's test speaks text); a live test of the
+client would.

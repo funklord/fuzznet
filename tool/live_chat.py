@@ -13,6 +13,10 @@ root, with A2 joined to it; B1, a root, with B2 joined to it.
     b  lines both ways, from every host: A1 and A2 each write to B, B1 and
        B2 each to A. Every host of each user holds all four, and each
        writer's lines end delivered or settled
+    b2 a search with a contact (sec 1292): A1's `fetch search with bob` asks B's hosts
+       alone; the four lines come back one hit each, merged across the hosts that hold
+       them, and the note B shared with A is found by its text where B's private note,
+       saying the same, is not
     c  read state across the user's hosts: B1 marks B's conversation read
        through the last line, and B2 reads it read too; A2 does the same
        for A1
@@ -310,6 +314,40 @@ def main(argv):
 				       "its own line neither delivered nor settled")
 			print("livecheck: b: four lines, one from each host, held on all four and each "
 			      "delivered")
+
+			# b2: A SEARCH WITH A CONTACT, sec 1292: asked of B's hosts alone,
+			# each answering what A reads there.
+			expect(socks["b1"], "b1", "set note %s text a heron overhead" % shared, "ok")
+			private = said("b1", "add note top bob-private")
+			if not private.startswith("ok "):
+				raise failed("b2: B1's add note answered %r" % private)
+			private = private.split()[1]
+			expect(socks["b1"], "b1", "set note %s text a heron at home" % private, "ok")
+
+			def searched(words):
+				"""A1's search with bob for `words`, once every host asked answered:
+				the rows."""
+				asked = said("a1", "fetch search with %s %s" % (NAME["b"], words)).split()
+				if len(asked) != 2 or asked[0] != "ok" or asked[1] == "0":
+					raise failed("b2: fetch search with %s %s answered %r"
+					             % (NAME["b"], words, asked))
+				got = polled("a1", "get search",
+				             lambda g: len(g.split()) >= 6 and g.split()[4] == asked[1],
+				             "without every one of B's hosts answering").split()
+				if got[5] != "0":
+					raise failed("b2: %s of B's hosts late or refused: %r" % (got[5], got[:6]))
+				return got[6:]
+
+			rows = searched("from")
+			lines = [r for r in rows if r.startswith("lines,")]
+			if len(rows) != 4 or len(lines) != 4:
+				raise failed("b2: a search with bob for the lines found %r" % rows)
+			rows = searched("heron")
+			if [r.split(",")[:2] for r in rows] != [["notes", shared]]:
+				raise failed("b2: a search with bob for the heron found %r, not the shared note "
+				             "alone" % rows)
+			print("livecheck: b2: a search with bob asked B's hosts; four lines once each, "
+			      "and the shared note and not the private one")
 
 			# c: read state across the user's hosts.
 			for reader, peer in (("b1", "b2"), ("a2", "a1")):

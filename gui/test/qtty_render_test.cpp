@@ -58,6 +58,7 @@
 #include "../conversation_view.h"
 #include "../forks_view.h"
 #include "../library_view.h"
+#include "../search_view.h"
 #include "../traffic_view.h"
 #include "../reach_view.h"
 #include "../conversations_view.h"
@@ -414,6 +415,7 @@ static void test_every_widget_survives_a_terminal(void)
 	(void)forks_v.refresh();
 	fzn_library_view library_v(empty_node, nullptr);
 	(void)library_v.refresh();
+	fzn_search_view search_v(empty_node, nullptr);
 	fzn_traffic_view traffic_v(empty_node, nullptr);
 	(void)traffic_v.refresh();
 	fzn_reach_view reach_v(empty_node, nullptr);
@@ -734,6 +736,8 @@ static void test_every_widget_survives_a_terminal(void)
 			{ "forks_view", &forks_v, "every host takes it" },
 			/* AN EMPTY LIBRARY IS SAID, not left a blank table (sec 1131). */
 			{ "library_view", &library_v, "The library is empty." },
+			/* WHAT IS SEARCHED IS SAID, not a blank table (sec 1293). */
+			{ "search_view", &search_v, "Search your conversations" },
 			/* NOTHING MOVING IS SAID, not two empty trees (sec 1182). */
 			{ "traffic_view", &traffic_v, "nothing moving" },
 			/* NOTHING KNOWN YET IS SAID, not a blank line (sec 1134). */

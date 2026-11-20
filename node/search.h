@@ -6,8 +6,9 @@
  * query alone, and keys it by the id every host knows it by, so the hosts'
  * answers merge.
  *
- *     list search [in STORE] [after CURSOR] WORDS
- *     fetch search [in STORE] [after CURSOR] WORDS     ok ASKED
+ *     list search [with CONTACT] [in STORE] [after CURSOR] WORDS
+ *     fetch search [with CONTACT] [in STORE] [after CURSOR] WORDS
+ *                                                      ok ASKED
  *     get search                                       ok COUNT MORE ASKED ANSWERED LATE ROWS
  *
  * WORDS the rest of the line, as `list sticker match` takes them. STORE
@@ -25,6 +26,12 @@
  * and every answer come, with ASKED, ANSWERED and LATE (no answer by the
  * deadline): the page is everything only once ANSWERED is ASKED. One search
  * is held at a time; the next page is `fetch search after CURSOR` again.
+ *
+ * `with CONTACT`, by its name here (sec 1292), searches what this user and
+ * that contact share: this host's stores run as the contact -- their
+ * conversation, the groups both are in, the notes shared with it -- and
+ * the contact's hosts are asked in place of this user's own, each running
+ * its stores as this user. The words go to that contact and nobody else.
  *
  * KEYS: a line, its conversation's key and the id it is known by on every
  * host (`fzn_node_messages_shared_id`); a sticker, its pack's root and its
@@ -54,10 +61,11 @@ typedef struct fzn_node_search {
 	 * `fzn_node_stickers_search`; the notes', from `fzn_node_notes_search`
 	 * -- so this module links none of them. An empty slot's `run` is NULL. */
 	fzn_search_store_t extra[FZN_NODE_SEARCH_EXTRA];
-	/* THIS USER'S OTHER HOSTS ASKED `ask`, the daemon's: how many it sent
-	 * to, each answer handed to `fzn_node_search_answered` with
+	/* THIS USER'S OTHER HOSTS ASKED `ask`, the daemon's -- or, `with` a
+	 * contact's root key, that contact's hosts alone (sec 1292): how many
+	 * it sent to, each answer handed to `fzn_node_search_answered` with
 	 * `generation`, or NULL by the deadline. NULL asks nobody. */
-	size_t (*ask_hosts)(void *ctx, const uint8_t *ask, size_t len, unsigned generation);
+	size_t (*ask_hosts)(void *ctx, const uint8_t *ask, size_t len, const uint8_t *with, unsigned generation);
 	void *ask_hosts_ctx;
 } fzn_node_search_t;
 
@@ -81,6 +89,23 @@ size_t fzn_node_search_remote(fzn_node_search_t *s, const uint8_t *asker, const 
 
 /* THIS NODE'S STORES, those it has, into `out`: how many. */
 size_t fzn_node_search_stores(fzn_node_search_t *s, fzn_search_store_t out[FZN_NODE_SEARCH_STORES]);
+
+/* THE SEARCHES, by an ask's bytes as one host sends another (`search/
+ * remote.h`), for the verbs and the binary leg alike, `with` a contact's
+ * root key or NULL (sec 1292). LIST: this host's stores alone, into
+ * `hits`, `*count` and `*more`; 1, or 0 for an ask that will not read.
+ * FETCH: the search held from now on, this host's hits and the hosts
+ * asked, `*asked` how many; 1, or 0. HELD: the search held, merged as far
+ * as answered, with the hosts asked, answered and late; 0 for none. */
+int fzn_node_search_list(fzn_node_search_t *s, const uint8_t *ask, size_t len, const uint8_t *with,
+                         fzn_search_hit_t *hits, size_t *count, int *more);
+int fzn_node_search_fetch(fzn_node_search_t *s, const uint8_t *ask, size_t len, const uint8_t *with,
+                          size_t *asked);
+int fzn_node_search_held(fzn_node_search_t *s, fzn_search_hit_t *hits, size_t *count, int *more, size_t *asked,
+                         size_t *answered, size_t *late);
+
+/* Whether `key` is a contact's root key here. */
+int fzn_node_search_is_contact(const fzn_node_search_t *s, const uint8_t key[FZN_PUBKEY_LEN]);
 
 /* `list search ...`, this node's own user's alone. 0 for a request not
  * this verb's. */

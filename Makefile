@@ -240,7 +240,8 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/stickers_local.c wire/generated/files_local.c \
              wire/generated/members_local.c wire/generated/meter_local.c wire/generated/reach_local.c \
              wire/generated/time_local.c wire/generated/settings_local.c wire/generated/want.c \
-             wire/generated/notes_local.c wire/generated/search_wire.c wire/generated/situ.c
+             wire/generated/notes_local.c wire/generated/search_wire.c wire/generated/search_local.c \
+             wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
@@ -252,7 +253,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/members_local_vectors.c wire/generated/meter_local_vectors.c \
                  wire/generated/reach_local_vectors.c wire/generated/time_local_vectors.c wire/generated/want_vectors.c \
                  wire/generated/settings_local_vectors.c wire/generated/notes_local_vectors.c \
-                 wire/generated/search_wire_vectors.c
+                 wire/generated/search_wire_vectors.c wire/generated/search_local_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -267,7 +268,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/library_binary.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
-             messages/line.c messages/attachment.c messages/reply.c messages/messages.c node/messages.c node/search.c node/messages_binary.c node/contacts_binary.c node/groups_binary.c \
+             messages/line.c messages/attachment.c messages/reply.c messages/messages.c node/messages.c node/search.c node/search_binary.c node/messages_binary.c node/contacts_binary.c node/groups_binary.c \
              node/file_holds.c node/attachments.c node/records.c node/objects.c node/objects_binary.c node/decisions.c node/decisions_binary.c node/invite.c node/offer.c node/presets.c node/votes.c local/client_config.c node/responsible.c \
              contact/contact.c \
              log/rules.c \
@@ -372,7 +373,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/library_binary.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
-             messages/line.h messages/attachment.h messages/reply.h messages/messages.h node/messages.h node/search.h node/messages_binary.h node/contacts_binary.h node/groups_binary.h \
+             messages/line.h messages/attachment.h messages/reply.h messages/messages.h node/messages.h node/search.h node/search_binary.h node/messages_binary.h node/contacts_binary.h node/groups_binary.h \
              node/file_holds.h node/attachments.h node/records.h node/objects.h node/objects_binary.h node/decisions.h node/decisions_binary.h node/invite.h node/offer.h node/presets.h node/votes.h local/client_config.h node/responsible.h \
              contact/contact.h \
              log/rules.h \
@@ -719,6 +720,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/time_local_vectors \
              $(BUILD_DIR)/wire/test/want_vectors \
              $(BUILD_DIR)/wire/test/search_wire_vectors \
+             $(BUILD_DIR)/wire/test/search_local_vectors \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
@@ -1308,7 +1310,7 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp \
             gui/retention_view.cpp gui/governance_view.cpp gui/objects_view.cpp \
             gui/settings_view.cpp gui/contacts_view.cpp gui/location_view.cpp gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp \
             gui/forks_view.cpp gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp \
-            gui/traffic_view.cpp \
+            gui/traffic_view.cpp gui/search_view.cpp \
             gui/sticker_picker_view.cpp gui/call_view.cpp gui/call_bar.cpp gui/group_view.cpp \
             gui/share_view.cpp \
             gui/sticker_render.cpp gui/camera_feed.cpp gui/compass_rose.cpp gui/heading_feed.cpp \
@@ -1352,7 +1354,7 @@ VENDOR_SHIM_HDRS := gui/thorvg/config.h
 
 GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h \
             gui/retention_view.h gui/governance_view.h gui/objects_view.h gui/rpc_ask.h \
-            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h \
+            gui/settings_view.h gui/contacts_view.h gui/location_view.h gui/devices_view.h gui/hosts_view.h gui/conversation_view.h gui/forks_view.h gui/library_view.h gui/traffic_view.h gui/reach_view.h gui/conversations_view.h gui/sticker_picker_view.h gui/call_view.h gui/call_bar.h gui/group_view.h gui/share_view.h gui/sticker_render.h gui/camera_feed.h gui/compass_rose.h gui/heading_feed.h gui/keep_place.h gui/size_words.h gui/notice_line.h gui/phone_layout.h gui/call_audio.h gui/call_opus.h gui/call_video.h gui/search_view.h \
             $(if $(LOG_FILE_ON),gui/entries_view.h)
 GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/notebook_view_test.cpp gui/test/retention_view_test.cpp \
@@ -1360,7 +1362,7 @@ GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
             gui/test/settings_view_test.cpp gui/test/contacts_view_test.cpp gui/test/devices_view_test.cpp gui/test/hosts_view_test.cpp \
             gui/test/conversation_view_test.cpp gui/test/forks_view_test.cpp \
             gui/test/library_view_test.cpp gui/test/reach_view_test.cpp gui/test/rpc_ask_test.cpp \
-            gui/test/traffic_view_test.cpp \
+            gui/test/traffic_view_test.cpp gui/test/search_view_test.cpp \
             gui/test/conversations_view_test.cpp gui/test/sticker_picker_view_test.cpp \
             gui/test/call_view_test.cpp gui/test/call_audio_test.cpp gui/test/call_video_test.cpp \
             gui/test/share_view_test.cpp \
@@ -1474,6 +1476,7 @@ TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
               $(BUILD_DIR)/gui/test/conversation_view_test \
               $(BUILD_DIR)/gui/test/forks_view_test \
               $(BUILD_DIR)/gui/test/library_view_test \
+              $(BUILD_DIR)/gui/test/search_view_test \
               $(BUILD_DIR)/gui/test/rpc_ask_test \
               $(BUILD_DIR)/gui/test/traffic_view_test \
               $(BUILD_DIR)/gui/test/reach_view_test \
@@ -3642,7 +3645,8 @@ RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
             $(BUILD_DIR)/wire/generated/stickers_local.o $(BUILD_DIR)/wire/generated/files_local.o \
             $(BUILD_DIR)/wire/generated/members_local.o $(BUILD_DIR)/wire/generated/meter_local.o \
             $(BUILD_DIR)/wire/generated/reach_local.o $(BUILD_DIR)/wire/generated/time_local.o \
-            $(BUILD_DIR)/wire/generated/settings_local.o $(BUILD_DIR)/wire/generated/notes_local.o
+            $(BUILD_DIR)/wire/generated/settings_local.o $(BUILD_DIR)/wire/generated/notes_local.o \
+            $(BUILD_DIR)/wire/generated/search_local.o
 # A call's sound through a scripted node, sec 1235: the client and the codec.
 $(BUILD_DIR)/local/test/call_sound_test: $(BUILD_DIR)/local/test/call_sound_test.o $(RPC_OBJS) \
                                   $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/vocabulary.o \
@@ -3925,6 +3929,11 @@ $(BUILD_DIR)/gui/test/forks_view_test: $(BUILD_DIR)/gui/test/forks_view_test.o \
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 $(BUILD_DIR)/gui/test/library_view_test: $(BUILD_DIR)/gui/test/library_view_test.o \
                                       $(BUILD_DIR)/gui/library_view.o $(RPC_LINK_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
+# THE ONE SEARCH, sec 1293.
+$(BUILD_DIR)/gui/test/search_view_test: $(BUILD_DIR)/gui/test/search_view_test.o \
+                                     $(BUILD_DIR)/gui/search_view.o $(RPC_LINK_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) $(LDFLAGS_GC) -o $@
 # WHAT THIS NODE HAS MOVED, BY FAMILY AND BY HOST, sec 1182.
@@ -4608,6 +4617,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# THE ONE SEARCH ON THE LOCAL LEG, sec 1293.
+$(BUILD_DIR)/wire/test/search_local_vectors: wire/generated/search_local_vectors.c \
+                                            wire/generated/search_local.c wire/generated/situ.c \
+                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # THE LINKS, ON THE LOCAL LEG, sec 1183.
 $(BUILD_DIR)/wire/test/reach_local_vectors: wire/generated/reach_local_vectors.c \
                                            wire/generated/reach_local.c wire/generated/situ.c \
@@ -5140,6 +5156,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/wire/generated/search_wire.o \
+                                  $(BUILD_DIR)/node/search_binary.o $(BUILD_DIR)/wire/generated/search_local.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
                                   $(BUILD_DIR)/contact/contact.o \
@@ -5478,6 +5495,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
               $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/node/offer.o \
+              $(BUILD_DIR)/node/search_binary.o $(BUILD_DIR)/wire/generated/search_local.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
               $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/objects.o $(BUILD_DIR)/node/objects_binary.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/decisions.o $(BUILD_DIR)/node/decisions_binary.o $(BUILD_DIR)/node/invite.o $(BUILD_DIR)/node/presets.o $(BUILD_DIR)/node/votes.o $(BUILD_DIR)/node/responsible.o \
@@ -7590,7 +7608,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
               node/members_local.situ node/meter_local.situ node/reach_local.situ \
               node/time_local.situ node/settings_local.situ node/notes_local.situ node/want.situ \
-              search/search_wire.situ
+              search/search_wire.situ node/search_local.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -8172,7 +8190,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(THORVG_ON),$(TH
 	       gui/persist_view.cpp gui/notebook_view.cpp gui/retention_view.cpp \
 	       gui/governance_view.cpp gui/objects_view.cpp gui/settings_view.cpp gui/contacts_view.cpp \
 	       gui/devices_view.cpp gui/hosts_view.cpp gui/conversation_view.cpp gui/forks_view.cpp \
-	       gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp gui/traffic_view.cpp \
+	       gui/library_view.cpp gui/reach_view.cpp gui/conversations_view.cpp gui/traffic_view.cpp gui/search_view.cpp \
 	       gui/sticker_picker_view.cpp gui/call_view.cpp gui/group_view.cpp gui/share_view.cpp \
 	       gui/call_bar.cpp gui/call_audio.cpp gui/call_opus.cpp gui/call_video.cpp \
 	       gui/sticker_render.cpp $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc $(THORVG_OBJS)) \
@@ -8338,6 +8356,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new search/search_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_search_wire \
 	         --out $(BUILD_DIR)/.gen.new search/search_wire.situ search/search_wire.vectors >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_search_local --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/search_local.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_search_local \
+	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@# AND THE LINKS, ON THE LOCAL LEG, sec 1183.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_reach_local --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/reach_local.situ >/dev/null 2>&1
@@ -8387,6 +8409,7 @@ schema:
 	          reach_local.h reach_local_edit.h reach_local_build.h reach_local_vectors.c time_local.c \
 	          time_local.h time_local_build.h time_local_vectors.c want.c want.h want_build.h want_vectors.c \
 	          search_wire.c search_wire.h search_wire_edit.h search_wire_build.h search_wire_vectors.c \
+	          search_local.c search_local.h search_local_edit.h search_local_build.h search_local_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

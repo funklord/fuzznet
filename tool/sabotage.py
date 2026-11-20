@@ -17727,6 +17727,20 @@ SABOTAGES = [
 		"a contact answered notes not shared with it; node notes_test -- sec 1291",
 	),
 	(
+		"search-binary-with-anyone",
+		"node/search_binary.c",
+		"\tif (with && !fzn_node_search_is_contact(s, with))\n",
+		"\tif (0 && with && !fzn_node_search_is_contact(s, with))\n",
+		"a binary search with a key that is no contact run as that key; node messages_test -- sec 1293",
+	),
+	(
+		"search-view-whole-unanswered",
+		"gui/search_view.cpp",
+		"\treturn m_asked && m_page->answered + m_page->late >= m_page->asked;\n",
+		"\treturn m_asked;\n",
+		"a page said whole while a host asked has not answered; search_view_test -- sec 1293",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",

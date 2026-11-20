@@ -44,6 +44,7 @@
 #include "../wire/generated/stickers_local.h"
 #include "../wire/generated/files_local.h"
 #include "../wire/generated/notes_local.h"
+#include "../wire/generated/search_local.h"
 #include "../wire/generated/notes_local_build.h"
 #include "../wire/generated/meter_local.h"
 #include "../wire/generated/reach_local.h"
@@ -10922,3 +10923,187 @@ int fzn_rpc_inbox_lines(fzn_rpc_t *c, const char *peer, size_t peer_len, fzn_rpc
 	return node_inbox_lines(c, peer, peer_len, out, cap, count);
 }
 
+
+/* ---- the one search, fuzznet secs 1287-1293 ------------------------------ */
+
+/* THE WORDS AFTER `verb search`: `with NAME`, `after STORE,KEY,SCORE,TIME`,
+ * the words. Its length, or -1 when it would not fit. */
+static int search_arg(char *out, size_t cap, const char *with, const char *words,
+                      const fzn_rpc_search_hit_t *after) {
+	size_t n = (size_t)snprintf(out, cap, "search");
+	if (n >= cap) return -1;
+	if (with && *with) {
+		n += (size_t)snprintf(out + n, cap - n, " with %s", with);
+		if (n >= cap) return -1;
+	}
+	if (after) {
+		char hex[2 * 48 + 1];
+		if (after->key_len > 48) return -1;
+		fzn_hex_encode(after->key, after->key_len, hex);
+		n += (size_t)snprintf(out + n, cap - n, " after %s,%s,%" PRIu32 ",%" PRIu64, after->store, hex,
+		                      after->score, after->time_ms);
+		if (n >= cap) return -1;
+	}
+	n += (size_t)snprintf(out + n, cap - n, " %s", words ? words : "");
+	return n < cap ? (int)n : -1;
+}
+
+/* A ROW, `STORE,KEY,SCORE,TIME,SNIPPET`, the snippet escaped: 1, or 0. */
+static int search_row(const char *w, size_t w_len, fzn_rpc_search_hit_t *h) {
+	const char *q = w, *end = w + w_len, *f[5];
+	size_t f_len[5], i;
+	uint64_t score = 0;
+	int cut = 0;
+	memset(h, 0, sizeof *h);
+	for (i = 0; i < 4; i++)
+		if (!node_field(&q, end, &f[i], &f_len[i])) return 0;
+	/* THE SNIPPET IS THE REST: its commas are escaped. */
+	if (q > end) return 0;
+	f[4] = q;
+	f_len[4] = (size_t)(end - q);
+	if (!f_len[0] || f_len[0] > 16 || f_len[1] % 2u || f_len[1] > 96 || !node_u64(f[2], f_len[2], &score) ||
+	    score > UINT32_MAX || !node_u64(f[3], f_len[3], &h->time_ms))
+		return 0;
+	memcpy(h->store, f[0], f_len[0]);
+	for (i = 0; i < f_len[1] / 2u; i++) {
+		const int hi = hex_nibble(f[1][2 * i]), lo = hex_nibble(f[1][2 * i + 1]);
+		if (hi < 0 || lo < 0) return 0;
+		h->key[i] = (uint8_t)(hi << 4 | lo);
+	}
+	h->key_len = f_len[1] / 2u;
+	h->score = (uint32_t)score;
+	if (!node_unescape(f[4], f_len[4], h->snippet, sizeof h->snippet - 1, &h->snippet_len, &cut)) return 0;
+	h->snippet[h->snippet_len] = '\0';
+	return 1;
+}
+
+/* `ok COUNT MORE [ASKED ANSWERED LATE] ROW ...`, read into `out`. */
+static int search_page_text(fzn_rpc_t *c, const char *rest, size_t rest_len, int hosts, fzn_rpc_search_page_t *out) {
+	size_t at = 0, count = 0, more = 0, v[3] = {0, 0, 0}, i;
+	memset(out, 0, sizeof *out);
+	if (!node_number(rest, rest_len, &at, &count) || !node_number(rest, rest_len, &at, &more) ||
+	    count > FZN_RPC_SEARCH_HITS_MAX)
+		return unreadable(c);
+	for (i = 0; hosts && i < 3; i++)
+		if (!node_number(rest, rest_len, &at, &v[i])) return unreadable(c);
+	for (i = 0; i < count; i++) {
+		const char *w = NULL;
+		size_t w_len = 0;
+		const char *p = rest + at;
+		if (!node_word(&p, rest + rest_len, &w, &w_len) || !search_row(w, w_len, &out->hits[i]))
+			return unreadable(c);
+		at = (size_t)(p - rest);
+	}
+	out->count = count;
+	out->more = more != 0;
+	out->asked = v[0];
+	out->answered = v[1];
+	out->late = v[2];
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
+                         size_t *asked) {
+	char arg[1024];
+	const char *rest = NULL;
+	size_t rest_len = 0, at = 0;
+	const int n = search_arg(arg, sizeof arg, with, words, after);
+	if (n < 0) return encode_failed(c);
+	const int rc = fzn_rpc_node(c, "fetch", arg, (size_t)n, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	return node_number(rest, rest_len, &at, asked) ? FZN_RPC_OK : unreadable(c);
+}
+
+int fzn_rpc_search_list(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
+                        fzn_rpc_search_page_t *out) {
+	char arg[1024];
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	const int n = search_arg(arg, sizeof arg, with, words, after);
+	memset(out, 0, sizeof *out);
+	if (n < 0) return encode_failed(c);
+	const int rc = fzn_rpc_node(c, "list", arg, (size_t)n, &rest, &rest_len);
+	return rc != FZN_RPC_OK ? rc : search_page_text(c, rest, rest_len, 0, out);
+}
+
+/* THE PAGE IN BINARY, sec 1293: a PAGE, a HIT each, then a STATUS. */
+struct search_answer {
+	fzn_rpc_search_page_t *out;
+	size_t want;
+	int bad, head_seen, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void search_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct search_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b, s;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || len > UINT32_MAX || fzn_search_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK ||
+	    fzn_search_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (fzn_search_local_message_op_get(v) == FZN_SEARCH_LOCAL_OP_PAGE && !a->head_seen &&
+	    fzn_search_local_message_body_page_view(v, &b) == SITU_OK) {
+		a->head_seen = 1;
+		a->want = fzn_search_local_page_count_get(b);
+		a->out->more = fzn_search_local_page_more_get(b);
+		a->out->asked = fzn_search_local_page_asked_get(b);
+		a->out->answered = fzn_search_local_page_answered_get(b);
+		a->out->late = fzn_search_local_page_late_get(b);
+		return;
+	}
+	if (fzn_search_local_message_op_get(v) != FZN_SEARCH_LOCAL_OP_HIT || !a->head_seen ||
+	    a->out->count >= a->want || a->out->count >= FZN_RPC_SEARCH_HITS_MAX ||
+	    fzn_search_local_message_body_hit_view(v, &b) != SITU_OK || fzn_search_local_hit_store_view(b, &s) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	fzn_rpc_search_hit_t *h = &a->out->hits[a->out->count++];
+	memset(h, 0, sizeof *h);
+	memcpy(h->store, fzn_search_local_store_name_ptr(s), fzn_search_local_store_len_get(s));
+	h->key_len = fzn_search_local_hit_key_len_get(b);
+	memcpy(h->key, fzn_search_local_hit_key_ptr(b), h->key_len);
+	h->score = fzn_search_local_hit_score_get(b);
+	h->time_ms = fzn_search_local_hit_time_ms_get(b);
+	h->snippet_len = fzn_search_local_hit_snippet_len_get(b);
+	memcpy(h->snippet, fzn_search_local_hit_snippet_ptr(b), h->snippet_len);
+}
+
+int fzn_rpc_search_get(fzn_rpc_t *c, fzn_rpc_search_page_t *out) {
+	static const uint8_t ask[] = { FZN_CMD_SEARCH, FZN_SEARCH_LOCAL_OP_GET };
+	struct search_answer a;
+	int text = 0;
+	memset(out, 0, sizeof *out);
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, ask, sizeof ask, search_each, &a, &text);
+	if (text) {
+		const char *rest = NULL;
+		size_t rest_len = 0;
+		const int trc = fzn_rpc_node(c, "get", "search", 6, &rest, &rest_len);
+		return trc != FZN_RPC_OK ? trc : search_page_text(c, rest, rest_len, 1, out);
+	}
+	if (rc != FZN_RPC_OK) return rc;
+	/* A PAGE CUT BEFORE ITS STATUS, or short of the hits its head promised,
+	 * is not a page. */
+	if (!a.status_seen || a.bad) return unreadable(c);
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return out->count == a.want ? FZN_RPC_OK : unreadable(c);
+}

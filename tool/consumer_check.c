@@ -154,6 +154,7 @@
 #include <fuzznet/search/words.h>
 #include <fuzznet/search/search.h>
 #include <fuzznet/node/search.h>
+#include <fuzznet/node/search_binary.h>
 #include <fuzznet/node/offer.h>
 #include <fuzznet/search/remote.h>
 #include <fuzznet/net/ports.h>
@@ -426,6 +427,7 @@
 #include "search/words.h"
 #include "search/search.h"
 #include "node/search.h"
+#include "node/search_binary.h"
 #include "node/offer.h"
 #include "search/remote.h"
 #include "net/ports.h"

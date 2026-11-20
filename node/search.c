@@ -279,22 +279,34 @@ static int cursor_of(const uint8_t *w, size_t n, fzn_search_hit_t *h)
 	return number(f[3], len[3], &h->time_ms);
 }
 
-/* THE ROWS AND THEIR SPACE: what a search line takes, `[in STORE]... [after
- * CURSOR] WORDS`, read into `a` with K; 1, or 0 for a line of the wrong
- * shape. */
-static int parse(const uint8_t *at, size_t left, size_t k, fzn_search_ask_t *a)
+/* THE ROWS AND THEIR SPACE: what a search line takes, `[with NAME] [in
+ * STORE]... [after CURSOR] WORDS`, read into `a` with K, and the contact
+ * NAME names into `with` (`*has_with` set); 1, or 0 for a line of the wrong
+ * shape -- a NAME that is no contact here included. */
+static int parse(const fzn_node_search_t *s, const uint8_t *at, size_t left, size_t k, fzn_search_ask_t *a,
+                 uint8_t with[FZN_PUBKEY_LEN], int *has_with)
 {
 	const uint8_t *w;
 	size_t n, n_names = 0;
 	int has_after = 0;
 
 	memset(a, 0, sizeof(*a));
+	*has_with = 0;
 	for (;;) {
 		const uint8_t *save = at;
 		size_t save_left = left;
 
 		if (!word(&at, &left, &w, &n))
 			return 0;
+		if (is(w, n, "with") && !*has_with && s->contacts && word(&at, &left, &w, &n)) {
+			fzn_contact_t c;
+
+			if (fzn_contact_find(s->contacts, (const char *)w, n, &c) != FZN_CONTACT_OK)
+				return 0;
+			memcpy(with, c.key, FZN_PUBKEY_LEN);
+			*has_with = 1;
+			continue;
+		}
 		if (is(w, n, "in") && n_names < FZN_SEARCH_ASK_STORES_MAX && word(&at, &left, &w, &n)
 		    && n <= FZN_SEARCH_STORE_NAME_MAX) {
 			memcpy(a->names[n_names], w, n);
@@ -369,6 +381,9 @@ static struct {
 	unsigned generation;
 	int live;
 	fzn_search_ask_t ask;
+	/* A SEARCH WITH A CONTACT, sec 1292: its root key, where `has_with`. */
+	uint8_t with[FZN_PUBKEY_LEN];
+	int has_with;
 	fzn_search_hit_t hits[(1u + FZN_NODE_SEARCH_HOSTS_MAX) * FZN_SEARCH_K_MAX];
 	size_t n, asked, answered, late;
 	int more_held;
@@ -404,17 +419,79 @@ size_t fzn_node_search_remote(fzn_node_search_t *s, const uint8_t *asker, const 
 	return n ? fzn_search_answer_ask(stores, n, request, len, asker, reply, cap) : 0u;
 }
 
+int fzn_node_search_is_contact(const fzn_node_search_t *s, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	fzn_contact_t c;
+
+	return s && s->contacts && key && fzn_contact_get(s->contacts, key, &c) == FZN_CONTACT_OK;
+}
+
+int fzn_node_search_list(fzn_node_search_t *s, const uint8_t *ask, size_t len, const uint8_t *with,
+                         fzn_search_hit_t *hits, size_t *count, int *more)
+{
+	static fzn_search_ask_t a;
+	fzn_search_store_t stores[FZN_NODE_SEARCH_STORES];
+	size_t n;
+
+	if (!s || !fzn_search_ask_read(ask, len, &a))
+		return 0;
+	n = fzn_node_search_stores(s, stores);
+	return fzn_search_run(stores, n, &a.query, with, hits, count, more) || *count;
+}
+
+int fzn_node_search_fetch(fzn_node_search_t *s, const uint8_t *ask, size_t len, const uint8_t *with,
+                          size_t *asked)
+{
+	fzn_search_store_t stores[FZN_NODE_SEARCH_STORES];
+	size_t n;
+
+	held.live = 0;
+	held.generation++;
+	if (!s || !fzn_search_ask_read(ask, len, &held.ask))
+		return 0;
+	held.has_with = with != NULL;
+	if (with)
+		memcpy(held.with, with, FZN_PUBKEY_LEN);
+	n = fzn_node_search_stores(s, stores);
+	/* WITH A CONTACT, sec 1292: what this user and it share, so this
+	 * host's stores run as that contact -- each answering what the
+	 * contact reads here -- and its hosts are asked, which run theirs
+	 * as this user. */
+	if (!fzn_search_run(stores, n, &held.ask.query, with, held.hits, &held.n, &held.more_held) && !held.n)
+		return 0;
+	held.asked = held.answered = held.late = 0;
+	held.live = 1;
+	if (s->ask_hosts)
+		held.asked = s->ask_hosts(s->ask_hosts_ctx, ask, len, with, held.generation);
+	*asked = held.asked;
+	return 1;
+}
+
+int fzn_node_search_held(fzn_node_search_t *s, fzn_search_hit_t *hits, size_t *count, int *more, size_t *asked,
+                         size_t *answered, size_t *late)
+{
+	if (!s || !held.live)
+		return 0;
+	(void)fzn_search_merge(&held.ask.query, held.hits, held.n, held.more_held, hits, count, more);
+	*asked = held.asked;
+	*answered = held.answered;
+	*late = held.late;
+	return 1;
+}
+
 size_t fzn_node_search_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap)
 {
-	static const char USAGE[] = "malformed %s search [in STORE] [after STORE,KEY,SCORE,TIME] WORDS\n";
+	static const char USAGE[] =
+	        "malformed %s search [with CONTACT] [in STORE] [after STORE,KEY,SCORE,TIME] WORDS\n";
 	static fzn_search_hit_t hits[FZN_SEARCH_K_MAX];
 	static fzn_search_ask_t a;
 	fzn_node_search_t *s = ctx;
 	fzn_search_store_t stores[FZN_NODE_SEARCH_STORES];
 	const uint8_t *at, *w;
+	uint8_t with[FZN_PUBKEY_LEN];
 	size_t left, n, n_stores, count = 0;
-	int more = 0;
+	int more = 0, has_with = 0;
 
 	if (!s || !request || !reply || !request->arg
 	    || (request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_FETCH
@@ -430,35 +507,29 @@ size_t fzn_node_search_local(void *ctx, fzn_origin_t origin, const fzn_request_t
 	/* THE SEARCH OF THIS USER'S HOSTS, merged: as far as they answered. */
 	if (request->parsed == FZN_VERB_GET) {
 		char extra[64];
+		size_t asked = 0, answered = 0, late = 0;
 
-		if (!held.live)
+		if (!fzn_node_search_held(s, hits, &count, &more, &asked, &answered, &late))
 			return (size_t)snprintf(reply, cap, "error no search asked\n");
-		(void)fzn_search_merge(&held.ask.query, held.hits, held.n, held.more_held, hits, &count, &more);
-		(void)snprintf(extra, sizeof(extra), " %zu %zu %zu", held.asked, held.answered, held.late);
+		(void)snprintf(extra, sizeof(extra), " %zu %zu %zu", asked, answered, late);
 		return rows(hits, count, more, extra, reply, cap);
 	}
 	if (request->parsed == FZN_VERB_FETCH) {
 		static uint8_t ask[FZN_SEARCH_TEXT_MAX + 512u];
 		size_t ask_len;
 
-		held.live = 0;
-		held.generation++;
-		if (!parse(at, left, 20u, &held.ask)) {
+		size_t asked = 0;
+
+		if (!parse(s, at, left, 20u, &a, with, &has_with)
+		    || !(ask_len = fzn_search_ask_write(a.words, a.words_len, &a.query, ask, sizeof(ask))))
 			return (size_t)snprintf(reply, cap, USAGE, "fetch");
-		}
-		if (!fzn_search_run(stores, n_stores, &held.ask.query, NULL, held.hits, &held.n, &held.more_held)
-		    && !held.n)
+		if (!fzn_node_search_fetch(s, ask, ask_len, has_with ? with : NULL, &asked))
 			return (size_t)snprintf(reply, cap, "error a store would not read\n");
-		held.asked = held.answered = held.late = 0;
-		held.live = 1;
-		ask_len = fzn_search_ask_write(held.ask.words, held.ask.words_len, &held.ask.query, ask, sizeof(ask));
-		if (ask_len && s->ask_hosts)
-			held.asked = s->ask_hosts(s->ask_hosts_ctx, ask, ask_len, held.generation);
-		return (size_t)snprintf(reply, cap, "ok %zu\n", held.asked);
+		return (size_t)snprintf(reply, cap, "ok %zu\n", asked);
 	}
-	if (!parse(at, left, 20u, &a))
+	if (!parse(s, at, left, 20u, &a, with, &has_with))
 		return (size_t)snprintf(reply, cap, USAGE, "list");
-	if (!fzn_search_run(stores, n_stores, &a.query, NULL, hits, &count, &more) && !count)
+	if (!fzn_search_run(stores, n_stores, &a.query, has_with ? with : NULL, hits, &count, &more) && !count)
 		return (size_t)snprintf(reply, cap, "error a store would not read\n");
 	return rows(hits, count, more, "", reply, cap);
 }

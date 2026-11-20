@@ -19034,6 +19034,19 @@ static int local_streams(int fd, fzn_origin_t origin, const uint8_t *msg, size_t
 	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
+#include "search_binary.h"
+/* THE ONE SEARCH IN BINARY, sec 1293: the node's own user's alone, as the
+ * text verbs answer it. */
+static int local_search(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return local_binary_status(fd, FZN_STATUS_DENIED, "a search is this node's own user's"), 0;
+	if (!node_search.messages)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node searches nothing"), 0;
+	(void)fzn_node_search_binary(&node_search, msg, len, local_put, &fd);
+	return 0;
+}
+
 #ifdef FZND_STICKERS
 #include "stickers_binary.h"
 /* THE STICKER PACKS IN BINARY, sec 1172: the node's own user's alone, as
@@ -20006,6 +20019,8 @@ static int local_binary_answer(void *ctx, int fd, fzn_origin_t origin, const fzn
 	if (len && msg[0] == FZN_CMD_STICKERS)
 		return local_stickers(fd, origin, msg, len);
 #endif
+	if (len && msg[0] == FZN_CMD_SEARCH)
+		return local_search(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_REACH)
 		return local_legs(fd, origin, msg, len);
 	if (len && msg[0] == FZN_CMD_TIME)
@@ -21852,14 +21867,52 @@ static void search_answered(void *ctx, const uint8_t *reply, size_t len)
 	search_asking_close(a);
 }
 
+/* ONE HOST ASKED `ask`, from a socket of its own in the next free slot:
+ * 1 once sent; 0 with `*full` set when no slot is free, or for a host with
+ * no address (`*nowhere` counted). */
+static int search_ask_one(const struct pull_target *pt, fzn_reasm_t *table, const uint8_t *ask, size_t len,
+                          unsigned generation, size_t *slot, int *full, size_t *nowhere)
+{
+	const struct sockaddr *sa = (const struct sockaddr *)pt->caller.node.storage;
+	struct search_asking *a;
+
+	while (*slot < FZN_NODE_SEARCH_HOSTS_MAX && search_asking[*slot].live)
+		(*slot)++;
+	if (*slot == FZN_NODE_SEARCH_HOSTS_MAX) {
+		*full = 1;
+		return 0;
+	}
+	a = &search_asking[*slot];
+	a->fd = -1;
+	if (pt->caller.node.len == 0u
+	    || fzn_udp_bind(sa->sa_family == AF_INET6 ? AF_INET6 : AF_INET, NULL, 0, &a->fd) != FZN_UDP_OK) {
+		(*nowhere)++;
+		return 0;
+	}
+	a->caller = pt->caller;
+	a->caller.fd = a->fd;
+	a->caller.reasm = table;
+	a->generation = generation;
+	if (!fzn_node_asks_send(&round_asks, &a->caller, ask, len, wall_clock() + 60u, SEARCH_ASK_WAIT_MS,
+	                        search_answered, a)) {
+		search_asking_close(a);
+		return 0;
+	}
+	a->live = 1;
+	return 1;
+}
+
 /* EVERY HOST OF THIS ESTATE A ROUND REACHES, asked `ask`: how many. An ask
  * of an earlier search still awaited keeps its place until it is answered
  * or times out -- an ask is not withdrawn -- and what it brings is let go
- * by its generation; so a search right after another asks fewer. */
-static size_t search_ask_hosts(void *ctx, const uint8_t *ask, size_t len, unsigned generation)
+ * by its generation; so a search right after another asks fewer. WITH A
+ * CONTACT (sec 1292), that contact's hosts alone, as the round keeps them:
+ * the words go to nobody else. */
+static size_t search_ask_hosts(void *ctx, const uint8_t *ask, size_t len, const uint8_t *with, unsigned generation)
 {
 	fzn_reasm_t *table = contact_table();
 	size_t i, slot = 0, n = 0, outside = 0, quiet = 0, nowhere = 0;
+	int full = 0;
 
 	(void)ctx;
 	if (!table || !serving_state || serving_state->udp_fd < 0) {
@@ -21867,17 +21920,24 @@ static size_t search_ask_hosts(void *ctx, const uint8_t *ask, size_t len, unsign
 		    !table ? "no table to gather answers in" : "this host serves no udp socket");
 		return 0;
 	}
-	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls; i++) {
-		struct pull_target *pt = &loop_pulls[i];
-		struct search_asking *a;
-		const struct sockaddr *sa = (const struct sockaddr *)pt->caller.node.storage;
+	if (with) {
+		size_t theirs = 0;
 
-		while (slot < FZN_NODE_SEARCH_HOSTS_MAX && search_asking[slot].live)
-			slot++;
-		if (slot == FZN_NODE_SEARCH_HOSTS_MAX)
-			break;
-		a = &search_asking[slot];
-		a->fd = -1;
+		for (i = 0; i < ncontact_targets && !full; i++) {
+			if (memcmp(contact_targets[i].contact, with, FZN_PUBKEY_LEN) != 0)
+				continue;
+			theirs++;
+			n += (size_t)search_ask_one(&contact_targets[i].pt, table, ask, len, generation, &slot, &full,
+			                            &nowhere);
+		}
+		say(FZN_ENTRY_INFO, "search",
+		    "a search with a contact asked of %zu of its %zu host(s) the round keeps; %zu with no address", n,
+		    theirs, nowhere);
+		return n;
+	}
+	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls && !full; i++) {
+		struct pull_target *pt = &loop_pulls[i];
+
 		if (!peer_in_estate(pt)) {
 			outside++;
 			continue;
@@ -21886,22 +21946,7 @@ static size_t search_ask_hosts(void *ctx, const uint8_t *ask, size_t len, unsign
 			quiet++;
 			continue;
 		}
-		if (pt->caller.node.len == 0u
-		    || fzn_udp_bind(sa->sa_family == AF_INET6 ? AF_INET6 : AF_INET, NULL, 0, &a->fd) != FZN_UDP_OK) {
-			nowhere++;
-			continue;
-		}
-		a->caller = pt->caller;
-		a->caller.fd = a->fd;
-		a->caller.reasm = table;
-		a->generation = generation;
-		if (!fzn_node_asks_send(&round_asks, &a->caller, ask, len, wall_clock() + 60u, SEARCH_ASK_WAIT_MS,
-		                        search_answered, a)) {
-			search_asking_close(a);
-			continue;
-		}
-		a->live = 1;
-		n++;
+		n += (size_t)search_ask_one(pt, table, ask, len, generation, &slot, &full, &nowhere);
 	}
 	say(FZN_ENTRY_INFO, "search",
 	    "a search asked of %zu host(s) of this estate; of the round's others, %zu outside it, %zu silent, "

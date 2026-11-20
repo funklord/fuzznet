@@ -858,6 +858,42 @@ void fzn_rpc_sticker_packs_release(fzn_rpc_sticker_packs_t *p);
 int fzn_rpc_sticker_forget(fzn_rpc_t *c, const uint8_t root[32]);
 
 /*
+ * THE ONE SEARCH, fuzznet secs 1287-1293: every store a node holds --
+ * lines, notes, stickers, contacts -- by words, in one order. FETCH asks
+ * the node's stores at once and the user's other hosts, or with WITH (a
+ * contact's name, or NULL) what this user and that contact share, asking
+ * that contact's hosts alone; `*asked` how many hosts. GET is the page so
+ * far: hits in order, MORE where there are more, and ASKED, ANSWERED and
+ * LATE -- whole only once ANSWERED is ASKED, so a client asks GET again
+ * until it is, or the late count says it will not be. LIST is this host's
+ * stores alone, at once. A hit's KEY is the item's id in its store (a line:
+ * its conversation's key and the line's id; a note: its id; a sticker: its
+ * pack's root and id; a contact: its key); SNIPPET its words, at most 120
+ * bytes. The next page passes the page's last hit as AFTER.
+ */
+#define FZN_RPC_SEARCH_HITS_MAX 50
+typedef struct fzn_rpc_search_hit {
+	char store[16 + 1];
+	uint8_t key[48];
+	size_t key_len;
+	uint32_t score;
+	uint64_t time_ms;
+	char snippet[120 + 1];
+	size_t snippet_len;
+} fzn_rpc_search_hit_t;
+typedef struct fzn_rpc_search_page {
+	fzn_rpc_search_hit_t hits[FZN_RPC_SEARCH_HITS_MAX];
+	size_t count;
+	int more;
+	size_t asked, answered, late;
+} fzn_rpc_search_page_t;
+int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
+                         size_t *asked);
+int fzn_rpc_search_get(fzn_rpc_t *c, fzn_rpc_search_page_t *out);
+int fzn_rpc_search_list(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
+                        fzn_rpc_search_page_t *out);
+
+/*
  * Stickers on a fuzznetd node (sec 284), fuzznet secs 679-682: a pack is a
  * file of the node's, read through its verbs rather than opened here, since
  * a node's packs are fuzznet's layout and not the zip core reads. PACK is a

@@ -9,6 +9,7 @@
 #include "../search.h"
 #include "../group_lines.h"
 #include "../groups.h"
+#include "../search_binary.h"
 #include "../../chain/sign_monocypher.h"
 #include "../../contact/contact.h"
 #include "../../session/aead_monocypher.h"
@@ -1905,9 +1906,28 @@ static uint8_t hosts_ask[1024];
 static size_t hosts_ask_len;
 static unsigned hosts_generation;
 
-static size_t fake_ask_hosts(void *ctx, const uint8_t *ask, size_t len, unsigned generation)
+/* WHAT THE BINARY LEG SAID, each message in turn. */
+static uint8_t search_msg[8][256];
+static size_t search_said;
+
+static int search_put(void *ctx, const uint8_t *msg, size_t len)
 {
 	(void)ctx;
+	if (search_said >= 8u || len > sizeof(search_msg[0]))
+		return 0;
+	memcpy(search_msg[search_said++], msg, len);
+	return 1;
+}
+
+static uint8_t hosts_with[FZN_PUBKEY_LEN];
+static int hosts_has_with;
+
+static size_t fake_ask_hosts(void *ctx, const uint8_t *ask, size_t len, const uint8_t *with, unsigned generation)
+{
+	(void)ctx;
+	hosts_has_with = with != NULL;
+	if (with)
+		memcpy(hosts_with, with, FZN_PUBKEY_LEN);
 	if (len > sizeof(hosts_ask))
 		return 0;
 	memcpy(hosts_ask, ask, len);
@@ -2049,6 +2069,52 @@ static void test_the_search_here(void)
 			len = fzn_node_search_remote(&s, X, hosts_ask, hosts_ask_len, answer, sizeof(answer));
 			CHECK(len && fzn_search_answer_read(answer, len, got, FZN_SEARCH_K_MAX, &count, &more) && count == 0u,
 			      "a contact was answered this user's contacts, or a group's line with no log saying it is a member");
+		}
+		/* WITH A CONTACT, sec 1292: this host's stores run as carol -- her
+		 * conversation's lines, not the crew's line nor carol the contact
+		 * -- and carol's hosts asked, nobody else's. */
+		CHECK(SEARCH("fetch search with carol carol") && replied("ok 2") && hosts_has_with
+		              && !memcmp(hosts_with, X, FZN_PUBKEY_LEN),
+		      "a search with carol did not ask carol's hosts");
+		CHECK(SEARCH("get search") && replied("ok 0 0 2 0 0"),
+		      "a search with carol found what carol does not read here");
+		CHECK(SEARCH("fetch search with carol dinner") && SEARCH("get search") && replied("ok 2 0 2 0 0 lines,"),
+		      "a search with carol did not find the lines of her conversation");
+		CHECK(SEARCH("fetch search dinner") && !hosts_has_with, "a search with nobody asked a contact's hosts");
+		CHECK(SEARCH("list search with nobody dinner") && replied("malformed"),
+		      "a search with a name that is no contact searched");
+		CHECK(SEARCH("list search with carol in contacts carol") && replied("ok 0 0"),
+		      "a search with carol listed this user's contacts");
+		/* IN BINARY, sec 1293: a LIST of carol's dinner lines as a PAGE and
+		 * two HITs and ok; a GET of the search fetched; a with naming no
+		 * contact refused. */
+		{
+			static uint8_t msg[512];
+			fzn_search_query_t q;
+			size_t ask_len;
+
+			CHECK(fzn_search_query_init(&q, "dinner", 6u, 20u), "fixture: a query");
+			ask_len = fzn_search_ask_write("dinner", 6u, &q, msg + 33u, sizeof(msg) - 33u);
+			CHECK(ask_len > 2u, "fixture: an ask");
+			msg[0] = FZN_CMD_SEARCH;
+			msg[1] = 128u; /* list */
+			msg[2] = 1u;
+			memcpy(msg + 3, X, FZN_PUBKEY_LEN);
+			search_said = 0;
+			CHECK(fzn_node_search_binary(&s, msg, 33u + ask_len, search_put, NULL) && search_said == 4u
+			              && search_msg[0][1] == 131u && search_msg[0][2] == 2u && search_msg[1][1] == 132u
+			              && search_msg[2][1] == 132u && search_msg[3][0] == FZN_CMD_STATUS,
+			      "a list in binary was not a page, two hits and ok");
+			memset(msg + 3, 0x5b, FZN_PUBKEY_LEN);
+			search_said = 0;
+			CHECK(fzn_node_search_binary(&s, msg, 33u + ask_len, search_put, NULL) && search_said == 1u
+			              && search_msg[0][0] == FZN_CMD_STATUS && search_msg[0][1] != 0u,
+			      "a search with a key that is no contact was run");
+			msg[1] = 130u; /* get */
+			search_said = 0;
+			CHECK(fzn_node_search_binary(&s, msg, 2u, search_put, NULL) && search_said >= 2u && search_msg[0][1] == 131u
+			              && search_msg[search_said - 1u][0] == FZN_CMD_STATUS,
+			      "the search fetched was not got in binary");
 		}
 		s.ask_hosts = NULL;
 	}

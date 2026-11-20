@@ -89,6 +89,7 @@
 /gui/test/conversation_view_test
 /gui/test/forks_view_test
 /gui/test/library_view_test
+/gui/test/search_view_test
 /gui/test/rpc_ask_test
 /gui/test/traffic_view_test
 /gui/test/reach_view_test
@@ -418,3 +419,4 @@ __pycache__/
 /record/test/held_test
 /wire/test/want_vectors
 /wire/test/search_wire_vectors
+/wire/test/search_local_vectors

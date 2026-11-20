@@ -1,0 +1,96 @@
+// The one search asked in binary on the local leg: project.md sec 1293,
+// what a client's search box asks -- `list search`, `fetch search` and
+// `get search` (sec 1287) as messages, so a view reads a hit's key and
+// snippet as bytes rather than parsing an escaped row.
+//
+// FZN_CMD_SEARCH (26, wire/cmd.h), whose ops 1 and 2 are one host asking
+// another (`search/search_wire.situ`); these, from 128, are the local
+// leg's alone. LIST and FETCH carry a local ask: WITH, a contact's root
+// key where HAS_WITH (sec 1292), and then, byte for byte, the ask
+// `search_wire.situ` defines -- so the daemon reads it with the one
+// reader both legs share. Answered: LIST and GET with a PAGE and a HIT
+// per hit, FETCH with FETCHED; then a STATUS ok, or a STATUS refusing it.
+
+target buffer;
+endian big;
+
+enum op : u8 {
+	list    = 128, // this host's stores alone, as `list search`
+	fetch   = 129, // this host's and its hosts' (or a contact's), as `fetch search`
+	get     = 130, // the search fetched, merged as far as answered, as `get search`
+	page    = 131, // an answer: what the page holds, and how far answered
+	hit     = 132, // an answer: one hit
+	fetched = 133, // an answer: how many hosts were asked
+	default = error,
+}
+
+struct nothing {
+}
+
+// A STORE'S NAME, as `search/search.h` bounds it.
+struct store {
+	u8   len [min = 1, max = 16];
+	u8   name[len];
+}
+
+// WITH a contact's root key where HAS_WITH, zeros where not; the rest is
+// `search_wire.situ`'s ask, field for field.
+struct local_ask {
+	u8    has_with [max = 1];
+	u8    with[32];
+	u8    words_len [min = 1];
+	u8    words[words_len];
+	u8    store_count [max = 8];
+	store stores[store_count];
+	u64   since_ms;
+	u64   until_ms;
+	u8    k [min = 1, max = 50];
+	u8    has_after [max = 1];
+	u32   after_score;
+	u64   after_time_ms;
+	u8    after_store_len [max = 16];
+	u8    after_store[after_store_len];
+	u8    after_key_len [max = 48];
+	u8    after_key[after_key_len];
+}
+
+// COUNT the hits that follow, MORE 1 where there are more past them (the
+// last hit is the next page's cursor); ASKED, ANSWERED and LATE the hosts,
+// as `get search` says them -- all 0 for LIST.
+struct page {
+	u8   count [max = 50];
+	u8   more [max = 1];
+	u8   asked;
+	u8   answered;
+	u8   late;
+}
+
+// ONE HIT, as `search_wire.situ`'s.
+struct hit {
+	store store;
+	u8    key_len [min = 1, max = 48];
+	u8    key[key_len];
+	u32   score;
+	u64   time_ms;
+	u8    snippet_len [max = 120];
+	u8    snippet[snippet_len];
+}
+
+struct fetched {
+	u8   asked;
+}
+
+struct message {
+	u8   cmd [must_eq = 26];
+	op   op;
+
+	variant body switch (op) {
+		case op.list:    local_ask list;
+		case op.fetch:   local_ask fetch;
+		case op.get:     nothing   get;
+		case op.page:    page      page;
+		case op.hit:     hit       hit;
+		case op.fetched: fetched   fetched;
+		default: error;
+	}
+}

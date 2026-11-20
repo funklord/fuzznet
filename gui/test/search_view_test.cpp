@@ -1,0 +1,91 @@
+/*
+ * search_view_test -- the one search on a widget, sec 1293, against a
+ * scripted node behind the ask callback: a search asked of two hosts, the
+ * page read as they answer and said partial until both have; the next
+ * page asked after the last hit; a search with a contact asked by name; a
+ * hit opened; and a node that does not answer.
+ */
+
+#include "../search_view.h"
+
+#include <QApplication>
+
+#include <stdio.h>
+#include <string.h>
+
+static int checks, failures;
+
+#define CHECK(cond, what)                                                                     \
+	do {                                                                                  \
+		checks++;                                                                     \
+		if (!(cond)) {                                                                \
+			failures++;                                                           \
+			fprintf(stderr, "  FAIL search_view_test.cpp:%d: %s\n", __LINE__, what); \
+		}                                                                             \
+	} while (0)
+
+#define NOTE "5050000000000000000000000000000000000000000000000000000000000001"
+#define LINE "7070000000000000000000000000000000000000000000000000000000000002" \
+             "0000000000000000000000000000000a"
+
+static int silent, answered;
+static char last[400];
+
+static size_t node(void *ctx, const char *line, char *reply, size_t cap)
+{
+	(void)ctx;
+	if (silent)
+		return 0;
+	if (!strncmp(line, "fetch search", 12)) {
+		snprintf(last, sizeof last, "%s", line);
+		answered = 0;
+		return (size_t)snprintf(reply, cap, "ok 2\n");
+	}
+	/* ONE HOST ANSWERED, then both, the line's host adding its hit. */
+	if (!strcmp(line, "get search")) {
+		if (answered++ == 0)
+			return (size_t)snprintf(reply, cap, "ok 1 0 2 1 0 notes," NOTE ",160,1000,a%%20heron\n");
+		return (size_t)snprintf(reply, cap,
+		                        "ok 2 1 2 2 0 notes," NOTE ",160,1000,a%%20heron lines," LINE
+		                        ",100,2000,heron%%2c%%20flying\n");
+	}
+	return (size_t)snprintf(reply, cap, "error not scripted\n");
+}
+
+int main(int argc, char **argv)
+{
+	QApplication app(argc, argv);
+	fzn_search_view view(node, nullptr);
+	QString opened_store;
+	QByteArray opened_key;
+
+	view.on_open([&](const QString &store, const QByteArray &key) {
+		opened_store = store;
+		opened_key = key;
+	});
+	CHECK(!view.search(QStringLiteral("   ")), "an empty search was asked");
+	CHECK(view.search(QStringLiteral("heron")) && !strcmp(last, "fetch search heron"),
+	      "a search was not asked as fetch search");
+	CHECK(view.rows().size() == 1 && view.rows()[0].startsWith(QStringLiteral("a heron | a note"))
+	              && !view.settled() && view.status().contains(QStringLiteral("1 of 2")),
+	      "the first host's hit was not shown, or the page was said whole");
+	CHECK(view.poll() && view.settled() && view.rows().size() == 2
+	              && view.rows()[1].startsWith(QStringLiteral("heron, flying | a conversation")),
+	      "the second host's hit did not join the page");
+	CHECK(!view.status().contains(QStringLiteral("answered")), "a page every host answered was said partial");
+	CHECK(view.more() && !strcmp(last, "fetch search after lines," LINE ",100,2000 heron"),
+	      "the next page was not asked after the last hit");
+	CHECK(view.search(QStringLiteral("heron"), QStringLiteral("bob")) && !strcmp(last, "fetch search with bob heron"),
+	      "a search with a contact did not name the contact");
+	view.select(0);
+	CHECK(!view.open(), "a hit was opened with none chosen on the table");
+	silent = 1;
+	CHECK(!view.search(QStringLiteral("heron")) && view.status() == QStringLiteral("The node did not answer."),
+	      "a node that did not answer was not said");
+	if (failures) {
+		fprintf(stderr, "search_view_test: %d of %d checks failed\n", failures, checks);
+		return 1;
+	}
+	printf("search_view_test: all %d checks passed\n", checks);
+	return 0;
+}
