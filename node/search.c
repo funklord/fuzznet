@@ -171,7 +171,9 @@ static int run_lines(void *ctx, const fzn_search_query_t *q, const uint8_t *aske
 			break;
 		from += got;
 	}
-	return 1;
+	/* STOPPED SHORT, sec 1328: lines older than the walk's bound were
+	 * never looked at, and no next page will look at them either. */
+	return more ? 2 : 1;
 }
 
 /* ---- stickers ---------------------------------------------------------------- */
@@ -410,13 +412,15 @@ static size_t rows(const fzn_search_hit_t *hits, size_t count, int more, const c
 		/* ROOM KEPT for the head, at most 64 bytes, and the line's end. */
 		if (used + r + 66u > cap || used + r > sizeof(body)) {
 			shown = i;
-			more = 1;
+			more |= 1;
 			break;
 		}
 		memcpy(body + used, row, r);
 		used += r;
 	}
-	head = (size_t)snprintf(reply, cap, "ok %zu %d%s", shown, more, extra);
+	/* MORE 1 where hits lie past these; 2 where a store stopped short of
+	 * items it never looked at, whatever lies past (sec 1328). */
+	head = (size_t)snprintf(reply, cap, "ok %zu %d%s", shown, (more & 2) ? 2 : (more ? 1 : 0), extra);
 	if (head + used + 2u > cap)
 		return (size_t)snprintf(reply, cap, "error the reply would not hold a row\n");
 	memcpy(reply + head, body, used);
@@ -438,7 +442,7 @@ static struct {
 	int has_with;
 	fzn_search_hit_t hits[(1u + FZN_NODE_SEARCH_HOSTS_MAX) * FZN_SEARCH_K_MAX];
 	size_t n, asked, answered, late;
-	int more_held;
+	int more_held, partial;
 } held;
 
 void fzn_node_search_answered(fzn_node_search_t *s, unsigned generation, const uint8_t *answer, size_t len)
@@ -455,7 +459,8 @@ void fzn_node_search_answered(fzn_node_search_t *s, unsigned generation, const u
 		return;
 	}
 	held.answered++;
-	held.more_held |= more;
+	held.more_held |= more & 1;
+	held.partial |= (more & 2) != 0;
 	if (n > sizeof(held.hits) / sizeof(held.hits[0]) - held.n)
 		n = sizeof(held.hits) / sizeof(held.hits[0]) - held.n;
 	memcpy(held.hits + held.n, got, n * sizeof(got[0]));
@@ -487,8 +492,12 @@ int fzn_node_search_list(fzn_node_search_t *s, const uint8_t *ask, size_t len, c
 
 	if (!s || !fzn_search_ask_read(ask, len, &a))
 		return 0;
+	int partial = 0, ok;
+
 	n = fzn_node_search_stores(s, stores);
-	return fzn_search_run(stores, n, &a.query, with, hits, count, more) || *count;
+	ok = fzn_search_run_partial(stores, n, &a.query, with, hits, count, more, &partial);
+	*more = (*more ? 1 : 0) | (partial ? 2 : 0);
+	return ok || *count;
 }
 
 int fzn_node_search_fetch(fzn_node_search_t *s, const uint8_t *ask, size_t len, const uint8_t *with,
@@ -509,7 +518,9 @@ int fzn_node_search_fetch(fzn_node_search_t *s, const uint8_t *ask, size_t len, 
 	 * host's stores run as that contact -- each answering what the
 	 * contact reads here -- and its hosts are asked, which run theirs
 	 * as this user. */
-	if (!fzn_search_run(stores, n, &held.ask.query, with, held.hits, &held.n, &held.more_held) && !held.n)
+	held.partial = 0;
+	if (!fzn_search_run_partial(stores, n, &held.ask.query, with, held.hits, &held.n, &held.more_held, &held.partial)
+	    && !held.n)
 		return 0;
 	held.asked = held.answered = held.late = 0;
 	held.live = 1;
@@ -525,6 +536,7 @@ int fzn_node_search_held(fzn_node_search_t *s, fzn_search_hit_t *hits, size_t *c
 	if (!s || !held.live)
 		return 0;
 	(void)fzn_search_merge(&held.ask.query, held.hits, held.n, held.more_held, hits, count, more);
+	*more = (*more ? 1 : 0) | (held.partial ? 2 : 0);
 	*asked = held.asked;
 	*answered = held.answered;
 	*late = held.late;
@@ -581,7 +593,14 @@ size_t fzn_node_search_local(void *ctx, fzn_origin_t origin, const fzn_request_t
 	}
 	if (!parse(s, at, left, 20u, &a, with, &has_with))
 		return (size_t)snprintf(reply, cap, USAGE, "list");
-	if (!fzn_search_run(stores, n_stores, &a.query, has_with ? with : NULL, hits, &count, &more) && !count)
-		return (size_t)snprintf(reply, cap, "error a store would not read\n");
+	{
+		int partial = 0;
+
+		if (!fzn_search_run_partial(stores, n_stores, &a.query, has_with ? with : NULL, hits, &count, &more,
+		                            &partial)
+		    && !count)
+			return (size_t)snprintf(reply, cap, "error a store would not read\n");
+		more = (more ? 1 : 0) | (partial ? 2 : 0);
+	}
 	return rows(hits, count, more, "", reply, cap);
 }

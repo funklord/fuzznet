@@ -146,6 +146,10 @@ static void test_an_answer_reads_back(void)
 	n = fzn_search_answer_write(NULL, 0u, 0, out, sizeof(out));
 	CHECK(n && fzn_search_answer_read(out, n, back, 1u, &got, &more) && !got && !more,
 	      "an empty answer did not read back so");
+	/* STOPPED SHORT, sec 1328: MORE's second bit read back as written. */
+	n = fzn_search_answer_write(NULL, 0u, 2, out, sizeof(out));
+	CHECK(n && fzn_search_answer_read(out, n, back, 1u, &got, &more) && !got && more == 2,
+	      "an answer from a host that stopped short did not read back so");
 	hits[0].key_len = 0;
 	CHECK(!fzn_search_answer_write(hits, 1u, 0, out, sizeof(out)), "a hit with no key was written");
 }

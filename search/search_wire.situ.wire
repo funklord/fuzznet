@@ -21,10 +21,11 @@ target buffer
 enum op : u8 unknown=error
   ask=1 answer=2
 
-struct answer size=2..9952
+struct answer size=3..9953
   @0x0000   1         u8         more  max=1
-  @0x0001   1         u8         count  max=50
-  @0x0002   0..9950   hit        hits  sized-by=count
+  @0x0001   1         u8         partial  max=1
+  @0x0002   1         u8         count  max=50
+  @0x0003   0..9950   hit        hits  sized-by=count
 
 struct ask size=37..1003
   @0x0000   1         u8         words_len  min=1
@@ -53,10 +54,10 @@ struct hit size=17..199
   ~         1         u8         snippet_len  max=120
   ~         0..120    u8         snippet  sized-by=snippet_len
 
-struct message size=4..9954
+struct message size=5..9955
   @0x0000   1         u8         cmd  must_eq=26
   @0x0001   1         op         op
-  @0x0002   2..9952   variant    body
+  @0x0002   3..9953   variant    body
   body switch: op
   body case 1: ask ask
   body case 2: answer answer

@@ -97,18 +97,34 @@ static int take(void *ctx, const fzn_search_hit_t *h)
 int fzn_search_run(const fzn_search_store_t *stores, size_t n_stores, const fzn_search_query_t *q,
                    const uint8_t *asker, fzn_search_hit_t *out, size_t *count, int *more)
 {
+	int partial = 0;
+
+	return fzn_search_run_partial(stores, n_stores, q, asker, out, count, more, &partial);
+}
+
+int fzn_search_run_partial(const fzn_search_store_t *stores, size_t n_stores, const fzn_search_query_t *q,
+                           const uint8_t *asker, fzn_search_hit_t *out, size_t *count, int *more,
+                           int *partial)
+{
 	static struct gather g;
 	size_t i;
 	int ok = 1;
 
-	if (!q || !out || !count || !more || q->k == 0u || q->k > FZN_SEARCH_K_MAX || (n_stores && !stores))
+	if (!q || !out || !count || !more || !partial || q->k == 0u || q->k > FZN_SEARCH_K_MAX
+	    || (n_stores && !stores))
 		return 0;
+	*partial = 0;
 	memset(&g, 0, sizeof(g));
 	g.q = q;
 	for (i = 0; i < n_stores; i++)
-		if (stores[i].name && stores[i].run && asked(q, stores[i].name)
-		    && !stores[i].run(stores[i].ctx, q, asker, take, &g))
-			ok = 0;
+		if (stores[i].name && stores[i].run && asked(q, stores[i].name)) {
+			const int r = stores[i].run(stores[i].ctx, q, asker, take, &g);
+
+			if (!r)
+				ok = 0;
+			else if (r == 2)
+				*partial = 1;
+		}
 	*count = g.n > q->k ? q->k : g.n;
 	*more = g.more || g.n > q->k;
 	memcpy(out, g.keep, *count * sizeof(out[0]));

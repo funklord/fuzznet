@@ -11757,6 +11757,7 @@ static int search_page_text(fzn_rpc_t *c, const char *rest, size_t rest_len, int
 	}
 	out->count = count;
 	out->more = more != 0;
+	out->partial = more == 2; /* the text verb's MORE 2, sec 1328 */
 	out->asked = v[0];
 	out->answered = v[1];
 	out->late = v[2];
@@ -11799,6 +11800,7 @@ static void search_each(void *ctx, const uint8_t *msg, size_t len) {
 		a->head_seen = 1;
 		a->want = fzn_search_local_page_count_get(b);
 		a->out->more = fzn_search_local_page_more_get(b);
+		a->out->partial = fzn_search_local_page_partial_get(b);
 		a->out->asked = fzn_search_local_page_asked_get(b);
 		a->out->answered = fzn_search_local_page_answered_get(b);
 		a->out->late = fzn_search_local_page_late_get(b);

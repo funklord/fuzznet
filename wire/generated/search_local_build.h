@@ -451,6 +451,7 @@ static inline situ_err_t fzn_search_local_page_build(
 		uint32_t situ_cap,
 		uint8_t count,
 		uint8_t more,
+		uint8_t partial,
 		uint8_t asked,
 		uint8_t answered,
 		uint8_t late,
@@ -475,6 +476,12 @@ static inline situ_err_t fzn_search_local_page_build(
 		return SITU_ERR_BOUNDS;
 	}
 	situ_out[situ_at] = (uint8_t)more;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)partial;
 	situ_at += 1u;
 
 	if (situ_cap - situ_at < 1u) {

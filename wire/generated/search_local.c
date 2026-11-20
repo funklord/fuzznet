@@ -121,6 +121,11 @@ situ_err_t fzn_search_local_page_check(situ_view_t view, uint32_t *which)
 		*which = FZN_SEARCH_LOCAL_PAGE_MORE_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
+	/* page.partial [max = 1] */
+	if (fzn_search_local_page_partial_get(view) > 1) {
+		*which = FZN_SEARCH_LOCAL_PAGE_PARTIAL_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
 	return SITU_OK;
 }
 
@@ -290,7 +295,7 @@ situ_err_t fzn_search_local_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 2u) < ((fzn_search_local_message_op_get(view) == 128u ? (fzn_search_local_message_body_list_extent(view)) : (fzn_search_local_message_op_get(view) == 129u ? (fzn_search_local_message_body_fetch_extent(view)) : (fzn_search_local_message_op_get(view) == 130u ? 0u : (fzn_search_local_message_op_get(view) == 131u ? 5u : (fzn_search_local_message_op_get(view) == 132u ? (fzn_search_local_message_body_hit_extent(view)) : (fzn_search_local_message_op_get(view) == 133u ? 1u : 0u)))))))) {
+	if (situ_remaining_u32(view.limit, 2u) < ((fzn_search_local_message_op_get(view) == 128u ? (fzn_search_local_message_body_list_extent(view)) : (fzn_search_local_message_op_get(view) == 129u ? (fzn_search_local_message_body_fetch_extent(view)) : (fzn_search_local_message_op_get(view) == 130u ? 0u : (fzn_search_local_message_op_get(view) == 131u ? 6u : (fzn_search_local_message_op_get(view) == 132u ? (fzn_search_local_message_body_hit_extent(view)) : (fzn_search_local_message_op_get(view) == 133u ? 1u : 0u)))))))) {
 		*which = FZN_SEARCH_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

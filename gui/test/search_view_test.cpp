@@ -28,7 +28,7 @@ static int checks, failures;
 #define LINE "7070000000000000000000000000000000000000000000000000000000000002" \
              "0000000000000000000000000000000a"
 
-static int silent, answered;
+static int silent, answered, stopped_short;
 static char last[400];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -48,6 +48,9 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	}
 	/* ONE HOST ANSWERED, then both, the line's host adding its hit. */
 	if (!strcmp(line, "get search")) {
+		/* A HOST THAT STOPPED SHORT, sec 1328: MORE 2. */
+		if (stopped_short)
+			return (size_t)snprintf(reply, cap, "ok 1 2 2 2 0 notes," NOTE ",160,1000,a%%20heron\n");
 		if (answered++ == 0)
 			return (size_t)snprintf(reply, cap, "ok 1 0 2 1 0 notes," NOTE ",160,1000,a%%20heron\n");
 		return (size_t)snprintf(reply, cap,
@@ -78,12 +81,17 @@ int main(int argc, char **argv)
 	              && view.rows()[1].startsWith(QStringLiteral("heron, flying | a conversation")),
 	      "the second host's hit did not join the page");
 	CHECK(!view.status().contains(QStringLiteral("answered")), "a page every host answered was said partial");
+	CHECK(!view.status().contains(QStringLiteral("newest")), "a page searched whole was said to be the newest only");
 	CHECK(view.more() && !strcmp(last, "fetch search after lines," LINE ",100,2000 heron"),
 	      "the next page was not asked after the last hit");
 	CHECK(view.search(QStringLiteral("heron"), QStringLiteral("bob")) && !strcmp(last, "fetch search with bob heron"),
 	      "a search with a contact did not name the contact");
 	CHECK(!view.search(QStringLiteral("heron"), QStringLiteral("nobody")) && view.status().contains(QStringLiteral("no such contact")),
 	      "a search with no such contact was asked, or not said");
+	stopped_short = 1;
+	CHECK(view.search(QStringLiteral("heron")) && view.status().contains(QStringLiteral("only the newest")),
+	      "a page from a host that stopped short was not said to be the newest only");
+	stopped_short = 0;
 	view.select(0);
 	CHECK(!view.open(), "a hit was opened with none chosen on the table");
 	silent = 1;

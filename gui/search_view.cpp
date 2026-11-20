@@ -246,6 +246,10 @@ void fzn_search_view::show_page()
 		else if (m_page->late)
 			said += tr("; %1 of %2 host(s) did not answer").arg(m_page->late).arg(m_page->asked);
 	}
+	/* NOT EVERYTHING SEARCHED, sec 1328: a page is never called whole when
+	 * a store stopped short of what it holds. */
+	if (m_page->partial)
+		said += tr("; only the newest were searched");
 	m_status->setText(said + QStringLiteral("."));
 	m_more->setEnabled(m_page->more != 0);
 	select(m_table->currentRow());

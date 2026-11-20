@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1327
+The newest work is at the end of this file. **Read secs 1287 to 1329
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -94827,3 +94827,50 @@ tells them apart by length, and the schema can say only one. Asked of
 situ (inbox 20261120T2230Z): a member present when the bytes allow. Its
 key and value character rules would move to situ's `[chars]` (26.1099)
 at the same time.
+
+## 1328. A search says when it stopped short, 2026-11-20
+
+Sec 1287's fourth rule: partial is normal, never presented as
+everything. The lines store walks only the newest FZN_MESSAGES_WALK_MAX
+(4096) lines and, when there were more, said MORE -- but the keyset
+cursor cannot reach what the walk never looked at: every next page walks
+the same newest lines. So the page lied in the direction that matters.
+
+- **A store's `run` may answer 2**: done, but stopped short on its own
+  budget with items it never looked at. `fzn_search_run_partial` says so;
+  `fzn_search_run` is it without the flag.
+- **The wire**: the host-to-host answer (`search/search_wire.situ`) and
+  the local page (`node/search_local.situ`) carry `partial` beside
+  `more`; `fzn_search_answer_write`/`_read` carry it as MORE's second
+  bit, so a caller reading MORE as a boolean still sees "more".
+- **The text verbs** say MORE 2 for it, which an older reader takes as 1.
+- **The client** page has `partial`; **the view** adds "only the newest
+  were searched" to its status line.
+
+**Tests:** search_wire_vectors (a partial answer); remote_test -- an
+answer that stopped short reads back so, and the longest answer within
+its bound, which grew by the byte; search_view_test -- a page from a host
+that stopped short is said so, a whole one is not.
+
+## 1329. Three contracts that said other than the code, 2026-11-20
+
+The lens from sec 1327's finding -- a schema enum lacking a value the
+code sends -- run over the thirteen contract-only schemas with enums or
+bounds (a read-only audit, every finding then checked here by hand):
+
+- **`node/reconcile.situ`'s `kind [max = 2]`**, eight places, while the
+  records kind (3, `FZN_BUCKETS_RECORDS`) has been reconciled since
+  2a139647 (fuzznetd calls `fzn_reconcile_buckets` and `_push` with it).
+  Now `[max = 3]`.
+- **`notes/sync.situ`'s index page `count [max = 256]`, "FZN_NOTES_MAX"**:
+  that maximum is 262144, and the server fills a page to its reply
+  buffer -- some 280 claims at the smallest. The bound is gone; the count
+  is as many as the reply holds.
+- **`persist/persist.situ`'s tag 25, `contact_group`**, retired with the
+  groups of contacts in sec 626 and refused by the code: the contract
+  accepted a tag the code does not. It is a comment now, as 10 and 18
+  are, its body struct and arm removed.
+
+The ten others match value for value. Two bounds wider than the code's
+reading were left: reconcile's holding class (read and skipped past 8)
+and log entry's `cause_count` (0 or 2, which a bound cannot say).

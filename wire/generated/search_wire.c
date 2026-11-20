@@ -133,6 +133,11 @@ situ_err_t fzn_search_wire_answer_check(situ_view_t view, uint32_t *which)
 		*which = FZN_SEARCH_WIRE_ANSWER_MORE_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
+	/* answer.partial [max = 1] */
+	if (fzn_search_wire_answer_partial_get(view) > 1) {
+		*which = FZN_SEARCH_WIRE_ANSWER_PARTIAL_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
 	/* answer.count [max = 50] */
 	if (fzn_search_wire_answer_count_get(view) > 50) {
 		*which = FZN_SEARCH_WIRE_ANSWER_COUNT_CHECK;
@@ -148,7 +153,7 @@ situ_err_t fzn_search_wire_answer_check(situ_view_t view, uint32_t *which)
 	/* answer.hits: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
-	if (situ_remaining_u32(view.limit, 2u) < (fzn_search_wire_answer_hits_span(view))) {
+	if (situ_remaining_u32(view.limit, 3u) < (fzn_search_wire_answer_hits_span(view))) {
 		*which = FZN_SEARCH_WIRE_ANSWER_HITS_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
@@ -156,8 +161,8 @@ situ_err_t fzn_search_wire_answer_check(situ_view_t view, uint32_t *which)
 	 * own validator. A refusal names the run, or the variant it
 	 * is an arm of (26.789, 26.790). */
 	{
-		const uint32_t total = situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[1u]));
-		uint32_t at = 2u;
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[2u]));
+		uint32_t at = 3u;
 		uint32_t n  = 0u;
 
 		while (n < total && at < view.limit) {

@@ -1838,8 +1838,8 @@ situ_err_t fzn_search_wire_hit_check(situ_view_t view, uint32_t *which);
 
 /* ---- struct answer ---- */
 
-#define FZN_SEARCH_WIRE_ANSWER_SIZE_MIN   2u
-#define FZN_SEARCH_WIRE_ANSWER_SIZE_MAX   9952u
+#define FZN_SEARCH_WIRE_ANSWER_SIZE_MIN   3u
+#define FZN_SEARCH_WIRE_ANSWER_SIZE_MAX   9953u
 
 /* INVALIDATION: a answer view, and every view derived from
  * it, is invalidated by writing `count` -- those decide where the
@@ -1883,30 +1883,48 @@ static inline void fzn_search_wire_answer_more_set(situ_view_t view, uint8_t val
 	(situ_base(view))[0u] = (uint8_t)value;
 }
 
-#define FZN_SEARCH_WIRE_ANSWER_COUNT_VALUE_MAX 50u
+#define FZN_SEARCH_WIRE_ANSWER_PARTIAL_VALUE_MAX 1u
 
-/** answer.count : u8  at AbsoluteStatic(0x01)
+/** answer.partial : u8  at AbsoluteStatic(0x01)
  * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint8_t fzn_search_wire_answer_count_get(situ_view_t view)
+static inline uint8_t fzn_search_wire_answer_partial_get(situ_view_t view)
 {
 	return (uint8_t)((uint8_t)(situ_base(view))[1u]);
 }
-static inline uint8_t *fzn_search_wire_answer_count_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_wire_answer_partial_ptr(situ_view_t view)
 {
 	return (uint8_t *)(situ_base(view) + 1u);
+}
+static inline void fzn_search_wire_answer_partial_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[1u] = (uint8_t)value;
+}
+
+#define FZN_SEARCH_WIRE_ANSWER_COUNT_VALUE_MAX 50u
+
+/** answer.count : u8  at AbsoluteStatic(0x02)
+ * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_search_wire_answer_count_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[2u]);
+}
+static inline uint8_t *fzn_search_wire_answer_count_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 2u);
 }
 /* No plain setter: `count` decides where later members
  * start, so writing it must invalidate outstanding views. Use
  * fzn_search_wire_answer_count_set(),
  * which takes the message and bumps its generation. */
 
-/** answer.hits : hit  at AbsoluteStatic(0x02)
- * size=Bounded(0, 9950) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+/** answer.hits : hit  at AbsoluteStatic(0x03)
+ * size=Bounded(0, 9950) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
 static inline uint32_t fzn_search_wire_answer_hits_count(situ_view_t view)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[1u]));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[2u]));
 }
 /** Element `index`, walked: these have no single size, so
  * there is no stride to index by.
@@ -1919,7 +1937,7 @@ static inline uint32_t fzn_search_wire_answer_hits_count(situ_view_t view)
  */
 static inline situ_err_t fzn_search_wire_answer_hits_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
-	uint32_t at = 2u;
+	uint32_t at = 3u;
 	uint32_t n  = 0u;
 
 	if (index >= fzn_search_wire_answer_hits_count(view)) {
@@ -1982,7 +2000,7 @@ static inline uint32_t fzn_search_wire_answer_hits_span_from(situ_view_t view, u
 
 static inline uint32_t fzn_search_wire_answer_hits_span(situ_view_t view)
 {
-	return fzn_search_wire_answer_hits_span_from(view, 2u);
+	return fzn_search_wire_answer_hits_span_from(view, 3u);
 }
 
 /** Whether every one of `answer.hits`'s declared elements is inside
@@ -1996,7 +2014,7 @@ static inline uint32_t fzn_search_wire_answer_hits_span(situ_view_t view)
 static inline int fzn_search_wire_answer_hits_fits(situ_view_t view)
 {
 	const uint32_t total = fzn_search_wire_answer_hits_count(view);
-	uint32_t at = 2u;
+	uint32_t at = 3u;
 	uint32_t n  = 0u;
 
 	while (n < total) {
@@ -2039,11 +2057,11 @@ static inline int fzn_search_wire_answer_hits_fits(situ_view_t view)
  */
 static inline uint32_t fzn_search_wire_answer_extent(situ_view_t view)
 {
-	if (!situ_in_bounds(view, 0u, 2u)) {
-		return 2u;	/* the lengths below are not here to read */
+	if (!situ_in_bounds(view, 0u, 3u)) {
+		return 3u;	/* the lengths below are not here to read */
 	}
 
-	uint32_t extent = 2u;
+	uint32_t extent = 3u;
 	extent = extent + (fzn_search_wire_answer_hits_span(view));
 	return extent;
 }
@@ -2059,8 +2077,8 @@ static inline uint32_t fzn_search_wire_answer_extent(situ_view_t view)
  */
 static inline situ_err_t fzn_search_wire_answer_required(const uint8_t *data, uint32_t have, uint32_t *need)
 {
-	uint32_t at = 2u;
-	uint32_t pos = 2u;
+	uint32_t at = 3u;
+	uint32_t pos = 3u;
 	situ_view_t view;
 
 	/* A view over what has arrived, so every length expression below
@@ -2072,7 +2090,7 @@ static inline situ_err_t fzn_search_wire_answer_required(const uint8_t *data, ui
 
 	/* answer.hits: reading its length means reading bytes that
 	 * have to be here first. */
-	if (have < 2u) {
+	if (have < 3u) {
 		*need = at;
 		return SITU_ERR_TRUNCATED;
 	}
@@ -2087,7 +2105,7 @@ static inline situ_err_t fzn_search_wire_answer_required(const uint8_t *data, ui
 			uint32_t   part;
 			situ_err_t e;
 
-			if (n >= situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[1u]))) {
+			if (n >= situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[2u]))) {
 				break;
 			}
 			if (have < pos) {
@@ -2095,7 +2113,7 @@ static inline situ_err_t fzn_search_wire_answer_required(const uint8_t *data, ui
 				 * is read: each element still owed is at least its
 				 * floor (26.946). */
 				*need = situ_need_u32(at,
-				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[1u])) - n, 14u));
+				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[2u])) - n, 14u));
 				return SITU_ERR_TRUNCATED;
 			}
 			e = fzn_search_wire_hit_required(data + pos, situ_remaining_u32(have, pos), &part);
@@ -2109,7 +2127,7 @@ static inline situ_err_t fzn_search_wire_answer_required(const uint8_t *data, ui
 				 * the constraints and made this total fall as bytes arrived
 				 * (26.724). */
 				*need = situ_need_u32(at, part);
-				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[1u])) - n - 1u, 14u));
+				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[2u])) - n - 1u, 14u));
 				return SITU_ERR_TRUNCATED;
 			}
 			at  = situ_need_u32(at, part);
@@ -2129,7 +2147,7 @@ static inline situ_err_t fzn_search_wire_answer_required(const uint8_t *data, ui
  */
 static inline void fzn_search_wire_answer_count_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
-	(situ_base(view))[1u] = (uint8_t)value;
+	(situ_base(view))[2u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
 
@@ -2148,13 +2166,14 @@ situ_err_t fzn_search_wire_answer_validate(situ_view_t view);
  */
 situ_err_t fzn_search_wire_answer_check(situ_view_t view, uint32_t *which);
 #define FZN_SEARCH_WIRE_ANSWER_MORE_CHECK 0u
-#define FZN_SEARCH_WIRE_ANSWER_COUNT_CHECK 1u
-#define FZN_SEARCH_WIRE_ANSWER_HITS_CHECK 2u
+#define FZN_SEARCH_WIRE_ANSWER_PARTIAL_CHECK 1u
+#define FZN_SEARCH_WIRE_ANSWER_COUNT_CHECK 2u
+#define FZN_SEARCH_WIRE_ANSWER_HITS_CHECK 3u
 
 /* ---- struct message ---- */
 
-#define FZN_SEARCH_WIRE_MESSAGE_SIZE_MIN   4u
-#define FZN_SEARCH_WIRE_MESSAGE_SIZE_MAX   9954u
+#define FZN_SEARCH_WIRE_MESSAGE_SIZE_MIN   5u
+#define FZN_SEARCH_WIRE_MESSAGE_SIZE_MAX   9955u
 
 /* INVALIDATION: a message view, and every view derived from
  * it, is invalidated by writing `op` -- those decide where the
@@ -2212,7 +2231,7 @@ static inline fzn_search_wire_op_t fzn_search_wire_message_op_get(situ_view_t vi
  * which takes the message and bumps its generation. */
 
 /* message.body : variant  at AbsoluteStatic(0x02)
- * size=Bounded(2, 9952) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+ * size=Bounded(3, 9953) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
 /* `body` is a variant: exactly one of `ask`, `answer` is
  * present, and which one is in the discriminant. The variant has no
@@ -2302,6 +2321,8 @@ static inline situ_err_t fzn_search_wire_message_body_answer_view(situ_view_t vi
 }
 
 #define FZN_SEARCH_WIRE_MESSAGE_BODY_ANSWER_MORE_VALUE_MAX 1u
+
+#define FZN_SEARCH_WIRE_MESSAGE_BODY_ANSWER_PARTIAL_VALUE_MAX 1u
 
 #define FZN_SEARCH_WIRE_MESSAGE_BODY_ANSWER_COUNT_VALUE_MAX 50u
 

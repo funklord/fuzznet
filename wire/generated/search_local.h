@@ -1529,9 +1529,9 @@ situ_err_t fzn_search_local_local_ask_check(situ_view_t view, uint32_t *which);
 
 /* ---- struct page ---- */
 
-#define FZN_SEARCH_LOCAL_PAGE_SIZE_FIXED 5u
-#define FZN_SEARCH_LOCAL_PAGE_SIZE_MIN   5u
-#define FZN_SEARCH_LOCAL_PAGE_SIZE_MAX   5u
+#define FZN_SEARCH_LOCAL_PAGE_SIZE_FIXED 6u
+#define FZN_SEARCH_LOCAL_PAGE_SIZE_MIN   6u
+#define FZN_SEARCH_LOCAL_PAGE_SIZE_MAX   6u
 
 /* INVALIDATION: nothing invalidates a page view.
  * Every member has a fixed size, so no write can move another.
@@ -1580,52 +1580,70 @@ static inline void fzn_search_local_page_more_set(situ_view_t view, uint8_t valu
 	(situ_base(view))[1u] = (uint8_t)value;
 }
 
-/** page.asked : u8  at AbsoluteStatic(0x02)
+#define FZN_SEARCH_LOCAL_PAGE_PARTIAL_VALUE_MAX 1u
+
+/** page.partial : u8  at AbsoluteStatic(0x02)
  * size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint8_t fzn_search_local_page_asked_get(situ_view_t view)
+static inline uint8_t fzn_search_local_page_partial_get(situ_view_t view)
 {
 	return (uint8_t)((uint8_t)(situ_base(view))[2u]);
 }
-static inline uint8_t *fzn_search_local_page_asked_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_page_partial_ptr(situ_view_t view)
 {
 	return (uint8_t *)(situ_base(view) + 2u);
 }
-static inline void fzn_search_local_page_asked_set(situ_view_t view, uint8_t value)
+static inline void fzn_search_local_page_partial_set(situ_view_t view, uint8_t value)
 {
 	(situ_base(view))[2u] = (uint8_t)value;
 }
 
-/** page.answered : u8  at AbsoluteStatic(0x03)
+/** page.asked : u8  at AbsoluteStatic(0x03)
  * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint8_t fzn_search_local_page_answered_get(situ_view_t view)
+static inline uint8_t fzn_search_local_page_asked_get(situ_view_t view)
 {
 	return (uint8_t)((uint8_t)(situ_base(view))[3u]);
 }
-static inline uint8_t *fzn_search_local_page_answered_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_page_asked_ptr(situ_view_t view)
 {
 	return (uint8_t *)(situ_base(view) + 3u);
 }
-static inline void fzn_search_local_page_answered_set(situ_view_t view, uint8_t value)
+static inline void fzn_search_local_page_asked_set(situ_view_t view, uint8_t value)
 {
 	(situ_base(view))[3u] = (uint8_t)value;
 }
 
-/** page.late : u8  at AbsoluteStatic(0x04)
+/** page.answered : u8  at AbsoluteStatic(0x04)
  * size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint8_t fzn_search_local_page_late_get(situ_view_t view)
+static inline uint8_t fzn_search_local_page_answered_get(situ_view_t view)
 {
 	return (uint8_t)((uint8_t)(situ_base(view))[4u]);
 }
-static inline uint8_t *fzn_search_local_page_late_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_page_answered_ptr(situ_view_t view)
 {
 	return (uint8_t *)(situ_base(view) + 4u);
 }
-static inline void fzn_search_local_page_late_set(situ_view_t view, uint8_t value)
+static inline void fzn_search_local_page_answered_set(situ_view_t view, uint8_t value)
 {
 	(situ_base(view))[4u] = (uint8_t)value;
+}
+
+/** page.late : u8  at AbsoluteStatic(0x05)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_search_local_page_late_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[5u]);
+}
+static inline uint8_t *fzn_search_local_page_late_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 5u);
+}
+static inline void fzn_search_local_page_late_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[5u] = (uint8_t)value;
 }
 
 /** How many bytes a whole `page` needs, given `have` of them.
@@ -1658,6 +1676,7 @@ situ_err_t fzn_search_local_page_validate(situ_view_t view);
 situ_err_t fzn_search_local_page_check(situ_view_t view, uint32_t *which);
 #define FZN_SEARCH_LOCAL_PAGE_COUNT_CHECK 0u
 #define FZN_SEARCH_LOCAL_PAGE_MORE_CHECK 1u
+#define FZN_SEARCH_LOCAL_PAGE_PARTIAL_CHECK 2u
 
 /* ---- struct hit ---- */
 
@@ -2327,6 +2346,8 @@ static inline situ_err_t fzn_search_local_message_body_page_view(situ_view_t vie
 #define FZN_SEARCH_LOCAL_MESSAGE_BODY_PAGE_COUNT_VALUE_MAX 50u
 
 #define FZN_SEARCH_LOCAL_MESSAGE_BODY_PAGE_MORE_VALUE_MAX 1u
+
+#define FZN_SEARCH_LOCAL_MESSAGE_BODY_PAGE_PARTIAL_VALUE_MAX 1u
 
 /* message.body.hit, present when the discriminant selects `op.hit`.
  *

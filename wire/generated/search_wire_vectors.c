@@ -155,20 +155,20 @@ static void test_message_ask_after(void **state)
 }
 
 /* message / answer_one */
-static const uint8_t vector_message_answer_one[29u] = {
-	0x1A, 0x02, 0x00, 0x01, 0x05, 0x6E, 0x6F, 0x74, 0x65, 0x73, 0x01, 0x07, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xE8, 0x04, 0x63, 0x61, 0x6B, 0x65,
+static const uint8_t vector_message_answer_one[30u] = {
+	0x1A, 0x02, 0x00, 0x00, 0x01, 0x05, 0x6E, 0x6F, 0x74, 0x65, 0x73, 0x01, 0x07, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xE8, 0x04, 0x63, 0x61, 0x6B, 0x65,
 };
 
 static void test_message_answer_one(void **state)
 {
-	uint8_t     buf[29u];
+	uint8_t     buf[30u];
 	situ_msg_t  msg;
 	situ_view_t view;
 
 	(void)state;
 	memcpy(buf, vector_message_answer_one, sizeof(buf));
-	situ_msg_init(&msg, buf, 29u);
-	situ_check_eq(fzn_search_wire_message_view(&msg, 0, 29u, &view), SITU_OK);
+	situ_msg_init(&msg, buf, 30u);
+	situ_check_eq(fzn_search_wire_message_view(&msg, 0, 30u, &view), SITU_OK);
 	situ_check_eq(fzn_search_wire_message_validate(view), SITU_OK);
 
 	/* Every value written back through its own setter must reproduce the
@@ -179,20 +179,20 @@ static void test_message_answer_one(void **state)
 }
 
 /* message / answer_none */
-static const uint8_t vector_message_answer_none[4u] = {
-	0x1A, 0x02, 0x01, 0x00,
+static const uint8_t vector_message_answer_none[5u] = {
+	0x1A, 0x02, 0x01, 0x00, 0x00,
 };
 
 static void test_message_answer_none(void **state)
 {
-	uint8_t     buf[4u];
+	uint8_t     buf[5u];
 	situ_msg_t  msg;
 	situ_view_t view;
 
 	(void)state;
 	memcpy(buf, vector_message_answer_none, sizeof(buf));
-	situ_msg_init(&msg, buf, 4u);
-	situ_check_eq(fzn_search_wire_message_view(&msg, 0, 4u, &view), SITU_OK);
+	situ_msg_init(&msg, buf, 5u);
+	situ_check_eq(fzn_search_wire_message_view(&msg, 0, 5u, &view), SITU_OK);
 	situ_check_eq(fzn_search_wire_message_validate(view), SITU_OK);
 
 	/* Every value written back through its own setter must reproduce the
@@ -202,6 +202,30 @@ static void test_message_answer_none(void **state)
 	situ_check_bytes(buf, vector_message_answer_none, sizeof(buf));
 }
 
+/* message / answer_partial */
+static const uint8_t vector_message_answer_partial[5u] = {
+	0x1A, 0x02, 0x01, 0x01, 0x00,
+};
+
+static void test_message_answer_partial(void **state)
+{
+	uint8_t     buf[5u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_answer_partial, sizeof(buf));
+	situ_msg_init(&msg, buf, 5u);
+	situ_check_eq(fzn_search_wire_message_view(&msg, 0, 5u, &view), SITU_OK);
+	situ_check_eq(fzn_search_wire_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_search_wire_message_cmd_set(view, fzn_search_wire_message_cmd_get(view));
+	fzn_search_wire_message_op_set(&msg, view, fzn_search_wire_message_op_get(view));
+	situ_check_bytes(buf, vector_message_answer_partial, sizeof(buf));
+}
+
 int main(void)
 {
 	const struct situ_check_case tests[] = {
@@ -209,6 +233,7 @@ int main(void)
 		situ_check_case(test_message_ask_after),
 		situ_check_case(test_message_answer_one),
 		situ_check_case(test_message_answer_none),
+		situ_check_case(test_message_answer_partial),
 	};
 
 	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");

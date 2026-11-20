@@ -33,8 +33,11 @@ struct hit {
 }
 
 // MORE 1 where this host holds hits past these.
+// PARTIAL 1 where a store stopped short on its own budget, items it never
+// looked at past the page -- not reached by paging (sec 1328).
 struct answer {
 	u8   more [max = 1];
+	u8   partial [max = 1];
 	u8   count [max = 50];
 	hit  hits[count];
 }

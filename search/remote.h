@@ -23,9 +23,10 @@
 /* The most words an ask carries, as typed, and the most stores it names. */
 #define FZN_SEARCH_TEXT_MAX 255u
 #define FZN_SEARCH_ASK_STORES_MAX 8u
-/* THE LONGEST ANSWER: K_MAX hits at their longest, and its head. */
+/* THE LONGEST ANSWER: K_MAX hits at their longest, and its head -- the
+ * command, the op, MORE, PARTIAL (sec 1328) and the count. */
 #define FZN_SEARCH_ANSWER_MAX                                                                          \
-	(4u + FZN_SEARCH_K_MAX * (1u + FZN_SEARCH_STORE_NAME_MAX + 1u + FZN_SEARCH_KEY_MAX + 4u + 8u + 1u \
+	(5u + FZN_SEARCH_K_MAX * (1u + FZN_SEARCH_STORE_NAME_MAX + 1u + FZN_SEARCH_KEY_MAX + 4u + 8u + 1u \
 	                          + FZN_SEARCH_SNIPPET_MAX))
 
 
@@ -64,12 +65,15 @@ size_t fzn_search_ask_write(const char *words, size_t words_len, const fzn_searc
  * cursor half there. */
 int fzn_search_ask_read(const uint8_t *in, size_t len, fzn_search_ask_t *out);
 
-/* AN ANSWER of `n` hits, at most FZN_SEARCH_K_MAX, and whether there are
- * MORE, into `out`: its length, or 0 where it does not fit. */
+/* AN ANSWER of `n` hits, at most FZN_SEARCH_K_MAX, and MORE -- bit 1
+ * where there are hits past these, bit 2 where a store stopped short of
+ * items it never looked at (sec 1328) -- into `out`: its length, or 0
+ * where it does not fit. */
 size_t fzn_search_answer_write(const fzn_search_hit_t *hits, size_t n, int more, uint8_t *out, size_t cap);
 
 /* `len` bytes READ AS AN ANSWER: its hits into `hits`, at most `cap`, with
- * `*n` and `*more`: 1, or 0 for anything else, or more hits than `cap`. */
+ * `*n` and `*more` as written (bits 1 and 2): 1, or 0 for anything else, or
+ * more hits than `cap`. */
 int fzn_search_answer_read(const uint8_t *in, size_t len, fzn_search_hit_t *hits, size_t cap, size_t *n,
                            int *more);
 

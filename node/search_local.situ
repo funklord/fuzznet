@@ -45,6 +45,7 @@ struct local_ask {
 struct page {
 	u8   count [max = 50];
 	u8   more [max = 1];
+	u8   partial [max = 1];      // a store stopped short: not everything was searched (sec 1328)
 	u8   asked;
 	u8   answered;
 	u8   late;

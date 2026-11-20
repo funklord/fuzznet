@@ -186,7 +186,9 @@ size_t fzn_search_answer_write(const fzn_search_hit_t *hits, size_t n, int more,
 			return 0;
 		at += wrote;
 	}
-	if (fzn_search_wire_answer_build(body, sizeof(body), more ? 1u : 0u, run, at, &wrote) != SITU_OK
+	if (fzn_search_wire_answer_build(body, sizeof(body), (more & 1) ? 1u : 0u, (more & 2) ? 1u : 0u, run, at,
+	                                 &wrote)
+	            != SITU_OK
 	    || fzn_search_wire_message_build_answer(out, cap > UINT32_MAX ? UINT32_MAX : (uint32_t)cap, FZN_CMD_SEARCH,
 	                                            body, wrote, &at)
 	               != SITU_OK)
@@ -234,7 +236,7 @@ int fzn_search_answer_read(const uint8_t *in, size_t len, fzn_search_hit_t *hits
 		memcpy(o->snippet, fzn_search_wire_hit_snippet_ptr(h), o->snippet_len);
 	}
 	*n = count;
-	*more = fzn_search_wire_answer_more_get(b);
+	*more = fzn_search_wire_answer_more_get(b) | (fzn_search_wire_answer_partial_get(b) << 1);
 	return 1;
 }
 
@@ -244,10 +246,10 @@ size_t fzn_search_answer_ask(const fzn_search_store_t *stores, size_t n_stores, 
 	static fzn_search_ask_t read;
 	static fzn_search_hit_t hits[FZN_SEARCH_K_MAX];
 	size_t n = 0;
-	int more = 0;
+	int more = 0, partial = 0;
 
 	if (!fzn_search_ask_read(ask, ask_len, &read)
-	    || !fzn_search_run(stores, n_stores, &read.query, asker, hits, &n, &more))
+	    || !fzn_search_run_partial(stores, n_stores, &read.query, asker, hits, &n, &more, &partial))
 		return 0;
-	return fzn_search_answer_write(hits, n, more, out, cap);
+	return fzn_search_answer_write(hits, n, (more ? 1 : 0) | (partial ? 2 : 0), out, cap);
 }

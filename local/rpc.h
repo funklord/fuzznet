@@ -886,6 +886,10 @@ typedef struct fzn_rpc_search_page {
 	size_t count;
 	int more;
 	size_t asked, answered, late;
+	/* NOT EVERYTHING WAS SEARCHED (fuzznet sec 1328): a store stopped short
+	 * on its own budget -- the newest lines walked, older ones not -- so no
+	 * page, however far paged, holds every hit. A view says so. */
+	int partial;
 } fzn_rpc_search_page_t;
 int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
                          size_t *asked);

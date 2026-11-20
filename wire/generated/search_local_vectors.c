@@ -179,20 +179,20 @@ static void test_message_get(void **state)
 }
 
 /* message / page */
-static const uint8_t vector_message_page[7u] = {
-	0x1A, 0x83, 0x02, 0x01, 0x03, 0x02, 0x01,
+static const uint8_t vector_message_page[8u] = {
+	0x1A, 0x83, 0x02, 0x01, 0x00, 0x03, 0x02, 0x01,
 };
 
 static void test_message_page(void **state)
 {
-	uint8_t     buf[7u];
+	uint8_t     buf[8u];
 	situ_msg_t  msg;
 	situ_view_t view;
 
 	(void)state;
 	memcpy(buf, vector_message_page, sizeof(buf));
-	situ_msg_init(&msg, buf, 7u);
-	situ_check_eq(fzn_search_local_message_view(&msg, 0, 7u, &view), SITU_OK);
+	situ_msg_init(&msg, buf, 8u);
+	situ_check_eq(fzn_search_local_message_view(&msg, 0, 8u, &view), SITU_OK);
 	situ_check_eq(fzn_search_local_message_validate(view), SITU_OK);
 
 	/* Every value written back through its own setter must reproduce the

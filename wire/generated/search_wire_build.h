@@ -513,6 +513,7 @@ static inline situ_err_t fzn_search_wire_answer_build(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
 		uint8_t more,
+		uint8_t partial,
 		const uint8_t *hits,
 		uint32_t hits_len,
 		uint32_t *situ_wrote)
@@ -531,6 +532,12 @@ static inline situ_err_t fzn_search_wire_answer_build(
 		return SITU_ERR_BOUNDS;
 	}
 	situ_out[situ_at] = (uint8_t)more;
+	situ_at += 1u;
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)partial;
 	situ_at += 1u;
 
 	/* hits: a run of `hit` the caller

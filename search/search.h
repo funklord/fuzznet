@@ -110,7 +110,10 @@ typedef struct fzn_search_store {
 	 * any order: the engine orders, windows and pages them. `asker` is the
 	 * user who asks -- NULL for this host's own, whose every store is; else
 	 * another user's root key -- and a store emits nothing that user may
-	 * not read here. 1 once done, 0 when the store would not read. */
+	 * not read here. 1 once done, 0 when the store would not read, and 2
+	 * when it stopped short on its own budget with items it never looked at
+	 * (sec 1328) -- which no next page reaches, so the answer is PARTIAL,
+	 * not merely MORE. */
 	int (*run)(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
 	           void *emit_ctx);
 	void *ctx;
@@ -133,6 +136,12 @@ int fzn_search_before(const fzn_search_hit_t *a, const fzn_search_hit_t *b);
  * read -- the hits of the others still given. */
 int fzn_search_run(const fzn_search_store_t *stores, size_t n_stores, const fzn_search_query_t *q,
                    const uint8_t *asker, fzn_search_hit_t *out, size_t *count, int *more);
+/* THE SAME, saying whether a store stopped short (sec 1328): `*partial` 1
+ * when one did, so the page is not everything this host holds -- however
+ * it is paged. */
+int fzn_search_run_partial(const fzn_search_store_t *stores, size_t n_stores, const fzn_search_query_t *q,
+                           const uint8_t *asker, fzn_search_hit_t *out, size_t *count, int *more,
+                           int *partial);
 
 /* HITS GATHERED ELSEWHERE, merged as `fzn_search_run` merges its stores'
  * -- the stores asked, the window, the cursor, one hit per item, the one

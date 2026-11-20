@@ -24,7 +24,9 @@ static int page(fzn_node_search_put_t put, void *ctx, const fzn_search_hit_t *hi
 	uint32_t body_len = 0, n = 0;
 	size_t i;
 
-	if (fzn_search_local_page_build(body, sizeof(body), (uint8_t)count, (uint8_t)(more ? 1 : 0),
+	/* MORE bit 1, hits past these; bit 2, a store stopped short (sec 1328). */
+	if (fzn_search_local_page_build(body, sizeof(body), (uint8_t)count, (uint8_t)((more & 1) ? 1 : 0),
+	                                (uint8_t)((more & 2) ? 1 : 0),
 	                                (uint8_t)(asked > 255u ? 255u : asked), (uint8_t)(answered > 255u ? 255u : answered),
 	                                (uint8_t)(late > 255u ? 255u : late), &body_len)
 	            != SITU_OK
