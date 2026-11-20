@@ -1,0 +1,87 @@
+# situ wire signature v3
+# schema: settings_registry.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+struct address size=2..
+  @0x0000   1         u8         lead  chars="\x2D.0-:A-Za-z"
+  @0x0001   until:20  u8         host  cap=252 chars="\x2D.0-:A-Za-z"
+  ~         0..       u16        port  sized-by=remaining radix=10 minimal min=1
+
+struct count size=0..
+  @0x0000   0..       u64        value  sized-by=remaining radix=10 minimal
+
+struct duration size=1..
+  @0x0000   0..       u32        count  sized-by=remaining radix=10 minimal leaves=1
+  ~         1         time_unit  unit
+
+struct flag size=0..
+  @0x0000   0..       flag_word  word  sized-by=remaining
+
+struct text size=0..
+  @0x0000   0..       u8         bytes  sized-by=remaining chars="\x20-~"
+
+registry node
+  key="archive/erasure" cell=text default="4+2" display=advanced max_size=5 min_size=3 scope=estate
+  key="archive/gone" cell=duration default="14d" display=advanced max=315360000 min=1 scope=estate
+  key="archive/replicas" cell=count default="2" display=advanced max=16 min=1 scope=estate
+  key="call/block-max" cell=duration default="1d" max=2592000 min=60 scope=estate\x20|\x20host
+  key="call/ring" cell=duration default="45s" max=600 min=5 scope=estate\x20|\x20host
+  key="call/ring-burst" cell=count default="10" max=1000 min=1 scope=estate\x20|\x20host
+  key="call/ring-refill" cell=duration default="1m" max=86400 min=1 scope=estate\x20|\x20host
+  key="contact/name/" cell=text family display=verb max_size=32 min_size=1 scope=estate
+  key="group/member" cell=text max_size=255 min_size=1 scope=host
+  key="host/name" cell=text max_size=32 min_size=1 scope=host
+  key="invite/confirm" cell=flag default="off" safe=higher scope=host
+  key="journal/window" cell=count default="60" max=36500 min=1 scope=estate
+  key="local/events" cell=text max_size=256 min_size=1 scope=host
+  key="local/permit/" cell=text family max_size=256 min_size=1 scope=host
+  key="location/accuracy" cell=count default="100" max=61440 min=0 scope=host
+  key="location/enabled" cell=flag default="off" safe=lower scope=host
+  key="location/every" cell=count default="30" max=86400 min=1 scope=host
+  key="location/follow" cell=flag default="off" safe=lower scope=estate\x20|\x20host
+  key="location/gpsd" cell=address default="localhost\x202947" max_size=253 scope=host
+  key="location/share-new" cell=flag default="off" safe=lower scope=estate\x20|\x20host
+  key="location/share-new-precision" cell=count default="0" max=3 min=0 scope=estate\x20|\x20host
+  key="log/level" cell=text max_size=8 min_size=1 scope=host
+  key="log/scope" cell=text display=sensitive max_size=12 min_size=6 scope=host
+  key="log/segment" cell=count display=advanced max=1099511627776 min=4096 scope=host
+  key="message/read-marks" cell=flag default="off" safe=lower scope=estate\x20|\x20host
+  key="message/read/" cell=flag family safe=lower scope=estate\x20|\x20host
+  key="message/unsend" cell=flag default="off" safe=lower scope=estate\x20|\x20host
+  key="metric/log/" cell=count family max=86400 min=10 scope=host
+  key="net/address" cell=address display=advertised max_size=253 scope=host
+  key="net/budget" cell=count max=1125899906842624 min=0 scope=host
+  key="net/budget-window" cell=count default="86400" max=2592000 min=60 scope=host
+  key="net/discovery" cell=text default="255.255.255.255" display=advanced max_size=45 min_size=1 scope=host
+  key="net/metric" cell=count default="100" display=advanced\x20|\x20advertised max=255 min=0 scope=host
+  key="preset/applied" cell=text display=advanced max_size=64 min_size=1 scope=host
+  key="preset/chosen" cell=text display=advanced max_size=32 min_size=1 scope=host
+  key="pressure/rank/" cell=text family display=advanced max_size=16 min_size=1 scope=host
+  key="relay/enabled" cell=flag default="off" safe=lower scope=host
+  key="relay/quota" cell=count default="104857600" max=1000000000000000000 min=0 scope=host
+  key="relay/window" cell=count default="86400" max=31536000 min=1 scope=host
+  key="remote/admin" cell=flag default="off" display=sensitive safe=lower scope=host
+  key="remote/permit" cell=text max_size=256 min_size=1 scope=host
+  key="remote/permit/" cell=text family max_size=256 min_size=1 scope=host
+  key="retention/" cell=text family display=verb max_size=256 min_size=1 scope=estate\x20|\x20host
+  key="revocation/k" cell=count max=255 min=1 safe=higher scope=estate
+  key="routing/advertise" cell=flag default="off" display=advertised safe=lower scope=estate
+  key="routing/public" cell=flag default="off" display=advertised safe=lower scope=estate
+  key="sticker/" cell=text family display=verb max_size=256 min_size=1 scope=estate\x20|\x20host
+  key="stream/grant/" cell=count family display=verb max=3 min=0 scope=estate

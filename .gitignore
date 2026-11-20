@@ -424,3 +424,4 @@ __pycache__/
 /wire/test/session_frame_wire_vectors
 /wire/test/group_act_record_vectors
 /wire/test/group_line_wire_vectors
+/node/test/settings_registry_test

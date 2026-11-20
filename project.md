@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1329
+The newest work is at the end of this file. **Read secs 1287 to 1330
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -94874,3 +94874,44 @@ bounds (a read-only audit, every finding then checked here by hand):
 The ten others match value for value. Two bounds wider than the code's
 reading were left: reconcile's holding class (read and skipped past 8)
 and log entry's `cause_count` (0 or 2, which a bound cannot say).
+
+## 1330. fuzznet's settings as situ's registry: a contract held row by row and value by value, 2026-11-20
+
+Sec 1311's second item, the registry (situ 26.1080-26.1090), which situ
+designed from this tree's own settings table. **`node/settings_registry.situ`
+declares every cell of `fzn_node_schema_own`** -- all 48: key, type,
+bounds, default, unit, summary, scope, safe direction and display words --
+over five cell types written in situ's own text features: a count
+(`decimal u64 [minimal]`), a flag (tokens on/off/1/0 and a `let value`), a
+duration (a count and a `d h m s` token, worth its seconds), printable
+text (`[chars = " -~"]`) and an address (host characters by `[chars]`, a
+port 1 to 65535). It was transcribed from the C table by a script, so the
+registry says what the table says, not what someone remembered.
+
+**A contract first, as the layouts were** (sec 1313): situ generates the
+table and its `find`, `check`, `value` and `safer`
+(`wire/generated/settings_registry.{c,h}`), `node/schema.c` still serves
+settings, and **`node/test/settings_registry_test` holds the two to
+agreeing**: every row (key, scope, safe, display, bounds, sizes,
+default, unit, summary), a family's instance found alike, and 2766
+values run through both checkers. Where a hand entry has a check of its
+own -- a permit, a pressure rank, a group list, a log level or scope --
+situ types the cell as printable text, so the test holds only that situ
+takes at least what the hand table takes.
+
+**What it found:**
+- **All 48 rows agree.**
+- **One spelling per value**: the hand count and duration take leading
+  zeros ("007", "host 007"), situ's `[minimal]` does not -- 15 spellings,
+  counted and named by the test, which fails if they stop differing
+  without anyone saying so. Tightening the hand parser would refuse any
+  stored setting spelled so; whether that matters is open.
+- **An empty host**: a first address type let the host be empty, which the
+  hand parser refuses; a delimited run states no least length in situ, so
+  the host's first byte is a run of its own (sent to situ, inbox
+  20261120T2330Z).
+
+**Next**: `node/schema.c`'s readers onto the generated `find`/`check`/
+`value`, the hand-only checks as situ types where its features reach (a
+permit's grammar is the hardest), and consumer extensions' tables (sec
+686) as registries of their own.

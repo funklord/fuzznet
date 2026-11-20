@@ -1,0 +1,155 @@
+// fuzznet's own settings as a situ registry, project.md sec 1330: every
+// cell `node/schema.c`'s fzn_node_schema_own declares -- its key, its
+// value's type and bounds, its default, unit and summary, its scope, its
+// display words -- so situ generates the table and its `find`, `check`,
+// `value` and `safer` (situ 26.1080-26.1090).
+//
+// A CONTRACT FIRST, as the layouts were (sec 1313): node/schema.c still
+// serves the table, and node/test/settings_registry_test holds the two to
+// agreeing, row by row and value by value. What the registry cannot say
+// yet, the hand table still checks: a permit's grammar, a pressure rank,
+// a group list, a log level or scope (their entries' `check` functions);
+// the registry types those as printable text of their bounds.
+
+target buffer;
+endian big;
+
+policy scope   { estate, host }
+policy display { restart, sensitive, advanced, verb, advertised }
+
+tokens flag_word { on = "on", off = "off", one = "1", zero = "0", default = error, }
+tokens time_unit { d = "d", h = "h", m = "m", s = "s", default = error, }
+
+// A COUNT: decimal digits, one spelling per value.
+struct count {
+	decimal u64  value[remaining]  [minimal];
+}
+
+// A FLAG: on, off, 1 or 0.
+struct flag {
+	flag_word  word[remaining];
+	let u8 value = (word == flag_word.on) | (word == flag_word.one);
+}
+
+// A DURATION: a count and one of d h m s, worth its seconds.
+struct duration {
+	decimal u32  count[remaining]  [minimal];
+	time_unit    unit[1];
+	let u64 value = count * ((unit == time_unit.d) * 86400
+	                       + (unit == time_unit.h) * 3600
+	                       + (unit == time_unit.m) * 60
+	                       + (unit == time_unit.s));
+}
+
+// TEXT: printable ASCII, bounded by the entry.
+struct text {
+	u8  bytes[remaining]  [chars = " -~"];
+}
+
+// AN ADDRESS: HOST PORT, the host letters, digits and .-:, the port 1 to
+// 65535. The host's first byte is a run of its own because a delimited run
+// states no least length: an empty host is no host (sent to situ).
+struct address {
+	u8           lead[1]  [chars = "a-zA-Z0-9.:-"];
+	u8           host[] until " " max 252  [chars = "a-zA-Z0-9.:-"];
+	decimal u16  port[remaining]  [minimal, min = 1];
+}
+
+registry node {
+	"revocation/k" : count [min = 1, max = 255, unit = "root signatures", scope = estate, safe = higher]
+		"the estate's k: root signatures a revocation needs, a root's to set (sec 542)";
+	"journal/window" : count [min = 1, max = 36500, default = "60", unit = "days", scope = estate]
+		"how far back the journal reaches; a clear older than this is forgotten (sec 548)";
+	"archive/replicas" : count [min = 1, max = 16, default = "2", unit = "hosts", scope = estate, display = advanced]
+		"how many hosts hold an archived segment before it is pruned (sec 592)";
+	"archive/erasure" : text [min_size = 3, max_size = 5, default = "4+2", unit = "data+parity pieces", scope = estate, display = advanced]
+		"how an archived segment is cut into pieces (sec 597)";
+	"archive/gone" : duration [min = 1, max = 315360000, default = "14d", scope = estate, display = advanced]
+		"how long a keeper may be silent before its pieces are placed elsewhere (sec 601)";
+	"routing/public" : flag [default = "off", scope = estate, safe = lower, display = advertised]
+		"the routing manifest offers this estate's hosts as public relays (sec 611)";
+	"routing/advertise" : flag [default = "off", scope = estate, safe = lower, display = advertised]
+		"contacts are told every host of the estate, not only this node (sec 614)";
+	"stream/grant/" : count [min = 0, max = 3, unit = "level", scope = estate, display = verb]
+		"the level a grantee holds of a stream, by `grant stream` (sec 660)";
+	"contact/name/" : text [min_size = 1, max_size = 32, scope = estate, display = verb]
+		"a contact's name, the user's on every host, by `add contact`, which checks it (sec 699)";
+	"metric/log/" : count [min = 10, max = 86400, unit = "seconds", scope = host]
+		"a metric family logged every so many seconds, subsystem metric/NAME; unset, not logged (sec 1053)";
+	"net/address" : address [max_size = 253, scope = host, display = advertised]
+		"where this host is reached, HOST PORT, an admin's to correct (sec 579)";
+	"host/name" : text [min_size = 1, max_size = 32, scope = host]
+		"what this host's user calls it -- laptop, phone -- as every device of the estate lists it (sec 848)";
+	"local/permit/" : text [min_size = 1, max_size = 256, scope = host]
+		"which local users and groups may read (r) or change (rw) a verb's subject on this host: group:NAME=r user:NAME=rw, #ID for a NAME (sec 852)";
+	"remote/permit/" : text [min_size = 1, max_size = 256, scope = host]
+		"which hosts of the estate may call this procedure here: member, admin, root, host:HEX or none, apart by spaces (sec 921)";
+	"remote/permit" : text [min_size = 1, max_size = 256, scope = host]
+		"the same, for every procedure with no rule of its own; member when unset (sec 921)";
+	"preset/chosen" : text [min_size = 1, max_size = 32, scope = host, display = advanced]
+		"the profile this host's user chose, by `set preset` (sec 908)";
+	"preset/applied" : text [min_size = 1, max_size = 64, scope = host, display = advanced]
+		"the profile last applied here, and its revisions (sec 908)";
+	"local/events" : text [min_size = 1, max_size = 256, scope = host]
+		"which local users and groups may hold `get events`, hearing what this application publishes and none of fuzznet's: local:NAME=r local:@GROUP=r, or any=r for every local user (secs 899, 933)";
+	"pressure/rank/" : text [min_size = 1, max_size = 16, scope = host, display = advanced]
+		"where a kind of work stands when this host is short of disk, memory or network: trace, copy or user, for streams, relay, files, group-lines, notes, messages, reconcile (sec 917)";
+	"group/member" : text [min_size = 1, max_size = 255, scope = host]
+		"the groups this host is in, first first: a group's settings stand here where the host sets none of its own, and the first group listed that sets one wins (sec 868)";
+	"net/budget" : count [min = 0, max = 1125899906842624, unit = "bytes", scope = host]
+		"how many bytes each leg may carry in a budget window before a file is no longer fetched over it; unset is no limit (sec 1210)";
+	"net/budget-window" : count [min = 60, max = 2592000, default = "86400", unit = "seconds", scope = host]
+		"how long a leg's budget lasts before it begins again, as `relay/window` is (sec 1210)";
+	"net/metric" : count [min = 0, max = 255, default = "100", scope = host, display = advanced | advertised]
+		"this host's place in the routing manifest, lower first (sec 611)";
+	"net/discovery" : text [min_size = 1, max_size = 45, default = "255.255.255.255", scope = host, display = advanced]
+		"where `fetch lan` sends its probe, or `off` (sec 624)";
+	"call/ring" : duration [min = 5, max = 600, default = "45s", scope = estate | host]
+		"how long a call to this user rings unanswered before its caller is told no answer (sec 1073)";
+	"call/ring-burst" : count [min = 1, max = 1000, default = "10", unit = "rings", scope = estate | host]
+		"rings one user may make to this one at once before more are refused busy (sec 1074)";
+	"call/ring-refill" : duration [min = 1, max = 86400, default = "1m", scope = estate | host]
+		"how long a refused caller waits for one more ring (sec 1074)";
+	"call/block-max" : duration [min = 60, max = 2592000, default = "1d", scope = estate | host]
+		"the longest a caller ringing on while refused is blocked, the block doubling to it (sec 1074)";
+	"location/enabled" : flag [default = "off", scope = host, safe = lower]
+		"sample gpsd into the location stream; off, a position being the most sensitive thing kept (sec 678)";
+	"location/gpsd" : address [max_size = 253, default = "localhost 2947", scope = host]
+		"where gpsd is (sec 678)";
+	"location/every" : count [min = 1, max = 86400, default = "30", unit = "seconds", scope = host]
+		"the least time between fixes kept (sec 678)";
+	"location/accuracy" : count [min = 0, max = 61440, default = "100", unit = "metres", scope = host]
+		"a fix less certain than this is dropped; 0 keeps every fix (sec 678)";
+	"message/read-marks" : flag [default = "off", scope = estate | host, safe = lower]
+		"tell a contact this user has read their lines, in every conversation with no choice of its own; off, as the holder chose (sec 1269)";
+	"message/read/" : flag [scope = estate | host, safe = lower]
+		"the same for one conversation, named by its key's first 24 bytes in hex: on or off whatever message/read-marks says; unset, it follows (sec 1269)";
+	"message/unsend" : flag [default = "off", scope = estate | host, safe = lower]
+		"let this user take back a line of its own within an hour of sending it, and let a contact take back theirs here, its text let go on this user's devices; off, as the holder chose (sec 1284)";
+	"location/share-new" : flag [default = "off", scope = estate | host, safe = lower]
+		"grant a contact this user's position the first time it becomes one, once -- a contact later turned off is never granted again (sec 1231)";
+	"location/share-new-precision" : count [min = 0, max = 3, default = "0", unit = "level", scope = estate | host]
+		"the precision location/share-new grants: 0 exact to 3 the coarsest (sec 1231)";
+	"location/follow" : flag [default = "off", scope = estate | host, safe = lower]
+		"fetch the position of each contact whose position this host holds every 30 s, not only when asked (sec 1240)";
+	"log/level" : text [min_size = 1, max_size = 8, scope = host]
+		"the least severe level this host's log file keeps, critical to trace; unset, `--log-level`'s, info by default (sec 735)";
+	"log/segment" : count [min = 4096, max = 1099511627776, unit = "bytes", scope = host, display = advanced]
+		"the size a log segment is rotated at; unset, `--log-segment`'s (sec 735)";
+	"log/scope" : text [min_size = 6, max_size = 12, scope = host, display = sensitive]
+		"host-private, or estate to let the estate's members gather this host's log; unset, `--log-scope`'s, host-private by default (sec 735)";
+	"invite/confirm" : flag [default = "off", scope = host, safe = higher]
+		"an invite waits for this host's user unless `add invite open` says not (sec 896)";
+	"relay/enabled" : flag [default = "off", scope = host, safe = lower]
+		"this host relays frames for others (sec 622)";
+	"relay/quota" : count [min = 0, max = 1000000000000000000, default = "104857600", unit = "bytes", scope = host]
+		"what one requester may relay through this host a window; 0 for no bound (sec 622)";
+	"relay/window" : count [min = 1, max = 31536000, default = "86400", unit = "seconds", scope = host]
+		"the window a relay quota counts over (sec 622)";
+	"remote/admin" : flag [default = "off", scope = host, safe = lower, display = sensitive]
+		"an admin or a root may run this node's verbs remotely (sec 543)";
+	"retention/" : text [min_size = 1, max_size = 256, scope = estate | host, display = verb]
+		"one retention rule, by `add retention` (sec 541)";
+	"sticker/" : text [min_size = 1, max_size = 256, scope = estate | host, display = verb]
+		"a saved sticker pack, by `put sticker` or `add sticker` (sec 681)";
+}

@@ -242,7 +242,8 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/time_local.c wire/generated/settings_local.c wire/generated/want.c \
              wire/generated/notes_local.c wire/generated/search_wire.c wire/generated/search_local.c \
              wire/generated/heard_row.c wire/generated/session_frame_wire.c \
-             wire/generated/group_act_record.c wire/generated/group_line_wire.c wire/generated/situ.c
+             wire/generated/group_act_record.c wire/generated/group_line_wire.c \
+             wire/generated/settings_registry.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
@@ -517,7 +518,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c local/test/escape_test.c \
-             node/test/types_test.c node/test/meter_test.c node/test/sync_load_test.c node/test/schema_test.c location/test/location_test.c \
+             node/test/types_test.c node/test/meter_test.c node/test/sync_load_test.c node/test/schema_test.c node/test/settings_registry_test.c location/test/location_test.c \
              node/test/log_list_test.c node/test/clocks_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
              sticker/test/sticker_test.c messages/test/attachment_test.c messages/test/reply_test.c search/test/search_test.c search/test/remote_test.c \
@@ -728,6 +729,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/session_frame_wire_vectors \
              $(BUILD_DIR)/wire/test/group_act_record_vectors \
              $(BUILD_DIR)/wire/test/group_line_wire_vectors \
+             $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
@@ -5826,6 +5828,15 @@ $(BUILD_DIR)/node/test/clocks_test: $(BUILD_DIR)/node/test/clocks_test.o $(BUILD
 	$(CC) $(CFLAGS) $^ -o $@
 
 # The settings declared, sec 686.
+# FUZZNET'S SETTINGS AS SITU'S REGISTRY, held to the hand table, sec 1330.
+$(BUILD_DIR)/node/test/settings_registry_test: $(BUILD_DIR)/node/test/settings_registry_test.o \
+                                    $(BUILD_DIR)/wire/generated/settings_registry.o $(BUILD_DIR)/wire/generated/situ.o \
+                                    $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o \
+                                    $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                                    $(BUILD_DIR)/local/escape.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/schema_test: $(BUILD_DIR)/node/test/schema_test.o \
                                     $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o \
                                     $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
@@ -7647,7 +7658,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
               node/heard_row.situ node/routing.situ node/contact_devices.situ \
               node/contact_card.situ node/contact_request.situ node/group_act_record.situ \
-              node/group_line_wire.situ location/fix.situ sticker/pack.situ node/objects.situ \
+              node/settings_registry.situ node/group_line_wire.situ location/fix.situ sticker/pack.situ node/objects.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
               node/members_local.situ node/meter_local.situ node/reach_local.situ \
@@ -8406,6 +8417,8 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_settings_registry \
+	         --out $(BUILD_DIR)/.gen.new node/settings_registry.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_group_line_wire --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/group_line_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_group_line_wire \
@@ -8476,7 +8489,7 @@ schema:
 	          group_act_record.c group_act_record.h group_act_record_build.h group_act_record_edit.h \
 	          group_act_record_vectors.c \
 	          group_line_wire.c group_line_wire.h group_line_wire_build.h group_line_wire_edit.h \
-	          group_line_wire_vectors.c \
+	          group_line_wire_vectors.c settings_registry.c settings_registry.h \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \
