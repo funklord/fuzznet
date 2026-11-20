@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1302
+The newest work is at the end of this file. **Read secs 1287 to 1305
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -56,6 +56,14 @@ listener port spans (`150e3106`).
   target's words as the matcher's context; (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
   (sec 1272).
+- **The rest of the binary move** (the holder's "no protocol part is to
+  stay text", secs 1208, 1217): files (sec 1303), sticker reads (sec
+  1304) and governance acts (sec 1305) moved on 2026-11-20. Left, in
+  sec 1217's order: the settings calls (`fzn_rpc_config_*`), a host
+  revoked and unrevoked by name, grants made, the device confirmation
+  setting, the library's `add`, building or keeping a pack from a file;
+  joining and the join offer stay text by their own sections (1250,
+  1288) until a reason moves them.
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
   what was true once to `doc/journal.md`, a cited section moving with
   its citations). Not started. Measured: 174 of 1309 numbered sections
