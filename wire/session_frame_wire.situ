@@ -1,10 +1,12 @@
 // The session frame, project.md secs 924 and 932: 33 bytes before a payload,
-// for two ends that are both awake. The hand-written codec is
-// wire/session_frame.c; this is its checked contract, in `make schema`'s list.
+// for two ends that are both awake. wire/session_frame.c reads the head and
+// keeps the replay window through the code situ generates from this (sec
+// 1320); `_wire`, so the generated file's name meets no source's (sec 1313).
 //
-// What the schema cannot say and the codec checks: the counter is never 0, and
-// never one already heard; the text opens under the direction's key, its nonce
-// the counter, with the nine bytes of head as associated data.
+// What the schema says and the generated code checks: the head's mark, a
+// counter never 0, and the window below. What it cannot say and the codec
+// does: the text opens under the direction's key, its nonce the counter,
+// with the nine bytes of head as associated data.
 
 target buffer;
 endian big;
@@ -35,3 +37,9 @@ struct fzn_session_grant {
 	u32  handle;                     // what the granter hears under
 	u64  now_ms;                     // the granter's clock
 }
+
+// THE COUNTER WINDOW, one per session and the session's to keep: a counter
+// heard once, and none more than 64 below the highest heard. Checked before
+// the tag, so a replay costs no AEAD work; recorded after it, so a forgery
+// moves nothing (situ 26.1120, shaped by this tree's review).
+replay heard(h: fzn_session_frame_head) [counter = h.counter, window = 64];

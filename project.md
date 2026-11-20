@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1319
+The newest work is at the end of this file. **Read secs 1287 to 1320
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -94574,3 +94574,58 @@ user's, either writer, a group filter finding none, a `not` alone
 malformed. live_chat b2 -- A's search with bob `where from=B` finds the
 two lines B's hosts wrote, from A1's own run and B's hosts alike. Sabotages `search-keep-ignored`, `search-merge-filters-again`,
 `search-filter-not-carried`, `facet-entity-ignores-n`.
+
+## 1320. The session frame's head and replay window on situ's generated code, 2026-11-20
+
+situ built replay windows the same day (situ 4b5e5515, its 26.1120),
+shaped by this tree's review (sec 1318): a pure `check` before the tag and
+a `record` after it, the counter window keyed by the state the caller
+hands over, a wrapped counter refused. The first use:
+
+- **`wire/session_frame.situ` is `wire/session_frame_wire.situ`** (sec
+  1313's rule: its codec is `wire/session_frame.c`), generated at the
+  converse layer, and declares the window: `replay heard(h:
+  fzn_session_frame_head) [counter = h.counter, window = 64];`.
+- **`wire/session_frame.c` reads the head through the generated view and
+  `validate`** -- its mark and a counter never 0 now the schema's to check
+  -- and keeps the window by `heard_check` before the frame is opened
+  and `heard_record` after: a replay costs no AEAD work and a forgery
+  records nothing, as `stale` and `mark_heard` did by hand (29 lines
+  gone).
+- **The public struct is unchanged.** `fzn_session_end_t` keeps `newest`
+  and `heard`; the generated state (`top`, `seen`, `any`) is built from
+  them for a call and written back -- exact, since a counter is never 0
+  (`any` is `newest != 0`). Exposing the generated type would have made
+  `session_frame.h` the first public header to include a generated one,
+  and the generated headers are not installed.
+- **The board**: `device-check` compiles it freestanding, and the board's
+  objects already link the generated runtime.
+
+**Not adopted yet: the nonce set** (`frame/freshness.c`, `[nonce =,
+expires =, capacity =, ahead =, unit =]`). Two shapes do not fit, sent to
+situ (inbox 20261120T1900Z): fuzznet's capacity is the consumer's, sized
+by its own admitted rate (`capacity >= rate x ahead`), where situ's is
+fixed in the schema; and a zero expiry is refused for a command and
+allowed for a grant -- by the frame's kind -- where situ's rule is one per
+declaration. And its clock's unit, which the schema would fix, is not yet
+decided here (`frame/freshness.h`: "stated nowhere ... a finding").
+
+**situ's answer** (inbox 20261120T1705Z, situ b4f405c9): the counter
+state's fields are stated stable, so building it from this tree's own
+fields is supported; the nonce table is the caller's now (`{slots,
+count}`, `capacity` optional and a floor when stated, the sizing rule in
+the header); header guards say the stem once. Asked back: zero expiry by
+the frame's kind, declared per arm with a shared table or keyed on a
+field. **Answered (situ inbox 20261120T1930Z): neither** -- here the rule
+is the consumer's at runtime (`admit/admit.c` step 5,
+`env->ops->expiry_rule(ctx, kind)`), a kind being a value in the sealed
+region whose meaning is the consumer's vocabulary; so the rule handed
+over at the call, `expiry = caller`.
+
+**Tests:** session_frame_wire_vectors (1); session_frame_test (290)
+unchanged, over the generated window; session_frame_fuzz, 200000 cases,
+none opened that should not. Sabotages `session-forgery-moves-the-window`
+(a counter recorded though its tag failed), `session-counter-heard-twice`
+(the window forgets), `session-window-unbounded` (every frame the first),
+rewritten for the generated window. live_device -- a board's session
+frames to the bridge, revocation mid-session -- passes over it.

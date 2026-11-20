@@ -421,3 +421,4 @@ __pycache__/
 /wire/test/search_wire_vectors
 /wire/test/search_local_vectors
 /wire/test/heard_row_vectors
+/wire/test/session_frame_wire_vectors

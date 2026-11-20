@@ -241,7 +241,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/members_local.c wire/generated/meter_local.c wire/generated/reach_local.c \
              wire/generated/time_local.c wire/generated/settings_local.c wire/generated/want.c \
              wire/generated/notes_local.c wire/generated/search_wire.c wire/generated/search_local.c \
-             wire/generated/heard_row.c wire/generated/situ.c
+             wire/generated/heard_row.c wire/generated/session_frame_wire.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
@@ -254,7 +254,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/reach_local_vectors.c wire/generated/time_local_vectors.c wire/generated/want_vectors.c \
                  wire/generated/settings_local_vectors.c wire/generated/notes_local_vectors.c \
                  wire/generated/search_wire_vectors.c wire/generated/search_local_vectors.c \
-                 wire/generated/heard_row_vectors.c
+                 wire/generated/heard_row_vectors.c wire/generated/session_frame_wire_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -723,6 +723,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/search_wire_vectors \
              $(BUILD_DIR)/wire/test/search_local_vectors \
              $(BUILD_DIR)/wire/test/heard_row_vectors \
+             $(BUILD_DIR)/wire/test/session_frame_wire_vectors \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
@@ -4499,6 +4500,7 @@ $(BUILD_DIR)/node/test/verify_memo_test: $(BUILD_DIR)/node/test/verify_memo_test
 	$(CC) $(CFLAGS) $^ -o $@
 
 SESSION_FRAME_TEST_OBJS := $(BUILD_DIR)/wire/session_frame.o \
+                           $(BUILD_DIR)/wire/generated/session_frame_wire.o $(BUILD_DIR)/wire/generated/situ.o \
                            $(BUILD_DIR)/session/aead_monocypher.o \
                            $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o
 
@@ -4618,6 +4620,13 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
                                            wire/generated/search_wire.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# THE SESSION FRAME'S HEAD AND ITS REPLAY WINDOW, generated, sec 1320.
+$(BUILD_DIR)/wire/test/session_frame_wire_vectors: wire/generated/session_frame_wire_vectors.c \
+                                                  wire/generated/session_frame_wire.c wire/generated/situ.c \
+                                                  $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
@@ -7613,7 +7622,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               record/store_file.situ catalog/attribute.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ node/call.situ wire/status.situ node/address.situ \
               record/exchange.situ \
-              wire/session_frame.situ node/verify_memo.situ notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
+              wire/session_frame_wire.situ node/verify_memo.situ notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting.situ \
               node/reconcile.situ node/buckets.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
@@ -8378,6 +8387,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_session_frame_wire --layer converse \
+	         --out $(BUILD_DIR)/.gen.new wire/session_frame_wire.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_session_frame_wire \
+	         --out $(BUILD_DIR)/.gen.new wire/session_frame_wire.situ wire/session_frame_wire.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_heard_row \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ node/heard_row.vectors >/dev/null 2>&1
 	@# AND THE LINKS, ON THE LOCAL LEG, sec 1183.
@@ -8431,6 +8444,8 @@ schema:
 	          search_wire.c search_wire.h search_wire_edit.h search_wire_build.h search_wire_vectors.c \
 	          search_local.c search_local.h search_local_edit.h search_local_build.h search_local_vectors.c \
 	          heard_row.c heard_row.h heard_row_build.h heard_row_vectors.c \
+	          session_frame_wire.c session_frame_wire.h session_frame_wire_build.h session_frame_wire_frame.h \
+	          session_frame_wire_replay.h session_frame_wire_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

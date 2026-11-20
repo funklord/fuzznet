@@ -1,0 +1,4 @@
+# Golden vectors for wire/session_frame_wire.situ, written by hand from its
+# layout: the mark 0xFA (250), the receiver's handle, this direction's counter.
+
+fzn_session_frame_head head FA 00 00 01 02 00 00 00 07

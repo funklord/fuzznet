@@ -5,6 +5,8 @@
 #include <string.h>
 
 #include "bytes.h"
+#include "generated/session_frame_wire.h"
+#include "generated/session_frame_wire_replay.h"
 
 #define DOMAIN "fuzznet session frame 1"
 #define DOMAIN_LEN (sizeof(DOMAIN) - 1u)
@@ -105,28 +107,18 @@ fzn_session_frame_err_t fzn_session_frame_seal(fzn_session_end_t *end, uint32_t 
 	return FZN_SESSION_FRAME_OK;
 }
 
-/* HEARD ALREADY, or too old to say. */
-static int stale(const fzn_session_end_t *end, uint32_t counter)
+/* THE WINDOW, situ's (`wire/session_frame_wire.situ`'s `heard`, sec
+ * 1320), kept in the session's own fields so the public struct is the
+ * same: its highest counter is `newest`, its bitmap `heard`, and none is
+ * heard while `newest` is 0, a counter never being 0. */
+static fzn_session_frame_wire_heard_t window_of(const fzn_session_end_t *end)
 {
-	uint32_t behind;
+	fzn_session_frame_wire_heard_t w;
 
-	if (counter > end->newest)
-		return 0;
-	behind = end->newest - counter;
-	return behind >= FZN_SESSION_WINDOW || ((end->heard >> behind) & 1u);
-}
-
-static void mark_heard(fzn_session_end_t *end, uint32_t counter)
-{
-	if (counter > end->newest) {
-		uint32_t ahead = counter - end->newest;
-
-		end->heard = ahead >= FZN_SESSION_WINDOW ? 0u : end->heard << ahead;
-		end->heard |= 1u;
-		end->newest = counter;
-		return;
-	}
-	end->heard |= (uint64_t)1u << (end->newest - counter);
+	w.top = end->newest;
+	w.seen = end->heard;
+	w.any = end->newest != 0u;
+	return w;
 }
 
 fzn_session_frame_err_t fzn_session_frame_open(fzn_session_end_t *end, uint8_t *frame,
@@ -137,14 +129,26 @@ fzn_session_frame_err_t fzn_session_frame_open(fzn_session_end_t *end, uint8_t *
 	uint8_t *text;
 	size_t text_len;
 	uint32_t handle, counter;
+	situ_msg_t m;
+	situ_view_t head;
+	fzn_session_frame_wire_heard_t window;
+	fzn_session_frame_wire_replay_verdict verdict = FZN_SESSION_FRAME_WIRE_REPLAY_OK;
 
 	if (!end || !frame || !aead || !aead->open || !out)
 		return FZN_SESSION_FRAME_ERR_MALFORMED;
 	if (!fzn_session_frame_handle(frame, frame_len, &handle) || handle != end->hears_as)
 		return FZN_SESSION_FRAME_ERR_SHAPE;
-	counter = fzn_get_be32(frame + COUNTER_AT);
-	/* 0 IS NEVER SEALED: the first counter is 1, so `newest` 0 is none heard. */
-	if (counter == 0u || stale(end, counter))
+	/* THE HEAD AS THE SCHEMA READS IT: its mark, and a counter never 0 --
+	 * the first is 1, so `newest` 0 is none heard. */
+	situ_msg_init(&m, frame, (uint32_t)FZN_SESSION_FRAME_HEAD_LEN);
+	if (fzn_session_frame_wire_fzn_session_frame_head_view(&m, 0u, &head) != SITU_OK
+	    || fzn_session_frame_wire_fzn_session_frame_head_validate(head) != SITU_OK)
+		return FZN_SESSION_FRAME_ERR_REPLAY;
+	counter = fzn_session_frame_wire_fzn_session_frame_head_counter_get(head);
+	/* BEFORE THE TAG: a counter heard, or too old, costs no AEAD work. */
+	window = window_of(end);
+	if (fzn_session_frame_wire_heard_check(&window, head, &verdict) != SITU_OK
+	    || verdict != FZN_SESSION_FRAME_WIRE_REPLAY_OK)
 		return FZN_SESSION_FRAME_ERR_REPLAY;
 	text = frame + FZN_SESSION_FRAME_HEAD_LEN;
 	text_len = frame_len - FZN_SESSION_FRAME_HEAD_LEN - FZN_AEAD_TAG_LEN;
@@ -152,7 +156,12 @@ fzn_session_frame_err_t fzn_session_frame_open(fzn_session_end_t *end, uint8_t *
 	if (!aead->open(aead->ctx, end->recv_key, nonce, frame, FZN_SESSION_FRAME_HEAD_LEN, text,
 	                text_len, frame + FZN_SESSION_FRAME_HEAD_LEN + text_len))
 		return FZN_SESSION_FRAME_ERR_TAG;
-	mark_heard(end, counter);
+	/* AFTER IT: only a frame that opened moves the window. */
+	if (fzn_session_frame_wire_heard_record(&window, head, &verdict) != SITU_OK
+	    || verdict != FZN_SESSION_FRAME_WIRE_REPLAY_OK)
+		return FZN_SESSION_FRAME_ERR_REPLAY;
+	end->newest = (uint32_t)window.top;
+	end->heard = window.seen;
 	out->msg = fzn_get_be32(text);
 	out->expires_at = fzn_get_be32(text + 4u);
 	out->counter = counter;
