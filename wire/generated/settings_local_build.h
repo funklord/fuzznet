@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a value_ask into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -69,7 +79,7 @@ static inline situ_err_t fzn_settings_local_value_ask_build(
 		if (key_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, key_, key__len);
+		situ_put(situ_out + situ_at, key_, key__len);
 	}
 	situ_at += key__len;
 
@@ -150,7 +160,7 @@ static inline situ_err_t fzn_settings_local_value_row_build(
 		if (value_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, value_, value__len);
+		situ_put(situ_out + situ_at, value_, value__len);
 	}
 	situ_at += value__len;
 
@@ -225,7 +235,7 @@ static inline situ_err_t fzn_settings_local_setting_ask_build(
 		if (key_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, key_, key__len);
+		situ_put(situ_out + situ_at, key_, key__len);
 	}
 	situ_at += key__len;
 
@@ -247,7 +257,7 @@ static inline situ_err_t fzn_settings_local_setting_ask_build(
 		if (value_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, value_, value__len);
+		situ_put(situ_out + situ_at, value_, value__len);
 	}
 	situ_at += value__len;
 
@@ -319,7 +329,7 @@ static inline situ_err_t fzn_settings_local_fork_row_build(
 		if (subject_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, subject_, subject__len);
+		situ_put(situ_out + situ_at, subject_, subject__len);
 	}
 	situ_at += subject__len;
 
@@ -329,7 +339,7 @@ static inline situ_err_t fzn_settings_local_fork_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, host, 32u);
+	situ_put(situ_out + situ_at, host, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 8u) {
@@ -356,7 +366,7 @@ static inline situ_err_t fzn_settings_local_fork_row_build(
 		if (grounds_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, grounds_, grounds__len);
+		situ_put(situ_out + situ_at, grounds_, grounds__len);
 	}
 	situ_at += grounds__len;
 
@@ -378,7 +388,7 @@ static inline situ_err_t fzn_settings_local_fork_row_build(
 		if (value_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, value_, value__len);
+		situ_put(situ_out + situ_at, value_, value__len);
 	}
 	situ_at += value__len;
 
@@ -495,7 +505,7 @@ static inline situ_err_t fzn_settings_local_rule_row_build(
 		if (rule_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, rule_, rule__len);
+		situ_put(situ_out + situ_at, rule_, rule__len);
 	}
 	situ_at += rule__len;
 
@@ -569,7 +579,7 @@ static inline situ_err_t fzn_settings_local_rule_change_build(
 		if (rule_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, rule_, rule__len);
+		situ_put(situ_out + situ_at, rule_, rule__len);
 	}
 	situ_at += rule__len;
 
@@ -664,7 +674,7 @@ static inline situ_err_t fzn_settings_local_message_build_forks(
 		if (forks == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, forks, forks_len);
+		situ_put(situ_out + situ_at, forks, forks_len);
 	}
 	situ_at += forks_len;
 
@@ -759,7 +769,7 @@ static inline situ_err_t fzn_settings_local_message_build_fork_row(
 		if (fork_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, fork_row, fork_row_len);
+		situ_put(situ_out + situ_at, fork_row, fork_row_len);
 	}
 	situ_at += fork_row_len;
 
@@ -854,7 +864,7 @@ static inline situ_err_t fzn_settings_local_message_build_rules(
 		if (rules == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, rules, rules_len);
+		situ_put(situ_out + situ_at, rules, rules_len);
 	}
 	situ_at += rules_len;
 
@@ -949,7 +959,7 @@ static inline situ_err_t fzn_settings_local_message_build_rule_row(
 		if (rule_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, rule_row, rule_row_len);
+		situ_put(situ_out + situ_at, rule_row, rule_row_len);
 	}
 	situ_at += rule_row_len;
 
@@ -1044,7 +1054,7 @@ static inline situ_err_t fzn_settings_local_message_build_rule_add(
 		if (rule_add == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, rule_add, rule_add_len);
+		situ_put(situ_out + situ_at, rule_add, rule_add_len);
 	}
 	situ_at += rule_add_len;
 
@@ -1139,7 +1149,7 @@ static inline situ_err_t fzn_settings_local_message_build_rule_remove(
 		if (rule_remove == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, rule_remove, rule_remove_len);
+		situ_put(situ_out + situ_at, rule_remove, rule_remove_len);
 	}
 	situ_at += rule_remove_len;
 
@@ -1234,7 +1244,7 @@ static inline situ_err_t fzn_settings_local_message_build_value(
 		if (value == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, value, value_len);
+		situ_put(situ_out + situ_at, value, value_len);
 	}
 	situ_at += value_len;
 
@@ -1329,7 +1339,7 @@ static inline situ_err_t fzn_settings_local_message_build_value_row(
 		if (value_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, value_row, value_row_len);
+		situ_put(situ_out + situ_at, value_row, value_row_len);
 	}
 	situ_at += value_row_len;
 
@@ -1424,7 +1434,7 @@ static inline situ_err_t fzn_settings_local_message_build_setting(
 		if (setting == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, setting, setting_len);
+		situ_put(situ_out + situ_at, setting, setting_len);
 	}
 	situ_at += setting_len;
 

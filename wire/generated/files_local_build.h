@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a library_file into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -57,7 +67,7 @@ static inline situ_err_t fzn_files_local_library_file_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	/* Constraints are the view's to state and this reuses them
@@ -110,7 +120,7 @@ static inline situ_err_t fzn_files_local_file_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	/* Constraints are the view's to state and this reuses them
@@ -262,7 +272,7 @@ static inline situ_err_t fzn_files_local_share_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -288,7 +298,7 @@ static inline situ_err_t fzn_files_local_share_build(
 		if (to_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, to_, to__len);
+		situ_put(situ_out + situ_at, to_, to__len);
 	}
 	situ_at += to__len;
 
@@ -346,7 +356,7 @@ static inline situ_err_t fzn_files_local_catalog_add_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	/* name_len: the length of `name_`, which the schema states. */
@@ -366,7 +376,7 @@ static inline situ_err_t fzn_files_local_catalog_add_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -388,7 +398,7 @@ static inline situ_err_t fzn_files_local_catalog_add_build(
 		if (value_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, value_, value__len);
+		situ_put(situ_out + situ_at, value_, value__len);
 	}
 	situ_at += value__len;
 
@@ -451,7 +461,7 @@ static inline situ_err_t fzn_files_local_share_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, key, 32u);
+	situ_put(situ_out + situ_at, key, 32u);
 	situ_at += 32u;
 
 	/* name_len: the length of `name_`, which the schema states. */
@@ -471,7 +481,7 @@ static inline situ_err_t fzn_files_local_share_row_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -534,7 +544,7 @@ static inline situ_err_t fzn_files_local_library_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 8u) {
@@ -588,7 +598,7 @@ static inline situ_err_t fzn_files_local_library_row_build(
 		if (kind_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, kind_, kind__len);
+		situ_put(situ_out + situ_at, kind_, kind__len);
 	}
 	situ_at += kind__len;
 
@@ -609,7 +619,7 @@ static inline situ_err_t fzn_files_local_library_row_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -704,7 +714,7 @@ static inline situ_err_t fzn_files_local_message_build_library(
 		if (library == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, library, library_len);
+		situ_put(situ_out + situ_at, library, library_len);
 	}
 	situ_at += library_len;
 
@@ -799,7 +809,7 @@ static inline situ_err_t fzn_files_local_message_build_library_row(
 		if (library_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, library_row, library_row_len);
+		situ_put(situ_out + situ_at, library_row, library_row_len);
 	}
 	situ_at += library_row_len;
 
@@ -894,7 +904,7 @@ static inline situ_err_t fzn_files_local_message_build_library_file(
 		if (library_file == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, library_file, library_file_len);
+		situ_put(situ_out + situ_at, library_file, library_file_len);
 	}
 	situ_at += library_file_len;
 
@@ -989,7 +999,7 @@ static inline situ_err_t fzn_files_local_message_build_file(
 		if (file == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, file, file_len);
+		situ_put(situ_out + situ_at, file, file_len);
 	}
 	situ_at += file_len;
 
@@ -1084,7 +1094,7 @@ static inline situ_err_t fzn_files_local_message_build_file_row(
 		if (file_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, file_row, file_row_len);
+		situ_put(situ_out + situ_at, file_row, file_row_len);
 	}
 	situ_at += file_row_len;
 
@@ -1179,7 +1189,7 @@ static inline situ_err_t fzn_files_local_message_build_remove(
 		if (remove == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, remove, remove_len);
+		situ_put(situ_out + situ_at, remove, remove_len);
 	}
 	situ_at += remove_len;
 
@@ -1274,7 +1284,7 @@ static inline situ_err_t fzn_files_local_message_build_share(
 		if (share == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, share, share_len);
+		situ_put(situ_out + situ_at, share, share_len);
 	}
 	situ_at += share_len;
 
@@ -1369,7 +1379,7 @@ static inline situ_err_t fzn_files_local_message_build_shares(
 		if (shares == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, shares, shares_len);
+		situ_put(situ_out + situ_at, shares, shares_len);
 	}
 	situ_at += shares_len;
 
@@ -1464,7 +1474,7 @@ static inline situ_err_t fzn_files_local_message_build_share_row(
 		if (share_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, share_row, share_row_len);
+		situ_put(situ_out + situ_at, share_row, share_row_len);
 	}
 	situ_at += share_row_len;
 
@@ -1559,7 +1569,7 @@ static inline situ_err_t fzn_files_local_message_build_catalog_add(
 		if (catalog_add == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, catalog_add, catalog_add_len);
+		situ_put(situ_out + situ_at, catalog_add, catalog_add_len);
 	}
 	situ_at += catalog_add_len;
 

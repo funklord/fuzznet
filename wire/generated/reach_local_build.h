@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a legs_summary into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -138,7 +148,7 @@ static inline situ_err_t fzn_reach_local_leg_row_build(
 		if (address_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, address_, address__len);
+		situ_put(situ_out + situ_at, address_, address__len);
 	}
 	situ_at += address__len;
 
@@ -357,7 +367,7 @@ static inline situ_err_t fzn_reach_local_message_build_legs(
 		if (legs == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, legs, legs_len);
+		situ_put(situ_out + situ_at, legs, legs_len);
 	}
 	situ_at += legs_len;
 
@@ -452,7 +462,7 @@ static inline situ_err_t fzn_reach_local_message_build_legs_summary(
 		if (legs_summary == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, legs_summary, legs_summary_len);
+		situ_put(situ_out + situ_at, legs_summary, legs_summary_len);
 	}
 	situ_at += legs_summary_len;
 
@@ -547,7 +557,7 @@ static inline situ_err_t fzn_reach_local_message_build_leg_row(
 		if (leg_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, leg_row, leg_row_len);
+		situ_put(situ_out + situ_at, leg_row, leg_row_len);
 	}
 	situ_at += leg_row_len;
 

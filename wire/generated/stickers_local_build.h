@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a pack_row into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -62,7 +72,7 @@ static inline situ_err_t fzn_stickers_local_pack_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 8u) {
@@ -101,7 +111,7 @@ static inline situ_err_t fzn_stickers_local_pack_row_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -155,7 +165,7 @@ static inline situ_err_t fzn_stickers_local_pack_ask_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	/* Constraints are the view's to state and this reuses them
@@ -323,7 +333,7 @@ static inline situ_err_t fzn_stickers_local_item_row_build(
 		if (desc_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, desc_, desc__len);
+		situ_put(situ_out + situ_at, desc_, desc__len);
 	}
 	situ_at += desc__len;
 
@@ -379,7 +389,7 @@ static inline situ_err_t fzn_stickers_local_keep_ask_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	if (key == NULL) {
@@ -388,7 +398,7 @@ static inline situ_err_t fzn_stickers_local_keep_ask_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, key, 32u);
+	situ_put(situ_out + situ_at, key, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 8u) {
@@ -449,7 +459,7 @@ static inline situ_err_t fzn_stickers_local_kept_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -521,7 +531,7 @@ static inline situ_err_t fzn_stickers_local_put_ask_build(
 		if (path_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, path_, path__len);
+		situ_put(situ_out + situ_at, path_, path__len);
 	}
 	situ_at += path__len;
 
@@ -585,7 +595,7 @@ static inline situ_err_t fzn_stickers_local_sticker_ask_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	if (key == NULL) {
@@ -594,7 +604,7 @@ static inline situ_err_t fzn_stickers_local_sticker_ask_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, key, 32u);
+	situ_put(situ_out + situ_at, key, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 8u) {
@@ -683,7 +693,7 @@ static inline situ_err_t fzn_stickers_local_reference_ask_build(
 		if (sticker == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, sticker, sticker_len);
+		situ_put(situ_out + situ_at, sticker, sticker_len);
 	}
 	situ_at += sticker_len;
 
@@ -704,7 +714,7 @@ static inline situ_err_t fzn_stickers_local_reference_ask_build(
 		if (words_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, words_, words__len);
+		situ_put(situ_out + situ_at, words_, words__len);
 	}
 	situ_at += words__len;
 
@@ -771,7 +781,7 @@ static inline situ_err_t fzn_stickers_local_referenced_row_build(
 		if (ref_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, ref_, ref__len);
+		situ_put(situ_out + situ_at, ref_, ref__len);
 	}
 	situ_at += ref__len;
 
@@ -848,7 +858,7 @@ static inline situ_err_t fzn_stickers_local_art_ask_build(
 		if (sticker == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, sticker, sticker_len);
+		situ_put(situ_out + situ_at, sticker, sticker_len);
 	}
 	situ_at += sticker_len;
 
@@ -876,7 +886,7 @@ static inline situ_err_t fzn_stickers_local_art_ask_build(
 		if (path_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, path_, path__len);
+		situ_put(situ_out + situ_at, path_, path__len);
 	}
 	situ_at += path__len;
 
@@ -1007,7 +1017,7 @@ static inline situ_err_t fzn_stickers_local_recent_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, root, 32u);
+	situ_put(situ_out + situ_at, root, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 8u) {
@@ -1034,7 +1044,7 @@ static inline situ_err_t fzn_stickers_local_recent_row_build(
 		if (description_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, description_, description__len);
+		situ_put(situ_out + situ_at, description_, description__len);
 	}
 	situ_at += description__len;
 
@@ -1129,7 +1139,7 @@ static inline situ_err_t fzn_stickers_local_message_build_packs(
 		if (packs == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, packs, packs_len);
+		situ_put(situ_out + situ_at, packs, packs_len);
 	}
 	situ_at += packs_len;
 
@@ -1224,7 +1234,7 @@ static inline situ_err_t fzn_stickers_local_message_build_pack_row(
 		if (pack_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, pack_row, pack_row_len);
+		situ_put(situ_out + situ_at, pack_row, pack_row_len);
 	}
 	situ_at += pack_row_len;
 
@@ -1319,7 +1329,7 @@ static inline situ_err_t fzn_stickers_local_message_build_items(
 		if (items == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, items, items_len);
+		situ_put(situ_out + situ_at, items, items_len);
 	}
 	situ_at += items_len;
 
@@ -1414,7 +1424,7 @@ static inline situ_err_t fzn_stickers_local_message_build_item_row(
 		if (item_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, item_row, item_row_len);
+		situ_put(situ_out + situ_at, item_row, item_row_len);
 	}
 	situ_at += item_row_len;
 
@@ -1509,7 +1519,7 @@ static inline situ_err_t fzn_stickers_local_message_build_keep(
 		if (keep == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, keep, keep_len);
+		situ_put(situ_out + situ_at, keep, keep_len);
 	}
 	situ_at += keep_len;
 
@@ -1604,7 +1614,7 @@ static inline situ_err_t fzn_stickers_local_message_build_kept(
 		if (kept == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, kept, kept_len);
+		situ_put(situ_out + situ_at, kept, kept_len);
 	}
 	situ_at += kept_len;
 
@@ -1699,7 +1709,7 @@ static inline situ_err_t fzn_stickers_local_message_build_forget(
 		if (forget == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, forget, forget_len);
+		situ_put(situ_out + situ_at, forget, forget_len);
 	}
 	situ_at += forget_len;
 
@@ -1794,7 +1804,7 @@ static inline situ_err_t fzn_stickers_local_message_build_reference(
 		if (reference == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, reference, reference_len);
+		situ_put(situ_out + situ_at, reference, reference_len);
 	}
 	situ_at += reference_len;
 
@@ -1889,7 +1899,7 @@ static inline situ_err_t fzn_stickers_local_message_build_referenced(
 		if (referenced == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, referenced, referenced_len);
+		situ_put(situ_out + situ_at, referenced, referenced_len);
 	}
 	situ_at += referenced_len;
 
@@ -1984,7 +1994,7 @@ static inline situ_err_t fzn_stickers_local_message_build_art(
 		if (art == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, art, art_len);
+		situ_put(situ_out + situ_at, art, art_len);
 	}
 	situ_at += art_len;
 
@@ -2079,7 +2089,7 @@ static inline situ_err_t fzn_stickers_local_message_build_drawn(
 		if (drawn == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, drawn, drawn_len);
+		situ_put(situ_out + situ_at, drawn, drawn_len);
 	}
 	situ_at += drawn_len;
 
@@ -2174,7 +2184,7 @@ static inline situ_err_t fzn_stickers_local_message_build_put(
 		if (put == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, put, put_len);
+		situ_put(situ_out + situ_at, put, put_len);
 	}
 	situ_at += put_len;
 
@@ -2269,7 +2279,7 @@ static inline situ_err_t fzn_stickers_local_message_build_recent(
 		if (recent == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, recent, recent_len);
+		situ_put(situ_out + situ_at, recent, recent_len);
 	}
 	situ_at += recent_len;
 
@@ -2364,7 +2374,7 @@ static inline situ_err_t fzn_stickers_local_message_build_recent_row(
 		if (recent_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, recent_row, recent_row_len);
+		situ_put(situ_out + situ_at, recent_row, recent_row_len);
 	}
 	situ_at += recent_row_len;
 

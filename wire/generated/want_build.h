@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a range into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -192,7 +202,7 @@ static inline situ_err_t fzn_want_pieces_build(
 		if (ranges == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, ranges, ranges_len);
+		situ_put(situ_out + situ_at, ranges, ranges_len);
 	}
 	situ_at += ranges_len;
 
@@ -287,7 +297,7 @@ static inline situ_err_t fzn_want_message_build_pieces(
 		if (pieces == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, pieces, pieces_len);
+		situ_put(situ_out + situ_at, pieces, pieces_len);
 	}
 	situ_at += pieces_len;
 

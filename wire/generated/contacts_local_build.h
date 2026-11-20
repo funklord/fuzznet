@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a row into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -60,7 +70,7 @@ static inline situ_err_t fzn_contacts_local_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, key, 32u);
+	situ_put(situ_out + situ_at, key, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -86,7 +96,7 @@ static inline situ_err_t fzn_contacts_local_row_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -142,7 +152,7 @@ static inline situ_err_t fzn_contacts_local_add_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, key, 32u);
+	situ_put(situ_out + situ_at, key, 32u);
 	situ_at += 32u;
 
 	/* name_len: the length of `name_`, which the schema states. */
@@ -162,7 +172,7 @@ static inline situ_err_t fzn_contacts_local_add_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -216,7 +226,7 @@ static inline situ_err_t fzn_contacts_local_keyed_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, key, 32u);
+	situ_put(situ_out + situ_at, key, 32u);
 	situ_at += 32u;
 
 	/* Constraints are the view's to state and this reuses them
@@ -274,7 +284,7 @@ static inline situ_err_t fzn_contacts_local_request_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, key, 32u);
+	situ_put(situ_out + situ_at, key, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 8u) {
@@ -301,7 +311,7 @@ static inline situ_err_t fzn_contacts_local_request_row_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -322,7 +332,7 @@ static inline situ_err_t fzn_contacts_local_request_row_build(
 		if (where_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, where_, where__len);
+		situ_put(situ_out + situ_at, where_, where__len);
 	}
 	situ_at += where__len;
 
@@ -417,7 +427,7 @@ static inline situ_err_t fzn_contacts_local_message_build_list(
 		if (list == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, list, list_len);
+		situ_put(situ_out + situ_at, list, list_len);
 	}
 	situ_at += list_len;
 
@@ -512,7 +522,7 @@ static inline situ_err_t fzn_contacts_local_message_build_row(
 		if (row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, row, row_len);
+		situ_put(situ_out + situ_at, row, row_len);
 	}
 	situ_at += row_len;
 
@@ -607,7 +617,7 @@ static inline situ_err_t fzn_contacts_local_message_build_add(
 		if (add == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, add, add_len);
+		situ_put(situ_out + situ_at, add, add_len);
 	}
 	situ_at += add_len;
 
@@ -702,7 +712,7 @@ static inline situ_err_t fzn_contacts_local_message_build_remove(
 		if (remove == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, remove, remove_len);
+		situ_put(situ_out + situ_at, remove, remove_len);
 	}
 	situ_at += remove_len;
 
@@ -797,7 +807,7 @@ static inline situ_err_t fzn_contacts_local_message_build_clash(
 		if (clash == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, clash, clash_len);
+		situ_put(situ_out + situ_at, clash, clash_len);
 	}
 	situ_at += clash_len;
 
@@ -892,7 +902,7 @@ static inline situ_err_t fzn_contacts_local_message_build_requests(
 		if (requests == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, requests, requests_len);
+		situ_put(situ_out + situ_at, requests, requests_len);
 	}
 	situ_at += requests_len;
 
@@ -987,7 +997,7 @@ static inline situ_err_t fzn_contacts_local_message_build_request_row(
 		if (request_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, request_row, request_row_len);
+		situ_put(situ_out + situ_at, request_row, request_row_len);
 	}
 	situ_at += request_row_len;
 
@@ -1082,7 +1092,7 @@ static inline situ_err_t fzn_contacts_local_message_build_grant(
 		if (grant == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, grant, grant_len);
+		situ_put(situ_out + situ_at, grant, grant_len);
 	}
 	situ_at += grant_len;
 
@@ -1177,7 +1187,7 @@ static inline situ_err_t fzn_contacts_local_message_build_refuse(
 		if (refuse == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, refuse, refuse_len);
+		situ_put(situ_out + situ_at, refuse, refuse_len);
 	}
 	situ_at += refuse_len;
 

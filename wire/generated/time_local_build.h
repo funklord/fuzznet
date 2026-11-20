@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a clock_row into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -60,7 +70,7 @@ static inline situ_err_t fzn_time_local_clock_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, key, 32u);
+	situ_put(situ_out + situ_at, key, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -174,7 +184,7 @@ static inline situ_err_t fzn_time_local_message_build_clocks(
 		if (clocks == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, clocks, clocks_len);
+		situ_put(situ_out + situ_at, clocks, clocks_len);
 	}
 	situ_at += clocks_len;
 
@@ -269,7 +279,7 @@ static inline situ_err_t fzn_time_local_message_build_clock_row(
 		if (clock_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, clock_row, clock_row_len);
+		situ_put(situ_out + situ_at, clock_row, clock_row_len);
 	}
 	situ_at += clock_row_len;
 

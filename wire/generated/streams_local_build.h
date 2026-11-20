@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a location_row into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -72,7 +82,7 @@ static inline situ_err_t fzn_streams_local_location_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, host, 32u);
+	situ_put(situ_out + situ_at, host, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 8u) {
@@ -180,7 +190,7 @@ static inline situ_err_t fzn_streams_local_location_row_build(
 		if (whose_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, whose_, whose__len);
+		situ_put(situ_out + situ_at, whose_, whose__len);
 	}
 	situ_at += whose__len;
 
@@ -315,7 +325,7 @@ static inline situ_err_t fzn_streams_local_status_row_build(
 		if (gpsd_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, gpsd_, gpsd__len);
+		situ_put(situ_out + situ_at, gpsd_, gpsd__len);
 	}
 	situ_at += gpsd__len;
 
@@ -410,7 +420,7 @@ static inline situ_err_t fzn_streams_local_message_build_location(
 		if (location == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, location, location_len);
+		situ_put(situ_out + situ_at, location, location_len);
 	}
 	situ_at += location_len;
 
@@ -505,7 +515,7 @@ static inline situ_err_t fzn_streams_local_message_build_location_row(
 		if (location_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, location_row, location_row_len);
+		situ_put(situ_out + situ_at, location_row, location_row_len);
 	}
 	situ_at += location_row_len;
 
@@ -600,7 +610,7 @@ static inline situ_err_t fzn_streams_local_message_build_status(
 		if (status == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, status, status_len);
+		situ_put(situ_out + situ_at, status, status_len);
 	}
 	situ_at += status_len;
 
@@ -695,7 +705,7 @@ static inline situ_err_t fzn_streams_local_message_build_status_row(
 		if (status_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, status_row, status_row_len);
+		situ_put(situ_out + situ_at, status_row, status_row_len);
 	}
 	situ_at += status_row_len;
 

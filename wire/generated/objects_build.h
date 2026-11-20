@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a named into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -69,7 +79,7 @@ static inline situ_err_t fzn_objects_named_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -137,7 +147,7 @@ static inline situ_err_t fzn_objects_add_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -158,7 +168,7 @@ static inline situ_err_t fzn_objects_add_build(
 		if (allowed_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, allowed_, allowed__len);
+		situ_put(situ_out + situ_at, allowed_, allowed__len);
 	}
 	situ_at += allowed__len;
 
@@ -226,7 +236,7 @@ static inline situ_err_t fzn_objects_set_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -247,7 +257,7 @@ static inline situ_err_t fzn_objects_set_build(
 		if (value_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, value_, value__len);
+		situ_put(situ_out + situ_at, value_, value__len);
 	}
 	situ_at += value__len;
 
@@ -319,7 +329,7 @@ static inline situ_err_t fzn_objects_row_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -340,7 +350,7 @@ static inline situ_err_t fzn_objects_row_build(
 		if (value_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, value_, value__len);
+		situ_put(situ_out + situ_at, value_, value__len);
 	}
 	situ_at += value__len;
 
@@ -357,7 +367,7 @@ static inline situ_err_t fzn_objects_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, by, 32u);
+	situ_put(situ_out + situ_at, by, 32u);
 	situ_at += 32u;
 
 	/* allowed_len: the length of `allowed_`, which the schema states. */
@@ -377,7 +387,7 @@ static inline situ_err_t fzn_objects_row_build(
 		if (allowed_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, allowed_, allowed__len);
+		situ_put(situ_out + situ_at, allowed_, allowed__len);
 	}
 	situ_at += allowed__len;
 
@@ -472,7 +482,7 @@ static inline situ_err_t fzn_objects_message_build_add(
 		if (add == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, add, add_len);
+		situ_put(situ_out + situ_at, add, add_len);
 	}
 	situ_at += add_len;
 
@@ -567,7 +577,7 @@ static inline situ_err_t fzn_objects_message_build_set(
 		if (set == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, set, set_len);
+		situ_put(situ_out + situ_at, set, set_len);
 	}
 	situ_at += set_len;
 
@@ -662,7 +672,7 @@ static inline situ_err_t fzn_objects_message_build_get(
 		if (get == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, get, get_len);
+		situ_put(situ_out + situ_at, get, get_len);
 	}
 	situ_at += get_len;
 
@@ -757,7 +767,7 @@ static inline situ_err_t fzn_objects_message_build_list(
 		if (list == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, list, list_len);
+		situ_put(situ_out + situ_at, list, list_len);
 	}
 	situ_at += list_len;
 
@@ -852,7 +862,7 @@ static inline situ_err_t fzn_objects_message_build_remove(
 		if (remove == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, remove, remove_len);
+		situ_put(situ_out + situ_at, remove, remove_len);
 	}
 	situ_at += remove_len;
 
@@ -947,7 +957,7 @@ static inline situ_err_t fzn_objects_message_build_row(
 		if (row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, row, row_len);
+		situ_put(situ_out + situ_at, row, row_len);
 	}
 	situ_at += row_len;
 

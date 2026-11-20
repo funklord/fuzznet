@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a row into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -62,7 +72,7 @@ static inline situ_err_t fzn_groups_local_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, id, 32u);
+	situ_put(situ_out + situ_at, id, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 4u) {
@@ -102,7 +112,7 @@ static inline situ_err_t fzn_groups_local_row_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -177,7 +187,7 @@ static inline situ_err_t fzn_groups_local_change_build(
 		if (group_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, group_, group__len);
+		situ_put(situ_out + situ_at, group_, group__len);
 	}
 	situ_at += group__len;
 
@@ -198,7 +208,7 @@ static inline situ_err_t fzn_groups_local_change_build(
 		if (who_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, who_, who__len);
+		situ_put(situ_out + situ_at, who_, who__len);
 	}
 	situ_at += who__len;
 
@@ -252,7 +262,7 @@ static inline situ_err_t fzn_groups_local_created_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, id, 32u);
+	situ_put(situ_out + situ_at, id, 32u);
 	situ_at += 32u;
 
 	/* Constraints are the view's to state and this reuses them
@@ -376,7 +386,7 @@ static inline situ_err_t fzn_groups_local_backfill_ask_build(
 		if (group_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, group_, group__len);
+		situ_put(situ_out + situ_at, group_, group__len);
 	}
 	situ_at += group__len;
 
@@ -480,7 +490,7 @@ static inline situ_err_t fzn_groups_local_members_ask_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, id, 32u);
+	situ_put(situ_out + situ_at, id, 32u);
 	situ_at += 32u;
 
 	/* Constraints are the view's to state and this reuses them
@@ -536,7 +546,7 @@ static inline situ_err_t fzn_groups_local_member_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, key, 32u);
+	situ_put(situ_out + situ_at, key, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -562,7 +572,7 @@ static inline situ_err_t fzn_groups_local_member_row_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -657,7 +667,7 @@ static inline situ_err_t fzn_groups_local_message_build_list(
 		if (list == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, list, list_len);
+		situ_put(situ_out + situ_at, list, list_len);
 	}
 	situ_at += list_len;
 
@@ -752,7 +762,7 @@ static inline situ_err_t fzn_groups_local_message_build_row(
 		if (row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, row, row_len);
+		situ_put(situ_out + situ_at, row, row_len);
 	}
 	situ_at += row_len;
 
@@ -847,7 +857,7 @@ static inline situ_err_t fzn_groups_local_message_build_members(
 		if (members == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, members, members_len);
+		situ_put(situ_out + situ_at, members, members_len);
 	}
 	situ_at += members_len;
 
@@ -942,7 +952,7 @@ static inline situ_err_t fzn_groups_local_message_build_member_row(
 		if (member_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, member_row, member_row_len);
+		situ_put(situ_out + situ_at, member_row, member_row_len);
 	}
 	situ_at += member_row_len;
 
@@ -1037,7 +1047,7 @@ static inline situ_err_t fzn_groups_local_message_build_change(
 		if (change == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, change, change_len);
+		situ_put(situ_out + situ_at, change, change_len);
 	}
 	situ_at += change_len;
 
@@ -1132,7 +1142,7 @@ static inline situ_err_t fzn_groups_local_message_build_created(
 		if (created == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, created, created_len);
+		situ_put(situ_out + situ_at, created, created_len);
 	}
 	situ_at += created_len;
 
@@ -1227,7 +1237,7 @@ static inline situ_err_t fzn_groups_local_message_build_proposed(
 		if (proposed == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, proposed, proposed_len);
+		situ_put(situ_out + situ_at, proposed, proposed_len);
 	}
 	situ_at += proposed_len;
 
@@ -1322,7 +1332,7 @@ static inline situ_err_t fzn_groups_local_message_build_backfill(
 		if (backfill == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, backfill, backfill_len);
+		situ_put(situ_out + situ_at, backfill, backfill_len);
 	}
 	situ_at += backfill_len;
 
@@ -1417,7 +1427,7 @@ static inline situ_err_t fzn_groups_local_message_build_backfill_row(
 		if (backfill_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, backfill_row, backfill_row_len);
+		situ_put(situ_out + situ_at, backfill_row, backfill_row_len);
 	}
 	situ_at += backfill_row_len;
 

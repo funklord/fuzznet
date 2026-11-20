@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a stamp_row into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -109,7 +119,7 @@ static inline situ_err_t fzn_notes_local_note_ask_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, sharer, 32u);
+	situ_put(situ_out + situ_at, sharer, 32u);
 	situ_at += 32u;
 
 	if (id == NULL) {
@@ -118,7 +128,7 @@ static inline situ_err_t fzn_notes_local_note_ask_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, id, 32u);
+	situ_put(situ_out + situ_at, id, 32u);
 	situ_at += 32u;
 
 	/* Constraints are the view's to state and this reuses them
@@ -213,7 +223,7 @@ static inline situ_err_t fzn_notes_local_note_fields_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, parent, 32u);
+	situ_put(situ_out + situ_at, parent, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -265,7 +275,7 @@ static inline situ_err_t fzn_notes_local_note_fields_build(
 		if (title_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, title_, title__len);
+		situ_put(situ_out + situ_at, title_, title__len);
 	}
 	situ_at += title__len;
 
@@ -287,7 +297,7 @@ static inline situ_err_t fzn_notes_local_note_fields_build(
 		if (labels_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, labels_, labels__len);
+		situ_put(situ_out + situ_at, labels_, labels__len);
 	}
 	situ_at += labels__len;
 
@@ -308,7 +318,7 @@ static inline situ_err_t fzn_notes_local_note_fields_build(
 		if (ref_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, ref_, ref__len);
+		situ_put(situ_out + situ_at, ref_, ref__len);
 	}
 	situ_at += ref__len;
 
@@ -365,7 +375,7 @@ static inline situ_err_t fzn_notes_local_add_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, parent, 32u);
+	situ_put(situ_out + situ_at, parent, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 2u) {
@@ -392,7 +402,7 @@ static inline situ_err_t fzn_notes_local_add_build(
 		if (title_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, title_, title__len);
+		situ_put(situ_out + situ_at, title_, title__len);
 	}
 	situ_at += title__len;
 
@@ -446,7 +456,7 @@ static inline situ_err_t fzn_notes_local_added_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, id, 32u);
+	situ_put(situ_out + situ_at, id, 32u);
 	situ_at += 32u;
 
 	/* Constraints are the view's to state and this reuses them
@@ -502,7 +512,7 @@ static inline situ_err_t fzn_notes_local_change_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, id, 32u);
+	situ_put(situ_out + situ_at, id, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -529,7 +539,7 @@ static inline situ_err_t fzn_notes_local_change_build(
 		if (value_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, value_, value__len);
+		situ_put(situ_out + situ_at, value_, value__len);
 	}
 	situ_at += value__len;
 
@@ -587,7 +597,7 @@ static inline situ_err_t fzn_notes_local_item_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, id, 32u);
+	situ_put(situ_out + situ_at, id, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -621,7 +631,7 @@ static inline situ_err_t fzn_notes_local_item_build(
 		if (text_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, text_, text__len);
+		situ_put(situ_out + situ_at, text_, text__len);
 	}
 	situ_at += text__len;
 
@@ -679,7 +689,7 @@ static inline situ_err_t fzn_notes_local_text_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, id, 32u);
+	situ_put(situ_out + situ_at, id, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 4u) {
@@ -714,7 +724,7 @@ static inline situ_err_t fzn_notes_local_text_build(
 		if (piece_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, piece_, piece__len);
+		situ_put(situ_out + situ_at, piece_, piece__len);
 	}
 	situ_at += piece__len;
 
@@ -772,7 +782,7 @@ static inline situ_err_t fzn_notes_local_share_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, subtree, 32u);
+	situ_put(situ_out + situ_at, subtree, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -804,7 +814,7 @@ static inline situ_err_t fzn_notes_local_share_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -920,7 +930,7 @@ static inline situ_err_t fzn_notes_local_attach_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, parent, 32u);
+	situ_put(situ_out + situ_at, parent, 32u);
 	situ_at += 32u;
 
 	if (ref == NULL) {
@@ -929,7 +939,7 @@ static inline situ_err_t fzn_notes_local_attach_build(
 	if (situ_cap - situ_at < 72u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, ref, 72u);
+	situ_put(situ_out + situ_at, ref, 72u);
 	situ_at += 72u;
 
 	/* title_len: the length of `title_`, which the schema states. */
@@ -949,7 +959,7 @@ static inline situ_err_t fzn_notes_local_attach_build(
 		if (title_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, title_, title__len);
+		situ_put(situ_out + situ_at, title_, title__len);
 	}
 	situ_at += title__len;
 
@@ -1024,7 +1034,7 @@ static inline situ_err_t fzn_notes_local_note_text_build(
 		if (piece_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, piece_, piece__len);
+		situ_put(situ_out + situ_at, piece_, piece__len);
 	}
 	situ_at += piece__len;
 
@@ -1082,7 +1092,7 @@ static inline situ_err_t fzn_notes_local_share_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, subtree, 32u);
+	situ_put(situ_out + situ_at, subtree, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 1u) {
@@ -1114,7 +1124,7 @@ static inline situ_err_t fzn_notes_local_share_row_build(
 		if (name_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name_, name__len);
+		situ_put(situ_out + situ_at, name_, name__len);
 	}
 	situ_at += name__len;
 
@@ -1169,7 +1179,7 @@ static inline situ_err_t fzn_notes_local_notes_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, sharer, 32u);
+	situ_put(situ_out + situ_at, sharer, 32u);
 	situ_at += 32u;
 
 	if (parent == NULL) {
@@ -1178,7 +1188,7 @@ static inline situ_err_t fzn_notes_local_notes_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, parent, 32u);
+	situ_put(situ_out + situ_at, parent, 32u);
 	situ_at += 32u;
 
 	/* Constraints are the view's to state and this reuses them
@@ -1239,7 +1249,7 @@ static inline situ_err_t fzn_notes_local_note_row_build(
 	if (situ_cap - situ_at < 32u) {
 		return SITU_ERR_BOUNDS;
 	}
-	memcpy(situ_out + situ_at, id, 32u);
+	situ_put(situ_out + situ_at, id, 32u);
 	situ_at += 32u;
 
 	if (situ_cap - situ_at < 2u) {
@@ -1284,7 +1294,7 @@ static inline situ_err_t fzn_notes_local_note_row_build(
 		if (title_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, title_, title__len);
+		situ_put(situ_out + situ_at, title_, title__len);
 	}
 	situ_at += title__len;
 
@@ -1306,7 +1316,7 @@ static inline situ_err_t fzn_notes_local_note_row_build(
 		if (labels_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, labels_, labels__len);
+		situ_put(situ_out + situ_at, labels_, labels__len);
 	}
 	situ_at += labels__len;
 
@@ -1401,7 +1411,7 @@ static inline situ_err_t fzn_notes_local_message_build_notes(
 		if (notes == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, notes, notes_len);
+		situ_put(situ_out + situ_at, notes, notes_len);
 	}
 	situ_at += notes_len;
 
@@ -1496,7 +1506,7 @@ static inline situ_err_t fzn_notes_local_message_build_note_row(
 		if (note_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, note_row, note_row_len);
+		situ_put(situ_out + situ_at, note_row, note_row_len);
 	}
 	situ_at += note_row_len;
 
@@ -1591,7 +1601,7 @@ static inline situ_err_t fzn_notes_local_message_build_stamp(
 		if (stamp == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, stamp, stamp_len);
+		situ_put(situ_out + situ_at, stamp, stamp_len);
 	}
 	situ_at += stamp_len;
 
@@ -1686,7 +1696,7 @@ static inline situ_err_t fzn_notes_local_message_build_stamp_row(
 		if (stamp_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, stamp_row, stamp_row_len);
+		situ_put(situ_out + situ_at, stamp_row, stamp_row_len);
 	}
 	situ_at += stamp_row_len;
 
@@ -1781,7 +1791,7 @@ static inline situ_err_t fzn_notes_local_message_build_shares(
 		if (shares == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, shares, shares_len);
+		situ_put(situ_out + situ_at, shares, shares_len);
 	}
 	situ_at += shares_len;
 
@@ -1876,7 +1886,7 @@ static inline situ_err_t fzn_notes_local_message_build_share_row(
 		if (share_row == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, share_row, share_row_len);
+		situ_put(situ_out + situ_at, share_row, share_row_len);
 	}
 	situ_at += share_row_len;
 
@@ -1971,7 +1981,7 @@ static inline situ_err_t fzn_notes_local_message_build_note(
 		if (note == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, note, note_len);
+		situ_put(situ_out + situ_at, note, note_len);
 	}
 	situ_at += note_len;
 
@@ -2066,7 +2076,7 @@ static inline situ_err_t fzn_notes_local_message_build_note_fields(
 		if (note_fields == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, note_fields, note_fields_len);
+		situ_put(situ_out + situ_at, note_fields, note_fields_len);
 	}
 	situ_at += note_fields_len;
 
@@ -2161,7 +2171,7 @@ static inline situ_err_t fzn_notes_local_message_build_note_text(
 		if (note_text == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, note_text, note_text_len);
+		situ_put(situ_out + situ_at, note_text, note_text_len);
 	}
 	situ_at += note_text_len;
 
@@ -2256,7 +2266,7 @@ static inline situ_err_t fzn_notes_local_message_build_add(
 		if (add == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, add, add_len);
+		situ_put(situ_out + situ_at, add, add_len);
 	}
 	situ_at += add_len;
 
@@ -2351,7 +2361,7 @@ static inline situ_err_t fzn_notes_local_message_build_added(
 		if (added == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, added, added_len);
+		situ_put(situ_out + situ_at, added, added_len);
 	}
 	situ_at += added_len;
 
@@ -2446,7 +2456,7 @@ static inline situ_err_t fzn_notes_local_message_build_change(
 		if (change == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, change, change_len);
+		situ_put(situ_out + situ_at, change, change_len);
 	}
 	situ_at += change_len;
 
@@ -2541,7 +2551,7 @@ static inline situ_err_t fzn_notes_local_message_build_item(
 		if (item == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, item, item_len);
+		situ_put(situ_out + situ_at, item, item_len);
 	}
 	situ_at += item_len;
 
@@ -2636,7 +2646,7 @@ static inline situ_err_t fzn_notes_local_message_build_text(
 		if (text == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, text, text_len);
+		situ_put(situ_out + situ_at, text, text_len);
 	}
 	situ_at += text_len;
 
@@ -2731,7 +2741,7 @@ static inline situ_err_t fzn_notes_local_message_build_share(
 		if (share == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, share, share_len);
+		situ_put(situ_out + situ_at, share, share_len);
 	}
 	situ_at += share_len;
 
@@ -2826,7 +2836,7 @@ static inline situ_err_t fzn_notes_local_message_build_trash_empty(
 		if (trash_empty == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, trash_empty, trash_empty_len);
+		situ_put(situ_out + situ_at, trash_empty, trash_empty_len);
 	}
 	situ_at += trash_empty_len;
 
@@ -2921,7 +2931,7 @@ static inline situ_err_t fzn_notes_local_message_build_trash_emptied(
 		if (trash_emptied == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, trash_emptied, trash_emptied_len);
+		situ_put(situ_out + situ_at, trash_emptied, trash_emptied_len);
 	}
 	situ_at += trash_emptied_len;
 
@@ -3016,7 +3026,7 @@ static inline situ_err_t fzn_notes_local_message_build_attach(
 		if (attach == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, attach, attach_len);
+		situ_put(situ_out + situ_at, attach, attach_len);
 	}
 	situ_at += attach_len;
 
