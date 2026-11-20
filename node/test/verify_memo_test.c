@@ -223,6 +223,25 @@ int main(void)
 			fclose(f);
 		}
 		CHECK(fzn_verify_memo_load(&again, path, key) == 0u, "a short file was taken");
+		/* LONGER THAN ITS COUNT SAYS, and signed so (sec 1333): only the
+		 * file's exact length refuses it -- one file, one encoding. */
+		{
+			static uint8_t longer[sizeof(bytes) + 32u];
+			uint8_t hashed[32];
+			const size_t body = len - FZN_SIG_LEN;
+
+			memcpy(longer, bytes, body);
+			memset(longer + body, 0x3c, 32u);
+			(void)stub_hash(NULL, hashed, sizeof(hashed), longer, body + 32u);
+			memset(longer + body + 32u, 7, FZN_SIG_LEN);
+			longer[body + 32u] = hashed[0];
+			f = fopen(path, "wb");
+			if (f) {
+				fwrite(longer, 1u, len + 32u, f);
+				fclose(f);
+			}
+			CHECK(fzn_verify_memo_load(&again, path, key) == 0u, "a file longer than its count, signed so, was taken");
+		}
 		bytes[0] ^= 1u;
 		f = fopen(path, "wb");
 		if (f) {
