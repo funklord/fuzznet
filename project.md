@@ -64,7 +64,10 @@ listener port spans (`150e3106`).
   40 layouts still have hand-written codecs though all but one build
   today; the settings registry is not adopted. For its scheduler to own
   request and reply: a match after authentication, and a datagram
-  reassembly layer -- **the holder's to ask of situ, or not**.
+  reassembly layer -- **the holder's to ask of situ, or not**. **Also the
+  holder's**: whether to start moving the 40 layouts onto generated code,
+  which first needs a naming rule (a generated file's basename meets its
+  codec's) and changes consumers' source lists.
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
   what was true once to `doc/journal.md`, a cited section moving with
   its citations). Not started. Measured: 174 of 1309 numbered sections
@@ -94236,6 +94239,14 @@ Nothing generated here is stale.
    This is "situ owns all layouts" not yet carried out, and it is the
    largest gap; each is a codec replaced by the generated reader and writer
    under the same golden vectors, one layout a commit.
+   **What stops the first step is a name, measured:** situc names its files
+   after the schema's stem, and every one of the 40 sits beside its codec
+   under the same stem -- `node/heard.situ` would generate
+   `wire/generated/heard.c` beside `node/heard.c`, the basename meeting sec
+   1281 ended for consumers whose build puts every object in one directory.
+   So the migration needs a naming rule first (a schema stem distinct from
+   its codec's, say), and each step changes the source list a consumer
+   compiles. Both reach other trees, so the start is the holder's (sec 0).
 2. **The registry** (situ's 26.1080-26.1090, sec 1279): the settings
    declaration `node/schema.c` writes by hand, with its five types and its
    scope and display axes, is what a situ `registry` generates -- table,
