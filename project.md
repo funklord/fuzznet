@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1311
+The newest work is at the end of this file. **Read secs 1287 to 1318
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -58,7 +58,8 @@ listener port spans (`150e3106`).
 - **The binary move** (secs 1208, 1217) is done for every client call
   but joining and the join offer, text by their own sections (1250,
   1288): the last three -- a pack from a file, a file described, the
-  admin grant -- in secs 1308-1310.
+  admin grant -- in secs 1308-1310; the search's list and fetch, which
+  sec 1310 missed, in sec 1318.
 - **situ, measured** (sec 1311): every generated file matches its HEAD;
   40 layouts still have hand-written codecs though all but one build
   today; the settings registry is not adopted. For its scheduler to own
@@ -94475,3 +94476,40 @@ three, the unkept pack's left out, chosen as its pack's. live_chat c4 --
 A1 sends three sticker lines, and A2, which wrote none, lists the two in
 text and in binary. stickers_local_vectors (18, two new). Sabotages
 `stickers-sent-twice`, `stickers-sent-received-too`.
+
+## 1318. The client's search in binary; situ's fixes taken; its replay design read, 2026-11-20
+
+**situ answered again** (inbox 20261120T1530Z), situ e5b1c741:
+- **The contract check sees through `holds`** (situ 26.1118): the old
+  local search contract against the held ask now reads "0 breaking, 2
+  compatible", the fourteen fields API-only, the run's bound its own line.
+  Sec 1316's contract, rewritten on the vectors' word, compares clean.
+- **A struct ending in a bounded `[remaining]` run has a builder**
+  (26.1119), so the held ask can be built.
+- **The replay window is designed, not built** (situ 26.1120), and asked
+  for a view: fuzznet's reply (situ inbox 20261120T1610Z) -- the counter
+  window's key is the session, not a sender field (one sender holds
+  several sessions and a rekeyed one starts afresh); a check before the
+  tag and a record after, as `wire/session_frame.c` does (a stale counter
+  costs no AEAD work, a forgery records nothing); counter wrap refused;
+  a zero expiry allowed or refused by the frame kind; FULL a refusal never
+  an eviction, `ahead = 0` malformed; one word `replay` with two forms, and
+  the clock's unit on the declaration.
+
+**The client's search in binary.** Sec 1293 left `fzn_rpc_search_list`
+and `_fetch` speaking the text verbs because WITH names a contact as the
+user knows it, and sec 1310's "every client call is in binary" missed
+them -- a wrong claim, corrected here. Now both ask in binary first: the
+contact WITH names resolved in the client as the node resolves it (by
+name among this user's active contacts, a 64-hex root key taken as
+given; no such contact, or a name two share, refused -- sec 893), the ask
+built by the generated `fzn_search_local_ask_build` and the held run by
+`fzn_search_local_local_ask_build` (26.1119's), at the node's own K of
+20; the page read as GET's is, FETCH's count from FETCHED. Text after, for
+a node that reads no binary.
+
+**Tests:** rpc_probe (live_rpc a) -- search list, fetch and get against a
+fresh fuzznetd, a search with no such contact refused as NO_PEER, and the
+stickers sent lately (sec 1317) none; traced by hand, 2026-11-20: the
+list, fetch and recent requests left the client as `1a 80`, `1a 81` and
+`16 8c`, no `list search` text. make schema at situ e5b1c741 passes.

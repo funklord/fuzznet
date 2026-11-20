@@ -47,6 +47,7 @@
 #include "../wire/generated/files_local_build.h"
 #include "../wire/generated/notes_local.h"
 #include "../wire/generated/search_local.h"
+#include "../wire/generated/search_local_build.h"
 #include "../wire/generated/notes_local_build.h"
 #include "../wire/generated/meter_local.h"
 #include "../wire/generated/reach_local.h"
@@ -11724,30 +11725,6 @@ static int search_page_text(fzn_rpc_t *c, const char *rest, size_t rest_len, int
 	return FZN_RPC_OK;
 }
 
-int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
-                         size_t *asked) {
-	char arg[1024];
-	const char *rest = NULL;
-	size_t rest_len = 0, at = 0;
-	const int n = search_arg(arg, sizeof arg, with, words, after);
-	if (n < 0) return encode_failed(c);
-	const int rc = fzn_rpc_node(c, "fetch", arg, (size_t)n, &rest, &rest_len);
-	if (rc != FZN_RPC_OK) return rc;
-	return node_number(rest, rest_len, &at, asked) ? FZN_RPC_OK : unreadable(c);
-}
-
-int fzn_rpc_search_list(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
-                        fzn_rpc_search_page_t *out) {
-	char arg[1024];
-	const char *rest = NULL;
-	size_t rest_len = 0;
-	const int n = search_arg(arg, sizeof arg, with, words, after);
-	memset(out, 0, sizeof *out);
-	if (n < 0) return encode_failed(c);
-	const int rc = fzn_rpc_node(c, "list", arg, (size_t)n, &rest, &rest_len);
-	return rc != FZN_RPC_OK ? rc : search_page_text(c, rest, rest_len, 0, out);
-}
-
 /* THE PAGE IN BINARY, sec 1293: a PAGE, a HIT each, then a STATUS. */
 struct search_answer {
 	fzn_rpc_search_page_t *out;
@@ -11804,6 +11781,173 @@ static void search_each(void *ctx, const uint8_t *msg, size_t len) {
 	h->time_ms = fzn_search_local_hit_time_ms_get(b);
 	h->snippet_len = fzn_search_local_hit_snippet_len_get(b);
 	memcpy(h->snippet, fzn_search_local_hit_snippet_ptr(b), h->snippet_len);
+}
+
+/* WHOM WITH, in binary, sec 1318: the contact WITH names, as the text verb
+ * resolves it -- by its name among this user's contacts on the node, or a
+ * root key in 64 hex -- into `key`. FZN_RPC_OK, or the failure said: no
+ * such contact, or a name two share (sec 893: refused at use). */
+static int search_with_key(fzn_rpc_t *c, const char *with, uint8_t key[32]) {
+	int rc;
+	fzn_rpc_peer_list_resp_t peers;
+	size_t found = 0, i;
+	if (strlen(with) == 64 && node_key(with, 64, key)) return FZN_RPC_OK;
+	memset(&peers, 0, sizeof peers);
+	if ((rc = fzn_rpc_peer_list(c, &peers)) != FZN_RPC_OK) {
+		fzn_rpc_peer_list_release(&peers);
+		return rc;
+	}
+	for (i = 0; i < peers.count; i++)
+		if (peers.entries[i].state == FZN_RPC_CONTACT_ACTIVE && !strcmp(peers.entries[i].name, with)) {
+			memcpy(key, peers.entries[i].root_pubkey, 32);
+			found++;
+		}
+	fzn_rpc_peer_list_release(&peers);
+	if (found != 1) return fail(c, FZN_RPC_ERR_NO_PEER, found ? "two contacts share that name" : "no such contact here");
+	return FZN_RPC_OK;
+}
+
+/* THE LOCAL ASK, sec 1318: OP (list or fetch), WITH, then the ask as one
+ * host asks another -- the node's own K of 20, every store, no window --
+ * through the generated builders. Its length into `*len`; FZN_RPC_OK, or
+ * the failure said. */
+static int search_ask_write(fzn_rpc_t *c, uint8_t op, const char *with, const char *words,
+                            const fzn_rpc_search_hit_t *after, uint8_t *out, size_t cap, size_t *len) {
+	uint8_t ask[512], local[600], key[32];
+	uint32_t ask_len = 0, local_len = 0, n = 0;
+	const char *w = words ? words : "";
+	size_t w_len;
+	situ_err_t err;
+	int rc;
+	while (*w == ' ') w++;
+	w_len = strlen(w);
+	memset(key, 0, sizeof key);
+	if (with && *with && (rc = search_with_key(c, with, key)) != FZN_RPC_OK) return rc;
+	if (!w_len || w_len > 255 || (after && (after->key_len > 48 || strlen(after->store) > 16)))
+		return encode_failed(c);
+	if (fzn_search_local_ask_build(ask, sizeof ask, (const uint8_t *)w, (uint32_t)w_len, NULL, 0, 0, 0, 20,
+	                               after ? 1 : 0, after ? after->score : 0, after ? after->time_ms : 0,
+	                               after ? (const uint8_t *)after->store : NULL,
+	                               after ? (uint32_t)strlen(after->store) : 0, after ? after->key : NULL,
+	                               after ? (uint32_t)after->key_len : 0, &ask_len)
+	        != SITU_OK
+	    || fzn_search_local_local_ask_build(local, sizeof local, (uint8_t)(with && *with ? 1 : 0), key, ask, ask_len,
+	                                        &local_len)
+	               != SITU_OK)
+		return encode_failed(c);
+	err = op == FZN_SEARCH_LOCAL_OP_LIST
+	              ? fzn_search_local_message_build_list(out, (uint32_t)cap, (uint8_t)FZN_CMD_SEARCH, local, local_len, &n)
+	              : fzn_search_local_message_build_fetch(out, (uint32_t)cap, (uint8_t)FZN_CMD_SEARCH, local, local_len,
+	                                                     &n);
+	if (err != SITU_OK) return encode_failed(c);
+	*len = n;
+	return FZN_RPC_OK;
+}
+
+/* FETCHED, then a STATUS. */
+struct fetched_answer {
+	size_t asked;
+	int bad, seen, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void fetched_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct fetched_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || a->seen || len > UINT32_MAX || fzn_search_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK ||
+	    fzn_search_local_message_validate(v) != SITU_OK || fzn_search_local_message_op_get(v) != FZN_SEARCH_LOCAL_OP_FETCHED ||
+	    fzn_search_local_message_body_fetched_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	a->seen = 1;
+	a->asked = fzn_search_local_fetched_asked_get(b);
+}
+
+/* A REFUSAL IN A STATUS, as the client says them. */
+static int search_status(fzn_rpc_t *c, fzn_status_t code, const char *why) {
+	if (code == FZN_STATUS_OK) return FZN_RPC_OK;
+	return fail(c, code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+	            why && why[0] ? why : "the node refused it");
+}
+
+int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
+                         size_t *asked) {
+	/* IN BINARY FIRST, sec 1318. */
+	{
+		uint8_t req[640];
+		size_t req_len = 0;
+		struct fetched_answer a;
+		int text = 0;
+		if (!c || !asked) return c ? encode_failed(c) : FZN_RPC_ERR_MALFORMED;
+		*asked = 0;
+		const int wrc = search_ask_write(c, FZN_SEARCH_LOCAL_OP_FETCH, with, words, after, req, sizeof req, &req_len);
+		if (wrc != FZN_RPC_OK) return wrc;
+		memset(&a, 0, sizeof a);
+		const int rc = fzn_rpc_binary(c, req, req_len, fetched_each, &a, &text);
+		if (!text) {
+			if (rc != FZN_RPC_OK) return rc;
+			if (!a.status_seen || a.bad || (a.code == FZN_STATUS_OK && !a.seen)) return unreadable(c);
+			*asked = a.asked;
+			return search_status(c, a.code, a.why);
+		}
+	}
+	char arg[1024];
+	const char *rest = NULL;
+	size_t rest_len = 0, at = 0;
+	const int n = search_arg(arg, sizeof arg, with, words, after);
+	if (n < 0) return encode_failed(c);
+	const int rc = fzn_rpc_node(c, "fetch", arg, (size_t)n, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	return node_number(rest, rest_len, &at, asked) ? FZN_RPC_OK : unreadable(c);
+}
+
+int fzn_rpc_search_list(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
+                        fzn_rpc_search_page_t *out) {
+	/* IN BINARY FIRST, sec 1318: a PAGE, a HIT each, then a STATUS. */
+	{
+		uint8_t req[640];
+		size_t req_len = 0;
+		struct search_answer a;
+		int text = 0;
+		if (!c || !out) return c ? encode_failed(c) : FZN_RPC_ERR_MALFORMED;
+		memset(out, 0, sizeof *out);
+		const int wrc = search_ask_write(c, FZN_SEARCH_LOCAL_OP_LIST, with, words, after, req, sizeof req, &req_len);
+		if (wrc != FZN_RPC_OK) return wrc;
+		memset(&a, 0, sizeof a);
+		a.out = out;
+		const int rc = fzn_rpc_binary(c, req, req_len, search_each, &a, &text);
+		if (!text) {
+			if (rc != FZN_RPC_OK) return rc;
+			if (!a.status_seen || a.bad) return unreadable(c);
+			if (a.code != FZN_STATUS_OK) return search_status(c, a.code, a.why);
+			return out->count == a.want ? FZN_RPC_OK : unreadable(c);
+		}
+		memset(out, 0, sizeof *out);
+	}
+	char arg[1024];
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	const int n = search_arg(arg, sizeof arg, with, words, after);
+	memset(out, 0, sizeof *out);
+	if (n < 0) return encode_failed(c);
+	const int rc = fzn_rpc_node(c, "list", arg, (size_t)n, &rest, &rest_len);
+	return rc != FZN_RPC_OK ? rc : search_page_text(c, rest, rest_len, 0, out);
 }
 
 int fzn_rpc_search_get(fzn_rpc_t *c, fzn_rpc_search_page_t *out) {

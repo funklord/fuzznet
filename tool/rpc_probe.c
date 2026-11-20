@@ -57,6 +57,8 @@ int main(int argc, char **argv)
 	static fzn_rpc_group_create_resp_t made_group;
 	static fzn_rpc_object_t object;
 	static fzn_rpc_unread_entry_t unread[8];
+	static fzn_rpc_search_page_t page;
+	static fzn_rpc_sticker_match_resp_t recent;
 	size_t count = 0, total = 0, i;
 	int found = 0;
 
@@ -119,6 +121,24 @@ int main(int argc, char **argv)
 		fprintf(stderr, "rpc_probe: the group made was not listed\n");
 	}
 	ASK(fzn_rpc_unread_all, unread, 8, &count, &total);
+
+	/* THE ONE SEARCH, in binary (sec 1318): the group made found by its
+	 * name among the contacts and groups; fetched and its page got; a
+	 * contact that is not there refused, said rather than read. */
+	ASK(fzn_rpc_search_list, NULL, "probe", NULL, &page);
+	ASK(fzn_rpc_search_fetch, NULL, "probe", NULL, &total);
+	ASK(fzn_rpc_search_get, &page);
+	made++;
+	if (fzn_rpc_search_list(&c, "nobody_here", "probe", NULL, &page) != FZN_RPC_ERR_NO_PEER) {
+		failed++;
+		fprintf(stderr, "rpc_probe: a search with no such contact was not refused as one: %s\n", c.error);
+	}
+	/* THE STICKERS SENT LATELY (sec 1317): none on a fresh host. */
+	ASK(fzn_rpc_sticker_recent, &recent);
+	if (recent.count) {
+		failed++;
+		fprintf(stderr, "rpc_probe: a fresh host had sent %zu stickers\n", recent.count);
+	}
 
 	if (failed) {
 		fprintf(stderr, "rpc_probe: %d of %d calls did not read\n", failed, made);

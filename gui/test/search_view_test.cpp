@@ -36,6 +36,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	(void)ctx;
 	if (silent)
 		return 0;
+	/* BOB IS A CONTACT, so a search with him names one (sec 1318: the
+	 * client finds the contact before asking). */
+	if (!strcmp(line, "list contact 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 1 0 bob,b0b0000000000000000000000000000000000000000000000000000000000001\n");
 	if (!strncmp(line, "fetch search", 12)) {
 		snprintf(last, sizeof last, "%s", line);
 		answered = 0;
@@ -77,6 +82,8 @@ int main(int argc, char **argv)
 	      "the next page was not asked after the last hit");
 	CHECK(view.search(QStringLiteral("heron"), QStringLiteral("bob")) && !strcmp(last, "fetch search with bob heron"),
 	      "a search with a contact did not name the contact");
+	CHECK(!view.search(QStringLiteral("heron"), QStringLiteral("nobody")) && view.status().contains(QStringLiteral("no such contact")),
+	      "a search with no such contact was asked, or not said");
 	view.select(0);
 	CHECK(!view.open(), "a hit was opened with none chosen on the table");
 	silent = 1;

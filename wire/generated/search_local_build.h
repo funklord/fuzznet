@@ -326,6 +326,79 @@ static inline situ_err_t fzn_search_local_ask_build(
 	return SITU_OK;
 }
 
+/** Build a local_ask into `situ_out`, one member at a time in
+ *  schema order, and validate the result before reporting it.
+ *
+ * `*situ_wrote` is set only on success. A size field is computed
+ * from the run it measures rather than supplied, so a message
+ * cannot disagree with its own schema.
+ *
+ * SITU_OK             built; the first `*situ_wrote` bytes are a
+ *                     complete local_ask
+ * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
+ * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
+ *                     or the result does not satisfy the schema
+ */
+static inline situ_err_t fzn_search_local_local_ask_build(
+		uint8_t *situ_out,
+		uint32_t situ_cap,
+		uint8_t has_with,
+		const uint8_t *with,
+		const uint8_t *ask,
+		uint32_t ask_len,
+		uint32_t *situ_wrote)
+{
+	situ_msg_t  situ_msg;
+	situ_view_t situ_view;
+	situ_err_t  situ_err;
+	uint32_t    situ_at = 0;
+
+	if (situ_out == NULL || situ_wrote == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	if (situ_cap - situ_at < 1u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_out[situ_at] = (uint8_t)has_with;
+	situ_at += 1u;
+
+	if (with == NULL) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (situ_cap - situ_at < 32u) {
+		return SITU_ERR_BOUNDS;
+	}
+	memcpy(situ_out + situ_at, with, 32u);
+	situ_at += 32u;
+
+	if (situ_cap - situ_at < ask_len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (ask_len != 0u) {
+		if (ask == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		memcpy(situ_out + situ_at, ask, ask_len);
+	}
+	situ_at += ask_len;
+
+	/* Constraints are the view's to state and this reuses them
+	 * rather than restating them: two checks of one schema is how
+	 * they come to disagree. */
+	situ_msg_init(&situ_msg, situ_out, situ_at);
+	if (fzn_search_local_local_ask_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_err = fzn_search_local_local_ask_validate(situ_view);
+	if (situ_err != SITU_OK) {
+		return situ_err;
+	}
+
+	*situ_wrote = situ_at;
+	return SITU_OK;
+}
+
 /** Build a page into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
