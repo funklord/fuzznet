@@ -49,6 +49,9 @@ typedef enum fzn_members_local_op {
 	FZN_MEMBERS_LOCAL_OP_SELF = 150,
 	FZN_MEMBERS_LOCAL_OP_SELF_ROW = 151,
 	FZN_MEMBERS_LOCAL_OP_ACT = 152,
+	FZN_MEMBERS_LOCAL_OP_REVOKE = 153,
+	FZN_MEMBERS_LOCAL_OP_REVOKED = 154,
+	FZN_MEMBERS_LOCAL_OP_UNREVOKE = 155,
 } fzn_members_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -81,6 +84,9 @@ static inline int fzn_members_local_op_is_known(fzn_members_local_op_t value)
 	case FZN_MEMBERS_LOCAL_OP_SELF:
 	case FZN_MEMBERS_LOCAL_OP_SELF_ROW:
 	case FZN_MEMBERS_LOCAL_OP_ACT:
+	case FZN_MEMBERS_LOCAL_OP_REVOKE:
+	case FZN_MEMBERS_LOCAL_OP_REVOKED:
+	case FZN_MEMBERS_LOCAL_OP_UNREVOKE:
 		return 1;
 	default:
 		return 0;
@@ -156,6 +162,145 @@ static inline situ_err_t fzn_members_local_nothing_required(const uint8_t *data,
  * SITU_CHECKED, and available explicitly in any build.
  */
 situ_err_t fzn_members_local_nothing_validate(situ_view_t view);
+
+/* ---- struct host_ask ---- */
+
+#define FZN_MEMBERS_LOCAL_HOST_ASK_SIZE_FIXED 32u
+#define FZN_MEMBERS_LOCAL_HOST_ASK_SIZE_MIN   32u
+#define FZN_MEMBERS_LOCAL_HOST_ASK_SIZE_MAX   32u
+
+/* INVALIDATION: nothing invalidates a host_ask view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_members_local_host_ask_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MEMBERS_LOCAL_HOST_ASK_SIZE_FIXED, out);
+}
+
+/** host_ask.key : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MEMBERS_LOCAL_HOST_ASK_KEY_COUNT 32u
+static inline uint8_t *fzn_members_local_host_ask_key_ptr(situ_view_t view)
+{
+	return situ_base(view) + 0u;
+}
+
+/** How many bytes a whole `host_ask` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_members_local_host_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MEMBERS_LOCAL_HOST_ASK_SIZE_FIXED;
+	return have >= FZN_MEMBERS_LOCAL_HOST_ASK_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_members_local_host_ask_validate(situ_view_t view);
+
+/* ---- struct revoked_row ---- */
+
+#define FZN_MEMBERS_LOCAL_REVOKED_ROW_SIZE_FIXED 34u
+#define FZN_MEMBERS_LOCAL_REVOKED_ROW_SIZE_MIN   34u
+#define FZN_MEMBERS_LOCAL_REVOKED_ROW_SIZE_MAX   34u
+
+/* INVALIDATION: nothing invalidates a revoked_row view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_members_local_revoked_row_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_MEMBERS_LOCAL_REVOKED_ROW_SIZE_FIXED, out);
+}
+
+#define FZN_MEMBERS_LOCAL_REVOKED_ROW_ALREADY_VALUE_MAX 1u
+
+/** revoked_row.already : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_members_local_revoked_row_already_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_members_local_revoked_row_already_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_members_local_revoked_row_already_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+#define FZN_MEMBERS_LOCAL_REVOKED_ROW_KEEPS_NOTHING_VALUE_MAX 1u
+
+/** revoked_row.keeps_nothing : u8  at AbsoluteStatic(0x01)
+ * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_members_local_revoked_row_keeps_nothing_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[1u]);
+}
+static inline uint8_t *fzn_members_local_revoked_row_keeps_nothing_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 1u);
+}
+static inline void fzn_members_local_revoked_row_keeps_nothing_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[1u] = (uint8_t)value;
+}
+
+/** revoked_row.cut : u8  at AbsoluteStatic(0x02)
+ * size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_MEMBERS_LOCAL_REVOKED_ROW_CUT_COUNT 32u
+static inline uint8_t *fzn_members_local_revoked_row_cut_ptr(situ_view_t view)
+{
+	return situ_base(view) + 2u;
+}
+
+/** How many bytes a whole `revoked_row` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_members_local_revoked_row_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_MEMBERS_LOCAL_REVOKED_ROW_SIZE_FIXED;
+	return have >= FZN_MEMBERS_LOCAL_REVOKED_ROW_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_members_local_revoked_row_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_members_local_revoked_row_check(situ_view_t view, uint32_t *which);
+#define FZN_MEMBERS_LOCAL_REVOKED_ROW_ALREADY_CHECK 0u
+#define FZN_MEMBERS_LOCAL_REVOKED_ROW_KEEPS_NOTHING_CHECK 1u
 
 /* ---- struct act ---- */
 
@@ -2736,7 +2881,7 @@ static inline fzn_members_local_op_t fzn_members_local_message_op_get(situ_view_
 /* message.body : variant  at AbsoluteStatic(0x02)
  * size=Bounded(0, 1027) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `siblings`, `sibling_row`, `capabilities`, `capability_row`, `grants`, `grant_row`, `invite`, `invite_row`, `waiting`, `waiting_row`, `answer`, `roots`, `root_row`, `quorum_row`, `votes`, `vote_row`, `successions`, `rekey_row`, `staged`, `staged_row`, `presets`, `preset_row`, `self`, `self_row`, `act` is
+/** `body` is a variant: exactly one of `siblings`, `sibling_row`, `capabilities`, `capability_row`, `grants`, `grant_row`, `invite`, `invite_row`, `waiting`, `waiting_row`, `answer`, `roots`, `root_row`, `quorum_row`, `votes`, `vote_row`, `successions`, `rekey_row`, `staged`, `staged_row`, `presets`, `preset_row`, `self`, `self_row`, `act`, `revoke`, `revoked`, `unrevoke` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -3319,6 +3464,55 @@ static inline situ_err_t fzn_members_local_message_body_act_view(situ_view_t vie
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_ACT_WORD_LEN_VALUE_MIN 1u
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_ACT_WORD_LEN_VALUE_MAX 1024u
 
+/** message.body.revoke, present when the discriminant selects `op.revoke`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_members_local_message_body_revoke_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 153u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MEMBERS_LOCAL_HOST_ASK_SIZE_FIXED, out);
+}
+
+/** message.body.revoked, present when the discriminant selects `op.revoked`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_members_local_message_body_revoked_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 154u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MEMBERS_LOCAL_REVOKED_ROW_SIZE_FIXED, out);
+}
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_REVOKED_ALREADY_VALUE_MAX 1u
+
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_REVOKED_KEEPS_NOTHING_VALUE_MAX 1u
+
+/** message.body.unrevoke, present when the discriminant selects `op.unrevoke`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end.
+ */
+static inline situ_err_t fzn_members_local_message_body_unrevoke_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_members_local_message_op_get(view) != 155u) {
+		return SITU_ERR_VERSION;
+	}
+	return situ_view_sub(view, 2u, FZN_MEMBERS_LOCAL_HOST_ASK_SIZE_FIXED, out);
+}
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -3531,6 +3725,27 @@ static inline situ_err_t fzn_members_local_message_required(const uint8_t *data,
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if (fzn_members_local_message_op_get(view) == 153u) {
+			e = fzn_members_local_host_ask_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if (fzn_members_local_message_op_get(view) == 154u) {
+			e = fzn_members_local_revoked_row_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
+		} else if (fzn_members_local_message_op_get(view) == 155u) {
+			e = fzn_members_local_host_ask_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -3593,6 +3808,9 @@ situ_err_t fzn_members_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_SELF_CHECK 25u
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_SELF_ROW_CHECK 26u
 #define FZN_MEMBERS_LOCAL_MESSAGE_BODY_ACT_CHECK 27u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_REVOKE_CHECK 28u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_REVOKED_CHECK 29u
+#define FZN_MEMBERS_LOCAL_MESSAGE_BODY_UNREVOKE_CHECK 30u
 
 #ifdef __cplusplus
 }

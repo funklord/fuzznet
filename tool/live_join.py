@@ -331,6 +331,17 @@ def main(argv):
 				             % b_grants())
 			print("livecheck: h: B revoked held neither grant A made it, admin among them, and "
 			      "withdrawn held both")
+			# h2: THE SAME IN BINARY, sec 1307: a revoked row and ok, the grants
+			# gone; withdrawn by its op, ok, and both stand again.
+			got = binary(socks["a"], bytes([0x09, 0x99]) + bytes.fromhex(key_b))
+			if len(got) != 2 or got[0][:2] != bytes([0x09, 0x9A]) or got[1][:2] != bytes([0x13, 0]) \
+			   or b_grants() != {"member": "0", "admin": "0"}:
+				raise failed("h2: B revoked in binary answered %r, grants %r" % (got, b_grants()))
+			got = binary(socks["a"], bytes([0x09, 0x9B]) + bytes.fromhex(key_b))
+			if len(got) != 1 or got[0][:2] != bytes([0x13, 0]) or b_grants() != {"member": "1", "admin": "1"}:
+				raise failed("h2: the revocation withdrawn in binary answered %r, grants %r"
+				             % (got, b_grants()))
+			print("livecheck: h2: B revoked and the revocation withdrawn in binary, as the verbs do")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -19760,6 +19760,64 @@ static int local_act(int fd, fzn_origin_t origin, situ_view_t v)
 	return verb_status(fd, reply, n);
 }
 
+/* A HOST REVOKED, OR THE VOTE WITHDRAWN, sec 1307: `revoke peer KEY` or
+ * `remove revocation KEY`, run as the socket runs a line; a revocation's
+ * answer -- `ok KEY [already] keeping CUT|nothing` -- said as a row, then
+ * ok, and a refusal as a STATUS in the verb's words. */
+static int local_revoke(int fd, fzn_origin_t origin, situ_view_t v)
+{
+	static char reply[FZN_REPLY_MAX + 1u];
+	const int revoke = fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_REVOKE;
+	char arg[32u + 2u * FZN_PUBKEY_LEN], hex[2u * FZN_PUBKEY_LEN + 1u];
+	situ_view_t b;
+	fzn_request_t req;
+	size_t n;
+
+	if (!running_admin)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no estate"), 0;
+	if ((revoke ? fzn_members_local_message_body_revoke_view(v, &b)
+	            : fzn_members_local_message_body_unrevoke_view(v, &b))
+	    != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
+	hex_of(fzn_members_local_host_ask_key_ptr(b), FZN_PUBKEY_LEN, hex);
+	memset(&req, 0, sizeof(req));
+	n = (size_t)snprintf(arg, sizeof(arg), "%s %s", revoke ? "peer" : "revocation", hex);
+	req.parsed = revoke ? FZN_VERB_REVOKE : FZN_VERB_REMOVE;
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	n = local_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, origin, NULL, &req, reply, sizeof(reply) - 1u);
+	if (!n)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "no verb took the revocation"), 0;
+	reply[n] = '\0';
+	if (!revoke || n < 3u || memcmp(reply, "ok ", 3u) != 0)
+		return verb_status(fd, reply, n);
+	{
+		/* `KEY [already] keeping CUT|nothing`. */
+		char key[2u * FZN_PUBKEY_LEN + 1u], w2[16], w3[2u * FZN_PUBKEY_LEN + 1u], w4[2u * FZN_PUBKEY_LEN + 1u];
+		uint8_t cut[FZN_PUBKEY_LEN], row[2u + FZN_PUBKEY_LEN], out[8u + sizeof(row)];
+		uint32_t row_len = 0, out_len = 0;
+		int words = sscanf(reply + 3, "%64s %15s %64s %64s", key, w2, w3, w4), already;
+		const char *keeping;
+
+		already = words >= 2 && strcmp(w2, "already") == 0;
+		keeping = already ? (words == 4 ? w4 : NULL) : (words >= 3 ? w3 : NULL);
+		if (!keeping || strcmp(already ? w3 : w2, "keeping") != 0)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the revocation's answer did not read"), 0;
+		memset(cut, 0, sizeof(cut));
+		if (strcmp(keeping, "nothing") != 0 && !unhex_n((const uint8_t *)keeping, strlen(keeping), cut, sizeof(cut)))
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the revocation's answer did not read"), 0;
+		if (fzn_members_local_revoked_row_build(row, sizeof(row), (uint8_t)(already ? 1 : 0),
+		                                        (uint8_t)(strcmp(keeping, "nothing") == 0 ? 1 : 0), cut, &row_len)
+		            != SITU_OK
+		    || fzn_members_local_message_build_revoked(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row, row_len,
+		                                               &out_len)
+		               != SITU_OK
+		    || !local_put(&fd, out, out_len))
+			return 0;
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
@@ -19790,6 +19848,9 @@ static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 		return local_governance(fd, origin, fzn_members_local_message_op_get(v));
 	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_ACT)
 		return local_act(fd, origin, v);
+	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_REVOKE
+	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_UNREVOKE)
+		return local_revoke(fd, origin, v);
 	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_SELF)
 		return running_admin ? local_self(fd, origin)
 		                     : (local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no estate"), 0);

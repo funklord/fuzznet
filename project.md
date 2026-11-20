@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1305
+The newest work is at the end of this file. **Read secs 1287 to 1307
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -59,9 +59,8 @@ listener port spans (`150e3106`).
 - **The rest of the binary move** (the holder's "no protocol part is to
   stay text", secs 1208, 1217): files (sec 1303), sticker reads (sec
   1304) and governance acts (sec 1305) moved on 2026-11-20. Left, in
-  sec 1217's order: the settings calls (`fzn_rpc_config_*`), a host
-  revoked and unrevoked by name, grants made, the device confirmation
-  setting, the library's `add`, building or keeping a pack from a file;
+  sec 1217's order (settings: sec 1306; a host revoked: sec 1307):
+  grants made, the library's `add`, building or keeping a pack from a file;
   joining and the join offer stay text by their own sections (1250,
   1288) until a reason moves them.
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
@@ -94130,3 +94129,19 @@ have always written them.
 as this host's own (as `get setting here` says), cleared to the default,
 an undeclared key refused in words; live_rpc a's probe reads `net.address`
 through the binary op now.
+
+## 1307. A host revoked and its revocation withdrawn, in binary, 2026-11-20
+
+The hosts view's two remaining text acts. `fzn_rpc_vote_against` (sec
+1305) and `fzn_rpc_host_revoke` say the same verb, `revoke peer KEY`, but
+the second wants its answer -- whether this host's vote was held before,
+and what of the host's history is kept -- where an act's STATUS says
+none. `node/members_local.situ` gains `revoke` (153), answered by
+`revoked` (154: already, keeps nothing, and the record the kept history
+ends at), and `unrevoke` (155), answered by a STATUS. fuzznetd runs both
+as the socket runs a line and reads the verb's `ok KEY [already] keeping
+CUT|nothing` into the row. The client asks in binary first.
+
+**Tests:** members_local_vectors (31, four new); live_join h2 -- B
+revoked in bytes, a revoked row and ok, A then listing neither grant it
+made B; withdrawn in bytes, both stand again.

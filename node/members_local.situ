@@ -37,6 +37,9 @@ enum op : u8 {
 	self           = 150, // this host as the hosts view shows it, in one (sec 1266)
 	self_row       = 151, // an answer: this host
 	act            = 152, // a governance act, answered by a STATUS in its verb's words (sec 1305)
+	revoke         = 153, // a host revoked, as `revoke peer KEY` (sec 1307)
+	revoked        = 154, // an answer: what the revocation keeps
+	unrevoke       = 155, // the vote withdrawn, as `remove revocation KEY`
 	default        = error,
 }
 
@@ -56,6 +59,20 @@ enum act_kind : u8 {
 	preset         = 6, // `set preset NAME`
 	vote_setting   = 7, // `add vote setting LINE`
 	default        = error,
+}
+
+// A HOST, by its key.
+struct host_ask {
+	u8   key[32];
+}
+
+// A REVOCATION SAID: ALREADY 1 when this host's vote was held before, its
+// line left where it was; KEEPS_NOTHING 1 when nothing of the host's is
+// kept, else CUT the record its kept history ends at.
+struct revoked_row {
+	u8   already [max = 1];
+	u8   keeps_nothing [max = 1];
+	u8   cut[32];
 }
 
 struct act {
@@ -215,6 +232,9 @@ struct message {
 		case op.self:           nothing        self;
 		case op.self_row:       self_row       self_row;
 		case op.act:            act            act;
+		case op.revoke:         host_ask       revoke;
+		case op.revoked:        revoked_row    revoked;
+		case op.unrevoke:       host_ask       unrevoke;
 		default: error;
 	}
 }

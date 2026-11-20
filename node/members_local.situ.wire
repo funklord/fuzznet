@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  siblings=128 sibling_row=129 capabilities=130 capability_row=131 grants=132 grant_row=133 invite=134 invite_row=135 waiting=136 waiting_row=137 answer=138 roots=139 root_row=140 quorum_row=141 votes=142 vote_row=143 successions=144 rekey_row=145 staged=146 staged_row=147 presets=148 preset_row=149 self=150 self_row=151 act=152
+  siblings=128 sibling_row=129 capabilities=130 capability_row=131 grants=132 grant_row=133 invite=134 invite_row=135 waiting=136 waiting_row=137 answer=138 roots=139 root_row=140 quorum_row=141 votes=142 vote_row=143 successions=144 rekey_row=145 staged=146 staged_row=147 presets=148 preset_row=149 self=150 self_row=151 act=152 revoke=153 revoked=154 unrevoke=155
 
 enum act_kind : u8 unknown=error
   root_add=0 root_remove=1 quorum=2 vote_against=3 succession=4 staged_confirm=5 preset=6 vote_setting=7
@@ -46,6 +46,9 @@ struct grant_row size=42..58
   @0x0021   0..16     u8         name  sized-by=name_len
   ~         8         u64        expires  big
   ~         1         u8         stands  max=1
+
+struct host_ask size=32
+  @0x0000   32        u8         key  big
 
 struct invite_ask size=6
   @0x0000   1         u8         delegable  max=1
@@ -86,6 +89,9 @@ struct message size=2..1029
   body case 150: self nothing
   body case 151: self_row self_row
   body case 152: act act
+  body case 153: revoke host_ask
+  body case 154: revoked revoked_row
+  body case 155: unrevoke host_ask
   body case default: error
 
 struct nothing size=0
@@ -103,6 +109,11 @@ struct rekey_row size=65..88
   @0x0020   32        u8         new_key  big
   @0x0040   1         u8         state_len  max=23
   @0x0041   0..23     u8         state  sized-by=state_len
+
+struct revoked_row size=34
+  @0x0000   1         u8         already  max=1
+  @0x0001   1         u8         keeps_nothing  max=1
+  @0x0002   32        u8         cut  big
 
 struct root_row size=33
   @0x0000   32        u8         key  big

@@ -34,6 +34,9 @@ struct grant_row size=42..58 mutate=Shifting address=Unstable repr=ValueConverte
   grant_row.expires                      offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   grant_row.stands                       offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
 
+struct host_ask size=32 atomic=NonAtomic
+  host_ask.key                           offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
 struct invite_ask size=6 repr=ValueConverted atomic=NonAtomic
   invite_ask.delegable                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   invite_ask.confirm                     offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
@@ -128,6 +131,14 @@ struct message size=2..1029 mutate=Shifting address=Unstable repr=ValueConverted
   message.body.act.kind                  offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   message.body.act.word_len              offset=AbsoluteStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   message.body.act.word                  offset=AbsoluteStatic(0x05) size=Bounded(1, 1024) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.revoke                    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.revoke.key                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.revoked                   offset=AbsoluteStatic(0x02) size=Fixed(34) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.revoked.already           offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.revoked.keeps_nothing     offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.revoked.cut               offset=AbsoluteStatic(0x04) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+  message.body.unrevoke                  offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.unrevoke.key              offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
 
 struct nothing size=0
 
@@ -144,6 +155,11 @@ struct rekey_row size=65..88 mutate=Shifting atomic=NonAtomic
   rekey_row.new_key                      offset=AbsoluteStatic(0x20) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   rekey_row.state_len                    offset=AbsoluteStatic(0x40) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   rekey_row.state                        offset=AbsoluteStatic(0x41) size=Bounded(0, 23) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct revoked_row size=34 atomic=NonAtomic
+  revoked_row.already                    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  revoked_row.keeps_nothing              offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  revoked_row.cut                        offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
 
 struct root_row size=33 atomic=NonAtomic
   root_row.key                           offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

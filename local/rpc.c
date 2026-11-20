@@ -8427,8 +8427,71 @@ static int node_location_status(fzn_rpc_t *c, fzn_rpc_location_status_resp_t *ou
 
 /* `revoke peer KEY`: `ok KEY [already] keeping CUT|nothing`, the line
  * read back from the vote fuzznetd holds (its node/admin.c). */
+/* A REVOCATION IN BINARY, sec 1307: the revoked row, then a STATUS. */
+struct revoke_answer {
+	fzn_rpc_host_revoke_resp_t *out;
+	int rows, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void revoke_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct revoke_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (!a->out || a->rows || a->status_seen || len > UINT32_MAX ||
+	    fzn_members_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK ||
+	    fzn_members_local_message_validate(v) != SITU_OK ||
+	    fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_REVOKED ||
+	    fzn_members_local_message_body_revoked_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	a->out->already = fzn_members_local_revoked_row_already_get(b);
+	a->out->keeps_nothing = fzn_members_local_revoked_row_keeps_nothing_get(b);
+	memcpy(a->out->cut, fzn_members_local_revoked_row_cut_ptr(b), 32);
+	a->rows = 1;
+}
+
+static int revoke_binary(fzn_rpc_t *c, uint8_t op, const uint8_t key[32], fzn_rpc_host_revoke_resp_t *out,
+                         int *text) {
+	uint8_t req[2 + 32];
+	struct revoke_answer a;
+	req[0] = FZN_CMD_MEMBERS;
+	req[1] = op;
+	memcpy(req + 2, key, 32);
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, req, sizeof req, revoke_each, &a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (!a.status_seen || a.bad) return unreadable(c); /* the revocation's answer cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return out && !a.rows ? unreadable(c) : FZN_RPC_OK;
+}
+
 int fzn_rpc_host_revoke(fzn_rpc_t *c, const uint8_t host_pubkey[32], fzn_rpc_host_revoke_resp_t *out) {
 	memset(out, 0, sizeof(*out));
+	{
+		int text = 0;
+		const int rc = revoke_binary(c, FZN_MEMBERS_LOCAL_OP_REVOKE, host_pubkey, out, &text);
+		if (!text) return rc;
+		memset(out, 0, sizeof(*out));
+	}
 	char arg[5 + 64 + 1], hex[65];
 	fzn_hex_encode(host_pubkey, 32, hex);
 	const char *rest = NULL;
@@ -8456,6 +8519,11 @@ int fzn_rpc_host_revoke(fzn_rpc_t *c, const uint8_t host_pubkey[32], fzn_rpc_hos
 }
 
 int fzn_rpc_host_unrevoke(fzn_rpc_t *c, const uint8_t host_pubkey[32]) {
+	{
+		int text = 0;
+		const int rc = revoke_binary(c, FZN_MEMBERS_LOCAL_OP_UNREVOKE, host_pubkey, NULL, &text);
+		if (!text) return rc;
+	}
 	char arg[11 + 64 + 1], hex[65];
 	fzn_hex_encode(host_pubkey, 32, hex);
 	return node_ack(c, "remove", arg, snprintf(arg, sizeof arg, "revocation %s", hex));
