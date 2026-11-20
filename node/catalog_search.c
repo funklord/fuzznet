@@ -26,6 +26,32 @@ static int name_of(const fzn_node_catalog_t *c, const uint8_t *entity, const uin
 	return 0;
 }
 
+/* ITS FACETS, sec 1331: the file's live claims, each a dimension and its
+ * value as the catalogue keeps them -- `kind` first, then the rest while
+ * the hit has room (FZN_SEARCH_FACETS_MAX) -- so a search filters the
+ * library by the dimensions `facet` was made for. Its name is no facet:
+ * the words find it. */
+static void facets_of(const fzn_node_catalog_t *c, const uint8_t *entity, fzn_search_hit_t *h)
+{
+	static fzn_catalog_assertion_t about[256];
+	const size_t n = fzn_node_catalog_assertions(c, entity, about, sizeof(about) / sizeof(about[0]));
+	size_t k;
+	int pass;
+
+	for (pass = 0; pass < 2; pass++)
+		for (k = 0; k < n; k++) {
+			const int kind = about[k].name_len == 4u && memcmp(about[k].name, "kind", 4u) == 0;
+			char dim[FZN_SEARCH_FACET_DIM_MAX + 1u];
+
+			if (!about[k].live || (pass == 0) != kind || (about[k].name_len == 4u && !memcmp(about[k].name, "name", 4u))
+			    || about[k].name_len > FZN_SEARCH_FACET_DIM_MAX || about[k].value_len > FZN_SEARCH_FACET_VALUE_MAX)
+				continue;
+			memcpy(dim, about[k].name, about[k].name_len);
+			dim[about[k].name_len] = '\0';
+			(void)fzn_search_facet_add(h, dim, (const char *)about[k].value, about[k].value_len);
+		}
+}
+
 int fzn_node_catalog_search(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
                             void *emit_ctx)
 {
@@ -59,6 +85,7 @@ int fzn_node_catalog_search(void *ctx, const fzn_search_query_t *q, const uint8_
 			shown_len = e->value_len;
 		}
 		fzn_search_snippet(q, (const char *)shown, shown_len, &h);
+		facets_of(c, e->entity, &h);
 		if (!emit(emit_ctx, &h))
 			return 1;
 	}

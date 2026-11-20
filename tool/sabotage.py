@@ -17811,6 +17811,13 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"library-hit-untagged",
+		"node/catalog_search.c",
+		"\t\tfacets_of(c, e->entity, &h);\n",
+		"",
+		"a library hit carries none of its claims, so no filter selects a file by them; node_catalog_test -- sec 1331",
+	),
+	(
 		"search-short-store-whole",
 		"search/search.c",
 		"\t\t\telse if (r == 2)\n\t\t\t\t*partial = 1;\n",

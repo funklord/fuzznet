@@ -203,6 +203,12 @@ static void test_the_files_are_searched(void)
 	CHECK(fzn_search_query_init(&q, "harbour", 7u, 10u) && fzn_search_run(&store, 1u, &q, a, hits, &count, &more)
 	              && count == 0u,
 	      "a contact was answered this user's library");
+	/* ITS CLAIMS AS FACETS, sec 1331: the song's kind tags its hit, its name
+	 * does not. */
+	CHECK(fzn_search_query_init(&q, "harbour", 7u, 10u) && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more)
+	              && count == 1u && hits[0].n_facets == 1u && !strcmp(hits[0].facets[0].dim, "kind")
+	              && !strcmp(hits[0].facets[0].value, "audio/ogg"),
+	      "a file's kind did not tag its hit, or its name did");
 	fzn_node_catalog_free(&cat);
 }
 

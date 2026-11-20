@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1330
+The newest work is at the end of this file. **Read secs 1287 to 1331
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -45,7 +45,7 @@ listener port spans (`150e3106`).
   that contact's hosts alone (sec 1292); in binary, the client and a
   view (sec 1293); the library's files (sec 1299); facet filters, the
   engine's, the verb's and the client's (secs 1319, 1324). Left: `with
-  @GROUP`; notes, catalogue and contacts tagging facets.
+  @GROUP`; notes and contacts tagging facets (the library's: sec 1331).
 - **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
@@ -94915,3 +94915,19 @@ takes at least what the hand table takes.
 `value`, the hand-only checks as situ types where its features reach (a
 permit's grammar is the hardest), and consumer extensions' tables (sec
 686) as registries of their own.
+
+## 1331. A library file's claims as its hit's facets, 2026-11-20
+
+Sec 1319 left the catalogue tagging nothing, though its claims are the
+dimensions `facet` was made for (secs 101, 342-344). A library hit now
+carries the file's live claims as facets -- `kind` first, then the others
+while the hit has room -- so `list search where kind=audio/ogg harbour`
+selects by them. The name is no facet: the words find it.
+
+**A limit, said**: a hit holds four facets (FZN_SEARCH_FACETS_MAX), so a
+file with more claims than that is filterable by its first four only, and
+a filter on a fifth would wrongly leave it out. Widening the hit costs
+every page's memory on every host; it waits for a library that needs it.
+
+**Tests:** node_catalog_test -- the song's kind tags its hit, its name
+does not. Sabotage `library-hit-untagged`.
