@@ -2085,6 +2085,24 @@ static void test_the_search_here(void)
 		      "a search with a name that is no contact searched");
 		CHECK(SEARCH("list search with carol in contacts carol") && replied("ok 0 0"),
 		      "a search with carol listed this user's contacts");
+		/* KEYED BY BOTH ENDS, sec 1294: carol's conversation by this user's
+		 * root XOR hers, as her hosts key it by hers XOR this user's. */
+		{
+			static const uint8_t *me;
+			static uint8_t mine[FZN_PUBKEY_LEN];
+			char want[2u * FZN_PUBKEY_LEN + 8u];
+			size_t b;
+
+			memset(mine, 0x0f, sizeof(mine));
+			me = mine;
+			s.user = &me;
+			memcpy(want, "lines,", 6u);
+			for (b = 0; b < FZN_PUBKEY_LEN; b++)
+				snprintf(want + 6u + 2u * b, 3u, "%02x", (unsigned)(X[b] ^ mine[b]));
+			CHECK(SEARCH("list search in lines dinner") && replied("ok 2 0 ") && strstr(reply, want),
+			      "a contact's conversation was not keyed by both its ends");
+			s.user = NULL;
+		}
 		/* IN BINARY, sec 1293: a LIST of carol's dinner lines as a PAGE and
 		 * two HITs and ok; a GET of the search fetched; a with naming no
 		 * contact refused. */

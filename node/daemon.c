@@ -26450,6 +26450,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				    == FZN_MESSAGES_OK) {
 					messages_on = 1;
 					node_search.messages = &node_messages;
+					node_search.user = &node_apply.root;
 					node_search.ask_hosts = search_ask_hosts;
 					node_search.contacts = node_messages.m.store;
 					node_messages.keeps = keeps_here;

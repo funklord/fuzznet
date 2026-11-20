@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1293
+The newest work is at the end of this file. **Read secs 1287 to 1294
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -93758,3 +93758,23 @@ by name, a silent node said. Sabotages `search-binary-with-anyone`,
 `search-view-whole-unanswered`. **Not covered:** the client's binary GET
 against a live daemon (the view's test speaks text); a live test of the
 client would.
+
+## 1294. A contact's conversation keyed by both its ends, 2026-11-20
+
+**Found by live_chat b2 (sec 1292), on its first run:** a search with
+bob came back with every line twice. Each user keeps a 1:1 conversation
+under the *other's* root key, and sec 1287 keyed a line by its
+conversation and its id -- so A's copy and B's copy of one line were two
+items, and the merge could not see they were one. Within one estate the
+key had matched, which is why steps 2 and 3 never showed it; across
+users nothing had asked until `with` did.
+
+**The fix:** a contact's conversation is keyed by this user's root XOR
+the contact's, which both users' hosts compute alike; a group's stays
+its id, which every member shares. A client recovers the contact by
+XOR with its own root. `fzn_node_search_t.user` points at fuzznetd's
+pinned root, so a cut-over is followed. Rejected: keying a line by its
+id alone -- unique, but it loses which conversation to open.
+
+**Tests:** messages_test -- carol's conversation keyed by both ends;
+live_chat b2 -- the four lines once each, across A's and B's hosts.

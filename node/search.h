@@ -34,8 +34,11 @@
  * its stores as this user. The words go to that contact and nobody else.
  *
  * KEYS: a line, its conversation's key and the id it is known by on every
- * host (`fzn_node_messages_shared_id`); a sticker, its pack's root and its
- * id, big endian; a note, its id; a contact, its root key.
+ * host (`fzn_node_messages_shared_id`) -- a group's id, or for a contact's
+ * conversation this user's root XOR the contact's, the same on both
+ * users' hosts (sec 1294), whose XOR with this user's root is the contact;
+ * a sticker, its pack's root and its id, big endian; a note, its id; a
+ * contact, its root key.
  */
 #ifndef FZN_NODE_SEARCH_H
 #define FZN_NODE_SEARCH_H
@@ -56,6 +59,11 @@ struct fzn_node_messages;
 
 typedef struct fzn_node_search {
 	struct fzn_node_messages *messages; /* NULL: no lines store */
+	/* THIS USER'S ROOT KEY, through the pointer that holds it (fuzznetd's
+	 * pinned root, which a cut-over re-points): what keys a conversation
+	 * with a contact alike on both users' hosts (sec 1294). NULL, or
+	 * pointing at NULL, keys it by the contact as before. */
+	const uint8_t *const *user;
 	const fzn_persist_ops_t *contacts;  /* NULL: no contacts store */
 	/* SUBSYSTEMS' OWN STORES -- the kept stickers', from
 	 * `fzn_node_stickers_search`; the notes', from `fzn_node_notes_search`

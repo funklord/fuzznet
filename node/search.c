@@ -95,7 +95,9 @@ static int run_lines(void *ctx, const fzn_search_query_t *q, const uint8_t *aske
                      void *emit_ctx)
 {
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
-	fzn_node_messages_t *nm = ctx;
+	const fzn_node_search_t *ns = ctx;
+	fzn_node_messages_t *nm = ns->messages;
+	const uint8_t *user = ns->user ? *ns->user : NULL;
 	char group_name[FZN_CONTACT_NAME_MAX + 1u];
 	size_t from = 0, got = 0, i, group_len = 0;
 	struct reach r = { { 0 }, 0, 0, 0 };
@@ -125,6 +127,15 @@ static int run_lines(void *ctx, const fzn_search_query_t *q, const uint8_t *aske
 			memset(&h, 0, sizeof(h));
 			memcpy(h.store, "lines", 6u);
 			memcpy(h.key, p->contact, FZN_PUBKEY_LEN);
+			/* A CONTACT'S CONVERSATION BY BOTH ITS ENDS, sec 1294: each user
+			 * keeps it under the other's key, so the line a contact's host
+			 * finds was another item here until keyed alike. */
+			if (!is_group && user) {
+				size_t b;
+
+				for (b = 0; b < FZN_PUBKEY_LEN; b++)
+					h.key[b] ^= user[b];
+			}
 			memcpy(h.key + FZN_PUBKEY_LEN, fzn_node_messages_shared_id(nm, p, is_group, shared),
 			       FZN_MESSAGE_ID_LEN);
 			h.key_len = FZN_PUBKEY_LEN + FZN_MESSAGE_ID_LEN;
@@ -190,7 +201,7 @@ size_t fzn_node_search_stores(fzn_node_search_t *s, fzn_search_store_t out[FZN_N
 	if (!s || !out)
 		return 0;
 	if (s->messages)
-		out[n++] = (fzn_search_store_t){ "lines", run_lines, s->messages };
+		out[n++] = (fzn_search_store_t){ "lines", run_lines, s };
 	/* A SUBSYSTEM'S OWN STORE, as its module gives it: the kept stickers'
 	 * is `fzn_node_stickers_search`'s, added by whoever has stickers. */
 	for (i = 0; i < FZN_NODE_SEARCH_EXTRA; i++)
