@@ -34,7 +34,7 @@ static int checks, failures;
 #define REF "fzn:sticker/" PACK "/0000000000000000000000000000000000000000000000000000000000000002/4096/7"
 #define REF8 "fzn:sticker/" PACK "/0000000000000000000000000000000000000000000000000000000000000002/4096/8"
 
-static int silent, let_go, art_asked, sound_asked;
+static int silent, let_go, art_asked, sound_asked, silent_asked;
 
 /* A LOTTIE STICKER, the smallest that draws: one red square on a layer. */
 static const char LOTTIE[] =
@@ -88,6 +88,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		}
 		fclose(f);
 		return (size_t)snprintf(reply, cap, "ok 4\n");
+	}
+	/* STICKER 8 HAS NO SOUND, and is never asked for one. */
+	if (!strncmp(line, "get sticker " PACK " 8 sound ", 12 + 64 + 9)) {
+		silent_asked++;
+		return (size_t)snprintf(reply, cap, "error no sound\n");
 	}
 	if (!strncmp(line, "get sticker " PACK " 8 thumb ", 12 + 64 + 9))
 		return (size_t)snprintf(reply, cap, "error no art\n");
@@ -210,7 +215,8 @@ int main(int argc, char **argv)
 		CHECK(v.touch(0, 0) && v.touch(0, 0) && played.size() == 2 && played[0] == played[1]
 		              && QFile(played[0]).size() == 4 && sound_asked == 1,
 		      "a sticker with a sound was not played, or was written again");
-		CHECK(!v.touch(0, 1) && played.size() == 2, "a sticker with no sound played one");
+		CHECK(!v.touch(0, 1) && played.size() == 2 && !silent_asked,
+		      "a sticker with no sound was asked for one, or played one");
 	}
 
 	CHECK(!v.keep_files({ "/tmp/fzn-good.fzs", "/tmp/fzn-bad.fzs" })
