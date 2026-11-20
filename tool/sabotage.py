@@ -17811,6 +17811,20 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"group-act-any-length",
+		"node/group_act.c",
+		" || need != len)\n",
+		")\n",
+		"a group act read with bytes after it: one act, two encodings, two hashes -- secs 626, 1323",
+	),
+	(
+		"group-act-signs-its-signature",
+		"node/group_act.c",
+		"\tif (!n || !sign->sign(sign->ctx, a->sig, bytes, n - FZN_SIG_LEN))\n",
+		"\tif (!n || !sign->sign(sign->ctx, a->sig, bytes, n))\n",
+		"a group act signed over the bytes of its own empty signature; no act verifies -- secs 626, 1323",
+	),
+	(
 		"apng-first-frame-only",
 		"gui/sticker_render.cpp",
 		"\t\timg = apng_draw(a, at);\n",

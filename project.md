@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1322
+The newest work is at the end of this file. **Read secs 1287 to 1323
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -56,6 +56,9 @@ listener port spans (`150e3106`).
   and the picker's (sec 1322). Left: (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
   (sec 1272).
+- **The holder's: mandate the clock's unit?** (sec 368; sec 1323) situ's
+  replay nonce form states one, so the nonce set moves onto situ only once
+  fuzznet says seconds (fuzznetd's) or leaves it to agreement.
 - **The binary move** (secs 1208, 1217) is done for every client call
   but joining and the join offer, text by their own sections (1250,
   1288): the last three -- a pack from a file, a file described, the
@@ -94692,3 +94695,41 @@ a touched Lottie plays, a still does not, a refresh stops it.
 conversation_view_test -- an APNG sticker line drawn, not playing until
 chosen, then playing. Sabotages `apng-first-frame-only`,
 `picker-still-plays`, `log-raster-never-moves`.
+
+## 1323. A group's act on situ's generated code, its signer held; situ's `expiry = caller`, 2026-11-20
+
+**The second of the 40 layouts** (sec 1311; the first, sec 1313):
+`node/group_act.situ` is `node/group_act_record.situ` (a signed record,
+sec 1313's rule), and says more than it did -- its kind one of the ten
+(`[min = 1, max = 10]`), its payload at most 4096, and **its signer held
+as the contact device entry it is** (`u8 signer[signer_len] [holds =
+fzn_contact_device]`, importing `node/contact_devices.situ`), so the
+generated `validate` descends into the signer's own layout. `node/group_act.c`
+builds the act with the generated builder -- signed over every byte
+before the signature, built first with a zero one -- and reads it through
+the generated view, `validate` and `required` (exactly its length: one
+act, one encoding, one hash); 40 lines of offsets gone. The signer is
+still turned into its struct by `fzn_contact_device_decode`, that layout
+being one of the 38 left.
+
+**Its golden vector is a real act**, captured from group_log_test's
+fixture (a create act signed by its signer's host), since a contact device
+entry cannot honestly be written by hand.
+
+**Found in situ**: `situc wire --check` of this change reported the signer
+narrowing to 1 byte and the signature to 32 -- while `situc map` gives the
+signer 0 to 65535 and the signature 64. The check seems to line up a
+held struct's members against the fields after the run. Sent to situ
+(inbox 20261120T2010Z) with this schema as the reproduction; the contract
+was written from the map, which is right.
+
+**situ built `expiry = caller`** (inbox 20261120T1822Z, situ f6a2c297),
+the third shape this tree asked for (sec 1320): the nonce form's `check`
+and `record` take whether a zero expiry is refused, so admit passes its
+consumer's rule straight through. **The nonce set still does not move**:
+situ's declaration states the clock's unit, and whether fuzznet mandates
+one is the holder's (sec 368, `frame/freshness.h`). fuzznetd uses
+seconds since 1970; the recommendation is to mandate that. Asked in sec 0.
+
+**Tests:** group_act_record_vectors (1, a real act); group_log_test (89)
+and group_fuzz (4000 cases) over the generated codec.

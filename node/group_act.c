@@ -4,6 +4,8 @@
 #include <string.h>
 
 #include "../wire/bytes.h"
+#include "../wire/generated/group_act_record.h"
+#include "../wire/generated/group_act_record_build.h"
 
 const char *fzn_group_act_err_str(fzn_group_act_err_t err)
 {
@@ -25,52 +27,38 @@ static int kind_known(uint8_t kind)
 	return kind >= FZN_GROUP_ACT_CREATE && kind <= FZN_GROUP_ACT_KEYS;
 }
 
-/* Everything the signature covers, into `out`; its length, or 0. */
-static size_t body(const fzn_group_act_t *a, uint8_t *out, size_t cap)
+/* THE ACT, built by the code situ generates from `node/group_act_record.situ`
+ * (sec 1323) with `sig` as its signature: its whole length, or 0. The
+ * signature covers every byte before it, the last FZN_SIG_LEN. */
+static size_t build(const fzn_group_act_t *a, const uint8_t sig[FZN_SIG_LEN], uint8_t *out, size_t cap)
 {
-	size_t signer_len = 0, at = 0;
+	static uint8_t signer[FZN_CONTACT_DEVICE_MAX];
+	size_t signer_len = 0;
+	uint32_t wrote = 0;
 
 	if (!kind_known(a->kind) || a->payload_len > FZN_GROUP_ACT_PAYLOAD_MAX
-	    || cap < FZN_GROUP_ACT_HEAD_LEN + a->payload_len
-	    || fzn_contact_device_encode(&a->signer, out + FZN_GROUP_ACT_HEAD_LEN + a->payload_len,
-	                                 cap - FZN_GROUP_ACT_HEAD_LEN - a->payload_len, &signer_len)
-	               != FZN_CONTACT_DEVICE_OK
-	    || signer_len > 0xffffu)
+	    || fzn_contact_device_encode(&a->signer, signer, sizeof(signer), &signer_len) != FZN_CONTACT_DEVICE_OK
+	    || signer_len > 0xffffu || cap > UINT32_MAX
+	    || fzn_group_act_record_fzn_group_act_build(out, (uint32_t)cap, FZN_GROUP_ACT_VERSION,
+	                                                (uint8_t)FZN_OBJECT_GROUP_ACT, a->kind, a->seq, a->group,
+	                                                a->prev, a->subject, a->setting, a->value, a->at, a->payload,
+	                                                (uint32_t)a->payload_len, signer, (uint32_t)signer_len, sig,
+	                                                &wrote)
+	               != SITU_OK)
 		return 0;
-	out[at++] = FZN_GROUP_ACT_VERSION;
-	out[at++] = (uint8_t)FZN_OBJECT_GROUP_ACT;
-	out[at++] = a->kind;
-	fzn_put_be32(out + at, a->seq);
-	at += 4u;
-	memcpy(out + at, a->group, FZN_GROUP_ID_LEN);
-	at += FZN_GROUP_ID_LEN;
-	memcpy(out + at, a->prev, 32u);
-	at += 32u;
-	memcpy(out + at, a->subject, FZN_PUBKEY_LEN);
-	at += FZN_PUBKEY_LEN;
-	out[at++] = a->setting;
-	fzn_put_be64(out + at, a->value);
-	at += 8u;
-	fzn_put_be64(out + at, a->at);
-	at += 8u;
-	fzn_put_be16(out + at, (uint16_t)a->payload_len);
-	at += 2u;
-	memcpy(out + at, a->payload, a->payload_len);
-	at += a->payload_len;
-	fzn_put_be16(out + at, (uint16_t)signer_len);
-	at += 2u;
-	return at + signer_len;
+	return wrote;
 }
 
 fzn_group_act_err_t fzn_group_act_sign(fzn_group_act_t *a, const fzn_sign_ops_t *sign)
 {
 	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	static const uint8_t unsigned_yet[FZN_SIG_LEN];
 	size_t n;
 
 	if (!a || !sign || !sign->sign)
 		return FZN_GROUP_ACT_ERR_MALFORMED;
-	n = body(a, bytes, sizeof(bytes));
-	if (!n || !sign->sign(sign->ctx, a->sig, bytes, n))
+	n = build(a, unsigned_yet, bytes, sizeof(bytes));
+	if (!n || !sign->sign(sign->ctx, a->sig, bytes, n - FZN_SIG_LEN))
 		return FZN_GROUP_ACT_ERR_MALFORMED;
 	return FZN_GROUP_ACT_OK;
 }
@@ -82,53 +70,47 @@ fzn_group_act_err_t fzn_group_act_encode(const fzn_group_act_t *a, uint8_t *out,
 
 	if (!a || !out || !len)
 		return FZN_GROUP_ACT_ERR_MALFORMED;
-	n = body(a, out, cap);
-	if (!n || n + FZN_SIG_LEN > cap)
+	n = build(a, a->sig, out, cap);
+	if (!n)
 		return FZN_GROUP_ACT_ERR_MALFORMED;
-	memcpy(out + n, a->sig, FZN_SIG_LEN);
-	*len = n + FZN_SIG_LEN;
+	*len = n;
 	return FZN_GROUP_ACT_OK;
 }
 
 fzn_group_act_err_t fzn_group_act_decode(const uint8_t *bytes, size_t len, fzn_group_act_t *out)
 {
-	size_t at = 2u, signer_len;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
 
 	if (!bytes || !out)
 		return FZN_GROUP_ACT_ERR_MALFORMED;
 	memset(out, 0, sizeof(*out));
-	if (len < FZN_GROUP_ACT_HEAD_LEN + FZN_SIG_LEN || bytes[0] != FZN_GROUP_ACT_VERSION
-	    || bytes[1] != (uint8_t)FZN_OBJECT_GROUP_ACT || !kind_known(bytes[2]))
+	/* READ AS THE SCHEMA SAYS, EXACTLY ITS LENGTH: one act, one encoding,
+	 * one hash. Its version, tag, kind and payload bound, and the signer
+	 * as a contact device entry, are the generated validate's to check. */
+	if (len > UINT32_MAX
+	    || fzn_group_act_record_fzn_group_act_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len)
 		return FZN_GROUP_ACT_ERR_SHAPE;
-	out->kind = bytes[at++];
-	out->seq = fzn_get_be32(bytes + at);
-	at += 4u;
-	memcpy(out->group, bytes + at, FZN_GROUP_ID_LEN);
-	at += FZN_GROUP_ID_LEN;
-	memcpy(out->prev, bytes + at, 32u);
-	at += 32u;
-	memcpy(out->subject, bytes + at, FZN_PUBKEY_LEN);
-	at += FZN_PUBKEY_LEN;
-	out->setting = bytes[at++];
-	out->value = fzn_get_be64(bytes + at);
-	at += 8u;
-	out->at = fzn_get_be64(bytes + at);
-	at += 8u;
-	out->payload_len = fzn_get_be16(bytes + at);
-	at += 2u;
-	if (out->payload_len > FZN_GROUP_ACT_PAYLOAD_MAX || len - at < out->payload_len + 2u)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_group_act_record_fzn_group_act_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_group_act_record_fzn_group_act_validate(v) != SITU_OK)
 		return FZN_GROUP_ACT_ERR_SHAPE;
-	memcpy(out->payload, bytes + at, out->payload_len);
-	at += out->payload_len;
-	signer_len = fzn_get_be16(bytes + at);
-	at += 2u;
-	/* EXACTLY ITS LENGTH: one act, one encoding, one hash. */
-	if (len != at + signer_len + FZN_SIG_LEN
-	    || fzn_contact_device_decode(bytes + at, signer_len, &out->signer)
-	               != FZN_CONTACT_DEVICE_OK)
+	out->kind = fzn_group_act_record_fzn_group_act_kind_get(v);
+	out->seq = fzn_group_act_record_fzn_group_act_seq_get(v);
+	memcpy(out->group, fzn_group_act_record_fzn_group_act_group_ptr(v), FZN_GROUP_ID_LEN);
+	memcpy(out->prev, fzn_group_act_record_fzn_group_act_prev_ptr(v), 32u);
+	memcpy(out->subject, fzn_group_act_record_fzn_group_act_subject_ptr(v), FZN_PUBKEY_LEN);
+	out->setting = fzn_group_act_record_fzn_group_act_setting_get(v);
+	out->value = fzn_group_act_record_fzn_group_act_value_get(v);
+	out->at = fzn_group_act_record_fzn_group_act_at_get(v);
+	out->payload_len = fzn_group_act_record_fzn_group_act_payload_len_get(v);
+	memcpy(out->payload, fzn_group_act_record_fzn_group_act_payload_ptr(v), out->payload_len);
+	if (fzn_contact_device_decode(fzn_group_act_record_fzn_group_act_signer_ptr(v),
+	                              fzn_group_act_record_fzn_group_act_signer_len_get(v), &out->signer)
+	    != FZN_CONTACT_DEVICE_OK)
 		return FZN_GROUP_ACT_ERR_SHAPE;
-	at += signer_len;
-	memcpy(out->sig, bytes + at, FZN_SIG_LEN);
+	memcpy(out->sig, fzn_group_act_record_fzn_group_act_sig_ptr(v), FZN_SIG_LEN);
 	return FZN_GROUP_ACT_OK;
 }
 
@@ -142,8 +124,8 @@ fzn_group_act_err_t fzn_group_act_verify(const fzn_group_act_t *a, const fzn_sig
 		return FZN_GROUP_ACT_ERR_MALFORMED;
 	if (fzn_contact_device_verify(&a->signer, sign, member, a->at) != FZN_CONTACT_DEVICE_OK)
 		return FZN_GROUP_ACT_ERR_REFUSED;
-	n = body(a, bytes, sizeof(bytes));
-	if (!n || !sign->verify(sign->ctx, fzn_contact_device_key(&a->signer), bytes, n, a->sig))
+	n = build(a, a->sig, bytes, sizeof(bytes));
+	if (!n || !sign->verify(sign->ctx, fzn_contact_device_key(&a->signer), bytes, n - FZN_SIG_LEN, a->sig))
 		return FZN_GROUP_ACT_ERR_REFUSED;
 	return FZN_GROUP_ACT_OK;
 }
