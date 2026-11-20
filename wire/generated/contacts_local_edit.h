@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_CONTACTS_LOCAL_CONTACTS_LOCAL_EDIT_H
-#define FZN_CONTACTS_LOCAL_CONTACTS_LOCAL_EDIT_H
+#ifndef FZN_CONTACTS_LOCAL_EDIT_H
+#define FZN_CONTACTS_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "contacts_local.h"
@@ -228,4 +228,4 @@ static inline situ_err_t fzn_contacts_local_request_row_edit_decode(const situ_m
 }
 #endif
 
-#endif /* FZN_CONTACTS_LOCAL_CONTACTS_LOCAL_EDIT_H */
+#endif /* FZN_CONTACTS_LOCAL_EDIT_H */

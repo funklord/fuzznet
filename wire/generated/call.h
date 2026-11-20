@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_CALL_CALL_H
-#define FZN_CALL_CALL_H
+#ifndef FZN_CALL_H
+#define FZN_CALL_H
 
 #include "situ.h"
 
@@ -1812,4 +1812,4 @@ situ_err_t fzn_call_message_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_CALL_CALL_H */
+#endif /* FZN_CALL_H */

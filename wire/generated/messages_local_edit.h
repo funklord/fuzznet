@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_MESSAGES_LOCAL_MESSAGES_LOCAL_EDIT_H
-#define FZN_MESSAGES_LOCAL_MESSAGES_LOCAL_EDIT_H
+#ifndef FZN_MESSAGES_LOCAL_EDIT_H
+#define FZN_MESSAGES_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "messages_local.h"
@@ -274,4 +274,4 @@ static inline situ_err_t fzn_messages_local_send_edit_decode(const situ_msg_t *m
 }
 #endif
 
-#endif /* FZN_MESSAGES_LOCAL_MESSAGES_LOCAL_EDIT_H */
+#endif /* FZN_MESSAGES_LOCAL_EDIT_H */

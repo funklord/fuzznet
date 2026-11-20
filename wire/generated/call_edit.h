@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_CALL_CALL_EDIT_H
-#define FZN_CALL_CALL_EDIT_H
+#ifndef FZN_CALL_EDIT_H
+#define FZN_CALL_EDIT_H
 
 #include "situ.h"
 #include "call.h"
@@ -292,4 +292,4 @@ static inline situ_err_t fzn_call_history_edit_decode(const situ_msg_t *msg,
 }
 #endif
 
-#endif /* FZN_CALL_CALL_EDIT_H */
+#endif /* FZN_CALL_EDIT_H */

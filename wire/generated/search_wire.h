@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_SEARCH_WIRE_SEARCH_WIRE_H
-#define FZN_SEARCH_WIRE_SEARCH_WIRE_H
+#ifndef FZN_SEARCH_WIRE_H
+#define FZN_SEARCH_WIRE_H
 
 #include "situ.h"
 
@@ -2408,4 +2408,4 @@ situ_err_t fzn_search_wire_message_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_SEARCH_WIRE_SEARCH_WIRE_H */
+#endif /* FZN_SEARCH_WIRE_H */

@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_SEARCH_WIRE_SEARCH_WIRE_EDIT_H
-#define FZN_SEARCH_WIRE_SEARCH_WIRE_EDIT_H
+#ifndef FZN_SEARCH_WIRE_EDIT_H
+#define FZN_SEARCH_WIRE_EDIT_H
 
 #include "situ.h"
 #include "search_wire.h"
@@ -275,4 +275,4 @@ static inline situ_err_t fzn_search_wire_hit_edit_decode(const situ_msg_t *msg,
 }
 #endif
 
-#endif /* FZN_SEARCH_WIRE_SEARCH_WIRE_EDIT_H */
+#endif /* FZN_SEARCH_WIRE_EDIT_H */

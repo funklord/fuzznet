@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_REACH_LOCAL_REACH_LOCAL_EDIT_H
-#define FZN_REACH_LOCAL_REACH_LOCAL_EDIT_H
+#ifndef FZN_REACH_LOCAL_EDIT_H
+#define FZN_REACH_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "reach_local.h"
@@ -123,4 +123,4 @@ static inline situ_err_t fzn_reach_local_leg_row_edit_decode(const situ_msg_t *m
 }
 #endif
 
-#endif /* FZN_REACH_LOCAL_REACH_LOCAL_EDIT_H */
+#endif /* FZN_REACH_LOCAL_EDIT_H */

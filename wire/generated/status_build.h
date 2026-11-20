@@ -11,8 +11,8 @@
  * header -- a rung adds files rather than changing them (0032).
  */
 
-#ifndef FZN_STATUS_STATUS_BUILD_H
-#define FZN_STATUS_STATUS_BUILD_H
+#ifndef FZN_STATUS_BUILD_H
+#define FZN_STATUS_BUILD_H
 
 #include <string.h>
 
@@ -117,4 +117,4 @@ static inline situ_err_t fzn_status_message_build(
 }
 #endif
 
-#endif /* FZN_STATUS_STATUS_BUILD_H */
+#endif /* FZN_STATUS_BUILD_H */

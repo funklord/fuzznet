@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_WANT_WANT_H
-#define FZN_WANT_WANT_H
+#ifndef FZN_WANT_H
+#define FZN_WANT_H
 
 #include "situ.h"
 
@@ -452,4 +452,4 @@ situ_err_t fzn_want_message_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_WANT_WANT_H */
+#endif /* FZN_WANT_H */

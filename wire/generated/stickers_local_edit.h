@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_STICKERS_LOCAL_STICKERS_LOCAL_EDIT_H
-#define FZN_STICKERS_LOCAL_STICKERS_LOCAL_EDIT_H
+#ifndef FZN_STICKERS_LOCAL_EDIT_H
+#define FZN_STICKERS_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "stickers_local.h"
@@ -501,4 +501,4 @@ static inline situ_err_t fzn_stickers_local_recent_row_edit_decode(const situ_ms
 }
 #endif
 
-#endif /* FZN_STICKERS_LOCAL_STICKERS_LOCAL_EDIT_H */
+#endif /* FZN_STICKERS_LOCAL_EDIT_H */

@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_CONTACTS_LOCAL_CONTACTS_LOCAL_H
-#define FZN_CONTACTS_LOCAL_CONTACTS_LOCAL_H
+#ifndef FZN_CONTACTS_LOCAL_H
+#define FZN_CONTACTS_LOCAL_H
 
 #include "situ.h"
 
@@ -1183,4 +1183,4 @@ situ_err_t fzn_contacts_local_message_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_CONTACTS_LOCAL_CONTACTS_LOCAL_H */
+#endif /* FZN_CONTACTS_LOCAL_H */

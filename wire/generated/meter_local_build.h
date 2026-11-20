@@ -11,8 +11,8 @@
  * header -- a rung adds files rather than changing them (0032).
  */
 
-#ifndef FZN_METER_LOCAL_METER_LOCAL_BUILD_H
-#define FZN_METER_LOCAL_METER_LOCAL_BUILD_H
+#ifndef FZN_METER_LOCAL_BUILD_H
+#define FZN_METER_LOCAL_BUILD_H
 
 #include <string.h>
 
@@ -558,4 +558,4 @@ static inline situ_err_t fzn_meter_local_message_build_transfer_row(
 }
 #endif
 
-#endif /* FZN_METER_LOCAL_METER_LOCAL_BUILD_H */
+#endif /* FZN_METER_LOCAL_BUILD_H */

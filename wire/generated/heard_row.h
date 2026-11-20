@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_HEARD_ROW_HEARD_ROW_H
-#define FZN_HEARD_ROW_HEARD_ROW_H
+#ifndef FZN_HEARD_ROW_H
+#define FZN_HEARD_ROW_H
 
 #include "situ.h"
 
@@ -103,4 +103,4 @@ situ_err_t fzn_heard_row_fzn_heard_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_HEARD_ROW_HEARD_ROW_H */
+#endif /* FZN_HEARD_ROW_H */

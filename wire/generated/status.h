@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_STATUS_STATUS_H
-#define FZN_STATUS_STATUS_H
+#ifndef FZN_STATUS_H
+#define FZN_STATUS_H
 
 #include "situ.h"
 
@@ -219,4 +219,4 @@ situ_err_t fzn_status_message_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_STATUS_STATUS_H */
+#endif /* FZN_STATUS_H */

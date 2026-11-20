@@ -1,25 +1,28 @@
 // A group act, project.md sec 626: one entry of a group's log, step 5a of
-// sec 608. The hand-written codec is node/group_act.c; this is its checked
-// contract, in `make schema`'s list.
+// sec 608. node/group_act.c builds and reads it through the code situ
+// generates from this (sec 1323); `_record`, so the generated file's name
+// meets no source's (sec 1313).
 //
 // Each act names its group, its place in the log and the hash of the act
 // before it, and carries its signer's proof -- a contact device entry
-// (node/contact_devices.situ): the user's root, the host's prekey record
-// and the root's chain to it. SIGNED BY THAT HOST, over every byte before
-// the signature; the tag is the signed-object tag 150. The group's id is
-// the hash of its create act.
+// (node/contact_devices.situ), held whole and read through that layout:
+// the user's root, the host's prekey record and the root's chain to it.
+// SIGNED BY THAT HOST, over every byte before the signature; the tag is the
+// signed-object tag 150. The group's id is the hash of its create act.
 //
-// What the schema cannot say and the codec checks: the kind is one of the
-// ten, the signer is a contact device entry, and the act is exactly its
-// length.
+// What the schema says and the generated code checks: the kind one of the
+// ten, a payload of at most 4096 bytes, the signer a contact device entry,
+// and the act exactly its length. What it cannot say: the signature.
 
 target buffer;
 endian big;
 
+import "contact_devices.situ";
+
 struct fzn_group_act {
 	u8   version [must_eq = 1];
 	u8   tag [must_eq = 150];               // FZN_OBJECT_GROUP_ACT
-	u8   kind;                              // 1 create .. 8 set, 9 host, 10 keys
+	u8   kind [min = 1, max = 10];      // 1 create .. 8 set, 9 host, 10 keys
 	u32  seq;                               // its place; 0 for create
 	u8   group[32];                         // zero for create
 	u8   prev[32];                          // the act before's hash; zero for create
@@ -27,9 +30,9 @@ struct fzn_group_act {
 	u8   setting;                           // for set: 1 backfill
 	u64  value;
 	u64  at;                                // seconds, when it was made
-	u16  payload_len;                       // at most 4096
+	u16  payload_len [max = 4096];
 	u8   payload[payload_len];              // a keys act's boxes; empty otherwise
 	u16  signer_len;
-	u8   signer[signer_len];                // the signer's fzn_contact_device entry
+	u8   signer[signer_len] [holds = fzn_contact_device];   // the signer's entry
 	u8   sig[64];                           // by the signer's host
 }

@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_GROUPS_LOCAL_GROUPS_LOCAL_EDIT_H
-#define FZN_GROUPS_LOCAL_GROUPS_LOCAL_EDIT_H
+#ifndef FZN_GROUPS_LOCAL_EDIT_H
+#define FZN_GROUPS_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "groups_local.h"
@@ -297,4 +297,4 @@ static inline situ_err_t fzn_groups_local_member_row_edit_decode(const situ_msg_
 }
 #endif
 
-#endif /* FZN_GROUPS_LOCAL_GROUPS_LOCAL_EDIT_H */
+#endif /* FZN_GROUPS_LOCAL_EDIT_H */

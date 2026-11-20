@@ -11,8 +11,8 @@
  * header -- a rung adds files rather than changing them (0032).
  */
 
-#ifndef FZN_OBJECTS_OBJECTS_BUILD_H
-#define FZN_OBJECTS_OBJECTS_BUILD_H
+#ifndef FZN_OBJECTS_BUILD_H
+#define FZN_OBJECTS_BUILD_H
 
 #include <string.h>
 
@@ -981,4 +981,4 @@ static inline situ_err_t fzn_objects_message_build_row(
 }
 #endif
 
-#endif /* FZN_OBJECTS_OBJECTS_BUILD_H */
+#endif /* FZN_OBJECTS_BUILD_H */

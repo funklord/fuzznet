@@ -11,8 +11,8 @@
  * header -- a rung adds files rather than changing them (0032).
  */
 
-#ifndef FZN_GROUPS_LOCAL_GROUPS_LOCAL_BUILD_H
-#define FZN_GROUPS_LOCAL_GROUPS_LOCAL_BUILD_H
+#ifndef FZN_GROUPS_LOCAL_BUILD_H
+#define FZN_GROUPS_LOCAL_BUILD_H
 
 #include <string.h>
 
@@ -1451,4 +1451,4 @@ static inline situ_err_t fzn_groups_local_message_build_backfill_row(
 }
 #endif
 
-#endif /* FZN_GROUPS_LOCAL_GROUPS_LOCAL_BUILD_H */
+#endif /* FZN_GROUPS_LOCAL_BUILD_H */

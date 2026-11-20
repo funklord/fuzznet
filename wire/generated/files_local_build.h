@@ -11,8 +11,8 @@
  * header -- a rung adds files rather than changing them (0032).
  */
 
-#ifndef FZN_FILES_LOCAL_FILES_LOCAL_BUILD_H
-#define FZN_FILES_LOCAL_FILES_LOCAL_BUILD_H
+#ifndef FZN_FILES_LOCAL_BUILD_H
+#define FZN_FILES_LOCAL_BUILD_H
 
 #include <string.h>
 
@@ -1593,4 +1593,4 @@ static inline situ_err_t fzn_files_local_message_build_catalog_add(
 }
 #endif
 
-#endif /* FZN_FILES_LOCAL_FILES_LOCAL_BUILD_H */
+#endif /* FZN_FILES_LOCAL_BUILD_H */

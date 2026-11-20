@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_SESSION_FRAME_WIRE_SESSION_FRAME_WIRE_H
-#define FZN_SESSION_FRAME_WIRE_SESSION_FRAME_WIRE_H
+#ifndef FZN_SESSION_FRAME_WIRE_H
+#define FZN_SESSION_FRAME_WIRE_H
 
 #include "situ.h"
 
@@ -307,4 +307,4 @@ situ_err_t fzn_session_frame_wire_fzn_session_grant_validate(situ_view_t view);
 }
 #endif
 
-#endif /* FZN_SESSION_FRAME_WIRE_SESSION_FRAME_WIRE_H */
+#endif /* FZN_SESSION_FRAME_WIRE_H */

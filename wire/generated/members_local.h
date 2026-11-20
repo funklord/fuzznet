@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_MEMBERS_LOCAL_MEMBERS_LOCAL_H
-#define FZN_MEMBERS_LOCAL_MEMBERS_LOCAL_H
+#ifndef FZN_MEMBERS_LOCAL_H
+#define FZN_MEMBERS_LOCAL_H
 
 #include "situ.h"
 
@@ -4031,4 +4031,4 @@ situ_err_t fzn_members_local_message_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_MEMBERS_LOCAL_MEMBERS_LOCAL_H */
+#endif /* FZN_MEMBERS_LOCAL_H */

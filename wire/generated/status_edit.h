@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_STATUS_STATUS_EDIT_H
-#define FZN_STATUS_STATUS_EDIT_H
+#ifndef FZN_STATUS_EDIT_H
+#define FZN_STATUS_EDIT_H
 
 #include "situ.h"
 #include "status.h"
@@ -91,4 +91,4 @@ static inline situ_err_t fzn_status_message_edit_decode(const situ_msg_t *msg,
 }
 #endif
 
-#endif /* FZN_STATUS_STATUS_EDIT_H */
+#endif /* FZN_STATUS_EDIT_H */

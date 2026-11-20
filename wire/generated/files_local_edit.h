@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_FILES_LOCAL_FILES_LOCAL_EDIT_H
-#define FZN_FILES_LOCAL_FILES_LOCAL_EDIT_H
+#ifndef FZN_FILES_LOCAL_EDIT_H
+#define FZN_FILES_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "files_local.h"
@@ -312,4 +312,4 @@ static inline situ_err_t fzn_files_local_library_row_edit_decode(const situ_msg_
 }
 #endif
 
-#endif /* FZN_FILES_LOCAL_FILES_LOCAL_EDIT_H */
+#endif /* FZN_FILES_LOCAL_EDIT_H */

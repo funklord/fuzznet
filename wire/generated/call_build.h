@@ -11,8 +11,8 @@
  * header -- a rung adds files rather than changing them (0032).
  */
 
-#ifndef FZN_CALL_CALL_BUILD_H
-#define FZN_CALL_CALL_BUILD_H
+#ifndef FZN_CALL_BUILD_H
+#define FZN_CALL_BUILD_H
 
 #include <string.h>
 
@@ -2975,4 +2975,4 @@ static inline situ_err_t fzn_call_message_build_past_row(
 }
 #endif
 
-#endif /* FZN_CALL_CALL_BUILD_H */
+#endif /* FZN_CALL_BUILD_H */

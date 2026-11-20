@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_SEARCH_LOCAL_SEARCH_LOCAL_EDIT_H
-#define FZN_SEARCH_LOCAL_SEARCH_LOCAL_EDIT_H
+#ifndef FZN_SEARCH_LOCAL_EDIT_H
+#define FZN_SEARCH_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "search_local.h"
@@ -338,4 +338,4 @@ static inline situ_err_t fzn_search_local_hit_edit_decode(const situ_msg_t *msg,
 }
 #endif
 
-#endif /* FZN_SEARCH_LOCAL_SEARCH_LOCAL_EDIT_H */
+#endif /* FZN_SEARCH_LOCAL_EDIT_H */

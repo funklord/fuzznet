@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_METER_LOCAL_METER_LOCAL_EDIT_H
-#define FZN_METER_LOCAL_METER_LOCAL_EDIT_H
+#ifndef FZN_METER_LOCAL_EDIT_H
+#define FZN_METER_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "meter_local.h"
@@ -179,4 +179,4 @@ static inline situ_err_t fzn_meter_local_transfer_row_edit_decode(const situ_msg
 }
 #endif
 
-#endif /* FZN_METER_LOCAL_METER_LOCAL_EDIT_H */
+#endif /* FZN_METER_LOCAL_EDIT_H */

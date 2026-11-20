@@ -8,8 +8,8 @@
  * changing them (decision 0032).
  */
 
-#ifndef FZN_SESSION_FRAME_WIRE_SESSION_FRAME_WIRE_FRAME_H
-#define FZN_SESSION_FRAME_WIRE_SESSION_FRAME_WIRE_FRAME_H
+#ifndef FZN_SESSION_FRAME_WIRE_FRAME_H
+#define FZN_SESSION_FRAME_WIRE_FRAME_H
 
 #include "situ.h"
 #include "session_frame_wire.h"
@@ -366,4 +366,4 @@ static inline situ_err_t fzn_session_frame_wire_fzn_session_grant_reader_next(fz
 }
 #endif
 
-#endif /* FZN_SESSION_FRAME_WIRE_SESSION_FRAME_WIRE_FRAME_H */
+#endif /* FZN_SESSION_FRAME_WIRE_FRAME_H */

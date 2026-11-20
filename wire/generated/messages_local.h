@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_MESSAGES_LOCAL_MESSAGES_LOCAL_H
-#define FZN_MESSAGES_LOCAL_MESSAGES_LOCAL_H
+#ifndef FZN_MESSAGES_LOCAL_H
+#define FZN_MESSAGES_LOCAL_H
 
 #include "situ.h"
 
@@ -1882,4 +1882,4 @@ situ_err_t fzn_messages_local_message_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_MESSAGES_LOCAL_MESSAGES_LOCAL_H */
+#endif /* FZN_MESSAGES_LOCAL_H */

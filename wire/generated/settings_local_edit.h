@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_SETTINGS_LOCAL_SETTINGS_LOCAL_EDIT_H
-#define FZN_SETTINGS_LOCAL_SETTINGS_LOCAL_EDIT_H
+#ifndef FZN_SETTINGS_LOCAL_EDIT_H
+#define FZN_SETTINGS_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "settings_local.h"
@@ -445,4 +445,4 @@ static inline situ_err_t fzn_settings_local_rule_change_edit_decode(const situ_m
 }
 #endif
 
-#endif /* FZN_SETTINGS_LOCAL_SETTINGS_LOCAL_EDIT_H */
+#endif /* FZN_SETTINGS_LOCAL_EDIT_H */

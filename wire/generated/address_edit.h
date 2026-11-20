@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_ADDRESS_ADDRESS_EDIT_H
-#define FZN_ADDRESS_ADDRESS_EDIT_H
+#ifndef FZN_ADDRESS_EDIT_H
+#define FZN_ADDRESS_EDIT_H
 
 #include "situ.h"
 #include "address.h"
@@ -93,4 +93,4 @@ static inline situ_err_t fzn_address_message_edit_decode(const situ_msg_t *msg,
 }
 #endif
 
-#endif /* FZN_ADDRESS_ADDRESS_EDIT_H */
+#endif /* FZN_ADDRESS_EDIT_H */

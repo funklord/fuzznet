@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_ADDRESS_ADDRESS_H
-#define FZN_ADDRESS_ADDRESS_H
+#ifndef FZN_ADDRESS_H
+#define FZN_ADDRESS_H
 
 #include "situ.h"
 
@@ -231,4 +231,4 @@ situ_err_t fzn_address_message_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_ADDRESS_ADDRESS_H */
+#endif /* FZN_ADDRESS_H */

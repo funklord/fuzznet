@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_NOTES_LOCAL_NOTES_LOCAL_EDIT_H
-#define FZN_NOTES_LOCAL_NOTES_LOCAL_EDIT_H
+#ifndef FZN_NOTES_LOCAL_EDIT_H
+#define FZN_NOTES_LOCAL_EDIT_H
 
 #include "situ.h"
 #include "notes_local.h"
@@ -735,4 +735,4 @@ static inline situ_err_t fzn_notes_local_note_row_edit_decode(const situ_msg_t *
 }
 #endif
 
-#endif /* FZN_NOTES_LOCAL_NOTES_LOCAL_EDIT_H */
+#endif /* FZN_NOTES_LOCAL_EDIT_H */

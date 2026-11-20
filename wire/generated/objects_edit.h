@@ -10,8 +10,8 @@
  * rather than changing them (decision 0032).
  */
 
-#ifndef FZN_OBJECTS_OBJECTS_EDIT_H
-#define FZN_OBJECTS_OBJECTS_EDIT_H
+#ifndef FZN_OBJECTS_EDIT_H
+#define FZN_OBJECTS_EDIT_H
 
 #include "situ.h"
 #include "objects.h"
@@ -322,4 +322,4 @@ static inline situ_err_t fzn_objects_row_edit_decode(const situ_msg_t *msg,
 }
 #endif
 
-#endif /* FZN_OBJECTS_OBJECTS_EDIT_H */
+#endif /* FZN_OBJECTS_EDIT_H */

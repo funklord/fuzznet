@@ -11,8 +11,8 @@
  * header -- a rung adds files rather than changing them (0032).
  */
 
-#ifndef FZN_SETTINGS_LOCAL_SETTINGS_LOCAL_BUILD_H
-#define FZN_SETTINGS_LOCAL_SETTINGS_LOCAL_BUILD_H
+#ifndef FZN_SETTINGS_LOCAL_BUILD_H
+#define FZN_SETTINGS_LOCAL_BUILD_H
 
 #include <string.h>
 
@@ -1458,4 +1458,4 @@ static inline situ_err_t fzn_settings_local_message_build_setting(
 }
 #endif
 
-#endif /* FZN_SETTINGS_LOCAL_SETTINGS_LOCAL_BUILD_H */
+#endif /* FZN_SETTINGS_LOCAL_BUILD_H */

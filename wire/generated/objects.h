@@ -6,8 +6,8 @@
  * picture.
  */
 
-#ifndef FZN_OBJECTS_OBJECTS_H
-#define FZN_OBJECTS_OBJECTS_H
+#ifndef FZN_OBJECTS_H
+#define FZN_OBJECTS_H
 
 #include "situ.h"
 
@@ -1544,4 +1544,4 @@ situ_err_t fzn_objects_message_check(situ_view_t view, uint32_t *which);
 }
 #endif
 
-#endif /* FZN_OBJECTS_OBJECTS_H */
+#endif /* FZN_OBJECTS_H */

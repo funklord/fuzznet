@@ -2,8 +2,8 @@
  *
  * Replay windows (26.1120): a pure `_check` asked before the tag, and
  * `_record` after it. The state is the caller's. */
-#ifndef FZN_SESSION_FRAME_WIRE_SESSION_FRAME_WIRE_REPLAY_H
-#define FZN_SESSION_FRAME_WIRE_SESSION_FRAME_WIRE_REPLAY_H
+#ifndef FZN_SESSION_FRAME_WIRE_REPLAY_H
+#define FZN_SESSION_FRAME_WIRE_REPLAY_H
 
 #include "session_frame_wire.h"
 
@@ -24,7 +24,9 @@ typedef enum {
  * bitmap below the highest -- the state of one session, handed over
  * by the caller, which decides what a session is (26.1120). A counter
  * that wrapped reads as older than the window and is refused, never
- * as new. Zero-initialise it before the first message. */
+ * as new. Zero-initialise it before the first message. Its three
+ * fields are stable: a caller whose own public struct holds the
+ * window may keep them there and build this from them. */
 #define FZN_SESSION_FRAME_WIRE_HEARD_WINDOW 64u
 typedef struct {
 	uint64_t top;	/* the highest counter recorded */
@@ -79,4 +81,4 @@ static inline situ_err_t fzn_session_frame_wire_heard_record(fzn_session_frame_w
 	return SITU_OK;
 }
 
-#endif /* FZN_SESSION_FRAME_WIRE_SESSION_FRAME_WIRE_REPLAY_H */
+#endif /* FZN_SESSION_FRAME_WIRE_REPLAY_H */
