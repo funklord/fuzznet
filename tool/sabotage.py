@@ -17811,6 +17811,13 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"note-hit-unlabelled",
+		"node/notes.c",
+		"\t\t\t\t(void)fzn_search_facet_add(&h, \"label\", (const char *)l, l_len);\n",
+		"",
+		"a note's hit carries none of its labels, so no filter selects a note by one; notes_test -- sec 1332",
+	),
+	(
 		"library-hit-untagged",
 		"node/catalog_search.c",
 		"\t\tfacets_of(c, e->entity, &h);\n",

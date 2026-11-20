@@ -3265,6 +3265,11 @@ static void test_search(void)
 	CHECK(fzn_search_query_init(&q, "weekly", 6u, 10u)
 	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u,
 	      "a label was not searched");
+	/* ITS FACETS, sec 1332: a checklist's kind and its label. */
+	CHECK(count == 1u && hits[0].n_facets == 2u && !strcmp(hits[0].facets[0].dim, "kind")
+	              && !strcmp(hits[0].facets[0].value, "list") && !strcmp(hits[0].facets[1].dim, "label")
+	              && !strcmp(hits[0].facets[1].value, "weekly"),
+	      "a checklist's hit did not carry its kind and its label");
 	CHECK(fzn_search_query_init(&q, "milk", 4u, 10u)
 	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u,
 	      "a note found by its title and its text was not one hit");

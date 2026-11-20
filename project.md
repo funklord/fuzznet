@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1331
+The newest work is at the end of this file. **Read secs 1287 to 1332
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -45,7 +45,7 @@ listener port spans (`150e3106`).
   that contact's hosts alone (sec 1292); in binary, the client and a
   view (sec 1293); the library's files (sec 1299); facet filters, the
   engine's, the verb's and the client's (secs 1319, 1324). Left: `with
-  @GROUP`; notes and contacts tagging facets (the library's: sec 1331).
+  @GROUP` (the library's facets: sec 1331; notes': sec 1332).
 - **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
@@ -94931,3 +94931,20 @@ every page's memory on every host; it waits for a library that needs it.
 
 **Tests:** node_catalog_test -- the song's kind tags its hit, its name
 does not. Sabotage `library-hit-untagged`.
+
+## 1332. A note's kind and labels as its hit's facets; the notes store says when it stopped short, 2026-11-20
+
+The notes store tagged nothing (sec 1319). A note's hit now carries
+`kind` (`note` or `list`) and its labels (`label`, one facet each while
+the hit has room), each the same on every host that holds the note -- so
+`list search where label=weekly ...` selects by a label. And the store's
+own budget -- FZN_NODE_NOTES_SEARCH_OPENS notes opened -- now answers
+"stopped short" (2, sec 1328) when it ran out with notes unlooked at, in
+this user's tree or a sharer's, rather than ending as if it had seen them
+all.
+
+Contacts tag nothing: a contact hit is a name, and no dimension of it is
+one a filter wants yet.
+
+**Tests:** notes_test -- a checklist's hit carries its kind and its label.
+Sabotage `note-hit-unlabelled`.

@@ -2651,10 +2651,25 @@ static int search_tree(const fzn_node_notes_t *n, const fzn_notes_store_t *store
 		h.time_ms = meta.edited_at_ms;
 		/* THE FIELD THAT SCORED BEST is what the snippet shows. */
 		fzn_search_snippet(q, (const char *)from, from_len, &h);
+		/* ITS FACETS, sec 1332, the same on every host that holds it: a
+		 * note or a checklist, and its labels while the hit has room. */
+		if (node->content_type == FZN_NOTE_TYPE_LIST)
+			(void)fzn_search_facet_add(&h, "kind", "list", 4u);
+		else if (node->content_type == FZN_NOTE_TYPE_NOTE)
+			(void)fzn_search_facet_add(&h, "kind", "note", 4u);
+		for (label = 0; label < fzn_note_label_count(&note); label++) {
+			const uint8_t *l;
+			size_t l_len;
+
+			if (fzn_note_label(&note, label, &l, &l_len) == FZN_NOTE_OK)
+				(void)fzn_search_facet_add(&h, "label", (const char *)l, l_len);
+		}
 		if (!emit(emit_ctx, &h))
 			return 1;
 	}
-	return 1;
+	/* STOPPED SHORT, sec 1328: the opening budget spent with notes it
+	 * never looked at. */
+	return i < k ? 2 : 1;
 }
 
 int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
@@ -2675,8 +2690,14 @@ int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t 
 		shared_scope(n, asker, &scope);
 		return search_tree(n, &n->store, q, &scope, emit, emit_ctx, &opens);
 	}
-	if (!search_tree(n, &n->store, q, NULL, emit, emit_ctx, &opens))
-		return 0;
+	{
+		const int own = search_tree(n, &n->store, q, NULL, emit, emit_ctx, &opens);
+
+		if (!own)
+			return 0;
+		if (own == 2)
+			return 2;
+	}
 	/* AND EVERY TREE SHARED WITH THIS USER (sec 437), each note keyed by
 	 * its own id, which is random and so its sharer's too. */
 	if (!sharers && !(sharers = malloc(NOTES_SEARCH_SHARERS * (size_t)FZN_PUBKEY_LEN)))
@@ -2686,10 +2707,10 @@ int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t 
 	for (i = 0; i < count && opens; i++) {
 		fzn_notes_store_t store;
 
-		if (open_shared(n, sharers[i], &store))
-			(void)search_tree(n, &store, q, NULL, emit, emit_ctx, &opens);
+		if (open_shared(n, sharers[i], &store) && search_tree(n, &store, q, NULL, emit, emit_ctx, &opens) == 2)
+			return 2;
 	}
-	return 1;
+	return i < count ? 2 : 1;
 }
 
 static int binary_status(fzn_node_notes_put_t put, void *ctx, fzn_status_t code, const char *why)
