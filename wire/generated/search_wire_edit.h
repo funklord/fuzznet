@@ -108,6 +108,9 @@ typedef struct {
 	uint8_t after_key_len;
 	const uint8_t *after_key;	/* into your backing */
 	uint32_t after_key_len;
+	uint16_t filter_len;
+	const uint8_t *filter;	/* into your backing */
+	uint32_t filter_len;
 } fzn_search_wire_ask_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -124,6 +127,7 @@ static inline situ_err_t fzn_search_wire_ask_edit_backing(const situ_msg_t *msg,
 	*need += fzn_search_wire_ask_words_len(view);
 	*need += fzn_search_wire_ask_after_store_len(view);
 	*need += fzn_search_wire_ask_after_key_len(view);
+	*need += fzn_search_wire_ask_filter_len(view);
 	return SITU_OK;
 }
 
@@ -178,6 +182,13 @@ static inline situ_err_t fzn_search_wire_ask_edit_decode(const situ_msg_t *msg,
 		backing[at + i] = fzn_search_wire_ask_after_key_ptr(view)[i];
 	}
 	at += out->after_key_len;
+	out->filter_len = fzn_search_wire_ask_filter_len_get(view);
+	out->filter_len = fzn_search_wire_ask_filter_len(view);
+	out->filter     = backing + at;
+	for (uint32_t i = 0u; i < out->filter_len; i++) {
+		backing[at + i] = fzn_search_wire_ask_filter_ptr(view)[i];
+	}
+	at += out->filter_len;
 	(void)at;
 	return SITU_OK;
 }

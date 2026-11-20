@@ -17666,8 +17666,8 @@ SABOTAGES = [
 	(
 		"search-cursor-not-strict",
 		"search/search.c",
-		"\t    || (q->to_ms && h->time_ms > q->to_ms) || (q->after && !fzn_search_before(q->after, h)))\n",
-		"\t    || (q->to_ms && h->time_ms > q->to_ms))\n",
+		"\t    || (q->to_ms && h->time_ms > q->to_ms) || (q->after && !fzn_search_before(q->after, h))\n",
+		"\t    || (q->to_ms && h->time_ms > q->to_ms)\n",
 		"a page after a cursor repeats the page before it; search_test -- sec 1287",
 	),
 	(
@@ -17809,6 +17809,41 @@ SABOTAGES = [
 		"\tm_art->sound_at.insert(sticker, path);\n",
 		"",
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
+	),
+	(
+		"search-keep-ignored",
+		"search/search.c",
+		"\t    || (q->keep && !q->keep(q->keep_ctx, h)))\n",
+		")\n",
+		"a hit the query's filter refuses kept in a search here; search_test -- sec 1319",
+	),
+	(
+		"search-merge-filters-again",
+		"search/search.c",
+		"\tunfiltered.keep = NULL;\n",
+		"",
+		"hits merged from other hosts, which carry no facets, filtered again and lost; search_test -- sec 1319",
+	),
+	(
+		"search-filter-not-carried",
+		"search/remote.c",
+		"\t                              q->filter_len ? q->filter : NULL, (uint32_t)q->filter_len, &wrote)",
+		"\t                              NULL, 0u, &wrote)",
+		"an ask sent to another host without its filter, answered unfiltered; remote_test -- sec 1319",
+	),
+	(
+		"facet-entity-answers-range",
+		"facet/facet.c",
+		"\t\t\treturn FZN_FACET_ERR_INCOMPLETE; /* no order to answer it by, F25 */\n",
+		"\t\t\tcontinue;\n",
+		"a RANGE answered for one entity with no order to answer it by; facet_test -- sec 1319",
+	),
+	(
+		"facet-entity-ignores-n",
+		"facet/facet.c",
+		"\t\tholds = term_holds(&expr->neg[i], nodes, node_count);\n",
+		"\t\tholds = 0;\n",
+		"an entity at a term of N selected; facet_test -- sec 1319",
 	),
 	(
 		"stickers-sent-twice",

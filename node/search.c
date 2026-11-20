@@ -10,6 +10,7 @@
 #include "../local/escape.h"
 #include "../wire/bytes.h"
 #include "../hex/hex.h"
+#include "../facet/codec.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -142,6 +143,28 @@ static int run_lines(void *ctx, const fzn_search_query_t *q, const uint8_t *aske
 			h.score = s;
 			h.time_ms = p->stime;
 			fzn_search_snippet(q, text, len, &h);
+			/* ITS FACETS, sec 1319, each the same on every host that holds
+			 * the line, as its score is: the conversation as both ends key
+			 * it (the hit key's head), who wrote it -- the writer's root
+			 * key, this user for its own lines, the contact for a contact's;
+			 * a group member's is not known here and left off -- and whether
+			 * a group's or a contact's. Not "in" or "out": that is the
+			 * holder's view, and turns over between the two ends. */
+			{
+				char hex[2u * FZN_PUBKEY_LEN];
+				const uint8_t *writer = p->direction == FZN_MESSAGE_OUT ? user : (is_group ? NULL : p->contact);
+				size_t b;
+
+				for (b = 0; b < FZN_PUBKEY_LEN; b++)
+					fzn_hex_byte(h.key[b], hex + 2u * b);
+				(void)fzn_search_facet_add(&h, "conversation", hex, sizeof(hex));
+				if (writer) {
+					for (b = 0; b < FZN_PUBKEY_LEN; b++)
+						fzn_hex_byte(writer[b], hex + 2u * b);
+					(void)fzn_search_facet_add(&h, "from", hex, sizeof(hex));
+				}
+				(void)fzn_search_facet_add(&h, "with", is_group ? "group" : "contact", is_group ? 5u : 7u);
+			}
 			if (!emit(emit_ctx, &h))
 				return 1;
 		}
@@ -294,12 +317,72 @@ static int cursor_of(const uint8_t *w, size_t n, fzn_search_hit_t *h)
  * STORE]... [after CURSOR] WORDS`, read into `a` with K, and the contact
  * NAME names into `with` (`*has_with` set); 1, or 0 for a line of the wrong
  * shape -- a NAME that is no contact here included. */
+/* A FILTER'S TERMS AS TYPED, sec 1319: `DIM=VALUE`, or `DIM=V1|V2|...`
+ * for any of several -- borrowed from the line, which outlives them. */
+struct typed_filter {
+	fzn_facet_term_t pos[FZN_SEARCH_FILTER_TERMS], neg[FZN_SEARCH_FILTER_TERMS];
+	fzn_facet_node_t members[FZN_SEARCH_FILTER_MEMBERS];
+	size_t n_pos, n_neg, n_members;
+};
+
+static int typed_term(struct typed_filter *f, int negated, const uint8_t *w, size_t n)
+{
+	fzn_facet_term_t *t;
+	const uint8_t *eq = memchr(w, '=', n), *v, *end = w + n;
+	size_t dim_len, first = f->n_members;
+
+	if (!eq || eq == w || eq + 1 == end || (negated ? f->n_neg : f->n_pos) == FZN_SEARCH_FILTER_TERMS)
+		return 0;
+	dim_len = (size_t)(eq - w);
+	t = negated ? &f->neg[f->n_neg++] : &f->pos[f->n_pos++];
+	memset(t, 0, sizeof(*t));
+	for (v = eq + 1; v < end;) {
+		const uint8_t *bar = memchr(v, '|', (size_t)(end - v)), *stop = bar ? bar : end;
+
+		if (stop == v || f->n_members == FZN_SEARCH_FILTER_MEMBERS)
+			return 0;
+		f->members[f->n_members++] = (fzn_facet_node_t){ w, dim_len, v, (size_t)(stop - v) };
+		v = bar ? bar + 1 : end;
+	}
+	if (f->n_members - first == 1u) {
+		t->kind = FZN_FACET_PREFIX;
+		t->node = f->members[--f->n_members];
+	} else {
+		t->kind = FZN_FACET_ALT;
+		t->node.dim = w; /* F8: an alternation's dimension, its members' */
+		t->node.dim_len = dim_len;
+		t->members = &f->members[first];
+		t->member_count = f->n_members - first;
+	}
+	return 1;
+}
+
+/* THE TYPED FILTER, canonical and encoded, set on the ask: 1, or 0. */
+static int typed_filter_set(struct typed_filter *f, fzn_search_ask_t *a)
+{
+	uint8_t scratch[2u * 600u], bytes[FZN_SEARCH_FILTER_MAX];
+	fzn_facet_expr_t e;
+	size_t len = 0;
+
+	if (!f->n_pos && !f->n_neg)
+		return 1;
+	if (fzn_facet_normalize(f->pos, &f->n_pos, f->neg, &f->n_neg) != FZN_FACET_OK
+	    || fzn_facet_expr_sort(f->pos, &f->n_pos, f->neg, &f->n_neg, scratch, sizeof(scratch)) != FZN_FACET_OK)
+		return 0;
+	e = (fzn_facet_expr_t){ f->pos, f->n_pos, f->neg, f->n_neg };
+	return fzn_facet_expr_encode(&e, bytes, sizeof(bytes), &len) == FZN_FACET_OK
+	       && fzn_search_ask_filter(a, bytes, len);
+}
+
 static int parse(const fzn_node_search_t *s, const uint8_t *at, size_t left, size_t k, fzn_search_ask_t *a,
                  uint8_t with[FZN_PUBKEY_LEN], int *has_with)
 {
+	static struct typed_filter f;
 	const uint8_t *w;
 	size_t n, n_names = 0;
 	int has_after = 0;
+
+	memset(&f, 0, sizeof(f));
 
 	memset(a, 0, sizeof(*a));
 	*has_with = 0;
@@ -329,6 +412,15 @@ static int parse(const fzn_node_search_t *s, const uint8_t *at, size_t left, siz
 			has_after = 1;
 			continue;
 		}
+		/* A FILTER, sec 1319: `where DIM=VALUE` a hit must be at, `not
+		 * DIM=VALUE` one it must not; `|` between values for any of them. */
+		if ((is(w, n, "where") || is(w, n, "not")) && left) {
+			const int negated = is(w, n, "not");
+
+			if (!word(&at, &left, &w, &n) || !typed_term(&f, negated, w, n))
+				return 0;
+			continue;
+		}
 		at = save;
 		left = save_left;
 		break;
@@ -344,7 +436,7 @@ static int parse(const fzn_node_search_t *s, const uint8_t *at, size_t left, siz
 	a->query.stores = n_names ? a->stores : NULL;
 	a->query.n_stores = n_names;
 	a->query.after = has_after ? &a->after : NULL;
-	return 1;
+	return typed_filter_set(&f, a);
 }
 
 /* `ok COUNT MORE` and EXTRA, then as many rows as the reply holds: fewer

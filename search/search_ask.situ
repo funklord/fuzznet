@@ -14,7 +14,8 @@ struct store {
 
 // WORDS as typed. STORES those asked, none for every one. SINCE and UNTIL
 // milliseconds, 0 for open. K the most hits. AFTER the last hit of the page
-// before: its score, time, store and key, when HAS_AFTER.
+// before: its score, time, store and key, when HAS_AFTER. FILTER the
+// facet expression the hits' facets must satisfy, run where the data is.
 struct ask {
 	u8    words_len [min = 1];
 	u8    words[words_len];
@@ -30,4 +31,6 @@ struct ask {
 	u8    after_store[after_store_len];
 	u8    after_key_len [max = 48];
 	u8    after_key[after_key_len];
+	u16   filter_len [max = 512];
+	u8    filter[filter_len];        // a facet expression, facet/codec.h's encoding; none when 0 (sec 1319)
 }

@@ -64,7 +64,8 @@ static int take(void *ctx, const fzn_search_hit_t *h)
 	size_t i, at;
 
 	if (!h || !h->score || h->key_len > FZN_SEARCH_KEY_MAX || (q->from_ms && h->time_ms < q->from_ms)
-	    || (q->to_ms && h->time_ms > q->to_ms) || (q->after && !fzn_search_before(q->after, h)))
+	    || (q->to_ms && h->time_ms > q->to_ms) || (q->after && !fzn_search_before(q->after, h))
+	    || (q->keep && !q->keep(q->keep_ctx, h)))
 		return 1;
 	/* ONE HIT PER ITEM, its best kept: a worse copy is let go, a better one
 	 * takes the place of the one held. */
@@ -118,18 +119,41 @@ int fzn_search_merge(const fzn_search_query_t *q, const fzn_search_hit_t *hits, 
                      fzn_search_hit_t *out, size_t *count, int *more)
 {
 	static struct gather g;
+	fzn_search_query_t unfiltered;
 	size_t i;
 
 	if (!q || !out || !count || !more || q->k == 0u || q->k > FZN_SEARCH_K_MAX || (n && !hits))
 		return 0;
+	/* EACH HOST FILTERED ITS OWN: what it sent carries no facets. */
+	unfiltered = *q;
+	unfiltered.keep = NULL;
 	memset(&g, 0, sizeof(g));
-	g.q = q;
+	g.q = &unfiltered;
 	for (i = 0; i < n; i++)
 		if (asked(q, hits[i].store))
 			(void)take(&g, &hits[i]);
 	*count = g.n > q->k ? q->k : g.n;
 	*more = more_held || g.more || g.n > q->k;
 	memcpy(out, g.keep, *count * sizeof(out[0]));
+	return 1;
+}
+
+int fzn_search_facet_add(fzn_search_hit_t *hit, const char *dim, const char *value, size_t value_len)
+{
+	fzn_search_facet_t *f;
+	size_t dim_len = dim ? strlen(dim) : 0u;
+
+	if (!hit || !dim_len || dim_len > FZN_SEARCH_FACET_DIM_MAX || (value_len && !value)
+	    || value_len > FZN_SEARCH_FACET_VALUE_MAX || hit->n_facets >= FZN_SEARCH_FACETS_MAX)
+		return 0;
+	f = &hit->facets[hit->n_facets++];
+	memcpy(f->dim, dim, dim_len);
+	f->dim[dim_len] = '\0';
+	f->dim_len = dim_len;
+	if (value_len)
+		memcpy(f->value, value, value_len);
+	f->value[value_len] = '\0';
+	f->value_len = value_len;
 	return 1;
 }
 

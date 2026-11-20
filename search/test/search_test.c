@@ -240,6 +240,37 @@ static void test_pages_merge_as_one(void)
 	CHECK(once && total == 40u && !more, "paging by cursor repeated or missed an item");
 }
 
+/* THE QUERY'S KEEP, sec 1319: asked of every hit a store emits here, and
+ * of none merged from other hosts, which filtered their own. */
+static int keep_odd(void *ctx, const fzn_search_hit_t *h)
+{
+	(void)ctx;
+	return h->key[0] % 2u;
+}
+
+static void test_keep_runs_where_the_stores_are(void)
+{
+	static fixed_t f;
+	static fzn_search_hit_t out[FZN_SEARCH_K_MAX];
+	const fzn_search_store_t store = { "notes", run_fixed, &f };
+	fzn_search_query_t q;
+	size_t n = 0, i;
+	int more = 0, odd = 1;
+
+	f.name = "notes";
+	f.n = 0;
+	for (i = 0; i < 6u; i++)
+		hit(&f, (uint8_t)i, 100u, 1000u + i);
+	CHECK(fzn_search_query_init(&q, "cake", 4u, 10u), "fixture: a query");
+	q.keep = keep_odd;
+	CHECK(fzn_search_run(&store, 1u, &q, NULL, out, &n, &more) && n == 3u, "the run did not keep the odd three");
+	for (i = 0; i < n; i++)
+		odd &= (out[i].key[0] % 2u) != 0u;
+	CHECK(odd, "a hit the keep refused was kept");
+	CHECK(fzn_search_merge(&q, f.hits, f.n, 0, out, &n, &more) && n == 6u,
+	      "a merge of hits from other hosts filtered them again");
+}
+
 static void test_the_snippet(void)
 {
 	fzn_search_query_t q;
@@ -266,6 +297,7 @@ int main(void)
 	test_one_order_one_hit_each();
 	test_pages_merge_as_one();
 	test_the_snippet();
+	test_keep_runs_where_the_stores_are();
 	{
 		const int before = failures;
 

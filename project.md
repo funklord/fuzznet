@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1318
+The newest work is at the end of this file. **Read secs 1287 to 1319
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -43,8 +43,9 @@ listener port spans (`150e3106`).
 - **Search step 4**: notes are a store (sec 1290); a contact's host is
   answered what it reads (sec 1291); `fetch search with CONTACT` asks
   that contact's hosts alone (sec 1292); in binary, the client and a
-  view (sec 1293); the library's files (sec 1299). Left: `with @GROUP`;
-  facet filters, when a client asks for them.
+  view (sec 1293); the library's files (sec 1299); facet filters, the
+  engine's and the verb's (sec 1319). Left: `with @GROUP`; the client's
+  calls carrying a filter; notes, catalogue and contacts tagging facets.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
@@ -94513,3 +94514,63 @@ fresh fuzznetd, a search with no such contact refused as NO_PEER, and the
 stickers sent lately (sec 1317) none; traced by hand, 2026-11-20: the
 list, fetch and recent requests left the client as `1a 80`, `1a 81` and
 `16 8c`, no `list search` text. make schema at situ e5b1c741 passes.
+
+## 1319. The one search's filter: facets on every hit, a facet expression on the query, 2026-11-20
+
+Sec 1287's model named the FILTER as "a `facet` expression over the
+store's own dimensions ... no second filter language is written", and
+nothing built it; the holder (sec 1312) asked for the search's foundation
+now. Built:
+
+- **`facet`: one entity matched** (`fzn_facet_entity_matches`). The core
+  evaluated an expression against an INDEX of postings; a search holds
+  items, not an index, so this is the other direction: an entity's nodes,
+  closed upward by the caller (F6's roll-up is the tagger's to state, the
+  module holding no taxonomy), and the expression held when every term of
+  P holds and none of N does. A RANGE needs a dimension's order and each
+  node's parent, which a flat list does not carry: refused
+  (FZN_FACET_ERR_INCOMPLETE) rather than guessed, F25.
+- **`search/`: facets on a hit, a filter on a query.** A hit carries up to
+  four facets, a dimension and a value of at most 64 bytes, as its store
+  tags it; a query carries the FILTER as `facet/codec.h`'s encoding,
+  opaque to the engine, and a KEEP predicate the engine asks of each hit.
+  **The engine knows no facet**: `search/remote.c`, which reads asks,
+  decodes the filter and installs KEEP (`fzn_search_ask_filter`). **A
+  filter runs where the data is**: the ask carries it to every host asked,
+  each filters its own, and the asker's merge does not filter again --
+  hits from another host carry no facets.
+- **The wire**: the ask (`search/search_ask.situ`) ends in the filter's
+  bytes, up to 512 (0 for none); the local leg's held ask grows to 1003.
+- **The text verb**: `where DIM=VALUE` a hit must be at, `not DIM=VALUE`
+  one it must not, `DIM=V1|V2` for any of several -- normalised, sorted
+  and encoded canonically (F16-F19) before it is set. Only `not` is
+  refused (F14: P non-empty).
+- **Facets tagged so far**: a line -- `conversation` (64 hex, the
+  conversation as both ends key it, sec 1294), `from` (the writer's root
+  key in hex: this user for its own, the contact for a contact's; a group
+  member's is not known to the store and is left off), `with` (`contact`,
+  `group`); a sticker -- `pack` (its root in hex).
+- **A facet is the same on every host that holds the item**, as a score
+  is (sec 1287). Found by live_chat: a first `direction` facet (`in`,
+  `out`) was the holder's view, so a search with bob for `out` kept A's
+  lines at A's host and B's at B's -- four lines, two perspectives. The
+  writer's key does not turn over between the ends; `direction` is gone.
+
+**Not yet**: the client's calls carry no filter (they send none), notes,
+the catalogue and contacts tag nothing, and the catalogue's own `facet`
+dimensions are the obvious next tags. **Rejected**: the engine linking
+`facet` (every binary linking `search.o` would carry the codec, and the
+engine would learn a vocabulary it has no use for); a filter applied
+after the merge at the asker (hits there carry no facets, and what a
+filter excludes must never leave the host that holds it -- sec 1287's
+first rule, the same shape); a second, search-only filter syntax.
+
+**Tests:** facet_test -- an entity at both terms, at none, at a term of
+N, at an alternation's member; a RANGE refused; an empty P. search_test --
+KEEP asked of a run's hits and not of a merge's. remote_test -- a filter
+read back with its ask and run where the stores are, the even cake note
+alone; a RANGE filter refused. messages_test -- carol's lines, this
+user's, either writer, a group filter finding none, a `not` alone
+malformed. live_chat b2 -- A's search with bob `where from=B` finds the
+two lines B's hosts wrote, from A1's own run and B's hosts alike. Sabotages `search-keep-ignored`, `search-merge-filters-again`,
+`search-filter-not-carried`, `facet-entity-ignores-n`.

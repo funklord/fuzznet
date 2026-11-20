@@ -11,7 +11,7 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct ask size=35..489 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+struct ask size=37..1003 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   ask.words_len                          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   ask.words                              offset=AbsoluteStatic(0x01) size=Bounded(1, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   ask.store_count                        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
@@ -29,6 +29,8 @@ struct ask size=35..489 access=Sequential mutate=Shifting address=Unstable repr=
   ask.after_store                        offset=Dynamic size=Bounded(0, 16) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
   ask.after_key_len                      offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
   ask.after_key                          offset=Dynamic size=Bounded(0, 48) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  ask.filter_len                         offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  ask.filter                             offset=Dynamic size=Bounded(0, 512) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
 
 struct store size=2..17 mutate=Shifting
   store.len                              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord

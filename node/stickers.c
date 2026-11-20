@@ -1343,6 +1343,15 @@ static void sticker_one(void *ctx, const fzn_node_sticker_match_t *m)
 	h.key_len = 40u;
 	h.score = m->score;
 	fzn_search_snippet(w->q, m->description, m->description_len, &h);
+	/* ITS PACK, a facet a filter can select by (sec 1319). */
+	{
+		char pack[64];
+		size_t b;
+
+		for (b = 0; b < 32u; b++)
+			fzn_hex_byte(m->root[b], pack + 2u * b);
+		(void)fzn_search_facet_add(&h, "pack", pack, sizeof(pack));
+	}
 	(void)w->emit(w->emit_ctx, &h);
 }
 

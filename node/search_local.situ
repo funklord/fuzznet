@@ -36,7 +36,7 @@ struct nothing {
 struct local_ask {
 	u8    has_with [max = 1];
 	u8    with[32];
-	u8    ask[remaining] max 489 [holds = ask];   // the ask at its widest
+	u8    ask[remaining] max 1003 [holds = ask];  // the ask at its widest, its filter included
 }
 
 // COUNT the hits that follow, MORE 1 where there are more past them (the

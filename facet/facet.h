@@ -556,6 +556,23 @@ fzn_facet_err_t fzn_facet_evaluate(const fzn_facet_expr_t *expr,
                                    size_t *out_count,
                                    fzn_facet_entity_t *scratch, size_t scratch_cap);
 
+/* WHETHER ONE ENTITY IS SELECTED, sec 1319: the other way round from
+ * `fzn_facet_evaluate`, for a caller holding an item rather than an index --
+ * a search's hit, each store tagging its own. `nodes` are every node the
+ * entity is AT, closed upward by the caller: an entity at `genre/house/deep`
+ * lists `genre/house` too, since this module holds no taxonomy and F6's
+ * roll-up is the tagger's to state. Then a PREFIX term holds when its node
+ * is among them, an ALT when any member is, and the expression when every
+ * term of P holds and none of N does (F11).
+ *
+ * A RANGE asks for the order of a node's children, which needs the
+ * dimension table and each node's parent; an entity's flat list carries
+ * neither, so a RANGE on either side is FZN_FACET_ERR_INCOMPLETE -- refused
+ * rather than guessed, F25. The expression is validated first (F27).
+ * `*selected` 1 or 0 where FZN_FACET_OK. */
+fzn_facet_err_t fzn_facet_entity_matches(const fzn_facet_expr_t *expr, const fzn_facet_node_t *nodes,
+                                         size_t node_count, int *selected);
+
 /* A stable, allocation-free name for an error. */
 const char *fzn_facet_err_str(fzn_facet_err_t err);
 

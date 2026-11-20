@@ -4,6 +4,7 @@
  * refused; and the host's whole part, an ask answered from its stores,
  * equal to the same search run where the stores are. */
 #include "../remote.h"
+#include "../../facet/codec.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -44,6 +45,8 @@ static int run_notes(void *ctx, const fzn_search_query_t *q, const uint8_t *aske
 		if (!h.score)
 			continue;
 		fzn_search_snippet(q, notes[i], strlen(notes[i]), &h);
+		/* A FACET, for the filter (sec 1319): even notes and odd. */
+		(void)fzn_search_facet_add(&h, "mood", i % 2u ? "odd" : "even", i % 2u ? 3u : 4u);
 		if (!emit(emit_ctx, &h))
 			return 1;
 	}
@@ -182,6 +185,44 @@ static void test_a_host_answers_as_the_stores_would(void)
 	      "a malformed ask was answered");
 }
 
+/* A FILTER CARRIED IN AN ASK, sec 1319: read back whole, run where the
+ * stores are -- of the two cake notes only the even one -- and a RANGE,
+ * which one hit cannot answer, refused. */
+static void test_a_filter_travels_with_the_ask(void)
+{
+	static const fzn_search_store_t stores[] = { { "notes", run_notes, NULL } };
+	static fzn_search_hit_t remote[FZN_SEARCH_K_MAX];
+	static uint8_t ask[1024], answer[FZN_SEARCH_ANSWER_MAX], filter[256];
+	static fzn_search_ask_t back;
+	fzn_facet_term_t p[1], r[1];
+	fzn_facet_expr_t e = { p, 1, NULL, 0 }, range = { r, 1, NULL, 0 };
+	fzn_search_query_t q;
+	size_t n = 0, len = 0, flen = 0;
+	int more = 0;
+
+	memset(p, 0, sizeof(p));
+	p[0].kind = FZN_FACET_PREFIX;
+	p[0].node = (fzn_facet_node_t){ (const uint8_t *)"mood", 4u, (const uint8_t *)"even", 4u };
+	CHECK(fzn_facet_expr_encode(&e, filter, sizeof(filter), &flen) == FZN_FACET_OK, "fixture: a filter");
+	CHECK(fzn_search_query_init(&q, "cake", 4u, 10u), "fixture: a query");
+	q.filter = filter;
+	q.filter_len = flen;
+	len = fzn_search_ask_write("cake", 4u, &q, ask, sizeof(ask));
+	CHECK(len && fzn_search_ask_read(ask, len, &back) && back.query.filter_len == flen
+	              && !memcmp(back.query.filter, filter, flen) && back.query.keep,
+	      "a filter did not read back with its ask, or nothing keeps by it");
+	len = len ? fzn_search_answer_ask(stores, 1u, ask, len, NULL, answer, sizeof(answer)) : 0u;
+	CHECK(len && fzn_search_answer_read(answer, len, remote, FZN_SEARCH_K_MAX, &n, &more) && n == 1u
+	              && remote[0].key[0] == 0u,
+	      "a filtered ask was not answered with the even cake note alone");
+	memset(r, 0, sizeof(r));
+	r[0].kind = FZN_FACET_RANGE;
+	r[0].node = (fzn_facet_node_t){ (const uint8_t *)"mood", 4u, (const uint8_t *)"m", 1u };
+	CHECK(fzn_facet_expr_encode(&range, filter, sizeof(filter), &flen) == FZN_FACET_OK
+	              && !fzn_search_ask_filter(&back, filter, flen) && !back.query.keep,
+	      "a RANGE filter was taken, which one hit cannot answer");
+}
+
 /* A HOST'S MORE: one host's K hits and nothing elsewhere fill the page
  * exactly, and only the host knows it holds more. */
 static void test_a_host_s_more_is_kept(void)
@@ -209,6 +250,7 @@ int main(void)
 	test_an_ask_reads_back();
 	test_an_answer_reads_back();
 	test_a_host_answers_as_the_stores_would();
+	test_a_filter_travels_with_the_ask();
 	test_a_host_s_more_is_kept();
 	{
 		const int before = failures;

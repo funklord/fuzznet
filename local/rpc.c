@@ -11813,7 +11813,7 @@ static int search_with_key(fzn_rpc_t *c, const char *with, uint8_t key[32]) {
  * the failure said. */
 static int search_ask_write(fzn_rpc_t *c, uint8_t op, const char *with, const char *words,
                             const fzn_rpc_search_hit_t *after, uint8_t *out, size_t cap, size_t *len) {
-	uint8_t ask[512], local[600], key[32];
+	uint8_t ask[1024], local[1100], key[32];
 	uint32_t ask_len = 0, local_len = 0, n = 0;
 	const char *w = words ? words : "";
 	size_t w_len;
@@ -11829,7 +11829,7 @@ static int search_ask_write(fzn_rpc_t *c, uint8_t op, const char *with, const ch
 	                               after ? 1 : 0, after ? after->score : 0, after ? after->time_ms : 0,
 	                               after ? (const uint8_t *)after->store : NULL,
 	                               after ? (uint32_t)strlen(after->store) : 0, after ? after->key : NULL,
-	                               after ? (uint32_t)after->key_len : 0, &ask_len)
+	                               after ? (uint32_t)after->key_len : 0, NULL, 0, &ask_len)
 	        != SITU_OK
 	    || fzn_search_local_local_ask_build(local, sizeof local, (uint8_t)(with && *with ? 1 : 0), key, ask, ask_len,
 	                                        &local_len)
@@ -11890,7 +11890,7 @@ int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, cons
                          size_t *asked) {
 	/* IN BINARY FIRST, sec 1318. */
 	{
-		uint8_t req[640];
+		uint8_t req[1200];
 		size_t req_len = 0;
 		struct fetched_answer a;
 		int text = 0;
@@ -11921,7 +11921,7 @@ int fzn_rpc_search_list(fzn_rpc_t *c, const char *with, const char *words, const
                         fzn_rpc_search_page_t *out) {
 	/* IN BINARY FIRST, sec 1318: a PAGE, a HIT each, then a STATUS. */
 	{
-		uint8_t req[640];
+		uint8_t req[1200];
 		size_t req_len = 0;
 		struct search_answer a;
 		int text = 0;

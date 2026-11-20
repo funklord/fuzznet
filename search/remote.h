@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include "search.h"
+#include "../facet/facet.h"
 
 /* The most words an ask carries, as typed, and the most stores it names. */
 #define FZN_SEARCH_TEXT_MAX 255u
@@ -26,7 +27,13 @@
 	(4u + FZN_SEARCH_K_MAX * (1u + FZN_SEARCH_STORE_NAME_MAX + 1u + FZN_SEARCH_KEY_MAX + 4u + 8u + 1u \
 	                          + FZN_SEARCH_SNIPPET_MAX))
 
-/* AN ASK READ: its query, with the room what the query points at lives in. */
+/* A FILTER'S MOST TERMS on each side, and alternation members in all. */
+#define FZN_SEARCH_FILTER_TERMS 8u
+#define FZN_SEARCH_FILTER_MEMBERS 16u
+
+/* AN ASK READ: its query, with the room what the query points at lives in
+ * -- the filter's bytes and the expression decoded from them included, so
+ * it is not to be copied once a filter is set: the query points into it. */
 typedef struct fzn_search_ask {
 	fzn_search_query_t query;
 	char words[FZN_SEARCH_TEXT_MAX + 1u];
@@ -34,7 +41,19 @@ typedef struct fzn_search_ask {
 	char names[FZN_SEARCH_ASK_STORES_MAX][FZN_SEARCH_STORE_NAME_MAX + 1u];
 	const char *stores[FZN_SEARCH_ASK_STORES_MAX];
 	fzn_search_hit_t after;
+	uint8_t filter[FZN_SEARCH_FILTER_MAX];
+	size_t filter_len;
+	fzn_facet_term_t pos[FZN_SEARCH_FILTER_TERMS], neg[FZN_SEARCH_FILTER_TERMS];
+	fzn_facet_node_t members[FZN_SEARCH_FILTER_MEMBERS];
+	fzn_facet_expr_t expr;
 } fzn_search_ask_t;
+
+/* THE FILTER `filter` SET ON `a`, sec 1319: its bytes kept, decoded, and
+ * `a->query.keep` installed to hold each hit's facets to it
+ * (`fzn_facet_entity_matches`). 1; 0 for bytes that are no expression, more
+ * terms or members than room, or a RANGE, which one hit cannot answer.
+ * None (`len` 0) clears it. */
+int fzn_search_ask_filter(fzn_search_ask_t *a, const uint8_t *filter, size_t len);
 
 /* AN ASK for `q`, whose words were `words` as typed, into `out`: its
  * length, or 0 for words past FZN_SEARCH_TEXT_MAX or none, more than

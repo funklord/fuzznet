@@ -5169,6 +5169,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/wire/generated/search_wire.o \
+                                  $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
                                   $(BUILD_DIR)/node/search_binary.o $(BUILD_DIR)/wire/generated/search_local.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
@@ -5508,6 +5509,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
               $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/node/offer.o \
+              $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
               $(BUILD_DIR)/node/search_binary.o $(BUILD_DIR)/wire/generated/search_local.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
@@ -5750,6 +5752,7 @@ $(BUILD_DIR)/search/test/search_test: $(BUILD_DIR)/search/test/search_test.o \
 
 # One search asked of another host, and its answer, sec 1287 step 2.
 $(BUILD_DIR)/search/test/remote_test: $(BUILD_DIR)/search/test/remote_test.o $(BUILD_DIR)/search/remote.o \
+                                     $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
                                       $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o \
                                       $(BUILD_DIR)/wire/generated/search_wire.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)

@@ -332,6 +332,57 @@ static int entity_in(const fzn_facet_entity_t *e,
 	return 0;
 }
 
+/* A TERM HOLDS FOR ONE ENTITY, sec 1319: 1, 0, or -1 for a RANGE. */
+static int term_holds(const fzn_facet_term_t *t, const fzn_facet_node_t *nodes, size_t node_count)
+{
+	size_t m;
+
+	if (t->kind == FZN_FACET_PREFIX)
+		return member_in(&t->node, nodes, node_count);
+	if (t->kind == FZN_FACET_ALT) {
+		for (m = 0; m < t->member_count; m++)
+			if (member_in(&t->members[m], nodes, node_count))
+				return 1;
+		return 0;
+	}
+	return -1;
+}
+
+fzn_facet_err_t fzn_facet_entity_matches(const fzn_facet_expr_t *expr, const fzn_facet_node_t *nodes,
+                                         size_t node_count, int *selected)
+{
+	fzn_facet_err_t err;
+	size_t i;
+	int holds;
+
+	if (!expr || !selected || (node_count && !nodes))
+		return FZN_FACET_ERR_MALFORMED;
+	*selected = 0;
+	err = fzn_facet_validate(expr);
+	if (err != FZN_FACET_OK)
+		return err;
+	/* EVERY TERM LOOKED AT before answering, so a RANGE is refused wherever
+	 * it stands rather than only where the answer was still open. */
+	for (i = 0; i < expr->pos_count + expr->neg_count; i++) {
+		const fzn_facet_term_t *t = i < expr->pos_count ? &expr->pos[i] : &expr->neg[i - expr->pos_count];
+
+		if (t->kind == FZN_FACET_RANGE)
+			return FZN_FACET_ERR_INCOMPLETE; /* no order to answer it by, F25 */
+	}
+	for (i = 0; i < expr->pos_count; i++) {
+		holds = term_holds(&expr->pos[i], nodes, node_count);
+		if (holds != 1)
+			return FZN_FACET_OK;
+	}
+	for (i = 0; i < expr->neg_count; i++) {
+		holds = term_holds(&expr->neg[i], nodes, node_count);
+		if (holds != 0)
+			return FZN_FACET_OK;
+	}
+	*selected = 1;
+	return FZN_FACET_OK;
+}
+
 fzn_facet_err_t fzn_facet_evaluate(const fzn_facet_expr_t *expr,
                                    const fzn_facet_index_ops_t *index,
                                    fzn_facet_entity_t *out, size_t out_cap,

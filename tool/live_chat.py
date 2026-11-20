@@ -343,12 +343,18 @@ def main(argv):
 			lines = [r for r in rows if r.startswith("lines,")]
 			if len(rows) != 4 or len(lines) != 4:
 				raise failed("b2: a search with bob for the lines found %r" % rows)
+			# A FILTER CARRIED TO THE OTHER USER'S HOSTS, sec 1319: by who
+			# wrote a line, the same on every host -- A1's own run and B's
+			# hosts alike find the two B's hosts wrote and neither of A's.
+			rows = searched("where from=%s from" % keys["b"])
+			if sorted(r.rsplit(",", 1)[-1] for r in rows) != ["from%20b1", "from%20b2"]:
+				raise failed("b2: a search with bob where from=B found %r" % rows)
 			rows = searched("heron")
 			if [r.split(",")[:2] for r in rows] != [["notes", shared]]:
 				raise failed("b2: a search with bob for the heron found %r, not the shared note "
 				             "alone" % rows)
 			print("livecheck: b2: a search with bob asked B's hosts; four lines once each, "
-			      "and the shared note and not the private one")
+			      "B's own alone by a filter, and the shared note and not the private one")
 
 			# c: read state across the user's hosts.
 			for reader, peer in (("b1", "b2"), ("a2", "a1")):

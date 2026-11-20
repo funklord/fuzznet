@@ -18,7 +18,7 @@
 endian big
 target buffer
 
-struct ask size=35..489
+struct ask size=37..1003
   @0x0000   1         u8         words_len  min=1
   @0x0001   1..255    u8         words  sized-by=words_len
   ~         1         u8         store_count  max=8
@@ -33,6 +33,8 @@ struct ask size=35..489
   ~         0..16     u8         after_store  sized-by=after_store_len
   ~         1         u8         after_key_len  max=48
   ~         0..48     u8         after_key  sized-by=after_key_len
+  ~         2         u16        filter_len  big max=512
+  ~         0..512    u8         filter  sized-by=filter_len
 
 struct store size=2..17
   @0x0000   1         u8         len  min=1 max=16

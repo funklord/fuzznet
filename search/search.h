@@ -18,6 +18,15 @@
  * the same item emitted twice -- by two stores' passes or two hosts -- is
  * one hit, its best score kept.
  *
+ * A FILTER SELECTS BY WHAT A STORE TAGS A HIT WITH (sec 1319): each hit
+ * carries its FACETS, dimension and value as the store chooses them (a
+ * conversation, a direction, a pack), and a query may carry a FILTER, a
+ * `facet` expression over them -- facet being the one filter language,
+ * opaque about what it classifies, so no second one is written. The engine
+ * knows no facet: it asks the query's KEEP of each hit, which whoever reads
+ * the filter installs (`search/remote.h`). A filter runs where the data is;
+ * hits merged from other hosts carry no facets and were filtered there.
+ *
  * A STORE SCORES AN ITEM FROM THE ITEM AND THE QUERY ALONE -- never from
  * what else a host holds -- so every host that holds it gives it one score
  * and one time, and a copy can never stand after the cursor its twin was
@@ -35,8 +44,23 @@
 #define FZN_SEARCH_STORE_NAME_MAX 16u
 #define FZN_SEARCH_KEY_MAX 48u
 #define FZN_SEARCH_SNIPPET_MAX 120u
+/* A HIT'S FACETS: at most four, a dimension's name and a value of at most
+ * 64 bytes, each a node `facet` selects by -- closed upward by the store
+ * where its dimension is a tree (`fzn_facet_entity_matches`). */
+#define FZN_SEARCH_FACETS_MAX 4u
+#define FZN_SEARCH_FACET_DIM_MAX 16u
+#define FZN_SEARCH_FACET_VALUE_MAX 64u
+/* A FILTER'S MOST BYTES, as `facet/codec.h` encodes an expression. */
+#define FZN_SEARCH_FILTER_MAX 512u
 /* THE MOST HITS A QUERY ASKS ONE HOST FOR, and so the most one page holds. */
 #define FZN_SEARCH_K_MAX 50u
+
+typedef struct fzn_search_facet {
+	char dim[FZN_SEARCH_FACET_DIM_MAX + 1u];
+	size_t dim_len;
+	char value[FZN_SEARCH_FACET_VALUE_MAX + 1u];
+	size_t value_len;
+} fzn_search_facet_t;
 
 typedef struct fzn_search_hit {
 	char store[FZN_SEARCH_STORE_NAME_MAX + 1u];
@@ -47,6 +71,10 @@ typedef struct fzn_search_hit {
 	/* WHAT THE STORE SHOWS OF IT, its own words, at most 120 bytes. */
 	char snippet[FZN_SEARCH_SNIPPET_MAX + 1u];
 	size_t snippet_len;
+	/* WHAT A FILTER CAN SELECT IT BY, here only: never carried to another
+	 * host, which filters its own. */
+	fzn_search_facet_t facets[FZN_SEARCH_FACETS_MAX];
+	size_t n_facets;
 } fzn_search_hit_t;
 
 typedef struct fzn_search_query {
@@ -61,6 +89,14 @@ typedef struct fzn_search_query {
 	size_t k;
 	/* THE LAST HIT OF THE PAGE BEFORE, or NULL for the first page. */
 	const fzn_search_hit_t *after;
+	/* THE FILTER, `facet/codec.h`'s encoding of an expression over the
+	 * hits' facets, carried as it is to every host asked; none when 0. */
+	const uint8_t *filter;
+	size_t filter_len;
+	/* WHETHER A HIT IS KEPT, from the filter: installed by whoever read it
+	 * (`fzn_search_ask_filter`), NULL keeping every hit. */
+	int (*keep)(void *ctx, const fzn_search_hit_t *hit);
+	void *keep_ctx;
 } fzn_search_query_t;
 
 /* A STORE'S HIT, handed to the engine: 1 to go on, 0 when the engine wants
@@ -84,6 +120,10 @@ typedef struct fzn_search_store {
  * 0 for no word to search by or a `k` out of range. */
 int fzn_search_query_init(fzn_search_query_t *q, const char *words, size_t len, size_t k);
 
+/* A FACET ON `hit`, as a store tags it: 1, or 0 where it already holds
+ * FZN_SEARCH_FACETS_MAX or a part is past its bound. */
+int fzn_search_facet_add(fzn_search_hit_t *hit, const char *dim, const char *value, size_t value_len);
+
 /* Whether hit `a` comes before hit `b` in the one order. */
 int fzn_search_before(const fzn_search_hit_t *a, const fzn_search_hit_t *b);
 
@@ -96,7 +136,8 @@ int fzn_search_run(const fzn_search_store_t *stores, size_t n_stores, const fzn_
 
 /* HITS GATHERED ELSEWHERE, merged as `fzn_search_run` merges its stores'
  * -- the stores asked, the window, the cursor, one hit per item, the one
- * order, K -- into `out`: the page several hosts' answers make. MORE_HELD
+ * order, K; not the filter, which each host ran on its own -- into `out`:
+ * the page several hosts' answers make. MORE_HELD
  * where any of them said it holds more past what it sent, which a merge of
  * what was sent cannot see. 1, or 0 for a query that cannot run. */
 int fzn_search_merge(const fzn_search_query_t *q, const fzn_search_hit_t *hits, size_t n, int more_held,

@@ -21,7 +21,7 @@ target buffer
 enum op : u8 unknown=error
   list=128 fetch=129 get=130 page=131 hit=132 fetched=133
 
-struct ask size=35..489
+struct ask size=37..1003
   @0x0000   1         u8         words_len  min=1
   @0x0001   1..255    u8         words  sized-by=words_len
   ~         1         u8         store_count  max=8
@@ -36,6 +36,8 @@ struct ask size=35..489
   ~         0..16     u8         after_store  sized-by=after_store_len
   ~         1         u8         after_key_len  max=48
   ~         0..48     u8         after_key  sized-by=after_key_len
+  ~         2         u16        filter_len  big max=512
+  ~         0..512    u8         filter  sized-by=filter_len
 
 struct fetched size=1
   @0x0000   1         u8         asked
@@ -49,15 +51,15 @@ struct hit size=17..199
   ~         1         u8         snippet_len  max=120
   ~         0..120    u8         snippet  sized-by=snippet_len
 
-struct local_ask size=33..522
+struct local_ask size=33..1036
   @0x0000   1         u8         has_with  max=1
   @0x0001   32        u8         with  big
-  @0x0021   0..489    u8         ask  sized-by=remaining holds=ask
+  @0x0021   0..1003   u8         ask  sized-by=remaining holds=ask
 
-struct message size=2..524
+struct message size=2..1038
   @0x0000   1         u8         cmd  must_eq=26
   @0x0001   1         op         op
-  @0x0002   0..522    variant    body
+  @0x0002   0..1036   variant    body
   body switch: op
   body case 128: list local_ask
   body case 129: fetch local_ask

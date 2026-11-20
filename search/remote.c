@@ -3,6 +3,7 @@
 
 #include <string.h>
 
+#include "../facet/codec.h"
 #include "../wire/cmd.h"
 #include "../wire/generated/search_wire.h"
 #include "../wire/generated/search_wire_build.h"
@@ -20,18 +21,65 @@ static int name_ok(const uint8_t *name, size_t len)
 	return 1;
 }
 
+/* A HIT KEPT BY THE FILTER: its facets as the nodes it is at. */
+static int filter_keep(void *ctx, const fzn_search_hit_t *hit)
+{
+	const fzn_search_ask_t *a = ctx;
+	fzn_facet_node_t at[FZN_SEARCH_FACETS_MAX];
+	size_t i, n = hit->n_facets < FZN_SEARCH_FACETS_MAX ? hit->n_facets : FZN_SEARCH_FACETS_MAX;
+	int selected = 0;
+
+	for (i = 0; i < n; i++) {
+		at[i].dim = (const uint8_t *)hit->facets[i].dim;
+		at[i].dim_len = hit->facets[i].dim_len;
+		at[i].id = (const uint8_t *)hit->facets[i].value;
+		at[i].id_len = hit->facets[i].value_len;
+	}
+	return fzn_facet_entity_matches(&a->expr, at, n, &selected) == FZN_FACET_OK && selected;
+}
+
+int fzn_search_ask_filter(fzn_search_ask_t *a, const uint8_t *filter, size_t len)
+{
+	int selected = 0;
+
+	if (!a || (len && !filter) || len > sizeof(a->filter))
+		return 0;
+	a->query.filter = NULL;
+	a->query.filter_len = 0;
+	a->query.keep = NULL;
+	a->query.keep_ctx = NULL;
+	a->filter_len = 0;
+	if (!len)
+		return 1;
+	memcpy(a->filter, filter, len);
+	/* WHOLE, AND ANSWERABLE OF ONE HIT: a RANGE is refused here, once,
+	 * rather than at every hit. */
+	if (fzn_facet_expr_decode(a->filter, len, a->pos, FZN_SEARCH_FILTER_TERMS, a->neg, FZN_SEARCH_FILTER_TERMS,
+	                          a->members, FZN_SEARCH_FILTER_MEMBERS, &a->expr, NULL)
+	            != FZN_FACET_OK
+	    || fzn_facet_entity_matches(&a->expr, NULL, 0, &selected) != FZN_FACET_OK)
+		return 0;
+	a->filter_len = len;
+	a->query.filter = a->filter;
+	a->query.filter_len = len;
+	a->query.keep = filter_keep;
+	a->query.keep_ctx = a;
+	return 1;
+}
+
 size_t fzn_search_ask_write(const char *words, size_t words_len, const fzn_search_query_t *q, uint8_t *out,
                             size_t cap)
 {
 	uint8_t stores[FZN_SEARCH_ASK_STORES_MAX * (1u + FZN_SEARCH_STORE_NAME_MAX)];
 	uint8_t body[1u + FZN_SEARCH_TEXT_MAX + sizeof(stores) + 8u + 8u + 1u + 1u + 4u + 8u + 1u
-	             + FZN_SEARCH_STORE_NAME_MAX + 1u + FZN_SEARCH_KEY_MAX];
+	             + FZN_SEARCH_STORE_NAME_MAX + 1u + FZN_SEARCH_KEY_MAX + 2u + FZN_SEARCH_FILTER_MAX];
 	const fzn_search_hit_t *after = q ? q->after : NULL;
 	uint32_t at = 0, wrote = 0;
 	size_t i, after_store_len = after ? strlen(after->store) : 0u;
 
 	if (!words || !words_len || words_len > FZN_SEARCH_TEXT_MAX || !q || q->n_stores > FZN_SEARCH_ASK_STORES_MAX
 	    || !q->k || q->k > FZN_SEARCH_K_MAX || !out
+	    || q->filter_len > FZN_SEARCH_FILTER_MAX || (q->filter_len && !q->filter)
 	    || (after && (!name_ok((const uint8_t *)after->store, after_store_len) || !after->key_len
 	                  || after->key_len > FZN_SEARCH_KEY_MAX)))
 		return 0;
@@ -49,7 +97,8 @@ size_t fzn_search_ask_write(const char *words, size_t words_len, const fzn_searc
 	                              q->from_ms, q->to_ms, (uint8_t)q->k, after ? 1u : 0u,
 	                              after ? (uint32_t)after->score : 0u, after ? after->time_ms : 0u,
 	                              after ? (const uint8_t *)after->store : NULL, (uint32_t)after_store_len,
-	                              after ? after->key : NULL, after ? (uint32_t)after->key_len : 0u, &wrote)
+	                              after ? after->key : NULL, after ? (uint32_t)after->key_len : 0u,
+	                              q->filter_len ? q->filter : NULL, (uint32_t)q->filter_len, &wrote)
 	            != SITU_OK
 	    || fzn_search_wire_message_build_ask(out, cap > UINT32_MAX ? UINT32_MAX : (uint32_t)cap, FZN_CMD_SEARCH,
 	                                         body, wrote, &at)
@@ -60,7 +109,7 @@ size_t fzn_search_ask_write(const char *words, size_t words_len, const fzn_searc
 
 int fzn_search_ask_read(const uint8_t *in, size_t len, fzn_search_ask_t *out)
 {
-	static uint8_t copy[2u * (1u + FZN_SEARCH_TEXT_MAX) + 256u];
+	static uint8_t copy[2u * (1u + FZN_SEARCH_TEXT_MAX) + 256u + 2u + FZN_SEARCH_FILTER_MAX];
 	situ_msg_t m;
 	situ_view_t v, b, s;
 	uint32_t i, n;
@@ -108,7 +157,7 @@ int fzn_search_ask_read(const uint8_t *in, size_t len, fzn_search_ask_t *out)
 	} else if (k || out->after.key_len) {
 		return 0;
 	}
-	return 1;
+	return fzn_search_ask_filter(out, fzn_search_wire_ask_filter_ptr(b), fzn_search_wire_ask_filter_len_get(b));
 }
 
 size_t fzn_search_answer_write(const fzn_search_hit_t *hits, size_t n, int more, uint8_t *out, size_t cap)

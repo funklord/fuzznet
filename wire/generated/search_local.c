@@ -64,7 +64,7 @@ situ_err_t fzn_search_local_local_ask_check(situ_view_t view, uint32_t *which)
 	/* local_ask.ask: its declared cap. The struct's own
 	 * maximum bounds this run only where nothing variable
 	 * precedes it (26.681, decision 0059). */
-	if (situ_remaining_u32(view.limit, 33u) > 489u) {
+	if (situ_remaining_u32(view.limit, 33u) > 1003u) {
 		*which = FZN_SEARCH_LOCAL_LOCAL_ASK_ASK_CHECK;
 		return SITU_ERR_BOUNDS;
 	}

@@ -486,6 +486,61 @@ static void test_evaluate(void)
 	}
 }
 
+/* ONE ENTITY, sec 1319: a hit at genre/house/deep (closed upward to
+ * genre/house) and year y1994. */
+static void test_entity_matches(void)
+{
+	const fzn_facet_node_t at[3] = { node("genre", "house/deep"), node("genre", "house"), node("year", "y1994") };
+	const fzn_facet_node_t members[2] = { node("year", "y1990"), node("year", "y1994") };
+	int selected = -1;
+
+	{
+		fzn_facet_term_t p[2] = { prefix("genre", "house"), prefix("year", "y1994") };
+		fzn_facet_expr_t e = { p, 2, NULL, 0 };
+		CHECK(fzn_facet_entity_matches(&e, at, 3, &selected) == FZN_FACET_OK && selected == 1,
+		      "an entity at both terms was not selected");
+	}
+	{
+		fzn_facet_term_t p[1] = { prefix("genre", "techno") };
+		fzn_facet_expr_t e = { p, 1, NULL, 0 };
+		CHECK(fzn_facet_entity_matches(&e, at, 3, &selected) == FZN_FACET_OK && selected == 0,
+		      "an entity at no term of P was selected");
+	}
+	{
+		fzn_facet_term_t p[1] = { prefix("genre", "house") };
+		fzn_facet_term_t neg[1] = { prefix("year", "y1994") };
+		fzn_facet_expr_t e = { p, 1, neg, 1 };
+		CHECK(fzn_facet_entity_matches(&e, at, 3, &selected) == FZN_FACET_OK && selected == 0,
+		      "an entity at a term of N was selected");
+	}
+	{
+		fzn_facet_term_t p[1];
+		memset(p, 0, sizeof(p));
+		p[0].kind = FZN_FACET_ALT;
+		p[0].members = members;
+		p[0].member_count = 2;
+		fzn_facet_expr_t e = { p, 1, NULL, 0 };
+		CHECK(fzn_facet_entity_matches(&e, at, 3, &selected) == FZN_FACET_OK && selected == 1,
+		      "an entity at one member of an alternation was not selected");
+	}
+	{
+		fzn_facet_term_t p[1] = { prefix("genre", "house") };
+		fzn_facet_term_t neg[1];
+		memset(neg, 0, sizeof(neg));
+		neg[0].kind = FZN_FACET_RANGE;
+		neg[0].node = node("year", "");
+		fzn_facet_expr_t e = { p, 1, neg, 1 };
+		selected = -1;
+		CHECK(fzn_facet_entity_matches(&e, at, 3, &selected) == FZN_FACET_ERR_INCOMPLETE && selected == 0,
+		      "a RANGE was answered for one entity without its order");
+	}
+	{
+		fzn_facet_expr_t e = { NULL, 0, NULL, 0 };
+		CHECK(fzn_facet_entity_matches(&e, at, 3, &selected) == FZN_FACET_ERR_EMPTY_POS,
+		      "an empty P was not refused (F14)");
+	}
+}
+
 int main(void)
 {
 	test_collation();
@@ -494,6 +549,7 @@ int main(void)
 	test_validate_refusals();
 	test_normalize();
 	test_evaluate();
+	test_entity_matches();
 
 	printf("facet_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

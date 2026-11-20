@@ -6,6 +6,7 @@
 #include "../messages.h"
 #include "../../messages/reply.h"
 #include "../../sticker/pack.h"
+#include "../../hex/hex.h"
 #include "../messages_binary.h"
 #include "../search.h"
 #include "../group_lines.h"
@@ -2015,6 +2016,36 @@ static void test_the_search_here(void)
 	CHECK(SEARCH("list search in contacts carol") && replied("ok 1 0 contacts,") && strstr(reply, ",carol"),
 	      "a contact was not found by name in that store alone");
 	CHECK(SEARCH("list search in contacts dinner") && replied("ok 0 0"), "a store not asked was searched");
+	/* A FILTER, sec 1319: by the facets a line is tagged with -- who wrote
+	 * it (carol, or this user), a contact's, any of two; one that selects
+	 * nothing; a filter of only what to leave out refused (F14). */
+	{
+		static const uint8_t mine[FZN_PUBKEY_LEN] = { 0x77 };
+		char line[300], carol[2u * FZN_PUBKEY_LEN + 1u], me[2u * FZN_PUBKEY_LEN + 1u];
+		const uint8_t *const *saved = s.user;
+		static const uint8_t *mine_at;
+
+		for (n = 0; n < FZN_PUBKEY_LEN; n++) {
+			fzn_hex_byte(X[n], carol + 2u * n);
+			fzn_hex_byte(mine[n], me + 2u * n);
+		}
+		carol[2u * FZN_PUBKEY_LEN] = me[2u * FZN_PUBKEY_LEN] = '\0';
+		mine_at = mine;
+		s.user = &mine_at;
+		snprintf(line, sizeof(line), "list search where from=%s dinner", carol);
+		CHECK(SEARCH(line) && replied("ok 1 0 lines,") && strstr(reply, ",Dinner%20at%20eight?"),
+		      "a filter by who wrote it did not find carol's line alone");
+		snprintf(line, sizeof(line), "list search where with=contact not from=%s dinner", carol);
+		CHECK(SEARCH(line) && replied("ok 1 0 lines,") && strstr(reply, ",dinner%20sounds%20good"),
+		      "a filter leaving carol's lines out did not find this user's reply alone");
+		snprintf(line, sizeof(line), "list search where from=%s|%s dinner", carol, me);
+		CHECK(SEARCH(line) && replied("ok 2 0 lines,"), "a filter for either writer did not find both");
+		CHECK(SEARCH("list search where with=group dinner") && replied("ok 0 0"),
+		      "a filter for a group's lines found a contact's");
+		snprintf(line, sizeof(line), "list search not from=%s dinner", carol);
+		CHECK(SEARCH(line) && replied("malformed"), "a filter with nothing a hit must be at was run");
+		s.user = saved;
+	}
 	/* THE NEXT PAGE, after the first row. */
 	CHECK(SEARCH("list search dinner") && (row = strchr(reply, ' ')) && (row = strchr(row + 1, ' '))
 	              && (row = strchr(row + 1, ' ')) && (end = strchr(row + 1, ' ')),

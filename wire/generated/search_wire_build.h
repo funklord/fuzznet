@@ -23,6 +23,16 @@
 extern "C" {
 #endif
 
+#ifndef SITU_PUT_DEFINED
+#define SITU_PUT_DEFINED
+static inline void situ_put(uint8_t *to, const uint8_t *from, uint32_t n)
+{
+	if (to != from && n != 0u) {
+		memmove(to, from, n);
+	}
+}
+#endif
+
 /** Build a store into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
@@ -69,7 +79,7 @@ static inline situ_err_t fzn_search_wire_store_build(
 		if (name == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, name, name_len);
+		situ_put(situ_out + situ_at, name, name_len);
 	}
 	situ_at += name_len;
 
@@ -119,6 +129,8 @@ static inline situ_err_t fzn_search_wire_ask_build(
 		uint32_t after_store__len,
 		const uint8_t *after_key_,
 		uint32_t after_key__len,
+		const uint8_t *filter_,
+		uint32_t filter__len,
 		uint32_t *situ_wrote)
 {
 	situ_msg_t  situ_msg;
@@ -148,7 +160,7 @@ static inline situ_err_t fzn_search_wire_ask_build(
 		if (words_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, words_, words__len);
+		situ_put(situ_out + situ_at, words_, words__len);
 	}
 	situ_at += words__len;
 
@@ -224,7 +236,7 @@ static inline situ_err_t fzn_search_wire_ask_build(
 		if (stores == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, stores, stores_len);
+		situ_put(situ_out + situ_at, stores, stores_len);
 	}
 	situ_at += stores_len;
 
@@ -285,7 +297,7 @@ static inline situ_err_t fzn_search_wire_ask_build(
 		if (after_store_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, after_store_, after_store__len);
+		situ_put(situ_out + situ_at, after_store_, after_store__len);
 	}
 	situ_at += after_store__len;
 
@@ -306,9 +318,31 @@ static inline situ_err_t fzn_search_wire_ask_build(
 		if (after_key_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, after_key_, after_key__len);
+		situ_put(situ_out + situ_at, after_key_, after_key__len);
 	}
 	situ_at += after_key__len;
+
+	/* filter_len: the length of `filter_`, which the schema states. */
+	if (filter__len > 65535u) {
+		return SITU_ERR_CONSTRAINT;
+	}
+	if (situ_cap - situ_at < 2u) {
+		return SITU_ERR_BOUNDS;
+	}
+	situ_put_be16(situ_out + situ_at,
+	              (uint16_t)filter__len);
+	situ_at += 2u;
+
+	if (situ_cap - situ_at < filter__len) {
+		return SITU_ERR_BOUNDS;
+	}
+	if (filter__len != 0u) {
+		if (filter_ == NULL) {
+			return SITU_ERR_BOUNDS;
+		}
+		situ_put(situ_out + situ_at, filter_, filter__len);
+	}
+	situ_at += filter__len;
 
 	/* Constraints are the view's to state and this reuses them
 	 * rather than restating them: two checks of one schema is how
@@ -386,7 +420,7 @@ static inline situ_err_t fzn_search_wire_hit_build(
 		if (store == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, store, store_len);
+		situ_put(situ_out + situ_at, store, store_len);
 	}
 	situ_at += store_len;
 
@@ -407,7 +441,7 @@ static inline situ_err_t fzn_search_wire_hit_build(
 		if (key_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, key_, key__len);
+		situ_put(situ_out + situ_at, key_, key__len);
 	}
 	situ_at += key__len;
 
@@ -442,7 +476,7 @@ static inline situ_err_t fzn_search_wire_hit_build(
 		if (snippet_ == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, snippet_, snippet__len);
+		situ_put(situ_out + situ_at, snippet_, snippet__len);
 	}
 	situ_at += snippet__len;
 
@@ -571,7 +605,7 @@ static inline situ_err_t fzn_search_wire_answer_build(
 		if (hits == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, hits, hits_len);
+		situ_put(situ_out + situ_at, hits, hits_len);
 	}
 	situ_at += hits_len;
 
@@ -666,7 +700,7 @@ static inline situ_err_t fzn_search_wire_message_build_ask(
 		if (ask == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, ask, ask_len);
+		situ_put(situ_out + situ_at, ask, ask_len);
 	}
 	situ_at += ask_len;
 
@@ -761,7 +795,7 @@ static inline situ_err_t fzn_search_wire_message_build_answer(
 		if (answer == NULL) {
 			return SITU_ERR_BOUNDS;
 		}
-		memcpy(situ_out + situ_at, answer, answer_len);
+		situ_put(situ_out + situ_at, answer, answer_len);
 	}
 	situ_at += answer_len;
 
