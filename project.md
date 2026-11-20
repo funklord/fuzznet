@@ -49,8 +49,9 @@ listener port spans (`150e3106`).
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
   1297), the chosen Lottie sticker playing (sec 1300), its sound (sec
-  1301; in the picker, 1314), a pop-up one across the log (sec 1302). Left: (b) raster
-  animation and the picker's; (d) effect stickers shown (pop-up ones: sec 1302); (e) a recent tab,
+  1301; in the picker, 1314), a pop-up one across the log (sec 1302), an effect one behind it (sec
+  1315). Left: (b) raster
+  animation and the picker's; (e) a recent tab,
   which wants a place every host of the user shares; (h) the reply
   target's words as the matcher's context; (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
@@ -94368,3 +94369,32 @@ player by `on_sound(path)`, as the log does; unset, nothing is fetched.
 **Tests:** sticker_picker_view_test -- no player, nothing fetched; a
 sticker with a sound played twice, written once; one without, nothing.
 Sabotages `picker-sound-any`, `picker-sound-written-again`.
+
+## 1315. An effect sticker behind the lines, 2026-11-20
+
+The audit's (d), its effect half (pop-up ones: sec 1302). An effect
+sticker (`FZN_STICKER_EFFECT`, "plays behind the text") showed only its
+still in its line. Now, chosen by a person, its art -- the pop-up
+rendition where the pack gives one, the nearest otherwise, as a node
+draws for any role asked -- plays for one two-second loop **behind** the
+log's lines: painted on the viewport between its background and the
+lines, so the words stay over it and readable. It shares the pop-up's
+loop, its asking once, and its going when another line is chosen; only
+where it is drawn differs.
+
+**How it lies under the lines:** an event filter on the log's viewport
+paints the frame when the viewport's paint event arrives -- after Qt has
+filled the background and before the list paints its rows. Rejected: a
+child widget lowered under the rows (a child always paints after its
+parent, so it would cover them), and the viewport's palette brush (it
+tiles and cannot be centred).
+
+**Found on the way:** the log test's sticker 7, written as "a message
+sticker with a box", was listed with type 4 -- effect, where message is
+5. Nothing read the type for anything but pop-ups until now; the fixture
+says 5.
+
+**Tests:** conversation_view_test -- an effect sticker chosen plays
+behind, no pop-up shown, its blue art found in the drawn view; another
+line chosen ends it. Sabotages `sticker-effect-none`,
+`sticker-effect-unpainted`.

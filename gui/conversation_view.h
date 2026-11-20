@@ -126,6 +126,8 @@ public:
 	bool playing() const;
 	/* Whether a pop-up sticker is shown across the log (sec 1302). */
 	bool popped() const;
+	/* Whether an effect sticker plays behind the log's lines (sec 1315). */
+	bool effected() const;
 
 	/* THE HOST'S PLAYER FOR A STICKER'S SOUND (sec 1301), given the file it
 	 * was written to; unset, no sound is fetched. */
@@ -173,6 +175,7 @@ private:
 	void pop(QListWidgetItem *item);
 	void unpop();
 	void pop_frame();
+	bool eventFilter(QObject *watched, QEvent *event) override;
 	class QLabel *m_popup = nullptr;
 	QTimer *m_pop = nullptr;
 	std::function<void(const QString &)> m_sound;

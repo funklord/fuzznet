@@ -17811,6 +17811,20 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"sticker-effect-none",
+		"gui/conversation_view.cpp",
+		", effect = known && box->type == FZN_STICKER_EFFECT;",
+		", effect = false;",
+		"an effect sticker chosen plays nothing behind the lines; conversation_view_test -- sec 1315",
+	),
+	(
+		"sticker-effect-unpainted",
+		"gui/conversation_view.cpp",
+		"\t\tp.drawPixmap(room.center().x() - at.width() / 2, room.center().y() - at.height() / 2, m_art->behind_frame);\n",
+		"",
+		"an effect sticker's frame never painted under the lines; conversation_view_test -- sec 1315",
+	),
+	(
 		"picker-sound-any",
 		"gui/sticker_picker_view.cpp",
 		" || !(item->data(ROLE_FLAGS).toInt() & FZN_STICKER_FLAG_SOUND))\n",
@@ -17827,8 +17841,8 @@ SABOTAGES = [
 	(
 		"sticker-popup-any",
 		"gui/conversation_view.cpp",
-		"\tconst bool popup = sticker_box(sticker.left(144), id, box) && box->type == FZN_STICKER_POPUP;\n",
-		"\tconst bool popup = sticker_box(sticker.left(144), id, box);\n",
+		"\tconst bool popup = known && box->type == FZN_STICKER_POPUP,",
+		"\tconst bool popup = known,",
 		"any sticker chosen popped up across the log; conversation_view_test -- sec 1302",
 	),
 	(

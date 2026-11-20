@@ -164,6 +164,10 @@ struct fzn_conversation_view::art {
 	QHash<QByteArray, QByteArray> popup_art;
 	QHash<QByteArray, int> popup_format;
 	QByteArray popping;
+	/* AN EFFECT STICKER plays behind the lines rather than over them (sec
+	 * 1315): its frame painted on the viewport before the lines are. */
+	bool behind = false;
+	QPixmap behind_frame;
 	QElapsedTimer popped_for;
 	/* A LOTTIE STICKER'S ART, by the same key, kept to play it (sec 1300). */
 	QHash<QByteArray, QByteArray> lottie;
@@ -398,6 +402,7 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_popup->setAlignment(Qt::AlignCenter);
 	m_popup->setAttribute(Qt::WA_TransparentForMouseEvents);
 	m_popup->hide();
+	m_lines->viewport()->installEventFilter(this);
 	m_pop = new QTimer(this);
 	m_pop->setInterval(PLAY_FRAME_MS);
 	connect(m_pop, &QTimer::timeout, [this]() { pop_frame(); });
@@ -1257,7 +1262,9 @@ bool fzn_conversation_view::playing() const { return m_playing != nullptr; }
 
 /* A POP-UP STICKER CHOSEN, sec 1302: its pop-up art across the log for one
  * loop -- played where it is a Lottie one this build draws, still
- * otherwise -- then gone; any other line chosen, or none, takes it away. */
+ * otherwise -- then gone; any other line chosen, or none, takes it away.
+ * AN EFFECT STICKER (sec 1315) the same, but behind the lines: painted on
+ * the log's background, the words over it. */
 void fzn_conversation_view::pop(QListWidgetItem *item)
 {
 	const QByteArray sticker = item ? item->data(ROLE_STICKER).toByteArray() : QByteArray();
@@ -1268,9 +1275,10 @@ void fzn_conversation_view::pop(QListWidgetItem *item)
 		return;
 	box = new fzn_sticker_entry_t;
 	const qulonglong id = sticker.mid(145).toULongLong();
-	const bool popup = sticker_box(sticker.left(144), id, box) && box->type == FZN_STICKER_POPUP;
+	const bool known = sticker_box(sticker.left(144), id, box);
+	const bool popup = known && box->type == FZN_STICKER_POPUP, effect = known && box->type == FZN_STICKER_EFFECT;
 	delete box;
-	if (!popup)
+	if (!popup && !effect)
 		return;
 	if (!m_art->popup_art.contains(sticker)) {
 		uint8_t *bytes = nullptr, format = 0;
@@ -1287,12 +1295,15 @@ void fzn_conversation_view::pop(QListWidgetItem *item)
 		free(bytes);
 	}
 	m_art->popping = sticker;
+	m_art->behind = effect;
 	m_art->popped_for.start();
-	m_popup->setGeometry(m_lines->viewport()->rect());
-	m_popup->show();
-	m_popup->raise();
+	if (!effect) {
+		m_popup->setGeometry(m_lines->viewport()->rect());
+		m_popup->show();
+		m_popup->raise();
+	}
 	pop_frame();
-	if (m_popup->isVisibleTo(m_lines->viewport()))
+	if (!m_art->popping.isEmpty())
 		m_pop->start();
 }
 
@@ -1301,6 +1312,27 @@ void fzn_conversation_view::unpop()
 	m_pop->stop();
 	m_popup->hide();
 	m_art->popping.clear();
+	if (m_art->behind) {
+		m_art->behind = false;
+		m_art->behind_frame = QPixmap();
+		m_lines->viewport()->update();
+	}
+}
+
+/* THE EFFECT'S FRAME, under the lines: the viewport's background is filled
+ * before its paint event reaches this filter, and the lines are painted
+ * after it, so the frame lies between the two. */
+bool fzn_conversation_view::eventFilter(QObject *watched, QEvent *event)
+{
+	if (event->type() == QEvent::Paint && watched == m_lines->viewport() && m_art->behind
+	    && !m_art->behind_frame.isNull()) {
+		QPainter p(m_lines->viewport());
+		const QRect room = m_lines->viewport()->rect();
+		const QSize at = m_art->behind_frame.size() / m_art->behind_frame.devicePixelRatio();
+
+		p.drawPixmap(room.center().x() - at.width() / 2, room.center().y() - at.height() / 2, m_art->behind_frame);
+	}
+	return QWidget::eventFilter(watched, event);
 }
 
 void fzn_conversation_view::pop_frame()
@@ -1321,10 +1353,17 @@ void fzn_conversation_view::pop_frame()
 		unpop();
 		return;
 	}
+	if (m_art->behind) {
+		m_art->behind_frame = r.pixmap;
+		m_lines->viewport()->update();
+		return;
+	}
 	m_popup->setPixmap(r.pixmap);
 }
 
-bool fzn_conversation_view::popped() const { return !m_art->popping.isEmpty(); }
+bool fzn_conversation_view::popped() const { return !m_art->popping.isEmpty() && !m_art->behind; }
+
+bool fzn_conversation_view::effected() const { return !m_art->popping.isEmpty() && m_art->behind; }
 
 void fzn_conversation_view::on_sound(std::function<void(const QString &)> play) { m_sound = std::move(play); }
 

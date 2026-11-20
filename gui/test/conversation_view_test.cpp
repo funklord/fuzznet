@@ -78,9 +78,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	 * with words (sec 1295): sticker 7, a message sticker with a box. */
 	if (!strncmp(line, "list sticker " DAN_PACK, 13 + 144)) {
 		boxes_asked++;
-		return (size_t)snprintf(reply, cap, "ok 3 0 7,4,0,waving,20,8,8,48,16,FFFFFFC0,000000FF,0,128,128 "
+		return (size_t)snprintf(reply, cap, "ok 4 0 7,5,0,waving,20,8,8,48,16,FFFFFFC0,000000FF,0,128,128 "
 		                                    "9,2,5,dancing,0,0,0,0,0,00000000,00000000,0,128,128 "
-		                                    "11,3,0,fireworks,0,0,0,0,0,00000000,00000000,0,128,128\n");
+		                                    "11,3,0,fireworks,0,0,0,0,0,00000000,00000000,0,128,128 "
+		                                    "12,4,0,confetti,0,0,0,0,0,00000000,00000000,0,128,128\n");
 	}
 	/* STICKER 7 IS NO POP-UP ONE, though a node draws its nearest art for
 	 * any role asked: so a log that popped it up would show it (sec 1302). */
@@ -98,13 +99,22 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return one.save(QString::fromUtf8(line + 12 + 144 + 10), "PNG") ? (size_t)snprintf(reply, cap, "ok 4 4 4\n")
 		                                                              : (size_t)snprintf(reply, cap, "error no\n");
 	}
+	/* STICKER 12 IS AN EFFECT ONE: its art a blue PNG (sec 1315). */
+	if (!strncmp(line, "get sticker " DAN_PACK " 12 popup ", 12 + 144 + 10)) {
+		QImage one(4, 4, QImage::Format_ARGB32);
+		one.fill(Qt::blue);
+		return one.save(QString::fromUtf8(line + 12 + 144 + 10), "PNG") ? (size_t)snprintf(reply, cap, "ok 4 4 4\n")
+		                                                              : (size_t)snprintf(reply, cap, "error no\n");
+	}
 	if (!strcmp(line, "list message jon 0"))
 		return (size_t)snprintf(reply, cap,
-		                        "ok 0 2 0 " BOB ",jon," ID2 ",in,-,1700005900000,1700005900000,1,"
+		                        "ok 0 3 0 " BOB ",jon," ID3 ",in,-,1700006000000,1700006000000,1,"
+		                        "fzn:sticker/%064d/%064d/1000/12%%20confetti " BOB ",jon," ID2
+		                        ",in,-,1700005900000,1700005900000,1,"
 		                        "fzn:sticker/%064d/%064d/1000/11%%20fireworks " BOB ",jon," ID1
 		                        ",in,-,1700005800000,1700005800000,1,"
 		                        "fzn:sticker/%064d/%064d/1000/7%%20waving\n",
-		                        1, 2, 1, 2);
+		                        1, 2, 1, 2, 1, 2);
 	/* STICKER 7 HAS NO SOUND, and is never asked for one (sec 1301). */
 	if (!strncmp(line, "get sticker " DAN_PACK " 7 sound ", 12 + 144 + 9)) {
 		silent_asked++;
@@ -442,6 +452,19 @@ int main(int argc, char **argv)
 		CHECK(!j.popped(), "a pop-up stayed when another line was chosen");
 		j.select_line(1);
 		CHECK(j.popped() && popups_asked == 1, "a pop-up's art was asked for again");
+		/* AN EFFECT STICKER, sec 1315: behind the lines, not over them --
+		 * no pop-up, its art painted on the log's background. */
+		j.resize(400, 600);
+		j.select_line(2);
+		CHECK(j.effected() && !j.popped(), "an effect sticker chosen did not play behind the lines");
+		const QImage under = j.grab().toImage();
+		bool blue = false;
+		for (int y = 0; y < under.height() && !blue; y += 2)
+			for (int x = 0; x < under.width() && !blue; x += 2)
+				blue = under.pixelColor(x, y) == QColor(Qt::blue);
+		CHECK(blue, "an effect sticker's art was not painted");
+		j.select_line(0);
+		CHECK(!j.effected(), "an effect stayed when another line was chosen");
 	}
 	boxes_asked = 0;
 	/* A STICKER WITH WORDS, sec 1295: drawn, its pack's boxes read once. */
