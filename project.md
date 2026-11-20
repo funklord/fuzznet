@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1310
+The newest work is at the end of this file. **Read secs 1287 to 1311
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -60,6 +60,11 @@ listener port spans (`150e3106`).
   but joining and the join offer, text by their own sections (1250,
   1288): the last three -- a pack from a file, a file described, the
   admin grant -- in secs 1308-1310.
+- **situ, measured** (sec 1311): every generated file matches its HEAD;
+  40 layouts still have hand-written codecs though all but one build
+  today; the settings registry is not adopted. For its scheduler to own
+  request and reply: a match after authentication, and a datagram
+  reassembly layer -- **the holder's to ask of situ, or not**.
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
   what was true once to `doc/journal.md`, a cited section moving with
   its citations). Not started. Measured: 174 of 1309 numbered sections
@@ -94202,3 +94207,89 @@ joining and the join-by-request offer, text by their own sections (1250,
 in bytes: B, installing the chain written from them, holds admin by one
 hop -- the bytes are a working chain. The text grant stays covered by
 live_estate and live_contacts.
+
+## 1311. situ: what this tree uses, what it does not, and what its scheduler lacks, 2026-11-20
+
+The holder, 2026-11-20: "check that we are using all the latest features of
+situ. And what is missing if we were to want to adopt the scheduler of situ
+(including all the framing/req/reply etc.)". Measured against situ's HEAD,
+add80c9a.
+
+### Current: every generated file matches situ's HEAD
+
+`make schema SITU_DIR=../situ` passes at add80c9a: every contract, map,
+generated file, the tamper harness and the vendored runtime match (the
+runtime's banner still names c24fe412; its content has not changed since).
+Nothing generated here is stale.
+
+### Not used, in order of what it would buy
+
+1. **Forty layouts with a contract and a hand-written codec.** Of the 60
+   schemas, 20 generate the code that reads and writes them (the frame,
+   every local-leg family, the call family, STATUS, the search ask); the
+   other 40 are `SITU_SPECS` contracts -- checked against the schema, their
+   bytes still produced by C written here (`chain/`, `record/`, `tree/`,
+   `spool/`, `log/`, `messages/`, the notes, groups, contacts and routing
+   records, the sticker pack, a location fix, a chunk piece...). **All 40
+   build at situ's HEAD today but `node/reconcile.situ`**, which situ refuses
+   on purpose (sec 1283: an unsigned `[min = 1]`, the schema's to change).
+   This is "situ owns all layouts" not yet carried out, and it is the
+   largest gap; each is a codec replaced by the generated reader and writer
+   under the same golden vectors, one layout a commit.
+2. **The registry** (situ's 26.1080-26.1090, sec 1279): the settings
+   declaration `node/schema.c` writes by hand, with its five types and its
+   scope and display axes, is what a situ `registry` generates -- table,
+   `find`, `check`, `value`, `safer`, and a walker for one written at
+   runtime. Its character classes (`[chars]`, sec 1286) give ADDRESS's host
+   its check. Not adopted.
+3. **Text numbers and tokens** (26.1075-26.1086): situ can describe a run of
+   decimal digits and a set of words. The text verbs are parsed by hand;
+   they stay as the fallback and the CLI's grammar, so this buys a checked
+   grammar for them and nothing on the wire.
+4. **Generated I/O loops** (`situc build --driver epoll|poll|...|qt`):
+   fuzznetd's loop serves many sockets, rounds and the local socket; the
+   generated drivers loop one conversation. Not a fit as it stands.
+
+### The scheduler: what is adopted, and what is missing
+
+**Adopted** (sec 1227): `wire/frame.situ`'s `reply_to` relation states the
+resend schedule, and `node/asks.c` runs on the generated driver --
+`track_by_id_with` per exchange with its own policy, `end` by id, `step`,
+expiry by id, `part_held`, the resend hook resealing. The frame itself, its
+head and its sealed region, is generated (`wire/seal.c` reads it through
+`situ_fzn_frame_*`, the sealed region opened by the generated gate).
+
+**Missing**, for situ's scheduler to own framing, request and reply:
+
+1. **Matching a reply after it is authenticated.** The relation's key,
+   `head.msg`, is in the clear head, but `node/asks.c` matches only after
+   the frame is opened, for two reasons: two callers may number their
+   messages alike, so `msg` alone is not unique; and a match on clear bytes
+   lets a forged head end an exchange its owner still waits on. Needed of
+   situ: a match on a verified view -- `on_message` taking the frame after
+   its `verify_gated` region is open -- with a key that may name verified
+   fields (the sender with `msg`). Without it the driver keeps the schedule
+   and this tree keeps the matching.
+2. **Reassembly of a message from many datagrams.** situ's rung 4,
+   `frame`, is a byte stream's framing; nothing reassembles a message from
+   pieces. `chunk/split.c` and `chunk/reassembly.c` (786 lines) do: the
+   buffer sized from the first piece, `same_message` checked of each later
+   one, the held-pieces map, the bounds on messages and bytes in flight.
+   Needed: a datagram reassembly layer keyed by `same_message`, with those
+   bounds stated in the schema, feeding `part_held` to the driver itself.
+3. **Asking again for the missing pieces** (sec 1214, `FZN_CMD_WANT`):
+   built on the reassembly's map. It follows 2.
+4. **The replay window** (`frame/freshness.c`): which nonces and times a
+   receiver accepts. No situ rung holds it.
+5. **Sessions and keys** (`node/caller.c`, `session/`): key agreement,
+   the session table, nonce discipline. situ binds the cipher as a codec
+   and puts the nonce and key in the map (26.943); establishing them is
+   this protocol's.
+6. **The margin**: no resend within half a part interval of the end. situ
+   declined it (26.1042); it stays in `node/asks.c`, a few lines.
+
+Of these, 1 and 2 are what would move code: 1 lets the driver end
+exchanges itself, 2 moves the largest hand-written part of the wire path.
+3 follows 2; 4 and 5 are protocol rather than layout and stay here
+whichever way. **Both are situ's to build and not yet asked of it** --
+the holder's to send or not (sec 0).
