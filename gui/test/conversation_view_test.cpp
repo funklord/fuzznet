@@ -79,6 +79,32 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		boxes_asked++;
 		return (size_t)snprintf(reply, cap, "ok 1 0 7,4,0,waving,20,8,8,48,16,0,0,0,128,128\n");
 	}
+	/* IKE SENT DAN'S STICKER 9, A LOTTIE ONE, sec 1300: its art the JSON. */
+	if (!strncmp(line, "get sticker " DAN_PACK " 9 main ", 12 + 144 + 8)) {
+		static const char LOTTIE[] =
+		        "{\"v\":\"5.7.4\",\"fr\":30,\"ip\":0,\"op\":30,\"w\":100,\"h\":100,\"nm\":\"t\",\"ddd\":0,"
+		        "\"assets\":[],\"layers\":[{\"ddd\":0,\"ind\":1,\"ty\":4,\"nm\":\"r\",\"sr\":1,"
+		        "\"ks\":{\"o\":{\"a\":0,\"k\":100},\"r\":{\"a\":0,\"k\":0},\"p\":{\"a\":0,\"k\":[50,50,0]},"
+		        "\"a\":{\"a\":0,\"k\":[0,0,0]},\"s\":{\"a\":0,\"k\":[100,100,100]}},\"ao\":0,"
+		        "\"shapes\":[{\"ty\":\"rc\",\"d\":1,\"s\":{\"a\":0,\"k\":[80,80]},\"p\":{\"a\":0,\"k\":[0,0]},"
+		        "\"r\":{\"a\":0,\"k\":0},\"nm\":\"rect\"},{\"ty\":\"fl\",\"c\":{\"a\":0,\"k\":[1,0,0,1]},"
+		        "\"o\":{\"a\":0,\"k\":100},\"r\":1,\"nm\":\"fill\"}],\"ip\":0,\"op\":30,\"st\":0,\"bm\":0}]}";
+		FILE *f = fopen(line + 12 + 144 + 8, "wbx");
+		if (!f || fwrite(LOTTIE, 1, sizeof LOTTIE - 1, f) != sizeof LOTTIE - 1) {
+			if (f)
+				fclose(f);
+			return (size_t)snprintf(reply, cap, "error could not write\n");
+		}
+		fclose(f);
+		return (size_t)snprintf(reply, cap, "ok 1 100 100\n");
+	}
+	if (!strcmp(line, "list message ike 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 0 2 0 " BOB ",ike," ID2 ",in,-,1700005900000,1700005900000,1,"
+		                        "fzn:sticker/%064d/%064d/1000/9%%20dancing " BOB ",ike," ID1
+		                        ",in,-,1700005800000,1700005800000,1,"
+		                        "fzn:sticker/%064d/%064d/1000/7%%20waving\n",
+		                        1, 2, 1, 2);
 	/* GUS SENT DAN'S STICKER WITH WORDS: "hi there" in its box. */
 	if (!strcmp(line, "list message gus 0"))
 		return (size_t)snprintf(reply, cap,
@@ -323,6 +349,21 @@ int main(int argc, char **argv)
 	/* THE STICKER DRAWN, ASKED ONCE, AND ITS PACK KEPT, sec 1145. */
 	CHECK(d.drawn(1) && !d.drawn(0), "a sticker line was not drawn, or a file line was");
 	CHECK(d.refresh() && d.drawn(1) && art_asked == 1, "a sticker drawn once was asked for again");
+	/* THE CHOSEN STICKER PLAYS, sec 1300, where it is a Lottie one: chosen,
+	 * it plays; another chosen, it rests; a raster one never plays. */
+#ifdef FZN_THORVG_ON
+	{
+		fzn_conversation_view h(node, nullptr);
+
+		h.open(QStringLiteral("ike"));
+		/* OLDEST FIRST: the raster sticker, then the Lottie one. */
+		CHECK(h.drawn(1) && !h.playing(), "a Lottie sticker was not drawn, or played unchosen");
+		h.select_line(1);
+		CHECK(h.playing(), "the chosen Lottie sticker did not play");
+		h.select_line(0);
+		CHECK(!h.playing(), "a raster sticker chosen played, or the Lottie one did not rest");
+	}
+#endif
 	/* A STICKER WITH WORDS, sec 1295: drawn, its pack's boxes read once. */
 	{
 		fzn_conversation_view e(node, nullptr);

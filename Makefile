@@ -3778,8 +3778,10 @@ $(THORVG_OBJS): $(BUILD_DIR)/thorvg-build/%.o: $(THORVG_DIR)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS_BUILD) -std=c++17 -w $(THORVG_CPPFLAGS) -MMD -MP -c $< -o $@
 	$(if $(filter %/tvgInitializer.o,$@),$(OBJCOPY) $(THORVG_LOCAL_NEW) $@)
-# THE ONES THAT DRAW, and the picker's test, which asks a Lottie sticker drawn.
-$(BUILD_DIR)/gui/sticker_render.o $(BUILD_DIR)/gui/test/sticker_picker_view_test.o: \
+# THE ONES THAT DRAW, and the tests that ask a Lottie sticker drawn: the
+# picker's, and the log's, which plays one (sec 1300).
+$(BUILD_DIR)/gui/sticker_render.o $(BUILD_DIR)/gui/test/sticker_picker_view_test.o \
+$(BUILD_DIR)/gui/test/conversation_view_test.o: \
 	CXXFLAGS += $(if $(THORVG_ON),-DFZN_THORVG_ON -I$(THORVG_DIR)/inc)
 STICKER_RENDER_OBJS := $(BUILD_DIR)/gui/sticker_render.o $(if $(THORVG_ON),$(THORVG_OBJS))
 

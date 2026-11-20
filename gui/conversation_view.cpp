@@ -18,6 +18,7 @@ extern "C" {
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHash>
@@ -65,6 +66,14 @@ extern "C" {
 /* A STICKER IN THE LOG, sec 1295: its main rendition at this many pixels
  * across, where the 64 px thumbnail read as an icon beside a line. */
 #define STICKER_PX 128
+
+/* A STICKER PLAYED, sec 1300: one loop in this long, a frame every so
+ * often, and so many loops before it rests on its still -- the chosen
+ * line's alone, by one timer for the view (sec 1151's "one frame, not a
+ * player": a timer per sticker in a scrolling log burns a core). */
+#define PLAY_LOOP_MS 2000
+#define PLAY_FRAME_MS 40
+#define PLAY_LOOPS 3
 
 /* A LINE AS A BUBBLE ON A PHONE, sec 1241, fuzzypickles' 1700Z item 2: this
  * user's at the right, everyone else's at the left, each wrapped within
@@ -146,6 +155,9 @@ private:
 
 struct fzn_conversation_view::art {
 	QHash<QByteArray, QIcon> drawn;
+	/* A LOTTIE STICKER'S ART, by the same key, kept to play it (sec 1300). */
+	QHash<QByteArray, QByteArray> lottie;
+	QElapsedTimer playing_for;
 	/* EACH PACK'S STICKERS, read once a pack for their boxes (sec 1295):
 	 * by the pack's word, each sticker by its id. */
 	QHash<QByteArray, QHash<qulonglong, fzn_rpc_node_sticker_item_t>> boxes;
@@ -367,6 +379,9 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_lines = new QListWidget(this);
 	m_lines->setWordWrap(true);
 	m_lines->setIconSize(QSize(STICKER_PX, STICKER_PX));
+	m_play = new QTimer(this);
+	m_play->setInterval(PLAY_FRAME_MS);
+	connect(m_play, &QTimer::timeout, [this]() { play_frame(); });
 	m_lines->setAccessibleName(tr("The conversation's lines"));
 	m_bubbles = new bubble_delegate(m_lines);
 	m_lines->setItemDelegate(m_bubbles);
@@ -972,6 +987,8 @@ void fzn_conversation_view::select_line(int row)
 	/* A REFRESH PUTS THE CHOICE BACK ITSELF, and the same line chosen again
 	 * offers nothing new: its notice stands, an act's answer included. */
 	const QString key = item ? item->text() : QString();
+	if (!m_refreshing)
+		play(item);
 	if (m_refreshing || key == m_chosen)
 		return;
 	m_chosen = key;
@@ -1153,6 +1170,67 @@ bool fzn_conversation_view::take_offer() { return m_notice->act(); }
  * view's life -- a null icon for Lottie or art Qt cannot read, said in
  * words -- and one the node could not draw is asked again at the next
  * refresh, since its pack may still be arriving. */
+/* THE CHOSEN LINE'S STICKER PLAYED, sec 1300, where its art is a Lottie
+ * one this build draws; any other line chosen, or none, stops it on its
+ * still. */
+void fzn_conversation_view::play(QListWidgetItem *item)
+{
+	const QByteArray key = item ? item->data(ROLE_STICKER).toByteArray() + '\n'
+	                                      + item->data(ROLE_STICKER_TEXT).toString().toUtf8()
+	                            : QByteArray();
+
+	if (m_playing && m_playing != item)
+		rest();
+	if (!item || !m_art->lottie.contains(key) || m_playing == item)
+		return;
+	m_playing = item;
+	m_playing_key = key;
+	m_art->playing_for.start();
+	m_play->start();
+}
+
+/* THE PLAYED STICKER BACK ON ITS STILL, the timer stopped. */
+void fzn_conversation_view::rest()
+{
+	m_play->stop();
+	if (m_playing) {
+		auto still = m_art->drawn.constFind(m_playing_key);
+		if (still != m_art->drawn.constEnd() && !still.value().isNull())
+			m_playing->setIcon(still.value());
+	}
+	m_playing = nullptr;
+}
+
+/* ONE FRAME OF THE STICKER PLAYING, its words drawn into it as on its still. */
+void fzn_conversation_view::play_frame()
+{
+	const qint64 ms = m_art->playing_for.elapsed();
+	auto art = m_art->lottie.constFind(m_playing_key);
+
+	if (!m_playing || art == m_art->lottie.constEnd() || ms >= PLAY_LOOP_MS * PLAY_LOOPS) {
+		rest();
+		return;
+	}
+	const float progress = (float)(ms % PLAY_LOOP_MS) / (float)PLAY_LOOP_MS;
+	const fzn_sticker_render_result r = fzn_sticker_render_art((const uint8_t *)art.value().constData(),
+	                                                           (size_t)art.value().size(), FZN_STICKER_LOTTIE,
+	                                                           QSize(STICKER_PX, STICKER_PX), progress);
+	if (r.pixmap.isNull())
+		return;
+	QPixmap shown = r.pixmap;
+	const QString words = m_playing->data(ROLE_STICKER_TEXT).toString();
+	const QByteArray sticker = m_playing->data(ROLE_STICKER).toByteArray();
+	if (!words.isEmpty()) {
+		fzn_sticker_entry_t *box = new fzn_sticker_entry_t;
+		if (sticker_box(sticker.left(144), sticker.mid(145).toULongLong(), box))
+			shown = fzn_sticker_with_text(shown, box, words);
+		delete box;
+	}
+	m_playing->setIcon(QIcon(shown));
+}
+
+bool fzn_conversation_view::playing() const { return m_playing != nullptr; }
+
 /* A STICKER'S BOX, sec 1295: its pack's stickers read once, and this one
  * as the overlay reads an entry -- the box, its paint and the main
  * rendition's size it is measured in. 0 where the pack will not list or
@@ -1228,6 +1306,8 @@ void fzn_conversation_view::draw_stickers()
 		}
 		if (got) {
 			QIcon icon;
+			if (format == FZN_STICKER_LOTTIE)
+				m_art->lottie.insert(key, QByteArray((const char *)bytes, (int)len));
 			/* LOTTIE TOO where thorvg is built in, sec 1151. */
 			const fzn_sticker_render_result r =
 			        fzn_sticker_render_art(bytes, len, format, QSize(STICKER_PX, STICKER_PX));

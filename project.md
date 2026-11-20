@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1299
+The newest work is at the end of this file. **Read secs 1287 to 1300
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -43,13 +43,16 @@ listener port spans (`150e3106`).
   that contact's hosts alone (sec 1292); in binary, the client and a
   view (sec 1293); the library's files (sec 1299). Left: `with @GROUP`;
   facet filters, when a client asks for them.
-- **Sticker gaps**, from the 2026-11-19 audit, best first. The log now
-  draws the main rendition at 128 px and a sticker's words (sec 1295).
-  The picker asks for a boxed sticker's words (sec 1296). Then: (b) animation beyond frame 0; (c) a sticker's sound,
-  which the node does not export; (d) pop-up and effect stickers shown;
-  (e) a recent tab in the picker (the find box: sec 1298); (h) the matcher's
-  context: the reply target's words (case folding: sec 1297); (i) a
-  binary `list sticker match`.
+- **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
+  log's main rendition and words (sec 1295), the picker asking for words
+  (sec 1296), finding and letting go (sec 1298), case folding (sec
+  1297), the chosen Lottie sticker playing (sec 1300). Left: (b) raster
+  animation and the picker's; (c) a sticker's sound, which the node does
+  not export; (d) pop-up and effect stickers shown; (e) a recent tab,
+  which wants a place every host of the user shares; (h) the reply
+  target's words as the matcher's context; (i) a binary `list sticker
+  match`, which waits on a measurement that the text verb is too slow
+  (sec 1272).
 - **The holder's question, parked**: a sticker store, meaning packs not
   kept and searchable. Is it wanted, and from whom: a relay, friends'
   kept packs, or a published catalogue? It blocks searching packs
@@ -93908,3 +93911,28 @@ when a client wants "audio files named harbour" asked of other hosts.
 hosts claim it, keyed by its root, timeless; found by kind and shown by
 name; a retracted name not found; a contact answered nothing. Sabotage
 `search-library-told-contacts`.
+
+## 1300. The chosen sticker plays, 2026-11-20
+
+The audit's (b), for the log and for Lottie stickers: a sticker drew
+frame 0 only. Now **the chosen line's sticker plays** -- three loops of
+two seconds at 25 frames a second, then it rests on its still -- by one
+timer for the view, and another line chosen, or none, stops it. Its words
+are drawn into each frame as into its still (sec 1295).
+
+**Why only the chosen one:** `gui/sticker_render.h` (sec 1151) refuses a
+player per sticker, "a timer per sticker in a scrolling log is how a
+chat window comes to burn a core doing nothing", and leaves motion to
+whoever advances `progress`. Playing the one the person chose, a few
+times, is motion on request at the cost of one render a frame. Rejected:
+playing every visible sticker on a loop, which is that core.
+
+**Not done:** raster animation -- APNG and animated WebP -- which Qt
+decodes frame by frame through QMovie rather than through
+`fzn_sticker_render_art`, and the picker. A Lottie sticker plays only
+where ThorVG is built in; without it the still is drawn, as before.
+
+**Tests:** conversation_view_test, built with ThorVG now as the picker's
+test is -- a Lottie sticker drawn and not playing unchosen; chosen, it
+plays; a raster sticker chosen, nothing plays. Sabotage
+`conversation-raster-played`.

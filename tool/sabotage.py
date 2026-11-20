@@ -17790,6 +17790,13 @@ SABOTAGES = [
 		"a contact answered this user's library by a search; node_catalog_test -- sec 1299",
 	),
 	(
+		"conversation-raster-played",
+		"gui/conversation_view.cpp",
+		"\tif (!item || !m_art->lottie.contains(key) || m_playing == item)\n",
+		"\tif (!item || m_playing == item)\n",
+		"a raster sticker chosen taken as one to play; conversation_view_test -- sec 1300",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",

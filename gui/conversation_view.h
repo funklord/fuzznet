@@ -30,11 +30,15 @@
 
 #include "notebook_view.h"
 
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 #include <QWidget>
 
 #include <stdint.h>
+
+class QListWidgetItem;
+class QTimer;
 
 class QLabel;
 class QLineEdit;
@@ -116,6 +120,8 @@ public:
 	QStringList lines() const;
 	/* Whether line `row` is drawn as a picture. */
 	bool drawn(int row) const;
+	/* Whether the chosen line's sticker is playing (sec 1300). */
+	bool playing() const;
 	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
 	 * where line `row`'s bubble is, in the list's own coordinates --
 	 * this user's at the right, everyone else's at the left. */
@@ -152,6 +158,12 @@ private:
 
 	struct fzn_gui_rpc *m_rpc;
 	int sticker_box(const QByteArray &pack, qulonglong id, struct fzn_sticker_entry *out);
+	void play(QListWidgetItem *item);
+	void rest();
+	void play_frame();
+	QTimer *m_play = nullptr;
+	QListWidgetItem *m_playing = nullptr;
+	QByteArray m_playing_key;
 	struct art;
 	art *m_art; /* each sticker drawn, for the view's life */
 	QString m_contact;
