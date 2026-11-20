@@ -22,6 +22,7 @@ enum op : u8 {
 	share       = 134, // shared or not, as `set file ROOT public|private`, `grant|revoke file ROOT WHO`
 	shares      = 135, // whom a file is shared with, as `get file ROOT shares`
 	share_row   = 136, // an answer: one share
+	catalog_add = 137, // a file described, as `add catalog ROOT NAME VALUE` (sec 1309)
 	default     = error,
 }
 
@@ -63,6 +64,17 @@ struct share {
 	u8   add [max = 1];
 	u8   to_len [max = 33];
 	u8   to[to_len];
+}
+
+// A FILE DESCRIBED: this host asserts NAME of the file ROOT is VALUE, raw
+// -- the library's `name`, `kind` or `duration` among them. Answered by a
+// STATUS in the verb's words.
+struct catalog_add {
+	u8   root[32];
+	u8   name_len [min = 1, max = 64];
+	u8   name[name_len];
+	u16  value_len [max = 504];
+	u8   value[value_len];
 }
 
 // ONE SHARE of a file: KIND 0 every contact, 1 a contact, 2 a group; KEY
@@ -110,6 +122,7 @@ struct message {
 		case op.share:       share       share;
 		case op.shares:      file        shares;
 		case op.share_row:   share_row   share_row;
+		case op.catalog_add: catalog_add catalog_add;
 		default: error;
 	}
 }

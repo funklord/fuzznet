@@ -174,6 +174,70 @@ situ_err_t fzn_files_local_share_validate(situ_view_t view)
 	return fzn_files_local_share_check(view, NULL);
 }
 
+situ_err_t fzn_files_local_catalog_add_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_FILES_LOCAL_CATALOG_ADD_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* catalog_add.name_len [min = 1] */
+	if (fzn_files_local_catalog_add_name_len_get(view) < 1) {
+		*which = FZN_FILES_LOCAL_CATALOG_ADD_NAME_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* catalog_add.name_len [max = 64] */
+	if (fzn_files_local_catalog_add_name_len_get(view) > 64) {
+		*which = FZN_FILES_LOCAL_CATALOG_ADD_NAME_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* catalog_add.name: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 33u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[32u])))) {
+		*which = FZN_FILES_LOCAL_CATALOG_ADD_NAME_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* catalog_add.value_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_files_local_catalog_add_value_len_offset(view), 2u)) {
+		*which = FZN_FILES_LOCAL_CATALOG_ADD_VALUE_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* catalog_add.value_len [max = 504] */
+	if (fzn_files_local_catalog_add_value_len_get(view) > 504) {
+		*which = FZN_FILES_LOCAL_CATALOG_ADD_VALUE_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* catalog_add.value: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_files_local_catalog_add_value_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_files_local_catalog_add_value_len_offset(view), 2u)) ? (uint64_t)(situ_get_be16((situ_base(view) + fzn_files_local_catalog_add_value_len_offset(view)) + 0u)) : (uint64_t)0))))) {
+		*which = FZN_FILES_LOCAL_CATALOG_ADD_VALUE_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_files_local_catalog_add_validate(situ_view_t view)
+{
+	return fzn_files_local_catalog_add_check(view, NULL);
+}
+
 situ_err_t fzn_files_local_share_row_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -315,12 +379,12 @@ situ_err_t fzn_files_local_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 2u) < ((fzn_files_local_message_op_get(view) == 128u ? 0u : (fzn_files_local_message_op_get(view) == 129u ? (fzn_files_local_message_body_library_row_extent(view)) : (fzn_files_local_message_op_get(view) == 130u ? 32u : (fzn_files_local_message_op_get(view) == 131u ? 32u : (fzn_files_local_message_op_get(view) == 132u ? 31u : (fzn_files_local_message_op_get(view) == 133u ? 32u : (fzn_files_local_message_op_get(view) == 134u ? (fzn_files_local_message_body_share_extent(view)) : (fzn_files_local_message_op_get(view) == 135u ? 32u : (fzn_files_local_message_op_get(view) == 136u ? (fzn_files_local_message_body_share_row_extent(view)) : 0u))))))))))) {
+	if (situ_remaining_u32(view.limit, 2u) < ((fzn_files_local_message_op_get(view) == 128u ? 0u : (fzn_files_local_message_op_get(view) == 129u ? (fzn_files_local_message_body_library_row_extent(view)) : (fzn_files_local_message_op_get(view) == 130u ? 32u : (fzn_files_local_message_op_get(view) == 131u ? 32u : (fzn_files_local_message_op_get(view) == 132u ? 31u : (fzn_files_local_message_op_get(view) == 133u ? 32u : (fzn_files_local_message_op_get(view) == 134u ? (fzn_files_local_message_body_share_extent(view)) : (fzn_files_local_message_op_get(view) == 135u ? 32u : (fzn_files_local_message_op_get(view) == 136u ? (fzn_files_local_message_body_share_row_extent(view)) : (fzn_files_local_message_op_get(view) == 137u ? (fzn_files_local_message_body_catalog_add_extent(view)) : 0u)))))))))))) {
 		*which = FZN_FILES_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for op.library, op.library_row, op.library_file, op.file, op.file_row, op.remove, op.share, op.shares, op.share_row, and `default: error` for the rest. */
-	if (fzn_files_local_message_op_get(view) != 128u && fzn_files_local_message_op_get(view) != 129u && fzn_files_local_message_op_get(view) != 130u && fzn_files_local_message_op_get(view) != 131u && fzn_files_local_message_op_get(view) != 132u && fzn_files_local_message_op_get(view) != 133u && fzn_files_local_message_op_get(view) != 134u && fzn_files_local_message_op_get(view) != 135u && fzn_files_local_message_op_get(view) != 136u) {
+	/* message.body: an arm for op.library, op.library_row, op.library_file, op.file, op.file_row, op.remove, op.share, op.shares, op.share_row, op.catalog_add, and `default: error` for the rest. */
+	if (fzn_files_local_message_op_get(view) != 128u && fzn_files_local_message_op_get(view) != 129u && fzn_files_local_message_op_get(view) != 130u && fzn_files_local_message_op_get(view) != 131u && fzn_files_local_message_op_get(view) != 132u && fzn_files_local_message_op_get(view) != 133u && fzn_files_local_message_op_get(view) != 134u && fzn_files_local_message_op_get(view) != 135u && fzn_files_local_message_op_get(view) != 136u && fzn_files_local_message_op_get(view) != 137u) {
 		*which = FZN_FILES_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -489,6 +553,25 @@ situ_err_t fzn_files_local_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_FILES_LOCAL_MESSAGE_BODY_SHARE_ROW_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.catalog_add: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_files_local_message_body_catalog_add_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_files_local_catalog_add_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_FILES_LOCAL_MESSAGE_BODY_CATALOG_ADD_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {

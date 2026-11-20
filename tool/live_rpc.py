@@ -27,7 +27,9 @@
     j  a file's acts in binary (sec 1303): a file put is shared with every
        contact (ok), its shares one row saying so, then ok; a share with a
        name that is no contact refused in the node's words, never as
-       malformed; the file removed (ok), and the text verb no longer has it
+       malformed; described in bytes, a name with a space listed by `list
+       catalog` (sec 1309); the file removed (ok), and the text verb no
+       longer has it
     k  a governance act in binary (sec 1305): `set quorum 1` on the estate's
        one root answered ok, and `add root` with a key that is no key
        refused in the verb's words, never as malformed
@@ -271,6 +273,13 @@ def main(argv):
 			got = binary(sock, bytes([FILES, 0x86]) + root + bytes([1, 6]) + b"nobody")
 			if len(got) != 1 or got[0][0] != STATUS or got[0][1] in (0, 2):
 				raise failed("j: a share with no contact in binary answered %r" % got)
+			# DESCRIBED IN BINARY, sec 1309: a name holding a space, raw in the
+			# bytes and escaped by the node as the verb reads it.
+			got = binary(sock, bytes([FILES, 0x89]) + root + bytes([4]) + b"name" + (14).to_bytes(2, "big")
+			             + b"probe file.bin")
+			listed = ask(sock, "list catalog %s" % root.hex())
+			if len(got) != 1 or got[0][:2] != bytes([STATUS, 0]) or "probe%20file.bin" not in listed:
+				raise failed("j: a file described in binary answered %r, listed %r" % (got, listed[:200]))
 			got = binary(sock, bytes([FILES, 0x85]) + root)
 			if len(got) != 1 or got[0][:2] != bytes([STATUS, 0]):
 				raise failed("j: a file removed in binary answered %r" % got)

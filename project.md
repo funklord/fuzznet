@@ -94162,3 +94162,19 @@ they are. The client asks in binary first.
 spec put again in bytes is kept under the root the text put gave (a
 pack's key is its bytes', sec 1278), and a relative path is refused in
 words, not as malformed.
+
+## 1309. A file described in the library, in binary, 2026-11-20
+
+The second of the holder's remaining three: `fzn_rpc_library_add`, which
+said each of a file's name, kind and duration as an `add catalog ROOT
+NAME VALUE` line, the value escaped by the client. `node/files_local.situ`
+gains `catalog_add` (137: the root, the attribute's name and its value
+raw), answered by a STATUS. fuzznetd escapes the value as the verb reads
+it and runs the verb as the socket runs a line, so the catalogue's checks,
+its record and its publishing are the verb's. The client sends each
+attribute in binary first, the verb behind it. `struct act_answer`, the
+STATUS-only answer of sec 1305, now reads both.
+
+**Tests:** files_local_vectors (14, one new); live_rpc j -- a file
+described in bytes with a name holding a space, listed by `list catalog`
+escaped, as a text `add catalog` would have written it.

@@ -19255,12 +19255,54 @@ static int local_file_acts(int fd, const uint8_t *msg, size_t len)
 	return verb_status(fd, reply, n);
 }
 
+/* `catalog_add` of FZN_CMD_FILES, sec 1309: `add catalog ROOT NAME VALUE`,
+ * the value escaped as the verb reads it, run as the socket runs a line --
+ * its checks, its record and its publishing the verb's. */
+static int local_catalog_add(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	static char reply[FZN_REPLY_MAX + 1u], arg[64u + 2u * FZN_PUBKEY_LEN + 3u * FZN_NODE_CATALOG_VALUE_MAX + 8u];
+	char hex[2u * FZN_PUBKEY_LEN + 1u];
+	situ_msg_t m;
+	situ_view_t v, b;
+	fzn_request_t req;
+	const uint8_t *name;
+	size_t name_len, n, e = 0;
+
+	if (!running_admin)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no catalogue"), 0;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_files_local_message_validate(v) != SITU_OK
+	    || fzn_files_local_message_body_catalog_add_view(v, &b) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+	name = fzn_files_local_catalog_add_name_ptr(b);
+	name_len = fzn_files_local_catalog_add_name_len_get(b);
+	if (memchr(name, ' ', name_len) || memchr(name, '\n', name_len) || memchr(name, '\r', name_len))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "a name holding a space or a line break"), 0;
+	hex_of(fzn_files_local_catalog_add_root_ptr(b), FZN_PUBKEY_LEN, hex);
+	n = (size_t)snprintf(arg, sizeof(arg), "catalog %s %.*s ", hex, (int)name_len, (const char *)name);
+	(void)fzn_escape(fzn_files_local_catalog_add_value_ptr(b), fzn_files_local_catalog_add_value_len_get(b),
+	                 arg + n, sizeof(arg) - n - 1u, &e);
+	n += e;
+	memset(&req, 0, sizeof(req));
+	req.parsed = FZN_VERB_ADD;
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	n = local_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, origin, NULL, &req, reply, sizeof(reply) - 1u);
+	if (!n)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "no verb took the description"), 0;
+	return verb_status(fd, reply, n);
+}
+
 static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	static struct library_files lf;
 
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "the library is this node's own user's"), 0;
+	/* A FILE DESCRIBED, sec 1309: the catalogue's verb, as the socket runs it. */
+	if (len >= 2u && msg[1] == FZN_FILES_LOCAL_OP_CATALOG_ADD)
+		return local_catalog_add(fd, origin, msg, len);
 	/* A FILE LET GO, SHARED, OR ITS SHARES, sec 1303: files alone. */
 	if (len >= 2u
 	    && (msg[1] == FZN_FILES_LOCAL_OP_REMOVE || msg[1] == FZN_FILES_LOCAL_OP_SHARE

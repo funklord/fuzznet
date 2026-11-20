@@ -3074,8 +3074,62 @@ static size_t node_escape(const char *in, size_t n, char *out, size_t cap) {
 }
 
 /* `add catalog ROOT NAME VALUE`. */
+/* A STATUS ALONE, as an act's answer in binary (sec 1305). */
+struct act_answer {
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void act_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct act_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	if (a->bad) return;
+	if (!len || msg[0] != FZN_CMD_STATUS || a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+		a->bad = 1;
+		return;
+	}
+	a->status_seen = 1;
+	snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+}
+
 static int node_catalog_add(fzn_rpc_t *c, const char *root_hex, const char *name,
                             const char *value, size_t value_len) {
+	/* IN BINARY FIRST, sec 1309: the value raw, the node escaping it. */
+	{
+		uint8_t req[2 + 32 + 1 + 64 + 2 + 504];
+		struct act_answer a;
+		size_t at = 2;
+		const size_t name_len = strlen(name);
+		int text = 0;
+		if (name_len <= 64 && value_len <= 504) {
+			for (size_t i = 0; i < 32; i++) {
+				const int hi = hex_nibble(root_hex[2 * i]), lo = hex_nibble(root_hex[2 * i + 1]);
+				if (hi < 0 || lo < 0) return encode_failed(c);
+				req[at++] = (uint8_t)(hi << 4 | lo);
+			}
+			req[0] = FZN_CMD_FILES;
+			req[1] = FZN_FILES_LOCAL_OP_CATALOG_ADD;
+			req[at++] = (uint8_t)name_len;
+			memcpy(req + at, name, name_len);
+			at += name_len;
+			req[at++] = (uint8_t)(value_len >> 8);
+			req[at++] = (uint8_t)value_len;
+			memcpy(req + at, value, value_len);
+			at += value_len;
+			memset(&a, 0, sizeof a);
+			const int rc = fzn_rpc_binary(c, req, at, act_each, &a, &text);
+			if (!text) {
+				if (rc != FZN_RPC_OK) return rc;
+				if (!a.status_seen || a.bad) return unreadable(c); /* a description's answer cut short */
+				if (a.code != FZN_STATUS_OK)
+					return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+					            a.why[0] ? a.why : "the node refused it");
+				return FZN_RPC_OK;
+			}
+		}
+	}
 	char esc[FZN_REQUEST_MAX], arg[FZN_REQUEST_MAX];
 	const size_t esc_len = node_escape(value, value_len, esc, sizeof esc);
 	if (!esc_len) return encode_failed(c);
@@ -7798,26 +7852,6 @@ int fzn_rpc_successions(fzn_rpc_t *c, fzn_rpc_successions_t *out) {
 int fzn_rpc_staged(fzn_rpc_t *c, fzn_rpc_staged_t *out) { GOV_FIRST(staged, STAGED, out, gov_staged_text); }
 
 int fzn_rpc_presets(fzn_rpc_t *c, fzn_rpc_presets_t *out) { GOV_FIRST(presets, PRESETS, out, gov_presets_text); }
-
-/* A STATUS ALONE, as an act's answer in binary (sec 1305). */
-struct act_answer {
-	int bad, status_seen;
-	fzn_status_t code;
-	char why[FZN_STATUS_WHY_MAX + 1];
-};
-
-static void act_each(void *ctx, const uint8_t *msg, size_t len) {
-	struct act_answer *a = ctx;
-	const uint8_t *why = NULL;
-	size_t why_len = 0;
-	if (a->bad) return;
-	if (!len || msg[0] != FZN_CMD_STATUS || a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
-		a->bad = 1;
-		return;
-	}
-	a->status_seen = 1;
-	snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
-}
 
 /* AN ACT: KIND in binary first (node/members_local.situ's act_kind), else
  * `VERB SUBJECT WORDS`, one line, the node's answer its own. */

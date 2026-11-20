@@ -19,7 +19,14 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  library=128 library_row=129 library_file=130 file=131 file_row=132 remove=133 share=134 shares=135 share_row=136
+  library=128 library_row=129 library_file=130 file=131 file_row=132 remove=133 share=134 shares=135 share_row=136 catalog_add=137
+
+struct catalog_add size=36..603
+  @0x0000   32        u8         root  big
+  @0x0020   1         u8         name_len  min=1 max=64
+  @0x0021   1..64     u8         name  sized-by=name_len
+  ~         2         u16        value_len  big max=504
+  ~         0..504    u8         value  sized-by=value_len
 
 struct file size=32
   @0x0000   32        u8         root  big
@@ -48,10 +55,10 @@ struct library_row size=55..374
   ~         1         u8         name_len
   ~         0..255    u8         name  sized-by=name_len
 
-struct message size=2..376
+struct message size=2..605
   @0x0000   1         u8         cmd  must_eq=1
   @0x0001   1         op         op
-  @0x0002   0..374    variant    body
+  @0x0002   0..603    variant    body
   body switch: op
   body case 128: library nothing
   body case 129: library_row library_row
@@ -62,6 +69,7 @@ struct message size=2..376
   body case 134: share share
   body case 135: shares file
   body case 136: share_row share_row
+  body case 137: catalog_add catalog_add
   body case default: error
 
 struct nothing size=0
