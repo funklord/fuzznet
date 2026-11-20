@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  library=128 library_row=129 library_file=130 file=131 file_row=132
+  library=128 library_row=129 library_file=130 file=131 file_row=132 remove=133 share=134 shares=135 share_row=136
 
 struct file size=32
   @0x0000   32        u8         root  big
@@ -58,6 +58,22 @@ struct message size=2..376
   body case 130: library_file library_file
   body case 131: file file
   body case 132: file_row file_row
+  body case 133: remove file
+  body case 134: share share
+  body case 135: shares file
+  body case 136: share_row share_row
   body case default: error
 
 struct nothing size=0
+
+struct share size=34..67
+  @0x0000   32        u8         root  big
+  @0x0020   1         u8         add  max=1
+  @0x0021   1         u8         to_len  max=33
+  @0x0022   0..33     u8         to  sized-by=to_len
+
+struct share_row size=34..66
+  @0x0000   1         u8         kind  max=2
+  @0x0001   32        u8         key  big
+  @0x0021   1         u8         name_len  max=32
+  @0x0022   0..32     u8         name  sized-by=name_len

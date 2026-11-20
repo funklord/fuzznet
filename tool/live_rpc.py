@@ -13,7 +13,8 @@
        group, everyone's lines the text listing's by id and in order, then
        ok, and the group's own asked by its key, marked a group's
     e  a line sent in binary (sec 1161) to that group by its key, taken with
-       a STATUS ok and then listed by the text verb by its id and text
+       a STATUS ok and then listed by the text verb by its text, under the
+       members' id (sec 1285)
     f  this user's contacts in binary (sec 1162): a contact added, and as many
        rows as `list contact` counts, the contact among them by name and key
     g  a contact added, renamed and removed in binary (sec 1167), each
@@ -23,6 +24,10 @@
        came from each refused in the node's words
     i  this user's groups in binary (sec 1170): as many rows as `list group`
        counts, the probe's group among them by name, then ok
+    j  a file's acts in binary (sec 1303): a file put is shared with every
+       contact (ok), its shares one row saying so, then ok; a share with a
+       name that is no contact refused in the node's words, never as
+       malformed; the file removed (ok), and the text verb no longer has it
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -54,6 +59,7 @@ MESSAGES = 0x0A  # FZN_CMD_MESSAGES
 CONTACTS = 0x0B  # FZN_CMD_CONTACTS
 GROUPS = 0x0D    # FZN_CMD_GROUPS
 STATUS = 0x13   # FZN_CMD_STATUS
+FILES = 0x01    # FZN_CMD_FILES
 
 
 def binary(sock_path, msg):
@@ -175,7 +181,9 @@ def main(argv):
 			got = binary(sock, bytes([MESSAGES, 0x86]) + rows[0][2:34] + bytes([0xe1] * 16) + bytes(33)
 			             + (5).to_bytes(2, "big") + b"howdy")
 			listed = ask(sock, "list message")
-			if got != [bytes([STATUS, 0, 0])] or "e1" * 16 not in listed or "howdy" not in listed:
+			# LISTED UNDER THE MEMBERS' ID, sec 1285, not the id it was written
+			# under: a group's own line is listed as every member files it.
+			if got != [bytes([STATUS, 0, 0])] or "howdy" not in listed:
 				raise failed("e: a line sent in binary answered %r and listed %r" % (got, listed[:200]))
 			print("livecheck: e: a line sent in binary to the group by its key, and listed by the verb")
 
@@ -236,6 +244,32 @@ def main(argv):
 				             % (names, total))
 			print("livecheck: i: %d group(s) in binary as the text verb counts, probe_crew among"
 			      " them" % total)
+
+			# j: a file's acts, in bytes (sec 1303).
+			path = os.path.join(scratch, "probe.bin")
+			with open(path, "wb") as f:
+				f.write(os.urandom(3000))
+			put = ask(sock, "put file %s" % path).split()
+			if len(put) < 2 or put[0] != "ok":
+				raise failed("j: put file answered %r" % put)
+			root = bytes.fromhex(put[1][:64])
+			got = binary(sock, bytes([FILES, 0x86]) + root + bytes([1, 0]))
+			if len(got) != 1 or got[0][:2] != bytes([STATUS, 0]):
+				raise failed("j: a share with every contact in binary answered %r" % got)
+			got = binary(sock, bytes([FILES, 0x87]) + root)
+			if len(got) != 2 or got[0][:3] != bytes([FILES, 0x88, 0]) or got[1][:2] != bytes([STATUS, 0]):
+				raise failed("j: the shares in binary were %r" % got)
+			got = binary(sock, bytes([FILES, 0x86]) + root + bytes([1, 6]) + b"nobody")
+			if len(got) != 1 or got[0][0] != STATUS or got[0][1] in (0, 2):
+				raise failed("j: a share with no contact in binary answered %r" % got)
+			got = binary(sock, bytes([FILES, 0x85]) + root)
+			if len(got) != 1 or got[0][:2] != bytes([STATUS, 0]):
+				raise failed("j: a file removed in binary answered %r" % got)
+			still = ask(sock, "get file %s" % root.hex())
+			if still.startswith("ok"):
+				raise failed("j: the file removed in binary is still answered %r" % still)
+			print("livecheck: j: a file shared, its shares listed, a stranger refused and the file"
+			      " removed, in binary")
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

@@ -17429,6 +17429,27 @@ static int unhex_n(const uint8_t *w, size_t n, uint8_t *out, size_t len)
 	return 1;
 }
 
+/* WHOM A FILE'S SHARE NAMES, sec 1016 and 1303: 0 every contact, 2 a group
+ * held here, 1 otherwise -- a contact, its name in `name`, or a key this
+ * host knows by no name, `name` empty. */
+static int share_kind(const uint8_t grantee[FZN_PUBKEY_LEN], char name[FZN_CONTACT_NAME_MAX + 1u])
+{
+	fzn_contact_t c;
+	size_t name_len = 0;
+
+	name[0] = '\0';
+	if (memcmp(grantee, FZN_NODE_FILES_EVERY_CONTACT, FZN_PUBKEY_LEN) == 0)
+		return 0;
+	if (fzn_contact_get(node_apply.store, grantee, &c) == FZN_CONTACT_OK) {
+		(void)snprintf(name, FZN_CONTACT_NAME_MAX + 1u, "%s", c.name);
+		return 1;
+	}
+	if (fzn_node_group_name(node_apply.store, grantee, name, &name_len) == FZN_CONTACT_OK)
+		return 2;
+	name[0] = '\0';
+	return 1;
+}
+
 static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                char *reply, size_t reply_cap)
 {
@@ -17566,24 +17587,14 @@ static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request
 		used = (size_t)r;
 		for (i = from; i < total; i++) {
 			char row[16u + 2u * FZN_PUBKEY_LEN + FZN_CONTACT_NAME_MAX + 4u], key[2u * FZN_PUBKEY_LEN + 1u];
-			char name[FZN_CONTACT_NAME_MAX + 1u] = "";
-			const char *kind = "contact";
-			fzn_contact_t c;
-			size_t name_len = 0;
+			char name[FZN_CONTACT_NAME_MAX + 1u];
+			const int kind = share_kind(grantees[i], name);
 
-			if (memcmp(grantees[i], FZN_NODE_FILES_EVERY_CONTACT, FZN_PUBKEY_LEN) == 0) {
+			if (kind == 0) {
 				r = snprintf(row, sizeof(row), " everyone");
 			} else {
 				hex_of(grantees[i], FZN_PUBKEY_LEN, key);
-				if (fzn_contact_get(node_apply.store, grantees[i], &c) == FZN_CONTACT_OK) {
-					(void)snprintf(name, sizeof(name), "%s", c.name);
-				} else if (fzn_node_group_name(node_apply.store, grantees[i], name, &name_len)
-				           == FZN_CONTACT_OK) {
-					kind = "group";
-				} else {
-					name[0] = '\0';
-				}
-				r = snprintf(row, sizeof(row), " %s,%s,%s", kind, key, name);
+				r = snprintf(row, sizeof(row), " %s,%s,%s", kind == 2 ? "group" : "contact", key, name);
 			}
 			/* ROOM FOR THE ROW AND THE NEWLINE, or the page ends here. */
 			if (r < 0 || (size_t)r >= sizeof(row) || used + (size_t)r + 2u > reply_cap)
@@ -19067,6 +19078,7 @@ static int local_stickers(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 #define FZND_LIBRARY 1
 #include "library_binary.h"
 #include "../wire/generated/files_local.h"
+#include "../wire/generated/files_local_build.h"
 /* A FILE'S STATE HERE for the library, as `list file` says it: whole, or
  * being fetched and how far -- the wanted roots read once a listing. */
 struct library_files {
@@ -19124,12 +19136,139 @@ static int file_here(void *ctx, const uint8_t root[32], fzn_node_file_here_t *ou
 
 /* THE LIBRARY IN BINARY, sec 1174: the node's own user's alone, as `list
  * catalog` answers it -- where the build keeps a catalogue and files. */
+/* THE VERB'S ANSWER AS A STATUS: ok, denied, or an error in its words --
+ * never malformed, which a client takes for a node reading no binary. */
+static int verb_status(int fd, const char *reply, size_t n)
+{
+	static char why[FZN_STATUS_WHY_MAX + 1u];
+	const char *sp;
+	size_t w;
+
+	while (n && (reply[n - 1u] == '\n' || reply[n - 1u] == '\r'))
+		n--;
+	if (n >= 2u && memcmp(reply, "ok", 2u) == 0 && (n == 2u || reply[2] == ' '))
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	sp = memchr(reply, ' ', n);
+	w = sp ? n - (size_t)(sp + 1 - reply) : 0u;
+	if (w > FZN_STATUS_WHY_MAX)
+		w = FZN_STATUS_WHY_MAX;
+	memcpy(why, sp ? sp + 1 : "", w);
+	why[w] = '\0';
+	return local_binary_status(fd,
+	                           n > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED
+	                                                                      : FZN_STATUS_ERROR,
+	                           w ? why : "the file would not change"),
+	       0;
+}
+
+/* `remove`, `share` and `shares` of FZN_CMD_FILES, sec 1303: the first two
+ * through the verbs' own handler, so every check stays theirs; the shares
+ * a row each, named as the verb names them, then ok. */
+static int local_file_acts(int fd, const uint8_t *msg, size_t len)
+{
+	static char reply[512];
+	char line[64u + 2u * FZN_PUBKEY_LEN + FZN_CONTACT_NAME_MAX];
+	situ_msg_t m;
+	situ_view_t v, b;
+	fzn_request_t req;
+	const uint8_t *root;
+	char hex[2u * FZN_PUBKEY_LEN + 1u];
+	size_t n;
+	uint8_t op;
+
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_files_local_message_validate(v) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+	op = fzn_files_local_message_op_get(v);
+	if (op == FZN_FILES_LOCAL_OP_SHARES) {
+		static uint8_t (*grantees)[FZN_PUBKEY_LEN];
+		static size_t grantees_cap;
+		size_t total = 0, i;
+
+		if (fzn_files_local_message_body_shares_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+		root = fzn_files_local_file_root_ptr(b);
+		if (fzn_node_files_shares_of(&files, root, NULL, 0u, &total) != FZN_NODE_FILES_OK)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the shares did not read"), 0;
+		if (total > grantees_cap) {
+			uint8_t (*more)[FZN_PUBKEY_LEN] = realloc(grantees, total * sizeof(*more));
+
+			if (!more)
+				return local_binary_status(fd, FZN_STATUS_ERROR, "no memory"), 0;
+			grantees = more;
+			grantees_cap = total;
+		}
+		if (total && fzn_node_files_shares_of(&files, root, grantees, grantees_cap, &total) != FZN_NODE_FILES_OK)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the shares did not read"), 0;
+		for (i = 0; i < total; i++) {
+			char name[FZN_CONTACT_NAME_MAX + 1u];
+			const int kind = share_kind(grantees[i], name);
+			static const uint8_t none[FZN_PUBKEY_LEN];
+			uint8_t row[2u + FZN_PUBKEY_LEN + FZN_CONTACT_NAME_MAX], out[8u + sizeof(row)];
+			uint32_t row_len = 0, out_len = 0;
+
+			if (fzn_files_local_share_row_build(row, sizeof(row), (uint8_t)kind, kind ? grantees[i] : none,
+			                                    (const uint8_t *)name, (uint32_t)strlen(name), &row_len)
+			            != SITU_OK
+			    || fzn_files_local_message_build_share_row(out, sizeof(out), (uint8_t)FZN_CMD_FILES, row, row_len,
+			                                               &out_len)
+			               != SITU_OK
+			    || !local_put(&fd, out, out_len))
+				return 0;
+		}
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	}
+	memset(&req, 0, sizeof(req));
+	if (op == FZN_FILES_LOCAL_OP_REMOVE) {
+		if (fzn_files_local_message_body_remove_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+		hex_of(fzn_files_local_file_root_ptr(b), FZN_PUBKEY_LEN, hex);
+		n = (size_t)snprintf(line, sizeof(line), "file %s", hex);
+		req.parsed = FZN_VERB_REMOVE;
+	} else {
+		size_t to_len;
+		const uint8_t *to;
+		int add;
+
+		if (fzn_files_local_message_body_share_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a files request"), 0;
+		hex_of(fzn_files_local_share_root_ptr(b), FZN_PUBKEY_LEN, hex);
+		add = fzn_files_local_share_add_get(b);
+		to_len = fzn_files_local_share_to_len_get(b);
+		to = fzn_files_local_share_to_ptr(b);
+		if (memchr(to, ' ', to_len) || memchr(to, '\n', to_len) || memchr(to, '\r', to_len))
+			return local_binary_status(fd, FZN_STATUS_ERROR, "a name holding a space or a line break"), 0;
+		if (!to_len) {
+			n = (size_t)snprintf(line, sizeof(line), "file %s %s", hex, add ? "public" : "private");
+			req.parsed = FZN_VERB_SET;
+		} else {
+			n = (size_t)snprintf(line, sizeof(line), "file %s %.*s", hex, (int)to_len, (const char *)to);
+			req.parsed = add ? FZN_VERB_GRANT : FZN_VERB_REVOKE;
+		}
+	}
+	req.arg = (const uint8_t *)line;
+	req.arg_len = n;
+	n = files_local_refs(&files, FZN_ORIGIN_SAME_USER, &req, reply, sizeof(reply));
+	if (!n)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "the file would not change"), 0;
+	return verb_status(fd, reply, n);
+}
+
 static int local_library(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	static struct library_files lf;
 
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "the library is this node's own user's"), 0;
+	/* A FILE LET GO, SHARED, OR ITS SHARES, sec 1303: files alone. */
+	if (len >= 2u
+	    && (msg[1] == FZN_FILES_LOCAL_OP_REMOVE || msg[1] == FZN_FILES_LOCAL_OP_SHARE
+	        || msg[1] == FZN_FILES_LOCAL_OP_SHARES)) {
+		if (!files_on)
+			return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no files"), 0;
+		return local_file_acts(fd, msg, len);
+	}
 	/* ONE FILE'S STATE, sec 1203: files alone, a catalogue or not. */
 	if (len >= 2u && msg[1] == FZN_FILES_LOCAL_OP_FILE) {
 		if (!files_on)

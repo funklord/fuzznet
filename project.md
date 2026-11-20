@@ -93993,3 +93993,38 @@ the text"), which want the log's delegate to paint behind a line's words.
 not pop up; a pop-up one chosen does, its art asked once across two
 choices; another line chosen takes it away. Sabotages
 `sticker-popup-any`, `sticker-popup-asked-again`.
+
+## 1303. A file's acts in binary: let go, shared, and its shares, 2026-11-20
+
+Sec 1217's next subject after the notebook, groups, messages and stickers:
+**files**. The holder's "no protocol part is to stay text" (sec 1208).
+Measured again 2026-11-20 by following each public client call to whether
+it reaches the binary leg: 89 of 180 do not -- an overcount, since an older
+call kept beside its binary successor reads as text (`fzn_rpc_notes_add`
+beside sec 1218's `fzn_rpc_note_add`), and so do local-only helpers.
+
+**Built:** `node/files_local.situ` gains `remove` (133), `share` (134: a
+root, add or not, and whom -- empty for every contact, a contact's name
+or `@GROUP`) and `shares` (135), answered by `share_row` (136: every
+contact, a contact or a group, its key and the name this host knows it
+by) and a STATUS. fuzznetd answers `remove` and `share` **through the
+verbs' own handler** (`files_local_refs`), so every check stays theirs,
+and says the verb's answer as a STATUS -- never malformed, which a client
+takes for a node reading no binary. `shares` is read from
+`fzn_node_files_shares_of` and named by `share_kind`, now the one place
+the verb names a share too. The client's `fzn_rpc_file_remove`,
+`fzn_rpc_file_share` and `fzn_rpc_file_shares` ask in binary first and
+fall back to the verb.
+
+**Found on the way: live_rpc's phase e had failed since sec 1285.** It
+looked for a group line under the id it was written with, which sec 1285
+changed to the members' id for this user's own group lines. The phase
+now reads the line by its text. `make livecheck` was red there for a day.
+
+**Tests:** files_local_vectors (13, six new); live_rpc j -- a file put,
+shared with every contact in bytes, its shares one row and ok, a share
+with a name that is no contact refused in the node's words (not
+malformed), removed in bytes and gone from the text verb.
+
+**Next in sec 1217's order:** the library's `add`, then devices, hosts
+and grants; stickers' references and keeping a pack from a file.

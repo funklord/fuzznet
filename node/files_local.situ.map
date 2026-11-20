@@ -66,5 +66,31 @@ struct message size=2..376 mutate=Shifting address=Unstable repr=ValueConverted 
   message.body.file_row.to_everyone      offset=AbsoluteStatic(0x1B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   message.body.file_row.shares           offset=AbsoluteStatic(0x1C) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
   message.body.file_row.busy             offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  message.body.remove                    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.remove.root               offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.share                     offset=AbsoluteStatic(0x02) size=Bounded(34, 67) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.share.root                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.share.add                 offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.share.to_len              offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.share.to                  offset=AbsoluteStatic(0x24) size=Bounded(0, 33) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.shares                    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.shares.root               offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.share_row                 offset=AbsoluteStatic(0x02) size=Bounded(34, 66) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body.share_row.kind            offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.share_row.key             offset=AbsoluteStatic(0x03) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  message.body.share_row.name_len        offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.share_row.name            offset=AbsoluteStatic(0x24) size=Bounded(0, 32) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
 struct nothing size=0
+
+struct share size=34..67 mutate=Shifting atomic=NonAtomic
+  share.root                             offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  share.add                              offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  share.to_len                           offset=AbsoluteStatic(0x21) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  share.to                               offset=AbsoluteStatic(0x22) size=Bounded(0, 33) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct share_row size=34..66 mutate=Shifting atomic=NonAtomic
+  share_row.kind                         offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  share_row.key                          offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  share_row.name_len                     offset=AbsoluteStatic(0x21) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  share_row.name                         offset=AbsoluteStatic(0x22) size=Bounded(0, 32) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting

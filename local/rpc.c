@@ -43,6 +43,7 @@
 #include "../wire/generated/streams_local.h"
 #include "../wire/generated/stickers_local.h"
 #include "../wire/generated/files_local.h"
+#include "../wire/generated/files_local_build.h"
 #include "../wire/generated/notes_local.h"
 #include "../wire/generated/search_local.h"
 #include "../wire/generated/notes_local_build.h"
@@ -4600,7 +4601,7 @@ int fzn_rpc_group_history_show(fzn_rpc_t *c, const char *group, size_t group_len
 
 /* ---- step 2 (sec 281) ---- */
 
-int fzn_rpc_file_remove(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN]) {
+static int node_file_remove(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN]) {
 	char arg[8 + 2 * FZN_RPC_BLOB_HASH_LEN + 1];
 	memcpy(arg, "file ", 5);
 	fzn_hex_encode(root, FZN_RPC_BLOB_HASH_LEN, arg + 5);
@@ -4609,7 +4610,7 @@ int fzn_rpc_file_remove(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN])
 	return fzn_rpc_node(c, "remove", arg, 5 + 2 * FZN_RPC_BLOB_HASH_LEN, &rest, &rest_len);
 }
 
-int fzn_rpc_file_share(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN], const char *to,
+static int node_file_share(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN], const char *to,
                         int share) {
 	char hex[65], arg[8 + 64 + 2 + NODE_WHO_MAX + 2];
 	fzn_hex_encode(root, 32, hex);
@@ -4626,7 +4627,7 @@ int fzn_rpc_file_share(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN], 
 	return fzn_rpc_node(c, share ? "grant" : "revoke", arg, (size_t)n, &rest, &rest_len);
 }
 
-int fzn_rpc_file_shares(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN],
+static int node_file_shares(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN],
                          fzn_rpc_file_share_t **out, size_t *room, size_t *count) {
 	*count = 0;
 	char hex[65];
@@ -4676,6 +4677,125 @@ int fzn_rpc_file_shares(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN],
 		if (!listed || from >= total) return FZN_RPC_OK;
 	}
 	return FZN_RPC_OK;
+}
+
+/* A FILE'S ACTS IN BINARY, sec 1303: a STATUS for `remove` and `share`; a
+ * SHARE_ROW each, then a STATUS, for `shares`. */
+struct file_answer {
+	fzn_rpc_file_share_t **out;
+	size_t *room, *count;
+	int rows_ok, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+	fzn_rpc_t *c;
+};
+
+static void file_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct file_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (!a->rows_ok || a->status_seen || len > UINT32_MAX ||
+	    fzn_files_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK ||
+	    fzn_files_local_message_validate(v) != SITU_OK ||
+	    fzn_files_local_message_op_get(v) != FZN_FILES_LOCAL_OP_SHARE_ROW ||
+	    fzn_files_local_message_body_share_row_view(v, &b) != SITU_OK ||
+	    room_for(a->c, (void **)a->out, a->room, *a->count + 1, sizeof **a->out) != FZN_RPC_OK) {
+		a->bad = 1;
+		return;
+	}
+	fzn_rpc_file_share_t *s = &(*a->out)[*a->count];
+	memset(s, 0, sizeof *s);
+	const uint8_t kind = fzn_files_local_share_row_kind_get(b);
+	s->kind = kind == 0 ? FZN_RPC_FILE_SHARE_EVERYONE : kind == 2 ? FZN_RPC_FILE_SHARE_GROUP
+	                                                              : FZN_RPC_FILE_SHARE_CONTACT;
+	if (kind) memcpy(s->key, fzn_files_local_share_row_key_ptr(b), 32);
+	const size_t n = fzn_files_local_share_row_name_len_get(b);
+	if (n > FZN_RPC_PEER_NAME_MAX) {
+		a->bad = 1;
+		return;
+	}
+	memcpy(s->name, fzn_files_local_share_row_name_ptr(b), n);
+	s->name[n] = '\0';
+	(*a->count)++;
+}
+
+static int file_binary(fzn_rpc_t *c, const uint8_t *req, size_t req_len, struct file_answer *a, int *text) {
+	a->c = c;
+	const int rc = fzn_rpc_binary(c, req, req_len, file_each, a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a->bad || !a->status_seen) return unreadable(c);
+	if (a->code != FZN_STATUS_OK)
+		return fail(c, a->code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return FZN_RPC_OK;
+}
+
+int fzn_rpc_file_remove(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN]) {
+	uint8_t req[2 + 32];
+	struct file_answer a;
+	int text = 0;
+	req[0] = FZN_CMD_FILES;
+	req[1] = FZN_FILES_LOCAL_OP_REMOVE;
+	memcpy(req + 2, root, 32);
+	memset(&a, 0, sizeof a);
+	const int rc = file_binary(c, req, sizeof req, &a, &text);
+	return text ? node_file_remove(c, root) : rc;
+}
+
+int fzn_rpc_file_share(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN], const char *to,
+                        int share) {
+	uint8_t req[2 + 32 + 2 + 33];
+	struct file_answer a;
+	int text = 0;
+	const size_t to_len = to ? strlen(to) : 0;
+	const size_t name_len = to && to[0] == '@' ? to_len - 1 : to_len;
+	/* REFUSED HERE AS IN TEXT: a name the verb could not carry. */
+	if (to && (!name_len || !node_who_fits(name_len) || memchr(to, ' ', to_len))) return encode_failed(c);
+	if (to_len > 33) return node_file_share(c, root, to, share);
+	req[0] = FZN_CMD_FILES;
+	req[1] = FZN_FILES_LOCAL_OP_SHARE;
+	memcpy(req + 2, root, 32);
+	req[34] = (uint8_t)(share ? 1 : 0);
+	req[35] = (uint8_t)to_len;
+	if (to_len) memcpy(req + 36, to, to_len);
+	memset(&a, 0, sizeof a);
+	const int rc = file_binary(c, req, 36 + to_len, &a, &text);
+	return text ? node_file_share(c, root, to, share) : rc;
+}
+
+int fzn_rpc_file_shares(fzn_rpc_t *c, const uint8_t root[FZN_RPC_BLOB_HASH_LEN],
+                         fzn_rpc_file_share_t **out, size_t *room, size_t *count) {
+	uint8_t req[2 + 32];
+	struct file_answer a;
+	int text = 0;
+	*count = 0;
+	req[0] = FZN_CMD_FILES;
+	req[1] = FZN_FILES_LOCAL_OP_SHARES;
+	memcpy(req + 2, root, 32);
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	a.room = room;
+	a.count = count;
+	a.rows_ok = 1;
+	const int rc = file_binary(c, req, sizeof req, &a, &text);
+	if (text) {
+		*count = 0;
+		return node_file_shares(c, root, out, room, count);
+	}
+	return rc;
 }
 
 int fzn_rpc_file_shared_with(fzn_rpc_t *c, const char *contact, fzn_rpc_root_t **roots, size_t *room,

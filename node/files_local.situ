@@ -18,6 +18,10 @@ enum op : u8 {
 	library_file = 130, // one file's row, by its root (sec 1190)
 	file        = 131, // where one file stands here, as `get file ROOT` (sec 1203)
 	file_row    = 132, // an answer: the file
+	remove      = 133, // this host's copy let go, as `remove file ROOT` (sec 1303)
+	share       = 134, // shared or not, as `set file ROOT public|private`, `grant|revoke file ROOT WHO`
+	shares      = 135, // whom a file is shared with, as `get file ROOT shares`
+	share_row   = 136, // an answer: one share
 	default     = error,
 }
 
@@ -51,6 +55,26 @@ struct file_row {
 	u8   busy [max = 1];
 }
 
+// A FILE SHARED, or taken back where ADD is 0: with every contact where
+// TO is empty, else with the contact TO names or the group `@NAME`, as the
+// verbs take them. Answered by a STATUS in the verb's words.
+struct share {
+	u8   root[32];
+	u8   add [max = 1];
+	u8   to_len [max = 33];
+	u8   to[to_len];
+}
+
+// ONE SHARE of a file: KIND 0 every contact, 1 a contact, 2 a group; KEY
+// the contact's root or the group's id, zeros for every contact; NAME as
+// this host knows it, empty where it knows none.
+struct share_row {
+	u8   kind [max = 2];
+	u8   key[32];
+	u8   name_len [max = 32];
+	u8   name[name_len];
+}
+
 // ROOT the file's. SIZE its length in bytes where it is held or arriving
 // here, else 0 -- the catalogue carries none. DURATION_MS, KIND and NAME
 // the first live value of each in the catalogue's order, 0 or empty for
@@ -82,6 +106,10 @@ struct message {
 		case op.library_file: library_file library_file;
 		case op.file:        file        file;
 		case op.file_row:    file_row    file_row;
+		case op.remove:      file        remove;
+		case op.share:       share       share;
+		case op.shares:      file        shares;
+		case op.share_row:   share_row   share_row;
 		default: error;
 	}
 }
