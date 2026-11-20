@@ -7621,7 +7621,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               node/streams_local.situ node/stickers_local.situ node/files_local.situ \
               node/members_local.situ node/meter_local.situ node/reach_local.situ \
               node/time_local.situ node/settings_local.situ node/notes_local.situ node/want.situ \
-              search/search_wire.situ node/search_local.situ
+              search/search_ask.situ search/search_wire.situ node/search_local.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #

@@ -21,23 +21,9 @@ target buffer
 enum op : u8 unknown=error
   list=128 fetch=129 get=130 page=131 hit=132 fetched=133
 
-struct fetched size=1
-  @0x0000   1         u8         asked
-
-struct hit size=17..199
-  @0x0000   2..17     store      store  big
-  ~         1         u8         key_len  min=1 max=48
-  ~         1..48     u8         key  sized-by=key_len
-  ~         4         u32        score  big
-  ~         8         u64        time_ms  big
-  ~         1         u8         snippet_len  max=120
-  ~         0..120    u8         snippet  sized-by=snippet_len
-
-struct local_ask size=68..522
-  @0x0000   1         u8         has_with  max=1
-  @0x0001   32        u8         with  big
-  @0x0021   1         u8         words_len  min=1
-  @0x0022   1..255    u8         words  sized-by=words_len
+struct ask size=35..489
+  @0x0000   1         u8         words_len  min=1
+  @0x0001   1..255    u8         words  sized-by=words_len
   ~         1         u8         store_count  max=8
   ~         0..136    store      stores  sized-by=store_count
   ~         8         u64        since_ms  big
@@ -50,6 +36,23 @@ struct local_ask size=68..522
   ~         0..16     u8         after_store  sized-by=after_store_len
   ~         1         u8         after_key_len  max=48
   ~         0..48     u8         after_key  sized-by=after_key_len
+
+struct fetched size=1
+  @0x0000   1         u8         asked
+
+struct hit size=17..199
+  @0x0000   2..17     store      store  big
+  ~         1         u8         key_len  min=1 max=48
+  ~         1..48     u8         key  sized-by=key_len
+  ~         4         u32        score  big
+  ~         8         u64        time_ms  big
+  ~         1         u8         snippet_len  max=120
+  ~         0..120    u8         snippet  sized-by=snippet_len
+
+struct local_ask size=33..522
+  @0x0000   1         u8         has_with  max=1
+  @0x0001   32        u8         with  big
+  @0x0021   0..489    u8         ask  sized-by=remaining holds=ask
 
 struct message size=2..524
   @0x0000   1         u8         cmd  must_eq=26

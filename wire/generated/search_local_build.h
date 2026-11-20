@@ -89,7 +89,7 @@ static inline situ_err_t fzn_search_local_store_build(
 	return SITU_OK;
 }
 
-/** Build a local_ask into `situ_out`, one member at a time in
+/** Build a ask into `situ_out`, one member at a time in
  *  schema order, and validate the result before reporting it.
  *
  * `*situ_wrote` is set only on success. A size field is computed
@@ -97,16 +97,14 @@ static inline situ_err_t fzn_search_local_store_build(
  * cannot disagree with its own schema.
  *
  * SITU_OK             built; the first `*situ_wrote` bytes are a
- *                     complete local_ask
+ *                     complete ask
  * SITU_ERR_BOUNDS     `situ_cap` is short of what the members need
  * SITU_ERR_CONSTRAINT a run is longer than its size field can say,
  *                     or the result does not satisfy the schema
  */
-static inline situ_err_t fzn_search_local_local_ask_build(
+static inline situ_err_t fzn_search_local_ask_build(
 		uint8_t *situ_out,
 		uint32_t situ_cap,
-		uint8_t has_with,
-		const uint8_t *with,
 		const uint8_t *words_,
 		uint32_t words__len,
 		const uint8_t *stores,
@@ -132,21 +130,6 @@ static inline situ_err_t fzn_search_local_local_ask_build(
 	if (situ_out == NULL || situ_wrote == NULL) {
 		return SITU_ERR_BOUNDS;
 	}
-
-	if (situ_cap - situ_at < 1u) {
-		return SITU_ERR_BOUNDS;
-	}
-	situ_out[situ_at] = (uint8_t)has_with;
-	situ_at += 1u;
-
-	if (with == NULL) {
-		return SITU_ERR_BOUNDS;
-	}
-	if (situ_cap - situ_at < 32u) {
-		return SITU_ERR_BOUNDS;
-	}
-	memcpy(situ_out + situ_at, with, 32u);
-	situ_at += 32u;
 
 	/* words_len: the length of `words_`, which the schema states. */
 	if (words__len > 255u) {
@@ -331,10 +314,10 @@ static inline situ_err_t fzn_search_local_local_ask_build(
 	 * rather than restating them: two checks of one schema is how
 	 * they come to disagree. */
 	situ_msg_init(&situ_msg, situ_out, situ_at);
-	if (fzn_search_local_local_ask_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
+	if (fzn_search_local_ask_view(&situ_msg, 0, situ_at, &situ_view) != SITU_OK) {
 		return SITU_ERR_BOUNDS;
 	}
-	situ_err = fzn_search_local_local_ask_validate(situ_view);
+	situ_err = fzn_search_local_ask_validate(situ_view);
 	if (situ_err != SITU_OK) {
 		return situ_err;
 	}
@@ -657,21 +640,19 @@ static inline situ_err_t fzn_search_local_message_build_list(
 	situ_out[situ_at] = (uint8_t)128u;
 	situ_at += 1u;
 
-	/* body.list: one whole `local_ask`, which the
-	 * caller built. Its extent is its own to state, so the
-	 * writer ASKS rather than trusting the length it was
-	 * given: three bytes too many shift every member after
-	 * it, and whether `_validate` then refuses depends on
-	 * what those three bytes happen to say. */
+	/* body.list: one whole `local_ask`, which ends the
+	 * message: its extent is the bytes the caller handed over, so
+	 * they are taken as one over all of them and validated. */
 	if (list_len != 0u && list == NULL) {
 		return SITU_ERR_BOUNDS;
 	}
 	{
-		uint32_t situ_need = 0u;
+		situ_msg_t  situ_need_msg;
+		situ_view_t situ_need_view;
 
-		if (fzn_search_local_local_ask_required(list, list_len,
-		                           &situ_need) != SITU_OK
-		    || situ_need != list_len) {
+		situ_msg_init(&situ_need_msg, (uint8_t *)list, list_len);
+		if (fzn_search_local_local_ask_view(&situ_need_msg, 0u, list_len, &situ_need_view) != SITU_OK
+		    || fzn_search_local_local_ask_validate(situ_need_view) != SITU_OK) {
 			return SITU_ERR_CONSTRAINT;
 		}
 	}
@@ -752,21 +733,19 @@ static inline situ_err_t fzn_search_local_message_build_fetch(
 	situ_out[situ_at] = (uint8_t)129u;
 	situ_at += 1u;
 
-	/* body.fetch: one whole `local_ask`, which the
-	 * caller built. Its extent is its own to state, so the
-	 * writer ASKS rather than trusting the length it was
-	 * given: three bytes too many shift every member after
-	 * it, and whether `_validate` then refuses depends on
-	 * what those three bytes happen to say. */
+	/* body.fetch: one whole `local_ask`, which ends the
+	 * message: its extent is the bytes the caller handed over, so
+	 * they are taken as one over all of them and validated. */
 	if (fetch_len != 0u && fetch == NULL) {
 		return SITU_ERR_BOUNDS;
 	}
 	{
-		uint32_t situ_need = 0u;
+		situ_msg_t  situ_need_msg;
+		situ_view_t situ_need_view;
 
-		if (fzn_search_local_local_ask_required(fetch, fetch_len,
-		                           &situ_need) != SITU_OK
-		    || situ_need != fetch_len) {
+		situ_msg_init(&situ_need_msg, (uint8_t *)fetch, fetch_len);
+		if (fzn_search_local_local_ask_view(&situ_need_msg, 0u, fetch_len, &situ_need_view) != SITU_OK
+		    || fzn_search_local_local_ask_validate(situ_need_view) != SITU_OK) {
 			return SITU_ERR_CONSTRAINT;
 		}
 	}

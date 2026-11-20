@@ -11,6 +11,25 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
+struct ask size=35..489 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  ask.words_len                          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  ask.words                              offset=AbsoluteStatic(0x01) size=Bounded(1, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  ask.store_count                        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.stores                             offset=Dynamic size=Bounded(0, 136) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  ask.stores[]                           offset=FrameStatic(0x00) size=Bounded(2, 17) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=FrameStable
+  ask.stores[].len                       offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord address=FrameStable
+  ask.stores[].name                      offset=FrameStatic(0x01) size=Bounded(1, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable
+  ask.since_ms                           offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  ask.until_ms                           offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  ask.k                                  offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.has_after                          offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.after_score                        offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  ask.after_time_ms                      offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  ask.after_store_len                    offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.after_store                        offset=Dynamic size=Bounded(0, 16) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  ask.after_key_len                      offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.after_key                          offset=Dynamic size=Bounded(0, 48) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
 struct fetched size=1
   fetched.asked                          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
 
@@ -25,71 +44,23 @@ struct hit size=17..199 mutate=Shifting address=Unstable repr=ValueConverted ato
   hit.snippet_len                        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
   hit.snippet                            offset=Dynamic size=Bounded(0, 120) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
 
-struct local_ask size=68..522 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+struct local_ask size=33..522 mutate=Shifting atomic=NonAtomic
   local_ask.has_with                     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   local_ask.with                         offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  local_ask.words_len                    offset=AbsoluteStatic(0x21) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  local_ask.words                        offset=AbsoluteStatic(0x22) size=Bounded(1, 255) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
-  local_ask.store_count                  offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  local_ask.stores                       offset=Dynamic size=Bounded(0, 136) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
-  local_ask.stores[]                     offset=FrameStatic(0x00) size=Bounded(2, 17) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=FrameStable
-  local_ask.stores[].len                 offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord address=FrameStable
-  local_ask.stores[].name                offset=FrameStatic(0x01) size=Bounded(1, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable
-  local_ask.since_ms                     offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  local_ask.until_ms                     offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  local_ask.k                            offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  local_ask.has_after                    offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  local_ask.after_score                  offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  local_ask.after_time_ms                offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  local_ask.after_store_len              offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  local_ask.after_store                  offset=Dynamic size=Bounded(0, 16) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
-  local_ask.after_key_len                offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  local_ask.after_key                    offset=Dynamic size=Bounded(0, 48) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  local_ask.ask                          offset=AbsoluteStatic(0x21) size=Bounded(0, 489) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
-struct message size=2..524 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+struct message size=2..524 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 522) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
-  message.body.list                      offset=AbsoluteStatic(0x02) size=Bounded(68, 522) align=Aligned(2) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  message.body.list                      offset=AbsoluteStatic(0x02) size=Bounded(33, 522) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
   message.body.list.has_with             offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   message.body.list.with                 offset=AbsoluteStatic(0x03) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body.list.words_len            offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body.list.words                offset=AbsoluteStatic(0x24) size=Bounded(1, 255) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
-  message.body.list.store_count          offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.list.stores               offset=Dynamic size=Bounded(0, 136) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
-  message.body.list.stores[]             offset=FrameStatic(0x02) size=Bounded(2, 17) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=FrameStable
-  message.body.list.stores[].len         offset=FrameStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord address=FrameStable
-  message.body.list.stores[].name        offset=FrameStatic(0x03) size=Bounded(1, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable
-  message.body.list.since_ms             offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  message.body.list.until_ms             offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  message.body.list.k                    offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.list.has_after            offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.list.after_score          offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  message.body.list.after_time_ms        offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  message.body.list.after_store_len      offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.list.after_store          offset=Dynamic size=Bounded(0, 16) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
-  message.body.list.after_key_len        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.list.after_key            offset=Dynamic size=Bounded(0, 48) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
-  message.body.fetch                     offset=AbsoluteStatic(0x02) size=Bounded(68, 522) align=Aligned(2) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  message.body.list.ask                  offset=AbsoluteStatic(0x23) size=Bounded(0, 489) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.fetch                     offset=AbsoluteStatic(0x02) size=Bounded(33, 522) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
   message.body.fetch.has_with            offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   message.body.fetch.with                offset=AbsoluteStatic(0x03) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
-  message.body.fetch.words_len           offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body.fetch.words               offset=AbsoluteStatic(0x24) size=Bounded(1, 255) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
-  message.body.fetch.store_count         offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.fetch.stores              offset=Dynamic size=Bounded(0, 136) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
-  message.body.fetch.stores[]            offset=FrameStatic(0x02) size=Bounded(2, 17) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=FrameStable
-  message.body.fetch.stores[].len        offset=FrameStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord address=FrameStable
-  message.body.fetch.stores[].name       offset=FrameStatic(0x03) size=Bounded(1, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable
-  message.body.fetch.since_ms            offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  message.body.fetch.until_ms            offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  message.body.fetch.k                   offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.fetch.has_after           offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.fetch.after_score         offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  message.body.fetch.after_time_ms       offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
-  message.body.fetch.after_store_len     offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.fetch.after_store         offset=Dynamic size=Bounded(0, 16) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
-  message.body.fetch.after_key_len       offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  message.body.fetch.after_key           offset=Dynamic size=Bounded(0, 48) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  message.body.fetch.ask                 offset=AbsoluteStatic(0x23) size=Bounded(0, 489) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   message.body.get                       offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.page                      offset=AbsoluteStatic(0x02) size=Fixed(5) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.page.count                offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord

@@ -173,22 +173,58 @@ static inline void fzn_search_wire_store_len_set(situ_msg_t *msg, situ_view_t vi
 	situ_msg_touch(msg);
 }
 
-/** Check every constraint this schema states: [must_eq], [max],
- * [min], and the reserved-bit policy. Called on parse under
- * SITU_CHECKED, and available explicitly in any build.
+/** `store` arrives by `import`, so its checks are
+ * `static inline` here rather than external in the `.c`:
+ * another schema importing the same file defines the same
+ * names, and those definitions need not agree.
  */
-situ_err_t fzn_search_wire_store_validate(situ_view_t view);
-
-/** The same walk, naming the member that refused. `*which` is one
- * of the ids below on a refusal and 0xFFFFFFFF when nothing
- * refused -- it is written either way, so a caller must not
- * expect its own value to survive the call. NULL asks for
- * the verdict alone. The id is the contract and the name is
- * a macro, so nothing here costs a string (0051).
- */
-situ_err_t fzn_search_wire_store_check(situ_view_t view, uint32_t *which);
 #define FZN_SEARCH_WIRE_STORE_LEN_CHECK 0u
 #define FZN_SEARCH_WIRE_STORE_NAME_CHECK 1u
+static inline situ_err_t fzn_search_wire_store_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_SEARCH_WIRE_STORE_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* store.len [min = 1] */
+	if (fzn_search_wire_store_len_get(view) < 1) {
+		*which = FZN_SEARCH_WIRE_STORE_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* store.len [max = 16] */
+	if (fzn_search_wire_store_len_get(view) > 16) {
+		*which = FZN_SEARCH_WIRE_STORE_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* store.name: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 1u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])))) {
+		*which = FZN_SEARCH_WIRE_STORE_NAME_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+static inline situ_err_t fzn_search_wire_store_validate(situ_view_t view)
+{
+	return fzn_search_wire_store_check(view, NULL);
+}
+
 
 /* ---- struct ask ---- */
 
@@ -1021,20 +1057,11 @@ static inline void fzn_search_wire_ask_words_len_set(situ_msg_t *msg, situ_view_
 	situ_msg_touch(msg);
 }
 
-/** Check every constraint this schema states: [must_eq], [max],
- * [min], and the reserved-bit policy. Called on parse under
- * SITU_CHECKED, and available explicitly in any build.
+/** `ask` arrives by `import`, so its checks are
+ * `static inline` here rather than external in the `.c`:
+ * another schema importing the same file defines the same
+ * names, and those definitions need not agree.
  */
-situ_err_t fzn_search_wire_ask_validate(situ_view_t view);
-
-/** The same walk, naming the member that refused. `*which` is one
- * of the ids below on a refusal and 0xFFFFFFFF when nothing
- * refused -- it is written either way, so a caller must not
- * expect its own value to survive the call. NULL asks for
- * the verdict alone. The id is the contract and the name is
- * a macro, so nothing here costs a string (0051).
- */
-situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *which);
 #define FZN_SEARCH_WIRE_ASK_WORDS_LEN_CHECK 0u
 #define FZN_SEARCH_WIRE_ASK_WORDS_CHECK 1u
 #define FZN_SEARCH_WIRE_ASK_STORE_COUNT_CHECK 2u
@@ -1049,6 +1076,203 @@ situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *which);
 #define FZN_SEARCH_WIRE_ASK_AFTER_STORE_CHECK 11u
 #define FZN_SEARCH_WIRE_ASK_AFTER_KEY_LEN_CHECK 12u
 #define FZN_SEARCH_WIRE_ASK_AFTER_KEY_CHECK 13u
+static inline situ_err_t fzn_search_wire_ask_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_SEARCH_WIRE_ASK_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.words_len [min = 1] */
+	if (fzn_search_wire_ask_words_len_get(view) < 1) {
+		*which = FZN_SEARCH_WIRE_ASK_WORDS_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.words: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 1u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])))) {
+		*which = FZN_SEARCH_WIRE_ASK_WORDS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.store_count: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_store_count_offset(view), 1u)) {
+		*which = FZN_SEARCH_WIRE_ASK_STORE_COUNT_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.store_count [max = 8] */
+	if (fzn_search_wire_ask_store_count_get(view) > 8) {
+		*which = FZN_SEARCH_WIRE_ASK_STORE_COUNT_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.stores: every element the count declares is in the
+	 * frame. No span check can see this -- a span is how far the run
+	 * REACHED, and a walk that gave up early reaches less (26.676). */
+	if (!fzn_search_wire_ask_stores_fits(view)) {
+		*which = FZN_SEARCH_WIRE_ASK_STORES_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.stores: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_stores_offset(view)) < (fzn_search_wire_ask_stores_span(view))) {
+		*which = FZN_SEARCH_WIRE_ASK_STORES_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.stores: each `store` the run holds, through its
+	 * own validator. A refusal names the run, or the variant it
+	 * is an arm of (26.789, 26.790). */
+	{
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_store_count_offset(view)))[0u]) : (uint64_t)0)));
+		uint32_t at = fzn_search_wire_ask_stores_offset(view);
+		uint32_t n  = 0u;
+
+		while (n < total && at < view.limit) {
+			situ_view_t element;
+			uint32_t    size;
+
+			if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+				break;
+			}
+			size = fzn_search_wire_store_extent(element);
+			if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+				break;
+			}
+			{
+				situ_view_t one;
+				situ_err_t  err = situ_view_sub(view, at, size, &one);
+
+				if (err == SITU_OK) {
+					err = fzn_search_wire_store_check(one, NULL);
+				}
+				if (err != SITU_OK) {
+					*which = FZN_SEARCH_WIRE_ASK_STORES_CHECK;
+					return err;
+				}
+			}
+			at = at + size;
+			n  = n + 1u;
+		}
+		(void)n;
+	}
+	/* ask.since_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_since_ms_offset(view), 8u)) {
+		*which = FZN_SEARCH_WIRE_ASK_SINCE_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.until_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_until_ms_offset(view), 8u)) {
+		*which = FZN_SEARCH_WIRE_ASK_UNTIL_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.k: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_k_offset(view), 1u)) {
+		*which = FZN_SEARCH_WIRE_ASK_K_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.k [min = 1] */
+	if (fzn_search_wire_ask_k_get(view) < 1) {
+		*which = FZN_SEARCH_WIRE_ASK_K_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.k [max = 50] */
+	if (fzn_search_wire_ask_k_get(view) > 50) {
+		*which = FZN_SEARCH_WIRE_ASK_K_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.has_after: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_has_after_offset(view), 1u)) {
+		*which = FZN_SEARCH_WIRE_ASK_HAS_AFTER_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.has_after [max = 1] */
+	if (fzn_search_wire_ask_has_after_get(view) > 1) {
+		*which = FZN_SEARCH_WIRE_ASK_HAS_AFTER_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.after_score: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_after_score_offset(view), 4u)) {
+		*which = FZN_SEARCH_WIRE_ASK_AFTER_SCORE_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_time_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_after_time_ms_offset(view), 8u)) {
+		*which = FZN_SEARCH_WIRE_ASK_AFTER_TIME_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_store_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) {
+		*which = FZN_SEARCH_WIRE_ASK_AFTER_STORE_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_store_len [max = 16] */
+	if (fzn_search_wire_ask_after_store_len_get(view) > 16) {
+		*which = FZN_SEARCH_WIRE_ASK_AFTER_STORE_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.after_store: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_after_store_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0))))) {
+		*which = FZN_SEARCH_WIRE_ASK_AFTER_STORE_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_key_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) {
+		*which = FZN_SEARCH_WIRE_ASK_AFTER_KEY_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_key_len [max = 48] */
+	if (fzn_search_wire_ask_after_key_len_get(view) > 48) {
+		*which = FZN_SEARCH_WIRE_ASK_AFTER_KEY_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.after_key: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_search_wire_ask_after_key_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_wire_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_wire_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0))))) {
+		*which = FZN_SEARCH_WIRE_ASK_AFTER_KEY_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+static inline situ_err_t fzn_search_wire_ask_validate(situ_view_t view)
+{
+	return fzn_search_wire_ask_check(view, NULL);
+}
+
 
 /* ---- struct hit ---- */
 

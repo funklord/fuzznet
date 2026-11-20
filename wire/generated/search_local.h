@@ -49,44 +49,6 @@ static inline int fzn_search_local_op_is_known(fzn_search_local_op_t value)
 	}
 }
 
-/* ---- struct nothing ---- */
-
-#define FZN_SEARCH_LOCAL_NOTHING_SIZE_FIXED 0u
-#define FZN_SEARCH_LOCAL_NOTHING_SIZE_MIN   0u
-#define FZN_SEARCH_LOCAL_NOTHING_SIZE_MAX   0u
-
-/* INVALIDATION: nothing invalidates a nothing view.
- * Every member has a fixed size, so no write can move another.
- */
-/** Acquire a view. This is the one bounds check; the field
- * accessors below are constant offsets from the view base.
- */
-static inline situ_err_t fzn_search_local_nothing_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
-{
-	return situ_view_at(msg, offset, FZN_SEARCH_LOCAL_NOTHING_SIZE_FIXED, out);
-}
-
-/** How many bytes a whole `nothing` needs, given `have` of them.
- *
- * This one has a single size, so the answer never depends on the bytes.
- * It is generated anyway: a caller framing a stream should not have to
- * write one loop for the fixed messages and another for the rest, and
- * a struct that gains a length field later keeps the same call.
- */
-static inline situ_err_t fzn_search_local_nothing_required(const uint8_t *data, uint32_t have, uint32_t *need)
-{
-	(void)data;
-	*need = FZN_SEARCH_LOCAL_NOTHING_SIZE_FIXED;
-	(void)have;
-	return SITU_OK;
-}
-
-/** Check every constraint this schema states: [must_eq], [max],
- * [min], and the reserved-bit policy. Called on parse under
- * SITU_CHECKED, and available explicitly in any build.
- */
-situ_err_t fzn_search_local_nothing_validate(situ_view_t view);
-
 /* ---- struct store ---- */
 
 #define FZN_SEARCH_LOCAL_STORE_SIZE_MIN   2u
@@ -219,29 +181,65 @@ static inline void fzn_search_local_store_len_set(situ_msg_t *msg, situ_view_t v
 	situ_msg_touch(msg);
 }
 
-/** Check every constraint this schema states: [must_eq], [max],
- * [min], and the reserved-bit policy. Called on parse under
- * SITU_CHECKED, and available explicitly in any build.
+/** `store` arrives by `import`, so its checks are
+ * `static inline` here rather than external in the `.c`:
+ * another schema importing the same file defines the same
+ * names, and those definitions need not agree.
  */
-situ_err_t fzn_search_local_store_validate(situ_view_t view);
-
-/** The same walk, naming the member that refused. `*which` is one
- * of the ids below on a refusal and 0xFFFFFFFF when nothing
- * refused -- it is written either way, so a caller must not
- * expect its own value to survive the call. NULL asks for
- * the verdict alone. The id is the contract and the name is
- * a macro, so nothing here costs a string (0051).
- */
-situ_err_t fzn_search_local_store_check(situ_view_t view, uint32_t *which);
 #define FZN_SEARCH_LOCAL_STORE_LEN_CHECK 0u
 #define FZN_SEARCH_LOCAL_STORE_NAME_CHECK 1u
+static inline situ_err_t fzn_search_local_store_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
 
-/* ---- struct local_ask ---- */
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
 
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_SIZE_MIN   68u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_SIZE_MAX   522u
+	if (view.limit < FZN_SEARCH_LOCAL_STORE_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* store.len [min = 1] */
+	if (fzn_search_local_store_len_get(view) < 1) {
+		*which = FZN_SEARCH_LOCAL_STORE_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* store.len [max = 16] */
+	if (fzn_search_local_store_len_get(view) > 16) {
+		*which = FZN_SEARCH_LOCAL_STORE_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* store.name: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 1u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])))) {
+		*which = FZN_SEARCH_LOCAL_STORE_NAME_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
 
-/* INVALIDATION: a local_ask view, and every view derived from
+static inline situ_err_t fzn_search_local_store_validate(situ_view_t view)
+{
+	return fzn_search_local_store_check(view, NULL);
+}
+
+
+/* ---- struct ask ---- */
+
+#define FZN_SEARCH_LOCAL_ASK_SIZE_MIN   35u
+#define FZN_SEARCH_LOCAL_ASK_SIZE_MAX   489u
+
+/* INVALIDATION: a ask view, and every view derived from
  * it, is invalidated by writing `after_key_len`, `after_store_len`, `store_count`, `words_len` -- those decide where the
  * members after them start. Use the setters at the end of this
  * struct's section, which bump the message generation; a stale view
@@ -255,74 +253,47 @@ situ_err_t fzn_search_local_store_check(situ_view_t view, uint32_t *which);
  * constant offsets from the base; the rest resolve through their own
  * offset functions below.
  */
-static inline situ_err_t fzn_search_local_local_ask_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+static inline situ_err_t fzn_search_local_ask_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
 		situ_view_t *out)
 {
-	if (length < FZN_SEARCH_LOCAL_LOCAL_ASK_SIZE_MIN) {
+	if (length < FZN_SEARCH_LOCAL_ASK_SIZE_MIN) {
 		return SITU_ERR_BOUNDS;
 	}
 
 	return situ_view_at(msg, offset, length, out);
 }
-static inline uint32_t fzn_search_local_local_ask_walked(situ_view_t view, uint32_t index);
+static inline uint32_t fzn_search_local_ask_walked(situ_view_t view, uint32_t index);
 
 
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_HAS_WITH_VALUE_MAX 1u
+#define FZN_SEARCH_LOCAL_ASK_WORDS_LEN_VALUE_MIN 1u
 
-/** local_ask.has_with : u8  at AbsoluteStatic(0x00)
+/** ask.words_len : u8  at AbsoluteStatic(0x00)
  * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint8_t fzn_search_local_local_ask_has_with_get(situ_view_t view)
+static inline uint8_t fzn_search_local_ask_words_len_get(situ_view_t view)
 {
 	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
 }
-static inline uint8_t *fzn_search_local_local_ask_has_with_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_ask_words_len_ptr(situ_view_t view)
 {
 	return (uint8_t *)(situ_base(view) + 0u);
 }
-static inline void fzn_search_local_local_ask_has_with_set(situ_view_t view, uint8_t value)
-{
-	(situ_base(view))[0u] = (uint8_t)value;
-}
-
-/** local_ask.with : u8  at AbsoluteStatic(0x01)
- * size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
- */
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_WITH_COUNT 32u
-static inline uint8_t *fzn_search_local_local_ask_with_ptr(situ_view_t view)
-{
-	return situ_base(view) + 1u;
-}
-
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_WORDS_LEN_VALUE_MIN 1u
-
-/** local_ask.words_len : u8  at AbsoluteStatic(0x21)
- * size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
- */
-static inline uint8_t fzn_search_local_local_ask_words_len_get(situ_view_t view)
-{
-	return (uint8_t)((uint8_t)(situ_base(view))[33u]);
-}
-static inline uint8_t *fzn_search_local_local_ask_words_len_ptr(situ_view_t view)
-{
-	return (uint8_t *)(situ_base(view) + 33u);
-}
 /* No plain setter: `words_len` decides where later members
  * start, so writing it must invalidate outstanding views. Use
- * fzn_search_local_local_ask_words_len_set(),
+ * fzn_search_local_ask_words_len_set(),
  * which takes the message and bumps its generation. */
 
-/** local_ask.words : u8  at AbsoluteStatic(0x22)
- * size=Bounded(1, 255) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+/** ask.words : u8  at AbsoluteStatic(0x01)
+ * size=Bounded(1, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
  */
-static inline uint32_t fzn_search_local_local_ask_words_len(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_words_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u])),
-		situ_remaining_u32(view.limit, 34u));
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])),
+		situ_remaining_u32(view.limit, 1u));
 }
-static inline uint8_t *fzn_search_local_local_ask_words_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_ask_words_ptr(situ_view_t view)
 {
-	return situ_base(view) + 34u;
+	return situ_base(view) + 1u;
 }
 
 /* No setter: mutate is Shifting.
@@ -331,27 +302,27 @@ static inline uint8_t *fzn_search_local_local_ask_words_ptr(situ_view_t view)
  *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
  */
 
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_STORE_COUNT_VALUE_MAX 8u
+#define FZN_SEARCH_LOCAL_ASK_STORE_COUNT_VALUE_MAX 8u
 
-/** local_ask.store_count : u8  at Dynamic
+/** ask.store_count : u8  at Dynamic
  * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint32_t fzn_search_local_local_ask_store_count_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_store_count_offset(situ_view_t view)
 {
-	return fzn_search_local_local_ask_walked(view, 0u);
+	return fzn_search_local_ask_walked(view, 0u);
 }
 /** Zero where the member does not fit the view: its offset is a sum of
  * lengths the message chose, so the frame is not known to hold it, and
  * `validate` reports such a message as malformed (26.27).
  */
-static inline uint8_t fzn_search_local_local_ask_store_count_get(situ_view_t view)
+static inline uint8_t fzn_search_local_ask_store_count_get(situ_view_t view)
 {
-	return situ_in_bounds(view, fzn_search_local_local_ask_store_count_offset(view), 1u)
-		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_store_count_offset(view)))[0u])
+	return situ_in_bounds(view, fzn_search_local_ask_store_count_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_store_count_offset(view)))[0u])
 		: (uint8_t)0;
 }
 
-static inline uint8_t fzn_search_local_local_ask_store_count_get_from(situ_view_t view, uint32_t at)
+static inline uint8_t fzn_search_local_ask_store_count_get_from(situ_view_t view, uint32_t at)
 {
 	return situ_in_bounds(view, at, 1u)
 		? (uint8_t)((uint8_t)((situ_base(view) + at))[0u])
@@ -361,32 +332,32 @@ static inline uint8_t fzn_search_local_local_ask_store_count_get_from(situ_view_
  * the length of what precedes this field; see the INVALIDATION
  * note on this struct's view accessor.
  */
-static inline uint8_t *fzn_search_local_local_ask_store_count_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_ask_store_count_ptr(situ_view_t view)
 {
-	return (uint8_t *)(situ_base(view) + fzn_search_local_local_ask_store_count_offset(view));
+	return (uint8_t *)(situ_base(view) + fzn_search_local_ask_store_count_offset(view));
 }
 /* No plain setter: `store_count` decides where later members
  * start, so writing it must invalidate outstanding views. Use
- * fzn_search_local_local_ask_store_count_set(),
+ * fzn_search_local_ask_store_count_set(),
  * which takes the message and bumps its generation. */
 
-/** local_ask.stores : store  at Dynamic
+/** ask.stores : store  at Dynamic
  * size=Bounded(0, 136) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-static inline uint32_t fzn_search_local_local_ask_stores_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_stores_offset(situ_view_t view)
 {
-	uint32_t offset = 34u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
 
 	return offset;
 }
-static inline uint32_t fzn_search_local_local_ask_stores_count(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_stores_count(situ_view_t view)
 {
-	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_local_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_store_count_offset(view)))[0u]) : (uint64_t)0)));
+	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_store_count_offset(view)))[0u]) : (uint64_t)0)));
 }
 
-static inline uint32_t fzn_search_local_local_ask_stores_count_marked(situ_view_t view, const uint32_t *marks)
+static inline uint32_t fzn_search_local_ask_stores_count_marked(situ_view_t view, const uint32_t *marks)
 {
 	return (uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, marks[0], 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + marks[0]))[0u]) : (uint64_t)0)));
 }
@@ -399,12 +370,12 @@ static inline uint32_t fzn_search_local_local_ask_stores_count_marked(situ_view_
  * `situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element)` and
  * advance by `fzn_search_local_store_extent(element)`.
  */
-static inline situ_err_t fzn_search_local_local_ask_stores_at(situ_view_t view, uint32_t index, situ_view_t *out)
+static inline situ_err_t fzn_search_local_ask_stores_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
-	uint32_t at = fzn_search_local_local_ask_stores_offset(view);
+	uint32_t at = fzn_search_local_ask_stores_offset(view);
 	uint32_t n  = 0u;
 
-	if (index >= fzn_search_local_local_ask_stores_count(view)) {
+	if (index >= fzn_search_local_ask_stores_count(view)) {
 		return SITU_ERR_BOUNDS;
 	}
 
@@ -440,12 +411,12 @@ static inline situ_err_t fzn_search_local_local_ask_stores_at(situ_view_t view, 
  * middle of the run. The other three backends declined the member
  * instead, so the four disagreed about the schema as well (26.46).
  */
-static inline uint32_t fzn_search_local_local_ask_stores_span_from(situ_view_t view, uint32_t start)
+static inline uint32_t fzn_search_local_ask_stores_span_from(situ_view_t view, uint32_t start)
 {
 	uint32_t at = start;
 	uint32_t n  = 0u;
 
-	while (n < fzn_search_local_local_ask_stores_count(view) && at < view.limit) {
+	while (n < fzn_search_local_ask_stores_count(view) && at < view.limit) {
 		situ_view_t element;
 		uint32_t    size;
 
@@ -462,12 +433,12 @@ static inline uint32_t fzn_search_local_local_ask_stores_span_from(situ_view_t v
 	return at - start;
 }
 
-static inline uint32_t fzn_search_local_local_ask_stores_span_from_marked(situ_view_t view, const uint32_t *marks, uint32_t start)
+static inline uint32_t fzn_search_local_ask_stores_span_from_marked(situ_view_t view, const uint32_t *marks, uint32_t start)
 {
 	uint32_t at = start;
 	uint32_t n  = 0u;
 
-	while (n < fzn_search_local_local_ask_stores_count_marked(view, marks) && at < view.limit) {
+	while (n < fzn_search_local_ask_stores_count_marked(view, marks) && at < view.limit) {
 		situ_view_t element;
 		uint32_t    size;
 
@@ -484,12 +455,12 @@ static inline uint32_t fzn_search_local_local_ask_stores_span_from_marked(situ_v
 	return at - start;
 }
 
-static inline uint32_t fzn_search_local_local_ask_stores_span(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_stores_span(situ_view_t view)
 {
-	return fzn_search_local_local_ask_stores_span_from(view, fzn_search_local_local_ask_stores_offset(view));
+	return fzn_search_local_ask_stores_span_from(view, fzn_search_local_ask_stores_offset(view));
 }
 
-/** Whether every one of `local_ask.stores`'s declared elements is inside
+/** Whether every one of `ask.stores`'s declared elements is inside
  * the frame. `check` asks this; a run's span cannot answer it, being
  * summed into the enclosing extent (26.676).
  *
@@ -497,10 +468,10 @@ static inline uint32_t fzn_search_local_local_ask_stores_span(situ_view_t view)
  * short frame, so the walk stopping there answers yes and leaves the
  * message to the nesting guard above.
  */
-static inline int fzn_search_local_local_ask_stores_fits(situ_view_t view)
+static inline int fzn_search_local_ask_stores_fits(situ_view_t view)
 {
-	const uint32_t total = fzn_search_local_local_ask_stores_count(view);
-	uint32_t at = fzn_search_local_local_ask_stores_offset(view);
+	const uint32_t total = fzn_search_local_ask_stores_count(view);
+	uint32_t at = fzn_search_local_ask_stores_offset(view);
 	uint32_t n  = 0u;
 
 	while (n < total) {
@@ -527,18 +498,18 @@ static inline int fzn_search_local_local_ask_stores_fits(situ_view_t view)
 	return 1;
 }
 
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_STORES_LEN_VALUE_MIN 1u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_STORES_LEN_VALUE_MAX 16u
+#define FZN_SEARCH_LOCAL_ASK_STORES_LEN_VALUE_MIN 1u
+#define FZN_SEARCH_LOCAL_ASK_STORES_LEN_VALUE_MAX 16u
 
-/** local_ask.since_ms : u64  at Dynamic
+/** ask.since_ms : u64  at Dynamic
  * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
  */
-static inline uint32_t fzn_search_local_local_ask_since_ms_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_since_ms_offset(situ_view_t view)
 {
-	uint32_t offset = 34u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, (fzn_search_local_local_ask_stores_span_from(view, offset)), view.limit);
+	offset = situ_advance_u32(offset, (fzn_search_local_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (0u), view.limit);
 
 	return offset;
@@ -547,32 +518,32 @@ static inline uint32_t fzn_search_local_local_ask_since_ms_offset(situ_view_t vi
  * lengths the message chose, so the frame is not known to hold it, and
  * `validate` reports such a message as malformed (26.27).
  */
-static inline uint64_t fzn_search_local_local_ask_since_ms_get(situ_view_t view)
+static inline uint64_t fzn_search_local_ask_since_ms_get(situ_view_t view)
 {
-	return situ_in_bounds(view, fzn_search_local_local_ask_since_ms_offset(view), 8u)
-		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_search_local_local_ask_since_ms_offset(view)) + 0u))
+	return situ_in_bounds(view, fzn_search_local_ask_since_ms_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_search_local_ask_since_ms_offset(view)) + 0u))
 		: (uint64_t)0;
 }
 /** Does nothing where the member does not fit the view: its offset is a
  * sum of lengths the message chose, and writing past the frame is
  * somebody else's data. `validate` reports such a message (26.27).
  */
-static inline void fzn_search_local_local_ask_since_ms_set(situ_view_t view, uint64_t value)
+static inline void fzn_search_local_ask_since_ms_set(situ_view_t view, uint64_t value)
 {
-	if (situ_in_bounds(view, fzn_search_local_local_ask_since_ms_offset(view), 8u)) {
-		situ_put_be64((situ_base(view) + fzn_search_local_local_ask_since_ms_offset(view)) + 0u, (uint64_t)value);
+	if (situ_in_bounds(view, fzn_search_local_ask_since_ms_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_search_local_ask_since_ms_offset(view)) + 0u, (uint64_t)value);
 	}
 }
 
-/** local_ask.until_ms : u64  at Dynamic
+/** ask.until_ms : u64  at Dynamic
  * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
  */
-static inline uint32_t fzn_search_local_local_ask_until_ms_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_until_ms_offset(situ_view_t view)
 {
-	uint32_t offset = 34u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, (fzn_search_local_local_ask_stores_span_from(view, offset)), view.limit);
+	offset = situ_advance_u32(offset, (fzn_search_local_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (8u), view.limit);
 
 	return offset;
@@ -581,35 +552,35 @@ static inline uint32_t fzn_search_local_local_ask_until_ms_offset(situ_view_t vi
  * lengths the message chose, so the frame is not known to hold it, and
  * `validate` reports such a message as malformed (26.27).
  */
-static inline uint64_t fzn_search_local_local_ask_until_ms_get(situ_view_t view)
+static inline uint64_t fzn_search_local_ask_until_ms_get(situ_view_t view)
 {
-	return situ_in_bounds(view, fzn_search_local_local_ask_until_ms_offset(view), 8u)
-		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_search_local_local_ask_until_ms_offset(view)) + 0u))
+	return situ_in_bounds(view, fzn_search_local_ask_until_ms_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_search_local_ask_until_ms_offset(view)) + 0u))
 		: (uint64_t)0;
 }
 /** Does nothing where the member does not fit the view: its offset is a
  * sum of lengths the message chose, and writing past the frame is
  * somebody else's data. `validate` reports such a message (26.27).
  */
-static inline void fzn_search_local_local_ask_until_ms_set(situ_view_t view, uint64_t value)
+static inline void fzn_search_local_ask_until_ms_set(situ_view_t view, uint64_t value)
 {
-	if (situ_in_bounds(view, fzn_search_local_local_ask_until_ms_offset(view), 8u)) {
-		situ_put_be64((situ_base(view) + fzn_search_local_local_ask_until_ms_offset(view)) + 0u, (uint64_t)value);
+	if (situ_in_bounds(view, fzn_search_local_ask_until_ms_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_search_local_ask_until_ms_offset(view)) + 0u, (uint64_t)value);
 	}
 }
 
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_K_VALUE_MIN 1u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_K_VALUE_MAX 50u
+#define FZN_SEARCH_LOCAL_ASK_K_VALUE_MIN 1u
+#define FZN_SEARCH_LOCAL_ASK_K_VALUE_MAX 50u
 
-/** local_ask.k : u8  at Dynamic
+/** ask.k : u8  at Dynamic
  * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint32_t fzn_search_local_local_ask_k_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_k_offset(situ_view_t view)
 {
-	uint32_t offset = 34u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, (fzn_search_local_local_ask_stores_span_from(view, offset)), view.limit);
+	offset = situ_advance_u32(offset, (fzn_search_local_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (16u), view.limit);
 
 	return offset;
@@ -618,42 +589,42 @@ static inline uint32_t fzn_search_local_local_ask_k_offset(situ_view_t view)
  * lengths the message chose, so the frame is not known to hold it, and
  * `validate` reports such a message as malformed (26.27).
  */
-static inline uint8_t fzn_search_local_local_ask_k_get(situ_view_t view)
+static inline uint8_t fzn_search_local_ask_k_get(situ_view_t view)
 {
-	return situ_in_bounds(view, fzn_search_local_local_ask_k_offset(view), 1u)
-		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_k_offset(view)))[0u])
+	return situ_in_bounds(view, fzn_search_local_ask_k_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_k_offset(view)))[0u])
 		: (uint8_t)0;
 }
 /** The returned pointer is invalidated by any write that changes
  * the length of what precedes this field; see the INVALIDATION
  * note on this struct's view accessor.
  */
-static inline uint8_t *fzn_search_local_local_ask_k_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_ask_k_ptr(situ_view_t view)
 {
-	return (uint8_t *)(situ_base(view) + fzn_search_local_local_ask_k_offset(view));
+	return (uint8_t *)(situ_base(view) + fzn_search_local_ask_k_offset(view));
 }
 /** Does nothing where the member does not fit the view: its offset is a
  * sum of lengths the message chose, and writing past the frame is
  * somebody else's data. `validate` reports such a message (26.27).
  */
-static inline void fzn_search_local_local_ask_k_set(situ_view_t view, uint8_t value)
+static inline void fzn_search_local_ask_k_set(situ_view_t view, uint8_t value)
 {
-	if (situ_in_bounds(view, fzn_search_local_local_ask_k_offset(view), 1u)) {
-		((situ_base(view) + fzn_search_local_local_ask_k_offset(view)))[0u] = (uint8_t)value;
+	if (situ_in_bounds(view, fzn_search_local_ask_k_offset(view), 1u)) {
+		((situ_base(view) + fzn_search_local_ask_k_offset(view)))[0u] = (uint8_t)value;
 	}
 }
 
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_HAS_AFTER_VALUE_MAX 1u
+#define FZN_SEARCH_LOCAL_ASK_HAS_AFTER_VALUE_MAX 1u
 
-/** local_ask.has_after : u8  at Dynamic
+/** ask.has_after : u8  at Dynamic
  * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint32_t fzn_search_local_local_ask_has_after_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_has_after_offset(situ_view_t view)
 {
-	uint32_t offset = 34u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, (fzn_search_local_local_ask_stores_span_from(view, offset)), view.limit);
+	offset = situ_advance_u32(offset, (fzn_search_local_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (17u), view.limit);
 
 	return offset;
@@ -662,40 +633,40 @@ static inline uint32_t fzn_search_local_local_ask_has_after_offset(situ_view_t v
  * lengths the message chose, so the frame is not known to hold it, and
  * `validate` reports such a message as malformed (26.27).
  */
-static inline uint8_t fzn_search_local_local_ask_has_after_get(situ_view_t view)
+static inline uint8_t fzn_search_local_ask_has_after_get(situ_view_t view)
 {
-	return situ_in_bounds(view, fzn_search_local_local_ask_has_after_offset(view), 1u)
-		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_has_after_offset(view)))[0u])
+	return situ_in_bounds(view, fzn_search_local_ask_has_after_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_has_after_offset(view)))[0u])
 		: (uint8_t)0;
 }
 /** The returned pointer is invalidated by any write that changes
  * the length of what precedes this field; see the INVALIDATION
  * note on this struct's view accessor.
  */
-static inline uint8_t *fzn_search_local_local_ask_has_after_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_ask_has_after_ptr(situ_view_t view)
 {
-	return (uint8_t *)(situ_base(view) + fzn_search_local_local_ask_has_after_offset(view));
+	return (uint8_t *)(situ_base(view) + fzn_search_local_ask_has_after_offset(view));
 }
 /** Does nothing where the member does not fit the view: its offset is a
  * sum of lengths the message chose, and writing past the frame is
  * somebody else's data. `validate` reports such a message (26.27).
  */
-static inline void fzn_search_local_local_ask_has_after_set(situ_view_t view, uint8_t value)
+static inline void fzn_search_local_ask_has_after_set(situ_view_t view, uint8_t value)
 {
-	if (situ_in_bounds(view, fzn_search_local_local_ask_has_after_offset(view), 1u)) {
-		((situ_base(view) + fzn_search_local_local_ask_has_after_offset(view)))[0u] = (uint8_t)value;
+	if (situ_in_bounds(view, fzn_search_local_ask_has_after_offset(view), 1u)) {
+		((situ_base(view) + fzn_search_local_ask_has_after_offset(view)))[0u] = (uint8_t)value;
 	}
 }
 
-/** local_ask.after_score : u32  at Dynamic
+/** ask.after_score : u32  at Dynamic
  * size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
  */
-static inline uint32_t fzn_search_local_local_ask_after_score_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_after_score_offset(situ_view_t view)
 {
-	uint32_t offset = 34u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, (fzn_search_local_local_ask_stores_span_from(view, offset)), view.limit);
+	offset = situ_advance_u32(offset, (fzn_search_local_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (18u), view.limit);
 
 	return offset;
@@ -704,32 +675,32 @@ static inline uint32_t fzn_search_local_local_ask_after_score_offset(situ_view_t
  * lengths the message chose, so the frame is not known to hold it, and
  * `validate` reports such a message as malformed (26.27).
  */
-static inline uint32_t fzn_search_local_local_ask_after_score_get(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_after_score_get(situ_view_t view)
 {
-	return situ_in_bounds(view, fzn_search_local_local_ask_after_score_offset(view), 4u)
-		? (uint32_t)(situ_get_be32((situ_base(view) + fzn_search_local_local_ask_after_score_offset(view)) + 0u))
+	return situ_in_bounds(view, fzn_search_local_ask_after_score_offset(view), 4u)
+		? (uint32_t)(situ_get_be32((situ_base(view) + fzn_search_local_ask_after_score_offset(view)) + 0u))
 		: (uint32_t)0;
 }
 /** Does nothing where the member does not fit the view: its offset is a
  * sum of lengths the message chose, and writing past the frame is
  * somebody else's data. `validate` reports such a message (26.27).
  */
-static inline void fzn_search_local_local_ask_after_score_set(situ_view_t view, uint32_t value)
+static inline void fzn_search_local_ask_after_score_set(situ_view_t view, uint32_t value)
 {
-	if (situ_in_bounds(view, fzn_search_local_local_ask_after_score_offset(view), 4u)) {
-		situ_put_be32((situ_base(view) + fzn_search_local_local_ask_after_score_offset(view)) + 0u, (uint32_t)value);
+	if (situ_in_bounds(view, fzn_search_local_ask_after_score_offset(view), 4u)) {
+		situ_put_be32((situ_base(view) + fzn_search_local_ask_after_score_offset(view)) + 0u, (uint32_t)value);
 	}
 }
 
-/** local_ask.after_time_ms : u64  at Dynamic
+/** ask.after_time_ms : u64  at Dynamic
  * size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic mutate=InPlaceFixed
  */
-static inline uint32_t fzn_search_local_local_ask_after_time_ms_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_after_time_ms_offset(situ_view_t view)
 {
-	uint32_t offset = 34u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, (fzn_search_local_local_ask_stores_span_from(view, offset)), view.limit);
+	offset = situ_advance_u32(offset, (fzn_search_local_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (22u), view.limit);
 
 	return offset;
@@ -738,44 +709,44 @@ static inline uint32_t fzn_search_local_local_ask_after_time_ms_offset(situ_view
  * lengths the message chose, so the frame is not known to hold it, and
  * `validate` reports such a message as malformed (26.27).
  */
-static inline uint64_t fzn_search_local_local_ask_after_time_ms_get(situ_view_t view)
+static inline uint64_t fzn_search_local_ask_after_time_ms_get(situ_view_t view)
 {
-	return situ_in_bounds(view, fzn_search_local_local_ask_after_time_ms_offset(view), 8u)
-		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_search_local_local_ask_after_time_ms_offset(view)) + 0u))
+	return situ_in_bounds(view, fzn_search_local_ask_after_time_ms_offset(view), 8u)
+		? (uint64_t)(situ_get_be64((situ_base(view) + fzn_search_local_ask_after_time_ms_offset(view)) + 0u))
 		: (uint64_t)0;
 }
 /** Does nothing where the member does not fit the view: its offset is a
  * sum of lengths the message chose, and writing past the frame is
  * somebody else's data. `validate` reports such a message (26.27).
  */
-static inline void fzn_search_local_local_ask_after_time_ms_set(situ_view_t view, uint64_t value)
+static inline void fzn_search_local_ask_after_time_ms_set(situ_view_t view, uint64_t value)
 {
-	if (situ_in_bounds(view, fzn_search_local_local_ask_after_time_ms_offset(view), 8u)) {
-		situ_put_be64((situ_base(view) + fzn_search_local_local_ask_after_time_ms_offset(view)) + 0u, (uint64_t)value);
+	if (situ_in_bounds(view, fzn_search_local_ask_after_time_ms_offset(view), 8u)) {
+		situ_put_be64((situ_base(view) + fzn_search_local_ask_after_time_ms_offset(view)) + 0u, (uint64_t)value);
 	}
 }
 
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_AFTER_STORE_LEN_VALUE_MAX 16u
+#define FZN_SEARCH_LOCAL_ASK_AFTER_STORE_LEN_VALUE_MAX 16u
 
-/** local_ask.after_store_len : u8  at Dynamic
+/** ask.after_store_len : u8  at Dynamic
  * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint32_t fzn_search_local_local_ask_after_store_len_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_after_store_len_offset(situ_view_t view)
 {
-	return fzn_search_local_local_ask_walked(view, 1u);
+	return fzn_search_local_ask_walked(view, 1u);
 }
 /** Zero where the member does not fit the view: its offset is a sum of
  * lengths the message chose, so the frame is not known to hold it, and
  * `validate` reports such a message as malformed (26.27).
  */
-static inline uint8_t fzn_search_local_local_ask_after_store_len_get(situ_view_t view)
+static inline uint8_t fzn_search_local_ask_after_store_len_get(situ_view_t view)
 {
-	return situ_in_bounds(view, fzn_search_local_local_ask_after_store_len_offset(view), 1u)
-		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_after_store_len_offset(view)))[0u])
+	return situ_in_bounds(view, fzn_search_local_ask_after_store_len_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_after_store_len_offset(view)))[0u])
 		: (uint8_t)0;
 }
 
-static inline uint8_t fzn_search_local_local_ask_after_store_len_get_from(situ_view_t view, uint32_t at)
+static inline uint8_t fzn_search_local_ask_after_store_len_get_from(situ_view_t view, uint32_t at)
 {
 	return situ_in_bounds(view, at, 1u)
 		? (uint8_t)((uint8_t)((situ_base(view) + at))[0u])
@@ -785,40 +756,40 @@ static inline uint8_t fzn_search_local_local_ask_after_store_len_get_from(situ_v
  * the length of what precedes this field; see the INVALIDATION
  * note on this struct's view accessor.
  */
-static inline uint8_t *fzn_search_local_local_ask_after_store_len_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_ask_after_store_len_ptr(situ_view_t view)
 {
-	return (uint8_t *)(situ_base(view) + fzn_search_local_local_ask_after_store_len_offset(view));
+	return (uint8_t *)(situ_base(view) + fzn_search_local_ask_after_store_len_offset(view));
 }
 /* No plain setter: `after_store_len` decides where later members
  * start, so writing it must invalidate outstanding views. Use
- * fzn_search_local_local_ask_after_store_len_set(),
+ * fzn_search_local_ask_after_store_len_set(),
  * which takes the message and bumps its generation. */
 
-/** local_ask.after_store : u8  at Dynamic
+/** ask.after_store : u8  at Dynamic
  * size=Bounded(0, 16) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
  */
-static inline uint32_t fzn_search_local_local_ask_after_store_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_after_store_offset(situ_view_t view)
 {
-	uint32_t offset = 34u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, (fzn_search_local_local_ask_stores_span_from(view, offset)), view.limit);
+	offset = situ_advance_u32(offset, (fzn_search_local_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (31u), view.limit);
 
 	return offset;
 }
-static inline uint32_t fzn_search_local_local_ask_after_store_len(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_after_store_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_local_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0))),
-		situ_remaining_u32(view.limit, fzn_search_local_local_ask_after_store_offset(view)));
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0))),
+		situ_remaining_u32(view.limit, fzn_search_local_ask_after_store_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
  * the length of what precedes this field; see the INVALIDATION
  * note on this struct's view accessor.
  */
-static inline uint8_t *fzn_search_local_local_ask_after_store_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_ask_after_store_ptr(situ_view_t view)
 {
-	return situ_base(view) + fzn_search_local_local_ask_after_store_offset(view);
+	return situ_base(view) + fzn_search_local_ask_after_store_offset(view);
 }
 
 /* No setter: mutate is Shifting.
@@ -827,27 +798,27 @@ static inline uint8_t *fzn_search_local_local_ask_after_store_ptr(situ_view_t vi
  *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
  */
 
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_AFTER_KEY_LEN_VALUE_MAX 48u
+#define FZN_SEARCH_LOCAL_ASK_AFTER_KEY_LEN_VALUE_MAX 48u
 
-/** local_ask.after_key_len : u8  at Dynamic
+/** ask.after_key_len : u8  at Dynamic
  * size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
  */
-static inline uint32_t fzn_search_local_local_ask_after_key_len_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_after_key_len_offset(situ_view_t view)
 {
-	return fzn_search_local_local_ask_walked(view, 2u);
+	return fzn_search_local_ask_walked(view, 2u);
 }
 /** Zero where the member does not fit the view: its offset is a sum of
  * lengths the message chose, so the frame is not known to hold it, and
  * `validate` reports such a message as malformed (26.27).
  */
-static inline uint8_t fzn_search_local_local_ask_after_key_len_get(situ_view_t view)
+static inline uint8_t fzn_search_local_ask_after_key_len_get(situ_view_t view)
 {
-	return situ_in_bounds(view, fzn_search_local_local_ask_after_key_len_offset(view), 1u)
-		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_after_key_len_offset(view)))[0u])
+	return situ_in_bounds(view, fzn_search_local_ask_after_key_len_offset(view), 1u)
+		? (uint8_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_after_key_len_offset(view)))[0u])
 		: (uint8_t)0;
 }
 
-static inline uint8_t fzn_search_local_local_ask_after_key_len_get_from(situ_view_t view, uint32_t at)
+static inline uint8_t fzn_search_local_ask_after_key_len_get_from(situ_view_t view, uint32_t at)
 {
 	return situ_in_bounds(view, at, 1u)
 		? (uint8_t)((uint8_t)((situ_base(view) + at))[0u])
@@ -857,42 +828,42 @@ static inline uint8_t fzn_search_local_local_ask_after_key_len_get_from(situ_vie
  * the length of what precedes this field; see the INVALIDATION
  * note on this struct's view accessor.
  */
-static inline uint8_t *fzn_search_local_local_ask_after_key_len_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_ask_after_key_len_ptr(situ_view_t view)
 {
-	return (uint8_t *)(situ_base(view) + fzn_search_local_local_ask_after_key_len_offset(view));
+	return (uint8_t *)(situ_base(view) + fzn_search_local_ask_after_key_len_offset(view));
 }
 /* No plain setter: `after_key_len` decides where later members
  * start, so writing it must invalidate outstanding views. Use
- * fzn_search_local_local_ask_after_key_len_set(),
+ * fzn_search_local_ask_after_key_len_set(),
  * which takes the message and bumps its generation. */
 
-/** local_ask.after_key : u8  at Dynamic
+/** ask.after_key : u8  at Dynamic
  * size=Bounded(0, 48) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
  */
-static inline uint32_t fzn_search_local_local_ask_after_key_offset(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_after_key_offset(situ_view_t view)
 {
-	uint32_t offset = 34u;
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	uint32_t offset = 1u;
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
-	offset = situ_advance_u32(offset, (fzn_search_local_local_ask_stores_span_from(view, offset)), view.limit);
+	offset = situ_advance_u32(offset, (fzn_search_local_ask_stores_span_from(view, offset)), view.limit);
 	offset = situ_advance_u32(offset, (31u), view.limit);
-	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_local_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
+	offset = situ_advance_u32(offset, ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0)))), view.limit);
 	offset = situ_advance_u32(offset, (1u), view.limit);
 
 	return offset;
 }
-static inline uint32_t fzn_search_local_local_ask_after_key_len(situ_view_t view)
+static inline uint32_t fzn_search_local_ask_after_key_len(situ_view_t view)
 {
-	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_local_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0))),
-		situ_remaining_u32(view.limit, fzn_search_local_local_ask_after_key_offset(view)));
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0))),
+		situ_remaining_u32(view.limit, fzn_search_local_ask_after_key_offset(view)));
 }
 /** The returned pointer is invalidated by any write that changes
  * the length of what precedes this field; see the INVALIDATION
  * note on this struct's view accessor.
  */
-static inline uint8_t *fzn_search_local_local_ask_after_key_ptr(situ_view_t view)
+static inline uint8_t *fzn_search_local_ask_after_key_ptr(situ_view_t view)
 {
-	return situ_base(view) + fzn_search_local_local_ask_after_key_offset(view);
+	return situ_base(view) + fzn_search_local_ask_after_key_offset(view);
 }
 
 /* No setter: mutate is Shifting.
@@ -900,9 +871,9 @@ static inline uint8_t *fzn_search_local_local_ask_after_key_ptr(situ_view_t view
  *              writing a different length moves every member after this one
  *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
  */
-/** Where the fields `local_ask`'s lengths read are, in one pass.
+/** Where the fields `ask`'s lengths read are, in one pass.
  */
-static inline uint32_t fzn_search_local_local_ask_walked(situ_view_t view, uint32_t index)
+static inline uint32_t fzn_search_local_ask_walked(situ_view_t view, uint32_t index)
 {
 	uint32_t marks[3];
 	uint32_t at = 0u;
@@ -910,11 +881,11 @@ static inline uint32_t fzn_search_local_local_ask_walked(situ_view_t view, uint3
 	marks[0] = view.limit;
 	marks[1] = view.limit;
 	marks[2] = view.limit;
-	at = situ_advance_u32(at, 34u, view.limit);
-	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u]))), view.limit);
+	at = situ_advance_u32(at, 1u, view.limit);
+	at = situ_advance_u32(at, ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]))), view.limit);
 	marks[0] = at;
 	at = situ_advance_u32(at, 1u, view.limit);
-	at = situ_advance_u32(at, (fzn_search_local_local_ask_stores_span_from_marked(view, marks, at)), view.limit);
+	at = situ_advance_u32(at, (fzn_search_local_ask_stores_span_from_marked(view, marks, at)), view.limit);
 	at = situ_advance_u32(at, 30u, view.limit);
 	marks[1] = at;
 	at = situ_advance_u32(at, 1u, view.limit);
@@ -924,27 +895,7 @@ static inline uint32_t fzn_search_local_local_ask_walked(situ_view_t view, uint3
 }
 
 
-/** How many bytes one `local_ask` occupies at this view's base.
- *
- * A run of these is walked rather than indexed, and the walk needs
- * to know where each one ends. For a struct whose own members are
- * delimited that is a scan, not a constant.
- */
-static inline uint32_t fzn_search_local_local_ask_extent(situ_view_t view)
-{
-	if (!situ_in_bounds(view, 0u, 67u)) {
-		return 67u;	/* the lengths below are not here to read */
-	}
-
-	uint32_t extent = 67u;
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[33u])));
-	extent = extent + (fzn_search_local_local_ask_stores_span(view));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_local_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0))));
-	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_local_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0))));
-	return extent;
-}
-
-/** How many bytes a whole `local_ask` needs, given `have` of them.
+/** How many bytes a whole `ask` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
  * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
@@ -953,10 +904,10 @@ static inline uint32_t fzn_search_local_local_ask_extent(situ_view_t view)
  * length fields are read only once the bytes holding them have arrived,
  * which is the case every hand-written version of this gets wrong.
  */
-static inline situ_err_t fzn_search_local_local_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
+static inline situ_err_t fzn_search_local_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
 {
-	uint32_t at = 67u;
-	uint32_t pos = 34u;
+	uint32_t at = 34u;
+	uint32_t pos = 1u;
 	situ_view_t view;
 
 	/* A view over what has arrived, so every length expression below
@@ -966,28 +917,28 @@ static inline situ_err_t fzn_search_local_local_ask_required(const uint8_t *data
 	view.generation = 0u;
 	view.owner      = NULL;
 
-	/* local_ask.words: reading its length means reading bytes that
+	/* ask.words: reading its length means reading bytes that
 	 * have to be here first. */
-	if (have < 34u) {
+	if (have < 1u) {
 		*need = at;
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[33u]));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64((uint8_t)(situ_base(view))[0u]));
 
 		at = situ_need_u32(at, len);
 		pos = situ_need_u32(pos, len);
 	}
 	pos = situ_need_u32(pos, 1u);
 
-	/* local_ask.stores: reading its length means reading bytes that
+	/* ask.stores: reading its length means reading bytes that
 	 * have to be here first. */
 	if (have < pos) {
 		*need = at;
 		return SITU_ERR_TRUNCATED;
 	}
 
-	/* local_ask.stores: a run of `store`, framed one element at
+	/* ask.stores: a run of `store`, framed one element at
 	 * a time. The walk the accessors use stops at the end of the bytes
 	 * as readily as at the end of the run; this asks each element whether
 	 * it is whole, which is the same question one level down. */
@@ -997,7 +948,7 @@ static inline situ_err_t fzn_search_local_local_ask_required(const uint8_t *data
 			uint32_t   part;
 			situ_err_t e;
 
-			if (n >= situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_local_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_store_count_offset(view)))[0u]) : (uint64_t)0)))) {
+			if (n >= situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_store_count_offset(view)))[0u]) : (uint64_t)0)))) {
 				break;
 			}
 			if (have < pos) {
@@ -1005,7 +956,7 @@ static inline situ_err_t fzn_search_local_local_ask_required(const uint8_t *data
 				 * is read: each element still owed is at least its
 				 * floor (26.946). */
 				*need = situ_need_u32(at,
-				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_local_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_store_count_offset(view)))[0u]) : (uint64_t)0))) - n, 1u));
+				        situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_store_count_offset(view)))[0u]) : (uint64_t)0))) - n, 1u));
 				return SITU_ERR_TRUNCATED;
 			}
 			e = fzn_search_local_store_required(data + pos, situ_remaining_u32(have, pos), &part);
@@ -1019,7 +970,7 @@ static inline situ_err_t fzn_search_local_local_ask_required(const uint8_t *data
 				 * the constraints and made this total fall as bytes arrived
 				 * (26.724). */
 				*need = situ_need_u32(at, part);
-				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_local_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_store_count_offset(view)))[0u]) : (uint64_t)0))) - n - 1u, 1u));
+				*need = situ_need_u32(*need, situ_need_mul_u32(situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_store_count_offset(view)))[0u]) : (uint64_t)0))) - n - 1u, 1u));
 				return SITU_ERR_TRUNCATED;
 			}
 			at  = situ_need_u32(at, part);
@@ -1029,28 +980,28 @@ static inline situ_err_t fzn_search_local_local_ask_required(const uint8_t *data
 	}
 	pos = situ_need_u32(pos, 31u);
 
-	/* local_ask.after_store: reading its length means reading bytes that
+	/* ask.after_store: reading its length means reading bytes that
 	 * have to be here first. */
 	if (have < pos) {
 		*need = at;
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_local_local_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_local_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0)));
 
 		at = situ_need_u32(at, len);
 		pos = situ_need_u32(pos, len);
 	}
 	pos = situ_need_u32(pos, 1u);
 
-	/* local_ask.after_key: reading its length means reading bytes that
+	/* ask.after_key: reading its length means reading bytes that
 	 * have to be here first. */
 	if (have < pos) {
 		*need = at;
 		return SITU_ERR_TRUNCATED;
 	}
 	{
-		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_local_local_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_local_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0)));
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(((situ_in_bounds(view, fzn_search_local_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0)));
 
 		at = situ_need_u32(at, len);
 	}
@@ -1064,35 +1015,385 @@ static inline situ_err_t fzn_search_local_local_ask_required(const uint8_t *data
  * views. In a SITU_CHECKED build a stale view is then caught on
  * use; in a release build the check compiles out.
  */
-static inline void fzn_search_local_local_ask_after_key_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+static inline void fzn_search_local_ask_after_key_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
-	if (!(situ_in_bounds(view, fzn_search_local_local_ask_after_key_len_offset(view), 1u))) {
+	if (!(situ_in_bounds(view, fzn_search_local_ask_after_key_len_offset(view), 1u))) {
 		return;
 	}
-	((situ_base(view) + fzn_search_local_local_ask_after_key_len_offset(view)))[0u] = (uint8_t)value;
+	((situ_base(view) + fzn_search_local_ask_after_key_len_offset(view)))[0u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
-static inline void fzn_search_local_local_ask_after_store_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+static inline void fzn_search_local_ask_after_store_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
-	if (!(situ_in_bounds(view, fzn_search_local_local_ask_after_store_len_offset(view), 1u))) {
+	if (!(situ_in_bounds(view, fzn_search_local_ask_after_store_len_offset(view), 1u))) {
 		return;
 	}
-	((situ_base(view) + fzn_search_local_local_ask_after_store_len_offset(view)))[0u] = (uint8_t)value;
+	((situ_base(view) + fzn_search_local_ask_after_store_len_offset(view)))[0u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
-static inline void fzn_search_local_local_ask_store_count_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+static inline void fzn_search_local_ask_store_count_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
-	if (!(situ_in_bounds(view, fzn_search_local_local_ask_store_count_offset(view), 1u))) {
+	if (!(situ_in_bounds(view, fzn_search_local_ask_store_count_offset(view), 1u))) {
 		return;
 	}
-	((situ_base(view) + fzn_search_local_local_ask_store_count_offset(view)))[0u] = (uint8_t)value;
+	((situ_base(view) + fzn_search_local_ask_store_count_offset(view)))[0u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
-static inline void fzn_search_local_local_ask_words_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
+static inline void fzn_search_local_ask_words_len_set(situ_msg_t *msg, situ_view_t view, uint8_t value)
 {
-	(situ_base(view))[33u] = (uint8_t)value;
+	(situ_base(view))[0u] = (uint8_t)value;
 	situ_msg_touch(msg);
 }
+
+/** `ask` arrives by `import`, so its checks are
+ * `static inline` here rather than external in the `.c`:
+ * another schema importing the same file defines the same
+ * names, and those definitions need not agree.
+ */
+#define FZN_SEARCH_LOCAL_ASK_WORDS_LEN_CHECK 0u
+#define FZN_SEARCH_LOCAL_ASK_WORDS_CHECK 1u
+#define FZN_SEARCH_LOCAL_ASK_STORE_COUNT_CHECK 2u
+#define FZN_SEARCH_LOCAL_ASK_STORES_CHECK 3u
+#define FZN_SEARCH_LOCAL_ASK_SINCE_MS_CHECK 4u
+#define FZN_SEARCH_LOCAL_ASK_UNTIL_MS_CHECK 5u
+#define FZN_SEARCH_LOCAL_ASK_K_CHECK 6u
+#define FZN_SEARCH_LOCAL_ASK_HAS_AFTER_CHECK 7u
+#define FZN_SEARCH_LOCAL_ASK_AFTER_SCORE_CHECK 8u
+#define FZN_SEARCH_LOCAL_ASK_AFTER_TIME_MS_CHECK 9u
+#define FZN_SEARCH_LOCAL_ASK_AFTER_STORE_LEN_CHECK 10u
+#define FZN_SEARCH_LOCAL_ASK_AFTER_STORE_CHECK 11u
+#define FZN_SEARCH_LOCAL_ASK_AFTER_KEY_LEN_CHECK 12u
+#define FZN_SEARCH_LOCAL_ASK_AFTER_KEY_CHECK 13u
+static inline situ_err_t fzn_search_local_ask_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_SEARCH_LOCAL_ASK_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.words_len [min = 1] */
+	if (fzn_search_local_ask_words_len_get(view) < 1) {
+		*which = FZN_SEARCH_LOCAL_ASK_WORDS_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.words: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 1u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u])))) {
+		*which = FZN_SEARCH_LOCAL_ASK_WORDS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.store_count: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_local_ask_store_count_offset(view), 1u)) {
+		*which = FZN_SEARCH_LOCAL_ASK_STORE_COUNT_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.store_count [max = 8] */
+	if (fzn_search_local_ask_store_count_get(view) > 8) {
+		*which = FZN_SEARCH_LOCAL_ASK_STORE_COUNT_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.stores: every element the count declares is in the
+	 * frame. No span check can see this -- a span is how far the run
+	 * REACHED, and a walk that gave up early reaches less (26.676). */
+	if (!fzn_search_local_ask_stores_fits(view)) {
+		*which = FZN_SEARCH_LOCAL_ASK_STORES_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.stores: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_search_local_ask_stores_offset(view)) < (fzn_search_local_ask_stores_span(view))) {
+		*which = FZN_SEARCH_LOCAL_ASK_STORES_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.stores: each `store` the run holds, through its
+	 * own validator. A refusal names the run, or the variant it
+	 * is an arm of (26.789, 26.790). */
+	{
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_store_count_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_store_count_offset(view)))[0u]) : (uint64_t)0)));
+		uint32_t at = fzn_search_local_ask_stores_offset(view);
+		uint32_t n  = 0u;
+
+		while (n < total && at < view.limit) {
+			situ_view_t element;
+			uint32_t    size;
+
+			if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+				break;
+			}
+			size = fzn_search_local_store_extent(element);
+			if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+				break;
+			}
+			{
+				situ_view_t one;
+				situ_err_t  err = situ_view_sub(view, at, size, &one);
+
+				if (err == SITU_OK) {
+					err = fzn_search_local_store_check(one, NULL);
+				}
+				if (err != SITU_OK) {
+					*which = FZN_SEARCH_LOCAL_ASK_STORES_CHECK;
+					return err;
+				}
+			}
+			at = at + size;
+			n  = n + 1u;
+		}
+		(void)n;
+	}
+	/* ask.since_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_local_ask_since_ms_offset(view), 8u)) {
+		*which = FZN_SEARCH_LOCAL_ASK_SINCE_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.until_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_local_ask_until_ms_offset(view), 8u)) {
+		*which = FZN_SEARCH_LOCAL_ASK_UNTIL_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.k: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_local_ask_k_offset(view), 1u)) {
+		*which = FZN_SEARCH_LOCAL_ASK_K_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.k [min = 1] */
+	if (fzn_search_local_ask_k_get(view) < 1) {
+		*which = FZN_SEARCH_LOCAL_ASK_K_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.k [max = 50] */
+	if (fzn_search_local_ask_k_get(view) > 50) {
+		*which = FZN_SEARCH_LOCAL_ASK_K_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.has_after: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_local_ask_has_after_offset(view), 1u)) {
+		*which = FZN_SEARCH_LOCAL_ASK_HAS_AFTER_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.has_after [max = 1] */
+	if (fzn_search_local_ask_has_after_get(view) > 1) {
+		*which = FZN_SEARCH_LOCAL_ASK_HAS_AFTER_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.after_score: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_local_ask_after_score_offset(view), 4u)) {
+		*which = FZN_SEARCH_LOCAL_ASK_AFTER_SCORE_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_time_ms: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_local_ask_after_time_ms_offset(view), 8u)) {
+		*which = FZN_SEARCH_LOCAL_ASK_AFTER_TIME_MS_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_store_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_local_ask_after_store_len_offset(view), 1u)) {
+		*which = FZN_SEARCH_LOCAL_ASK_AFTER_STORE_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_store_len [max = 16] */
+	if (fzn_search_local_ask_after_store_len_get(view) > 16) {
+		*which = FZN_SEARCH_LOCAL_ASK_AFTER_STORE_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.after_store: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_search_local_ask_after_store_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_after_store_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_after_store_len_offset(view)))[0u]) : (uint64_t)0))))) {
+		*which = FZN_SEARCH_LOCAL_ASK_AFTER_STORE_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_key_len: its offset is a sum of lengths the message
+	 * chose, so the frame is not known to contain it. The accessor
+	 * answers safely; this is where the message is called malformed. */
+	if (!situ_in_bounds(view, fzn_search_local_ask_after_key_len_offset(view), 1u)) {
+		*which = FZN_SEARCH_LOCAL_ASK_AFTER_KEY_LEN_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	/* ask.after_key_len [max = 48] */
+	if (fzn_search_local_ask_after_key_len_get(view) > 48) {
+		*which = FZN_SEARCH_LOCAL_ASK_AFTER_KEY_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* ask.after_key: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, fzn_search_local_ask_after_key_offset(view)) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(((situ_in_bounds(view, fzn_search_local_ask_after_key_len_offset(view), 1u)) ? (uint64_t)((uint8_t)((situ_base(view) + fzn_search_local_ask_after_key_len_offset(view)))[0u]) : (uint64_t)0))))) {
+		*which = FZN_SEARCH_LOCAL_ASK_AFTER_KEY_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+static inline situ_err_t fzn_search_local_ask_validate(situ_view_t view)
+{
+	return fzn_search_local_ask_check(view, NULL);
+}
+
+
+/* ---- struct nothing ---- */
+
+#define FZN_SEARCH_LOCAL_NOTHING_SIZE_FIXED 0u
+#define FZN_SEARCH_LOCAL_NOTHING_SIZE_MIN   0u
+#define FZN_SEARCH_LOCAL_NOTHING_SIZE_MAX   0u
+
+/* INVALIDATION: nothing invalidates a nothing view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This is the one bounds check; the field
+ * accessors below are constant offsets from the view base.
+ */
+static inline situ_err_t fzn_search_local_nothing_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
+{
+	return situ_view_at(msg, offset, FZN_SEARCH_LOCAL_NOTHING_SIZE_FIXED, out);
+}
+
+/** How many bytes a whole `nothing` needs, given `have` of them.
+ *
+ * This one has a single size, so the answer never depends on the bytes.
+ * It is generated anyway: a caller framing a stream should not have to
+ * write one loop for the fixed messages and another for the rest, and
+ * a struct that gains a length field later keeps the same call.
+ */
+static inline situ_err_t fzn_search_local_nothing_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	(void)data;
+	*need = FZN_SEARCH_LOCAL_NOTHING_SIZE_FIXED;
+	(void)have;
+	return SITU_OK;
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_search_local_nothing_validate(situ_view_t view);
+
+/* ---- struct local_ask ---- */
+
+#define FZN_SEARCH_LOCAL_LOCAL_ASK_SIZE_MIN   33u
+#define FZN_SEARCH_LOCAL_LOCAL_ASK_SIZE_MAX   522u
+
+/* INVALIDATION: nothing invalidates a local_ask view.
+ * Every member has a fixed size, so no write can move another.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_search_local_local_ask_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_SEARCH_LOCAL_LOCAL_ASK_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+#define FZN_SEARCH_LOCAL_LOCAL_ASK_HAS_WITH_VALUE_MAX 1u
+
+/** local_ask.has_with : u8  at AbsoluteStatic(0x00)
+ * size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint8_t fzn_search_local_local_ask_has_with_get(situ_view_t view)
+{
+	return (uint8_t)((uint8_t)(situ_base(view))[0u]);
+}
+static inline uint8_t *fzn_search_local_local_ask_has_with_ptr(situ_view_t view)
+{
+	return (uint8_t *)(situ_base(view) + 0u);
+}
+static inline void fzn_search_local_local_ask_has_with_set(situ_view_t view, uint8_t value)
+{
+	(situ_base(view))[0u] = (uint8_t)value;
+}
+
+/** local_ask.with : u8  at AbsoluteStatic(0x01)
+ * size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
+ */
+#define FZN_SEARCH_LOCAL_LOCAL_ASK_WITH_COUNT 32u
+static inline uint8_t *fzn_search_local_local_ask_with_ptr(situ_view_t view)
+{
+	return situ_base(view) + 1u;
+}
+
+/** local_ask.ask : u8  at AbsoluteStatic(0x21)
+ * size=Bounded(0, 489) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_search_local_local_ask_ask_len(situ_view_t view)
+{
+	return situ_min_u32(situ_remaining_u32(view.limit, 33u),
+		situ_remaining_u32(view.limit, 33u));
+}
+static inline uint8_t *fzn_search_local_local_ask_ask_ptr(situ_view_t view)
+{
+	return situ_base(view) + 33u;
+}
+
+/** local_ask.ask holds a `ask`: a view of exactly these
+ * bytes, so `[remaining]` inside it ends where they do.
+ */
+static inline situ_err_t fzn_search_local_local_ask_ask_view(situ_view_t view, situ_view_t *out)
+{
+	return situ_view_sub(view, 33u, fzn_search_local_local_ask_ask_len(view), out);
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `local_ask` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_search_local_local_ask_extent(situ_view_t view)
+{
+	uint32_t extent = 0u;
+	extent = extent + (view.limit);
+	return extent;
+}
+
+/* No `local_ask_required`: it ends where the view ends, so how long one is is the transport's answer rather than the message's.
+ * Framing such a message is the layer below's job -- situ can say what
+ * the bytes mean and not when they have all arrived. */
 
 /** Check every constraint this schema states: [must_eq], [max],
  * [min], and the reserved-bit policy. Called on parse under
@@ -1109,20 +1410,7 @@ situ_err_t fzn_search_local_local_ask_validate(situ_view_t view);
  */
 situ_err_t fzn_search_local_local_ask_check(situ_view_t view, uint32_t *which);
 #define FZN_SEARCH_LOCAL_LOCAL_ASK_HAS_WITH_CHECK 0u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_WORDS_LEN_CHECK 1u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_WORDS_CHECK 2u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_STORE_COUNT_CHECK 3u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_STORES_CHECK 4u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_SINCE_MS_CHECK 5u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_UNTIL_MS_CHECK 6u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_K_CHECK 7u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_HAS_AFTER_CHECK 8u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_AFTER_SCORE_CHECK 9u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_AFTER_TIME_MS_CHECK 10u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_AFTER_STORE_LEN_CHECK 11u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_AFTER_STORE_CHECK 12u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_AFTER_KEY_LEN_CHECK 13u
-#define FZN_SEARCH_LOCAL_LOCAL_ASK_AFTER_KEY_CHECK 14u
+#define FZN_SEARCH_LOCAL_LOCAL_ASK_ASK_CHECK 1u
 
 /* ---- struct page ---- */
 
@@ -1857,22 +2145,6 @@ static inline situ_err_t fzn_search_local_message_body_list_view(situ_view_t vie
 
 #define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_HAS_WITH_VALUE_MAX 1u
 
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_WORDS_LEN_VALUE_MIN 1u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_STORE_COUNT_VALUE_MAX 8u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_STORES_LEN_VALUE_MIN 1u
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_STORES_LEN_VALUE_MAX 16u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_K_VALUE_MIN 1u
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_K_VALUE_MAX 50u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_HAS_AFTER_VALUE_MAX 1u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_AFTER_STORE_LEN_VALUE_MAX 16u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_LIST_AFTER_KEY_LEN_VALUE_MAX 48u
-
 /* message.body.fetch, present when the discriminant selects `op.fetch`.
  *
  * Reading another arm's bytes as this one's stays inside the view
@@ -1906,22 +2178,6 @@ static inline situ_err_t fzn_search_local_message_body_fetch_view(situ_view_t vi
 }
 
 #define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_HAS_WITH_VALUE_MAX 1u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_WORDS_LEN_VALUE_MIN 1u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_STORE_COUNT_VALUE_MAX 8u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_STORES_LEN_VALUE_MIN 1u
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_STORES_LEN_VALUE_MAX 16u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_K_VALUE_MIN 1u
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_K_VALUE_MAX 50u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_HAS_AFTER_VALUE_MAX 1u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_AFTER_STORE_LEN_VALUE_MAX 16u
-
-#define FZN_SEARCH_LOCAL_MESSAGE_BODY_FETCH_AFTER_KEY_LEN_VALUE_MAX 48u
 
 /** message.body.get, present when the discriminant selects `op.get`.
  *
@@ -2012,93 +2268,9 @@ static inline situ_err_t fzn_search_local_message_body_fetched_view(situ_view_t 
 	return situ_view_sub(view, 2u, FZN_SEARCH_LOCAL_FETCHED_SIZE_FIXED, out);
 }
 
-/** How many bytes a whole `message` needs, given `have` of them.
- *
- * SITU_OK            a complete one is present; *need is its length
- * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
- *
- * For framing a stream: read, ask, read the difference, ask again. The
- * length fields are read only once the bytes holding them have arrived,
- * which is the case every hand-written version of this gets wrong.
- */
-static inline situ_err_t fzn_search_local_message_required(const uint8_t *data, uint32_t have, uint32_t *need)
-{
-	uint32_t at = 2u;
-	uint32_t pos = 2u;
-	situ_view_t view;
-
-	/* A view over what has arrived, so every length expression below
-	 * reads through the same bounds the accessors do. */
-	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
-	view.limit      = have;
-	view.generation = 0u;
-	view.owner      = NULL;
-
-	/* message.body: reading its length means reading bytes that
-	 * have to be here first. */
-	if (have < 2u) {
-		*need = at;
-		return SITU_ERR_TRUNCATED;
-	}
-
-	/* message.body: the arm the discriminant selects frames
-	 * itself. Its EXTENT shrinks when the bytes run out, so
-	 * adding that reported a complete message -- reported by
-	 * bbq-predictor against a variant arm (26.684). */
-	{
-		uint32_t   part = 0u;
-		situ_err_t e = SITU_OK;
-
-		if (fzn_search_local_message_op_get(view) == 128u) {
-			e = fzn_search_local_local_ask_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		} else if (fzn_search_local_message_op_get(view) == 129u) {
-			e = fzn_search_local_local_ask_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		} else if (fzn_search_local_message_op_get(view) == 130u) {
-			e = fzn_search_local_nothing_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		} else if (fzn_search_local_message_op_get(view) == 131u) {
-			e = fzn_search_local_page_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		} else if (fzn_search_local_message_op_get(view) == 132u) {
-			e = fzn_search_local_hit_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		} else if (fzn_search_local_message_op_get(view) == 133u) {
-			e = fzn_search_local_fetched_required(data + pos,
-			                situ_remaining_u32(have, pos), &part);
-			if (e != SITU_OK) {
-				*need = situ_need_u32(at, part);
-				return SITU_ERR_TRUNCATED;
-			}
-		}
-		(void)e;
-		at = situ_need_u32(at, part);
-	}
-
-	*need = at;
-	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
-}
+/* No `message_required`: one of its members has no length this can compute.
+ * Framing such a message is the layer below's job -- situ can say what
+ * the bytes mean and not when they have all arrived. */
 
 /** Writing any of these changes where later members start, so each
  * one bumps the message generation and invalidates outstanding

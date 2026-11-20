@@ -83,7 +83,7 @@ static inline situ_err_t fzn_search_local_store_edit_decode(const situ_msg_t *ms
 	return SITU_OK;
 }
 
-/* `local_ask`, decoded into storage you own.
+/* `ask`, decoded into storage you own.
  *
  * Call `backing` for how many bytes the variable members need, then
  * `decode` with that much storage. Both take the length you have,
@@ -92,7 +92,6 @@ static inline situ_err_t fzn_search_local_store_edit_decode(const situ_msg_t *ms
  * the backing is yours and outlives it, which is the whole trade.
  */
 typedef struct {
-	uint8_t has_with;
 	uint8_t words_len;
 	const uint8_t *words;	/* into your backing */
 	uint32_t words_len;
@@ -109,6 +108,92 @@ typedef struct {
 	uint8_t after_key_len;
 	const uint8_t *after_key;	/* into your backing */
 	uint32_t after_key_len;
+} fzn_search_local_ask_edit_t;
+
+/* How much backing a whole one needs, from the bytes. */
+static inline situ_err_t fzn_search_local_ask_edit_backing(const situ_msg_t *msg,
+                                        uint32_t len, uint32_t *need)
+{
+	situ_view_t view;
+	const situ_err_t err = fzn_search_local_ask_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	*need = 0u;
+	*need += fzn_search_local_ask_words_len(view);
+	*need += fzn_search_local_ask_after_store_len(view);
+	*need += fzn_search_local_ask_after_key_len(view);
+	return SITU_OK;
+}
+
+/* Copy into your backing. SITU_ERR_BOUNDS where it does not fit,
+ * which `backing` above answers before you have to guess. */
+static inline situ_err_t fzn_search_local_ask_edit_decode(const situ_msg_t *msg,
+                                       uint32_t len,
+                                       uint8_t *backing, uint32_t cap,
+                                       fzn_search_local_ask_edit_t *out)
+{
+	situ_view_t view;
+	situ_err_t err = fzn_search_local_ask_view(msg, 0u, len, &view);
+	if (err != SITU_OK) {
+		return err;
+	}
+
+	uint32_t need = 0u;
+	err = fzn_search_local_ask_edit_backing(msg, len, &need);
+	if (err != SITU_OK) {
+		return err;
+	}
+	if (need > cap) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	uint32_t at = 0u;
+	out->words_len = fzn_search_local_ask_words_len_get(view);
+	out->words_len = fzn_search_local_ask_words_len(view);
+	out->words     = backing + at;
+	for (uint32_t i = 0u; i < out->words_len; i++) {
+		backing[at + i] = fzn_search_local_ask_words_ptr(view)[i];
+	}
+	at += out->words_len;
+	out->store_count = fzn_search_local_ask_store_count_get(view);
+	out->since_ms = fzn_search_local_ask_since_ms_get(view);
+	out->until_ms = fzn_search_local_ask_until_ms_get(view);
+	out->k = fzn_search_local_ask_k_get(view);
+	out->has_after = fzn_search_local_ask_has_after_get(view);
+	out->after_score = fzn_search_local_ask_after_score_get(view);
+	out->after_time_ms = fzn_search_local_ask_after_time_ms_get(view);
+	out->after_store_len = fzn_search_local_ask_after_store_len_get(view);
+	out->after_store_len = fzn_search_local_ask_after_store_len(view);
+	out->after_store     = backing + at;
+	for (uint32_t i = 0u; i < out->after_store_len; i++) {
+		backing[at + i] = fzn_search_local_ask_after_store_ptr(view)[i];
+	}
+	at += out->after_store_len;
+	out->after_key_len = fzn_search_local_ask_after_key_len_get(view);
+	out->after_key_len = fzn_search_local_ask_after_key_len(view);
+	out->after_key     = backing + at;
+	for (uint32_t i = 0u; i < out->after_key_len; i++) {
+		backing[at + i] = fzn_search_local_ask_after_key_ptr(view)[i];
+	}
+	at += out->after_key_len;
+	(void)at;
+	return SITU_OK;
+}
+
+/* `local_ask`, decoded into storage you own.
+ *
+ * Call `backing` for how many bytes the variable members need, then
+ * `decode` with that much storage. Both take the length you have,
+ * because this struct's extent is decided by its own bytes. The
+ * message may go afterwards;
+ * the backing is yours and outlives it, which is the whole trade.
+ */
+typedef struct {
+	uint8_t has_with;
+	const uint8_t *ask;	/* into your backing */
+	uint32_t ask_len;
 } fzn_search_local_local_ask_edit_t;
 
 /* How much backing a whole one needs, from the bytes. */
@@ -122,9 +207,7 @@ static inline situ_err_t fzn_search_local_local_ask_edit_backing(const situ_msg_
 	}
 
 	*need = 0u;
-	*need += fzn_search_local_local_ask_words_len(view);
-	*need += fzn_search_local_local_ask_after_store_len(view);
-	*need += fzn_search_local_local_ask_after_key_len(view);
+	*need += fzn_search_local_local_ask_ask_len(view);
 	return SITU_OK;
 }
 
@@ -152,34 +235,12 @@ static inline situ_err_t fzn_search_local_local_ask_edit_decode(const situ_msg_t
 
 	uint32_t at = 0u;
 	out->has_with = fzn_search_local_local_ask_has_with_get(view);
-	out->words_len = fzn_search_local_local_ask_words_len_get(view);
-	out->words_len = fzn_search_local_local_ask_words_len(view);
-	out->words     = backing + at;
-	for (uint32_t i = 0u; i < out->words_len; i++) {
-		backing[at + i] = fzn_search_local_local_ask_words_ptr(view)[i];
+	out->ask_len = fzn_search_local_local_ask_ask_len(view);
+	out->ask     = backing + at;
+	for (uint32_t i = 0u; i < out->ask_len; i++) {
+		backing[at + i] = fzn_search_local_local_ask_ask_ptr(view)[i];
 	}
-	at += out->words_len;
-	out->store_count = fzn_search_local_local_ask_store_count_get(view);
-	out->since_ms = fzn_search_local_local_ask_since_ms_get(view);
-	out->until_ms = fzn_search_local_local_ask_until_ms_get(view);
-	out->k = fzn_search_local_local_ask_k_get(view);
-	out->has_after = fzn_search_local_local_ask_has_after_get(view);
-	out->after_score = fzn_search_local_local_ask_after_score_get(view);
-	out->after_time_ms = fzn_search_local_local_ask_after_time_ms_get(view);
-	out->after_store_len = fzn_search_local_local_ask_after_store_len_get(view);
-	out->after_store_len = fzn_search_local_local_ask_after_store_len(view);
-	out->after_store     = backing + at;
-	for (uint32_t i = 0u; i < out->after_store_len; i++) {
-		backing[at + i] = fzn_search_local_local_ask_after_store_ptr(view)[i];
-	}
-	at += out->after_store_len;
-	out->after_key_len = fzn_search_local_local_ask_after_key_len_get(view);
-	out->after_key_len = fzn_search_local_local_ask_after_key_len(view);
-	out->after_key     = backing + at;
-	for (uint32_t i = 0u; i < out->after_key_len; i++) {
-		backing[at + i] = fzn_search_local_local_ask_after_key_ptr(view)[i];
-	}
-	at += out->after_key_len;
+	at += out->ask_len;
 	(void)at;
 	return SITU_OK;
 }

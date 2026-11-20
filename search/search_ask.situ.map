@@ -1,0 +1,35 @@
+# situ capability map v1
+# schema: search_ask.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct ask size=35..489 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  ask.words_len                          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  ask.words                              offset=AbsoluteStatic(0x01) size=Bounded(1, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  ask.store_count                        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.stores                             offset=Dynamic size=Bounded(0, 136) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  ask.stores[]                           offset=FrameStatic(0x00) size=Bounded(2, 17) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=FrameStable
+  ask.stores[].len                       offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord address=FrameStable
+  ask.stores[].name                      offset=FrameStatic(0x01) size=Bounded(1, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable
+  ask.since_ms                           offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  ask.until_ms                           offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  ask.k                                  offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.has_after                          offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.after_score                        offset=Dynamic size=Fixed(4) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  ask.after_time_ms                      offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  ask.after_store_len                    offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.after_store                        offset=Dynamic size=Bounded(0, 16) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  ask.after_key_len                      offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  ask.after_key                          offset=Dynamic size=Bounded(0, 48) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct store size=2..17 mutate=Shifting
+  store.len                              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  store.name                             offset=AbsoluteStatic(0x01) size=Bounded(1, 16) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting

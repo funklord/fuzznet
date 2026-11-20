@@ -1,0 +1,33 @@
+// What a search asks, shared by the two legs that carry it: one host
+// asking another (`search_wire.situ`) and a client asking its host
+// (`node/search_local.situ`, which holds these bytes whole after its own
+// fields). project.md secs 1287 and 1316.
+
+target buffer;
+endian big;
+
+// A STORE'S NAME, as `search/search.h` bounds it.
+struct store {
+	u8   len [min = 1, max = 16];
+	u8   name[len];
+}
+
+// WORDS as typed. STORES those asked, none for every one. SINCE and UNTIL
+// milliseconds, 0 for open. K the most hits. AFTER the last hit of the page
+// before: its score, time, store and key, when HAS_AFTER.
+struct ask {
+	u8    words_len [min = 1];
+	u8    words[words_len];
+	u8    store_count [max = 8];
+	store stores[store_count];
+	u64   since_ms;
+	u64   until_ms;
+	u8    k [min = 1, max = 50];
+	u8    has_after [max = 1];
+	u32   after_score;
+	u64   after_time_ms;
+	u8    after_store_len [max = 16];
+	u8    after_store[after_store_len];
+	u8    after_key_len [max = 48];
+	u8    after_key[after_key_len];
+}

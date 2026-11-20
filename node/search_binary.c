@@ -60,6 +60,7 @@ int fzn_node_search_binary(fzn_node_search_t *s, const uint8_t *msg, size_t len,
 	situ_msg_t m;
 	situ_view_t v, b;
 	size_t count = 0, asked = 0, answered = 0, late = 0;
+	uint32_t ask_len;
 	int more = 0;
 	uint8_t op;
 	const uint8_t *with = NULL;
@@ -87,20 +88,22 @@ int fzn_node_search_binary(fzn_node_search_t *s, const uint8_t *msg, size_t len,
 		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a search request");
 	if (fzn_search_local_local_ask_has_with_get(b))
 		with = fzn_search_local_local_ask_with_ptr(b);
-	/* THE ASK, as one host asks another: the local ask past its WITH is
-	 * that ask byte for byte (node/search_local.situ). */
-	if (len < 2u + 33u)
+	/* THE ASK, as one host asks another: held whole past WITH and already
+	 * checked as `search/search_ask.situ` lays it out (situ's `holds`, sec
+	 * 1316), so it is handed on as its bytes. */
+	ask_len = fzn_search_local_local_ask_ask_len(b);
+	if (!ask_len || 2u + (size_t)ask_len > sizeof(ask))
 		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a search request");
 	ask[0] = FZN_CMD_SEARCH;
 	ask[1] = 1u; /* search_wire.situ's ask */
-	memcpy(ask + 2, msg + 2u + 33u, len - 2u - 33u);
+	memcpy(ask + 2, fzn_search_local_local_ask_ask_ptr(b), ask_len);
 	if (with && !fzn_node_search_is_contact(s, with))
 		return status(put, put_ctx, FZN_STATUS_ERROR, "no such contact here");
 	if (op == FZN_SEARCH_LOCAL_OP_FETCH) {
 		uint8_t body[4], out[16];
 		uint32_t body_len = 0, n = 0;
 
-		if (!fzn_node_search_fetch(s, ask, len - 33u, with, &asked))
+		if (!fzn_node_search_fetch(s, ask, 2u + (size_t)ask_len, with, &asked))
 			return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a search the stores could run");
 		return fzn_search_local_fetched_build(body, sizeof(body), (uint8_t)(asked > 255u ? 255u : asked), &body_len)
 		               == SITU_OK
@@ -109,7 +112,7 @@ int fzn_node_search_binary(fzn_node_search_t *s, const uint8_t *msg, size_t len,
 		                  == SITU_OK
 		       && put(put_ctx, out, n) && status(put, put_ctx, FZN_STATUS_OK, NULL);
 	}
-	if (!fzn_node_search_list(s, ask, len - 33u, with, hits, &count, &more))
+	if (!fzn_node_search_list(s, ask, 2u + (size_t)ask_len, with, hits, &count, &more))
 		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a search the stores could run");
 	return page(put, put_ctx, hits, count, more, 0u, 0u, 0u);
 }

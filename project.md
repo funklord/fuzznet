@@ -94398,3 +94398,45 @@ says 5.
 behind, no pop-up shown, its blue art found in the drawn view; another
 line chosen ends it. Sabotages `sticker-effect-none`,
 `sticker-effect-unpainted`.
+
+## 1316. situ's answers, and the search ask held whole, 2026-11-20
+
+**situ answered** fuzznet's list of 2026-11-20 (inbox 20261120T1320Z,
+recorded in situ's own open list, its 1cdd7090 and 8f868b4d):
+
+- **(c) an opaque tail naming its schema exists**: `[holds = T]` on a run
+  of u8 (situ 26.898) -- the run's bytes unchanged to its parent, a
+  `_view` accessor giving T over them, and `validate` descending into it.
+  Not directly inside a variant's arm or a region; a struct carrying the
+  run nests there. **Adopted here**, below.
+- **(d)** the c24fe412 banner is this tree's vendoring line in
+  `wire/generated/situ.{c,h}`, moving when the runtime is next copied.
+- **(a) an output stem: not built.** The stem is also the "generated
+  from" line in some twenty generators; this tree's renaming (sec 1313)
+  settled it.
+- **(b) building a message with an arm's fields in one call: queued**, in
+  all four backends' builders.
+- **(1)-(6), the network list: queued in that order** behind a checksum
+  feature situ's holder put first (its 26.1117) -- (2) matching after
+  verification and (3) the replay window next.
+
+**The search ask, held whole.** `node/search_local.situ` restated the
+host-to-host ask field for field after its WITH, and fuzznetd cut it out
+of a request at a fixed offset (33) to hand on. Now the ask lives once,
+in `search/search_ask.situ`, imported by both `search/search_wire.situ`
+and the local leg; the local ask is WITH and then `u8 ask[remaining]
+max 489 [holds = ask]` -- 489 the ask at its widest, so the message's
+bound is the 522 bytes it was. `node/search_binary.c` hands on the held
+run through its generated accessor, already validated as an ask, with no
+offset of its own. Both families' golden vectors pass unchanged: the bytes
+are the same.
+
+**Two frictions found doing it, sent to situ** (inbox 20261120T1400Z):
+the wire contract check compares field lists, so the same bytes moved
+behind `holds` read as 14 breaking changes -- the contract was rewritten
+by hand on the vectors' evidence, the check unable to say it; and a struct
+ending in a `[remaining]` run gets no builder even with a `max`, so a
+client writes it by hand (fuzznet's client already did).
+
+**Tests:** search_wire_vectors (4), search_local_vectors (6), unchanged;
+messages_test's binary search (sec 1293) through the new reader.

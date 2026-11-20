@@ -14,6 +14,8 @@
 target buffer;
 endian big;
 
+import "../search/search_ask.situ";
+
 enum op : u8 {
 	list    = 128, // this host's stores alone, as `list search`
 	fetch   = 129, // this host's and its hosts' (or a contact's), as `fetch search`
@@ -27,31 +29,14 @@ enum op : u8 {
 struct nothing {
 }
 
-// A STORE'S NAME, as `search/search.h` bounds it.
-struct store {
-	u8   len [min = 1, max = 16];
-	u8   name[len];
-}
-
-// WITH a contact's root key where HAS_WITH, zeros where not; the rest is
-// `search_wire.situ`'s ask, field for field.
+// WITH a contact's root key where HAS_WITH, zeros where not; then the
+// ask `search/search_ask.situ` defines, whole -- held as its bytes, read
+// and checked through that layout (situ's `holds`, sec 1316), and handed
+// on to another host as they are.
 struct local_ask {
 	u8    has_with [max = 1];
 	u8    with[32];
-	u8    words_len [min = 1];
-	u8    words[words_len];
-	u8    store_count [max = 8];
-	store stores[store_count];
-	u64   since_ms;
-	u64   until_ms;
-	u8    k [min = 1, max = 50];
-	u8    has_after [max = 1];
-	u32   after_score;
-	u64   after_time_ms;
-	u8    after_store_len [max = 16];
-	u8    after_store[after_store_len];
-	u8    after_key_len [max = 48];
-	u8    after_key[after_key_len];
+	u8    ask[remaining] max 489 [holds = ask];   // the ask at its widest
 }
 
 // COUNT the hits that follow, MORE 1 where there are more past them (the
