@@ -239,7 +239,8 @@ static void test_a_filter_typed_as_a_line(void)
 	CHECK(fzn_facet_expr_encode(&e, by_hand, sizeof(by_hand), &hand_len) == FZN_FACET_OK, "fixture: a filter");
 	n = fzn_search_filter_line("where mood=even", 15u, typed, sizeof(typed));
 	CHECK(n == hand_len && !memcmp(typed, by_hand, n), "a typed filter was not the expression it says");
-	CHECK(!fzn_search_filter_line("mood=even", 9u, typed, sizeof(typed)), "a word that is no where or not was taken");
+	CHECK(!fzn_search_filter_line("bogus mood=even", 15u, typed, sizeof(typed)),
+	      "a word that is no where or not was taken as one");
 	CHECK(!fzn_search_filter_line("where", 5u, typed, sizeof(typed)), "a where with nothing after was taken");
 	CHECK(!fzn_search_filter_line("not mood=odd", 12u, typed, sizeof(typed)), "a not alone was taken (F14)");
 }
