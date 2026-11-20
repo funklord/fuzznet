@@ -10024,21 +10024,44 @@ static int sticker_binary(fzn_rpc_t *c, const uint8_t *req, size_t req_len, stru
 	return FZN_RPC_OK;
 }
 
-int fzn_rpc_sticker_match(fzn_rpc_t *c, const char *typed, size_t typed_len, fzn_rpc_sticker_match_resp_t *out) {
-	char arg[14 + 1024];
+/* `list sticker match TYPED`, or with CONTEXT `list sticker answer
+ * CONTEXT TYPED` (sec 1321): the rows, read as one. */
+static int sticker_match_ask(fzn_rpc_t *c, const char *context, size_t context_len, const char *typed,
+                             size_t typed_len, fzn_rpc_sticker_match_resp_t *out) {
+	char arg[15 + 3 * 256 + 1 + 1024];
 	const char *rest = NULL, *p, *end, *w;
-	size_t rest_len = 0, at = 0, count = 0, from = 0, w_len, n = 14, i;
-	if (!c || !out || (typed_len && !typed)) return c ? encode_failed(c) : FZN_RPC_ERR_MALFORMED;
+	size_t rest_len = 0, at = 0, count = 0, from = 0, w_len, n, i, blank_typed, blank_context;
+	if (!c || !out || (typed_len && !typed) || (context_len && !context))
+		return c ? encode_failed(c) : FZN_RPC_ERR_MALFORMED;
 	memset(out, 0, sizeof(*out));
-	/* THE LINE'S LAST 1024 BYTES, what a sticker answers; nothing typed
-	 * is nothing found, without asking. */
+	/* THE LINE'S LAST 1024 BYTES, what a sticker answers, and the answered
+	 * line's first 256; nothing typed and nothing answered is nothing
+	 * found, without asking. */
 	if (typed_len > 1024) typed += typed_len - 1024, typed_len = 1024;
-	memcpy(arg, "sticker match ", 14);
+	if (context_len > 256) context_len = 256;
 	for (i = 0; i < typed_len; i++) {
 		const unsigned char ch = (unsigned char)typed[i];
 		if (ch > ' ' && ch != 0x7f) break;
 	}
-	if (i == typed_len) return FZN_RPC_OK;
+	blank_typed = i == typed_len;
+	for (i = 0; i < context_len; i++) {
+		const unsigned char ch = (unsigned char)context[i];
+		if (ch > ' ' && ch != 0x7f) break;
+	}
+	blank_context = i == context_len;
+	if (blank_typed && blank_context) return FZN_RPC_OK;
+	if (blank_context) {
+		memcpy(arg, "sticker match ", 14);
+		n = 14;
+	} else {
+		size_t wrote = 0;
+		memcpy(arg, "sticker answer ", 15);
+		n = 15;
+		if (fzn_escape((const uint8_t *)context, context_len, arg + n, 3 * 256, &wrote) != context_len)
+			return encode_failed(c);
+		n += wrote;
+		arg[n++] = ' ';
+	}
 	for (i = 0; i < typed_len; i++) {
 		const unsigned char ch = (unsigned char)typed[i];
 		arg[n++] = (ch < ' ' || ch == 0x7f) ? ' ' : (char)ch;
@@ -10072,6 +10095,15 @@ int fzn_rpc_sticker_match(fzn_rpc_t *c, const char *typed, size_t typed_len, fzn
 		out->count++;
 	}
 	return out->count == count ? FZN_RPC_OK : unreadable(c);
+}
+
+int fzn_rpc_sticker_match(fzn_rpc_t *c, const char *typed, size_t typed_len, fzn_rpc_sticker_match_resp_t *out) {
+	return sticker_match_ask(c, NULL, 0, typed, typed_len, out);
+}
+
+int fzn_rpc_sticker_answer(fzn_rpc_t *c, const char *context, size_t context_len, const char *typed,
+                           size_t typed_len, fzn_rpc_sticker_match_resp_t *out) {
+	return sticker_match_ask(c, context, context_len, typed, typed_len, out);
 }
 
 int fzn_rpc_sticker_recent(fzn_rpc_t *c, fzn_rpc_sticker_match_resp_t *out) {

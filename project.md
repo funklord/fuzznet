@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1320
+The newest work is at the end of this file. **Read secs 1287 to 1321
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -51,9 +51,9 @@ listener port spans (`150e3106`).
   (sec 1296), finding and letting go (sec 1298), case folding (sec
   1297), the chosen Lottie sticker playing (sec 1300), its sound (sec
   1301; in the picker, 1314), a pop-up one across the log (sec 1302), an effect one behind it (sec
-  1315), a Recent tab (sec 1317). Left: (b) raster
-  animation and the picker's; (h) the reply
-  target's words as the matcher's context; (i) a binary `list sticker
+  1315), a Recent tab (sec 1317), the reply's line as the matcher's context (sec
+  1321). Left: (b) raster
+  animation and the picker's; (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
   (sec 1272).
 - **The binary move** (secs 1208, 1217) is done for every client call
@@ -94629,3 +94629,33 @@ none opened that should not. Sabotages `session-forgery-moves-the-window`
 (the window forgets), `session-window-unbounded` (every frame the first),
 rewritten for the generated window. live_device -- a board's session
 frames to the bridge, revocation mid-session -- passes over it.
+
+## 1321. Stickers that answer the line being replied to, 2026-11-20
+
+The audit's (h), its second half (case folding: sec 1297): the matcher
+read only the line being typed, so replying to "where shall we eat"
+offered nothing until a word was typed. Now the line answered is the
+matcher's CONTEXT.
+
+- **The node**: `fzn_node_stickers_answer(context, typed)` -- a sticker's
+  score is twice its fit to what is typed plus its fit to the line
+  answered, so the answered line alone offers stickers and a typed word
+  that fits still leads. With no context it is `match` exactly, scoring
+  once on the one search's scale (sec 1287), which the stickers store
+  shares -- doubling there would have ranked stickers above every other
+  store's hits.
+- **The verb**: `list sticker answer CONTEXT [TEXT]`, CONTEXT escaped as
+  one word. Text, as `match` is: sec 1272's binary match waits on a
+  measurement that the text verb is too slow, and this is the same call.
+- **The client**: `fzn_rpc_sticker_answer`, the answered line's first 256
+  bytes.
+- **The log**: choosing to reply asks at once, the line answered as the
+  context; typing asks again with both.
+
+**Tests:** conversation_view_test -- a reply offers the sticker that
+answers its line before a word is typed, the context sent escaped.
+live_pairing h0 -- the line answered finds the kept sticker with nothing
+typed, and a typed word that fits scores above it alone; `match` scores
+as before (120). **No sabotage entry**: the node's sticker verbs have no
+unit test to catch one -- they are held by the live scripts, which
+sabotage does not run.

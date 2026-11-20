@@ -33,6 +33,10 @@
  *                           FILL and INK 8 hex, all 0 for no box.
  *                           PACK a saved pack's ROOT, or the 144 hex of any
  *                           held pack's reference.
+ *   list sticker answer CONTEXT [TEXT]
+ *                           as `match`, answering a line: CONTEXT its
+ *                           words, escaped, one word, counting half what
+ *                           TEXT does (sec 1321).
  *   list sticker recent     the stickers this user sent lately, newest
  *                           first, each once (sec 1317): `ok COUNT 0
  *                           ROOT,ID,DESC ...`, at most 20, DESC escaped --
@@ -127,6 +131,13 @@ typedef struct fzn_node_sticker_match {
 } fzn_node_sticker_match_t;
 int fzn_node_stickers_match(const fzn_node_stickers_t *st, const char *typed, size_t typed_len,
                             void (*each)(void *ctx, const fzn_node_sticker_match_t *hit), void *ctx);
+/* THE SAME, ANSWERING A LINE (sec 1321): CONTEXT the words of the line
+ * being replied to, which count half what TYPED does, so stickers that fit
+ * the line answered are offered before anything is typed and a typed word
+ * still leads. Either may be empty. */
+int fzn_node_stickers_answer(const fzn_node_stickers_t *st, const char *context, size_t context_len,
+                             const char *typed, size_t typed_len,
+                             void (*each)(void *ctx, const fzn_node_sticker_match_t *hit), void *ctx);
 
 /* ONE SAVED PACK'S STICKERS, as `list sticker PACK` lists them, sec 1248:
  * each entry handed over with its main rendition's size, the entry good

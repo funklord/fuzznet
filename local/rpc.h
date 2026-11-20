@@ -945,6 +945,12 @@ typedef struct {
 	size_t count;
 } fzn_rpc_sticker_match_resp_t;
 int fzn_rpc_sticker_match(fzn_rpc_t *c, const char *typed, size_t typed_len, fzn_rpc_sticker_match_resp_t *out);
+/* THE STICKERS THAT ANSWER A LINE, `list sticker answer` (fuzznet sec
+ * 1321): as `fzn_rpc_sticker_match`, with `context` the words of the line
+ * being replied to, which count half what is typed -- so a reply offers
+ * stickers before a word is typed. Its first 256 bytes are sent. */
+int fzn_rpc_sticker_answer(fzn_rpc_t *c, const char *context, size_t context_len, const char *typed,
+                           size_t typed_len, fzn_rpc_sticker_match_resp_t *out);
 /* THE STICKERS THIS USER SENT LATELY, `list sticker recent` (fuzznet sec
  * 1317): newest first, each once, at most FZN_RPC_STICKER_MATCH_MAX --
  * each its pack's root, its id and the description its line carried;

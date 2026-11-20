@@ -573,6 +573,15 @@ def main(argv):
 				raise failed("h: the kept sticker was not found for its phrase half typed: %r" % found)
 			if ask(socks["a"], "list sticker match the weather").split()[:2] != ["ok", "0"]:
 				raise failed("h: a line with none of a sticker's words found it")
+			# ANSWERING A LINE, sec 1321: the line answered finds the sticker
+			# before a word is typed, and a typed word that fits it scores
+			# above the answered line alone.
+			answered = ask(socks["a"], "list sticker answer ok%20see%20you ").split()
+			if len(answered) != 4 or answered[1] != "1" or not answered[3].startswith(got[1][:64] + ",1,"):
+				raise failed("h: the sticker was not found for the line answered: %r" % answered)
+			both = ask(socks["a"], "list sticker answer ok%20see%20you see you").split()
+			if len(both) != 4 or int(both[3].split(",")[2]) <= int(answered[3].split(",")[2]):
+				raise failed("h: typed words did not lead the line answered: %r, %r" % (both, answered))
 			print("livecheck: h0: the kept pack's sticker found for its phrase half typed, %s"
 			      % found[3].split(",")[2])
 			# THE ORIGINAL TEST SET, sec 1277: built (a version 4 pack, its

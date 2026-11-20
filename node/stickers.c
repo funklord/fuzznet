@@ -909,11 +909,18 @@ typedef struct match_hit {
 int fzn_node_stickers_match(const fzn_node_stickers_t *st, const char *typed, size_t typed_len,
                             void (*each)(void *ctx, const fzn_node_sticker_match_t *hit), void *ctx)
 {
+	return fzn_node_stickers_answer(st, NULL, 0, typed, typed_len, each, ctx);
+}
+
+int fzn_node_stickers_answer(const fzn_node_stickers_t *st, const char *context, size_t context_len,
+                             const char *typed, size_t typed_len,
+                             void (*each)(void *ctx, const fzn_node_sticker_match_t *hit), void *ctx)
+{
 	struct said_walk w = { st, 0 };
 	match_hit_t hits[MATCH_SHOWN];
 	size_t n = 0, i, j, k;
 
-	if (!st || !st->settings || !st->files || !typed || !each)
+	if (!st || !st->settings || !st->files || (typed_len && !typed) || (context_len && !context) || !each)
 		return 0;
 	for (i = 0; i < said_n; i++)
 		said[i].kept = 0;
@@ -930,8 +937,18 @@ int fzn_node_stickers_match(const fzn_node_stickers_t *st, const char *typed, si
 	for (i = 0; i < said_n; i++)
 		for (j = 0; j < said[i].count; j++) {
 			const said_sticker_t *s = &said[i].stickers[j];
-			const unsigned score = fzn_sticker_match(typed, typed_len, s->phrases, s->lens, s->count,
-			                                         s->words, s->desc_len);
+			/* WHAT IS TYPED COUNTS TWICE what is answered (sec 1321): the
+			 * line being written says more than the line it answers. With
+			 * nothing answered it counts once, so `match` scores as it
+			 * always has, on the one search's scale (sec 1287). */
+			const unsigned score =
+			        (typed_len ? (context_len ? 2u : 1u)
+			                             * fzn_sticker_match(typed, typed_len, s->phrases, s->lens, s->count,
+			                                                 s->words, s->desc_len)
+			                   : 0u)
+			        + (context_len ? fzn_sticker_match(context, context_len, s->phrases, s->lens, s->count,
+			                                           s->words, s->desc_len)
+			                       : 0u);
 
 			if (!score || (n == MATCH_SHOWN && score <= hits[n - 1u].score))
 				continue;
@@ -1012,6 +1029,24 @@ static size_t list_recent(const fzn_node_stickers_t *st, char *reply, size_t cap
 		(void)snprintf(rows[i] + at, ROW_MAX - at, ",%llu,%s", (unsigned long long)sent[i].id, desc);
 	}
 	return page(rows, n, 0, reply, cap);
+}
+
+/* `list sticker answer CONTEXT [TEXT]`, sec 1321: as `match`, with the
+ * line being answered as CONTEXT, escaped, one word. */
+static size_t list_answer(const fzn_node_stickers_t *st, const uint8_t *at, size_t left, char *reply, size_t cap)
+{
+	static char rows[MATCH_SHOWN][ROW_MAX];
+	static char context[FZN_STICKER_REF_SENT_MAX + 1u];
+	struct match_rows r = { rows, 0 };
+	const uint8_t *w;
+	size_t n, context_len = 0;
+
+	if (!next_word(&at, &left, &w, &n)
+	    || !fzn_unescape(w, n, (uint8_t *)context, sizeof(context) - 1u, &context_len))
+		return REPLY("malformed list sticker answer CONTEXT [TEXT], CONTEXT escaped\n");
+	if (!fzn_node_stickers_answer(st, context, context_len, (const char *)at, left, match_row, &r))
+		return REPLY("error the kept packs would not list\n");
+	return page(rows, r.n, 0, reply, cap);
 }
 
 /* A WORD AS A PAGE'S START, at most ten digits: 1, or 0. */
@@ -1271,6 +1306,8 @@ size_t fzn_node_stickers_local(void *ctx, fzn_origin_t origin, const fzn_request
 			return list_saved(st, 0, reply, cap);
 		if (n == 6u && !memcmp(w, "recent", 6u))
 			return left ? REPLY("malformed list sticker recent\n") : list_recent(st, reply, cap);
+		if (n == 6u && !memcmp(w, "answer", 6u))
+			return list_answer(st, at, left, reply, cap);
 		if (n == 5u && !memcmp(w, "match", 5u))
 			return left ? list_match(st, at, left, reply, cap) : REPLY("malformed list sticker match TEXT\n");
 		if (n <= 10u)

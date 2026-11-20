@@ -166,6 +166,10 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                        ",in,-,1700005800000,1700005800000,1,"
 		                        "fzn:sticker/%064d/%064d/1000/7:hi%%2520there%%20waving\n",
 		                        1, 2, 1, 2);
+	/* A STICKER THAT ANSWERS "where shall we eat", sec 1321: asked with the
+	 * line answered as its context, escaped, before a word is typed. */
+	if (!strcmp(line, "list sticker answer where%20shall%20we%20eat "))
+		return (size_t)snprintf(reply, cap, "ok 1 0 %064d,9,200,eating\n", 1);
 	/* A KEPT STICKER FOR "see you", sec 1272; nothing for anything else. */
 	if (!strcmp(line, "list sticker match see you"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 %064d,7,250,waving\n", 1);
@@ -566,6 +570,8 @@ int main(int argc, char **argv)
 		e.select_line(0);
 		CHECK(e.offered() == "Reply", "a line chosen did not offer a reply");
 		e.reply_to(QByteArray::fromHex(ID1));
+		CHECK(e.suggested() == QStringList({ "eating" }),
+		      "a reply did not offer the stickers that answer its line before a word was typed");
 		e.set_text("ok then");
 		last_add[0] = '\0';
 		CHECK(e.send() && strstr(last_add, "message gil") && strstr(last_add, "fzn:reply/" ID1)

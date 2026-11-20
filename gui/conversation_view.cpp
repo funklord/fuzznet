@@ -839,10 +839,19 @@ void fzn_conversation_view::suggest_now()
 	static QHash<QString, QPixmap> drawn_once;
 	auto *found = new fzn_rpc_sticker_match_resp_t;
 	const QByteArray typed = m_text->text().toUtf8();
+	QByteArray answered;
 
+	/* A REPLY'S LINE IS ITS CONTEXT, sec 1321: stickers that fit the line
+	 * answered are offered before a word is typed. */
+	for (int i = 0; !m_reply_to.isEmpty() && i < m_lines->count() && answered.isEmpty(); i++)
+		if (m_lines->item(i)->data(ROLE_ID).toByteArray() == m_reply_to)
+			answered = m_lines->item(i)->data(ROLE_BODY).toString().toUtf8();
 	m_suggest->clear();
-	if (m_contact.isEmpty() || typed.trimmed().isEmpty()
-	    || fzn_rpc_sticker_match(&m_rpc->c, typed.constData(), (size_t)typed.size(), found) != FZN_RPC_OK) {
+	if (m_contact.isEmpty() || (typed.trimmed().isEmpty() && answered.trimmed().isEmpty())
+	    || (answered.isEmpty() ? fzn_rpc_sticker_match(&m_rpc->c, typed.constData(), (size_t)typed.size(), found)
+	                           : fzn_rpc_sticker_answer(&m_rpc->c, answered.constData(), (size_t)answered.size(),
+	                                                    typed.constData(), (size_t)typed.size(), found))
+	               != FZN_RPC_OK) {
 		m_suggest->hide();
 		delete found;
 		return;
@@ -960,6 +969,7 @@ void fzn_conversation_view::reply_to(const QByteArray &id)
 	                                                : tr("Your reply to \"%1\"").arg(quoted));
 	if (!m_reply_to.isEmpty())
 		m_text->setFocus();
+	suggest_now();
 }
 
 QByteArray fzn_conversation_view::replying() const { return m_reply_to; }
