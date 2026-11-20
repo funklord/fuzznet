@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1297
+The newest work is at the end of this file. **Read secs 1287 to 1298
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -46,8 +46,7 @@ listener port spans (`150e3106`).
   draws the main rendition at 128 px and a sticker's words (sec 1295).
   The picker asks for a boxed sticker's words (sec 1296). Then: (b) animation beyond frame 0; (c) a sticker's sound,
   which the node does not export; (d) pop-up and effect stickers shown;
-  (e) a search box and a recent tab in the picker (the stickers store
-  exists); (f) letting a kept pack go from the picker; (h) the matcher's
+  (e) a recent tab in the picker (the find box: sec 1298); (h) the matcher's
   context: the reply target's words (case folding: sec 1297); (i) a
   binary `list sticker match`.
 - **The holder's question, parked**: a sticker store, meaning packs not
@@ -93857,3 +93856,27 @@ found small; a word in curly quotes, after an em dash and after an
 inverted exclamation mark; the typographic apostrophe; the micro sign
 still a letter. Sabotages `words-mark-past-ascii-a-letter`,
 `words-capital-past-ascii-kept`.
+
+## 1298. The picker finds a sticker, and lets a pack go, 2026-11-20
+
+The audit's (e), half, and (f), in `gui/sticker_picker_view`:
+
+- **Finding a sticker:** a box above the tabs. Typed words go to the
+  node's sticker matcher (`list sticker match`, sec 1272), every kept
+  pack at once, and the stickers that fit stand in place of the tabs,
+  best first. Each is its pack's tab item cloned -- drawn, its box -- so a
+  search asks the node for no art, and choosing one asks for its words
+  as choosing it from its tab does (sec 1296). None fitting is said.
+  Cleared, the tabs come back.
+- **Letting a pack go:** "Let go" on the pack on show, asked first, then
+  `remove sticker ROOT` from every host of this user; it can be kept again
+  from any line carrying one of its stickers.
+
+**Still open of (e):** a recent tab -- what was sent lately, which wants
+a place to keep it that every host of the user shares (a setting, or the
+journal), not a client's file.
+
+**Tests:** sticker_picker_view_test -- a sticker found by its words with
+no art asked again, chosen with its words; none said; cleared; a pack
+let go and said, one not there not. Sabotages `picker-found-any-sticker`,
+`picker-let-go-nothing`.

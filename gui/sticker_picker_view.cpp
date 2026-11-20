@@ -16,6 +16,7 @@ extern "C" {
 #include <QIcon>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QImage>
 #include <QLabel>
 #include <QListWidget>
@@ -58,23 +59,58 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 
 	m_tabs = new QTabWidget(this);
 	m_tabs->setAccessibleName(tr("Sticker packs"));
+	/* FINDING A STICKER, sec 1298: by the words its pack gives it, every
+	 * kept pack at once, as the suggestion row matches a line being typed
+	 * (sec 1272). The stickers found stand in place of the tabs. */
+	m_find = new QLineEdit(this);
+	m_find->setPlaceholderText(tr("Find a sticker"));
+	m_find->setAccessibleName(tr("Find a sticker by its words"));
+	m_find->setClearButtonEnabled(true);
+	m_found = new QListWidget(this);
+	m_found->setViewMode(QListView::IconMode);
+	m_found->setIconSize(QSize(64, 64));
+	m_found->setResizeMode(QListView::Adjust);
+	m_found->setWordWrap(true);
+	m_found->setAccessibleName(tr("Stickers found"));
+	m_found->hide();
 	m_keep = new QPushButton(tr("Add sticker packs"), this);
 	m_keep->setAccessibleName(tr("Keep sticker packs from files"));
 	m_refresh = new QPushButton(tr("Refresh"), this);
+	/* LETTING A PACK GO, sec 1298: the pack on show, from every host of
+	 * this user; kept again from any line that carries one of its stickers. */
+	m_forget = new QPushButton(tr("Let go"), this);
+	m_forget->setAccessibleName(tr("Let the sticker pack on show go"));
 	m_status = new QLabel(this);
 	m_status->setWordWrap(true);
 
 	auto *row = new QHBoxLayout;
 	row->addWidget(m_keep);
+	row->addWidget(m_forget);
 	row->addWidget(m_refresh);
 	row->addStretch(1);
 	auto *col = new QVBoxLayout(this);
+	col->addWidget(m_find);
 	col->addWidget(m_tabs, 1);
+	col->addWidget(m_found, 1);
 	col->addLayout(row);
 	col->addWidget(m_status);
 
 	connect(m_keep, &QPushButton::clicked, [this]() { keep_files(QStringList()); });
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
+	connect(m_find, &QLineEdit::textChanged, [this](const QString &text) { set_find(text); });
+	connect(m_found, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
+	connect(m_forget, &QPushButton::clicked, [this]() {
+		const int at = m_tabs->currentIndex();
+
+		if (at < 0)
+			return;
+		if (QMessageBox::question(this, tr("Let the pack go"),
+		                          tr("Let %1 go from your stickers? You can keep it again from any message "
+		                             "that carries one of its stickers.")
+		                                  .arg(m_tabs->tabText(at)))
+		    == QMessageBox::Yes)
+			forget(at);
+	});
 	m_status->setText(tr("No sticker packs kept yet."));
 }
 
@@ -148,6 +184,7 @@ bool fzn_sticker_picker_view::refresh()
 			if (l)
 				pick(m_tabs->indexOf(l), l->row(item));
 		});
+		list->setProperty("pack", pack);
 		m_tabs->addTab(list, said(packs.entries[p].name, packs.entries[p].name_len));
 	}
 	m_status->setText(packs.count ? QString() : tr("No sticker packs kept yet."));
@@ -159,7 +196,68 @@ bool fzn_sticker_picker_view::refresh()
 bool fzn_sticker_picker_view::pick(int pack, int row)
 {
 	auto *list = qobject_cast<QListWidget *>(m_tabs->widget(pack));
-	QListWidgetItem *item = list ? list->item(row) : nullptr;
+
+	return pick_item(list ? list->item(row) : nullptr);
+}
+
+bool fzn_sticker_picker_view::pick_found(int row)
+{
+	return pick_item(m_found->item(row));
+}
+
+void fzn_sticker_picker_view::set_find(const QString &text)
+{
+	const QByteArray typed = text.trimmed().toUtf8();
+	auto *matched = new fzn_rpc_sticker_match_resp_t;
+	size_t i;
+
+	m_found->clear();
+	if (typed.isEmpty()) {
+		m_found->hide();
+		m_tabs->show();
+		delete matched;
+		return;
+	}
+	m_tabs->hide();
+	m_found->show();
+	memset(matched, 0, sizeof *matched);
+	if (fzn_rpc_sticker_match(&m_rpc->c, typed.constData(), (size_t)typed.size(), matched) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		delete matched;
+		return;
+	}
+	/* EACH FOUND AS ITS PACK'S TAB SHOWS IT -- drawn, its box -- so a
+	 * search asks the node for no art; one in a pack not listed here yet is
+	 * left until a refresh lists it. */
+	for (i = 0; i < matched->count; i++) {
+		char hex[65];
+
+		fzn_hex_encode(matched->entries[i].root, 32, hex);
+		const QByteArray pack(hex, 64);
+		for (int t = 0; t < m_tabs->count(); t++) {
+			auto *list = qobject_cast<QListWidget *>(m_tabs->widget(t));
+			if (!list || list->property("pack").toByteArray() != pack)
+				continue;
+			for (int r = 0; r < list->count(); r++)
+				if (list->item(r)->data(ROLE_ID).toULongLong() == (qulonglong)matched->entries[i].id)
+					m_found->addItem(list->item(r)->clone());
+		}
+	}
+	m_status->setText(m_found->count() ? QString() : tr("No sticker kept here fits that."));
+	delete matched;
+}
+
+QStringList fzn_sticker_picker_view::found() const
+{
+	QStringList out;
+
+	for (int r = 0; r < m_found->count(); r++)
+		out << m_found->item(r)->text();
+	return out;
+}
+
+bool fzn_sticker_picker_view::pick_item(QListWidgetItem *item)
+{
 	char ref[FZN_STICKER_REF_SENT_MAX + 1];
 	size_t ref_len = 0;
 
@@ -197,6 +295,24 @@ bool fzn_sticker_picker_view::pick(int pack, int row)
 		return false;
 	}
 	m_pick(QString::fromUtf8(ref, (int)ref_len));
+	return true;
+}
+
+bool fzn_sticker_picker_view::forget(int pack)
+{
+	QWidget *tab = m_tabs->widget(pack);
+	const QByteArray hex = tab ? tab->property("pack").toByteArray() : QByteArray();
+	const QString name = tab ? m_tabs->tabText(pack) : QString();
+	uint8_t root[32];
+
+	if (hex.size() != 64 || fzn_hex_decode(hex.constData(), root, sizeof root) != 0)
+		return false;
+	if (fzn_rpc_sticker_forget(&m_rpc->c, root) != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	refresh();
+	m_status->setText(tr("Let %1 go.").arg(name));
 	return true;
 }
 

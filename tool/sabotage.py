@@ -17769,6 +17769,20 @@ SABOTAGES = [
 		"a capital past ASCII not folded, so \"ÅSA\" misses \"åsa\"; search_test -- sec 1297",
 	),
 	(
+		"picker-found-any-sticker",
+		"gui/sticker_picker_view.cpp",
+		"\t\t\t\tif (list->item(r)->data(ROLE_ID).toULongLong() == (qulonglong)matched->entries[i].id)\n",
+		"\t\t\t\tif (list->item(r)->data(ROLE_ID).toULongLong() != (qulonglong)matched->entries[i].id)\n",
+		"finding a sticker shows its pack's others; sticker_picker_view_test -- sec 1298",
+	),
+	(
+		"picker-let-go-nothing",
+		"gui/sticker_picker_view.cpp",
+		"\tif (hex.size() != 64 || fzn_hex_decode(hex.constData(), root, sizeof root) != 0)\n",
+		"\tif (hex.size() == 64 || fzn_hex_decode(hex.constData(), root, sizeof root) != 0)\n",
+		"letting the pack on show go does nothing; sticker_picker_view_test -- sec 1298",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",

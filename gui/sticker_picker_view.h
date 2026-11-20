@@ -29,6 +29,9 @@
 #include <functional>
 
 class QLabel;
+class QLineEdit;
+class QListWidget;
+class QListWidgetItem;
 class QPushButton;
 class QTabWidget;
 struct fzn_gui_rpc;
@@ -55,6 +58,16 @@ public:
 	 * packs from files, asking which when `paths` is empty. */
 	bool pick(int pack, int row);
 	bool keep_files(const QStringList &paths);
+	/* LET PACK `pack` GO (from 0, as shown), sec 1298: without asking, the
+	 * button asking first. */
+	bool forget(int pack);
+
+	/* FINDING A STICKER, sec 1298: the kept stickers that fit `text`, best
+	 * first, shown in place of the tabs; empty shows the tabs again. FOUND
+	 * is what is shown, by description; PICK_FOUND chooses one of them. */
+	void set_find(const QString &text);
+	QStringList found() const;
+	bool pick_found(int row);
 
 	/* WHAT IS ON SCREEN: each pack's name, then its stickers indented, each
 	 * as its description and whether it is drawn; the status line. */
@@ -66,9 +79,14 @@ private:
 	std::function<void(const QString &)> m_pick;
 	std::function<bool(const QString &, int, QString *)> m_words;
 
+	bool pick_item(QListWidgetItem *item);
+
 	QTabWidget *m_tabs;
 	QPushButton *m_keep;
 	QPushButton *m_refresh;
+	QPushButton *m_forget;
+	QLineEdit *m_find;
+	QListWidget *m_found;
 	QLabel *m_status;
 };
 

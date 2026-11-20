@@ -34,7 +34,7 @@ static int checks, failures;
 #define REF "fzn:sticker/" PACK "/0000000000000000000000000000000000000000000000000000000000000002/4096/7"
 #define REF8 "fzn:sticker/" PACK "/0000000000000000000000000000000000000000000000000000000000000002/4096/8"
 
-static int silent;
+static int silent, let_go, art_asked;
 
 /* A LOTTIE STICKER, the smallest that draws: one red square on a layer. */
 static const char LOTTIE[] =
@@ -71,6 +71,7 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	/* STICKER 7 IS DRAWN: a PNG written where asked. 8 HAS NO ART. */
 	if (!strncmp(line, DRAW, sizeof DRAW - 1)) {
 		QImage one(1, 1, QImage::Format_ARGB32);
+		art_asked++;
 		one.fill(Qt::red);
 		if (!one.save(QString::fromUtf8(line + sizeof DRAW - 1), "PNG"))
 			return (size_t)snprintf(reply, cap, "error could not write\n");
@@ -88,6 +89,16 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "ok " REF8 "\n");
 	/* KEEPING: a pack file put as a pack and kept, the other refused
 	 * (`put sticker PATH`, sec 1278). */
+	/* FINDING: "thumbs" fits sticker 8, nothing fits "zebra" (sec 1298). */
+	if (!strcmp(line, "list sticker match thumbs"))
+		return (size_t)snprintf(reply, cap, "ok 1 0 " PACK ",8,150,thumbs%%20up\n");
+	if (!strncmp(line, "list sticker match ", 19))
+		return (size_t)snprintf(reply, cap, "ok 0 0\n");
+	/* LETTING THE PACK GO, sec 1298. */
+	if (!strcmp(line, "remove sticker " PACK)) {
+		let_go++;
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 	if (!strcmp(line, "put sticker /tmp/fzn-good.fzs"))
 		return (size_t)snprintf(reply, cap, "ok " PACK "\n");
 	if (!strcmp(line, "put sticker /tmp/fzn-bad.fzs"))
@@ -179,6 +190,29 @@ int main(int argc, char **argv)
 	CHECK(!v.keep_files({ "/tmp/fzn-good.fzs", "/tmp/fzn-bad.fzs" })
 	              && v.status().startsWith("Kept 1 of 2.") && v.status().contains("fzn-bad.fzs: not a sticker pack"),
 	      "keeping two packs, one refused, was not said with why");
+
+	/* FINDING A STICKER, sec 1298: found by its words, shown as its tab
+	 * shows it, chosen with its box asking for words; none said; cleared,
+	 * the tabs again. */
+	{
+		const int asked_art = art_asked;
+
+		v.set_find(QStringLiteral("thumbs"));
+		CHECK(v.found() == QStringList({ "thumbs up" }) && art_asked == asked_art,
+		      "a sticker was not found by its words, or its art was asked again");
+		v.on_words([](const QString &, int, QString *words) {
+			*words = QStringLiteral("hi there");
+			return true;
+		});
+		picked.clear();
+		CHECK(v.pick_found(0) && picked == REF8 ":hi%20there", "a sticker found was not chosen as its tab's would be");
+		v.set_find(QStringLiteral("zebra"));
+		CHECK(v.found().isEmpty() && v.status() == "No sticker kept here fits that.", "finding none was not said");
+		v.set_find(QString());
+		CHECK(v.found().isEmpty(), "clearing the search left stickers found");
+	}
+	CHECK(!v.forget(4) && !let_go, "a pack that is not there was let go");
+	CHECK(v.forget(0) && let_go == 1 && v.status() == "Let waves go.", "the pack on show was not let go, and said");
 
 	silent = 1;
 	CHECK(!v.refresh() && v.status() == "The node did not answer.", "a silent node was not said so");
