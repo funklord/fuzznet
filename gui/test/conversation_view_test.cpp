@@ -55,7 +55,7 @@ static int file_partial;
 	"0000000000000000000000000000000000000000000000000000000000000001"                               \
 	"0000000000000000000000000000000000000000000000000000000000000002"                               \
 	"00000000000003e8"
-static int art_asked, boxes_asked, sounds_written;
+static int art_asked, boxes_asked, sounds_written, silent_asked;
 static char last_keep[200];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -80,6 +80,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		boxes_asked++;
 		return (size_t)snprintf(reply, cap, "ok 2 0 7,4,0,waving,20,8,8,48,16,FFFFFFC0,000000FF,0,128,128 "
 		                                    "9,2,5,dancing,0,0,0,0,0,00000000,00000000,0,128,128\n");
+	}
+	/* STICKER 7 HAS NO SOUND, and is never asked for one (sec 1301). */
+	if (!strncmp(line, "get sticker " DAN_PACK " 7 sound ", 12 + 144 + 9)) {
+		silent_asked++;
+		return (size_t)snprintf(reply, cap, "error that sticker has no sound\n");
 	}
 	/* STICKER 9'S SOUND, flagged in its row (sec 1301). */
 	if (!strncmp(line, "get sticker " DAN_PACK " 9 sound ", 12 + 144 + 9)) {
@@ -393,7 +398,7 @@ int main(int argc, char **argv)
 		CHECK(played.size() == 1 && QFile::exists(played.value(0)) && sounds_written == 1,
 		      "a sticker with a sound chosen did not hand it to the host's player");
 		h.select_line(0);
-		CHECK(played.size() == 1, "a sticker without a sound played one");
+		CHECK(played.size() == 1 && !silent_asked, "a sticker without a sound was asked for one, or played one");
 		h.select_line(1);
 		CHECK(played.size() == 2 && played.value(1) == played.value(0) && sounds_written == 1,
 		      "a sound played again was written again");
