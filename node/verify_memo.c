@@ -2,6 +2,9 @@
 
 #include "verify_memo.h"
 
+#include "../wire/generated/verify_memo_record.h"
+#include "../wire/generated/verify_memo_record_build.h"
+
 #include "../fault/fault.h"
 
 #include <fcntl.h>
@@ -12,7 +15,8 @@
 
 #include "../wire/bytes.h"
 
-/* THE FILE, `node/verify_memo.situ`: version, count, the digests, the signature. */
+/* THE FILE, `node/verify_memo_record.situ` (sec 1333): version, count, the
+ * digests, the signature -- built and read through the code situ generates. */
 #define FILE_VERSION 1u
 #define FILE_HEAD_LEN 5u
 
@@ -238,9 +242,11 @@ static int write_whole(const char *path, const uint8_t *bytes, size_t len)
 
 int fzn_verify_memo_save(fzn_verify_memo_t *m, const char *path)
 {
+	static const uint8_t unsigned_yet[FZN_SIG_LEN];
 	uint8_t hashed[FZN_VERIFY_MEMO_DIGEST];
 	uint8_t *file;
 	size_t i, n = 0, body;
+	uint32_t wrote = 0;
 	int ok;
 
 	if (!m || !path || !m->table || !m->inner->sign)
@@ -248,15 +254,24 @@ int fzn_verify_memo_save(fzn_verify_memo_t *m, const char *path)
 	for (i = 0; i < m->room; i++)
 		n += !slot_empty(m->table[i]);
 	body = FILE_HEAD_LEN + n * FZN_VERIFY_MEMO_DIGEST;
-	if (!(file = malloc(body + FZN_SIG_LEN)))
+	if (n > FZN_VERIFY_MEMO_HELD_MAX || !(file = malloc(body + FZN_SIG_LEN)))
 		return 0;
-	file[0] = FILE_VERSION;
-	fzn_put_be32(file + 1, (uint32_t)n);
+	/* THE DIGESTS WRITTEN WHERE THE FILE HOLDS THEM, and the file built
+	 * round them: situ's builder copies a member onto itself as nothing. */
 	for (i = 0, n = 0; i < m->room; i++) {
 		if (slot_empty(m->table[i]))
 			continue;
 		memcpy(file + FILE_HEAD_LEN + n++ * FZN_VERIFY_MEMO_DIGEST, m->table[i],
 		       FZN_VERIFY_MEMO_DIGEST);
+	}
+	if (fzn_verify_memo_record_fzn_verify_memo_file_build(file, (uint32_t)(body + FZN_SIG_LEN), FILE_VERSION,
+	                                                       file + FILE_HEAD_LEN,
+	                                                       (uint32_t)(n * FZN_VERIFY_MEMO_DIGEST), unsigned_yet,
+	                                                       &wrote)
+	            != SITU_OK
+	    || wrote != body + FZN_SIG_LEN) {
+		free(file);
+		return 0;
 	}
 	ok = m->hash->hash(m->hash->ctx, hashed, sizeof(hashed), file, body)
 	     && m->inner->sign(m->inner->ctx, file + body, hashed, sizeof(hashed))
@@ -289,11 +304,25 @@ size_t fzn_verify_memo_load(fzn_verify_memo_t *m, const char *path,
 	}
 	(void)fclose(f);
 	body = (size_t)len - FZN_SIG_LEN;
-	n = fzn_get_be32(file + 1);
-	/* THE SIGNATURE BEFORE ANYTHING IS BELIEVED, and then only all of it. */
-	if (file[0] != FILE_VERSION || n > FZN_VERIFY_MEMO_HELD_MAX
-	    || body != FILE_HEAD_LEN + n * FZN_VERIFY_MEMO_DIGEST
-	    || !m->hash->hash(m->hash->ctx, hashed, sizeof(hashed), file, body)
+	/* READ AS THE SCHEMA SAYS, EXACTLY ITS LENGTH -- its version and its
+	 * count's bound the generated validate's -- and then THE SIGNATURE
+	 * BEFORE ANYTHING IS BELIEVED, and then only all of it. */
+	{
+		situ_msg_t msg;
+		situ_view_t v;
+		uint32_t need = 0;
+
+		situ_msg_init(&msg, file, (uint32_t)len);
+		if (fzn_verify_memo_record_fzn_verify_memo_file_required(file, (uint32_t)len, &need) != SITU_OK
+		    || need != (uint32_t)len
+		    || fzn_verify_memo_record_fzn_verify_memo_file_view(&msg, 0u, (uint32_t)len, &v) != SITU_OK
+		    || fzn_verify_memo_record_fzn_verify_memo_file_validate(v) != SITU_OK) {
+			free(file);
+			return 0;
+		}
+		n = fzn_verify_memo_record_fzn_verify_memo_file_count_get(v);
+	}
+	if (!m->hash->hash(m->hash->ctx, hashed, sizeof(hashed), file, body)
 	    || !m->inner->verify(m->inner->ctx, own, hashed, sizeof(hashed), file + body)
 	    || !table_made(m)) {
 		free(file);

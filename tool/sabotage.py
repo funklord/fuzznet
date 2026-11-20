@@ -17811,6 +17811,13 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"memo-file-any-length",
+		"node/verify_memo.c",
+		"\t\t    || need != (uint32_t)len\n",
+		"",
+		"a memo file with bytes after its signature read; verify_memo_test -- secs 938, 1333",
+	),
+	(
 		"note-hit-unlabelled",
 		"node/notes.c",
 		"\t\t\t\t(void)fzn_search_facet_add(&h, \"label\", (const char *)l, l_len);\n",
@@ -19418,8 +19425,8 @@ SABOTAGES = [
 	(
 		"memo-file-hash-covers-no-digest",
 		"node/verify_memo.c",
-		"\t    || !m->hash->hash(m->hash->ctx, hashed, sizeof(hashed), file, body)\n",
-		"\t    || !m->hash->hash(m->hash->ctx, hashed, sizeof(hashed), file, FILE_HEAD_LEN)\n",
+		"\tif (!m->hash->hash(m->hash->ctx, hashed, sizeof(hashed), file, body)\n",
+		"\tif (!m->hash->hash(m->hash->ctx, hashed, sizeof(hashed), file, FILE_HEAD_LEN)\n",
 		"the signature stops short of the digests, so a digest changed in the file is believed -- sec 938",
 	),
 	(

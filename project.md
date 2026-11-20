@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1332
+The newest work is at the end of this file. **Read secs 1287 to 1333
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -94948,3 +94948,19 @@ one a filter wants yet.
 
 **Tests:** notes_test -- a checklist's hit carries its kind and its label.
 Sabotage `note-hit-unlabelled`.
+
+## 1333. The verified-signatures file on situ's generated code, 2026-11-20
+
+The fourth of the 40 layouts (secs 1313, 1323, 1326):
+`node/verify_memo.situ` is `node/verify_memo_record.situ` (a signed
+record), its count bounded by FZN_VERIFY_MEMO_HELD_MAX (1 << 26) in the
+schema now. `node/verify_memo.c` saves the file by writing the digests
+where the file holds them and building the file round them -- situ's
+builder copies a member onto itself as nothing (situ_put, situ
+4b5e5515), so a file of up to 2 GiB needs no second buffer -- then signs
+the hash of everything before the signature; it loads through the
+generated `required`, view and `validate`, exactly its length, before
+the signature is checked.
+
+**Tests:** verify_memo_record_vectors (1); verify_memo_test (30) over the
+generated code. Sabotage `memo-file-any-length`.
