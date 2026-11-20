@@ -21942,7 +21942,9 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 		return fzn_node_time_answer(request, request_len, wall_ms(), reply, reply_cap);
 	}
 	/* A SEARCH ASKED BY ANOTHER HOST OF THIS ESTATE, sec 1287 step 2: its
-	 * stores run as this user's, whose they all are. */
+	 * stores run as this user's, whose they all are. OR BY A CONTACT'S
+	 * HOST, step 4 (sec 1291): run as that contact, each store answering
+	 * only what the contact reads here already. */
 	if (request_len >= 2u && request[0] == FZN_CMD_SEARCH) {
 		static uint64_t second, answered;
 		fzn_node_relay_asker_t asker;
@@ -21958,7 +21960,8 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 		}
 		if (++answered > SEARCH_ANSWERS_A_SECOND)
 			return fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR, "too many searches this second");
-		n = fzn_node_search_remote(&node_search, sender, request, request_len, reply, reply_cap);
+		n = fzn_node_search_remote(&node_search, asker.member ? NULL : asker.owner, request, request_len, reply,
+		                           reply_cap);
 		return n ? n : fzn_status_write(reply, reply_cap, FZN_STATUS_ERROR, "the search would not run");
 	}
 	/* A CALL OF A NAMED PROCEDURE, sec 853. */

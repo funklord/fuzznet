@@ -233,12 +233,13 @@ static void test_who_may_ask(void)
 	              && is(fzn_node_relay_refuse_time(NULL), NO_TIME),
 	      "a host neither of the estate nor a standing contact's was told this host's clock");
 
-	/* A SEARCH: the estate's alone, sec 1287. */
-	CHECK(is(fzn_node_relay_refuse_search(&member), NULL), "a host of this estate was refused a search");
-	CHECK(is(fzn_node_relay_refuse_search(&x), "a search only within this estate")
-	              && is(fzn_node_relay_refuse_search(&neither), "a search only within this estate")
-	              && is(fzn_node_relay_refuse_search(NULL), "a search only within this estate"),
-	      "a contact's host, or a host of neither, was answered a search");
+	/* A SEARCH: the estate's and its contacts', sec 1287 -- a contact's
+	 * stores answering only what it reads here (sec 1291). */
+	CHECK(is(fzn_node_relay_refuse_search(&member), NULL) && is(fzn_node_relay_refuse_search(&x), NULL),
+	      "a host of this estate, or a contact's, was refused a search");
+	CHECK(is(fzn_node_relay_refuse_search(&neither), "a search only for this estate and its contacts")
+	              && is(fzn_node_relay_refuse_search(NULL), "a search only for this estate and its contacts"),
+	      "a host of neither was answered a search");
 
 	/* THE LOCAL VERBS: the node's own user alone, as `get relay` is. */
 	CHECK(is(fzn_node_relay_refuse_local(FZN_ORIGIN_SAME_USER), NULL),

@@ -1991,6 +1991,23 @@ static void test_the_search_here(void)
 		CHECK(SEARCH("fetch search dinner") && replied("ok 2") && hosts_ask_len && hosts_ask[0] == 26u,
 		      "the search was not asked of this user's hosts");
 		CHECK(SEARCH("get search") && replied("ok 2 0 2 0 0 lines,"), "this host's own hits were not there at once");
+		/* A CONTACT'S HOST ASKING, sec 1291: carol is answered the lines of
+		 * her own conversation; another contact none of them. */
+		{
+			static fzn_search_hit_t got[FZN_SEARCH_K_MAX];
+			uint8_t other[FZN_PUBKEY_LEN];
+			size_t count = 0;
+			int more = 0;
+
+			len = fzn_node_search_remote(&s, X, hosts_ask, hosts_ask_len, answer, sizeof(answer));
+			CHECK(len && fzn_search_answer_read(answer, len, got, FZN_SEARCH_K_MAX, &count, &more)
+			              && count == 2u && !strcmp(got[0].store, "lines"),
+			      "a contact was not answered the lines of its own conversation");
+			memset(other, 0x5a, sizeof(other));
+			len = fzn_node_search_remote(&s, other, hosts_ask, hosts_ask_len, answer, sizeof(answer));
+			CHECK(len && fzn_search_answer_read(answer, len, got, FZN_SEARCH_K_MAX, &count, &more) && count == 0u,
+			      "a contact was answered another conversation's lines");
+		}
 		len = fzn_node_search_remote(&s, NULL, hosts_ask, hosts_ask_len, answer, sizeof(answer));
 		CHECK(len, "a host holding the same stores did not answer the ask");
 		fzn_node_search_answered(&s, hosts_generation, answer, len);
@@ -2013,6 +2030,26 @@ static void test_the_search_here(void)
 		CHECK(SEARCH("get search") && replied("ok 3 0 2 2 1 "), "a host that never answered was not said late");
 		CHECK(SEARCH("fetch search in nowhere dinner") && replied("ok 2") && SEARCH("get search") && replied("ok 0 0 2 0 0"),
 		      "a new search kept the last one's hits");
+		/* NOR THIS USER'S CONTACTS, nor a group's lines where its log will
+		 * not say the asker is a member. */
+		{
+			static fzn_search_hit_t got[FZN_SEARCH_K_MAX];
+			uint8_t group[FZN_PUBKEY_LEN];
+			size_t count = 0;
+			int more = 0;
+
+			memset(group, 0x9d, sizeof(group));
+			memset(id, 0xd4, sizeof(id));
+			CHECK(fzn_node_group_rename(&A.store_ops, group, "crew", 4u) == FZN_CONTACT_OK
+			              && fzn_messages_write(&A.nm.m, group, FZN_MESSAGE_IN, id, 4000u, "carol to the crew", 17u)
+			                         == FZN_MESSAGES_OK,
+			      "fixture: a group's line naming carol");
+			CHECK(SEARCH("fetch search carol") && SEARCH("get search") && replied("ok 2 0 2 0 0 "),
+			      "fixture: this user finds carol and the crew's line");
+			len = fzn_node_search_remote(&s, X, hosts_ask, hosts_ask_len, answer, sizeof(answer));
+			CHECK(len && fzn_search_answer_read(answer, len, got, FZN_SEARCH_K_MAX, &count, &more) && count == 0u,
+			      "a contact was answered this user's contacts, or a group's line with no log saying it is a member");
+		}
 		s.ask_hosts = NULL;
 	}
 #undef SEARCH

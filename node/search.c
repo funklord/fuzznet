@@ -52,8 +52,45 @@ static int line_words(const fzn_message_t *p, const char **text, size_t *len)
 	return 1;
 }
 
+/* WHAT A CONTACT ASKING MAY BE ANSWERED OF A CONVERSATION, sec 1287 step
+ * 4: of its own with this user, everything; of a group's, as a member, the
+ * lines from its joining on -- every line where the group backfills (sec
+ * 905), as a later member is given the history -- and of any other,
+ * nothing. Kept for the conversation last asked about, since a walk meets
+ * one conversation's lines together. */
+struct reach {
+	uint8_t key[FZN_PUBKEY_LEN];
+	int known, open;
+	uint64_t floor_ms;
+};
+
+static void reach_of(fzn_node_messages_t *nm, const uint8_t *asker, const uint8_t *conversation, int is_group,
+                     struct reach *r)
+{
+	static fzn_group_t g;
+
+	if (r->known && memcmp(r->key, conversation, FZN_PUBKEY_LEN) == 0)
+		return;
+	memcpy(r->key, conversation, FZN_PUBKEY_LEN);
+	r->known = 1;
+	r->open = 0;
+	r->floor_ms = 0;
+	if (!is_group) {
+		r->open = memcmp(conversation, asker, FZN_PUBKEY_LEN) == 0;
+		return;
+	}
+	/* A LOG THAT WILL NOT READ, or a joining this host cannot see, answers
+	 * nothing: withheld, as sec 804 withholds a share. */
+	if (!nm->m.hash || fzn_group_log_get(nm->m.store, conversation, &g) != FZN_GROUP_LOG_OK
+	    || !fzn_group_is_member(&g, asker))
+		return;
+	r->floor_ms = g.backfill ? 0u : fzn_node_group_joined_ms(nm->m.store, nm->m.hash, conversation, &g, asker);
+	r->open = r->floor_ms != UINT64_MAX;
+}
+
 /* EVERY LINE HELD, newest first, as far as the store's own walk goes: its
- * budget. */
+ * budget. A contact asking (`asker` set) is answered only the lines
+ * `reach_of` says it reads. */
 static int run_lines(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
                      void *emit_ctx)
 {
@@ -61,9 +98,9 @@ static int run_lines(void *ctx, const fzn_search_query_t *q, const uint8_t *aske
 	fzn_node_messages_t *nm = ctx;
 	char group_name[FZN_CONTACT_NAME_MAX + 1u];
 	size_t from = 0, got = 0, i, group_len = 0;
+	struct reach r = { { 0 }, 0, 0, 0 };
 	int more = 1;
 
-	(void)asker;
 	while (more && from + FZN_MESSAGES_PAGE_MAX <= FZN_MESSAGES_WALK_MAX) {
 		if (fzn_messages_page(&nm->m, NULL, from, page, FZN_MESSAGES_PAGE_MAX, &got, &more) != FZN_MESSAGES_OK)
 			return 0;
@@ -75,17 +112,20 @@ static int run_lines(void *ctx, const fzn_search_query_t *q, const uint8_t *aske
 			size_t len;
 			unsigned s;
 
+			int is_group;
+
 			if (!line_words(p, &text, &len) || !(s = fzn_search_score(&q->words, text, len)))
 				continue;
+			is_group = fzn_node_group_name(nm->m.store, p->contact, group_name, &group_len) == FZN_CONTACT_OK;
+			if (asker) {
+				reach_of(nm, asker, p->contact, is_group, &r);
+				if (!r.open || p->stime < r.floor_ms)
+					continue;
+			}
 			memset(&h, 0, sizeof(h));
 			memcpy(h.store, "lines", 6u);
 			memcpy(h.key, p->contact, FZN_PUBKEY_LEN);
-			memcpy(h.key + FZN_PUBKEY_LEN,
-			       fzn_node_messages_shared_id(nm, p,
-			                                   fzn_node_group_name(nm->m.store, p->contact, group_name,
-			                                                       &group_len)
-			                                           == FZN_CONTACT_OK,
-			                                   shared),
+			memcpy(h.key + FZN_PUBKEY_LEN, fzn_node_messages_shared_id(nm, p, is_group, shared),
 			       FZN_MESSAGE_ID_LEN);
 			h.key_len = FZN_PUBKEY_LEN + FZN_MESSAGE_ID_LEN;
 			h.score = s;
@@ -137,7 +177,9 @@ static int run_contacts(void *ctx, const fzn_search_query_t *q, const uint8_t *a
 {
 	struct contact_walk w = { emit, emit_ctx, q };
 
-	(void)asker;
+	/* THIS USER'S CONTACTS ARE ITS OWN: nobody else is answered them. */
+	if (asker)
+		return 1;
 	return fzn_contact_each(ctx, contact_one, &w) == FZN_CONTACT_OK;
 }
 

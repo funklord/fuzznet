@@ -394,9 +394,10 @@ int fzn_node_notes_shares_file(fzn_node_notes_t *n, const uint8_t *sender,
  * shared with it, newest edited first, at most FZN_NODE_NOTES_SEARCH_OPENS
  * notes opened; a note by its title, text or items, and labels, keyed by
  * its id and timed by its last edit. A trashed note, one pending purge,
- * and one whose content is not here are not found. `asker` is this user,
- * or another host of this estate (sec 1287 step 2): every tree here is
- * theirs to read. */
+ * and one whose content is not here are not found. `asker` NULL is this
+ * user's, every tree here theirs; a contact's root key is answered only
+ * the notes of this user's tree shared with it, as its share's sync
+ * serves them (sec 1291). */
 int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
                           void *emit_ctx);
 

@@ -1302,7 +1302,10 @@ int fzn_node_stickers_search(void *ctx, const fzn_search_query_t *q, const uint8
 	struct sticker_walk w = { emit, emit_ctx, q };
 	size_t n = 0, i;
 
-	(void)asker;
+	/* THIS USER'S KEPT PACKS ARE ITS OWN: whether a contact may search them
+	 * is the sticker store's question, the holder's (sec 0). */
+	if (asker)
+		return 1;
 	for (i = 0; i < q->words.n && n + q->words.len[i] + 1u < sizeof(typed); i++) {
 		if (n)
 			typed[n++] = ' ';

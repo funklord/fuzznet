@@ -72,9 +72,9 @@ typedef struct fzn_search_store {
 	const char *name;
 	/* EVERY HIT THIS STORE HOLDS FOR `q`, that `asker` may read, emitted in
 	 * any order: the engine orders, windows and pages them. `asker` is the
-	 * user who asks -- this host's own, or a peer's root when another host
-	 * asks -- and a store emits nothing that user may not read here. 1 once
-	 * done, 0 when the store would not read. */
+	 * user who asks -- NULL for this host's own, whose every store is; else
+	 * another user's root key -- and a store emits nothing that user may
+	 * not read here. 1 once done, 0 when the store would not read. */
 	int (*run)(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
 	           void *emit_ctx);
 	void *ctx;

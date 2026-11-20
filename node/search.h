@@ -70,8 +70,10 @@ typedef struct fzn_node_search {
 void fzn_node_search_answered(fzn_node_search_t *s, unsigned generation, const uint8_t *answer, size_t len);
 
 /* ANOTHER HOST'S ASK answered from this node's stores, run for `asker`:
- * the answer's length in `reply`, or 0. Who may ask is the caller's
- * (`fzn_node_relay_refuse_search`). */
+ * NULL for this user's own (another host of the estate), else a
+ * contact's root key, each store then answering only what that contact
+ * reads here (sec 1291). The answer's length in `reply`, or 0. Who may
+ * ask is the caller's (`fzn_node_relay_refuse_search`). */
 size_t fzn_node_search_remote(fzn_node_search_t *s, const uint8_t *asker, const uint8_t *request, size_t len,
                               uint8_t *reply, size_t cap);
 

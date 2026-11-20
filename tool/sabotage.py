@@ -11441,8 +11441,8 @@ SABOTAGES = [
 	(
 		"time-only-for-estate-and-contacts",
 		'node/relay.c',
-		"\treturn asker && (asker->member || asker->contact) ? NULL",
-		"\treturn asker ? NULL",
+		"\treturn asker && (asker->member || asker->contact) ? NULL\n",
+		"\treturn asker ? NULL\n",
 		"a removed contact is still told this host's clock -- sec 762",
 	),
 	(
@@ -17706,6 +17706,27 @@ SABOTAGES = [
 		"a checklist's items not searched; node notes_test -- sec 1287",
 	),
 	(
+		"search-contact-any-conversation",
+		"node/search.c",
+		"\t\tr->open = memcmp(conversation, asker, FZN_PUBKEY_LEN) == 0;\n",
+		"\t\tr->open = 1;\n",
+		"a contact answered the lines of another's conversation; node messages_test -- sec 1291",
+	),
+	(
+		"search-contact-told-contacts",
+		"node/search.c",
+		"\tif (asker)\n\t\treturn 1;\n\treturn fzn_contact_each",
+		"\treturn fzn_contact_each",
+		"a contact answered this user's contacts by a search; node messages_test -- sec 1291",
+	),
+	(
+		"search-note-share-unscoped",
+		"node/notes.c",
+		"\t\tif (scope) {\n\t\t\tfzn_record_t rec;\n",
+		"\t\tif (0 && scope) {\n\t\t\tfzn_record_t rec;\n",
+		"a contact answered notes not shared with it; node notes_test -- sec 1291",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",
@@ -17748,11 +17769,11 @@ SABOTAGES = [
 		"an answer to an earlier search taken into the next; messages_test -- sec 1287",
 	),
 	(
-		"search-contact-host-answered",
+		"search-stranger-answered",
 		"node/relay.c",
-		"\treturn asker && asker->member ? NULL : \"a search only within this estate\";\n",
-		"\treturn asker && (asker->member || asker->contact) ? NULL : \"a search only within this estate\";\n",
-		"a contact's host answered a search of this user's stores; relay_test -- sec 1287",
+		"\treturn asker && (asker->member || asker->contact) ? NULL : \"a search only for this estate and its contacts\";\n",
+		"\treturn asker ? NULL : \"a search only for this estate and its contacts\";\n",
+		"a host neither of the estate nor a contact's answered a search; relay_test -- sec 1287",
 	),
 	(
 		"pack-old-opens",

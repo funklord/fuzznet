@@ -252,7 +252,7 @@ const char *fzn_node_relay_refuse_introduce(const fzn_node_relay_asker_t *asker)
 
 const char *fzn_node_relay_refuse_search(const fzn_node_relay_asker_t *asker)
 {
-	return asker && asker->member ? NULL : "a search only within this estate";
+	return asker && (asker->member || asker->contact) ? NULL : "a search only for this estate and its contacts";
 }
 
 const char *fzn_node_relay_refuse_notify(const fzn_node_relay_asker_t *asker,

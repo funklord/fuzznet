@@ -2529,6 +2529,8 @@ static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, s
 
 /* ---- the notes store of the one search, sec 1287 step 4 ------------------ */
 
+static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender, fzn_notes_sync_scope_t *scope);
+
 /* THE MOST NOTES ONE SEARCH OPENS, newest edited first: each is a blob
  * opened and its text scored, and a search must answer within its asker's
  * deadline (3 s, sec 1287), so a tree of a quarter of a million notes is
@@ -2574,10 +2576,11 @@ static void score_field(const fzn_search_query_t *q, const uint8_t *text, size_t
  * not here is not searched. Keyed by the note's id, which every host knows
  * it by; timed by its last edit. *opens counts down the budget. */
 static int search_tree(const fzn_node_notes_t *n, const fzn_notes_store_t *store, const fzn_search_query_t *q,
-                       fzn_search_emit_t emit, void *emit_ctx, size_t *opens)
+                       const fzn_notes_sync_scope_t *scope, fzn_search_emit_t emit, void *emit_ctx, size_t *opens)
 {
 	static struct by_edit *order;
 	static fzn_note_t note;
+	static uint8_t record[FZN_RECORD_MAX_LEN];
 	size_t i, k = 0;
 
 	if (!order && !(order = malloc(FZN_NOTES_MAX * sizeof(*order))))
@@ -2607,6 +2610,18 @@ static int search_tree(const fzn_node_notes_t *n, const fzn_notes_store_t *store
 		if (fzn_notes_purge_pending(store, node->id)
 		    || fzn_note_meta_open(node->content_type, node->content, node->content_len, &meta) != FZN_NOTE_OK)
 			continue;
+		/* A CONTACT ASKING is answered a claim its share serves it, judged
+		 * as the share's sync judges it -- its floor included (sec 655). */
+		if (scope) {
+			fzn_record_t rec;
+			size_t len = 0;
+
+			if (fzn_notes_get(store, node->id, view->writers[order[i].at], record, sizeof(record), &len)
+			            != FZN_NOTES_OK
+			    || fzn_record_open(record, len, &rec) != FZN_RECORD_OK
+			    || !fzn_notes_sync_scope_admits(scope, rec))
+				continue;
+		}
 		(*opens)--;
 		if (read_note(n, store, node, &meta, &note) != FZN_NOTES_OK)
 			continue;
@@ -2649,10 +2664,18 @@ int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t 
 	fzn_node_notes_t *n = ctx;
 	size_t opens = FZN_NODE_NOTES_SEARCH_OPENS, count = 0, i;
 
-	(void)asker;
 	if (!n || !q || !emit || !n->open)
 		return 0;
-	if (!search_tree(n, &n->store, q, emit, emit_ctx, &opens))
+	/* A CONTACT ASKING, sec 1287 step 4: what this user shared with it, of
+	 * this user's own tree, and nothing of the trees others shared here --
+	 * those are theirs to share. */
+	if (asker) {
+		fzn_notes_sync_scope_t scope;
+
+		shared_scope(n, asker, &scope);
+		return search_tree(n, &n->store, q, &scope, emit, emit_ctx, &opens);
+	}
+	if (!search_tree(n, &n->store, q, NULL, emit, emit_ctx, &opens))
 		return 0;
 	/* AND EVERY TREE SHARED WITH THIS USER (sec 437), each note keyed by
 	 * its own id, which is random and so its sharer's too. */
@@ -2664,7 +2687,7 @@ int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t 
 		fzn_notes_store_t store;
 
 		if (open_shared(n, sharers[i], &store))
-			(void)search_tree(n, &store, q, emit, emit_ctx, &opens);
+			(void)search_tree(n, &store, q, NULL, emit, emit_ctx, &opens);
 	}
 	return 1;
 }

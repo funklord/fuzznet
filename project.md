@@ -31,17 +31,17 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1290
+The newest work is at the end of this file. **Read secs 1287 to 1291
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
 
 **Open, in order:**
 
-- **Search step 4**: notes are a store (sec 1290). Left: groups' and
-  contacts' stores asked of the hosts that share them, each answer
-  authorized at its source by `asker`; the catalogue as a store; `get
-  search` in binary and in the views.
+- **Search step 4**: notes are a store (sec 1290); a contact's host is
+  answered what it reads (sec 1291). Left: the asking half, a search
+  *with* a contact or a group asking their hosts alone; the catalogue as
+  a store; `get search` in binary and in the views.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. (a) A message
   or name sticker's words: the picker should ask for them, since the
   listing gives `text_limit` and `fzn_rpc_sticker_reference_words`
@@ -93634,3 +93634,47 @@ the key, timed, the snippet its text; a list's item found and keyed to
 its list; a label searched; a note found by title and text one hit; a
 trashed note not found. live_many_notes a3 and b3. Sabotages
 `search-note-trashed-found`, `search-note-items-unread`.
+
+## 1291. Search step 4, second part: a contact's host is answered what it reads, 2026-11-20
+
+**Built: the answering half.** A standing contact's host may ask a
+search now (`fzn_node_relay_refuse_search`: the estate and its
+contacts; a host of neither is refused), and fuzznetd runs the stores
+as that contact's user -- `asker` its root key -- where a host of the
+estate runs them as this user's own (`asker` NULL; it passed the
+sender's host key before, which no store read). **Each store answers
+only what the contact reads here already**, decided where the data is
+(sec 1287's first answer):
+
+- **lines**: the contact's own conversation with this user, every line;
+  a group's, when the group's log says the contact is a member, from its
+  joining on -- every line where the group backfills, as a later member
+  is given the history (sec 905); nothing where the log will not read
+  or the joining cannot be seen (sec 804's withholding). Any other
+  conversation, nothing.
+- **notes**: this user's own tree, each claim as the contact's share
+  serves it -- `shared_scope` and `fzn_notes_sync_scope_admits`, the
+  share's sync's own judgment, its floor included (sec 655). Never the
+  trees others shared here: those are theirs to share.
+- **contacts**: nothing. This user's contacts are its own.
+- **stickers**: nothing yet. Whether a contact may search this user's
+  kept packs is the sticker store question, the holder's (sec 0).
+
+**Not built yet: the asking half.** `fetch search` still asks only this
+user's own hosts, so nothing asks a contact's host yet. Sending the
+words to every contact on every search would tell all of them what this
+user looks for, so the asking half needs a scope: a search *with* a
+contact or a group asks that contact's hosts or the group's members'
+hosts, and no other. That is the next part (sec 1292 when built).
+
+**Tests:** messages_test -- carol's host answered the two lines of her
+conversation, another contact none; neither answered this user's
+contacts, nor a group's line whose log does not name the asker. notes_test
+-- carol answered the note shared with her and not the unshared one,
+this user both, a contact shared nothing none. relay_test -- a member
+and a contact's host may search, neither of them refused. Sabotages
+`search-contact-any-conversation`, `search-contact-told-contacts`,
+`search-note-share-unscoped`, and `search-stranger-answered` replacing
+`search-contact-host-answered`, whose rule this reverses. **Not covered
+by a test:** a group member's floor (the log fixtures are the groups
+suite's); the asking half's live test will cover it.

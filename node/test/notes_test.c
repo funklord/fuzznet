@@ -3271,6 +3271,35 @@ static void test_search(void)
 	CHECK(fzn_search_query_init(&q, "zebra", 5u, 10u)
 	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 0u,
 	      "a word no note holds found one");
+
+	/* A CONTACT ASKING, sec 1291: the notes shared with it, and no other. */
+	{
+		uint8_t carol[FZN_PUBKEY_LEN], dave[FZN_PUBKEY_LEN];
+		char folder[65], inside[65];
+
+		memset(carol, 0xc4, sizeof(carol));
+		memset(dave, 0xd4, sizeof(dave));
+		CHECK(fzn_contact_add(&OPS, carol, "carol", 5u, 1u) == FZN_CONTACT_OK
+		              && fzn_contact_add(&OPS, dave, "dave", 4u, 1u) == FZN_CONTACT_OK,
+		      "fixture: two contacts");
+		CHECK(ask("add folder top for carol") == FZN_REPLY_OK, "fixture: a folder");
+		take_id(folder);
+		snprintf(line, sizeof(line), "add note %s oat biscuits", folder);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: a note in it");
+		take_id(inside);
+		snprintf(line, sizeof(line), "add share %s carol", folder);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: the folder shared with carol");
+		CHECK(fzn_search_query_init(&q, "oat", 3u, 10u)
+		              && fzn_search_run(&store, 1u, &q, carol, hits, &count, &more) && count == 1u,
+		      "carol was not answered the shared note alone, or was answered the unshared one");
+		for (i = 0; count && i < 32u; i++)
+			snprintf(key + 2u * i, 3u, "%02x", hits[0].key[i]);
+		CHECK(count == 1u && !strcmp(key, inside), "carol's hit is not the shared note");
+		CHECK(fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 2u,
+		      "this user does not find both");
+		CHECK(fzn_search_run(&store, 1u, &q, dave, hits, &count, &more) && count == 0u,
+		      "a contact nothing was shared with was answered a note");
+	}
 }
 
 int main(void)
