@@ -28,6 +28,56 @@ situ_err_t fzn_members_local_nothing_validate(situ_view_t view)
 	return fzn_members_local_nothing_check(view, NULL);
 }
 
+situ_err_t fzn_members_local_act_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_MEMBERS_LOCAL_ACT_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* act.kind: `act_kind` rejects unknown values (section 8.7) */
+	if (!fzn_members_local_act_kind_is_known(fzn_members_local_act_kind_get(view))) {
+		*which = FZN_MEMBERS_LOCAL_ACT_KIND_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* act.word_len [min = 1] */
+	if (fzn_members_local_act_word_len_get(view) < 1) {
+		*which = FZN_MEMBERS_LOCAL_ACT_WORD_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* act.word_len [max = 1024] */
+	if (fzn_members_local_act_word_len_get(view) > 1024) {
+		*which = FZN_MEMBERS_LOCAL_ACT_WORD_LEN_CHECK;
+		return SITU_ERR_CONSTRAINT;
+	}
+	/* act.word: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 3u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 1u))))) {
+		*which = FZN_MEMBERS_LOCAL_ACT_WORD_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_members_local_act_validate(situ_view_t view)
+{
+	return fzn_members_local_act_check(view, NULL);
+}
+
 situ_err_t fzn_members_local_sibling_row_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -735,12 +785,12 @@ situ_err_t fzn_members_local_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 2u) < ((fzn_members_local_message_op_get(view) == 128u ? 0u : (fzn_members_local_message_op_get(view) == 129u ? (fzn_members_local_message_body_sibling_row_extent(view)) : (fzn_members_local_message_op_get(view) == 130u ? 0u : (fzn_members_local_message_op_get(view) == 131u ? (fzn_members_local_message_body_capability_row_extent(view)) : (fzn_members_local_message_op_get(view) == 132u ? 0u : (fzn_members_local_message_op_get(view) == 133u ? (fzn_members_local_message_body_grant_row_extent(view)) : (fzn_members_local_message_op_get(view) == 134u ? 6u : (fzn_members_local_message_op_get(view) == 135u ? (fzn_members_local_message_body_invite_row_extent(view)) : (fzn_members_local_message_op_get(view) == 136u ? 0u : (fzn_members_local_message_op_get(view) == 137u ? 32u : (fzn_members_local_message_op_get(view) == 138u ? 33u : (fzn_members_local_message_op_get(view) == 139u ? 0u : (fzn_members_local_message_op_get(view) == 140u ? 33u : (fzn_members_local_message_op_get(view) == 141u ? 1u : (fzn_members_local_message_op_get(view) == 142u ? 0u : (fzn_members_local_message_op_get(view) == 143u ? 65u : (fzn_members_local_message_op_get(view) == 144u ? 0u : (fzn_members_local_message_op_get(view) == 145u ? (fzn_members_local_message_body_rekey_row_extent(view)) : (fzn_members_local_message_op_get(view) == 146u ? 0u : (fzn_members_local_message_op_get(view) == 147u ? (fzn_members_local_message_body_staged_row_extent(view)) : (fzn_members_local_message_op_get(view) == 148u ? 0u : (fzn_members_local_message_op_get(view) == 149u ? (fzn_members_local_message_body_preset_row_extent(view)) : (fzn_members_local_message_op_get(view) == 150u ? 0u : (fzn_members_local_message_op_get(view) == 151u ? (fzn_members_local_message_body_self_row_extent(view)) : 0u)))))))))))))))))))))))))) {
+	if (situ_remaining_u32(view.limit, 2u) < ((fzn_members_local_message_op_get(view) == 128u ? 0u : (fzn_members_local_message_op_get(view) == 129u ? (fzn_members_local_message_body_sibling_row_extent(view)) : (fzn_members_local_message_op_get(view) == 130u ? 0u : (fzn_members_local_message_op_get(view) == 131u ? (fzn_members_local_message_body_capability_row_extent(view)) : (fzn_members_local_message_op_get(view) == 132u ? 0u : (fzn_members_local_message_op_get(view) == 133u ? (fzn_members_local_message_body_grant_row_extent(view)) : (fzn_members_local_message_op_get(view) == 134u ? 6u : (fzn_members_local_message_op_get(view) == 135u ? (fzn_members_local_message_body_invite_row_extent(view)) : (fzn_members_local_message_op_get(view) == 136u ? 0u : (fzn_members_local_message_op_get(view) == 137u ? 32u : (fzn_members_local_message_op_get(view) == 138u ? 33u : (fzn_members_local_message_op_get(view) == 139u ? 0u : (fzn_members_local_message_op_get(view) == 140u ? 33u : (fzn_members_local_message_op_get(view) == 141u ? 1u : (fzn_members_local_message_op_get(view) == 142u ? 0u : (fzn_members_local_message_op_get(view) == 143u ? 65u : (fzn_members_local_message_op_get(view) == 144u ? 0u : (fzn_members_local_message_op_get(view) == 145u ? (fzn_members_local_message_body_rekey_row_extent(view)) : (fzn_members_local_message_op_get(view) == 146u ? 0u : (fzn_members_local_message_op_get(view) == 147u ? (fzn_members_local_message_body_staged_row_extent(view)) : (fzn_members_local_message_op_get(view) == 148u ? 0u : (fzn_members_local_message_op_get(view) == 149u ? (fzn_members_local_message_body_preset_row_extent(view)) : (fzn_members_local_message_op_get(view) == 150u ? 0u : (fzn_members_local_message_op_get(view) == 151u ? (fzn_members_local_message_body_self_row_extent(view)) : (fzn_members_local_message_op_get(view) == 152u ? (fzn_members_local_message_body_act_extent(view)) : 0u))))))))))))))))))))))))))) {
 		*which = FZN_MEMBERS_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for op.siblings, op.sibling_row, op.capabilities, op.capability_row, op.grants, op.grant_row, op.invite, op.invite_row, op.waiting, op.waiting_row, op.answer, op.roots, op.root_row, op.quorum_row, op.votes, op.vote_row, op.successions, op.rekey_row, op.staged, op.staged_row, op.presets, op.preset_row, op.self, op.self_row, and `default: error` for the rest. */
-	if (fzn_members_local_message_op_get(view) != 128u && fzn_members_local_message_op_get(view) != 129u && fzn_members_local_message_op_get(view) != 130u && fzn_members_local_message_op_get(view) != 131u && fzn_members_local_message_op_get(view) != 132u && fzn_members_local_message_op_get(view) != 133u && fzn_members_local_message_op_get(view) != 134u && fzn_members_local_message_op_get(view) != 135u && fzn_members_local_message_op_get(view) != 136u && fzn_members_local_message_op_get(view) != 137u && fzn_members_local_message_op_get(view) != 138u && fzn_members_local_message_op_get(view) != 139u && fzn_members_local_message_op_get(view) != 140u && fzn_members_local_message_op_get(view) != 141u && fzn_members_local_message_op_get(view) != 142u && fzn_members_local_message_op_get(view) != 143u && fzn_members_local_message_op_get(view) != 144u && fzn_members_local_message_op_get(view) != 145u && fzn_members_local_message_op_get(view) != 146u && fzn_members_local_message_op_get(view) != 147u && fzn_members_local_message_op_get(view) != 148u && fzn_members_local_message_op_get(view) != 149u && fzn_members_local_message_op_get(view) != 150u && fzn_members_local_message_op_get(view) != 151u) {
+	/* message.body: an arm for op.siblings, op.sibling_row, op.capabilities, op.capability_row, op.grants, op.grant_row, op.invite, op.invite_row, op.waiting, op.waiting_row, op.answer, op.roots, op.root_row, op.quorum_row, op.votes, op.vote_row, op.successions, op.rekey_row, op.staged, op.staged_row, op.presets, op.preset_row, op.self, op.self_row, op.act, and `default: error` for the rest. */
+	if (fzn_members_local_message_op_get(view) != 128u && fzn_members_local_message_op_get(view) != 129u && fzn_members_local_message_op_get(view) != 130u && fzn_members_local_message_op_get(view) != 131u && fzn_members_local_message_op_get(view) != 132u && fzn_members_local_message_op_get(view) != 133u && fzn_members_local_message_op_get(view) != 134u && fzn_members_local_message_op_get(view) != 135u && fzn_members_local_message_op_get(view) != 136u && fzn_members_local_message_op_get(view) != 137u && fzn_members_local_message_op_get(view) != 138u && fzn_members_local_message_op_get(view) != 139u && fzn_members_local_message_op_get(view) != 140u && fzn_members_local_message_op_get(view) != 141u && fzn_members_local_message_op_get(view) != 142u && fzn_members_local_message_op_get(view) != 143u && fzn_members_local_message_op_get(view) != 144u && fzn_members_local_message_op_get(view) != 145u && fzn_members_local_message_op_get(view) != 146u && fzn_members_local_message_op_get(view) != 147u && fzn_members_local_message_op_get(view) != 148u && fzn_members_local_message_op_get(view) != 149u && fzn_members_local_message_op_get(view) != 150u && fzn_members_local_message_op_get(view) != 151u && fzn_members_local_message_op_get(view) != 152u) {
 		*which = FZN_MEMBERS_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -1194,6 +1244,25 @@ situ_err_t fzn_members_local_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_MEMBERS_LOCAL_MESSAGE_BODY_SELF_ROW_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.act: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_members_local_message_body_act_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_members_local_act_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_MEMBERS_LOCAL_MESSAGE_BODY_ACT_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {

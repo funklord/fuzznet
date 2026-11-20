@@ -7695,40 +7695,85 @@ int fzn_rpc_staged(fzn_rpc_t *c, fzn_rpc_staged_t *out) { GOV_FIRST(staged, STAG
 
 int fzn_rpc_presets(fzn_rpc_t *c, fzn_rpc_presets_t *out) { GOV_FIRST(presets, PRESETS, out, gov_presets_text); }
 
-/* AN ACT: `VERB SUBJECT WORDS`, one line, the node's answer its own. */
-static int gov_act(fzn_rpc_t *c, const char *verb, const char *subject, const char *words, size_t len) {
+/* A STATUS ALONE, as an act's answer in binary (sec 1305). */
+struct act_answer {
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void act_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct act_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	if (a->bad) return;
+	if (!len || msg[0] != FZN_CMD_STATUS || a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+		a->bad = 1;
+		return;
+	}
+	a->status_seen = 1;
+	snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+}
+
+/* AN ACT: KIND in binary first (node/members_local.situ's act_kind), else
+ * `VERB SUBJECT WORDS`, one line, the node's answer its own. */
+static int gov_act(fzn_rpc_t *c, uint8_t kind, const char *verb, const char *subject, const char *words,
+                   size_t len) {
 	char arg[FZN_REQUEST_MAX];
 	if (!words || !len || len > FZN_REQUEST_MAX - 32u || memchr(words, '\n', len)) return encode_failed(c);
+	if (len <= 1024) {
+		uint8_t req[2 + 1 + 2 + 1024];
+		struct act_answer a;
+		int text = 0;
+		req[0] = FZN_CMD_MEMBERS;
+		req[1] = FZN_MEMBERS_LOCAL_OP_ACT;
+		req[2] = kind;
+		req[3] = (uint8_t)(len >> 8);
+		req[4] = (uint8_t)len;
+		memcpy(req + 5, words, len);
+		memset(&a, 0, sizeof a);
+		const int rc = fzn_rpc_binary(c, req, 5 + len, act_each, &a, &text);
+		if (!text) {
+			if (rc != FZN_RPC_OK) return rc;
+			if (!a.status_seen || a.bad) return unreadable(c); /* the act's answer cut short */
+			if (a.code != FZN_STATUS_OK)
+				return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+				            a.why[0] ? a.why : "the node refused it");
+			return FZN_RPC_OK;
+		}
+	}
 	return node_ack(c, verb, arg, snprintf(arg, sizeof arg, "%s %.*s", subject, (int)len, words));
 }
 
 int fzn_rpc_root_change(fzn_rpc_t *c, int add, const char *key, size_t key_len) {
-	return gov_act(c, add ? "add" : "remove", "root", key, key_len);
+	return gov_act(c, add ? FZN_MEMBERS_LOCAL_ACT_KIND_ROOT_ADD : FZN_MEMBERS_LOCAL_ACT_KIND_ROOT_REMOVE,
+	               add ? "add" : "remove", "root", key, key_len);
 }
 
 int fzn_rpc_quorum_set(fzn_rpc_t *c, unsigned k) {
 	char word[16];
-	return gov_act(c, "set", "quorum", word, (size_t)snprintf(word, sizeof word, "%u", k));
+	return gov_act(c, FZN_MEMBERS_LOCAL_ACT_KIND_QUORUM, "set", "quorum", word,
+	               (size_t)snprintf(word, sizeof word, "%u", k));
 }
 
 int fzn_rpc_vote_against(fzn_rpc_t *c, const char *key, size_t key_len) {
-	return gov_act(c, "revoke", "peer", key, key_len);
+	return gov_act(c, FZN_MEMBERS_LOCAL_ACT_KIND_VOTE_AGAINST, "revoke", "peer", key, key_len);
 }
 
 int fzn_rpc_vote_setting(fzn_rpc_t *c, const char *line, size_t line_len) {
-	return gov_act(c, "add", "vote setting", line, line_len);
+	return gov_act(c, FZN_MEMBERS_LOCAL_ACT_KIND_VOTE_SETTING, "add", "vote setting", line, line_len);
 }
 
 int fzn_rpc_succession_confirm(fzn_rpc_t *c, const char *key, size_t key_len) {
-	return gov_act(c, "add", "succession", key, key_len);
+	return gov_act(c, FZN_MEMBERS_LOCAL_ACT_KIND_SUCCESSION, "add", "succession", key, key_len);
 }
 
 int fzn_rpc_staged_confirm(fzn_rpc_t *c, const char *token, size_t token_len) {
-	return gov_act(c, "add", "confirm", token, token_len);
+	return gov_act(c, FZN_MEMBERS_LOCAL_ACT_KIND_STAGED_CONFIRM, "add", "confirm", token, token_len);
 }
 
 int fzn_rpc_preset_choose(fzn_rpc_t *c, const char *name, size_t name_len) {
-	return gov_act(c, "set", "preset", name, name_len);
+	return gov_act(c, FZN_MEMBERS_LOCAL_ACT_KIND_PRESET, "set", "preset", name, name_len);
 }
 
 int fzn_rpc_retention_add(fzn_rpc_t *c, const char *rule, size_t rule_len) {

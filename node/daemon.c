@@ -19074,6 +19074,31 @@ static int local_stickers(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 }
 #endif
 
+/* THE VERB'S ANSWER AS A STATUS: ok, denied, or an error in its words --
+ * never malformed, which a client takes for a node reading no binary. */
+static int verb_status(int fd, const char *reply, size_t n)
+{
+	static char why[FZN_STATUS_WHY_MAX + 1u];
+	const char *sp;
+	size_t w;
+
+	while (n && (reply[n - 1u] == '\n' || reply[n - 1u] == '\r'))
+		n--;
+	if (n >= 2u && memcmp(reply, "ok", 2u) == 0 && (n == 2u || reply[2] == ' '))
+		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+	sp = memchr(reply, ' ', n);
+	w = sp ? n - (size_t)(sp + 1 - reply) : 0u;
+	if (w > FZN_STATUS_WHY_MAX)
+		w = FZN_STATUS_WHY_MAX;
+	memcpy(why, sp ? sp + 1 : "", w);
+	why[w] = '\0';
+	return local_binary_status(fd,
+	                           n > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED
+	                                                                      : FZN_STATUS_ERROR,
+	                           w ? why : "the file would not change"),
+	       0;
+}
+
 #if defined(FZN_CATALOG_ON) && defined(FZN_SPOOL_FILE_ON)
 #define FZND_LIBRARY 1
 #include "library_binary.h"
@@ -19136,31 +19161,6 @@ static int file_here(void *ctx, const uint8_t root[32], fzn_node_file_here_t *ou
 
 /* THE LIBRARY IN BINARY, sec 1174: the node's own user's alone, as `list
  * catalog` answers it -- where the build keeps a catalogue and files. */
-/* THE VERB'S ANSWER AS A STATUS: ok, denied, or an error in its words --
- * never malformed, which a client takes for a node reading no binary. */
-static int verb_status(int fd, const char *reply, size_t n)
-{
-	static char why[FZN_STATUS_WHY_MAX + 1u];
-	const char *sp;
-	size_t w;
-
-	while (n && (reply[n - 1u] == '\n' || reply[n - 1u] == '\r'))
-		n--;
-	if (n >= 2u && memcmp(reply, "ok", 2u) == 0 && (n == 2u || reply[2] == ' '))
-		return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
-	sp = memchr(reply, ' ', n);
-	w = sp ? n - (size_t)(sp + 1 - reply) : 0u;
-	if (w > FZN_STATUS_WHY_MAX)
-		w = FZN_STATUS_WHY_MAX;
-	memcpy(why, sp ? sp + 1 : "", w);
-	why[w] = '\0';
-	return local_binary_status(fd,
-	                           n > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED
-	                                                                      : FZN_STATUS_ERROR,
-	                           w ? why : "the file would not change"),
-	       0;
-}
-
 /* `remove`, `share` and `shares` of FZN_CMD_FILES, sec 1303: the first two
  * through the verbs' own handler, so every check stays theirs; the shares
  * a row each, named as the verb names them, then ok. */
@@ -19716,6 +19716,50 @@ static int local_governance(int fd, fzn_origin_t origin, unsigned op)
 /* THIS ESTATE'S OTHER HOSTS IN BINARY, sec 1176: `list sibling`'s rows, a
  * row a host and then a STATUS ok, for this node's own user alone -- and
  * the category's other two lists, sec 1188. */
+/* A GOVERNANCE ACT IN BINARY, sec 1305: the verb it names, run as the
+ * socket runs a line -- every check, the publishing of the change and the
+ * acts applied after it the verb's own -- and its answer said as a STATUS. */
+static int local_act(int fd, fzn_origin_t origin, situ_view_t v)
+{
+	static const struct {
+		fzn_verb_t verb;
+		const char *subject;
+	} ACTS[] = {
+		{ FZN_VERB_ADD, "root" },      { FZN_VERB_REMOVE, "root" },   { FZN_VERB_SET, "quorum" },
+		{ FZN_VERB_REVOKE, "peer" },   { FZN_VERB_ADD, "succession" }, { FZN_VERB_ADD, "confirm" },
+		{ FZN_VERB_SET, "preset" },    { FZN_VERB_ADD, "vote setting" },
+	};
+	static char reply[FZN_REPLY_MAX + 1u], arg[1100];
+	situ_view_t b;
+	fzn_request_t req;
+	size_t word_len, n;
+	const uint8_t *word;
+	uint8_t kind;
+
+	if (!running_admin)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no estate"), 0;
+	if (fzn_members_local_message_body_act_view(v, &b) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
+	kind = fzn_members_local_act_kind_get(b);
+	word = fzn_members_local_act_word_ptr(b);
+	word_len = fzn_members_local_act_word_len_get(b);
+	if (kind >= sizeof(ACTS) / sizeof(ACTS[0]))
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
+	if (memchr(word, '\n', word_len) || memchr(word, '\r', word_len))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "a word holding a line break"), 0;
+	n = (size_t)snprintf(arg, sizeof(arg), "%s %.*s", ACTS[kind].subject, (int)word_len, (const char *)word);
+	if (n >= sizeof(arg))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "the act would not fit"), 0;
+	memset(&req, 0, sizeof(req));
+	req.parsed = ACTS[kind].verb;
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	n = local_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, origin, NULL, &req, reply, sizeof(reply) - 1u);
+	if (!n)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "no verb took the act"), 0;
+	return verb_status(fd, reply, n);
+}
+
 static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
@@ -19744,6 +19788,8 @@ static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_STAGED
 	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_PRESETS)
 		return local_governance(fd, origin, fzn_members_local_message_op_get(v));
+	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_ACT)
+		return local_act(fd, origin, v);
 	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_SELF)
 		return running_admin ? local_self(fd, origin)
 		                     : (local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no estate"), 0);

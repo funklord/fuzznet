@@ -36,10 +36,32 @@ enum op : u8 {
 	preset_row     = 149, // an answer: one profile
 	self           = 150, // this host as the hosts view shows it, in one (sec 1266)
 	self_row       = 151, // an answer: this host
+	act            = 152, // a governance act, answered by a STATUS in its verb's words (sec 1305)
 	default        = error,
 }
 
 struct nothing {
+}
+
+// WHICH GOVERNANCE ACT, as the verb it stands for takes it (sec 1305):
+// WORD the verb's own argument -- a key as 64 hex, k as decimal, a token,
+// a preset's name, a setting's line.
+enum act_kind : u8 {
+	root_add       = 0, // `add root KEY`
+	root_remove    = 1, // `remove root KEY`
+	quorum         = 2, // `set quorum K`
+	vote_against   = 3, // `revoke peer KEY`, a vote where k is past one
+	succession     = 4, // `add succession KEY`, a re-key confirmed
+	staged_confirm = 5, // `add confirm TOKEN`, a staged change kept
+	preset         = 6, // `set preset NAME`
+	vote_setting   = 7, // `add vote setting LINE`
+	default        = error,
+}
+
+struct act {
+	act_kind kind;
+	u16  word_len [min = 1, max = 1024];
+	u8   word[word_len];
 }
 
 // KEY the host's. PAIRED 1 when either holds a pairing to the other.
@@ -192,6 +214,7 @@ struct message {
 		case op.preset_row:     preset_row     preset_row;
 		case op.self:           nothing        self;
 		case op.self_row:       self_row       self_row;
+		case op.act:            act            act;
 		default: error;
 	}
 }

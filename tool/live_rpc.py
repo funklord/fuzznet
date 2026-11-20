@@ -28,6 +28,9 @@
        contact (ok), its shares one row saying so, then ok; a share with a
        name that is no contact refused in the node's words, never as
        malformed; the file removed (ok), and the text verb no longer has it
+    k  a governance act in binary (sec 1305): `set quorum 1` on the estate's
+       one root answered ok, and `add root` with a key that is no key
+       refused in the verb's words, never as malformed
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -60,6 +63,7 @@ CONTACTS = 0x0B  # FZN_CMD_CONTACTS
 GROUPS = 0x0D    # FZN_CMD_GROUPS
 STATUS = 0x13   # FZN_CMD_STATUS
 FILES = 0x01    # FZN_CMD_FILES
+MEMBERS = 0x09  # FZN_CMD_MEMBERS
 
 
 def binary(sock_path, msg):
@@ -270,6 +274,16 @@ def main(argv):
 				raise failed("j: the file removed in binary is still answered %r" % still)
 			print("livecheck: j: a file shared, its shares listed, a stranger refused and the file"
 			      " removed, in binary")
+
+			# k: a governance act, in bytes (sec 1305).
+			got = binary(sock, bytes([MEMBERS, 0x98, 2, 0, 1]) + b"1")
+			if len(got) != 1 or got[0][:2] != bytes([STATUS, 0]):
+				raise failed("k: set quorum 1 in binary answered %r" % got)
+			got = binary(sock, bytes([MEMBERS, 0x98, 0, 0, 2]) + b"zz")
+			if len(got) != 1 or got[0][0] != STATUS or got[0][1] in (0, 2):
+				raise failed("k: add root with no key in binary answered %r" % got)
+			print("livecheck: k: a quorum set in binary, and a root that is no key refused in the"
+			      " verb's words")
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

@@ -94055,3 +94055,34 @@ which waits on sec 1272's measurement.
 reference with and without words, the thumb and the sound asked in bytes,
 each as the verb answers it and the files the art's; words for a sticker
 with no box refused in the verb's words.
+
+## 1305. The governance acts in binary, 2026-11-20
+
+Sec 1217's "devices, hosts and grants", its governance half: the acts
+`governance_view` makes -- a root added or removed, k set, a vote against
+a host, a re-key confirmed, a staged change kept, a preset chosen, a
+setting voted -- went as text lines through one client helper,
+`gov_act`. Sec 1265 had moved their listings and left the acts.
+
+**Built:** `node/members_local.situ` gains `act` (152): an `act_kind`
+enum naming which act, and the verb's own argument. fuzznetd runs it **as
+the socket runs a line** (`local_handle`), so every check, the change's
+publishing and the acts applied after it are the verb's, and says the
+answer as a STATUS in the verb's words. `gov_act` takes the kind and asks
+in binary first, the verb behind it. `verb_status`, the reply-to-STATUS
+reading sec 1303 wrote for files, is shared by both now.
+
+**Why an enum and the verb's argument, not a struct per act:** the eight
+acts' arguments are a key, k, a token, a name or a setting's line -- the
+verbs' own words, whose checks are the verbs'. Typing each would copy
+those checks into a second reader of the same fields; the enum makes the
+act itself typed, and the argument stays the one form its verb reads.
+
+**Left in text of this subject:** joining (sec 1250 -- `add join`
+restarts the node), the join-by-request offer and probe (sec 1288), host
+creation, backup and reset, grants made (`cap grant`), a host revoked
+and unrevoked by name, and the device confirmation setting.
+
+**Tests:** members_local_vectors (27, two new); live_rpc k -- `set quorum
+1` in bytes answered ok, `add root` with no key refused in the verb's
+words, not as malformed.
