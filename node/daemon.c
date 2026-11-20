@@ -11612,6 +11612,7 @@ static void file_holds_begin(void)
 }
 
 #ifdef FZN_CATALOG_ON
+#include "catalog_search.h"
 static fzn_node_catalog_t node_catalog;
 #endif
 
@@ -26451,6 +26452,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					messages_on = 1;
 					node_search.messages = &node_messages;
 					node_search.user = &node_apply.root;
+#ifdef FZN_CATALOG_ON
+					/* THE LIBRARY'S FILES, by name and kind (sec 1299). */
+					node_search.extra[2] = (fzn_search_store_t){ "files", fzn_node_catalog_search, &node_catalog };
+#endif
 					node_search.ask_hosts = search_ask_hosts;
 					node_search.contacts = node_messages.m.store;
 					node_messages.keeps = keeps_here;

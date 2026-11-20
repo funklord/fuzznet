@@ -17783,6 +17783,13 @@ SABOTAGES = [
 		"letting the pack on show go does nothing; sticker_picker_view_test -- sec 1298",
 	),
 	(
+		"search-library-told-contacts",
+		"node/catalog_search.c",
+		"\tif (asker)\n\t\treturn 1;\n",
+		"",
+		"a contact answered this user's library by a search; node_catalog_test -- sec 1299",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",

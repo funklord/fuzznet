@@ -4,6 +4,7 @@
  * `catalog/` reads it. */
 
 #include "../catalog.h"
+#include "../catalog_search.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -160,6 +161,51 @@ static void test_a_library_is_kept_whole(void)
 	fzn_node_catalog_free(&cat);
 }
 
+/* THE LIBRARY'S FILES AS A SEARCH STORE, sec 1299: a file by its name or
+ * its kind, keyed by its root and shown by its name; one file once, though
+ * two hosts claim it; a retracted name not found; a contact told nothing. */
+static void test_the_files_are_searched(void)
+{
+	static fzn_search_hit_t hits[FZN_SEARCH_K_MAX];
+	fzn_search_store_t store = { "files", fzn_node_catalog_search, &cat };
+	fzn_search_query_t q;
+	uint8_t a[32], b[32], song[32], talk[32], body[512];
+	size_t len, count = 0;
+	int more = 0;
+
+	fzn_node_catalog_init(&cat);
+	memset(a, 0xa1, sizeof(a));
+	memset(b, 0xb2, sizeof(b));
+	memset(song, 0x50, sizeof(song));
+	memset(talk, 0x70, sizeof(talk));
+	len = attribute("name", "Harbour Lights.ogg", body, sizeof(body));
+	CHECK(len && fzn_node_catalog_take(&cat, a, song, 1u, FZN_CATALOG_ATTRIBUTE_KIND, body, len) == FZN_NODE_CATALOG_OK
+	              && fzn_node_catalog_take(&cat, b, song, 1u, FZN_CATALOG_ATTRIBUTE_KIND, body, len)
+	                         == FZN_NODE_CATALOG_OK,
+	      "fixture: a song both hosts name");
+	len = attribute("kind", "audio/ogg", body, sizeof(body));
+	CHECK(len && fzn_node_catalog_take(&cat, a, song, 2u, FZN_CATALOG_ATTRIBUTE_KIND, body, len) == FZN_NODE_CATALOG_OK,
+	      "fixture: its kind");
+	len = attribute("name", "harbour tour.webm", body, sizeof(body));
+	CHECK(len && fzn_node_catalog_take(&cat, a, talk, 3u, FZN_CATALOG_ATTRIBUTE_KIND, body, len) == FZN_NODE_CATALOG_OK
+	              && fzn_node_catalog_take(&cat, a, talk, 4u, FZN_CATALOG_RETRACT_KIND, (const uint8_t *)"name", 4u)
+	                         == FZN_NODE_CATALOG_OK,
+	      "fixture: a talk whose name was taken back");
+
+	CHECK(fzn_search_query_init(&q, "harbour", 7u, 10u)
+	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u
+	              && hits[0].key_len == 32u && !memcmp(hits[0].key, song, 32u)
+	              && !strcmp(hits[0].snippet, "Harbour Lights.ogg") && hits[0].time_ms == 0u,
+	      "a file was not found once by its name, keyed by its root, or a retracted name was");
+	CHECK(fzn_search_query_init(&q, "ogg", 3u, 10u) && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more)
+	              && count == 1u && !strcmp(hits[0].snippet, "Harbour Lights.ogg"),
+	      "a file found by its kind was not shown by its name");
+	CHECK(fzn_search_query_init(&q, "harbour", 7u, 10u) && fzn_search_run(&store, 1u, &q, a, hits, &count, &more)
+	              && count == 0u,
+	      "a contact was answered this user's library");
+	fzn_node_catalog_free(&cat);
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -175,6 +221,7 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 	test_the_latest_record_stands();
 	test_a_library_is_kept_whole();
+	test_the_files_are_searched();
 	if (failures) {
 		fprintf(stderr, "node node_catalog_test: %d of %d checks failed\n", failures, checks);
 		return 1;

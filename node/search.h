@@ -12,7 +12,7 @@
  *     get search                                       ok COUNT MORE ASKED ANSWERED LATE ROWS
  *
  * WORDS the rest of the line, as `list sticker match` takes them. STORE
- * `lines`, `stickers`, `notes` or `contacts`, repeatable; none asks all. CURSOR the
+ * `lines`, `stickers`, `notes`, `files` or `contacts`, repeatable; none asks all. CURSOR the
  * last row of the page before, as `STORE,KEY,SCORE,TIME`. Answered
  *
  *     ok COUNT MORE STORE,KEY,SCORE,TIME,SNIPPET ...
@@ -38,7 +38,7 @@
  * conversation this user's root XOR the contact's, the same on both
  * users' hosts (sec 1294), whose XOR with this user's root is the contact;
  * a sticker, its pack's root and its id, big endian; a note, its id; a
- * contact, its root key.
+ * library file, its root; a contact, its root key.
  */
 #ifndef FZN_NODE_SEARCH_H
 #define FZN_NODE_SEARCH_H

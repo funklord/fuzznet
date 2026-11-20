@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1298
+The newest work is at the end of this file. **Read secs 1287 to 1299
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -41,7 +41,8 @@ listener port spans (`150e3106`).
 - **Search step 4**: notes are a store (sec 1290); a contact's host is
   answered what it reads (sec 1291); `fetch search with CONTACT` asks
   that contact's hosts alone (sec 1292); in binary, the client and a
-  view (sec 1293). Left: `with @GROUP`; the catalogue as a store.
+  view (sec 1293); the library's files (sec 1299). Left: `with @GROUP`;
+  facet filters, when a client asks for them.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. The log now
   draws the main rendition at 128 px and a sticker's words (sec 1295).
   The picker asks for a boxed sticker's words (sec 1296). Then: (b) animation beyond frame 0; (c) a sticker's sound,
@@ -93880,3 +93881,30 @@ journal), not a client's file.
 no art asked again, chosen with its words; none said; cleared; a pack
 let go and said, one not there not. Sabotages `picker-found-any-sticker`,
 `picker-let-go-nothing`.
+
+## 1299. The library's files as a store of the one search, 2026-11-20
+
+Step 4's catalogue part (sec 1287), the store `files`:
+`node/catalog_search.c`, registered by fuzznetd where the catalogue is
+built (`FZN_CATALOG_ON`). A file is found by its live `name` or `kind`
+claim, keyed by its root -- the one every host names it by, so two hosts
+claiming a file are one hit -- and shown by its name whichever claim
+was found. No time, for the contacts store's reason: when a host learnt
+of a file differs host by host. A retracted claim is not found.
+
+**A user's library is its own devices' (sec 633)**: a contact asking is
+answered nothing from it, and `with CONTACT` finds no files.
+
+In its own file rather than `node/catalog.c`, so the suites linking the
+catalogue do not gain the search engine.
+
+**Not built: facet filters.** sec 1287 has a query carry a `facet`
+expression over a store's dimensions -- the catalogue's being the one
+that has any. Nothing asks for it yet: the library view filters by kind
+in the view (sec 1207), and a search box sends words. It is the next step
+when a client wants "audio files named harbour" asked of other hosts.
+
+**Tests:** node_catalog_test -- a file found once by name though two
+hosts claim it, keyed by its root, timeless; found by kind and shown by
+name; a retracted name not found; a contact answered nothing. Sabotage
+`search-library-told-contacts`.
