@@ -94028,3 +94028,30 @@ malformed), removed in bytes and gone from the text verb.
 
 **Next in sec 1217's order:** the library's `add`, then devices, hosts
 and grants; stickers' references and keeping a pack from a file.
+
+## 1304. A sticker's reference, renditions and sound, in binary, 2026-11-20
+
+Sec 1217's sticker subject, its reads that were still text: every sticker
+sent asks its reference, and every one drawn writes a rendition.
+`node/stickers_local.situ` gains `reference` (135), answered by
+`referenced` (136: the `fzn:sticker/...` text), and `art` (137: a role,
+1 to 4 a rendition and 5 the sound, and a path), answered by `drawn` (138:
+the format and size, or the sound's bytes). A sticker is asked by its
+pack's whole reference or by the root of a pack saved here, and its id.
+
+fuzznetd answers both **through the verb's own handler**, `get sticker
+PACK ID [text WORDS]` and `get sticker PACK ID ROLE PATH`, so every check
+stays the verb's -- the box's limit, words that are not text, a path that
+exists -- and says a refusal as a STATUS in the verb's words, never as
+malformed. The client's `fzn_rpc_sticker_reference`, `_reference_words`,
+`_draw` (and so `_art`) and `_sound` ask in binary first and fall back to
+the verb. `FZN_NODE_STICKERS_BINARY_MAX` grows to 520 for a reference.
+
+**Left in text of stickers:** building a pack from a spec and keeping one
+from a file (`put sticker PATH`, the user's rare act), and the matcher,
+which waits on sec 1272's measurement.
+
+**Tests:** stickers_local_vectors (15, seven new); live_stickers b2 -- the
+reference with and without words, the thumb and the sound asked in bytes,
+each as the verb answers it and the files the art's; words for a sticker
+with no box refused in the verb's words.

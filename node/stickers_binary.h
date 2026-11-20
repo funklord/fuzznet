@@ -17,8 +17,9 @@
 
 #include "stickers.h"
 
-/* The most bytes one answer message takes: a row at its widest. */
-#define FZN_NODE_STICKERS_BINARY_MAX 304u
+/* The most bytes one answer message takes: a row at its widest, a
+ * reference's (sec 1304) -- 512 bytes of it, its length and the head. */
+#define FZN_NODE_STICKERS_BINARY_MAX 520u
 
 /* Each answer message, whole, for the caller to frame and write; nonzero
  * when it was written. */

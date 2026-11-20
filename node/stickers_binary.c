@@ -10,6 +10,7 @@
 #include "../wire/status.h"
 #include "../local/vocabulary.h"
 #include "../sticker/pack.h"
+#include "../local/escape.h"
 
 #include <stdio.h>
 
@@ -129,6 +130,105 @@ static int pack_write(const fzn_node_stickers_t *st, situ_view_t v, fzn_node_sti
 	return status(put, put_ctx, FZN_STATUS_OK, NULL);
 }
 
+/* THE STICKER ASKED, `sticker PACK ID` as the verb takes it, into `arg`:
+ * its length. */
+static size_t sticker_arg(situ_view_t s, char *arg, size_t cap)
+{
+	size_t n, i;
+
+	n = (size_t)snprintf(arg, cap, "sticker ");
+	for (i = 0; i < 32u; i++)
+		n += (size_t)snprintf(arg + n, cap - n, "%02x", fzn_stickers_local_sticker_ask_root_ptr(s)[i]);
+	if (fzn_stickers_local_sticker_ask_has_key_get(s)) {
+		for (i = 0; i < 32u; i++)
+			n += (size_t)snprintf(arg + n, cap - n, "%02x", fzn_stickers_local_sticker_ask_key_ptr(s)[i]);
+		n += (size_t)snprintf(arg + n, cap - n, "%016llx",
+		                      (unsigned long long)fzn_stickers_local_sticker_ask_length_get(s));
+	}
+	n += (size_t)snprintf(arg + n, cap - n, " %llu", (unsigned long long)fzn_stickers_local_sticker_ask_id_get(s));
+	return n < cap ? n : 0u;
+}
+
+/* A REFERENCE, OR A RENDITION OR SOUND WRITTEN, sec 1304: through the verb's
+ * own handler, `get sticker PACK ID [text WORDS]` or `get sticker PACK ID
+ * ROLE PATH`, so every check stays the verb's; its answer as a row and ok,
+ * or a STATUS in its words, never malformed. */
+static int sticker_read(const fzn_node_stickers_t *st, situ_view_t v, fzn_node_stickers_put_t put, void *put_ctx)
+{
+	static const char *const ROLES[] = { "thumb", "inline", "main", "popup", "sound" };
+	static char reply[FZN_STICKER_REF_SENT_MAX + 64u];
+	static char arg[2u * 32u + 2u * 32u + 64u + 3u * FZN_STICKER_TEXT_MAX + 1100u];
+	const int reference = fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_REFERENCE;
+	situ_view_t b, s;
+	fzn_request_t req;
+	size_t n, r;
+
+	if ((reference ? fzn_stickers_local_message_body_reference_view(v, &b)
+	               : fzn_stickers_local_message_body_art_view(v, &b))
+	            != SITU_OK
+	    || (reference ? fzn_stickers_local_reference_ask_sticker_view(b, &s)
+	                  : fzn_stickers_local_art_ask_sticker_view(b, &s))
+	               != SITU_OK
+	    || !(n = sticker_arg(s, arg, sizeof(arg))))
+		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a stickers request");
+	if (reference && fzn_stickers_local_reference_ask_words_len_get(b)) {
+		size_t e = 0;
+
+		n += (size_t)snprintf(arg + n, sizeof(arg) - n, " text ");
+		(void)fzn_escape(fzn_stickers_local_reference_ask_words_ptr(b), fzn_stickers_local_reference_ask_words_len_get(b),
+		                 arg + n, sizeof(arg) - n - 1u, &e);
+		n += e;
+	} else if (!reference) {
+		const size_t path_len = fzn_stickers_local_art_ask_path_len_get(b);
+		const uint8_t *path = fzn_stickers_local_art_ask_path_ptr(b);
+
+		if (memchr(path, ' ', path_len) || memchr(path, '\n', path_len) || memchr(path, '\r', path_len))
+			return status(put, put_ctx, FZN_STATUS_ERROR, "a path holding a space or a line break");
+		n += (size_t)snprintf(arg + n, sizeof(arg) - n, " %s %.*s",
+		                      ROLES[fzn_stickers_local_art_ask_role_get(b) - 1u], (int)path_len, (const char *)path);
+	}
+	if (n >= sizeof(arg))
+		return status(put, put_ctx, FZN_STATUS_ERROR, "the request would not fit");
+	memset(&req, 0, sizeof(req));
+	req.parsed = FZN_VERB_GET;
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	r = fzn_node_stickers_local((void *)(uintptr_t)st, FZN_ORIGIN_SAME_USER, &req, reply, sizeof(reply));
+	while (r && (reply[r - 1u] == '\n' || reply[r - 1u] == '\r'))
+		reply[--r] = '\0';
+	if (r < 3u || memcmp(reply, "ok ", 3u) != 0)
+		return status(put, put_ctx,
+		              r > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,
+		              memchr(reply, ' ', r) ? (const char *)memchr(reply, ' ', r) + 1 : "the sticker would not read");
+	{
+		uint8_t row[FZN_STICKER_REF_SENT_MAX + 8u], out[FZN_STICKER_REF_SENT_MAX + 16u];
+		uint32_t row_len = 0, m = 0;
+		situ_err_t err;
+
+		if (reference) {
+			err = fzn_stickers_local_referenced_row_build(row, sizeof(row), (const uint8_t *)reply + 3, (uint32_t)(r - 3u),
+			                                              &row_len);
+			if (err == SITU_OK)
+				err = fzn_stickers_local_message_build_referenced(out, sizeof(out), (uint8_t)FZN_CMD_STICKERS, row,
+				                                                  row_len, &m);
+		} else {
+			unsigned long long f = 0, wd = 0, ht = 0;
+			const int sound = fzn_stickers_local_art_ask_role_get(b) == 5u;
+
+			if (sound ? sscanf(reply + 3, "%llu", &f) != 1 : sscanf(reply + 3, "%llu %llu %llu", &f, &wd, &ht) != 3)
+				return status(put, put_ctx, FZN_STATUS_ERROR, "the verb's answer did not read");
+			err = fzn_stickers_local_drawn_row_build(row, sizeof(row), (uint8_t)(sound ? 0u : f), (uint16_t)wd,
+			                                         (uint16_t)ht, sound ? (uint64_t)f : 0u, &row_len);
+			if (err == SITU_OK)
+				err = fzn_stickers_local_message_build_drawn(out, sizeof(out), (uint8_t)FZN_CMD_STICKERS, row, row_len,
+				                                             &m);
+		}
+		if (err != SITU_OK || !put(put_ctx, out, m))
+			return 0;
+	}
+	return status(put, put_ctx, FZN_STATUS_OK, NULL);
+}
+
 int fzn_node_stickers_binary(const fzn_node_stickers_t *st, const uint8_t *msg, size_t len,
                              fzn_node_stickers_put_t put, void *put_ctx)
 {
@@ -147,6 +247,9 @@ int fzn_node_stickers_binary(const fzn_node_stickers_t *st, const uint8_t *msg, 
 	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_KEEP
 	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_FORGET)
 		return pack_write(st, v, put, put_ctx);
+	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_REFERENCE
+	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_ART)
+		return sticker_read(st, v, put, put_ctx);
 	/* ONE PACK'S STICKERS, sec 1248: a row each, then ok; no such pack, or
 	 * one not here whole, refused in words. */
 	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_ITEMS) {

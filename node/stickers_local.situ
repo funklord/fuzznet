@@ -17,6 +17,10 @@ enum op : u8 {
 	keep     = 132, // a pack kept by its reference, as `add sticker REF` keeps it
 	kept     = 133, // an answer: the pack kept, by its root
 	forget   = 134, // a pack let go by its root, as `remove sticker ROOT`
+	reference  = 135, // the reference a line carries, as `get sticker PACK ID [text WORDS]` (sec 1304)
+	referenced = 136, // an answer: the reference
+	art        = 137, // a rendition or the sound written to a file, as `get sticker PACK ID ROLE PATH`
+	drawn      = 138, // an answer: what was written
 	default  = error,
 }
 
@@ -77,6 +81,50 @@ struct kept_row {
 	u8   estate [max = 1];
 }
 
+// A STICKER BY ITS PACK AND ID: the pack by its whole reference where
+// HAS_KEY, else by the root of a pack saved here (KEY and LENGTH zeros).
+struct sticker_ask {
+	u8   has_key [max = 1];
+	u8   root[32];
+	u8   key[32];
+	u64  length;
+	u64  id;
+}
+
+// ITS REFERENCE, with the sender's words where WORDS_LEN is not 0 (raw, at
+// most FZN_STICKER_TEXT_MAX bytes; the node refuses them for a sticker with
+// no text box).
+struct reference_ask {
+	sticker_ask sticker;
+	u8   words_len [max = 84];
+	u8   words[words_len];
+}
+
+// THE REFERENCE, `fzn:sticker/...`, as a line carries it.
+struct referenced_row {
+	u16  ref_len [min = 1, max = 512];
+	u8   ref[ref_len];
+}
+
+// A RENDITION BY ROLE -- 1 thumb, 2 inline, 3 main, 4 pop-up, the nearest
+// where the sticker lacks it -- or 5 its sound, written to a NEW file at
+// PATH, absolute.
+struct art_ask {
+	sticker_ask sticker;
+	u8   role [min = 1, max = 5];
+	u16  path_len [min = 1, max = 1023];
+	u8   path[path_len];
+}
+
+// WHAT WAS WRITTEN: a rendition's FORMAT, WIDTH and HEIGHT, all 0 for a
+// sound; BYTES the sound's length, 0 for a rendition.
+struct drawn_row {
+	u8   format [max = 4];
+	u16  width;
+	u16  height;
+	u64  bytes;
+}
+
 struct message {
 	u8   cmd [must_eq = 22];
 	op   op;
@@ -89,6 +137,10 @@ struct message {
 		case op.keep:     keep_ask keep;
 		case op.kept:     kept_row kept;
 		case op.forget:   pack_ask forget;
+		case op.reference:  reference_ask  reference;
+		case op.referenced: referenced_row referenced;
+		case op.art:        art_ask        art;
+		case op.drawn:      drawn_row      drawn;
 		default: error;
 	}
 }

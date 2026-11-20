@@ -19,7 +19,19 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  packs=128 pack_row=129 items=130 item_row=131 keep=132 kept=133 forget=134
+  packs=128 pack_row=129 items=130 item_row=131 keep=132 kept=133 forget=134 reference=135 referenced=136 art=137 drawn=138
+
+struct art_ask size=85..1107
+  @0x0000   81        sticker_ask sticker  big
+  @0x0051   1         u8         role  min=1 max=5
+  @0x0052   2         u16        path_len  big min=1 max=1023
+  @0x0054   1..1023   u8         path  sized-by=path_len
+
+struct drawn_row size=13
+  @0x0000   1         u8         format  max=4
+  @0x0001   2         u16        width  big
+  @0x0003   2         u16        height  big
+  @0x0005   8         u64        bytes  big
 
 struct item_row size=36..291
   @0x0000   8         u64        id  big
@@ -47,10 +59,10 @@ struct kept_row size=33
   @0x0000   32        u8         root  big
   @0x0020   1         u8         estate  max=1
 
-struct message size=2..300
+struct message size=2..1109
   @0x0000   1         u8         cmd  must_eq=22
   @0x0001   1         op         op
-  @0x0002   0..298    variant    body
+  @0x0002   0..1107   variant    body
   body switch: op
   body case 128: packs nothing
   body case 129: pack_row pack_row
@@ -59,6 +71,10 @@ struct message size=2..300
   body case 132: keep keep_ask
   body case 133: kept kept_row
   body case 134: forget pack_ask
+  body case 135: reference reference_ask
+  body case 136: referenced referenced_row
+  body case 137: art art_ask
+  body case 138: drawn drawn_row
   body case default: error
 
 struct nothing size=0
@@ -73,3 +89,19 @@ struct pack_row size=43..298
   @0x0029   1         u8         estate  max=1
   @0x002a   1         u8         name_len
   @0x002b   0..255    u8         name  sized-by=name_len
+
+struct reference_ask size=82..166
+  @0x0000   81        sticker_ask sticker  big
+  @0x0051   1         u8         words_len  max=84
+  @0x0052   0..84     u8         words  sized-by=words_len
+
+struct referenced_row size=3..514
+  @0x0000   2         u16        ref_len  big min=1 max=512
+  @0x0002   1..512    u8         ref  sized-by=ref_len
+
+struct sticker_ask size=81
+  @0x0000   1         u8         has_key  max=1
+  @0x0001   32        u8         root  big
+  @0x0021   32        u8         key  big
+  @0x0041   8         u64        length  big
+  @0x0049   8         u64        id  big

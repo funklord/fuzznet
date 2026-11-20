@@ -13,6 +13,9 @@ One store, one daemon, a spec and its art in scratch.
        for a sticker with no text box (sec 830); `get sticker ROOT ID ROLE
        PATH` writes the rendition asked for, or the nearest, and its bytes
        are the art's
+    b2 the same in binary (sec 1304): the reference with and without words, a
+       rendition and the sound, as the verbs answer them; words for a sticker
+       with no box refused in the verb's words, never as malformed
     c  a spec naming a file above it, and one whose two stickers take one id
        from one art, are refused, and nothing is saved by either
     d  `remove sticker ROOT` forgets the pack and keeps its bytes: listed no
@@ -219,6 +222,40 @@ def main(argv):
 			got = ask(sock, "get sticker %s 1 sound %s" % (root, out3 + "2"))
 			if got != "error that sticker has no sound":
 				raise failed("b: a sticker with no sound was answered %r" % got)
+			# b2: THE SAME IN BINARY, sec 1304: the reference, with words and
+			# without, a rendition and the sound, as the verbs answer them.
+			ask_one = bytes([1]) + bytes.fromhex(ref.split()[1].split("/")[1]) \
+			          + bytes.fromhex(ref.split()[1].split("/")[2]) \
+			          + int(ref.split()[1].split("/")[3]).to_bytes(8, "big")
+			def sticker(n):
+				return ask_one + n.to_bytes(8, "big")
+			got = binary(sock, bytes([0x16, 0x87]) + sticker(1) + bytes([0]))
+			if len(got) != 2 or got[0][:2] != bytes([0x16, 0x88]) or got[1][:2] != bytes([0x13, 0]) \
+			   or got[0][4:].decode() != ref[3:]:
+				raise failed("b2: the reference in binary was %r where the verb said %r" % (got, ref))
+			got = binary(sock, bytes([0x16, 0x87]) + sticker(3) + bytes([len("Hej d\u00e5".encode())]) + "Hej d\u00e5".encode())
+			if len(got) != 2 or got[0][4:].decode() != ref3[3:].rstrip("\n"):
+				raise failed("b2: the reference with words in binary was %r where the verb said %r"
+				             % (got, ref3))
+			out4 = os.path.join(scratch, "thumb.bin")
+			got = binary(sock, bytes([0x16, 0x89]) + sticker(1) + bytes([1]) + len(out4).to_bytes(2, "big")
+			             + out4.encode())
+			with open(out4, "rb") as f:
+				if len(got) != 2 or got[0][2:] != bytes([4, 0, 64, 0, 64]) + bytes(8) \
+				   or f.read() != art["art/wave-thumb.png"]:
+					raise failed("b2: the thumb in binary answered %r" % got)
+			out5 = os.path.join(scratch, "sound.bin")
+			got = binary(sock, bytes([0x16, 0x89]) + sticker(2) + bytes([5]) + len(out5).to_bytes(2, "big")
+			             + out5.encode())
+			with open(out5, "rb") as f:
+				if len(got) != 2 or got[0][2:] != bytes(5) + (300).to_bytes(8, "big") \
+				   or f.read() != art["art/spin.ogg"]:
+					raise failed("b2: the sound in binary answered %r" % got)
+			got = binary(sock, bytes([0x16, 0x87]) + sticker(1) + bytes([2]) + b"hi")
+			if len(got) != 1 or got[0][0] != 0x13 or got[0][1] in (0, 2):
+				raise failed("b2: words for a boxless sticker in binary answered %r" % got)
+			print("livecheck: b2: the reference, a rendition and the sound asked in binary, as the "
+			      "verbs answer them, and words refused in the verb's words")
 			print("livecheck: b: its stickers listed, a reference answered, and each "
 			      "rendition written as its art")
 

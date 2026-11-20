@@ -11,6 +11,23 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
+struct art_ask size=85..1107 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  art_ask.sticker                        offset=AbsoluteStatic(0x00) size=Fixed(81) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  art_ask.sticker.has_key                offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  art_ask.sticker.root                   offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  art_ask.sticker.key                    offset=AbsoluteStatic(0x21) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  art_ask.sticker.length                 offset=AbsoluteStatic(0x41) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  art_ask.sticker.id                     offset=AbsoluteStatic(0x49) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  art_ask.role                           offset=AbsoluteStatic(0x51) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  art_ask.path_len                       offset=AbsoluteStatic(0x52) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  art_ask.path                           offset=AbsoluteStatic(0x54) size=Bounded(1, 1023) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct drawn_row size=13 repr=ValueConverted atomic=NonAtomic
+  drawn_row.format                       offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  drawn_row.width                        offset=AbsoluteStatic(0x01) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  drawn_row.height                       offset=AbsoluteStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  drawn_row.bytes                        offset=AbsoluteStatic(0x05) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
 struct item_row size=36..291 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   item_row.id                            offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   item_row.type                          offset=AbsoluteStatic(0x08) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
@@ -37,10 +54,10 @@ struct kept_row size=33 atomic=NonAtomic
   kept_row.root                          offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   kept_row.estate                        offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
 
-struct message size=2..300 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+struct message size=2..1109 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.cmd                            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   message.op                             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 298) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  message.body                           offset=AbsoluteStatic(0x02) size=Bounded(0, 1107) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
   message.body.packs                     offset=AbsoluteStatic(0x02) size=Fixed(0) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.pack_row                  offset=AbsoluteStatic(0x02) size=Bounded(43, 298) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
   message.body.pack_row.root             offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
@@ -76,6 +93,33 @@ struct message size=2..300 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.body.kept.estate               offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   message.body.forget                    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   message.body.forget.root               offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  message.body.reference                 offset=AbsoluteStatic(0x02) size=Bounded(82, 166) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.reference.sticker         offset=AbsoluteStatic(0x02) size=Fixed(81) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.reference.sticker.has_key offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.reference.sticker.root    offset=AbsoluteStatic(0x03) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  message.body.reference.sticker.key     offset=AbsoluteStatic(0x23) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  message.body.reference.sticker.length  offset=AbsoluteStatic(0x43) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.reference.sticker.id      offset=AbsoluteStatic(0x4B) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.reference.words_len       offset=AbsoluteStatic(0x53) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.reference.words           offset=AbsoluteStatic(0x54) size=Bounded(0, 84) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.referenced                offset=AbsoluteStatic(0x02) size=Bounded(3, 514) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.referenced.ref_len        offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  message.body.referenced.ref            offset=AbsoluteStatic(0x04) size=Bounded(1, 512) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.art                       offset=AbsoluteStatic(0x02) size=Bounded(85, 1107) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.art.sticker               offset=AbsoluteStatic(0x02) size=Fixed(81) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.art.sticker.has_key       offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.art.sticker.root          offset=AbsoluteStatic(0x03) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  message.body.art.sticker.key           offset=AbsoluteStatic(0x23) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  message.body.art.sticker.length        offset=AbsoluteStatic(0x43) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.art.sticker.id            offset=AbsoluteStatic(0x4B) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.art.role                  offset=AbsoluteStatic(0x53) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  message.body.art.path_len              offset=AbsoluteStatic(0x54) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  message.body.art.path                  offset=AbsoluteStatic(0x56) size=Bounded(1, 1023) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  message.body.drawn                     offset=AbsoluteStatic(0x02) size=Fixed(13) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  message.body.drawn.format              offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  message.body.drawn.width               offset=AbsoluteStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.drawn.height              offset=AbsoluteStatic(0x05) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.drawn.bytes               offset=AbsoluteStatic(0x07) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
 
 struct nothing size=0
 
@@ -89,3 +133,24 @@ struct pack_row size=43..298 mutate=Shifting repr=ValueConverted atomic=NonAtomi
   pack_row.estate                        offset=AbsoluteStatic(0x29) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   pack_row.name_len                      offset=AbsoluteStatic(0x2A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   pack_row.name                          offset=AbsoluteStatic(0x2B) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct reference_ask size=82..166 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  reference_ask.sticker                  offset=AbsoluteStatic(0x00) size=Fixed(81) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  reference_ask.sticker.has_key          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  reference_ask.sticker.root             offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  reference_ask.sticker.key              offset=AbsoluteStatic(0x21) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  reference_ask.sticker.length           offset=AbsoluteStatic(0x41) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  reference_ask.sticker.id               offset=AbsoluteStatic(0x49) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  reference_ask.words_len                offset=AbsoluteStatic(0x51) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  reference_ask.words                    offset=AbsoluteStatic(0x52) size=Bounded(0, 84) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct referenced_row size=3..514 mutate=Shifting repr=ValueConverted
+  referenced_row.ref_len                 offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  referenced_row.ref                     offset=AbsoluteStatic(0x02) size=Bounded(1, 512) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct sticker_ask size=81 repr=ValueConverted atomic=NonAtomic
+  sticker_ask.has_key                    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  sticker_ask.root                       offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  sticker_ask.key                        offset=AbsoluteStatic(0x21) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  sticker_ask.length                     offset=AbsoluteStatic(0x41) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  sticker_ask.id                         offset=AbsoluteStatic(0x49) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic

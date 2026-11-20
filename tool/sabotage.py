@@ -18436,8 +18436,8 @@ SABOTAGES = [
 	(
 		"stickers-node-refusal-malformed",
 		"node/stickers_binary.c",
-		"\t\t              r > 7u && memcmp(reply, \"denied \", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,\n",
-		"\t\t              FZN_STATUS_MALFORMED,\n",
+		"\t\t              r > 7u && memcmp(reply, \"denied \", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,\n\t\t              memchr(reply, ' ', r) ? (const char *)memchr(reply, ' ', r) + 1 : \"the pack would not change\");\n",
+		"\t\t              FZN_STATUS_MALFORMED,\n\t\t              memchr(reply, ' ', r) ? (const char *)memchr(reply, ' ', r) + 1 : \"the pack would not change\");\n",
 		"a pack the verb refuses is answered malformed, and a client takes the node for one reading no binary; live_pairing phase hb only -- sec 1248",
 	),
 	(

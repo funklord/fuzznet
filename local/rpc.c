@@ -42,6 +42,7 @@
 #include "../wire/generated/groups_local_build.h"
 #include "../wire/generated/streams_local.h"
 #include "../wire/generated/stickers_local.h"
+#include "../wire/generated/stickers_local_build.h"
 #include "../wire/generated/files_local.h"
 #include "../wire/generated/files_local_build.h"
 #include "../wire/generated/notes_local.h"
@@ -9795,19 +9796,166 @@ int fzn_rpc_sticker_file_keep(fzn_rpc_t *c, const char *path, size_t path_len, u
 	return node_sticker_put(c, path, path_len, root, host_only);
 }
 
+/* A STICKER ASKED IN BINARY, sec 1304: the pack (64 or 144 hex) and id as
+ * node/stickers_local.situ's sticker_ask, 81 bytes, into `out`; 1, or 0 for
+ * a pack that is not one. */
+static int sticker_ask_bytes(const char *pack, size_t pack_len, uint64_t id, uint8_t out[81]) {
+	uint8_t raw[72];
+	memset(out, 0, 81);
+	if (!node_pack_ok(pack, pack_len)) return 0;
+	for (size_t i = 0; i < pack_len / 2; i++) {
+		const int hi = hex_nibble(pack[2 * i]), lo = hex_nibble(pack[2 * i + 1]);
+		if (hi < 0 || lo < 0) return 0;
+		raw[i] = (uint8_t)(hi << 4 | lo);
+	}
+	out[0] = (uint8_t)(pack_len == 144 ? 1 : 0);
+	memcpy(out + 1, raw, 32);
+	if (pack_len == 144) memcpy(out + 33, raw + 32, 40);
+	for (int k = 0; k < 8; k++) out[73 + k] = (uint8_t)(id >> (56 - 8 * k));
+	return 1;
+}
+
+/* A STICKER READ IN BINARY: the referenced or drawn row, then a STATUS. */
+struct sticker_read_answer {
+	char *text;
+	size_t cap, *text_len;
+	uint8_t format;
+	uint16_t width, height;
+	uint64_t bytes;
+	int rows, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void sticker_read_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct sticker_read_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->rows || a->status_seen || len > UINT32_MAX ||
+	    fzn_stickers_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK ||
+	    fzn_stickers_local_message_validate(v) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_REFERENCED && a->text &&
+	    fzn_stickers_local_message_body_referenced_view(v, &b) == SITU_OK) {
+		const size_t n = fzn_stickers_local_referenced_row_ref_len_get(b);
+		if (n >= a->cap) {
+			a->bad = 1;
+			return;
+		}
+		memcpy(a->text, fzn_stickers_local_referenced_row_ref_ptr(b), n);
+		a->text[n] = '\0';
+		*a->text_len = n;
+		a->rows = 1;
+		return;
+	}
+	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_DRAWN && !a->text &&
+	    fzn_stickers_local_message_body_drawn_view(v, &b) == SITU_OK) {
+		a->format = fzn_stickers_local_drawn_row_format_get(b);
+		a->width = fzn_stickers_local_drawn_row_width_get(b);
+		a->height = fzn_stickers_local_drawn_row_height_get(b);
+		a->bytes = fzn_stickers_local_drawn_row_bytes_get(b);
+		a->rows = 1;
+		return;
+	}
+	a->bad = 1;
+}
+
+static int sticker_read_binary(fzn_rpc_t *c, const uint8_t *req, size_t req_len, struct sticker_read_answer *a,
+                               int *text) {
+	const int rc = fzn_rpc_binary(c, req, req_len, sticker_read_each, a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (a->bad || !a->status_seen) return unreadable(c);
+	if (a->code != FZN_STATUS_OK)
+		return fail(c, a->code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a->why[0] ? a->why : "the node refused it");
+	return a->rows ? FZN_RPC_OK : unreadable(c);
+}
+
+/* THE REFERENCE IN BINARY FIRST, the verb on a node reading none. */
+static int sticker_reference(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id, const char *words,
+                             size_t words_len, char *text, size_t cap, size_t *text_len) {
+	uint8_t req[2 + 81 + 1 + FZN_STICKER_TEXT_MAX];
+	struct sticker_read_answer a;
+	int bin = 0;
+	*text_len = 0;
+	if (cap) text[0] = '\0';
+	if (words_len > FZN_STICKER_TEXT_MAX || !cap || !sticker_ask_bytes(pack, pack_len, id, req + 2))
+		return node_sticker_reference(c, pack, pack_len, id, words, words_len, text, cap, text_len);
+	req[0] = FZN_CMD_STICKERS;
+	req[1] = FZN_STICKERS_LOCAL_OP_REFERENCE;
+	req[83] = (uint8_t)words_len;
+	if (words_len) memcpy(req + 84, words, words_len);
+	memset(&a, 0, sizeof a);
+	a.text = text;
+	a.cap = cap;
+	a.text_len = text_len;
+	const int rc = sticker_read_binary(c, req, 84 + words_len, &a, &bin);
+	if (bin) return node_sticker_reference(c, pack, pack_len, id, words, words_len, text, cap, text_len);
+	return rc;
+}
+
+/* A RENDITION OR SOUND WRITTEN, IN BINARY FIRST: `role` 1 to 4, or 5 the
+ * sound. 1 with `*text` set when the node reads no binary, so the caller
+ * asks the verb. */
+static int sticker_art_binary(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id, uint8_t role,
+                              const char *path, size_t path_len, struct sticker_read_answer *a, int *text) {
+	uint8_t req[2 + 81 + 1 + 2 + FZN_REQUEST_MAX];
+	char full[FZN_REQUEST_MAX];
+	*text = 0;
+	memset(a, 0, sizeof *a);
+	if (!sticker_ask_bytes(pack, pack_len, id, req + 2) || !node_abs_path(path, path_len, full, sizeof full) ||
+	    strlen(full) > 1023) {
+		*text = 1;
+		return FZN_RPC_OK;
+	}
+	const size_t n = strlen(full);
+	req[0] = FZN_CMD_STICKERS;
+	req[1] = FZN_STICKERS_LOCAL_OP_ART;
+	req[83] = role;
+	req[84] = (uint8_t)(n >> 8);
+	req[85] = (uint8_t)n;
+	memcpy(req + 86, full, n);
+	return sticker_read_binary(c, req, 86 + n, a, text);
+}
+
 int fzn_rpc_sticker_reference(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id,
                                char *text, size_t cap, size_t *text_len) {
-	return node_sticker_reference(c, pack, pack_len, id, NULL, 0, text, cap, text_len);
+	return sticker_reference(c, pack, pack_len, id, NULL, 0, text, cap, text_len);
 }
 
 int fzn_rpc_sticker_reference_words(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id,
                                      const char *words, size_t words_len, char *text, size_t cap,
                                      size_t *text_len) {
-	return node_sticker_reference(c, pack, pack_len, id, words, words_len, text, cap, text_len);
+	return sticker_reference(c, pack, pack_len, id, words, words_len, text, cap, text_len);
 }
 
 int fzn_rpc_sticker_sound(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id, const char *path,
                           size_t path_len, uint64_t *bytes) {
+	{
+		struct sticker_read_answer a;
+		int bin = 0;
+		*bytes = 0;
+		const int rc = sticker_art_binary(c, pack, pack_len, id, 5, path, path_len, &a, &bin);
+		if (!bin) {
+			if (rc == FZN_RPC_OK) *bytes = a.bytes;
+			return rc;
+		}
+	}
 	char full[FZN_REQUEST_MAX], arg[FZN_REQUEST_MAX];
 	const char *rest = NULL;
 	size_t rest_len = 0;
@@ -9829,6 +9977,20 @@ int fzn_rpc_sticker_sound(fzn_rpc_t *c, const char *pack, size_t pack_len, uint6
 int fzn_rpc_sticker_draw(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id,
                           uint8_t role, const char *path, size_t path_len,
                           fzn_rpc_node_sticker_drawn_t *out) {
+	struct sticker_read_answer a;
+	int bin = 0;
+	memset(out, 0, sizeof(*out));
+	if (role >= 1 && role <= 4) {
+		const int rc = sticker_art_binary(c, pack, pack_len, id, role, path, path_len, &a, &bin);
+		if (!bin) {
+			if (rc == FZN_RPC_OK) {
+				out->format = a.format;
+				out->width = a.width;
+				out->height = a.height;
+			}
+			return rc;
+		}
+	}
 	return node_sticker_draw(c, pack, pack_len, id, role, path, path_len, out);
 }
 
