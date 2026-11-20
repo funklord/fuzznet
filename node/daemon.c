@@ -19978,10 +19978,119 @@ static int local_rules(int fd, fzn_origin_t origin, const uint8_t *msg, size_t l
 	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
+/* ONE SETTING'S VALUE HERE, or one set or cleared, sec 1306. The value read
+ * as `get schema KEY` and `get setting here|estate KEY` read it, from the
+ * same functions, in one answer; a change through its verb, run as the
+ * socket runs a line, so its checks, its publishing and its rate gate are
+ * the verb's. Which cell -- this host's or the estate's -- is the key's
+ * declaration's, as the client chose it. */
+static int local_setting(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
+{
+	static char reply[FZN_REPLY_MAX + 1u], arg[FZN_SETTING_KEY_MAX + 3u * FZN_SETTING_VALUE_MAX + 32u];
+	uint8_t value[FZN_SETTING_VALUE_MAX], about[FZN_SUBJECT_LEN];
+	const fzn_schema_entry_t *e;
+	situ_msg_t m;
+	situ_view_t v, b;
+	const uint8_t *key;
+	size_t key_len, value_len = 0, n;
+	fzn_setting_rank_t rank;
+	fzn_scope_t scope = FZN_SCOPE_ESTATE;
+	int host, got;
+	uint8_t at;
+
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (len > UINT32_MAX || fzn_settings_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_settings_local_message_validate(v) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a settings request"), 0;
+	if (fzn_settings_local_message_op_get(v) == FZN_SETTINGS_LOCAL_OP_VALUE) {
+		if (fzn_settings_local_message_body_value_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a settings request"), 0;
+		key = fzn_settings_local_value_ask_key_ptr(b);
+		key_len = fzn_settings_local_value_ask_key_len_get(b);
+	} else {
+		if (fzn_settings_local_message_body_setting_view(v, &b) != SITU_OK)
+			return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a settings request"), 0;
+		key = fzn_settings_local_setting_ask_key_ptr(b);
+		key_len = fzn_settings_local_setting_ask_key_len_get(b);
+	}
+	if (!(e = fzn_node_schema_find(&node_schema, key, key_len)))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "no such setting is declared"), 0;
+	host = (e->scopes & FZN_SCHEMA_HOST) != 0u;
+	if (fzn_settings_local_message_op_get(v) == FZN_SETTINGS_LOCAL_OP_SETTING) {
+		const uint8_t *given = fzn_settings_local_setting_ask_value_ptr(b);
+		size_t given_len = fzn_settings_local_setting_ask_value_len_get(b);
+		fzn_request_t req;
+		size_t e_len = 0;
+
+		if (!running_admin)
+			return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no settings"), 0;
+		memset(&req, 0, sizeof(req));
+		n = (size_t)snprintf(arg, sizeof(arg), "setting %s %.*s", host ? "host" : "estate", (int)key_len,
+		                     (const char *)key);
+		if (fzn_settings_local_setting_ask_clear_get(b)) {
+			req.parsed = FZN_VERB_REMOVE;
+		} else {
+			if (memchr(given, '\n', given_len) || memchr(given, '\r', given_len))
+				return local_binary_status(fd, FZN_STATUS_ERROR, "a value holding a line break"), 0;
+			arg[n++] = ' ';
+			/* A FLAG'S CLIENT SPELLINGS, `true` and `false`, as the verb's
+			 * `on` and `off` -- what the client did in text, knowing the
+			 * declaration; here the node knows it. */
+			if (e->type == FZN_SCHEMA_FLAG && given_len == 4u && memcmp(given, "true", 4u) == 0)
+				given = (const uint8_t *)"on", given_len = 2u;
+			else if (e->type == FZN_SCHEMA_FLAG && given_len == 5u && memcmp(given, "false", 5u) == 0)
+				given = (const uint8_t *)"off", given_len = 3u;
+			memcpy(arg + n, given, given_len);
+			e_len = given_len;
+			n += e_len;
+			req.parsed = FZN_VERB_SET;
+		}
+		req.arg = (const uint8_t *)arg;
+		req.arg_len = n;
+		n = local_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, origin, NULL, &req, reply, sizeof(reply) - 1u);
+		if (!n)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "no verb took the setting"), 0;
+		return verb_status(fd, reply, n);
+	}
+	if (host) {
+		got = fzn_node_settings_here(&node_settings, key, key_len, value, &value_len, &rank, &scope, about);
+		if (got < 0)
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the value is sealed to a key this host lacks"), 0;
+	} else {
+		got = node_settings.estate
+		      && fzn_node_settings_get(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, key, key_len, value,
+		                               &value_len, &rank);
+	}
+	/* SET ABOVE THIS HOST -- its group's or the estate's -- is 2: either way
+	 * not this host's own, as the client has read it since sec 868. */
+	at = (uint8_t)(!got ? 0u : host && scope == FZN_SCOPE_HOST ? 1u : 2u);
+	if (!got) {
+		value_len = strlen(e->def) < sizeof(value) ? strlen(e->def) : sizeof(value);
+		memcpy(value, e->def, value_len);
+	}
+	{
+		const int shy = (e->flags & FZN_SCHEMA_SENSITIVE) != 0u;
+		uint8_t row[4u + FZN_SETTING_VALUE_MAX + 4u], out[sizeof(row) + 8u];
+		uint32_t row_len = 0, out_len = 0;
+
+		if (fzn_settings_local_value_row_build(row, sizeof(row), at, (uint8_t)(shy ? 1 : 0), value,
+		                                       (uint32_t)(shy ? 0u : value_len), &row_len)
+		            != SITU_OK
+		    || fzn_settings_local_message_build_value_row(out, sizeof(out), (uint8_t)FZN_CMD_SETTINGS, row, row_len,
+		                                                  &out_len)
+		               != SITU_OK
+		    || !local_put(&fd, out, out_len))
+			return 0;
+	}
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 static int local_settings(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return local_binary_status(fd, FZN_STATUS_DENIED, "decisions are this node's own user's"), 0;
+	if (len >= 2u && (msg[1] == FZN_SETTINGS_LOCAL_OP_VALUE || msg[1] == FZN_SETTINGS_LOCAL_OP_SETTING))
+		return local_setting(fd, origin, msg, len);
 	if (len >= 2u && msg[1] >= FZN_SETTINGS_LOCAL_OP_RULES && msg[1] <= FZN_SETTINGS_LOCAL_OP_RULE_REMOVE)
 		return local_rules(fd, origin, msg, len);
 	(void)fzn_node_decisions_binary(&node_records, msg, len, local_put, &fd);
@@ -20033,6 +20142,11 @@ static const char *binary_write_subject(const uint8_t *msg, size_t len)
 		return msg[1] == FZN_MEMBERS_LOCAL_OP_INVITE || msg[1] == FZN_MEMBERS_LOCAL_OP_ANSWER ? "invite" : NULL;
 	case FZN_CMD_STICKERS:
 		return msg[1] == FZN_STICKERS_LOCAL_OP_KEEP || msg[1] == FZN_STICKERS_LOCAL_OP_FORGET ? "sticker" : NULL;
+#ifdef FZND_LIBRARY
+	case FZN_CMD_FILES:
+		/* A FILE LET GO OR SHARED, as its verb's subject (sec 1303). */
+		return msg[1] == FZN_FILES_LOCAL_OP_REMOVE || msg[1] == FZN_FILES_LOCAL_OP_SHARE ? "file" : NULL;
+#endif
 	case FZN_CMD_GROUPS:
 		/* AS ITS VERB'S SUBJECT: `group`, `member` or `admin` (sec 1222). */
 		if (msg[1] != FZN_GROUPS_LOCAL_OP_CHANGE || len < 3u)

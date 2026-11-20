@@ -31,6 +31,10 @@
     k  a governance act in binary (sec 1305): `set quorum 1` on the estate's
        one root answered ok, and `add root` with a key that is no key
        refused in the verb's words, never as malformed
+    l  a setting in binary (sec 1306): `message/unsend` read as its default,
+       set with the client's spelling `true` (ok) and read back `on` as this
+       host's own, as `get setting here` says it; cleared, the default again;
+       a key nobody declared refused in words
 
 rpc_test checks the client against the grammar it believes, over a scripted
 node; this checks the belief. A verb renamed or a field moved on the daemon's
@@ -64,6 +68,7 @@ GROUPS = 0x0D    # FZN_CMD_GROUPS
 STATUS = 0x13   # FZN_CMD_STATUS
 FILES = 0x01    # FZN_CMD_FILES
 MEMBERS = 0x09  # FZN_CMD_MEMBERS
+SETTINGS = 0x18  # FZN_CMD_SETTINGS
 
 
 def binary(sock_path, msg):
@@ -284,6 +289,29 @@ def main(argv):
 				raise failed("k: add root with no key in binary answered %r" % got)
 			print("livecheck: k: a quorum set in binary, and a root that is no key refused in the"
 			      " verb's words")
+
+			# l: a setting, in bytes (sec 1306).
+			key = b"message/unsend"
+			def value():
+				got = binary(sock, bytes([SETTINGS, 0x86, len(key)]) + key)
+				if len(got) != 2 or got[0][:2] != bytes([SETTINGS, 0x87]) or got[1][:2] != bytes([STATUS, 0]):
+					raise failed("l: the setting's value in binary was %r" % got)
+				return got[0][2], got[0][6:6 + int.from_bytes(got[0][4:6], "big")].decode()
+			if value() != (0, "off"):
+				raise failed("l: message/unsend unset read %r, not the default" % (value(),))
+			got = binary(sock, bytes([SETTINGS, 0x88, 0, len(key)]) + key + (4).to_bytes(2, "big") + b"true")
+			if len(got) != 1 or got[0][:2] != bytes([STATUS, 0]):
+				raise failed("l: message/unsend set in binary answered %r" % got)
+			here = ask(sock, "get setting here message/unsend")
+			if value() != (1, "on") or not here.startswith("ok host ") or not here.endswith(" on"):
+				raise failed("l: set in binary read %r where the verb says %r" % (value(), here))
+			got = binary(sock, bytes([SETTINGS, 0x88, 1, len(key)]) + key + bytes(2))
+			if len(got) != 1 or got[0][:2] != bytes([STATUS, 0]) or value() != (0, "off"):
+				raise failed("l: cleared in binary answered %r and read %r" % (got, value()))
+			got = binary(sock, bytes([SETTINGS, 0x86, 7]) + b"no/such")
+			if len(got) != 1 or got[0][0] != STATUS or got[0][1] in (0, 2):
+				raise failed("l: a key nobody declared answered %r" % got)
+			print("livecheck: l: a setting read, set and cleared in binary, as the verb reads it")
 		except (failed, TimeoutError, subprocess.TimeoutExpired) as e:
 			print("livecheck: FAILED -- %s" % e, file=sys.stderr)
 			return 1

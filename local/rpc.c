@@ -132,6 +132,7 @@ static int transfer_take(fzn_rpc_transfer_list_resp_t *out, const char *family, 
                          uint64_t rate_up, uint64_t rate_down, uint64_t first, uint64_t last);
 static int node_config_schema(fzn_rpc_t *c, const char *prefix, size_t prefix_len,
                               fzn_rpc_config_schema_resp_t *out);
+static int node_key_slashed(const char *in, size_t len, char *out, size_t cap);
 static int node_config_get(fzn_rpc_t *c, const char *key, size_t key_len, fzn_rpc_config_get_resp_t *out);
 static int node_config_set(fzn_rpc_t *c, const char *key, size_t key_len, const char *value,
                            size_t value_len, const char *expected, size_t expected_len);
@@ -4885,8 +4886,99 @@ int fzn_rpc_blob_add(fzn_rpc_t *c, const char *path, size_t path_len, uint8_t ti
  * by anything but these clients sampled while every screen said it did not.
  */
 
+/* ONE SETTING IN BINARY, sec 1306: the value row, or a STATUS alone. */
+struct setting_answer {
+	fzn_rpc_config_get_resp_t *out;
+	int rows, bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void setting_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct setting_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (!a->out || a->rows || a->status_seen || len > UINT32_MAX ||
+	    fzn_settings_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK ||
+	    fzn_settings_local_message_validate(v) != SITU_OK ||
+	    fzn_settings_local_message_op_get(v) != FZN_SETTINGS_LOCAL_OP_VALUE_ROW ||
+	    fzn_settings_local_message_body_value_row_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	const uint8_t at = fzn_settings_local_value_row_at_get(b);
+	const size_t n = fzn_settings_local_value_row_value_len_get(b);
+	if (n > FZN_RPC_CONFIG_VALUE_MAX) {
+		a->bad = 1;
+		return;
+	}
+	a->out->set_at = at == 1 ? FZN_SCHEMA_HOST : at == 2 ? FZN_SCHEMA_ESTATE : 0;
+	a->out->redacted = fzn_settings_local_value_row_sensitive_get(b);
+	a->out->configured = a->out->redacted && at != 0;
+	memcpy(a->out->value, fzn_settings_local_value_row_value_ptr(b), n);
+	a->out->value[n] = '\0';
+	a->out->value_len = n;
+	a->rows = 1;
+}
+
+/* A SETTING ASKED OR CHANGED IN BINARY: 1 in `*text` where the node reads
+ * none. `op` the op, `value` NULL for a read. */
+static int setting_binary(fzn_rpc_t *c, uint8_t op, const char *key, size_t key_len, int clear, const char *value,
+                          size_t value_len, fzn_rpc_config_get_resp_t *out, int *text) {
+	char slashed[FZN_RPC_CONFIG_KEY_MAX + 1];
+	uint8_t req[2 + 1 + 1 + 64 + 2 + 256];
+	struct setting_answer a;
+	size_t at = 2;
+	*text = 0;
+	if (!node_key_slashed(key, key_len, slashed, sizeof slashed) || strlen(slashed) > 64 || value_len > 256 ||
+	    (value && memchr(value, '\n', value_len))) {
+		*text = 1;
+		return FZN_RPC_OK;
+	}
+	const size_t k = strlen(slashed);
+	req[0] = FZN_CMD_SETTINGS;
+	req[1] = op;
+	if (op == FZN_SETTINGS_LOCAL_OP_SETTING) req[at++] = (uint8_t)(clear ? 1 : 0);
+	req[at++] = (uint8_t)k;
+	memcpy(req + at, slashed, k);
+	at += k;
+	if (op == FZN_SETTINGS_LOCAL_OP_SETTING) {
+		req[at++] = (uint8_t)(value_len >> 8);
+		req[at++] = (uint8_t)value_len;
+		if (value_len) memcpy(req + at, value, value_len);
+		at += value_len;
+	}
+	memset(&a, 0, sizeof a);
+	a.out = out;
+	const int rc = fzn_rpc_binary(c, req, at, setting_each, &a, text);
+	if (*text || rc != FZN_RPC_OK) return rc;
+	if (!a.status_seen || a.bad) return unreadable(c); /* the setting's answer cut short */
+	if (a.code != FZN_STATUS_OK)
+		return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+		            a.why[0] ? a.why : "the node refused it");
+	return out && !a.rows ? unreadable(c) : FZN_RPC_OK;
+}
+
 int fzn_rpc_config_get(fzn_rpc_t *c, const char *key, size_t key_len, fzn_rpc_config_get_resp_t *out) {
-	/* Every key is the node's declared setting (fuzznet sec 686). */
+	/* Every key is the node's declared setting (fuzznet sec 686). In
+	 * binary first: one answer where the verbs take two (sec 1306). */
+	int text = 0;
+	memset(out, 0, sizeof(*out));
+	const int rc = setting_binary(c, FZN_SETTINGS_LOCAL_OP_VALUE, key, key_len, 0, NULL, 0, out, &text);
+	if (!text) return rc;
 	return node_config_get(c, key, key_len, out);
 }
 
@@ -5364,7 +5456,22 @@ int fzn_rpc_config_set(fzn_rpc_t *c, const char *key, size_t key_len, const char
                         size_t value_len, const char *expected, size_t expected_len,
                         int *restart_required) {
 	if (restart_required) *restart_required = 0;
-	return node_config_set(c, key, key_len, value, value_len, expected, expected_len);
+	/* AS EXPECTED FIRST, where the caller said what it read: asked, then
+	 * compared, as the verb path does. */
+	if (expected) {
+		fzn_rpc_config_get_resp_t now;
+		const int rc = fzn_rpc_config_get(c, key, key_len, &now);
+		if (rc != FZN_RPC_OK) return rc;
+		if (now.value_len != expected_len || memcmp(now.value, expected, expected_len) != 0)
+			return fail(c, FZN_RPC_ERR_CONFLICT, "the setting changed since it was read");
+	}
+	{
+		int text = 0;
+		const int rc = setting_binary(c, FZN_SETTINGS_LOCAL_OP_SETTING, key, key_len, 0, value, value_len, NULL,
+		                              &text);
+		if (!text) return rc;
+	}
+	return node_config_set(c, key, key_len, value, value_len, NULL, 0);
 }
 
 int fzn_rpc_lan_discover(fzn_rpc_t *c, int probe, fzn_rpc_lan_discover_resp_t *out) {
@@ -9192,6 +9299,11 @@ static int node_config_set(fzn_rpc_t *c, const char *key, size_t key_len, const 
 }
 
 int fzn_rpc_config_clear(fzn_rpc_t *c, const char *key, size_t key_len) {
+	{
+		int text = 0;
+		const int rc = setting_binary(c, FZN_SETTINGS_LOCAL_OP_SETTING, key, key_len, 1, NULL, 0, NULL, &text);
+		if (!text) return rc;
+	}
 	char slashed[FZN_RPC_CONFIG_KEY_MAX + 1];
 	if (!node_key_slashed(key, key_len, slashed, sizeof slashed))
 		return node_unasked(c, FZN_RPC_ERR_MALFORMED, "not a setting's key");

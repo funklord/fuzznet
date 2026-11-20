@@ -18,10 +18,40 @@ enum op : u8 {
 	rule_row    = 131, // an answer: one rule, in its words
 	rule_add    = 132, // a rule added, as `add retention` or `add estate-retention`
 	rule_remove = 133, // a rule removed, as `remove retention` or `remove estate-retention`
+	value       = 134, // one setting's value as it stands here, its default where none is set (sec 1306)
+	value_row   = 135, // an answer: the value
+	setting     = 136, // a setting set or cleared where its declaration says, as `set|remove setting`
 	default  = error,
 }
 
 struct nothing {
+}
+
+// A SETTING'S KEY, as the node declares it (`list schema`), slashed.
+struct value_ask {
+	u8   key_len [min = 1, max = 64];
+	u8   key[key_len];
+}
+
+// ITS VALUE HERE: AT 0 the default, 1 this host's own, 2 set above this
+// host -- its group's or the estate's; SENSITIVE 1 for a value never shown,
+// VALUE then empty and AT saying only whether one is set; VALUE raw.
+struct value_row {
+	u8   at [max = 2];
+	u8   sensitive [max = 1];
+	u16  value_len [max = 256];
+	u8   value[value_len];
+}
+
+// A SETTING SET TO VALUE, or cleared where CLEAR is 1 -- for this host or
+// the estate, as its declaration says. VALUE as the verb takes it; a flag's
+// `on` and `off`.
+struct setting_ask {
+	u8   clear [max = 1];
+	u8   key_len [min = 1, max = 64];
+	u8   key[key_len];
+	u16  value_len [max = 256];
+	u8   value[value_len];
 }
 
 // SUBJECT what was decided; HOST who decided this side; AT its record's
@@ -65,6 +95,9 @@ struct message {
 		case op.rule_row:    rule_row    rule_row;
 		case op.rule_add:    rule_change rule_add;
 		case op.rule_remove: rule_change rule_remove;
+		case op.value:       value_ask   value;
+		case op.value_row:   value_row   value_row;
+		case op.setting:     setting_ask setting;
 		default: error;
 	}
 }

@@ -9,3 +9,8 @@ message rules       18 82 01
 message rule_row    18 83 00 0F 70 72 75 6E 65 20 2A 20 61 67 65 20 33 30 64
 message rule_add    18 84 00 00 0F 70 72 75 6E 65 20 2A 20 61 67 65 20 33 30 64
 message rule_remove 18 85 01 00 0F 70 72 75 6E 65 20 2A 20 61 67 65 20 33 30 64
+message value       18 86 0E 6D 65 73 73 61 67 65 2F 75 6E 73 65 6E 64
+message value_row   18 87 02 00 00 02 6F 6E
+message value_shy   18 87 01 01 00 00
+message setting_set 18 88 00 0E 6D 65 73 73 61 67 65 2F 75 6E 73 65 6E 64 00 03 6F 66 66
+message setting_clr 18 88 01 0E 6D 65 73 73 61 67 65 2F 75 6E 73 65 6E 64 00 00

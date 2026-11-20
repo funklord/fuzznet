@@ -94094,3 +94094,33 @@ and unrevoked by name, and the device confirmation setting.
 **Tests:** members_local_vectors (27, two new); live_rpc k -- `set quorum
 1` in bytes answered ok, `add root` with no key refused in the verb's
 words, not as malformed.
+
+## 1306. A setting read and changed in binary, and file writes published, 2026-11-20
+
+**The settings calls**, sec 1217's next subject. `fzn_rpc_config_get` was
+two text round trips -- `get schema KEY` for the declaration, then `get
+setting here|estate KEY` -- and the conversation view asks one each time
+a line is chosen (`message/unsend`). `node/settings_local.situ` gains
+`value` (134), answered by `value_row` (135: where it stands -- the
+default, this host's own, or set above this host -- whether it is
+sensitive, and the value, empty where it is), and `setting` (136: set or
+cleared). fuzznetd answers `value` from the same functions the two verbs
+read (`fzn_node_schema_find`, `fzn_node_settings_here` and `_get`), in one
+answer; `setting` runs as the socket runs a line, the cell -- this host's
+or the estate's -- chosen from the key's declaration as the client chose
+it. **A flag's client spellings `true` and `false` are mapped to the
+verb's `on` and `off` on the node**, which knows the declaration; the
+client did it in text after reading the schema. A compare-and-set (an
+expected value given) still reads first, now in binary.
+
+**A defect in sec 1303, found doing this:** a binary write tells the
+subscribers as its verb does (sec 1221), by `binary_write_subject` -- and
+the file ops `remove` and `share` named no subject, since they reach the
+files handler directly rather than through the socket's dispatch. They
+publish `file` now, as `remove file` and `grant file` do.
+
+**Tests:** settings_local_vectors (12, five new); live_rpc l --
+`message/unsend` read as its default, set with `true` and read back `on`
+as this host's own (as `get setting here` says), cleared to the default,
+an undeclared key refused in words; live_rpc a's probe reads `net.address`
+through the binary op now.
