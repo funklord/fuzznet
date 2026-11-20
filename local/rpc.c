@@ -2726,22 +2726,19 @@ int fzn_rpc_device_found(fzn_rpc_t *c, fzn_rpc_offer_t *out, size_t cap, size_t 
 	return FZN_RPC_OK;
 }
 
+/* WHETHER A DEVICE ASKING TO JOIN WAITS FOR A YES, `invite/confirm` as it
+ * stands on this host: the setting calls', so in binary first (sec 1306). */
 int fzn_rpc_device_confirm_get(fzn_rpc_t *c, int *on) {
-	static const char ask[] = "setting host invite/confirm";
-	const char *rest = NULL;
-	size_t rest_len = 0;
+	fzn_rpc_config_get_resp_t got;
 	*on = 0;
-	const int rc = fzn_rpc_node(c, "get", ask, sizeof ask - 1, &rest, &rest_len);
+	const int rc = fzn_rpc_config_get(c, "invite.confirm", 14, &got);
 	if (rc != FZN_RPC_OK) return rc;
-	/* `RANK VALUE`, or `absent`. */
-	*on = rest_len >= 3 && memcmp(rest + rest_len - 3, " on", 3) == 0;
+	*on = got.value_len == 2 && memcmp(got.value, "on", 2) == 0;
 	return FZN_RPC_OK;
 }
 
 int fzn_rpc_device_confirm_set(fzn_rpc_t *c, int on) {
-	char arg[48];
-	return node_ack(c, "set", arg,
-	                snprintf(arg, sizeof arg, "setting host invite/confirm %s", on ? "on" : "off"));
+	return fzn_rpc_config_set(c, "invite.confirm", 14, on ? "on" : "off", on ? 2u : 3u, NULL, 0, NULL);
 }
 
 /* `list invite`: a count, then a waiting device's key each. */

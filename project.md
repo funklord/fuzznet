@@ -94119,6 +94119,12 @@ the file ops `remove` and `share` named no subject, since they reach the
 files handler directly rather than through the socket's dispatch. They
 publish `file` now, as `remove file` and `grant file` do.
 
+**The device confirmation switch** (`fzn_rpc_device_confirm_get` and
+`_set`) read and wrote the host setting `invite/confirm` by its own text
+lines; it goes through the setting calls now, so in binary. The client's
+setting calls take a key dotted (`invite.confirm`), as their callers
+have always written them.
+
 **Tests:** settings_local_vectors (12, five new); live_rpc l --
 `message/unsend` read as its default, set with `true` and read back `on`
 as this host's own (as `get setting here` says), cleared to the default,

@@ -46,8 +46,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return 0;
 	if (!strcmp(line, "add invite delegable"))
 		return (size_t)snprintf(reply, cap, "ok FZI1:ABCDEFGHIJKLMNOP2345\n");
-	if (!strcmp(line, "get setting host invite/confirm"))
-		return (size_t)snprintf(reply, cap, "ok invite/confirm %s\n", confirm_on ? "on" : "off");
+	/* THE SWITCH, a host setting read as every setting is (sec 1306). */
+	if (!strcmp(line, "get schema invite/confirm"))
+		return (size_t)snprintf(reply, cap, "ok invite/confirm,flag,host,0,0,off,,safe-higher,x\n");
+	if (!strcmp(line, "get setting here invite/confirm"))
+		return (size_t)snprintf(reply, cap, "ok host 0 %s\n", confirm_on ? "on" : "off");
 	/* THIS HOST SERVES AS ITSELF, until the join has been looked at twice. */
 	if (!strcmp(line, "get identity"))
 		return (size_t)snprintf(reply, cap, "ok %s %s\n", DEV1, joined_after-- > 0 ? DEV1 : DEV2);
