@@ -22,7 +22,7 @@ enum fzn_setting_rank : u8 unknown=error
   host=0 admin=1 root=2
 
 enum fzn_setting_scope : u8 unknown=error
-  host=1 estate=3
+  host=1 group=2 estate=3
 
 struct fzn_setting size=145..464
   @0x0000   1         u8         version  must_eq=1

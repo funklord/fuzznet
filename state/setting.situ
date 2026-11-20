@@ -23,6 +23,7 @@ enum fzn_setting_rank : u8 {
 
 enum fzn_setting_scope : u8 {
 	host   = 1,	// about one host: `about` is its key
+	group  = 2,	// about a group of hosts: `about` its id, sec 868
 	estate = 3,	// about the estate: `about` is its root
 }
 

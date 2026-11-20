@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1326
+The newest work is at the end of this file. **Read secs 1287 to 1327
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -94811,3 +94811,19 @@ next step for it, and would give the doom principle as a type here too.
 (299) and group_fuzz (4000 cases, 2044 bent lines peeked) over the
 generated codec. Sabotages `group-line-any-length`,
 `group-line-head-unbound`.
+
+## 1327. The setting's contract named the group scope it lacked; why it stays hand-written, 2026-11-20
+
+Reading `state/setting.situ` to move it onto generated code (sec 1311's
+40) found **its scope enum without `group`** (2), which settings have
+carried since sec 868: the checked contract said less than the code
+sends, and a generated reader would have refused every group setting.
+`group = 2` is in the enum now; the contract records it.
+
+**It stays hand-written for now**: a setting written before sec 728 has
+no `rank` -- the same layout a byte shorter -- and such records sit in
+journals on disk, so both shapes must stay readable; `state/setting.c`
+tells them apart by length, and the schema can say only one. Asked of
+situ (inbox 20261120T2230Z): a member present when the bytes allow. Its
+key and value character rules would move to situ's `[chars]` (26.1099)
+at the same time.
