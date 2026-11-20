@@ -59,7 +59,7 @@ struct fzn_notes_sync_index {
 	fzn_notes_sync_type   type    [must_eq = index];
 	u32                   total;                     // claims the server offers
 	u32                   from;                      // the first in this page
-	u16                   count   [max = 256];       // FZN_NOTES_MAX
+	u16                   count;                     // as many as the server's reply holds
 	fzn_notes_sync_claim  claims[count];
 }
 

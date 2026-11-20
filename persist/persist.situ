@@ -75,7 +75,7 @@ enum fzn_persist_tag : u8 {
 	note_share = 22,
 	shared_note = 23,
 	received_share = 24,
-	contact_group = 25,
+	// 25 was contact_group, the groups of contacts, retired in sec 626.
 	log_rule = 26,
 	retention_set = 27,
 	admin_retention = 28,
@@ -332,22 +332,6 @@ struct fzn_persist_received_share_body {
 	u64 accepted_at;
 }
 
-// A group of contacts: its name, as a contact name, and its members' keys.
-// Filed under its id, drawn at random when it is made (sec 516); groups made
-// before then keep the hash of their name they were filed under, which is an
-// id like any other. contact/group.c, sec 471.
-struct fzn_persist_group_member {
-	u8  key[32];
-}
-
-struct fzn_persist_contact_group_body {
-	u8  name_len [min = 1, max = 32];
-	u8  name[name_len];
-	u8  count [max = 64];
-	fzn_persist_group_member members[count];
-	u64 made_at;
-}
-
 // A retention rule set while the node runs: its canonical text, 1 to 255
 // bytes, and when it was added. Filed under a hash of the text.
 // log/rules.c, sec 475.
@@ -385,7 +369,6 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.note_share: fzn_persist_note_share_body note_share;
 		case fzn_persist_tag.shared_note: fzn_persist_shared_note_body shared_note;
 		case fzn_persist_tag.received_share: fzn_persist_received_share_body received_share;
-		case fzn_persist_tag.contact_group: fzn_persist_contact_group_body contact_group;
 		case fzn_persist_tag.log_rule: fzn_persist_log_rule_body log_rule;
 		case fzn_persist_tag.retention_set: fzn_persist_retention_set_body retention_set;
 		case fzn_persist_tag.admin_retention: fzn_persist_admin_retention_body admin_retention;
