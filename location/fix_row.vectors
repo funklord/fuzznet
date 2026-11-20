@@ -1,0 +1,6 @@
+# Golden vectors for location/fix_row.situ, written by hand from its layout:
+# Stockholm's latitude and longitude in 1e-7 degrees, a time, an altitude of
+# 28 m and a bearing of 90 (both flagged), accuracies.
+
+fzn_location_fix stockholm 15 39 4C 40 0A 98 A5 C0 65 00 00 00 00 1C 40 30 30 20 03
+fzn_location_fix bare 15 39 4C 40 0A 98 A5 C0 65 00 00 00 00 00 00 30 30 00 00

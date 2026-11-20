@@ -427,4 +427,5 @@ __pycache__/
 /wire/test/verify_memo_record_vectors
 /wire/test/contact_card_record_vectors
 /wire/test/routing_record_vectors
+/wire/test/fix_row_vectors
 /node/test/settings_registry_test

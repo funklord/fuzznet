@@ -11502,13 +11502,6 @@ SABOTAGES = [
 		"a head lost restarts the owner's numbering at 1 -- sec 769",
 	),
 	(
-		"location-fix-absent-is-zero",
-		'location/location.c',
-		"\tif ((!out->has_alt\n",
-		"\tif (0 && (!out->has_alt\n",
-		"a fix decodes from bytes no encoder makes, one fix any of 2^40 strings -- sec 770",
-	),
-	(
 		"streams-query-exact-length",
 		'node/streams.c',
 		"\tif (!in || !name || !name_len || !since || len < 1u || len != 1u + (size_t)in[0] + 8u\n",
@@ -17804,6 +17797,20 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"location-fix-unvalidated",
+		"location/location.c",
+		" || fzn_fix_row_fzn_location_fix_validate(v) != SITU_OK)\n",
+		")\n",
+		"a fix read without the schema's checks: out of range, an undefined flag, an absent field not zero -- secs 676, 770, 1336",
+	),
+	(
+		"location-fix-absent-altitude-written",
+		"location/location.c",
+		"fix->has_alt ? fix->alt_m : 0, fix->has_bearing",
+		"fix->alt_m, fix->has_bearing",
+		"an altitude written though none is flagged: a second encoding of one fix -- secs 770, 1336",
+	),
+	(
 		"routing-any-length",
 		"node/routing.c",
 		"\t    || need != len)\n\t\treturn FZN_ROUTING_ERR_SHAPE;",
@@ -19701,27 +19708,6 @@ SABOTAGES = [
 		"\t    || FZN_OBJECT_IS_LIBRARY(object[1])\n",
 		"",
 		"sec 675: an extension writes only the consumer half, or it could put a library object in the stream unjudged by its own writer; apply_test's each-half check catches it",
-	),
-	(
-		"location-decode-range-refused",
-		"location/location.c",
-		"\tif (!in_range(out->lat_e7, out->lon_e7))\n\t\treturn 0;\n\tout->utc_s",
-		"\tout->utc_s",
-		"sec 676: a coordinate out of range comes only from a corrupt store or a hostile peer, and decoding it puts somebody on the wrong side of the planet; location_test's out-of-range decode check catches it",
-	),
-	(
-		"location-absent-altitude-zero",
-		"location/location.c",
-		"fix->has_alt ? (uint16_t)fix->alt_m : 0u",
-		"(uint16_t)fix->alt_m",
-		"sec 676: an absent field is zero, so one fix has one encoding; location_test's absent-field check catches it",
-	),
-	(
-		"location-undefined-flag-refused",
-		"location/location.c",
-		"\tif (flags & ~(FZN_LOCATION_FLAG_ALT | FZN_LOCATION_FLAG_BEARING | FZN_LOCATION_FLAG_COARSE))\n\t\treturn 0;\n",
-		"",
-		"sec 676: the schema bounds the flags at 7, so a byte with another bit is not a fix; location_test's undefined-flag check catches it",
 	),
 	(
 		"location-acc-unknown-kept",

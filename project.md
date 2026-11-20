@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1335
+The newest work is at the end of this file. **Read secs 1287 to 1336
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95005,3 +95005,20 @@ against the golden vector, which the generated reader accepts.
 **Tests:** routing_record_vectors (1); routing_test (31) and
 reachability_fuzz (3000 cases) over the generated reader. Sabotage
 `routing-any-length`.
+
+## 1336. A position fix on situ's generated code, its one-encoding rule a `when`, 2026-11-21
+
+The seventh of the 40 layouts: `location/fix.situ` is
+`location/fix_row.situ` (a row of the location stream), and says what
+only the codec said -- **ABSENT IS ZERO** (sec 770: a field its flag
+leaves out is written as zero, so a fix has one encoding), now two situ
+`when` refusals, the first use here of that feature (situ 0051):
+`altitude_absent` and `bearing_absent`. `location/location.c` builds a fix
+with the generated builder and reads one through the generated view and
+`validate`, its ranges, its flags' bound and both refusals the schema's;
+its hand two's-complement helpers are gone, the generated getters being
+signed.
+
+**Tests:** fix_row_vectors (2: a full fix, a bare one); location_test
+(38), gpsd_test (15), tpv_test (19) and location_fuzz (3000 cases, 788
+bent fixes decoded and each re-encoded alike) over the generated code.

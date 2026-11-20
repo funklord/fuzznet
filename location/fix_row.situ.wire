@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: fix.situ
+# schema: fix_row.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -28,3 +28,5 @@ struct fzn_location_fix size=19
   @0x0010   1         u8         acc_n
   @0x0011   1         u8         acc_v
   @0x0012   1         u8         flags  max=7
+  fzn_location_fix refuses: altitude_absent when (fzn_location_fix.flags & 1) == 0 && (fzn_location_fix.alt_m != 0 || fzn_location_fix.acc_v != 0)
+  fzn_location_fix refuses: bearing_absent when (fzn_location_fix.flags & 2) == 0 && fzn_location_fix.bearing != 0

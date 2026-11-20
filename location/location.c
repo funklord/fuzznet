@@ -1,6 +1,8 @@
 #include "location.h"
 
 #include "../wire/bytes.h"
+#include "../wire/generated/fix_row.h"
+#include "../wire/generated/fix_row_build.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -76,27 +78,16 @@ static int in_range(int32_t lat, int32_t lon)
 	       && lon <= FZN_LOCATION_LON_E7_MAX && lon >= -FZN_LOCATION_LON_E7_MAX;
 }
 
-/* Two's complement both ways without an implementation-defined cast. */
-static uint32_t from_i32(int32_t v)
-{
-	return (uint32_t)v;
-}
-
-static int32_t to_i32(uint32_t u)
-{
-	return u <= 0x7fffffffu ? (int32_t)u : (int32_t)(u - 0x80000000u) + (-0x7fffffff - 1);
-}
-
-static int16_t to_i16(uint16_t u)
-{
-	return u <= 0x7fffu ? (int16_t)u : (int16_t)((int32_t)u - 0x10000);
-}
-
+/* BUILT AND READ BY THE CODE situ GENERATES from `location/fix_row.situ`
+ * (sec 1336): its ranges, its flags' bound and ABSENT IS ZERO, sec 770 --
+ * an absent field written as zero, so a fix has one encoding -- are the
+ * schema's, the last as two `when` refusals. */
 int fzn_location_fix_encode(const fzn_location_fix_t *fix, uint8_t *out, size_t out_cap)
 {
 	uint8_t flags = 0;
+	uint32_t wrote = 0;
 
-	if (!fix || !out || out_cap < FZN_LOCATION_FIX_LEN || !in_range(fix->lat_e7, fix->lon_e7))
+	if (!fix || !out || out_cap < FZN_LOCATION_FIX_LEN || out_cap > UINT32_MAX || !in_range(fix->lat_e7, fix->lon_e7))
 		return 0;
 	if (fix->has_alt)
 		flags |= FZN_LOCATION_FLAG_ALT;
@@ -104,51 +95,37 @@ int fzn_location_fix_encode(const fzn_location_fix_t *fix, uint8_t *out, size_t 
 		flags |= FZN_LOCATION_FLAG_BEARING;
 	if (fix->is_coarse)
 		flags |= FZN_LOCATION_FLAG_COARSE;
-	fzn_put_be32(out + FZN_LOCATION_OFF_LAT, from_i32(fix->lat_e7));
-	fzn_put_be32(out + FZN_LOCATION_OFF_LON, from_i32(fix->lon_e7));
-	fzn_put_be32(out + FZN_LOCATION_OFF_UTC, fix->utc_s);
-	/* ABSENT IS ZERO, so a fix has one encoding. */
-	fzn_put_be16(out + FZN_LOCATION_OFF_ALT, fix->has_alt ? (uint16_t)fix->alt_m : 0u);
-	out[FZN_LOCATION_OFF_BEARING] = fix->has_bearing ? fix->bearing : 0u;
-	out[FZN_LOCATION_OFF_ACC_E] = fix->acc_e;
-	out[FZN_LOCATION_OFF_ACC_N] = fix->acc_n;
-	out[FZN_LOCATION_OFF_ACC_V] = fix->has_alt ? fix->acc_v : 0u;
-	out[FZN_LOCATION_OFF_FLAGS] = flags;
-	return 1;
+	return fzn_fix_row_fzn_location_fix_build(out, (uint32_t)out_cap, fix->lat_e7, fix->lon_e7, fix->utc_s,
+	                                          fix->has_alt ? fix->alt_m : 0, fix->has_bearing ? fix->bearing : 0u,
+	                                          fix->acc_e, fix->acc_n, fix->has_alt ? fix->acc_v : 0u, flags, &wrote)
+	               == SITU_OK
+	       && wrote == FZN_LOCATION_FIX_LEN;
 }
 
 int fzn_location_fix_decode(const uint8_t *in, size_t len, fzn_location_fix_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
 	uint8_t flags;
 
 	if (!in || !out || len != FZN_LOCATION_FIX_LEN)
 		return 0;
 	memset(out, 0, sizeof(*out));
-	flags = in[FZN_LOCATION_OFF_FLAGS];
-	/* A FLAG NOT DEFINED IS NOT A FIX: the schema bounds the byte at 7. */
-	if (flags & ~(FZN_LOCATION_FLAG_ALT | FZN_LOCATION_FLAG_BEARING | FZN_LOCATION_FLAG_COARSE))
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)in, (uint32_t)len);
+	if (fzn_fix_row_fzn_location_fix_view(&m, 0u, &v) != SITU_OK || fzn_fix_row_fzn_location_fix_validate(v) != SITU_OK)
 		return 0;
-	out->lat_e7 = to_i32(fzn_get_be32(in + FZN_LOCATION_OFF_LAT));
-	out->lon_e7 = to_i32(fzn_get_be32(in + FZN_LOCATION_OFF_LON));
-	if (!in_range(out->lat_e7, out->lon_e7))
-		return 0;
-	out->utc_s = fzn_get_be32(in + FZN_LOCATION_OFF_UTC);
+	flags = fzn_fix_row_fzn_location_fix_flags_get(v);
+	out->lat_e7 = fzn_fix_row_fzn_location_fix_lat_e7_get(v);
+	out->lon_e7 = fzn_fix_row_fzn_location_fix_lon_e7_get(v);
+	out->utc_s = fzn_fix_row_fzn_location_fix_utc_s_get(v);
 	out->has_alt = (flags & FZN_LOCATION_FLAG_ALT) ? 1u : 0u;
 	out->has_bearing = (flags & FZN_LOCATION_FLAG_BEARING) ? 1u : 0u;
-	/* ABSENT IS ZERO HERE TOO, sec 770: the encoder writes an absent field
-	 * as zero, and a decoder that passed over whatever stood there let one
-	 * fix be any of 2^40 strings -- location_fuzz's first run. Bytes that
-	 * are no encoder's are no fix. */
-	if ((!out->has_alt
-	     && (fzn_get_be16(in + FZN_LOCATION_OFF_ALT) || in[FZN_LOCATION_OFF_ACC_V]))
-	    || (!out->has_bearing && in[FZN_LOCATION_OFF_BEARING]))
-		return 0;
 	out->is_coarse = (flags & FZN_LOCATION_FLAG_COARSE) ? 1u : 0u;
-	out->alt_m = out->has_alt ? to_i16(fzn_get_be16(in + FZN_LOCATION_OFF_ALT)) : 0;
-	out->bearing = out->has_bearing ? in[FZN_LOCATION_OFF_BEARING] : 0u;
-	out->acc_e = in[FZN_LOCATION_OFF_ACC_E];
-	out->acc_n = in[FZN_LOCATION_OFF_ACC_N];
-	out->acc_v = out->has_alt ? in[FZN_LOCATION_OFF_ACC_V] : 0u;
+	out->alt_m = fzn_fix_row_fzn_location_fix_alt_m_get(v);
+	out->bearing = fzn_fix_row_fzn_location_fix_bearing_get(v);
+	out->acc_e = fzn_fix_row_fzn_location_fix_acc_e_get(v);
+	out->acc_n = fzn_fix_row_fzn_location_fix_acc_n_get(v);
+	out->acc_v = fzn_fix_row_fzn_location_fix_acc_v_get(v);
 	return 1;
 }
 

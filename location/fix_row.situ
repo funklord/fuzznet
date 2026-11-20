@@ -1,6 +1,7 @@
-// A position fix as a situ schema, sec 676: what `location/location.h`
-// encodes and decodes by hand, its offsets the FZN_LOCATION_OFF_* macros
-// there. The fields are fuzzypickles' (their `core/src/location_internal.h`,
+// A position fix as a situ schema, sec 676: `location/location.c` builds
+// and reads it through the code situ generates from this (sec 1336), its
+// offsets the FZN_LOCATION_OFF_* macros in `location/location.h`; `_row`,
+// so the generated file's name meets no source's (sec 1313). The fields are fuzzypickles' (their `core/src/location_internal.h`,
 // read 2026-10-21), carried over unchanged in meaning and order -- and
 // big-endian, as every layout in this tree is, where theirs was
 // little-endian: no fuzznet stream held a fix before this.
@@ -20,3 +21,12 @@ struct fzn_location_fix {
 	u8  flags [max = 7];    // 18: ALT 1, BEARING 2, COARSE 4; a field its flag
 	                        // leaves out is zero, or the bytes are no fix
 }
+
+// ABSENT IS ZERO, sec 770: a field its flag leaves out is written as zero,
+// so one fix has one encoding -- bytes that are no encoder's are no fix.
+when (fzn_location_fix.flags & 1) == 0 && (fzn_location_fix.alt_m != 0 || fzn_location_fix.acc_v != 0)
+	refuse altitude_absent
+	"no altitude flagged, and an altitude or its accuracy is not zero";
+when (fzn_location_fix.flags & 2) == 0 && fzn_location_fix.bearing != 0
+	refuse bearing_absent
+	"no bearing flagged, and a bearing is not zero";
