@@ -29,11 +29,13 @@ reason habit was not enough.
 
 ---
 
-## 0. Resuming work here: the latest fold, 2026-11-19
+## 0. Resuming work here: the latest fold, 2026-11-20
 
 The newest work is at the end of this file. **Read secs 1287 to 1302
-first**: one search over every store, distributed (steps 1 to 3 built,
-`abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
+first**: one search over every store, distributed -- notes, the library,
+a contact's hosts, binary, a client call and a view (secs 1290-1294,
+1299); the sticker gaps closed in the views (secs 1295-1302); words past
+ASCII (sec 1297). Before them: join by request (`613f0bdc`), the two
 listener port spans (`150e3106`).
 
 **Open, in order:**
@@ -54,6 +56,12 @@ listener port spans (`150e3106`).
   target's words as the matcher's context; (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
   (sec 1272).
+- **Split this file by lifetime** (the holder's rule of 2026-11-20:
+  what was true once to `doc/journal.md`, a cited section moving with
+  its citations). Not started. Measured: 174 of 1309 numbered sections
+  are cited nowhere (10,791 of 93,700 lines); the rest are cited by
+  number from code and from here, and no gate checks a `sec N` citation,
+  so moving them means a checker that reads the journal's headings too.
 - **The holder's question, parked**: a sticker store, meaning packs not
   kept and searchable. Is it wanted, and from whom: a relay, friends'
   kept packs, or a published catalogue? It blocks searching packs
