@@ -37,6 +37,8 @@
 
 #include <stdint.h>
 
+#include <functional>
+
 class QListWidgetItem;
 class QTimer;
 
@@ -122,6 +124,10 @@ public:
 	bool drawn(int row) const;
 	/* Whether the chosen line's sticker is playing (sec 1300). */
 	bool playing() const;
+
+	/* THE HOST'S PLAYER FOR A STICKER'S SOUND (sec 1301), given the file it
+	 * was written to; unset, no sound is fetched. */
+	void on_sound(std::function<void(const QString &path)> play);
 	/* BUBBLES ON A PHONE, sec 1241: whether the lines are drawn so, and
 	 * where line `row`'s bubble is, in the list's own coordinates --
 	 * this user's at the right, everyone else's at the left. */
@@ -161,6 +167,8 @@ private:
 	void play(QListWidgetItem *item);
 	void rest();
 	void play_frame();
+	void sound(QListWidgetItem *item);
+	std::function<void(const QString &)> m_sound;
 	QTimer *m_play = nullptr;
 	QListWidgetItem *m_playing = nullptr;
 	QByteArray m_playing_key;

@@ -13,6 +13,7 @@
 #include "../notice_line.h"
 
 #include <QApplication>
+#include <QFile>
 #include <QImage>
 #include <QPushButton>
 #include <QRect>
@@ -54,7 +55,7 @@ static int file_partial;
 	"0000000000000000000000000000000000000000000000000000000000000001"                               \
 	"0000000000000000000000000000000000000000000000000000000000000002"                               \
 	"00000000000003e8"
-static int art_asked, boxes_asked;
+static int art_asked, boxes_asked, sounds_written;
 static char last_keep[200];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -77,7 +78,20 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	 * with words (sec 1295): sticker 7, a message sticker with a box. */
 	if (!strncmp(line, "list sticker " DAN_PACK, 13 + 144)) {
 		boxes_asked++;
-		return (size_t)snprintf(reply, cap, "ok 1 0 7,4,0,waving,20,8,8,48,16,0,0,0,128,128\n");
+		return (size_t)snprintf(reply, cap, "ok 2 0 7,4,0,waving,20,8,8,48,16,FFFFFFC0,000000FF,0,128,128 "
+		                                    "9,2,5,dancing,0,0,0,0,0,00000000,00000000,0,128,128\n");
+	}
+	/* STICKER 9'S SOUND, flagged in its row (sec 1301). */
+	if (!strncmp(line, "get sticker " DAN_PACK " 9 sound ", 12 + 144 + 9)) {
+		FILE *f = fopen(line + 12 + 144 + 9, "wbx");
+		sounds_written++;
+		if (!f || fwrite("OggS!", 1, 5, f) != 5) {
+			if (f)
+				fclose(f);
+			return (size_t)snprintf(reply, cap, "error could not write\n");
+		}
+		fclose(f);
+		return (size_t)snprintf(reply, cap, "ok 5\n");
 	}
 	/* IKE SENT DAN'S STICKER 9, A LOTTIE ONE, sec 1300: its art the JSON. */
 	if (!strncmp(line, "get sticker " DAN_PACK " 9 main ", 12 + 144 + 8)) {
@@ -364,6 +378,27 @@ int main(int argc, char **argv)
 		CHECK(!h.playing(), "a raster sticker chosen played, or the Lottie one did not rest");
 	}
 #endif
+	/* ITS SOUND, sec 1301: the sticker flagged with one hands it to the
+	 * host's player, written once; one without, nothing. */
+	{
+		fzn_conversation_view h(node, nullptr);
+		QStringList played;
+
+		h.on_sound([&played](const QString &path) { played << path; });
+		h.open(QStringLiteral("ike"));
+		/* THE LINE A REFRESH CHOOSES PLAYS NOTHING: only a person's choice. */
+		h.select_line(0);
+		CHECK(played.isEmpty(), "a sound played without a person choosing its sticker");
+		h.select_line(1);
+		CHECK(played.size() == 1 && QFile::exists(played.value(0)) && sounds_written == 1,
+		      "a sticker with a sound chosen did not hand it to the host's player");
+		h.select_line(0);
+		CHECK(played.size() == 1, "a sticker without a sound played one");
+		h.select_line(1);
+		CHECK(played.size() == 2 && played.value(1) == played.value(0) && sounds_written == 1,
+		      "a sound played again was written again");
+	}
+	boxes_asked = 0;
 	/* A STICKER WITH WORDS, sec 1295: drawn, its pack's boxes read once. */
 	{
 		fzn_conversation_view e(node, nullptr);

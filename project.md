@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1300
+The newest work is at the end of this file. **Read secs 1287 to 1301
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -46,9 +46,10 @@ listener port spans (`150e3106`).
 - **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
-  1297), the chosen Lottie sticker playing (sec 1300). Left: (b) raster
-  animation and the picker's; (c) a sticker's sound, which the node does
-  not export; (d) pop-up and effect stickers shown; (e) a recent tab,
+  1297), the chosen Lottie sticker playing (sec 1300), its sound (sec
+  1301). Left: (b) raster
+  animation and the picker's; (c) a sticker's sound in the picker (the
+  log's: sec 1301); (d) pop-up and effect stickers shown; (e) a recent tab,
   which wants a place every host of the user shares; (h) the reply
   target's words as the matcher's context; (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
@@ -93936,3 +93937,32 @@ where ThorVG is built in; without it the still is drawn, as before.
 test is -- a Lottie sticker drawn and not playing unchosen; chosen, it
 plays; a raster sticker chosen, nothing plays. Sabotage
 `conversation-raster-played`.
+
+## 1301. A sticker's sound: exported by the node, played by the host, 2026-11-20
+
+The audit's (c): a pack carries a sticker's sound, and nothing let it
+out.
+
+- **The node:** `get sticker PACK ID sound PATH` writes the sound's bytes
+  to a new file at PATH, answered `ok BYTES`, as a rendition is written
+  (`node/stickers.c`); a sticker with none is refused in words.
+- **The client:** `fzn_rpc_sticker_sound`.
+- **The log:** when a person chooses a sticker line whose pack flags it
+  with a sound (`FZN_STICKER_FLAG_SOUND`, read from the pack's listing
+  with its box), the sound is written once into a directory the view owns
+  and removes with it, and handed to the host's player through
+  `on_sound(path)`. Unset, no sound is fetched. A line a refresh chooses
+  plays nothing: only a person's choice does.
+
+**Found on the way:** the log's test of a sticker's words (sec 1295)
+gave its pack's listing a fill and ink of `0`, which the client refuses
+(eight hex digits), so the box was never read and the words never drawn
+-- while the test, counting only that the listing was asked once,
+passed. The rows are well formed now, and this section's sound checks
+depend on them being read.
+
+**Tests:** live_stickers b -- the spinning cat's sound written as the
+spec gave it, the waving cat's refused; conversation_view_test -- a
+sticker with a sound chosen hands it over, written once across two
+choices; one without, nothing; a refresh's choice, nothing. Sabotages
+`sticker-sound-any`, `sticker-sound-written-again`.

@@ -209,6 +209,16 @@ def main(argv):
 				if got != "ok 1 320 320" or f.read() != art["art/spin.json"]:
 					raise failed("b: a role the sticker lacks did not give the nearest: %r"
 					             % got)
+			# ITS SOUND, sec 1301: the spinning cat's, as the spec gave it; none
+			# for the waving one.
+			out3 = os.path.join(scratch, "sound.out")
+			got = ask(sock, "get sticker %s 2 sound %s" % (root, out3))
+			with open(out3, "rb") as f:
+				if got != "ok 300" or f.read() != art["art/spin.ogg"]:
+					raise failed("b: the spinning cat's sound was answered %r" % got)
+			got = ask(sock, "get sticker %s 1 sound %s" % (root, out3 + "2"))
+			if got != "error that sticker has no sound":
+				raise failed("b: a sticker with no sound was answered %r" % got)
 			print("livecheck: b: its stickers listed, a reference answered, and each "
 			      "rendition written as its art")
 

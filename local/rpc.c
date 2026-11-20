@@ -9686,6 +9686,26 @@ int fzn_rpc_sticker_reference_words(fzn_rpc_t *c, const char *pack, size_t pack_
 	return node_sticker_reference(c, pack, pack_len, id, words, words_len, text, cap, text_len);
 }
 
+int fzn_rpc_sticker_sound(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id, const char *path,
+                          size_t path_len, uint64_t *bytes) {
+	char full[FZN_REQUEST_MAX], arg[FZN_REQUEST_MAX];
+	const char *rest = NULL;
+	size_t rest_len = 0;
+	uint64_t n = 0;
+	*bytes = 0;
+	if (!node_pack_ok(pack, pack_len))
+		return node_unasked(c, FZN_RPC_ERR_MALFORMED, "a pack is its root or its whole reference, as hex");
+	if (!node_abs_path(path, path_len, full, sizeof full)) return encode_failed(c);
+	const int arg_len =
+	        snprintf(arg, sizeof arg, "sticker %.*s %" PRIu64 " sound %s", (int)pack_len, pack, id, full);
+	if (arg_len < 0 || (size_t)arg_len > FZN_REQUEST_MAX - 5u) return encode_failed(c);
+	const int rc = fzn_rpc_node(c, "get", arg, (size_t)arg_len, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	if (!node_u64(rest, rest_len, &n)) return unreadable(c);
+	*bytes = n;
+	return FZN_RPC_OK;
+}
+
 int fzn_rpc_sticker_draw(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id,
                           uint8_t role, const char *path, size_t path_len,
                           fzn_rpc_node_sticker_drawn_t *out) {

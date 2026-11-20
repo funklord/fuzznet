@@ -957,6 +957,11 @@ int fzn_rpc_sticker_reference(fzn_rpc_t *c, const char *pack, size_t pack_len, u
 int fzn_rpc_sticker_reference_words(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id,
                                      const char *words, size_t words_len, char *text, size_t cap,
                                      size_t *text_len);
+/* A STICKER'S SOUND written to a NEW file at `path` (made absolute here),
+ * `get sticker PACK ID sound PATH` (fuzznet sec 1301): `*bytes` its
+ * length. Refused for a sticker that has none. */
+int fzn_rpc_sticker_sound(fzn_rpc_t *c, const char *pack, size_t pack_len, uint64_t id, const char *path,
+                          size_t path_len, uint64_t *bytes);
 /* One rendition drawn to a NEW file at `path` (made absolute here), `get
  * sticker PACK ID ROLE PATH`: the role asked for or the nearest the
  * sticker has. The answer is its format (an fzn_sticker_format_t), width

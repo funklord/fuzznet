@@ -38,6 +38,9 @@
  *   get sticker PACK ID     `ok fzn:sticker/...`, the reference a message
  *                           carries.
  *   get sticker PACK ID ROLE PATH
+ *   get sticker PACK ID sound PATH   its sound's bytes into PATH, answered
+ *                                    `ok BYTES`; refused for a sticker with
+ *                                    none (sec 1301)
  *                           that sticker's rendition of ROLE (thumb,
  *                           inline, main, popup), or the nearest it has,
  *                           written to the new file at the absolute PATH:

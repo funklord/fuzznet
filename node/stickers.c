@@ -1129,6 +1129,33 @@ static size_t get_sticker(const fzn_node_stickers_t *st, const fzn_node_file_ref
 			return REPLY("ok %s\n", text);
 		}
 	}
+	/* ITS SOUND, written out for a client to play (sec 1301): the bytes the
+	 * pack carries, as a rendition's are. */
+	if (n == 5u && memcmp(w, "sound", 5u) == 0) {
+		const uint8_t *p;
+		size_t p_len;
+		char path[1024];
+		unsigned long long sound_len;
+
+		if (!next_word(at, left, &p, &p_len) || *left || p_len >= sizeof(path) || p[0] != '/') {
+			pack_done(&m, bytes);
+			return REPLY("malformed get sticker PACK ID sound PATH, PATH absolute\n");
+		}
+		if (!e->audio_len) {
+			pack_done(&m, bytes);
+			return REPLY("error that sticker has no sound\n");
+		}
+		memcpy(path, p, p_len);
+		path[p_len] = '\0';
+		sound_len = e->audio_len;
+		if (!spill(path, data + e->audio_offset, e->audio_len)) {
+			pack_done(&m, bytes);
+			return REPLY("error the sound would not write: %s\n",
+			             errno == EEXIST ? "the path exists" : "the path is not writable");
+		}
+		pack_done(&m, bytes);
+		return REPLY("ok %llu\n", sound_len);
+	}
 	/* A RENDITION, written out for a client to draw. */
 	for (i = 0; i < 4u && !(n == strlen(ROLES[i]) && memcmp(w, ROLES[i], n) == 0); i++)
 		;

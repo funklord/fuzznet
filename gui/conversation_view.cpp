@@ -19,6 +19,7 @@ extern "C" {
 #include <QByteArray>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QTemporaryDir>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHash>
@@ -155,6 +156,10 @@ private:
 
 struct fzn_conversation_view::art {
 	QHash<QByteArray, QIcon> drawn;
+	/* EACH STICKER'S SOUND, written once into a directory the view owns and
+	 * removes with it, by sticker (sec 1301). */
+	QTemporaryDir sounds;
+	QHash<QByteArray, QString> sound_at;
 	/* A LOTTIE STICKER'S ART, by the same key, kept to play it (sec 1300). */
 	QHash<QByteArray, QByteArray> lottie;
 	QElapsedTimer playing_for;
@@ -992,6 +997,9 @@ void fzn_conversation_view::select_line(int row)
 	if (m_refreshing || key == m_chosen)
 		return;
 	m_chosen = key;
+	/* A NEW CHOICE ONLY: its sound once, not again at a refresh. */
+	if (item)
+		sound(item);
 	m_react->setEnabled(item && item->data(ROLE_ID).toByteArray().size() == (int)FZN_MESSAGE_ID_LEN);
 	offer_for(item);
 }
@@ -1231,6 +1239,39 @@ void fzn_conversation_view::play_frame()
 
 bool fzn_conversation_view::playing() const { return m_playing != nullptr; }
 
+void fzn_conversation_view::on_sound(std::function<void(const QString &)> play) { m_sound = std::move(play); }
+
+/* THE CHOSEN STICKER'S SOUND, sec 1301, where its pack says it has one and
+ * the host plays sounds: written once, then handed to the host's player
+ * each time the sticker is chosen. */
+void fzn_conversation_view::sound(QListWidgetItem *item)
+{
+	const QByteArray sticker = item->data(ROLE_STICKER).toByteArray();
+	fzn_sticker_entry_t *box;
+
+	if (!m_sound || sticker.size() <= 145)
+		return;
+	auto at = m_art->sound_at.constFind(sticker);
+	if (at != m_art->sound_at.constEnd()) {
+		m_sound(at.value());
+		return;
+	}
+	box = new fzn_sticker_entry_t;
+	const qulonglong id = sticker.mid(145).toULongLong();
+	const bool has = sticker_box(sticker.left(144), id, box) && (box->flags & FZN_STICKER_FLAG_SOUND);
+	delete box;
+	if (!has || !m_art->sounds.isValid())
+		return;
+	const QString path = m_art->sounds.filePath(QStringLiteral("%1-%2").arg(QString::fromLatin1(sticker.left(16))).arg(id));
+	const QByteArray p = path.toUtf8();
+	uint64_t bytes = 0;
+	if (fzn_rpc_sticker_sound(&m_rpc->c, sticker.constData(), 144, id, p.constData(), (size_t)p.size(), &bytes)
+	    != FZN_RPC_OK)
+		return;
+	m_art->sound_at.insert(sticker, path);
+	m_sound(path);
+}
+
 /* A STICKER'S BOX, sec 1295: its pack's stickers read once, and this one
  * as the overlay reads an entry -- the box, its paint and the main
  * rendition's size it is measured in. 0 where the pack will not list or
@@ -1256,6 +1297,7 @@ int fzn_conversation_view::sticker_box(const QByteArray &pack, qulonglong id, fz
 	memset(out, 0, sizeof *out);
 	out->id = one->id;
 	out->type = one->type;
+	out->flags = one->flags;
 	out->text_limit = one->text_limit;
 	out->text_x = one->text_x;
 	out->text_y = one->text_y;

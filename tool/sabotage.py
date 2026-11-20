@@ -17797,6 +17797,20 @@ SABOTAGES = [
 		"a raster sticker chosen taken as one to play; conversation_view_test -- sec 1300",
 	),
 	(
+		"sticker-sound-any",
+		"gui/conversation_view.cpp",
+		"\tconst bool has = sticker_box(sticker.left(144), id, box) && (box->flags & FZN_STICKER_FLAG_SOUND);\n",
+		"\tconst bool has = sticker_box(sticker.left(144), id, box);\n",
+		"a sticker with no sound asked for one and handed to the player; conversation_view_test -- sec 1301",
+	),
+	(
+		"sticker-sound-written-again",
+		"gui/conversation_view.cpp",
+		"\tm_art->sound_at.insert(sticker, path);\n",
+		"",
+		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",
