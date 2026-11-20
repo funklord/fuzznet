@@ -423,3 +423,4 @@ __pycache__/
 /wire/test/heard_row_vectors
 /wire/test/session_frame_wire_vectors
 /wire/test/group_act_record_vectors
+/wire/test/group_line_wire_vectors

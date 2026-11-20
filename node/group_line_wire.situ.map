@@ -1,5 +1,5 @@
 # situ capability map v1
-# schema: group_line.situ
+# schema: group_line_wire.situ
 # core:   offset size align repr atomic
 #
 # Core axes are always shown. Any other axis appears only where it has
@@ -11,7 +11,7 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct fzn_group_line size=167..65702 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+struct fzn_group_line size=167..679 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   fzn_group_line.version                 offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_group_line.group                   offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
   fzn_group_line.epoch                   offset=AbsoluteStatic(0x21) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
@@ -21,5 +21,5 @@ struct fzn_group_line size=167..65702 mutate=Shifting address=Unstable repr=Valu
   fzn_group_line.stime                   offset=AbsoluteStatic(0x75) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   fzn_group_line.nonce                   offset=AbsoluteStatic(0x7D) size=Fixed(24) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
   fzn_group_line.text_len                offset=AbsoluteStatic(0x95) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  fzn_group_line.text                    offset=AbsoluteStatic(0x97) size=Bounded(0, 65535) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_group_line.text                    offset=AbsoluteStatic(0x97) size=Bounded(0, 512) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   fzn_group_line.tag                     offset=Dynamic size=Fixed(16) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable

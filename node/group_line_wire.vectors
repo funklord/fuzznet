@@ -1,0 +1,5 @@
+# Golden vectors for node/group_line_wire.situ, written by hand from its
+# layout: version 1, the group, epoch 2, sender, host, id, the sender's
+# time, the nonce, three bytes of (sealed) text and the tag.
+
+fzn_group_line hey 01 AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA 00 00 00 02 BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB BB CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC CC 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 00 01 8B CF E5 68 00 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 22 00 03 68 65 79 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33 33

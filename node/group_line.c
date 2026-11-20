@@ -4,6 +4,8 @@
 #include <string.h>
 
 #include "../wire/bytes.h"
+#include "../wire/generated/group_line_wire.h"
+#include "../wire/generated/group_line_wire_build.h"
 
 const char *fzn_group_line_err_str(fzn_group_line_err_t err)
 {
@@ -22,25 +24,6 @@ const char *fzn_group_line_err_str(fzn_group_line_err_t err)
 		return "the hash, the AEAD or the randomness refused";
 	}
 	return "unknown";
-}
-
-/* THE HEAD, the AEAD's associated data. */
-static void head(const fzn_group_line_t *l, uint8_t out[FZN_GROUP_LINE_HEAD_LEN])
-{
-	size_t at = 0;
-
-	out[at++] = FZN_GROUP_LINE_VERSION;
-	memcpy(out + at, l->group, FZN_GROUP_ID_LEN);
-	at += FZN_GROUP_ID_LEN;
-	fzn_put_be32(out + at, l->epoch);
-	at += 4u;
-	memcpy(out + at, l->sender, FZN_PUBKEY_LEN);
-	at += FZN_PUBKEY_LEN;
-	memcpy(out + at, l->host, FZN_PUBKEY_LEN);
-	at += FZN_PUBKEY_LEN;
-	memcpy(out + at, l->id, FZN_GROUP_LINE_ID_LEN);
-	at += FZN_GROUP_LINE_ID_LEN;
-	fzn_put_be64(out + at, l->stime);
 }
 
 /* ONE KEY PER HOST PER EPOCH. */
@@ -65,60 +48,63 @@ fzn_group_line_err_t fzn_group_line_seal(const fzn_group_line_t *line,
                                          const fzn_random_ops_t *rng, uint8_t *out, size_t cap,
                                          size_t *len)
 {
-	uint8_t key[FZN_AEAD_KEY_LEN];
-	uint8_t *nonce, *text;
-	size_t need;
+	static const uint8_t no_tag[FZN_AEAD_TAG_LEN];
+	uint8_t key[FZN_AEAD_KEY_LEN], nonce[FZN_AEAD_NONCE_LEN];
+	uint8_t *text;
+	uint32_t wrote = 0;
 	int ok;
 
 	if (!line || !secret || !hash || !hash->hash || !aead || !aead->seal || !rng || !rng->fill
-	    || !out || !len || line->text_len > FZN_GROUP_LINE_TEXT_MAX)
+	    || !out || !len || line->text_len > FZN_GROUP_LINE_TEXT_MAX || cap > UINT32_MAX)
 		return FZN_GROUP_LINE_ERR_MALFORMED;
-	need = FZN_GROUP_LINE_HEAD_LEN + FZN_AEAD_NONCE_LEN + 2u + line->text_len + FZN_AEAD_TAG_LEN;
-	if (cap < need)
-		return FZN_GROUP_LINE_ERR_MALFORMED;
-	head(line, out);
-	nonce = out + FZN_GROUP_LINE_HEAD_LEN;
-	fzn_put_be16(nonce + FZN_AEAD_NONCE_LEN, (uint16_t)line->text_len);
-	text = nonce + FZN_AEAD_NONCE_LEN + 2u;
-	memcpy(text, line->text, line->text_len);
-	if (!rng->fill(rng->ctx, nonce, FZN_AEAD_NONCE_LEN) || !line_key(hash, secret, line->host, key))
+	if (!rng->fill(rng->ctx, nonce, FZN_AEAD_NONCE_LEN))
 		return FZN_GROUP_LINE_ERR_OPS;
-	ok = aead->seal(aead->ctx, key, nonce, out, FZN_GROUP_LINE_HEAD_LEN, text, line->text_len,
-	                text + line->text_len);
+	/* THE LINE AS THE SCHEMA LAYS IT OUT (sec 1326), its text in the clear
+	 * and its tag empty; then the text sealed in place, the head -- every
+	 * byte before the nonce -- its associated data. */
+	if (fzn_group_line_wire_fzn_group_line_build(out, (uint32_t)cap, FZN_GROUP_LINE_VERSION, line->group,
+	                                             line->epoch, line->sender, line->host, line->id, line->stime,
+	                                             nonce, (const uint8_t *)line->text, (uint32_t)line->text_len,
+	                                             no_tag, &wrote)
+	    != SITU_OK)
+		return FZN_GROUP_LINE_ERR_MALFORMED;
+	text = out + FZN_GROUP_LINE_HEAD_LEN + FZN_AEAD_NONCE_LEN + 2u;
+	if (!line_key(hash, secret, line->host, key))
+		return FZN_GROUP_LINE_ERR_OPS;
+	ok = aead->seal(aead->ctx, key, out + FZN_GROUP_LINE_HEAD_LEN, out, FZN_GROUP_LINE_HEAD_LEN, text,
+	                line->text_len, text + line->text_len);
 	memset(key, 0, sizeof(key));
 	if (!ok)
 		return FZN_GROUP_LINE_ERR_OPS;
-	*len = need;
+	*len = wrote;
 	return FZN_GROUP_LINE_OK;
 }
 
 fzn_group_line_err_t fzn_group_line_peek(const uint8_t *bytes, size_t len,
                                          fzn_group_line_t *out)
 {
-	size_t at = 1u, text_len;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
 
 	if (!bytes || !out)
 		return FZN_GROUP_LINE_ERR_MALFORMED;
 	memset(out, 0, sizeof(*out));
-	if (len < FZN_GROUP_LINE_HEAD_LEN + FZN_AEAD_NONCE_LEN + 2u + FZN_AEAD_TAG_LEN
-	    || bytes[0] != FZN_GROUP_LINE_VERSION)
+	/* READ AS THE SCHEMA SAYS (sec 1326), EXACTLY ITS LENGTH: its version
+	 * and its text's bound the generated validate's to check. */
+	if (len > UINT32_MAX || fzn_group_line_wire_fzn_group_line_required(bytes, (uint32_t)len, &need) != SITU_OK
+	    || need != len)
 		return FZN_GROUP_LINE_ERR_SHAPE;
-	text_len = fzn_get_be16(bytes + FZN_GROUP_LINE_HEAD_LEN + FZN_AEAD_NONCE_LEN);
-	/* EXACTLY ITS LENGTH. */
-	if (text_len > FZN_GROUP_LINE_TEXT_MAX
-	    || len != FZN_GROUP_LINE_HEAD_LEN + FZN_AEAD_NONCE_LEN + 2u + text_len + FZN_AEAD_TAG_LEN)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_group_line_wire_fzn_group_line_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_group_line_wire_fzn_group_line_validate(v) != SITU_OK)
 		return FZN_GROUP_LINE_ERR_SHAPE;
-	memcpy(out->group, bytes + at, FZN_GROUP_ID_LEN);
-	at += FZN_GROUP_ID_LEN;
-	out->epoch = fzn_get_be32(bytes + at);
-	at += 4u;
-	memcpy(out->sender, bytes + at, FZN_PUBKEY_LEN);
-	at += FZN_PUBKEY_LEN;
-	memcpy(out->host, bytes + at, FZN_PUBKEY_LEN);
-	at += FZN_PUBKEY_LEN;
-	memcpy(out->id, bytes + at, FZN_GROUP_LINE_ID_LEN);
-	at += FZN_GROUP_LINE_ID_LEN;
-	out->stime = fzn_get_be64(bytes + at);
+	memcpy(out->group, fzn_group_line_wire_fzn_group_line_group_ptr(v), FZN_GROUP_ID_LEN);
+	out->epoch = fzn_group_line_wire_fzn_group_line_epoch_get(v);
+	memcpy(out->sender, fzn_group_line_wire_fzn_group_line_sender_ptr(v), FZN_PUBKEY_LEN);
+	memcpy(out->host, fzn_group_line_wire_fzn_group_line_host_ptr(v), FZN_PUBKEY_LEN);
+	memcpy(out->id, fzn_group_line_wire_fzn_group_line_id_ptr(v), FZN_GROUP_LINE_ID_LEN);
+	out->stime = fzn_group_line_wire_fzn_group_line_stime_get(v);
 	return FZN_GROUP_LINE_OK;
 }
 

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1324
+The newest work is at the end of this file. **Read secs 1287 to 1326
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -94766,3 +94766,48 @@ no filter. A view choosing facets is for a client that asks for one.
 **Tests:** rpc_probe (live_rpc a) -- a filtered search of a fresh
 fuzznetd answered and read, a filter that is none refused before it is
 sent; messages_test and remote_test unchanged over the moved parser.
+
+## 1325. situ's matching-after-verification design, reviewed, 2026-11-20
+
+situ asked for a review before building its item 2 (match a reply only
+after its tag verifies) and item 5 (one driver over many peers), folded
+into one design, its 26.1122 (inbox 20261120T1942Z): `[after = sealed]`
+on a relation, `match` taking the sealed region's gate, the key reaching
+fields behind it, and a caller-assigned `uint32_t peer` beside the key.
+
+**This tree's answers** (situ inbox 20261120T2130Z), read from
+`node/asks.c`, `node/caller.c`, `wire/seal.c`: fields behind the gate by
+the region's name; the head's `msg` read from the gate's view, since the
+head is the AEAD's associated data; a received request is a second
+relation, not a flag; and **the peer is the verifying session, not the
+network peer** -- message numbers are per caller (`fzn_caller_t`), two
+callers may talk to one peer, so even the verified sender with `msg`
+would collide. A u32 handle per session suffices, and its reuse is safe
+because a reply meant for an ended session cannot verify under the key of
+the one that reuses its handle. No per-peer `submit`.
+
+**What it would remove here, once built**: the asks table's own loop
+matching `(caller, msg)` after `fzn_caller_recv_any` -- the driver would
+track `(peer = caller handle, key = msg)` and end exchanges itself.
+
+## 1326. A group's line on situ's generated code, 2026-11-20
+
+**The third of the 40 layouts** (secs 1313, 1323): `node/group_line.situ`
+is `node/group_line_wire.situ` (a line in transit, sec 1313's rule), its
+text's bound (512) now the schema's. `node/group_line.c` seals a line by
+building it with the generated builder -- the text in the clear, the tag
+empty -- then sealing the text in place with the head, every byte before
+the nonce, as associated data; and peeks through the generated view,
+`validate` and `required`, the line exactly its length. 40 lines of
+offsets gone.
+
+**Not yet the schema's: the sealing itself.** situ binds a cipher as a
+region's codec (its 26.943), as `wire/frame.situ`'s sealed region does,
+with a gate that hands out the interior only once the tag verified. The
+line's text and tag could be such a region over the head; that is the
+next step for it, and would give the doom principle as a type here too.
+
+**Tests:** group_line_wire_vectors (1); groups_test (152), messages_test
+(299) and group_fuzz (4000 cases, 2044 bent lines peeked) over the
+generated codec. Sabotages `group-line-any-length`,
+`group-line-head-unbound`.

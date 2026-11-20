@@ -17825,6 +17825,20 @@ SABOTAGES = [
 		"a word that is no `where` or `not` read as one; remote_test -- sec 1324",
 	),
 	(
+		"group-line-any-length",
+		"node/group_line.c",
+		"\t    || need != len)\n",
+		"\t    )\n",
+		"a group line read with bytes after it: one line, two encodings -- secs 628, 1326",
+	),
+	(
+		"group-line-head-unbound",
+		"node/group_line.c",
+		"\tok = aead->seal(aead->ctx, key, out + FZN_GROUP_LINE_HEAD_LEN, out, FZN_GROUP_LINE_HEAD_LEN, text,\n",
+		"\tok = aead->seal(aead->ctx, key, out + FZN_GROUP_LINE_HEAD_LEN, out, 0u, text,\n",
+		"a group line sealed with its head outside the tag: a sender may be rewritten on the way -- secs 628, 1326",
+	),
+	(
 		"group-act-any-length",
 		"node/group_act.c",
 		" || need != len)\n",

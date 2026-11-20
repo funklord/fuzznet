@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: group_line.situ
+# schema: group_line_wire.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -18,7 +18,7 @@
 endian big
 target buffer
 
-struct fzn_group_line size=167..65702
+struct fzn_group_line size=167..679
   @0x0000   1         u8         version  must_eq=1
   @0x0001   32        u8         group  big
   @0x0021   4         u32        epoch  big
@@ -27,6 +27,6 @@ struct fzn_group_line size=167..65702
   @0x0065   16        u8         id  big
   @0x0075   8         u64        stime  big
   @0x007d   24        u8         nonce  big
-  @0x0095   2         u16        text_len  big
-  @0x0097   0..65535  u8         text  sized-by=text_len
+  @0x0095   2         u16        text_len  big max=512
+  @0x0097   0..512    u8         text  sized-by=text_len
   ~         16        u8         tag  big
