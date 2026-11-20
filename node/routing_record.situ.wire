@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: routing.situ
+# schema: routing_record.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -18,6 +18,18 @@
 endian big
 target buffer
 
+struct fzn_chain_hop size=179
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=128
+  @0x0002   32        u8         grantor  big
+  @0x0022   32        u8         grantee  big
+  @0x0042   32        u8         capability  big
+  @0x0062   8         u64        issued_at  big
+  @0x006a   8         u64        expires_at  big
+  @0x0072   1         u8         delegable  max=1
+  @0x0073   64        u8         signature
+  signature covers: body capability delegable expires_at grantee grantor issued_at object version
+
 struct fzn_routing size=149..5709
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         derivation_version  must_eq=1
@@ -29,12 +41,13 @@ struct fzn_routing size=149..5709
   @0x0053   1         u8         entry_count  max=16
   @0x0054   0..4128   fzn_routing_entry entries  sized-by=entry_count
   ~         1         u8         hop_count  max=8
-  ~         0..1432   u8         hops  sized-by=hop_count*179
+  ~         0..1432   fzn_chain_hop hops  sized-by=hop_count
   ~         64        u8         sig  big
+  hops[].signature covers: hops[].body hops[].capability hops[].delegable hops[].expires_at hops[].grantee hops[].grantor hops[].issued_at hops[].object hops[].version
 
 struct fzn_routing_entry size=6..258
   @0x0000   1         u8         address_len  min=1 max=253
-  @0x0001   1..253    u8         address  sized-by=address_len
+  @0x0001   1..253    u8         address  sized-by=address_len chars="\x2D.0-:A-Za-z"
   ~         2         u16        port  big min=1
   ~         1         u8         transport
   ~         1         u8         metric

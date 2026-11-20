@@ -1,0 +1,6 @@
+# Golden vectors for node/routing_record.situ, written by hand from its
+# layout: the statement (versions, generation 3, the time, the content hash,
+# the signer), no public relay, one entry 127.0.0.1 4000 UDP metric 10, no
+# hops -- the root signed it -- and the signature.
+
+fzn_routing root 01 01 00 00 00 00 00 00 00 03 00 00 01 8B CF E5 68 00 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 C3 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 5E 00 01 09 31 32 37 2E 30 2E 30 2E 31 0F A0 01 0A 00 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A 9A

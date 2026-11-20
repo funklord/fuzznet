@@ -12599,8 +12599,8 @@ SABOTAGES = [
 	(
 		"routing-one-encoding",
 		"node/routing.c",
-		"\t\tif (!e.port || (r.n > 0u && cmp(&r.entries[r.n - 1u], &e) >= 0))\n",
-		"\t\tif (!e.port)\n",
+		"\t\tif (r.n > 0u && cmp(&r.entries[r.n - 1u], &e) >= 0)\n",
+		"\t\tif (0)\n",
 		"one manifest has several encodings, and two hosts derive different hashes for one document -- sec 611",
 	),
 	(
@@ -17802,6 +17802,13 @@ SABOTAGES = [
 		"\tm_art->sound_at.insert(sticker, path);\n",
 		"",
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
+	),
+	(
+		"routing-any-length",
+		"node/routing.c",
+		"\t    || need != len)\n\t\treturn FZN_ROUTING_ERR_SHAPE;",
+		"\t    )\n\t\treturn FZN_ROUTING_ERR_SHAPE;",
+		"a routing manifest with bytes after it read: one document, two encodings -- secs 611, 1335",
 	),
 	(
 		"card-any-length",

@@ -2,6 +2,8 @@
 
 #include "routing.h"
 
+#include "../wire/generated/routing_record.h"
+
 #include <string.h>
 
 #include "../wire/bytes.h"
@@ -238,6 +240,10 @@ int fzn_routing_newer(const fzn_routing_t *a, const fzn_routing_t *b)
 	return memcmp(a->signer, b->signer, FZN_PUBKEY_LEN) > 0;
 }
 
+/* ENCODED BY HAND STILL (sec 1335): situ's builder for this layout counts
+ * the hops from where the entries' count left off -- two counted runs in
+ * one struct share its counter -- so a manifest of N entries and no hops is
+ * written with a hop count of N. Sent to situ; read through its code. */
 fzn_routing_err_t fzn_routing_encode(const fzn_routing_t *r, uint8_t *out, size_t cap,
                                      size_t *len)
 {
@@ -269,56 +275,58 @@ fzn_routing_err_t fzn_routing_encode(const fzn_routing_t *r, uint8_t *out, size_
 fzn_routing_err_t fzn_routing_decode(const uint8_t *bytes, size_t len, fzn_routing_t *out)
 {
 	fzn_routing_t r;
-	size_t at, count, i;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0, i;
+	size_t k;
 
 	if (!bytes || !out)
 		return FZN_ROUTING_ERR_MALFORMED;
 	memset(&r, 0, sizeof(r));
-	if (len < FZN_ROUTING_STATEMENT_LEN + 2u || bytes[0] != 1u || bytes[1] != 1u)
+	/* READ AS THE SCHEMA SAYS, EXACTLY ITS LENGTH (sec 1335): versions,
+	 * addresses' letters, ports, counts and every hop a chain hop the
+	 * generated validate's. */
+	if (len > UINT32_MAX || fzn_routing_record_fzn_routing_required(bytes, (uint32_t)len, &need) != SITU_OK
+	    || need != len)
 		return FZN_ROUTING_ERR_SHAPE;
-	r.generation = fzn_get_be64(bytes + 2);
-	r.timestamp_ms = fzn_get_be64(bytes + 10);
-	memcpy(r.content_hash, bytes + 18, FZN_ROUTING_HASH_LEN);
-	memcpy(r.signer, bytes + 50, FZN_PUBKEY_LEN);
-	at = FZN_ROUTING_STATEMENT_LEN;
-	if (bytes[at] > 1u)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_routing_record_fzn_routing_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_routing_record_fzn_routing_validate(v) != SITU_OK)
 		return FZN_ROUTING_ERR_SHAPE;
-	r.public_relay = bytes[at++];
-	count = bytes[at++];
-	if (count > FZN_ROUTING_ENTRIES_MAX)
+	r.generation = fzn_routing_record_fzn_routing_generation_get(v);
+	r.timestamp_ms = fzn_routing_record_fzn_routing_timestamp_ms_get(v);
+	memcpy(r.content_hash, fzn_routing_record_fzn_routing_content_hash_ptr(v), FZN_ROUTING_HASH_LEN);
+	memcpy(r.signer, fzn_routing_record_fzn_routing_signer_ptr(v), FZN_PUBKEY_LEN);
+	r.public_relay = fzn_routing_record_fzn_routing_public_relay_get(v);
+	if (fzn_routing_record_fzn_routing_entry_count_get(v) > FZN_ROUTING_ENTRIES_MAX)
 		return FZN_ROUTING_ERR_SHAPE;
 	/* IN CANONICAL ORDER, EACH ADDRESS AND PORT ONCE: one document has one
-	 * encoding, so one hash. */
-	for (i = 0; i < count; i++) {
+	 * encoding, so one hash -- the codec's to check. */
+	for (i = 0; i < fzn_routing_record_fzn_routing_entry_count_get(v); i++) {
 		fzn_routing_entry_t e;
-		size_t alen, k;
+		situ_view_t one;
 
-		if (at >= len || (alen = bytes[at]) == 0u || len - at < 1u + alen + 4u
-		    || !address_ok((const char *)bytes + at + 1u, alen))
+		if (fzn_routing_record_fzn_routing_entries_at(v, i, &one) != SITU_OK)
 			return FZN_ROUTING_ERR_SHAPE;
 		memset(&e, 0, sizeof(e));
-		memcpy(e.address, bytes + at + 1u, alen);
-		e.address_len = alen;
-		e.port = fzn_get_be16(bytes + at + 1u + alen);
-		e.transport = bytes[at + 3u + alen];
-		e.metric = bytes[at + 4u + alen];
-		if (!e.port || (r.n > 0u && cmp(&r.entries[r.n - 1u], &e) >= 0))
+		e.address_len = fzn_routing_record_fzn_routing_entry_address_len_get(one);
+		memcpy(e.address, fzn_routing_record_fzn_routing_entry_address_ptr(one), e.address_len);
+		e.port = fzn_routing_record_fzn_routing_entry_port_get(one);
+		e.transport = fzn_routing_record_fzn_routing_entry_transport_get(one);
+		e.metric = fzn_routing_record_fzn_routing_entry_metric_get(one);
+		if (r.n > 0u && cmp(&r.entries[r.n - 1u], &e) >= 0)
 			return FZN_ROUTING_ERR_SHAPE;
 		for (k = 0; k < r.n; k++)
-			if (r.entries[k].port == e.port && r.entries[k].address_len == alen
-			    && memcmp(r.entries[k].address, e.address, alen) == 0)
+			if (r.entries[k].port == e.port && r.entries[k].address_len == e.address_len
+			    && memcmp(r.entries[k].address, e.address, e.address_len) == 0)
 				return FZN_ROUTING_ERR_SHAPE;
 		r.entries[r.n++] = e;
-		at += 1u + alen + 4u;
 	}
-	if (at >= len || bytes[at] > FZN_CHAIN_MAX_HOPS)
+	r.hop_count = fzn_routing_record_fzn_routing_hop_count_get(v);
+	if (r.hop_count > FZN_CHAIN_MAX_HOPS)
 		return FZN_ROUTING_ERR_SHAPE;
-	r.hop_count = bytes[at++];
-	if (len - at != r.hop_count * FZN_HOP_LEN + FZN_SIG_LEN)
-		return FZN_ROUTING_ERR_SHAPE;
-	memcpy(r.hops, bytes + at, r.hop_count * FZN_HOP_LEN);
-	at += r.hop_count * FZN_HOP_LEN;
-	memcpy(r.sig, bytes + at, FZN_SIG_LEN);
+	memcpy(r.hops, bytes + fzn_routing_record_fzn_routing_hops_offset(v), r.hop_count * FZN_HOP_LEN);
+	memcpy(r.sig, fzn_routing_record_fzn_routing_sig_ptr(v), FZN_SIG_LEN);
 	*out = r;
 	return FZN_ROUTING_OK;
 }

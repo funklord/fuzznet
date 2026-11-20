@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1334
+The newest work is at the end of this file. **Read secs 1287 to 1335
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -94982,3 +94982,26 @@ contact_card_test's fixture.
 **Tests:** contact_card_record_vectors (1, a real card); contact_card_test
 (27), contact_request_test (69), pair_test (443) and card_fuzz (3000 cases)
 over the generated codec. Sabotage `card-any-length`.
+
+## 1335. A routing manifest read through situ's code, and a builder bug found in situ, 2026-11-21
+
+The sixth of the 40 layouts: `node/routing.situ` is
+`node/routing_record.situ` (a signed record), and says more than it did --
+an entry's address in `net/address`'s letters (`[chars]`) and **the admin
+chain's hops typed as chain hops** (`fzn_chain_hop hops[hop_count]`,
+importing `chain/hop.situ`) rather than `hop_count * 179` bytes, so
+`validate` reads each hop's layout. `fzn_routing_decode` reads through
+the generated `required`, view, `validate` and accessors, exactly its
+length; canonical order and no duplicate entry stay the codec's checks.
+
+**The encoder stays hand-written, because situ's builder for this layout
+is wrong** (sent to situ, inbox 20261121T0130Z): it counts the hops from
+where the entries' count left off -- two counted runs in one struct share
+one counter -- so a manifest of N entries and no hops is written with a
+hop count of N, and its own final `validate` refuses it. Found because
+routing_test's round trips failed, narrowed to byte 99 of the output
+against the golden vector, which the generated reader accepts.
+
+**Tests:** routing_record_vectors (1); routing_test (31) and
+reachability_fuzz (3000 cases) over the generated reader. Sabotage
+`routing-any-length`.
