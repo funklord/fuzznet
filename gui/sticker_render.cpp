@@ -1,6 +1,8 @@
 #include "sticker_render.h"
 
+#include <QBuffer>
 #include <QImage>
+#include <QImageReader>
 #include <QFont>
 #include <QFontMetrics>
 #include <QObject>
@@ -14,6 +16,10 @@
 
 #include <memory>
 #endif
+
+#include <algorithm>
+#include <string.h>
+#include <vector>
 
 /*
  * Lottie, via ThorVG.
@@ -124,10 +130,223 @@ static fzn_sticker_render_result render_lottie(const uint8_t *bytes, size_t len,
 #endif
 }
 
+/* ---- APNG, sec 1322 --------------------------------------------------------
+ *
+ * Qt's PNG reader draws an APNG's default image and no more. So the frames
+ * are put back together here: each frame's data rebuilt as a PNG of its own
+ * -- the signature, an IHDR of the frame's size, the chunks before the first
+ * IDAT that every frame shares (a palette, transparency, gamma...), the
+ * frame's data as IDAT, IEND -- decoded by Qt, then laid onto the canvas by
+ * its fcTL's blend and disposal, frame by frame up to the one wanted. The
+ * PNG spec's APNG section is the reference. Bounded: at most APNG_FRAMES_MAX
+ * frames, a canvas of at most 1024 pixels a side, art at most 256 KiB as the
+ * callers read it. */
+#define APNG_FRAMES_MAX 300
+#define APNG_SIDE_MAX 1024u
+
+static uint32_t be32(const uint8_t *p) {
+	return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | (uint32_t)p[3];
+}
+
+static void put_be32(QByteArray &out, uint32_t v) {
+	out.append((char)(v >> 24)).append((char)(v >> 16)).append((char)(v >> 8)).append((char)v);
+}
+
+static uint32_t png_crc(const char *type, const uint8_t *data, size_t len) {
+	static uint32_t table[256];
+	static bool made;
+	uint32_t c = 0xffffffffu;
+	if (!made) {
+		for (uint32_t n = 0; n < 256u; n++) {
+			uint32_t k = n;
+			for (int b = 0; b < 8; b++)
+				k = (k & 1u) ? 0xedb88320u ^ (k >> 1) : k >> 1;
+			table[n] = k;
+		}
+		made = true;
+	}
+	for (int i = 0; i < 4; i++)
+		c = table[(c ^ (uint8_t)type[i]) & 0xffu] ^ (c >> 8);
+	for (size_t i = 0; i < len; i++)
+		c = table[(c ^ data[i]) & 0xffu] ^ (c >> 8);
+	return c ^ 0xffffffffu;
+}
+
+static void put_chunk(QByteArray &out, const char *type, const uint8_t *data, size_t len) {
+	put_be32(out, (uint32_t)len);
+	out.append(type, 4);
+	if (len)
+		out.append((const char *)data, (int)len);
+	put_be32(out, png_crc(type, data, len));
+}
+
+struct apng_frame {
+	uint32_t w, h, x, y;
+	uint8_t dispose, blend;
+	QByteArray data; /* the frame's compressed bytes, IDAT's or fdAT's */
+};
+
+struct apng {
+	uint32_t width = 0, height = 0;
+	QByteArray ihdr, shared; /* IHDR's 13 bytes; the chunks every frame repeats */
+	std::vector<apng_frame> frames;
+};
+
+/* AN APNG READ: 1 with its frames, 0 for anything else -- a PNG with no
+ * acTL included, which is a still. */
+static bool apng_read(const uint8_t *b, size_t len, apng &a) {
+	static const uint8_t sig[8] = { 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a };
+	size_t at = 8;
+	bool animated = false, seen_idat = false;
+
+	if (len < 8 || memcmp(b, sig, 8) != 0)
+		return false;
+	while (at + 12 <= len) {
+		const uint32_t n = be32(b + at);
+		const uint8_t *type = b + at + 4, *data = b + at + 8;
+		if (n > len - at - 12)
+			return false;
+		if (!memcmp(type, "IHDR", 4) && n == 13) {
+			a.ihdr = QByteArray((const char *)data, 13);
+			a.width = be32(data);
+			a.height = be32(data + 4);
+		} else if (!memcmp(type, "acTL", 4) && n == 8) {
+			animated = true;
+		} else if (!memcmp(type, "fcTL", 4) && n == 26) {
+			apng_frame f;
+			if (a.frames.size() >= APNG_FRAMES_MAX)
+				return false;
+			f.w = be32(data + 4);
+			f.h = be32(data + 8);
+			f.x = be32(data + 12);
+			f.y = be32(data + 16);
+			f.dispose = data[24];
+			f.blend = data[25];
+			if (!f.w || !f.h || f.x > a.width || f.y > a.height || f.w > a.width - f.x || f.h > a.height - f.y)
+				return false;
+			a.frames.push_back(f);
+		} else if (!memcmp(type, "IDAT", 4)) {
+			/* THE DEFAULT IMAGE IS FRAME 0 only where an fcTL came first. */
+			if (!a.frames.empty() && a.frames.size() == 1)
+				a.frames[0].data.append((const char *)data, (int)n);
+			seen_idat = true;
+		} else if (!memcmp(type, "fdAT", 4) && n >= 4) {
+			if (a.frames.empty())
+				return false;
+			a.frames.back().data.append((const char *)data + 4, (int)(n - 4));
+		} else if (!memcmp(type, "IEND", 4)) {
+			break;
+		} else if (!seen_idat && memcmp(type, "acTL", 4) != 0) {
+			/* A PALETTE, TRANSPARENCY, GAMMA ...: every frame's too. */
+			put_chunk(a.shared, (const char *)type, data, n);
+		}
+		at += 12 + n;
+	}
+	if (!animated || a.ihdr.size() != 13 || a.frames.empty() || !a.width || !a.height || a.width > APNG_SIDE_MAX
+	    || a.height > APNG_SIDE_MAX)
+		return false;
+	for (const apng_frame &f : a.frames)
+		if (f.data.isEmpty())
+			return false;
+	return true;
+}
+
+/* FRAME `index` OF `a`, composed onto its canvas: a null image where a
+ * frame does not decode. */
+static QImage apng_draw(const apng &a, size_t index) {
+	static const uint8_t sig[8] = { 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a };
+	QImage canvas((int)a.width, (int)a.height, QImage::Format_ARGB32_Premultiplied), saved;
+	canvas.fill(Qt::transparent);
+	for (size_t i = 0; i <= index && i < a.frames.size(); i++) {
+		const apng_frame &f = a.frames[i];
+		QByteArray png((const char *)sig, 8), ihdr = a.ihdr;
+		QImage part;
+		ihdr[0] = (char)(f.w >> 24), ihdr[1] = (char)(f.w >> 16), ihdr[2] = (char)(f.w >> 8), ihdr[3] = (char)f.w;
+		ihdr[4] = (char)(f.h >> 24), ihdr[5] = (char)(f.h >> 16), ihdr[6] = (char)(f.h >> 8), ihdr[7] = (char)f.h;
+		put_chunk(png, "IHDR", (const uint8_t *)ihdr.constData(), 13);
+		png.append(a.shared);
+		put_chunk(png, "IDAT", (const uint8_t *)f.data.constData(), (size_t)f.data.size());
+		put_chunk(png, "IEND", nullptr, 0);
+		if (!part.loadFromData(png, "PNG"))
+			return QImage();
+		/* DISPOSE_OP_PREVIOUS keeps what lay under it, to put back. */
+		if (f.dispose == 2u)
+			saved = canvas.copy((int)f.x, (int)f.y, (int)f.w, (int)f.h);
+		{
+			QPainter p(&canvas);
+			p.setCompositionMode(f.blend == 0u ? QPainter::CompositionMode_Source
+			                                  : QPainter::CompositionMode_SourceOver);
+			p.drawImage((int)f.x, (int)f.y, part);
+		}
+		if (i == index)
+			break;
+		/* THEN ITS DISPOSAL, before the next is laid on: cleared, or what
+		 * lay under it put back. */
+		if (f.dispose == 1u || (f.dispose == 2u && saved.isNull())) {
+			QPainter p(&canvas);
+			p.setCompositionMode(QPainter::CompositionMode_Source);
+			p.fillRect((int)f.x, (int)f.y, (int)f.w, (int)f.h, Qt::transparent);
+		} else if (f.dispose == 2u) {
+			QPainter p(&canvas);
+			p.setCompositionMode(QPainter::CompositionMode_Source);
+			p.drawImage((int)f.x, (int)f.y, saved);
+		}
+	}
+	return canvas;
+}
+
+int fzn_sticker_render_frames(const uint8_t *art, size_t art_len, uint8_t format) {
+	apng a;
+	if (!art || !art_len)
+		return 0;
+	if (format == FZN_STICKER_LOTTIE) {
+#ifdef FZN_THORVG_ON
+		return 2; /* a Lottie is motion, however many frames it says */
+#else
+		return 0;
+#endif
+	}
+	if (apng_read(art, art_len, a))
+		return (int)a.frames.size();
+	QByteArray bytes = QByteArray::fromRawData((const char *)art, (int)art_len);
+	QBuffer buf(&bytes);
+	QImageReader reader(&buf);
+	if (!reader.canRead())
+		return 0;
+	return reader.supportsAnimation() && reader.imageCount() > 1 ? reader.imageCount() : 1;
+}
+
 static fzn_sticker_render_result render_raster(const uint8_t *bytes, size_t len,
-                                               const QSize &target) {
+                                               const QSize &target, float progress) {
 	fzn_sticker_render_result r;
 	QImage img;
+	apng a;
+
+	/* ANIMATED, sec 1322: an APNG composed here, any other the frame Qt's
+	 * reader reaches -- an animated WebP's. A still is drawn as it always
+	 * was, its frame 0. */
+	if (apng_read(bytes, len, a)) {
+		const size_t at = std::min(a.frames.size() - 1u,
+		                           (size_t)(qBound(0.0f, progress, 1.0f) * (float)a.frames.size()));
+		img = apng_draw(a, at);
+	} else if (progress > 0.0f) {
+		QByteArray raw = QByteArray::fromRawData((const char *)bytes, (int)len);
+		QBuffer buf(&raw);
+		QImageReader reader(&buf);
+		const int count = reader.supportsAnimation() ? reader.imageCount() : 0;
+		if (count > 1) {
+			const int at = std::min(count - 1, (int)(qBound(0.0f, progress, 1.0f) * (float)count));
+			for (int i = 0; i <= at; i++)
+				if (!reader.read(&img))
+					break;
+		}
+	}
+	if (!img.isNull()) {
+		if (target.isValid() && !target.isEmpty() && (img.width() > target.width() || img.height() > target.height()))
+			img = img.scaled(target, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+		r.pixmap = QPixmap::fromImage(img);
+		return r;
+	}
 	/*
 	 * Format sniffed by Qt rather than taken from the manifest. The manifest
 	 * says what the pack CLAIMS a rendition is, and this is bytes from
@@ -157,7 +376,7 @@ static fzn_sticker_render_result render_raster(const uint8_t *bytes, size_t len,
 fzn_sticker_render_result fzn_sticker_render_art(const uint8_t *art, size_t art_len, uint8_t format,
                                                  const QSize &target, float progress) {
 	if (format == FZN_STICKER_LOTTIE) return render_lottie(art, art_len, target, progress);
-	return render_raster(art, art_len, target);
+	return render_raster(art, art_len, target, progress);
 }
 
 QPixmap fzn_sticker_with_text(const QPixmap &drawn, const fzn_sticker_entry_t *entry,

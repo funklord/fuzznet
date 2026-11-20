@@ -171,6 +171,9 @@ struct fzn_conversation_view::art {
 	QElapsedTimer popped_for;
 	/* A LOTTIE STICKER'S ART, by the same key, kept to play it (sec 1300). */
 	QHash<QByteArray, QByteArray> lottie;
+	/* ITS FORMAT: a Lottie, or a raster one of more than one frame -- an
+	 * APNG or animated WebP (sec 1322), played as a Lottie is. */
+	QHash<QByteArray, int> moving_format;
 	QElapsedTimer playing_for;
 	/* EACH PACK'S STICKERS, read once a pack for their boxes (sec 1295):
 	 * by the pack's word, each sticker by its id. */
@@ -1252,7 +1255,9 @@ void fzn_conversation_view::play_frame()
 	}
 	const float progress = (float)(ms % PLAY_LOOP_MS) / (float)PLAY_LOOP_MS;
 	const fzn_sticker_render_result r = fzn_sticker_render_art((const uint8_t *)art.value().constData(),
-	                                                           (size_t)art.value().size(), FZN_STICKER_LOTTIE,
+	                                                           (size_t)art.value().size(),
+	                                                           (uint8_t)m_art->moving_format.value(m_playing_key,
+	                                                                                               FZN_STICKER_LOTTIE),
 	                                                           QSize(STICKER_PX, STICKER_PX), progress);
 	if (r.pixmap.isNull())
 		return;
@@ -1484,8 +1489,12 @@ void fzn_conversation_view::draw_stickers()
 		}
 		if (got) {
 			QIcon icon;
-			if (format == FZN_STICKER_LOTTIE)
+			/* WHAT MOVES IS KEPT TO PLAY, sec 1300 and 1322: a Lottie, and a
+			 * raster sticker of more than one frame. */
+			if (format == FZN_STICKER_LOTTIE || fzn_sticker_render_frames(bytes, len, format) > 1) {
 				m_art->lottie.insert(key, QByteArray((const char *)bytes, (int)len));
+				m_art->moving_format.insert(key, format);
+			}
 			/* LOTTIE TOO where thorvg is built in, sec 1151. */
 			const fzn_sticker_render_result r =
 			        fzn_sticker_render_art(bytes, len, format, QSize(STICKER_PX, STICKER_PX));

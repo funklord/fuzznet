@@ -54,6 +54,15 @@ fzn_sticker_render_result fzn_sticker_render_art(const uint8_t *art, size_t art_
                                                  const QSize &target, float progress = 0.0f);
 
 /*
+ * HOW MANY FRAMES a rendition holds (sec 1322): 1 for a still, more for an
+ * animated WebP or an APNG -- whose frames are composed here, Qt's PNG
+ * reader drawing only an APNG's default image -- 2 for a Lottie where this
+ * build draws one, 0 for art that does not decode or a Lottie it cannot
+ * draw. More than 1 is what a caller plays.
+ */
+int fzn_sticker_render_frames(const uint8_t *art, size_t art_len, uint8_t format);
+
+/*
  * A MESSAGE or NAME sticker as sent: `drawn`, the art at whatever size it
  * was drawn, with `text` -- the sender's words, carried by the message --
  * fitted into the sticker's box over its fill. The box is in the main

@@ -17811,6 +17811,27 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"apng-first-frame-only",
+		"gui/sticker_render.cpp",
+		"\t\timg = apng_draw(a, at);\n",
+		"\t\timg = apng_draw(a, 0);\n",
+		"an APNG drawn at its first frame wherever asked: it never moves; sticker_picker_view_test -- sec 1322",
+	),
+	(
+		"picker-still-plays",
+		"gui/sticker_picker_view.cpp",
+		"\tif (!item || item->data(ROLE_MOVING).toByteArray().isEmpty() || m_playing == item)\n",
+		"\tif (!item || m_playing == item)\n",
+		"a still sticker touched in the picker set playing; sticker_picker_view_test -- sec 1322",
+	),
+	(
+		"log-raster-never-moves",
+		"gui/conversation_view.cpp",
+		"\t\t\tif (format == FZN_STICKER_LOTTIE || fzn_sticker_render_frames(bytes, len, format) > 1) {\n",
+		"\t\t\tif (format == FZN_STICKER_LOTTIE) {\n",
+		"an APNG sticker chosen in the log never plays; conversation_view_test -- sec 1322",
+	),
+	(
 		"search-keep-ignored",
 		"search/search.c",
 		"\t    || (q->keep && !q->keep(q->keep_ctx, h)))\n",

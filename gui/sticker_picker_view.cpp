@@ -24,7 +24,9 @@ extern "C" {
 #include <QPushButton>
 #include <QHash>
 #include <QTabWidget>
+#include <QElapsedTimer>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <stdlib.h>
@@ -41,8 +43,18 @@ extern "C" {
 #define ROLE_LIMIT (Qt::UserRole + 3)
 #define ROLE_DESCRIPTION (Qt::UserRole + 4)
 #define ROLE_FLAGS (Qt::UserRole + 5)
+/* WHAT MOVES, sec 1322: its art and format, kept to play when touched. */
+#define ROLE_MOVING (Qt::UserRole + 6)
+#define ROLE_MOVING_FORMAT (Qt::UserRole + 7)
+
+/* A LOOP AND HOW MANY, and a frame's time: as the log plays (sec 1300). */
+#define PLAY_LOOP_MS 2000
+#define PLAY_LOOPS 3
+#define PLAY_FRAME_MS 40
 
 struct fzn_sticker_picker_view::sounds {
+	QElapsedTimer playing_for;
+	QIcon still;
 	QTemporaryDir dir;
 	QHash<QString, QString> at; /* "PACK/ID" to the file written */
 };
@@ -107,7 +119,10 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_find, &QLineEdit::textChanged, [this](const QString &text) { set_find(text); });
 	connect(m_found, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
-	connect(m_found, &QListWidget::itemClicked, [this](QListWidgetItem *item) { sound(item); });
+	connect(m_found, &QListWidget::itemClicked, [this](QListWidgetItem *item) {
+		play(item);
+		sound(item);
+	});
 	connect(m_forget, &QPushButton::clicked, [this]() {
 		const int at = pack_of_tab(m_tabs->currentIndex());
 
@@ -121,6 +136,9 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 			forget(at);
 	});
 	m_status->setText(tr("No sticker packs kept yet."));
+	m_play = new QTimer(this);
+	m_play->setInterval(PLAY_FRAME_MS);
+	connect(m_play, &QTimer::timeout, [this]() { play_frame(); });
 }
 
 fzn_sticker_picker_view::~fzn_sticker_picker_view()
@@ -150,6 +168,7 @@ bool fzn_sticker_picker_view::refresh()
 		delete items;
 		return m_rpc->c.answered;
 	}
+	rest(); /* the items are about to go */
 	while (m_tabs->count()) {
 		QWidget *w = m_tabs->widget(0);
 		m_tabs->removeTab(0);
@@ -184,6 +203,10 @@ bool fzn_sticker_picker_view::refresh()
 					if (!r.pixmap.isNull()) {
 						item->setIcon(QIcon(r.pixmap));
 						drawn = true;
+						if (fzn_sticker_render_frames(art, art_len, format) > 1) {
+							item->setData(ROLE_MOVING, QByteArray((const char *)art, (int)art_len));
+							item->setData(ROLE_MOVING_FORMAT, (int)format);
+						}
 					}
 				}
 				free(art);
@@ -202,7 +225,10 @@ bool fzn_sticker_picker_view::refresh()
 		});
 		/* A CLICK is a person touching it: its sound, where it has one;
 		 * choosing it to send stays activation. */
-		connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) { sound(item); });
+		connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) {
+			play(item);
+			sound(item);
+		});
 		list->setProperty("pack", pack);
 		m_tabs->addTab(list, said(packs.entries[p].name, packs.entries[p].name_len));
 	}
@@ -251,7 +277,10 @@ void fzn_sticker_picker_view::show_recent()
 	list->setAccessibleName(tr("Stickers you sent lately"));
 	list->setProperty("recent", true);
 	connect(list, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
-	connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) { sound(item); });
+	connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) {
+		play(item);
+		sound(item);
+	});
 	m_tabs->insertTab(0, list, tr("Recent"));
 	m_tabs->setCurrentIndex(0);
 }
@@ -309,9 +338,52 @@ bool fzn_sticker_picker_view::pick(int pack, int row)
 bool fzn_sticker_picker_view::touch(int pack, int row)
 {
 	QListWidget *list = pack_list(pack);
+	QListWidgetItem *item = list ? list->item(row) : nullptr;
 
-	return sound(list ? list->item(row) : nullptr);
+	play(item);
+	return sound(item);
 }
+
+/* A TOUCHED STICKER THAT MOVES PLAYS, sec 1322: one at a time, for three
+ * loops, then back on its still; one that does not, nothing. */
+void fzn_sticker_picker_view::play(QListWidgetItem *item)
+{
+	if (m_playing && m_playing != item)
+		rest();
+	if (!item || item->data(ROLE_MOVING).toByteArray().isEmpty() || m_playing == item)
+		return;
+	m_playing = item;
+	m_sounds->still = item->icon();
+	m_sounds->playing_for.start();
+	m_play->start();
+}
+
+void fzn_sticker_picker_view::play_frame()
+{
+	const qint64 ms = m_sounds->playing_for.elapsed();
+
+	if (!m_playing || ms >= PLAY_LOOP_MS * PLAY_LOOPS) {
+		rest();
+		return;
+	}
+	const QByteArray art = m_playing->data(ROLE_MOVING).toByteArray();
+	const fzn_sticker_render_result r =
+	        fzn_sticker_render_art((const uint8_t *)art.constData(), (size_t)art.size(),
+	                               (uint8_t)m_playing->data(ROLE_MOVING_FORMAT).toInt(), QSize(64, 64),
+	                               (float)(ms % PLAY_LOOP_MS) / (float)PLAY_LOOP_MS);
+	if (!r.pixmap.isNull())
+		m_playing->setIcon(QIcon(r.pixmap));
+}
+
+void fzn_sticker_picker_view::rest()
+{
+	m_play->stop();
+	if (m_playing && !m_sounds->still.isNull())
+		m_playing->setIcon(m_sounds->still);
+	m_playing = nullptr;
+}
+
+bool fzn_sticker_picker_view::playing() const { return m_playing != nullptr; }
 
 /* A STICKER'S SOUND, sec 1314: written once from the node, as the log
  * writes it (sec 1301), then handed to the host's player on each touch. */
@@ -355,6 +427,8 @@ void fzn_sticker_picker_view::set_find(const QString &text)
 	auto *matched = new fzn_rpc_sticker_match_resp_t;
 	size_t i;
 
+	if (m_playing && m_playing->listWidget() == m_found)
+		rest();
 	m_found->clear();
 	if (typed.isEmpty()) {
 		m_found->hide();

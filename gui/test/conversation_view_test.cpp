@@ -132,6 +132,33 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		fclose(f);
 		return (size_t)snprintf(reply, cap, "ok 5\n");
 	}
+	/* KIM SENT DAN'S STICKER 13, AN APNG of two frames, red then green (sec
+	 * 1322): its art those bytes, built by hand. */
+	if (!strncmp(line, "get sticker " DAN_PACK " 13 main ", 12 + 144 + 9)) {
+		static const char APNG[] =
+		        "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00"
+		        "\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x08\x61\x63\x54\x4c\x00\x00\x00"
+		        "\x02\x00\x00\x00\x00\xf3\x8d\x93\x70\x00\x00\x00\x1a\x66\x63\x54\x4c\x00\x00\x00\x00\x00"
+		        "\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x0a\x00\x00\x5a"
+		        "\x7f\x30\xd0\x00\x00\x00\x0d\x49\x44\x41\x54\x78\x9c\x63\xf8\xcf\xc0\xf0\x1f\x00\x05\x00"
+		        "\x01\xff\x89\x99\x3d\x1d\x00\x00\x00\x1a\x66\x63\x54\x4c\x00\x00\x00\x01\x00\x00\x00\x01"
+		        "\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x0a\x00\x00\xc1\x0c\xda\x04"
+		        "\x00\x00\x00\x11\x66\x64\x41\x54\x00\x00\x00\x02\x78\x9c\x63\x60\xf8\xcf\xf0\x1f\x00\x04"
+		        "\x01\x01\xff\x62\xe7\xe9\x9c\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82";
+		FILE *f = fopen(line + 12 + 144 + 9, "wbx");
+		if (!f || fwrite(APNG, 1, sizeof APNG - 1, f) != sizeof APNG - 1) {
+			if (f)
+				fclose(f);
+			return (size_t)snprintf(reply, cap, "error could not write\n");
+		}
+		fclose(f);
+		return (size_t)snprintf(reply, cap, "ok 2 1 1\n");
+	}
+	if (!strcmp(line, "list message kim 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 0 1 0 " BOB ",kim," ID1 ",in,-,1700005800000,1700005800000,1,"
+		                        "fzn:sticker/%064d/%064d/1000/13%%20blinking\n",
+		                        1, 2);
 	/* IKE SENT DAN'S STICKER 9, A LOTTIE ONE, sec 1300: its art the JSON. */
 	if (!strncmp(line, "get sticker " DAN_PACK " 9 main ", 12 + 144 + 8)) {
 		static const char LOTTIE[] =
@@ -421,6 +448,16 @@ int main(int argc, char **argv)
 		CHECK(!h.playing(), "a raster sticker chosen played, or the Lottie one did not rest");
 	}
 #endif
+	/* AN APNG OF TWO FRAMES PLAYS when chosen, as a Lottie does (sec 1322);
+	 * a still raster one, above, does not. */
+	{
+		fzn_conversation_view k(node, nullptr);
+
+		k.open(QStringLiteral("kim"));
+		CHECK(k.drawn(0) && !k.playing(), "an APNG sticker was not drawn, or played unchosen");
+		k.select_line(0);
+		CHECK(k.playing(), "the chosen APNG sticker did not play");
+	}
 	/* ITS SOUND, sec 1301: the sticker flagged with one hands it to the
 	 * host's player, written once; one without, nothing. */
 	{

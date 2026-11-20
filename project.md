@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1321
+The newest work is at the end of this file. **Read secs 1287 to 1322
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -52,8 +52,8 @@ listener port spans (`150e3106`).
   1297), the chosen Lottie sticker playing (sec 1300), its sound (sec
   1301; in the picker, 1314), a pop-up one across the log (sec 1302), an effect one behind it (sec
   1315), a Recent tab (sec 1317), the reply's line as the matcher's context (sec
-  1321). Left: (b) raster
-  animation and the picker's; (i) a binary `list sticker
+  1321). Raster animation
+  and the picker's (sec 1322). Left: (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
   (sec 1272).
 - **The binary move** (secs 1208, 1217) is done for every client call
@@ -94659,3 +94659,36 @@ typed, and a typed word that fits scores above it alone; `match` scores
 as before (120). **No sabotage entry**: the node's sticker verbs have no
 unit test to catch one -- they are held by the live scripts, which
 sabotage does not run.
+
+## 1322. Raster stickers move: APNG and animated WebP, in the log and the picker, 2026-11-20
+
+The audit's (b). A sticker pack names APNG and WebP among its formats
+(`FZN_STICKER_APNG`, `_WEBP`), and only a Lottie ever moved (sec 1300); in
+the picker nothing moved at all.
+
+- **The renderer** (`gui/sticker_render.cpp`) draws a raster rendition at
+  `progress` as it draws a Lottie, and says how many frames one holds
+  (`fzn_sticker_render_frames`): 1 for a still. **An animated WebP** is
+  Qt's own: its image reader reads frame after frame. **An APNG is
+  composed here**, Qt's PNG reader drawing only its default image: each
+  frame's data rebuilt as a PNG of its own (an IHDR of the frame's size,
+  the chunks every frame shares, its data as IDAT, CRCs written), decoded
+  by Qt, and laid on the canvas by its fcTL's blend (source or over) and
+  disposal (none, background, previous), frame by frame up to the one
+  asked. Bounded at 300 frames and 1024 pixels a side; a frame that does
+  not decode draws nothing. **Rejected**: a vendored APNG decoder (a
+  dependency for 150 lines whose decoding Qt already does), and QMovie (a
+  timer per sticker, which `sticker_render.h` refuses for a scrolling log).
+- **The log** keeps to play any sticker whose art has more than one frame,
+  as it kept a Lottie: chosen, it plays three loops and rests.
+- **The picker** plays a touched sticker that moves -- one at a time,
+  three loops, then back on its still -- and lets it rest before a refresh
+  or a new search takes its item away.
+
+**Tests:** sticker_picker_view_test -- an APNG built by hand (two frames,
+red then green, fcTL, IDAT and fdAT): two frames counted, red at the
+start and green near the end; a still one frame and the same further in;
+a touched Lottie plays, a still does not, a refresh stops it.
+conversation_view_test -- an APNG sticker line drawn, not playing until
+chosen, then playing. Sabotages `apng-first-frame-only`,
+`picker-still-plays`, `log-raster-never-moves`.

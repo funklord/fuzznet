@@ -14,6 +14,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QFile>
+#include <QBuffer>
 #include <QImage>
 
 #include <stdio.h>
@@ -133,6 +134,112 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
  * start and its middle -- some paint inside the frame, and the two not the
  * same, so the art moves. FZN_TEST_SET_PNG names a directory to save each
  * drawing in, for a person to look at. */
+/* AN APNG BY HAND, sec 1322: two 4x4 frames, red then green, the first
+ * the default image -- each frame's IDAT taken from a PNG Qt writes, the
+ * chunks around them written here, CRCs and all. */
+static uint32_t crc_of(const QByteArray &type_and_data)
+{
+	uint32_t c = 0xffffffffu;
+	for (char ch : type_and_data) {
+		c ^= (uint8_t)ch;
+		for (int b = 0; b < 8; b++)
+			c = (c & 1u) ? 0xedb88320u ^ (c >> 1) : c >> 1;
+	}
+	return c ^ 0xffffffffu;
+}
+
+static void be32(QByteArray &out, uint32_t v)
+{
+	out.append((char)(v >> 24)).append((char)(v >> 16)).append((char)(v >> 8)).append((char)v);
+}
+
+static void chunk(QByteArray &out, const char *type, const QByteArray &data)
+{
+	QByteArray td = QByteArray(type, 4) + data;
+	be32(out, (uint32_t)data.size());
+	out.append(td);
+	be32(out, crc_of(td));
+}
+
+/* A PNG's IDAT data and IHDR, of a 4x4 image of one colour. */
+static void png_of(Qt::GlobalColor colour, QByteArray *ihdr, QByteArray *idat)
+{
+	QImage img(4, 4, QImage::Format_ARGB32);
+	QByteArray png;
+	QBuffer buf(&png);
+	int at = 8;
+
+	img.fill(colour);
+	buf.open(QIODevice::WriteOnly);
+	img.save(&buf, "PNG");
+	while (at + 12 <= png.size()) {
+		const uint32_t n = (uint32_t)(uint8_t)png[at] << 24 | (uint32_t)(uint8_t)png[at + 1] << 16
+		                   | (uint32_t)(uint8_t)png[at + 2] << 8 | (uint8_t)png[at + 3];
+		const QByteArray type = png.mid(at + 4, 4), data = png.mid(at + 8, (int)n);
+		if (type == "IHDR")
+			*ihdr = data;
+		else if (type == "IDAT")
+			idat->append(data);
+		at += 12 + (int)n;
+	}
+}
+
+static void fctl(QByteArray &out, uint32_t seq)
+{
+	QByteArray d;
+	be32(d, seq);
+	be32(d, 4);
+	be32(d, 4);
+	be32(d, 0);
+	be32(d, 0);
+	d.append((char)0).append((char)1).append((char)0).append((char)10); /* 1/10 s */
+	d.append((char)0).append((char)0);                                   /* dispose none, blend source */
+	chunk(out, "fcTL", d);
+}
+
+static void test_an_apng_plays(void)
+{
+	QByteArray ihdr, red, green, apng("\x89PNG\r\n\x1a\n", 8), actl, fdat;
+	QByteArray still_ihdr, still_idat, still("\x89PNG\r\n\x1a\n", 8);
+	QImage first, last;
+
+	png_of(Qt::red, &ihdr, &red);
+	png_of(Qt::green, &ihdr, &green);
+	chunk(apng, "IHDR", ihdr);
+	be32(actl, 2);
+	be32(actl, 0);
+	chunk(apng, "acTL", actl);
+	fctl(apng, 0);
+	chunk(apng, "IDAT", red);
+	fctl(apng, 1);
+	be32(fdat, 2);
+	fdat.append(green);
+	chunk(apng, "fdAT", fdat);
+	chunk(apng, "IEND", QByteArray());
+	CHECK(fzn_sticker_render_frames((const uint8_t *)apng.constData(), (size_t)apng.size(), FZN_STICKER_APNG) == 2,
+	      "an APNG of two frames was not counted as two");
+	first = fzn_sticker_render_art((const uint8_t *)apng.constData(), (size_t)apng.size(), FZN_STICKER_APNG,
+	                               QSize(4, 4), 0.0f)
+	                .pixmap.toImage();
+	last = fzn_sticker_render_art((const uint8_t *)apng.constData(), (size_t)apng.size(), FZN_STICKER_APNG,
+	                              QSize(4, 4), 0.9f)
+	               .pixmap.toImage();
+	CHECK(!first.isNull() && first.pixelColor(2, 2) == QColor(Qt::red), "an APNG's first frame was not drawn");
+	CHECK(!last.isNull() && last.pixelColor(2, 2) == QColor(Qt::green), "an APNG's last frame was not drawn");
+	/* A STILL is one frame, drawn the same wherever asked. */
+	png_of(Qt::red, &still_ihdr, &still_idat);
+	chunk(still, "IHDR", still_ihdr);
+	chunk(still, "IDAT", still_idat);
+	chunk(still, "IEND", QByteArray());
+	CHECK(fzn_sticker_render_frames((const uint8_t *)still.constData(), (size_t)still.size(), FZN_STICKER_APNG) == 1
+	              && fzn_sticker_render_art((const uint8_t *)still.constData(), (size_t)still.size(), FZN_STICKER_APNG,
+	                                        QSize(4, 4), 0.9f)
+	                                 .pixmap.toImage()
+	                                 .pixelColor(2, 2)
+	                         == QColor(Qt::red),
+	      "a still was counted as moving, or drawn differently further in");
+}
+
 static void test_the_test_set_draws(void)
 {
 	const QDir art(QStringLiteral("sticker/fixture/test-set/art"));
@@ -171,6 +278,7 @@ int main(int argc, char **argv)
 	QString picked;
 
 	test_the_test_set_draws();
+	test_an_apng_plays();
 
 	v.on_pick([&picked](const QString &ref) { picked = ref; });
 #ifdef FZN_THORVG_ON
@@ -229,6 +337,17 @@ int main(int argc, char **argv)
 		CHECK(!v.touch(0, 1) && played.size() == 2 && !silent_asked,
 		      "a sticker with no sound was asked for one, or played one");
 	}
+	/* A TOUCHED STICKER THAT MOVES PLAYS, sec 1322; a still does not. The
+	 * sound check's player held a list gone with its block. */
+	v.on_sound(nullptr);
+	(void)v.touch(0, 0);
+	CHECK(!v.playing(), "a still sticker touched played");
+#ifdef FZN_THORVG_ON
+	(void)v.touch(0, 2);
+	CHECK(v.playing(), "a touched Lottie sticker did not play");
+	v.refresh();
+	CHECK(!v.playing(), "a sticker played on after its tab was built again");
+#endif
 
 	CHECK(!v.keep_files({ "/tmp/fzn-good.fzs", "/tmp/fzn-bad.fzs" })
 	              && v.status().startsWith("Kept 1 of 2.") && v.status().contains("fzn-bad.fzs: not a sticker pack"),

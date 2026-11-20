@@ -66,6 +66,10 @@ public:
 	/* TOUCH sticker `row` of pack `pack`, as a click does: its sound played
 	 * where it has one. Whether one was handed to the player. */
 	bool touch(int pack, int row);
+	/* Whether a touched sticker that moves is playing (sec 1322): a
+	 * Lottie, an APNG or an animated WebP plays for three loops when
+	 * touched, then rests on its still. */
+	bool playing() const;
 	bool keep_files(const QStringList &paths);
 	/* LET PACK `pack` GO (from 0, as shown), sec 1298: without asking, the
 	 * button asking first. */
@@ -98,12 +102,17 @@ private:
 	int pack_of_tab(int tab) const;
 	void show_recent();
 	bool sound(QListWidgetItem *item);
+	void play(QListWidgetItem *item);
+	void play_frame();
+	void rest();
 
 	std::function<void(const QString &)> m_sound;
 	/* EACH STICKER'S SOUND, written once into a directory the view owns
 	 * and removes with it. */
 	struct sounds;
 	sounds *m_sounds;
+	class QTimer *m_play = nullptr;
+	QListWidgetItem *m_playing = nullptr;
 
 	QTabWidget *m_tabs;
 	QPushButton *m_keep;
