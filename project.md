@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1307
+The newest work is at the end of this file. **Read secs 1287 to 1310
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -56,13 +56,10 @@ listener port spans (`150e3106`).
   target's words as the matcher's context; (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
   (sec 1272).
-- **The rest of the binary move** (the holder's "no protocol part is to
-  stay text", secs 1208, 1217): files (sec 1303), sticker reads (sec
-  1304) and governance acts (sec 1305) moved on 2026-11-20. Left, in
-  sec 1217's order (settings: sec 1306; a host revoked: sec 1307):
-  grants made, the library's `add`, building or keeping a pack from a file;
-  joining and the join offer stay text by their own sections (1250,
-  1288) until a reason moves them.
+- **The binary move** (secs 1208, 1217) is done for every client call
+  but joining and the join offer, text by their own sections (1250,
+  1288): the last three -- a pack from a file, a file described, the
+  admin grant -- in secs 1308-1310.
 - **Split this file by lifetime** (the holder's rule of 2026-11-20:
   what was true once to `doc/journal.md`, a cited section moving with
   its citations). Not started. Measured: 174 of 1309 numbered sections
@@ -94178,3 +94175,30 @@ STATUS-only answer of sec 1305, now reads both.
 **Tests:** files_local_vectors (14, one new); live_rpc j -- a file
 described in bytes with a name holding a space, listed by `list catalog`
 escaped, as a text `add catalog` would have written it.
+
+## 1310. The admin capability granted, in binary, 2026-11-20
+
+The third of the holder's remaining three: `fzn_rpc_cap_grant`, `grant
+admin KEY`, answered by the grantee's whole admin chain as `h` items, one
+hop's hex each. `node/members_local.situ` gains `grant` (156: the
+grantee's key), answered by `granted` (157: the chain's hops back to back,
+179 bytes each, as `chain/hop.situ` lays one out). fuzznetd runs the verb
+as the socket runs a line -- what may be granted, and the depth a chain
+may reach, stay the verb's -- and reads its `h` items into bytes. The
+client asks in binary first and writes the hops back into `chain_blob` in
+the `h` form, which is what `set admin CHAIN` installs on the grantee and
+what the struct has always carried.
+
+**The binary answer could carry a chain deeper than the two hops a reply
+line holds** (`ADMIN_CHAIN_HOPS`); it does not, since the verb refuses
+before minting. Lifting that is a decision about how deep admin
+delegation should go, not about bytes, and is left where it is.
+
+**With this, every client call the holder named is in binary** but
+joining and the join-by-request offer, text by their own sections (1250,
+1288).
+
+**Tests:** members_local_vectors (33, two new); live_join f now grants
+in bytes: B, installing the chain written from them, holds admin by one
+hop -- the bytes are a working chain. The text grant stays covered by
+live_estate and live_contacts.

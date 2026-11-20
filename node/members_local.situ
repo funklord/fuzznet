@@ -40,6 +40,8 @@ enum op : u8 {
 	revoke         = 153, // a host revoked, as `revoke peer KEY` (sec 1307)
 	revoked        = 154, // an answer: what the revocation keeps
 	unrevoke       = 155, // the vote withdrawn, as `remove revocation KEY`
+	grant          = 156, // the admin capability granted a host, as `grant admin KEY` (sec 1310)
+	granted        = 157, // an answer: the grantee's whole admin chain
 	default        = error,
 }
 
@@ -73,6 +75,14 @@ struct revoked_row {
 	u8   already [max = 1];
 	u8   keeps_nothing [max = 1];
 	u8   cut[32];
+}
+
+// THE GRANTEE'S WHOLE ADMIN CHAIN, its hops back to back, each
+// FZN_HOP_LEN (179) bytes as `chain/hop.situ` lays one out: what the
+// grantee installs (`set admin CHAIN`).
+struct granted_row {
+	u16  chain_len [min = 179, max = 1432];
+	u8   chain[chain_len];
 }
 
 struct act {
@@ -235,6 +245,8 @@ struct message {
 		case op.revoke:         host_ask       revoke;
 		case op.revoked:        revoked_row    revoked;
 		case op.unrevoke:       host_ask       unrevoke;
+		case op.grant:          host_ask       grant;
+		case op.granted:        granted_row    granted;
 		default: error;
 	}
 }

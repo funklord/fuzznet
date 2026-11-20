@@ -19860,6 +19860,59 @@ static int local_revoke(int fd, fzn_origin_t origin, situ_view_t v)
 	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
 }
 
+/* THE ADMIN CAPABILITY GRANTED, sec 1310: `grant admin KEY`, run as the
+ * socket runs a line, so what may be granted and how deep a chain may go
+ * stay the verb's; its `h` items said as the chain's bytes, then ok. */
+static int local_grant_admin(int fd, fzn_origin_t origin, situ_view_t v)
+{
+	static char reply[FZN_REPLY_MAX + 1u];
+	static uint8_t chain[FZN_CHAIN_MAX_HOPS * FZN_HOP_LEN], row[2u + sizeof(chain)], out[8u + sizeof(row)];
+	char arg[16u + 2u * FZN_PUBKEY_LEN], hex[2u * FZN_PUBKEY_LEN + 1u];
+	situ_view_t b;
+	fzn_request_t req;
+	const char *at, *end;
+	size_t n, hops = 0;
+	uint32_t row_len = 0, out_len = 0;
+
+	if (!running_admin)
+		return local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no estate"), 0;
+	if (fzn_members_local_message_body_grant_view(v, &b) != SITU_OK)
+		return local_binary_status(fd, FZN_STATUS_MALFORMED, "not a members request"), 0;
+	hex_of(fzn_members_local_host_ask_key_ptr(b), FZN_PUBKEY_LEN, hex);
+	memset(&req, 0, sizeof(req));
+	n = (size_t)snprintf(arg, sizeof(arg), "admin %s", hex);
+	req.parsed = FZN_VERB_GRANT;
+	req.arg = (const uint8_t *)arg;
+	req.arg_len = n;
+	n = local_handle(running_admin, FZN_AUTHZ_GRANTED_BY_CHAIN, origin, NULL, &req, reply, sizeof(reply) - 1u);
+	if (!n)
+		return local_binary_status(fd, FZN_STATUS_ERROR, "no verb took the grant"), 0;
+	while (n && (reply[n - 1u] == '\n' || reply[n - 1u] == '\r'))
+		n--;
+	reply[n] = '\0';
+	if (n < 3u || memcmp(reply, "ok ", 3u) != 0)
+		return verb_status(fd, reply, n);
+	/* `ok hHOP hHOP ...`, each hop 2 * FZN_HOP_LEN hex digits. */
+	at = reply + 3;
+	end = reply + n;
+	while (at < end) {
+		if (*at != 'h' || (size_t)(end - at) < 1u + 2u * FZN_HOP_LEN || hops == FZN_CHAIN_MAX_HOPS
+		    || !unhex_n((const uint8_t *)at + 1, 2u * FZN_HOP_LEN, chain + hops * FZN_HOP_LEN, FZN_HOP_LEN))
+			return local_binary_status(fd, FZN_STATUS_ERROR, "the grant's answer did not read"), 0;
+		hops++;
+		at += 1u + 2u * FZN_HOP_LEN;
+		if (at < end && *at == ' ')
+			at++;
+	}
+	if (!hops || fzn_members_local_granted_row_build(row, sizeof(row), chain, (uint32_t)(hops * FZN_HOP_LEN), &row_len)
+	                     != SITU_OK
+	    || fzn_members_local_message_build_granted(out, sizeof(out), (uint8_t)FZN_CMD_MEMBERS, row, row_len, &out_len)
+	               != SITU_OK
+	    || !local_put(&fd, out, out_len))
+		return local_binary_status(fd, FZN_STATUS_ERROR, "the chain would not write"), 0;
+	return local_binary_status(fd, FZN_STATUS_OK, NULL), 0;
+}
+
 static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_t len)
 {
 	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
@@ -19893,6 +19946,8 @@ static int local_siblings(int fd, fzn_origin_t origin, const uint8_t *msg, size_
 	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_REVOKE
 	    || fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_UNREVOKE)
 		return local_revoke(fd, origin, v);
+	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_GRANT)
+		return local_grant_admin(fd, origin, v);
 	if (fzn_members_local_message_op_get(v) == FZN_MEMBERS_LOCAL_OP_SELF)
 		return running_admin ? local_self(fd, origin)
 		                     : (local_binary_status(fd, FZN_STATUS_UNSUPPORTED, "this node keeps no estate"), 0);

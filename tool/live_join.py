@@ -270,9 +270,16 @@ def main(argv):
 			# `fuzznetd --set-admin`, the daemon stopped.
 			if any(e.startswith("admin,1,") for e in ask(socks["b"], "list capability").split()[2:]):
 				raise failed("f: B holds admin before any grant")
-			granted = ask(socks["a"], "grant admin " + key_b).split()
-			if len(granted) < 2 or granted[0] != "ok" or not granted[1].startswith("h"):
-				raise failed("f: A's grant admin answered %r" % granted[:2])
+			# GRANTED IN BINARY, sec 1310: the chain's hops as bytes, written
+			# here in the `h` form B's verb keeps -- so B holding admin proves
+			# the bytes a working chain. The text grant: live_estate, live_contacts.
+			got = binary(socks["a"], bytes([0x09, 0x9C]) + bytes.fromhex(key_b))
+			if len(got) != 2 or got[0][:2] != bytes([0x09, 0x9D]) or got[1][:2] != bytes([0x13, 0]):
+				raise failed("f: A's grant admin in binary answered %r" % got)
+			chain = got[0][4:4 + int.from_bytes(got[0][2:4], "big")]
+			if not chain or len(chain) % 179:
+				raise failed("f: the chain in binary is %d bytes, no whole hops" % len(chain))
+			granted = ["ok"] + ["h" + chain[i:i + 179].hex() for i in range(0, len(chain), 179)]
 			chain_path = os.path.join(scratch, "admin-chain")
 			with open(chain_path, "w") as f:
 				f.write(" ".join(granted[1:]) + "\n")
@@ -290,7 +297,7 @@ def main(argv):
 				raise failed("f: B did not start again in place")
 			polled("b", "list capability", lambda g: any(e.startswith("admin,1,1,") for e in g[2:]),
 			       "not admin held by one hop")
-			print("livecheck: f: A granted B admin, and B kept it by a verb, started again in place")
+			print("livecheck: f: A granted B admin in binary, and B kept it by a verb, started again in place")
 
 			# g: A's own log, read by a verb (sec 711).
 			got = ask(socks["a"], "list log").split()

@@ -3973,6 +3973,60 @@ static int node_delivery_list(fzn_rpc_t *c, fzn_rpc_delivery_list_resp_t *out) {
  * -- host-manage, store, relay, send, peer-manage -- have no fuzznet grant
  * and are refused, never made as some other; and fuzznet's grants take no
  * expiry, so a grant asked to end is refused rather than made for ever. */
+/* AN ADMIN CHAIN IN BINARY, sec 1310: the granted row, then a STATUS; the
+ * hops written into `chain_blob` as `hHEX hHEX ...`. */
+struct grant_answer {
+	fzn_rpc_cap_grant_resp_t *out;
+	int bad, status_seen;
+	fzn_status_t code;
+	char why[FZN_STATUS_WHY_MAX + 1];
+};
+
+static void grant_each(void *ctx, const uint8_t *msg, size_t len) {
+	struct grant_answer *a = ctx;
+	const uint8_t *why = NULL;
+	size_t why_len = 0;
+	situ_msg_t m;
+	situ_view_t v, b;
+	if (a->bad) return;
+	if (len && msg[0] == FZN_CMD_STATUS) {
+		if (a->status_seen || !fzn_status_read(msg, len, &a->code, &why, &why_len)) {
+			a->bad = 1;
+			return;
+		}
+		a->status_seen = 1;
+		snprintf(a->why, sizeof a->why, "%.*s", (int)why_len, why ? (const char *)why : "");
+		return;
+	}
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)msg, (uint32_t)len);
+	if (a->status_seen || a->out->chain_blob_len || len > UINT32_MAX ||
+	    fzn_members_local_message_view(&m, 0u, (uint32_t)len, &v) != SITU_OK ||
+	    fzn_members_local_message_validate(v) != SITU_OK ||
+	    fzn_members_local_message_op_get(v) != FZN_MEMBERS_LOCAL_OP_GRANTED ||
+	    fzn_members_local_message_body_granted_view(v, &b) != SITU_OK) {
+		a->bad = 1;
+		return;
+	}
+	const uint8_t *chain = fzn_members_local_granted_row_chain_ptr(b);
+	const size_t n = fzn_members_local_granted_row_chain_len_get(b), hop = 179;
+	size_t at = 0;
+	if (n % hop) {
+		a->bad = 1;
+		return;
+	}
+	for (size_t i = 0; i < n / hop; i++) {
+		if (at + 2 + 2 * hop > sizeof a->out->chain_blob) {
+			a->bad = 1;
+			return;
+		}
+		if (i) a->out->chain_blob[at++] = ' ';
+		a->out->chain_blob[at++] = 'h';
+		fzn_hex_encode(chain + i * hop, hop, (char *)a->out->chain_blob + at);
+		at += 2 * hop;
+	}
+	a->out->chain_blob_len = at;
+}
+
 static int node_cap_grant(fzn_rpc_t *c, fzn_rpc_capability_type_t type, const uint8_t grantee[32],
                           uint64_t expires, fzn_rpc_cap_grant_resp_t *out) {
 	memset(out, 0, sizeof(*out));
@@ -3981,6 +4035,27 @@ static int node_cap_grant(fzn_rpc_t *c, fzn_rpc_capability_type_t type, const ui
 	if (expires)
 		return node_unasked(c, FZN_RPC_ERR_UNKNOWN_MSG_TYPE,
 		                    "the node's grants do not expire, so one asked to end is not made");
+	/* IN BINARY FIRST, sec 1310: the chain as its hops' bytes, written back
+	 * here in the `h` form `set admin CHAIN` takes, as the verb answered it. */
+	{
+		uint8_t req[2 + 32];
+		struct grant_answer a;
+		int text = 0;
+		req[0] = FZN_CMD_MEMBERS;
+		req[1] = FZN_MEMBERS_LOCAL_OP_GRANT;
+		memcpy(req + 2, grantee, 32);
+		memset(&a, 0, sizeof a);
+		a.out = out;
+		const int brc = fzn_rpc_binary(c, req, sizeof req, grant_each, &a, &text);
+		if (!text) {
+			if (brc != FZN_RPC_OK) return brc;
+			if (!a.status_seen || a.bad) return unreadable(c); /* a grant's answer cut short */
+			if (a.code != FZN_STATUS_OK)
+				return fail(c, a.code == FZN_STATUS_DENIED ? FZN_RPC_ERR_NOT_AUTHORIZED : FZN_RPC_ERR_STORAGE_IO,
+				            a.why[0] ? a.why : "the node refused it");
+			return out->chain_blob_len ? FZN_RPC_OK : unreadable(c);
+		}
+	}
 	char hex[65], arg[16 + 64 + 1];
 	fzn_hex_encode(grantee, 32, hex);
 	const char *rest = NULL;

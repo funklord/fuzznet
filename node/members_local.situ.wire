@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  siblings=128 sibling_row=129 capabilities=130 capability_row=131 grants=132 grant_row=133 invite=134 invite_row=135 waiting=136 waiting_row=137 answer=138 roots=139 root_row=140 quorum_row=141 votes=142 vote_row=143 successions=144 rekey_row=145 staged=146 staged_row=147 presets=148 preset_row=149 self=150 self_row=151 act=152 revoke=153 revoked=154 unrevoke=155
+  siblings=128 sibling_row=129 capabilities=130 capability_row=131 grants=132 grant_row=133 invite=134 invite_row=135 waiting=136 waiting_row=137 answer=138 roots=139 root_row=140 quorum_row=141 votes=142 vote_row=143 successions=144 rekey_row=145 staged=146 staged_row=147 presets=148 preset_row=149 self=150 self_row=151 act=152 revoke=153 revoked=154 unrevoke=155 grant=156 granted=157
 
 enum act_kind : u8 unknown=error
   root_add=0 root_remove=1 quorum=2 vote_against=3 succession=4 staged_confirm=5 preset=6 vote_setting=7
@@ -47,6 +47,10 @@ struct grant_row size=42..58
   ~         8         u64        expires  big
   ~         1         u8         stands  max=1
 
+struct granted_row size=181..1434
+  @0x0000   2         u16        chain_len  big min=179 max=1432
+  @0x0002   179..1432 u8         chain  big sized-by=chain_len
+
 struct host_ask size=32
   @0x0000   32        u8         key  big
 
@@ -59,10 +63,10 @@ struct invite_row size=1..211
   @0x0000   1         u8         code_len  max=210
   @0x0001   0..210    u8         code  sized-by=code_len
 
-struct message size=2..1029
+struct message size=2..1436
   @0x0000   1         u8         cmd  must_eq=9
   @0x0001   1         op         op
-  @0x0002   0..1027   variant    body
+  @0x0002   0..1434   variant    body
   body switch: op
   body case 128: siblings nothing
   body case 129: sibling_row sibling_row
@@ -92,6 +96,8 @@ struct message size=2..1029
   body case 153: revoke host_ask
   body case 154: revoked revoked_row
   body case 155: unrevoke host_ask
+  body case 156: grant host_ask
+  body case 157: granted granted_row
   body case default: error
 
 struct nothing size=0
