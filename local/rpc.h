@@ -892,6 +892,16 @@ int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, cons
 int fzn_rpc_search_get(fzn_rpc_t *c, fzn_rpc_search_page_t *out);
 int fzn_rpc_search_list(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
                         fzn_rpc_search_page_t *out);
+/* THE SAME, FILTERED (fuzznet sec 1324): `where` the filter as the verb
+ * takes it -- `where DIM=VALUE` a hit must be at, `not DIM=VALUE` one it
+ * must not, `DIM=A|B` for any of several; NULL or empty for none. Each
+ * host asked runs it on what it holds. A line's facets are `conversation`,
+ * `from` (a writer's root key in hex) and `with` (`contact`, `group`); a
+ * sticker's `pack` (sec 1319). */
+int fzn_rpc_search_fetch_where(fzn_rpc_t *c, const char *with, const char *words, const char *where,
+                               const fzn_rpc_search_hit_t *after, size_t *asked);
+int fzn_rpc_search_list_where(fzn_rpc_t *c, const char *with, const char *words, const char *where,
+                              const fzn_rpc_search_hit_t *after, fzn_rpc_search_page_t *out);
 
 /*
  * Stickers on a fuzznetd node (sec 284), fuzznet secs 679-682: a pack is a

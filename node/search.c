@@ -10,7 +10,6 @@
 #include "../local/escape.h"
 #include "../wire/bytes.h"
 #include "../hex/hex.h"
-#include "../facet/codec.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -317,67 +316,10 @@ static int cursor_of(const uint8_t *w, size_t n, fzn_search_hit_t *h)
  * STORE]... [after CURSOR] WORDS`, read into `a` with K, and the contact
  * NAME names into `with` (`*has_with` set); 1, or 0 for a line of the wrong
  * shape -- a NAME that is no contact here included. */
-/* A FILTER'S TERMS AS TYPED, sec 1319: `DIM=VALUE`, or `DIM=V1|V2|...`
- * for any of several -- borrowed from the line, which outlives them. */
-struct typed_filter {
-	fzn_facet_term_t pos[FZN_SEARCH_FILTER_TERMS], neg[FZN_SEARCH_FILTER_TERMS];
-	fzn_facet_node_t members[FZN_SEARCH_FILTER_MEMBERS];
-	size_t n_pos, n_neg, n_members;
-};
-
-static int typed_term(struct typed_filter *f, int negated, const uint8_t *w, size_t n)
-{
-	fzn_facet_term_t *t;
-	const uint8_t *eq = memchr(w, '=', n), *v, *end = w + n;
-	size_t dim_len, first = f->n_members;
-
-	if (!eq || eq == w || eq + 1 == end || (negated ? f->n_neg : f->n_pos) == FZN_SEARCH_FILTER_TERMS)
-		return 0;
-	dim_len = (size_t)(eq - w);
-	t = negated ? &f->neg[f->n_neg++] : &f->pos[f->n_pos++];
-	memset(t, 0, sizeof(*t));
-	for (v = eq + 1; v < end;) {
-		const uint8_t *bar = memchr(v, '|', (size_t)(end - v)), *stop = bar ? bar : end;
-
-		if (stop == v || f->n_members == FZN_SEARCH_FILTER_MEMBERS)
-			return 0;
-		f->members[f->n_members++] = (fzn_facet_node_t){ w, dim_len, v, (size_t)(stop - v) };
-		v = bar ? bar + 1 : end;
-	}
-	if (f->n_members - first == 1u) {
-		t->kind = FZN_FACET_PREFIX;
-		t->node = f->members[--f->n_members];
-	} else {
-		t->kind = FZN_FACET_ALT;
-		t->node.dim = w; /* F8: an alternation's dimension, its members' */
-		t->node.dim_len = dim_len;
-		t->members = &f->members[first];
-		t->member_count = f->n_members - first;
-	}
-	return 1;
-}
-
-/* THE TYPED FILTER, canonical and encoded, set on the ask: 1, or 0. */
-static int typed_filter_set(struct typed_filter *f, fzn_search_ask_t *a)
-{
-	uint8_t scratch[2u * 600u], bytes[FZN_SEARCH_FILTER_MAX];
-	fzn_facet_expr_t e;
-	size_t len = 0;
-
-	if (!f->n_pos && !f->n_neg)
-		return 1;
-	if (fzn_facet_normalize(f->pos, &f->n_pos, f->neg, &f->n_neg) != FZN_FACET_OK
-	    || fzn_facet_expr_sort(f->pos, &f->n_pos, f->neg, &f->n_neg, scratch, sizeof(scratch)) != FZN_FACET_OK)
-		return 0;
-	e = (fzn_facet_expr_t){ f->pos, f->n_pos, f->neg, f->n_neg };
-	return fzn_facet_expr_encode(&e, bytes, sizeof(bytes), &len) == FZN_FACET_OK
-	       && fzn_search_ask_filter(a, bytes, len);
-}
-
 static int parse(const fzn_node_search_t *s, const uint8_t *at, size_t left, size_t k, fzn_search_ask_t *a,
                  uint8_t with[FZN_PUBKEY_LEN], int *has_with)
 {
-	static struct typed_filter f;
+	static fzn_search_filter_words_t f;
 	const uint8_t *w;
 	size_t n, n_names = 0;
 	int has_after = 0;
@@ -417,7 +359,7 @@ static int parse(const fzn_node_search_t *s, const uint8_t *at, size_t left, siz
 		if ((is(w, n, "where") || is(w, n, "not")) && left) {
 			const int negated = is(w, n, "not");
 
-			if (!word(&at, &left, &w, &n) || !typed_term(&f, negated, w, n))
+			if (!word(&at, &left, &w, &n) || !fzn_search_filter_word(&f, negated, (const char *)w, n))
 				return 0;
 			continue;
 		}
@@ -436,7 +378,14 @@ static int parse(const fzn_node_search_t *s, const uint8_t *at, size_t left, siz
 	a->query.stores = n_names ? a->stores : NULL;
 	a->query.n_stores = n_names;
 	a->query.after = has_after ? &a->after : NULL;
-	return typed_filter_set(&f, a);
+	if (!f.n_pos && !f.n_neg)
+		return 1;
+	{
+		uint8_t bytes[FZN_SEARCH_FILTER_MAX];
+		size_t len = fzn_search_filter_encode(&f, bytes, sizeof(bytes));
+
+		return len && fzn_search_ask_filter(a, bytes, len);
+	}
 }
 
 /* `ok COUNT MORE` and EXTRA, then as many rows as the reply holds: fewer

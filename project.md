@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1323
+The newest work is at the end of this file. **Read secs 1287 to 1324
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -44,8 +44,8 @@ listener port spans (`150e3106`).
   answered what it reads (sec 1291); `fetch search with CONTACT` asks
   that contact's hosts alone (sec 1292); in binary, the client and a
   view (sec 1293); the library's files (sec 1299); facet filters, the
-  engine's and the verb's (sec 1319). Left: `with @GROUP`; the client's
-  calls carrying a filter; notes, catalogue and contacts tagging facets.
+  engine's, the verb's and the client's (secs 1319, 1324). Left: `with
+  @GROUP`; notes, catalogue and contacts tagging facets.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. Done: the
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
@@ -94721,7 +94721,18 @@ narrowing to 1 byte and the signature to 32 -- while `situc map` gives the
 signer 0 to 65535 and the signature 64. The check seems to line up a
 held struct's members against the fields after the run. Sent to situ
 (inbox 20261120T2010Z) with this schema as the reproduction; the contract
-was written from the map, which is right.
+was written from the map, which is right. **situ fixed it the same
+evening** (inbox 20261120T1921Z, situ 64a869b4): a run is expanded only
+where no field decides its extent or it is exactly the struct's size;
+gaining `holds` stays BREAKING, which this tree agreed with (situ inbox
+20261120T2050Z) -- a receiver now refuses signer bytes it took before.
+
+**A commit's contents, recorded where they went wrong**: this layout's
+schema rename and its contract went out in ccad45dc, the commit of
+situ's header guards, having been staged while a stash conflict was
+resolved; its own commit, b77ba13d, carries the codec. `make schema` at
+ccad45dc alone fails (its Makefile still names the old schema); every
+commit builds.
 
 **situ built `expiry = caller`** (inbox 20261120T1822Z, situ f6a2c297),
 the third shape this tree asked for (sec 1320): the nonce form's `check`
@@ -94733,3 +94744,25 @@ seconds since 1970; the recommendation is to mandate that. Asked in sec 0.
 
 **Tests:** group_act_record_vectors (1, a real act); group_log_test (89)
 and group_fuzz (4000 cases) over the generated codec.
+
+## 1324. A search filter typed once, and carried by the client, 2026-11-20
+
+Sec 1319's "the client's calls carry no filter". The words of a filter
+-- `where DIM=VALUE`, `not DIM=VALUE`, `DIM=A|B` -- were read by
+fuzznetd's verb alone. They are now read by **`search/filter.{h,c}`**,
+which both the verb and the client use: a word added
+(`fzn_search_filter_word`), the canonical encoding written
+(`fzn_search_filter_encode`), or a whole line of them
+(`fzn_search_filter_line`). It depends on `facet` alone, so the client
+links it without the search engine.
+
+**The client**: `fzn_rpc_search_list_where` and `_fetch_where` take the
+filter as typed, encode it into the binary ask (the held ask's FILTER,
+sec 1319), and refuse one that is not a filter as MALFORMED before
+anything is sent; with a node that reads no binary the words ride the
+text verb as typed. `fzn_rpc_search_list` and `_fetch` are the same with
+no filter. A view choosing facets is for a client that asks for one.
+
+**Tests:** rpc_probe (live_rpc a) -- a filtered search of a fresh
+fuzznetd answered and read, a filter that is none refused before it is
+sent; messages_test and remote_test unchanged over the moved parser.

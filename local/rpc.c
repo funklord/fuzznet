@@ -48,6 +48,8 @@
 #include "../wire/generated/notes_local.h"
 #include "../wire/generated/search_local.h"
 #include "../wire/generated/search_local_build.h"
+#include "../search/filter.h"
+#include "../search/search.h"
 #include "../wire/generated/notes_local_build.h"
 #include "../wire/generated/meter_local.h"
 #include "../wire/generated/reach_local.h"
@@ -11683,10 +11685,14 @@ int fzn_rpc_inbox_lines(fzn_rpc_t *c, const char *peer, size_t peer_len, fzn_rpc
 
 /* THE WORDS AFTER `verb search`: `with NAME`, `after STORE,KEY,SCORE,TIME`,
  * the words. Its length, or -1 when it would not fit. */
-static int search_arg(char *out, size_t cap, const char *with, const char *words,
+static int search_arg(char *out, size_t cap, const char *with, const char *words, const char *where,
                       const fzn_rpc_search_hit_t *after) {
 	size_t n = (size_t)snprintf(out, cap, "search");
 	if (n >= cap) return -1;
+	if (where && *where) {
+		n += (size_t)snprintf(out + n, cap - n, " %s", where);
+		if (n >= cap) return -1;
+	}
 	if (with && *with) {
 		n += (size_t)snprintf(out + n, cap - n, " with %s", with);
 		if (n >= cap) return -1;
@@ -11843,9 +11849,10 @@ static int search_with_key(fzn_rpc_t *c, const char *with, uint8_t key[32]) {
  * host asks another -- the node's own K of 20, every store, no window --
  * through the generated builders. Its length into `*len`; FZN_RPC_OK, or
  * the failure said. */
-static int search_ask_write(fzn_rpc_t *c, uint8_t op, const char *with, const char *words,
+static int search_ask_write(fzn_rpc_t *c, uint8_t op, const char *with, const char *words, const char *where,
                             const fzn_rpc_search_hit_t *after, uint8_t *out, size_t cap, size_t *len) {
-	uint8_t ask[1024], local[1100], key[32];
+	uint8_t ask[1024], local[1100], key[32], filter[FZN_SEARCH_FILTER_MAX];
+	size_t filter_len = 0;
 	uint32_t ask_len = 0, local_len = 0, n = 0;
 	const char *w = words ? words : "";
 	size_t w_len;
@@ -11857,11 +11864,15 @@ static int search_ask_write(fzn_rpc_t *c, uint8_t op, const char *with, const ch
 	if (with && *with && (rc = search_with_key(c, with, key)) != FZN_RPC_OK) return rc;
 	if (!w_len || w_len > 255 || (after && (after->key_len > 48 || strlen(after->store) > 16)))
 		return encode_failed(c);
+	/* A FILTER, sec 1324: typed as the verb takes it, encoded here. */
+	if (where && *where && !(filter_len = fzn_search_filter_line(where, strlen(where), filter, sizeof filter)))
+		return fail(c, FZN_RPC_ERR_MALFORMED, "not a filter: where DIM=VALUE, not DIM=VALUE");
 	if (fzn_search_local_ask_build(ask, sizeof ask, (const uint8_t *)w, (uint32_t)w_len, NULL, 0, 0, 0, 20,
 	                               after ? 1 : 0, after ? after->score : 0, after ? after->time_ms : 0,
 	                               after ? (const uint8_t *)after->store : NULL,
 	                               after ? (uint32_t)strlen(after->store) : 0, after ? after->key : NULL,
-	                               after ? (uint32_t)after->key_len : 0, NULL, 0, &ask_len)
+	                               after ? (uint32_t)after->key_len : 0, filter_len ? filter : NULL,
+	                               (uint32_t)filter_len, &ask_len)
 	        != SITU_OK
 	    || fzn_search_local_local_ask_build(local, sizeof local, (uint8_t)(with && *with ? 1 : 0), key, ask, ask_len,
 	                                        &local_len)
@@ -11920,6 +11931,11 @@ static int search_status(fzn_rpc_t *c, fzn_status_t code, const char *why) {
 
 int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
                          size_t *asked) {
+	return fzn_rpc_search_fetch_where(c, with, words, NULL, after, asked);
+}
+
+int fzn_rpc_search_fetch_where(fzn_rpc_t *c, const char *with, const char *words, const char *where,
+                               const fzn_rpc_search_hit_t *after, size_t *asked) {
 	/* IN BINARY FIRST, sec 1318. */
 	{
 		uint8_t req[1200];
@@ -11928,7 +11944,7 @@ int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, cons
 		int text = 0;
 		if (!c || !asked) return c ? encode_failed(c) : FZN_RPC_ERR_MALFORMED;
 		*asked = 0;
-		const int wrc = search_ask_write(c, FZN_SEARCH_LOCAL_OP_FETCH, with, words, after, req, sizeof req, &req_len);
+		const int wrc = search_ask_write(c, FZN_SEARCH_LOCAL_OP_FETCH, with, words, where, after, req, sizeof req, &req_len);
 		if (wrc != FZN_RPC_OK) return wrc;
 		memset(&a, 0, sizeof a);
 		const int rc = fzn_rpc_binary(c, req, req_len, fetched_each, &a, &text);
@@ -11942,7 +11958,7 @@ int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, cons
 	char arg[1024];
 	const char *rest = NULL;
 	size_t rest_len = 0, at = 0;
-	const int n = search_arg(arg, sizeof arg, with, words, after);
+	const int n = search_arg(arg, sizeof arg, with, words, where, after);
 	if (n < 0) return encode_failed(c);
 	const int rc = fzn_rpc_node(c, "fetch", arg, (size_t)n, &rest, &rest_len);
 	if (rc != FZN_RPC_OK) return rc;
@@ -11951,6 +11967,11 @@ int fzn_rpc_search_fetch(fzn_rpc_t *c, const char *with, const char *words, cons
 
 int fzn_rpc_search_list(fzn_rpc_t *c, const char *with, const char *words, const fzn_rpc_search_hit_t *after,
                         fzn_rpc_search_page_t *out) {
+	return fzn_rpc_search_list_where(c, with, words, NULL, after, out);
+}
+
+int fzn_rpc_search_list_where(fzn_rpc_t *c, const char *with, const char *words, const char *where,
+                              const fzn_rpc_search_hit_t *after, fzn_rpc_search_page_t *out) {
 	/* IN BINARY FIRST, sec 1318: a PAGE, a HIT each, then a STATUS. */
 	{
 		uint8_t req[1200];
@@ -11959,7 +11980,7 @@ int fzn_rpc_search_list(fzn_rpc_t *c, const char *with, const char *words, const
 		int text = 0;
 		if (!c || !out) return c ? encode_failed(c) : FZN_RPC_ERR_MALFORMED;
 		memset(out, 0, sizeof *out);
-		const int wrc = search_ask_write(c, FZN_SEARCH_LOCAL_OP_LIST, with, words, after, req, sizeof req, &req_len);
+		const int wrc = search_ask_write(c, FZN_SEARCH_LOCAL_OP_LIST, with, words, where, after, req, sizeof req, &req_len);
 		if (wrc != FZN_RPC_OK) return wrc;
 		memset(&a, 0, sizeof a);
 		a.out = out;
@@ -11975,7 +11996,7 @@ int fzn_rpc_search_list(fzn_rpc_t *c, const char *with, const char *words, const
 	char arg[1024];
 	const char *rest = NULL;
 	size_t rest_len = 0;
-	const int n = search_arg(arg, sizeof arg, with, words, after);
+	const int n = search_arg(arg, sizeof arg, with, words, where, after);
 	memset(out, 0, sizeof *out);
 	if (n < 0) return encode_failed(c);
 	const int rc = fzn_rpc_node(c, "list", arg, (size_t)n, &rest, &rest_len);

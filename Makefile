@@ -292,7 +292,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              catalog/shard.c catalog/materialise.c catalog/source.c \
              catalog/index.c \
              location/location.c location/tpv.c location/gpsd.c \
-             sticker/pack.c search/words.c search/search.c search/remote.c \
+             sticker/pack.c search/words.c search/search.c search/remote.c search/filter.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -397,7 +397,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              catalog/shard.h catalog/materialise.h catalog/source.h \
              catalog/index.h \
              location/location.h location/tpv.h location/gpsd.h \
-             sticker/pack.h search/words.h search/search.h search/remote.h \
+             sticker/pack.h search/words.h search/search.h search/remote.h search/filter.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -3638,6 +3638,7 @@ $(BUILD_DIR)/qr/test/qr_test: $(BUILD_DIR)/qr/test/qr_test.o $(BUILD_DIR)/qr/qr.
 # and what they call -- the local socket's client and reply words, the
 # attachment and sticker formats its structs carry, and location's fix.
 RPC_OBJS := $(BUILD_DIR)/local/rpc.o $(BUILD_DIR)/local/rpc_err.o \
+            $(BUILD_DIR)/search/filter.o $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
             $(BUILD_DIR)/local/call_sound.o $(BUILD_DIR)/media/ulaw.o $(BUILD_DIR)/media/jitter.o \
             $(BUILD_DIR)/local/rpc_describe.o \
             $(BUILD_DIR)/local/rpc_encoding.o \
@@ -5188,7 +5189,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/wire/generated/situ.o \
                                   $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o \
                                   $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/wire/generated/search_wire.o \
-                                  $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
+                                  $(BUILD_DIR)/search/filter.o $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
                                   $(BUILD_DIR)/node/search_binary.o $(BUILD_DIR)/wire/generated/search_local.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/sticker/pack.o $(BUILD_DIR)/search/words.o \
@@ -5528,7 +5529,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
               $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/node/offer.o \
-              $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
+              $(BUILD_DIR)/search/filter.o $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
               $(BUILD_DIR)/node/search_binary.o $(BUILD_DIR)/wire/generated/search_local.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/messages/attachment.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/file_holds.o $(BUILD_DIR)/node/attachments.o \
@@ -5771,7 +5772,7 @@ $(BUILD_DIR)/search/test/search_test: $(BUILD_DIR)/search/test/search_test.o \
 
 # One search asked of another host, and its answer, sec 1287 step 2.
 $(BUILD_DIR)/search/test/remote_test: $(BUILD_DIR)/search/test/remote_test.o $(BUILD_DIR)/search/remote.o \
-                                     $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
+                                     $(BUILD_DIR)/search/filter.o $(BUILD_DIR)/facet/facet.o $(BUILD_DIR)/facet/codec.o \
                                       $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o \
                                       $(BUILD_DIR)/wire/generated/search_wire.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)

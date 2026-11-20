@@ -17811,6 +17811,20 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"filter-not-taken-as-where",
+		"search/filter.c",
+		"\tt = negated ? &f->neg[f->n_neg++] : &f->pos[f->n_pos++];\n",
+		"\tt = &f->pos[f->n_pos++];\n",
+		"a `not` term read as one a hit must be at: the filter selects the opposite; messages_test -- secs 1319, 1324",
+	),
+	(
+		"filter-line-any-word",
+		"search/filter.c",
+		"\t\tif (!((n == 5u && !memcmp(line + w, \"where\", 5u)) || (n == 3u && !memcmp(line + w, \"not\", 3u))))\n\t\t\treturn 0;\n",
+		"",
+		"a word that is no `where` or `not` read as one; remote_test -- sec 1324",
+	),
+	(
 		"group-act-any-length",
 		"node/group_act.c",
 		" || need != len)\n",

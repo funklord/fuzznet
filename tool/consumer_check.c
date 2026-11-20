@@ -158,6 +158,7 @@
 #include <fuzznet/node/catalog_search.h>
 #include <fuzznet/node/offer.h>
 #include <fuzznet/search/remote.h>
+#include <fuzznet/search/filter.h>
 #include <fuzznet/net/ports.h>
 #include <fuzznet/node/file_holds.h>
 #include <fuzznet/node/attachments.h>

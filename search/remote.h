@@ -18,6 +18,7 @@
 
 #include "search.h"
 #include "../facet/facet.h"
+#include "filter.h"
 
 /* The most words an ask carries, as typed, and the most stores it names. */
 #define FZN_SEARCH_TEXT_MAX 255u
@@ -27,9 +28,6 @@
 	(4u + FZN_SEARCH_K_MAX * (1u + FZN_SEARCH_STORE_NAME_MAX + 1u + FZN_SEARCH_KEY_MAX + 4u + 8u + 1u \
 	                          + FZN_SEARCH_SNIPPET_MAX))
 
-/* A FILTER'S MOST TERMS on each side, and alternation members in all. */
-#define FZN_SEARCH_FILTER_TERMS 8u
-#define FZN_SEARCH_FILTER_MEMBERS 16u
 
 /* AN ASK READ: its query, with the room what the query points at lives in
  * -- the filter's bytes and the expression decoded from them included, so

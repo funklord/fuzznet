@@ -223,6 +223,27 @@ static void test_a_filter_travels_with_the_ask(void)
 	      "a RANGE filter was taken, which one hit cannot answer");
 }
 
+/* A FILTER TYPED AS A LINE, sec 1324: the same bytes as the expression
+ * built by hand; any other word, a `where` with nothing after, or a `not`
+ * alone, refused. */
+static void test_a_filter_typed_as_a_line(void)
+{
+	static uint8_t by_hand[256], typed[256];
+	fzn_facet_term_t p[1];
+	fzn_facet_expr_t e = { p, 1, NULL, 0 };
+	size_t hand_len = 0, n;
+
+	memset(p, 0, sizeof(p));
+	p[0].kind = FZN_FACET_PREFIX;
+	p[0].node = (fzn_facet_node_t){ (const uint8_t *)"mood", 4u, (const uint8_t *)"even", 4u };
+	CHECK(fzn_facet_expr_encode(&e, by_hand, sizeof(by_hand), &hand_len) == FZN_FACET_OK, "fixture: a filter");
+	n = fzn_search_filter_line("where mood=even", 15u, typed, sizeof(typed));
+	CHECK(n == hand_len && !memcmp(typed, by_hand, n), "a typed filter was not the expression it says");
+	CHECK(!fzn_search_filter_line("mood=even", 9u, typed, sizeof(typed)), "a word that is no where or not was taken");
+	CHECK(!fzn_search_filter_line("where", 5u, typed, sizeof(typed)), "a where with nothing after was taken");
+	CHECK(!fzn_search_filter_line("not mood=odd", 12u, typed, sizeof(typed)), "a not alone was taken (F14)");
+}
+
 /* A HOST'S MORE: one host's K hits and nothing elsewhere fill the page
  * exactly, and only the host knows it holds more. */
 static void test_a_host_s_more_is_kept(void)
@@ -251,6 +272,7 @@ int main(void)
 	test_an_answer_reads_back();
 	test_a_host_answers_as_the_stores_would();
 	test_a_filter_travels_with_the_ask();
+	test_a_filter_typed_as_a_line();
 	test_a_host_s_more_is_kept();
 	{
 		const int before = failures;

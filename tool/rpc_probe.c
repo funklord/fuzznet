@@ -133,6 +133,19 @@ int main(int argc, char **argv)
 		failed++;
 		fprintf(stderr, "rpc_probe: a search with no such contact was not refused as one: %s\n", c.error);
 	}
+	/* FILTERED (sec 1324): the group made is no line, so a filter for lines
+	 * of a contact finds nothing and reads; a filter that is none is refused
+	 * before anything is sent. */
+	ASK(fzn_rpc_search_list_where, NULL, "probe", "where with=contact", NULL, &page);
+	if (page.count) {
+		failed++;
+		fprintf(stderr, "rpc_probe: a filter for a contact's lines found %zu hit(s) on a fresh host\n", page.count);
+	}
+	made++;
+	if (fzn_rpc_search_list_where(&c, NULL, "probe", "where nothing", NULL, &page) != FZN_RPC_ERR_MALFORMED) {
+		failed++;
+		fprintf(stderr, "rpc_probe: a filter that is none was not refused: %s\n", c.error);
+	}
 	/* THE STICKERS SENT LATELY (sec 1317): none on a fresh host. */
 	ASK(fzn_rpc_sticker_recent, &recent);
 	if (recent.count) {
