@@ -120,6 +120,9 @@ struct message size=2..1109 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   message.body.drawn.width               offset=AbsoluteStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   message.body.drawn.height              offset=AbsoluteStatic(0x05) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   message.body.drawn.bytes               offset=AbsoluteStatic(0x07) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  message.body.put                       offset=AbsoluteStatic(0x02) size=Bounded(3, 1025) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting
+  message.body.put.path_len              offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  message.body.put.path                  offset=AbsoluteStatic(0x04) size=Bounded(1, 1023) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
 struct nothing size=0
 
@@ -133,6 +136,10 @@ struct pack_row size=43..298 mutate=Shifting repr=ValueConverted atomic=NonAtomi
   pack_row.estate                        offset=AbsoluteStatic(0x29) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   pack_row.name_len                      offset=AbsoluteStatic(0x2A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   pack_row.name                          offset=AbsoluteStatic(0x2B) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct put_ask size=3..1025 mutate=Shifting repr=ValueConverted
+  put_ask.path_len                       offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  put_ask.path                           offset=AbsoluteStatic(0x02) size=Bounded(1, 1023) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
 struct reference_ask size=82..166 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   reference_ask.sticker                  offset=AbsoluteStatic(0x00) size=Fixed(81) align=Aligned(8) repr=ValueConverted atomic=NonAtomic

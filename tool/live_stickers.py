@@ -7,6 +7,8 @@ One store, one daemon, a spec and its art in scratch.
        beside it, puts it, and saves it: `list sticker` names it, held, in
        the estate's settings
     a3 `list search in stickers wave` finds the waving cat (sec 1287)
+    a4 the spec put again in binary (sec 1308): kept under the same root; a
+       relative path refused in words
     b  `list sticker ROOT` lists its stickers; `get sticker ROOT ID` answers
        the reference a message carries, `fzn:sticker/...`, and `get sticker
        ROOT ID text WORDS` one carrying a message sticker's words, refused
@@ -165,6 +167,17 @@ def main(argv):
 			   or got[0][45:45 + got[0][44]] != b"cats and their moods" or got[1][:2] != bytes([0x13, 0]):
 				raise failed("a2: the packs in binary were %r" % got)
 			print("livecheck: a2: the pack in binary as well, its name raw")
+			# a4: THE SPEC PUT AGAIN IN BINARY, sec 1308: kept, the same root,
+			# a pack's key being its bytes' (sec 1278); a relative path refused
+			# in words, never as malformed.
+			got = binary(sock, bytes([0x16, 0x8B]) + len(spec).to_bytes(2, "big") + spec.encode())
+			if len(got) != 2 or got[0][:2] != bytes([0x16, 0x85]) or got[0][2:34].hex() != root \
+			   or got[1][:2] != bytes([0x13, 0]):
+				raise failed("a4: the spec put in binary answered %r, not the root %s" % (got, root))
+			got = binary(sock, bytes([0x16, 0x8B, 0, 8]) + b"cats.spe")
+			if len(got) != 1 or got[0][0] != 0x13 or got[0][1] in (0, 2):
+				raise failed("a4: a relative path in binary answered %r" % got)
+			print("livecheck: a4: the spec put again in binary, kept under the same root")
 
 			got = ask(sock, "list sticker " + root).split()
 			# EACH ROW GIVES ITS BOX'S LIMIT, sec 841 -- sticker 3's is 20 --

@@ -94145,3 +94145,20 @@ CUT|nothing` into the row. The client asks in binary first.
 **Tests:** members_local_vectors (31, four new); live_join h2 -- B
 revoked in bytes, a revoked row and ok, A then listing neither grant it
 made B; withdrawn in bytes, both stand again.
+
+## 1308. A sticker pack built or kept from a file, in binary, 2026-11-20
+
+The holder, 2026-11-20: "move the remaining three to binary now". The
+first of them: `put sticker PATH` -- a pack built from a spec, or a pack
+file kept (sec 1278) -- behind `fzn_rpc_sticker_put` and
+`fzn_rpc_sticker_file_keep`. `node/stickers_local.situ` gains `put` (139:
+the absolute path), answered by the `kept` row `keep` already answers
+with (the root, and whether it was kept for the estate). fuzznetd runs it
+through the verb's own handler in `pack_write`, beside keep and forget,
+the root read from the verb's answer; it is published as `sticker`, as
+they are. The client asks in binary first.
+
+**Tests:** stickers_local_vectors (16, one new); live_stickers a4 -- the
+spec put again in bytes is kept under the root the text put gave (a
+pack's key is its bytes', sec 1278), and a relative path is refused in
+words, not as malformed.

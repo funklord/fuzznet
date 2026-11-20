@@ -466,6 +466,30 @@ static void test_message_drawn_sound(void **state)
 	situ_check_bytes(buf, vector_message_drawn_sound, sizeof(buf));
 }
 
+/* message / put */
+static const uint8_t vector_message_put[14u] = {
+	0x16, 0x8B, 0x00, 0x0A, 0x2F, 0x74, 0x6D, 0x70, 0x2F, 0x61, 0x2E, 0x66, 0x7A, 0x73,
+};
+
+static void test_message_put(void **state)
+{
+	uint8_t     buf[14u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_put, sizeof(buf));
+	situ_msg_init(&msg, buf, 14u);
+	situ_check_eq(fzn_stickers_local_message_view(&msg, 0, 14u, &view), SITU_OK);
+	situ_check_eq(fzn_stickers_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_stickers_local_message_cmd_set(view, fzn_stickers_local_message_cmd_get(view));
+	fzn_stickers_local_message_op_set(&msg, view, fzn_stickers_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_put, sizeof(buf));
+}
+
 int main(void)
 {
 	const struct situ_check_case tests[] = {
@@ -484,6 +508,7 @@ int main(void)
 		situ_check_case(test_message_art_sound),
 		situ_check_case(test_message_drawn_art),
 		situ_check_case(test_message_drawn_sound),
+		situ_check_case(test_message_put),
 	};
 
 	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");

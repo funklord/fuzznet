@@ -10009,13 +10009,42 @@ int fzn_rpc_sticker_file_write(fzn_rpc_t *c, const uint8_t root[32], const char 
 	return node_u64(rest, rest_len, pack_id) ? FZN_RPC_OK : unreadable(c);
 }
 
+/* A PACK FROM A FILE IN BINARY FIRST, sec 1308: `put`, answered by the
+ * kept row; the verb on a node reading none. */
+static int sticker_put(fzn_rpc_t *c, const char *path, size_t path_len, uint8_t root[32], int *host_only) {
+	char full[FZN_REQUEST_MAX];
+	uint8_t req[2 + 2 + 1023];
+	struct sticker_answer a;
+	int text = 0;
+	memset(root, 0, 32);
+	if (host_only) *host_only = 0;
+	if (node_abs_path(path, path_len, full, sizeof full) && strlen(full) <= 1023) {
+		const size_t n = strlen(full);
+		req[0] = FZN_CMD_STICKERS;
+		req[1] = FZN_STICKERS_LOCAL_OP_PUT;
+		req[2] = (uint8_t)(n >> 8);
+		req[3] = (uint8_t)n;
+		memcpy(req + 4, full, n);
+		memset(&a, 0, sizeof a);
+		const int rc = sticker_binary(c, req, 4 + n, &a, &text);
+		if (!text) {
+			if (rc != FZN_RPC_OK) return rc;
+			if (!a.kept) return unreadable(c);
+			memcpy(root, a.root, 32);
+			if (host_only) *host_only = !a.estate;
+			return FZN_RPC_OK;
+		}
+	}
+	return node_sticker_put(c, path, path_len, root, host_only);
+}
+
 int fzn_rpc_sticker_file_keep(fzn_rpc_t *c, const char *path, size_t path_len, uint8_t root[32],
                                int *host_only) {
 	/* `put sticker PATH`, which takes a built pack as well as a spec (fuzznet
 	 * sec 1278): put under a key from its own bytes, so the same pack kept on
 	 * two nodes is one blob, and a pack of an older version built again as
 	 * the current one. It was put as any file is, under a fresh key. */
-	return node_sticker_put(c, path, path_len, root, host_only);
+	return sticker_put(c, path, path_len, root, host_only);
 }
 
 /* A STICKER ASKED IN BINARY, sec 1304: the pack (64 or 144 hex) and id as
@@ -10260,7 +10289,7 @@ int fzn_rpc_sticker_keep(fzn_rpc_t *c, const char *ref, size_t ref_len, uint8_t 
 
 int fzn_rpc_sticker_put(fzn_rpc_t *c, const char *spec_path, size_t spec_path_len,
                          uint8_t root[32], int *host_only) {
-	return node_sticker_put(c, spec_path, spec_path_len, root, host_only);
+	return sticker_put(c, spec_path, spec_path_len, root, host_only);
 }
 
 int fzn_rpc_sticker_ref_read(const char *text, size_t text_len, fzn_sticker_ref_t *out,

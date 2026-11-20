@@ -21,6 +21,7 @@ enum op : u8 {
 	referenced = 136, // an answer: the reference
 	art        = 137, // a rendition or the sound written to a file, as `get sticker PACK ID ROLE PATH`
 	drawn      = 138, // an answer: what was written
+	put        = 139, // a pack built from a spec, or a pack file kept, as `put sticker PATH` (sec 1308)
 	default  = error,
 }
 
@@ -79,6 +80,13 @@ struct keep_ask {
 struct kept_row {
 	u8   root[32];
 	u8   estate [max = 1];
+}
+
+// A FILE ON THIS HOST, by its absolute PATH: a spec to build a pack from,
+// or a pack file to keep. Answered by the pack kept, as `keep` is.
+struct put_ask {
+	u16  path_len [min = 1, max = 1023];
+	u8   path[path_len];
 }
 
 // A STICKER BY ITS PACK AND ID: the pack by its whole reference where
@@ -141,6 +149,7 @@ struct message {
 		case op.referenced: referenced_row referenced;
 		case op.art:        art_ask        art;
 		case op.drawn:      drawn_row      drawn;
+		case op.put:        put_ask        put;
 		default: error;
 	}
 }

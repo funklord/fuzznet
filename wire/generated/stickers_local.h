@@ -35,6 +35,7 @@ typedef enum fzn_stickers_local_op {
 	FZN_STICKERS_LOCAL_OP_REFERENCED = 136,
 	FZN_STICKERS_LOCAL_OP_ART = 137,
 	FZN_STICKERS_LOCAL_OP_DRAWN = 138,
+	FZN_STICKERS_LOCAL_OP_PUT = 139,
 } fzn_stickers_local_op_t;
 
 /** Whether a value names a member of op (section 8.7).
@@ -53,6 +54,7 @@ static inline int fzn_stickers_local_op_is_known(fzn_stickers_local_op_t value)
 	case FZN_STICKERS_LOCAL_OP_REFERENCED:
 	case FZN_STICKERS_LOCAL_OP_ART:
 	case FZN_STICKERS_LOCAL_OP_DRAWN:
+	case FZN_STICKERS_LOCAL_OP_PUT:
 		return 1;
 	default:
 		return 0;
@@ -795,6 +797,151 @@ situ_err_t fzn_stickers_local_kept_row_validate(situ_view_t view);
  */
 situ_err_t fzn_stickers_local_kept_row_check(situ_view_t view, uint32_t *which);
 #define FZN_STICKERS_LOCAL_KEPT_ROW_ESTATE_CHECK 0u
+
+/* ---- struct put_ask ---- */
+
+#define FZN_STICKERS_LOCAL_PUT_ASK_SIZE_MIN   3u
+#define FZN_STICKERS_LOCAL_PUT_ASK_SIZE_MAX   1025u
+
+/* INVALIDATION: a put_ask view, and every view derived from
+ * it, is invalidated by writing `path_len` -- those decide where the
+ * members after them start. Use the setters at the end of this
+ * struct's section, which bump the message generation; a stale view
+ * is then caught on use in a SITU_CHECKED build.
+ *
+ * Re-acquire the view after any such write.
+ */
+/** Acquire a view. This struct is a frame: its extent depends on the
+ * data, so the caller supplies the length they have and the bounds
+ * check is made against that. The fields at a static offset are then
+ * constant offsets from the base; the rest resolve through their own
+ * offset functions below.
+ */
+static inline situ_err_t fzn_stickers_local_put_ask_view(const situ_msg_t *msg, uint32_t offset, uint32_t length,
+		situ_view_t *out)
+{
+	if (length < FZN_STICKERS_LOCAL_PUT_ASK_SIZE_MIN) {
+		return SITU_ERR_BOUNDS;
+	}
+
+	return situ_view_at(msg, offset, length, out);
+}
+
+#define FZN_STICKERS_LOCAL_PUT_ASK_PATH_LEN_VALUE_MIN 1u
+#define FZN_STICKERS_LOCAL_PUT_ASK_PATH_LEN_VALUE_MAX 1023u
+
+/** put_ask.path_len : u16  at AbsoluteStatic(0x00)
+ * size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord mutate=InPlaceFixed
+ */
+static inline uint16_t fzn_stickers_local_put_ask_path_len_get(situ_view_t view)
+{
+	return (uint16_t)(situ_get_be16(situ_base(view) + 0u));
+}
+/* No plain setter: `path_len` decides where later members
+ * start, so writing it must invalidate outstanding views. Use
+ * fzn_stickers_local_put_ask_path_len_set(),
+ * which takes the message and bumps its generation. */
+
+/** put_ask.path : u8  at AbsoluteStatic(0x02)
+ * size=Bounded(1, 1023) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+ */
+static inline uint32_t fzn_stickers_local_put_ask_path_len(situ_view_t view)
+{
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 0u))),
+		situ_remaining_u32(view.limit, 2u));
+}
+static inline uint8_t *fzn_stickers_local_put_ask_path_ptr(situ_view_t view)
+{
+	return situ_base(view) + 2u;
+}
+
+/* No setter: mutate is Shifting.
+ *   caused by: a member whose length comes from an earlier field
+ *              writing a different length moves every member after this one
+ *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
+ */
+
+/** How many bytes one `put_ask` occupies at this view's base.
+ *
+ * A run of these is walked rather than indexed, and the walk needs
+ * to know where each one ends. For a struct whose own members are
+ * delimited that is a scan, not a constant.
+ */
+static inline uint32_t fzn_stickers_local_put_ask_extent(situ_view_t view)
+{
+	if (!situ_in_bounds(view, 0u, 2u)) {
+		return 2u;	/* the lengths below are not here to read */
+	}
+
+	uint32_t extent = 2u;
+	extent = extent + ((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 0u))));
+	return extent;
+}
+
+/** How many bytes a whole `put_ask` needs, given `have` of them.
+ *
+ * SITU_OK            a complete one is present; *need is its length
+ * SITU_ERR_TRUNCATED not yet; *need is a lower bound on the total
+ *
+ * For framing a stream: read, ask, read the difference, ask again. The
+ * length fields are read only once the bytes holding them have arrived,
+ * which is the case every hand-written version of this gets wrong.
+ */
+static inline situ_err_t fzn_stickers_local_put_ask_required(const uint8_t *data, uint32_t have, uint32_t *need)
+{
+	uint32_t at = 2u;
+	situ_view_t view;
+
+	/* A view over what has arrived, so every length expression below
+	 * reads through the same bounds the accessors do. */
+	view.base       = (uint8_t *)(uintptr_t)(const void *)data;
+	view.limit      = have;
+	view.generation = 0u;
+	view.owner      = NULL;
+
+	/* put_ask.path: reading its length means reading bytes that
+	 * have to be here first. */
+	if (have < 2u) {
+		*need = at;
+		return SITU_ERR_TRUNCATED;
+	}
+	{
+		const uint32_t len = (uint32_t)situ_nonneg_u32(situ_saturate_i64(situ_get_be16(situ_base(view) + 0u)));
+
+		at = situ_need_u32(at, len);
+	}
+
+	*need = at;
+	return have >= at ? SITU_OK : SITU_ERR_TRUNCATED;
+}
+
+/** Writing any of these changes where later members start, so each
+ * one bumps the message generation and invalidates outstanding
+ * views. In a SITU_CHECKED build a stale view is then caught on
+ * use; in a release build the check compiles out.
+ */
+static inline void fzn_stickers_local_put_ask_path_len_set(situ_msg_t *msg, situ_view_t view, uint16_t value)
+{
+	situ_put_be16(situ_base(view) + 0u, (uint16_t)value);
+	situ_msg_touch(msg);
+}
+
+/** Check every constraint this schema states: [must_eq], [max],
+ * [min], and the reserved-bit policy. Called on parse under
+ * SITU_CHECKED, and available explicitly in any build.
+ */
+situ_err_t fzn_stickers_local_put_ask_validate(situ_view_t view);
+
+/** The same walk, naming the member that refused. `*which` is one
+ * of the ids below on a refusal and 0xFFFFFFFF when nothing
+ * refused -- it is written either way, so a caller must not
+ * expect its own value to survive the call. NULL asks for
+ * the verdict alone. The id is the contract and the name is
+ * a macro, so nothing here costs a string (0051).
+ */
+situ_err_t fzn_stickers_local_put_ask_check(situ_view_t view, uint32_t *which);
+#define FZN_STICKERS_LOCAL_PUT_ASK_PATH_LEN_CHECK 0u
+#define FZN_STICKERS_LOCAL_PUT_ASK_PATH_CHECK 1u
 
 /* ---- struct sticker_ask ---- */
 
@@ -1547,7 +1694,7 @@ static inline fzn_stickers_local_op_t fzn_stickers_local_message_op_get(situ_vie
 /* message.body : variant  at AbsoluteStatic(0x02)
  * size=Bounded(0, 1107) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
-/** `body` is a variant: exactly one of `packs`, `pack_row`, `items`, `item_row`, `keep`, `kept`, `forget`, `reference`, `referenced`, `art`, `drawn` is
+/** `body` is a variant: exactly one of `packs`, `pack_row`, `items`, `item_row`, `keep`, `kept`, `forget`, `reference`, `referenced`, `art`, `drawn`, `put` is
  * present, and which one is in the discriminant. The variant has no
  * accessor of its own -- there is no one thing to hand back -- and
  * each arm's members are below, guarded.
@@ -1827,6 +1974,41 @@ static inline situ_err_t fzn_stickers_local_message_body_drawn_view(situ_view_t 
 
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_DRAWN_FORMAT_VALUE_MAX 4u
 
+/* message.body.put, present when the discriminant selects `op.put`.
+ *
+ * Reading another arm's bytes as this one's stays inside the view
+ * and means nothing, so the accessor asks first and refuses. The
+ * code is `default: error`'s, being the same mistake from the
+ * other end. */
+/** How many bytes `put` occupies, for the switch
+ * that places whatever follows the variant.
+ */
+static inline uint32_t fzn_stickers_local_message_body_put_extent(situ_view_t view)
+{
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return 0u;
+	}
+	return fzn_stickers_local_put_ask_extent(whole);
+}
+static inline situ_err_t fzn_stickers_local_message_body_put_view(situ_view_t view, situ_view_t *out)
+{
+	if (fzn_stickers_local_message_op_get(view) != 139u) {
+		return SITU_ERR_VERSION;
+	}
+	situ_view_t whole;
+
+	if (situ_view_sub(view, 2u, situ_remaining_u32(view.limit, 2u), &whole) != SITU_OK) {
+		return SITU_ERR_BOUNDS;
+	}
+	const uint32_t size = fzn_stickers_local_put_ask_extent(whole);
+	return situ_view_sub(view, 2u, size, out);
+}
+
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_PUT_PATH_LEN_VALUE_MIN 1u
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_PUT_PATH_LEN_VALUE_MAX 1023u
+
 /** How many bytes a whole `message` needs, given `have` of them.
  *
  * SITU_OK            a complete one is present; *need is its length
@@ -1941,6 +2123,13 @@ static inline situ_err_t fzn_stickers_local_message_required(const uint8_t *data
 				*need = situ_need_u32(at, part);
 				return SITU_ERR_TRUNCATED;
 			}
+		} else if (fzn_stickers_local_message_op_get(view) == 139u) {
+			e = fzn_stickers_local_put_ask_required(data + pos,
+			                situ_remaining_u32(have, pos), &part);
+			if (e != SITU_OK) {
+				*need = situ_need_u32(at, part);
+				return SITU_ERR_TRUNCATED;
+			}
 		}
 		(void)e;
 		at = situ_need_u32(at, part);
@@ -1989,6 +2178,7 @@ situ_err_t fzn_stickers_local_message_check(situ_view_t view, uint32_t *which);
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_REFERENCED_CHECK 11u
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_ART_CHECK 12u
 #define FZN_STICKERS_LOCAL_MESSAGE_BODY_DRAWN_CHECK 13u
+#define FZN_STICKERS_LOCAL_MESSAGE_BODY_PUT_CHECK 14u
 
 #ifdef __cplusplus
 }

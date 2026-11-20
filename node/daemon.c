@@ -20202,7 +20202,10 @@ static const char *binary_write_subject(const uint8_t *msg, size_t len)
 	case FZN_CMD_MEMBERS:
 		return msg[1] == FZN_MEMBERS_LOCAL_OP_INVITE || msg[1] == FZN_MEMBERS_LOCAL_OP_ANSWER ? "invite" : NULL;
 	case FZN_CMD_STICKERS:
-		return msg[1] == FZN_STICKERS_LOCAL_OP_KEEP || msg[1] == FZN_STICKERS_LOCAL_OP_FORGET ? "sticker" : NULL;
+		return msg[1] == FZN_STICKERS_LOCAL_OP_KEEP || msg[1] == FZN_STICKERS_LOCAL_OP_FORGET
+		               || msg[1] == FZN_STICKERS_LOCAL_OP_PUT
+		       ? "sticker"
+		       : NULL;
 #ifdef FZND_LIBRARY
 	case FZN_CMD_FILES:
 		/* A FILE LET GO OR SHARED, as its verb's subject (sec 1303). */

@@ -73,15 +73,33 @@ static void item_one(void *ctx, const struct fzn_sticker_entry *e, unsigned main
 static int pack_write(const fzn_node_stickers_t *st, situ_view_t v, fzn_node_stickers_put_t put, void *put_ctx)
 {
 	static char reply[512];
-	char arg[16 + 2u * 72u + 1u];
+	static char arg[16 + 2u * 72u + 1100u];
 	fzn_request_t req;
 	situ_view_t b;
 	const uint8_t *bytes;
+	uint8_t made[32];
 	size_t i, r, n = 0, want;
-	const int keep = fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_KEEP;
+	const int built = fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_PUT;
+	const int keep = built || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_KEEP;
 
 	memset(&req, 0, sizeof(req));
-	if (keep) {
+	/* A PACK FROM A FILE, sec 1308: a spec built, or a pack file kept, as
+	 * `put sticker PATH`; its root is the verb's answer's. */
+	if (built) {
+		const uint8_t *path;
+		size_t path_len;
+
+		if (fzn_stickers_local_message_body_put_view(v, &b) != SITU_OK)
+			return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a stickers request");
+		path = fzn_stickers_local_put_ask_path_ptr(b);
+		path_len = fzn_stickers_local_put_ask_path_len_get(b);
+		if (path[0] != '/' || memchr(path, ' ', path_len) || memchr(path, '\n', path_len)
+		    || memchr(path, '\r', path_len))
+			return status(put, put_ctx, FZN_STATUS_ERROR, "a path not absolute, or holding a space or a line break");
+		n = (size_t)snprintf(arg, sizeof(arg), "sticker %.*s", (int)path_len, (const char *)path);
+		req.parsed = FZN_VERB_PUT;
+		bytes = made;
+	} else if (keep) {
 		uint8_t raw[72];
 
 		if (fzn_stickers_local_message_body_keep_view(v, &b) != SITU_OK)
@@ -115,6 +133,17 @@ static int pack_write(const fzn_node_stickers_t *st, situ_view_t v, fzn_node_sti
 		              r > 7u && memcmp(reply, "denied ", 7u) == 0 ? FZN_STATUS_DENIED : FZN_STATUS_ERROR,
 		              memchr(reply, ' ', r) ? (const char *)memchr(reply, ' ', r) + 1 : "the pack would not change");
 	/* KEPT: `ok ROOT` for the estate, `ok ROOT host` for this host alone. */
+	if (built) {
+		for (i = 0; i < 32u; i++) {
+			int hi = r >= 3u + 64u ? reply[3 + 2 * i] : -1, lo = r >= 3u + 64u ? reply[4 + 2 * i] : -1;
+
+			hi = hi >= '0' && hi <= '9' ? hi - '0' : hi >= 'a' && hi <= 'f' ? hi - 'a' + 10 : -1;
+			lo = lo >= '0' && lo <= '9' ? lo - '0' : lo >= 'a' && lo <= 'f' ? lo - 'a' + 10 : -1;
+			if (hi < 0 || lo < 0)
+				return status(put, put_ctx, FZN_STATUS_ERROR, "the verb's answer did not read");
+			made[i] = (uint8_t)(hi << 4 | lo);
+		}
+	}
 	if (keep) {
 		uint8_t row[40], out[56];
 		uint32_t row_len = 0, m = 0;
@@ -245,7 +274,8 @@ int fzn_node_stickers_binary(const fzn_node_stickers_t *st, const uint8_t *msg, 
 	    || fzn_stickers_local_message_validate(v) != SITU_OK)
 		return status(put, put_ctx, FZN_STATUS_MALFORMED, "not a stickers request");
 	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_KEEP
-	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_FORGET)
+	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_FORGET
+	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_PUT)
 		return pack_write(st, v, put, put_ctx);
 	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_REFERENCE
 	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_ART)
