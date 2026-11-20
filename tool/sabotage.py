@@ -17811,6 +17811,13 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"search-short-store-whole",
+		"search/search.c",
+		"\t\t\telse if (r == 2)\n\t\t\t\t*partial = 1;\n",
+		"",
+		"a store that stopped short reported as a whole search; search_test -- sec 1328",
+	),
+	(
 		"filter-not-taken-as-where",
 		"search/filter.c",
 		"\tt = negated ? &f->neg[f->n_neg++] : &f->pos[f->n_pos++];\n",

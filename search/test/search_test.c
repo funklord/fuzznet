@@ -271,6 +271,35 @@ static void test_keep_runs_where_the_stores_are(void)
 	      "a merge of hits from other hosts filtered them again");
 }
 
+/* A STORE THAT STOPPED SHORT, sec 1328: its 2 makes the run partial; a
+ * store that finished, not. */
+static int run_short(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
+                     void *emit_ctx)
+{
+	(void)run_fixed(ctx, q, asker, emit, emit_ctx);
+	return 2;
+}
+
+static void test_a_store_that_stopped_short(void)
+{
+	static fixed_t f;
+	static fzn_search_hit_t out[FZN_SEARCH_K_MAX];
+	fzn_search_store_t store = { "notes", run_short, &f };
+	fzn_search_query_t q;
+	size_t n = 0;
+	int more = 0, partial = 0;
+
+	f.name = "notes";
+	f.n = 0;
+	hit(&f, 1u, 100u, 1000u);
+	CHECK(fzn_search_query_init(&q, "cake", 4u, 10u), "fixture: a query");
+	CHECK(fzn_search_run_partial(&store, 1u, &q, NULL, out, &n, &more, &partial) && n == 1u && partial,
+	      "a store that stopped short did not make the run partial");
+	store.run = run_fixed;
+	CHECK(fzn_search_run_partial(&store, 1u, &q, NULL, out, &n, &more, &partial) && n == 1u && !partial,
+	      "a store that finished made the run partial");
+}
+
 static void test_the_snippet(void)
 {
 	fzn_search_query_t q;
@@ -298,6 +327,7 @@ int main(void)
 	test_pages_merge_as_one();
 	test_the_snippet();
 	test_keep_runs_where_the_stores_are();
+	test_a_store_that_stopped_short();
 	{
 		const int before = failures;
 
