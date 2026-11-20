@@ -11,7 +11,7 @@
  *     get search                                       ok COUNT MORE ASKED ANSWERED LATE ROWS
  *
  * WORDS the rest of the line, as `list sticker match` takes them. STORE
- * `lines`, `stickers` or `contacts`, repeatable; none asks all. CURSOR the
+ * `lines`, `stickers`, `notes` or `contacts`, repeatable; none asks all. CURSOR the
  * last row of the page before, as `STORE,KEY,SCORE,TIME`. Answered
  *
  *     ok COUNT MORE STORE,KEY,SCORE,TIME,SNIPPET ...
@@ -28,7 +28,7 @@
  *
  * KEYS: a line, its conversation's key and the id it is known by on every
  * host (`fzn_node_messages_shared_id`); a sticker, its pack's root and its
- * id, big endian; a contact, its root key.
+ * id, big endian; a note, its id; a contact, its root key.
  */
 #ifndef FZN_NODE_SEARCH_H
 #define FZN_NODE_SEARCH_H
@@ -44,12 +44,16 @@
 
 struct fzn_node_messages;
 
+/* How many subsystems' stores a node's search holds besides its own. */
+#define FZN_NODE_SEARCH_EXTRA 4u
+
 typedef struct fzn_node_search {
 	struct fzn_node_messages *messages; /* NULL: no lines store */
 	const fzn_persist_ops_t *contacts;  /* NULL: no contacts store */
-	/* ONE MORE STORE, a subsystem's own -- the kept stickers', from
-	 * `fzn_node_stickers_search` -- so this module links none of them. */
-	fzn_search_store_t extra;
+	/* SUBSYSTEMS' OWN STORES -- the kept stickers', from
+	 * `fzn_node_stickers_search`; the notes', from `fzn_node_notes_search`
+	 * -- so this module links none of them. An empty slot's `run` is NULL. */
+	fzn_search_store_t extra[FZN_NODE_SEARCH_EXTRA];
 	/* THIS USER'S OTHER HOSTS ASKED `ask`, the daemon's: how many it sent
 	 * to, each answer handed to `fzn_node_search_answered` with
 	 * `generation`, or NULL by the deadline. NULL asks nobody. */
@@ -71,7 +75,7 @@ void fzn_node_search_answered(fzn_node_search_t *s, unsigned generation, const u
 size_t fzn_node_search_remote(fzn_node_search_t *s, const uint8_t *asker, const uint8_t *request, size_t len,
                               uint8_t *reply, size_t cap);
 
-#define FZN_NODE_SEARCH_STORES 3u
+#define FZN_NODE_SEARCH_STORES (2u + FZN_NODE_SEARCH_EXTRA)
 
 /* THIS NODE'S STORES, those it has, into `out`: how many. */
 size_t fzn_node_search_stores(fzn_node_search_t *s, fzn_search_store_t out[FZN_NODE_SEARCH_STORES]);

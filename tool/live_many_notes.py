@@ -10,6 +10,9 @@ A is an estate's root and B a member of it, joined by a card.
        what is held (sec 940)
     b  B, started after, holds all 2500 within its rounds (sec 942)
     b2 and their texts in minutes, not 16 a round (sec 944)
+    a3 A's `list search in notes heron` finds the one note whose text says it, among
+       all 2500, within a second (sec 1287 step 4)
+    b3 and B's finds it too, from the text it was carried
 
 Against a daemon bound at 256 claims, a stops at the 257th. Against one working out
 the list for each page, a2 runs far past its ticks. Against a slot not in whole pieces, b stops short.
@@ -38,6 +41,9 @@ NOTES = 2500
 TEXTS_WAIT_S = 120.0
 # CPU ticks a listing of NOTES may take, rounds landing in it included.
 LISTING_TICKS = 40
+# The note whose text is searched for, and how long a search of them all may take.
+HERON = 1234
+SEARCH_S = 1.0
 
 
 def held(sock):
@@ -59,6 +65,19 @@ def listed(sock):
 		seen += [w.split(",")[0] for w in words[3:]]
 		at += len(words) - 3
 	return seen
+
+
+def found_by(sock, phase, heron):
+	"""`sock`'s host finds the heron's note, alone, by a word of its text."""
+	began = time.monotonic()
+	words = ask(sock, "list search in notes heron").split()
+	took = time.monotonic() - began
+	if len(words) != 4 or words[:3] != ["ok", "1", "0"] \
+	   or words[3].split(",")[:2] != ["notes", heron]:
+		raise failed("%s: list search in notes heron answered %r" % (phase, words[:4]))
+	if took > SEARCH_S:
+		raise failed("%s: a search of %d notes took %.1f s" % (phase, NOTES, took))
+	print("livecheck: %s: the heron found among %d notes in %.2f s" % (phase, NOTES, took))
 
 
 def main(argv):
@@ -92,6 +111,11 @@ def main(argv):
 				reply = ask(a_sock, "add note top n%d" % i)
 				if not reply.startswith("ok"):
 					raise failed("a: note %d answered %r" % (i, reply))
+				if i == HERON:
+					heron = reply.split()[1]
+			reply = ask(a_sock, "set note %s text a heron by the pond" % heron)
+			if not reply.startswith("ok"):
+				raise failed("a: the heron's text answered %r" % reply)
 			if held(a_sock) != NOTES:
 				raise failed("a: A lists %d of %d" % (held(a_sock), NOTES))
 			print("livecheck: a: A took %d notes in %.0f s" % (NOTES, time.monotonic() - began))
@@ -104,6 +128,7 @@ def main(argv):
 			if ticks > LISTING_TICKS:
 				raise failed("a2: a listing of %d took %d CPU ticks" % (NOTES, ticks))
 			print("livecheck: a2: every page of %d read back in %d CPU ticks" % (NOTES, ticks))
+			found_by(a_sock, "a3", heron)
 
 			b = daemon(run, "b0", b_dir, b_sock, extra=["--root-at", "127.0.0.1", port])
 			began = time.monotonic()
@@ -130,6 +155,7 @@ def main(argv):
 				             % (kept, NOTES, TEXTS_WAIT_S))
 			print("livecheck: b2: B held all %d texts in %.0f s"
 			      % (NOTES, time.monotonic() - began))
+			found_by(b_sock, "b3", heron)
 		except failed as e:
 			print("livecheck: FAILED: %s" % e, file=sys.stderr)
 			return 1

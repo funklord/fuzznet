@@ -143,7 +143,7 @@ static int run_contacts(void *ctx, const fzn_search_query_t *q, const uint8_t *a
 
 size_t fzn_node_search_stores(fzn_node_search_t *s, fzn_search_store_t out[FZN_NODE_SEARCH_STORES])
 {
-	size_t n = 0;
+	size_t n = 0, i;
 
 	if (!s || !out)
 		return 0;
@@ -151,8 +151,9 @@ size_t fzn_node_search_stores(fzn_node_search_t *s, fzn_search_store_t out[FZN_N
 		out[n++] = (fzn_search_store_t){ "lines", run_lines, s->messages };
 	/* A SUBSYSTEM'S OWN STORE, as its module gives it: the kept stickers'
 	 * is `fzn_node_stickers_search`'s, added by whoever has stickers. */
-	if (s->extra.run)
-		out[n++] = s->extra;
+	for (i = 0; i < FZN_NODE_SEARCH_EXTRA; i++)
+		if (s->extra[i].run)
+			out[n++] = s->extra[i];
 	if (s->contacts)
 		out[n++] = (fzn_search_store_t){ "contacts", run_contacts, (void *)(uintptr_t)s->contacts };
 	return n;

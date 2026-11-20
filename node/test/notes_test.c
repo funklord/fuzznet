@@ -3220,6 +3220,59 @@ static void test_the_join_floor_at_its_second(void)
 	      "a joining past what fits did not withhold everything");
 }
 
+/* THE NOTES STORE OF THE ONE SEARCH, sec 1287 step 4: a note by its
+ * title, its text, its items and its labels; a trashed note not found; one
+ * hit per note, keyed by its id and timed by its last edit. */
+static void test_search(void)
+{
+	static fzn_search_hit_t hits[FZN_SEARCH_K_MAX];
+	fzn_search_store_t store = { "notes", fzn_node_notes_search, &notes };
+	fzn_search_query_t q;
+	char milk[65], list[65], gone[65], line[256], key[65];
+	size_t count = 0, i;
+	int more = 0;
+
+	setup(0);
+	CHECK(ask("add note top milk") == FZN_REPLY_OK, "a note");
+	take_id(milk);
+	snprintf(line, sizeof(line), "set note %s text two pints of oat milk, cold", milk);
+	CHECK(ask(line) == FZN_REPLY_OK, "its text");
+	CHECK(ask("add list top Errands") == FZN_REPLY_OK, "a list");
+	take_id(list);
+	snprintf(line, sizeof(line), "add item %s fetch the parcel", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "an item");
+	snprintf(line, sizeof(line), "set note %s labels weekly", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "a label");
+	CHECK(ask("add note top parcel tracking") == FZN_REPLY_OK, "a note to trash");
+	take_id(gone);
+	snprintf(line, sizeof(line), "set note %s trash", gone);
+	CHECK(ask(line) == FZN_REPLY_OK, "trashed");
+
+	CHECK(fzn_search_query_init(&q, "oat", 3u, 10u)
+	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u,
+	      "a note was not found by a word of its text");
+	for (i = 0; i < hits[0].key_len && i < 32u; i++)
+		snprintf(key + 2u * i, 3u, "%02x", hits[0].key[i]);
+	CHECK(count == 1u && hits[0].key_len == 32u && !strcmp(key, milk) && !strcmp(hits[0].store, "notes")
+	              && hits[0].time_ms != 0u && strstr(hits[0].snippet, "oat milk"),
+	      "the hit is not the note by its id, timed, with its text's snippet");
+	CHECK(fzn_search_query_init(&q, "parcel", 6u, 10u)
+	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u,
+	      "a list's item was not found, or a trashed note was");
+	for (i = 0; count && i < 32u; i++)
+		snprintf(key + 2u * i, 3u, "%02x", hits[0].key[i]);
+	CHECK(count == 1u && !strcmp(key, list), "the item's hit is not its list");
+	CHECK(fzn_search_query_init(&q, "weekly", 6u, 10u)
+	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u,
+	      "a label was not searched");
+	CHECK(fzn_search_query_init(&q, "milk", 4u, 10u)
+	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 1u,
+	      "a note found by its title and its text was not one hit");
+	CHECK(fzn_search_query_init(&q, "zebra", 5u, 10u)
+	              && fzn_search_run(&store, 1u, &q, NULL, hits, &count, &more) && count == 0u,
+	      "a word no note holds found one");
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -3256,6 +3309,7 @@ int main(void)
 	test_writes_mark_fresh();
 	test_unpaired_partner();
 	test_a_partner_seen_in_the_future_ages_from_now();
+	test_search();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

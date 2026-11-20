@@ -17692,6 +17692,20 @@ SABOTAGES = [
 		"a reaction searched as a line of words; node messages_test -- sec 1287",
 	),
 	(
+		"search-note-trashed-found",
+		"node/notes.c",
+		"\t\t            != FZN_NOTE_OK\n\t\t    || (meta.flags & FZN_NOTE_FLAG_TRASHED))\n\t\t\tcontinue;\n",
+		"\t\t            != FZN_NOTE_OK)\n\t\t\tcontinue;\n",
+		"a trashed note found by the search; node notes_test -- sec 1287",
+	),
+	(
+		"search-note-items-unread",
+		"node/notes.c",
+		"\t\t\twhile (fzn_note_item_next(&note, &at, &item) == FZN_NOTE_OK)\n",
+		"\t\t\twhile (0 && fzn_note_item_next(&note, &at, &item) == FZN_NOTE_OK)\n",
+		"a checklist's items not searched; node notes_test -- sec 1287",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",

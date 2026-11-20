@@ -2527,6 +2527,148 @@ static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, s
 	return listing ? list(n, &store, 1, at, left, reply, cap) : get(n, &store, at, left, reply, cap);
 }
 
+/* ---- the notes store of the one search, sec 1287 step 4 ------------------ */
+
+/* THE MOST NOTES ONE SEARCH OPENS, newest edited first: each is a blob
+ * opened and its text scored, and a search must answer within its asker's
+ * deadline (3 s, sec 1287), so a tree of a quarter of a million notes is
+ * searched as far as its newest this many. */
+#ifndef FZN_NODE_NOTES_SEARCH_OPENS
+#define FZN_NODE_NOTES_SEARCH_OPENS 4096u
+#endif
+/* THE MOST SHARERS' TREES ONE SEARCH WALKS, besides this node's own. */
+#define NOTES_SEARCH_SHARERS 256u
+
+struct by_edit {
+	uint64_t edited;
+	uint32_t at;
+};
+
+static int newest_first(const void *a, const void *b)
+{
+	const struct by_edit *x = a, *y = b;
+
+	return x->edited < y->edited ? 1 : x->edited > y->edited ? -1 : (x->at > y->at) - (x->at < y->at);
+}
+
+/* THE BETTER OF A FIELD'S SCORE and the best so far: the field it came
+ * from kept, for the snippet. */
+static void score_field(const fzn_search_query_t *q, const uint8_t *text, size_t len, unsigned *best,
+                        const uint8_t **from, size_t *from_len)
+{
+	unsigned s;
+
+	if (!len)
+		return;
+	s = fzn_search_score(&q->words, (const char *)text, len);
+	if (s > *best) {
+		*best = s;
+		*from = text;
+		*from_len = len;
+	}
+}
+
+/* ONE TREE'S NOTES: its title, its text or its items, and its labels, each
+ * scored and the best taken -- from the note alone, so every host holding
+ * it scores it alike. A note pending purge, trashed, or whose content is
+ * not here is not searched. Keyed by the note's id, which every host knows
+ * it by; timed by its last edit. *opens counts down the budget. */
+static int search_tree(const fzn_node_notes_t *n, const fzn_notes_store_t *store, const fzn_search_query_t *q,
+                       fzn_search_emit_t emit, void *emit_ctx, size_t *opens)
+{
+	static struct by_edit *order;
+	static fzn_note_t note;
+	size_t i, k = 0;
+
+	if (!order && !(order = malloc(FZN_NOTES_MAX * sizeof(*order))))
+		return 0;
+	if (fzn_notes_view_load(store, view) != FZN_NOTES_OK)
+		return 0;
+	for (i = 0; i < view->count; i++) {
+		fzn_note_meta_t meta;
+
+		if (fzn_note_meta_open(view->nodes[i].content_type, view->nodes[i].content,
+		                       view->nodes[i].content_len, &meta)
+		            != FZN_NOTE_OK
+		    || (meta.flags & FZN_NOTE_FLAG_TRASHED))
+			continue;
+		order[k].edited = meta.edited_at_ms;
+		order[k++].at = (uint32_t)i;
+	}
+	qsort(order, k, sizeof(*order), newest_first);
+	for (i = 0; i < k && *opens; i++) {
+		const fzn_tree_node_t *node = &view->nodes[order[i].at];
+		fzn_note_meta_t meta;
+		fzn_search_hit_t h;
+		const uint8_t *from = NULL;
+		size_t from_len = 0, at = 0, label;
+		unsigned best = 0;
+
+		if (fzn_notes_purge_pending(store, node->id)
+		    || fzn_note_meta_open(node->content_type, node->content, node->content_len, &meta) != FZN_NOTE_OK)
+			continue;
+		(*opens)--;
+		if (read_note(n, store, node, &meta, &note) != FZN_NOTES_OK)
+			continue;
+		score_field(q, note.title, note.title_len, &best, &from, &from_len);
+		if (node->content_type == FZN_NOTE_TYPE_LIST) {
+			fzn_note_item_t item;
+
+			while (fzn_note_item_next(&note, &at, &item) == FZN_NOTE_OK)
+				score_field(q, item.text, item.text_len, &best, &from, &from_len);
+		} else if (node->content_type == FZN_NOTE_TYPE_NOTE) {
+			score_field(q, note.text, note.text_len, &best, &from, &from_len);
+		}
+		for (label = 0; label < fzn_note_label_count(&note); label++) {
+			const uint8_t *l;
+			size_t l_len;
+
+			if (fzn_note_label(&note, label, &l, &l_len) == FZN_NOTE_OK)
+				score_field(q, l, l_len, &best, &from, &from_len);
+		}
+		if (!best)
+			continue;
+		memset(&h, 0, sizeof(h));
+		memcpy(h.store, "notes", 6u);
+		memcpy(h.key, node->id, FZN_TREE_ID_LEN);
+		h.key_len = FZN_TREE_ID_LEN;
+		h.score = best;
+		h.time_ms = meta.edited_at_ms;
+		/* THE FIELD THAT SCORED BEST is what the snippet shows. */
+		fzn_search_snippet(q, (const char *)from, from_len, &h);
+		if (!emit(emit_ctx, &h))
+			return 1;
+	}
+	return 1;
+}
+
+int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
+                          void *emit_ctx)
+{
+	static uint8_t (*sharers)[FZN_PUBKEY_LEN];
+	fzn_node_notes_t *n = ctx;
+	size_t opens = FZN_NODE_NOTES_SEARCH_OPENS, count = 0, i;
+
+	(void)asker;
+	if (!n || !q || !emit || !n->open)
+		return 0;
+	if (!search_tree(n, &n->store, q, emit, emit_ctx, &opens))
+		return 0;
+	/* AND EVERY TREE SHARED WITH THIS USER (sec 437), each note keyed by
+	 * its own id, which is random and so its sharer's too. */
+	if (!sharers && !(sharers = malloc(NOTES_SEARCH_SHARERS * (size_t)FZN_PUBKEY_LEN)))
+		return 1;
+	if (fzn_notes_received_sharers(n->store.ops, sharers, NOTES_SEARCH_SHARERS, &count) != FZN_NOTES_OK)
+		return 1;
+	for (i = 0; i < count && opens; i++) {
+		fzn_notes_store_t store;
+
+		if (open_shared(n, sharers[i], &store))
+			(void)search_tree(n, &store, q, emit, emit_ctx, &opens);
+	}
+	return 1;
+}
+
 static int binary_status(fzn_node_notes_put_t put, void *ctx, fzn_status_t code, const char *why)
 {
 	uint8_t out[FZN_STATUS_LEN_MAX];

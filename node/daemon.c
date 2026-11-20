@@ -26684,7 +26684,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					node_stickers.settings = &node_settings;
 					node_stickers.host = identity.pubkey;
 					node_stickers.hash = &hash_ops;
-					node_search.extra = (fzn_search_store_t){ "stickers", fzn_node_stickers_search, &node_stickers };
+					node_search.extra[0] = (fzn_search_store_t){ "stickers", fzn_node_stickers_search, &node_stickers };
 #endif
 				} else {
 					say(FZN_ENTRY_WARNING, "files", "no store for files under %s",
@@ -26754,6 +26754,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					 * answering a peer's sync and carrying the texts stay,
 					 * the estate's notes kept and relayed in every build. */
 					admin.notes_local = fzn_node_notes_local;
+					/* AND THE NOTES' STORE OF THE ONE SEARCH, sec 1287
+					 * step 4: a consumer's reading, as the verbs are. */
+					node_search.extra[1] = (fzn_search_store_t){ "notes", fzn_node_notes_search, &node_notes };
 #endif
 					admin.notes_remote = notes_remote_said;
 					admin.notes_ctx = &node_notes;

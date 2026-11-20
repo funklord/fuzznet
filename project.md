@@ -31,16 +31,17 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1289
+The newest work is at the end of this file. **Read secs 1287 to 1290
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
 
 **Open, in order:**
 
-- **Search step 4**: groups' and contacts' stores asked of the hosts
-  that share them, each answer authorized at its source by `asker`; notes
-  and the catalogue as stores; `get search` in binary and in the views.
+- **Search step 4**: notes are a store (sec 1290). Left: groups' and
+  contacts' stores asked of the hosts that share them, each answer
+  authorized at its source by `asker`; the catalogue as a store; `get
+  search` in binary and in the views.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. (a) A message
   or name sticker's words: the picker should ask for them, since the
   listing gives `text_limit` and `fzn_rpc_sticker_reference_words`
@@ -93591,3 +93592,45 @@ cli_test -- `--udp-port=span` read, and a second port refused beside it.
 A daemon started with it served on 6280, "the user span's" (by hand,
 2026-11-19).
 
+
+## 1290. Search step 4, first part: notes as a store, 2026-11-20
+
+**Built:** `fzn_node_notes_search` in `node/notes.c`, the notes' store of
+the one search (sec 1287), registered by fuzznetd beside the stickers'
+with the notes verbs (`FZN_NOTES_ON`). `fzn_node_search_t.extra` is an
+array of FZN_NODE_SEARCH_EXTRA (4) now, so each subsystem adds its own
+store and `node/search` links none of them.
+
+**What it searches:** this user's tree and every tree shared with it
+(sec 437) -- a note by its title, its text (a checklist by each item), and
+each label, the best field's score taken and its words the snippet. Each
+is scored from the note alone, as sec 1287 asks, so every host holding it
+gives it one score. Keyed by the note's id (32 bytes, random, so a
+sharer's note is never confused with another's) and timed by its last
+edit.
+
+**Not found:** a trashed note -- the user put it away, and a search that
+brought it back would undo that; one pending purge (sec 434's rule for
+listings); one whose content is not here yet.
+
+**Bounded:** newest edited first, at most FZN_NODE_NOTES_SEARCH_OPENS
+(4096) notes opened a search, across all the trees; a tree of a quarter
+of a million notes is searched as far as its newest 4096. Measured in
+live_many_notes: 2500 notes searched in 0.09 s on the host that wrote
+them, 0.58 s on a member that pulled them, well within a remote asker's
+3 s. At most 256 sharers' trees are walked. The budget is not said back
+as MORE yet: the store interface has no way to say "stopped early", and
+the lines store stops at its walk in the same silence. **Open:** a store
+saying it stopped short, so `get search` can say the page is partial for
+that reason too.
+
+**Who may ask:** as before, this user and another host of this estate,
+every tree here being theirs. A contact's host is still refused
+(`fzn_node_relay_refuse_search`); answering one needs each store to emit
+only what the asker was shared, which is the next part of step 4.
+
+**Tests:** notes_test `test_search` -- a note found by its text, its id
+the key, timed, the snippet its text; a list's item found and keyed to
+its list; a label searched; a note found by title and text one hit; a
+trashed note not found. live_many_notes a3 and b3. Sabotages
+`search-note-trashed-found`, `search-note-items-unread`.

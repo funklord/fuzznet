@@ -118,6 +118,7 @@
 #include "../notes/import.h"
 #include "../notes/purge.h"
 #include "../notes/sync.h"
+#include "../search/search.h"
 
 /* A partner that has not pulled for this long is not pinned by a new purge:
  * thirty days. It has not been holding the user's latest notes, and a purge
@@ -387,5 +388,16 @@ uint64_t fzn_node_notes_join_floor_ms(uint64_t joined_at_s);
  * their files' roots, read again when the notes stamp moves. */
 int fzn_node_notes_shares_file(fzn_node_notes_t *n, const uint8_t *sender,
                                const uint8_t root[FZN_BLOB_HASH_LEN]);
+
+/* THE NOTES STORE OF THE ONE SEARCH, sec 1287 step 4: a `search/search.h`
+ * store's run, `ctx` the node's notes. This user's tree and every tree
+ * shared with it, newest edited first, at most FZN_NODE_NOTES_SEARCH_OPENS
+ * notes opened; a note by its title, text or items, and labels, keyed by
+ * its id and timed by its last edit. A trashed note, one pending purge,
+ * and one whose content is not here are not found. `asker` is this user,
+ * or another host of this estate (sec 1287 step 2): every tree here is
+ * theirs to read. */
+int fzn_node_notes_search(void *ctx, const fzn_search_query_t *q, const uint8_t *asker, fzn_search_emit_t emit,
+                          void *emit_ctx);
 
 #endif /* FZN_NODE_NOTES_H */
