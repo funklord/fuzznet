@@ -420,3 +420,4 @@ __pycache__/
 /wire/test/want_vectors
 /wire/test/search_wire_vectors
 /wire/test/search_local_vectors
+/wire/test/heard_row_vectors

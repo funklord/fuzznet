@@ -12690,8 +12690,8 @@ SABOTAGES = [
 	(
 		"heard-row-is-its-version",
 		"node/heard.c",
-		"\t    || len != HEARD_LEN || row[0] != 1u)\n",
-		"\t    || len != HEARD_LEN)\n",
+		" || fzn_heard_row_fzn_heard_validate(v) != SITU_OK)\n",
+		")\n",
 		"a row of another layout is read as a time -- sec 601",
 	),
 	(

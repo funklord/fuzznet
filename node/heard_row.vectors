@@ -1,0 +1,4 @@
+# Golden vectors for node/heard_row.situ, written by hand from its layout:
+# version 1, then the time in microseconds, big endian.
+
+fzn_heard row 01 00 05 F0 C4 B2 A1 10 00

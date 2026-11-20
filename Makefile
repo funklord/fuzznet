@@ -241,7 +241,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/members_local.c wire/generated/meter_local.c wire/generated/reach_local.c \
              wire/generated/time_local.c wire/generated/settings_local.c wire/generated/want.c \
              wire/generated/notes_local.c wire/generated/search_wire.c wire/generated/search_local.c \
-             wire/generated/situ.c
+             wire/generated/heard_row.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
@@ -253,7 +253,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/members_local_vectors.c wire/generated/meter_local_vectors.c \
                  wire/generated/reach_local_vectors.c wire/generated/time_local_vectors.c wire/generated/want_vectors.c \
                  wire/generated/settings_local_vectors.c wire/generated/notes_local_vectors.c \
-                 wire/generated/search_wire_vectors.c wire/generated/search_local_vectors.c
+                 wire/generated/search_wire_vectors.c wire/generated/search_local_vectors.c \
+                 wire/generated/heard_row_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -721,6 +722,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/want_vectors \
              $(BUILD_DIR)/wire/test/search_wire_vectors \
              $(BUILD_DIR)/wire/test/search_local_vectors \
+             $(BUILD_DIR)/wire/test/heard_row_vectors \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
              $(BUILD_DIR)/node/test/reach_test \
@@ -4619,6 +4621,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# WHEN A HOST WAS LAST HEARD FROM, the first stored row generated, sec 1313.
+$(BUILD_DIR)/wire/test/heard_row_vectors: wire/generated/heard_row_vectors.c \
+                                         wire/generated/heard_row.c wire/generated/situ.c \
+                                         $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # THE ONE SEARCH ON THE LOCAL LEG, sec 1293.
 $(BUILD_DIR)/wire/test/search_local_vectors: wire/generated/search_local_vectors.c \
                                             wire/generated/search_local.c wire/generated/situ.c \
@@ -4911,7 +4920,8 @@ $(BUILD_DIR)/node/test/events_test: $(BUILD_DIR)/node/test/events_test.o \
 
 # When this node last heard from each host, sec 601.
 $(BUILD_DIR)/node/test/heard_test: $(BUILD_DIR)/node/test/heard_test.o \
-                                   $(BUILD_DIR)/node/heard.o
+                                   $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/wire/generated/heard_row.o \
+                                   $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5511,7 +5521,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o $(BUILD_DIR)/log/copy.o \
                 $(BUILD_DIR)/node/log_buckets.o $(BUILD_DIR)/node/pieces.o \
                 $(BUILD_DIR)/node/piece_buckets.o $(BUILD_DIR)/chunk/erasure.o) \
-              $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/node/routing.o \
+              $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/wire/generated/heard_row.o $(BUILD_DIR)/node/routing.o \
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
@@ -5877,7 +5887,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/state/setting.o \
                                       $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o \
-                                      $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/node/routing.o \
+                                      $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/wire/generated/heard_row.o $(BUILD_DIR)/node/routing.o \
                                       $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/node/group_act.o \
               $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/streams.o \
@@ -7604,7 +7614,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               messages/keys.situ messages/deliver.situ state/setting.situ \
               node/reconcile.situ node/buckets.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
-              node/heard.situ node/routing.situ node/contact_devices.situ \
+              node/heard_row.situ node/routing.situ node/contact_devices.situ \
               node/contact_card.situ node/contact_request.situ node/group_act.situ \
               node/group_line.situ location/fix.situ sticker/pack.situ node/objects.situ \
               node/messages_local.situ node/contacts_local.situ node/groups_local.situ \
@@ -8363,6 +8373,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_search_local \
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
+	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_heard_row \
+	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ node/heard_row.vectors >/dev/null 2>&1
 	@# AND THE LINKS, ON THE LOCAL LEG, sec 1183.
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_reach_local --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/reach_local.situ >/dev/null 2>&1
@@ -8413,6 +8427,7 @@ schema:
 	          time_local.h time_local_build.h time_local_vectors.c want.c want.h want_build.h want_vectors.c \
 	          search_wire.c search_wire.h search_wire_edit.h search_wire_build.h search_wire_vectors.c \
 	          search_local.c search_local.h search_local_edit.h search_local_build.h search_local_vectors.c \
+	          heard_row.c heard_row.h heard_row_build.h heard_row_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

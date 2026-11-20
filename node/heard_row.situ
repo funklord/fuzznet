@@ -2,8 +2,9 @@
 // host in FZN_PERSIST_HOST_HEARD, keyed by the host's key. A keeper of a
 // piece silent past the estate's `archive/gone` has its piece placed on
 // another host, and a restart must not make every host newly heard.
-// The hand-written codec is node/heard.c; this is its checked contract, in
-// `make schema`'s list.
+// node/heard.c reads and writes it through the code situ generates from
+// this (sec 1313); `heard_row`, not `heard`, so the generated file's name
+// meets no other source's.
 
 target buffer;
 endian big;

@@ -74,11 +74,8 @@ listener port spans (`150e3106`).
   are cited nowhere (10,791 of 93,700 lines); the rest are cited by
   number from code and from here, and no gate checks a `sec N` citation,
   so moving them means a checker that reads the journal's headings too.
-- **The holder's question, parked**: a sticker store, meaning packs not
-  kept and searchable. Is it wanted, and from whom: a relay, friends'
-  kept packs, or a published catalogue? It blocks searching packs
-  nobody here has kept. Best guess: friends' kept packs, asked as a
-  search store (step 4's shape).
+- **No sticker store** until there is an always-on host (sec 1312): the
+  holder's, settled.
 - **Assumptions the holder may move**: discovery port 6290 and the
   spans 930-939 and 6280-6289 (sec 1289); `--udp-port=span` is opt-in.
 
@@ -94304,3 +94301,56 @@ exchanges itself, 2 moves the largest hand-written part of the wire path.
 3 follows 2; 4 and 5 are protocol rather than layout and stay here
 whichever way. **Both are situ's to build and not yet asked of it** --
 the holder's to send or not (sec 0).
+
+## 1312. The holder's decisions of 2026-11-20 evening: situ, stickers, search
+
+- **situ is to be used as fully as possible, not only for layouts**: "so
+  we can detect flaws in it, and improve the protocol at the same time".
+  Every problem met in using situ and its features is sent to situ, which
+  decides for itself whether and how to change; and situ is told what
+  fuzznet needs to remove most of its network code, perhaps all of it,
+  without losing function or performance. Answers sec 1311's question 2.
+- **The naming of generated layouts is this tree's to choose** (sec 1311's
+  question 1): sec 1313.
+- **No sticker store yet.** "Sticker store would have to lead to a server
+  somewhere or someone, we don't have that yet, so we wait until we have a
+  semblance of a device that is always on in the network, until now we
+  are fully haphazardly distributed. This makes us infrastructural, which
+  we have no plan for yet." Settles sec 0's parked question: searching
+  packs nobody here keeps waits for an always-on host, which is itself
+  unplanned.
+- **The smaller sticker gaps are all to be done**: the advanced types,
+  sound, the recent tab and the rest of sec 0's list.
+- **The generic search's foundation is to be built now**, "they will be
+  needed sooner or later, and better have a strong foundation by then".
+
+## 1313. Generated layouts: the naming rule, and the first one moved, 2026-11-20
+
+**The rule** (sec 1312 made it this tree's): a schema whose code situ
+generates is named for the thing it lays out with a suffix its codec's
+file does not carry -- `_row` for a stored row, `_record` for a signed or
+chained record, `_wire` for a host-to-host message (as `search_wire`
+already is), `_local` for the local leg (as every local family already
+is). So `node/heard_row.situ` generates `wire/generated/heard_row.c`, and
+`node/heard.c` -- the module, its API unchanged -- reads and writes through
+it. No basename in the tree meets another's (sec 1281). **Rejected**: an
+output-stem option on situc (situ's to give, asked in the message of
+2026-11-20, 20261120T1231Z); a `gen_` prefix on every generated file (it
+names the tool, not the thing, and makes a second word for one concept);
+moving generated code into per-directory folders (consumers list the
+sources, and every new directory is a line in each of their builds).
+
+**What a consumer changes**: one source more per moved layout,
+`wire/generated/X_row.c`, in the list it already compiles
+`wire/generated/*.c` from. The library archive carries it; a consumer
+linking `libfuzznet.a` changes nothing.
+
+**Moved: `node/heard_row.situ`** (sec 601's row of when a host was last
+heard). `node/heard.c` builds the row with `fzn_heard_row_fzn_heard_build`
+and reads it through the generated view and `validate`, which refuses a
+version other than 1 as the hand check did. The schema's golden vector
+(`node/heard_row.vectors`) is held by `heard_row_vectors`, and
+`make schema` regenerates and compares it as it does every family.
+
+**Tests:** heard_row_vectors (1); heard_test (9) unchanged, now over the
+generated codec.
