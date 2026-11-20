@@ -258,6 +258,34 @@ static int sticker_read(const fzn_node_stickers_t *st, situ_view_t v, fzn_node_s
 	return status(put, put_ctx, FZN_STATUS_OK, NULL);
 }
 
+/* THE STICKERS THIS USER SENT LATELY, sec 1317: a row each, then ok; a
+ * node keeping no lines refuses it in words. */
+static int recent(const fzn_node_stickers_t *st, fzn_node_stickers_put_t put, void *put_ctx)
+{
+	static fzn_sticker_ref_t sent[FZN_NODE_STICKERS_RECENT_MAX];
+	size_t count, i;
+
+	if (!st->recent)
+		return status(put, put_ctx, FZN_STATUS_UNSUPPORTED, "this node keeps no lines to find them in");
+	count = st->recent(st->recent_ctx, sent, FZN_NODE_STICKERS_RECENT_MAX);
+	for (i = 0; i < count; i++) {
+		uint8_t row[FZN_NODE_STICKERS_BINARY_MAX], out[FZN_NODE_STICKERS_BINARY_MAX + 8u];
+		uint32_t row_len = 0, n = 0;
+
+		if (sent[i].description_len > FZN_STICKER_DESC_MAX
+		    || fzn_stickers_local_recent_row_build(row, sizeof(row), sent[i].root, sent[i].id,
+		                                           (const uint8_t *)sent[i].description,
+		                                           (uint32_t)sent[i].description_len, &row_len)
+		               != SITU_OK
+		    || fzn_stickers_local_message_build_recent_row(out, sizeof(out), (uint8_t)FZN_CMD_STICKERS, row, row_len,
+		                                                   &n)
+		               != SITU_OK
+		    || !put(put_ctx, out, n))
+			return 0;
+	}
+	return status(put, put_ctx, FZN_STATUS_OK, NULL);
+}
+
 int fzn_node_stickers_binary(const fzn_node_stickers_t *st, const uint8_t *msg, size_t len,
                              fzn_node_stickers_put_t put, void *put_ctx)
 {
@@ -277,6 +305,8 @@ int fzn_node_stickers_binary(const fzn_node_stickers_t *st, const uint8_t *msg, 
 	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_FORGET
 	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_PUT)
 		return pack_write(st, v, put, put_ctx);
+	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_RECENT)
+		return recent(st, put, put_ctx);
 	if (fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_REFERENCE
 	    || fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_ART)
 		return sticker_read(st, v, put, put_ctx);

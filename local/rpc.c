@@ -9932,6 +9932,7 @@ static int node_sticker_put(fzn_rpc_t *c, const char *spec_path, size_t spec_pat
  * or the kept row, then a STATUS. */
 struct sticker_answer {
 	fzn_rpc_node_sticker_items_resp_t *items;
+	fzn_rpc_sticker_match_resp_t *recent; /* sec 1317's rows */
 	uint8_t root[32];
 	int estate, kept, bad, status_seen;
 	fzn_status_t code;
@@ -9965,6 +9966,21 @@ static void sticker_each(void *ctx, const uint8_t *msg, size_t len) {
 		memcpy(a->root, fzn_stickers_local_kept_row_root_ptr(b), 32);
 		a->estate = fzn_stickers_local_kept_row_estate_get(b);
 		a->kept = 1;
+		return;
+	}
+	if (a->recent && fzn_stickers_local_message_op_get(v) == FZN_STICKERS_LOCAL_OP_RECENT_ROW
+	    && fzn_stickers_local_message_body_recent_row_view(v, &b) == SITU_OK) {
+		if (a->recent->count >= FZN_RPC_STICKER_MATCH_MAX) {
+			a->bad = 1;
+			return;
+		}
+		fzn_rpc_sticker_match_entry_t *r = &a->recent->entries[a->recent->count++];
+		const size_t d = fzn_stickers_local_recent_row_description_len_get(b);
+		memcpy(r->root, fzn_stickers_local_recent_row_root_ptr(b), 32);
+		r->id = fzn_stickers_local_recent_row_id_get(b);
+		memcpy(r->description, fzn_stickers_local_recent_row_description_ptr(b), d);
+		r->description[d] = '\0';
+		r->description_len = d;
 		return;
 	}
 	if (!a->items || fzn_stickers_local_message_op_get(v) != FZN_STICKERS_LOCAL_OP_ITEM_ROW
@@ -10052,6 +10068,50 @@ int fzn_rpc_sticker_match(fzn_rpc_t *c, const char *typed, size_t typed_len, fzn
 			return unreadable(c);
 		e->description[e->description_len] = '\0';
 		e->score = (unsigned)score;
+		out->count++;
+	}
+	return out->count == count ? FZN_RPC_OK : unreadable(c);
+}
+
+int fzn_rpc_sticker_recent(fzn_rpc_t *c, fzn_rpc_sticker_match_resp_t *out) {
+	const char *rest = NULL, *p, *end, *w;
+	size_t rest_len = 0, at = 0, count = 0, from = 0, w_len;
+	if (!c || !out) return c ? encode_failed(c) : FZN_RPC_ERR_MALFORMED;
+	memset(out, 0, sizeof(*out));
+	/* IN BINARY FIRST: a recent row each, then a STATUS. */
+	{
+		const uint8_t req[2] = { FZN_CMD_STICKERS, FZN_STICKERS_LOCAL_OP_RECENT };
+		struct sticker_answer a;
+		int text = 0;
+		memset(&a, 0, sizeof a);
+		a.recent = out;
+		const int rc = sticker_binary(c, req, sizeof req, &a, &text);
+		if (!text) return rc;
+		memset(out, 0, sizeof(*out));
+	}
+	const int rc = fzn_rpc_node(c, "list", "sticker recent", 14, &rest, &rest_len);
+	if (rc != FZN_RPC_OK) return rc;
+	if (!node_number(rest, rest_len, &at, &count) || !node_number(rest, rest_len, &at, &from) || from
+	    || count > FZN_RPC_STICKER_MATCH_MAX)
+		return unreadable(c);
+	p = rest + at;
+	end = rest + rest_len;
+	while (node_word(&p, end, &w, &w_len)) {
+		const char *q = w, *row_end = w + w_len, *f[3];
+		size_t f_len[3];
+		int cut = 0;
+		fzn_rpc_sticker_match_entry_t *e;
+		if (out->count == count) return unreadable(c);
+		e = &out->entries[out->count];
+		for (int k = 0; k < 2; k++)
+			if (!node_field(&q, row_end, &f[k], &f_len[k])) return unreadable(c);
+		/* THE DESCRIPTION is the rest, escaped. */
+		f[2] = q <= row_end ? q : row_end;
+		f_len[2] = (size_t)(row_end - f[2]);
+		if (f_len[0] != 64 || !node_key(f[0], 64, e->root) || !node_u64(f[1], f_len[1], &e->id) || !e->id
+		    || !node_unescape(f[2], f_len[2], e->description, sizeof e->description - 1, &e->description_len, &cut))
+			return unreadable(c);
+		e->description[e->description_len] = '\0';
 		out->count++;
 	}
 	return out->count == count ? FZN_RPC_OK : unreadable(c);

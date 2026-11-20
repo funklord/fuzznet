@@ -490,6 +490,54 @@ static void test_message_put(void **state)
 	situ_check_bytes(buf, vector_message_put, sizeof(buf));
 }
 
+/* message / recent */
+static const uint8_t vector_message_recent[2u] = {
+	0x16, 0x8C,
+};
+
+static void test_message_recent(void **state)
+{
+	uint8_t     buf[2u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_recent, sizeof(buf));
+	situ_msg_init(&msg, buf, 2u);
+	situ_check_eq(fzn_stickers_local_message_view(&msg, 0, 2u, &view), SITU_OK);
+	situ_check_eq(fzn_stickers_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_stickers_local_message_cmd_set(view, fzn_stickers_local_message_cmd_get(view));
+	fzn_stickers_local_message_op_set(&msg, view, fzn_stickers_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_recent, sizeof(buf));
+}
+
+/* message / recent_row */
+static const uint8_t vector_message_recent_row[49u] = {
+	0x16, 0x8D, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0xAB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x06, 0x77, 0x61, 0x76, 0x69, 0x6E, 0x67,
+};
+
+static void test_message_recent_row(void **state)
+{
+	uint8_t     buf[49u];
+	situ_msg_t  msg;
+	situ_view_t view;
+
+	(void)state;
+	memcpy(buf, vector_message_recent_row, sizeof(buf));
+	situ_msg_init(&msg, buf, 49u);
+	situ_check_eq(fzn_stickers_local_message_view(&msg, 0, 49u, &view), SITU_OK);
+	situ_check_eq(fzn_stickers_local_message_validate(view), SITU_OK);
+
+	/* Every value written back through its own setter must reproduce the
+	 * bytes it came from. This is what catches a layout change. */
+	fzn_stickers_local_message_cmd_set(view, fzn_stickers_local_message_cmd_get(view));
+	fzn_stickers_local_message_op_set(&msg, view, fzn_stickers_local_message_op_get(view));
+	situ_check_bytes(buf, vector_message_recent_row, sizeof(buf));
+}
+
 int main(void)
 {
 	const struct situ_check_case tests[] = {
@@ -509,6 +557,8 @@ int main(void)
 		situ_check_case(test_message_drawn_art),
 		situ_check_case(test_message_drawn_sound),
 		situ_check_case(test_message_put),
+		situ_check_case(test_message_recent),
+		situ_check_case(test_message_recent_row),
 	};
 
 	return situ_check_run(tests, sizeof tests / sizeof tests[0], "tests");

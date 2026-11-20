@@ -945,6 +945,13 @@ typedef struct {
 	size_t count;
 } fzn_rpc_sticker_match_resp_t;
 int fzn_rpc_sticker_match(fzn_rpc_t *c, const char *typed, size_t typed_len, fzn_rpc_sticker_match_resp_t *out);
+/* THE STICKERS THIS USER SENT LATELY, `list sticker recent` (fuzznet sec
+ * 1317): newest first, each once, at most FZN_RPC_STICKER_MATCH_MAX --
+ * each its pack's root, its id and the description its line carried;
+ * score 0. As sent, whether or not its pack is kept here: a picker shows
+ * those it holds. The same on every host of the user, the lines being
+ * carried to each. */
+int fzn_rpc_sticker_recent(fzn_rpc_t *c, fzn_rpc_sticker_match_resp_t *out);
 
 /* The text a message carries for one, `get sticker PACK ID`: an `fzn:`
  * reference, into `text` (NUL-ended) of `cap` bytes. */

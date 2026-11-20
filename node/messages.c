@@ -2141,6 +2141,48 @@ static int find_own(fzn_node_messages_t *nm, const uint8_t group[FZN_PUBKEY_LEN]
 	return 0;
 }
 
+#ifdef FZN_STICKERS_ON
+struct stickers_sent {
+	fzn_sticker_ref_t *out;
+	size_t max, n;
+};
+
+static void sticker_sent(void *ctx, const fzn_node_line_t *line)
+{
+	struct stickers_sent *s = ctx;
+	static fzn_sticker_ref_t ref;
+	size_t i;
+
+	if (s->n == s->max || !line->outgoing || !line->readable || !fzn_sticker_ref_parse(line->text, line->text_len, &ref))
+		return;
+	for (i = 0; i < s->n; i++)
+		if (s->out[i].id == ref.id && !memcmp(s->out[i].root, ref.root, sizeof(ref.root)))
+			return;
+	ref.text_len = 0;
+	ref.text[0] = '\0';
+	s->out[s->n++] = ref;
+}
+
+size_t fzn_node_messages_stickers_sent(fzn_node_messages_t *nm, size_t look, fzn_sticker_ref_t *out, size_t max)
+{
+	struct stickers_sent s = { out, max, 0 };
+
+	if (!nm || !out || !max || fzn_node_messages_lines_each(nm, NULL, 0, look, sticker_sent, &s) != 1)
+		return 0;
+	return s.n;
+}
+#else
+/* NO STICKERS IN THIS BUILD (`FZN_STICKERS_ON` unset): none sent. */
+size_t fzn_node_messages_stickers_sent(fzn_node_messages_t *nm, size_t look, struct fzn_sticker_ref *out, size_t max)
+{
+	(void)nm;
+	(void)look;
+	(void)out;
+	(void)max;
+	return 0;
+}
+#endif
+
 int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, size_t from, size_t max,
                                  void (*each)(void *ctx, const fzn_node_line_t *line), void *ctx)
 {

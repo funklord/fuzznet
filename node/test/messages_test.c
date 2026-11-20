@@ -5,6 +5,7 @@
 
 #include "../messages.h"
 #include "../../messages/reply.h"
+#include "../../sticker/pack.h"
 #include "../messages_binary.h"
 #include "../search.h"
 #include "../group_lines.h"
@@ -1936,12 +1937,54 @@ static size_t fake_ask_hosts(void *ctx, const uint8_t *ask, size_t len, const ui
 	return 2u;
 }
 
+/* THE STICKERS THIS USER SENT LATELY, sec 1317: their own sticker lines,
+ * newest first, each sticker once whatever its words; a line in, a
+ * line of plain text and a sticker received are none of them. */
+static void test_the_stickers_sent_lately(void)
+{
+	static fzn_sticker_ref_t sent[4];
+	static const struct {
+		int out;
+		const char *text;
+	} lines[] = {
+		{ 1, "fzn:sticker/" "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+		     "/6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b/4096/7 waving" },
+		{ 0, "fzn:sticker/" "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+		     "/6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b/4096/3 received" },
+		{ 1, "plain words" },
+		{ 1, "fzn:sticker/" "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+		     "/6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b/4096/9 dancing" },
+		{ 1, "fzn:sticker/" "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+		     "/6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b/4096/7:hi waving" },
+	};
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t i, n;
+
+	setup();
+	device_up(&A, 0x11);
+	CHECK(fzn_contact_add(&A.store_ops, X, "carol", 5u, 1u) == FZN_CONTACT_OK, "fixture: carol");
+	CHECK(fzn_node_messages_stickers_sent(&A.nm, 50u, sent, 4u) == 0u, "stickers were sent before any line");
+	for (i = 0; i < sizeof(lines) / sizeof(lines[0]); i++) {
+		memset(id, 0xe0 + (int)i, sizeof(id));
+		CHECK(fzn_messages_write(&A.nm.m, X, lines[i].out ? FZN_MESSAGE_OUT : FZN_MESSAGE_IN, id, 1000u + i,
+		                         lines[i].text, strlen(lines[i].text))
+		              == FZN_MESSAGES_OK,
+		      "fixture: a line");
+	}
+	n = fzn_node_messages_stickers_sent(&A.nm, 50u, sent, 4u);
+	CHECK(n == 2u && sent[0].id == 7u && sent[1].id == 9u && sent[0].root[0] == 0x5a && !sent[0].text_len
+	              && sent[0].description_len == 6u && !memcmp(sent[0].description, "waving", 6u),
+	      "the stickers sent lately were not 7 then 9, each once, without their words");
+	CHECK(fzn_node_messages_stickers_sent(&A.nm, 50u, sent, 1u) == 1u && sent[0].id == 7u,
+	      "the stickers sent lately ran past the most asked");
+}
+
 static void test_the_search_here(void)
 {
 	static fzn_node_search_t s;
 	fzn_request_t r;
 	uint8_t id[FZN_MESSAGE_ID_LEN];
-	char text[FZN_MESSAGE_TEXT_MAX + 1u], cursor[256], *row, *end;
+	char text[FZN_MESSAGE_TEXT_MAX + 1u], cursor[256], *row = NULL, *end = NULL;
 	size_t n;
 
 	setup();
@@ -2653,6 +2696,7 @@ int main(void)
 	test_the_verbs();
 	test_a_read_marks_text();
 	test_every_conversations_newest_line();
+	test_the_stickers_sent_lately();
 	test_the_verbs_need_the_user();
 	test_keys_travel();
 	test_keys_through_a_hub();

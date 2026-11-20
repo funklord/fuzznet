@@ -18,3 +18,5 @@ message art_sound       16 89 00 AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB
 message drawn_art       16 8A 04 00 40 00 40 00 00 00 00 00 00 00 00
 message drawn_sound     16 8A 00 00 00 00 00 00 00 00 00 00 00 01 2C
 message put             16 8B 00 0A 2F 74 6D 70 2F 61 2E 66 7A 73
+message recent      16 8C
+message recent_row  16 8D AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB AB 00 00 00 00 00 00 00 07 06 77 61 76 69 6E 67

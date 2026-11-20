@@ -17811,6 +17811,20 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"stickers-sent-twice",
+		"node/messages.c",
+		"\t\tif (s->out[i].id == ref.id && !memcmp(s->out[i].root, ref.root, sizeof(ref.root)))\n",
+		"\t\tif (0)\n",
+		"a sticker sent twice listed twice among those sent lately; messages_test -- sec 1317",
+	),
+	(
+		"stickers-sent-received-too",
+		"node/messages.c",
+		"if (s->n == s->max || !line->outgoing || ",
+		"if (s->n == s->max || ",
+		"a sticker received listed among those this user sent; messages_test -- sec 1317",
+	),
+	(
 		"sticker-effect-none",
 		"gui/conversation_view.cpp",
 		", effect = known && box->type == FZN_STICKER_EFFECT;",

@@ -2988,6 +2988,17 @@ static int messages_on;
 #endif
 static int messages_devices_room(fzn_node_messages_t *nm, size_t want);
 
+#if defined(FZND_STICKERS) && defined(FZN_MESSAGES_ON)
+/* THE STICKERS THIS USER SENT LATELY, sec 1317: of the newest 500 lines,
+ * enough for twenty distinct stickers in any likely use and a bounded
+ * walk; none while the lines are off. */
+static size_t stickers_recent(void *ctx, struct fzn_sticker_ref *out, size_t max)
+{
+	(void)ctx;
+	return messages_on ? fzn_node_messages_stickers_sent(&node_messages, 500u, out, max) : 0u;
+}
+#endif
+
 /* THE OPERATION JOURNAL, secs 523 and 524: switchable, off unless asked
  * for. Every write to this node's persistent state, entered by hash on its
  * own stream, in generations under `opjournal/`, a directory each named by
@@ -27198,6 +27209,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					node_stickers.settings = &node_settings;
 					node_stickers.host = identity.pubkey;
 					node_stickers.hash = &hash_ops;
+#ifdef FZN_MESSAGES_ON
+					node_stickers.recent = stickers_recent;
+#endif
 					node_search.extra[0] = (fzn_search_store_t){ "stickers", fzn_node_stickers_search, &node_stickers };
 #endif
 				} else {

@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum op : u8 unknown=error
-  packs=128 pack_row=129 items=130 item_row=131 keep=132 kept=133 forget=134 reference=135 referenced=136 art=137 drawn=138 put=139
+  packs=128 pack_row=129 items=130 item_row=131 keep=132 kept=133 forget=134 reference=135 referenced=136 art=137 drawn=138 put=139 recent=140 recent_row=141
 
 struct art_ask size=85..1107
   @0x0000   81        sticker_ask sticker  big
@@ -76,6 +76,8 @@ struct message size=2..1109
   body case 137: art art_ask
   body case 138: drawn drawn_row
   body case 139: put put_ask
+  body case 140: recent nothing
+  body case 141: recent_row recent_row
   body case default: error
 
 struct nothing size=0
@@ -94,6 +96,12 @@ struct pack_row size=43..298
 struct put_ask size=3..1025
   @0x0000   2         u16        path_len  big min=1 max=1023
   @0x0002   1..1023   u8         path  sized-by=path_len
+
+struct recent_row size=41..296
+  @0x0000   32        u8         root  big
+  @0x0020   8         u64        id  big
+  @0x0028   1         u8         description_len
+  @0x0029   0..255    u8         description  sized-by=description_len
 
 struct reference_ask size=82..166
   @0x0000   81        sticker_ask sticker  big

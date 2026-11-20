@@ -50,9 +50,8 @@ listener port spans (`150e3106`).
   (sec 1296), finding and letting go (sec 1298), case folding (sec
   1297), the chosen Lottie sticker playing (sec 1300), its sound (sec
   1301; in the picker, 1314), a pop-up one across the log (sec 1302), an effect one behind it (sec
-  1315). Left: (b) raster
-  animation and the picker's; (e) a recent tab,
-  which wants a place every host of the user shares; (h) the reply
+  1315), a Recent tab (sec 1317). Left: (b) raster
+  animation and the picker's; (h) the reply
   target's words as the matcher's context; (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
   (sec 1272).
@@ -94440,3 +94439,39 @@ client writes it by hand (fuzznet's client already did).
 
 **Tests:** search_wire_vectors (4), search_local_vectors (6), unchanged;
 messages_test's binary search (sec 1293) through the new reader.
+
+## 1317. The stickers sent lately: a Recent tab every host shares, 2026-11-20
+
+The audit's (e), the recent tab, which "wants a place every host of the
+user shares" (sec 1298). **Decided: no new place.** The user's own lines
+are already that place: they are journaled on every host of the user
+(secs 526-531), so the stickers sent lately are derived from them -- the
+newest 500 lines of every conversation, this user's own that parse as a
+sticker reference, newest first, each sticker once by its pack's root and
+id, the words a line gave it dropped. **Rejected**: a setting (a value is
+at most 256 bytes, three references in hex, and every send would be a
+signed write carried estate-wide); a list of its own in the journal (a
+second record of what the lines already say, which could disagree with
+them -- a line purged by retention would linger as recent).
+
+- **The node:** `fzn_node_messages_stickers_sent` (`node/messages.c`);
+  `list sticker recent`, `ok COUNT 0 ROOT,ID,DESC ...`, at most 20, as
+  sent whether or not the pack is kept here. `node/stickers.c` reaches the
+  lines through a hook fuzznetd fills (`recent`), so the stickers module
+  links no messages code; without lines it is refused in words.
+- **In binary** (sec 1208): FZN_CMD_STICKERS `recent` (140), answered by
+  a `recent_row` (141) each -- root, id, description raw -- and ok.
+- **The client:** `fzn_rpc_sticker_recent`, binary first, text after.
+- **The picker:** a Recent tab first among the tabs and shown on opening,
+  each sticker as its pack's tab shows it (no art asked again), one whose
+  pack is not kept here left out, absent when empty. Pack numbers in the
+  view's calls (`pick`, `touch`, `forget`) count packs alone, so adding
+  the tab moved no caller's index; `recent()` and `pick_recent()` for it.
+
+**Tests:** messages_test -- a received sticker, plain words and a sticker
+sent twice with different words: two, newest first, without words; the
+most asked respected. sticker_picker_view_test -- the Recent tab two of
+three, the unkept pack's left out, chosen as its pack's. live_chat c4 --
+A1 sends three sticker lines, and A2, which wrote none, lists the two in
+text and in binary. stickers_local_vectors (18, two new). Sabotages
+`stickers-sent-twice`, `stickers-sent-received-too`.

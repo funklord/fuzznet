@@ -55,6 +55,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return 0;
 	if (!strcmp(line, "list sticker 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 " PACK ",4096,waves,1,user\n");
+	/* SENT LATELY, sec 1317: thumbs up, then waving, then one of a pack
+	 * not kept here. */
+	if (!strcmp(line, "list sticker recent"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 3 0 " PACK ",8,thumbs%%20up " PACK ",7,waving %064d,3,elsewhere\n", 0);
 	if (!strcmp(line, "list sticker " PACK " 0"))
 		return (size_t)snprintf(reply, cap, "ok 3 0 7,1,1,waving 8,1,0,thumbs%%20up,12 9,1,4,dancing\n");
 	/* STICKER 9 IS A LOTTIE: its JSON written where asked, format 1. */
@@ -177,6 +182,12 @@ int main(int argc, char **argv)
 	      "the pack was not a tab with its stickers, the drawn ones drawn and the other named");
 	CHECK(v.pick(0, 0) && picked == REF, "choosing a sticker did not hand over its reference");
 	CHECK(!v.pick(0, 5), "a sticker that is not there was chosen");
+	/* THE RECENT TAB, sec 1317: what was sent lately, newest first, each as
+	 * its pack's tab shows it; one of a pack not kept here left out; chosen
+	 * as its tab's would be; pack numbers not moved by it. */
+	CHECK(v.recent() == QStringList({ "thumbs up", "waving" }), "the stickers sent lately were not a Recent tab");
+	picked.clear();
+	CHECK(v.pick_recent(1) && picked == REF, "a recent sticker was not chosen as its pack's would be");
 	/* A STICKER WITH A BOX ASKS FOR ITS WORDS, sec 1296: given, they ride
 	 * its reference; called off, nothing is chosen; left empty, it goes as
 	 * drawn. */

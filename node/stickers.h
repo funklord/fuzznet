@@ -33,6 +33,10 @@
  *                           FILL and INK 8 hex, all 0 for no box.
  *                           PACK a saved pack's ROOT, or the 144 hex of any
  *                           held pack's reference.
+ *   list sticker recent     the stickers this user sent lately, newest
+ *                           first, each once (sec 1317): `ok COUNT 0
+ *                           ROOT,ID,DESC ...`, at most 20, DESC escaped --
+ *                           as sent, whether or not its pack is kept here.
  *   get sticker PACK        `ok ID`, the pack's own id from its art in
  *                           decimal (sec 859), 0 for a pack before it.
  *   get sticker PACK ID     `ok fzn:sticker/...`, the reference a message
@@ -65,6 +69,7 @@
 #include "../session/commitment.h"
 #include "../search/search.h"
 
+struct fzn_sticker_ref; /* sticker/pack.h */
 typedef struct fzn_node_stickers {
 	fzn_node_files_t *files;
 	const fzn_node_settings_t *settings;	/* `estate` set */
@@ -72,7 +77,16 @@ typedef struct fzn_node_stickers {
 	/* BLAKE2b, for the ids a spec leaves out (`fzn_sticker_derive_ids`,
 	 * sec 702); NULL refuses such a spec. */
 	const fzn_hash_ops_t *hash;
+	/* THE STICKERS THIS USER SENT LATELY, newest first, at most MAX into
+	 * OUT: the count (sec 1317). Kept by whoever keeps the lines --
+	 * fuzznetd's `fzn_node_messages_stickers_sent` -- so this module
+	 * links none of them; NULL refuses `list sticker recent`. */
+	size_t (*recent)(void *ctx, struct fzn_sticker_ref *out, size_t max);
+	void *recent_ctx;
 } fzn_node_stickers_t;
+
+/* The most stickers `list sticker recent` says. */
+#define FZN_NODE_STICKERS_RECENT_MAX 20u
 
 /* The verbs above; 0 for a request that is not one. */
 size_t fzn_node_stickers_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,

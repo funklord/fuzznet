@@ -990,6 +990,30 @@ static size_t list_match(const fzn_node_stickers_t *st, const uint8_t *text, siz
 	return page(rows, r.n, 0, reply, cap);
 }
 
+/* `list sticker recent`, sec 1317: `ok COUNT 0 ROOT,ID,DESC ...`, the
+ * stickers this user sent lately as `recent` finds them. */
+static size_t list_recent(const fzn_node_stickers_t *st, char *reply, size_t cap)
+{
+	static char rows[FZN_NODE_STICKERS_RECENT_MAX][ROW_MAX];
+	static fzn_sticker_ref_t sent[FZN_NODE_STICKERS_RECENT_MAX];
+	size_t n, i;
+
+	if (!st->recent)
+		return REPLY("error this node keeps no lines to find them in\n");
+	n = st->recent(st->recent_ctx, sent, FZN_NODE_STICKERS_RECENT_MAX);
+	for (i = 0; i < n; i++) {
+		char desc[3u * FZN_STICKER_DESC_MAX + 1u];
+		size_t d = 0, at = 2u * FZN_STICKER_ROOT_LEN, b;
+
+		(void)fzn_escape((const uint8_t *)sent[i].description, sent[i].description_len, desc, sizeof(desc) - 1u, &d);
+		desc[d] = '\0';
+		for (b = 0; b < FZN_STICKER_ROOT_LEN; b++)
+			fzn_hex_byte(sent[i].root[b], rows[i] + 2u * b);
+		(void)snprintf(rows[i] + at, ROW_MAX - at, ",%llu,%s", (unsigned long long)sent[i].id, desc);
+	}
+	return page(rows, n, 0, reply, cap);
+}
+
 /* A WORD AS A PAGE'S START, at most ten digits: 1, or 0. */
 static int from_of(const uint8_t *w, size_t n, size_t *from)
 {
@@ -1245,6 +1269,8 @@ size_t fzn_node_stickers_local(void *ctx, fzn_origin_t origin, const fzn_request
 
 		if (!next_word(&at, &left, &w, &n))
 			return list_saved(st, 0, reply, cap);
+		if (n == 6u && !memcmp(w, "recent", 6u))
+			return left ? REPLY("malformed list sticker recent\n") : list_recent(st, reply, cap);
 		if (n == 5u && !memcmp(w, "match", 5u))
 			return left ? list_match(st, at, left, reply, cap) : REPLY("malformed list sticker match TEXT\n");
 		if (n <= 10u)

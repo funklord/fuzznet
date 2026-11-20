@@ -571,6 +571,16 @@ const uint8_t *fzn_node_messages_shared_id(const fzn_node_messages_t *nm, const 
                                           uint8_t out[FZN_MESSAGE_ID_LEN]);
 int fzn_node_messages_lines_each(fzn_node_messages_t *nm, const uint8_t *key, size_t from, size_t max,
                                  void (*each)(void *ctx, const fzn_node_line_t *line), void *ctx);
+struct fzn_sticker_ref; /* sticker/pack.h */
+/* THE STICKERS THIS USER SENT LATELY, sec 1317: of the newest LOOK lines
+ * of every conversation, this user's own that are a sticker's reference,
+ * newest first and each sticker once (by its pack's root and id), at most
+ * MAX into OUT -- the words a line gave it dropped, so one sticker sent
+ * with two sayings is one. Lines are journaled on every host of the user,
+ * so every host says the same. The count, or 0 when none or a page did not
+ * read. */
+size_t fzn_node_messages_stickers_sent(fzn_node_messages_t *nm, size_t look, struct fzn_sticker_ref *out,
+                                       size_t max);
 /* THIS USER'S LINE WRITTEN to KEY -- a contact's root key or a group's id
  * -- as `add message KEY out ID TEXT` writes it, sec 1161, at this host's
  * time: TEXT raw, or with ATTACH the name of the file held here whose root

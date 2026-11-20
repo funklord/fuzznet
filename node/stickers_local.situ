@@ -22,6 +22,8 @@ enum op : u8 {
 	art        = 137, // a rendition or the sound written to a file, as `get sticker PACK ID ROLE PATH`
 	drawn      = 138, // an answer: what was written
 	put        = 139, // a pack built from a spec, or a pack file kept, as `put sticker PATH` (sec 1308)
+	recent     = 140, // the stickers this user sent lately, as `list sticker recent` (sec 1317)
+	recent_row = 141, // an answer: one of them
 	default  = error,
 }
 
@@ -133,6 +135,15 @@ struct drawn_row {
 	u64  bytes;
 }
 
+// ONE STICKER SENT LATELY: its pack's ROOT, its ID there, and the
+// description the line carried, raw.
+struct recent_row {
+	u8   root[32];
+	u64  id;
+	u8   description_len;
+	u8   description[description_len];
+}
+
 struct message {
 	u8   cmd [must_eq = 22];
 	op   op;
@@ -150,6 +161,8 @@ struct message {
 		case op.art:        art_ask        art;
 		case op.drawn:      drawn_row      drawn;
 		case op.put:        put_ask        put;
+		case op.recent:     nothing        recent;
+		case op.recent_row: recent_row     recent_row;
 		default: error;
 	}
 }

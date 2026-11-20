@@ -79,8 +79,13 @@ public:
 	bool pick_found(int row);
 
 	/* WHAT IS ON SCREEN: each pack's name, then its stickers indented, each
-	 * as its description and whether it is drawn; the status line. */
+	 * as its description and whether it is drawn; the status line. RECENT
+	 * the Recent tab's stickers by description, newest first (sec 1317),
+	 * empty where it is not shown; `pick_recent` chooses one. Pack numbers
+	 * elsewhere count packs alone, the Recent tab not among them. */
 	QStringList shown() const;
+	QStringList recent() const;
+	bool pick_recent(int row);
 	QString status() const;
 
 private:
@@ -89,6 +94,9 @@ private:
 	std::function<bool(const QString &, int, QString *)> m_words;
 
 	bool pick_item(QListWidgetItem *item);
+	class QListWidget *pack_list(int pack) const;
+	int pack_of_tab(int tab) const;
+	void show_recent();
 	bool sound(QListWidgetItem *item);
 
 	std::function<void(const QString &)> m_sound;

@@ -485,6 +485,41 @@ situ_err_t fzn_stickers_local_drawn_row_validate(situ_view_t view)
 	return fzn_stickers_local_drawn_row_check(view, NULL);
 }
 
+situ_err_t fzn_stickers_local_recent_row_check(situ_view_t view, uint32_t *which)
+{
+	/* One place rather than a guard at every refusal: a caller
+	 * that does not want the identity passes NULL, and the
+	 * refusals below stay one line each. */
+	uint32_t sink;
+
+	if (which == NULL) {
+		which = &sink;
+	}
+	*which = 0xFFFFFFFFu;
+
+	if (view.limit < FZN_STICKERS_LOCAL_RECENT_ROW_SIZE_MIN) {
+		/* The whole struct is short, so no member is the one
+		 * that broke it -- the same case the depth checks
+		 * meet, and `check`'s contract is that every refusal
+		 * sets `*which` on the line above it. */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_BOUNDS;
+	}
+	/* recent_row.description: the length the message declares has to fit
+	 * the frame it is in. The accessor clamps; this is where a
+	 * message that does not fit is called malformed. */
+	if (situ_remaining_u32(view.limit, 41u) < ((uint32_t)situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[40u])))) {
+		*which = FZN_STICKERS_LOCAL_RECENT_ROW_DESCRIPTION_CHECK;
+		return SITU_ERR_BOUNDS;
+	}
+	return SITU_OK;
+}
+
+situ_err_t fzn_stickers_local_recent_row_validate(situ_view_t view)
+{
+	return fzn_stickers_local_recent_row_check(view, NULL);
+}
+
 situ_err_t fzn_stickers_local_message_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -517,12 +552,12 @@ situ_err_t fzn_stickers_local_message_check(situ_view_t view, uint32_t *which)
 	}
 	/* message.body: the arm the discriminant selects has to
 	 * fit the frame (26.777). */
-	if (situ_remaining_u32(view.limit, 2u) < ((fzn_stickers_local_message_op_get(view) == 128u ? 0u : (fzn_stickers_local_message_op_get(view) == 129u ? (fzn_stickers_local_message_body_pack_row_extent(view)) : (fzn_stickers_local_message_op_get(view) == 130u ? 32u : (fzn_stickers_local_message_op_get(view) == 131u ? (fzn_stickers_local_message_body_item_row_extent(view)) : (fzn_stickers_local_message_op_get(view) == 132u ? 72u : (fzn_stickers_local_message_op_get(view) == 133u ? 33u : (fzn_stickers_local_message_op_get(view) == 134u ? 32u : (fzn_stickers_local_message_op_get(view) == 135u ? (fzn_stickers_local_message_body_reference_extent(view)) : (fzn_stickers_local_message_op_get(view) == 136u ? (fzn_stickers_local_message_body_referenced_extent(view)) : (fzn_stickers_local_message_op_get(view) == 137u ? (fzn_stickers_local_message_body_art_extent(view)) : (fzn_stickers_local_message_op_get(view) == 138u ? 13u : (fzn_stickers_local_message_op_get(view) == 139u ? (fzn_stickers_local_message_body_put_extent(view)) : 0u)))))))))))))) {
+	if (situ_remaining_u32(view.limit, 2u) < ((fzn_stickers_local_message_op_get(view) == 128u ? 0u : (fzn_stickers_local_message_op_get(view) == 129u ? (fzn_stickers_local_message_body_pack_row_extent(view)) : (fzn_stickers_local_message_op_get(view) == 130u ? 32u : (fzn_stickers_local_message_op_get(view) == 131u ? (fzn_stickers_local_message_body_item_row_extent(view)) : (fzn_stickers_local_message_op_get(view) == 132u ? 72u : (fzn_stickers_local_message_op_get(view) == 133u ? 33u : (fzn_stickers_local_message_op_get(view) == 134u ? 32u : (fzn_stickers_local_message_op_get(view) == 135u ? (fzn_stickers_local_message_body_reference_extent(view)) : (fzn_stickers_local_message_op_get(view) == 136u ? (fzn_stickers_local_message_body_referenced_extent(view)) : (fzn_stickers_local_message_op_get(view) == 137u ? (fzn_stickers_local_message_body_art_extent(view)) : (fzn_stickers_local_message_op_get(view) == 138u ? 13u : (fzn_stickers_local_message_op_get(view) == 139u ? (fzn_stickers_local_message_body_put_extent(view)) : (fzn_stickers_local_message_op_get(view) == 140u ? 0u : (fzn_stickers_local_message_op_get(view) == 141u ? (fzn_stickers_local_message_body_recent_row_extent(view)) : 0u)))))))))))))))) {
 		*which = FZN_STICKERS_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* message.body: an arm for op.packs, op.pack_row, op.items, op.item_row, op.keep, op.kept, op.forget, op.reference, op.referenced, op.art, op.drawn, op.put, and `default: error` for the rest. */
-	if (fzn_stickers_local_message_op_get(view) != 128u && fzn_stickers_local_message_op_get(view) != 129u && fzn_stickers_local_message_op_get(view) != 130u && fzn_stickers_local_message_op_get(view) != 131u && fzn_stickers_local_message_op_get(view) != 132u && fzn_stickers_local_message_op_get(view) != 133u && fzn_stickers_local_message_op_get(view) != 134u && fzn_stickers_local_message_op_get(view) != 135u && fzn_stickers_local_message_op_get(view) != 136u && fzn_stickers_local_message_op_get(view) != 137u && fzn_stickers_local_message_op_get(view) != 138u && fzn_stickers_local_message_op_get(view) != 139u) {
+	/* message.body: an arm for op.packs, op.pack_row, op.items, op.item_row, op.keep, op.kept, op.forget, op.reference, op.referenced, op.art, op.drawn, op.put, op.recent, op.recent_row, and `default: error` for the rest. */
+	if (fzn_stickers_local_message_op_get(view) != 128u && fzn_stickers_local_message_op_get(view) != 129u && fzn_stickers_local_message_op_get(view) != 130u && fzn_stickers_local_message_op_get(view) != 131u && fzn_stickers_local_message_op_get(view) != 132u && fzn_stickers_local_message_op_get(view) != 133u && fzn_stickers_local_message_op_get(view) != 134u && fzn_stickers_local_message_op_get(view) != 135u && fzn_stickers_local_message_op_get(view) != 136u && fzn_stickers_local_message_op_get(view) != 137u && fzn_stickers_local_message_op_get(view) != 138u && fzn_stickers_local_message_op_get(view) != 139u && fzn_stickers_local_message_op_get(view) != 140u && fzn_stickers_local_message_op_get(view) != 141u) {
 		*which = FZN_STICKERS_LOCAL_MESSAGE_BODY_CHECK;
 		return SITU_ERR_VERSION;
 	}
@@ -748,6 +783,44 @@ situ_err_t fzn_stickers_local_message_check(situ_view_t view, uint32_t *which)
 
 			if (err != SITU_OK) {
 				*which = FZN_STICKERS_LOCAL_MESSAGE_BODY_PUT_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.recent: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_stickers_local_message_body_recent_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_stickers_local_nothing_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_STICKERS_LOCAL_MESSAGE_BODY_RECENT_CHECK;
+				return err;
+			}
+		} else if (got != SITU_ERR_VERSION) {
+			return got;
+		}
+	}
+	/* message.body.recent_row: the arm the discriminant selects carries
+	 * its own constraints, and its own validator is what knows
+	 * them. A different arm is nothing to check; this arm not
+	 * fitting the frame is a malformed message. */
+	{
+		situ_view_t arm;
+		const situ_err_t got = fzn_stickers_local_message_body_recent_row_view(view, &arm);
+
+		if (got == SITU_OK) {
+			const situ_err_t err = fzn_stickers_local_recent_row_validate(arm);
+
+			if (err != SITU_OK) {
+				*which = FZN_STICKERS_LOCAL_MESSAGE_BODY_RECENT_ROW_CHECK;
 				return err;
 			}
 		} else if (got != SITU_ERR_VERSION) {

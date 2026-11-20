@@ -109,14 +109,14 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	connect(m_found, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
 	connect(m_found, &QListWidget::itemClicked, [this](QListWidgetItem *item) { sound(item); });
 	connect(m_forget, &QPushButton::clicked, [this]() {
-		const int at = m_tabs->currentIndex();
+		const int at = pack_of_tab(m_tabs->currentIndex());
 
 		if (at < 0)
 			return;
 		if (QMessageBox::question(this, tr("Let the pack go"),
 		                          tr("Let %1 go from your stickers? You can keep it again from any message "
 		                             "that carries one of its stickers.")
-		                                  .arg(m_tabs->tabText(at)))
+		                                  .arg(m_tabs->tabText(m_tabs->indexOf(pack_list(at)))))
 		    == QMessageBox::Yes)
 			forget(at);
 	});
@@ -198,7 +198,7 @@ bool fzn_sticker_picker_view::refresh()
 		connect(list, &QListWidget::itemActivated, [this](QListWidgetItem *item) {
 			QListWidget *l = item ? item->listWidget() : nullptr;
 			if (l)
-				pick(m_tabs->indexOf(l), l->row(item));
+				pick_item(item);
 		});
 		/* A CLICK is a person touching it: its sound, where it has one;
 		 * choosing it to send stays activation. */
@@ -209,19 +209,106 @@ bool fzn_sticker_picker_view::refresh()
 	m_status->setText(packs.count ? QString() : tr("No sticker packs kept yet."));
 	fzn_rpc_sticker_packs_release(&packs);
 	delete items;
+	show_recent();
 	return true;
+}
+
+/* THE RECENT TAB, sec 1317: the stickers this user sent lately, from any
+ * of their hosts, newest first -- each as its pack's tab shows it, so it
+ * asks the node for no art; one whose pack is not kept here is left out.
+ * First among the tabs, and not shown when it would be empty or the node
+ * cannot say. */
+void fzn_sticker_picker_view::show_recent()
+{
+	auto *sent = new fzn_rpc_sticker_match_resp_t;
+	auto *list = new QListWidget;
+
+	memset(sent, 0, sizeof *sent);
+	if (fzn_rpc_sticker_recent(&m_rpc->c, sent) == FZN_RPC_OK)
+		for (size_t i = 0; i < sent->count; i++) {
+			char hex[65];
+
+			fzn_hex_encode(sent->entries[i].root, 32, hex);
+			const QByteArray pack(hex, 64);
+			for (int t = 0; t < m_tabs->count(); t++) {
+				auto *l = qobject_cast<QListWidget *>(m_tabs->widget(t));
+				if (!l || l->property("pack").toByteArray() != pack)
+					continue;
+				for (int r = 0; r < l->count(); r++)
+					if (l->item(r)->data(ROLE_ID).toULongLong() == (qulonglong)sent->entries[i].id)
+						list->addItem(l->item(r)->clone());
+			}
+		}
+	delete sent;
+	if (!list->count()) {
+		delete list;
+		return;
+	}
+	list->setViewMode(QListView::IconMode);
+	list->setIconSize(QSize(64, 64));
+	list->setResizeMode(QListView::Adjust);
+	list->setWordWrap(true);
+	list->setAccessibleName(tr("Stickers you sent lately"));
+	list->setProperty("recent", true);
+	connect(list, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
+	connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) { sound(item); });
+	m_tabs->insertTab(0, list, tr("Recent"));
+	m_tabs->setCurrentIndex(0);
+}
+
+/* PACK `pack`'S LIST, counting packs alone (the Recent tab is none). */
+QListWidget *fzn_sticker_picker_view::pack_list(int pack) const
+{
+	for (int t = 0; t < m_tabs->count(); t++) {
+		auto *l = qobject_cast<QListWidget *>(m_tabs->widget(t));
+		if (!l || l->property("recent").toBool())
+			continue;
+		if (pack-- == 0)
+			return l;
+	}
+	return nullptr;
+}
+
+int fzn_sticker_picker_view::pack_of_tab(int tab) const
+{
+	QWidget *w = m_tabs->widget(tab);
+	int pack = 0;
+
+	if (!w || w->property("recent").toBool())
+		return -1;
+	for (int t = 0; t < tab; t++)
+		if (!m_tabs->widget(t)->property("recent").toBool())
+			pack++;
+	return pack;
+}
+
+QStringList fzn_sticker_picker_view::recent() const
+{
+	QStringList out;
+	auto *l = m_tabs->count() ? qobject_cast<QListWidget *>(m_tabs->widget(0)) : nullptr;
+
+	for (int r = 0; l && l->property("recent").toBool() && r < l->count(); r++)
+		out << l->item(r)->text();
+	return out;
+}
+
+bool fzn_sticker_picker_view::pick_recent(int row)
+{
+	auto *l = m_tabs->count() ? qobject_cast<QListWidget *>(m_tabs->widget(0)) : nullptr;
+
+	return l && l->property("recent").toBool() && pick_item(l->item(row));
 }
 
 bool fzn_sticker_picker_view::pick(int pack, int row)
 {
-	auto *list = qobject_cast<QListWidget *>(m_tabs->widget(pack));
+	QListWidget *list = pack_list(pack);
 
 	return pick_item(list ? list->item(row) : nullptr);
 }
 
 bool fzn_sticker_picker_view::touch(int pack, int row)
 {
-	auto *list = qobject_cast<QListWidget *>(m_tabs->widget(pack));
+	QListWidget *list = pack_list(pack);
 
 	return sound(list ? list->item(row) : nullptr);
 }
@@ -357,9 +444,9 @@ bool fzn_sticker_picker_view::pick_item(QListWidgetItem *item)
 
 bool fzn_sticker_picker_view::forget(int pack)
 {
-	QWidget *tab = m_tabs->widget(pack);
+	QWidget *tab = pack_list(pack);
 	const QByteArray hex = tab ? tab->property("pack").toByteArray() : QByteArray();
-	const QString name = tab ? m_tabs->tabText(pack) : QString();
+	const QString name = tab ? m_tabs->tabText(m_tabs->indexOf(tab)) : QString();
 	uint8_t root[32];
 
 	if (hex.size() != 64 || fzn_hex_decode(hex.constData(), root, sizeof root) != 0)
@@ -406,8 +493,10 @@ QStringList fzn_sticker_picker_view::shown() const
 {
 	QStringList out;
 	for (int t = 0; t < m_tabs->count(); t++) {
-		out << m_tabs->tabText(t);
 		auto *list = qobject_cast<QListWidget *>(m_tabs->widget(t));
+		if (list && list->property("recent").toBool())
+			continue;
+		out << m_tabs->tabText(t);
 		for (int i = 0; list && i < list->count(); i++)
 			out << QStringLiteral("  %1%2").arg(list->item(i)->text(),
 			                                    list->item(i)->data(ROLE_DRAWN).toBool()

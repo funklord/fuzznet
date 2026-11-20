@@ -64,6 +64,7 @@ from live_trim import ask, failed  # noqa: E402
 from live_events import subscriber  # noqa: E402
 from live_groups import KEPT_RE, PREKEY_HOST  # noqa: E402
 from live_events import subscriber  # noqa: E402
+from live_rpc import binary  # noqa: E402
 import live_trim  # noqa: E402
 
 # ROUNDS OF TWO SECONDS, the fault build's knob (sec 693).
@@ -423,6 +424,28 @@ def main(argv):
 			   or first[5:] != ["c2%20line"]:
 				raise failed("c3: B1's list message newest answered %r" % got[:6])
 			print("livecheck: c3: B1 listed every conversation's newest line, A1's first")
+
+			# c4: THE STICKERS A USER SENT LATELY, sec 1317: three sticker lines
+			# from A1, one sticker twice with different words; A2, which wrote
+			# none of them, lists two, newest first, each once -- the lines are
+			# carried to every host of the user -- in text and in bytes.
+			pack = "5a" * 32
+			for line in ("fzn:sticker/%s/%s/4096/7%%20waving" % (pack, "6b" * 32),
+			             "fzn:sticker/%s/%s/4096/9%%20dancing" % (pack, "6b" * 32),
+			             "fzn:sticker/%s/%s/4096/7:hi%%20waving" % (pack, "6b" * 32)):
+				expect(socks["a1"], "a1", "add message %s out %s %s"
+				       % (keys["b"], os.urandom(16).hex(), line), "ok")
+				time.sleep(0.01)
+			want = ["%s,7,waving" % pack, "%s,9,dancing" % pack]
+			polled("a2", "list sticker recent", lambda g: g.split() == ["ok", "2", "0"] + want,
+			       "not the two stickers A1 sent, newest first, each once")
+			got = binary(socks["a2"], bytes([0x16, 0x8C]))
+			rows = [(m[2:34].hex(), int.from_bytes(m[34:42], "big"), m[43:43 + m[42]].decode())
+			        for m in got[:-1] if m[:2] == bytes([0x16, 0x8D])]
+			if rows != [(pack, 7, "waving"), (pack, 9, "dancing")] or got[-1][:2] != bytes([0x13, 0]):
+				raise failed("c4: A2's recent stickers in binary answered %r" % got)
+			print("livecheck: c4: A2 listed the stickers A1 sent, newest first and each once, "
+			      "in text and in binary")
 
 			# d: nothing owed anywhere.
 			for who in WHO:
