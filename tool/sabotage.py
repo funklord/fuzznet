@@ -17814,7 +17814,7 @@ SABOTAGES = [
 		"note-hit-unlabelled",
 		"node/notes.c",
 		"\t\t\t\t(void)fzn_search_facet_add(&h, \"label\", (const char *)l, l_len);\n",
-		"",
+		"\t\t\t\t;\n",
 		"a note's hit carries none of its labels, so no filter selects a note by one; notes_test -- sec 1332",
 	),
 	(
