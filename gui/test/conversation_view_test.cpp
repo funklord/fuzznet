@@ -82,6 +82,14 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		                                    "9,2,5,dancing,0,0,0,0,0,00000000,00000000,0,128,128 "
 		                                    "11,3,0,fireworks,0,0,0,0,0,00000000,00000000,0,128,128\n");
 	}
+	/* STICKER 7 IS NO POP-UP ONE, though a node draws its nearest art for
+	 * any role asked: so a log that popped it up would show it (sec 1302). */
+	if (!strncmp(line, "get sticker " DAN_PACK " 7 popup ", 12 + 144 + 9)) {
+		QImage one(4, 4, QImage::Format_ARGB32);
+		one.fill(Qt::red);
+		return one.save(QString::fromUtf8(line + 12 + 144 + 9), "PNG") ? (size_t)snprintf(reply, cap, "ok 4 4 4\n")
+		                                                             : (size_t)snprintf(reply, cap, "error no\n");
+	}
 	/* STICKER 11 IS A POP-UP ONE: its pop-up art a PNG (sec 1302). */
 	if (!strncmp(line, "get sticker " DAN_PACK " 11 popup ", 12 + 144 + 10)) {
 		QImage one(4, 4, QImage::Format_ARGB32);
