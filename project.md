@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1301
+The newest work is at the end of this file. **Read secs 1287 to 1302
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -47,9 +47,9 @@ listener port spans (`150e3106`).
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
   1297), the chosen Lottie sticker playing (sec 1300), its sound (sec
-  1301). Left: (b) raster
+  1301), a pop-up one across the log (sec 1302). Left: (b) raster
   animation and the picker's; (c) a sticker's sound in the picker (the
-  log's: sec 1301); (d) pop-up and effect stickers shown; (e) a recent tab,
+  log's: sec 1301); (d) effect stickers shown (pop-up ones: sec 1302); (e) a recent tab,
   which wants a place every host of the user shares; (h) the reply
   target's words as the matcher's context; (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
@@ -93966,3 +93966,22 @@ spec gave it, the waving cat's refused; conversation_view_test -- a
 sticker with a sound chosen hands it over, written once across two
 choices; one without, nothing; a refresh's choice, nothing. Sabotages
 `sticker-sound-any`, `sticker-sound-written-again`.
+
+## 1302. A pop-up sticker across the log, 2026-11-20
+
+The audit's (d), its pop-up half. A pop-up sticker (`FZN_STICKER_POPUP`,
+"plays across the chat screen") showed only its still in its line. Now,
+chosen by a person, its pop-up art (`FZN_STICKER_POPUP_ART`, asked once
+and kept) is shown over the log's viewport for one two-second loop --
+played where it is a Lottie one this build draws -- and then goes; any
+other line chosen takes it away. The overlay passes clicks through to the
+lines beneath it. A refresh's choice pops nothing up, as it plays no
+sound (sec 1301).
+
+**Left of (d):** effect stickers (`FZN_STICKER_EFFECT`, "plays behind
+the text"), which want the log's delegate to paint behind a line's words.
+
+**Tests:** conversation_view_test -- a sticker that is no pop-up one does
+not pop up; a pop-up one chosen does, its art asked once across two
+choices; another line chosen takes it away. Sabotages
+`sticker-popup-any`, `sticker-popup-asked-again`.

@@ -17811,6 +17811,20 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"sticker-popup-any",
+		"gui/conversation_view.cpp",
+		"\tconst bool popup = sticker_box(sticker.left(144), id, box) && box->type == FZN_STICKER_POPUP;\n",
+		"\tconst bool popup = sticker_box(sticker.left(144), id, box);\n",
+		"any sticker chosen popped up across the log; conversation_view_test -- sec 1302",
+	),
+	(
+		"sticker-popup-asked-again",
+		"gui/conversation_view.cpp",
+		"\t\tm_art->popup_art.insert(sticker, QByteArray((const char *)bytes, (int)len));\n",
+		"",
+		"a pop-up's art asked of the node each time it is chosen; conversation_view_test -- sec 1302",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",

@@ -124,6 +124,8 @@ public:
 	bool drawn(int row) const;
 	/* Whether the chosen line's sticker is playing (sec 1300). */
 	bool playing() const;
+	/* Whether a pop-up sticker is shown across the log (sec 1302). */
+	bool popped() const;
 
 	/* THE HOST'S PLAYER FOR A STICKER'S SOUND (sec 1301), given the file it
 	 * was written to; unset, no sound is fetched. */
@@ -168,6 +170,11 @@ private:
 	void rest();
 	void play_frame();
 	void sound(QListWidgetItem *item);
+	void pop(QListWidgetItem *item);
+	void unpop();
+	void pop_frame();
+	class QLabel *m_popup = nullptr;
+	QTimer *m_pop = nullptr;
 	std::function<void(const QString &)> m_sound;
 	QTimer *m_play = nullptr;
 	QListWidgetItem *m_playing = nullptr;

@@ -160,6 +160,11 @@ struct fzn_conversation_view::art {
 	 * removes with it, by sticker (sec 1301). */
 	QTemporaryDir sounds;
 	QHash<QByteArray, QString> sound_at;
+	/* A POP-UP STICKER'S POP-UP ART and its format, by sticker (sec 1302). */
+	QHash<QByteArray, QByteArray> popup_art;
+	QHash<QByteArray, int> popup_format;
+	QByteArray popping;
+	QElapsedTimer popped_for;
 	/* A LOTTIE STICKER'S ART, by the same key, kept to play it (sec 1300). */
 	QHash<QByteArray, QByteArray> lottie;
 	QElapsedTimer playing_for;
@@ -387,6 +392,15 @@ fzn_conversation_view::fzn_conversation_view(fzn_notebook_view_ask_t ask, void *
 	m_play = new QTimer(this);
 	m_play->setInterval(PLAY_FRAME_MS);
 	connect(m_play, &QTimer::timeout, [this]() { play_frame(); });
+	/* A POP-UP STICKER, over the log and not in it (sec 1302): clicks go
+	 * through to the lines beneath. */
+	m_popup = new QLabel(m_lines->viewport());
+	m_popup->setAlignment(Qt::AlignCenter);
+	m_popup->setAttribute(Qt::WA_TransparentForMouseEvents);
+	m_popup->hide();
+	m_pop = new QTimer(this);
+	m_pop->setInterval(PLAY_FRAME_MS);
+	connect(m_pop, &QTimer::timeout, [this]() { pop_frame(); });
 	m_lines->setAccessibleName(tr("The conversation's lines"));
 	m_bubbles = new bubble_delegate(m_lines);
 	m_lines->setItemDelegate(m_bubbles);
@@ -997,9 +1011,11 @@ void fzn_conversation_view::select_line(int row)
 	if (m_refreshing || key == m_chosen)
 		return;
 	m_chosen = key;
-	/* A NEW CHOICE ONLY: its sound once, not again at a refresh. */
+	/* A NEW CHOICE ONLY: its sound once, not again at a refresh; and a
+	 * pop-up sticker across the log (sec 1302). */
 	if (item)
 		sound(item);
+	pop(item);
 	m_react->setEnabled(item && item->data(ROLE_ID).toByteArray().size() == (int)FZN_MESSAGE_ID_LEN);
 	offer_for(item);
 }
@@ -1238,6 +1254,77 @@ void fzn_conversation_view::play_frame()
 }
 
 bool fzn_conversation_view::playing() const { return m_playing != nullptr; }
+
+/* A POP-UP STICKER CHOSEN, sec 1302: its pop-up art across the log for one
+ * loop -- played where it is a Lottie one this build draws, still
+ * otherwise -- then gone; any other line chosen, or none, takes it away. */
+void fzn_conversation_view::pop(QListWidgetItem *item)
+{
+	const QByteArray sticker = item ? item->data(ROLE_STICKER).toByteArray() : QByteArray();
+	fzn_sticker_entry_t *box;
+
+	unpop();
+	if (sticker.size() <= 145)
+		return;
+	box = new fzn_sticker_entry_t;
+	const qulonglong id = sticker.mid(145).toULongLong();
+	const bool popup = sticker_box(sticker.left(144), id, box) && box->type == FZN_STICKER_POPUP;
+	delete box;
+	if (!popup)
+		return;
+	if (!m_art->popup_art.contains(sticker)) {
+		uint8_t *bytes = nullptr, format = 0;
+		size_t len = 0;
+
+		if (fzn_rpc_sticker_art(&m_rpc->c, sticker.constData(), 144, id, FZN_STICKER_POPUP_ART, ART_MAX, &bytes,
+		                        &len, &format)
+		    != FZN_RPC_OK) {
+			free(bytes);
+			return;
+		}
+		m_art->popup_art.insert(sticker, QByteArray((const char *)bytes, (int)len));
+		m_art->popup_format.insert(sticker, format);
+		free(bytes);
+	}
+	m_art->popping = sticker;
+	m_art->popped_for.start();
+	m_popup->setGeometry(m_lines->viewport()->rect());
+	m_popup->show();
+	m_popup->raise();
+	pop_frame();
+	if (m_popup->isVisibleTo(m_lines->viewport()))
+		m_pop->start();
+}
+
+void fzn_conversation_view::unpop()
+{
+	m_pop->stop();
+	m_popup->hide();
+	m_art->popping.clear();
+}
+
+void fzn_conversation_view::pop_frame()
+{
+	const qint64 ms = m_art->popped_for.elapsed();
+	auto art = m_art->popup_art.constFind(m_art->popping);
+
+	if (art == m_art->popup_art.constEnd() || ms >= PLAY_LOOP_MS) {
+		unpop();
+		return;
+	}
+	const QSize room = m_lines->viewport()->size();
+	const int side = qMax(STICKER_PX, qMin(room.width(), room.height()));
+	const fzn_sticker_render_result r = fzn_sticker_render_art(
+	        (const uint8_t *)art.value().constData(), (size_t)art.value().size(),
+	        (uint8_t)m_art->popup_format.value(m_art->popping), QSize(side, side), (float)ms / (float)PLAY_LOOP_MS);
+	if (r.pixmap.isNull()) {
+		unpop();
+		return;
+	}
+	m_popup->setPixmap(r.pixmap);
+}
+
+bool fzn_conversation_view::popped() const { return !m_art->popping.isEmpty(); }
 
 void fzn_conversation_view::on_sound(std::function<void(const QString &)> play) { m_sound = std::move(play); }
 

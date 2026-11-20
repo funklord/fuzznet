@@ -55,7 +55,7 @@ static int file_partial;
 	"0000000000000000000000000000000000000000000000000000000000000001"                               \
 	"0000000000000000000000000000000000000000000000000000000000000002"                               \
 	"00000000000003e8"
-static int art_asked, boxes_asked, sounds_written, silent_asked;
+static int art_asked, boxes_asked, sounds_written, silent_asked, popups_asked;
 static char last_keep[200];
 
 static size_t node(void *ctx, const char *line, char *reply, size_t cap)
@@ -78,9 +78,25 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	 * with words (sec 1295): sticker 7, a message sticker with a box. */
 	if (!strncmp(line, "list sticker " DAN_PACK, 13 + 144)) {
 		boxes_asked++;
-		return (size_t)snprintf(reply, cap, "ok 2 0 7,4,0,waving,20,8,8,48,16,FFFFFFC0,000000FF,0,128,128 "
-		                                    "9,2,5,dancing,0,0,0,0,0,00000000,00000000,0,128,128\n");
+		return (size_t)snprintf(reply, cap, "ok 3 0 7,4,0,waving,20,8,8,48,16,FFFFFFC0,000000FF,0,128,128 "
+		                                    "9,2,5,dancing,0,0,0,0,0,00000000,00000000,0,128,128 "
+		                                    "11,3,0,fireworks,0,0,0,0,0,00000000,00000000,0,128,128\n");
 	}
+	/* STICKER 11 IS A POP-UP ONE: its pop-up art a PNG (sec 1302). */
+	if (!strncmp(line, "get sticker " DAN_PACK " 11 popup ", 12 + 144 + 10)) {
+		QImage one(4, 4, QImage::Format_ARGB32);
+		one.fill(Qt::green);
+		popups_asked++;
+		return one.save(QString::fromUtf8(line + 12 + 144 + 10), "PNG") ? (size_t)snprintf(reply, cap, "ok 4 4 4\n")
+		                                                              : (size_t)snprintf(reply, cap, "error no\n");
+	}
+	if (!strcmp(line, "list message jon 0"))
+		return (size_t)snprintf(reply, cap,
+		                        "ok 0 2 0 " BOB ",jon," ID2 ",in,-,1700005900000,1700005900000,1,"
+		                        "fzn:sticker/%064d/%064d/1000/11%%20fireworks " BOB ",jon," ID1
+		                        ",in,-,1700005800000,1700005800000,1,"
+		                        "fzn:sticker/%064d/%064d/1000/7%%20waving\n",
+		                        1, 2, 1, 2);
 	/* STICKER 7 HAS NO SOUND, and is never asked for one (sec 1301). */
 	if (!strncmp(line, "get sticker " DAN_PACK " 7 sound ", 12 + 144 + 9)) {
 		silent_asked++;
@@ -402,6 +418,22 @@ int main(int argc, char **argv)
 		h.select_line(1);
 		CHECK(played.size() == 2 && played.value(1) == played.value(0) && sounds_written == 1,
 		      "a sound played again was written again");
+	}
+	/* A POP-UP STICKER, sec 1302: chosen, its pop-up art across the log,
+	 * asked once; another line chosen takes it away. */
+	{
+		fzn_conversation_view j(node, nullptr);
+
+		/* OLDEST FIRST: the waving sticker, then the fireworks. */
+		j.open(QStringLiteral("jon"));
+		j.select_line(0);
+		CHECK(!j.popped(), "a sticker that is no pop-up one popped up");
+		j.select_line(1);
+		CHECK(j.popped() && popups_asked == 1, "a pop-up sticker chosen did not pop up");
+		j.select_line(0);
+		CHECK(!j.popped(), "a pop-up stayed when another line was chosen");
+		j.select_line(1);
+		CHECK(j.popped() && popups_asked == 1, "a pop-up's art was asked for again");
 	}
 	boxes_asked = 0;
 	/* A STICKER WITH WORDS, sec 1295: drawn, its pack's boxes read once. */
