@@ -82,9 +82,11 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	/* GUS SENT DAN'S STICKER WITH WORDS: "hi there" in its box. */
 	if (!strcmp(line, "list message gus 0"))
 		return (size_t)snprintf(reply, cap,
-		                        "ok 0 1 0 " BOB ",gus," ID1 ",in,-,1700005800000,1700005800000,1,"
+		                        "ok 0 2 0 " BOB ",gus," ID2 ",in,-,1700005900000,1700005900000,1,"
+		                        "fzn:sticker/%064d/%064d/1000/7:bye%%2520now%%20waving " BOB ",gus," ID1
+		                        ",in,-,1700005800000,1700005800000,1,"
 		                        "fzn:sticker/%064d/%064d/1000/7:hi%%2520there%%20waving\n",
-		                        1, 2);
+		                        1, 2, 1, 2);
 	/* A KEPT STICKER FOR "see you", sec 1272; nothing for anything else. */
 	if (!strcmp(line, "list sticker match see you"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 %064d,7,250,waving\n", 1);
@@ -326,8 +328,9 @@ int main(int argc, char **argv)
 		fzn_conversation_view e(node, nullptr);
 
 		e.open(QStringLiteral("gus"));
-		CHECK(e.drawn(0) && boxes_asked == 1, "a sticker sent with words was not drawn with its box");
-		CHECK(e.refresh() && e.drawn(0) && boxes_asked == 1, "a pack's boxes were read again");
+		CHECK(e.drawn(0) && e.drawn(1) && boxes_asked == 1,
+		      "a sticker sent twice with other words was not drawn twice from one reading of its pack");
+		CHECK(e.refresh() && e.drawn(0) && e.drawn(1) && boxes_asked == 1, "a pack's boxes were read again");
 	}
 	d.select_line(0);
 	CHECK(!d.keep_pack() && !last_keep[0], "a file's line kept a pack");

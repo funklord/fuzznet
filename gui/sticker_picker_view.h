@@ -45,6 +45,11 @@ public:
 	/* WHAT TO DO WHEN ONE IS CHOSEN: given the reference a line carries. */
 	void on_pick(std::function<void(const QString &)> pick);
 
+	/* HOW A MESSAGE OR NAME STICKER'S WORDS ARE ASKED (sec 1296): given its
+	 * description and the characters its box holds, the words into
+	 * `*words`, false for a choice called off. Unset, a dialog asks. */
+	void on_words(std::function<bool(const QString &description, int limit, QString *words)> ask);
+
 	/* WHAT A PERSON DOES, public because a headless test cannot click:
 	 * choose sticker `row` of pack `pack` (both from 0, as shown); keep
 	 * packs from files, asking which when `paths` is empty. */
@@ -59,6 +64,7 @@ public:
 private:
 	struct fzn_gui_rpc *m_rpc;
 	std::function<void(const QString &)> m_pick;
+	std::function<bool(const QString &, int, QString *)> m_words;
 
 	QTabWidget *m_tabs;
 	QPushButton *m_keep;

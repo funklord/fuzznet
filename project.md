@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-19
 
-The newest work is at the end of this file. **Read secs 1287 to 1295
+The newest work is at the end of this file. **Read secs 1287 to 1296
 first**: one search over every store, distributed (steps 1 to 3 built,
 `abc77912`); join by request (J1 to J4 built, `613f0bdc`); the two
 listener port spans (`150e3106`).
@@ -44,9 +44,7 @@ listener port spans (`150e3106`).
   view (sec 1293). Left: `with @GROUP`; the catalogue as a store.
 - **Sticker gaps**, from the 2026-11-19 audit, best first. The log now
   draws the main rendition at 128 px and a sticker's words (sec 1295).
-  (a) The picker should still ask for the words when a message or name
-  sticker is chosen: the listing gives `text_limit` and
-  `fzn_rpc_sticker_reference_words` exists. Then: (b) animation beyond frame 0; (c) a sticker's sound,
+  The picker asks for a boxed sticker's words (sec 1296). Then: (b) animation beyond frame 0; (c) a sticker's sound,
   which the node does not export; (d) pop-up and effect stickers shown;
   (e) a search box and a recent tab in the picker (the stickers store
   exists); (f) letting a kept pack go from the picker; (h) the matcher's
@@ -93804,3 +93802,21 @@ binary `list sticker match`.
 drawn once; a sticker sent with words drawn, its pack's boxes read once
 across a refresh. Sabotages `conversation-sticker-never-drawn` and
 `-asked-again` repointed; `conversation-sticker-boxes-read-again` new.
+
+## 1296. The picker asks for a sticker's words, 2026-11-20
+
+The other half of sec 1295's (a). A sticker with a text box -- a message
+or name sticker, its box `text_limit` characters -- asks for its words
+when chosen: by a dialog, or by `on_words` where the host asks its own
+way (and a headless test answers). Given, they ride the reference
+(`fzn_rpc_sticker_reference_words`, `get sticker PACK ID text WORDS`),
+cut to the box's limit; called off, nothing is sent; left empty, the
+sticker goes as drawn. A sticker with no box asks nothing.
+
+**Tests:** sticker_picker_view_test -- a boxed sticker asks with its
+description and limit and sends the words; a boxless one does not ask;
+called off, nothing chosen; empty, sent as drawn. Sabotage
+`picker-words-never-asked`. And conversation_view_test now sends one
+sticker twice with other words, so `conversation-sticker-boxes-read-again`
+has something to catch: a refresh alone never asks again, the drawing
+being cached, and that entry survived its first run.

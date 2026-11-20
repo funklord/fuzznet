@@ -17748,6 +17748,13 @@ SABOTAGES = [
 		"a pack's boxes read again for every sticker sent with words; conversation_view_test -- sec 1295",
 	),
 	(
+		"picker-words-never-asked",
+		"gui/sticker_picker_view.cpp",
+		"\tif (limit > 0) {\n",
+		"\tif (0 && limit > 0) {\n",
+		"a message sticker chosen sent without asking for its words; sticker_picker_view_test -- sec 1296",
+	),
+	(
 		"offer-padding-unchecked",
 		"node/offer.c",
 		"\t\tif (in[i])\n\t\t\treturn 0;\n",

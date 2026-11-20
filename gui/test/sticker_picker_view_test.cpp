@@ -32,6 +32,7 @@ static int checks, failures;
 
 #define PACK "5757000000000000000000000000000000000000000000000000000000000001"
 #define REF "fzn:sticker/" PACK "/0000000000000000000000000000000000000000000000000000000000000002/4096/7"
+#define REF8 "fzn:sticker/" PACK "/0000000000000000000000000000000000000000000000000000000000000002/4096/8"
 
 static int silent;
 
@@ -55,7 +56,7 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "list sticker 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 " PACK ",4096,waves,1,user\n");
 	if (!strcmp(line, "list sticker " PACK " 0"))
-		return (size_t)snprintf(reply, cap, "ok 3 0 7,1,0,waving 8,1,0,thumbs%%20up 9,1,4,dancing\n");
+		return (size_t)snprintf(reply, cap, "ok 3 0 7,1,0,waving 8,1,0,thumbs%%20up,12 9,1,4,dancing\n");
 	/* STICKER 9 IS A LOTTIE: its JSON written where asked, format 1. */
 	if (!strncmp(line, DRAW_LOTTIE, sizeof DRAW_LOTTIE - 1)) {
 		FILE *f = fopen(line + sizeof DRAW_LOTTIE - 1, "wbx");
@@ -79,6 +80,12 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "error no art\n");
 	if (!strcmp(line, "get sticker " PACK " 7"))
 		return (size_t)snprintf(reply, cap, "ok " REF "\n");
+	/* STICKER 8 HAS A BOX OF TWELVE: its reference with words, or without
+	 * (sec 1296). */
+	if (!strcmp(line, "get sticker " PACK " 8 text hi%20there"))
+		return (size_t)snprintf(reply, cap, "ok " REF8 ":hi%%20there\n");
+	if (!strcmp(line, "get sticker " PACK " 8"))
+		return (size_t)snprintf(reply, cap, "ok " REF8 "\n");
 	/* KEEPING: a pack file put as a pack and kept, the other refused
 	 * (`put sticker PATH`, sec 1278). */
 	if (!strcmp(line, "put sticker /tmp/fzn-good.fzs"))
@@ -142,6 +149,32 @@ int main(int argc, char **argv)
 	      "the pack was not a tab with its stickers, the drawn ones drawn and the other named");
 	CHECK(v.pick(0, 0) && picked == REF, "choosing a sticker did not hand over its reference");
 	CHECK(!v.pick(0, 5), "a sticker that is not there was chosen");
+	/* A STICKER WITH A BOX ASKS FOR ITS WORDS, sec 1296: given, they ride
+	 * its reference; called off, nothing is chosen; left empty, it goes as
+	 * drawn. */
+	{
+		QString asked_about, give = QStringLiteral("hi there");
+		int asked_limit = 0;
+		bool go = true;
+
+		v.on_words([&](const QString &description, int limit, QString *words) {
+			asked_about = description;
+			asked_limit = limit;
+			*words = give;
+			return go;
+		});
+		picked.clear();
+		CHECK(v.pick(0, 1) && asked_about == "thumbs up" && asked_limit == 12 && picked == REF8 ":hi%20there",
+		      "a sticker with a box did not ask for its words, or did not send them");
+		picked.clear();
+		CHECK(v.pick(0, 0) && picked == REF && asked_limit == 12, "a sticker with no box asked for words");
+		go = false;
+		picked.clear();
+		CHECK(!v.pick(0, 1) && picked.isEmpty(), "a choice called off at its words was sent");
+		go = true;
+		give.clear();
+		CHECK(v.pick(0, 1) && picked == REF8, "a sticker left without words was not sent as drawn");
+	}
 
 	CHECK(!v.keep_files({ "/tmp/fzn-good.fzs", "/tmp/fzn-bad.fzs" })
 	              && v.status().startsWith("Kept 1 of 2.") && v.status().contains("fzn-bad.fzs: not a sticker pack"),

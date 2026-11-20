@@ -14,6 +14,8 @@ extern "C" {
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QImage>
 #include <QLabel>
 #include <QListWidget>
@@ -32,6 +34,9 @@ extern "C" {
 #define ROLE_PACK (Qt::UserRole)
 #define ROLE_ID (Qt::UserRole + 1)
 #define ROLE_DRAWN (Qt::UserRole + 2)
+/* THE CHARACTERS ITS WORDS MAY RUN TO, 0 for a sticker with no box (sec 1296). */
+#define ROLE_LIMIT (Qt::UserRole + 3)
+#define ROLE_DESCRIPTION (Qt::UserRole + 4)
 
 static QString failed_words(const fzn_gui_rpc *r)
 {
@@ -74,6 +79,11 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 }
 
 fzn_sticker_picker_view::~fzn_sticker_picker_view() { delete m_rpc; }
+
+void fzn_sticker_picker_view::on_words(std::function<bool(const QString &, int, QString *)> ask)
+{
+	m_words = std::move(ask);
+}
 
 void fzn_sticker_picker_view::on_pick(std::function<void(const QString &)> pick) { m_pick = pick; }
 
@@ -129,6 +139,8 @@ bool fzn_sticker_picker_view::refresh()
 				item->setData(ROLE_PACK, pack);
 				item->setData(ROLE_ID, (qulonglong)s->id);
 				item->setData(ROLE_DRAWN, drawn);
+				item->setData(ROLE_LIMIT, (int)s->text_limit);
+				item->setData(ROLE_DESCRIPTION, said(s->description, s->description_len));
 			}
 		}
 		connect(list, &QListWidget::itemActivated, [this](QListWidgetItem *item) {
@@ -154,8 +166,32 @@ bool fzn_sticker_picker_view::pick(int pack, int row)
 	if (!item || !m_pick)
 		return false;
 	QByteArray p = item->data(ROLE_PACK).toByteArray();
-	if (fzn_rpc_sticker_reference(&m_rpc->c, p.constData(), (size_t)p.size(),
-	                              (uint64_t)item->data(ROLE_ID).toULongLong(), ref, sizeof ref, &ref_len)
+	const uint64_t id = (uint64_t)item->data(ROLE_ID).toULongLong();
+	const int limit = item->data(ROLE_LIMIT).toInt();
+	QString words;
+
+	/* A MESSAGE OR NAME STICKER ASKS FOR ITS WORDS, sec 1296: the box holds
+	 * what the sender writes, so a choice with none to ask is half a
+	 * sticker. Cancelled, nothing is sent; left empty, it goes as drawn. */
+	if (limit > 0) {
+		bool ok = false;
+
+		if (m_words)
+			ok = m_words(item->data(ROLE_DESCRIPTION).toString(), limit, &words);
+		else
+			words = QInputDialog::getText(this, tr("Words for the sticker"),
+			                              tr("What it says, up to %n character(s)", nullptr, limit),
+			                              QLineEdit::Normal, QString(), &ok);
+		if (!ok)
+			return false;
+		words = words.trimmed().left(limit);
+	}
+	const QByteArray w = words.toUtf8();
+	if ((w.isEmpty() ? fzn_rpc_sticker_reference(&m_rpc->c, p.constData(), (size_t)p.size(), id, ref, sizeof ref,
+	                                             &ref_len)
+	                 : fzn_rpc_sticker_reference_words(&m_rpc->c, p.constData(), (size_t)p.size(), id,
+	                                                   w.constData(), (size_t)w.size(), ref, sizeof ref,
+	                                                   &ref_len))
 	    != FZN_RPC_OK) {
 		m_status->setText(failed_words(m_rpc));
 		return false;
