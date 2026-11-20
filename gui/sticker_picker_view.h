@@ -53,10 +53,19 @@ public:
 	 * `*words`, false for a choice called off. Unset, a dialog asks. */
 	void on_words(std::function<bool(const QString &description, int limit, QString *words)> ask);
 
+	/* HOW A STICKER'S SOUND IS PLAYED (sec 1314): given the file it was
+	 * written to, when a person touches a sticker whose pack gives it one --
+	 * heard before it is sent, as the log plays it once received (sec 1301).
+	 * Unset, no sound is fetched. */
+	void on_sound(std::function<void(const QString &path)> play);
+
 	/* WHAT A PERSON DOES, public because a headless test cannot click:
 	 * choose sticker `row` of pack `pack` (both from 0, as shown); keep
 	 * packs from files, asking which when `paths` is empty. */
 	bool pick(int pack, int row);
+	/* TOUCH sticker `row` of pack `pack`, as a click does: its sound played
+	 * where it has one. Whether one was handed to the player. */
+	bool touch(int pack, int row);
 	bool keep_files(const QStringList &paths);
 	/* LET PACK `pack` GO (from 0, as shown), sec 1298: without asking, the
 	 * button asking first. */
@@ -80,6 +89,13 @@ private:
 	std::function<bool(const QString &, int, QString *)> m_words;
 
 	bool pick_item(QListWidgetItem *item);
+	bool sound(QListWidgetItem *item);
+
+	std::function<void(const QString &)> m_sound;
+	/* EACH STICKER'S SOUND, written once into a directory the view owns
+	 * and removes with it. */
+	struct sounds;
+	sounds *m_sounds;
 
 	QTabWidget *m_tabs;
 	QPushButton *m_keep;

@@ -17811,6 +17811,20 @@ SABOTAGES = [
 		"a sticker's sound written again each time it is chosen; conversation_view_test -- sec 1301",
 	),
 	(
+		"picker-sound-any",
+		"gui/sticker_picker_view.cpp",
+		" || !(item->data(ROLE_FLAGS).toInt() & FZN_STICKER_FLAG_SOUND))\n",
+		")\n",
+		"a sticker with no sound fetched one when touched in the picker; sticker_picker_view_test -- sec 1314",
+	),
+	(
+		"picker-sound-written-again",
+		"gui/sticker_picker_view.cpp",
+		"\tm_sounds->at.insert(key, path);\n",
+		"",
+		"a sticker's sound written again on each touch in the picker; sticker_picker_view_test -- sec 1314",
+	),
+	(
 		"sticker-popup-any",
 		"gui/conversation_view.cpp",
 		"\tconst bool popup = sticker_box(sticker.left(144), id, box) && box->type == FZN_STICKER_POPUP;\n",

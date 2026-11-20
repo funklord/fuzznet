@@ -22,7 +22,9 @@ extern "C" {
 #include <QListWidget>
 #include <QPixmap>
 #include <QPushButton>
+#include <QHash>
 #include <QTabWidget>
+#include <QTemporaryDir>
 #include <QVBoxLayout>
 
 #include <stdlib.h>
@@ -38,6 +40,12 @@ extern "C" {
 /* THE CHARACTERS ITS WORDS MAY RUN TO, 0 for a sticker with no box (sec 1296). */
 #define ROLE_LIMIT (Qt::UserRole + 3)
 #define ROLE_DESCRIPTION (Qt::UserRole + 4)
+#define ROLE_FLAGS (Qt::UserRole + 5)
+
+struct fzn_sticker_picker_view::sounds {
+	QTemporaryDir dir;
+	QHash<QString, QString> at; /* "PACK/ID" to the file written */
+};
 
 static QString failed_words(const fzn_gui_rpc *r)
 {
@@ -53,7 +61,7 @@ static QString said(const char *text, size_t len)
 
 fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
                                                  QWidget *parent)
-    : QWidget(parent), m_rpc(new fzn_gui_rpc)
+    : QWidget(parent), m_rpc(new fzn_gui_rpc), m_sounds(new sounds)
 {
 	fzn_gui_rpc_init(m_rpc, ask, ask_ctx);
 
@@ -99,6 +107,7 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	connect(m_refresh, &QPushButton::clicked, [this]() { refresh(); });
 	connect(m_find, &QLineEdit::textChanged, [this](const QString &text) { set_find(text); });
 	connect(m_found, &QListWidget::itemActivated, [this](QListWidgetItem *item) { pick_item(item); });
+	connect(m_found, &QListWidget::itemClicked, [this](QListWidgetItem *item) { sound(item); });
 	connect(m_forget, &QPushButton::clicked, [this]() {
 		const int at = m_tabs->currentIndex();
 
@@ -114,7 +123,13 @@ fzn_sticker_picker_view::fzn_sticker_picker_view(fzn_notebook_view_ask_t ask, vo
 	m_status->setText(tr("No sticker packs kept yet."));
 }
 
-fzn_sticker_picker_view::~fzn_sticker_picker_view() { delete m_rpc; }
+fzn_sticker_picker_view::~fzn_sticker_picker_view()
+{
+	delete m_sounds;
+	delete m_rpc;
+}
+
+void fzn_sticker_picker_view::on_sound(std::function<void(const QString &)> play) { m_sound = std::move(play); }
 
 void fzn_sticker_picker_view::on_words(std::function<bool(const QString &, int, QString *)> ask)
 {
@@ -177,6 +192,7 @@ bool fzn_sticker_picker_view::refresh()
 				item->setData(ROLE_DRAWN, drawn);
 				item->setData(ROLE_LIMIT, (int)s->text_limit);
 				item->setData(ROLE_DESCRIPTION, said(s->description, s->description_len));
+				item->setData(ROLE_FLAGS, (int)s->flags);
 			}
 		}
 		connect(list, &QListWidget::itemActivated, [this](QListWidgetItem *item) {
@@ -184,6 +200,9 @@ bool fzn_sticker_picker_view::refresh()
 			if (l)
 				pick(m_tabs->indexOf(l), l->row(item));
 		});
+		/* A CLICK is a person touching it: its sound, where it has one;
+		 * choosing it to send stays activation. */
+		connect(list, &QListWidget::itemClicked, [this](QListWidgetItem *item) { sound(item); });
 		list->setProperty("pack", pack);
 		m_tabs->addTab(list, said(packs.entries[p].name, packs.entries[p].name_len));
 	}
@@ -198,6 +217,44 @@ bool fzn_sticker_picker_view::pick(int pack, int row)
 	auto *list = qobject_cast<QListWidget *>(m_tabs->widget(pack));
 
 	return pick_item(list ? list->item(row) : nullptr);
+}
+
+bool fzn_sticker_picker_view::touch(int pack, int row)
+{
+	auto *list = qobject_cast<QListWidget *>(m_tabs->widget(pack));
+
+	return sound(list ? list->item(row) : nullptr);
+}
+
+/* A STICKER'S SOUND, sec 1314: written once from the node, as the log
+ * writes it (sec 1301), then handed to the host's player on each touch. */
+bool fzn_sticker_picker_view::sound(QListWidgetItem *item)
+{
+	if (!item || !m_sound || !(item->data(ROLE_FLAGS).toInt() & FZN_STICKER_FLAG_SOUND))
+		return false;
+	const QByteArray pack = item->data(ROLE_PACK).toByteArray();
+	const uint64_t id = (uint64_t)item->data(ROLE_ID).toULongLong();
+	const QString key = QString::fromLatin1(pack) + QLatin1Char('/') + QString::number((qulonglong)id);
+	auto at = m_sounds->at.constFind(key);
+	if (at != m_sounds->at.constEnd()) {
+		m_sound(at.value());
+		return true;
+	}
+	if (!m_sounds->dir.isValid())
+		return false;
+	const QString path =
+	        m_sounds->dir.filePath(QStringLiteral("%1-%2").arg(QString::fromLatin1(pack.left(16))).arg((qulonglong)id));
+	const QByteArray p = path.toUtf8();
+	uint64_t bytes = 0;
+	if (fzn_rpc_sticker_sound(&m_rpc->c, pack.constData(), (size_t)pack.size(), id, p.constData(), (size_t)p.size(),
+	                          &bytes)
+	    != FZN_RPC_OK) {
+		m_status->setText(failed_words(m_rpc));
+		return false;
+	}
+	m_sounds->at.insert(key, path);
+	m_sound(path);
+	return true;
 }
 
 bool fzn_sticker_picker_view::pick_found(int row)

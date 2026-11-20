@@ -49,9 +49,8 @@ listener port spans (`150e3106`).
   log's main rendition and words (sec 1295), the picker asking for words
   (sec 1296), finding and letting go (sec 1298), case folding (sec
   1297), the chosen Lottie sticker playing (sec 1300), its sound (sec
-  1301), a pop-up one across the log (sec 1302). Left: (b) raster
-  animation and the picker's; (c) a sticker's sound in the picker (the
-  log's: sec 1301); (d) effect stickers shown (pop-up ones: sec 1302); (e) a recent tab,
+  1301; in the picker, 1314), a pop-up one across the log (sec 1302). Left: (b) raster
+  animation and the picker's; (d) effect stickers shown (pop-up ones: sec 1302); (e) a recent tab,
   which wants a place every host of the user shares; (h) the reply
   target's words as the matcher's context; (i) a binary `list sticker
   match`, which waits on a measurement that the text verb is too slow
@@ -94354,3 +94353,18 @@ version other than 1 as the hand check did. The schema's golden vector
 
 **Tests:** heard_row_vectors (1); heard_test (9) unchanged, now over the
 generated codec.
+
+## 1314. A sticker's sound in the picker, 2026-11-20
+
+The audit's (c), its picker half (the log's: sec 1301). A person touching
+a sticker in the picker -- a click, in a tab or among those found --
+hears its sound where its pack flags one (`FZN_STICKER_FLAG_SOUND`, from
+the listing the tab is built from), so it is heard before it is sent.
+Choosing it to send stays activation, so touching to listen sends
+nothing. The sound is written once into a directory the view owns and
+removes with it, through `fzn_rpc_sticker_sound`, and handed to the host's
+player by `on_sound(path)`, as the log does; unset, nothing is fetched.
+
+**Tests:** sticker_picker_view_test -- no player, nothing fetched; a
+sticker with a sound played twice, written once; one without, nothing.
+Sabotages `picker-sound-any`, `picker-sound-written-again`.

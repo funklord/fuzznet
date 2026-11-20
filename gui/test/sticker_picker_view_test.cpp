@@ -34,7 +34,7 @@ static int checks, failures;
 #define REF "fzn:sticker/" PACK "/0000000000000000000000000000000000000000000000000000000000000002/4096/7"
 #define REF8 "fzn:sticker/" PACK "/0000000000000000000000000000000000000000000000000000000000000002/4096/8"
 
-static int silent, let_go, art_asked;
+static int silent, let_go, art_asked, sound_asked;
 
 /* A LOTTIE STICKER, the smallest that draws: one red square on a layer. */
 static const char LOTTIE[] =
@@ -56,7 +56,7 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 	if (!strcmp(line, "list sticker 0"))
 		return (size_t)snprintf(reply, cap, "ok 1 0 " PACK ",4096,waves,1,user\n");
 	if (!strcmp(line, "list sticker " PACK " 0"))
-		return (size_t)snprintf(reply, cap, "ok 3 0 7,1,0,waving 8,1,0,thumbs%%20up,12 9,1,4,dancing\n");
+		return (size_t)snprintf(reply, cap, "ok 3 0 7,1,1,waving 8,1,0,thumbs%%20up,12 9,1,4,dancing\n");
 	/* STICKER 9 IS A LOTTIE: its JSON written where asked, format 1. */
 	if (!strncmp(line, DRAW_LOTTIE, sizeof DRAW_LOTTIE - 1)) {
 		FILE *f = fopen(line + sizeof DRAW_LOTTIE - 1, "wbx");
@@ -76,6 +76,18 @@ static size_t node(void *ctx, const char *line, char *reply, size_t cap)
 		if (!one.save(QString::fromUtf8(line + sizeof DRAW - 1), "PNG"))
 			return (size_t)snprintf(reply, cap, "error could not write\n");
 		return (size_t)snprintf(reply, cap, "ok 4 1 1\n");
+	}
+	/* STICKER 7 HAS A SOUND (flag 1): its bytes written where asked. */
+	if (!strncmp(line, "get sticker " PACK " 7 sound ", 12 + 64 + 9)) {
+		FILE *f = fopen(line + 12 + 64 + 9, "wbx");
+		sound_asked++;
+		if (!f || fwrite("RIFF", 1, 4, f) != 4) {
+			if (f)
+				fclose(f);
+			return (size_t)snprintf(reply, cap, "error could not write\n");
+		}
+		fclose(f);
+		return (size_t)snprintf(reply, cap, "ok 4\n");
 	}
 	if (!strncmp(line, "get sticker " PACK " 8 thumb ", 12 + 64 + 9))
 		return (size_t)snprintf(reply, cap, "error no art\n");
@@ -185,6 +197,20 @@ int main(int argc, char **argv)
 		go = true;
 		give.clear();
 		CHECK(v.pick(0, 1) && picked == REF8, "a sticker left without words was not sent as drawn");
+	}
+
+	/* A STICKER'S SOUND WHEN TOUCHED, sec 1314: heard where its pack gives
+	 * it one, written once across two touches; one without, nothing; no
+	 * player, nothing fetched. */
+	{
+		QStringList played;
+
+		CHECK(!v.touch(0, 0) && !sound_asked, "a sound was fetched with no player to hand it to");
+		v.on_sound([&played](const QString &path) { played << path; });
+		CHECK(v.touch(0, 0) && v.touch(0, 0) && played.size() == 2 && played[0] == played[1]
+		              && QFile(played[0]).size() == 4 && sound_asked == 1,
+		      "a sticker with a sound was not played, or was written again");
+		CHECK(!v.touch(0, 1) && played.size() == 2, "a sticker with no sound played one");
 	}
 
 	CHECK(!v.keep_files({ "/tmp/fzn-good.fzs", "/tmp/fzn-bad.fzs" })
