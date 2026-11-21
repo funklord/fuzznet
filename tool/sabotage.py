@@ -4002,9 +4002,9 @@ SABOTAGES = [
 	(
 		"roster-add-carries-no-body",
 		"roster/roster.c",
-		"\tif (object != (uint8_t)FZN_OBJECT_ROSTER_SET\n\t    && (body_len != 0u || bytes[FZN_ROSTER_OFF_SETTING] != 0u\n\t        || bytes[FZN_ROSTER_OFF_SETTING + 1u] != 0u))\n\t\treturn FZN_ROSTER_ERR_SHAPE;\n",
-		"",
-		"an add carrying a setting or a body is a second encoding of one statement, signed and read by nothing -- sec 388",
+		"\t    || fzn_roster_record_fzn_roster_validate(v) != SITU_OK)\n\t\treturn FZN_ROSTER_ERR_SHAPE;\n\tout->base",
+		")\n\t\treturn FZN_ROSTER_ERR_SHAPE;\n\tout->base",
+		"an add carrying a setting or a body, or a record of no incarnation, is opened -- a second encoding of one statement, signed and read by nothing -- secs 388, 1367",
 	),
 	(
 		"revocation-quorum-counts",

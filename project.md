@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1366
+The newest work is at the end of this file. **Read secs 1287 to 1367
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95779,3 +95779,26 @@ class as sec 1363's, added to that note (situ inbox 20261121T2000Z).
 **Tests:** chain_wire_vectors (1: one hop, the hop's own vector);
 chain_test (314), authz_test (40), pair_test (443), chain_fuzz (20000
 cases). Sabotage `chain-open-unvalidated` and `chain-open-exact-length`.
+
+## 1367. A roster record opened and written through situ's code, its shape rules `when`s, 2026-11-21
+
+The twenty-first of the 40 layouts: `roster/roster.situ` is
+`roster/roster_record.situ`, and says the two rules only the codec said:
+**an incarnation of all zeros** and **an add or a remove carrying a
+setting or a body** (a second encoding of one statement, signed and read
+by nothing, sec 388) are `when` refusals. Its enum is `fzn_roster_kind`,
+for the macro collision situ warns of. `fzn_roster_open` reads through
+`required` (exactly its length), the view and `validate`; the minting
+behind `fzn_roster_issue_*` writes through the edit layer -- the body's
+length first, which places the signature, then the rest -- refuses what
+does not validate, and signs over what situ says the signature covers.
+`is_roster_object` went with the hand check. **The bundle** carrying a
+record with its hops (`fzn_roster_bundle`, same file) is still read by
+hand; it is the next step here, its record a `holds` and its hops typed
+as chain hops.
+
+situ's `wire --check` called the enum's rename breaking; as sec 1364's.
+
+**Tests:** roster_record_vectors (2: an add, a setting); roster_test
+(103), admin_test (377), and the 15 targets linking the roster.
+Sabotage `roster-add-carries-no-body` retargeted onto `validate`.

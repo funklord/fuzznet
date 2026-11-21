@@ -3,6 +3,7 @@
 #include "roster.h"
 
 #include "../chain/revocation.h"
+#include "../wire/generated/roster_record.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -41,34 +42,27 @@ static int all_zero(const uint8_t *p, size_t len)
 	return acc == 0u;
 }
 
-static int is_roster_object(uint8_t object)
-{
-	return object == (uint8_t)FZN_OBJECT_ROSTER_ADD
-	       || object == (uint8_t)FZN_OBJECT_ROSTER_REMOVE
-	       || object == (uint8_t)FZN_OBJECT_ROSTER_SET;
-}
-
 fzn_roster_err_t fzn_roster_open(const uint8_t *bytes, size_t len, fzn_roster_record_t *out)
 {
-	size_t body_len;
-	uint8_t object;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
 
 	if (!bytes || !out)
 		return FZN_ROSTER_ERR_MALFORMED;
 	if (len < FZN_ROSTER_MIN_LEN || len > FZN_ROSTER_MAX_LEN)
 		return FZN_ROSTER_ERR_SHAPE;
-	object = bytes[FZN_ROSTER_OFF_OBJECT];
-	body_len = bytes[FZN_ROSTER_OFF_BODY_LEN];
-	if (bytes[FZN_ROSTER_OFF_VERSION] != (uint8_t)FZN_SIGNED_VERSION || !is_roster_object(object)
-	    || body_len > FZN_ROSTER_BODY_MAX || len != FZN_ROSTER_LEN(body_len)
-	    || all_zero(bytes + FZN_ROSTER_OFF_INCARNATION, FZN_ROSTER_INCARNATION_LEN))
+	/* READ AS THE SCHEMA SAYS, sec 1367: `roster/roster_record.situ`'s
+	 * generated code refuses a version not 1, an object byte not one of
+	 * the three, a body past its bound, an incarnation of all zeros, and --
+	 * AN ADD OR A REMOVE CARRIES NO SETTING AND NO BODY -- one that does:
+	 * anything there would be bytes the signature covers and nothing reads,
+	 * a second encoding of one statement. Exactly its length. */
+	if (fzn_roster_record_fzn_roster_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len)
 		return FZN_ROSTER_ERR_SHAPE;
-	/* AN ADD OR A REMOVE CARRIES NO SETTING AND NO BODY. Anything there
-	 * would be bytes the signature covers and nothing reads -- a second
-	 * encoding of one statement. */
-	if (object != (uint8_t)FZN_OBJECT_ROSTER_SET
-	    && (body_len != 0u || bytes[FZN_ROSTER_OFF_SETTING] != 0u
-	        || bytes[FZN_ROSTER_OFF_SETTING + 1u] != 0u))
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_roster_record_fzn_roster_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_roster_record_fzn_roster_validate(v) != SITU_OK)
 		return FZN_ROSTER_ERR_SHAPE;
 	out->base = bytes;
 	out->len = len;
@@ -82,7 +76,10 @@ static fzn_roster_err_t mint(uint8_t object, const uint8_t writer[FZN_PUBKEY_LEN
                              size_t body_len, const fzn_sign_ops_t *sign, uint8_t *out,
                              size_t out_cap, size_t *out_len)
 {
-	size_t signed_len = (size_t)FZN_ROSTER_HEADER_LEN + body_len;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t at = 0, n = 0;
+	size_t len;
 
 	if (!writer || !subject || !incarnation || !sign || !sign->sign || !out || !out_len
 	    || (body_len && !body))
@@ -90,23 +87,34 @@ static fzn_roster_err_t mint(uint8_t object, const uint8_t writer[FZN_PUBKEY_LEN
 	if (body_len > FZN_ROSTER_BODY_MAX
 	    || all_zero(incarnation, FZN_ROSTER_INCARNATION_LEN))
 		return FZN_ROSTER_ERR_SHAPE;
-	if (out_cap < FZN_ROSTER_LEN(body_len))
+	len = FZN_ROSTER_LEN(body_len);
+	if (out_cap < len)
 		return FZN_ROSTER_ERR_MALFORMED;
 
-	out[FZN_ROSTER_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
-	out[FZN_ROSTER_OFF_OBJECT] = object;
-	memcpy(out + FZN_ROSTER_OFF_WRITER, writer, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_ROSTER_OFF_SUBJECT, subject, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_ROSTER_OFF_INCARNATION, incarnation, FZN_ROSTER_INCARNATION_LEN);
-	fzn_put_be64(out + FZN_ROSTER_OFF_SEQ, seq);
-	out[FZN_ROSTER_OFF_SETTING] = (uint8_t)(setting >> 8);
-	out[FZN_ROSTER_OFF_SETTING + 1u] = (uint8_t)(setting & 0xffu);
-	out[FZN_ROSTER_OFF_BODY_LEN] = (uint8_t)body_len;
+	/* WRITTEN THROUGH situ's EDIT LAYER, sec 1367, as the prekey is (sec
+	 * 1340): the body's length first, which places the signature, then the
+	 * rest; signed over what situ says the signature covers. */
+	memset(out, 0, len);
+	situ_msg_init(&m, out, (uint32_t)len);
+	if (fzn_roster_record_fzn_roster_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
+		return FZN_ROSTER_ERR_MALFORMED;
+	fzn_roster_record_fzn_roster_body_len_set(&m, v, (uint8_t)body_len);
 	if (body_len)
-		memcpy(out + FZN_ROSTER_HEADER_LEN, body, body_len);
-	if (!sign->sign(sign->ctx, out + signed_len, out, signed_len))
+		memcpy(fzn_roster_record_fzn_roster_value_ptr(v), body, body_len);
+	memcpy(fzn_roster_record_fzn_roster_writer_ptr(v), writer, FZN_PUBKEY_LEN);
+	memcpy(fzn_roster_record_fzn_roster_subject_ptr(v), subject, FZN_PUBKEY_LEN);
+	memcpy(fzn_roster_record_fzn_roster_incarnation_ptr(v), incarnation, FZN_ROSTER_INCARNATION_LEN);
+	fzn_roster_record_fzn_roster_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_roster_record_fzn_roster_object_set(&m, v, (fzn_roster_record_fzn_roster_kind_t)object);
+	fzn_roster_record_fzn_roster_seq_set(&m, v, seq);
+	fzn_roster_record_fzn_roster_setting_set(&m, v, setting);
+	if (fzn_roster_record_fzn_roster_validate(v) != SITU_OK)
+		return FZN_ROSTER_ERR_SHAPE;
+	if (fzn_roster_record_fzn_roster_signature_covered(v, &at, &n) != SITU_OK
+	    || !sign->sign(sign->ctx, fzn_roster_record_fzn_roster_signature_ptr(v), out + at, n))
 		return FZN_ROSTER_ERR_SIGNATURE;
-	*out_len = signed_len + (size_t)FZN_SIG_LEN;
+	fzn_roster_record_fzn_roster_signature_finalize(&m);
+	*out_len = len;
 	return FZN_ROSTER_OK;
 }
 

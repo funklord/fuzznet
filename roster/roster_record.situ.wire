@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: roster.situ
+# schema: roster_record.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -18,12 +18,12 @@
 endian big
 target buffer
 
-enum fzn_roster_object : u8 unknown=error
+enum fzn_roster_kind : u8 unknown=error
   add=135 remove=136 set=137
 
 struct fzn_roster size=157..349
   @0x0000   1         u8         version  must_eq=1
-  @0x0001   1         fzn_roster_object object
+  @0x0001   1         fzn_roster_kind object
   @0x0002   32        u8         writer  big
   @0x0022   32        u8         subject  big
   @0x0042   16        u8         incarnation  big
@@ -33,6 +33,8 @@ struct fzn_roster size=157..349
   @0x005d   0..192    u8         value  sized-by=body_len
   ~         64        u8         signature
   signature covers: body body_len incarnation object seq setting subject value version writer
+  fzn_roster refuses: add_or_remove_carries_a_value when fzn_roster.object != 137 && (fzn_roster.body_len != 0 || fzn_roster.setting != 0)
+  fzn_roster refuses: no_incarnation when sum(fzn_roster.incarnation) == 0
 
 struct fzn_roster_bundle size=160..1784
   @0x0000   1         u8         hop_count  max=8

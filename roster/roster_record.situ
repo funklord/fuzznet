@@ -1,7 +1,10 @@
 // The roster record as a situ schema: an add, a remove or a setting, signed
 // by the host that wrote it. roster/roster.h carries the design and project.md
 // sec 388 the reason. Written against the FZN_ROSTER_OFF_* constants, which
-// roster_test pins to the same offsets.
+// roster_test pins to the same offsets; since sec 1367 a record is opened and
+// written through the code situ generates from this (`roster/roster.c`), its
+// two shape rules `when`s. `_record`, so the generated file's name meets no
+// source's.
 //
 // The object byte is one of THREE values, each its own tag in wire/bytes.h
 // (FZN_OBJECT_ROSTER_ADD, _REMOVE, _SET) on WITHDRAWAL's argument: an add and
@@ -15,7 +18,7 @@
 target buffer;
 endian big;
 
-enum fzn_roster_object : u8 {
+enum fzn_roster_kind : u8 {
 	add    = 135,           // FZN_OBJECT_ROSTER_ADD
 	remove = 136,           // FZN_OBJECT_ROSTER_REMOVE
 	set    = 137,           // FZN_OBJECT_ROSTER_SET
@@ -24,7 +27,7 @@ enum fzn_roster_object : u8 {
 struct fzn_roster {
 	authenticated body {
 		u8  version [must_eq = 1];       // FZN_ROSTER_OFF_VERSION     0
-		fzn_roster_object object;        // FZN_ROSTER_OFF_OBJECT      1
+		fzn_roster_kind object;          // FZN_ROSTER_OFF_OBJECT      1
 		u8  writer[32];                  // FZN_ROSTER_OFF_WRITER      2
 		u8  subject[32];                 // FZN_ROSTER_OFF_SUBJECT     34
 		u8  incarnation[16];             // FZN_ROSTER_OFF_INCARNATION 66
@@ -53,3 +56,14 @@ struct fzn_roster_bundle {
 	u8  record[record_len];
 	fzn_roster_hop hops[hop_count];
 }
+
+// AN INCARNATION OF ALL ZEROS names no life of the subject's.
+when sum(fzn_roster.incarnation) == 0
+	refuse no_incarnation
+	"a roster record names no incarnation";
+// AN ADD OR A REMOVE CARRIES NO SETTING AND NO BODY: anything there would be
+// bytes the signature covers and nothing reads -- a second encoding of one
+// statement.
+when fzn_roster.object != 137 && (fzn_roster.body_len != 0 || fzn_roster.setting != 0)
+	refuse add_or_remove_carries_a_value
+	"an add or a remove carries a setting or a body";

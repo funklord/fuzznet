@@ -441,4 +441,5 @@ __pycache__/
 /wire/test/revocation_record_vectors
 /wire/test/manifest_record_vectors
 /wire/test/chain_wire_vectors
+/wire/test/roster_record_vectors
 /node/test/settings_registry_test

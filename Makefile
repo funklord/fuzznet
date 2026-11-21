@@ -259,7 +259,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/setting_record.c wire/generated/record_row.c wire/generated/hop_record.c \
              wire/generated/succession_record.c wire/generated/entry_record.c wire/generated/cause_wire.c \
              wire/generated/tree_row.c wire/generated/revocation_record.c wire/generated/manifest_record.c \
-             wire/generated/chain_wire.c \
+             wire/generated/chain_wire.c wire/generated/roster_record.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -283,7 +283,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/succession_record_vectors.c wire/generated/entry_record_vectors.c \
                  wire/generated/cause_wire_vectors.c wire/generated/tree_row_vectors.c \
                  wire/generated/revocation_record_vectors.c wire/generated/manifest_record_vectors.c \
-                 wire/generated/chain_wire_vectors.c
+                 wire/generated/chain_wire_vectors.c wire/generated/roster_record_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -772,6 +772,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/revocation_record_vectors \
              $(BUILD_DIR)/wire/test/manifest_record_vectors \
              $(BUILD_DIR)/wire/test/chain_wire_vectors \
+             $(BUILD_DIR)/wire/test/roster_record_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -3341,7 +3342,7 @@ $(BUILD_DIR)/provision/test/provision_test: \
 # roster/ links chain/ for standing, and revocation/manifest because
 # fzn_chain_verify calls both; the signer is the test's own stub. sec 388.
 $(BUILD_DIR)/roster/test/roster_test: $(BUILD_DIR)/roster/test/roster_test.o \
-                                      $(BUILD_DIR)/roster/roster.o \
+                                      $(BUILD_DIR)/roster/roster.o $(BUILD_DIR)/wire/generated/roster_record.o \
                                       $(BUILD_DIR)/chain/root_log.o \
                                       $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/chain_wire.o $(BUILD_DIR)/wire/generated/situ.o \
                                       $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
@@ -4675,6 +4676,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# A ROSTER RECORD, its shape rules `when`s, generated, sec 1367.
+$(BUILD_DIR)/wire/test/roster_record_vectors: wire/generated/roster_record_vectors.c \
+                                             wire/generated/roster_record.c wire/generated/situ.c \
+                                             $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # A CAPABILITY CHAIN, linked to the hop's unit, generated, sec 1366.
 $(BUILD_DIR)/wire/test/chain_wire_vectors: wire/generated/chain_wire_vectors.c \
                                           wire/generated/chain_wire.c wire/generated/hop_record.c \
@@ -5228,7 +5236,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o \
-              $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
+              $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o $(BUILD_DIR)/wire/generated/roster_record.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o $(BUILD_DIR)/wire/generated/succession_record.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/wire/generated/cause_wire.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
@@ -5299,7 +5307,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
-              $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
+              $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o $(BUILD_DIR)/wire/generated/roster_record.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o $(BUILD_DIR)/wire/generated/succession_record.o \
               $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o $(BUILD_DIR)/node/sessions.o $(BUILD_DIR)/wire/session_frame.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer_linux.o \
@@ -5399,7 +5407,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
                    $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o \
-                   $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
+                   $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o $(BUILD_DIR)/wire/generated/roster_record.o \
                    $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o $(BUILD_DIR)/wire/generated/succession_record.o \
                    $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/wire/generated/cause_wire.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/wire/generated/entry_record.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/contact/contact.o \
@@ -5680,7 +5688,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/node/revoke.o \
-              $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
+              $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o $(BUILD_DIR)/wire/generated/roster_record.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o $(BUILD_DIR)/wire/generated/succession_record.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
@@ -6109,7 +6117,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/notes/note.o \
                                       $(BUILD_DIR)/local/client.o \
                                       $(BUILD_DIR)/node/roots.o \
-                                      $(BUILD_DIR)/roster/roster.o \
+                                      $(BUILD_DIR)/roster/roster.o $(BUILD_DIR)/wire/generated/roster_record.o \
                                       $(BUILD_DIR)/chain/root_log.o \
                                       $(BUILD_DIR)/node/identity.o \
                                       $(BUILD_DIR)/node/pair.o \
@@ -7816,7 +7824,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               spool/sidecar.situ record/record_row.situ tree/tree_row.situ \
               chain/chain_wire.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
-              roster/roster.situ chain/root_act.situ chain/succession_record.situ node/call.situ wire/status.situ node/address.situ \
+              roster/roster_record.situ chain/root_act.situ chain/succession_record.situ node/call.situ wire/status.situ node/address.situ \
               record/exchange.situ \
               wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note.situ node/opjournal_row.situ messages/line.situ \
               messages/keys.situ messages/deliver.situ state/setting_record.situ \
@@ -8583,6 +8591,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_roster_record --layer edit \
+	         --out $(BUILD_DIR)/.gen.new roster/roster_record.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_roster_record \
+	         --out $(BUILD_DIR)/.gen.new roster/roster_record.situ roster/roster_record.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_chain_wire --layer edit \
 	         --linked hop_record.situ=fzn_hop_record \
 	         --out $(BUILD_DIR)/.gen.new chain/chain_wire.situ >/dev/null 2>&1
@@ -8750,6 +8762,7 @@ schema:
 	          revocation_record.c revocation_record.h revocation_record_vectors.c \
 	          manifest_record.c manifest_record.h manifest_record_build.h manifest_record_vectors.c \
 	          chain_wire.c chain_wire.h chain_wire_vectors.c \
+	          roster_record.c roster_record.h roster_record_build.h roster_record_edit.h roster_record_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \
