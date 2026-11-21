@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1351
+The newest work is at the end of this file. **Read secs 1287 to 1352
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95394,7 +95394,7 @@ before); sabotage `pair-lets-the-claim-go` (the release and the close
 both gone) beside `pair-into-served-store`, retargeted.
 
 **The full `livecheck` over secs 1348 and 1349** ran past `live_lamp`
-and `live_session` and stopped at **`live_ext` phase c, open**: B, just
+and `live_session` and stopped at **`live_ext` phase c** (fixed in sec 1352): B, just
 joined to A and started again in place, answers `get marks` with a mark
 before A wrote one. It fails alone as well, and with sec 1348's two calls
 taken out, so neither section is its cause; the two full runs before
@@ -95447,3 +95447,22 @@ refusal could not.
 3311 unranked bent settings opened and re-encoded alike), schema_test
 (41), votes_test (17), apply_test (191). Sabotage
 `setting-signs-its-whole-body`, `setting-writes-its-rank`.
+
+## 1352. The test extension's verbs renamed, a core verb having taken one, 2026-11-21
+
+Sec 1349's `live_ext` phase c: B, just joined, answered `get marks` with
+`ok 0 0 0 0`, not the test extension's `ok 0`. **Not a mark at all**:
+since a7a65a80 (2026-11-13) fuzznet's own `get marks` -- the marks
+datagrams arrive with (sec 1100's congestion count) -- answers before an
+extension's verbs, and the test extension `node/test/ext_daemon` had a
+`get marks` of its own, now unreachable. `live_ext` has failed since; the
+full livechecks before stopped short of it. The extension's pair is
+`add stamp` / `get stamps` now, in `ext_daemon.c` and `live_ext.py`
+(`live_call.py` reads the core verb and is unchanged), and `live_ext`
+passes whole.
+
+**The shape, for the next**: a verb an extension names can be taken by a
+core verb added later, and the extension is silently shadowed -- nothing
+told `ext_daemon` its verb had gone. Whether fuzznet should refuse or warn
+when an extension's declared verbs meet the core's is open.
+

@@ -20,9 +20,9 @@
  *   get greeting      `ok WORD`, or `ok hello` with no --greeting
  *   get garbled       an answer outside the reply vocabulary, which
  *                     fuzznet must answer `error` in its place
- *   add mark WORD     a journal record of kind 5, the consumer half's
+ *   add stamp WORD    a journal record of kind 5, the consumer half's
  *                     (sec 675), written into this host's estate stream
- *   get marks         `ok N LAST`: the marks applied, from every host this
+ *   get stamps        `ok N LAST`: the stamps applied, from every host this
  *                     one follows, and the last one's word; `ok 0` for none
  *   get pokes         `ok N`: the bytes read from --poke's FIFO, each read
  *                     when the node's loop said it was readable
@@ -249,18 +249,18 @@ static size_t local(void *ctx, fzn_origin_t origin, const fzn_request_t *request
 	(void)origin;
 	if (is(request, FZN_VERB_GET, "greeting"))
 		n = snprintf(reply, cap, "ok %s\n", greeting);
-	else if (request->parsed == FZN_VERB_ADD && request->arg && request->arg_len > 5u
-	         && request->arg_len < 5u + 32u && memcmp(request->arg, "mark ", 5u) == 0) {
+	else if (request->parsed == FZN_VERB_ADD && request->arg && request->arg_len > 6u
+	         && request->arg_len < 6u + 32u && memcmp(request->arg, "stamp ", 6u) == 0) {
 		uint8_t object[2u + 32u];
-		size_t w = request->arg_len - 5u;
+		size_t w = request->arg_len - 6u;
 
 		object[0] = FZN_SIGNED_VERSION;
 		object[1] = (uint8_t)MARK_KIND;
-		memcpy(object + 2, request->arg + 5, w);
+		memcpy(object + 2, request->arg + 6, w);
 		n = fzn_daemon_journal_append(object, 2u + w)
 		    ? snprintf(reply, cap, "ok\n")
-		    : snprintf(reply, cap, "error the mark was not written\n");
-	} else if (is(request, FZN_VERB_GET, "marks"))
+		    : snprintf(reply, cap, "error the stamp was not written\n");
+	} else if (is(request, FZN_VERB_GET, "stamps"))
 		n = n_marks ? snprintf(reply, cap, "ok %zu %s\n", n_marks, marks[last_mark].word)
 		            : snprintf(reply, cap, "ok 0\n");
 	else if (is(request, FZN_VERB_GET, "pokes"))

@@ -34,8 +34,8 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
        ticks, and stops leaving the face's socket and the face serving
        (sec 841)
     c  two of them, A the root of an estate and B joined to it by verbs:
-       `add mark hello` at A writes a journal record of the extension's
-       kind into A's stream, and B's extension applies it -- `get marks`
+       `add stamp hello` at A writes a journal record of the extension's
+       kind into A's stream, and B's extension applies it -- `get stamps`
        at B comes to say `ok 1 hello` -- so a kind fuzznet itself does not
        process is carried and handed over (sec 675). B was started with
        `--own-word=kept`, the extension's own option that fuzznet never
@@ -49,7 +49,7 @@ Against a daemon that hands nothing to the extension, phase a's option is
 refused as unknown and phase b's `get greeting` is `unsupported`; against
 one that asks the extension first, phase b's `list contact` is the
 extension's; against one that carries no record of an unknown kind, or
-hands none to the extension, phase c's `get marks` at B stays `ok 0`.
+hands none to the extension, phase c's `get stamps` at B stays `ok 0`.
 
 BOUNDED FROM INSIDE: one deadline; the daemon in its own process group,
 stopped by SIGTERM then SIGKILL, and checked gone.
@@ -148,7 +148,7 @@ def c_marks(daemon_path, scratch, sock_dir):
 		got = ask(socks["b"], "get own")
 		if got != "ok kept":
 			raise failed("c: B's own option was lost over the join's restart: %r" % got)
-		if ask(socks["b"], "get marks") != "ok 0":
+		if ask(socks["b"], "get stamps") != "ok 0":
 			raise failed("c: B held a mark before A wrote one")
 		# A CALL ACROSS THE ESTATE, sec 853: B calls A's procedure by A's
 		# host key, and A answers it as a remote caller's.
@@ -181,19 +181,19 @@ def c_marks(daemon_path, scratch, sock_dir):
 		del started["af"]
 		print("livecheck: c2: B called a procedure A's follower offered, and A's face "
 		      "forwarded it as a remote caller's")
-		got = ask(socks["a"], "add mark hello")
+		got = ask(socks["a"], "add stamp hello")
 		if got != "ok":
-			raise failed("c: add mark at A answered %r" % got)
+			raise failed("c: add stamp at A answered %r" % got)
 		until = time.monotonic() + 120.0
-		while ask(socks["b"], "get marks") != "ok 1 hello":
+		while ask(socks["b"], "get stamps") != "ok 1 hello":
 			if time.monotonic() > until:
 				raise failed("c: B's extension never applied A's mark: %r"
-				             % ask(socks["b"], "get marks"))
+				             % ask(socks["b"], "get stamps"))
 			time.sleep(1.0)
 		print("livecheck: c: a record of the extension's kind written at A was carried to B "
 		      "and applied by B's extension")
 		# c3: A'S EVENTS FROM B, sec 866: B asks what A published since 0,
-		# and is told A's `add mark` among them, with a cursor to ask on.
+		# and is told A's `add stamp` among them, with a cursor to ask on.
 		# c2b: a procedure shut by its own word, sec 921: no member, until a rule.
 		got = ask(socks["b"], "rrpc shut at %s x" % a_host)
 		if got.startswith("ok"):
@@ -208,7 +208,7 @@ def c_marks(daemon_path, scratch, sock_dir):
 
 		got = ask(socks["b"], "rrpc events at %s 0" % a_host)
 		words = got.split()
-		if len(words) < 2 or words[0] != "ok" or "%20mark%20" not in words[1]:
+		if len(words) < 2 or words[0] != "ok" or "%20stamp%20" not in words[1]:
 			raise failed("c3: B's call events at A answered %r" % got[:200])
 		print("livecheck: c3: B read A's events since its cursor, A's mark among them")
 
