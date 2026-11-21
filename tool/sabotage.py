@@ -1447,6 +1447,20 @@ SABOTAGES = [
 		"the encoder zeroes the signature field before signing",
 	),
 	(
+		"chain-open-unvalidated",
+		"chain/chain.c",
+		"\t    || fzn_chain_wire_fzn_chain_validate(v) != SITU_OK)\n",
+		")\n",
+		"a chain of another version, or of no hops, opened -- secs 4.2, 1366",
+	),
+	(
+		"chain-open-exact-length",
+		"chain/chain.c",
+		"\tif (fzn_chain_wire_fzn_chain_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len)\n",
+		"\tif (fzn_chain_wire_fzn_chain_required(bytes, (uint32_t)len, &need) != SITU_OK || need > len)\n",
+		"a chain with padding after its hops opened, a second encoding a stranger can make a receiver store -- sec 1366",
+	),
+	(
 		"hop-open-unvalidated",
 		"chain/chain.c",
 		"\t    || fzn_hop_record_fzn_chain_hop_validate(v) != SITU_OK)\n\t\treturn FZN_CHAIN_ERR_SHAPE;",

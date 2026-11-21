@@ -440,4 +440,5 @@ __pycache__/
 /wire/test/tree_row_vectors
 /wire/test/revocation_record_vectors
 /wire/test/manifest_record_vectors
+/wire/test/chain_wire_vectors
 /node/test/settings_registry_test

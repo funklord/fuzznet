@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: chain.situ
+# schema: chain_wire.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -18,10 +18,10 @@
 endian big
 target buffer
 
-struct fzn_chain size=2..1434
-  @0x0000   1         u8         version
-  @0x0001   1         u8         hop_count  max=8
-  @0x0002   0..1432   fzn_chain_hop hops  sized-by=hop_count
+struct fzn_chain size=181..1434
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         hop_count  min=1 max=8
+  @0x0002   179..1432 fzn_chain_hop hops  big sized-by=hop_count
   hops[].signature covers: hops[].body hops[].capability hops[].delegable hops[].expires_at hops[].grantee hops[].grantor hops[].issued_at hops[].object hops[].version
 
 struct fzn_chain_hop size=179

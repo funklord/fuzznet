@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1365
+The newest work is at the end of this file. **Read secs 1287 to 1366
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95757,3 +95757,25 @@ setter takes no message: a pair alone has no signature to mark stale.
 (543), chain_test (314), revocation_test (719), manifest_fuzz (20000
 cases). Sabotage `manifest-state-byte-validated` retargeted onto
 `validate`, `manifest-encoder-refuses-a-third-state` new.
+
+## 1366. A capability chain read and written through situ's code, linked to the hop's unit, 2026-11-21
+
+The twentieth of the 40 layouts: `chain/chain.situ` is
+`chain/chain_wire.situ`, the header and run of hops a chain travels as,
+and says what only the codec said -- the version `[must_eq = 1]` and **a
+chain of no hops** (`hop_count [min = 1]`). It is built `--linked
+hop_record.situ=fzn_hop_record` (sec 1345), so its `validate` checks each
+hop through the hop's own unit (sec 1359) and its object is 530 bytes of
+text. `fzn_chain_open` reads through `required` (exactly the header plus
+its hops), the view and `validate`, then opens each hop as before;
+`fzn_chain_pack` writes through the edit layer, the count first, then
+each hop's bytes where situ places it. situ makes no builder for a run of
+hops, a hop having none (its signature extern and keyed).
+
+situ's `wire --check` called the count's new minimum breaking -- "every
+later field shifts" -- though the hops are the last member; the same
+class as sec 1363's, added to that note (situ inbox 20261121T2000Z).
+
+**Tests:** chain_wire_vectors (1: one hop, the hop's own vector);
+chain_test (314), authz_test (40), pair_test (443), chain_fuzz (20000
+cases). Sabotage `chain-open-unvalidated` and `chain-open-exact-length`.

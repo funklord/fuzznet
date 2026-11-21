@@ -14,6 +14,7 @@
 #include "manifest.h"
 
 #include "../wire/generated/hop_record.h"
+#include "../wire/generated/chain_wire.h"
 
 #include <string.h>
 
@@ -84,26 +85,32 @@ fzn_chain_err_t fzn_hop_encode(uint8_t *out, const uint8_t grantor[FZN_PUBKEY_LE
 fzn_chain_err_t fzn_chain_open(const uint8_t *bytes, size_t len,
                                fzn_chain_hop_t out[FZN_CHAIN_MAX_HOPS], size_t *hop_count)
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
 	size_t n;
 
 	if (!bytes || !out || !hop_count)
 		return FZN_CHAIN_ERR_MALFORMED;
 
-	if (len < FZN_CHAIN_HEADER_LEN)
-		return FZN_CHAIN_ERR_SHAPE;
-	if (bytes[0] != FZN_SIGNED_VERSION)
+	if (len < FZN_CHAIN_HEADER_LEN || len > UINT32_MAX)
 		return FZN_CHAIN_ERR_SHAPE;
 
-	n = bytes[1];
-	if (n == 0 || n > FZN_CHAIN_MAX_HOPS)
+	/* READ AS THE SCHEMA SAYS, sec 1366: `chain/chain_wire.situ`'s
+	 * generated code refuses a version not 1, a count of none or past
+	 * FZN_CHAIN_MAX_HOPS, and every hop its own layout refuses -- the hop's
+	 * unit's validate, linked. Exactly the header plus that many hops:
+	 * trailing bytes are refused rather than ignored -- "accept what you
+	 * understand and skip the rest" is how one encoding quietly becomes
+	 * several, and here it would also let a stranger append padding a
+	 * receiver has to store. */
+	if (fzn_chain_wire_fzn_chain_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len)
 		return FZN_CHAIN_ERR_SHAPE;
-
-	/* Exactly the header plus that many hops. Trailing bytes are refused
-	 * rather than ignored: "accept what you understand and skip the rest"
-	 * is how one encoding quietly becomes several, and here it would also
-	 * let a stranger append padding a receiver has to store. */
-	if (len != (size_t)FZN_CHAIN_HEADER_LEN + n * FZN_HOP_LEN)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_chain_wire_fzn_chain_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_chain_wire_fzn_chain_validate(v) != SITU_OK)
 		return FZN_CHAIN_ERR_SHAPE;
+	n = fzn_chain_wire_fzn_chain_hop_count_get(v);
 
 	for (size_t i = 0; i < n; i++) {
 		fzn_chain_err_t err =
@@ -121,6 +128,8 @@ fzn_chain_err_t fzn_chain_open(const uint8_t *bytes, size_t len,
 fzn_chain_err_t fzn_chain_pack(const fzn_chain_hop_t *hops, size_t hop_count, uint8_t *out,
                                size_t cap, size_t *len)
 {
+	situ_msg_t m;
+	situ_view_t v, hv;
 	size_t need;
 
 	if (!hops || !out || !len)
@@ -137,10 +146,19 @@ fzn_chain_err_t fzn_chain_pack(const fzn_chain_hop_t *hops, size_t hop_count, ui
 			return FZN_CHAIN_ERR_MALFORMED;
 	}
 
-	out[0] = (uint8_t)FZN_SIGNED_VERSION;
-	out[1] = (uint8_t)hop_count;
-	for (size_t i = 0; i < hop_count; i++)
-		memcpy(out + FZN_CHAIN_HEADER_LEN + i * FZN_HOP_LEN, hops[i].base, FZN_HOP_LEN);
+	/* WRITTEN THROUGH situ's EDIT LAYER, sec 1366: the count first, which
+	 * lays the hops out, then each hop's bytes where situ places it. */
+	memset(out, 0, need);
+	situ_msg_init(&m, out, (uint32_t)need);
+	if (fzn_chain_wire_fzn_chain_view(&m, 0u, (uint32_t)need, &v) != SITU_OK)
+		return FZN_CHAIN_ERR_MALFORMED;
+	fzn_chain_wire_fzn_chain_hop_count_set(&m, v, (uint8_t)hop_count);
+	fzn_chain_wire_fzn_chain_version_set(v, (uint8_t)FZN_SIGNED_VERSION);
+	for (size_t i = 0; i < hop_count; i++) {
+		if (fzn_chain_wire_fzn_chain_hops_at(v, (uint32_t)i, &hv) != SITU_OK)
+			return FZN_CHAIN_ERR_MALFORMED;
+		memcpy(situ_base(hv), hops[i].base, FZN_HOP_LEN);
+	}
 
 	*len = need;
 	return FZN_CHAIN_OK;
