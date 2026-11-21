@@ -5,6 +5,8 @@
 #include <string.h>
 
 #include "../wire/bytes.h"
+#include "../wire/generated/contact_request_record.h"
+#include "../wire/generated/contact_request_record_build.h"
 
 const char *fzn_contact_request_err_str(fzn_contact_request_err_t err)
 {
@@ -31,27 +33,25 @@ const char *fzn_contact_request_err_str(fzn_contact_request_err_t err)
 	return "unknown";
 }
 
-/* Everything the signature covers, into `out`; its length, or 0. */
-static size_t body(const fzn_contact_request_t *r, uint8_t *out, size_t cap)
+/* Everything the signature covers, into `out` with the signature zero --
+ * built by the code situ generates from `node/contact_request_record.situ`
+ * (sec 1339); the length before the signature, or 0. */
+static size_t body(const fzn_contact_request_t *r, const uint8_t sig[FZN_SIG_LEN], uint8_t *out, size_t cap)
 {
-	size_t card_len = 0, at;
+	static const uint8_t zero[FZN_SIG_LEN];
+	static uint8_t card[FZN_CONTACT_CARD_MAX];
+	size_t card_len = 0;
+	uint32_t wrote = 0;
 
-	if (cap < 2u + FZN_PUBKEY_LEN + 2u
-	    || fzn_contact_card_encode(&r->card, out + 2u + FZN_PUBKEY_LEN + 2u,
-	                               cap - (2u + FZN_PUBKEY_LEN + 2u), &card_len)
-	               != FZN_CONTACT_CARD_OK)
+	if (cap > UINT32_MAX
+	    || fzn_contact_card_encode(&r->card, card, sizeof(card), &card_len) != FZN_CONTACT_CARD_OK
+	    || fzn_contact_request_record_fzn_contact_request_build(out, (uint32_t)cap, FZN_CONTACT_REQUEST_VERSION,
+	                                                            (uint8_t)FZN_OBJECT_CONTACT_REQUEST, r->target, card,
+	                                                            (uint32_t)card_len, r->nonce, r->expires_at,
+	                                                            sig ? sig : zero, &wrote)
+	               != SITU_OK)
 		return 0;
-	out[0] = FZN_CONTACT_REQUEST_VERSION;
-	out[1] = (uint8_t)FZN_OBJECT_CONTACT_REQUEST;
-	memcpy(out + 2, r->target, FZN_PUBKEY_LEN);
-	fzn_put_be16(out + 2 + FZN_PUBKEY_LEN, (uint16_t)card_len);
-	at = 2u + FZN_PUBKEY_LEN + 2u + card_len;
-	if (at + FZN_CONTACT_REQUEST_NONCE_LEN + 8u > cap)
-		return 0;
-	memcpy(out + at, r->nonce, FZN_CONTACT_REQUEST_NONCE_LEN);
-	at += FZN_CONTACT_REQUEST_NONCE_LEN;
-	fzn_put_be64(out + at, r->expires_at);
-	return at + 8u;
+	return wrote - FZN_SIG_LEN;
 }
 
 fzn_contact_request_err_t fzn_contact_request_sign(fzn_contact_request_t *r,
@@ -62,7 +62,7 @@ fzn_contact_request_err_t fzn_contact_request_sign(fzn_contact_request_t *r,
 
 	if (!r || !sign || !sign->sign)
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
-	n = body(r, bytes, sizeof(bytes));
+	n = body(r, NULL, bytes, sizeof(bytes));
 	if (!n || !sign->sign(sign->ctx, r->sig, bytes, n))
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
 	return FZN_CONTACT_REQUEST_OK;
@@ -75,10 +75,9 @@ fzn_contact_request_err_t fzn_contact_request_encode(const fzn_contact_request_t
 
 	if (!r || !out || !len)
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
-	n = body(r, out, cap);
-	if (!n || n + FZN_SIG_LEN > cap)
+	n = body(r, r->sig, out, cap);
+	if (!n)
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
-	memcpy(out + n, r->sig, FZN_SIG_LEN);
 	*len = n + FZN_SIG_LEN;
 	return FZN_CONTACT_REQUEST_OK;
 }
@@ -86,27 +85,31 @@ fzn_contact_request_err_t fzn_contact_request_encode(const fzn_contact_request_t
 fzn_contact_request_err_t fzn_contact_request_decode(const uint8_t *bytes, size_t len,
                                                      fzn_contact_request_t *out)
 {
-	size_t card_len, at;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
 
 	if (!bytes || !out)
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
 	memset(out, 0, sizeof(*out));
-	if (len < 2u + FZN_PUBKEY_LEN + 2u || bytes[0] != FZN_CONTACT_REQUEST_VERSION
-	    || bytes[1] != (uint8_t)FZN_OBJECT_CONTACT_REQUEST)
+	/* EXACTLY ITS LENGTH: one request, one encoding. Its version, tag and
+	 * the card's layout are the generated validate's; the card's own
+	 * checks are its codec's. */
+	if (len > UINT32_MAX
+	    || fzn_contact_request_record_fzn_contact_request_required(bytes, (uint32_t)len, &need) != SITU_OK
+	    || need != len)
 		return FZN_CONTACT_REQUEST_ERR_SHAPE;
-	memcpy(out->target, bytes + 2, FZN_PUBKEY_LEN);
-	card_len = fzn_get_be16(bytes + 2 + FZN_PUBKEY_LEN);
-	at = 2u + FZN_PUBKEY_LEN + 2u;
-	/* EXACTLY ITS LENGTH: one request, one encoding. */
-	if (len != at + card_len + FZN_CONTACT_REQUEST_NONCE_LEN + 8u + FZN_SIG_LEN
-	    || fzn_contact_card_decode(bytes + at, card_len, &out->card) != FZN_CONTACT_CARD_OK)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_contact_request_record_fzn_contact_request_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_contact_request_record_fzn_contact_request_validate(v) != SITU_OK
+	    || fzn_contact_card_decode(fzn_contact_request_record_fzn_contact_request_card_ptr(v),
+	                               fzn_contact_request_record_fzn_contact_request_card_len_get(v), &out->card)
+	               != FZN_CONTACT_CARD_OK)
 		return FZN_CONTACT_REQUEST_ERR_SHAPE;
-	at += card_len;
-	memcpy(out->nonce, bytes + at, FZN_CONTACT_REQUEST_NONCE_LEN);
-	at += FZN_CONTACT_REQUEST_NONCE_LEN;
-	out->expires_at = fzn_get_be64(bytes + at);
-	at += 8u;
-	memcpy(out->sig, bytes + at, FZN_SIG_LEN);
+	memcpy(out->target, fzn_contact_request_record_fzn_contact_request_target_ptr(v), FZN_PUBKEY_LEN);
+	memcpy(out->nonce, fzn_contact_request_record_fzn_contact_request_nonce_ptr(v), FZN_CONTACT_REQUEST_NONCE_LEN);
+	out->expires_at = fzn_contact_request_record_fzn_contact_request_expires_at_get(v);
+	memcpy(out->sig, fzn_contact_request_record_fzn_contact_request_sig_ptr(v), FZN_SIG_LEN);
 	return FZN_CONTACT_REQUEST_OK;
 }
 
@@ -125,7 +128,7 @@ fzn_contact_request_err_t fzn_contact_request_verify(const fzn_contact_request_t
 		return FZN_CONTACT_REQUEST_ERR_NOT_HERE;
 	if (fzn_contact_card_verify(&r->card, sign, member, now) != FZN_CONTACT_CARD_OK)
 		return FZN_CONTACT_REQUEST_ERR_REFUSED;
-	n = body(r, bytes, sizeof(bytes));
+	n = body(r, NULL, bytes, sizeof(bytes));
 	if (!n || !sign->verify(sign->ctx, fzn_contact_device_key(&r->card.host), bytes, n, r->sig))
 		return FZN_CONTACT_REQUEST_ERR_REFUSED;
 	if (r->expires_at < now || r->expires_at - now > FZN_CONTACT_REQUEST_LIFE_MAX)

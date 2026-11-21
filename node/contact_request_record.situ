@@ -1,7 +1,7 @@
 // A contact request, project.md sec 619: fuzzypickles' pairing request
-// brought into fuzznet as step 3c of sec 608. The hand-written codec is
-// node/contact_request.c; this is its checked contract, in `make schema`'s
-// list.
+// brought into fuzznet as step 3c of sec 608. node/contact_request.c reads
+// and writes it through the code situ generates from this (sec 1338);
+// `_record`, a signed record, so the generated file's name meets no source's.
 //
 // What a user sends to ask another for contact, sealed in a box to the
 // other's host's prekey (session/box.h): the asker's own contact card
@@ -9,18 +9,20 @@
 // SIGNED BY THE HOST the asker's card names, over every byte before the
 // signature; the tag is the signed-object tag 149.
 //
-// What the schema cannot say and the codec checks: the card is a card, and
-// the request is exactly its length.
+// The card is typed as the card it holds, so `validate` reads its layout;
+// what the codec still checks is the card's own signature and the request's.
 
 target buffer;
 endian big;
+
+import "contact_card_record.situ";
 
 struct fzn_contact_request {
 	u8   version [must_eq = 1];
 	u8   tag [must_eq = 149];               // FZN_OBJECT_CONTACT_REQUEST
 	u8   target[32];                        // the host it is for
 	u16  card_len;
-	u8   card[card_len];                    // the asker's fzn_contact_card
+	u8   card[card_len] [holds = fzn_contact_card];  // the asker's card
 	u8   nonce[16];
 	u64  expires_at;                        // seconds; at most 30 days ahead
 	u8   sig[64];                           // by the card's host

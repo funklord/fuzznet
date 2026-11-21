@@ -13474,9 +13474,16 @@ SABOTAGES = [
 	(
 		"contact-request-exact-length",
 		"node/contact_request.c",
-		"\tif (len != at + card_len + FZN_CONTACT_REQUEST_NONCE_LEN + 8u + FZN_SIG_LEN\n",
-		"\tif (len < at + card_len + FZN_CONTACT_REQUEST_NONCE_LEN + 8u + FZN_SIG_LEN\n",
-		"a request with trailing bytes decodes, two encodings of one -- sec 619",
+		"\t    || need != len)\n\t\treturn FZN_CONTACT_REQUEST_ERR_SHAPE;",
+		"\t    )\n\t\treturn FZN_CONTACT_REQUEST_ERR_SHAPE;",
+		"a request with trailing bytes decodes, two encodings of one -- secs 619, 1339",
+	),
+	(
+		"contact-request-unvalidated",
+		"node/contact_request.c",
+		"\t    || fzn_contact_request_record_fzn_contact_request_validate(v) != SITU_OK\n",
+		"",
+		"a request read without the schema's checks: any version or tag, a card not laid out as one -- secs 619, 1339",
 	),
 	(
 		"contact-request-evict-the-oldest",

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1338
+The newest work is at the end of this file. **Read secs 1287 to 1339
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95050,3 +95050,34 @@ its byte now; nothing else in the generated tree moved.
 **Tests:** routing_test (31) and reachability_fuzz (3000 cases) round-trip
 through the generated builder.
 
+
+## 1339. A contact request on situ's generated code, its card typed as a card, 2026-11-21
+
+The ninth of the 40 layouts: `node/contact_request.situ` is
+`node/contact_request_record.situ` (a signed record). It imports
+`contact_card_record.situ` and declares the card it carries as one
+(`u8 card[card_len] [holds = fzn_contact_card]`), so the generated
+`validate` reads the card's layout inside the request, and its host's
+inside that. `node/contact_request.c` builds the request with the
+generated builder -- the signed body is the build with a zero signature,
+less its last 64 bytes -- and reads it through `required` (exactly its
+length), the view, `validate` and the getters. The card's own checks and
+signature stay the card codec's; the request's signature, target and
+life stay `fzn_contact_request_verify`'s.
+
+**situ calls the `holds` a breaking change** ("the same bytes now mean
+something else"); for fuzznet it is not, since the codec already refused
+any card bytes that were not a card, so no sender emits them -- the same
+held for the card's host in sec 1334. **And an import costs a copy**: the
+request's generated object (4412 bytes of text) carries the card's whole
+checker again under its own prefix, the card's own object being 4420.
+Both sent to situ (inbox 20261121T0400Z): fuzznet can only remove its
+network code without losing size if a schema importing another can call
+that unit's generated code rather than re-emit it.
+
+**Tests:** contact_request_record_vectors (1: alice's card from
+node/contact_card_record.vectors in a request); contact_request_test
+(69), pair_test (443), admin_test (377), group_log_test (89) and
+card_fuzz (3000 cases, 1512 bent requests decoded) over the generated
+code. Sabotage `contact-request-exact-length` (retargeted) and
+`contact-request-unvalidated`.
