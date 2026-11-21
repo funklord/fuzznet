@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1356
+The newest work is at the end of this file. **Read secs 1287 to 1357
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95536,3 +95536,34 @@ round again. **Tests:** search_view_test (14): `select(1)` then `open()`
 opens the second hit, `select(0)` the first. The check before it held
 that `select(0)` then `open()` opened nothing -- the bug, written down as
 the expected behaviour. Sabotage `search-view-select-chooses-the-row`.
+
+## 1357. Every view's chooser a host may show itself, for TalkBack on Android, 2026-11-21
+
+From fuzzypickles (fuzznet inbox 20261121T1205Z), which hosts these views
+as pages. On Android a QComboBox's list is a `Qt::Popup`, a second
+top-level window, and **Qt 6.12's Android plugin aborts a Widgets app
+that makes one while an accessibility service runs** -- measured in hydra
+for a QMenu, a Qt::Popup and a QDialog -- so the person who needs the
+screen read to them, TalkBack running, lost the app on opening any of the
+views' fourteen choosers. fuzzypickles shows its own choosers in a sheet
+inside the window, but could not reach these: TalkBack opens a combo
+through its accessibility action, which calls `showPopup()` itself.
+
+**`gui/combo.h`, `fzn_combo_box`**: a QComboBox whose `showPopup` asks one
+hook a host sets (`fzn_combo_box::set_popup`), handed the combo, to show
+the choice its own way -- true -- or leave it to Qt's list -- false; with
+none set it is a QComboBox. Header-only, so no view's test links more.
+Every `new QComboBox` in `gui/` is one now: search, notebook (five),
+settings, objects, governance, location, library, group, entries and
+config. Chosen over a factory a host sets, which would have to make the
+whole QComboBox and so carry every view's model and signals; a hook on
+`showPopup` is the one call that matters and the only one TalkBack
+reaches. **Where it belongs later is open, not decided here**: fuzzypickles'
+`fzp_combo_box` and this are the same piece in two trees, which is what
+`qtkit` is for (harmonization.md) -- a shared chooser is for a deliberate
+pass, not one made in passing.
+
+**Tests:** search_view_test (16): its combos are the hooked kind and
+opening each goes to the hook; notebook_view_test (1080): all five of its
+choosers are the hooked kind; every hosting view's test still passes.
+Sabotage `search-view-combo-is-the-hooked-kind`.

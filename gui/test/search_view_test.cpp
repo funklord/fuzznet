@@ -7,6 +7,7 @@
  */
 
 #include "../search_view.h"
+#include "../combo.h"
 
 #include <QApplication>
 
@@ -102,6 +103,24 @@ int main(int argc, char **argv)
 	view.select(0);
 	CHECK(view.open() && opened_store == QStringLiteral("notes"),
 	      "select(0) then open() did not open the first hit");
+	/* A HOST'S OWN CHOOSER, sec 1357: the view's combos are the hooked kind,
+	 * and opening one goes to the host's hook -- TalkBack opens a combo by
+	 * calling showPopup, and a second window aborts a Widgets app under it. */
+	{
+		int hooked = 0, combos = 0;
+
+		fzn_combo_box::set_popup([&hooked](QComboBox *) {
+			hooked++;
+			return true;
+		});
+		for (QComboBox *c : view.findChildren<QComboBox *>()) {
+			combos++;
+			CHECK(dynamic_cast<fzn_combo_box *>(c) != nullptr, "a combo of the view is not the hooked kind");
+			c->showPopup();
+		}
+		fzn_combo_box::set_popup({});
+		CHECK(combos > 0 && hooked == combos, "opening a combo did not go to the host's hook");
+	}
 	silent = 1;
 	CHECK(!view.search(QStringLiteral("heron")) && view.status() == QStringLiteral("The node did not answer."),
 	      "a node that did not answer was not said");

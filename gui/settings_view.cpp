@@ -1,5 +1,6 @@
 /* The node's settings as a widget: gui/settings_view.h, sec 1103. */
 #include "settings_view.h"
+#include "combo.h"
 
 #include "rpc_ask.h"
 
@@ -29,7 +30,7 @@ fzn_settings_view::fzn_settings_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_list = new QTreeWidget(this);
 	m_list->setHeaderHidden(true);
 	m_list->setColumnCount(1);
-	m_value = new QComboBox(this);
+	m_value = new fzn_combo_box(this);
 	/* NAMED FOR A SCREEN READER, sec 1120. */
 	m_list->setAccessibleName(tr("Settings"));
 	m_value->setAccessibleName(tr("The chosen setting's value"));

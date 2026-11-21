@@ -27,6 +27,7 @@ extern "C" {
 }
 
 #include "../notebook_view.h"
+#include "../combo.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -407,6 +408,25 @@ static int index_of(const QStringList &ids, const QString &id)
 }
 
 /* ---- cases --------------------------------------------------------------- */
+
+/* EVERY CHOOSER THE HOST'S TO SHOW, sec 1357: the notebook's five combos
+ * are the hooked kind, so a host that keeps a second window off an Android
+ * phone under TalkBack reaches each. */
+static void test_every_chooser_is_the_hooked_kind(void)
+{
+	setup();
+	{
+		fzn_notebook_view w(node_ask, nullptr);
+		int combos = 0, hooked = 0;
+
+		for (QComboBox *c : w.findChildren<QComboBox *>()) {
+			combos++;
+			if (dynamic_cast<fzn_combo_box *>(c))
+				hooked++;
+		}
+		CHECK(combos >= 5 && hooked == combos, "a chooser of the notebook is not the hooked kind");
+	}
+}
 
 static void test_an_empty_notebook_and_a_silent_node_read_differently(void)
 {
@@ -1493,6 +1513,7 @@ int main(int argc, char **argv)
 	test_a_notes_history_is_read_and_restored();
 	test_a_checklists_history_shows_its_items();
 	test_history_is_grouped_by_day();
+	test_every_chooser_is_the_hooked_kind();
 	if (failures) {
 		fprintf(stderr, "notebook_view_test: %d of %d checks failed\n", failures, checks);
 		return 1;

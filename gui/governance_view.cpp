@@ -1,6 +1,7 @@
 /* See governance_view.h. */
 
 #include "governance_view.h"
+#include "combo.h"
 #include "rpc_ask.h"
 
 #include <QComboBox>
@@ -156,7 +157,7 @@ fzn_governance_view::fzn_governance_view(fzn_notebook_view_ask_t ask, void *ask_
 
 	/* THE PROFILE. */
 	col = part(m_tabs, QStringLiteral("Profile"));
-	m_presets = new QComboBox(this);
+	m_presets = new fzn_combo_box(this);
 	m_choose_preset = new QPushButton(QStringLiteral("Use profile"), this);
 	m_preset_status = status_label(this);
 	/* THE CHOOSER ABOVE ITS BUTTON, sec 1041, for the same screen. */

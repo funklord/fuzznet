@@ -1,5 +1,6 @@
 /* The named objects as a widget: gui/objects_view.h, sec 1102. */
 #include "objects_view.h"
+#include "combo.h"
 #include "keep_place.h"
 
 #include "rpc_ask.h"
@@ -27,7 +28,7 @@ fzn_objects_view::fzn_objects_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
 	m_table->setSelectionMode(QAbstractItemView::SingleSelection);
 	m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-	m_value = new QComboBox(this);
+	m_value = new fzn_combo_box(this);
 	m_set = new QPushButton(tr("Set"), this);
 	m_refresh = new QPushButton(tr("Refresh"), this);
 	m_status = new QLabel(this);

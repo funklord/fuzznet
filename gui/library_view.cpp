@@ -1,5 +1,6 @@
 /* The files the catalogue names, as a widget: gui/library_view.h, sec 1131. */
 #include "library_view.h"
+#include "combo.h"
 #include "size_words.h"
 #include "keep_place.h"
 
@@ -69,7 +70,7 @@ fzn_library_view::fzn_library_view(fzn_notebook_view_ask_t ask, void *ask_ctx, Q
 	m_find->setPlaceholderText(tr("Find a file"));
 	m_find->setAccessibleName(tr("Find a file by its name or kind"));
 	m_find->setClearButtonEnabled(true);
-	m_kind = new QComboBox(this);
+	m_kind = new fzn_combo_box(this);
 	m_kind->setAccessibleName(tr("Show one kind of file"));
 	m_kind->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
 	m_kind->setMinimumContentsLength(8);

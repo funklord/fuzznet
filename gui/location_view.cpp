@@ -1,5 +1,6 @@
 /* Positions shared with this user, as a widget: gui/location_view.h, sec 1109. */
 #include "location_view.h"
+#include "combo.h"
 #include "phone_layout.h"
 #include "keep_place.h"
 
@@ -56,7 +57,7 @@ fzn_location_view::fzn_location_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_share = new QPushButton(tr("Share mine with them"), this);
 	m_unshare = new QPushButton(tr("Stop sharing mine"), this);
 	/* IN THE ORDER OF fzn_rpc_location_precision_t, so an index is a level. */
-	m_precision = new QComboBox(this);
+	m_precision = new fzn_combo_box(this);
 	m_precision->addItems({ tr("Exactly"), tr("To about 1 km"), tr("To about 10 km") });
 	m_precision->setAccessibleName(tr("How exactly they see your position"));
 	m_refresh = new QPushButton(tr("Refresh"), this);

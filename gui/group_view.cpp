@@ -1,5 +1,6 @@
 /* One group's members, as a widget: gui/group_view.h, sec 1143. */
 #include "group_view.h"
+#include "combo.h"
 #include "keep_place.h"
 
 #include "rpc_ask.h"
@@ -34,7 +35,7 @@ fzn_group_view::fzn_group_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidg
 	m_title = new QLabel(this);
 	m_members = new QListWidget(this);
 	m_members->setAccessibleName(tr("Members"));
-	m_contacts = new QComboBox(this);
+	m_contacts = new fzn_combo_box(this);
 	m_contacts->setAccessibleName(tr("Contact to add"));
 	m_add = new QPushButton(tr("Add"), this);
 	m_remove = new QPushButton(tr("Remove"), this);

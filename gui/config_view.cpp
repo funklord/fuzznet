@@ -1,4 +1,5 @@
 #include "config_view.h"
+#include "combo.h"
 
 #include <QComboBox>
 #include <QFormLayout>
@@ -26,7 +27,7 @@ static const struct field FIELDS[] = {
 fzn_config_view::fzn_config_view(QWidget *parent)
         : QWidget(parent), dir_(new QLineEdit(this)), store_(new QLineEdit(this)),
           service_(new QLineEdit(this)), product_(new QLineEdit(this)),
-          owner_(new QComboBox(this)), message_(new QLabel(this))
+          owner_(new fzn_combo_box(this)), message_(new QLabel(this))
 {
 	QVBoxLayout *outer = new QVBoxLayout(this);
 	QFormLayout *form = new QFormLayout();

@@ -1,5 +1,6 @@
 /* The one search, as a widget: gui/search_view.h, sec 1293. */
 #include "search_view.h"
+#include "combo.h"
 
 #include "rpc_ask.h"
 
@@ -65,7 +66,7 @@ fzn_search_view::fzn_search_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWi
 	/* WHOM WITH: this user's own hosts, or one contact -- who is then told
 	 * the words, and nobody else is (sec 1292). No wider than eight
 	 * letters, so the row fits 320 px. */
-	m_who = new QComboBox(this);
+	m_who = new fzn_combo_box(this);
 	m_who->setAccessibleName(tr("Search what you share with a contact, or everything of yours"));
 	m_who->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
 	m_who->setMinimumContentsLength(8);

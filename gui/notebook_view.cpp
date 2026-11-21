@@ -1,6 +1,7 @@
 /* See notebook_view.h. */
 
 #include "notebook_view.h"
+#include "combo.h"
 
 #include "rpc_ask.h"
 
@@ -217,7 +218,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	auto *trash_row = new flow_row();
 	auto *share_row = new flow_row();
 
-	m_trees = new QComboBox(this);
+	m_trees = new fzn_combo_box(this);
 	m_up = new QPushButton(QStringLiteral("Up"), this);
 	m_location = new QLabel(this);
 	m_status = new QLabel(this);
@@ -323,11 +324,11 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_cut_button = new QPushButton(QStringLiteral("Cut"), this);
 	m_move_here = new QPushButton(QStringLiteral("Move here"), this);
 	auto *item_row = new flow_row();
-	m_share_to = new QComboBox(this);
+	m_share_to = new fzn_combo_box(this);
 	/* FOR A GROUP, WHETHER A LATER MEMBER GETS WHAT CAME BEFORE, sec 986:
 	 * the group's own setting until somebody chooses, and that is a choice
 	 * too -- it follows the group if the group's changes. */
-	m_backfill = new QComboBox(this);
+	m_backfill = new fzn_combo_box(this);
 	m_backfill->addItem(QStringLiteral("Later members: as the group says"), -1);
 	m_backfill->addItem(QStringLiteral("Later members: get earlier notes"), 1);
 	m_backfill->addItem(QStringLiteral("Later members: new notes only"), 0);
@@ -344,9 +345,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_warning->setWordWrap(true);
 	/* THE HISTORY, sec 603: the current version first, then each earlier
 	 * one, newest first, as a person looks back. */
-	m_history_day = new QComboBox(this);
+	m_history_day = new fzn_combo_box(this);
 	m_history_day->setObjectName(QStringLiteral("history_day"));
-	m_history = new QComboBox(this);
+	m_history = new fzn_combo_box(this);
 	m_history->setObjectName(QStringLiteral("history"));
 	m_restore_version = new QPushButton(QStringLiteral("Restore this version"), this);
 	/* ACCESSIBLE NAMES, sec 983: a screen reader names a button by its

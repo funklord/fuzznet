@@ -1,6 +1,7 @@
 /* See entries_view.h. */
 
 #include "entries_view.h"
+#include "combo.h"
 
 extern "C" {
 #include "../log/entry.h"
@@ -46,7 +47,7 @@ fzn_entries_view::fzn_entries_view(fzn_gather_ask_t ask, void *ask_ctx, QWidget 
 	m_match = new QLineEdit(this);
 	m_match->setPlaceholderText(QStringLiteral("Lines holding (an instance field gives what "
 	                                           "it caused)"));
-	m_span = new QComboBox(this);
+	m_span = new fzn_combo_box(this);
 	for (i = 0; i < sizeof(SPANS) / sizeof(SPANS[0]); i++)
 		m_span->addItem(QString::fromLatin1(SPAN_NAMES[i]), QVariant::fromValue(SPANS[i]));
 	/* NAMED FOR A SCREEN READER, a placeholder not being a name, sec 1120. */

@@ -10493,6 +10493,13 @@ SABOTAGES = [
 		"a reply carrying a sticker or a file is read whole, and the pack goes ungranted, the file unfetched -- sec 1355",
 	),
 	(
+		"search-view-combo-is-the-hooked-kind",
+		"gui/search_view.cpp",
+		"m_who = new fzn_combo_box(this);",
+		"m_who = new QComboBox(this);",
+		"a view's chooser opens Qt's own list, a second window an Android phone under TalkBack aborts on -- sec 1357",
+	),
+	(
 		"search-view-select-chooses-the-row",
 		"gui/search_view.cpp",
 		"\t\tm_table->setCurrentCell(row, 0);\n",
