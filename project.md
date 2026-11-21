@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1369
+The newest work is at the end of this file. **Read secs 1287 to 1370
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95847,3 +95847,28 @@ follow the rename.
 admin_test (377), provision_test (179), and the 33 targets linking the
 root log. Sabotage `rootlog-quorum-zero-refused` retargeted onto
 `validate`, `root-set-admit-unvalidated` new.
+
+## 1370. A catalogue attribute built and read through situ's code; the spool's sidecar left a contract, 2026-11-21
+
+The twenty-fourth of the 40 layouts: `catalog/attribute.situ` is
+`catalog/attribute_row.situ`, the body of a catalogue attribute record
+(secs 101, 314). `fzn_catalog_attribute_encode` keeps its own refusals
+(an axis outside its enum KIND, a body no record can carry RANGE) and
+builds with the generated builder; `fzn_catalog_attribute_decode` reads
+through the generated view and `check`, which **names the member it
+refused at, so each refusal keeps the answer it had** -- the object byte
+MALFORMED, an axis outside its enum KIND, a length that does not fit
+RANGE -- then `required` for every byte accounted for. The hand
+`put_u16` and `get_u16` went with it, and the comments naming the schema
+follow the rename.
+
+**Not moved, and why**: `spool/sidecar.situ` is a file read in two steps
+-- the 41-byte header compared before the bitmap is read, and a mismatch
+or a short read answered as no sidecar at all -- like
+`record/store_file.situ` (sec 1359), so it stays a contract.
+
+**Tests:** attribute_row_vectors (2: a fact with a value, a label
+without); catalog_test (69), copy_plan_test (50), dimension_test (18),
+attribute_fuzz (20000 cases). Sabotage
+`catalogue-refuses-an-unknown-enum` and
+`catalogue-attribute-value-is-exactly-the-remaining-bytes` retargeted.

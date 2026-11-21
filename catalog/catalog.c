@@ -19,6 +19,9 @@
 
 #include "catalog.h"
 
+#include "../wire/generated/attribute_row.h"
+#include "../wire/generated/attribute_row_build.h"
+
 #include <string.h>
 
 /* memcmp is undefined on a NULL pointer even for length 0, so guard length. */
@@ -219,23 +222,17 @@ fzn_catalog_err_t fzn_catalog_resolve(const fzn_catalog_assertion_t *set,
 	return FZN_CATALOG_OK;
 }
 
-/* Big-endian u16, the endianness catalog/attribute.situ declares. */
-static void put_u16(uint8_t *p, size_t v)
-{
-	p[0] = (uint8_t)(v >> 8);
-	p[1] = (uint8_t)(v & 0xffu);
-}
-
-static size_t get_u16(const uint8_t *p)
-{
-	return ((size_t)p[0] << 8) | (size_t)p[1];
-}
-
+/* BUILT AND READ BY THE CODE situ GENERATES from `catalog/attribute_row.situ`
+ * (sec 1370): the enums, the bounds and every byte accounted for are the
+ * schema's; `check` names the member it refused at, so each refusal keeps
+ * the answer it had -- the object byte MALFORMED, an axis outside its enum
+ * KIND, a length that does not fit RANGE. */
 fzn_catalog_err_t fzn_catalog_attribute_encode(const fzn_catalog_assertion_t *a,
                                                    uint8_t *out, size_t cap,
                                                    size_t *len_out)
 {
-	size_t total, off;
+	size_t total;
+	uint32_t wrote = 0;
 
 	if (!a || !len_out)
 		return FZN_CATALOG_ERR_MALFORMED;
@@ -256,22 +253,16 @@ fzn_catalog_err_t fzn_catalog_attribute_encode(const fzn_catalog_assertion_t *a,
 	 * not an encoding at all -- catalog/ found this as FZN_CATALOG_INLINE_MAX. */
 	if (total > cap || total > (size_t)FZN_RECORD_BODY_MAX)
 		return FZN_CATALOG_ERR_RANGE;
-
-	out[0] = FZN_CATALOG_OBJECT_ATTRIBUTE;
-	out[1] = (uint8_t)a->attr_class;
-	out[2] = (uint8_t)a->scope;
-	out[3] = (uint8_t)a->merge;
-	out[4] = (uint8_t)a->capability;
-	out[5] = (uint8_t)a->name_len;
-	off = FZN_CATALOG_ATTR_HEAD_LEN;
-	if (a->name_len)
-		memcpy(out + off, a->name, a->name_len);
-	off += a->name_len;
-	put_u16(out + off, a->value_len);
-	off += 2u;
-	if (a->value_len)
-		memcpy(out + off, a->value, a->value_len);
-	*len_out = total;
+	if (fzn_attribute_row_fzn_catalog_attribute_build(
+	            out, (uint32_t)cap, FZN_CATALOG_OBJECT_ATTRIBUTE,
+	            (fzn_attribute_row_fzn_catalog_class_t)a->attr_class,
+	            (fzn_attribute_row_fzn_catalog_scope_t)a->scope,
+	            (fzn_attribute_row_fzn_catalog_merge_t)a->merge,
+	            (fzn_attribute_row_fzn_catalog_capability_t)a->capability, a->name, (uint32_t)a->name_len,
+	            a->value, (uint32_t)a->value_len, &wrote)
+	    != SITU_OK)
+		return FZN_CATALOG_ERR_RANGE;
+	*len_out = wrote;
 	return FZN_CATALOG_OK;
 }
 
@@ -280,11 +271,10 @@ fzn_catalog_err_t fzn_catalog_attribute_decode(const uint8_t *issuer, size_t iss
                                                    const uint8_t *body, size_t body_len,
                                                    fzn_catalog_assertion_t *out)
 {
-	fzn_catalog_class_t cls;
-	fzn_catalog_scope_t scope;
-	fzn_catalog_merge_t merge;
-	fzn_catalog_capability_t cap;
-	size_t name_len, value_len, off;
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t which = 0, need = 0;
+	size_t name_len, value_len;
 
 	if (!out)
 		return FZN_CATALOG_ERR_MALFORMED;
@@ -298,45 +288,42 @@ fzn_catalog_err_t fzn_catalog_attribute_decode(const uint8_t *issuer, size_t iss
 		return FZN_CATALOG_ERR_RANGE;
 
 	/* The fixed head must be whole before any field is read. */
-	if (body_len < FZN_CATALOG_ATTR_HEAD_LEN
-	    || body[0] != FZN_CATALOG_OBJECT_ATTRIBUTE)
+	if (body_len < FZN_CATALOG_ATTR_HEAD_LEN)
 		return FZN_CATALOG_ERR_MALFORMED;
 
-	cls = (fzn_catalog_class_t)body[1];
-	scope = (fzn_catalog_scope_t)body[2];
-	merge = (fzn_catalog_merge_t)body[3];
-	cap = (fzn_catalog_capability_t)body[4];
-	if (!class_known(cls) || !scope_known(scope) || !merge_known(merge)
-	    || !capability_known(cap))
-		return FZN_CATALOG_ERR_KIND;
-
-	name_len = body[5];
-	off = FZN_CATALOG_ATTR_HEAD_LEN;
-	/* name, then the two-byte value length, then value: each must lie within the
-	 * body, and the value must be EXACTLY the remaining bytes -- one canonical
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)body, (uint32_t)body_len);
+	if (fzn_attribute_row_fzn_catalog_attribute_view(&m, 0u, (uint32_t)body_len, &v) != SITU_OK)
+		return FZN_CATALOG_ERR_MALFORMED;
+	if (fzn_attribute_row_fzn_catalog_attribute_check(v, &which) != SITU_OK) {
+		if (which == FZN_ATTRIBUTE_ROW_FZN_CATALOG_ATTRIBUTE_OBJECT_CHECK)
+			return FZN_CATALOG_ERR_MALFORMED;
+		if (which == FZN_ATTRIBUTE_ROW_FZN_CATALOG_ATTRIBUTE_ATTR_CLASS_CHECK
+		    || which == FZN_ATTRIBUTE_ROW_FZN_CATALOG_ATTRIBUTE_SCOPE_CHECK
+		    || which == FZN_ATTRIBUTE_ROW_FZN_CATALOG_ATTRIBUTE_MERGE_CHECK
+		    || which == FZN_ATTRIBUTE_ROW_FZN_CATALOG_ATTRIBUTE_CAPABILITY_CHECK)
+			return FZN_CATALOG_ERR_KIND;
+		return FZN_CATALOG_ERR_RANGE;
+	}
+	/* The value must be EXACTLY the remaining bytes -- one canonical
 	 * encoding, so a trailing byte is refused rather than ignored. */
-	if (name_len > body_len - off)
+	if (fzn_attribute_row_fzn_catalog_attribute_required(body, (uint32_t)body_len, &need) != SITU_OK
+	    || need != body_len)
 		return FZN_CATALOG_ERR_RANGE;
-	off += name_len;
-	if (body_len - off < 2u)
-		return FZN_CATALOG_ERR_RANGE;
-	value_len = get_u16(body + off);
-	off += 2u;
-	if (value_len != body_len - off)
-		return FZN_CATALOG_ERR_RANGE;
+	name_len = fzn_attribute_row_fzn_catalog_attribute_name_len_get(v);
+	value_len = fzn_attribute_row_fzn_catalog_attribute_value_len_get(v);
 
 	out->issuer = issuer;
 	out->issuer_len = issuer_len;
 	out->entity = entity;
 	out->entity_len = entity_len;
-	out->name = name_len ? body + FZN_CATALOG_ATTR_HEAD_LEN : NULL;
+	out->name = name_len ? fzn_attribute_row_fzn_catalog_attribute_name_ptr(v) : NULL;
 	out->name_len = name_len;
-	out->value = value_len ? body + off : NULL;
+	out->value = value_len ? fzn_attribute_row_fzn_catalog_attribute_value_ptr(v) : NULL;
 	out->value_len = value_len;
-	out->attr_class = cls;
-	out->scope = scope;
-	out->merge = merge;
-	out->capability = cap;
+	out->attr_class = (fzn_catalog_class_t)fzn_attribute_row_fzn_catalog_attribute_attr_class_get(v);
+	out->scope = (fzn_catalog_scope_t)fzn_attribute_row_fzn_catalog_attribute_scope_get(v);
+	out->merge = (fzn_catalog_merge_t)fzn_attribute_row_fzn_catalog_attribute_merge_get(v);
+	out->capability = (fzn_catalog_capability_t)fzn_attribute_row_fzn_catalog_attribute_capability_get(v);
 	out->live = 0;
 	return FZN_CATALOG_OK;
 }

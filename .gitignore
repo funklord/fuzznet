@@ -443,4 +443,5 @@ __pycache__/
 /wire/test/chain_wire_vectors
 /wire/test/roster_record_vectors
 /wire/test/root_act_record_vectors
+/wire/test/attribute_row_vectors
 /node/test/settings_registry_test

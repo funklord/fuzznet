@@ -1,0 +1,6 @@
+# Golden vectors for catalog/attribute_row.situ, written by hand from its
+# layout: a fact of this host's, authoritative, needing no capability,
+# named "kind" with the value "photo"; and an estate label with no value.
+
+fzn_catalog_attribute fact 01 02 01 01 01 04 6B 69 6E 64 00 05 70 68 6F 74 6F
+fzn_catalog_attribute label 01 01 02 02 02 03 74 61 67 00 00

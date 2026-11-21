@@ -99,8 +99,8 @@ SABOTAGES = [
 	(
 		"catalogue-refuses-an-unknown-enum",
 		"catalog/catalog.c",
-		"\t\t\treturn FZN_CATALOG_ERR_KIND;\n",
-		"\t\t\treturn FZN_CATALOG_OK;\n",
+		"\t\t    || which == FZN_ATTRIBUTE_ROW_FZN_CATALOG_ATTRIBUTE_CAPABILITY_CHECK)\n\t\t\treturn FZN_CATALOG_ERR_KIND;\n",
+		"\t\t    || which == FZN_ATTRIBUTE_ROW_FZN_CATALOG_ATTRIBUTE_CAPABILITY_CHECK)\n\t\t\treturn FZN_CATALOG_ERR_RANGE;\n",
 		"C28/F26: an unknown class/scope/merge/capability is refused, never skipped. catalog_test's unknown-class case catches it.",
 	),
 	(
@@ -113,8 +113,8 @@ SABOTAGES = [
 	(
 		"catalogue-attribute-value-is-exactly-the-remaining-bytes",
 		"catalog/catalog.c",
-		"\tif (value_len != body_len - off)\n",
-		"\tif (value_len > body_len - off)\n",
+		"\t    || need != body_len)\n",
+		"\t    || need > body_len)\n",
 		"One canonical encoding (C8): the value must be EXACTLY the bytes left, so a trailing byte is refused rather than ignored. `>` admits a shorter value_len than the bytes present, a second spelling of one assertion the signature differs over. catalog_test's trailing-byte case catches it.",
 	),
 	(

@@ -76,7 +76,7 @@
  * The merge core is implemented (catalog/catalog.c). The module name is
  * settled -- `catalog`, superseding the old catalog/ module (the copyright
  * holder, 2026-09-18) -- and so is the ATTRIBUTE wire encoding, "follow the
- * new model", implemented as catalog/attribute.situ and the encode/decode
+ * new model", implemented as catalog/attribute_row.situ and the encode/decode
  * below. project.md sec 314. The rename to `catalog` and the retirement of the
  * old catalog/ are a later migration; the symbols here stay fzn_catalog_*
  * until then, to avoid colliding with the old module's fzn_catalog_*.
@@ -943,7 +943,7 @@ fzn_catalog_err_t fzn_catalog_resolve(const fzn_catalog_assertion_t *set,
  * one section-7 item that decided the wire form: an ATTRIBUTE record body
  * supersedes catalog/'s NAME and inline CONTENT. Membership (catalog/'s EDGE)
  * is facet/'s, and blob content is the filestore's -- the entity IS the hash.
- * The layout is `catalog/attribute.situ`; project.md sec 314 records it.
+ * The layout is `catalog/attribute_row.situ`; project.md sec 314 records it.
  *
  * The body carries the four axes, the name and the value -- NOT the issuer or
  * the entity. Those come from the record: issuer from `fzn_record_issuer`,

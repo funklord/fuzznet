@@ -3,6 +3,8 @@
 // catalog/'s NAME and inline CONTENT bodies. A membership assertion (catalog/'s
 // EDGE) is facet/'s, and blob content is the filestore's: the entity IS the
 // content hash, so nothing here carries bytes. project.md sec 101 and 314.
+// catalog/catalog.c builds and reads it through the code situ generates from
+// this (sec 1370); `_row`, so the generated file's name meets no source's.
 //
 // This is a RECORD BODY. It does NOT repeat the issuer or the entity, for the
 // reason catalog/catalog.h gives about its own bodies: a record already carries

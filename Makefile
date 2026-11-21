@@ -260,6 +260,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/succession_record.c wire/generated/entry_record.c wire/generated/cause_wire.c \
              wire/generated/tree_row.c wire/generated/revocation_record.c wire/generated/manifest_record.c \
              wire/generated/chain_wire.c wire/generated/roster_record.c wire/generated/root_act_record.c \
+             wire/generated/attribute_row.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -284,7 +285,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/cause_wire_vectors.c wire/generated/tree_row_vectors.c \
                  wire/generated/revocation_record_vectors.c wire/generated/manifest_record_vectors.c \
                  wire/generated/chain_wire_vectors.c wire/generated/roster_record_vectors.c \
-                 wire/generated/root_act_record_vectors.c
+                 wire/generated/root_act_record_vectors.c wire/generated/attribute_row_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -775,6 +776,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/chain_wire_vectors \
              $(BUILD_DIR)/wire/test/roster_record_vectors \
              $(BUILD_DIR)/wire/test/root_act_record_vectors \
+             $(BUILD_DIR)/wire/test/attribute_row_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -3072,7 +3074,7 @@ $(BUILD_DIR)/facet/test/codec_test: $(BUILD_DIR)/facet/test/codec_test.o \
 # catalog/ links only its own object, for the same reason as facet/: the
 # settled merge core is pure in-memory resolution over borrowed views (sec 311).
 $(BUILD_DIR)/catalog/test/catalog_test: $(BUILD_DIR)/catalog/test/catalog_test.o \
-                                             $(BUILD_DIR)/catalog/catalog.o
+                                             $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3080,7 +3082,7 @@ $(BUILD_DIR)/catalog/test/catalog_test: $(BUILD_DIR)/catalog/test/catalog_test.o
 # dimension link is an attribute and a facet PREFIX over its value is
 # hierarchical membership, so no membership record is needed (sec 315).
 $(BUILD_DIR)/catalog/test/dimension_test: $(BUILD_DIR)/catalog/test/dimension_test.o \
-                                             $(BUILD_DIR)/catalog/catalog.o \
+                                             $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o \
                                              $(BUILD_DIR)/facet/facet.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3088,7 +3090,7 @@ $(BUILD_DIR)/catalog/test/dimension_test: $(BUILD_DIR)/catalog/test/dimension_te
 # attribute_fuzz links only catalogue.o: the codec is record-free (it takes the
 # issuer/entity as raw pointers), so no record.o is pulled in (sec 314).
 $(BUILD_DIR)/catalog/test/attribute_fuzz: $(BUILD_DIR)/catalog/test/attribute_fuzz.o \
-                                             $(BUILD_DIR)/catalog/catalog.o
+                                             $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3105,7 +3107,7 @@ $(BUILD_DIR)/catalog/test/retention_test: $(BUILD_DIR)/catalog/test/retention_te
 $(BUILD_DIR)/catalog/test/sweep_plan_test: $(BUILD_DIR)/catalog/test/sweep_plan_test.o \
                                              $(BUILD_DIR)/catalog/sweep.o \
                                              $(BUILD_DIR)/catalog/retention.o \
-                                             $(BUILD_DIR)/catalog/catalog.o
+                                             $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3115,7 +3117,7 @@ $(BUILD_DIR)/catalog/test/sweep_plan_test: $(BUILD_DIR)/catalog/test/sweep_plan_
 $(BUILD_DIR)/catalog/test/copy_plan_test: $(BUILD_DIR)/catalog/test/copy_plan_test.o \
                                              $(BUILD_DIR)/catalog/copy.o \
                                              $(BUILD_DIR)/catalog/retention.o \
-                                             $(BUILD_DIR)/catalog/catalog.o
+                                             $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3132,7 +3134,7 @@ $(BUILD_DIR)/catalog/test/filing_test: $(BUILD_DIR)/catalog/test/filing_test.o \
 # removes no bytes, so it links no filestore and no transport (sec 335).
 $(BUILD_DIR)/catalog/test/purge_test: $(BUILD_DIR)/catalog/test/purge_test.o \
                                              $(BUILD_DIR)/catalog/purge.o \
-                                             $(BUILD_DIR)/catalog/catalog.o
+                                             $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3175,7 +3177,7 @@ $(BUILD_DIR)/catalog/test/plan_fuzz: $(BUILD_DIR)/catalog/test/plan_fuzz.o \
                                              $(BUILD_DIR)/catalog/copy.o \
                                              $(BUILD_DIR)/catalog/filing.o \
                                              $(BUILD_DIR)/catalog/retention.o \
-                                             $(BUILD_DIR)/catalog/catalog.o
+                                             $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3644,7 +3646,7 @@ $(BUILD_DIR)/cli/test/sweep_print_test: $(BUILD_DIR)/cli/test/sweep_print_test.o
                                      $(BUILD_DIR)/cli/sweep_print.o \
                                      $(BUILD_DIR)/catalog/sweep.o \
                                      $(BUILD_DIR)/catalog/retention.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
+                                     $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -4292,7 +4294,7 @@ $(BUILD_DIR)/gui/test/sweep_view_test: \
                                      $(BUILD_DIR)/cli/sweep_print.o \
                                      $(BUILD_DIR)/catalog/sweep.o \
                                      $(BUILD_DIR)/catalog/retention.o \
-                                     $(BUILD_DIR)/catalog/catalog.o \
+                                     $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
@@ -4675,6 +4677,13 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
                                            wire/generated/search_wire.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# A CATALOGUE ATTRIBUTE, generated, sec 1370.
+$(BUILD_DIR)/wire/test/attribute_row_vectors: wire/generated/attribute_row_vectors.c \
+                                             wire/generated/attribute_row.c wire/generated/situ.c \
+                                             $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
@@ -5092,7 +5101,7 @@ $(BUILD_DIR)/node/test/streams_test: $(BUILD_DIR)/node/test/streams_test.o \
 $(BUILD_DIR)/node/test/node_catalog_test: $(BUILD_DIR)/node/test/node_catalog_test.o \
                                           $(BUILD_DIR)/node/catalog.o $(BUILD_DIR)/node/catalog_search.o \
                                           $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/words.o \
-                                          $(BUILD_DIR)/catalog/catalog.o
+                                          $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o $(BUILD_DIR)/wire/generated/situ.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5100,7 +5109,7 @@ $(BUILD_DIR)/node/test/node_catalog_test: $(BUILD_DIR)/node/test/node_catalog_te
 $(BUILD_DIR)/node/test/library_binary_test: $(BUILD_DIR)/node/test/library_binary_test.o \
                                             $(BUILD_DIR)/node/library_binary.o \
                                             $(BUILD_DIR)/node/catalog.o \
-                                            $(BUILD_DIR)/catalog/catalog.o \
+                                            $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o \
                                             $(BUILD_DIR)/wire/generated/files_local.o \
                                             $(BUILD_DIR)/wire/status_message.o \
                                             $(BUILD_DIR)/wire/generated/status.o \
@@ -5706,7 +5715,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(if $(CATALOG_ON),$(BUILD_DIR)/node/library_binary.o) \
               $(BUILD_DIR)/node/stage.o \
               $(BUILD_DIR)/node/file_refs.o \
-              $(if $(CATALOG_ON),$(BUILD_DIR)/catalog/catalog.o) \
+              $(if $(CATALOG_ON),$(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o) \
               $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
               $(BUILD_DIR)/log/rules.o \
               $(BUILD_DIR)/node/received.o \
@@ -6191,7 +6200,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/claim/claim.o \
                                       $(BUILD_DIR)/record/store.o \
                                       $(BUILD_DIR)/facet/facet.o \
-                                      $(BUILD_DIR)/catalog/catalog.o \
+                                      $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o \
                                       $(BUILD_DIR)/catalog/retention.o \
                                       $(if $(CLI_ON),$(BUILD_DIR)/cli/cli.o) \
                                       $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
@@ -7833,7 +7842,7 @@ SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest_
               prekey/prekey_record.situ persist/persist.situ spool/message.situ \
               spool/sidecar.situ record/record_row.situ tree/tree_row.situ \
               chain/chain_wire.situ provision/provision.situ \
-              record/store_file.situ catalog/attribute.situ \
+              record/store_file.situ catalog/attribute_row.situ \
               roster/roster_record.situ chain/root_act_record.situ chain/succession_record.situ node/call.situ wire/status.situ node/address.situ \
               record/exchange.situ \
               wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note.situ node/opjournal_row.situ messages/line.situ \
@@ -8329,7 +8338,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o $(BUILD_DIR)/wire/generated/manifest_record.o \
                     $(FLOG_OBJS) \
                     $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/retention.o \
-                    $(BUILD_DIR)/catalog/catalog.o \
+                    $(BUILD_DIR)/catalog/catalog.o $(BUILD_DIR)/wire/generated/attribute_row.o \
                     $(BUILD_DIR)/notes/note.o \
                     $(BUILD_DIR)/constant_time/constant_time.o $(QTTY_RPC_OBJS)
 
@@ -8601,6 +8610,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_attribute_row --layer edit \
+	         --out $(BUILD_DIR)/.gen.new catalog/attribute_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_attribute_row \
+	         --out $(BUILD_DIR)/.gen.new catalog/attribute_row.situ catalog/attribute_row.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_root_act_record --layer edit \
 	         --out $(BUILD_DIR)/.gen.new chain/root_act_record.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_root_act_record \
@@ -8780,6 +8793,7 @@ schema:
 	          chain_wire.c chain_wire.h chain_wire_vectors.c \
 	          roster_record.c roster_record.h roster_record_edit.h roster_record_vectors.c \
 	          root_act_record.c root_act_record.h root_act_record_vectors.c \
+	          attribute_row.c attribute_row.h attribute_row_build.h attribute_row_edit.h attribute_row_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

@@ -4,7 +4,7 @@
 
 #include <string.h>
 
-/* Big-endian u32, the endianness catalog/attribute.situ declares, in the
+/* Big-endian u32, the endianness catalog/attribute_row.situ declares, in the
  * width the two counts need: a shard count is a property of a register's
  * size and 65535 shards is only 67 million entries at the default floor. */
 static void put_u32(uint8_t *p, size_t v)
