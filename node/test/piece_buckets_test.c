@@ -725,6 +725,11 @@ static void test_released(void)
 	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, rec, sizeof(rec)) == FZN_NODE_APPLY_APPLIED
 	          && pieces_in(dir_b) == 1u,
 	      "a release by a host the piece is not of let it go");
+	/* AN INDEX PAST ANY CUT, signed by the host it names, sec 1371: the
+	 * schema's to refuse, so a release that names no piece is not taken. */
+	release_of(rec, key_b, 40u, piece_id, &SIGN_B);
+	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, rec, sizeof(rec)) == FZN_NODE_APPLY_REFUSED,
+	      "a release naming index 40, past any cut, was taken");
 	/* PLACED ON A: not B's to take. */
 	release_of(rec, key_a, 1u, piece_id, &SIGN_A);
 	CHECK(filer_b.file(filer_b.ctx, key_a, MONTH, rec, sizeof(rec)) == FZN_NODE_APPLY_REFUSED,
@@ -752,6 +757,45 @@ static void test_released(void)
 		          && fzn_buckets_has(&B, FZN_BUCKETS_PIECES, rid),
 		      "the module's release is not the layout's");
 	}
+}
+
+/* A PLACEMENT ON DISK OF NO SHAPE, sec 1371: a cut naming a k of 0 is read
+ * as no placement at all, the schema's to refuse, rather than handed back
+ * as one with no data pieces. */
+static void test_cut_refused(void)
+{
+	uint8_t bytes[1u + 32u + 2u + 2u * 32u], id[FZN_BUCKETS_ID_LEN], got[FZN_ERASURE_PIECES_MAX][32];
+	char path[256];
+	unsigned k = 9, m = 9;
+	size_t i;
+	FILE *f;
+	int n;
+
+	fresh();
+	(void)mkdir(dir_a, 0700);
+	memset(id, 0x5a, sizeof(id));
+	n = snprintf(path, sizeof(path), "%s/", dir_a);
+	for (i = 0; i < sizeof(id); i++)
+		n += snprintf(path + n, sizeof(path) - (size_t)n, "%02x", id[i]);
+	(void)snprintf(path + n, sizeof(path) - (size_t)n, ".cut");
+	memset(bytes, 0x33, sizeof(bytes));
+	bytes[0] = 1u;
+	memcpy(bytes + 1, id, sizeof(id));
+	bytes[33] = 0u; /* k */
+	bytes[34] = 2u; /* m */
+	f = fopen(path, "wb");
+	CHECK(f && fwrite(bytes, 1u, sizeof(bytes), f) == sizeof(bytes), "fixture: a cut file written");
+	if (f)
+		(void)fclose(f);
+	CHECK(!fzn_piece_buckets_cut_of(&pb_a, id, &k, &m, got), "a placement with a k of 0 was read");
+	bytes[33] = 1u;
+	bytes[34] = 1u;
+	f = fopen(path, "wb");
+	CHECK(f && fwrite(bytes, 1u, sizeof(bytes), f) == sizeof(bytes), "fixture: a cut file rewritten");
+	if (f)
+		(void)fclose(f);
+	CHECK(fzn_piece_buckets_cut_of(&pb_a, id, &k, &m, got) && k == 1u && m == 1u,
+	      "control: a placement of one and one, written by hand, was not read");
 }
 
 static void test_shape_refused(void)
@@ -831,6 +875,7 @@ int main(void)
 	test_counted_and_let_go();
 	test_lost_and_put_back();
 	test_released();
+	test_cut_refused();
 	test_shape_refused();
 
 	fzn_piece_buckets_close(&pb_a);

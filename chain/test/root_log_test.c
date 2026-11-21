@@ -324,6 +324,15 @@ static void test_the_set_refuses(void)
 	}
 	memset(&log, 0, sizeof(log));
 	CHECK(fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK, "fixture");
+	/* ANOTHER VERSION, SIGNED, sec 1369: the shape is the schema's to
+	 * refuse, and only it -- the signature is good. */
+	change(add, id, 0, 1, 2, NULL);
+	add[0] = 2u;
+	signing_as = 1;
+	(void)stub_sign(NULL, add + FZN_ROOT_ADD_BODY_LEN, add, FZN_ROOT_ADD_BODY_LEN);
+	CHECK(fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH) == FZN_ROOT_LOG_ERR_SHAPE
+	              && set.used == 0u,
+	      "a root add of version 2, signed, was admitted");
 	CHECK(stands_key(&set, &log, 1) && !stands_key(&set, &log, 9),
 	      "the genesis root does not stand alone, or a stranger does");
 	change(add, id, 0, 1, 2, NULL);

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1371
+The newest work is at the end of this file. **Read secs 1287 to 1372
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -54629,7 +54629,7 @@ estate's members gather it. `host` and `group` are not offered: a caller
 over the remote hop cannot be shown to be on this machine or in a group,
 so both would refuse every remote request, as host-private does.
 
-- **`log/gather`**, built with `FZN_LOG_FILE`, `log/gather.situ`'s
+- **`log/gather`**, built with `FZN_LOG_FILE`, `log/gather_wire.situ`'s
   version 4 family: a query names the program, a time window, an optional
   substring and a cursor; a page answers whole classic lines and the cursor
   to go on from. The cursor is a segment's key -- its closing time, the
@@ -55714,7 +55714,7 @@ Sec 428's replicated copies. **The holder's decisions, asked this session:**
 
 A host's **packed** segments, byte for byte -- never its current file, a
 segment not yet packed, or anything else in the directory. Four messages
-of gathering's version-4 family, stated in `log/gather.situ`:
+of gathering's version-4 family, stated in `log/gather_wire.situ`:
 
 - `segments_query`: a program's packed segments closed after a key;
 - `segments`: their names and sizes, oldest first, 64 a page;
@@ -55990,7 +55990,7 @@ copy.
   choice. Members only, as all of gathering is.
 
 Four messages, types 9 to 12 of gathering's version-4 family, stated in
-`log/gather.situ` with the `fzn_log_copy_took` enum: `push_query`,
+`log/gather_wire.situ` with the `fzn_log_copy_took` enum: `push_query`,
 `push_at`, `push_part`, `push_took`. **A break, as sec 483's was:** a host
 built before this refuses the new types, and pushing to one is reported as
 answering something else.
@@ -61882,7 +61882,7 @@ Sec 568's last step. The bucket exchange carries logs both ways (secs
 569-572), so the transport of secs 483 and 488 goes.
 
 - **Removed**: the four pull messages and four push messages (gather's
-  types 5 to 12, left reserved in `log/gather.situ`), the puller, the
+  types 5 to 12, left reserved in `log/gather_wire.situ`), the puller, the
   pusher, the receiver and the host's answer in `log/copy.c`, fuzznetd's
   `copy_logs`, `push_logs` and their branches of the log hook, and
   `log/test/copy_test.c`, which tested only those. `log/copy` keeps where
@@ -95906,3 +95906,27 @@ cases). Sabotage `release-signed-by-its-host`,
 `release-only-of-its-hosts-pieces`, `release-placed-on-this-host` and
 `pieces-kept-whole` retargeted; `pieces-cut-read-unvalidated` and
 `pieces-release-unvalidated` new.
+
+## 1372. Three guards the move left untested, now held, 2026-11-21
+
+Sabotage over the entries the last moves added found three checks no
+test reached, each a generated `validate` the move put in front of a
+signature or a file:
+
+- `root-set-admit-unvalidated` (sec 1369): no test handed
+  `fzn_root_set_admit` a root add of another version with a good
+  signature. root_log_test now re-signs one at version 2 and wants
+  `ERR_SHAPE` and an empty set.
+- `pieces-cut-read-unvalidated` (sec 1371): no test read a placement of
+  no shape from disk. piece_buckets_test's `test_cut_refused` writes a cut
+  with a k of 0, which `fzn_piece_buckets_cut_of` must not read, and one
+  of one and one by hand, which it must.
+- `pieces-release-unvalidated` (sec 1371): no test filed a release naming
+  an index past any cut. test_released now files one at index 40, signed
+  by the host it names, and wants it refused.
+
+All three CAUGHT on a second run, with the earlier six of secs 1366-1369
+(`chain-open-unvalidated`, `chain-open-exact-length`,
+`manifest-state-byte-validated`, `manifest-encoder-refuses-a-third-state`,
+`roster-add-carries-no-body`, `roster-bundle-length-is-exact`) CAUGHT on
+the first.
