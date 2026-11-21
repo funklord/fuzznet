@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1349
+The newest work is at the end of this file. **Read secs 1287 to 1350
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95400,4 +95400,32 @@ before A wrote one. It fails alone as well, and with sec 1348's two calls
 taken out, so neither section is its cause; the two full runs before
 stopped short of `live_ext`, so when it began is not yet known. The
 scripts after `live_ext` in `livecheck` did not run.
+
+## 1350. situ's reassembly built, and a relayed exchange for fuzznet's review, 2026-11-21
+
+situ (fuzznet inbox 20261121T0635Z, master 4672cfec) built 26.1123,
+**one message reassembled from many datagrams**, in all four backends,
+following sec 1347's answers: `reassemble pieces(f) by same_message
+[index, count, piece, messages, bytes, timeout, unit]`; in C
+`<stem>_reassemble.h` with `NAME_init`, `NAME_add` (complete, partial,
+malformed, full), `NAME_missing` as capped ranges and `NAME_expire`; a
+piece behind a sealed region taken through its gate. The relation key's
+ceiling went from 32 to 64 bytes for fuzznet's 38-byte `same_message`
+key, so `wire/generated/frame_converse.h` now carries that relation's
+conversation table, regenerated here; nothing calls it yet. situ also
+found and fixed (f9a10238) a later piece checked only against its own
+count -- fuzznet's key holds the count, so its frames were never exposed.
+**Whether `chunk/reassembly.c` (648 lines) moves onto the generated table
+is fuzznet's, open.**
+
+**26.1126, a relayed exchange** (fuzznet's scheduler item 6), was
+designed for review; fuzznet answered (situ inbox 20261121T1300Z): one
+relation -- the relay's answer is the same sealed frame, its head.msg the
+relay's outer number, one piece, under the relay's session; the wait stays
+under its first deadline; never more than two keys, a second relay hop
+being refused here. situ then built it (e86265e4):
+`_track_also_key_from(drive, key, peer, id)`, each key a slot of the
+pending table (sized past one per exchange with a second `_init`), a
+match under either ending both. **Adopting it is part of sec 1341's open
+asks-table work.**
 
