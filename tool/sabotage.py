@@ -10486,6 +10486,20 @@ SABOTAGES = [
 		"a setting with bytes past its signature is opened -- secs 540, 1342",
 	),
 	(
+		"setting-signs-its-whole-body",
+		"state/setting.c",
+		"\tif (!sign->sign(sign->ctx, out + wrote - FZN_SIG_LEN, out, wrote - FZN_SIG_LEN))\n",
+		"\tif (!sign->sign(sign->ctx, out + wrote - FZN_SIG_LEN, out, wrote - FZN_SIG_LEN - 1u))\n",
+		"a setting signed over less than its body: its stated rank, the last byte signed, is anybody's -- secs 728, 1351",
+	),
+	(
+		"setting-writes-its-rank",
+		"state/setting.c",
+		"\t\tarm[0] = (uint8_t)rank;\n",
+		"",
+		"a setting issued at admin or root states the host's rank, and is filed lower than its setter wrote -- secs 728, 1351",
+	),
+	(
 		"setting-unvalidated",
 		"state/setting.c",
 		"\t    || fzn_setting_record_fzn_setting_validate(v) != SITU_OK)\n",

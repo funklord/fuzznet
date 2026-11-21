@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1350
+The newest work is at the end of this file. **Read secs 1287 to 1351
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95429,3 +95429,21 @@ pending table (sized past one per exchange with a second `_init`), a
 match under either ending both. **Adopting it is part of sec 1341's open
 asks-table work.**
 
+
+## 1351. A setting built by situ's builders, one per arm, 2026-11-21
+
+Sec 1342 kept the setting's encoder by hand for want of a builder; there
+was one per arm all along (sec 1347). `state/setting.c`'s `issue` now
+builds with `fzn_setting_record_fzn_setting_build_ranked` or
+`_build_unranked` -- the arm passed as its bytes, the rank then a zero
+signature or the zero signature alone -- then signs every byte before the
+signature and writes it in place. So the setting is generated code both
+ways, and its hand byte-writing is gone; the codec's own checks (key and
+value letters, a clear without a value, the scopes served) still run
+before the build, as they answer MALFORMED and SCOPE where a builder's
+refusal could not.
+
+**Tests:** setting_test (26), setting_fuzz (20000 cases, 2690 ranked and
+3311 unranked bent settings opened and re-encoded alike), schema_test
+(41), votes_test (17), apply_test (191). Sabotage
+`setting-signs-its-whole-body`, `setting-writes-its-rank`.

@@ -4,6 +4,7 @@
 
 #include "../wire/bytes.h"
 #include "../wire/generated/setting_record.h"
+#include "../wire/generated/setting_record_build.h"
 
 #include <string.h>
 
@@ -64,14 +65,19 @@ static int scope_served(fzn_scope_t scope)
 	return scope == FZN_SCOPE_HOST || scope == FZN_SCOPE_GROUP || scope == FZN_SCOPE_ESTATE;
 }
 
-/* Both shapes: `rank` -1 writes none, as before sec 728. */
+/* Both shapes: `rank` -1 writes none, as before sec 728. BUILT BY THE CODE
+ * situ GENERATES from `state/setting_record.situ` (sec 1349): the ranked or
+ * the unranked arm's builder, with the signature zero, then the signature
+ * made over every byte before it and written in its place. */
 static fzn_setting_err_t issue(const uint8_t setter[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
                                fzn_scope_t scope, const uint8_t about[FZN_SUBJECT_LEN],
                                uint64_t version, const uint8_t *key, size_t key_len, int set,
                                const uint8_t *value, size_t value_len, int rank, uint8_t *out,
                                size_t *out_len)
 {
-	size_t at;
+	uint8_t arm[1u + FZN_SIG_LEN];
+	uint32_t wrote = 0;
+	situ_err_t err;
 
 	if (!out_len)
 		return FZN_SETTING_ERR_MALFORMED;
@@ -82,26 +88,24 @@ static fzn_setting_err_t issue(const uint8_t setter[FZN_PUBKEY_LEN], const fzn_s
 		return FZN_SETTING_ERR_MALFORMED;
 	if (!scope_served(scope))
 		return FZN_SETTING_ERR_SCOPE;
-	out[0] = (uint8_t)FZN_SIGNED_VERSION;
-	out[1] = (uint8_t)FZN_OBJECT_SETTING;
-	memcpy(out + FZN_SETTING_OFF_SETTER, setter, FZN_PUBKEY_LEN);
-	out[FZN_SETTING_OFF_SCOPE] = (uint8_t)scope;
-	memcpy(out + FZN_SETTING_OFF_ABOUT, about, FZN_SUBJECT_LEN);
-	fzn_put_be64(out + FZN_SETTING_OFF_VERSION, version);
-	out[FZN_SETTING_OFF_KEY_LEN] = (uint8_t)key_len;
-	memcpy(out + FZN_SETTING_OFF_KEY, key, key_len);
-	at = FZN_SETTING_OFF_KEY + key_len;
-	out[at++] = (uint8_t)set;
-	fzn_put_be16(out + at, (uint16_t)value_len);
-	at += 2u;
-	if (value_len)
-		memcpy(out + at, value, value_len);
-	at += value_len;
-	if (rank >= 0)
-		out[at++] = (uint8_t)rank;
-	if (!sign->sign(sign->ctx, out + at, out, at))
+	memset(arm, 0, sizeof(arm));
+	if (rank >= 0) {
+		arm[0] = (uint8_t)rank;
+		err = fzn_setting_record_fzn_setting_build_ranked(
+		        out, FZN_SETTING_MAX, (uint8_t)FZN_SIGNED_VERSION, (uint8_t)FZN_OBJECT_SETTING, setter,
+		        (fzn_setting_record_fzn_setting_scope_kind_t)scope, about, version, key, (uint32_t)key_len,
+		        (uint8_t)set, value, (uint32_t)value_len, arm, sizeof(arm), &wrote);
+	} else {
+		err = fzn_setting_record_fzn_setting_build_unranked(
+		        out, FZN_SETTING_MAX, (uint8_t)FZN_SIGNED_VERSION, (uint8_t)FZN_OBJECT_SETTING, setter,
+		        (fzn_setting_record_fzn_setting_scope_kind_t)scope, about, version, key, (uint32_t)key_len,
+		        (uint8_t)set, value, (uint32_t)value_len, arm + 1, FZN_SIG_LEN, &wrote);
+	}
+	if (err != SITU_OK || wrote < FZN_SIG_LEN)
+		return FZN_SETTING_ERR_MALFORMED;
+	if (!sign->sign(sign->ctx, out + wrote - FZN_SIG_LEN, out, wrote - FZN_SIG_LEN))
 		return FZN_SETTING_ERR_SIGNATURE;
-	*out_len = at + (size_t)FZN_SIG_LEN;
+	*out_len = wrote;
 	return FZN_SETTING_OK;
 }
 
