@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: revocation.situ
+# schema: revocation_record.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -18,7 +18,7 @@
 endian big
 target buffer
 
-enum fzn_revocation_object : u8 unknown=error
+enum fzn_revocation_kind : u8 unknown=error
   revocation=129 withdrawal=133
 
 struct fzn_admin_confirm size=130
@@ -31,7 +31,7 @@ struct fzn_admin_confirm size=130
 
 struct fzn_revocation size=242
   @0x0000   1         u8         version  must_eq=1
-  @0x0001   1         fzn_revocation_object object
+  @0x0001   1         fzn_revocation_kind object
   @0x0002   32        u8         capability  big
   @0x0022   32        u8         grantee  big
   @0x0042   32        u8         issuer  big
@@ -41,3 +41,5 @@ struct fzn_revocation size=242
   @0x0092   32        u8         cut  big
   @0x00b2   64        u8         signature
   signature covers: body capability cut epoch grantee issued_at issuer object supersedes version
+  fzn_revocation refuses: withdrawal_draws_a_line when fzn_revocation.object == 133 && sum(fzn_revocation.cut) != 0
+  fzn_revocation refuses: withdrawal_names_nothing when fzn_revocation.object == 133 && sum(fzn_revocation.supersedes) == 0

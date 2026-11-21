@@ -19,6 +19,8 @@
  * tell the module that owns one that a pair has been settled. */
 #include "manifest.h"
 
+#include "../wire/generated/revocation_record.h"
+
 #include <string.h>
 /* THE LAYOUT, ASSERTED FIELD BY FIELD.
  *
@@ -140,36 +142,29 @@ static int corrupt(const fzn_revocation_store_t *store)
 fzn_chain_err_t fzn_revocation_open(const uint8_t *bytes, size_t len,
                                     fzn_revocation_record_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+
 	if (!bytes || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
 
 	if (len != FZN_REVOCATION_LEN)
 		return FZN_CHAIN_ERR_SHAPE;
 
-	if (bytes[FZN_REV_OFF_VERSION] != FZN_SIGNED_VERSION)
-		return FZN_CHAIN_ERR_SHAPE;
-	/* THE DOMAIN SEPARATION EARNING ITS PLACE. Without this byte -- and
-	 * without it being inside the signed range -- one root key signing
-	 * both hops and revocations through the same seam is one collision
-	 * away from a signature that verifies as either. wire/bytes.h names
-	 * the sibling project this already happened to. */
-	if (bytes[FZN_REV_OFF_OBJECT] != (uint8_t)FZN_OBJECT_REVOCATION &&
-	    bytes[FZN_REV_OFF_OBJECT] != (uint8_t)FZN_OBJECT_WITHDRAWAL)
-		return FZN_CHAIN_ERR_SHAPE;
-	/* A WITHDRAWAL MUST NAME SOMETHING, and this is the one canonicality
-	 * check the pair does not share. A withdrawal whose target is all-zero
-	 * names no revocation, so nothing can ever be matched against it --
-	 * and a stored one would sit there answering "not revoked" for a pair
-	 * whose revocation it never undid, which is a permanent grant nobody
-	 * signed for. Refused at `open` so no reader has to remember. */
-	if (bytes[FZN_REV_OFF_OBJECT] == (uint8_t)FZN_OBJECT_WITHDRAWAL &&
-	    all_zero(bytes + FZN_REV_OFF_SUPERSEDES, FZN_REVOCATION_ID_LEN))
-		return FZN_CHAIN_ERR_SHAPE;
-	/* NOR MAY A WITHDRAWAL DRAW A LINE, sec 496: undoing a vote restores
-	 * everything, and a cut on one would be a second meaning for one
-	 * field that nothing reads. */
-	if (bytes[FZN_REV_OFF_OBJECT] == (uint8_t)FZN_OBJECT_WITHDRAWAL &&
-	    !all_zero(bytes + FZN_REV_OFF_CUT, FZN_REVOCATION_ID_LEN))
+	/* READ AS THE SCHEMA SAYS, sec 1364: `chain/revocation_record.situ`'s
+	 * generated validate refuses a version not 1 and an object byte not a
+	 * revocation's or a withdrawal's -- THE DOMAIN SEPARATION EARNING ITS
+	 * PLACE: without it, inside the signed range, one root key signing hops
+	 * and revocations through one seam is a collision from a signature that
+	 * verifies as either (wire/bytes.h) -- and, as `when` rules, A
+	 * WITHDRAWAL THAT NAMES NOTHING (stored, it would answer "not revoked"
+	 * for a pair whose revocation it never undid, a permanent grant nobody
+	 * signed for) and a withdrawal DRAWING A LINE (sec 496: undoing a vote
+	 * restores everything). Refused at `open` so no reader has to
+	 * remember. */
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_revocation_record_fzn_revocation_view(&m, 0u, &v) != SITU_OK
+	    || fzn_revocation_record_fzn_revocation_validate(v) != SITU_OK)
 		return FZN_CHAIN_ERR_SHAPE;
 
 	out->base = bytes;
@@ -184,37 +179,35 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
                                       const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
                                       const uint8_t cut[FZN_REVOCATION_ID_LEN])
 {
+	situ_msg_t m;
+	situ_view_t v;
+
 	if (!out || !issuer || !capability || !grantee)
 		return FZN_CHAIN_ERR_MALFORMED;
-	if (object != (uint8_t)FZN_OBJECT_REVOCATION &&
-	    object != (uint8_t)FZN_OBJECT_WITHDRAWAL)
+	/* WRITTEN THROUGH situ's EDIT LAYER, sec 1364, the signature zeroed for
+	 * the signer, and REFUSED UNLESS IT VALIDATES, so the encoder cannot
+	 * produce bytes its own parser rejects -- the argument chain.h makes
+	 * about every encoder in this library: an object neither kind, a
+	 * withdrawal naming nothing or drawing a cut. */
+	memset(out, 0, FZN_REVOCATION_LEN);
+	situ_msg_init(&m, out, FZN_REVOCATION_LEN);
+	if (fzn_revocation_record_fzn_revocation_view(&m, 0u, &v) != SITU_OK)
 		return FZN_CHAIN_ERR_MALFORMED;
-	/* Refused here as well as at `open`, so the encoder cannot produce
-	 * bytes its own parser rejects -- the argument chain.h makes about
-	 * every encoder in this library. */
-	if (object == (uint8_t)FZN_OBJECT_WITHDRAWAL &&
-	    (!supersedes || all_zero(supersedes, FZN_REVOCATION_ID_LEN)))
-		return FZN_CHAIN_ERR_MALFORMED;
-	if (object == (uint8_t)FZN_OBJECT_WITHDRAWAL && cut && !all_zero(cut, FZN_REVOCATION_ID_LEN))
-		return FZN_CHAIN_ERR_MALFORMED;
-
-	out[FZN_REV_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
-	out[FZN_REV_OFF_OBJECT] = object;
-	memcpy(out + FZN_REV_OFF_CAPABILITY, capability, FZN_CAP_ID_LEN);
-	memcpy(out + FZN_REV_OFF_GRANTEE, grantee, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_REV_OFF_ISSUER, issuer, FZN_PUBKEY_LEN);
-	fzn_put_be64(out + FZN_REV_OFF_ISSUED_AT, issued_at);
+	memcpy(fzn_revocation_record_fzn_revocation_capability_ptr(v), capability, FZN_CAP_ID_LEN);
+	memcpy(fzn_revocation_record_fzn_revocation_grantee_ptr(v), grantee, FZN_PUBKEY_LEN);
+	memcpy(fzn_revocation_record_fzn_revocation_issuer_ptr(v), issuer, FZN_PUBKEY_LEN);
 	if (supersedes)
-		memcpy(out + FZN_REV_OFF_SUPERSEDES, supersedes, FZN_REVOCATION_ID_LEN);
-	else
-		memset(out + FZN_REV_OFF_SUPERSEDES, 0, FZN_REVOCATION_ID_LEN);
-	fzn_put_be64(out + FZN_REV_OFF_EPOCH, epoch);
+		memcpy(fzn_revocation_record_fzn_revocation_supersedes_ptr(v), supersedes, FZN_REVOCATION_ID_LEN);
 	if (cut)
-		memcpy(out + FZN_REV_OFF_CUT, cut, FZN_REVOCATION_ID_LEN);
-	else
-		memset(out + FZN_REV_OFF_CUT, 0, FZN_REVOCATION_ID_LEN);
-	memset(out + FZN_REV_OFF_SIGNATURE, 0, FZN_SIG_LEN);
-
+		memcpy(fzn_revocation_record_fzn_revocation_cut_ptr(v), cut, FZN_REVOCATION_ID_LEN);
+	fzn_revocation_record_fzn_revocation_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_revocation_record_fzn_revocation_object_set(&m, v, (fzn_revocation_record_fzn_revocation_kind_t)object);
+	fzn_revocation_record_fzn_revocation_issued_at_set(&m, v, issued_at);
+	fzn_revocation_record_fzn_revocation_epoch_set(&m, v, epoch);
+	if (fzn_revocation_record_fzn_revocation_validate(v) != SITU_OK) {
+		memset(out, 0, FZN_REVOCATION_LEN);
+		return FZN_CHAIN_ERR_MALFORMED;
+	}
 	return FZN_CHAIN_OK;
 }
 
@@ -388,15 +381,26 @@ fzn_chain_err_t fzn_admin_confirm_issue(const uint8_t confirmer[FZN_PUBKEY_LEN],
                                         const uint8_t grant[FZN_REVOCATION_ID_LEN],
                                         const fzn_sign_ops_t *sign, uint8_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t at = 0, n = 0;
+
 	if (!confirmer || !grant || !sign || !sign->sign || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
-	out[0] = (uint8_t)FZN_SIGNED_VERSION;
-	out[1] = (uint8_t)FZN_OBJECT_ADMIN_CONFIRM;
-	memcpy(out + FZN_ADMIN_CONFIRM_OFF_CONFIRMER, confirmer, FZN_PUBKEY_LEN);
-	memcpy(out + FZN_ADMIN_CONFIRM_OFF_GRANT, grant, FZN_REVOCATION_ID_LEN);
-	if (!sign->sign(sign->ctx, out + FZN_ADMIN_CONFIRM_BODY_LEN, out,
-	                FZN_ADMIN_CONFIRM_BODY_LEN))
+	/* THROUGH THE EDIT LAYER, sec 1364, signed over what situ says the
+	 * signature covers. */
+	memset(out, 0, FZN_ADMIN_CONFIRM_LEN);
+	situ_msg_init(&m, out, FZN_ADMIN_CONFIRM_LEN);
+	if (fzn_revocation_record_fzn_admin_confirm_view(&m, 0u, &v) != SITU_OK)
+		return FZN_CHAIN_ERR_MALFORMED;
+	memcpy(fzn_revocation_record_fzn_admin_confirm_confirmer_ptr(v), confirmer, FZN_PUBKEY_LEN);
+	memcpy(fzn_revocation_record_fzn_admin_confirm_grant_ptr(v), grant, FZN_REVOCATION_ID_LEN);
+	fzn_revocation_record_fzn_admin_confirm_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_revocation_record_fzn_admin_confirm_object_set(&m, v, (uint8_t)FZN_OBJECT_ADMIN_CONFIRM);
+	if (fzn_revocation_record_fzn_admin_confirm_signature_covered(v, &at, &n) != SITU_OK
+	    || !sign->sign(sign->ctx, fzn_revocation_record_fzn_admin_confirm_signature_ptr(v), out + at, n))
 		return FZN_CHAIN_ERR_CHAIN_INVALID;
+	fzn_revocation_record_fzn_admin_confirm_signature_finalize(&m);
 	return FZN_CHAIN_OK;
 }
 

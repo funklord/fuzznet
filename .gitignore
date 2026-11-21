@@ -438,4 +438,5 @@ __pycache__/
 /wire/test/entry_record_vectors
 /wire/test/cause_wire_vectors
 /wire/test/tree_row_vectors
+/wire/test/revocation_record_vectors
 /node/test/settings_registry_test

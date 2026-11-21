@@ -1,6 +1,8 @@
 // The revocation record as a situ schema -- converted from hand-written C
-// (chain/revocation.h) the way chain/hop.situ was. Measured against the
-// committed FZN_REV_OFF_* constants before anything is generated.
+// (chain/revocation.h) the way chain/hop.situ was, and since sec 1364 opened
+// and written through the code situ generates from it (`chain/revocation.c`),
+// a withdrawal's two rules `when`s; `_record`, so the generated file's name
+// meets no source's.
 //
 // A revocation withdraws a capability from a grantee; a withdrawal (same
 // layout, different object byte) undoes one -- which is why the object is an
@@ -16,7 +18,7 @@ endian big;
 // The object byte is one of TWO values, not one: fzn_revocation_validate
 // (revocation.c) accepts a revocation or a withdrawal and refuses the rest,
 // so this is an enum rather than a `must_eq` like the other signed objects.
-enum fzn_revocation_object : u8 {
+enum fzn_revocation_kind : u8 {
 	revocation = 129,       // FZN_OBJECT_REVOCATION
 	withdrawal = 133,       // FZN_OBJECT_WITHDRAWAL
 }
@@ -24,7 +26,7 @@ enum fzn_revocation_object : u8 {
 struct fzn_revocation {
 	authenticated body {
 		u8  version [must_eq = 1];       // FZN_REV_OFF_VERSION 0 (FZN_SIGNED_VERSION)
-		fzn_revocation_object object;    // FZN_REV_OFF_OBJECT  1
+		fzn_revocation_kind object;      // FZN_REV_OFF_OBJECT  1
 		u8  capability[32];      // FZN_REV_OFF_CAPABILITY 2
 		u8  grantee[32];         // FZN_REV_OFF_GRANTEE    34
 		u8  issuer[32];          // FZN_REV_OFF_ISSUER     66
@@ -50,3 +52,14 @@ struct fzn_admin_confirm {
 	// covers(body) = bytes 0..65, FZN_ADMIN_CONFIRM_BODY_LEN.
 	checksum u8 signature[64] covers(body); // 66
 }
+
+// A WITHDRAWAL MUST NAME SOMETHING: one naming no revocation matches none,
+// and stored would answer "not revoked" for a pair it never undid.
+when fzn_revocation.object == 133 && sum(fzn_revocation.supersedes) == 0
+	refuse withdrawal_names_nothing
+	"a withdrawal names no revocation";
+// NOR MAY A WITHDRAWAL DRAW A LINE, sec 496: undoing a vote restores
+// everything, and a cut on one would be a second meaning for one field.
+when fzn_revocation.object == 133 && sum(fzn_revocation.cut) != 0
+	refuse withdrawal_draws_a_line
+	"a withdrawal draws a cut";

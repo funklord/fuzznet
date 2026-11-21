@@ -9396,9 +9396,16 @@ SABOTAGES = [
 	(
 		"revocation-a-withdrawal-draws-no-line",
 		"chain/revocation.c",
-		"\tif (bytes[FZN_REV_OFF_OBJECT] == (uint8_t)FZN_OBJECT_WITHDRAWAL &&\n\t    !all_zero(bytes + FZN_REV_OFF_CUT, FZN_REVOCATION_ID_LEN))\n\t\treturn FZN_CHAIN_ERR_SHAPE;\n",
-		"",
-		"a withdrawal carrying a cut is a second meaning for one field that nothing reads -- sec 496",
+		"\t    || fzn_revocation_record_fzn_revocation_validate(v) != SITU_OK)\n\t\treturn FZN_CHAIN_ERR_SHAPE;",
+		")\n\t\treturn FZN_CHAIN_ERR_SHAPE;",
+		"a withdrawal carrying a cut, or naming nothing, or another object read as a revocation, is opened -- secs 496, 1364",
+	),
+	(
+		"revocation-encoder-refuses-what-it-cannot-open",
+		"chain/revocation.c",
+		"\tif (fzn_revocation_record_fzn_revocation_validate(v) != SITU_OK) {\n",
+		"\tif (0) {\n",
+		"the encoder writes a withdrawal naming nothing, bytes its own parser refuses -- sec 1364",
 	),
 	(
 		"revocation-an-entry-keeps-its-cut",

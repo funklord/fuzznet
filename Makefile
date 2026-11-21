@@ -258,7 +258,7 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/contact_request_record.c wire/generated/prekey_record.c \
              wire/generated/setting_record.c wire/generated/record_row.c wire/generated/hop_record.c \
              wire/generated/succession_record.c wire/generated/entry_record.c wire/generated/cause_wire.c \
-             wire/generated/tree_row.c \
+             wire/generated/tree_row.c wire/generated/revocation_record.c \
              wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
@@ -280,7 +280,8 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/prekey_record_vectors.c wire/generated/setting_record_vectors.c \
                  wire/generated/record_row_vectors.c wire/generated/hop_record_vectors.c \
                  wire/generated/succession_record_vectors.c wire/generated/entry_record_vectors.c \
-                 wire/generated/cause_wire_vectors.c wire/generated/tree_row_vectors.c
+                 wire/generated/cause_wire_vectors.c wire/generated/tree_row_vectors.c \
+                 wire/generated/revocation_record_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -381,7 +382,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/wire/generated/want.o 
                    $(BUILD_DIR)/net/udp.o $(BUILD_DIR)/net/ports.o $(BUILD_DIR)/version/version.o \
                    $(BUILD_DIR)/frame/freshness.o \
                    $(BUILD_DIR)/wire/seal.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/chain/authz.o \
-                   $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o \
+                   $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                    $(BUILD_DIR)/chain/manifest.o \
                    $(BUILD_DIR)/session/commitment.o \
                    $(BUILD_DIR)/session/random.o \
@@ -766,6 +767,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/entry_record_vectors \
              $(BUILD_DIR)/wire/test/cause_wire_vectors \
              $(BUILD_DIR)/wire/test/tree_row_vectors \
+             $(BUILD_DIR)/wire/test/revocation_record_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -2098,7 +2100,7 @@ $(BUILD_DIR)/monocypher-ed25519.o: $(MONOCYPHER_DIR)/src/optional/monocypher-ed2
 $(MONO_BIN): $(BUILD_DIR)/chain/test/sign_monocypher_test.o \
              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o $(BUILD_DIR)/monocypher.o \
              $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-             $(BUILD_DIR)/chain/revocation.o \
+             $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
              $(BUILD_DIR)/chain/manifest.o \
              $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -2206,7 +2208,7 @@ $(MONO_BKAT): $(BUILD_DIR)/blob/test/blob_kat_test.o \
 # store and the manifest, and each was discovered by the linker asking
 # rather than by guessing at the dependency.
 $(MONO_HKAT): $(BUILD_DIR)/chain/test/hop_kat_test.o \
-              $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/chain/revocation.o \
+              $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
               $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
@@ -2227,7 +2229,7 @@ $(MONO_REAL): $(BUILD_DIR)/sim/test/real_crypto_test.o \
               $(BUILD_DIR)/session/random_linux.o \
               $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/ratchet/ratchet.o \
               $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/wire/seal.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
@@ -2247,7 +2249,7 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
               $(BUILD_DIR)/session/random_linux.o \
               $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/ratchet/ratchet.o \
               $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/chain/authz.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
               $(BUILD_DIR)/frame/freshness.o \
@@ -2273,7 +2275,7 @@ $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
 $(MONO_DISC): $(BUILD_DIR)/sim/test/disclosure_test.o \
                        $(BUILD_DIR)/disclose/disclose.o \
               $(BUILD_DIR)/blob/blob.o $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o $(BUILD_DIR)/wire/generated/situ.o \
-              $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o \
+              $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
               $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
@@ -2344,7 +2346,7 @@ $(BUILD_DIR)/wire/generated/%.o: wire/generated/%.c
 # into chain.c with it.
 $(BUILD_DIR)/chain/test/chain_test: $(BUILD_DIR)/chain/test/chain_test.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -2558,7 +2560,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                    $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                                    $(BUILD_DIR)/session/box.o \
-                                   $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o \
+                                   $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                    $(BUILD_DIR)/chain/manifest.o \
                                    $(BUILD_DIR)/persist/persist.o \
                                    $(BUILD_DIR)/trust/trust.o \
@@ -2684,7 +2686,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                    $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                    $(BUILD_DIR)/session/box.o \
-                                   $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o \
+                                   $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                    $(BUILD_DIR)/chain/manifest.o \
                                    $(BUILD_DIR)/chain/service.o \
                                    $(BUILD_DIR)/notes/note.o \
@@ -2858,7 +2860,7 @@ $(BUILD_DIR)/sim/test/network_test: $(BUILD_DIR)/sim/test/network_test.o \
                                     $(BUILD_DIR)/record/sync.o \
                                     $(BUILD_DIR)/tree/tree.o $(BUILD_DIR)/wire/generated/tree_row.o \
                                     $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                    $(BUILD_DIR)/chain/revocation.o \
+                                    $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                     $(BUILD_DIR)/chain/manifest.o \
                                     $(BUILD_DIR)/chain/authz.o \
                                     $(BUILD_DIR)/chunk/reassembly.o \
@@ -2886,7 +2888,7 @@ $(BUILD_DIR)/frame/test/freshness_guided: \
 
 $(BUILD_DIR)/chain/test/chain_guided: $(BUILD_DIR)/chain/test/chain_guided.o \
                                       $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                      $(BUILD_DIR)/chain/revocation.o \
+                                      $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                       $(BUILD_DIR)/chain/manifest.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -2935,7 +2937,7 @@ $(BUILD_DIR)/chunk/test/split_test: $(BUILD_DIR)/chunk/test/split_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/chain/test/revocation_test: $(BUILD_DIR)/chain/test/revocation_test.o \
-                                          $(BUILD_DIR)/chain/revocation.o \
+                                          $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                           $(BUILD_DIR)/chain/root_log.o \
                                           $(BUILD_DIR)/chain/manifest.o \
                                           $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
@@ -2956,7 +2958,7 @@ $(BUILD_DIR)/chain/test/root_log_test: $(BUILD_DIR)/chain/test/root_log_test.o \
 # calls. sec 498.
 $(BUILD_DIR)/chain/test/succession_test: $(BUILD_DIR)/chain/test/succession_test.o \
                                          $(BUILD_DIR)/chain/succession.o $(BUILD_DIR)/wire/generated/succession_record.o \
-                                         $(BUILD_DIR)/chain/revocation.o \
+                                         $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                          $(BUILD_DIR)/chain/root_log.o \
                                          $(BUILD_DIR)/chain/manifest.o \
                                          $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
@@ -2971,7 +2973,7 @@ $(BUILD_DIR)/chain/test/succession_test: $(BUILD_DIR)/chain/test/succession_test
 # that is the whole of sec 13d's reason for naming the pair.
 $(BUILD_DIR)/chain/test/manifest_test: $(BUILD_DIR)/chain/test/manifest_test.o \
                                         $(BUILD_DIR)/chain/manifest.o \
-                                        $(BUILD_DIR)/chain/revocation.o \
+                                        $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                         $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -3185,7 +3187,7 @@ $(BUILD_DIR)/provision/test/provision_fuzz: \
                                        $(BUILD_DIR)/provision/test/provision_fuzz.o \
                                        $(BUILD_DIR)/provision/provision.o \
                                        $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                       $(BUILD_DIR)/chain/revocation.o \
+                                       $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                        $(BUILD_DIR)/chain/manifest.o \
                                        $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                        $(BUILD_DIR)/trust/trust.o \
@@ -3324,7 +3326,7 @@ $(BUILD_DIR)/provision/test/provision_test: \
                                        $(BUILD_DIR)/provision/test/provision_test.o \
                                        $(BUILD_DIR)/provision/provision.o \
                                        $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                       $(BUILD_DIR)/chain/revocation.o \
+                                       $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                        $(BUILD_DIR)/chain/manifest.o \
                                        $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                        $(BUILD_DIR)/trust/trust.o \
@@ -3338,7 +3340,7 @@ $(BUILD_DIR)/roster/test/roster_test: $(BUILD_DIR)/roster/test/roster_test.o \
                                       $(BUILD_DIR)/roster/roster.o \
                                       $(BUILD_DIR)/chain/root_log.o \
                                       $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                      $(BUILD_DIR)/chain/revocation.o \
+                                      $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                       $(BUILD_DIR)/chain/manifest.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -3371,7 +3373,7 @@ $(BUILD_DIR)/ratchet/test/ratchet_fuzz: $(BUILD_DIR)/ratchet/test/ratchet_fuzz.o
 $(BUILD_DIR)/chain/test/authz_test: $(BUILD_DIR)/chain/test/authz_test.o \
                                      $(BUILD_DIR)/chain/authz.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -3385,7 +3387,7 @@ $(BUILD_DIR)/chain/test/chain_store_test: $(BUILD_DIR)/chain/test/chain_store_te
                                      $(BUILD_DIR)/chain/chain_store.o \
                                      $(BUILD_DIR)/record/journal.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -3472,7 +3474,7 @@ $(BUILD_DIR)/cli/test/manifest_print_test: \
 	$(BUILD_DIR)/cli/test/manifest_print_test.o \
 	$(BUILD_DIR)/cli/manifest_print.o \
 	$(BUILD_DIR)/chain/manifest.o \
-	$(BUILD_DIR)/chain/revocation.o \
+	$(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
 	$(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
 	$(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -3566,7 +3568,7 @@ $(BUILD_DIR)/cli/test/provision_print_test: \
                                      $(BUILD_DIR)/provision/provision.o \
                                      $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/trust/trust.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -3578,7 +3580,7 @@ $(BUILD_DIR)/cli/test/authz_print_test: $(BUILD_DIR)/cli/test/authz_print_test.o
                                      $(BUILD_DIR)/cli/authz_print.o \
                                      $(BUILD_DIR)/chain/authz.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/trust/trust.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -3589,7 +3591,7 @@ $(BUILD_DIR)/cli/test/authz_print_test: $(BUILD_DIR)/cli/test/authz_print_test.o
 $(BUILD_DIR)/cli/test/revocation_print_test: \
                                      $(BUILD_DIR)/cli/test/revocation_print_test.o \
                                      $(BUILD_DIR)/cli/revocation_print.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -3611,7 +3613,7 @@ $(BUILD_DIR)/cli/test/capability_print_test: \
                                      $(BUILD_DIR)/cli/test/capability_print_test.o \
                                      $(BUILD_DIR)/cli/capability_print.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/trust/trust.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -3654,7 +3656,7 @@ $(BUILD_DIR)/cli/test/journal_print_test: \
 $(BUILD_DIR)/cli/test/sync_print_test: $(BUILD_DIR)/cli/test/sync_print_test.o \
                                      $(BUILD_DIR)/cli/sync_print.o \
                                      $(BUILD_DIR)/chain/manifest.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -4107,7 +4109,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                      $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                      $(BUILD_DIR)/session/box.o \
-                                     $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/chain/service.o \
                                      $(BUILD_DIR)/notes/note.o \
@@ -4138,7 +4140,7 @@ $(BUILD_DIR)/gui/test/authz_view_test: $(BUILD_DIR)/gui/test/authz_view_test.o \
                                      $(BUILD_DIR)/cli/authz_print.o \
                                      $(BUILD_DIR)/chain/authz.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/trust/trust.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -4163,7 +4165,7 @@ $(BUILD_DIR)/gui/test/manifest_view_test: \
 	$(BUILD_DIR)/gui/manifest_view.o \
 	$(BUILD_DIR)/cli/manifest_print.o \
 	$(BUILD_DIR)/chain/manifest.o \
-	$(BUILD_DIR)/chain/revocation.o \
+	$(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
 	$(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
 	$(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -4222,7 +4224,7 @@ $(BUILD_DIR)/gui/test/provision_view_test: \
                                      $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/qr/qr.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/trust/trust.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -4246,7 +4248,7 @@ $(BUILD_DIR)/gui/test/sync_view_test: \
                                      $(BUILD_DIR)/gui/sync_view.o \
                                      $(BUILD_DIR)/cli/sync_print.o \
                                      $(BUILD_DIR)/chain/manifest.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -4269,7 +4271,7 @@ $(BUILD_DIR)/gui/test/revocation_view_test: \
                                      $(BUILD_DIR)/gui/test/revocation_view_test.o \
                                      $(BUILD_DIR)/gui/revocation_view.o \
                                      $(BUILD_DIR)/cli/revocation_print.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -4308,7 +4310,7 @@ $(BUILD_DIR)/gui/test/capability_view_test: \
                                      $(BUILD_DIR)/gui/capability_view.o \
                                      $(BUILD_DIR)/cli/capability_print.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/trust/trust.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -4372,7 +4374,7 @@ $(BUILD_DIR)/spool/test/message_fuzz: $(BUILD_DIR)/spool/test/message_fuzz.o \
 $(BUILD_DIR)/chain/test/authz_fuzz: $(BUILD_DIR)/chain/test/authz_fuzz.o \
                                    $(BUILD_DIR)/chain/authz.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                   $(BUILD_DIR)/chain/revocation.o \
+                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                    $(BUILD_DIR)/chain/manifest.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -4386,7 +4388,7 @@ $(BUILD_DIR)/chain/test/service_fuzz: $(BUILD_DIR)/chain/test/service_fuzz.o \
 $(BUILD_DIR)/chain/test/chain_store_fuzz: $(BUILD_DIR)/chain/test/chain_store_fuzz.o \
                                          $(BUILD_DIR)/chain/chain_store.o \
                                          $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                         $(BUILD_DIR)/chain/revocation.o \
+                                         $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                          $(BUILD_DIR)/chain/manifest.o \
                                          $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -4394,7 +4396,7 @@ $(BUILD_DIR)/chain/test/chain_store_fuzz: $(BUILD_DIR)/chain/test/chain_store_fu
 
 $(BUILD_DIR)/chain/test/chain_fuzz: $(BUILD_DIR)/chain/test/chain_fuzz.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                     $(BUILD_DIR)/chain/revocation.o \
+                                     $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -4405,7 +4407,7 @@ $(BUILD_DIR)/chain/test/chain_fuzz: $(BUILD_DIR)/chain/test/chain_fuzz.o \
 $(BUILD_DIR)/frame/test/receive_fuzz: $(BUILD_DIR)/frame/test/receive_fuzz.o \
                                        $(BUILD_DIR)/frame/freshness.o \
                                        $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                       $(BUILD_DIR)/chain/revocation.o \
+                                       $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                        $(BUILD_DIR)/chain/manifest.o \
                                        $(BUILD_DIR)/chunk/reassembly.o \
                                        $(BUILD_DIR)/constant_time/constant_time.o
@@ -4421,7 +4423,7 @@ $(BUILD_DIR)/frame/test/freshness_fuzz: $(BUILD_DIR)/frame/test/freshness_fuzz.o
 # manifests against a real revocation store rather than filling structs.
 $(BUILD_DIR)/chain/test/manifest_fuzz: $(BUILD_DIR)/chain/test/manifest_fuzz.o \
                                         $(BUILD_DIR)/chain/manifest.o \
-                                        $(BUILD_DIR)/chain/revocation.o \
+                                        $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                         $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -4455,7 +4457,7 @@ $(BUILD_DIR)/persist/test/persist_fuzz: $(BUILD_DIR)/persist/test/persist_fuzz.o
                                           $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                           $(BUILD_DIR)/ratchet/ratchet.o \
                                           $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                          $(BUILD_DIR)/chain/revocation.o \
+                                          $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                           $(BUILD_DIR)/chain/manifest.o \
                                           $(BUILD_DIR)/session/agree.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -4463,7 +4465,7 @@ $(BUILD_DIR)/persist/test/persist_fuzz: $(BUILD_DIR)/persist/test/persist_fuzz.o
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/chain/test/revocation_fuzz: $(BUILD_DIR)/chain/test/revocation_fuzz.o \
-                                          $(BUILD_DIR)/chain/revocation.o \
+                                          $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                           $(BUILD_DIR)/chain/manifest.o \
                                           $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
@@ -4666,6 +4668,13 @@ $(BUILD_DIR)/wire/test/want_vectors: wire/generated/want_vectors.c \
 $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c \
                                            wire/generated/search_wire.c wire/generated/situ.c \
                                            $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
+# A REVOCATION AND AN ADMIN'S CONFIRMATION, a withdrawal's rules `when`s, generated, sec 1364.
+$(BUILD_DIR)/wire/test/revocation_record_vectors: wire/generated/revocation_record_vectors.c \
+                                                 wire/generated/revocation_record.c wire/generated/situ.c \
+                                                 $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
@@ -4888,7 +4897,7 @@ $(BUILD_DIR)/node/test/node_test: $(BUILD_DIR)/node/test/node_test.o \
                                   $(BUILD_DIR)/local/peer.o \
                                   $(BUILD_DIR)/chain/authz.o \
                                   $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                  $(BUILD_DIR)/chain/revocation.o \
+                                  $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                   $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -5132,7 +5141,7 @@ $(BUILD_DIR)/node/test/local_test: $(BUILD_DIR)/node/test/local_test.o \
                                    $(BUILD_DIR)/version/version.o \
                                    $(BUILD_DIR)/chain/authz.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                   $(BUILD_DIR)/chain/revocation.o \
+                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                    $(BUILD_DIR)/chain/manifest.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -5160,7 +5169,7 @@ $(BUILD_DIR)/node/test/remote_test: $(BUILD_DIR)/node/test/remote_test.o \
               $(BUILD_DIR)/session/random_linux.o \
               $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/ratchet/ratchet.o \
               $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/wire/seal.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
@@ -5237,7 +5246,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/session/random_linux.o \
               $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/ratchet/ratchet.o \
               $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/wire/seal.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
@@ -5294,7 +5303,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/session/random_linux.o \
               $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/ratchet/ratchet.o \
               $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/wire/seal.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
@@ -5347,7 +5356,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                  $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+                                  $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
                                   $(BUILD_DIR)/trust/trust.o \
                                   $(BUILD_DIR)/session/agree.o \
@@ -5410,7 +5419,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/session/random_linux.o \
                    $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/ratchet/ratchet.o \
                    $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
                    $(BUILD_DIR)/wire/seal.o \
                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 
@@ -5441,7 +5450,7 @@ $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                  $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+                                  $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
                                   $(BUILD_DIR)/trust/trust.o \
                                   $(BUILD_DIR)/session/agree.o \
@@ -5467,7 +5476,7 @@ $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                  $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+                                  $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
                                   $(BUILD_DIR)/trust/trust.o \
                                   $(BUILD_DIR)/session/agree.o \
@@ -5805,7 +5814,7 @@ $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
               $(BUILD_DIR)/session/random_linux.o \
               $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/ratchet/ratchet.o \
               $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/wire/seal.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
@@ -6126,7 +6135,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/sched/sched.o \
                                       $(LINK_OBJ) \
                                       $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                                      $(BUILD_DIR)/chain/revocation.o \
+                                      $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                       $(BUILD_DIR)/chain/manifest.o \
                                       $(BUILD_DIR)/chunk/reassembly.o \
                                       $(BUILD_DIR)/chunk/split.o \
@@ -6194,7 +6203,7 @@ $(BUILD_DIR)/wire/test/seal_test: $(BUILD_DIR)/wire/test/seal_test.o \
 $(BUILD_DIR)/chain/test/memo_test: $(BUILD_DIR)/chain/test/memo_test.o \
                                    $(BUILD_DIR)/chain/memo.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o $(BUILD_DIR)/wire/generated/situ.o \
-                                   $(BUILD_DIR)/chain/revocation.o \
+                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                    $(BUILD_DIR)/chain/manifest.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
@@ -6210,7 +6219,7 @@ $(BUILD_DIR)/admit/test/sequence_test: $(BUILD_DIR)/admit/test/sequence_test.o \
                                    $(BUILD_DIR)/chunk/reassembly.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
                                    $(BUILD_DIR)/chain/chain_store.o \
-                                   $(BUILD_DIR)/chain/revocation.o \
+                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o \
                                    $(BUILD_DIR)/chain/manifest.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
@@ -7784,7 +7793,7 @@ SITU_DIR ?=
 # The spec schemas: hand-written layouts also described as situ schemas and
 # adopted as checked contracts (committed .wire/.map, pinned by `schema`),
 # with the hand-written codec still producing the bytes. sec 304-305.
-SITU_SPECS := chain/hop_record.situ chain/revocation.situ chain/manifest.situ \
+SITU_SPECS := chain/hop_record.situ chain/revocation_record.situ chain/manifest.situ \
               prekey/prekey_record.situ persist/persist.situ spool/message.situ \
               spool/sidecar.situ record/record_row.situ tree/tree_row.situ \
               chain/chain.situ provision/provision.situ \
@@ -8281,7 +8290,7 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/log/log.o \
                     $(BUILD_DIR)/record/journal.o $(BUILD_DIR)/record/record.o $(BUILD_DIR)/wire/generated/record_row.o \
                     $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/wire/generated/hop_record.o \
-                    $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+                    $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/wire/generated/revocation_record.o $(BUILD_DIR)/chain/manifest.o \
                     $(FLOG_OBJS) \
                     $(BUILD_DIR)/catalog/sweep.o $(BUILD_DIR)/catalog/retention.o \
                     $(BUILD_DIR)/catalog/catalog.o \
@@ -8556,6 +8565,11 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_revocation_record --layer edit \
+	         --out $(BUILD_DIR)/.gen.new chain/revocation_record.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_revocation_record \
+	         --out $(BUILD_DIR)/.gen.new chain/revocation_record.situ \
+	         chain/revocation_record.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_tree_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new tree/tree_row.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_tree_row \
@@ -8705,6 +8719,7 @@ schema:
 	          entry_record.c entry_record.h entry_record_build.h entry_record_edit.h entry_record_vectors.c \
 	          cause_wire.c cause_wire.h cause_wire_build.h cause_wire_edit.h cause_wire_vectors.c \
 	          tree_row.c tree_row.h tree_row_build.h tree_row_edit.h tree_row_vectors.c \
+	          revocation_record.c revocation_record.h revocation_record_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

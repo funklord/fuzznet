@@ -30,7 +30,7 @@
 //                                  (node, capability, send_key, send_ckey,
 //                                  hop_count, chain; node/pair.c, secs 377, 391)
 //   REVOCATION_BODY = 242          (a signed revocation record,
-//                                  chain/revocation.situ; node/revoke.c, sec 380;
+//                                  chain/revocation_record.situ; node/revoke.c, sec 380;
 //                                  202 until the epoch, sec 400, and 210
 //                                  until the cut, sec 496)
 //   VOTE_BODY = 242 + 1 + 179 * hop_count = 243..1496
@@ -139,7 +139,7 @@ struct fzn_persist_pairing_body {
 }
 
 // A revocation this node issued, as the signed record it minted (242 bytes,
-// chain/revocation.situ -- kept opaque here, as the pairing's hop is).
+// chain/revocation_record.situ -- kept opaque here, as the pairing's hop is).
 // REVOCATION_BODY = 242.
 struct fzn_persist_revocation_body {
 	u8  record[242];
@@ -221,7 +221,7 @@ struct fzn_persist_own_root_body {
 	u8  seed[32];
 }
 
-// An admin confirmation (sec 415), laid out in chain/revocation.situ and
+// An admin confirmation (sec 415), laid out in chain/revocation_record.situ and
 // opaque here, with the confirmer's admin chain: none for a root's, and at
 // most seven, as for a vote.
 struct fzn_persist_admin_confirm_body {

@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1363
+The newest work is at the end of this file. **Read secs 1287 to 1364
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95712,3 +95712,28 @@ next message to situ).
 
 **Tests:** tree_row_vectors (2); tree_test (160), note_test (147),
 text_test (35), tree_fuzz (20000 cases).
+
+## 1364. A revocation and an admin's confirmation through situ's code, a withdrawal's rules `when`s, 2026-11-21
+
+The eighteenth of the 40 layouts: `chain/revocation.situ` is
+`chain/revocation_record.situ`, and says what only the codec said: **a
+withdrawal that names nothing** (`sum(supersedes) == 0`) and **a
+withdrawal drawing a line** (`sum(cut) != 0`, sec 496) are `when`
+refusals. Its enum is `fzn_revocation_kind`, situ having warned that
+`fzn_revocation_object` and the field `object` reach one macro name.
+`fzn_revocation_open` reads through the generated view and `validate`;
+`fzn_revocation_encode` writes through the edit layer and refuses what
+does not validate, so the encoder still cannot write what its parser
+refuses; `fzn_admin_confirm_issue` writes the confirmation through the
+edit layer and signs what situ says the signature covers. The comments in
+`chain/root_act.situ` and `persist/persist.situ` follow the rename.
+
+situ's `wire --check` called the enum's rename breaking -- "the same bytes
+now mean something else" -- though its values are unchanged; sent to situ
+with sec 1363's note.
+
+**Tests:** revocation_record_vectors (3: a revocation, its withdrawal, a
+confirmation); revocation_test (719), chain_test (314), admin_test (377),
+authz_test (40), revocation_fuzz and chain_store_fuzz (20000 cases each).
+Sabotage `revocation-a-withdrawal-draws-no-line` retargeted onto
+`validate`, `revocation-encoder-refuses-what-it-cannot-open` new.
