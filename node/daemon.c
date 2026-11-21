@@ -27012,7 +27012,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				{
 					fzn_rate_slot_t *slots = calloc(FZND_RATE_SLOTS, sizeof(*slots));
 
-					fzn_rate_init(&value_rate, slots, slots ? FZND_RATE_SLOTS : 0u);
+					fzn_rate_init_zeroed(&value_rate, slots, slots ? FZND_RATE_SLOTS : 0u);
 					node_objects.rate = slots ? &value_rate : NULL;
 					node_objects.held = object_held;
 					node_settings.rate = slots ? &value_rate : NULL;

@@ -10472,6 +10472,13 @@ SABOTAGES = [
 		"a setting read without the schema's checks: an op neither set nor clear, a rank above a root's, a clear with a value -- secs 808, 1342",
 	),
 	(
+		"rate-zeroed-rows-untouched",
+		"node/rate.c",
+		"\tr->rows = slots;\n\tr->cap = slots ? cap : 0u;\n}\n",
+		"\tr->rows = slots;\n\tr->cap = slots ? cap : 0u;\n\tif (slots && cap)\n\t\tmemset(slots, 0, cap * sizeof(*slots));\n}\n",
+		"an idle host makes its whole rate table resident clearing what calloc zeroed -- sec 1343",
+	),
+	(
 		"setting-version-orders",
 		"state/setting.c",
 		"\tif (a->version != b->version)\n\t\treturn a->version > b->version;",

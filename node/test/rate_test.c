@@ -171,8 +171,25 @@ static void test_kinds(void)
 	      "another kind's pass lost the value it left held");
 }
 
+/* ROWS ALREADY ZERO ARE NOT WRITTEN, sec 1343: a table from calloc stays
+ * untouched until used, so an idle host keeps none of it resident. Rows
+ * holding a pattern show a write the zeroes could not. */
+static void test_zeroed_rows_untouched(void)
+{
+	static fzn_rate_slot_t slots[4];
+	static unsigned char pattern[sizeof(slots)];
+	fzn_rate_t r;
+
+	memset(slots, 0xa5, sizeof(slots));
+	memcpy(pattern, slots, sizeof(slots));
+	fzn_rate_init_zeroed(&r, slots, 4u);
+	CHECK(!memcmp(slots, pattern, sizeof(slots)), "fzn_rate_init_zeroed wrote rows it was told are zero");
+	CHECK(r.rows == slots && r.cap == 4u, "fzn_rate_init_zeroed did not take its rows");
+}
+
 int main(void)
 {
+	test_zeroed_rows_untouched();
 	test_a_flood();
 	test_ceilings();
 	test_room();

@@ -73,6 +73,11 @@ typedef struct fzn_rate {
 } fzn_rate_t;
 
 void fzn_rate_init(fzn_rate_t *r, fzn_rate_slot_t *rows, size_t cap);
+/* ROWS ALREADY ZERO -- from calloc -- left untouched, so a table sized for
+ * the busiest host costs an idle one no resident memory: clearing 560 KB
+ * the kernel had already zeroed made every page of it resident (netcfgd's
+ * measurement, sec 1343). */
+void fzn_rate_init_zeroed(fzn_rate_t *r, fzn_rate_slot_t *rows, size_t cap);
 
 /* OFFER `value` of `key`, whose declared window is `every_ms`, at `now_ms`:
  * NOW to store it, HELD when it is held -- `*first` 1 when this name has just

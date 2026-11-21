@@ -24,6 +24,23 @@ static void *take(const fzn_persist_cache_t *c, size_t len)
 	return c->alloc ? c->alloc(len) : malloc(len);
 }
 
+/* ZEROED, and by calloc where no allocator is given: a fresh table the
+ * kernel zeroes costs no resident memory until a bucket is used, where a
+ * memset over malloc's made all 128 KB of each cache's resident at an idle
+ * start (sec 1343). */
+static void *take_zeroed(const fzn_persist_cache_t *c, size_t len)
+{
+	void *at;
+
+	if (!FZN_FAULT_RAM())
+		return NULL;
+	if (!c->alloc)
+		return calloc(1u, len);
+	if ((at = c->alloc(len)) != NULL)
+		memset(at, 0, len);
+	return at;
+}
+
 static void give(const fzn_persist_cache_t *c, void *at)
 {
 	if (c->release)
@@ -186,10 +203,9 @@ static int fill(fzn_persist_cache_t *c)
 	if (!c->buckets) {
 		size_t size = FZN_PERSIST_CACHE_BUCKETS * sizeof(*c->buckets);
 
-		c->buckets = take(c, size);
+		c->buckets = take_zeroed(c, size);
 		if (!c->buckets)
 			return 0;
-		memset(c->buckets, 0, size);
 	}
 	f.c = c;
 	f.ok = 1;

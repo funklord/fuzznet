@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1342
+The newest work is at the end of this file. **Read secs 1287 to 1343
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95178,3 +95178,32 @@ Sabotage `setting-lengths-account` and `setting-signed-by-setter`
 retargeted, `setting-unvalidated` new; the op, rank and clear entries
 went with the checks they named.
 
+## 1343. An idle host's resident memory back below its 2026-11-06 level, 2026-11-21
+
+**netcfgd measured fuzznet b54490a costing an idle embedded node +736 KB
+resident** (RssAnon 2948 -> 3684 KB, peak 6530 -> 7310 KB, its `make
+rss-node`, against 364241c; fuzznet inbox 20261121T0203Z, its project.md
+10.892). Reproduced here with fuzznetd at both pins, idle two seconds
+after its socket, with a UDP port: RssAnon 3868 -> 4604 KB, the same 736.
+Without UDP the two differ by 24 KB.
+
+**Found by mapping resident pages to allocations** (an LD_PRELOAD shim
+logging every block over 128 KB with its caller, then `/proc/PID/pagemap`):
+not a big table, but **zeroes written over memory calloc had already
+zeroed**, which makes every page resident. Two:
+
+- **the value-rate table** (`daemon.c`, 1024 rows, 560 KB, sec 1288's
+  rate) was calloc'd and then cleared by `fzn_rate_init` -- 560 KB
+  resident at idle. `fzn_rate_init_zeroed` takes rows already zero and
+  writes none of them; `fzn_rate_init` still clears, its tests reusing
+  rows.
+- **each persist cache's bucket table** (`persist/cache.c`, 128 KB) was
+  malloc'd and memset; a third cache since 364241c made it 384 KB. It is
+  calloc'd now where no allocator is given.
+
+After: **RssAnon 3788 KB, 80 below 364241c**; the remaining big blocks
+(the notes index, 192 MB reserved, 272 KB touched) were there before.
+**The shape, for the next one**: a table sized for the busiest host and
+cleared at start costs an idle host all of it -- calloc it and do not
+clear it. Test: rate_test's `test_zeroed_rows_untouched`; sabotage
+`rate-zeroed-rows-untouched`.

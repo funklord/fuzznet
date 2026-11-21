@@ -14,6 +14,15 @@ void fzn_rate_init(fzn_rate_t *r, fzn_rate_slot_t *slots, size_t cap)
 		memset(slots, 0, cap * sizeof(*slots));
 }
 
+void fzn_rate_init_zeroed(fzn_rate_t *r, fzn_rate_slot_t *slots, size_t cap)
+{
+	if (!r)
+		return;
+	memset(r, 0, sizeof(*r));
+	r->rows = slots;
+	r->cap = slots ? cap : 0u;
+}
+
 /* ONE OF THE BURST'S, at `now_ms`: 1 when one was left. */
 static int burst_take(fzn_rate_t *r, uint64_t now_ms)
 {
