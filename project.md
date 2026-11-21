@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1374
+The newest work is at the end of this file. **Read secs 1287 to 1375
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95981,3 +95981,37 @@ schema does not state, stays the codec's.
 note_test (147), text_test (35), shelf_test (175), note_fuzz (10000
 cases). Sabotage `note-payload-partitions`, `note-meta-knows-its-flags`
 and `note-payload-bounds-the-title` retargeted onto the `check` mapping.
+
+## 1375. The asks table matches a reply through situ's driver, by its key and its socket, 2026-11-21
+
+situ 53fc4e5c built what inbox 20261121T1530Z asked for:
+`<table>_match_key_from` and `<drive>_on_key_from`, matching a reply by
+its key's values and the peer that verified it, for a caller that
+verifies and reassembles a reply before it matches it and so no longer
+holds the frame it came in (fd2a243c regenerates the frame's headers at
+it). The same hour situ also answered the three other reports pending
+from here: two byte runs compared with `==` in a `when` (61e777c1), the
+builder kept for a `--linked` struct nested by extent (b612fcd9), and
+`wire --check` calling BREAKING only what moves a byte or its meaning
+(4b41d270). The first two unblock moving the succession self-check into
+a `when` and the cause envelope onto `--linked`. situ confirmed all four
+in inbox 20261121T2111Z, at 8c9703f0: the `==` is for two `u8 [N]` runs
+of one stated N, in all four backends and the dissector (26.1128); the
+`--linked` builder calls the linked unit's `_required` (26.1130); and the
+roster bundle against its contract from before ef165855 now reads 0
+breaking, 5 compatible, where it read 14 breaking (26.1129). It also
+fixed a Rust-only fault reading a `while` run's enum condition
+(26.1131), which touches nothing here: fuzznet generates C only.
+
+**`node/asks.c` now**: each exchange is tracked with
+`_track_key_from` under its reply's key -- the message number, through
+`situ_conv_reply_to_key` -- and its peer, the caller's socket, which no
+two live callers share (`peer_of`; a caller with no socket sits under a
+peer no socket is, as it could be answered by nothing before).
+`fzn_node_asks_ready` hands each verified, reassembled reply to
+`_on_key_from`, which ends the exchange in the driver and names its
+entry; the hand loop matching caller and number over the entries went.
+Resends, the part-held schedule and expiry are the driver's as before.
+
+**Tests:** the suite, installcheck and livecheck, every live script's
+exchanges running through it.

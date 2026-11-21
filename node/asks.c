@@ -45,10 +45,11 @@ static const situ_drive_reply_to_t *drive_seen(const fzn_node_asks_t *asks)
 	return &((const struct drive_state *)(const void *)asks->drive)->drive;
 }
 
-/* AN EXCHANGE'S ID IS ITS ENTRY'S PLACE, one up: this table matches a reply
- * by caller and `msg` itself, after opening it, so the driver tracks each
- * exchange by that id alone (situ 26.1064, `_track_by_id`) -- no request
- * read, no key held. */
+/* AN EXCHANGE'S ID IS ITS ENTRY'S PLACE, one up. The driver holds it under
+ * its reply's key -- the message number -- and its peer, the caller's
+ * socket, and a reply is matched there once its caller has verified and
+ * reassembled it (situ 53fc4e5c, `_on_key_from`, sec 1375): the frame it
+ * came in is gone by then, its number and its socket are what is held. */
 static uint32_t id_of(const fzn_node_asks_t *asks, const fzn_node_ask_t *e)
 {
 	return (uint32_t)(e - asks->entries) + 1u;
@@ -71,6 +72,14 @@ static situ_err_t submit_nothing(void *ctx, const uint8_t *data, uint32_t len)
 }
 
 static int want_instead(fzn_node_ask_t *e);
+
+/* THE PEER A REPLY IS HELD UNDER: the socket it is read from, which no two
+ * live callers share. A caller with none can be answered by nothing, so
+ * its exchanges sit under a peer no socket is. */
+static uint32_t peer_of(const fzn_caller_t *caller)
+{
+	return caller->fd >= 0 ? (uint32_t)caller->fd : UINT32_MAX;
+}
 
 /* PART OF ITS REPLY IN, told to the driver, which then resends sooner and
  * more (sec 1168); telling it again changes nothing. */
@@ -179,7 +188,8 @@ static fzn_node_ask_t *track(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32
 	policy.retries_part = resends ? SITU_REPLY_TO_RETRIES_PART : 0u;
 	/* NO BYTES KEPT for it: a resend is resealed from the entry, never the
 	 * driver's copy. */
-	if (situ_drive_reply_to_track_by_id_with(drive_of(asks), NULL, 0u, id_of(asks, e), (uint32_t)now, &policy)
+	if (situ_drive_reply_to_track_key_from(drive_of(asks), situ_conv_reply_to_key(msg), peer_of(caller), NULL,
+	                                       0u, id_of(asks, e), (uint32_t)now, &policy)
 	    != SITU_OK)
 		return NULL;
 	e->caller = caller;
@@ -298,13 +308,18 @@ size_t fzn_node_asks_ready(fzn_node_asks_t *asks, int fd)
 	 * caller skips -- a stranger's, a late one -- costs nothing. */
 	while (fzn_caller_recv_any(caller, &msg, asks->reply, asks->reply_cap, &len, 1u)
 	       == FZN_CALLER_OK) {
-		for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
-			if (asks->entries[i].used && asks->entries[i].caller == caller
-			    && asks->entries[i].msg == msg) {
-				end(asks, &asks->entries[i], asks->reply, len);
-				answered++;
-				break;
-			}
+		uint32_t id = 0;
+		fzn_node_ask_t *e;
+
+		/* MATCHED BY THE DRIVER, by the number and the socket the caller
+		 * verified it under, which ends the exchange there. */
+		if (situ_drive_reply_to_on_key_from(drive_of(asks), situ_conv_reply_to_key(msg), peer_of(caller),
+		                                    &id)
+		            != SITU_OK
+		    || (e = entry_by_id(asks, id)) == NULL || e->caller != caller)
+			continue;
+		finish(e, asks->reply, len);
+		answered++;
 	}
 	/* AND A PIECE THAT CAME WITHOUT ITS WHOLE, so the next wake is the
 	 * sooner schedule's. */
