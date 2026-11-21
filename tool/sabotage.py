@@ -10493,6 +10493,13 @@ SABOTAGES = [
 		"a reply carrying a sticker or a file is read whole, and the pack goes ungranted, the file unfetched -- sec 1355",
 	),
 	(
+		"search-view-select-chooses-the-row",
+		"gui/search_view.cpp",
+		"\t\tm_table->setCurrentCell(row, 0);\n",
+		"",
+		"select then open opens whatever row was current, not the one selected -- sec 1356",
+	),
+	(
 		"read-own-group-line-by-listed-id",
 		"node/messages.c",
 		"\t\t\t    && find_own(nm, contact, id, own, shared))\n\t\t\t\tmemcpy(id, own, FZN_MESSAGE_ID_LEN);\n",

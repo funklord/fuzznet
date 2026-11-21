@@ -92,8 +92,16 @@ int main(int argc, char **argv)
 	CHECK(view.search(QStringLiteral("heron")) && view.status().contains(QStringLiteral("only the newest")),
 	      "a page from a host that stopped short was not said to be the newest only");
 	stopped_short = 0;
+	/* SELECT THEN OPEN, as the header has it, sec 1356: the row selected is
+	 * the row opened. */
+	CHECK(view.search(QStringLiteral("heron")) && view.poll() && view.rows().size() == 2,
+	      "fixture: two hits listed");
+	view.select(1);
+	CHECK(view.open() && opened_store == QStringLiteral("lines"),
+	      "select(1) then open() did not open the second hit");
 	view.select(0);
-	CHECK(!view.open(), "a hit was opened with none chosen on the table");
+	CHECK(view.open() && opened_store == QStringLiteral("notes"),
+	      "select(0) then open() did not open the first hit");
 	silent = 1;
 	CHECK(!view.search(QStringLiteral("heron")) && view.status() == QStringLiteral("The node did not answer."),
 	      "a node that did not answer was not said");

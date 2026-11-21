@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1355
+The newest work is at the end of this file. **Read secs 1287 to 1356
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95525,3 +95525,14 @@ text is never a reference.
 a plain line is itself, a line only looking like a reply's head is kept
 whole. Sabotage `reply-own-text-after-its-head`.
 
+## 1356. The search view's `select` chooses the row `open` opens, 2026-11-21
+
+Same message. `fzn_search_view::select(row)`, public for a headless
+host, only enabled Open; `open()` reads the table's current row, so
+`select(2); open()` opened whatever was current, or nothing.
+`select` now sets the table's current cell, only where it moves, so the
+table's own `currentCellChanged`, which calls `select`, does not come
+round again. **Tests:** search_view_test (14): `select(1)` then `open()`
+opens the second hit, `select(0)` the first. The check before it held
+that `select(0)` then `open()` opened nothing -- the bug, written down as
+the expected behaviour. Sabotage `search-view-select-chooses-the-row`.

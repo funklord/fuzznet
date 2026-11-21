@@ -257,6 +257,13 @@ void fzn_search_view::show_page()
 
 void fzn_search_view::select(int row)
 {
+	/* THE ROW CHOSEN ON THE TABLE TOO, sec 1356: `open` reads the table's
+	 * current row, so a host calling `select(2); open()` as the header has
+	 * it opened whatever row was current, or nothing (fuzzypickles' window
+	 * suite). Set only where it moves, so the table's own signal, which
+	 * comes here, does not come round again. */
+	if (row >= 0 && row < m_table->rowCount() && row != m_table->currentRow())
+		m_table->setCurrentCell(row, 0);
 	m_open_button->setEnabled(row >= 0 && row < m_table->rowCount() && m_open);
 }
 
