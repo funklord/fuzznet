@@ -174,6 +174,8 @@ static inline situ_err_t fzn_search_wire_ask_build(
 	{
 		uint32_t situ_scan = 0u;
 
+		situ_count = 0u;
+
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)stores,
 		              stores_len);
 		while (situ_scan < stores_len) {
@@ -223,6 +225,9 @@ static inline situ_err_t fzn_search_wire_ask_build(
 		}
 	}
 	/* store_count: how many the walk found. */
+	if (situ_count > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
@@ -550,6 +555,8 @@ static inline situ_err_t fzn_search_wire_answer_build(
 	{
 		uint32_t situ_scan = 0u;
 
+		situ_count = 0u;
+
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)hits,
 		              hits_len);
 		while (situ_scan < hits_len) {
@@ -599,6 +606,9 @@ static inline situ_err_t fzn_search_wire_answer_build(
 		}
 	}
 	/* count: how many the walk found. */
+	if (situ_count > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}

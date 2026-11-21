@@ -134,6 +134,8 @@ static inline situ_err_t fzn_verify_memo_record_fzn_verify_memo_file_build(
 	{
 		uint32_t situ_scan = 0u;
 
+		situ_count = 0u;
+
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)digests,
 		              digests_len);
 		while (situ_scan < digests_len) {

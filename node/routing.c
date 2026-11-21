@@ -3,6 +3,7 @@
 #include "routing.h"
 
 #include "../wire/generated/routing_record.h"
+#include "../wire/generated/routing_record_build.h"
 
 #include <string.h>
 
@@ -240,35 +241,39 @@ int fzn_routing_newer(const fzn_routing_t *a, const fzn_routing_t *b)
 	return memcmp(a->signer, b->signer, FZN_PUBKEY_LEN) > 0;
 }
 
-/* ENCODED BY HAND STILL (sec 1335): situ's builder for this layout counts
- * the hops from where the entries' count left off -- two counted runs in
- * one struct share its counter -- so a manifest of N entries and no hops is
- * written with a hop count of N. Sent to situ; read through its code. */
 fzn_routing_err_t fzn_routing_encode(const fzn_routing_t *r, uint8_t *out, size_t cap,
                                      size_t *len)
 {
-	uint8_t msg[sizeof(LABEL) + FZN_ROUTING_STATEMENT_LEN];
-	size_t at, n;
+	uint8_t entries[FZN_ROUTING_ENTRIES_MAX * (1u + FZN_ROUTING_ADDRESS_MAX + 4u)];
+	uint32_t at = 0, wrote = 0;
+	size_t i;
 
 	if (len)
 		*len = 0;
-	if (!r || !out || !len || r->n > FZN_ROUTING_ENTRIES_MAX
-	    || r->hop_count > FZN_CHAIN_MAX_HOPS || cap < FZN_ROUTING_STATEMENT_LEN)
+	if (!r || !out || !len || r->n > FZN_ROUTING_ENTRIES_MAX || r->hop_count > FZN_CHAIN_MAX_HOPS
+	    || cap > UINT32_MAX)
 		return FZN_ROUTING_ERR_MALFORMED;
-	(void)statement(r, msg);
-	memcpy(out, msg + sizeof(LABEL), FZN_ROUTING_STATEMENT_LEN);
-	at = FZN_ROUTING_STATEMENT_LEN;
-	n = document(r, out + at, cap - at);
-	if (!n)
+	/* BUILT AS THE SCHEMA LAYS IT OUT (secs 1335, 1338): each entry by the
+	 * generated entry builder, the manifest round them -- by situ's builder
+	 * since ebe22699 counts each counted run on its own. */
+	for (i = 0; i < r->n; i++) {
+		const fzn_routing_entry_t *e = &r->entries[i];
+		uint32_t one = 0;
+
+		if (fzn_routing_record_fzn_routing_entry_build(entries + at, (uint32_t)(sizeof(entries) - at),
+		                                               (const uint8_t *)e->address, (uint32_t)e->address_len,
+		                                               e->port, e->transport, e->metric, &one)
+		    != SITU_OK)
+			return FZN_ROUTING_ERR_MALFORMED;
+		at += one;
+	}
+	if (fzn_routing_record_fzn_routing_build(out, (uint32_t)cap, 1u, 1u, r->generation, r->timestamp_ms,
+	                                         r->content_hash, r->signer, (uint8_t)(r->public_relay ? 1u : 0u),
+	                                         entries, at, &r->hops[0][0], (uint32_t)(r->hop_count * FZN_HOP_LEN), r->sig,
+	                                         &wrote)
+	    != SITU_OK)
 		return FZN_ROUTING_ERR_MALFORMED;
-	at += n;
-	if (cap - at < 1u + r->hop_count * FZN_HOP_LEN + FZN_SIG_LEN)
-		return FZN_ROUTING_ERR_MALFORMED;
-	out[at++] = (uint8_t)r->hop_count;
-	memcpy(out + at, r->hops, r->hop_count * FZN_HOP_LEN);
-	at += r->hop_count * FZN_HOP_LEN;
-	memcpy(out + at, r->sig, FZN_SIG_LEN);
-	*len = at + FZN_SIG_LEN;
+	*len = wrote;
 	return FZN_ROUTING_OK;
 }
 

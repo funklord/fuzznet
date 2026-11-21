@@ -498,6 +498,8 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_list_build(
 	{
 		uint32_t situ_scan = 0u;
 
+		situ_count = 0u;
+
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)entries,
 		              entries_len);
 		while (situ_scan < entries_len) {
@@ -547,6 +549,9 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_list_build(
 		}
 	}
 	/* count: how many the walk found. */
+	if (situ_count > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
@@ -1068,6 +1073,8 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_items_build
 	{
 		uint32_t situ_scan = 0u;
 
+		situ_count = 0u;
+
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)items,
 		              items_len);
 		while (situ_scan < items_len) {
@@ -1117,6 +1124,9 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_items_build
 		}
 	}
 	/* count: how many the walk found. */
+	if (situ_count > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
@@ -1373,6 +1383,8 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_kept_rows_b
 	{
 		uint32_t situ_scan = 0u;
 
+		situ_count = 0u;
+
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)rows,
 		              rows_len);
 		while (situ_scan < rows_len) {
@@ -1422,6 +1434,9 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_kept_rows_b
 		}
 	}
 	/* count: how many the walk found. */
+	if (situ_count > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
@@ -1679,6 +1694,8 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_act_entries
 	{
 		uint32_t situ_scan = 0u;
 
+		situ_count = 0u;
+
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)entries,
 		              entries_len);
 		while (situ_scan < entries_len) {
@@ -1728,6 +1745,9 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_devices_act_entries
 		}
 	}
 	/* count: how many the walk found. */
+	if (situ_count > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
@@ -1937,6 +1957,8 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_card_build(
 	{
 		uint32_t situ_scan = 0u;
 
+		situ_count = 0u;
+
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)seeds,
 		              seeds_len);
 		while (situ_scan < seeds_len) {
@@ -1986,6 +2008,9 @@ static inline situ_err_t fzn_contact_card_record_fzn_contact_card_build(
 		}
 	}
 	/* seed_count: how many the walk found. */
+	if (situ_count > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}

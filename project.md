@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1337
+The newest work is at the end of this file. **Read secs 1287 to 1338
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -94994,8 +94994,8 @@ importing `chain/hop.situ`) rather than `hop_count * 179` bytes, so
 the generated `required`, view, `validate` and accessors, exactly its
 length; canonical order and no duplicate entry stay the codec's checks.
 
-**The encoder stays hand-written, because situ's builder for this layout
-is wrong** (sent to situ, inbox 20261121T0130Z): it counts the hops from
+**The encoder stayed hand-written until sec 1338, because situ's builder
+for this layout was wrong** (sent to situ, inbox 20261121T0130Z): it counts the hops from
 where the entries' count left off -- two counted runs in one struct share
 one counter -- so a manifest of N entries and no hops is written with a
 hop count of N, and its own final `validate` refuses it. Found because
@@ -95035,3 +95035,18 @@ object joins `FUZZNETD_JOURNAL_OBJS`.
 
 **Tests:** opjournal_row_vectors (1); opjournal_test (55),
 node_journal_test (73) and messages_test (283) over the generated code.
+
+## 1338. The routing manifest built by situ's builder, its counter fixed, 2026-11-21
+
+situ fixed the builder bug sec 1335 sent it (situ ebe22699, *count each
+counted run of structs on its own*), the same day. `fzn_routing_encode`
+now builds each entry with the generated entry builder and the manifest
+with the generated manifest builder, so the routing manifest is generated
+code both ways. Every builder holding a counted run of structs was
+regenerated with the fix -- contact card, group act, routing, search ask
+(local and wire), memo file, want -- and each also refuses a count past
+its byte now; nothing else in the generated tree moved.
+
+**Tests:** routing_test (31) and reachability_fuzz (3000 cases) round-trip
+through the generated builder.
+

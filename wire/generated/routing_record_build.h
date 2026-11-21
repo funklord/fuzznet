@@ -221,6 +221,8 @@ static inline situ_err_t fzn_routing_record_fzn_routing_build(
 	{
 		uint32_t situ_scan = 0u;
 
+		situ_count = 0u;
+
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)entries,
 		              entries_len);
 		while (situ_scan < entries_len) {
@@ -270,6 +272,9 @@ static inline situ_err_t fzn_routing_record_fzn_routing_build(
 		}
 	}
 	/* entry_count: how many the walk found. */
+	if (situ_count > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
@@ -296,6 +301,8 @@ static inline situ_err_t fzn_routing_record_fzn_routing_build(
 	}
 	{
 		uint32_t situ_scan = 0u;
+
+		situ_count = 0u;
 
 		situ_msg_init(&situ_msg, (uint8_t *)(uintptr_t)hops,
 		              hops_len);
@@ -346,6 +353,9 @@ static inline situ_err_t fzn_routing_record_fzn_routing_build(
 		}
 	}
 	/* hop_count: how many the walk found. */
+	if (situ_count > 255u) {
+		return SITU_ERR_CONSTRAINT;
+	}
 	if (situ_cap - situ_at < 1u) {
 		return SITU_ERR_BOUNDS;
 	}
