@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1357
+The newest work is at the end of this file. **Read secs 1287 to 1358
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95391,7 +95391,11 @@ is refused as before.
 
 **Tests:** `live_session` passes (it failed in both full livechecks
 before); sabotage `pair-lets-the-claim-go` (the release and the close
-both gone) beside `pair-into-served-store`, retargeted.
+both gone) beside `pair-into-served-store`, retargeted. **Both SURVIVE
+`tool/sabotage.py`**, measured 2026-11-21: what catches them is a live
+script (`live_session`, `live_device`), and the tool runs the suite only,
+so these two guards are held by `make livecheck` and by no unit test --
+an open gap, not a defended claim.
 
 **The full `livecheck` over secs 1348 and 1349** ran past `live_lamp`
 and `live_session` and stopped at **`live_ext` phase c** (fixed in sec 1352): B, just
@@ -95567,3 +95571,21 @@ pass, not one made in passing.
 opening each goes to the hook; notebook_view_test (1080): all five of its
 choosers are the hooked kind; every hosting view's test still passes.
 Sabotage `search-view-combo-is-the-hooked-kind`.
+
+## 1358. What a Windows build meets, measured by fuzzypickles, 2026-11-21
+
+For information, no decision taken (fuzznet inbox 20261121T1250Z):
+Windows is fuzzypickles' next target after Android, and cross-compiling
+this tree's sources with MinGW (x86_64-w64-mingw32-gcc 14) at 635ad578
+as fuzzypickles' core does, these fail. **The client half**, which a
+Windows command-line client waits on: `local/client.c`,
+`local/client_config.c`, `local/peer_linux.c`, `local/rpc_binary.c`,
+`local/rpc_media.c` -- POSIX socket headers and `AF_UNIX`. **The node**:
+`node/{caller,events,local}.c` (`sys/socket.h`), `node/serve.c`
+(`poll.h`), `node/permit.c` (`grp.h`), `node/state_dir.c` (`lstat`,
+`geteuid`, `O_NOFOLLOW`, `fsync`, `mkdir`'s mode), `node/verify_memo.c`
+(`fsync`), `node/notes.c` (`scandir`), `net/udp.c` (`arpa/inet.h`),
+`location/gpsd.c` (`netdb.h`). fuzzypickles' own client code compiles for
+Windows as it stands. **Open** until Windows is taken up: the client half
+first, as fuzzypickles' command line needs only that.
+
