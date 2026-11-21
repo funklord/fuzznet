@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1352
+The newest work is at the end of this file. **Read secs 1287 to 1353
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95365,7 +95365,7 @@ Before, the slow start in place had let a timed round pass first.
 them**, so a member paired since the last round is pushed to by this one.
 Both are needed, measured: applying alone indexed the grant before the
 round and still left 0 peers, the pairing coming after. The grants step
-pairs again and, finding nothing new, pushes nothing extra. Cost: one
+pairs again and, finding nothing new, **pushed nothing -- wrongly, sec 1353**. Cost: one
 apply pass and one pairing pass more at each round's start, each a walk
 of what is new.
 
@@ -95465,4 +95465,22 @@ passes whole.
 core verb added later, and the extension is silently shadowed -- nothing
 told `ext_daemon` its verb had gone. Whether fuzznet should refuse or warn
 when an extension's declared verbs meet the core's is open.
+
+## 1353. The grants step pushes after a pairing made at the round's start, 2026-11-21
+
+**Sec 1348 broke `live_many_notes`**, found by the next full `livecheck`:
+B held 2464 of 2500 shared texts after 120 s, where it had held all in
+9 s. With sec 1348's two calls taken out the script passed again, so the
+cause was that change. The grants step pushed to every peer whenever
+*it* paired someone, and that push carries more than the grants -- the
+copies the script waits on among them. Sec 1348 moved the pairing to the
+round's start, so the grants step found nothing new and **the push
+stopped happening**. Now the start remembers what it paired
+(`paired_at_start`), and the grants step pushes for either.
+
+**Tests:** `live_many_notes` passes (all 2500 texts in 9 s) and
+`live_lamp` with it; the gates and the full `livecheck`. **The lesson,
+for the next round change**: a step whose side effect is conditional on
+another step finding work has a consumer that step never names -- move
+the work and the consumer goes quiet.
 

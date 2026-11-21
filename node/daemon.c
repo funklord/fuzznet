@@ -3842,6 +3842,9 @@ static int object_round_due;
 #define FZND_NEWS_FOLLOWUPS_MAX 6u
 static int news_round_due;
 static unsigned news_followups;
+/* PAIRED AT THIS ROUND'S START, sec 1353: its grants step pushes as for a
+ * pairing of its own. */
+static size_t paired_at_start;
 
 /* A ROUND A CHANGE STARTED, AND A LIVE PEER IT MISSED, sec 1149. Records
  * move only in a round, so a change's round whose journal pull a peer
@@ -27642,10 +27645,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					 * journal pushed to them, so a round a change started -- a
 					 * lamp switched off by a device 2 s after a member joined --
 					 * went to nobody there, and the member heard it a timed
-					 * round later, up to a minute. The grants step pairs again
-					 * and finds nothing new. */
+					 * round later, up to a minute. The grants step pairs again,
+					 * and pushes as it did for a pairing made here: that push
+					 * carries more than the grants, and live_many_notes' copies
+					 * stalled without it (sec 1353). */
 					apply_journal();
-					(void)pair_siblings(&identity, round_now);
+					paired_at_start = pair_siblings(&identity, round_now);
 					npulls = npulls_base + load_siblings(pulls, npulls_base, family,
 					                                     identity.pubkey, state.config.root,
 					                                     &hash_ops, &aead_ops, &rng_ops, 1);
@@ -27708,7 +27713,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					 * only `fzn_exchange_push`'s own buffers and reads the store
 					 * afresh at each step, so a local write between two asks is
 					 * pushed a round later, as one between steps would be. */
-					if (pair_siblings(&identity, round_now)) {
+					if (pair_siblings(&identity, round_now) + paired_at_start) {
 						answering_local = 1;
 						for (t = 0; t < npulls; t++)
 							if (!silent_peer(&pulls[t]))
