@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1347
+The newest work is at the end of this file. **Read secs 1287 to 1348
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95289,7 +95289,7 @@ to `unsupported` in the lean build, beside the other four services, and
 its kept half still passes; the full, embedded and messages-off builds
 compile without a warning.
 
-**Found on the way, open: `live_lamp` fails, since 046debc9** (sec 1259,
+**Found on the way: `live_lamp` failed, since 046debc9** (sec 1259,
 2026-11-18), in `livecheck-embedded` and against the full fuzznetd alike:
 step b, the device's button switching the lamp off at R, never reaches A
 (`get object lamp` stays `on` past 20 s). Not this change's: it fails with
@@ -95311,9 +95311,7 @@ after the member's records arrive; a change in that gap goes to nobody
 there and waits for the member's next timed round, up to 60 s -- longer
 than the lamp's 20. **Tried and not it**: starting a round when a setting
 is written here (A's `net/address`) -- the lamp still failed, so it was
-taken out rather than committed unproven. **Next**: apply what a round
-brought before the next round builds its targets, or index a grant on
-arrival; then `live_lamp` is the test.
+taken out rather than committed unproven. **Fixed in sec 1348.**
 
 ## 1347. situ's answers to the tracking, the setting's builder, the wire check and the 3x, 2026-11-21
 
@@ -95348,3 +95346,31 @@ as capped ranges, the caller building its own want).
   includes an `_edit.h`. The generated tree is regenerated at 3d9dd3d9:
   25 headers, the `_edit.h` rename, the arm builders' comments and the
   frame driver's key calls, nothing else.
+
+## 1348. A round applies and pairs what was pushed before it chooses its siblings, 2026-11-21
+
+Sec 1346's open finding, fixed. **A round chose its siblings at its start
+from the grants and pairings it held, then applied the journal (its
+journal-settle step) and paired new members (its grants step)**, and
+pushed the journal between the two -- so a member whose grant arrived by
+push between rounds was indexed and paired by a round that had already
+pushed to everybody else, and a round a change started went to nobody
+there. `live_lamp` showed it once sec 1259 made a start in place quick: a
+device switched the lamp off at R 2-4 s after A joined, R's round ran with
+0 peers (A's grant indexed 6 ms later, its pairing taken 2 ms after that),
+and A heard it at its own next timed round, past the 20 s the step allows.
+Before, the slow start in place had let a timed round pass first.
+
+**Now `ROUND_START` applies the journal and pairs siblings before it loads
+them**, so a member paired since the last round is pushed to by this one.
+Both are needed, measured: applying alone indexed the grant before the
+round and still left 0 peers, the pairing coming after. The grants step
+pairs again and, finding nothing new, pushes nothing extra. Cost: one
+apply pass and one pairing pass more at each round's start, each a walk
+of what is new.
+
+**Tests:** `live_lamp` passes twice running (it had failed every run since
+046debc9); `livecheck`, `livecheck-embedded` and the gates over the
+change.
+
+

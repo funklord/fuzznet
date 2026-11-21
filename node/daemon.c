@@ -27623,6 +27623,17 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #endif
 					silent_round_start();
 #ifdef FZN_RECORD_STORE_FILE_ON
+					/* WHAT WAS PUSHED HERE SINCE, APPLIED AND PAIRED FIRST, sec
+					 * 1348: a member's grant pushed between rounds was indexed
+					 * at this round's journal step and paired at its grants
+					 * step, both after the siblings below were chosen and the
+					 * journal pushed to them, so a round a change started -- a
+					 * lamp switched off by a device 2 s after a member joined --
+					 * went to nobody there, and the member heard it a timed
+					 * round later, up to a minute. The grants step pairs again
+					 * and finds nothing new. */
+					apply_journal();
+					(void)pair_siblings(&identity, round_now);
 					npulls = npulls_base + load_siblings(pulls, npulls_base, family,
 					                                     identity.pubkey, state.config.root,
 					                                     &hash_ops, &aead_ops, &rng_ops, 1);
