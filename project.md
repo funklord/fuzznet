@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1344
+The newest work is at the end of this file. **Read secs 1287 to 1345
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95239,3 +95239,30 @@ answered as before), store_fuzz and exchange_fuzz. Sabotage
 `record-open-refusals-ignored`, `record-body-bound-said`,
 `record-seq-zero-said`, `record-exact-length`; the hand predecessor check
 went with its entry.
+
+## 1345. The contact request linked to the card's unit rather than copying it; netcfgd's size figure, 2026-11-21
+
+situ answered sec 1339's import cost at 734de8bd (fuzznet inbox
+20261121T0245Z): `situc build ... --linked FILE=PREFIX` takes the types an
+imported schema declares to be emitted by that schema's own unit, so the
+importing unit includes its header and calls its functions instead of
+emitting them again. **The contact request is generated so**, `--linked
+contact_card_record.situ=fzn_contact_card_record`: its generated object
+is **482 bytes of text, from 4412**, its headers 642 lines from about
+8500, and its vector passes against the request unit with the card's
+beside it; `gen-tests` takes no `--linked` and needs none, its vectors
+calling only the request's functions. A struct's `_extent` the card's
+unit did not emit would be emitted static inline under the request's
+prefix; none was needed here. situ also found its `_edit.h` declaring
+`card_len` twice for `u8 card_len; u8 card[card_len]` (never compiled
+here); fixed in its next push. **Every later schema importing a
+generated one is built `--linked`.**
+
+**netcfgd's size figure** (message of 2026-11-21, after it took sec 1343's
+fix -- RssAnon 2760 KB, below even its old 2948, limit lowered to 6980):
+the 274 fuzznet commits since 23e4f46 add 281,832 bytes to netcfgd's
+installed binary (x86-64 -Os, gc-sections; text 2,276,451 -> 2,517,217;
+bss +967 KB), mostly node, search, contacts and members -- about 10% more
+flash on its OpenWrt routers. **Open**: whether that code is reachable
+only through paths an embedded node never takes, for the embedded profile
+(sec 922) to leave out.

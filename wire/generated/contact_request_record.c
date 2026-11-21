@@ -54,7 +54,7 @@ situ_err_t fzn_contact_request_record_fzn_contact_request_check(situ_view_t view
 			*which = FZN_CONTACT_REQUEST_RECORD_FZN_CONTACT_REQUEST_CARD_CHECK;
 			return err;
 		}
-		err = fzn_contact_request_record_fzn_contact_card_validate(nested);
+		err = fzn_contact_card_record_fzn_contact_card_validate(nested);
 		if (err != SITU_OK) {
 			*which = FZN_CONTACT_REQUEST_RECORD_FZN_CONTACT_REQUEST_CARD_CHECK;
 			return err;
