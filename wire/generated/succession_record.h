@@ -232,6 +232,17 @@ situ_err_t fzn_succession_record_fzn_succession_check(situ_view_t view, uint32_t
 #define FZN_SUCCESSION_RECORD_FZN_SUCCESSION_VERSION_CHECK 0u
 #define FZN_SUCCESSION_RECORD_FZN_SUCCESSION_OBJECT_CHECK 1u
 
+/** Every message this schema states about a frame whose
+ * predicate holds, in declaration order and without stopping
+ * at the first. Writes at most `cap` ids and sets `*count` to
+ * how many hold -- which may exceed `cap`, so a caller that
+ * cares about truncation compares the two rather than
+ * trusting that its buffer was big enough (0051).
+ */
+void fzn_succession_record_fzn_succession_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count);
+#define FZN_SUCCESSION_RECORD_FZN_SUCCESSION_SUCCEEDED_BY_ITSELF_MSG 0u
+
 #ifdef __cplusplus
 }
 #endif

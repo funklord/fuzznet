@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1375
+The newest work is at the end of this file. **Read secs 1287 to 1376
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -96015,3 +96015,26 @@ Resends, the part-held schedule and expiry are the driver's as before.
 
 **Tests:** the suite, installcheck and livecheck, every live script's
 exchanges running through it.
+
+## 1376. A key succeeded by itself refused by the schema, and the cause envelope calling the entry's code, 2026-11-21
+
+situ's two answers of sec 1375, taken:
+
+- **`chain/succession_record.situ`** gains
+  `when fzn_succession.old == fzn_succession.successor refuse`, two byte
+  runs compared byte for byte (situ 61e777c1, 26.1128); `wire --check`
+  calls it compatible, no byte moving. `fzn_succession_open`'s hand
+  comparison went, the generated `validate` refusing it; sabotage
+  `succession-a-key-is-not-its-own-successor` now breaks that call, and
+  succession_test catches it as before. Issuing still refuses a key
+  succeeded by itself before writing anything.
+- **`log/cause_wire.situ`** is built `--linked entry_record.situ=fzn_entry_record`,
+  as the contact request is (sec 1358): situ keeps the builder for a
+  struct nested by extent from a linked unit (b612fcd9, 26.1130), so the
+  envelope's code calls the entry's `_required` instead of carrying its
+  own copy of the entry, `cause_wire.h` going from 74.7 kB to 14.7 kB.
+  The builder's signature is unchanged, so `log/cause.c` is untouched;
+  the vectors test now links the entry's code.
+
+**Tests:** succession_test (26), cause_test (7), cause_wire_vectors, and
+the 29 targets linking the cause envelope.

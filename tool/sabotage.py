@@ -9548,9 +9548,9 @@ SABOTAGES = [
 	(
 		"succession-a-key-is-not-its-own-successor",
 		"chain/succession.c",
-		"\tif (fzn_ct_memeq(fzn_succession_record_fzn_succession_old_ptr(v),\n\t                 fzn_succession_record_fzn_succession_successor_ptr(v), FZN_PUBKEY_LEN))\n\t\treturn FZN_CHAIN_ERR_SHAPE;\n",
-		"",
-		"a key succeeded by itself moves no reference and is a cycle of one -- secs 498, 1360",
+		"\t    || fzn_succession_record_fzn_succession_validate(v) != SITU_OK)\n",
+		"\t    )\n",
+		"a key succeeded by itself moves no reference and is a cycle of one; the schema's `when` since sec 1376 -- secs 498, 1360, 1376",
 	),
 	(
 		"succession-open-unvalidated",

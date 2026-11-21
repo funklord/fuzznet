@@ -30,19 +30,14 @@ fzn_chain_err_t fzn_succession_open(const uint8_t *bytes, size_t len,
 	if (!bytes || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
 	/* READ AS THE SCHEMA SAYS, sec 1360: its version and object are the
-	 * generated validate's. */
+	 * generated validate's, and since sec 1376 so is A KEY SUCCEEDED BY
+	 * ITSELF, which moves no reference and would be a cycle of one --
+	 * refused at `open` so no reader has to remember. */
 	if (len != FZN_SUCCESSION_LEN)
 		return FZN_CHAIN_ERR_SHAPE;
 	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
 	if (fzn_succession_record_fzn_succession_view(&m, 0u, &v) != SITU_OK
 	    || fzn_succession_record_fzn_succession_validate(v) != SITU_OK)
-		return FZN_CHAIN_ERR_SHAPE;
-	/* A KEY SUCCEEDED BY ITSELF moves no reference and would be a cycle of
-	 * one; refused at `open` so no reader has to remember. The codec's
-	 * still: situ's `when` cannot compare two runs yet (situ inbox
-	 * 20261121T1640Z). */
-	if (fzn_ct_memeq(fzn_succession_record_fzn_succession_old_ptr(v),
-	                 fzn_succession_record_fzn_succession_successor_ptr(v), FZN_PUBKEY_LEN))
 		return FZN_CHAIN_ERR_SHAPE;
 	out->base = bytes;
 	return FZN_CHAIN_OK;

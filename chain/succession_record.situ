@@ -23,3 +23,9 @@ struct fzn_succession {
 	// covers(body) = bytes 0..129, FZN_SUCCESSION_BODY_LEN.
 	checksum u8 signature[64] covers(body); // FZN_SUCCESSION_OFF_SIGNATURE 130
 }
+
+// A KEY SUCCEEDED BY ITSELF moves no reference and would be a cycle of
+// one (sec 1376).
+when fzn_succession.old == fzn_succession.successor
+	refuse succeeded_by_itself
+	"a key succeeded by itself";

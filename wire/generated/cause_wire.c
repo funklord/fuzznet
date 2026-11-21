@@ -42,7 +42,7 @@ situ_err_t fzn_cause_wire_fzn_cause_envelope_check(situ_view_t view, uint32_t *w
 			*which = FZN_CAUSE_WIRE_FZN_CAUSE_ENVELOPE_CAUSE_CHECK;
 			return err;
 		}
-		err = fzn_cause_wire_fzn_entry_name_record_validate(nested);
+		err = fzn_entry_record_fzn_entry_name_record_validate(nested);
 		if (err != SITU_OK) {
 			*which = FZN_CAUSE_WIRE_FZN_CAUSE_ENVELOPE_CAUSE_CHECK;
 			return err;
@@ -57,7 +57,7 @@ situ_err_t fzn_cause_wire_fzn_cause_envelope_check(situ_view_t view, uint32_t *w
 			*which = FZN_CAUSE_WIRE_FZN_CAUSE_ENVELOPE_ORIGIN_CHECK;
 			return err;
 		}
-		err = fzn_cause_wire_fzn_entry_name_record_validate(nested);
+		err = fzn_entry_record_fzn_entry_name_record_validate(nested);
 		if (err != SITU_OK) {
 			*which = FZN_CAUSE_WIRE_FZN_CAUSE_ENVELOPE_ORIGIN_CHECK;
 			return err;

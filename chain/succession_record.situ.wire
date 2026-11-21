@@ -27,3 +27,4 @@ struct fzn_succession size=194
   @0x0062   32        u8         cut  big
   @0x0082   64        u8         signature
   signature covers: body cut issuer object old successor version
+  fzn_succession refuses: succeeded_by_itself when fzn_succession.old == fzn_succession.successor

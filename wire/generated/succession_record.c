@@ -38,6 +38,17 @@ situ_err_t fzn_succession_record_fzn_succession_check(situ_view_t view, uint32_t
 		*which = FZN_SUCCESSION_RECORD_FZN_SUCCESSION_OBJECT_CHECK;
 		return SITU_ERR_CONSTRAINT;
 	}
+
+	/* What the schema refuses this message over (0051). `*which` is set
+	 * to the sentinel rather than to an id: a CHECK id names a member
+	 * and a `when` is a predicate over the whole struct, so there
+	 * is none to name. `messages` names one of these. Written on the
+	 * line above the refusal because that is `check`'s contract. */
+	if ((situ_bytes_eq(fzn_succession_record_fzn_succession_old_ptr(view), 32u, fzn_succession_record_fzn_succession_successor_ptr(view), 32u) != 0) != 0) {
+		/* succeeded_by_itself */
+		*which = 0xFFFFFFFFu;
+		return SITU_ERR_CONSTRAINT;
+	}
 	return SITU_OK;
 }
 
@@ -46,3 +57,19 @@ situ_err_t fzn_succession_record_fzn_succession_validate(situ_view_t view)
 	return fzn_succession_record_fzn_succession_check(view, NULL);
 }
 
+
+void fzn_succession_record_fzn_succession_messages(situ_view_t view, uint32_t *ids, size_t cap,
+		size_t *count)
+{
+	size_t held = 0;
+
+	/* refuse succeeded_by_itself */
+	if ((situ_bytes_eq(fzn_succession_record_fzn_succession_old_ptr(view), 32u, fzn_succession_record_fzn_succession_successor_ptr(view), 32u) != 0) != 0) {
+		if (held < cap) {
+			ids[held] = FZN_SUCCESSION_RECORD_FZN_SUCCESSION_SUCCEEDED_BY_ITSELF_MSG;
+		}
+		held++;
+	}
+
+	*count = held;
+}

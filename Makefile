@@ -4759,7 +4759,7 @@ $(BUILD_DIR)/wire/test/tree_row_vectors: wire/generated/tree_row_vectors.c \
 
 # A REQUEST'S CAUSE ENVELOPE, generated, sec 1362.
 $(BUILD_DIR)/wire/test/cause_wire_vectors: wire/generated/cause_wire_vectors.c \
-                                          wire/generated/cause_wire.c wire/generated/situ.c \
+                                          wire/generated/cause_wire.c wire/generated/entry_record.c wire/generated/situ.c \
                                           $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
@@ -8683,6 +8683,7 @@ schema:
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_tree_row \
 	         --out $(BUILD_DIR)/.gen.new tree/tree_row.situ tree/tree_row.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_cause_wire --layer edit \
+	         --linked entry_record.situ=fzn_entry_record \
 	         --out $(BUILD_DIR)/.gen.new log/cause_wire.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_cause_wire \
 	         --out $(BUILD_DIR)/.gen.new log/cause_wire.situ log/cause_wire.vectors >/dev/null 2>&1
