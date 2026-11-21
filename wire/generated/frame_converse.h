@@ -142,13 +142,33 @@ static inline situ_err_t situ_conv_same_message_record(situ_conv_same_message_t 
 	return situ_conv_same_message_record_from(table, first, 0u, id);
 }
 
-/* Match `later`, from `peer`, to a request, and forget it.
+/* Match `later`, from `peer`, to a request, and forget it --
+ * or, `_match_key_from`, a key from `situ_conv_same_message_key`: for a caller that
+ * verifies and reassembles a reply before matching it, and holds its
+ * key's values by then rather than the frame (fuzznet, inbox
+ * 20261121T1530Z).
  *
  * Forgetting is what makes a second reply to one request answer
  * SITU_ERR_CONSTRAINT: a late or duplicated response names an
  * exchange that is over, which is not the same as one that never
  * happened and is reported the same way because a caller can do
  * nothing different about either. */
+static inline situ_err_t situ_conv_same_message_match_key_from(situ_conv_same_message_t *table,
+                                               const uint8_t key[38],
+                                               uint32_t peer,
+                                               uint32_t *id)
+{
+	for (uint32_t i = 0u; i < table->cap; i++) {
+		if (table->slots[i].live != 0u && table->slots[i].peer == peer
+		    && memcmp(table->slots[i].key, key, 38u) == 0) {
+			*id = table->slots[i].id;
+			table->slots[i].live = 0u;
+			return SITU_OK;
+		}
+	}
+	return SITU_ERR_CONSTRAINT;
+}
+
 static inline situ_err_t situ_conv_same_message_match_from(situ_conv_same_message_t *table,
                                            situ_view_t later,
                                            uint32_t peer,
@@ -182,15 +202,7 @@ static inline situ_err_t situ_conv_same_message_match_from(situ_conv_same_messag
 	at += 32u;
 	(void)at;
 
-	for (uint32_t i = 0u; i < table->cap; i++) {
-		if (table->slots[i].live != 0u && table->slots[i].peer == peer
-		    && memcmp(table->slots[i].key, key, 38u) == 0) {
-			*id = table->slots[i].id;
-			table->slots[i].live = 0u;
-			return SITU_OK;
-		}
-	}
-	return SITU_ERR_CONSTRAINT;
+	return situ_conv_same_message_match_key_from(table, key, peer, id);
 }
 
 static inline situ_err_t situ_conv_same_message_match(situ_conv_same_message_t *table,
@@ -357,13 +369,33 @@ static inline situ_err_t situ_conv_reply_to_record(situ_conv_reply_to_t *table,
 	return situ_conv_reply_to_record_from(table, request, 0u, id);
 }
 
-/* Match `reply`, from `peer`, to a request, and forget it.
+/* Match `reply`, from `peer`, to a request, and forget it --
+ * or, `_match_key_from`, a key from `situ_conv_reply_to_key`: for a caller that
+ * verifies and reassembles a reply before matching it, and holds its
+ * key's values by then rather than the frame (fuzznet, inbox
+ * 20261121T1530Z).
  *
  * Forgetting is what makes a second reply to one request answer
  * SITU_ERR_CONSTRAINT: a late or duplicated response names an
  * exchange that is over, which is not the same as one that never
  * happened and is reported the same way because a caller can do
  * nothing different about either. */
+static inline situ_err_t situ_conv_reply_to_match_key_from(situ_conv_reply_to_t *table,
+                                               uint64_t key,
+                                               uint32_t peer,
+                                               uint32_t *id)
+{
+	for (uint32_t i = 0u; i < table->cap; i++) {
+		if (table->slots[i].live != 0u && table->slots[i].peer == peer
+		    && table->slots[i].key == key) {
+			*id = table->slots[i].id;
+			table->slots[i].live = 0u;
+			return SITU_OK;
+		}
+	}
+	return SITU_ERR_CONSTRAINT;
+}
+
 static inline situ_err_t situ_conv_reply_to_match_from(situ_conv_reply_to_t *table,
                                            situ_view_t reply,
                                            uint32_t peer,
@@ -377,15 +409,7 @@ static inline situ_err_t situ_conv_reply_to_match_from(situ_conv_reply_to_t *tab
 	const uint64_t situ_k_1 = (uint64_t)situ_fzn_head_msg_get(situ_k_0);	/* reply.head.msg */
 	key = (key << 32u) | situ_k_1;
 
-	for (uint32_t i = 0u; i < table->cap; i++) {
-		if (table->slots[i].live != 0u && table->slots[i].peer == peer
-		    && table->slots[i].key == key) {
-			*id = table->slots[i].id;
-			table->slots[i].live = 0u;
-			return SITU_OK;
-		}
-	}
-	return SITU_ERR_CONSTRAINT;
+	return situ_conv_reply_to_match_key_from(table, key, peer, id);
 }
 
 static inline situ_err_t situ_conv_reply_to_match(situ_conv_reply_to_t *table,

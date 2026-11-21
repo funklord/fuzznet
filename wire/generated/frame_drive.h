@@ -413,6 +413,35 @@ static inline situ_err_t situ_drive_reply_to_on_message(situ_drive_reply_to_t *d
 	return situ_drive_reply_to_on_message_from(drive, reply, 0u, id);
 }
 
+/* `_on_message_from` by the reply's key rather than its view:
+ * for a caller that verifies and reassembles a reply before it
+ * matches it, and by then holds the key's values and the peer
+ * that verified them, not the frame they came in -- the twin of
+ * `_track_key_from`, the key from `situ_conv_reply_to_key`. `[after]` stays
+ * the rule for a caller matching a frame as it opens it (fuzznet,
+ * inbox 20261121T1530Z). */
+static inline situ_err_t situ_drive_reply_to_on_key_from(situ_drive_reply_to_t *drive,
+                                            uint64_t key,
+                                            uint32_t peer,
+                                            uint32_t *id)
+{
+	const situ_err_t err = situ_conv_reply_to_match_key_from(&drive->pending, key, peer,
+	                                               id);
+	if (err != SITU_OK) {
+		return err;
+	}
+	/* Any other key it was awaited under ends with it (26.1126). */
+	situ_conv_reply_to_forget(&drive->pending, *id);
+
+	for (uint32_t i = 0u; i < drive->cap; i++) {
+		if (drive->slots[i].live != 0u && drive->slots[i].id == *id) {
+			drive->slots[i].live = 0u;
+			return SITU_OK;
+		}
+	}
+	return SITU_OK;
+}
+
 /* `_on_message` without ending the exchange: which request
  * `reply` answers, for a reply in pieces (26.1009). */
 static inline situ_err_t situ_drive_reply_to_peek_from(const situ_drive_reply_to_t *drive,
