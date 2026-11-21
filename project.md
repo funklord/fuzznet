@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1341
+The newest work is at the end of this file. **Read secs 1287 to 1342
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95147,3 +95147,34 @@ situ answered fuzznet's 20261120T2130Z, 2230Z, 2330Z, 20261121T0130Z and
 
 The generated tree was compared against situ 7b198995 whole: nothing but
 the two frame headers moved.
+
+## 1342. A setting read through situ's code, its two shapes the arms its length selects, 2026-11-21
+
+The eleventh of the 40 layouts: `state/setting.situ` is
+`state/setting_record.situ`, and with situ 26.1125 (fa0cdb19, asked for
+in sec 1341) it says what only the codec could: **the two shapes** -- the
+rank its setter states then the signature (sec 728), or the signature
+alone, from before -- are the arms of `variant tail switch (remaining) {
+case 65: ranked; default: unranked; }`; the key's and value's letters are
+`[chars]`; and **a clear carries no value** is a `when` refusal. The scope
+enum is `fzn_setting_scope_kind`, since situ warned that `fzn_setting_scope`
+and the field `scope` reach one macro name. `fzn_setting_open` reads
+through `required` (exactly its length), the view, `validate`, and the
+ranked arm's view, which answers only when 65 bytes remain; scope served
+and the signature stay the codec's. Probed before moving: an op of 2, a
+rank of 3, tails of 63 and 66 bytes, a clear with a value, a key's
+capital, a value's DEL and a scope of 4 are each refused by `validate`.
+
+**The encoder stays hand-written**: situ emits no builder for a struct
+ending in a variant, and says nothing (its own NTP datagram has none
+either). And `wire --check` reports moving `rank` and `signature` into the
+65-byte arm as breaking, though a ranked setting's bytes are unchanged.
+Both sent to situ (inbox 20261121T0700Z).
+
+**Tests:** setting_record_vectors (3: ranked, unranked, a clear);
+setting_test (26), setting_fuzz (20000 cases, 2690 ranked and 3311
+unranked bent settings opened), schema_test (41), votes_test (17).
+Sabotage `setting-lengths-account` and `setting-signed-by-setter`
+retargeted, `setting-unvalidated` new; the op, rank and clear entries
+went with the checks they named.
+

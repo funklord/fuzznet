@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: setting.situ
+# schema: setting_record.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -21,20 +21,30 @@ target buffer
 enum fzn_setting_rank : u8 unknown=error
   host=0 admin=1 root=2
 
-enum fzn_setting_scope : u8 unknown=error
+enum fzn_setting_scope_kind : u8 unknown=error
   host=1 group=2 estate=3
 
-struct fzn_setting size=145..464
+struct fzn_setting size=144..464
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         object  must_eq=147
   @0x0002   32        u8         setter  big
-  @0x0022   1         fzn_setting_scope scope
+  @0x0022   1         fzn_setting_scope_kind scope
   @0x0023   32        u8         about  big
   @0x0043   8         u64        version_no  big
   @0x004b   1         u8         key_len  min=1 max=64
-  @0x004c   1..64     u8         key  sized-by=key_len
+  @0x004c   1..64     u8         key  sized-by=key_len chars="\x2D-9_a-z"
   ~         1         u8         op  max=1
   ~         2         u16        value_len  big max=256
-  ~         0..256    u8         value  sized-by=value_len
-  ~         1         fzn_setting_rank rank
-  ~         64        u8         signature  big
+  ~         0..256    u8         value  sized-by=value_len chars="\x20-~"
+  ~         64..65    variant    tail
+  tail switch: remaining
+  tail case 65: ranked fzn_setting_ranked
+  tail case default: unranked fzn_setting_unranked
+  fzn_setting refuses: clear_with_value when fzn_setting.op == 0 && fzn_setting.value_len != 0
+
+struct fzn_setting_ranked size=65
+  @0x0000   1         fzn_setting_rank rank
+  @0x0001   64        u8         signature  big
+
+struct fzn_setting_unranked size=64
+  @0x0000   64        u8         signature  big

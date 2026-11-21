@@ -3,6 +3,7 @@
 #include "setting.h"
 
 #include "../wire/bytes.h"
+#include "../wire/generated/setting_record.h"
 
 #include <string.h>
 
@@ -135,45 +136,42 @@ fzn_setting_err_t fzn_setting_issue_ranked(const uint8_t setter[FZN_PUBKEY_LEN],
 fzn_setting_err_t fzn_setting_open(const uint8_t *bytes, size_t len, const fzn_sign_ops_t *sign,
                                    fzn_setting_t *out)
 {
-	size_t at, key_len, value_len;
+	situ_msg_t m;
+	situ_view_t v, arm;
+	uint32_t need = 0;
 	int ranked;
 
 	if (!bytes || !sign || !sign->verify || !out)
 		return FZN_SETTING_ERR_MALFORMED;
-	if (len < FZN_SETTING_MIN || len > FZN_SETTING_MAX || bytes[0] != (uint8_t)FZN_SIGNED_VERSION
-	    || bytes[1] != (uint8_t)FZN_OBJECT_SETTING)
+	/* READ AS THE SCHEMA SAYS (sec 1342): `state/setting_record.situ`'s
+	 * generated code checks the version and object, the key's and value's
+	 * letters and bounds, that a clear carries no value, and that THE
+	 * LENGTHS ACCOUNT FOR EVERY BYTE -- the two shapes, with the rank its
+	 * setter states (sec 728) or without, being the arms of `tail` the
+	 * length selects. The rank is signed with the rest. */
+	if (len < FZN_SETTING_MIN || len > FZN_SETTING_MAX
+	    || fzn_setting_record_fzn_setting_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len)
 		return FZN_SETTING_ERR_SHAPE;
-	key_len = bytes[FZN_SETTING_OFF_KEY_LEN];
-	at = FZN_SETTING_OFF_KEY + key_len;
-	/* THE LENGTHS ACCOUNT FOR EVERY BYTE: key, op, value length, value and
-	 * signature, and nothing after. */
-	if (!fzn_setting_key_ok(bytes + FZN_SETTING_OFF_KEY, key_len)
-	    || len < at + 3u + (size_t)FZN_SIG_LEN || bytes[at] > 1u)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_setting_record_fzn_setting_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_setting_record_fzn_setting_validate(v) != SITU_OK)
 		return FZN_SETTING_ERR_SHAPE;
-	value_len = fzn_get_be16(bytes + at + 1u);
-	/* TWO SHAPES, told by their length: the value then the signature, or
-	 * the value, the rank its setter states, then the signature (sec 728).
-	 * The rank is signed with the rest. */
-	ranked = len == at + 3u + value_len + 1u + (size_t)FZN_SIG_LEN;
-	if ((!ranked && len != at + 3u + value_len + (size_t)FZN_SIG_LEN)
-	    || (bytes[at] == 0u && value_len) || !value_ok(bytes + at + 3u, value_len)
-	    || (ranked && bytes[at + 3u + value_len] >= FZN_SETTING_RANKS))
-		return FZN_SETTING_ERR_SHAPE;
-	if (!scope_served((fzn_scope_t)bytes[FZN_SETTING_OFF_SCOPE]))
+	ranked = fzn_setting_record_fzn_setting_tail_ranked_view(v, &arm) == SITU_OK;
+	if (!scope_served((fzn_scope_t)fzn_setting_record_fzn_setting_scope_get(v)))
 		return FZN_SETTING_ERR_SCOPE;
-	if (!sign->verify(sign->ctx, bytes + FZN_SETTING_OFF_SETTER, bytes,
+	if (!sign->verify(sign->ctx, fzn_setting_record_fzn_setting_setter_ptr(v), bytes,
 	                  len - (size_t)FZN_SIG_LEN, bytes + len - (size_t)FZN_SIG_LEN))
 		return FZN_SETTING_ERR_SIGNATURE;
-	out->setter = bytes + FZN_SETTING_OFF_SETTER;
-	out->scope = (fzn_scope_t)bytes[FZN_SETTING_OFF_SCOPE];
-	out->about = bytes + FZN_SETTING_OFF_ABOUT;
-	out->version = fzn_get_be64(bytes + FZN_SETTING_OFF_VERSION);
-	out->key = bytes + FZN_SETTING_OFF_KEY;
-	out->key_len = key_len;
-	out->set = bytes[at];
-	out->value = bytes + at + 3u;
-	out->value_len = value_len;
-	out->rank = ranked ? (int)bytes[at + 3u + value_len] : -1;
+	out->setter = fzn_setting_record_fzn_setting_setter_ptr(v);
+	out->scope = (fzn_scope_t)fzn_setting_record_fzn_setting_scope_get(v);
+	out->about = fzn_setting_record_fzn_setting_about_ptr(v);
+	out->version = fzn_setting_record_fzn_setting_version_no_get(v);
+	out->key = fzn_setting_record_fzn_setting_key_ptr(v);
+	out->key_len = fzn_setting_record_fzn_setting_key_len_get(v);
+	out->set = fzn_setting_record_fzn_setting_op_get(v);
+	out->value = fzn_setting_record_fzn_setting_value_ptr(v);
+	out->value_len = fzn_setting_record_fzn_setting_value_len_get(v);
+	out->rank = ranked ? (int)fzn_setting_record_fzn_setting_ranked_rank_get(arm) : -1;
 	return FZN_SETTING_OK;
 }
 

@@ -1,5 +1,5 @@
 # situ capability map v1
-# schema: setting.situ
+# schema: setting_record.situ
 # core:   offset size align repr atomic
 #
 # Core axes are always shown. Any other axis appears only where it has
@@ -11,7 +11,7 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct fzn_setting size=145..464 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+struct fzn_setting size=144..464 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   fzn_setting.version                    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_setting.object                     offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   fzn_setting.setter                     offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
@@ -23,5 +23,16 @@ struct fzn_setting size=145..464 mutate=Shifting address=Unstable repr=ValueConv
   fzn_setting.op                         offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
   fzn_setting.value_len                  offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
   fzn_setting.value                      offset=Dynamic size=Bounded(0, 256) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
-  fzn_setting.rank                       offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
-  fzn_setting.signature                  offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+  fzn_setting.tail                       offset=Dynamic size=Bounded(64, 65) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Shifting address=Unstable
+  fzn_setting.tail.ranked                offset=Dynamic size=Fixed(65) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+  fzn_setting.tail.ranked.rank           offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord address=FrameStable
+  fzn_setting.tail.ranked.signature      offset=FrameStatic(0x01) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic address=FrameStable
+  fzn_setting.tail.unranked              offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+  fzn_setting.tail.unranked.signature    offset=FrameStatic(0x00) size=Fixed(64) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic address=FrameStable
+
+struct fzn_setting_ranked size=65 atomic=NonAtomic
+  fzn_setting_ranked.rank                offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_setting_ranked.signature           offset=AbsoluteStatic(0x01) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_setting_unranked size=64 atomic=NonAtomic
+  fzn_setting_unranked.signature         offset=AbsoluteStatic(0x00) size=Fixed(64) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

@@ -246,7 +246,8 @@ GEN_SRCS  := wire/generated/frame.c wire/generated/frame_relate.c \
              wire/generated/settings_registry.c wire/generated/verify_memo_record.c \
              wire/generated/contact_card_record.c wire/generated/routing_record.c \
              wire/generated/fix_row.c wire/generated/opjournal_row.c \
-             wire/generated/contact_request_record.c wire/generated/prekey_record.c wire/generated/situ.c
+             wire/generated/contact_request_record.c wire/generated/prekey_record.c \
+             wire/generated/setting_record.c wire/generated/situ.c
 GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 # TESTS SITUC GENERATES, sec 1068: built by their own rule, not TEST_SRCS, whose
 # checks hold hand-written tests to this tree's conventions.
@@ -264,7 +265,7 @@ GEN_TEST_SRCS := wire/generated/call_vectors.c wire/generated/status_vectors.c \
                  wire/generated/verify_memo_record_vectors.c wire/generated/contact_card_record_vectors.c \
                  wire/generated/routing_record_vectors.c wire/generated/fix_row_vectors.c \
                  wire/generated/opjournal_row_vectors.c wire/generated/contact_request_record_vectors.c \
-                 wire/generated/prekey_record_vectors.c
+                 wire/generated/prekey_record_vectors.c wire/generated/setting_record_vectors.c
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
@@ -743,6 +744,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/wire/test/opjournal_row_vectors \
              $(BUILD_DIR)/wire/test/contact_request_record_vectors \
              $(BUILD_DIR)/wire/test/prekey_record_vectors \
+             $(BUILD_DIR)/wire/test/setting_record_vectors \
              $(BUILD_DIR)/node/test/settings_registry_test \
              $(BUILD_DIR)/wire/test/settings_local_vectors \
              $(BUILD_DIR)/wire/test/notes_local_vectors \
@@ -2532,7 +2534,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                    $(BUILD_DIR)/record/record.o \
                                    $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
@@ -2659,7 +2661,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                    $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                                    $(BUILD_DIR)/chain/manifest.o \
@@ -2698,14 +2700,14 @@ $(BUILD_DIR)/state/test/scope_test: $(BUILD_DIR)/state/test/scope_test.o \
 # A setting as another host of the estate signs it, both shapes, sec 808's
 # fuzzing bar for journey 1.
 $(BUILD_DIR)/state/test/setting_fuzz: $(BUILD_DIR)/state/test/setting_fuzz.o \
-                                      $(BUILD_DIR)/state/setting.o \
+                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                       $(BUILD_DIR)/state/scope.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 # A setting as a signed object, sec 540, under a stub hash and signature.
 $(BUILD_DIR)/state/test/setting_test: $(BUILD_DIR)/state/test/setting_test.o \
-                                      $(BUILD_DIR)/state/setting.o \
+                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/wire/generated/situ.o \
                                       $(BUILD_DIR)/state/scope.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -4082,7 +4084,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/contact/contact.o \
                                      $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                      $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                     $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                     $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                      $(BUILD_DIR)/session/box.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/chain/manifest.o \
@@ -4646,6 +4648,13 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
 
+# A SETTING, its two shapes the arms its length selects, generated, sec 1342.
+$(BUILD_DIR)/wire/test/setting_record_vectors: wire/generated/setting_record_vectors.c \
+                                              wire/generated/setting_record.c wire/generated/situ.c \
+                                              $(wildcard wire/generated/*.h)
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
+
 # A PREKEY, written through the edit layer, generated, sec 1340.
 $(BUILD_DIR)/wire/test/prekey_record_vectors: wire/generated/prekey_record_vectors.c \
                                              wire/generated/prekey_record.c wire/generated/situ.c \
@@ -4845,7 +4854,7 @@ $(BUILD_DIR)/node/test/identity_test: $(BUILD_DIR)/node/test/identity_test.o \
 # 4, reachability.
 $(BUILD_DIR)/node/test/reachability_fuzz: $(BUILD_DIR)/node/test/reachability_fuzz.o \
                                           $(BUILD_DIR)/node/routing.o $(BUILD_DIR)/node/clocks.o \
-                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                           $(BUILD_DIR)/record/record.o $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/wire/generated/prekey_record.o \
                                           $(BUILD_DIR)/chain/sign_monocypher.o \
                                           $(BUILD_DIR)/session/hash_monocypher.o \
@@ -4868,7 +4877,7 @@ $(BUILD_DIR)/node/test/location_fuzz: $(BUILD_DIR)/node/test/location_fuzz.o \
 # A contact's estate from a lying host or member: its root's records, its
 # estate items, the rows members pass on and a key's act log (secs 776-783).
 $(BUILD_DIR)/node/test/estate_fuzz: $(BUILD_DIR)/node/test/estate_fuzz.o \
-                                    $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                    $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                     $(BUILD_DIR)/record/record.o \
                                     $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
@@ -4881,7 +4890,7 @@ $(BUILD_DIR)/node/test/routing_test: $(BUILD_DIR)/node/test/routing_test.o \
 
 # A contact's devices, sec 614.
 $(BUILD_DIR)/node/test/contact_devices_test: $(BUILD_DIR)/node/test/contact_devices_test.o \
-                                             $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                             $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                              $(BUILD_DIR)/record/record.o \
                                              $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
@@ -4890,7 +4899,7 @@ $(BUILD_DIR)/node/test/contact_devices_test: $(BUILD_DIR)/node/test/contact_devi
 # A contact card, sec 617.
 $(BUILD_DIR)/node/test/contact_card_test: $(BUILD_DIR)/node/test/contact_card_test.o \
                                           $(BUILD_DIR)/node/contact_card.o \
-                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                           $(BUILD_DIR)/record/record.o \
                                           $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
@@ -4900,7 +4909,7 @@ $(BUILD_DIR)/node/test/contact_card_test: $(BUILD_DIR)/node/test/contact_card_te
 $(BUILD_DIR)/node/test/card_fuzz: $(BUILD_DIR)/node/test/card_fuzz.o \
                                   $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o \
                                   $(BUILD_DIR)/node/contact_card.o \
-                                  $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                  $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/record/record.o \
                                   $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
@@ -4910,7 +4919,7 @@ $(BUILD_DIR)/node/test/card_fuzz: $(BUILD_DIR)/node/test/card_fuzz.o \
 $(BUILD_DIR)/node/test/contact_request_test: $(BUILD_DIR)/node/test/contact_request_test.o \
                                              $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o \
                                              $(BUILD_DIR)/node/contact_card.o \
-                                             $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                             $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                              $(BUILD_DIR)/record/record.o \
                                              $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
@@ -4920,7 +4929,7 @@ $(BUILD_DIR)/node/test/contact_request_test: $(BUILD_DIR)/node/test/contact_requ
 $(BUILD_DIR)/node/test/group_log_test: $(BUILD_DIR)/node/test/group_log_test.o \
                                        $(BUILD_DIR)/node/group_log.o \
                                        $(BUILD_DIR)/node/group_act.o \
-                                       $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                       $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                        $(BUILD_DIR)/record/record.o \
                                        $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
@@ -4933,7 +4942,7 @@ $(BUILD_DIR)/node/test/groups_test: $(BUILD_DIR)/node/test/groups_test.o \
                                     $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/wire/generated/status.o \
                                     $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                     $(BUILD_DIR)/node/group_act.o \
-                                    $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                    $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                     $(BUILD_DIR)/record/record.o \
                                     $(BUILD_DIR)/contact/contact.o $(BUILD_DIR)/session/box.o \
                                     $(BUILD_DIR)/session/agree_monocypher.o \
@@ -4949,7 +4958,7 @@ $(BUILD_DIR)/node/test/group_fuzz: $(BUILD_DIR)/node/test/group_fuzz.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                    $(BUILD_DIR)/node/group_act.o \
-                                   $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                   $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                    $(BUILD_DIR)/record/record.o \
                                    $(BUILD_DIR)/contact/contact.o $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/session/agree_monocypher.o \
@@ -5123,7 +5132,7 @@ $(BUILD_DIR)/node/test/pair_test.o: node/test/pair_test.c
 
 $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o \
@@ -5139,7 +5148,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/record/record.o \
               $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
-              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
+              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
               $(BUILD_DIR)/node/members.o \
@@ -5181,7 +5190,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o $(BUILD_DIR)/local/client.o \
               $(BUILD_DIR)/node/contacts_binary.o $(BUILD_DIR)/wire/generated/contacts_local.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
-              $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
@@ -5192,7 +5201,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/record/record.o \
               $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
-              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
+              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
               $(BUILD_DIR)/node/members.o \
@@ -5271,7 +5280,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o \
                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
@@ -5294,7 +5303,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
 # reconcile_test (sec 551), which applies objects through the same context.
 NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DIR)/node/holdings.o \
                    $(BUILD_DIR)/node/buckets.o \
-                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
                    $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/wire/status_message.o \
@@ -5310,7 +5319,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/record/record.o \
                    $(BUILD_DIR)/log/retain.o \
                    $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
-              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
+              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
                    $(BUILD_DIR)/node/members.o \
@@ -5365,7 +5374,7 @@ $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o \
                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
@@ -5391,7 +5400,7 @@ $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
+                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/wire/generated/group_act_record.o $(BUILD_DIR)/wire/generated/group_line_wire.o $(BUILD_DIR)/wire/generated/contact_card_record.o $(BUILD_DIR)/wire/generated/routing_record.o $(BUILD_DIR)/wire/generated/fix_row.o $(BUILD_DIR)/wire/generated/opjournal_row.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o \
                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
@@ -5441,7 +5450,7 @@ $(BUILD_DIR)/node/test/records_test: $(BUILD_DIR)/node/test/records_test.o \
                                      $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/node/rate.o \
                                      $(BUILD_DIR)/node/buckets.o \
-                                     $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                                     $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \
                                      $(BUILD_DIR)/log/capture.o \
@@ -5484,7 +5493,7 @@ $(BUILD_DIR)/node/test/decisions_test: $(BUILD_DIR)/node/test/decisions_test.o \
                                      $(BUILD_DIR)/wire/generated/settings_local.o $(BUILD_DIR)/wire/status_message.o \
                                      $(BUILD_DIR)/wire/generated/status.o $(BUILD_DIR)/wire/generated/situ.o \
                                      $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o \
-                                     $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                                     $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \
                                      $(BUILD_DIR)/log/capture.o \
@@ -5497,7 +5506,7 @@ $(BUILD_DIR)/node/test/decisions_test: $(BUILD_DIR)/node/test/decisions_test.o \
 $(BUILD_DIR)/node/test/votes_test: $(BUILD_DIR)/node/test/votes_test.o \
                                      $(BUILD_DIR)/node/votes.o \
                                      $(BUILD_DIR)/node/records.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/node/buckets.o \
-                                     $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                                     $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/state/scope.o \
                                      $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/entry.o \
                                      $(BUILD_DIR)/log/capture.o \
@@ -5600,7 +5609,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/node/reconcile.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/messages_binary.o $(BUILD_DIR)/node/contacts_binary.o \
               $(BUILD_DIR)/node/groups_binary.o \
               $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o $(BUILD_DIR)/messages/reply.o $(BUILD_DIR)/node/search.o $(BUILD_DIR)/search/search.o $(BUILD_DIR)/search/remote.o $(BUILD_DIR)/node/offer.o \
@@ -5619,7 +5628,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/device/device.o \
                 $(BUILD_DIR)/node/log_buckets.o $(BUILD_DIR)/node/pieces.o \
                 $(BUILD_DIR)/node/piece_buckets.o $(BUILD_DIR)/chunk/erasure.o) \
               $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/wire/generated/heard_row.o $(BUILD_DIR)/node/routing.o \
-              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
+              $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
               $(BUILD_DIR)/local/client.o $(BUILD_DIR)/claim/claim.o \
@@ -5897,14 +5906,14 @@ $(BUILD_DIR)/node/test/clocks_test: $(BUILD_DIR)/node/test/clocks_test.o $(BUILD
 $(BUILD_DIR)/node/test/settings_registry_test: $(BUILD_DIR)/node/test/settings_registry_test.o \
                                     $(BUILD_DIR)/wire/generated/settings_registry.o $(BUILD_DIR)/wire/generated/situ.o \
                                     $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o \
-                                    $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                                    $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o \
                                     $(BUILD_DIR)/local/escape.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(BUILD_DIR)/node/test/schema_test: $(BUILD_DIR)/node/test/schema_test.o \
                                     $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o \
-                                    $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                                    $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/wire/generated/situ.o $(BUILD_DIR)/state/scope.o \
                                     $(BUILD_DIR)/local/escape.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -5992,10 +6001,10 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                         $(BUILD_DIR)/log/copy.o \
                                         $(BUILD_DIR)/node/pieces.o) \
                                       $(BUILD_DIR)/state/scope.o \
-                                      $(BUILD_DIR)/state/setting.o \
+                                      $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o \
                                       $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/rate.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/node/permit.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/wire/generated/heard_row.o $(BUILD_DIR)/node/routing.o \
-                                      $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
+                                      $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/wire/generated/setting_record.o $(BUILD_DIR)/state/scope.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/wire/generated/contact_request_record.o $(BUILD_DIR)/wire/generated/prekey_record.o $(BUILD_DIR)/node/group_act.o \
               $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/streams.o \
               $(BUILD_DIR)/node/catalog.o \
@@ -7718,7 +7727,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ node/call.situ wire/status.situ node/address.situ \
               record/exchange.situ \
               wire/session_frame_wire.situ node/verify_memo_record.situ notes/sync.situ notes/note.situ node/opjournal_row.situ messages/line.situ \
-              messages/keys.situ messages/deliver.situ state/setting.situ \
+              messages/keys.situ messages/deliver.situ state/setting_record.situ \
               node/reconcile.situ node/buckets.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
               node/heard_row.situ node/routing_record.situ node/contact_devices.situ \
@@ -8482,6 +8491,10 @@ schema:
 	         --out $(BUILD_DIR)/.gen.new node/search_local.situ node/search_local.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_setting_record --layer edit \
+	         --out $(BUILD_DIR)/.gen.new state/setting_record.situ >/dev/null 2>&1
+	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_setting_record \
+	         --out $(BUILD_DIR)/.gen.new state/setting_record.situ state/setting_record.vectors >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_prekey_record --layer edit \
 	         --out $(BUILD_DIR)/.gen.new prekey/prekey_record.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_prekey_record \
@@ -8594,6 +8607,7 @@ schema:
 	          contact_request_record.c contact_request_record.h contact_request_record_build.h \
 	          contact_request_record_edit.h contact_request_record_vectors.c \
 	          prekey_record.c prekey_record.h prekey_record_vectors.c \
+	          setting_record.c setting_record.h setting_record_build.h setting_record_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

@@ -1,6 +1,7 @@
-// A setting, one cell of the estate's configuration, as a situ schema: the
-// hand-written codec is state/setting.c, and this is its checked contract.
-// project.md sec 540.
+// A setting, one cell of the estate's configuration, as a situ schema:
+// state/setting.c builds and reads it through the code situ generates from
+// this (sec 1342); `_record`, so the generated file's name meets no
+// source's. project.md sec 540.
 //
 // A signed object, tag 147, carried as a record of its setter's estate
 // stream. Its setter states the rank it writes at -- root, admin, the host
@@ -9,8 +10,8 @@
 // waits until it can (node/apply.c), so a setter can claim nothing it does
 // not hold, and writer and reader agree on a setting's rank. Before sec 728
 // it stated none and was ranked by what its receiver knew on arrival; that
-// shape is a byte shorter, with no `rank`, and state/setting.c still opens
-// it.
+// shape is a byte shorter, with no `rank`, and still opens: the two are the
+// arms of `tail`, which the setting's length selects (situ 26.1125).
 
 target buffer;
 endian big;
@@ -21,24 +22,42 @@ enum fzn_setting_rank : u8 {
 	root  = 2,
 }
 
-enum fzn_setting_scope : u8 {
+enum fzn_setting_scope_kind : u8 {
 	host   = 1,	// about one host: `about` is its key
 	group  = 2,	// about a group of hosts: `about` its id, sec 868
 	estate = 3,	// about the estate: `about` is its root
+}
+
+// The rank its setter states, then the signature over all before it.
+struct fzn_setting_ranked {
+	fzn_setting_rank   rank;                         // as its setter writes, sec 728
+	u8                 signature[64];
+}
+
+// Before sec 728: the signature alone.
+struct fzn_setting_unranked {
+	u8                 signature[64];
 }
 
 struct fzn_setting {
 	u8                 version [must_eq = 1];        //  0
 	u8                 object [must_eq = 147];       //  1 FZN_OBJECT_SETTING
 	u8                 setter[32];                   //  2 who signed it
-	fzn_setting_scope  scope;                        // 34
+	fzn_setting_scope_kind scope;                   // 34
 	u8                 about[32];                    // 35 the host's key, or the estate's root
 	u64                version_no;                   // 67 a cell's versions rise
 	u8                 key_len [min = 1, max = 64];  // 75
-	u8                 key[key_len];                 // 76 a-z 0-9 . _ / -
+	u8                 key[key_len] [chars = "a-z0-9._/-"];  // 76
 	u8                 op [max = 1];                 //    1 sets the value below, 0 clears
 	u16                value_len [max = 256];        //    0 for a clear
-	u8                 value[value_len];             //    printable ASCII
-	fzn_setting_rank   rank;                         //    as its setter writes, sec 728
-	u8                 signature[64];                //    the setter's, over all before it
+	u8                 value[value_len] [chars = " -~"];     // printable ASCII
+	variant tail switch (remaining) {
+		case 65: fzn_setting_ranked   ranked;
+		default: fzn_setting_unranked unranked;
+	}
 }
+
+// A CLEAR CARRIES NO VALUE, so one clearing has one encoding.
+when fzn_setting.op == 0 && fzn_setting.value_len != 0
+	refuse clear_with_value
+	"a setting that clears its cell carries a value";
