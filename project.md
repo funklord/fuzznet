@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1364
+The newest work is at the end of this file. **Read secs 1287 to 1365
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95737,3 +95737,23 @@ confirmation); revocation_test (719), chain_test (314), admin_test (377),
 authz_test (40), revocation_fuzz and chain_store_fuzz (20000 cases each).
 Sabotage `revocation-a-withdrawal-draws-no-line` retargeted onto
 `validate`, `revocation-encoder-refuses-what-it-cannot-open` new.
+
+## 1365. A revocation manifest opened and written through situ's code, 2026-11-21
+
+The nineteenth of the 40 layouts: `chain/manifest.situ` is
+`chain/manifest_record.situ`, and a pair's state is `[max = 1]` --
+REVOKED 0 or WITHDRAWN 1, which only the codec checked. `fzn_manifest_open`
+reads through `required` (exactly its length), the view and `validate`
+(version, object, the count's bound before any length is computed from
+it, each state one of the two); **strict ascending order stays the
+codec's**, the object's canonicality check, compared on the key.
+`fzn_manifest_encode` writes through the edit layer -- the count first,
+which lays out the pairs, then each pair through `pairs_at`, then the
+header, the signature zeroed for the signer -- and refuses what does not
+validate, so it cannot write a state its parser refuses. A pair's state
+setter takes no message: a pair alone has no signature to mark stale.
+
+**Tests:** manifest_record_vectors (2: two pairs, none); manifest_test
+(543), chain_test (314), revocation_test (719), manifest_fuzz (20000
+cases). Sabotage `manifest-state-byte-validated` retargeted onto
+`validate`, `manifest-encoder-refuses-a-third-state` new.

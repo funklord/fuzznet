@@ -1,5 +1,5 @@
 # situ wire signature v3
-# schema: manifest.situ
+# schema: manifest_record.situ
 #
 # What the bytes mean, and nothing about what they cost. Committed and
 # checked so that a change here is a change somebody reviews.
@@ -31,4 +31,4 @@ struct fzn_manifest_pair size=97
   @0x0000   32        u8         capability  big
   @0x0020   32        u8         grantee  big
   @0x0040   32        u8         id  big
-  @0x0060   1         u8         state
+  @0x0060   1         u8         state  max=1

@@ -2310,11 +2310,16 @@ SABOTAGES = [
 	(
 		"manifest-state-byte-validated",
 		"chain/manifest.c",
-		"\t\tif (state != (uint8_t)FZN_MANIFEST_REVOKED &&\n"
-		"\t\t    state != (uint8_t)FZN_MANIFEST_WITHDRAWN)\n"
-		"\t\t\treturn FZN_MANIFEST_ERR_SHAPE;\n",
-		"",
+		"\t    || fzn_manifest_record_fzn_manifest_validate(v) != SITU_OK)\n\t\treturn FZN_MANIFEST_ERR_SHAPE;",
+		")\n\t\treturn FZN_MANIFEST_ERR_SHAPE;",
 		"a third state value is refused, which is what the accessor's complement rests on",
+	),
+	(
+		"manifest-encoder-refuses-a-third-state",
+		"chain/manifest.c",
+		"\tif (fzn_manifest_record_fzn_manifest_validate(v) != SITU_OK) {\n",
+		"\tif (0) {\n",
+		"the encoder writes a pair in a state this file does not define, bytes its own parser refuses -- sec 1365",
 	),
 	(
 		"manifest-orders-on-the-key",

@@ -15,6 +15,8 @@
 #define MANIFEST_LOG(st, sub, sev, ...) ((void)0)
 #endif
 
+#include "../wire/generated/manifest_record.h"
+
 #include <string.h>
 
 /* Order two 64-byte pairs.
@@ -174,67 +176,45 @@ _Static_assert(FZN_MANIFEST_KEY_LEN < FZN_MANIFEST_PAIR_LEN,
 fzn_manifest_err_t fzn_manifest_open(const uint8_t *bytes, size_t len,
                                      fzn_manifest_record_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
 	size_t count;
 
 	if (!bytes || !out)
 		return FZN_MANIFEST_ERR_MALFORMED;
 
 	/* The header and the signature must both be there before the count can
-	 * be read at all, which is why this is a floor rather than the exact
-	 * test below: the exact test needs a count, and the count is inside
-	 * the bytes this is checking for. */
-	if (len < FZN_MANIFEST_MIN_LEN)
+	 * be read at all. */
+	if (len < FZN_MANIFEST_MIN_LEN || len > UINT32_MAX)
 		return FZN_MANIFEST_ERR_SHAPE;
 
-	if (bytes[FZN_MANIFEST_OFF_VERSION] != FZN_SIGNED_VERSION)
+	/* READ AS THE SCHEMA SAYS, sec 1365: `chain/manifest_record.situ`'s
+	 * generated code refuses a version not 1 and an object byte not a
+	 * manifest's -- THE DOMAIN SEPARATION EARNING ITS PLACE: a one-pair
+	 * manifest is 164 bytes and so is a record with an 8-byte body, signed by
+	 * the same key through the same seam -- a count past
+	 * FZN_MANIFEST_MAX_PAIRS before any length is computed from it, AND
+	 * EVERY STATE BYTE ONE OF THE TWO (a third read as either would be a
+	 * second encoding), and the length EXACT, not a minimum: "ignore what
+	 * you do not understand" is how one encoding becomes several. */
+	if (fzn_manifest_record_fzn_manifest_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len)
 		return FZN_MANIFEST_ERR_SHAPE;
-	/* THE DOMAIN SEPARATION EARNING ITS PLACE, and this object is the one
-	 * that makes wire/bytes.h's argument concrete rather than cautionary:
-	 * a one-pair manifest is 164 bytes and so is a record with an 8-byte
-	 * body, signed by the same key through the same seam. */
-	if (bytes[FZN_MANIFEST_OFF_OBJECT] != (uint8_t)FZN_OBJECT_MANIFEST)
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_manifest_record_fzn_manifest_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_manifest_record_fzn_manifest_validate(v) != SITU_OK)
 		return FZN_MANIFEST_ERR_SHAPE;
+	count = fzn_manifest_record_fzn_manifest_count_get(v);
 
-	count = (size_t)fzn_get_be16(bytes + FZN_MANIFEST_OFF_COUNT);
-
-	/* Refused before the length is computed from it, so the arithmetic
-	 * below cannot be made to overflow by a count a stranger chose. */
-	if (count > FZN_MANIFEST_MAX_PAIRS)
-		return FZN_MANIFEST_ERR_SHAPE;
-
-	/* Exact, not a minimum: trailing bytes are a refusal rather than
-	 * something to ignore, because "ignore what you do not understand" is
-	 * how one encoding becomes several. */
-	if (len != FZN_MANIFEST_LEN(count))
-		return FZN_MANIFEST_ERR_SHAPE;
-
-	/* STRICTLY ASCENDING, which is this object's canonicality check and
-	 * carries three properties at once -- manifest.h states them. A
+	/* STRICTLY ASCENDING, the codec's still: this object's canonicality
+	 * check, carrying three properties at once -- manifest.h states them. A
 	 * non-positive comparison covers both halves: equal is a duplicate, and
-	 * negative is out of order.
-	 *
-	 * ON THE KEY AND NOT THE ENTRY, so a duplicate is a pair named twice
-	 * whatever the issuer said about it either time. */
+	 * negative is out of order. ON THE KEY AND NOT THE ENTRY, so a duplicate
+	 * is a pair named twice whatever the issuer said about it either time. */
 	for (size_t i = 1; i < count; i++) {
-		const uint8_t *prev = bytes + FZN_MANIFEST_OFF_PAIRS +
-		                      FZN_MANIFEST_PAIR_LEN * (i - 1u);
+		const uint8_t *prev = bytes + FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN * (i - 1u);
 
 		if (pair_cmp(prev, prev + FZN_MANIFEST_PAIR_LEN) >= 0)
-			return FZN_MANIFEST_ERR_SHAPE;
-	}
-
-	/* AND EVERY STATE BYTE IS ONE OF THE TWO. A third value is refused
-	 * rather than read as either: the same rule this function applies to
-	 * trailing bytes, and for the same reason -- a decoder that ignores
-	 * what it does not understand is a second encoding waiting to be
-	 * found by somebody else's. It also means a reader may test one value
-	 * and trust the complement, which is what the accessor does. */
-	for (size_t i = 0; i < count; i++) {
-		uint8_t state = bytes[FZN_MANIFEST_OFF_PAIRS + FZN_MANIFEST_PAIR_LEN * i +
-		                      FZN_MANIFEST_OFF_ENTRY_STATE];
-
-		if (state != (uint8_t)FZN_MANIFEST_REVOKED &&
-		    state != (uint8_t)FZN_MANIFEST_WITHDRAWN)
 			return FZN_MANIFEST_ERR_SHAPE;
 	}
 
@@ -248,51 +228,55 @@ fzn_manifest_err_t fzn_manifest_encode(uint8_t *out, size_t out_cap,
                                        const fzn_manifest_entry_t *entries, size_t count,
                                        size_t *out_len)
 {
-	uint8_t *at;
+	situ_msg_t m;
+	situ_view_t v, pv;
+	size_t len;
 
 	if (!out || !issuer || !out_len || (count > 0 && !entries))
 		return FZN_MANIFEST_ERR_MALFORMED;
 
 	if (count > FZN_MANIFEST_MAX_PAIRS)
 		return FZN_MANIFEST_ERR_SHAPE;
-	if (out_cap < FZN_MANIFEST_LEN(count))
+	len = FZN_MANIFEST_LEN(count);
+	if (out_cap < len)
 		return FZN_MANIFEST_ERR_MALFORMED;
 
-	/* A STATE THIS FILE DOES NOT DEFINE IS REFUSED HERE TOO, on the same
-	 * argument as the ordering below: an encoder able to emit bytes its
-	 * own parser rejects is a second encoding waiting to be found. */
-	for (size_t i = 0; i < count; i++) {
-		if (entries[i].state != (uint8_t)FZN_MANIFEST_REVOKED &&
-		    entries[i].state != (uint8_t)FZN_MANIFEST_WITHDRAWN)
-			return FZN_MANIFEST_ERR_SHAPE;
-	}
-
 	/* THE ENCODER REFUSES WHAT THE PARSER WOULD. An encoder that can emit
-	 * bytes its own `open` rejects is a second encoding waiting to be
-	 * found by somebody else's decoder -- and here it would also be a
-	 * manifest that no receiver can admit, produced without complaint. */
+	 * bytes its own `open` rejects is a second encoding waiting to be found
+	 * by somebody else's decoder -- and here it would also be a manifest no
+	 * receiver can admit, produced without complaint. The order is the
+	 * codec's to check; a state this file does not define, the schema's. */
 	for (size_t i = 1; i < count; i++) {
 		if (pair_struct_cmp(&entries[i - 1u].pair, &entries[i].pair) >= 0)
 			return FZN_MANIFEST_ERR_SHAPE;
 	}
 
-	out[FZN_MANIFEST_OFF_VERSION] = (uint8_t)FZN_SIGNED_VERSION;
-	out[FZN_MANIFEST_OFF_OBJECT] = (uint8_t)FZN_OBJECT_MANIFEST;
-	memcpy(out + FZN_MANIFEST_OFF_ISSUER, issuer, FZN_PUBKEY_LEN);
-	fzn_put_be16(out + FZN_MANIFEST_OFF_COUNT, (uint16_t)count);
-
-	at = out + FZN_MANIFEST_OFF_PAIRS;
+	/* WRITTEN THROUGH situ's EDIT LAYER, sec 1365: the count first, which
+	 * lays the pairs out, then each pair, then the header; the signature
+	 * zeroed for the signer. */
+	memset(out, 0, len);
+	situ_msg_init(&m, out, (uint32_t)len);
+	if (fzn_manifest_record_fzn_manifest_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
+		return FZN_MANIFEST_ERR_MALFORMED;
+	fzn_manifest_record_fzn_manifest_count_set(&m, v, (uint16_t)count);
 	for (size_t i = 0; i < count; i++) {
-		memcpy(at, entries[i].pair.capability.b, FZN_CAP_ID_LEN);
-		memcpy(at + FZN_CAP_ID_LEN, entries[i].pair.grantee, FZN_PUBKEY_LEN);
-		memcpy(at + FZN_MANIFEST_OFF_ENTRY_ID, entries[i].id,
-		       FZN_REVOCATION_ID_LEN);
-		at[FZN_MANIFEST_OFF_ENTRY_STATE] = entries[i].state;
-		at += FZN_MANIFEST_PAIR_LEN;
+		if (fzn_manifest_record_fzn_manifest_pairs_at(v, (uint32_t)i, &pv) != SITU_OK)
+			return FZN_MANIFEST_ERR_MALFORMED;
+		memcpy(fzn_manifest_record_fzn_manifest_pair_capability_ptr(pv), entries[i].pair.capability.b,
+		       FZN_CAP_ID_LEN);
+		memcpy(fzn_manifest_record_fzn_manifest_pair_grantee_ptr(pv), entries[i].pair.grantee, FZN_PUBKEY_LEN);
+		memcpy(fzn_manifest_record_fzn_manifest_pair_id_ptr(pv), entries[i].id, FZN_REVOCATION_ID_LEN);
+		fzn_manifest_record_fzn_manifest_pair_state_set(pv, entries[i].state);
 	}
-	memset(out + FZN_MANIFEST_BODY_LEN(count), 0, FZN_SIG_LEN);
+	memcpy(fzn_manifest_record_fzn_manifest_issuer_ptr(v), issuer, FZN_PUBKEY_LEN);
+	fzn_manifest_record_fzn_manifest_version_set(&m, v, (uint8_t)FZN_SIGNED_VERSION);
+	fzn_manifest_record_fzn_manifest_object_set(&m, v, (uint8_t)FZN_OBJECT_MANIFEST);
+	if (fzn_manifest_record_fzn_manifest_validate(v) != SITU_OK) {
+		memset(out, 0, len);
+		return FZN_MANIFEST_ERR_SHAPE;
+	}
 
-	*out_len = FZN_MANIFEST_LEN(count);
+	*out_len = len;
 	return FZN_MANIFEST_OK;
 }
 
