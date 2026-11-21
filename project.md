@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1340
+The newest work is at the end of this file. **Read secs 1287 to 1341
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95108,3 +95108,42 @@ has -- most of the remaining thirty.
 (20000 cases), identity_test (50) and provision_test (179) over the
 generated code. Sabotage `prekey-open-unvalidated`,
 `prekey-open-exact-length`, `prekey-signs-what-situ-covers`.
+
+## 1341. situ's answers of 2026-11-21: reply matching after the tag, a length-selected arm, holds a tightening, 2026-11-21
+
+situ answered fuzznet's 20261120T2130Z, 2230Z, 2330Z, 20261121T0130Z and
+0400Z in one message (fuzznet inbox 20261121T0144Z), recorded here:
+
+- **The builder counter** (sec 1335) fixed at situ ebe22699; taken in sec
+  1338.
+- **26.1122, a reply matched only after its tag verifies, and by its peer**
+  (fuzznet's scheduler report, sec 1325 items 2 and 5), built at situ
+  637c14c2 in all four backends as fuzznet reviewed it: `relation
+  reply_to(...) [after = sealed, ...]` makes `match`, `peek` and the
+  driver's `on_message` take the sealed region's gate rather than a view;
+  every slot holds a `uint32_t peer` (`_track_from`, `_send_from`,
+  `_on_message_from`, `_peek_from`; the calls without `_from` are peer 0);
+  the event-loop drivers gained a `verify` hook. The two generated frame
+  headers here are regenerated at it -- `frame_drive.h` and
+  `frame_converse.h` gain the `_from` calls, the old ones kept as peer 0
+  -- so nothing here changes behaviour yet. **Adopting it is open work**:
+  `wire/frame.situ`'s `reply_to` gains `[after = sealed]` and
+  `node/asks.c` tracks and matches by the `fzn_caller_t` session as peer.
+- **The optional trailing member** (2230Z, the rank sec 728 added to a
+  signed setting) built at situ fa0cdb19 as 26.1125: a variant the
+  frame's length selects -- `variant tail switch (remaining) { case 65:
+  ranked with_rank; default: unranked without_rank; }`, a `case N` arm
+  exactly N bytes and the variant last. **This unblocks
+  `state/setting.situ`'s move**, which waited on it.
+- **A least length on a delimited run** (2330Z) needs no syntax: `when
+  size(address.host) < 2 refuse empty_host "..."`, the span counting its
+  delimiter.
+- **`holds` gained is now reported as a tightening**, backward-compatible
+  only, not a break (situ 7b198995) -- secs 1334 and 1339's "situ calls it
+  breaking" is no longer so.
+- **An import re-emitting the imported unit's code** (sec 1339) is open in
+  situ's section 0a and is situ's next work: the imported unit's
+  functions called under its own prefix, named at build time.
+
+The generated tree was compared against situ 7b198995 whole: nothing but
+the two frame headers moved.

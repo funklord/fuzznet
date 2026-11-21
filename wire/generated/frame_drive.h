@@ -211,15 +211,20 @@ static inline situ_err_t situ_drive_reply_to_track_by_id(situ_drive_reply_to_t *
  *
  * THE BYTES ARE YOURS AND MUST NOT MOVE until the exchange ends: a
  * retransmission sends them again. Nothing is copied and nothing is
- * allocated. */
-static inline situ_err_t situ_drive_reply_to_track_with(situ_drive_reply_to_t *drive,
+ * allocated.
+ *
+ * `_track_from` holds the request against `peer`, yours to number:
+ * only `_on_message_from` with the same peer ends it (26.1122).
+ */
+static inline situ_err_t situ_drive_reply_to_track_from(situ_drive_reply_to_t *drive,
                                            situ_view_t request,
+                                           uint32_t peer,
                                            const uint8_t *bytes,
                                            uint32_t len, uint32_t id,
                                            uint32_t now_ms,
                                            const situ_drive_reply_to_policy_t *policy)
 {
-	const situ_err_t err = situ_conv_reply_to_record(&drive->pending, request, id);
+	const situ_err_t err = situ_conv_reply_to_record_from(&drive->pending, request, peer, id);
 	if (err != SITU_OK) {
 		return err;
 	}
@@ -230,6 +235,17 @@ static inline situ_err_t situ_drive_reply_to_track_with(situ_drive_reply_to_t *d
 		situ_conv_reply_to_forget(&drive->pending, id);
 	}
 	return held;
+}
+
+static inline situ_err_t situ_drive_reply_to_track_with(situ_drive_reply_to_t *drive,
+                                           situ_view_t request,
+                                           const uint8_t *bytes,
+                                           uint32_t len, uint32_t id,
+                                           uint32_t now_ms,
+                                           const situ_drive_reply_to_policy_t *policy)
+{
+	return situ_drive_reply_to_track_from(drive, request, 0u, bytes, len, id,
+	                          now_ms, policy);
 }
 
 static inline situ_err_t situ_drive_reply_to_track(situ_drive_reply_to_t *drive,
@@ -245,6 +261,24 @@ static inline situ_err_t situ_drive_reply_to_track(situ_drive_reply_to_t *drive,
  * and then the first send -- through the `on_resend` hook where one
  * is set, so a caller that seals every send under the exchange's
  * id seals the first one too (26.1055), and `io.submit` otherwise. */
+static inline situ_err_t situ_drive_reply_to_send_from(situ_drive_reply_to_t *drive,
+                                          situ_view_t request,
+                                          uint32_t peer,
+                                          const uint8_t *bytes,
+                                          uint32_t len, uint32_t id,
+                                          uint32_t now_ms,
+                                          const situ_drive_reply_to_policy_t *policy)
+{
+	const situ_err_t err = situ_drive_reply_to_track_from(drive, request, peer, bytes, len,
+	                                          id, now_ms, policy);
+	if (err != SITU_OK) {
+		return err;
+	}
+	return drive->resend != NULL
+		? drive->resend(drive->io.ctx, id, bytes, len)
+		: drive->io.submit(drive->io.ctx, bytes, len);
+}
+
 static inline situ_err_t situ_drive_reply_to_send_with(situ_drive_reply_to_t *drive,
                                           situ_view_t request,
                                           const uint8_t *bytes,
@@ -252,14 +286,8 @@ static inline situ_err_t situ_drive_reply_to_send_with(situ_drive_reply_to_t *dr
                                           uint32_t now_ms,
                                           const situ_drive_reply_to_policy_t *policy)
 {
-	const situ_err_t err = situ_drive_reply_to_track_with(drive, request, bytes, len, id,
-	                                          now_ms, policy);
-	if (err != SITU_OK) {
-		return err;
-	}
-	return drive->resend != NULL
-		? drive->resend(drive->io.ctx, id, bytes, len)
-		: drive->io.submit(drive->io.ctx, bytes, len);
+	return situ_drive_reply_to_send_from(drive, request, 0u, bytes, len, id,
+	                         now_ms, policy);
 }
 
 static inline situ_err_t situ_drive_reply_to_send(situ_drive_reply_to_t *drive,
@@ -290,12 +318,16 @@ static inline situ_err_t situ_drive_reply_to_end(situ_drive_reply_to_t *drive, u
  * outstanding, SITU_ERR_CONSTRAINT where it does not -- which is a
  * duplicate, a reply to an exchange that timed out, or one nobody
  * opened. The bytes are yours; nothing here holds a view past the
- * call. */
-static inline situ_err_t situ_drive_reply_to_on_message(situ_drive_reply_to_t *drive,
-                                           situ_view_t reply,
-                                           uint32_t *id)
+ * call.
+ *
+ * `_on_message_from`: only an exchange tracked with this `peer`. */
+static inline situ_err_t situ_drive_reply_to_on_message_from(situ_drive_reply_to_t *drive,
+                                                situ_view_t reply,
+                                                uint32_t peer,
+                                                uint32_t *id)
 {
-	const situ_err_t err = situ_conv_reply_to_match(&drive->pending, reply, id);
+	const situ_err_t err = situ_conv_reply_to_match_from(&drive->pending, reply, peer,
+	                                           id);
 	if (err != SITU_OK) {
 		return err;
 	}
@@ -309,8 +341,23 @@ static inline situ_err_t situ_drive_reply_to_on_message(situ_drive_reply_to_t *d
 	return SITU_OK;
 }
 
+static inline situ_err_t situ_drive_reply_to_on_message(situ_drive_reply_to_t *drive,
+                                           situ_view_t reply,
+                                           uint32_t *id)
+{
+	return situ_drive_reply_to_on_message_from(drive, reply, 0u, id);
+}
+
 /* `_on_message` without ending the exchange: which request
  * `reply` answers, for a reply in pieces (26.1009). */
+static inline situ_err_t situ_drive_reply_to_peek_from(const situ_drive_reply_to_t *drive,
+                                          situ_view_t reply,
+                                          uint32_t peer,
+                                          uint32_t *id)
+{
+	return situ_conv_reply_to_peek_from(&drive->pending, reply, peer, id);
+}
+
 static inline situ_err_t situ_drive_reply_to_peek(const situ_drive_reply_to_t *drive,
                                      situ_view_t reply,
                                      uint32_t *id)

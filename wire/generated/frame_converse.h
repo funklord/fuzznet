@@ -25,10 +25,16 @@ extern "C" {
  *
  * The slots are yours and so is their number. A full table answers
  * SITU_ERR_BOUNDS rather than evicting an exchange you still wanted.
- */
+ *
+ * `peer` is yours too: a number for whatever the reply must come
+ * back through to count -- a session, the context that verifies it
+ * -- where the key alone would let two of them meet (26.1122).
+ * Reuse one only once nothing can verify under the old. The calls
+ * without `_from` hold peer 0. */
 typedef struct {
 	uint64_t key;
 	uint32_t id;	/* your handle for the request */
+	uint32_t peer;
 	uint8_t  live;
 } situ_conv_reply_to_slot_t;
 
@@ -47,10 +53,12 @@ static inline void situ_conv_reply_to_init(situ_conv_reply_to_t *table,
 	}
 }
 
-/* Remember `request` under its key, against your handle for it. */
-static inline situ_err_t situ_conv_reply_to_record(situ_conv_reply_to_t *table,
-                                       situ_view_t request,
-                                       uint32_t id)
+/* Remember `request` under its key and `peer`, against your
+ * handle for it. */
+static inline situ_err_t situ_conv_reply_to_record_from(situ_conv_reply_to_t *table,
+                                            situ_view_t request,
+                                            uint32_t peer,
+                                            uint32_t id)
 {
 	uint64_t key = 0u;
 	situ_view_t situ_k_2;
@@ -64,6 +72,7 @@ static inline situ_err_t situ_conv_reply_to_record(situ_conv_reply_to_t *table,
 		if (table->slots[i].live == 0u) {
 			table->slots[i].key  = key;
 			table->slots[i].id   = id;
+			table->slots[i].peer = peer;
 			table->slots[i].live = 1u;
 			return SITU_OK;
 		}
@@ -71,16 +80,25 @@ static inline situ_err_t situ_conv_reply_to_record(situ_conv_reply_to_t *table,
 	return SITU_ERR_BOUNDS;
 }
 
-/* Match `reply` to a request, and forget it.
+/* Remember `request` under its key, against your handle for it. */
+static inline situ_err_t situ_conv_reply_to_record(situ_conv_reply_to_t *table,
+                                       situ_view_t request,
+                                       uint32_t id)
+{
+	return situ_conv_reply_to_record_from(table, request, 0u, id);
+}
+
+/* Match `reply`, from `peer`, to a request, and forget it.
  *
  * Forgetting is what makes a second reply to one request answer
  * SITU_ERR_CONSTRAINT: a late or duplicated response names an
  * exchange that is over, which is not the same as one that never
  * happened and is reported the same way because a caller can do
  * nothing different about either. */
-static inline situ_err_t situ_conv_reply_to_match(situ_conv_reply_to_t *table,
-                                      situ_view_t reply,
-                                      uint32_t *id)
+static inline situ_err_t situ_conv_reply_to_match_from(situ_conv_reply_to_t *table,
+                                           situ_view_t reply,
+                                           uint32_t peer,
+                                           uint32_t *id)
 {
 	uint64_t key = 0u;
 	situ_view_t situ_k_0;
@@ -91,13 +109,21 @@ static inline situ_err_t situ_conv_reply_to_match(situ_conv_reply_to_t *table,
 	key = (key << 32u) | situ_k_1;
 
 	for (uint32_t i = 0u; i < table->cap; i++) {
-		if (table->slots[i].live != 0u && table->slots[i].key == key) {
+		if (table->slots[i].live != 0u && table->slots[i].peer == peer
+		    && table->slots[i].key == key) {
 			*id = table->slots[i].id;
 			table->slots[i].live = 0u;
 			return SITU_OK;
 		}
 	}
 	return SITU_ERR_CONSTRAINT;
+}
+
+static inline situ_err_t situ_conv_reply_to_match(situ_conv_reply_to_t *table,
+                                      situ_view_t reply,
+                                      uint32_t *id)
+{
+	return situ_conv_reply_to_match_from(table, reply, 0u, id);
 }
 
 /* Forget the request held under `id`, if one is. An exchange that
@@ -118,9 +144,10 @@ static inline void situ_conv_reply_to_forget(situ_conv_reply_to_t *table, uint32
 /* Whether `reply` answers a request still pending, and which,
  * without taking it: a reply in many pieces is asked once a piece,
  * and only the last should end the exchange (26.1009). */
-static inline situ_err_t situ_conv_reply_to_peek(const situ_conv_reply_to_t *table,
-                                     situ_view_t reply,
-                                     uint32_t *id)
+static inline situ_err_t situ_conv_reply_to_peek_from(const situ_conv_reply_to_t *table,
+                                          situ_view_t reply,
+                                          uint32_t peer,
+                                          uint32_t *id)
 {
 	uint64_t key = 0u;
 	situ_view_t situ_k_0;
@@ -131,12 +158,20 @@ static inline situ_err_t situ_conv_reply_to_peek(const situ_conv_reply_to_t *tab
 	key = (key << 32u) | situ_k_1;
 
 	for (uint32_t i = 0u; i < table->cap; i++) {
-		if (table->slots[i].live != 0u && table->slots[i].key == key) {
+		if (table->slots[i].live != 0u && table->slots[i].peer == peer
+		    && table->slots[i].key == key) {
 			*id = table->slots[i].id;
 			return SITU_OK;
 		}
 	}
 	return SITU_ERR_CONSTRAINT;
+}
+
+static inline situ_err_t situ_conv_reply_to_peek(const situ_conv_reply_to_t *table,
+                                     situ_view_t reply,
+                                     uint32_t *id)
+{
+	return situ_conv_reply_to_peek_from(table, reply, 0u, id);
 }
 
 #ifdef __cplusplus
