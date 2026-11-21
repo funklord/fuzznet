@@ -75,6 +75,21 @@ int fzn_message_reply_parse(const char *text, size_t len, uint8_t id[FZN_MESSAGE
 	return 1;
 }
 
+const char *fzn_message_own_text(const char *text, size_t len, size_t *own_len)
+{
+	uint8_t answered[FZN_MESSAGE_ID_LEN];
+	size_t at = 0;
+
+	if (!own_len)
+		return text;
+	if (text && fzn_message_reply_parse(text, len, answered, &at) && at <= len) {
+		*own_len = len - at;
+		return text + at;
+	}
+	*own_len = len;
+	return text;
+}
+
 /* A REACTION'S BYTES: 1 to FZN_MESSAGE_REACTION_MAX, no space, no control, no DEL. */
 static int reaction_ok(const char *r, size_t n)
 {

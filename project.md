@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1354
+The newest work is at the end of this file. **Read secs 1287 to 1355
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95507,4 +95507,21 @@ came in is filed under the shared id already and is kept as given.
 **Tests:** messages_test (301): a member's line, then this user's newest;
 read at the newest's listed id, nothing is unread -- failing with the
 mapping taken out. Sabotage `read-own-group-line-by-listed-id`.
+
+## 1355. A reply carrying a sticker or a file is granted and fetched, 2026-11-21
+
+Same message. `text_seen` read a line's **whole** text as a sticker's or
+a file's reference, and a reply is `fzn:reply/ID ` and then what it says
+(sec 1282), so a reply whose words were a sticker or a file was neither:
+going out, the pack or file was not granted; coming in, the pack was not
+wanted nor the file noted, so the attachment rules (sec 795) never held
+it. No client sends one yet; fuzzypickles already draws one. **A line's
+own text** is now `fzn_message_own_text` (`messages/reply.c`): a reply's
+after its head, any other line whole. `text_seen` and the backfill of
+older lines (`attachment_retold`, sec 796) read through it. A reaction's
+text is never a reference.
+
+**Tests:** reply_test (35): a reply's own text is the sticker it carries,
+a plain line is itself, a line only looking like a reply's head is kept
+whole. Sabotage `reply-own-text-after-its-head`.
 

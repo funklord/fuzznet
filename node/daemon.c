@@ -11539,12 +11539,17 @@ static void attachment_seen(const uint8_t *contact, uint8_t direction, const uin
 }
 
 /* EVERY LINE'S TEXT, as the store keeps it: a sticker's reference or a
- * file's. */
+ * file's, a reply's own text read as the line's. */
 static void text_seen(void *ctx, const uint8_t *contact, uint8_t direction, const uint8_t *id,
                       uint32_t epoch, const uint8_t *text, size_t len)
 {
-	sticker_seen(ctx, contact, direction, text, len);
-	attachment_seen(contact, direction, id, epoch, text, len);
+	size_t own_len;
+	/* A REPLY'S OWN TEXT, sec 1355: a reply carrying a sticker or a file
+	 * granted and fetched as the plain line is (fuzzypickles' finding). */
+	const uint8_t *own = (const uint8_t *)fzn_message_own_text((const char *)text, len, &own_len);
+
+	sticker_seen(ctx, contact, direction, own, own_len);
+	attachment_seen(contact, direction, id, epoch, own, own_len);
 }
 
 /* THE LINES KEPT BEFORE THE INDEX OF ATTACHMENTS, sec 796: each line
@@ -11561,9 +11566,11 @@ static void attachment_retold(void *ctx, const uint8_t *contact, uint8_t directi
                               const uint8_t *id, uint32_t epoch, const uint8_t *text, size_t len)
 {
 	fzn_attachment_t a;
+	size_t own_len;
+	const uint8_t *own = (const uint8_t *)fzn_message_own_text((const char *)text, len, &own_len);
 
 	(void)ctx;
-	(void)attachment_note(contact, direction, id, epoch, text, len, &a);
+	(void)attachment_note(contact, direction, id, epoch, own, own_len, &a);
 }
 
 /* 1 once the lines kept before are told, or when there is nothing to tell. */

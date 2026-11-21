@@ -56,6 +56,12 @@ size_t fzn_message_reply_write(const uint8_t id[FZN_MESSAGE_ID_LEN], const char 
  * text from `*at`, or 0 -- the text is then the ordinary line it is. */
 int fzn_message_reply_parse(const char *text, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN], size_t *at);
 
+/* A LINE'S OWN TEXT, sec 1355: a reply's after its head, any other line's
+ * whole -- what a sticker's or a file's reference is read from, so a reply
+ * carrying one is granted and fetched as the plain line is. A reaction's
+ * text is never a reference, and is handed back whole. */
+const char *fzn_message_own_text(const char *text, size_t len, size_t *own_len);
+
 /* A REACTION TO `id`: `fzn:react/ID REACTION` into `out`, NUL ended, or with
  * no reaction (`reaction_len` 0) the sender's taken back -- its length, or 0
  * for a reaction this format does not carry or a room too small. */

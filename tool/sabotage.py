@@ -10486,6 +10486,13 @@ SABOTAGES = [
 		"a setting with bytes past its signature is opened -- secs 540, 1342",
 	),
 	(
+		"reply-own-text-after-its-head",
+		"messages/reply.c",
+		"\tif (text && fzn_message_reply_parse(text, len, answered, &at) && at <= len) {\n",
+		"\tif (0 && text && fzn_message_reply_parse(text, len, answered, &at) && at <= len) {\n",
+		"a reply carrying a sticker or a file is read whole, and the pack goes ungranted, the file unfetched -- sec 1355",
+	),
+	(
 		"read-own-group-line-by-listed-id",
 		"node/messages.c",
 		"\t\t\t    && find_own(nm, contact, id, own, shared))\n\t\t\t\tmemcpy(id, own, FZN_MESSAGE_ID_LEN);\n",

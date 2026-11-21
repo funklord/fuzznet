@@ -128,8 +128,27 @@ static void test_an_unsend(void)
 	      "an unsend in upper case was read");
 }
 
+/* A LINE'S OWN TEXT, sec 1355: a reply's after its head, so a sticker it
+ * carries is read as the plain line's; anything else whole. */
+static void test_own_text(void)
+{
+	static const uint8_t id[FZN_MESSAGE_ID_LEN] = { 0x42 };
+	static const char ref[] = "fzn:sticker/5a5a/6b6b/4096/7%20waving";
+	char line[256];
+	size_t n = fzn_message_reply_write(id, ref, sizeof(ref) - 1u, line, sizeof(line)), own_len = 0;
+	const char *own = fzn_message_own_text(line, n, &own_len);
+
+	CHECK(n && own_len == sizeof(ref) - 1u && memcmp(own, ref, own_len) == 0,
+	      "a reply's own text was not the sticker it carries");
+	own = fzn_message_own_text(ref, sizeof(ref) - 1u, &own_len);
+	CHECK(own == ref && own_len == sizeof(ref) - 1u, "a plain line's own text was not the line");
+	own = fzn_message_own_text("fzn:reply/zz hi", 15u, &own_len);
+	CHECK(own_len == 15u, "a line looking like a reply's head and not one was cut");
+}
+
 int main(void)
 {
+	test_own_text();
 	test_a_reply();
 	test_what_a_reply_is_not();
 	test_a_reaction();
