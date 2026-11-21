@@ -104,35 +104,6 @@ void fzn_roster_record_fzn_roster_messages(situ_view_t view, uint32_t *ids, size
 
 	*count = held;
 }
-situ_err_t fzn_roster_record_fzn_roster_hop_check(situ_view_t view, uint32_t *which)
-{
-	/* One place rather than a guard at every refusal: a caller
-	 * that does not want the identity passes NULL, and the
-	 * refusals below stay one line each. */
-	uint32_t sink;
-
-	if (which == NULL) {
-		which = &sink;
-	}
-	*which = 0xFFFFFFFFu;
-
-	if (view.limit < FZN_ROSTER_RECORD_FZN_ROSTER_HOP_SIZE_MIN) {
-		/* The whole struct is short, so no member is the one
-		 * that broke it -- the same case the depth checks
-		 * meet, and `check`'s contract is that every refusal
-		 * sets `*which` on the line above it. */
-		*which = 0xFFFFFFFFu;
-		return SITU_ERR_BOUNDS;
-	}
-	(void)view;
-	return SITU_OK;
-}
-
-situ_err_t fzn_roster_record_fzn_roster_hop_validate(situ_view_t view)
-{
-	return fzn_roster_record_fzn_roster_hop_check(view, NULL);
-}
-
 situ_err_t fzn_roster_record_fzn_roster_bundle_check(situ_view_t view, uint32_t *which)
 {
 	/* One place rather than a guard at every refusal: a caller
@@ -175,6 +146,21 @@ situ_err_t fzn_roster_record_fzn_roster_bundle_check(situ_view_t view, uint32_t 
 		*which = FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_RECORD_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
+	/* fzn_roster_bundle.record holds a `fzn_roster` -- its own constraints */
+	{
+		situ_view_t nested;
+		situ_err_t err = fzn_roster_record_fzn_roster_bundle_record_view(view, &nested);
+
+		if (err != SITU_OK) {
+			*which = FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_RECORD_CHECK;
+			return err;
+		}
+		err = fzn_roster_record_fzn_roster_validate(nested);
+		if (err != SITU_OK) {
+			*which = FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_RECORD_CHECK;
+			return err;
+		}
+	}
 	/* fzn_roster_bundle.hops: the length the message declares has to fit
 	 * the frame it is in. The accessor clamps; this is where a
 	 * message that does not fit is called malformed. */
@@ -182,9 +168,42 @@ situ_err_t fzn_roster_record_fzn_roster_bundle_check(situ_view_t view, uint32_t 
 		*which = FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_HOPS_CHECK;
 		return SITU_ERR_BOUNDS;
 	}
-	/* fzn_roster_bundle.hops is a run of `fzn_roster_hop`. Its elements are
-	 * not validated here: one has nothing to refuse, names
-	 * itself, or takes arguments (26.789). */
+	/* fzn_roster_bundle.hops: each `fzn_chain_hop` the run holds, through its
+	 * own validator. A refusal names the run, or the variant it
+	 * is an arm of (26.789, 26.790). */
+	{
+		const uint32_t total = situ_nonneg_u32(situ_leaf_u64((uint8_t)(situ_base(view))[0u]));
+		uint32_t at = fzn_roster_record_fzn_roster_bundle_hops_offset(view);
+		uint32_t n  = 0u;
+
+		while (n < total && at < view.limit) {
+			situ_view_t element;
+			uint32_t    size;
+
+			if (situ_view_sub(view, at, situ_remaining_u32(view.limit, at), &element) != SITU_OK) {
+				break;
+			}
+			size = FZN_HOP_RECORD_FZN_CHAIN_HOP_SIZE_FIXED;
+			if (size == 0u || size > situ_remaining_u32(view.limit, at)) {
+				break;
+			}
+			{
+				situ_view_t one;
+				situ_err_t  err = situ_view_sub(view, at, size, &one);
+
+				if (err == SITU_OK) {
+					err = fzn_hop_record_fzn_chain_hop_check(one, NULL);
+				}
+				if (err != SITU_OK) {
+					*which = FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_HOPS_CHECK;
+					return err;
+				}
+			}
+			at = at + size;
+			n  = n + 1u;
+		}
+		(void)n;
+	}
 	return SITU_OK;
 }
 

@@ -4678,7 +4678,8 @@ $(BUILD_DIR)/wire/test/search_wire_vectors: wire/generated/search_wire_vectors.c
 
 # A ROSTER RECORD, its shape rules `when`s, generated, sec 1367.
 $(BUILD_DIR)/wire/test/roster_record_vectors: wire/generated/roster_record_vectors.c \
-                                             wire/generated/roster_record.c wire/generated/situ.c \
+                                             wire/generated/roster_record.c wire/generated/hop_record.c \
+                                             wire/generated/situ.c \
                                              $(wildcard wire/generated/*.h)
 	@mkdir -p $(dir $@)
 	$(CC) $(GEN_CFLAGS) -Iwire/generated $(filter %.c,$^) -o $@
@@ -8592,6 +8593,7 @@ schema:
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_heard_row --layer edit \
 	         --out $(BUILD_DIR)/.gen.new node/heard_row.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc build --target c --prefix fzn_roster_record --layer edit \
+	         --linked ../chain/hop_record.situ=fzn_hop_record \
 	         --out $(BUILD_DIR)/.gen.new roster/roster_record.situ >/dev/null 2>&1
 	@$(BUILD_DIR)/.situ-head/bin/situc gen-tests --target c --prefix fzn_roster_record \
 	         --out $(BUILD_DIR)/.gen.new roster/roster_record.situ roster/roster_record.vectors >/dev/null 2>&1
@@ -8762,7 +8764,7 @@ schema:
 	          revocation_record.c revocation_record.h revocation_record_vectors.c \
 	          manifest_record.c manifest_record.h manifest_record_build.h manifest_record_vectors.c \
 	          chain_wire.c chain_wire.h chain_wire_vectors.c \
-	          roster_record.c roster_record.h roster_record_build.h roster_record_edit.h roster_record_vectors.c \
+	          roster_record.c roster_record.h roster_record_edit.h roster_record_vectors.c \
 	          settings_local.c settings_local.h \
 	          settings_local_edit.h settings_local_build.h settings_local_vectors.c notes_local.c \
 	          notes_local.h notes_local_edit.h notes_local_build.h notes_local_vectors.c; do \

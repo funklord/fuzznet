@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1367
+The newest work is at the end of this file. **Read secs 1287 to 1368
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95802,3 +95802,27 @@ situ's `wire --check` called the enum's rename breaking; as sec 1364's.
 **Tests:** roster_record_vectors (2: an add, a setting); roster_test
 (103), admin_test (377), and the 15 targets linking the roster.
 Sabotage `roster-add-carries-no-body` retargeted onto `validate`.
+
+## 1368. A roster bundle read and written through situ's code, its record and hops typed, 2026-11-21
+
+Sec 1367's next step. In `roster/roster_record.situ` the bundle's record
+is `[holds = fzn_roster]` and its hops are chain hops (`fzn_chain_hop
+hops[hop_count]`, importing `chain/hop_record.situ`), so the bundle's
+`validate` reads the record it carries as a roster record and each hop as
+a hop; the unit is built `--linked ../chain/hop_record.situ=
+fzn_hop_record` (sec 1345), and `fzn_roster_hop` (179 raw bytes) is gone.
+`fzn_roster_bundle_open` reads through `required` (exactly its length),
+the view and `validate`, then opens the record and the hops as before;
+`fzn_roster_bundle_pack` writes through the edit layer, the lengths first.
+situ makes no builder for a run of hops, so `roster_record_build.h` is no
+longer emitted, and nothing used it.
+
+situ's `wire --check` reported 14 breaking changes, none of which moves a
+byte: the held record flattened into the bundle's members and reported as
+a removal and ten insertions, and the hops' retype from 179 raw bytes to
+a hop of the same 179. Sent to situ as one more instance of sec 1363's
+note.
+
+**Tests:** roster_record_vectors (2); roster_test (103), admin_test (377),
+and every target linking the roster. Sabotage
+`roster-bundle-length-is-exact` retargeted.

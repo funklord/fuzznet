@@ -4296,9 +4296,9 @@ SABOTAGES = [
 	(
 		"roster-bundle-length-is-exact",
 		"roster/roster.c",
-		"\t    || record_len > FZN_ROSTER_MAX_LEN || len != FZN_ROSTER_BUNDLE_LEN(record_len, hop_count)\n",
-		"\t    || record_len > FZN_ROSTER_MAX_LEN || len < FZN_ROSTER_BUNDLE_LEN(record_len, hop_count)\n",
-		"a bundle with trailing bytes is a second encoding of one bundle, and a store keyed on the bytes holds both -- sec 389",
+		"\tif (fzn_roster_record_fzn_roster_bundle_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len)\n",
+		"\tif (fzn_roster_record_fzn_roster_bundle_required(bytes, (uint32_t)len, &need) != SITU_OK || need > len)\n",
+		"a bundle with trailing bytes is a second encoding of one bundle, and a store keyed on the bytes holds both -- secs 389, 1368",
 	),
 	(
 		"admin-remote-refuses-mutation",

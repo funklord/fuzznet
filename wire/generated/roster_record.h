@@ -16,6 +16,7 @@
 #elif SITU_RUNTIME_ABI != 1
 #error "the situ.h on the include path is a different runtime ABI than this header was generated for. Regenerate against the runtime you link, or put that runtime first on the include path."
 #endif
+#include "hop_record.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -393,56 +394,18 @@ void fzn_roster_record_fzn_roster_messages(situ_view_t view, uint32_t *ids, size
 #define FZN_ROSTER_RECORD_FZN_ROSTER_NO_INCARNATION_MSG 0u
 #define FZN_ROSTER_RECORD_FZN_ROSTER_ADD_OR_REMOVE_CARRIES_A_VALUE_MSG 1u
 
-/* ---- struct fzn_roster_hop ---- */
-
-#define FZN_ROSTER_RECORD_FZN_ROSTER_HOP_SIZE_FIXED 179u
-#define FZN_ROSTER_RECORD_FZN_ROSTER_HOP_SIZE_MIN   179u
-#define FZN_ROSTER_RECORD_FZN_ROSTER_HOP_SIZE_MAX   179u
-
-/* INVALIDATION: nothing invalidates a fzn_roster_hop view.
- * Every member has a fixed size, so no write can move another.
- */
-/** Acquire a view. This is the one bounds check; the field
- * accessors below are constant offsets from the view base.
- */
-static inline situ_err_t fzn_roster_record_fzn_roster_hop_view(const situ_msg_t *msg, uint32_t offset, situ_view_t *out)
-{
-	return situ_view_at(msg, offset, FZN_ROSTER_RECORD_FZN_ROSTER_HOP_SIZE_FIXED, out);
-}
-
-/** fzn_roster_hop.bytes : u8  at AbsoluteStatic(0x00)
- * size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=InPlaceFixed
- */
-#define FZN_ROSTER_RECORD_FZN_ROSTER_HOP_BYTES_COUNT 179u
-static inline uint8_t *fzn_roster_record_fzn_roster_hop_bytes_ptr(situ_view_t view)
-{
-	return situ_base(view) + 0u;
-}
-
-/** How many bytes a whole `fzn_roster_hop` needs, given `have` of them.
- *
- * This one has a single size, so the answer never depends on the bytes.
- * It is generated anyway: a caller framing a stream should not have to
- * write one loop for the fixed messages and another for the rest, and
- * a struct that gains a length field later keeps the same call.
- */
-static inline situ_err_t fzn_roster_record_fzn_roster_hop_required(const uint8_t *data, uint32_t have, uint32_t *need)
-{
-	(void)data;
-	*need = FZN_ROSTER_RECORD_FZN_ROSTER_HOP_SIZE_FIXED;
-	return have >= FZN_ROSTER_RECORD_FZN_ROSTER_HOP_SIZE_FIXED ? SITU_OK : SITU_ERR_TRUNCATED;
-}
-
-/** Check every constraint this schema states: [must_eq], [max],
- * [min], and the reserved-bit policy. Called on parse under
- * SITU_CHECKED, and available explicitly in any build.
- */
-situ_err_t fzn_roster_record_fzn_roster_hop_validate(situ_view_t view);
-
 /* ---- struct fzn_roster_bundle ---- */
 
 #define FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_SIZE_MIN   160u
 #define FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_SIZE_MAX   1784u
+
+/** Dirty bits (sections 14.2 and 16.1). A covered write sets one;
+ * the message refuses to be transmittable until it is cleared.
+ * A tag goes DIRTY, a derived field goes STALE: the same bit,
+ * and two different things to say about it.
+ */
+#define FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_HOPS_SIGNATURE_DIRTY 0x1u
+#define FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_DIRTY_MASK 0x1u
 
 /* INVALIDATION: a fzn_roster_bundle view, and every view derived from
  * it, is invalidated by writing `hop_count`, `record_len` -- those decide where the
@@ -514,13 +477,21 @@ static inline uint8_t *fzn_roster_record_fzn_roster_bundle_record_ptr(situ_view_
 	return situ_base(view) + 3u;
 }
 
+/** fzn_roster_bundle.record holds a `fzn_roster`: a view of exactly these
+ * bytes, so `[remaining]` inside it ends where they do.
+ */
+static inline situ_err_t fzn_roster_record_fzn_roster_bundle_record_view(situ_view_t view, situ_view_t *out)
+{
+	return situ_view_sub(view, 3u, fzn_roster_record_fzn_roster_bundle_record_len(view), out);
+}
+
 /* No setter: mutate is Shifting.
  *   caused by: a member whose length comes from an earlier field
  *              writing a different length moves every member after this one
  *   remedy:    pin the length with `[must_eq = N]` to make it fixed, or `[max = N]` to bound the worst case
  */
 
-/** fzn_roster_bundle.hops : fzn_roster_hop  at Dynamic
+/** fzn_roster_bundle.hops : fzn_chain_hop  at Dynamic
  * size=Bounded(0, 1432) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
  */
 static inline uint32_t fzn_roster_record_fzn_roster_bundle_hops_offset(situ_view_t view)
@@ -536,7 +507,7 @@ static inline uint32_t fzn_roster_record_fzn_roster_bundle_hops_count(situ_view_
 }
 static inline situ_err_t fzn_roster_record_fzn_roster_bundle_hops_at(situ_view_t view, uint32_t index, situ_view_t *out)
 {
-	const uint32_t stride = FZN_ROSTER_RECORD_FZN_ROSTER_HOP_SIZE_FIXED;
+	const uint32_t stride = FZN_HOP_RECORD_FZN_CHAIN_HOP_SIZE_FIXED;
 	const uint32_t base   = fzn_roster_record_fzn_roster_bundle_hops_offset(view);
 
 	if (index >= fzn_roster_record_fzn_roster_bundle_hops_count(view)) {
@@ -545,6 +516,14 @@ static inline situ_err_t fzn_roster_record_fzn_roster_bundle_hops_at(situ_view_t
 
 	return situ_view_sub(view, base + index * stride, stride, out);
 }
+
+#define FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_HOPS_VERSION_VALUE_MIN 1u
+#define FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_HOPS_VERSION_VALUE_MAX 1u
+
+#define FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_HOPS_OBJECT_VALUE_MIN 128u
+#define FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_HOPS_OBJECT_VALUE_MAX 128u
+
+#define FZN_ROSTER_RECORD_FZN_ROSTER_BUNDLE_HOPS_DELEGABLE_VALUE_MAX 1u
 
 /** How many bytes a whole `fzn_roster_bundle` needs, given `have` of them.
  *

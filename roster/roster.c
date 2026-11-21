@@ -417,44 +417,62 @@ fzn_roster_err_t fzn_roster_bundle_pack(const uint8_t *record, size_t record_len
                                         uint8_t *out, size_t out_cap, size_t *out_len)
 {
 	fzn_roster_record_t check;
-	size_t i, at;
+	situ_msg_t m;
+	situ_view_t v, hv;
+	size_t i, len;
 
 	if (!record || !out || !out_len || (hop_count && !hops))
 		return FZN_ROSTER_ERR_MALFORMED;
 	if (hop_count > FZN_CHAIN_MAX_HOPS
 	    || fzn_roster_open(record, record_len, &check) != FZN_ROSTER_OK)
 		return FZN_ROSTER_ERR_SHAPE;
-	if (out_cap < FZN_ROSTER_BUNDLE_LEN(record_len, hop_count))
+	len = FZN_ROSTER_BUNDLE_LEN(record_len, hop_count);
+	if (out_cap < len)
 		return FZN_ROSTER_ERR_MALFORMED;
-	out[0] = (uint8_t)hop_count;
-	out[1] = (uint8_t)(record_len >> 8);
-	out[2] = (uint8_t)(record_len & 0xffu);
-	memcpy(out + FZN_ROSTER_BUNDLE_HEAD_LEN, record, record_len);
-	at = FZN_ROSTER_BUNDLE_HEAD_LEN + record_len;
-	for (i = 0; i < hop_count; i++, at += FZN_HOP_LEN)
-		memcpy(out + at, hops[i], FZN_HOP_LEN);
-	*out_len = at;
+	/* WRITTEN THROUGH situ's EDIT LAYER, sec 1368: the lengths first, which
+	 * lay out the record and the hops, then each where situ places it. */
+	memset(out, 0, len);
+	situ_msg_init(&m, out, (uint32_t)len);
+	if (fzn_roster_record_fzn_roster_bundle_view(&m, 0u, (uint32_t)len, &v) != SITU_OK)
+		return FZN_ROSTER_ERR_MALFORMED;
+	fzn_roster_record_fzn_roster_bundle_hop_count_set(&m, v, (uint8_t)hop_count);
+	fzn_roster_record_fzn_roster_bundle_record_len_set(&m, v, (uint16_t)record_len);
+	memcpy(fzn_roster_record_fzn_roster_bundle_record_ptr(v), record, record_len);
+	for (i = 0; i < hop_count; i++) {
+		if (fzn_roster_record_fzn_roster_bundle_hops_at(v, (uint32_t)i, &hv) != SITU_OK)
+			return FZN_ROSTER_ERR_MALFORMED;
+		memcpy(situ_base(hv), hops[i], FZN_HOP_LEN);
+	}
+	*out_len = len;
 	return FZN_ROSTER_OK;
 }
 
 fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
                                         fzn_roster_bundle_t *out)
 {
+	situ_msg_t m;
+	situ_view_t v;
+	uint32_t need = 0;
 	size_t hop_count, record_len, i, at;
 
 	if (!bytes || !out)
 		return FZN_ROSTER_ERR_MALFORMED;
-	if (len < FZN_ROSTER_BUNDLE_HEAD_LEN)
+	if (len < FZN_ROSTER_BUNDLE_HEAD_LEN || len > UINT32_MAX)
 		return FZN_ROSTER_ERR_SHAPE;
-	hop_count = bytes[0];
-	record_len = ((size_t)bytes[1] << 8) | bytes[2];
-	/* THE LENGTH IS EXACT, not "at least": trailing bytes are a second
-	 * encoding of one bundle, and a store keyed on the bytes would hold
-	 * both. */
-	if (hop_count > FZN_CHAIN_MAX_HOPS || record_len < FZN_ROSTER_MIN_LEN
-	    || record_len > FZN_ROSTER_MAX_LEN || len != FZN_ROSTER_BUNDLE_LEN(record_len, hop_count)
-	    || fzn_roster_open(bytes + FZN_ROSTER_BUNDLE_HEAD_LEN, record_len, &out->record)
-	               != FZN_ROSTER_OK)
+	/* READ AS THE SCHEMA SAYS, sec 1368: the bundle's generated validate
+	 * reads the record it holds as a roster record and each hop as a chain
+	 * hop (the hop's unit, linked). THE LENGTH IS EXACT, not "at least":
+	 * trailing bytes are a second encoding of one bundle, and a store keyed
+	 * on the bytes would hold both. */
+	if (fzn_roster_record_fzn_roster_bundle_required(bytes, (uint32_t)len, &need) != SITU_OK || need != len)
+		return FZN_ROSTER_ERR_SHAPE;
+	situ_msg_init(&m, (uint8_t *)(uintptr_t)bytes, (uint32_t)len);
+	if (fzn_roster_record_fzn_roster_bundle_view(&m, 0u, (uint32_t)len, &v) != SITU_OK
+	    || fzn_roster_record_fzn_roster_bundle_validate(v) != SITU_OK)
+		return FZN_ROSTER_ERR_SHAPE;
+	hop_count = fzn_roster_record_fzn_roster_bundle_hop_count_get(v);
+	record_len = fzn_roster_record_fzn_roster_bundle_record_len_get(v);
+	if (fzn_roster_open(bytes + FZN_ROSTER_BUNDLE_HEAD_LEN, record_len, &out->record) != FZN_ROSTER_OK)
 		return FZN_ROSTER_ERR_SHAPE;
 	at = FZN_ROSTER_BUNDLE_HEAD_LEN + record_len;
 	for (i = 0; i < hop_count; i++, at += FZN_HOP_LEN)
