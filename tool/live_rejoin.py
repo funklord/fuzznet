@@ -151,8 +151,10 @@ def command(run, args, fake):
 		if FAKETIME_CLASH.encode() not in r.stderr:
 			break
 	if r.returncode != 0:
+		# THE END OF STDERR, where a failure says why: the head is the
+		# identity line and its path, which hid an exit 3 (sec 1348).
 		raise failed("%s answered %d: %s" % (args[1], r.returncode,
-		                                     r.stderr.decode(errors="replace")[:400]))
+		                                     r.stderr.decode(errors="replace")[-600:]))
 	return r.stdout.decode().strip().splitlines()[-1]
 
 

@@ -17449,9 +17449,16 @@ SABOTAGES = [
 	(
 		"pair-into-served-store",
 		"node/daemon.c",
-		"\t\t    && fzn_claim_take(&pair_claim) == FZN_CLAIM_ERR_HELD) {\n",
-		"\t\t    && 0) {\n",
+		"\t\tif (taken == FZN_CLAIM_ERR_HELD) {\n",
+		"\t\tif (0) {\n",
 		"--pair writes into a store a running daemon serves, which never sees the device; live_device -- beerssh 2026-11-18",
+	),
+	(
+		"pair-lets-the-claim-go",
+		"node/daemon.c",
+		"\t\tif (taken == FZN_CLAIM_OK)\n\t\t\t(void)fzn_claim_release(&pair_claim);\n\t\tif (opened)\n\t\t\t(void)fzn_claim_file_close(&pair_claim_file);\n",
+		"\t\t(void)opened;\n",
+		"--pair keeps the claim it took only to ask, and a program going on after fzn_daemon_main holds a lock it never meant to; live_session -- sec 1349",
 	),
 	(
 		"read-menu-wrong-key",

@@ -25792,10 +25792,22 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		static fzn_claim_t pair_claim;
 		char pair_claim_path[1100];
 
+		fzn_claim_err_t taken = FZN_CLAIM_ERR_BACKEND;
+		int opened;
+
 		(void)snprintf(pair_claim_path, sizeof(pair_claim_path), "%s/claim", store_dir);
-		if (fzn_claim_file_open(&pair_claim_file, pair_claim_path, &pair_claim_ops) == FZN_CLAIM_OK
-		    && fzn_claim_init(&pair_claim, &pair_claim_ops) == FZN_CLAIM_OK
-		    && fzn_claim_take(&pair_claim) == FZN_CLAIM_ERR_HELD) {
+		opened = fzn_claim_file_open(&pair_claim_file, pair_claim_path, &pair_claim_ops) == FZN_CLAIM_OK;
+		if (opened && fzn_claim_init(&pair_claim, &pair_claim_ops) == FZN_CLAIM_OK)
+			taken = fzn_claim_take(&pair_claim);
+		/* ASKED, NOT KEPT, sec 1349: the claim was taken only to learn
+		 * whether a running host holds it, and is let go at once -- held,
+		 * it outlived `fzn_daemon_main` in a program that went on, which
+		 * live_session's ext_daemon refused with exit 3. */
+		if (taken == FZN_CLAIM_OK)
+			(void)fzn_claim_release(&pair_claim);
+		if (opened)
+			(void)fzn_claim_file_close(&pair_claim_file);
+		if (taken == FZN_CLAIM_ERR_HELD) {
 			fprintf(stderr,
 			        "fuzznetd: %s is served by a running fuzznetd, which would not see this pairing "
 			        "until it started again: let the device in through the running host instead -- "

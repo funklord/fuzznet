@@ -31,7 +31,7 @@ reason habit was not enough.
 
 ## 0. Resuming work here: the latest fold, 2026-11-20
 
-The newest work is at the end of this file. **Read secs 1287 to 1348
+The newest work is at the end of this file. **Read secs 1287 to 1349
 first**: one search over every store, distributed -- notes, the library,
 a contact's hosts, binary, a client call and a view (secs 1290-1294,
 1299); the sticker gaps closed in the views (secs 1295-1302); words past
@@ -95373,4 +95373,31 @@ of what is new.
 046debc9); `livecheck`, `livecheck-embedded` and the gates over the
 change.
 
+
+## 1349. `--pair` lets go of the claim it took only to ask, 2026-11-21
+
+Found by the full `livecheck` while checking sec 1348: **`live_session`
+failed at its first step**, its extension daemon's `--pair` exiting 3 with
+no reason a 400-byte head of stderr showed. The live scripts' `command`
+helper now keeps the **tail** of a failing command's stderr (the head is
+the identity line and its path), which named it: `ext_daemon: returned
+with the claim held`. **Since 503e11e7 (2026-11-18), `--pair` took the
+store's claim to learn whether a running host served the store, and never
+let it go** -- harmless in `fuzznetd`, which exits, but a program going on
+after `fzn_daemon_main` kept a lock it never meant to hold, and
+`node/test/ext_daemon` refuses exactly that. Now the claim is released
+when taken and the file closed either way; a store a running host holds
+is refused as before.
+
+**Tests:** `live_session` passes (it failed in both full livechecks
+before); sabotage `pair-lets-the-claim-go` (the release and the close
+both gone) beside `pair-into-served-store`, retargeted.
+
+**The full `livecheck` over secs 1348 and 1349** ran past `live_lamp`
+and `live_session` and stopped at **`live_ext` phase c, open**: B, just
+joined to A and started again in place, answers `get marks` with a mark
+before A wrote one. It fails alone as well, and with sec 1348's two calls
+taken out, so neither section is its cause; the two full runs before
+stopped short of `live_ext`, so when it began is not yet known. The
+scripts after `live_ext` in `livecheck` did not run.
 
